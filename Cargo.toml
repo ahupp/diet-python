@@ -1,0 +1,10 @@
+[package]
+name = "diet-python"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ruff_python_parser = { git = "https://github.com/astral-sh/ruff", package = "ruff_python_parser" }
+ruff_python_formatter = { git = "https://github.com/astral-sh/ruff", package = "ruff_python_formatter" }
+ruff_python_trivia = { git = "https://github.com/astral-sh/ruff", package = "ruff_python_trivia" }
+ruff_python_ast = { git = "https://github.com/astral-sh/ruff", package = "ruff_python_ast" }
