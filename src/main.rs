@@ -2,7 +2,9 @@ use std::{cell::Cell, env, fs, process};
 
 use ruff_python_ast::name::Name;
 use ruff_python_ast::visitor::transformer::{walk_body, walk_expr, walk_stmt, Transformer};
-use ruff_python_ast::{self as ast, CmpOp, Expr, ExprContext, Identifier, Operator, Stmt, UnaryOp};
+use ruff_python_ast::{
+    self as ast, BoolOp, CmpOp, Expr, ExprContext, Identifier, Operator, Stmt, UnaryOp,
+};
 use ruff_python_codegen::{Generator, Stylist};
 use ruff_python_parser::parse_module;
 use ruff_text_size::TextRange;
@@ -165,6 +167,62 @@ impl Transformer for BinOpRewriter {
 
     fn visit_stmt(&self, stmt: &mut Stmt) {
         walk_stmt(self, stmt);
+        if let Stmt::Assign(assign) = stmt {
+            if assign.targets.len() == 1 {
+                if let Expr::BoolOp(boolop) = (*assign.value).clone() {
+                    if boolop.values.len() >= 2 {
+                        let target = assign.targets[0].clone();
+                        let op = boolop.op;
+                        let mut values = boolop.values.clone();
+                        let right_expr = values.pop().unwrap();
+                        let mut right_stmt = Stmt::Assign(ast::StmtAssign {
+                            node_index: ast::AtomicNodeIndex::default(),
+                            range: TextRange::default(),
+                            targets: vec![target.clone()],
+                            value: Box::new(right_expr),
+                        });
+                        while let Some(left) = values.pop() {
+                            let assign_left = Stmt::Assign(ast::StmtAssign {
+                                node_index: ast::AtomicNodeIndex::default(),
+                                range: TextRange::default(),
+                                targets: vec![target.clone()],
+                                value: Box::new(left.clone()),
+                            });
+
+                            right_stmt = match op {
+                                BoolOp::Or => Stmt::If(ast::StmtIf {
+                                    node_index: ast::AtomicNodeIndex::default(),
+                                    range: TextRange::default(),
+                                    test: Box::new(left),
+                                    body: vec![assign_left],
+                                    elif_else_clauses: vec![ast::ElifElseClause {
+                                        range: TextRange::default(),
+                                        node_index: ast::AtomicNodeIndex::default(),
+                                        test: None,
+                                        body: vec![right_stmt],
+                                    }],
+                                }),
+                                BoolOp::And => Stmt::If(ast::StmtIf {
+                                    node_index: ast::AtomicNodeIndex::default(),
+                                    range: TextRange::default(),
+                                    test: Box::new(left),
+                                    body: vec![right_stmt],
+                                    elif_else_clauses: vec![ast::ElifElseClause {
+                                        range: TextRange::default(),
+                                        node_index: ast::AtomicNodeIndex::default(),
+                                        test: None,
+                                        body: vec![assign_left],
+                                    }],
+                                }),
+                            };
+                        }
+                        *stmt = right_stmt;
+                        self.replaced.set(true);
+                        return;
+                    }
+                }
+            }
+        }
 
         if let Stmt::AugAssign(aug) = stmt {
             let target = (*aug.target).clone();
@@ -345,14 +403,8 @@ mod tests {
             ("x = a != b\n", "x = operator.ne(a, b)\n"),
             ("x = a < b\n", "x = operator.lt(a, b)\n"),
             ("x = a > b\n", "x = operator.gt(a, b)\n"),
-            (
-                "x = a is not b\n",
-                "x = operator.is_not(a, b)\n",
-            ),
-            (
-                "x = a in b\n",
-                "x = operator.contains(b, a)\n",
-            ),
+            ("x = a is not b\n", "x = operator.is_not(a, b)\n"),
+            ("x = a in b\n", "x = operator.contains(b, a)\n"),
             (
                 "x = a not in b\n",
                 "x = operator.not_(operator.contains(b, a))\n",
@@ -362,5 +414,12 @@ mod tests {
         for (input, expected) in cases {
             assert_eq!(rewrite_source(input), expected);
         }
+    }
+
+    #[test]
+    fn rewrites_bool_ops() {
+        let input = "x = a or b\ny = c and d\n";
+        let expected = "if a:\n    x = a\nelse:\n    x = b\nif c:\n    y = d\nelse:\n    y = c\n";
+        assert_eq!(rewrite_source(input), expected);
     }
 }
