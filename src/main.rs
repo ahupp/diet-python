@@ -253,7 +253,7 @@ fn ensure_operator_import(module: &mut ast::ModModule) {
     }
 }
 
-fn transform_source(source: &str) -> String {
+fn rewrite_source_inner(source: &str, ensure_import: bool) -> String {
     let parsed = parse_module(source).expect("parse error");
     let tokens = parsed.tokens().clone();
     let mut module = parsed.into_syntax();
@@ -261,7 +261,7 @@ fn transform_source(source: &str) -> String {
     let transformer = BinOpRewriter::new();
     walk_body(&transformer, &mut module.body);
 
-    if transformer.transformed() {
+    if ensure_import && transformer.transformed() {
         ensure_operator_import(&mut module);
     }
 
@@ -273,6 +273,15 @@ fn transform_source(source: &str) -> String {
         output.push_str(stylist.line_ending().as_str());
     }
     output
+}
+
+fn transform_source(source: &str) -> String {
+    rewrite_source_inner(source, true)
+}
+
+#[cfg(test)]
+fn rewrite_source(source: &str) -> String {
+    rewrite_source_inner(source, false)
 }
 
 fn main() {
@@ -300,58 +309,58 @@ mod tests {
     #[test]
     fn rewrites_binary_ops() {
         let cases = [
-            ("x = 1 + 2\n", "import operator\nx = operator.add(1, 2)\n"),
-            ("y = a - b\n", "import operator\ny = operator.sub(a, b)\n"),
+            ("x = 1 + 2\n", "x = operator.add(1, 2)\n"),
+            ("y = a - b\n", "y = operator.sub(a, b)\n"),
         ];
 
         for (input, expected) in cases {
-            assert_eq!(transform_source(input), expected);
+            assert_eq!(rewrite_source(input), expected);
         }
     }
 
     #[test]
     fn rewrites_aug_assign() {
         let input = "x = 1\nx += 2\n";
-        let expected = "import operator\nx = 1\nx = operator.iadd(x, 2)\n";
-        assert_eq!(transform_source(input), expected);
+        let expected = "x = 1\nx = operator.iadd(x, 2)\n";
+        assert_eq!(rewrite_source(input), expected);
     }
 
     #[test]
     fn rewrites_unary_ops() {
         let cases = [
-            ("x = -a\n", "import operator\nx = operator.neg(a)\n"),
-            ("y = ~b\n", "import operator\ny = operator.invert(b)\n"),
-            ("z = not c\n", "import operator\nz = operator.not_(c)\n"),
+            ("x = -a\n", "x = operator.neg(a)\n"),
+            ("y = ~b\n", "y = operator.invert(b)\n"),
+            ("z = not c\n", "z = operator.not_(c)\n"),
         ];
 
         for (input, expected) in cases {
-            assert_eq!(transform_source(input), expected);
+            assert_eq!(rewrite_source(input), expected);
         }
     }
 
     #[test]
     fn rewrites_comparisons() {
         let cases = [
-            ("x = a == b\n", "import operator\nx = operator.eq(a, b)\n"),
-            ("x = a != b\n", "import operator\nx = operator.ne(a, b)\n"),
-            ("x = a < b\n", "import operator\nx = operator.lt(a, b)\n"),
-            ("x = a > b\n", "import operator\nx = operator.gt(a, b)\n"),
+            ("x = a == b\n", "x = operator.eq(a, b)\n"),
+            ("x = a != b\n", "x = operator.ne(a, b)\n"),
+            ("x = a < b\n", "x = operator.lt(a, b)\n"),
+            ("x = a > b\n", "x = operator.gt(a, b)\n"),
             (
                 "x = a is not b\n",
-                "import operator\nx = operator.is_not(a, b)\n",
+                "x = operator.is_not(a, b)\n",
             ),
             (
                 "x = a in b\n",
-                "import operator\nx = operator.contains(b, a)\n",
+                "x = operator.contains(b, a)\n",
             ),
             (
                 "x = a not in b\n",
-                "import operator\nx = operator.not_(operator.contains(b, a))\n",
+                "x = operator.not_(operator.contains(b, a))\n",
             ),
         ];
 
         for (input, expected) in cases {
-            assert_eq!(transform_source(input), expected);
+            assert_eq!(rewrite_source(input), expected);
         }
     }
 }
