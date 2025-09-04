@@ -1,0 +1,257 @@
+use std::cell::{Cell, RefCell};
+
+use ruff_python_ast::name::Name;
+use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
+use ruff_python_ast::{self as ast, Expr, ExprContext, Identifier, Stmt};
+use ruff_text_size::TextRange;
+
+pub struct GeneratorRewriter {
+    gen_count: Cell<usize>,
+    scopes: RefCell<Vec<Vec<Stmt>>>,
+}
+
+impl GeneratorRewriter {
+    pub fn new() -> Self {
+        Self {
+            gen_count: Cell::new(0),
+            scopes: RefCell::new(Vec::new()),
+        }
+    }
+
+    fn push_scope(&self) {
+        self.scopes.borrow_mut().push(Vec::new());
+    }
+
+    fn pop_scope(&self) -> Vec<Stmt> {
+        self.scopes.borrow_mut().pop().unwrap()
+    }
+
+    fn add_function(&self, func: Stmt) {
+        self.scopes.borrow_mut().last_mut().unwrap().push(func);
+    }
+
+    pub fn rewrite_body(&self, body: &mut Vec<Stmt>) {
+        self.push_scope();
+        for stmt in body.iter_mut() {
+            self.rewrite_stmt(stmt);
+        }
+        let functions = self.pop_scope();
+        if !functions.is_empty() {
+            body.splice(0..0, functions);
+        }
+    }
+
+    fn rewrite_stmt(&self, stmt: &mut Stmt) {
+        match stmt {
+            Stmt::FunctionDef(ast::StmtFunctionDef { body, .. })
+            | Stmt::ClassDef(ast::StmtClassDef { body, .. }) => {
+                self.rewrite_body(body);
+            }
+            Stmt::For(ast::StmtFor { body, orelse, .. })
+            | Stmt::While(ast::StmtWhile { body, orelse, .. }) => {
+                self.rewrite_body(body);
+                self.rewrite_body(orelse);
+            }
+            Stmt::If(ast::StmtIf { body, elif_else_clauses, .. }) => {
+                self.rewrite_body(body);
+                for clause in elif_else_clauses {
+                    self.rewrite_body(&mut clause.body);
+                }
+            }
+            Stmt::With(ast::StmtWith { body, .. }) => {
+                self.rewrite_body(body);
+            }
+            _ => {}
+        }
+
+        walk_stmt(self, stmt);
+    }
+}
+
+impl Transformer for GeneratorRewriter {
+    fn visit_expr(&self, expr: &mut Expr) {
+        walk_expr(self, expr);
+        if let Expr::Generator(gen) = expr {
+            let first_iter_expr = gen.generators.first().unwrap().iter.clone();
+
+            let id = self.gen_count.get() + 1;
+            self.gen_count.set(id);
+            let func_name = format!("__dp_gen_{}", id);
+
+            let param_name = if let Expr::Name(ast::ExprName { id, .. }) = &first_iter_expr {
+                id.clone()
+            } else {
+                Name::new(format!("__dp_iter_{}", id))
+            };
+            let param_ident = Identifier::new(param_name.clone(), TextRange::default());
+
+            let mut body = vec![Stmt::Expr(ast::StmtExpr {
+                node_index: ast::AtomicNodeIndex::default(),
+                range: TextRange::default(),
+                value: Box::new(Expr::Yield(ast::ExprYield {
+                    node_index: ast::AtomicNodeIndex::default(),
+                    range: TextRange::default(),
+                    value: Some(Box::new((*gen.elt).clone())),
+                })),
+            })];
+
+            for comp in gen.generators.iter().rev() {
+                let mut inner = body;
+                for if_expr in comp.ifs.iter().rev() {
+                    inner = vec![Stmt::If(ast::StmtIf {
+                        node_index: ast::AtomicNodeIndex::default(),
+                        range: TextRange::default(),
+                        test: Box::new(if_expr.clone()),
+                        body: inner,
+                        elif_else_clauses: Vec::new(),
+                    })];
+                }
+                let for_stmt = Stmt::For(ast::StmtFor {
+                    node_index: ast::AtomicNodeIndex::default(),
+                    range: TextRange::default(),
+                    is_async: comp.is_async,
+                    target: Box::new(comp.target.clone()),
+                    iter: Box::new(comp.iter.clone()),
+                    body: inner,
+                    orelse: Vec::new(),
+                });
+                body = vec![for_stmt];
+            }
+
+            if let Stmt::For(ast::StmtFor { iter, .. }) = body.first_mut().unwrap() {
+                *iter = Box::new(Expr::Name(ast::ExprName {
+                    node_index: ast::AtomicNodeIndex::default(),
+                    range: TextRange::default(),
+                    id: param_name.clone(),
+                    ctx: ExprContext::Load,
+                }));
+            }
+
+            let parameters = ast::Parameters {
+                range: TextRange::default(),
+                node_index: ast::AtomicNodeIndex::default(),
+                posonlyargs: Vec::new(),
+                args: vec![ast::ParameterWithDefault {
+                    range: TextRange::default(),
+                    node_index: ast::AtomicNodeIndex::default(),
+                    parameter: ast::Parameter {
+                        range: TextRange::default(),
+                        node_index: ast::AtomicNodeIndex::default(),
+                        name: param_ident.clone(),
+                        annotation: None,
+                    },
+                    default: None,
+                }],
+                vararg: None,
+                kwonlyargs: Vec::new(),
+                kwarg: None,
+            };
+            let func_ident = Identifier::new(Name::new(&func_name), TextRange::default());
+            let func_def = Stmt::FunctionDef(ast::StmtFunctionDef {
+                node_index: ast::AtomicNodeIndex::default(),
+                range: TextRange::default(),
+                is_async: false,
+                decorator_list: Vec::new(),
+                name: func_ident,
+                type_params: None,
+                parameters: Box::new(parameters),
+                returns: None,
+                body,
+            });
+
+            self.add_function(func_def);
+
+            *expr = Expr::Call(ast::ExprCall {
+                node_index: ast::AtomicNodeIndex::default(),
+                range: TextRange::default(),
+                func: Box::new(Expr::Name(ast::ExprName {
+                    node_index: ast::AtomicNodeIndex::default(),
+                    range: TextRange::default(),
+                    id: Name::new(func_name),
+                    ctx: ExprContext::Load,
+                })),
+                arguments: ast::Arguments {
+                    range: TextRange::default(),
+                    node_index: ast::AtomicNodeIndex::default(),
+                    args: vec![first_iter_expr].into_boxed_slice(),
+                    keywords: Vec::new().into_boxed_slice(),
+                },
+            });
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ruff_python_codegen::{Generator as Codegen, Stylist};
+    use ruff_python_parser::parse_module;
+
+    fn rewrite_gen(source: &str) -> String {
+        let parsed = parse_module(source).expect("parse error");
+        let tokens = parsed.tokens().clone();
+        let mut module = parsed.into_syntax();
+
+        let rewriter = GeneratorRewriter::new();
+        rewriter.rewrite_body(&mut module.body);
+
+        let stylist = Stylist::from_tokens(&tokens, source);
+        let mut output = String::new();
+        for stmt in &module.body {
+            let snippet = Codegen::from(&stylist).stmt(stmt);
+            output.push_str(&snippet);
+            output.push_str(stylist.line_ending().as_str());
+        }
+        output
+    }
+
+    #[test]
+    fn rewrites_generator_expressions() {
+        let input = "r = (a + 1 for a in items if a % 2 == 0)";
+        let expected = concat!(
+            "def __dp_gen_1(items):\n",
+            "    for a in items:\n",
+            "        if a % 2 == 0:\n",
+            "            yield a + 1\n",
+            "r = __dp_gen_1(items)"
+        );
+        let output = rewrite_gen(input);
+        assert_eq!(output.trim_end(), expected.trim_end());
+    }
+
+    #[test]
+    fn defines_function_in_local_scope() {
+        let input = concat!(
+            "def outer(items, offset):\n",
+            "    r = (a + offset for a in items)\n",
+            "    return r\n",
+        );
+        let expected = concat!(
+            "def outer(items, offset):\n\n",
+            "    def __dp_gen_1(items):\n",
+            "        for a in items:\n",
+            "            yield a + offset\n",
+            "    r = __dp_gen_1(items)\n",
+            "    return r",
+        );
+        let output = rewrite_gen(input);
+        assert_eq!(output.trim_end(), expected);
+    }
+
+    #[test]
+    fn passes_iter_expression_as_argument() {
+        let input = concat!(
+            "b = 1\n",
+            "r = (a + b for a in some_function())",
+        );
+        let expected = concat!(
+            "def __dp_gen_1(__dp_iter_1):\n",
+            "    for a in __dp_iter_1:\n",
+            "        yield a + b\n",
+            "b = 1\n",
+            "r = __dp_gen_1(some_function())",
+        );
+        let output = rewrite_gen(input);
+        assert_eq!(output.trim_end(), expected.trim_end());
+    }
+}
