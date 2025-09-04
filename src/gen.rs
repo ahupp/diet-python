@@ -5,6 +5,8 @@ use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, Expr, ExprContext, Identifier, Stmt};
 use ruff_text_size::TextRange;
 
+use crate::comprehension::rewrite_comprehension;
+
 pub struct GeneratorRewriter {
     gen_count: Cell<usize>,
     scopes: RefCell<Vec<Vec<Stmt>>>,
@@ -70,6 +72,10 @@ impl GeneratorRewriter {
 
 impl Transformer for GeneratorRewriter {
     fn visit_expr(&self, expr: &mut Expr) {
+        if rewrite_comprehension(self, expr) {
+            return;
+        }
+
         walk_expr(self, expr);
         if let Expr::Generator(gen) = expr {
             let first_iter_expr = gen.generators.first().unwrap().iter.clone();
