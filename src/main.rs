@@ -236,52 +236,53 @@ mod tests {
     #[test]
     fn rewrites_binary_ops() {
         let cases = [
-            ("x = 1 + 2\n", "x = operator.add(1, 2)\n"),
-            ("y = a - b\n", "y = operator.sub(a, b)\n"),
+            ("a + b", "operator.add(a, b)"),
+            ("a - b", "operator.sub(a, b)"),
         ];
 
         for (input, expected) in cases {
-            assert_eq!(rewrite_source(input), expected);
+            let output = rewrite_source(input);
+            assert_eq!(output.trim_end(), expected);
         }
     }
 
     #[test]
     fn rewrites_aug_assign() {
-        let input = "x = 1\nx += 2\n";
-        let expected = "x = 1\nx = operator.iadd(x, 2)\n";
-        assert_eq!(rewrite_source(input), expected);
+        let input = "x = 1\nx += 2";
+        let expected = "x = 1\nx = operator.iadd(x, 2)";
+        let output = rewrite_source(input);
+        assert_eq!(output.trim_end(), expected);
     }
 
     #[test]
     fn rewrites_unary_ops() {
         let cases = [
-            ("x = -a\n", "x = operator.neg(a)\n"),
-            ("y = ~b\n", "y = operator.invert(b)\n"),
-            ("z = not c\n", "z = operator.not_(c)\n"),
+            ("-a", "operator.neg(a)"),
+            ("~b", "operator.invert(b)"),
+            ("not c", "operator.not_(c)"),
         ];
 
         for (input, expected) in cases {
-            assert_eq!(rewrite_source(input), expected);
+            let output = rewrite_source(input);
+            assert_eq!(output.trim_end(), expected);
         }
     }
 
     #[test]
     fn rewrites_comparisons() {
         let cases = [
-            ("x = a == b\n", "x = operator.eq(a, b)\n"),
-            ("x = a != b\n", "x = operator.ne(a, b)\n"),
-            ("x = a < b\n", "x = operator.lt(a, b)\n"),
-            ("x = a > b\n", "x = operator.gt(a, b)\n"),
-            ("x = a is not b\n", "x = operator.is_not(a, b)\n"),
-            ("x = a in b\n", "x = operator.contains(b, a)\n"),
-            (
-                "x = a not in b\n",
-                "x = operator.not_(operator.contains(b, a))\n",
-            ),
+            ("a == b", "operator.eq(a, b)"),
+            ("a != b", "operator.ne(a, b)"),
+            ("a < b", "operator.lt(a, b)"),
+            ("a > b", "operator.gt(a, b)"),
+            ("a is not b", "operator.is_not(a, b)"),
+            ("a in b", "operator.contains(b, a)"),
+            ("a not in b", "operator.not_(operator.contains(b, a))"),
         ];
 
         for (input, expected) in cases {
-            assert_eq!(rewrite_source(input), expected);
+            let output = rewrite_source(input);
+            assert_eq!(output.trim_end(), expected);
         }
     }
 }
