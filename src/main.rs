@@ -2,18 +2,20 @@ use std::{cell::Cell, env, fs, process};
 
 use ruff_python_ast::name::Name;
 use ruff_python_ast::visitor::transformer::{walk_body, walk_expr, walk_stmt, Transformer};
-use ruff_python_ast::{
-    self as ast, BoolOp, CmpOp, Expr, ExprContext, Identifier, Operator, Stmt, UnaryOp,
-};
+use ruff_python_ast::{self as ast, CmpOp, Expr, ExprContext, Identifier, Operator, Stmt, UnaryOp};
 use ruff_python_codegen::{Generator, Stylist};
 use ruff_python_parser::parse_module;
 use ruff_text_size::TextRange;
 
-struct BinOpRewriter {
+mod gen;
+
+use gen::GeneratorRewriter;
+
+struct OperatorRewriter {
     replaced: Cell<bool>,
 }
 
-impl BinOpRewriter {
+impl OperatorRewriter {
     fn new() -> Self {
         Self {
             replaced: Cell::new(false),
@@ -52,10 +54,9 @@ impl BinOpRewriter {
     }
 }
 
-impl Transformer for BinOpRewriter {
+impl Transformer for OperatorRewriter {
     fn visit_expr(&self, expr: &mut Expr) {
         walk_expr(self, expr);
-
         if let Expr::BinOp(bin) = expr {
             let left = *bin.left.clone();
             let right = *bin.right.clone();
@@ -185,10 +186,13 @@ fn rewrite_source_inner(source: &str, ensure_import: bool) -> String {
     let tokens = parsed.tokens().clone();
     let mut module = parsed.into_syntax();
 
-    let transformer = BinOpRewriter::new();
-    walk_body(&transformer, &mut module.body);
+    let gen_transformer = GeneratorRewriter::new();
+    gen_transformer.rewrite_body(&mut module.body);
 
-    if ensure_import && transformer.transformed() {
+    let op_transformer = OperatorRewriter::new();
+    walk_body(&op_transformer, &mut module.body);
+
+    if ensure_import && op_transformer.transformed() {
         ensure_operator_import(&mut module);
     }
 
@@ -285,4 +289,5 @@ mod tests {
             assert_eq!(output.trim_end(), expected);
         }
     }
+
 }
