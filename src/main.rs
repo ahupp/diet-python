@@ -23,6 +23,33 @@ impl BinOpRewriter {
     fn transformed(&self) -> bool {
         self.replaced.get()
     }
+
+    fn make_call(func_name: &'static str, args: Vec<Expr>) -> Expr {
+        let func = Expr::Attribute(ast::ExprAttribute {
+            node_index: ast::AtomicNodeIndex::default(),
+            range: TextRange::default(),
+            value: Box::new(Expr::Name(ast::ExprName {
+                node_index: ast::AtomicNodeIndex::default(),
+                range: TextRange::default(),
+                id: Name::new_static("operator"),
+                ctx: ExprContext::Load,
+            })),
+            attr: Identifier::new(Name::new_static(func_name), TextRange::default()),
+            ctx: ExprContext::Load,
+        });
+
+        Expr::Call(ast::ExprCall {
+            node_index: ast::AtomicNodeIndex::default(),
+            range: TextRange::default(),
+            func: Box::new(func),
+            arguments: ast::Arguments {
+                range: TextRange::default(),
+                node_index: ast::AtomicNodeIndex::default(),
+                args: args.into_boxed_slice(),
+                keywords: Vec::new().into_boxed_slice(),
+            },
+        })
+    }
 }
 
 impl Transformer for BinOpRewriter {
@@ -48,33 +75,7 @@ impl Transformer for BinOpRewriter {
                 Operator::BitAnd => "and_",
                 Operator::FloorDiv => "floordiv",
             };
-
-            let func = Expr::Attribute(ast::ExprAttribute {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: TextRange::default(),
-                value: Box::new(Expr::Name(ast::ExprName {
-                    node_index: ast::AtomicNodeIndex::default(),
-                    range: TextRange::default(),
-                    id: Name::new_static("operator"),
-                    ctx: ExprContext::Load,
-                })),
-                attr: Identifier::new(Name::new_static(func_name), TextRange::default()),
-                ctx: ExprContext::Load,
-            });
-
-            let call = Expr::Call(ast::ExprCall {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: TextRange::default(),
-                func: Box::new(func),
-                arguments: ast::Arguments {
-                    range: TextRange::default(),
-                    node_index: ast::AtomicNodeIndex::default(),
-                    args: vec![left, right].into_boxed_slice(),
-                    keywords: Vec::new().into_boxed_slice(),
-                },
-            });
-
-            *expr = call;
+            *expr = Self::make_call(func_name, vec![left, right]);
             self.replaced.set(true);
         } else if let Expr::UnaryOp(unary) = expr {
             let operand = *unary.operand.clone();
@@ -85,76 +86,23 @@ impl Transformer for BinOpRewriter {
                 UnaryOp::USub => "neg",
                 _ => return,
             };
-
-            let func = Expr::Attribute(ast::ExprAttribute {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: TextRange::default(),
-                value: Box::new(Expr::Name(ast::ExprName {
-                    node_index: ast::AtomicNodeIndex::default(),
-                    range: TextRange::default(),
-                    id: Name::new_static("operator"),
-                    ctx: ExprContext::Load,
-                })),
-                attr: Identifier::new(Name::new_static(func_name), TextRange::default()),
-                ctx: ExprContext::Load,
-            });
-
-            let call = Expr::Call(ast::ExprCall {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: TextRange::default(),
-                func: Box::new(func),
-                arguments: ast::Arguments {
-                    range: TextRange::default(),
-                    node_index: ast::AtomicNodeIndex::default(),
-                    args: vec![operand].into_boxed_slice(),
-                    keywords: Vec::new().into_boxed_slice(),
-                },
-            });
-
-            *expr = call;
+            *expr = Self::make_call(func_name, vec![operand]);
             self.replaced.set(true);
         } else if let Expr::Compare(compare) = expr {
             if compare.ops.len() == 1 && compare.comparators.len() == 1 {
                 let left = (*compare.left).clone();
                 let right = compare.comparators[0].clone();
 
-                let make_call = |func_name: &'static str, args: Vec<Expr>| {
-                    let func = Expr::Attribute(ast::ExprAttribute {
-                        node_index: ast::AtomicNodeIndex::default(),
-                        range: TextRange::default(),
-                        value: Box::new(Expr::Name(ast::ExprName {
-                            node_index: ast::AtomicNodeIndex::default(),
-                            range: TextRange::default(),
-                            id: Name::new_static("operator"),
-                            ctx: ExprContext::Load,
-                        })),
-                        attr: Identifier::new(Name::new_static(func_name), TextRange::default()),
-                        ctx: ExprContext::Load,
-                    });
-
-                    Expr::Call(ast::ExprCall {
-                        node_index: ast::AtomicNodeIndex::default(),
-                        range: TextRange::default(),
-                        func: Box::new(func),
-                        arguments: ast::Arguments {
-                            range: TextRange::default(),
-                            node_index: ast::AtomicNodeIndex::default(),
-                            args: args.into_boxed_slice(),
-                            keywords: Vec::new().into_boxed_slice(),
-                        },
-                    })
-                };
-
                 let call = match compare.ops[0] {
-                    CmpOp::Eq => make_call("eq", vec![left, right]),
-                    CmpOp::NotEq => make_call("ne", vec![left, right]),
-                    CmpOp::Lt => make_call("lt", vec![left, right]),
-                    CmpOp::Gt => make_call("gt", vec![left, right]),
-                    CmpOp::IsNot => make_call("is_not", vec![left, right]),
-                    CmpOp::In => make_call("contains", vec![right, left]),
+                    CmpOp::Eq => Self::make_call("eq", vec![left, right]),
+                    CmpOp::NotEq => Self::make_call("ne", vec![left, right]),
+                    CmpOp::Lt => Self::make_call("lt", vec![left, right]),
+                    CmpOp::Gt => Self::make_call("gt", vec![left, right]),
+                    CmpOp::IsNot => Self::make_call("is_not", vec![left, right]),
+                    CmpOp::In => Self::make_call("contains", vec![right, left]),
                     CmpOp::NotIn => {
-                        let contains = make_call("contains", vec![right, left]);
-                        make_call("not_", vec![contains])
+                        let contains = Self::make_call("contains", vec![right, left]);
+                        Self::make_call("not_", vec![contains])
                     }
                     _ => return,
                 };
@@ -244,30 +192,7 @@ impl Transformer for BinOpRewriter {
                 Operator::FloorDiv => "ifloordiv",
             };
 
-            let func = Expr::Attribute(ast::ExprAttribute {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: TextRange::default(),
-                value: Box::new(Expr::Name(ast::ExprName {
-                    node_index: ast::AtomicNodeIndex::default(),
-                    range: TextRange::default(),
-                    id: Name::new_static("operator"),
-                    ctx: ExprContext::Load,
-                })),
-                attr: Identifier::new(Name::new_static(func_name), TextRange::default()),
-                ctx: ExprContext::Load,
-            });
-
-            let call = Expr::Call(ast::ExprCall {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: TextRange::default(),
-                func: Box::new(func),
-                arguments: ast::Arguments {
-                    range: TextRange::default(),
-                    node_index: ast::AtomicNodeIndex::default(),
-                    args: vec![target.clone(), value].into_boxed_slice(),
-                    keywords: Vec::new().into_boxed_slice(),
-                },
-            });
+            let call = Self::make_call(func_name, vec![target.clone(), value]);
 
             *stmt = Stmt::Assign(ast::StmtAssign {
                 node_index: ast::AtomicNodeIndex::default(),
