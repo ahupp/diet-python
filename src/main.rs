@@ -7,6 +7,7 @@ use ruff_python_codegen::{Generator, Stylist};
 use ruff_python_parser::parse_module;
 use ruff_text_size::TextRange;
 
+mod comprehension;
 mod gen;
 
 use gen::GeneratorRewriter;
