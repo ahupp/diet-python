@@ -1,8 +1,8 @@
 use std::{cell::Cell, env, fs, process};
 
-use ruff_python_ast::{self as ast, Expr, ExprContext, Identifier, Operator, Stmt};
 use ruff_python_ast::name::Name;
 use ruff_python_ast::visitor::transformer::{walk_body, walk_expr, walk_stmt, Transformer};
+use ruff_python_ast::{self as ast, CmpOp, Expr, ExprContext, Identifier, Operator, Stmt, UnaryOp};
 use ruff_python_codegen::{Generator, Stylist};
 use ruff_python_parser::parse_module;
 use ruff_text_size::TextRange;
@@ -74,6 +74,92 @@ impl Transformer for BinOpRewriter {
 
             *expr = call;
             self.replaced.set(true);
+        } else if let Expr::UnaryOp(unary) = expr {
+            let operand = *unary.operand.clone();
+
+            let func_name = match unary.op {
+                UnaryOp::Not => "not_",
+                UnaryOp::Invert => "invert",
+                UnaryOp::USub => "neg",
+                _ => return,
+            };
+
+            let func = Expr::Attribute(ast::ExprAttribute {
+                node_index: ast::AtomicNodeIndex::default(),
+                range: TextRange::default(),
+                value: Box::new(Expr::Name(ast::ExprName {
+                    node_index: ast::AtomicNodeIndex::default(),
+                    range: TextRange::default(),
+                    id: Name::new_static("operator"),
+                    ctx: ExprContext::Load,
+                })),
+                attr: Identifier::new(Name::new_static(func_name), TextRange::default()),
+                ctx: ExprContext::Load,
+            });
+
+            let call = Expr::Call(ast::ExprCall {
+                node_index: ast::AtomicNodeIndex::default(),
+                range: TextRange::default(),
+                func: Box::new(func),
+                arguments: ast::Arguments {
+                    range: TextRange::default(),
+                    node_index: ast::AtomicNodeIndex::default(),
+                    args: vec![operand].into_boxed_slice(),
+                    keywords: Vec::new().into_boxed_slice(),
+                },
+            });
+
+            *expr = call;
+            self.replaced.set(true);
+        } else if let Expr::Compare(compare) = expr {
+            if compare.ops.len() == 1 && compare.comparators.len() == 1 {
+                let left = (*compare.left).clone();
+                let right = compare.comparators[0].clone();
+
+                let make_call = |func_name: &'static str, args: Vec<Expr>| {
+                    let func = Expr::Attribute(ast::ExprAttribute {
+                        node_index: ast::AtomicNodeIndex::default(),
+                        range: TextRange::default(),
+                        value: Box::new(Expr::Name(ast::ExprName {
+                            node_index: ast::AtomicNodeIndex::default(),
+                            range: TextRange::default(),
+                            id: Name::new_static("operator"),
+                            ctx: ExprContext::Load,
+                        })),
+                        attr: Identifier::new(Name::new_static(func_name), TextRange::default()),
+                        ctx: ExprContext::Load,
+                    });
+
+                    Expr::Call(ast::ExprCall {
+                        node_index: ast::AtomicNodeIndex::default(),
+                        range: TextRange::default(),
+                        func: Box::new(func),
+                        arguments: ast::Arguments {
+                            range: TextRange::default(),
+                            node_index: ast::AtomicNodeIndex::default(),
+                            args: args.into_boxed_slice(),
+                            keywords: Vec::new().into_boxed_slice(),
+                        },
+                    })
+                };
+
+                let call = match compare.ops[0] {
+                    CmpOp::Eq => make_call("eq", vec![left, right]),
+                    CmpOp::NotEq => make_call("ne", vec![left, right]),
+                    CmpOp::Lt => make_call("lt", vec![left, right]),
+                    CmpOp::Gt => make_call("gt", vec![left, right]),
+                    CmpOp::IsNot => make_call("is_not", vec![left, right]),
+                    CmpOp::In => make_call("contains", vec![right, left]),
+                    CmpOp::NotIn => {
+                        let contains = make_call("contains", vec![right, left]);
+                        make_call("not_", vec![contains])
+                    }
+                    _ => return,
+                };
+
+                *expr = call;
+                self.replaced.set(true);
+            }
         }
     }
 
@@ -140,7 +226,9 @@ impl Transformer for BinOpRewriter {
 fn ensure_operator_import(module: &mut ast::ModModule) {
     let has_import = module.body.iter().any(|stmt| {
         if let Stmt::Import(ast::StmtImport { names, .. }) = stmt {
-            names.iter().any(|alias| alias.name.id.as_str() == "operator")
+            names
+                .iter()
+                .any(|alias| alias.name.id.as_str() == "operator")
         } else {
             false
         }
@@ -212,14 +300,8 @@ mod tests {
     #[test]
     fn rewrites_binary_ops() {
         let cases = [
-            (
-                "x = 1 + 2\n",
-                "import operator\nx = operator.add(1, 2)\n",
-            ),
-            (
-                "y = a - b\n",
-                "import operator\ny = operator.sub(a, b)\n",
-            ),
+            ("x = 1 + 2\n", "import operator\nx = operator.add(1, 2)\n"),
+            ("y = a - b\n", "import operator\ny = operator.sub(a, b)\n"),
         ];
 
         for (input, expected) in cases {
@@ -232,5 +314,44 @@ mod tests {
         let input = "x = 1\nx += 2\n";
         let expected = "import operator\nx = 1\nx = operator.iadd(x, 2)\n";
         assert_eq!(transform_source(input), expected);
+    }
+
+    #[test]
+    fn rewrites_unary_ops() {
+        let cases = [
+            ("x = -a\n", "import operator\nx = operator.neg(a)\n"),
+            ("y = ~b\n", "import operator\ny = operator.invert(b)\n"),
+            ("z = not c\n", "import operator\nz = operator.not_(c)\n"),
+        ];
+
+        for (input, expected) in cases {
+            assert_eq!(transform_source(input), expected);
+        }
+    }
+
+    #[test]
+    fn rewrites_comparisons() {
+        let cases = [
+            ("x = a == b\n", "import operator\nx = operator.eq(a, b)\n"),
+            ("x = a != b\n", "import operator\nx = operator.ne(a, b)\n"),
+            ("x = a < b\n", "import operator\nx = operator.lt(a, b)\n"),
+            ("x = a > b\n", "import operator\nx = operator.gt(a, b)\n"),
+            (
+                "x = a is not b\n",
+                "import operator\nx = operator.is_not(a, b)\n",
+            ),
+            (
+                "x = a in b\n",
+                "import operator\nx = operator.contains(b, a)\n",
+            ),
+            (
+                "x = a not in b\n",
+                "import operator\nx = operator.not_(operator.contains(b, a))\n",
+            ),
+        ];
+
+        for (input, expected) in cases {
+            assert_eq!(transform_source(input), expected);
+        }
     }
 }
