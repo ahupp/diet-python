@@ -66,6 +66,7 @@ while True:
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::template::flatten;
     use ruff_python_ast::visitor::transformer::walk_body;
     use ruff_python_codegen::{Generator as Codegen, Stylist};
     use ruff_python_parser::parse_module;
@@ -89,63 +90,6 @@ mod tests {
             output.push_str(stylist.line_ending().as_str());
         }
         output
-    }
-
-    fn flatten(body: &mut Vec<Stmt>) {
-        let mut i = 0;
-        while i < body.len() {
-            match &mut body[i] {
-                Stmt::If(ast::StmtIf {
-                    test,
-                    body: inner,
-                    elif_else_clauses,
-                    ..
-                }) => {
-                    flatten(inner);
-                    for clause in elif_else_clauses.iter_mut() {
-                        flatten(&mut clause.body);
-                    }
-                    if elif_else_clauses.is_empty()
-                        && matches!(
-                            test.as_ref(),
-                            ast::Expr::BooleanLiteral(ast::ExprBooleanLiteral { value: true, .. })
-                        )
-                    {
-                        let replacement = std::mem::take(inner);
-                        body.splice(i..=i, replacement);
-                        continue;
-                    }
-                }
-                Stmt::While(ast::StmtWhile {
-                    body: inner,
-                    orelse,
-                    ..
-                }) => {
-                    flatten(inner);
-                    flatten(orelse);
-                }
-                Stmt::Try(ast::StmtTry {
-                    body: inner,
-                    handlers,
-                    orelse,
-                    finalbody,
-                    ..
-                }) => {
-                    flatten(inner);
-                    for handler in handlers.iter_mut() {
-                        let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
-                            body,
-                            ..
-                        }) = handler;
-                        flatten(body);
-                    }
-                    flatten(orelse);
-                    flatten(finalbody);
-                }
-                _ => {}
-            }
-            i += 1;
-        }
     }
 
     #[test]

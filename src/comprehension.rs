@@ -44,6 +44,7 @@ pub(crate) fn rewrite_comprehension<T: Transformer>(transformer: &T, expr: &mut 
 #[cfg(test)]
 mod tests {
     use crate::gen::GeneratorRewriter;
+    use crate::template::flatten;
     use ruff_python_codegen::{Generator as Codegen, Stylist};
     use ruff_python_parser::parse_module;
 
@@ -54,6 +55,7 @@ mod tests {
 
         let rewriter = GeneratorRewriter::new();
         rewriter.rewrite_body(&mut module.body);
+        flatten(&mut module.body);
 
         let stylist = Stylist::from_tokens(&tokens, source);
         let mut output = String::new();
