@@ -47,10 +47,11 @@ macro_rules! py_stmt {
     }};
 }
 
+use regex::Regex;
 use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, name::Name, Expr, Identifier, Stmt};
 use ruff_text_size::TextRange;
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap};
 
 pub(crate) enum PlaceholderKind {
     Expr,
@@ -116,52 +117,25 @@ impl SyntaxTemplate {
     pub(crate) fn new(
         template: &str,
         mut body: Vec<Stmt>,
-        mut values: HashMap<&str, PlaceholderValue>,
+        values: HashMap<&str, PlaceholderValue>,
     ) -> Self {
-        use regex::Regex;
+        let _ = template;
 
-        let re = Regex::new(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\:([a-zA-Z_][a-zA-Z0-9_]*)\}").unwrap();
-        let mut placeholders: HashMap<String, PlaceholderKind> = HashMap::new();
-        for caps in re.captures_iter(template) {
-            let name = &caps[1];
-            let kind = match &caps[2] {
-                "expr" => PlaceholderKind::Expr,
-                "id" => PlaceholderKind::Id,
-                "stmt" => PlaceholderKind::Stmt,
-                other => panic!("unknown placeholder type `{other}` for `{name}`"),
-            };
-            placeholders.insert(name.to_string(), kind);
-        }
+        let rewriter = PlaceholderRewriter {
+            regex: Regex::new(
+                r"^__dp_placeholder(?:_(?P<kind>ident|stmt))?_(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)__$",
+            )
+            .unwrap(),
+            values: RefCell::new(
+                values
+                    .into_iter()
+                    .map(|(key, value)| (key.to_string(), value))
+                    .collect(),
+            ),
+        };
 
-        for (name, kind) in placeholders {
-            let placeholder = var_for_placeholder((&name, &kind));
-            match (kind, values.remove(name.as_str())) {
-                (PlaceholderKind::Expr, Some(PlaceholderValue::Expr(value))) => {
-                    let rewriter = PlaceholderRewriter {
-                        placeholder: &placeholder,
-                        replacement: &value,
-                    };
-                    rewriter.visit_body(&mut body);
-                }
-                (PlaceholderKind::Id, Some(PlaceholderValue::Id(value))) => {
-                    let rewriter = IdentRewriter {
-                        placeholder: &placeholder,
-                        replacement: value.as_str(),
-                    };
-                    rewriter.visit_body(&mut body);
-                }
-                (PlaceholderKind::Stmt, Some(PlaceholderValue::Stmt(value))) => {
-                    let rewriter = StmtRewriter {
-                        placeholder: &placeholder,
-                        replacement: &value,
-                    };
-                    rewriter.rewrite(&mut body);
-                }
-                (PlaceholderKind::Expr, _) => panic!("expected expr for placeholder {name}"),
-                (PlaceholderKind::Id, _) => panic!("expected id for placeholder {name}"),
-                (PlaceholderKind::Stmt, _) => panic!("expected stmt for placeholder {name}"),
-            }
-        }
+        rewriter.visit_body(&mut body);
+        flatten_stmt_placeholders(&mut body);
 
         Self { body }
     }
@@ -171,100 +145,127 @@ impl SyntaxTemplate {
     }
 }
 
-pub(crate) struct PlaceholderRewriter<'a> {
-    pub(crate) placeholder: &'a str,
-    pub(crate) replacement: &'a Expr,
+pub(crate) struct PlaceholderRewriter {
+    regex: Regex,
+    values: RefCell<HashMap<String, PlaceholderValue>>,
 }
 
-impl<'a> Transformer for PlaceholderRewriter<'a> {
-    fn visit_expr(&self, expr: &mut Expr) {
-        if let Expr::Name(ast::ExprName { id, .. }) = expr {
-            if id.as_str() == self.placeholder {
-                *expr = self.replacement.clone();
-                return;
-            }
-        }
-        walk_expr(self, expr);
+impl PlaceholderRewriter {
+    fn parse_placeholder<'a>(&self, symbol: &'a str) -> Option<(PlaceholderKind, &'a str)> {
+        self.regex.captures(symbol).map(|caps| {
+            let kind = match caps.name("kind").map(|m| m.as_str()) {
+                Some("ident") => PlaceholderKind::Id,
+                Some("stmt") => PlaceholderKind::Stmt,
+                _ => PlaceholderKind::Expr,
+            };
+            let name = caps.name("name").unwrap().as_str();
+            (kind, name)
+        })
     }
 }
 
-pub(crate) struct IdentRewriter<'a> {
-    pub(crate) placeholder: &'a str,
-    pub(crate) replacement: &'a str,
-}
-
-impl<'a> Transformer for IdentRewriter<'a> {
+impl Transformer for PlaceholderRewriter {
     fn visit_expr(&self, expr: &mut Expr) {
         match expr {
             Expr::Attribute(ast::ExprAttribute { attr, .. }) => {
-                if attr.id.as_str() == self.placeholder {
-                    *attr = Identifier::new(
-                        Name::new(self.replacement.to_string()),
-                        TextRange::default(),
-                    );
+                if let Some((kind, name)) = self.parse_placeholder(attr.id.as_str()) {
+                    match (kind, self.values.borrow_mut().remove(name)) {
+                        (PlaceholderKind::Id, Some(PlaceholderValue::Id(value))) => {
+                            *attr = Identifier::new(
+                                Name::new(value),
+                                TextRange::default(),
+                            );
+                        }
+                        (PlaceholderKind::Id, _) => {
+                            panic!("expected id for placeholder {name}");
+                        }
+                        (PlaceholderKind::Expr, Some(PlaceholderValue::Expr(value))) => {
+                            *expr = *value;
+                            return;
+                        }
+                        (PlaceholderKind::Expr, _) => {
+                            panic!("expected expr for placeholder {name}");
+                        }
+                        (PlaceholderKind::Stmt, _) => {
+                            panic!("expected stmt for placeholder {name}");
+                        }
+                    }
                 }
             }
             Expr::Name(ast::ExprName { id, .. }) => {
-                if id.as_str() == self.placeholder {
-                    *id = Name::new(self.replacement.to_string());
+                if let Some((kind, name)) = self.parse_placeholder(id.as_str()) {
+                    match (kind, self.values.borrow_mut().remove(name)) {
+                        (PlaceholderKind::Expr, Some(PlaceholderValue::Expr(value))) => {
+                            *expr = *value;
+                            return;
+                        }
+                        (PlaceholderKind::Expr, _) => {
+                            panic!("expected expr for placeholder {name}");
+                        }
+                        (PlaceholderKind::Id, Some(PlaceholderValue::Id(value))) => {
+                            *id = Name::new(value);
+                        }
+                        (PlaceholderKind::Id, _) => {
+                            panic!("expected id for placeholder {name}");
+                        }
+                        (PlaceholderKind::Stmt, _) => {
+                            panic!("expected stmt for placeholder {name}");
+                        }
+                    }
                 }
             }
             _ => {}
         }
         walk_expr(self, expr);
     }
-}
 
-pub(crate) struct StmtRewriter<'a> {
-    pub(crate) placeholder: &'a str,
-    pub(crate) replacement: &'a [Stmt],
-}
-
-impl<'a> StmtRewriter<'a> {
-    pub(crate) fn rewrite(&self, body: &mut Vec<Stmt>) {
-        let mut i = 0;
-        while i < body.len() {
-            self.visit_stmt(&mut body[i]);
-            if let Stmt::If(ast::StmtIf {
-                test,
-                body: inner,
-                elif_else_clauses,
-                ..
-            }) = &mut body[i]
-            {
-                if elif_else_clauses.is_empty() {
-                    let is_true = matches!(
-                        test.as_ref(),
-                        Expr::BooleanLiteral(ast::ExprBooleanLiteral { value: true, .. })
-                    );
-                    if is_true {
-                        let replacement = std::mem::take(inner);
-                        body.splice(i..=i, replacement);
-                        continue;
-                    }
-                }
-            }
-            i += 1;
-        }
-    }
-}
-
-impl<'a> Transformer for StmtRewriter<'a> {
     fn visit_stmt(&self, stmt: &mut Stmt) {
         if let Stmt::Expr(ast::StmtExpr { value, .. }) = stmt {
             if let Expr::Name(ast::ExprName { id, .. }) = value.as_ref() {
-                if id.as_str() == self.placeholder {
-                    *stmt = Stmt::If(ast::StmtIf {
-                        node_index: ast::AtomicNodeIndex::default(),
-                        range: TextRange::default(),
-                        test: Box::new(crate::py_expr!("True")),
-                        body: self.replacement.to_vec(),
-                        elif_else_clauses: Vec::new(),
-                    });
+                if let Some((kind, name)) = self.parse_placeholder(id.as_str()) {
+                    if matches!(kind, PlaceholderKind::Stmt) {
+                        match self.values.borrow_mut().remove(name) {
+                            Some(PlaceholderValue::Stmt(value)) => {
+                                *stmt = Stmt::If(ast::StmtIf {
+                                    node_index: ast::AtomicNodeIndex::default(),
+                                    range: TextRange::default(),
+                                    test: Box::new(crate::py_expr!("True")),
+                                    body: value,
+                                    elif_else_clauses: Vec::new(),
+                                });
+                            }
+                            _ => panic!("expected stmt for placeholder {name}"),
+                        }
+                    }
                 }
             }
         }
         walk_stmt(self, stmt);
+    }
+}
+
+fn flatten_stmt_placeholders(body: &mut Vec<Stmt>) {
+    let mut i = 0;
+    while i < body.len() {
+        if let Stmt::If(ast::StmtIf {
+            test,
+            body: inner,
+            elif_else_clauses,
+            ..
+        }) = &mut body[i]
+        {
+            if elif_else_clauses.is_empty()
+                && matches!(
+                    test.as_ref(),
+                    Expr::BooleanLiteral(ast::ExprBooleanLiteral { value: true, .. })
+                )
+            {
+                let replacement = std::mem::take(inner);
+                body.splice(i..=i, replacement);
+                continue;
+            }
+        }
+        i += 1;
     }
 }
 
