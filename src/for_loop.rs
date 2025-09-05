@@ -56,8 +56,9 @@ impl Transformer for ForLoopRewriter {
                 value: Box::new(next_call),
             });
 
-            let mut try_body = vec![assign_next];
-            try_body.extend(std::mem::take(body));
+            let body_stmts = std::mem::take(body);
+
+            let try_body = vec![assign_next];
 
             let mut except_body = std::mem::take(orelse);
             except_body.push(Stmt::Break(ast::StmtBreak {
@@ -83,11 +84,14 @@ impl Transformer for ForLoopRewriter {
                 is_star: false,
             });
 
+            let mut while_body = vec![try_stmt];
+            while_body.extend(body_stmts);
+
             let while_stmt = Stmt::While(ast::StmtWhile {
                 node_index: ast::AtomicNodeIndex::default(),
                 range: TextRange::default(),
                 test: Box::new(crate::py_expr!("True")),
-                body: vec![try_stmt],
+                body: while_body,
                 orelse: Vec::new(),
             });
 
@@ -146,12 +150,12 @@ mod tests {
             "    while True:\n",
             "        try:\n",
             "            a = next(_dp_iter_1)\n",
-            "            if a % 2 == 0:\n",
-            "                c(a)\n",
-            "            else:\n",
-            "                break\n",
             "        except StopIteration:\n",
             "            c(0)\n",
+            "            break\n",
+            "        if a % 2 == 0:\n",
+            "            c(a)\n",
+            "        else:\n",
             "            break",
         );
         let output = rewrite_for(input);
