@@ -43,7 +43,10 @@ macro_rules! py_stmt {
         let mut values: HashMap<&str, PlaceholderValue> = HashMap::new();
         $(values.insert(stringify!($name), PlaceholderValue::from($value));)*
 
-        SyntaxTemplate::new($template, module.body, values).into_stmts()
+        let mut stmts = module.body;
+        let template = SyntaxTemplate::new($template, values);
+        template.visit_stmts(&mut stmts);
+        stmts
     }};
 }
 
@@ -110,18 +113,15 @@ pub(crate) fn var_for_placeholder((name, kind): (&str, &PlaceholderKind)) -> Str
 }
 
 pub(crate) struct SyntaxTemplate {
-    body: Vec<Stmt>,
+    regex: Regex,
+    values: RefCell<HashMap<String, PlaceholderValue>>,
 }
 
 impl SyntaxTemplate {
-    pub(crate) fn new(
-        template: &str,
-        mut body: Vec<Stmt>,
-        values: HashMap<&str, PlaceholderValue>,
-    ) -> Self {
+    pub(crate) fn new(template: &str, values: HashMap<&str, PlaceholderValue>) -> Self {
         let _ = template;
 
-        let rewriter = PlaceholderRewriter {
+        Self {
             regex: Regex::new(
                 r"^__dp_placeholder(?:_(?P<kind>ident|stmt))?_(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)__$",
             )
@@ -132,25 +132,9 @@ impl SyntaxTemplate {
                     .map(|(key, value)| (key.to_string(), value))
                     .collect(),
             ),
-        };
-
-        rewriter.visit_body(&mut body);
-        flatten_stmt_placeholders(&mut body);
-
-        Self { body }
+        }
     }
 
-    pub(crate) fn into_stmts(self) -> Vec<Stmt> {
-        self.body
-    }
-}
-
-pub(crate) struct PlaceholderRewriter {
-    regex: Regex,
-    values: RefCell<HashMap<String, PlaceholderValue>>,
-}
-
-impl PlaceholderRewriter {
     fn parse_placeholder<'a>(&self, symbol: &'a str) -> Option<(PlaceholderKind, &'a str)> {
         self.regex.captures(symbol).map(|caps| {
             let kind = match caps.name("kind").map(|m| m.as_str()) {
@@ -162,9 +146,14 @@ impl PlaceholderRewriter {
             (kind, name)
         })
     }
+
+    pub(crate) fn visit_stmts(&self, body: &mut Vec<Stmt>) {
+        self.visit_body(body);
+        flatten_stmt_placeholders(body);
+    }
 }
 
-impl Transformer for PlaceholderRewriter {
+impl Transformer for SyntaxTemplate {
     fn visit_expr(&self, expr: &mut Expr) {
         match expr {
             Expr::Attribute(ast::ExprAttribute { attr, .. }) => {
