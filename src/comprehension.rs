@@ -1,24 +1,26 @@
-use ruff_python_ast::name::Name;
 use ruff_python_ast::visitor::transformer::Transformer;
-use ruff_python_ast::{self as ast, Expr, ExprContext};
+use ruff_python_ast::{self as ast, Expr};
 use ruff_text_size::TextRange;
 
 pub(crate) fn rewrite_comprehension<T: Transformer>(transformer: &T, expr: &mut Expr) -> bool {
     let (elt, generators, func_name) = match expr {
-        Expr::ListComp(ast::ExprListComp { elt, generators, .. }) => {
-            ((*elt.clone()), generators.clone(), "list")
-        }
-        Expr::SetComp(ast::ExprSetComp { elt, generators, .. }) => {
-            ((*elt.clone()), generators.clone(), "set")
-        }
-        Expr::DictComp(ast::ExprDictComp { key, value, generators, .. }) => {
-            let tuple = Expr::Tuple(ast::ExprTuple {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: TextRange::default(),
-                elts: vec![(*key.clone()), (*value.clone())],
-                ctx: ExprContext::Load,
-                parenthesized: true,
-            });
+        Expr::ListComp(ast::ExprListComp {
+            elt, generators, ..
+        }) => ((*elt.clone()), generators.clone(), "list"),
+        Expr::SetComp(ast::ExprSetComp {
+            elt, generators, ..
+        }) => ((*elt.clone()), generators.clone(), "set"),
+        Expr::DictComp(ast::ExprDictComp {
+            key,
+            value,
+            generators,
+            ..
+        }) => {
+            let tuple = crate::py_expr!(
+                "({key}, {value})",
+                key = (*key.clone()),
+                value = (*value.clone())
+            );
             (tuple, generators.clone(), "dict")
         }
         _ => return false,
@@ -34,22 +36,7 @@ pub(crate) fn rewrite_comprehension<T: Transformer>(transformer: &T, expr: &mut 
 
     transformer.visit_expr(&mut gen_expr);
 
-    *expr = Expr::Call(ast::ExprCall {
-        node_index: ast::AtomicNodeIndex::default(),
-        range: TextRange::default(),
-        func: Box::new(Expr::Name(ast::ExprName {
-            node_index: ast::AtomicNodeIndex::default(),
-            range: TextRange::default(),
-            id: Name::new_static(func_name),
-            ctx: ExprContext::Load,
-        })),
-        arguments: ast::Arguments {
-            range: TextRange::default(),
-            node_index: ast::AtomicNodeIndex::default(),
-            args: vec![gen_expr].into_boxed_slice(),
-            keywords: Vec::new().into_boxed_slice(),
-        },
-    });
+    *expr = crate::py_expr!("{func}({gen})", gen = gen_expr; id func = func_name);
 
     true
 }
