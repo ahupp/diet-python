@@ -109,7 +109,10 @@ impl Transformer for GeneratorRewriter {
             }
 
             let func_def = crate::py_stmt!(
-                "def {func:id}({param:id}):\n    {body:stmt}",
+                "
+def {func:id}({param:id}):
+    {body:stmt}
+",
                 func = func_name.as_str(),
                 param = param_name.as_str(),
                 body = body,
@@ -156,47 +159,51 @@ mod tests {
     #[test]
     fn rewrites_generator_expressions() {
         let input = "r = (a + 1 for a in items if a % 2 == 0)";
-        let expected = concat!(
-            "def __dp_gen_1(items):\n",
-            "    for a in items:\n",
-            "        if a % 2 == 0:\n",
-            "            yield a + 1\n",
-            "r = __dp_gen_1(items)"
-        );
+        let expected = r#"
+def __dp_gen_1(items):
+    for a in items:
+        if a % 2 == 0:
+            yield a + 1
+r = __dp_gen_1(items)
+"#;
         let output = rewrite_gen(input);
-        assert_eq!(output.trim_end(), expected.trim_end());
+        assert_eq!(output.trim(), expected.trim());
     }
 
     #[test]
     fn defines_function_in_local_scope() {
-        let input = concat!(
-            "def outer(items, offset):\n",
-            "    r = (a + offset for a in items)\n",
-            "    return r\n",
-        );
-        let expected = concat!(
-            "def outer(items, offset):\n\n",
-            "    def __dp_gen_1(items):\n",
-            "        for a in items:\n",
-            "            yield a + offset\n",
-            "    r = __dp_gen_1(items)\n",
-            "    return r",
-        );
+        let input = r#"
+def outer(items, offset):
+    r = (a + offset for a in items)
+    return r
+"#;
+        let expected = r#"
+def outer(items, offset):
+
+    def __dp_gen_1(items):
+        for a in items:
+            yield a + offset
+    r = __dp_gen_1(items)
+    return r
+"#;
         let output = rewrite_gen(input);
-        assert_eq!(output.trim_end(), expected);
+        assert_eq!(output.trim(), expected.trim());
     }
 
     #[test]
     fn passes_iter_expression_as_argument() {
-        let input = concat!("b = 1\n", "r = (a + b for a in some_function())",);
-        let expected = concat!(
-            "def __dp_gen_1(__dp_iter_1):\n",
-            "    for a in __dp_iter_1:\n",
-            "        yield a + b\n",
-            "b = 1\n",
-            "r = __dp_gen_1(some_function())",
-        );
+        let input = "
+b = 1
+r = (a + b for a in some_function())
+";
+        let expected = r#"
+def __dp_gen_1(__dp_iter_1):
+    for a in __dp_iter_1:
+        yield a + b
+b = 1
+r = __dp_gen_1(some_function())
+"#;
         let output = rewrite_gen(input);
-        assert_eq!(output.trim_end(), expected.trim_end());
+        assert_eq!(output.trim(), expected.trim());
     }
 }

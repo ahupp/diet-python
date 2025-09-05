@@ -43,7 +43,15 @@ impl Transformer for ForLoopRewriter {
             except_body.push(crate::py_stmt!("break").into_iter().next().unwrap());
 
             let inner = crate::py_stmt!(
-                "{iter_name:id} = iter({iter:expr})\nwhile True:\n    try:\n        {target:expr} = next({iter_name:id})\n    except StopIteration:\n        {except_body:stmt}\n    {body:stmt}",
+                "
+{iter_name:id} = iter({iter:expr})
+while True:
+    try:
+        {target:expr} = next({iter_name:id})
+    except StopIteration:
+        {except_body:stmt}
+    {body:stmt}
+",
                 iter_name = iter_name.as_str(),
                 iter = *iter_expr.clone(),
                 target = *target.clone(),
@@ -117,7 +125,11 @@ mod tests {
                         continue;
                     }
                 }
-                Stmt::While(ast::StmtWhile { body: inner, orelse, .. }) => {
+                Stmt::While(ast::StmtWhile {
+                    body: inner,
+                    orelse,
+                    ..
+                }) => {
                     flatten(inner);
                     flatten(orelse);
                 }
@@ -130,7 +142,10 @@ mod tests {
                 }) => {
                     flatten(inner);
                     for handler in handlers.iter_mut() {
-                        let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler { body, .. }) = handler;
+                        let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
+                            body,
+                            ..
+                        }) = handler;
                         flatten(body);
                     }
                     flatten(orelse);
@@ -144,30 +159,30 @@ mod tests {
 
     #[test]
     fn rewrites_for_loop_with_else() {
-        let input = concat!(
-            "for a in b:\n",
-            "    if a % 2 == 0:\n",
-            "        c(a)\n",
-            "    else:\n",
-            "        break\n",
-            "else:\n",
-            "    c(0)",
-        );
-        let expected = concat!(
-            "if True:\n",
-            "    _dp_iter_1 = iter(b)\n",
-            "    while True:\n",
-            "        try:\n",
-            "            a = next(_dp_iter_1)\n",
-            "        except StopIteration:\n",
-            "            c(0)\n",
-            "            break\n",
-            "        if a % 2 == 0:\n",
-            "            c(a)\n",
-            "        else:\n",
-            "            break",
-        );
+        let input = r#"
+for a in b:
+    if a % 2 == 0:
+        c(a)
+    else:
+        break
+else:
+    c(0)
+"#;
+        let expected = r#"
+if True:
+    _dp_iter_1 = iter(b)
+    while True:
+        try:
+            a = next(_dp_iter_1)
+        except StopIteration:
+            c(0)
+            break
+        if a % 2 == 0:
+            c(a)
+        else:
+            break
+"#;
         let output = rewrite_for(input);
-        assert_eq!(output.trim_end(), expected.trim_end());
+        assert_eq!(output.trim(), expected.trim());
     }
 }

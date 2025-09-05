@@ -283,7 +283,15 @@ mod tests {
 
     #[test]
     fn inserts_stmt() {
-        let body = parse_module("a = 1\nb = 2").unwrap().into_syntax().body;
+        let body = parse_module(
+            "
+a = 1
+b = 2
+",
+        )
+        .unwrap()
+        .into_syntax()
+        .body;
         let stmts = py_stmt!("{body:stmt}", body = body.clone());
         assert_eq!(stmts.len(), 2);
         assert_eq!(
@@ -300,7 +308,10 @@ mod tests {
     fn inserts_function_parts() {
         let body = parse_module("a = 1").unwrap().into_syntax().body;
         let stmts = py_stmt!(
-            "def {func:id}({param:id}):\n    {body:stmt}",
+            "
+def {func:id}({param:id}):
+    {body:stmt}
+",
             func = "foo",
             param = "arg",
             body = body.clone(),

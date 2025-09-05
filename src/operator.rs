@@ -212,10 +212,16 @@ mod tests {
 
     #[test]
     fn rewrites_aug_assign() {
-        let input = "x = 1\nx += 2";
-        let expected = "x = 1\nx = operator.iadd(x, 2)";
+        let input = "
+x = 1
+x += 2
+";
+        let expected = "
+x = 1
+x = operator.iadd(x, 2)
+";
         let output = rewrite_source(input);
-        assert_eq!(output.trim_end(), expected);
+        assert_eq!(output.trim(), expected.trim());
     }
 
     #[test]

@@ -36,11 +36,7 @@ pub(crate) fn rewrite_comprehension<T: Transformer>(transformer: &T, expr: &mut 
 
     transformer.visit_expr(&mut gen_expr);
 
-    *expr = crate::py_expr!(
-        "{func:id}({gen:expr})",
-        gen = gen_expr,
-        func = func_name
-    );
+    *expr = crate::py_expr!("{func:id}({gen:expr})", gen = gen_expr, func = func_name);
 
     true
 }
@@ -72,41 +68,41 @@ mod tests {
     #[test]
     fn rewrites_list_comp() {
         let input = "r = [a + 1 for a in items if a % 2 == 0]";
-        let expected = concat!(
-            "def __dp_gen_1(items):\n",
-            "    for a in items:\n",
-            "        if a % 2 == 0:\n",
-            "            yield a + 1\n",
-            "r = list(__dp_gen_1(items))",
-        );
+        let expected = r#"
+def __dp_gen_1(items):
+    for a in items:
+        if a % 2 == 0:
+            yield a + 1
+r = list(__dp_gen_1(items))
+"#;
         let output = rewrite_gen(input);
-        assert_eq!(output.trim_end(), expected.trim_end());
+        assert_eq!(output.trim(), expected.trim());
     }
 
     #[test]
     fn rewrites_set_comp() {
         let input = "r = {a for a in items}";
-        let expected = concat!(
-            "def __dp_gen_1(items):\n",
-            "    for a in items:\n",
-            "        yield a\n",
-            "r = set(__dp_gen_1(items))",
-        );
+        let expected = r#"
+def __dp_gen_1(items):
+    for a in items:
+        yield a
+r = set(__dp_gen_1(items))
+"#;
         let output = rewrite_gen(input);
-        assert_eq!(output.trim_end(), expected.trim_end());
+        assert_eq!(output.trim(), expected.trim());
     }
 
     #[test]
     fn rewrites_dict_comp() {
         let input = "r = {k: v + 1 for k, v in items if k % 2 == 0}";
-        let expected = concat!(
-            "def __dp_gen_1(items):\n",
-            "    for k, v in items:\n",
-            "        if k % 2 == 0:\n",
-            "            yield k, v + 1\n",
-            "r = dict(__dp_gen_1(items))",
-        );
+        let expected = r#"
+def __dp_gen_1(items):
+    for k, v in items:
+        if k % 2 == 0:
+            yield k, v + 1
+r = dict(__dp_gen_1(items))
+"#;
         let output = rewrite_gen(input);
-        assert_eq!(output.trim_end(), expected.trim_end());
+        assert_eq!(output.trim(), expected.trim());
     }
 }
