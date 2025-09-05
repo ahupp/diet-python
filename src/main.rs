@@ -5,13 +5,15 @@ use ruff_python_codegen::{Generator, Stylist};
 use ruff_python_parser::parse_module;
 
 mod comprehension;
-mod gen;
 mod for_loop;
+mod gen;
+mod literal;
 mod operator;
 mod template;
 
-use gen::GeneratorRewriter;
 use for_loop::ForLoopRewriter;
+use gen::GeneratorRewriter;
+use literal::LiteralRewriter;
 use operator::{ensure_operator_import, OperatorRewriter};
 
 fn rewrite_source_inner(source: &str, ensure_import: bool) -> String {
@@ -31,6 +33,9 @@ fn rewrite_source_inner(source: &str, ensure_import: bool) -> String {
     if ensure_import && op_transformer.transformed() {
         ensure_operator_import(&mut module);
     }
+
+    let literal_transformer = LiteralRewriter::new();
+    walk_body(&literal_transformer, &mut module.body);
 
     let stylist = Stylist::from_tokens(&tokens, source);
     let mut output = String::new();
