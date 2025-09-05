@@ -19,20 +19,27 @@ macro_rules! py_stmt {
         use ruff_python_parser::parse_module;
         use std::collections::HashMap;
         use regex::Regex;
-        use crate::template::{var_for_placeholder, PlaceholderKind, PlaceholderValue, SyntaxTemplate};
+        use crate::template::{
+            var_for_placeholder, PlaceholderKind, PlaceholderValue, SyntaxTemplate,
+        };
 
         #[allow(unused_mut)]
         let mut values: HashMap<&str, PlaceholderValue> = HashMap::new();
-        $(values.insert(stringify!($name), PlaceholderValue::from($value));)*
+        #[allow(unused_mut)]
+        let mut ids: HashMap<&str, String> = HashMap::new();
+        $(match $crate::template::IntoPlaceholder::into_placeholder($value) {
+            Ok(value) => { values.insert(stringify!($name), value); }
+            Err(id) => { ids.insert(stringify!($name), id); }
+        });*
 
         let re = Regex::new(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\:([a-zA-Z_][a-zA-Z0-9_]*)\}").unwrap();
         let src = {
-            let values = &mut values;
+            let ids = &ids;
             re.replace_all($template, |caps: &regex::Captures| {
                 let name = &caps[1];
                 match &caps[2] {
-                    "id" => match values.remove(name) {
-                        Some(PlaceholderValue::Id(value)) => value,
+                    "id" => match ids.get(name) {
+                        Some(value) => value.clone(),
                         _ => panic!("expected id for placeholder `{name}`"),
                     },
                     "expr" => var_for_placeholder((name, &PlaceholderKind::Expr)),
@@ -67,43 +74,46 @@ pub(crate) enum PlaceholderKind {
 
 pub(crate) enum PlaceholderValue {
     Expr(Box<Expr>),
-    Id(String),
     Stmt(Vec<Stmt>),
 }
 
-impl From<Expr> for PlaceholderValue {
-    fn from(value: Expr) -> Self {
-        Self::Expr(Box::new(value))
+pub(crate) trait IntoPlaceholder {
+    fn into_placeholder(self) -> Result<PlaceholderValue, String>;
+}
+
+impl IntoPlaceholder for Expr {
+    fn into_placeholder(self) -> Result<PlaceholderValue, String> {
+        Ok(PlaceholderValue::Expr(Box::new(self)))
     }
 }
 
-impl From<Box<Expr>> for PlaceholderValue {
-    fn from(value: Box<Expr>) -> Self {
-        Self::Expr(value)
+impl IntoPlaceholder for Box<Expr> {
+    fn into_placeholder(self) -> Result<PlaceholderValue, String> {
+        Ok(PlaceholderValue::Expr(self))
     }
 }
 
-impl From<&str> for PlaceholderValue {
-    fn from(value: &str) -> Self {
-        Self::Id(value.to_string())
+impl IntoPlaceholder for &str {
+    fn into_placeholder(self) -> Result<PlaceholderValue, String> {
+        Err(self.to_string())
     }
 }
 
-impl From<String> for PlaceholderValue {
-    fn from(value: String) -> Self {
-        Self::Id(value)
+impl IntoPlaceholder for String {
+    fn into_placeholder(self) -> Result<PlaceholderValue, String> {
+        Err(self)
     }
 }
 
-impl From<Stmt> for PlaceholderValue {
-    fn from(value: Stmt) -> Self {
-        Self::Stmt(vec![value])
+impl IntoPlaceholder for Stmt {
+    fn into_placeholder(self) -> Result<PlaceholderValue, String> {
+        Ok(PlaceholderValue::Stmt(vec![self]))
     }
 }
 
-impl From<Vec<Stmt>> for PlaceholderValue {
-    fn from(value: Vec<Stmt>) -> Self {
-        Self::Stmt(value)
+impl IntoPlaceholder for Vec<Stmt> {
+    fn into_placeholder(self) -> Result<PlaceholderValue, String> {
+        Ok(PlaceholderValue::Stmt(self))
     }
 }
 
@@ -261,6 +271,13 @@ mod tests {
             .unwrap()
             .into_syntax()
             .body;
+        assert_eq!(ComparableExpr::from(&expr), ComparableExpr::from(&expected));
+    }
+
+    #[test]
+    fn reuses_identifier() {
+        let expr = py_expr!("{name:id} + {name:id}", name = "x");
+        let expected = *parse_expression("x + x").unwrap().into_syntax().body;
         assert_eq!(ComparableExpr::from(&expr), ComparableExpr::from(&expected));
     }
 

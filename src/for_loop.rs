@@ -14,7 +14,6 @@ impl ForLoopRewriter {
             iter_count: Cell::new(0),
         }
     }
-
 }
 
 impl Transformer for ForLoopRewriter {
@@ -23,7 +22,7 @@ impl Transformer for ForLoopRewriter {
 
         if let Stmt::For(ast::StmtFor {
             target,
-            iter,
+            iter: iter_expr,
             body,
             orelse,
             is_async,
@@ -38,68 +37,25 @@ impl Transformer for ForLoopRewriter {
             self.iter_count.set(id);
             let iter_name = format!("_dp_iter_{}", id);
 
-            let iter_expr = crate::py_expr!("{name:id}", name = iter_name.as_str());
-            let iter_call = crate::py_expr!("iter({iter:expr})", iter = *iter.clone());
-
-            let assign_iter = Stmt::Assign(ast::StmtAssign {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: TextRange::default(),
-                targets: vec![iter_expr.clone()],
-                value: Box::new(iter_call),
-            });
-
-            let next_call = crate::py_expr!("next({iter:expr})", iter = iter_expr.clone());
-            let assign_next = Stmt::Assign(ast::StmtAssign {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: TextRange::default(),
-                targets: vec![(*target.clone())],
-                value: Box::new(next_call),
-            });
-
             let body_stmts = std::mem::take(body);
 
-            let try_body = vec![assign_next];
-
             let mut except_body = std::mem::take(orelse);
-            except_body.push(Stmt::Break(ast::StmtBreak {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: TextRange::default(),
-            }));
+            except_body.push(crate::py_stmt!("break").into_iter().next().unwrap());
 
-            let handler = ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: TextRange::default(),
-                type_: Some(Box::new(crate::py_expr!("StopIteration"))),
-                name: None,
-                body: except_body,
-            });
-
-            let try_stmt = Stmt::Try(ast::StmtTry {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: TextRange::default(),
-                body: try_body,
-                handlers: vec![handler],
-                orelse: Vec::new(),
-                finalbody: Vec::new(),
-                is_star: false,
-            });
-
-            let mut while_body = vec![try_stmt];
-            while_body.extend(body_stmts);
-
-            let while_stmt = Stmt::While(ast::StmtWhile {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: TextRange::default(),
-                test: Box::new(crate::py_expr!("True")),
-                body: while_body,
-                orelse: Vec::new(),
-            });
+            let inner = crate::py_stmt!(
+                "{iter_name:id} = iter({iter:expr})\nwhile True:\n    try:\n        {target:expr} = next({iter_name:id})\n    except StopIteration:\n        {except_body:stmt}\n    {body:stmt}",
+                iter_name = iter_name.as_str(),
+                iter = *iter_expr.clone(),
+                target = *target.clone(),
+                except_body = except_body,
+                body = body_stmts,
+            );
 
             let wrapper = Stmt::If(ast::StmtIf {
                 node_index: ast::AtomicNodeIndex::default(),
                 range: TextRange::default(),
                 test: Box::new(crate::py_expr!("True")),
-                body: vec![assign_iter, while_stmt],
+                body: inner,
                 elif_else_clauses: Vec::new(),
             });
 
@@ -122,6 +78,9 @@ mod tests {
 
         let rewriter = ForLoopRewriter::new();
         walk_body(&rewriter, &mut module.body);
+        if let [Stmt::If(ast::StmtIf { body, .. })] = module.body.as_mut_slice() {
+            flatten(body);
+        }
 
         let stylist = Stylist::from_tokens(&tokens, source);
         let mut output = String::new();
@@ -131,6 +90,56 @@ mod tests {
             output.push_str(stylist.line_ending().as_str());
         }
         output
+    }
+
+    fn flatten(body: &mut Vec<Stmt>) {
+        let mut i = 0;
+        while i < body.len() {
+            match &mut body[i] {
+                Stmt::If(ast::StmtIf {
+                    test,
+                    body: inner,
+                    elif_else_clauses,
+                    ..
+                }) => {
+                    flatten(inner);
+                    for clause in elif_else_clauses.iter_mut() {
+                        flatten(&mut clause.body);
+                    }
+                    if elif_else_clauses.is_empty()
+                        && matches!(
+                            test.as_ref(),
+                            ast::Expr::BooleanLiteral(ast::ExprBooleanLiteral { value: true, .. })
+                        )
+                    {
+                        let replacement = std::mem::take(inner);
+                        body.splice(i..=i, replacement);
+                        continue;
+                    }
+                }
+                Stmt::While(ast::StmtWhile { body: inner, orelse, .. }) => {
+                    flatten(inner);
+                    flatten(orelse);
+                }
+                Stmt::Try(ast::StmtTry {
+                    body: inner,
+                    handlers,
+                    orelse,
+                    finalbody,
+                    ..
+                }) => {
+                    flatten(inner);
+                    for handler in handlers.iter_mut() {
+                        let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler { body, .. }) = handler;
+                        flatten(body);
+                    }
+                    flatten(orelse);
+                    flatten(finalbody);
+                }
+                _ => {}
+            }
+            i += 1;
+        }
     }
 
     #[test]
