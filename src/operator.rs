@@ -2,7 +2,7 @@ use std::cell::Cell;
 
 use ruff_python_ast::name::Name;
 use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
-use ruff_python_ast::{self as ast, CmpOp, Expr, ExprContext, Identifier, Operator, Stmt, UnaryOp};
+use ruff_python_ast::{self as ast, CmpOp, Expr, Identifier, Operator, Stmt, UnaryOp};
 use ruff_text_size::TextRange;
 
 pub struct OperatorRewriter {
@@ -21,30 +21,29 @@ impl OperatorRewriter {
     }
 
     fn make_call(func_name: &'static str, args: Vec<Expr>) -> Expr {
-        let func = Expr::Attribute(ast::ExprAttribute {
-            node_index: ast::AtomicNodeIndex::default(),
-            range: TextRange::default(),
-            value: Box::new(Expr::Name(ast::ExprName {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: TextRange::default(),
-                id: Name::new_static("operator"),
-                ctx: ExprContext::Load,
-            })),
-            attr: Identifier::new(Name::new_static(func_name), TextRange::default()),
-            ctx: ExprContext::Load,
-        });
-
-        Expr::Call(ast::ExprCall {
-            node_index: ast::AtomicNodeIndex::default(),
-            range: TextRange::default(),
-            func: Box::new(func),
-            arguments: ast::Arguments {
-                range: TextRange::default(),
-                node_index: ast::AtomicNodeIndex::default(),
-                args: args.into_boxed_slice(),
-                keywords: Vec::new().into_boxed_slice(),
-            },
-        })
+        match args.len() {
+            1 => {
+                let mut iter = args.into_iter();
+                let arg = iter.next().unwrap();
+                crate::py_expr!(
+                    "operator.{func}({arg})",
+                    arg = arg;
+                    id func = func_name
+                )
+            }
+            2 => {
+                let mut iter = args.into_iter();
+                let left = iter.next().unwrap();
+                let right = iter.next().unwrap();
+                crate::py_expr!(
+                    "operator.{func}({left}, {right})",
+                    left = left,
+                    right = right;
+                    id func = func_name
+                )
+            }
+            _ => unreachable!(),
+        }
     }
 }
 
