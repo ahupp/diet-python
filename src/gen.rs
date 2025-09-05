@@ -3,7 +3,6 @@ use std::cell::{Cell, RefCell};
 use ruff_python_ast::name::Name;
 use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, Expr, Stmt};
-use ruff_text_size::TextRange;
 
 use crate::comprehension::rewrite_comprehension;
 
@@ -87,24 +86,36 @@ impl Transformer for GeneratorRewriter {
             for comp in gen.generators.iter().rev() {
                 let mut inner = body;
                 for if_expr in comp.ifs.iter().rev() {
-                    inner = vec![Stmt::If(ast::StmtIf {
-                        node_index: ast::AtomicNodeIndex::default(),
-                        range: TextRange::default(),
-                        test: Box::new(if_expr.clone()),
-                        body: inner,
-                        elif_else_clauses: Vec::new(),
-                    })];
+                    inner = vec![crate::py_stmt!(
+                        "
+if {test:expr}:
+    {body:stmt}
+",
+                        test = if_expr.clone(),
+                        body = inner,
+                    )];
                 }
-                let for_stmt = Stmt::For(ast::StmtFor {
-                    node_index: ast::AtomicNodeIndex::default(),
-                    range: TextRange::default(),
-                    is_async: comp.is_async,
-                    target: Box::new(comp.target.clone()),
-                    iter: Box::new(comp.iter.clone()),
-                    body: inner,
-                    orelse: Vec::new(),
-                });
-                body = vec![for_stmt];
+                body = vec![if comp.is_async {
+                    crate::py_stmt!(
+                        "
+async for {target:expr} in {iter:expr}:
+    {body:stmt}
+",
+                        target = comp.target.clone(),
+                        iter = comp.iter.clone(),
+                        body = inner,
+                    )
+                } else {
+                    crate::py_stmt!(
+                        "
+for {target:expr} in {iter:expr}:
+    {body:stmt}
+",
+                        target = comp.target.clone(),
+                        iter = comp.iter.clone(),
+                        body = inner,
+                    )
+                }];
             }
 
             if let Stmt::For(ast::StmtFor { iter, .. }) = body.first_mut().unwrap() {
@@ -135,6 +146,7 @@ def {func:id}({param:id}):
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::template::flatten;
     use ruff_python_codegen::{Generator as Codegen, Stylist};
     use ruff_python_parser::parse_module;
 
@@ -145,6 +157,7 @@ mod tests {
 
         let rewriter = GeneratorRewriter::new();
         rewriter.rewrite_body(&mut module.body);
+        flatten(&mut module.body);
 
         let stylist = Stylist::from_tokens(&tokens, source);
         let mut output = String::new();

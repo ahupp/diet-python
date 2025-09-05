@@ -173,7 +173,7 @@ impl SyntaxTemplate {
 
     pub(crate) fn visit_stmts(&self, body: &mut Vec<Stmt>) {
         self.visit_body(body);
-        flatten_stmt_placeholders(body);
+        flatten(body);
     }
 }
 
@@ -226,7 +226,7 @@ impl Transformer for SyntaxTemplate {
             Stmt::FunctionDef(_) => {
                 walk_stmt(self, stmt);
                 if let Stmt::FunctionDef(ast::StmtFunctionDef { body, .. }) = stmt {
-                    flatten_stmt_placeholders(body);
+                    flatten(body);
                 }
                 return;
             }
@@ -236,29 +236,93 @@ impl Transformer for SyntaxTemplate {
     }
 }
 
-fn flatten_stmt_placeholders(body: &mut Vec<Stmt>) {
-    let mut i = 0;
-    while i < body.len() {
-        if let Stmt::If(ast::StmtIf {
-            test,
-            body: inner,
-            elif_else_clauses,
-            ..
-        }) = &mut body[i]
-        {
-            if elif_else_clauses.is_empty()
-                && matches!(
-                    test.as_ref(),
-                    Expr::BooleanLiteral(ast::ExprBooleanLiteral { value: true, .. })
-                )
+pub(crate) struct Flattener;
+
+impl Flattener {
+    fn visit_stmts(&self, body: &mut Vec<Stmt>) {
+        let mut i = 0;
+        while i < body.len() {
+            self.visit_stmt(&mut body[i]);
+            if let Stmt::If(ast::StmtIf {
+                test,
+                body: inner,
+                elif_else_clauses,
+                ..
+            }) = &mut body[i]
             {
-                let replacement = std::mem::take(inner);
-                body.splice(i..=i, replacement);
-                continue;
+                if elif_else_clauses.is_empty()
+                    && matches!(
+                        test.as_ref(),
+                        Expr::BooleanLiteral(ast::ExprBooleanLiteral { value: true, .. })
+                    )
+                {
+                    let replacement = std::mem::take(inner);
+                    body.splice(i..=i, replacement);
+                    continue;
+                }
             }
+            i += 1;
         }
-        i += 1;
     }
+}
+
+impl Transformer for Flattener {
+    fn visit_stmt(&self, stmt: &mut Stmt) {
+        match stmt {
+            Stmt::If(ast::StmtIf {
+                body,
+                elif_else_clauses,
+                ..
+            }) => {
+                self.visit_stmts(body);
+                for clause in elif_else_clauses.iter_mut() {
+                    self.visit_stmts(&mut clause.body);
+                }
+            }
+            Stmt::For(ast::StmtFor {
+                body: inner,
+                orelse,
+                ..
+            }) => {
+                self.visit_stmts(inner);
+                self.visit_stmts(orelse);
+            }
+            Stmt::While(ast::StmtWhile {
+                body: inner,
+                orelse,
+                ..
+            }) => {
+                self.visit_stmts(inner);
+                self.visit_stmts(orelse);
+            }
+            Stmt::Try(ast::StmtTry {
+                body: inner,
+                handlers,
+                orelse,
+                finalbody,
+                ..
+            }) => {
+                self.visit_stmts(inner);
+                for handler in handlers.iter_mut() {
+                    let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
+                        body,
+                        ..
+                    }) = handler;
+                    self.visit_stmts(body);
+                }
+                self.visit_stmts(orelse);
+                self.visit_stmts(finalbody);
+            }
+            Stmt::FunctionDef(ast::StmtFunctionDef { body: inner, .. }) => {
+                self.visit_stmts(inner);
+            }
+            _ => {}
+        }
+    }
+}
+
+pub(crate) fn flatten(body: &mut Vec<Stmt>) {
+    Flattener.visit_stmts(body);
 }
 
 #[cfg(test)]
