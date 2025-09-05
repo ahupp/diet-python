@@ -2,7 +2,7 @@ use std::cell::{Cell, RefCell};
 
 use ruff_python_ast::name::Name;
 use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
-use ruff_python_ast::{self as ast, Expr, Identifier, Stmt};
+use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::TextRange;
 
 use crate::comprehension::rewrite_comprehension;
@@ -78,7 +78,6 @@ impl Transformer for GeneratorRewriter {
             } else {
                 Name::new(format!("__dp_iter_{}", id))
             };
-            let param_ident = Identifier::new(param_name.clone(), TextRange::default());
 
             let mut body = crate::py_stmt!("yield {value:expr}", value = (*gen.elt).clone(),);
 
@@ -109,37 +108,15 @@ impl Transformer for GeneratorRewriter {
                 *iter = Box::new(crate::py_expr!("{name:id}", name = param_name.as_str()));
             }
 
-            let parameters = ast::Parameters {
-                range: TextRange::default(),
-                node_index: ast::AtomicNodeIndex::default(),
-                posonlyargs: Vec::new(),
-                args: vec![ast::ParameterWithDefault {
-                    range: TextRange::default(),
-                    node_index: ast::AtomicNodeIndex::default(),
-                    parameter: ast::Parameter {
-                        range: TextRange::default(),
-                        node_index: ast::AtomicNodeIndex::default(),
-                        name: param_ident.clone(),
-                        annotation: None,
-                    },
-                    default: None,
-                }],
-                vararg: None,
-                kwonlyargs: Vec::new(),
-                kwarg: None,
-            };
-            let func_ident = Identifier::new(Name::new(&func_name), TextRange::default());
-            let func_def = Stmt::FunctionDef(ast::StmtFunctionDef {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: TextRange::default(),
-                is_async: false,
-                decorator_list: Vec::new(),
-                name: func_ident,
-                type_params: None,
-                parameters: Box::new(parameters),
-                returns: None,
-                body,
-            });
+            let func_def = crate::py_stmt!(
+                "def {func:id}({param:id}):\n    {body:stmt}",
+                func = func_name.as_str(),
+                param = param_name.as_str(),
+                body = body,
+            )
+            .into_iter()
+            .next()
+            .unwrap();
 
             self.add_function(func_def);
 

@@ -21,27 +21,31 @@ macro_rules! py_stmt {
         use regex::Regex;
         use crate::template::{var_for_placeholder, PlaceholderKind, PlaceholderValue, SyntaxTemplate};
 
+        #[allow(unused_mut)]
+        let mut values: HashMap<&str, PlaceholderValue> = HashMap::new();
+        $(values.insert(stringify!($name), PlaceholderValue::from($value));)*
+
         let re = Regex::new(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\:([a-zA-Z_][a-zA-Z0-9_]*)\}").unwrap();
-        let src = re
-            .replace_all($template, |caps: &regex::Captures| {
+        let src = {
+            let values = &mut values;
+            re.replace_all($template, |caps: &regex::Captures| {
                 let name = &caps[1];
-                let kind = match &caps[2] {
-                    "expr" => PlaceholderKind::Expr,
-                    "id" => PlaceholderKind::Id,
-                    "stmt" => PlaceholderKind::Stmt,
+                match &caps[2] {
+                    "id" => match values.remove(name) {
+                        Some(PlaceholderValue::Id(value)) => value,
+                        _ => panic!("expected id for placeholder `{name}`"),
+                    },
+                    "expr" => var_for_placeholder((name, &PlaceholderKind::Expr)),
+                    "stmt" => var_for_placeholder((name, &PlaceholderKind::Stmt)),
                     other => panic!("unknown placeholder type `{other}` for `{name}`"),
-                };
-                var_for_placeholder((name, &kind))
+                }
             })
-            .to_string();
+        };
+        let src = src.to_string();
 
         let module = parse_module(&src)
             .expect("template parse error")
             .into_syntax();
-
-        #[allow(unused_mut)]
-        let mut values: HashMap<&str, PlaceholderValue> = HashMap::new();
-        $(values.insert(stringify!($name), PlaceholderValue::from($value));)*
 
         let mut stmts = module.body;
         let template = SyntaxTemplate::new($template, values);
@@ -52,13 +56,12 @@ macro_rules! py_stmt {
 
 use regex::Regex;
 use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
-use ruff_python_ast::{self as ast, name::Name, Expr, Identifier, Stmt};
+use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::TextRange;
 use std::{cell::RefCell, collections::HashMap};
 
 pub(crate) enum PlaceholderKind {
     Expr,
-    Id,
     Stmt,
 }
 
@@ -107,7 +110,6 @@ impl From<Vec<Stmt>> for PlaceholderValue {
 pub(crate) fn var_for_placeholder((name, kind): (&str, &PlaceholderKind)) -> String {
     match kind {
         PlaceholderKind::Expr => format!("__dp_placeholder_{}__", name),
-        PlaceholderKind::Id => format!("__dp_placeholder_ident_{}__", name),
         PlaceholderKind::Stmt => format!("__dp_placeholder_stmt_{}__", name),
     }
 }
@@ -123,7 +125,7 @@ impl SyntaxTemplate {
 
         Self {
             regex: Regex::new(
-                r"^__dp_placeholder(?:_(?P<kind>ident|stmt))?_(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)__$",
+                r"^__dp_placeholder(?:_(?P<kind>stmt))?_(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)__$",
             )
             .unwrap(),
             values: RefCell::new(
@@ -138,7 +140,6 @@ impl SyntaxTemplate {
     fn parse_placeholder<'a>(&self, symbol: &'a str) -> Option<(PlaceholderKind, &'a str)> {
         self.regex.captures(symbol).map(|caps| {
             let kind = match caps.name("kind").map(|m| m.as_str()) {
-                Some("ident") => PlaceholderKind::Id,
                 Some("stmt") => PlaceholderKind::Stmt,
                 _ => PlaceholderKind::Expr,
             };
@@ -156,31 +157,6 @@ impl SyntaxTemplate {
 impl Transformer for SyntaxTemplate {
     fn visit_expr(&self, expr: &mut Expr) {
         match expr {
-            Expr::Attribute(ast::ExprAttribute { attr, .. }) => {
-                if let Some((kind, name)) = self.parse_placeholder(attr.id.as_str()) {
-                    match (kind, self.values.borrow_mut().remove(name)) {
-                        (PlaceholderKind::Id, Some(PlaceholderValue::Id(value))) => {
-                            *attr = Identifier::new(
-                                Name::new(value),
-                                TextRange::default(),
-                            );
-                        }
-                        (PlaceholderKind::Id, _) => {
-                            panic!("expected id for placeholder {name}");
-                        }
-                        (PlaceholderKind::Expr, Some(PlaceholderValue::Expr(value))) => {
-                            *expr = *value;
-                            return;
-                        }
-                        (PlaceholderKind::Expr, _) => {
-                            panic!("expected expr for placeholder {name}");
-                        }
-                        (PlaceholderKind::Stmt, _) => {
-                            panic!("expected stmt for placeholder {name}");
-                        }
-                    }
-                }
-            }
             Expr::Name(ast::ExprName { id, .. }) => {
                 if let Some((kind, name)) = self.parse_placeholder(id.as_str()) {
                     match (kind, self.values.borrow_mut().remove(name)) {
@@ -190,12 +166,6 @@ impl Transformer for SyntaxTemplate {
                         }
                         (PlaceholderKind::Expr, _) => {
                             panic!("expected expr for placeholder {name}");
-                        }
-                        (PlaceholderKind::Id, Some(PlaceholderValue::Id(value))) => {
-                            *id = Name::new(value);
-                        }
-                        (PlaceholderKind::Id, _) => {
-                            panic!("expected id for placeholder {name}");
                         }
                         (PlaceholderKind::Stmt, _) => {
                             panic!("expected stmt for placeholder {name}");
@@ -209,25 +179,35 @@ impl Transformer for SyntaxTemplate {
     }
 
     fn visit_stmt(&self, stmt: &mut Stmt) {
-        if let Stmt::Expr(ast::StmtExpr { value, .. }) = stmt {
-            if let Expr::Name(ast::ExprName { id, .. }) = value.as_ref() {
-                if let Some((kind, name)) = self.parse_placeholder(id.as_str()) {
-                    if matches!(kind, PlaceholderKind::Stmt) {
-                        match self.values.borrow_mut().remove(name) {
-                            Some(PlaceholderValue::Stmt(value)) => {
-                                *stmt = Stmt::If(ast::StmtIf {
-                                    node_index: ast::AtomicNodeIndex::default(),
-                                    range: TextRange::default(),
-                                    test: Box::new(crate::py_expr!("True")),
-                                    body: value,
-                                    elif_else_clauses: Vec::new(),
-                                });
+        match stmt {
+            Stmt::Expr(ast::StmtExpr { value, .. }) => {
+                if let Expr::Name(ast::ExprName { id, .. }) = value.as_ref() {
+                    if let Some((kind, name)) = self.parse_placeholder(id.as_str()) {
+                        if matches!(kind, PlaceholderKind::Stmt) {
+                            match self.values.borrow_mut().remove(name) {
+                                Some(PlaceholderValue::Stmt(value)) => {
+                                    *stmt = Stmt::If(ast::StmtIf {
+                                        node_index: ast::AtomicNodeIndex::default(),
+                                        range: TextRange::default(),
+                                        test: Box::new(crate::py_expr!("True")),
+                                        body: value,
+                                        elif_else_clauses: Vec::new(),
+                                    });
+                                }
+                                _ => panic!("expected stmt for placeholder {name}"),
                             }
-                            _ => panic!("expected stmt for placeholder {name}"),
                         }
                     }
                 }
             }
+            Stmt::FunctionDef(_) => {
+                walk_stmt(self, stmt);
+                if let Stmt::FunctionDef(ast::StmtFunctionDef { body, .. }) = stmt {
+                    flatten_stmt_placeholders(body);
+                }
+                return;
+            }
+            _ => {}
         }
         walk_stmt(self, stmt);
     }
@@ -260,7 +240,10 @@ fn flatten_stmt_placeholders(body: &mut Vec<Stmt>) {
 
 #[cfg(test)]
 mod tests {
-    use ruff_python_ast::comparable::{ComparableExpr, ComparableStmt};
+    use ruff_python_ast::{
+        self as ast,
+        comparable::{ComparableExpr, ComparableStmt},
+    };
     use ruff_python_parser::{parse_expression, parse_module};
 
     #[test]
@@ -294,5 +277,33 @@ mod tests {
             ComparableStmt::from(&stmts[1]),
             ComparableStmt::from(&body[1])
         );
+    }
+
+    #[test]
+    fn inserts_function_parts() {
+        let body = parse_module("a = 1").unwrap().into_syntax().body;
+        let stmts = py_stmt!(
+            "def {func:id}({param:id}):\n    {body:stmt}",
+            func = "foo",
+            param = "arg",
+            body = body.clone(),
+        );
+        assert_eq!(stmts.len(), 1);
+        match &stmts[0] {
+            ruff_python_ast::Stmt::FunctionDef(ast::StmtFunctionDef {
+                name,
+                parameters,
+                body: fn_body,
+                ..
+            }) => {
+                assert_eq!(name.id.as_str(), "foo");
+                assert_eq!(parameters.args[0].parameter.name.id.as_str(), "arg");
+                assert_eq!(
+                    ComparableStmt::from(&fn_body[0]),
+                    ComparableStmt::from(&body[0])
+                );
+            }
+            _ => panic!("expected function def"),
+        }
     }
 }
