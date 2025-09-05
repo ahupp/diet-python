@@ -35,46 +35,31 @@ impl GeneratorRewriter {
     pub fn rewrite_body(&self, body: &mut Vec<Stmt>) {
         self.push_scope();
         for stmt in body.iter_mut() {
-            self.rewrite_stmt(stmt);
+            self.visit_stmt(stmt);
         }
         let functions = self.pop_scope();
         if !functions.is_empty() {
             body.splice(0..0, functions);
         }
     }
-
-    fn rewrite_stmt(&self, stmt: &mut Stmt) {
-        match stmt {
-            Stmt::FunctionDef(ast::StmtFunctionDef { body, .. })
-            | Stmt::ClassDef(ast::StmtClassDef { body, .. }) => {
-                self.rewrite_body(body);
-            }
-            Stmt::For(ast::StmtFor { body, orelse, .. })
-            | Stmt::While(ast::StmtWhile { body, orelse, .. }) => {
-                self.rewrite_body(body);
-                self.rewrite_body(orelse);
-            }
-            Stmt::If(ast::StmtIf {
-                body,
-                elif_else_clauses,
-                ..
-            }) => {
-                self.rewrite_body(body);
-                for clause in elif_else_clauses {
-                    self.rewrite_body(&mut clause.body);
-                }
-            }
-            Stmt::With(ast::StmtWith { body, .. }) => {
-                self.rewrite_body(body);
-            }
-            _ => {}
-        }
-
-        walk_stmt(self, stmt);
-    }
 }
 
 impl Transformer for GeneratorRewriter {
+    fn visit_stmt(&self, stmt: &mut Stmt) {
+        if matches!(stmt, Stmt::FunctionDef(_)) {
+            self.push_scope();
+            walk_stmt(self, stmt);
+            let functions = self.pop_scope();
+            if !functions.is_empty() {
+                if let Stmt::FunctionDef(ast::StmtFunctionDef { body, .. }) = stmt {
+                    body.splice(0..0, functions);
+                }
+            }
+        } else {
+            walk_stmt(self, stmt);
+        }
+    }
+
     fn visit_expr(&self, expr: &mut Expr) {
         if rewrite_comprehension(self, expr) {
             return;
