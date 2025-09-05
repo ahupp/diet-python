@@ -26,9 +26,9 @@ impl OperatorRewriter {
                 let mut iter = args.into_iter();
                 let arg = iter.next().unwrap();
                 crate::py_expr!(
-                    "operator.{func}({arg})",
-                    arg = arg;
-                    id func = func_name
+                    "operator.{func:id}({arg:expr})",
+                    arg = arg,
+                    func = func_name
                 )
             }
             2 => {
@@ -36,10 +36,10 @@ impl OperatorRewriter {
                 let left = iter.next().unwrap();
                 let right = iter.next().unwrap();
                 crate::py_expr!(
-                    "operator.{func}({left}, {right})",
+                    "operator.{func:id}({left:expr}, {right:expr})",
                     left = left,
-                    right = right;
-                    id func = func_name
+                    right = right,
+                    func = func_name
                 )
             }
             _ => unreachable!(),

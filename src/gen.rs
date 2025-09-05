@@ -125,7 +125,7 @@ impl Transformer for GeneratorRewriter {
             }
 
             if let Stmt::For(ast::StmtFor { iter, .. }) = body.first_mut().unwrap() {
-                *iter = Box::new(crate::py_expr!("{name}"; id name = param_name.as_str()));
+                *iter = Box::new(crate::py_expr!("{name:id}", name = param_name.as_str()));
             }
 
             let parameters = ast::Parameters {
@@ -163,9 +163,9 @@ impl Transformer for GeneratorRewriter {
             self.add_function(func_def);
 
             *expr = crate::py_expr!(
-                "{func}({iter})",
-                iter = first_iter_expr;
-                id func = func_name.as_str()
+                "{func:id}({iter:expr})",
+                iter = first_iter_expr,
+                func = func_name.as_str()
             );
         }
     }

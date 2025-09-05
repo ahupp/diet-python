@@ -17,9 +17,9 @@ pub(crate) fn rewrite_comprehension<T: Transformer>(transformer: &T, expr: &mut 
             ..
         }) => {
             let tuple = crate::py_expr!(
-                "({key}, {value})",
-                key = (*key.clone()),
-                value = (*value.clone())
+                "({key:expr}, {value:expr})",
+                key = *key.clone(),
+                value = *value.clone()
             );
             (tuple, generators.clone(), "dict")
         }
@@ -36,7 +36,7 @@ pub(crate) fn rewrite_comprehension<T: Transformer>(transformer: &T, expr: &mut 
 
     transformer.visit_expr(&mut gen_expr);
 
-    *expr = crate::py_expr!("{func}({gen})", gen = gen_expr; id func = func_name);
+    *expr = crate::py_expr!("{func:id}({gen:expr})", gen = gen_expr, func = func_name);
 
     true
 }
