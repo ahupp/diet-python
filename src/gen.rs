@@ -54,7 +54,11 @@ impl GeneratorRewriter {
                 self.rewrite_body(body);
                 self.rewrite_body(orelse);
             }
-            Stmt::If(ast::StmtIf { body, elif_else_clauses, .. }) => {
+            Stmt::If(ast::StmtIf {
+                body,
+                elif_else_clauses,
+                ..
+            }) => {
                 self.rewrite_body(body);
                 for clause in elif_else_clauses {
                     self.rewrite_body(&mut clause.body);
@@ -91,15 +95,7 @@ impl Transformer for GeneratorRewriter {
             };
             let param_ident = Identifier::new(param_name.clone(), TextRange::default());
 
-            let mut body = vec![Stmt::Expr(ast::StmtExpr {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: TextRange::default(),
-                value: Box::new(Expr::Yield(ast::ExprYield {
-                    node_index: ast::AtomicNodeIndex::default(),
-                    range: TextRange::default(),
-                    value: Some(Box::new((*gen.elt).clone())),
-                })),
-            })];
+            let mut body = crate::py_stmt!("yield {value:expr}", value = (*gen.elt).clone(),);
 
             for comp in gen.generators.iter().rev() {
                 let mut inner = body;
@@ -230,10 +226,7 @@ mod tests {
 
     #[test]
     fn passes_iter_expression_as_argument() {
-        let input = concat!(
-            "b = 1\n",
-            "r = (a + b for a in some_function())",
-        );
+        let input = concat!("b = 1\n", "r = (a + b for a in some_function())",);
         let expected = concat!(
             "def __dp_gen_1(__dp_iter_1):\n",
             "    for a in __dp_iter_1:\n",
