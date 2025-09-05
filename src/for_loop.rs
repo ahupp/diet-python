@@ -2,7 +2,6 @@ use std::cell::Cell;
 
 use ruff_python_ast::visitor::transformer::{walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, Stmt};
-use ruff_text_size::TextRange;
 
 pub struct ForLoopRewriter {
     iter_count: Cell<usize>,
@@ -40,9 +39,9 @@ impl Transformer for ForLoopRewriter {
             let body_stmts = std::mem::take(body);
 
             let mut except_body = std::mem::take(orelse);
-            except_body.push(crate::py_stmt!("break").into_iter().next().unwrap());
+            except_body.push(crate::py_stmt!("break"));
 
-            let inner = crate::py_stmt!(
+            let wrapper = crate::py_stmt!(
                 "
 {iter_name:id} = iter({iter:expr})
 while True:
@@ -58,14 +57,6 @@ while True:
                 except_body = except_body,
                 body = body_stmts,
             );
-
-            let wrapper = Stmt::If(ast::StmtIf {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: TextRange::default(),
-                test: Box::new(crate::py_expr!("True")),
-                body: inner,
-                elif_else_clauses: Vec::new(),
-            });
 
             *stmt = wrapper;
         }

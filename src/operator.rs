@@ -134,10 +134,7 @@ impl Transformer for OperatorRewriter {
                 "{target:expr} = {value:expr}",
                 target = target,
                 value = call,
-            )
-            .into_iter()
-            .next()
-            .unwrap();
+            );
 
             self.replaced.set(true);
         }
@@ -156,10 +153,7 @@ pub fn ensure_operator_import(module: &mut ast::ModModule) {
     });
 
     if !has_import {
-        let import = crate::py_stmt!("import operator")
-            .into_iter()
-            .next()
-            .unwrap();
+        let import = crate::py_stmt!("import operator");
 
         module.body.insert(0, import);
     }

@@ -79,7 +79,10 @@ impl Transformer for GeneratorRewriter {
                 Name::new(format!("__dp_iter_{}", id))
             };
 
-            let mut body = crate::py_stmt!("yield {value:expr}", value = (*gen.elt).clone(),);
+            let mut body = vec![crate::py_stmt!(
+                "yield {value:expr}",
+                value = (*gen.elt).clone(),
+            )];
 
             for comp in gen.generators.iter().rev() {
                 let mut inner = body;
@@ -116,10 +119,7 @@ def {func:id}({param:id}):
                 func = func_name.as_str(),
                 param = param_name.as_str(),
                 body = body,
-            )
-            .into_iter()
-            .next()
-            .unwrap();
+            );
 
             self.add_function(func_def);
 
