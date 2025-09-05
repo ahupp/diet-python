@@ -7,6 +7,7 @@ use ruff_python_parser::parse_module;
 mod comprehension;
 mod gen;
 mod operator;
+mod template;
 
 use gen::GeneratorRewriter;
 use operator::{ensure_operator_import, OperatorRewriter};
