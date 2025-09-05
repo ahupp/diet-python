@@ -2,11 +2,8 @@
 macro_rules! py_expr {
     ($template:literal $(, $name:ident = $value:expr)* $(,)?) => {{
         use ruff_python_ast::{self as ast, Stmt};
-        let mut stmts = $crate::py_stmt!($template $(, $name = $value)*);
-        if stmts.len() != 1 {
-            panic!("expected a single expression");
-        }
-        match stmts.pop().unwrap() {
+        let stmt = $crate::py_stmt!($template $(, $name = $value)*);
+        match stmt {
             Stmt::Expr(ast::StmtExpr { value, .. }) => *value,
             _ => panic!("expected expression statement"),
         }
@@ -19,6 +16,8 @@ macro_rules! py_stmt {
         use ruff_python_parser::parse_module;
         use std::collections::HashMap;
         use regex::Regex;
+        use ruff_python_ast::{self as ast, Stmt};
+        use ruff_text_size::TextRange;
         use crate::template::{
             var_for_placeholder, PlaceholderKind, PlaceholderValue, SyntaxTemplate,
         };
@@ -57,7 +56,21 @@ macro_rules! py_stmt {
         let mut stmts = module.body;
         let template = SyntaxTemplate::new($template, values);
         template.visit_stmts(&mut stmts);
-        stmts
+        if stmts.len() == 1 {
+            stmts.pop().unwrap()
+        } else {
+            Stmt::If(ast::StmtIf {
+                node_index: ast::AtomicNodeIndex::default(),
+                range: TextRange::default(),
+                test: Box::new(ast::Expr::BooleanLiteral(ast::ExprBooleanLiteral {
+                    node_index: ast::AtomicNodeIndex::default(),
+                    range: TextRange::default(),
+                    value: true,
+                })),
+                body: stmts,
+                elif_else_clauses: Vec::new(),
+            })
+        }
     }};
 }
 
@@ -292,22 +305,21 @@ b = 2
         .unwrap()
         .into_syntax()
         .body;
-        let stmts = py_stmt!("{body:stmt}", body = body.clone());
-        assert_eq!(stmts.len(), 2);
+        let stmt = py_stmt!("{body:stmt}", body = body.clone());
+        let expected = parse_module("if True:\n    a = 1\n    b = 2")
+            .unwrap()
+            .into_syntax()
+            .body;
         assert_eq!(
-            ComparableStmt::from(&stmts[0]),
-            ComparableStmt::from(&body[0])
-        );
-        assert_eq!(
-            ComparableStmt::from(&stmts[1]),
-            ComparableStmt::from(&body[1])
+            ComparableStmt::from(&stmt),
+            ComparableStmt::from(&expected[0])
         );
     }
 
     #[test]
     fn inserts_function_parts() {
         let body = parse_module("a = 1").unwrap().into_syntax().body;
-        let stmts = py_stmt!(
+        let stmt = py_stmt!(
             "
 def {func:id}({param:id}):
     {body:stmt}
@@ -316,8 +328,7 @@ def {func:id}({param:id}):
             param = "arg",
             body = body.clone(),
         );
-        assert_eq!(stmts.len(), 1);
-        match &stmts[0] {
+        match &stmt {
             ruff_python_ast::Stmt::FunctionDef(ast::StmtFunctionDef {
                 name,
                 parameters,
