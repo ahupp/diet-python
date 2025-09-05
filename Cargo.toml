@@ -8,3 +8,4 @@ ruff_python_parser = { git = "https://github.com/astral-sh/ruff", package = "ruf
 ruff_python_ast = { git = "https://github.com/astral-sh/ruff", package = "ruff_python_ast" }
 ruff_python_codegen = { git = "https://github.com/astral-sh/ruff", package = "ruff_python_codegen" }
 ruff_text_size = { git = "https://github.com/astral-sh/ruff", package = "ruff_text_size" }
+regex = "1"

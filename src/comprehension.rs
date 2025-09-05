@@ -36,7 +36,11 @@ pub(crate) fn rewrite_comprehension<T: Transformer>(transformer: &T, expr: &mut 
 
     transformer.visit_expr(&mut gen_expr);
 
-    *expr = crate::py_expr!("{func:id}({gen:expr})", gen = gen_expr, func = func_name);
+    *expr = crate::py_expr!(
+        "{func:id}({gen:expr})",
+        gen = gen_expr,
+        func = func_name
+    );
 
     true
 }
