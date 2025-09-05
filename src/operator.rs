@@ -190,6 +190,9 @@ mod tests {
         let gen_transformer = GeneratorRewriter::new();
         gen_transformer.rewrite_body(&mut module.body);
 
+        let for_transformer = crate::for_loop::ForLoopRewriter::new();
+        walk_body(&for_transformer, &mut module.body);
+
         let op_transformer = OperatorRewriter::new();
         walk_body(&op_transformer, &mut module.body);
 
