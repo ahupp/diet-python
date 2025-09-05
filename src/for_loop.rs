@@ -37,9 +37,7 @@ impl Transformer for ForLoopRewriter {
             let iter_name = format!("_dp_iter_{}", id);
 
             let body_stmts = std::mem::take(body);
-
-            let mut except_body = std::mem::take(orelse);
-            except_body.push(crate::py_stmt!("break"));
+            let orelse_stmts = std::mem::take(orelse);
 
             let wrapper = crate::py_stmt!(
                 "
@@ -48,13 +46,14 @@ while True:
     try:
         {target:expr} = next({iter_name:id})
     except StopIteration:
-        {except_body:stmt}
+        {orelse:stmt}
+        break
     {body:stmt}
 ",
                 iter_name = iter_name.as_str(),
                 iter = *iter_expr.clone(),
                 target = *target.clone(),
-                except_body = except_body,
+                orelse = orelse_stmts,
                 body = body_stmts,
             );
 
