@@ -1,9 +1,7 @@
 use std::cell::Cell;
 
-use ruff_python_ast::name::Name;
 use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
-use ruff_python_ast::{self as ast, CmpOp, Expr, Identifier, Operator, Stmt, UnaryOp};
-use ruff_text_size::TextRange;
+use ruff_python_ast::{self as ast, CmpOp, Expr, Operator, Stmt, UnaryOp};
 
 pub struct OperatorRewriter {
     replaced: Cell<bool>,
@@ -132,12 +130,14 @@ impl Transformer for OperatorRewriter {
 
             let call = Self::make_call(func_name, vec![target.clone(), value]);
 
-            *stmt = Stmt::Assign(ast::StmtAssign {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: TextRange::default(),
-                targets: vec![target],
-                value: Box::new(call),
-            });
+            *stmt = crate::py_stmt!(
+                "{target:expr} = {value:expr}",
+                target = target,
+                value = call,
+            )
+            .into_iter()
+            .next()
+            .unwrap();
 
             self.replaced.set(true);
         }
@@ -156,21 +156,12 @@ pub fn ensure_operator_import(module: &mut ast::ModModule) {
     });
 
     if !has_import {
-        let alias = ast::Alias {
-            range: TextRange::default(),
-            node_index: ast::AtomicNodeIndex::default(),
-            name: Identifier::new(Name::new_static("operator"), TextRange::default()),
-            asname: None,
-        };
+        let import = crate::py_stmt!("import operator")
+            .into_iter()
+            .next()
+            .unwrap();
 
-        module.body.insert(
-            0,
-            Stmt::Import(ast::StmtImport {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: TextRange::default(),
-                names: vec![alias],
-            }),
-        );
+        module.body.insert(0, import);
     }
 }
 
