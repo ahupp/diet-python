@@ -6,10 +6,12 @@ use ruff_python_parser::parse_module;
 
 mod comprehension;
 mod gen;
+mod for_loop;
 mod operator;
 mod template;
 
 use gen::GeneratorRewriter;
+use for_loop::ForLoopRewriter;
 use operator::{ensure_operator_import, OperatorRewriter};
 
 fn rewrite_source_inner(source: &str, ensure_import: bool) -> String {
@@ -19,6 +21,9 @@ fn rewrite_source_inner(source: &str, ensure_import: bool) -> String {
 
     let gen_transformer = GeneratorRewriter::new();
     gen_transformer.rewrite_body(&mut module.body);
+
+    let for_transformer = ForLoopRewriter::new();
+    walk_body(&for_transformer, &mut module.body);
 
     let op_transformer = OperatorRewriter::new();
     walk_body(&op_transformer, &mut module.body);
