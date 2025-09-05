@@ -2,7 +2,7 @@ use std::cell::{Cell, RefCell};
 
 use ruff_python_ast::name::Name;
 use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
-use ruff_python_ast::{self as ast, Expr, ExprContext, Identifier, Stmt};
+use ruff_python_ast::{self as ast, Expr, Identifier, Stmt};
 use ruff_text_size::TextRange;
 
 use crate::comprehension::rewrite_comprehension;
@@ -125,12 +125,7 @@ impl Transformer for GeneratorRewriter {
             }
 
             if let Stmt::For(ast::StmtFor { iter, .. }) = body.first_mut().unwrap() {
-                *iter = Box::new(Expr::Name(ast::ExprName {
-                    node_index: ast::AtomicNodeIndex::default(),
-                    range: TextRange::default(),
-                    id: param_name.clone(),
-                    ctx: ExprContext::Load,
-                }));
+                *iter = Box::new(crate::py_expr!("{name}"; id name = param_name.as_str()));
             }
 
             let parameters = ast::Parameters {
@@ -167,22 +162,11 @@ impl Transformer for GeneratorRewriter {
 
             self.add_function(func_def);
 
-            *expr = Expr::Call(ast::ExprCall {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: TextRange::default(),
-                func: Box::new(Expr::Name(ast::ExprName {
-                    node_index: ast::AtomicNodeIndex::default(),
-                    range: TextRange::default(),
-                    id: Name::new(func_name),
-                    ctx: ExprContext::Load,
-                })),
-                arguments: ast::Arguments {
-                    range: TextRange::default(),
-                    node_index: ast::AtomicNodeIndex::default(),
-                    args: vec![first_iter_expr].into_boxed_slice(),
-                    keywords: Vec::new().into_boxed_slice(),
-                },
-            });
+            *expr = crate::py_expr!(
+                "{func}({iter})",
+                iter = first_iter_expr;
+                id func = func_name.as_str()
+            );
         }
     }
 }
