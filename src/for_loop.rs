@@ -38,8 +38,8 @@ impl Transformer for ForLoopRewriter {
             self.iter_count.set(id);
             let iter_name = format!("_dp_iter_{}", id);
 
-            let iter_expr = crate::py_expr!("{name}"; id name = iter_name.as_str());
-            let iter_call = crate::py_expr!("iter({iter})", iter = (*iter.clone()));
+            let iter_expr = crate::py_expr!("{name:id}", name = iter_name.as_str());
+            let iter_call = crate::py_expr!("iter({iter:expr})", iter = *iter.clone());
 
             let assign_iter = Stmt::Assign(ast::StmtAssign {
                 node_index: ast::AtomicNodeIndex::default(),
@@ -48,7 +48,7 @@ impl Transformer for ForLoopRewriter {
                 value: Box::new(iter_call),
             });
 
-            let next_call = crate::py_expr!("next({iter})", iter = iter_expr.clone());
+            let next_call = crate::py_expr!("next({iter:expr})", iter = iter_expr.clone());
             let assign_next = Stmt::Assign(ast::StmtAssign {
                 node_index: ast::AtomicNodeIndex::default(),
                 range: TextRange::default(),
