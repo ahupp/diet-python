@@ -10,7 +10,7 @@ mod gen;
 mod import;
 mod literal;
 mod operator;
-mod slice;
+mod simple_expr;
 mod template;
 mod with;
 
@@ -18,7 +18,7 @@ use for_loop::ForLoopRewriter;
 use gen::GeneratorRewriter;
 use literal::LiteralRewriter;
 use operator::OperatorRewriter;
-use slice::SliceRewriter;
+use simple_expr::SimpleExprTransformer;
 use with::WithRewriter;
 
 fn rewrite_source_inner(source: &str, ensure_import: bool) -> String {
@@ -45,8 +45,8 @@ fn rewrite_source_inner(source: &str, ensure_import: bool) -> String {
         import::ensure_import(&mut module, "sys");
     }
 
-    let slice_transformer = SliceRewriter::new();
-    walk_body(&slice_transformer, &mut module.body);
+    let simple_expr_transformer = SimpleExprTransformer::new();
+    walk_body(&simple_expr_transformer, &mut module.body);
 
     let literal_transformer = LiteralRewriter::new();
     walk_body(&literal_transformer, &mut module.body);
