@@ -1,7 +1,7 @@
 use std::cell::Cell;
 
 use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
-use ruff_python_ast::{self as ast, CmpOp, Expr, Operator, Stmt, UnaryOp};
+use ruff_python_ast::{CmpOp, Expr, Operator, Stmt, UnaryOp};
 
 pub struct OperatorRewriter {
     replaced: Cell<bool>,
@@ -138,24 +138,6 @@ impl Transformer for OperatorRewriter {
 
             self.replaced.set(true);
         }
-    }
-}
-
-pub fn ensure_operator_import(module: &mut ast::ModModule) {
-    let has_import = module.body.iter().any(|stmt| {
-        if let Stmt::Import(ast::StmtImport { names, .. }) = stmt {
-            names
-                .iter()
-                .any(|alias| alias.name.id.as_str() == "operator")
-        } else {
-            false
-        }
-    });
-
-    if !has_import {
-        let import = crate::py_stmt!("import operator");
-
-        module.body.insert(0, import);
     }
 }
 
