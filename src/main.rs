@@ -7,14 +7,17 @@ use ruff_python_parser::parse_module;
 mod comprehension;
 mod for_loop;
 mod gen;
+mod import;
 mod literal;
 mod operator;
 mod template;
+mod with;
 
 use for_loop::ForLoopRewriter;
 use gen::GeneratorRewriter;
 use literal::LiteralRewriter;
-use operator::{ensure_operator_import, OperatorRewriter};
+use operator::OperatorRewriter;
+use with::WithRewriter;
 
 fn rewrite_source_inner(source: &str, ensure_import: bool) -> String {
     let parsed = parse_module(source).expect("parse error");
@@ -24,6 +27,9 @@ fn rewrite_source_inner(source: &str, ensure_import: bool) -> String {
     let gen_transformer = GeneratorRewriter::new();
     gen_transformer.rewrite_body(&mut module.body);
 
+    let with_transformer = WithRewriter::new();
+    walk_body(&with_transformer, &mut module.body);
+
     let for_transformer = ForLoopRewriter::new();
     walk_body(&for_transformer, &mut module.body);
 
@@ -31,7 +37,10 @@ fn rewrite_source_inner(source: &str, ensure_import: bool) -> String {
     walk_body(&op_transformer, &mut module.body);
 
     if ensure_import && op_transformer.transformed() {
-        ensure_operator_import(&mut module);
+        import::ensure_import(&mut module, "operator");
+    }
+    if ensure_import && with_transformer.transformed() {
+        import::ensure_import(&mut module, "sys");
     }
 
     let literal_transformer = LiteralRewriter::new();

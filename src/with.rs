@@ -1,0 +1,189 @@
+use std::cell::Cell;
+
+use ruff_python_ast::visitor::transformer::{walk_stmt, Transformer};
+use ruff_python_ast::{self as ast, Stmt};
+pub struct WithRewriter {
+    count: Cell<usize>,
+}
+
+impl WithRewriter {
+    pub fn new() -> Self {
+        Self {
+            count: Cell::new(0),
+        }
+    }
+
+    pub fn transformed(&self) -> bool {
+        self.count.get() > 0
+    }
+}
+
+impl Transformer for WithRewriter {
+    fn visit_stmt(&self, stmt: &mut Stmt) {
+        walk_stmt(self, stmt);
+
+        if let Stmt::With(ast::StmtWith {
+            items,
+            body,
+            is_async,
+            ..
+        }) = stmt
+        {
+            if *is_async || items.is_empty() {
+                return;
+            }
+
+            let mut body_stmts = std::mem::take(body);
+            let items = std::mem::take(items);
+
+            let mut work = Vec::new();
+            for item in items {
+                let id = self.count.get() + 1;
+                self.count.set(id);
+                work.push((item, id));
+            }
+
+            for (
+                ast::WithItem {
+                    context_expr,
+                    optional_vars,
+                    ..
+                },
+                id,
+            ) in work.into_iter().rev()
+            {
+                let enter_name = format!("_dp_enter_{}", id);
+                let exit_name = format!("_dp_exit_{}", id);
+
+                let ctx = context_expr;
+
+                let pre_stmt = if let Some(var) = optional_vars {
+                    crate::py_stmt!(
+                        "{var:expr} = {enter:id}({ctx:expr})",
+                        var = *var,
+                        enter = enter_name.as_str(),
+                        ctx = ctx.clone(),
+                    )
+                } else {
+                    crate::py_stmt!(
+                        "{enter:id}({ctx:expr})",
+                        enter = enter_name.as_str(),
+                        ctx = ctx.clone(),
+                    )
+                };
+
+                let wrapper = crate::py_stmt!(
+                    "
+{enter:id} = type({ctx1:expr}).__enter__
+{exit:id} = type({ctx2:expr}).__exit__
+{pre:stmt}
+try:
+    {body:stmt}
+except:
+    if not {exit:id}({ctx3:expr}, *sys.exc_info()):
+        raise
+else:
+    {exit:id}({ctx4:expr}, None, None, None)
+",
+                    enter = enter_name.as_str(),
+                    exit = exit_name.as_str(),
+                    ctx1 = ctx.clone(),
+                    ctx2 = ctx.clone(),
+                    ctx3 = ctx.clone(),
+                    ctx4 = ctx,
+                    pre = pre_stmt,
+                    body = body_stmts,
+                );
+
+                body_stmts = vec![wrapper];
+            }
+
+            *stmt = body_stmts.into_iter().next().unwrap();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::template::flatten;
+    use ruff_python_ast::visitor::transformer::walk_body;
+    use ruff_python_codegen::{Generator as Codegen, Stylist};
+    use ruff_python_parser::parse_module;
+
+    fn rewrite_with(source: &str) -> String {
+        let parsed = parse_module(source).expect("parse error");
+        let tokens = parsed.tokens().clone();
+        let mut module = parsed.into_syntax();
+
+        let rewriter = WithRewriter::new();
+        walk_body(&rewriter, &mut module.body);
+        if let [Stmt::If(ast::StmtIf { body, .. })] = module.body.as_mut_slice() {
+            flatten(body);
+        }
+
+        let stylist = Stylist::from_tokens(&tokens, source);
+        let mut output = String::new();
+        for stmt in &module.body {
+            let snippet = Codegen::from(&stylist).stmt(stmt);
+            output.push_str(&snippet);
+            output.push_str(stylist.line_ending().as_str());
+        }
+        output
+    }
+
+    #[test]
+    fn rewrites_with_statement() {
+        let input = r#"
+with a as b:
+    c
+"#;
+        let expected = r#"
+if True:
+    _dp_enter_1 = type(a).__enter__
+    _dp_exit_1 = type(a).__exit__
+    b = _dp_enter_1(a)
+    try:
+        c
+    except:
+        if not _dp_exit_1(a, *sys.exc_info()):
+            raise
+    else:
+        _dp_exit_1(a, None, None, None)
+"#;
+        let output = rewrite_with(input);
+        assert_eq!(output.trim(), expected.trim());
+    }
+
+    #[test]
+    fn rewrites_multiple_with_statement() {
+        let input = r#"
+with a as b, c as d:
+    e
+"#;
+        let expected = r#"
+if True:
+    _dp_enter_1 = type(a).__enter__
+    _dp_exit_1 = type(a).__exit__
+    b = _dp_enter_1(a)
+    try:
+        _dp_enter_2 = type(c).__enter__
+        _dp_exit_2 = type(c).__exit__
+        d = _dp_enter_2(c)
+        try:
+            e
+        except:
+            if not _dp_exit_2(c, *sys.exc_info()):
+                raise
+        else:
+            _dp_exit_2(c, None, None, None)
+    except:
+        if not _dp_exit_1(a, *sys.exc_info()):
+            raise
+    else:
+        _dp_exit_1(a, None, None, None)
+"#;
+        let output = rewrite_with(input);
+        assert_eq!(output.trim(), expected.trim());
+    }
+}
