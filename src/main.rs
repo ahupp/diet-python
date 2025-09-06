@@ -9,16 +9,18 @@ mod for_loop;
 mod gen;
 mod import;
 mod literal;
+mod multi_target;
 mod operator;
 mod simple_expr;
 mod template;
-mod with;
 #[cfg(test)]
 mod test_util;
+mod with;
 
 use for_loop::ForLoopRewriter;
 use gen::GeneratorRewriter;
 use literal::LiteralRewriter;
+use multi_target::MultiTargetRewriter;
 use operator::OperatorRewriter;
 use simple_expr::SimpleExprTransformer;
 use with::WithRewriter;
@@ -36,6 +38,9 @@ fn rewrite_source_inner(source: &str, ensure_import: bool) -> String {
 
     let for_transformer = ForLoopRewriter::new();
     walk_body(&for_transformer, &mut module.body);
+
+    let multi_transformer = MultiTargetRewriter::new();
+    walk_body(&multi_transformer, &mut module.body);
 
     let op_transformer = OperatorRewriter::new();
     walk_body(&op_transformer, &mut module.body);

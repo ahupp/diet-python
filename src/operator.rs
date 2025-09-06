@@ -1,7 +1,7 @@
 use std::cell::Cell;
 
 use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
-use ruff_python_ast::{CmpOp, Expr, Operator, Stmt, UnaryOp};
+use ruff_python_ast::{self as ast, CmpOp, Expr, Operator, Stmt, UnaryOp};
 
 pub struct OperatorRewriter {
     replaced: Cell<bool>,
@@ -102,6 +102,13 @@ impl Transformer for OperatorRewriter {
                 *expr = call;
                 self.replaced.set(true);
             }
+        } else if let Expr::Subscript(sub) = expr {
+            if matches!(sub.ctx, ast::ExprContext::Load) {
+                let obj = (*sub.value).clone();
+                let key = (*sub.slice).clone();
+                *expr = Self::make_call("getitem", vec![obj, key]);
+                self.replaced.set(true);
+            }
         }
     }
 
@@ -137,6 +144,40 @@ impl Transformer for OperatorRewriter {
             );
 
             self.replaced.set(true);
+        } else if let Stmt::Assign(assign) = stmt {
+            assert_eq!(
+                assign.targets.len(),
+                1,
+                "expected single assignment target; MultiTargetRewriter must run first"
+            );
+            if let Expr::Subscript(sub) = &assign.targets[0] {
+                let obj = (*sub.value).clone();
+                let key = (*sub.slice).clone();
+                let value = (*assign.value).clone();
+                *stmt = crate::py_stmt!(
+                    "operator.setitem({obj:expr}, {key:expr}, {value:expr})",
+                    obj = obj,
+                    key = key,
+                    value = value,
+                );
+                self.replaced.set(true);
+            }
+        } else if let Stmt::Delete(del) = stmt {
+            assert_eq!(
+                del.targets.len(),
+                1,
+                "expected single delete target; MultiTargetRewriter must run first"
+            );
+            if let Expr::Subscript(sub) = &del.targets[0] {
+                let obj = (*sub.value).clone();
+                let key = (*sub.slice).clone();
+                *stmt = crate::py_stmt!(
+                    "operator.delitem({obj:expr}, {key:expr})",
+                    obj = obj,
+                    key = key,
+                );
+                self.replaced.set(true);
+            }
         }
     }
 }
@@ -145,6 +186,7 @@ impl Transformer for OperatorRewriter {
 mod tests {
     use super::*;
     use crate::gen::GeneratorRewriter;
+    use crate::multi_target::MultiTargetRewriter;
     use ruff_python_ast::visitor::transformer::walk_body;
     use ruff_python_codegen::{Generator, Stylist};
     use ruff_python_parser::parse_module;
@@ -160,8 +202,13 @@ mod tests {
         let for_transformer = crate::for_loop::ForLoopRewriter::new();
         walk_body(&for_transformer, &mut module.body);
 
+        let multi_transformer = MultiTargetRewriter::new();
+        walk_body(&multi_transformer, &mut module.body);
+
         let op_transformer = OperatorRewriter::new();
         walk_body(&op_transformer, &mut module.body);
+
+        crate::template::flatten(&mut module.body);
 
         let stylist = Stylist::from_tokens(&tokens, source);
         let mut output = String::new();
@@ -230,5 +277,37 @@ x = operator.iadd(x, 2)
             let output = rewrite_source(input);
             assert_eq!(output.trim_end(), expected);
         }
+    }
+
+    #[test]
+    fn rewrites_getitem() {
+        let output = rewrite_source("a[b]");
+        assert_eq!(output.trim_end(), "operator.getitem(a, b)");
+    }
+
+    #[test]
+    fn rewrites_setitem() {
+        let output = rewrite_source("a[b] = c");
+        assert_eq!(output.trim_end(), "operator.setitem(a, b, c)");
+    }
+
+    #[test]
+    fn rewrites_delitem() {
+        let output = rewrite_source("del a[b]");
+        assert_eq!(output.trim_end(), "operator.delitem(a, b)");
+    }
+
+    #[test]
+    fn rewrites_chain_assignment_with_subscript() {
+        let output = rewrite_source("a[0] = b = 1");
+        let expected = "_dp_tmp_1 = 1\noperator.setitem(a, 0, _dp_tmp_1)\nb = _dp_tmp_1";
+        assert_eq!(output.trim(), expected.trim());
+    }
+
+    #[test]
+    fn rewrites_multi_delitem_targets() {
+        let output = rewrite_source("del a[0], b[0]");
+        let expected = "operator.delitem(a, 0)\noperator.delitem(b, 0)";
+        assert_eq!(output.trim(), expected.trim());
     }
 }
