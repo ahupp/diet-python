@@ -29,10 +29,11 @@ impl Transformer for WithRewriter {
             ..
         }) = stmt
         {
-            if *is_async || items.is_empty() {
+            if items.is_empty() {
                 return;
             }
 
+            let is_async_stmt = *is_async;
             let mut body_stmts = std::mem::take(body);
             let items = std::mem::take(items);
 
@@ -57,16 +58,24 @@ impl Transformer for WithRewriter {
 
                 let ctx = context_expr;
 
+                let (enter_method, exit_method, await_) = if is_async_stmt {
+                    ("__aenter__", "__aexit__", "await ")
+                } else {
+                    ("__enter__", "__exit__", "")
+                };
+
                 let pre_stmt = if let Some(var) = optional_vars {
                     crate::py_stmt!(
-                        "{var:expr} = {enter:id}({ctx:expr})",
+                        "{var:expr} = {await_:id}{enter:id}({ctx:expr})",
                         var = *var,
+                        await_ = await_,
                         enter = enter_name.as_str(),
                         ctx = ctx.clone(),
                     )
                 } else {
                     crate::py_stmt!(
-                        "{enter:id}({ctx:expr})",
+                        "{await_:id}{enter:id}({ctx:expr})",
+                        await_ = await_,
                         enter = enter_name.as_str(),
                         ctx = ctx.clone(),
                     )
@@ -74,23 +83,26 @@ impl Transformer for WithRewriter {
 
                 let wrapper = crate::py_stmt!(
                     "
-{enter:id} = type({ctx1:expr}).__enter__
-{exit:id} = type({ctx2:expr}).__exit__
+{enter:id} = type({ctx1:expr}).{enter_method:id}
+{exit:id} = type({ctx2:expr}).{exit_method:id}
 {pre:stmt}
 try:
     {body:stmt}
 except:
-    if not {exit:id}({ctx3:expr}, *sys.exc_info()):
+    if not {await_:id}{exit:id}({ctx3:expr}, *sys.exc_info()):
         raise
 else:
-    {exit:id}({ctx4:expr}, None, None, None)
+    {await_:id}{exit:id}({ctx4:expr}, None, None, None)
 ",
                     enter = enter_name.as_str(),
                     exit = exit_name.as_str(),
+                    enter_method = enter_method,
+                    exit_method = exit_method,
                     ctx1 = ctx.clone(),
                     ctx2 = ctx.clone(),
                     ctx3 = ctx.clone(),
                     ctx4 = ctx,
+                    await_ = await_,
                     pre = pre_stmt,
                     body = body_stmts,
                 );
@@ -182,6 +194,31 @@ if True:
             raise
     else:
         _dp_exit_1(a, None, None, None)
+"#;
+        let output = rewrite_with(input);
+        assert_eq!(output.trim(), expected.trim());
+    }
+
+    #[test]
+    fn rewrites_async_with_statement() {
+        let input = r#"
+async def f():
+    async with a as b:
+        c
+"#;
+        let expected = r#"
+async def f():
+    if True:
+        _dp_enter_1 = type(a).__aenter__
+        _dp_exit_1 = type(a).__aexit__
+        b = await _dp_enter_1(a)
+        try:
+            c
+        except:
+            if not await _dp_exit_1(a, *sys.exc_info()):
+                raise
+        else:
+            await _dp_exit_1(a, None, None, None)
 "#;
         let output = rewrite_with(input);
         assert_eq!(output.trim(), expected.trim());
