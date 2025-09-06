@@ -13,6 +13,8 @@ mod operator;
 mod simple_expr;
 mod template;
 mod with;
+#[cfg(test)]
+mod test_util;
 
 use for_loop::ForLoopRewriter;
 use gen::GeneratorRewriter;

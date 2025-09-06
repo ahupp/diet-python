@@ -173,7 +173,6 @@ impl SyntaxTemplate {
 
     pub(crate) fn visit_stmts(&self, body: &mut Vec<Stmt>) {
         self.visit_body(body);
-        flatten(body);
     }
 }
 
@@ -225,9 +224,6 @@ impl Transformer for SyntaxTemplate {
             }
             Stmt::FunctionDef(_) => {
                 walk_stmt(self, stmt);
-                if let Stmt::FunctionDef(ast::StmtFunctionDef { body, .. }) = stmt {
-                    flatten(body);
-                }
                 return;
             }
             _ => {}
@@ -331,6 +327,7 @@ mod tests {
         self as ast,
         comparable::{ComparableExpr, ComparableStmt},
     };
+    use crate::assert_flatten_eq;
     use ruff_python_parser::{parse_expression, parse_module};
 
     #[test]
@@ -370,14 +367,7 @@ b = 2
         .into_syntax()
         .body;
         let stmt = py_stmt!("{body:stmt}", body = body.clone());
-        let expected = parse_module("if True:\n    a = 1\n    b = 2")
-            .unwrap()
-            .into_syntax()
-            .body;
-        assert_eq!(
-            ComparableStmt::from(&stmt),
-            ComparableStmt::from(&expected[0])
-        );
+        assert_flatten_eq!(vec![stmt], "a = 1\nb = 2");
     }
 
     #[test]
@@ -392,13 +382,14 @@ def {func:id}({param:id}):
             param = "arg",
             body = body.clone(),
         );
-        match &stmt {
+        match stmt {
             ruff_python_ast::Stmt::FunctionDef(ast::StmtFunctionDef {
                 name,
                 parameters,
-                body: fn_body,
+                body: mut fn_body,
                 ..
             }) => {
+                crate::template::flatten(&mut fn_body);
                 assert_eq!(name.id.as_str(), "foo");
                 assert_eq!(parameters.args[0].parameter.name.id.as_str(), "arg");
                 assert_eq!(
