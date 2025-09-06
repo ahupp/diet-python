@@ -118,30 +118,17 @@ else:
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::template::flatten;
+    use crate::assert_flatten_eq;
     use ruff_python_ast::visitor::transformer::walk_body;
-    use ruff_python_codegen::{Generator as Codegen, Stylist};
     use ruff_python_parser::parse_module;
 
-    fn rewrite_with(source: &str) -> String {
+    fn rewrite_with(source: &str) -> Vec<Stmt> {
         let parsed = parse_module(source).expect("parse error");
-        let tokens = parsed.tokens().clone();
         let mut module = parsed.into_syntax();
 
         let rewriter = WithRewriter::new();
         walk_body(&rewriter, &mut module.body);
-        if let [Stmt::If(ast::StmtIf { body, .. })] = module.body.as_mut_slice() {
-            flatten(body);
-        }
-
-        let stylist = Stylist::from_tokens(&tokens, source);
-        let mut output = String::new();
-        for stmt in &module.body {
-            let snippet = Codegen::from(&stylist).stmt(stmt);
-            output.push_str(&snippet);
-            output.push_str(stylist.line_ending().as_str());
-        }
-        output
+        module.body
     }
 
     #[test]
@@ -151,20 +138,19 @@ with a as b:
     c
 "#;
         let expected = r#"
-if True:
-    _dp_enter_1 = type(a).__enter__
-    _dp_exit_1 = type(a).__exit__
-    b = _dp_enter_1(a)
-    try:
-        c
-    except:
-        if not _dp_exit_1(a, *sys.exc_info()):
-            raise
-    else:
-        _dp_exit_1(a, None, None, None)
+_dp_enter_1 = type(a).__enter__
+_dp_exit_1 = type(a).__exit__
+b = _dp_enter_1(a)
+try:
+    c
+except:
+    if not _dp_exit_1(a, *sys.exc_info()):
+        raise
+else:
+    _dp_exit_1(a, None, None, None)
 "#;
         let output = rewrite_with(input);
-        assert_eq!(output.trim(), expected.trim());
+        assert_flatten_eq!(output, expected);
     }
 
     #[test]
@@ -174,29 +160,28 @@ with a as b, c as d:
     e
 "#;
         let expected = r#"
-if True:
-    _dp_enter_1 = type(a).__enter__
-    _dp_exit_1 = type(a).__exit__
-    b = _dp_enter_1(a)
+_dp_enter_1 = type(a).__enter__
+_dp_exit_1 = type(a).__exit__
+b = _dp_enter_1(a)
+try:
+    _dp_enter_2 = type(c).__enter__
+    _dp_exit_2 = type(c).__exit__
+    d = _dp_enter_2(c)
     try:
-        _dp_enter_2 = type(c).__enter__
-        _dp_exit_2 = type(c).__exit__
-        d = _dp_enter_2(c)
-        try:
-            e
-        except:
-            if not _dp_exit_2(c, *sys.exc_info()):
-                raise
-        else:
-            _dp_exit_2(c, None, None, None)
+        e
     except:
-        if not _dp_exit_1(a, *sys.exc_info()):
+        if not _dp_exit_2(c, *sys.exc_info()):
             raise
     else:
-        _dp_exit_1(a, None, None, None)
+        _dp_exit_2(c, None, None, None)
+except:
+    if not _dp_exit_1(a, *sys.exc_info()):
+        raise
+else:
+    _dp_exit_1(a, None, None, None)
 "#;
         let output = rewrite_with(input);
-        assert_eq!(output.trim(), expected.trim());
+        assert_flatten_eq!(output, expected);
     }
 
     #[test]
@@ -208,19 +193,18 @@ async def f():
 "#;
         let expected = r#"
 async def f():
-    if True:
-        _dp_enter_1 = type(a).__aenter__
-        _dp_exit_1 = type(a).__aexit__
-        b = await _dp_enter_1(a)
-        try:
-            c
-        except:
-            if not await _dp_exit_1(a, *sys.exc_info()):
-                raise
-        else:
-            await _dp_exit_1(a, None, None, None)
+    _dp_enter_1 = type(a).__aenter__
+    _dp_exit_1 = type(a).__aexit__
+    b = await _dp_enter_1(a)
+    try:
+        c
+    except:
+        if not await _dp_exit_1(a, *sys.exc_info()):
+            raise
+    else:
+        await _dp_exit_1(a, None, None, None)
 "#;
         let output = rewrite_with(input);
-        assert_eq!(output.trim(), expected.trim());
+        assert_flatten_eq!(output, expected);
     }
 }

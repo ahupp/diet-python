@@ -146,27 +146,16 @@ def {func:id}({param:id}):
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::template::flatten;
-    use ruff_python_codegen::{Generator as Codegen, Stylist};
+    use crate::assert_flatten_eq;
     use ruff_python_parser::parse_module;
 
-    fn rewrite_gen(source: &str) -> String {
+    fn rewrite_gen(source: &str) -> Vec<Stmt> {
         let parsed = parse_module(source).expect("parse error");
-        let tokens = parsed.tokens().clone();
         let mut module = parsed.into_syntax();
 
         let rewriter = GeneratorRewriter::new();
         rewriter.rewrite_body(&mut module.body);
-        flatten(&mut module.body);
-
-        let stylist = Stylist::from_tokens(&tokens, source);
-        let mut output = String::new();
-        for stmt in &module.body {
-            let snippet = Codegen::from(&stylist).stmt(stmt);
-            output.push_str(&snippet);
-            output.push_str(stylist.line_ending().as_str());
-        }
-        output
+        module.body
     }
 
     #[test]
@@ -180,7 +169,7 @@ def __dp_gen_1(items):
 r = __dp_gen_1(items)
 "#;
         let output = rewrite_gen(input);
-        assert_eq!(output.trim(), expected.trim());
+        assert_flatten_eq!(output, expected);
     }
 
     #[test]
@@ -200,7 +189,7 @@ def outer(items, offset):
     return r
 "#;
         let output = rewrite_gen(input);
-        assert_eq!(output.trim(), expected.trim());
+        assert_flatten_eq!(output, expected);
     }
 
     #[test]
@@ -217,6 +206,6 @@ b = 1
 r = __dp_gen_1(some_function())
 "#;
         let output = rewrite_gen(input);
-        assert_eq!(output.trim(), expected.trim());
+        assert_flatten_eq!(output, expected);
     }
 }
