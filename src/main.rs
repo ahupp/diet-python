@@ -8,6 +8,7 @@ mod comprehension;
 mod for_loop;
 mod gen;
 mod import;
+mod assert;
 mod literal;
 mod multi_target;
 mod operator;
@@ -24,6 +25,7 @@ use multi_target::MultiTargetRewriter;
 use operator::OperatorRewriter;
 use simple_expr::SimpleExprTransformer;
 use with::WithRewriter;
+use assert::AssertRewriter;
 
 fn rewrite_source_inner(source: &str, ensure_import: bool) -> String {
     let parsed = parse_module(source).expect("parse error");
@@ -41,6 +43,9 @@ fn rewrite_source_inner(source: &str, ensure_import: bool) -> String {
 
     let multi_transformer = MultiTargetRewriter::new();
     walk_body(&multi_transformer, &mut module.body);
+
+    let assert_transformer = AssertRewriter::new();
+    walk_body(&assert_transformer, &mut module.body);
 
     let op_transformer = OperatorRewriter::new();
     walk_body(&op_transformer, &mut module.body);
