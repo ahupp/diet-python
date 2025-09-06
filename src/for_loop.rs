@@ -28,10 +28,6 @@ impl Transformer for ForLoopRewriter {
             ..
         }) = stmt
         {
-            if *is_async {
-                return;
-            }
-
             let id = self.iter_count.get() + 1;
             self.iter_count.set(id);
             let iter_name = format!("_dp_iter_{}", id);
@@ -39,20 +35,30 @@ impl Transformer for ForLoopRewriter {
             let body_stmts = std::mem::take(body);
             let orelse_stmts = std::mem::take(orelse);
 
+            let (iter_fn, next_fn, stop_exc, await_) = if *is_async {
+                ("aiter", "anext", "StopAsyncIteration", "await ")
+            } else {
+                ("iter", "next", "StopIteration", "")
+            };
+
             let wrapper = crate::py_stmt!(
                 "
-{iter_name:id} = iter({iter:expr})
+{iter_name:id} = {iter_fn:id}({iter:expr})
 while True:
     try:
-        {target:expr} = next({iter_name:id})
-    except StopIteration:
+        {target:expr} = {await_:id}{next_fn:id}({iter_name:id})
+    except {stop_exc:id}:
         {orelse:stmt}
         break
     {body:stmt}
 ",
                 iter_name = iter_name.as_str(),
+                iter_fn = iter_fn,
                 iter = *iter_expr.clone(),
                 target = *target.clone(),
+                await_ = await_,
+                next_fn = next_fn,
+                stop_exc = stop_exc,
                 orelse = orelse_stmts,
                 body = body_stmts,
             );
@@ -115,6 +121,37 @@ if True:
             c(a)
         else:
             break
+"#;
+        let output = rewrite_for(input);
+        assert_eq!(output.trim(), expected.trim());
+    }
+
+    #[test]
+    fn rewrites_async_for_loop_with_else() {
+        let input = r#"
+async def f():
+    async for a in b:
+        if a % 2 == 0:
+            c(a)
+        else:
+            break
+    else:
+        c(0)
+"#;
+        let expected = r#"
+async def f():
+    if True:
+        _dp_iter_1 = aiter(b)
+        while True:
+            try:
+                a = await anext(_dp_iter_1)
+            except StopAsyncIteration:
+                c(0)
+                break
+            if a % 2 == 0:
+                c(a)
+            else:
+                break
 "#;
         let output = rewrite_for(input);
         assert_eq!(output.trim(), expected.trim());
