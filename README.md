@@ -32,3 +32,14 @@ python example_usage.py
 
 The script installs the hook, imports `example_module`, and asserts that its
 bytecode calls `operator.add` instead of using `BINARY_OP`.
+
+## CPython test suite
+
+To run the official CPython test suite with a Python installed via `uv`, use:
+
+```
+scripts/run_cpython_tests.sh
+```
+
+The script clones the `cpython` repository if necessary, creates a virtual
+environment using `uv`, and executes the test suite with that interpreter.
