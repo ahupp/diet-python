@@ -17,6 +17,7 @@ mod template;
 #[cfg(test)]
 mod test_util;
 mod with;
+mod single_assignment;
 
 use for_loop::ForLoopRewriter;
 use gen::GeneratorRewriter;
@@ -26,6 +27,7 @@ use operator::OperatorRewriter;
 use simple_expr::SimpleExprTransformer;
 use with::WithRewriter;
 use assert::AssertRewriter;
+use single_assignment::SingleAssignmentRewriter;
 
 fn rewrite_source_inner(source: &str, ensure_import: bool) -> String {
     let parsed = parse_module(source).expect("parse error");
@@ -62,6 +64,11 @@ fn rewrite_source_inner(source: &str, ensure_import: bool) -> String {
 
     let literal_transformer = LiteralRewriter::new();
     walk_body(&literal_transformer, &mut module.body);
+
+    let single_assign_transformer = SingleAssignmentRewriter::new();
+    walk_body(&single_assign_transformer, &mut module.body);
+
+    crate::template::flatten(&mut module.body);
 
     let stylist = Stylist::from_tokens(&tokens, source);
     let mut output = String::new();
