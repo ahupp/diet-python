@@ -77,6 +77,29 @@ impl Transformer for SingleAssignmentRewriter {
     fn visit_expr(&self, expr: &mut Expr) {
         walk_expr(self, expr);
 
+        if let Expr::Named(ast::ExprNamed { target, value, .. }) = expr {
+            let target_expr = *target.clone();
+            let value_expr = *value.clone();
+            let stored = if Self::is_trivial(&value_expr) {
+                value_expr
+            } else {
+                self.store(value_expr)
+            };
+            let target_assign = crate::py_stmt!(
+                "{target:expr} = {value:expr}",
+                target = target_expr,
+                value = stored.clone(),
+            );
+            self
+                .stmts
+                .borrow_mut()
+                .last_mut()
+                .expect("no statement context")
+                .push(target_assign);
+            *expr = stored;
+            return;
+        }
+
         if matches!(expr, Expr::Starred(_))
             || Self::in_store_context(expr)
             || Self::is_trivial(expr)
@@ -119,7 +142,22 @@ mod tests {
     #[test]
     fn rewrites_binary_ops() {
         let output = rewrite("r = a + b * c");
-        let expected = "_dp_tmp_1 = b * c\n_dp_tmp_2 = a + _dp_tmp_1\nr = _dp_tmp_2";
+       let expected = "_dp_tmp_1 = b * c\n_dp_tmp_2 = a + _dp_tmp_1\nr = _dp_tmp_2"; 
+       assert_flatten_eq!(output, expected);
+    }
+
+    #[test]
+    fn rewrites_basic_walrus() {
+        let output = rewrite("x = (y := 1)");
+        let expected = "y = 1\nx = 1";
+        assert_flatten_eq!(output, expected);
+    }
+
+    #[test]
+    fn rewrites_in_if_condition() {
+        let input = "if (n := f()):\n    print(n)";
+        let expected = "_dp_tmp_1 = f()\nn = _dp_tmp_1\nif _dp_tmp_1:\n    _dp_tmp_2 = print(n)\n    _dp_tmp_2";
+        let output = rewrite(input);
         assert_flatten_eq!(output, expected);
     }
 }
