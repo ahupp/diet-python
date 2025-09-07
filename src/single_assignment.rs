@@ -76,7 +76,11 @@ impl Transformer for SingleAssignmentRewriter {
 
     fn visit_expr(&self, expr: &mut Expr) {
         walk_expr(self, expr);
-        if matches!(expr, Expr::Starred(_)) || Self::in_store_context(expr) || Self::is_trivial(expr) {
+
+        if matches!(expr, Expr::Starred(_))
+            || Self::in_store_context(expr)
+            || Self::is_trivial(expr)
+        {
             return;
         }
         let tmp = self.store(expr.clone());
@@ -119,4 +123,3 @@ mod tests {
         assert_flatten_eq!(output, expected);
     }
 }
-

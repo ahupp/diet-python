@@ -5,12 +5,14 @@ use ruff_python_ast::{self as ast, CmpOp, Expr, Operator, Stmt, UnaryOp};
 
 pub struct OperatorRewriter {
     replaced: Cell<bool>,
+    tmp_count: Cell<usize>,
 }
 
 impl OperatorRewriter {
     pub fn new() -> Self {
         Self {
             replaced: Cell::new(false),
+            tmp_count: Cell::new(0),
         }
     }
 
@@ -43,12 +45,40 @@ impl OperatorRewriter {
             _ => unreachable!(),
         }
     }
+
+    fn next_tmp(&self) -> String {
+        let id = self.tmp_count.get() + 1;
+        self.tmp_count.set(id);
+        format!("_dp_tmp_{}", id)
+    }
 }
 
 impl Transformer for OperatorRewriter {
     fn visit_expr(&self, expr: &mut Expr) {
         walk_expr(self, expr);
-        if let Expr::BinOp(bin) = expr {
+        if let Expr::BoolOp(ast::ExprBoolOp { op, values, .. }) = expr {
+            let mut vals = std::mem::take(values);
+            let mut result = vals.pop().expect("boolop with no values");
+            let mut tmp_names: Vec<String> = (0..vals.len()).map(|_| self.next_tmp()).collect();
+            while let Some(value) = vals.pop() {
+                let tmp = tmp_names.pop().expect("tmp name missing");
+                result = match op {
+                    ast::BoolOp::Or => crate::py_expr!(
+                        "{tmp:id} if ({tmp:id} := {value:expr}) else {rest:expr}",
+                        tmp = tmp.as_str(),
+                        value = value,
+                        rest = result,
+                    ),
+                    ast::BoolOp::And => crate::py_expr!(
+                        "{rest:expr} if ({tmp:id} := {value:expr}) else {tmp:id}",
+                        tmp = tmp.as_str(),
+                        value = value,
+                        rest = result,
+                    ),
+                };
+            }
+            *expr = result;
+        } else if let Expr::BinOp(bin) = expr {
             let left = *bin.left.clone();
             let right = *bin.right.clone();
 
@@ -259,6 +289,34 @@ x = operator.iadd(x, 2)
             let output = rewrite_source(input);
             assert_eq!(output.trim_end(), expected);
         }
+    }
+
+    #[test]
+    fn rewrites_bool_ops() {
+        let cases = [
+            ("a or b", "_dp_tmp_1 if (_dp_tmp_1 := a) else b"),
+            ("a and b", "b if (_dp_tmp_1 := a) else _dp_tmp_1"),
+        ];
+
+        for (input, expected) in cases {
+            let output = rewrite_source(input);
+            assert_eq!(output.trim_end(), expected);
+        }
+    }
+
+    #[test]
+    fn rewrites_multi_bool_ops() {
+        let output = rewrite_source("a or b or c");
+        assert_eq!(
+            output.trim_end(),
+            "_dp_tmp_1 if (_dp_tmp_1 := a) else _dp_tmp_2 if (_dp_tmp_2 := b) else c",
+        );
+
+        let output = rewrite_source("a and b and c");
+        assert_eq!(
+            output.trim_end(),
+            "(c if (_dp_tmp_2 := b) else _dp_tmp_2) if (_dp_tmp_1 := a) else _dp_tmp_1",
+        );
     }
 
     #[test]
