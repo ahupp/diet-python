@@ -5,12 +5,14 @@ use ruff_python_ast::{self as ast, CmpOp, Expr, Operator, Stmt, UnaryOp};
 
 pub struct OperatorRewriter {
     replaced: Cell<bool>,
+    tmp_count: Cell<usize>,
 }
 
 impl OperatorRewriter {
     pub fn new() -> Self {
         Self {
             replaced: Cell::new(false),
+            tmp_count: Cell::new(0),
         }
     }
 
@@ -43,12 +45,73 @@ impl OperatorRewriter {
             _ => unreachable!(),
         }
     }
+
+    fn next_tmp(&self) -> String {
+        let id = self.tmp_count.get() + 1;
+        self.tmp_count.set(id);
+        format!("_dp_tmp_{}", id)
+    }
+
+    fn is_simple(expr: &Expr) -> bool {
+        matches!(
+            expr,
+            Expr::Name(_)
+                | Expr::NumberLiteral(_)
+                | Expr::StringLiteral(_)
+                | Expr::BooleanLiteral(_)
+                | Expr::NoneLiteral(_)
+        )
+    }
 }
 
 impl Transformer for OperatorRewriter {
     fn visit_expr(&self, expr: &mut Expr) {
         walk_expr(self, expr);
-        if let Expr::BinOp(bin) = expr {
+        if let Expr::BoolOp(ast::ExprBoolOp { op, values, .. }) = expr {
+            let mut vals = std::mem::take(values);
+            let mut result = vals.pop().expect("boolop with no values");
+            while let Some(value) = vals.pop() {
+                result = match op {
+                    ast::BoolOp::Or => {
+                        if Self::is_simple(&value) {
+                            crate::py_expr!(
+                                "{v1:expr} if {v2:expr} else {rest:expr}",
+                                v1 = value.clone(),
+                                v2 = value,
+                                rest = result,
+                            )
+                        } else {
+                            let tmp = self.next_tmp();
+                            crate::py_expr!(
+                                "{tmp:id} if ({tmp:id} := {value:expr}) else {rest:expr}",
+                                tmp = tmp.as_str(),
+                                value = value,
+                                rest = result,
+                            )
+                        }
+                    }
+                    ast::BoolOp::And => {
+                        if Self::is_simple(&value) {
+                            crate::py_expr!(
+                                "{rest:expr} if {v1:expr} else {v2:expr}",
+                                v1 = value.clone(),
+                                v2 = value,
+                                rest = result,
+                            )
+                        } else {
+                            let tmp = self.next_tmp();
+                            crate::py_expr!(
+                                "{rest:expr} if ({tmp:id} := {value:expr}) else {tmp:id}",
+                                tmp = tmp.as_str(),
+                                value = value,
+                                rest = result,
+                            )
+                        }
+                    }
+                };
+            }
+            *expr = result;
+        } else if let Expr::BinOp(bin) = expr {
             let left = *bin.left.clone();
             let right = *bin.right.clone();
 
@@ -259,6 +322,42 @@ x = operator.iadd(x, 2)
             let output = rewrite_source(input);
             assert_eq!(output.trim_end(), expected);
         }
+    }
+
+    #[test]
+    fn rewrites_bool_ops() {
+        let cases = [
+            ("a or b", "a if a else b"),
+            ("a and b", "b if a else a"),
+            (
+                "f() or a",
+                "_dp_tmp_1 if (_dp_tmp_1 := f()) else a",
+            ),
+            (
+                "f() and a",
+                "a if (_dp_tmp_1 := f()) else _dp_tmp_1",
+            ),
+        ];
+
+        for (input, expected) in cases {
+            let output = rewrite_source(input);
+            assert_eq!(output.trim_end(), expected);
+        }
+    }
+
+    #[test]
+    fn rewrites_multi_bool_ops() {
+        let output = rewrite_source("a or b or c");
+        assert_eq!(
+            output.trim_end(),
+            "a if a else b if b else c",
+        );
+
+        let output = rewrite_source("a and b and c");
+        assert_eq!(
+            output.trim_end(),
+            "(c if b else b) if a else a",
+        );
     }
 
     #[test]
