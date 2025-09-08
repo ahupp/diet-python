@@ -44,7 +44,7 @@ def raise_from(exc, cause):
         elif not isinstance(cause, BaseException):
             raise TypeError("exception causes must derive from BaseException")
         exc.__cause__ = cause
-    raise exc
+    return exc
 
 
 def import_(name, spec, fromlist=None, level=0):
