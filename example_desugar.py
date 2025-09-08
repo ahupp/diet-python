@@ -108,7 +108,7 @@ def ff():
     c = object()
     c.a = a
 c = ff()
-del getattr(c, "a").b
+getattr(dp_intrinsics, "delattr")(getattr(c, "a"), "b")
 getattr(dp_intrinsics, "delitem")(getattr(getattr(c, "a"), "arr"), 0)
 del c
 x = list(_dp_gen_1(getattr(dp_intrinsics, "iter")(range(5))))
