@@ -29,6 +29,9 @@ impl Transformer for ImportRewriter {
         walk_stmt(self, stmt);
         match stmt {
             Stmt::Import(ast::StmtImport { names, .. }) => {
+                if names.iter().any(|alias| alias.name.id.as_str() == "dp_intrinsics") {
+                    return;
+                }
                 let mut stmts = Vec::new();
                 for alias in names {
                     let module_name = alias.name.id.to_string();
