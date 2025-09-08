@@ -2,12 +2,21 @@
 import operator
 import sys
 import builtins
+import types as _types
 
 operator = operator
 next = builtins.next
 iter = builtins.iter
 aiter = builtins.aiter
 anext = builtins.anext
+
+def resolve_bases(bases):
+    return _types.resolve_bases(bases)
+
+def prepare_class(name, bases, kwds=None):
+    if kwds is None:
+        return _types.prepare_class(name, bases)
+    return _types.prepare_class(name, bases, kwds)
 
 def exc_info():
     return sys.exc_info()
