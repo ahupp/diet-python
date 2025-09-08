@@ -10,6 +10,24 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 export SOURCE_DATE_EPOCH="$(date +%s)"
 
+TRANSFORMS_SET=0
+TRANSFORMS=""
+ARGS=()
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --transforms)
+      TRANSFORMS_SET=1
+      TRANSFORMS="$2"
+      shift 2
+      ;;
+    *)
+      ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+set -- "${ARGS[@]}"
+
 if ! command -v uv >/dev/null 2>&1; then
   echo "uv is required but not installed. Install it from https://astral.sh/uv." >&2
   exit 1
@@ -38,4 +56,8 @@ find "$CPYTHON_DIR" -name '*.pyc' -delete
 # package) are on the import path so the diet-python import hook is installed
 # for all modules loaded during the test run and the standard library ``test``
 # package is available.
-(cd "$CPYTHON_DIR" && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$REPO_ROOT:$REPO_ROOT/$CPYTHON_DIR/Lib${PYTHONPATH:+:$PYTHONPATH}" "../$VENV_DIR/bin/python" -m test -j0 "$@")
+if [ $TRANSFORMS_SET -eq 1 ]; then
+  (cd "$CPYTHON_DIR" && PYTHONDONTWRITEBYTECODE=1 DIET_PYTHON_TRANSFORMS="$TRANSFORMS" PYTHONPATH="$REPO_ROOT:$REPO_ROOT/$CPYTHON_DIR/Lib${PYTHONPATH:+:$PYTHONPATH}" "../$VENV_DIR/bin/python" -m test -j0 "$@")
+else
+  (cd "$CPYTHON_DIR" && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$REPO_ROOT:$REPO_ROOT/$CPYTHON_DIR/Lib${PYTHONPATH:+:$PYTHONPATH}" "../$VENV_DIR/bin/python" -m test -j0 "$@")
+fi
