@@ -17,7 +17,6 @@ mod multi_target;
 mod operator;
 mod raise;
 mod simple_expr;
-mod single_assignment;
 mod template;
 #[cfg(test)]
 mod test_util;
@@ -33,7 +32,6 @@ use multi_target::MultiTargetRewriter;
 use operator::OperatorRewriter;
 use raise::RaiseRewriter;
 use simple_expr::SimpleExprTransformer;
-use single_assignment::SingleAssignmentRewriter;
 use with::WithRewriter;
 
 const ALL_TRANSFORMS: &[&str] = &[
@@ -48,7 +46,6 @@ const ALL_TRANSFORMS: &[&str] = &[
     "operator",
     "simple_expr",
     "literal",
-    "single_assignment",
     "import",
     "flatten",
 ];
@@ -140,11 +137,6 @@ fn rewrite_source_inner(source: &str, transforms: &HashSet<String>) -> String {
     if transforms.contains("literal") {
         let literal_transformer = LiteralRewriter::new();
         walk_body(&literal_transformer, &mut module.body);
-    }
-
-    if transforms.contains("single_assignment") {
-        let single_assign_transformer = SingleAssignmentRewriter::new();
-        walk_body(&single_assign_transformer, &mut module.body);
     }
 
     if transforms.contains("import") {
