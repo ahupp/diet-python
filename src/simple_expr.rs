@@ -3,8 +3,9 @@ use ruff_python_ast::visitor::transformer::{walk_expr, Transformer};
 use ruff_python_ast::Expr;
 use ruff_text_size::TextRange;
 
-/// Rewrites slice expressions ``a:b:c`` into ``slice(a, b, c)`` calls and
-/// complex number literals into ``complex(real, imag)`` calls.
+/// Rewrites slice expressions ``a:b:c`` into ``slice(a, b, c)`` calls,
+/// complex number literals into ``complex(real, imag)`` calls, and ellipsis
+/// expressions into references to the ``Ellipsis`` singleton.
 pub struct SimpleExprTransformer;
 
 impl SimpleExprTransformer {
@@ -37,6 +38,9 @@ impl Transformer for SimpleExprTransformer {
                     upper = upper_expr,
                     step = step_expr,
                 );
+            }
+            Expr::EllipsisLiteral(_) => {
+                *expr = crate::py_expr!("Ellipsis");
             }
             Expr::NumberLiteral(ast::ExprNumberLiteral {
                 value: ast::Number::Complex { real, imag },
@@ -109,6 +113,19 @@ mod tests {
         let cases = [
             ("a = 1j", "a = complex(0.0, 1.0)"),
             ("a = 1 + 2j", "a = 1 + complex(0.0, 2.0)"),
+        ];
+
+        for (input, expected) in cases {
+            let output = rewrite(input);
+            assert_eq!(output.trim_end(), expected);
+        }
+    }
+
+    #[test]
+    fn rewrites_ellipsis() {
+        let cases = [
+            ("a = ...", "a = Ellipsis"),
+            ("...", "Ellipsis"),
         ];
 
         for (input, expected) in cases {
