@@ -5,30 +5,32 @@ use ruff_python_ast::{self as ast, Pattern, Stmt};
 use ruff_python_codegen::{Generator, Stylist};
 use ruff_python_parser::parse_module;
 
+mod assert;
 mod comprehension;
 mod for_loop;
 mod gen;
 mod import;
-mod assert;
 mod literal;
 mod multi_target;
 mod operator;
+mod raise;
 mod simple_expr;
+mod single_assignment;
 mod template;
 #[cfg(test)]
 mod test_util;
 mod with;
-mod single_assignment;
 
+use assert::AssertRewriter;
 use for_loop::ForLoopRewriter;
 use gen::GeneratorRewriter;
 use literal::LiteralRewriter;
 use multi_target::MultiTargetRewriter;
 use operator::OperatorRewriter;
+use raise::RaiseRewriter;
 use simple_expr::SimpleExprTransformer;
-use with::WithRewriter;
-use assert::AssertRewriter;
 use single_assignment::SingleAssignmentRewriter;
+use with::WithRewriter;
 
 fn rewrite_source_inner(source: &str, ensure_import: bool) -> String {
     if source
@@ -61,6 +63,9 @@ fn rewrite_source_inner(source: &str, ensure_import: bool) -> String {
     let op_transformer = OperatorRewriter::new();
     walk_body(&op_transformer, &mut module.body);
 
+    let raise_transformer = RaiseRewriter::new();
+    walk_body(&raise_transformer, &mut module.body);
+
     if ensure_import {
         import::ensure_import(&mut module, "dp_intrinsics");
     }
@@ -73,7 +78,7 @@ fn rewrite_source_inner(source: &str, ensure_import: bool) -> String {
 
     let single_assign_transformer = SingleAssignmentRewriter::new();
     walk_body(&single_assign_transformer, &mut module.body);
-    
+
     crate::template::flatten(&mut module.body);
 
     // Ruff's code generator doesn't support match class patterns with arguments.
@@ -127,10 +132,16 @@ fn contains_match_class(body: &mut [Stmt]) -> bool {
         use Pattern::*;
         match pattern {
             MatchClass(_) => true,
-            MatchAs(ast::PatternMatchAs { pattern: Some(p), .. }) => pattern_has_class(p),
+            MatchAs(ast::PatternMatchAs {
+                pattern: Some(p), ..
+            }) => pattern_has_class(p),
             MatchOr(ast::PatternMatchOr { patterns, .. }) => patterns.iter().any(pattern_has_class),
-            MatchSequence(ast::PatternMatchSequence { patterns, .. }) => patterns.iter().any(pattern_has_class),
-            MatchMapping(ast::PatternMatchMapping { patterns, .. }) => patterns.iter().any(pattern_has_class),
+            MatchSequence(ast::PatternMatchSequence { patterns, .. }) => {
+                patterns.iter().any(pattern_has_class)
+            }
+            MatchMapping(ast::PatternMatchMapping { patterns, .. }) => {
+                patterns.iter().any(pattern_has_class)
+            }
             _ => false,
         }
     }
