@@ -1,4 +1,4 @@
-use std::{env, fs, process};
+use std::{collections::HashSet, env, fs, process};
 
 use ruff_python_ast::visitor::transformer::{walk_body, Transformer};
 use ruff_python_ast::{self as ast, Pattern, Stmt};
@@ -23,18 +23,46 @@ mod test_util;
 mod with;
 
 use assert::AssertRewriter;
+use decorator::DecoratorRewriter;
 use for_loop::ForLoopRewriter;
 use gen::GeneratorRewriter;
 use literal::LiteralRewriter;
 use multi_target::MultiTargetRewriter;
 use operator::OperatorRewriter;
 use raise::RaiseRewriter;
-use decorator::DecoratorRewriter;
 use simple_expr::SimpleExprTransformer;
 use single_assignment::SingleAssignmentRewriter;
 use with::WithRewriter;
 
-fn rewrite_source_inner(source: &str, ensure_import: bool) -> String {
+const ALL_TRANSFORMS: &[&str] = &[
+    "gen",
+    "with",
+    "for_loop",
+    "multi_target",
+    "assert",
+    "operator",
+    "raise",
+    "decorator",
+    "import",
+    "simple_expr",
+    "literal",
+    "single_assignment",
+    "flatten",
+];
+
+fn parse_transforms() -> HashSet<String> {
+    match env::var("DIET_PYTHON_TRANSFORMS") {
+        Ok(value) => value
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(ToOwned::to_owned)
+            .collect(),
+        Err(_) => ALL_TRANSFORMS.iter().map(|s| (*s).to_string()).collect(),
+    }
+}
+
+fn rewrite_source_inner(source: &str, transforms: &HashSet<String>) -> String {
     if source
         .lines()
         .next()
@@ -43,48 +71,76 @@ fn rewrite_source_inner(source: &str, ensure_import: bool) -> String {
         return source.to_string();
     }
 
+    if transforms.is_empty() {
+        return source.to_string();
+    }
+
     let parsed = parse_module(source).expect("parse error");
     let tokens = parsed.tokens().clone();
     let mut module = parsed.into_syntax();
 
-    let gen_transformer = GeneratorRewriter::new();
-    gen_transformer.rewrite_body(&mut module.body);
+    if transforms.contains("gen") {
+        let gen_transformer = GeneratorRewriter::new();
+        gen_transformer.rewrite_body(&mut module.body);
+    }
 
-    let with_transformer = WithRewriter::new();
-    walk_body(&with_transformer, &mut module.body);
+    if transforms.contains("with") {
+        let with_transformer = WithRewriter::new();
+        walk_body(&with_transformer, &mut module.body);
+    }
 
-    let for_transformer = ForLoopRewriter::new();
-    walk_body(&for_transformer, &mut module.body);
+    if transforms.contains("for_loop") {
+        let for_transformer = ForLoopRewriter::new();
+        walk_body(&for_transformer, &mut module.body);
+    }
 
-    let multi_transformer = MultiTargetRewriter::new();
-    walk_body(&multi_transformer, &mut module.body);
+    if transforms.contains("multi_target") {
+        let multi_transformer = MultiTargetRewriter::new();
+        walk_body(&multi_transformer, &mut module.body);
+    }
 
-    let assert_transformer = AssertRewriter::new();
-    walk_body(&assert_transformer, &mut module.body);
+    if transforms.contains("assert") {
+        let assert_transformer = AssertRewriter::new();
+        walk_body(&assert_transformer, &mut module.body);
+    }
 
-    let op_transformer = OperatorRewriter::new();
-    walk_body(&op_transformer, &mut module.body);
+    if transforms.contains("operator") {
+        let op_transformer = OperatorRewriter::new();
+        walk_body(&op_transformer, &mut module.body);
+    }
 
-    let raise_transformer = RaiseRewriter::new();
-    walk_body(&raise_transformer, &mut module.body);
+    if transforms.contains("raise") {
+        let raise_transformer = RaiseRewriter::new();
+        walk_body(&raise_transformer, &mut module.body);
+    }
 
-    let decorator_transformer = DecoratorRewriter::new();
-    walk_body(&decorator_transformer, &mut module.body);
+    if transforms.contains("decorator") {
+        let decorator_transformer = DecoratorRewriter::new();
+        walk_body(&decorator_transformer, &mut module.body);
+    }
 
-    if ensure_import {
+    if transforms.contains("import") {
         import::ensure_import(&mut module, "dp_intrinsics");
     }
 
-    let simple_expr_transformer = SimpleExprTransformer::new();
-    walk_body(&simple_expr_transformer, &mut module.body);
+    if transforms.contains("simple_expr") {
+        let simple_expr_transformer = SimpleExprTransformer::new();
+        walk_body(&simple_expr_transformer, &mut module.body);
+    }
 
-    let literal_transformer = LiteralRewriter::new();
-    walk_body(&literal_transformer, &mut module.body);
+    if transforms.contains("literal") {
+        let literal_transformer = LiteralRewriter::new();
+        walk_body(&literal_transformer, &mut module.body);
+    }
 
-    let single_assign_transformer = SingleAssignmentRewriter::new();
-    walk_body(&single_assign_transformer, &mut module.body);
+    if transforms.contains("single_assignment") {
+        let single_assign_transformer = SingleAssignmentRewriter::new();
+        walk_body(&single_assign_transformer, &mut module.body);
+    }
 
-    crate::template::flatten(&mut module.body);
+    if transforms.contains("flatten") {
+        crate::template::flatten(&mut module.body);
+    }
 
     // Ruff's code generator doesn't support match class patterns with arguments.
     // If present, fall back to the original source.
@@ -163,8 +219,8 @@ fn contains_match_class(body: &mut [Stmt]) -> bool {
     false
 }
 
-fn transform_source(source: &str) -> String {
-    rewrite_source_inner(source, true)
+fn transform_source(source: &str, transforms: &HashSet<String>) -> String {
+    rewrite_source_inner(source, transforms)
 }
 
 fn main() {
@@ -181,6 +237,8 @@ fn main() {
         }
     };
 
-    let output = transform_source(&source);
+    let transforms = parse_transforms();
+
+    let output = transform_source(&source, &transforms);
     print!("{}", output);
 }
