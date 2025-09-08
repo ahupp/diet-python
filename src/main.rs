@@ -42,14 +42,14 @@ const ALL_TRANSFORMS: &[&str] = &[
     "for_loop",
     "multi_target",
     "assert",
-    "operator",
     "raise",
     "decorator",
     "class_def",
-    "import",
+    "operator",
     "simple_expr",
     "literal",
     "single_assignment",
+    "import",
     "flatten",
 ];
 
@@ -82,8 +82,6 @@ fn rewrite_source_inner(source: &str, transforms: &HashSet<String>) -> String {
     let tokens = parsed.tokens().clone();
     let mut module = parsed.into_syntax();
 
-    import::ensure_import(&mut module, "dp_intrinsics");
-
     if transforms.contains("gen") {
         let gen_transformer = GeneratorRewriter::new();
         gen_transformer.rewrite_body(&mut module.body);
@@ -109,11 +107,6 @@ fn rewrite_source_inner(source: &str, transforms: &HashSet<String>) -> String {
         walk_body(&assert_transformer, &mut module.body);
     }
 
-    if transforms.contains("operator") {
-        let op_transformer = OperatorRewriter::new();
-        walk_body(&op_transformer, &mut module.body);
-    }
-
     if transforms.contains("raise") {
         let raise_transformer = RaiseRewriter::new();
         walk_body(&raise_transformer, &mut module.body);
@@ -127,6 +120,16 @@ fn rewrite_source_inner(source: &str, transforms: &HashSet<String>) -> String {
     if transforms.contains("class_def") {
         let class_def_transformer = ClassDefRewriter::new();
         walk_body(&class_def_transformer, &mut module.body);
+    }
+
+    if transforms.contains("multi_target") {
+        let multi_transformer = MultiTargetRewriter::new();
+        walk_body(&multi_transformer, &mut module.body);
+    }
+
+    if transforms.contains("operator") {
+        let op_transformer = OperatorRewriter::new();
+        walk_body(&op_transformer, &mut module.body);
     }
 
     if transforms.contains("simple_expr") {
@@ -152,6 +155,8 @@ fn rewrite_source_inner(source: &str, transforms: &HashSet<String>) -> String {
     if transforms.contains("flatten") {
         crate::template::flatten(&mut module.body);
     }
+
+    import::ensure_import(&mut module, "dp_intrinsics");
 
     // Ruff's code generator doesn't support match class patterns with arguments.
     // If present, fall back to the original source.
