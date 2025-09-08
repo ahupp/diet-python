@@ -74,11 +74,14 @@ fn rewrite_source_inner(source: &str, transforms: &HashSet<String>) -> String {
     if transforms.is_empty() {
         return source.to_string();
     }
+  
 
     let parsed = parse_module(source).expect("parse error");
     let tokens = parsed.tokens().clone();
     let mut module = parsed.into_syntax();
 
+    import::ensure_import(&mut module, "dp_intrinsics");
+  
     if transforms.contains("gen") {
         let gen_transformer = GeneratorRewriter::new();
         gen_transformer.rewrite_body(&mut module.body);
@@ -117,10 +120,6 @@ fn rewrite_source_inner(source: &str, transforms: &HashSet<String>) -> String {
     if transforms.contains("decorator") {
         let decorator_transformer = DecoratorRewriter::new();
         walk_body(&decorator_transformer, &mut module.body);
-    }
-
-    if transforms.contains("import") {
-        import::ensure_import(&mut module, "dp_intrinsics");
     }
 
     if transforms.contains("simple_expr") {
