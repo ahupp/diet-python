@@ -22,7 +22,7 @@ impl Transformer for RaiseRewriter {
             let exc_expr = *exc.clone();
             let cause_expr = *cause.clone();
             *stmt = crate::py_stmt!(
-                "dp_intrinsics.raise_from({exc:expr}, {cause:expr})",
+                "raise dp_intrinsics.raise_from({exc:expr}, {cause:expr})",
                 exc = exc_expr,
                 cause = cause_expr,
             );
@@ -49,7 +49,7 @@ mod tests {
     #[test]
     fn rewrites_raise_from() {
         let input = "raise ValueError from exc";
-        let expected = "dp_intrinsics.raise_from(ValueError, exc)";
+        let expected = "raise dp_intrinsics.raise_from(ValueError, exc)";
         let output = rewrite_raise(input);
         assert_flatten_eq!(output, expected);
     }
