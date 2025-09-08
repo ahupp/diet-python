@@ -14,6 +14,7 @@ mod literal;
 mod multi_target;
 mod operator;
 mod raise;
+mod decorator;
 mod simple_expr;
 mod single_assignment;
 mod template;
@@ -28,6 +29,7 @@ use literal::LiteralRewriter;
 use multi_target::MultiTargetRewriter;
 use operator::OperatorRewriter;
 use raise::RaiseRewriter;
+use decorator::DecoratorRewriter;
 use simple_expr::SimpleExprTransformer;
 use single_assignment::SingleAssignmentRewriter;
 use with::WithRewriter;
@@ -65,6 +67,9 @@ fn rewrite_source_inner(source: &str, ensure_import: bool) -> String {
 
     let raise_transformer = RaiseRewriter::new();
     walk_body(&raise_transformer, &mut module.body);
+
+    let decorator_transformer = DecoratorRewriter::new();
+    walk_body(&decorator_transformer, &mut module.body);
 
     if ensure_import {
         import::ensure_import(&mut module, "dp_intrinsics");
