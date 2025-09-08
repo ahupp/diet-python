@@ -3,6 +3,10 @@ name = "diet-python"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "diet_python"
+path = "src/lib.rs"
+
 [dependencies]
 ruff_python_parser = { git = "https://github.com/astral-sh/ruff", package = "ruff_python_parser" }
 ruff_python_ast = { git = "https://github.com/astral-sh/ruff", package = "ruff_python_ast" }
