@@ -397,6 +397,18 @@ x = dp_intrinsics.iadd(x, 2)
     }
 
     #[test]
+    fn rewrites_nested_delitem() {
+        let output = rewrite_source("del a.b[1]");
+        assert_eq!(output.trim_end(), "dp_intrinsics.delitem(a.b, 1)");
+    }
+
+    #[test]
+    fn rewrites_delattr_after_getitem() {
+        let output = rewrite_source("del a.b[1].c");
+        assert_eq!(output.trim_end(), "del dp_intrinsics.getitem(a.b, 1).c");
+    }
+
+    #[test]
     fn rewrites_chain_assignment_with_subscript() {
         let output = rewrite_source("a[0] = b = 1");
         let expected = "_dp_tmp_1 = 1\ndp_intrinsics.setitem(a, 0, _dp_tmp_1)\nb = _dp_tmp_1";
