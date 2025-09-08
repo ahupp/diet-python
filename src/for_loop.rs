@@ -3,6 +3,7 @@ use std::cell::Cell;
 use ruff_python_ast::visitor::transformer::{walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, Stmt};
 
+
 pub struct ForLoopRewriter {
     iter_count: Cell<usize>,
 }
@@ -33,23 +34,34 @@ impl Transformer for ForLoopRewriter {
             let iter_name = format!("_dp_iter_{}", id);
 
             let body_stmts = std::mem::take(body);
-            let orelse_stmts = std::mem::take(orelse);
+            let mut orelse_stmts = std::mem::take(orelse);
 
             let (iter_fn, next_fn, stop_exc, await_) = if *is_async {
-                ("aiter", "anext", "StopAsyncIteration", "await ")
+                (
+                    crate::py_expr!("dp_intrinsics.aiter"),
+                    crate::py_expr!("dp_intrinsics.anext"),
+                    "StopAsyncIteration",
+                    "await ",
+                )
             } else {
-                ("iter", "next", "StopIteration", "")
+                (
+                    crate::py_expr!("dp_intrinsics.iter"),
+                    crate::py_expr!("dp_intrinsics.next"),
+                    "StopIteration",
+                    "",
+                )
             };
+
+            orelse_stmts.push(crate::py_stmt!("break"));
 
             let wrapper = crate::py_stmt!(
                 "
-{iter_name:id} = {iter_fn:id}({iter:expr})
+{iter_name:id} = {iter_fn:expr}({iter:expr})
 while True:
     try:
-        {target:expr} = {await_:id}{next_fn:id}({iter_name:id})
+        {target:expr} = {await_:id}{next_fn:expr}({iter_name:id})
     except {stop_exc:id}:
         {orelse:stmt}
-        break
     {body:stmt}
 ",
                 iter_name = iter_name.as_str(),
@@ -96,10 +108,10 @@ else:
     c(0)
 "#;
         let expected = r#"
-_dp_iter_1 = iter(b)
+_dp_iter_1 = dp_intrinsics.iter(b)
 while True:
     try:
-        a = next(_dp_iter_1)
+        a = dp_intrinsics.next(_dp_iter_1)
     except StopIteration:
         c(0)
         break
@@ -107,6 +119,25 @@ while True:
         c(a)
     else:
         break
+"#;
+        let output = rewrite_for(input);
+        assert_flatten_eq!(output, expected);
+    }
+
+    #[test]
+    fn rewrites_for_loop_without_else() {
+        let input = r#"
+for a in b:
+    c(a)
+"#;
+        let expected = r#"
+_dp_iter_1 = dp_intrinsics.iter(b)
+while True:
+    try:
+        a = dp_intrinsics.next(_dp_iter_1)
+    except StopIteration:
+        break
+    c(a)
 "#;
         let output = rewrite_for(input);
         assert_flatten_eq!(output, expected);
@@ -126,10 +157,10 @@ async def f():
 "#;
         let expected = r#"
 async def f():
-    _dp_iter_1 = aiter(b)
+    _dp_iter_1 = dp_intrinsics.aiter(b)
     while True:
         try:
-            a = await anext(_dp_iter_1)
+            a = await dp_intrinsics.anext(_dp_iter_1)
         except StopAsyncIteration:
             c(0)
             break
@@ -141,4 +172,5 @@ async def f():
         let output = rewrite_for(input);
         assert_flatten_eq!(output, expected);
     }
+
 }

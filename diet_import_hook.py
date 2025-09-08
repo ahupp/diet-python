@@ -1,11 +1,20 @@
 import importlib.machinery
-import importlib.util
 import subprocess
 import sys
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parent
+
+
+def _should_transform(path: str) -> bool:
+    """Return ``True`` if ``path`` should be passed through the transform."""
+
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            return "diet-python: disable" not in file.read()
+    except OSError:
+        return False
 
 
 class DietPythonLoader(importlib.machinery.SourceFileLoader):
@@ -33,7 +42,12 @@ class DietPythonFinder(importlib.machinery.PathFinder):
     @classmethod
     def find_spec(cls, fullname, path=None, target=None):
         spec = super().find_spec(fullname, path, target)
-        if spec and isinstance(spec.loader, importlib.machinery.SourceFileLoader):
+        if (
+            spec
+            and isinstance(spec.loader, importlib.machinery.SourceFileLoader)
+            and spec.origin
+            and _should_transform(spec.origin)
+        ):
             spec.loader = DietPythonLoader(fullname, spec.origin)
         return spec
 

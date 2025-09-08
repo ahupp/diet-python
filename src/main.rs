@@ -1,6 +1,7 @@
 use std::{env, fs, process};
 
-use ruff_python_ast::visitor::transformer::walk_body;
+use ruff_python_ast::visitor::transformer::{walk_body, Transformer};
+use ruff_python_ast::{self as ast, Pattern, Stmt};
 use ruff_python_codegen::{Generator, Stylist};
 use ruff_python_parser::parse_module;
 
@@ -30,6 +31,14 @@ use assert::AssertRewriter;
 use single_assignment::SingleAssignmentRewriter;
 
 fn rewrite_source_inner(source: &str, ensure_import: bool) -> String {
+    if source
+        .lines()
+        .next()
+        .is_some_and(|line| line.contains("diet-python: disabled"))
+    {
+        return source.to_string();
+    }
+
     let parsed = parse_module(source).expect("parse error");
     let tokens = parsed.tokens().clone();
     let mut module = parsed.into_syntax();
@@ -52,11 +61,8 @@ fn rewrite_source_inner(source: &str, ensure_import: bool) -> String {
     let op_transformer = OperatorRewriter::new();
     walk_body(&op_transformer, &mut module.body);
 
-    if ensure_import && op_transformer.transformed() {
-        import::ensure_import(&mut module, "operator");
-    }
-    if ensure_import && with_transformer.transformed() {
-        import::ensure_import(&mut module, "sys");
+    if ensure_import {
+        import::ensure_import(&mut module, "dp_intrinsics");
     }
 
     let simple_expr_transformer = SimpleExprTransformer::new();
@@ -67,8 +73,14 @@ fn rewrite_source_inner(source: &str, ensure_import: bool) -> String {
 
     let single_assign_transformer = SingleAssignmentRewriter::new();
     walk_body(&single_assign_transformer, &mut module.body);
-
+    
     crate::template::flatten(&mut module.body);
+
+    // Ruff's code generator doesn't support match class patterns with arguments.
+    // If present, fall back to the original source.
+    if contains_match_class(&mut module.body) {
+        return source.to_string();
+    }
 
     let stylist = Stylist::from_tokens(&tokens, source);
     let mut output = String::new();
@@ -78,6 +90,61 @@ fn rewrite_source_inner(source: &str, ensure_import: bool) -> String {
         output.push_str(stylist.line_ending().as_str());
     }
     output
+}
+
+fn contains_match_class(body: &mut [Stmt]) -> bool {
+    use std::cell::Cell;
+
+    struct Finder {
+        found: Cell<bool>,
+    }
+
+    impl Transformer for Finder {
+        fn visit_stmt(&self, stmt: &mut Stmt) {
+            if self.found.get() {
+                return;
+            }
+            if let Stmt::Match(ast::StmtMatch { cases, .. }) = stmt {
+                for case in cases {
+                    if pattern_has_class(&case.pattern) {
+                        self.found.set(true);
+                        return;
+                    }
+                    for body_stmt in &mut case.body {
+                        self.visit_stmt(body_stmt);
+                        if self.found.get() {
+                            return;
+                        }
+                    }
+                }
+            } else {
+                ruff_python_ast::visitor::transformer::walk_stmt(self, stmt);
+            }
+        }
+    }
+
+    fn pattern_has_class(pattern: &Pattern) -> bool {
+        use Pattern::*;
+        match pattern {
+            MatchClass(_) => true,
+            MatchAs(ast::PatternMatchAs { pattern: Some(p), .. }) => pattern_has_class(p),
+            MatchOr(ast::PatternMatchOr { patterns, .. }) => patterns.iter().any(pattern_has_class),
+            MatchSequence(ast::PatternMatchSequence { patterns, .. }) => patterns.iter().any(pattern_has_class),
+            MatchMapping(ast::PatternMatchMapping { patterns, .. }) => patterns.iter().any(pattern_has_class),
+            _ => false,
+        }
+    }
+
+    let finder = Finder {
+        found: Cell::new(false),
+    };
+    for stmt in body.iter_mut() {
+        finder.visit_stmt(stmt);
+        if finder.found.get() {
+            return true;
+        }
+    }
+    false
 }
 
 fn transform_source(source: &str) -> String {

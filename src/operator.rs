@@ -26,7 +26,7 @@ impl OperatorRewriter {
                 let mut iter = args.into_iter();
                 let arg = iter.next().unwrap();
                 crate::py_expr!(
-                    "operator.{func:id}({arg:expr})",
+                    "dp_intrinsics.operator.{func:id}({arg:expr})",
                     arg = arg,
                     func = func_name
                 )
@@ -36,7 +36,7 @@ impl OperatorRewriter {
                 let left = iter.next().unwrap();
                 let right = iter.next().unwrap();
                 crate::py_expr!(
-                    "operator.{func:id}({left:expr}, {right:expr})",
+                    "dp_intrinsics.operator.{func:id}({left:expr}, {right:expr})",
                     left = left,
                     right = right,
                     func = func_name
@@ -218,7 +218,7 @@ impl Transformer for OperatorRewriter {
                 let key = (*sub.slice).clone();
                 let value = (*assign.value).clone();
                 *stmt = crate::py_stmt!(
-                    "operator.setitem({obj:expr}, {key:expr}, {value:expr})",
+                    "dp_intrinsics.operator.setitem({obj:expr}, {key:expr}, {value:expr})",
                     obj = obj,
                     key = key,
                     value = value,
@@ -235,7 +235,7 @@ impl Transformer for OperatorRewriter {
                 let obj = (*sub.value).clone();
                 let key = (*sub.slice).clone();
                 *stmt = crate::py_stmt!(
-                    "operator.delitem({obj:expr}, {key:expr})",
+                    "dp_intrinsics.operator.delitem({obj:expr}, {key:expr})",
                     obj = obj,
                     key = key,
                 );
@@ -286,8 +286,8 @@ mod tests {
     #[test]
     fn rewrites_binary_ops() {
         let cases = [
-            ("a + b", "operator.add(a, b)"),
-            ("a - b", "operator.sub(a, b)"),
+            ("a + b", "dp_intrinsics.operator.add(a, b)"),
+            ("a - b", "dp_intrinsics.operator.sub(a, b)"),
         ];
 
         for (input, expected) in cases {
@@ -304,7 +304,7 @@ x += 2
 ";
         let expected = "
 x = 1
-x = operator.iadd(x, 2)
+x = dp_intrinsics.operator.iadd(x, 2)
 ";
         let output = rewrite_source(input);
         assert_eq!(output.trim(), expected.trim());
@@ -313,9 +313,9 @@ x = operator.iadd(x, 2)
     #[test]
     fn rewrites_unary_ops() {
         let cases = [
-            ("-a", "operator.neg(a)"),
-            ("~b", "operator.invert(b)"),
-            ("not c", "operator.not_(c)"),
+            ("-a", "dp_intrinsics.operator.neg(a)"),
+            ("~b", "dp_intrinsics.operator.invert(b)"),
+            ("not c", "dp_intrinsics.operator.not_(c)"),
         ];
 
         for (input, expected) in cases {
@@ -363,13 +363,13 @@ x = operator.iadd(x, 2)
     #[test]
     fn rewrites_comparisons() {
         let cases = [
-            ("a == b", "operator.eq(a, b)"),
-            ("a != b", "operator.ne(a, b)"),
-            ("a < b", "operator.lt(a, b)"),
-            ("a > b", "operator.gt(a, b)"),
-            ("a is not b", "operator.is_not(a, b)"),
-            ("a in b", "operator.contains(b, a)"),
-            ("a not in b", "operator.not_(operator.contains(b, a))"),
+            ("a == b", "dp_intrinsics.operator.eq(a, b)"),
+            ("a != b", "dp_intrinsics.operator.ne(a, b)"),
+            ("a < b", "dp_intrinsics.operator.lt(a, b)"),
+            ("a > b", "dp_intrinsics.operator.gt(a, b)"),
+            ("a is not b", "dp_intrinsics.operator.is_not(a, b)"),
+            ("a in b", "dp_intrinsics.operator.contains(b, a)"),
+            ("a not in b", "dp_intrinsics.operator.not_(dp_intrinsics.operator.contains(b, a))"),
         ];
 
         for (input, expected) in cases {
@@ -381,32 +381,32 @@ x = operator.iadd(x, 2)
     #[test]
     fn rewrites_getitem() {
         let output = rewrite_source("a[b]");
-        assert_eq!(output.trim_end(), "operator.getitem(a, b)");
+        assert_eq!(output.trim_end(), "dp_intrinsics.operator.getitem(a, b)");
     }
 
     #[test]
     fn rewrites_setitem() {
         let output = rewrite_source("a[b] = c");
-        assert_eq!(output.trim_end(), "operator.setitem(a, b, c)");
+        assert_eq!(output.trim_end(), "dp_intrinsics.operator.setitem(a, b, c)");
     }
 
     #[test]
     fn rewrites_delitem() {
         let output = rewrite_source("del a[b]");
-        assert_eq!(output.trim_end(), "operator.delitem(a, b)");
+        assert_eq!(output.trim_end(), "dp_intrinsics.operator.delitem(a, b)");
     }
 
     #[test]
     fn rewrites_chain_assignment_with_subscript() {
         let output = rewrite_source("a[0] = b = 1");
-        let expected = "_dp_tmp_1 = 1\noperator.setitem(a, 0, _dp_tmp_1)\nb = _dp_tmp_1";
+        let expected = "_dp_tmp_1 = 1\ndp_intrinsics.operator.setitem(a, 0, _dp_tmp_1)\nb = _dp_tmp_1";
         assert_eq!(output.trim(), expected.trim());
     }
 
     #[test]
     fn rewrites_multi_delitem_targets() {
         let output = rewrite_source("del a[0], b[0]");
-        let expected = "operator.delitem(a, 0)\noperator.delitem(b, 0)";
+        let expected = "dp_intrinsics.operator.delitem(a, 0)\ndp_intrinsics.operator.delitem(b, 0)";
         assert_eq!(output.trim(), expected.trim());
     }
 }
