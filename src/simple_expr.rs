@@ -4,8 +4,9 @@ use ruff_python_ast::Expr;
 use ruff_text_size::TextRange;
 
 /// Rewrites slice expressions ``a:b:c`` into ``slice(a, b, c)`` calls,
-/// complex number literals into ``complex(real, imag)`` calls, and ellipsis
-/// expressions into references to the ``Ellipsis`` singleton.
+/// complex number literals into ``complex(real, imag)`` calls, ellipsis
+/// expressions into references to the ``Ellipsis`` singleton, and attribute
+/// access into ``getattr(obj, "attr")`` calls.
 pub struct SimpleExprTransformer;
 
 impl SimpleExprTransformer {
@@ -61,6 +62,18 @@ impl Transformer for SimpleExprTransformer {
                     real = real_expr,
                     imag = imag_expr,
                 );
+            }
+            Expr::Attribute(ast::ExprAttribute { value, attr, ctx, .. }) => {
+                if matches!(ctx, ast::ExprContext::Load) {
+                    let value_expr = *value.clone();
+                    let attr_expr = crate::py_expr!("\"{name:id}\"", name = attr.id.as_str());
+                    *expr = crate::py_expr!(
+                        "getattr({value:expr}, {attr:expr})",
+                        value = value_expr,
+                        attr = attr_expr,
+                    );
+                    // TODO: figure out the bootstrapping problem.
+                }
             }
             _ => {}
         }
@@ -126,6 +139,22 @@ mod tests {
         let cases = [
             ("a = ...", "a = Ellipsis"),
             ("...", "Ellipsis"),
+        ];
+
+        for (input, expected) in cases {
+            let output = rewrite(input);
+            assert_eq!(output.trim_end(), expected);
+        }
+    }
+
+    #[test]
+    fn rewrites_attribute_access() {
+        let cases = [
+            ("obj.attr", "getattr(obj, \"attr\")"),
+            (
+                "foo.bar.baz",
+                "getattr(getattr(foo, \"bar\"), \"baz\")",
+            ),
         ];
 
         for (input, expected) in cases {
