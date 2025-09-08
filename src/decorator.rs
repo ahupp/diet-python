@@ -26,14 +26,18 @@ impl DecoratorRewriter {
         let mut names = Vec::new();
 
         for decorator in decorators {
-            let tmp = self.next_tmp();
-            let assign = crate::py_stmt!(
-                "{name:id} = {decorator:expr}",
-                name = tmp.as_str(),
-                decorator = decorator.expression,
-            );
-            assigns.push(assign);
-            names.push(tmp);
+            if let ast::Expr::Name(ast::ExprName { id, .. }) = &decorator.expression {
+                names.push(id.to_string());
+            } else {
+                let tmp = self.next_tmp();
+                let assign = crate::py_stmt!(
+                    "{name:id} = {decorator:expr}",
+                    name = tmp.as_str(),
+                    decorator = decorator.expression,
+                );
+                assigns.push(assign);
+                names.push(tmp);
+            }
         }
 
         let mut call_expr = crate::py_expr!("{name:id}", name = name);
@@ -110,10 +114,9 @@ def foo():
     pass
 "#;
         let expected = r#"_dp_dec_1 = dec2(5)
-_dp_dec_2 = dec1
 def foo():
     pass
-foo = _dp_dec_1(_dp_dec_2(foo))
+foo = _dp_dec_1(dec1(foo))
 "#;
         let output = rewrite(input);
         assert_flatten_eq!(output, expected);
@@ -125,10 +128,9 @@ foo = _dp_dec_1(_dp_dec_2(foo))
 class C:
     pass
 "#;
-        let expected = r#"_dp_dec_1 = dec
-class C:
+        let expected = r#"class C:
     pass
-C = _dp_dec_1(C)
+C = dec(C)
 "#;
         let output = rewrite(input);
         assert_flatten_eq!(output, expected);
@@ -142,10 +144,9 @@ class C:
     pass
 "#;
         let expected = r#"_dp_dec_1 = dec2(5)
-_dp_dec_2 = dec1
 class C:
     pass
-C = _dp_dec_1(_dp_dec_2(C))
+C = _dp_dec_1(dec1(C))
 "#;
         let output = rewrite(input);
         assert_flatten_eq!(output, expected);

@@ -1,10 +1,48 @@
 # diet-python: disabled
-import operator
+import operator as _operator
 import sys
 import builtins
 import types as _types
 
-operator = operator
+operator = _operator
+add = _operator.add
+sub = _operator.sub
+mul = _operator.mul
+matmul = _operator.matmul
+truediv = _operator.truediv
+floordiv = _operator.floordiv
+mod = _operator.mod
+pow = _operator.pow
+lshift = _operator.lshift
+rshift = _operator.rshift
+or_ = _operator.or_
+xor = _operator.xor
+and_ = _operator.and_
+getitem = _operator.getitem
+setitem = _operator.setitem
+delitem = _operator.delitem
+iadd = _operator.iadd
+isub = _operator.isub
+imul = _operator.imul
+imatmul = _operator.imatmul
+itruediv = _operator.itruediv
+imod = _operator.imod
+ipow = _operator.ipow
+ilshift = _operator.ilshift
+irshift = _operator.irshift
+ior = _operator.ior
+ixor = _operator.ixor
+iand = _operator.iand
+ifloordiv = _operator.ifloordiv
+neg = _operator.neg
+invert = _operator.invert
+not_ = _operator.not_
+eq = _operator.eq
+ne = _operator.ne
+lt = _operator.lt
+gt = _operator.gt
+is_not = _operator.is_not
+contains = _operator.contains
 next = builtins.next
 iter = builtins.iter
 aiter = builtins.aiter
