@@ -56,6 +56,9 @@ def prepare_class(name, bases, kwds=None):
         return _types.prepare_class(name, bases)
     return _types.prepare_class(name, bases, kwds)
 
+def set_classcell(cell, cls):
+    cell.cell_contents = cls
+
 def exc_info():
     return sys.exc_info()
 
