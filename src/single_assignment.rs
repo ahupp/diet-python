@@ -65,6 +65,21 @@ impl SingleAssignmentRewriter {
 
 impl Transformer for SingleAssignmentRewriter {
     fn visit_stmt(&self, stmt: &mut Stmt) {
+        if let Stmt::Match(ast::StmtMatch { cases, .. }) = stmt {
+            for case in cases {
+                self.stmts.borrow_mut().push(Vec::new());
+                for body_stmt in &mut case.body {
+                    self.visit_stmt(body_stmt);
+                }
+                let mut prepends = self.stmts.borrow_mut().pop().unwrap();
+                if !prepends.is_empty() {
+                    prepends.extend(std::mem::take(&mut case.body));
+                    case.body = prepends;
+                }
+            }
+            return;
+        }
+
         self.stmts.borrow_mut().push(Vec::new());
         walk_stmt(self, stmt);
         let mut prepends = self.stmts.borrow_mut().pop().unwrap();

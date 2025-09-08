@@ -55,8 +55,13 @@ impl Transformer for WithRewriter {
             {
                 let enter_name = format!("_dp_enter_{}", id);
                 let exit_name = format!("_dp_exit_{}", id);
+                let ctx_name = format!("_dp_ctx_{}", id);
 
-                let ctx = context_expr;
+                let ctx_assign = crate::py_stmt!(
+                    "{ctx_var:id} = {ctx:expr}",
+                    ctx_var = ctx_name.as_str(),
+                    ctx = context_expr,
+                );
 
                 let (enter_method, exit_method, await_) = if is_async_stmt {
                     ("__aenter__", "__aexit__", "await ")
@@ -66,42 +71,41 @@ impl Transformer for WithRewriter {
 
                 let pre_stmt = if let Some(var) = optional_vars {
                     crate::py_stmt!(
-                        "{var:expr} = {await_:id}{enter:id}({ctx:expr})",
+                        "{var:expr} = {await_:id}{enter:id}({ctx_var:id})",
                         var = *var,
                         await_ = await_,
                         enter = enter_name.as_str(),
-                        ctx = ctx.clone(),
+                        ctx_var = ctx_name.as_str(),
                     )
                 } else {
                     crate::py_stmt!(
-                        "{await_:id}{enter:id}({ctx:expr})",
+                        "{await_:id}{enter:id}({ctx_var:id})",
                         await_ = await_,
                         enter = enter_name.as_str(),
-                        ctx = ctx.clone(),
+                        ctx_var = ctx_name.as_str(),
                     )
                 };
 
                 let wrapper = crate::py_stmt!(
                     "
-{enter:id} = type({ctx1:expr}).{enter_method:id}
-{exit:id} = type({ctx2:expr}).{exit_method:id}
+{ctx_assign:stmt}
+{enter:id} = type({ctx_var:id}).{enter_method:id}
+{exit:id} = type({ctx_var:id}).{exit_method:id}
 {pre:stmt}
 try:
     {body:stmt}
 except:
-    if not {await_:id}{exit:id}({ctx3:expr}, *sys.exc_info()):
+    if not {await_:id}{exit:id}({ctx_var:id}, *dp_intrinsics.exc_info()):
         raise
 else:
-    {await_:id}{exit:id}({ctx4:expr}, None, None, None)
+    {await_:id}{exit:id}({ctx_var:id}, None, None, None)
 ",
+                    ctx_assign = ctx_assign,
                     enter = enter_name.as_str(),
                     exit = exit_name.as_str(),
+                    ctx_var = ctx_name.as_str(),
                     enter_method = enter_method,
                     exit_method = exit_method,
-                    ctx1 = ctx.clone(),
-                    ctx2 = ctx.clone(),
-                    ctx3 = ctx.clone(),
-                    ctx4 = ctx,
                     await_ = await_,
                     pre = pre_stmt,
                     body = body_stmts,
@@ -138,16 +142,17 @@ with a as b:
     c
 "#;
         let expected = r#"
-_dp_enter_1 = type(a).__enter__
-_dp_exit_1 = type(a).__exit__
-b = _dp_enter_1(a)
+_dp_ctx_1 = a
+_dp_enter_1 = type(_dp_ctx_1).__enter__
+_dp_exit_1 = type(_dp_ctx_1).__exit__
+b = _dp_enter_1(_dp_ctx_1)
 try:
     c
 except:
-    if not _dp_exit_1(a, *sys.exc_info()):
+    if not _dp_exit_1(_dp_ctx_1, *dp_intrinsics.exc_info()):
         raise
 else:
-    _dp_exit_1(a, None, None, None)
+    _dp_exit_1(_dp_ctx_1, None, None, None)
 "#;
         let output = rewrite_with(input);
         assert_flatten_eq!(output, expected);
@@ -160,25 +165,27 @@ with a as b, c as d:
     e
 "#;
         let expected = r#"
-_dp_enter_1 = type(a).__enter__
-_dp_exit_1 = type(a).__exit__
-b = _dp_enter_1(a)
+_dp_ctx_1 = a
+_dp_enter_1 = type(_dp_ctx_1).__enter__
+_dp_exit_1 = type(_dp_ctx_1).__exit__
+b = _dp_enter_1(_dp_ctx_1)
 try:
-    _dp_enter_2 = type(c).__enter__
-    _dp_exit_2 = type(c).__exit__
-    d = _dp_enter_2(c)
+    _dp_ctx_2 = c
+    _dp_enter_2 = type(_dp_ctx_2).__enter__
+    _dp_exit_2 = type(_dp_ctx_2).__exit__
+    d = _dp_enter_2(_dp_ctx_2)
     try:
         e
     except:
-        if not _dp_exit_2(c, *sys.exc_info()):
+        if not _dp_exit_2(_dp_ctx_2, *dp_intrinsics.exc_info()):
             raise
     else:
-        _dp_exit_2(c, None, None, None)
+        _dp_exit_2(_dp_ctx_2, None, None, None)
 except:
-    if not _dp_exit_1(a, *sys.exc_info()):
+    if not _dp_exit_1(_dp_ctx_1, *dp_intrinsics.exc_info()):
         raise
 else:
-    _dp_exit_1(a, None, None, None)
+    _dp_exit_1(_dp_ctx_1, None, None, None)
 "#;
         let output = rewrite_with(input);
         assert_flatten_eq!(output, expected);
@@ -193,16 +200,17 @@ async def f():
 "#;
         let expected = r#"
 async def f():
-    _dp_enter_1 = type(a).__aenter__
-    _dp_exit_1 = type(a).__aexit__
-    b = await _dp_enter_1(a)
+    _dp_ctx_1 = a
+    _dp_enter_1 = type(_dp_ctx_1).__aenter__
+    _dp_exit_1 = type(_dp_ctx_1).__aexit__
+    b = await _dp_enter_1(_dp_ctx_1)
     try:
         c
     except:
-        if not await _dp_exit_1(a, *sys.exc_info()):
+        if not await _dp_exit_1(_dp_ctx_1, *dp_intrinsics.exc_info()):
             raise
     else:
-        await _dp_exit_1(a, None, None, None)
+        await _dp_exit_1(_dp_ctx_1, None, None, None)
 "#;
         let output = rewrite_with(input);
         assert_flatten_eq!(output, expected);
