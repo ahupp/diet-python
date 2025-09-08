@@ -6,7 +6,9 @@ use ruff_python_codegen::{Generator, Stylist};
 use ruff_python_parser::parse_module;
 
 mod assert;
+mod class_def;
 mod comprehension;
+mod decorator;
 mod for_loop;
 mod gen;
 mod import;
@@ -14,7 +16,6 @@ mod literal;
 mod multi_target;
 mod operator;
 mod raise;
-mod decorator;
 mod simple_expr;
 mod single_assignment;
 mod template;
@@ -23,6 +24,7 @@ mod test_util;
 mod with;
 
 use assert::AssertRewriter;
+use class_def::ClassDefRewriter;
 use decorator::DecoratorRewriter;
 use for_loop::ForLoopRewriter;
 use gen::GeneratorRewriter;
@@ -43,6 +45,7 @@ const ALL_TRANSFORMS: &[&str] = &[
     "operator",
     "raise",
     "decorator",
+    "class_def",
     "import",
     "simple_expr",
     "literal",
@@ -74,14 +77,13 @@ fn rewrite_source_inner(source: &str, transforms: &HashSet<String>) -> String {
     if transforms.is_empty() {
         return source.to_string();
     }
-  
 
     let parsed = parse_module(source).expect("parse error");
     let tokens = parsed.tokens().clone();
     let mut module = parsed.into_syntax();
 
     import::ensure_import(&mut module, "dp_intrinsics");
-  
+
     if transforms.contains("gen") {
         let gen_transformer = GeneratorRewriter::new();
         gen_transformer.rewrite_body(&mut module.body);
@@ -120,6 +122,11 @@ fn rewrite_source_inner(source: &str, transforms: &HashSet<String>) -> String {
     if transforms.contains("decorator") {
         let decorator_transformer = DecoratorRewriter::new();
         walk_body(&decorator_transformer, &mut module.body);
+    }
+
+    if transforms.contains("class_def") {
+        let class_def_transformer = ClassDefRewriter::new();
+        walk_body(&class_def_transformer, &mut module.body);
     }
 
     if transforms.contains("simple_expr") {
