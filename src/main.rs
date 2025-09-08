@@ -71,6 +71,7 @@ fn rewrite_source_inner(source: &str, ensure_import: bool) -> String {
     let decorator_transformer = DecoratorRewriter::new();
     walk_body(&decorator_transformer, &mut module.body);
 
+
     if ensure_import {
         import::ensure_import(&mut module, "dp_intrinsics");
     }
