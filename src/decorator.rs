@@ -127,5 +127,22 @@ C = __dp_dec_1(C)
         let output = rewrite(input);
         assert_flatten_eq!(output, expected);
     }
+
+    #[test]
+    fn rewrites_multiple_class_decorators() {
+        let input = r#"@dec2(5)
+@dec1
+class C:
+    pass
+"#;
+        let expected = r#"__dp_dec_1 = dec2(5)
+__dp_dec_2 = dec1
+class C:
+    pass
+C = __dp_dec_1(__dp_dec_2(C))
+"#;
+        let output = rewrite(input);
+        assert_flatten_eq!(output, expected);
+    }
 }
 
