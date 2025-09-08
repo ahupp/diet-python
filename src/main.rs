@@ -84,11 +84,6 @@ fn rewrite_source_inner(source: &str, transforms: &HashSet<String>) -> String {
 
     import::ensure_import(&mut module, "dp_intrinsics");
 
-    if transforms.contains("import") {
-        let import_rewriter = import::ImportRewriter::new();
-        walk_body(&import_rewriter, &mut module.body);
-    }
-
     if transforms.contains("gen") {
         let gen_transformer = GeneratorRewriter::new();
         gen_transformer.rewrite_body(&mut module.body);
@@ -147,6 +142,11 @@ fn rewrite_source_inner(source: &str, transforms: &HashSet<String>) -> String {
     if transforms.contains("single_assignment") {
         let single_assign_transformer = SingleAssignmentRewriter::new();
         walk_body(&single_assign_transformer, &mut module.body);
+    }
+
+    if transforms.contains("import") {
+        let import_rewriter = import::ImportRewriter::new();
+        walk_body(&import_rewriter, &mut module.body);
     }
 
     if transforms.contains("flatten") {
