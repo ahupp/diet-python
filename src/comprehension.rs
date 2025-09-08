@@ -60,11 +60,11 @@ mod tests {
     fn rewrites_list_comp() {
         let input = "r = [a + 1 for a in items if a % 2 == 0]";
         let expected = r#"
-def __dp_gen_1(items):
+def _dp_gen_1(items):
     for a in items:
         if a % 2 == 0:
             yield a + 1
-r = list(__dp_gen_1(dp_intrinsics.iter(items)))
+r = list(_dp_gen_1(dp_intrinsics.iter(items)))
 "#;
         let output = rewrite_gen(input);
         assert_flatten_eq!(output, expected);
@@ -74,10 +74,10 @@ r = list(__dp_gen_1(dp_intrinsics.iter(items)))
     fn rewrites_set_comp() {
         let input = "r = {a for a in items}";
         let expected = r#"
-def __dp_gen_1(items):
+def _dp_gen_1(items):
     for a in items:
         yield a
-r = set(__dp_gen_1(dp_intrinsics.iter(items)))
+r = set(_dp_gen_1(dp_intrinsics.iter(items)))
 "#;
         let output = rewrite_gen(input);
         assert_flatten_eq!(output, expected);
@@ -87,11 +87,11 @@ r = set(__dp_gen_1(dp_intrinsics.iter(items)))
     fn rewrites_dict_comp() {
         let input = "r = {k: v + 1 for k, v in items if k % 2 == 0}";
         let expected = r#"
-def __dp_gen_1(items):
+def _dp_gen_1(items):
     for k, v in items:
         if k % 2 == 0:
             yield k, v + 1
-r = dict(__dp_gen_1(dp_intrinsics.iter(items)))
+r = dict(_dp_gen_1(dp_intrinsics.iter(items)))
 "#;
         let output = rewrite_gen(input);
         assert_flatten_eq!(output, expected);

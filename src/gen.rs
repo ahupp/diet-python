@@ -70,12 +70,17 @@ impl Transformer for GeneratorRewriter {
 
             let id = self.gen_count.get() + 1;
             self.gen_count.set(id);
-            let func_name = format!("__dp_gen_{}", id);
+            // Avoid using a double underscore prefix for generated function names.
+            // Python performs name mangling for identifiers starting with two
+            // leading underscores inside class bodies, which breaks references to
+            // the helper functions we inject.  Using a single leading underscore
+            // keeps the functions hidden while preventing mangling.
+            let func_name = format!("_dp_gen_{}", id);
 
             let param_name = if let Expr::Name(ast::ExprName { id, .. }) = &first_iter_expr {
                 id.clone()
             } else {
-                Name::new(format!("__dp_iter_{}", id))
+                Name::new(format!("_dp_iter_{}", id))
             };
 
             let mut body = vec![crate::py_stmt!(
@@ -162,11 +167,11 @@ mod tests {
     fn rewrites_generator_expressions() {
         let input = "r = (a + 1 for a in items if a % 2 == 0)";
         let expected = r#"
-def __dp_gen_1(items):
+def _dp_gen_1(items):
     for a in items:
         if a % 2 == 0:
             yield a + 1
-r = __dp_gen_1(dp_intrinsics.iter(items))
+r = _dp_gen_1(dp_intrinsics.iter(items))
 "#;
         let output = rewrite_gen(input);
         assert_flatten_eq!(output, expected);
@@ -182,10 +187,10 @@ def outer(items, offset):
         let expected = r#"
 def outer(items, offset):
 
-    def __dp_gen_1(items):
+    def _dp_gen_1(items):
         for a in items:
             yield a + offset
-    r = __dp_gen_1(dp_intrinsics.iter(items))
+    r = _dp_gen_1(dp_intrinsics.iter(items))
     return r
 "#;
         let output = rewrite_gen(input);
@@ -199,11 +204,11 @@ b = 1
 r = (a + b for a in some_function())
 ";
         let expected = r#"
-def __dp_gen_1(__dp_iter_1):
-    for a in __dp_iter_1:
+def _dp_gen_1(_dp_iter_1):
+    for a in _dp_iter_1:
         yield a + b
 b = 1
-r = __dp_gen_1(dp_intrinsics.iter(some_function()))
+r = _dp_gen_1(dp_intrinsics.iter(some_function()))
 "#;
         let output = rewrite_gen(input);
         assert_flatten_eq!(output, expected);

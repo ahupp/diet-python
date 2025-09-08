@@ -10,13 +10,15 @@ pub struct DecoratorRewriter {
 
 impl DecoratorRewriter {
     pub fn new() -> Self {
-        Self { count: Cell::new(0) }
+        Self {
+            count: Cell::new(0),
+        }
     }
 
     fn next_tmp(&self) -> String {
         let id = self.count.get() + 1;
         self.count.set(id);
-        format!("__dp_dec_{}", id)
+        format!("_dp_dec_{}", id)
     }
 
     fn rewrite(&self, decorators: Vec<ast::Decorator>, name: &str, item: Stmt) -> Stmt {
@@ -42,11 +44,7 @@ impl DecoratorRewriter {
                 expr = call_expr,
             );
         }
-        let call_stmt = crate::py_stmt!(
-            "{name:id} = {expr:expr}",
-            name = name,
-            expr = call_expr,
-        );
+        let call_stmt = crate::py_stmt!("{name:id} = {expr:expr}", name = name, expr = call_expr,);
 
         let mut body = assigns;
         body.push(item);
@@ -60,7 +58,11 @@ impl Transformer for DecoratorRewriter {
         walk_stmt(self, stmt);
 
         match stmt {
-            Stmt::FunctionDef(ast::StmtFunctionDef { decorator_list, name, .. }) => {
+            Stmt::FunctionDef(ast::StmtFunctionDef {
+                decorator_list,
+                name,
+                ..
+            }) => {
                 if !decorator_list.is_empty() {
                     let decorators = std::mem::take(decorator_list);
                     let func_name = name.id.clone();
@@ -68,7 +70,11 @@ impl Transformer for DecoratorRewriter {
                     *stmt = self.rewrite(decorators, func_name.as_str(), func_def);
                 }
             }
-            Stmt::ClassDef(ast::StmtClassDef { decorator_list, name, .. }) => {
+            Stmt::ClassDef(ast::StmtClassDef {
+                decorator_list,
+                name,
+                ..
+            }) => {
                 if !decorator_list.is_empty() {
                     let decorators = std::mem::take(decorator_list);
                     let class_name = name.id.clone();
@@ -103,11 +109,11 @@ mod tests {
 def foo():
     pass
 "#;
-        let expected = r#"__dp_dec_1 = dec2(5)
-__dp_dec_2 = dec1
+        let expected = r#"_dp_dec_1 = dec2(5)
+_dp_dec_2 = dec1
 def foo():
     pass
-foo = __dp_dec_1(__dp_dec_2(foo))
+foo = _dp_dec_1(_dp_dec_2(foo))
 "#;
         let output = rewrite(input);
         assert_flatten_eq!(output, expected);
@@ -119,10 +125,10 @@ foo = __dp_dec_1(__dp_dec_2(foo))
 class C:
     pass
 "#;
-        let expected = r#"__dp_dec_1 = dec
+        let expected = r#"_dp_dec_1 = dec
 class C:
     pass
-C = __dp_dec_1(C)
+C = _dp_dec_1(C)
 "#;
         let output = rewrite(input);
         assert_flatten_eq!(output, expected);
@@ -135,14 +141,13 @@ C = __dp_dec_1(C)
 class C:
     pass
 "#;
-        let expected = r#"__dp_dec_1 = dec2(5)
-__dp_dec_2 = dec1
+        let expected = r#"_dp_dec_1 = dec2(5)
+_dp_dec_2 = dec1
 class C:
     pass
-C = __dp_dec_1(__dp_dec_2(C))
+C = _dp_dec_1(_dp_dec_2(C))
 "#;
         let output = rewrite(input);
         assert_flatten_eq!(output, expected);
     }
 }
-

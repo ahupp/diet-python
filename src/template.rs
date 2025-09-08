@@ -132,8 +132,8 @@ impl IntoPlaceholder for Vec<Stmt> {
 
 pub(crate) fn var_for_placeholder((name, kind): (&str, &PlaceholderKind)) -> String {
     match kind {
-        PlaceholderKind::Expr => format!("__dp_placeholder_{}__", name),
-        PlaceholderKind::Stmt => format!("__dp_placeholder_stmt_{}__", name),
+        PlaceholderKind::Expr => format!("_dp_placeholder_{}__", name),
+        PlaceholderKind::Stmt => format!("_dp_placeholder_stmt_{}__", name),
     }
 }
 
@@ -148,7 +148,7 @@ impl SyntaxTemplate {
 
         Self {
             regex: Regex::new(
-                r"^__dp_placeholder(?:_(?P<kind>stmt))?_(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)__$",
+                r"^_dp_placeholder(?:_(?P<kind>stmt))?_(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)__$",
             )
             .unwrap(),
             values: RefCell::new(
@@ -323,11 +323,11 @@ pub(crate) fn flatten(body: &mut Vec<Stmt>) {
 
 #[cfg(test)]
 mod tests {
+    use crate::assert_flatten_eq;
     use ruff_python_ast::{
         self as ast,
         comparable::{ComparableExpr, ComparableStmt},
     };
-    use crate::assert_flatten_eq;
     use ruff_python_parser::{parse_expression, parse_module};
 
     #[test]
