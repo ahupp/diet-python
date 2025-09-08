@@ -84,6 +84,11 @@ fn rewrite_source_inner(source: &str, transforms: &HashSet<String>) -> String {
 
     import::ensure_import(&mut module, "dp_intrinsics");
 
+    if transforms.contains("import") {
+        let import_rewriter = import::ImportRewriter::new();
+        walk_body(&import_rewriter, &mut module.body);
+    }
+
     if transforms.contains("gen") {
         let gen_transformer = GeneratorRewriter::new();
         gen_transformer.rewrite_body(&mut module.body);

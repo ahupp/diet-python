@@ -46,3 +46,9 @@ def raise_from(exc, cause):
         exc.__cause__ = cause
     raise exc
 
+
+def import_(name, spec, fromlist=None, level=0):
+    if fromlist is None:
+        fromlist = []
+    return builtins.__import__(name, {"__spec__": spec}, {}, fromlist, level)
+
