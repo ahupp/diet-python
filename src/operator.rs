@@ -240,6 +240,15 @@ impl Transformer for OperatorRewriter {
                     key = key,
                 );
                 self.replaced.set(true);
+            } else if let Expr::Attribute(attr) = &del.targets[0] {
+                let obj = (*attr.value).clone();
+                let name = crate::py_expr!("\"{attr:id}\"", attr = attr.attr.as_str());
+                *stmt = crate::py_stmt!(
+                    "dp_intrinsics.delattr({obj:expr}, {name:expr})",
+                    obj = obj,
+                    name = name,
+                );
+                self.replaced.set(true);
             }
         }
     }
@@ -394,6 +403,27 @@ x = dp_intrinsics.iadd(x, 2)
     fn rewrites_delitem() {
         let output = rewrite_source("del a[b]");
         assert_eq!(output.trim_end(), "dp_intrinsics.delitem(a, b)");
+    }
+
+    #[test]
+    fn rewrites_delattr() {
+        let output = rewrite_source("del a.b");
+        assert_eq!(output.trim_end(), "dp_intrinsics.delattr(a, \"b\")");
+    }
+
+    #[test]
+    fn rewrites_nested_delitem() {
+        let output = rewrite_source("del a.b[1]");
+        assert_eq!(output.trim_end(), "dp_intrinsics.delitem(a.b, 1)");
+    }
+
+    #[test]
+    fn rewrites_delattr_after_getitem() {
+        let output = rewrite_source("del a.b[1].c");
+        assert_eq!(
+            output.trim_end(),
+            "dp_intrinsics.delattr(dp_intrinsics.getitem(a.b, 1), \"c\")"
+        );
     }
 
     #[test]
