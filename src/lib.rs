@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use ruff_python_ast::visitor::transformer::walk_body;
 use ruff_python_ast::{self as ast, Expr, Mod, ModModule, Pattern, Stmt};
 use ruff_python_codegen::{Generator, Stylist};
-use ruff_python_parser::parse_module;
+use ruff_python_parser::{parse_module, ParseError};
 use ruff_text_size::TextRange;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -222,12 +222,15 @@ fn stmt_to_string(stmt: &Stmt, stylist: &Stylist) -> String {
 }
 
 /// Transform the source code and return the resulting string.
-pub fn transform_string(source: &str, transforms: Option<&HashSet<String>>) -> String {
+pub fn transform_string(
+    source: &str,
+    transforms: Option<&HashSet<String>>,
+) -> Result<String, ParseError> {
     if should_skip(source, transforms) {
-        return source.to_string();
+        return Ok(source.to_string());
     }
 
-    let parsed = parse_module(source).expect("parse error");
+    let parsed = parse_module(source)?;
     let tokens = parsed.tokens().clone();
     let mut module = parsed.into_syntax();
 
@@ -240,29 +243,35 @@ pub fn transform_string(source: &str, transforms: Option<&HashSet<String>>) -> S
         output.push_str(&snippet);
         output.push_str(stylist.line_ending().as_str());
     }
-    output
+    Ok(output)
 }
 
 /// Transform the source code and return the resulting Ruff AST.
-pub fn transform_ruff_ast(source: &str, transforms: Option<&HashSet<String>>) -> ModModule {
+pub fn transform_ruff_ast(
+    source: &str,
+    transforms: Option<&HashSet<String>>,
+) -> Result<ModModule, ParseError> {
     if should_skip(source, transforms) {
-        return parse_module(source).expect("parse error").into_syntax();
+        return parse_module(source).map(|parsed| parsed.into_syntax());
     }
 
-    let mut module = parse_module(source).expect("parse error").into_syntax();
+    let mut module = parse_module(source)?.into_syntax();
     apply_transforms(&mut module, transforms);
-    module
+    Ok(module)
 }
 
 /// Transform the source code and return the resulting minimal AST.
-pub fn transform_min_ast(source: &str, transforms: Option<&HashSet<String>>) -> Mod {
-    transform_ruff_ast(source, transforms).into()
+pub fn transform_min_ast(
+    source: &str,
+    transforms: Option<&HashSet<String>>,
+) -> Result<Mod, ParseError> {
+    transform_ruff_ast(source, transforms).map(Into::into)
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
-pub fn transform(source: &str) -> String {
-    transform_string(source, None)
+pub fn transform(source: &str) -> Result<String, JsValue> {
+    transform_string(source, None).map_err(|e| e.to_string().into())
 }
 
 #[cfg(test)]
@@ -273,7 +282,7 @@ mod tests {
     #[test]
     fn none_means_all_transforms() {
         let src = "x = 1\n";
-        let result = transform_string(src, None);
+        let result = transform_string(src, None).unwrap();
         assert!(result.contains("import dp_intrinsics"));
     }
 
@@ -281,14 +290,14 @@ mod tests {
     fn empty_set_means_no_transforms() {
         let src = "x = 1\n";
         let set = HashSet::new();
-        let result = transform_string(src, Some(&set));
+        let result = transform_string(src, Some(&set)).unwrap();
         assert_eq!(result, src);
     }
 
     #[test]
     fn transforms_match_class_case() {
         let src = "class C:\n    __match_args__ = (\"a\", \"b\")\n\nmatch x:\n    case C(a, b):\n        assert a\n    case _:\n        pass\n";
-        let result = transform_string(src, None);
+        let result = transform_string(src, None).unwrap();
         assert!(result.contains("import dp_intrinsics"));
         assert!(result.contains("if __debug__"));
         assert!(result.contains("case C(a, b):"));
