@@ -1,3 +1,4 @@
 /target
 cpython
 cpython-venv
+/web/pkg

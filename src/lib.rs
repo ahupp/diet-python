@@ -4,6 +4,8 @@ use ruff_python_ast::visitor::transformer::{walk_body, Transformer};
 use ruff_python_ast::{self as ast, Mod, ModModule, Pattern, Stmt};
 use ruff_python_codegen::{Generator, Stylist};
 use ruff_python_parser::parse_module;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
 
 mod assert;
 mod class_def;
@@ -222,6 +224,12 @@ pub fn transform_ruff_ast(source: &str, transforms: Option<&HashSet<String>>) ->
 /// Transform the source code and return the resulting minimal AST.
 pub fn transform_min_ast(source: &str, transforms: Option<&HashSet<String>>) -> Mod {
     transform_ruff_ast(source, transforms).into()
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn transform(source: &str) -> String {
+    transform_string(source, None)
 }
 
 #[cfg(test)]
