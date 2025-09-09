@@ -19,7 +19,9 @@ impl Transformer for SimpleExprTransformer {
     fn visit_expr(&self, expr: &mut Expr) {
         walk_expr(self, expr);
         match expr {
-            Expr::Slice(ast::ExprSlice { lower, upper, step, .. }) => {
+            Expr::Slice(ast::ExprSlice {
+                lower, upper, step, ..
+            }) => {
                 let lower_expr = lower
                     .as_ref()
                     .map(|expr| *expr.clone())
@@ -63,14 +65,15 @@ impl Transformer for SimpleExprTransformer {
                     imag = imag_expr,
                 );
             }
-            Expr::Attribute(ast::ExprAttribute { value, attr, ctx, .. }) => {
+            Expr::Attribute(ast::ExprAttribute {
+                value, attr, ctx, ..
+            }) => {
                 if matches!(ctx, ast::ExprContext::Load) {
                     let value_expr = *value.clone();
-                    let attr_expr = crate::py_expr!("\"{name:id}\"", name = attr.id.as_str());
                     *expr = crate::py_expr!(
-                        "getattr({value:expr}, {attr:expr})",
+                        "getattr({value:expr}, {attr:literal})",
                         value = value_expr,
-                        attr = attr_expr,
+                        attr = attr.id.as_str(),
                     );
                     // TODO: figure out the bootstrapping problem.
                 }
@@ -136,10 +139,7 @@ mod tests {
 
     #[test]
     fn rewrites_ellipsis() {
-        let cases = [
-            ("a = ...", "a = Ellipsis"),
-            ("...", "Ellipsis"),
-        ];
+        let cases = [("a = ...", "a = Ellipsis"), ("...", "Ellipsis")];
 
         for (input, expected) in cases {
             let output = rewrite(input);
@@ -151,10 +151,7 @@ mod tests {
     fn rewrites_attribute_access() {
         let cases = [
             ("obj.attr", "getattr(obj, \"attr\")"),
-            (
-                "foo.bar.baz",
-                "getattr(getattr(foo, \"bar\"), \"baz\")",
-            ),
+            ("foo.bar.baz", "getattr(getattr(foo, \"bar\"), \"baz\")"),
         ];
 
         for (input, expected) in cases {

@@ -43,6 +43,11 @@ macro_rules! py_stmt {
                     },
                     "expr" => var_for_placeholder((name, &PlaceholderKind::Expr)),
                     "stmt" => var_for_placeholder((name, &PlaceholderKind::Stmt)),
+                    "literal" => match ids.get(name) {
+                        Some(value) => serde_json::to_string(value)
+                            .expect("failed to serialize literal"),
+                        _ => panic!("expected literal for placeholder `{name}`"),
+                    },
                     other => panic!("unknown placeholder type `{other}` for `{name}`"),
                 }
             })
@@ -352,6 +357,13 @@ mod tests {
     fn reuses_identifier() {
         let expr = py_expr!("{name:id} + {name:id}", name = "x");
         let expected = *parse_expression("x + x").unwrap().into_syntax().body;
+        assert_eq!(ComparableExpr::from(&expr), ComparableExpr::from(&expected));
+    }
+
+    #[test]
+    fn inserts_literal() {
+        let expr = py_expr!("{s:literal}", s = "abc");
+        let expected = *parse_expression("\"abc\"").unwrap().into_syntax().body;
         assert_eq!(ComparableExpr::from(&expr), ComparableExpr::from(&expected));
     }
 
