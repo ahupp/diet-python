@@ -17,7 +17,12 @@ fn main() {
     };
 
     let transforms = parse_transforms();
-    let output = transform_string(&source, transforms.as_ref());
+    let output = match transform_string(&source, transforms.as_ref()) {
+        Ok(output) => output,
+        Err(err) => {
+            eprintln!("failed to parse {}: {}", path, err);
+            process::exit(1);
+        }
+    };
     print!("{}", output);
 }
-
