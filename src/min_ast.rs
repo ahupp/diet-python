@@ -22,6 +22,12 @@ pub enum StmtNode {
         body: Vec<StmtNode>,
         orelse: Vec<StmtNode>,
     },
+    Try {
+        body: Vec<StmtNode>,
+        handlers: Vec<ExceptHandler>,
+        orelse: Vec<StmtNode>,
+        finalbody: Vec<StmtNode>,
+    },
     Break,
     Continue,
     Return {
@@ -50,10 +56,20 @@ pub struct FunctionDef {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Parameter {
-    Positional { name: String, default: Option<ExprNode> },
-    VarArg { name: String },
-    KwOnly { name: String, default: Option<ExprNode> },
-    KwArg { name: String },
+    Positional {
+        name: String,
+        default: Option<ExprNode>,
+    },
+    VarArg {
+        name: String,
+    },
+    KwOnly {
+        name: String,
+        default: Option<ExprNode>,
+    },
+    KwArg {
+        name: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -66,10 +82,7 @@ pub enum ExprNode {
     Tuple(Vec<ExprNode>),
     Await(Box<ExprNode>),
     Yield(Option<Box<ExprNode>>),
-    Call {
-        func: Box<ExprNode>,
-        args: Vec<Arg>,
-    },
+    Call { func: Box<ExprNode>, args: Vec<Arg> },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -78,6 +91,13 @@ pub enum Arg {
     Starred(ExprNode),
     Keyword { name: String, value: ExprNode },
     KwStarred(ExprNode),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExceptHandler {
+    pub type_: Option<ExprNode>,
+    pub name: Option<String>,
+    pub body: Vec<StmtNode>,
 }
 
 impl From<ModModule> for Module {
@@ -162,7 +182,13 @@ impl StmtNode {
                 let orelse = elif_else_clauses
                     .into_iter()
                     .find(|clause| clause.test.is_none())
-                    .map(|clause| clause.body.into_iter().filter_map(StmtNode::from_stmt).collect())
+                    .map(|clause| {
+                        clause
+                            .body
+                            .into_iter()
+                            .filter_map(StmtNode::from_stmt)
+                            .collect()
+                    })
                     .unwrap_or_default();
                 Some(StmtNode::If {
                     test: ExprNode::from(*test),
@@ -170,6 +196,35 @@ impl StmtNode {
                     orelse,
                 })
             }
+            Stmt::Try(ast::StmtTry {
+                body,
+                handlers,
+                orelse,
+                finalbody,
+                ..
+            }) => Some(StmtNode::Try {
+                body: body.into_iter().filter_map(StmtNode::from_stmt).collect(),
+                handlers: handlers
+                    .into_iter()
+                    .map(|handler| match handler {
+                        ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
+                            type_,
+                            name,
+                            body,
+                            ..
+                        }) => ExceptHandler {
+                            type_: type_.map(|t| ExprNode::from(*t)),
+                            name: name.map(|n| n.to_string()),
+                            body: body.into_iter().filter_map(StmtNode::from_stmt).collect(),
+                        },
+                    })
+                    .collect(),
+                orelse: orelse.into_iter().filter_map(StmtNode::from_stmt).collect(),
+                finalbody: finalbody
+                    .into_iter()
+                    .filter_map(StmtNode::from_stmt)
+                    .collect(),
+            }),
             Stmt::Break(_) => Some(StmtNode::Break),
             Stmt::Continue(_) => Some(StmtNode::Continue),
             Stmt::Return(ast::StmtReturn { value, .. }) => Some(StmtNode::Return {
@@ -205,12 +260,12 @@ impl StmtNode {
                     target: target_name,
                 })
             }
-            Stmt::Global(ast::StmtGlobal { names, .. }) => {
-                Some(StmtNode::Global(names.into_iter().map(|n| n.to_string()).collect()))
-            }
-            Stmt::Nonlocal(ast::StmtNonlocal { names, .. }) => {
-                Some(StmtNode::Nonlocal(names.into_iter().map(|n| n.to_string()).collect()))
-            }
+            Stmt::Global(ast::StmtGlobal { names, .. }) => Some(StmtNode::Global(
+                names.into_iter().map(|n| n.to_string()).collect(),
+            )),
+            Stmt::Nonlocal(ast::StmtNonlocal { names, .. }) => Some(StmtNode::Nonlocal(
+                names.into_iter().map(|n| n.to_string()).collect(),
+            )),
             Stmt::Import(ast::StmtImport { names, .. }) => {
                 let names: Vec<String> = names
                     .into_iter()
