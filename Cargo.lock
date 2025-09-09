@@ -429,7 +429,7 @@ checksum = "caf4aa5b0f434c91fe5c7f1ecb6a5ece2130b02ad2a590589dda5146df959001"
 [[package]]
 name = "ruff_python_ast"
 version = "0.0.0"
-source = "git+https://github.com/astral-sh/ruff#1e34f3f20a71a4375ba64faad43f21171e3829cd"
+source = "git+https://github.com/astral-sh/ruff#61f906d8e7a5772377f354661ea90d5760781adb"
 dependencies = [
  "aho-corasick",
  "bitflags",
@@ -448,7 +448,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_codegen"
 version = "0.0.0"
-source = "git+https://github.com/astral-sh/ruff#1e34f3f20a71a4375ba64faad43f21171e3829cd"
+source = "git+https://github.com/astral-sh/ruff#61f906d8e7a5772377f354661ea90d5760781adb"
 dependencies = [
  "ruff_python_ast",
  "ruff_python_literal",
@@ -460,7 +460,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_literal"
 version = "0.0.0"
-source = "git+https://github.com/astral-sh/ruff#1e34f3f20a71a4375ba64faad43f21171e3829cd"
+source = "git+https://github.com/astral-sh/ruff#61f906d8e7a5772377f354661ea90d5760781adb"
 dependencies = [
  "bitflags",
  "itertools",
@@ -471,7 +471,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_parser"
 version = "0.0.0"
-source = "git+https://github.com/astral-sh/ruff#1e34f3f20a71a4375ba64faad43f21171e3829cd"
+source = "git+https://github.com/astral-sh/ruff#61f906d8e7a5772377f354661ea90d5760781adb"
 dependencies = [
  "bitflags",
  "bstr",
@@ -491,7 +491,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_trivia"
 version = "0.0.0"
-source = "git+https://github.com/astral-sh/ruff#1e34f3f20a71a4375ba64faad43f21171e3829cd"
+source = "git+https://github.com/astral-sh/ruff#61f906d8e7a5772377f354661ea90d5760781adb"
 dependencies = [
  "itertools",
  "ruff_source_file",
@@ -502,7 +502,7 @@ dependencies = [
 [[package]]
 name = "ruff_source_file"
 version = "0.0.0"
-source = "git+https://github.com/astral-sh/ruff#1e34f3f20a71a4375ba64faad43f21171e3829cd"
+source = "git+https://github.com/astral-sh/ruff#61f906d8e7a5772377f354661ea90d5760781adb"
 dependencies = [
  "memchr",
  "ruff_text_size",
@@ -511,7 +511,7 @@ dependencies = [
 [[package]]
 name = "ruff_text_size"
 version = "0.0.0"
-source = "git+https://github.com/astral-sh/ruff#1e34f3f20a71a4375ba64faad43f21171e3829cd"
+source = "git+https://github.com/astral-sh/ruff#61f906d8e7a5772377f354661ea90d5760781adb"
 dependencies = [
  "get-size2",
 ]
