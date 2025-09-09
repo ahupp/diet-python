@@ -1,0 +1,295 @@
+// Minimal AST definitions for desugared language
+
+use std::borrow::Cow;
+
+use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Module {
+    pub body: Vec<StmtNode>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum StmtNode {
+    FunctionDef(FunctionDef),
+    While {
+        test: ExprNode,
+        body: Vec<StmtNode>,
+        orelse: Vec<StmtNode>,
+    },
+    If {
+        test: ExprNode,
+        body: Vec<StmtNode>,
+        orelse: Vec<StmtNode>,
+    },
+    Break,
+    Continue,
+    Return {
+        value: Option<ExprNode>,
+    },
+    Expr(ExprNode),
+    Assign {
+        target: String,
+        value: ExprNode,
+    },
+    Delete {
+        target: String,
+    },
+    Global(Vec<String>),
+    Nonlocal(Vec<String>),
+    Pass,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionDef {
+    pub name: String,
+    pub params: Vec<Parameter>,
+    pub body: Vec<StmtNode>,
+    pub is_async: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Parameter {
+    Positional { name: String, default: Option<ExprNode> },
+    VarArg { name: String },
+    KwOnly { name: String, default: Option<ExprNode> },
+    KwArg { name: String },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExprNode {
+    Name(String),
+    Number(String),
+    String(String),
+    Bytes(Vec<u8>),
+    None,
+    Tuple(Vec<ExprNode>),
+    Await(Box<ExprNode>),
+    Yield(Option<Box<ExprNode>>),
+    Call {
+        func: Box<ExprNode>,
+        args: Vec<Arg>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Arg {
+    Positional(ExprNode),
+    Starred(ExprNode),
+    Keyword { name: String, value: ExprNode },
+    KwStarred(ExprNode),
+}
+
+impl From<ModModule> for Module {
+    fn from(module: ModModule) -> Self {
+        Module {
+            body: module
+                .body
+                .into_iter()
+                .filter_map(StmtNode::from_stmt)
+                .collect(),
+        }
+    }
+}
+
+impl StmtNode {
+    fn from_stmt(stmt: Stmt) -> Option<Self> {
+        match stmt {
+            Stmt::FunctionDef(ast::StmtFunctionDef {
+                name,
+                parameters,
+                body,
+                is_async,
+                ..
+            }) => {
+                let mut params = Vec::new();
+                let ast::Parameters {
+                    posonlyargs,
+                    args,
+                    vararg,
+                    kwonlyargs,
+                    kwarg,
+                    ..
+                } = *parameters;
+                for p in posonlyargs {
+                    params.push(Parameter::Positional {
+                        name: p.parameter.name.to_string(),
+                        default: p.default.map(|d| ExprNode::from(*d)),
+                    });
+                }
+                for p in args {
+                    params.push(Parameter::Positional {
+                        name: p.parameter.name.to_string(),
+                        default: p.default.map(|d| ExprNode::from(*d)),
+                    });
+                }
+                if let Some(p) = vararg {
+                    params.push(Parameter::VarArg {
+                        name: p.name.to_string(),
+                    });
+                }
+                for p in kwonlyargs {
+                    params.push(Parameter::KwOnly {
+                        name: p.parameter.name.to_string(),
+                        default: p.default.map(|d| ExprNode::from(*d)),
+                    });
+                }
+                if let Some(p) = kwarg {
+                    params.push(Parameter::KwArg {
+                        name: p.name.to_string(),
+                    });
+                }
+                Some(StmtNode::FunctionDef(FunctionDef {
+                    name: name.to_string(),
+                    params,
+                    body: body.into_iter().filter_map(StmtNode::from_stmt).collect(),
+                    is_async,
+                }))
+            }
+            Stmt::While(ast::StmtWhile {
+                test, body, orelse, ..
+            }) => Some(StmtNode::While {
+                test: ExprNode::from(*test),
+                body: body.into_iter().filter_map(StmtNode::from_stmt).collect(),
+                orelse: orelse.into_iter().filter_map(StmtNode::from_stmt).collect(),
+            }),
+            Stmt::If(ast::StmtIf {
+                test,
+                body,
+                elif_else_clauses,
+                ..
+            }) => {
+                let orelse = elif_else_clauses
+                    .into_iter()
+                    .find(|clause| clause.test.is_none())
+                    .map(|clause| clause.body.into_iter().filter_map(StmtNode::from_stmt).collect())
+                    .unwrap_or_default();
+                Some(StmtNode::If {
+                    test: ExprNode::from(*test),
+                    body: body.into_iter().filter_map(StmtNode::from_stmt).collect(),
+                    orelse,
+                })
+            }
+            Stmt::Break(_) => Some(StmtNode::Break),
+            Stmt::Continue(_) => Some(StmtNode::Continue),
+            Stmt::Return(ast::StmtReturn { value, .. }) => Some(StmtNode::Return {
+                value: value.map(|v| ExprNode::from(*v)),
+            }),
+            Stmt::Expr(ast::StmtExpr { value, .. }) => Some(StmtNode::Expr(ExprNode::from(*value))),
+            Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
+                let target_name = if targets.len() == 1 {
+                    if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
+                        id.to_string()
+                    } else {
+                        panic!("unsupported assignment target")
+                    }
+                } else {
+                    panic!("unsupported assignment targets")
+                };
+                Some(StmtNode::Assign {
+                    target: target_name,
+                    value: ExprNode::from(*value),
+                })
+            }
+            Stmt::Delete(ast::StmtDelete { targets, .. }) => {
+                let target_name = if targets.len() == 1 {
+                    if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
+                        id.to_string()
+                    } else {
+                        panic!("unsupported delete target")
+                    }
+                } else {
+                    panic!("unsupported delete targets")
+                };
+                Some(StmtNode::Delete {
+                    target: target_name,
+                })
+            }
+            Stmt::Global(ast::StmtGlobal { names, .. }) => {
+                Some(StmtNode::Global(names.into_iter().map(|n| n.to_string()).collect()))
+            }
+            Stmt::Nonlocal(ast::StmtNonlocal { names, .. }) => {
+                Some(StmtNode::Nonlocal(names.into_iter().map(|n| n.to_string()).collect()))
+            }
+            Stmt::Import(ast::StmtImport { names, .. }) => {
+                let names: Vec<String> = names
+                    .into_iter()
+                    .map(|alias| alias.name.to_string())
+                    .collect();
+                if names.len() == 1 && names[0] == "dp_intrinsics" {
+                    None
+                } else {
+                    panic!("unsupported import: {:?}", names);
+                }
+            }
+            Stmt::Pass(_) => Some(StmtNode::Pass),
+            other => panic!("unsupported statement: {:?}", other),
+        }
+    }
+}
+
+impl From<Expr> for ExprNode {
+    fn from(expr: Expr) -> Self {
+        match expr {
+            Expr::Name(ast::ExprName { id, .. }) => ExprNode::Name(id.to_string()),
+            Expr::NumberLiteral(ast::ExprNumberLiteral { value, .. }) => {
+                let num = match value {
+                    ast::Number::Int(i) => i.to_string(),
+                    ast::Number::Float(f) => f.to_string(),
+                    ast::Number::Complex { .. } => {
+                        panic!("complex numbers should have been transformed away")
+                    }
+                };
+                ExprNode::Number(num)
+            }
+            Expr::StringLiteral(ast::ExprStringLiteral { value, .. }) => {
+                ExprNode::String(value.to_string())
+            }
+            Expr::BytesLiteral(ast::ExprBytesLiteral { value, .. }) => {
+                let bytes: Cow<[u8]> = (&value).into();
+                ExprNode::Bytes(bytes.into_owned())
+            }
+            Expr::BooleanLiteral(ast::ExprBooleanLiteral { value, .. }) => {
+                ExprNode::Name(if value { "True" } else { "False" }.to_string())
+            }
+            Expr::NoneLiteral(_) => ExprNode::None,
+            Expr::Tuple(ast::ExprTuple { elts, .. }) => {
+                ExprNode::Tuple(elts.into_iter().map(ExprNode::from).collect())
+            }
+            Expr::Await(ast::ExprAwait { value, .. }) => {
+                ExprNode::Await(Box::new(ExprNode::from(*value)))
+            }
+            Expr::Yield(ast::ExprYield { value, .. }) => {
+                ExprNode::Yield(value.map(|v| Box::new(ExprNode::from(*v))))
+            }
+            Expr::Call(ast::ExprCall {
+                func, arguments, ..
+            }) => {
+                let mut args_vec = Vec::new();
+                for arg in arguments.args.into_vec() {
+                    match arg {
+                        Expr::Starred(ast::ExprStarred { value, .. }) => {
+                            args_vec.push(Arg::Starred(ExprNode::from(*value)))
+                        }
+                        other => args_vec.push(Arg::Positional(ExprNode::from(other))),
+                    }
+                }
+                for kw in arguments.keywords.into_vec() {
+                    if let Some(arg) = kw.arg {
+                        args_vec.push(Arg::Keyword {
+                            name: arg.to_string(),
+                            value: ExprNode::from(kw.value),
+                        });
+                    } else {
+                        args_vec.push(Arg::KwStarred(ExprNode::from(kw.value)));
+                    }
+                }
+                ExprNode::Call {
+                    func: Box::new(ExprNode::from(*func)),
+                    args: args_vec,
+                }
+            }
+            other => panic!("unsupported expr: {:?}", other),
+        }
+    }
+}
