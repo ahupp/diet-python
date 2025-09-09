@@ -1,9 +1,10 @@
 use std::collections::HashSet;
 
-use ruff_python_ast::visitor::transformer::{walk_body, Transformer};
-use ruff_python_ast::{self as ast, Mod, ModModule, Pattern, Stmt};
+use ruff_python_ast::visitor::transformer::walk_body;
+use ruff_python_ast::{self as ast, Expr, Mod, ModModule, Pattern, Stmt};
 use ruff_python_codegen::{Generator, Stylist};
 use ruff_python_parser::parse_module;
+use ruff_text_size::TextRange;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
@@ -118,65 +119,106 @@ fn apply_transforms(module: &mut ModModule, transforms: Option<&HashSet<String>>
     import::ensure_import(module, "dp_intrinsics");
 }
 
-fn contains_match_class(body: &mut [Stmt]) -> bool {
-    use std::cell::Cell;
-
-    struct Finder {
-        found: Cell<bool>,
-    }
-
-    impl Transformer for Finder {
-        fn visit_stmt(&self, stmt: &mut Stmt) {
-            if self.found.get() {
-                return;
-            }
-            if let Stmt::Match(ast::StmtMatch { cases, .. }) = stmt {
-                for case in cases {
-                    if pattern_has_class(&case.pattern) {
-                        self.found.set(true);
-                        return;
-                    }
-                    for body_stmt in &mut case.body {
-                        self.visit_stmt(body_stmt);
-                        if self.found.get() {
-                            return;
-                        }
-                    }
+/// Convert a `Pattern` to source code.
+///
+/// Needed until `ruff_python_codegen` supports unparsing `Pattern::MatchClass`.
+fn pattern_to_string(pattern: &Pattern, stylist: &Stylist) -> String {
+    match pattern {
+        Pattern::MatchClass(ast::PatternMatchClass { cls, arguments, .. }) => {
+            let mut result = Generator::from(stylist).expr(cls);
+            result.push('(');
+            let mut first = true;
+            for p in &arguments.patterns {
+                if !first {
+                    result.push_str(", ");
+                } else {
+                    first = false;
                 }
-            } else {
-                ruff_python_ast::visitor::transformer::walk_stmt(self, stmt);
+                result.push_str(&pattern_to_string(p, stylist));
             }
+            for kw in &arguments.keywords {
+                if !first {
+                    result.push_str(", ");
+                } else {
+                    first = false;
+                }
+                result.push_str(kw.attr.as_str());
+                result.push('=');
+                result.push_str(&pattern_to_string(&kw.pattern, stylist));
+            }
+            result.push(')');
+            result
+        }
+        other => {
+            // Use `Generator` to unparse supported patterns by constructing a dummy match statement.
+            let dummy_case = ast::MatchCase {
+                pattern: other.clone(),
+                guard: None,
+                body: vec![Stmt::Pass(ast::StmtPass {
+                    range: TextRange::default(),
+                    node_index: ast::AtomicNodeIndex::default(),
+                })],
+                range: TextRange::default(),
+                node_index: ast::AtomicNodeIndex::default(),
+            };
+            let dummy_stmt = Stmt::Match(ast::StmtMatch {
+                subject: Box::new(Expr::Name(ast::ExprName {
+                    id: "x".into(),
+                    ctx: ast::ExprContext::Load,
+                    range: TextRange::default(),
+                    node_index: ast::AtomicNodeIndex::default(),
+                })),
+                cases: vec![dummy_case],
+                range: TextRange::default(),
+                node_index: ast::AtomicNodeIndex::default(),
+            });
+            let snippet = Generator::from(stylist).stmt(&dummy_stmt);
+            snippet
+                .splitn(2, "case ")
+                .nth(1)
+                .and_then(|s| s.splitn(2, ":\n").next())
+                .unwrap_or("")
+                .to_string()
         }
     }
+}
 
-    fn pattern_has_class(pattern: &Pattern) -> bool {
-        use Pattern::*;
-        match pattern {
-            MatchClass(_) => true,
-            MatchAs(ast::PatternMatchAs {
-                pattern: Some(p), ..
-            }) => pattern_has_class(p),
-            MatchOr(ast::PatternMatchOr { patterns, .. }) => patterns.iter().any(pattern_has_class),
-            MatchSequence(ast::PatternMatchSequence { patterns, .. }) => {
-                patterns.iter().any(pattern_has_class)
+fn stmt_to_string(stmt: &Stmt, stylist: &Stylist) -> String {
+    // Manual rendering to support `match` statements with class patterns.
+    // Remove once `ruff_python_codegen` can unparse them directly.
+    if let Stmt::Match(ast::StmtMatch { subject, cases, .. }) = stmt {
+        let mut out = String::new();
+        out.push_str("match ");
+        out.push_str(&Generator::from(stylist).expr(subject));
+        out.push_str(":");
+        out.push_str(stylist.line_ending().as_str());
+        for case in cases {
+            out.push_str("    case ");
+            out.push_str(&pattern_to_string(&case.pattern, stylist));
+            if let Some(guard) = &case.guard {
+                out.push_str(" if ");
+                out.push_str(&Generator::from(stylist).expr(guard));
             }
-            MatchMapping(ast::PatternMatchMapping { patterns, .. }) => {
-                patterns.iter().any(pattern_has_class)
+            out.push_str(":");
+            out.push_str(stylist.line_ending().as_str());
+            for body_stmt in &case.body {
+                let body = stmt_to_string(body_stmt, stylist);
+                for line in body.lines() {
+                    out.push_str("        ");
+                    out.push_str(line);
+                    out.push_str(stylist.line_ending().as_str());
+                }
             }
-            _ => false,
         }
-    }
-
-    let finder = Finder {
-        found: Cell::new(false),
-    };
-    for stmt in body.iter_mut() {
-        finder.visit_stmt(stmt);
-        if finder.found.get() {
-            return true;
+        let line_ending = stylist.line_ending().as_str();
+        if out.ends_with(line_ending) {
+            let len = line_ending.len();
+            out.truncate(out.len() - len);
         }
+        out
+    } else {
+        Generator::from(stylist).stmt(stmt)
     }
-    false
 }
 
 /// Transform the source code and return the resulting string.
@@ -191,16 +233,10 @@ pub fn transform_string(source: &str, transforms: Option<&HashSet<String>>) -> S
 
     apply_transforms(&mut module, transforms);
 
-    // Ruff's code generator doesn't support match class patterns with arguments.
-    // If present, fall back to the original source.
-    if contains_match_class(&mut module.body) {
-        return source.to_string();
-    }
-
     let stylist = Stylist::from_tokens(&tokens, source);
     let mut output = String::new();
     for stmt in &module.body {
-        let snippet = Generator::from(&stylist).stmt(stmt);
+        let snippet = stmt_to_string(stmt, &stylist);
         output.push_str(&snippet);
         output.push_str(stylist.line_ending().as_str());
     }
@@ -215,9 +251,6 @@ pub fn transform_ruff_ast(source: &str, transforms: Option<&HashSet<String>>) ->
 
     let mut module = parse_module(source).expect("parse error").into_syntax();
     apply_transforms(&mut module, transforms);
-    if contains_match_class(&mut module.body) {
-        return parse_module(source).expect("parse error").into_syntax();
-    }
     module
 }
 
@@ -251,5 +284,13 @@ mod tests {
         let result = transform_string(src, Some(&set));
         assert_eq!(result, src);
     }
-}
 
+    #[test]
+    fn transforms_match_class_case() {
+        let src = "class C:\n    __match_args__ = (\"a\", \"b\")\n\nmatch x:\n    case C(a, b):\n        assert a\n    case _:\n        pass\n";
+        let result = transform_string(src, None);
+        assert!(result.contains("import dp_intrinsics"));
+        assert!(result.contains("if __debug__"));
+        assert!(result.contains("case C(a, b):"));
+    }
+}
