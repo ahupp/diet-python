@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use ruff_python_ast::visitor::transformer::walk_body;
-use ruff_python_ast::{self as ast, Expr, Mod, ModModule, Pattern, Stmt};
+use ruff_python_ast::{self as ast, Expr, ModModule, Pattern, Stmt};
 use ruff_python_codegen::{Generator, Stylist};
 use ruff_python_parser::{parse_module, ParseError};
 use ruff_text_size::TextRange;
@@ -16,6 +16,7 @@ mod for_loop;
 mod gen;
 mod import;
 mod literal;
+pub mod min_ast;
 mod multi_target;
 mod operator;
 mod raise;
@@ -264,7 +265,7 @@ pub fn transform_ruff_ast(
 pub fn transform_min_ast(
     source: &str,
     transforms: Option<&HashSet<String>>,
-) -> Result<Mod, ParseError> {
+) -> Result<min_ast::Module, ParseError> {
     transform_ruff_ast(source, transforms).map(Into::into)
 }
 
