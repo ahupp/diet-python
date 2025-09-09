@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>diet-python WASM demo</title>
+<style>
+body { margin:0; height:100vh; display:flex; }
+textarea { flex:1; font-family: monospace; padding:10px; border:none; }
+textarea#output { background:#f0f0f0; }
+</style>
+</head>
+<body>
+<textarea id="input" placeholder="Paste Python code here"></textarea>
+<textarea id="output" readonly></textarea>
+<script type="module">
+import init, { transform } from "./pkg/diet_python.js";
+
+async function run() {
+  await init();
+  const input = document.getElementById('input');
+  const output = document.getElementById('output');
+  function update() {
+    output.value = transform(input.value);
+  }
+  input.addEventListener('input', update);
+  update();
+}
+run();
+</script>
+</body>
+</html>
