@@ -29,7 +29,10 @@ impl Transformer for ImportRewriter {
         walk_stmt(self, stmt);
         match stmt {
             Stmt::Import(ast::StmtImport { names, .. }) => {
-                if names.iter().any(|alias| alias.name.id.as_str() == "dp_intrinsics") {
+                if names
+                    .iter()
+                    .any(|alias| alias.name.id.as_str() == "dp_intrinsics")
+                {
                     return;
                 }
                 let mut stmts = Vec::new();
@@ -39,64 +42,49 @@ impl Transformer for ImportRewriter {
                         .asname
                         .as_ref()
                         .map(|n| n.id.as_str())
-                        .unwrap_or_else(|| {
-                            module_name.split('.').next().unwrap()
-                        });
-                    let mod_expr = crate::py_expr!("\"{m:id}\"", m = module_name.as_str());
-                    let call = crate::py_expr!(
-                        "dp_intrinsics.import_({name:expr}, __spec__)",
-                        name = mod_expr,
-                    );
+                        .unwrap_or_else(|| module_name.split('.').next().unwrap());
                     let assign = crate::py_stmt!(
-                        "{name:id} = {value:expr}",
+                        "{name:id} = dp_intrinsics.import_({module:literal}, __spec__)",
                         name = binding,
-                        value = call,
+                        module = module_name.as_str(),
                     );
                     stmts.push(assign);
                 }
                 *stmt = crate::py_stmt!("{body:stmt}", body = stmts);
             }
-            Stmt::ImportFrom(ast::StmtImportFrom { module, names, level, .. }) => {
+            Stmt::ImportFrom(ast::StmtImportFrom {
+                module,
+                names,
+                level,
+                ..
+            }) => {
                 if names.iter().any(|alias| alias.name.id.as_str() == "*") {
                     return;
                 }
-                let module_name = module
-                    .as_ref()
-                    .map(|n| n.id.as_str())
-                    .unwrap_or("");
-                let module_expr = crate::py_expr!("\"{m:id}\"", m = module_name);
+                let module_name = module.as_ref().map(|n| n.id.as_str()).unwrap_or("");
                 let level_val = *level;
                 let mut stmts = Vec::new();
                 for alias in names {
                     let orig = alias.name.id.as_str();
-                    let binding = alias
-                        .asname
-                        .as_ref()
-                        .map(|n| n.id.as_str())
-                        .unwrap_or(orig);
-                    let name_expr = crate::py_expr!("\"{n:id}\"", n = orig);
-                    let import_expr = if level_val == 0 {
-                        crate::py_expr!(
-                            "dp_intrinsics.import_({module:expr}, __spec__, [{name:expr}]).{attr:id}",
-                            module = module_expr.clone(),
-                            name = name_expr,
+                    let binding = alias.asname.as_ref().map(|n| n.id.as_str()).unwrap_or(orig);
+                    let assign = if level_val == 0 {
+                        crate::py_stmt!(
+                            "{name:id} = dp_intrinsics.import_({module:literal}, __spec__, [{orig:literal}]).{attr:id}",
+                            name = binding,
+                            module = module_name,
+                            orig = orig,
                             attr = orig,
                         )
                     } else {
-                        let lvl = crate::py_expr!("{v:id}", v = level_val.to_string());
-                        crate::py_expr!(
-                            "dp_intrinsics.import_({module:expr}, __spec__, [{name:expr}], {level:expr}).{attr:id}",
-                            module = module_expr.clone(),
-                            name = name_expr,
-                            level = lvl,
+                        crate::py_stmt!(
+                            "{name:id} = dp_intrinsics.import_({module:literal}, __spec__, [{orig:literal}], {level:id}).{attr:id}",
+                            name = binding,
+                            module = module_name,
+                            orig = orig,
+                            level = level_val.to_string(),
                             attr = orig,
                         )
                     };
-                    let assign = crate::py_stmt!(
-                        "{name:id} = {value:expr}",
-                        name = binding,
-                        value = import_expr,
-                    );
                     stmts.push(assign);
                 }
                 *stmt = crate::py_stmt!("{body:stmt}", body = stmts);

@@ -242,11 +242,10 @@ impl Transformer for OperatorRewriter {
                 self.replaced.set(true);
             } else if let Expr::Attribute(attr) = &del.targets[0] {
                 let obj = (*attr.value).clone();
-                let name = crate::py_expr!("\"{attr:id}\"", attr = attr.attr.as_str());
                 *stmt = crate::py_stmt!(
-                    "dp_intrinsics.delattr({obj:expr}, {name:expr})",
+                    "dp_intrinsics.delattr({obj:expr}, {name:literal})",
                     obj = obj,
-                    name = name,
+                    name = attr.attr.as_str(),
                 );
                 self.replaced.set(true);
             }
@@ -338,14 +337,8 @@ x = dp_intrinsics.iadd(x, 2)
         let cases = [
             ("a or b", "a if a else b"),
             ("a and b", "b if a else a"),
-            (
-                "f() or a",
-                "_dp_tmp_1 if (_dp_tmp_1 := f()) else a",
-            ),
-            (
-                "f() and a",
-                "a if (_dp_tmp_1 := f()) else _dp_tmp_1",
-            ),
+            ("f() or a", "_dp_tmp_1 if (_dp_tmp_1 := f()) else a"),
+            ("f() and a", "a if (_dp_tmp_1 := f()) else _dp_tmp_1"),
         ];
 
         for (input, expected) in cases {
@@ -357,16 +350,10 @@ x = dp_intrinsics.iadd(x, 2)
     #[test]
     fn rewrites_multi_bool_ops() {
         let output = rewrite_source("a or b or c");
-        assert_eq!(
-            output.trim_end(),
-            "a if a else b if b else c",
-        );
+        assert_eq!(output.trim_end(), "a if a else b if b else c",);
 
         let output = rewrite_source("a and b and c");
-        assert_eq!(
-            output.trim_end(),
-            "(c if b else b) if a else a",
-        );
+        assert_eq!(output.trim_end(), "(c if b else b) if a else a",);
     }
 
     #[test]
@@ -378,7 +365,10 @@ x = dp_intrinsics.iadd(x, 2)
             ("a > b", "dp_intrinsics.gt(a, b)"),
             ("a is not b", "dp_intrinsics.is_not(a, b)"),
             ("a in b", "dp_intrinsics.contains(b, a)"),
-            ("a not in b", "dp_intrinsics.not_(dp_intrinsics.contains(b, a))"),
+            (
+                "a not in b",
+                "dp_intrinsics.not_(dp_intrinsics.contains(b, a))",
+            ),
         ];
 
         for (input, expected) in cases {
