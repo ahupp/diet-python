@@ -5,13 +5,16 @@
 <title>diet-python WASM demo</title>
 <style>
 body { margin:0; height:100vh; display:flex; }
-textarea { flex:1; font-family: monospace; padding:10px; border:none; }
-textarea#output { background:#f0f0f0; }
+textarea, .CodeMirror { flex:1; font-family: monospace; padding:10px; border:none; height:100%; }
+.CodeMirror-readonly { background:#f0f0f0; }
 </style>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/codemirror.min.css" />
 </head>
 <body>
 <textarea id="input" placeholder="Paste Python code here"></textarea>
 <textarea id="output" readonly></textarea>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/python/python.min.js"></script>
 <script type="module">
 import init, { transform } from "./pkg/diet_python.js";
 
@@ -19,11 +22,16 @@ async function run() {
   await init();
   const input = document.getElementById('input');
   const output = document.getElementById('output');
+  const inputEditor = CodeMirror.fromTextArea(input, { lineNumbers: true, mode: 'python' });
+  const outputEditor = CodeMirror.fromTextArea(output, { lineNumbers: true, mode: 'python', readOnly: true });
+  inputEditor.setSize(null, '100%');
+  outputEditor.setSize(null, '100%');
   function update() {
-    output.value = transform(input.value);
+    outputEditor.setValue(transform(inputEditor.getValue()));
     const params = new URLSearchParams(window.location.search);
-    if (input.value) {
-      params.set('src', input.value);
+    const src = inputEditor.getValue();
+    if (src) {
+      params.set('src', src);
     } else {
       params.delete('src');
     }
@@ -33,9 +41,9 @@ async function run() {
   const params = new URLSearchParams(window.location.search);
   const initial = params.get('src');
   if (initial !== null) {
-    input.value = initial;
+    inputEditor.setValue(initial);
   }
-  input.addEventListener('input', update);
+  inputEditor.on('change', update);
   update();
 }
 run();
