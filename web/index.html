@@ -21,6 +21,19 @@ async function run() {
   const output = document.getElementById('output');
   function update() {
     output.value = transform(input.value);
+    const params = new URLSearchParams(window.location.search);
+    if (input.value) {
+      params.set('src', input.value);
+    } else {
+      params.delete('src');
+    }
+    const query = params.toString();
+    history.replaceState(null, '', query ? `?${query}` : window.location.pathname);
+  }
+  const params = new URLSearchParams(window.location.search);
+  const initial = params.get('src');
+  if (initial !== null) {
+    input.value = initial;
   }
   input.addEventListener('input', update);
   update();
