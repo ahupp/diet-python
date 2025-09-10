@@ -4,30 +4,48 @@
 <meta charset="utf-8" />
 <title>diet-python WASM demo</title>
 <style>
-body { margin:0; height:100vh; display:flex; }
+body { margin:0; height:100vh; display:flex; flex-direction:column; }
+#controls { padding:10px; }
+#editors { flex:1; display:flex; }
 textarea, .CodeMirror { flex:1; font-family: monospace; padding:10px; border:none; height:100%; }
 .CodeMirror-readonly { background:#f0f0f0; }
 </style>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/codemirror.min.css" />
 </head>
 <body>
-<textarea id="input" placeholder="Paste Python code here"></textarea>
-<textarea id="output" readonly></textarea>
+<div id="controls"></div>
+<div id="editors">
+  <textarea id="input" placeholder="Paste Python code here"></textarea>
+  <textarea id="output" readonly></textarea>
+</div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/codemirror.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/python/python.min.js"></script>
 <script type="module">
-import init, { transform } from "./pkg/diet_python.js";
+import init, { transform_selected, available_transforms } from "./pkg/diet_python.js";
 
 async function run() {
   await init();
+  const controls = document.getElementById('controls');
   const input = document.getElementById('input');
   const output = document.getElementById('output');
   const inputEditor = CodeMirror.fromTextArea(input, { lineNumbers: true, mode: 'python' });
   const outputEditor = CodeMirror.fromTextArea(output, { lineNumbers: true, mode: 'python', readOnly: true });
   inputEditor.setSize(null, '100%');
   outputEditor.setSize(null, '100%');
+  available_transforms().forEach(name => {
+    const label = document.createElement('label');
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.value = name;
+    checkbox.checked = true;
+    checkbox.addEventListener('change', update);
+    label.appendChild(checkbox);
+    label.appendChild(document.createTextNode(name));
+    controls.appendChild(label);
+  });
   function update() {
-    outputEditor.setValue(transform(inputEditor.getValue()));
+    const selected = Array.from(controls.querySelectorAll('input:checked')).map(cb => cb.value);
+    outputEditor.setValue(transform_selected(inputEditor.getValue(), selected));
     const params = new URLSearchParams(window.location.search);
     const src = inputEditor.getValue();
     if (src) {
