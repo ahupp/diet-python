@@ -7,6 +7,10 @@ use ruff_python_parser::{parse_module, ParseError};
 use ruff_text_size::TextRange;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::JsValue;
+#[cfg(target_arch = "wasm32")]
+use js_sys::Array;
 
 mod assert;
 mod class_def;
@@ -37,6 +41,22 @@ use operator::OperatorRewriter;
 use raise::RaiseRewriter;
 use simple_expr::SimpleExprTransformer;
 use with::WithRewriter;
+
+const TRANSFORM_NAMES: &[&str] = &[
+    "gen",
+    "with",
+    "for_loop",
+    "multi_target",
+    "assert",
+    "raise",
+    "decorator",
+    "class_def",
+    "operator",
+    "simple_expr",
+    "literal",
+    "import",
+    "flatten",
+];
 
 /// Parse the `DIET_PYTHON_TRANSFORMS` environment variable into a set of
 /// transform names. Returns `None` if the variable is unset, meaning all
@@ -273,6 +293,25 @@ pub fn transform_min_ast(
 #[wasm_bindgen]
 pub fn transform(source: &str) -> Result<String, JsValue> {
     transform_string(source, None).map_err(|e| e.to_string().into())
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn transform_selected(source: &str, transforms: Array) -> Result<String, JsValue> {
+    let set: HashSet<String> = transforms
+        .iter()
+        .filter_map(|v| v.as_string())
+        .collect();
+    transform_string(source, Some(&set)).map_err(|e| e.to_string().into())
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn available_transforms() -> Array {
+    TRANSFORM_NAMES
+        .iter()
+        .map(|&s| JsValue::from_str(s))
+        .collect()
 }
 
 #[cfg(test)]
