@@ -146,7 +146,7 @@ impl Transformer for ClassDefRewriter {
             });
 
             let bases_stmt = crate::py_stmt!(
-                "bases = dp_intrinsics.resolve_bases({b:expr})",
+                "bases = __dp__.resolve_bases({b:expr})",
                 b = bases_tuple
             );
 
@@ -162,13 +162,13 @@ impl Transformer for ClassDefRewriter {
                     items,
                 });
                 crate::py_stmt!(
-                    "meta, ns, kwds = dp_intrinsics.prepare_class({n:expr}, bases, {d:expr})",
+                    "meta, ns, kwds = __dp__.prepare_class({n:expr}, bases, {d:expr})",
                     n = string_expr(&class_name),
                     d = dict_expr
                 )
             } else {
                 crate::py_stmt!(
-                    "meta, ns, kwds = dp_intrinsics.prepare_class({n:expr}, bases)",
+                    "meta, ns, kwds = __dp__.prepare_class({n:expr}, bases)",
                     n = string_expr(&class_name)
                 )
             };
@@ -242,8 +242,8 @@ def _dp_ns_C(_ns):
     _dp_temp_ns["__qualname__"] = _ns["__qualname__"] = "C"
     _dp_temp_ns["x"] = _ns["x"] = 1
 def _class_C():
-    bases = dp_intrinsics.resolve_bases(())
-    meta, ns, kwds = dp_intrinsics.prepare_class("C", bases)
+    bases = __dp__.resolve_bases(())
+    meta, ns, kwds = __dp__.prepare_class("C", bases)
     _dp_ns_C(ns)
     cls = meta("C", bases, ns)
     return cls
@@ -266,8 +266,8 @@ def _dp_ns_C(_ns):
     _dp_temp_ns["__qualname__"] = _ns["__qualname__"] = "C"
     pass
 def _class_C():
-    bases = dp_intrinsics.resolve_bases((B,))
-    meta, ns, kwds = dp_intrinsics.prepare_class("C", bases)
+    bases = __dp__.resolve_bases((B,))
+    meta, ns, kwds = __dp__.prepare_class("C", bases)
     _dp_ns_C(ns)
     cls = meta("C", bases, ns)
     return cls
@@ -292,8 +292,8 @@ def _dp_ns_C(_ns):
     _dp_temp_ns["__doc__"] = _ns["__doc__"] = 'doc'
     _dp_temp_ns["x"] = _ns["x"] = 2
 def _class_C():
-    bases = dp_intrinsics.resolve_bases((B,))
-    meta, ns, kwds = dp_intrinsics.prepare_class("C", bases, {"metaclass": Meta, "kw": 1})
+    bases = __dp__.resolve_bases((B,))
+    meta, ns, kwds = __dp__.prepare_class("C", bases, {"metaclass": Meta, "kw": 1})
     _dp_ns_C(ns)
     cls = meta("C", bases, ns, **kwds)
     return cls
@@ -322,8 +322,8 @@ def _dp_ns_C(_ns):
         return m
     _dp_temp_ns["m"] = _ns["m"] = _mk_m()
 def _class_C():
-    bases = dp_intrinsics.resolve_bases(())
-    meta, ns, kwds = dp_intrinsics.prepare_class("C", bases)
+    bases = __dp__.resolve_bases(())
+    meta, ns, kwds = __dp__.prepare_class("C", bases)
     _dp_ns_C(ns)
     cls = meta("C", bases, ns)
     return cls

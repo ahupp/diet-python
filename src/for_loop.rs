@@ -38,15 +38,15 @@ impl Transformer for ForLoopRewriter {
 
             let (iter_fn, next_fn, stop_exc, await_) = if *is_async {
                 (
-                    crate::py_expr!("dp_intrinsics.aiter"),
-                    crate::py_expr!("dp_intrinsics.anext"),
+                    crate::py_expr!("__dp__.aiter"),
+                    crate::py_expr!("__dp__.anext"),
                     "StopAsyncIteration",
                     "await ",
                 )
             } else {
                 (
-                    crate::py_expr!("dp_intrinsics.iter"),
-                    crate::py_expr!("dp_intrinsics.next"),
+                    crate::py_expr!("__dp__.iter"),
+                    crate::py_expr!("__dp__.next"),
                     "StopIteration",
                     "",
                 )
@@ -108,10 +108,10 @@ else:
     c(0)
 "#;
         let expected = r#"
-_dp_iter_1 = dp_intrinsics.iter(b)
+_dp_iter_1 = __dp__.iter(b)
 while True:
     try:
-        a = dp_intrinsics.next(_dp_iter_1)
+        a = __dp__.next(_dp_iter_1)
     except StopIteration:
         c(0)
         break
@@ -131,10 +131,10 @@ for a in b:
     c(a)
 "#;
         let expected = r#"
-_dp_iter_1 = dp_intrinsics.iter(b)
+_dp_iter_1 = __dp__.iter(b)
 while True:
     try:
-        a = dp_intrinsics.next(_dp_iter_1)
+        a = __dp__.next(_dp_iter_1)
     except StopIteration:
         break
     c(a)
@@ -157,10 +157,10 @@ async def f():
 "#;
         let expected = r#"
 async def f():
-    _dp_iter_1 = dp_intrinsics.aiter(b)
+    _dp_iter_1 = __dp__.aiter(b)
     while True:
         try:
-            a = await dp_intrinsics.anext(_dp_iter_1)
+            a = await __dp__.anext(_dp_iter_1)
         except StopAsyncIteration:
             c(0)
             break

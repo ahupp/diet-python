@@ -137,7 +137,6 @@ fn apply_transforms(module: &mut ModModule, transforms: Option<&HashSet<String>>
     if run("flatten") {
         crate::template::flatten(&mut module.body);
     }
-    import::ensure_import(module, "dp_intrinsics");
 }
 
 /// Convert a `Pattern` to source code.
@@ -256,6 +255,7 @@ pub fn transform_string(
     let mut module = parsed.into_syntax();
 
     apply_transforms(&mut module, transforms);
+    import::ensure_import(&mut module, "__dp__");
 
     let stylist = Stylist::from_tokens(&tokens, source);
     let mut output = String::new();
@@ -323,7 +323,7 @@ mod tests {
     fn none_means_all_transforms() {
         let src = "x = 1\n";
         let result = transform_string(src, None).unwrap();
-        assert!(result.contains("import dp_intrinsics"));
+        assert!(result.contains("import __dp__"));
     }
 
     #[test]
@@ -338,7 +338,7 @@ mod tests {
     fn transforms_match_class_case() {
         let src = "class C:\n    __match_args__ = (\"a\", \"b\")\n\nmatch x:\n    case C(a, b):\n        assert a\n    case _:\n        pass\n";
         let result = transform_string(src, None).unwrap();
-        assert!(result.contains("import dp_intrinsics"));
+        assert!(result.contains("import __dp__"));
         assert!(result.contains("if __debug__"));
         assert!(result.contains("case C(a, b):"));
     }

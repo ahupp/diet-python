@@ -140,7 +140,7 @@ def {func:id}({param:id}):
             self.add_function(func_def);
 
             *expr = crate::py_expr!(
-                "{func:id}(dp_intrinsics.iter({iter:expr}))",
+                "{func:id}(__dp__.iter({iter:expr}))",
                 iter = first_iter_expr,
                 func = func_name.as_str()
             );
@@ -171,7 +171,7 @@ def _dp_gen_1(items):
     for a in items:
         if a % 2 == 0:
             yield a + 1
-r = _dp_gen_1(dp_intrinsics.iter(items))
+r = _dp_gen_1(__dp__.iter(items))
 "#;
         let output = rewrite_gen(input);
         assert_flatten_eq!(output, expected);
@@ -190,7 +190,7 @@ def outer(items, offset):
     def _dp_gen_1(items):
         for a in items:
             yield a + offset
-    r = _dp_gen_1(dp_intrinsics.iter(items))
+    r = _dp_gen_1(__dp__.iter(items))
     return r
 "#;
         let output = rewrite_gen(input);
@@ -208,7 +208,7 @@ def _dp_gen_1(_dp_iter_1):
     for a in _dp_iter_1:
         yield a + b
 b = 1
-r = _dp_gen_1(dp_intrinsics.iter(some_function()))
+r = _dp_gen_1(__dp__.iter(some_function()))
 "#;
         let output = rewrite_gen(input);
         assert_flatten_eq!(output, expected);

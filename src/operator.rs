@@ -26,7 +26,7 @@ impl OperatorRewriter {
                 let mut iter = args.into_iter();
                 let arg = iter.next().unwrap();
                 crate::py_expr!(
-                    "dp_intrinsics.{func:id}({arg:expr})",
+                    "__dp__.{func:id}({arg:expr})",
                     arg = arg,
                     func = func_name
                 )
@@ -36,7 +36,7 @@ impl OperatorRewriter {
                 let left = iter.next().unwrap();
                 let right = iter.next().unwrap();
                 crate::py_expr!(
-                    "dp_intrinsics.{func:id}({left:expr}, {right:expr})",
+                    "__dp__.{func:id}({left:expr}, {right:expr})",
                     left = left,
                     right = right,
                     func = func_name
@@ -218,7 +218,7 @@ impl Transformer for OperatorRewriter {
                 let key = (*sub.slice).clone();
                 let value = (*assign.value).clone();
                 *stmt = crate::py_stmt!(
-                    "dp_intrinsics.setitem({obj:expr}, {key:expr}, {value:expr})",
+                    "__dp__.setitem({obj:expr}, {key:expr}, {value:expr})",
                     obj = obj,
                     key = key,
                     value = value,
@@ -235,7 +235,7 @@ impl Transformer for OperatorRewriter {
                 let obj = (*sub.value).clone();
                 let key = (*sub.slice).clone();
                 *stmt = crate::py_stmt!(
-                    "dp_intrinsics.delitem({obj:expr}, {key:expr})",
+                    "__dp__.delitem({obj:expr}, {key:expr})",
                     obj = obj,
                     key = key,
                 );
@@ -243,7 +243,7 @@ impl Transformer for OperatorRewriter {
             } else if let Expr::Attribute(attr) = &del.targets[0] {
                 let obj = (*attr.value).clone();
                 *stmt = crate::py_stmt!(
-                    "dp_intrinsics.delattr({obj:expr}, {name:literal})",
+                    "__dp__.delattr({obj:expr}, {name:literal})",
                     obj = obj,
                     name = attr.attr.as_str(),
                 );
@@ -294,8 +294,8 @@ mod tests {
     #[test]
     fn rewrites_binary_ops() {
         let cases = [
-            ("a + b", "dp_intrinsics.add(a, b)"),
-            ("a - b", "dp_intrinsics.sub(a, b)"),
+            ("a + b", "__dp__.add(a, b)"),
+            ("a - b", "__dp__.sub(a, b)"),
         ];
 
         for (input, expected) in cases {
@@ -312,7 +312,7 @@ x += 2
 ";
         let expected = "
 x = 1
-x = dp_intrinsics.iadd(x, 2)
+x = __dp__.iadd(x, 2)
 ";
         let output = rewrite_source(input);
         assert_eq!(output.trim(), expected.trim());
@@ -321,9 +321,9 @@ x = dp_intrinsics.iadd(x, 2)
     #[test]
     fn rewrites_unary_ops() {
         let cases = [
-            ("-a", "dp_intrinsics.neg(a)"),
-            ("~b", "dp_intrinsics.invert(b)"),
-            ("not c", "dp_intrinsics.not_(c)"),
+            ("-a", "__dp__.neg(a)"),
+            ("~b", "__dp__.invert(b)"),
+            ("not c", "__dp__.not_(c)"),
         ];
 
         for (input, expected) in cases {
@@ -359,15 +359,15 @@ x = dp_intrinsics.iadd(x, 2)
     #[test]
     fn rewrites_comparisons() {
         let cases = [
-            ("a == b", "dp_intrinsics.eq(a, b)"),
-            ("a != b", "dp_intrinsics.ne(a, b)"),
-            ("a < b", "dp_intrinsics.lt(a, b)"),
-            ("a > b", "dp_intrinsics.gt(a, b)"),
-            ("a is not b", "dp_intrinsics.is_not(a, b)"),
-            ("a in b", "dp_intrinsics.contains(b, a)"),
+            ("a == b", "__dp__.eq(a, b)"),
+            ("a != b", "__dp__.ne(a, b)"),
+            ("a < b", "__dp__.lt(a, b)"),
+            ("a > b", "__dp__.gt(a, b)"),
+            ("a is not b", "__dp__.is_not(a, b)"),
+            ("a in b", "__dp__.contains(b, a)"),
             (
                 "a not in b",
-                "dp_intrinsics.not_(dp_intrinsics.contains(b, a))",
+                "__dp__.not_(__dp__.contains(b, a))",
             ),
         ];
 
@@ -380,31 +380,31 @@ x = dp_intrinsics.iadd(x, 2)
     #[test]
     fn rewrites_getitem() {
         let output = rewrite_source("a[b]");
-        assert_eq!(output.trim_end(), "dp_intrinsics.getitem(a, b)");
+        assert_eq!(output.trim_end(), "__dp__.getitem(a, b)");
     }
 
     #[test]
     fn rewrites_setitem() {
         let output = rewrite_source("a[b] = c");
-        assert_eq!(output.trim_end(), "dp_intrinsics.setitem(a, b, c)");
+        assert_eq!(output.trim_end(), "__dp__.setitem(a, b, c)");
     }
 
     #[test]
     fn rewrites_delitem() {
         let output = rewrite_source("del a[b]");
-        assert_eq!(output.trim_end(), "dp_intrinsics.delitem(a, b)");
+        assert_eq!(output.trim_end(), "__dp__.delitem(a, b)");
     }
 
     #[test]
     fn rewrites_delattr() {
         let output = rewrite_source("del a.b");
-        assert_eq!(output.trim_end(), "dp_intrinsics.delattr(a, \"b\")");
+        assert_eq!(output.trim_end(), "__dp__.delattr(a, \"b\")");
     }
 
     #[test]
     fn rewrites_nested_delitem() {
         let output = rewrite_source("del a.b[1]");
-        assert_eq!(output.trim_end(), "dp_intrinsics.delitem(a.b, 1)");
+        assert_eq!(output.trim_end(), "__dp__.delitem(a.b, 1)");
     }
 
     #[test]
@@ -412,21 +412,21 @@ x = dp_intrinsics.iadd(x, 2)
         let output = rewrite_source("del a.b[1].c");
         assert_eq!(
             output.trim_end(),
-            "dp_intrinsics.delattr(dp_intrinsics.getitem(a.b, 1), \"c\")"
+            "__dp__.delattr(__dp__.getitem(a.b, 1), \"c\")"
         );
     }
 
     #[test]
     fn rewrites_chain_assignment_with_subscript() {
         let output = rewrite_source("a[0] = b = 1");
-        let expected = "_dp_tmp_1 = 1\ndp_intrinsics.setitem(a, 0, _dp_tmp_1)\nb = _dp_tmp_1";
+        let expected = "_dp_tmp_1 = 1\n__dp__.setitem(a, 0, _dp_tmp_1)\nb = _dp_tmp_1";
         assert_eq!(output.trim(), expected.trim());
     }
 
     #[test]
     fn rewrites_multi_delitem_targets() {
         let output = rewrite_source("del a[0], b[0]");
-        let expected = "dp_intrinsics.delitem(a, 0)\ndp_intrinsics.delitem(b, 0)";
+        let expected = "__dp__.delitem(a, 0)\n__dp__.delitem(b, 0)";
         assert_eq!(output.trim(), expected.trim());
     }
 }

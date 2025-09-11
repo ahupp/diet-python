@@ -41,8 +41,8 @@ pub enum StmtNode {
     Delete {
         target: String,
     },
-    Global(Vec<String>),
-    Nonlocal(Vec<String>),
+    Global(String),
+    Nonlocal(String),
     Pass,
 }
 
@@ -75,7 +75,7 @@ pub enum Parameter {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExprNode {
     Name(String),
-    Number(String),
+    Number(Number),
     String(String),
     Bytes(Vec<u8>),
     None,
@@ -100,20 +100,26 @@ pub struct ExceptHandler {
     pub body: Vec<StmtNode>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum Number {
+    Int(String),
+    Float(String),
+}
+
 impl From<ModModule> for Module {
     fn from(module: ModModule) -> Self {
         Module {
-            body: module
-                .body
-                .into_iter()
-                .filter_map(StmtNode::from_stmt)
-                .collect(),
+            body: StmtNode::from_stmts(module.body),
         }
     }
 }
 
 impl StmtNode {
-    fn from_stmt(stmt: Stmt) -> Option<Self> {
+    fn from_stmts(stmts: Vec<Stmt>) -> Vec<Self> {
+        stmts.into_iter().map(StmtNode::from_stmt).collect()
+    }
+
+    fn from_stmt(stmt: Stmt) -> Self {
         match stmt {
             Stmt::FunctionDef(ast::StmtFunctionDef {
                 name,
@@ -159,20 +165,20 @@ impl StmtNode {
                         name: p.name.to_string(),
                     });
                 }
-                Some(StmtNode::FunctionDef(FunctionDef {
+                StmtNode::FunctionDef(FunctionDef {
                     name: name.to_string(),
                     params,
-                    body: body.into_iter().filter_map(StmtNode::from_stmt).collect(),
+                    body: StmtNode::from_stmts(body),
                     is_async,
-                }))
+                })
             }
             Stmt::While(ast::StmtWhile {
                 test, body, orelse, ..
-            }) => Some(StmtNode::While {
+            }) => StmtNode::While {
                 test: ExprNode::from(*test),
-                body: body.into_iter().filter_map(StmtNode::from_stmt).collect(),
-                orelse: orelse.into_iter().filter_map(StmtNode::from_stmt).collect(),
-            }),
+                body: StmtNode::from_stmts(body),
+                orelse: StmtNode::from_stmts(orelse),
+            },
             Stmt::If(ast::StmtIf {
                 test,
                 body,
@@ -182,19 +188,13 @@ impl StmtNode {
                 let orelse = elif_else_clauses
                     .into_iter()
                     .find(|clause| clause.test.is_none())
-                    .map(|clause| {
-                        clause
-                            .body
-                            .into_iter()
-                            .filter_map(StmtNode::from_stmt)
-                            .collect()
-                    })
+                    .map(|clause| StmtNode::from_stmts(clause.body))
                     .unwrap_or_default();
-                Some(StmtNode::If {
+                StmtNode::If {
                     test: ExprNode::from(*test),
-                    body: body.into_iter().filter_map(StmtNode::from_stmt).collect(),
+                    body: StmtNode::from_stmts(body),
                     orelse,
-                })
+                }
             }
             Stmt::Try(ast::StmtTry {
                 body,
@@ -202,8 +202,8 @@ impl StmtNode {
                 orelse,
                 finalbody,
                 ..
-            }) => Some(StmtNode::Try {
-                body: body.into_iter().filter_map(StmtNode::from_stmt).collect(),
+            }) => StmtNode::Try {
+                body: StmtNode::from_stmts(body),
                 handlers: handlers
                     .into_iter()
                     .map(|handler| match handler {
@@ -215,22 +215,19 @@ impl StmtNode {
                         }) => ExceptHandler {
                             type_: type_.map(|t| ExprNode::from(*t)),
                             name: name.map(|n| n.to_string()),
-                            body: body.into_iter().filter_map(StmtNode::from_stmt).collect(),
+                            body: StmtNode::from_stmts(body),
                         },
                     })
                     .collect(),
-                orelse: orelse.into_iter().filter_map(StmtNode::from_stmt).collect(),
-                finalbody: finalbody
-                    .into_iter()
-                    .filter_map(StmtNode::from_stmt)
-                    .collect(),
-            }),
-            Stmt::Break(_) => Some(StmtNode::Break),
-            Stmt::Continue(_) => Some(StmtNode::Continue),
-            Stmt::Return(ast::StmtReturn { value, .. }) => Some(StmtNode::Return {
+                orelse: StmtNode::from_stmts(orelse),
+                finalbody: StmtNode::from_stmts(finalbody),
+            },
+            Stmt::Break(_) => StmtNode::Break,
+            Stmt::Continue(_) => StmtNode::Continue,
+            Stmt::Return(ast::StmtReturn { value, .. }) => StmtNode::Return {
                 value: value.map(|v| ExprNode::from(*v)),
-            }),
-            Stmt::Expr(ast::StmtExpr { value, .. }) => Some(StmtNode::Expr(ExprNode::from(*value))),
+            },
+            Stmt::Expr(ast::StmtExpr { value, .. }) => StmtNode::Expr(ExprNode::from(*value)),
             Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
                 let target_name = if targets.len() == 1 {
                     if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
@@ -241,10 +238,10 @@ impl StmtNode {
                 } else {
                     panic!("unsupported assignment targets")
                 };
-                Some(StmtNode::Assign {
+                StmtNode::Assign {
                     target: target_name,
                     value: ExprNode::from(*value),
-                })
+                }
             }
             Stmt::Delete(ast::StmtDelete { targets, .. }) => {
                 let target_name = if targets.len() == 1 {
@@ -256,28 +253,27 @@ impl StmtNode {
                 } else {
                     panic!("unsupported delete targets")
                 };
-                Some(StmtNode::Delete {
+                StmtNode::Delete {
                     target: target_name,
-                })
-            }
-            Stmt::Global(ast::StmtGlobal { names, .. }) => Some(StmtNode::Global(
-                names.into_iter().map(|n| n.to_string()).collect(),
-            )),
-            Stmt::Nonlocal(ast::StmtNonlocal { names, .. }) => Some(StmtNode::Nonlocal(
-                names.into_iter().map(|n| n.to_string()).collect(),
-            )),
-            Stmt::Import(ast::StmtImport { names, .. }) => {
-                let names: Vec<String> = names
-                    .into_iter()
-                    .map(|alias| alias.name.to_string())
-                    .collect();
-                if names.len() == 1 && names[0] == "dp_intrinsics" {
-                    None
-                } else {
-                    panic!("unsupported import: {:?}", names);
                 }
             }
-            Stmt::Pass(_) => Some(StmtNode::Pass),
+            Stmt::Global(ast::StmtGlobal { names, .. }) => {
+                if names.len() == 1 {
+                    let name = names.into_iter().next().unwrap().id;
+                    StmtNode::Global(name.into())
+                } else {
+                    panic!("global statement should have been rewritten to single target")
+                }
+            }
+            Stmt::Nonlocal(ast::StmtNonlocal { names, .. }) => {
+                if names.len() == 1 {
+                    let name = names.into_iter().next().unwrap().id;
+                    StmtNode::Nonlocal(name.into())
+                } else {
+                    panic!("nonlocal statement should have been rewritten to single target")
+                }
+            }
+            Stmt::Pass(_) => StmtNode::Pass,
             other => panic!("unsupported statement: {:?}", other),
         }
     }
@@ -289,8 +285,8 @@ impl From<Expr> for ExprNode {
             Expr::Name(ast::ExprName { id, .. }) => ExprNode::Name(id.to_string()),
             Expr::NumberLiteral(ast::ExprNumberLiteral { value, .. }) => {
                 let num = match value {
-                    ast::Number::Int(i) => i.to_string(),
-                    ast::Number::Float(f) => f.to_string(),
+                    ast::Number::Int(i) => Number::Int(i.to_string()),
+                    ast::Number::Float(f) => Number::Float(f.to_string()),
                     ast::Number::Complex { .. } => {
                         panic!("complex numbers should have been transformed away")
                     }
