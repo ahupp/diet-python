@@ -86,10 +86,7 @@ fn global_statements_split() {
     let module = transform_min_ast(src, None).unwrap();
     assert_eq!(
         module.body,
-        vec![
-            StmtNode::Global("a".into()),
-            StmtNode::Global("b".into()),
-        ]
+        vec![StmtNode::Global("a".into()), StmtNode::Global("b".into()),]
     );
 }
 

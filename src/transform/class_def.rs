@@ -32,7 +32,13 @@ fn string_expr(value: &str) -> Expr {
 
 impl Transformer for ClassDefRewriter {
     fn visit_stmt(&self, stmt: &mut Stmt) {
-        if let Stmt::ClassDef(ast::StmtClassDef { name, body, arguments, .. }) = stmt {
+        if let Stmt::ClassDef(ast::StmtClassDef {
+            name,
+            body,
+            arguments,
+            ..
+        }) = stmt
+        {
             for stmt in body.iter_mut() {
                 self.visit_stmt(stmt);
             }
@@ -78,7 +84,11 @@ impl Transformer for ClassDefRewriter {
                             ));
                         }
                     }
-                    Stmt::AnnAssign(ast::StmtAnnAssign { target, value: Some(v), .. }) => {
+                    Stmt::AnnAssign(ast::StmtAnnAssign {
+                        target,
+                        value: Some(v),
+                        ..
+                    }) => {
                         if let Expr::Name(ast::ExprName { id, .. }) = target.as_ref() {
                             ns_body.push(crate::py_stmt!(
                                 "_dp_temp_ns[{k1:expr}] = _ns[{k2:expr}] = {v:expr}",
@@ -145,16 +155,17 @@ impl Transformer for ClassDefRewriter {
                 parenthesized: true,
             });
 
-            let bases_stmt = crate::py_stmt!(
-                "bases = __dp__.resolve_bases({b:expr})",
-                b = bases_tuple
-            );
+            let bases_stmt =
+                crate::py_stmt!("bases = __dp__.resolve_bases({b:expr})", b = bases_tuple);
 
             let prepare_stmt = if has_kw {
                 let items: Vec<ast::DictItem> = kw_keys
                     .into_iter()
                     .zip(kw_vals.into_iter())
-                    .map(|(k, v)| ast::DictItem { key: Some(k), value: v })
+                    .map(|(k, v)| ast::DictItem {
+                        key: Some(k),
+                        value: v,
+                    })
                     .collect();
                 let dict_expr = Expr::Dict(ast::ExprDict {
                     node_index: ast::AtomicNodeIndex::default(),
@@ -173,10 +184,7 @@ impl Transformer for ClassDefRewriter {
                 )
             };
 
-            let exec_stmt = crate::py_stmt!(
-                "{ns_func:id}(ns)",
-                ns_func = ns_func_name.as_str()
-            );
+            let exec_stmt = crate::py_stmt!("{ns_func:id}(ns)", ns_func = ns_func_name.as_str());
 
             let cls_stmt = if has_kw {
                 crate::py_stmt!(
@@ -204,10 +212,7 @@ impl Transformer for ClassDefRewriter {
                 builder = class_func_name.as_str()
             );
 
-            *stmt = crate::py_stmt!(
-                "{body:stmt}",
-                body = vec![ns_func, class_func, call_stmt]
-            );
+            *stmt = crate::py_stmt!("{body:stmt}", body = vec![ns_func, class_func, call_stmt]);
         } else {
             walk_stmt(self, stmt);
         }
@@ -333,4 +338,3 @@ C = _class_C()
         assert_flatten_eq!(output, expected);
     }
 }
-

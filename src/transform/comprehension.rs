@@ -43,7 +43,7 @@ pub(crate) fn rewrite_comprehension<T: Transformer>(transformer: &T, expr: &mut 
 
 #[cfg(test)]
 mod tests {
-    use crate::{assert_flatten_eq, gen::GeneratorRewriter};
+    use crate::{assert_flatten_eq, transform::gen::GeneratorRewriter};
     use ruff_python_ast::Stmt;
     use ruff_python_parser::parse_module;
 
@@ -96,5 +96,4 @@ r = dict(_dp_gen_1(__dp__.iter(items)))
         let output = rewrite_gen(input);
         assert_flatten_eq!(output, expected);
     }
-
 }
