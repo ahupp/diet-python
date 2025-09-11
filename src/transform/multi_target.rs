@@ -64,10 +64,7 @@ impl Transformer for MultiTargetRewriter {
                 if global.names.len() > 1 {
                     let mut stmts = Vec::with_capacity(global.names.len());
                     for name in &global.names {
-                        stmts.push(crate::py_stmt!(
-                            "global {name:id}",
-                            name = name.as_str()
-                        ));
+                        stmts.push(crate::py_stmt!("global {name:id}", name = name.as_str()));
                     }
                     *stmt = crate::py_stmt!("{body:stmt}", body = stmts);
                 }
@@ -76,10 +73,7 @@ impl Transformer for MultiTargetRewriter {
                 if nonlocal.names.len() > 1 {
                     let mut stmts = Vec::with_capacity(nonlocal.names.len());
                     for name in &nonlocal.names {
-                        stmts.push(crate::py_stmt!(
-                            "nonlocal {name:id}",
-                            name = name.as_str()
-                        ));
+                        stmts.push(crate::py_stmt!("nonlocal {name:id}", name = name.as_str()));
                     }
                     *stmt = crate::py_stmt!("{body:stmt}", body = stmts);
                 }

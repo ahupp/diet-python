@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+#[cfg(target_arch = "wasm32")]
+use js_sys::Array;
 use ruff_python_ast::visitor::transformer::walk_body;
 use ruff_python_ast::{self as ast, Expr, ModModule, Pattern, Stmt};
 use ruff_python_codegen::{Generator, Stylist};
@@ -9,38 +11,23 @@ use ruff_text_size::TextRange;
 use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsValue;
-#[cfg(target_arch = "wasm32")]
-use js_sys::Array;
 
-mod assert;
-mod class_def;
-mod comprehension;
-mod decorator;
-mod for_loop;
-mod gen;
-mod import;
-mod literal;
 pub mod min_ast;
-mod multi_target;
-mod operator;
-mod raise;
-mod simple_expr;
-mod template;
 #[cfg(test)]
 mod test_util;
-mod with;
+mod transform;
 
-use assert::AssertRewriter;
-use class_def::ClassDefRewriter;
-use decorator::DecoratorRewriter;
-use for_loop::ForLoopRewriter;
-use gen::GeneratorRewriter;
-use literal::LiteralRewriter;
-use multi_target::MultiTargetRewriter;
-use operator::OperatorRewriter;
-use raise::RaiseRewriter;
-use simple_expr::SimpleExprTransformer;
-use with::WithRewriter;
+use transform::assert::AssertRewriter;
+use transform::class_def::ClassDefRewriter;
+use transform::decorator::DecoratorRewriter;
+use transform::for_loop::ForLoopRewriter;
+use transform::gen::GeneratorRewriter;
+use transform::literal::LiteralRewriter;
+use transform::multi_target::MultiTargetRewriter;
+use transform::operator::OperatorRewriter;
+use transform::raise::RaiseRewriter;
+use transform::simple_expr::SimpleExprTransformer;
+use transform::with::WithRewriter;
 
 const TRANSFORM_NAMES: &[&str] = &[
     "gen",
@@ -131,11 +118,11 @@ fn apply_transforms(module: &mut ModModule, transforms: Option<&HashSet<String>>
         walk_body(&literal_transformer, &mut module.body);
     }
     if run("import") {
-        let import_rewriter = import::ImportRewriter::new();
+        let import_rewriter = transform::import::ImportRewriter::new();
         walk_body(&import_rewriter, &mut module.body);
     }
     if run("flatten") {
-        crate::template::flatten(&mut module.body);
+        transform::template::flatten(&mut module.body);
     }
 }
 
@@ -255,7 +242,7 @@ pub fn transform_string(
     let mut module = parsed.into_syntax();
 
     apply_transforms(&mut module, transforms);
-    import::ensure_import(&mut module, "__dp__");
+    transform::import::ensure_import(&mut module, "__dp__");
 
     let stylist = Stylist::from_tokens(&tokens, source);
     let mut output = String::new();
@@ -298,10 +285,7 @@ pub fn transform(source: &str) -> Result<String, JsValue> {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn transform_selected(source: &str, transforms: Array) -> Result<String, JsValue> {
-    let set: HashSet<String> = transforms
-        .iter()
-        .filter_map(|v| v.as_string())
-        .collect();
+    let set: HashSet<String> = transforms.iter().filter_map(|v| v.as_string()).collect();
     transform_string(source, Some(&set)).map_err(|e| e.to_string().into())
 }
 

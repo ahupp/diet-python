@@ -25,11 +25,7 @@ impl OperatorRewriter {
             1 => {
                 let mut iter = args.into_iter();
                 let arg = iter.next().unwrap();
-                crate::py_expr!(
-                    "__dp__.{func:id}({arg:expr})",
-                    arg = arg,
-                    func = func_name
-                )
+                crate::py_expr!("__dp__.{func:id}({arg:expr})", arg = arg, func = func_name)
             }
             2 => {
                 let mut iter = args.into_iter();
@@ -256,8 +252,8 @@ impl Transformer for OperatorRewriter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gen::GeneratorRewriter;
-    use crate::multi_target::MultiTargetRewriter;
+    use crate::transform::gen::GeneratorRewriter;
+    use crate::transform::multi_target::MultiTargetRewriter;
     use ruff_python_ast::visitor::transformer::walk_body;
     use ruff_python_codegen::{Generator, Stylist};
     use ruff_python_parser::parse_module;
@@ -270,7 +266,7 @@ mod tests {
         let gen_transformer = GeneratorRewriter::new();
         gen_transformer.rewrite_body(&mut module.body);
 
-        let for_transformer = crate::for_loop::ForLoopRewriter::new();
+        let for_transformer = crate::transform::for_loop::ForLoopRewriter::new();
         walk_body(&for_transformer, &mut module.body);
 
         let multi_transformer = MultiTargetRewriter::new();
@@ -279,7 +275,7 @@ mod tests {
         let op_transformer = OperatorRewriter::new();
         walk_body(&op_transformer, &mut module.body);
 
-        crate::template::flatten(&mut module.body);
+        crate::transform::template::flatten(&mut module.body);
 
         let stylist = Stylist::from_tokens(&tokens, source);
         let mut output = String::new();
@@ -293,10 +289,7 @@ mod tests {
 
     #[test]
     fn rewrites_binary_ops() {
-        let cases = [
-            ("a + b", "__dp__.add(a, b)"),
-            ("a - b", "__dp__.sub(a, b)"),
-        ];
+        let cases = [("a + b", "__dp__.add(a, b)"), ("a - b", "__dp__.sub(a, b)")];
 
         for (input, expected) in cases {
             let output = rewrite_source(input);
@@ -365,10 +358,7 @@ x = __dp__.iadd(x, 2)
             ("a > b", "__dp__.gt(a, b)"),
             ("a is not b", "__dp__.is_not(a, b)"),
             ("a in b", "__dp__.contains(b, a)"),
-            (
-                "a not in b",
-                "__dp__.not_(__dp__.contains(b, a))",
-            ),
+            ("a not in b", "__dp__.not_(__dp__.contains(b, a))"),
         ];
 
         for (input, expected) in cases {

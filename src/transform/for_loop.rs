@@ -3,7 +3,6 @@ use std::cell::Cell;
 use ruff_python_ast::visitor::transformer::{walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, Stmt};
 
-
 pub struct ForLoopRewriter {
     iter_count: Cell<usize>,
 }
@@ -172,5 +171,4 @@ async def f():
         let output = rewrite_for(input);
         assert_flatten_eq!(output, expected);
     }
-
 }
