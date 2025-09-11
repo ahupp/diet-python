@@ -64,7 +64,7 @@ def _dp_gen_1(items):
     for a in items:
         if a % 2 == 0:
             yield a + 1
-r = list(_dp_gen_1(dp_intrinsics.iter(items)))
+r = list(_dp_gen_1(__dp__.iter(items)))
 "#;
         let output = rewrite_gen(input);
         assert_flatten_eq!(output, expected);
@@ -77,7 +77,7 @@ r = list(_dp_gen_1(dp_intrinsics.iter(items)))
 def _dp_gen_1(items):
     for a in items:
         yield a
-r = set(_dp_gen_1(dp_intrinsics.iter(items)))
+r = set(_dp_gen_1(__dp__.iter(items)))
 "#;
         let output = rewrite_gen(input);
         assert_flatten_eq!(output, expected);
@@ -91,7 +91,7 @@ def _dp_gen_1(items):
     for k, v in items:
         if k % 2 == 0:
             yield k, v + 1
-r = dict(_dp_gen_1(dp_intrinsics.iter(items)))
+r = dict(_dp_gen_1(__dp__.iter(items)))
 "#;
         let output = rewrite_gen(input);
         assert_flatten_eq!(output, expected);

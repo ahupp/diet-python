@@ -1,5 +1,5 @@
 use diet_python::min_ast::{
-    Arg, ExceptHandler, ExprNode, FunctionDef, Module, Parameter, StmtNode,
+    Arg, ExceptHandler, ExprNode, FunctionDef, Module, Number, Parameter, StmtNode,
 };
 use diet_python::transform_min_ast;
 
@@ -78,4 +78,60 @@ fn try_except_else() {
         }],
     };
     assert_eq!(module, expected);
+}
+
+#[test]
+fn global_statements_split() {
+    let src = "global a, b\n";
+    let module = transform_min_ast(src, None).unwrap();
+    assert_eq!(
+        module.body,
+        vec![
+            StmtNode::Global("a".into()),
+            StmtNode::Global("b".into()),
+        ]
+    );
+}
+
+#[test]
+fn nonlocal_statements_split() {
+    let src = "def outer():\n    x = 0\n    y = 0\n    def inner():\n        nonlocal x, y\n";
+    let module = transform_min_ast(src, None).unwrap();
+    if let StmtNode::FunctionDef(FunctionDef { body, .. }) = &module.body[0] {
+        if let StmtNode::FunctionDef(FunctionDef {
+            body: inner_body, ..
+        }) = &body[2]
+        {
+            assert_eq!(
+                &inner_body[..2],
+                [
+                    StmtNode::Nonlocal("x".into()),
+                    StmtNode::Nonlocal("y".into()),
+                ]
+            );
+        } else {
+            panic!("expected inner function definition");
+        }
+    } else {
+        panic!("expected outer function definition");
+    }
+}
+
+#[test]
+fn number_literals() {
+    let src = "x = 1\ny = 2.5\n";
+    let module = transform_min_ast(src, None).unwrap();
+    assert_eq!(
+        module.body,
+        vec![
+            StmtNode::Assign {
+                target: "x".to_string(),
+                value: ExprNode::Number(Number::Int("1".to_string())),
+            },
+            StmtNode::Assign {
+                target: "y".to_string(),
+                value: ExprNode::Number(Number::Float("2.5".to_string())),
+            },
+        ]
+    );
 }

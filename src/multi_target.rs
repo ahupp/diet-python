@@ -60,6 +60,30 @@ impl Transformer for MultiTargetRewriter {
                     *stmt = crate::py_stmt!("{body:stmt}", body = stmts);
                 }
             }
+            Stmt::Global(global) => {
+                if global.names.len() > 1 {
+                    let mut stmts = Vec::with_capacity(global.names.len());
+                    for name in &global.names {
+                        stmts.push(crate::py_stmt!(
+                            "global {name:id}",
+                            name = name.as_str()
+                        ));
+                    }
+                    *stmt = crate::py_stmt!("{body:stmt}", body = stmts);
+                }
+            }
+            Stmt::Nonlocal(nonlocal) => {
+                if nonlocal.names.len() > 1 {
+                    let mut stmts = Vec::with_capacity(nonlocal.names.len());
+                    for name in &nonlocal.names {
+                        stmts.push(crate::py_stmt!(
+                            "nonlocal {name:id}",
+                            name = name.as_str()
+                        ));
+                    }
+                    *stmt = crate::py_stmt!("{body:stmt}", body = stmts);
+                }
+            }
             _ => {}
         }
     }
@@ -91,6 +115,20 @@ mod tests {
     fn desugars_multi_delete() {
         let output = rewrite("del a, b");
         let expected = "del a\ndel b";
+        assert_flatten_eq!(output, expected);
+    }
+
+    #[test]
+    fn desugars_multi_global() {
+        let output = rewrite("global a, b");
+        let expected = "global a\nglobal b";
+        assert_flatten_eq!(output, expected);
+    }
+
+    #[test]
+    fn desugars_multi_nonlocal() {
+        let output = rewrite("def f():\n    nonlocal a, b");
+        let expected = "def f():\n    nonlocal a\n    nonlocal b";
         assert_flatten_eq!(output, expected);
     }
 }

@@ -95,7 +95,7 @@ impl Transformer for WithRewriter {
 try:
     {body:stmt}
 except:
-    if not {await_:id}{exit:id}({ctx_var:id}, *dp_intrinsics.exc_info()):
+    if not {await_:id}{exit:id}({ctx_var:id}, *__dp__.exc_info()):
         raise
 else:
     {await_:id}{exit:id}({ctx_var:id}, None, None, None)
@@ -149,7 +149,7 @@ b = _dp_enter_1(_dp_ctx_1)
 try:
     c
 except:
-    if not _dp_exit_1(_dp_ctx_1, *dp_intrinsics.exc_info()):
+    if not _dp_exit_1(_dp_ctx_1, *__dp__.exc_info()):
         raise
 else:
     _dp_exit_1(_dp_ctx_1, None, None, None)
@@ -177,12 +177,12 @@ try:
     try:
         e
     except:
-        if not _dp_exit_2(_dp_ctx_2, *dp_intrinsics.exc_info()):
+        if not _dp_exit_2(_dp_ctx_2, *__dp__.exc_info()):
             raise
     else:
         _dp_exit_2(_dp_ctx_2, None, None, None)
 except:
-    if not _dp_exit_1(_dp_ctx_1, *dp_intrinsics.exc_info()):
+    if not _dp_exit_1(_dp_ctx_1, *__dp__.exc_info()):
         raise
 else:
     _dp_exit_1(_dp_ctx_1, None, None, None)
@@ -207,7 +207,7 @@ async def f():
     try:
         c
     except:
-        if not await _dp_exit_1(_dp_ctx_1, *dp_intrinsics.exc_info()):
+        if not await _dp_exit_1(_dp_ctx_1, *__dp__.exc_info()):
             raise
     else:
         await _dp_exit_1(_dp_ctx_1, None, None, None)

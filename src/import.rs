@@ -29,12 +29,6 @@ impl Transformer for ImportRewriter {
         walk_stmt(self, stmt);
         match stmt {
             Stmt::Import(ast::StmtImport { names, .. }) => {
-                if names
-                    .iter()
-                    .any(|alias| alias.name.id.as_str() == "dp_intrinsics")
-                {
-                    return;
-                }
                 let mut stmts = Vec::new();
                 for alias in names {
                     let module_name = alias.name.id.to_string();
@@ -44,7 +38,7 @@ impl Transformer for ImportRewriter {
                         .map(|n| n.id.as_str())
                         .unwrap_or_else(|| module_name.split('.').next().unwrap());
                     let assign = crate::py_stmt!(
-                        "{name:id} = dp_intrinsics.import_({module:literal}, __spec__)",
+                        "{name:id} = __dp__.import_({module:literal}, __spec__)",
                         name = binding,
                         module = module_name.as_str(),
                     );
@@ -69,7 +63,7 @@ impl Transformer for ImportRewriter {
                     let binding = alias.asname.as_ref().map(|n| n.id.as_str()).unwrap_or(orig);
                     let assign = if level_val == 0 {
                         crate::py_stmt!(
-                            "{name:id} = dp_intrinsics.import_({module:literal}, __spec__, [{orig:literal}]).{attr:id}",
+                            "{name:id} = __dp__.import_({module:literal}, __spec__, [{orig:literal}]).{attr:id}",
                             name = binding,
                             module = module_name,
                             orig = orig,
@@ -77,7 +71,7 @@ impl Transformer for ImportRewriter {
                         )
                     } else {
                         crate::py_stmt!(
-                            "{name:id} = dp_intrinsics.import_({module:literal}, __spec__, [{orig:literal}], {level:id}).{attr:id}",
+                            "{name:id} = __dp__.import_({module:literal}, __spec__, [{orig:literal}], {level:id}).{attr:id}",
                             name = binding,
                             module = module_name,
                             orig = orig,
@@ -112,21 +106,21 @@ mod tests {
     #[test]
     fn rewrites_basic_import() {
         let output = rewrite("import a");
-        let expected = "a = dp_intrinsics.import_(\"a\", __spec__)";
+        let expected = "a = __dp__.import_(\"a\", __spec__)";
         assert_flatten_eq!(output, expected);
     }
 
     #[test]
     fn rewrites_from_import() {
         let output = rewrite("from a.b import c");
-        let expected = "c = dp_intrinsics.import_(\"a.b\", __spec__, [\"c\"]).c";
+        let expected = "c = __dp__.import_(\"a.b\", __spec__, [\"c\"]).c";
         assert_flatten_eq!(output, expected);
     }
 
     #[test]
     fn rewrites_relative_import() {
         let output = rewrite("from ..a import b");
-        let expected = "b = dp_intrinsics.import_(\"a\", __spec__, [\"b\"], 2).b";
+        let expected = "b = __dp__.import_(\"a\", __spec__, [\"b\"], 2).b";
         assert_flatten_eq!(output, expected);
     }
 }
