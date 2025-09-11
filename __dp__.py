@@ -37,6 +37,7 @@ ifloordiv = _operator.ifloordiv
 neg = _operator.neg
 invert = _operator.invert
 not_ = _operator.not_
+truth = _operator.truth
 eq = _operator.eq
 ne = _operator.ne
 lt = _operator.lt

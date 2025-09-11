@@ -27,6 +27,7 @@ use transform::multi_target::MultiTargetRewriter;
 use transform::operator::OperatorRewriter;
 use transform::raise::RaiseRewriter;
 use transform::simple_expr::SimpleExprTransformer;
+use transform::truthy::TruthyRewriter;
 use transform::with::WithRewriter;
 
 const TRANSFORM_NAMES: &[&str] = &[
@@ -43,6 +44,7 @@ const TRANSFORM_NAMES: &[&str] = &[
     "literal",
     "import",
     "flatten",
+    "truthy",
 ];
 
 /// Parse the `DIET_PYTHON_TRANSFORMS` environment variable into a set of
@@ -123,6 +125,10 @@ fn apply_transforms(module: &mut ModModule, transforms: Option<&HashSet<String>>
     }
     if run("flatten") {
         transform::template::flatten(&mut module.body);
+    }
+    if run("truthy") {
+        let truthy_transformer = TruthyRewriter::new();
+        walk_body(&truthy_transformer, &mut module.body);
     }
 }
 
@@ -323,7 +329,7 @@ mod tests {
         let src = "class C:\n    __match_args__ = (\"a\", \"b\")\n\nmatch x:\n    case C(a, b):\n        assert a\n    case _:\n        pass\n";
         let result = transform_string(src, None).unwrap();
         assert!(result.contains("import __dp__"));
-        assert!(result.contains("if __debug__"));
+        assert!(result.contains("if __dp__.truth(__debug__)"));
         assert!(result.contains("case C(a, b):"));
     }
 }

@@ -1,30 +1,30 @@
 import __dp__
 def _dp_gen_1(_dp_iter_1):
     _dp_iter_1 = getattr(__dp__, "iter")(_dp_iter_1)
-    while True:
+    while __dp__.truth(True):
         try:
             i = getattr(__dp__, "next")(_dp_iter_1)
         except StopIteration:
             break
-        if getattr(__dp__, "eq")(getattr(__dp__, "mod")(i, 2), 0):
+        if __dp__.truth(getattr(__dp__, "eq")(getattr(__dp__, "mod")(i, 2), 0)):
             yield getattr(__dp__, "add")(i, 1)
 def _dp_gen_2(_dp_iter_2):
     _dp_iter_2 = getattr(__dp__, "iter")(_dp_iter_2)
-    while True:
+    while __dp__.truth(True):
         try:
             i = getattr(__dp__, "next")(_dp_iter_2)
         except StopIteration:
             break
-        if getattr(__dp__, "eq")(getattr(__dp__, "mod")(i, 2), 0):
+        if __dp__.truth(getattr(__dp__, "eq")(getattr(__dp__, "mod")(i, 2), 0)):
             yield getattr(__dp__, "add")(i, 1)
 def _dp_gen_3(_dp_iter_3):
     _dp_iter_3 = getattr(__dp__, "iter")(_dp_iter_3)
-    while True:
+    while __dp__.truth(True):
         try:
             i = getattr(__dp__, "next")(_dp_iter_3)
         except StopIteration:
             break
-        if getattr(__dp__, "eq")(getattr(__dp__, "mod")(i, 2), 0):
+        if __dp__.truth(getattr(__dp__, "eq")(getattr(__dp__, "mod")(i, 2), 0)):
             yield getattr(__dp__, "add")(i, 1)
 sys = __dp__.import_("sys", __spec__)
 ei = __dp__.import_("sys", __spec__, ["exc_info"]).exc_info
@@ -68,7 +68,7 @@ def _dp_ns_A(_ns):
 
         async def test_aiter(self):
             _dp_iter_4 = getattr(__dp__, "iter")(range(10))
-            while True:
+            while __dp__.truth(True):
                 try:
                     i = getattr(__dp__, "next")(_dp_iter_4)
                 except StopIteration:
@@ -84,7 +84,7 @@ def _dp_ns_A(_ns):
 
         async def d(self):
             _dp_iter_5 = getattr(__dp__, "aiter")(getattr(self, "test_aiter")())
-            while True:
+            while __dp__.truth(True):
                 try:
                     i = await getattr(__dp__, "anext")(_dp_iter_5)
                 except StopAsyncIteration:
