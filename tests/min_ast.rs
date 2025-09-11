@@ -55,7 +55,8 @@ fn builds_minimal_ast() {
 #[test]
 fn try_except_else() {
     let src = "try:\n    f()\nexcept E as e:\n    handle(e)\nelse:\n    g()\n";
-    let module = transform_min_ast(src, None).unwrap();
+    use std::collections::HashSet;
+    let module = transform_min_ast(src, Some(&HashSet::new())).unwrap();
     let expected = Module {
         body: vec![StmtNode::Try {
             body: vec![StmtNode::Expr(ExprNode::Call {

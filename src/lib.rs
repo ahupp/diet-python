@@ -29,6 +29,7 @@ use transform::raise::RaiseRewriter;
 use transform::simple_expr::SimpleExprTransformer;
 use transform::truthy::TruthyRewriter;
 use transform::with::WithRewriter;
+use transform::try_except::TryExceptRewriter;
 
 const TRANSFORM_NAMES: &[&str] = &[
     "gen",
@@ -45,6 +46,7 @@ const TRANSFORM_NAMES: &[&str] = &[
     "import",
     "flatten",
     "truthy",
+    "try_except",
 ];
 
 /// Parse the `DIET_PYTHON_TRANSFORMS` environment variable into a set of
@@ -129,6 +131,10 @@ fn apply_transforms(module: &mut ModModule, transforms: Option<&HashSet<String>>
     if run("truthy") {
         let truthy_transformer = TruthyRewriter::new();
         walk_body(&truthy_transformer, &mut module.body);
+    }
+    if run("try_except") {
+        let try_transformer = TryExceptRewriter::new();
+        walk_body(&try_transformer, &mut module.body);
     }
 }
 
