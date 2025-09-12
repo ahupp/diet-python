@@ -17,6 +17,7 @@ pub mod min_ast;
 #[cfg(test)]
 mod test_util;
 mod transform;
+mod template;
 
 use transform::assert::AssertRewriter;
 use transform::class_def::ClassDefRewriter;
@@ -143,7 +144,7 @@ fn apply_transforms(module: &mut ModModule, transforms: Option<&HashSet<String>>
     if run("flatten") {
         // Previous transforms use `__dp__.<name>` calls; `operator` lowers them
         // to use `getattr`, so apply it before the final template flattening.
-        transform::template::flatten(&mut module.body);
+        template::flatten(&mut module.body);
     }
 }
 

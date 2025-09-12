@@ -148,14 +148,16 @@ impl Transformer for OperatorRewriter {
                     CmpOp::Eq => Self::make_call("eq", vec![left, right]),
                     CmpOp::NotEq => Self::make_call("ne", vec![left, right]),
                     CmpOp::Lt => Self::make_call("lt", vec![left, right]),
+                    CmpOp::LtE => Self::make_call("le", vec![left, right]),
                     CmpOp::Gt => Self::make_call("gt", vec![left, right]),
+                    CmpOp::GtE => Self::make_call("ge", vec![left, right]),
+                    CmpOp::Is => Self::make_call("is_", vec![left, right]),
                     CmpOp::IsNot => Self::make_call("is_not", vec![left, right]),
                     CmpOp::In => Self::make_call("contains", vec![right, left]),
                     CmpOp::NotIn => {
                         let contains = Self::make_call("contains", vec![right, left]);
                         Self::make_call("not_", vec![contains])
                     }
-                    _ => return,
                 };
 
                 *expr = call;
@@ -275,7 +277,7 @@ mod tests {
         let op_transformer = OperatorRewriter::new();
         walk_body(&op_transformer, &mut module.body);
 
-        crate::transform::template::flatten(&mut module.body);
+        crate::template::flatten(&mut module.body);
 
         let stylist = Stylist::from_tokens(&tokens, source);
         let mut output = String::new();
@@ -355,7 +357,10 @@ x = __dp__.iadd(x, 2)
             ("a == b", "__dp__.eq(a, b)"),
             ("a != b", "__dp__.ne(a, b)"),
             ("a < b", "__dp__.lt(a, b)"),
+            ("a <= b", "__dp__.le(a, b)"),
             ("a > b", "__dp__.gt(a, b)"),
+            ("a >= b", "__dp__.ge(a, b)"),
+            ("a is b", "__dp__.is_(a, b)"),
             ("a is not b", "__dp__.is_not(a, b)"),
             ("a in b", "__dp__.contains(b, a)"),
             ("a not in b", "__dp__.not_(__dp__.contains(b, a))"),

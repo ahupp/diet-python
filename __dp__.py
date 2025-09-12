@@ -41,13 +41,17 @@ truth = _operator.truth
 eq = _operator.eq
 ne = _operator.ne
 lt = _operator.lt
+le = _operator.le
 gt = _operator.gt
+ge = _operator.ge
+is_ = _operator.is_
 is_not = _operator.is_not
 contains = _operator.contains
 next = builtins.next
 iter = builtins.iter
 aiter = builtins.aiter
 anext = builtins.anext
+isinstance = builtins.isinstance
 
 def resolve_bases(bases):
     return _types.resolve_bases(bases)
