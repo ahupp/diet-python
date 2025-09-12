@@ -12,6 +12,7 @@ use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsValue;
 
+pub mod intrinsics;
 pub mod min_ast;
 #[cfg(test)]
 mod test_util;
