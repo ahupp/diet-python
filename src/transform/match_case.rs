@@ -2,6 +2,8 @@ use std::cell::Cell;
 
 use ruff_python_ast::visitor::transformer::{walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, Expr, Pattern, Stmt};
+use ruff_python_parser::parse_expression;
+use ruff_text_size::TextRange;
 
 pub struct MatchCaseRewriter {
     count: Cell<usize>,
@@ -13,6 +15,19 @@ enum PatternTest {
     Unsupported,
 }
 
+fn fold_exprs(exprs: Vec<Expr>, op: ast::BoolOp) -> Option<Expr> {
+    if exprs.is_empty() {
+        None
+    } else {
+        Some(Expr::BoolOp(ast::ExprBoolOp {
+            range: TextRange::default(),
+            node_index: ast::AtomicNodeIndex::default(),
+            op,
+            values: exprs,
+        }))
+    }
+}
+
 impl MatchCaseRewriter {
     pub fn new() -> Self {
         Self {
@@ -22,7 +37,8 @@ impl MatchCaseRewriter {
 
     fn test_for_pattern(&self, pattern: &Pattern, subject: Expr) -> PatternTest {
         use ast::{
-            PatternMatchAs, PatternMatchOr, PatternMatchSingleton, PatternMatchValue, Singleton,
+            PatternMatchAs, PatternMatchClass, PatternMatchOr, PatternMatchSingleton,
+            PatternMatchValue, Singleton,
         };
         use PatternTest::*;
         match pattern {
@@ -57,18 +73,88 @@ impl MatchCaseRewriter {
                         _ => return Unsupported,
                     }
                 }
-                let mut iter = tests.into_iter();
-                if let Some(mut test) = iter.next() {
-                    for expr in iter {
-                        test = crate::py_expr!(
-                            "{left:expr} or {right:expr}",
-                            left = test,
-                            right = expr
-                        );
-                    }
+                if let Some(test) = fold_exprs(tests, ast::BoolOp::Or) {
                     Test {
                         expr: test,
                         assigns: vec![],
+                    }
+                } else {
+                    Unsupported
+                }
+            }
+            Pattern::MatchClass(PatternMatchClass { cls, arguments, .. }) => {
+                let mut tests = vec![crate::py_expr!(
+                    "isinstance({subject:expr}, {cls:expr})",
+                    subject = subject.clone(),
+                    cls = *cls.clone()
+                )];
+                let mut assigns = Vec::new();
+                let mut handle_attr =
+                    |pattern: &Pattern, attr_exists: Expr, attr_value: Expr| match self
+                        .test_for_pattern(pattern, attr_value)
+                    {
+                        Test {
+                            expr,
+                            assigns: mut a,
+                        } => {
+                            tests.push(attr_exists);
+                            tests.push(expr);
+                            assigns.append(&mut a);
+                            Ok(())
+                        }
+                        Wildcard { assigns: mut a } => {
+                            tests.push(attr_exists);
+                            assigns.append(&mut a);
+                            Ok(())
+                        }
+                        Unsupported => Err(()),
+                    };
+
+                for (i, p) in arguments.patterns.iter().enumerate() {
+                    let idx_expr = *parse_expression(&i.to_string())
+                        .expect("parse error")
+                        .into_syntax()
+                        .body;
+                    let attr_name = crate::py_expr!(
+                        "{cls:expr}.__match_args__[{idx:expr}]",
+                        cls = *cls.clone(),
+                        idx = idx_expr
+                    );
+                    let attr_exists = crate::py_expr!(
+                        "hasattr({subject:expr}, {name:expr})",
+                        subject = subject.clone(),
+                        name = attr_name.clone()
+                    );
+                    let attr_value = crate::py_expr!(
+                        "getattr({subject:expr}, {name:expr})",
+                        subject = subject.clone(),
+                        name = attr_name
+                    );
+                    if handle_attr(p, attr_exists, attr_value).is_err() {
+                        return Unsupported;
+                    }
+                }
+
+                for kw in &arguments.keywords {
+                    let attr_exists = crate::py_expr!(
+                        "hasattr({subject:expr}, {name:literal})",
+                        subject = subject.clone(),
+                        name = kw.attr.as_str()
+                    );
+                    let attr_value = crate::py_expr!(
+                        "getattr({subject:expr}, {name:literal})",
+                        subject = subject.clone(),
+                        name = kw.attr.as_str()
+                    );
+                    if handle_attr(&kw.pattern, attr_exists, attr_value).is_err() {
+                        return Unsupported;
+                    }
+                }
+
+                if let Some(test) = fold_exprs(tests, ast::BoolOp::And) {
+                    Test {
+                        expr: test,
+                        assigns,
                     }
                 } else {
                     Unsupported
@@ -354,6 +440,27 @@ if _dp_match_1 == 1:
 else:
     y = _dp_match_1
     b()
+"#;
+        let output = rewrite(input);
+        assert_flatten_eq!(output, expected);
+    }
+
+    #[test]
+    fn rewrites_match_class_with_match_args() {
+        let input = r#"
+match x:
+    case C(1, b):
+        a()
+    case _:
+        c()
+"#;
+        let expected = r#"
+_dp_match_1 = x
+if isinstance(_dp_match_1, C) and hasattr(_dp_match_1, C.__match_args__[0]) and getattr(_dp_match_1, C.__match_args__[0]) == 1 and hasattr(_dp_match_1, C.__match_args__[1]):
+    b = getattr(_dp_match_1, C.__match_args__[1])
+    a()
+else:
+    c()
 "#;
         let output = rewrite(input);
         assert_flatten_eq!(output, expected);
