@@ -2,7 +2,6 @@ use std::cell::Cell;
 
 use ruff_python_ast::visitor::transformer::{walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, Expr, Stmt};
-use ruff_text_size::TextRange;
 
 pub struct TryExceptRewriter {
     count: Cell<usize>,
@@ -10,7 +9,9 @@ pub struct TryExceptRewriter {
 
 impl TryExceptRewriter {
     pub fn new() -> Self {
-        Self { count: Cell::new(0) }
+        Self {
+            count: Cell::new(0),
+        }
     }
 }
 
@@ -67,77 +68,51 @@ impl Transformer for TryExceptRewriter {
             }
 
             let mut new_body = vec![exc_assign];
-            if let Some((first_type, first_body)) = processed.first().cloned() {
-                if let Some(first_type) = first_type {
-                    let mut clauses: Vec<ast::ElifElseClause> = Vec::new();
-                    let mut has_else = false;
-                    for (type_, body) in processed.into_iter().skip(1) {
-                        if let Some(t) = type_ {
-                            let cond = crate::py_expr!(
-                                "__dp__.isinstance({exc:expr}, {typ:expr})",
-                                exc = exc_expr.clone(),
-                                typ = t,
-                            );
-                            clauses.push(ast::ElifElseClause {
-                                range: TextRange::default(),
-                                node_index: ast::AtomicNodeIndex::default(),
-                                test: Some(cond),
-                                body,
-                            });
-                        } else {
-                            has_else = true;
-                            clauses.push(ast::ElifElseClause {
-                                range: TextRange::default(),
-                                node_index: ast::AtomicNodeIndex::default(),
-                                test: None,
-                                body,
-                            });
-                        }
-                    }
-                    if !has_else {
-                        clauses.push(ast::ElifElseClause {
-                            range: TextRange::default(),
-                            node_index: ast::AtomicNodeIndex::default(),
-                            test: None,
-                            body: vec![crate::py_stmt!("raise")],
-                        });
-                    }
-                    let first_cond = crate::py_expr!(
-                        "__dp__.isinstance({exc:expr}, {typ:expr})",
-                        exc = exc_expr,
-                        typ = first_type,
-                    );
-                    let if_stmt = Stmt::If(ast::StmtIf {
-                        node_index: ast::AtomicNodeIndex::default(),
-                        range: TextRange::default(),
-                        test: Box::new(first_cond),
-                        body: first_body,
-                        elif_else_clauses: clauses,
-                    });
-                    new_body.push(if_stmt);
+            let mut chain: Vec<Stmt> = vec![crate::py_stmt!("raise")];
+            for (type_, body) in processed.into_iter().rev() {
+                chain = if let Some(t) = type_ {
+                    vec![crate::py_stmt!(
+                        "
+if __dp__.isinstance({exc:expr}, {typ:expr}):
+    {body:stmt}
+else:
+    {next:stmt}
+",
+                        exc = exc_expr.clone(),
+                        typ = t,
+                        body = body,
+                        next = chain,
+                    )]
                 } else {
-                    // only bare except handler
-                    new_body.extend(first_body);
-                }
+                    body
+                };
+            }
+            new_body.extend(chain);
+
+            let mut try_stmt = crate::py_stmt!(
+                "
+try:
+    {body:stmt}
+except:
+    {handler:stmt}
+",
+                body = body_stmts,
+                handler = new_body,
+            );
+
+            if let Stmt::Try(ast::StmtTry {
+                orelse,
+                finalbody,
+                is_star: star,
+                ..
+            }) = &mut try_stmt
+            {
+                *orelse = orelse_stmts;
+                *finalbody = final_stmts;
+                *star = *is_star;
             }
 
-            *stmt = Stmt::Try(ast::StmtTry {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: TextRange::default(),
-                body: body_stmts,
-                handlers: vec![ast::ExceptHandler::ExceptHandler(
-                    ast::ExceptHandlerExceptHandler {
-                        range: TextRange::default(),
-                        node_index: ast::AtomicNodeIndex::default(),
-                        type_: None,
-                        name: None,
-                        body: new_body,
-                    },
-                )],
-                orelse: orelse_stmts,
-                finalbody: final_stmts,
-                is_star: *is_star,
-            });
+            *stmt = try_stmt;
         }
     }
 }
@@ -204,4 +179,3 @@ except:
         assert_flatten_eq!(output, expected);
     }
 }
-
