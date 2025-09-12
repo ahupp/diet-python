@@ -61,6 +61,10 @@ def exc_info():
     return sys.exc_info()
 
 
+def current_exception():
+    return sys.exc_info()[1]
+
+
 def raise_from(exc, cause):
     if exc is None:
         raise TypeError("exceptions must derive from BaseException")
