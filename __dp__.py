@@ -34,6 +34,7 @@ ior = _operator.ior
 ixor = _operator.ixor
 iand = _operator.iand
 ifloordiv = _operator.ifloordiv
+pos = _operator.pos
 neg = _operator.neg
 invert = _operator.invert
 not_ = _operator.not_
@@ -41,13 +42,17 @@ truth = _operator.truth
 eq = _operator.eq
 ne = _operator.ne
 lt = _operator.lt
+le = _operator.le
 gt = _operator.gt
+ge = _operator.ge
+is_ = _operator.is_
 is_not = _operator.is_not
 contains = _operator.contains
 next = builtins.next
 iter = builtins.iter
 aiter = builtins.aiter
 anext = builtins.anext
+isinstance = builtins.isinstance
 
 def resolve_bases(bases):
     return _types.resolve_bases(bases)
