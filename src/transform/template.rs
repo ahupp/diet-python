@@ -279,6 +279,35 @@ impl Transformer for Flattener {
                 for clause in elif_else_clauses.iter_mut() {
                     self.visit_stmts(&mut clause.body);
                 }
+                loop {
+                    let should_flatten = match elif_else_clauses.last() {
+                        Some(ast::ElifElseClause {
+                            test: None, body, ..
+                        }) if body.len() == 1 => {
+                            matches!(body.first(), Some(Stmt::If(_)))
+                        }
+                        _ => false,
+                    };
+                    if !should_flatten {
+                        break;
+                    }
+                    let ast::ElifElseClause { mut body, .. } = elif_else_clauses.pop().unwrap();
+                    if let Stmt::If(ast::StmtIf {
+                        test: inner_test,
+                        body: inner_body,
+                        elif_else_clauses: mut inner_clauses,
+                        ..
+                    }) = body.pop().unwrap()
+                    {
+                        elif_else_clauses.push(ast::ElifElseClause {
+                            range: TextRange::default(),
+                            node_index: ast::AtomicNodeIndex::default(),
+                            test: Some(*inner_test),
+                            body: inner_body,
+                        });
+                        elif_else_clauses.append(&mut inner_clauses);
+                    }
+                }
             }
             Stmt::For(ast::StmtFor {
                 body: inner,
@@ -379,7 +408,13 @@ b = 2
         .into_syntax()
         .body;
         let stmt = py_stmt!("{body:stmt}", body = body.clone());
-        assert_flatten_eq!(vec![stmt], "a = 1\nb = 2");
+        assert_flatten_eq!(
+            vec![stmt],
+            "
+a = 1
+b = 2
+",
+        );
     }
 
     #[test]
@@ -411,5 +446,37 @@ def {func:id}({param:id}):
             }
             _ => panic!("expected function def"),
         }
+    }
+
+    #[test]
+    fn flattens_else_if_to_elif() {
+        let inner = py_stmt!(
+            "
+if b:
+    x
+else:
+    y
+",
+        );
+        let stmt = py_stmt!(
+            "
+if a:
+    z
+else:
+    {inner:stmt}
+",
+            inner = vec![inner],
+        );
+        assert_flatten_eq!(
+            vec![stmt],
+            "
+if a:
+    z
+elif b:
+    x
+else:
+    y
+",
+        );
     }
 }
