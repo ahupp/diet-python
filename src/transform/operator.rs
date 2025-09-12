@@ -3,6 +3,23 @@ use std::cell::Cell;
 use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, CmpOp, Expr, Operator, Stmt, UnaryOp};
 
+fn make_binop(func_name: &'static str, left: Expr, right: Expr) -> Expr {
+    crate::py_expr!(
+        "__dp__.{func:id}({left:expr}, {right:expr})",
+        left = left,
+        right = right,
+        func = func_name
+    )
+}
+
+fn make_unaryop(func_name: &'static str, operand: Expr) -> Expr {
+    crate::py_expr!(
+        "__dp__.{func:id}({operand:expr})",
+        operand = operand,
+        func = func_name
+    )
+}
+
 pub struct OperatorRewriter {
     replaced: Cell<bool>,
     tmp_count: Cell<usize>,
@@ -18,28 +35,6 @@ impl OperatorRewriter {
 
     pub fn transformed(&self) -> bool {
         self.replaced.get()
-    }
-
-    fn make_call(func_name: &'static str, args: Vec<Expr>) -> Expr {
-        match args.len() {
-            1 => {
-                let mut iter = args.into_iter();
-                let arg = iter.next().unwrap();
-                crate::py_expr!("__dp__.{func:id}({arg:expr})", arg = arg, func = func_name)
-            }
-            2 => {
-                let mut iter = args.into_iter();
-                let left = iter.next().unwrap();
-                let right = iter.next().unwrap();
-                crate::py_expr!(
-                    "__dp__.{func:id}({left:expr}, {right:expr})",
-                    left = left,
-                    right = right,
-                    func = func_name
-                )
-            }
-            _ => unreachable!(),
-        }
     }
 
     fn next_tmp(&self) -> String {
@@ -126,7 +121,7 @@ impl Transformer for OperatorRewriter {
                 Operator::BitAnd => "and_",
                 Operator::FloorDiv => "floordiv",
             };
-            *expr = Self::make_call(func_name, vec![left, right]);
+            *expr = make_binop(func_name, left, right);
             self.replaced.set(true);
         } else if let Expr::UnaryOp(unary) = expr {
             let operand = *unary.operand.clone();
@@ -135,9 +130,9 @@ impl Transformer for OperatorRewriter {
                 UnaryOp::Not => "not_",
                 UnaryOp::Invert => "invert",
                 UnaryOp::USub => "neg",
-                _ => return,
+                UnaryOp::UAdd => "pos",
             };
-            *expr = Self::make_call(func_name, vec![operand]);
+            *expr = make_unaryop(func_name, operand);
             self.replaced.set(true);
         } else if let Expr::Compare(compare) = expr {
             if compare.ops.len() == 1 && compare.comparators.len() == 1 {
@@ -145,17 +140,19 @@ impl Transformer for OperatorRewriter {
                 let right = compare.comparators[0].clone();
 
                 let call = match compare.ops[0] {
-                    CmpOp::Eq => Self::make_call("eq", vec![left, right]),
-                    CmpOp::NotEq => Self::make_call("ne", vec![left, right]),
-                    CmpOp::Lt => Self::make_call("lt", vec![left, right]),
-                    CmpOp::Gt => Self::make_call("gt", vec![left, right]),
-                    CmpOp::IsNot => Self::make_call("is_not", vec![left, right]),
-                    CmpOp::In => Self::make_call("contains", vec![right, left]),
+                    CmpOp::Eq => make_binop("eq", left, right),
+                    CmpOp::NotEq => make_binop("ne", left, right),
+                    CmpOp::Lt => make_binop("lt", left, right),
+                    CmpOp::LtE => make_binop("le", left, right),
+                    CmpOp::Gt => make_binop("gt", left, right),
+                    CmpOp::GtE => make_binop("ge", left, right),
+                    CmpOp::Is => make_binop("is_", left, right),
+                    CmpOp::IsNot => make_binop("is_not", left, right),
+                    CmpOp::In => make_binop("contains", right, left),
                     CmpOp::NotIn => {
-                        let contains = Self::make_call("contains", vec![right, left]);
-                        Self::make_call("not_", vec![contains])
+                        let contains = make_binop("contains", right, left);
+                        make_unaryop("not_", contains)
                     }
-                    _ => return,
                 };
 
                 *expr = call;
@@ -165,7 +162,7 @@ impl Transformer for OperatorRewriter {
             if matches!(sub.ctx, ast::ExprContext::Load) {
                 let obj = (*sub.value).clone();
                 let key = (*sub.slice).clone();
-                *expr = Self::make_call("getitem", vec![obj, key]);
+                *expr = make_binop("getitem", obj, key);
                 self.replaced.set(true);
             }
         }
@@ -194,7 +191,7 @@ impl Transformer for OperatorRewriter {
                 Operator::FloorDiv => "ifloordiv",
             };
 
-            let call = Self::make_call(func_name, vec![target.clone(), value]);
+            let call = make_binop(func_name, target.clone(), value);
 
             *stmt = crate::py_stmt!(
                 "{target:expr} = {value:expr}",
@@ -275,7 +272,7 @@ mod tests {
         let op_transformer = OperatorRewriter::new();
         walk_body(&op_transformer, &mut module.body);
 
-        crate::transform::template::flatten(&mut module.body);
+        crate::template::flatten(&mut module.body);
 
         let stylist = Stylist::from_tokens(&tokens, source);
         let mut output = String::new();
@@ -314,14 +311,43 @@ x = __dp__.iadd(x, 2)
     #[test]
     fn rewrites_unary_ops() {
         let cases = [
-            ("-a", "__dp__.neg(a)"),
-            ("~b", "__dp__.invert(b)"),
-            ("not c", "__dp__.not_(c)"),
+            (
+                "
+-a
+",
+                "
+__dp__.neg(a)
+",
+            ),
+            (
+                "
+~b
+",
+                "
+__dp__.invert(b)
+",
+            ),
+            (
+                "
+not c
+",
+                "
+__dp__.not_(c)
+",
+            ),
+            (
+                "
++a
+",
+                "
+__dp__.pos(a)
+",
+            ),
         ];
 
         for (input, expected) in cases {
             let output = rewrite_source(input);
-            assert_eq!(output.trim_end(), expected);
+            assert_eq!(output.trim(), expected.trim());
         }
     }
 
@@ -355,7 +381,10 @@ x = __dp__.iadd(x, 2)
             ("a == b", "__dp__.eq(a, b)"),
             ("a != b", "__dp__.ne(a, b)"),
             ("a < b", "__dp__.lt(a, b)"),
+            ("a <= b", "__dp__.le(a, b)"),
             ("a > b", "__dp__.gt(a, b)"),
+            ("a >= b", "__dp__.ge(a, b)"),
+            ("a is b", "__dp__.is_(a, b)"),
             ("a is not b", "__dp__.is_not(a, b)"),
             ("a in b", "__dp__.contains(b, a)"),
             ("a not in b", "__dp__.not_(__dp__.contains(b, a))"),

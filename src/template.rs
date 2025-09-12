@@ -18,7 +18,7 @@ macro_rules! py_stmt {
         use regex::Regex;
         use ruff_python_ast::{self as ast, Stmt};
         use ruff_text_size::TextRange;
-        use crate::transform::template::{
+        use crate::template::{
             var_for_placeholder, PlaceholderKind, PlaceholderValue, SyntaxTemplate,
         };
 
@@ -26,7 +26,7 @@ macro_rules! py_stmt {
         let mut values: HashMap<&str, PlaceholderValue> = HashMap::new();
         #[allow(unused_mut)]
         let mut ids: HashMap<&str, String> = HashMap::new();
-        $(match $crate::transform::template::IntoPlaceholder::into_placeholder($value) {
+        $(match $crate::template::IntoPlaceholder::into_placeholder($value) {
             Ok(value) => { values.insert(stringify!($name), value); }
             Err(id) => { ids.insert(stringify!($name), id); }
         });*
@@ -436,7 +436,7 @@ def {func:id}({param:id}):
                 body: mut fn_body,
                 ..
             }) => {
-                crate::transform::template::flatten(&mut fn_body);
+                crate::template::flatten(&mut fn_body);
                 assert_eq!(name.id.as_str(), "foo");
                 assert_eq!(parameters.args[0].parameter.name.id.as_str(), "arg");
                 assert_eq!(
