@@ -1,5 +1,5 @@
 use diet_python::min_ast::{
-    Arg, ExceptHandler, ExprNode, FunctionDef, Module, Number, Parameter, StmtNode,
+    Arg, ExceptHandler, ExprNode, FunctionDef, Module, Number, OuterScopeVars, Parameter, StmtNode,
 };
 use diet_python::transform_min_ast;
 
@@ -47,6 +47,10 @@ fn builds_minimal_ast() {
                 },
             ],
             is_async: true,
+            scope_vars: OuterScopeVars {
+                globals: vec![],
+                nonlocals: vec![],
+            },
         })],
     };
     assert_eq!(module, expected);
@@ -82,31 +86,23 @@ fn try_except_else() {
 }
 
 #[test]
-fn global_statements_split() {
-    let src = "global a, b\n";
+fn global_statements() {
+    let src = "def f():\n    global a, b\n";
     let module = transform_min_ast(src, None).unwrap();
-    assert_eq!(
-        module.body,
-        vec![StmtNode::Global("a".into()), StmtNode::Global("b".into()),]
-    );
+    if let StmtNode::FunctionDef(FunctionDef { scope_vars, .. }) = &module.body[0] {
+        assert_eq!(scope_vars.globals, vec!["a".to_string(), "b".to_string()]);
+    } else {
+        panic!("expected function definition");
+    }
 }
 
 #[test]
-fn nonlocal_statements_split() {
+fn nonlocal_statements() {
     let src = "def outer():\n    x = 0\n    y = 0\n    def inner():\n        nonlocal x, y\n";
     let module = transform_min_ast(src, None).unwrap();
     if let StmtNode::FunctionDef(FunctionDef { body, .. }) = &module.body[0] {
-        if let StmtNode::FunctionDef(FunctionDef {
-            body: inner_body, ..
-        }) = &body[2]
-        {
-            assert_eq!(
-                &inner_body[..2],
-                [
-                    StmtNode::Nonlocal("x".into()),
-                    StmtNode::Nonlocal("y".into()),
-                ]
-            );
+        if let StmtNode::FunctionDef(FunctionDef { scope_vars, .. }) = &body[2] {
+            assert_eq!(scope_vars.nonlocals, vec!["x".to_string(), "y".to_string()]);
         } else {
             panic!("expected inner function definition");
         }
@@ -132,4 +128,18 @@ fn number_literals() {
             },
         ]
     );
+}
+
+#[test]
+#[should_panic]
+fn top_level_nonlocal_panics() {
+    let src = "nonlocal x\n";
+    transform_min_ast(src, None).unwrap();
+}
+
+#[test]
+fn top_level_global_ignored() {
+    let src = "global x\n";
+    let module = transform_min_ast(src, None).unwrap();
+    assert!(module.body.is_empty());
 }

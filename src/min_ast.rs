@@ -41,9 +41,13 @@ pub enum StmtNode {
     Delete {
         target: String,
     },
-    Global(String),
-    Nonlocal(String),
     Pass,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct OuterScopeVars {
+    pub globals: Vec<String>,
+    pub nonlocals: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -52,6 +56,7 @@ pub struct FunctionDef {
     pub params: Vec<Parameter>,
     pub body: Vec<StmtNode>,
     pub is_async: bool,
+    pub scope_vars: OuterScopeVars,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -108,19 +113,37 @@ pub enum Number {
 
 impl From<ModModule> for Module {
     fn from(module: ModModule) -> Self {
-        Module {
-            body: StmtNode::from_stmts(module.body),
+        let mut lost = OuterScopeVars::default();
+        let body = StmtNode::from_stmts(module.body, &mut lost);
+        if !lost.nonlocals.is_empty() {
+            panic!("nonlocal declarations at module scope");
         }
+        Module { body }
     }
 }
 
 impl StmtNode {
-    fn from_stmts(stmts: Vec<Stmt>) -> Vec<Self> {
-        stmts.into_iter().map(StmtNode::from_stmt).collect()
+    fn from_stmts(stmts: Vec<Stmt>, scope_vars: &mut OuterScopeVars) -> Vec<Self> {
+        stmts
+            .into_iter()
+            .filter_map(|stmt| StmtNode::from_stmt(stmt, scope_vars))
+            .collect()
     }
 
-    fn from_stmt(stmt: Stmt) -> Self {
+    fn from_stmt(stmt: Stmt, scope_vars: &mut OuterScopeVars) -> Option<Self> {
         match stmt {
+            Stmt::Global(ast::StmtGlobal { names, .. }) => {
+                scope_vars
+                    .globals
+                    .extend(names.into_iter().map(|n| n.id.to_string()));
+                None
+            }
+            Stmt::Nonlocal(ast::StmtNonlocal { names, .. }) => {
+                scope_vars
+                    .nonlocals
+                    .extend(names.into_iter().map(|n| n.id.to_string()));
+                None
+            }
             Stmt::FunctionDef(ast::StmtFunctionDef {
                 name,
                 parameters,
@@ -165,20 +188,23 @@ impl StmtNode {
                         name: p.name.to_string(),
                     });
                 }
-                StmtNode::FunctionDef(FunctionDef {
+                let mut fn_scope_vars = OuterScopeVars::default();
+                let body = StmtNode::from_stmts(body, &mut fn_scope_vars);
+                Some(StmtNode::FunctionDef(FunctionDef {
                     name: name.to_string(),
                     params,
-                    body: StmtNode::from_stmts(body),
+                    body,
                     is_async,
-                })
+                    scope_vars: fn_scope_vars,
+                }))
             }
             Stmt::While(ast::StmtWhile {
                 test, body, orelse, ..
-            }) => StmtNode::While {
+            }) => Some(StmtNode::While {
                 test: ExprNode::from(*test),
-                body: StmtNode::from_stmts(body),
-                orelse: StmtNode::from_stmts(orelse),
-            },
+                body: StmtNode::from_stmts(body, scope_vars),
+                orelse: StmtNode::from_stmts(orelse, scope_vars),
+            }),
             Stmt::If(ast::StmtIf {
                 test,
                 body,
@@ -188,13 +214,13 @@ impl StmtNode {
                 let orelse = elif_else_clauses
                     .into_iter()
                     .find(|clause| clause.test.is_none())
-                    .map(|clause| StmtNode::from_stmts(clause.body))
+                    .map(|clause| StmtNode::from_stmts(clause.body, scope_vars))
                     .unwrap_or_default();
-                StmtNode::If {
+                Some(StmtNode::If {
                     test: ExprNode::from(*test),
-                    body: StmtNode::from_stmts(body),
+                    body: StmtNode::from_stmts(body, scope_vars),
                     orelse,
-                }
+                })
             }
             Stmt::Try(ast::StmtTry {
                 body,
@@ -202,8 +228,8 @@ impl StmtNode {
                 orelse,
                 finalbody,
                 ..
-            }) => StmtNode::Try {
-                body: StmtNode::from_stmts(body),
+            }) => Some(StmtNode::Try {
+                body: StmtNode::from_stmts(body, scope_vars),
                 handlers: handlers
                     .into_iter()
                     .map(|handler| match handler {
@@ -215,19 +241,19 @@ impl StmtNode {
                         }) => ExceptHandler {
                             type_: type_.map(|t| ExprNode::from(*t)),
                             name: name.map(|n| n.to_string()),
-                            body: StmtNode::from_stmts(body),
+                            body: StmtNode::from_stmts(body, scope_vars),
                         },
                     })
                     .collect(),
-                orelse: StmtNode::from_stmts(orelse),
-                finalbody: StmtNode::from_stmts(finalbody),
-            },
-            Stmt::Break(_) => StmtNode::Break,
-            Stmt::Continue(_) => StmtNode::Continue,
-            Stmt::Return(ast::StmtReturn { value, .. }) => StmtNode::Return {
+                orelse: StmtNode::from_stmts(orelse, scope_vars),
+                finalbody: StmtNode::from_stmts(finalbody, scope_vars),
+            }),
+            Stmt::Break(_) => Some(StmtNode::Break),
+            Stmt::Continue(_) => Some(StmtNode::Continue),
+            Stmt::Return(ast::StmtReturn { value, .. }) => Some(StmtNode::Return {
                 value: value.map(|v| ExprNode::from(*v)),
-            },
-            Stmt::Expr(ast::StmtExpr { value, .. }) => StmtNode::Expr(ExprNode::from(*value)),
+            }),
+            Stmt::Expr(ast::StmtExpr { value, .. }) => Some(StmtNode::Expr(ExprNode::from(*value))),
             Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
                 let target_name = if targets.len() == 1 {
                     if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
@@ -238,10 +264,10 @@ impl StmtNode {
                 } else {
                     panic!("unsupported assignment targets")
                 };
-                StmtNode::Assign {
+                Some(StmtNode::Assign {
                     target: target_name,
                     value: ExprNode::from(*value),
-                }
+                })
             }
             Stmt::Delete(ast::StmtDelete { targets, .. }) => {
                 let target_name = if targets.len() == 1 {
@@ -253,32 +279,15 @@ impl StmtNode {
                 } else {
                     panic!("unsupported delete targets")
                 };
-                StmtNode::Delete {
+                Some(StmtNode::Delete {
                     target: target_name,
-                }
+                })
             }
-            Stmt::Global(ast::StmtGlobal { names, .. }) => {
-                if names.len() == 1 {
-                    let name = names.into_iter().next().unwrap().id;
-                    StmtNode::Global(name.into())
-                } else {
-                    panic!("global statement should have been rewritten to single target")
-                }
-            }
-            Stmt::Nonlocal(ast::StmtNonlocal { names, .. }) => {
-                if names.len() == 1 {
-                    let name = names.into_iter().next().unwrap().id;
-                    StmtNode::Nonlocal(name.into())
-                } else {
-                    panic!("nonlocal statement should have been rewritten to single target")
-                }
-            }
-            Stmt::Pass(_) => StmtNode::Pass,
+            Stmt::Pass(_) => Some(StmtNode::Pass),
             other => panic!("unsupported statement: {:?}", other),
         }
     }
 }
-
 impl From<Expr> for ExprNode {
     fn from(expr: Expr) -> Self {
         match expr {
