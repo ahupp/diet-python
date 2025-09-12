@@ -22,18 +22,21 @@ impl Transformer for SimpleExprTransformer {
             Expr::Slice(ast::ExprSlice {
                 lower, upper, step, ..
             }) => {
+                fn none_name() -> Expr {
+                    crate::py_expr!("None")
+                }
                 let lower_expr = lower
                     .as_ref()
                     .map(|expr| *expr.clone())
-                    .unwrap_or_else(|| crate::py_expr!("None"));
+                    .unwrap_or_else(none_name);
                 let upper_expr = upper
                     .as_ref()
                     .map(|expr| *expr.clone())
-                    .unwrap_or_else(|| crate::py_expr!("None"));
+                    .unwrap_or_else(none_name);
                 let step_expr = step
                     .as_ref()
                     .map(|expr| *expr.clone())
-                    .unwrap_or_else(|| crate::py_expr!("None"));
+                    .unwrap_or_else(none_name);
 
                 *expr = crate::py_expr!(
                     "slice({lower:expr}, {upper:expr}, {step:expr})",

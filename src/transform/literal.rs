@@ -24,6 +24,9 @@ impl Transformer for LiteralRewriter {
     fn visit_expr(&self, expr: &mut Expr) {
         walk_expr(self, expr);
         match expr {
+            Expr::NoneLiteral(_) => {
+                *expr = crate::py_expr!("None");
+            }
             Expr::List(ast::ExprList { elts, .. }) => {
                 let tuple = Self::tuple_from(elts.clone());
                 *expr = crate::py_expr!("list({tuple:expr})", tuple = tuple);
@@ -78,24 +81,24 @@ mod tests {
 
     #[test]
     fn rewrites_list_literal() {
-        let input = "a = [1, 2, 3]";
-        let expected = "a = list((1, 2, 3))";
+        let input = "\na = [1, 2, 3]\n";
+        let expected = "\na = list((1, 2, 3))\n";
         let output = rewrite(input);
         assert_eq!(output.trim(), expected.trim());
     }
 
     #[test]
     fn rewrites_set_literal() {
-        let input = "a = {1, 2, 3}";
-        let expected = "a = set((1, 2, 3))";
+        let input = "\na = {1, 2, 3}\n";
+        let expected = "\na = set((1, 2, 3))\n";
         let output = rewrite(input);
         assert_eq!(output.trim(), expected.trim());
     }
 
     #[test]
     fn rewrites_dict_literal() {
-        let input = "a = {'a': 1, 'b': 2}";
-        let expected = "a = dict((('a', 1), ('b', 2)))";
+        let input = "\na = {'a': 1, 'b': 2}\n";
+        let expected = "\na = dict((('a', 1), ('b', 2)))\n";
         let output = rewrite(input);
         assert_eq!(output.trim(), expected.trim());
     }
