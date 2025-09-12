@@ -7,6 +7,7 @@ pub(crate) mod gen;
 pub(crate) mod import;
 pub(crate) mod literal;
 pub(crate) mod multi_target;
+pub(crate) mod match_case;
 pub(crate) mod operator;
 pub(crate) mod raise;
 pub(crate) mod simple_expr;
