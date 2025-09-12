@@ -43,12 +43,12 @@ const TRANSFORM_NAMES: &[&str] = &[
     "decorator",
     "class_def",
     "match_case",
-    "simple_expr",
     "literal",
     "import",
     "truthy",
     "try_except",
     "operator",
+    "simple_expr",
     "flatten",
 ];
 
@@ -116,10 +116,6 @@ fn apply_transforms(module: &mut ModModule, transforms: Option<&HashSet<String>>
         let multi_transformer = MultiTargetRewriter::new();
         walk_body(&multi_transformer, &mut module.body);
     }
-    if run("simple_expr") {
-        let simple_expr_transformer = SimpleExprTransformer::new();
-        walk_body(&simple_expr_transformer, &mut module.body);
-    }
     if run("literal") {
         let literal_transformer = LiteralRewriter::new();
         walk_body(&literal_transformer, &mut module.body);
@@ -139,6 +135,10 @@ fn apply_transforms(module: &mut ModModule, transforms: Option<&HashSet<String>>
     if run("operator") {
         let op_transformer = OperatorRewriter::new();
         walk_body(&op_transformer, &mut module.body);
+    }
+    if run("simple_expr") {
+        let simple_expr_transformer = SimpleExprTransformer::new();
+        walk_body(&simple_expr_transformer, &mut module.body);
     }
     if run("flatten") {
         // Previous transforms use `__dp__.<name>` calls; `operator` lowers them
