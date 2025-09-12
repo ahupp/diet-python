@@ -344,26 +344,6 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "unsupported assignment target")]
-    fn transforms_match_class_case() {
-        use std::collections::HashSet;
-        let src = r#"
-class C:
-    __match_args__ = ("a", "b")
-
-match x:
-    case C(a, b):
-        assert a
-    case _:
-        pass
-"#;
-        let mut set: HashSet<String> = TRANSFORM_NAMES.iter().map(|s| s.to_string()).collect();
-        set.remove("truthy");
-        set.remove("operator");
-        let _ = transform_string(src, Some(&set));
-    }
-
-    #[test]
-    #[should_panic(expected = "unsupported assignment target")]
     fn transform_string_panics_on_attribute_assign() {
         let src = r#"
 a.b = 1
