@@ -24,7 +24,7 @@ pub enum StmtNode {
     },
     Try {
         body: Vec<StmtNode>,
-        handlers: Vec<ExceptHandler>,
+        handler: Option<Vec<StmtNode>>,
         orelse: Vec<StmtNode>,
         finalbody: Vec<StmtNode>,
     },
@@ -83,7 +83,6 @@ pub enum ExprNode {
     Number(Number),
     String(String),
     Bytes(Vec<u8>),
-    None,
     Tuple(Vec<ExprNode>),
     Await(Box<ExprNode>),
     Yield(Option<Box<ExprNode>>),
@@ -96,13 +95,6 @@ pub enum Arg {
     Starred(ExprNode),
     Keyword { name: String, value: ExprNode },
     KwStarred(ExprNode),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ExceptHandler {
-    pub type_: Option<ExprNode>,
-    pub name: Option<String>,
-    pub body: Vec<StmtNode>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -228,26 +220,33 @@ impl StmtNode {
                 orelse,
                 finalbody,
                 ..
-            }) => Some(StmtNode::Try {
-                body: StmtNode::from_stmts(body, scope_vars),
-                handlers: handlers
-                    .into_iter()
-                    .map(|handler| match handler {
+            }) => {
+                let handler = if handlers.is_empty() {
+                    None
+                } else if handlers.len() == 1 {
+                    match handlers.into_iter().next().unwrap() {
                         ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
                             type_,
                             name,
-                            body,
+                            body: h_body,
                             ..
-                        }) => ExceptHandler {
-                            type_: type_.map(|t| ExprNode::from(*t)),
-                            name: name.map(|n| n.to_string()),
-                            body: StmtNode::from_stmts(body, scope_vars),
-                        },
-                    })
-                    .collect(),
-                orelse: StmtNode::from_stmts(orelse, scope_vars),
-                finalbody: StmtNode::from_stmts(finalbody, scope_vars),
-            }),
+                        }) => {
+                            if type_.is_some() || name.is_some() {
+                                panic!("only bare except handlers supported");
+                            }
+                            Some(StmtNode::from_stmts(h_body, scope_vars))
+                        }
+                    }
+                } else {
+                    panic!("multiple except handlers not supported");
+                };
+                Some(StmtNode::Try {
+                    body: StmtNode::from_stmts(body, scope_vars),
+                    handler,
+                    orelse: StmtNode::from_stmts(orelse, scope_vars),
+                    finalbody: StmtNode::from_stmts(finalbody, scope_vars),
+                })
+            }
             Stmt::Break(_) => Some(StmtNode::Break),
             Stmt::Continue(_) => Some(StmtNode::Continue),
             Stmt::Return(ast::StmtReturn { value, .. }) => Some(StmtNode::Return {
@@ -312,7 +311,7 @@ impl From<Expr> for ExprNode {
             Expr::BooleanLiteral(ast::ExprBooleanLiteral { value, .. }) => {
                 ExprNode::Name(if value { "True" } else { "False" }.to_string())
             }
-            Expr::NoneLiteral(_) => ExprNode::None,
+            Expr::NoneLiteral(_) => ExprNode::Name("None".to_string()),
             Expr::Tuple(ast::ExprTuple { elts, .. }) => {
                 ExprNode::Tuple(elts.into_iter().map(ExprNode::from).collect())
             }

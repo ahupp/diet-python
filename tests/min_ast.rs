@@ -1,11 +1,11 @@
 use diet_python::min_ast::{
-    Arg, ExceptHandler, ExprNode, FunctionDef, Module, Number, OuterScopeVars, Parameter, StmtNode,
+    Arg, ExprNode, FunctionDef, Module, Number, OuterScopeVars, Parameter, StmtNode,
 };
 use diet_python::transform_min_ast;
 
 #[test]
 fn builds_minimal_ast() {
-    let src = "async def f(x, *a, y=True, **k):\n    await g(x, *a, y=y, **k)\n    return (True, False)\n";
+    let src = "\nasync def f(x, *a, y=True, **k):\n    await g(x, *a, y=y, **k)\n    return (True, False)\n";
     let module = transform_min_ast(src, None).unwrap();
     let expected = Module {
         body: vec![StmtNode::FunctionDef(FunctionDef {
@@ -58,7 +58,7 @@ fn builds_minimal_ast() {
 
 #[test]
 fn try_except_else() {
-    let src = "try:\n    f()\nexcept E as e:\n    handle(e)\nelse:\n    g()\n";
+    let src = "\ntry:\n    f()\nexcept:\n    g()\nelse:\n    h()\n";
     use std::collections::HashSet;
     let module = transform_min_ast(src, Some(&HashSet::new())).unwrap();
     let expected = Module {
@@ -67,16 +67,12 @@ fn try_except_else() {
                 func: Box::new(ExprNode::Name("f".to_string())),
                 args: vec![],
             })],
-            handlers: vec![ExceptHandler {
-                type_: Some(ExprNode::Name("E".to_string())),
-                name: Some("e".to_string()),
-                body: vec![StmtNode::Expr(ExprNode::Call {
-                    func: Box::new(ExprNode::Name("handle".to_string())),
-                    args: vec![Arg::Positional(ExprNode::Name("e".to_string()))],
-                })],
-            }],
-            orelse: vec![StmtNode::Expr(ExprNode::Call {
+            handler: Some(vec![StmtNode::Expr(ExprNode::Call {
                 func: Box::new(ExprNode::Name("g".to_string())),
+                args: vec![],
+            })]),
+            orelse: vec![StmtNode::Expr(ExprNode::Call {
+                func: Box::new(ExprNode::Name("h".to_string())),
                 args: vec![],
             })],
             finalbody: vec![],
@@ -86,8 +82,16 @@ fn try_except_else() {
 }
 
 #[test]
+#[should_panic]
+fn typed_except_panics() {
+    let src = "\ntry:\n    f()\nexcept E:\n    g()\n";
+    use std::collections::HashSet;
+    transform_min_ast(src, Some(&HashSet::new())).unwrap();
+}
+
+#[test]
 fn global_statements() {
-    let src = "def f():\n    global a, b\n";
+    let src = "\ndef f():\n    global a, b\n";
     let module = transform_min_ast(src, None).unwrap();
     if let StmtNode::FunctionDef(FunctionDef { scope_vars, .. }) = &module.body[0] {
         assert_eq!(scope_vars.globals, vec!["a".to_string(), "b".to_string()]);
@@ -98,7 +102,7 @@ fn global_statements() {
 
 #[test]
 fn nonlocal_statements() {
-    let src = "def outer():\n    x = 0\n    y = 0\n    def inner():\n        nonlocal x, y\n";
+    let src = "\ndef outer():\n    x = 0\n    y = 0\n    def inner():\n        nonlocal x, y\n";
     let module = transform_min_ast(src, None).unwrap();
     if let StmtNode::FunctionDef(FunctionDef { body, .. }) = &module.body[0] {
         if let StmtNode::FunctionDef(FunctionDef { scope_vars, .. }) = &body[2] {
@@ -113,7 +117,7 @@ fn nonlocal_statements() {
 
 #[test]
 fn number_literals() {
-    let src = "x = 1\ny = 2.5\n";
+    let src = "\nx = 1\ny = 2.5\n";
     let module = transform_min_ast(src, None).unwrap();
     assert_eq!(
         module.body,
@@ -131,15 +135,41 @@ fn number_literals() {
 }
 
 #[test]
+fn none_becomes_name() {
+    let src = "\nx = None\n";
+    let module = transform_min_ast(src, None).unwrap();
+    assert_eq!(
+        module.body,
+        vec![StmtNode::Assign {
+            target: "x".to_string(),
+            value: ExprNode::Name("None".to_string()),
+        }]
+    );
+}
+
+#[test]
 #[should_panic]
 fn top_level_nonlocal_panics() {
-    let src = "nonlocal x\n";
+    let src = "\nnonlocal x\n";
     transform_min_ast(src, None).unwrap();
 }
 
 #[test]
 fn top_level_global_ignored() {
-    let src = "global x\n";
+    let src = "\nglobal x\n";
     let module = transform_min_ast(src, None).unwrap();
     assert!(module.body.is_empty());
+}
+
+#[test]
+fn string_literals() {
+    let src = "\nx = 'hi'\n";
+    let module = transform_min_ast(src, None).unwrap();
+    assert_eq!(
+        module.body,
+        vec![StmtNode::Assign {
+            target: "x".to_string(),
+            value: ExprNode::String("hi".to_string()),
+        }]
+    );
 }
