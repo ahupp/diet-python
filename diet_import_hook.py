@@ -10,6 +10,9 @@ REPO_ROOT = Path(__file__).resolve().parent
 def _should_transform(path: str) -> bool:
     """Return ``True`` if ``path`` should be passed through the transform."""
 
+    path_obj = Path(path).resolve()
+    if not path_obj.is_relative_to(REPO_ROOT / "tests"):
+        return False
     try:
         with open(path, "r", encoding="utf-8") as file:
             return "diet-python: disable" not in file.read()
@@ -54,5 +57,12 @@ class DietPythonFinder(importlib.machinery.PathFinder):
 
 def install():
     """Install the diet-python import hook."""
-    if not any(isinstance(finder, DietPythonFinder) for finder in sys.meta_path):
+    if any(finder is DietPythonFinder for finder in sys.meta_path):
+        return
+
+    for index, finder in enumerate(sys.meta_path):
+        if finder is importlib.machinery.PathFinder:
+            sys.meta_path[index] = DietPythonFinder
+            break
+    else:
         sys.meta_path.insert(0, DietPythonFinder)
