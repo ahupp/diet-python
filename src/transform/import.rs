@@ -38,7 +38,9 @@ impl Transformer for ImportRewriter {
                         .map(|n| n.id.as_str())
                         .unwrap_or_else(|| module_name.split('.').next().unwrap());
                     let assign = crate::py_stmt!(
-                        "{name:id} = __dp__.import_({module:literal}, __spec__)",
+                        "
+{name:id} = __dp__.import_({module:literal}, __spec__)
+",
                         name = binding,
                         module = module_name.as_str(),
                     );
@@ -63,7 +65,9 @@ impl Transformer for ImportRewriter {
                     let binding = alias.asname.as_ref().map(|n| n.id.as_str()).unwrap_or(orig);
                     let assign = if level_val == 0 {
                         crate::py_stmt!(
-                            "{name:id} = __dp__.import_({module:literal}, __spec__, [{orig:literal}]).{attr:id}",
+                            "
+{name:id} = __dp__.import_({module:literal}, __spec__, [{orig:literal}]).{attr:id}
+",
                             name = binding,
                             module = module_name,
                             orig = orig,
@@ -71,7 +75,9 @@ impl Transformer for ImportRewriter {
                         )
                     } else {
                         crate::py_stmt!(
-                            "{name:id} = __dp__.import_({module:literal}, __spec__, [{orig:literal}], {level:id}).{attr:id}",
+                            "
+{name:id} = __dp__.import_({module:literal}, __spec__, [{orig:literal}], {level:id}).{attr:id}
+",
                             name = binding,
                             module = module_name,
                             orig = orig,
@@ -105,22 +111,40 @@ mod tests {
 
     #[test]
     fn rewrites_basic_import() {
-        let output = rewrite("import a");
-        let expected = "a = __dp__.import_(\"a\", __spec__)";
+        let output = rewrite(
+            r#"
+import a
+"#,
+        );
+        let expected = r#"
+a = __dp__.import_("a", __spec__)
+"#;
         assert_flatten_eq!(output, expected);
     }
 
     #[test]
     fn rewrites_from_import() {
-        let output = rewrite("from a.b import c");
-        let expected = "c = __dp__.import_(\"a.b\", __spec__, [\"c\"]).c";
+        let output = rewrite(
+            r#"
+from a.b import c
+"#,
+        );
+        let expected = r#"
+c = __dp__.import_("a.b", __spec__, ["c"]).c
+"#;
         assert_flatten_eq!(output, expected);
     }
 
     #[test]
     fn rewrites_relative_import() {
-        let output = rewrite("from ..a import b");
-        let expected = "b = __dp__.import_(\"a\", __spec__, [\"b\"], 2).b";
+        let output = rewrite(
+            r#"
+from ..a import b
+"#,
+        );
+        let expected = r#"
+b = __dp__.import_("a", __spec__, ["b"], 2).b
+"#;
         assert_flatten_eq!(output, expected);
     }
 }
