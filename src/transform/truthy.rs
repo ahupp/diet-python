@@ -10,7 +10,12 @@ impl TruthyRewriter {
 
     fn wrap_test(&self, test: &mut Expr) {
         let original = test.clone();
-        *test = crate::py_expr!("__dp__.truth({expr:expr})", expr = original);
+        *test = crate::py_expr!(
+            "
+__dp__.truth({expr:expr})
+",
+            expr = original,
+        );
     }
 }
 
@@ -56,23 +61,58 @@ mod tests {
 
     #[test]
     fn rewrites_if_condition() {
-        let output = rewrite("if a: pass\nelse: pass");
-        let expected = "if __dp__.truth(a):\n    pass\nelse:\n    pass";
+        let output = rewrite(
+            r#"
+if a:
+    pass
+else:
+    pass
+"#,
+        );
+        let expected = r#"
+if __dp__.truth(a):
+    pass
+else:
+    pass
+"#;
         assert_flatten_eq!(output, expected);
     }
 
     #[test]
     fn rewrites_elif_and_else() {
-        let output = rewrite("if a: pass\nelif b: pass\nelse: pass");
-        let expected =
-            "if __dp__.truth(a):\n    pass\nelif __dp__.truth(b):\n    pass\nelse:\n    pass";
+        let output = rewrite(
+            r#"
+if a:
+    pass
+elif b:
+    pass
+else:
+    pass
+"#,
+        );
+        let expected = r#"
+if __dp__.truth(a):
+    pass
+elif __dp__.truth(b):
+    pass
+else:
+    pass
+"#;
         assert_flatten_eq!(output, expected);
     }
 
     #[test]
     fn rewrites_while_condition() {
-        let output = rewrite("while a: pass");
-        let expected = "while __dp__.truth(a):\n    pass";
+        let output = rewrite(
+            r#"
+while a:
+    pass
+"#,
+        );
+        let expected = r#"
+while __dp__.truth(a):
+    pass
+"#;
         assert_flatten_eq!(output, expected);
     }
 }

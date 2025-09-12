@@ -28,6 +28,9 @@ pub enum StmtNode {
         orelse: Vec<StmtNode>,
         finalbody: Vec<StmtNode>,
     },
+    Raise {
+        exc: Option<ExprNode>,
+    },
     Break,
     Continue,
     Return {
@@ -252,6 +255,14 @@ impl StmtNode {
             Stmt::Return(ast::StmtReturn { value, .. }) => Some(StmtNode::Return {
                 value: value.map(|v| ExprNode::from(*v)),
             }),
+            Stmt::Raise(ast::StmtRaise { exc, cause, .. }) => {
+                if cause.is_some() {
+                    panic!("raise with cause not supported");
+                }
+                Some(StmtNode::Raise {
+                    exc: exc.map(|e| ExprNode::from(*e)),
+                })
+            }
             Stmt::Expr(ast::StmtExpr { value, .. }) => Some(StmtNode::Expr(ExprNode::from(*value))),
             Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
                 let target_name = if targets.len() == 1 {

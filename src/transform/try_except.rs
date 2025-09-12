@@ -42,7 +42,9 @@ impl Transformer for TryExceptRewriter {
             let handlers_vec = std::mem::take(handlers);
 
             let exc_assign = crate::py_stmt!(
-                "{exc:id} = __dp__.current_exception()",
+                "
+{exc:id} = __dp__.current_exception()
+",
                 exc = exc_name.as_str(),
             );
             let exc_expr = crate::py_expr!("{exc:id}", exc = exc_name.as_str());

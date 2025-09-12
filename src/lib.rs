@@ -24,8 +24,8 @@ use transform::decorator::DecoratorRewriter;
 use transform::for_loop::ForLoopRewriter;
 use transform::gen::GeneratorRewriter;
 use transform::literal::LiteralRewriter;
-use transform::multi_target::MultiTargetRewriter;
 use transform::match_case::MatchCaseRewriter;
+use transform::multi_target::MultiTargetRewriter;
 use transform::operator::OperatorRewriter;
 use transform::raise::RaiseRewriter;
 use transform::simple_expr::SimpleExprTransformer;
@@ -43,13 +43,13 @@ const TRANSFORM_NAMES: &[&str] = &[
     "decorator",
     "class_def",
     "match_case",
-    "operator",
     "simple_expr",
     "literal",
     "import",
-    "flatten",
     "truthy",
     "try_except",
+    "operator",
+    "flatten",
 ];
 
 /// Parse the `DIET_PYTHON_TRANSFORMS` environment variable into a set of
@@ -116,10 +116,6 @@ fn apply_transforms(module: &mut ModModule, transforms: Option<&HashSet<String>>
         let multi_transformer = MultiTargetRewriter::new();
         walk_body(&multi_transformer, &mut module.body);
     }
-    if run("operator") {
-        let op_transformer = OperatorRewriter::new();
-        walk_body(&op_transformer, &mut module.body);
-    }
     if run("simple_expr") {
         let simple_expr_transformer = SimpleExprTransformer::new();
         walk_body(&simple_expr_transformer, &mut module.body);
@@ -132,9 +128,6 @@ fn apply_transforms(module: &mut ModModule, transforms: Option<&HashSet<String>>
         let import_rewriter = transform::import::ImportRewriter::new();
         walk_body(&import_rewriter, &mut module.body);
     }
-    if run("flatten") {
-        transform::template::flatten(&mut module.body);
-    }
     if run("truthy") {
         let truthy_transformer = TruthyRewriter::new();
         walk_body(&truthy_transformer, &mut module.body);
@@ -143,7 +136,13 @@ fn apply_transforms(module: &mut ModModule, transforms: Option<&HashSet<String>>
         let try_transformer = TryExceptRewriter::new();
         walk_body(&try_transformer, &mut module.body);
     }
+    if run("operator") {
+        let op_transformer = OperatorRewriter::new();
+        walk_body(&op_transformer, &mut module.body);
+    }
     if run("flatten") {
+        // Previous transforms use `__dp__.<name>` calls; `operator` lowers them
+        // to use `getattr`, so apply it before the final template flattening.
         transform::template::flatten(&mut module.body);
     }
 }
@@ -258,6 +257,8 @@ pub fn transform_string(
     if should_skip(source, transforms) {
         return Ok(source.to_string());
     }
+    // Also transform to minimal AST to surface unsupported syntax panics
+    let _ = transform_min_ast(source, transforms)?;
 
     let parsed = parse_module(source)?;
     let tokens = parsed.tokens().clone();
@@ -341,11 +342,31 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "unsupported assignment target")]
     fn transforms_match_class_case() {
-        let src = "class C:\n    __match_args__ = (\"a\", \"b\")\n\nmatch x:\n    case C(a, b):\n        assert a\n    case _:\n        pass\n";
-        let result = transform_string(src, None).unwrap();
-        assert!(result.contains("import __dp__"));
-        assert!(result.contains("if __dp__.truth(__debug__)"));
-        assert!(result.contains("case C(a, b):"));
+        use std::collections::HashSet;
+        let src = r#"
+class C:
+    __match_args__ = ("a", "b")
+
+match x:
+    case C(a, b):
+        assert a
+    case _:
+        pass
+"#;
+        let mut set: HashSet<String> = TRANSFORM_NAMES.iter().map(|s| s.to_string()).collect();
+        set.remove("truthy");
+        set.remove("operator");
+        let _ = transform_string(src, Some(&set));
+    }
+
+    #[test]
+    #[should_panic(expected = "unsupported assignment target")]
+    fn transform_string_panics_on_attribute_assign() {
+        let src = r#"
+a.b = 1
+"#;
+        let _ = transform_string(src, None);
     }
 }
