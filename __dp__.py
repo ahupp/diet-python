@@ -98,6 +98,10 @@ def raise_from(exc, cause):
 def import_(name, spec, fromlist=None, level=0):
     if fromlist is None:
         fromlist = []
-    return builtins.__import__(name, {"__spec__": spec}, {}, fromlist, level)
+    globals_dict = {"__spec__": spec}
+    if spec is not None:
+        globals_dict["__package__"] = spec.parent
+        globals_dict["__name__"] = spec.name
+    return builtins.__import__(name, globals_dict, {}, fromlist, level)
 
 

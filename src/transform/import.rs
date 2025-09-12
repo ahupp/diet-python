@@ -1,5 +1,5 @@
 use ruff_python_ast::visitor::transformer::{walk_stmt, Transformer};
-use ruff_python_ast::{self as ast, Stmt};
+use ruff_python_ast::{self as ast, Expr, Stmt};
 
 pub fn ensure_import(module: &mut ast::ModModule, name: &str) {
     let has_import = module.body.iter().any(|stmt| {
@@ -12,7 +12,22 @@ pub fn ensure_import(module: &mut ast::ModModule, name: &str) {
 
     if !has_import {
         let import = crate::py_stmt!("import {name:id}", name = name);
-        module.body.insert(0, import);
+        let mut insert_at = 0;
+        if let Some(Stmt::Expr(ast::StmtExpr { value, .. })) = module.body.get(0) {
+            if matches!(**value, Expr::StringLiteral(_)) {
+                insert_at = 1;
+            }
+        }
+        while insert_at < module.body.len() {
+            if let Stmt::ImportFrom(ast::StmtImportFrom { module: Some(module_name), .. }) = &module.body[insert_at] {
+                if module_name.id.as_str() == "__future__" {
+                    insert_at += 1;
+                    continue;
+                }
+            }
+            break;
+        }
+        module.body.insert(insert_at, import);
     }
 }
 
@@ -146,5 +161,28 @@ from ..a import b
 b = __dp__.import_("a", __spec__, ["b"], 2).b
 "#;
         assert_flatten_eq!(output, expected);
+    }
+
+    #[test]
+    fn inserts_after_future_and_docstring() {
+        let parsed = parse_module(
+            r#"
+"doc"
+from __future__ import annotations
+x = 1
+"#,
+        )
+        .expect("parse error");
+        let mut module = parsed.into_syntax();
+        ensure_import(&mut module, "__dp__");
+        assert_flatten_eq!(
+            module.body,
+            r#"
+"doc"
+from __future__ import annotations
+import __dp__
+x = 1
+"#,
+        );
     }
 }
