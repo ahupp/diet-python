@@ -25,6 +25,7 @@ use transform::for_loop::ForLoopRewriter;
 use transform::gen::GeneratorRewriter;
 use transform::literal::LiteralRewriter;
 use transform::multi_target::MultiTargetRewriter;
+use transform::match_case::MatchCaseRewriter;
 use transform::operator::OperatorRewriter;
 use transform::raise::RaiseRewriter;
 use transform::simple_expr::SimpleExprTransformer;
@@ -41,6 +42,7 @@ const TRANSFORM_NAMES: &[&str] = &[
     "raise",
     "decorator",
     "class_def",
+    "match_case",
     "operator",
     "simple_expr",
     "literal",
@@ -105,6 +107,10 @@ fn apply_transforms(module: &mut ModModule, transforms: Option<&HashSet<String>>
     if run("class_def") {
         let class_def_transformer = ClassDefRewriter::new();
         walk_body(&class_def_transformer, &mut module.body);
+    }
+    if run("match_case") {
+        let match_transformer = MatchCaseRewriter::new();
+        walk_body(&match_transformer, &mut module.body);
     }
     if run("multi_target") {
         let multi_transformer = MultiTargetRewriter::new();
