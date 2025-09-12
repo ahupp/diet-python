@@ -41,7 +41,7 @@ impl Transformer for TryExceptRewriter {
             let handlers_vec = std::mem::take(handlers);
 
             let exc_assign = crate::py_stmt!(
-                "{exc:id} = __dp__.exc_info()[1]",
+                "{exc:id} = __dp__.current_exception()",
                 exc = exc_name.as_str(),
             );
             let exc_expr = crate::py_expr!("{exc:id}", exc = exc_name.as_str());
@@ -169,7 +169,7 @@ except E as e:
 try:
     f()
 except:
-    _dp_exc_1 = __dp__.exc_info()[1]
+    _dp_exc_1 = __dp__.current_exception()
     if __dp__.isinstance(_dp_exc_1, E):
         e = _dp_exc_1
         g(e)
@@ -194,7 +194,7 @@ except:
 try:
     f()
 except:
-    _dp_exc_1 = __dp__.exc_info()[1]
+    _dp_exc_1 = __dp__.current_exception()
     if __dp__.isinstance(_dp_exc_1, E):
         h()
     else:

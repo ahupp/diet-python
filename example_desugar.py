@@ -4,8 +4,12 @@ def _dp_gen_1(_dp_iter_1):
     while __dp__.truth(True):
         try:
             i = getattr(__dp__, "next")(_dp_iter_1)
-        except StopIteration:
-            break
+        except:
+            _dp_exc_1 = __dp__.current_exception()
+            if __dp__.isinstance(_dp_exc_1, StopIteration):
+                break
+            else:
+                raise
         if __dp__.truth(getattr(__dp__, "eq")(getattr(__dp__, "mod")(i, 2), 0)):
             yield getattr(__dp__, "add")(i, 1)
 def _dp_gen_2(_dp_iter_2):
@@ -13,8 +17,12 @@ def _dp_gen_2(_dp_iter_2):
     while __dp__.truth(True):
         try:
             i = getattr(__dp__, "next")(_dp_iter_2)
-        except StopIteration:
-            break
+        except:
+            _dp_exc_2 = __dp__.current_exception()
+            if __dp__.isinstance(_dp_exc_2, StopIteration):
+                break
+            else:
+                raise
         if __dp__.truth(getattr(__dp__, "eq")(getattr(__dp__, "mod")(i, 2), 0)):
             yield getattr(__dp__, "add")(i, 1)
 def _dp_gen_3(_dp_iter_3):
@@ -22,8 +30,12 @@ def _dp_gen_3(_dp_iter_3):
     while __dp__.truth(True):
         try:
             i = getattr(__dp__, "next")(_dp_iter_3)
-        except StopIteration:
-            break
+        except:
+            _dp_exc_3 = __dp__.current_exception()
+            if __dp__.isinstance(_dp_exc_3, StopIteration):
+                break
+            else:
+                raise
         if __dp__.truth(getattr(__dp__, "eq")(getattr(__dp__, "mod")(i, 2), 0)):
             yield getattr(__dp__, "add")(i, 1)
 sys = __dp__.import_("sys", __spec__)
@@ -71,8 +83,12 @@ def _dp_ns_A(_ns):
             while __dp__.truth(True):
                 try:
                     i = getattr(__dp__, "next")(_dp_iter_4)
-                except StopIteration:
-                    break
+                except:
+                    _dp_exc_4 = __dp__.current_exception()
+                    if __dp__.isinstance(_dp_exc_4, StopIteration):
+                        break
+                    else:
+                        raise
                 yield i
         test_aiter.__qualname__ = getattr(__dp__, "add")(getattr(__dp__, "getitem")(_ns, "__qualname__"), ".test_aiter")
         return test_aiter
@@ -87,8 +103,12 @@ def _dp_ns_A(_ns):
             while __dp__.truth(True):
                 try:
                     i = await getattr(__dp__, "anext")(_dp_iter_5)
-                except StopAsyncIteration:
-                    break
+                except:
+                    _dp_exc_5 = __dp__.current_exception()
+                    if __dp__.isinstance(_dp_exc_5, StopAsyncIteration):
+                        break
+                    else:
+                        raise
                 print(i)
         d.__qualname__ = getattr(__dp__, "add")(getattr(__dp__, "getitem")(_ns, "__qualname__"), ".d")
         return d
