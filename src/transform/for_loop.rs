@@ -1,87 +1,73 @@
 use std::cell::Cell;
 
-use ruff_python_ast::visitor::transformer::{walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, Stmt};
 
-pub struct ForLoopRewriter {
-    iter_count: Cell<usize>,
-}
+pub fn rewrite(stmt: &mut Stmt, iter_count: &Cell<usize>) -> bool {
+    if let Stmt::For(ast::StmtFor {
+        target,
+        iter: iter_expr,
+        body,
+        orelse,
+        is_async,
+        ..
+    }) = stmt
+    {
+        let id = iter_count.get() + 1;
+        iter_count.set(id);
+        let iter_name = format!("_dp_iter_{}", id);
 
-impl ForLoopRewriter {
-    pub fn new() -> Self {
-        Self {
-            iter_count: Cell::new(0),
-        }
-    }
-}
+        let body_stmts = std::mem::take(body);
+        let mut orelse_stmts = std::mem::take(orelse);
 
-impl Transformer for ForLoopRewriter {
-    fn visit_stmt(&self, stmt: &mut Stmt) {
-        walk_stmt(self, stmt);
+        let (iter_fn, next_fn, stop_exc, await_) = if *is_async {
+            (
+                crate::py_expr!("__dp__.aiter"),
+                crate::py_expr!("__dp__.anext"),
+                "StopAsyncIteration",
+                "await ",
+            )
+        } else {
+            (
+                crate::py_expr!("__dp__.iter"),
+                crate::py_expr!("__dp__.next"),
+                "StopIteration",
+                "",
+            )
+        };
 
-        if let Stmt::For(ast::StmtFor {
-            target,
-            iter: iter_expr,
-            body,
-            orelse,
-            is_async,
-            ..
-        }) = stmt
-        {
-            let id = self.iter_count.get() + 1;
-            self.iter_count.set(id);
-            let iter_name = format!("_dp_iter_{}", id);
+        orelse_stmts.push(crate::py_stmt!("break"));
 
-            let body_stmts = std::mem::take(body);
-            let mut orelse_stmts = std::mem::take(orelse);
-
-            let (iter_fn, next_fn, stop_exc, await_) = if *is_async {
-                (
-                    crate::py_expr!("__dp__.aiter"),
-                    crate::py_expr!("__dp__.anext"),
-                    "StopAsyncIteration",
-                    "await ",
-                )
-            } else {
-                (
-                    crate::py_expr!("__dp__.iter"),
-                    crate::py_expr!("__dp__.next"),
-                    "StopIteration",
-                    "",
-                )
-            };
-
-            orelse_stmts.push(crate::py_stmt!("break"));
-
-            let wrapper = crate::py_stmt!(
-                "
+        let wrapper = crate::py_stmt!(
+            "
 {iter_name:id} = {iter_fn:expr}({iter:expr})
 while True:
     try:
         {target:expr} = {await_:id}{next_fn:expr}({iter_name:id})
     except {stop_exc:id}:
         {orelse:stmt}
-    {body:stmt}
-",
-                iter_name = iter_name.as_str(),
-                iter_fn = iter_fn,
-                iter = *iter_expr.clone(),
-                target = *target.clone(),
-                await_ = await_,
-                next_fn = next_fn,
-                stop_exc = stop_exc,
-                orelse = orelse_stmts,
-                body = body_stmts,
-            );
+    {body:stmt}",
+            iter_name = iter_name.as_str(),
+            iter_fn = iter_fn,
+            iter = *iter_expr.clone(),
+            target = *target.clone(),
+            await_ = await_,
+            next_fn = next_fn,
+            stop_exc = stop_exc,
+            orelse = orelse_stmts,
+            body = body_stmts,
+        );
 
-            *stmt = wrapper;
-        }
+        *stmt = wrapper;
+        true
+    } else {
+        false
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::transform::expr::ExprRewriter;
     use crate::assert_flatten_eq;
     use ruff_python_ast::visitor::transformer::walk_body;
     use ruff_python_parser::parse_module;
@@ -90,7 +76,7 @@ mod tests {
         let parsed = parse_module(source).expect("parse error");
         let mut module = parsed.into_syntax();
 
-        let rewriter = ForLoopRewriter::new();
+        let rewriter = ExprRewriter::new();
         walk_body(&rewriter, &mut module.body);
         module.body
     }
@@ -99,24 +85,24 @@ mod tests {
     fn rewrites_for_loop_with_else() {
         let input = r#"
 for a in b:
-    if a % 2 == 0:
-        c(a)
-    else:
+    if cond:
         break
 else:
-    c(0)
+    c()
 "#;
         let expected = r#"
-_dp_iter_1 = __dp__.iter(b)
+_dp_iter_1 = getattr(__dp__, "iter")(b)
 while True:
     try:
-        a = __dp__.next(_dp_iter_1)
-    except StopIteration:
-        c(0)
-        break
-    if a % 2 == 0:
-        c(a)
-    else:
+        a = getattr(__dp__, "next")(_dp_iter_1)
+    except:
+        _dp_exc_1 = getattr(__dp__, "current_exception")()
+        if getattr(__dp__, "isinstance")(_dp_exc_1, StopIteration):
+            c()
+            break
+        else:
+            raise
+    if cond:
         break
 "#;
         let output = rewrite_for(input);
@@ -130,12 +116,16 @@ for a in b:
     c(a)
 "#;
         let expected = r#"
-_dp_iter_1 = __dp__.iter(b)
+_dp_iter_1 = getattr(__dp__, "iter")(b)
 while True:
     try:
-        a = __dp__.next(_dp_iter_1)
-    except StopIteration:
-        break
+        a = getattr(__dp__, "next")(_dp_iter_1)
+    except:
+        _dp_exc_1 = getattr(__dp__, "current_exception")()
+        if getattr(__dp__, "isinstance")(_dp_exc_1, StopIteration):
+            break
+        else:
+            raise
     c(a)
 "#;
         let output = rewrite_for(input);
@@ -147,28 +137,29 @@ while True:
         let input = r#"
 async def f():
     async for a in b:
-        if a % 2 == 0:
-            c(a)
-        else:
+        if cond:
             break
     else:
-        c(0)
+        c()
 "#;
         let expected = r#"
 async def f():
-    _dp_iter_1 = __dp__.aiter(b)
+    _dp_iter_1 = getattr(__dp__, "aiter")(b)
     while True:
         try:
-            a = await __dp__.anext(_dp_iter_1)
-        except StopAsyncIteration:
-            c(0)
-            break
-        if a % 2 == 0:
-            c(a)
-        else:
+            a = await getattr(__dp__, "anext")(_dp_iter_1)
+        except:
+            _dp_exc_1 = getattr(__dp__, "current_exception")()
+            if getattr(__dp__, "isinstance")(_dp_exc_1, StopAsyncIteration):
+                c()
+                break
+            else:
+                raise
+        if cond:
             break
 "#;
         let output = rewrite_for(input);
         assert_flatten_eq!(output, expected);
     }
 }
+
