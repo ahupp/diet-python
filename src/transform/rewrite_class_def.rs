@@ -1,16 +1,7 @@
 use ruff_python_ast::str::{Quote, TripleQuotes};
 use ruff_python_ast::str_prefix::StringLiteralPrefix;
-use ruff_python_ast::visitor::transformer::{walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::TextRange;
-
-pub struct ClassDefRewriter;
-
-impl ClassDefRewriter {
-    pub fn new() -> Self {
-        Self
-    }
-}
 
 fn string_expr(value: &str) -> Expr {
     let flags = ast::StringLiteralFlags::empty()
@@ -30,19 +21,14 @@ fn string_expr(value: &str) -> Expr {
     })
 }
 
-impl Transformer for ClassDefRewriter {
-    fn visit_stmt(&self, stmt: &mut Stmt) {
-        if let Stmt::ClassDef(ast::StmtClassDef {
-            name,
-            body,
-            arguments,
-            ..
-        }) = stmt
-        {
-            for stmt in body.iter_mut() {
-                self.visit_stmt(stmt);
-            }
-
+pub fn rewrite(
+    ast::StmtClassDef {
+        name,
+        body,
+        arguments,
+        ..
+    }: ast::StmtClassDef,
+) -> Stmt {
             let class_name = name.id.as_str().to_string();
             let ns_func_name = format!("_dp_ns_{}", class_name);
             let class_func_name = format!("_class_{}", class_name);
@@ -59,7 +45,7 @@ impl Transformer for ClassDefRewriter {
                 q = string_expr(&class_name)
             ));
 
-            let mut original_body = std::mem::take(body);
+            let mut original_body = body;
             if let Some(Stmt::Expr(ast::StmtExpr { value, .. })) = original_body.first() {
                 if matches!(value.as_ref(), Expr::StringLiteral(_)) {
                     if let Expr::StringLiteral(s) = value.as_ref() {
@@ -136,7 +122,7 @@ impl Transformer for ClassDefRewriter {
             let mut bases = Vec::new();
             let mut kw_keys = Vec::new();
             let mut kw_vals = Vec::new();
-            if let Some(args) = arguments.take() {
+            if let Some(args) = arguments {
                 bases.extend(args.args.into_vec());
                 for kw in args.keywords.into_vec() {
                     if let Some(arg) = kw.arg {
@@ -212,24 +198,21 @@ impl Transformer for ClassDefRewriter {
                 builder = class_func_name.as_str()
             );
 
-            *stmt = crate::py_stmt!("{body:stmt}", body = vec![ns_func, class_func, call_stmt]);
-        } else {
-            walk_stmt(self, stmt);
-        }
-    }
+            crate::py_stmt!("{body:stmt}", body = vec![ns_func, class_func, call_stmt])
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::assert_flatten_eq;
+    use crate::transform::expr::ExprRewriter;
     use ruff_python_ast::visitor::transformer::walk_body;
     use ruff_python_parser::parse_module;
 
     fn rewrite(source: &str) -> Vec<Stmt> {
         let parsed = parse_module(source).expect("parse error");
         let mut module = parsed.into_syntax();
-        let rewriter = ClassDefRewriter::new();
+        let rewriter = ExprRewriter::new();
         walk_body(&rewriter, &mut module.body);
         module.body
     }
@@ -242,13 +225,22 @@ class C:
 "#;
         let expected = r#"
 def _dp_ns_C(_ns):
-    _dp_temp_ns = {}
-    _dp_temp_ns["__module__"] = _ns["__module__"] = __name__
-    _dp_temp_ns["__qualname__"] = _ns["__qualname__"] = "C"
-    _dp_temp_ns["x"] = _ns["x"] = 1
+    _dp_temp_ns = dict(())
+    _dp_tmp_1 = __name__
+    getattr(__dp__, "setitem")(_dp_temp_ns, "__module__", _dp_tmp_1)
+    getattr(__dp__, "setitem")(_ns, "__module__", _dp_tmp_1)
+    _dp_tmp_2 = "C"
+    getattr(__dp__, "setitem")(_dp_temp_ns, "__qualname__", _dp_tmp_2)
+    getattr(__dp__, "setitem")(_ns, "__qualname__", _dp_tmp_2)
+    _dp_tmp_3 = 1
+    getattr(__dp__, "setitem")(_dp_temp_ns, "x", _dp_tmp_3)
+    getattr(__dp__, "setitem")(_ns, "x", _dp_tmp_3)
 def _class_C():
-    bases = __dp__.resolve_bases(())
-    meta, ns, kwds = __dp__.prepare_class("C", bases)
+    bases = getattr(__dp__, "resolve_bases")(())
+    _dp_tmp_4 = getattr(__dp__, "prepare_class")("C", bases)
+    meta = _dp_getitem(_dp_tmp_4, 0)
+    ns = _dp_getitem(_dp_tmp_4, 1)
+    kwds = _dp_getitem(_dp_tmp_4, 2)
     _dp_ns_C(ns)
     cls = meta("C", bases, ns)
     return cls
@@ -266,13 +258,20 @@ class C(B):
 "#;
         let expected = r#"
 def _dp_ns_C(_ns):
-    _dp_temp_ns = {}
-    _dp_temp_ns["__module__"] = _ns["__module__"] = __name__
-    _dp_temp_ns["__qualname__"] = _ns["__qualname__"] = "C"
+    _dp_temp_ns = dict(())
+    _dp_tmp_1 = __name__
+    getattr(__dp__, "setitem")(_dp_temp_ns, "__module__", _dp_tmp_1)
+    getattr(__dp__, "setitem")(_ns, "__module__", _dp_tmp_1)
+    _dp_tmp_2 = "C"
+    getattr(__dp__, "setitem")(_dp_temp_ns, "__qualname__", _dp_tmp_2)
+    getattr(__dp__, "setitem")(_ns, "__qualname__", _dp_tmp_2)
     pass
 def _class_C():
-    bases = __dp__.resolve_bases((B,))
-    meta, ns, kwds = __dp__.prepare_class("C", bases)
+    bases = getattr(__dp__, "resolve_bases")((B,))
+    _dp_tmp_3 = getattr(__dp__, "prepare_class")("C", bases)
+    meta = _dp_getitem(_dp_tmp_3, 0)
+    ns = _dp_getitem(_dp_tmp_3, 1)
+    kwds = _dp_getitem(_dp_tmp_3, 2)
     _dp_ns_C(ns)
     cls = meta("C", bases, ns)
     return cls
@@ -291,14 +290,25 @@ class C(B, metaclass=Meta, kw=1):
 "#;
         let expected = r#"
 def _dp_ns_C(_ns):
-    _dp_temp_ns = {}
-    _dp_temp_ns["__module__"] = _ns["__module__"] = __name__
-    _dp_temp_ns["__qualname__"] = _ns["__qualname__"] = "C"
-    _dp_temp_ns["__doc__"] = _ns["__doc__"] = 'doc'
-    _dp_temp_ns["x"] = _ns["x"] = 2
+    _dp_temp_ns = dict(())
+    _dp_tmp_1 = __name__
+    getattr(__dp__, "setitem")(_dp_temp_ns, "__module__", _dp_tmp_1)
+    getattr(__dp__, "setitem")(_ns, "__module__", _dp_tmp_1)
+    _dp_tmp_2 = "C"
+    getattr(__dp__, "setitem")(_dp_temp_ns, "__qualname__", _dp_tmp_2)
+    getattr(__dp__, "setitem")(_ns, "__qualname__", _dp_tmp_2)
+    _dp_tmp_3 = "doc"
+    getattr(__dp__, "setitem")(_dp_temp_ns, "__doc__", _dp_tmp_3)
+    getattr(__dp__, "setitem")(_ns, "__doc__", _dp_tmp_3)
+    _dp_tmp_4 = 2
+    getattr(__dp__, "setitem")(_dp_temp_ns, "x", _dp_tmp_4)
+    getattr(__dp__, "setitem")(_ns, "x", _dp_tmp_4)
 def _class_C():
-    bases = __dp__.resolve_bases((B,))
-    meta, ns, kwds = __dp__.prepare_class("C", bases, {"metaclass": Meta, "kw": 1})
+    bases = getattr(__dp__, "resolve_bases")((B,))
+    _dp_tmp_5 = getattr(__dp__, "prepare_class")("C", bases, dict((("metaclass", Meta), ("kw", 1))))
+    meta = _dp_getitem(_dp_tmp_5, 0)
+    ns = _dp_getitem(_dp_tmp_5, 1)
+    kwds = _dp_getitem(_dp_tmp_5, 2)
     _dp_ns_C(ns)
     cls = meta("C", bases, ns, **kwds)
     return cls
@@ -317,18 +327,29 @@ class C:
 "#;
         let expected = r#"
 def _dp_ns_C(_ns):
-    _dp_temp_ns = {}
-    _dp_temp_ns["__module__"] = _ns["__module__"] = __name__
-    _dp_temp_ns["__qualname__"] = _ns["__qualname__"] = "C"
+    _dp_temp_ns = dict(())
+    _dp_tmp_1 = __name__
+    getattr(__dp__, "setitem")(_dp_temp_ns, "__module__", _dp_tmp_1)
+    getattr(__dp__, "setitem")(_ns, "__module__", _dp_tmp_1)
+    _dp_tmp_2 = "C"
+    getattr(__dp__, "setitem")(_dp_temp_ns, "__qualname__", _dp_tmp_2)
+    getattr(__dp__, "setitem")(_ns, "__qualname__", _dp_tmp_2)
+
     def _mk_m():
+
         def m(self):
             return 1
-        m.__qualname__ = _ns["__qualname__"] + ".m"
+        getattr(__dp__, "setattr")(m, "__qualname__", _dp_add(_dp_getitem(_ns, "__qualname__"), ".m"))
         return m
-    _dp_temp_ns["m"] = _ns["m"] = _mk_m()
+    _dp_tmp_3 = _mk_m()
+    getattr(__dp__, "setitem")(_dp_temp_ns, "m", _dp_tmp_3)
+    getattr(__dp__, "setitem")(_ns, "m", _dp_tmp_3)
 def _class_C():
-    bases = __dp__.resolve_bases(())
-    meta, ns, kwds = __dp__.prepare_class("C", bases)
+    bases = getattr(__dp__, "resolve_bases")(())
+    _dp_tmp_4 = getattr(__dp__, "prepare_class")("C", bases)
+    meta = _dp_getitem(_dp_tmp_4, 0)
+    ns = _dp_getitem(_dp_tmp_4, 1)
+    kwds = _dp_getitem(_dp_tmp_4, 2)
     _dp_ns_C(ns)
     cls = meta("C", bases, ns)
     return cls
