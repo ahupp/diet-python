@@ -10,7 +10,7 @@ async def f(x, *a, y=True, **k):
 "#;
     let module = transform_min_ast(src, None).unwrap();
     let expected = r#"
-Module { body: [FunctionDef(FunctionDef { name: "f", params: [Positional { name: "x", default: None }, VarArg { name: "a" }, KwOnly { name: "y", default: Some(Name("True")) }, KwArg { name: "k" }], body: [Expr(Await(Call { func: Name("g"), args: [Positional(Name("x")), Starred(Name("a")), Keyword { name: "y", value: Name("y") }, KwStarred(Name("k"))] })), Return { value: Some(Tuple([Name("True"), Name("False")])) }], is_async: true, scope_vars: OuterScopeVars { globals: [], nonlocals: [] } })] }
+Module { body: [FunctionDef(FunctionDef { info: (), name: "f", params: [Positional { name: "x", default: None }, VarArg { name: "a" }, KwOnly { name: "y", default: Some(Name { info: (), id: "True" }) }, KwArg { name: "k" }], body: [Expr { info: (), value: Await { info: (), value: Call { info: (), func: Name { info: (), id: "g" }, args: [Positional(Name { info: (), id: "x" }), Starred(Name { info: (), id: "a" }), Keyword { name: "y", value: Name { info: (), id: "y" } }, KwStarred(Name { info: (), id: "k" })] } } }, Return { info: (), value: Some(Tuple { info: (), elts: [Name { info: (), id: "True" }, Name { info: (), id: "False" }] }) }], is_async: true, scope_vars: OuterScopeVars { globals: [], nonlocals: [] } })] }
 "#;
     assert_eq!(format!("{module:?}"), expected.trim());
 }
@@ -47,12 +47,20 @@ y = 2.5
         module.body,
         vec![
             StmtNode::Assign {
+                info: (),
                 target: "x".to_string(),
-                value: ExprNode::Number(Number::Int("1".to_string())),
+                value: ExprNode::Number {
+                    info: (),
+                    value: Number::Int("1".to_string())
+                },
             },
             StmtNode::Assign {
+                info: (),
                 target: "y".to_string(),
-                value: ExprNode::Number(Number::Float("2.5".to_string())),
+                value: ExprNode::Number {
+                    info: (),
+                    value: Number::Float("2.5".to_string())
+                },
             },
         ]
     );
@@ -67,8 +75,12 @@ x = None
     assert_eq!(
         module.body,
         vec![StmtNode::Assign {
+            info: (),
             target: "x".to_string(),
-            value: ExprNode::Name("None".to_string()),
+            value: ExprNode::Name {
+                info: (),
+                id: "None".to_string()
+            },
         }]
     );
 }
@@ -100,8 +112,12 @@ x = 'hi'
     assert_eq!(
         module.body,
         vec![StmtNode::Assign {
+            info: (),
             target: "x".to_string(),
-            value: ExprNode::String("hi".to_string()),
+            value: ExprNode::String {
+                info: (),
+                value: "hi".to_string()
+            },
         }]
     );
 }

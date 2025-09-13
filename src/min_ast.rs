@@ -4,47 +4,112 @@ use std::borrow::Cow;
 
 use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Module {
-    pub body: Vec<StmtNode>,
+pub trait AstInfo: Clone + std::fmt::Debug + PartialEq {}
+impl<T: Clone + std::fmt::Debug + PartialEq> AstInfo for T {}
+
+pub trait StmtInfo {
+    type FunctionDefStmtInfo: AstInfo;
+    type WhileStmtInfo: AstInfo;
+    type IfStmtInfo: AstInfo;
+    type TryStmtInfo: AstInfo;
+    type RaiseStmtInfo: AstInfo;
+    type BreakStmtInfo: AstInfo;
+    type ContinueStmtInfo: AstInfo;
+    type ReturnStmtInfo: AstInfo;
+    type ExprStmtInfo: AstInfo;
+    type AssignStmtInfo: AstInfo;
+    type DeleteStmtInfo: AstInfo;
+    type PassStmtInfo: AstInfo;
+}
+
+pub trait ExprInfo {
+    type NameExprInfo: AstInfo;
+    type NumberExprInfo: AstInfo;
+    type StringExprInfo: AstInfo;
+    type BytesExprInfo: AstInfo;
+    type TupleExprInfo: AstInfo;
+    type AwaitExprInfo: AstInfo;
+    type YieldExprInfo: AstInfo;
+    type CallExprInfo: AstInfo;
+}
+
+impl StmtInfo for () {
+    type FunctionDefStmtInfo = ();
+    type WhileStmtInfo = ();
+    type IfStmtInfo = ();
+    type TryStmtInfo = ();
+    type RaiseStmtInfo = ();
+    type BreakStmtInfo = ();
+    type ContinueStmtInfo = ();
+    type ReturnStmtInfo = ();
+    type ExprStmtInfo = ();
+    type AssignStmtInfo = ();
+    type DeleteStmtInfo = ();
+    type PassStmtInfo = ();
+}
+
+impl ExprInfo for () {
+    type NameExprInfo = ();
+    type NumberExprInfo = ();
+    type StringExprInfo = ();
+    type BytesExprInfo = ();
+    type TupleExprInfo = ();
+    type AwaitExprInfo = ();
+    type YieldExprInfo = ();
+    type CallExprInfo = ();
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum StmtNode {
-    FunctionDef(FunctionDef),
+pub struct Module<S: StmtInfo = (), E: ExprInfo = ()> {
+    pub body: Vec<StmtNode<S, E>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum StmtNode<S: StmtInfo = (), E: ExprInfo = ()> {
+    FunctionDef(FunctionDef<S, E>),
     While {
-        test: ExprNode,
-        body: Vec<StmtNode>,
-        orelse: Vec<StmtNode>,
+        info: S::WhileStmtInfo,
+        test: ExprNode<E>,
+        body: Vec<StmtNode<S, E>>,
+        orelse: Vec<StmtNode<S, E>>,
     },
     If {
-        test: ExprNode,
-        body: Vec<StmtNode>,
-        orelse: Vec<StmtNode>,
+        info: S::IfStmtInfo,
+        test: ExprNode<E>,
+        body: Vec<StmtNode<S, E>>,
+        orelse: Vec<StmtNode<S, E>>,
     },
     Try {
-        body: Vec<StmtNode>,
-        handler: Option<Vec<StmtNode>>,
-        orelse: Vec<StmtNode>,
-        finalbody: Vec<StmtNode>,
+        info: S::TryStmtInfo,
+        body: Vec<StmtNode<S, E>>,
+        handler: Option<Vec<StmtNode<S, E>>>,
+        orelse: Vec<StmtNode<S, E>>,
+        finalbody: Vec<StmtNode<S, E>>,
     },
     Raise {
-        exc: Option<ExprNode>,
+        info: S::RaiseStmtInfo,
+        exc: Option<ExprNode<E>>,
     },
-    Break,
-    Continue,
+    Break(S::BreakStmtInfo),
+    Continue(S::ContinueStmtInfo),
     Return {
-        value: Option<ExprNode>,
+        info: S::ReturnStmtInfo,
+        value: Option<ExprNode<E>>,
     },
-    Expr(ExprNode),
+    Expr {
+        info: S::ExprStmtInfo,
+        value: ExprNode<E>,
+    },
     Assign {
+        info: S::AssignStmtInfo,
         target: String,
-        value: ExprNode,
+        value: ExprNode<E>,
     },
     Delete {
+        info: S::DeleteStmtInfo,
         target: String,
     },
-    Pass,
+    Pass(S::PassStmtInfo),
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -54,26 +119,27 @@ pub struct OuterScopeVars {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct FunctionDef {
+pub struct FunctionDef<S: StmtInfo = (), E: ExprInfo = ()> {
+    pub info: S::FunctionDefStmtInfo,
     pub name: String,
-    pub params: Vec<Parameter>,
-    pub body: Vec<StmtNode>,
+    pub params: Vec<Parameter<E>>,
+    pub body: Vec<StmtNode<S, E>>,
     pub is_async: bool,
     pub scope_vars: OuterScopeVars,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Parameter {
+pub enum Parameter<E: ExprInfo = ()> {
     Positional {
         name: String,
-        default: Option<ExprNode>,
+        default: Option<ExprNode<E>>,
     },
     VarArg {
         name: String,
     },
     KwOnly {
         name: String,
-        default: Option<ExprNode>,
+        default: Option<ExprNode<E>>,
     },
     KwArg {
         name: String,
@@ -81,23 +147,48 @@ pub enum Parameter {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ExprNode {
-    Name(String),
-    Number(Number),
-    String(String),
-    Bytes(Vec<u8>),
-    Tuple(Vec<ExprNode>),
-    Await(Box<ExprNode>),
-    Yield(Option<Box<ExprNode>>),
-    Call { func: Box<ExprNode>, args: Vec<Arg> },
+pub enum ExprNode<E: ExprInfo = ()> {
+    Name {
+        info: E::NameExprInfo,
+        id: String,
+    },
+    Number {
+        info: E::NumberExprInfo,
+        value: Number,
+    },
+    String {
+        info: E::StringExprInfo,
+        value: String,
+    },
+    Bytes {
+        info: E::BytesExprInfo,
+        value: Vec<u8>,
+    },
+    Tuple {
+        info: E::TupleExprInfo,
+        elts: Vec<ExprNode<E>>,
+    },
+    Await {
+        info: E::AwaitExprInfo,
+        value: Box<ExprNode<E>>,
+    },
+    Yield {
+        info: E::YieldExprInfo,
+        value: Option<Box<ExprNode<E>>>,
+    },
+    Call {
+        info: E::CallExprInfo,
+        func: Box<ExprNode<E>>,
+        args: Vec<Arg<E>>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Arg {
-    Positional(ExprNode),
-    Starred(ExprNode),
-    Keyword { name: String, value: ExprNode },
-    KwStarred(ExprNode),
+pub enum Arg<E: ExprInfo = ()> {
+    Positional(ExprNode<E>),
+    Starred(ExprNode<E>),
+    Keyword { name: String, value: ExprNode<E> },
+    KwStarred(ExprNode<E>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -186,6 +277,7 @@ impl StmtNode {
                 let mut fn_scope_vars = OuterScopeVars::default();
                 let body = StmtNode::from_stmts(body, &mut fn_scope_vars);
                 Some(StmtNode::FunctionDef(FunctionDef {
+                    info: (),
                     name: name.to_string(),
                     params,
                     body,
@@ -196,6 +288,7 @@ impl StmtNode {
             Stmt::While(ast::StmtWhile {
                 test, body, orelse, ..
             }) => Some(StmtNode::While {
+                info: (),
                 test: ExprNode::from(*test),
                 body: StmtNode::from_stmts(body, scope_vars),
                 orelse: StmtNode::from_stmts(orelse, scope_vars),
@@ -212,6 +305,7 @@ impl StmtNode {
                     .map(|clause| StmtNode::from_stmts(clause.body, scope_vars))
                     .unwrap_or_default();
                 Some(StmtNode::If {
+                    info: (),
                     test: ExprNode::from(*test),
                     body: StmtNode::from_stmts(body, scope_vars),
                     orelse,
@@ -244,15 +338,17 @@ impl StmtNode {
                     panic!("multiple except handlers not supported");
                 };
                 Some(StmtNode::Try {
+                    info: (),
                     body: StmtNode::from_stmts(body, scope_vars),
                     handler,
                     orelse: StmtNode::from_stmts(orelse, scope_vars),
                     finalbody: StmtNode::from_stmts(finalbody, scope_vars),
                 })
             }
-            Stmt::Break(_) => Some(StmtNode::Break),
-            Stmt::Continue(_) => Some(StmtNode::Continue),
+            Stmt::Break(_) => Some(StmtNode::Break(())),
+            Stmt::Continue(_) => Some(StmtNode::Continue(())),
             Stmt::Return(ast::StmtReturn { value, .. }) => Some(StmtNode::Return {
+                info: (),
                 value: value.map(|v| ExprNode::from(*v)),
             }),
             Stmt::Raise(ast::StmtRaise { exc, cause, .. }) => {
@@ -260,10 +356,14 @@ impl StmtNode {
                     panic!("raise with cause not supported");
                 }
                 Some(StmtNode::Raise {
+                    info: (),
                     exc: exc.map(|e| ExprNode::from(*e)),
                 })
             }
-            Stmt::Expr(ast::StmtExpr { value, .. }) => Some(StmtNode::Expr(ExprNode::from(*value))),
+            Stmt::Expr(ast::StmtExpr { value, .. }) => Some(StmtNode::Expr {
+                info: (),
+                value: ExprNode::from(*value),
+            }),
             Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
                 let target_name = if targets.len() == 1 {
                     if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
@@ -275,6 +375,7 @@ impl StmtNode {
                     panic!("unsupported assignment targets")
                 };
                 Some(StmtNode::Assign {
+                    info: (),
                     target: target_name,
                     value: ExprNode::from(*value),
                 })
@@ -290,18 +391,23 @@ impl StmtNode {
                     panic!("unsupported delete targets")
                 };
                 Some(StmtNode::Delete {
+                    info: (),
                     target: target_name,
                 })
             }
-            Stmt::Pass(_) => Some(StmtNode::Pass),
+            Stmt::Pass(_) => Some(StmtNode::Pass(())),
             other => panic!("unsupported statement: {:?}", other),
         }
     }
 }
+
 impl From<Expr> for ExprNode {
     fn from(expr: Expr) -> Self {
         match expr {
-            Expr::Name(ast::ExprName { id, .. }) => ExprNode::Name(id.to_string()),
+            Expr::Name(ast::ExprName { id, .. }) => ExprNode::Name {
+                info: (),
+                id: id.to_string(),
+            },
             Expr::NumberLiteral(ast::ExprNumberLiteral { value, .. }) => {
                 let num = match value {
                     ast::Number::Int(i) => Number::Int(i.to_string()),
@@ -310,28 +416,42 @@ impl From<Expr> for ExprNode {
                         panic!("complex numbers should have been transformed away")
                     }
                 };
-                ExprNode::Number(num)
+                ExprNode::Number {
+                    info: (),
+                    value: num,
+                }
             }
-            Expr::StringLiteral(ast::ExprStringLiteral { value, .. }) => {
-                ExprNode::String(value.to_string())
-            }
+            Expr::StringLiteral(ast::ExprStringLiteral { value, .. }) => ExprNode::String {
+                info: (),
+                value: value.to_string(),
+            },
             Expr::BytesLiteral(ast::ExprBytesLiteral { value, .. }) => {
                 let bytes: Cow<[u8]> = (&value).into();
-                ExprNode::Bytes(bytes.into_owned())
+                ExprNode::Bytes {
+                    info: (),
+                    value: bytes.into_owned(),
+                }
             }
-            Expr::BooleanLiteral(ast::ExprBooleanLiteral { value, .. }) => {
-                ExprNode::Name(if value { "True" } else { "False" }.to_string())
-            }
-            Expr::NoneLiteral(_) => ExprNode::Name("None".to_string()),
-            Expr::Tuple(ast::ExprTuple { elts, .. }) => {
-                ExprNode::Tuple(elts.into_iter().map(ExprNode::from).collect())
-            }
-            Expr::Await(ast::ExprAwait { value, .. }) => {
-                ExprNode::Await(Box::new(ExprNode::from(*value)))
-            }
-            Expr::Yield(ast::ExprYield { value, .. }) => {
-                ExprNode::Yield(value.map(|v| Box::new(ExprNode::from(*v))))
-            }
+            Expr::BooleanLiteral(ast::ExprBooleanLiteral { value, .. }) => ExprNode::Name {
+                info: (),
+                id: if value { "True" } else { "False" }.to_string(),
+            },
+            Expr::NoneLiteral(_) => ExprNode::Name {
+                info: (),
+                id: "None".to_string(),
+            },
+            Expr::Tuple(ast::ExprTuple { elts, .. }) => ExprNode::Tuple {
+                info: (),
+                elts: elts.into_iter().map(ExprNode::from).collect(),
+            },
+            Expr::Await(ast::ExprAwait { value, .. }) => ExprNode::Await {
+                info: (),
+                value: Box::new(ExprNode::from(*value)),
+            },
+            Expr::Yield(ast::ExprYield { value, .. }) => ExprNode::Yield {
+                info: (),
+                value: value.map(|v| Box::new(ExprNode::from(*v))),
+            },
             Expr::Call(ast::ExprCall {
                 func, arguments, ..
             }) => {
@@ -355,6 +475,7 @@ impl From<Expr> for ExprNode {
                     }
                 }
                 ExprNode::Call {
+                    info: (),
                     func: Box::new(ExprNode::from(*func)),
                     args: args_vec,
                 }
