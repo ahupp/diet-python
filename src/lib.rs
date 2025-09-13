@@ -22,13 +22,10 @@ mod transform;
 use transform::assert::AssertRewriter;
 use transform::class_def::ClassDefRewriter;
 use transform::decorator::DecoratorRewriter;
-use transform::destructure::DestructureRewriter;
 use transform::expr::ExprRewriter;
 use transform::for_loop::ForLoopRewriter;
 use transform::gen::GeneratorRewriter;
 use transform::match_case::MatchCaseRewriter;
-use transform::multi_target::MultiTargetRewriter;
-use transform::raise::RaiseRewriter;
 use transform::truthy::TruthyRewriter;
 use transform::try_except::TryExceptRewriter;
 use transform::with::WithRewriter;
@@ -37,10 +34,7 @@ const TRANSFORM_NAMES: &[&str] = &[
     "gen",
     "with",
     "for_loop",
-    "multi_target",
-    "destructure",
     "assert",
-    "raise",
     "decorator",
     "class_def",
     "match_case",
@@ -87,21 +81,9 @@ fn apply_transforms(module: &mut ModModule, transforms: Option<&HashSet<String>>
         let for_transformer = ForLoopRewriter::new();
         walk_body(&for_transformer, &mut module.body);
     }
-    if run("multi_target") {
-        let multi_transformer = MultiTargetRewriter::new();
-        walk_body(&multi_transformer, &mut module.body);
-    }
-    if run("destructure") {
-        let destructure_transformer = DestructureRewriter::new();
-        walk_body(&destructure_transformer, &mut module.body);
-    }
     if run("assert") {
         let assert_transformer = AssertRewriter::new();
         walk_body(&assert_transformer, &mut module.body);
-    }
-    if run("raise") {
-        let raise_transformer = RaiseRewriter::new();
-        walk_body(&raise_transformer, &mut module.body);
     }
     if run("decorator") {
         let decorator_transformer = DecoratorRewriter::new();
@@ -110,14 +92,6 @@ fn apply_transforms(module: &mut ModModule, transforms: Option<&HashSet<String>>
     if run("class_def") {
         let class_def_transformer = ClassDefRewriter::new();
         walk_body(&class_def_transformer, &mut module.body);
-    }
-    if run("multi_target") {
-        let multi_transformer = MultiTargetRewriter::new();
-        walk_body(&multi_transformer, &mut module.body);
-    }
-    if run("destructure") {
-        let destructure_transformer = DestructureRewriter::new();
-        walk_body(&destructure_transformer, &mut module.body);
     }
     if run("match_case") {
         let match_transformer = MatchCaseRewriter::new();
