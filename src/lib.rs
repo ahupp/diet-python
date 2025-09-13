@@ -23,15 +23,12 @@ use transform::assert::AssertRewriter;
 use transform::class_def::ClassDefRewriter;
 use transform::decorator::DecoratorRewriter;
 use transform::destructure::DestructureRewriter;
+use transform::expr::ExprRewriter;
 use transform::for_loop::ForLoopRewriter;
 use transform::gen::GeneratorRewriter;
-use transform::literal::LiteralRewriter;
 use transform::match_case::MatchCaseRewriter;
 use transform::multi_target::MultiTargetRewriter;
-use transform::operator::OperatorRewriter;
 use transform::raise::RaiseRewriter;
-use transform::simple_expr::SimpleExprTransformer;
-use transform::ternary::TernaryRewriter;
 use transform::truthy::TruthyRewriter;
 use transform::try_except::TryExceptRewriter;
 use transform::with::WithRewriter;
@@ -47,13 +44,10 @@ const TRANSFORM_NAMES: &[&str] = &[
     "decorator",
     "class_def",
     "match_case",
-    "literal",
     "import",
     "truthy",
     "try_except",
-    "operator",
-    "ternary",
-    "simple_expr",
+    "expr",
     "flatten",
 ];
 
@@ -133,10 +127,6 @@ fn apply_transforms(module: &mut ModModule, transforms: Option<&HashSet<String>>
         let import_rewriter = transform::import::ImportRewriter::new();
         walk_body(&import_rewriter, &mut module.body);
     }
-    if run("literal") {
-        let literal_transformer = LiteralRewriter::new();
-        walk_body(&literal_transformer, &mut module.body);
-    }
     if run("truthy") {
         let truthy_transformer = TruthyRewriter::new();
         walk_body(&truthy_transformer, &mut module.body);
@@ -145,20 +135,12 @@ fn apply_transforms(module: &mut ModModule, transforms: Option<&HashSet<String>>
         let try_transformer = TryExceptRewriter::new();
         walk_body(&try_transformer, &mut module.body);
     }
-    if run("operator") {
-        let op_transformer = OperatorRewriter::new();
-        walk_body(&op_transformer, &mut module.body);
-    }
-    if run("ternary") {
-        let ternary_transformer = TernaryRewriter::new();
-        walk_body(&ternary_transformer, &mut module.body);
-    }
-    if run("simple_expr") {
-        let simple_expr_transformer = SimpleExprTransformer::new();
-        walk_body(&simple_expr_transformer, &mut module.body);
+    if run("expr") {
+        let expr_transformer = ExprRewriter::new();
+        walk_body(&expr_transformer, &mut module.body);
     }
     if run("flatten") {
-        // Previous transforms use `__dp__.<name>` calls; `operator` lowers them
+        // Previous transforms use `__dp__.<name>` calls; `expr` lowers them
         // to use `getattr`, so apply it before the final template flattening.
         template::flatten(&mut module.body);
     }

@@ -2,6 +2,7 @@ use std::cell::Cell;
 
 use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, CmpOp, Expr, Operator, Stmt, UnaryOp};
+use ruff_text_size::TextRange;
 
 fn make_binop(func_name: &'static str, left: Expr, right: Expr) -> Expr {
     crate::py_expr!(
@@ -20,11 +21,11 @@ fn make_unaryop(func_name: &'static str, operand: Expr) -> Expr {
     )
 }
 
-pub struct OperatorRewriter {
+pub struct ExprRewriter {
     replaced: Cell<bool>,
 }
 
-impl OperatorRewriter {
+impl ExprRewriter {
     pub fn new() -> Self {
         Self {
             replaced: Cell::new(false),
@@ -35,12 +36,130 @@ impl OperatorRewriter {
         self.replaced.get()
     }
 
+    fn tuple_from(elts: Vec<Expr>) -> Expr {
+        Expr::Tuple(ast::ExprTuple {
+            node_index: ast::AtomicNodeIndex::default(),
+            range: TextRange::default(),
+            elts,
+            ctx: ast::ExprContext::Load,
+            parenthesized: false,
+        })
+    }
 }
 
-impl Transformer for OperatorRewriter {
+impl Transformer for ExprRewriter {
     fn visit_expr(&self, expr: &mut Expr) {
         walk_expr(self, expr);
-        if let Expr::BoolOp(ast::ExprBoolOp { op, values, .. }) = expr {
+        if let Expr::Slice(ast::ExprSlice {
+            lower,
+            upper,
+            step,
+            ..
+        }) = expr
+        {
+            fn none_name() -> Expr {
+                crate::py_expr!("\nNone")
+            }
+            let lower_expr = lower
+                .as_ref()
+                .map(|expr| *expr.clone())
+                .unwrap_or_else(none_name);
+            let upper_expr = upper
+                .as_ref()
+                .map(|expr| *expr.clone())
+                .unwrap_or_else(none_name);
+            let step_expr = step
+                .as_ref()
+                .map(|expr| *expr.clone())
+                .unwrap_or_else(none_name);
+
+            *expr = crate::py_expr!(
+                "\nslice({lower:expr}, {upper:expr}, {step:expr})",
+                lower = lower_expr,
+                upper = upper_expr,
+                step = step_expr,
+            );
+            self.replaced.set(true);
+        } else if let Expr::EllipsisLiteral(_) = expr {
+            *expr = crate::py_expr!("\nEllipsis");
+            self.replaced.set(true);
+        } else if let Expr::NumberLiteral(ast::ExprNumberLiteral {
+            value: ast::Number::Complex { real, imag },
+            ..
+        }) = expr
+        {
+            let real_expr = Expr::NumberLiteral(ast::ExprNumberLiteral {
+                node_index: ast::AtomicNodeIndex::default(),
+                range: TextRange::default(),
+                value: ast::Number::Float(*real),
+            });
+            let imag_expr = Expr::NumberLiteral(ast::ExprNumberLiteral {
+                node_index: ast::AtomicNodeIndex::default(),
+                range: TextRange::default(),
+                value: ast::Number::Float(*imag),
+            });
+            *expr = crate::py_expr!(
+                "\ncomplex({real:expr}, {imag:expr})",
+                real = real_expr,
+                imag = imag_expr,
+            );
+            self.replaced.set(true);
+        } else if let Expr::Attribute(ast::ExprAttribute {
+            value,
+            attr,
+            ctx,
+            ..
+        }) = expr
+        {
+            if matches!(ctx, ast::ExprContext::Load) {
+                let value_expr = *value.clone();
+                *expr = crate::py_expr!(
+                    "\ngetattr({value:expr}, {attr:literal})",
+                    value = value_expr,
+                    attr = attr.id.as_str(),
+                );
+                self.replaced.set(true);
+            }
+        } else if let Expr::NoneLiteral(_) = expr {
+            *expr = crate::py_expr!("\nNone",);
+            self.replaced.set(true);
+        } else if let Expr::List(ast::ExprList { elts, .. }) = expr {
+            let tuple = Self::tuple_from(elts.clone());
+            *expr = crate::py_expr!("\nlist({tuple:expr})", tuple = tuple,);
+            self.replaced.set(true);
+        } else if let Expr::Set(ast::ExprSet { elts, .. }) = expr {
+            let tuple = Self::tuple_from(elts.clone());
+            *expr = crate::py_expr!("\nset({tuple:expr})", tuple = tuple,);
+            self.replaced.set(true);
+        } else if let Expr::Dict(ast::ExprDict { items, .. }) = expr {
+            if items.iter().all(|item| item.key.is_some()) {
+                let pairs: Vec<Expr> = items
+                    .iter()
+                    .map(|item| {
+                        let key = item.key.clone().unwrap();
+                        let value = item.value.clone();
+                        crate::py_expr!("\n({key:expr}, {value:expr})", key = key, value = value,)
+                    })
+                    .collect();
+                let tuple = Self::tuple_from(pairs);
+                *expr = crate::py_expr!("\ndict({tuple:expr})", tuple = tuple,);
+                self.replaced.set(true);
+            }
+        } else if let Expr::If(ast::ExprIf {
+            test, body, orelse, ..
+        }) = expr
+        {
+            let test_expr = *test.clone();
+            let body_expr = *body.clone();
+            let orelse_expr = *orelse.clone();
+            *expr = crate::py_expr!(
+                "\n__dp__.if_expr({cond:expr}, lambda: {body:expr}, lambda: {orelse:expr})",
+                cond = test_expr,
+                body = body_expr,
+                orelse = orelse_expr,
+            );
+            self.replaced.set(true);
+        } else if let Expr::BoolOp(ast::ExprBoolOp { op, values, .. }) = expr {
             let mut vals = std::mem::take(values);
             let mut result = vals.pop().expect("boolop with no values");
             while let Some(value) = vals.pop() {
@@ -212,8 +331,8 @@ mod tests {
         let multi_transformer = MultiTargetRewriter::new();
         walk_body(&multi_transformer, &mut module.body);
 
-        let op_transformer = OperatorRewriter::new();
-        walk_body(&op_transformer, &mut module.body);
+        let expr_transformer = ExprRewriter::new();
+        walk_body(&expr_transformer, &mut module.body);
 
         crate::template::flatten(&mut module.body);
 
@@ -388,6 +507,32 @@ __dp__.and_expr(a, lambda: __dp__.and_expr(b, lambda: c))
     }
 
     #[test]
+    fn rewrites_if_expr() {
+        let cases = [
+            (
+                r#"
+a if b else c
+"#,
+                r#"
+__dp__.if_expr(b, lambda: a, lambda: c)
+"#,
+            ),
+            (
+                r#"
+(a + 1) if f() else (b + 2)
+"#,
+                r#"
+__dp__.if_expr(f(), lambda: __dp__.add(a, 1), lambda: __dp__.add(b, 2))
+"#,
+            ),
+        ];
+        for (input, expected) in cases {
+            let output = rewrite_source(input);
+            assert_eq!(output.trim(), expected.trim());
+        }
+    }
+
+    #[test]
     fn rewrites_getitem() {
         let output = rewrite_source("a[b]");
         assert_eq!(output.trim_end(), "__dp__.getitem(a, b)");
@@ -408,7 +553,10 @@ __dp__.and_expr(a, lambda: __dp__.and_expr(b, lambda: c))
     #[test]
     fn rewrites_nested_delitem() {
         let output = rewrite_source("del a.b[1]");
-        assert_eq!(output.trim_end(), "__dp__.delitem(a.b, 1)");
+        assert_eq!(
+            output.trim_end(),
+            "__dp__.delitem(getattr(a, \"b\"), 1)"
+        );
     }
 
     #[test]
@@ -416,7 +564,7 @@ __dp__.and_expr(a, lambda: __dp__.and_expr(b, lambda: c))
         let output = rewrite_source("del a.b[1].c");
         assert_eq!(
             output.trim_end(),
-            "__dp__.delattr(__dp__.getitem(a.b, 1), \"c\")"
+            "__dp__.delattr(__dp__.getitem(getattr(a, \"b\"), 1), \"c\")"
         );
     }
 
@@ -425,5 +573,99 @@ __dp__.and_expr(a, lambda: __dp__.and_expr(b, lambda: c))
         let output = rewrite_source("del a[0], b[0]");
         let expected = "__dp__.delitem(a, 0)\n__dp__.delitem(b, 0)";
         assert_eq!(output.trim(), expected.trim());
+    }
+
+    #[test]
+    fn rewrites_list_literal() {
+        let input = r#"
+a = [1, 2, 3]
+"#;
+        let expected = r#"
+a = list((1, 2, 3))
+"#;
+        let output = rewrite_source(input);
+        assert_eq!(output.trim(), expected.trim());
+    }
+
+    #[test]
+    fn rewrites_set_literal() {
+        let input = r#"
+a = {1, 2, 3}
+"#;
+        let expected = r#"
+a = set((1, 2, 3))
+"#;
+        let output = rewrite_source(input);
+        assert_eq!(output.trim(), expected.trim());
+    }
+
+    #[test]
+    fn rewrites_dict_literal() {
+        let input = r#"
+a = {'a': 1, 'b': 2}
+"#;
+        let expected = r#"
+a = dict((('a', 1), ('b', 2)))
+"#;
+        let output = rewrite_source(input);
+        assert_eq!(output.trim(), expected.trim());
+    }
+
+    #[test]
+    fn rewrites_slices() {
+        let cases = [
+            ("a[1:2:3]", "__dp__.getitem(a, slice(1, 2, 3))"),
+            ("a[1:2]", "__dp__.getitem(a, slice(1, 2, None))"),
+            ("a[:2]", "__dp__.getitem(a, slice(None, 2, None))"),
+            ("a[::2]", "__dp__.getitem(a, slice(None, None, 2))"),
+            ("a[:]", "__dp__.getitem(a, slice(None, None, None))"),
+        ];
+
+        for (input, expected) in cases {
+            let output = rewrite_source(input);
+            assert_eq!(output.trim_end(), expected);
+        }
+    }
+
+    #[test]
+    fn rewrites_complex_literals() {
+        let cases = [
+            ("a = 1j", "a = complex(0.0, 1.0)"),
+            (
+                "a = 1 + 2j",
+                "a = __dp__.add(1, complex(0.0, 2.0))",
+            ),
+        ];
+
+        for (input, expected) in cases {
+            let output = rewrite_source(input);
+            assert_eq!(output.trim_end(), expected);
+        }
+    }
+
+    #[test]
+    fn rewrites_ellipsis() {
+        let cases = [("a = ...", "a = Ellipsis"), ("...", "Ellipsis")];
+
+        for (input, expected) in cases {
+            let output = rewrite_source(input);
+            assert_eq!(output.trim_end(), expected);
+        }
+    }
+
+    #[test]
+    fn rewrites_attribute_access() {
+        let cases = [
+            ("obj.attr", "getattr(obj, \"attr\")"),
+            (
+                "foo.bar.baz",
+                "getattr(getattr(foo, \"bar\"), \"baz\")",
+            ),
+        ];
+
+        for (input, expected) in cases {
+            let output = rewrite_source(input);
+            assert_eq!(output.trim_end(), expected);
+        }
     }
 }
