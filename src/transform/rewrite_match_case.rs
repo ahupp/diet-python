@@ -308,9 +308,9 @@ match x:
 "#;
         let expected = r#"
 _dp_match_1 = x
-if _dp_eq(_dp_match_1, 1):
+if getattr(__dp__, "eq")(_dp_match_1, 1):
     a()
-elif _dp_eq(_dp_match_1, 2):
+elif getattr(__dp__, "eq")(_dp_match_1, 2):
     b()
 else:
     c()
@@ -330,7 +330,7 @@ match x:
 "#;
         let expected = r#"
 _dp_match_1 = x
-if _dp_and_expr(_dp_eq(_dp_match_1, 1), lambda: cond):
+if getattr(__dp__, "and_expr")(getattr(__dp__, "eq")(_dp_match_1, 1), lambda: cond):
     a()
 else:
     b()
@@ -350,7 +350,7 @@ match x:
 "#;
         let expected = r#"
 _dp_match_1 = x
-if _dp_or_expr(_dp_eq(_dp_match_1, 1), lambda: _dp_eq(_dp_match_1, 2)):
+if getattr(__dp__, "or_expr")(getattr(__dp__, "eq")(_dp_match_1, 1), lambda: getattr(__dp__, "eq")(_dp_match_1, 2)):
     a()
 else:
     b()
@@ -370,7 +370,7 @@ match x:
 "#;
         let expected = r#"
 _dp_match_1 = x
-if _dp_is_(_dp_match_1, None):
+if getattr(__dp__, "is_")(_dp_match_1, None):
     a()
 else:
     b()
@@ -390,7 +390,7 @@ match x:
 "#;
         let expected = r#"
 _dp_match_1 = x
-if _dp_eq(_dp_match_1, 1):
+if getattr(__dp__, "eq")(_dp_match_1, 1):
     y = _dp_match_1
     a()
 else:
@@ -411,7 +411,7 @@ match x:
 "#;
         let expected = r#"
 _dp_match_1 = x
-if _dp_eq(_dp_match_1, 1):
+if getattr(__dp__, "eq")(_dp_match_1, 1):
     a()
 else:
     y = _dp_match_1
@@ -432,8 +432,8 @@ match x:
 "#;
         let expected = r#"
 _dp_match_1 = x
-if _dp_and_expr(isinstance(_dp_match_1, C), lambda: _dp_and_expr(hasattr(_dp_match_1, _dp_getitem(getattr(C, "__match_args__"), 0)), lambda: _dp_and_expr(_dp_eq(getattr(_dp_match_1, _dp_getitem(getattr(C, "__match_args__"), 0)), 1), lambda: hasattr(_dp_match_1, _dp_getitem(getattr(C, "__match_args__"), 1))))):
-    b = getattr(_dp_match_1, _dp_getitem(getattr(C, "__match_args__"), 1))
+if getattr(__dp__, "and_expr")(isinstance(_dp_match_1, C), lambda: getattr(__dp__, "and_expr")(hasattr(_dp_match_1, getattr(__dp__, "getitem")(getattr(C, "__match_args__"), 0)), lambda: getattr(__dp__, "and_expr")(getattr(__dp__, "eq")(getattr(_dp_match_1, getattr(__dp__, "getitem")(getattr(C, "__match_args__"), 0)), 1), lambda: hasattr(_dp_match_1, getattr(__dp__, "getitem")(getattr(C, "__match_args__"), 1))))):
+    b = getattr(_dp_match_1, getattr(__dp__, "getitem")(getattr(C, "__match_args__"), 1))
     a()
 else:
     c()

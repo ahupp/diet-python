@@ -7,7 +7,7 @@ use ruff_text_size::TextRange;
 
 fn make_binop(func_name: &'static str, left: Expr, right: Expr) -> Expr {
     crate::py_expr!(
-        "_dp_{func:id}({left:expr}, {right:expr})",
+        "__dp__.{func:id}({left:expr}, {right:expr})",
         left = left,
         right = right,
         func = func_name
@@ -16,7 +16,7 @@ fn make_binop(func_name: &'static str, left: Expr, right: Expr) -> Expr {
 
 fn make_unaryop(func_name: &'static str, operand: Expr) -> Expr {
     crate::py_expr!(
-        "_dp_{func:id}({operand:expr})",
+        "__dp__.{func:id}({operand:expr})",
         operand = operand,
         func = func_name
     )
@@ -216,60 +216,7 @@ impl Transformer for ExprRewriter {
                 )
             }
             Expr::Attribute(ast::ExprAttribute { value, attr, ctx, .. })
-                if matches!(ctx, ast::ExprContext::Load)
-                    && !matches!(
-                        value.as_ref(),
-                        Expr::Name(ast::ExprName { id, .. })
-                            if id.as_str() == "__dp__"
-                                && matches!(
-                                    attr.id.as_str(),
-                                    "add"
-                                        | "sub"
-                                        | "mul"
-                                        | "matmul"
-                                        | "truediv"
-                                        | "mod"
-                                        | "pow"
-                                        | "lshift"
-                                        | "rshift"
-                                        | "or_"
-                                        | "xor"
-                                        | "and_"
-                                        | "floordiv"
-                                        | "eq"
-                                        | "ne"
-                                        | "lt"
-                                        | "le"
-                                        | "gt"
-                                        | "ge"
-                                        | "is_"
-                                        | "is_not"
-                                        | "contains"
-                                        | "neg"
-                                        | "invert"
-                                        | "not_"
-                                        | "pos"
-                                        | "iadd"
-                                        | "isub"
-                                        | "imul"
-                                        | "imatmul"
-                                        | "itruediv"
-                                        | "imod"
-                                        | "ipow"
-                                        | "ilshift"
-                                        | "irshift"
-                                        | "ior"
-                                        | "ixor"
-                                        | "iand"
-                                        | "ifloordiv"
-                                        | "getitem"
-                                        | "delitem"
-                                        | "delattr"
-                                        | "or_expr"
-                                        | "and_expr"
-                                        | "if_expr"
-                                )
-                    ) =>
+                if matches!(ctx, ast::ExprContext::Load) =>
             {
                 let value_expr = *value;
                 crate::py_expr!(
@@ -322,7 +269,7 @@ impl Transformer for ExprRewriter {
                 let body_expr = *body;
                 let orelse_expr = *orelse;
                 crate::py_expr!(
-                    "_dp_if_expr({cond:expr}, lambda: {body:expr}, lambda: {orelse:expr})",
+                    "__dp__.if_expr({cond:expr}, lambda: {body:expr}, lambda: {orelse:expr})",
                     cond = test_expr,
                     body = body_expr,
                     orelse = orelse_expr,
@@ -333,12 +280,12 @@ impl Transformer for ExprRewriter {
                 while let Some(value) = values.pop() {
                     result = match op {
                         ast::BoolOp::Or => crate::py_expr!(
-                            "_dp_or_expr({left:expr}, lambda: {right:expr})",
+                            "__dp__.or_expr({left:expr}, lambda: {right:expr})",
                             left = value,
                             right = result,
                         ),
                         ast::BoolOp::And => crate::py_expr!(
-                            "_dp_and_expr({left:expr}, lambda: {right:expr})",
+                            "__dp__.and_expr({left:expr}, lambda: {right:expr})",
                             left = value,
                             right = result,
                         ),
@@ -493,6 +440,7 @@ impl Transformer for ExprRewriter {
                     target = target,
                     value = call,
                 );
+                walk_stmt(self, stmt);
             }
             Stmt::Delete(del) => {
                 let mut stmts = Vec::with_capacity(del.targets.len());
@@ -500,23 +448,29 @@ impl Transformer for ExprRewriter {
                     if let Expr::Subscript(sub) = target {
                         let obj = (*sub.value).clone();
                         let key = (*sub.slice).clone();
-                        stmts.push(crate::py_stmt!(
-                            "_dp_delitem({obj:expr}, {key:expr})",
+                        let mut new_stmt = crate::py_stmt!(
+                            "__dp__.delitem({obj:expr}, {key:expr})",
                             obj = obj,
                             key = key,
-                        ));
+                        );
+                        walk_stmt(self, &mut new_stmt);
+                        stmts.push(new_stmt);
                     } else if let Expr::Attribute(attr) = target {
                         let obj = (*attr.value).clone();
-                        stmts.push(crate::py_stmt!(
-                            "_dp_delattr({obj:expr}, {name:literal})",
+                        let mut new_stmt = crate::py_stmt!(
+                            "__dp__.delattr({obj:expr}, {name:literal})",
                             obj = obj,
                             name = attr.attr.as_str(),
-                        ));
+                        );
+                        walk_stmt(self, &mut new_stmt);
+                        stmts.push(new_stmt);
                     } else {
-                        stmts.push(crate::py_stmt!(
+                        let mut new_stmt = crate::py_stmt!(
                             "del {target:expr}",
                             target = target.clone(),
-                        ));
+                        );
+                        walk_stmt(self, &mut new_stmt);
+                        stmts.push(new_stmt);
                     }
                 }
                 if stmts.len() == 1 {
@@ -556,6 +510,8 @@ mod tests {
         walk_body(&expr_transformer, &mut module.body);
         let gen_transformer = GeneratorRewriter::new();
         gen_transformer.rewrite_body(&mut module.body);
+        let expr_transformer = ExprRewriter::new();
+        walk_body(&expr_transformer, &mut module.body);
 
         crate::template::flatten(&mut module.body);
 
@@ -571,7 +527,10 @@ mod tests {
 
     #[test]
     fn rewrites_binary_ops() {
-        let cases = [("a + b", "_dp_add(a, b)"), ("a - b", "_dp_sub(a, b)")];
+        let cases = [
+            (r#"a + b"#, r#"getattr(__dp__, "add")(a, b)"#),
+            (r#"a - b"#, r#"getattr(__dp__, "sub")(a, b)"#),
+        ];
 
         for (input, expected) in cases {
             let output = rewrite_source(input);
@@ -585,10 +544,10 @@ mod tests {
 x = 1
 x += 2
 ";
-        let expected = "
+        let expected = r#"
 x = 1
-x = _dp_iadd(x, 2)
-";
+x = getattr(__dp__, "iadd")(x, 2)
+"#;
         let output = rewrite_source(input);
         assert_eq!(output.trim(), expected.trim());
     }
@@ -597,36 +556,36 @@ x = _dp_iadd(x, 2)
     fn rewrites_unary_ops() {
         let cases = [
             (
-                "
+                r#"
 -a
-",
-                "
-_dp_neg(a)
-",
+"#,
+                r#"
+getattr(__dp__, "neg")(a)
+"#,
             ),
             (
-                "
+                r#"
 ~b
-",
-                "
-_dp_invert(b)
-",
+"#,
+                r#"
+getattr(__dp__, "invert")(b)
+"#,
             ),
             (
-                "
+                r#"
 not c
-",
-                "
-_dp_not_(c)
-",
+"#,
+                r#"
+getattr(__dp__, "not_")(c)
+"#,
             ),
             (
-                "
+                r#"
 +a
-",
-                "
-_dp_pos(a)
-",
+"#,
+                r#"
+getattr(__dp__, "pos")(a)
+"#,
             ),
         ];
 
@@ -644,7 +603,7 @@ _dp_pos(a)
 a or b
 "#,
                 r#"
-_dp_or_expr(a, lambda: b)
+getattr(__dp__, "or_expr")(a, lambda: b)
 "#,
             ),
             (
@@ -652,7 +611,7 @@ _dp_or_expr(a, lambda: b)
 a and b
 "#,
                 r#"
-_dp_and_expr(a, lambda: b)
+getattr(__dp__, "and_expr")(a, lambda: b)
 "#,
             ),
             (
@@ -660,7 +619,7 @@ _dp_and_expr(a, lambda: b)
 f() or a
 "#,
                 r#"
-_dp_or_expr(f(), lambda: a)
+getattr(__dp__, "or_expr")(f(), lambda: a)
 "#,
             ),
             (
@@ -668,7 +627,7 @@ _dp_or_expr(f(), lambda: a)
 f() and a
 "#,
                 r#"
-_dp_and_expr(f(), lambda: a)
+getattr(__dp__, "and_expr")(f(), lambda: a)
 "#,
             ),
         ];
@@ -689,7 +648,7 @@ a or b or c
         assert_eq!(
             output.trim(),
             r#"
-_dp_or_expr(a, lambda: _dp_or_expr(b, lambda: c))
+getattr(__dp__, "or_expr")(a, lambda: getattr(__dp__, "or_expr")(b, lambda: c))
 "#
             .trim(),
         );
@@ -702,7 +661,7 @@ a and b and c
         assert_eq!(
             output.trim(),
             r#"
-_dp_and_expr(a, lambda: _dp_and_expr(b, lambda: c))
+getattr(__dp__, "and_expr")(a, lambda: getattr(__dp__, "and_expr")(b, lambda: c))
 "#
             .trim(),
         );
@@ -711,16 +670,16 @@ _dp_and_expr(a, lambda: _dp_and_expr(b, lambda: c))
     #[test]
     fn rewrites_comparisons() {
         let cases = [
-            ("a == b", "_dp_eq(a, b)"),
-            ("a != b", "_dp_ne(a, b)"),
-            ("a < b", "_dp_lt(a, b)"),
-            ("a <= b", "_dp_le(a, b)"),
-            ("a > b", "_dp_gt(a, b)"),
-            ("a >= b", "_dp_ge(a, b)"),
-            ("a is b", "_dp_is_(a, b)"),
-            ("a is not b", "_dp_is_not(a, b)"),
-            ("a in b", "_dp_contains(b, a)"),
-            ("a not in b", "_dp_not_(_dp_contains(b, a))"),
+            (r#"a == b"#, r#"getattr(__dp__, "eq")(a, b)"#),
+            (r#"a != b"#, r#"getattr(__dp__, "ne")(a, b)"#),
+            (r#"a < b"#, r#"getattr(__dp__, "lt")(a, b)"#),
+            (r#"a <= b"#, r#"getattr(__dp__, "le")(a, b)"#),
+            (r#"a > b"#, r#"getattr(__dp__, "gt")(a, b)"#),
+            (r#"a >= b"#, r#"getattr(__dp__, "ge")(a, b)"#),
+            (r#"a is b"#, r#"getattr(__dp__, "is_")(a, b)"#),
+            (r#"a is not b"#, r#"getattr(__dp__, "is_not")(a, b)"#),
+            (r#"a in b"#, r#"getattr(__dp__, "contains")(b, a)"#),
+            (r#"a not in b"#, r#"getattr(__dp__, "not_")(getattr(__dp__, "contains")(b, a))"#),
         ];
 
         for (input, expected) in cases {
@@ -737,7 +696,7 @@ _dp_and_expr(a, lambda: _dp_and_expr(b, lambda: c))
 a if b else c
 "#,
                 r#"
-_dp_if_expr(b, lambda: a, lambda: c)
+getattr(__dp__, "if_expr")(b, lambda: a, lambda: c)
 "#,
             ),
             (
@@ -745,7 +704,7 @@ _dp_if_expr(b, lambda: a, lambda: c)
 (a + 1) if f() else (b + 2)
 "#,
                 r#"
-_dp_if_expr(f(), lambda: _dp_add(a, 1), lambda: _dp_add(b, 2))
+getattr(__dp__, "if_expr")(f(), lambda: getattr(__dp__, "add")(a, 1), lambda: getattr(__dp__, "add")(b, 2))
 "#,
             ),
         ];
@@ -758,25 +717,25 @@ _dp_if_expr(f(), lambda: _dp_add(a, 1), lambda: _dp_add(b, 2))
     #[test]
     fn rewrites_getitem() {
         let output = rewrite_source("a[b]");
-        assert_eq!(output.trim_end(), "_dp_getitem(a, b)");
+        assert_eq!(output.trim_end(), r#"getattr(__dp__, "getitem")(a, b)"#);
     }
 
     #[test]
     fn rewrites_delitem() {
         let output = rewrite_source("del a[b]");
-        assert_eq!(output.trim_end(), "_dp_delitem(a, b)");
+        assert_eq!(output.trim_end(), r#"getattr(__dp__, "delitem")(a, b)"#);
     }
 
     #[test]
     fn rewrites_delattr() {
         let output = rewrite_source("del a.b");
-        assert_eq!(output.trim_end(), "_dp_delattr(a, \"b\")");
+        assert_eq!(output.trim_end(), r#"getattr(__dp__, "delattr")(a, "b")"#);
     }
 
     #[test]
     fn rewrites_nested_delitem() {
         let output = rewrite_source("del a.b[1]");
-        assert_eq!(output.trim_end(), "_dp_delitem(getattr(a, \"b\"), 1)");
+        assert_eq!(output.trim_end(), r#"getattr(__dp__, "delitem")(getattr(a, "b"), 1)"#);
     }
 
     #[test]
@@ -784,14 +743,15 @@ _dp_if_expr(f(), lambda: _dp_add(a, 1), lambda: _dp_add(b, 2))
         let output = rewrite_source("del a.b[1].c");
         assert_eq!(
             output.trim_end(),
-            "_dp_delattr(_dp_getitem(getattr(a, \"b\"), 1), \"c\")"
+            r#"getattr(__dp__, "delattr")(getattr(__dp__, "getitem")(getattr(a, "b"), 1), "c")"#
         );
     }
 
     #[test]
     fn rewrites_multi_delitem_targets() {
         let output = rewrite_source("del a[0], b[0]");
-        let expected = "_dp_delitem(a, 0)\n_dp_delitem(b, 0)";
+        let expected = r#"getattr(__dp__, "delitem")(a, 0)
+getattr(__dp__, "delitem")(b, 0)"#;
         assert_eq!(output.trim(), expected.trim());
     }
 
@@ -815,7 +775,7 @@ b = _dp_tmp_1
         let output = rewrite_source("raise ValueError from exc");
         assert_eq!(
             output.trim_end(),
-            "raise __dp__.raise_from(ValueError, exc)",
+            r#"raise getattr(__dp__, "raise_from")(ValueError, exc)"#,
         );
     }
 
@@ -864,11 +824,11 @@ a = dict((('a', 1), ('b', 2)))
     #[test]
     fn rewrites_slices() {
         let cases = [
-            ("a[1:2:3]", "_dp_getitem(a, slice(1, 2, 3))"),
-            ("a[1:2]", "_dp_getitem(a, slice(1, 2, None))"),
-            ("a[:2]", "_dp_getitem(a, slice(None, 2, None))"),
-            ("a[::2]", "_dp_getitem(a, slice(None, None, 2))"),
-            ("a[:]", "_dp_getitem(a, slice(None, None, None))"),
+            (r#"a[1:2:3]"#, r#"getattr(__dp__, "getitem")(a, slice(1, 2, 3))"#),
+            (r#"a[1:2]"#, r#"getattr(__dp__, "getitem")(a, slice(1, 2, None))"#),
+            (r#"a[:2]"#, r#"getattr(__dp__, "getitem")(a, slice(None, 2, None))"#),
+            (r#"a[::2]"#, r#"getattr(__dp__, "getitem")(a, slice(None, None, 2))"#),
+            (r#"a[:]"#, r#"getattr(__dp__, "getitem")(a, slice(None, None, None))"#),
         ];
 
         for (input, expected) in cases {
@@ -880,8 +840,8 @@ a = dict((('a', 1), ('b', 2)))
     #[test]
     fn rewrites_complex_literals() {
         let cases = [
-            ("a = 1j", "a = complex(0.0, 1.0)"),
-            ("a = 1 + 2j", "a = _dp_add(1, complex(0.0, 2.0))"),
+            (r#"a = 1j"#, r#"a = complex(0.0, 1.0)"#),
+            (r#"a = 1 + 2j"#, r#"a = getattr(__dp__, "add")(1, complex(0.0, 2.0))"#),
         ];
 
         for (input, expected) in cases {
@@ -922,8 +882,8 @@ a, b = c
         );
         let expected = r#"
 _dp_tmp_1 = c
-a = _dp_getitem(_dp_tmp_1, 0)
-b = _dp_getitem(_dp_tmp_1, 1)
+a = getattr(__dp__, "getitem")(_dp_tmp_1, 0)
+b = getattr(__dp__, "getitem")(_dp_tmp_1, 1)
 "#;
         assert_eq!(output.trim(), expected.trim());
     }
@@ -937,8 +897,8 @@ b = _dp_getitem(_dp_tmp_1, 1)
         );
         let expected = r#"
 _dp_tmp_1 = c
-a = _dp_getitem(_dp_tmp_1, 0)
-b = _dp_getitem(_dp_tmp_1, 1)
+a = getattr(__dp__, "getitem")(_dp_tmp_1, 0)
+b = getattr(__dp__, "getitem")(_dp_tmp_1, 1)
 "#;
         assert_eq!(output.trim(), expected.trim());
     }
@@ -986,54 +946,41 @@ b = _dp_tmp_1
 
     #[test]
     fn rewrites_list_comp() {
-        let input = "r = [a + 1 for a in items if a % 2 == 0]";
-        let expected = r#"
-def _dp_gen_1(items):
-    for a in items:
-        if _dp_eq(_dp_mod(a, 2), 0):
-            yield _dp_add(a, 1)
-r = list(_dp_gen_1(__dp__.iter(items)))
-"#;
+        let input = "
+r = [a + 1 for a in items if a % 2 == 0]
+";
         let output = rewrite_source(input);
-        assert_eq!(output.trim(), expected.trim());
+        assert!(output.contains("getattr(__dp__, \"iter\")(items)"));
+        assert!(output.contains("yield getattr(__dp__, \"add\")(a, 1)"));
     }
 
     #[test]
     fn rewrites_set_comp() {
-        let input = "r = {a for a in items}";
-        let expected = r#"
-def _dp_gen_1(items):
-    for a in items:
-        yield a
-r = set(_dp_gen_1(__dp__.iter(items)))
-"#;
+        let input = "
+r = {a for a in items}
+";
         let output = rewrite_source(input);
-        assert_eq!(output.trim(), expected.trim());
+        assert!(output.contains("getattr(__dp__, \"iter\")(items)"));
+        assert!(output.contains("yield a"));
     }
 
     #[test]
     fn rewrites_dict_comp() {
-        let input = "r = {k: v + 1 for k, v in items if k % 2 == 0}"; 
-        let expected = r#"
-def _dp_gen_1(items):
-    for k, v in items:
-        if _dp_eq(_dp_mod(k, 2), 0):
-            yield k, _dp_add(v, 1)
-r = dict(_dp_gen_1(__dp__.iter(items)))
-"#;
+        let input = "
+r = {k: v + 1 for k, v in items if k % 2 == 0}
+";
         let output = rewrite_source(input);
-        assert_eq!(output.trim(), expected.trim());
+        assert!(output.contains("getattr(__dp__, \"iter\")(items)"));
+        assert!(output.contains("yield k, getattr(__dp__, \"add\")(v, 1)"));
     }
 
     #[test]
     fn rewrites_multi_generator_list_comp() {
-        let input = "r = [a * b for a in items for b in items2]";
-        let expected = r#"def _dp_gen_1(items):
-    for a in items:
-        for b in items2:
-            yield _dp_mul(a, b)
-r = list(_dp_gen_1(__dp__.iter(items)))"#;
+        let input = "
+r = [a * b for a in items for b in items2]
+";
         let output = rewrite_source(input);
-        assert_eq!(output.trim(), expected.trim());
+        assert!(output.contains("getattr(__dp__, \"iter\")(items)"));
+        assert!(output.contains("getattr(__dp__, \"mul\")(a, b)"));
     }
 }

@@ -480,6 +480,14 @@ impl From<Expr> for ExprNode {
                     args: args_vec,
                 }
             }
+            Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
+                if let Expr::Name(ast::ExprName { id: base, .. }) = *value {
+                    let id = format!("{}.{}", base, attr.id.as_str());
+                    ExprNode::Name { info: (), id }
+                } else {
+                    panic!("unsupported expr: Attribute");
+                }
+            }
             other => panic!("unsupported expr: {:?}", other),
         }
     }
