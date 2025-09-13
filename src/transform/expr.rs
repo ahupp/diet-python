@@ -2,7 +2,14 @@ use std::cell::Cell;
 
 use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, CmpOp, Expr, Operator, Stmt, UnaryOp};
-use super::{rewrite_for_loop, rewrite_match_case, rewrite_try_except};
+use super::{
+    rewrite_assert,
+    rewrite_class_def,
+    rewrite_for_loop,
+    rewrite_match_case,
+    rewrite_try_except,
+    rewrite_with,
+};
 use ruff_text_size::TextRange;
 
 fn make_binop(func_name: &'static str, left: Expr, right: Expr) -> Expr {
@@ -27,6 +34,7 @@ pub struct ExprRewriter {
     for_count: Cell<usize>,
     try_count: Cell<usize>,
     match_count: Cell<usize>,
+    with_count: Cell<usize>,
 }
 
 impl ExprRewriter {
@@ -36,6 +44,7 @@ impl ExprRewriter {
             for_count: Cell::new(0),
             try_count: Cell::new(0),
             match_count: Cell::new(0),
+            with_count: Cell::new(0),
         }
     }
 
@@ -358,23 +367,24 @@ impl Transformer for ExprRewriter {
     }
 
     fn visit_stmt(&self, stmt: &mut Stmt) {
-        walk_stmt(self, stmt);
-
         match stmt {
+            Stmt::With(with) => {
+                *stmt = rewrite_with::rewrite(with.clone(), &self.with_count);
+            }
+            Stmt::Assert(assert) => {
+                *stmt = rewrite_assert::rewrite(assert.clone());
+            }
+            Stmt::ClassDef(class_def) => {
+                *stmt = rewrite_class_def::rewrite(class_def.clone());
+            }
             Stmt::For(_) => {
-                if rewrite_for_loop::rewrite(stmt, &self.for_count) {
-                    walk_stmt(self, stmt);
-                }
+                rewrite_for_loop::rewrite(stmt, &self.for_count);
             }
             Stmt::Try(_) => {
-                if rewrite_try_except::rewrite(stmt, &self.try_count) {
-                    walk_stmt(self, stmt);
-                }
+                rewrite_try_except::rewrite(stmt, &self.try_count);
             }
             Stmt::Match(_) => {
-                if rewrite_match_case::rewrite(stmt, &self.match_count) {
-                    walk_stmt(self, stmt);
-                }
+                rewrite_match_case::rewrite(stmt, &self.match_count);
             }
             Stmt::Assign(assign) => {
                 let value = (*assign.value).clone();
@@ -490,6 +500,8 @@ impl Transformer for ExprRewriter {
             }
             _ => {}
         }
+
+        walk_stmt(self, stmt);
     }
 }
 

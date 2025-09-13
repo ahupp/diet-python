@@ -21,20 +21,14 @@ mod template;
 mod test_util;
 mod transform;
 
-use transform::assert::AssertRewriter;
-use transform::class_def::ClassDefRewriter;
 use transform::decorator::DecoratorRewriter;
 use transform::expr::ExprRewriter;
 use transform::gen::GeneratorRewriter;
 use transform::truthy::TruthyRewriter;
-use transform::with::WithRewriter;
 
 const TRANSFORM_NAMES: &[&str] = &[
     "gen",
-    "with",
-    "assert",
     "decorator",
-    "class_def",
     "import",
     "truthy",
     "expr",
@@ -65,21 +59,9 @@ fn should_skip(source: &str, transforms: Option<&HashSet<String>>) -> bool {
 
 fn apply_transforms(module: &mut ModModule, transforms: Option<&HashSet<String>>) {
     let run = |name: &str| transforms.map_or(true, |t| t.contains(name));
-    if run("with") {
-        let with_transformer = WithRewriter::new();
-        walk_body(&with_transformer, &mut module.body);
-    }
-    if run("assert") {
-        let assert_transformer = AssertRewriter::new();
-        walk_body(&assert_transformer, &mut module.body);
-    }
     if run("decorator") {
         let decorator_transformer = DecoratorRewriter::new();
         walk_body(&decorator_transformer, &mut module.body);
-    }
-    if run("class_def") {
-        let class_def_transformer = ClassDefRewriter::new();
-        walk_body(&class_def_transformer, &mut module.body);
     }
     if run("import") {
         let import_rewriter = transform::import::ImportRewriter::new();

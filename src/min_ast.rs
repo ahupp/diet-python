@@ -7,57 +7,11 @@ use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
 pub trait AstInfo: Clone + std::fmt::Debug + PartialEq {}
 impl<T: Clone + std::fmt::Debug + PartialEq> AstInfo for T {}
 
-pub trait StmtInfo {
-    type FunctionDefStmtInfo: AstInfo;
-    type WhileStmtInfo: AstInfo;
-    type IfStmtInfo: AstInfo;
-    type TryStmtInfo: AstInfo;
-    type RaiseStmtInfo: AstInfo;
-    type BreakStmtInfo: AstInfo;
-    type ContinueStmtInfo: AstInfo;
-    type ReturnStmtInfo: AstInfo;
-    type ExprStmtInfo: AstInfo;
-    type AssignStmtInfo: AstInfo;
-    type DeleteStmtInfo: AstInfo;
-    type PassStmtInfo: AstInfo;
-}
+pub trait StmtInfo: AstInfo {}
+impl<T: AstInfo> StmtInfo for T {}
 
-pub trait ExprInfo {
-    type NameExprInfo: AstInfo;
-    type NumberExprInfo: AstInfo;
-    type StringExprInfo: AstInfo;
-    type BytesExprInfo: AstInfo;
-    type TupleExprInfo: AstInfo;
-    type AwaitExprInfo: AstInfo;
-    type YieldExprInfo: AstInfo;
-    type CallExprInfo: AstInfo;
-}
-
-impl StmtInfo for () {
-    type FunctionDefStmtInfo = ();
-    type WhileStmtInfo = ();
-    type IfStmtInfo = ();
-    type TryStmtInfo = ();
-    type RaiseStmtInfo = ();
-    type BreakStmtInfo = ();
-    type ContinueStmtInfo = ();
-    type ReturnStmtInfo = ();
-    type ExprStmtInfo = ();
-    type AssignStmtInfo = ();
-    type DeleteStmtInfo = ();
-    type PassStmtInfo = ();
-}
-
-impl ExprInfo for () {
-    type NameExprInfo = ();
-    type NumberExprInfo = ();
-    type StringExprInfo = ();
-    type BytesExprInfo = ();
-    type TupleExprInfo = ();
-    type AwaitExprInfo = ();
-    type YieldExprInfo = ();
-    type CallExprInfo = ();
-}
+pub trait ExprInfo: AstInfo {}
+impl<T: AstInfo> ExprInfo for T {}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Module<S: StmtInfo = (), E: ExprInfo = ()> {
@@ -68,48 +22,48 @@ pub struct Module<S: StmtInfo = (), E: ExprInfo = ()> {
 pub enum StmtNode<S: StmtInfo = (), E: ExprInfo = ()> {
     FunctionDef(FunctionDef<S, E>),
     While {
-        info: S::WhileStmtInfo,
+        info: S,
         test: ExprNode<E>,
         body: Vec<StmtNode<S, E>>,
         orelse: Vec<StmtNode<S, E>>,
     },
     If {
-        info: S::IfStmtInfo,
+        info: S,
         test: ExprNode<E>,
         body: Vec<StmtNode<S, E>>,
         orelse: Vec<StmtNode<S, E>>,
     },
     Try {
-        info: S::TryStmtInfo,
+        info: S,
         body: Vec<StmtNode<S, E>>,
         handler: Option<Vec<StmtNode<S, E>>>,
         orelse: Vec<StmtNode<S, E>>,
         finalbody: Vec<StmtNode<S, E>>,
     },
     Raise {
-        info: S::RaiseStmtInfo,
+        info: S,
         exc: Option<ExprNode<E>>,
     },
-    Break(S::BreakStmtInfo),
-    Continue(S::ContinueStmtInfo),
+    Break(S),
+    Continue(S),
     Return {
-        info: S::ReturnStmtInfo,
+        info: S,
         value: Option<ExprNode<E>>,
     },
     Expr {
-        info: S::ExprStmtInfo,
+        info: S,
         value: ExprNode<E>,
     },
     Assign {
-        info: S::AssignStmtInfo,
+        info: S,
         target: String,
         value: ExprNode<E>,
     },
     Delete {
-        info: S::DeleteStmtInfo,
+        info: S,
         target: String,
     },
-    Pass(S::PassStmtInfo),
+    Pass(S),
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -120,7 +74,7 @@ pub struct OuterScopeVars {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionDef<S: StmtInfo = (), E: ExprInfo = ()> {
-    pub info: S::FunctionDefStmtInfo,
+    pub info: S,
     pub name: String,
     pub params: Vec<Parameter<E>>,
     pub body: Vec<StmtNode<S, E>>,
@@ -149,35 +103,35 @@ pub enum Parameter<E: ExprInfo = ()> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExprNode<E: ExprInfo = ()> {
     Name {
-        info: E::NameExprInfo,
+        info: E,
         id: String,
     },
     Number {
-        info: E::NumberExprInfo,
+        info: E,
         value: Number,
     },
     String {
-        info: E::StringExprInfo,
+        info: E,
         value: String,
     },
     Bytes {
-        info: E::BytesExprInfo,
+        info: E,
         value: Vec<u8>,
     },
     Tuple {
-        info: E::TupleExprInfo,
+        info: E,
         elts: Vec<ExprNode<E>>,
     },
     Await {
-        info: E::AwaitExprInfo,
+        info: E,
         value: Box<ExprNode<E>>,
     },
     Yield {
-        info: E::YieldExprInfo,
+        info: E,
         value: Option<Box<ExprNode<E>>>,
     },
     Call {
-        info: E::CallExprInfo,
+        info: E,
         func: Box<ExprNode<E>>,
         args: Vec<Arg<E>>,
     },
