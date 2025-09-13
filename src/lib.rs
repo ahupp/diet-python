@@ -353,11 +353,11 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "unsupported assignment target")]
-    fn transform_string_panics_on_attribute_assign() {
+    fn transform_string_rewrites_attribute_assign() {
         let src = r#"
 a.b = 1
 "#;
-        let _ = transform_string(src, None);
+        let result = transform_string(src, None).unwrap();
+        assert!(result.contains(r#"getattr(__dp__, "setattr")(a, "b", 1)"#));
     }
 }
