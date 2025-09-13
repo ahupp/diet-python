@@ -61,10 +61,10 @@ impl Transformer for GeneratorRewriter {
 
     fn visit_expr(&self, expr: &mut Expr) {
         if rewrite_comprehension(self, expr) {
+            walk_expr(self, expr);
             return;
         }
 
-        walk_expr(self, expr);
         if let Expr::Generator(gen) = expr {
             let first_iter_expr = gen.generators.first().unwrap().iter.clone();
 
@@ -145,6 +145,8 @@ def {func:id}({param:id}):
                 func = func_name.as_str()
             );
         }
+
+        walk_expr(self, expr);
     }
 }
 

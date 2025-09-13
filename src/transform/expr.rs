@@ -39,26 +39,15 @@ impl ExprRewriter {
 
 impl Transformer for ExprRewriter {
     fn visit_expr(&self, expr: &mut Expr) {
-        walk_expr(self, expr);
-        *expr = match expr {
-            Expr::Slice(ast::ExprSlice {
-                lower, upper, step, ..
-            }) => {
+        let original = expr.clone();
+        *expr = match original {
+            Expr::Slice(ast::ExprSlice { lower, upper, step, .. }) => {
                 fn none_name() -> Expr {
                     crate::py_expr!("\nNone")
                 }
-                let lower_expr = lower
-                    .as_ref()
-                    .map(|expr| *expr.clone())
-                    .unwrap_or_else(none_name);
-                let upper_expr = upper
-                    .as_ref()
-                    .map(|expr| *expr.clone())
-                    .unwrap_or_else(none_name);
-                let step_expr = step
-                    .as_ref()
-                    .map(|expr| *expr.clone())
-                    .unwrap_or_else(none_name);
+                let lower_expr = lower.map(|expr| *expr).unwrap_or_else(none_name);
+                let upper_expr = upper.map(|expr| *expr).unwrap_or_else(none_name);
+                let step_expr = step.map(|expr| *expr).unwrap_or_else(none_name);
                 crate::py_expr!(
                     "\nslice({lower:expr}, {upper:expr}, {step:expr})",
                     lower = lower_expr,
@@ -76,12 +65,12 @@ impl Transformer for ExprRewriter {
                 let real_expr = Expr::NumberLiteral(ast::ExprNumberLiteral {
                     node_index: ast::AtomicNodeIndex::default(),
                     range: TextRange::default(),
-                    value: ast::Number::Float(*real),
+                    value: ast::Number::Float(real),
                 });
                 let imag_expr = Expr::NumberLiteral(ast::ExprNumberLiteral {
                     node_index: ast::AtomicNodeIndex::default(),
                     range: TextRange::default(),
-                    value: ast::Number::Float(*imag),
+                    value: ast::Number::Float(imag),
                 });
                 crate::py_expr!(
                     "\ncomplex({real:expr}, {imag:expr})",
@@ -89,10 +78,63 @@ impl Transformer for ExprRewriter {
                     imag = imag_expr,
                 )
             }
-            Expr::Attribute(ast::ExprAttribute {
-                value, attr, ctx, ..
-            }) if matches!(ctx, ast::ExprContext::Load) => {
-                let value_expr = *value.clone();
+            Expr::Attribute(ast::ExprAttribute { value, attr, ctx, .. })
+                if matches!(ctx, ast::ExprContext::Load)
+                    && !matches!(
+                        value.as_ref(),
+                        Expr::Name(ast::ExprName { id, .. })
+                            if id.as_str() == "__dp__"
+                                && matches!(
+                                    attr.id.as_str(),
+                                    "add"
+                                        | "sub"
+                                        | "mul"
+                                        | "matmul"
+                                        | "truediv"
+                                        | "mod"
+                                        | "pow"
+                                        | "lshift"
+                                        | "rshift"
+                                        | "or_"
+                                        | "xor"
+                                        | "and_"
+                                        | "floordiv"
+                                        | "eq"
+                                        | "ne"
+                                        | "lt"
+                                        | "le"
+                                        | "gt"
+                                        | "ge"
+                                        | "is_"
+                                        | "is_not"
+                                        | "contains"
+                                        | "neg"
+                                        | "invert"
+                                        | "not_"
+                                        | "pos"
+                                        | "iadd"
+                                        | "isub"
+                                        | "imul"
+                                        | "imatmul"
+                                        | "itruediv"
+                                        | "imod"
+                                        | "ipow"
+                                        | "ilshift"
+                                        | "irshift"
+                                        | "ior"
+                                        | "ixor"
+                                        | "iand"
+                                        | "ifloordiv"
+                                        | "getitem"
+                                        | "delitem"
+                                        | "delattr"
+                                        | "or_expr"
+                                        | "and_expr"
+                                        | "if_expr"
+                                )
+                    ) =>
+            {
+                let value_expr = *value;
                 crate::py_expr!(
                     "\ngetattr({value:expr}, {attr:literal})",
                     value = value_expr,
@@ -103,33 +145,29 @@ impl Transformer for ExprRewriter {
                 crate::py_expr!("\nNone")
             }
             Expr::List(ast::ExprList { elts, .. }) => {
-                let tuple = Self::tuple_from(elts.clone());
+                let tuple = Self::tuple_from(elts);
                 crate::py_expr!("\nlist({tuple:expr})", tuple = tuple,)
             }
             Expr::Set(ast::ExprSet { elts, .. }) => {
-                let tuple = Self::tuple_from(elts.clone());
+                let tuple = Self::tuple_from(elts);
                 crate::py_expr!("\nset({tuple:expr})", tuple = tuple,)
             }
-            Expr::Dict(ast::ExprDict { items, .. })
-                if items.iter().all(|item| item.key.is_some()) =>
-            {
+            Expr::Dict(ast::ExprDict { items, .. }) if items.iter().all(|item| item.key.is_some()) => {
                 let pairs: Vec<Expr> = items
-                    .iter()
+                    .into_iter()
                     .map(|item| {
-                        let key = item.key.clone().unwrap();
-                        let value = item.value.clone();
+                        let key = item.key.unwrap();
+                        let value = item.value;
                         crate::py_expr!("\n({key:expr}, {value:expr})", key = key, value = value,)
                     })
                     .collect();
                 let tuple = Self::tuple_from(pairs);
                 crate::py_expr!("\ndict({tuple:expr})", tuple = tuple,)
             }
-            Expr::If(ast::ExprIf {
-                test, body, orelse, ..
-            }) => {
-                let test_expr = *test.clone();
-                let body_expr = *body.clone();
-                let orelse_expr = *orelse.clone();
+            Expr::If(ast::ExprIf { test, body, orelse, .. }) => {
+                let test_expr = *test;
+                let body_expr = *body;
+                let orelse_expr = *orelse;
                 crate::py_expr!(
                     "\n__dp__.if_expr({cond:expr}, lambda: {body:expr}, lambda: {orelse:expr})",
                     cond = test_expr,
@@ -137,10 +175,9 @@ impl Transformer for ExprRewriter {
                     orelse = orelse_expr,
                 )
             }
-            Expr::BoolOp(ast::ExprBoolOp { op, values, .. }) => {
-                let mut vals = std::mem::take(values);
-                let mut result = vals.pop().expect("boolop with no values");
-                while let Some(value) = vals.pop() {
+            Expr::BoolOp(ast::ExprBoolOp { op, mut values, .. }) => {
+                let mut result = values.pop().expect("boolop with no values");
+                while let Some(value) = values.pop() {
                     result = match op {
                         ast::BoolOp::Or => crate::py_expr!(
                             "\n__dp__.or_expr({left:expr}, lambda: {right:expr})",
@@ -156,10 +193,8 @@ impl Transformer for ExprRewriter {
                 }
                 result
             }
-            Expr::BinOp(bin) => {
-                let left = *bin.left.clone();
-                let right = *bin.right.clone();
-                let func_name = match bin.op {
+            Expr::BinOp(ast::ExprBinOp { left, right, op, .. }) => {
+                let func_name = match op {
                     Operator::Add => "add",
                     Operator::Sub => "sub",
                     Operator::Mult => "mul",
@@ -174,22 +209,26 @@ impl Transformer for ExprRewriter {
                     Operator::BitAnd => "and_",
                     Operator::FloorDiv => "floordiv",
                 };
-                make_binop(func_name, left, right)
+                make_binop(func_name, *left, *right)
             }
-            Expr::UnaryOp(unary) => {
-                let operand = *unary.operand.clone();
-                let func_name = match unary.op {
+            Expr::UnaryOp(ast::ExprUnaryOp { operand, op, .. }) => {
+                let func_name = match op {
                     UnaryOp::Not => "not_",
                     UnaryOp::Invert => "invert",
                     UnaryOp::USub => "neg",
                     UnaryOp::UAdd => "pos",
                 };
-                make_unaryop(func_name, operand)
+                make_unaryop(func_name, *operand)
             }
-            Expr::Compare(compare) if compare.ops.len() == 1 && compare.comparators.len() == 1 => {
-                let left = (*compare.left).clone();
-                let right = compare.comparators[0].clone();
-                let call = match compare.ops[0] {
+            Expr::Compare(ast::ExprCompare { left, ops, comparators, .. })
+                if ops.len() == 1 && comparators.len() == 1 =>
+            {
+                let mut ops_vec = ops.into_vec();
+                let mut comps_vec = comparators.into_vec();
+                let left = *left;
+                let right = comps_vec.pop().unwrap();
+                let op = ops_vec.pop().unwrap();
+                let call = match op {
                     CmpOp::Eq => make_binop("eq", left, right),
                     CmpOp::NotEq => make_binop("ne", left, right),
                     CmpOp::Lt => make_binop("lt", left, right),
@@ -206,13 +245,16 @@ impl Transformer for ExprRewriter {
                 };
                 call
             }
-            Expr::Subscript(sub) if matches!(sub.ctx, ast::ExprContext::Load) => {
-                let obj = (*sub.value).clone();
-                let key = (*sub.slice).clone();
+            Expr::Subscript(ast::ExprSubscript { value, slice, ctx, .. })
+                if matches!(ctx, ast::ExprContext::Load) =>
+            {
+                let obj = *value;
+                let key = *slice;
                 make_binop("getitem", obj, key)
             }
-            _ => return,
+            _ => original,
         };
+        walk_expr(self, expr);
     }
 
     fn visit_stmt(&self, stmt: &mut Stmt) {
