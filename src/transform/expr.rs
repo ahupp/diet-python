@@ -48,91 +48,79 @@ impl ExprRewriter {
 }
 
 impl Transformer for ExprRewriter {
-    fn visit_expr(&self, expr: &mut Expr) {
+        fn visit_expr(&self, expr: &mut Expr) {
         walk_expr(self, expr);
-        if let Expr::Slice(ast::ExprSlice {
-            lower,
-            upper,
-            step,
-            ..
-        }) = expr
-        {
-            fn none_name() -> Expr {
-                crate::py_expr!("\nNone")
+        *expr = match expr {
+            Expr::Slice(ast::ExprSlice { lower, upper, step, .. }) => {
+                fn none_name() -> Expr {
+                    crate::py_expr!("\nNone")
+                }
+                let lower_expr = lower
+                    .as_ref()
+                    .map(|expr| *expr.clone())
+                    .unwrap_or_else(none_name);
+                let upper_expr = upper
+                    .as_ref()
+                    .map(|expr| *expr.clone())
+                    .unwrap_or_else(none_name);
+                let step_expr = step
+                    .as_ref()
+                    .map(|expr| *expr.clone())
+                    .unwrap_or_else(none_name);
+                self.replaced.set(true);
+                crate::py_expr!(
+                    "\nslice({lower:expr}, {upper:expr}, {step:expr})",
+                    lower = lower_expr,
+                    upper = upper_expr,
+                    step = step_expr,
+                )
             }
-            let lower_expr = lower
-                .as_ref()
-                .map(|expr| *expr.clone())
-                .unwrap_or_else(none_name);
-            let upper_expr = upper
-                .as_ref()
-                .map(|expr| *expr.clone())
-                .unwrap_or_else(none_name);
-            let step_expr = step
-                .as_ref()
-                .map(|expr| *expr.clone())
-                .unwrap_or_else(none_name);
-
-            *expr = crate::py_expr!(
-                "\nslice({lower:expr}, {upper:expr}, {step:expr})",
-                lower = lower_expr,
-                upper = upper_expr,
-                step = step_expr,
-            );
-            self.replaced.set(true);
-        } else if let Expr::EllipsisLiteral(_) = expr {
-            *expr = crate::py_expr!("\nEllipsis");
-            self.replaced.set(true);
-        } else if let Expr::NumberLiteral(ast::ExprNumberLiteral {
-            value: ast::Number::Complex { real, imag },
-            ..
-        }) = expr
-        {
-            let real_expr = Expr::NumberLiteral(ast::ExprNumberLiteral {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: TextRange::default(),
-                value: ast::Number::Float(*real),
-            });
-            let imag_expr = Expr::NumberLiteral(ast::ExprNumberLiteral {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: TextRange::default(),
-                value: ast::Number::Float(*imag),
-            });
-            *expr = crate::py_expr!(
-                "\ncomplex({real:expr}, {imag:expr})",
-                real = real_expr,
-                imag = imag_expr,
-            );
-            self.replaced.set(true);
-        } else if let Expr::Attribute(ast::ExprAttribute {
-            value,
-            attr,
-            ctx,
-            ..
-        }) = expr
-        {
-            if matches!(ctx, ast::ExprContext::Load) {
+            Expr::EllipsisLiteral(_) => {
+                self.replaced.set(true);
+                crate::py_expr!("\nEllipsis")
+            }
+            Expr::NumberLiteral(ast::ExprNumberLiteral { value: ast::Number::Complex { real, imag }, .. }) => {
+                let real_expr = Expr::NumberLiteral(ast::ExprNumberLiteral {
+                    node_index: ast::AtomicNodeIndex::default(),
+                    range: TextRange::default(),
+                    value: ast::Number::Float(*real),
+                });
+                let imag_expr = Expr::NumberLiteral(ast::ExprNumberLiteral {
+                    node_index: ast::AtomicNodeIndex::default(),
+                    range: TextRange::default(),
+                    value: ast::Number::Float(*imag),
+                });
+                self.replaced.set(true);
+                crate::py_expr!(
+                    "\ncomplex({real:expr}, {imag:expr})",
+                    real = real_expr,
+                    imag = imag_expr,
+                )
+            }
+            Expr::Attribute(ast::ExprAttribute { value, attr, ctx, .. }) if matches!(ctx, ast::ExprContext::Load) => {
                 let value_expr = *value.clone();
-                *expr = crate::py_expr!(
+                self.replaced.set(true);
+                crate::py_expr!(
                     "\ngetattr({value:expr}, {attr:literal})",
                     value = value_expr,
                     attr = attr.id.as_str(),
-                );
-                self.replaced.set(true);
+                )
             }
-        } else if let Expr::NoneLiteral(_) = expr {
-            *expr = crate::py_expr!("\nNone",);
-            self.replaced.set(true);
-        } else if let Expr::List(ast::ExprList { elts, .. }) = expr {
-            let tuple = Self::tuple_from(elts.clone());
-            *expr = crate::py_expr!("\nlist({tuple:expr})", tuple = tuple,);
-            self.replaced.set(true);
-        } else if let Expr::Set(ast::ExprSet { elts, .. }) = expr {
-            let tuple = Self::tuple_from(elts.clone());
-            *expr = crate::py_expr!("\nset({tuple:expr})", tuple = tuple,);
-            self.replaced.set(true);
-        } else if let Expr::Dict(ast::ExprDict { items, .. }) = expr {
-            if items.iter().all(|item| item.key.is_some()) {
+            Expr::NoneLiteral(_) => {
+                self.replaced.set(true);
+                crate::py_expr!("\nNone")
+            }
+            Expr::List(ast::ExprList { elts, .. }) => {
+                let tuple = Self::tuple_from(elts.clone());
+                self.replaced.set(true);
+                crate::py_expr!("\nlist({tuple:expr})", tuple = tuple,)
+            }
+            Expr::Set(ast::ExprSet { elts, .. }) => {
+                let tuple = Self::tuple_from(elts.clone());
+                self.replaced.set(true);
+                crate::py_expr!("\nset({tuple:expr})", tuple = tuple,)
+            }
+            Expr::Dict(ast::ExprDict { items, .. }) if items.iter().all(|item| item.key.is_some()) => {
                 let pairs: Vec<Expr> = items
                     .iter()
                     .map(|item| {
@@ -142,83 +130,76 @@ impl Transformer for ExprRewriter {
                     })
                     .collect();
                 let tuple = Self::tuple_from(pairs);
-                *expr = crate::py_expr!("\ndict({tuple:expr})", tuple = tuple,);
                 self.replaced.set(true);
+                crate::py_expr!("\ndict({tuple:expr})", tuple = tuple,)
             }
-        } else if let Expr::If(ast::ExprIf {
-            test, body, orelse, ..
-        }) = expr
-        {
-            let test_expr = *test.clone();
-            let body_expr = *body.clone();
-            let orelse_expr = *orelse.clone();
-            *expr = crate::py_expr!(
-                "\n__dp__.if_expr({cond:expr}, lambda: {body:expr}, lambda: {orelse:expr})",
-                cond = test_expr,
-                body = body_expr,
-                orelse = orelse_expr,
-            );
-            self.replaced.set(true);
-        } else if let Expr::BoolOp(ast::ExprBoolOp { op, values, .. }) = expr {
-            let mut vals = std::mem::take(values);
-            let mut result = vals.pop().expect("boolop with no values");
-            while let Some(value) = vals.pop() {
-                result = match op {
-                    ast::BoolOp::Or => crate::py_expr!(
-                        "
-__dp__.or_expr({left:expr}, lambda: {right:expr})
-",
-                        left = value,
-                        right = result,
-                    ),
-                    ast::BoolOp::And => crate::py_expr!(
-                        "
-__dp__.and_expr({left:expr}, lambda: {right:expr})
-",
-                        left = value,
-                        right = result,
-                    ),
+            Expr::If(ast::ExprIf { test, body, orelse, .. }) => {
+                let test_expr = *test.clone();
+                let body_expr = *body.clone();
+                let orelse_expr = *orelse.clone();
+                self.replaced.set(true);
+                crate::py_expr!(
+                    "\n__dp__.if_expr({cond:expr}, lambda: {body:expr}, lambda: {orelse:expr})",
+                    cond = test_expr,
+                    body = body_expr,
+                    orelse = orelse_expr,
+                )
+            }
+            Expr::BoolOp(ast::ExprBoolOp { op, values, .. }) => {
+                let mut vals = std::mem::take(values);
+                let mut result = vals.pop().expect("boolop with no values");
+                while let Some(value) = vals.pop() {
+                    result = match op {
+                        ast::BoolOp::Or => crate::py_expr!(
+                            "\n__dp__.or_expr({left:expr}, lambda: {right:expr})",
+                            left = value,
+                            right = result,
+                        ),
+                        ast::BoolOp::And => crate::py_expr!(
+                            "\n__dp__.and_expr({left:expr}, lambda: {right:expr})",
+                            left = value,
+                            right = result,
+                        ),
+                    };
+                }
+                self.replaced.set(true);
+                result
+            }
+            Expr::BinOp(bin) => {
+                let left = *bin.left.clone();
+                let right = *bin.right.clone();
+                let func_name = match bin.op {
+                    Operator::Add => "add",
+                    Operator::Sub => "sub",
+                    Operator::Mult => "mul",
+                    Operator::MatMult => "matmul",
+                    Operator::Div => "truediv",
+                    Operator::Mod => "mod",
+                    Operator::Pow => "pow",
+                    Operator::LShift => "lshift",
+                    Operator::RShift => "rshift",
+                    Operator::BitOr => "or_",
+                    Operator::BitXor => "xor",
+                    Operator::BitAnd => "and_",
+                    Operator::FloorDiv => "floordiv",
                 };
+                self.replaced.set(true);
+                make_binop(func_name, left, right)
             }
-            *expr = result;
-            self.replaced.set(true);
-        } else if let Expr::BinOp(bin) = expr {
-            let left = *bin.left.clone();
-            let right = *bin.right.clone();
-
-            let func_name = match bin.op {
-                Operator::Add => "add",
-                Operator::Sub => "sub",
-                Operator::Mult => "mul",
-                Operator::MatMult => "matmul",
-                Operator::Div => "truediv",
-                Operator::Mod => "mod",
-                Operator::Pow => "pow",
-                Operator::LShift => "lshift",
-                Operator::RShift => "rshift",
-                Operator::BitOr => "or_",
-                Operator::BitXor => "xor",
-                Operator::BitAnd => "and_",
-                Operator::FloorDiv => "floordiv",
-            };
-            *expr = make_binop(func_name, left, right);
-            self.replaced.set(true);
-        } else if let Expr::UnaryOp(unary) = expr {
-            let operand = *unary.operand.clone();
-
-            let func_name = match unary.op {
-                UnaryOp::Not => "not_",
-                UnaryOp::Invert => "invert",
-                UnaryOp::USub => "neg",
-                UnaryOp::UAdd => "pos",
-            };
-            *expr = make_unaryop(func_name, operand);
-            self.replaced.set(true);
-        } else if let Expr::Compare(compare) = expr {
-            if compare.ops.len() == 1 && compare.comparators.len() == 1 {
+            Expr::UnaryOp(unary) => {
+                let operand = *unary.operand.clone();
+                let func_name = match unary.op {
+                    UnaryOp::Not => "not_",
+                    UnaryOp::Invert => "invert",
+                    UnaryOp::USub => "neg",
+                    UnaryOp::UAdd => "pos",
+                };
+                self.replaced.set(true);
+                make_unaryop(func_name, operand)
+            }
+            Expr::Compare(compare) if compare.ops.len() == 1 && compare.comparators.len() == 1 => {
                 let left = (*compare.left).clone();
                 let right = compare.comparators[0].clone();
-
                 let call = match compare.ops[0] {
                     CmpOp::Eq => make_binop("eq", left, right),
                     CmpOp::NotEq => make_binop("ne", left, right),
@@ -234,19 +215,19 @@ __dp__.and_expr({left:expr}, lambda: {right:expr})
                         make_unaryop("not_", contains)
                     }
                 };
-
-                *expr = call;
                 self.replaced.set(true);
+                call
             }
-        } else if let Expr::Subscript(sub) = expr {
-            if matches!(sub.ctx, ast::ExprContext::Load) {
+            Expr::Subscript(sub) if matches!(sub.ctx, ast::ExprContext::Load) => {
                 let obj = (*sub.value).clone();
                 let key = (*sub.slice).clone();
-                *expr = make_binop("getitem", obj, key);
                 self.replaced.set(true);
+                make_binop("getitem", obj, key)
             }
-        }
+            _ => return,
+        };
     }
+
 
     fn visit_stmt(&self, stmt: &mut Stmt) {
         walk_stmt(self, stmt);
