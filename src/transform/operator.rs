@@ -22,14 +22,12 @@ fn make_unaryop(func_name: &'static str, operand: Expr) -> Expr {
 
 pub struct OperatorRewriter {
     replaced: Cell<bool>,
-    tmp_count: Cell<usize>,
 }
 
 impl OperatorRewriter {
     pub fn new() -> Self {
         Self {
             replaced: Cell::new(false),
-            tmp_count: Cell::new(0),
         }
     }
 
@@ -37,22 +35,6 @@ impl OperatorRewriter {
         self.replaced.get()
     }
 
-    fn next_tmp(&self) -> String {
-        let id = self.tmp_count.get() + 1;
-        self.tmp_count.set(id);
-        format!("_dp_tmp_{}", id)
-    }
-
-    fn is_simple(expr: &Expr) -> bool {
-        matches!(
-            expr,
-            Expr::Name(_)
-                | Expr::NumberLiteral(_)
-                | Expr::StringLiteral(_)
-                | Expr::BooleanLiteral(_)
-                | Expr::NoneLiteral(_)
-        )
-    }
 }
 
 impl Transformer for OperatorRewriter {
@@ -63,45 +45,24 @@ impl Transformer for OperatorRewriter {
             let mut result = vals.pop().expect("boolop with no values");
             while let Some(value) = vals.pop() {
                 result = match op {
-                    ast::BoolOp::Or => {
-                        if Self::is_simple(&value) {
-                            crate::py_expr!(
-                                "{v1:expr} if {v2:expr} else {rest:expr}",
-                                v1 = value.clone(),
-                                v2 = value,
-                                rest = result,
-                            )
-                        } else {
-                            let tmp = self.next_tmp();
-                            crate::py_expr!(
-                                "{tmp:id} if ({tmp:id} := {value:expr}) else {rest:expr}",
-                                tmp = tmp.as_str(),
-                                value = value,
-                                rest = result,
-                            )
-                        }
-                    }
-                    ast::BoolOp::And => {
-                        if Self::is_simple(&value) {
-                            crate::py_expr!(
-                                "{rest:expr} if {v1:expr} else {v2:expr}",
-                                v1 = value.clone(),
-                                v2 = value,
-                                rest = result,
-                            )
-                        } else {
-                            let tmp = self.next_tmp();
-                            crate::py_expr!(
-                                "{rest:expr} if ({tmp:id} := {value:expr}) else {tmp:id}",
-                                tmp = tmp.as_str(),
-                                value = value,
-                                rest = result,
-                            )
-                        }
-                    }
+                    ast::BoolOp::Or => crate::py_expr!(
+                        "
+__dp__.or_expr({left:expr}, lambda: {right:expr})
+",
+                        left = value,
+                        right = result,
+                    ),
+                    ast::BoolOp::And => crate::py_expr!(
+                        "
+__dp__.and_expr({left:expr}, lambda: {right:expr})
+",
+                        left = value,
+                        right = result,
+                    ),
                 };
             }
             *expr = result;
+            self.replaced.set(true);
         } else if let Expr::BinOp(bin) = expr {
             let left = *bin.left.clone();
             let right = *bin.right.clone();
@@ -336,25 +297,73 @@ __dp__.pos(a)
     #[test]
     fn rewrites_bool_ops() {
         let cases = [
-            ("a or b", "a if a else b"),
-            ("a and b", "b if a else a"),
-            ("f() or a", "_dp_tmp_1 if (_dp_tmp_1 := f()) else a"),
-            ("f() and a", "a if (_dp_tmp_1 := f()) else _dp_tmp_1"),
+            (
+                r#"
+a or b
+"#,
+                r#"
+__dp__.or_expr(a, lambda: b)
+"#,
+            ),
+            (
+                r#"
+a and b
+"#,
+                r#"
+__dp__.and_expr(a, lambda: b)
+"#,
+            ),
+            (
+                r#"
+f() or a
+"#,
+                r#"
+__dp__.or_expr(f(), lambda: a)
+"#,
+            ),
+            (
+                r#"
+f() and a
+"#,
+                r#"
+__dp__.and_expr(f(), lambda: a)
+"#,
+            ),
         ];
 
         for (input, expected) in cases {
             let output = rewrite_source(input);
-            assert_eq!(output.trim_end(), expected);
+            assert_eq!(output.trim(), expected.trim());
         }
     }
 
     #[test]
     fn rewrites_multi_bool_ops() {
-        let output = rewrite_source("a or b or c");
-        assert_eq!(output.trim_end(), "a if a else b if b else c",);
+        let output = rewrite_source(
+            r#"
+a or b or c
+"#,
+        );
+        assert_eq!(
+            output.trim(),
+            r#"
+__dp__.or_expr(a, lambda: __dp__.or_expr(b, lambda: c))
+"#
+            .trim(),
+        );
 
-        let output = rewrite_source("a and b and c");
-        assert_eq!(output.trim_end(), "(c if b else b) if a else a",);
+        let output = rewrite_source(
+            r#"
+a and b and c
+"#,
+        );
+        assert_eq!(
+            output.trim(),
+            r#"
+__dp__.and_expr(a, lambda: __dp__.and_expr(b, lambda: c))
+"#
+            .trim(),
+        );
     }
 
     #[test]
