@@ -1,5 +1,3 @@
-use std::cell::Cell;
-
 use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, CmpOp, Expr, Operator, Stmt, UnaryOp};
 use ruff_text_size::TextRange;
@@ -21,19 +19,11 @@ fn make_unaryop(func_name: &'static str, operand: Expr) -> Expr {
     )
 }
 
-pub struct ExprRewriter {
-    replaced: Cell<bool>,
-}
+pub struct ExprRewriter;
 
 impl ExprRewriter {
     pub fn new() -> Self {
-        Self {
-            replaced: Cell::new(false),
-        }
-    }
-
-    pub fn transformed(&self) -> bool {
-        self.replaced.get()
+        Self
     }
 
     fn tuple_from(elts: Vec<Expr>) -> Expr {
@@ -48,10 +38,12 @@ impl ExprRewriter {
 }
 
 impl Transformer for ExprRewriter {
-        fn visit_expr(&self, expr: &mut Expr) {
+    fn visit_expr(&self, expr: &mut Expr) {
         walk_expr(self, expr);
         *expr = match expr {
-            Expr::Slice(ast::ExprSlice { lower, upper, step, .. }) => {
+            Expr::Slice(ast::ExprSlice {
+                lower, upper, step, ..
+            }) => {
                 fn none_name() -> Expr {
                     crate::py_expr!("\nNone")
                 }
@@ -67,7 +59,6 @@ impl Transformer for ExprRewriter {
                     .as_ref()
                     .map(|expr| *expr.clone())
                     .unwrap_or_else(none_name);
-                self.replaced.set(true);
                 crate::py_expr!(
                     "\nslice({lower:expr}, {upper:expr}, {step:expr})",
                     lower = lower_expr,
@@ -76,10 +67,12 @@ impl Transformer for ExprRewriter {
                 )
             }
             Expr::EllipsisLiteral(_) => {
-                self.replaced.set(true);
                 crate::py_expr!("\nEllipsis")
             }
-            Expr::NumberLiteral(ast::ExprNumberLiteral { value: ast::Number::Complex { real, imag }, .. }) => {
+            Expr::NumberLiteral(ast::ExprNumberLiteral {
+                value: ast::Number::Complex { real, imag },
+                ..
+            }) => {
                 let real_expr = Expr::NumberLiteral(ast::ExprNumberLiteral {
                     node_index: ast::AtomicNodeIndex::default(),
                     range: TextRange::default(),
@@ -90,16 +83,16 @@ impl Transformer for ExprRewriter {
                     range: TextRange::default(),
                     value: ast::Number::Float(*imag),
                 });
-                self.replaced.set(true);
                 crate::py_expr!(
                     "\ncomplex({real:expr}, {imag:expr})",
                     real = real_expr,
                     imag = imag_expr,
                 )
             }
-            Expr::Attribute(ast::ExprAttribute { value, attr, ctx, .. }) if matches!(ctx, ast::ExprContext::Load) => {
+            Expr::Attribute(ast::ExprAttribute {
+                value, attr, ctx, ..
+            }) if matches!(ctx, ast::ExprContext::Load) => {
                 let value_expr = *value.clone();
-                self.replaced.set(true);
                 crate::py_expr!(
                     "\ngetattr({value:expr}, {attr:literal})",
                     value = value_expr,
@@ -107,20 +100,19 @@ impl Transformer for ExprRewriter {
                 )
             }
             Expr::NoneLiteral(_) => {
-                self.replaced.set(true);
                 crate::py_expr!("\nNone")
             }
             Expr::List(ast::ExprList { elts, .. }) => {
                 let tuple = Self::tuple_from(elts.clone());
-                self.replaced.set(true);
                 crate::py_expr!("\nlist({tuple:expr})", tuple = tuple,)
             }
             Expr::Set(ast::ExprSet { elts, .. }) => {
                 let tuple = Self::tuple_from(elts.clone());
-                self.replaced.set(true);
                 crate::py_expr!("\nset({tuple:expr})", tuple = tuple,)
             }
-            Expr::Dict(ast::ExprDict { items, .. }) if items.iter().all(|item| item.key.is_some()) => {
+            Expr::Dict(ast::ExprDict { items, .. })
+                if items.iter().all(|item| item.key.is_some()) =>
+            {
                 let pairs: Vec<Expr> = items
                     .iter()
                     .map(|item| {
@@ -130,14 +122,14 @@ impl Transformer for ExprRewriter {
                     })
                     .collect();
                 let tuple = Self::tuple_from(pairs);
-                self.replaced.set(true);
                 crate::py_expr!("\ndict({tuple:expr})", tuple = tuple,)
             }
-            Expr::If(ast::ExprIf { test, body, orelse, .. }) => {
+            Expr::If(ast::ExprIf {
+                test, body, orelse, ..
+            }) => {
                 let test_expr = *test.clone();
                 let body_expr = *body.clone();
                 let orelse_expr = *orelse.clone();
-                self.replaced.set(true);
                 crate::py_expr!(
                     "\n__dp__.if_expr({cond:expr}, lambda: {body:expr}, lambda: {orelse:expr})",
                     cond = test_expr,
@@ -162,7 +154,6 @@ impl Transformer for ExprRewriter {
                         ),
                     };
                 }
-                self.replaced.set(true);
                 result
             }
             Expr::BinOp(bin) => {
@@ -183,7 +174,6 @@ impl Transformer for ExprRewriter {
                     Operator::BitAnd => "and_",
                     Operator::FloorDiv => "floordiv",
                 };
-                self.replaced.set(true);
                 make_binop(func_name, left, right)
             }
             Expr::UnaryOp(unary) => {
@@ -194,7 +184,6 @@ impl Transformer for ExprRewriter {
                     UnaryOp::USub => "neg",
                     UnaryOp::UAdd => "pos",
                 };
-                self.replaced.set(true);
                 make_unaryop(func_name, operand)
             }
             Expr::Compare(compare) if compare.ops.len() == 1 && compare.comparators.len() == 1 => {
@@ -215,19 +204,16 @@ impl Transformer for ExprRewriter {
                         make_unaryop("not_", contains)
                     }
                 };
-                self.replaced.set(true);
                 call
             }
             Expr::Subscript(sub) if matches!(sub.ctx, ast::ExprContext::Load) => {
                 let obj = (*sub.value).clone();
                 let key = (*sub.slice).clone();
-                self.replaced.set(true);
                 make_binop("getitem", obj, key)
             }
             _ => return,
         };
     }
-
 
     fn visit_stmt(&self, stmt: &mut Stmt) {
         walk_stmt(self, stmt);
@@ -259,8 +245,6 @@ impl Transformer for ExprRewriter {
                 target = target,
                 value = call,
             );
-
-            self.replaced.set(true);
         } else if let Stmt::Delete(del) = stmt {
             assert_eq!(
                 del.targets.len(),
@@ -275,7 +259,6 @@ impl Transformer for ExprRewriter {
                     obj = obj,
                     key = key,
                 );
-                self.replaced.set(true);
             } else if let Expr::Attribute(attr) = &del.targets[0] {
                 let obj = (*attr.value).clone();
                 *stmt = crate::py_stmt!(
@@ -283,7 +266,6 @@ impl Transformer for ExprRewriter {
                     obj = obj,
                     name = attr.attr.as_str(),
                 );
-                self.replaced.set(true);
             }
         }
     }
@@ -534,10 +516,7 @@ __dp__.if_expr(f(), lambda: __dp__.add(a, 1), lambda: __dp__.add(b, 2))
     #[test]
     fn rewrites_nested_delitem() {
         let output = rewrite_source("del a.b[1]");
-        assert_eq!(
-            output.trim_end(),
-            "__dp__.delitem(getattr(a, \"b\"), 1)"
-        );
+        assert_eq!(output.trim_end(), "__dp__.delitem(getattr(a, \"b\"), 1)");
     }
 
     #[test]
@@ -612,10 +591,7 @@ a = dict((('a', 1), ('b', 2)))
     fn rewrites_complex_literals() {
         let cases = [
             ("a = 1j", "a = complex(0.0, 1.0)"),
-            (
-                "a = 1 + 2j",
-                "a = __dp__.add(1, complex(0.0, 2.0))",
-            ),
+            ("a = 1 + 2j", "a = __dp__.add(1, complex(0.0, 2.0))"),
         ];
 
         for (input, expected) in cases {
@@ -638,10 +614,7 @@ a = dict((('a', 1), ('b', 2)))
     fn rewrites_attribute_access() {
         let cases = [
             ("obj.attr", "getattr(obj, \"attr\")"),
-            (
-                "foo.bar.baz",
-                "getattr(getattr(foo, \"bar\"), \"baz\")",
-            ),
+            ("foo.bar.baz", "getattr(getattr(foo, \"bar\"), \"baz\")"),
         ];
 
         for (input, expected) in cases {
