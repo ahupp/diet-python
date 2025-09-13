@@ -2,6 +2,7 @@ use std::cell::Cell;
 
 use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, CmpOp, Expr, Operator, Stmt, UnaryOp};
+use super::{for_loop, match_case, try_except};
 use ruff_text_size::TextRange;
 
 fn make_binop(func_name: &'static str, left: Expr, right: Expr) -> Expr {
@@ -23,12 +24,18 @@ fn make_unaryop(func_name: &'static str, operand: Expr) -> Expr {
 
 pub struct ExprRewriter {
     tmp_count: Cell<usize>,
+    for_count: Cell<usize>,
+    try_count: Cell<usize>,
+    match_count: Cell<usize>,
 }
 
 impl ExprRewriter {
     pub fn new() -> Self {
         Self {
             tmp_count: Cell::new(0),
+            for_count: Cell::new(0),
+            try_count: Cell::new(0),
+            match_count: Cell::new(0),
         }
     }
 
@@ -381,6 +388,21 @@ impl Transformer for ExprRewriter {
         walk_stmt(self, stmt);
 
         match stmt {
+            Stmt::For(_) => {
+                if for_loop::rewrite(stmt, &self.for_count) {
+                    walk_stmt(self, stmt);
+                }
+            }
+            Stmt::Try(_) => {
+                if try_except::rewrite(stmt, &self.try_count) {
+                    walk_stmt(self, stmt);
+                }
+            }
+            Stmt::Match(_) => {
+                if match_case::rewrite(stmt, &self.match_count) {
+                    walk_stmt(self, stmt);
+                }
+            }
             Stmt::Assign(assign) => {
                 let value = (*assign.value).clone();
                 let mut stmts = Vec::new();
@@ -506,10 +528,6 @@ mod tests {
 
         let gen_transformer = GeneratorRewriter::new();
         gen_transformer.rewrite_body(&mut module.body);
-
-        let for_transformer = crate::transform::for_loop::ForLoopRewriter::new();
-        walk_body(&for_transformer, &mut module.body);
-
         let expr_transformer = ExprRewriter::new();
         walk_body(&expr_transformer, &mut module.body);
 

@@ -23,24 +23,18 @@ use transform::assert::AssertRewriter;
 use transform::class_def::ClassDefRewriter;
 use transform::decorator::DecoratorRewriter;
 use transform::expr::ExprRewriter;
-use transform::for_loop::ForLoopRewriter;
 use transform::gen::GeneratorRewriter;
-use transform::match_case::MatchCaseRewriter;
 use transform::truthy::TruthyRewriter;
-use transform::try_except::TryExceptRewriter;
 use transform::with::WithRewriter;
 
 const TRANSFORM_NAMES: &[&str] = &[
     "gen",
     "with",
-    "for_loop",
     "assert",
     "decorator",
     "class_def",
-    "match_case",
     "import",
     "truthy",
-    "try_except",
     "expr",
     "flatten",
 ];
@@ -77,10 +71,6 @@ fn apply_transforms(module: &mut ModModule, transforms: Option<&HashSet<String>>
         let with_transformer = WithRewriter::new();
         walk_body(&with_transformer, &mut module.body);
     }
-    if run("for_loop") {
-        let for_transformer = ForLoopRewriter::new();
-        walk_body(&for_transformer, &mut module.body);
-    }
     if run("assert") {
         let assert_transformer = AssertRewriter::new();
         walk_body(&assert_transformer, &mut module.body);
@@ -93,10 +83,6 @@ fn apply_transforms(module: &mut ModModule, transforms: Option<&HashSet<String>>
         let class_def_transformer = ClassDefRewriter::new();
         walk_body(&class_def_transformer, &mut module.body);
     }
-    if run("match_case") {
-        let match_transformer = MatchCaseRewriter::new();
-        walk_body(&match_transformer, &mut module.body);
-    }
     if run("import") {
         let import_rewriter = transform::import::ImportRewriter::new();
         walk_body(&import_rewriter, &mut module.body);
@@ -104,10 +90,6 @@ fn apply_transforms(module: &mut ModModule, transforms: Option<&HashSet<String>>
     if run("truthy") {
         let truthy_transformer = TruthyRewriter::new();
         walk_body(&truthy_transformer, &mut module.body);
-    }
-    if run("try_except") {
-        let try_transformer = TryExceptRewriter::new();
-        walk_body(&try_transformer, &mut module.body);
     }
     if run("expr") {
         let expr_transformer = ExprRewriter::new();
