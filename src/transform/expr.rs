@@ -4,7 +4,7 @@ use ruff_text_size::TextRange;
 
 fn make_binop(func_name: &'static str, left: Expr, right: Expr) -> Expr {
     crate::py_expr!(
-        "__dp__.{func:id}({left:expr}, {right:expr})",
+        "_dp_{func:id}({left:expr}, {right:expr})",
         left = left,
         right = right,
         func = func_name
@@ -13,7 +13,7 @@ fn make_binop(func_name: &'static str, left: Expr, right: Expr) -> Expr {
 
 fn make_unaryop(func_name: &'static str, operand: Expr) -> Expr {
     crate::py_expr!(
-        "__dp__.{func:id}({operand:expr})",
+        "_dp_{func:id}({operand:expr})",
         operand = operand,
         func = func_name
     )
@@ -43,20 +43,20 @@ impl Transformer for ExprRewriter {
         *expr = match original {
             Expr::Slice(ast::ExprSlice { lower, upper, step, .. }) => {
                 fn none_name() -> Expr {
-                    crate::py_expr!("\nNone")
+                    crate::py_expr!("None")
                 }
                 let lower_expr = lower.map(|expr| *expr).unwrap_or_else(none_name);
                 let upper_expr = upper.map(|expr| *expr).unwrap_or_else(none_name);
                 let step_expr = step.map(|expr| *expr).unwrap_or_else(none_name);
                 crate::py_expr!(
-                    "\nslice({lower:expr}, {upper:expr}, {step:expr})",
+                    "slice({lower:expr}, {upper:expr}, {step:expr})",
                     lower = lower_expr,
                     upper = upper_expr,
                     step = step_expr,
                 )
             }
             Expr::EllipsisLiteral(_) => {
-                crate::py_expr!("\nEllipsis")
+                crate::py_expr!("Ellipsis")
             }
             Expr::NumberLiteral(ast::ExprNumberLiteral {
                 value: ast::Number::Complex { real, imag },
@@ -73,7 +73,7 @@ impl Transformer for ExprRewriter {
                     value: ast::Number::Float(imag),
                 });
                 crate::py_expr!(
-                    "\ncomplex({real:expr}, {imag:expr})",
+                    "complex({real:expr}, {imag:expr})",
                     real = real_expr,
                     imag = imag_expr,
                 )
@@ -136,21 +136,21 @@ impl Transformer for ExprRewriter {
             {
                 let value_expr = *value;
                 crate::py_expr!(
-                    "\ngetattr({value:expr}, {attr:literal})",
+                    "getattr({value:expr}, {attr:literal})",
                     value = value_expr,
                     attr = attr.id.as_str(),
                 )
             }
             Expr::NoneLiteral(_) => {
-                crate::py_expr!("\nNone")
+                crate::py_expr!("None")
             }
             Expr::List(ast::ExprList { elts, .. }) => {
                 let tuple = Self::tuple_from(elts);
-                crate::py_expr!("\nlist({tuple:expr})", tuple = tuple,)
+                crate::py_expr!("list({tuple:expr})", tuple = tuple,)
             }
             Expr::Set(ast::ExprSet { elts, .. }) => {
                 let tuple = Self::tuple_from(elts);
-                crate::py_expr!("\nset({tuple:expr})", tuple = tuple,)
+                crate::py_expr!("set({tuple:expr})", tuple = tuple,)
             }
             Expr::Dict(ast::ExprDict { items, .. }) if items.iter().all(|item| item.key.is_some()) => {
                 let pairs: Vec<Expr> = items
@@ -158,18 +158,18 @@ impl Transformer for ExprRewriter {
                     .map(|item| {
                         let key = item.key.unwrap();
                         let value = item.value;
-                        crate::py_expr!("\n({key:expr}, {value:expr})", key = key, value = value,)
+                        crate::py_expr!("({key:expr}, {value:expr})", key = key, value = value,)
                     })
                     .collect();
                 let tuple = Self::tuple_from(pairs);
-                crate::py_expr!("\ndict({tuple:expr})", tuple = tuple,)
+                crate::py_expr!("dict({tuple:expr})", tuple = tuple,)
             }
             Expr::If(ast::ExprIf { test, body, orelse, .. }) => {
                 let test_expr = *test;
                 let body_expr = *body;
                 let orelse_expr = *orelse;
                 crate::py_expr!(
-                    "\n__dp__.if_expr({cond:expr}, lambda: {body:expr}, lambda: {orelse:expr})",
+                    "_dp_if_expr({cond:expr}, lambda: {body:expr}, lambda: {orelse:expr})",
                     cond = test_expr,
                     body = body_expr,
                     orelse = orelse_expr,
@@ -180,12 +180,12 @@ impl Transformer for ExprRewriter {
                 while let Some(value) = values.pop() {
                     result = match op {
                         ast::BoolOp::Or => crate::py_expr!(
-                            "\n__dp__.or_expr({left:expr}, lambda: {right:expr})",
+                            "_dp_or_expr({left:expr}, lambda: {right:expr})",
                             left = value,
                             right = result,
                         ),
                         ast::BoolOp::And => crate::py_expr!(
-                            "\n__dp__.and_expr({left:expr}, lambda: {right:expr})",
+                            "_dp_and_expr({left:expr}, lambda: {right:expr})",
                             left = value,
                             right = result,
                         ),
@@ -297,14 +297,14 @@ impl Transformer for ExprRewriter {
                 let obj = (*sub.value).clone();
                 let key = (*sub.slice).clone();
                 *stmt = crate::py_stmt!(
-                    "__dp__.delitem({obj:expr}, {key:expr})",
+                    "_dp_delitem({obj:expr}, {key:expr})",
                     obj = obj,
                     key = key,
                 );
             } else if let Expr::Attribute(attr) = &del.targets[0] {
                 let obj = (*attr.value).clone();
                 *stmt = crate::py_stmt!(
-                    "__dp__.delattr({obj:expr}, {name:literal})",
+                    "_dp_delattr({obj:expr}, {name:literal})",
                     obj = obj,
                     name = attr.attr.as_str(),
                 );
@@ -353,7 +353,7 @@ mod tests {
 
     #[test]
     fn rewrites_binary_ops() {
-        let cases = [("a + b", "__dp__.add(a, b)"), ("a - b", "__dp__.sub(a, b)")];
+        let cases = [("a + b", "_dp_add(a, b)"), ("a - b", "_dp_sub(a, b)")];
 
         for (input, expected) in cases {
             let output = rewrite_source(input);
@@ -369,7 +369,7 @@ x += 2
 ";
         let expected = "
 x = 1
-x = __dp__.iadd(x, 2)
+x = _dp_iadd(x, 2)
 ";
         let output = rewrite_source(input);
         assert_eq!(output.trim(), expected.trim());
@@ -383,7 +383,7 @@ x = __dp__.iadd(x, 2)
 -a
 ",
                 "
-__dp__.neg(a)
+_dp_neg(a)
 ",
             ),
             (
@@ -391,7 +391,7 @@ __dp__.neg(a)
 ~b
 ",
                 "
-__dp__.invert(b)
+_dp_invert(b)
 ",
             ),
             (
@@ -399,7 +399,7 @@ __dp__.invert(b)
 not c
 ",
                 "
-__dp__.not_(c)
+_dp_not_(c)
 ",
             ),
             (
@@ -407,7 +407,7 @@ __dp__.not_(c)
 +a
 ",
                 "
-__dp__.pos(a)
+_dp_pos(a)
 ",
             ),
         ];
@@ -426,7 +426,7 @@ __dp__.pos(a)
 a or b
 "#,
                 r#"
-__dp__.or_expr(a, lambda: b)
+_dp_or_expr(a, lambda: b)
 "#,
             ),
             (
@@ -434,7 +434,7 @@ __dp__.or_expr(a, lambda: b)
 a and b
 "#,
                 r#"
-__dp__.and_expr(a, lambda: b)
+_dp_and_expr(a, lambda: b)
 "#,
             ),
             (
@@ -442,7 +442,7 @@ __dp__.and_expr(a, lambda: b)
 f() or a
 "#,
                 r#"
-__dp__.or_expr(f(), lambda: a)
+_dp_or_expr(f(), lambda: a)
 "#,
             ),
             (
@@ -450,7 +450,7 @@ __dp__.or_expr(f(), lambda: a)
 f() and a
 "#,
                 r#"
-__dp__.and_expr(f(), lambda: a)
+_dp_and_expr(f(), lambda: a)
 "#,
             ),
         ];
@@ -471,7 +471,7 @@ a or b or c
         assert_eq!(
             output.trim(),
             r#"
-__dp__.or_expr(a, lambda: __dp__.or_expr(b, lambda: c))
+_dp_or_expr(a, lambda: _dp_or_expr(b, lambda: c))
 "#
             .trim(),
         );
@@ -484,7 +484,7 @@ a and b and c
         assert_eq!(
             output.trim(),
             r#"
-__dp__.and_expr(a, lambda: __dp__.and_expr(b, lambda: c))
+_dp_and_expr(a, lambda: _dp_and_expr(b, lambda: c))
 "#
             .trim(),
         );
@@ -493,16 +493,16 @@ __dp__.and_expr(a, lambda: __dp__.and_expr(b, lambda: c))
     #[test]
     fn rewrites_comparisons() {
         let cases = [
-            ("a == b", "__dp__.eq(a, b)"),
-            ("a != b", "__dp__.ne(a, b)"),
-            ("a < b", "__dp__.lt(a, b)"),
-            ("a <= b", "__dp__.le(a, b)"),
-            ("a > b", "__dp__.gt(a, b)"),
-            ("a >= b", "__dp__.ge(a, b)"),
-            ("a is b", "__dp__.is_(a, b)"),
-            ("a is not b", "__dp__.is_not(a, b)"),
-            ("a in b", "__dp__.contains(b, a)"),
-            ("a not in b", "__dp__.not_(__dp__.contains(b, a))"),
+            ("a == b", "_dp_eq(a, b)"),
+            ("a != b", "_dp_ne(a, b)"),
+            ("a < b", "_dp_lt(a, b)"),
+            ("a <= b", "_dp_le(a, b)"),
+            ("a > b", "_dp_gt(a, b)"),
+            ("a >= b", "_dp_ge(a, b)"),
+            ("a is b", "_dp_is_(a, b)"),
+            ("a is not b", "_dp_is_not(a, b)"),
+            ("a in b", "_dp_contains(b, a)"),
+            ("a not in b", "_dp_not_(_dp_contains(b, a))"),
         ];
 
         for (input, expected) in cases {
@@ -519,7 +519,7 @@ __dp__.and_expr(a, lambda: __dp__.and_expr(b, lambda: c))
 a if b else c
 "#,
                 r#"
-__dp__.if_expr(b, lambda: a, lambda: c)
+_dp_if_expr(b, lambda: a, lambda: c)
 "#,
             ),
             (
@@ -527,7 +527,7 @@ __dp__.if_expr(b, lambda: a, lambda: c)
 (a + 1) if f() else (b + 2)
 "#,
                 r#"
-__dp__.if_expr(f(), lambda: __dp__.add(a, 1), lambda: __dp__.add(b, 2))
+_dp_if_expr(f(), lambda: _dp_add(a, 1), lambda: _dp_add(b, 2))
 "#,
             ),
         ];
@@ -540,25 +540,25 @@ __dp__.if_expr(f(), lambda: __dp__.add(a, 1), lambda: __dp__.add(b, 2))
     #[test]
     fn rewrites_getitem() {
         let output = rewrite_source("a[b]");
-        assert_eq!(output.trim_end(), "__dp__.getitem(a, b)");
+        assert_eq!(output.trim_end(), "_dp_getitem(a, b)");
     }
 
     #[test]
     fn rewrites_delitem() {
         let output = rewrite_source("del a[b]");
-        assert_eq!(output.trim_end(), "__dp__.delitem(a, b)");
+        assert_eq!(output.trim_end(), "_dp_delitem(a, b)");
     }
 
     #[test]
     fn rewrites_delattr() {
         let output = rewrite_source("del a.b");
-        assert_eq!(output.trim_end(), "__dp__.delattr(a, \"b\")");
+        assert_eq!(output.trim_end(), "_dp_delattr(a, \"b\")");
     }
 
     #[test]
     fn rewrites_nested_delitem() {
         let output = rewrite_source("del a.b[1]");
-        assert_eq!(output.trim_end(), "__dp__.delitem(getattr(a, \"b\"), 1)");
+        assert_eq!(output.trim_end(), "_dp_delitem(getattr(a, \"b\"), 1)");
     }
 
     #[test]
@@ -566,14 +566,14 @@ __dp__.if_expr(f(), lambda: __dp__.add(a, 1), lambda: __dp__.add(b, 2))
         let output = rewrite_source("del a.b[1].c");
         assert_eq!(
             output.trim_end(),
-            "__dp__.delattr(__dp__.getitem(getattr(a, \"b\"), 1), \"c\")"
+            "_dp_delattr(_dp_getitem(getattr(a, \"b\"), 1), \"c\")"
         );
     }
 
     #[test]
     fn rewrites_multi_delitem_targets() {
         let output = rewrite_source("del a[0], b[0]");
-        let expected = "__dp__.delitem(a, 0)\n__dp__.delitem(b, 0)";
+        let expected = "_dp_delitem(a, 0)\n_dp_delitem(b, 0)";
         assert_eq!(output.trim(), expected.trim());
     }
 
@@ -616,11 +616,11 @@ a = dict((('a', 1), ('b', 2)))
     #[test]
     fn rewrites_slices() {
         let cases = [
-            ("a[1:2:3]", "__dp__.getitem(a, slice(1, 2, 3))"),
-            ("a[1:2]", "__dp__.getitem(a, slice(1, 2, None))"),
-            ("a[:2]", "__dp__.getitem(a, slice(None, 2, None))"),
-            ("a[::2]", "__dp__.getitem(a, slice(None, None, 2))"),
-            ("a[:]", "__dp__.getitem(a, slice(None, None, None))"),
+            ("a[1:2:3]", "_dp_getitem(a, slice(1, 2, 3))"),
+            ("a[1:2]", "_dp_getitem(a, slice(1, 2, None))"),
+            ("a[:2]", "_dp_getitem(a, slice(None, 2, None))"),
+            ("a[::2]", "_dp_getitem(a, slice(None, None, 2))"),
+            ("a[:]", "_dp_getitem(a, slice(None, None, None))"),
         ];
 
         for (input, expected) in cases {
@@ -633,7 +633,7 @@ a = dict((('a', 1), ('b', 2)))
     fn rewrites_complex_literals() {
         let cases = [
             ("a = 1j", "a = complex(0.0, 1.0)"),
-            ("a = 1 + 2j", "a = __dp__.add(1, complex(0.0, 2.0))"),
+            ("a = 1 + 2j", "a = _dp_add(1, complex(0.0, 2.0))"),
         ];
 
         for (input, expected) in cases {
