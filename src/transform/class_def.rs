@@ -104,7 +104,7 @@ impl Transformer for ClassDefRewriter {
                         let mk_body = vec![
                             Stmt::FunctionDef(func_def),
                             crate::py_stmt!(
-                                "{fn_name:id}.__qualname__ = _ns[\"__qualname__\"] + {suffix:expr}",
+                                "\n{fn_name:id}.__qualname__ = _ns[\"__qualname__\"] + {suffix:expr}",
                                 fn_name = fn_name.as_str(),
                                 suffix = string_expr(&format!(".{}", fn_name))
                             ),

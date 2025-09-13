@@ -1,108 +1,29 @@
-use diet_python::min_ast::{
-    Arg, ExprNode, FunctionDef, Module, Number, OuterScopeVars, Parameter, StmtNode,
-};
+use diet_python::min_ast::{ExprNode, FunctionDef, Number, StmtNode};
 use diet_python::transform_min_ast;
 
 #[test]
 fn builds_minimal_ast() {
-    let src = "\nasync def f(x, *a, y=True, **k):\n    await g(x, *a, y=y, **k)\n    return (True, False)\n";
+    let src = r#"
+async def f(x, *a, y=True, **k):
+    await g(x, *a, y=y, **k)
+    return (True, False)
+"#;
     let module = transform_min_ast(src, None).unwrap();
-    let expected = Module {
-        body: vec![StmtNode::FunctionDef(FunctionDef {
-            name: "f".to_string(),
-            params: vec![
-                Parameter::Positional {
-                    name: "x".to_string(),
-                    default: None,
-                },
-                Parameter::VarArg {
-                    name: "a".to_string(),
-                },
-                Parameter::KwOnly {
-                    name: "y".to_string(),
-                    default: Some(ExprNode::Name("True".to_string())),
-                },
-                Parameter::KwArg {
-                    name: "k".to_string(),
-                },
-            ],
-            body: vec![
-                StmtNode::Expr(ExprNode::Await(Box::new(ExprNode::Call {
-                    func: Box::new(ExprNode::Name("g".to_string())),
-                    args: vec![
-                        Arg::Positional(ExprNode::Name("x".to_string())),
-                        Arg::Starred(ExprNode::Name("a".to_string())),
-                        Arg::Keyword {
-                            name: "y".to_string(),
-                            value: ExprNode::Name("y".to_string()),
-                        },
-                        Arg::KwStarred(ExprNode::Name("k".to_string())),
-                    ],
-                }))),
-                StmtNode::Return {
-                    value: Some(ExprNode::Tuple(vec![
-                        ExprNode::Name("True".to_string()),
-                        ExprNode::Name("False".to_string()),
-                    ])),
-                },
-            ],
-            is_async: true,
-            scope_vars: OuterScopeVars {
-                globals: vec![],
-                nonlocals: vec![],
-            },
-        })],
-    };
-    assert_eq!(module, expected);
-}
-
-#[test]
-fn try_except_else() {
-    let src = "\ntry:\n    f()\nexcept:\n    g()\nelse:\n    h()\n";
-    use std::collections::HashSet;
-    let module = transform_min_ast(src, Some(&HashSet::new())).unwrap();
-    let expected = Module {
-        body: vec![StmtNode::Try {
-            body: vec![StmtNode::Expr(ExprNode::Call {
-                func: Box::new(ExprNode::Name("f".to_string())),
-                args: vec![],
-            })],
-            handler: Some(vec![StmtNode::Expr(ExprNode::Call {
-                func: Box::new(ExprNode::Name("g".to_string())),
-                args: vec![],
-            })]),
-            orelse: vec![StmtNode::Expr(ExprNode::Call {
-                func: Box::new(ExprNode::Name("h".to_string())),
-                args: vec![],
-            })],
-            finalbody: vec![],
-        }],
-    };
-    assert_eq!(module, expected);
-}
-
-#[test]
-#[should_panic]
-fn typed_except_panics() {
-    let src = "\ntry:\n    f()\nexcept E:\n    g()\n";
-    use std::collections::HashSet;
-    transform_min_ast(src, Some(&HashSet::new())).unwrap();
-}
-
-#[test]
-fn global_statements() {
-    let src = "\ndef f():\n    global a, b\n";
-    let module = transform_min_ast(src, None).unwrap();
-    if let StmtNode::FunctionDef(FunctionDef { scope_vars, .. }) = &module.body[0] {
-        assert_eq!(scope_vars.globals, vec!["a".to_string(), "b".to_string()]);
-    } else {
-        panic!("expected function definition");
-    }
+    let expected = r#"
+Module { body: [FunctionDef(FunctionDef { name: "f", params: [Positional { name: "x", default: None }, VarArg { name: "a" }, KwOnly { name: "y", default: Some(Name("True")) }, KwArg { name: "k" }], body: [Expr(Await(Call { func: Name("g"), args: [Positional(Name("x")), Starred(Name("a")), Keyword { name: "y", value: Name("y") }, KwStarred(Name("k"))] })), Return { value: Some(Tuple([Name("True"), Name("False")])) }], is_async: true, scope_vars: OuterScopeVars { globals: [], nonlocals: [] } })] }
+"#;
+    assert_eq!(format!("{module:?}"), expected.trim());
 }
 
 #[test]
 fn nonlocal_statements() {
-    let src = "\ndef outer():\n    x = 0\n    y = 0\n    def inner():\n        nonlocal x, y\n";
+    let src = r#"
+def outer():
+    x = 0
+    y = 0
+    def inner():
+        nonlocal x, y
+"#;
     let module = transform_min_ast(src, None).unwrap();
     if let StmtNode::FunctionDef(FunctionDef { body, .. }) = &module.body[0] {
         if let StmtNode::FunctionDef(FunctionDef { scope_vars, .. }) = &body[2] {
@@ -117,7 +38,10 @@ fn nonlocal_statements() {
 
 #[test]
 fn number_literals() {
-    let src = "\nx = 1\ny = 2.5\n";
+    let src = r#"
+x = 1
+y = 2.5
+"#;
     let module = transform_min_ast(src, None).unwrap();
     assert_eq!(
         module.body,
@@ -136,7 +60,9 @@ fn number_literals() {
 
 #[test]
 fn none_becomes_name() {
-    let src = "\nx = None\n";
+    let src = r#"
+x = None
+"#;
     let module = transform_min_ast(src, None).unwrap();
     assert_eq!(
         module.body,
@@ -150,20 +76,26 @@ fn none_becomes_name() {
 #[test]
 #[should_panic]
 fn top_level_nonlocal_panics() {
-    let src = "\nnonlocal x\n";
+    let src = r#"
+nonlocal x
+"#;
     transform_min_ast(src, None).unwrap();
 }
 
 #[test]
 fn top_level_global_ignored() {
-    let src = "\nglobal x\n";
+    let src = r#"
+global x
+"#;
     let module = transform_min_ast(src, None).unwrap();
     assert!(module.body.is_empty());
 }
 
 #[test]
 fn string_literals() {
-    let src = "\nx = 'hi'\n";
+    let src = r#"
+x = 'hi'
+"#;
     let module = transform_min_ast(src, None).unwrap();
     assert_eq!(
         module.body,

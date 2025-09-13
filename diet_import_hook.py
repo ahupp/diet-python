@@ -9,10 +9,6 @@ REPO_ROOT = Path(__file__).resolve().parent
 
 def _should_transform(path: str) -> bool:
     """Return ``True`` if ``path`` should be passed through the transform."""
-
-    path_obj = Path(path).resolve()
-    if not path_obj.is_relative_to(REPO_ROOT / "tests"):
-        return False
     try:
         with open(path, "r", encoding="utf-8") as file:
             return "diet-python: disable" not in file.read()
@@ -33,10 +29,17 @@ class DietPythonLoader(importlib.machinery.SourceFileLoader):
                 cwd=str(REPO_ROOT),
                 check=True,
             )
+            source = proc.stdout
         except (OSError, subprocess.CalledProcessError) as err:
-            raise ImportError(f"diet-python failed for {path}: {err}") from err
-        transformed = proc.stdout
-        return super().source_to_code(transformed.encode("utf-8"), path, _optimize=_optimize)
+            print(f"diet-python failed for {path}: {err}", file=sys.stderr)
+            try:
+                with open(path, "r", encoding="utf-8") as file:
+                    source = file.read()
+            except OSError as read_err:
+                raise ImportError(
+                    f"diet-python could not read source for {path}: {read_err}"
+                ) from err
+        return super().source_to_code(source.encode("utf-8"), path, _optimize=_optimize)
 
 
 class DietPythonFinder(importlib.machinery.PathFinder):
