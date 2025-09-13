@@ -1,6 +1,5 @@
 pub(crate) mod assert;
 pub(crate) mod class_def;
-pub(crate) mod comprehension;
 pub(crate) mod decorator;
 pub(crate) mod expr;
 pub(crate) mod for_loop;

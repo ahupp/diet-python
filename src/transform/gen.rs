@@ -4,7 +4,6 @@ use ruff_python_ast::name::Name;
 use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 
-use super::comprehension::rewrite_comprehension;
 
 pub struct GeneratorRewriter {
     gen_count: Cell<usize>,
@@ -60,11 +59,6 @@ impl Transformer for GeneratorRewriter {
     }
 
     fn visit_expr(&self, expr: &mut Expr) {
-        if rewrite_comprehension(self, expr) {
-            walk_expr(self, expr);
-            return;
-        }
-
         if let Expr::Generator(gen) = expr {
             let first_iter_expr = gen.generators.first().unwrap().iter.clone();
 
