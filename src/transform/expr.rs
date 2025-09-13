@@ -1,3 +1,5 @@
+use std::cell::Cell;
+
 use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, CmpOp, Expr, Operator, Stmt, UnaryOp};
 use ruff_text_size::TextRange;
@@ -19,11 +21,21 @@ fn make_unaryop(func_name: &'static str, operand: Expr) -> Expr {
     )
 }
 
-pub struct ExprRewriter;
+pub struct ExprRewriter {
+    tmp_count: Cell<usize>,
+}
 
 impl ExprRewriter {
     pub fn new() -> Self {
-        Self
+        Self {
+            tmp_count: Cell::new(0),
+        }
+    }
+
+    fn next_tmp(&self) -> String {
+        let id = self.tmp_count.get() + 1;
+        self.tmp_count.set(id);
+        format!("_dp_tmp_{}", id)
     }
 
     fn tuple_from(elts: Vec<Expr>) -> Expr {
@@ -34,6 +46,112 @@ impl ExprRewriter {
             ctx: ast::ExprContext::Load,
             parenthesized: false,
         })
+    }
+
+    fn rewrite_target(&self, target: Expr, value: Expr, out: &mut Vec<Stmt>) {
+        match target {
+            Expr::Tuple(tuple) => {
+                let tmp_name = self.next_tmp();
+                let tmp_expr = crate::py_expr!(
+                    "
+{name:id}
+",
+                    name = tmp_name.as_str(),
+                );
+                let mut tmp_stmt = crate::py_stmt!(
+                    "
+{name:id} = {value:expr}
+",
+                    name = tmp_name.as_str(),
+                    value = value,
+                );
+                walk_stmt(self, &mut tmp_stmt);
+                out.push(tmp_stmt);
+                for (i, elt) in tuple.elts.into_iter().enumerate() {
+                    let mut elt_stmt = crate::py_stmt!(
+                        "
+{target:expr} = {tmp:expr}[{idx:literal}]
+",
+                        target = elt,
+                        tmp = tmp_expr.clone(),
+                        idx = i,
+                    );
+                    walk_stmt(self, &mut elt_stmt);
+                    out.push(elt_stmt);
+                }
+            }
+            Expr::List(list) => {
+                let tmp_name = self.next_tmp();
+                let tmp_expr = crate::py_expr!(
+                    "
+{name:id}
+",
+                    name = tmp_name.as_str(),
+                );
+                let mut tmp_stmt = crate::py_stmt!(
+                    "
+{name:id} = {value:expr}
+",
+                    name = tmp_name.as_str(),
+                    value = value,
+                );
+                walk_stmt(self, &mut tmp_stmt);
+                out.push(tmp_stmt);
+                for (i, elt) in list.elts.into_iter().enumerate() {
+                    let mut elt_stmt = crate::py_stmt!(
+                        "
+{target:expr} = {tmp:expr}[{idx:literal}]
+",
+                        target = elt,
+                        tmp = tmp_expr.clone(),
+                        idx = i,
+                    );
+                    walk_stmt(self, &mut elt_stmt);
+                    out.push(elt_stmt);
+                }
+            }
+            Expr::Attribute(attr) => {
+                let obj = (*attr.value).clone();
+                let mut stmt = crate::py_stmt!(
+                    "
+__dp__.setattr({obj:expr}, {name:literal}, {value:expr})
+",
+                    obj = obj,
+                    name = attr.attr.as_str(),
+                    value = value,
+                );
+                walk_stmt(self, &mut stmt);
+                out.push(stmt);
+            }
+            Expr::Subscript(sub) => {
+                let obj = (*sub.value).clone();
+                let key = (*sub.slice).clone();
+                let mut stmt = crate::py_stmt!(
+                    "
+__dp__.setitem({obj:expr}, {key:expr}, {value:expr})
+",
+                    obj = obj,
+                    key = key,
+                    value = value,
+                );
+                walk_stmt(self, &mut stmt);
+                out.push(stmt);
+            }
+            Expr::Name(_) => {
+                let mut stmt = crate::py_stmt!(
+                    "
+{target:expr} = {value:expr}
+",
+                    target = target,
+                    value = value,
+                );
+                walk_stmt(self, &mut stmt);
+                out.push(stmt);
+            }
+            _ => {
+                panic!("unsupported assignment target");
+            }
+        }
     }
 }
 
@@ -144,7 +262,9 @@ impl Transformer for ExprRewriter {
             Expr::NoneLiteral(_) => {
                 crate::py_expr!("None")
             }
-            Expr::List(ast::ExprList { elts, .. }) => {
+            Expr::List(ast::ExprList { elts, ctx, .. })
+                if matches!(ctx, ast::ExprContext::Load) =>
+            {
                 let tuple = Self::tuple_from(elts);
                 crate::py_expr!("list({tuple:expr})", tuple = tuple,)
             }
@@ -260,55 +380,113 @@ impl Transformer for ExprRewriter {
     fn visit_stmt(&self, stmt: &mut Stmt) {
         walk_stmt(self, stmt);
 
-        if let Stmt::AugAssign(aug) = stmt {
-            let target = (*aug.target).clone();
-            let value = (*aug.value).clone();
+        match stmt {
+            Stmt::Assign(assign) => {
+                let value = (*assign.value).clone();
+                let mut stmts = Vec::new();
+                if assign.targets.len() > 1 {
+                    let tmp_name = self.next_tmp();
+                    let tmp_expr = crate::py_expr!(
+                        "
+{name:id}
+",
+                        name = tmp_name.as_str(),
+                    );
+                    let mut tmp_stmt = crate::py_stmt!(
+                        "
+{name:id} = {value:expr}
+",
+                        name = tmp_name.as_str(),
+                        value = value,
+                    );
+                    walk_stmt(self, &mut tmp_stmt);
+                    stmts.push(tmp_stmt);
+                    for target in &assign.targets {
+                        self.rewrite_target(target.clone(), tmp_expr.clone(), &mut stmts);
+                    }
+                } else {
+                    self.rewrite_target(assign.targets[0].clone(), value, &mut stmts);
+                }
+                if stmts.len() == 1 {
+                    *stmt = stmts.pop().unwrap();
+                } else {
+                    *stmt = crate::py_stmt!(
+                        "
+{body:stmt}
+",
+                        body = stmts,
+                    );
+                }
+            }
+            Stmt::AugAssign(aug) => {
+                let target = (*aug.target).clone();
+                let value = (*aug.value).clone();
 
-            let func_name = match aug.op {
-                Operator::Add => "iadd",
-                Operator::Sub => "isub",
-                Operator::Mult => "imul",
-                Operator::MatMult => "imatmul",
-                Operator::Div => "itruediv",
-                Operator::Mod => "imod",
-                Operator::Pow => "ipow",
-                Operator::LShift => "ilshift",
-                Operator::RShift => "irshift",
-                Operator::BitOr => "ior",
-                Operator::BitXor => "ixor",
-                Operator::BitAnd => "iand",
-                Operator::FloorDiv => "ifloordiv",
-            };
+                let func_name = match aug.op {
+                    Operator::Add => "iadd",
+                    Operator::Sub => "isub",
+                    Operator::Mult => "imul",
+                    Operator::MatMult => "imatmul",
+                    Operator::Div => "itruediv",
+                    Operator::Mod => "imod",
+                    Operator::Pow => "ipow",
+                    Operator::LShift => "ilshift",
+                    Operator::RShift => "irshift",
+                    Operator::BitOr => "ior",
+                    Operator::BitXor => "ixor",
+                    Operator::BitAnd => "iand",
+                    Operator::FloorDiv => "ifloordiv",
+                };
 
-            let call = make_binop(func_name, target.clone(), value);
+                let call = make_binop(func_name, target.clone(), value);
 
-            *stmt = crate::py_stmt!(
-                "{target:expr} = {value:expr}",
-                target = target,
-                value = call,
-            );
-        } else if let Stmt::Delete(del) = stmt {
-            assert_eq!(
-                del.targets.len(),
-                1,
-                "expected single delete target; MultiTargetRewriter must run first"
-            );
-            if let Expr::Subscript(sub) = &del.targets[0] {
-                let obj = (*sub.value).clone();
-                let key = (*sub.slice).clone();
                 *stmt = crate::py_stmt!(
-                    "_dp_delitem({obj:expr}, {key:expr})",
-                    obj = obj,
-                    key = key,
-                );
-            } else if let Expr::Attribute(attr) = &del.targets[0] {
-                let obj = (*attr.value).clone();
-                *stmt = crate::py_stmt!(
-                    "_dp_delattr({obj:expr}, {name:literal})",
-                    obj = obj,
-                    name = attr.attr.as_str(),
+                    "{target:expr} = {value:expr}",
+                    target = target,
+                    value = call,
                 );
             }
+            Stmt::Delete(del) => {
+                let mut stmts = Vec::with_capacity(del.targets.len());
+                for target in &del.targets {
+                    if let Expr::Subscript(sub) = target {
+                        let obj = (*sub.value).clone();
+                        let key = (*sub.slice).clone();
+                        stmts.push(crate::py_stmt!(
+                            "_dp_delitem({obj:expr}, {key:expr})",
+                            obj = obj,
+                            key = key,
+                        ));
+                    } else if let Expr::Attribute(attr) = target {
+                        let obj = (*attr.value).clone();
+                        stmts.push(crate::py_stmt!(
+                            "_dp_delattr({obj:expr}, {name:literal})",
+                            obj = obj,
+                            name = attr.attr.as_str(),
+                        ));
+                    } else {
+                        stmts.push(crate::py_stmt!(
+                            "del {target:expr}",
+                            target = target.clone(),
+                        ));
+                    }
+                }
+                if stmts.len() == 1 {
+                    *stmt = stmts.pop().unwrap();
+                } else {
+                    *stmt = crate::py_stmt!("{body:stmt}", body = stmts);
+                }
+            }
+            Stmt::Raise(ast::StmtRaise { exc: Some(exc), cause: Some(cause), .. }) => {
+                let exc_expr = *exc.clone();
+                let cause_expr = *cause.clone();
+                *stmt = crate::py_stmt!(
+                    "raise __dp__.raise_from({exc:expr}, {cause:expr})",
+                    exc = exc_expr,
+                    cause = cause_expr,
+                );
+            }
+            _ => {}
         }
     }
 }
@@ -317,7 +495,6 @@ impl Transformer for ExprRewriter {
 mod tests {
     use super::*;
     use crate::transform::gen::GeneratorRewriter;
-    use crate::transform::multi_target::MultiTargetRewriter;
     use ruff_python_ast::visitor::transformer::walk_body;
     use ruff_python_codegen::{Generator, Stylist};
     use ruff_python_parser::parse_module;
@@ -332,9 +509,6 @@ mod tests {
 
         let for_transformer = crate::transform::for_loop::ForLoopRewriter::new();
         walk_body(&for_transformer, &mut module.body);
-
-        let multi_transformer = MultiTargetRewriter::new();
-        walk_body(&multi_transformer, &mut module.body);
 
         let expr_transformer = ExprRewriter::new();
         walk_body(&expr_transformer, &mut module.body);
@@ -578,6 +752,36 @@ _dp_if_expr(f(), lambda: _dp_add(a, 1), lambda: _dp_add(b, 2))
     }
 
     #[test]
+    fn rewrites_chain_assignment() {
+        let output = rewrite_source(
+            r#"
+a = b = c
+"#,
+        );
+        let expected = r#"
+_dp_tmp_1 = c
+a = _dp_tmp_1
+b = _dp_tmp_1
+"#;
+        assert_eq!(output.trim(), expected.trim());
+    }
+
+    #[test]
+    fn rewrites_raise_from() {
+        let output = rewrite_source("raise ValueError from exc");
+        assert_eq!(
+            output.trim_end(),
+            "raise __dp__.raise_from(ValueError, exc)",
+        );
+    }
+
+    #[test]
+    fn does_not_rewrite_plain_raise() {
+        let output = rewrite_source("raise ValueError");
+        assert_eq!(output.trim_end(), "raise ValueError");
+    }
+
+    #[test]
     fn rewrites_list_literal() {
         let input = r#"
 a = [1, 2, 3]
@@ -663,5 +867,76 @@ a = dict((('a', 1), ('b', 2)))
             let output = rewrite_source(input);
             assert_eq!(output.trim_end(), expected);
         }
+    }
+
+    #[test]
+    fn desugars_tuple_unpacking() {
+        let output = rewrite_source(
+            r#"
+a, b = c
+"#,
+        );
+        let expected = r#"
+_dp_tmp_1 = c
+a = _dp_getitem(_dp_tmp_1, 0)
+b = _dp_getitem(_dp_tmp_1, 1)
+"#;
+        assert_eq!(output.trim(), expected.trim());
+    }
+
+    #[test]
+    fn desugars_list_unpacking() {
+        let output = rewrite_source(
+            r#"
+[a, b] = c
+"#,
+        );
+        let expected = r#"
+_dp_tmp_1 = c
+a = _dp_getitem(_dp_tmp_1, 0)
+b = _dp_getitem(_dp_tmp_1, 1)
+"#;
+        assert_eq!(output.trim(), expected.trim());
+    }
+
+    #[test]
+    fn rewrites_attribute_assignment() {
+        let output = rewrite_source(
+            r#"
+a.b = c
+"#,
+        );
+        let expected = r#"
+getattr(__dp__, "setattr")(a, "b", c)
+"#;
+        assert_eq!(output.trim(), expected.trim());
+    }
+
+    #[test]
+    fn rewrites_subscript_assignment() {
+        let output = rewrite_source(
+            r#"
+a[b] = c
+"#,
+        );
+        let expected = r#"
+getattr(__dp__, "setitem")(a, b, c)
+"#;
+        assert_eq!(output.trim(), expected.trim());
+    }
+
+    #[test]
+    fn rewrites_chain_assignment_with_subscript() {
+        let output = rewrite_source(
+            r#"
+a[0] = b = 1
+"#,
+        );
+        let expected = r#"
+_dp_tmp_1 = 1
+getattr(__dp__, "setitem")(a, 0, _dp_tmp_1)
+b = _dp_tmp_1
+"#;
+        assert_eq!(output.trim(), expected.trim());
     }
 }
