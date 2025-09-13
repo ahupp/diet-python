@@ -31,6 +31,7 @@ use transform::multi_target::MultiTargetRewriter;
 use transform::operator::OperatorRewriter;
 use transform::raise::RaiseRewriter;
 use transform::simple_expr::SimpleExprTransformer;
+use transform::ternary::TernaryRewriter;
 use transform::truthy::TruthyRewriter;
 use transform::try_except::TryExceptRewriter;
 use transform::with::WithRewriter;
@@ -51,6 +52,7 @@ const TRANSFORM_NAMES: &[&str] = &[
     "truthy",
     "try_except",
     "operator",
+    "ternary",
     "simple_expr",
     "flatten",
 ];
@@ -146,6 +148,10 @@ fn apply_transforms(module: &mut ModModule, transforms: Option<&HashSet<String>>
     if run("operator") {
         let op_transformer = OperatorRewriter::new();
         walk_body(&op_transformer, &mut module.body);
+    }
+    if run("ternary") {
+        let ternary_transformer = TernaryRewriter::new();
+        walk_body(&ternary_transformer, &mut module.body);
     }
     if run("simple_expr") {
         let simple_expr_transformer = SimpleExprTransformer::new();

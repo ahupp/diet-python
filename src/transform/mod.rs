@@ -12,6 +12,7 @@ pub(crate) mod multi_target;
 pub(crate) mod operator;
 pub(crate) mod raise;
 pub(crate) mod simple_expr;
+pub(crate) mod ternary;
 pub(crate) mod truthy;
 pub(crate) mod try_except;
 pub(crate) mod with;

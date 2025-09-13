@@ -106,3 +106,8 @@ def import_(name, spec, fromlist=None, level=0):
     return builtins.__import__(name, globals_dict, {}, fromlist, level)
 
 
+def if_expr(cond, body, orelse):
+    cond_val = truth(cond)
+    return body() if cond_val else orelse()
+
+
