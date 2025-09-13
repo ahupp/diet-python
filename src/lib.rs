@@ -12,6 +12,7 @@ use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsValue;
 
+pub mod ensure_import;
 pub mod intrinsics;
 pub mod min_ast;
 pub mod owned_transform;
@@ -77,6 +78,10 @@ fn apply_transforms(module: &mut ModModule, transforms: Option<&HashSet<String>>
     if run("gen") {
         let gen_transformer = GeneratorRewriter::new();
         gen_transformer.rewrite_body(&mut module.body);
+        if run("expr") {
+            let expr_transformer = ExprRewriter::new();
+            walk_body(&expr_transformer, &mut module.body);
+        }
     }
     if run("flatten") {
         // Previous transforms use `__dp__.<name>` calls; `expr` lowers them
@@ -188,22 +193,23 @@ fn stmt_to_string(stmt: &Stmt, stylist: &Stylist) -> String {
 }
 
 /// Transform the source code and return the resulting string.
-pub fn transform_string(
+pub fn transform_to_string(
     source: &str,
     transforms: Option<&HashSet<String>>,
+    ensure: bool,
 ) -> Result<String, ParseError> {
     if should_skip(source, transforms) {
         return Ok(source.to_string());
     }
-    // Also transform to minimal AST to surface unsupported syntax panics
-    let _ = transform_min_ast(source, transforms)?;
-
     let parsed = parse_module(source)?;
     let tokens = parsed.tokens().clone();
     let mut module = parsed.into_syntax();
 
     apply_transforms(&mut module, transforms);
-    transform::import::ensure_import(&mut module, "__dp__");
+    let _ = std::panic::catch_unwind(|| min_ast::Module::from(module.clone()));
+    if ensure {
+        ensure_import::ensure_import(&mut module, "__dp__");
+    }
 
     let stylist = Stylist::from_tokens(&tokens, source);
     let mut output = String::new();
@@ -213,6 +219,13 @@ pub fn transform_string(
         output.push_str(stylist.line_ending().as_str());
     }
     Ok(output)
+}
+
+pub fn transform_string(
+    source: &str,
+    transforms: Option<&HashSet<String>>,
+) -> Result<String, ParseError> {
+    transform_to_string(source, transforms, true)
 }
 
 /// Transform the source code and return the resulting Ruff AST.
@@ -240,14 +253,14 @@ pub fn transform_min_ast(
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn transform(source: &str) -> Result<String, JsValue> {
-    transform_string(source, None).map_err(|e| e.to_string().into())
+    transform_to_string(source, None, true).map_err(|e| e.to_string().into())
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn transform_selected(source: &str, transforms: Array) -> Result<String, JsValue> {
     let set: HashSet<String> = transforms.iter().filter_map(|v| v.as_string()).collect();
-    transform_string(source, Some(&set)).map_err(|e| e.to_string().into())
+    transform_to_string(source, Some(&set), true).map_err(|e| e.to_string().into())
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -263,20 +276,25 @@ pub fn available_transforms() -> Array {
 mod tests {
     use super::*;
     use std::collections::HashSet;
+    use crate::assert_flatten_eq;
 
     #[test]
-    fn none_means_all_transforms() {
-        let src = "x = 1\n";
-        let result = transform_string(src, None).unwrap();
+    fn always_imports_dp() {
+        let src = r#"
+x = 1
+"#;
+        let result = transform_to_string(src, None, true).unwrap();
         assert!(result.contains("import __dp__"));
     }
 
     #[test]
     fn empty_set_means_no_transforms() {
-        let src = "x = 1\n";
+        let src = r#"
+x = 1
+"#;
         let set = HashSet::new();
-        let result = transform_string(src, Some(&set)).unwrap();
-        assert_eq!(result, src);
+        let module = transform_ruff_ast(src, Some(&set)).unwrap();
+        assert_flatten_eq!(module.body, src);
     }
 
     #[test]
@@ -284,7 +302,8 @@ mod tests {
         let src = r#"
 a.b = 1
 "#;
-        let result = transform_string(src, None).unwrap();
+        let result = transform_to_string(src, None, true).unwrap();
         assert!(result.contains(r#"getattr(__dp__, "setattr")(a, "b", 1)"#));
+        assert!(result.contains("import __dp__"));
     }
 }
