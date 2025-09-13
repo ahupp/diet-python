@@ -63,10 +63,6 @@ fn should_skip(source: &str, transforms: Option<&HashSet<String>>) -> bool {
 
 fn apply_transforms(module: &mut ModModule, transforms: Option<&HashSet<String>>) {
     let run = |name: &str| transforms.map_or(true, |t| t.contains(name));
-    if run("gen") {
-        let gen_transformer = GeneratorRewriter::new();
-        gen_transformer.rewrite_body(&mut module.body);
-    }
     if run("with") {
         let with_transformer = WithRewriter::new();
         walk_body(&with_transformer, &mut module.body);
@@ -94,6 +90,10 @@ fn apply_transforms(module: &mut ModModule, transforms: Option<&HashSet<String>>
     if run("expr") {
         let expr_transformer = ExprRewriter::new();
         walk_body(&expr_transformer, &mut module.body);
+    }
+    if run("gen") {
+        let gen_transformer = GeneratorRewriter::new();
+        gen_transformer.rewrite_body(&mut module.body);
     }
     if run("flatten") {
         // Previous transforms use `__dp__.<name>` calls; `expr` lowers them

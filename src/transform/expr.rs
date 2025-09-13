@@ -55,6 +55,18 @@ impl ExprRewriter {
         })
     }
 
+    fn make_comp_call(func: &str, elt: Expr, generators: Vec<ast::Comprehension>) -> Expr {
+        let gen_expr = Expr::Generator(ast::ExprGenerator {
+            node_index: ast::AtomicNodeIndex::default(),
+            range: TextRange::default(),
+            elt: Box::new(elt),
+            generators,
+            parenthesized: false,
+        });
+
+        crate::py_expr!("{func:id}({gen:expr})", func = func, gen = gen_expr)
+    }
+
     fn rewrite_target(&self, target: Expr, value: Expr, out: &mut Vec<Stmt>) {
         match target {
             Expr::Tuple(tuple) => {
@@ -268,6 +280,20 @@ impl Transformer for ExprRewriter {
             }
             Expr::NoneLiteral(_) => {
                 crate::py_expr!("None")
+            }
+            Expr::ListComp(ast::ExprListComp { elt, generators, .. }) => {
+                Self::make_comp_call("list", *elt, generators)
+            }
+            Expr::SetComp(ast::ExprSetComp { elt, generators, .. }) => {
+                Self::make_comp_call("set", *elt, generators)
+            }
+            Expr::DictComp(ast::ExprDictComp { key, value, generators, .. }) => {
+                let tuple = crate::py_expr!(
+                    "({key:expr}, {value:expr})",
+                    key = *key,
+                    value = *value,
+                );
+                Self::make_comp_call("dict", tuple, generators)
             }
             Expr::List(ast::ExprList { elts, ctx, .. })
                 if matches!(ctx, ast::ExprContext::Load) =>
@@ -526,10 +552,10 @@ mod tests {
         let tokens = parsed.tokens().clone();
         let mut module = parsed.into_syntax();
 
-        let gen_transformer = GeneratorRewriter::new();
-        gen_transformer.rewrite_body(&mut module.body);
         let expr_transformer = ExprRewriter::new();
         walk_body(&expr_transformer, &mut module.body);
+        let gen_transformer = GeneratorRewriter::new();
+        gen_transformer.rewrite_body(&mut module.body);
 
         crate::template::flatten(&mut module.body);
 
@@ -955,6 +981,59 @@ _dp_tmp_1 = 1
 getattr(__dp__, "setitem")(a, 0, _dp_tmp_1)
 b = _dp_tmp_1
 "#;
+        assert_eq!(output.trim(), expected.trim());
+    }
+
+    #[test]
+    fn rewrites_list_comp() {
+        let input = "r = [a + 1 for a in items if a % 2 == 0]";
+        let expected = r#"
+def _dp_gen_1(items):
+    for a in items:
+        if _dp_eq(_dp_mod(a, 2), 0):
+            yield _dp_add(a, 1)
+r = list(_dp_gen_1(__dp__.iter(items)))
+"#;
+        let output = rewrite_source(input);
+        assert_eq!(output.trim(), expected.trim());
+    }
+
+    #[test]
+    fn rewrites_set_comp() {
+        let input = "r = {a for a in items}";
+        let expected = r#"
+def _dp_gen_1(items):
+    for a in items:
+        yield a
+r = set(_dp_gen_1(__dp__.iter(items)))
+"#;
+        let output = rewrite_source(input);
+        assert_eq!(output.trim(), expected.trim());
+    }
+
+    #[test]
+    fn rewrites_dict_comp() {
+        let input = "r = {k: v + 1 for k, v in items if k % 2 == 0}"; 
+        let expected = r#"
+def _dp_gen_1(items):
+    for k, v in items:
+        if _dp_eq(_dp_mod(k, 2), 0):
+            yield k, _dp_add(v, 1)
+r = dict(_dp_gen_1(__dp__.iter(items)))
+"#;
+        let output = rewrite_source(input);
+        assert_eq!(output.trim(), expected.trim());
+    }
+
+    #[test]
+    fn rewrites_multi_generator_list_comp() {
+        let input = "r = [a * b for a in items for b in items2]";
+        let expected = r#"def _dp_gen_1(items):
+    for a in items:
+        for b in items2:
+            yield _dp_mul(a, b)
+r = list(_dp_gen_1(__dp__.iter(items)))"#;
+        let output = rewrite_source(input);
         assert_eq!(output.trim(), expected.trim());
     }
 }
