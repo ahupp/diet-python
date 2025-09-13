@@ -25,7 +25,7 @@ macro_rules! py_stmt {
         #[allow(unused_mut)]
         let mut values: HashMap<&str, PlaceholderValue> = HashMap::new();
         #[allow(unused_mut)]
-        let mut ids: HashMap<&str, String> = HashMap::new();
+        let mut ids: HashMap<&str, serde_json::Value> = HashMap::new();
         $(match $crate::template::IntoPlaceholder::into_placeholder($value) {
             Ok(value) => { values.insert(stringify!($name), value); }
             Err(id) => { ids.insert(stringify!($name), id); }
@@ -37,8 +37,8 @@ macro_rules! py_stmt {
             re.replace_all($template, |caps: &regex::Captures| {
                 let name = &caps[1];
                 match &caps[2] {
-                    "id" => match ids.get(name) {
-                        Some(value) => value.clone(),
+                    "id" => match ids.get(name).and_then(|v| v.as_str()) {
+                        Some(value) => value.to_string(),
                         _ => panic!("expected id for placeholder `{name}`"),
                     },
                     "expr" => var_for_placeholder((name, &PlaceholderKind::Expr)),
@@ -83,6 +83,7 @@ use regex::Regex;
 use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::TextRange;
+use serde_json::Value;
 use std::{cell::RefCell, collections::HashMap};
 
 pub(crate) enum PlaceholderKind {
@@ -96,44 +97,67 @@ pub(crate) enum PlaceholderValue {
 }
 
 pub(crate) trait IntoPlaceholder {
-    fn into_placeholder(self) -> Result<PlaceholderValue, String>;
+    fn into_placeholder(self) -> Result<PlaceholderValue, Value>;
 }
 
 impl IntoPlaceholder for Expr {
-    fn into_placeholder(self) -> Result<PlaceholderValue, String> {
+    fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
         Ok(PlaceholderValue::Expr(Box::new(self)))
     }
 }
 
 impl IntoPlaceholder for Box<Expr> {
-    fn into_placeholder(self) -> Result<PlaceholderValue, String> {
+    fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
         Ok(PlaceholderValue::Expr(self))
     }
 }
 
 impl IntoPlaceholder for &str {
-    fn into_placeholder(self) -> Result<PlaceholderValue, String> {
-        Err(self.to_string())
+    fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
+        Err(Value::String(self.to_string()))
     }
 }
 
 impl IntoPlaceholder for String {
-    fn into_placeholder(self) -> Result<PlaceholderValue, String> {
-        Err(self)
+    fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
+        Err(Value::String(self))
     }
 }
 
 impl IntoPlaceholder for Stmt {
-    fn into_placeholder(self) -> Result<PlaceholderValue, String> {
+    fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
         Ok(PlaceholderValue::Stmt(vec![self]))
     }
 }
 
 impl IntoPlaceholder for Vec<Stmt> {
-    fn into_placeholder(self) -> Result<PlaceholderValue, String> {
+    fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
         Ok(PlaceholderValue::Stmt(self))
     }
 }
+
+macro_rules! impl_into_placeholder_for_signed {
+    ($($ty:ty),*) => {
+        $(impl IntoPlaceholder for $ty {
+            fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
+                Err(Value::Number(serde_json::Number::from(self as i64)))
+            }
+        })*
+    };
+}
+
+macro_rules! impl_into_placeholder_for_unsigned {
+    ($($ty:ty),*) => {
+        $(impl IntoPlaceholder for $ty {
+            fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
+                Err(Value::Number(serde_json::Number::from(self as u64)))
+            }
+        })*
+    };
+}
+
+impl_into_placeholder_for_signed!(i8, i16, i32, i64, isize);
+impl_into_placeholder_for_unsigned!(u8, u16, u32, u64, usize);
 
 pub(crate) fn var_for_placeholder((name, kind): (&str, &PlaceholderKind)) -> String {
     match kind {
@@ -393,6 +417,13 @@ mod tests {
     fn inserts_literal() {
         let expr = py_expr!("{s:literal}", s = "abc");
         let expected = *parse_expression("\"abc\"").unwrap().into_syntax().body;
+        assert_eq!(ComparableExpr::from(&expr), ComparableExpr::from(&expected));
+    }
+
+    #[test]
+    fn inserts_int_literal() {
+        let expr = py_expr!("{n:literal}", n = 5);
+        let expected = *parse_expression("5").unwrap().into_syntax().body;
         assert_eq!(ComparableExpr::from(&expr), ComparableExpr::from(&expected));
     }
 

@@ -82,16 +82,30 @@ mod tests {
 
     #[test]
     fn desugars_chain_assignment() {
-        let output = rewrite("a = b = c");
-        let expected = "_dp_tmp_1 = c\na = _dp_tmp_1\nb = _dp_tmp_1";
+        let output = rewrite(
+            r#"
+a = b = c
+"#,
+        );
+        let expected = r#"
+_dp_tmp_1 = c
+a = _dp_tmp_1
+b = _dp_tmp_1
+"#;
         assert_flatten_eq!(output, expected);
     }
 
     #[test]
     fn desugars_multi_delete() {
-        let output = rewrite("del a, b");
-        let expected = "del a\ndel b";
+        let output = rewrite(
+            r#"
+del a, b
+"#,
+        );
+        let expected = r#"
+del a
+del b
+"#;
         assert_flatten_eq!(output, expected);
     }
-
 }

@@ -53,6 +53,7 @@ iter = builtins.iter
 aiter = builtins.aiter
 anext = builtins.anext
 isinstance = builtins.isinstance
+setattr = builtins.setattr
 
 def resolve_bases(bases):
     return _types.resolve_bases(bases)

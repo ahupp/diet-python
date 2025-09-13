@@ -14,14 +14,15 @@ use wasm_bindgen::JsValue;
 
 pub mod intrinsics;
 pub mod min_ast;
+mod template;
 #[cfg(test)]
 mod test_util;
 mod transform;
-mod template;
 
 use transform::assert::AssertRewriter;
 use transform::class_def::ClassDefRewriter;
 use transform::decorator::DecoratorRewriter;
+use transform::destructure::DestructureRewriter;
 use transform::for_loop::ForLoopRewriter;
 use transform::gen::GeneratorRewriter;
 use transform::literal::LiteralRewriter;
@@ -39,6 +40,7 @@ const TRANSFORM_NAMES: &[&str] = &[
     "with",
     "for_loop",
     "multi_target",
+    "destructure",
     "assert",
     "raise",
     "decorator",
@@ -93,6 +95,10 @@ fn apply_transforms(module: &mut ModModule, transforms: Option<&HashSet<String>>
         let multi_transformer = MultiTargetRewriter::new();
         walk_body(&multi_transformer, &mut module.body);
     }
+    if run("destructure") {
+        let destructure_transformer = DestructureRewriter::new();
+        walk_body(&destructure_transformer, &mut module.body);
+    }
     if run("assert") {
         let assert_transformer = AssertRewriter::new();
         walk_body(&assert_transformer, &mut module.body);
@@ -109,21 +115,25 @@ fn apply_transforms(module: &mut ModModule, transforms: Option<&HashSet<String>>
         let class_def_transformer = ClassDefRewriter::new();
         walk_body(&class_def_transformer, &mut module.body);
     }
-    if run("match_case") {
-        let match_transformer = MatchCaseRewriter::new();
-        walk_body(&match_transformer, &mut module.body);
-    }
     if run("multi_target") {
         let multi_transformer = MultiTargetRewriter::new();
         walk_body(&multi_transformer, &mut module.body);
     }
-    if run("literal") {
-        let literal_transformer = LiteralRewriter::new();
-        walk_body(&literal_transformer, &mut module.body);
+    if run("destructure") {
+        let destructure_transformer = DestructureRewriter::new();
+        walk_body(&destructure_transformer, &mut module.body);
+    }
+    if run("match_case") {
+        let match_transformer = MatchCaseRewriter::new();
+        walk_body(&match_transformer, &mut module.body);
     }
     if run("import") {
         let import_rewriter = transform::import::ImportRewriter::new();
         walk_body(&import_rewriter, &mut module.body);
+    }
+    if run("literal") {
+        let literal_transformer = LiteralRewriter::new();
+        walk_body(&literal_transformer, &mut module.body);
     }
     if run("truthy") {
         let truthy_transformer = TruthyRewriter::new();

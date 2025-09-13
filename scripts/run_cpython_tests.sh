@@ -45,19 +45,26 @@ if [ ! -d "$VENV_DIR" ]; then
   uv venv "$VENV_DIR" --python "$(uv python find "$PYTHON_VERSION")"
 fi
 
+# Expose CPython's standard library and test package so modules are loaded from
+# source and can be transformed.
+
 # Ensure stale bytecode doesn't bypass the transform.
 find "$CPYTHON_DIR" -name '*.pyc' -delete
 
-# The Python builds installed by ``uv`` exclude the ``test`` package. Expose it
-# from the CPython source tree via ``PYTHONPATH`` so ``python -m test`` is
-# available without modifying the virtual environment.
-
-# Ensure ``sitecustomize`` and CPython's ``Lib`` (which contains the ``test``
-# package) are on the import path so the diet-python import hook is installed
-# for all modules loaded during the test run and the standard library ``test``
-# package is available.
+PYTHONPATH_PREFIX="$REPO_ROOT/$CPYTHON_DIR/Lib:$REPO_ROOT"
 if [ $TRANSFORMS_SET -eq 1 ]; then
-  (cd "$CPYTHON_DIR" && PYTHONDONTWRITEBYTECODE=1 DIET_PYTHON_TRANSFORMS="$TRANSFORMS" PYTHONPATH="$REPO_ROOT:$REPO_ROOT/$CPYTHON_DIR/Lib${PYTHONPATH:+:$PYTHONPATH}" "../$VENV_DIR/bin/python" -m test -j0 "$@")
+  (
+    cd "$CPYTHON_DIR" &&
+    PYTHONDONTWRITEBYTECODE=1 \
+    DIET_PYTHON_TRANSFORMS="$TRANSFORMS" \
+    PYTHONPATH="$PYTHONPATH_PREFIX${PYTHONPATH:+:$PYTHONPATH}" \
+    "../$VENV_DIR/bin/python" -m test -j0 "$@"
+  )
 else
-  (cd "$CPYTHON_DIR" && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$REPO_ROOT:$REPO_ROOT/$CPYTHON_DIR/Lib${PYTHONPATH:+:$PYTHONPATH}" "../$VENV_DIR/bin/python" -m test -j0 "$@")
+  (
+    cd "$CPYTHON_DIR" &&
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH="$PYTHONPATH_PREFIX${PYTHONPATH:+:$PYTHONPATH}" \
+    "../$VENV_DIR/bin/python" -m test -j0 "$@"
+  )
 fi
