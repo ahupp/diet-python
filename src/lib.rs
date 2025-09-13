@@ -14,6 +14,7 @@ use wasm_bindgen::JsValue;
 
 pub mod intrinsics;
 pub mod min_ast;
+pub mod owned_transform;
 mod template;
 #[cfg(test)]
 mod test_util;
