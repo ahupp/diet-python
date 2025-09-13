@@ -2,7 +2,7 @@ use std::cell::Cell;
 
 use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, CmpOp, Expr, Operator, Stmt, UnaryOp};
-use super::{for_loop, match_case, try_except};
+use super::{rewrite_for_loop, rewrite_match_case, rewrite_try_except};
 use ruff_text_size::TextRange;
 
 fn make_binop(func_name: &'static str, left: Expr, right: Expr) -> Expr {
@@ -415,17 +415,17 @@ impl Transformer for ExprRewriter {
 
         match stmt {
             Stmt::For(_) => {
-                if for_loop::rewrite(stmt, &self.for_count) {
+                if rewrite_for_loop::rewrite(stmt, &self.for_count) {
                     walk_stmt(self, stmt);
                 }
             }
             Stmt::Try(_) => {
-                if try_except::rewrite(stmt, &self.try_count) {
+                if rewrite_try_except::rewrite(stmt, &self.try_count) {
                     walk_stmt(self, stmt);
                 }
             }
             Stmt::Match(_) => {
-                if match_case::rewrite(stmt, &self.match_count) {
+                if rewrite_match_case::rewrite(stmt, &self.match_count) {
                     walk_stmt(self, stmt);
                 }
             }
