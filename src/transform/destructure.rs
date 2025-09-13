@@ -1,7 +1,7 @@
 use std::cell::Cell;
 
 use ruff_python_ast::visitor::transformer::{walk_stmt, Transformer};
-use ruff_python_ast::{self as ast, Expr, Stmt};
+use ruff_python_ast::{Expr, Stmt};
 
 /// Desugar destructuring assignments like `a, b = value` or `[a, b] = value`.
 pub struct DestructureRewriter {
@@ -72,7 +72,28 @@ impl Transformer for DestructureRewriter {
                     }
                     *stmt = crate::py_stmt!("{body:stmt}", body = stmts);
                 }
-                Expr::Name(_) | Expr::Attribute(_) | Expr::Subscript(_) => {}
+                Expr::Attribute(attr) => {
+                    let obj = (*attr.value).clone();
+                    let value = (*assign.value).clone();
+                    *stmt = crate::py_stmt!(
+                        "__dp__.setattr({obj:expr}, {name:literal}, {value:expr})",
+                        obj = obj,
+                        name = attr.attr.as_str(),
+                        value = value,
+                    );
+                }
+                Expr::Subscript(sub) => {
+                    let obj = (*sub.value).clone();
+                    let key = (*sub.slice).clone();
+                    let value = (*assign.value).clone();
+                    *stmt = crate::py_stmt!(
+                        "__dp__.setitem({obj:expr}, {key:expr}, {value:expr})",
+                        obj = obj,
+                        key = key,
+                        value = value,
+                    );
+                }
+                Expr::Name(_) => {}
                 // Only some expressions are valid assignment targets; everything else
                 // results in a panic.
                 _ => {
@@ -87,12 +108,15 @@ impl Transformer for DestructureRewriter {
 mod tests {
     use super::*;
     use crate::assert_flatten_eq;
+    use crate::transform::multi_target::MultiTargetRewriter;
     use ruff_python_ast::visitor::transformer::walk_body;
     use ruff_python_parser::parse_module;
 
     fn rewrite(source: &str) -> Vec<Stmt> {
         let parsed = parse_module(source).expect("parse error");
         let mut module = parsed.into_syntax();
+        let multi = MultiTargetRewriter::new();
+        walk_body(&multi, &mut module.body);
         let rewriter = DestructureRewriter::new();
         walk_body(&rewriter, &mut module.body);
         module.body
@@ -124,6 +148,47 @@ b = _dp_tmp_1[1]
 _dp_tmp_1 = c
 a = _dp_tmp_1[0]
 b = _dp_tmp_1[1]
+"#;
+        assert_flatten_eq!(output, expected);
+    }
+
+    #[test]
+    fn rewrites_attribute_assignment() {
+        let output = rewrite(
+            r#"
+a.b = c
+"#,
+        );
+        let expected = r#"
+__dp__.setattr(a, "b", c)
+"#;
+        assert_flatten_eq!(output, expected);
+    }
+
+    #[test]
+    fn rewrites_subscript_assignment() {
+        let output = rewrite(
+            r#"
+a[b] = c
+"#,
+        );
+        let expected = r#"
+__dp__.setitem(a, b, c)
+"#;
+        assert_flatten_eq!(output, expected);
+    }
+
+    #[test]
+    fn rewrites_chain_assignment_with_subscript() {
+        let output = rewrite(
+            r#"
+a[0] = b = 1
+"#,
+        );
+        let expected = r#"
+_dp_tmp_1 = 1
+__dp__.setitem(a, 0, _dp_tmp_1)
+b = _dp_tmp_1
 "#;
         assert_flatten_eq!(output, expected);
     }

@@ -200,24 +200,6 @@ impl Transformer for OperatorRewriter {
             );
 
             self.replaced.set(true);
-        } else if let Stmt::Assign(assign) = stmt {
-            assert_eq!(
-                assign.targets.len(),
-                1,
-                "expected single assignment target; MultiTargetRewriter must run first"
-            );
-            if let Expr::Subscript(sub) = &assign.targets[0] {
-                let obj = (*sub.value).clone();
-                let key = (*sub.slice).clone();
-                let value = (*assign.value).clone();
-                *stmt = crate::py_stmt!(
-                    "__dp__.setitem({obj:expr}, {key:expr}, {value:expr})",
-                    obj = obj,
-                    key = key,
-                    value = value,
-                );
-                self.replaced.set(true);
-            }
         } else if let Stmt::Delete(del) = stmt {
             assert_eq!(
                 del.targets.len(),
@@ -403,12 +385,6 @@ __dp__.pos(a)
     }
 
     #[test]
-    fn rewrites_setitem() {
-        let output = rewrite_source("a[b] = c");
-        assert_eq!(output.trim_end(), "__dp__.setitem(a, b, c)");
-    }
-
-    #[test]
     fn rewrites_delitem() {
         let output = rewrite_source("del a[b]");
         assert_eq!(output.trim_end(), "__dp__.delitem(a, b)");
@@ -433,13 +409,6 @@ __dp__.pos(a)
             output.trim_end(),
             "__dp__.delattr(__dp__.getitem(a.b, 1), \"c\")"
         );
-    }
-
-    #[test]
-    fn rewrites_chain_assignment_with_subscript() {
-        let output = rewrite_source("a[0] = b = 1");
-        let expected = "_dp_tmp_1 = 1\n__dp__.setitem(a, 0, _dp_tmp_1)\nb = _dp_tmp_1";
-        assert_eq!(output.trim(), expected.trim());
     }
 
     #[test]
