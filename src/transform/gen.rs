@@ -3,10 +3,12 @@ use std::cell::{Cell, RefCell};
 use ruff_python_ast::name::Name;
 use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, Expr, Stmt};
+use ruff_text_size::TextRange;
 
 
 pub struct GeneratorRewriter {
     gen_count: Cell<usize>,
+    lambda_count: Cell<usize>,
     scopes: RefCell<Vec<Vec<Stmt>>>,
 }
 
@@ -14,6 +16,7 @@ impl GeneratorRewriter {
     pub fn new() -> Self {
         Self {
             gen_count: Cell::new(0),
+            lambda_count: Cell::new(0),
             scopes: RefCell::new(Vec::new()),
         }
     }
@@ -59,7 +62,56 @@ impl Transformer for GeneratorRewriter {
     }
 
     fn visit_expr(&self, expr: &mut Expr) {
-        if let Expr::Generator(gen) = expr {
+        if let Expr::Lambda(lambda) = expr {
+            if lambda.parameters.is_some() {
+                let id = self.lambda_count.get() + 1;
+                self.lambda_count.set(id);
+                let func_name = format!("_dp_lambda_{}", id);
+
+                let parameters = lambda
+                    .parameters
+                    .as_ref()
+                    .map(|params| (**params).clone())
+                    .unwrap_or_else(|| ast::Parameters {
+                        range: TextRange::default(),
+                        node_index: ast::AtomicNodeIndex::default(),
+                        posonlyargs: vec![],
+                        args: vec![],
+                        vararg: None,
+                        kwonlyargs: vec![],
+                        kwarg: None,
+                    });
+
+                let body_stmt = crate::py_stmt!(
+                    "
+return {value:expr}
+",
+                    value = (*lambda.body).clone(),
+                );
+
+                let mut func_def = crate::py_stmt!(
+                    "
+def {func:id}():
+    {body:stmt}
+",
+                    func = func_name.as_str(),
+                    body = body_stmt,
+                );
+
+                if let Stmt::FunctionDef(ast::StmtFunctionDef { parameters: params, .. }) = &mut func_def {
+                    *params = Box::new(parameters);
+                }
+
+                self.add_function(func_def);
+
+                *expr = crate::py_expr!(
+                    "
+{func:id}
+",
+                    func = func_name.as_str(),
+                );
+            }
+        } else if let Expr::Generator(gen) = expr {
             let first_iter_expr = gen.generators.first().unwrap().iter.clone();
 
             let id = self.gen_count.get() + 1;
@@ -205,6 +257,39 @@ def _dp_gen_1(_dp_iter_1):
         yield a + b
 b = 1
 r = _dp_gen_1(__dp__.iter(some_function()))
+"#;
+        let output = rewrite_gen(input);
+        assert_flatten_eq!(output, expected);
+    }
+
+    #[test]
+    fn rewrites_lambda_expression() {
+        let input = r#"
+f = lambda x, y=1: x + y
+"#;
+        let expected = r#"
+def _dp_lambda_1(x, y=1):
+    return x + y
+f = _dp_lambda_1
+"#;
+        let output = rewrite_gen(input);
+        assert_flatten_eq!(output, expected);
+    }
+
+    #[test]
+    fn defines_lambda_in_local_scope() {
+        let input = r#"
+def outer(offset):
+    f = lambda x: x + offset
+    return f
+"#;
+        let expected = r#"
+def outer(offset):
+
+    def _dp_lambda_1(x):
+        return x + offset
+    f = _dp_lambda_1
+    return f
 "#;
         let output = rewrite_gen(input);
         assert_flatten_eq!(output, expected);
