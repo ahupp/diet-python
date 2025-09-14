@@ -82,72 +82,56 @@ impl Transformer for ImportRewriter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::assert_flatten_eq;
     use crate::ensure_import::ensure_import;
+    use crate::test_util::assert_transform_eq;
     use ruff_python_ast::visitor::transformer::walk_body;
     use ruff_python_parser::parse_module;
 
-    fn rewrite(source: &str) -> Vec<Stmt> {
-        let parsed = parse_module(source).expect("parse error");
-        let mut module = parsed.into_syntax();
-        let rewriter = ImportRewriter::new();
-        walk_body(&rewriter, &mut module.body);
-        module.body
-    }
-
     #[test]
     fn rewrites_basic_import() {
-        let output = rewrite(
-            r#"
+        let input = r#"
 import a
-"#,
-        );
+"#;
         let expected = r#"
 a = __dp__.import_("a", __spec__)
 "#;
-        assert_flatten_eq!(output, expected);
+        assert_transform_eq(input, expected);
     }
 
     #[test]
     fn rewrites_from_import() {
-        let output = rewrite(
-            r#"
+        let input = r#"
 from a.b import c
-"#,
-        );
+"#;
+
         let expected = r#"
 c = __dp__.import_("a.b", __spec__, ["c"]).c
 "#;
-        assert_flatten_eq!(output, expected);
+        assert_transform_eq(input, expected);
     }
 
     #[test]
     fn rewrites_relative_import() {
-        let output = rewrite(
+        let input = r#"
             r#"
 from ..a import b
-"#,
-        );
+"#;
         let expected = r#"
 b = __dp__.import_("a", __spec__, ["b"], 2).b
 "#;
-        assert_flatten_eq!(output, expected);
+        assert_transform_eq(input, expected);
     }
 
     #[test]
     fn inserts_after_future_and_docstring() {
-        let parsed = parse_module(
+        let input = r#"
             r#"
 "doc"
 from __future__ import annotations
 x = 1
-"#,
-        )
-        .expect("parse error");
-        let mut module = parsed.into_syntax();
-        ensure_import(&mut module, "__dp__");
-        assert_flatten_eq!(
-            module.body,
+"#;
+        assert_transform_eq(
+            input,
             r#"
 "doc"
 from __future__ import annotations

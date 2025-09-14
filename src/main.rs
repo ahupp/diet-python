@@ -1,6 +1,6 @@
 use std::{env, fs, process};
 
-use diet_python::{parse_transforms, transform_to_string};
+use diet_python::transform_to_string;
 
 fn main() {
     let path = env::args().nth(1).unwrap_or_else(|| {
@@ -16,8 +16,7 @@ fn main() {
         }
     };
 
-    let transforms = parse_transforms();
-    let output = match transform_to_string(&source, transforms.as_ref(), true) {
+    let output = match transform_to_string(&source, true) {
         Ok(output) => output,
         Err(err) => {
             eprintln!("failed to parse {}: {}", path, err);

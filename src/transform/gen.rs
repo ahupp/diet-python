@@ -5,7 +5,6 @@ use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::TextRange;
 
-
 pub struct GeneratorRewriter {
     gen_count: Cell<usize>,
     lambda_count: Cell<usize>,
@@ -98,7 +97,10 @@ def {func:id}():
                     body = body_stmt,
                 );
 
-                if let Stmt::FunctionDef(ast::StmtFunctionDef { parameters: params, .. }) = &mut func_def {
+                if let Stmt::FunctionDef(ast::StmtFunctionDef {
+                    parameters: params, ..
+                }) = &mut func_def
+                {
                     *params = Box::new(parameters);
                 }
 
@@ -199,17 +201,8 @@ def {func:id}({param:id}):
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::assert_flatten_eq;
+    use crate::test_util::assert_transform_eq;
     use ruff_python_parser::parse_module;
-
-    fn rewrite_gen(source: &str) -> Vec<Stmt> {
-        let parsed = parse_module(source).expect("parse error");
-        let mut module = parsed.into_syntax();
-
-        let rewriter = GeneratorRewriter::new();
-        rewriter.rewrite_body(&mut module.body);
-        module.body
-    }
 
     #[test]
     fn rewrites_generator_expressions() {
@@ -221,8 +214,7 @@ def _dp_gen_1(items):
             yield a + 1
 r = _dp_gen_1(__dp__.iter(items))
 "#;
-        let output = rewrite_gen(input);
-        assert_flatten_eq!(output, expected);
+        assert_transform_eq(input, expected);
     }
 
     #[test]
@@ -241,8 +233,8 @@ def outer(items, offset):
     r = _dp_gen_1(__dp__.iter(items))
     return r
 "#;
-        let output = rewrite_gen(input);
-        assert_flatten_eq!(output, expected);
+
+        assert_transform_eq(input, expected);
     }
 
     #[test]
@@ -258,8 +250,7 @@ def _dp_gen_1(_dp_iter_1):
 b = 1
 r = _dp_gen_1(__dp__.iter(some_function()))
 "#;
-        let output = rewrite_gen(input);
-        assert_flatten_eq!(output, expected);
+        assert_transform_eq(input, expected);
     }
 
     #[test]
@@ -272,8 +263,7 @@ def _dp_lambda_1(x, y=1):
     return x + y
 f = _dp_lambda_1
 "#;
-        let output = rewrite_gen(input);
-        assert_flatten_eq!(output, expected);
+        assert_transform_eq(input, expected);
     }
 
     #[test]
@@ -291,7 +281,6 @@ def outer(offset):
     f = _dp_lambda_1
     return f
 "#;
-        let output = rewrite_gen(input);
-        assert_flatten_eq!(output, expected);
+        assert_transform_eq(input, expected);
     }
 }

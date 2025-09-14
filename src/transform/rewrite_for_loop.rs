@@ -2,84 +2,64 @@ use std::cell::Cell;
 
 use ruff_python_ast::{self as ast, Stmt};
 
-pub fn rewrite(stmt: &mut Stmt, iter_count: &Cell<usize>) -> bool {
-    if let Stmt::For(ast::StmtFor {
+pub fn rewrite(
+    ast::StmtFor {
         target,
-        iter: iter_expr,
+        iter,
         body,
-        orelse,
+        mut orelse,
         is_async,
         ..
-    }) = stmt
-    {
-        let id = iter_count.get() + 1;
-        iter_count.set(id);
-        let iter_name = format!("_dp_iter_{}", id);
+    }: ast::StmtFor,
+    iter_count: &Cell<usize>,
+) -> Stmt {
+    let id = iter_count.get() + 1;
+    iter_count.set(id);
+    let iter_name = format!("_dp_iter_{}", id);
 
-        let body_stmts = std::mem::take(body);
-        let mut orelse_stmts = std::mem::take(orelse);
+    let (iter_fn, next_fn, stop_exc, await_) = if is_async {
+        (
+            crate::py_expr!("__dp__.aiter"),
+            crate::py_expr!("__dp__.anext"),
+            "StopAsyncIteration",
+            "await ",
+        )
+    } else {
+        (
+            crate::py_expr!("__dp__.iter"),
+            crate::py_expr!("__dp__.next"),
+            "StopIteration",
+            "",
+        )
+    };
 
-        let (iter_fn, next_fn, stop_exc, await_) = if *is_async {
-            (
-                crate::py_expr!("__dp__.aiter"),
-                crate::py_expr!("__dp__.anext"),
-                "StopAsyncIteration",
-                "await ",
-            )
-        } else {
-            (
-                crate::py_expr!("__dp__.iter"),
-                crate::py_expr!("__dp__.next"),
-                "StopIteration",
-                "",
-            )
-        };
+    orelse.push(crate::py_stmt!("break"));
 
-        orelse_stmts.push(crate::py_stmt!("break"));
-
-        let wrapper = crate::py_stmt!(
-            "
+    crate::py_stmt!(
+        r#"
 {iter_name:id} = {iter_fn:expr}({iter:expr})
 while True:
     try:
         {target:expr} = {await_:id}{next_fn:expr}({iter_name:id})
     except {stop_exc:id}:
         {orelse:stmt}
-    {body:stmt}",
-            iter_name = iter_name.as_str(),
-            iter_fn = iter_fn,
-            iter = *iter_expr.clone(),
-            target = *target.clone(),
-            await_ = await_,
-            next_fn = next_fn,
-            stop_exc = stop_exc,
-            orelse = orelse_stmts,
-            body = body_stmts,
-        );
-
-        *stmt = wrapper;
-        true
-    } else {
-        false
-    }
+    {body:stmt}
+"#,
+        iter_name = iter_name.as_str(),
+        iter_fn = iter_fn,
+        iter = iter,
+        target = target,
+        await_ = await_,
+        next_fn = next_fn,
+        stop_exc = stop_exc,
+        orelse = orelse,
+        body = body,
+    )
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::transform::expr::ExprRewriter;
-    use crate::assert_flatten_eq;
-    use ruff_python_ast::visitor::transformer::walk_body;
-    use ruff_python_parser::parse_module;
-
-    fn rewrite_for(source: &str) -> Vec<Stmt> {
-        let parsed = parse_module(source).expect("parse error");
-        let mut module = parsed.into_syntax();
-
-        let rewriter = ExprRewriter::new();
-        walk_body(&rewriter, &mut module.body);
-        module.body
-    }
+    use crate::test_util::assert_transform_eq;
 
     #[test]
     fn rewrites_for_loop_with_else() {
@@ -105,8 +85,7 @@ while True:
     if cond:
         break
 "#;
-        let output = rewrite_for(input);
-        assert_flatten_eq!(output, expected);
+        assert_transform_eq(input, expected);
     }
 
     #[test]
@@ -128,8 +107,8 @@ while True:
             raise
     c(a)
 "#;
-        let output = rewrite_for(input);
-        assert_flatten_eq!(output, expected);
+
+        assert_transform_eq(input, expected);
     }
 
     #[test]
@@ -158,8 +137,6 @@ async def f():
         if cond:
             break
 "#;
-        let output = rewrite_for(input);
-        assert_flatten_eq!(output, expected);
+        assert_transform_eq(input, expected);
     }
 }
-

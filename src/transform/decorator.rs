@@ -94,37 +94,31 @@ impl Transformer for DecoratorRewriter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::assert_flatten_eq;
+    use crate::test_util::assert_transform_eq;
     use ruff_python_ast::visitor::transformer::walk_body;
     use ruff_python_parser::parse_module;
 
-    fn rewrite(source: &str) -> Vec<Stmt> {
-        let parsed = parse_module(source).expect("parse error");
-        let mut module = parsed.into_syntax();
-        let rewriter = DecoratorRewriter::new();
-        walk_body(&rewriter, &mut module.body);
-        module.body
-    }
-
     #[test]
     fn rewrites_function_decorators() {
-        let input = r#"@dec2(5)
+        let input = r#"
+@dec2(5)
 @dec1
 def foo():
     pass
 "#;
-        let expected = r#"_dp_dec_1 = dec2(5)
+        let expected = r#"
+_dp_dec_1 = dec2(5)
 def foo():
     pass
 foo = _dp_dec_1(dec1(foo))
 "#;
-        let output = rewrite(input);
-        assert_flatten_eq!(output, expected);
+        assert_transform_eq(input, expected);
     }
 
     #[test]
     fn rewrites_class_decorators() {
-        let input = r#"@dec
+        let input = r#"
+@dec
 class C:
     pass
 "#;
@@ -132,23 +126,24 @@ class C:
     pass
 C = dec(C)
 "#;
-        let output = rewrite(input);
-        assert_flatten_eq!(output, expected);
+        assert_transform_eq(input, expected);
     }
 
     #[test]
     fn rewrites_multiple_class_decorators() {
-        let input = r#"@dec2(5)
+        let input = r#"
+@dec2(5)
 @dec1
 class C:
     pass
 "#;
-        let expected = r#"_dp_dec_1 = dec2(5)
+        let expected = r#"
+_dp_dec_1 = dec2(5)
 class C:
     pass
 C = _dp_dec_1(dec1(C))
 "#;
-        let output = rewrite(input);
-        assert_flatten_eq!(output, expected);
+
+        assert_transform_eq(input, expected);
     }
 }

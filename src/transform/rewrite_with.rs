@@ -104,20 +104,7 @@ else:
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::assert_flatten_eq;
-    use crate::transform::expr::ExprRewriter;
-    use ruff_python_ast::visitor::transformer::walk_body;
-    use ruff_python_parser::parse_module;
-
-    fn rewrite_with(source: &str) -> Vec<Stmt> {
-        let parsed = parse_module(source).expect("parse error");
-        let mut module = parsed.into_syntax();
-
-        let rewriter = ExprRewriter::new();
-        walk_body(&rewriter, &mut module.body);
-        module.body
-    }
+    use crate::test_util::assert_transform_eq;
 
     #[test]
     fn rewrites_with_statement() {
@@ -134,13 +121,12 @@ try:
     c
 except:
     _dp_exc_1 = getattr(__dp__, "current_exception")()
-    if _dp_not_(_dp_exit_1(_dp_ctx_1, *getattr(__dp__, "exc_info")())):
+    if getattr(__dp__, "not_")(_dp_exit_1(_dp_ctx_1, *getattr(__dp__, "exc_info")())):
         raise
 else:
     _dp_exit_1(_dp_ctx_1, None, None, None)
 "#;
-        let output = rewrite_with(input);
-        assert_flatten_eq!(output, expected);
+        assert_transform_eq(input, expected);
     }
 
     #[test]
@@ -163,19 +149,18 @@ try:
         e
     except:
         _dp_exc_2 = getattr(__dp__, "current_exception")()
-        if _dp_not_(_dp_exit_2(_dp_ctx_2, *getattr(__dp__, "exc_info")())):
+        if getattr(__dp__, "not_")(_dp_exit_2(_dp_ctx_2, *getattr(__dp__, "exc_info")())):
             raise
     else:
         _dp_exit_2(_dp_ctx_2, None, None, None)
 except:
     _dp_exc_1 = getattr(__dp__, "current_exception")()
-    if _dp_not_(_dp_exit_1(_dp_ctx_1, *getattr(__dp__, "exc_info")())):
+    if getattr(__dp__, "not_")(_dp_exit_1(_dp_ctx_1, *getattr(__dp__, "exc_info")())):
         raise
 else:
     _dp_exit_1(_dp_ctx_1, None, None, None)
 "#;
-        let output = rewrite_with(input);
-        assert_flatten_eq!(output, expected);
+        assert_transform_eq(input, expected);
     }
 
     #[test]
@@ -200,8 +185,6 @@ async def f():
     else:
         await _dp_exit_1(_dp_ctx_1, None, None, None)
 "#;
-        let output = rewrite_with(input);
-        assert_flatten_eq!(output, expected);
+        assert_transform_eq(input, expected);
     }
 }
-

@@ -1,15 +1,11 @@
 use std::cell::Cell;
 
-use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
-use ruff_python_ast::{self as ast, CmpOp, Expr, Operator, Stmt, UnaryOp};
 use super::{
-    rewrite_assert,
-    rewrite_class_def,
-    rewrite_for_loop,
-    rewrite_match_case,
-    rewrite_try_except,
+    rewrite_assert, rewrite_class_def, rewrite_for_loop, rewrite_match_case, rewrite_try_except,
     rewrite_with,
 };
+use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
+use ruff_python_ast::{self as ast, CmpOp, Expr, Operator, Stmt, UnaryOp};
 use ruff_text_size::TextRange;
 
 fn make_binop(func_name: &'static str, left: Expr, right: Expr) -> Expr {
@@ -187,7 +183,9 @@ impl Transformer for ExprRewriter {
     fn visit_expr(&self, expr: &mut Expr) {
         let original = expr.clone();
         *expr = match original {
-            Expr::Slice(ast::ExprSlice { lower, upper, step, .. }) => {
+            Expr::Slice(ast::ExprSlice {
+                lower, upper, step, ..
+            }) => {
                 fn none_name() -> Expr {
                     crate::py_expr!("None")
                 }
@@ -224,9 +222,9 @@ impl Transformer for ExprRewriter {
                     imag = imag_expr,
                 )
             }
-            Expr::Attribute(ast::ExprAttribute { value, attr, ctx, .. })
-                if matches!(ctx, ast::ExprContext::Load) =>
-            {
+            Expr::Attribute(ast::ExprAttribute {
+                value, attr, ctx, ..
+            }) if matches!(ctx, ast::ExprContext::Load) => {
                 let value_expr = *value;
                 crate::py_expr!(
                     "getattr({value:expr}, {attr:literal})",
@@ -237,18 +235,20 @@ impl Transformer for ExprRewriter {
             Expr::NoneLiteral(_) => {
                 crate::py_expr!("None")
             }
-            Expr::ListComp(ast::ExprListComp { elt, generators, .. }) => {
-                Self::make_comp_call("list", *elt, generators)
-            }
-            Expr::SetComp(ast::ExprSetComp { elt, generators, .. }) => {
-                Self::make_comp_call("set", *elt, generators)
-            }
-            Expr::DictComp(ast::ExprDictComp { key, value, generators, .. }) => {
-                let tuple = crate::py_expr!(
-                    "({key:expr}, {value:expr})",
-                    key = *key,
-                    value = *value,
-                );
+            Expr::ListComp(ast::ExprListComp {
+                elt, generators, ..
+            }) => Self::make_comp_call("list", *elt, generators),
+            Expr::SetComp(ast::ExprSetComp {
+                elt, generators, ..
+            }) => Self::make_comp_call("set", *elt, generators),
+            Expr::DictComp(ast::ExprDictComp {
+                key,
+                value,
+                generators,
+                ..
+            }) => {
+                let tuple =
+                    crate::py_expr!("({key:expr}, {value:expr})", key = *key, value = *value,);
                 Self::make_comp_call("dict", tuple, generators)
             }
             Expr::List(ast::ExprList { elts, ctx, .. })
@@ -261,7 +261,9 @@ impl Transformer for ExprRewriter {
                 let tuple = Self::tuple_from(elts);
                 crate::py_expr!("set({tuple:expr})", tuple = tuple,)
             }
-            Expr::Dict(ast::ExprDict { items, .. }) if items.iter().all(|item| item.key.is_some()) => {
+            Expr::Dict(ast::ExprDict { items, .. })
+                if items.iter().all(|item| item.key.is_some()) =>
+            {
                 let pairs: Vec<Expr> = items
                     .into_iter()
                     .map(|item| {
@@ -273,7 +275,9 @@ impl Transformer for ExprRewriter {
                 let tuple = Self::tuple_from(pairs);
                 crate::py_expr!("dict({tuple:expr})", tuple = tuple,)
             }
-            Expr::If(ast::ExprIf { test, body, orelse, .. }) => {
+            Expr::If(ast::ExprIf {
+                test, body, orelse, ..
+            }) => {
                 let test_expr = *test;
                 let body_expr = *body;
                 let orelse_expr = *orelse;
@@ -302,7 +306,9 @@ impl Transformer for ExprRewriter {
                 }
                 result
             }
-            Expr::BinOp(ast::ExprBinOp { left, right, op, .. }) => {
+            Expr::BinOp(ast::ExprBinOp {
+                left, right, op, ..
+            }) => {
                 let func_name = match op {
                     Operator::Add => "add",
                     Operator::Sub => "sub",
@@ -329,9 +335,12 @@ impl Transformer for ExprRewriter {
                 };
                 make_unaryop(func_name, *operand)
             }
-            Expr::Compare(ast::ExprCompare { left, ops, comparators, .. })
-                if ops.len() == 1 && comparators.len() == 1 =>
-            {
+            Expr::Compare(ast::ExprCompare {
+                left,
+                ops,
+                comparators,
+                ..
+            }) if ops.len() == 1 && comparators.len() == 1 => {
                 let mut ops_vec = ops.into_vec();
                 let mut comps_vec = comparators.into_vec();
                 let left = *left;
@@ -354,9 +363,9 @@ impl Transformer for ExprRewriter {
                 };
                 call
             }
-            Expr::Subscript(ast::ExprSubscript { value, slice, ctx, .. })
-                if matches!(ctx, ast::ExprContext::Load) =>
-            {
+            Expr::Subscript(ast::ExprSubscript {
+                value, slice, ctx, ..
+            }) if matches!(ctx, ast::ExprContext::Load) => {
                 let obj = *value;
                 let key = *slice;
                 make_binop("getitem", obj, key)
@@ -367,24 +376,14 @@ impl Transformer for ExprRewriter {
     }
 
     fn visit_stmt(&self, stmt: &mut Stmt) {
-        match stmt {
-            Stmt::With(with) => {
-                *stmt = rewrite_with::rewrite(with.clone(), &self.with_count);
-            }
-            Stmt::Assert(assert) => {
-                *stmt = rewrite_assert::rewrite(assert.clone());
-            }
-            Stmt::ClassDef(class_def) => {
-                *stmt = rewrite_class_def::rewrite(class_def.clone());
-            }
-            Stmt::For(_) => {
-                rewrite_for_loop::rewrite(stmt, &self.for_count);
-            }
-            Stmt::Try(_) => {
-                rewrite_try_except::rewrite(stmt, &self.try_count);
-            }
-            Stmt::Match(_) => {
-                rewrite_match_case::rewrite(stmt, &self.match_count);
+        *stmt = match stmt {
+            Stmt::With(with) => rewrite_with::rewrite(with.clone(), &self.with_count),
+            Stmt::Assert(assert) => rewrite_assert::rewrite(assert.clone()),
+            Stmt::ClassDef(class_def) => rewrite_class_def::rewrite(class_def.clone()),
+            Stmt::For(for_stmt) => rewrite_for_loop::rewrite(for_stmt.clone(), &self.for_count),
+            Stmt::Try(try_stmt) => rewrite_try_except::rewrite(try_stmt.clone(), &self.try_count),
+            Stmt::Match(match_stmt) => {
+                rewrite_match_case::rewrite(match_stmt.clone(), &self.match_count)
             }
             Stmt::Assign(assign) => {
                 let value = (*assign.value).clone();
@@ -413,14 +412,14 @@ impl Transformer for ExprRewriter {
                     self.rewrite_target(assign.targets[0].clone(), value, &mut stmts);
                 }
                 if stmts.len() == 1 {
-                    *stmt = stmts.pop().unwrap();
+                    stmts.pop().unwrap()
                 } else {
-                    *stmt = crate::py_stmt!(
+                    crate::py_stmt!(
                         "
 {body:stmt}
 ",
                         body = stmts,
-                    );
+                    )
                 }
             }
             Stmt::AugAssign(aug) => {
@@ -445,12 +444,11 @@ impl Transformer for ExprRewriter {
 
                 let call = make_binop(func_name, target.clone(), value);
 
-                *stmt = crate::py_stmt!(
+                crate::py_stmt!(
                     "{target:expr} = {value:expr}",
                     target = target,
                     value = call,
-                );
-                walk_stmt(self, stmt);
+                )
             }
             Stmt::Delete(del) => {
                 let mut stmts = Vec::with_capacity(del.targets.len());
@@ -475,31 +473,33 @@ impl Transformer for ExprRewriter {
                         walk_stmt(self, &mut new_stmt);
                         stmts.push(new_stmt);
                     } else {
-                        let mut new_stmt = crate::py_stmt!(
-                            "del {target:expr}",
-                            target = target.clone(),
-                        );
+                        let mut new_stmt =
+                            crate::py_stmt!("del {target:expr}", target = target.clone(),);
                         walk_stmt(self, &mut new_stmt);
                         stmts.push(new_stmt);
                     }
                 }
                 if stmts.len() == 1 {
-                    *stmt = stmts.pop().unwrap();
+                    stmts.pop().unwrap()
                 } else {
-                    *stmt = crate::py_stmt!("{body:stmt}", body = stmts);
+                    crate::py_stmt!("{body:stmt}", body = stmts)
                 }
             }
-            Stmt::Raise(ast::StmtRaise { exc: Some(exc), cause: Some(cause), .. }) => {
+            Stmt::Raise(ast::StmtRaise {
+                exc: Some(exc),
+                cause: Some(cause),
+                ..
+            }) => {
                 let exc_expr = *exc.clone();
                 let cause_expr = *cause.clone();
-                *stmt = crate::py_stmt!(
+                crate::py_stmt!(
                     "raise __dp__.raise_from({exc:expr}, {cause:expr})",
                     exc = exc_expr,
                     cause = cause_expr,
-                );
+                )
             }
-            _ => {}
-        }
+            _ => stmt.clone(),
+        };
 
         walk_stmt(self, stmt);
     }
@@ -691,7 +691,10 @@ getattr(__dp__, "and_expr")(a, lambda: getattr(__dp__, "and_expr")(b, lambda: c)
             (r#"a is b"#, r#"getattr(__dp__, "is_")(a, b)"#),
             (r#"a is not b"#, r#"getattr(__dp__, "is_not")(a, b)"#),
             (r#"a in b"#, r#"getattr(__dp__, "contains")(b, a)"#),
-            (r#"a not in b"#, r#"getattr(__dp__, "not_")(getattr(__dp__, "contains")(b, a))"#),
+            (
+                r#"a not in b"#,
+                r#"getattr(__dp__, "not_")(getattr(__dp__, "contains")(b, a))"#,
+            ),
         ];
 
         for (input, expected) in cases {
@@ -747,7 +750,10 @@ getattr(__dp__, "if_expr")(f(), lambda: getattr(__dp__, "add")(a, 1), lambda: ge
     #[test]
     fn rewrites_nested_delitem() {
         let output = rewrite_source("del a.b[1]");
-        assert_eq!(output.trim_end(), r#"getattr(__dp__, "delitem")(getattr(a, "b"), 1)"#);
+        assert_eq!(
+            output.trim_end(),
+            r#"getattr(__dp__, "delitem")(getattr(a, "b"), 1)"#
+        );
     }
 
     #[test]
@@ -836,11 +842,26 @@ a = dict((('a', 1), ('b', 2)))
     #[test]
     fn rewrites_slices() {
         let cases = [
-            (r#"a[1:2:3]"#, r#"getattr(__dp__, "getitem")(a, slice(1, 2, 3))"#),
-            (r#"a[1:2]"#, r#"getattr(__dp__, "getitem")(a, slice(1, 2, None))"#),
-            (r#"a[:2]"#, r#"getattr(__dp__, "getitem")(a, slice(None, 2, None))"#),
-            (r#"a[::2]"#, r#"getattr(__dp__, "getitem")(a, slice(None, None, 2))"#),
-            (r#"a[:]"#, r#"getattr(__dp__, "getitem")(a, slice(None, None, None))"#),
+            (
+                r#"a[1:2:3]"#,
+                r#"getattr(__dp__, "getitem")(a, slice(1, 2, 3))"#,
+            ),
+            (
+                r#"a[1:2]"#,
+                r#"getattr(__dp__, "getitem")(a, slice(1, 2, None))"#,
+            ),
+            (
+                r#"a[:2]"#,
+                r#"getattr(__dp__, "getitem")(a, slice(None, 2, None))"#,
+            ),
+            (
+                r#"a[::2]"#,
+                r#"getattr(__dp__, "getitem")(a, slice(None, None, 2))"#,
+            ),
+            (
+                r#"a[:]"#,
+                r#"getattr(__dp__, "getitem")(a, slice(None, None, None))"#,
+            ),
         ];
 
         for (input, expected) in cases {
@@ -853,7 +874,10 @@ a = dict((('a', 1), ('b', 2)))
     fn rewrites_complex_literals() {
         let cases = [
             (r#"a = 1j"#, r#"a = complex(0.0, 1.0)"#),
-            (r#"a = 1 + 2j"#, r#"a = getattr(__dp__, "add")(1, complex(0.0, 2.0))"#),
+            (
+                r#"a = 1 + 2j"#,
+                r#"a = getattr(__dp__, "add")(1, complex(0.0, 2.0))"#,
+            ),
         ];
 
         for (input, expected) in cases {

@@ -132,6 +132,12 @@ impl IntoPlaceholder for Stmt {
 
 impl IntoPlaceholder for Vec<Stmt> {
     fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
+        if self.is_empty() {
+            return Ok(PlaceholderValue::Stmt(vec![Stmt::Pass(ast::StmtPass {
+                node_index: Default::default(),
+                range: Default::default(),
+            })]));
+        }
         Ok(PlaceholderValue::Stmt(self))
     }
 }
@@ -381,7 +387,7 @@ pub(crate) fn flatten(body: &mut Vec<Stmt>) {
 
 #[cfg(test)]
 mod tests {
-    use crate::assert_flatten_eq;
+    use crate::test_util::assert_ast_eq;
     use ruff_python_ast::{
         self as ast,
         comparable::{ComparableExpr, ComparableStmt},
@@ -439,12 +445,14 @@ b = 2
         .into_syntax()
         .body;
         let stmt = py_stmt!("{body:stmt}", body = body.clone());
-        assert_flatten_eq!(
-            vec![stmt],
-            "
+        assert_ast_eq(
+            &[stmt],
+            &[py_stmt!(
+                "
 a = 1
 b = 2
 ",
+            )],
         );
     }
 
@@ -498,16 +506,18 @@ else:
 ",
             inner = vec![inner],
         );
-        assert_flatten_eq!(
-            vec![stmt],
-            "
+        assert_ast_eq(
+            &[stmt],
+            &[py_stmt!(
+                "
 if a:
     z
 elif b:
     x
 else:
     y
-",
+"
+            )],
         );
     }
 }
