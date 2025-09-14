@@ -1,6 +1,5 @@
 #[cfg(target_arch = "wasm32")]
 use js_sys::Array;
-use ruff_python_ast::visitor::transformer::walk_body;
 use ruff_python_ast::{ModModule, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_python_parser::{parse_module, ParseError};
@@ -19,9 +18,7 @@ mod template;
 mod test_util;
 mod transform;
 
-use transform::decorator::DecoratorRewriter;
 use transform::expr::ExprRewriter;
-use transform::gen::GeneratorRewriter;
 use transform::truthy::TruthyRewriter;
 
 fn should_skip(source: &str) -> bool {
@@ -32,18 +29,12 @@ fn should_skip(source: &str) -> bool {
 }
 
 fn apply_transforms(module: &mut ModModule) {
+    // Lower `for` loops, expand generators and lambdas, and replace
+    // `__dp__.<name>` calls with `getattr` in a single pass.
     let expr_transformer = ExprRewriter::new();
-    walk_body(&expr_transformer, &mut module.body);
-    let decorator_transformer = DecoratorRewriter::new();
-    walk_body(&decorator_transformer, &mut module.body);
-    let import_rewriter = transform::import::ImportRewriter::new();
-    walk_body(&import_rewriter, &mut module.body);
+    expr_transformer.rewrite_body(&mut module.body);
 
-    let gen_transformer = GeneratorRewriter::new();
-    gen_transformer.rewrite_body(&mut module.body);
-
-    // Previous transforms use `__dp__.<name>` calls; `expr` lowers them
-    // to use `getattr`, so apply it before the final template flattening.
+    // Collapse `py_stmt!` templates after all rewrites.
     template::flatten(&mut module.body);
 
     // let truthy_transformer = TruthyRewriter::new();
@@ -79,7 +70,7 @@ pub fn transform_str_to_ruff(source: &str) -> Result<ModModule, ParseError> {
 /// Convert a ruff AST ModModule to a pretty-printed string.
 pub fn ruff_ast_to_string(module: &[Stmt]) -> String {
     // Use default stylist settings for pretty printing
-    let indent = Indentation::new("  ".to_string());
+    let indent = Indentation::new("    ".to_string());
     let mut output = String::new();
     for stmt in module {
         let gen = Generator::new(&indent, LineEnding::default());

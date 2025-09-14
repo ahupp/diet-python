@@ -46,12 +46,11 @@ impl Transformer for TruthyRewriter {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_util::assert_transform_eq;
+    use crate::test_util::{assert_transform_eq_ex, TransformPhase};
 
     #[test]
     fn rewrites_if_condition() {
         let input = r#"
-            r#"
 if a:
     pass
 else:
@@ -63,13 +62,12 @@ if __dp__.truth(a):
 else:
     pass
 "#;
-        assert_transform_eq(input, expected);
+        assert_transform_eq_ex(input, expected, TransformPhase::Full);
     }
 
     #[test]
     fn rewrites_elif_and_else() {
         let input = r#"
-            r#"
 if a:
     pass
 elif b:
@@ -85,13 +83,12 @@ elif __dp__.truth(b):
 else:
     pass
 "#;
-        assert_transform_eq(input, expected);
+        assert_transform_eq_ex(input, expected, TransformPhase::Full);
     }
 
     #[test]
     fn rewrites_while_condition() {
         let input = r#"
-            r#"
 while a:
     pass
 "#;
@@ -99,6 +96,6 @@ while a:
 while __dp__.truth(a):
     pass
 "#;
-        assert_transform_eq(input, expected);
+        assert_transform_eq_ex(input, expected, TransformPhase::Full);
     }
 }

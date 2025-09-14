@@ -1,9 +1,10 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 use super::{
-    rewrite_assert, rewrite_class_def, rewrite_for_loop, rewrite_match_case, rewrite_try_except,
-    rewrite_with,
+    rewrite_assert, rewrite_class_def, rewrite_decorator, rewrite_for_loop, rewrite_import,
+    rewrite_match_case, rewrite_try_except, rewrite_with,
 };
+use ruff_python_ast::name::Name;
 use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, CmpOp, Expr, Operator, Stmt, UnaryOp};
 use ruff_text_size::TextRange;
@@ -31,6 +32,10 @@ pub struct ExprRewriter {
     try_count: Cell<usize>,
     match_count: Cell<usize>,
     with_count: Cell<usize>,
+    gen_count: Cell<usize>,
+    lambda_count: Cell<usize>,
+    decorator_count: Cell<usize>,
+    scopes: RefCell<Vec<Vec<Stmt>>>,
 }
 
 impl ExprRewriter {
@@ -41,7 +46,34 @@ impl ExprRewriter {
             try_count: Cell::new(0),
             match_count: Cell::new(0),
             with_count: Cell::new(0),
+            gen_count: Cell::new(0),
+            lambda_count: Cell::new(0),
+            decorator_count: Cell::new(0),
+            scopes: RefCell::new(Vec::new()),
         }
+    }
+
+    pub fn rewrite_body(&self, body: &mut Vec<Stmt>) {
+        self.push_scope();
+        for stmt in body.iter_mut() {
+            self.visit_stmt(stmt);
+        }
+        let functions = self.pop_scope();
+        if !functions.is_empty() {
+            body.splice(0..0, functions);
+        }
+    }
+
+    fn push_scope(&self) {
+        self.scopes.borrow_mut().push(Vec::new());
+    }
+
+    fn pop_scope(&self) -> Vec<Stmt> {
+        self.scopes.borrow_mut().pop().unwrap()
+    }
+
+    fn add_function(&self, func: Stmt) {
+        self.scopes.borrow_mut().last_mut().unwrap().push(func);
     }
 
     fn next_tmp(&self) -> String {
@@ -181,209 +213,371 @@ __dp__.setitem({obj:expr}, {key:expr}, {value:expr})
 
 impl Transformer for ExprRewriter {
     fn visit_expr(&self, expr: &mut Expr) {
-        let original = expr.clone();
-        *expr = match original {
-            Expr::Slice(ast::ExprSlice {
-                lower, upper, step, ..
-            }) => {
-                fn none_name() -> Expr {
+        if let Expr::Lambda(lambda) = expr {
+            if lambda.parameters.is_some() {
+                let id = self.lambda_count.get() + 1;
+                self.lambda_count.set(id);
+                let func_name = format!("_dp_lambda_{}", id);
+
+                let parameters = lambda
+                    .parameters
+                    .as_ref()
+                    .map(|params| (**params).clone())
+                    .unwrap_or_else(|| ast::Parameters {
+                        range: TextRange::default(),
+                        node_index: ast::AtomicNodeIndex::default(),
+                        posonlyargs: vec![],
+                        args: vec![],
+                        vararg: None,
+                        kwonlyargs: vec![],
+                        kwarg: None,
+                    });
+
+                let body_stmt =
+                    crate::py_stmt!("\nreturn {value:expr}", value = (*lambda.body).clone(),);
+
+                let mut func_def = crate::py_stmt!(
+                    "\ndef {func:id}():\n    {body:stmt}",
+                    func = func_name.as_str(),
+                    body = body_stmt,
+                );
+
+                if let Stmt::FunctionDef(ast::StmtFunctionDef {
+                    parameters: params, ..
+                }) = &mut func_def
+                {
+                    *params = Box::new(parameters);
+                }
+
+                walk_stmt(self, &mut func_def);
+                self.add_function(func_def);
+
+                *expr = crate::py_expr!("\n{func:id}", func = func_name.as_str(),);
+            }
+        } else if let Expr::Generator(gen) = expr {
+            let first_iter_expr = gen.generators.first().unwrap().iter.clone();
+
+            let id = self.gen_count.get() + 1;
+            self.gen_count.set(id);
+            // Avoid using a double underscore prefix for generated function names.
+            // Python name mangling affects identifiers starting with two underscores
+            // inside class bodies; use a single underscore to keep helpers hidden
+            // without triggering mangling.
+            let func_name = format!("_dp_gen_{}", id);
+
+            let param_name = if let Expr::Name(ast::ExprName { id, .. }) = &first_iter_expr {
+                id.clone()
+            } else {
+                Name::new(format!("_dp_iter_{}", id))
+            };
+
+            let mut body = vec![crate::py_stmt!(
+                "\nyield {value:expr}",
+                value = (*gen.elt).clone(),
+            )];
+
+            for comp in gen.generators.iter().rev() {
+                let mut inner = body;
+                for if_expr in comp.ifs.iter().rev() {
+                    inner = vec![crate::py_stmt!(
+                        "\nif {test:expr}:\n    {body:stmt}",
+                        test = if_expr.clone(),
+                        body = inner,
+                    )];
+                }
+                body = vec![if comp.is_async {
+                    crate::py_stmt!(
+                        "\nasync for {target:expr} in {iter:expr}:\n    {body:stmt}",
+                        target = comp.target.clone(),
+                        iter = comp.iter.clone(),
+                        body = inner,
+                    )
+                } else {
+                    crate::py_stmt!(
+                        "\nfor {target:expr} in {iter:expr}:\n    {body:stmt}",
+                        target = comp.target.clone(),
+                        iter = comp.iter.clone(),
+                        body = inner,
+                    )
+                }];
+            }
+
+            if let Stmt::For(ast::StmtFor { iter, .. }) = body.first_mut().unwrap() {
+                *iter = Box::new(crate::py_expr!("\n{name:id}", name = param_name.as_str(),));
+            }
+
+            let mut func_def = crate::py_stmt!(
+                "\ndef {func:id}({param:id}):\n    {body:stmt}",
+                func = func_name.as_str(),
+                param = param_name.as_str(),
+                body = body,
+            );
+
+            walk_stmt(self, &mut func_def);
+            self.add_function(func_def);
+
+            *expr = crate::py_expr!(
+                "\n{func:id}(__dp__.iter({iter:expr}))",
+                iter = first_iter_expr,
+                func = func_name.as_str(),
+            );
+        } else {
+            let original = expr.clone();
+            *expr = match original {
+                Expr::Slice(ast::ExprSlice {
+                    lower, upper, step, ..
+                }) => {
+                    fn none_name() -> Expr {
+                        crate::py_expr!("None")
+                    }
+                    let lower_expr = lower.map(|expr| *expr).unwrap_or_else(none_name);
+                    let upper_expr = upper.map(|expr| *expr).unwrap_or_else(none_name);
+                    let step_expr = step.map(|expr| *expr).unwrap_or_else(none_name);
+                    crate::py_expr!(
+                        "slice({lower:expr}, {upper:expr}, {step:expr})",
+                        lower = lower_expr,
+                        upper = upper_expr,
+                        step = step_expr,
+                    )
+                }
+                Expr::EllipsisLiteral(_) => {
+                    crate::py_expr!("Ellipsis")
+                }
+                Expr::NumberLiteral(ast::ExprNumberLiteral {
+                    value: ast::Number::Complex { real, imag },
+                    ..
+                }) => {
+                    let real_expr = Expr::NumberLiteral(ast::ExprNumberLiteral {
+                        node_index: ast::AtomicNodeIndex::default(),
+                        range: TextRange::default(),
+                        value: ast::Number::Float(real),
+                    });
+                    let imag_expr = Expr::NumberLiteral(ast::ExprNumberLiteral {
+                        node_index: ast::AtomicNodeIndex::default(),
+                        range: TextRange::default(),
+                        value: ast::Number::Float(imag),
+                    });
+                    crate::py_expr!(
+                        "complex({real:expr}, {imag:expr})",
+                        real = real_expr,
+                        imag = imag_expr,
+                    )
+                }
+                Expr::Attribute(ast::ExprAttribute {
+                    value, attr, ctx, ..
+                }) if matches!(ctx, ast::ExprContext::Load) => {
+                    let value_expr = *value;
+                    crate::py_expr!(
+                        "getattr({value:expr}, {attr:literal})",
+                        value = value_expr,
+                        attr = attr.id.as_str(),
+                    )
+                }
+                Expr::NoneLiteral(_) => {
                     crate::py_expr!("None")
                 }
-                let lower_expr = lower.map(|expr| *expr).unwrap_or_else(none_name);
-                let upper_expr = upper.map(|expr| *expr).unwrap_or_else(none_name);
-                let step_expr = step.map(|expr| *expr).unwrap_or_else(none_name);
-                crate::py_expr!(
-                    "slice({lower:expr}, {upper:expr}, {step:expr})",
-                    lower = lower_expr,
-                    upper = upper_expr,
-                    step = step_expr,
-                )
-            }
-            Expr::EllipsisLiteral(_) => {
-                crate::py_expr!("Ellipsis")
-            }
-            Expr::NumberLiteral(ast::ExprNumberLiteral {
-                value: ast::Number::Complex { real, imag },
-                ..
-            }) => {
-                let real_expr = Expr::NumberLiteral(ast::ExprNumberLiteral {
-                    node_index: ast::AtomicNodeIndex::default(),
-                    range: TextRange::default(),
-                    value: ast::Number::Float(real),
-                });
-                let imag_expr = Expr::NumberLiteral(ast::ExprNumberLiteral {
-                    node_index: ast::AtomicNodeIndex::default(),
-                    range: TextRange::default(),
-                    value: ast::Number::Float(imag),
-                });
-                crate::py_expr!(
-                    "complex({real:expr}, {imag:expr})",
-                    real = real_expr,
-                    imag = imag_expr,
-                )
-            }
-            Expr::Attribute(ast::ExprAttribute {
-                value, attr, ctx, ..
-            }) if matches!(ctx, ast::ExprContext::Load) => {
-                let value_expr = *value;
-                crate::py_expr!(
-                    "getattr({value:expr}, {attr:literal})",
-                    value = value_expr,
-                    attr = attr.id.as_str(),
-                )
-            }
-            Expr::NoneLiteral(_) => {
-                crate::py_expr!("None")
-            }
-            Expr::ListComp(ast::ExprListComp {
-                elt, generators, ..
-            }) => Self::make_comp_call("list", *elt, generators),
-            Expr::SetComp(ast::ExprSetComp {
-                elt, generators, ..
-            }) => Self::make_comp_call("set", *elt, generators),
-            Expr::DictComp(ast::ExprDictComp {
-                key,
-                value,
-                generators,
-                ..
-            }) => {
-                let tuple =
-                    crate::py_expr!("({key:expr}, {value:expr})", key = *key, value = *value,);
-                Self::make_comp_call("dict", tuple, generators)
-            }
-            Expr::List(ast::ExprList { elts, ctx, .. })
-                if matches!(ctx, ast::ExprContext::Load) =>
-            {
-                let tuple = Self::tuple_from(elts);
-                crate::py_expr!("list({tuple:expr})", tuple = tuple,)
-            }
-            Expr::Set(ast::ExprSet { elts, .. }) => {
-                let tuple = Self::tuple_from(elts);
-                crate::py_expr!("set({tuple:expr})", tuple = tuple,)
-            }
-            Expr::Dict(ast::ExprDict { items, .. })
-                if items.iter().all(|item| item.key.is_some()) =>
-            {
-                let pairs: Vec<Expr> = items
-                    .into_iter()
-                    .map(|item| {
-                        let key = item.key.unwrap();
-                        let value = item.value;
-                        crate::py_expr!("({key:expr}, {value:expr})", key = key, value = value,)
-                    })
-                    .collect();
-                let tuple = Self::tuple_from(pairs);
-                crate::py_expr!("dict({tuple:expr})", tuple = tuple,)
-            }
-            Expr::If(ast::ExprIf {
-                test, body, orelse, ..
-            }) => {
-                let test_expr = *test;
-                let body_expr = *body;
-                let orelse_expr = *orelse;
-                crate::py_expr!(
-                    "__dp__.if_expr({cond:expr}, lambda: {body:expr}, lambda: {orelse:expr})",
-                    cond = test_expr,
-                    body = body_expr,
-                    orelse = orelse_expr,
-                )
-            }
-            Expr::BoolOp(ast::ExprBoolOp { op, mut values, .. }) => {
-                let mut result = values.pop().expect("boolop with no values");
-                while let Some(value) = values.pop() {
-                    result = match op {
-                        ast::BoolOp::Or => crate::py_expr!(
-                            "__dp__.or_expr({left:expr}, lambda: {right:expr})",
-                            left = value,
-                            right = result,
-                        ),
-                        ast::BoolOp::And => crate::py_expr!(
-                            "__dp__.and_expr({left:expr}, lambda: {right:expr})",
-                            left = value,
-                            right = result,
-                        ),
-                    };
+                Expr::ListComp(ast::ExprListComp {
+                    elt, generators, ..
+                }) => Self::make_comp_call("list", *elt, generators),
+                Expr::SetComp(ast::ExprSetComp {
+                    elt, generators, ..
+                }) => Self::make_comp_call("set", *elt, generators),
+                Expr::DictComp(ast::ExprDictComp {
+                    key,
+                    value,
+                    generators,
+                    ..
+                }) => {
+                    let tuple =
+                        crate::py_expr!("({key:expr}, {value:expr})", key = *key, value = *value,);
+                    Self::make_comp_call("dict", tuple, generators)
                 }
-                result
-            }
-            Expr::BinOp(ast::ExprBinOp {
-                left, right, op, ..
-            }) => {
-                let func_name = match op {
-                    Operator::Add => "add",
-                    Operator::Sub => "sub",
-                    Operator::Mult => "mul",
-                    Operator::MatMult => "matmul",
-                    Operator::Div => "truediv",
-                    Operator::Mod => "mod",
-                    Operator::Pow => "pow",
-                    Operator::LShift => "lshift",
-                    Operator::RShift => "rshift",
-                    Operator::BitOr => "or_",
-                    Operator::BitXor => "xor",
-                    Operator::BitAnd => "and_",
-                    Operator::FloorDiv => "floordiv",
-                };
-                make_binop(func_name, *left, *right)
-            }
-            Expr::UnaryOp(ast::ExprUnaryOp { operand, op, .. }) => {
-                let func_name = match op {
-                    UnaryOp::Not => "not_",
-                    UnaryOp::Invert => "invert",
-                    UnaryOp::USub => "neg",
-                    UnaryOp::UAdd => "pos",
-                };
-                make_unaryop(func_name, *operand)
-            }
-            Expr::Compare(ast::ExprCompare {
-                left,
-                ops,
-                comparators,
-                ..
-            }) if ops.len() == 1 && comparators.len() == 1 => {
-                let mut ops_vec = ops.into_vec();
-                let mut comps_vec = comparators.into_vec();
-                let left = *left;
-                let right = comps_vec.pop().unwrap();
-                let op = ops_vec.pop().unwrap();
-                let call = match op {
-                    CmpOp::Eq => make_binop("eq", left, right),
-                    CmpOp::NotEq => make_binop("ne", left, right),
-                    CmpOp::Lt => make_binop("lt", left, right),
-                    CmpOp::LtE => make_binop("le", left, right),
-                    CmpOp::Gt => make_binop("gt", left, right),
-                    CmpOp::GtE => make_binop("ge", left, right),
-                    CmpOp::Is => make_binop("is_", left, right),
-                    CmpOp::IsNot => make_binop("is_not", left, right),
-                    CmpOp::In => make_binop("contains", right, left),
-                    CmpOp::NotIn => {
-                        let contains = make_binop("contains", right, left);
-                        make_unaryop("not_", contains)
+                Expr::List(ast::ExprList { elts, ctx, .. })
+                    if matches!(ctx, ast::ExprContext::Load) =>
+                {
+                    let tuple = Self::tuple_from(elts);
+                    crate::py_expr!("list({tuple:expr})", tuple = tuple,)
+                }
+                Expr::Set(ast::ExprSet { elts, .. }) => {
+                    let tuple = Self::tuple_from(elts);
+                    crate::py_expr!("set({tuple:expr})", tuple = tuple,)
+                }
+                Expr::Dict(ast::ExprDict { items, .. })
+                    if items.iter().all(|item| item.key.is_some()) =>
+                {
+                    let pairs: Vec<Expr> = items
+                        .into_iter()
+                        .map(|item| {
+                            let key = item.key.unwrap();
+                            let value = item.value;
+                            crate::py_expr!("({key:expr}, {value:expr})", key = key, value = value,)
+                        })
+                        .collect();
+                    let tuple = Self::tuple_from(pairs);
+                    crate::py_expr!("dict({tuple:expr})", tuple = tuple,)
+                }
+                Expr::If(ast::ExprIf {
+                    test, body, orelse, ..
+                }) => {
+                    let test_expr = *test;
+                    let body_expr = *body;
+                    let orelse_expr = *orelse;
+                    crate::py_expr!(
+                        "__dp__.if_expr({cond:expr}, lambda: {body:expr}, lambda: {orelse:expr})",
+                        cond = test_expr,
+                        body = body_expr,
+                        orelse = orelse_expr,
+                    )
+                }
+                Expr::BoolOp(ast::ExprBoolOp { op, mut values, .. }) => {
+                    let mut result = values.pop().expect("boolop with no values");
+                    while let Some(value) = values.pop() {
+                        result = match op {
+                            ast::BoolOp::Or => crate::py_expr!(
+                                "__dp__.or_expr({left:expr}, lambda: {right:expr})",
+                                left = value,
+                                right = result,
+                            ),
+                            ast::BoolOp::And => crate::py_expr!(
+                                "__dp__.and_expr({left:expr}, lambda: {right:expr})",
+                                left = value,
+                                right = result,
+                            ),
+                        };
                     }
-                };
-                call
-            }
-            Expr::Subscript(ast::ExprSubscript {
-                value, slice, ctx, ..
-            }) if matches!(ctx, ast::ExprContext::Load) => {
-                let obj = *value;
-                let key = *slice;
-                make_binop("getitem", obj, key)
-            }
-            _ => original,
-        };
+                    result
+                }
+                Expr::BinOp(ast::ExprBinOp {
+                    left, right, op, ..
+                }) => {
+                    let func_name = match op {
+                        Operator::Add => "add",
+                        Operator::Sub => "sub",
+                        Operator::Mult => "mul",
+                        Operator::MatMult => "matmul",
+                        Operator::Div => "truediv",
+                        Operator::Mod => "mod",
+                        Operator::Pow => "pow",
+                        Operator::LShift => "lshift",
+                        Operator::RShift => "rshift",
+                        Operator::BitOr => "or_",
+                        Operator::BitXor => "xor",
+                        Operator::BitAnd => "and_",
+                        Operator::FloorDiv => "floordiv",
+                    };
+                    make_binop(func_name, *left, *right)
+                }
+                Expr::UnaryOp(ast::ExprUnaryOp { operand, op, .. }) => {
+                    let func_name = match op {
+                        UnaryOp::Not => "not_",
+                        UnaryOp::Invert => "invert",
+                        UnaryOp::USub => "neg",
+                        UnaryOp::UAdd => "pos",
+                    };
+                    make_unaryop(func_name, *operand)
+                }
+                Expr::Compare(ast::ExprCompare {
+                    left,
+                    ops,
+                    comparators,
+                    ..
+                }) if ops.len() == 1 && comparators.len() == 1 => {
+                    let mut ops_vec = ops.into_vec();
+                    let mut comps_vec = comparators.into_vec();
+                    let left = *left;
+                    let right = comps_vec.pop().unwrap();
+                    let op = ops_vec.pop().unwrap();
+                    let call = match op {
+                        CmpOp::Eq => make_binop("eq", left, right),
+                        CmpOp::NotEq => make_binop("ne", left, right),
+                        CmpOp::Lt => make_binop("lt", left, right),
+                        CmpOp::LtE => make_binop("le", left, right),
+                        CmpOp::Gt => make_binop("gt", left, right),
+                        CmpOp::GtE => make_binop("ge", left, right),
+                        CmpOp::Is => make_binop("is_", left, right),
+                        CmpOp::IsNot => make_binop("is_not", left, right),
+                        CmpOp::In => make_binop("contains", right, left),
+                        CmpOp::NotIn => {
+                            let contains = make_binop("contains", right, left);
+                            make_unaryop("not_", contains)
+                        }
+                    };
+                    call
+                }
+                Expr::Subscript(ast::ExprSubscript {
+                    value, slice, ctx, ..
+                }) if matches!(ctx, ast::ExprContext::Load) => {
+                    let obj = *value;
+                    let key = *slice;
+                    make_binop("getitem", obj, key)
+                }
+                _ => original,
+            };
+        }
         walk_expr(self, expr);
     }
 
     fn visit_stmt(&self, stmt: &mut Stmt) {
+        if matches!(stmt, Stmt::FunctionDef(_)) {
+            if let Stmt::FunctionDef(ast::StmtFunctionDef {
+                decorator_list,
+                name,
+                ..
+            }) = stmt
+            {
+                if !decorator_list.is_empty() {
+                    let decorators = std::mem::take(decorator_list);
+                    let func_name = name.id.clone();
+                    let func_def = stmt.clone();
+                    *stmt = rewrite_decorator::rewrite(
+                        decorators,
+                        func_name.as_str(),
+                        func_def,
+                        &self.decorator_count,
+                    );
+                    self.visit_stmt(stmt);
+                    return;
+                }
+            }
+            self.push_scope();
+            walk_stmt(self, stmt);
+            let functions = self.pop_scope();
+            if !functions.is_empty() {
+                if let Stmt::FunctionDef(ast::StmtFunctionDef { body, .. }) = stmt {
+                    body.splice(0..0, functions);
+                }
+            }
+            return;
+        }
+
         *stmt = match stmt {
             Stmt::With(with) => rewrite_with::rewrite(with.clone(), &self.with_count),
             Stmt::Assert(assert) => rewrite_assert::rewrite(assert.clone()),
-            Stmt::ClassDef(class_def) => rewrite_class_def::rewrite(class_def.clone()),
+            Stmt::ClassDef(class_def) => {
+                let mut stmt = rewrite_class_def::rewrite(class_def.clone());
+                if !class_def.decorator_list.is_empty() {
+                    let decorators = class_def.decorator_list.clone();
+                    let class_name = class_def.name.id.clone();
+                    stmt = rewrite_decorator::rewrite(
+                        decorators,
+                        class_name.as_str(),
+                        stmt,
+                        &self.decorator_count,
+                    );
+                }
+                stmt
+            }
             Stmt::For(for_stmt) => rewrite_for_loop::rewrite(for_stmt.clone(), &self.for_count),
             Stmt::Try(try_stmt) => rewrite_try_except::rewrite(try_stmt.clone(), &self.try_count),
             Stmt::Match(match_stmt) => {
                 rewrite_match_case::rewrite(match_stmt.clone(), &self.match_count)
+            }
+            Stmt::Import(import) => rewrite_import::rewrite(import.clone()),
+            Stmt::ImportFrom(import_from) => {
+                match rewrite_import::rewrite_from(import_from.clone()) {
+                    Some(stmt) => stmt,
+                    None => Stmt::ImportFrom(import_from.clone()),
+                }
             }
             Stmt::Assign(assign) => {
                 let value = (*assign.value).clone();
@@ -508,8 +702,6 @@ impl Transformer for ExprRewriter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transform::gen::GeneratorRewriter;
-    use ruff_python_ast::visitor::transformer::walk_body;
     use ruff_python_codegen::{Generator, Stylist};
     use ruff_python_parser::parse_module;
 
@@ -519,11 +711,7 @@ mod tests {
         let mut module = parsed.into_syntax();
 
         let expr_transformer = ExprRewriter::new();
-        walk_body(&expr_transformer, &mut module.body);
-        let gen_transformer = GeneratorRewriter::new();
-        gen_transformer.rewrite_body(&mut module.body);
-        let expr_transformer = ExprRewriter::new();
-        walk_body(&expr_transformer, &mut module.body);
+        expr_transformer.rewrite_body(&mut module.body);
 
         crate::template::flatten(&mut module.body);
 
