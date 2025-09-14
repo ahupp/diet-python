@@ -6,3 +6,4 @@
 - preserve type hints
 - only allow import star when at unconditional top level
 - investigate failing CPython tests: test_frozen, test_importlib
+- ensure all internals are prefixed with _dp, and rewrite to disallow user code from accessing them
