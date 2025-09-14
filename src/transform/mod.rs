@@ -11,15 +11,22 @@ pub(crate) mod rewrite_string;
 pub(crate) mod truthy;
 
 #[derive(Clone, Copy)]
+pub enum ImportStarHandling {
+    Allowed,
+    Error,
+    Strip,
+}
+
+#[derive(Clone, Copy)]
 pub struct Options {
-    pub allow_import_star: bool,
+    pub import_star_handling: ImportStarHandling,
     pub inject_import: bool,
 }
 
 impl Default for Options {
     fn default() -> Self {
         Self {
-            allow_import_star: true,
+            import_star_handling: ImportStarHandling::Strip,
             inject_import: true,
         }
     }
@@ -28,7 +35,7 @@ impl Default for Options {
 impl Options {
     pub fn for_test() -> Self {
         Self {
-            allow_import_star: false,
+            import_star_handling: ImportStarHandling::Error,
             inject_import: false,
         }
     }

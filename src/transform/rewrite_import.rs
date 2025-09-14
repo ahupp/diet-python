@@ -1,4 +1,4 @@
-use super::Options;
+use super::{ImportStarHandling, Options};
 use ruff_python_ast::{self as ast, Stmt};
 
 pub fn rewrite(ast::StmtImport { names, .. }: ast::StmtImport) -> Stmt {
@@ -30,10 +30,11 @@ pub fn rewrite_from(
     options: &Options,
 ) -> Option<Stmt> {
     if names.iter().any(|alias| alias.name.id.as_str() == "*") {
-        if options.allow_import_star {
-            return None;
-        }
-        panic!("import star not allowed");
+        return match options.import_star_handling {
+            ImportStarHandling::Allowed => None,
+            ImportStarHandling::Error => panic!("import star not allowed"),
+            ImportStarHandling::Strip => Some(crate::py_stmt!("{body:stmt}", body = Vec::new())),
+        };
     }
     let module_name = module.as_ref().map(|n| n.id.as_str()).unwrap_or("");
     let level_val = level;
@@ -67,7 +68,7 @@ pub fn rewrite_from(
 #[cfg(test)]
 mod tests {
     use crate::test_util::assert_transform_eq;
-    use crate::transform::{expr::ExprRewriter, Options};
+    use crate::transform::{expr::ExprRewriter, ImportStarHandling, Options};
     use ruff_python_parser::parse_module;
 
     #[test]
@@ -137,7 +138,7 @@ from a import *
         let output = rewrite_source(
             input,
             Options {
-                allow_import_star: true,
+                import_star_handling: ImportStarHandling::Allowed,
                 inject_import: false,
             },
         );
@@ -153,9 +154,24 @@ from a import *
         let _ = rewrite_source(
             input,
             Options {
-                allow_import_star: false,
+                import_star_handling: ImportStarHandling::Error,
                 inject_import: false,
             },
         );
+    }
+
+    #[test]
+    fn strips_import_star() {
+        let input = r#"
+from a import *
+"#;
+        let output = rewrite_source(
+            input,
+            Options {
+                import_star_handling: ImportStarHandling::Strip,
+                inject_import: false,
+            },
+        );
+        assert_eq!(output.trim(), "");
     }
 }
