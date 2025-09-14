@@ -639,13 +639,24 @@ impl Transformer for ExprRewriter {
                     Operator::FloorDiv => "ifloordiv",
                 };
 
-                let call = make_binop(func_name, target.clone(), value);
-
-                crate::py_stmt!(
-                    "{target:expr} = {value:expr}",
-                    target = target,
-                    value = call,
-                )
+                let mut target_expr = target.clone();
+                match &mut target_expr {
+                    Expr::Name(name) => name.ctx = ast::ExprContext::Load,
+                    Expr::Attribute(attr) => attr.ctx = ast::ExprContext::Load,
+                    Expr::Subscript(sub) => sub.ctx = ast::ExprContext::Load,
+                    _ => {}
+                }
+                let call = make_binop(func_name, target_expr, value);
+                let mut stmts = Vec::new();
+                self.rewrite_target(target, call, &mut stmts);
+                if stmts.len() == 1 {
+                    stmts.pop().unwrap()
+                } else {
+                    crate::py_stmt!(
+                        "\n{body:stmt}",
+                        body = stmts,
+                    )
+                }
             }
             Stmt::Delete(del) => {
                 let mut stmts = Vec::with_capacity(del.targets.len());
@@ -751,6 +762,18 @@ x += 2
         let expected = r#"
 x = 1
 x = getattr(__dp__, "iadd")(x, 2)
+"#;
+        let output = rewrite_source(input);
+        assert_eq!(output.trim(), expected.trim());
+    }
+
+    #[test]
+    fn rewrites_attribute_aug_assign() {
+        let input = "
+a.b += c
+";
+        let expected = r#"
+getattr(__dp__, "setattr")(a, "b", getattr(__dp__, "iadd")(getattr(a, "b"), c))
 "#;
         let output = rewrite_source(input);
         assert_eq!(output.trim(), expected.trim());
