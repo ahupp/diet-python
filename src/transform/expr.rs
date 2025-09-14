@@ -582,6 +582,32 @@ impl Transformer for ExprRewriter {
                     None => Stmt::ImportFrom(import_from.clone()),
                 }
             }
+            Stmt::AnnAssign(ann_assign) => {
+                let target = (*ann_assign.target).clone();
+                let value = ann_assign
+                    .value
+                    .clone()
+                    .map(|v| *v)
+                    .unwrap_or_else(|| {
+                        crate::py_expr!(
+                            "
+None
+"
+                        )
+                    });
+                let mut stmts = Vec::new();
+                self.rewrite_target(target, value, &mut stmts);
+                if stmts.len() == 1 {
+                    stmts.pop().unwrap()
+                } else {
+                    crate::py_stmt!(
+                        "
+{body:stmt}
+",
+                        body = stmts,
+                    )
+                }
+            }
             Stmt::Assign(assign) => {
                 let value = (*assign.value).clone();
                 let mut stmts = Vec::new();
@@ -775,6 +801,18 @@ a.b += c
         let expected = r#"
 getattr(__dp__, "setattr")(a, "b", getattr(__dp__, "iadd")(getattr(a, "b"), c))
 "#;
+        let output = rewrite_source(input);
+        assert_eq!(output.trim(), expected.trim());
+    }
+
+    #[test]
+    fn rewrites_ann_assign() {
+        let input = "
+x: int = 1
+";
+        let expected = "
+x = 1
+";
         let output = rewrite_source(input);
         assert_eq!(output.trim(), expected.trim());
     }
