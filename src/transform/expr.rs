@@ -526,6 +526,7 @@ impl Transformer for ExprRewriter {
                         decorators,
                         func_name.as_str(),
                         func_def,
+                        None,
                         &self.decorator_count,
                     );
                     self.visit_stmt(stmt);
@@ -547,18 +548,27 @@ impl Transformer for ExprRewriter {
             Stmt::With(with) => rewrite_with::rewrite(with.clone(), &self.with_count),
             Stmt::Assert(assert) => rewrite_assert::rewrite(assert.clone()),
             Stmt::ClassDef(class_def) => {
-                let mut stmt = rewrite_class_def::rewrite(class_def.clone());
+                let base_stmt = rewrite_class_def::rewrite(class_def.clone());
+                let class_name = class_def.name.id.clone();
                 if !class_def.decorator_list.is_empty() {
                     let decorators = class_def.decorator_list.clone();
-                    let class_name = class_def.name.id.clone();
-                    stmt = rewrite_decorator::rewrite(
+                    let base_name = format!("_dp_class_{}", class_name);
+                    rewrite_decorator::rewrite(
                         decorators,
                         class_name.as_str(),
-                        stmt,
+                        base_stmt,
+                        Some(base_name.as_str()),
                         &self.decorator_count,
+                    )
+                } else {
+                    let base_name = format!("_dp_class_{}", class_name);
+                    let assign_stmt = crate::py_stmt!(
+                        "{name:id} = {base:id}",
+                        name = class_name.as_str(),
+                        base = base_name.as_str()
                     );
+                    crate::py_stmt!("{body:stmt}", body = vec![base_stmt, assign_stmt])
                 }
-                stmt
             }
             Stmt::For(for_stmt) => rewrite_for_loop::rewrite(for_stmt.clone(), &self.for_count),
             Stmt::Try(try_stmt) => rewrite_try_except::rewrite(try_stmt.clone(), &self.try_count),

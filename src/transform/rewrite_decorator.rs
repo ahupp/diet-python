@@ -7,6 +7,7 @@ pub fn rewrite(
     decorators: Vec<ast::Decorator>,
     name: &str,
     item: Stmt,
+    base: Option<&str>,
     count: &Cell<usize>,
 ) -> Stmt {
     let mut assigns = Vec::new();
@@ -29,7 +30,11 @@ pub fn rewrite(
         }
     }
 
-    let mut call_expr = crate::py_expr!("{name:id}", name = name);
+    let mut call_expr = if let Some(base_name) = base {
+        crate::py_expr!("{name:id}", name = base_name)
+    } else {
+        crate::py_expr!("{name:id}", name = name)
+    };
     for decorator in names.iter().rev() {
         call_expr = crate::py_expr!(
             "{decorator:id}({expr:expr})",
@@ -92,8 +97,8 @@ def _class_C():
     _dp_ns_C(ns)
     cls = meta("C", bases, ns)
     return cls
-C = _class_C()
-C = dec(C)
+_dp_class_C = _class_C()
+C = dec(_dp_class_C)
 "#;
         assert_transform_eq(input, expected);
     }
@@ -126,8 +131,8 @@ def _class_C():
     _dp_ns_C(ns)
     cls = meta("C", bases, ns)
     return cls
-C = _class_C()
-C = _dp_dec_1(dec1(C))
+_dp_class_C = _class_C()
+C = _dp_dec_1(dec1(_dp_class_C))
 "#;
         assert_transform_eq(input, expected);
     }

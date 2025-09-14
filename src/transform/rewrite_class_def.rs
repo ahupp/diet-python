@@ -1,7 +1,9 @@
 use ruff_python_ast::str::{Quote, TripleQuotes};
 use ruff_python_ast::str_prefix::StringLiteralPrefix;
+use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::TextRange;
+use std::cell::Cell;
 
 fn string_expr(value: &str) -> Expr {
     let flags = ast::StringLiteralFlags::empty()
@@ -19,6 +21,64 @@ fn string_expr(value: &str) -> Expr {
         range: TextRange::default(),
         value: ast::StringLiteralValue::single(literal),
     })
+}
+
+struct MethodTransformer {
+    uses_class: Cell<bool>,
+    first_arg: Option<String>,
+}
+
+impl Transformer for MethodTransformer {
+    fn visit_stmt(&self, stmt: &mut Stmt) {
+        if matches!(stmt, Stmt::FunctionDef(_)) {
+            return;
+        }
+        walk_stmt(self, stmt);
+    }
+
+    fn visit_expr(&self, expr: &mut Expr) {
+        walk_expr(self, expr);
+        match expr {
+            Expr::Call(call) => {
+                if let Expr::Name(ast::ExprName { id, .. }) = call.func.as_ref() {
+                    if id == "super" && call.arguments.args.is_empty() && call.arguments.keywords.is_empty() {
+                        if let Some(arg) = &self.first_arg {
+                            *expr = crate::py_expr!("super({arg:id}, __class__)", arg = arg.as_str());
+                            self.uses_class.set(true);
+                        }
+                    }
+                }
+            }
+            Expr::Name(ast::ExprName { id, .. }) => {
+                if id == "__class__" {
+                    self.uses_class.set(true);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn rewrite_method(func_def: &mut ast::StmtFunctionDef, class_name: &str) {
+    let first_arg = func_def
+        .parameters
+        .posonlyargs
+        .first()
+        .map(|a| a.parameter.name.to_string())
+        .or_else(|| func_def.parameters.args.first().map(|a| a.parameter.name.to_string()));
+
+    let transformer = MethodTransformer {
+        uses_class: Cell::new(false),
+        first_arg,
+    };
+    for stmt in &mut func_def.body {
+        walk_stmt(&transformer, stmt);
+    }
+    if transformer.uses_class.get() {
+        let cls_name = format!("_dp_class_{}", class_name);
+        let assign = crate::py_stmt!("__class__ = {c:id}", c = cls_name.as_str());
+        func_def.body.insert(0, assign);
+    }
 }
 
 pub fn rewrite(
@@ -84,7 +144,8 @@ pub fn rewrite(
                     ));
                 }
             }
-            Stmt::FunctionDef(func_def) => {
+            Stmt::FunctionDef(mut func_def) => {
+                rewrite_method(&mut func_def, &class_name);
                 let fn_name = func_def.name.id.to_string();
                 let mk_name = format!("_mk_{}", fn_name);
                 let mk_body = vec![
@@ -191,9 +252,10 @@ pub fn rewrite(
         body = vec![bases_stmt, prepare_stmt, exec_stmt, cls_stmt, ret_stmt]
     );
 
+    let dp_class_name = format!("_dp_class_{}", class_name);
     let call_stmt = crate::py_stmt!(
-        "{cls_name:id} = {builder:id}()",
-        cls_name = class_name.as_str(),
+        "{cls:id} = {builder:id}()",
+        cls = dp_class_name.as_str(),
         builder = class_func_name.as_str()
     );
 
@@ -232,7 +294,8 @@ def _class_C():
     _dp_ns_C(ns)
     cls = meta("C", bases, ns)
     return cls
-C = _class_C()
+_dp_class_C = _class_C()
+C = _dp_class_C
 "#;
         assert_transform_eq(input, expected);
     }
@@ -262,7 +325,8 @@ def _class_C():
     _dp_ns_C(ns)
     cls = meta("C", bases, ns)
     return cls
-C = _class_C()
+_dp_class_C = _class_C()
+C = _dp_class_C
 "#;
         assert_transform_eq(input, expected);
     }
@@ -298,7 +362,8 @@ def _class_C():
     _dp_ns_C(ns)
     cls = meta("C", bases, ns, **kwds)
     return cls
-C = _class_C()
+_dp_class_C = _class_C()
+C = _dp_class_C
 "#;
         assert_transform_eq(input, expected);
     }
@@ -338,7 +403,92 @@ def _class_C():
     _dp_ns_C(ns)
     cls = meta("C", bases, ns)
     return cls
-C = _class_C()
+_dp_class_C = _class_C()
+C = _dp_class_C
+"#;
+        assert_transform_eq(input, expected);
+    }
+
+    #[test]
+    fn rewrites_super_and_class() {
+        let input = r#"
+class C:
+    def m(self):
+        return super().m()
+"#;
+        let expected = r#"
+def _dp_ns_C(_ns):
+    _dp_temp_ns = dict(())
+    _dp_tmp_1 = __name__
+    getattr(__dp__, "setitem")(_dp_temp_ns, "__module__", _dp_tmp_1)
+    getattr(__dp__, "setitem")(_ns, "__module__", _dp_tmp_1)
+    _dp_tmp_2 = "C"
+    getattr(__dp__, "setitem")(_dp_temp_ns, "__qualname__", _dp_tmp_2)
+    getattr(__dp__, "setitem")(_ns, "__qualname__", _dp_tmp_2)
+
+    def _mk_m():
+
+        def m(self):
+            __class__ = _dp_class_C
+            return getattr(super(self, __class__), "m")()
+        getattr(__dp__, "setattr")(m, "__qualname__", getattr(__dp__, "add")(getattr(__dp__, "getitem")(_ns, "__qualname__"), ".m"))
+        return m
+    _dp_tmp_3 = _mk_m()
+    getattr(__dp__, "setitem")(_dp_temp_ns, "m", _dp_tmp_3)
+    getattr(__dp__, "setitem")(_ns, "m", _dp_tmp_3)
+def _class_C():
+    bases = getattr(__dp__, "resolve_bases")(())
+    _dp_tmp_4 = getattr(__dp__, "prepare_class")("C", bases)
+    meta = getattr(__dp__, "getitem")(_dp_tmp_4, 0)
+    ns = getattr(__dp__, "getitem")(_dp_tmp_4, 1)
+    kwds = getattr(__dp__, "getitem")(_dp_tmp_4, 2)
+    _dp_ns_C(ns)
+    cls = meta("C", bases, ns)
+    return cls
+_dp_class_C = _class_C()
+C = _dp_class_C
+"#;
+        assert_transform_eq(input, expected);
+    }
+
+    #[test]
+    fn rewrites_super_uses_first_arg() {
+        let input = r#"
+class C:
+    def m(z):
+        return super().m()
+"#;
+        let expected = r#"
+def _dp_ns_C(_ns):
+    _dp_temp_ns = dict(())
+    _dp_tmp_1 = __name__
+    getattr(__dp__, "setitem")(_dp_temp_ns, "__module__", _dp_tmp_1)
+    getattr(__dp__, "setitem")(_ns, "__module__", _dp_tmp_1)
+    _dp_tmp_2 = "C"
+    getattr(__dp__, "setitem")(_dp_temp_ns, "__qualname__", _dp_tmp_2)
+    getattr(__dp__, "setitem")(_ns, "__qualname__", _dp_tmp_2)
+
+    def _mk_m():
+
+        def m(z):
+            __class__ = _dp_class_C
+            return getattr(super(z, __class__), "m")()
+        getattr(__dp__, "setattr")(m, "__qualname__", getattr(__dp__, "add")(getattr(__dp__, "getitem")(_ns, "__qualname__"), ".m"))
+        return m
+    _dp_tmp_3 = _mk_m()
+    getattr(__dp__, "setitem")(_dp_temp_ns, "m", _dp_tmp_3)
+    getattr(__dp__, "setitem")(_ns, "m", _dp_tmp_3)
+def _class_C():
+    bases = getattr(__dp__, "resolve_bases")(())
+    _dp_tmp_4 = getattr(__dp__, "prepare_class")("C", bases)
+    meta = getattr(__dp__, "getitem")(_dp_tmp_4, 0)
+    ns = getattr(__dp__, "getitem")(_dp_tmp_4, 1)
+    kwds = getattr(__dp__, "getitem")(_dp_tmp_4, 2)
+    _dp_ns_C(ns)
+    cls = meta("C", bases, ns)
+    return cls
+_dp_class_C = _class_C()
+C = _dp_class_C
 "#;
         assert_transform_eq(input, expected);
     }
