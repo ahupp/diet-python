@@ -1,3 +1,4 @@
+use super::Options;
 use ruff_python_ast::{self as ast, Stmt};
 
 pub fn rewrite(ast::StmtImport { names, .. }: ast::StmtImport) -> Stmt {
@@ -26,9 +27,13 @@ pub fn rewrite_from(
         level,
         ..
     }: ast::StmtImportFrom,
+    options: &Options,
 ) -> Option<Stmt> {
     if names.iter().any(|alias| alias.name.id.as_str() == "*") {
-        return None;
+        if options.allow_import_star {
+            return None;
+        }
+        panic!("import star not allowed");
     }
     let module_name = module.as_ref().map(|n| n.id.as_str()).unwrap_or("");
     let level_val = level;
@@ -62,6 +67,8 @@ pub fn rewrite_from(
 #[cfg(test)]
 mod tests {
     use crate::test_util::assert_transform_eq;
+    use crate::transform::{expr::ExprRewriter, Options};
+    use ruff_python_parser::parse_module;
 
     #[test]
     fn rewrites_basic_import() {
@@ -112,5 +119,31 @@ annotations = getattr(getattr(__dp__, "import_")("__future__", __spec__, list(("
 x = 1
 "#,
         );
+    }
+
+    fn rewrite_source(source: &str, options: Options) -> String {
+        let mut module = parse_module(source).expect("parse error").into_syntax();
+        let expr_transformer = ExprRewriter::new(options);
+        expr_transformer.rewrite_body(&mut module.body);
+        crate::template::flatten(&mut module.body);
+        crate::ruff_ast_to_string(&module.body)
+    }
+
+    #[test]
+    fn allows_import_star() {
+        let input = r#"
+from a import *
+"#;
+        let output = rewrite_source(input, Options { allow_import_star: true });
+        assert_eq!(output.trim(), "from a import *");
+    }
+
+    #[test]
+    #[should_panic(expected = "import star not allowed")]
+    fn panics_on_import_star() {
+        let input = r#"
+from a import *
+"#;
+        let _ = rewrite_source(input, Options { allow_import_star: false });
     }
 }
