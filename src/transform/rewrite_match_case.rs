@@ -210,9 +210,9 @@ pub fn rewrite(ast::StmtMatch { subject, cases, .. }: ast::StmtMatch, count: &Ce
                     chain = crate::py_stmt!(
                         "
 if {test:expr}:
-{body:stmt}
+    {body:stmt}
 else:
-{next:stmt}",
+    {next:stmt}",
                         test = test,
                         body = block,
                         next = chain,
@@ -237,9 +237,9 @@ else:
                 chain = crate::py_stmt!(
                     "
 if {test:expr}:
-{body:stmt}
+    {body:stmt}
 else:
-{next:stmt}",
+    {next:stmt}",
                     test = test_expr,
                     body = block,
                     next = chain,
@@ -276,10 +276,11 @@ match x:
 _dp_match_1 = x
 if getattr(__dp__, "eq")(_dp_match_1, 1):
     a()
-elif getattr(__dp__, "eq")(_dp_match_1, 2):
-    b()
 else:
-    c()
+    if getattr(__dp__, "eq")(_dp_match_1, 2):
+        b()
+    else:
+        c()
 "#;
         assert_transform_eq(input, expected);
     }

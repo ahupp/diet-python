@@ -180,7 +180,7 @@ async def f():
         c
     except:
         _dp_exc_1 = getattr(__dp__, "current_exception")()
-        if _dp_not_(await _dp_exit_1(_dp_ctx_1, *getattr(__dp__, "exc_info")())):
+        if getattr(__dp__, "not_")(await _dp_exit_1(_dp_ctx_1, *getattr(__dp__, "exc_info")())):
             raise
     else:
         await _dp_exit_1(_dp_ctx_1, None, None, None)
