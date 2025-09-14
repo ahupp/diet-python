@@ -134,7 +134,13 @@ x = 1
         let input = r#"
 from a import *
 "#;
-        let output = rewrite_source(input, Options { allow_import_star: true });
+        let output = rewrite_source(
+            input,
+            Options {
+                allow_import_star: true,
+                inject_import: false,
+            },
+        );
         assert_eq!(output.trim(), "from a import *");
     }
 
@@ -144,6 +150,12 @@ from a import *
         let input = r#"
 from a import *
 "#;
-        let _ = rewrite_source(input, Options { allow_import_star: false });
+        let _ = rewrite_source(
+            input,
+            Options {
+                allow_import_star: false,
+                inject_import: false,
+            },
+        );
     }
 }

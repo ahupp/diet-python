@@ -42,12 +42,13 @@ fn apply_transforms(module: &mut ModModule, options: Options) {
 
 /// Transform the source code and return the resulting string.
 pub fn transform_to_string(source: &str, ensure: bool) -> Result<String, ParseError> {
-    let mut module = transform_str_to_ruff(source)?;
-    let _ = min_ast::Module::from(module.clone());
-    if ensure {
-        ensure_import::ensure_import(&mut module, "__dp__");
-    }
-
+    let module = transform_str_to_ruff_with_options(
+        source,
+        Options {
+            inject_import: ensure,
+            ..Options::default()
+        },
+    )?;
     Ok(ruff_ast_to_string(&module.body))
 }
 
@@ -60,10 +61,22 @@ pub fn transform_str_to_str_exec(source: &str) -> Result<String, ParseError> {
 }
 
 /// Transform the source code and return the resulting Ruff AST.
-pub fn transform_str_to_ruff(source: &str) -> Result<ModModule, ParseError> {
+pub fn transform_str_to_ruff_with_options(
+    source: &str,
+    options: Options,
+) -> Result<ModModule, ParseError> {
     let mut module = parse_module(source)?.into_syntax();
-    apply_transforms(&mut module, Options::default());
+    apply_transforms(&mut module, options);
+    let _ = min_ast::Module::from(module.clone());
+    if options.inject_import {
+        ensure_import::ensure_import(&mut module, "__dp__");
+    }
     Ok(module)
+}
+
+/// Transform the source code with default options and return the resulting Ruff AST.
+pub fn transform_str_to_ruff(source: &str) -> Result<ModModule, ParseError> {
+    transform_str_to_ruff_with_options(source, Options::default())
 }
 
 /// Convert a ruff AST ModModule to a pretty-printed string.
@@ -82,14 +95,13 @@ pub fn ruff_ast_to_string(module: &[Stmt]) -> String {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn transform(source: &str) -> Result<String, JsValue> {
-    transform_to_string(source, None, true).map_err(|e| e.to_string().into())
+    transform_to_string(source, true).map_err(|e| e.to_string().into())
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
-pub fn transform_selected(source: &str, transforms: Array) -> Result<String, JsValue> {
-    let set: HashSet<String> = transforms.iter().filter_map(|v| v.as_string()).collect();
-    transform_to_string(source, Some(&set), true).map_err(|e| e.to_string().into())
+pub fn transform_selected(source: &str, _transforms: Array) -> Result<String, JsValue> {
+    transform_to_string(source, true).map_err(|e| e.to_string().into())
 }
 
 #[cfg(target_arch = "wasm32")]

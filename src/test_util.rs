@@ -2,8 +2,8 @@ use ruff_python_ast::visitor::transformer::walk_body;
 use ruff_python_ast::{comparable::ComparableStmt, Stmt};
 use ruff_python_parser::parse_module;
 
-use crate::transform::truthy::TruthyRewriter;
-use crate::{ruff_ast_to_string, transform_str_to_ruff};
+use crate::transform::{truthy::TruthyRewriter, Options};
+use crate::{ruff_ast_to_string, transform_str_to_ruff_with_options};
 
 pub(crate) enum TransformPhase {
     Core,
@@ -11,7 +11,8 @@ pub(crate) enum TransformPhase {
 }
 
 pub(crate) fn assert_transform_eq_ex(actual: &str, expected: &str, phase: TransformPhase) {
-    let mut module = transform_str_to_ruff(actual).unwrap();
+    let mut module =
+        transform_str_to_ruff_with_options(actual, Options::for_test()).unwrap();
     if matches!(phase, TransformPhase::Full) {
         crate::template::flatten(&mut module.body);
         let truthy_transformer = TruthyRewriter::new();
