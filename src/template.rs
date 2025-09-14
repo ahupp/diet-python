@@ -132,6 +132,12 @@ impl IntoPlaceholder for Stmt {
 
 impl IntoPlaceholder for Vec<Stmt> {
     fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
+        if self.is_empty() {
+            return Ok(PlaceholderValue::Stmt(vec![Stmt::Pass(ast::StmtPass {
+                node_index: Default::default(),
+                range: Default::default(),
+            })]));
+        }
         Ok(PlaceholderValue::Stmt(self))
     }
 }
@@ -291,6 +297,16 @@ impl Flattener {
     }
 }
 
+fn remove_placeholder_pass(stmts: &mut Vec<Stmt>) {
+    if stmts.len() == 1 {
+        if let Stmt::Pass(ast::StmtPass { range, .. }) = &stmts[0] {
+            if range.is_empty() {
+                stmts.clear();
+            }
+        }
+    }
+}
+
 impl Transformer for Flattener {
     fn visit_stmt(&self, stmt: &mut Stmt) {
         match stmt {
@@ -300,37 +316,10 @@ impl Transformer for Flattener {
                 ..
             }) => {
                 self.visit_stmts(body);
+                remove_placeholder_pass(body);
                 for clause in elif_else_clauses.iter_mut() {
                     self.visit_stmts(&mut clause.body);
-                }
-                loop {
-                    let should_flatten = match elif_else_clauses.last() {
-                        Some(ast::ElifElseClause {
-                            test: None, body, ..
-                        }) if body.len() == 1 => {
-                            matches!(body.first(), Some(Stmt::If(_)))
-                        }
-                        _ => false,
-                    };
-                    if !should_flatten {
-                        break;
-                    }
-                    let ast::ElifElseClause { mut body, .. } = elif_else_clauses.pop().unwrap();
-                    if let Stmt::If(ast::StmtIf {
-                        test: inner_test,
-                        body: inner_body,
-                        elif_else_clauses: mut inner_clauses,
-                        ..
-                    }) = body.pop().unwrap()
-                    {
-                        elif_else_clauses.push(ast::ElifElseClause {
-                            range: TextRange::default(),
-                            node_index: ast::AtomicNodeIndex::default(),
-                            test: Some(*inner_test),
-                            body: inner_body,
-                        });
-                        elif_else_clauses.append(&mut inner_clauses);
-                    }
+                    remove_placeholder_pass(&mut clause.body);
                 }
             }
             Stmt::For(ast::StmtFor {
@@ -339,7 +328,9 @@ impl Transformer for Flattener {
                 ..
             }) => {
                 self.visit_stmts(inner);
+                remove_placeholder_pass(inner);
                 self.visit_stmts(orelse);
+                remove_placeholder_pass(orelse);
             }
             Stmt::While(ast::StmtWhile {
                 body: inner,
@@ -347,7 +338,9 @@ impl Transformer for Flattener {
                 ..
             }) => {
                 self.visit_stmts(inner);
+                remove_placeholder_pass(inner);
                 self.visit_stmts(orelse);
+                remove_placeholder_pass(orelse);
             }
             Stmt::Try(ast::StmtTry {
                 body: inner,
@@ -357,18 +350,23 @@ impl Transformer for Flattener {
                 ..
             }) => {
                 self.visit_stmts(inner);
+                remove_placeholder_pass(inner);
                 for handler in handlers.iter_mut() {
                     let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
                         body,
                         ..
                     }) = handler;
                     self.visit_stmts(body);
+                    remove_placeholder_pass(body);
                 }
                 self.visit_stmts(orelse);
+                remove_placeholder_pass(orelse);
                 self.visit_stmts(finalbody);
+                remove_placeholder_pass(finalbody);
             }
             Stmt::FunctionDef(ast::StmtFunctionDef { body: inner, .. }) => {
                 self.visit_stmts(inner);
+                remove_placeholder_pass(inner);
             }
             _ => {}
         }
@@ -381,7 +379,7 @@ pub(crate) fn flatten(body: &mut Vec<Stmt>) {
 
 #[cfg(test)]
 mod tests {
-    use crate::assert_flatten_eq;
+    use crate::test_util::assert_ast_eq;
     use ruff_python_ast::{
         self as ast,
         comparable::{ComparableExpr, ComparableStmt},
@@ -439,12 +437,14 @@ b = 2
         .into_syntax()
         .body;
         let stmt = py_stmt!("{body:stmt}", body = body.clone());
-        assert_flatten_eq!(
-            vec![stmt],
-            "
+        assert_ast_eq(
+            &[stmt],
+            &[py_stmt!(
+                "
 a = 1
 b = 2
 ",
+            )],
         );
     }
 
@@ -480,7 +480,7 @@ def {func:id}({param:id}):
     }
 
     #[test]
-    fn flattens_else_if_to_elif() {
+    fn preserves_else_if() {
         let inner = py_stmt!(
             "
 if b:
@@ -489,7 +489,7 @@ else:
     y
 ",
         );
-        let stmt = py_stmt!(
+        let mut actual = vec![py_stmt!(
             "
 if a:
     z
@@ -497,17 +497,20 @@ else:
     {inner:stmt}
 ",
             inner = vec![inner],
-        );
-        assert_flatten_eq!(
-            vec![stmt],
+        )];
+        crate::template::flatten(&mut actual);
+        let mut expected = vec![py_stmt!(
             "
 if a:
     z
-elif b:
-    x
 else:
-    y
+    if b:
+        x
+    else:
+        y
 ",
-        );
+        )];
+        crate::template::flatten(&mut expected);
+        assert_ast_eq(&actual, &expected);
     }
 }

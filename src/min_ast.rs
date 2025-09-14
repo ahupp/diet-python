@@ -253,11 +253,23 @@ impl StmtNode {
                 elif_else_clauses,
                 ..
             }) => {
-                let orelse = elif_else_clauses
-                    .into_iter()
-                    .find(|clause| clause.test.is_none())
-                    .map(|clause| StmtNode::from_stmts(clause.body, scope_vars))
-                    .unwrap_or_default();
+                let mut orelse = Vec::new();
+                let mut elifs = Vec::new();
+                for clause in elif_else_clauses {
+                    if let Some(test) = clause.test {
+                        elifs.push((test, clause.body));
+                    } else {
+                        orelse = StmtNode::from_stmts(clause.body, scope_vars);
+                    }
+                }
+                for (test, body) in elifs.into_iter().rev() {
+                    orelse = vec![StmtNode::If {
+                        info: (),
+                        test: ExprNode::from(test),
+                        body: StmtNode::from_stmts(body, scope_vars),
+                        orelse,
+                    }];
+                }
                 Some(StmtNode::If {
                     info: (),
                     test: ExprNode::from(*test),

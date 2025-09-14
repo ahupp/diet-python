@@ -4,25 +4,25 @@ use ruff_python_ast::{self as ast, Expr, Pattern, Stmt};
 use ruff_python_parser::parse_expression;
 use ruff_text_size::TextRange;
 
+use crate::py_stmt;
+
 enum PatternTest {
     Test { expr: Expr, assigns: Vec<Stmt> },
     Wildcard { assigns: Vec<Stmt> },
-    Unsupported,
 }
 
-fn fold_exprs(exprs: Vec<Expr>, op: ast::BoolOp) -> Option<Expr> {
+fn fold_exprs(exprs: Vec<Expr>, op: ast::BoolOp) -> Expr {
     if exprs.is_empty() {
-        None
+        panic!("Empty expression list");
     } else {
-        Some(Expr::BoolOp(ast::ExprBoolOp {
+        Expr::BoolOp(ast::ExprBoolOp {
             range: TextRange::default(),
             node_index: ast::AtomicNodeIndex::default(),
             op,
             values: exprs,
-        }))
+        })
     }
 }
-
 
 fn test_for_pattern(pattern: &Pattern, subject: Expr) -> PatternTest {
     use ast::{
@@ -59,16 +59,13 @@ fn test_for_pattern(pattern: &Pattern, subject: Expr) -> PatternTest {
             for p in patterns {
                 match test_for_pattern(p, subject.clone()) {
                     Test { expr, assigns } if assigns.is_empty() => tests.push(expr),
-                    _ => return Unsupported,
+                    _ => panic!("Unsupported pattern: {:?}", pattern),
                 }
             }
-            if let Some(test) = fold_exprs(tests, ast::BoolOp::Or) {
-                Test {
-                    expr: test,
-                    assigns: vec![],
-                }
-            } else {
-                Unsupported
+            let test = fold_exprs(tests, ast::BoolOp::Or);
+            Test {
+                expr: test,
+                assigns: vec![],
             }
         }
         Pattern::MatchClass(PatternMatchClass { cls, arguments, .. }) => {
@@ -79,19 +76,21 @@ fn test_for_pattern(pattern: &Pattern, subject: Expr) -> PatternTest {
             )];
             let mut assigns = Vec::new();
             let mut handle_attr =
-                |pattern: &Pattern, attr_exists: Expr, attr_value: Expr| match test_for_pattern(pattern, attr_value) {
-                    Test { expr, assigns: mut a } => {
+                |pattern: &Pattern, attr_exists: Expr, attr_value: Expr| match test_for_pattern(
+                    pattern, attr_value,
+                ) {
+                    Test {
+                        expr,
+                        assigns: mut a,
+                    } => {
                         tests.push(attr_exists);
                         tests.push(expr);
                         assigns.append(&mut a);
-                        Ok(())
                     }
                     Wildcard { assigns: mut a } => {
                         tests.push(attr_exists);
                         assigns.append(&mut a);
-                        Ok(())
                     }
-                    Unsupported => Err(()),
                 };
 
             for (i, p) in arguments.patterns.iter().enumerate() {
@@ -114,9 +113,7 @@ fn test_for_pattern(pattern: &Pattern, subject: Expr) -> PatternTest {
                     subject = subject.clone(),
                     name = attr_name
                 );
-                if handle_attr(p, attr_exists, attr_value).is_err() {
-                    return Unsupported;
-                }
+                handle_attr(p, attr_exists, attr_value);
             }
 
             for kw in &arguments.keywords {
@@ -130,15 +127,13 @@ fn test_for_pattern(pattern: &Pattern, subject: Expr) -> PatternTest {
                     subject = subject.clone(),
                     name = kw.attr.as_str()
                 );
-                if handle_attr(&kw.pattern, attr_exists, attr_value).is_err() {
-                    return Unsupported;
-                }
+                handle_attr(&kw.pattern, attr_exists, attr_value);
             }
 
-            if let Some(test) = fold_exprs(tests, ast::BoolOp::And) {
-                Test { expr: test, assigns }
-            } else {
-                Unsupported
+            let test = fold_exprs(tests, ast::BoolOp::And);
+            Test {
+                expr: test,
+                assigns,
             }
         }
         Pattern::MatchAs(PatternMatchAs {
@@ -166,7 +161,6 @@ fn test_for_pattern(pattern: &Pattern, subject: Expr) -> PatternTest {
                         assigns.push(assign);
                         Wildcard { assigns }
                     }
-                    Unsupported => Unsupported,
                 },
                 None => Wildcard {
                     assigns: vec![assign],
@@ -178,122 +172,94 @@ fn test_for_pattern(pattern: &Pattern, subject: Expr) -> PatternTest {
             name: None,
             ..
         }) => test_for_pattern(p, subject),
-        _ => Unsupported,
+        _ => panic!("Unsupported pattern: {:?}", pattern),
     }
 }
 
-pub fn rewrite(stmt: &mut Stmt, count: &Cell<usize>) -> bool {
-    if let Stmt::Match(ast::StmtMatch { subject, cases, .. }) = stmt {
-        if cases.is_empty() {
-            return false;
-        }
+pub fn rewrite(ast::StmtMatch { subject, cases, .. }: ast::StmtMatch, count: &Cell<usize>) -> Stmt {
+    if cases.is_empty() {
+        return py_stmt!("pass");
+    }
 
-        let id = count.get() + 1;
-        count.set(id);
-        let subject_name = format!("_dp_match_{}", id);
-        let tmp_expr = crate::py_expr!("{name:id}", name = subject_name.as_str());
-        for case in cases.iter() {
-            if matches!(
-                test_for_pattern(&case.pattern, tmp_expr.clone()),
-                PatternTest::Unsupported
-            ) {
-                return false;
-            }
-        }
+    let id = count.get() + 1;
+    count.set(id);
+    let subject_name = format!("_dp_match_{}", id);
+    let tmp_expr = crate::py_expr!("{name:id}", name = subject_name.as_str());
 
-        let assign = crate::py_stmt!(
-            "{name:id} = {value:expr}",
-            name = subject_name.as_str(),
-            value = *subject.clone(),
-        );
+    let assign = crate::py_stmt!(
+        "{name:id} = {value:expr}",
+        name = subject_name.as_str(),
+        value = *subject.clone(),
+    );
 
-        let mut chain = crate::py_stmt!("pass");
-        for case in std::mem::take(cases).into_iter().rev() {
-            let ast::MatchCase {
-                pattern,
-                guard,
-                mut body,
-                ..
-            } = case;
-            use PatternTest::*;
-            match test_for_pattern(&pattern, tmp_expr.clone()) {
-                Unsupported => unreachable!(),
-                Wildcard { assigns } => {
-                    let mut block = assigns;
-                    block.extend(body);
-                    if let Some(g) = guard {
-                        let test = *g;
-                        chain = crate::py_stmt!(
-                            "
-if {test:expr}:
-    {body:stmt}
-else:
-    {next:stmt}",
-                            test = test,
-                            body = block,
-                            next = chain,
-                        );
-                    } else {
-                        chain = crate::py_stmt!("{body:stmt}", body = block);
-                    }
-                }
-                Test {
-                    expr: mut test_expr,
-                    assigns,
-                } => {
-                    let mut block = assigns;
-                    block.extend(body);
-                    if let Some(g) = guard {
-                        test_expr = crate::py_expr!(
-                            "{test:expr} and {guard:expr}",
-                            test = test_expr,
-                            guard = *g,
-                        );
-                    }
+    let mut chain = crate::py_stmt!("pass");
+    for case in cases.into_iter().rev() {
+        let ast::MatchCase {
+            pattern,
+            guard,
+            body,
+            ..
+        } = case;
+        use PatternTest::*;
+        match test_for_pattern(&pattern, tmp_expr.clone()) {
+            Wildcard { assigns } => {
+                let mut block = assigns;
+                block.extend(body);
+                if let Some(g) = guard {
+                    let test = *g;
                     chain = crate::py_stmt!(
                         "
 if {test:expr}:
     {body:stmt}
 else:
     {next:stmt}",
-                        test = test_expr,
+                        test = test,
                         body = block,
                         next = chain,
                     );
+                } else {
+                    chain = crate::py_stmt!("{body:stmt}", body = block);
                 }
             }
+            Test {
+                expr: mut test_expr,
+                assigns,
+            } => {
+                let mut block = assigns;
+                block.extend(body);
+                if let Some(g) = guard {
+                    test_expr = crate::py_expr!(
+                        "{test:expr} and {guard:expr}",
+                        test = test_expr,
+                        guard = *g,
+                    );
+                }
+                chain = crate::py_stmt!(
+                    "
+if {test:expr}:
+    {body:stmt}
+else:
+    {next:stmt}",
+                    test = test_expr,
+                    body = block,
+                    next = chain,
+                );
+            }
         }
+    }
 
-        let wrapper = crate::py_stmt!(
-            "
+    crate::py_stmt!(
+        "
 {assign:stmt}
 {chain:stmt}",
-            assign = assign,
-            chain = chain,
-        );
-
-        *stmt = wrapper;
-        true
-    } else {
-        false
-    }
+        assign = assign,
+        chain = chain,
+    )
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::transform::expr::ExprRewriter;
-    use crate::assert_flatten_eq;
-    use ruff_python_ast::visitor::transformer::walk_body;
-    use ruff_python_parser::parse_module;
-
-    fn rewrite(source: &str) -> Vec<Stmt> {
-        let parsed = parse_module(source).expect("parse error");
-        let mut module = parsed.into_syntax();
-        let rewriter = ExprRewriter::new();
-        walk_body(&rewriter, &mut module.body);
-        module.body
-    }
+    use crate::test_util::assert_transform_eq;
 
     #[test]
     fn rewrites_simple_match() {
@@ -310,13 +276,13 @@ match x:
 _dp_match_1 = x
 if getattr(__dp__, "eq")(_dp_match_1, 1):
     a()
-elif getattr(__dp__, "eq")(_dp_match_1, 2):
-    b()
 else:
-    c()
+    if getattr(__dp__, "eq")(_dp_match_1, 2):
+        b()
+    else:
+        c()
 "#;
-        let output = rewrite(input);
-        assert_flatten_eq!(output, expected);
+        assert_transform_eq(input, expected);
     }
 
     #[test]
@@ -335,8 +301,7 @@ if getattr(__dp__, "and_expr")(getattr(__dp__, "eq")(_dp_match_1, 1), lambda: co
 else:
     b()
 "#;
-        let output = rewrite(input);
-        assert_flatten_eq!(output, expected);
+        assert_transform_eq(input, expected);
     }
 
     #[test]
@@ -355,8 +320,7 @@ if getattr(__dp__, "or_expr")(getattr(__dp__, "eq")(_dp_match_1, 1), lambda: get
 else:
     b()
 "#;
-        let output = rewrite(input);
-        assert_flatten_eq!(output, expected);
+        assert_transform_eq(input, expected);
     }
 
     #[test]
@@ -375,8 +339,7 @@ if getattr(__dp__, "is_")(_dp_match_1, None):
 else:
     b()
 "#;
-        let output = rewrite(input);
-        assert_flatten_eq!(output, expected);
+        assert_transform_eq(input, expected);
     }
 
     #[test]
@@ -396,8 +359,7 @@ if getattr(__dp__, "eq")(_dp_match_1, 1):
 else:
     b()
 "#;
-        let output = rewrite(input);
-        assert_flatten_eq!(output, expected);
+        assert_transform_eq(input, expected);
     }
 
     #[test]
@@ -417,8 +379,7 @@ else:
     y = _dp_match_1
     b()
 "#;
-        let output = rewrite(input);
-        assert_flatten_eq!(output, expected);
+        assert_transform_eq(input, expected);
     }
 
     #[test]
@@ -438,7 +399,6 @@ if getattr(__dp__, "and_expr")(isinstance(_dp_match_1, C), lambda: getattr(__dp_
 else:
     c()
 "#;
-        let output = rewrite(input);
-        assert_flatten_eq!(output, expected);
+        assert_transform_eq(input, expected);
     }
 }

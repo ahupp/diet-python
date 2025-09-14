@@ -46,50 +46,35 @@ impl Transformer for TruthyRewriter {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::assert_flatten_eq;
-    use ruff_python_ast::visitor::transformer::walk_body;
-    use ruff_python_parser::parse_module;
-
-    fn rewrite(source: &str) -> Vec<Stmt> {
-        let parsed = parse_module(source).expect("parse error");
-        let mut module = parsed.into_syntax();
-        let rewriter = TruthyRewriter::new();
-        walk_body(&rewriter, &mut module.body);
-        module.body
-    }
+    use crate::test_util::{assert_transform_eq_ex, TransformPhase};
 
     #[test]
     fn rewrites_if_condition() {
-        let output = rewrite(
-            r#"
+        let input = r#"
 if a:
     pass
 else:
     pass
-"#,
-        );
+"#;
         let expected = r#"
 if __dp__.truth(a):
     pass
 else:
     pass
 "#;
-        assert_flatten_eq!(output, expected);
+        assert_transform_eq_ex(input, expected, TransformPhase::Full);
     }
 
     #[test]
     fn rewrites_elif_and_else() {
-        let output = rewrite(
-            r#"
+        let input = r#"
 if a:
     pass
 elif b:
     pass
 else:
     pass
-"#,
-        );
+"#;
         let expected = r#"
 if __dp__.truth(a):
     pass
@@ -98,21 +83,19 @@ elif __dp__.truth(b):
 else:
     pass
 "#;
-        assert_flatten_eq!(output, expected);
+        assert_transform_eq_ex(input, expected, TransformPhase::Full);
     }
 
     #[test]
     fn rewrites_while_condition() {
-        let output = rewrite(
-            r#"
+        let input = r#"
 while a:
     pass
-"#,
-        );
+"#;
         let expected = r#"
 while __dp__.truth(a):
     pass
 "#;
-        assert_flatten_eq!(output, expected);
+        assert_transform_eq_ex(input, expected, TransformPhase::Full);
     }
 }

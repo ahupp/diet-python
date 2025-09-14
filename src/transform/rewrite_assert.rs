@@ -26,30 +26,17 @@ if __debug__:
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::assert_flatten_eq;
-    use crate::transform::expr::ExprRewriter;
-    use ruff_python_ast::visitor::transformer::walk_body;
-    use ruff_python_parser::parse_module;
-
-    fn rewrite_assert(source: &str) -> Vec<Stmt> {
-        let parsed = parse_module(source).expect("parse error");
-        let mut module = parsed.into_syntax();
-        let rewriter = ExprRewriter::new();
-        walk_body(&rewriter, &mut module.body);
-        module.body
-    }
+    use crate::test_util::assert_transform_eq;
 
     #[test]
     fn rewrites_assert_with_message() {
         let input = "assert a, 'oops'";
         let expected = r#"
 if __debug__:
-    if _dp_not_(a):
+    if getattr(__dp__, "not_")(a):
         raise AssertionError('oops')
 "#;
-        let output = rewrite_assert(input);
-        assert_flatten_eq!(output, expected);
+        assert_transform_eq(input, expected);
     }
 
     #[test]
@@ -57,10 +44,9 @@ if __debug__:
         let input = "assert a";
         let expected = r#"
 if __debug__:
-    if _dp_not_(a):
+    if getattr(__dp__, "not_")(a):
         raise AssertionError
 "#;
-        let output = rewrite_assert(input);
-        assert_flatten_eq!(output, expected);
+        assert_transform_eq(input, expected);
     }
 }
