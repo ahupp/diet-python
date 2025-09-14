@@ -86,6 +86,16 @@ use ruff_text_size::TextRange;
 use serde_json::Value;
 use std::{cell::RefCell, collections::HashMap};
 
+pub(crate) fn make_tuple(elts: Vec<Expr>) -> Expr {
+    Expr::Tuple(ast::ExprTuple {
+        node_index: ast::AtomicNodeIndex::default(),
+        range: TextRange::default(),
+        elts,
+        ctx: ast::ExprContext::Load,
+        parenthesized: false,
+    })
+}
+
 pub(crate) enum PlaceholderKind {
     Expr,
     Stmt,

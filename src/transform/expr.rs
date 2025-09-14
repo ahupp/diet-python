@@ -2,8 +2,9 @@ use std::cell::{Cell, RefCell};
 
 use super::{
     rewrite_assert, rewrite_class_def, rewrite_decorator, rewrite_for_loop, rewrite_import,
-    rewrite_match_case, rewrite_try_except, rewrite_with,
+    rewrite_match_case, rewrite_string, rewrite_try_except, rewrite_with,
 };
+use crate::template::make_tuple;
 use ruff_python_ast::name::Name;
 use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, CmpOp, Expr, Operator, Stmt, UnaryOp};
@@ -80,16 +81,6 @@ impl ExprRewriter {
         let id = self.tmp_count.get() + 1;
         self.tmp_count.set(id);
         format!("_dp_tmp_{}", id)
-    }
-
-    fn tuple_from(elts: Vec<Expr>) -> Expr {
-        Expr::Tuple(ast::ExprTuple {
-            node_index: ast::AtomicNodeIndex::default(),
-            range: TextRange::default(),
-            elts,
-            ctx: ast::ExprContext::Load,
-            parenthesized: false,
-        })
     }
 
     fn make_comp_call(func: &str, elt: Expr, generators: Vec<ast::Comprehension>) -> Expr {
@@ -324,6 +315,8 @@ impl Transformer for ExprRewriter {
         } else {
             let original = expr.clone();
             *expr = match original {
+                Expr::FString(f_string) => rewrite_string::rewrite_fstring(f_string),
+                Expr::TString(t_string) => rewrite_string::rewrite_tstring(t_string),
                 Expr::Slice(ast::ExprSlice {
                     lower, upper, step, ..
                 }) => {
@@ -395,11 +388,11 @@ impl Transformer for ExprRewriter {
                 Expr::List(ast::ExprList { elts, ctx, .. })
                     if matches!(ctx, ast::ExprContext::Load) =>
                 {
-                    let tuple = Self::tuple_from(elts);
+                    let tuple = make_tuple(elts);
                     crate::py_expr!("list({tuple:expr})", tuple = tuple,)
                 }
                 Expr::Set(ast::ExprSet { elts, .. }) => {
-                    let tuple = Self::tuple_from(elts);
+                    let tuple = make_tuple(elts);
                     crate::py_expr!("set({tuple:expr})", tuple = tuple,)
                 }
                 Expr::Dict(ast::ExprDict { items, .. })
@@ -413,7 +406,7 @@ impl Transformer for ExprRewriter {
                             crate::py_expr!("({key:expr}, {value:expr})", key = key, value = value,)
                         })
                         .collect();
-                    let tuple = Self::tuple_from(pairs);
+                    let tuple = make_tuple(pairs);
                     crate::py_expr!("dict({tuple:expr})", tuple = tuple,)
                 }
                 Expr::If(ast::ExprIf {
