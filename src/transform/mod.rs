@@ -13,12 +13,23 @@ pub(crate) mod truthy;
 #[derive(Clone, Copy)]
 pub struct Options {
     pub allow_import_star: bool,
+    pub inject_import: bool,
 }
 
 impl Default for Options {
     fn default() -> Self {
         Self {
             allow_import_star: true,
+            inject_import: true,
+        }
+    }
+}
+
+impl Options {
+    pub fn for_test() -> Self {
+        Self {
+            allow_import_star: false,
+            inject_import: false,
         }
     }
 }
