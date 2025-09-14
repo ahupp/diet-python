@@ -2,7 +2,7 @@ use std::cell::{Cell, RefCell};
 
 use super::{
     rewrite_assert, rewrite_class_def, rewrite_decorator, rewrite_for_loop, rewrite_import,
-    rewrite_match_case, rewrite_string, rewrite_try_except, rewrite_with,
+    rewrite_match_case, rewrite_string, rewrite_try_except, rewrite_with, Options,
 };
 use crate::template::make_tuple;
 use ruff_python_ast::name::Name;
@@ -28,6 +28,7 @@ fn make_unaryop(func_name: &'static str, operand: Expr) -> Expr {
 }
 
 pub struct ExprRewriter {
+    options: Options,
     tmp_count: Cell<usize>,
     for_count: Cell<usize>,
     try_count: Cell<usize>,
@@ -40,8 +41,9 @@ pub struct ExprRewriter {
 }
 
 impl ExprRewriter {
-    pub fn new() -> Self {
+    pub fn new(options: Options) -> Self {
         Self {
+            options,
             tmp_count: Cell::new(0),
             for_count: Cell::new(0),
             try_count: Cell::new(0),
@@ -205,46 +207,44 @@ __dp__.setitem({obj:expr}, {key:expr}, {value:expr})
 impl Transformer for ExprRewriter {
     fn visit_expr(&self, expr: &mut Expr) {
         if let Expr::Lambda(lambda) = expr {
-            if lambda.parameters.is_some() {
-                let id = self.lambda_count.get() + 1;
-                self.lambda_count.set(id);
-                let func_name = format!("_dp_lambda_{}", id);
+            let id = self.lambda_count.get() + 1;
+            self.lambda_count.set(id);
+            let func_name = format!("_dp_lambda_{}", id);
 
-                let parameters = lambda
-                    .parameters
-                    .as_ref()
-                    .map(|params| (**params).clone())
-                    .unwrap_or_else(|| ast::Parameters {
-                        range: TextRange::default(),
-                        node_index: ast::AtomicNodeIndex::default(),
-                        posonlyargs: vec![],
-                        args: vec![],
-                        vararg: None,
-                        kwonlyargs: vec![],
-                        kwarg: None,
-                    });
+            let parameters = lambda
+                .parameters
+                .as_ref()
+                .map(|params| (**params).clone())
+                .unwrap_or_else(|| ast::Parameters {
+                    range: TextRange::default(),
+                    node_index: ast::AtomicNodeIndex::default(),
+                    posonlyargs: vec![],
+                    args: vec![],
+                    vararg: None,
+                    kwonlyargs: vec![],
+                    kwarg: None,
+                });
 
-                let body_stmt =
-                    crate::py_stmt!("\nreturn {value:expr}", value = (*lambda.body).clone(),);
+            let body_stmt =
+                crate::py_stmt!("\nreturn {value:expr}", value = (*lambda.body).clone(),);
 
-                let mut func_def = crate::py_stmt!(
-                    "\ndef {func:id}():\n    {body:stmt}",
-                    func = func_name.as_str(),
-                    body = body_stmt,
-                );
+            let mut func_def = crate::py_stmt!(
+                "\ndef {func:id}():\n    {body:stmt}",
+                func = func_name.as_str(),
+                body = body_stmt,
+            );
 
-                if let Stmt::FunctionDef(ast::StmtFunctionDef {
-                    parameters: params, ..
-                }) = &mut func_def
-                {
-                    *params = Box::new(parameters);
-                }
-
-                walk_stmt(self, &mut func_def);
-                self.add_function(func_def);
-
-                *expr = crate::py_expr!("\n{func:id}", func = func_name.as_str(),);
+            if let Stmt::FunctionDef(ast::StmtFunctionDef {
+                parameters: params, ..
+            }) = &mut func_def
+            {
+                *params = Box::new(parameters);
             }
+
+            walk_stmt(self, &mut func_def);
+            self.add_function(func_def);
+
+            *expr = crate::py_expr!("\n{func:id}", func = func_name.as_str(),);
         } else if let Expr::Generator(gen) = expr {
             let first_iter_expr = gen.generators.first().unwrap().iter.clone();
 
@@ -577,7 +577,7 @@ impl Transformer for ExprRewriter {
             }
             Stmt::Import(import) => rewrite_import::rewrite(import.clone()),
             Stmt::ImportFrom(import_from) => {
-                match rewrite_import::rewrite_from(import_from.clone()) {
+                match rewrite_import::rewrite_from(import_from.clone(), &self.options) {
                     Some(stmt) => stmt,
                     None => Stmt::ImportFrom(import_from.clone()),
                 }
@@ -705,6 +705,7 @@ impl Transformer for ExprRewriter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::transform::Options;
     use ruff_python_codegen::{Generator, Stylist};
     use ruff_python_parser::parse_module;
 
@@ -713,7 +714,7 @@ mod tests {
         let tokens = parsed.tokens().clone();
         let mut module = parsed.into_syntax();
 
-        let expr_transformer = ExprRewriter::new();
+        let expr_transformer = ExprRewriter::new(Options::default());
         expr_transformer.rewrite_body(&mut module.body);
 
         crate::template::flatten(&mut module.body);
@@ -806,7 +807,9 @@ getattr(__dp__, "pos")(a)
 a or b
 "#,
                 r#"
-getattr(__dp__, "or_expr")(a, lambda: b)
+def _dp_lambda_1():
+    return b
+getattr(__dp__, "or_expr")(a, _dp_lambda_1)
 "#,
             ),
             (
@@ -814,7 +817,9 @@ getattr(__dp__, "or_expr")(a, lambda: b)
 a and b
 "#,
                 r#"
-getattr(__dp__, "and_expr")(a, lambda: b)
+def _dp_lambda_1():
+    return b
+getattr(__dp__, "and_expr")(a, _dp_lambda_1)
 "#,
             ),
             (
@@ -822,7 +827,9 @@ getattr(__dp__, "and_expr")(a, lambda: b)
 f() or a
 "#,
                 r#"
-getattr(__dp__, "or_expr")(f(), lambda: a)
+def _dp_lambda_1():
+    return a
+getattr(__dp__, "or_expr")(f(), _dp_lambda_1)
 "#,
             ),
             (
@@ -830,7 +837,9 @@ getattr(__dp__, "or_expr")(f(), lambda: a)
 f() and a
 "#,
                 r#"
-getattr(__dp__, "and_expr")(f(), lambda: a)
+def _dp_lambda_1():
+    return a
+getattr(__dp__, "and_expr")(f(), _dp_lambda_1)
 "#,
             ),
         ];
@@ -851,7 +860,11 @@ a or b or c
         assert_eq!(
             output.trim(),
             r#"
-getattr(__dp__, "or_expr")(a, lambda: getattr(__dp__, "or_expr")(b, lambda: c))
+def _dp_lambda_2():
+    return c
+def _dp_lambda_1():
+    return getattr(__dp__, "or_expr")(b, _dp_lambda_2)
+getattr(__dp__, "or_expr")(a, _dp_lambda_1)
 "#
             .trim(),
         );
@@ -864,7 +877,11 @@ a and b and c
         assert_eq!(
             output.trim(),
             r#"
-getattr(__dp__, "and_expr")(a, lambda: getattr(__dp__, "and_expr")(b, lambda: c))
+def _dp_lambda_2():
+    return c
+def _dp_lambda_1():
+    return getattr(__dp__, "and_expr")(b, _dp_lambda_2)
+getattr(__dp__, "and_expr")(a, _dp_lambda_1)
 "#
             .trim(),
         );
@@ -902,7 +919,11 @@ getattr(__dp__, "and_expr")(a, lambda: getattr(__dp__, "and_expr")(b, lambda: c)
 a if b else c
 "#,
                 r#"
-getattr(__dp__, "if_expr")(b, lambda: a, lambda: c)
+def _dp_lambda_1():
+    return a
+def _dp_lambda_2():
+    return c
+getattr(__dp__, "if_expr")(b, _dp_lambda_1, _dp_lambda_2)
 "#,
             ),
             (
@@ -910,7 +931,11 @@ getattr(__dp__, "if_expr")(b, lambda: a, lambda: c)
 (a + 1) if f() else (b + 2)
 "#,
                 r#"
-getattr(__dp__, "if_expr")(f(), lambda: getattr(__dp__, "add")(a, 1), lambda: getattr(__dp__, "add")(b, 2))
+def _dp_lambda_1():
+    return getattr(__dp__, "add")(a, 1)
+def _dp_lambda_2():
+    return getattr(__dp__, "add")(b, 2)
+getattr(__dp__, "if_expr")(f(), _dp_lambda_1, _dp_lambda_2)
 "#,
             ),
         ];

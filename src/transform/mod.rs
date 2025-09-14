@@ -9,3 +9,16 @@ pub(crate) mod rewrite_try_except;
 pub(crate) mod rewrite_with;
 pub(crate) mod rewrite_string;
 pub(crate) mod truthy;
+
+#[derive(Clone, Copy)]
+pub struct Options {
+    pub allow_import_star: bool,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            allow_import_star: true,
+        }
+    }
+}

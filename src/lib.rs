@@ -18,8 +18,7 @@ mod template;
 mod test_util;
 mod transform;
 
-use transform::expr::ExprRewriter;
-use transform::truthy::TruthyRewriter;
+use transform::{expr::ExprRewriter, truthy::TruthyRewriter, Options};
 
 fn should_skip(source: &str) -> bool {
     source
@@ -28,10 +27,10 @@ fn should_skip(source: &str) -> bool {
         .is_some_and(|line| line.contains("diet-python: disabled"))
 }
 
-fn apply_transforms(module: &mut ModModule) {
+fn apply_transforms(module: &mut ModModule, options: Options) {
     // Lower `for` loops, expand generators and lambdas, and replace
     // `__dp__.<name>` calls with `getattr` in a single pass.
-    let expr_transformer = ExprRewriter::new();
+    let expr_transformer = ExprRewriter::new(options);
     expr_transformer.rewrite_body(&mut module.body);
 
     // Collapse `py_stmt!` templates after all rewrites.
@@ -63,7 +62,7 @@ pub fn transform_str_to_str_exec(source: &str) -> Result<String, ParseError> {
 /// Transform the source code and return the resulting Ruff AST.
 pub fn transform_str_to_ruff(source: &str) -> Result<ModModule, ParseError> {
     let mut module = parse_module(source)?.into_syntax();
-    apply_transforms(&mut module);
+    apply_transforms(&mut module, Options::default());
     Ok(module)
 }
 
