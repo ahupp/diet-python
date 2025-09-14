@@ -3,6 +3,7 @@ import operator as _operator
 import sys
 import builtins
 import types as _types
+from typing import Any, Iterator, Optional, Tuple, Union, Literal
 
 operator = _operator
 add = _operator.add
@@ -118,4 +119,68 @@ def or_expr(left, right):
 def and_expr(left, right):
     return right() if truth(left) else left
 
+
+# Tags as ints for yield from state machine
+RUNNING = 0
+RETURN = 1
+
+# Discriminated union for state
+YFRunning = Tuple[Literal[RUNNING], Any, Optional[Any], Iterator[Any]]
+YFReturn = Tuple[Literal[RETURN], Optional[Any], None, None]
+YFState = Union[YFRunning, YFReturn]
+
+
+def yield_from_init(iterable) -> YFState:
+    it = iter(iterable)
+    try:
+        y = next(it)  # prime
+    except StopIteration as e:
+        return (RETURN, getattr(e, "value", None), None, None)
+    else:
+        return (RUNNING, y, None, it)
+
+
+def yield_from_next(state: YFRunning, sent: Optional[Any]) -> YFState:
+    """Advance one step given the value just sent into the outer generator.
+       Must be called only while RUNNING."""
+    tag, _y, _to_send, it = state
+    assert tag == RUNNING and it is not None, "yield_from_next requires RUNNING state"
+
+    try:
+        if sent is None:
+            y = next(it)
+        else:
+            send = getattr(it, "send", None)
+            y = next(it) if send is None else send(sent)
+    except StopIteration as e:
+        return (RETURN, getattr(e, "value", None), None, None)
+    else:
+        return (RUNNING, y, None, it)
+
+
+def yield_from_except(state: YFState, exc: BaseException) -> YFState:
+    """Forward exceptions immediately to the subgenerator."""
+    # Unpack first, then assert as requested
+    tag, _y, _to_send, it = state
+    assert tag == RUNNING and it is not None, "Invalid state for exception forwarding"
+
+    if isinstance(exc, GeneratorExit):
+        close = getattr(it, "close", None)
+        if close is not None:
+            try:
+                close()
+            finally:
+                raise exc
+        raise exc
+
+    throw = getattr(it, "throw", None)
+    if throw is None:
+        raise exc
+
+    try:
+        y = throw(exc)
+    except StopIteration as e:
+        return (RETURN, getattr(e, "value", None), None, None)
+    else:
+        return (RUNNING, y, None, it)
 
