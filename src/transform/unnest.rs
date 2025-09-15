@@ -6,7 +6,10 @@ use std::cell::{Cell, RefCell};
 use ruff_python_ast::visitor::transformer::walk_expr;
 use ruff_python_ast::Expr;
 
+use crate::template::is_simple;
 use crate::transform::Options;
+
+use crate::{py_expr, py_stmt};
 
 pub struct Namer {
     pub counter: Cell<usize>,
@@ -29,19 +32,6 @@ impl Namer {
 pub struct Context {
     pub namer: Namer,
     pub options: Options,
-}
-
-fn is_simple(expr: &Expr) -> bool {
-    matches!(
-        expr,
-        Expr::Name(_)
-            | Expr::NumberLiteral(_)
-            | Expr::StringLiteral(_)
-            | Expr::BytesLiteral(_)
-            | Expr::BooleanLiteral(_)
-            | Expr::NoneLiteral(_)
-            | Expr::EllipsisLiteral(_)
-    )
 }
 
 pub struct UnnestExprTransformer<'a> {
@@ -68,13 +58,13 @@ impl<'a> Transformer for UnnestExprTransformer<'a> {
         if !is_simple(expr) {
             let tmp = self.ctx.namer.fresh("_dp_tmp");
             let value = expr.clone();
-            let assign = crate::py_stmt!(
+            let assign = py_stmt!(
                 "\n{tmp:id} = {expr:expr}\n",
                 tmp = tmp.as_str(),
                 expr = value,
             );
             self.stmts.borrow_mut().push(assign);
-            *expr = crate::py_expr!("\n{tmp:id}\n", tmp = tmp.as_str(),);
+            *expr = py_expr!("{tmp:id}\n", tmp = tmp.as_str());
         }
     }
 }

@@ -1,4 +1,4 @@
-use crate::template::make_tuple;
+use crate::{py_expr, template::make_tuple};
 use ruff_python_ast::{self as ast, Expr};
 
 fn join_parts(parts: Vec<Expr>) -> Expr {
@@ -6,7 +6,7 @@ fn join_parts(parts: Vec<Expr>) -> Expr {
         parts.into_iter().next().unwrap()
     } else {
         let tuple = make_tuple(parts);
-        crate::py_expr!(
+        py_expr!(
             r#"
 "".join({tuple:expr})
 "#,
@@ -20,7 +20,7 @@ fn rewrite_elements(elements: &ast::InterpolatedStringElements) -> Expr {
     for element in elements.iter() {
         match element {
             ast::InterpolatedStringElement::Literal(lit) => {
-                parts.push(crate::py_expr!(
+                parts.push(py_expr!(
                     "
 {literal:literal}
 ",
@@ -29,7 +29,7 @@ fn rewrite_elements(elements: &ast::InterpolatedStringElements) -> Expr {
             }
             ast::InterpolatedStringElement::Interpolation(interp) => {
                 let value = (*interp.expression).clone();
-                parts.push(crate::py_expr!(
+                parts.push(py_expr!(
                     "
 str({value:expr})
 ",
@@ -46,7 +46,7 @@ pub fn rewrite_fstring(expr: ast::ExprFString) -> Expr {
     for part in expr.value.iter() {
         match part {
             ast::FStringPart::Literal(lit) => {
-                parts.push(crate::py_expr!(
+                parts.push(py_expr!(
                     "
 {literal:literal}
 ",

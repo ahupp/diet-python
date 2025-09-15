@@ -4,28 +4,14 @@ use super::{
     rewrite_assert, rewrite_class_def, rewrite_decorator, rewrite_for_loop, rewrite_import,
     rewrite_match_case, rewrite_string, rewrite_try_except, rewrite_with, Options,
 };
-use crate::template::make_tuple;
+use crate::template::{
+    is_simple, make_binop, make_generator, make_tuple, make_unaryop, single_stmt,
+};
+use crate::{py_expr, py_stmt};
 use ruff_python_ast::name::Name;
 use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, CmpOp, Expr, Operator, Stmt, UnaryOp};
 use ruff_text_size::TextRange;
-
-fn make_binop(func_name: &'static str, left: Expr, right: Expr) -> Expr {
-    crate::py_expr!(
-        "__dp__.{func:id}({left:expr}, {right:expr})",
-        left = left,
-        right = right,
-        func = func_name
-    )
-}
-
-fn make_unaryop(func_name: &'static str, operand: Expr) -> Expr {
-    crate::py_expr!(
-        "__dp__.{func:id}({operand:expr})",
-        operand = operand,
-        func = func_name
-    )
-}
 
 pub struct ExprRewriter {
     options: Options,
@@ -53,6 +39,22 @@ impl ExprRewriter {
             lambda_count: Cell::new(0),
             decorator_count: Cell::new(0),
             scopes: RefCell::new(Vec::new()),
+        }
+    }
+
+    fn tempify(&self, expr: &mut Expr, stmts: &mut Vec<Stmt>) -> Expr {
+        if !is_simple(expr) {
+            let tmp = self.next_tmp();
+            let value = expr.clone();
+            let assign = py_stmt!(
+                "\n{tmp:id} = {expr:expr}\n",
+                tmp = tmp.as_str(),
+                expr = value,
+            );
+            stmts.push(assign);
+            py_expr!("{tmp:id}\n", tmp = tmp.as_str())
+        } else {
+            expr.clone()
         }
     }
 
@@ -85,29 +87,17 @@ impl ExprRewriter {
         format!("_dp_tmp_{}", id)
     }
 
-    fn make_comp_call(func: &str, elt: Expr, generators: Vec<ast::Comprehension>) -> Expr {
-        let gen_expr = Expr::Generator(ast::ExprGenerator {
-            node_index: ast::AtomicNodeIndex::default(),
-            range: TextRange::default(),
-            elt: Box::new(elt),
-            generators,
-            parenthesized: false,
-        });
-
-        crate::py_expr!("{func:id}({gen:expr})", func = func, gen = gen_expr)
-    }
-
     fn rewrite_target(&self, target: Expr, value: Expr, out: &mut Vec<Stmt>) {
         match target {
             Expr::Tuple(tuple) => {
                 let tmp_name = self.next_tmp();
-                let tmp_expr = crate::py_expr!(
+                let tmp_expr = py_expr!(
                     "
 {name:id}
 ",
                     name = tmp_name.as_str(),
                 );
-                let mut tmp_stmt = crate::py_stmt!(
+                let mut tmp_stmt = py_stmt!(
                     "
 {name:id} = {value:expr}
 ",
@@ -117,7 +107,7 @@ impl ExprRewriter {
                 walk_stmt(self, &mut tmp_stmt);
                 out.push(tmp_stmt);
                 for (i, elt) in tuple.elts.into_iter().enumerate() {
-                    let mut elt_stmt = crate::py_stmt!(
+                    let mut elt_stmt = py_stmt!(
                         "
 {target:expr} = {tmp:expr}[{idx:literal}]
 ",
@@ -131,13 +121,13 @@ impl ExprRewriter {
             }
             Expr::List(list) => {
                 let tmp_name = self.next_tmp();
-                let tmp_expr = crate::py_expr!(
+                let tmp_expr = py_expr!(
                     "
 {name:id}
 ",
                     name = tmp_name.as_str(),
                 );
-                let mut tmp_stmt = crate::py_stmt!(
+                let mut tmp_stmt = py_stmt!(
                     "
 {name:id} = {value:expr}
 ",
@@ -147,7 +137,7 @@ impl ExprRewriter {
                 walk_stmt(self, &mut tmp_stmt);
                 out.push(tmp_stmt);
                 for (i, elt) in list.elts.into_iter().enumerate() {
-                    let mut elt_stmt = crate::py_stmt!(
+                    let mut elt_stmt = py_stmt!(
                         "
 {target:expr} = {tmp:expr}[{idx:literal}]
 ",
@@ -161,7 +151,7 @@ impl ExprRewriter {
             }
             Expr::Attribute(attr) => {
                 let obj = (*attr.value).clone();
-                let mut stmt = crate::py_stmt!(
+                let mut stmt = py_stmt!(
                     "
 __dp__.setattr({obj:expr}, {name:literal}, {value:expr})
 ",
@@ -175,7 +165,7 @@ __dp__.setattr({obj:expr}, {name:literal}, {value:expr})
             Expr::Subscript(sub) => {
                 let obj = (*sub.value).clone();
                 let key = (*sub.slice).clone();
-                let mut stmt = crate::py_stmt!(
+                let mut stmt = py_stmt!(
                     "
 __dp__.setitem({obj:expr}, {key:expr}, {value:expr})
 ",
@@ -187,7 +177,7 @@ __dp__.setitem({obj:expr}, {key:expr}, {value:expr})
                 out.push(stmt);
             }
             Expr::Name(_) => {
-                let mut stmt = crate::py_stmt!(
+                let mut stmt = py_stmt!(
                     "
 {target:expr} = {value:expr}
 ",
@@ -225,13 +215,12 @@ impl Transformer for ExprRewriter {
                     kwarg: None,
                 });
 
-            let body_stmt =
-                crate::py_stmt!("\nreturn {value:expr}", value = (*lambda.body).clone(),);
-
-            let mut func_def = crate::py_stmt!(
-                "\ndef {func:id}():\n    {body:stmt}",
+            let mut func_def = py_stmt!(
+                r#"
+def {func:id}():
+    return {body:expr}"#,
                 func = func_name.as_str(),
-                body = body_stmt,
+                body = (*lambda.body).clone(),
             );
 
             if let Stmt::FunctionDef(ast::StmtFunctionDef {
@@ -244,7 +233,7 @@ impl Transformer for ExprRewriter {
             walk_stmt(self, &mut func_def);
             self.add_function(func_def);
 
-            *expr = crate::py_expr!("\n{func:id}", func = func_name.as_str(),);
+            *expr = py_expr!("{func:id}", func = func_name.as_str(),);
         } else if let Expr::Generator(gen) = expr {
             let first_iter_expr = gen.generators.first().unwrap().iter.clone();
 
@@ -262,30 +251,27 @@ impl Transformer for ExprRewriter {
                 Name::new(format!("_dp_iter_{}", id))
             };
 
-            let mut body = vec![crate::py_stmt!(
-                "\nyield {value:expr}",
-                value = (*gen.elt).clone(),
-            )];
+            let mut body = vec![py_stmt!("\nyield {value:expr}", value = (*gen.elt).clone(),)];
 
             for comp in gen.generators.iter().rev() {
                 let mut inner = body;
                 for if_expr in comp.ifs.iter().rev() {
-                    inner = vec![crate::py_stmt!(
-                        "\nif {test:expr}:\n    {body:stmt}",
+                    inner = vec![py_stmt!(
+                        "if {test:expr}:\n    {body:stmt}",
                         test = if_expr.clone(),
                         body = inner,
                     )];
                 }
                 body = vec![if comp.is_async {
-                    crate::py_stmt!(
-                        "\nasync for {target:expr} in {iter:expr}:\n    {body:stmt}",
+                    py_stmt!(
+                        "async for {target:expr} in {iter:expr}:\n    {body:stmt}",
                         target = comp.target.clone(),
                         iter = comp.iter.clone(),
                         body = inner,
                     )
                 } else {
-                    crate::py_stmt!(
-                        "\nfor {target:expr} in {iter:expr}:\n    {body:stmt}",
+                    py_stmt!(
+                        "for {target:expr} in {iter:expr}:\n    {body:stmt}",
                         target = comp.target.clone(),
                         iter = comp.iter.clone(),
                         body = inner,
@@ -294,10 +280,10 @@ impl Transformer for ExprRewriter {
             }
 
             if let Stmt::For(ast::StmtFor { iter, .. }) = body.first_mut().unwrap() {
-                *iter = Box::new(crate::py_expr!("\n{name:id}", name = param_name.as_str(),));
+                *iter = Box::new(py_expr!("{name:id}", name = param_name.as_str(),));
             }
 
-            let mut func_def = crate::py_stmt!(
+            let mut func_def = py_stmt!(
                 "\ndef {func:id}({param:id}):\n    {body:stmt}",
                 func = func_name.as_str(),
                 param = param_name.as_str(),
@@ -307,8 +293,8 @@ impl Transformer for ExprRewriter {
             walk_stmt(self, &mut func_def);
             self.add_function(func_def);
 
-            *expr = crate::py_expr!(
-                "\n{func:id}(__dp__.iter({iter:expr}))",
+            *expr = py_expr!(
+                "{func:id}(__dp__.iter({iter:expr}))",
                 iter = first_iter_expr,
                 func = func_name.as_str(),
             );
@@ -321,12 +307,12 @@ impl Transformer for ExprRewriter {
                     lower, upper, step, ..
                 }) => {
                     fn none_name() -> Expr {
-                        crate::py_expr!("None")
+                        py_expr!("None")
                     }
                     let lower_expr = lower.map(|expr| *expr).unwrap_or_else(none_name);
                     let upper_expr = upper.map(|expr| *expr).unwrap_or_else(none_name);
                     let step_expr = step.map(|expr| *expr).unwrap_or_else(none_name);
-                    crate::py_expr!(
+                    py_expr!(
                         "slice({lower:expr}, {upper:expr}, {step:expr})",
                         lower = lower_expr,
                         upper = upper_expr,
@@ -334,7 +320,7 @@ impl Transformer for ExprRewriter {
                     )
                 }
                 Expr::EllipsisLiteral(_) => {
-                    crate::py_expr!("Ellipsis")
+                    py_expr!("Ellipsis")
                 }
                 Expr::NumberLiteral(ast::ExprNumberLiteral {
                     value: ast::Number::Complex { real, imag },
@@ -350,7 +336,7 @@ impl Transformer for ExprRewriter {
                         range: TextRange::default(),
                         value: ast::Number::Float(imag),
                     });
-                    crate::py_expr!(
+                    py_expr!(
                         "complex({real:expr}, {imag:expr})",
                         real = real_expr,
                         imag = imag_expr,
@@ -360,40 +346,42 @@ impl Transformer for ExprRewriter {
                     value, attr, ctx, ..
                 }) if matches!(ctx, ast::ExprContext::Load) && self.options.lower_attributes => {
                     let value_expr = *value;
-                    crate::py_expr!(
+                    py_expr!(
                         "getattr({value:expr}, {attr:literal})",
                         value = value_expr,
                         attr = attr.id.as_str(),
                     )
                 }
                 Expr::NoneLiteral(_) => {
-                    crate::py_expr!("None")
+                    py_expr!("None")
                 }
                 Expr::ListComp(ast::ExprListComp {
                     elt, generators, ..
-                }) => Self::make_comp_call("list", *elt, generators),
+                }) => py_expr!("list({expr:expr})", expr = make_generator(*elt, generators)),
                 Expr::SetComp(ast::ExprSetComp {
                     elt, generators, ..
-                }) => Self::make_comp_call("set", *elt, generators),
+                }) => py_expr!("set({expr:expr})", expr = make_generator(*elt, generators)),
                 Expr::DictComp(ast::ExprDictComp {
                     key,
                     value,
                     generators,
                     ..
                 }) => {
-                    let tuple =
-                        crate::py_expr!("({key:expr}, {value:expr})", key = *key, value = *value,);
-                    Self::make_comp_call("dict", tuple, generators)
+                    let tuple = py_expr!("({key:expr}, {value:expr})", key = *key, value = *value,);
+                    py_expr!(
+                        "dict({expr:expr})",
+                        expr = make_generator(tuple, generators)
+                    )
                 }
                 Expr::List(ast::ExprList { elts, ctx, .. })
                     if matches!(ctx, ast::ExprContext::Load) =>
                 {
                     let tuple = make_tuple(elts);
-                    crate::py_expr!("list({tuple:expr})", tuple = tuple,)
+                    py_expr!("list({tuple:expr})", tuple = tuple,)
                 }
                 Expr::Set(ast::ExprSet { elts, .. }) => {
                     let tuple = make_tuple(elts);
-                    crate::py_expr!("set({tuple:expr})", tuple = tuple,)
+                    py_expr!("set({tuple:expr})", tuple = tuple,)
                 }
                 Expr::Dict(ast::ExprDict { items, .. })
                     if items.iter().all(|item| item.key.is_some()) =>
@@ -403,11 +391,11 @@ impl Transformer for ExprRewriter {
                         .map(|item| {
                             let key = item.key.unwrap();
                             let value = item.value;
-                            crate::py_expr!("({key:expr}, {value:expr})", key = key, value = value,)
+                            py_expr!("({key:expr}, {value:expr})", key = key, value = value,)
                         })
                         .collect();
                     let tuple = make_tuple(pairs);
-                    crate::py_expr!("dict({tuple:expr})", tuple = tuple,)
+                    py_expr!("dict({tuple:expr})", tuple = tuple,)
                 }
                 Expr::If(ast::ExprIf {
                     test, body, orelse, ..
@@ -415,7 +403,7 @@ impl Transformer for ExprRewriter {
                     let test_expr = *test;
                     let body_expr = *body;
                     let orelse_expr = *orelse;
-                    crate::py_expr!(
+                    py_expr!(
                         "__dp__.if_expr({cond:expr}, lambda: {body:expr}, lambda: {orelse:expr})",
                         cond = test_expr,
                         body = body_expr,
@@ -426,12 +414,12 @@ impl Transformer for ExprRewriter {
                     let mut result = values.pop().expect("boolop with no values");
                     while let Some(value) = values.pop() {
                         result = match op {
-                            ast::BoolOp::Or => crate::py_expr!(
+                            ast::BoolOp::Or => py_expr!(
                                 "__dp__.or_expr({left:expr}, lambda: {right:expr})",
                                 left = value,
                                 right = result,
                             ),
-                            ast::BoolOp::And => crate::py_expr!(
+                            ast::BoolOp::And => py_expr!(
                                 "__dp__.and_expr({left:expr}, lambda: {right:expr})",
                                 left = value,
                                 right = result,
@@ -548,7 +536,8 @@ impl Transformer for ExprRewriter {
             Stmt::With(with) => rewrite_with::rewrite(with.clone(), &self.with_count),
             Stmt::Assert(assert) => rewrite_assert::rewrite(assert.clone()),
             Stmt::ClassDef(class_def) => {
-                let base_stmt = rewrite_class_def::rewrite(class_def.clone());
+                let mut base_stmt = rewrite_class_def::rewrite(class_def.clone());
+                self.visit_stmt(&mut base_stmt);
                 let class_name = class_def.name.id.clone();
                 if !class_def.decorator_list.is_empty() {
                     let decorators = class_def.decorator_list.clone();
@@ -561,13 +550,7 @@ impl Transformer for ExprRewriter {
                         &self.decorator_count,
                     )
                 } else {
-                    let base_name = format!("_dp_class_{}", class_name);
-                    let assign_stmt = crate::py_stmt!(
-                        "{name:id} = {base:id}",
-                        name = class_name.as_str(),
-                        base = base_name.as_str()
-                    );
-                    crate::py_stmt!("{body:stmt}", body = vec![base_stmt, assign_stmt])
+                    base_stmt
                 }
             }
             Stmt::For(for_stmt) => rewrite_for_loop::rewrite(for_stmt.clone(), &self.for_count),
@@ -584,45 +567,34 @@ impl Transformer for ExprRewriter {
             }
             Stmt::AnnAssign(ann_assign) => {
                 let target = (*ann_assign.target).clone();
-                let value = ann_assign.value.clone().map(|v| *v).unwrap_or_else(|| {
-                    crate::py_expr!(
-                        "
-None
-"
-                    )
-                });
+                let value = ann_assign
+                    .value
+                    .clone()
+                    .map(|v| *v)
+                    .unwrap_or_else(|| py_expr!("None"));
                 let mut stmts = Vec::new();
                 self.rewrite_target(target, value, &mut stmts);
-                if stmts.len() == 1 {
-                    stmts.pop().unwrap()
-                } else {
-                    crate::py_stmt!(
-                        "
-{body:stmt}
-",
-                        body = stmts,
-                    )
-                }
+                single_stmt(stmts)
             }
             Stmt::Assign(assign) => {
                 let value = (*assign.value).clone();
                 let mut stmts = Vec::new();
                 if assign.targets.len() > 1 {
                     let tmp_name = self.next_tmp();
-                    let tmp_expr = crate::py_expr!(
+                    let tmp_expr = py_expr!(
                         "
 {name:id}
 ",
                         name = tmp_name.as_str(),
                     );
-                    let mut tmp_stmt = crate::py_stmt!(
+                    let tmp_stmt = py_stmt!(
                         "
 {name:id} = {value:expr}
 ",
                         name = tmp_name.as_str(),
                         value = value,
                     );
-                    walk_stmt(self, &mut tmp_stmt);
+
                     stmts.push(tmp_stmt);
                     for target in &assign.targets {
                         self.rewrite_target(target.clone(), tmp_expr.clone(), &mut stmts);
@@ -630,16 +602,8 @@ None
                 } else {
                     self.rewrite_target(assign.targets[0].clone(), value, &mut stmts);
                 }
-                if stmts.len() == 1 {
-                    stmts.pop().unwrap()
-                } else {
-                    crate::py_stmt!(
-                        "
-{body:stmt}
-",
-                        body = stmts,
-                    )
-                }
+
+                single_stmt(stmts)
             }
             Stmt::AugAssign(aug) => {
                 let target = (*aug.target).clone();
@@ -671,58 +635,40 @@ None
                 let call = make_binop(func_name, target_expr, value);
                 let mut stmts = Vec::new();
                 self.rewrite_target(target, call, &mut stmts);
-                if stmts.len() == 1 {
-                    stmts.pop().unwrap()
-                } else {
-                    crate::py_stmt!("\n{body:stmt}", body = stmts,)
-                }
+                single_stmt(stmts)
             }
             Stmt::Delete(del) => {
                 let mut stmts = Vec::with_capacity(del.targets.len());
                 for target in &del.targets {
-                    if let Expr::Subscript(sub) = target {
-                        let obj = (*sub.value).clone();
-                        let key = (*sub.slice).clone();
-                        let mut new_stmt = crate::py_stmt!(
+                    let new_stmt = if let Expr::Subscript(sub) = target {
+                        py_stmt!(
                             "__dp__.delitem({obj:expr}, {key:expr})",
-                            obj = obj,
-                            key = key,
-                        );
-                        walk_stmt(self, &mut new_stmt);
-                        stmts.push(new_stmt);
+                            obj = (*sub.value).clone(),
+                            key = (*sub.slice).clone(),
+                        )
                     } else if let Expr::Attribute(attr) = target {
-                        let obj = (*attr.value).clone();
-                        let mut new_stmt = crate::py_stmt!(
+                        py_stmt!(
                             "__dp__.delattr({obj:expr}, {name:literal})",
-                            obj = obj,
+                            obj = (*attr.value).clone(),
                             name = attr.attr.as_str(),
-                        );
-                        walk_stmt(self, &mut new_stmt);
-                        stmts.push(new_stmt);
+                        )
                     } else {
-                        let mut new_stmt =
-                            crate::py_stmt!("del {target:expr}", target = target.clone(),);
-                        walk_stmt(self, &mut new_stmt);
-                        stmts.push(new_stmt);
-                    }
+                        py_stmt!("del {target:expr}", target = target.clone())
+                    };
+
+                    stmts.push(new_stmt);
                 }
-                if stmts.len() == 1 {
-                    stmts.pop().unwrap()
-                } else {
-                    crate::py_stmt!("{body:stmt}", body = stmts)
-                }
+                single_stmt(stmts)
             }
             Stmt::Raise(ast::StmtRaise {
                 exc: Some(exc),
                 cause: Some(cause),
                 ..
             }) => {
-                let exc_expr = *exc.clone();
-                let cause_expr = *cause.clone();
-                crate::py_stmt!(
+                py_stmt!(
                     "raise __dp__.raise_from({exc:expr}, {cause:expr})",
-                    exc = exc_expr,
-                    cause = cause_expr,
+                    exc = *exc.clone(),
+                    cause = *cause.clone(),
                 )
             }
             _ => stmt.clone(),

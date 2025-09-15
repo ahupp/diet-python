@@ -2,6 +2,8 @@ use std::cell::Cell;
 
 use ruff_python_ast::{self as ast, Stmt};
 
+use crate::py_stmt;
+
 pub fn rewrite(
     ast::StmtWith {
         items,
@@ -12,7 +14,7 @@ pub fn rewrite(
     count: &Cell<usize>,
 ) -> Stmt {
     if items.is_empty() {
-        return crate::py_stmt!(
+        return py_stmt!(
             "
 pass
 "
@@ -42,7 +44,7 @@ pass
         let exit_name = format!("_dp_exit_{}", id);
         let ctx_name = format!("_dp_ctx_{}", id);
 
-        let ctx_assign = crate::py_stmt!(
+        let ctx_assign = py_stmt!(
             "{ctx_var:id} = {ctx:expr}",
             ctx_var = ctx_name.as_str(),
             ctx = context_expr,
@@ -55,7 +57,7 @@ pass
         };
 
         let pre_stmt = if let Some(var) = optional_vars {
-            crate::py_stmt!(
+            py_stmt!(
                 "{var:expr} = {await_:id}{enter:id}({ctx_var:id})",
                 var = *var,
                 await_ = await_,
@@ -63,7 +65,7 @@ pass
                 ctx_var = ctx_name.as_str(),
             )
         } else {
-            crate::py_stmt!(
+            py_stmt!(
                 "{await_:id}{enter:id}({ctx_var:id})",
                 await_ = await_,
                 enter = enter_name.as_str(),
@@ -71,7 +73,7 @@ pass
             )
         };
 
-        let wrapper = crate::py_stmt!(
+        let wrapper = py_stmt!(
             "
 {ctx_assign:stmt}
 {enter:id} = type({ctx_var:id}).{enter_method:id}
