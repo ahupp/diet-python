@@ -82,18 +82,18 @@ class C:
 def _dp_ns_C(_ns):
     _dp_temp_ns = dict(())
     _dp_tmp_1 = __name__
-    getattr(__dp__, "setitem")(_dp_temp_ns, "__module__", _dp_tmp_1)
-    getattr(__dp__, "setitem")(_ns, "__module__", _dp_tmp_1)
+    __dp__.setitem(_dp_temp_ns, "__module__", _dp_tmp_1)
+    __dp__.setitem(_ns, "__module__", _dp_tmp_1)
     _dp_tmp_2 = "C"
-    getattr(__dp__, "setitem")(_dp_temp_ns, "__qualname__", _dp_tmp_2)
-    getattr(__dp__, "setitem")(_ns, "__qualname__", _dp_tmp_2)
+    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_2)
+    __dp__.setitem(_ns, "__qualname__", _dp_tmp_2)
     pass
 def _class_C():
-    bases = getattr(__dp__, "resolve_bases")(())
-    _dp_tmp_3 = getattr(__dp__, "prepare_class")("C", bases)
-    meta = getattr(__dp__, "getitem")(_dp_tmp_3, 0)
-    ns = getattr(__dp__, "getitem")(_dp_tmp_3, 1)
-    kwds = getattr(__dp__, "getitem")(_dp_tmp_3, 2)
+    bases = __dp__.resolve_bases(())
+    _dp_tmp_3 = __dp__.prepare_class("C", bases)
+    meta = __dp__.getitem(_dp_tmp_3, 0)
+    ns = __dp__.getitem(_dp_tmp_3, 1)
+    kwds = __dp__.getitem(_dp_tmp_3, 2)
     _dp_ns_C(ns)
     cls = meta("C", bases, ns)
     return cls
@@ -116,18 +116,18 @@ _dp_dec_1 = dec2(5)
 def _dp_ns_C(_ns):
     _dp_temp_ns = dict(())
     _dp_tmp_1 = __name__
-    getattr(__dp__, "setitem")(_dp_temp_ns, "__module__", _dp_tmp_1)
-    getattr(__dp__, "setitem")(_ns, "__module__", _dp_tmp_1)
+    __dp__.setitem(_dp_temp_ns, "__module__", _dp_tmp_1)
+    __dp__.setitem(_ns, "__module__", _dp_tmp_1)
     _dp_tmp_2 = "C"
-    getattr(__dp__, "setitem")(_dp_temp_ns, "__qualname__", _dp_tmp_2)
-    getattr(__dp__, "setitem")(_ns, "__qualname__", _dp_tmp_2)
+    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_2)
+    __dp__.setitem(_ns, "__qualname__", _dp_tmp_2)
     pass
 def _class_C():
-    bases = getattr(__dp__, "resolve_bases")(())
-    _dp_tmp_3 = getattr(__dp__, "prepare_class")("C", bases)
-    meta = getattr(__dp__, "getitem")(_dp_tmp_3, 0)
-    ns = getattr(__dp__, "getitem")(_dp_tmp_3, 1)
-    kwds = getattr(__dp__, "getitem")(_dp_tmp_3, 2)
+    bases = __dp__.resolve_bases(())
+    _dp_tmp_3 = __dp__.prepare_class("C", bases)
+    meta = __dp__.getitem(_dp_tmp_3, 0)
+    ns = __dp__.getitem(_dp_tmp_3, 1)
+    kwds = __dp__.getitem(_dp_tmp_3, 2)
     _dp_ns_C(ns)
     cls = meta("C", bases, ns)
     return cls

@@ -79,7 +79,7 @@ mod tests {
 f"x={x}"
 "#;
         let expected = r#"
-getattr("", "join")(("x=", str(x)))
+"".join(("x=", str(x)))
 "#;
         assert_transform_eq(input, expected);
     }
@@ -90,9 +90,8 @@ getattr("", "join")(("x=", str(x)))
 t"x={x}"
 "#;
         let expected = r#"
-getattr("", "join")(("x=", str(x)))
+"".join(("x=", str(x)))
 "#;
         assert_transform_eq(input, expected);
     }
 }
-

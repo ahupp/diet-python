@@ -274,10 +274,10 @@ match x:
 "#;
         let expected = r#"
 _dp_match_1 = x
-if getattr(__dp__, "eq")(_dp_match_1, 1):
+if __dp__.eq(_dp_match_1, 1):
     a()
 else:
-    if getattr(__dp__, "eq")(_dp_match_1, 2):
+    if __dp__.eq(_dp_match_1, 2):
         b()
     else:
         c()
@@ -298,7 +298,7 @@ match x:
 def _dp_lambda_1():
     return cond
 _dp_match_1 = x
-if getattr(__dp__, "and_expr")(getattr(__dp__, "eq")(_dp_match_1, 1), _dp_lambda_1):
+if __dp__.and_expr(__dp__.eq(_dp_match_1, 1), _dp_lambda_1):
     a()
 else:
     b()
@@ -317,9 +317,9 @@ match x:
 "#;
         let expected = r#"
 def _dp_lambda_1():
-    return getattr(__dp__, "eq")(_dp_match_1, 2)
+    return __dp__.eq(_dp_match_1, 2)
 _dp_match_1 = x
-if getattr(__dp__, "or_expr")(getattr(__dp__, "eq")(_dp_match_1, 1), _dp_lambda_1):
+if __dp__.or_expr(__dp__.eq(_dp_match_1, 1), _dp_lambda_1):
     a()
 else:
     b()
@@ -338,7 +338,7 @@ match x:
 "#;
         let expected = r#"
 _dp_match_1 = x
-if getattr(__dp__, "is_")(_dp_match_1, None):
+if __dp__.is_(_dp_match_1, None):
     a()
 else:
     b()
@@ -357,7 +357,7 @@ match x:
 "#;
         let expected = r#"
 _dp_match_1 = x
-if getattr(__dp__, "eq")(_dp_match_1, 1):
+if __dp__.eq(_dp_match_1, 1):
     y = _dp_match_1
     a()
 else:
@@ -377,7 +377,7 @@ match x:
 "#;
         let expected = r#"
 _dp_match_1 = x
-if getattr(__dp__, "eq")(_dp_match_1, 1):
+if __dp__.eq(_dp_match_1, 1):
     a()
 else:
     y = _dp_match_1
@@ -397,14 +397,14 @@ match x:
 "#;
         let expected = r#"
 def _dp_lambda_3():
-    return hasattr(_dp_match_1, getattr(__dp__, "getitem")(getattr(C, "__match_args__"), 1))
+    return hasattr(_dp_match_1, __dp__.getitem(C.__match_args__, 1))
 def _dp_lambda_2():
-    return getattr(__dp__, "and_expr")(getattr(__dp__, "eq")(getattr(_dp_match_1, getattr(__dp__, "getitem")(getattr(C, "__match_args__"), 0)), 1), _dp_lambda_3)
+    return __dp__.and_expr(__dp__.eq(getattr(_dp_match_1, __dp__.getitem(C.__match_args__, 0)), 1), _dp_lambda_3)
 def _dp_lambda_1():
-    return getattr(__dp__, "and_expr")(hasattr(_dp_match_1, getattr(__dp__, "getitem")(getattr(C, "__match_args__"), 0)), _dp_lambda_2)
+    return __dp__.and_expr(hasattr(_dp_match_1, __dp__.getitem(C.__match_args__, 0)), _dp_lambda_2)
 _dp_match_1 = x
-if getattr(__dp__, "and_expr")(isinstance(_dp_match_1, C), _dp_lambda_1):
-    b = getattr(_dp_match_1, getattr(__dp__, "getitem")(getattr(C, "__match_args__"), 1))
+if __dp__.and_expr(isinstance(_dp_match_1, C), _dp_lambda_1):
+    b = getattr(_dp_match_1, __dp__.getitem(C.__match_args__, 1))
     a()
 else:
     c()

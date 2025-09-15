@@ -5,9 +5,9 @@ pub(crate) mod rewrite_decorator;
 pub(crate) mod rewrite_for_loop;
 pub(crate) mod rewrite_import;
 pub(crate) mod rewrite_match_case;
+pub(crate) mod rewrite_string;
 pub(crate) mod rewrite_try_except;
 pub(crate) mod rewrite_with;
-pub(crate) mod rewrite_string;
 pub(crate) mod truthy;
 
 #[derive(Clone, Copy)]
@@ -21,6 +21,7 @@ pub enum ImportStarHandling {
 pub struct Options {
     pub import_star_handling: ImportStarHandling,
     pub inject_import: bool,
+    pub lower_attributes: bool,
 }
 
 impl Default for Options {
@@ -28,6 +29,7 @@ impl Default for Options {
         Self {
             import_star_handling: ImportStarHandling::Strip,
             inject_import: true,
+            lower_attributes: true,
         }
     }
 }
@@ -37,6 +39,7 @@ impl Options {
         Self {
             import_star_handling: ImportStarHandling::Error,
             inject_import: false,
+            lower_attributes: false,
         }
     }
 }

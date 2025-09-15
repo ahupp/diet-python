@@ -33,7 +33,7 @@ mod tests {
         let input = "assert a, 'oops'";
         let expected = r#"
 if __debug__:
-    if getattr(__dp__, "not_")(a):
+    if __dp__.not_(a):
         raise AssertionError('oops')
 "#;
         assert_transform_eq(input, expected);
@@ -44,7 +44,7 @@ if __debug__:
         let input = "assert a";
         let expected = r#"
 if __debug__:
-    if getattr(__dp__, "not_")(a):
+    if __dp__.not_(a):
         raise AssertionError
 "#;
         assert_transform_eq(input, expected);

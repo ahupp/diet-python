@@ -100,8 +100,8 @@ except E as e:
 try:
     f()
 except:
-    _dp_exc_1 = getattr(__dp__, "current_exception")()
-    if getattr(__dp__, "isinstance")(_dp_exc_1, E):
+    _dp_exc_1 = __dp__.current_exception()
+    if __dp__.isinstance(_dp_exc_1, E):
         e = _dp_exc_1
         g(e)
     else:
@@ -124,8 +124,8 @@ except:
 try:
     f()
 except:
-    _dp_exc_1 = getattr(__dp__, "current_exception")()
-    if getattr(__dp__, "isinstance")(_dp_exc_1, E):
+    _dp_exc_1 = __dp__.current_exception()
+    if __dp__.isinstance(_dp_exc_1, E):
         h()
     else:
         g()

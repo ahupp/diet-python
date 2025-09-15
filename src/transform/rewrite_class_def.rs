@@ -41,9 +41,13 @@ impl Transformer for MethodTransformer {
         match expr {
             Expr::Call(call) => {
                 if let Expr::Name(ast::ExprName { id, .. }) = call.func.as_ref() {
-                    if id == "super" && call.arguments.args.is_empty() && call.arguments.keywords.is_empty() {
+                    if id == "super"
+                        && call.arguments.args.is_empty()
+                        && call.arguments.keywords.is_empty()
+                    {
                         if let Some(arg) = &self.first_arg {
-                            *expr = crate::py_expr!("super({arg:id}, __class__)", arg = arg.as_str());
+                            *expr =
+                                crate::py_expr!("super({arg:id}, __class__)", arg = arg.as_str());
                             self.uses_class.set(true);
                         }
                     }
@@ -65,7 +69,13 @@ fn rewrite_method(func_def: &mut ast::StmtFunctionDef, class_name: &str) {
         .posonlyargs
         .first()
         .map(|a| a.parameter.name.to_string())
-        .or_else(|| func_def.parameters.args.first().map(|a| a.parameter.name.to_string()));
+        .or_else(|| {
+            func_def
+                .parameters
+                .args
+                .first()
+                .map(|a| a.parameter.name.to_string())
+        });
 
     let transformer = MethodTransformer {
         uses_class: Cell::new(false),
@@ -277,20 +287,20 @@ class C:
 def _dp_ns_C(_ns):
     _dp_temp_ns = dict(())
     _dp_tmp_1 = __name__
-    getattr(__dp__, "setitem")(_dp_temp_ns, "__module__", _dp_tmp_1)
-    getattr(__dp__, "setitem")(_ns, "__module__", _dp_tmp_1)
+    __dp__.setitem(_dp_temp_ns, "__module__", _dp_tmp_1)
+    __dp__.setitem(_ns, "__module__", _dp_tmp_1)
     _dp_tmp_2 = "C"
-    getattr(__dp__, "setitem")(_dp_temp_ns, "__qualname__", _dp_tmp_2)
-    getattr(__dp__, "setitem")(_ns, "__qualname__", _dp_tmp_2)
+    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_2)
+    __dp__.setitem(_ns, "__qualname__", _dp_tmp_2)
     _dp_tmp_3 = 1
-    getattr(__dp__, "setitem")(_dp_temp_ns, "x", _dp_tmp_3)
-    getattr(__dp__, "setitem")(_ns, "x", _dp_tmp_3)
+    __dp__.setitem(_dp_temp_ns, "x", _dp_tmp_3)
+    __dp__.setitem(_ns, "x", _dp_tmp_3)
 def _class_C():
-    bases = getattr(__dp__, "resolve_bases")(())
-    _dp_tmp_4 = getattr(__dp__, "prepare_class")("C", bases)
-    meta = getattr(__dp__, "getitem")(_dp_tmp_4, 0)
-    ns = getattr(__dp__, "getitem")(_dp_tmp_4, 1)
-    kwds = getattr(__dp__, "getitem")(_dp_tmp_4, 2)
+    bases = __dp__.resolve_bases(())
+    _dp_tmp_4 = __dp__.prepare_class("C", bases)
+    meta = __dp__.getitem(_dp_tmp_4, 0)
+    ns = __dp__.getitem(_dp_tmp_4, 1)
+    kwds = __dp__.getitem(_dp_tmp_4, 2)
     _dp_ns_C(ns)
     cls = meta("C", bases, ns)
     return cls
@@ -310,18 +320,18 @@ class C(B):
 def _dp_ns_C(_ns):
     _dp_temp_ns = dict(())
     _dp_tmp_1 = __name__
-    getattr(__dp__, "setitem")(_dp_temp_ns, "__module__", _dp_tmp_1)
-    getattr(__dp__, "setitem")(_ns, "__module__", _dp_tmp_1)
+    __dp__.setitem(_dp_temp_ns, "__module__", _dp_tmp_1)
+    __dp__.setitem(_ns, "__module__", _dp_tmp_1)
     _dp_tmp_2 = "C"
-    getattr(__dp__, "setitem")(_dp_temp_ns, "__qualname__", _dp_tmp_2)
-    getattr(__dp__, "setitem")(_ns, "__qualname__", _dp_tmp_2)
+    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_2)
+    __dp__.setitem(_ns, "__qualname__", _dp_tmp_2)
     pass
 def _class_C():
-    bases = getattr(__dp__, "resolve_bases")((B,))
-    _dp_tmp_3 = getattr(__dp__, "prepare_class")("C", bases)
-    meta = getattr(__dp__, "getitem")(_dp_tmp_3, 0)
-    ns = getattr(__dp__, "getitem")(_dp_tmp_3, 1)
-    kwds = getattr(__dp__, "getitem")(_dp_tmp_3, 2)
+    bases = __dp__.resolve_bases((B,))
+    _dp_tmp_3 = __dp__.prepare_class("C", bases)
+    meta = __dp__.getitem(_dp_tmp_3, 0)
+    ns = __dp__.getitem(_dp_tmp_3, 1)
+    kwds = __dp__.getitem(_dp_tmp_3, 2)
     _dp_ns_C(ns)
     cls = meta("C", bases, ns)
     return cls
@@ -342,23 +352,23 @@ class C(B, metaclass=Meta, kw=1):
 def _dp_ns_C(_ns):
     _dp_temp_ns = dict(())
     _dp_tmp_1 = __name__
-    getattr(__dp__, "setitem")(_dp_temp_ns, "__module__", _dp_tmp_1)
-    getattr(__dp__, "setitem")(_ns, "__module__", _dp_tmp_1)
+    __dp__.setitem(_dp_temp_ns, "__module__", _dp_tmp_1)
+    __dp__.setitem(_ns, "__module__", _dp_tmp_1)
     _dp_tmp_2 = "C"
-    getattr(__dp__, "setitem")(_dp_temp_ns, "__qualname__", _dp_tmp_2)
-    getattr(__dp__, "setitem")(_ns, "__qualname__", _dp_tmp_2)
+    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_2)
+    __dp__.setitem(_ns, "__qualname__", _dp_tmp_2)
     _dp_tmp_3 = "doc"
-    getattr(__dp__, "setitem")(_dp_temp_ns, "__doc__", _dp_tmp_3)
-    getattr(__dp__, "setitem")(_ns, "__doc__", _dp_tmp_3)
+    __dp__.setitem(_dp_temp_ns, "__doc__", _dp_tmp_3)
+    __dp__.setitem(_ns, "__doc__", _dp_tmp_3)
     _dp_tmp_4 = 2
-    getattr(__dp__, "setitem")(_dp_temp_ns, "x", _dp_tmp_4)
-    getattr(__dp__, "setitem")(_ns, "x", _dp_tmp_4)
+    __dp__.setitem(_dp_temp_ns, "x", _dp_tmp_4)
+    __dp__.setitem(_ns, "x", _dp_tmp_4)
 def _class_C():
-    bases = getattr(__dp__, "resolve_bases")((B,))
-    _dp_tmp_5 = getattr(__dp__, "prepare_class")("C", bases, dict((("metaclass", Meta), ("kw", 1))))
-    meta = getattr(__dp__, "getitem")(_dp_tmp_5, 0)
-    ns = getattr(__dp__, "getitem")(_dp_tmp_5, 1)
-    kwds = getattr(__dp__, "getitem")(_dp_tmp_5, 2)
+    bases = __dp__.resolve_bases((B,))
+    _dp_tmp_5 = __dp__.prepare_class("C", bases, dict((("metaclass", Meta), ("kw", 1))))
+    meta = __dp__.getitem(_dp_tmp_5, 0)
+    ns = __dp__.getitem(_dp_tmp_5, 1)
+    kwds = __dp__.getitem(_dp_tmp_5, 2)
     _dp_ns_C(ns)
     cls = meta("C", bases, ns, **kwds)
     return cls
@@ -379,27 +389,27 @@ class C:
 def _dp_ns_C(_ns):
     _dp_temp_ns = dict(())
     _dp_tmp_1 = __name__
-    getattr(__dp__, "setitem")(_dp_temp_ns, "__module__", _dp_tmp_1)
-    getattr(__dp__, "setitem")(_ns, "__module__", _dp_tmp_1)
+    __dp__.setitem(_dp_temp_ns, "__module__", _dp_tmp_1)
+    __dp__.setitem(_ns, "__module__", _dp_tmp_1)
     _dp_tmp_2 = "C"
-    getattr(__dp__, "setitem")(_dp_temp_ns, "__qualname__", _dp_tmp_2)
-    getattr(__dp__, "setitem")(_ns, "__qualname__", _dp_tmp_2)
+    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_2)
+    __dp__.setitem(_ns, "__qualname__", _dp_tmp_2)
 
     def _mk_m():
 
         def m(self):
             return 1
-        getattr(__dp__, "setattr")(m, "__qualname__", getattr(__dp__, "add")(getattr(__dp__, "getitem")(_ns, "__qualname__"), ".m"))
+        __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_ns, "__qualname__"), ".m"))
         return m
     _dp_tmp_3 = _mk_m()
-    getattr(__dp__, "setitem")(_dp_temp_ns, "m", _dp_tmp_3)
-    getattr(__dp__, "setitem")(_ns, "m", _dp_tmp_3)
+    __dp__.setitem(_dp_temp_ns, "m", _dp_tmp_3)
+    __dp__.setitem(_ns, "m", _dp_tmp_3)
 def _class_C():
-    bases = getattr(__dp__, "resolve_bases")(())
-    _dp_tmp_4 = getattr(__dp__, "prepare_class")("C", bases)
-    meta = getattr(__dp__, "getitem")(_dp_tmp_4, 0)
-    ns = getattr(__dp__, "getitem")(_dp_tmp_4, 1)
-    kwds = getattr(__dp__, "getitem")(_dp_tmp_4, 2)
+    bases = __dp__.resolve_bases(())
+    _dp_tmp_4 = __dp__.prepare_class("C", bases)
+    meta = __dp__.getitem(_dp_tmp_4, 0)
+    ns = __dp__.getitem(_dp_tmp_4, 1)
+    kwds = __dp__.getitem(_dp_tmp_4, 2)
     _dp_ns_C(ns)
     cls = meta("C", bases, ns)
     return cls
@@ -420,28 +430,28 @@ class C:
 def _dp_ns_C(_ns):
     _dp_temp_ns = dict(())
     _dp_tmp_1 = __name__
-    getattr(__dp__, "setitem")(_dp_temp_ns, "__module__", _dp_tmp_1)
-    getattr(__dp__, "setitem")(_ns, "__module__", _dp_tmp_1)
+    __dp__.setitem(_dp_temp_ns, "__module__", _dp_tmp_1)
+    __dp__.setitem(_ns, "__module__", _dp_tmp_1)
     _dp_tmp_2 = "C"
-    getattr(__dp__, "setitem")(_dp_temp_ns, "__qualname__", _dp_tmp_2)
-    getattr(__dp__, "setitem")(_ns, "__qualname__", _dp_tmp_2)
+    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_2)
+    __dp__.setitem(_ns, "__qualname__", _dp_tmp_2)
 
     def _mk_m():
 
         def m(self):
             __class__ = _dp_class_C
-            return getattr(super(self, __class__), "m")()
-        getattr(__dp__, "setattr")(m, "__qualname__", getattr(__dp__, "add")(getattr(__dp__, "getitem")(_ns, "__qualname__"), ".m"))
+            return super(self, __class__).m()
+        __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_ns, "__qualname__"), ".m"))
         return m
     _dp_tmp_3 = _mk_m()
-    getattr(__dp__, "setitem")(_dp_temp_ns, "m", _dp_tmp_3)
-    getattr(__dp__, "setitem")(_ns, "m", _dp_tmp_3)
+    __dp__.setitem(_dp_temp_ns, "m", _dp_tmp_3)
+    __dp__.setitem(_ns, "m", _dp_tmp_3)
 def _class_C():
-    bases = getattr(__dp__, "resolve_bases")(())
-    _dp_tmp_4 = getattr(__dp__, "prepare_class")("C", bases)
-    meta = getattr(__dp__, "getitem")(_dp_tmp_4, 0)
-    ns = getattr(__dp__, "getitem")(_dp_tmp_4, 1)
-    kwds = getattr(__dp__, "getitem")(_dp_tmp_4, 2)
+    bases = __dp__.resolve_bases(())
+    _dp_tmp_4 = __dp__.prepare_class("C", bases)
+    meta = __dp__.getitem(_dp_tmp_4, 0)
+    ns = __dp__.getitem(_dp_tmp_4, 1)
+    kwds = __dp__.getitem(_dp_tmp_4, 2)
     _dp_ns_C(ns)
     cls = meta("C", bases, ns)
     return cls
@@ -462,28 +472,28 @@ class C:
 def _dp_ns_C(_ns):
     _dp_temp_ns = dict(())
     _dp_tmp_1 = __name__
-    getattr(__dp__, "setitem")(_dp_temp_ns, "__module__", _dp_tmp_1)
-    getattr(__dp__, "setitem")(_ns, "__module__", _dp_tmp_1)
+    __dp__.setitem(_dp_temp_ns, "__module__", _dp_tmp_1)
+    __dp__.setitem(_ns, "__module__", _dp_tmp_1)
     _dp_tmp_2 = "C"
-    getattr(__dp__, "setitem")(_dp_temp_ns, "__qualname__", _dp_tmp_2)
-    getattr(__dp__, "setitem")(_ns, "__qualname__", _dp_tmp_2)
+    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_2)
+    __dp__.setitem(_ns, "__qualname__", _dp_tmp_2)
 
     def _mk_m():
 
         def m(z):
             __class__ = _dp_class_C
-            return getattr(super(z, __class__), "m")()
-        getattr(__dp__, "setattr")(m, "__qualname__", getattr(__dp__, "add")(getattr(__dp__, "getitem")(_ns, "__qualname__"), ".m"))
+            return super(z, __class__).m()
+        __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_ns, "__qualname__"), ".m"))
         return m
     _dp_tmp_3 = _mk_m()
-    getattr(__dp__, "setitem")(_dp_temp_ns, "m", _dp_tmp_3)
-    getattr(__dp__, "setitem")(_ns, "m", _dp_tmp_3)
+    __dp__.setitem(_dp_temp_ns, "m", _dp_tmp_3)
+    __dp__.setitem(_ns, "m", _dp_tmp_3)
 def _class_C():
-    bases = getattr(__dp__, "resolve_bases")(())
-    _dp_tmp_4 = getattr(__dp__, "prepare_class")("C", bases)
-    meta = getattr(__dp__, "getitem")(_dp_tmp_4, 0)
-    ns = getattr(__dp__, "getitem")(_dp_tmp_4, 1)
-    kwds = getattr(__dp__, "getitem")(_dp_tmp_4, 2)
+    bases = __dp__.resolve_bases(())
+    _dp_tmp_4 = __dp__.prepare_class("C", bases)
+    meta = __dp__.getitem(_dp_tmp_4, 0)
+    ns = __dp__.getitem(_dp_tmp_4, 1)
+    kwds = __dp__.getitem(_dp_tmp_4, 2)
     _dp_ns_C(ns)
     cls = meta("C", bases, ns)
     return cls

@@ -11,8 +11,7 @@ pub(crate) enum TransformPhase {
 }
 
 pub(crate) fn assert_transform_eq_ex(actual: &str, expected: &str, phase: TransformPhase) {
-    let mut module =
-        transform_str_to_ruff_with_options(actual, Options::for_test()).unwrap();
+    let mut module = transform_str_to_ruff_with_options(actual, Options::for_test()).unwrap();
     if matches!(phase, TransformPhase::Full) {
         crate::template::flatten(&mut module.body);
         let truthy_transformer = TruthyRewriter::new();
