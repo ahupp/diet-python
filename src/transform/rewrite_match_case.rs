@@ -1,5 +1,4 @@
-use std::cell::Cell;
-
+use super::context::Context;
 use ruff_python_ast::{self as ast, Expr, Pattern, Stmt};
 use ruff_python_parser::parse_expression;
 use ruff_text_size::TextRange;
@@ -176,14 +175,12 @@ fn test_for_pattern(pattern: &Pattern, subject: Expr) -> PatternTest {
     }
 }
 
-pub fn rewrite(ast::StmtMatch { subject, cases, .. }: ast::StmtMatch, count: &Cell<usize>) -> Stmt {
+pub fn rewrite(ast::StmtMatch { subject, cases, .. }: ast::StmtMatch, ctx: &Context) -> Stmt {
     if cases.is_empty() {
         return py_stmt!("pass");
     }
 
-    let id = count.get() + 1;
-    count.set(id);
-    let subject_name = format!("_dp_match_{}", id);
+    let subject_name = ctx.fresh("match");
     let tmp_expr = py_expr!("{name:id}", name = subject_name.as_str());
 
     let assign = py_stmt!(
@@ -292,10 +289,10 @@ match x:
         b()
 "#;
         let expected = r#"
-def _dp_lambda_1():
+def _dp_lambda_2():
     return cond
 _dp_match_1 = x
-if __dp__.and_expr(__dp__.eq(_dp_match_1, 1), _dp_lambda_1):
+if __dp__.and_expr(__dp__.eq(_dp_match_1, 1), _dp_lambda_2):
     a()
 else:
     b()
@@ -313,10 +310,10 @@ match x:
         b()
 "#;
         let expected = r#"
-def _dp_lambda_1():
+def _dp_lambda_2():
     return __dp__.eq(_dp_match_1, 2)
 _dp_match_1 = x
-if __dp__.or_expr(__dp__.eq(_dp_match_1, 1), _dp_lambda_1):
+if __dp__.or_expr(__dp__.eq(_dp_match_1, 1), _dp_lambda_2):
     a()
 else:
     b()
@@ -393,14 +390,14 @@ match x:
         c()
 "#;
         let expected = r#"
-def _dp_lambda_3():
+def _dp_lambda_4():
     return hasattr(_dp_match_1, __dp__.getitem(C.__match_args__, 1))
+def _dp_lambda_3():
+    return __dp__.and_expr(__dp__.eq(getattr(_dp_match_1, __dp__.getitem(C.__match_args__, 0)), 1), _dp_lambda_4)
 def _dp_lambda_2():
-    return __dp__.and_expr(__dp__.eq(getattr(_dp_match_1, __dp__.getitem(C.__match_args__, 0)), 1), _dp_lambda_3)
-def _dp_lambda_1():
-    return __dp__.and_expr(hasattr(_dp_match_1, __dp__.getitem(C.__match_args__, 0)), _dp_lambda_2)
+    return __dp__.and_expr(hasattr(_dp_match_1, __dp__.getitem(C.__match_args__, 0)), _dp_lambda_3)
 _dp_match_1 = x
-if __dp__.and_expr(isinstance(_dp_match_1, C), _dp_lambda_1):
+if __dp__.and_expr(isinstance(_dp_match_1, C), _dp_lambda_2):
     b = getattr(_dp_match_1, __dp__.getitem(C.__match_args__, 1))
     a()
 else:

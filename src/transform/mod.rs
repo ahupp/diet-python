@@ -1,3 +1,4 @@
+pub(crate) mod context;
 pub(crate) mod expr;
 pub(crate) mod rewrite_assert;
 pub(crate) mod rewrite_class_def;

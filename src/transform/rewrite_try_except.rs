@@ -1,10 +1,9 @@
-use std::cell::Cell;
-
+use super::context::Context;
 use ruff_python_ast::{self as ast, Expr, Stmt};
 
 use crate::py_stmt;
 
-pub fn rewrite(stmt: ast::StmtTry, count: &Cell<usize>) -> Stmt {
+pub fn rewrite(stmt: ast::StmtTry, ctx: &Context) -> Stmt {
     if !has_non_default_handler(&stmt) {
         return Stmt::Try(stmt);
     }
@@ -17,9 +16,7 @@ pub fn rewrite(stmt: ast::StmtTry, count: &Cell<usize>) -> Stmt {
         is_star: _,
         ..
     } = stmt;
-    let id = count.get() + 1;
-    count.set(id);
-    let exc_name = format!("_dp_exc_{}", id);
+    let exc_name = ctx.fresh("exc");
 
     let exc_assign = py_stmt!(
         "{exc:id} = __dp__.current_exception()",

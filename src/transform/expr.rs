@@ -1,8 +1,8 @@
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 
 use super::{
-    rewrite_assert, rewrite_class_def, rewrite_decorator, rewrite_for_loop, rewrite_import,
-    rewrite_match_case, rewrite_string, rewrite_try_except, rewrite_with, Options,
+    context::Context, rewrite_assert, rewrite_class_def, rewrite_decorator, rewrite_for_loop,
+    rewrite_import, rewrite_match_case, rewrite_string, rewrite_try_except, rewrite_with, Options,
 };
 use crate::template::{
     is_simple, make_binop, make_generator, make_tuple, make_unaryop, single_stmt,
@@ -13,38 +13,24 @@ use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, CmpOp, Expr, Operator, Stmt, UnaryOp};
 use ruff_text_size::TextRange;
 
-pub struct ExprRewriter {
+pub struct ExprRewriter<'a> {
+    ctx: &'a Context,
     options: Options,
-    tmp_count: Cell<usize>,
-    for_count: Cell<usize>,
-    try_count: Cell<usize>,
-    match_count: Cell<usize>,
-    with_count: Cell<usize>,
-    gen_count: Cell<usize>,
-    lambda_count: Cell<usize>,
-    decorator_count: Cell<usize>,
     scopes: RefCell<Vec<Vec<Stmt>>>,
 }
 
-impl ExprRewriter {
-    pub fn new(options: Options) -> Self {
+impl<'a> ExprRewriter<'a> {
+    pub fn new(ctx: &'a Context) -> Self {
         Self {
-            options,
-            tmp_count: Cell::new(0),
-            for_count: Cell::new(0),
-            try_count: Cell::new(0),
-            match_count: Cell::new(0),
-            with_count: Cell::new(0),
-            gen_count: Cell::new(0),
-            lambda_count: Cell::new(0),
-            decorator_count: Cell::new(0),
+            options: ctx.options,
+            ctx,
             scopes: RefCell::new(Vec::new()),
         }
     }
 
     fn tempify(&self, expr: &mut Expr, stmts: &mut Vec<Stmt>) -> Expr {
         if !is_simple(expr) {
-            let tmp = self.next_tmp();
+            let tmp = self.ctx.fresh("tmp");
             let value = expr.clone();
             let assign = py_stmt!(
                 "\n{tmp:id} = {expr:expr}\n",
@@ -81,16 +67,10 @@ impl ExprRewriter {
         self.scopes.borrow_mut().last_mut().unwrap().push(func);
     }
 
-    fn next_tmp(&self) -> String {
-        let id = self.tmp_count.get() + 1;
-        self.tmp_count.set(id);
-        format!("_dp_tmp_{}", id)
-    }
-
     fn rewrite_target(&self, target: Expr, value: Expr, out: &mut Vec<Stmt>) {
         match target {
             Expr::Tuple(tuple) => {
-                let tmp_name = self.next_tmp();
+                let tmp_name = self.ctx.fresh("tmp");
                 let tmp_expr = py_expr!(
                     "
 {name:id}
@@ -120,7 +100,7 @@ impl ExprRewriter {
                 }
             }
             Expr::List(list) => {
-                let tmp_name = self.next_tmp();
+                let tmp_name = self.ctx.fresh("tmp");
                 let tmp_expr = py_expr!(
                     "
 {name:id}
@@ -194,12 +174,10 @@ __dp__.setitem({obj:expr}, {key:expr}, {value:expr})
     }
 }
 
-impl Transformer for ExprRewriter {
+impl<'a> Transformer for ExprRewriter<'a> {
     fn visit_expr(&self, expr: &mut Expr) {
         if let Expr::Lambda(lambda) = expr {
-            let id = self.lambda_count.get() + 1;
-            self.lambda_count.set(id);
-            let func_name = format!("_dp_lambda_{}", id);
+            let func_name = self.ctx.fresh("lambda");
 
             let parameters = lambda
                 .parameters
@@ -237,18 +215,16 @@ def {func:id}():
         } else if let Expr::Generator(gen) = expr {
             let first_iter_expr = gen.generators.first().unwrap().iter.clone();
 
-            let id = self.gen_count.get() + 1;
-            self.gen_count.set(id);
             // Avoid using a double underscore prefix for generated function names.
             // Python name mangling affects identifiers starting with two underscores
             // inside class bodies; use a single underscore to keep helpers hidden
             // without triggering mangling.
-            let func_name = format!("_dp_gen_{}", id);
+            let func_name = self.ctx.fresh("gen");
 
             let param_name = if let Expr::Name(ast::ExprName { id, .. }) = &first_iter_expr {
                 id.clone()
             } else {
-                Name::new(format!("_dp_iter_{}", id))
+                Name::new(self.ctx.fresh("iter"))
             };
 
             let mut body = vec![py_stmt!("\nyield {value:expr}", value = (*gen.elt).clone(),)];
@@ -515,7 +491,7 @@ def {func:id}():
                         func_name.as_str(),
                         func_def,
                         None,
-                        &self.decorator_count,
+                        self.ctx,
                     );
                     self.visit_stmt(stmt);
                     return;
@@ -533,7 +509,7 @@ def {func:id}():
         }
 
         *stmt = match stmt {
-            Stmt::With(with) => rewrite_with::rewrite(with.clone(), &self.with_count),
+            Stmt::With(with) => rewrite_with::rewrite(with.clone(), self.ctx),
             Stmt::Assert(assert) => rewrite_assert::rewrite(assert.clone()),
             Stmt::ClassDef(class_def) => {
                 let mut base_stmt = rewrite_class_def::rewrite(class_def.clone());
@@ -547,17 +523,15 @@ def {func:id}():
                         class_name.as_str(),
                         base_stmt,
                         Some(base_name.as_str()),
-                        &self.decorator_count,
+                        self.ctx,
                     )
                 } else {
                     base_stmt
                 }
             }
-            Stmt::For(for_stmt) => rewrite_for_loop::rewrite(for_stmt.clone(), &self.for_count),
-            Stmt::Try(try_stmt) => rewrite_try_except::rewrite(try_stmt.clone(), &self.try_count),
-            Stmt::Match(match_stmt) => {
-                rewrite_match_case::rewrite(match_stmt.clone(), &self.match_count)
-            }
+            Stmt::For(for_stmt) => rewrite_for_loop::rewrite(for_stmt.clone(), self.ctx),
+            Stmt::Try(try_stmt) => rewrite_try_except::rewrite(try_stmt.clone(), self.ctx),
+            Stmt::Match(match_stmt) => rewrite_match_case::rewrite(match_stmt.clone(), self.ctx),
             Stmt::Import(import) => rewrite_import::rewrite(import.clone()),
             Stmt::ImportFrom(import_from) => {
                 match rewrite_import::rewrite_from(import_from.clone(), &self.options) {
@@ -580,7 +554,7 @@ def {func:id}():
                 let value = (*assign.value).clone();
                 let mut stmts = Vec::new();
                 if assign.targets.len() > 1 {
-                    let tmp_name = self.next_tmp();
+                    let tmp_name = self.ctx.fresh("tmp");
                     let tmp_expr = py_expr!(
                         "
 {name:id}
@@ -690,7 +664,8 @@ mod tests {
         let tokens = parsed.tokens().clone();
         let mut module = parsed.into_syntax();
 
-        let expr_transformer = ExprRewriter::new(Options::default());
+        let ctx = Context::new(Options::default());
+        let expr_transformer = ExprRewriter::new(&ctx);
         expr_transformer.rewrite_body(&mut module.body);
 
         crate::template::flatten(&mut module.body);
