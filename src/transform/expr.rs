@@ -358,7 +358,7 @@ impl Transformer for ExprRewriter {
                 }
                 Expr::Attribute(ast::ExprAttribute {
                     value, attr, ctx, ..
-                }) if matches!(ctx, ast::ExprContext::Load) => {
+                }) if matches!(ctx, ast::ExprContext::Load) && self.options.lower_attributes => {
                     let value_expr = *value;
                     crate::py_expr!(
                         "getattr({value:expr}, {attr:literal})",
@@ -584,17 +584,13 @@ impl Transformer for ExprRewriter {
             }
             Stmt::AnnAssign(ann_assign) => {
                 let target = (*ann_assign.target).clone();
-                let value = ann_assign
-                    .value
-                    .clone()
-                    .map(|v| *v)
-                    .unwrap_or_else(|| {
-                        crate::py_expr!(
-                            "
+                let value = ann_assign.value.clone().map(|v| *v).unwrap_or_else(|| {
+                    crate::py_expr!(
+                        "
 None
 "
-                        )
-                    });
+                    )
+                });
                 let mut stmts = Vec::new();
                 self.rewrite_target(target, value, &mut stmts);
                 if stmts.len() == 1 {
@@ -678,10 +674,7 @@ None
                 if stmts.len() == 1 {
                     stmts.pop().unwrap()
                 } else {
-                    crate::py_stmt!(
-                        "\n{body:stmt}",
-                        body = stmts,
-                    )
+                    crate::py_stmt!("\n{body:stmt}", body = stmts,)
                 }
             }
             Stmt::Delete(del) => {

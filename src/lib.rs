@@ -67,7 +67,9 @@ pub fn transform_str_to_ruff_with_options(
 ) -> Result<ModModule, ParseError> {
     let mut module = parse_module(source)?.into_syntax();
     apply_transforms(&mut module, options);
-    let _ = min_ast::Module::from(module.clone());
+    if options.lower_attributes {
+        let _ = min_ast::Module::from(module.clone());
+    }
     if options.inject_import {
         ensure_import::ensure_import(&mut module, "__dp__");
     }

@@ -77,7 +77,7 @@ mod tests {
 import a
 "#;
         let expected = r#"
-a = getattr(__dp__, "import_")("a", __spec__)
+a = __dp__.import_("a", __spec__)
 "#;
         assert_transform_eq(input, expected);
     }
@@ -89,7 +89,7 @@ from a.b import c
 "#;
 
         let expected = r#"
-c = getattr(getattr(__dp__, "import_")("a.b", __spec__, list(("c",))), "c")
+c = __dp__.import_("a.b", __spec__, list(("c",))).c
 "#;
         assert_transform_eq(input, expected);
     }
@@ -100,7 +100,7 @@ c = getattr(getattr(__dp__, "import_")("a.b", __spec__, list(("c",))), "c")
 from ..a import b
 "#;
         let expected = r#"
-b = getattr(getattr(__dp__, "import_")("a", __spec__, list(("b",)), 2), "b")
+b = __dp__.import_("a", __spec__, list(("b",)), 2).b
 "#;
         assert_transform_eq(input, expected);
     }
@@ -116,7 +116,7 @@ x = 1
             input,
             r#"
 "doc"
-annotations = getattr(getattr(__dp__, "import_")("__future__", __spec__, list(("annotations",))), "annotations")
+annotations = __dp__.import_("__future__", __spec__, list(("annotations",))).annotations
 x = 1
 "#,
         );
@@ -139,7 +139,7 @@ from a import *
             input,
             Options {
                 import_star_handling: ImportStarHandling::Allowed,
-                inject_import: false,
+                ..Options::for_test()
             },
         );
         assert_eq!(output.trim(), "from a import *");
@@ -155,7 +155,7 @@ from a import *
             input,
             Options {
                 import_star_handling: ImportStarHandling::Error,
-                inject_import: false,
+                ..Options::for_test()
             },
         );
     }
@@ -169,7 +169,7 @@ from a import *
             input,
             Options {
                 import_star_handling: ImportStarHandling::Strip,
-                inject_import: false,
+                ..Options::for_test()
             },
         );
         assert_eq!(output.trim(), "");

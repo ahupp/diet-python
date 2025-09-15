@@ -71,13 +71,13 @@ else:
     c()
 "#;
         let expected = r#"
-_dp_iter_1 = getattr(__dp__, "iter")(b)
+_dp_iter_1 = __dp__.iter(b)
 while True:
     try:
-        a = getattr(__dp__, "next")(_dp_iter_1)
+        a = __dp__.next(_dp_iter_1)
     except:
-        _dp_exc_1 = getattr(__dp__, "current_exception")()
-        if getattr(__dp__, "isinstance")(_dp_exc_1, StopIteration):
+        _dp_exc_1 = __dp__.current_exception()
+        if __dp__.isinstance(_dp_exc_1, StopIteration):
             c()
             break
         else:
@@ -95,13 +95,13 @@ for a in b:
     c(a)
 "#;
         let expected = r#"
-_dp_iter_1 = getattr(__dp__, "iter")(b)
+_dp_iter_1 = __dp__.iter(b)
 while True:
     try:
-        a = getattr(__dp__, "next")(_dp_iter_1)
+        a = __dp__.next(_dp_iter_1)
     except:
-        _dp_exc_1 = getattr(__dp__, "current_exception")()
-        if getattr(__dp__, "isinstance")(_dp_exc_1, StopIteration):
+        _dp_exc_1 = __dp__.current_exception()
+        if __dp__.isinstance(_dp_exc_1, StopIteration):
             break
         else:
             raise
@@ -123,13 +123,13 @@ async def f():
 "#;
         let expected = r#"
 async def f():
-    _dp_iter_1 = getattr(__dp__, "aiter")(b)
+    _dp_iter_1 = __dp__.aiter(b)
     while True:
         try:
-            a = await getattr(__dp__, "anext")(_dp_iter_1)
+            a = await __dp__.anext(_dp_iter_1)
         except:
-            _dp_exc_1 = getattr(__dp__, "current_exception")()
-            if getattr(__dp__, "isinstance")(_dp_exc_1, StopAsyncIteration):
+            _dp_exc_1 = __dp__.current_exception()
+            if __dp__.isinstance(_dp_exc_1, StopAsyncIteration):
                 c()
                 break
             else:

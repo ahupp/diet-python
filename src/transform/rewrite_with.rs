@@ -114,14 +114,14 @@ with a as b:
 "#;
         let expected = r#"
 _dp_ctx_1 = a
-_dp_enter_1 = getattr(type(_dp_ctx_1), "__enter__")
-_dp_exit_1 = getattr(type(_dp_ctx_1), "__exit__")
+_dp_enter_1 = type(_dp_ctx_1).__enter__
+_dp_exit_1 = type(_dp_ctx_1).__exit__
 b = _dp_enter_1(_dp_ctx_1)
 try:
     c
 except:
-    _dp_exc_1 = getattr(__dp__, "current_exception")()
-    if getattr(__dp__, "not_")(_dp_exit_1(_dp_ctx_1, *getattr(__dp__, "exc_info")())):
+    _dp_exc_1 = __dp__.current_exception()
+    if __dp__.not_(_dp_exit_1(_dp_ctx_1, *__dp__.exc_info())):
         raise
 else:
     _dp_exit_1(_dp_ctx_1, None, None, None)
@@ -137,25 +137,25 @@ with a as b, c as d:
 "#;
         let expected = r#"
 _dp_ctx_1 = a
-_dp_enter_1 = getattr(type(_dp_ctx_1), "__enter__")
-_dp_exit_1 = getattr(type(_dp_ctx_1), "__exit__")
+_dp_enter_1 = type(_dp_ctx_1).__enter__
+_dp_exit_1 = type(_dp_ctx_1).__exit__
 b = _dp_enter_1(_dp_ctx_1)
 try:
     _dp_ctx_2 = c
-    _dp_enter_2 = getattr(type(_dp_ctx_2), "__enter__")
-    _dp_exit_2 = getattr(type(_dp_ctx_2), "__exit__")
+    _dp_enter_2 = type(_dp_ctx_2).__enter__
+    _dp_exit_2 = type(_dp_ctx_2).__exit__
     d = _dp_enter_2(_dp_ctx_2)
     try:
         e
     except:
-        _dp_exc_2 = getattr(__dp__, "current_exception")()
-        if getattr(__dp__, "not_")(_dp_exit_2(_dp_ctx_2, *getattr(__dp__, "exc_info")())):
+        _dp_exc_2 = __dp__.current_exception()
+        if __dp__.not_(_dp_exit_2(_dp_ctx_2, *__dp__.exc_info())):
             raise
     else:
         _dp_exit_2(_dp_ctx_2, None, None, None)
 except:
-    _dp_exc_1 = getattr(__dp__, "current_exception")()
-    if getattr(__dp__, "not_")(_dp_exit_1(_dp_ctx_1, *getattr(__dp__, "exc_info")())):
+    _dp_exc_1 = __dp__.current_exception()
+    if __dp__.not_(_dp_exit_1(_dp_ctx_1, *__dp__.exc_info())):
         raise
 else:
     _dp_exit_1(_dp_ctx_1, None, None, None)
@@ -173,14 +173,14 @@ async def f():
         let expected = r#"
 async def f():
     _dp_ctx_1 = a
-    _dp_enter_1 = getattr(type(_dp_ctx_1), "__aenter__")
-    _dp_exit_1 = getattr(type(_dp_ctx_1), "__aexit__")
+    _dp_enter_1 = type(_dp_ctx_1).__aenter__
+    _dp_exit_1 = type(_dp_ctx_1).__aexit__
     b = await _dp_enter_1(_dp_ctx_1)
     try:
         c
     except:
-        _dp_exc_1 = getattr(__dp__, "current_exception")()
-        if getattr(__dp__, "not_")(await _dp_exit_1(_dp_ctx_1, *getattr(__dp__, "exc_info")())):
+        _dp_exc_1 = __dp__.current_exception()
+        if __dp__.not_(await _dp_exit_1(_dp_ctx_1, *__dp__.exc_info())):
             raise
     else:
         await _dp_exit_1(_dp_ctx_1, None, None, None)
