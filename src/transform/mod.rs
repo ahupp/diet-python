@@ -1,4 +1,7 @@
 pub(crate) mod expr;
+pub(crate) mod lower;
+pub(crate) mod unnest_expr;
+pub(crate) mod unnest;
 pub(crate) mod rewrite_assert;
 pub(crate) mod rewrite_class_def;
 pub(crate) mod rewrite_decorator;
