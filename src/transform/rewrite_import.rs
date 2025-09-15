@@ -70,7 +70,7 @@ pub fn rewrite_from(
 #[cfg(test)]
 mod tests {
     use crate::test_util::assert_transform_eq;
-    use crate::transform::{expr::ExprRewriter, ImportStarHandling, Options};
+    use crate::transform::{context::Context, expr::ExprRewriter, ImportStarHandling, Options};
     use ruff_python_parser::parse_module;
 
     #[test]
@@ -126,7 +126,8 @@ x = 1
 
     fn rewrite_source(source: &str, options: Options) -> String {
         let mut module = parse_module(source).expect("parse error").into_syntax();
-        let expr_transformer = ExprRewriter::new(options);
+        let ctx = Context::new(options);
+        let expr_transformer = ExprRewriter::new(&ctx);
         expr_transformer.rewrite_body(&mut module.body);
         crate::template::flatten(&mut module.body);
         crate::ruff_ast_to_string(&module.body)

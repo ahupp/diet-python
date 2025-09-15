@@ -19,7 +19,7 @@ mod template;
 mod test_util;
 mod transform;
 
-use transform::{expr::ExprRewriter, truthy::TruthyRewriter, Options};
+use transform::{context::Context, expr::ExprRewriter, truthy::TruthyRewriter, Options};
 
 fn should_skip(source: &str) -> bool {
     source
@@ -31,7 +31,8 @@ fn should_skip(source: &str) -> bool {
 fn apply_transforms(module: &mut ModModule, options: Options) {
     // Lower `for` loops, expand generators and lambdas, and replace
     // `__dp__.<name>` calls with `getattr` in a single pass.
-    let expr_transformer = ExprRewriter::new(options);
+    let ctx = Context::new(options);
+    let expr_transformer = ExprRewriter::new(&ctx);
     expr_transformer.rewrite_body(&mut module.body);
 
     // Collapse `py_stmt!` templates after all rewrites.

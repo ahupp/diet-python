@@ -1,5 +1,4 @@
-use std::cell::Cell;
-
+use super::context::Context;
 use ruff_python_ast::{self as ast, Stmt};
 
 use crate::py_stmt;
@@ -11,7 +10,7 @@ pub fn rewrite(
         is_async,
         ..
     }: ast::StmtWith,
-    count: &Cell<usize>,
+    ctx: &Context,
 ) -> Stmt {
     if items.is_empty() {
         return py_stmt!(
@@ -26,9 +25,10 @@ pass
 
     let mut work = Vec::new();
     for item in items {
-        let id = count.get() + 1;
-        count.set(id);
-        work.push((item, id));
+        let ctx_name = ctx.fresh("ctx");
+        let enter_name = ctx.fresh("enter");
+        let exit_name = ctx.fresh("exit");
+        work.push((item, ctx_name, enter_name, exit_name));
     }
 
     for (
@@ -37,13 +37,11 @@ pass
             optional_vars,
             ..
         },
-        id,
+        ctx_name,
+        enter_name,
+        exit_name,
     ) in work.into_iter().rev()
     {
-        let enter_name = format!("_dp_enter_{}", id);
-        let exit_name = format!("_dp_exit_{}", id);
-        let ctx_name = format!("_dp_ctx_{}", id);
-
         let ctx_assign = py_stmt!(
             "{ctx_var:id} = {ctx:expr}",
             ctx_var = ctx_name.as_str(),
@@ -116,16 +114,16 @@ with a as b:
 "#;
         let expected = r#"
 _dp_ctx_1 = a
-_dp_enter_1 = type(_dp_ctx_1).__enter__
-_dp_exit_1 = type(_dp_ctx_1).__exit__
-b = _dp_enter_1(_dp_ctx_1)
+_dp_enter_2 = type(_dp_ctx_1).__enter__
+_dp_exit_3 = type(_dp_ctx_1).__exit__
+b = _dp_enter_2(_dp_ctx_1)
 try:
     c
 except:
-    if __dp__.not_(_dp_exit_1(_dp_ctx_1, *__dp__.exc_info())):
+    if __dp__.not_(_dp_exit_3(_dp_ctx_1, *__dp__.exc_info())):
         raise
 else:
-    _dp_exit_1(_dp_ctx_1, None, None, None)
+    _dp_exit_3(_dp_ctx_1, None, None, None)
 "#;
         assert_transform_eq(input, expected);
     }
@@ -138,26 +136,26 @@ with a as b, c as d:
 "#;
         let expected = r#"
 _dp_ctx_1 = a
-_dp_enter_1 = type(_dp_ctx_1).__enter__
-_dp_exit_1 = type(_dp_ctx_1).__exit__
-b = _dp_enter_1(_dp_ctx_1)
+_dp_enter_2 = type(_dp_ctx_1).__enter__
+_dp_exit_3 = type(_dp_ctx_1).__exit__
+b = _dp_enter_2(_dp_ctx_1)
 try:
-    _dp_ctx_2 = c
-    _dp_enter_2 = type(_dp_ctx_2).__enter__
-    _dp_exit_2 = type(_dp_ctx_2).__exit__
-    d = _dp_enter_2(_dp_ctx_2)
+    _dp_ctx_4 = c
+    _dp_enter_5 = type(_dp_ctx_4).__enter__
+    _dp_exit_6 = type(_dp_ctx_4).__exit__
+    d = _dp_enter_5(_dp_ctx_4)
     try:
         e
     except:
-        if __dp__.not_(_dp_exit_2(_dp_ctx_2, *__dp__.exc_info())):
+        if __dp__.not_(_dp_exit_6(_dp_ctx_4, *__dp__.exc_info())):
             raise
     else:
-        _dp_exit_2(_dp_ctx_2, None, None, None)
+        _dp_exit_6(_dp_ctx_4, None, None, None)
 except:
-    if __dp__.not_(_dp_exit_1(_dp_ctx_1, *__dp__.exc_info())):
+    if __dp__.not_(_dp_exit_3(_dp_ctx_1, *__dp__.exc_info())):
         raise
 else:
-    _dp_exit_1(_dp_ctx_1, None, None, None)
+    _dp_exit_3(_dp_ctx_1, None, None, None)
 "#;
         assert_transform_eq(input, expected);
     }
@@ -172,16 +170,16 @@ async def f():
         let expected = r#"
 async def f():
     _dp_ctx_1 = a
-    _dp_enter_1 = type(_dp_ctx_1).__aenter__
-    _dp_exit_1 = type(_dp_ctx_1).__aexit__
-    b = await _dp_enter_1(_dp_ctx_1)
+    _dp_enter_2 = type(_dp_ctx_1).__aenter__
+    _dp_exit_3 = type(_dp_ctx_1).__aexit__
+    b = await _dp_enter_2(_dp_ctx_1)
     try:
         c
     except:
-        if __dp__.not_(await _dp_exit_1(_dp_ctx_1, *__dp__.exc_info())):
+        if __dp__.not_(await _dp_exit_3(_dp_ctx_1, *__dp__.exc_info())):
             raise
     else:
-        await _dp_exit_1(_dp_ctx_1, None, None, None)
+        await _dp_exit_3(_dp_ctx_1, None, None, None)
 "#;
         assert_transform_eq(input, expected);
     }

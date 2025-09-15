@@ -1,5 +1,4 @@
-use std::cell::Cell;
-
+use super::context::Context;
 use ruff_python_ast::{self as ast, Stmt};
 
 use crate::{py_expr, py_stmt};
@@ -10,7 +9,7 @@ pub fn rewrite(
     name: &str,
     item: Stmt,
     base: Option<&str>,
-    count: &Cell<usize>,
+    ctx: &Context,
 ) -> Stmt {
     let mut assigns = Vec::new();
     let mut names = Vec::new();
@@ -19,9 +18,7 @@ pub fn rewrite(
         if let ast::Expr::Name(ast::ExprName { id, .. }) = &decorator.expression {
             names.push(id.to_string());
         } else {
-            let id = count.get() + 1;
-            count.set(id);
-            let tmp = format!("_dp_dec_{}", id);
+            let tmp = ctx.fresh("dec");
             let assign = py_stmt!(
                 "{name:id} = {decorator:expr}",
                 name = tmp.as_str(),
@@ -115,7 +112,7 @@ class C:
     pass
 "#;
         let expected = r#"
-_dp_dec_1 = dec2(5)
+_dp_dec_5 = dec2(5)
 def _dp_ns_C(_ns):
     _dp_temp_ns = dict(())
     _dp_tmp_1 = __name__
@@ -136,7 +133,7 @@ def _dp_make_class_C():
 _dp_tmp_4 = _dp_make_class_C()
 C = _dp_tmp_4
 _dp_class_C = _dp_tmp_4
-C = _dp_dec_1(dec1(_dp_class_C))
+C = _dp_dec_5(dec1(_dp_class_C))
 "#;
         assert_transform_eq(input, expected);
     }

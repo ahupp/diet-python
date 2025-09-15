@@ -1,5 +1,4 @@
-use std::cell::Cell;
-
+use super::context::Context;
 use ruff_python_ast::{self as ast, Stmt};
 
 use crate::{py_expr, py_stmt};
@@ -13,11 +12,9 @@ pub fn rewrite(
         is_async,
         ..
     }: ast::StmtFor,
-    iter_count: &Cell<usize>,
+    ctx: &Context,
 ) -> Stmt {
-    let id = iter_count.get() + 1;
-    iter_count.set(id);
-    let iter_name = format!("_dp_iter_{}", id);
+    let iter_name = ctx.fresh("iter");
 
     let (iter_fn, next_fn, stop_exc, await_) = if is_async {
         (
@@ -78,8 +75,8 @@ while True:
     try:
         a = __dp__.next(_dp_iter_1)
     except:
-        _dp_exc_1 = __dp__.current_exception()
-        if __dp__.isinstance(_dp_exc_1, StopIteration):
+        _dp_exc_2 = __dp__.current_exception()
+        if __dp__.isinstance(_dp_exc_2, StopIteration):
             c()
             break
         else:
@@ -102,8 +99,8 @@ while True:
     try:
         a = __dp__.next(_dp_iter_1)
     except:
-        _dp_exc_1 = __dp__.current_exception()
-        if __dp__.isinstance(_dp_exc_1, StopIteration):
+        _dp_exc_2 = __dp__.current_exception()
+        if __dp__.isinstance(_dp_exc_2, StopIteration):
             break
         else:
             raise
@@ -130,8 +127,8 @@ async def f():
         try:
             a = await __dp__.anext(_dp_iter_1)
         except:
-            _dp_exc_1 = __dp__.current_exception()
-            if __dp__.isinstance(_dp_exc_1, StopAsyncIteration):
+            _dp_exc_2 = __dp__.current_exception()
+            if __dp__.isinstance(_dp_exc_2, StopAsyncIteration):
                 c()
                 break
             else:
