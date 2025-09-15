@@ -9,7 +9,6 @@ pub(crate) mod rewrite_match_case;
 pub(crate) mod rewrite_string;
 pub(crate) mod rewrite_try_except;
 pub(crate) mod rewrite_with;
-pub(crate) mod truthy;
 pub(crate) mod unnest;
 
 #[derive(Clone, Copy)]

@@ -1,6 +1,5 @@
 #[cfg(target_arch = "wasm32")]
 use js_sys::Array;
-use ruff_python_ast::visitor::transformer::walk_body;
 use ruff_python_ast::{ModModule, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_python_parser::{parse_module, ParseError};
@@ -19,7 +18,7 @@ mod template;
 mod test_util;
 mod transform;
 
-use transform::{context::Context, expr::ExprRewriter, truthy::TruthyRewriter, Options};
+use transform::{context::Context, expr::ExprRewriter, Options};
 
 fn should_skip(source: &str) -> bool {
     source
@@ -37,11 +36,6 @@ fn apply_transforms(module: &mut ModModule, options: Options) {
 
     // Collapse `py_stmt!` templates after all rewrites.
     template::flatten(&mut module.body);
-
-    if options.truthy {
-        let truthy_transformer = TruthyRewriter::new();
-        walk_body(&truthy_transformer, &mut module.body);
-    }
 }
 
 /// Transform the source code and return the resulting string.
