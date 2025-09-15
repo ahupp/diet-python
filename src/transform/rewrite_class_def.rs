@@ -126,10 +126,10 @@ pub fn rewrite(
                 rewrite_method(&mut func_def, &class_name);
                 let fn_name = func_def.name.id.to_string();
 
-                let mk_func = py_stmt!(
+                    let mk_func = py_stmt!(
                     r#"
 def _dp_mk_{fn_name:id}():
-    {fn_def}
+    {fn_def:stmt}
     {fn_name:id}.__qualname__ = _ns["__qualname__"] + {suffix:literal}
     return {fn_name:id}
 
@@ -224,17 +224,17 @@ def _dp_ns_C(_ns):
     _dp_tmp_3 = 1
     __dp__.setitem(_dp_temp_ns, "x", _dp_tmp_3)
     __dp__.setitem(_ns, "x", _dp_tmp_3)
-def _class_C():
+def _dp_make_class_C():
     bases = __dp__.resolve_bases(())
-    _dp_tmp_4 = __dp__.prepare_class("C", bases)
+    _dp_tmp_4 = __dp__.prepare_class("C", bases, None)
     meta = __dp__.getitem(_dp_tmp_4, 0)
     ns = __dp__.getitem(_dp_tmp_4, 1)
     kwds = __dp__.getitem(_dp_tmp_4, 2)
     _dp_ns_C(ns)
-    cls = meta("C", bases, ns, **kwds)
-    return cls
-_dp_class_C = _class_C()
-C = _dp_class_C
+    return meta("C", bases, ns, **kwds)
+_dp_tmp_5 = _dp_make_class_C()
+C = _dp_tmp_5
+_dp_class_C = _dp_tmp_5
 "#;
         assert_transform_eq(input, expected);
     }
@@ -255,17 +255,17 @@ def _dp_ns_C(_ns):
     __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_2)
     __dp__.setitem(_ns, "__qualname__", _dp_tmp_2)
     pass
-def _class_C():
+def _dp_make_class_C():
     bases = __dp__.resolve_bases((B,))
-    _dp_tmp_3 = __dp__.prepare_class("C", bases)
+    _dp_tmp_3 = __dp__.prepare_class("C", bases, None)
     meta = __dp__.getitem(_dp_tmp_3, 0)
     ns = __dp__.getitem(_dp_tmp_3, 1)
     kwds = __dp__.getitem(_dp_tmp_3, 2)
     _dp_ns_C(ns)
-    cls = meta("C", bases, ns, **kwds)
-    return cls
-_dp_class_C = _class_C()
-C = _dp_class_C
+    return meta("C", bases, ns, **kwds)
+_dp_tmp_4 = _dp_make_class_C()
+C = _dp_tmp_4
+_dp_class_C = _dp_tmp_4
 "#;
         assert_transform_eq(input, expected);
     }
@@ -286,23 +286,23 @@ def _dp_ns_C(_ns):
     _dp_tmp_2 = "C"
     __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_2)
     __dp__.setitem(_ns, "__qualname__", _dp_tmp_2)
-    _dp_tmp_3 = "doc"
+    _dp_tmp_3 = 'doc'
     __dp__.setitem(_dp_temp_ns, "__doc__", _dp_tmp_3)
     __dp__.setitem(_ns, "__doc__", _dp_tmp_3)
     _dp_tmp_4 = 2
     __dp__.setitem(_dp_temp_ns, "x", _dp_tmp_4)
     __dp__.setitem(_ns, "x", _dp_tmp_4)
-def _class_C():
+def _dp_make_class_C():
     bases = __dp__.resolve_bases((B,))
     _dp_tmp_5 = __dp__.prepare_class("C", bases, dict((("metaclass", Meta), ("kw", 1))))
     meta = __dp__.getitem(_dp_tmp_5, 0)
     ns = __dp__.getitem(_dp_tmp_5, 1)
     kwds = __dp__.getitem(_dp_tmp_5, 2)
     _dp_ns_C(ns)
-    cls = meta("C", bases, ns, **kwds)
-    return cls
-_dp_class_C = _class_C()
-C = _dp_class_C
+    return meta("C", bases, ns, **kwds)
+_dp_tmp_6 = _dp_make_class_C()
+C = _dp_tmp_6
+_dp_class_C = _dp_tmp_6
 "#;
         assert_transform_eq(input, expected);
     }
@@ -324,26 +324,26 @@ def _dp_ns_C(_ns):
     __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_2)
     __dp__.setitem(_ns, "__qualname__", _dp_tmp_2)
 
-    def _mk_m():
+    def _dp_mk_m():
 
         def m(self):
             return 1
         __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_ns, "__qualname__"), ".m"))
         return m
-    _dp_tmp_3 = _mk_m()
+    _dp_tmp_3 = _dp_mk_m()
     __dp__.setitem(_dp_temp_ns, "m", _dp_tmp_3)
     __dp__.setitem(_ns, "m", _dp_tmp_3)
-def _class_C():
+def _dp_make_class_C():
     bases = __dp__.resolve_bases(())
-    _dp_tmp_4 = __dp__.prepare_class("C", bases)
+    _dp_tmp_4 = __dp__.prepare_class("C", bases, None)
     meta = __dp__.getitem(_dp_tmp_4, 0)
     ns = __dp__.getitem(_dp_tmp_4, 1)
     kwds = __dp__.getitem(_dp_tmp_4, 2)
     _dp_ns_C(ns)
-    cls = meta("C", bases, ns)
-    return cls
-_dp_class_C = _class_C()
-C = _dp_class_C
+    return meta("C", bases, ns, **kwds)
+_dp_tmp_5 = _dp_make_class_C()
+C = _dp_tmp_5
+_dp_class_C = _dp_tmp_5
 "#;
         assert_transform_eq(input, expected);
     }
@@ -365,27 +365,27 @@ def _dp_ns_C(_ns):
     __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_2)
     __dp__.setitem(_ns, "__qualname__", _dp_tmp_2)
 
-    def _mk_m():
+    def _dp_mk_m():
 
         def m(self):
             __class__ = _dp_class_C
             return super(self, __class__).m()
         __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_ns, "__qualname__"), ".m"))
         return m
-    _dp_tmp_3 = _mk_m()
+    _dp_tmp_3 = _dp_mk_m()
     __dp__.setitem(_dp_temp_ns, "m", _dp_tmp_3)
     __dp__.setitem(_ns, "m", _dp_tmp_3)
-def _class_C():
+def _dp_make_class_C():
     bases = __dp__.resolve_bases(())
-    _dp_tmp_4 = __dp__.prepare_class("C", bases)
+    _dp_tmp_4 = __dp__.prepare_class("C", bases, None)
     meta = __dp__.getitem(_dp_tmp_4, 0)
     ns = __dp__.getitem(_dp_tmp_4, 1)
     kwds = __dp__.getitem(_dp_tmp_4, 2)
     _dp_ns_C(ns)
-    cls = meta("C", bases, ns)
-    return cls
-_dp_class_C = _class_C()
-C = _dp_class_C
+    return meta("C", bases, ns, **kwds)
+_dp_tmp_5 = _dp_make_class_C()
+C = _dp_tmp_5
+_dp_class_C = _dp_tmp_5
 "#;
         assert_transform_eq(input, expected);
     }
@@ -407,27 +407,27 @@ def _dp_ns_C(_ns):
     __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_2)
     __dp__.setitem(_ns, "__qualname__", _dp_tmp_2)
 
-    def _mk_m():
+    def _dp_mk_m():
 
         def m(z):
             __class__ = _dp_class_C
             return super(z, __class__).m()
         __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_ns, "__qualname__"), ".m"))
         return m
-    _dp_tmp_3 = _mk_m()
+    _dp_tmp_3 = _dp_mk_m()
     __dp__.setitem(_dp_temp_ns, "m", _dp_tmp_3)
     __dp__.setitem(_ns, "m", _dp_tmp_3)
-def _class_C():
+def _dp_make_class_C():
     bases = __dp__.resolve_bases(())
-    _dp_tmp_4 = __dp__.prepare_class("C", bases)
+    _dp_tmp_4 = __dp__.prepare_class("C", bases, None)
     meta = __dp__.getitem(_dp_tmp_4, 0)
     ns = __dp__.getitem(_dp_tmp_4, 1)
     kwds = __dp__.getitem(_dp_tmp_4, 2)
     _dp_ns_C(ns)
-    cls = meta("C", bases, ns)
-    return cls
-_dp_class_C = _class_C()
-C = _dp_class_C
+    return meta("C", bases, ns, **kwds)
+_dp_tmp_5 = _dp_make_class_C()
+C = _dp_tmp_5
+_dp_class_C = _dp_tmp_5
 "#;
         assert_transform_eq(input, expected);
     }

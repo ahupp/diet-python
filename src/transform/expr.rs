@@ -218,7 +218,7 @@ impl Transformer for ExprRewriter {
             let mut func_def = py_stmt!(
                 r#"
 def {func:id}():
-    return {body:stmt}"#,
+    return {body:expr}"#,
                 func = func_name.as_str(),
                 body = (*lambda.body).clone(),
             );
