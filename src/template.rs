@@ -2,7 +2,8 @@
 macro_rules! py_expr {
     ($template:literal $(, $name:ident = $value:expr)* $(,)?) => {{
         use ruff_python_ast::{self as ast, Stmt};
-        let stmt = $crate::py_stmt!($template $(, $name = $value)*);
+        use crate::py_stmt;
+        let stmt = py_stmt!($template $(, $name = $value)*);
         match stmt {
             Stmt::Expr(ast::StmtExpr { value, .. }) => *value,
             _ => panic!("expected expression statement"),
@@ -16,10 +17,8 @@ macro_rules! py_stmt {
         use ruff_python_parser::parse_module;
         use std::collections::HashMap;
         use regex::Regex;
-        use ruff_python_ast::{self as ast, Stmt};
-        use ruff_text_size::TextRange;
         use crate::template::{
-            var_for_placeholder, PlaceholderKind, PlaceholderValue, SyntaxTemplate,
+            var_for_placeholder, PlaceholderKind, PlaceholderValue, SyntaxTemplate, single_stmt,
         };
 
         #[allow(unused_mut)]
@@ -54,28 +53,18 @@ macro_rules! py_stmt {
         };
         let src = src.to_string();
 
-        let module = parse_module(&src)
-            .expect("template parse error")
-            .into_syntax();
+        let module = match parse_module(&src) {
+            Ok(module) => module.into_syntax(),
+            Err(e) => {
+                println!("template parse error: {}\n{}", e, src);
+                panic!("template parse error");
+            }
+        };
 
         let mut stmts = module.body;
         let template = SyntaxTemplate::new($template, values);
         template.visit_stmts(&mut stmts);
-        if stmts.len() == 1 {
-            stmts.pop().unwrap()
-        } else {
-            Stmt::If(ast::StmtIf {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: TextRange::default(),
-                test: Box::new(ast::Expr::BooleanLiteral(ast::ExprBooleanLiteral {
-                    node_index: ast::AtomicNodeIndex::default(),
-                    range: TextRange::default(),
-                    value: true,
-                })),
-                body: stmts,
-                elif_else_clauses: Vec::new(),
-            })
-        }
+        single_stmt(stmts)
     }};
 }
 
@@ -85,6 +74,19 @@ use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::TextRange;
 use serde_json::Value;
 use std::{cell::RefCell, collections::HashMap};
+
+pub(crate) fn is_simple(expr: &Expr) -> bool {
+    matches!(
+        expr,
+        Expr::Name(_)
+            | Expr::NumberLiteral(_)
+            | Expr::StringLiteral(_)
+            | Expr::BytesLiteral(_)
+            | Expr::BooleanLiteral(_)
+            | Expr::NoneLiteral(_)
+            | Expr::EllipsisLiteral(_)
+    )
+}
 
 pub(crate) fn make_tuple(elts: Vec<Expr>) -> Expr {
     Expr::Tuple(ast::ExprTuple {
@@ -96,6 +98,50 @@ pub(crate) fn make_tuple(elts: Vec<Expr>) -> Expr {
     })
 }
 
+pub(crate) fn make_binop(func_name: &'static str, left: Expr, right: Expr) -> Expr {
+    py_expr!(
+        "__dp__.{func:id}({left:expr}, {right:expr})",
+        left = left,
+        right = right,
+        func = func_name
+    )
+}
+
+pub(crate) fn make_unaryop(func_name: &'static str, operand: Expr) -> Expr {
+    py_expr!(
+        "__dp__.{func:id}({operand:expr})",
+        operand = operand,
+        func = func_name
+    )
+}
+
+pub(crate) fn make_generator(elt: Expr, generators: Vec<ast::Comprehension>) -> Expr {
+    Expr::Generator(ast::ExprGenerator {
+        node_index: ast::AtomicNodeIndex::default(),
+        range: TextRange::default(),
+        elt: Box::new(elt),
+        generators,
+        parenthesized: false,
+    })
+}
+
+pub(crate) fn single_stmt(mut stmts: Vec<Stmt>) -> Stmt {
+    if stmts.len() == 1 {
+        stmts.pop().unwrap()
+    } else {
+        Stmt::If(ast::StmtIf {
+            node_index: ast::AtomicNodeIndex::default(),
+            range: TextRange::default(),
+            test: Box::new(ast::Expr::BooleanLiteral(ast::ExprBooleanLiteral {
+                node_index: ast::AtomicNodeIndex::default(),
+                range: TextRange::default(),
+                value: true,
+            })),
+            body: stmts,
+            elif_else_clauses: Vec::new(),
+        })
+    }
+}
 pub(crate) enum PlaceholderKind {
     Expr,
     Stmt,
@@ -256,7 +302,7 @@ impl Transformer for SyntaxTemplate {
                                     *stmt = Stmt::If(ast::StmtIf {
                                         node_index: ast::AtomicNodeIndex::default(),
                                         range: TextRange::default(),
-                                        test: Box::new(crate::py_expr!("True")),
+                                        test: Box::new(py_expr!("True")),
                                         body: value,
                                         elif_else_clauses: Vec::new(),
                                     });

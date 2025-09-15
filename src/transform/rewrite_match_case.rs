@@ -4,7 +4,7 @@ use ruff_python_ast::{self as ast, Expr, Pattern, Stmt};
 use ruff_python_parser::parse_expression;
 use ruff_text_size::TextRange;
 
-use crate::py_stmt;
+use crate::{py_expr, py_stmt};
 
 enum PatternTest {
     Test { expr: Expr, assigns: Vec<Stmt> },
@@ -32,7 +32,7 @@ fn test_for_pattern(pattern: &Pattern, subject: Expr) -> PatternTest {
     use PatternTest::*;
     match pattern {
         Pattern::MatchValue(PatternMatchValue { value, .. }) => Test {
-            expr: crate::py_expr!(
+            expr: py_expr!(
                 "{subject:expr} == {value:expr}",
                 subject = subject,
                 value = *value.clone()
@@ -41,12 +41,12 @@ fn test_for_pattern(pattern: &Pattern, subject: Expr) -> PatternTest {
         },
         Pattern::MatchSingleton(PatternMatchSingleton { value, .. }) => {
             let singleton_expr = match value {
-                Singleton::None => crate::py_expr!("None"),
-                Singleton::True => crate::py_expr!("True"),
-                Singleton::False => crate::py_expr!("False"),
+                Singleton::None => py_expr!("None"),
+                Singleton::True => py_expr!("True"),
+                Singleton::False => py_expr!("False"),
             };
             Test {
-                expr: crate::py_expr!(
+                expr: py_expr!(
                     "{subject:expr} is {value:expr}",
                     subject = subject,
                     value = singleton_expr
@@ -69,7 +69,7 @@ fn test_for_pattern(pattern: &Pattern, subject: Expr) -> PatternTest {
             }
         }
         Pattern::MatchClass(PatternMatchClass { cls, arguments, .. }) => {
-            let mut tests = vec![crate::py_expr!(
+            let mut tests = vec![py_expr!(
                 "isinstance({subject:expr}, {cls:expr})",
                 subject = subject.clone(),
                 cls = *cls.clone()
@@ -98,17 +98,17 @@ fn test_for_pattern(pattern: &Pattern, subject: Expr) -> PatternTest {
                     .expect("parse error")
                     .into_syntax()
                     .body;
-                let attr_name = crate::py_expr!(
+                let attr_name = py_expr!(
                     "{cls:expr}.__match_args__[{idx:expr}]",
                     cls = *cls.clone(),
                     idx = idx_expr
                 );
-                let attr_exists = crate::py_expr!(
+                let attr_exists = py_expr!(
                     "hasattr({subject:expr}, {name:expr})",
                     subject = subject.clone(),
                     name = attr_name.clone()
                 );
-                let attr_value = crate::py_expr!(
+                let attr_value = py_expr!(
                     "getattr({subject:expr}, {name:expr})",
                     subject = subject.clone(),
                     name = attr_name
@@ -117,12 +117,12 @@ fn test_for_pattern(pattern: &Pattern, subject: Expr) -> PatternTest {
             }
 
             for kw in &arguments.keywords {
-                let attr_exists = crate::py_expr!(
+                let attr_exists = py_expr!(
                     "hasattr({subject:expr}, {name:literal})",
                     subject = subject.clone(),
                     name = kw.attr.as_str()
                 );
-                let attr_value = crate::py_expr!(
+                let attr_value = py_expr!(
                     "getattr({subject:expr}, {name:literal})",
                     subject = subject.clone(),
                     name = kw.attr.as_str()
@@ -146,7 +146,7 @@ fn test_for_pattern(pattern: &Pattern, subject: Expr) -> PatternTest {
             name: Some(name),
             ..
         }) => {
-            let assign = crate::py_stmt!(
+            let assign = py_stmt!(
                 "{name:id} = {subject:expr}",
                 name = name.as_str(),
                 subject = subject.clone(),
@@ -184,15 +184,15 @@ pub fn rewrite(ast::StmtMatch { subject, cases, .. }: ast::StmtMatch, count: &Ce
     let id = count.get() + 1;
     count.set(id);
     let subject_name = format!("_dp_match_{}", id);
-    let tmp_expr = crate::py_expr!("{name:id}", name = subject_name.as_str());
+    let tmp_expr = py_expr!("{name:id}", name = subject_name.as_str());
 
-    let assign = crate::py_stmt!(
+    let assign = py_stmt!(
         "{name:id} = {value:expr}",
         name = subject_name.as_str(),
         value = *subject.clone(),
     );
 
-    let mut chain = crate::py_stmt!("pass");
+    let mut chain = py_stmt!("pass");
     for case in cases.into_iter().rev() {
         let ast::MatchCase {
             pattern,
@@ -207,7 +207,7 @@ pub fn rewrite(ast::StmtMatch { subject, cases, .. }: ast::StmtMatch, count: &Ce
                 block.extend(body);
                 if let Some(g) = guard {
                     let test = *g;
-                    chain = crate::py_stmt!(
+                    chain = py_stmt!(
                         "
 if {test:expr}:
     {body:stmt}
@@ -218,7 +218,7 @@ else:
                         next = chain,
                     );
                 } else {
-                    chain = crate::py_stmt!("{body:stmt}", body = block);
+                    chain = py_stmt!("{body:stmt}", body = block);
                 }
             }
             Test {
@@ -228,13 +228,10 @@ else:
                 let mut block = assigns;
                 block.extend(body);
                 if let Some(g) = guard {
-                    test_expr = crate::py_expr!(
-                        "{test:expr} and {guard:expr}",
-                        test = test_expr,
-                        guard = *g,
-                    );
+                    test_expr =
+                        py_expr!("{test:expr} and {guard:expr}", test = test_expr, guard = *g,);
                 }
-                chain = crate::py_stmt!(
+                chain = py_stmt!(
                     "
 if {test:expr}:
     {body:stmt}
@@ -248,7 +245,7 @@ else:
         }
     }
 
-    crate::py_stmt!(
+    py_stmt!(
         "
 {assign:stmt}
 {chain:stmt}",

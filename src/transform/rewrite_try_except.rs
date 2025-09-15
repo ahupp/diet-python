@@ -19,7 +19,7 @@ pub fn rewrite(
     count.set(id);
     let exc_name = format!("_dp_exc_{}", id);
 
-    let exc_assign = crate::py_stmt!(
+    let exc_assign = py_stmt!(
         "{exc:id} = __dp__.current_exception()",
         exc = exc_name.as_str(),
     );
@@ -34,7 +34,7 @@ pub fn rewrite(
         }) = handler;
         let mut body_stmts = body;
         if let Some(name) = name {
-            let assign = crate::py_stmt!(
+            let assign = py_stmt!(
                 "{name:id} = {exc:id}",
                 name = name.id.as_str(),
                 exc = exc_name.as_str(),
@@ -45,10 +45,10 @@ pub fn rewrite(
     }
 
     let mut new_body = vec![exc_assign];
-    let mut chain: Vec<Stmt> = vec![crate::py_stmt!("raise")];
+    let mut chain: Vec<Stmt> = vec![py_stmt!("raise")];
     for (type_, body) in processed.into_iter().rev() {
         chain = if let Some(t) = type_ {
-            vec![crate::py_stmt!(
+            vec![py_stmt!(
                 r#"
 if __dp__.isinstance({exc:id}, {typ:expr}):
   {body:stmt}
@@ -66,7 +66,7 @@ else:
     }
     new_body.extend(chain);
 
-    crate::py_stmt!(
+    py_stmt!(
         r#"
 try:
     {body:stmt}

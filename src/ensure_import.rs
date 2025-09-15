@@ -1,7 +1,9 @@
 use ruff_python_ast::{self as ast, Expr, Stmt};
 
-pub fn ensure_import(module: &mut ast::ModModule, name: &str) {
-    let import = crate::py_stmt!("\nimport {name:id}", name = name);
+use crate::py_stmt;
+
+pub fn ensure_import(module: &mut ast::ModModule) {
+    let import = py_stmt!("import __dp__");
     let mut insert_at = 0;
     if let Some(Stmt::Expr(ast::StmtExpr { value, .. })) = module.body.get(0) {
         if matches!(**value, Expr::StringLiteral(_)) {

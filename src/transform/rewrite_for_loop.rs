@@ -2,6 +2,8 @@ use std::cell::Cell;
 
 use ruff_python_ast::{self as ast, Stmt};
 
+use crate::{py_expr, py_stmt};
+
 pub fn rewrite(
     ast::StmtFor {
         target,
@@ -19,23 +21,23 @@ pub fn rewrite(
 
     let (iter_fn, next_fn, stop_exc, await_) = if is_async {
         (
-            crate::py_expr!("__dp__.aiter"),
-            crate::py_expr!("__dp__.anext"),
+            py_expr!("__dp__.aiter"),
+            py_expr!("__dp__.anext"),
             "StopAsyncIteration",
             "await ",
         )
     } else {
         (
-            crate::py_expr!("__dp__.iter"),
-            crate::py_expr!("__dp__.next"),
+            py_expr!("__dp__.iter"),
+            py_expr!("__dp__.next"),
             "StopIteration",
             "",
         )
     };
 
-    orelse.push(crate::py_stmt!("break"));
+    orelse.push(py_stmt!("break"));
 
-    crate::py_stmt!(
+    py_stmt!(
         r#"
 {iter_name:id} = {iter_fn:expr}({iter:expr})
 while True:

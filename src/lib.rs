@@ -71,7 +71,7 @@ pub fn transform_str_to_ruff_with_options(
         let _ = min_ast::Module::from(module.clone());
     }
     if options.inject_import {
-        ensure_import::ensure_import(&mut module, "__dp__");
+        ensure_import::ensure_import(&mut module);
     }
     Ok(module)
 }

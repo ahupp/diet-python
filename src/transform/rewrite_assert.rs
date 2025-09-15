@@ -1,9 +1,11 @@
 use ruff_python_ast::{self as ast, Stmt};
 
+use crate::py_stmt;
+
 pub fn rewrite(ast::StmtAssert { test, msg, .. }: ast::StmtAssert) -> Stmt {
     let test_expr = *test;
     if let Some(msg_expr) = msg {
-        crate::py_stmt!(
+        py_stmt!(
             "
 if __debug__:
     if not {test:expr}:
@@ -13,7 +15,7 @@ if __debug__:
             msg = *msg_expr
         )
     } else {
-        crate::py_stmt!(
+        py_stmt!(
             "
 if __debug__:
     if not {test:expr}:

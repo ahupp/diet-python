@@ -1,3 +1,5 @@
+use crate::py_stmt;
+
 use super::{ImportStarHandling, Options};
 use ruff_python_ast::{self as ast, Stmt};
 
@@ -10,14 +12,14 @@ pub fn rewrite(ast::StmtImport { names, .. }: ast::StmtImport) -> Stmt {
             .as_ref()
             .map(|n| n.id.as_str())
             .unwrap_or_else(|| module_name.split('.').next().unwrap());
-        let assign = crate::py_stmt!(
+        let assign = py_stmt!(
             "{name:id} = __dp__.import_({module:literal}, __spec__)",
             name = binding,
             module = module_name.as_str(),
         );
         stmts.push(assign);
     }
-    crate::py_stmt!("{body:stmt}", body = stmts)
+    py_stmt!("{body:stmt}", body = stmts)
 }
 
 pub fn rewrite_from(
@@ -33,7 +35,7 @@ pub fn rewrite_from(
         return match options.import_star_handling {
             ImportStarHandling::Allowed => None,
             ImportStarHandling::Error => panic!("import star not allowed"),
-            ImportStarHandling::Strip => Some(crate::py_stmt!("{body:stmt}", body = Vec::new())),
+            ImportStarHandling::Strip => Some(py_stmt!("{body:stmt}", body = Vec::new())),
         };
     }
     let module_name = module.as_ref().map(|n| n.id.as_str()).unwrap_or("");
@@ -43,7 +45,7 @@ pub fn rewrite_from(
         let orig = alias.name.id.as_str();
         let binding = alias.asname.as_ref().map(|n| n.id.as_str()).unwrap_or(orig);
         let assign = if level_val == 0 {
-            crate::py_stmt!(
+            py_stmt!(
                 "{name:id} = __dp__.import_({module:literal}, __spec__, [{orig:literal}]).{attr:id}",
                 name = binding,
                 module = module_name,
@@ -51,7 +53,7 @@ pub fn rewrite_from(
                 attr = orig,
             )
         } else {
-            crate::py_stmt!(
+            py_stmt!(
                 "{name:id} = __dp__.import_({module:literal}, __spec__, [{orig:literal}], {level:id}).{attr:id}",
                 name = binding,
                 module = module_name,
@@ -62,7 +64,7 @@ pub fn rewrite_from(
         };
         stmts.push(assign);
     }
-    Some(crate::py_stmt!("{body:stmt}", body = stmts))
+    Some(py_stmt!("{body:stmt}", body = stmts))
 }
 
 #[cfg(test)]

@@ -1,6 +1,8 @@
 use ruff_python_ast::visitor::transformer::{walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 
+use crate::py_expr;
+
 pub struct TruthyRewriter;
 
 impl TruthyRewriter {
@@ -10,7 +12,7 @@ impl TruthyRewriter {
 
     fn wrap_test(&self, test: &mut Expr) {
         let original = test.clone();
-        *test = crate::py_expr!(
+        *test = py_expr!(
             "
 __dp__.truth({expr:expr})
 ",

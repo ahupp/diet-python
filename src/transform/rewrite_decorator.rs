@@ -2,6 +2,8 @@ use std::cell::Cell;
 
 use ruff_python_ast::{self as ast, Stmt};
 
+use crate::{py_expr, py_stmt};
+
 /// Rewrite decorated functions and classes into explicit decorator applications.
 pub fn rewrite(
     decorators: Vec<ast::Decorator>,
@@ -20,7 +22,7 @@ pub fn rewrite(
             let id = count.get() + 1;
             count.set(id);
             let tmp = format!("_dp_dec_{}", id);
-            let assign = crate::py_stmt!(
+            let assign = py_stmt!(
                 "{name:id} = {decorator:expr}",
                 name = tmp.as_str(),
                 decorator = decorator.expression,
@@ -31,23 +33,23 @@ pub fn rewrite(
     }
 
     let mut call_expr = if let Some(base_name) = base {
-        crate::py_expr!("{name:id}", name = base_name)
+        py_expr!("{name:id}", name = base_name)
     } else {
-        crate::py_expr!("{name:id}", name = name)
+        py_expr!("{name:id}", name = name)
     };
     for decorator in names.iter().rev() {
-        call_expr = crate::py_expr!(
+        call_expr = py_expr!(
             "{decorator:id}({expr:expr})",
             decorator = decorator.as_str(),
             expr = call_expr,
         );
     }
-    let call_stmt = crate::py_stmt!("{name:id} = {expr:expr}", name = name, expr = call_expr);
+    let call_stmt = py_stmt!("{name:id} = {expr:expr}", name = name, expr = call_expr);
 
     let mut body = assigns;
     body.push(item);
     body.push(call_stmt);
-    crate::py_stmt!("{body:stmt}", body = body)
+    py_stmt!("{body:stmt}", body = body)
 }
 
 #[cfg(test)]
