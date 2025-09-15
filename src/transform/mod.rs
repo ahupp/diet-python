@@ -23,6 +23,7 @@ pub struct Options {
     pub import_star_handling: ImportStarHandling,
     pub inject_import: bool,
     pub lower_attributes: bool,
+    pub truthy: bool,
 }
 
 impl Default for Options {
@@ -31,6 +32,7 @@ impl Default for Options {
             import_star_handling: ImportStarHandling::Strip,
             inject_import: true,
             lower_attributes: true,
+            truthy: false,
         }
     }
 }
@@ -41,6 +43,7 @@ impl Options {
             import_star_handling: ImportStarHandling::Error,
             inject_import: false,
             lower_attributes: false,
+            truthy: false,
         }
     }
 }

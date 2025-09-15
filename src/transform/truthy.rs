@@ -11,6 +11,9 @@ impl TruthyRewriter {
     }
 
     fn wrap_test(&self, test: &mut Expr) {
+        if is_truth_call(test) {
+            return;
+        }
         let original = test.clone();
         *test = py_expr!(
             "
@@ -46,9 +49,26 @@ impl Transformer for TruthyRewriter {
     }
 }
 
+fn is_truth_call(expr: &Expr) -> bool {
+    match expr {
+        Expr::Call(ast::ExprCall {
+            func, arguments, ..
+        }) if arguments.args.len() == 1 && arguments.keywords.is_empty() => match func.as_ref() {
+            Expr::Attribute(ast::ExprAttribute { value, attr, .. }) if attr.as_str() == "truth" => {
+                matches!(
+                    value.as_ref(),
+                    Expr::Name(ast::ExprName { id, .. }) if id.as_str() == "__dp__"
+                )
+            }
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::test_util::{assert_transform_eq_ex, TransformPhase};
+    use crate::test_util::assert_transform_eq_truthy;
 
     #[test]
     fn rewrites_if_condition() {
@@ -64,7 +84,7 @@ if __dp__.truth(a):
 else:
     pass
 "#;
-        assert_transform_eq_ex(input, expected, TransformPhase::Full);
+        assert_transform_eq_truthy(input, expected);
     }
 
     #[test]
@@ -85,7 +105,7 @@ elif __dp__.truth(b):
 else:
     pass
 "#;
-        assert_transform_eq_ex(input, expected, TransformPhase::Full);
+        assert_transform_eq_truthy(input, expected);
     }
 
     #[test]
@@ -98,6 +118,6 @@ while a:
 while __dp__.truth(a):
     pass
 "#;
-        assert_transform_eq_ex(input, expected, TransformPhase::Full);
+        assert_transform_eq_truthy(input, expected);
     }
 }

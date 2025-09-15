@@ -122,7 +122,6 @@ b = _dp_enter_1(_dp_ctx_1)
 try:
     c
 except:
-    _dp_exc_1 = __dp__.current_exception()
     if __dp__.not_(_dp_exit_1(_dp_ctx_1, *__dp__.exc_info())):
         raise
 else:
@@ -150,13 +149,11 @@ try:
     try:
         e
     except:
-        _dp_exc_2 = __dp__.current_exception()
         if __dp__.not_(_dp_exit_2(_dp_ctx_2, *__dp__.exc_info())):
             raise
     else:
         _dp_exit_2(_dp_ctx_2, None, None, None)
 except:
-    _dp_exc_1 = __dp__.current_exception()
     if __dp__.not_(_dp_exit_1(_dp_ctx_1, *__dp__.exc_info())):
         raise
 else:
@@ -181,7 +178,6 @@ async def f():
     try:
         c
     except:
-        _dp_exc_1 = __dp__.current_exception()
         if __dp__.not_(await _dp_exit_1(_dp_ctx_1, *__dp__.exc_info())):
             raise
     else:
