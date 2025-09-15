@@ -261,6 +261,19 @@ impl Transformer for SyntaxTemplate {
                                         elif_else_clauses: Vec::new(),
                                     });
                                 }
+                                Some(PlaceholderValue::Expr(value)) => {
+                                    *stmt = Stmt::If(ast::StmtIf {
+                                        node_index: ast::AtomicNodeIndex::default(),
+                                        range: TextRange::default(),
+                                        test: Box::new(crate::py_expr!("True")),
+                                        body: vec![Stmt::Expr(ast::StmtExpr {
+                                            node_index: ast::AtomicNodeIndex::default(),
+                                            range: TextRange::default(),
+                                            value,
+                                        })],
+                                        elif_else_clauses: Vec::new(),
+                                    });
+                                }
                                 _ => panic!("expected stmt for placeholder {name}"),
                             }
                         }
@@ -453,6 +466,26 @@ b = 2
                 "
 a = 1
 b = 2
+",
+            )],
+        );
+    }
+
+    #[test]
+    fn wraps_expr_in_stmt() {
+        let expr = *parse_expression("a + 1").unwrap().into_syntax().body;
+        let mut actual = vec![py_stmt!(
+            "
+{expr:stmt}
+",
+            expr = expr,
+        )];
+        crate::template::flatten(&mut actual);
+        assert_ast_eq(
+            &actual,
+            &[py_stmt!(
+                "
+a + 1
 ",
             )],
         );
