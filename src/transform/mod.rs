@@ -1,7 +1,4 @@
 pub(crate) mod expr;
-pub(crate) mod lower;
-pub(crate) mod unnest_expr;
-pub(crate) mod unnest;
 pub(crate) mod rewrite_assert;
 pub(crate) mod rewrite_class_def;
 pub(crate) mod rewrite_decorator;
@@ -12,6 +9,7 @@ pub(crate) mod rewrite_string;
 pub(crate) mod rewrite_try_except;
 pub(crate) mod rewrite_with;
 pub(crate) mod truthy;
+pub(crate) mod unnest;
 
 #[derive(Clone, Copy)]
 pub enum ImportStarHandling {
