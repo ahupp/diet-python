@@ -3,7 +3,8 @@
 This repository includes a small Rust utility for transforming Python source
 code. It parses a file with Ruff's parser and rewrites binary operations and
 augmented assignments (e.g., `+=`) into calls to the corresponding functions in
-the standard library's `operator` module.
+the standard library's `operator` module. The transformation is idempotent, so
+re-running it on already rewritten code leaves the output unchanged.
 
 Run it with:
 

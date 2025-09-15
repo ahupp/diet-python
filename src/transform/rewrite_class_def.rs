@@ -126,7 +126,7 @@ pub fn rewrite(
                 rewrite_method(&mut func_def, &class_name);
                 let fn_name = func_def.name.id.to_string();
 
-                    let mk_func = py_stmt!(
+                let mk_func = py_stmt!(
                     r#"
 def _dp_mk_{fn_name:id}():
     {fn_def:stmt}
