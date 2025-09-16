@@ -1,12 +1,11 @@
 use std::cell::RefCell;
 
 use super::{
-    context::Context, rewrite_assert, rewrite_class_def, rewrite_decorator, rewrite_for_loop,
-    rewrite_import, rewrite_match_case, rewrite_string, rewrite_try_except, rewrite_with, Options,
+    context::Context, rewrite_assert, rewrite_class_def, rewrite_decorator, rewrite_expr_to_stmt,
+    rewrite_for_loop, rewrite_import, rewrite_match_case, rewrite_string, rewrite_try_except,
+    rewrite_with, Options,
 };
-use crate::template::{
-    is_simple, make_binop, make_generator, make_tuple, make_unaryop, single_stmt,
-};
+use crate::template::{make_binop, make_generator, make_tuple, make_unaryop, single_stmt};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::name::Name;
 use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
@@ -25,22 +24,6 @@ impl<'a> ExprRewriter<'a> {
             options: ctx.options,
             ctx,
             scopes: RefCell::new(Vec::new()),
-        }
-    }
-
-    fn tempify(&self, expr: &mut Expr, stmts: &mut Vec<Stmt>) -> Expr {
-        if !is_simple(expr) {
-            let tmp = self.ctx.fresh("tmp");
-            let value = expr.clone();
-            let assign = py_stmt!(
-                "\n{tmp:id} = {expr:expr}\n",
-                tmp = tmp.as_str(),
-                expr = value,
-            );
-            stmts.push(assign);
-            py_expr!("{tmp:id}\n", tmp = tmp.as_str())
-        } else {
-            expr.clone()
         }
     }
 
@@ -400,24 +383,6 @@ def {func:id}():
                         orelse = orelse_expr,
                     )
                 }
-                Expr::BoolOp(ast::ExprBoolOp { op, mut values, .. }) => {
-                    let mut result = values.pop().expect("boolop with no values");
-                    while let Some(value) = values.pop() {
-                        result = match op {
-                            ast::BoolOp::Or => py_expr!(
-                                "__dp__.or_expr({left:expr}, lambda: {right:expr})",
-                                left = value,
-                                right = result,
-                            ),
-                            ast::BoolOp::And => py_expr!(
-                                "__dp__.and_expr({left:expr}, lambda: {right:expr})",
-                                left = value,
-                                right = result,
-                            ),
-                        };
-                    }
-                    result
-                }
                 Expr::BinOp(ast::ExprBinOp {
                     left, right, op, ..
                 }) => {
@@ -489,6 +454,17 @@ def {func:id}():
     }
 
     fn visit_stmt(&self, stmt: &mut Stmt) {
+        match rewrite_expr_to_stmt::expr_to_stmt(self.ctx, stmt.clone()) {
+            rewrite_expr_to_stmt::Modified::Yes(new_stmt) => {
+                *stmt = new_stmt;
+                self.visit_stmt(stmt);
+                return;
+            }
+            rewrite_expr_to_stmt::Modified::No(original) => {
+                drop(original);
+            }
+        }
+
         if matches!(stmt, Stmt::FunctionDef(_)) {
             if let Stmt::FunctionDef(ast::StmtFunctionDef {
                 decorator_list,
@@ -836,9 +812,9 @@ getattr(__dp__, "pos")(a)
 a or b
 "#,
                 r#"
-def _dp_lambda_1():
-    return b
-getattr(__dp__, "or_expr")(a, _dp_lambda_1)
+_ = a
+if getattr(__dp__, "not_")(_):
+    _ = b
 "#,
             ),
             (
@@ -846,9 +822,9 @@ getattr(__dp__, "or_expr")(a, _dp_lambda_1)
 a and b
 "#,
                 r#"
-def _dp_lambda_1():
-    return b
-getattr(__dp__, "and_expr")(a, _dp_lambda_1)
+_ = a
+if _:
+    _ = b
 "#,
             ),
             (
@@ -856,9 +832,9 @@ getattr(__dp__, "and_expr")(a, _dp_lambda_1)
 f() or a
 "#,
                 r#"
-def _dp_lambda_1():
-    return a
-getattr(__dp__, "or_expr")(f(), _dp_lambda_1)
+_ = f()
+if getattr(__dp__, "not_")(_):
+    _ = a
 "#,
             ),
             (
@@ -866,9 +842,9 @@ getattr(__dp__, "or_expr")(f(), _dp_lambda_1)
 f() and a
 "#,
                 r#"
-def _dp_lambda_1():
-    return a
-getattr(__dp__, "and_expr")(f(), _dp_lambda_1)
+_ = f()
+if _:
+    _ = a
 "#,
             ),
         ];
@@ -889,13 +865,13 @@ a or b or c
         assert_eq!(
             output.trim(),
             r#"
-def _dp_lambda_2():
-    return c
-def _dp_lambda_1():
-    return getattr(__dp__, "or_expr")(b, _dp_lambda_2)
-getattr(__dp__, "or_expr")(a, _dp_lambda_1)
+_ = a
+if getattr(__dp__, "not_")(_):
+    _ = b
+if getattr(__dp__, "not_")(_):
+    _ = c
 "#
-            .trim(),
+            .trim()
         );
 
         let output = rewrite_source(
@@ -906,11 +882,44 @@ a and b and c
         assert_eq!(
             output.trim(),
             r#"
-def _dp_lambda_2():
-    return c
-def _dp_lambda_1():
-    return getattr(__dp__, "and_expr")(b, _dp_lambda_2)
-getattr(__dp__, "and_expr")(a, _dp_lambda_1)
+_ = a
+if _:
+    _ = b
+if _:
+    _ = c
+"#
+            .trim()
+        );
+    }
+
+    #[test]
+    fn rewrites_bool_assignments() {
+        let output = rewrite_source(
+            r#"
+x = a and b
+"#,
+        );
+        assert_eq!(
+            output.trim(),
+            r#"
+x = a
+if x:
+    x = b
+"#
+            .trim(),
+        );
+
+        let output = rewrite_source(
+            r#"
+x = a or b
+"#,
+        );
+        assert_eq!(
+            output.trim(),
+            r#"
+x = a
+if getattr(__dp__, "not_")(x):
+    x = b
 "#
             .trim(),
         );

@@ -112,14 +112,6 @@ def if_expr(cond, body, orelse):
     return body() if cond_val else orelse()
 
 
-def or_expr(left, right):
-    return left if truth(left) else right()
-
-
-def and_expr(left, right):
-    return right() if truth(left) else left
-
-
 # Tags as ints for yield from state machine
 RUNNING = 0
 RETURN = 1
