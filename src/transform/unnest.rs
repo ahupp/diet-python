@@ -7,7 +7,7 @@ use std::cell::RefCell;
 use ruff_python_ast::visitor::transformer::walk_expr;
 use ruff_python_ast::Expr;
 
-use crate::template::is_simple;
+use crate::template::{is_simple, single_stmt};
 use crate::{py_expr, py_stmt};
 
 pub struct UnnestExprTransformer<'a> {
@@ -53,26 +53,28 @@ impl<'a> UnnestTransformer<'a> {
     pub fn new(ctx: &'a Context) -> Self {
         Self { ctx }
     }
+}
 
-    pub fn visit_stmts(&self, body: &mut Vec<Stmt>) {
-        let mut result = Vec::new();
-        for mut stmt in std::mem::take(body) {
-            let transformer = UnnestExprTransformer::new(self.ctx);
-            walk_stmt(&transformer, &mut stmt);
-            walk_stmt(self, &mut stmt);
-            let mut stmts = transformer.stmts.take();
-            result.append(&mut stmts);
-            result.push(stmt);
+impl<'a> Transformer for UnnestTransformer<'a> {
+    fn visit_stmt(&self, stmt: &mut Stmt) {
+        let transformer = UnnestExprTransformer::new(self.ctx);
+        walk_stmt(&transformer, stmt);
+        walk_stmt(self, stmt);
+        let mut stmts = transformer.stmts.take();
+        if stmts.is_empty() {
+            return;
         }
-        *body = result;
+        // Package the hoisted temporaries alongside the rewritten statement so
+        // parents only see a single statement to replace.
+        stmts.push(stmt.clone());
+        *stmt = single_stmt(stmts);
     }
 }
 
-impl<'a> Transformer for UnnestTransformer<'a> {}
-
 pub fn unnest_stmts(ctx: &Context, mut stmts: Vec<Stmt>) -> Vec<Stmt> {
     let transformer = UnnestTransformer::new(ctx);
-    transformer.visit_stmts(&mut stmts);
+    transformer.visit_body(&mut stmts);
+    crate::template::flatten(&mut stmts);
     stmts
 }
 
