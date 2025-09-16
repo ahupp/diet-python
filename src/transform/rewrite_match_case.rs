@@ -289,10 +289,8 @@ match x:
         b()
 "#;
         let expected = r#"
-def _dp_lambda_2():
-    return cond
 _dp_match_1 = x
-if __dp__.and_expr(__dp__.eq(_dp_match_1, 1), _dp_lambda_2):
+if __dp__.eq(_dp_match_1, 1) and cond:
     a()
 else:
     b()
@@ -310,10 +308,8 @@ match x:
         b()
 "#;
         let expected = r#"
-def _dp_lambda_2():
-    return __dp__.eq(_dp_match_1, 2)
 _dp_match_1 = x
-if __dp__.or_expr(__dp__.eq(_dp_match_1, 1), _dp_lambda_2):
+if __dp__.eq(_dp_match_1, 1) or __dp__.eq(_dp_match_1, 2):
     a()
 else:
     b()
@@ -390,14 +386,8 @@ match x:
         c()
 "#;
         let expected = r#"
-def _dp_lambda_4():
-    return hasattr(_dp_match_1, __dp__.getitem(C.__match_args__, 1))
-def _dp_lambda_3():
-    return __dp__.and_expr(__dp__.eq(getattr(_dp_match_1, __dp__.getitem(C.__match_args__, 0)), 1), _dp_lambda_4)
-def _dp_lambda_2():
-    return __dp__.and_expr(hasattr(_dp_match_1, __dp__.getitem(C.__match_args__, 0)), _dp_lambda_3)
 _dp_match_1 = x
-if __dp__.and_expr(isinstance(_dp_match_1, C), _dp_lambda_2):
+if isinstance(_dp_match_1, C) and hasattr(_dp_match_1, __dp__.getitem(C.__match_args__, 0)) and __dp__.eq(getattr(_dp_match_1, __dp__.getitem(C.__match_args__, 0)), 1) and hasattr(_dp_match_1, __dp__.getitem(C.__match_args__, 1)):
     b = getattr(_dp_match_1, __dp__.getitem(C.__match_args__, 1))
     a()
 else:
