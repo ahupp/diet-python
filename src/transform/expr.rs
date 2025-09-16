@@ -42,6 +42,19 @@ __dp__.truth({expr:expr})
         );
     }
 
+    fn lower_lambdas_generators(&self, stmt: &mut Stmt) -> bool {
+        let lowerer = rewrite_expr_to_stmt::LambdaGeneratorLowerer::new(self.ctx);
+        lowerer.rewrite(stmt);
+        let mut lowered_functions = lowerer.into_statements();
+        if lowered_functions.is_empty() {
+            false
+        } else {
+            lowered_functions.push(stmt.clone());
+            *stmt = single_stmt(lowered_functions);
+            true
+        }
+    }
+
     fn rewrite_target(&self, target: Expr, value: Expr, out: &mut Vec<Stmt>) {
         match target {
             Expr::Tuple(tuple) => {
@@ -332,12 +345,7 @@ impl<'a> Transformer for ExprRewriter<'a> {
     }
 
     fn visit_stmt(&self, stmt: &mut Stmt) {
-        let lowerer = rewrite_expr_to_stmt::LambdaGeneratorLowerer::new(self.ctx);
-        lowerer.rewrite(stmt);
-        let mut lowered_functions = lowerer.into_statements();
-        if !lowered_functions.is_empty() {
-            lowered_functions.push(stmt.clone());
-            *stmt = single_stmt(lowered_functions);
+        if self.lower_lambdas_generators(stmt) {
             self.visit_stmt(stmt);
             return;
         }
@@ -379,7 +387,8 @@ impl<'a> Transformer for ExprRewriter<'a> {
             return;
         }
 
-        *stmt = match stmt {
+        let current = stmt.clone();
+        *stmt = match current {
             Stmt::With(with) => rewrite_with::rewrite(with.clone(), self.ctx),
             Stmt::Assert(assert) => rewrite_assert::rewrite(assert.clone()),
             Stmt::ClassDef(class_def) => {
@@ -540,6 +549,11 @@ impl<'a> Transformer for ExprRewriter<'a> {
                 }
                 _ => {}
             }
+        }
+
+        if self.lower_lambdas_generators(stmt) {
+            self.visit_stmt(stmt);
+            return;
         }
 
         match rewrite_expr_to_stmt::expr_to_stmt(self.ctx, stmt.clone()) {

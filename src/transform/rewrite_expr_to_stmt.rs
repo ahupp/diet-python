@@ -212,12 +212,10 @@ fn target_expr(target: &str) -> Expr {
     py_expr!("\n{target:id}", target = target,)
 }
 
-fn rewrite_assign(ctx: &Context, mut assign: ast::StmtAssign) -> Modified {
-    let value_expr = *assign.value;
-
+fn rewrite_assign(_ctx: &Context, assign: ast::StmtAssign) -> Modified {
     if assign.targets.len() == 1 {
         if let Some(Expr::Name(ast::ExprName { id, .. })) = assign.targets.first() {
-            if let Expr::BoolOp(bool_op) = &value_expr {
+            if let Expr::BoolOp(bool_op) = assign.value.as_ref() {
                 let target_name = id.to_string();
                 let bool_op = bool_op.clone();
                 let new_stmt = single_stmt(expr_boolop_to_stmts(&target_name, bool_op));
@@ -226,62 +224,16 @@ fn rewrite_assign(ctx: &Context, mut assign: ast::StmtAssign) -> Modified {
         }
     }
 
-    let mut value_expr = value_expr;
-    let mut lowered_functions = match value_expr.clone() {
-        Expr::Lambda(lambda) => {
-            let lowerer = LambdaGeneratorLowerer::new(ctx);
-            lowerer.lower_lambda(&mut value_expr, lambda);
-            lowerer.into_statements()
-        }
-        Expr::Generator(generator) => {
-            let lowerer = LambdaGeneratorLowerer::new(ctx);
-            lowerer.lower_generator(&mut value_expr, generator);
-            lowerer.into_statements()
-        }
-        _ => Vec::new(),
-    };
-
-    assign.value = Box::new(value_expr);
-
-    if !lowered_functions.is_empty() {
-        lowered_functions.push(Stmt::Assign(assign));
-        Modified::Yes(single_stmt(lowered_functions))
-    } else {
-        rewrite_with_functions(ctx, Stmt::Assign(assign))
-    }
+    Modified::No(Stmt::Assign(assign))
 }
 
-fn rewrite_expr_stmt(ctx: &Context, mut expr_stmt: ast::StmtExpr) -> Modified {
-    let value_expr = *expr_stmt.value;
-
-    if let Expr::BoolOp(bool_op) = &value_expr {
+fn rewrite_expr_stmt(_ctx: &Context, expr_stmt: ast::StmtExpr) -> Modified {
+    if let Expr::BoolOp(bool_op) = expr_stmt.value.as_ref() {
         let new_stmt = single_stmt(expr_boolop_to_stmts("_", bool_op.clone()));
         return Modified::Yes(new_stmt);
     }
 
-    let mut value_expr = value_expr;
-    let mut lowered_functions = match value_expr.clone() {
-        Expr::Lambda(lambda) => {
-            let lowerer = LambdaGeneratorLowerer::new(ctx);
-            lowerer.lower_lambda(&mut value_expr, lambda);
-            lowerer.into_statements()
-        }
-        Expr::Generator(generator) => {
-            let lowerer = LambdaGeneratorLowerer::new(ctx);
-            lowerer.lower_generator(&mut value_expr, generator);
-            lowerer.into_statements()
-        }
-        _ => Vec::new(),
-    };
-
-    expr_stmt.value = Box::new(value_expr);
-
-    if !lowered_functions.is_empty() {
-        lowered_functions.push(Stmt::Expr(expr_stmt));
-        Modified::Yes(single_stmt(lowered_functions))
-    } else {
-        rewrite_with_functions(ctx, Stmt::Expr(expr_stmt))
-    }
+    Modified::No(Stmt::Expr(expr_stmt))
 }
 
 fn rewrite_with_functions(ctx: &Context, mut stmt: Stmt) -> Modified {
@@ -338,24 +290,24 @@ if _:
     }
 
     #[test]
-    fn rewrites_lambda_assignment() {
-        let input = "x = lambda: 1";
-        let expected = r#"
-def _dp_lambda_1():
-    return 1
-x = _dp_lambda_1
-"#;
-
-        assert_transform_eq(input, expected);
-    }
-
-    #[test]
     fn rewrites_lambda_in_return_stmt() {
         let input = "return lambda: 1";
         let expected = r#"
 def _dp_lambda_1():
     return 1
 return _dp_lambda_1
+"#;
+
+        assert_transform_eq(input, expected);
+    }
+
+    #[test]
+    fn rewrites_lambda_assignment() {
+        let input = "x = lambda: 1";
+        let expected = r#"
+def _dp_lambda_1():
+    return 1
+x = _dp_lambda_1
 "#;
 
         assert_transform_eq(input, expected);
