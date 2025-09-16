@@ -332,6 +332,16 @@ impl<'a> Transformer for ExprRewriter<'a> {
     }
 
     fn visit_stmt(&self, stmt: &mut Stmt) {
+        let lowerer = rewrite_expr_to_stmt::LambdaGeneratorLowerer::new(self.ctx);
+        lowerer.rewrite(stmt);
+        let mut lowered_functions = lowerer.into_statements();
+        if !lowered_functions.is_empty() {
+            lowered_functions.push(stmt.clone());
+            *stmt = single_stmt(lowered_functions);
+            self.visit_stmt(stmt);
+            return;
+        }
+
         match rewrite_expr_to_stmt::expr_to_stmt(self.ctx, stmt.clone()) {
             rewrite_expr_to_stmt::Modified::Yes(new_stmt) => {
                 *stmt = new_stmt;

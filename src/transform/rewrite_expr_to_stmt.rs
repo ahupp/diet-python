@@ -22,21 +22,25 @@ pub(crate) fn expr_to_stmt(ctx: &Context, stmt: Stmt) -> Modified {
     }
 }
 
-struct LambdaGeneratorLowerer<'ctx> {
+pub(crate) struct LambdaGeneratorLowerer<'ctx> {
     ctx: &'ctx Context,
     functions: RefCell<Vec<Stmt>>,
 }
 
 impl<'ctx> LambdaGeneratorLowerer<'ctx> {
-    fn new(ctx: &'ctx Context) -> Self {
+    pub(crate) fn new(ctx: &'ctx Context) -> Self {
         Self {
             ctx,
             functions: RefCell::new(Vec::new()),
         }
     }
 
-    fn into_statements(self) -> Vec<Stmt> {
+    pub(crate) fn into_statements(self) -> Vec<Stmt> {
         self.functions.into_inner()
+    }
+
+    pub(crate) fn rewrite(&self, stmt: &mut Stmt) {
+        walk_stmt(self, stmt);
     }
 
     fn lower_lambda(&self, expr: &mut Expr, lambda: ast::ExprLambda) {
@@ -58,21 +62,19 @@ impl<'ctx> LambdaGeneratorLowerer<'ctx> {
                 kwarg: None,
             });
 
-        let mut func_def = py_stmt!(
+        let func_def = py_stmt!(
             "\ndef {func:id}():\n    return {body:expr}",
             func = func_name.as_str(),
             body = *body,
         );
 
-        if let Stmt::FunctionDef(ast::StmtFunctionDef {
-            parameters: params, ..
-        }) = &mut func_def
-        {
-            *params = Box::new(parameters);
-        }
-
-        self.visit_stmt(&mut func_def);
-        self.functions.borrow_mut().push(func_def);
+        self.functions.borrow_mut().push(match func_def {
+            Stmt::FunctionDef(mut function_def) => {
+                function_def.parameters = Box::new(parameters);
+                Stmt::FunctionDef(function_def)
+            }
+            other => other,
+        });
 
         *expr = py_expr!("\n{func:id}", func = func_name.as_str());
     }
@@ -128,14 +130,13 @@ impl<'ctx> LambdaGeneratorLowerer<'ctx> {
             *iter = Box::new(py_expr!("\n{name:id}", name = param_name.as_str()));
         }
 
-        let mut func_def = py_stmt!(
+        let func_def = py_stmt!(
             "\ndef {func:id}({param:id}):\n    {body:stmt}",
             func = func_name.as_str(),
             param = param_name.as_str(),
             body = body,
         );
 
-        self.visit_stmt(&mut func_def);
         self.functions.borrow_mut().push(func_def);
 
         *expr = py_expr!(
@@ -163,8 +164,9 @@ impl<'ctx> Transformer for LambdaGeneratorLowerer<'ctx> {
         walk_expr(self, expr);
     }
 
-    fn visit_stmt(&self, stmt: &mut Stmt) {
-        walk_stmt(self, stmt);
+    fn visit_stmt(&self, _: &mut Stmt) {
+        // Only visit expressions referenced directly by this statement; callers
+        // are responsible for rewriting any nested statements themselves.
     }
 }
 
@@ -295,7 +297,7 @@ fn rewrite_with_functions(ctx: &Context, mut stmt: Stmt) -> Modified {
 
 fn lower_lambdas_generators(ctx: &Context, stmt: &mut Stmt) -> Vec<Stmt> {
     let lowerer = LambdaGeneratorLowerer::new(ctx);
-    lowerer.visit_stmt(stmt);
+    lowerer.rewrite(stmt);
     lowerer.into_statements()
 }
 
