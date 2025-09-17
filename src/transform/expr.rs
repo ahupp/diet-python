@@ -443,15 +443,13 @@ impl<'a> Transformer for ExprRewriter<'a> {
                 }
             }
             Stmt::AnnAssign(ann_assign) => {
-                let target = (*ann_assign.target).clone();
-                let value = ann_assign
-                    .value
-                    .clone()
-                    .map(|v| *v)
-                    .unwrap_or_else(|| py_expr!("None"));
-                let mut stmts = Vec::new();
-                self.rewrite_target(target, value, &mut stmts);
-                single_stmt(stmts)
+                if let Some(value) = ann_assign.value.clone().map(|v| *v) {
+                    let mut stmts = Vec::new();
+                    self.rewrite_target((*ann_assign.target).clone(), value, &mut stmts);
+                    single_stmt(stmts)
+                } else {
+                    py_stmt!("{body:stmt}", body = Vec::new())
+                }
             }
             Stmt::Assign(assign) => {
                 let value = (*assign.value).clone();
@@ -636,6 +634,13 @@ x = __dp__.iadd(x, 2)
     fn rewrites_ann_assign() {
         let input = "x: int = 1";
         let expected = "x = 1";
+        assert_transform_eq(input, expected);
+    }
+
+    #[test]
+    fn removes_ann_assign_without_value() {
+        let input = "x: int";
+        let expected = "";
         assert_transform_eq(input, expected);
     }
 
