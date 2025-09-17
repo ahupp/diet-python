@@ -32,16 +32,17 @@ async function run() {
   const outputEditor = CodeMirror.fromTextArea(output, { lineNumbers: true, mode: 'python', readOnly: true });
   inputEditor.setSize(null, '100%');
   outputEditor.setSize(null, '100%');
-  available_transforms().forEach(name => {
-    const label = document.createElement('label');
+  available_transforms().forEach(transform => {
+    const { id, label: transformLabel, defaultEnabled } = transform;
+    const wrapper = document.createElement('label');
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
-    checkbox.value = name;
-    checkbox.checked = true;
+    checkbox.value = id;
+    checkbox.checked = defaultEnabled;
     checkbox.addEventListener('change', update);
-    label.appendChild(checkbox);
-    label.appendChild(document.createTextNode(name));
-    controls.appendChild(label);
+    wrapper.appendChild(checkbox);
+    wrapper.appendChild(document.createTextNode(transformLabel));
+    controls.appendChild(wrapper);
   });
   function update() {
     const selected = Array.from(controls.querySelectorAll('input:checked')).map(cb => cb.value);
