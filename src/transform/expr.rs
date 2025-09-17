@@ -191,11 +191,7 @@ list({slice:expr})",
 }
 
 fn make_tuple_splat(tuple: ast::ExprTuple) -> Expr {
-    if !tuple
-        .elts
-        .iter()
-        .any(|elt| matches!(elt, Expr::Starred(_)))
-    {
+    if !tuple.elts.iter().any(|elt| matches!(elt, Expr::Starred(_))) {
         return Expr::Tuple(tuple);
     }
 
