@@ -1,76 +1,9 @@
 use super::context::Context;
-use ruff_python_ast::visitor::transformer::{walk_stmt, Transformer};
+use super::rewrite_complex_expr::UnnestTransformer;
+use ruff_python_ast::visitor::transformer::Transformer;
 use ruff_python_ast::Stmt;
 
-use std::cell::RefCell;
-
-use ruff_python_ast::visitor::transformer::walk_expr;
-use ruff_python_ast::Expr;
-
-use crate::template::{is_simple, single_stmt};
-use crate::{py_expr, py_stmt};
-
-pub struct UnnestExprTransformer<'a> {
-    pub ctx: &'a Context,
-    pub stmts: RefCell<Vec<Stmt>>,
-}
-
-impl<'a> UnnestExprTransformer<'a> {
-    pub fn new(ctx: &'a Context) -> Self {
-        Self {
-            ctx,
-            stmts: RefCell::new(Vec::new()),
-        }
-    }
-}
-
-impl<'a> Transformer for UnnestExprTransformer<'a> {
-    fn visit_stmt(&self, _stmt: &mut Stmt) {
-        // Do not recurse into nested statements
-    }
-
-    fn visit_expr(&self, expr: &mut Expr) {
-        walk_expr(self, expr);
-        if !is_simple(expr) {
-            let tmp = self.ctx.fresh("tmp");
-            let value = expr.clone();
-            let assign = py_stmt!(
-                "\n{tmp:id} = {expr:expr}\n",
-                tmp = tmp.as_str(),
-                expr = value,
-            );
-            self.stmts.borrow_mut().push(assign);
-            *expr = py_expr!("{tmp:id}\n", tmp = tmp.as_str());
-        }
-    }
-}
-
-pub struct UnnestTransformer<'a> {
-    pub ctx: &'a Context,
-}
-
-impl<'a> UnnestTransformer<'a> {
-    pub fn new(ctx: &'a Context) -> Self {
-        Self { ctx }
-    }
-}
-
-impl<'a> Transformer for UnnestTransformer<'a> {
-    fn visit_stmt(&self, stmt: &mut Stmt) {
-        let transformer = UnnestExprTransformer::new(self.ctx);
-        walk_stmt(&transformer, stmt);
-        walk_stmt(self, stmt);
-        let mut stmts = transformer.stmts.take();
-        if stmts.is_empty() {
-            return;
-        }
-        // Package the hoisted temporaries alongside the rewritten statement so
-        // parents only see a single statement to replace.
-        stmts.push(stmt.clone());
-        *stmt = single_stmt(stmts);
-    }
-}
-
+#[allow(dead_code)]
 pub fn unnest_stmts(ctx: &Context, mut stmts: Vec<Stmt>) -> Vec<Stmt> {
     let transformer = UnnestTransformer::new(ctx);
     transformer.visit_body(&mut stmts);

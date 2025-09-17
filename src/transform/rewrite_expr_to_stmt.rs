@@ -170,7 +170,7 @@ impl<'ctx> Transformer for LambdaGeneratorLowerer<'ctx> {
     }
 }
 
-fn expr_boolop_to_stmts(target: &str, bool_op: ast::ExprBoolOp) -> Vec<Stmt> {
+pub(crate) fn expr_boolop_to_stmts(target: &str, bool_op: ast::ExprBoolOp) -> Vec<Stmt> {
     let ast::ExprBoolOp { op, values, .. } = bool_op;
 
     let mut values = values.into_iter();
