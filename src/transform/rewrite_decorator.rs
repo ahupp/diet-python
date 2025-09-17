@@ -53,10 +53,11 @@ def foo():
     pass
 "#;
         let expected = r#"
-_dp_dec_1 = dec2(5)
+def _dp_dec_apply_1(_dp_the_func):
+    return dec2(5)(dec1(_dp_the_func))
 def foo():
     pass
-foo = _dp_dec_1(dec1(foo))
+foo = _dp_dec_apply_1(foo)
 "#;
         assert_transform_eq(input, expected);
     }
@@ -69,6 +70,8 @@ class C:
     pass
 "#;
         let expected = r#"
+def _dp_dec_apply_5(_dp_the_func):
+    return dec(_dp_the_func)
 def _dp_ns_C(_ns):
     _dp_temp_ns = dict(())
     _dp_tmp_1 = __name__
@@ -89,7 +92,7 @@ def _dp_make_class_C():
 _dp_tmp_4 = _dp_make_class_C()
 C = _dp_tmp_4
 _dp_class_C = _dp_tmp_4
-C = dec(_dp_class_C)
+_dp_class_C = _dp_dec_apply_5(_dp_class_C)
 "#;
         assert_transform_eq(input, expected);
     }
@@ -103,7 +106,8 @@ class C:
     pass
 "#;
         let expected = r#"
-_dp_dec_5 = dec2(5)
+def _dp_dec_apply_5(_dp_the_func):
+    return dec2(5)(dec1(_dp_the_func))
 def _dp_ns_C(_ns):
     _dp_temp_ns = dict(())
     _dp_tmp_1 = __name__
@@ -124,7 +128,7 @@ def _dp_make_class_C():
 _dp_tmp_4 = _dp_make_class_C()
 C = _dp_tmp_4
 _dp_class_C = _dp_tmp_4
-C = _dp_dec_5(dec1(_dp_class_C))
+_dp_class_C = _dp_dec_apply_5(_dp_class_C)
 "#;
         assert_transform_eq(input, expected);
     }

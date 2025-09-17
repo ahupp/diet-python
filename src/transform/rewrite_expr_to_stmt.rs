@@ -364,14 +364,15 @@ def _dp_gen_1(items):
     _dp_iter_2 = __dp__.iter(items)
     while True:
         try:
-            i = __dp__.next(_dp_iter_2)
+            i = __dp__.anext(_dp_iter_2)
         except:
-            _dp_exc_3 = __dp__.current_exception()
-            if __dp__.isinstance(_dp_exc_3, StopIteration):
+            if __dp__.isinstance(__dp__.current_exception(), StopIteration):
+                _ = __dp__.current_exception()
                 break
             else:
                 raise
-        yield i
+        else:
+            yield i
 x = _dp_gen_1(__dp__.iter(items))
 "#;
 

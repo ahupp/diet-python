@@ -80,17 +80,16 @@ with a as b:
     c
 "#;
         let expected = r#"
-_dp_ctx_1 = a
-_dp_enter_2 = type(_dp_ctx_1).__enter__
-_dp_exit_3 = type(_dp_ctx_1).__exit__
-b = _dp_enter_2(_dp_ctx_1)
+_dp_with_state_1 = __dp__.with_enter(a)
+_dp_tmp_2 = with_state
+b = __dp__.getitem(_dp_tmp_2, 0)
+_ = __dp__.getitem(_dp_tmp_2, 1)
 try:
     c
 except:
-    if __dp__.not_(_dp_exit_3(_dp_ctx_1, *__dp__.exc_info())):
-        raise
+    __dp__.with_exit(with_state, __dp__.exc_info())
 else:
-    _dp_exit_3(_dp_ctx_1, None, None, None)
+    __dp__.with_exit(with_state, None)
 "#;
         assert_transform_eq(input, expected);
     }
@@ -102,27 +101,25 @@ with a as b, c as d:
     e
 "#;
         let expected = r#"
-_dp_ctx_1 = a
-_dp_enter_2 = type(_dp_ctx_1).__enter__
-_dp_exit_3 = type(_dp_ctx_1).__exit__
-b = _dp_enter_2(_dp_ctx_1)
+_dp_with_state_2 = __dp__.with_enter(a)
+_dp_tmp_3 = with_state
+b = __dp__.getitem(_dp_tmp_3, 0)
+_ = __dp__.getitem(_dp_tmp_3, 1)
 try:
-    _dp_ctx_4 = c
-    _dp_enter_5 = type(_dp_ctx_4).__enter__
-    _dp_exit_6 = type(_dp_ctx_4).__exit__
-    d = _dp_enter_5(_dp_ctx_4)
+    _dp_with_state_1 = __dp__.with_enter(c)
+    _dp_tmp_4 = with_state
+    d = __dp__.getitem(_dp_tmp_4, 0)
+    _ = __dp__.getitem(_dp_tmp_4, 1)
     try:
         e
     except:
-        if __dp__.not_(_dp_exit_6(_dp_ctx_4, *__dp__.exc_info())):
-            raise
+        __dp__.with_exit(with_state, __dp__.exc_info())
     else:
-        _dp_exit_6(_dp_ctx_4, None, None, None)
+        __dp__.with_exit(with_state, None)
 except:
-    if __dp__.not_(_dp_exit_3(_dp_ctx_1, *__dp__.exc_info())):
-        raise
+    __dp__.with_exit(with_state, __dp__.exc_info())
 else:
-    _dp_exit_3(_dp_ctx_1, None, None, None)
+    __dp__.with_exit(with_state, None)
 "#;
         assert_transform_eq(input, expected);
     }
@@ -136,17 +133,16 @@ async def f():
 "#;
         let expected = r#"
 async def f():
-    _dp_ctx_1 = a
-    _dp_enter_2 = type(_dp_ctx_1).__aenter__
-    _dp_exit_3 = type(_dp_ctx_1).__aexit__
-    b = await _dp_enter_2(_dp_ctx_1)
+    _dp_awith_state_1 = __dp__.with_aenter(a)
+    _dp_tmp_2 = awith_state
+    b = __dp__.getitem(_dp_tmp_2, 0)
+    _ = __dp__.getitem(_dp_tmp_2, 1)
     try:
         c
     except:
-        if __dp__.not_(await _dp_exit_3(_dp_ctx_1, *__dp__.exc_info())):
-            raise
+        await __dp__.with_aexit(awith_state, __dp__.exc_info())
     else:
-        await _dp_exit_3(_dp_ctx_1, None, None, None)
+        await __dp__.with_aexit(awith_state, None)
 "#;
         assert_transform_eq(input, expected);
     }
