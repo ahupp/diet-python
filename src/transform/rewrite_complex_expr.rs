@@ -36,6 +36,24 @@ impl<'a> Transformer for UnnestExprTransformer<'a> {
                     self.stmts.borrow_mut().extend(stmts);
                     *expr = py_expr!("{tmp:id}", tmp = tmp.as_str());
                 }
+                Expr::Named(named_expr) => {
+                    let tmp = self.ctx.fresh("tmp");
+                    let ast::ExprNamed { target, value, .. } = named_expr.clone();
+                    let assign_tmp = py_stmt!(
+                        "\n{tmp:id} = {value:expr}\n",
+                        tmp = tmp.as_str(),
+                        value = *value,
+                    );
+                    let assign_target = py_stmt!(
+                        "\n{target:expr} = {tmp:id}\n",
+                        target = *target,
+                        tmp = tmp.as_str(),
+                    );
+                    let mut stmts = self.stmts.borrow_mut();
+                    stmts.push(assign_tmp);
+                    stmts.push(assign_target);
+                    *expr = py_expr!("{tmp:id}", tmp = tmp.as_str());
+                }
                 Expr::If(if_expr) => {
                     let tmp = self.ctx.fresh("tmp");
                     let ast::ExprIf {
@@ -197,6 +215,25 @@ while True:
         _dp_yield_from_state_1 = __dp__.yield_from_next(_dp_yield_from_state_1, _dp_yield_from_sent_2)
 _dp_tmp_3 = __dp__.getitem(_dp_yield_from_state_1, 1)
 x = _dp_tmp_3
+"#;
+        assert_transform_eq(input, expected);
+    }
+
+    #[test]
+    fn rewrites_named_expression_in_boolop() {
+        let input = r#"
+if (y := foo()) and bar:
+    pass
+"#;
+        let expected = r#"
+_dp_tmp_1 = foo()
+_dp_tmp_2 = _dp_tmp_1
+y = _dp_tmp_2
+_dp_tmp_3 = _dp_tmp_2
+if _dp_tmp_3:
+    _dp_tmp_3 = bar
+if _dp_tmp_3:
+    pass
 "#;
         assert_transform_eq(input, expected);
     }
