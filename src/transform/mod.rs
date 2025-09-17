@@ -48,3 +48,62 @@ impl Options {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Options;
+    use crate::test_util::assert_transform_eq;
+    use crate::{ruff_ast_to_string, transform_str_to_ruff_with_options};
+
+    #[test]
+    fn strips_type_alias_statement() {
+        assert_transform_eq("type Alias = int", "");
+    }
+
+    #[test]
+    fn strips_type_aliases_in_if_branches() {
+        let input = r#"
+if True:
+    type Alias = int
+    x = 1
+elif False:
+    type Alias = str
+    y = 2
+else:
+    type Alias = bytes
+    z = 3
+"#;
+        let expected = r#"
+if True:
+    x = 1
+elif False:
+    y = 2
+else:
+    z = 3
+"#;
+        assert_transform_eq(input, expected);
+    }
+
+    #[test]
+    fn strips_type_alias_from_class_body() {
+        let input = r#"
+type Alias = int
+
+class Foo:
+    type Inner = str
+
+    def method(self):
+        return 1
+"#;
+        let alias_free = r#"
+type Alias = int
+
+class Foo:
+    def method(self):
+        return 1
+"#;
+        let module = transform_str_to_ruff_with_options(alias_free, Options::for_test()).unwrap();
+        let expected = ruff_ast_to_string(&module.body);
+        assert_transform_eq(input, expected.as_str());
+    }
+}
