@@ -190,6 +190,49 @@ list({slice:expr})",
     }
 }
 
+fn make_tuple_splat(tuple: ast::ExprTuple) -> Expr {
+    if !tuple
+        .elts
+        .iter()
+        .any(|elt| matches!(elt, Expr::Starred(_)))
+    {
+        return Expr::Tuple(tuple);
+    }
+
+    let ast::ExprTuple { elts, .. } = tuple;
+
+    let mut segments: Vec<Expr> = Vec::new();
+    let mut values: Vec<Expr> = Vec::new();
+
+    for elt in elts {
+        match elt {
+            Expr::Starred(ast::ExprStarred { value, .. }) => {
+                if !values.is_empty() {
+                    segments.push(make_tuple(std::mem::take(&mut values)));
+                }
+                segments.push(py_expr!("tuple({value:expr})", value = *value));
+            }
+            other => values.push(other),
+        }
+    }
+
+    if !values.is_empty() {
+        segments.push(make_tuple(values));
+    }
+
+    let mut parts = segments.into_iter();
+    let mut expr = match parts.next() {
+        Some(expr) => expr,
+        None => return make_tuple(Vec::new()),
+    };
+
+    for part in parts {
+        expr = py_expr!("{left:expr} + {right:expr}", left = expr, right = part);
+    }
+
+    expr
+}
+
 enum UnpackTargetKind {
     Tuple,
     List,
@@ -253,6 +296,9 @@ impl<'a> Transformer for ExprRewriter<'a> {
             Expr::NoneLiteral(_) => {
                 py_expr!("None")
             }
+            Expr::Tuple(tuple) if matches!(tuple.ctx, ast::ExprContext::Load) => {
+                make_tuple_splat(tuple)
+            }
             Expr::ListComp(ast::ExprListComp {
                 elt, generators, ..
             }) => py_expr!("list({expr:expr})", expr = make_generator(*elt, generators)),
@@ -271,10 +317,14 @@ impl<'a> Transformer for ExprRewriter<'a> {
                     expr = make_generator(tuple, generators)
                 )
             }
-            Expr::List(ast::ExprList { elts, ctx, .. })
-                if matches!(ctx, ast::ExprContext::Load) =>
-            {
-                let tuple = make_tuple(elts);
+            Expr::List(list) if matches!(list.ctx, ast::ExprContext::Load) => {
+                let tuple = make_tuple_splat(ast::ExprTuple {
+                    node_index: ast::AtomicNodeIndex::default(),
+                    range: TextRange::default(),
+                    elts: list.elts,
+                    ctx: ast::ExprContext::Load,
+                    parenthesized: false,
+                });
                 py_expr!("list({tuple:expr})", tuple = tuple,)
             }
             Expr::Set(ast::ExprSet { elts, .. }) => {
@@ -936,6 +986,20 @@ b = _dp_tmp_1
         let expected = r#"
 a = list((1, 2, 3))
 "#;
+        assert_transform_eq(input, expected);
+    }
+
+    #[test]
+    fn rewrites_tuple_literal_with_unpacking() {
+        let input = "a = (1, *b, 2)";
+        let expected = "a = __dp__.add(__dp__.add((1,), tuple(b)), (2,))";
+        assert_transform_eq(input, expected);
+    }
+
+    #[test]
+    fn rewrites_list_literal_with_unpacking() {
+        let input = "a = [1, *b, 2]";
+        let expected = "a = list(__dp__.add(__dp__.add((1,), tuple(b)), (2,)))";
         assert_transform_eq(input, expected);
     }
 
