@@ -4,3 +4,4 @@
   `let input = r#"\ndef foo():\n    return 1\n"#;`.
 - **MUST FOLLOW**: Use multi-line strings for Python templates and other test examples, beginning with a newline so the code starts on the second line, unless a single-line string is explicitly required by the previous rule.
 - **MUST FOLLOW**: Never add new variants to the minimal AST unless explicitly asked.
+- **MUST FOLLOW**: Always run `cargo test` and `pytest` before submitting changes.
