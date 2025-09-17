@@ -50,6 +50,21 @@ pub fn transform_to_string(source: &str, ensure: bool) -> Result<String, ParseEr
     Ok(ruff_ast_to_string(&module.body))
 }
 
+pub fn transform_to_string_without_attribute_lowering(
+    source: &str,
+    ensure: bool,
+) -> Result<String, ParseError> {
+    let module = transform_str_to_ruff_with_options(
+        source,
+        Options {
+            inject_import: ensure,
+            lower_attributes: false,
+            ..Options::default()
+        },
+    )?;
+    Ok(ruff_ast_to_string(&module.body))
+}
+
 pub fn transform_str_to_str_exec(source: &str) -> Result<String, ParseError> {
     if should_skip(source) {
         return Ok(source.to_string());

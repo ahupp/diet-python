@@ -13,4 +13,4 @@ def test_example_desugar_up_to_date():
         capture_output=True,
         text=True,
     )
-    assert 'getattr(__dp__, "setattr")' in result.stdout
+    assert '__dp__.setattr(' in result.stdout
