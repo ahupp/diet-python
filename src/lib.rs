@@ -1,5 +1,5 @@
 #[cfg(target_arch = "wasm32")]
-use js_sys::Array;
+use js_sys::{Array, Object, Reflect};
 use ruff_python_ast::{ModModule, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_python_parser::{parse_module, ParseError};
@@ -8,6 +8,44 @@ use ruff_source_file::LineEnding;
 use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsValue;
+
+#[cfg(target_arch = "wasm32")]
+#[derive(Clone, Copy)]
+enum TransformKind {
+    InjectImport,
+    LowerAttributes,
+    Truthy,
+}
+
+#[cfg(target_arch = "wasm32")]
+struct TransformToggle {
+    id: &'static str,
+    label: &'static str,
+    default_enabled: bool,
+    kind: TransformKind,
+}
+
+#[cfg(target_arch = "wasm32")]
+const TRANSFORM_TOGGLES: &[TransformToggle] = &[
+    TransformToggle {
+        id: "inject_import",
+        label: "Inject __dp__ import",
+        default_enabled: true,
+        kind: TransformKind::InjectImport,
+    },
+    TransformToggle {
+        id: "lower_attributes",
+        label: "Rewrite attribute access",
+        default_enabled: true,
+        kind: TransformKind::LowerAttributes,
+    },
+    TransformToggle {
+        id: "truthiness",
+        label: "Rewrite truthiness checks",
+        default_enabled: false,
+        kind: TransformKind::Truthy,
+    },
+];
 
 pub mod ensure_import;
 pub mod intrinsics;
@@ -39,15 +77,22 @@ fn apply_transforms(module: &mut ModModule, options: Options) {
 }
 
 /// Transform the source code and return the resulting string.
+fn transform_to_string_with_options(
+    source: &str,
+    options: Options,
+) -> Result<String, ParseError> {
+    let module = transform_str_to_ruff_with_options(source, options)?;
+    Ok(ruff_ast_to_string(&module.body))
+}
+
 pub fn transform_to_string(source: &str, ensure: bool) -> Result<String, ParseError> {
-    let module = transform_str_to_ruff_with_options(
+    transform_to_string_with_options(
         source,
         Options {
             inject_import: ensure,
             ..Options::default()
         },
-    )?;
-    Ok(ruff_ast_to_string(&module.body))
+    )
 }
 
 pub fn transform_str_to_str_exec(source: &str) -> Result<String, ParseError> {
@@ -100,17 +145,52 @@ pub fn transform(source: &str) -> Result<String, JsValue> {
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
-pub fn transform_selected(source: &str, _transforms: Array) -> Result<String, JsValue> {
-    transform_to_string(source, true).map_err(|e| e.to_string().into())
+pub fn transform_selected(source: &str, transforms: Array) -> Result<String, JsValue> {
+    let options = wasm_options_from_selected(&transforms);
+    transform_to_string_with_options(source, options).map_err(|e| e.to_string().into())
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn available_transforms() -> Array {
-    TRANSFORM_NAMES
+    let out = Array::new();
+    for transform in TRANSFORM_TOGGLES {
+        let obj = Object::new();
+        Reflect::set(&obj, &JsValue::from_str("id"), &JsValue::from_str(transform.id))
+            .expect("id property set");
+        Reflect::set(
+            &obj,
+            &JsValue::from_str("label"),
+            &JsValue::from_str(transform.label),
+        )
+        .expect("label property set");
+        Reflect::set(
+            &obj,
+            &JsValue::from_str("defaultEnabled"),
+            &JsValue::from_bool(transform.default_enabled),
+        )
+        .expect("defaultEnabled property set");
+        out.push(&obj.into());
+    }
+    out
+}
+
+#[cfg(target_arch = "wasm32")]
+fn wasm_options_from_selected(transforms: &Array) -> Options {
+    let selected: Vec<String> = transforms
         .iter()
-        .map(|&s| JsValue::from_str(s))
-        .collect()
+        .filter_map(|value| value.as_string())
+        .collect();
+    let mut options = Options::default();
+    for transform in TRANSFORM_TOGGLES {
+        let enabled = selected.iter().any(|name| name == transform.id);
+        match transform.kind {
+            TransformKind::InjectImport => options.inject_import = enabled,
+            TransformKind::LowerAttributes => options.lower_attributes = enabled,
+            TransformKind::Truthy => options.truthy = enabled,
+        }
+    }
+    options
 }
 
 #[cfg(test)]
