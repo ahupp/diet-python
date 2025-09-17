@@ -23,10 +23,18 @@ fn fold_exprs(exprs: Vec<Expr>, op: ast::BoolOp) -> Expr {
     }
 }
 
+fn integer_expr(value: usize) -> Expr {
+    *parse_expression(&value.to_string())
+        .expect("parse error")
+        .into_syntax()
+        .body
+}
+
 fn test_for_pattern(pattern: &Pattern, subject: Expr) -> PatternTest {
     use ast::{
-        PatternMatchAs, PatternMatchClass, PatternMatchOr, PatternMatchSingleton,
-        PatternMatchValue, Singleton,
+        PatternMatchAs, PatternMatchClass, PatternMatchMapping, PatternMatchOr,
+        PatternMatchSequence, PatternMatchSingleton, PatternMatchStar, PatternMatchValue,
+        Singleton,
     };
     use PatternTest::*;
     match pattern {
@@ -54,18 +62,275 @@ fn test_for_pattern(pattern: &Pattern, subject: Expr) -> PatternTest {
             }
         }
         Pattern::MatchOr(PatternMatchOr { patterns, .. }) => {
-            let mut tests = Vec::new();
+            let mut branches: Vec<(Expr, Vec<Stmt>)> = Vec::new();
             for p in patterns {
                 match test_for_pattern(p, subject.clone()) {
-                    Test { expr, assigns } if assigns.is_empty() => tests.push(expr),
-                    _ => panic!("Unsupported pattern: {:?}", pattern),
+                    Test { expr, assigns } => branches.push((expr, assigns)),
+                    Wildcard { assigns } => branches.push((py_expr!("True"), assigns)),
                 }
             }
+
+            let tests: Vec<Expr> = branches.iter().map(|(expr, _)| expr.clone()).collect();
+            let mut assigns = Vec::new();
+            if branches.iter().any(|(_, assigns)| !assigns.is_empty()) {
+                let mut chain = py_stmt!("pass");
+                for (expr, branch_assigns) in branches.iter().rev() {
+                    let block = branch_assigns.clone();
+                    chain = py_stmt!(
+                        "
+if {test:expr}:
+    {body:stmt}
+else:
+    {next:stmt}",
+                        test = expr.clone(),
+                        body = block,
+                        next = chain,
+                    );
+                }
+                assigns.push(chain);
+            }
+
             let test = fold_exprs(tests, ast::BoolOp::Or);
             Test {
                 expr: test,
-                assigns: vec![],
+                assigns,
             }
+        }
+        Pattern::MatchSequence(PatternMatchSequence { patterns, .. }) => {
+            let mut tests = vec![
+                py_expr!(
+                    "hasattr({subject:expr}, '__len__')",
+                    subject = subject.clone()
+                ),
+                py_expr!(
+                    "hasattr({subject:expr}, '__getitem__')",
+                    subject = subject.clone()
+                ),
+                py_expr!(
+                    "not isinstance({subject:expr}, (str, bytes, bytearray))",
+                    subject = subject.clone()
+                ),
+            ];
+            let mut assigns = Vec::new();
+            let len_expr = py_expr!("len({subject:expr})", subject = subject.clone());
+
+            if patterns.is_empty() {
+                tests.push(py_expr!(
+                    "{len:expr} == {count:expr}",
+                    len = len_expr.clone(),
+                    count = integer_expr(0)
+                ));
+            } else if let Some(star_index) = patterns
+                .iter()
+                .position(|pattern| matches!(pattern, Pattern::MatchStar(_)))
+            {
+                let before = star_index;
+                let after = patterns.len() - star_index - 1;
+                tests.push(py_expr!(
+                    "{len:expr} >= {count:expr}",
+                    len = len_expr.clone(),
+                    count = integer_expr(before + after)
+                ));
+
+                for (index, pattern) in patterns.iter().enumerate() {
+                    if index < star_index {
+                        let element = py_expr!(
+                            "{subject:expr}[{idx:expr}]",
+                            subject = subject.clone(),
+                            idx = integer_expr(index)
+                        );
+                        match test_for_pattern(pattern, element) {
+                            Test {
+                                expr,
+                                assigns: mut sub_assigns,
+                            } => {
+                                tests.push(expr);
+                                assigns.append(&mut sub_assigns);
+                            }
+                            Wildcard {
+                                assigns: mut sub_assigns,
+                            } => {
+                                assigns.append(&mut sub_assigns);
+                            }
+                        }
+                    } else if index == star_index {
+                        if let Pattern::MatchStar(PatternMatchStar {
+                            name: Some(name), ..
+                        }) = pattern
+                        {
+                            let start_expr = integer_expr(before);
+                            let end_expr = py_expr!(
+                                "{len:expr} - {offset:expr}",
+                                len = len_expr.clone(),
+                                offset = integer_expr(after)
+                            );
+                            let slice_expr = py_expr!(
+                                "{subject:expr}[{start:expr}:{end:expr}]",
+                                subject = subject.clone(),
+                                start = start_expr,
+                                end = end_expr
+                            );
+                            let list_expr = py_expr!("list({value:expr})", value = slice_expr);
+                            assigns.push(py_stmt!(
+                                "{name:id} = {value:expr}",
+                                name = name.as_str(),
+                                value = list_expr
+                            ));
+                        }
+                    } else {
+                        let distance = patterns.len() - index;
+                        let offset_expr = integer_expr(distance);
+                        let index_expr = py_expr!(
+                            "{len:expr} - {offset:expr}",
+                            len = len_expr.clone(),
+                            offset = offset_expr
+                        );
+                        let element = py_expr!(
+                            "{subject:expr}[{idx:expr}]",
+                            subject = subject.clone(),
+                            idx = index_expr
+                        );
+                        match test_for_pattern(pattern, element) {
+                            Test {
+                                expr,
+                                assigns: mut sub_assigns,
+                            } => {
+                                tests.push(expr);
+                                assigns.append(&mut sub_assigns);
+                            }
+                            Wildcard {
+                                assigns: mut sub_assigns,
+                            } => {
+                                assigns.append(&mut sub_assigns);
+                            }
+                        }
+                    }
+                }
+            } else {
+                tests.push(py_expr!(
+                    "{len:expr} == {count:expr}",
+                    len = len_expr.clone(),
+                    count = integer_expr(patterns.len())
+                ));
+                for (index, pattern) in patterns.iter().enumerate() {
+                    let element = py_expr!(
+                        "{subject:expr}[{idx:expr}]",
+                        subject = subject.clone(),
+                        idx = integer_expr(index)
+                    );
+                    match test_for_pattern(pattern, element) {
+                        Test {
+                            expr,
+                            assigns: mut sub_assigns,
+                        } => {
+                            tests.push(expr);
+                            assigns.append(&mut sub_assigns);
+                        }
+                        Wildcard {
+                            assigns: mut sub_assigns,
+                        } => {
+                            assigns.append(&mut sub_assigns);
+                        }
+                    }
+                }
+            }
+
+            let test = fold_exprs(tests, ast::BoolOp::And);
+            Test {
+                expr: test,
+                assigns,
+            }
+        }
+        Pattern::MatchMapping(PatternMatchMapping {
+            keys,
+            patterns,
+            rest,
+            ..
+        }) => {
+            let mut tests = vec![
+                py_expr!("hasattr({subject:expr}, 'keys')", subject = subject.clone()),
+                py_expr!(
+                    "hasattr({subject:expr}, '__getitem__')",
+                    subject = subject.clone()
+                ),
+            ];
+            let mut assigns = Vec::new();
+
+            for (key, pattern) in keys.iter().zip(patterns.iter()) {
+                let contains = py_expr!(
+                    "{key:expr} in {subject:expr}",
+                    key = key.clone(),
+                    subject = subject.clone()
+                );
+                tests.push(contains);
+                let value = py_expr!(
+                    "{subject:expr}[{key:expr}]",
+                    subject = subject.clone(),
+                    key = key.clone()
+                );
+                match test_for_pattern(pattern, value) {
+                    Test {
+                        expr,
+                        assigns: mut sub_assigns,
+                    } => {
+                        tests.push(expr);
+                        assigns.append(&mut sub_assigns);
+                    }
+                    Wildcard {
+                        assigns: mut sub_assigns,
+                    } => {
+                        assigns.append(&mut sub_assigns);
+                    }
+                }
+            }
+
+            if let Some(name) = rest {
+                assigns.push(py_stmt!(
+                    "{name:id} = dict({subject:expr})",
+                    name = name.as_str(),
+                    subject = subject.clone()
+                ));
+                for key in keys.iter() {
+                    assigns.push(py_stmt!(
+                        "{name:id}.pop({key:expr}, None)",
+                        name = name.as_str(),
+                        key = key.clone()
+                    ));
+                }
+            }
+
+            let test = fold_exprs(tests, ast::BoolOp::And);
+            Test {
+                expr: test,
+                assigns,
+            }
+        }
+        Pattern::MatchStar(PatternMatchStar { name, .. }) => {
+            let tests = vec![
+                py_expr!(
+                    "hasattr({subject:expr}, '__len__')",
+                    subject = subject.clone()
+                ),
+                py_expr!(
+                    "hasattr({subject:expr}, '__getitem__')",
+                    subject = subject.clone()
+                ),
+                py_expr!(
+                    "not isinstance({subject:expr}, (str, bytes, bytearray))",
+                    subject = subject.clone()
+                ),
+            ];
+            let expr = fold_exprs(tests, ast::BoolOp::And);
+            let mut assigns = Vec::new();
+            if let Some(name) = name {
+                let list_expr = py_expr!("list({subject:expr})", subject = subject.clone());
+                assigns.push(py_stmt!(
+                    "{name:id} = {value:expr}",
+                    name = name.as_str(),
+                    value = list_expr
+                ));
+            }
+            Test { expr, assigns }
         }
         Pattern::MatchClass(PatternMatchClass { cls, arguments, .. }) => {
             let mut tests = vec![py_expr!(
@@ -171,7 +436,6 @@ fn test_for_pattern(pattern: &Pattern, subject: Expr) -> PatternTest {
             name: None,
             ..
         }) => test_for_pattern(p, subject),
-        _ => panic!("Unsupported pattern: {:?}", pattern),
     }
 }
 
@@ -442,6 +706,233 @@ if _dp_tmp_13:
 else:
     _dp_tmp_18 = c()
     _dp_tmp_18
+"#;
+        assert_transform_eq(input, expected);
+    }
+
+    #[test]
+    fn rewrites_match_sequence_pattern() {
+        let input = r#"
+match x:
+    case [a, 2]:
+        a()
+    case _:
+        b()
+"#;
+        let expected = r#"
+_dp_match_1 = x
+_dp_tmp_2 = hasattr(_dp_match_1, '__len__')
+_dp_tmp_3 = hasattr(_dp_match_1, '__getitem__')
+_dp_tmp_4 = str, bytes, bytearray
+_dp_tmp_5 = isinstance(_dp_match_1, _dp_tmp_4)
+_dp_tmp_6 = __dp__.not_(_dp_tmp_5)
+_dp_tmp_7 = len(_dp_match_1)
+_dp_tmp_8 = __dp__.eq(_dp_tmp_7, 2)
+_dp_tmp_9 = __dp__.getitem(_dp_match_1, 1)
+_dp_tmp_10 = __dp__.eq(_dp_tmp_9, 2)
+_dp_tmp_11 = _dp_tmp_2
+if _dp_tmp_11:
+    _dp_tmp_11 = _dp_tmp_3
+if _dp_tmp_11:
+    _dp_tmp_11 = _dp_tmp_6
+if _dp_tmp_11:
+    _dp_tmp_11 = _dp_tmp_8
+if _dp_tmp_11:
+    _dp_tmp_11 = _dp_tmp_10
+if _dp_tmp_11:
+    _dp_tmp_12 = __dp__.getitem(_dp_match_1, 0)
+    a = _dp_tmp_12
+    _dp_tmp_13 = a()
+    _dp_tmp_13
+else:
+    _dp_tmp_14 = b()
+    _dp_tmp_14
+"#;
+        assert_transform_eq(input, expected);
+    }
+
+    #[test]
+    fn rewrites_match_sequence_with_star() {
+        let input = r#"
+match x:
+    case [first, *rest, last]:
+        a()
+    case _:
+        b()
+"#;
+        let expected = r#"
+_dp_match_1 = x
+_dp_tmp_2 = hasattr(_dp_match_1, '__len__')
+_dp_tmp_3 = hasattr(_dp_match_1, '__getitem__')
+_dp_tmp_4 = str, bytes, bytearray
+_dp_tmp_5 = isinstance(_dp_match_1, _dp_tmp_4)
+_dp_tmp_6 = __dp__.not_(_dp_tmp_5)
+_dp_tmp_7 = len(_dp_match_1)
+_dp_tmp_8 = __dp__.ge(_dp_tmp_7, 2)
+_dp_tmp_9 = _dp_tmp_2
+if _dp_tmp_9:
+    _dp_tmp_9 = _dp_tmp_3
+if _dp_tmp_9:
+    _dp_tmp_9 = _dp_tmp_6
+if _dp_tmp_9:
+    _dp_tmp_9 = _dp_tmp_8
+if _dp_tmp_9:
+    _dp_tmp_10 = __dp__.getitem(_dp_match_1, 0)
+    first = _dp_tmp_10
+    _dp_tmp_11 = len(_dp_match_1)
+    _dp_tmp_12 = __dp__.sub(_dp_tmp_11, 1)
+    _dp_tmp_13 = slice(1, _dp_tmp_12, None)
+    _dp_tmp_14 = __dp__.getitem(_dp_match_1, _dp_tmp_13)
+    _dp_tmp_15 = list(_dp_tmp_14)
+    rest = _dp_tmp_15
+    _dp_tmp_16 = len(_dp_match_1)
+    _dp_tmp_17 = __dp__.sub(_dp_tmp_16, 1)
+    _dp_tmp_18 = __dp__.getitem(_dp_match_1, _dp_tmp_17)
+    last = _dp_tmp_18
+    _dp_tmp_19 = a()
+    _dp_tmp_19
+else:
+    _dp_tmp_20 = b()
+    _dp_tmp_20
+"#;
+        assert_transform_eq(input, expected);
+    }
+
+    #[test]
+    fn rewrites_match_mapping_pattern() {
+        let input = r#"
+match x:
+    case {"a": a, "b": 2, **rest}:
+        a()
+    case _:
+        b()
+"#;
+        let expected = r#"
+_dp_match_1 = x
+_dp_tmp_2 = hasattr(_dp_match_1, 'keys')
+_dp_tmp_3 = hasattr(_dp_match_1, '__getitem__')
+_dp_tmp_4 = __dp__.contains(_dp_match_1, "a")
+_dp_tmp_5 = __dp__.contains(_dp_match_1, "b")
+_dp_tmp_6 = __dp__.getitem(_dp_match_1, "b")
+_dp_tmp_7 = __dp__.eq(_dp_tmp_6, 2)
+_dp_tmp_8 = _dp_tmp_2
+if _dp_tmp_8:
+    _dp_tmp_8 = _dp_tmp_3
+if _dp_tmp_8:
+    _dp_tmp_8 = _dp_tmp_4
+if _dp_tmp_8:
+    _dp_tmp_8 = _dp_tmp_5
+if _dp_tmp_8:
+    _dp_tmp_8 = _dp_tmp_7
+if _dp_tmp_8:
+    _dp_tmp_9 = __dp__.getitem(_dp_match_1, "a")
+    a = _dp_tmp_9
+    _dp_tmp_10 = dict(_dp_match_1)
+    rest = _dp_tmp_10
+    _dp_tmp_11 = rest.pop
+    _dp_tmp_12 = _dp_tmp_11("a", None)
+    _dp_tmp_12
+    _dp_tmp_13 = rest.pop
+    _dp_tmp_14 = _dp_tmp_13("b", None)
+    _dp_tmp_14
+    _dp_tmp_15 = a()
+    _dp_tmp_15
+else:
+    _dp_tmp_16 = b()
+    _dp_tmp_16
+"#;
+        assert_transform_eq(input, expected);
+    }
+
+    #[test]
+    fn rewrites_match_or_with_assignments() {
+        let input = r#"
+match x:
+    case (a, b) | [a, b]:
+        a()
+    case _:
+        b()
+"#;
+        let expected = r#"
+_dp_match_1 = x
+_dp_tmp_2 = hasattr(_dp_match_1, '__len__')
+_dp_tmp_3 = hasattr(_dp_match_1, '__getitem__')
+_dp_tmp_4 = str, bytes, bytearray
+_dp_tmp_5 = isinstance(_dp_match_1, _dp_tmp_4)
+_dp_tmp_6 = __dp__.not_(_dp_tmp_5)
+_dp_tmp_7 = len(_dp_match_1)
+_dp_tmp_8 = __dp__.eq(_dp_tmp_7, 2)
+_dp_tmp_9 = _dp_tmp_2
+if _dp_tmp_9:
+    _dp_tmp_9 = _dp_tmp_3
+if _dp_tmp_9:
+    _dp_tmp_9 = _dp_tmp_6
+if _dp_tmp_9:
+    _dp_tmp_9 = _dp_tmp_8
+_dp_tmp_10 = hasattr(_dp_match_1, '__len__')
+_dp_tmp_11 = hasattr(_dp_match_1, '__getitem__')
+_dp_tmp_12 = str, bytes, bytearray
+_dp_tmp_13 = isinstance(_dp_match_1, _dp_tmp_12)
+_dp_tmp_14 = __dp__.not_(_dp_tmp_13)
+_dp_tmp_15 = len(_dp_match_1)
+_dp_tmp_16 = __dp__.eq(_dp_tmp_15, 2)
+_dp_tmp_17 = _dp_tmp_10
+if _dp_tmp_17:
+    _dp_tmp_17 = _dp_tmp_11
+if _dp_tmp_17:
+    _dp_tmp_17 = _dp_tmp_14
+if _dp_tmp_17:
+    _dp_tmp_17 = _dp_tmp_16
+_dp_tmp_18 = _dp_tmp_9
+if __dp__.not_(_dp_tmp_18):
+    _dp_tmp_18 = _dp_tmp_17
+if _dp_tmp_18:
+    _dp_tmp_19 = hasattr(_dp_match_1, '__len__')
+    _dp_tmp_20 = hasattr(_dp_match_1, '__getitem__')
+    _dp_tmp_21 = str, bytes, bytearray
+    _dp_tmp_22 = isinstance(_dp_match_1, _dp_tmp_21)
+    _dp_tmp_23 = __dp__.not_(_dp_tmp_22)
+    _dp_tmp_24 = len(_dp_match_1)
+    _dp_tmp_25 = __dp__.eq(_dp_tmp_24, 2)
+    _dp_tmp_26 = _dp_tmp_19
+    if _dp_tmp_26:
+        _dp_tmp_26 = _dp_tmp_20
+    if _dp_tmp_26:
+        _dp_tmp_26 = _dp_tmp_23
+    if _dp_tmp_26:
+        _dp_tmp_26 = _dp_tmp_25
+    if _dp_tmp_26:
+        _dp_tmp_27 = __dp__.getitem(_dp_match_1, 0)
+        a = _dp_tmp_27
+        _dp_tmp_28 = __dp__.getitem(_dp_match_1, 1)
+        b = _dp_tmp_28
+    else:
+        _dp_tmp_29 = hasattr(_dp_match_1, '__len__')
+        _dp_tmp_30 = hasattr(_dp_match_1, '__getitem__')
+        _dp_tmp_31 = str, bytes, bytearray
+        _dp_tmp_32 = isinstance(_dp_match_1, _dp_tmp_31)
+        _dp_tmp_33 = __dp__.not_(_dp_tmp_32)
+        _dp_tmp_34 = len(_dp_match_1)
+        _dp_tmp_35 = __dp__.eq(_dp_tmp_34, 2)
+        _dp_tmp_36 = _dp_tmp_29
+        if _dp_tmp_36:
+            _dp_tmp_36 = _dp_tmp_30
+        if _dp_tmp_36:
+            _dp_tmp_36 = _dp_tmp_33
+        if _dp_tmp_36:
+            _dp_tmp_36 = _dp_tmp_35
+        if _dp_tmp_36:
+            _dp_tmp_37 = __dp__.getitem(_dp_match_1, 0)
+            a = _dp_tmp_37
+            _dp_tmp_38 = __dp__.getitem(_dp_match_1, 1)
+            b = _dp_tmp_38
+        else:
+            pass
+    _dp_tmp_39 = a()
+    _dp_tmp_39
+else:
+    _dp_tmp_40 = b()
+    _dp_tmp_40
 "#;
         assert_transform_eq(input, expected);
     }
