@@ -528,124 +528,55 @@ fn is_truth_call(expr: &Expr) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::test_util::assert_transform_eq_truthy;
-    use crate::transform::Options;
-    use ruff_python_codegen::{Generator, Stylist};
-    use ruff_python_parser::parse_module;
-
-    fn rewrite_source(source: &str) -> String {
-        let parsed = parse_module(source).expect("parse error");
-        let tokens = parsed.tokens().clone();
-        let mut module = parsed.into_syntax();
-
-        let ctx = Context::new(Options::default());
-        let expr_transformer = ExprRewriter::new(&ctx);
-        expr_transformer.rewrite_body(&mut module.body);
-
-        crate::template::flatten(&mut module.body);
-
-        let stylist = Stylist::from_tokens(&tokens, source);
-        let mut output = String::new();
-        for stmt in &module.body {
-            let snippet = Generator::from(&stylist).stmt(stmt);
-            output.push_str(&snippet);
-            output.push_str(stylist.line_ending().as_str());
-        }
-        output
-    }
+    use crate::test_util::{assert_transform_eq, assert_transform_eq_truthy};
 
     #[test]
     fn rewrites_binary_ops() {
-        let cases = [
-            (r#"a + b"#, r#"getattr(__dp__, "add")(a, b)"#),
-            (r#"a - b"#, r#"getattr(__dp__, "sub")(a, b)"#),
-        ];
+        let cases = [("a + b", "__dp__.add(a, b)"), ("a - b", "__dp__.sub(a, b)")];
 
         for (input, expected) in cases {
-            let output = rewrite_source(input);
-            assert_eq!(output.trim_end(), expected);
+            assert_transform_eq(input, expected);
         }
     }
 
     #[test]
     fn rewrites_aug_assign() {
-        let input = "
+        let input = r#"
 x = 1
 x += 2
-";
+"#;
         let expected = r#"
 x = 1
-x = getattr(__dp__, "iadd")(x, 2)
+x = __dp__.iadd(x, 2)
 "#;
-        let output = rewrite_source(input);
-        assert_eq!(output.trim(), expected.trim());
+        assert_transform_eq(input, expected);
     }
 
     #[test]
     fn rewrites_attribute_aug_assign() {
-        let input = "
-a.b += c
-";
-        let expected = r#"
-getattr(__dp__, "setattr")(a, "b", getattr(__dp__, "iadd")(getattr(a, "b"), c))
-"#;
-        let output = rewrite_source(input);
-        assert_eq!(output.trim(), expected.trim());
+        let input = "a.b += c";
+        let expected = "__dp__.setattr(a, \"b\", __dp__.iadd(a.b, c))";
+        assert_transform_eq(input, expected);
     }
 
     #[test]
     fn rewrites_ann_assign() {
-        let input = "
-x: int = 1
-";
-        let expected = "
-x = 1
-";
-        let output = rewrite_source(input);
-        assert_eq!(output.trim(), expected.trim());
+        let input = "x: int = 1";
+        let expected = "x = 1";
+        assert_transform_eq(input, expected);
     }
 
     #[test]
     fn rewrites_unary_ops() {
         let cases = [
-            (
-                r#"
--a
-"#,
-                r#"
-getattr(__dp__, "neg")(a)
-"#,
-            ),
-            (
-                r#"
-~b
-"#,
-                r#"
-getattr(__dp__, "invert")(b)
-"#,
-            ),
-            (
-                r#"
-not c
-"#,
-                r#"
-getattr(__dp__, "not_")(c)
-"#,
-            ),
-            (
-                r#"
-+a
-"#,
-                r#"
-getattr(__dp__, "pos")(a)
-"#,
-            ),
+            ("-a", "__dp__.neg(a)"),
+            ("~b", "__dp__.invert(b)"),
+            ("not c", "__dp__.not_(c)"),
+            ("+a", "__dp__.pos(a)"),
         ];
 
         for (input, expected) in cases {
-            let output = rewrite_source(input);
-            assert_eq!(output.trim(), expected.trim());
+            assert_transform_eq(input, expected);
         }
     }
 
@@ -653,20 +584,16 @@ getattr(__dp__, "pos")(a)
     fn rewrites_bool_ops() {
         let cases = [
             (
-                r#"
-a or b
-"#,
+                "a or b",
                 r#"
 _dp_tmp_1 = a
-if getattr(__dp__, "not_")(_dp_tmp_1):
+if __dp__.not_(_dp_tmp_1):
     _dp_tmp_1 = b
 _dp_tmp_1
 "#,
             ),
             (
-                r#"
-a and b
-"#,
+                "a and b",
                 r#"
 _dp_tmp_1 = a
 if _dp_tmp_1:
@@ -675,21 +602,17 @@ _dp_tmp_1
 "#,
             ),
             (
-                r#"
-f() or a
-"#,
+                "f() or a",
                 r#"
 _dp_tmp_1 = f()
 _dp_tmp_2 = _dp_tmp_1
-if getattr(__dp__, "not_")(_dp_tmp_2):
+if __dp__.not_(_dp_tmp_2):
     _dp_tmp_2 = a
 _dp_tmp_2
 "#,
             ),
             (
-                r#"
-f() and a
-"#,
+                "f() and a",
                 r#"
 _dp_tmp_1 = f()
 _dp_tmp_2 = _dp_tmp_1
@@ -701,163 +624,133 @@ _dp_tmp_2
         ];
 
         for (input, expected) in cases {
-            let output = rewrite_source(input);
-            assert_eq!(output.trim(), expected.trim());
+            assert_transform_eq(input, expected);
         }
     }
 
     #[test]
     fn rewrites_multi_bool_ops() {
-        let output = rewrite_source(
-            r#"
-a or b or c
-"#,
-        );
-        assert_eq!(
-            output.trim(),
-            r#"
+        let input = "a or b or c";
+        let expected = r#"
 _dp_tmp_1 = a
-if getattr(__dp__, "not_")(_dp_tmp_1):
+if __dp__.not_(_dp_tmp_1):
     _dp_tmp_1 = b
-if getattr(__dp__, "not_")(_dp_tmp_1):
+if __dp__.not_(_dp_tmp_1):
     _dp_tmp_1 = c
 _dp_tmp_1
-"#
-            .trim()
-        );
+"#;
+        assert_transform_eq(input, expected);
 
-        let output = rewrite_source(
-            r#"
-a and b and c
-"#,
-        );
-        assert_eq!(
-            output.trim(),
-            r#"
+        let input = "a and b and c";
+        let expected = r#"
 _dp_tmp_1 = a
 if _dp_tmp_1:
     _dp_tmp_1 = b
 if _dp_tmp_1:
     _dp_tmp_1 = c
 _dp_tmp_1
-"#
-            .trim()
-        );
+"#;
+        assert_transform_eq(input, expected);
     }
 
     #[test]
     fn rewrites_bool_assignments() {
-        let output = rewrite_source(
-            r#"
-x = a and b
-"#,
-        );
-        assert_eq!(
-            output.trim(),
-            r#"
+        let input = "x = a and b";
+        let expected = r#"
 _dp_tmp_1 = a
 if _dp_tmp_1:
     _dp_tmp_1 = b
 x = _dp_tmp_1
-"#
-            .trim(),
-        );
+"#;
+        assert_transform_eq(input, expected);
 
-        let output = rewrite_source(
-            r#"
-x = a or b
-"#,
-        );
-        assert_eq!(
-            output.trim(),
-            r#"
+        let input = "x = a or b";
+        let expected = r#"
 _dp_tmp_1 = a
-if getattr(__dp__, "not_")(_dp_tmp_1):
+if __dp__.not_(_dp_tmp_1):
     _dp_tmp_1 = b
 x = _dp_tmp_1
-"#
-            .trim(),
-        );
+"#;
+        assert_transform_eq(input, expected);
     }
 
     #[test]
     fn rewrites_comparisons() {
         let cases = [
             (
-                r#"a == b"#,
+                "a == b",
                 r#"
-_dp_tmp_1 = getattr(__dp__, "eq")(a, b)
+_dp_tmp_1 = __dp__.eq(a, b)
 _dp_tmp_1
 "#,
             ),
             (
-                r#"a != b"#,
+                "a != b",
                 r#"
-_dp_tmp_1 = getattr(__dp__, "ne")(a, b)
+_dp_tmp_1 = __dp__.ne(a, b)
 _dp_tmp_1
 "#,
             ),
             (
-                r#"a < b"#,
+                "a < b",
                 r#"
-_dp_tmp_1 = getattr(__dp__, "lt")(a, b)
+_dp_tmp_1 = __dp__.lt(a, b)
 _dp_tmp_1
 "#,
             ),
             (
-                r#"a <= b"#,
+                "a <= b",
                 r#"
-_dp_tmp_1 = getattr(__dp__, "le")(a, b)
+_dp_tmp_1 = __dp__.le(a, b)
 _dp_tmp_1
 "#,
             ),
             (
-                r#"a > b"#,
+                "a > b",
                 r#"
-_dp_tmp_1 = getattr(__dp__, "gt")(a, b)
+_dp_tmp_1 = __dp__.gt(a, b)
 _dp_tmp_1
 "#,
             ),
             (
-                r#"a >= b"#,
+                "a >= b",
                 r#"
-_dp_tmp_1 = getattr(__dp__, "ge")(a, b)
+_dp_tmp_1 = __dp__.ge(a, b)
 _dp_tmp_1
 "#,
             ),
             (
-                r#"a is b"#,
+                "a is b",
                 r#"
-_dp_tmp_1 = getattr(__dp__, "is_")(a, b)
+_dp_tmp_1 = __dp__.is_(a, b)
 _dp_tmp_1
 "#,
             ),
             (
-                r#"a is not b"#,
+                "a is not b",
                 r#"
-_dp_tmp_1 = getattr(__dp__, "is_not")(a, b)
+_dp_tmp_1 = __dp__.is_not(a, b)
 _dp_tmp_1
 "#,
             ),
             (
-                r#"a in b"#,
+                "a in b",
                 r#"
-_dp_tmp_1 = getattr(__dp__, "contains")(b, a)
+_dp_tmp_1 = __dp__.contains(b, a)
 _dp_tmp_1
 "#,
             ),
             (
-                r#"a not in b"#,
+                "a not in b",
                 r#"
-_dp_tmp_1 = getattr(__dp__, "not_")(getattr(__dp__, "contains")(b, a))
+_dp_tmp_1 = __dp__.not_(__dp__.contains(b, a))
 _dp_tmp_1
 "#,
             ),
         ];
 
         for (input, expected) in cases {
-            let output = rewrite_source(input);
-            assert_eq!(output.trim_end(), expected.trim());
+            assert_transform_eq(input, expected);
         }
     }
 
@@ -882,8 +775,8 @@ _dp_tmp_1
 "#,
                 r#"
 _dp_tmp_1 = f()
-_dp_tmp_2 = getattr(__dp__, "add")(a, 1)
-_dp_tmp_3 = getattr(__dp__, "add")(b, 2)
+_dp_tmp_2 = __dp__.add(a, 1)
+_dp_tmp_3 = __dp__.add(b, 2)
 if _dp_tmp_1:
     _dp_tmp_4 = _dp_tmp_2
 else:
@@ -893,165 +786,123 @@ _dp_tmp_4
             ),
         ];
         for (input, expected) in cases {
-            let output = rewrite_source(input);
-            assert_eq!(output.trim(), expected.trim());
+            assert_transform_eq(input, expected);
         }
     }
 
     #[test]
     fn rewrites_getitem() {
-        let output = rewrite_source("a[b]");
-        assert_eq!(output.trim_end(), r#"getattr(__dp__, "getitem")(a, b)"#);
+        assert_transform_eq("a[b]", "__dp__.getitem(a, b)");
     }
 
     #[test]
     fn rewrites_delitem() {
-        let output = rewrite_source("del a[b]");
-        assert_eq!(output.trim_end(), r#"getattr(__dp__, "delitem")(a, b)"#);
+        assert_transform_eq("del a[b]", "__dp__.delitem(a, b)");
     }
 
     #[test]
     fn rewrites_delattr() {
-        let output = rewrite_source("del a.b");
-        assert_eq!(output.trim_end(), r#"getattr(__dp__, "delattr")(a, "b")"#);
+        assert_transform_eq("del a.b", "__dp__.delattr(a, \"b\")");
     }
 
     #[test]
     fn rewrites_nested_delitem() {
-        let output = rewrite_source("del a.b[1]");
-        assert_eq!(
-            output.trim_end(),
-            r#"getattr(__dp__, "delitem")(getattr(a, "b"), 1)"#
-        );
+        assert_transform_eq("del a.b[1]", "__dp__.delitem(a.b, 1)");
     }
 
     #[test]
     fn rewrites_delattr_after_getitem() {
-        let output = rewrite_source("del a.b[1].c");
-        assert_eq!(
-            output.trim_end(),
-            r#"getattr(__dp__, "delattr")(getattr(__dp__, "getitem")(getattr(a, "b"), 1), "c")"#
+        assert_transform_eq(
+            "del a.b[1].c",
+            "__dp__.delattr(__dp__.getitem(a.b, 1), \"c\")",
         );
     }
 
     #[test]
     fn rewrites_multi_delitem_targets() {
-        let output = rewrite_source("del a[0], b[0]");
-        let expected = r#"getattr(__dp__, "delitem")(a, 0)
-getattr(__dp__, "delitem")(b, 0)"#;
-        assert_eq!(output.trim(), expected.trim());
+        let input = "del a[0], b[0]";
+        let expected = r#"
+__dp__.delitem(a, 0)
+__dp__.delitem(b, 0)
+"#;
+        assert_transform_eq(input, expected);
     }
 
     #[test]
     fn rewrites_chain_assignment() {
-        let output = rewrite_source(
-            r#"
-a = b = c
-"#,
-        );
+        let input = "a = b = c";
         let expected = r#"
 _dp_tmp_1 = c
 a = _dp_tmp_1
 b = _dp_tmp_1
 "#;
-        assert_eq!(output.trim(), expected.trim());
+        assert_transform_eq(input, expected);
     }
 
     #[test]
     fn rewrites_raise_from() {
-        let output = rewrite_source("raise ValueError from exc");
-        assert_eq!(
-            output.trim_end(),
-            r#"raise getattr(__dp__, "raise_from")(ValueError, exc)"#,
+        assert_transform_eq(
+            "raise ValueError from exc",
+            "raise __dp__.raise_from(ValueError, exc)",
         );
     }
 
     #[test]
     fn does_not_rewrite_plain_raise() {
-        let output = rewrite_source("raise ValueError");
-        assert_eq!(output.trim_end(), "raise ValueError");
+        assert_transform_eq("raise ValueError", "raise ValueError");
     }
 
     #[test]
     fn rewrites_list_literal() {
-        let input = r#"
-a = [1, 2, 3]
-"#;
+        let input = "a = [1, 2, 3]";
         let expected = r#"
 a = list((1, 2, 3))
 "#;
-        let output = rewrite_source(input);
-        assert_eq!(output.trim(), expected.trim());
+        assert_transform_eq(input, expected);
     }
 
     #[test]
     fn rewrites_set_literal() {
-        let input = r#"
-a = {1, 2, 3}
-"#;
+        let input = "a = {1, 2, 3}";
         let expected = r#"
 a = set((1, 2, 3))
 "#;
-        let output = rewrite_source(input);
-        assert_eq!(output.trim(), expected.trim());
+        assert_transform_eq(input, expected);
     }
 
     #[test]
     fn rewrites_dict_literal() {
-        let input = r#"
-a = {'a': 1, 'b': 2}
-"#;
+        let input = "a = {'a': 1, 'b': 2}";
         let expected = r#"
 a = dict((('a', 1), ('b', 2)))
 "#;
-        let output = rewrite_source(input);
-        assert_eq!(output.trim(), expected.trim());
+        assert_transform_eq(input, expected);
     }
 
     #[test]
     fn rewrites_slices() {
         let cases = [
-            (
-                r#"a[1:2:3]"#,
-                r#"getattr(__dp__, "getitem")(a, slice(1, 2, 3))"#,
-            ),
-            (
-                r#"a[1:2]"#,
-                r#"getattr(__dp__, "getitem")(a, slice(1, 2, None))"#,
-            ),
-            (
-                r#"a[:2]"#,
-                r#"getattr(__dp__, "getitem")(a, slice(None, 2, None))"#,
-            ),
-            (
-                r#"a[::2]"#,
-                r#"getattr(__dp__, "getitem")(a, slice(None, None, 2))"#,
-            ),
-            (
-                r#"a[:]"#,
-                r#"getattr(__dp__, "getitem")(a, slice(None, None, None))"#,
-            ),
+            ("a[1:2:3]", "__dp__.getitem(a, slice(1, 2, 3))"),
+            ("a[1:2]", "__dp__.getitem(a, slice(1, 2, None))"),
+            ("a[:2]", "__dp__.getitem(a, slice(None, 2, None))"),
+            ("a[::2]", "__dp__.getitem(a, slice(None, None, 2))"),
+            ("a[:]", "__dp__.getitem(a, slice(None, None, None))"),
         ];
 
         for (input, expected) in cases {
-            let output = rewrite_source(input);
-            assert_eq!(output.trim_end(), expected);
+            assert_transform_eq(input, expected);
         }
     }
 
     #[test]
     fn rewrites_complex_literals() {
         let cases = [
-            (r#"a = 1j"#, r#"a = complex(0.0, 1.0)"#),
-            (
-                r#"a = 1 + 2j"#,
-                r#"a = getattr(__dp__, "add")(1, complex(0.0, 2.0))"#,
-            ),
+            ("a = 1j", "a = complex(0.0, 1.0)"),
+            ("a = 1 + 2j", "a = __dp__.add(1, complex(0.0, 2.0))"),
         ];
 
         for (input, expected) in cases {
-            let output = rewrite_source(input);
-            assert_eq!(output.trim_end(), expected);
+            assert_transform_eq(input, expected);
         }
     }
 
@@ -1060,135 +911,173 @@ a = dict((('a', 1), ('b', 2)))
         let cases = [("a = ...", "a = Ellipsis"), ("...", "Ellipsis")];
 
         for (input, expected) in cases {
-            let output = rewrite_source(input);
-            assert_eq!(output.trim_end(), expected);
+            assert_transform_eq(input, expected);
         }
     }
 
     #[test]
     fn rewrites_attribute_access() {
-        let cases = [
-            ("obj.attr", "getattr(obj, \"attr\")"),
-            ("foo.bar.baz", "getattr(getattr(foo, \"bar\"), \"baz\")"),
-        ];
+        let cases = [("obj.attr", "obj.attr"), ("foo.bar.baz", "foo.bar.baz")];
 
         for (input, expected) in cases {
-            let output = rewrite_source(input);
-            assert_eq!(output.trim_end(), expected);
+            assert_transform_eq(input, expected);
         }
     }
 
     #[test]
     fn desugars_tuple_unpacking() {
-        let output = rewrite_source(
-            r#"
-a, b = c
-"#,
-        );
+        let input = "a, b = c";
         let expected = r#"
 _dp_tmp_1 = c
-a = getattr(__dp__, "getitem")(_dp_tmp_1, 0)
-b = getattr(__dp__, "getitem")(_dp_tmp_1, 1)
+a = __dp__.getitem(_dp_tmp_1, 0)
+b = __dp__.getitem(_dp_tmp_1, 1)
 "#;
-        assert_eq!(output.trim(), expected.trim());
+        assert_transform_eq(input, expected);
     }
 
     #[test]
     fn desugars_list_unpacking() {
-        let output = rewrite_source(
-            r#"
-[a, b] = c
-"#,
-        );
+        let input = "[a, b] = c";
         let expected = r#"
 _dp_tmp_1 = c
-a = getattr(__dp__, "getitem")(_dp_tmp_1, 0)
-b = getattr(__dp__, "getitem")(_dp_tmp_1, 1)
+a = __dp__.getitem(_dp_tmp_1, 0)
+b = __dp__.getitem(_dp_tmp_1, 1)
 "#;
-        assert_eq!(output.trim(), expected.trim());
+        assert_transform_eq(input, expected);
     }
 
     #[test]
     fn rewrites_attribute_assignment() {
-        let output = rewrite_source(
-            r#"
-a.b = c
-"#,
-        );
+        let input = "a.b = c";
         let expected = r#"
-getattr(__dp__, "setattr")(a, "b", c)
+__dp__.setattr(a, "b", c)
 "#;
-        assert_eq!(output.trim(), expected.trim());
+        assert_transform_eq(input, expected);
     }
 
     #[test]
     fn rewrites_subscript_assignment() {
-        let output = rewrite_source(
-            r#"
-a[b] = c
-"#,
-        );
+        let input = "a[b] = c";
         let expected = r#"
-getattr(__dp__, "setitem")(a, b, c)
+__dp__.setitem(a, b, c)
 "#;
-        assert_eq!(output.trim(), expected.trim());
+        assert_transform_eq(input, expected);
     }
 
     #[test]
     fn rewrites_chain_assignment_with_subscript() {
-        let output = rewrite_source(
-            r#"
-a[0] = b = 1
-"#,
-        );
+        let input = "a[0] = b = 1";
         let expected = r#"
 _dp_tmp_1 = 1
-getattr(__dp__, "setitem")(a, 0, _dp_tmp_1)
+__dp__.setitem(a, 0, _dp_tmp_1)
 b = _dp_tmp_1
 "#;
-        assert_eq!(output.trim(), expected.trim());
+        assert_transform_eq(input, expected);
     }
 
     #[test]
     fn rewrites_list_comp() {
-        let input = "
-r = [a + 1 for a in items if a % 2 == 0]
-";
-        let output = rewrite_source(input);
-        assert!(output.contains("getattr(__dp__, \"iter\")(items)"));
-        assert!(output.contains("yield _dp_tmp_3"));
-        assert!(output.contains("_dp_tmp_3 = getattr(__dp__, \"add\")(a, 1)"));
+        let input = "r = [a + 1 for a in items if a % 2 == 0]";
+        let expected = r#"
+_dp_tmp_1 = __dp__.mod(a, 2)
+_dp_tmp_2 = __dp__.eq(_dp_tmp_1, 0)
+_dp_tmp_3 = __dp__.add(a, 1)
+def _dp_gen_5(items):
+    _dp_iter_6 = __dp__.iter(items)
+    while True:
+        try:
+            a = __dp__.next(_dp_iter_6)
+        except:
+            _dp_exc_7 = __dp__.current_exception()
+            if __dp__.isinstance(_dp_exc_7, StopIteration):
+                break
+            else:
+                raise
+        if _dp_tmp_2:
+            yield _dp_tmp_3
+_dp_tmp_4 = list(_dp_gen_5(__dp__.iter(items)))
+r = _dp_tmp_4
+"#;
+        assert_transform_eq(input, expected);
     }
 
     #[test]
     fn rewrites_set_comp() {
-        let input = "
-r = {a for a in items}
-";
-        let output = rewrite_source(input);
-        assert!(output.contains("getattr(__dp__, \"iter\")(items)"));
-        assert!(output.contains("yield a"));
+        let input = "r = {a for a in items}";
+        let expected = r#"
+def _dp_gen_1(items):
+    _dp_iter_2 = __dp__.iter(items)
+    while True:
+        try:
+            a = __dp__.next(_dp_iter_2)
+        except:
+            _dp_exc_3 = __dp__.current_exception()
+            if __dp__.isinstance(_dp_exc_3, StopIteration):
+                break
+            else:
+                raise
+        yield a
+r = set(_dp_gen_1(__dp__.iter(items)))
+"#;
+        assert_transform_eq(input, expected);
     }
 
     #[test]
     fn rewrites_dict_comp() {
-        let input = "
-r = {k: v + 1 for k, v in items if k % 2 == 0}
-";
-        let output = rewrite_source(input);
-        assert!(output.contains("getattr(__dp__, \"iter\")(items)"));
-        assert!(output.contains("_dp_tmp_4 = getattr(__dp__, \"add\")(v, 1)"));
-        assert!(output.contains("yield k, _dp_tmp_4"));
+        let input = "r = {k: v + 1 for k, v in items if k % 2 == 0}";
+        let expected = r#"
+_dp_tmp_1 = k, v
+_dp_tmp_2 = __dp__.mod(k, 2)
+_dp_tmp_3 = __dp__.eq(_dp_tmp_2, 0)
+_dp_tmp_4 = __dp__.add(v, 1)
+def _dp_gen_6(items):
+    _dp_iter_7 = __dp__.iter(items)
+    while True:
+        try:
+            _dp_tmp_1 = __dp__.next(_dp_iter_7)
+        except:
+            _dp_exc_8 = __dp__.current_exception()
+            if __dp__.isinstance(_dp_exc_8, StopIteration):
+                break
+            else:
+                raise
+        if _dp_tmp_3:
+            yield k, _dp_tmp_4
+_dp_tmp_5 = dict(_dp_gen_6(__dp__.iter(items)))
+r = _dp_tmp_5
+"#;
+        assert_transform_eq(input, expected);
     }
 
     #[test]
     fn rewrites_multi_generator_list_comp() {
-        let input = "
-r = [a * b for a in items for b in items2]
-";
-        let output = rewrite_source(input);
-        assert!(output.contains("getattr(__dp__, \"iter\")(items)"));
-        assert!(output.contains("getattr(__dp__, \"mul\")(a, b)"));
+        let input = "r = [a * b for a in items for b in items2]";
+        let expected = r#"
+def _dp_gen_1(items):
+    _dp_iter_2 = __dp__.iter(items)
+    while True:
+        try:
+            a = __dp__.next(_dp_iter_2)
+        except:
+            _dp_exc_3 = __dp__.current_exception()
+            if __dp__.isinstance(_dp_exc_3, StopIteration):
+                break
+            else:
+                raise
+        _dp_iter_4 = __dp__.iter(items2)
+        while True:
+            try:
+                b = __dp__.next(_dp_iter_4)
+            except:
+                _dp_exc_5 = __dp__.current_exception()
+                if __dp__.isinstance(_dp_exc_5, StopIteration):
+                    break
+                else:
+                    raise
+            yield __dp__.mul(a, b)
+r = list(_dp_gen_1(__dp__.iter(items)))
+"#;
+        assert_transform_eq(input, expected);
     }
 
     #[test]
