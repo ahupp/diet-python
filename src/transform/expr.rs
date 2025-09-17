@@ -480,7 +480,8 @@ impl<'a> Transformer for ExprRewriter<'a> {
 
         let current = stmt.clone();
         *stmt = match current {
-            Stmt::With(with) => rewrite_with::rewrite(with.clone(), self.ctx),
+            Stmt::With(with) => rewrite_with::rewrite(with, self.ctx, self),
+            Stmt::For(for_stmt) => rewrite_for_loop::rewrite(for_stmt, self.ctx, self),
             Stmt::Assert(assert) => rewrite_assert::rewrite(assert.clone()),
             Stmt::ClassDef(class_def) => {
                 let decorated = !class_def.decorator_list.is_empty();
@@ -501,7 +502,6 @@ impl<'a> Transformer for ExprRewriter<'a> {
                     base_stmt
                 }
             }
-            Stmt::For(for_stmt) => rewrite_for_loop::rewrite(for_stmt.clone(), self.ctx),
             Stmt::Try(try_stmt) => rewrite_try_except::rewrite(try_stmt.clone(), self.ctx),
             Stmt::Match(match_stmt) => rewrite_match_case::rewrite(match_stmt.clone(), self.ctx),
             Stmt::Import(import) => rewrite_import::rewrite(import.clone()),

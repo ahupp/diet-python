@@ -1,4 +1,5 @@
 use super::context::Context;
+use ruff_python_ast::visitor::transformer::Transformer;
 use ruff_python_ast::{self as ast, Stmt};
 
 use crate::{py_expr, py_stmt};
@@ -11,9 +12,12 @@ pub fn rewrite(
         ..
     }: ast::StmtWith,
     ctx: &Context,
+    transformer: &impl Transformer,
 ) -> Stmt {
     if items.is_empty() {
-        return py_stmt!("pass");
+        let mut stmt = py_stmt!("pass");
+        transformer.visit_stmt(&mut stmt);
+        return stmt;
     }
 
     for ast::WithItem {
@@ -66,7 +70,9 @@ else:
         body = vec![wrapper];
     }
 
-    body.into_iter().next().unwrap()
+    let mut stmt = body.into_iter().next().unwrap();
+    transformer.visit_stmt(&mut stmt);
+    stmt
 }
 
 #[cfg(test)]
@@ -139,6 +145,28 @@ async def f():
         await __dp__.with_aexit(_dp_awith_exit_1, __dp__.exc_info())
     else:
         await __dp__.with_aexit(_dp_awith_exit_1, None)
+"#;
+        assert_transform_eq(input, expected);
+    }
+
+    #[test]
+    fn rewrites_with_starred_target() {
+        let input = r#"
+with a as (b, *c):
+    pass
+"#;
+        let expected = r#"
+_dp_tmp_2 = __dp__.with_enter(a)
+_dp_tmp_3 = __dp__.getitem(_dp_tmp_2, 0)
+b = __dp__.getitem(_dp_tmp_3, 0)
+c = tuple(__dp__.getitem(_dp_tmp_3, slice(1, None, None)))
+_dp_with_exit_1 = __dp__.getitem(_dp_tmp_2, 1)
+try:
+    pass
+except:
+    __dp__.with_exit(_dp_with_exit_1, __dp__.exc_info())
+else:
+    __dp__.with_exit(_dp_with_exit_1, None)
 "#;
         assert_transform_eq(input, expected);
     }

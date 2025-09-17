@@ -1,4 +1,5 @@
 use super::context::Context;
+use ruff_python_ast::visitor::transformer::Transformer;
 use ruff_python_ast::{self as ast, Stmt};
 
 use crate::py_stmt;
@@ -13,10 +14,11 @@ pub fn rewrite(
         ..
     }: ast::StmtFor,
     ctx: &Context,
+    transformer: &impl Transformer,
 ) -> Stmt {
     let iter_name = ctx.fresh("iter");
 
-    if is_async {
+    let mut rewritten = if is_async {
         py_stmt!(
             r#"
 {iter_name:id} = __dp__.aiter({iter:expr})
@@ -56,7 +58,11 @@ while True:
             orelse = orelse,
             body = body,
         )
-    }
+    };
+
+    transformer.visit_stmt(&mut rewritten);
+
+    rewritten
 }
 
 #[cfg(test)]
@@ -132,6 +138,28 @@ async def f():
         else:
             if cond:
                 break
+"#;
+        assert_transform_eq(input, expected);
+    }
+
+    #[test]
+    fn rewrites_for_loop_with_starred_target() {
+        let input = r#"
+for (a, *b) in c:
+    pass
+"#;
+        let expected = r#"
+_dp_iter_1 = __dp__.iter(c)
+while True:
+    try:
+        _dp_tmp_2 = __dp__.next(_dp_iter_1)
+        a = __dp__.getitem(_dp_tmp_2, 0)
+        b = tuple(__dp__.getitem(_dp_tmp_2, slice(1, None, None)))
+    except:
+        __dp__.check_stopiteration()
+        break
+    else:
+        pass
 "#;
         assert_transform_eq(input, expected);
     }
