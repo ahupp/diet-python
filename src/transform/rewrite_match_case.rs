@@ -290,10 +290,16 @@ match x:
 "#;
         let expected = r#"
 _dp_match_1 = x
-if __dp__.eq(_dp_match_1, 1) and cond:
-    a()
+_dp_tmp_2 = __dp__.eq(_dp_match_1, 1)
+_dp_tmp_3 = _dp_tmp_2
+if _dp_tmp_3:
+    _dp_tmp_3 = cond
+if _dp_tmp_3:
+    _dp_tmp_4 = a()
+    _dp_tmp_4
 else:
-    b()
+    _dp_tmp_5 = b()
+    _dp_tmp_5
 "#;
         assert_transform_eq(input, expected);
     }
@@ -309,10 +315,17 @@ match x:
 "#;
         let expected = r#"
 _dp_match_1 = x
-if __dp__.eq(_dp_match_1, 1) or __dp__.eq(_dp_match_1, 2):
-    a()
+_dp_tmp_2 = __dp__.eq(_dp_match_1, 1)
+_dp_tmp_3 = __dp__.eq(_dp_match_1, 2)
+_dp_tmp_4 = _dp_tmp_2
+if __dp__.not_(_dp_tmp_4):
+    _dp_tmp_4 = _dp_tmp_3
+if _dp_tmp_4:
+    _dp_tmp_5 = a()
+    _dp_tmp_5
 else:
-    b()
+    _dp_tmp_6 = b()
+    _dp_tmp_6
 "#;
         assert_transform_eq(input, expected);
     }
@@ -387,11 +400,34 @@ match x:
 "#;
         let expected = r#"
 _dp_match_1 = x
-if isinstance(_dp_match_1, C) and hasattr(_dp_match_1, __dp__.getitem(C.__match_args__, 0)) and __dp__.eq(getattr(_dp_match_1, __dp__.getitem(C.__match_args__, 0)), 1) and hasattr(_dp_match_1, __dp__.getitem(C.__match_args__, 1)):
-    b = getattr(_dp_match_1, __dp__.getitem(C.__match_args__, 1))
-    a()
+_dp_tmp_2 = isinstance(_dp_match_1, C)
+_dp_tmp_3 = C.__match_args__
+_dp_tmp_4 = __dp__.getitem(_dp_tmp_3, 0)
+_dp_tmp_5 = hasattr(_dp_match_1, _dp_tmp_4)
+_dp_tmp_6 = C.__match_args__
+_dp_tmp_7 = __dp__.getitem(_dp_tmp_6, 0)
+_dp_tmp_8 = getattr(_dp_match_1, _dp_tmp_7)
+_dp_tmp_9 = __dp__.eq(_dp_tmp_8, 1)
+_dp_tmp_10 = C.__match_args__
+_dp_tmp_11 = __dp__.getitem(_dp_tmp_10, 1)
+_dp_tmp_12 = hasattr(_dp_match_1, _dp_tmp_11)
+_dp_tmp_13 = _dp_tmp_2
+if _dp_tmp_13:
+    _dp_tmp_13 = _dp_tmp_5
+if _dp_tmp_13:
+    _dp_tmp_13 = _dp_tmp_9
+if _dp_tmp_13:
+    _dp_tmp_13 = _dp_tmp_12
+if _dp_tmp_13:
+    _dp_tmp_14 = C.__match_args__
+    _dp_tmp_15 = __dp__.getitem(_dp_tmp_14, 1)
+    _dp_tmp_16 = getattr(_dp_match_1, _dp_tmp_15)
+    b = _dp_tmp_16
+    _dp_tmp_17 = a()
+    _dp_tmp_17
 else:
-    c()
+    _dp_tmp_18 = c()
+    _dp_tmp_18
 "#;
         assert_transform_eq(input, expected);
     }
