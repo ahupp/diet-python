@@ -262,19 +262,6 @@ impl<'a> Transformer for ExprRewriter<'a> {
                 let tuple = make_tuple(pairs);
                 py_expr!("dict({tuple:expr})", tuple = tuple,)
             }
-            Expr::If(ast::ExprIf {
-                test, body, orelse, ..
-            }) => {
-                let test_expr = *test;
-                let body_expr = *body;
-                let orelse_expr = *orelse;
-                py_expr!(
-                    "__dp__.if_expr({cond:expr}, lambda: {body:expr}, lambda: {orelse:expr})",
-                    cond = test_expr,
-                    body = body_expr,
-                    orelse = orelse_expr,
-                )
-            }
             Expr::BinOp(ast::ExprBinOp {
                 left, right, op, ..
             }) => {
@@ -882,11 +869,11 @@ _dp_tmp_1
 a if b else c
 "#,
                 r#"
-def _dp_lambda_1():
-    return a
-def _dp_lambda_2():
-    return c
-getattr(__dp__, "if_expr")(b, _dp_lambda_1, _dp_lambda_2)
+if b:
+    _dp_tmp_1 = a
+else:
+    _dp_tmp_1 = c
+_dp_tmp_1
 "#,
             ),
             (
@@ -894,11 +881,14 @@ getattr(__dp__, "if_expr")(b, _dp_lambda_1, _dp_lambda_2)
 (a + 1) if f() else (b + 2)
 "#,
                 r#"
-def _dp_lambda_1():
-    return getattr(__dp__, "add")(a, 1)
-def _dp_lambda_2():
-    return getattr(__dp__, "add")(b, 2)
-getattr(__dp__, "if_expr")(f(), _dp_lambda_1, _dp_lambda_2)
+_dp_tmp_1 = f()
+_dp_tmp_2 = getattr(__dp__, "add")(a, 1)
+_dp_tmp_3 = getattr(__dp__, "add")(b, 2)
+if _dp_tmp_1:
+    _dp_tmp_4 = _dp_tmp_2
+else:
+    _dp_tmp_4 = _dp_tmp_3
+_dp_tmp_4
 "#,
             ),
         ];

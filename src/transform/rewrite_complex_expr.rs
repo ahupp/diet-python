@@ -5,7 +5,7 @@ use super::rewrite_expr_to_stmt::{expr_boolop_to_stmts, expr_compare_to_stmts};
 use crate::template::{is_simple, single_stmt};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
-use ruff_python_ast::{Expr, Stmt};
+use ruff_python_ast::{self as ast, Expr, Stmt};
 
 pub(crate) struct UnnestExprTransformer<'a> {
     pub(crate) ctx: &'a Context,
@@ -34,6 +34,21 @@ impl<'a> Transformer for UnnestExprTransformer<'a> {
                     let tmp = self.ctx.fresh("tmp");
                     let stmts = expr_boolop_to_stmts(tmp.as_str(), bool_op.clone());
                     self.stmts.borrow_mut().extend(stmts);
+                    *expr = py_expr!("{tmp:id}", tmp = tmp.as_str());
+                }
+                Expr::If(if_expr) => {
+                    let tmp = self.ctx.fresh("tmp");
+                    let ast::ExprIf {
+                        test, body, orelse, ..
+                    } = if_expr.clone();
+                    let assign = py_stmt!(
+                        "\nif {cond:expr}:\n    {tmp:id} = {body:expr}\nelse:\n    {tmp:id} = {orelse:expr}",
+                        cond = *test,
+                        tmp = tmp.as_str(),
+                        body = *body,
+                        orelse = *orelse,
+                    );
+                    self.stmts.borrow_mut().push(assign);
                     *expr = py_expr!("{tmp:id}", tmp = tmp.as_str());
                 }
                 Expr::Compare(compare) => {
@@ -100,7 +115,7 @@ impl ComplexExprTransformer {
 
 impl Transformer for ComplexExprTransformer {
     fn visit_expr(&self, expr: &mut Expr) {
-        if matches!(expr, Expr::BoolOp(_) | Expr::Compare(_)) {
+        if matches!(expr, Expr::BoolOp(_) | Expr::If(_) | Expr::Compare(_)) {
             self.requires_unnest.set(true);
             return;
         }
