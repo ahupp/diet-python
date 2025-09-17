@@ -6,7 +6,7 @@ use super::{
 use crate::template::{make_binop, make_generator, make_tuple, make_unaryop, single_stmt};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
-use ruff_python_ast::{self as ast, CmpOp, Expr, Operator, Stmt, UnaryOp};
+use ruff_python_ast::{self as ast, Expr, Operator, Stmt, UnaryOp};
 use ruff_text_size::TextRange;
 
 pub struct ExprRewriter<'a> {
@@ -303,34 +303,6 @@ impl<'a> Transformer for ExprRewriter<'a> {
                     UnaryOp::UAdd => "pos",
                 };
                 make_unaryop(func_name, *operand)
-            }
-            Expr::Compare(ast::ExprCompare {
-                left,
-                ops,
-                comparators,
-                ..
-            }) if ops.len() == 1 && comparators.len() == 1 => {
-                let mut ops_vec = ops.into_vec();
-                let mut comps_vec = comparators.into_vec();
-                let left = *left;
-                let right = comps_vec.pop().unwrap();
-                let op = ops_vec.pop().unwrap();
-                let call = match op {
-                    CmpOp::Eq => make_binop("eq", left, right),
-                    CmpOp::NotEq => make_binop("ne", left, right),
-                    CmpOp::Lt => make_binop("lt", left, right),
-                    CmpOp::LtE => make_binop("le", left, right),
-                    CmpOp::Gt => make_binop("gt", left, right),
-                    CmpOp::GtE => make_binop("ge", left, right),
-                    CmpOp::Is => make_binop("is_", left, right),
-                    CmpOp::IsNot => make_binop("is_not", left, right),
-                    CmpOp::In => make_binop("contains", right, left),
-                    CmpOp::NotIn => {
-                        let contains = make_binop("contains", right, left);
-                        make_unaryop("not_", contains)
-                    }
-                };
-                call
             }
             Expr::Subscript(ast::ExprSubscript {
                 value, slice, ctx, ..
@@ -824,24 +796,81 @@ x = _dp_tmp_1
     #[test]
     fn rewrites_comparisons() {
         let cases = [
-            (r#"a == b"#, r#"getattr(__dp__, "eq")(a, b)"#),
-            (r#"a != b"#, r#"getattr(__dp__, "ne")(a, b)"#),
-            (r#"a < b"#, r#"getattr(__dp__, "lt")(a, b)"#),
-            (r#"a <= b"#, r#"getattr(__dp__, "le")(a, b)"#),
-            (r#"a > b"#, r#"getattr(__dp__, "gt")(a, b)"#),
-            (r#"a >= b"#, r#"getattr(__dp__, "ge")(a, b)"#),
-            (r#"a is b"#, r#"getattr(__dp__, "is_")(a, b)"#),
-            (r#"a is not b"#, r#"getattr(__dp__, "is_not")(a, b)"#),
-            (r#"a in b"#, r#"getattr(__dp__, "contains")(b, a)"#),
+            (
+                r#"a == b"#,
+                r#"
+_dp_tmp_1 = getattr(__dp__, "eq")(a, b)
+_dp_tmp_1
+"#,
+            ),
+            (
+                r#"a != b"#,
+                r#"
+_dp_tmp_1 = getattr(__dp__, "ne")(a, b)
+_dp_tmp_1
+"#,
+            ),
+            (
+                r#"a < b"#,
+                r#"
+_dp_tmp_1 = getattr(__dp__, "lt")(a, b)
+_dp_tmp_1
+"#,
+            ),
+            (
+                r#"a <= b"#,
+                r#"
+_dp_tmp_1 = getattr(__dp__, "le")(a, b)
+_dp_tmp_1
+"#,
+            ),
+            (
+                r#"a > b"#,
+                r#"
+_dp_tmp_1 = getattr(__dp__, "gt")(a, b)
+_dp_tmp_1
+"#,
+            ),
+            (
+                r#"a >= b"#,
+                r#"
+_dp_tmp_1 = getattr(__dp__, "ge")(a, b)
+_dp_tmp_1
+"#,
+            ),
+            (
+                r#"a is b"#,
+                r#"
+_dp_tmp_1 = getattr(__dp__, "is_")(a, b)
+_dp_tmp_1
+"#,
+            ),
+            (
+                r#"a is not b"#,
+                r#"
+_dp_tmp_1 = getattr(__dp__, "is_not")(a, b)
+_dp_tmp_1
+"#,
+            ),
+            (
+                r#"a in b"#,
+                r#"
+_dp_tmp_1 = getattr(__dp__, "contains")(b, a)
+_dp_tmp_1
+"#,
+            ),
             (
                 r#"a not in b"#,
-                r#"getattr(__dp__, "not_")(getattr(__dp__, "contains")(b, a))"#,
+                r#"
+_dp_tmp_1 = getattr(__dp__, "not_")(getattr(__dp__, "contains")(b, a))
+_dp_tmp_1
+"#,
             ),
         ];
 
         for (input, expected) in cases {
             let output = rewrite_source(input);
-            assert_eq!(output.trim_end(), expected);
+            assert_eq!(output.trim_end(), expected.trim());
         }
     }
 
@@ -1137,7 +1166,8 @@ r = [a + 1 for a in items if a % 2 == 0]
 ";
         let output = rewrite_source(input);
         assert!(output.contains("getattr(__dp__, \"iter\")(items)"));
-        assert!(output.contains("yield getattr(__dp__, \"add\")(a, 1)"));
+        assert!(output.contains("yield _dp_tmp_3"));
+        assert!(output.contains("_dp_tmp_3 = getattr(__dp__, \"add\")(a, 1)"));
     }
 
     #[test]
@@ -1157,7 +1187,8 @@ r = {k: v + 1 for k, v in items if k % 2 == 0}
 ";
         let output = rewrite_source(input);
         assert!(output.contains("getattr(__dp__, \"iter\")(items)"));
-        assert!(output.contains("yield k, getattr(__dp__, \"add\")(v, 1)"));
+        assert!(output.contains("_dp_tmp_4 = getattr(__dp__, \"add\")(v, 1)"));
+        assert!(output.contains("yield k, _dp_tmp_4"));
     }
 
     #[test]
