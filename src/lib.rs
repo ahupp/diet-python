@@ -1,6 +1,6 @@
 #[cfg(target_arch = "wasm32")]
 use js_sys::{Array, Object, Reflect};
-use ruff_python_ast::{ModModule, Stmt};
+use ruff_python_ast::{self as ast, ModModule, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_python_parser::{parse_module, ParseError};
 use ruff_source_file::LineEnding;
@@ -74,6 +74,8 @@ fn apply_transforms(module: &mut ModModule, options: Options) {
 
     // Collapse `py_stmt!` templates after all rewrites.
     template::flatten(&mut module.body);
+
+    strip_type_aliases(&mut module.body);
 }
 
 /// Transform the source code and return the resulting string.
@@ -90,6 +92,73 @@ pub fn transform_to_string(source: &str, ensure: bool) -> Result<String, ParseEr
             ..Options::default()
         },
     )
+}
+
+fn strip_type_aliases(stmts: &mut Vec<Stmt>) {
+    stmts.retain_mut(|stmt| match stmt {
+        Stmt::FunctionDef(ast::StmtFunctionDef { ref mut body, .. })
+        | Stmt::ClassDef(ast::StmtClassDef { ref mut body, .. }) => {
+            strip_type_aliases(body);
+            true
+        }
+        Stmt::For(ast::StmtFor {
+            ref mut body,
+            ref mut orelse,
+            ..
+        })
+        | Stmt::While(ast::StmtWhile {
+            ref mut body,
+            ref mut orelse,
+            ..
+        }) => {
+            strip_type_aliases(body);
+            strip_type_aliases(orelse);
+            true
+        }
+        Stmt::If(ast::StmtIf {
+            ref mut body,
+            ref mut elif_else_clauses,
+            ..
+        }) => {
+            strip_type_aliases(body);
+            for clause in elif_else_clauses {
+                strip_type_aliases(&mut clause.body);
+            }
+            true
+        }
+        Stmt::With(ast::StmtWith { ref mut body, .. }) => {
+            strip_type_aliases(body);
+            true
+        }
+        Stmt::Try(ast::StmtTry {
+            ref mut body,
+            ref mut handlers,
+            ref mut orelse,
+            ref mut finalbody,
+            ..
+        }) => {
+            strip_type_aliases(body);
+            for handler in handlers {
+                match handler {
+                    ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
+                        ref mut body,
+                        ..
+                    }) => strip_type_aliases(body),
+                }
+            }
+            strip_type_aliases(orelse);
+            strip_type_aliases(finalbody);
+            true
+        }
+        Stmt::Match(ast::StmtMatch { ref mut cases, .. }) => {
+            for case in cases {
+                strip_type_aliases(&mut case.body);
+            }
+            true
+        }
+        Stmt::TypeAlias(_) => false,
+        _ => true,
+    });
 }
 
 pub fn transform_to_string_without_attribute_lowering(
