@@ -57,6 +57,35 @@ impl<'a> Transformer for UnnestExprTransformer<'a> {
                     self.stmts.borrow_mut().extend(stmts);
                     *expr = py_expr!("{tmp:id}", tmp = tmp.as_str());
                 }
+                Expr::YieldFrom(yield_from) => {
+                    let state_name = self.ctx.fresh("yield_from_state");
+                    let sent_name = self.ctx.fresh("yield_from_sent");
+                    let result_name = self.ctx.fresh("tmp");
+                    let ast::ExprYieldFrom { value, .. } = yield_from.clone();
+                    let iterable = *value;
+                    let driver = py_stmt!(
+                        r#"
+{state:id} = __dp__.yield_from_init({iterable:expr})
+{sent:id} = None
+while True:
+    if __dp__.getitem({state:id}, 0) != __dp__.RUNNING:
+        break
+    try:
+        {sent:id} = yield __dp__.getitem({state:id}, 1)
+    except:
+        {state:id} = __dp__.yield_from_except({state:id}, __dp__.current_exception())
+    else:
+        {state:id} = __dp__.yield_from_next({state:id}, {sent:id})
+{result:id} = __dp__.getitem({state:id}, 1)
+"#,
+                        state = state_name.as_str(),
+                        sent = sent_name.as_str(),
+                        result = result_name.as_str(),
+                        iterable = iterable,
+                    );
+                    self.stmts.borrow_mut().push(driver);
+                    *expr = py_expr!("{result:id}", result = result_name.as_str());
+                }
                 _ => {
                     let tmp = self.ctx.fresh("tmp");
                     let value = expr.clone();
@@ -115,7 +144,10 @@ impl ComplexExprTransformer {
 
 impl Transformer for ComplexExprTransformer {
     fn visit_expr(&self, expr: &mut Expr) {
-        if matches!(expr, Expr::BoolOp(_) | Expr::If(_) | Expr::Compare(_)) {
+        if matches!(
+            expr,
+            Expr::BoolOp(_) | Expr::If(_) | Expr::Compare(_) | Expr::YieldFrom(_)
+        ) {
             self.requires_unnest.set(true);
             return;
         }
@@ -135,5 +167,37 @@ pub(crate) fn rewrite(stmt: &mut Stmt, ctx: &Context) {
     if transformer.requires_unnest.get() {
         let unnest = UnnestTransformer::new(ctx);
         unnest.visit_stmt(stmt);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test_util::assert_transform_eq;
+
+    #[test]
+    fn rewrites_yield_from_expression() {
+        let input = r#"
+x = yield from y
+"#;
+        let expected = r#"
+_dp_yield_from_state_1 = __dp__.yield_from_init(y)
+_dp_yield_from_sent_2 = None
+while True:
+    _dp_tmp_4 = __dp__.getitem
+    _dp_tmp_5 = _dp_tmp_4(_dp_yield_from_state_1, 0)
+    _dp_tmp_6 = __dp__.RUNNING
+    _dp_tmp_7 = __dp__.ne(_dp_tmp_5, _dp_tmp_6)
+    if _dp_tmp_7:
+        break
+    try:
+        _dp_yield_from_sent_2 = yield __dp__.getitem(_dp_yield_from_state_1, 1)
+    except:
+        _dp_yield_from_state_1 = __dp__.yield_from_except(_dp_yield_from_state_1, __dp__.current_exception())
+    else:
+        _dp_yield_from_state_1 = __dp__.yield_from_next(_dp_yield_from_state_1, _dp_yield_from_sent_2)
+_dp_tmp_3 = __dp__.getitem(_dp_yield_from_state_1, 1)
+x = _dp_tmp_3
+"#;
+        assert_transform_eq(input, expected);
     }
 }
