@@ -29,38 +29,38 @@ pub fn rewrite(
         };
 
         let wrapper = if is_async {
+            let exit_name = ctx.fresh("awith_exit");
             py_stmt!(
                 r#"
-{awith_state:id} = __dp__.with_aenter({ctx:expr})
-({target:expr}, _) = awith_state
+({target:expr}, {exit_name:id}) = await __dp__.with_aenter({ctx:expr})
 try:
     {body:stmt}
 except:
-    await __dp__.with_aexit(awith_state, __dp__.exc_info())
+    await __dp__.with_aexit({exit_name:id}, __dp__.exc_info())
 else:
-    await __dp__.with_aexit(awith_state, None)
+    await __dp__.with_aexit({exit_name:id}, None)
 "#,
-                awith_state = ctx.fresh("awith_state"),
                 ctx = context_expr,
                 target = target,
                 body = body,
+                exit_name = exit_name.as_str(),
             )
         } else {
+            let exit_name = ctx.fresh("with_exit");
             py_stmt!(
                 r#"
-{with_state:id} = __dp__.with_enter({ctx:expr})
-({target:expr}, _) = with_state
+({target:expr}, {exit_name:id}) = __dp__.with_enter({ctx:expr})
 try:
     {body:stmt}
 except:
-    __dp__.with_exit(with_state, __dp__.exc_info())
+    __dp__.with_exit({exit_name:id}, __dp__.exc_info())
 else:
-    __dp__.with_exit(with_state, None)
+    __dp__.with_exit({exit_name:id}, None)
 "#,
-                with_state = ctx.fresh("with_state"),
                 ctx = context_expr,
                 target = target,
                 body = body,
+                exit_name = exit_name.as_str(),
             )
         };
         body = vec![wrapper];
@@ -80,17 +80,15 @@ with a as b:
     c
 "#;
         let expected = r#"
-_dp_ctx_1 = a
-_dp_enter_2 = type(_dp_ctx_1).__enter__
-_dp_exit_3 = type(_dp_ctx_1).__exit__
-b = _dp_enter_2(_dp_ctx_1)
+_dp_tmp_2 = __dp__.with_enter(a)
+b = __dp__.getitem(_dp_tmp_2, 0)
+_dp_with_exit_1 = __dp__.getitem(_dp_tmp_2, 1)
 try:
     c
 except:
-    if __dp__.not_(_dp_exit_3(_dp_ctx_1, *__dp__.exc_info())):
-        raise
+    __dp__.with_exit(_dp_with_exit_1, __dp__.exc_info())
 else:
-    _dp_exit_3(_dp_ctx_1, None, None, None)
+    __dp__.with_exit(_dp_with_exit_1, None)
 "#;
         assert_transform_eq(input, expected);
     }
@@ -102,27 +100,23 @@ with a as b, c as d:
     e
 "#;
         let expected = r#"
-_dp_ctx_1 = a
-_dp_enter_2 = type(_dp_ctx_1).__enter__
-_dp_exit_3 = type(_dp_ctx_1).__exit__
-b = _dp_enter_2(_dp_ctx_1)
+_dp_tmp_3 = __dp__.with_enter(a)
+b = __dp__.getitem(_dp_tmp_3, 0)
+_dp_with_exit_2 = __dp__.getitem(_dp_tmp_3, 1)
 try:
-    _dp_ctx_4 = c
-    _dp_enter_5 = type(_dp_ctx_4).__enter__
-    _dp_exit_6 = type(_dp_ctx_4).__exit__
-    d = _dp_enter_5(_dp_ctx_4)
+    _dp_tmp_4 = __dp__.with_enter(c)
+    d = __dp__.getitem(_dp_tmp_4, 0)
+    _dp_with_exit_1 = __dp__.getitem(_dp_tmp_4, 1)
     try:
         e
     except:
-        if __dp__.not_(_dp_exit_6(_dp_ctx_4, *__dp__.exc_info())):
-            raise
+        __dp__.with_exit(_dp_with_exit_1, __dp__.exc_info())
     else:
-        _dp_exit_6(_dp_ctx_4, None, None, None)
+        __dp__.with_exit(_dp_with_exit_1, None)
 except:
-    if __dp__.not_(_dp_exit_3(_dp_ctx_1, *__dp__.exc_info())):
-        raise
+    __dp__.with_exit(_dp_with_exit_2, __dp__.exc_info())
 else:
-    _dp_exit_3(_dp_ctx_1, None, None, None)
+    __dp__.with_exit(_dp_with_exit_2, None)
 "#;
         assert_transform_eq(input, expected);
     }
@@ -136,17 +130,15 @@ async def f():
 "#;
         let expected = r#"
 async def f():
-    _dp_ctx_1 = a
-    _dp_enter_2 = type(_dp_ctx_1).__aenter__
-    _dp_exit_3 = type(_dp_ctx_1).__aexit__
-    b = await _dp_enter_2(_dp_ctx_1)
+    _dp_tmp_2 = await __dp__.with_aenter(a)
+    b = __dp__.getitem(_dp_tmp_2, 0)
+    _dp_awith_exit_1 = __dp__.getitem(_dp_tmp_2, 1)
     try:
         c
     except:
-        if __dp__.not_(await _dp_exit_3(_dp_ctx_1, *__dp__.exc_info())):
-            raise
+        await __dp__.with_aexit(_dp_awith_exit_1, __dp__.exc_info())
     else:
-        await _dp_exit_3(_dp_ctx_1, None, None, None)
+        await __dp__.with_aexit(_dp_awith_exit_1, None)
 "#;
         assert_transform_eq(input, expected);
     }

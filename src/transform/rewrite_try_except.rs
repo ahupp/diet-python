@@ -31,12 +31,6 @@ pub fn rewrite(stmt: ast::StmtTry, _ctx: &Context) -> Stmt {
             ..
         }) = handler;
 
-        let target = if let Some(ast::Identifier { id, .. }) = &name {
-            id.as_str()
-        } else {
-            "_"
-        };
-
         let condition = if let Some(typ) = type_ {
             py_expr!(
                 "__dp__.isinstance(__dp__.current_exception(), {typ:expr})",
@@ -46,16 +40,25 @@ pub fn rewrite(stmt: ast::StmtTry, _ctx: &Context) -> Stmt {
             py_expr!("True")
         };
 
+        let exc_target = if let Some(ast::Identifier { id, .. }) = &name {
+            py_stmt!(
+                "{target:id} = __dp__.current_exception()",
+                target = id.as_str(),
+            )
+        } else {
+            py_stmt!("_ = __dp__.current_exception()")
+        };
+
         py_stmt!(
             r#"
 if {condition:expr}:
-    {target:id} = __dp__.current_exception()
+    {exc_target:stmt}
     {body:stmt}
 else:
     {next:stmt}
 "#,
-            target = target,
             condition = condition,
+            exc_target = exc_target,
             body = body,
             next = acc,
         )

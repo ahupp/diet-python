@@ -6,7 +6,7 @@ fn join_parts(parts: Vec<Expr>) -> Expr {
         parts.into_iter().next().unwrap()
     } else {
         let tuple = make_tuple(parts);
-        py_expr!(r#"".join({tuple:expr})"#, tuple = tuple)
+        py_expr!("\"\".join({tuple:expr})", tuple = tuple)
     }
 }
 

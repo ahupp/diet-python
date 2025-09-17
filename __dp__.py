@@ -3,7 +3,7 @@ import operator as _operator
 import sys
 import builtins
 import types as _types
-from typing import Any, Iterator, Optional, Tuple, Union, Literal
+from typing import Any, Iterator, Optional, Tuple, Union, Literal, TypeVar, Callable, Awaitable
 
 operator = _operator
 add = _operator.add
@@ -70,6 +70,16 @@ def exc_info():
 
 def current_exception():
     return sys.exc_info()[1]
+
+
+def check_stopiteration():
+    if not isinstance(current_exception(), StopIteration):
+        raise
+
+
+def acheck_stopiteration():
+    if not isinstance(current_exception(), StopAsyncIteration):
+        raise
 
 
 def raise_from(exc, cause):
@@ -183,6 +193,7 @@ async def with_aenter(ctx) -> AWith:
     var = await enter(ctx)
     return (var, exit)
 
+
 async def with_aexit(state: AWith, exc_info: tuple | None):
     ctx, aexit = state
     if exc_info is not None:
@@ -191,17 +202,19 @@ async def with_aexit(state: AWith, exc_info: tuple | None):
     else:
         await aexit(ctx, None, None, None)
 
+
 def with_enter(ctx) -> With:
     enter = type(ctx).__enter__
     exit = type(ctx).__exit__
     var = enter(ctx)
     return (var, exit)
 
+
 def with_exit(state: With, exc_info: tuple | None):
     ctx, aexit = state
     if exc_info is not None:
-        if not exit(ctx, *exc_info):
+        if not aexit(ctx, *exc_info):
             raise
     else:
-        exit(ctx, None, None, None)
+        aexit(ctx, None, None, None)
 

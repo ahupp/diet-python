@@ -80,6 +80,7 @@ pub fn rewrite(
         arguments,
         ..
     }: ast::StmtClassDef,
+    decorated: bool,
 ) -> Stmt {
     let class_name = name.id.as_str().to_string();
 
@@ -178,6 +179,18 @@ _dp_temp_ns[{fn_name:literal}] = _ns[{fn_name:literal}] = _dp_mk_{fn_name:id}()
         py_expr!("None")
     };
 
+    let final_assignment = if decorated {
+        py_stmt!(
+            "_dp_class_{class_name:id} = _dp_make_class_{class_name:id}()",
+            class_name = class_name.as_str(),
+        )
+    } else {
+        py_stmt!(
+            "{class_name:id} = _dp_class_{class_name:id} = _dp_make_class_{class_name:id}()",
+            class_name = class_name.as_str(),
+        )
+    };
+
     py_stmt!(
         r#"
 def _dp_ns_{class_name:id}(_ns):
@@ -193,12 +206,13 @@ def _dp_make_class_{class_name:id}():
     _dp_ns_{class_name:id}(ns)
     return meta({class_name:literal}, bases, ns, **kwds)
 
-{class_name:id} = _dp_class_{class_name:id} = _dp_make_class_{class_name:id}()
+{final_assignment:stmt}
 "#,
         bases = make_tuple(bases),
         class_name = class_name.as_str(),
         ns_body = ns_body,
         prepare_dict = prepare_dict,
+        final_assignment = final_assignment,
     )
 }
 
