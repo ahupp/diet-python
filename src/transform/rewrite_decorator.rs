@@ -11,42 +11,33 @@ pub fn rewrite(
     base: Option<&str>,
     ctx: &Context,
 ) -> Stmt {
-    let mut assigns = Vec::new();
-    let mut names = Vec::new();
+    let decorator_expr =
+        decorators
+            .into_iter()
+            .rev()
+            .fold(py_expr!("_dp_the_func"), |acc, decorator| {
+                py_expr!(
+                    "{decorator:expr}({acc:expr})",
+                    decorator = decorator.expression,
+                    acc = acc
+                )
+            });
 
-    for decorator in decorators {
-        if let ast::Expr::Name(ast::ExprName { id, .. }) = &decorator.expression {
-            names.push(id.to_string());
-        } else {
-            let tmp = ctx.fresh("dec");
-            let assign = py_stmt!(
-                "{name:id} = {decorator:expr}",
-                name = tmp.as_str(),
-                decorator = decorator.expression,
-            );
-            assigns.push(assign);
-            names.push(tmp);
-        }
-    }
+    let base_or_name = base.unwrap_or(name);
 
-    let mut call_expr = if let Some(base_name) = base {
-        py_expr!("{name:id}", name = base_name)
-    } else {
-        py_expr!("{name:id}", name = name)
-    };
-    for decorator in names.iter().rev() {
-        call_expr = py_expr!(
-            "{decorator:id}({expr:expr})",
-            decorator = decorator.as_str(),
-            expr = call_expr,
-        );
-    }
-    let call_stmt = py_stmt!("{name:id} = {expr:expr}", name = name, expr = call_expr);
+    let dec_apply_fn = ctx.fresh("dec_apply");
 
-    let mut body = assigns;
-    body.push(item);
-    body.push(call_stmt);
-    py_stmt!("{body:stmt}", body = body)
+    py_stmt!(
+        r#"
+def {dec_apply_fn:id}(_dp_the_func):
+    return {decorator_expr:expr}
+{item:stmt}
+{base_or_name:id} = {dec_apply_fn:id}({base_or_name:id})"#,
+        dec_apply_fn = dec_apply_fn.as_str(),
+        decorator_expr = decorator_expr,
+        item = item,
+        base_or_name = base_or_name,
+    )
 }
 
 #[cfg(test)]
