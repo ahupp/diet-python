@@ -141,15 +141,39 @@ __dp__.setitem({obj:expr}, {key:expr}, {value:expr})
         }
 
         let elts_len = elts.len();
+        let mut starred_index: Option<usize> = None;
+        for (i, elt) in elts.iter().enumerate() {
+            if matches!(elt, Expr::Starred(_)) {
+                if starred_index.is_some() {
+                    panic!("unsupported starred assignment target");
+                }
+                starred_index = Some(i);
+            }
+        }
+
+        let prefix_len = starred_index.unwrap_or(elts_len);
+        let suffix_len = starred_index.map_or(0, |idx| elts_len - idx - 1);
+
         for (i, elt) in elts.into_iter().enumerate() {
             match elt {
-                Expr::Starred(ast::ExprStarred { value, .. }) if i == elts_len - 1 => {
-                    let slice_expr = py_expr!(
-                        "
+                Expr::Starred(ast::ExprStarred { value, .. }) => {
+                    let slice_expr = if suffix_len == 0 {
+                        py_expr!(
+                            "
 __dp__.getitem({tmp:expr}, slice({start:literal}, None, None))",
-                        tmp = tmp_expr.clone(),
-                        start = i,
-                    );
+                            tmp = tmp_expr.clone(),
+                            start = prefix_len,
+                        )
+                    } else {
+                        let stop = -(suffix_len as isize);
+                        py_expr!(
+                            "
+__dp__.getitem({tmp:expr}, slice({start:literal}, {stop:literal}, None))",
+                            tmp = tmp_expr.clone(),
+                            start = prefix_len,
+                            stop = stop,
+                        )
+                    };
                     let collection_expr = match kind {
                         UnpackTargetKind::Tuple => py_expr!(
                             "
@@ -164,16 +188,24 @@ list({slice:expr})",
                     };
                     self.rewrite_target(*value, collection_expr, out);
                 }
-                Expr::Starred(_) => {
-                    panic!("unsupported starred assignment target");
-                }
                 _ => {
-                    let value = py_expr!(
-                        "
+                    let value = match starred_index {
+                        Some(star_idx) if i > star_idx => {
+                            let idx = (i as isize) - (elts_len as isize);
+                            py_expr!(
+                                "
 __dp__.getitem({tmp:expr}, {idx:literal})",
-                        tmp = tmp_expr.clone(),
-                        idx = i,
-                    );
+                                tmp = tmp_expr.clone(),
+                                idx = idx,
+                            )
+                        }
+                        _ => py_expr!(
+                            "
+__dp__.getitem({tmp:expr}, {idx:literal})",
+                            tmp = tmp_expr.clone(),
+                            idx = i,
+                        ),
+                    };
                     self.rewrite_target(elt, value, out);
                 }
             }
@@ -1095,6 +1127,27 @@ b = tuple(__dp__.getitem(c, slice(1, None, None)))
     }
 
     #[test]
+    fn desugars_tuple_unpacking_with_leading_star() {
+        let input = "*a, b = c";
+        let expected = r#"
+a = tuple(__dp__.getitem(c, slice(0, __dp__.neg(1), None)))
+b = __dp__.getitem(c, __dp__.neg(1))
+"#;
+        assert_transform_eq(input, expected);
+    }
+
+    #[test]
+    fn desugars_tuple_unpacking_with_inner_star() {
+        let input = "a, *b, c = d";
+        let expected = r#"
+a = __dp__.getitem(d, 0)
+b = tuple(__dp__.getitem(d, slice(1, __dp__.neg(1), None)))
+c = __dp__.getitem(d, __dp__.neg(1))
+"#;
+        assert_transform_eq(input, expected);
+    }
+
+    #[test]
     fn desugars_list_unpacking() {
         let input = "[a, b] = c";
         let expected = r#"
@@ -1110,6 +1163,27 @@ b = __dp__.getitem(c, 1)
         let expected = r#"
 a = __dp__.getitem(c, 0)
 b = list(__dp__.getitem(c, slice(1, None, None)))
+"#;
+        assert_transform_eq(input, expected);
+    }
+
+    #[test]
+    fn desugars_list_unpacking_with_leading_star() {
+        let input = "[*a, b] = c";
+        let expected = r#"
+a = list(__dp__.getitem(c, slice(0, __dp__.neg(1), None)))
+b = __dp__.getitem(c, __dp__.neg(1))
+"#;
+        assert_transform_eq(input, expected);
+    }
+
+    #[test]
+    fn desugars_list_unpacking_with_inner_star() {
+        let input = "[a, *b, c] = d";
+        let expected = r#"
+a = __dp__.getitem(d, 0)
+b = list(__dp__.getitem(d, slice(1, __dp__.neg(1), None)))
+c = __dp__.getitem(d, __dp__.neg(1))
 "#;
         assert_transform_eq(input, expected);
     }
