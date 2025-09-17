@@ -1,6 +1,6 @@
 use std::{env, fs, process};
 
-use diet_python::transform_to_string;
+use diet_python::transform_to_string_without_attribute_lowering;
 
 fn main() {
     let path = env::args().nth(1).unwrap_or_else(|| {
@@ -16,7 +16,7 @@ fn main() {
         }
     };
 
-    let output = match transform_to_string(&source, true) {
+    let output = match transform_to_string_without_attribute_lowering(&source, true) {
         Ok(output) => output,
         Err(err) => {
             eprintln!("failed to parse {}: {}", path, err);
