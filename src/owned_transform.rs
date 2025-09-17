@@ -2,11 +2,37 @@ use std::borrow::Borrow;
 
 use ruff_python_ast::{self as ast, Expr, Stmt};
 
-pub trait OwnNode<T>: Borrow<T> + From<T> + Clone {}
+pub trait OwnNode<T>: Borrow<T> + From<T> + Clone {
+    fn into_owned(self) -> T;
+}
 
-impl<T> OwnNode<T> for T where T: From<T> + Borrow<T> + Clone {}
+impl<T> OwnNode<T> for T
+where
+    T: From<T> + Borrow<T> + Clone,
+{
+    fn into_owned(self) -> T {
+        self
+    }
+}
 
-impl<T> OwnNode<T> for Box<T> where Box<T>: Borrow<T> + From<T> + Clone {}
+impl<T> OwnNode<T> for Box<T>
+where
+    Box<T>: Borrow<T> + From<T> + Clone,
+    T: Clone,
+{
+    fn into_owned(self) -> T {
+        *self
+    }
+}
+
+fn map_owned<N, T, F>(node: N, f: F) -> N
+where
+    N: OwnNode<T>,
+    F: FnOnce(T) -> T,
+{
+    let node = f(node.into_owned());
+    N::from(node)
+}
 
 /// A trait for transforming owned AST nodes.
 pub trait OwnedTransform {
@@ -166,9 +192,7 @@ where
     T: OwnedTransform + ?Sized,
     N: OwnNode<Expr>,
 {
-    let expr = expr.borrow().clone();
-
-    let expr = match expr {
+    map_owned(expr, |expr| match expr {
         Expr::BoolOp(mut node) => {
             node.values = node
                 .values
@@ -346,9 +370,7 @@ where
             Expr::Slice(node)
         }
         Expr::IpyEscapeCommand(node) => Expr::IpyEscapeCommand(node),
-    };
-
-    N::from(expr)
+    })
 }
 
 pub fn walk_stmt_owned<T, N>(transformer: &T, stmt: N) -> N
@@ -356,9 +378,7 @@ where
     T: OwnedTransform + ?Sized,
     N: OwnNode<Stmt>,
 {
-    let stmt = stmt.borrow().clone();
-
-    let stmt = match stmt {
+    map_owned(stmt, |stmt| match stmt {
         Stmt::FunctionDef(mut node) => {
             node.decorator_list = node
                 .decorator_list
@@ -548,9 +568,7 @@ where
         Stmt::Break(node) => Stmt::Break(node),
         Stmt::Continue(node) => Stmt::Continue(node),
         Stmt::IpyEscapeCommand(node) => Stmt::IpyEscapeCommand(node),
-    };
-
-    N::from(stmt)
+    })
 }
 
 pub fn walk_arguments_owned<T, N>(transformer: &T, arguments: N) -> N
@@ -558,24 +576,25 @@ where
     T: OwnedTransform + ?Sized,
     N: OwnNode<ast::Arguments>,
 {
-    let mut arguments = arguments.borrow().clone();
-    let args = arguments
-        .args
-        .into_vec()
-        .into_iter()
-        .map(|expr| transformer.visit_expr_owned(expr))
-        .collect::<Vec<_>>()
-        .into_boxed_slice();
-    let keywords = arguments
-        .keywords
-        .into_vec()
-        .into_iter()
-        .map(|kw| transformer.visit_keyword_owned(kw))
-        .collect::<Vec<_>>()
-        .into_boxed_slice();
-    arguments.args = args;
-    arguments.keywords = keywords;
-    N::from(arguments)
+    map_owned(arguments, |mut arguments| {
+        let args = arguments
+            .args
+            .into_vec()
+            .into_iter()
+            .map(|expr| transformer.visit_expr_owned(expr))
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        let keywords = arguments
+            .keywords
+            .into_vec()
+            .into_iter()
+            .map(|kw| transformer.visit_keyword_owned(kw))
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        arguments.args = args;
+        arguments.keywords = keywords;
+        arguments
+    })
 }
 
 pub fn walk_keyword_owned<T, N>(transformer: &T, keyword: N) -> N
@@ -583,9 +602,10 @@ where
     T: OwnedTransform + ?Sized,
     N: OwnNode<ast::Keyword>,
 {
-    let mut keyword = keyword.borrow().clone();
-    keyword.value = transformer.visit_expr_owned(keyword.value);
-    N::from(keyword)
+    map_owned(keyword, |mut keyword| {
+        keyword.value = transformer.visit_expr_owned(keyword.value);
+        keyword
+    })
 }
 
 pub fn walk_parameters_owned<T, N>(transformer: &T, parameters: N) -> N
@@ -593,29 +613,30 @@ where
     T: OwnedTransform + ?Sized,
     N: OwnNode<ast::Parameters>,
 {
-    let mut parameters = parameters.borrow().clone();
-    parameters.posonlyargs = parameters
-        .posonlyargs
-        .into_iter()
-        .map(|p| transformer.visit_parameter_with_default_owned(p))
-        .collect();
-    parameters.args = parameters
-        .args
-        .into_iter()
-        .map(|p| transformer.visit_parameter_with_default_owned(p))
-        .collect();
-    parameters.vararg = parameters
-        .vararg
-        .map(|p| transformer.visit_parameter_owned(p));
-    parameters.kwonlyargs = parameters
-        .kwonlyargs
-        .into_iter()
-        .map(|p| transformer.visit_parameter_with_default_owned(p))
-        .collect();
-    parameters.kwarg = parameters
-        .kwarg
-        .map(|p| transformer.visit_parameter_owned(p));
-    N::from(parameters)
+    map_owned(parameters, |mut parameters| {
+        parameters.posonlyargs = parameters
+            .posonlyargs
+            .into_iter()
+            .map(|p| transformer.visit_parameter_with_default_owned(p))
+            .collect();
+        parameters.args = parameters
+            .args
+            .into_iter()
+            .map(|p| transformer.visit_parameter_with_default_owned(p))
+            .collect();
+        parameters.vararg = parameters
+            .vararg
+            .map(|p| transformer.visit_parameter_owned(p));
+        parameters.kwonlyargs = parameters
+            .kwonlyargs
+            .into_iter()
+            .map(|p| transformer.visit_parameter_with_default_owned(p))
+            .collect();
+        parameters.kwarg = parameters
+            .kwarg
+            .map(|p| transformer.visit_parameter_owned(p));
+        parameters
+    })
 }
 
 pub fn walk_parameter_with_default_owned<T, N>(transformer: &T, param: N) -> N
@@ -623,10 +644,11 @@ where
     T: OwnedTransform + ?Sized,
     N: OwnNode<ast::ParameterWithDefault>,
 {
-    let mut param = param.borrow().clone();
-    param.parameter = transformer.visit_parameter_owned(param.parameter);
-    param.default = param.default.map(|expr| transformer.visit_expr_owned(expr));
-    N::from(param)
+    map_owned(param, |mut param| {
+        param.parameter = transformer.visit_parameter_owned(param.parameter);
+        param.default = param.default.map(|expr| transformer.visit_expr_owned(expr));
+        param
+    })
 }
 
 pub fn walk_parameter_owned<T, N>(transformer: &T, parameter: N) -> N
@@ -634,11 +656,12 @@ where
     T: OwnedTransform + ?Sized,
     N: OwnNode<ast::Parameter>,
 {
-    let mut parameter = parameter.borrow().clone();
-    parameter.annotation = parameter
-        .annotation
-        .map(|expr| transformer.visit_expr_owned(expr));
-    N::from(parameter)
+    map_owned(parameter, |mut parameter| {
+        parameter.annotation = parameter
+            .annotation
+            .map(|expr| transformer.visit_expr_owned(expr));
+        parameter
+    })
 }
 
 pub fn walk_comprehension_owned<T, N>(transformer: &T, comprehension: N) -> N
@@ -646,15 +669,16 @@ where
     T: OwnedTransform + ?Sized,
     N: OwnNode<ast::Comprehension>,
 {
-    let mut comprehension = comprehension.borrow().clone();
-    comprehension.target = transformer.visit_expr_owned(comprehension.target);
-    comprehension.iter = transformer.visit_expr_owned(comprehension.iter);
-    comprehension.ifs = comprehension
-        .ifs
-        .into_iter()
-        .map(|expr| transformer.visit_expr_owned(expr))
-        .collect();
-    N::from(comprehension)
+    map_owned(comprehension, |mut comprehension| {
+        comprehension.target = transformer.visit_expr_owned(comprehension.target);
+        comprehension.iter = transformer.visit_expr_owned(comprehension.iter);
+        comprehension.ifs = comprehension
+            .ifs
+            .into_iter()
+            .map(|expr| transformer.visit_expr_owned(expr))
+            .collect();
+        comprehension
+    })
 }
 
 pub fn walk_with_item_owned<T, N>(transformer: &T, with_item: N) -> N
@@ -662,12 +686,13 @@ where
     T: OwnedTransform + ?Sized,
     N: OwnNode<ast::WithItem>,
 {
-    let mut with_item = with_item.borrow().clone();
-    with_item.context_expr = transformer.visit_expr_owned(with_item.context_expr);
-    with_item.optional_vars = with_item
-        .optional_vars
-        .map(|expr| transformer.visit_expr_owned(expr));
-    N::from(with_item)
+    map_owned(with_item, |mut with_item| {
+        with_item.context_expr = transformer.visit_expr_owned(with_item.context_expr);
+        with_item.optional_vars = with_item
+            .optional_vars
+            .map(|expr| transformer.visit_expr_owned(expr));
+        with_item
+    })
 }
 
 pub fn walk_type_params_owned<T, N>(transformer: &T, type_params: N) -> N
@@ -675,13 +700,14 @@ where
     T: OwnedTransform + ?Sized,
     N: OwnNode<ast::TypeParams>,
 {
-    let mut type_params = type_params.borrow().clone();
-    type_params.type_params = type_params
-        .type_params
-        .into_iter()
-        .map(|tp| transformer.visit_type_param_owned(tp))
-        .collect();
-    N::from(type_params)
+    map_owned(type_params, |mut type_params| {
+        type_params.type_params = type_params
+            .type_params
+            .into_iter()
+            .map(|tp| transformer.visit_type_param_owned(tp))
+            .collect();
+        type_params
+    })
 }
 
 pub fn walk_type_param_owned<T, N>(transformer: &T, type_param: N) -> N
@@ -689,8 +715,7 @@ where
     T: OwnedTransform + ?Sized,
     N: OwnNode<ast::TypeParam>,
 {
-    let type_param = type_param.borrow().clone();
-    let type_param = match type_param {
+    map_owned(type_param, |type_param| match type_param {
         ast::TypeParam::TypeVar(mut node) => {
             node.bound = node.bound.map(|bound| transformer.visit_expr_owned(bound));
             node.default = node
@@ -710,9 +735,7 @@ where
                 .map(|default| transformer.visit_expr_owned(default));
             ast::TypeParam::ParamSpec(node)
         }
-    };
-
-    N::from(type_param)
+    })
 }
 
 pub fn walk_match_case_owned<T, N>(transformer: &T, case: N) -> N
@@ -720,15 +743,16 @@ where
     T: OwnedTransform + ?Sized,
     N: OwnNode<ast::MatchCase>,
 {
-    let mut case = case.borrow().clone();
-    case.pattern = transformer.visit_pattern_owned(case.pattern);
-    case.guard = case.guard.map(|expr| transformer.visit_expr_owned(expr));
-    case.body = case
-        .body
-        .into_iter()
-        .map(|stmt| transformer.visit_stmt_owned(stmt))
-        .collect();
-    N::from(case)
+    map_owned(case, |mut case| {
+        case.pattern = transformer.visit_pattern_owned(case.pattern);
+        case.guard = case.guard.map(|expr| transformer.visit_expr_owned(expr));
+        case.body = case
+            .body
+            .into_iter()
+            .map(|stmt| transformer.visit_stmt_owned(stmt))
+            .collect();
+        case
+    })
 }
 
 pub fn walk_pattern_owned<T, N>(transformer: &T, pattern: N) -> N
@@ -736,8 +760,7 @@ where
     T: OwnedTransform + ?Sized,
     N: OwnNode<ast::Pattern>,
 {
-    let pattern = pattern.borrow().clone();
-    let pattern = match pattern {
+    map_owned(pattern, |pattern| match pattern {
         ast::Pattern::MatchValue(mut node) => {
             node.value = transformer.visit_expr_owned(node.value);
             ast::Pattern::MatchValue(node)
@@ -784,9 +807,7 @@ where
                 .collect();
             ast::Pattern::MatchOr(node)
         }
-    };
-
-    N::from(pattern)
+    })
 }
 
 pub fn walk_pattern_arguments_owned<T, N>(transformer: &T, args: N) -> N
@@ -794,18 +815,19 @@ where
     T: OwnedTransform + ?Sized,
     N: OwnNode<ast::PatternArguments>,
 {
-    let mut args = args.borrow().clone();
-    args.patterns = args
-        .patterns
-        .into_iter()
-        .map(|p| transformer.visit_pattern_owned(p))
-        .collect();
-    args.keywords = args
-        .keywords
-        .into_iter()
-        .map(|k| transformer.visit_pattern_keyword_owned(k))
-        .collect();
-    N::from(args)
+    map_owned(args, |mut args| {
+        args.patterns = args
+            .patterns
+            .into_iter()
+            .map(|p| transformer.visit_pattern_owned(p))
+            .collect();
+        args.keywords = args
+            .keywords
+            .into_iter()
+            .map(|k| transformer.visit_pattern_keyword_owned(k))
+            .collect();
+        args
+    })
 }
 
 pub fn walk_pattern_keyword_owned<T, N>(transformer: &T, keyword: N) -> N
@@ -813,9 +835,10 @@ where
     T: OwnedTransform + ?Sized,
     N: OwnNode<ast::PatternKeyword>,
 {
-    let mut keyword = keyword.borrow().clone();
-    keyword.pattern = transformer.visit_pattern_owned(keyword.pattern);
-    N::from(keyword)
+    map_owned(keyword, |mut keyword| {
+        keyword.pattern = transformer.visit_pattern_owned(keyword.pattern);
+        keyword
+    })
 }
 
 pub fn walk_decorator_owned<T, N>(transformer: &T, decorator: N) -> N
@@ -823,9 +846,10 @@ where
     T: OwnedTransform + ?Sized,
     N: OwnNode<ast::Decorator>,
 {
-    let mut decorator = decorator.borrow().clone();
-    decorator.expression = transformer.visit_expr_owned(decorator.expression);
-    N::from(decorator)
+    map_owned(decorator, |mut decorator| {
+        decorator.expression = transformer.visit_expr_owned(decorator.expression);
+        decorator
+    })
 }
 
 pub fn walk_except_handler_owned<T, N>(transformer: &T, handler: N) -> N
@@ -833,8 +857,7 @@ where
     T: OwnedTransform + ?Sized,
     N: OwnNode<ast::ExceptHandler>,
 {
-    let handler = handler.borrow().clone();
-    let handler = match handler {
+    map_owned(handler, |handler| match handler {
         ast::ExceptHandler::ExceptHandler(mut node) => {
             node.type_ = node.type_.map(|type_| transformer.visit_expr_owned(type_));
             node.body = node
@@ -844,9 +867,7 @@ where
                 .collect();
             ast::ExceptHandler::ExceptHandler(node)
         }
-    };
-
-    N::from(handler)
+    })
 }
 
 pub fn walk_elif_else_clause_owned<T, N>(transformer: &T, clause: N) -> N
@@ -854,32 +875,41 @@ where
     T: OwnedTransform + ?Sized,
     N: OwnNode<ast::ElifElseClause>,
 {
-    let mut clause = clause.borrow().clone();
-    clause.test = clause.test.map(|expr| transformer.visit_expr_owned(expr));
-    clause.body = clause
-        .body
-        .into_iter()
-        .map(|stmt| transformer.visit_stmt_owned(stmt))
-        .collect();
-    N::from(clause)
+    map_owned(clause, |mut clause| {
+        clause.test = clause.test.map(|expr| transformer.visit_expr_owned(expr));
+        clause.body = clause
+            .body
+            .into_iter()
+            .map(|stmt| transformer.visit_stmt_owned(stmt))
+            .collect();
+        clause
+    })
 }
 
 pub fn walk_f_string_owned<T: OwnedTransform + ?Sized>(
     transformer: &T,
     f_string: &mut ast::FString,
 ) {
-    for element in &mut f_string.elements {
-        *element = transformer.visit_interpolated_string_element_owned(element.clone());
-    }
+    let elements: Vec<_> = f_string
+        .elements
+        .iter()
+        .cloned()
+        .map(|element| transformer.visit_interpolated_string_element_owned(element))
+        .collect();
+    f_string.elements = ast::InterpolatedStringElements::from(elements);
 }
 
 pub fn walk_t_string_owned<T: OwnedTransform + ?Sized>(
     transformer: &T,
     t_string: &mut ast::TString,
 ) {
-    for element in &mut t_string.elements {
-        *element = transformer.visit_interpolated_string_element_owned(element.clone());
-    }
+    let elements: Vec<_> = t_string
+        .elements
+        .iter()
+        .cloned()
+        .map(|element| transformer.visit_interpolated_string_element_owned(element))
+        .collect();
+    t_string.elements = ast::InterpolatedStringElements::from(elements);
 }
 
 pub fn walk_interpolated_string_element_owned<T, N>(transformer: &T, element: N) -> N
@@ -887,23 +917,18 @@ where
     T: OwnedTransform + ?Sized,
     N: OwnNode<ast::InterpolatedStringElement>,
 {
-    let element = element.borrow().clone();
-    let element = match element {
+    map_owned(element, |element| match element {
         ast::InterpolatedStringElement::Interpolation(mut node) => {
-            let expression = node.expression;
-            node.expression = transformer.visit_expr_owned(expression);
-            node.format_spec.as_mut().map(|spec| {
-                let spec_value = (**spec).clone();
-                **spec = transformer.visit_interpolated_string_format_spec_owned(spec_value);
+            node.expression = transformer.visit_expr_owned(node.expression);
+            node.format_spec = node.format_spec.map(|spec| {
+                Box::new(transformer.visit_interpolated_string_format_spec_owned(*spec))
             });
             ast::InterpolatedStringElement::Interpolation(node)
         }
         ast::InterpolatedStringElement::Literal(node) => {
             ast::InterpolatedStringElement::Literal(node)
         }
-    };
-
-    N::from(element)
+    })
 }
 
 pub fn walk_interpolated_string_format_spec_owned<T, N>(transformer: &T, spec: N) -> N
@@ -911,9 +936,14 @@ where
     T: OwnedTransform + ?Sized,
     N: OwnNode<ast::InterpolatedStringFormatSpec>,
 {
-    let mut spec = spec.borrow().clone();
-    for element in &mut spec.elements {
-        *element = transformer.visit_interpolated_string_element_owned(element.clone());
-    }
-    N::from(spec)
+    map_owned(spec, |mut spec| {
+        let elements: Vec<_> = spec
+            .elements
+            .iter()
+            .cloned()
+            .map(|element| transformer.visit_interpolated_string_element_owned(element))
+            .collect();
+        spec.elements = ast::InterpolatedStringElements::from(elements);
+        spec
+    })
 }
