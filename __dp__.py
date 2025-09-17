@@ -171,3 +171,37 @@ def yield_from_except(state: YFState, exc: BaseException) -> YFState:
     else:
         return (RUNNING, y, None, it)
 
+
+T = TypeVar("T")
+AWith = Tuple[T, Callable[[T, Any, Any, Any], Awaitable[bool]]]
+With = Tuple[T, Callable[[T, Any, Any, Any], bool]]
+
+
+async def with_aenter(ctx) -> AWith:
+    enter = type(ctx).__aenter__
+    exit = type(ctx).__aexit__
+    var = await enter(ctx)
+    return (var, exit)
+
+async def with_aexit(state: AWith, exc_info: tuple | None):
+    ctx, aexit = state
+    if exc_info is not None:
+        if not await aexit(ctx, *exc_info):
+            raise
+    else:
+        await aexit(ctx, None, None, None)
+
+def with_enter(ctx) -> With:
+    enter = type(ctx).__enter__
+    exit = type(ctx).__exit__
+    var = enter(ctx)
+    return (var, exit)
+
+def with_exit(state: With, exc_info: tuple | None):
+    ctx, aexit = state
+    if exc_info is not None:
+        if not exit(ctx, *exc_info):
+            raise
+    else:
+        exit(ctx, None, None, None)
+

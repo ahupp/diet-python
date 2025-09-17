@@ -6,39 +6,22 @@ fn join_parts(parts: Vec<Expr>) -> Expr {
         parts.into_iter().next().unwrap()
     } else {
         let tuple = make_tuple(parts);
-        py_expr!(
-            r#"
-"".join({tuple:expr})
-"#,
-            tuple = tuple,
-        )
+        py_expr!(r#"".join({tuple:expr})"#, tuple = tuple)
     }
 }
 
-fn rewrite_elements(elements: &ast::InterpolatedStringElements) -> Expr {
-    let mut parts = Vec::new();
+fn rewrite_elements(elements: &ast::InterpolatedStringElements, parts: &mut Vec<Expr>) {
     for element in elements.iter() {
         match element {
             ast::InterpolatedStringElement::Literal(lit) => {
-                parts.push(py_expr!(
-                    "
-{literal:literal}
-",
-                    literal = lit.value.as_ref(),
-                ));
+                parts.push(py_expr!("{literal:literal}", literal = lit.value.as_ref()));
             }
             ast::InterpolatedStringElement::Interpolation(interp) => {
                 let value = (*interp.expression).clone();
-                parts.push(py_expr!(
-                    "
-str({value:expr})
-",
-                    value = value,
-                ));
+                parts.push(py_expr!("str({value:expr})", value = value,));
             }
         }
     }
-    join_parts(parts)
 }
 
 pub fn rewrite_fstring(expr: ast::ExprFString) -> Expr {
@@ -46,15 +29,10 @@ pub fn rewrite_fstring(expr: ast::ExprFString) -> Expr {
     for part in expr.value.iter() {
         match part {
             ast::FStringPart::Literal(lit) => {
-                parts.push(py_expr!(
-                    "
-{literal:literal}
-",
-                    literal = lit.value.as_ref(),
-                ));
+                parts.push(py_expr!("{literal:literal}", literal = lit.value.as_ref()));
             }
             ast::FStringPart::FString(f) => {
-                parts.push(rewrite_elements(&f.elements));
+                rewrite_elements(&f.elements, &mut parts);
             }
         }
     }
@@ -64,7 +42,7 @@ pub fn rewrite_fstring(expr: ast::ExprFString) -> Expr {
 pub fn rewrite_tstring(expr: ast::ExprTString) -> Expr {
     let mut parts = Vec::new();
     for t in expr.value.iter() {
-        parts.push(rewrite_elements(&t.elements));
+        rewrite_elements(&t.elements, &mut parts);
     }
     join_parts(parts)
 }

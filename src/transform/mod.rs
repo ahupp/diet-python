@@ -11,6 +11,7 @@ pub(crate) mod rewrite_match_case;
 pub(crate) mod rewrite_string;
 pub(crate) mod rewrite_try_except;
 pub(crate) mod rewrite_with;
+
 #[derive(Clone, Copy)]
 pub enum ImportStarHandling {
     Allowed,

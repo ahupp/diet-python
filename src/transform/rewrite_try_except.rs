@@ -1,12 +1,18 @@
 use super::context::Context;
-use ruff_python_ast::{self as ast, Expr, Stmt};
+use ruff_python_ast::{self as ast, Stmt};
 
-use crate::py_stmt;
+use crate::{py_expr, py_stmt};
 
-pub fn rewrite(stmt: ast::StmtTry, ctx: &Context) -> Stmt {
+pub fn rewrite(stmt: ast::StmtTry, _ctx: &Context) -> Stmt {
     if !has_non_default_handler(&stmt) {
         return Stmt::Try(stmt);
     }
+
+    let base = if has_default_handler(&stmt) {
+        py_stmt!("pass")
+    } else {
+        py_stmt!("raise")
+    };
 
     let ast::StmtTry {
         body,
@@ -16,54 +22,44 @@ pub fn rewrite(stmt: ast::StmtTry, ctx: &Context) -> Stmt {
         is_star: _,
         ..
     } = stmt;
-    let exc_name = ctx.fresh("exc");
 
-    let exc_assign = py_stmt!(
-        "{exc:id} = __dp__.current_exception()",
-        exc = exc_name.as_str(),
-    );
-
-    let mut processed: Vec<(Option<Expr>, Vec<Stmt>)> = Vec::new();
-    for handler in handlers {
+    let handler_chain = handlers.into_iter().rev().fold(base, |acc, handler| {
         let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
             type_,
             name,
             body,
             ..
         }) = handler;
-        let mut body_stmts = body;
-        if let Some(name) = name {
-            let assign = py_stmt!(
-                "{name:id} = {exc:id}",
-                name = name.id.as_str(),
-                exc = exc_name.as_str(),
-            );
-            body_stmts.insert(0, assign);
-        }
-        processed.push((type_.map(|e| *e), body_stmts));
-    }
 
-    let mut new_body = vec![exc_assign];
-    let mut chain: Vec<Stmt> = vec![py_stmt!("raise")];
-    for (type_, body) in processed.into_iter().rev() {
-        chain = if let Some(t) = type_ {
-            vec![py_stmt!(
-                r#"
-if __dp__.isinstance({exc:id}, {typ:expr}):
-  {body:stmt}
-else:
-  {next:stmt}
-"#,
-                exc = exc_name.as_str(),
-                typ = t,
-                body = body,
-                next = chain,
-            )]
+        let target = if let Some(ast::Identifier { id, .. }) = &name {
+            id.as_str()
         } else {
-            body
+            "_"
         };
-    }
-    new_body.extend(chain);
+
+        let condition = if let Some(typ) = type_ {
+            py_expr!(
+                "__dp__.isinstance(__dp__.current_exception(), {typ:expr})",
+                typ = typ
+            )
+        } else {
+            py_expr!("True")
+        };
+
+        py_stmt!(
+            r#"
+if {condition:expr}:
+    {target:id} = __dp__.current_exception()
+    {body:stmt}
+else:
+    {next:stmt}
+"#,
+            target = target,
+            condition = condition,
+            body = body,
+            next = acc,
+        )
+    });
 
     py_stmt!(
         r#"
@@ -77,7 +73,7 @@ finally:
     {finally:stmt}
     "#,
         body = body,
-        handler = new_body,
+        handler = handler_chain,
         orelse = orelse,
         finally = finalbody,
     )
@@ -91,6 +87,15 @@ fn has_non_default_handler(stmt: &ast::StmtTry) -> bool {
                 type_: Some(_),
                 ..
             })
+        )
+    })
+}
+
+fn has_default_handler(stmt: &ast::StmtTry) -> bool {
+    stmt.handlers.iter().any(|handler| {
+        matches!(
+            handler,
+            ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler { type_: None, .. })
         )
     })
 }
