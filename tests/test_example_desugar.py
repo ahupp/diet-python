@@ -6,6 +6,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def test_example_desugar_up_to_date():
     module = ROOT / "example_module.py"
+    expected = (ROOT / "example_desugar.py").read_text()
     result = subprocess.run(
         ["cargo", "run", "--quiet", "--", str(module)],
         cwd=ROOT,
@@ -13,4 +14,4 @@ def test_example_desugar_up_to_date():
         capture_output=True,
         text=True,
     )
-    assert 'getattr(__dp__, "setattr")' in result.stdout
+    assert result.stdout == expected
