@@ -58,10 +58,20 @@ __dp__.truth({expr:expr})
     fn rewrite_target(&self, target: Expr, value: Expr, out: &mut Vec<Stmt>) {
         match target {
             Expr::Tuple(tuple) => {
-                self.rewrite_unpack_target(tuple.elts, value, out);
+                self.rewrite_unpack_target(
+                    tuple.elts,
+                    value,
+                    out,
+                    UnpackTargetKind::Tuple,
+                );
             }
             Expr::List(list) => {
-                self.rewrite_unpack_target(list.elts, value, out);
+                self.rewrite_unpack_target(
+                    list.elts,
+                    value,
+                    out,
+                    UnpackTargetKind::List,
+                );
             }
             Expr::Attribute(attr) => {
                 let obj = (*attr.value).clone();
@@ -107,7 +117,13 @@ __dp__.setitem({obj:expr}, {key:expr}, {value:expr})
         }
     }
 
-    fn rewrite_unpack_target(&self, elts: Vec<Expr>, value: Expr, out: &mut Vec<Stmt>) {
+    fn rewrite_unpack_target(
+        &self,
+        elts: Vec<Expr>,
+        value: Expr,
+        out: &mut Vec<Stmt>,
+        kind: UnpackTargetKind,
+    ) {
         let (tmp_expr, tmp_stmt) = match value {
             Expr::Name(_) => (value, None),
             other => {
@@ -134,18 +150,59 @@ __dp__.setitem({obj:expr}, {key:expr}, {value:expr})
             out.push(stmt);
         }
 
+        let elts_len = elts.len();
         for (i, elt) in elts.into_iter().enumerate() {
-            let mut elt_stmt = py_stmt!(
-                "
+            match elt {
+                Expr::Starred(ast::ExprStarred { value, .. }) if i == elts_len - 1 => {
+                    let slice_expr = py_expr!(
+                        "
+__dp__.getitem({tmp:expr}, slice({start:literal}, None, None))",
+                        tmp = tmp_expr.clone(),
+                        start = i,
+                    );
+                    let collection_expr = match kind {
+                        UnpackTargetKind::Tuple => py_expr!(
+                            "
+tuple({slice:expr})",
+                            slice = slice_expr,
+                        ),
+                        UnpackTargetKind::List => py_expr!(
+                            "
+list({slice:expr})",
+                            slice = slice_expr,
+                        ),
+                    };
+                    let mut elt_stmt = py_stmt!(
+                        "
+{target:expr} = {value:expr}",
+                        target = *value,
+                        value = collection_expr,
+                    );
+                    walk_stmt(self, &mut elt_stmt);
+                    out.push(elt_stmt);
+                }
+                Expr::Starred(_) => {
+                    panic!("unsupported starred assignment target");
+                }
+                _ => {
+                    let mut elt_stmt = py_stmt!(
+                        "
 {target:expr} = __dp__.getitem({tmp:expr}, {idx:literal})",
-                target = elt,
-                tmp = tmp_expr.clone(),
-                idx = i,
-            );
-            walk_stmt(self, &mut elt_stmt);
-            out.push(elt_stmt);
+                        target = elt,
+                        tmp = tmp_expr.clone(),
+                        idx = i,
+                    );
+                    walk_stmt(self, &mut elt_stmt);
+                    out.push(elt_stmt);
+                }
+            }
         }
     }
+}
+
+enum UnpackTargetKind {
+    Tuple,
+    List,
 }
 
 impl<'a> Transformer for ExprRewriter<'a> {
@@ -922,11 +979,31 @@ b = __dp__.getitem(c, 1)
     }
 
     #[test]
+    fn desugars_tuple_unpacking_with_star() {
+        let input = "a, *b = c";
+        let expected = r#"
+a = __dp__.getitem(c, 0)
+b = tuple(__dp__.getitem(c, slice(1, None, None)))
+"#;
+        assert_transform_eq(input, expected);
+    }
+
+    #[test]
     fn desugars_list_unpacking() {
         let input = "[a, b] = c";
         let expected = r#"
 a = __dp__.getitem(c, 0)
 b = __dp__.getitem(c, 1)
+"#;
+        assert_transform_eq(input, expected);
+    }
+
+    #[test]
+    fn desugars_list_unpacking_with_star() {
+        let input = "[a, *b] = c";
+        let expected = r#"
+a = __dp__.getitem(c, 0)
+b = list(__dp__.getitem(c, slice(1, None, None)))
 "#;
         assert_transform_eq(input, expected);
     }
