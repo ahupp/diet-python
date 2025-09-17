@@ -8,20 +8,6 @@ use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::TextRange;
 
-#[derive(Debug)]
-pub(crate) enum Modified {
-    Yes(Stmt),
-    No(Stmt),
-}
-
-pub(crate) fn expr_to_stmt(ctx: &Context, stmt: Stmt) -> Modified {
-    match stmt {
-        Stmt::Assign(assign) => rewrite_assign(ctx, assign),
-        Stmt::Expr(expr) => rewrite_expr_stmt(ctx, expr),
-        other => rewrite_with_functions(ctx, other),
-    }
-}
-
 pub(crate) struct LambdaGeneratorLowerer<'ctx> {
     ctx: &'ctx Context,
     functions: RefCell<Vec<Stmt>>,
@@ -212,47 +198,6 @@ fn target_expr(target: &str) -> Expr {
     py_expr!("\n{target:id}", target = target,)
 }
 
-fn rewrite_assign(_ctx: &Context, assign: ast::StmtAssign) -> Modified {
-    if assign.targets.len() == 1 {
-        if let Some(Expr::Name(ast::ExprName { id, .. })) = assign.targets.first() {
-            if let Expr::BoolOp(bool_op) = assign.value.as_ref() {
-                let target_name = id.to_string();
-                let bool_op = bool_op.clone();
-                let new_stmt = single_stmt(expr_boolop_to_stmts(&target_name, bool_op));
-                return Modified::Yes(new_stmt);
-            }
-        }
-    }
-
-    Modified::No(Stmt::Assign(assign))
-}
-
-fn rewrite_expr_stmt(_ctx: &Context, expr_stmt: ast::StmtExpr) -> Modified {
-    if let Expr::BoolOp(bool_op) = expr_stmt.value.as_ref() {
-        let new_stmt = single_stmt(expr_boolop_to_stmts("_", bool_op.clone()));
-        return Modified::Yes(new_stmt);
-    }
-
-    Modified::No(Stmt::Expr(expr_stmt))
-}
-
-fn rewrite_with_functions(ctx: &Context, mut stmt: Stmt) -> Modified {
-    let functions = lower_lambdas_generators(ctx, &mut stmt);
-    if functions.is_empty() {
-        Modified::No(stmt)
-    } else {
-        let mut stmts = functions;
-        stmts.push(stmt);
-        Modified::Yes(single_stmt(stmts))
-    }
-}
-
-fn lower_lambdas_generators(ctx: &Context, stmt: &mut Stmt) -> Vec<Stmt> {
-    let lowerer = LambdaGeneratorLowerer::new(ctx);
-    lowerer.rewrite(stmt);
-    lowerer.into_statements()
-}
-
 #[cfg(test)]
 mod tests {
     use crate::test_util::assert_transform_eq;
@@ -261,9 +206,10 @@ mod tests {
     fn rewrites_bool_and_assignment() {
         let input = "x = a and b";
         let expected = r#"
-x = a
-if x:
-    x = b
+_dp_tmp_1 = a
+if _dp_tmp_1:
+    _dp_tmp_1 = b
+x = _dp_tmp_1
 "#;
 
         assert_transform_eq(input, expected);
@@ -281,9 +227,10 @@ if x:
     fn rewrites_bool_expr_statement() {
         let input = "a and b";
         let expected = r#"
-_ = a
-if _:
-    _ = b
+_dp_tmp_1 = a
+if _dp_tmp_1:
+    _dp_tmp_1 = b
+_dp_tmp_1
 "#;
 
         assert_transform_eq(input, expected);

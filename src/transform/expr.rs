@@ -1,7 +1,7 @@
 use super::{
-    context::Context, rewrite_assert, rewrite_class_def, rewrite_decorator, rewrite_expr_to_stmt,
-    rewrite_for_loop, rewrite_import, rewrite_match_case, rewrite_string, rewrite_try_except,
-    rewrite_with, Options,
+    context::Context, rewrite_assert, rewrite_class_def, rewrite_complex_expr, rewrite_decorator,
+    rewrite_expr_to_stmt, rewrite_for_loop, rewrite_import, rewrite_match_case, rewrite_string,
+    rewrite_try_except, rewrite_with, Options,
 };
 use crate::template::{make_binop, make_generator, make_tuple, make_unaryop, single_stmt};
 use crate::{py_expr, py_stmt};
@@ -345,20 +345,11 @@ impl<'a> Transformer for ExprRewriter<'a> {
     }
 
     fn visit_stmt(&self, stmt: &mut Stmt) {
+        rewrite_complex_expr::rewrite(stmt, self.ctx);
+
         if self.lower_lambdas_generators(stmt) {
             self.visit_stmt(stmt);
             return;
-        }
-
-        match rewrite_expr_to_stmt::expr_to_stmt(self.ctx, stmt.clone()) {
-            rewrite_expr_to_stmt::Modified::Yes(new_stmt) => {
-                *stmt = new_stmt;
-                self.visit_stmt(stmt);
-                return;
-            }
-            rewrite_expr_to_stmt::Modified::No(original) => {
-                drop(original);
-            }
         }
 
         if matches!(stmt, Stmt::FunctionDef(_)) {
@@ -555,17 +546,6 @@ impl<'a> Transformer for ExprRewriter<'a> {
             self.visit_stmt(stmt);
             return;
         }
-
-        match rewrite_expr_to_stmt::expr_to_stmt(self.ctx, stmt.clone()) {
-            rewrite_expr_to_stmt::Modified::Yes(new_stmt) => {
-                *stmt = new_stmt;
-                self.visit_stmt(stmt);
-                return;
-            }
-            rewrite_expr_to_stmt::Modified::No(original) => {
-                drop(original);
-            }
-        }
     }
 }
 
@@ -718,9 +698,10 @@ getattr(__dp__, "pos")(a)
 a or b
 "#,
                 r#"
-_ = a
-if getattr(__dp__, "not_")(_):
-    _ = b
+_dp_tmp_1 = a
+if getattr(__dp__, "not_")(_dp_tmp_1):
+    _dp_tmp_1 = b
+_dp_tmp_1
 "#,
             ),
             (
@@ -728,9 +709,10 @@ if getattr(__dp__, "not_")(_):
 a and b
 "#,
                 r#"
-_ = a
-if _:
-    _ = b
+_dp_tmp_1 = a
+if _dp_tmp_1:
+    _dp_tmp_1 = b
+_dp_tmp_1
 "#,
             ),
             (
@@ -738,9 +720,11 @@ if _:
 f() or a
 "#,
                 r#"
-_ = f()
-if getattr(__dp__, "not_")(_):
-    _ = a
+_dp_tmp_1 = f()
+_dp_tmp_2 = _dp_tmp_1
+if getattr(__dp__, "not_")(_dp_tmp_2):
+    _dp_tmp_2 = a
+_dp_tmp_2
 "#,
             ),
             (
@@ -748,9 +732,11 @@ if getattr(__dp__, "not_")(_):
 f() and a
 "#,
                 r#"
-_ = f()
-if _:
-    _ = a
+_dp_tmp_1 = f()
+_dp_tmp_2 = _dp_tmp_1
+if _dp_tmp_2:
+    _dp_tmp_2 = a
+_dp_tmp_2
 "#,
             ),
         ];
@@ -771,11 +757,12 @@ a or b or c
         assert_eq!(
             output.trim(),
             r#"
-_ = a
-if getattr(__dp__, "not_")(_):
-    _ = b
-if getattr(__dp__, "not_")(_):
-    _ = c
+_dp_tmp_1 = a
+if getattr(__dp__, "not_")(_dp_tmp_1):
+    _dp_tmp_1 = b
+if getattr(__dp__, "not_")(_dp_tmp_1):
+    _dp_tmp_1 = c
+_dp_tmp_1
 "#
             .trim()
         );
@@ -788,11 +775,12 @@ a and b and c
         assert_eq!(
             output.trim(),
             r#"
-_ = a
-if _:
-    _ = b
-if _:
-    _ = c
+_dp_tmp_1 = a
+if _dp_tmp_1:
+    _dp_tmp_1 = b
+if _dp_tmp_1:
+    _dp_tmp_1 = c
+_dp_tmp_1
 "#
             .trim()
         );
@@ -808,9 +796,10 @@ x = a and b
         assert_eq!(
             output.trim(),
             r#"
-x = a
-if x:
-    x = b
+_dp_tmp_1 = a
+if _dp_tmp_1:
+    _dp_tmp_1 = b
+x = _dp_tmp_1
 "#
             .trim(),
         );
@@ -823,9 +812,10 @@ x = a or b
         assert_eq!(
             output.trim(),
             r#"
-x = a
-if getattr(__dp__, "not_")(x):
-    x = b
+_dp_tmp_1 = a
+if getattr(__dp__, "not_")(_dp_tmp_1):
+    _dp_tmp_1 = b
+x = _dp_tmp_1
 "#
             .trim(),
         );
