@@ -986,15 +986,16 @@ def _dp_gen_5(items):
     _dp_iter_6 = __dp__.iter(items)
     while True:
         try:
-            a = __dp__.next(_dp_iter_6)
+            a = __dp__.anext(_dp_iter_6)
         except:
-            _dp_exc_7 = __dp__.current_exception()
-            if __dp__.isinstance(_dp_exc_7, StopIteration):
+            if __dp__.isinstance(__dp__.current_exception(), StopIteration):
+                _ = __dp__.current_exception()
                 break
             else:
                 raise
-        if _dp_tmp_2:
-            yield _dp_tmp_3
+        else:
+            if _dp_tmp_2:
+                yield _dp_tmp_3
 _dp_tmp_4 = list(_dp_gen_5(__dp__.iter(items)))
 r = _dp_tmp_4
 "#;
@@ -1009,14 +1010,15 @@ def _dp_gen_1(items):
     _dp_iter_2 = __dp__.iter(items)
     while True:
         try:
-            a = __dp__.next(_dp_iter_2)
+            a = __dp__.anext(_dp_iter_2)
         except:
-            _dp_exc_3 = __dp__.current_exception()
-            if __dp__.isinstance(_dp_exc_3, StopIteration):
+            if __dp__.isinstance(__dp__.current_exception(), StopIteration):
+                _ = __dp__.current_exception()
                 break
             else:
                 raise
-        yield a
+        else:
+            yield a
 r = set(_dp_gen_1(__dp__.iter(items)))
 "#;
         assert_transform_eq(input, expected);
@@ -1034,15 +1036,16 @@ def _dp_gen_6(items):
     _dp_iter_7 = __dp__.iter(items)
     while True:
         try:
-            _dp_tmp_1 = __dp__.next(_dp_iter_7)
+            _dp_tmp_1 = __dp__.anext(_dp_iter_7)
         except:
-            _dp_exc_8 = __dp__.current_exception()
-            if __dp__.isinstance(_dp_exc_8, StopIteration):
+            if __dp__.isinstance(__dp__.current_exception(), StopIteration):
+                _ = __dp__.current_exception()
                 break
             else:
                 raise
-        if _dp_tmp_3:
-            yield k, _dp_tmp_4
+        else:
+            if _dp_tmp_3:
+                yield k, _dp_tmp_4
 _dp_tmp_5 = dict(_dp_gen_6(__dp__.iter(items)))
 r = _dp_tmp_5
 "#;
@@ -1057,24 +1060,26 @@ def _dp_gen_1(items):
     _dp_iter_2 = __dp__.iter(items)
     while True:
         try:
-            a = __dp__.next(_dp_iter_2)
+            a = __dp__.anext(_dp_iter_2)
         except:
-            _dp_exc_3 = __dp__.current_exception()
-            if __dp__.isinstance(_dp_exc_3, StopIteration):
+            if __dp__.isinstance(__dp__.current_exception(), StopIteration):
+                _ = __dp__.current_exception()
                 break
             else:
                 raise
-        _dp_iter_4 = __dp__.iter(items2)
-        while True:
-            try:
-                b = __dp__.next(_dp_iter_4)
-            except:
-                _dp_exc_5 = __dp__.current_exception()
-                if __dp__.isinstance(_dp_exc_5, StopIteration):
-                    break
+        else:
+            _dp_iter_3 = __dp__.iter(items2)
+            while True:
+                try:
+                    b = __dp__.anext(_dp_iter_3)
+                except:
+                    if __dp__.isinstance(__dp__.current_exception(), StopIteration):
+                        _ = __dp__.current_exception()
+                        break
+                    else:
+                        raise
                 else:
-                    raise
-            yield __dp__.mul(a, b)
+                    yield __dp__.mul(a, b)
 r = list(_dp_gen_1(__dp__.iter(items)))
 "#;
         assert_transform_eq(input, expected);
