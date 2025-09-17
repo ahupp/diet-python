@@ -1,14 +1,14 @@
 use super::context::Context;
 use ruff_python_ast::{self as ast, Stmt};
 
-use crate::{py_expr, py_stmt};
+use crate::py_stmt;
 
 pub fn rewrite(
     ast::StmtFor {
         target,
         iter,
         body,
-        mut orelse,
+        orelse,
         is_async,
         ..
     }: ast::StmtFor,
@@ -16,44 +16,45 @@ pub fn rewrite(
 ) -> Stmt {
     let iter_name = ctx.fresh("iter");
 
-    let (iter_fn, next_fn, stop_exc, await_) = if is_async {
-        (
-            py_expr!("__dp__.aiter"),
-            py_expr!("__dp__.anext"),
-            "StopAsyncIteration",
-            "await ",
-        )
-    } else {
-        (
-            py_expr!("__dp__.iter"),
-            py_expr!("__dp__.next"),
-            "StopIteration",
-            "",
-        )
-    };
-
-    orelse.push(py_stmt!("break"));
-
-    py_stmt!(
-        r#"
-{iter_name:id} = {iter_fn:expr}({iter:expr})
+    if is_async {
+        py_stmt!(
+            r#"
+{iter_name:id} = __dp__.aiter({iter:expr})
 while True:
     try:
-        {target:expr} = {await_:id}{next_fn:expr}({iter_name:id})
-    except {stop_exc:id}:
+        {target:expr} = await __dp__.anext({iter_name:id})
+    except StopAsyncIteration:
         {orelse:stmt}
-    {body:stmt}
-"#,
-        iter_name = iter_name.as_str(),
-        iter_fn = iter_fn,
-        iter = iter,
-        target = target,
-        await_ = await_,
-        next_fn = next_fn,
-        stop_exc = stop_exc,
-        orelse = orelse,
-        body = body,
-    )
+        break
+    else:
+        {body:stmt}
+    "#,
+            iter_name = iter_name.as_str(),
+            iter = iter,
+            target = target,
+            orelse = orelse,
+            body = body,
+        )
+    } else {
+        py_stmt!(
+            r#"
+{iter_name:id} = __dp__.iter({iter:expr})
+while True:
+    try:
+        {target:expr} = __dp__.anext({iter_name:id})
+    except StopIteration:
+        {orelse:stmt}
+        break
+    else:
+        {body:stmt}
+    "#,
+            iter_name = iter_name.as_str(),
+            iter = iter,
+            target = target,
+            orelse = orelse,
+            body = body,
+        )
+    }
 }
 
 #[cfg(test)]

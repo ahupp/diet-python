@@ -1,105 +1,72 @@
 use super::context::Context;
 use ruff_python_ast::{self as ast, Stmt};
 
-use crate::py_stmt;
+use crate::{py_expr, py_stmt};
 
 pub fn rewrite(
     ast::StmtWith {
         items,
-        body,
+        mut body,
         is_async,
         ..
     }: ast::StmtWith,
     ctx: &Context,
 ) -> Stmt {
     if items.is_empty() {
-        return py_stmt!(
-            "
-pass
-"
-        );
+        return py_stmt!("pass");
     }
 
-    let is_async_stmt = is_async;
-    let mut body_stmts = body;
-
-    let mut work = Vec::new();
-    for item in items {
-        let ctx_name = ctx.fresh("ctx");
-        let enter_name = ctx.fresh("enter");
-        let exit_name = ctx.fresh("exit");
-        work.push((item, ctx_name, enter_name, exit_name));
-    }
-
-    for (
-        ast::WithItem {
-            context_expr,
-            optional_vars,
-            ..
-        },
-        ctx_name,
-        enter_name,
-        exit_name,
-    ) in work.into_iter().rev()
+    for ast::WithItem {
+        context_expr,
+        optional_vars,
+        ..
+    } in items.into_iter().rev()
     {
-        let ctx_assign = py_stmt!(
-            "{ctx_var:id} = {ctx:expr}",
-            ctx_var = ctx_name.as_str(),
-            ctx = context_expr,
-        );
-
-        let (enter_method, exit_method, await_) = if is_async_stmt {
-            ("__aenter__", "__aexit__", "await ")
+        let target = if let Some(var) = optional_vars {
+            *var
         } else {
-            ("__enter__", "__exit__", "")
+            py_expr!("_")
         };
 
-        let pre_stmt = if let Some(var) = optional_vars {
+        let wrapper = if is_async {
             py_stmt!(
-                "{var:expr} = {await_:id}{enter:id}({ctx_var:id})",
-                var = *var,
-                await_ = await_,
-                enter = enter_name.as_str(),
-                ctx_var = ctx_name.as_str(),
-            )
-        } else {
-            py_stmt!(
-                "{await_:id}{enter:id}({ctx_var:id})",
-                await_ = await_,
-                enter = enter_name.as_str(),
-                ctx_var = ctx_name.as_str(),
-            )
-        };
-
-        let wrapper = py_stmt!(
-            "
-{ctx_assign:stmt}
-{enter:id} = type({ctx_var:id}).{enter_method:id}
-{exit:id} = type({ctx_var:id}).{exit_method:id}
-{pre:stmt}
+                r#"
+{awith_state:id} = __dp__.with_aenter({ctx:expr})
+({target:expr}, _) = awith_state
 try:
     {body:stmt}
 except:
-    if not {await_:id}{exit:id}({ctx_var:id}, *__dp__.exc_info()):
-        raise
+    await __dp__.with_aexit(awith_state, __dp__.exc_info())
 else:
-    {await_:id}{exit:id}({ctx_var:id}, None, None, None)
-",
-            ctx_assign = ctx_assign,
-            enter = enter_name.as_str(),
-            exit = exit_name.as_str(),
-            ctx_var = ctx_name.as_str(),
-            enter_method = enter_method,
-            exit_method = exit_method,
-            await_ = await_,
-            pre = pre_stmt,
-            body = body_stmts,
-        );
-
-        body_stmts = vec![wrapper];
+    await __dp__.with_aexit(awith_state, None)
+"#,
+                awith_state = ctx.fresh("awith_state"),
+                ctx = context_expr,
+                target = target,
+                body = body,
+            )
+        } else {
+            py_stmt!(
+                r#"
+{with_state:id} = __dp__.with_enter({ctx:expr})
+({target:expr}, _) = with_state
+try:
+    {body:stmt}
+except:
+    __dp__.with_exit(with_state, __dp__.exc_info())
+else:
+    __dp__.with_exit(with_state, None)
+"#,
+                with_state = ctx.fresh("with_state"),
+                ctx = context_expr,
+                target = target,
+                body = body,
+            )
+        };
+        body = vec![wrapper];
     }
 
-    body_stmts.into_iter().next().unwrap()
+    body.into_iter().next().unwrap()
 }
 
 #[cfg(test)]
