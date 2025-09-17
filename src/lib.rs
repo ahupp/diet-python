@@ -77,10 +77,7 @@ fn apply_transforms(module: &mut ModModule, options: Options) {
 }
 
 /// Transform the source code and return the resulting string.
-fn transform_to_string_with_options(
-    source: &str,
-    options: Options,
-) -> Result<String, ParseError> {
+fn transform_to_string_with_options(source: &str, options: Options) -> Result<String, ParseError> {
     let module = transform_str_to_ruff_with_options(source, options)?;
     Ok(ruff_ast_to_string(&module.body))
 }
@@ -171,8 +168,12 @@ pub fn available_transforms() -> Array {
     let out = Array::new();
     for transform in TRANSFORM_TOGGLES {
         let obj = Object::new();
-        Reflect::set(&obj, &JsValue::from_str("id"), &JsValue::from_str(transform.id))
-            .expect("id property set");
+        Reflect::set(
+            &obj,
+            &JsValue::from_str("id"),
+            &JsValue::from_str(transform.id),
+        )
+        .expect("id property set");
         Reflect::set(
             &obj,
             &JsValue::from_str("label"),

@@ -162,28 +162,19 @@ list({slice:expr})",
                             slice = slice_expr,
                         ),
                     };
-                    let mut elt_stmt = py_stmt!(
-                        "
-{target:expr} = {value:expr}",
-                        target = *value,
-                        value = collection_expr,
-                    );
-                    walk_stmt(self, &mut elt_stmt);
-                    out.push(elt_stmt);
+                    self.rewrite_target(*value, collection_expr, out);
                 }
                 Expr::Starred(_) => {
                     panic!("unsupported starred assignment target");
                 }
                 _ => {
-                    let mut elt_stmt = py_stmt!(
+                    let value = py_expr!(
                         "
-{target:expr} = __dp__.getitem({tmp:expr}, {idx:literal})",
-                        target = elt,
+__dp__.getitem({tmp:expr}, {idx:literal})",
                         tmp = tmp_expr.clone(),
                         idx = i,
                     );
-                    walk_stmt(self, &mut elt_stmt);
-                    out.push(elt_stmt);
+                    self.rewrite_target(elt, value, out);
                 }
             }
         }
@@ -191,11 +182,7 @@ list({slice:expr})",
 }
 
 fn make_tuple_splat(tuple: ast::ExprTuple) -> Expr {
-    if !tuple
-        .elts
-        .iter()
-        .any(|elt| matches!(elt, Expr::Starred(_)))
-    {
+    if !tuple.elts.iter().any(|elt| matches!(elt, Expr::Starred(_))) {
         return Expr::Tuple(tuple);
     }
 
