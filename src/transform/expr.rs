@@ -58,20 +58,10 @@ __dp__.truth({expr:expr})
     fn rewrite_target(&self, target: Expr, value: Expr, out: &mut Vec<Stmt>) {
         match target {
             Expr::Tuple(tuple) => {
-                self.rewrite_unpack_target(
-                    tuple.elts,
-                    value,
-                    out,
-                    UnpackTargetKind::Tuple,
-                );
+                self.rewrite_unpack_target(tuple.elts, value, out, UnpackTargetKind::Tuple);
             }
             Expr::List(list) => {
-                self.rewrite_unpack_target(
-                    list.elts,
-                    value,
-                    out,
-                    UnpackTargetKind::List,
-                );
+                self.rewrite_unpack_target(list.elts, value, out, UnpackTargetKind::List);
             }
             Expr::Attribute(attr) => {
                 let obj = (*attr.value).clone();
@@ -291,19 +281,58 @@ impl<'a> Transformer for ExprRewriter<'a> {
                 let tuple = make_tuple(elts);
                 py_expr!("set({tuple:expr})", tuple = tuple,)
             }
-            Expr::Dict(ast::ExprDict { items, .. })
-                if items.iter().all(|item| item.key.is_some()) =>
-            {
-                let pairs: Vec<Expr> = items
-                    .into_iter()
-                    .map(|item| {
-                        let key = item.key.unwrap();
+            Expr::Dict(ast::ExprDict { items, .. }) => {
+                let mut iter = items.into_iter().peekable();
+                let mut segments: Vec<Expr> = Vec::new();
+
+                loop {
+                    let mut keyed_pairs = Vec::new();
+                    while matches!(iter.peek(), Some(ast::DictItem { key: Some(_), .. })) {
+                        let item = iter.next().expect("peeked item should exist");
+                        let key = item.key.expect("peek guaranteed key");
                         let value = item.value;
-                        py_expr!("({key:expr}, {value:expr})", key = key, value = value,)
-                    })
-                    .collect();
-                let tuple = make_tuple(pairs);
-                py_expr!("dict({tuple:expr})", tuple = tuple,)
+                        keyed_pairs.push(py_expr!(
+                            "({key:expr}, {value:expr})",
+                            key = key,
+                            value = value,
+                        ));
+                    }
+
+                    if !keyed_pairs.is_empty() {
+                        let tuple = make_tuple(keyed_pairs);
+                        segments.push(py_expr!("dict({tuple:expr})", tuple = tuple));
+                    }
+
+                    let Some(item) = iter.next() else {
+                        break;
+                    };
+
+                    if let Some(key) = item.key {
+                        let pair =
+                            py_expr!("({key:expr}, {value:expr})", key = key, value = item.value,);
+                        let tuple = make_tuple(vec![pair]);
+                        segments.push(py_expr!("dict({tuple:expr})", tuple = tuple));
+                    } else {
+                        segments.push(py_expr!("dict({mapping:expr})", mapping = item.value));
+                    }
+                }
+
+                match segments.len() {
+                    0 => {
+                        let tuple = make_tuple(Vec::new());
+                        py_expr!("dict({tuple:expr})", tuple = tuple)
+                    }
+                    1 => segments.into_iter().next().unwrap(),
+                    _ => {
+                        let mut parts = segments.into_iter();
+                        let mut expr = parts.next().expect("segments is non-empty");
+                        for part in parts {
+                            expr =
+                                py_expr!("{left:expr} | {right:expr}", left = expr, right = part,);
+                        }
+                        expr
+                    }
+                }
             }
             Expr::BinOp(ast::ExprBinOp {
                 left, right, op, ..
@@ -920,6 +949,27 @@ a = set((1, 2, 3))
         let expected = r#"
 a = dict((('a', 1), ('b', 2)))
 "#;
+        assert_transform_eq(input, expected);
+    }
+
+    #[test]
+    fn rewrites_dict_literal_with_unpacking() {
+        let input = "a = {'a': 1, **b, 'c': 2}";
+        let expected = "a = __dp__.or_(__dp__.or_(dict((('a', 1),)), dict(b)), dict((('c', 2),)))";
+        assert_transform_eq(input, expected);
+    }
+
+    #[test]
+    fn rewrites_dict_literal_with_leading_unpacking() {
+        let input = "a = {**b, 'c': 2}";
+        let expected = "a = __dp__.or_(dict(b), dict((('c', 2),)))";
+        assert_transform_eq(input, expected);
+    }
+
+    #[test]
+    fn rewrites_dict_literal_with_only_unpacking() {
+        let input = "a = {**b}";
+        let expected = "a = dict(b)";
         assert_transform_eq(input, expected);
     }
 
