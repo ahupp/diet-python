@@ -366,12 +366,10 @@ def _dp_gen_1(items):
         try:
             i = __dp__.next(_dp_iter_2)
         except:
-            _dp_exc_3 = __dp__.current_exception()
-            if __dp__.isinstance(_dp_exc_3, StopIteration):
-                break
-            else:
-                raise
-        yield i
+            __dp__.check_stopiteration()
+            break
+        else:
+            yield i
 x = _dp_gen_1(__dp__.iter(items))
 "#;
 

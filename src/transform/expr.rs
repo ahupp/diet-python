@@ -58,64 +58,10 @@ __dp__.truth({expr:expr})
     fn rewrite_target(&self, target: Expr, value: Expr, out: &mut Vec<Stmt>) {
         match target {
             Expr::Tuple(tuple) => {
-                let tmp_name = self.ctx.fresh("tmp");
-                let tmp_expr = py_expr!(
-                    "
-{name:id}
-",
-                    name = tmp_name.as_str(),
-                );
-                let mut tmp_stmt = py_stmt!(
-                    "
-{name:id} = {value:expr}
-",
-                    name = tmp_name.as_str(),
-                    value = value,
-                );
-                walk_stmt(self, &mut tmp_stmt);
-                out.push(tmp_stmt);
-                for (i, elt) in tuple.elts.into_iter().enumerate() {
-                    let mut elt_stmt = py_stmt!(
-                        "
-{target:expr} = {tmp:expr}[{idx:literal}]
-",
-                        target = elt,
-                        tmp = tmp_expr.clone(),
-                        idx = i,
-                    );
-                    walk_stmt(self, &mut elt_stmt);
-                    out.push(elt_stmt);
-                }
+                self.rewrite_unpack_target(tuple.elts, value, out);
             }
             Expr::List(list) => {
-                let tmp_name = self.ctx.fresh("tmp");
-                let tmp_expr = py_expr!(
-                    "
-{name:id}
-",
-                    name = tmp_name.as_str(),
-                );
-                let mut tmp_stmt = py_stmt!(
-                    "
-{name:id} = {value:expr}
-",
-                    name = tmp_name.as_str(),
-                    value = value,
-                );
-                walk_stmt(self, &mut tmp_stmt);
-                out.push(tmp_stmt);
-                for (i, elt) in list.elts.into_iter().enumerate() {
-                    let mut elt_stmt = py_stmt!(
-                        "
-{target:expr} = {tmp:expr}[{idx:literal}]
-",
-                        target = elt,
-                        tmp = tmp_expr.clone(),
-                        idx = i,
-                    );
-                    walk_stmt(self, &mut elt_stmt);
-                    out.push(elt_stmt);
-                }
+                self.rewrite_unpack_target(list.elts, value, out);
             }
             Expr::Attribute(attr) => {
                 let obj = (*attr.value).clone();
@@ -158,6 +104,46 @@ __dp__.setitem({obj:expr}, {key:expr}, {value:expr})
             _ => {
                 panic!("unsupported assignment target");
             }
+        }
+    }
+
+    fn rewrite_unpack_target(&self, elts: Vec<Expr>, value: Expr, out: &mut Vec<Stmt>) {
+        let (tmp_expr, tmp_stmt) = match value {
+            Expr::Name(_) => (value, None),
+            other => {
+                let tmp_name = self.ctx.fresh("tmp");
+                let mut stmt = py_stmt!(
+                    "
+{name:id} = {value:expr}",
+                    name = tmp_name.as_str(),
+                    value = other,
+                );
+                walk_stmt(self, &mut stmt);
+                (
+                    py_expr!(
+                        "
+{name:id}",
+                        name = tmp_name.as_str(),
+                    ),
+                    Some(stmt),
+                )
+            }
+        };
+
+        if let Some(stmt) = tmp_stmt {
+            out.push(stmt);
+        }
+
+        for (i, elt) in elts.into_iter().enumerate() {
+            let mut elt_stmt = py_stmt!(
+                "
+{target:expr} = __dp__.getitem({tmp:expr}, {idx:literal})",
+                target = elt,
+                tmp = tmp_expr.clone(),
+                idx = i,
+            );
+            walk_stmt(self, &mut elt_stmt);
+            out.push(elt_stmt);
         }
     }
 }
@@ -342,10 +328,11 @@ impl<'a> Transformer for ExprRewriter<'a> {
             Stmt::With(with) => rewrite_with::rewrite(with.clone(), self.ctx),
             Stmt::Assert(assert) => rewrite_assert::rewrite(assert.clone()),
             Stmt::ClassDef(class_def) => {
-                let mut base_stmt = rewrite_class_def::rewrite(class_def.clone());
+                let decorated = !class_def.decorator_list.is_empty();
+                let mut base_stmt = rewrite_class_def::rewrite(class_def.clone(), decorated);
                 self.visit_stmt(&mut base_stmt);
                 let class_name = class_def.name.id.clone();
-                if !class_def.decorator_list.is_empty() {
+                if decorated {
                     let decorators = class_def.decorator_list.clone();
                     let base_name = format!("_dp_class_{}", class_name);
                     rewrite_decorator::rewrite(
@@ -928,9 +915,8 @@ a = dict((('a', 1), ('b', 2)))
     fn desugars_tuple_unpacking() {
         let input = "a, b = c";
         let expected = r#"
-_dp_tmp_1 = c
-a = __dp__.getitem(_dp_tmp_1, 0)
-b = __dp__.getitem(_dp_tmp_1, 1)
+a = __dp__.getitem(c, 0)
+b = __dp__.getitem(c, 1)
 "#;
         assert_transform_eq(input, expected);
     }
@@ -939,9 +925,8 @@ b = __dp__.getitem(_dp_tmp_1, 1)
     fn desugars_list_unpacking() {
         let input = "[a, b] = c";
         let expected = r#"
-_dp_tmp_1 = c
-a = __dp__.getitem(_dp_tmp_1, 0)
-b = __dp__.getitem(_dp_tmp_1, 1)
+a = __dp__.getitem(c, 0)
+b = __dp__.getitem(c, 1)
 "#;
         assert_transform_eq(input, expected);
     }
@@ -988,13 +973,11 @@ def _dp_gen_5(items):
         try:
             a = __dp__.next(_dp_iter_6)
         except:
-            _dp_exc_7 = __dp__.current_exception()
-            if __dp__.isinstance(_dp_exc_7, StopIteration):
-                break
-            else:
-                raise
-        if _dp_tmp_2:
-            yield _dp_tmp_3
+            __dp__.check_stopiteration()
+            break
+        else:
+            if _dp_tmp_2:
+                yield _dp_tmp_3
 _dp_tmp_4 = list(_dp_gen_5(__dp__.iter(items)))
 r = _dp_tmp_4
 "#;
@@ -1011,12 +994,10 @@ def _dp_gen_1(items):
         try:
             a = __dp__.next(_dp_iter_2)
         except:
-            _dp_exc_3 = __dp__.current_exception()
-            if __dp__.isinstance(_dp_exc_3, StopIteration):
-                break
-            else:
-                raise
-        yield a
+            __dp__.check_stopiteration()
+            break
+        else:
+            yield a
 r = set(_dp_gen_1(__dp__.iter(items)))
 "#;
         assert_transform_eq(input, expected);
@@ -1036,13 +1017,11 @@ def _dp_gen_6(items):
         try:
             _dp_tmp_1 = __dp__.next(_dp_iter_7)
         except:
-            _dp_exc_8 = __dp__.current_exception()
-            if __dp__.isinstance(_dp_exc_8, StopIteration):
-                break
-            else:
-                raise
-        if _dp_tmp_3:
-            yield k, _dp_tmp_4
+            __dp__.check_stopiteration()
+            break
+        else:
+            if _dp_tmp_3:
+                yield k, _dp_tmp_4
 _dp_tmp_5 = dict(_dp_gen_6(__dp__.iter(items)))
 r = _dp_tmp_5
 "#;
@@ -1059,22 +1038,18 @@ def _dp_gen_1(items):
         try:
             a = __dp__.next(_dp_iter_2)
         except:
-            _dp_exc_3 = __dp__.current_exception()
-            if __dp__.isinstance(_dp_exc_3, StopIteration):
-                break
-            else:
-                raise
-        _dp_iter_4 = __dp__.iter(items2)
-        while True:
-            try:
-                b = __dp__.next(_dp_iter_4)
-            except:
-                _dp_exc_5 = __dp__.current_exception()
-                if __dp__.isinstance(_dp_exc_5, StopIteration):
+            __dp__.check_stopiteration()
+            break
+        else:
+            _dp_iter_3 = __dp__.iter(items2)
+            while True:
+                try:
+                    b = __dp__.next(_dp_iter_3)
+                except:
+                    __dp__.check_stopiteration()
                     break
                 else:
-                    raise
-            yield __dp__.mul(a, b)
+                    yield __dp__.mul(a, b)
 r = list(_dp_gen_1(__dp__.iter(items)))
 "#;
         assert_transform_eq(input, expected);

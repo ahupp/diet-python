@@ -23,7 +23,8 @@ pub fn rewrite(
 while True:
     try:
         {target:expr} = await __dp__.anext({iter_name:id})
-    except StopAsyncIteration:
+    except:
+        __dp__.acheck_stopiteration()
         {orelse:stmt}
         break
     else:
@@ -41,8 +42,9 @@ while True:
 {iter_name:id} = __dp__.iter({iter:expr})
 while True:
     try:
-        {target:expr} = __dp__.anext({iter_name:id})
-    except StopIteration:
+        {target:expr} = __dp__.next({iter_name:id})
+    except:
+        __dp__.check_stopiteration()
         {orelse:stmt}
         break
     else:
@@ -76,14 +78,12 @@ while True:
     try:
         a = __dp__.next(_dp_iter_1)
     except:
-        _dp_exc_2 = __dp__.current_exception()
-        if __dp__.isinstance(_dp_exc_2, StopIteration):
-            c()
-            break
-        else:
-            raise
-    if cond:
+        __dp__.check_stopiteration()
+        c()
         break
+    else:
+        if cond:
+            break
 "#;
         assert_transform_eq(input, expected);
     }
@@ -100,12 +100,10 @@ while True:
     try:
         a = __dp__.next(_dp_iter_1)
     except:
-        _dp_exc_2 = __dp__.current_exception()
-        if __dp__.isinstance(_dp_exc_2, StopIteration):
-            break
-        else:
-            raise
-    c(a)
+        __dp__.check_stopiteration()
+        break
+    else:
+        c(a)
 "#;
 
         assert_transform_eq(input, expected);
@@ -128,14 +126,12 @@ async def f():
         try:
             a = await __dp__.anext(_dp_iter_1)
         except:
-            _dp_exc_2 = __dp__.current_exception()
-            if __dp__.isinstance(_dp_exc_2, StopAsyncIteration):
-                c()
-                break
-            else:
-                raise
-        if cond:
+            __dp__.acheck_stopiteration()
+            c()
             break
+        else:
+            if cond:
+                break
 "#;
         assert_transform_eq(input, expected);
     }
