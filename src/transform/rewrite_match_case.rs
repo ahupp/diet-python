@@ -268,13 +268,18 @@ match x:
 "#;
         let expected = r#"
 _dp_match_1 = x
-if __dp__.eq(_dp_match_1, 1):
-    a()
+_dp_tmp_2 = __dp__.eq(_dp_match_1, 1)
+if _dp_tmp_2:
+    _dp_tmp_3 = a()
+    _dp_tmp_3
 else:
-    if __dp__.eq(_dp_match_1, 2):
-        b()
+    _dp_tmp_4 = __dp__.eq(_dp_match_1, 2)
+    if _dp_tmp_4:
+        _dp_tmp_5 = b()
+        _dp_tmp_5
     else:
-        c()
+        _dp_tmp_6 = c()
+        _dp_tmp_6
 "#;
         assert_transform_eq(input, expected);
     }
@@ -341,10 +346,13 @@ match x:
 "#;
         let expected = r#"
 _dp_match_1 = x
-if __dp__.is_(_dp_match_1, None):
-    a()
+_dp_tmp_2 = __dp__.is_(_dp_match_1, None)
+if _dp_tmp_2:
+    _dp_tmp_3 = a()
+    _dp_tmp_3
 else:
-    b()
+    _dp_tmp_4 = b()
+    _dp_tmp_4
 "#;
         assert_transform_eq(input, expected);
     }
@@ -360,11 +368,14 @@ match x:
 "#;
         let expected = r#"
 _dp_match_1 = x
-if __dp__.eq(_dp_match_1, 1):
+_dp_tmp_2 = __dp__.eq(_dp_match_1, 1)
+if _dp_tmp_2:
     y = _dp_match_1
-    a()
+    _dp_tmp_3 = a()
+    _dp_tmp_3
 else:
-    b()
+    _dp_tmp_4 = b()
+    _dp_tmp_4
 "#;
         assert_transform_eq(input, expected);
     }
@@ -380,11 +391,14 @@ match x:
 "#;
         let expected = r#"
 _dp_match_1 = x
-if __dp__.eq(_dp_match_1, 1):
-    a()
+_dp_tmp_2 = __dp__.eq(_dp_match_1, 1)
+if _dp_tmp_2:
+    _dp_tmp_3 = a()
+    _dp_tmp_3
 else:
     y = _dp_match_1
-    b()
+    _dp_tmp_4 = b()
+    _dp_tmp_4
 "#;
         assert_transform_eq(input, expected);
     }

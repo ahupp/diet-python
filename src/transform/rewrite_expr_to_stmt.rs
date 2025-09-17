@@ -1,11 +1,11 @@
 use std::cell::RefCell;
 
 use super::context::Context;
-use crate::template::single_stmt;
+use crate::template::{make_binop, make_unaryop, single_stmt};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::name::Name;
 use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
-use ruff_python_ast::{self as ast, Expr, Stmt};
+use ruff_python_ast::{self as ast, CmpOp, Expr, Stmt};
 use ruff_text_size::TextRange;
 
 pub(crate) struct LambdaGeneratorLowerer<'ctx> {
@@ -186,6 +186,63 @@ pub(crate) fn expr_boolop_to_stmts(target: &str, bool_op: ast::ExprBoolOp) -> Ve
     stmts
 }
 
+pub(crate) fn expr_compare_to_stmts(target: &str, compare: ast::ExprCompare) -> Vec<Stmt> {
+    let ast::ExprCompare {
+        left,
+        ops,
+        comparators,
+        ..
+    } = compare;
+
+    let mut ops = ops.into_vec().into_iter();
+    let mut comparators = comparators.into_vec().into_iter();
+
+    let first_op = ops
+        .next()
+        .expect("compare expects at least one comparison operator");
+    let first_comparator = comparators
+        .next()
+        .expect("compare expects at least one comparator");
+
+    let mut stmts = vec![assign_to_target(
+        target,
+        compare_expr(first_op, *left, first_comparator.clone()),
+    )];
+
+    let mut current_left = first_comparator;
+
+    for (op, comparator) in ops.zip(comparators) {
+        let body_stmt = assign_to_target(
+            target,
+            compare_expr(op, current_left.clone(), comparator.clone()),
+        );
+        let stmt = py_stmt!(
+            "\nif {test:expr}:\n    {body:stmt}",
+            test = target_expr(target),
+            body = body_stmt,
+        );
+        stmts.push(stmt);
+        current_left = comparator;
+    }
+
+    stmts
+}
+
+fn compare_expr(op: CmpOp, left: Expr, right: Expr) -> Expr {
+    match op {
+        CmpOp::Eq => make_binop("eq", left, right),
+        CmpOp::NotEq => make_binop("ne", left, right),
+        CmpOp::Lt => make_binop("lt", left, right),
+        CmpOp::LtE => make_binop("le", left, right),
+        CmpOp::Gt => make_binop("gt", left, right),
+        CmpOp::GtE => make_binop("ge", left, right),
+        CmpOp::Is => make_binop("is_", left, right),
+        CmpOp::IsNot => make_binop("is_not", left, right),
+        CmpOp::In => make_binop("contains", right, left),
+        CmpOp::NotIn => make_unaryop("not_", make_binop("contains", right, left)),
+    }
+}
+
 fn assign_to_target(target: &str, value: Expr) -> Stmt {
     py_stmt!(
         "\n{target:id} = {value:expr}",
@@ -231,6 +288,45 @@ _dp_tmp_1 = a
 if _dp_tmp_1:
     _dp_tmp_1 = b
 _dp_tmp_1
+"#;
+
+        assert_transform_eq(input, expected);
+    }
+
+    #[test]
+    fn rewrites_simple_compare_assignment() {
+        let input = "x = a == b";
+        let expected = r#"
+_dp_tmp_1 = __dp__.eq(a, b)
+x = _dp_tmp_1
+"#;
+
+        assert_transform_eq(input, expected);
+    }
+
+    #[test]
+    fn rewrites_chained_compare_assignment() {
+        let input = "x = a < b < c";
+        let expected = r#"
+_dp_tmp_1 = __dp__.lt(a, b)
+if _dp_tmp_1:
+    _dp_tmp_1 = __dp__.lt(b, c)
+x = _dp_tmp_1
+"#;
+
+        assert_transform_eq(input, expected);
+    }
+
+    #[test]
+    fn rewrites_multi_chained_compare_assignment() {
+        let input = "x = a < b <= c < d";
+        let expected = r#"
+_dp_tmp_1 = __dp__.lt(a, b)
+if _dp_tmp_1:
+    _dp_tmp_1 = __dp__.le(b, c)
+if _dp_tmp_1:
+    _dp_tmp_1 = __dp__.lt(c, d)
+x = _dp_tmp_1
 "#;
 
         assert_transform_eq(input, expected);
