@@ -47,6 +47,7 @@ const TRANSFORM_TOGGLES: &[TransformToggle] = &[
     },
 ];
 
+pub mod body_transform;
 pub mod ensure_import;
 pub mod intrinsics;
 pub mod min_ast;
