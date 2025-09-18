@@ -1,0 +1,71 @@
+$ rewrites with statement
+
+with a as b:
+    c
+=
+_dp_tmp_2 = __dp__.with_enter(a)
+b = __dp__.getitem(_dp_tmp_2, 0)
+_dp_with_exit_1 = __dp__.getitem(_dp_tmp_2, 1)
+try:
+    c
+except:
+    __dp__.with_exit(_dp_with_exit_1, __dp__.exc_info())
+else:
+    __dp__.with_exit(_dp_with_exit_1, None)
+
+$ rewrites multiple with statement
+
+with a as b, c as d:
+    e
+=
+_dp_tmp_3 = __dp__.with_enter(a)
+b = __dp__.getitem(_dp_tmp_3, 0)
+_dp_with_exit_2 = __dp__.getitem(_dp_tmp_3, 1)
+try:
+    _dp_tmp_4 = __dp__.with_enter(c)
+    d = __dp__.getitem(_dp_tmp_4, 0)
+    _dp_with_exit_1 = __dp__.getitem(_dp_tmp_4, 1)
+    try:
+        e
+    except:
+        __dp__.with_exit(_dp_with_exit_1, __dp__.exc_info())
+    else:
+        __dp__.with_exit(_dp_with_exit_1, None)
+except:
+    __dp__.with_exit(_dp_with_exit_2, __dp__.exc_info())
+else:
+    __dp__.with_exit(_dp_with_exit_2, None)
+
+$ rewrites async with statement
+
+async def f():
+    async with a as b:
+        c
+=
+async def f():
+    _dp_tmp_2 = await __dp__.with_aenter(a)
+    b = __dp__.getitem(_dp_tmp_2, 0)
+    _dp_awith_exit_1 = __dp__.getitem(_dp_tmp_2, 1)
+    try:
+        c
+    except:
+        await __dp__.with_aexit(_dp_awith_exit_1, __dp__.exc_info())
+    else:
+        await __dp__.with_aexit(_dp_awith_exit_1, None)
+
+$ rewrites with starred target
+
+with a as (b, *c):
+    pass
+=
+_dp_tmp_2 = __dp__.with_enter(a)
+_dp_tmp_3 = __dp__.getitem(_dp_tmp_2, 0)
+b = __dp__.getitem(_dp_tmp_3, 0)
+c = tuple(__dp__.getitem(_dp_tmp_3, slice(1, None, None)))
+_dp_with_exit_1 = __dp__.getitem(_dp_tmp_2, 1)
+try:
+    pass
+except:
+    __dp__.with_exit(_dp_with_exit_1, __dp__.exc_info())
+else:
+    __dp__.with_exit(_dp_with_exit_1, None)

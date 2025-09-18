@@ -24,9 +24,8 @@ pub(crate) fn assert_transform_eq_ex(actual: &str, expected: &str, truthy: bool)
     let expected_stmt: Vec<_> = expected_ast.iter().map(ComparableStmt::from).collect();
 
     if actual_stmt != expected_stmt {
-        println!("actual:\n {}", actual_str);
-        println!("expected:\n {}", expected);
-        assert!(false, "actual and expected are not equal");
+        let message = format!("expected:\n{expected}\nactual:\n{actual_str}");
+        panic!("{message}");
     }
 }
 
@@ -71,8 +70,133 @@ pub(crate) fn assert_transform_eq_truthy(actual: &str, expected: &str) {
     assert_transform_eq_ex(actual, expected, true);
 }
 
+pub(crate) fn run_transform_fixture_tests(fixture: &str) {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    #[derive(Default)]
+    struct Block {
+        name: String,
+        input: String,
+        output: String,
+        seen_separator: bool,
+    }
+
+    enum Section {
+        Waiting,
+        Block(Block),
+    }
+
+    let mut section = Section::Waiting;
+
+    let finalize = |block: Block| {
+        if !block.seen_separator {
+            panic!(
+                "missing `=` separator in transform fixture `{}`",
+                block.name
+            );
+        }
+
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            assert_transform_eq(block.input.as_str(), block.output.as_str());
+        }));
+
+        if let Err(err) = result {
+            let message = match err.downcast::<String>() {
+                Ok(msg) => Some(*msg),
+                Err(err) => match err.downcast::<&'static str>() {
+                    Ok(msg) => Some((*msg).to_string()),
+                    Err(_) => None,
+                },
+            };
+
+            if let Some(message) = message {
+                panic!("transform fixture `{}` failed: {}", block.name, message);
+            } else {
+                panic!("transform fixture `{}` failed", block.name);
+            }
+        }
+    };
+
+    for raw_line in fixture.split_inclusive('\n') {
+        let mut line = raw_line;
+        let has_newline = line.ends_with('\n');
+        if has_newline {
+            line = &line[..line.len() - 1];
+        }
+        if line.ends_with('\r') {
+            line = &line[..line.len() - 1];
+        }
+
+        let trimmed = line.trim_end();
+        if trimmed.starts_with('$') && trimmed.get(..2) == Some("$ ") {
+            if let Section::Block(block) = std::mem::replace(&mut section, Section::Waiting) {
+                finalize(block);
+            }
+
+            let name = trimmed[2..].trim().to_string();
+            section = Section::Block(Block {
+                name,
+                ..Block::default()
+            });
+            continue;
+        }
+
+        match &mut section {
+            Section::Waiting => {
+                if !trimmed.is_empty() {
+                    panic!(
+                        "unexpected content outside of transform fixtures: `{}`",
+                        line
+                    );
+                }
+            }
+            Section::Block(block) => {
+                if trimmed == "=" && line.trim() == "=" {
+                    if block.seen_separator {
+                        panic!(
+                            "multiple `=` separators found in transform fixture `{}`",
+                            block.name
+                        );
+                    }
+                    block.seen_separator = true;
+                } else if block.seen_separator {
+                    block.output.push_str(line);
+                    if has_newline {
+                        block.output.push('\n');
+                    }
+                } else {
+                    block.input.push_str(line);
+                    if has_newline {
+                        block.input.push('\n');
+                    }
+                }
+            }
+        }
+    }
+
+    if let Section::Block(block) = section {
+        finalize(block);
+    }
+}
+
 pub(crate) fn assert_ast_eq(actual: &[Stmt], expected: &[Stmt]) {
     let actual_stmt: Vec<_> = actual.iter().map(ComparableStmt::from).collect();
     let expected_stmt: Vec<_> = expected.iter().map(ComparableStmt::from).collect();
     assert_eq!(actual_stmt, expected_stmt);
+}
+
+#[macro_export]
+macro_rules! transform_fixture_test {
+    ($path:literal) => {
+        #[test]
+        fn transform_fixture() {
+            $crate::test_util::run_transform_fixture_tests(include_str!($path));
+        }
+    };
+    ($name:ident, $path:literal) => {
+        #[test]
+        fn $name() {
+            $crate::test_util::run_transform_fixture_tests(include_str!($path));
+        }
+    };
 }

@@ -1,0 +1,27 @@
+$ rewrites basic import
+
+import a
+=
+a = __dp__.import_("a", __spec__)
+
+$ rewrites from import
+
+from a.b import c
+=
+c = __dp__.import_("a.b", __spec__, list(("c",))).c
+
+$ rewrites relative import
+
+from ..a import b
+=
+b = __dp__.import_("a", __spec__, list(("b",)), 2).b
+
+$ inserts after future and docstring
+
+"doc"
+from __future__ import annotations
+x = 1
+=
+"doc"
+annotations = __dp__.import_("__future__", __spec__, list(("annotations",))).annotations
+x = 1

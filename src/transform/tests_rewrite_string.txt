@@ -1,0 +1,11 @@
+$ desugars fstring
+
+f"x={x}"
+=
+"".join(("x=", str(x)))
+
+$ desugars tstring
+
+t"x={x}"
+=
+"".join(("x=", str(x)))

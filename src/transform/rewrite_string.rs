@@ -49,27 +49,5 @@ pub fn rewrite_tstring(expr: ast::ExprTString) -> Expr {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_util::assert_transform_eq;
-
-    #[test]
-    fn desugars_fstring() {
-        let input = r#"
-f"x={x}"
-"#;
-        let expected = r#"
-"".join(("x=", str(x)))
-"#;
-        assert_transform_eq(input, expected);
-    }
-
-    #[test]
-    fn desugars_tstring() {
-        let input = r#"
-t"x={x}"
-"#;
-        let expected = r#"
-"".join(("x=", str(x)))
-"#;
-        assert_transform_eq(input, expected);
-    }
+    crate::transform_fixture_test!("tests_rewrite_string.txt");
 }

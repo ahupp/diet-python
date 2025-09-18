@@ -69,60 +69,10 @@ pub fn rewrite_from(
 
 #[cfg(test)]
 mod tests {
-    use crate::test_util::assert_transform_eq;
     use crate::transform::{context::Context, expr::ExprRewriter, ImportStarHandling, Options};
     use ruff_python_parser::parse_module;
 
-    #[test]
-    fn rewrites_basic_import() {
-        let input = r#"
-import a
-"#;
-        let expected = r#"
-a = __dp__.import_("a", __spec__)
-"#;
-        assert_transform_eq(input, expected);
-    }
-
-    #[test]
-    fn rewrites_from_import() {
-        let input = r#"
-from a.b import c
-"#;
-
-        let expected = r#"
-c = __dp__.import_("a.b", __spec__, list(("c",))).c
-"#;
-        assert_transform_eq(input, expected);
-    }
-
-    #[test]
-    fn rewrites_relative_import() {
-        let input = r#"
-from ..a import b
-"#;
-        let expected = r#"
-b = __dp__.import_("a", __spec__, list(("b",)), 2).b
-"#;
-        assert_transform_eq(input, expected);
-    }
-
-    #[test]
-    fn inserts_after_future_and_docstring() {
-        let input = r#"
-"doc"
-from __future__ import annotations
-x = 1
-"#;
-        assert_transform_eq(
-            input,
-            r#"
-"doc"
-annotations = __dp__.import_("__future__", __spec__, list(("annotations",))).annotations
-x = 1
-"#,
-        );
-    }
+    crate::transform_fixture_test!("tests_rewrite_import.txt");
 
     fn rewrite_source(source: &str, options: Options) -> String {
         let mut module = parse_module(source).expect("parse error").into_syntax();
