@@ -7,7 +7,6 @@ use crate::body_transform::{walk_expr, walk_stmt, Transformer};
 use crate::template::{make_binop, make_generator, make_tuple, make_unaryop, single_stmt};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Operator, Stmt, UnaryOp};
-use ruff_text_size::TextRange;
 
 pub struct ExprRewriter<'a> {
     ctx: &'a Context,
@@ -28,19 +27,14 @@ impl<'a> ExprRewriter<'a> {
         }
     }
 
-    fn wrap_truthy_expr(&self, expr: &mut Expr) {
-        if !self.options.truthy || is_truth_call(expr) {
-            return;
-        }
-
-        let original = expr.clone();
-        *expr = py_expr!(
-            "
-__dp__.truth({expr:expr})
-",
-            expr = original,
-        );
-    }
+    //     fn wrap_truthy_expr(&self, expr: &mut Expr) {
+    //         *expr = py_expr!(
+    //             "
+    // __dp__.truth({expr:expr})
+    // ",
+    //             expr = *expr,
+    //         );
+    //     }
 
     fn lower_lambdas_generators(&self, stmt: &mut Stmt) -> bool {
         let lowerer = rewrite_expr_to_stmt::LambdaGeneratorLowerer::new(self.ctx);
@@ -213,21 +207,15 @@ __dp__.getitem({tmp:expr}, {idx:literal})",
     }
 }
 
-fn make_tuple_splat(tuple: ast::ExprTuple) -> Expr {
-    if !tuple.elts.iter().any(|elt| matches!(elt, Expr::Starred(_))) {
-        return Expr::Tuple(tuple);
-    }
-
-    let ast::ExprTuple { elts, .. } = tuple;
-
+fn make_tuple_splat(tuple: Vec<Expr>) -> Expr {
     let mut segments: Vec<Expr> = Vec::new();
     let mut values: Vec<Expr> = Vec::new();
 
-    for elt in elts {
+    for elt in tuple {
         match elt {
             Expr::Starred(ast::ExprStarred { value, .. }) => {
                 if !values.is_empty() {
-                    segments.push(make_tuple(std::mem::take(&mut values)));
+                    segments.push(make_tuple_splat(std::mem::take(&mut values)));
                 }
                 segments.push(py_expr!("tuple({value:expr})", value = *value));
             }
@@ -239,17 +227,10 @@ fn make_tuple_splat(tuple: ast::ExprTuple) -> Expr {
         segments.push(make_tuple(values));
     }
 
-    let mut parts = segments.into_iter();
-    let mut expr = match parts.next() {
-        Some(expr) => expr,
-        None => return make_tuple(Vec::new()),
-    };
-
-    for part in parts {
-        expr = py_expr!("{left:expr} + {right:expr}", left = expr, right = part);
-    }
-
-    expr
+    segments
+        .into_iter()
+        .reduce(|left, right| py_expr!("{left:expr} + {right:expr}", left = left, right = right))
+        .expect("parts is non-empty")
 }
 
 enum UnpackTargetKind {
@@ -266,12 +247,9 @@ impl<'a> Transformer for ExprRewriter<'a> {
             Expr::Slice(ast::ExprSlice {
                 lower, upper, step, ..
             }) => {
-                fn none_name() -> Expr {
-                    py_expr!("None")
-                }
-                let lower_expr = lower.map(|expr| *expr).unwrap_or_else(none_name);
-                let upper_expr = upper.map(|expr| *expr).unwrap_or_else(none_name);
-                let step_expr = step.map(|expr| *expr).unwrap_or_else(none_name);
+                let lower_expr = lower.map(|v| *v).unwrap_or_else(|| py_expr!("None"));
+                let upper_expr = upper.map(|v| *v).unwrap_or_else(|| py_expr!("None"));
+                let step_expr = step.map(|v| *v).unwrap_or_else(|| py_expr!("None"));
                 py_expr!(
                     "slice({lower:expr}, {upper:expr}, {step:expr})",
                     lower = lower_expr,
@@ -286,20 +264,10 @@ impl<'a> Transformer for ExprRewriter<'a> {
                 value: ast::Number::Complex { real, imag },
                 ..
             }) => {
-                let real_expr = Expr::NumberLiteral(ast::ExprNumberLiteral {
-                    node_index: ast::AtomicNodeIndex::default(),
-                    range: TextRange::default(),
-                    value: ast::Number::Float(real),
-                });
-                let imag_expr = Expr::NumberLiteral(ast::ExprNumberLiteral {
-                    node_index: ast::AtomicNodeIndex::default(),
-                    range: TextRange::default(),
-                    value: ast::Number::Float(imag),
-                });
                 py_expr!(
-                    "complex({real:expr}, {imag:expr})",
-                    real = real_expr,
-                    imag = imag_expr,
+                    "complex({real:literal}, {imag:literal})",
+                    real = real,
+                    imag = imag,
                 )
             }
             Expr::Attribute(ast::ExprAttribute {
@@ -316,7 +284,7 @@ impl<'a> Transformer for ExprRewriter<'a> {
                 py_expr!("None")
             }
             Expr::Tuple(tuple) if matches!(tuple.ctx, ast::ExprContext::Load) => {
-                make_tuple_splat(tuple)
+                make_tuple_splat(tuple.elts)
             }
             Expr::ListComp(ast::ExprListComp {
                 elt, generators, ..
@@ -337,18 +305,12 @@ impl<'a> Transformer for ExprRewriter<'a> {
                 )
             }
             Expr::List(list) if matches!(list.ctx, ast::ExprContext::Load) => {
-                let tuple = make_tuple_splat(ast::ExprTuple {
-                    node_index: ast::AtomicNodeIndex::default(),
-                    range: TextRange::default(),
-                    elts: list.elts,
-                    ctx: ast::ExprContext::Load,
-                    parenthesized: false,
-                });
-                py_expr!("list({tuple:expr})", tuple = tuple,)
+                let tuple = make_tuple_splat(list.elts);
+                py_expr!("list({tuple:expr})", tuple = tuple)
             }
             Expr::Set(ast::ExprSet { elts, .. }) => {
-                let tuple = make_tuple(elts);
-                py_expr!("set({tuple:expr})", tuple = tuple,)
+                let tuple = make_tuple_splat(elts);
+                py_expr!("set({tuple:expr})", tuple = tuple)
             }
             Expr::Dict(ast::ExprDict { items, .. }) => {
                 let mut iter = items.into_iter().peekable();
@@ -368,39 +330,27 @@ impl<'a> Transformer for ExprRewriter<'a> {
                     }
 
                     if !keyed_pairs.is_empty() {
-                        let tuple = make_tuple(keyed_pairs);
+                        let tuple = make_tuple_splat(keyed_pairs);
                         segments.push(py_expr!("dict({tuple:expr})", tuple = tuple));
                     }
 
-                    let Some(item) = iter.next() else {
+                    if let Some(item) = iter.next() {
+                        segments.push(py_expr!("dict({mapping:expr})", mapping = item.value));
+                    } else {
                         break;
                     };
-
-                    if let Some(key) = item.key {
-                        let pair =
-                            py_expr!("({key:expr}, {value:expr})", key = key, value = item.value,);
-                        let tuple = make_tuple(vec![pair]);
-                        segments.push(py_expr!("dict({tuple:expr})", tuple = tuple));
-                    } else {
-                        segments.push(py_expr!("dict({mapping:expr})", mapping = item.value));
-                    }
                 }
 
                 match segments.len() {
                     0 => {
-                        let tuple = make_tuple(Vec::new());
-                        py_expr!("dict({tuple:expr})", tuple = tuple)
+                        py_expr!("dict()")
                     }
-                    1 => segments.into_iter().next().unwrap(),
-                    _ => {
-                        let mut parts = segments.into_iter();
-                        let mut expr = parts.next().expect("segments is non-empty");
-                        for part in parts {
-                            expr =
-                                py_expr!("{left:expr} | {right:expr}", left = expr, right = part,);
-                        }
-                        expr
-                    }
+                    _ => segments
+                        .into_iter()
+                        .reduce(|left, right| {
+                            py_expr!("{left:expr} | {right:expr}", left = left, right = right)
+                        })
+                        .expect("segments is non-empty"),
                 }
             }
             Expr::BinOp(ast::ExprBinOp {
@@ -452,34 +402,18 @@ impl<'a> Transformer for ExprRewriter<'a> {
             return;
         }
 
-        if matches!(stmt, Stmt::FunctionDef(_)) {
-            if let Stmt::FunctionDef(ast::StmtFunctionDef {
-                decorator_list,
-                name,
-                ..
-            }) = stmt
-            {
-                if !decorator_list.is_empty() {
-                    let decorators = std::mem::take(decorator_list);
-                    let func_name = name.id.clone();
-                    let func_def = stmt.clone();
-                    *stmt = rewrite_decorator::rewrite(
-                        decorators,
-                        func_name.as_str(),
-                        func_def,
-                        None,
-                        self.ctx,
-                    );
-                    self.visit_stmt(stmt);
-                    return;
-                }
-            }
-            walk_stmt(self, stmt);
-            return;
-        }
-
         let current = stmt.clone();
         *stmt = match current {
+            Stmt::FunctionDef(mut func_def) if !func_def.decorator_list.is_empty() => {
+                let decorator_list = std::mem::take(&mut func_def.decorator_list);
+                rewrite_decorator::rewrite(
+                    decorator_list,
+                    func_def.name.id.clone().as_str(),
+                    func_def.into(),
+                    None,
+                    self.ctx,
+                )
+            }
             Stmt::With(with) => rewrite_with::rewrite(with, self.ctx, self),
             Stmt::For(for_stmt) => rewrite_for_loop::rewrite(for_stmt, self.ctx, self),
             Stmt::Assert(assert) => rewrite_assert::rewrite(assert.clone()),
@@ -525,16 +459,9 @@ impl<'a> Transformer for ExprRewriter<'a> {
                 let mut stmts = Vec::new();
                 if assign.targets.len() > 1 {
                     let tmp_name = self.ctx.fresh("tmp");
-                    let tmp_expr = py_expr!(
-                        "
-{name:id}
-",
-                        name = tmp_name.as_str(),
-                    );
+                    let tmp_expr = py_expr!("{name:id}", name = tmp_name.as_str());
                     let tmp_stmt = py_stmt!(
-                        "
-{name:id} = {value:expr}
-",
+                        "{name:id} = {value:expr}",
                         name = tmp_name.as_str(),
                         value = value,
                     );
@@ -615,54 +542,27 @@ impl<'a> Transformer for ExprRewriter<'a> {
                     cause = *cause.clone(),
                 )
             }
-            _ => stmt.clone(),
+            // Stmt::If(ast::StmtIf {
+            //     test,
+            //     elif_else_clauses,
+            //     ..
+            // }) if self.options.truthy => {
+            //     self.wrap_truthy_expr(&mut test);
+            //     for clause in elif_else_clauses {
+            //         if let Some(test) = &mut clause.test {
+            //             self.wrap_truthy_expr(&mut test);
+            //         }
+            //     }
+            // }
+            // Stmt::While(ast::StmtWhile { test, .. }) if self.options.truthy => {
+            //     self.wrap_truthy_expr(&mut test);
+            // }
+            _ => {
+                walk_stmt(self, stmt);
+                return;
+            }
         };
-
-        walk_stmt(self, stmt);
-
-        if self.options.truthy {
-            match stmt {
-                Stmt::If(ast::StmtIf {
-                    test,
-                    elif_else_clauses,
-                    ..
-                }) => {
-                    self.wrap_truthy_expr(test);
-                    for clause in elif_else_clauses {
-                        if let Some(test) = &mut clause.test {
-                            self.wrap_truthy_expr(test);
-                        }
-                    }
-                }
-                Stmt::While(ast::StmtWhile { test, .. }) => {
-                    self.wrap_truthy_expr(test);
-                }
-                _ => {}
-            }
-        }
-
-        if self.lower_lambdas_generators(stmt) {
-            self.visit_stmt(stmt);
-            return;
-        }
-    }
-}
-
-fn is_truth_call(expr: &Expr) -> bool {
-    match expr {
-        Expr::Call(ast::ExprCall {
-            func, arguments, ..
-        }) if arguments.args.len() == 1 && arguments.keywords.is_empty() => match func.as_ref() {
-            Expr::Attribute(ast::ExprAttribute { value, attr, .. }) if attr.as_str() == "truth" => {
-                matches!(
-                    value.as_ref(),
-                    Expr::Name(ast::ExprName { id, .. })
-                        if id.as_str() == "__dp__"
-                )
-            }
-            _ => false,
-        },
-        _ => false,
+        self.visit_stmt(stmt);
     }
 }
 

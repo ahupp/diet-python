@@ -1,3 +1,10 @@
+use crate::body_transform::{walk_expr, walk_stmt, Transformer};
+use regex::Regex;
+use ruff_python_ast::{self as ast, Expr, Stmt};
+use ruff_text_size::TextRange;
+use serde_json::Value;
+use std::{cell::RefCell, collections::HashMap};
+
 #[macro_export]
 macro_rules! py_expr {
     ($template:literal $(, $name:ident = $value:expr)* $(,)?) => {{
@@ -68,13 +75,6 @@ macro_rules! py_stmt {
     }};
 }
 
-use crate::body_transform::{walk_expr, walk_stmt, Transformer};
-use regex::Regex;
-use ruff_python_ast::{self as ast, Expr, Stmt};
-use ruff_text_size::TextRange;
-use serde_json::Value;
-use std::{cell::RefCell, collections::HashMap};
-
 pub(crate) fn is_simple(expr: &Expr) -> bool {
     matches!(
         expr,
@@ -89,13 +89,14 @@ pub(crate) fn is_simple(expr: &Expr) -> bool {
 }
 
 pub(crate) fn make_tuple(elts: Vec<Expr>) -> Expr {
-    Expr::Tuple(ast::ExprTuple {
+    ast::ExprTuple {
         node_index: ast::AtomicNodeIndex::default(),
         range: TextRange::default(),
         elts,
         ctx: ast::ExprContext::Load,
         parenthesized: false,
-    })
+    }
+    .into()
 }
 
 pub(crate) fn make_binop(func_name: &'static str, left: Expr, right: Expr) -> Expr {
@@ -198,28 +199,23 @@ impl IntoPlaceholder for Vec<Stmt> {
     }
 }
 
-macro_rules! impl_into_placeholder_for_signed {
+macro_rules! impl_into_placeholder_for_int {
     ($($ty:ty),*) => {
         $(impl IntoPlaceholder for $ty {
             fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
-                Err(Value::Number(serde_json::Number::from(self as i64)))
+                Err(Value::Number(serde_json::Number::from(self as $ty)))
             }
         })*
     };
 }
 
-macro_rules! impl_into_placeholder_for_unsigned {
-    ($($ty:ty),*) => {
-        $(impl IntoPlaceholder for $ty {
-            fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
-                Err(Value::Number(serde_json::Number::from(self as u64)))
-            }
-        })*
-    };
-}
+impl_into_placeholder_for_int!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize);
 
-impl_into_placeholder_for_signed!(i8, i16, i32, i64, isize);
-impl_into_placeholder_for_unsigned!(u8, u16, u32, u64, usize);
+impl IntoPlaceholder for f64 {
+    fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
+        Err(Value::Number(serde_json::Number::from_f64(self).unwrap()))
+    }
+}
 
 pub(crate) fn var_for_placeholder((name, kind): (&str, &PlaceholderKind)) -> String {
     match kind {
