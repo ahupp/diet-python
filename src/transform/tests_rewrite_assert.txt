@@ -1,0 +1,15 @@
+$ rewrites assert with message
+
+assert a, 'oops'
+=
+if __debug__:
+    if __dp__.not_(a):
+        raise AssertionError('oops')
+
+$ rewrites assert without message
+
+assert a
+=
+if __debug__:
+    if __dp__.not_(a):
+        raise AssertionError

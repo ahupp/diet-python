@@ -1,0 +1,63 @@
+$ strips type alias statement
+
+type Alias = int
+=
+
+$ strips type aliases in if branches
+
+if True:
+    type Alias = int
+    x = 1
+elif False:
+    type Alias = str
+    y = 2
+else:
+    type Alias = bytes
+    z = 3
+=
+if True:
+    x = 1
+elif False:
+    y = 2
+else:
+    z = 3
+
+$ strips type alias from class body
+
+type Alias = int
+
+class Foo:
+    type Inner = str
+
+    def method(self):
+        return 1
+=
+def _dp_ns_Foo(_ns):
+    _dp_temp_ns = dict(())
+    _dp_tmp_1 = __name__
+    __dp__.setitem(_dp_temp_ns, "__module__", _dp_tmp_1)
+    __dp__.setitem(_ns, "__module__", _dp_tmp_1)
+    _dp_tmp_2 = "Foo"
+    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_2)
+    __dp__.setitem(_ns, "__qualname__", _dp_tmp_2)
+
+    def _dp_mk_method():
+
+        def method(self):
+            return 1
+        __dp__.setattr(method, "__qualname__", __dp__.add(__dp__.getitem(_ns, "__qualname__"), ".method"))
+        return method
+    _dp_tmp_3 = _dp_mk_method()
+    __dp__.setitem(_dp_temp_ns, "method", _dp_tmp_3)
+    __dp__.setitem(_ns, "method", _dp_tmp_3)
+def _dp_make_class_Foo():
+    bases = __dp__.resolve_bases(())
+    _dp_tmp_4 = __dp__.prepare_class("Foo", bases, None)
+    meta = __dp__.getitem(_dp_tmp_4, 0)
+    ns = __dp__.getitem(_dp_tmp_4, 1)
+    kwds = __dp__.getitem(_dp_tmp_4, 2)
+    _dp_ns_Foo(ns)
+    return meta("Foo", bases, ns, **kwds)
+_dp_tmp_5 = _dp_make_class_Foo()
+Foo = _dp_tmp_5
+_dp_class_Foo = _dp_tmp_5

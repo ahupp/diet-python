@@ -190,51 +190,5 @@ pub(crate) fn rewrite(stmt: &mut Stmt, ctx: &Context) {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_util::assert_transform_eq;
-
-    #[test]
-    fn rewrites_yield_from_expression() {
-        let input = r#"
-x = yield from y
-"#;
-        let expected = r#"
-_dp_yield_from_state_1 = __dp__.yield_from_init(y)
-_dp_yield_from_sent_2 = None
-while True:
-    _dp_tmp_4 = __dp__.getitem
-    _dp_tmp_5 = _dp_tmp_4(_dp_yield_from_state_1, 0)
-    _dp_tmp_6 = __dp__.RUNNING
-    _dp_tmp_7 = __dp__.ne(_dp_tmp_5, _dp_tmp_6)
-    if _dp_tmp_7:
-        break
-    try:
-        _dp_yield_from_sent_2 = yield __dp__.getitem(_dp_yield_from_state_1, 1)
-    except:
-        _dp_yield_from_state_1 = __dp__.yield_from_except(_dp_yield_from_state_1, __dp__.current_exception())
-    else:
-        _dp_yield_from_state_1 = __dp__.yield_from_next(_dp_yield_from_state_1, _dp_yield_from_sent_2)
-_dp_tmp_3 = __dp__.getitem(_dp_yield_from_state_1, 1)
-x = _dp_tmp_3
-"#;
-        assert_transform_eq(input, expected);
-    }
-
-    #[test]
-    fn rewrites_named_expression_in_boolop() {
-        let input = r#"
-if (y := foo()) and bar:
-    pass
-"#;
-        let expected = r#"
-_dp_tmp_1 = foo()
-_dp_tmp_2 = _dp_tmp_1
-y = _dp_tmp_2
-_dp_tmp_3 = _dp_tmp_2
-if _dp_tmp_3:
-    _dp_tmp_3 = bar
-if _dp_tmp_3:
-    pass
-"#;
-        assert_transform_eq(input, expected);
-    }
+    crate::transform_fixture_test!("tests_rewrite_complex_expr.txt");
 }

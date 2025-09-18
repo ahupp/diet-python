@@ -1,0 +1,73 @@
+$ rewrites for loop with else
+
+for a in b:
+    if cond:
+        break
+else:
+    c()
+=
+_dp_iter_1 = __dp__.iter(b)
+while True:
+    try:
+        a = __dp__.next(_dp_iter_1)
+    except:
+        __dp__.check_stopiteration()
+        c()
+        break
+    else:
+        if cond:
+            break
+
+$ rewrites for loop without else
+
+for a in b:
+    c(a)
+=
+_dp_iter_1 = __dp__.iter(b)
+while True:
+    try:
+        a = __dp__.next(_dp_iter_1)
+    except:
+        __dp__.check_stopiteration()
+        break
+    else:
+        c(a)
+
+$ rewrites async for loop with else
+
+async def f():
+    async for a in b:
+        if cond:
+            break
+    else:
+        c()
+=
+async def f():
+    _dp_iter_1 = __dp__.aiter(b)
+    while True:
+        try:
+            a = await __dp__.anext(_dp_iter_1)
+        except:
+            __dp__.acheck_stopiteration()
+            c()
+            break
+        else:
+            if cond:
+                break
+
+$ rewrites for loop with starred target
+
+for (a, *b) in c:
+    pass
+=
+_dp_iter_1 = __dp__.iter(c)
+while True:
+    try:
+        _dp_tmp_2 = __dp__.next(_dp_iter_1)
+        a = __dp__.getitem(_dp_tmp_2, 0)
+        b = tuple(__dp__.getitem(_dp_tmp_2, slice(1, None, None)))
+    except:
+        __dp__.check_stopiteration()
+        break
+    else:
+        pass
