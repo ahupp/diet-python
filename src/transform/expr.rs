@@ -3,9 +3,9 @@ use super::{
     rewrite_expr_to_stmt, rewrite_for_loop, rewrite_import, rewrite_match_case, rewrite_string,
     rewrite_try_except, rewrite_with, Options,
 };
+use crate::body_transform::{walk_expr, walk_stmt, Transformer};
 use crate::template::{make_binop, make_generator, make_tuple, make_unaryop, single_stmt};
 use crate::{py_expr, py_stmt};
-use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, Expr, Operator, Stmt, UnaryOp};
 use ruff_text_size::TextRange;
 

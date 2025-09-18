@@ -1,10 +1,10 @@
 use std::cell::RefCell;
 
 use super::context::Context;
+use crate::body_transform::{walk_expr, walk_stmt, Transformer};
 use crate::template::{make_binop, make_unaryop, single_stmt};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::name::Name;
-use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, CmpOp, Expr, Stmt};
 use ruff_text_size::TextRange;
 

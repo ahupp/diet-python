@@ -68,8 +68,8 @@ macro_rules! py_stmt {
     }};
 }
 
+use crate::body_transform::{walk_expr, walk_stmt, Transformer};
 use regex::Regex;
-use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::TextRange;
 use serde_json::Value;
