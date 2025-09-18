@@ -2,9 +2,9 @@ use std::cell::{Cell, RefCell};
 
 use super::context::Context;
 use super::rewrite_expr_to_stmt::{expr_boolop_to_stmts, expr_compare_to_stmts};
+use crate::body_transform::{walk_expr, walk_stmt, Transformer};
 use crate::template::{is_simple, single_stmt};
 use crate::{py_expr, py_stmt};
-use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 
 pub(crate) struct UnnestExprTransformer<'a> {

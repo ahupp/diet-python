@@ -1,10 +1,9 @@
-use ruff_python_ast::visitor::transformer::{walk_expr, walk_stmt, Transformer};
+use crate::body_transform::{walk_expr, walk_stmt, Transformer};
+use crate::template::make_tuple;
+use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::TextRange;
 use std::cell::Cell;
-
-use crate::template::make_tuple;
-use crate::{py_expr, py_stmt};
 
 struct MethodTransformer {
     uses_class: Cell<bool>,

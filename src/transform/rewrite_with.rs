@@ -1,8 +1,7 @@
 use super::context::Context;
-use ruff_python_ast::visitor::transformer::Transformer;
-use ruff_python_ast::{self as ast, Stmt};
-
+use crate::body_transform::Transformer;
 use crate::{py_expr, py_stmt};
+use ruff_python_ast::{self as ast, Stmt};
 
 pub fn rewrite(
     ast::StmtWith {
