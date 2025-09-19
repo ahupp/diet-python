@@ -1,7 +1,6 @@
 use std::cell::RefCell;
 
 use super::context::Context;
-use super::rewrite_expr_to_stmt::expr_compare_to_stmts;
 use crate::body_transform::{walk_expr, walk_stmt, Transformer};
 use crate::template::{is_simple, single_stmt};
 use crate::{py_expr, py_stmt};
@@ -30,12 +29,6 @@ impl<'a> Transformer for UnnestExprTransformer<'a> {
         walk_expr(self, expr);
         if !is_simple(expr) {
             match expr {
-                Expr::Compare(compare) => {
-                    let tmp = self.ctx.fresh("tmp");
-                    let stmts = expr_compare_to_stmts(tmp.as_str(), compare.clone());
-                    self.stmts.borrow_mut().extend(stmts);
-                    *expr = py_expr!("{tmp:id}", tmp = tmp.as_str());
-                }
                 Expr::YieldFrom(yield_from) => {
                     let state_name = self.ctx.fresh("yield_from_state");
                     let sent_name = self.ctx.fresh("yield_from_sent");
@@ -123,7 +116,7 @@ impl ComplexExprTransformer {
 
 impl Transformer for ComplexExprTransformer {
     fn visit_expr(&mut self, expr: &mut Expr) {
-        if matches!(expr, Expr::Compare(_) | Expr::YieldFrom(_)) {
+        if matches!(expr, Expr::YieldFrom(_)) {
             self.requires_unnest = true;
             return;
         }

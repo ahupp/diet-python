@@ -93,12 +93,21 @@ c = ff()
 __dp__.delattr(c.a, "b")
 __dp__.delitem(c.a.arr, 0)
 del c
-_dp_tmp_13 = range(5)
-_dp_tmp_14 = __dp__.mod(i, 2)
-_dp_tmp_15 = __dp__.eq(_dp_tmp_14, 0)
-_dp_tmp_16 = __dp__.add(i, 1)
-def _dp_gen_18(_dp_tmp_13):
-    _dp_iter_19 = __dp__.iter(_dp_tmp_13)
+def _dp_gen_13(_dp_iter_14):
+    _dp_iter_15 = __dp__.iter(_dp_iter_14)
+    while True:
+        try:
+            i = __dp__.next(_dp_iter_15)
+        except:
+            __dp__.check_stopiteration()
+            break
+        else:
+            _dp_tmp_16 = __dp__.eq(__dp__.mod(i, 2), 0)
+            if _dp_tmp_16:
+                yield __dp__.add(i, 1)
+x = list(_dp_gen_13(__dp__.iter(range(5))))
+def _dp_gen_17(_dp_iter_18):
+    _dp_iter_19 = __dp__.iter(_dp_iter_18)
     while True:
         try:
             i = __dp__.next(_dp_iter_19)
@@ -106,41 +115,20 @@ def _dp_gen_18(_dp_tmp_13):
             __dp__.check_stopiteration()
             break
         else:
-            if _dp_tmp_15:
-                yield _dp_tmp_16
-_dp_tmp_17 = list(_dp_gen_18(__dp__.iter(_dp_tmp_13)))
-x = _dp_tmp_17
-_dp_tmp_20 = range(5)
-_dp_tmp_21 = __dp__.mod(i, 2)
-_dp_tmp_22 = __dp__.eq(_dp_tmp_21, 0)
-_dp_tmp_23 = __dp__.add(i, 1)
-def _dp_gen_25(_dp_tmp_20):
-    _dp_iter_26 = __dp__.iter(_dp_tmp_20)
+            _dp_tmp_20 = __dp__.eq(__dp__.mod(i, 2), 0)
+            if _dp_tmp_20:
+                yield __dp__.add(i, 1)
+y = set(_dp_gen_17(__dp__.iter(range(5))))
+def _dp_gen_21(_dp_iter_22):
+    _dp_iter_23 = __dp__.iter(_dp_iter_22)
     while True:
         try:
-            i = __dp__.next(_dp_iter_26)
+            i = __dp__.next(_dp_iter_23)
         except:
             __dp__.check_stopiteration()
             break
         else:
-            if _dp_tmp_22:
-                yield _dp_tmp_23
-_dp_tmp_24 = set(_dp_gen_25(__dp__.iter(_dp_tmp_20)))
-y = _dp_tmp_24
-_dp_tmp_27 = range(5)
-_dp_tmp_28 = __dp__.mod(i, 2)
-_dp_tmp_29 = __dp__.eq(_dp_tmp_28, 0)
-_dp_tmp_30 = __dp__.add(i, 1)
-def _dp_gen_32(_dp_tmp_27):
-    _dp_iter_33 = __dp__.iter(_dp_tmp_27)
-    while True:
-        try:
-            i = __dp__.next(_dp_iter_33)
-        except:
-            __dp__.check_stopiteration()
-            break
-        else:
-            if _dp_tmp_29:
-                yield _dp_tmp_30
-_dp_tmp_31 = _dp_gen_32(__dp__.iter(_dp_tmp_27))
-z = _dp_tmp_31
+            _dp_tmp_24 = __dp__.eq(__dp__.mod(i, 2), 0)
+            if _dp_tmp_24:
+                yield __dp__.add(i, 1)
+z = _dp_gen_21(__dp__.iter(range(5)))
