@@ -51,7 +51,6 @@ pub mod body_transform;
 pub mod ensure_import;
 pub mod intrinsics;
 pub mod min_ast;
-pub mod owned_transform;
 mod template;
 #[cfg(test)]
 mod test_util;
@@ -70,7 +69,7 @@ fn apply_transforms(module: &mut ModModule, options: Options) {
     // Lower `for` loops, expand generators and lambdas, and replace
     // `__dp__.<name>` calls with `getattr` in a single pass.
     let ctx = Context::new(options);
-    let expr_transformer = ExprRewriter::new(&ctx);
+    let mut expr_transformer = ExprRewriter::new(&ctx);
     expr_transformer.rewrite_body(&mut module.body);
 
     // Collapse `py_stmt!` templates after all rewrites.

@@ -25,11 +25,11 @@ impl<'ctx> LambdaGeneratorLowerer<'ctx> {
         self.functions.into_inner()
     }
 
-    pub(crate) fn rewrite(&self, stmt: &mut Stmt) {
+    pub(crate) fn rewrite(&mut self, stmt: &mut Stmt) {
         walk_stmt(self, stmt);
     }
 
-    fn lower_lambda(&self, expr: &mut Expr, lambda: ast::ExprLambda) {
+    fn lower_lambda(&mut self, expr: &mut Expr, lambda: ast::ExprLambda) {
         let func_name = self.ctx.fresh("lambda");
 
         let ast::ExprLambda {
@@ -65,7 +65,7 @@ impl<'ctx> LambdaGeneratorLowerer<'ctx> {
         *expr = py_expr!("\n{func:id}", func = func_name.as_str());
     }
 
-    fn lower_generator(&self, expr: &mut Expr, generator: ast::ExprGenerator) {
+    fn lower_generator(&mut self, expr: &mut Expr, generator: ast::ExprGenerator) {
         let ast::ExprGenerator {
             elt, generators, ..
         } = generator;
@@ -134,7 +134,7 @@ impl<'ctx> LambdaGeneratorLowerer<'ctx> {
 }
 
 impl<'ctx> Transformer for LambdaGeneratorLowerer<'ctx> {
-    fn visit_expr(&self, expr: &mut Expr) {
+    fn visit_expr(&mut self, expr: &mut Expr) {
         match expr.clone() {
             Expr::Lambda(lambda) => {
                 self.lower_lambda(expr, lambda);
@@ -150,7 +150,7 @@ impl<'ctx> Transformer for LambdaGeneratorLowerer<'ctx> {
         walk_expr(self, expr);
     }
 
-    fn visit_stmt(&self, _: &mut Stmt) {
+    fn visit_stmt(&mut self, _: &mut Stmt) {
         // Only visit expressions referenced directly by this statement; callers
         // are responsible for rewriting any nested statements themselves.
     }
