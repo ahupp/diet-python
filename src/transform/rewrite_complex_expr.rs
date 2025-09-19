@@ -30,21 +30,6 @@ impl<'a> Transformer for UnnestExprTransformer<'a> {
         walk_expr(self, expr);
         if !is_simple(expr) {
             match expr {
-                Expr::If(if_expr) => {
-                    let tmp = self.ctx.fresh("tmp");
-                    let ast::ExprIf {
-                        test, body, orelse, ..
-                    } = if_expr.clone();
-                    let assign = py_stmt!(
-                        "\nif {cond:expr}:\n    {tmp:id} = {body:expr}\nelse:\n    {tmp:id} = {orelse:expr}",
-                        cond = *test,
-                        tmp = tmp.as_str(),
-                        body = *body,
-                        orelse = *orelse,
-                    );
-                    self.stmts.borrow_mut().push(assign);
-                    *expr = py_expr!("{tmp:id}", tmp = tmp.as_str());
-                }
                 Expr::Compare(compare) => {
                     let tmp = self.ctx.fresh("tmp");
                     let stmts = expr_compare_to_stmts(tmp.as_str(), compare.clone());
@@ -138,7 +123,7 @@ impl ComplexExprTransformer {
 
 impl Transformer for ComplexExprTransformer {
     fn visit_expr(&mut self, expr: &mut Expr) {
-        if matches!(expr, Expr::If(_) | Expr::Compare(_) | Expr::YieldFrom(_)) {
+        if matches!(expr, Expr::Compare(_) | Expr::YieldFrom(_)) {
             self.requires_unnest = true;
             return;
         }
