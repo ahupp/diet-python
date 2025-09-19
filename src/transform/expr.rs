@@ -1,7 +1,7 @@
 use super::{
     context::Context, rewrite_assert, rewrite_class_def, rewrite_complex_expr, rewrite_decorator,
-    rewrite_for_loop, rewrite_import, rewrite_match_case, rewrite_string, rewrite_try_except,
-    rewrite_with, Options,
+    rewrite_expr_to_stmt::expr_boolop_to_stmts, rewrite_for_loop, rewrite_import,
+    rewrite_match_case, rewrite_string, rewrite_try_except, rewrite_with, Options,
 };
 use crate::body_transform::{walk_expr, walk_stmt, Transformer};
 use crate::template::{make_binop, make_generator, make_tuple, make_unaryop, single_stmt};
@@ -365,6 +365,12 @@ impl<'a> Transformer for ExprRewriter<'a> {
 
     fn visit_expr(&mut self, expr: &mut Expr) {
         let rewritten = match expr.clone() {
+            Expr::BoolOp(bool_op) => {
+                let tmp = self.ctx.fresh("tmp");
+                let stmts = expr_boolop_to_stmts(tmp.as_str(), bool_op);
+                self.buf.extend(stmts);
+                py_expr!("{tmp:id}", tmp = tmp.as_str())
+            }
             Expr::Lambda(lambda) => self.lower_lambda(lambda),
             Expr::Generator(generator) => self.lower_generator(generator),
             Expr::FString(f_string) => rewrite_string::rewrite_fstring(f_string),
@@ -706,9 +712,7 @@ impl<'a> Transformer for ExprRewriter<'a> {
                         exc = *exc,
                         cause = *cause,
                     ),
-                    _ => panic!(
-                        "raise with a cause but without an exception should be impossible"
-                    ),
+                    _ => panic!("raise with a cause but without an exception should be impossible"),
                 }
             }
             stmt => stmt,
