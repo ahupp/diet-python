@@ -554,34 +554,21 @@ impl<'a> Transformer for ExprRewriter<'a> {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         rewrite_complex_expr::rewrite(stmt, self.ctx);
 
-        if matches!(stmt, Stmt::FunctionDef(_)) {
-            if let Stmt::FunctionDef(ast::StmtFunctionDef {
-                decorator_list,
-                name,
-                ..
-            }) = stmt
-            {
-                if !decorator_list.is_empty() {
-                    let decorators = std::mem::take(decorator_list);
-                    let func_name = name.id.clone();
-                    let func_def = stmt.clone();
-                    *stmt = rewrite_decorator::rewrite(
-                        decorators,
-                        func_name.as_str(),
-                        func_def,
-                        None,
-                        self.ctx,
-                    );
-                    self.visit_stmt(stmt);
-                    return;
-                }
-            }
-            walk_stmt(self, stmt);
-            return;
-        }
-
         let current = stmt.clone();
+        let mut revisit_stmt = false;
         *stmt = match current {
+            Stmt::FunctionDef(mut func_def) if !func_def.decorator_list.is_empty() => {
+                let decorators = std::mem::take(&mut func_def.decorator_list);
+                let func_name = func_def.name.id.clone();
+                revisit_stmt = true;
+                rewrite_decorator::rewrite(
+                    decorators,
+                    func_name.as_str(),
+                    Stmt::FunctionDef(func_def),
+                    None,
+                    self.ctx,
+                )
+            }
             Stmt::With(with) => rewrite_with::rewrite(with, self.ctx, self),
             Stmt::For(for_stmt) => rewrite_for_loop::rewrite(for_stmt, self.ctx, self),
             Stmt::Assert(assert) => rewrite_assert::rewrite(assert.clone()),
@@ -604,7 +591,9 @@ impl<'a> Transformer for ExprRewriter<'a> {
                     base_stmt
                 }
             }
-            Stmt::Try(try_stmt) => rewrite_try_except::rewrite(try_stmt.clone(), self.ctx),
+            Stmt::Try(try_stmt) if rewrite_try_except::has_non_default_handler(&try_stmt) => {
+                rewrite_try_except::rewrite(try_stmt, self.ctx)
+            }
             Stmt::Match(match_stmt) => rewrite_match_case::rewrite(match_stmt.clone(), self.ctx),
             Stmt::Import(import) => rewrite_import::rewrite(import.clone()),
             Stmt::ImportFrom(import_from) => {
@@ -622,7 +611,10 @@ impl<'a> Transformer for ExprRewriter<'a> {
                     py_stmt!("{body:stmt}", body = Vec::new())
                 }
             }
-            Stmt::Assign(assign) => {
+            Stmt::Assign(assign)
+                if assign.targets.len() > 1
+                    || !matches!(assign.targets.first(), Some(Expr::Name(_))) =>
+            {
                 let value = (*assign.value).clone();
                 let mut stmts = Vec::new();
                 if assign.targets.len() > 1 {
@@ -706,21 +698,35 @@ impl<'a> Transformer for ExprRewriter<'a> {
                 }
                 single_stmt(stmts)
             }
-            Stmt::Raise(ast::StmtRaise {
-                exc: Some(exc),
-                cause: Some(cause),
-                ..
-            }) => {
-                py_stmt!(
-                    "raise __dp__.raise_from({exc:expr}, {cause:expr})",
-                    exc = *exc.clone(),
-                    cause = *cause.clone(),
-                )
+            Stmt::Raise(mut raise) if raise.cause.is_some() => {
+                match (raise.exc.take(), raise.cause.take()) {
+                    (Some(exc), Some(cause)) => py_stmt!(
+                        "raise __dp__.raise_from({exc:expr}, {cause:expr})",
+                        exc = *exc.clone(),
+                        cause = *cause.clone(),
+                    ),
+                    (exc, cause) => {
+                        raise.exc = exc;
+                        raise.cause = cause;
+                        Stmt::Raise(raise)
+                    }
+                }
             }
-            _ => stmt.clone(),
+            stmt => stmt,
         };
 
+        if revisit_stmt {
+            self.visit_stmt(stmt);
+            return;
+        }
+
         walk_stmt(self, stmt);
+
+        if let Stmt::Assign(ast::StmtAssign { targets, value, .. }) = stmt {
+            if targets.len() == 1 && matches!(targets.first(), Some(Expr::Name(_))) {
+                self.visit_expr(value);
+            }
+        }
 
         if self.options.truthy {
             match stmt {
