@@ -702,14 +702,12 @@ impl<'a> Transformer for ExprRewriter<'a> {
                 match (raise.exc.take(), raise.cause.take()) {
                     (Some(exc), Some(cause)) => py_stmt!(
                         "raise __dp__.raise_from({exc:expr}, {cause:expr})",
-                        exc = *exc.clone(),
-                        cause = *cause.clone(),
+                        exc = *exc,
+                        cause = *cause,
                     ),
-                    (exc, cause) => {
-                        raise.exc = exc;
-                        raise.cause = cause;
-                        Stmt::Raise(raise)
-                    }
+                    _ => panic!(
+                        "raise with a cause but without an exception should be impossible"
+                    ),
                 }
             }
             stmt => stmt,
