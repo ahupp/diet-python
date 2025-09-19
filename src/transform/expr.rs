@@ -594,14 +594,12 @@ impl<'a> Transformer for ExprRewriter<'a> {
         self.visit_expr(expr);
     }
 
-    fn visit_stmt(&mut self, stmt_ref: &mut Stmt) {
-        let current = stmt_ref.clone();
-        let mut revisit_stmt = false;
-        let new_stmt = match current {
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
+        let current = stmt.clone();
+        *stmt = match current {
             Stmt::FunctionDef(mut func_def) if !func_def.decorator_list.is_empty() => {
                 let decorators = std::mem::take(&mut func_def.decorator_list);
                 let func_name = func_def.name.id.clone();
-                revisit_stmt = true;
                 rewrite_decorator::rewrite(
                     decorators,
                     func_name.as_str(),
@@ -637,12 +635,17 @@ impl<'a> Transformer for ExprRewriter<'a> {
             }
             Stmt::Match(match_stmt) => rewrite_match_case::rewrite(match_stmt.clone(), self.ctx),
             Stmt::Import(import) => rewrite_import::rewrite(import.clone()),
-            Stmt::ImportFrom(import_from) => {
-                match rewrite_import::rewrite_from(import_from.clone(), &self.options) {
-                    Some(stmt) => stmt,
-                    None => Stmt::ImportFrom(import_from.clone()),
+            Stmt::ImportFrom(import_from) => match rewrite_import::rewrite_from(
+                import_from.clone(),
+                &self.options,
+            ) {
+                Some(stmt) => stmt,
+                None => {
+                    *stmt = Stmt::ImportFrom(import_from.clone());
+                    walk_stmt(self, stmt);
+                    return;
                 }
-            }
+            },
             Stmt::AnnAssign(ann_assign) => {
                 if let Some(value) = ann_assign.value.clone().map(|v| *v) {
                     let mut stmts = Vec::new();
@@ -746,22 +749,13 @@ impl<'a> Transformer for ExprRewriter<'a> {
                     _ => panic!("raise with a cause but without an exception should be impossible"),
                 }
             }
-            stmt => {
-                let mut stmt = stmt;
-                walk_stmt(self, &mut stmt);
-                *stmt_ref = stmt;
+            _ => {
+                walk_stmt(self, stmt);
                 return;
             }
         };
 
-        *stmt_ref = new_stmt;
-
-        if revisit_stmt {
-            self.visit_stmt(stmt_ref);
-            return;
-        }
-
-        walk_stmt(self, stmt_ref);
+        self.visit_stmt(stmt);
     }
 }
 
