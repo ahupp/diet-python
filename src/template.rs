@@ -186,6 +186,12 @@ impl IntoPlaceholder for Stmt {
     }
 }
 
+impl IntoPlaceholder for Box<Stmt> {
+    fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
+        Ok(PlaceholderValue::Stmt(vec![*self]))
+    }
+}
+
 impl IntoPlaceholder for Vec<Stmt> {
     fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
         if self.is_empty() {
@@ -519,6 +525,15 @@ b = 2
     }
 
     #[test]
+    fn inserts_boxed_stmt() {
+        let mut body = parse_module("a = 1").unwrap().into_syntax().body;
+        let stmt = body.pop().unwrap();
+        let actual = py_stmt!("{body:stmt}", body = Box::new(stmt.clone()));
+        let expected = py_stmt!("{body:stmt}", body = vec![stmt]);
+        assert_ast_eq(&[actual], &[expected]);
+    }
+
+    #[test]
     fn wraps_expr_in_stmt() {
         let expr = *parse_expression("a + 1").unwrap().into_syntax().body;
         let mut actual = vec![py_stmt!(
@@ -602,5 +617,13 @@ else:
         )];
         crate::template::flatten(&mut expected);
         assert_ast_eq(&actual, &expected);
+    }
+
+    #[test]
+    fn inserts_boxed_expr() {
+        let expr = *parse_expression("a + 1").unwrap().into_syntax().body;
+        let actual = py_stmt!("return {expr:expr}", expr = Box::new(expr.clone()));
+        let expected = py_stmt!("return {expr:expr}", expr = expr);
+        assert_ast_eq(&[actual], &[expected]);
     }
 }
