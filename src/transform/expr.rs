@@ -28,6 +28,10 @@ impl<'a> ExprRewriter<'a> {
         }
     }
 
+    fn should_rewrite_targets(targets: &[Expr]) -> bool {
+        targets.len() > 1 || !matches!(targets.first(), Some(Expr::Name(_)))
+    }
+
     fn lower_lambda(&mut self, lambda: ast::ExprLambda) -> Expr {
         let func_name = self.ctx.fresh("lambda");
 
@@ -648,10 +652,7 @@ impl<'a> Transformer for ExprRewriter<'a> {
                     py_stmt!("{body:stmt}", body = Vec::new())
                 }
             }
-            Stmt::Assign(assign)
-                if assign.targets.len() > 1
-                    || !matches!(assign.targets.first(), Some(Expr::Name(_))) =>
-            {
+            Stmt::Assign(assign) if Self::should_rewrite_targets(&assign.targets) => {
                 let value = (*assign.value).clone();
                 let mut stmts = Vec::new();
                 if assign.targets.len() > 1 {
@@ -712,7 +713,7 @@ impl<'a> Transformer for ExprRewriter<'a> {
                 self.rewrite_target(target, call, &mut stmts);
                 single_stmt(stmts)
             }
-            Stmt::Delete(del) => {
+            Stmt::Delete(del) if Self::should_rewrite_targets(&del.targets) => {
                 let mut stmts = Vec::with_capacity(del.targets.len());
                 for target in &del.targets {
                     let new_stmt = if let Expr::Subscript(sub) = target {
