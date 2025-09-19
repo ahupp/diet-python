@@ -382,6 +382,21 @@ impl<'a> Transformer for ExprRewriter<'a> {
                 self.buf.push(assign_target);
                 py_expr!("{tmp:id}", tmp = tmp.as_str())
             }
+            Expr::If(if_expr) => {
+                let tmp = self.ctx.fresh("tmp");
+                let ast::ExprIf {
+                    test, body, orelse, ..
+                } = if_expr;
+                let assign = py_stmt!(
+                    "\nif {cond:expr}:\n    {tmp:id} = {body:expr}\nelse:\n    {tmp:id} = {orelse:expr}",
+                    cond = *test,
+                    tmp = tmp.as_str(),
+                    body = *body,
+                    orelse = *orelse,
+                );
+                self.buf.push(assign);
+                py_expr!("{tmp:id}", tmp = tmp.as_str())
+            }
             Expr::BoolOp(bool_op) => {
                 let tmp = self.ctx.fresh("tmp");
                 let stmts = expr_boolop_to_stmts(tmp.as_str(), bool_op);
