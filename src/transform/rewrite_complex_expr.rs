@@ -30,24 +30,6 @@ impl<'a> Transformer for UnnestExprTransformer<'a> {
         walk_expr(self, expr);
         if !is_simple(expr) {
             match expr {
-                Expr::Named(named_expr) => {
-                    let tmp = self.ctx.fresh("tmp");
-                    let ast::ExprNamed { target, value, .. } = named_expr.clone();
-                    let assign_tmp = py_stmt!(
-                        "\n{tmp:id} = {value:expr}\n",
-                        tmp = tmp.as_str(),
-                        value = *value,
-                    );
-                    let assign_target = py_stmt!(
-                        "\n{target:expr} = {tmp:id}\n",
-                        target = *target,
-                        tmp = tmp.as_str(),
-                    );
-                    let mut stmts = self.stmts.borrow_mut();
-                    stmts.push(assign_tmp);
-                    stmts.push(assign_target);
-                    *expr = py_expr!("{tmp:id}", tmp = tmp.as_str());
-                }
                 Expr::If(if_expr) => {
                     let tmp = self.ctx.fresh("tmp");
                     let ast::ExprIf {

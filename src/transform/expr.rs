@@ -365,6 +365,23 @@ impl<'a> Transformer for ExprRewriter<'a> {
 
     fn visit_expr(&mut self, expr: &mut Expr) {
         let rewritten = match expr.clone() {
+            Expr::Named(named_expr) => {
+                let tmp = self.ctx.fresh("tmp");
+                let ast::ExprNamed { target, value, .. } = named_expr;
+                let assign_tmp = py_stmt!(
+                    "\n{tmp:id} = {value:expr}\n",
+                    tmp = tmp.as_str(),
+                    value = *value,
+                );
+                let assign_target = py_stmt!(
+                    "\n{target:expr} = {tmp:id}\n",
+                    target = *target,
+                    tmp = tmp.as_str(),
+                );
+                self.buf.push(assign_tmp);
+                self.buf.push(assign_target);
+                py_expr!("{tmp:id}", tmp = tmp.as_str())
+            }
             Expr::BoolOp(bool_op) => {
                 let tmp = self.ctx.fresh("tmp");
                 let stmts = expr_boolop_to_stmts(tmp.as_str(), bool_op);
