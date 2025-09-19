@@ -1,4 +1,5 @@
 use crate::template::{make_binop, make_unaryop, single_stmt};
+use crate::transform::context::Context;
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, CmpOp, Expr, Stmt};
 pub(crate) fn expr_boolop_to_stmts(target: &str, bool_op: ast::ExprBoolOp) -> Vec<Stmt> {
@@ -71,6 +72,38 @@ pub(crate) fn expr_compare_to_stmts(target: &str, compare: ast::ExprCompare) -> 
     }
 
     stmts
+}
+
+pub(crate) fn expr_yield_from_to_stmt(
+    ctx: &Context,
+    target: &str,
+    yield_from: ast::ExprYieldFrom,
+) -> Vec<Stmt> {
+    let state_name = ctx.fresh("yield_from_state");
+    let sent_name = ctx.fresh("yield_from_sent");
+    let ast::ExprYieldFrom { value, .. } = yield_from;
+    let iterable = *value;
+    let stmt = py_stmt!(
+        r#"
+{state:id} = __dp__.yield_from_init({iterable:expr})
+{sent:id} = None
+while True:
+    if __dp__.getitem({state:id}, 0) != __dp__.RUNNING:
+        break
+    try:
+        {sent:id} = yield __dp__.getitem({state:id}, 1)
+    except:
+        {state:id} = __dp__.yield_from_except({state:id}, __dp__.current_exception())
+    else:
+        {state:id} = __dp__.yield_from_next({state:id}, {sent:id})
+{target:id} = __dp__.getitem({state:id}, 1)
+"#,
+        state = state_name.as_str(),
+        sent = sent_name.as_str(),
+        target = target,
+        iterable = iterable,
+    );
+    vec![stmt]
 }
 
 fn compare_expr(op: CmpOp, left: Expr, right: Expr) -> Expr {
