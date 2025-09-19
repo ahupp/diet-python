@@ -8,10 +8,12 @@ use crate::template::{make_binop, make_generator, make_tuple, make_unaryop, sing
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Operator, Stmt, UnaryOp};
 use ruff_text_size::TextRange;
+use std::mem::take;
 
 pub struct ExprRewriter<'a> {
     ctx: &'a Context,
     options: Options,
+    buf: Vec<Stmt>,
 }
 
 impl<'a> ExprRewriter<'a> {
@@ -19,12 +21,7 @@ impl<'a> ExprRewriter<'a> {
         Self {
             options: ctx.options,
             ctx,
-        }
-    }
-
-    pub fn rewrite_body(&mut self, body: &mut Vec<Stmt>) {
-        for stmt in body.iter_mut() {
-            self.visit_stmt(stmt);
+            buf: Vec::new(),
         }
     }
 
@@ -258,6 +255,21 @@ enum UnpackTargetKind {
 }
 
 impl<'a> Transformer for ExprRewriter<'a> {
+    fn visit_body(&mut self, body: &mut Vec<Stmt>) {
+        let input = take(body);
+        let mut buf_stack = take(&mut self.buf);
+
+        for mut stmt in input.into_iter() {
+            self.visit_stmt(&mut stmt);
+            let mut buffered = take(&mut self.buf);
+            self.visit_body(&mut buffered);
+            body.extend(buffered);
+            body.push(stmt);
+        }
+
+        self.buf = take(&mut buf_stack);
+    }
+
     fn visit_expr(&mut self, expr: &mut Expr) {
         let original = expr.clone();
         *expr = match original {

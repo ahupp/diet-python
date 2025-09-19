@@ -56,6 +56,7 @@ mod template;
 mod test_util;
 mod transform;
 
+use crate::body_transform::Transformer;
 use transform::{context::Context, expr::ExprRewriter, Options};
 
 fn should_skip(source: &str) -> bool {
@@ -70,7 +71,7 @@ fn apply_transforms(module: &mut ModModule, options: Options) {
     // `__dp__.<name>` calls with `getattr` in a single pass.
     let ctx = Context::new(options);
     let mut expr_transformer = ExprRewriter::new(&ctx);
-    expr_transformer.rewrite_body(&mut module.body);
+    expr_transformer.visit_body(&mut module.body);
 
     // Collapse `py_stmt!` templates after all rewrites.
     template::flatten(&mut module.body);
