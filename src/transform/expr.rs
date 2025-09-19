@@ -364,8 +364,7 @@ impl<'a> Transformer for ExprRewriter<'a> {
     }
 
     fn visit_expr(&mut self, expr: &mut Expr) {
-        let original = expr.clone();
-        *expr = match original {
+        let rewritten = match expr.clone() {
             Expr::Lambda(lambda) => self.lower_lambda(lambda),
             Expr::Generator(generator) => self.lower_generator(generator),
             Expr::FString(f_string) => rewrite_string::rewrite_fstring(f_string),
@@ -386,9 +385,7 @@ impl<'a> Transformer for ExprRewriter<'a> {
                     step = step_expr,
                 )
             }
-            Expr::EllipsisLiteral(_) => {
-                py_expr!("Ellipsis")
-            }
+            Expr::EllipsisLiteral(_) => py_expr!("Ellipsis"),
             Expr::NumberLiteral(ast::ExprNumberLiteral {
                 value: ast::Number::Complex { real, imag },
                 ..
@@ -419,10 +416,10 @@ impl<'a> Transformer for ExprRewriter<'a> {
                     attr = attr.id.as_str(),
                 )
             }
-            Expr::NoneLiteral(_) => {
-                py_expr!("None")
-            }
-            Expr::Tuple(tuple) if matches!(tuple.ctx, ast::ExprContext::Load) => {
+            Expr::Tuple(tuple)
+                if matches!(tuple.ctx, ast::ExprContext::Load)
+                    && tuple.elts.iter().any(|elt| matches!(elt, Expr::Starred(_))) =>
+            {
                 make_tuple_splat(tuple)
             }
             Expr::ListComp(ast::ExprListComp {
@@ -546,9 +543,13 @@ impl<'a> Transformer for ExprRewriter<'a> {
                 let key = *slice;
                 make_binop("getitem", obj, key)
             }
-            _ => original,
+            _ => {
+                walk_expr(self, expr);
+                return;
+            }
         };
-        walk_expr(self, expr);
+        *expr = rewritten;
+        self.visit_expr(expr);
     }
 
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
@@ -721,12 +722,6 @@ impl<'a> Transformer for ExprRewriter<'a> {
         }
 
         walk_stmt(self, stmt);
-
-        if let Stmt::Assign(ast::StmtAssign { targets, value, .. }) = stmt {
-            if targets.len() == 1 && matches!(targets.first(), Some(Expr::Name(_))) {
-                self.visit_expr(value);
-            }
-        }
 
         if self.options.truthy {
             match stmt {
