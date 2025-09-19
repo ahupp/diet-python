@@ -705,6 +705,9 @@ impl<'a> Transformer for ExprRewriter<'a> {
                         exc = *exc.clone(),
                         cause = *cause.clone(),
                     ),
+                    (None, Some(_)) => panic!(
+                        "raise with a cause but without an exception should be impossible"
+                    ),
                     (exc, cause) => {
                         raise.exc = exc;
                         raise.cause = cause;
