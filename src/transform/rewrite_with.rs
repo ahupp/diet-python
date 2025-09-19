@@ -11,7 +11,7 @@ pub fn rewrite(
         ..
     }: ast::StmtWith,
     ctx: &Context,
-    transformer: &impl Transformer,
+    transformer: &mut impl Transformer,
 ) -> Stmt {
     if items.is_empty() {
         let mut stmt = py_stmt!("pass");

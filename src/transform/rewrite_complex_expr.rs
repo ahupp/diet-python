@@ -1,4 +1,4 @@
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 
 use super::context::Context;
 use super::rewrite_expr_to_stmt::{expr_boolop_to_stmts, expr_compare_to_stmts};
@@ -22,11 +22,11 @@ impl<'a> UnnestExprTransformer<'a> {
 }
 
 impl<'a> Transformer for UnnestExprTransformer<'a> {
-    fn visit_stmt(&self, _stmt: &mut Stmt) {
+    fn visit_stmt(&mut self, _stmt: &mut Stmt) {
         // Do not recurse into nested statements
     }
 
-    fn visit_expr(&self, expr: &mut Expr) {
+    fn visit_expr(&mut self, expr: &mut Expr) {
         walk_expr(self, expr);
         if !is_simple(expr) {
             match expr {
@@ -131,9 +131,9 @@ impl<'a> UnnestTransformer<'a> {
 }
 
 impl<'a> Transformer for UnnestTransformer<'a> {
-    fn visit_stmt(&self, stmt: &mut Stmt) {
-        let transformer = UnnestExprTransformer::new(self.ctx);
-        walk_stmt(&transformer, stmt);
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
+        let mut transformer = UnnestExprTransformer::new(self.ctx);
+        walk_stmt(&mut transformer, stmt);
         walk_stmt(self, stmt);
         let mut stmts = transformer.stmts.take();
         if stmts.is_empty() {
@@ -148,42 +148,42 @@ impl<'a> Transformer for UnnestTransformer<'a> {
 
 #[allow(dead_code)]
 pub(crate) struct ComplexExprTransformer {
-    pub(crate) requires_unnest: Cell<bool>,
+    pub(crate) requires_unnest: bool,
 }
 
 impl ComplexExprTransformer {
     #[allow(dead_code)]
     pub(crate) fn new() -> Self {
         Self {
-            requires_unnest: Cell::new(false),
+            requires_unnest: false,
         }
     }
 }
 
 impl Transformer for ComplexExprTransformer {
-    fn visit_expr(&self, expr: &mut Expr) {
+    fn visit_expr(&mut self, expr: &mut Expr) {
         if matches!(
             expr,
             Expr::BoolOp(_) | Expr::If(_) | Expr::Compare(_) | Expr::YieldFrom(_)
         ) {
-            self.requires_unnest.set(true);
+            self.requires_unnest = true;
             return;
         }
 
         walk_expr(self, expr);
     }
 
-    fn visit_stmt(&self, _stmt: &mut Stmt) {
+    fn visit_stmt(&mut self, _stmt: &mut Stmt) {
         // We only want to handle expressions that are directly referenced by this stmt.
     }
 }
 
 #[allow(dead_code)]
 pub(crate) fn rewrite(stmt: &mut Stmt, ctx: &Context) {
-    let transformer = ComplexExprTransformer::new();
-    walk_stmt(&transformer, stmt);
-    if transformer.requires_unnest.get() {
-        let unnest = UnnestTransformer::new(ctx);
+    let mut transformer = ComplexExprTransformer::new();
+    walk_stmt(&mut transformer, stmt);
+    if transformer.requires_unnest {
+        let mut unnest = UnnestTransformer::new(ctx);
         unnest.visit_stmt(stmt);
     }
 }

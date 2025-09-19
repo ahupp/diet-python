@@ -8,109 +8,109 @@ use ruff_python_ast::{
 
 /// A trait for transforming ASTs. Visits all nodes in the AST recursively in evaluation-order.
 pub trait Transformer {
-    fn visit_stmt(&self, stmt: &mut Stmt) {
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
         walk_stmt(self, stmt);
     }
-    fn visit_annotation(&self, expr: &mut Expr) {
+    fn visit_annotation(&mut self, expr: &mut Expr) {
         walk_annotation(self, expr);
     }
-    fn visit_decorator(&self, decorator: &mut Decorator) {
+    fn visit_decorator(&mut self, decorator: &mut Decorator) {
         walk_decorator(self, decorator);
     }
-    fn visit_expr(&self, expr: &mut Expr) {
+    fn visit_expr(&mut self, expr: &mut Expr) {
         walk_expr(self, expr);
     }
-    fn visit_expr_context(&self, expr_context: &mut ExprContext) {
+    fn visit_expr_context(&mut self, expr_context: &mut ExprContext) {
         walk_expr_context(self, expr_context);
     }
-    fn visit_bool_op(&self, bool_op: &mut BoolOp) {
+    fn visit_bool_op(&mut self, bool_op: &mut BoolOp) {
         walk_bool_op(self, bool_op);
     }
-    fn visit_operator(&self, operator: &mut Operator) {
+    fn visit_operator(&mut self, operator: &mut Operator) {
         walk_operator(self, operator);
     }
-    fn visit_unary_op(&self, unary_op: &mut UnaryOp) {
+    fn visit_unary_op(&mut self, unary_op: &mut UnaryOp) {
         walk_unary_op(self, unary_op);
     }
-    fn visit_cmp_op(&self, cmp_op: &mut CmpOp) {
+    fn visit_cmp_op(&mut self, cmp_op: &mut CmpOp) {
         walk_cmp_op(self, cmp_op);
     }
-    fn visit_comprehension(&self, comprehension: &mut Comprehension) {
+    fn visit_comprehension(&mut self, comprehension: &mut Comprehension) {
         walk_comprehension(self, comprehension);
     }
-    fn visit_except_handler(&self, except_handler: &mut ExceptHandler) {
+    fn visit_except_handler(&mut self, except_handler: &mut ExceptHandler) {
         walk_except_handler(self, except_handler);
     }
-    fn visit_arguments(&self, arguments: &mut Arguments) {
+    fn visit_arguments(&mut self, arguments: &mut Arguments) {
         walk_arguments(self, arguments);
     }
-    fn visit_parameters(&self, parameters: &mut Parameters) {
+    fn visit_parameters(&mut self, parameters: &mut Parameters) {
         walk_parameters(self, parameters);
     }
-    fn visit_parameter(&self, parameter: &mut Parameter) {
+    fn visit_parameter(&mut self, parameter: &mut Parameter) {
         walk_parameter(self, parameter);
     }
-    fn visit_keyword(&self, keyword: &mut Keyword) {
+    fn visit_keyword(&mut self, keyword: &mut Keyword) {
         walk_keyword(self, keyword);
     }
-    fn visit_alias(&self, alias: &mut Alias) {
+    fn visit_alias(&mut self, alias: &mut Alias) {
         walk_alias(self, alias);
     }
-    fn visit_with_item(&self, with_item: &mut WithItem) {
+    fn visit_with_item(&mut self, with_item: &mut WithItem) {
         walk_with_item(self, with_item);
     }
-    fn visit_type_params(&self, type_params: &mut TypeParams) {
+    fn visit_type_params(&mut self, type_params: &mut TypeParams) {
         walk_type_params(self, type_params);
     }
-    fn visit_type_param(&self, type_param: &mut TypeParam) {
+    fn visit_type_param(&mut self, type_param: &mut TypeParam) {
         walk_type_param(self, type_param);
     }
-    fn visit_match_case(&self, match_case: &mut MatchCase) {
+    fn visit_match_case(&mut self, match_case: &mut MatchCase) {
         walk_match_case(self, match_case);
     }
-    fn visit_pattern(&self, pattern: &mut Pattern) {
+    fn visit_pattern(&mut self, pattern: &mut Pattern) {
         walk_pattern(self, pattern);
     }
-    fn visit_pattern_arguments(&self, pattern_arguments: &mut PatternArguments) {
+    fn visit_pattern_arguments(&mut self, pattern_arguments: &mut PatternArguments) {
         walk_pattern_arguments(self, pattern_arguments);
     }
-    fn visit_pattern_keyword(&self, pattern_keyword: &mut PatternKeyword) {
+    fn visit_pattern_keyword(&mut self, pattern_keyword: &mut PatternKeyword) {
         walk_pattern_keyword(self, pattern_keyword);
     }
-    fn visit_body(&self, body: &mut Vec<Stmt>) {
+    fn visit_body(&mut self, body: &mut Vec<Stmt>) {
         walk_body(self, body);
     }
-    fn visit_elif_else_clause(&self, elif_else_clause: &mut ElifElseClause) {
+    fn visit_elif_else_clause(&mut self, elif_else_clause: &mut ElifElseClause) {
         walk_elif_else_clause(self, elif_else_clause);
     }
-    fn visit_f_string(&self, f_string: &mut FString) {
+    fn visit_f_string(&mut self, f_string: &mut FString) {
         walk_f_string(self, f_string);
     }
     fn visit_interpolated_string_element(
-        &self,
+        &mut self,
         interpolated_string_element: &mut InterpolatedStringElement,
     ) {
         walk_interpolated_string_element(self, interpolated_string_element);
     }
-    fn visit_t_string(&self, t_string: &mut TString) {
+    fn visit_t_string(&mut self, t_string: &mut TString) {
         walk_t_string(self, t_string);
     }
-    fn visit_string_literal(&self, string_literal: &mut StringLiteral) {
+    fn visit_string_literal(&mut self, string_literal: &mut StringLiteral) {
         walk_string_literal(self, string_literal);
     }
-    fn visit_bytes_literal(&self, bytes_literal: &mut BytesLiteral) {
+    fn visit_bytes_literal(&mut self, bytes_literal: &mut BytesLiteral) {
         walk_bytes_literal(self, bytes_literal);
     }
 }
 
-pub fn walk_body<V: Transformer + ?Sized>(visitor: &V, body: &mut Vec<Stmt>) {
+pub fn walk_body<V: Transformer + ?Sized>(visitor: &mut V, body: &mut Vec<Stmt>) {
     for stmt in body {
         visitor.visit_stmt(stmt);
     }
 }
 
 pub fn walk_elif_else_clause<V: Transformer + ?Sized>(
-    visitor: &V,
+    visitor: &mut V,
     elif_else_clause: &mut ElifElseClause,
 ) {
     if let Some(test) = &mut elif_else_clause.test {
@@ -119,7 +119,7 @@ pub fn walk_elif_else_clause<V: Transformer + ?Sized>(
     visitor.visit_body(&mut elif_else_clause.body);
 }
 
-pub fn walk_stmt<V: Transformer + ?Sized>(visitor: &V, stmt: &mut Stmt) {
+pub fn walk_stmt<V: Transformer + ?Sized>(visitor: &mut V, stmt: &mut Stmt) {
     match stmt {
         Stmt::FunctionDef(ast::StmtFunctionDef {
             parameters,
@@ -337,15 +337,15 @@ pub fn walk_stmt<V: Transformer + ?Sized>(visitor: &V, stmt: &mut Stmt) {
     }
 }
 
-pub fn walk_annotation<V: Transformer + ?Sized>(visitor: &V, expr: &mut Expr) {
+pub fn walk_annotation<V: Transformer + ?Sized>(visitor: &mut V, expr: &mut Expr) {
     visitor.visit_expr(expr);
 }
 
-pub fn walk_decorator<V: Transformer + ?Sized>(visitor: &V, decorator: &mut Decorator) {
+pub fn walk_decorator<V: Transformer + ?Sized>(visitor: &mut V, decorator: &mut Decorator) {
     visitor.visit_expr(&mut decorator.expression);
 }
 
-pub fn walk_expr<V: Transformer + ?Sized>(visitor: &V, expr: &mut Expr) {
+pub fn walk_expr<V: Transformer + ?Sized>(visitor: &mut V, expr: &mut Expr) {
     match expr {
         Expr::BoolOp(ast::ExprBoolOp {
             op,
@@ -622,7 +622,10 @@ pub fn walk_expr<V: Transformer + ?Sized>(visitor: &V, expr: &mut Expr) {
     }
 }
 
-pub fn walk_comprehension<V: Transformer + ?Sized>(visitor: &V, comprehension: &mut Comprehension) {
+pub fn walk_comprehension<V: Transformer + ?Sized>(
+    visitor: &mut V,
+    comprehension: &mut Comprehension,
+) {
     visitor.visit_expr(&mut comprehension.iter);
     visitor.visit_expr(&mut comprehension.target);
     for expr in &mut comprehension.ifs {
@@ -631,7 +634,7 @@ pub fn walk_comprehension<V: Transformer + ?Sized>(visitor: &V, comprehension: &
 }
 
 pub fn walk_except_handler<V: Transformer + ?Sized>(
-    visitor: &V,
+    visitor: &mut V,
     except_handler: &mut ExceptHandler,
 ) {
     match except_handler {
@@ -644,7 +647,7 @@ pub fn walk_except_handler<V: Transformer + ?Sized>(
     }
 }
 
-pub fn walk_arguments<V: Transformer + ?Sized>(visitor: &V, arguments: &mut Arguments) {
+pub fn walk_arguments<V: Transformer + ?Sized>(visitor: &mut V, arguments: &mut Arguments) {
     // Note that there might be keywords before the last arg, e.g. in
     // f(*args, a=2, *args2, **kwargs)`, but we follow Python in evaluating first `args` and then
     // `keywords`. See also [Arguments::arguments_source_order`].
@@ -656,7 +659,7 @@ pub fn walk_arguments<V: Transformer + ?Sized>(visitor: &V, arguments: &mut Argu
     }
 }
 
-pub fn walk_parameters<V: Transformer + ?Sized>(visitor: &V, parameters: &mut Parameters) {
+pub fn walk_parameters<V: Transformer + ?Sized>(visitor: &mut V, parameters: &mut Parameters) {
     // Defaults are evaluated before annotations.
     for arg in &mut parameters.posonlyargs {
         if let Some(default) = &mut arg.default {
@@ -691,30 +694,30 @@ pub fn walk_parameters<V: Transformer + ?Sized>(visitor: &V, parameters: &mut Pa
     }
 }
 
-pub fn walk_parameter<V: Transformer + ?Sized>(visitor: &V, parameter: &mut Parameter) {
+pub fn walk_parameter<V: Transformer + ?Sized>(visitor: &mut V, parameter: &mut Parameter) {
     if let Some(expr) = &mut parameter.annotation {
         visitor.visit_annotation(expr);
     }
 }
 
-pub fn walk_keyword<V: Transformer + ?Sized>(visitor: &V, keyword: &mut Keyword) {
+pub fn walk_keyword<V: Transformer + ?Sized>(visitor: &mut V, keyword: &mut Keyword) {
     visitor.visit_expr(&mut keyword.value);
 }
 
-pub fn walk_with_item<V: Transformer + ?Sized>(visitor: &V, with_item: &mut WithItem) {
+pub fn walk_with_item<V: Transformer + ?Sized>(visitor: &mut V, with_item: &mut WithItem) {
     visitor.visit_expr(&mut with_item.context_expr);
     if let Some(expr) = &mut with_item.optional_vars {
         visitor.visit_expr(expr);
     }
 }
 
-pub fn walk_type_params<V: Transformer + ?Sized>(visitor: &V, type_params: &mut TypeParams) {
+pub fn walk_type_params<V: Transformer + ?Sized>(visitor: &mut V, type_params: &mut TypeParams) {
     for type_param in &mut type_params.type_params {
         visitor.visit_type_param(type_param);
     }
 }
 
-pub fn walk_type_param<V: Transformer + ?Sized>(visitor: &V, type_param: &mut TypeParam) {
+pub fn walk_type_param<V: Transformer + ?Sized>(visitor: &mut V, type_param: &mut TypeParam) {
     match type_param {
         TypeParam::TypeVar(TypeParamTypeVar {
             bound,
@@ -753,7 +756,7 @@ pub fn walk_type_param<V: Transformer + ?Sized>(visitor: &V, type_param: &mut Ty
     }
 }
 
-pub fn walk_match_case<V: Transformer + ?Sized>(visitor: &V, match_case: &mut MatchCase) {
+pub fn walk_match_case<V: Transformer + ?Sized>(visitor: &mut V, match_case: &mut MatchCase) {
     visitor.visit_pattern(&mut match_case.pattern);
     if let Some(expr) = &mut match_case.guard {
         visitor.visit_expr(expr);
@@ -761,7 +764,7 @@ pub fn walk_match_case<V: Transformer + ?Sized>(visitor: &V, match_case: &mut Ma
     visitor.visit_body(&mut match_case.body);
 }
 
-pub fn walk_pattern<V: Transformer + ?Sized>(visitor: &V, pattern: &mut Pattern) {
+pub fn walk_pattern<V: Transformer + ?Sized>(visitor: &mut V, pattern: &mut Pattern) {
     match pattern {
         Pattern::MatchValue(ast::PatternMatchValue { value, .. }) => {
             visitor.visit_expr(value);
@@ -799,7 +802,7 @@ pub fn walk_pattern<V: Transformer + ?Sized>(visitor: &V, pattern: &mut Pattern)
 }
 
 pub fn walk_pattern_arguments<V: Transformer + ?Sized>(
-    visitor: &V,
+    visitor: &mut V,
     pattern_arguments: &mut PatternArguments,
 ) {
     for pattern in &mut pattern_arguments.patterns {
@@ -811,20 +814,20 @@ pub fn walk_pattern_arguments<V: Transformer + ?Sized>(
 }
 
 pub fn walk_pattern_keyword<V: Transformer + ?Sized>(
-    visitor: &V,
+    visitor: &mut V,
     pattern_keyword: &mut PatternKeyword,
 ) {
     visitor.visit_pattern(&mut pattern_keyword.pattern);
 }
 
-pub fn walk_f_string<V: Transformer + ?Sized>(visitor: &V, f_string: &mut FString) {
+pub fn walk_f_string<V: Transformer + ?Sized>(visitor: &mut V, f_string: &mut FString) {
     for element in &mut f_string.elements {
         visitor.visit_interpolated_string_element(element);
     }
 }
 
 pub fn walk_interpolated_string_element<V: Transformer + ?Sized>(
-    visitor: &V,
+    visitor: &mut V,
     interpolated_string_element: &mut InterpolatedStringElement,
 ) {
     if let ast::InterpolatedStringElement::Interpolation(ast::InterpolatedElement {
@@ -842,32 +845,36 @@ pub fn walk_interpolated_string_element<V: Transformer + ?Sized>(
     }
 }
 
-pub fn walk_t_string<V: Transformer + ?Sized>(visitor: &V, t_string: &mut TString) {
+pub fn walk_t_string<V: Transformer + ?Sized>(visitor: &mut V, t_string: &mut TString) {
     for element in &mut t_string.elements {
         visitor.visit_interpolated_string_element(element);
     }
 }
 
-pub fn walk_expr_context<V: Transformer + ?Sized>(_visitor: &V, _expr_context: &mut ExprContext) {}
+pub fn walk_expr_context<V: Transformer + ?Sized>(
+    _visitor: &mut V,
+    _expr_context: &mut ExprContext,
+) {
+}
 
-pub fn walk_bool_op<V: Transformer + ?Sized>(_visitor: &V, _bool_op: &mut BoolOp) {}
+pub fn walk_bool_op<V: Transformer + ?Sized>(_visitor: &mut V, _bool_op: &mut BoolOp) {}
 
-pub fn walk_operator<V: Transformer + ?Sized>(_visitor: &V, _operator: &mut Operator) {}
+pub fn walk_operator<V: Transformer + ?Sized>(_visitor: &mut V, _operator: &mut Operator) {}
 
-pub fn walk_unary_op<V: Transformer + ?Sized>(_visitor: &V, _unary_op: &mut UnaryOp) {}
+pub fn walk_unary_op<V: Transformer + ?Sized>(_visitor: &mut V, _unary_op: &mut UnaryOp) {}
 
-pub fn walk_cmp_op<V: Transformer + ?Sized>(_visitor: &V, _cmp_op: &mut CmpOp) {}
+pub fn walk_cmp_op<V: Transformer + ?Sized>(_visitor: &mut V, _cmp_op: &mut CmpOp) {}
 
-pub fn walk_alias<V: Transformer + ?Sized>(_visitor: &V, _alias: &mut Alias) {}
+pub fn walk_alias<V: Transformer + ?Sized>(_visitor: &mut V, _alias: &mut Alias) {}
 
 pub fn walk_string_literal<V: Transformer + ?Sized>(
-    _visitor: &V,
+    _visitor: &mut V,
     _string_literal: &mut StringLiteral,
 ) {
 }
 
 pub fn walk_bytes_literal<V: Transformer + ?Sized>(
-    _visitor: &V,
+    _visitor: &mut V,
     _bytes_literal: &mut BytesLiteral,
 ) {
 }

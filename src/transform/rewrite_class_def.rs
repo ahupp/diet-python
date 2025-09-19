@@ -3,22 +3,21 @@ use crate::template::make_tuple;
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::TextRange;
-use std::cell::Cell;
 
 struct MethodTransformer {
-    uses_class: Cell<bool>,
+    uses_class: bool,
     first_arg: Option<String>,
 }
 
 impl Transformer for MethodTransformer {
-    fn visit_stmt(&self, stmt: &mut Stmt) {
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
         if matches!(stmt, Stmt::FunctionDef(_)) {
             return;
         }
         walk_stmt(self, stmt);
     }
 
-    fn visit_expr(&self, expr: &mut Expr) {
+    fn visit_expr(&mut self, expr: &mut Expr) {
         walk_expr(self, expr);
         match expr {
             Expr::Call(call) => {
@@ -29,14 +28,14 @@ impl Transformer for MethodTransformer {
                     {
                         if let Some(arg) = &self.first_arg {
                             *expr = py_expr!("super({arg:id}, __class__)", arg = arg.as_str());
-                            self.uses_class.set(true);
+                            self.uses_class = true;
                         }
                     }
                 }
             }
             Expr::Name(ast::ExprName { id, .. }) => {
                 if id == "__class__" {
-                    self.uses_class.set(true);
+                    self.uses_class = true;
                 }
             }
             _ => {}
@@ -58,14 +57,14 @@ fn rewrite_method(func_def: &mut ast::StmtFunctionDef, class_name: &str) {
                 .map(|a| a.parameter.name.to_string())
         });
 
-    let transformer = MethodTransformer {
-        uses_class: Cell::new(false),
+    let mut transformer = MethodTransformer {
+        uses_class: false,
         first_arg,
     };
     for stmt in &mut func_def.body {
-        walk_stmt(&transformer, stmt);
+        walk_stmt(&mut transformer, stmt);
     }
-    if transformer.uses_class.get() {
+    if transformer.uses_class {
         let cls_name = format!("_dp_class_{}", class_name);
         let assign = py_stmt!("__class__ = {c:id}", c = cls_name.as_str());
         func_def.body.insert(0, assign);

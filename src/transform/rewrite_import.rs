@@ -77,7 +77,7 @@ mod tests {
     fn rewrite_source(source: &str, options: Options) -> String {
         let mut module = parse_module(source).expect("parse error").into_syntax();
         let ctx = Context::new(options);
-        let expr_transformer = ExprRewriter::new(&ctx);
+        let mut expr_transformer = ExprRewriter::new(&ctx);
         expr_transformer.rewrite_body(&mut module.body);
         crate::template::flatten(&mut module.body);
         crate::ruff_ast_to_string(&module.body)

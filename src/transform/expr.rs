@@ -22,13 +22,13 @@ impl<'a> ExprRewriter<'a> {
         }
     }
 
-    pub fn rewrite_body(&self, body: &mut Vec<Stmt>) {
+    pub fn rewrite_body(&mut self, body: &mut Vec<Stmt>) {
         for stmt in body.iter_mut() {
             self.visit_stmt(stmt);
         }
     }
 
-    fn wrap_truthy_expr(&self, expr: &mut Expr) {
+    fn wrap_truthy_expr(&mut self, expr: &mut Expr) {
         if !self.options.truthy || is_truth_call(expr) {
             return;
         }
@@ -42,8 +42,8 @@ __dp__.truth({expr:expr})
         );
     }
 
-    fn lower_lambdas_generators(&self, stmt: &mut Stmt) -> bool {
-        let lowerer = rewrite_expr_to_stmt::LambdaGeneratorLowerer::new(self.ctx);
+    fn lower_lambdas_generators(&mut self, stmt: &mut Stmt) -> bool {
+        let mut lowerer = rewrite_expr_to_stmt::LambdaGeneratorLowerer::new(self.ctx);
         lowerer.rewrite(stmt);
         let mut lowered_functions = lowerer.into_statements();
         if lowered_functions.is_empty() {
@@ -55,7 +55,7 @@ __dp__.truth({expr:expr})
         }
     }
 
-    fn rewrite_target(&self, target: Expr, value: Expr, out: &mut Vec<Stmt>) {
+    fn rewrite_target(&mut self, target: Expr, value: Expr, out: &mut Vec<Stmt>) {
         match target {
             Expr::Tuple(tuple) => {
                 self.rewrite_unpack_target(tuple.elts, value, out, UnpackTargetKind::Tuple);
@@ -108,7 +108,7 @@ __dp__.setitem({obj:expr}, {key:expr}, {value:expr})
     }
 
     fn rewrite_unpack_target(
-        &self,
+        &mut self,
         elts: Vec<Expr>,
         value: Expr,
         out: &mut Vec<Stmt>,
@@ -258,7 +258,7 @@ enum UnpackTargetKind {
 }
 
 impl<'a> Transformer for ExprRewriter<'a> {
-    fn visit_expr(&self, expr: &mut Expr) {
+    fn visit_expr(&mut self, expr: &mut Expr) {
         let original = expr.clone();
         *expr = match original {
             Expr::FString(f_string) => rewrite_string::rewrite_fstring(f_string),
@@ -444,7 +444,7 @@ impl<'a> Transformer for ExprRewriter<'a> {
         walk_expr(self, expr);
     }
 
-    fn visit_stmt(&self, stmt: &mut Stmt) {
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
         rewrite_complex_expr::rewrite(stmt, self.ctx);
 
         if self.lower_lambdas_generators(stmt) {

@@ -13,7 +13,7 @@ pub fn rewrite(
         ..
     }: ast::StmtFor,
     ctx: &Context,
-    transformer: &impl Transformer,
+    transformer: &mut impl Transformer,
 ) -> Stmt {
     let iter_name = ctx.fresh("iter");
 

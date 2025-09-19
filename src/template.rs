@@ -62,7 +62,7 @@ macro_rules! py_stmt {
         };
 
         let mut stmts = module.body;
-        let template = SyntaxTemplate::new($template, values);
+        let mut template = SyntaxTemplate::new($template, values);
         template.visit_stmts(&mut stmts);
         single_stmt(stmts)
     }};
@@ -262,13 +262,13 @@ impl SyntaxTemplate {
         })
     }
 
-    pub(crate) fn visit_stmts(&self, body: &mut Vec<Stmt>) {
+    pub(crate) fn visit_stmts(&mut self, body: &mut Vec<Stmt>) {
         self.visit_body(body);
     }
 }
 
 impl Transformer for SyntaxTemplate {
-    fn visit_expr(&self, expr: &mut Expr) {
+    fn visit_expr(&mut self, expr: &mut Expr) {
         match expr {
             Expr::Name(ast::ExprName { id, .. }) => {
                 if let Some((kind, name)) = self.parse_placeholder(id.as_str()) {
@@ -291,7 +291,7 @@ impl Transformer for SyntaxTemplate {
         walk_expr(self, expr);
     }
 
-    fn visit_stmt(&self, stmt: &mut Stmt) {
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
             Stmt::Expr(ast::StmtExpr { value, .. }) => {
                 if let Expr::Name(ast::ExprName { id, .. }) = value.as_ref() {
@@ -339,7 +339,7 @@ impl Transformer for SyntaxTemplate {
 pub(crate) struct Flattener;
 
 impl Flattener {
-    fn visit_stmts(&self, body: &mut Vec<Stmt>) {
+    fn visit_stmts(&mut self, body: &mut Vec<Stmt>) {
         let mut i = 0;
         while i < body.len() {
             self.visit_stmt(&mut body[i]);
@@ -377,7 +377,7 @@ fn remove_placeholder_pass(stmts: &mut Vec<Stmt>) {
 }
 
 impl Transformer for Flattener {
-    fn visit_stmt(&self, stmt: &mut Stmt) {
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
             Stmt::If(ast::StmtIf {
                 body,
@@ -443,7 +443,8 @@ impl Transformer for Flattener {
 }
 
 pub(crate) fn flatten(body: &mut Vec<Stmt>) {
-    Flattener.visit_stmts(body);
+    let mut flattener = Flattener;
+    flattener.visit_stmts(body);
 }
 
 #[cfg(test)]
