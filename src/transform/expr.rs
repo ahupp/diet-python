@@ -1,7 +1,7 @@
 use super::{
     context::Context,
-    rewrite_assert, rewrite_class_def, rewrite_complex_expr, rewrite_decorator,
-    rewrite_expr_to_stmt::{expr_boolop_to_stmts, expr_compare_to_stmts},
+    rewrite_assert, rewrite_class_def, rewrite_decorator,
+    rewrite_expr_to_stmt::{expr_boolop_to_stmts, expr_compare_to_stmts, expr_yield_from_to_stmt},
     rewrite_for_loop, rewrite_import, rewrite_match_case, rewrite_string, rewrite_try_except,
     rewrite_with, Options,
 };
@@ -411,6 +411,12 @@ impl<'a> Transformer for ExprRewriter<'a> {
                 self.buf.extend(stmts);
                 py_expr!("{tmp:id}", tmp = tmp.as_str())
             }
+            Expr::YieldFrom(yield_from) => {
+                let tmp = self.ctx.fresh("tmp");
+                let stmts = expr_yield_from_to_stmt(self.ctx, tmp.as_str(), yield_from);
+                self.buf.extend(stmts);
+                py_expr!("{tmp:id}", tmp = tmp.as_str())
+            }
             Expr::Lambda(lambda) => self.lower_lambda(lambda),
             Expr::Generator(generator) => self.lower_generator(generator),
             Expr::FString(f_string) => rewrite_string::rewrite_fstring(f_string),
@@ -599,8 +605,6 @@ impl<'a> Transformer for ExprRewriter<'a> {
     }
 
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
-        rewrite_complex_expr::rewrite(stmt, self.ctx);
-
         let current = stmt.clone();
         let mut revisit_stmt = false;
         *stmt = match current {
