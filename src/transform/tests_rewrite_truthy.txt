@@ -1,0 +1,13 @@
+$ truthy disabled if
+if a:
+    pass
+=
+if a:
+    pass
+
+$ truthy disabled while
+while a:
+    pass
+=
+while a:
+    pass
