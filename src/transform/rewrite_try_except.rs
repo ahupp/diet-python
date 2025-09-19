@@ -82,7 +82,7 @@ finally:
     )
 }
 
-fn has_non_default_handler(stmt: &ast::StmtTry) -> bool {
+pub(crate) fn has_non_default_handler(stmt: &ast::StmtTry) -> bool {
     stmt.handlers.iter().any(|handler| {
         matches!(
             handler,
