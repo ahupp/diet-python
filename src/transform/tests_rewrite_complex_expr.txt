@@ -5,11 +5,8 @@ x = yield from y
 _dp_yield_from_state_1 = __dp__.yield_from_init(y)
 _dp_yield_from_sent_2 = None
 while True:
-    _dp_tmp_4 = __dp__.getitem
-    _dp_tmp_5 = _dp_tmp_4(_dp_yield_from_state_1, 0)
-    _dp_tmp_6 = __dp__.RUNNING
-    _dp_tmp_7 = __dp__.ne(_dp_tmp_5, _dp_tmp_6)
-    if _dp_tmp_7:
+    _dp_tmp_4 = __dp__.ne(__dp__.getitem(_dp_yield_from_state_1, 0), __dp__.RUNNING)
+    if _dp_tmp_4:
         break
     try:
         _dp_yield_from_sent_2 = yield __dp__.getitem(_dp_yield_from_state_1, 1)

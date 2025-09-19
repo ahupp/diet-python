@@ -301,23 +301,21 @@ $ expr 041
 r = {k: v + 1 for k, v in items if k % 2 == 0}
 =
 
-_dp_tmp_1 = k, v
-_dp_tmp_2 = __dp__.mod(k, 2)
-_dp_tmp_3 = __dp__.eq(_dp_tmp_2, 0)
-_dp_tmp_4 = __dp__.add(v, 1)
-def _dp_gen_6(items):
-    _dp_iter_7 = __dp__.iter(items)
+def _dp_gen_1(items):
+    _dp_iter_2 = __dp__.iter(items)
     while True:
         try:
-            _dp_tmp_1 = __dp__.next(_dp_iter_7)
+            _dp_tmp_3 = __dp__.next(_dp_iter_2)
+            k = __dp__.getitem(_dp_tmp_3, 0)
+            v = __dp__.getitem(_dp_tmp_3, 1)
         except:
             __dp__.check_stopiteration()
             break
         else:
-            if _dp_tmp_3:
-                yield k, _dp_tmp_4
-_dp_tmp_5 = dict(_dp_gen_6(__dp__.iter(items)))
-r = _dp_tmp_5
+            _dp_tmp_4 = __dp__.eq(__dp__.mod(k, 2), 0)
+            if _dp_tmp_4:
+                yield k, __dp__.add(v, 1)
+r = dict(_dp_gen_1(__dp__.iter(items)))
 
 
 $ expr 042
@@ -382,22 +380,19 @@ $ expr 051
 r = [a + 1 for a in items if a % 2 == 0]
 =
 
-_dp_tmp_1 = __dp__.mod(a, 2)
-_dp_tmp_2 = __dp__.eq(_dp_tmp_1, 0)
-_dp_tmp_3 = __dp__.add(a, 1)
-def _dp_gen_5(items):
-    _dp_iter_6 = __dp__.iter(items)
+def _dp_gen_1(items):
+    _dp_iter_2 = __dp__.iter(items)
     while True:
         try:
-            a = __dp__.next(_dp_iter_6)
+            a = __dp__.next(_dp_iter_2)
         except:
             __dp__.check_stopiteration()
             break
         else:
-            if _dp_tmp_2:
-                yield _dp_tmp_3
-_dp_tmp_4 = list(_dp_gen_5(__dp__.iter(items)))
-r = _dp_tmp_4
+            _dp_tmp_3 = __dp__.eq(__dp__.mod(a, 2), 0)
+            if _dp_tmp_3:
+                yield __dp__.add(a, 1)
+r = list(_dp_gen_1(__dp__.iter(items)))
 
 
 $ expr 052
