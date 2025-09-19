@@ -3,10 +3,10 @@ use super::{
     rewrite_assert, rewrite_class_def, rewrite_decorator,
     rewrite_expr_to_stmt::{expr_boolop_to_stmts, expr_compare_to_stmts, expr_yield_from_to_stmt},
     rewrite_for_loop, rewrite_import, rewrite_match_case, rewrite_string, rewrite_try_except,
-    rewrite_with, Options,
+    rewrite_with, ImportStarHandling, Options,
 };
 use crate::body_transform::{walk_expr, walk_stmt, Transformer};
-use crate::template::{make_binop, make_generator, make_tuple, make_unaryop, single_stmt};
+use crate::template::{make_binop, make_generator, make_tuple, make_unaryop};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::name::Name;
 use ruff_python_ast::{self as ast, Expr, Operator, Stmt, UnaryOp};
@@ -17,6 +17,11 @@ pub struct ExprRewriter<'a> {
     ctx: &'a Context,
     options: Options,
     buf: Vec<Stmt>,
+}
+
+enum Rewrite {
+    Walk(Vec<Stmt>),
+    Visit(Vec<Stmt>),
 }
 
 impl<'a> ExprRewriter<'a> {
@@ -30,6 +35,215 @@ impl<'a> ExprRewriter<'a> {
 
     fn should_rewrite_targets(targets: &[Expr]) -> bool {
         targets.len() > 1 || !matches!(targets.first(), Some(Expr::Name(_)))
+    }
+
+    fn should_rewrite_import_from(
+        import_from: &ast::StmtImportFrom,
+        options: &Options,
+    ) -> bool {
+        if import_from
+            .names
+            .iter()
+            .any(|alias| alias.name.id.as_str() == "*")
+        {
+            !matches!(options.import_star_handling, ImportStarHandling::Allowed)
+        } else {
+            true
+        }
+    }
+
+    fn process_statements(&mut self, initial: Vec<Stmt>) -> Vec<Stmt> {
+        enum WorkItem {
+            Process(Stmt),
+            Walk(Stmt),
+            Emit(Stmt),
+        }
+
+        let mut worklist: Vec<WorkItem> =
+            initial.into_iter().rev().map(WorkItem::Process).collect();
+
+        let mut buf_stack = take(&mut self.buf);
+        let mut output = Vec::new();
+
+        while let Some(item) = worklist.pop() {
+            match item {
+                WorkItem::Process(stmt) => match self.rewrite_stmt(stmt) {
+                    Rewrite::Visit(stmts) => {
+                        for stmt in stmts.into_iter().rev() {
+                            worklist.push(WorkItem::Process(stmt));
+                        }
+                    }
+                    Rewrite::Walk(stmts) => {
+                        for stmt in stmts.into_iter().rev() {
+                            worklist.push(WorkItem::Walk(stmt));
+                        }
+                    }
+                },
+                WorkItem::Walk(mut stmt) => {
+                    walk_stmt(self, &mut stmt);
+                    let mut buffered = take(&mut self.buf);
+                    worklist.push(WorkItem::Emit(stmt));
+                    while let Some(buffered_stmt) = buffered.pop() {
+                        worklist.push(WorkItem::Process(buffered_stmt));
+                    }
+                }
+                WorkItem::Emit(stmt) => output.push(stmt),
+            }
+        }
+
+        self.buf = take(&mut buf_stack);
+
+        output
+    }
+
+    fn rewrite_stmt(&mut self, stmt: Stmt) -> Rewrite {
+        match stmt {
+            Stmt::FunctionDef(mut func_def) if !func_def.decorator_list.is_empty() => {
+                let decorators = take(&mut func_def.decorator_list);
+                let func_name = func_def.name.id.clone();
+                Rewrite::Visit(vec![rewrite_decorator::rewrite(
+                    decorators,
+                    func_name.as_str(),
+                    Stmt::FunctionDef(func_def),
+                    None,
+                    self.ctx,
+                )])
+            }
+            Stmt::With(with) => Rewrite::Visit(vec![rewrite_with::rewrite(with, self.ctx, self)]),
+            Stmt::For(for_stmt) => {
+                Rewrite::Visit(vec![rewrite_for_loop::rewrite(for_stmt, self.ctx, self)])
+            }
+            Stmt::Assert(assert) => Rewrite::Visit(vec![rewrite_assert::rewrite(assert)]),
+            Stmt::ClassDef(class_def) => {
+                let decorated = !class_def.decorator_list.is_empty();
+                let base_stmt = rewrite_class_def::rewrite(class_def.clone(), decorated);
+                if decorated {
+                    let decorators = class_def.decorator_list.clone();
+                    let class_name = class_def.name.id.clone();
+                    let base_name = format!("_dp_class_{}", class_name);
+                    Rewrite::Visit(vec![rewrite_decorator::rewrite(
+                        decorators,
+                        class_name.as_str(),
+                        base_stmt,
+                        Some(base_name.as_str()),
+                        self.ctx,
+                    )])
+                } else {
+                    Rewrite::Visit(vec![base_stmt])
+                }
+            }
+            Stmt::Try(try_stmt) if rewrite_try_except::has_non_default_handler(&try_stmt) => {
+                Rewrite::Visit(vec![rewrite_try_except::rewrite(try_stmt, self.ctx)])
+            }
+            Stmt::Match(match_stmt) => {
+                Rewrite::Visit(vec![rewrite_match_case::rewrite(match_stmt, self.ctx)])
+            }
+            Stmt::Import(import) => Rewrite::Visit(vec![rewrite_import::rewrite(import)]),
+            Stmt::ImportFrom(import_from)
+                if Self::should_rewrite_import_from(&import_from, &self.options) =>
+            {
+                let stmt = rewrite_import::rewrite_from(import_from.clone(), &self.options);
+                Rewrite::Visit(vec![stmt])
+            }
+            Stmt::ImportFrom(import_from) => Rewrite::Walk(vec![Stmt::ImportFrom(import_from)]),
+            Stmt::AnnAssign(ann_assign) => {
+                if let Some(value) = ann_assign.value.clone().map(|v| *v) {
+                    let mut stmts = Vec::new();
+                    self.rewrite_target((*ann_assign.target).clone(), value, &mut stmts);
+                    Rewrite::Visit(stmts)
+                } else {
+                    Rewrite::Walk(Vec::new())
+                }
+            }
+            Stmt::Assign(assign) if Self::should_rewrite_targets(&assign.targets) => {
+                let value = (*assign.value).clone();
+                let mut stmts = Vec::new();
+                if assign.targets.len() > 1 {
+                    let tmp_name = self.ctx.fresh("tmp");
+                    let tmp_expr = py_expr!("\n{name:id}", name = tmp_name.as_str(),);
+                    let tmp_stmt = py_stmt!(
+                        "\n{name:id} = {value:expr}",
+                        name = tmp_name.as_str(),
+                        value = value,
+                    );
+
+                    stmts.push(tmp_stmt);
+                    for target in &assign.targets {
+                        self.rewrite_target(target.clone(), tmp_expr.clone(), &mut stmts);
+                    }
+                } else {
+                    self.rewrite_target(assign.targets[0].clone(), value, &mut stmts);
+                }
+
+                Rewrite::Visit(stmts)
+            }
+            Stmt::AugAssign(aug) => {
+                let target = (*aug.target).clone();
+                let value = (*aug.value).clone();
+
+                let func_name = match aug.op {
+                    Operator::Add => "iadd",
+                    Operator::Sub => "isub",
+                    Operator::Mult => "imul",
+                    Operator::MatMult => "imatmul",
+                    Operator::Div => "itruediv",
+                    Operator::Mod => "imod",
+                    Operator::Pow => "ipow",
+                    Operator::LShift => "ilshift",
+                    Operator::RShift => "irshift",
+                    Operator::BitOr => "ior",
+                    Operator::BitXor => "ixor",
+                    Operator::BitAnd => "iand",
+                    Operator::FloorDiv => "ifloordiv",
+                };
+
+                let mut target_expr = target.clone();
+                match &mut target_expr {
+                    Expr::Name(name) => name.ctx = ast::ExprContext::Load,
+                    Expr::Attribute(attr) => attr.ctx = ast::ExprContext::Load,
+                    Expr::Subscript(sub) => sub.ctx = ast::ExprContext::Load,
+                    _ => {}
+                }
+                let call = make_binop(func_name, target_expr, value);
+                let mut stmts = Vec::new();
+                self.rewrite_target(target, call, &mut stmts);
+                Rewrite::Visit(stmts)
+            }
+            Stmt::Delete(del) if Self::should_rewrite_targets(&del.targets) => {
+                let mut stmts = Vec::with_capacity(del.targets.len());
+                for target in &del.targets {
+                    let new_stmt = if let Expr::Subscript(sub) = target {
+                        py_stmt!(
+                            "__dp__.delitem({obj:expr}, {key:expr})",
+                            obj = (*sub.value).clone(),
+                            key = (*sub.slice).clone(),
+                        )
+                    } else if let Expr::Attribute(attr) = target {
+                        py_stmt!(
+                            "__dp__.delattr({obj:expr}, {name:literal})",
+                            obj = (*attr.value).clone(),
+                            name = attr.attr.as_str(),
+                        )
+                    } else {
+                        py_stmt!("del {target:expr}", target = target.clone())
+                    };
+
+                    stmts.push(new_stmt);
+                }
+                Rewrite::Visit(stmts)
+            }
+            Stmt::Raise(mut raise) if raise.cause.is_some() => {
+                match (raise.exc.take(), raise.cause.take()) {
+                    (Some(exc), Some(cause)) => Rewrite::Visit(vec![py_stmt!(
+                        "raise __dp__.raise_from({exc:expr}, {cause:expr})",
+                        exc = *exc,
+                        cause = *cause,
+                    )]),
+                    _ => panic!("raise with a cause but without an exception should be impossible"),
+                }
+            }
+            other => Rewrite::Walk(vec![other]),
+        }
     }
 
     fn lower_lambda(&mut self, lambda: ast::ExprLambda) -> Expr {
@@ -341,18 +555,9 @@ enum UnpackTargetKind {
 
 impl<'a> Transformer for ExprRewriter<'a> {
     fn visit_body(&mut self, body: &mut Vec<Stmt>) {
-        let input = take(body);
-        let mut buf_stack = take(&mut self.buf);
-
-        for mut stmt in input.into_iter() {
-            self.visit_stmt(&mut stmt);
-            let mut buffered = take(&mut self.buf);
-            self.visit_body(&mut buffered);
-            body.extend(buffered);
-            body.push(stmt);
-        }
-
-        self.buf = take(&mut buf_stack);
+        let stmts = take(body);
+        let output = self.process_statements(stmts);
+        *body = output;
     }
 
     fn visit_expr(&mut self, expr: &mut Expr) {
@@ -595,167 +800,12 @@ impl<'a> Transformer for ExprRewriter<'a> {
     }
 
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
-        let current = stmt.clone();
-        *stmt = match current {
-            Stmt::FunctionDef(mut func_def) if !func_def.decorator_list.is_empty() => {
-                let decorators = std::mem::take(&mut func_def.decorator_list);
-                let func_name = func_def.name.id.clone();
-                rewrite_decorator::rewrite(
-                    decorators,
-                    func_name.as_str(),
-                    Stmt::FunctionDef(func_def),
-                    None,
-                    self.ctx,
-                )
-            }
-            Stmt::With(with) => rewrite_with::rewrite(with, self.ctx, self),
-            Stmt::For(for_stmt) => rewrite_for_loop::rewrite(for_stmt, self.ctx, self),
-            Stmt::Assert(assert) => rewrite_assert::rewrite(assert.clone()),
-            Stmt::ClassDef(class_def) => {
-                let decorated = !class_def.decorator_list.is_empty();
-                let mut base_stmt = rewrite_class_def::rewrite(class_def.clone(), decorated);
-                self.visit_stmt(&mut base_stmt);
-                let class_name = class_def.name.id.clone();
-                if decorated {
-                    let decorators = class_def.decorator_list.clone();
-                    let base_name = format!("_dp_class_{}", class_name);
-                    rewrite_decorator::rewrite(
-                        decorators,
-                        class_name.as_str(),
-                        base_stmt,
-                        Some(base_name.as_str()),
-                        self.ctx,
-                    )
-                } else {
-                    base_stmt
-                }
-            }
-            Stmt::Try(try_stmt) if rewrite_try_except::has_non_default_handler(&try_stmt) => {
-                rewrite_try_except::rewrite(try_stmt, self.ctx)
-            }
-            Stmt::Match(match_stmt) => rewrite_match_case::rewrite(match_stmt.clone(), self.ctx),
-            Stmt::Import(import) => rewrite_import::rewrite(import.clone()),
-            Stmt::ImportFrom(import_from) => match rewrite_import::rewrite_from(
-                import_from.clone(),
-                &self.options,
-            ) {
-                Some(stmt) => stmt,
-                None => {
-                    *stmt = Stmt::ImportFrom(import_from.clone());
-                    walk_stmt(self, stmt);
-                    return;
-                }
-            },
-            Stmt::AnnAssign(ann_assign) => {
-                if let Some(value) = ann_assign.value.clone().map(|v| *v) {
-                    let mut stmts = Vec::new();
-                    self.rewrite_target((*ann_assign.target).clone(), value, &mut stmts);
-                    single_stmt(stmts)
-                } else {
-                    py_stmt!("{body:stmt}", body = Vec::new())
-                }
-            }
-            Stmt::Assign(assign) if Self::should_rewrite_targets(&assign.targets) => {
-                let value = (*assign.value).clone();
-                let mut stmts = Vec::new();
-                if assign.targets.len() > 1 {
-                    let tmp_name = self.ctx.fresh("tmp");
-                    let tmp_expr = py_expr!(
-                        "
-{name:id}
-",
-                        name = tmp_name.as_str(),
-                    );
-                    let tmp_stmt = py_stmt!(
-                        "
-{name:id} = {value:expr}
-",
-                        name = tmp_name.as_str(),
-                        value = value,
-                    );
-
-                    stmts.push(tmp_stmt);
-                    for target in &assign.targets {
-                        self.rewrite_target(target.clone(), tmp_expr.clone(), &mut stmts);
-                    }
-                } else {
-                    self.rewrite_target(assign.targets[0].clone(), value, &mut stmts);
-                }
-
-                single_stmt(stmts)
-            }
-            Stmt::AugAssign(aug) => {
-                let target = (*aug.target).clone();
-                let value = (*aug.value).clone();
-
-                let func_name = match aug.op {
-                    Operator::Add => "iadd",
-                    Operator::Sub => "isub",
-                    Operator::Mult => "imul",
-                    Operator::MatMult => "imatmul",
-                    Operator::Div => "itruediv",
-                    Operator::Mod => "imod",
-                    Operator::Pow => "ipow",
-                    Operator::LShift => "ilshift",
-                    Operator::RShift => "irshift",
-                    Operator::BitOr => "ior",
-                    Operator::BitXor => "ixor",
-                    Operator::BitAnd => "iand",
-                    Operator::FloorDiv => "ifloordiv",
-                };
-
-                let mut target_expr = target.clone();
-                match &mut target_expr {
-                    Expr::Name(name) => name.ctx = ast::ExprContext::Load,
-                    Expr::Attribute(attr) => attr.ctx = ast::ExprContext::Load,
-                    Expr::Subscript(sub) => sub.ctx = ast::ExprContext::Load,
-                    _ => {}
-                }
-                let call = make_binop(func_name, target_expr, value);
-                let mut stmts = Vec::new();
-                self.rewrite_target(target, call, &mut stmts);
-                single_stmt(stmts)
-            }
-            Stmt::Delete(del) if Self::should_rewrite_targets(&del.targets) => {
-                let mut stmts = Vec::with_capacity(del.targets.len());
-                for target in &del.targets {
-                    let new_stmt = if let Expr::Subscript(sub) = target {
-                        py_stmt!(
-                            "__dp__.delitem({obj:expr}, {key:expr})",
-                            obj = (*sub.value).clone(),
-                            key = (*sub.slice).clone(),
-                        )
-                    } else if let Expr::Attribute(attr) = target {
-                        py_stmt!(
-                            "__dp__.delattr({obj:expr}, {name:literal})",
-                            obj = (*attr.value).clone(),
-                            name = attr.attr.as_str(),
-                        )
-                    } else {
-                        py_stmt!("del {target:expr}", target = target.clone())
-                    };
-
-                    stmts.push(new_stmt);
-                }
-                single_stmt(stmts)
-            }
-            Stmt::Raise(mut raise) if raise.cause.is_some() => {
-                match (raise.exc.take(), raise.cause.take()) {
-                    (Some(exc), Some(cause)) => py_stmt!(
-                        "raise __dp__.raise_from({exc:expr}, {cause:expr})",
-                        exc = *exc,
-                        cause = *cause,
-                    ),
-                    _ => panic!("raise with a cause but without an exception should be impossible"),
-                }
-            }
-            _ => {
-                walk_stmt(self, stmt);
-                return;
-            }
+        let rewritten = self.process_statements(vec![stmt.clone()]);
+        *stmt = match rewritten.len() {
+            0 => py_stmt!("{body:stmt}", body = Vec::new()),
+            1 => rewritten.into_iter().next().unwrap(),
+            _ => py_stmt!("{body:stmt}", body = rewritten),
         };
-
-        self.visit_stmt(stmt);
     }
 }
 
