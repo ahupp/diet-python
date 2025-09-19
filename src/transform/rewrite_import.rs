@@ -30,12 +30,14 @@ pub fn rewrite_from(
         ..
     }: ast::StmtImportFrom,
     options: &Options,
-) -> Option<Stmt> {
+) -> Stmt {
     if names.iter().any(|alias| alias.name.id.as_str() == "*") {
         return match options.import_star_handling {
-            ImportStarHandling::Allowed => None,
+            ImportStarHandling::Allowed => unreachable!(
+                "rewrite_from is only called when import-star rewriting is required"
+            ),
             ImportStarHandling::Error => panic!("import star not allowed"),
-            ImportStarHandling::Strip => Some(py_stmt!("{body:stmt}", body = Vec::new())),
+            ImportStarHandling::Strip => py_stmt!("{body:stmt}", body = Vec::new()),
         };
     }
     let module_name = module.as_ref().map(|n| n.id.as_str()).unwrap_or("");
@@ -64,7 +66,7 @@ pub fn rewrite_from(
         };
         stmts.push(assign);
     }
-    Some(py_stmt!("{body:stmt}", body = stmts))
+    py_stmt!("{body:stmt}", body = stmts)
 }
 
 #[cfg(test)]
