@@ -590,10 +590,10 @@ impl<'a> Transformer for ExprRewriter<'a> {
         self.visit_expr(expr);
     }
 
-    fn visit_stmt(&mut self, stmt: &mut Stmt) {
-        let current = stmt.clone();
+    fn visit_stmt(&mut self, stmt_ref: &mut Stmt) {
+        let current = stmt_ref.clone();
         let mut revisit_stmt = false;
-        *stmt = match current {
+        let new_stmt = match current {
             Stmt::FunctionDef(mut func_def) if !func_def.decorator_list.is_empty() => {
                 let decorators = std::mem::take(&mut func_def.decorator_list);
                 let func_name = func_def.name.id.clone();
@@ -745,15 +745,22 @@ impl<'a> Transformer for ExprRewriter<'a> {
                     _ => panic!("raise with a cause but without an exception should be impossible"),
                 }
             }
-            stmt => stmt,
+            stmt => {
+                let mut stmt = stmt;
+                walk_stmt(self, &mut stmt);
+                *stmt_ref = stmt;
+                return;
+            }
         };
 
+        *stmt_ref = new_stmt;
+
         if revisit_stmt {
-            self.visit_stmt(stmt);
+            self.visit_stmt(stmt_ref);
             return;
         }
 
-        walk_stmt(self, stmt);
+        walk_stmt(self, stmt_ref);
     }
 }
 
