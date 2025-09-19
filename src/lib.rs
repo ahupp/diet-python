@@ -76,6 +76,10 @@ fn apply_transforms(module: &mut ModModule, options: Options) {
     // Collapse `py_stmt!` templates after all rewrites.
     template::flatten(&mut module.body);
 
+    if options.truthy {
+        transform::rewrite_truthy::rewrite(&mut module.body);
+    }
+
     strip_type_aliases(&mut module.body);
 }
 

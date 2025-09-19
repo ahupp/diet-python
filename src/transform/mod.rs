@@ -8,6 +8,7 @@ pub(crate) mod rewrite_for_loop;
 pub(crate) mod rewrite_import;
 pub(crate) mod rewrite_match_case;
 pub(crate) mod rewrite_string;
+pub(crate) mod rewrite_truthy;
 pub(crate) mod rewrite_try_except;
 pub(crate) mod rewrite_with;
 
