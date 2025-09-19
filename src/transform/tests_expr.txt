@@ -209,10 +209,9 @@ f() or a
 =
 
 _dp_tmp_1 = f()
-_dp_tmp_2 = _dp_tmp_1
-if __dp__.not_(_dp_tmp_2):
-    _dp_tmp_2 = a
-_dp_tmp_2
+if __dp__.not_(_dp_tmp_1):
+    _dp_tmp_1 = a
+_dp_tmp_1
 
 
 $ expr 029
@@ -244,10 +243,9 @@ f() and a
 =
 
 _dp_tmp_1 = f()
-_dp_tmp_2 = _dp_tmp_1
-if _dp_tmp_2:
-    _dp_tmp_2 = a
-_dp_tmp_2
+if _dp_tmp_1:
+    _dp_tmp_1 = a
+_dp_tmp_1
 
 
 $ expr 033
