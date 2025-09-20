@@ -350,6 +350,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "py_stmt_match_macro"
+version = "0.1.0"
+dependencies = [
+ "diet-python",
+ "ruff_python_parser",
+ "syn",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
