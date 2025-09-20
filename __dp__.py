@@ -3,7 +3,6 @@ import operator as _operator
 import sys
 import builtins
 import types as _types
-from typing import Any, Iterator, Optional, Tuple, Union, Literal, TypeVar, Callable, Awaitable
 
 operator = _operator
 add = _operator.add
@@ -122,12 +121,7 @@ RUNNING = 0
 RETURN = 1
 
 # Discriminated union for state
-YFRunning = Tuple[Literal[RUNNING], Any, Optional[Any], Iterator[Any]]
-YFReturn = Tuple[Literal[RETURN], Optional[Any], None, None]
-YFState = Union[YFRunning, YFReturn]
-
-
-def yield_from_init(iterable) -> YFState:
+def yield_from_init(iterable):
     it = iter(iterable)
     try:
         y = next(it)  # prime
@@ -137,7 +131,7 @@ def yield_from_init(iterable) -> YFState:
         return (RUNNING, y, None, it)
 
 
-def yield_from_next(state: YFRunning, sent: Optional[Any]) -> YFState:
+def yield_from_next(state, sent):
     """Advance one step given the value just sent into the outer generator.
        Must be called only while RUNNING."""
     tag, _y, _to_send, it = state
@@ -155,7 +149,7 @@ def yield_from_next(state: YFRunning, sent: Optional[Any]) -> YFState:
         return (RUNNING, y, None, it)
 
 
-def yield_from_except(state: YFState, exc: BaseException) -> YFState:
+def yield_from_except(state, exc: BaseException):
     """Forward exceptions immediately to the subgenerator."""
     # Unpack first, then assert as requested
     tag, _y, _to_send, it = state
@@ -182,19 +176,14 @@ def yield_from_except(state: YFState, exc: BaseException) -> YFState:
         return (RUNNING, y, None, it)
 
 
-T = TypeVar("T")
-AWith = Tuple[T, Callable[[T, Any, Any, Any], Awaitable[bool]]]
-With = Tuple[T, Callable[[T, Any, Any, Any], bool]]
-
-
-async def with_aenter(ctx) -> AWith:
+async def with_aenter(ctx):
     enter = type(ctx).__aenter__
     exit = type(ctx).__aexit__
     var = await enter(ctx)
     return (var, exit)
 
 
-async def with_aexit(state: AWith, exc_info: tuple | None):
+async def with_aexit(state, exc_info: tuple | None):
     ctx, aexit = state
     if exc_info is not None:
         if not await aexit(ctx, *exc_info):
@@ -203,14 +192,14 @@ async def with_aexit(state: AWith, exc_info: tuple | None):
         await aexit(ctx, None, None, None)
 
 
-def with_enter(ctx) -> With:
+def with_enter(ctx):
     enter = type(ctx).__enter__
     exit = type(ctx).__exit__
     var = enter(ctx)
     return (var, exit)
 
 
-def with_exit(state: With, exc_info: tuple | None):
+def with_exit(state, exc_info: tuple | None):
     ctx, aexit = state
     if exc_info is not None:
         if not aexit(ctx, *exc_info):
