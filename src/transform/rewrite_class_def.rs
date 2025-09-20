@@ -1,6 +1,7 @@
 use crate::body_transform::{walk_expr, walk_stmt, Transformer};
 use crate::template::make_tuple;
 use crate::{py_expr, py_stmt};
+use std::mem::take;
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::TextRange;
 
@@ -125,20 +126,48 @@ pub fn rewrite(
                 rewrite_method(&mut func_def, &class_name);
                 let fn_name = func_def.name.id.to_string();
 
-                let mk_func = py_stmt!(
+                let decorators = take(&mut func_def.decorator_list);
+                let mut decorator_names = Vec::new();
+                for (index, decorator) in decorators.into_iter().enumerate() {
+                    let decorator_name = format!("_dp_dec_{}_{index}", fn_name);
+                    ns_body.push(py_stmt!(
+                        "{decor_name:id} = {decor:expr}",
+                        decor_name = decorator_name.as_str(),
+                        decor = decorator.expression
+                    ));
+                    decorator_names.push(decorator_name);
+                }
+
+                let mk_func_def = py_stmt!(
                     r#"
 def _dp_mk_{fn_name:id}():
     {fn_def:stmt}
     {fn_name:id}.__qualname__ = _ns["__qualname__"] + {suffix:literal}
     return {fn_name:id}
-
-_dp_temp_ns[{fn_name:literal}] = _ns[{fn_name:literal}] = _dp_mk_{fn_name:id}()
                 "#,
                     fn_def = Stmt::FunctionDef(func_def),
                     fn_name = fn_name.as_str(),
                     suffix = format!(".{}", fn_name)
                 );
-                ns_body.push(mk_func);
+                ns_body.push(mk_func_def);
+
+                ns_body.push(py_stmt!(
+                    "{fn_name:id} = _dp_mk_{fn_name:id}()",
+                    fn_name = fn_name.as_str()
+                ));
+
+                for decorator_name in decorator_names.iter().rev() {
+                    ns_body.push(py_stmt!(
+                        "{fn_name:id} = {decor_name:id}({fn_name:id})",
+                        fn_name = fn_name.as_str(),
+                        decor_name = decorator_name.as_str()
+                    ));
+                }
+
+                ns_body.push(py_stmt!(
+                    "_dp_temp_ns[{fn_name:literal}] = _ns[{fn_name:literal}] = {fn_name:id}",
+                    fn_name = fn_name.as_str()
+                ));
             }
             other => ns_body.push(other),
         }
