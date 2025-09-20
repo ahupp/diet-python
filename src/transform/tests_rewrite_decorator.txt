@@ -28,12 +28,20 @@ def _dp_ns_C(_ns):
     __dp__.setitem(_ns, "__qualname__", _dp_tmp_1)
     pass
 def _dp_make_class_C():
-    bases = __dp__.resolve_bases(())
+    orig_bases = ()
+    bases = __dp__.resolve_bases(orig_bases)
     _dp_tmp_2 = __dp__.prepare_class("C", bases, None)
     meta = __dp__.getitem(_dp_tmp_2, 0)
     ns = __dp__.getitem(_dp_tmp_2, 1)
     kwds = __dp__.getitem(_dp_tmp_2, 2)
     _dp_ns_C(ns)
+    _dp_tmp_4 = __dp__.is_not(orig_bases, bases)
+    _dp_tmp_3 = _dp_tmp_4
+    if _dp_tmp_3:
+        _dp_tmp_5 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
+        _dp_tmp_3 = _dp_tmp_5
+    if _dp_tmp_3:
+        __dp__.setitem(ns, "__orig_bases__", orig_bases)
     return meta("C", bases, ns, **kwds)
 _dp_class_C = _dp_make_class_C()
 C = _dp_class_decorators_C(_dp_class_C)
@@ -56,12 +64,20 @@ def _dp_ns_C(_ns):
     __dp__.setitem(_ns, "__qualname__", _dp_tmp_1)
     pass
 def _dp_make_class_C():
-    bases = __dp__.resolve_bases(())
+    orig_bases = ()
+    bases = __dp__.resolve_bases(orig_bases)
     _dp_tmp_2 = __dp__.prepare_class("C", bases, None)
     meta = __dp__.getitem(_dp_tmp_2, 0)
     ns = __dp__.getitem(_dp_tmp_2, 1)
     kwds = __dp__.getitem(_dp_tmp_2, 2)
     _dp_ns_C(ns)
+    _dp_tmp_4 = __dp__.is_not(orig_bases, bases)
+    _dp_tmp_3 = _dp_tmp_4
+    if _dp_tmp_3:
+        _dp_tmp_5 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
+        _dp_tmp_3 = _dp_tmp_5
+    if _dp_tmp_3:
+        __dp__.setitem(ns, "__orig_bases__", orig_bases)
     return meta("C", bases, ns, **kwds)
 _dp_class_C = _dp_make_class_C()
 C = _dp_class_decorators_C(_dp_class_C)

@@ -384,9 +384,12 @@ def _dp_ns_{class_name:id}(_ns):
     let make_fn = py_stmt!(
         r#"
 def _dp_make_class_{class_name:id}():
-    bases = __dp__.resolve_bases({bases:expr})
+    orig_bases = {bases:expr}
+    bases = __dp__.resolve_bases(orig_bases)
     meta, ns, kwds = __dp__.prepare_class({class_name:literal}, bases, {prepare_dict:expr})
     _dp_ns_{class_name:id}(ns)
+    if orig_bases is not bases and "__orig_bases__" not in ns:
+        ns["__orig_bases__"] = orig_bases
     return meta({class_name:literal}, bases, ns, **kwds)
 "#,
         bases = make_tuple(bases),
