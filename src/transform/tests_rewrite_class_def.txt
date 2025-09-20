@@ -132,7 +132,7 @@ def _dp_ns_C(_ns):
 
         def m(self):
             __class__ = _dp_class_C
-            return super(self, __class__).m()
+            return super(__class__, self).m()
         __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_ns, "__qualname__"), ".m"))
         return m
     m = _dp_mk_m()
@@ -168,7 +168,7 @@ def _dp_ns_C(_ns):
 
         def m(z):
             __class__ = _dp_class_C
-            return super(z, __class__).m()
+            return super(__class__, z).m()
         __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_ns, "__qualname__"), ".m"))
         return m
     m = _dp_mk_m()

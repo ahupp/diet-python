@@ -28,7 +28,7 @@ impl Transformer for MethodTransformer {
                         && call.arguments.keywords.is_empty()
                     {
                         if let Some(arg) = &self.first_arg {
-                            *expr = py_expr!("super({arg:id}, __class__)", arg = arg.as_str());
+                            *expr = py_expr!("super(__class__, {arg:id})", arg = arg.as_str());
                             self.uses_class = true;
                         }
                     }
