@@ -184,7 +184,7 @@ async def with_aenter(ctx):
     enter = type(ctx).__aenter__
     exit = type(ctx).__aexit__
     var = await enter(ctx)
-    return (var, exit)
+    return (var, (ctx, exit))
 
 
 async def with_aexit(state, exc_info: tuple | None):
@@ -200,7 +200,7 @@ def with_enter(ctx):
     enter = type(ctx).__enter__
     exit = type(ctx).__exit__
     var = enter(ctx)
-    return (var, exit)
+    return (var, (ctx, exit))
 
 
 def with_exit(state, exc_info: tuple | None):
