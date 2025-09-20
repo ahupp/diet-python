@@ -25,6 +25,33 @@ _dp_tmp_3 = _dp_make_class_C()
 C = _dp_tmp_3
 _dp_class_C = _dp_tmp_3
 
+$ captures outer reference
+
+class C:
+    x = x
+=
+def _dp_ns_C(_ns, x=x):
+    _dp_temp_ns = dict(())
+    __dp__.setitem(_dp_temp_ns, "__module__", __name__)
+    __dp__.setitem(_ns, "__module__", __name__)
+    _dp_tmp_1 = "C"
+    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_1)
+    __dp__.setitem(_ns, "__qualname__", _dp_tmp_1)
+    x = x
+    __dp__.setitem(_dp_temp_ns, "x", x)
+    __dp__.setitem(_ns, "x", x)
+def _dp_make_class_C():
+    bases = __dp__.resolve_bases(())
+    _dp_tmp_2 = __dp__.prepare_class("C", bases, None)
+    meta = __dp__.getitem(_dp_tmp_2, 0)
+    ns = __dp__.getitem(_dp_tmp_2, 1)
+    kwds = __dp__.getitem(_dp_tmp_2, 2)
+    _dp_ns_C(ns)
+    return meta("C", bases, ns, **kwds)
+_dp_tmp_3 = _dp_make_class_C()
+C = _dp_tmp_3
+_dp_class_C = _dp_tmp_3
+
 $ preserves class locals for references
 
 class C:

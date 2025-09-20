@@ -1,9 +1,130 @@
 use crate::body_transform::{walk_expr, walk_stmt, Transformer};
-use crate::template::make_tuple;
+use crate::template::{make_tuple, single_stmt};
 use crate::{py_expr, py_stmt};
-use ruff_python_ast::{self as ast, Expr, Stmt};
+use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
 use ruff_text_size::TextRange;
+use std::collections::BTreeSet;
 use std::mem::take;
+
+#[derive(Default)]
+struct LoadBeforeStoreCollector {
+    loads: BTreeSet<String>,
+    seen_store: BTreeSet<String>,
+    captured_names: BTreeSet<String>,
+}
+
+struct LoadBeforeStoreResult {
+    captured_names: BTreeSet<String>,
+}
+
+impl LoadBeforeStoreCollector {
+    fn collect_from_body(body: &mut Vec<Stmt>) -> LoadBeforeStoreResult {
+        let mut collector = Self::default();
+        collector.visit_body(body);
+        collector.finish()
+    }
+
+    fn finish(self) -> LoadBeforeStoreResult {
+        LoadBeforeStoreResult {
+            captured_names: self.captured_names,
+        }
+    }
+}
+
+impl Transformer for LoadBeforeStoreCollector {
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
+        match stmt {
+            Stmt::FunctionDef(ast::StmtFunctionDef {
+                decorator_list,
+                parameters,
+                returns,
+                type_params,
+                ..
+            }) => {
+                for decorator in decorator_list {
+                    self.visit_decorator(decorator);
+                }
+                if let Some(type_params) = type_params {
+                    self.visit_type_params(type_params);
+                }
+                self.visit_parameters(parameters);
+                if let Some(expr) = returns {
+                    self.visit_annotation(expr);
+                }
+            }
+            Stmt::ClassDef(ast::StmtClassDef {
+                decorator_list,
+                arguments,
+                type_params,
+                ..
+            }) => {
+                for decorator in decorator_list {
+                    self.visit_decorator(decorator);
+                }
+                if let Some(type_params) = type_params {
+                    self.visit_type_params(type_params);
+                }
+                if let Some(arguments) = arguments {
+                    self.visit_arguments(arguments);
+                }
+            }
+            Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
+                self.visit_expr(value);
+                for target in targets.iter_mut() {
+                    self.visit_expr(target);
+                }
+
+                if let [Expr::Name(ast::ExprName { id, .. })] = targets.as_slice() {
+                    let name = id.as_str();
+                    if self.loads.contains(name) {
+                        self.captured_names.insert(name.to_string());
+                    }
+                }
+            }
+            Stmt::AnnAssign(ast::StmtAnnAssign {
+                target,
+                value: Some(value),
+                ..
+            }) => {
+                self.visit_expr(value);
+                self.visit_expr(target);
+
+                if let Expr::Name(ast::ExprName { id, .. }) = target.as_ref() {
+                    let name = id.as_str();
+                    if self.loads.contains(name) {
+                        self.captured_names.insert(name.to_string());
+                    }
+                }
+            }
+            _ => walk_stmt(self, stmt),
+        }
+    }
+
+    fn visit_expr(&mut self, expr: &mut Expr) {
+        match expr {
+            Expr::Name(ast::ExprName { id, ctx, .. }) => match ctx {
+                ExprContext::Load => {
+                    if !self.seen_store.contains(id.as_str()) {
+                        self.loads.insert(id.to_string());
+                    }
+                }
+                ExprContext::Store => {
+                    let name = id.to_string();
+                    self.seen_store.insert(name.clone());
+                }
+                _ => {}
+            },
+            Expr::Lambda(ast::ExprLambda { parameters, .. }) => {
+                if let Some(parameters) = parameters {
+                    self.visit_parameters(parameters);
+                }
+                return;
+            }
+            _ => {}
+        }
+        walk_expr(self, expr);
+    }
+}
 
 struct MethodTransformer {
     uses_class: bool,
@@ -75,13 +196,16 @@ fn rewrite_method(func_def: &mut ast::StmtFunctionDef, class_name: &str) {
 pub fn rewrite(
     ast::StmtClassDef {
         name,
-        body,
+        mut body,
         arguments,
         ..
     }: ast::StmtClassDef,
     decorated: bool,
 ) -> Stmt {
     let class_name = name.id.as_str().to_string();
+
+    let LoadBeforeStoreResult { captured_names, .. } =
+        LoadBeforeStoreCollector::collect_from_body(&mut body);
 
     // Build namespace function body
     // TODO: correctly calculate the qualname of the class when nested
@@ -97,7 +221,6 @@ pub fn rewrite(
             original_body.remove(0);
         }
     }
-
     for stmt in original_body {
         match stmt {
             Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
@@ -227,7 +350,7 @@ def _dp_mk_{fn_name:id}():
         )
     };
 
-    py_stmt!(
+    let mut ns_fn = py_stmt!(
         r#"
 def _dp_ns_{class_name:id}(_ns):
     _dp_temp_ns = {}
@@ -235,21 +358,45 @@ def _dp_ns_{class_name:id}(_ns):
     _dp_temp_ns["__qualname__"] = _ns["__qualname__"] = {class_name:literal}
 
     {ns_body:stmt}
+"#,
+        class_name = class_name.as_str(),
+        ns_body = ns_body,
+    );
 
+    if let Stmt::FunctionDef(ast::StmtFunctionDef { parameters, .. }) = &mut ns_fn {
+        for name in captured_names {
+            parameters.args.push(ast::ParameterWithDefault {
+                range: TextRange::default(),
+                node_index: ast::AtomicNodeIndex::default(),
+                parameter: ast::Parameter {
+                    range: TextRange::default(),
+                    node_index: ast::AtomicNodeIndex::default(),
+                    name: ast::Identifier::new(name.clone(), TextRange::default()),
+                    annotation: None,
+                },
+                default: Some(Box::new(py_expr!("{name:id}", name = name.as_str()))),
+            });
+        }
+    } else {
+        unreachable!("expected function definition for namespace helper");
+    }
+
+    let make_fn = py_stmt!(
+        r#"
 def _dp_make_class_{class_name:id}():
     bases = __dp__.resolve_bases({bases:expr})
     meta, ns, kwds = __dp__.prepare_class({class_name:literal}, bases, {prepare_dict:expr})
     _dp_ns_{class_name:id}(ns)
     return meta({class_name:literal}, bases, ns, **kwds)
-
-{final_assignment:stmt}
 "#,
         bases = make_tuple(bases),
         class_name = class_name.as_str(),
-        ns_body = ns_body,
         prepare_dict = prepare_dict,
-        final_assignment = final_assignment,
-    )
+    );
+
+    let final_assignment = final_assignment;
+
+    single_stmt(vec![ns_fn, make_fn, final_assignment])
 }
 
 #[cfg(test)]
