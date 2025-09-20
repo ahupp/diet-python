@@ -3,7 +3,7 @@ use super::{
     rewrite_assert, rewrite_assign_del, rewrite_class_def, rewrite_decorator,
     rewrite_expr_to_stmt::{expr_boolop_to_stmts, expr_compare_to_stmts, expr_yield_from_to_stmt},
     rewrite_for_loop, rewrite_func_expr, rewrite_import, rewrite_match_case, rewrite_string,
-    rewrite_try_except, rewrite_with, ImportStarHandling, Options,
+    rewrite_try_except, rewrite_with, Options,
 };
 use crate::body_transform::{walk_expr, walk_stmt, Transformer};
 use crate::template::{make_binop, make_generator, make_tuple, make_unaryop};
@@ -29,18 +29,6 @@ impl<'a> ExprRewriter<'a> {
             options: ctx.options,
             ctx,
             buf: Vec::new(),
-        }
-    }
-
-    fn should_rewrite_import_from(import_from: &ast::StmtImportFrom, options: &Options) -> bool {
-        if import_from
-            .names
-            .iter()
-            .any(|alias| alias.name.id.as_str() == "*")
-        {
-            !matches!(options.import_star_handling, ImportStarHandling::Allowed)
-        } else {
-            true
         }
     }
 
@@ -154,7 +142,7 @@ impl<'a> ExprRewriter<'a> {
             }
             Stmt::Import(import) => Rewrite::Visit(vec![rewrite_import::rewrite(import)]),
             Stmt::ImportFrom(import_from)
-                if Self::should_rewrite_import_from(&import_from, &self.options) =>
+                if rewrite_import::should_rewrite_import_from(&import_from, &self.options) =>
             {
                 let stmt = rewrite_import::rewrite_from(import_from.clone(), &self.options);
                 Rewrite::Visit(vec![stmt])

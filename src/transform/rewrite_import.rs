@@ -3,6 +3,18 @@ use crate::py_stmt;
 use super::{ImportStarHandling, Options};
 use ruff_python_ast::{self as ast, Stmt};
 
+pub fn should_rewrite_import_from(import_from: &ast::StmtImportFrom, options: &Options) -> bool {
+    if import_from
+        .names
+        .iter()
+        .any(|alias| alias.name.id.as_str() == "*")
+    {
+        !matches!(options.import_star_handling, ImportStarHandling::Allowed)
+    } else {
+        true
+    }
+}
+
 pub fn rewrite(ast::StmtImport { names, .. }: ast::StmtImport) -> Stmt {
     let mut stmts = Vec::new();
     for alias in names {
@@ -22,15 +34,16 @@ pub fn rewrite(ast::StmtImport { names, .. }: ast::StmtImport) -> Stmt {
     py_stmt!("{body:stmt}", body = stmts)
 }
 
-pub fn rewrite_from(
-    ast::StmtImportFrom {
+pub fn rewrite_from(import_from: ast::StmtImportFrom, options: &Options) -> Stmt {
+    debug_assert!(should_rewrite_import_from(&import_from, options));
+
+    let ast::StmtImportFrom {
         module,
         names,
         level,
         ..
-    }: ast::StmtImportFrom,
-    options: &Options,
-) -> Stmt {
+    } = import_from;
+
     if names.iter().any(|alias| alias.name.id.as_str() == "*") {
         return match options.import_star_handling {
             ImportStarHandling::Allowed => {
