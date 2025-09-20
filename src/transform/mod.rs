@@ -32,7 +32,7 @@ pub struct Options {
 impl Default for Options {
     fn default() -> Self {
         Self {
-            import_star_handling: ImportStarHandling::Strip,
+            import_star_handling: ImportStarHandling::Allowed,
             inject_import: true,
             lower_attributes: true,
             truthy: false,
