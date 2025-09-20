@@ -1,0 +1,29 @@
+$ rewrites annotated assignment with value
+
+x: int = 1
+=
+x = 1
+
+$ rewrites chained assignment
+
+a = b = c
+=
+
+a = c
+b = c
+
+$ rewrites augmented assignment
+
+x += 2
+=
+
+x = __dp__.iadd(x, 2)
+
+$ rewrites delete targets
+
+del a.b, c[0], d
+=
+
+__dp__.delattr(a, "b")
+__dp__.delitem(c, 0)
+del d
