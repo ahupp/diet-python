@@ -254,21 +254,16 @@ impl StmtNode {
                 ..
             }) => {
                 let mut orelse = Vec::new();
-                let mut elifs = Vec::new();
+                let mut seen_else = false;
                 for clause in elif_else_clauses {
-                    if let Some(test) = clause.test {
-                        elifs.push((test, clause.body));
-                    } else {
-                        orelse = StmtNode::from_stmts(clause.body, scope_vars);
+                    if clause.test.is_some() {
+                        panic!("elif clauses are not supported in min_ast");
                     }
-                }
-                for (test, body) in elifs.into_iter().rev() {
-                    orelse = vec![StmtNode::If {
-                        info: (),
-                        test: ExprNode::from(test),
-                        body: StmtNode::from_stmts(body, scope_vars),
-                        orelse,
-                    }];
+                    if seen_else {
+                        panic!("multiple else clauses not supported in min_ast");
+                    }
+                    seen_else = true;
+                    orelse = StmtNode::from_stmts(clause.body, scope_vars);
                 }
                 Some(StmtNode::If {
                     info: (),

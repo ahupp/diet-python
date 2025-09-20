@@ -101,10 +101,11 @@ else:
         let expected = r#"
 if __dp__.truth(a):
     pass
-elif __dp__.truth(b):
-    pass
 else:
-    pass
+    if __dp__.truth(b):
+        pass
+    else:
+        pass
 "#;
         assert_transform_eq_truthy(input, expected);
     }

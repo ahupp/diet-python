@@ -17,10 +17,11 @@ else:
 =
 if True:
     x = 1
-elif False:
-    y = 2
 else:
-    z = 3
+    if False:
+        y = 2
+    else:
+        z = 3
 
 $ strips type alias from class body
 
