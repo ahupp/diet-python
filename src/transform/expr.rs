@@ -37,10 +37,7 @@ impl<'a> ExprRewriter<'a> {
         targets.len() > 1 || !matches!(targets.first(), Some(Expr::Name(_)))
     }
 
-    fn should_rewrite_import_from(
-        import_from: &ast::StmtImportFrom,
-        options: &Options,
-    ) -> bool {
+    fn should_rewrite_import_from(import_from: &ast::StmtImportFrom, options: &Options) -> bool {
         if import_from
             .names
             .iter()
@@ -94,6 +91,28 @@ impl<'a> ExprRewriter<'a> {
         self.buf = take(&mut buf_stack);
 
         output
+    }
+
+    fn maybe_placeholder(&mut self, mut expr: Expr) -> Expr {
+        if matches!(expr, Expr::Name(_)) {
+            return expr;
+        }
+
+        self.visit_expr(&mut expr);
+
+        if matches!(expr, Expr::Name(_)) {
+            return expr;
+        }
+
+        let tmp = self.ctx.fresh("tmp");
+        let placeholder_expr = py_expr!("{tmp:id}", tmp = tmp.as_str());
+        let assign = py_stmt!(
+            "\n{tmp:id} = {value:expr}",
+            tmp = tmp.as_str(),
+            value = expr,
+        );
+        self.buf.push(assign);
+        placeholder_expr
     }
 
     fn rewrite_stmt(&mut self, stmt: Stmt) -> Rewrite {
@@ -159,15 +178,7 @@ impl<'a> ExprRewriter<'a> {
                 let value = (*assign.value).clone();
                 let mut stmts = Vec::new();
                 if assign.targets.len() > 1 {
-                    let tmp_name = self.ctx.fresh("tmp");
-                    let tmp_expr = py_expr!("\n{name:id}", name = tmp_name.as_str(),);
-                    let tmp_stmt = py_stmt!(
-                        "\n{name:id} = {value:expr}",
-                        name = tmp_name.as_str(),
-                        value = value,
-                    );
-
-                    stmts.push(tmp_stmt);
+                    let tmp_expr = self.maybe_placeholder(value.clone());
                     for target in &assign.targets {
                         self.rewrite_target(target.clone(), tmp_expr.clone(), &mut stmts);
                     }
@@ -410,31 +421,7 @@ __dp__.setitem({obj:expr}, {key:expr}, {value:expr})
         out: &mut Vec<Stmt>,
         kind: UnpackTargetKind,
     ) {
-        let (tmp_expr, tmp_stmt) = match value {
-            Expr::Name(_) => (value, None),
-            other => {
-                let tmp_name = self.ctx.fresh("tmp");
-                let mut stmt = py_stmt!(
-                    "
-{name:id} = {value:expr}",
-                    name = tmp_name.as_str(),
-                    value = other,
-                );
-                walk_stmt(self, &mut stmt);
-                (
-                    py_expr!(
-                        "
-{name:id}",
-                        name = tmp_name.as_str(),
-                    ),
-                    Some(stmt),
-                )
-            }
-        };
-
-        if let Some(stmt) = tmp_stmt {
-            out.push(stmt);
-        }
+        let tmp_expr = self.maybe_placeholder(value);
 
         let elts_len = elts.len();
         let mut starred_index: Option<usize> = None;
@@ -563,21 +550,17 @@ impl<'a> Transformer for ExprRewriter<'a> {
     fn visit_expr(&mut self, expr: &mut Expr) {
         let rewritten = match expr.clone() {
             Expr::Named(named_expr) => {
-                let tmp = self.ctx.fresh("tmp");
                 let ast::ExprNamed { target, value, .. } = named_expr;
-                let assign_tmp = py_stmt!(
-                    "\n{tmp:id} = {value:expr}\n",
-                    tmp = tmp.as_str(),
-                    value = *value,
-                );
+                let target = *target;
+                let value = *value;
+                let value_expr = self.maybe_placeholder(value);
                 let assign_target = py_stmt!(
-                    "\n{target:expr} = {tmp:id}\n",
-                    target = *target,
-                    tmp = tmp.as_str(),
+                    "\n{target:expr} = {value:expr}\n",
+                    target = target,
+                    value = value_expr.clone(),
                 );
-                self.buf.push(assign_tmp);
                 self.buf.push(assign_target);
-                py_expr!("{tmp:id}", tmp = tmp.as_str())
+                value_expr
             }
             Expr::If(if_expr) => {
                 let tmp = self.ctx.fresh("tmp");
