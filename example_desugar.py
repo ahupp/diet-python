@@ -13,8 +13,9 @@ def _dp_ns_A(_ns):
     _dp_tmp_2 = "A"
     __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_2)
     __dp__.setitem(_ns, "__qualname__", _dp_tmp_2)
-    __dp__.setitem(_dp_temp_ns, "b", 1)
-    __dp__.setitem(_ns, "b", 1)
+    b = 1
+    __dp__.setitem(_dp_temp_ns, "b", b)
+    __dp__.setitem(_ns, "b", b)
 
     def _dp_mk___init__():
 
