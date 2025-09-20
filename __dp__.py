@@ -54,6 +54,10 @@ aiter = builtins.aiter
 anext = builtins.anext
 isinstance = builtins.isinstance
 setattr = builtins.setattr
+tuple = builtins.tuple
+list = builtins.list
+dict = builtins.dict
+set = builtins.set
 
 def resolve_bases(bases):
     return _types.resolve_bases(bases)

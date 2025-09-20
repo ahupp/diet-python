@@ -171,7 +171,7 @@ if _dp_tmp_2:
     _dp_tmp_2 = _dp_tmp_3
 if _dp_tmp_2:
     first = __dp__.getitem(_dp_match_1, 0)
-    rest = list(__dp__.getitem(_dp_match_1, slice(1, __dp__.sub(len(_dp_match_1), 1), None)))
+    rest = __dp__.list(__dp__.getitem(_dp_match_1, slice(1, __dp__.sub(len(_dp_match_1), 1), None)))
     last = __dp__.getitem(_dp_match_1, __dp__.sub(len(_dp_match_1), 1))
     a()
 else:
@@ -200,7 +200,7 @@ if _dp_tmp_2:
     _dp_tmp_2 = _dp_tmp_5
 if _dp_tmp_2:
     a = __dp__.getitem(_dp_match_1, "a")
-    rest = dict(_dp_match_1)
+    rest = __dp__.dict(_dp_match_1)
     rest.pop("a", None)
     rest.pop("b", None)
     a()

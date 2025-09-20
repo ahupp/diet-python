@@ -200,7 +200,7 @@ fn make_tuple_splat(tuple: ast::ExprTuple) -> Expr {
                 if !values.is_empty() {
                     segments.push(make_tuple(std::mem::take(&mut values)));
                 }
-                segments.push(py_expr!("tuple({value:expr})", value = *value));
+                segments.push(py_expr!("__dp__.tuple({value:expr})", value = *value));
             }
             other => values.push(other),
         }
@@ -341,10 +341,10 @@ impl<'a> Transformer for ExprRewriter<'a> {
             }
             Expr::ListComp(ast::ExprListComp {
                 elt, generators, ..
-            }) => py_expr!("list({expr:expr})", expr = make_generator(*elt, generators)),
+            }) => py_expr!("__dp__.list({expr:expr})", expr = make_generator(*elt, generators)),
             Expr::SetComp(ast::ExprSetComp {
                 elt, generators, ..
-            }) => py_expr!("set({expr:expr})", expr = make_generator(*elt, generators)),
+            }) => py_expr!("__dp__.set({expr:expr})", expr = make_generator(*elt, generators)),
             Expr::DictComp(ast::ExprDictComp {
                 key,
                 value,
@@ -353,7 +353,7 @@ impl<'a> Transformer for ExprRewriter<'a> {
             }) => {
                 let tuple = py_expr!("({key:expr}, {value:expr})", key = *key, value = *value,);
                 py_expr!(
-                    "dict({expr:expr})",
+                    "__dp__.dict({expr:expr})",
                     expr = make_generator(tuple, generators)
                 )
             }
@@ -365,11 +365,11 @@ impl<'a> Transformer for ExprRewriter<'a> {
                     ctx: ast::ExprContext::Load,
                     parenthesized: false,
                 });
-                py_expr!("list({tuple:expr})", tuple = tuple,)
+                py_expr!("__dp__.list({tuple:expr})", tuple = tuple,)
             }
             Expr::Set(ast::ExprSet { elts, .. }) => {
                 let tuple = make_tuple(elts);
-                py_expr!("set({tuple:expr})", tuple = tuple,)
+                py_expr!("__dp__.set({tuple:expr})", tuple = tuple,)
             }
             Expr::Dict(ast::ExprDict { items, .. }) => {
                 let mut iter = items.into_iter().peekable();
@@ -390,7 +390,7 @@ impl<'a> Transformer for ExprRewriter<'a> {
 
                     if !keyed_pairs.is_empty() {
                         let tuple = make_tuple(keyed_pairs);
-                        segments.push(py_expr!("dict({tuple:expr})", tuple = tuple));
+                        segments.push(py_expr!("__dp__.dict({tuple:expr})", tuple = tuple));
                     }
 
                     let Some(item) = iter.next() else {
@@ -401,16 +401,16 @@ impl<'a> Transformer for ExprRewriter<'a> {
                         let pair =
                             py_expr!("({key:expr}, {value:expr})", key = key, value = item.value,);
                         let tuple = make_tuple(vec![pair]);
-                        segments.push(py_expr!("dict({tuple:expr})", tuple = tuple));
+                        segments.push(py_expr!("__dp__.dict({tuple:expr})", tuple = tuple));
                     } else {
-                        segments.push(py_expr!("dict({mapping:expr})", mapping = item.value));
+                        segments.push(py_expr!("__dp__.dict({mapping:expr})", mapping = item.value));
                     }
                 }
 
                 match segments.len() {
                     0 => {
                         let tuple = make_tuple(Vec::new());
-                        py_expr!("dict({tuple:expr})", tuple = tuple)
+                        py_expr!("__dp__.dict({tuple:expr})", tuple = tuple)
                     }
                     1 => segments.into_iter().next().unwrap(),
                     _ => {

@@ -107,10 +107,10 @@ fn rewrite_unpack_target(
                 };
                 let collection_expr = match kind {
                     UnpackTargetKind::Tuple => {
-                        py_expr!("tuple({slice:expr})", slice = slice_expr)
+                        py_expr!("__dp__.tuple({slice:expr})", slice = slice_expr)
                     }
                     UnpackTargetKind::List => {
-                        py_expr!("list({slice:expr})", slice = slice_expr)
+                        py_expr!("__dp__.list({slice:expr})", slice = slice_expr)
                     }
                 };
                 rewrite_target(rewriter, *value, collection_expr, out);

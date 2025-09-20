@@ -4,7 +4,7 @@ class C:
     x = 1
 =
 def _dp_ns_C(_ns):
-    _dp_temp_ns = dict(())
+    _dp_temp_ns = __dp__.dict(())
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
     __dp__.setitem(_ns, "__module__", __name__)
     _dp_tmp_1 = "C"
@@ -31,7 +31,7 @@ class C:
     x = x
 =
 def _dp_ns_C(_ns, x=x):
-    _dp_temp_ns = dict(())
+    _dp_temp_ns = __dp__.dict(())
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
     __dp__.setitem(_ns, "__module__", __name__)
     _dp_tmp_1 = "C"
@@ -59,7 +59,7 @@ class C:
     y = x
 =
 def _dp_ns_C(_ns):
-    _dp_temp_ns = dict(())
+    _dp_temp_ns = __dp__.dict(())
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
     __dp__.setitem(_ns, "__module__", __name__)
     _dp_tmp_1 = "C"
@@ -89,7 +89,7 @@ class C(B):
     pass
 =
 def _dp_ns_C(_ns):
-    _dp_temp_ns = dict(())
+    _dp_temp_ns = __dp__.dict(())
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
     __dp__.setitem(_ns, "__module__", __name__)
     _dp_tmp_1 = "C"
@@ -115,7 +115,7 @@ class C(B, metaclass=Meta, kw=1):
     x = 2
 =
 def _dp_ns_C(_ns):
-    _dp_temp_ns = dict(())
+    _dp_temp_ns = __dp__.dict(())
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
     __dp__.setitem(_ns, "__module__", __name__)
     _dp_tmp_1 = "C"
@@ -129,7 +129,7 @@ def _dp_ns_C(_ns):
     __dp__.setitem(_ns, "x", x)
 def _dp_make_class_C():
     bases = __dp__.resolve_bases((B,))
-    _dp_tmp_3 = __dp__.prepare_class("C", bases, dict((("metaclass", Meta), ("kw", 1))))
+    _dp_tmp_3 = __dp__.prepare_class("C", bases, __dp__.dict((("metaclass", Meta), ("kw", 1))))
     meta = __dp__.getitem(_dp_tmp_3, 0)
     ns = __dp__.getitem(_dp_tmp_3, 1)
     kwds = __dp__.getitem(_dp_tmp_3, 2)
@@ -146,7 +146,7 @@ class C:
         return 1
 =
 def _dp_ns_C(_ns):
-    _dp_temp_ns = dict(())
+    _dp_temp_ns = __dp__.dict(())
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
     __dp__.setitem(_ns, "__module__", __name__)
     _dp_tmp_1 = "C"
@@ -181,7 +181,7 @@ class C:
         return super().m()
 =
 def _dp_ns_C(_ns):
-    _dp_temp_ns = dict(())
+    _dp_temp_ns = __dp__.dict(())
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
     __dp__.setitem(_ns, "__module__", __name__)
     _dp_tmp_1 = "C"
@@ -217,7 +217,7 @@ class C:
         return super().m()
 =
 def _dp_ns_C(_ns):
-    _dp_temp_ns = dict(())
+    _dp_temp_ns = __dp__.dict(())
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
     __dp__.setitem(_ns, "__module__", __name__)
     _dp_tmp_1 = "C"
@@ -257,7 +257,7 @@ class C:
         return self
 =
 def _dp_ns_C(_ns):
-    _dp_temp_ns = dict(())
+    _dp_temp_ns = __dp__.dict(())
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
     __dp__.setitem(_ns, "__module__", __name__)
     _dp_tmp_1 = "C"
