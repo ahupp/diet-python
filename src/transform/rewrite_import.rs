@@ -33,9 +33,9 @@ pub fn rewrite_from(
 ) -> Stmt {
     if names.iter().any(|alias| alias.name.id.as_str() == "*") {
         return match options.import_star_handling {
-            ImportStarHandling::Allowed => unreachable!(
-                "rewrite_from is only called when import-star rewriting is required"
-            ),
+            ImportStarHandling::Allowed => {
+                unreachable!("rewrite_from is only called when import-star rewriting is required")
+            }
             ImportStarHandling::Error => panic!("import star not allowed"),
             ImportStarHandling::Strip => py_stmt!("{body:stmt}", body = Vec::new()),
         };
