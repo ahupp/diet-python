@@ -1,9 +1,9 @@
 use crate::body_transform::{walk_expr, walk_stmt, Transformer};
 use crate::template::make_tuple;
 use crate::{py_expr, py_stmt};
-use std::mem::take;
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::TextRange;
+use std::mem::take;
 
 struct MethodTransformer {
     uses_class: bool,
@@ -102,10 +102,16 @@ pub fn rewrite(
         match stmt {
             Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
                 if let [Expr::Name(ast::ExprName { id, .. })] = targets.as_slice() {
+                    let name = id.as_str().to_string();
+                    let assign_stmt = py_stmt!(
+                        "{name:id} = {value:expr}",
+                        name = name.as_str(),
+                        value = value,
+                    );
+                    ns_body.push(assign_stmt);
                     ns_body.push(py_stmt!(
-                        r#"_dp_temp_ns[{id:literal}] = _ns[{id:literal}] = {v:expr}"#,
-                        id = id.as_str(),
-                        v = value
+                        r#"_dp_temp_ns[{name:literal}] = _ns[{name:literal}] = {name:id}"#,
+                        name = name.as_str(),
                     ));
                 }
             }
@@ -115,10 +121,13 @@ pub fn rewrite(
                 ..
             }) => {
                 if let Expr::Name(ast::ExprName { id, .. }) = target.as_ref() {
+                    let name = id.as_str().to_string();
+                    let assign_stmt =
+                        py_stmt!("{name:id} = {value:expr}", name = name.as_str(), value = *v,);
+                    ns_body.push(assign_stmt);
                     ns_body.push(py_stmt!(
-                        r#"_dp_temp_ns[{id:literal}] = _ns[{id:literal}] = {v:expr}"#,
-                        id = id.as_str(),
-                        v = *v
+                        r#"_dp_temp_ns[{name:literal}] = _ns[{name:literal}] = {name:id}"#,
+                        name = name.as_str(),
                     ));
                 }
             }

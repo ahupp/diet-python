@@ -10,8 +10,40 @@ def _dp_ns_C(_ns):
     _dp_tmp_1 = "C"
     __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_1)
     __dp__.setitem(_ns, "__qualname__", _dp_tmp_1)
-    __dp__.setitem(_dp_temp_ns, "x", 1)
-    __dp__.setitem(_ns, "x", 1)
+    x = 1
+    __dp__.setitem(_dp_temp_ns, "x", x)
+    __dp__.setitem(_ns, "x", x)
+def _dp_make_class_C():
+    bases = __dp__.resolve_bases(())
+    _dp_tmp_2 = __dp__.prepare_class("C", bases, None)
+    meta = __dp__.getitem(_dp_tmp_2, 0)
+    ns = __dp__.getitem(_dp_tmp_2, 1)
+    kwds = __dp__.getitem(_dp_tmp_2, 2)
+    _dp_ns_C(ns)
+    return meta("C", bases, ns, **kwds)
+_dp_tmp_3 = _dp_make_class_C()
+C = _dp_tmp_3
+_dp_class_C = _dp_tmp_3
+
+$ preserves class locals for references
+
+class C:
+    x = 1
+    y = x
+=
+def _dp_ns_C(_ns):
+    _dp_temp_ns = dict(())
+    __dp__.setitem(_dp_temp_ns, "__module__", __name__)
+    __dp__.setitem(_ns, "__module__", __name__)
+    _dp_tmp_1 = "C"
+    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_1)
+    __dp__.setitem(_ns, "__qualname__", _dp_tmp_1)
+    x = 1
+    __dp__.setitem(_dp_temp_ns, "x", x)
+    __dp__.setitem(_ns, "x", x)
+    y = x
+    __dp__.setitem(_dp_temp_ns, "y", y)
+    __dp__.setitem(_ns, "y", y)
 def _dp_make_class_C():
     bases = __dp__.resolve_bases(())
     _dp_tmp_2 = __dp__.prepare_class("C", bases, None)
@@ -65,8 +97,9 @@ def _dp_ns_C(_ns):
     _dp_tmp_2 = 'doc'
     __dp__.setitem(_dp_temp_ns, "__doc__", _dp_tmp_2)
     __dp__.setitem(_ns, "__doc__", _dp_tmp_2)
-    __dp__.setitem(_dp_temp_ns, "x", 2)
-    __dp__.setitem(_ns, "x", 2)
+    x = 2
+    __dp__.setitem(_dp_temp_ns, "x", x)
+    __dp__.setitem(_ns, "x", x)
 def _dp_make_class_C():
     bases = __dp__.resolve_bases((B,))
     _dp_tmp_3 = __dp__.prepare_class("C", bases, dict((("metaclass", Meta), ("kw", 1))))
@@ -203,8 +236,9 @@ def _dp_ns_C(_ns):
     _dp_tmp_1 = "C"
     __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_1)
     __dp__.setitem(_ns, "__qualname__", _dp_tmp_1)
-    __dp__.setitem(_dp_temp_ns, "y", deco)
-    __dp__.setitem(_ns, "y", deco)
+    y = deco
+    __dp__.setitem(_dp_temp_ns, "y", y)
+    __dp__.setitem(_ns, "y", y)
     _dp_dec_m_0 = decorator(y)
     _dp_dec_m_1 = other
 
