@@ -6,6 +6,7 @@ pub(crate) mod rewrite_class_def;
 pub(crate) mod rewrite_decorator;
 pub(crate) mod rewrite_expr_to_stmt;
 pub(crate) mod rewrite_for_loop;
+pub(crate) mod rewrite_func_expr;
 pub(crate) mod rewrite_import;
 pub(crate) mod rewrite_match_case;
 pub(crate) mod rewrite_string;
