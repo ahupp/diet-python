@@ -1,6 +1,6 @@
 use super::{
     context::Context,
-    rewrite_assert, rewrite_class_def, rewrite_decorator,
+    rewrite_assert, rewrite_assign_del, rewrite_class_def, rewrite_decorator,
     rewrite_expr_to_stmt::{expr_boolop_to_stmts, expr_compare_to_stmts, expr_yield_from_to_stmt},
     rewrite_for_loop, rewrite_import, rewrite_match_case, rewrite_string, rewrite_try_except,
     rewrite_with, ImportStarHandling, Options,
@@ -31,10 +31,6 @@ impl<'a> ExprRewriter<'a> {
             ctx,
             buf: Vec::new(),
         }
-    }
-
-    fn should_rewrite_targets(targets: &[Expr]) -> bool {
-        targets.len() > 1 || !matches!(targets.first(), Some(Expr::Name(_)))
     }
 
     fn should_rewrite_import_from(import_from: &ast::StmtImportFrom, options: &Options) -> bool {
@@ -93,7 +89,7 @@ impl<'a> ExprRewriter<'a> {
         output
     }
 
-    fn maybe_placeholder(&mut self, mut expr: Expr) -> Expr {
+    pub(super) fn maybe_placeholder(&mut self, mut expr: Expr) -> Expr {
         if matches!(expr, Expr::Name(_)) {
             return expr;
         }
@@ -166,83 +162,22 @@ impl<'a> ExprRewriter<'a> {
             }
             Stmt::ImportFrom(import_from) => Rewrite::Walk(vec![Stmt::ImportFrom(import_from)]),
             Stmt::AnnAssign(ann_assign) => {
-                if let Some(value) = ann_assign.value.clone().map(|v| *v) {
-                    let mut stmts = Vec::new();
-                    self.rewrite_target((*ann_assign.target).clone(), value, &mut stmts);
-                    Rewrite::Visit(stmts)
-                } else {
-                    Rewrite::Walk(Vec::new())
+                match rewrite_assign_del::rewrite_ann_assign(self, &ann_assign) {
+                    Some(stmts) => Rewrite::Visit(stmts),
+                    None => Rewrite::Walk(Vec::new()),
                 }
             }
-            Stmt::Assign(assign) if Self::should_rewrite_targets(&assign.targets) => {
-                let value = (*assign.value).clone();
-                let mut stmts = Vec::new();
-                if assign.targets.len() > 1 {
-                    let tmp_expr = self.maybe_placeholder(value.clone());
-                    for target in &assign.targets {
-                        self.rewrite_target(target.clone(), tmp_expr.clone(), &mut stmts);
-                    }
-                } else {
-                    self.rewrite_target(assign.targets[0].clone(), value, &mut stmts);
-                }
-
-                Rewrite::Visit(stmts)
-            }
+            Stmt::Assign(assign) => match rewrite_assign_del::rewrite_assign(self, &assign) {
+                Some(stmts) => Rewrite::Visit(stmts),
+                None => Rewrite::Walk(vec![Stmt::Assign(assign)]),
+            },
             Stmt::AugAssign(aug) => {
-                let target = (*aug.target).clone();
-                let value = (*aug.value).clone();
-
-                let func_name = match aug.op {
-                    Operator::Add => "iadd",
-                    Operator::Sub => "isub",
-                    Operator::Mult => "imul",
-                    Operator::MatMult => "imatmul",
-                    Operator::Div => "itruediv",
-                    Operator::Mod => "imod",
-                    Operator::Pow => "ipow",
-                    Operator::LShift => "ilshift",
-                    Operator::RShift => "irshift",
-                    Operator::BitOr => "ior",
-                    Operator::BitXor => "ixor",
-                    Operator::BitAnd => "iand",
-                    Operator::FloorDiv => "ifloordiv",
-                };
-
-                let mut target_expr = target.clone();
-                match &mut target_expr {
-                    Expr::Name(name) => name.ctx = ast::ExprContext::Load,
-                    Expr::Attribute(attr) => attr.ctx = ast::ExprContext::Load,
-                    Expr::Subscript(sub) => sub.ctx = ast::ExprContext::Load,
-                    _ => {}
-                }
-                let call = make_binop(func_name, target_expr, value);
-                let mut stmts = Vec::new();
-                self.rewrite_target(target, call, &mut stmts);
-                Rewrite::Visit(stmts)
+                Rewrite::Visit(rewrite_assign_del::rewrite_aug_assign(self, &aug))
             }
-            Stmt::Delete(del) if Self::should_rewrite_targets(&del.targets) => {
-                let mut stmts = Vec::with_capacity(del.targets.len());
-                for target in &del.targets {
-                    let new_stmt = if let Expr::Subscript(sub) = target {
-                        py_stmt!(
-                            "__dp__.delitem({obj:expr}, {key:expr})",
-                            obj = (*sub.value).clone(),
-                            key = (*sub.slice).clone(),
-                        )
-                    } else if let Expr::Attribute(attr) = target {
-                        py_stmt!(
-                            "__dp__.delattr({obj:expr}, {name:literal})",
-                            obj = (*attr.value).clone(),
-                            name = attr.attr.as_str(),
-                        )
-                    } else {
-                        py_stmt!("del {target:expr}", target = target.clone())
-                    };
-
-                    stmts.push(new_stmt);
-                }
-                Rewrite::Visit(stmts)
-            }
+            Stmt::Delete(del) => match rewrite_assign_del::rewrite_delete(self, &del) {
+                Some(stmts) => Rewrite::Visit(stmts),
+                None => Rewrite::Walk(vec![Stmt::Delete(del)]),
+            },
             Stmt::Raise(mut raise) if raise.cause.is_some() => {
                 match (raise.exc.take(), raise.cause.take()) {
                     (Some(exc), Some(cause)) => Rewrite::Visit(vec![py_stmt!(
@@ -361,139 +296,6 @@ impl<'a> ExprRewriter<'a> {
             func = func_name.as_str(),
         )
     }
-
-    fn rewrite_target(&mut self, target: Expr, value: Expr, out: &mut Vec<Stmt>) {
-        match target {
-            Expr::Tuple(tuple) => {
-                self.rewrite_unpack_target(tuple.elts, value, out, UnpackTargetKind::Tuple);
-            }
-            Expr::List(list) => {
-                self.rewrite_unpack_target(list.elts, value, out, UnpackTargetKind::List);
-            }
-            Expr::Attribute(attr) => {
-                let obj = (*attr.value).clone();
-                let mut stmt = py_stmt!(
-                    "
-__dp__.setattr({obj:expr}, {name:literal}, {value:expr})
-",
-                    obj = obj,
-                    name = attr.attr.as_str(),
-                    value = value,
-                );
-                walk_stmt(self, &mut stmt);
-                out.push(stmt);
-            }
-            Expr::Subscript(sub) => {
-                let obj = (*sub.value).clone();
-                let key = (*sub.slice).clone();
-                let mut stmt = py_stmt!(
-                    "
-__dp__.setitem({obj:expr}, {key:expr}, {value:expr})
-",
-                    obj = obj,
-                    key = key,
-                    value = value,
-                );
-                walk_stmt(self, &mut stmt);
-                out.push(stmt);
-            }
-            Expr::Name(_) => {
-                let mut stmt = py_stmt!(
-                    "
-{target:expr} = {value:expr}
-",
-                    target = target,
-                    value = value,
-                );
-                walk_stmt(self, &mut stmt);
-                out.push(stmt);
-            }
-            _ => {
-                panic!("unsupported assignment target");
-            }
-        }
-    }
-
-    fn rewrite_unpack_target(
-        &mut self,
-        elts: Vec<Expr>,
-        value: Expr,
-        out: &mut Vec<Stmt>,
-        kind: UnpackTargetKind,
-    ) {
-        let tmp_expr = self.maybe_placeholder(value);
-
-        let elts_len = elts.len();
-        let mut starred_index: Option<usize> = None;
-        for (i, elt) in elts.iter().enumerate() {
-            if matches!(elt, Expr::Starred(_)) {
-                if starred_index.is_some() {
-                    panic!("unsupported starred assignment target");
-                }
-                starred_index = Some(i);
-            }
-        }
-
-        let prefix_len = starred_index.unwrap_or(elts_len);
-        let suffix_len = starred_index.map_or(0, |idx| elts_len - idx - 1);
-
-        for (i, elt) in elts.into_iter().enumerate() {
-            match elt {
-                Expr::Starred(ast::ExprStarred { value, .. }) => {
-                    let slice_expr = if suffix_len == 0 {
-                        py_expr!(
-                            "
-__dp__.getitem({tmp:expr}, slice({start:literal}, None, None))",
-                            tmp = tmp_expr.clone(),
-                            start = prefix_len,
-                        )
-                    } else {
-                        let stop = -(suffix_len as isize);
-                        py_expr!(
-                            "
-__dp__.getitem({tmp:expr}, slice({start:literal}, {stop:literal}, None))",
-                            tmp = tmp_expr.clone(),
-                            start = prefix_len,
-                            stop = stop,
-                        )
-                    };
-                    let collection_expr = match kind {
-                        UnpackTargetKind::Tuple => py_expr!(
-                            "
-tuple({slice:expr})",
-                            slice = slice_expr,
-                        ),
-                        UnpackTargetKind::List => py_expr!(
-                            "
-list({slice:expr})",
-                            slice = slice_expr,
-                        ),
-                    };
-                    self.rewrite_target(*value, collection_expr, out);
-                }
-                _ => {
-                    let value = match starred_index {
-                        Some(star_idx) if i > star_idx => {
-                            let idx = (i as isize) - (elts_len as isize);
-                            py_expr!(
-                                "
-__dp__.getitem({tmp:expr}, {idx:literal})",
-                                tmp = tmp_expr.clone(),
-                                idx = idx,
-                            )
-                        }
-                        _ => py_expr!(
-                            "
-__dp__.getitem({tmp:expr}, {idx:literal})",
-                            tmp = tmp_expr.clone(),
-                            idx = i,
-                        ),
-                    };
-                    self.rewrite_target(elt, value, out);
-                }
-            }
-        }
-    }
 }
 
 fn make_tuple_splat(tuple: ast::ExprTuple) -> Expr {
@@ -533,11 +335,6 @@ fn make_tuple_splat(tuple: ast::ExprTuple) -> Expr {
     }
 
     expr
-}
-
-enum UnpackTargetKind {
-    Tuple,
-    List,
 }
 
 impl<'a> Transformer for ExprRewriter<'a> {
