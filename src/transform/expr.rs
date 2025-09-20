@@ -6,7 +6,7 @@ use super::{
     rewrite_try_except, rewrite_with, Options,
 };
 use crate::body_transform::{walk_expr, walk_stmt, Transformer};
-use crate::template::{make_binop, make_generator, make_tuple, make_unaryop};
+use crate::template::{is_simple, make_binop, make_generator, make_tuple, make_unaryop};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Operator, Stmt, UnaryOp};
 use ruff_text_size::TextRange;
@@ -77,13 +77,17 @@ impl<'a> ExprRewriter<'a> {
     }
 
     pub(super) fn maybe_placeholder(&mut self, mut expr: Expr) -> Expr {
-        if matches!(expr, Expr::Name(_)) {
+        fn is_temp_skippable(expr: &Expr) -> bool {
+            is_simple(expr) && !matches!(expr, Expr::StringLiteral(_) | Expr::BytesLiteral(_))
+        }
+
+        if is_temp_skippable(&expr) {
             return expr;
         }
 
         self.visit_expr(&mut expr);
 
-        if matches!(expr, Expr::Name(_)) {
+        if is_temp_skippable(&expr) {
             return expr;
         }
 
