@@ -46,17 +46,17 @@ def _dp_ns_Foo(_ns):
             return 1
         __dp__.setattr(method, "__qualname__", __dp__.add(__dp__.getitem(_ns, "__qualname__"), ".method"))
         return method
-    _dp_tmp_2 = _dp_mk_method()
-    __dp__.setitem(_dp_temp_ns, "method", _dp_tmp_2)
-    __dp__.setitem(_ns, "method", _dp_tmp_2)
+    method = _dp_mk_method()
+    __dp__.setitem(_dp_temp_ns, "method", method)
+    __dp__.setitem(_ns, "method", method)
 def _dp_make_class_Foo():
     bases = __dp__.resolve_bases(())
-    _dp_tmp_3 = __dp__.prepare_class("Foo", bases, None)
-    meta = __dp__.getitem(_dp_tmp_3, 0)
-    ns = __dp__.getitem(_dp_tmp_3, 1)
-    kwds = __dp__.getitem(_dp_tmp_3, 2)
+    _dp_tmp_2 = __dp__.prepare_class("Foo", bases, None)
+    meta = __dp__.getitem(_dp_tmp_2, 0)
+    ns = __dp__.getitem(_dp_tmp_2, 1)
+    kwds = __dp__.getitem(_dp_tmp_2, 2)
     _dp_ns_Foo(ns)
     return meta("Foo", bases, ns, **kwds)
-_dp_tmp_4 = _dp_make_class_Foo()
-Foo = _dp_tmp_4
-_dp_class_Foo = _dp_tmp_4
+_dp_tmp_3 = _dp_make_class_Foo()
+Foo = _dp_tmp_3
+_dp_class_Foo = _dp_tmp_3
