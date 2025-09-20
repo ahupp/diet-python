@@ -141,6 +141,14 @@ impl<'a> ExprRewriter<'a> {
             Stmt::Try(try_stmt) if rewrite_try_except::has_non_default_handler(&try_stmt) => {
                 Rewrite::Visit(vec![rewrite_try_except::rewrite(try_stmt, self.ctx)])
             }
+            Stmt::If(if_stmt)
+                if if_stmt
+                    .elif_else_clauses
+                    .iter()
+                    .any(|clause| clause.test.is_some()) =>
+            {
+                Rewrite::Visit(vec![Stmt::If(expand_if_chain(if_stmt))])
+            }
             Stmt::Match(match_stmt) => {
                 Rewrite::Visit(vec![rewrite_match_case::rewrite(match_stmt, self.ctx)])
             }
@@ -221,6 +229,51 @@ fn make_tuple_splat(tuple: ast::ExprTuple) -> Expr {
     }
 
     expr
+}
+
+fn expand_if_chain(mut if_stmt: ast::StmtIf) -> ast::StmtIf {
+    let mut else_body: Option<Vec<Stmt>> = None;
+
+    for clause in if_stmt.elif_else_clauses.into_iter().rev() {
+        match clause.test {
+            Some(test) => {
+                let mut nested_if = ast::StmtIf {
+                    node_index: ast::AtomicNodeIndex::default(),
+                    range: TextRange::default(),
+                    test: Box::new(test),
+                    body: clause.body,
+                    elif_else_clauses: Vec::new(),
+                };
+
+                if let Some(body) = else_body.take() {
+                    nested_if.elif_else_clauses.push(ast::ElifElseClause {
+                        range: TextRange::default(),
+                        node_index: ast::AtomicNodeIndex::default(),
+                        test: None,
+                        body,
+                    });
+                }
+
+                else_body = Some(vec![Stmt::If(nested_if)]);
+            }
+            None => {
+                else_body = Some(clause.body);
+            }
+        }
+    }
+
+    if let Some(body) = else_body {
+        if_stmt.elif_else_clauses = vec![ast::ElifElseClause {
+            range: TextRange::default(),
+            node_index: ast::AtomicNodeIndex::default(),
+            test: None,
+            body,
+        }];
+    } else {
+        if_stmt.elif_else_clauses = Vec::new();
+    }
+
+    if_stmt
 }
 
 impl<'a> Transformer for ExprRewriter<'a> {
@@ -341,10 +394,16 @@ impl<'a> Transformer for ExprRewriter<'a> {
             }
             Expr::ListComp(ast::ExprListComp {
                 elt, generators, ..
-            }) => py_expr!("__dp__.list({expr:expr})", expr = make_generator(*elt, generators)),
+            }) => py_expr!(
+                "__dp__.list({expr:expr})",
+                expr = make_generator(*elt, generators)
+            ),
             Expr::SetComp(ast::ExprSetComp {
                 elt, generators, ..
-            }) => py_expr!("__dp__.set({expr:expr})", expr = make_generator(*elt, generators)),
+            }) => py_expr!(
+                "__dp__.set({expr:expr})",
+                expr = make_generator(*elt, generators)
+            ),
             Expr::DictComp(ast::ExprDictComp {
                 key,
                 value,
@@ -403,7 +462,10 @@ impl<'a> Transformer for ExprRewriter<'a> {
                         let tuple = make_tuple(vec![pair]);
                         segments.push(py_expr!("__dp__.dict({tuple:expr})", tuple = tuple));
                     } else {
-                        segments.push(py_expr!("__dp__.dict({mapping:expr})", mapping = item.value));
+                        segments.push(py_expr!(
+                            "__dp__.dict({mapping:expr})",
+                            mapping = item.value
+                        ));
                     }
                 }
 
