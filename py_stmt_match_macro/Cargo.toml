@@ -1,0 +1,12 @@
+[package]
+name = "py_stmt_match_macro"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["parsing"] }
+ruff_python_parser = { git = "https://github.com/astral-sh/ruff", package = "ruff_python_parser" }
+diet_python = { path = "..", package = "diet-python" }

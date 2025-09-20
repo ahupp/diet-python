@@ -1,8 +1,7 @@
 // Minimal AST definitions for desugared language
 
-use std::borrow::Cow;
-
 use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
+use std::borrow::Cow;
 
 pub trait AstInfo: Clone + std::fmt::Debug + PartialEq {}
 impl<T: Clone + std::fmt::Debug + PartialEq> AstInfo for T {}
