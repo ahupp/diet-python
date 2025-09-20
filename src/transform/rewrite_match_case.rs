@@ -170,7 +170,8 @@ else:
                                 start = start_expr,
                                 end = end_expr
                             );
-                            let list_expr = py_expr!("__dp__.list({value:expr})", value = slice_expr);
+                            let list_expr =
+                                py_expr!("__dp__.list({value:expr})", value = slice_expr);
                             assigns.push(py_stmt!(
                                 "{name:id} = {value:expr}",
                                 name = name.as_str(),
