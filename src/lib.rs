@@ -4,6 +4,7 @@ use ruff_python_ast::{self as ast, ModModule, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_python_parser::{parse_module, ParseError};
 use ruff_source_file::LineEnding;
+use std::time::{Duration, Instant};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
@@ -59,6 +60,15 @@ mod transform;
 use crate::body_transform::Transformer;
 use transform::{context::Context, expr::ExprRewriter, Options};
 
+#[derive(Debug, Clone, Copy)]
+pub struct TransformTimings {
+    pub parse: Duration,
+    pub rewrite: Duration,
+    pub ensure_import: Duration,
+    pub emit: Duration,
+    pub total: Duration,
+}
+
 fn should_skip(source: &str) -> bool {
     source
         .lines()
@@ -85,12 +95,36 @@ fn apply_transforms(module: &mut ModModule, options: Options) {
 
 /// Transform the source code and return the resulting string.
 fn transform_to_string_with_options(source: &str, options: Options) -> Result<String, ParseError> {
-    let module = transform_str_to_ruff_with_options(source, options)?;
-    Ok(ruff_ast_to_string(&module.body))
+    transform_to_string_with_options_timed(source, options).map(|(output, _)| output)
+}
+
+fn transform_to_string_with_options_timed(
+    source: &str,
+    options: Options,
+) -> Result<(String, TransformTimings), ParseError> {
+    let (module, mut timings) = transform_str_to_ruff_with_options_timed(source, options)?;
+    let emit_start = Instant::now();
+    let output = ruff_ast_to_string(&module.body);
+    timings.emit = emit_start.elapsed();
+    timings.total += timings.emit;
+    Ok((output, timings))
 }
 
 pub fn transform_to_string(source: &str, ensure: bool) -> Result<String, ParseError> {
     transform_to_string_with_options(
+        source,
+        Options {
+            inject_import: ensure,
+            ..Options::default()
+        },
+    )
+}
+
+pub fn transform_to_string_with_timing(
+    source: &str,
+    ensure: bool,
+) -> Result<(String, TransformTimings), ParseError> {
+    transform_to_string_with_options_timed(
         source,
         Options {
             inject_import: ensure,
@@ -170,15 +204,22 @@ pub fn transform_to_string_without_attribute_lowering(
     source: &str,
     ensure: bool,
 ) -> Result<String, ParseError> {
-    let module = transform_str_to_ruff_with_options(
+    transform_to_string_without_attribute_lowering_with_timing(source, ensure)
+        .map(|(output, _)| output)
+}
+
+pub fn transform_to_string_without_attribute_lowering_with_timing(
+    source: &str,
+    ensure: bool,
+) -> Result<(String, TransformTimings), ParseError> {
+    transform_to_string_with_options_timed(
         source,
         Options {
             inject_import: ensure,
             lower_attributes: false,
             ..Options::default()
         },
-    )?;
-    Ok(ruff_ast_to_string(&module.body))
+    )
 }
 
 pub fn transform_str_to_str_exec(source: &str) -> Result<String, ParseError> {
@@ -194,15 +235,43 @@ pub fn transform_str_to_ruff_with_options(
     source: &str,
     options: Options,
 ) -> Result<ModModule, ParseError> {
+    transform_str_to_ruff_with_options_timed(source, options).map(|(module, _)| module)
+}
+
+pub fn transform_str_to_ruff_with_options_timed(
+    source: &str,
+    options: Options,
+) -> Result<(ModModule, TransformTimings), ParseError> {
+    let total_start = Instant::now();
+    let parse_start = Instant::now();
     let mut module = parse_module(source)?.into_syntax();
+    let parse = parse_start.elapsed();
+
+    let rewrite_start = Instant::now();
     apply_transforms(&mut module, options);
+    let rewrite = rewrite_start.elapsed();
+
     if options.lower_attributes {
         let _ = min_ast::Module::from(module.clone());
     }
-    if options.inject_import {
+
+    let ensure_import = if options.inject_import {
+        let ensure_start = Instant::now();
         ensure_import::ensure_import(&mut module);
-    }
-    Ok(module)
+        ensure_start.elapsed()
+    } else {
+        Duration::ZERO
+    };
+
+    let timings = TransformTimings {
+        parse,
+        rewrite,
+        ensure_import,
+        emit: Duration::ZERO,
+        total: total_start.elapsed(),
+    };
+
+    Ok((module, timings))
 }
 
 /// Transform the source code with default options and return the resulting Ruff AST.
