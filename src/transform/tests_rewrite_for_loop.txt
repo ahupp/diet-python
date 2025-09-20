@@ -65,7 +65,7 @@ while True:
     try:
         _dp_tmp_2 = __dp__.next(_dp_iter_1)
         a = __dp__.getitem(_dp_tmp_2, 0)
-        b = tuple(__dp__.getitem(_dp_tmp_2, slice(1, None, None)))
+        b = __dp__.tuple(__dp__.getitem(_dp_tmp_2, slice(1, None, None)))
     except:
         __dp__.check_stopiteration()
         break

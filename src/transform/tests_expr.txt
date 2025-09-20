@@ -3,7 +3,7 @@ $ expr 001
 =
 
 a = __dp__.getitem(d, 0)
-b = list(__dp__.getitem(d, slice(1, __dp__.neg(1), None)))
+b = __dp__.list(__dp__.getitem(d, slice(1, __dp__.neg(1), None)))
 c = __dp__.getitem(d, __dp__.neg(1))
 
 
@@ -12,7 +12,7 @@ $ expr 002
 =
 
 a = __dp__.getitem(c, 0)
-b = list(__dp__.getitem(c, slice(1, None, None)))
+b = __dp__.list(__dp__.getitem(c, slice(1, None, None)))
 
 
 $ expr 003
@@ -27,7 +27,7 @@ $ expr 004
 [*a, b] = c
 =
 
-a = list(__dp__.getitem(c, slice(0, __dp__.neg(1), None)))
+a = __dp__.list(__dp__.getitem(c, slice(0, __dp__.neg(1), None)))
 b = __dp__.getitem(c, __dp__.neg(1))
 
 
@@ -44,7 +44,7 @@ a, *b, c = d
 =
 
 a = __dp__.getitem(d, 0)
-b = tuple(__dp__.getitem(d, slice(1, __dp__.neg(1), None)))
+b = __dp__.tuple(__dp__.getitem(d, slice(1, __dp__.neg(1), None)))
 c = __dp__.getitem(d, __dp__.neg(1))
 
 
@@ -52,7 +52,7 @@ $ expr 007
 *a, b = c
 =
 
-a = tuple(__dp__.getitem(c, slice(0, __dp__.neg(1), None)))
+a = __dp__.tuple(__dp__.getitem(c, slice(0, __dp__.neg(1), None)))
 b = __dp__.getitem(c, __dp__.neg(1))
 
 
@@ -61,7 +61,7 @@ a, *b = c
 =
 
 a = __dp__.getitem(c, 0)
-b = tuple(__dp__.getitem(c, slice(1, None, None)))
+b = __dp__.tuple(__dp__.getitem(c, slice(1, None, None)))
 
 
 $ expr 009
@@ -313,14 +313,14 @@ def _dp_gen_1(items):
             _dp_tmp_4 = __dp__.eq(__dp__.mod(k, 2), 0)
             if _dp_tmp_4:
                 yield k, __dp__.add(v, 1)
-r = dict(_dp_gen_1(__dp__.iter(items)))
+r = __dp__.dict(_dp_gen_1(__dp__.iter(items)))
 
 
 $ expr 042
 a = {'a': 1, 'b': 2}
 =
 
-a = dict((('a', 1), ('b', 2)))
+a = __dp__.dict((('a', 1), ('b', 2)))
 
 
 $ expr 043
@@ -334,17 +334,17 @@ _dp_tmp_1
 $ expr 044
 a = {**b, 'c': 2}
 =
-a = __dp__.or_(dict(b), dict((('c', 2),)))
+a = __dp__.or_(__dp__.dict(b), __dp__.dict((('c', 2),)))
 
 $ expr 045
 a = {**b}
 =
-a = dict(b)
+a = __dp__.dict(b)
 
 $ expr 046
 a = {'a': 1, **b, 'c': 2}
 =
-a = __dp__.or_(__dp__.or_(dict((('a', 1),)), dict(b)), dict((('c', 2),)))
+a = __dp__.or_(__dp__.or_(__dp__.dict((('a', 1),)), __dp__.dict(b)), __dp__.dict((('c', 2),)))
 
 $ expr 047
 a = ...
@@ -390,14 +390,14 @@ def _dp_gen_1(items):
             _dp_tmp_3 = __dp__.eq(__dp__.mod(a, 2), 0)
             if _dp_tmp_3:
                 yield __dp__.add(a, 1)
-r = list(_dp_gen_1(__dp__.iter(items)))
+r = __dp__.list(_dp_gen_1(__dp__.iter(items)))
 
 
 $ expr 052
 a = [1, 2, 3]
 =
 
-a = list((1, 2, 3))
+a = __dp__.list((1, 2, 3))
 
 
 $ expr 053
@@ -416,7 +416,7 @@ _dp_tmp_1
 $ expr 054
 a = [1, *b, 2]
 =
-a = list(__dp__.add(__dp__.add((1,), tuple(b)), (2,)))
+a = __dp__.list(__dp__.add(__dp__.add((1,), __dp__.tuple(b)), (2,)))
 
 $ expr 055
 a or b or c
@@ -460,7 +460,7 @@ def _dp_gen_1(items):
                     break
                 else:
                     yield __dp__.mul(a, b)
-r = list(_dp_gen_1(__dp__.iter(items)))
+r = __dp__.list(_dp_gen_1(__dp__.iter(items)))
 
 
 $ expr 058
@@ -487,7 +487,7 @@ def _dp_gen_1(items):
             break
         else:
             yield a
-r = set(_dp_gen_1(__dp__.iter(items)))
+r = __dp__.set(_dp_gen_1(__dp__.iter(items)))
 
 
 $ expr 061
@@ -506,7 +506,7 @@ $ expr 062
 a = {1, 2, 3}
 =
 
-a = set((1, 2, 3))
+a = __dp__.set((1, 2, 3))
 
 
 $ expr 063
@@ -534,7 +534,7 @@ __dp__.getitem(a, slice(None, 2, None))
 $ expr 067
 a = (1, *b, 2)
 =
-a = __dp__.add(__dp__.add((1,), tuple(b)), (2,))
+a = __dp__.add(__dp__.add((1,), __dp__.tuple(b)), (2,))
 
 $ expr 068
 -a

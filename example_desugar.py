@@ -1,13 +1,13 @@
 import __dp__
 sys = __dp__.import_("sys", __spec__)
-ei = __dp__.import_("sys", __spec__, list(("exc_info",))).exc_info
+ei = __dp__.import_("sys", __spec__, __dp__.list(("exc_info",))).exc_info
 def _dp_dec_apply_1(_dp_the_func):
     return foo(bar(1, 2)(_dp_the_func))
 def add(a, b):
     return __dp__.add(a, b)
 add = _dp_dec_apply_1(add)
 def _dp_ns_A(_ns):
-    _dp_temp_ns = dict(())
+    _dp_temp_ns = __dp__.dict(())
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
     __dp__.setitem(_ns, "__module__", __name__)
     _dp_tmp_2 = "A"
@@ -20,7 +20,7 @@ def _dp_ns_A(_ns):
     def _dp_mk___init__():
 
         def __init__(self):
-            __dp__.setattr(self, "arr", list((1, 2, 3)))
+            __dp__.setattr(self, "arr", __dp__.list((1, 2, 3)))
         __dp__.setattr(__init__, "__qualname__", __dp__.add(__dp__.getitem(_ns, "__qualname__"), ".__init__"))
         return __init__
     __init__ = _dp_mk___init__()
@@ -104,7 +104,7 @@ def _dp_gen_7(_dp_iter_8):
             _dp_tmp_10 = __dp__.eq(__dp__.mod(i, 2), 0)
             if _dp_tmp_10:
                 yield __dp__.add(i, 1)
-x = list(_dp_gen_7(__dp__.iter(range(5))))
+x = __dp__.list(_dp_gen_7(__dp__.iter(range(5))))
 def _dp_gen_11(_dp_iter_12):
     _dp_iter_13 = __dp__.iter(_dp_iter_12)
     while True:
@@ -117,7 +117,7 @@ def _dp_gen_11(_dp_iter_12):
             _dp_tmp_14 = __dp__.eq(__dp__.mod(i, 2), 0)
             if _dp_tmp_14:
                 yield __dp__.add(i, 1)
-y = set(_dp_gen_11(__dp__.iter(range(5))))
+y = __dp__.set(_dp_gen_11(__dp__.iter(range(5))))
 def _dp_gen_15(_dp_iter_16):
     _dp_iter_17 = __dp__.iter(_dp_iter_16)
     while True:
