@@ -10,6 +10,10 @@ pub fn rewrite(
     item: Vec<Stmt>,
     _ctx: &Context,
 ) -> Vec<Stmt> {
+    if decorators.is_empty() {
+        return item;
+    }
+
     let decorator_expr =
         decorators
             .into_iter()

@@ -26,10 +26,10 @@ pub(crate) fn rewrite_lambda(lambda: ast::ExprLambda, ctx: &Context, buf: &mut V
     let mut func_def = py_stmt!(
         r#"
 def {func_name:id}():
-    {body:stmt}
+    return {body:expr}
 "#,
         func_name = func_name.as_str(),
-        body = body
+        body = *body
     );
 
     if let Stmt::FunctionDef(ast::StmtFunctionDef {

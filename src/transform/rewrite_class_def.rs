@@ -191,7 +191,7 @@ fn rewrite_method(func_def: &mut ast::StmtFunctionDef, class_name: &str) {
     if transformer.uses_class {
         let cls_name = format!("_dp_class_{}", class_name);
         let mut assign = py_stmt!("__class__ = {c:id}", c = cls_name.as_str());
-        assign.splice(0..0, func_def.body.drain(..));
+        assign.extend(func_def.body.drain(..));
         func_def.body = assign;
     }
 }
@@ -262,7 +262,7 @@ _dp_temp_ns[{name:literal}] = _ns[{name:literal}] = {name:id}
 
                 let decorators = take(&mut func_def.decorator_list);
 
-                let mk_func_def = py_stmt!(
+                let mut method_stmts = py_stmt!(
                     r#"
 def _dp_mk_{fn_name:id}():
     {fn_def:stmt}
@@ -274,15 +274,25 @@ def _dp_mk_{fn_name:id}():
                     suffix = format!(".{}", fn_name)
                 );
 
-                let mk_func_def_dec =
-                    rewrite_decorator::rewrite(decorators, fn_name.as_str(), mk_func_def, ctx);
+                method_stmts.extend(py_stmt!(
+                    "{fn_name:id} = _dp_mk_{fn_name:id}()",
+                    fn_name = fn_name.as_str(),
+                ));
 
-                ns_body.extend(mk_func_def_dec);
-                extend_body(
-                    &mut ns_body,
+                let method_stmts = rewrite_decorator::rewrite(
+                    decorators,
                     fn_name.as_str(),
-                    py_expr!("_dp_mk_{fn_name:id}()", fn_name = fn_name.as_str()),
+                    method_stmts,
+                    ctx,
                 );
+
+                ns_body.extend(method_stmts);
+                ns_body.extend(py_stmt!(
+                    r#"
+_dp_temp_ns[{fn_name:literal}] = _ns[{fn_name:literal}] = {fn_name:id}
+"#,
+                    fn_name = fn_name.as_str(),
+                ));
             }
             other => ns_body.push(other),
         }
@@ -363,7 +373,8 @@ def _dp_make_class_{class_name:id}():
         ns["__orig_bases__"] = orig_bases
     return meta({class_name:literal}, bases, ns, **kwds)
 
-{class_name:id} = _dp_class_{class_name:id} = _dp_make_class_{class_name:id}()
+_dp_class_{class_name:id} = _dp_make_class_{class_name:id}()
+{class_name:id} = _dp_class_{class_name:id}
 "#,
         class_name = class_name.as_str(),
         bases = make_tuple(bases),

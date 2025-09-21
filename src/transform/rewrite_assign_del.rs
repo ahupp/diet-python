@@ -1,4 +1,5 @@
 use super::expr::ExprRewriter;
+use crate::body_transform::Transformer;
 use crate::template::make_binop;
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Operator, Stmt};
@@ -136,12 +137,28 @@ pub(crate) fn rewrite_ann_assign(
 }
 
 pub(crate) fn rewrite_assign(rewriter: &mut ExprRewriter, assign: ast::StmtAssign) -> Vec<Stmt> {
+    let ast::StmtAssign { targets, value, .. } = assign;
     let mut stmts = Vec::new();
-    let value = assign.value.as_ref().clone();
+    let mut value = value.as_ref().clone();
+    let multi_assign = targets.len() > 1;
 
-    let tmp_expr = rewriter.maybe_placeholder(value.clone());
-    for target in assign.targets.into_iter() {
-        rewrite_target(rewriter, target, tmp_expr.clone(), &mut stmts);
+    let (shared_expr, mut single_value) = if multi_assign {
+        // When multiple targets share the same value we need to evaluate the expression
+        // exactly once and fan the result out, so materialize a placeholder.
+        (Some(rewriter.maybe_placeholder(value)), None)
+    } else {
+        // With a single target there's no fan-out, so rewrite the value in place and feed
+        // it directly to the lowering helpers without synthesizing an intermediate
+        // placeholder.
+        rewriter.visit_expr(&mut value);
+        (None, Some(value))
+    };
+
+    for target in targets.into_iter() {
+        let expr = shared_expr
+            .as_ref()
+            .map_or_else(|| single_value.take().expect("value already consumed"), Clone::clone);
+        rewrite_target(rewriter, target, expr, &mut stmts);
     }
 
     stmts

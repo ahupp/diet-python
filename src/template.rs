@@ -239,6 +239,7 @@ impl SyntaxTemplate {
         let mut transformer = PlaceholderReplacer::new(values, ids);
         transformer.visit_body(&mut self.stmts);
         transformer.finish();
+        flatten(&mut self.stmts);
         self.stmts
     }
 }
