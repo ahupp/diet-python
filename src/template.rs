@@ -158,6 +158,19 @@ impl IntoPlaceholder for Vec<Stmt> {
     }
 }
 
+impl IntoPlaceholder for std::vec::IntoIter<Stmt> {
+    fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
+        let mut stmts: Vec<Stmt> = self.collect();
+        if stmts.is_empty() {
+            stmts.push(Stmt::Pass(ast::StmtPass {
+                node_index: Default::default(),
+                range: Default::default(),
+            }));
+        }
+        Ok(PlaceholderValue::Stmt(stmts))
+    }
+}
+
 macro_rules! impl_into_placeholder_for_signed {
     ($($ty:ty),*) => {
         $(impl IntoPlaceholder for $ty {
@@ -651,6 +664,7 @@ mod tests {
     use ruff_python_ast::{
         self as ast,
         comparable::{ComparableExpr, ComparableStmt},
+        Stmt,
     };
     use ruff_python_parser::{parse_expression, parse_module};
 
@@ -722,6 +736,40 @@ b = 2
         let stmt = body.pop().unwrap();
         let actual = py_stmt!("{body:stmt}", body = Box::new(stmt.clone()));
         let expected = py_stmt!("{body:stmt}", body = vec![stmt]);
+        assert_ast_eq(actual, expected);
+    }
+
+    #[test]
+    fn inserts_stmt_from_iterator() {
+        let body = parse_module(
+            "
+a = 1
+b = 2
+",
+        )
+        .unwrap()
+        .into_syntax()
+        .body;
+        let iter_body = body.clone();
+
+        assert_ast_eq(
+            py_stmt!("{body:stmt}", body = iter_body.into_iter()),
+            py_stmt!(
+                "
+a = 1
+b = 2
+",
+            ),
+        );
+    }
+
+    #[test]
+    fn inserts_empty_stmt_from_iterator() {
+        let actual = py_stmt!(
+            "{body:stmt}",
+            body = Vec::<Stmt>::new().into_iter(),
+        );
+        let expected: Vec<Stmt> = Vec::new();
         assert_ast_eq(actual, expected);
     }
 
