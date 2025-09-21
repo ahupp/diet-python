@@ -3,16 +3,16 @@ $ lowers simple class
 class C:
     x = 1
 =
-def _dp_ns_C(_ns):
+def _dp_ns_C(_dp_prepare_ns):
     _dp_temp_ns = __dp__.dict()
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
-    __dp__.setitem(_ns, "__module__", __name__)
+    __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
     _dp_tmp_1 = "C"
     __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_1)
-    __dp__.setitem(_ns, "__qualname__", _dp_tmp_1)
+    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_1)
     x = 1
     __dp__.setitem(_dp_temp_ns, "x", x)
-    __dp__.setitem(_ns, "x", x)
+    __dp__.setitem(_dp_prepare_ns, "x", x)
 def _dp_make_class_C():
     orig_bases = ()
     bases = __dp__.resolve_bases(orig_bases)
@@ -37,16 +37,16 @@ $ captures outer reference
 class C:
     x = x
 =
-def _dp_ns_C(_ns, x=x):
+def _dp_ns_C(_dp_prepare_ns, x=x):
     _dp_temp_ns = __dp__.dict()
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
-    __dp__.setitem(_ns, "__module__", __name__)
+    __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
     _dp_tmp_1 = "C"
     __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_1)
-    __dp__.setitem(_ns, "__qualname__", _dp_tmp_1)
+    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_1)
     x = x
     __dp__.setitem(_dp_temp_ns, "x", x)
-    __dp__.setitem(_ns, "x", x)
+    __dp__.setitem(_dp_prepare_ns, "x", x)
 def _dp_make_class_C():
     orig_bases = ()
     bases = __dp__.resolve_bases(orig_bases)
@@ -72,19 +72,19 @@ class C:
     x = 1
     y = x
 =
-def _dp_ns_C(_ns):
+def _dp_ns_C(_dp_prepare_ns):
     _dp_temp_ns = __dp__.dict()
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
-    __dp__.setitem(_ns, "__module__", __name__)
+    __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
     _dp_tmp_1 = "C"
     __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_1)
-    __dp__.setitem(_ns, "__qualname__", _dp_tmp_1)
+    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_1)
     x = 1
     __dp__.setitem(_dp_temp_ns, "x", x)
-    __dp__.setitem(_ns, "x", x)
+    __dp__.setitem(_dp_prepare_ns, "x", x)
     y = x
     __dp__.setitem(_dp_temp_ns, "y", y)
-    __dp__.setitem(_ns, "y", y)
+    __dp__.setitem(_dp_prepare_ns, "y", y)
 def _dp_make_class_C():
     orig_bases = ()
     bases = __dp__.resolve_bases(orig_bases)
@@ -109,13 +109,13 @@ $ lowers inherits
 class C(B):
     pass
 =
-def _dp_ns_C(_ns):
+def _dp_ns_C(_dp_prepare_ns):
     _dp_temp_ns = __dp__.dict()
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
-    __dp__.setitem(_ns, "__module__", __name__)
+    __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
     _dp_tmp_1 = "C"
     __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_1)
-    __dp__.setitem(_ns, "__qualname__", _dp_tmp_1)
+    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_1)
 def _dp_make_class_C():
     orig_bases = B,
     bases = __dp__.resolve_bases(orig_bases)
@@ -141,19 +141,19 @@ class C(B, metaclass=Meta, kw=1):
     'doc'
     x = 2
 =
-def _dp_ns_C(_ns):
+def _dp_ns_C(_dp_prepare_ns):
     _dp_temp_ns = __dp__.dict()
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
-    __dp__.setitem(_ns, "__module__", __name__)
+    __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
     _dp_tmp_1 = "C"
     __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_1)
-    __dp__.setitem(_ns, "__qualname__", _dp_tmp_1)
+    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_1)
     __doc__ = 'doc'
     __dp__.setitem(_dp_temp_ns, "__doc__", __doc__)
-    __dp__.setitem(_ns, "__doc__", __doc__)
+    __dp__.setitem(_dp_prepare_ns, "__doc__", __doc__)
     x = 2
     __dp__.setitem(_dp_temp_ns, "x", x)
-    __dp__.setitem(_ns, "x", x)
+    __dp__.setitem(_dp_prepare_ns, "x", x)
 def _dp_make_class_C():
     orig_bases = B,
     bases = __dp__.resolve_bases(orig_bases)
@@ -179,23 +179,23 @@ class C:
     def m(self):
         return 1
 =
-def _dp_ns_C(_ns):
+def _dp_ns_C(_dp_prepare_ns):
     _dp_temp_ns = __dp__.dict()
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
-    __dp__.setitem(_ns, "__module__", __name__)
+    __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
     _dp_tmp_1 = "C"
     __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_1)
-    __dp__.setitem(_ns, "__qualname__", _dp_tmp_1)
+    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_1)
 
     def _dp_mk_m():
 
         def m(self):
             return 1
-        __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_ns, "__qualname__"), ".m"))
+        __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
         return m
     m = _dp_mk_m()
     __dp__.setitem(_dp_temp_ns, "m", m)
-    __dp__.setitem(_ns, "m", m)
+    __dp__.setitem(_dp_prepare_ns, "m", m)
 def _dp_make_class_C():
     orig_bases = ()
     bases = __dp__.resolve_bases(orig_bases)
@@ -221,24 +221,24 @@ class C:
     def m(self):
         return super().m()
 =
-def _dp_ns_C(_ns):
+def _dp_ns_C(_dp_prepare_ns):
     _dp_temp_ns = __dp__.dict()
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
-    __dp__.setitem(_ns, "__module__", __name__)
+    __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
     _dp_tmp_1 = "C"
     __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_1)
-    __dp__.setitem(_ns, "__qualname__", _dp_tmp_1)
+    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_1)
 
     def _dp_mk_m():
 
         def m(self):
             __class__ = _dp_class_C
             return super(__class__, self).m()
-        __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_ns, "__qualname__"), ".m"))
+        __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
         return m
     m = _dp_mk_m()
     __dp__.setitem(_dp_temp_ns, "m", m)
-    __dp__.setitem(_ns, "m", m)
+    __dp__.setitem(_dp_prepare_ns, "m", m)
 def _dp_make_class_C():
     orig_bases = ()
     bases = __dp__.resolve_bases(orig_bases)
@@ -264,24 +264,24 @@ class C:
     def m(z):
         return super().m()
 =
-def _dp_ns_C(_ns):
+def _dp_ns_C(_dp_prepare_ns):
     _dp_temp_ns = __dp__.dict()
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
-    __dp__.setitem(_ns, "__module__", __name__)
+    __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
     _dp_tmp_1 = "C"
     __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_1)
-    __dp__.setitem(_ns, "__qualname__", _dp_tmp_1)
+    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_1)
 
     def _dp_mk_m():
 
         def m(z):
             __class__ = _dp_class_C
             return super(__class__, z).m()
-        __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_ns, "__qualname__"), ".m"))
+        __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
         return m
     m = _dp_mk_m()
     __dp__.setitem(_dp_temp_ns, "m", m)
-    __dp__.setitem(_ns, "m", m)
+    __dp__.setitem(_dp_prepare_ns, "m", m)
 def _dp_make_class_C():
     orig_bases = ()
     bases = __dp__.resolve_bases(orig_bases)
@@ -311,16 +311,16 @@ class C:
     def m(self):
         return self
 =
-def _dp_ns_C(_ns):
+def _dp_ns_C(_dp_prepare_ns):
     _dp_temp_ns = __dp__.dict()
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
-    __dp__.setitem(_ns, "__module__", __name__)
+    __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
     _dp_tmp_1 = "C"
     __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_1)
-    __dp__.setitem(_ns, "__qualname__", _dp_tmp_1)
+    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_1)
     y = deco
     __dp__.setitem(_dp_temp_ns, "y", y)
-    __dp__.setitem(_ns, "y", y)
+    __dp__.setitem(_dp_prepare_ns, "y", y)
     def _dp_decorator_m(_dp_the_func):
         return decorator(y)(other(_dp_the_func))
 
@@ -328,12 +328,12 @@ def _dp_ns_C(_ns):
 
         def m(self):
             return self
-        __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_ns, "__qualname__"), ".m"))
+        __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
         return m
     m = _dp_mk_m()
     m = _dp_decorator_m(m)
     __dp__.setitem(_dp_temp_ns, "m", m)
-    __dp__.setitem(_ns, "m", m)
+    __dp__.setitem(_dp_prepare_ns, "m", m)
 def _dp_make_class_C():
     orig_bases = ()
     bases = __dp__.resolve_bases(orig_bases)

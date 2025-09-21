@@ -6,36 +6,36 @@ def _dp_decorator_add(_dp_the_func):
 def add(a, b):
     return __dp__.add(a, b)
 add = _dp_decorator_add(add)
-def _dp_ns_A(_ns):
+def _dp_ns_A(_dp_prepare_ns):
     _dp_temp_ns = __dp__.dict()
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
-    __dp__.setitem(_ns, "__module__", __name__)
+    __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
     _dp_tmp_1 = "A"
     __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_1)
-    __dp__.setitem(_ns, "__qualname__", _dp_tmp_1)
+    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_1)
     b = 1
     __dp__.setitem(_dp_temp_ns, "b", b)
-    __dp__.setitem(_ns, "b", b)
+    __dp__.setitem(_dp_prepare_ns, "b", b)
 
     def _dp_mk___init__():
 
         def __init__(self):
             __dp__.setattr(self, "arr", __dp__.list((1, 2, 3)))
-        __dp__.setattr(__init__, "__qualname__", __dp__.add(__dp__.getitem(_ns, "__qualname__"), ".__init__"))
+        __dp__.setattr(__init__, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".__init__"))
         return __init__
     __init__ = _dp_mk___init__()
     __dp__.setitem(_dp_temp_ns, "__init__", __init__)
-    __dp__.setitem(_ns, "__init__", __init__)
+    __dp__.setitem(_dp_prepare_ns, "__init__", __init__)
 
     def _dp_mk_c():
 
         def c(self, d):
             return add(d, 2)
-        __dp__.setattr(c, "__qualname__", __dp__.add(__dp__.getitem(_ns, "__qualname__"), ".c"))
+        __dp__.setattr(c, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".c"))
         return c
     c = _dp_mk_c()
     __dp__.setitem(_dp_temp_ns, "c", c)
-    __dp__.setitem(_ns, "c", c)
+    __dp__.setitem(_dp_prepare_ns, "c", c)
 
     def _dp_mk_test_aiter():
 
@@ -49,11 +49,11 @@ def _dp_ns_A(_ns):
                     break
                 else:
                     yield i
-        __dp__.setattr(test_aiter, "__qualname__", __dp__.add(__dp__.getitem(_ns, "__qualname__"), ".test_aiter"))
+        __dp__.setattr(test_aiter, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".test_aiter"))
         return test_aiter
     test_aiter = _dp_mk_test_aiter()
     __dp__.setitem(_dp_temp_ns, "test_aiter", test_aiter)
-    __dp__.setitem(_ns, "test_aiter", test_aiter)
+    __dp__.setitem(_dp_prepare_ns, "test_aiter", test_aiter)
 
     def _dp_mk_d():
 
@@ -67,11 +67,11 @@ def _dp_ns_A(_ns):
                     break
                 else:
                     print(i)
-        __dp__.setattr(d, "__qualname__", __dp__.add(__dp__.getitem(_ns, "__qualname__"), ".d"))
+        __dp__.setattr(d, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".d"))
         return d
     d = _dp_mk_d()
     __dp__.setitem(_dp_temp_ns, "d", d)
-    __dp__.setitem(_ns, "d", d)
+    __dp__.setitem(_dp_prepare_ns, "d", d)
 def _dp_make_class_A():
     orig_bases = ()
     bases = __dp__.resolve_bases(orig_bases)

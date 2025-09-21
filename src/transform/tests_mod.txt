@@ -33,23 +33,23 @@ class Foo:
     def method(self):
         return 1
 =
-def _dp_ns_Foo(_ns):
+def _dp_ns_Foo(_dp_prepare_ns):
     _dp_temp_ns = __dp__.dict()
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
-    __dp__.setitem(_ns, "__module__", __name__)
+    __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
     _dp_tmp_1 = "Foo"
     __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_1)
-    __dp__.setitem(_ns, "__qualname__", _dp_tmp_1)
+    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_1)
 
     def _dp_mk_method():
 
         def method(self):
             return 1
-        __dp__.setattr(method, "__qualname__", __dp__.add(__dp__.getitem(_ns, "__qualname__"), ".method"))
+        __dp__.setattr(method, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".method"))
         return method
     method = _dp_mk_method()
     __dp__.setitem(_dp_temp_ns, "method", method)
-    __dp__.setitem(_ns, "method", method)
+    __dp__.setitem(_dp_prepare_ns, "method", method)
 def _dp_make_class_Foo():
     orig_bases = ()
     bases = __dp__.resolve_bases(orig_bases)
