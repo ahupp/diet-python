@@ -31,6 +31,7 @@ pub fn rewrite(ast::StmtImport { names, .. }: ast::StmtImport) -> Vec<Stmt> {
                 module = module_name.as_str(),
             )
         })
+        .flatten()
         .collect()
 }
 
@@ -67,7 +68,7 @@ pub fn rewrite_from(import_from: ast::StmtImportFrom, options: &Options) -> Vec<
                 attr = orig,
             )
 
-    }).collect()
+    }).flatten().collect()
 }
 
 #[cfg(test)]

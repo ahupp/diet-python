@@ -12,11 +12,9 @@ pub fn rewrite(
     }: ast::StmtWith,
     ctx: &Context,
     transformer: &mut impl Transformer,
-) -> Stmt {
+) -> Vec<Stmt> {
     if items.is_empty() {
-        let mut stmt = py_stmt!("pass");
-        transformer.visit_stmt(&mut stmt);
-        return stmt;
+        return py_stmt!("pass");
     }
 
     for ast::WithItem {
@@ -31,7 +29,7 @@ pub fn rewrite(
             py_expr!("_")
         };
 
-        let wrapper = if is_async {
+        body = if is_async {
             let exit_name = ctx.fresh("awith_exit");
             py_stmt!(
                 r#"
@@ -66,12 +64,10 @@ else:
                 exit_name = exit_name.as_str(),
             )
         };
-        body = vec![wrapper];
     }
 
-    let mut stmt = body.into_iter().next().unwrap();
-    transformer.visit_stmt(&mut stmt);
-    stmt
+    transformer.visit_body(&mut body);
+    body
 }
 
 #[cfg(test)]

@@ -1,5 +1,4 @@
 use super::expr::ExprRewriter;
-use crate::body_transform::walk_stmt;
 use crate::template::make_binop;
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Operator, Stmt};
@@ -11,44 +10,39 @@ pub(crate) fn should_rewrite_targets(targets: &[Expr]) -> bool {
 pub(crate) fn rewrite_target(
     rewriter: &mut ExprRewriter,
     target: Expr,
-    value: Expr,
+    rhs: Expr,
     out: &mut Vec<Stmt>,
 ) {
     match target {
         Expr::Tuple(tuple) => {
-            rewrite_unpack_target(rewriter, tuple.elts, value, out, UnpackTargetKind::Tuple);
+            rewrite_unpack_target(rewriter, tuple.elts, rhs, out, UnpackTargetKind::Tuple);
         }
         Expr::List(list) => {
-            rewrite_unpack_target(rewriter, list.elts, value, out, UnpackTargetKind::List);
+            rewrite_unpack_target(rewriter, list.elts, rhs, out, UnpackTargetKind::List);
         }
-        Expr::Attribute(attr) => {
-            let obj = (*attr.value).clone();
+        Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
+            let attr = attr.clone();
             let stmt = py_stmt!(
-                "\n__dp__.setattr({obj:expr}, {name:literal}, {value:expr})",
-                obj = obj,
-                name = attr.attr.as_str(),
+                "__dp__.setattr({value:expr}, {name:literal}, {rhs:expr})",
                 value = value,
+                name = attr.as_str(),
+                rhs = rhs,
             );
-            out.push(stmt);
+            out.extend(stmt);
         }
-        Expr::Subscript(sub) => {
-            let obj = (*sub.value).clone();
-            let key = (*sub.slice).clone();
+        Expr::Subscript(ast::ExprSubscript { value, slice, .. }) => {
+            let slice = slice.clone();
             let stmt = py_stmt!(
-                "\n__dp__.setitem({obj:expr}, {key:expr}, {value:expr})",
-                obj = obj,
-                key = key,
+                "__dp__.setitem({value:expr}, {slice:expr}, {rhs:expr})",
                 value = value,
+                slice = slice,
+                rhs = rhs,
             );
-            out.push(stmt);
+            out.extend(stmt);
         }
         Expr::Name(_) => {
-            let stmt = py_stmt!(
-                "{target:expr} = {value:expr}",
-                target = target,
-                value = value,
-            );
-            out.push(stmt);
+            let stmt = py_stmt!("{target:expr} = {rhs:expr}", target = target, rhs = rhs,);
+            out.extend(stmt);
         }
         _ => {
             panic!("unsupported assignment target");
@@ -210,6 +204,7 @@ pub(crate) fn rewrite_delete(_rewriter: &mut ExprRewriter, delete: ast::StmtDele
             ),
             _ => py_stmt!("del {target:expr}", target = target),
         })
+        .flatten()
         .collect()
 }
 

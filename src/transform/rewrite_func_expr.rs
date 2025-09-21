@@ -11,7 +11,7 @@ pub(crate) fn rewrite_lambda(lambda: ast::ExprLambda, ctx: &Context, buf: &mut V
         parameters, body, ..
     } = lambda;
 
-    let parameters = parameters
+    let updated_parameters = parameters
         .map(|params| *params)
         .unwrap_or_else(|| ast::Parameters {
             range: TextRange::default(),
@@ -23,23 +23,25 @@ pub(crate) fn rewrite_lambda(lambda: ast::ExprLambda, ctx: &Context, buf: &mut V
             kwarg: None,
         });
 
-    let func_def = py_stmt!(
-        "\ndef {func:id}():\n    return {body:expr}",
-        func = func_name.as_str(),
-        body = *body,
+    let mut func_def = py_stmt!(
+        r#"
+def {func_name:id}():
+    {body:stmt}
+"#,
+        func_name = func_name.as_str(),
+        body = body
     );
 
-    let func_def = match func_def {
-        Stmt::FunctionDef(mut function_def) => {
-            function_def.parameters = Box::new(parameters);
-            Stmt::FunctionDef(function_def)
-        }
-        other => other,
-    };
+    if let Stmt::FunctionDef(ast::StmtFunctionDef {
+        ref mut parameters, ..
+    }) = &mut func_def[0]
+    {
+        *parameters = Box::new(updated_parameters);
+    }
 
-    buf.push(func_def);
+    buf.extend(func_def);
 
-    py_expr!("\n{func:id}", func = func_name.as_str())
+    py_expr!("{func:id}", func = func_name.as_str())
 }
 
 pub(crate) fn rewrite_generator(
@@ -65,32 +67,41 @@ pub(crate) fn rewrite_generator(
         Name::new(ctx.fresh("iter"))
     };
 
-    let mut body = vec![py_stmt!("\nyield {value:expr}", value = *elt)];
+    let mut body = py_stmt!("yield {value:expr}", value = *elt);
 
     for comp in generators.iter().rev() {
         let mut inner = body;
         for if_expr in comp.ifs.iter().rev() {
-            inner = vec![py_stmt!(
-                "\nif {test:expr}:\n    {body:stmt}",
+            inner = py_stmt!(
+                r#"
+if {test:expr}:
+    {body:stmt}
+"#,
                 test = if_expr.clone(),
                 body = inner,
-            )];
+            )
         }
-        body = vec![if comp.is_async {
+        body = if comp.is_async {
             py_stmt!(
-                "\nasync for {target:expr} in {iter:expr}:\n    {body:stmt}",
+                r#"
+async for {target:expr} in {iter:expr}:
+    {body:stmt}
+"#,
                 target = comp.target.clone(),
                 iter = comp.iter.clone(),
                 body = inner,
             )
         } else {
             py_stmt!(
-                "\nfor {target:expr} in {iter:expr}:\n    {body:stmt}",
+                r#"
+for {target:expr} in {iter:expr}:
+    {body:stmt}
+"#,
                 target = comp.target.clone(),
                 iter = comp.iter.clone(),
                 body = inner,
             )
-        }];
+        };
     }
 
     if let Stmt::For(ast::StmtFor { iter, .. }) = body.first_mut().unwrap() {
@@ -98,16 +109,19 @@ pub(crate) fn rewrite_generator(
     }
 
     let func_def = py_stmt!(
-        "\ndef {func:id}({param:id}):\n    {body:stmt}",
+        r#"
+def {func:id}({param:id}):
+    {body:stmt}
+"#,
         func = func_name.as_str(),
         param = param_name.as_str(),
         body = body,
     );
 
-    buf.push(func_def);
+    buf.extend(func_def);
 
     py_expr!(
-        "\n{func:id}(__dp__.iter({iter:expr}))",
+        "{func:id}(__dp__.iter({iter:expr}))",
         iter = first_iter_expr,
         func = func_name.as_str(),
     )

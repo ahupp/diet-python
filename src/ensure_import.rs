@@ -23,5 +23,5 @@ pub fn ensure_import(module: &mut ast::ModModule) {
         }
         break;
     }
-    module.body.insert(insert_at, import);
+    module.body.splice(insert_at..insert_at, import);
 }

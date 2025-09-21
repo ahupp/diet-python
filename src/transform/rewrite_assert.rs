@@ -2,7 +2,7 @@ use ruff_python_ast::{self as ast, Stmt};
 
 use crate::py_stmt;
 
-pub fn rewrite(ast::StmtAssert { test, msg, .. }: ast::StmtAssert) -> Stmt {
+pub fn rewrite(ast::StmtAssert { test, msg, .. }: ast::StmtAssert) -> Vec<Stmt> {
     let test_expr = *test;
     if let Some(msg_expr) = msg {
         py_stmt!(
