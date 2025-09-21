@@ -1,7 +1,7 @@
-use super::context::Context;
+use super::{context::Context, expr::Rewrite};
 use crate::body_transform::Transformer;
 use crate::py_stmt;
-use ruff_python_ast::{self as ast, Stmt};
+use ruff_python_ast::{self as ast};
 
 pub fn rewrite(
     ast::StmtFor {
@@ -14,7 +14,7 @@ pub fn rewrite(
     }: ast::StmtFor,
     ctx: &Context,
     transformer: &mut impl Transformer,
-) -> Vec<Stmt> {
+) -> Rewrite {
     let iter_name = ctx.fresh("iter");
 
     let mut rewritten = if is_async {
@@ -61,7 +61,7 @@ while True:
 
     transformer.visit_body(&mut rewritten);
 
-    rewritten
+    Rewrite::Visit(rewritten)
 }
 
 #[cfg(test)]

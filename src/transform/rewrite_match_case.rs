@@ -1,4 +1,4 @@
-use super::context::Context;
+use super::{context::Context, expr::Rewrite};
 use ruff_python_ast::{self as ast, name::Name, Expr, Pattern, Stmt};
 use ruff_python_parser::parse_expression;
 use ruff_text_size::TextRange;
@@ -452,9 +452,9 @@ fn assigned_names(stmts: &[Stmt]) -> Vec<Name> {
     names
 }
 
-pub fn rewrite(ast::StmtMatch { subject, cases, .. }: ast::StmtMatch, ctx: &Context) -> Vec<Stmt> {
+pub fn rewrite(ast::StmtMatch { subject, cases, .. }: ast::StmtMatch, ctx: &Context) -> Rewrite {
     if cases.is_empty() {
-        return py_stmt!("pass");
+        return Rewrite::Visit(py_stmt!("pass"));
     }
 
     let subject_name = ctx.fresh("match");
@@ -558,13 +558,13 @@ else:
         }
     }
 
-    py_stmt!(
+    Rewrite::Visit(py_stmt!(
         "
 {assign:stmt}
 {chain:stmt}",
         assign = assign,
         chain = chain,
-    )
+    ))
 }
 
 #[cfg(test)]

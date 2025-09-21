@@ -1,4 +1,4 @@
-use super::context::Context;
+use super::{context::Context, expr::Rewrite};
 use ruff_python_ast::{self as ast, Stmt};
 
 use crate::{py_expr, py_stmt};
@@ -9,9 +9,9 @@ pub fn rewrite(
     name: &str,
     mut item: Vec<Stmt>,
     _ctx: &Context,
-) -> Vec<Stmt> {
+) -> Rewrite {
     if decorators.is_empty() {
-        return item;
+        return Rewrite::Walk(item);
     }
 
     let mut assignments: Vec<Stmt> = Vec::new();
@@ -44,7 +44,7 @@ pub fn rewrite(
         decorated = decorated
     ));
 
-    result
+    Rewrite::Visit(result)
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-use super::expr::ExprRewriter;
+use super::expr::{ExprRewriter, Rewrite};
 use crate::body_transform::Transformer;
 use crate::template::make_binop;
 use crate::{py_expr, py_stmt};
@@ -124,19 +124,23 @@ fn rewrite_unpack_target(
 pub(crate) fn rewrite_ann_assign(
     rewriter: &mut ExprRewriter,
     ann_assign: ast::StmtAnnAssign,
-) -> Vec<Stmt> {
+) -> Rewrite {
     let ast::StmtAnnAssign { target, value, .. } = ann_assign;
     let value = match value {
         Some(value) => value,
-        None => return vec![],
+        None => return Rewrite::Visit(vec![]),
     };
 
     let mut stmts = Vec::new();
     rewrite_target(rewriter, *target, *value, &mut stmts);
-    stmts
+    Rewrite::Visit(stmts)
 }
 
-pub(crate) fn rewrite_assign(rewriter: &mut ExprRewriter, assign: ast::StmtAssign) -> Vec<Stmt> {
+pub(crate) fn rewrite_assign(rewriter: &mut ExprRewriter, assign: ast::StmtAssign) -> Rewrite {
+    if !should_rewrite_targets(&assign.targets) {
+        return Rewrite::Walk(vec![Stmt::Assign(assign)]);
+    }
+
     let ast::StmtAssign { targets, value, .. } = assign;
     let mut stmts = Vec::new();
     let mut value = value.as_ref().clone();
@@ -155,19 +159,20 @@ pub(crate) fn rewrite_assign(rewriter: &mut ExprRewriter, assign: ast::StmtAssig
     };
 
     for target in targets.into_iter() {
-        let expr = shared_expr
-            .as_ref()
-            .map_or_else(|| single_value.take().expect("value already consumed"), Clone::clone);
+        let expr = shared_expr.as_ref().map_or_else(
+            || single_value.take().expect("value already consumed"),
+            Clone::clone,
+        );
         rewrite_target(rewriter, target, expr, &mut stmts);
     }
 
-    stmts
+    Rewrite::Visit(stmts)
 }
 
 pub(crate) fn rewrite_aug_assign(
     rewriter: &mut ExprRewriter,
     aug_assign: ast::StmtAugAssign,
-) -> Vec<Stmt> {
+) -> Rewrite {
     let ast::StmtAugAssign {
         mut target,
         op,
@@ -201,28 +206,34 @@ pub(crate) fn rewrite_aug_assign(
     let call = make_binop(func_name, *target.clone(), *value);
     let mut stmts = Vec::new();
     rewrite_target(rewriter, *target, call, &mut stmts);
-    stmts
+    Rewrite::Visit(stmts)
 }
 
-pub(crate) fn rewrite_delete(_rewriter: &mut ExprRewriter, delete: ast::StmtDelete) -> Vec<Stmt> {
-    delete
-        .targets
-        .into_iter()
-        .map(|target| match target {
-            Expr::Subscript(sub) => py_stmt!(
-                "__dp__.delitem({obj:expr}, {key:expr})",
-                obj = sub.value,
-                key = sub.slice
-            ),
-            Expr::Attribute(attr) => py_stmt!(
-                "__dp__.delattr({obj:expr}, {name:literal})",
-                obj = attr.value,
-                name = attr.attr.as_str(),
-            ),
-            _ => py_stmt!("del {target:expr}", target = target),
-        })
-        .flatten()
-        .collect()
+pub(crate) fn rewrite_delete(_rewriter: &mut ExprRewriter, delete: ast::StmtDelete) -> Rewrite {
+    if !should_rewrite_targets(&delete.targets) {
+        return Rewrite::Walk(vec![Stmt::Delete(delete)]);
+    }
+
+    Rewrite::Visit(
+        delete
+            .targets
+            .into_iter()
+            .map(|target| match target {
+                Expr::Subscript(sub) => py_stmt!(
+                    "__dp__.delitem({obj:expr}, {key:expr})",
+                    obj = sub.value,
+                    key = sub.slice
+                ),
+                Expr::Attribute(attr) => py_stmt!(
+                    "__dp__.delattr({obj:expr}, {name:literal})",
+                    obj = attr.value,
+                    name = attr.attr.as_str(),
+                ),
+                _ => py_stmt!("del {target:expr}", target = target),
+            })
+            .flatten()
+            .collect(),
+    )
 }
 
 #[cfg(test)]

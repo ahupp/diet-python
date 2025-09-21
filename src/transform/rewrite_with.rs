@@ -1,7 +1,7 @@
-use super::context::Context;
+use super::{context::Context, expr::Rewrite};
 use crate::body_transform::Transformer;
 use crate::{py_expr, py_stmt};
-use ruff_python_ast::{self as ast, Stmt};
+use ruff_python_ast::{self as ast};
 
 pub fn rewrite(
     ast::StmtWith {
@@ -12,9 +12,9 @@ pub fn rewrite(
     }: ast::StmtWith,
     ctx: &Context,
     transformer: &mut impl Transformer,
-) -> Vec<Stmt> {
+) -> Rewrite {
     if items.is_empty() {
-        return py_stmt!("pass");
+        return Rewrite::Visit(py_stmt!("pass"));
     }
 
     for ast::WithItem {
@@ -67,7 +67,7 @@ else:
     }
 
     transformer.visit_body(&mut body);
-    body
+    Rewrite::Visit(body)
 }
 
 #[cfg(test)]

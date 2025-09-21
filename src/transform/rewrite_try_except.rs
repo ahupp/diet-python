@@ -1,10 +1,12 @@
-use super::context::Context;
+use super::{context::Context, expr::Rewrite};
 use ruff_python_ast::{self as ast, Stmt};
 
 use crate::{py_expr, py_stmt};
 
-pub fn rewrite(stmt: ast::StmtTry, _ctx: &Context) -> Vec<Stmt> {
-    assert!(has_non_default_handler(&stmt));
+pub fn rewrite(stmt: ast::StmtTry, _ctx: &Context) -> Rewrite {
+    if !has_non_default_handler(&stmt) {
+        return Rewrite::Walk(vec![Stmt::Try(stmt)]);
+    }
 
     let base = if has_default_handler(&stmt) {
         py_stmt!("pass")
@@ -70,7 +72,7 @@ else:
         )
     });
 
-    py_stmt!(
+    Rewrite::Visit(py_stmt!(
         r#"
 try:
     {body:stmt}
@@ -85,7 +87,7 @@ finally:
         handler = handler_chain,
         orelse = orelse,
         finally = finalbody,
-    )
+    ))
 }
 
 pub(crate) fn has_non_default_handler(stmt: &ast::StmtTry) -> bool {

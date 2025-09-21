@@ -18,9 +18,17 @@ pub struct ExprRewriter<'a> {
     buf: Vec<Stmt>,
 }
 
-enum Rewrite {
+pub(crate) enum Rewrite {
     Walk(Vec<Stmt>),
     Visit(Vec<Stmt>),
+}
+
+impl Rewrite {
+    pub(crate) fn into_statements(self) -> Vec<Stmt> {
+        match self {
+            Rewrite::Walk(stmts) | Rewrite::Visit(stmts) => stmts,
+        }
+    }
 }
 
 impl<'a> ExprRewriter<'a> {
@@ -110,17 +118,17 @@ impl<'a> ExprRewriter<'a> {
 
     fn rewrite_stmt(&mut self, stmt: Stmt) -> Rewrite {
         match stmt {
-            Stmt::FunctionDef(mut func_def) if !func_def.decorator_list.is_empty() => {
+            Stmt::FunctionDef(mut func_def) => {
                 let decorators = take(&mut func_def.decorator_list);
                 let func_name = func_def.name.id.clone();
-                Rewrite::Visit(rewrite_decorator::rewrite(
+                rewrite_decorator::rewrite(
                     decorators,
                     func_name.as_str(),
                     vec![Stmt::FunctionDef(func_def)],
                     self.ctx,
-                ))
+                )
             }
-            Stmt::With(with) => Rewrite::Visit(rewrite_with::rewrite(with, self.ctx, self)),
+            Stmt::With(with) => rewrite_with::rewrite(with, self.ctx, self),
             Stmt::While(mut while_stmt) => {
                 let guard = self.expand_here(&mut while_stmt.test);
 
@@ -129,10 +137,7 @@ impl<'a> ExprRewriter<'a> {
                 }
 
                 let ast::StmtWhile {
-                    test,
-                    body,
-                    orelse,
-                    ..
+                    test, body, orelse, ..
                 } = while_stmt;
 
                 Rewrite::Visit(py_stmt!(
@@ -150,21 +155,13 @@ while True:
                     orelse = orelse,
                 ))
             }
-            Stmt::For(for_stmt) => {
-                Rewrite::Visit(rewrite_for_loop::rewrite(for_stmt, self.ctx, self))
-            }
-            Stmt::Assert(assert) => Rewrite::Visit(rewrite_assert::rewrite(assert)),
+            Stmt::For(for_stmt) => rewrite_for_loop::rewrite(for_stmt, self.ctx, self),
+            Stmt::Assert(assert) => rewrite_assert::rewrite(assert),
             Stmt::ClassDef(mut class_def) => {
                 let decorators = take(&mut class_def.decorator_list);
-                Rewrite::Visit(rewrite_class_def::rewrite(
-                    class_def.clone(),
-                    decorators,
-                    self.ctx,
-                ))
+                rewrite_class_def::rewrite(class_def.clone(), decorators, self.ctx)
             }
-            Stmt::Try(try_stmt) if rewrite_try_except::has_non_default_handler(&try_stmt) => {
-                Rewrite::Visit(rewrite_try_except::rewrite(try_stmt, self.ctx))
-            }
+            Stmt::Try(try_stmt) => rewrite_try_except::rewrite(try_stmt, self.ctx),
             Stmt::If(if_stmt)
                 if if_stmt
                     .elif_else_clauses
@@ -173,31 +170,16 @@ while True:
             {
                 Rewrite::Visit(vec![expand_if_chain(if_stmt).into()])
             }
-            Stmt::Match(match_stmt) => {
-                Rewrite::Visit(rewrite_match_case::rewrite(match_stmt, self.ctx))
-            }
-            Stmt::Import(import) => Rewrite::Visit(rewrite_import::rewrite(import)),
-            Stmt::ImportFrom(import_from)
-                if rewrite_import::should_rewrite_import_from(&import_from, &self.options) =>
-            {
-                Rewrite::Visit(rewrite_import::rewrite_from(
-                    import_from.clone(),
-                    &self.options,
-                ))
+            Stmt::Match(match_stmt) => rewrite_match_case::rewrite(match_stmt, self.ctx),
+            Stmt::Import(import) => rewrite_import::rewrite(import),
+            Stmt::ImportFrom(import_from) => {
+                rewrite_import::rewrite_from(import_from.clone(), &self.options)
             }
 
-            Stmt::AnnAssign(ann_assign) => {
-                Rewrite::Visit(rewrite_assign_del::rewrite_ann_assign(self, ann_assign))
-            }
-            Stmt::Assign(assign) if rewrite_assign_del::should_rewrite_targets(&assign.targets) => {
-                Rewrite::Visit(rewrite_assign_del::rewrite_assign(self, assign))
-            }
-            Stmt::AugAssign(aug) => {
-                Rewrite::Visit(rewrite_assign_del::rewrite_aug_assign(self, aug))
-            }
-            Stmt::Delete(del) if rewrite_assign_del::should_rewrite_targets(&del.targets) => {
-                Rewrite::Visit(rewrite_assign_del::rewrite_delete(self, del))
-            }
+            Stmt::AnnAssign(ann_assign) => rewrite_assign_del::rewrite_ann_assign(self, ann_assign),
+            Stmt::Assign(assign) => rewrite_assign_del::rewrite_assign(self, assign),
+            Stmt::AugAssign(aug) => rewrite_assign_del::rewrite_aug_assign(self, aug),
+            Stmt::Delete(del) => rewrite_assign_del::rewrite_delete(self, del),
             Stmt::Raise(mut raise) if raise.cause.is_some() => {
                 match (raise.exc.take(), raise.cause.take()) {
                     (Some(exc), Some(cause)) => Rewrite::Visit(py_stmt!(
