@@ -341,10 +341,16 @@ impl<'a> Transformer for ExprRewriter<'a> {
             }
             Expr::ListComp(ast::ExprListComp {
                 elt, generators, ..
-            }) => py_expr!("__dp__.list({expr:expr})", expr = make_generator(*elt, generators)),
+            }) => py_expr!(
+                "__dp__.list({expr:expr})",
+                expr = make_generator(*elt, generators)
+            ),
             Expr::SetComp(ast::ExprSetComp {
                 elt, generators, ..
-            }) => py_expr!("__dp__.set({expr:expr})", expr = make_generator(*elt, generators)),
+            }) => py_expr!(
+                "__dp__.set({expr:expr})",
+                expr = make_generator(*elt, generators)
+            ),
             Expr::DictComp(ast::ExprDictComp {
                 key,
                 value,
@@ -403,7 +409,10 @@ impl<'a> Transformer for ExprRewriter<'a> {
                         let tuple = make_tuple(vec![pair]);
                         segments.push(py_expr!("__dp__.dict({tuple:expr})", tuple = tuple));
                     } else {
-                        segments.push(py_expr!("__dp__.dict({mapping:expr})", mapping = item.value));
+                        segments.push(py_expr!(
+                            "__dp__.dict({mapping:expr})",
+                            mapping = item.value
+                        ));
                     }
                 }
 
