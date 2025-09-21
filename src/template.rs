@@ -3,7 +3,11 @@ macro_rules! py_expr {
     ($template:literal $(, $name:ident = $value:expr)* $(,)?) => {{
         use ruff_python_ast::{self as ast, Stmt};
         use crate::py_stmt;
-        let stmt = py_stmt!($template $(, $name = $value)*);
+        let stmts = py_stmt!($template $(, $name = $value)*);
+        if stmts.len() != 1 {
+            panic!("expected single statement");
+        }
+        let stmt = stmts.into_iter().next().unwrap();
         match stmt {
             Stmt::Expr(ast::StmtExpr { value, .. }) => *value,
             _ => panic!("expected expression statement"),
@@ -32,16 +36,10 @@ macro_rules! py_stmt {
                 $crate::template::SyntaxTemplate::parse($template)
             });
 
-        let template = &*TEMPLATE;
-        template.instantiate(
-            values
-                .into_iter()
-                .map(|(name, value)| (name.to_string(), value))
-                .collect(),
-            ids.into_iter()
-                .map(|(name, value)| (name.to_string(), value))
-                .collect(),
-        )
+        let template = (*TEMPLATE).clone();
+        let values = values.into_iter().map(|(name, value)| (name.to_string(), value)).collect();
+        let ids = ids.into_iter().map(|(name, value)| (name.to_string(), value)).collect();
+        template.instantiate(values, ids)
     }};
 }
 
@@ -103,23 +101,6 @@ pub(crate) fn make_generator(elt: Expr, generators: Vec<ast::Comprehension>) -> 
     })
 }
 
-pub(crate) fn single_stmt(mut stmts: Vec<Stmt>) -> Stmt {
-    if stmts.len() == 1 {
-        stmts.pop().unwrap()
-    } else {
-        Stmt::If(ast::StmtIf {
-            node_index: ast::AtomicNodeIndex::default(),
-            range: TextRange::default(),
-            test: Box::new(ast::Expr::BooleanLiteral(ast::ExprBooleanLiteral {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: TextRange::default(),
-                value: true,
-            })),
-            body: stmts,
-            elif_else_clauses: Vec::new(),
-        })
-    }
-}
 pub(crate) enum PlaceholderValue {
     Expr(Box<Expr>),
     Stmt(Vec<Stmt>),
@@ -217,8 +198,9 @@ pub(crate) enum PlaceholderType {
     Literal,
 }
 
+#[derive(Clone, Debug)]
 pub(crate) struct SyntaxTemplate {
-    stmt: Stmt,
+    stmts: Vec<Stmt>,
 }
 
 impl SyntaxTemplate {
@@ -246,20 +228,19 @@ impl SyntaxTemplate {
             }
         };
 
-        let stmt = single_stmt(module.body);
-        Self { stmt }
+        Self { stmts: module.body }
     }
 
     pub(crate) fn instantiate(
-        &self,
+        mut self,
         values: HashMap<String, PlaceholderValue>,
         ids: HashMap<String, Value>,
-    ) -> Stmt {
-        let mut stmt = self.stmt.clone();
+    ) -> Vec<Stmt> {
         let mut transformer = PlaceholderReplacer::new(values, ids);
-        transformer.visit_stmt(&mut stmt);
+        transformer.visit_body(&mut self.stmts);
         transformer.finish();
-        stmt
+        flatten(&mut self.stmts);
+        self.stmts
     }
 }
 
@@ -723,15 +704,15 @@ b = 2
         .unwrap()
         .into_syntax()
         .body;
-        let stmt = py_stmt!("{body:stmt}", body = body.clone());
+
         assert_ast_eq(
-            &[stmt],
-            &[py_stmt!(
+            py_stmt!("{body:stmt}", body = body.clone()),
+            py_stmt!(
                 "
 a = 1
 b = 2
 ",
-            )],
+            ),
         );
     }
 
@@ -741,26 +722,26 @@ b = 2
         let stmt = body.pop().unwrap();
         let actual = py_stmt!("{body:stmt}", body = Box::new(stmt.clone()));
         let expected = py_stmt!("{body:stmt}", body = vec![stmt]);
-        assert_ast_eq(&[actual], &[expected]);
+        assert_ast_eq(actual, expected);
     }
 
     #[test]
     fn wraps_expr_in_stmt() {
         let expr = *parse_expression("a + 1").unwrap().into_syntax().body;
-        let mut actual = vec![py_stmt!(
+        let mut actual = py_stmt!(
             "
 {expr:stmt}
 ",
             expr = expr,
-        )];
+        );
         crate::template::flatten(&mut actual);
         assert_ast_eq(
-            &actual,
-            &[py_stmt!(
+            actual,
+            py_stmt!(
                 "
 a + 1
 ",
-            )],
+            ),
         );
     }
 
@@ -776,7 +757,7 @@ def {func:id}({param:id}):
             param = "arg",
             body = body.clone(),
         );
-        match stmt {
+        match stmt.into_iter().next().unwrap() {
             ruff_python_ast::Stmt::FunctionDef(ast::StmtFunctionDef {
                 name,
                 parameters,
@@ -805,17 +786,17 @@ else:
     y
 ",
         );
-        let mut actual = vec![py_stmt!(
+        let mut actual = py_stmt!(
             "
 if a:
     z
 else:
     {inner:stmt}
 ",
-            inner = vec![inner],
-        )];
+            inner = inner,
+        );
         crate::template::flatten(&mut actual);
-        let mut expected = vec![py_stmt!(
+        let mut expected = py_stmt!(
             "
 if a:
     z
@@ -825,9 +806,9 @@ else:
     else:
         y
 ",
-        )];
+        );
         crate::template::flatten(&mut expected);
-        assert_ast_eq(&actual, &expected);
+        assert_ast_eq(actual, expected);
     }
 
     #[test]
@@ -835,6 +816,6 @@ else:
         let expr = *parse_expression("a + 1").unwrap().into_syntax().body;
         let actual = py_stmt!("return {expr:expr}", expr = Box::new(expr.clone()));
         let expected = py_stmt!("return {expr:expr}", expr = expr);
-        assert_ast_eq(&[actual], &[expected]);
+        assert_ast_eq(actual, expected);
     }
 }

@@ -179,7 +179,7 @@ pub(crate) fn run_transform_fixture_tests(fixture: &str) {
     }
 }
 
-pub(crate) fn assert_ast_eq(actual: &[Stmt], expected: &[Stmt]) {
+pub(crate) fn assert_ast_eq(actual: Vec<Stmt>, expected: Vec<Stmt>) {
     let actual_stmt: Vec<_> = actual.iter().map(ComparableStmt::from).collect();
     let expected_stmt: Vec<_> = expected.iter().map(ComparableStmt::from).collect();
     assert_eq!(actual_stmt, expected_stmt);

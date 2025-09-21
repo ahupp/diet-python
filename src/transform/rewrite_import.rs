@@ -15,26 +15,27 @@ pub fn should_rewrite_import_from(import_from: &ast::StmtImportFrom, options: &O
     }
 }
 
-pub fn rewrite(ast::StmtImport { names, .. }: ast::StmtImport) -> Stmt {
-    let mut stmts = Vec::new();
-    for alias in names {
-        let module_name = alias.name.id.to_string();
-        let binding = alias
-            .asname
-            .as_ref()
-            .map(|n| n.id.as_str())
-            .unwrap_or_else(|| module_name.split('.').next().unwrap());
-        let assign = py_stmt!(
-            "{name:id} = __dp__.import_({module:literal}, __spec__)",
-            name = binding,
-            module = module_name.as_str(),
-        );
-        stmts.push(assign);
-    }
-    py_stmt!("{body:stmt}", body = stmts)
+pub fn rewrite(ast::StmtImport { names, .. }: ast::StmtImport) -> Vec<Stmt> {
+    names
+        .into_iter()
+        .map(|alias| {
+            let module_name = alias.name.id.to_string();
+            let binding = alias
+                .asname
+                .as_ref()
+                .map(|n| n.id.as_str())
+                .unwrap_or_else(|| module_name.split('.').next().unwrap());
+            py_stmt!(
+                "{name:id} = __dp__.import_({module:literal}, __spec__)",
+                name = binding,
+                module = module_name.as_str(),
+            )
+        })
+        .flatten()
+        .collect()
 }
 
-pub fn rewrite_from(import_from: ast::StmtImportFrom, options: &Options) -> Stmt {
+pub fn rewrite_from(import_from: ast::StmtImportFrom, options: &Options) -> Vec<Stmt> {
     debug_assert!(should_rewrite_import_from(&import_from, options));
 
     let ast::StmtImportFrom {
@@ -50,36 +51,36 @@ pub fn rewrite_from(import_from: ast::StmtImportFrom, options: &Options) -> Stmt
                 unreachable!("rewrite_from is only called when import-star rewriting is required")
             }
             ImportStarHandling::Error => panic!("import star not allowed"),
-            ImportStarHandling::Strip => py_stmt!("{body:stmt}", body = Vec::new()),
+            ImportStarHandling::Strip => vec![],
         };
     }
     let module_name = module.as_ref().map(|n| n.id.as_str()).unwrap_or("");
-    let level_val = level;
-    let mut stmts = Vec::new();
-    for alias in names {
-        let orig = alias.name.id.as_str();
-        let binding = alias.asname.as_ref().map(|n| n.id.as_str()).unwrap_or(orig);
-        let assign = if level_val == 0 {
-            py_stmt!(
-                "{name:id} = __dp__.import_({module:literal}, __spec__, [{orig:literal}]).{attr:id}",
-                name = binding,
-                module = module_name,
-                orig = orig,
-                attr = orig,
-            )
-        } else {
-            py_stmt!(
-                "{name:id} = __dp__.import_({module:literal}, __spec__, [{orig:literal}], {level:id}).{attr:id}",
-                name = binding,
-                module = module_name,
-                orig = orig,
-                level = level_val.to_string(),
-                attr = orig,
-            )
-        };
-        stmts.push(assign);
-    }
-    py_stmt!("{body:stmt}", body = stmts)
+    names
+        .into_iter()
+        .map(|alias| {
+            let orig = alias.name.id.as_str();
+            let binding = alias.asname.as_ref().map(|n| n.id.as_str()).unwrap_or(orig);
+            if level > 0 {
+                py_stmt!(
+                    "{name:id} = __dp__.import_({module:literal}, __spec__, [{orig:literal}], {level:literal}).{attr:id}",
+                    name = binding,
+                    module = module_name,
+                    orig = orig,
+                    level = level,
+                    attr = orig,
+                )
+            } else {
+                py_stmt!(
+                    "{name:id} = __dp__.import_({module:literal}, __spec__, [{orig:literal}]).{attr:id}",
+                    name = binding,
+                    module = module_name,
+                    orig = orig,
+                    attr = orig,
+                )
+            }
+        })
+        .flatten()
+        .collect()
 }
 
 #[cfg(test)]

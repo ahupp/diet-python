@@ -76,6 +76,16 @@ impl<'a> ExprRewriter<'a> {
         output
     }
 
+    /// Expand the buffered statements for an expression directly in-place within a block,
+    /// instead of emitting them before the block executes.
+    fn expand_here(&mut self, expr: &mut Expr) -> Vec<Stmt> {
+        let saved = take(&mut self.buf);
+        self.visit_expr(expr);
+        let produced = take(&mut self.buf);
+        self.buf = saved;
+        produced
+    }
+
     pub(super) fn maybe_placeholder(&mut self, mut expr: Expr) -> Expr {
         fn is_temp_skippable(expr: &Expr) -> bool {
             is_simple(expr) && !matches!(expr, Expr::StringLiteral(_) | Expr::BytesLiteral(_))
@@ -93,12 +103,8 @@ impl<'a> ExprRewriter<'a> {
 
         let tmp = self.ctx.fresh("tmp");
         let placeholder_expr = py_expr!("{tmp:id}", tmp = tmp.as_str());
-        let assign = py_stmt!(
-            "\n{tmp:id} = {value:expr}",
-            tmp = tmp.as_str(),
-            value = expr,
-        );
-        self.buf.push(assign);
+        let assign = py_stmt!("{tmp:id} = {value:expr}", tmp = tmp.as_str(), value = expr);
+        self.buf.extend(assign);
         placeholder_expr
     }
 
@@ -107,39 +113,57 @@ impl<'a> ExprRewriter<'a> {
             Stmt::FunctionDef(mut func_def) if !func_def.decorator_list.is_empty() => {
                 let decorators = take(&mut func_def.decorator_list);
                 let func_name = func_def.name.id.clone();
-                Rewrite::Visit(vec![rewrite_decorator::rewrite(
+                Rewrite::Visit(rewrite_decorator::rewrite(
                     decorators,
                     func_name.as_str(),
-                    Stmt::FunctionDef(func_def),
-                    None,
+                    vec![Stmt::FunctionDef(func_def)],
                     self.ctx,
-                )])
+                ))
             }
-            Stmt::With(with) => Rewrite::Visit(vec![rewrite_with::rewrite(with, self.ctx, self)]),
-            Stmt::For(for_stmt) => {
-                Rewrite::Visit(vec![rewrite_for_loop::rewrite(for_stmt, self.ctx, self)])
-            }
-            Stmt::Assert(assert) => Rewrite::Visit(vec![rewrite_assert::rewrite(assert)]),
-            Stmt::ClassDef(class_def) => {
-                let decorated = !class_def.decorator_list.is_empty();
-                let base_stmt = rewrite_class_def::rewrite(class_def.clone(), decorated);
-                if decorated {
-                    let decorators = class_def.decorator_list.clone();
-                    let class_name = class_def.name.id.clone();
-                    let base_name = format!("_dp_class_{}", class_name);
-                    Rewrite::Visit(vec![rewrite_decorator::rewrite(
-                        decorators,
-                        class_name.as_str(),
-                        base_stmt,
-                        Some(base_name.as_str()),
-                        self.ctx,
-                    )])
-                } else {
-                    Rewrite::Visit(vec![base_stmt])
+            Stmt::With(with) => Rewrite::Visit(rewrite_with::rewrite(with, self.ctx, self)),
+            Stmt::While(mut while_stmt) => {
+                let guard = self.expand_here(&mut while_stmt.test);
+
+                if guard.is_empty() {
+                    return Rewrite::Walk(vec![Stmt::While(while_stmt)]);
                 }
+
+                let ast::StmtWhile {
+                    test,
+                    body,
+                    orelse,
+                    ..
+                } = while_stmt;
+
+                Rewrite::Visit(py_stmt!(
+                    r#"
+while True:
+    {guard:stmt}
+    if not {condition:expr}:
+        {orelse:stmt}
+        break
+    {body:stmt}
+"#,
+                    guard = guard,
+                    condition = *test,
+                    body = body,
+                    orelse = orelse,
+                ))
+            }
+            Stmt::For(for_stmt) => {
+                Rewrite::Visit(rewrite_for_loop::rewrite(for_stmt, self.ctx, self))
+            }
+            Stmt::Assert(assert) => Rewrite::Visit(rewrite_assert::rewrite(assert)),
+            Stmt::ClassDef(mut class_def) => {
+                let decorators = take(&mut class_def.decorator_list);
+                Rewrite::Visit(rewrite_class_def::rewrite(
+                    class_def.clone(),
+                    decorators,
+                    self.ctx,
+                ))
             }
             Stmt::Try(try_stmt) if rewrite_try_except::has_non_default_handler(&try_stmt) => {
-                Rewrite::Visit(vec![rewrite_try_except::rewrite(try_stmt, self.ctx)])
+                Rewrite::Visit(rewrite_try_except::rewrite(try_stmt, self.ctx))
             }
             Stmt::If(if_stmt)
                 if if_stmt
@@ -147,43 +171,40 @@ impl<'a> ExprRewriter<'a> {
                     .iter()
                     .any(|clause| clause.test.is_some()) =>
             {
-                Rewrite::Visit(vec![Stmt::If(expand_if_chain(if_stmt))])
+                Rewrite::Visit(vec![expand_if_chain(if_stmt).into()])
             }
             Stmt::Match(match_stmt) => {
-                Rewrite::Visit(vec![rewrite_match_case::rewrite(match_stmt, self.ctx)])
+                Rewrite::Visit(rewrite_match_case::rewrite(match_stmt, self.ctx))
             }
-            Stmt::Import(import) => Rewrite::Visit(vec![rewrite_import::rewrite(import)]),
+            Stmt::Import(import) => Rewrite::Visit(rewrite_import::rewrite(import)),
             Stmt::ImportFrom(import_from)
                 if rewrite_import::should_rewrite_import_from(&import_from, &self.options) =>
             {
-                let stmt = rewrite_import::rewrite_from(import_from.clone(), &self.options);
-                Rewrite::Visit(vec![stmt])
+                Rewrite::Visit(rewrite_import::rewrite_from(
+                    import_from.clone(),
+                    &self.options,
+                ))
             }
-            Stmt::ImportFrom(import_from) => Rewrite::Walk(vec![Stmt::ImportFrom(import_from)]),
+
             Stmt::AnnAssign(ann_assign) => {
-                match rewrite_assign_del::rewrite_ann_assign(self, &ann_assign) {
-                    Some(stmts) => Rewrite::Visit(stmts),
-                    None => Rewrite::Walk(Vec::new()),
-                }
+                Rewrite::Visit(rewrite_assign_del::rewrite_ann_assign(self, ann_assign))
             }
-            Stmt::Assign(assign) => match rewrite_assign_del::rewrite_assign(self, &assign) {
-                Some(stmts) => Rewrite::Visit(stmts),
-                None => Rewrite::Walk(vec![Stmt::Assign(assign)]),
-            },
+            Stmt::Assign(assign) if rewrite_assign_del::should_rewrite_targets(&assign.targets) => {
+                Rewrite::Visit(rewrite_assign_del::rewrite_assign(self, assign))
+            }
             Stmt::AugAssign(aug) => {
-                Rewrite::Visit(rewrite_assign_del::rewrite_aug_assign(self, &aug))
+                Rewrite::Visit(rewrite_assign_del::rewrite_aug_assign(self, aug))
             }
-            Stmt::Delete(del) => match rewrite_assign_del::rewrite_delete(self, &del) {
-                Some(stmts) => Rewrite::Visit(stmts),
-                None => Rewrite::Walk(vec![Stmt::Delete(del)]),
-            },
+            Stmt::Delete(del) if rewrite_assign_del::should_rewrite_targets(&del.targets) => {
+                Rewrite::Visit(rewrite_assign_del::rewrite_delete(self, del))
+            }
             Stmt::Raise(mut raise) if raise.cause.is_some() => {
                 match (raise.exc.take(), raise.cause.take()) {
-                    (Some(exc), Some(cause)) => Rewrite::Visit(vec![py_stmt!(
+                    (Some(exc), Some(cause)) => Rewrite::Visit(py_stmt!(
                         "raise __dp__.raise_from({exc:expr}, {cause:expr})",
-                        exc = *exc,
-                        cause = *cause,
-                    )]),
+                        exc = exc,
+                        cause = cause,
+                    )),
                     _ => panic!("raise with a cause but without an exception should be impossible"),
                 }
             }
@@ -192,13 +213,7 @@ impl<'a> ExprRewriter<'a> {
     }
 }
 
-fn make_tuple_splat(tuple: ast::ExprTuple) -> Expr {
-    if !tuple.elts.iter().any(|elt| matches!(elt, Expr::Starred(_))) {
-        return Expr::Tuple(tuple);
-    }
-
-    let ast::ExprTuple { elts, .. } = tuple;
-
+fn make_tuple_splat(elts: Vec<Expr>) -> Expr {
     let mut segments: Vec<Expr> = Vec::new();
     let mut values: Vec<Expr> = Vec::new();
 
@@ -218,17 +233,10 @@ fn make_tuple_splat(tuple: ast::ExprTuple) -> Expr {
         segments.push(make_tuple(values));
     }
 
-    let mut parts = segments.into_iter();
-    let mut expr = match parts.next() {
-        Some(expr) => expr,
-        None => return make_tuple(Vec::new()),
-    };
-
-    for part in parts {
-        expr = py_expr!("{left:expr} + {right:expr}", left = expr, right = part);
-    }
-
-    expr
+    segments
+        .into_iter()
+        .reduce(|left, right| py_expr!("{left:expr} + {right:expr}", left = left, right = right))
+        .unwrap_or_else(|| make_tuple(Vec::new()))
 }
 
 fn expand_if_chain(mut if_stmt: ast::StmtIf) -> ast::StmtIf {
@@ -247,10 +255,10 @@ fn expand_if_chain(mut if_stmt: ast::StmtIf) -> ast::StmtIf {
 
                 if let Some(body) = else_body.take() {
                     nested_if.elif_else_clauses.push(ast::ElifElseClause {
-                        range: TextRange::default(),
-                        node_index: ast::AtomicNodeIndex::default(),
                         test: None,
                         body,
+                        range: TextRange::default(),
+                        node_index: ast::AtomicNodeIndex::default(),
                     });
                 }
 
@@ -295,7 +303,7 @@ impl<'a> Transformer for ExprRewriter<'a> {
                     target = target,
                     value = value_expr.clone(),
                 );
-                self.buf.push(assign_target);
+                self.buf.extend(assign_target);
                 value_expr
             }
             Expr::If(if_expr) => {
@@ -304,13 +312,18 @@ impl<'a> Transformer for ExprRewriter<'a> {
                     test, body, orelse, ..
                 } = if_expr;
                 let assign = py_stmt!(
-                    "\nif {cond:expr}:\n    {tmp:id} = {body:expr}\nelse:\n    {tmp:id} = {orelse:expr}",
+                    r#"
+if {cond:expr}:
+    {tmp:id} = {body:expr}
+else:
+    {tmp:id} = {orelse:expr}
+"#,
                     cond = *test,
                     tmp = tmp.as_str(),
                     body = *body,
                     orelse = *orelse,
                 );
-                self.buf.push(assign);
+                self.buf.extend(assign);
                 py_expr!("{tmp:id}", tmp = tmp.as_str())
             }
             Expr::BoolOp(bool_op) => {
@@ -386,12 +399,6 @@ impl<'a> Transformer for ExprRewriter<'a> {
                     attr = attr.id.as_str(),
                 )
             }
-            Expr::Tuple(tuple)
-                if matches!(tuple.ctx, ast::ExprContext::Load)
-                    && tuple.elts.iter().any(|elt| matches!(elt, Expr::Starred(_))) =>
-            {
-                make_tuple_splat(tuple)
-            }
             Expr::ListComp(ast::ExprListComp {
                 elt, generators, ..
             }) => py_expr!(
@@ -416,14 +423,16 @@ impl<'a> Transformer for ExprRewriter<'a> {
                     expr = make_generator(tuple, generators)
                 )
             }
+
+            // tuple/list/dict unpacking
+            Expr::Tuple(tuple)
+                if matches!(tuple.ctx, ast::ExprContext::Load)
+                    && tuple.elts.iter().any(|elt| matches!(elt, Expr::Starred(_))) =>
+            {
+                make_tuple_splat(tuple.elts)
+            }
             Expr::List(list) if matches!(list.ctx, ast::ExprContext::Load) => {
-                let tuple = make_tuple_splat(ast::ExprTuple {
-                    node_index: ast::AtomicNodeIndex::default(),
-                    range: TextRange::default(),
-                    elts: list.elts,
-                    ctx: ast::ExprContext::Load,
-                    parenthesized: false,
-                });
+                let tuple = make_tuple_splat(list.elts);
                 py_expr!("__dp__.list({tuple:expr})", tuple = tuple,)
             }
             Expr::Set(ast::ExprSet { elts, .. }) => {
@@ -431,59 +440,46 @@ impl<'a> Transformer for ExprRewriter<'a> {
                 py_expr!("__dp__.set({tuple:expr})", tuple = tuple,)
             }
             Expr::Dict(ast::ExprDict { items, .. }) => {
-                let mut iter = items.into_iter().peekable();
                 let mut segments: Vec<Expr> = Vec::new();
 
-                loop {
-                    let mut keyed_pairs = Vec::new();
-                    while matches!(iter.peek(), Some(ast::DictItem { key: Some(_), .. })) {
-                        let item = iter.next().expect("peeked item should exist");
-                        let key = item.key.expect("peek guaranteed key");
-                        let value = item.value;
-                        keyed_pairs.push(py_expr!(
-                            "({key:expr}, {value:expr})",
-                            key = key,
-                            value = value,
-                        ));
+                let mut keyed_pairs = Vec::new();
+                for item in items.into_iter() {
+                    match item {
+                        ast::DictItem {
+                            key: Some(key),
+                            value,
+                        } => {
+                            keyed_pairs.push(py_expr!(
+                                "({key:expr}, {value:expr})",
+                                key = key,
+                                value = value,
+                            ));
+                        }
+                        ast::DictItem { key: None, value } => {
+                            if !keyed_pairs.is_empty() {
+                                let tuple = make_tuple(take(&mut keyed_pairs));
+                                segments.push(py_expr!("__dp__.dict({tuple:expr})", tuple = tuple));
+                            }
+                            segments.push(py_expr!("__dp__.dict({mapping:expr})", mapping = value));
+                        }
                     }
+                }
 
-                    if !keyed_pairs.is_empty() {
-                        let tuple = make_tuple(keyed_pairs);
-                        segments.push(py_expr!("__dp__.dict({tuple:expr})", tuple = tuple));
-                    }
-
-                    let Some(item) = iter.next() else {
-                        break;
-                    };
-
-                    if let Some(key) = item.key {
-                        let pair =
-                            py_expr!("({key:expr}, {value:expr})", key = key, value = item.value,);
-                        let tuple = make_tuple(vec![pair]);
-                        segments.push(py_expr!("__dp__.dict({tuple:expr})", tuple = tuple));
-                    } else {
-                        segments.push(py_expr!(
-                            "__dp__.dict({mapping:expr})",
-                            mapping = item.value
-                        ));
-                    }
+                if !keyed_pairs.is_empty() {
+                    let tuple = make_tuple(take(&mut keyed_pairs));
+                    segments.push(py_expr!("__dp__.dict({tuple:expr})", tuple = tuple));
                 }
 
                 match segments.len() {
                     0 => {
-                        let tuple = make_tuple(Vec::new());
-                        py_expr!("__dp__.dict({tuple:expr})", tuple = tuple)
+                        py_expr!("__dp__.dict()")
                     }
-                    1 => segments.into_iter().next().unwrap(),
-                    _ => {
-                        let mut parts = segments.into_iter();
-                        let mut expr = parts.next().expect("segments is non-empty");
-                        for part in parts {
-                            expr =
-                                py_expr!("{left:expr} | {right:expr}", left = expr, right = part,);
-                        }
-                        expr
-                    }
+                    _ => segments
+                        .into_iter()
+                        .reduce(|left, right| {
+                            py_expr!("{left:expr} | {right:expr}", left = left, right = right)
+                        })
+                        .expect("segments is non-empty"),
                 }
             }
             Expr::BinOp(ast::ExprBinOp {
@@ -517,11 +513,7 @@ impl<'a> Transformer for ExprRewriter<'a> {
             }
             Expr::Subscript(ast::ExprSubscript {
                 value, slice, ctx, ..
-            }) if matches!(ctx, ast::ExprContext::Load) => {
-                let obj = *value;
-                let key = *slice;
-                make_binop("getitem", obj, key)
-            }
+            }) if matches!(ctx, ast::ExprContext::Load) => make_binop("getitem", *value, *slice),
             _ => {
                 walk_expr(self, expr);
                 return;
@@ -534,9 +526,8 @@ impl<'a> Transformer for ExprRewriter<'a> {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         let rewritten = self.process_statements(vec![stmt.clone()]);
         *stmt = match rewritten.len() {
-            0 => py_stmt!("{body:stmt}", body = Vec::new()),
-            1 => rewritten.into_iter().next().unwrap(),
-            _ => py_stmt!("{body:stmt}", body = rewritten),
+            0 => py_stmt!("pass")[0].clone(),
+            _ => rewritten[0].clone(),
         };
     }
 }

@@ -1,14 +1,6 @@
 from __future__ import annotations
 
-import importlib
-import sys
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
-
-import diet_import_hook
-
+from ._integration import transformed_module
 
 MODULE_SOURCE = """
 _ = lambda text: f"translated:{text}"
@@ -27,20 +19,21 @@ def call_translate():
 """
 
 
-def test_bare_except_does_not_shadow_module_globals(tmp_path):
-    module_name = "translation_module"
-    module_path = tmp_path / f"{module_name}.py"
-    module_path.write_text(MODULE_SOURCE, encoding="utf-8")
-
-    module_dir = str(module_path.parent)
-    sys.path.insert(0, module_dir)
-    diet_import_hook.install()
-
+MODULE_WITH_PASS = """
+def read_flag():
     try:
-        sys.modules.pop(module_name, None)
-        module = importlib.import_module(module_name)
+        raise OSError
+    except OSError:
+        pass
+    return "handled"
+"""
+
+
+def test_bare_except_does_not_shadow_module_globals(tmp_path):
+    with transformed_module(tmp_path, "translation_module", MODULE_SOURCE) as module:
         assert module.call_translate() == "translated:after except"
-    finally:
-        sys.modules.pop(module_name, None)
-        if module_dir in sys.path:
-            sys.path.remove(module_dir)
+
+
+def test_except_block_preserves_body_statements(tmp_path):
+    with transformed_module(tmp_path, "pass_in_except", MODULE_WITH_PASS) as module:
+        assert module.read_flag() == "handled"
