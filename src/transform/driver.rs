@@ -40,6 +40,10 @@ impl<'a> ExprRewriter<'a> {
         }
     }
 
+    pub(super) fn context(&self) -> &Context {
+        self.ctx
+    }
+
     fn process_statements(&mut self, initial: Vec<Stmt>) -> Vec<Stmt> {
         enum WorkItem {
             Process(Stmt),
@@ -116,6 +120,14 @@ impl<'a> ExprRewriter<'a> {
         placeholder_expr
     }
 
+    pub(super) fn maybe_placeholder_within(&mut self, expr: Expr) -> (Vec<Stmt>, Expr) {
+        let saved = take(&mut self.buf);
+        let expr = self.maybe_placeholder(expr);
+        let stmts = take(&mut self.buf);
+        self.buf = saved;
+        (stmts, expr)
+    }
+
     fn rewrite_stmt(&mut self, stmt: Stmt) -> Rewrite {
         match stmt {
             Stmt::FunctionDef(mut func_def) => {
@@ -134,7 +146,7 @@ impl<'a> ExprRewriter<'a> {
             Stmt::Assert(assert) => rewrite_assert::rewrite(assert),
             Stmt::ClassDef(mut class_def) => {
                 let decorators = take(&mut class_def.decorator_list);
-                rewrite_class_def::rewrite(class_def.clone(), decorators, self.ctx)
+                rewrite_class_def::rewrite(class_def.clone(), decorators, self)
             }
             Stmt::Try(try_stmt) => rewrite_exception::rewrite_try(try_stmt, self.ctx),
             Stmt::If(if_stmt)
