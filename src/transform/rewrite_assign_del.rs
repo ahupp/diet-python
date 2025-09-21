@@ -23,34 +23,31 @@ pub(crate) fn rewrite_target(
         }
         Expr::Attribute(attr) => {
             let obj = (*attr.value).clone();
-            let mut stmt = py_stmt!(
+            let stmt = py_stmt!(
                 "\n__dp__.setattr({obj:expr}, {name:literal}, {value:expr})",
                 obj = obj,
                 name = attr.attr.as_str(),
                 value = value,
             );
-            walk_stmt(rewriter, &mut stmt);
             out.push(stmt);
         }
         Expr::Subscript(sub) => {
             let obj = (*sub.value).clone();
             let key = (*sub.slice).clone();
-            let mut stmt = py_stmt!(
+            let stmt = py_stmt!(
                 "\n__dp__.setitem({obj:expr}, {key:expr}, {value:expr})",
                 obj = obj,
                 key = key,
                 value = value,
             );
-            walk_stmt(rewriter, &mut stmt);
             out.push(stmt);
         }
         Expr::Name(_) => {
-            let mut stmt = py_stmt!(
-                "\n{target:expr} = {value:expr}",
+            let stmt = py_stmt!(
+                "{target:expr} = {value:expr}",
                 target = target,
                 value = value,
             );
-            walk_stmt(rewriter, &mut stmt);
             out.push(stmt);
         }
         _ => {
@@ -90,21 +87,19 @@ fn rewrite_unpack_target(
     for (i, elt) in elts.into_iter().enumerate() {
         match elt {
             Expr::Starred(ast::ExprStarred { value, .. }) => {
-                let slice_expr = if suffix_len == 0 {
-                    py_expr!(
-                        "__dp__.getitem({tmp:expr}, slice({start:literal}, None, None))",
-                        tmp = tmp_expr.clone(),
-                        start = prefix_len,
-                    )
+                let stop_expr = if suffix_len == 0 {
+                    py_expr!("None")
                 } else {
                     let stop = -(suffix_len as isize);
-                    py_expr!(
-                        "__dp__.getitem({tmp:expr}, slice({start:literal}, {stop:literal}, None))",
-                        tmp = tmp_expr.clone(),
-                        start = prefix_len,
-                        stop = stop,
-                    )
+                    py_expr!("{stop:literal}", stop = stop)
                 };
+
+                let slice_expr = py_expr!(
+                    "__dp__.getitem({tmp:expr}, slice({start:literal}, {stop:expr}, None))",
+                    tmp = tmp_expr.clone(),
+                    start = prefix_len,
+                    stop = stop_expr,
+                );
                 let collection_expr = match kind {
                     UnpackTargetKind::Tuple => {
                         py_expr!("__dp__.tuple({slice:expr})", slice = slice_expr)
@@ -116,21 +111,15 @@ fn rewrite_unpack_target(
                 rewrite_target(rewriter, *value, collection_expr, out);
             }
             _ => {
-                let value = match starred_index {
-                    Some(star_idx) if i > star_idx => {
-                        let idx = (i as isize) - (elts_len as isize);
-                        py_expr!(
-                            "__dp__.getitem({tmp:expr}, {idx:literal})",
-                            tmp = tmp_expr.clone(),
-                            idx = idx,
-                        )
-                    }
-                    _ => py_expr!(
-                        "__dp__.getitem({tmp:expr}, {idx:literal})",
-                        tmp = tmp_expr.clone(),
-                        idx = i,
-                    ),
+                let idx = match starred_index {
+                    Some(star_idx) if i > star_idx => (i as isize) - (elts_len as isize),
+                    _ => i as isize,
                 };
+                let value = py_expr!(
+                    "__dp__.getitem({tmp:expr}, {idx:literal})",
+                    tmp = tmp_expr.clone(),
+                    idx = idx,
+                );
                 rewrite_target(rewriter, elt, value, out);
             }
         }
@@ -139,50 +128,43 @@ fn rewrite_unpack_target(
 
 pub(crate) fn rewrite_ann_assign(
     rewriter: &mut ExprRewriter,
-    ann_assign: &ast::StmtAnnAssign,
-) -> Option<Vec<Stmt>> {
-    let value = ann_assign.value.as_ref()?;
+    ann_assign: ast::StmtAnnAssign,
+) -> Vec<Stmt> {
+    let ast::StmtAnnAssign { target, value, .. } = ann_assign;
+    let value = match value {
+        Some(value) => value,
+        None => return vec![],
+    };
+
     let mut stmts = Vec::new();
-    rewrite_target(
-        rewriter,
-        ann_assign.target.as_ref().clone(),
-        value.as_ref().clone(),
-        &mut stmts,
-    );
-    Some(stmts)
+    rewrite_target(rewriter, *target, *value, &mut stmts);
+    stmts
 }
 
-pub(crate) fn rewrite_assign(
-    rewriter: &mut ExprRewriter,
-    assign: &ast::StmtAssign,
-) -> Option<Vec<Stmt>> {
-    if !should_rewrite_targets(&assign.targets) {
-        return None;
-    }
-
+pub(crate) fn rewrite_assign(rewriter: &mut ExprRewriter, assign: ast::StmtAssign) -> Vec<Stmt> {
     let mut stmts = Vec::new();
     let value = assign.value.as_ref().clone();
 
-    if assign.targets.len() > 1 {
-        let tmp_expr = rewriter.maybe_placeholder(value.clone());
-        for target in &assign.targets {
-            rewrite_target(rewriter, target.clone(), tmp_expr.clone(), &mut stmts);
-        }
-    } else if let Some(target) = assign.targets.first() {
-        rewrite_target(rewriter, target.clone(), value, &mut stmts);
+    let tmp_expr = rewriter.maybe_placeholder(value.clone());
+    for target in assign.targets.into_iter() {
+        rewrite_target(rewriter, target, tmp_expr.clone(), &mut stmts);
     }
 
-    Some(stmts)
+    stmts
 }
 
 pub(crate) fn rewrite_aug_assign(
     rewriter: &mut ExprRewriter,
-    aug_assign: &ast::StmtAugAssign,
+    aug_assign: ast::StmtAugAssign,
 ) -> Vec<Stmt> {
-    let target = aug_assign.target.as_ref().clone();
-    let value = aug_assign.value.as_ref().clone();
+    let ast::StmtAugAssign {
+        mut target,
+        op,
+        value,
+        ..
+    } = aug_assign;
 
-    let func_name = match aug_assign.op {
+    let func_name = match op {
         Operator::Add => "iadd",
         Operator::Sub => "isub",
         Operator::Mult => "imul",
@@ -198,48 +180,37 @@ pub(crate) fn rewrite_aug_assign(
         Operator::FloorDiv => "ifloordiv",
     };
 
-    let mut target_expr = target.clone();
-    match &mut target_expr {
+    match &mut *target {
         Expr::Name(name) => name.ctx = ast::ExprContext::Load,
         Expr::Attribute(attr) => attr.ctx = ast::ExprContext::Load,
         Expr::Subscript(sub) => sub.ctx = ast::ExprContext::Load,
         _ => {}
     }
 
-    let call = make_binop(func_name, target_expr, value);
+    let call = make_binop(func_name, *target.clone(), *value);
     let mut stmts = Vec::new();
-    rewrite_target(rewriter, target, call, &mut stmts);
+    rewrite_target(rewriter, *target, call, &mut stmts);
     stmts
 }
 
-pub(crate) fn rewrite_delete(
-    _rewriter: &mut ExprRewriter,
-    delete: &ast::StmtDelete,
-) -> Option<Vec<Stmt>> {
-    if !should_rewrite_targets(&delete.targets) {
-        return None;
-    }
-
-    let mut stmts = Vec::with_capacity(delete.targets.len());
-    for target in &delete.targets {
-        let new_stmt = match target {
+pub(crate) fn rewrite_delete(_rewriter: &mut ExprRewriter, delete: ast::StmtDelete) -> Vec<Stmt> {
+    delete
+        .targets
+        .into_iter()
+        .map(|target| match target {
             Expr::Subscript(sub) => py_stmt!(
                 "__dp__.delitem({obj:expr}, {key:expr})",
-                obj = (*sub.value).clone(),
-                key = (*sub.slice).clone(),
+                obj = sub.value,
+                key = sub.slice
             ),
             Expr::Attribute(attr) => py_stmt!(
                 "__dp__.delattr({obj:expr}, {name:literal})",
-                obj = (*attr.value).clone(),
+                obj = attr.value,
                 name = attr.attr.as_str(),
             ),
-            _ => py_stmt!("del {target:expr}", target = target.clone()),
-        };
-
-        stmts.push(new_stmt);
-    }
-
-    Some(stmts)
+            _ => py_stmt!("del {target:expr}", target = target),
+        })
+        .collect()
 }
 
 #[cfg(test)]

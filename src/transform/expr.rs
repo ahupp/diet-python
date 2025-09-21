@@ -93,11 +93,7 @@ impl<'a> ExprRewriter<'a> {
 
         let tmp = self.ctx.fresh("tmp");
         let placeholder_expr = py_expr!("{tmp:id}", tmp = tmp.as_str());
-        let assign = py_stmt!(
-            "\n{tmp:id} = {value:expr}",
-            tmp = tmp.as_str(),
-            value = expr,
-        );
+        let assign = py_stmt!("{tmp:id} = {value:expr}", tmp = tmp.as_str(), value = expr);
         self.buf.push(assign);
         placeholder_expr
     }
@@ -152,37 +148,34 @@ impl<'a> ExprRewriter<'a> {
             Stmt::Match(match_stmt) => {
                 Rewrite::Visit(vec![rewrite_match_case::rewrite(match_stmt, self.ctx)])
             }
-            Stmt::Import(import) => Rewrite::Visit(vec![rewrite_import::rewrite(import)]),
+            Stmt::Import(import) => Rewrite::Visit(rewrite_import::rewrite(import)),
             Stmt::ImportFrom(import_from)
                 if rewrite_import::should_rewrite_import_from(&import_from, &self.options) =>
             {
-                let stmt = rewrite_import::rewrite_from(import_from.clone(), &self.options);
-                Rewrite::Visit(vec![stmt])
+                Rewrite::Visit(rewrite_import::rewrite_from(
+                    import_from.clone(),
+                    &self.options,
+                ))
             }
-            Stmt::ImportFrom(import_from) => Rewrite::Walk(vec![Stmt::ImportFrom(import_from)]),
+
             Stmt::AnnAssign(ann_assign) => {
-                match rewrite_assign_del::rewrite_ann_assign(self, &ann_assign) {
-                    Some(stmts) => Rewrite::Visit(stmts),
-                    None => Rewrite::Walk(Vec::new()),
-                }
+                Rewrite::Visit(rewrite_assign_del::rewrite_ann_assign(self, ann_assign))
             }
-            Stmt::Assign(assign) => match rewrite_assign_del::rewrite_assign(self, &assign) {
-                Some(stmts) => Rewrite::Visit(stmts),
-                None => Rewrite::Walk(vec![Stmt::Assign(assign)]),
-            },
+            Stmt::Assign(assign) if rewrite_assign_del::should_rewrite_targets(&assign.targets) => {
+                Rewrite::Visit(rewrite_assign_del::rewrite_assign(self, assign))
+            }
             Stmt::AugAssign(aug) => {
-                Rewrite::Visit(rewrite_assign_del::rewrite_aug_assign(self, &aug))
+                Rewrite::Visit(rewrite_assign_del::rewrite_aug_assign(self, aug))
             }
-            Stmt::Delete(del) => match rewrite_assign_del::rewrite_delete(self, &del) {
-                Some(stmts) => Rewrite::Visit(stmts),
-                None => Rewrite::Walk(vec![Stmt::Delete(del)]),
-            },
+            Stmt::Delete(del) if rewrite_assign_del::should_rewrite_targets(&del.targets) => {
+                Rewrite::Visit(rewrite_assign_del::rewrite_delete(self, del))
+            }
             Stmt::Raise(mut raise) if raise.cause.is_some() => {
                 match (raise.exc.take(), raise.cause.take()) {
                     (Some(exc), Some(cause)) => Rewrite::Visit(vec![py_stmt!(
                         "raise __dp__.raise_from({exc:expr}, {cause:expr})",
-                        exc = *exc,
-                        cause = *cause,
+                        exc = exc,
+                        cause = cause,
                     )]),
                     _ => panic!("raise with a cause but without an exception should be impossible"),
                 }
@@ -192,12 +185,10 @@ impl<'a> ExprRewriter<'a> {
     }
 }
 
-fn make_tuple_splat(tuple: ast::ExprTuple) -> Expr {
-    if !tuple.elts.iter().any(|elt| matches!(elt, Expr::Starred(_))) {
-        return Expr::Tuple(tuple);
+fn make_tuple_splat(elts: Vec<Expr>) -> Expr {
+    if !elts.iter().any(|elt| matches!(elt, Expr::Starred(_))) {
+        return make_tuple(elts);
     }
-
-    let ast::ExprTuple { elts, .. } = tuple;
 
     let mut segments: Vec<Expr> = Vec::new();
     let mut values: Vec<Expr> = Vec::new();
@@ -218,17 +209,10 @@ fn make_tuple_splat(tuple: ast::ExprTuple) -> Expr {
         segments.push(make_tuple(values));
     }
 
-    let mut parts = segments.into_iter();
-    let mut expr = match parts.next() {
-        Some(expr) => expr,
-        None => return make_tuple(Vec::new()),
-    };
-
-    for part in parts {
-        expr = py_expr!("{left:expr} + {right:expr}", left = expr, right = part);
-    }
-
-    expr
+    segments
+        .into_iter()
+        .reduce(|left, right| py_expr!("{left:expr} + {right:expr}", left = left, right = right))
+        .unwrap_or_else(|| make_tuple(Vec::new()))
 }
 
 fn expand_if_chain(mut if_stmt: ast::StmtIf) -> ast::StmtIf {
@@ -247,10 +231,10 @@ fn expand_if_chain(mut if_stmt: ast::StmtIf) -> ast::StmtIf {
 
                 if let Some(body) = else_body.take() {
                     nested_if.elif_else_clauses.push(ast::ElifElseClause {
-                        range: TextRange::default(),
-                        node_index: ast::AtomicNodeIndex::default(),
                         test: None,
                         body,
+                        range: TextRange::default(),
+                        node_index: ast::AtomicNodeIndex::default(),
                     });
                 }
 
@@ -471,18 +455,13 @@ impl<'a> Transformer for ExprRewriter<'a> {
 
                 match segments.len() {
                     0 => {
-                        let tuple = make_tuple(Vec::new());
-                        py_expr!("__dp__.dict({tuple:expr})", tuple = tuple)
+                        py_expr!("__dp__.dict()")
                     }
-                    1 => segments.into_iter().next().unwrap(),
                     _ => {
-                        let mut parts = segments.into_iter();
-                        let mut expr = parts.next().expect("segments is non-empty");
-                        for part in parts {
-                            expr =
-                                py_expr!("{left:expr} | {right:expr}", left = expr, right = part,);
-                        }
-                        expr
+                        let expr = segments.into_iter().reduce(|left, right| {
+                            py_expr!("{left:expr} | {right:expr}", left = left, right = right)
+                        });
+                        expr.expect("segments is non-empty")
                     }
                 }
             }
