@@ -1,7 +1,6 @@
 use crate::body_transform::{walk_expr, walk_stmt, Transformer};
 use crate::template::make_tuple;
-use crate::transform::context::Context;
-use crate::transform::driver::Rewrite;
+use crate::transform::driver::{ExprRewriter, Rewrite};
 use crate::transform::rewrite_decorator;
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
@@ -197,6 +196,29 @@ fn rewrite_method(func_def: &mut ast::StmtFunctionDef, class_name: &str) {
     }
 }
 
+fn extend_body_prepared(ns_body: &mut Vec<Stmt>, name: &str, value: Expr) {
+    let assign_stmt = py_stmt!(
+        r#"
+{name:id} = {value:expr}
+_dp_temp_ns[{name:literal}] = _dp_prepare_ns[{name:literal}] = {name:id}
+"#,
+        name = name,
+        value = value,
+    );
+    ns_body.extend(assign_stmt);
+}
+
+fn extend_body_with_value(
+    rewriter: &mut ExprRewriter,
+    ns_body: &mut Vec<Stmt>,
+    name: &str,
+    value: Expr,
+) {
+    let (stmts, value_expr) = rewriter.maybe_placeholder_within(value);
+    ns_body.extend(stmts);
+    extend_body_prepared(ns_body, name, value_expr);
+}
+
 pub fn rewrite(
     ast::StmtClassDef {
         name,
@@ -205,7 +227,7 @@ pub fn rewrite(
         ..
     }: ast::StmtClassDef,
     decorators: Vec<ast::Decorator>,
-    ctx: &Context,
+    rewriter: &mut ExprRewriter,
 ) -> Rewrite {
     let class_name = name.id.as_str().to_string();
 
@@ -216,35 +238,29 @@ pub fn rewrite(
     // TODO: correctly calculate the qualname of the class when nested
     let mut ns_body = Vec::new();
 
-    let extend_body = |ns_body: &mut Vec<Stmt>, name: &str, value: Expr| {
-        let assign_stmt = py_stmt!(
-            r#"
-{name:id} = {value:expr}
-_dp_temp_ns[{name:literal}] = _dp_prepare_ns[{name:literal}] = {name:id}
-"#,
-            name = name,
-            value = value,
-        );
-        ns_body.extend(assign_stmt);
-    };
-
     let mut original_body = body;
     if let Some(Stmt::Expr(ast::StmtExpr { value, .. })) = original_body.first() {
         if let Expr::StringLiteral(_) = value.as_ref() {
-            extend_body(&mut ns_body, "__doc__", *value.clone());
+            extend_body_prepared(&mut ns_body, "__doc__", *value.clone());
             original_body.remove(0);
         }
     }
     for stmt in original_body {
         match stmt {
             Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
-                if targets.len() != 1 {
-                    panic!("expected single target for assignment");
-                }
-
-                if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
-                    let name = id.as_str().to_string();
-                    extend_body(&mut ns_body, name.as_str(), *value);
+                if targets.len() == 1 {
+                    if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
+                        let name = id.as_str().to_string();
+                        extend_body_with_value(rewriter, &mut ns_body, name.as_str(), *value);
+                    }
+                } else {
+                    let (mut stmts, shared_value) = rewriter.maybe_placeholder_within(*value);
+                    ns_body.append(&mut stmts);
+                    for target in targets {
+                        if let Expr::Name(ast::ExprName { id, .. }) = target {
+                            extend_body_prepared(&mut ns_body, id.as_str(), shared_value.clone());
+                        }
+                    }
                 }
             }
             Stmt::AnnAssign(ast::StmtAnnAssign {
@@ -254,7 +270,7 @@ _dp_temp_ns[{name:literal}] = _dp_prepare_ns[{name:literal}] = {name:id}
             }) => {
                 if let Expr::Name(ast::ExprName { id, .. }) = target.as_ref() {
                     let name = id.as_str().to_string();
-                    extend_body(&mut ns_body, name.as_str(), *v);
+                    extend_body_with_value(rewriter, &mut ns_body, name.as_str(), *v);
                 }
             }
             Stmt::FunctionDef(mut func_def) => {
@@ -280,9 +296,13 @@ def _dp_mk_{fn_name:id}():
                     fn_name = fn_name.as_str(),
                 ));
 
-                let method_stmts =
-                    rewrite_decorator::rewrite(decorators, fn_name.as_str(), method_stmts, ctx)
-                        .into_statements();
+                let method_stmts = rewrite_decorator::rewrite(
+                    decorators,
+                    fn_name.as_str(),
+                    method_stmts,
+                    rewriter.context(),
+                )
+                .into_statements();
 
                 ns_body.extend(method_stmts);
                 ns_body.extend(py_stmt!(
@@ -380,7 +400,13 @@ _dp_class_{class_name:id} = _dp_make_class_{class_name:id}()
     ));
 
     Rewrite::Visit(
-        rewrite_decorator::rewrite(decorators, class_name.as_str(), ns_fn, ctx).into_statements(),
+        rewrite_decorator::rewrite(
+            decorators,
+            class_name.as_str(),
+            ns_fn,
+            rewriter.context(),
+        )
+        .into_statements(),
     )
 }
 
