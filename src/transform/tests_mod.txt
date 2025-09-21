@@ -34,7 +34,7 @@ class Foo:
         return 1
 =
 def _dp_ns_Foo(_ns):
-    _dp_temp_ns = __dp__.dict(())
+    _dp_temp_ns = __dp__.dict()
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
     __dp__.setitem(_ns, "__module__", __name__)
     _dp_tmp_1 = "Foo"
@@ -66,6 +66,5 @@ def _dp_make_class_Foo():
     if _dp_tmp_3:
         __dp__.setitem(ns, "__orig_bases__", orig_bases)
     return meta("Foo", bases, ns, **kwds)
-_dp_tmp_6 = _dp_make_class_Foo()
-Foo = _dp_tmp_6
-_dp_class_Foo = _dp_tmp_6
+_dp_class_Foo = _dp_make_class_Foo()
+Foo = _dp_class_Foo

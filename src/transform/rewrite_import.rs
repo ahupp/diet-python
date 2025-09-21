@@ -55,20 +55,32 @@ pub fn rewrite_from(import_from: ast::StmtImportFrom, options: &Options) -> Vec<
         };
     }
     let module_name = module.as_ref().map(|n| n.id.as_str()).unwrap_or("");
-    let level_val = level.to_string();
-    names.into_iter().map(|alias| {
-        let orig = alias.name.id.as_str();
-        let binding = alias.asname.as_ref().map(|n| n.id.as_str()).unwrap_or(orig);
-        py_stmt!(
-                "{name:id} = __dp__.import_({module:literal}, __spec__, [{orig:literal}], {level:id}).{attr:id}",
-                name = binding,
-                module = module_name,
-                orig = orig,
-                level = level_val.as_str(),
-                attr = orig,
-            )
-
-    }).flatten().collect()
+    names
+        .into_iter()
+        .map(|alias| {
+            let orig = alias.name.id.as_str();
+            let binding = alias.asname.as_ref().map(|n| n.id.as_str()).unwrap_or(orig);
+            if level > 0 {
+                py_stmt!(
+                    "{name:id} = __dp__.import_({module:literal}, __spec__, [{orig:literal}], {level:literal}).{attr:id}",
+                    name = binding,
+                    module = module_name,
+                    orig = orig,
+                    level = level,
+                    attr = orig,
+                )
+            } else {
+                py_stmt!(
+                    "{name:id} = __dp__.import_({module:literal}, __spec__, [{orig:literal}]).{attr:id}",
+                    name = binding,
+                    module = module_name,
+                    orig = orig,
+                    attr = orig,
+                )
+            }
+        })
+        .flatten()
+        .collect()
 }
 
 #[cfg(test)]
