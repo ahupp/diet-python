@@ -51,13 +51,21 @@ def _dp_ns_Foo(_ns):
     __dp__.setitem(_dp_temp_ns, "method", method)
     __dp__.setitem(_ns, "method", method)
 def _dp_make_class_Foo():
-    bases = __dp__.resolve_bases(())
+    orig_bases = ()
+    bases = __dp__.resolve_bases(orig_bases)
     _dp_tmp_2 = __dp__.prepare_class("Foo", bases, None)
     meta = __dp__.getitem(_dp_tmp_2, 0)
     ns = __dp__.getitem(_dp_tmp_2, 1)
     kwds = __dp__.getitem(_dp_tmp_2, 2)
     _dp_ns_Foo(ns)
+    _dp_tmp_4 = __dp__.is_not(orig_bases, bases)
+    _dp_tmp_3 = _dp_tmp_4
+    if _dp_tmp_3:
+        _dp_tmp_5 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
+        _dp_tmp_3 = _dp_tmp_5
+    if _dp_tmp_3:
+        __dp__.setitem(ns, "__orig_bases__", orig_bases)
     return meta("Foo", bases, ns, **kwds)
-_dp_tmp_3 = _dp_make_class_Foo()
-Foo = _dp_tmp_3
-_dp_class_Foo = _dp_tmp_3
+_dp_tmp_6 = _dp_make_class_Foo()
+Foo = _dp_tmp_6
+_dp_class_Foo = _dp_tmp_6

@@ -73,16 +73,24 @@ def _dp_ns_A(_ns):
     __dp__.setitem(_dp_temp_ns, "d", d)
     __dp__.setitem(_ns, "d", d)
 def _dp_make_class_A():
-    bases = __dp__.resolve_bases(())
+    orig_bases = ()
+    bases = __dp__.resolve_bases(orig_bases)
     _dp_tmp_5 = __dp__.prepare_class("A", bases, None)
     meta = __dp__.getitem(_dp_tmp_5, 0)
     ns = __dp__.getitem(_dp_tmp_5, 1)
     kwds = __dp__.getitem(_dp_tmp_5, 2)
     _dp_ns_A(ns)
+    _dp_tmp_7 = __dp__.is_not(orig_bases, bases)
+    _dp_tmp_6 = _dp_tmp_7
+    if _dp_tmp_6:
+        _dp_tmp_8 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
+        _dp_tmp_6 = _dp_tmp_8
+    if _dp_tmp_6:
+        __dp__.setitem(ns, "__orig_bases__", orig_bases)
     return meta("A", bases, ns, **kwds)
-_dp_tmp_6 = _dp_make_class_A()
-A = _dp_tmp_6
-_dp_class_A = _dp_tmp_6
+_dp_tmp_9 = _dp_make_class_A()
+A = _dp_tmp_9
+_dp_class_A = _dp_tmp_9
 def ff():
     a = A()
     __dp__.setattr(a, "b", 5)
@@ -92,42 +100,42 @@ c = ff()
 __dp__.delattr(c.a, "b")
 __dp__.delitem(c.a.arr, 0)
 del c
-def _dp_gen_7(_dp_iter_8):
-    _dp_iter_9 = __dp__.iter(_dp_iter_8)
+def _dp_gen_10(_dp_iter_11):
+    _dp_iter_12 = __dp__.iter(_dp_iter_11)
     while True:
         try:
-            i = __dp__.next(_dp_iter_9)
+            i = __dp__.next(_dp_iter_12)
         except:
             __dp__.check_stopiteration()
             break
         else:
-            _dp_tmp_10 = __dp__.eq(__dp__.mod(i, 2), 0)
-            if _dp_tmp_10:
+            _dp_tmp_13 = __dp__.eq(__dp__.mod(i, 2), 0)
+            if _dp_tmp_13:
                 yield __dp__.add(i, 1)
-x = __dp__.list(_dp_gen_7(__dp__.iter(range(5))))
-def _dp_gen_11(_dp_iter_12):
-    _dp_iter_13 = __dp__.iter(_dp_iter_12)
+x = __dp__.list(_dp_gen_10(__dp__.iter(range(5))))
+def _dp_gen_14(_dp_iter_15):
+    _dp_iter_16 = __dp__.iter(_dp_iter_15)
     while True:
         try:
-            i = __dp__.next(_dp_iter_13)
+            i = __dp__.next(_dp_iter_16)
         except:
             __dp__.check_stopiteration()
             break
         else:
-            _dp_tmp_14 = __dp__.eq(__dp__.mod(i, 2), 0)
-            if _dp_tmp_14:
+            _dp_tmp_17 = __dp__.eq(__dp__.mod(i, 2), 0)
+            if _dp_tmp_17:
                 yield __dp__.add(i, 1)
-y = __dp__.set(_dp_gen_11(__dp__.iter(range(5))))
-def _dp_gen_15(_dp_iter_16):
-    _dp_iter_17 = __dp__.iter(_dp_iter_16)
+y = __dp__.set(_dp_gen_14(__dp__.iter(range(5))))
+def _dp_gen_18(_dp_iter_19):
+    _dp_iter_20 = __dp__.iter(_dp_iter_19)
     while True:
         try:
-            i = __dp__.next(_dp_iter_17)
+            i = __dp__.next(_dp_iter_20)
         except:
             __dp__.check_stopiteration()
             break
         else:
-            _dp_tmp_18 = __dp__.eq(__dp__.mod(i, 2), 0)
-            if _dp_tmp_18:
+            _dp_tmp_21 = __dp__.eq(__dp__.mod(i, 2), 0)
+            if _dp_tmp_21:
                 yield __dp__.add(i, 1)
-z = _dp_gen_15(__dp__.iter(range(5)))
+z = _dp_gen_18(__dp__.iter(range(5)))
