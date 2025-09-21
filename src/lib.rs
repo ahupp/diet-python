@@ -91,6 +91,7 @@ fn apply_transforms(module: &mut ModModule, options: Options) {
     }
 
     strip_type_aliases(&mut module.body);
+    strip_generated_passes(&mut module.body);
 }
 
 /// Transform the source code and return the resulting string.
@@ -198,6 +199,22 @@ fn strip_type_aliases(stmts: &mut Vec<Stmt>) {
         Stmt::TypeAlias(_) => false,
         _ => true,
     });
+}
+
+fn strip_generated_passes(stmts: &mut Vec<Stmt>) {
+    struct StripGeneratedPasses;
+
+    impl Transformer for StripGeneratedPasses {
+        fn visit_body(&mut self, body: &mut Vec<Stmt>) {
+            crate::body_transform::walk_body(self, body);
+            if body.len() > 1 {
+                body.retain(|stmt| !matches!(stmt, Stmt::Pass(_)));
+            }
+        }
+    }
+
+    let mut stripper = StripGeneratedPasses;
+    stripper.visit_body(stmts);
 }
 
 pub fn transform_to_string_without_attribute_lowering(

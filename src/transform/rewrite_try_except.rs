@@ -31,14 +31,22 @@ pub fn rewrite(stmt: ast::StmtTry, _ctx: &Context) -> Stmt {
             ..
         }) = handler;
 
-        let condition = if let Some(typ) = type_ {
-            py_expr!(
-                "__dp__.isinstance(__dp__.current_exception(), {typ:expr})",
-                typ = typ
-            )
-        } else {
-            py_expr!("True")
-        };
+        if type_.is_none() {
+            debug_assert!(name.is_none());
+            return py_stmt!(
+                r#"
+{body:stmt}
+{next:stmt}
+"#,
+                body = body,
+                next = acc,
+            );
+        }
+
+        let condition = py_expr!(
+            "__dp__.isinstance(__dp__.current_exception(), {typ:expr})",
+            typ = type_.unwrap()
+        );
 
         let exc_target = if let Some(ast::Identifier { id, .. }) = &name {
             py_stmt!(
@@ -46,7 +54,7 @@ pub fn rewrite(stmt: ast::StmtTry, _ctx: &Context) -> Stmt {
                 target = id.as_str(),
             )
         } else {
-            py_stmt!("_ = __dp__.current_exception()")
+            py_stmt!("pass")
         };
 
         py_stmt!(
@@ -105,6 +113,7 @@ fn has_default_handler(stmt: &ast::StmtTry) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_util::assert_transform_eq;
     use crate::transform::Options;
     use crate::transform_str_to_ruff_with_options;
     use ruff_python_ast::{self as ast, Stmt};
@@ -159,6 +168,29 @@ except:
 "#,
         );
         assert!(!has_non_default_handler(&try_stmt));
+    }
+
+    #[test]
+    fn rewrites_default_handler_without_temp() {
+        assert_transform_eq(
+            r#"
+try:
+    f()
+except E:
+    h()
+except:
+    g()
+"#,
+            r#"
+try:
+    f()
+except:
+    if __dp__.isinstance(__dp__.current_exception(), E):
+        h()
+    else:
+        g()
+"#,
+        );
     }
 
     #[test]
