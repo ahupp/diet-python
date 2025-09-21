@@ -7,35 +7,44 @@ use crate::{py_expr, py_stmt};
 pub fn rewrite(
     decorators: Vec<ast::Decorator>,
     name: &str,
-    item: Vec<Stmt>,
+    mut item: Vec<Stmt>,
     _ctx: &Context,
 ) -> Vec<Stmt> {
     if decorators.is_empty() {
         return item;
     }
 
-    let decorator_expr =
-        decorators
-            .into_iter()
-            .rev()
-            .fold(py_expr!("_dp_the_func"), |acc, decorator| {
-                py_expr!(
-                    "{decorator:expr}({acc:expr})",
-                    decorator = decorator.expression,
-                    acc = acc
-                )
-            });
+    let mut assignments: Vec<Stmt> = Vec::new();
+    let mut decorator_names: Vec<String> = Vec::new();
 
-    py_stmt!(
-        r#"
-def _dp_decorator_{name:id}(_dp_the_func):
-    return {decorator_expr:expr}
-{item:stmt}
-{name:id} = _dp_decorator_{name:id}({name:id})"#,
-        decorator_expr = decorator_expr,
-        item = item,
+    for (index, decorator) in decorators.into_iter().enumerate() {
+        let temp_name = format!("_dp_decorator_{name}_{index}");
+        assignments.extend(py_stmt!(
+            "{temp_name:id} = {decorator:expr}",
+            temp_name = temp_name.as_str(),
+            decorator = decorator.expression
+        ));
+        decorator_names.push(temp_name);
+    }
+
+    let mut decorated = py_expr!("{name:id}", name = name);
+    for decorator_name in decorator_names.iter().rev() {
+        decorated = py_expr!(
+            "{decorator:id}({decorated:expr})",
+            decorator = decorator_name.as_str(),
+            decorated = decorated
+        );
+    }
+
+    let mut result = assignments;
+    result.append(&mut item);
+    result.extend(py_stmt!(
+        "{name:id} = {decorated:expr}",
         name = name,
-    )
+        decorated = decorated
+    ));
+
+    result
 }
 
 #[cfg(test)]
