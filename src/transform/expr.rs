@@ -1,9 +1,9 @@
 use super::{
     context::Context,
-    rewrite_assert, rewrite_assign_del, rewrite_class_def, rewrite_decorator,
+    rewrite_assert, rewrite_assign_del, rewrite_class_def, rewrite_decorator, rewrite_exception,
     rewrite_expr_to_stmt::{expr_boolop_to_stmts, expr_compare_to_stmts, expr_yield_from_to_stmt},
-    rewrite_for_loop, rewrite_func_expr, rewrite_import, rewrite_match_case, rewrite_string,
-    rewrite_try_except, rewrite_with, Options,
+    rewrite_func_expr, rewrite_import, rewrite_loop, rewrite_match_case, rewrite_string,
+    rewrite_with, Options,
 };
 use crate::body_transform::{walk_expr, walk_stmt, Transformer};
 use crate::template::{is_simple, make_binop, make_generator, make_tuple, make_unaryop};
@@ -86,7 +86,7 @@ impl<'a> ExprRewriter<'a> {
 
     /// Expand the buffered statements for an expression directly in-place within a block,
     /// instead of emitting them before the block executes.
-    fn expand_here(&mut self, expr: &mut Expr) -> Vec<Stmt> {
+    pub(super) fn expand_here(&mut self, expr: &mut Expr) -> Vec<Stmt> {
         let saved = take(&mut self.buf);
         self.visit_expr(expr);
         let produced = take(&mut self.buf);
@@ -129,39 +129,14 @@ impl<'a> ExprRewriter<'a> {
                 )
             }
             Stmt::With(with) => rewrite_with::rewrite(with, self.ctx, self),
-            Stmt::While(mut while_stmt) => {
-                let guard = self.expand_here(&mut while_stmt.test);
-
-                if guard.is_empty() {
-                    return Rewrite::Walk(vec![Stmt::While(while_stmt)]);
-                }
-
-                let ast::StmtWhile {
-                    test, body, orelse, ..
-                } = while_stmt;
-
-                Rewrite::Visit(py_stmt!(
-                    r#"
-while True:
-    {guard:stmt}
-    if not {condition:expr}:
-        {orelse:stmt}
-        break
-    {body:stmt}
-"#,
-                    guard = guard,
-                    condition = *test,
-                    body = body,
-                    orelse = orelse,
-                ))
-            }
-            Stmt::For(for_stmt) => rewrite_for_loop::rewrite(for_stmt, self.ctx, self),
+            Stmt::While(while_stmt) => rewrite_loop::rewrite_while(while_stmt, self),
+            Stmt::For(for_stmt) => rewrite_loop::rewrite_for(for_stmt, self.ctx, self),
             Stmt::Assert(assert) => rewrite_assert::rewrite(assert),
             Stmt::ClassDef(mut class_def) => {
                 let decorators = take(&mut class_def.decorator_list);
                 rewrite_class_def::rewrite(class_def.clone(), decorators, self.ctx)
             }
-            Stmt::Try(try_stmt) => rewrite_try_except::rewrite(try_stmt, self.ctx),
+            Stmt::Try(try_stmt) => rewrite_exception::rewrite_try(try_stmt, self.ctx),
             Stmt::If(if_stmt)
                 if if_stmt
                     .elif_else_clauses
@@ -180,16 +155,7 @@ while True:
             Stmt::Assign(assign) => rewrite_assign_del::rewrite_assign(self, assign),
             Stmt::AugAssign(aug) => rewrite_assign_del::rewrite_aug_assign(self, aug),
             Stmt::Delete(del) => rewrite_assign_del::rewrite_delete(self, del),
-            Stmt::Raise(mut raise) if raise.cause.is_some() => {
-                match (raise.exc.take(), raise.cause.take()) {
-                    (Some(exc), Some(cause)) => Rewrite::Visit(py_stmt!(
-                        "raise __dp__.raise_from({exc:expr}, {cause:expr})",
-                        exc = exc,
-                        cause = cause,
-                    )),
-                    _ => panic!("raise with a cause but without an exception should be impossible"),
-                }
-            }
+            Stmt::Raise(raise) => rewrite_exception::rewrite_raise(raise),
             other => Rewrite::Walk(vec![other]),
         }
     }

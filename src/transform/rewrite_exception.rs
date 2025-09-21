@@ -3,7 +3,7 @@ use ruff_python_ast::{self as ast, Stmt};
 
 use crate::{py_expr, py_stmt};
 
-pub fn rewrite(stmt: ast::StmtTry, _ctx: &Context) -> Rewrite {
+pub fn rewrite_try(stmt: ast::StmtTry, _ctx: &Context) -> Rewrite {
     if !has_non_default_handler(&stmt) {
         return Rewrite::Walk(vec![Stmt::Try(stmt)]);
     }
@@ -88,6 +88,23 @@ finally:
         orelse = orelse,
         finally = finalbody,
     ))
+}
+
+pub fn rewrite_raise(mut raise: ast::StmtRaise) -> Rewrite {
+    match (raise.exc.take(), raise.cause.take()) {
+        (Some(exc), Some(cause)) => Rewrite::Visit(py_stmt!(
+            "raise __dp__.raise_from({exc:expr}, {cause:expr})",
+            exc = exc,
+            cause = cause,
+        )),
+        (exc, None) => {
+            raise.exc = exc;
+            Rewrite::Walk(vec![Stmt::Raise(raise)])
+        }
+        (None, Some(_)) => {
+            panic!("raise with a cause but without an exception should be impossible")
+        }
+    }
 }
 
 pub(crate) fn has_non_default_handler(stmt: &ast::StmtTry) -> bool {
