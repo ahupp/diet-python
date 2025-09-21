@@ -1,9 +1,12 @@
-use super::{context::Context, expr::Rewrite};
+use super::{
+    context::Context,
+    expr::{ExprRewriter, Rewrite},
+};
 use crate::body_transform::Transformer;
 use crate::py_stmt;
-use ruff_python_ast::{self as ast};
+use ruff_python_ast::{self as ast, Stmt};
 
-pub fn rewrite(
+pub fn rewrite_for(
     ast::StmtFor {
         target,
         iter,
@@ -64,7 +67,35 @@ while True:
     Rewrite::Visit(rewritten)
 }
 
+pub fn rewrite_while(mut while_stmt: ast::StmtWhile, rewriter: &mut ExprRewriter) -> Rewrite {
+    let guard = rewriter.expand_here(while_stmt.test.as_mut());
+
+    if guard.is_empty() {
+        // Unclear if / when this ever happens
+        return Rewrite::Walk(vec![Stmt::While(while_stmt)]);
+    }
+
+    let ast::StmtWhile {
+        test, body, orelse, ..
+    } = while_stmt;
+
+    Rewrite::Visit(py_stmt!(
+        r#"
+while True:
+    {guard:stmt}
+    if not {condition:expr}:
+        {orelse:stmt}
+        break
+    {body:stmt}
+"#,
+        guard = guard,
+        condition = *test,
+        body = body,
+        orelse = orelse,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
-    crate::transform_fixture_test!("tests_rewrite_for_loop.txt");
+    crate::transform_fixture_test!("tests_rewrite_loop.txt");
 }
