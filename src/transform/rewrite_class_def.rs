@@ -1,7 +1,7 @@
 use crate::body_transform::{walk_expr, walk_stmt, Transformer};
 use crate::template::make_tuple;
 use crate::transform::context::Context;
-use crate::transform::expr::Rewrite;
+use crate::transform::driver::Rewrite;
 use crate::transform::rewrite_decorator;
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};

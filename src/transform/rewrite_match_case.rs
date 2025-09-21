@@ -1,4 +1,4 @@
-use super::{context::Context, expr::Rewrite};
+use super::{context::Context, driver::Rewrite};
 use ruff_python_ast::{self as ast, name::Name, Expr, Pattern, Stmt};
 use ruff_python_parser::parse_expression;
 use ruff_text_size::TextRange;
