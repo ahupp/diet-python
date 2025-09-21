@@ -1,3 +1,7 @@
+[workspace]
+members = ["py_stmt_match_macro"]
+resolver = "2"
+
 [package]
 name = "diet-python"
 version = "0.1.0"
