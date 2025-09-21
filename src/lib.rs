@@ -209,6 +209,10 @@ fn strip_generated_passes(stmts: &mut Vec<Stmt>) {
             crate::body_transform::walk_body(self, body);
             if body.len() > 1 {
                 body.retain(|stmt| !matches!(stmt, Stmt::Pass(_)));
+
+                if body.is_empty() {
+                    body.extend(crate::py_stmt!("pass"));
+                }
             }
         }
     }

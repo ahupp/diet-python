@@ -5,6 +5,8 @@ from types import ModuleType
 
 import diet_import_hook
 
+from ._integration import transformed_module
+
 
 def test_generic_orig_bases_preserved(run_integration_module):
     module_name = "generic_module"

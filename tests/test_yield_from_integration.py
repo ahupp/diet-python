@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 
-
 def test_yield_from_delegation(run_integration_module):
     with run_integration_module("yield_from_module") as module:
         assert "__dp__" in module.delegator.__code__.co_names

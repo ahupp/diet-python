@@ -76,6 +76,16 @@ impl<'a> ExprRewriter<'a> {
         output
     }
 
+    /// Expand the buffered statements for an expression directly in-place within a block,
+    /// instead of emitting them before the block executes.
+    fn expand_here(&mut self, expr: &mut Expr) -> Vec<Stmt> {
+        let saved = take(&mut self.buf);
+        self.visit_expr(expr);
+        let produced = take(&mut self.buf);
+        self.buf = saved;
+        produced
+    }
+
     pub(super) fn maybe_placeholder(&mut self, mut expr: Expr) -> Expr {
         fn is_temp_skippable(expr: &Expr) -> bool {
             is_simple(expr) && !matches!(expr, Expr::StringLiteral(_) | Expr::BytesLiteral(_))
@@ -111,6 +121,35 @@ impl<'a> ExprRewriter<'a> {
                 ))
             }
             Stmt::With(with) => Rewrite::Visit(rewrite_with::rewrite(with, self.ctx, self)),
+            Stmt::While(mut while_stmt) => {
+                let guard = self.expand_here(&mut while_stmt.test);
+
+                if guard.is_empty() {
+                    return Rewrite::Walk(vec![Stmt::While(while_stmt)]);
+                }
+
+                let ast::StmtWhile {
+                    test,
+                    body,
+                    orelse,
+                    ..
+                } = while_stmt;
+
+                Rewrite::Visit(py_stmt!(
+                    r#"
+while True:
+    {guard:stmt}
+    if not {condition:expr}:
+        {orelse:stmt}
+        break
+    {body:stmt}
+"#,
+                    guard = guard,
+                    condition = *test,
+                    body = body,
+                    orelse = orelse,
+                ))
+            }
             Stmt::For(for_stmt) => {
                 Rewrite::Visit(rewrite_for_loop::rewrite(for_stmt, self.ctx, self))
             }
