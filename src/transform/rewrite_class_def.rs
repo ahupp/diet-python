@@ -219,7 +219,7 @@ pub fn rewrite(
         let assign_stmt = py_stmt!(
             r#"
 {name:id} = {value:expr}
-_dp_temp_ns[{name:literal}] = _ns[{name:literal}] = {name:id}
+_dp_temp_ns[{name:literal}] = _dp_prepare_ns[{name:literal}] = {name:id}
 "#,
             name = name,
             value = value,
@@ -266,7 +266,7 @@ _dp_temp_ns[{name:literal}] = _ns[{name:literal}] = {name:id}
                     r#"
 def _dp_mk_{fn_name:id}():
     {fn_def:stmt}
-    {fn_name:id}.__qualname__ = _ns["__qualname__"] + {suffix:literal}
+    {fn_name:id}.__qualname__ = _dp_prepare_ns["__qualname__"] + {suffix:literal}
     return {fn_name:id}
 "#,
                     fn_def = Stmt::FunctionDef(func_def),
@@ -289,7 +289,7 @@ def _dp_mk_{fn_name:id}():
                 ns_body.extend(method_stmts);
                 ns_body.extend(py_stmt!(
                     r#"
-_dp_temp_ns[{fn_name:literal}] = _ns[{fn_name:literal}] = {fn_name:id}
+_dp_temp_ns[{fn_name:literal}] = _dp_prepare_ns[{fn_name:literal}] = {fn_name:id}
 "#,
                     fn_name = fn_name.as_str(),
                 ));
@@ -333,10 +333,10 @@ _dp_temp_ns[{fn_name:literal}] = _ns[{fn_name:literal}] = {fn_name:id}
 
     let mut ns_fn = py_stmt!(
         r#"
-def _dp_ns_{class_name:id}(_ns):
+def _dp_ns_{class_name:id}(_dp_prepare_ns):
     _dp_temp_ns = {}
-    _dp_temp_ns["__module__"] = _ns["__module__"] = __name__
-    _dp_temp_ns["__qualname__"] = _ns["__qualname__"] = {class_name:literal}
+    _dp_temp_ns["__module__"] = _dp_prepare_ns["__module__"] = __name__
+    _dp_temp_ns["__qualname__"] = _dp_prepare_ns["__qualname__"] = {class_name:literal}
 
     {ns_body:stmt}
 "#,
