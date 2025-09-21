@@ -3,10 +3,8 @@ use ruff_python_ast::{self as ast, Stmt};
 
 use crate::{py_expr, py_stmt};
 
-pub fn rewrite(stmt: ast::StmtTry, _ctx: &Context) -> Stmt {
-    if !has_non_default_handler(&stmt) {
-        return Stmt::Try(stmt);
-    }
+pub fn rewrite(stmt: ast::StmtTry, _ctx: &Context) -> Vec<Stmt> {
+    assert!(has_non_default_handler(&stmt));
 
     let base = if has_default_handler(&stmt) {
         py_stmt!("pass")

@@ -87,7 +87,7 @@ else:
                         next = chain,
                     );
                 }
-                assigns.push(chain);
+                assigns.extend(chain);
             }
 
             let test = fold_exprs(tests, ast::BoolOp::Or);
@@ -172,7 +172,7 @@ else:
                             );
                             let list_expr =
                                 py_expr!("__dp__.list({value:expr})", value = slice_expr);
-                            assigns.push(py_stmt!(
+                            assigns.extend(py_stmt!(
                                 "{name:id} = {value:expr}",
                                 name = name.as_str(),
                                 value = list_expr
@@ -286,13 +286,13 @@ else:
             }
 
             if let Some(name) = rest {
-                assigns.push(py_stmt!(
+                assigns.extend(py_stmt!(
                     "{name:id} = __dp__.dict({subject:expr})",
                     name = name.as_str(),
                     subject = subject.clone()
                 ));
                 for key in keys.iter() {
-                    assigns.push(py_stmt!(
+                    assigns.extend(py_stmt!(
                         "{name:id}.pop({key:expr}, None)",
                         name = name.as_str(),
                         key = key.clone()
@@ -325,7 +325,7 @@ else:
             let mut assigns = Vec::new();
             if let Some(name) = name {
                 let list_expr = py_expr!("__dp__.list({subject:expr})", subject = subject.clone());
-                assigns.push(py_stmt!(
+                assigns.extend(py_stmt!(
                     "{name:id} = {value:expr}",
                     name = name.as_str(),
                     value = list_expr
@@ -419,17 +419,15 @@ else:
             match pattern {
                 Some(p) => match test_for_pattern(p, subject) {
                     Test { expr, mut assigns } => {
-                        assigns.push(assign);
+                        assigns.extend(assign);
                         Test { expr, assigns }
                     }
                     Wildcard { mut assigns } => {
-                        assigns.push(assign);
+                        assigns.extend(assign);
                         Wildcard { assigns }
                     }
                 },
-                None => Wildcard {
-                    assigns: vec![assign],
-                },
+                None => Wildcard { assigns: assign },
             }
         }
         Pattern::MatchAs(PatternMatchAs {
@@ -454,7 +452,7 @@ fn assigned_names(stmts: &[Stmt]) -> Vec<Name> {
     names
 }
 
-pub fn rewrite(ast::StmtMatch { subject, cases, .. }: ast::StmtMatch, ctx: &Context) -> Stmt {
+pub fn rewrite(ast::StmtMatch { subject, cases, .. }: ast::StmtMatch, ctx: &Context) -> Vec<Stmt> {
     if cases.is_empty() {
         return py_stmt!("pass");
     }
@@ -483,9 +481,9 @@ pub fn rewrite(ast::StmtMatch { subject, cases, .. }: ast::StmtMatch, ctx: &Cont
                     let mut cleanup = assigned_names(&assigns)
                         .into_iter()
                         .map(|name| py_stmt!("del {name:id}", name = name.as_str()))
+                        .flatten()
                         .collect::<Vec<_>>();
-                    cleanup.push(chain.clone());
-                    let cleanup = py_stmt!("{body:stmt}", body = cleanup);
+                    cleanup.extend(chain.clone());
 
                     let guard = py_stmt!(
                         "
@@ -499,12 +497,12 @@ else:
                     );
 
                     let mut block = assigns;
-                    block.push(guard);
-                    chain = py_stmt!("{body:stmt}", body = block);
+                    block.extend(guard);
+                    chain = block;
                 } else {
                     let mut block = assigns;
                     block.extend(body);
-                    chain = py_stmt!("{body:stmt}", body = block);
+                    chain = block;
                 }
             }
             Test {
@@ -515,9 +513,9 @@ else:
                     let mut cleanup = assigned_names(&assigns)
                         .into_iter()
                         .map(|name| py_stmt!("del {name:id}", name = name.as_str()))
+                        .flatten()
                         .collect::<Vec<_>>();
-                    cleanup.push(chain.clone());
-                    let cleanup = py_stmt!("{body:stmt}", body = cleanup);
+                    cleanup.extend(chain.clone());
 
                     let guard = py_stmt!(
                         "
@@ -531,7 +529,7 @@ else:
                     );
 
                     let mut block = assigns;
-                    block.push(guard);
+                    block.extend(guard);
                     chain = py_stmt!(
                         "
 if {test:expr}:

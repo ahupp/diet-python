@@ -419,6 +419,17 @@ a = [1, *b, 2]
 a = __dp__.list(__dp__.add(__dp__.add((1,), __dp__.tuple(b)), (2,)))
 
 $ expr 055
+while start <= limit:
+    start += 1
+=
+
+while True:
+    _dp_tmp_1 = __dp__.le(start, limit)
+    if __dp__.not_(_dp_tmp_1):
+        break
+    start = __dp__.iadd(start, 1)
+
+$ expr 055
 a or b or c
 =
 

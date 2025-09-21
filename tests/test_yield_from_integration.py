@@ -1,36 +1,11 @@
 from __future__ import annotations
 
-import importlib
-import sys
-from pathlib import Path
-from types import ModuleType
-
 import pytest
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
-
-import diet_import_hook
+from ._integration import transformed_module
 
 
-def _import_module(module_name: str, module_path: Path) -> ModuleType:
-    diet_import_hook.install()
-    module_dir = str(module_path.parent)
-    sys.path.insert(0, module_dir)
-    try:
-        if module_name in sys.modules:
-            del sys.modules[module_name]
-        return importlib.import_module(module_name)
-    finally:
-        if module_dir in sys.path:
-            sys.path.remove(module_dir)
-
-
-def test_yield_from_delegation(tmp_path):
-    module_path = tmp_path / "yield_from_module.py"
-    module_path.write_text(
-        """
-
+MODULE_SOURCE = """
 def child():
     events = []
     try:
@@ -53,13 +28,11 @@ def child():
 def delegator():
     result = yield from child()
     return ("done", result)
-""",
-        encoding="utf-8",
-    )
+"""
 
-    module = _import_module("yield_from_module", module_path)
 
-    try:
+def test_yield_from_delegation(tmp_path):
+    with transformed_module(tmp_path, "yield_from_module", MODULE_SOURCE) as module:
         assert "__dp__" in module.delegator.__code__.co_names
 
         gen = module.delegator()
@@ -79,6 +52,3 @@ def delegator():
             ("send", "stop"),
             ("finally", None),
         ]
-    finally:
-        if "yield_from_module" in sys.modules:
-            del sys.modules["yield_from_module"]
