@@ -46,7 +46,7 @@ pub fn rewrite(stmt: ast::StmtTry, _ctx: &Context) -> Stmt {
                 target = id.as_str(),
             )
         } else {
-            py_stmt!("_ = __dp__.current_exception()")
+            py_stmt!("__dp__.current_exception()")
         };
 
         py_stmt!(
