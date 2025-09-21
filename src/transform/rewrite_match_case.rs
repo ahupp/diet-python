@@ -1,5 +1,5 @@
 use super::context::Context;
-use ruff_python_ast::{self as ast, Expr, Pattern, Stmt};
+use ruff_python_ast::{self as ast, name::Name, Expr, Pattern, Stmt};
 use ruff_python_parser::parse_expression;
 use ruff_text_size::TextRange;
 
@@ -440,6 +440,20 @@ else:
     }
 }
 
+fn assigned_names(stmts: &[Stmt]) -> Vec<Name> {
+    let mut names = Vec::new();
+    for stmt in stmts {
+        if let Stmt::Assign(ast::StmtAssign { targets, .. }) = stmt {
+            if let Some(Expr::Name(ast::ExprName { id, .. })) = targets.first() {
+                if !names.iter().any(|existing| existing == id) {
+                    names.push(id.clone());
+                }
+            }
+        }
+    }
+    names
+}
+
 pub fn rewrite(ast::StmtMatch { subject, cases, .. }: ast::StmtMatch, ctx: &Context) -> Stmt {
     if cases.is_empty() {
         return py_stmt!("pass");
@@ -465,44 +479,83 @@ pub fn rewrite(ast::StmtMatch { subject, cases, .. }: ast::StmtMatch, ctx: &Cont
         use PatternTest::*;
         match test_for_pattern(&pattern, tmp_expr.clone()) {
             Wildcard { assigns } => {
-                let mut block = assigns;
-                block.extend(body);
                 if let Some(g) = guard {
-                    let test = *g;
+                    let mut cleanup = assigned_names(&assigns)
+                        .into_iter()
+                        .map(|name| py_stmt!("del {name:id}", name = name.as_str()))
+                        .collect::<Vec<_>>();
+                    cleanup.push(chain.clone());
+                    let cleanup = py_stmt!("{body:stmt}", body = cleanup);
+
+                    let guard = py_stmt!(
+                        "
+if {guard:expr}:
+    {body:stmt}
+else:
+    {cleanup:stmt}",
+                        guard = *g,
+                        body = body,
+                        cleanup = cleanup,
+                    );
+
+                    let mut block = assigns;
+                    block.push(guard);
+                    chain = py_stmt!("{body:stmt}", body = block);
+                } else {
+                    let mut block = assigns;
+                    block.extend(body);
+                    chain = py_stmt!("{body:stmt}", body = block);
+                }
+            }
+            Test {
+                expr: test_expr,
+                assigns,
+            } => {
+                if let Some(g) = guard {
+                    let mut cleanup = assigned_names(&assigns)
+                        .into_iter()
+                        .map(|name| py_stmt!("del {name:id}", name = name.as_str()))
+                        .collect::<Vec<_>>();
+                    cleanup.push(chain.clone());
+                    let cleanup = py_stmt!("{body:stmt}", body = cleanup);
+
+                    let guard = py_stmt!(
+                        "
+if {guard:expr}:
+    {body:stmt}
+else:
+    {cleanup:stmt}",
+                        guard = *g,
+                        body = body,
+                        cleanup = cleanup,
+                    );
+
+                    let mut block = assigns;
+                    block.push(guard);
                     chain = py_stmt!(
                         "
 if {test:expr}:
     {body:stmt}
 else:
     {next:stmt}",
-                        test = test,
+                        test = test_expr,
                         body = block,
                         next = chain,
                     );
                 } else {
-                    chain = py_stmt!("{body:stmt}", body = block);
-                }
-            }
-            Test {
-                expr: mut test_expr,
-                assigns,
-            } => {
-                let mut block = assigns;
-                block.extend(body);
-                if let Some(g) = guard {
-                    test_expr =
-                        py_expr!("{test:expr} and {guard:expr}", test = test_expr, guard = *g,);
-                }
-                chain = py_stmt!(
-                    "
+                    let mut block = assigns;
+                    block.extend(body);
+                    chain = py_stmt!(
+                        "
 if {test:expr}:
     {body:stmt}
 else:
     {next:stmt}",
-                    test = test_expr,
-                    body = block,
-                    next = chain,
-                );
+                        test = test_expr,
+                        body = block,
+                        next = chain,
+                    );
+                }
             }
         }
     }
