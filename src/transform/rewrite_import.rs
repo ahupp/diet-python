@@ -1,6 +1,6 @@
 use crate::py_stmt;
 
-use super::{ImportStarHandling, Options};
+use super::{expr::Rewrite, ImportStarHandling, Options};
 use ruff_python_ast::{self as ast, Stmt};
 
 pub fn should_rewrite_import_from(import_from: &ast::StmtImportFrom, options: &Options) -> bool {
@@ -15,28 +15,32 @@ pub fn should_rewrite_import_from(import_from: &ast::StmtImportFrom, options: &O
     }
 }
 
-pub fn rewrite(ast::StmtImport { names, .. }: ast::StmtImport) -> Vec<Stmt> {
-    names
-        .into_iter()
-        .map(|alias| {
-            let module_name = alias.name.id.to_string();
-            let binding = alias
-                .asname
-                .as_ref()
-                .map(|n| n.id.as_str())
-                .unwrap_or_else(|| module_name.split('.').next().unwrap());
-            py_stmt!(
-                "{name:id} = __dp__.import_({module:literal}, __spec__)",
-                name = binding,
-                module = module_name.as_str(),
-            )
-        })
-        .flatten()
-        .collect()
+pub fn rewrite(ast::StmtImport { names, .. }: ast::StmtImport) -> Rewrite {
+    Rewrite::Visit(
+        names
+            .into_iter()
+            .map(|alias| {
+                let module_name = alias.name.id.to_string();
+                let binding = alias
+                    .asname
+                    .as_ref()
+                    .map(|n| n.id.as_str())
+                    .unwrap_or_else(|| module_name.split('.').next().unwrap());
+                py_stmt!(
+                    "{name:id} = __dp__.import_({module:literal}, __spec__)",
+                    name = binding,
+                    module = module_name.as_str(),
+                )
+            })
+            .flatten()
+            .collect(),
+    )
 }
 
-pub fn rewrite_from(import_from: ast::StmtImportFrom, options: &Options) -> Vec<Stmt> {
-    debug_assert!(should_rewrite_import_from(&import_from, options));
+pub fn rewrite_from(import_from: ast::StmtImportFrom, options: &Options) -> Rewrite {
+    if !should_rewrite_import_from(&import_from, options) {
+        return Rewrite::Walk(vec![Stmt::ImportFrom(import_from)]);
+    }
 
     let ast::StmtImportFrom {
         module,
@@ -46,41 +50,43 @@ pub fn rewrite_from(import_from: ast::StmtImportFrom, options: &Options) -> Vec<
     } = import_from;
 
     if names.iter().any(|alias| alias.name.id.as_str() == "*") {
-        return match options.import_star_handling {
+        return Rewrite::Visit(match options.import_star_handling {
             ImportStarHandling::Allowed => {
                 unreachable!("rewrite_from is only called when import-star rewriting is required")
             }
             ImportStarHandling::Error => panic!("import star not allowed"),
             ImportStarHandling::Strip => vec![],
-        };
+        });
     }
     let module_name = module.as_ref().map(|n| n.id.as_str()).unwrap_or("");
-    names
-        .into_iter()
-        .map(|alias| {
-            let orig = alias.name.id.as_str();
-            let binding = alias.asname.as_ref().map(|n| n.id.as_str()).unwrap_or(orig);
-            if level > 0 {
-                py_stmt!(
-                    "{name:id} = __dp__.import_({module:literal}, __spec__, [{orig:literal}], {level:literal}).{attr:id}",
-                    name = binding,
-                    module = module_name,
-                    orig = orig,
-                    level = level,
-                    attr = orig,
-                )
-            } else {
-                py_stmt!(
-                    "{name:id} = __dp__.import_({module:literal}, __spec__, [{orig:literal}]).{attr:id}",
-                    name = binding,
-                    module = module_name,
-                    orig = orig,
-                    attr = orig,
-                )
-            }
-        })
-        .flatten()
-        .collect()
+    Rewrite::Visit(
+        names
+            .into_iter()
+            .map(|alias| {
+                let orig = alias.name.id.as_str();
+                let binding = alias.asname.as_ref().map(|n| n.id.as_str()).unwrap_or(orig);
+                if level > 0 {
+                    py_stmt!(
+                        "{name:id} = __dp__.import_({module:literal}, __spec__, [{orig:literal}], {level:literal}).{attr:id}",
+                        name = binding,
+                        module = module_name,
+                        orig = orig,
+                        level = level,
+                        attr = orig,
+                    )
+                } else {
+                    py_stmt!(
+                        "{name:id} = __dp__.import_({module:literal}, __spec__, [{orig:literal}]).{attr:id}",
+                        name = binding,
+                        module = module_name,
+                        orig = orig,
+                        attr = orig,
+                    )
+                }
+            })
+            .flatten()
+            .collect(),
+    )
 }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
 use crate::body_transform::{walk_expr, walk_stmt, Transformer};
 use crate::template::make_tuple;
 use crate::transform::context::Context;
+use crate::transform::expr::Rewrite;
 use crate::transform::rewrite_decorator;
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
@@ -205,7 +206,7 @@ pub fn rewrite(
     }: ast::StmtClassDef,
     decorators: Vec<ast::Decorator>,
     ctx: &Context,
-) -> Vec<Stmt> {
+) -> Rewrite {
     let class_name = name.id.as_str().to_string();
 
     let LoadBeforeStoreResult { captured_names, .. } =
@@ -279,12 +280,9 @@ def _dp_mk_{fn_name:id}():
                     fn_name = fn_name.as_str(),
                 ));
 
-                let method_stmts = rewrite_decorator::rewrite(
-                    decorators,
-                    fn_name.as_str(),
-                    method_stmts,
-                    ctx,
-                );
+                let method_stmts =
+                    rewrite_decorator::rewrite(decorators, fn_name.as_str(), method_stmts, ctx)
+                        .into_statements();
 
                 ns_body.extend(method_stmts);
                 ns_body.extend(py_stmt!(
@@ -381,7 +379,9 @@ _dp_class_{class_name:id} = _dp_make_class_{class_name:id}()
         prepare_dict = prepare_dict,
     ));
 
-    rewrite_decorator::rewrite(decorators, class_name.as_str(), ns_fn, ctx)
+    Rewrite::Visit(
+        rewrite_decorator::rewrite(decorators, class_name.as_str(), ns_fn, ctx).into_statements(),
+    )
 }
 
 #[cfg(test)]
