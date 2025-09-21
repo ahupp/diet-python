@@ -28,12 +28,48 @@ match x:
         b()
 =
 _dp_match_1 = x
-_dp_tmp_3 = __dp__.eq(_dp_match_1, 1)
-_dp_tmp_2 = _dp_tmp_3
+_dp_tmp_2 = __dp__.eq(_dp_match_1, 1)
 if _dp_tmp_2:
-    _dp_tmp_2 = cond
-if _dp_tmp_2:
+    if cond:
+        a()
+    else:
+        b()
+else:
+    b()
+
+$ rewrites guard with capture binding
+
+match x:
+    case iterable if not hasattr(iterable, "__next__"):
+        a()
+    case _:
+        b()
+=
+_dp_match_1 = x
+iterable = _dp_match_1
+if __dp__.not_(hasattr(iterable, "__next__")):
     a()
+else:
+    del iterable
+    b()
+
+$ rewrites guard with assignment and test
+
+match x:
+    case 1 as y if cond(y):
+        a()
+    case _:
+        b()
+=
+_dp_match_1 = x
+_dp_tmp_2 = __dp__.eq(_dp_match_1, 1)
+if _dp_tmp_2:
+    y = _dp_match_1
+    if cond(y):
+        a()
+    else:
+        del y
+        b()
 else:
     b()
 
