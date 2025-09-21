@@ -1,4 +1,4 @@
-use super::{context::Context, expr::Rewrite};
+use super::{context::Context, driver::Rewrite};
 use ruff_python_ast::{self as ast, Stmt};
 
 use crate::{py_expr, py_stmt};

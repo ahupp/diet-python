@@ -1,6 +1,6 @@
 use crate::py_stmt;
 
-use super::{expr::Rewrite, ImportStarHandling, Options};
+use super::{driver::Rewrite, ImportStarHandling, Options};
 use ruff_python_ast::{self as ast, Stmt};
 
 pub fn should_rewrite_import_from(import_from: &ast::StmtImportFrom, options: &Options) -> bool {
@@ -92,7 +92,7 @@ pub fn rewrite_from(import_from: ast::StmtImportFrom, options: &Options) -> Rewr
 #[cfg(test)]
 mod tests {
     use crate::body_transform::Transformer;
-    use crate::transform::{context::Context, expr::ExprRewriter, ImportStarHandling, Options};
+    use crate::transform::{context::Context, driver::ExprRewriter, ImportStarHandling, Options};
     use ruff_python_parser::parse_module;
 
     crate::transform_fixture_test!("tests_rewrite_import.txt");

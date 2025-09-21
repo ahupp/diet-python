@@ -58,7 +58,7 @@ mod test_util;
 mod transform;
 
 use crate::body_transform::Transformer;
-use transform::{context::Context, expr::ExprRewriter, Options};
+use transform::{context::Context, driver::ExprRewriter, Options};
 
 #[derive(Debug, Clone, Copy)]
 pub struct TransformTimings {
