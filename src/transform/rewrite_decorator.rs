@@ -7,10 +7,13 @@ use crate::{py_expr, py_stmt};
 pub fn rewrite(
     decorators: Vec<ast::Decorator>,
     name: &str,
-    item: Stmt,
-    base: Option<&str>,
-    ctx: &Context,
-) -> Stmt {
+    item: Vec<Stmt>,
+    _ctx: &Context,
+) -> Vec<Stmt> {
+    if decorators.is_empty() {
+        return item;
+    }
+
     let decorator_expr =
         decorators
             .into_iter()
@@ -23,23 +26,15 @@ pub fn rewrite(
                 )
             });
 
-    let base_or_name = base.unwrap_or(name);
-
-    let dec_apply_fn = base
-        .map(|_| format!("_dp_class_decorators_{}", name))
-        .unwrap_or_else(|| ctx.fresh("dec_apply"));
-
     py_stmt!(
         r#"
-def {dec_apply_fn:id}(_dp_the_func):
+def _dp_decorator_{name:id}(_dp_the_func):
     return {decorator_expr:expr}
 {item:stmt}
-{name:id} = {dec_apply_fn:id}({base_or_name:id})"#,
-        dec_apply_fn = dec_apply_fn.as_str(),
+{name:id} = _dp_decorator_{name:id}({name:id})"#,
         decorator_expr = decorator_expr,
         item = item,
         name = name,
-        base_or_name = base_or_name,
     )
 }
 

@@ -14,7 +14,7 @@ pub fn rewrite(
     }: ast::StmtFor,
     ctx: &Context,
     transformer: &mut impl Transformer,
-) -> Stmt {
+) -> Vec<Stmt> {
     let iter_name = ctx.fresh("iter");
 
     let mut rewritten = if is_async {
@@ -59,7 +59,7 @@ while True:
         )
     };
 
-    transformer.visit_stmt(&mut rewritten);
+    transformer.visit_body(&mut rewritten);
 
     rewritten
 }

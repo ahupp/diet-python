@@ -1,5 +1,7 @@
 use crate::body_transform::{walk_expr, walk_stmt, Transformer};
-use crate::template::{make_tuple, single_stmt};
+use crate::template::make_tuple;
+use crate::transform::context::Context;
+use crate::transform::rewrite_decorator;
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
 use ruff_text_size::TextRange;
@@ -188,8 +190,9 @@ fn rewrite_method(func_def: &mut ast::StmtFunctionDef, class_name: &str) {
     }
     if transformer.uses_class {
         let cls_name = format!("_dp_class_{}", class_name);
-        let assign = py_stmt!("__class__ = {c:id}", c = cls_name.as_str());
-        func_def.body.insert(0, assign);
+        let mut assign = py_stmt!("__class__ = {c:id}", c = cls_name.as_str());
+        assign.extend(func_def.body.drain(..));
+        func_def.body = assign;
     }
 }
 
@@ -200,8 +203,9 @@ pub fn rewrite(
         arguments,
         ..
     }: ast::StmtClassDef,
-    decorated: bool,
-) -> Stmt {
+    decorators: Vec<ast::Decorator>,
+    ctx: &Context,
+) -> Vec<Stmt> {
     let class_name = name.id.as_str().to_string();
 
     let LoadBeforeStoreResult { captured_names, .. } =
@@ -211,31 +215,35 @@ pub fn rewrite(
     // TODO: correctly calculate the qualname of the class when nested
     let mut ns_body = Vec::new();
 
+    let extend_body = |ns_body: &mut Vec<Stmt>, name: &str, value: Expr| {
+        let assign_stmt = py_stmt!(
+            r#"
+{name:id} = {value:expr}
+_dp_temp_ns[{name:literal}] = _ns[{name:literal}] = {name:id}
+"#,
+            name = name,
+            value = value,
+        );
+        ns_body.extend(assign_stmt);
+    };
+
     let mut original_body = body;
     if let Some(Stmt::Expr(ast::StmtExpr { value, .. })) = original_body.first() {
         if let Expr::StringLiteral(_) = value.as_ref() {
-            ns_body.push(py_stmt!(
-                r#"_dp_temp_ns["__doc__"] = _ns["__doc__"] = {doc:expr}"#,
-                doc = value.clone(),
-            ));
+            extend_body(&mut ns_body, "__doc__", *value.clone());
             original_body.remove(0);
         }
     }
     for stmt in original_body {
         match stmt {
             Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
-                if let [Expr::Name(ast::ExprName { id, .. })] = targets.as_slice() {
+                if targets.len() != 1 {
+                    panic!("expected single target for assignment");
+                }
+
+                if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
                     let name = id.as_str().to_string();
-                    let assign_stmt = py_stmt!(
-                        "{name:id} = {value:expr}",
-                        name = name.as_str(),
-                        value = value,
-                    );
-                    ns_body.push(assign_stmt);
-                    ns_body.push(py_stmt!(
-                        r#"_dp_temp_ns[{name:literal}] = _ns[{name:literal}] = {name:id}"#,
-                        name = name.as_str(),
-                    ));
+                    extend_body(&mut ns_body, name.as_str(), *value);
                 }
             }
             Stmt::AnnAssign(ast::StmtAnnAssign {
@@ -245,13 +253,7 @@ pub fn rewrite(
             }) => {
                 if let Expr::Name(ast::ExprName { id, .. }) = target.as_ref() {
                     let name = id.as_str().to_string();
-                    let assign_stmt =
-                        py_stmt!("{name:id} = {value:expr}", name = name.as_str(), value = *v,);
-                    ns_body.push(assign_stmt);
-                    ns_body.push(py_stmt!(
-                        r#"_dp_temp_ns[{name:literal}] = _ns[{name:literal}] = {name:id}"#,
-                        name = name.as_str(),
-                    ));
+                    extend_body(&mut ns_body, name.as_str(), *v);
                 }
             }
             Stmt::FunctionDef(mut func_def) => {
@@ -259,46 +261,37 @@ pub fn rewrite(
                 let fn_name = func_def.name.id.to_string();
 
                 let decorators = take(&mut func_def.decorator_list);
-                let mut decorator_names = Vec::new();
-                for (index, decorator) in decorators.into_iter().enumerate() {
-                    let decorator_name = format!("_dp_dec_{}_{index}", fn_name);
-                    ns_body.push(py_stmt!(
-                        "{decor_name:id} = {decor:expr}",
-                        decor_name = decorator_name.as_str(),
-                        decor = decorator.expression
-                    ));
-                    decorator_names.push(decorator_name);
-                }
 
-                let mk_func_def = py_stmt!(
+                let mut method_stmts = py_stmt!(
                     r#"
 def _dp_mk_{fn_name:id}():
     {fn_def:stmt}
     {fn_name:id}.__qualname__ = _ns["__qualname__"] + {suffix:literal}
     return {fn_name:id}
-                "#,
+"#,
                     fn_def = Stmt::FunctionDef(func_def),
                     fn_name = fn_name.as_str(),
                     suffix = format!(".{}", fn_name)
                 );
-                ns_body.push(mk_func_def);
 
-                ns_body.push(py_stmt!(
+                method_stmts.extend(py_stmt!(
                     "{fn_name:id} = _dp_mk_{fn_name:id}()",
-                    fn_name = fn_name.as_str()
+                    fn_name = fn_name.as_str(),
                 ));
 
-                for decorator_name in decorator_names.iter().rev() {
-                    ns_body.push(py_stmt!(
-                        "{fn_name:id} = {decor_name:id}({fn_name:id})",
-                        fn_name = fn_name.as_str(),
-                        decor_name = decorator_name.as_str()
-                    ));
-                }
+                let method_stmts = rewrite_decorator::rewrite(
+                    decorators,
+                    fn_name.as_str(),
+                    method_stmts,
+                    ctx,
+                );
 
-                ns_body.push(py_stmt!(
-                    "_dp_temp_ns[{fn_name:literal}] = _ns[{fn_name:literal}] = {fn_name:id}",
-                    fn_name = fn_name.as_str()
+                ns_body.extend(method_stmts);
+                ns_body.extend(py_stmt!(
+                    r#"
+_dp_temp_ns[{fn_name:literal}] = _ns[{fn_name:literal}] = {fn_name:id}
+"#,
+                    fn_name = fn_name.as_str(),
                 ));
             }
             other => ns_body.push(other),
@@ -338,18 +331,6 @@ def _dp_mk_{fn_name:id}():
         py_expr!("None")
     };
 
-    let final_assignment = if decorated {
-        py_stmt!(
-            "_dp_class_{class_name:id} = _dp_make_class_{class_name:id}()",
-            class_name = class_name.as_str(),
-        )
-    } else {
-        py_stmt!(
-            "{class_name:id} = _dp_class_{class_name:id} = _dp_make_class_{class_name:id}()",
-            class_name = class_name.as_str(),
-        )
-    };
-
     let mut ns_fn = py_stmt!(
         r#"
 def _dp_ns_{class_name:id}(_ns):
@@ -363,7 +344,7 @@ def _dp_ns_{class_name:id}(_ns):
         ns_body = ns_body,
     );
 
-    if let Stmt::FunctionDef(ast::StmtFunctionDef { parameters, .. }) = &mut ns_fn {
+    if let Stmt::FunctionDef(ast::StmtFunctionDef { parameters, .. }) = &mut ns_fn[0] {
         for name in captured_names {
             parameters.args.push(ast::ParameterWithDefault {
                 range: TextRange::default(),
@@ -381,7 +362,7 @@ def _dp_ns_{class_name:id}(_ns):
         unreachable!("expected function definition for namespace helper");
     }
 
-    let make_fn = py_stmt!(
+    ns_fn.extend(py_stmt!(
         r#"
 def _dp_make_class_{class_name:id}():
     orig_bases = {bases:expr}
@@ -391,15 +372,16 @@ def _dp_make_class_{class_name:id}():
     if orig_bases is not bases and "__orig_bases__" not in ns:
         ns["__orig_bases__"] = orig_bases
     return meta({class_name:literal}, bases, ns, **kwds)
+
+_dp_class_{class_name:id} = _dp_make_class_{class_name:id}()
+{class_name:id} = _dp_class_{class_name:id}
 "#,
-        bases = make_tuple(bases),
         class_name = class_name.as_str(),
+        bases = make_tuple(bases),
         prepare_dict = prepare_dict,
-    );
+    ));
 
-    let final_assignment = final_assignment;
-
-    single_stmt(vec![ns_fn, make_fn, final_assignment])
+    rewrite_decorator::rewrite(decorators, class_name.as_str(), ns_fn, ctx)
 }
 
 #[cfg(test)]
