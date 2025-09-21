@@ -5,11 +5,11 @@ $ rewrites function decorators
 def foo():
     pass
 =
-def _dp_decorator_foo(_dp_the_func):
-    return dec2(5)(dec1(_dp_the_func))
+_dp_decorator_foo_0 = dec2(5)
+_dp_decorator_foo_1 = dec1
 def foo():
     pass
-foo = _dp_decorator_foo(foo)
+foo = _dp_decorator_foo_0(_dp_decorator_foo_1(foo))
 
 $ rewrites class decorators
 
@@ -17,8 +17,7 @@ $ rewrites class decorators
 class C:
     pass
 =
-def _dp_decorator_C(_dp_the_func):
-    return dec(_dp_the_func)
+_dp_decorator_C_0 = dec
 def _dp_ns_C(_dp_prepare_ns):
     _dp_temp_ns = __dp__.dict()
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
@@ -44,7 +43,7 @@ def _dp_make_class_C():
     return meta("C", bases, ns, **kwds)
 _dp_class_C = _dp_make_class_C()
 C = _dp_class_C
-C = _dp_decorator_C(C)
+C = _dp_decorator_C_0(C)
 
 $ rewrites multiple class decorators
 
@@ -53,8 +52,8 @@ $ rewrites multiple class decorators
 class C:
     pass
 =
-def _dp_decorator_C(_dp_the_func):
-    return dec2(5)(dec1(_dp_the_func))
+_dp_decorator_C_0 = dec2(5)
+_dp_decorator_C_1 = dec1
 def _dp_ns_C(_dp_prepare_ns):
     _dp_temp_ns = __dp__.dict()
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
@@ -80,4 +79,20 @@ def _dp_make_class_C():
     return meta("C", bases, ns, **kwds)
 _dp_class_C = _dp_make_class_C()
 C = _dp_class_C
-C = _dp_decorator_C(C)
+C = _dp_decorator_C_0(_dp_decorator_C_1(C))
+
+$ preserves existing decorator targets
+
+atexit = property(lambda: None)
+
+@atexit.setter
+def atexit(value):
+    pass
+=
+def _dp_lambda_1():
+    return None
+atexit = property(_dp_lambda_1)
+_dp_decorator_atexit_0 = atexit.setter
+def atexit(value):
+    pass
+atexit = _dp_decorator_atexit_0(atexit)

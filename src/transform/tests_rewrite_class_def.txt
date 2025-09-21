@@ -321,9 +321,8 @@ def _dp_ns_C(_dp_prepare_ns):
     y = deco
     __dp__.setitem(_dp_temp_ns, "y", y)
     __dp__.setitem(_dp_prepare_ns, "y", y)
-    def _dp_decorator_m(_dp_the_func):
-        return decorator(y)(other(_dp_the_func))
-
+    _dp_decorator_m_0 = decorator(y)
+    _dp_decorator_m_1 = other
     def _dp_mk_m():
 
         def m(self):
@@ -331,7 +330,7 @@ def _dp_ns_C(_dp_prepare_ns):
         __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
         return m
     m = _dp_mk_m()
-    m = _dp_decorator_m(m)
+    m = _dp_decorator_m_0(_dp_decorator_m_1(m))
     __dp__.setitem(_dp_temp_ns, "m", m)
     __dp__.setitem(_dp_prepare_ns, "m", m)
 def _dp_make_class_C():

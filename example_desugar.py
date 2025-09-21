@@ -1,11 +1,11 @@
 import __dp__
 sys = __dp__.import_("sys", __spec__)
 ei = __dp__.import_("sys", __spec__, __dp__.list(("exc_info",))).exc_info
-def _dp_decorator_add(_dp_the_func):
-    return foo(bar(1, 2)(_dp_the_func))
+_dp_decorator_add_0 = foo
+_dp_decorator_add_1 = bar(1, 2)
 def add(a, b):
     return __dp__.add(a, b)
-add = _dp_decorator_add(add)
+add = _dp_decorator_add_0(_dp_decorator_add_1(add))
 def _dp_ns_A(_dp_prepare_ns):
     _dp_temp_ns = __dp__.dict()
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
