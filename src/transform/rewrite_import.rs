@@ -26,7 +26,8 @@ pub fn rewrite(ast::StmtImport { names, .. }: ast::StmtImport) -> Rewrite {
                     .as_ref()
                     .map(|n| n.id.as_str())
                     .unwrap_or_else(|| module_name.split('.').next().unwrap());
-                if alias.asname.is_some() {
+                let needs_fromlist = alias.asname.is_some() && module_name.contains('.');
+                if needs_fromlist {
                     let attr = module_name
                         .rsplit_once('.')
                         .map(|(_, last)| last)
