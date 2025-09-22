@@ -134,6 +134,11 @@ def import_(name, spec, fromlist=None, level=0):
             try:
                 getattr(module, attr)
             except AttributeError as exc:
+                if module_name:
+                    submodule = sys.modules.get(f"{module_name}.{attr}")
+                    if submodule is not None:
+                        setattr(module, attr, submodule)
+                        continue
                 message = f"cannot import name {attr!r} from {module_name!r}"
                 if module_file is not None:
                     message = f"{message} ({module_file})"
