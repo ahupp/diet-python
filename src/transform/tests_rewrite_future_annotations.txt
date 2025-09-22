@@ -1,0 +1,28 @@
+$ rewrites function annotations
+
+from __future__ import annotations
+
+def f(x: list[int], y: dict[str, int]) -> tuple[str, ...]:
+    return x
+=
+def f(x: "list[int]", y: "dict[str, int]") -> "tuple[str, ...]":
+    return x
+
+$ preserves other future imports
+
+from __future__ import annotations, division
+
+def g(x: int | None):
+    pass
+=
+division = __dp__.import_("__future__", __spec__, __dp__.list(("division",))).division
+def g(x: "int | None"):
+    pass
+
+$ leaves annotations untouched without future import
+
+def h(x: list[int]):
+    return x
+=
+def h(x: __dp__.getitem(list, int)):
+    return x
