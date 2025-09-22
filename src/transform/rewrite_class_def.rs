@@ -347,7 +347,9 @@ __dp__.setitem(_dp_prepare_ns, "__annotations__", _dp_class_annotations)
                 stub_def.body = py_stmt!("pass");
 
                 rewrite_method(&mut func_def, &class_name);
-                let helper_name = format!("_dp_meth_{}_{}", class_name, fn_name);
+                let helper_name = rewriter
+                    .context()
+                    .fresh(&format!("meth_{}_{}", class_name, fn_name));
 
                 let decorators = take(&mut func_def.decorator_list);
 
@@ -507,42 +509,42 @@ class C:
         return super().m()
 "#,
             r#"
-def _dp_meth_C_m():
+def _dp_meth_C_m_1():
     return super(C, None).m()
 def _dp_ns_C(_dp_prepare_ns):
     _dp_temp_ns = __dp__.dict()
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
     __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
-    _dp_tmp_1 = "C"
-    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_1)
-    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_1)
+    _dp_tmp_2 = "C"
+    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_2)
+    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_2)
     _dp_class_annotations = _dp_temp_ns.get("__annotations__")
-    _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_2:
+    _dp_tmp_3 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_3:
         _dp_class_annotations = __dp__.dict()
 
     def m():
         pass
-    __dp__.setattr(m, "__code__", _dp_meth_C_m.__code__)
-    __dp__.setattr(m, "__doc__", _dp_meth_C_m.__doc__)
-    __dp__.setattr(m, "__annotations__", _dp_meth_C_m.__annotations__)
+    __dp__.setattr(m, "__code__", _dp_meth_C_m_1.__code__)
+    __dp__.setattr(m, "__doc__", _dp_meth_C_m_1.__doc__)
+    __dp__.setattr(m, "__annotations__", _dp_meth_C_m_1.__annotations__)
     __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
     __dp__.setitem(_dp_temp_ns, "m", m)
     __dp__.setitem(_dp_prepare_ns, "m", m)
 def _dp_make_class_C():
     orig_bases = ()
     bases = __dp__.resolve_bases(orig_bases)
-    _dp_tmp_3 = __dp__.prepare_class("C", bases, None)
-    meta = __dp__.getitem(_dp_tmp_3, 0)
-    ns = __dp__.getitem(_dp_tmp_3, 1)
-    kwds = __dp__.getitem(_dp_tmp_3, 2)
+    _dp_tmp_4 = __dp__.prepare_class("C", bases, None)
+    meta = __dp__.getitem(_dp_tmp_4, 0)
+    ns = __dp__.getitem(_dp_tmp_4, 1)
+    kwds = __dp__.getitem(_dp_tmp_4, 2)
     _dp_ns_C(ns)
-    _dp_tmp_5 = __dp__.is_not(orig_bases, bases)
-    _dp_tmp_4 = _dp_tmp_5
-    if _dp_tmp_4:
-        _dp_tmp_6 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
-        _dp_tmp_4 = _dp_tmp_6
-    if _dp_tmp_4:
+    _dp_tmp_6 = __dp__.is_not(orig_bases, bases)
+    _dp_tmp_5 = _dp_tmp_6
+    if _dp_tmp_5:
+        _dp_tmp_7 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
+        _dp_tmp_5 = _dp_tmp_7
+    if _dp_tmp_5:
         __dp__.setitem(ns, "__orig_bases__", orig_bases)
     return meta("C", bases, ns, **kwds)
 _dp_class_C = _dp_make_class_C()
