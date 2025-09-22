@@ -72,7 +72,7 @@ raise ValueError
 $ expr 010
 x: int
 =
-
+x: int
 
 $ expr 011
 x: int = 1
@@ -299,19 +299,19 @@ $ expr 041
 r = {k: v + 1 for k, v in items if k % 2 == 0}
 =
 
-def _dp_gen_1(items):
-    _dp_iter_2 = __dp__.iter(items)
+def _dp_gen_1(_dp_iter_2):
+    _dp_iter_3 = __dp__.iter(_dp_iter_2)
     while True:
         try:
-            _dp_tmp_3 = __dp__.next(_dp_iter_2)
-            k = __dp__.getitem(_dp_tmp_3, 0)
-            v = __dp__.getitem(_dp_tmp_3, 1)
+            _dp_tmp_4 = __dp__.next(_dp_iter_3)
+            k = __dp__.getitem(_dp_tmp_4, 0)
+            v = __dp__.getitem(_dp_tmp_4, 1)
         except:
             __dp__.check_stopiteration()
             break
         else:
-            _dp_tmp_4 = __dp__.eq(__dp__.mod(k, 2), 0)
-            if _dp_tmp_4:
+            _dp_tmp_5 = __dp__.eq(__dp__.mod(k, 2), 0)
+            if _dp_tmp_5:
                 yield k, __dp__.add(v, 1)
 r = __dp__.dict(_dp_gen_1(__dp__.iter(items)))
 
@@ -378,17 +378,17 @@ $ expr 051
 r = [a + 1 for a in items if a % 2 == 0]
 =
 
-def _dp_gen_1(items):
-    _dp_iter_2 = __dp__.iter(items)
+def _dp_gen_1(_dp_iter_2):
+    _dp_iter_3 = __dp__.iter(_dp_iter_2)
     while True:
         try:
-            a = __dp__.next(_dp_iter_2)
+            a = __dp__.next(_dp_iter_3)
         except:
             __dp__.check_stopiteration()
             break
         else:
-            _dp_tmp_3 = __dp__.eq(__dp__.mod(a, 2), 0)
-            if _dp_tmp_3:
+            _dp_tmp_4 = __dp__.eq(__dp__.mod(a, 2), 0)
+            if _dp_tmp_4:
                 yield __dp__.add(a, 1)
 r = __dp__.list(_dp_gen_1(__dp__.iter(items)))
 
@@ -453,19 +453,19 @@ $ expr 057
 r = [a * b for a in items for b in items2]
 =
 
-def _dp_gen_1(items):
-    _dp_iter_2 = __dp__.iter(items)
+def _dp_gen_1(_dp_iter_2):
+    _dp_iter_3 = __dp__.iter(_dp_iter_2)
     while True:
         try:
-            a = __dp__.next(_dp_iter_2)
+            a = __dp__.next(_dp_iter_3)
         except:
             __dp__.check_stopiteration()
             break
         else:
-            _dp_iter_3 = __dp__.iter(items2)
+            _dp_iter_4 = __dp__.iter(items2)
             while True:
                 try:
-                    b = __dp__.next(_dp_iter_3)
+                    b = __dp__.next(_dp_iter_4)
                 except:
                     __dp__.check_stopiteration()
                     break
@@ -488,11 +488,11 @@ $ expr 060
 r = {a for a in items}
 =
 
-def _dp_gen_1(items):
-    _dp_iter_2 = __dp__.iter(items)
+def _dp_gen_1(_dp_iter_2):
+    _dp_iter_3 = __dp__.iter(_dp_iter_2)
     while True:
         try:
-            a = __dp__.next(_dp_iter_2)
+            a = __dp__.next(_dp_iter_3)
         except:
             __dp__.check_stopiteration()
             break

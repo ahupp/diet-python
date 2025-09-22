@@ -60,12 +60,7 @@ pub(crate) fn rewrite_generator(
         .clone();
 
     let func_name = ctx.fresh("gen");
-
-    let param_name = if let Expr::Name(ast::ExprName { id, .. }) = &first_iter_expr {
-        id.clone()
-    } else {
-        Name::new(ctx.fresh("iter"))
-    };
+    let param_name = Name::new(ctx.fresh("iter"));
 
     let mut body = py_stmt!("yield {value:expr}", value = *elt);
 
