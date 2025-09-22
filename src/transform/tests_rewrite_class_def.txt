@@ -300,8 +300,10 @@ def _dp_ns_C(_dp_prepare_ns):
     _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
     if _dp_tmp_2:
         _dp_class_annotations = __dp__.dict()
-    __dp__.setattr(_dp_meth_C_m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
-    m = _dp_meth_C_m
+    def m(self):
+        pass
+    __dp__.setattr(m, "__code__", _dp_meth_C_m.__code__)
+    __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
     __dp__.setitem(_dp_temp_ns, "m", m)
     __dp__.setitem(_dp_prepare_ns, "m", m)
 def _dp_make_class_C():
@@ -341,8 +343,10 @@ def _dp_ns_C(_dp_prepare_ns):
     _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
     if _dp_tmp_2:
         _dp_class_annotations = __dp__.dict()
-    __dp__.setattr(_dp_meth_C_m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
-    m = _dp_meth_C_m
+    def m(self):
+        pass
+    __dp__.setattr(m, "__code__", _dp_meth_C_m.__code__)
+    __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
     __dp__.setitem(_dp_temp_ns, "m", m)
     __dp__.setitem(_dp_prepare_ns, "m", m)
 def _dp_make_class_C():
@@ -383,8 +387,10 @@ def _dp_ns_C(_dp_prepare_ns):
     if _dp_tmp_2:
         _dp_class_annotations = __dp__.dict()
 
-    __dp__.setattr(_dp_meth_C_m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
-    m = _dp_meth_C_m
+    def m(z):
+        pass
+    __dp__.setattr(m, "__code__", _dp_meth_C_m.__code__)
+    __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
     __dp__.setitem(_dp_temp_ns, "m", m)
     __dp__.setitem(_dp_prepare_ns, "m", m)
 def _dp_make_class_C():
@@ -425,8 +431,10 @@ def _dp_ns_C(_dp_prepare_ns):
     if _dp_tmp_2:
         _dp_class_annotations = __dp__.dict()
 
-    __dp__.setattr(_dp_meth_C_m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
-    m = _dp_meth_C_m
+    def m():
+        pass
+    __dp__.setattr(m, "__code__", _dp_meth_C_m.__code__)
+    __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
     __dp__.setitem(_dp_temp_ns, "m", m)
     __dp__.setitem(_dp_prepare_ns, "m", m)
 def _dp_make_class_C():
@@ -475,8 +483,10 @@ def _dp_ns_C(_dp_prepare_ns):
     __dp__.setitem(_dp_prepare_ns, "y", y)
     _dp_decorator_m_0 = decorator(y)
     _dp_decorator_m_1 = other
-    __dp__.setattr(_dp_meth_C_m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
-    m = _dp_meth_C_m
+    def m(self):
+        pass
+    __dp__.setattr(m, "__code__", _dp_meth_C_m.__code__)
+    __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
     m = _dp_decorator_m_0(_dp_decorator_m_1(m))
     __dp__.setitem(_dp_temp_ns, "m", m)
     __dp__.setitem(_dp_prepare_ns, "m", m)

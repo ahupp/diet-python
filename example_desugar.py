@@ -44,20 +44,32 @@ def _dp_ns_A(_dp_prepare_ns):
     b = 1
     __dp__.setitem(_dp_temp_ns, "b", b)
     __dp__.setitem(_dp_prepare_ns, "b", b)
-    __dp__.setattr(_dp_meth_A___init__, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".__init__"))
-    __init__ = _dp_meth_A___init__
+
+    def __init__(self):
+        pass
+    __dp__.setattr(__init__, "__code__", _dp_meth_A___init__.__code__)
+    __dp__.setattr(__init__, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".__init__"))
     __dp__.setitem(_dp_temp_ns, "__init__", __init__)
     __dp__.setitem(_dp_prepare_ns, "__init__", __init__)
-    __dp__.setattr(_dp_meth_A_c, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".c"))
-    c = _dp_meth_A_c
+
+    def c(self, d):
+        pass
+    __dp__.setattr(c, "__code__", _dp_meth_A_c.__code__)
+    __dp__.setattr(c, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".c"))
     __dp__.setitem(_dp_temp_ns, "c", c)
     __dp__.setitem(_dp_prepare_ns, "c", c)
-    __dp__.setattr(_dp_meth_A_test_aiter, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".test_aiter"))
-    test_aiter = _dp_meth_A_test_aiter
+
+    async def test_aiter(self):
+        pass
+    __dp__.setattr(test_aiter, "__code__", _dp_meth_A_test_aiter.__code__)
+    __dp__.setattr(test_aiter, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".test_aiter"))
     __dp__.setitem(_dp_temp_ns, "test_aiter", test_aiter)
     __dp__.setitem(_dp_prepare_ns, "test_aiter", test_aiter)
-    __dp__.setattr(_dp_meth_A_d, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".d"))
-    d = _dp_meth_A_d
+
+    async def d(self):
+        pass
+    __dp__.setattr(d, "__code__", _dp_meth_A_d.__code__)
+    __dp__.setattr(d, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".d"))
     __dp__.setitem(_dp_temp_ns, "d", d)
     __dp__.setitem(_dp_prepare_ns, "d", d)
 def _dp_make_class_A():

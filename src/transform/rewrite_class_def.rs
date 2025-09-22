@@ -169,10 +169,7 @@ impl Transformer for MethodTransformer {
                             cls = self.class_expr.as_str(),
                             arg = arg.as_str()
                         ),
-                        None => py_expr!(
-                            "super({cls:id}, None)",
-                            cls = self.class_expr.as_str()
-                        ),
+                        None => py_expr!("super({cls:id}, None)", cls = self.class_expr.as_str()),
                     };
 
                     *expr = replacement;
@@ -214,6 +211,18 @@ fn rewrite_method(func_def: &mut ast::StmtFunctionDef, class_name: &str) {
     };
     for stmt in &mut func_def.body {
         walk_stmt(&mut transformer, stmt);
+    }
+}
+
+fn clear_parameter_defaults(parameters: &mut ast::Parameters) {
+    for parameter in parameters.posonlyargs.iter_mut() {
+        parameter.default = None;
+    }
+    for parameter in parameters.args.iter_mut() {
+        parameter.default = None;
+    }
+    for parameter in parameters.kwonlyargs.iter_mut() {
+        parameter.default = None;
     }
 }
 
@@ -332,25 +341,31 @@ __dp__.setitem(_dp_prepare_ns, "__annotations__", _dp_class_annotations)
                 ns_body.push(Stmt::AnnAssign(ann_assign));
             }
             Stmt::FunctionDef(mut func_def) => {
-                rewrite_method(&mut func_def, &class_name);
                 let fn_name = func_def.name.id.to_string();
+                let mut stub_def = func_def.clone();
+                stub_def.decorator_list.clear();
+                stub_def.body = py_stmt!("pass");
+
+                rewrite_method(&mut func_def, &class_name);
                 let helper_name = format!("_dp_meth_{}_{}", class_name, fn_name);
 
                 let decorators = take(&mut func_def.decorator_list);
+
+                clear_parameter_defaults(&mut func_def.parameters);
 
                 func_def.name.id = helper_name.clone().into();
 
                 method_helpers.push(Stmt::FunctionDef(func_def));
 
                 let mut method_stmts = Vec::new();
-
+                method_stmts.push(Stmt::FunctionDef(stub_def));
                 method_stmts.extend(py_stmt!(
                     r#"
-__dp__.setattr({helper_name:id}, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), {suffix:literal}))
-{fn_name:id} = {helper_name:id}
+{fn_name:id}.__code__ = {helper_name:id}.__code__
+__dp__.setattr({fn_name:id}, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), {suffix:literal}))
 "#,
-                    helper_name = helper_name.as_str(),
                     fn_name = fn_name.as_str(),
+                    helper_name = helper_name.as_str(),
                     suffix = format!(".{}", fn_name),
                 ));
 
@@ -504,8 +519,10 @@ def _dp_ns_C(_dp_prepare_ns):
     if _dp_tmp_2:
         _dp_class_annotations = __dp__.dict()
 
-    __dp__.setattr(_dp_meth_C_m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
-    m = _dp_meth_C_m
+    def m():
+        pass
+    __dp__.setattr(m, "__code__", _dp_meth_C_m.__code__)
+    __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
     __dp__.setitem(_dp_temp_ns, "m", m)
     __dp__.setitem(_dp_prepare_ns, "m", m)
 def _dp_make_class_C():
