@@ -10,6 +10,18 @@ from a.b import c
 =
 c = __dp__.import_("a.b", __spec__, __dp__.list(("c",))).c
 
+$ rewrites aliased import
+
+import a as b
+=
+b = __dp__.import_("a", __spec__, __dp__.list(("a",)))
+
+$ rewrites dotted aliased import
+
+import a.b as c
+=
+c = __dp__.import_("a.b", __spec__, __dp__.list(("b",)))
+
 $ rewrites relative import
 
 from ..a import b

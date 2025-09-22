@@ -125,6 +125,12 @@ def import_(name, spec, fromlist=None, level=0):
         for attr in fromlist:
             if attr == "*":
                 continue
+            if (
+                module_name == name
+                and "." in module_name
+                and module_name.rsplit(".", 1)[1] == attr
+            ):
+                continue
             try:
                 getattr(module, attr)
             except AttributeError as exc:
