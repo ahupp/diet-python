@@ -54,6 +54,7 @@ aiter = builtins.aiter
 anext = builtins.anext
 isinstance = builtins.isinstance
 setattr = builtins.setattr
+delattr = builtins.delattr
 tuple = builtins.tuple
 list = builtins.list
 dict = builtins.dict

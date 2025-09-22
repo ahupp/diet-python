@@ -125,10 +125,13 @@ pub(crate) fn rewrite_ann_assign(
     rewriter: &mut ExprRewriter,
     ann_assign: ast::StmtAnnAssign,
 ) -> Rewrite {
-    let ast::StmtAnnAssign { target, value, .. } = ann_assign;
-    let value = match value {
-        Some(value) => value,
-        None => return Rewrite::Visit(vec![]),
+    let ast::StmtAnnAssign {
+        target,
+        value: Some(value),
+        ..
+    } = ann_assign
+    else {
+        return Rewrite::Walk(vec![Stmt::AnnAssign(ann_assign)]);
     };
 
     let mut stmts = Vec::new();

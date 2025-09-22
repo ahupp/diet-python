@@ -69,11 +69,11 @@ $ rewrites generator assignment
 
 x = (i for i in items)
 =
-def _dp_gen_1(items):
-    _dp_iter_2 = __dp__.iter(items)
+def _dp_gen_1(_dp_iter_2):
+    _dp_iter_3 = __dp__.iter(_dp_iter_2)
     while True:
         try:
-            i = __dp__.next(_dp_iter_2)
+            i = __dp__.next(_dp_iter_3)
         except:
             __dp__.check_stopiteration()
             break
