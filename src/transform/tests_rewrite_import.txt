@@ -23,5 +23,4 @@ from __future__ import annotations
 x = 1
 =
 "doc"
-annotations = __dp__.import_("__future__", __spec__, __dp__.list(("annotations",))).annotations
 x = 1

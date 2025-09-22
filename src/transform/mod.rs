@@ -7,6 +7,7 @@ pub(crate) mod rewrite_decorator;
 pub(crate) mod rewrite_exception;
 pub(crate) mod rewrite_expr_to_stmt;
 pub(crate) mod rewrite_func_expr;
+pub(crate) mod rewrite_future_annotations;
 pub(crate) mod rewrite_import;
 pub(crate) mod rewrite_loop;
 pub(crate) mod rewrite_match_case;

@@ -77,6 +77,8 @@ fn should_skip(source: &str) -> bool {
 }
 
 fn apply_transforms(module: &mut ModModule, options: Options) {
+    transform::rewrite_future_annotations::rewrite(&mut module.body);
+
     // Lower `for` loops, expand generators and lambdas, and replace
     // `__dp__.<name>` calls with `getattr` in a single pass.
     let ctx = Context::new(options);
