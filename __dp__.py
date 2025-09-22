@@ -117,7 +117,21 @@ def import_(name, spec, fromlist=None, level=0):
     if spec is not None:
         globals_dict["__package__"] = spec.parent
         globals_dict["__name__"] = spec.name
-    return builtins.__import__(name, globals_dict, {}, fromlist, level)
+    module = builtins.__import__(name, globals_dict, {}, fromlist, level)
+    if fromlist:
+        module_name = getattr(module, "__name__", name)
+        module_file = getattr(module, "__file__", None)
+        for attr in fromlist:
+            if attr == "*":
+                continue
+            try:
+                getattr(module, attr)
+            except AttributeError as exc:
+                message = f"cannot import name {attr!r} from {module_name!r}"
+                if module_file is not None:
+                    message = f"{message} ({module_file})"
+                raise ImportError(message, name=module_name, path=module_file) from exc
+    return module
 
 
 # Tags as ints for yield from state machine
