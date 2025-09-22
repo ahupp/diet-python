@@ -355,6 +355,17 @@ _dp_temp_ns[{fn_name:literal}] = _dp_prepare_ns[{fn_name:literal}] = {fn_name:id
                     fn_name = fn_name.as_str(),
                 ));
             }
+            Stmt::ClassDef(mut class_def) => {
+                let nested_name = class_def.name.id.to_string();
+                let decorators = take(&mut class_def.decorator_list);
+
+                let nested_stmts = rewrite(class_def, decorators, rewriter).into_statements();
+                ns_body.extend(nested_stmts);
+                ns_body.extend(py_stmt!(
+                    "_dp_temp_ns[{name:literal}] = _dp_prepare_ns[{name:literal}] = {name:id}",
+                    name = nested_name.as_str(),
+                ));
+            }
             other => ns_body.push(other),
         }
     }
