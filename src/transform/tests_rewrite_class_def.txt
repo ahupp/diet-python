@@ -287,6 +287,8 @@ class C:
     def m(self):
         return 1
 =
+def _dp_meth_C_m(self):
+    return 1
 def _dp_ns_C(_dp_prepare_ns):
     _dp_temp_ns = __dp__.dict()
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
@@ -298,14 +300,8 @@ def _dp_ns_C(_dp_prepare_ns):
     _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
     if _dp_tmp_2:
         _dp_class_annotations = __dp__.dict()
-
-    def _dp_mk_m():
-
-        def m(self):
-            return 1
-        __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
-        return m
-    m = _dp_mk_m()
+    __dp__.setattr(_dp_meth_C_m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
+    m = _dp_meth_C_m
     __dp__.setitem(_dp_temp_ns, "m", m)
     __dp__.setitem(_dp_prepare_ns, "m", m)
 def _dp_make_class_C():
@@ -332,6 +328,9 @@ class C:
     def m(self):
         return super().m()
 =
+def _dp_meth_C_m(self):
+    __class__ = _dp_class_C
+    return super(__class__, self).m()
 def _dp_ns_C(_dp_prepare_ns):
     _dp_temp_ns = __dp__.dict()
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
@@ -343,15 +342,8 @@ def _dp_ns_C(_dp_prepare_ns):
     _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
     if _dp_tmp_2:
         _dp_class_annotations = __dp__.dict()
-
-    def _dp_mk_m():
-
-        def m(self):
-            __class__ = _dp_class_C
-            return super(__class__, self).m()
-        __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
-        return m
-    m = _dp_mk_m()
+    __dp__.setattr(_dp_meth_C_m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
+    m = _dp_meth_C_m
     __dp__.setitem(_dp_temp_ns, "m", m)
     __dp__.setitem(_dp_prepare_ns, "m", m)
 def _dp_make_class_C():
@@ -378,6 +370,9 @@ class C:
     def m(z):
         return super().m()
 =
+def _dp_meth_C_m(z):
+    __class__ = _dp_class_C
+    return super(__class__, z).m()
 def _dp_ns_C(_dp_prepare_ns):
     _dp_temp_ns = __dp__.dict()
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
@@ -390,14 +385,8 @@ def _dp_ns_C(_dp_prepare_ns):
     if _dp_tmp_2:
         _dp_class_annotations = __dp__.dict()
 
-    def _dp_mk_m():
-
-        def m(z):
-            __class__ = _dp_class_C
-            return super(__class__, z).m()
-        __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
-        return m
-    m = _dp_mk_m()
+    __dp__.setattr(_dp_meth_C_m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
+    m = _dp_meth_C_m
     __dp__.setitem(_dp_temp_ns, "m", m)
     __dp__.setitem(_dp_prepare_ns, "m", m)
 def _dp_make_class_C():
@@ -428,6 +417,8 @@ class C:
     def m(self):
         return self
 =
+def _dp_meth_C_m(self):
+    return self
 def _dp_ns_C(_dp_prepare_ns):
     _dp_temp_ns = __dp__.dict()
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
@@ -444,14 +435,8 @@ def _dp_ns_C(_dp_prepare_ns):
     __dp__.setitem(_dp_prepare_ns, "y", y)
     _dp_decorator_m_0 = decorator(y)
     _dp_decorator_m_1 = other
-
-    def _dp_mk_m():
-
-        def m(self):
-            return self
-        __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
-        return m
-    m = _dp_mk_m()
+    __dp__.setattr(_dp_meth_C_m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
+    m = _dp_meth_C_m
     m = _dp_decorator_m_0(_dp_decorator_m_1(m))
     __dp__.setitem(_dp_temp_ns, "m", m)
     __dp__.setitem(_dp_prepare_ns, "m", m)
