@@ -76,6 +76,7 @@ pub struct FunctionDef<S: StmtInfo = (), E: ExprInfo = ()> {
     pub info: S,
     pub name: String,
     pub params: Vec<Parameter<E>>,
+    pub returns: Option<ExprNode<E>>,
     pub body: Vec<StmtNode<S, E>>,
     pub is_async: bool,
     pub scope_vars: OuterScopeVars,
@@ -85,17 +86,21 @@ pub struct FunctionDef<S: StmtInfo = (), E: ExprInfo = ()> {
 pub enum Parameter<E: ExprInfo = ()> {
     Positional {
         name: String,
+        annotation: Option<ExprNode<E>>,
         default: Option<ExprNode<E>>,
     },
     VarArg {
         name: String,
+        annotation: Option<ExprNode<E>>,
     },
     KwOnly {
         name: String,
+        annotation: Option<ExprNode<E>>,
         default: Option<ExprNode<E>>,
     },
     KwArg {
         name: String,
+        annotation: Option<ExprNode<E>>,
     },
 }
 
@@ -186,6 +191,7 @@ impl StmtNode {
             Stmt::FunctionDef(ast::StmtFunctionDef {
                 name,
                 parameters,
+                returns,
                 body,
                 is_async,
                 ..
@@ -200,31 +206,60 @@ impl StmtNode {
                     ..
                 } = *parameters;
                 for p in posonlyargs {
+                    let ast::ParameterWithDefault {
+                        parameter, default, ..
+                    } = p;
+                    let ast::Parameter {
+                        name, annotation, ..
+                    } = parameter;
                     params.push(Parameter::Positional {
-                        name: p.parameter.name.to_string(),
-                        default: p.default.map(|d| ExprNode::from(*d)),
+                        name: name.to_string(),
+                        annotation: annotation.map(|expr| ExprNode::from(*expr)),
+                        default: default.map(|d| ExprNode::from(*d)),
                     });
                 }
                 for p in args {
+                    let ast::ParameterWithDefault {
+                        parameter, default, ..
+                    } = p;
+                    let ast::Parameter {
+                        name, annotation, ..
+                    } = parameter;
                     params.push(Parameter::Positional {
-                        name: p.parameter.name.to_string(),
-                        default: p.default.map(|d| ExprNode::from(*d)),
+                        name: name.to_string(),
+                        annotation: annotation.map(|expr| ExprNode::from(*expr)),
+                        default: default.map(|d| ExprNode::from(*d)),
                     });
                 }
                 if let Some(p) = vararg {
+                    let ast::Parameter {
+                        name, annotation, ..
+                    } = *p;
                     params.push(Parameter::VarArg {
-                        name: p.name.to_string(),
+                        name: name.to_string(),
+                        annotation: annotation.map(|expr| ExprNode::from(*expr)),
                     });
                 }
                 for p in kwonlyargs {
+                    let ast::ParameterWithDefault {
+                        parameter, default, ..
+                    } = p;
+                    let ast::Parameter {
+                        name, annotation, ..
+                    } = parameter;
                     params.push(Parameter::KwOnly {
-                        name: p.parameter.name.to_string(),
-                        default: p.default.map(|d| ExprNode::from(*d)),
+                        name: name.to_string(),
+                        annotation: annotation.map(|expr| ExprNode::from(*expr)),
+                        default: default.map(|d| ExprNode::from(*d)),
                     });
                 }
                 if let Some(p) = kwarg {
+                    let ast::Parameter {
+                        name, annotation, ..
+                    } = *p;
                     params.push(Parameter::KwArg {
-                        name: p.name.to_string(),
+                        name: name.to_string(),
+                        annotation: annotation.map(|expr| ExprNode::from(*expr)),
                     });
                 }
                 let mut fn_scope_vars = OuterScopeVars::default();
@@ -233,6 +268,7 @@ impl StmtNode {
                     info: (),
                     name: name.to_string(),
                     params,
+                    returns: returns.map(|expr| ExprNode::from(*expr)),
                     body,
                     is_async,
                     scope_vars: fn_scope_vars,

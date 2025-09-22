@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from tests._integration import transformed_module
 
 
@@ -19,7 +17,7 @@ class Example:
     assert Example.a is Example.b
 
 
-def test_dataclass_field_annotations_are_dropped(tmp_path: Path) -> None:
+def test_dataclass_field_annotations_are_retained(tmp_path: Path) -> None:
     source = """
 import dataclasses
 
@@ -31,5 +29,6 @@ class Example:
     with transformed_module(tmp_path, "dataclass_module", source) as module:
         Example = module.Example
 
-    with pytest.raises(TypeError, match="unexpected keyword argument 'value'"):
-        Example(value=1)
+    instance = Example(value=1)
+    assert instance.value == 1
+    assert Example.__annotations__["value"] is int

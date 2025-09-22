@@ -765,10 +765,7 @@ b = 2
 
     #[test]
     fn inserts_empty_stmt_from_iterator() {
-        let actual = py_stmt!(
-            "{body:stmt}",
-            body = Vec::<Stmt>::new().into_iter(),
-        );
+        let actual = py_stmt!("{body:stmt}", body = Vec::<Stmt>::new().into_iter(),);
         let expected: Vec<Stmt> = Vec::new();
         assert_ast_eq(actual, expected);
     }

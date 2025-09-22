@@ -167,26 +167,57 @@ impl LiteralBuilder {
 
     fn parameter_to_rust_literal(&self, parameter: &Parameter) -> String {
         match parameter {
-            Parameter::Positional { name, default } => format!(
-                "Parameter::Positional {{ name: {name}, default: {default} }}",
+            Parameter::Positional {
+                name,
+                annotation,
+                default,
+            } => format!(
+                "Parameter::Positional {{ name: {name}, annotation: {annotation}, default: {default} }}",
                 name = self.string_literal(name),
+                annotation = self.option_literal(
+                    annotation
+                        .as_ref()
+                        .map(|expr| self.expr_to_rust_literal(expr))
+                ),
                 default = self
                     .option_literal(default.as_ref().map(|expr| self.expr_to_rust_literal(expr)))
             ),
-            Parameter::VarArg { name } => {
+            Parameter::VarArg { name, annotation } => {
                 format!(
-                    "Parameter::VarArg {{ name: {} }}",
-                    self.string_literal(name)
+                    "Parameter::VarArg {{ name: {}, annotation: {} }}",
+                    self.string_literal(name),
+                    self.option_literal(
+                        annotation
+                            .as_ref()
+                            .map(|expr| self.expr_to_rust_literal(expr))
+                    )
                 )
             }
-            Parameter::KwOnly { name, default } => format!(
-                "Parameter::KwOnly {{ name: {name}, default: {default} }}",
+            Parameter::KwOnly {
+                name,
+                annotation,
+                default,
+            } => format!(
+                "Parameter::KwOnly {{ name: {name}, annotation: {annotation}, default: {default} }}",
                 name = self.string_literal(name),
+                annotation = self.option_literal(
+                    annotation
+                        .as_ref()
+                        .map(|expr| self.expr_to_rust_literal(expr))
+                ),
                 default = self
                     .option_literal(default.as_ref().map(|expr| self.expr_to_rust_literal(expr)))
             ),
-            Parameter::KwArg { name } => {
-                format!("Parameter::KwArg {{ name: {} }}", self.string_literal(name))
+            Parameter::KwArg { name, annotation } => {
+                format!(
+                    "Parameter::KwArg {{ name: {}, annotation: {} }}",
+                    self.string_literal(name),
+                    self.option_literal(
+                        annotation
+                            .as_ref()
+                            .map(|expr| self.expr_to_rust_literal(expr))
+                    )
+                )
             }
         }
     }
@@ -310,10 +341,16 @@ impl LiteralBuilder {
 
     fn function_def_to_literal(&self, func: &FunctionDef) -> String {
         format!(
-            "FunctionDef {{ info: {info}, name: {name}, params: {params}, body: {body}, is_async: {is_async}, scope_vars: {scope} }}",
+            "FunctionDef {{ info: {info}, name: {name}, params: {params}, returns: {returns}, body: {body}, is_async: {is_async}, scope_vars: {scope} }}",
             info = self.info_to_literal(&func.info),
             name = self.string_literal(&func.name),
             params = self.parameters_to_literal(&func.params),
+            returns = self.option_literal(
+                func
+                    .returns
+                    .as_ref()
+                    .map(|expr| self.expr_to_rust_literal(expr))
+            ),
             body = self.stmt_vec_to_literal(&func.body),
             is_async = format!("{:?}", func.is_async),
             scope = self.outer_scope_vars_to_literal(&func.scope_vars)
