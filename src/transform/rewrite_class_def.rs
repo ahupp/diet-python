@@ -85,18 +85,25 @@ impl Transformer for LoadBeforeStoreCollector {
             }
             Stmt::AnnAssign(ast::StmtAnnAssign {
                 target,
-                value: Some(value),
+                annotation,
+                value,
                 ..
             }) => {
-                self.visit_expr(value);
-                self.visit_expr(target);
+                if let Some(value) = value.as_mut() {
+                    self.visit_expr(value);
+                    self.visit_expr(target);
 
-                if let Expr::Name(ast::ExprName { id, .. }) = target.as_ref() {
-                    let name = id.as_str();
-                    if self.loads.contains(name) {
-                        self.captured_names.insert(name.to_string());
+                    if let Expr::Name(ast::ExprName { id, .. }) = target.as_ref() {
+                        let name = id.as_str();
+                        if self.loads.contains(name) {
+                            self.captured_names.insert(name.to_string());
+                        }
                     }
+                } else {
+                    self.visit_expr(target);
                 }
+
+                self.visit_expr(annotation);
             }
             _ => walk_stmt(self, stmt),
         }
@@ -245,6 +252,16 @@ pub fn rewrite(
             original_body.remove(0);
         }
     }
+    ns_body.extend(py_stmt!(
+        r#"
+_dp_class_annotations = _dp_temp_ns.get("__annotations__")
+if _dp_class_annotations is None:
+    _dp_class_annotations = __dp__.dict()
+"#
+    ));
+
+    let mut has_class_annotations = false;
+
     for stmt in original_body {
         match stmt {
             Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
@@ -263,15 +280,41 @@ pub fn rewrite(
                     }
                 }
             }
-            Stmt::AnnAssign(ast::StmtAnnAssign {
-                target,
-                value: Some(v),
-                ..
-            }) => {
-                if let Expr::Name(ast::ExprName { id, .. }) = target.as_ref() {
-                    let name = id.as_str().to_string();
-                    extend_body_with_value(rewriter, &mut ns_body, name.as_str(), *v);
+            Stmt::AnnAssign(mut ann_assign) => {
+                if ann_assign.simple {
+                    if let Expr::Name(ast::ExprName { id, .. }) = ann_assign.target.as_ref() {
+                        let name = id.as_str().to_string();
+
+                        if let Some(value) = ann_assign.value.take() {
+                            extend_body_with_value(rewriter, &mut ns_body, name.as_str(), *value);
+                        }
+
+                        if !has_class_annotations {
+                            ns_body.extend(py_stmt!(
+                                r#"
+if _dp_temp_ns.get("__annotations__") is None:
+    __dp__.setitem(_dp_temp_ns, "__annotations__", _dp_class_annotations)
+__dp__.setitem(_dp_prepare_ns, "__annotations__", _dp_class_annotations)
+"#
+                            ));
+                            has_class_annotations = true;
+                        }
+
+                        let (ann_stmts, annotation_expr) =
+                            rewriter.maybe_placeholder_within(*ann_assign.annotation);
+                        ns_body.extend(ann_stmts);
+
+                        ns_body.extend(py_stmt!(
+                            "_dp_class_annotations[{name:literal}] = {annotation:expr}",
+                            name = name.as_str(),
+                            annotation = annotation_expr,
+                        ));
+
+                        continue;
+                    }
                 }
+
+                ns_body.push(Stmt::AnnAssign(ann_assign));
             }
             Stmt::FunctionDef(mut func_def) => {
                 rewrite_method(&mut func_def, &class_name);
@@ -400,13 +443,8 @@ _dp_class_{class_name:id} = _dp_make_class_{class_name:id}()
     ));
 
     Rewrite::Visit(
-        rewrite_decorator::rewrite(
-            decorators,
-            class_name.as_str(),
-            ns_fn,
-            rewriter.context(),
-        )
-        .into_statements(),
+        rewrite_decorator::rewrite(decorators, class_name.as_str(), ns_fn, rewriter.context())
+            .into_statements(),
     )
 }
 
