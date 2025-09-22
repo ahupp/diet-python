@@ -32,3 +32,21 @@ class Example:
     instance = Example(value=1)
     assert instance.value == 1
     assert Example.__annotations__["value"] is int
+
+
+def test_nested_class_is_bound_to_enclosing_class(tmp_path: Path) -> None:
+    source = """
+class Container:
+    class Member:
+        pass
+
+
+def get_member() -> type | None:
+    return getattr(Container, "Member", None)
+"""
+
+    with transformed_module(tmp_path, "nested_class_binding", source) as module:
+        Container = module.Container
+        get_member = module.get_member
+
+    assert get_member() is Container.Member
