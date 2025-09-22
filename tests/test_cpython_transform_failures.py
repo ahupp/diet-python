@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
-from tests._integration import transformed_module
+from tests._integration import ROOT, transformed_module
 
 
 def test_chained_assignment_in_class_preserves_identity(tmp_path: Path) -> None:
@@ -32,6 +33,31 @@ class Example:
     instance = Example(value=1)
     assert instance.value == 1
     assert Example.__annotations__["value"] is int
+
+
+def test_frozen_dataclass_attribute_initialization_succeeds(tmp_path: Path) -> None:
+    source = """
+import dataclasses
+import importlib
+
+dataclasses = importlib.reload(dataclasses)
+
+@dataclasses.dataclass(frozen=True)
+class Example:
+    value: int
+"""
+
+    stdlib_path = ROOT / "cpython" / "Lib"
+    sys.path.insert(0, str(stdlib_path))
+
+    try:
+        with transformed_module(tmp_path, "frozen_dataclass", source) as module:
+            Example = module.Example
+    finally:
+        sys.path.remove(str(stdlib_path))
+
+    instance = Example(value=1)
+    assert instance.value == 1
 
 
 def test_nested_class_is_bound_to_enclosing_class(tmp_path: Path) -> None:
