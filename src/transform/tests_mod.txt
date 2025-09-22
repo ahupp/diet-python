@@ -46,9 +46,10 @@ def _dp_ns_Foo(_dp_prepare_ns):
     _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
     if _dp_tmp_2:
         _dp_class_annotations = __dp__.dict()
-
-    __dp__.setattr(_dp_meth_Foo_method, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".method"))
-    method = _dp_meth_Foo_method
+    def method(self):
+        pass
+    __dp__.setattr(method, "__code__", _dp_meth_Foo_method.__code__)
+    __dp__.setattr(method, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".method"))
     __dp__.setitem(_dp_temp_ns, "method", method)
     __dp__.setitem(_dp_prepare_ns, "method", method)
 def _dp_make_class_Foo():
