@@ -14,7 +14,7 @@ $ rewrites aliased import
 
 import a as b
 =
-b = __dp__.import_("a", __spec__, __dp__.list(("a",)))
+b = __dp__.import_("a", __spec__)
 
 $ rewrites dotted aliased import
 
