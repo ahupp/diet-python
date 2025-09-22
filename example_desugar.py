@@ -48,6 +48,8 @@ def _dp_ns_A(_dp_prepare_ns):
     def __init__(self):
         pass
     __dp__.setattr(__init__, "__code__", _dp_meth_A___init__.__code__)
+    __dp__.setattr(__init__, "__doc__", _dp_meth_A___init__.__doc__)
+    __dp__.setattr(__init__, "__annotations__", _dp_meth_A___init__.__annotations__)
     __dp__.setattr(__init__, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".__init__"))
     __dp__.setitem(_dp_temp_ns, "__init__", __init__)
     __dp__.setitem(_dp_prepare_ns, "__init__", __init__)
@@ -55,6 +57,8 @@ def _dp_ns_A(_dp_prepare_ns):
     def c(self, d):
         pass
     __dp__.setattr(c, "__code__", _dp_meth_A_c.__code__)
+    __dp__.setattr(c, "__doc__", _dp_meth_A_c.__doc__)
+    __dp__.setattr(c, "__annotations__", _dp_meth_A_c.__annotations__)
     __dp__.setattr(c, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".c"))
     __dp__.setitem(_dp_temp_ns, "c", c)
     __dp__.setitem(_dp_prepare_ns, "c", c)
@@ -62,6 +66,8 @@ def _dp_ns_A(_dp_prepare_ns):
     async def test_aiter(self):
         pass
     __dp__.setattr(test_aiter, "__code__", _dp_meth_A_test_aiter.__code__)
+    __dp__.setattr(test_aiter, "__doc__", _dp_meth_A_test_aiter.__doc__)
+    __dp__.setattr(test_aiter, "__annotations__", _dp_meth_A_test_aiter.__annotations__)
     __dp__.setattr(test_aiter, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".test_aiter"))
     __dp__.setitem(_dp_temp_ns, "test_aiter", test_aiter)
     __dp__.setitem(_dp_prepare_ns, "test_aiter", test_aiter)
@@ -69,6 +75,8 @@ def _dp_ns_A(_dp_prepare_ns):
     async def d(self):
         pass
     __dp__.setattr(d, "__code__", _dp_meth_A_d.__code__)
+    __dp__.setattr(d, "__doc__", _dp_meth_A_d.__doc__)
+    __dp__.setattr(d, "__annotations__", _dp_meth_A_d.__annotations__)
     __dp__.setattr(d, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".d"))
     __dp__.setitem(_dp_temp_ns, "d", d)
     __dp__.setitem(_dp_prepare_ns, "d", d)

@@ -362,6 +362,8 @@ __dp__.setitem(_dp_prepare_ns, "__annotations__", _dp_class_annotations)
                 method_stmts.extend(py_stmt!(
                     r#"
 {fn_name:id}.__code__ = {helper_name:id}.__code__
+__dp__.setattr({fn_name:id}, "__doc__", {helper_name:id}.__doc__)
+__dp__.setattr({fn_name:id}, "__annotations__", {helper_name:id}.__annotations__)
 __dp__.setattr({fn_name:id}, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), {suffix:literal}))
 "#,
                     fn_name = fn_name.as_str(),
@@ -522,6 +524,8 @@ def _dp_ns_C(_dp_prepare_ns):
     def m():
         pass
     __dp__.setattr(m, "__code__", _dp_meth_C_m.__code__)
+    __dp__.setattr(m, "__doc__", _dp_meth_C_m.__doc__)
+    __dp__.setattr(m, "__annotations__", _dp_meth_C_m.__annotations__)
     __dp__.setattr(m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
     __dp__.setitem(_dp_temp_ns, "m", m)
     __dp__.setitem(_dp_prepare_ns, "m", m)
