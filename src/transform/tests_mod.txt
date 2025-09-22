@@ -49,6 +49,8 @@ def _dp_ns_Foo(_dp_prepare_ns):
     def method(self):
         pass
     __dp__.setattr(method, "__code__", _dp_meth_Foo_method.__code__)
+    __dp__.setattr(method, "__doc__", _dp_meth_Foo_method.__doc__)
+    __dp__.setattr(method, "__annotations__", _dp_meth_Foo_method.__annotations__)
     __dp__.setattr(method, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".method"))
     __dp__.setitem(_dp_temp_ns, "method", method)
     __dp__.setitem(_dp_prepare_ns, "method", method)
