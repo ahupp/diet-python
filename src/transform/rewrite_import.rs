@@ -26,11 +26,24 @@ pub fn rewrite(ast::StmtImport { names, .. }: ast::StmtImport) -> Rewrite {
                     .as_ref()
                     .map(|n| n.id.as_str())
                     .unwrap_or_else(|| module_name.split('.').next().unwrap());
-                py_stmt!(
-                    "{name:id} = __dp__.import_({module:literal}, __spec__)",
-                    name = binding,
-                    module = module_name.as_str(),
-                )
+                if alias.asname.is_some() {
+                    let attr = module_name
+                        .rsplit_once('.')
+                        .map(|(_, last)| last)
+                        .unwrap_or(module_name.as_str());
+                    py_stmt!(
+                        "{name:id} = __dp__.import_({module:literal}, __spec__, __dp__.list(({attr:literal},)))",
+                        name = binding,
+                        module = module_name.as_str(),
+                        attr = attr,
+                    )
+                } else {
+                    py_stmt!(
+                        "{name:id} = __dp__.import_({module:literal}, __spec__)",
+                        name = binding,
+                        module = module_name.as_str(),
+                    )
+                }
             })
             .flatten()
             .collect(),
