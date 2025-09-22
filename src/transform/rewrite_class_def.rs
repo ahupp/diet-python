@@ -136,7 +136,7 @@ impl Transformer for LoadBeforeStoreCollector {
 }
 
 struct MethodTransformer {
-    uses_class: bool,
+    class_expr: String,
     first_arg: Option<String>,
 }
 
@@ -149,28 +149,48 @@ impl Transformer for MethodTransformer {
     }
 
     fn visit_expr(&mut self, expr: &mut Expr) {
-        walk_expr(self, expr);
         match expr {
             Expr::Call(call) => {
-                if let Expr::Name(ast::ExprName { id, .. }) = call.func.as_ref() {
-                    if id == "super"
-                        && call.arguments.args.is_empty()
-                        && call.arguments.keywords.is_empty()
-                    {
-                        if let Some(arg) = &self.first_arg {
-                            *expr = py_expr!("super(__class__, {arg:id})", arg = arg.as_str());
-                            self.uses_class = true;
-                        }
-                    }
+                let is_zero_arg_super =
+                    if let Expr::Name(ast::ExprName { id, .. }) = call.func.as_ref() {
+                        id == "super"
+                            && call.arguments.args.is_empty()
+                            && call.arguments.keywords.is_empty()
+                    } else {
+                        false
+                    };
+
+                if is_zero_arg_super {
+                    walk_expr(self, expr);
+
+                    let replacement = match &self.first_arg {
+                        Some(arg) => py_expr!(
+                            "super({cls:id}, {arg:id})",
+                            cls = self.class_expr.as_str(),
+                            arg = arg.as_str()
+                        ),
+                        None => py_expr!(
+                            "super({cls:id}, None)",
+                            cls = self.class_expr.as_str()
+                        ),
+                    };
+
+                    *expr = replacement;
+                } else {
+                    walk_expr(self, expr);
                 }
+                return;
             }
-            Expr::Name(ast::ExprName { id, .. }) => {
-                if id == "__class__" {
-                    self.uses_class = true;
+            Expr::Name(ast::ExprName { id, ctx, .. }) => {
+                if id == "__class__" && matches!(ctx, ExprContext::Load) {
+                    *expr = py_expr!("{cls:id}", cls = self.class_expr.as_str());
                 }
+                return;
             }
             _ => {}
         }
+
+        walk_expr(self, expr);
     }
 }
 
@@ -189,17 +209,11 @@ fn rewrite_method(func_def: &mut ast::StmtFunctionDef, class_name: &str) {
         });
 
     let mut transformer = MethodTransformer {
-        uses_class: false,
+        class_expr: class_name.to_string(),
         first_arg,
     };
     for stmt in &mut func_def.body {
         walk_stmt(&mut transformer, stmt);
-    }
-    if transformer.uses_class {
-        let cls_name = format!("_dp_class_{}", class_name);
-        let mut assign = py_stmt!("__class__ = {c:id}", c = cls_name.as_str());
-        assign.extend(func_def.body.drain(..));
-        func_def.body = assign;
     }
 }
 
@@ -465,5 +479,56 @@ _dp_class_{class_name:id} = _dp_make_class_{class_name:id}()
 
 #[cfg(test)]
 mod tests {
+    use crate::test_util::assert_transform_eq;
+
+    #[test]
+    fn rewrites_without_first_parameter_for_super() {
+        assert_transform_eq(
+            r#"
+class C:
+    def m():
+        return super().m()
+"#,
+            r#"
+def _dp_meth_C_m():
+    return super(C, None).m()
+def _dp_ns_C(_dp_prepare_ns):
+    _dp_temp_ns = __dp__.dict()
+    __dp__.setitem(_dp_temp_ns, "__module__", __name__)
+    __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
+    _dp_tmp_1 = "C"
+    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_1)
+    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_1)
+    _dp_class_annotations = _dp_temp_ns.get("__annotations__")
+    _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_2:
+        _dp_class_annotations = __dp__.dict()
+
+    __dp__.setattr(_dp_meth_C_m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
+    m = _dp_meth_C_m
+    __dp__.setitem(_dp_temp_ns, "m", m)
+    __dp__.setitem(_dp_prepare_ns, "m", m)
+def _dp_make_class_C():
+    orig_bases = ()
+    bases = __dp__.resolve_bases(orig_bases)
+    _dp_tmp_3 = __dp__.prepare_class("C", bases, None)
+    meta = __dp__.getitem(_dp_tmp_3, 0)
+    ns = __dp__.getitem(_dp_tmp_3, 1)
+    kwds = __dp__.getitem(_dp_tmp_3, 2)
+    _dp_ns_C(ns)
+    _dp_tmp_5 = __dp__.is_not(orig_bases, bases)
+    _dp_tmp_4 = _dp_tmp_5
+    if _dp_tmp_4:
+        _dp_tmp_6 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
+        _dp_tmp_4 = _dp_tmp_6
+    if _dp_tmp_4:
+        __dp__.setitem(ns, "__orig_bases__", orig_bases)
+    return meta("C", bases, ns, **kwds)
+_dp_class_C = _dp_make_class_C()
+C = _dp_class_C
+"#,
+        );
+    }
+
     crate::transform_fixture_test!("tests_rewrite_class_def.txt");
 }
