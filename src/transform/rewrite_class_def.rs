@@ -261,6 +261,7 @@ if _dp_class_annotations is None:
     ));
 
     let mut has_class_annotations = false;
+    let mut method_helpers: Vec<Stmt> = Vec::new();
 
     for stmt in original_body {
         match stmt {
@@ -319,24 +320,24 @@ __dp__.setitem(_dp_prepare_ns, "__annotations__", _dp_class_annotations)
             Stmt::FunctionDef(mut func_def) => {
                 rewrite_method(&mut func_def, &class_name);
                 let fn_name = func_def.name.id.to_string();
+                let helper_name = format!("_dp_meth_{}_{}", class_name, fn_name);
 
                 let decorators = take(&mut func_def.decorator_list);
 
-                let mut method_stmts = py_stmt!(
-                    r#"
-def _dp_mk_{fn_name:id}():
-    {fn_def:stmt}
-    {fn_name:id}.__qualname__ = _dp_prepare_ns["__qualname__"] + {suffix:literal}
-    return {fn_name:id}
-"#,
-                    fn_def = Stmt::FunctionDef(func_def),
-                    fn_name = fn_name.as_str(),
-                    suffix = format!(".{}", fn_name)
-                );
+                func_def.name.id = helper_name.clone().into();
+
+                method_helpers.push(Stmt::FunctionDef(func_def));
+
+                let mut method_stmts = Vec::new();
 
                 method_stmts.extend(py_stmt!(
-                    "{fn_name:id} = _dp_mk_{fn_name:id}()",
+                    r#"
+__dp__.setattr({helper_name:id}, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), {suffix:literal}))
+{fn_name:id} = {helper_name:id}
+"#,
+                    helper_name = helper_name.as_str(),
                     fn_name = fn_name.as_str(),
+                    suffix = format!(".{}", fn_name),
                 ));
 
                 let method_stmts = rewrite_decorator::rewrite(
@@ -453,10 +454,13 @@ _dp_class_{class_name:id} = _dp_make_class_{class_name:id}()
         prepare_dict = prepare_dict,
     ));
 
-    Rewrite::Visit(
+    let mut result = method_helpers;
+    result.extend(
         rewrite_decorator::rewrite(decorators, class_name.as_str(), ns_fn, rewriter.context())
             .into_statements(),
-    )
+    );
+
+    Rewrite::Visit(result)
 }
 
 #[cfg(test)]

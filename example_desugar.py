@@ -6,74 +6,58 @@ _dp_decorator_add_1 = bar(1, 2)
 def add(a, b):
     return __dp__.add(a, b)
 add = _dp_decorator_add_0(_dp_decorator_add_1(add))
+def _dp_meth_A___init__(self):
+    __dp__.setattr(self, "arr", __dp__.list((1, 2, 3)))
+def _dp_meth_A_c(self, d):
+    return add(d, 2)
+async def _dp_meth_A_test_aiter(self):
+    _dp_iter_1 = __dp__.iter(range(10))
+    while True:
+        try:
+            i = __dp__.next(_dp_iter_1)
+        except:
+            __dp__.check_stopiteration()
+            break
+        else:
+            yield i
+async def _dp_meth_A_d(self):
+    _dp_iter_2 = __dp__.aiter(self.test_aiter())
+    while True:
+        try:
+            i = await __dp__.anext(_dp_iter_2)
+        except:
+            __dp__.acheck_stopiteration()
+            break
+        else:
+            print(i)
 def _dp_ns_A(_dp_prepare_ns):
     _dp_temp_ns = __dp__.dict()
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
     __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
-    _dp_tmp_1 = "A"
-    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_1)
-    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_1)
+    _dp_tmp_3 = "A"
+    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_3)
+    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_3)
     _dp_class_annotations = _dp_temp_ns.get("__annotations__")
-    _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_2:
+    _dp_tmp_4 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_4:
         _dp_class_annotations = __dp__.dict()
     b = 1
     __dp__.setitem(_dp_temp_ns, "b", b)
     __dp__.setitem(_dp_prepare_ns, "b", b)
-
-    def _dp_mk___init__():
-
-        def __init__(self):
-            __dp__.setattr(self, "arr", __dp__.list((1, 2, 3)))
-        __dp__.setattr(__init__, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".__init__"))
-        return __init__
-    __init__ = _dp_mk___init__()
+    __dp__.setattr(_dp_meth_A___init__, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".__init__"))
+    __init__ = _dp_meth_A___init__
     __dp__.setitem(_dp_temp_ns, "__init__", __init__)
     __dp__.setitem(_dp_prepare_ns, "__init__", __init__)
-
-    def _dp_mk_c():
-
-        def c(self, d):
-            return add(d, 2)
-        __dp__.setattr(c, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".c"))
-        return c
-    c = _dp_mk_c()
+    __dp__.setattr(_dp_meth_A_c, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".c"))
+    c = _dp_meth_A_c
     __dp__.setitem(_dp_temp_ns, "c", c)
     __dp__.setitem(_dp_prepare_ns, "c", c)
-
-    def _dp_mk_test_aiter():
-
-        async def test_aiter(self):
-            _dp_iter_3 = __dp__.iter(range(10))
-            while True:
-                try:
-                    i = __dp__.next(_dp_iter_3)
-                except:
-                    __dp__.check_stopiteration()
-                    break
-                else:
-                    yield i
-        __dp__.setattr(test_aiter, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".test_aiter"))
-        return test_aiter
-    test_aiter = _dp_mk_test_aiter()
+    __dp__.setattr(_dp_meth_A_test_aiter, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".test_aiter"))
+    test_aiter = _dp_meth_A_test_aiter
     __dp__.setitem(_dp_temp_ns, "test_aiter", test_aiter)
     __dp__.setitem(_dp_prepare_ns, "test_aiter", test_aiter)
-
-    def _dp_mk_d():
-
-        async def d(self):
-            _dp_iter_4 = __dp__.aiter(self.test_aiter())
-            while True:
-                try:
-                    i = await __dp__.anext(_dp_iter_4)
-                except:
-                    __dp__.acheck_stopiteration()
-                    break
-                else:
-                    print(i)
-        __dp__.setattr(d, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".d"))
-        return d
-    d = _dp_mk_d()
+    __dp__.setattr(_dp_meth_A_d, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".d"))
+    d = _dp_meth_A_d
     __dp__.setitem(_dp_temp_ns, "d", d)
     __dp__.setitem(_dp_prepare_ns, "d", d)
 def _dp_make_class_A():

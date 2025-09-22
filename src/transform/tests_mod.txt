@@ -33,6 +33,8 @@ class Foo:
     def method(self):
         return 1
 =
+def _dp_meth_Foo_method(self):
+    return 1
 def _dp_ns_Foo(_dp_prepare_ns):
     _dp_temp_ns = __dp__.dict()
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
@@ -45,13 +47,8 @@ def _dp_ns_Foo(_dp_prepare_ns):
     if _dp_tmp_2:
         _dp_class_annotations = __dp__.dict()
 
-    def _dp_mk_method():
-
-        def method(self):
-            return 1
-        __dp__.setattr(method, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".method"))
-        return method
-    method = _dp_mk_method()
+    __dp__.setattr(_dp_meth_Foo_method, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".method"))
+    method = _dp_meth_Foo_method
     __dp__.setitem(_dp_temp_ns, "method", method)
     __dp__.setitem(_dp_prepare_ns, "method", method)
 def _dp_make_class_Foo():
