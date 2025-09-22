@@ -329,8 +329,7 @@ class C:
         return super().m()
 =
 def _dp_meth_C_m(self):
-    __class__ = _dp_class_C
-    return super(__class__, self).m()
+    return super(C, self).m()
 def _dp_ns_C(_dp_prepare_ns):
     _dp_temp_ns = __dp__.dict()
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
@@ -371,8 +370,49 @@ class C:
         return super().m()
 =
 def _dp_meth_C_m(z):
-    __class__ = _dp_class_C
-    return super(__class__, z).m()
+    return super(C, z).m()
+def _dp_ns_C(_dp_prepare_ns):
+    _dp_temp_ns = __dp__.dict()
+    __dp__.setitem(_dp_temp_ns, "__module__", __name__)
+    __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
+    _dp_tmp_1 = "C"
+    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_1)
+    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_1)
+    _dp_class_annotations = _dp_temp_ns.get("__annotations__")
+    _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_2:
+        _dp_class_annotations = __dp__.dict()
+
+    __dp__.setattr(_dp_meth_C_m, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
+    m = _dp_meth_C_m
+    __dp__.setitem(_dp_temp_ns, "m", m)
+    __dp__.setitem(_dp_prepare_ns, "m", m)
+def _dp_make_class_C():
+    orig_bases = ()
+    bases = __dp__.resolve_bases(orig_bases)
+    _dp_tmp_3 = __dp__.prepare_class("C", bases, None)
+    meta = __dp__.getitem(_dp_tmp_3, 0)
+    ns = __dp__.getitem(_dp_tmp_3, 1)
+    kwds = __dp__.getitem(_dp_tmp_3, 2)
+    _dp_ns_C(ns)
+    _dp_tmp_5 = __dp__.is_not(orig_bases, bases)
+    _dp_tmp_4 = _dp_tmp_5
+    if _dp_tmp_4:
+        _dp_tmp_6 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
+        _dp_tmp_4 = _dp_tmp_6
+    if _dp_tmp_4:
+        __dp__.setitem(ns, "__orig_bases__", orig_bases)
+    return meta("C", bases, ns, **kwds)
+_dp_class_C = _dp_make_class_C()
+C = _dp_class_C
+$ rewrites super without receiver
+
+class C:
+    def m():
+        return super().m()
+=
+def _dp_meth_C_m():
+    return super(C, None).m()
 def _dp_ns_C(_dp_prepare_ns):
     _dp_temp_ns = __dp__.dict()
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
