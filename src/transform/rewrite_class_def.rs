@@ -408,13 +408,13 @@ if _dp_class_annotations is None:
                 value: v,
             })
             .collect();
-        Expr::Dict(ast::ExprDict {
+        Some(Expr::Dict(ast::ExprDict {
             node_index: ast::AtomicNodeIndex::default(),
             range: TextRange::default(),
             items,
-        })
+        }))
     } else {
-        py_expr!("None")
+        None
     };
 
     let mut ns_fn = py_stmt!(
@@ -430,29 +430,30 @@ def _dp_ns_{class_name:id}(_dp_prepare_ns, _dp_add_binding):
         unreachable!("expected function definition for namespace helper");
     }
 
-    ns_fn.extend(py_stmt!(
-        r#"
-def _dp_make_class_{class_name:id}():
-    orig_bases = {bases:expr}
-    bases = __dp__.resolve_bases(orig_bases)
-    meta, ns, kwds = __dp__.prepare_class({class_name:literal}, bases, {prepare_dict:expr})
-    _dp_temp_ns = __dp__.dict()
-    def _dp_add_binding(name: str, value):
-        __dp__.setitem(_dp_temp_ns, name, value)
-        __dp__.setitem(ns, name, value)
-        return value
-    _dp_ns_{class_name:id}(ns, _dp_add_binding)
-    if orig_bases is not bases and "__orig_bases__" not in ns:
-        ns["__orig_bases__"] = orig_bases
-    return meta({class_name:literal}, bases, ns, **kwds)
+    let bases_tuple = make_tuple(bases);
 
-_dp_class_{class_name:id} = _dp_make_class_{class_name:id}()
+    let class_helper = if let Some(prepare_dict) = prepare_dict {
+        py_stmt!(
+            r#"
+_dp_class_{class_name:id} = __dp__.create_class({class_name:literal}, _dp_ns_{class_name:id}, {bases:expr}, {prepare_dict:expr})
 {class_name:id} = _dp_class_{class_name:id}
 "#,
-        class_name = class_name.as_str(),
-        bases = make_tuple(bases),
-        prepare_dict = prepare_dict,
-    ));
+            class_name = class_name.as_str(),
+            bases = bases_tuple.clone(),
+            prepare_dict = prepare_dict,
+        )
+    } else {
+        py_stmt!(
+            r#"
+_dp_class_{class_name:id} = __dp__.create_class({class_name:literal}, _dp_ns_{class_name:id}, {bases:expr})
+{class_name:id} = _dp_class_{class_name:id}
+"#,
+            class_name = class_name.as_str(),
+            bases = bases_tuple,
+        )
+    };
+
+    ns_fn.extend(class_helper);
 
     let mut result = Vec::new();
     result.extend(
@@ -487,29 +488,7 @@ def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
     def _dp_var_m_1():
         return super(C, None).m()
     _dp_var_m_1 = _dp_add_binding("m", _dp_var_m_1)
-def _dp_make_class_C():
-    orig_bases = ()
-    bases = __dp__.resolve_bases(orig_bases)
-    _dp_tmp_3 = __dp__.prepare_class("C", bases, None)
-    meta = __dp__.getitem(_dp_tmp_3, 0)
-    ns = __dp__.getitem(_dp_tmp_3, 1)
-    kwds = __dp__.getitem(_dp_tmp_3, 2)
-    _dp_temp_ns = __dp__.dict()
-
-    def _dp_add_binding(name: str, value):
-        __dp__.setitem(_dp_temp_ns, name, value)
-        __dp__.setitem(ns, name, value)
-        return value
-    _dp_ns_C(ns, _dp_add_binding)
-    _dp_tmp_5 = __dp__.is_not(orig_bases, bases)
-    _dp_tmp_4 = _dp_tmp_5
-    if _dp_tmp_4:
-        _dp_tmp_6 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
-        _dp_tmp_4 = _dp_tmp_6
-    if _dp_tmp_4:
-        __dp__.setitem(ns, "__orig_bases__", orig_bases)
-    return meta("C", bases, ns, **kwds)
-_dp_class_C = _dp_make_class_C()
+_dp_class_C = __dp__.create_class("C", _dp_ns_C, ())
 C = _dp_class_C
 "#,
         );
