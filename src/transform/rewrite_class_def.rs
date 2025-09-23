@@ -406,6 +406,11 @@ if _dp_class_annotations is None:
 
                     let mut method_stmts = Vec::new();
                     method_stmts.push(Stmt::FunctionDef(func_def));
+                    method_stmts.extend(py_stmt!(
+                        "{fn_name:id}.__name__ = {original_name:literal}",
+                        fn_name = fn_name.as_str(),
+                        original_name = original_fn_name.as_str(),
+                    ));
 
                     let method_stmts = rewrite_decorator::rewrite(
                         decorators,
@@ -553,6 +558,7 @@ def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
 
     def _dp_var_m_1():
         return super(C, None).m()
+    __dp__.setattr(_dp_var_m_1, "__name__", "m")
     _dp_var_m_1 = _dp_add_binding("m", _dp_var_m_1)
 _dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C

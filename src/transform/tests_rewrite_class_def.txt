@@ -131,6 +131,7 @@ def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
 
     def _dp_var_m_1(self):
         return 1
+    __dp__.setattr(_dp_var_m_1, "__name__", "m")
     _dp_var_m_1 = _dp_add_binding("m", _dp_var_m_1)
 _dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C
@@ -150,6 +151,7 @@ def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
 
     def _dp_var_m_1(self):
         return super(C, self).m()
+    __dp__.setattr(_dp_var_m_1, "__name__", "m")
     _dp_var_m_1 = _dp_add_binding("m", _dp_var_m_1)
 _dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C
@@ -169,6 +171,7 @@ def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
 
     def _dp_var_m_1(z):
         return super(C, z).m()
+    __dp__.setattr(_dp_var_m_1, "__name__", "m")
     _dp_var_m_1 = _dp_add_binding("m", _dp_var_m_1)
 _dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C
@@ -188,6 +191,7 @@ def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
 
     def _dp_var_m_1():
         return super(C, None).m()
+    __dp__.setattr(_dp_var_m_1, "__name__", "m")
     _dp_var_m_1 = _dp_add_binding("m", _dp_var_m_1)
 _dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C
@@ -214,6 +218,7 @@ def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
 
     def _dp_var_m_2(self):
         return self
+    __dp__.setattr(_dp_var_m_2, "__name__", "m")
     _dp_var_m_2 = _dp_decorator__dp_var_m_2_0(_dp_decorator__dp_var_m_2_1(_dp_var_m_2))
     _dp_var_m_2 = _dp_add_binding("m", _dp_var_m_2)
 _dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
@@ -239,6 +244,7 @@ def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
 
     def _dp_var_f_3(self, value: _dp_var_b_2=_dp_var_a_1):
         return value
+    __dp__.setattr(_dp_var_f_3, "__name__", "f")
     _dp_var_f_3 = _dp_add_binding("f", _dp_var_f_3)
 _dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C

@@ -109,6 +109,56 @@ def write_and_read(path: Path) -> str:
     assert result == "payload"
 
 
+def test_property_copydoc_uses_original_attribute_name(tmp_path: Path) -> None:
+    source = r"""
+class Base:
+    @property
+    def value(self):
+        '''base doc'''
+        return 1
+
+
+def copydoc(func):
+    func.__doc__ = getattr(Base, func.__name__).__doc__
+    return func
+
+
+class Derived(Base):
+    @property
+    @copydoc
+    def value(self):
+        return 2
+"""
+
+    with transformed_module(tmp_path, "property_copydoc", source) as module:
+        Derived = module.Derived
+
+    assert Derived.value.__doc__ == "base doc"
+    assert Derived().value == 2
+
+
+def test_nested_class_getattribute_captures_outer_bindings(tmp_path: Path) -> None:
+    source = r"""
+class Container:
+    def probe(self):
+        class A:
+            token = 1
+
+        class B:
+            def __getattribute__(self, attr):
+                a = A()
+                return getattr(a, attr)
+
+        return B().missing
+"""
+
+    with transformed_module(tmp_path, "nested_getattribute", source) as module:
+        container = module.Container()
+
+        with pytest.raises(NameError, match="name 'A' is not defined"):
+            container.probe()
+
+
 @pytest.mark.xfail(reason="Tuple unpacking should raise ValueError; CPython's test_turtle relies on this")
 def test_tuple_unpacking_raises_value_error(tmp_path: Path) -> None:
     source = r"""
