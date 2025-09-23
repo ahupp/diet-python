@@ -17,10 +17,12 @@ def _dp_ns_A(_dp_prepare_ns, _dp_add_binding):
 
     def _dp_var___init___2(self):
         __dp__.setattr(self, "arr", __dp__.list((1, 2, 3)))
+    __dp__.setattr(_dp_var___init___2, "__name__", "__init__")
     _dp_var___init___2 = _dp_add_binding("__init__", _dp_var___init___2)
 
     def _dp_var_c_3(self, d):
         return add(d, 2)
+    __dp__.setattr(_dp_var_c_3, "__name__", "c")
     _dp_var_c_3 = _dp_add_binding("c", _dp_var_c_3)
 
     async def _dp_var_test_aiter_4(self):
@@ -33,6 +35,7 @@ def _dp_ns_A(_dp_prepare_ns, _dp_add_binding):
                 break
             else:
                 yield i
+    __dp__.setattr(_dp_var_test_aiter_4, "__name__", "test_aiter")
     _dp_var_test_aiter_4 = _dp_add_binding("test_aiter", _dp_var_test_aiter_4)
 
     async def _dp_var_d_5(self):
@@ -45,6 +48,7 @@ def _dp_ns_A(_dp_prepare_ns, _dp_add_binding):
                 break
             else:
                 print(i)
+    __dp__.setattr(_dp_var_d_5, "__name__", "d")
     _dp_var_d_5 = _dp_add_binding("d", _dp_var_d_5)
 _dp_class_A = __dp__.create_class("A", _dp_ns_A, (), None)
 A = _dp_class_A
