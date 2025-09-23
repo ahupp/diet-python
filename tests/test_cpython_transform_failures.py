@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 from tests._integration import ROOT, transformed_module
 
 
@@ -105,3 +107,93 @@ def write_and_read(path: Path) -> str:
         result = module.write_and_read(target)
 
     assert result == "payload"
+
+
+@pytest.mark.xfail(reason="Tuple unpacking should raise ValueError; CPython's test_turtle relies on this")
+def test_tuple_unpacking_raises_value_error(tmp_path: Path) -> None:
+    source = r"""
+def parse_line(line: str) -> str:
+    try:
+        key, value = line.split("=")
+    except ValueError:
+        return "handled"
+    else:
+        return "missing separator"
+"""
+
+    with transformed_module(tmp_path, "tuple_unpacking_module", source) as module:
+        parse_line = module.parse_line
+
+    assert parse_line("no equals here") == "handled"
+
+
+@pytest.mark.xfail(reason="Iterable unpacking must consume the iterator; unittest's TextTestResult expects this")
+def test_map_unpacking_consumes_iterator(tmp_path: Path) -> None:
+    source = r"""
+def summarize() -> tuple[int, int]:
+    length_one, length_two = map(len, ("aa", "bbb"))
+    return length_one, length_two
+"""
+
+    with transformed_module(tmp_path, "map_unpacking_module", source) as module:
+        summarize = module.summarize
+
+    assert summarize() == (2, 3)
+
+
+@pytest.mark.xfail(reason="Class attribute destructuring drops bindings; fractions.Fraction loses arithmetic methods")
+def test_class_attribute_unpacking_binds_each_name(tmp_path: Path) -> None:
+    source = r"""
+class Example:
+    left, right = object(), object()
+"""
+
+    with transformed_module(tmp_path, "class_attribute_unpacking", source) as module:
+        Example = module.Example
+
+    assert hasattr(Example, "left")
+    assert hasattr(Example, "right")
+
+
+@pytest.mark.xfail(reason="Nested classes should capture outer scopes; failures surface in test_mmap and test_cmath")
+def test_nested_class_closure_access(tmp_path: Path) -> None:
+    source = r"""
+class Container:
+    def build(self):
+        values = []
+
+        class Recorder:
+            def record(self, item):
+                values.append(item)
+                return list(values)
+
+        return Recorder()
+
+
+def use_container() -> list[str]:
+    recorder = Container().build()
+    return recorder.record("payload")
+"""
+
+    with transformed_module(tmp_path, "nested_class_closure", source) as module:
+        use_container = module.use_container
+
+    assert use_container() == ["payload"]
+
+
+@pytest.mark.xfail(reason="Target named 'slice' shadows the builtin during rewrites; mirrors CPython's test_mmap failure")
+def test_slice_name_does_not_shadow_builtin(tmp_path: Path) -> None:
+    source = r"""
+def collect_segments(data: bytes) -> list[bytes]:
+    pieces = []
+    for start in range(len(data)):
+        for end in range(start + 1, len(data) + 1):
+            slice = data[start:end]
+            pieces.append(slice)
+    return pieces
+"""
+
+    with transformed_module(tmp_path, "slice_binding", source) as module:
+        collect_segments = module.collect_segments
+
+    assert collect_segments(b"ab") == [b"a", b"ab", b"b"]

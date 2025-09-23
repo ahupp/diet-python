@@ -2,66 +2,66 @@ $ expr 001
 [a, *b, c] = d
 =
 
-a = __dp__.getitem(d, 0)
-b = __dp__.list(__dp__.getitem(d, slice(1, __dp__.neg(1), None)))
-c = __dp__.getitem(d, __dp__.neg(1))
+a = __dp__.unpack(d, 0)
+b = __dp__.list(__dp__.getitem(d, __dp__.slice(1, __dp__.neg(1), None)))
+c = __dp__.unpack(d, __dp__.neg(1))
 
 
 $ expr 002
 [a, *b] = c
 =
 
-a = __dp__.getitem(c, 0)
-b = __dp__.list(__dp__.getitem(c, slice(1, None, None)))
+a = __dp__.unpack(c, 0)
+b = __dp__.list(__dp__.getitem(c, __dp__.slice(1, None, None)))
 
 
 $ expr 003
 [a, b] = c
 =
 
-a = __dp__.getitem(c, 0)
-b = __dp__.getitem(c, 1)
+a = __dp__.unpack(c, 0)
+b = __dp__.unpack(c, 1)
 
 
 $ expr 004
 [*a, b] = c
 =
 
-a = __dp__.list(__dp__.getitem(c, slice(0, __dp__.neg(1), None)))
-b = __dp__.getitem(c, __dp__.neg(1))
+a = __dp__.list(__dp__.getitem(c, __dp__.slice(0, __dp__.neg(1), None)))
+b = __dp__.unpack(c, __dp__.neg(1))
 
 
 $ expr 005
 a, b = c
 =
 
-a = __dp__.getitem(c, 0)
-b = __dp__.getitem(c, 1)
+a = __dp__.unpack(c, 0)
+b = __dp__.unpack(c, 1)
 
 
 $ expr 006
 a, *b, c = d
 =
 
-a = __dp__.getitem(d, 0)
-b = __dp__.tuple(__dp__.getitem(d, slice(1, __dp__.neg(1), None)))
-c = __dp__.getitem(d, __dp__.neg(1))
+a = __dp__.unpack(d, 0)
+b = __dp__.tuple(__dp__.getitem(d, __dp__.slice(1, __dp__.neg(1), None)))
+c = __dp__.unpack(d, __dp__.neg(1))
 
 
 $ expr 007
 *a, b = c
 =
 
-a = __dp__.tuple(__dp__.getitem(c, slice(0, __dp__.neg(1), None)))
-b = __dp__.getitem(c, __dp__.neg(1))
+a = __dp__.tuple(__dp__.getitem(c, __dp__.slice(0, __dp__.neg(1), None)))
+b = __dp__.unpack(c, __dp__.neg(1))
 
 
 $ expr 008
 a, *b = c
 =
 
-a = __dp__.getitem(c, 0)
-b = __dp__.tuple(__dp__.getitem(c, slice(1, None, None)))
+a = __dp__.unpack(c, 0)
+b = __dp__.tuple(__dp__.getitem(c, __dp__.slice(1, None, None)))
 
 
 $ expr 009
@@ -304,8 +304,8 @@ def _dp_gen_1(_dp_iter_2):
     while True:
         try:
             _dp_tmp_4 = __dp__.next(_dp_iter_3)
-            k = __dp__.getitem(_dp_tmp_4, 0)
-            v = __dp__.getitem(_dp_tmp_4, 1)
+            k = __dp__.unpack(_dp_tmp_4, 0)
+            v = __dp__.unpack(_dp_tmp_4, 1)
         except:
             __dp__.check_stopiteration()
             break
@@ -523,12 +523,12 @@ a = __dp__.set((1, 2, 3))
 $ expr 063
 a[1:2:3]
 =
-__dp__.getitem(a, slice(1, 2, 3))
+__dp__.getitem(a, __dp__.slice(1, 2, 3))
 
 $ expr 064
 a[1:2]
 =
-__dp__.getitem(a, slice(1, 2, None))
+__dp__.getitem(a, __dp__.slice(1, 2, None))
 
 $ expr 065
 a[b] = c
@@ -540,7 +540,7 @@ __dp__.setitem(a, b, c)
 $ expr 066
 a[:2]
 =
-__dp__.getitem(a, slice(None, 2, None))
+__dp__.getitem(a, __dp__.slice(None, 2, None))
 
 $ expr 067
 a = (1, *b, 2)
@@ -555,7 +555,7 @@ __dp__.neg(a)
 $ expr 069
 a[::2]
 =
-__dp__.getitem(a, slice(None, None, 2))
+__dp__.getitem(a, __dp__.slice(None, None, 2))
 
 $ expr 070
 ~b
@@ -575,7 +575,7 @@ __dp__.pos(a)
 $ expr 073
 a[:]
 =
-__dp__.getitem(a, slice(None, None, None))
+__dp__.getitem(a, __dp__.slice(None, None, None))
 
 $ expr 074
 def f():

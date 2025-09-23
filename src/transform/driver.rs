@@ -322,7 +322,7 @@ else:
                 let upper_expr = upper.map(|expr| *expr).unwrap_or_else(none_name);
                 let step_expr = step.map(|expr| *expr).unwrap_or_else(none_name);
                 py_expr!(
-                    "slice({lower:expr}, {upper:expr}, {step:expr})",
+                    "__dp__.slice({lower:expr}, {upper:expr}, {step:expr})",
                     lower = lower_expr,
                     upper = upper_expr,
                     step = step_expr,
