@@ -11,7 +11,7 @@ def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
     if _dp_tmp_2:
         _dp_class_annotations = __dp__.dict()
     _dp_var_x_1 = _dp_add_binding("x", 1)
-_dp_class_C = __dp__.create_class("C", _dp_ns_C, ())
+_dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C
 $ collects class annotations
 
@@ -30,7 +30,7 @@ def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
     __dp__.setitem(_dp_class_annotations, "x", int)
     _dp_var_y_2 = _dp_add_binding("y", 1)
     __dp__.setitem(_dp_class_annotations, "y", str)
-_dp_class_C = __dp__.create_class("C", _dp_ns_C, ())
+_dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C
 $ captures outer reference
 
@@ -45,7 +45,7 @@ def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
     if _dp_tmp_2:
         _dp_class_annotations = __dp__.dict()
     _dp_var_x_1 = _dp_add_binding("x", x)
-_dp_class_C = __dp__.create_class("C", _dp_ns_C, ())
+_dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C
 $ captures names used in annotations
 
@@ -64,7 +64,7 @@ def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
         _dp_class_annotations = __dp__.dict()
     _dp_add_binding("__annotations__", _dp_class_annotations)
     __dp__.setitem(_dp_class_annotations, "x", T)
-_dp_class_C = __dp__.create_class("C", _dp_ns_C, ())
+_dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C
 $ preserves class locals for references
 
@@ -81,7 +81,7 @@ def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
         _dp_class_annotations = __dp__.dict()
     _dp_var_x_1 = _dp_add_binding("x", 1)
     _dp_var_y_2 = _dp_add_binding("y", _dp_var_x_1)
-_dp_class_C = __dp__.create_class("C", _dp_ns_C, ())
+_dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C
 $ lowers inherits
 
@@ -95,7 +95,7 @@ def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
     _dp_tmp_1 = __dp__.is_(_dp_class_annotations, None)
     if _dp_tmp_1:
         _dp_class_annotations = __dp__.dict()
-_dp_class_C = __dp__.create_class("C", _dp_ns_C, (B,))
+_dp_class_C = __dp__.create_class("C", _dp_ns_C, (B,), None)
 C = _dp_class_C
 $ lowers with docstring and keywords
 
@@ -131,7 +131,7 @@ def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
     def _dp_var_m_1(self):
         return 1
     _dp_var_m_1 = _dp_add_binding("m", _dp_var_m_1)
-_dp_class_C = __dp__.create_class("C", _dp_ns_C, ())
+_dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C
 $ rewrites super and class
 
@@ -150,7 +150,7 @@ def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
     def _dp_var_m_1(self):
         return super(C, self).m()
     _dp_var_m_1 = _dp_add_binding("m", _dp_var_m_1)
-_dp_class_C = __dp__.create_class("C", _dp_ns_C, ())
+_dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C
 $ rewrites super uses first arg
 
@@ -169,7 +169,7 @@ def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
     def _dp_var_m_1(z):
         return super(C, z).m()
     _dp_var_m_1 = _dp_add_binding("m", _dp_var_m_1)
-_dp_class_C = __dp__.create_class("C", _dp_ns_C, ())
+_dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C
 $ rewrites super without receiver
 
@@ -188,7 +188,7 @@ def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
     def _dp_var_m_1():
         return super(C, None).m()
     _dp_var_m_1 = _dp_add_binding("m", _dp_var_m_1)
-_dp_class_C = __dp__.create_class("C", _dp_ns_C, ())
+_dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C
 $ applies decorators in namespace
 
@@ -215,7 +215,7 @@ def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
         return self
     _dp_var_m_2 = _dp_decorator__dp_var_m_2_0(_dp_decorator__dp_var_m_2_1(_dp_var_m_2))
     _dp_var_m_2 = _dp_add_binding("m", _dp_var_m_2)
-_dp_class_C = __dp__.create_class("C", _dp_ns_C, ())
+_dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C
 $ renames class stores and uses
 
@@ -239,5 +239,5 @@ def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
     def _dp_var_f_3(self, value: _dp_var_b_2=_dp_var_a_1):
         return value
     _dp_var_f_3 = _dp_add_binding("f", _dp_var_f_3)
-_dp_class_C = __dp__.create_class("C", _dp_ns_C, ())
+_dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C

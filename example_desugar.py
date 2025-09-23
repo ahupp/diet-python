@@ -46,7 +46,7 @@ def _dp_ns_A(_dp_prepare_ns, _dp_add_binding):
             else:
                 print(i)
     _dp_var_d_5 = _dp_add_binding("d", _dp_var_d_5)
-_dp_class_A = __dp__.create_class("A", _dp_ns_A, ())
+_dp_class_A = __dp__.create_class("A", _dp_ns_A, (), None)
 A = _dp_class_A
 def ff():
     a = A()

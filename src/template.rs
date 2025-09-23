@@ -51,6 +51,17 @@ use ruff_text_size::TextRange;
 use serde_json::Value;
 use std::{collections::HashMap, sync::LazyLock};
 
+pub(crate) fn py_stmt_single(stmts: Vec<Stmt>) -> Stmt {
+    let mut iter = stmts.into_iter();
+    let stmt = iter
+        .next()
+        .expect("expected template to yield at least one statement");
+    if iter.next().is_some() {
+        panic!("expected template to yield a single statement");
+    }
+    stmt
+}
+
 pub(crate) fn is_simple(expr: &Expr) -> bool {
     matches!(
         expr,

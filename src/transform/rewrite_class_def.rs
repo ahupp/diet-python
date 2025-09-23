@@ -1,4 +1,5 @@
 use crate::body_transform::{walk_expr, walk_stmt, Transformer};
+use crate::template::{make_tuple, py_stmt_single};
 use crate::template::make_tuple;
 use crate::transform::class_def::AnnotationCollector;
 use crate::transform::context::Context;
@@ -9,6 +10,62 @@ use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
 use ruff_text_size::TextRange;
 use std::collections::{HashMap, VecDeque};
 use std::mem::take;
+
+fn class_ident_from_qualname(qualname: &str) -> String {
+    format!("_dp_class_{}", qualname.replace('.', "_"))
+}
+
+struct NestedClassCollector {
+    class_qualname: String,
+    nested: Vec<(String, ast::StmtClassDef)>,
+}
+
+impl NestedClassCollector {
+    fn new(class_qualname: String) -> Self {
+        Self {
+            class_qualname,
+            nested: Vec::new(),
+        }
+    }
+
+    fn into_nested(self) -> Vec<(String, ast::StmtClassDef)> {
+        self.nested
+    }
+}
+
+impl Transformer for NestedClassCollector {
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
+        if let Stmt::ClassDef(class_def) = stmt {
+            let nested_name = class_def.name.id.to_string();
+            let nested_qualname = format!("{}.{}", self.class_qualname, nested_name);
+            let dp_name = class_ident_from_qualname(&nested_qualname);
+
+            let mut nested_def = class_def.clone();
+            let decorators = take(&mut nested_def.decorator_list);
+
+            let mut value = py_expr!("{dp_name:id}", dp_name = dp_name.as_str());
+            for decorator in decorators.into_iter().rev() {
+                value = py_expr!(
+                    "({decorator:expr})({value:expr})",
+                    decorator = decorator.expression,
+                    value = value,
+                );
+            }
+
+            self.nested.push((dp_name.clone(), nested_def));
+
+            *stmt = py_stmt_single(py_stmt!(
+                "{name:id} = {value:expr}",
+                name = nested_name.as_str(),
+                value = value,
+            ));
+
+            return;
+        }
+
+        walk_stmt(self, stmt);
+    }
+}
 
 struct ClassVarRenamer<'a> {
     ctx: &'a Context,
@@ -185,8 +242,19 @@ pub fn rewrite(
     }: ast::StmtClassDef,
     decorators: Vec<ast::Decorator>,
     rewriter: &mut ExprRewriter,
+    qualname: Option<String>,
 ) -> Rewrite {
     let class_name = name.id.as_str().to_string();
+    let class_qualname = qualname.unwrap_or_else(|| class_name.clone());
+    let dp_class_name = class_ident_from_qualname(&class_qualname);
+    let class_ident = dp_class_name
+        .strip_prefix("_dp_class_")
+        .expect("dp class names are prefixed")
+        .to_string();
+
+    let mut nested_collector = NestedClassCollector::new(class_qualname.clone());
+    nested_collector.visit_body(&mut body);
+    let nested_classes = nested_collector.into_nested();
 
     let mut renamer = ClassVarRenamer::new(rewriter.context());
     renamer.visit_body(&mut body);
@@ -208,7 +276,6 @@ pub fn rewrite(
         ));
     };
 
-    // TODO: correctly calculate the qualname of the class when nested
     let mut ns_body = Vec::new();
 
     ns_body.extend(py_stmt!(
@@ -219,7 +286,10 @@ pub fn rewrite(
     ns_body.extend(py_stmt!(
         "_dp_add_binding({name:literal}, {value:expr})",
         name = "__qualname__",
-        value = py_expr!("{class_name:literal}", class_name = class_name.as_str()),
+        value = py_expr!(
+            "{class_qualname:literal}",
+            class_qualname = class_qualname.as_str()
+        ),
     ));
 
     let mut original_body = body;
@@ -301,18 +371,8 @@ if _dp_class_annotations is None:
                         value = py_expr!("{fn_name:id}", fn_name = fn_name.as_str()),
                     ));
                 }
-                Stmt::ClassDef(mut class_def) => {
-                    let nested_name = class_def.name.id.to_string();
-                    let decorators = take(&mut class_def.decorator_list);
-
-                    let nested_stmts = rewrite(class_def, decorators, rewriter).into_statements();
-                    ns_body.extend(nested_stmts);
-                    ns_body.extend(py_stmt!(
-                        "{name:id} = _dp_add_binding({literal:literal}, {value:expr})",
-                        name = nested_name.as_str(),
-                        literal = nested_name.as_str(),
-                        value = py_expr!("{name:id}", name = nested_name.as_str()),
-                    ));
+                Stmt::ClassDef(_) => {
+                    unreachable!("nested classes should be collected before rewriting")
                 }
                 other => ns_body.push(other),
             }
@@ -370,21 +430,21 @@ if _dp_class_annotations is None:
                 value: v,
             })
             .collect();
-        Some(Expr::Dict(ast::ExprDict {
+        Expr::Dict(ast::ExprDict {
             node_index: ast::AtomicNodeIndex::default(),
             range: TextRange::default(),
             items,
-        }))
+        })
     } else {
-        None
+        py_expr!("None")
     };
 
     let mut ns_fn = py_stmt!(
         r#"
-def _dp_ns_{class_name:id}(_dp_prepare_ns, _dp_add_binding):
+def _dp_ns_{class_ident:id}(_dp_prepare_ns, _dp_add_binding):
     {ns_body:stmt}
 "#,
-        class_name = class_name.as_str(),
+        class_ident = class_ident.as_str(),
         ns_body = ns_body,
     );
 
@@ -394,34 +454,57 @@ def _dp_ns_{class_name:id}(_dp_prepare_ns, _dp_add_binding):
 
     let bases_tuple = make_tuple(bases);
 
-    let class_helper = if let Some(prepare_dict) = prepare_dict {
-        py_stmt!(
-            r#"
-_dp_class_{class_name:id} = __dp__.create_class({class_name:literal}, _dp_ns_{class_name:id}, {bases:expr}, {prepare_dict:expr})
-{class_name:id} = _dp_class_{class_name:id}
+    let assign_to_class_name = class_qualname == class_name;
+
+    let class_helper = py_stmt!(
+        r#"
+{dp_class_name:id} = __dp__.create_class({class_name:literal}, _dp_ns_{class_ident:id}, {bases:expr}, {prepare_dict:expr})
 "#,
-            class_name = class_name.as_str(),
-            bases = bases_tuple.clone(),
-            prepare_dict = prepare_dict,
-        )
-    } else {
-        py_stmt!(
-            r#"
-_dp_class_{class_name:id} = __dp__.create_class({class_name:literal}, _dp_ns_{class_name:id}, {bases:expr})
-{class_name:id} = _dp_class_{class_name:id}
-"#,
-            class_name = class_name.as_str(),
-            bases = bases_tuple,
-        )
-    };
+        dp_class_name = dp_class_name.as_str(),
+        class_ident = class_ident.as_str(),
+        class_name = class_name.as_str(),
+        bases = bases_tuple.clone(),
+        prepare_dict = prepare_dict.clone(),
+    );
 
     ns_fn.extend(class_helper);
 
     let mut result = Vec::new();
-    result.extend(
-        rewrite_decorator::rewrite(decorators, class_name.as_str(), ns_fn, rewriter.context())
+
+    for (dp_name, nested_class_def) in nested_classes {
+        let nested_name = nested_class_def.name.id.to_string();
+        let nested_qualname = format!("{class_qualname}.{nested_name}");
+        let nested_dp_name = class_ident_from_qualname(&nested_qualname);
+        debug_assert_eq!(nested_dp_name, dp_name);
+
+        result.extend(
+            rewrite(
+                nested_class_def,
+                Vec::new(),
+                rewriter,
+                Some(nested_qualname),
+            )
             .into_statements(),
+        );
+    }
+
+    result.extend(
+        rewrite_decorator::rewrite(
+            decorators,
+            dp_class_name.as_str(),
+            ns_fn,
+            rewriter.context(),
+        )
+        .into_statements(),
     );
+
+    if assign_to_class_name {
+        result.extend(py_stmt!(
+            "{class_name:id} = {dp_class_name:id}",
+            class_name = class_name.as_str(),
+            dp_class_name = dp_class_name.as_str(),
+        ));
+    }
 
     Rewrite::Visit(result)
 }
@@ -450,7 +533,7 @@ def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
     def _dp_var_m_1():
         return super(C, None).m()
     _dp_var_m_1 = _dp_add_binding("m", _dp_var_m_1)
-_dp_class_C = __dp__.create_class("C", _dp_ns_C, ())
+_dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C
 "#,
         );
