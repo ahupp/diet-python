@@ -90,7 +90,7 @@ fn rewrite_unpack_target(
                 };
 
                 let slice_expr = py_expr!(
-                    "__dp__.getitem({tmp:expr}, slice({start:literal}, {stop:expr}, None))",
+                    "__dp__.getitem({tmp:expr}, __dp__.slice({start:literal}, {stop:expr}, None))",
                     tmp = tmp_expr.clone(),
                     start = prefix_len,
                     stop = stop_expr,
@@ -111,7 +111,7 @@ fn rewrite_unpack_target(
                     _ => i as isize,
                 };
                 let value = py_expr!(
-                    "__dp__.getitem({tmp:expr}, {idx:literal})",
+                    "__dp__.unpack({tmp:expr}, {idx:literal})",
                     tmp = tmp_expr.clone(),
                     idx = idx,
                 );

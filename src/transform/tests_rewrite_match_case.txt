@@ -207,7 +207,7 @@ if _dp_tmp_2:
     _dp_tmp_2 = _dp_tmp_3
 if _dp_tmp_2:
     first = __dp__.getitem(_dp_match_1, 0)
-    rest = __dp__.list(__dp__.getitem(_dp_match_1, slice(1, __dp__.sub(len(_dp_match_1), 1), None)))
+    rest = __dp__.list(__dp__.getitem(_dp_match_1, __dp__.slice(1, __dp__.sub(len(_dp_match_1), 1), None)))
     last = __dp__.getitem(_dp_match_1, __dp__.sub(len(_dp_match_1), 1))
     a()
 else:

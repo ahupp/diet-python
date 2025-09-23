@@ -59,6 +59,15 @@ tuple = builtins.tuple
 list = builtins.list
 dict = builtins.dict
 set = builtins.set
+slice = builtins.slice
+
+
+def unpack(arr, idx):
+    try:
+        return arr[idx]
+    except IndexError as exc:
+        raise ValueError from exc
+
 
 def resolve_bases(bases):
     return _types.resolve_bases(bases)
