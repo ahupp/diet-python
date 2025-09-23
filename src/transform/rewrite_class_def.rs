@@ -175,18 +175,6 @@ fn rewrite_method(func_def: &mut ast::StmtFunctionDef, class_name: &str) {
     }
 }
 
-fn clear_parameter_defaults(parameters: &mut ast::Parameters) {
-    for parameter in parameters.posonlyargs.iter_mut() {
-        parameter.default = None;
-    }
-    for parameter in parameters.args.iter_mut() {
-        parameter.default = None;
-    }
-    for parameter in parameters.kwonlyargs.iter_mut() {
-        parameter.default = None;
-    }
-}
-
 fn extend_body_prepared(
     ns_body: &mut Vec<Stmt>,
     original_name: &str,
@@ -257,7 +245,6 @@ if _dp_class_annotations is None:
     ));
 
     let mut has_class_annotations = false;
-    let mut method_helpers: Vec<Stmt> = Vec::new();
 
     for stmt in original_body {
         match stmt {
@@ -347,36 +334,13 @@ __dp__.setitem(_dp_prepare_ns, "__annotations__", _dp_class_annotations)
                 let fn_name = func_def.name.id.to_string();
                 let original_fn_name =
                     lookup_original_name(&replacement_to_original, fn_name.as_str());
-                let mut stub_def = func_def.clone();
-                stub_def.decorator_list.clear();
-                stub_def.body = py_stmt!("pass");
 
                 rewrite_method(&mut func_def, &class_name);
-                let helper_name = rewriter
-                    .context()
-                    .fresh(&format!("meth_{}_{}", class_name, fn_name));
 
                 let decorators = take(&mut func_def.decorator_list);
 
-                clear_parameter_defaults(&mut func_def.parameters);
-
-                func_def.name.id = helper_name.clone().into();
-
-                method_helpers.push(Stmt::FunctionDef(func_def));
-
                 let mut method_stmts = Vec::new();
-                method_stmts.push(Stmt::FunctionDef(stub_def));
-                method_stmts.extend(py_stmt!(
-                    r#"
-{fn_name:id}.__code__ = {helper_name:id}.__code__
-__dp__.setattr({fn_name:id}, "__doc__", {helper_name:id}.__doc__)
-__dp__.setattr({fn_name:id}, "__annotations__", {helper_name:id}.__annotations__)
-__dp__.setattr({fn_name:id}, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), {suffix:literal}))
-"#,
-                    fn_name = fn_name.as_str(),
-                    helper_name = helper_name.as_str(),
-                    suffix = format!(".{}", original_fn_name),
-                ));
+                method_stmts.push(Stmt::FunctionDef(func_def));
 
                 let method_stmts = rewrite_decorator::rewrite(
                     decorators,
@@ -479,7 +443,7 @@ _dp_class_{class_name:id} = _dp_make_class_{class_name:id}()
         prepare_dict = prepare_dict,
     ));
 
-    let mut result = method_helpers;
+    let mut result = Vec::new();
     result.extend(
         rewrite_decorator::rewrite(decorators, class_name.as_str(), ns_fn, rewriter.context())
             .into_statements(),
@@ -501,42 +465,36 @@ class C:
         return super().m()
 "#,
             r#"
-def _dp_meth_C__dp_var_m_1_2():
-    return super(C, None).m()
 def _dp_ns_C(_dp_prepare_ns):
     _dp_temp_ns = __dp__.dict()
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
     __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
-    _dp_tmp_3 = "C"
-    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_3)
-    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_3)
+    _dp_tmp_2 = "C"
+    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_2)
+    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_2)
     _dp_class_annotations = _dp_temp_ns.get("__annotations__")
-    _dp_tmp_4 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_4:
+    _dp_tmp_3 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_3:
         _dp_class_annotations = __dp__.dict()
 
     def _dp_var_m_1():
-        pass
-    __dp__.setattr(_dp_var_m_1, "__code__", _dp_meth_C__dp_var_m_1_2.__code__)
-    __dp__.setattr(_dp_var_m_1, "__doc__", _dp_meth_C__dp_var_m_1_2.__doc__)
-    __dp__.setattr(_dp_var_m_1, "__annotations__", _dp_meth_C__dp_var_m_1_2.__annotations__)
-    __dp__.setattr(_dp_var_m_1, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".m"))
+        return super(C, None).m()
     __dp__.setitem(_dp_temp_ns, "m", _dp_var_m_1)
     __dp__.setitem(_dp_prepare_ns, "m", _dp_var_m_1)
 def _dp_make_class_C():
     orig_bases = ()
     bases = __dp__.resolve_bases(orig_bases)
-    _dp_tmp_5 = __dp__.prepare_class("C", bases, None)
-    meta = __dp__.getitem(_dp_tmp_5, 0)
-    ns = __dp__.getitem(_dp_tmp_5, 1)
-    kwds = __dp__.getitem(_dp_tmp_5, 2)
+    _dp_tmp_4 = __dp__.prepare_class("C", bases, None)
+    meta = __dp__.getitem(_dp_tmp_4, 0)
+    ns = __dp__.getitem(_dp_tmp_4, 1)
+    kwds = __dp__.getitem(_dp_tmp_4, 2)
     _dp_ns_C(ns)
-    _dp_tmp_7 = __dp__.is_not(orig_bases, bases)
-    _dp_tmp_6 = _dp_tmp_7
-    if _dp_tmp_6:
-        _dp_tmp_8 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
-        _dp_tmp_6 = _dp_tmp_8
-    if _dp_tmp_6:
+    _dp_tmp_6 = __dp__.is_not(orig_bases, bases)
+    _dp_tmp_5 = _dp_tmp_6
+    if _dp_tmp_5:
+        _dp_tmp_7 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
+        _dp_tmp_5 = _dp_tmp_7
+    if _dp_tmp_5:
         __dp__.setitem(ns, "__orig_bases__", orig_bases)
     return meta("C", bases, ns, **kwds)
 _dp_class_C = _dp_make_class_C()
