@@ -106,11 +106,12 @@ class C(B, metaclass=Meta, kw=1):
 def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
     _dp_add_binding("__module__", __name__)
     _dp_add_binding("__qualname__", "C")
-    __doc__ = _dp_add_binding("__doc__", 'doc')
     _dp_class_annotations = _dp_prepare_ns.get("__annotations__")
-    _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_2:
+    _dp_tmp_3 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_3:
         _dp_class_annotations = __dp__.dict()
+    _dp_tmp_2 = 'doc'
+    __doc__ = _dp_add_binding("__doc__", _dp_tmp_2)
     _dp_var_x_1 = _dp_add_binding("x", 2)
 _dp_class_C = __dp__.create_class("C", _dp_ns_C, (B,), __dp__.dict((("metaclass", Meta), ("kw", 1))))
 C = _dp_class_C
