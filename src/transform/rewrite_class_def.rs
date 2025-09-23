@@ -175,37 +175,6 @@ fn rewrite_method(func_def: &mut ast::StmtFunctionDef, class_name: &str) {
     }
 }
 
-fn extend_body_assignment(
-    ns_body: &mut Vec<Stmt>,
-    original_name: &str,
-    replacement_name: &str,
-    value: Expr,
-) {
-    ns_body.extend(py_stmt!(
-        "{replacement_name:id} = _dp_add_binding({name:literal}, {value:expr})",
-        replacement_name = replacement_name,
-        name = original_name,
-        value = value,
-    ));
-}
-
-fn extend_body_with_value(
-    rewriter: &mut ExprRewriter,
-    ns_body: &mut Vec<Stmt>,
-    original_name: &str,
-    replacement_name: &str,
-    value: Expr,
-) {
-    let (stmts, value_expr) = rewriter.maybe_placeholder_within(value);
-    ns_body.extend(stmts);
-    extend_body_assignment(
-        ns_body,
-        original_name,
-        replacement_name,
-        value_expr,
-    );
-}
-
 pub fn rewrite(
     ast::StmtClassDef {
         name,
@@ -227,6 +196,16 @@ pub fn rewrite(
     }
 
     // Build namespace function body
+    let add_class_binding = |ns_body: &mut Vec<Stmt>, replacement_name: &str, value: Expr| {
+        let original_name = lookup_original_name(&replacement_to_original, replacement_name);
+        ns_body.extend(py_stmt!(
+            "{replacement_name:id} = _dp_add_binding({name:literal}, {value:expr})",
+            replacement_name = replacement_name,
+            name = original_name.as_str(),
+            value = value,
+        ));
+    };
+
     // TODO: correctly calculate the qualname of the class when nested
     let mut ns_body = Vec::new();
 
@@ -244,7 +223,7 @@ pub fn rewrite(
     let mut original_body = body;
     if let Some(Stmt::Expr(ast::StmtExpr { value, .. })) = original_body.first() {
         if let Expr::StringLiteral(_) = value.as_ref() {
-            extend_body_assignment(&mut ns_body, "__doc__", "__doc__", *value.clone());
+            add_class_binding(&mut ns_body, "__doc__", *value.clone());
             original_body.remove(0);
         }
     }
@@ -264,17 +243,9 @@ if _dp_class_annotations is None:
                 if targets.len() == 1 {
                     if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
                         let replacement_name = id.as_str().to_string();
-                        let original_name = lookup_original_name(
-                            &replacement_to_original,
-                            replacement_name.as_str(),
-                        );
-                        extend_body_with_value(
-                            rewriter,
-                            &mut ns_body,
-                            original_name.as_str(),
-                            replacement_name.as_str(),
-                            *value,
-                        );
+                        let (stmts, value_expr) = rewriter.maybe_placeholder_within(*value);
+                        ns_body.extend(stmts);
+                        add_class_binding(&mut ns_body, replacement_name.as_str(), value_expr);
                     }
                 } else {
                     let (mut stmts, shared_value) = rewriter.maybe_placeholder_within(*value);
@@ -282,13 +253,8 @@ if _dp_class_annotations is None:
                     for target in targets {
                         if let Expr::Name(ast::ExprName { id, .. }) = target {
                             let replacement_name = id.as_str().to_string();
-                            let original_name = lookup_original_name(
-                                &replacement_to_original,
-                                replacement_name.as_str(),
-                            );
-                            extend_body_assignment(
+                            add_class_binding(
                                 &mut ns_body,
-                                original_name.as_str(),
                                 replacement_name.as_str(),
                                 shared_value.clone(),
                             );
@@ -306,13 +272,9 @@ if _dp_class_annotations is None:
                         );
 
                         if let Some(value) = ann_assign.value.take() {
-                            extend_body_with_value(
-                                rewriter,
-                                &mut ns_body,
-                                original_name.as_str(),
-                                replacement_name.as_str(),
-                                *value,
-                            );
+                            let (stmts, value_expr) = rewriter.maybe_placeholder_within(*value);
+                            ns_body.extend(stmts);
+                            add_class_binding(&mut ns_body, replacement_name.as_str(), value_expr);
                         }
 
                         if !has_class_annotations {
