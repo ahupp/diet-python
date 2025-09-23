@@ -175,34 +175,42 @@ fn rewrite_method(func_def: &mut ast::StmtFunctionDef, class_name: &str) {
     }
 }
 
-fn extend_body_prepared(
+fn extend_body_assignment(
     ns_body: &mut Vec<Stmt>,
+    ns_entries: &mut Vec<(String, Expr)>,
     original_name: &str,
     replacement_name: &str,
     value: Expr,
 ) {
     let assign_stmt = py_stmt!(
-        r#"
-{replacement_name:id} = {value:expr}
-_dp_temp_ns[{original_name:literal}] = _dp_prepare_ns[{original_name:literal}] = {replacement_name:id}
-"#,
+        "{replacement_name:id} = {value:expr}",
         replacement_name = replacement_name,
-        original_name = original_name,
         value = value,
     );
     ns_body.extend(assign_stmt);
+    ns_entries.push((
+        original_name.to_string(),
+        py_expr!("{replacement_name:id}", replacement_name = replacement_name),
+    ));
 }
 
 fn extend_body_with_value(
     rewriter: &mut ExprRewriter,
     ns_body: &mut Vec<Stmt>,
+    ns_entries: &mut Vec<(String, Expr)>,
     original_name: &str,
     replacement_name: &str,
     value: Expr,
 ) {
     let (stmts, value_expr) = rewriter.maybe_placeholder_within(value);
     ns_body.extend(stmts);
-    extend_body_prepared(ns_body, original_name, replacement_name, value_expr);
+    extend_body_assignment(
+        ns_body,
+        ns_entries,
+        original_name,
+        replacement_name,
+        value_expr,
+    );
 }
 
 pub fn rewrite(
@@ -228,17 +236,30 @@ pub fn rewrite(
     // Build namespace function body
     // TODO: correctly calculate the qualname of the class when nested
     let mut ns_body = Vec::new();
+    let mut ns_entries: Vec<(String, Expr)> = Vec::new();
+
+    ns_entries.push(("__module__".to_string(), py_expr!("__name__")));
+    ns_entries.push((
+        "__qualname__".to_string(),
+        py_expr!("{class_name:literal}", class_name = class_name.as_str()),
+    ));
 
     let mut original_body = body;
     if let Some(Stmt::Expr(ast::StmtExpr { value, .. })) = original_body.first() {
         if let Expr::StringLiteral(_) = value.as_ref() {
-            extend_body_prepared(&mut ns_body, "__doc__", "__doc__", *value.clone());
+            extend_body_assignment(
+                &mut ns_body,
+                &mut ns_entries,
+                "__doc__",
+                "__doc__",
+                *value.clone(),
+            );
             original_body.remove(0);
         }
     }
     ns_body.extend(py_stmt!(
         r#"
-_dp_class_annotations = _dp_temp_ns.get("__annotations__")
+_dp_class_annotations = _dp_prepare_ns.get("__annotations__")
 if _dp_class_annotations is None:
     _dp_class_annotations = __dp__.dict()
 "#
@@ -259,6 +280,7 @@ if _dp_class_annotations is None:
                         extend_body_with_value(
                             rewriter,
                             &mut ns_body,
+                            &mut ns_entries,
                             original_name.as_str(),
                             replacement_name.as_str(),
                             *value,
@@ -274,8 +296,9 @@ if _dp_class_annotations is None:
                                 &replacement_to_original,
                                 replacement_name.as_str(),
                             );
-                            extend_body_prepared(
+                            extend_body_assignment(
                                 &mut ns_body,
+                                &mut ns_entries,
                                 original_name.as_str(),
                                 replacement_name.as_str(),
                                 shared_value.clone(),
@@ -297,6 +320,7 @@ if _dp_class_annotations is None:
                             extend_body_with_value(
                                 rewriter,
                                 &mut ns_body,
+                                &mut ns_entries,
                                 original_name.as_str(),
                                 replacement_name.as_str(),
                                 *value,
@@ -304,12 +328,9 @@ if _dp_class_annotations is None:
                         }
 
                         if !has_class_annotations {
-                            ns_body.extend(py_stmt!(
-                                r#"
-if _dp_temp_ns.get("__annotations__") is None:
-    __dp__.setitem(_dp_temp_ns, "__annotations__", _dp_class_annotations)
-__dp__.setitem(_dp_prepare_ns, "__annotations__", _dp_class_annotations)
-"#
+                            ns_entries.push((
+                                "__annotations__".to_string(),
+                                py_expr!("_dp_class_annotations"),
                             ));
                             has_class_annotations = true;
                         }
@@ -351,12 +372,9 @@ __dp__.setitem(_dp_prepare_ns, "__annotations__", _dp_class_annotations)
                 .into_statements();
 
                 ns_body.extend(method_stmts);
-                ns_body.extend(py_stmt!(
-                    r#"
-_dp_temp_ns[{fn_name_literal:literal}] = _dp_prepare_ns[{fn_name_literal:literal}] = {fn_name:id}
-"#,
-                    fn_name_literal = original_fn_name.as_str(),
-                    fn_name = fn_name.as_str(),
+                ns_entries.push((
+                    original_fn_name,
+                    py_expr!("{fn_name:id}", fn_name = fn_name.as_str()),
                 ));
             }
             Stmt::ClassDef(mut class_def) => {
@@ -365,14 +383,27 @@ _dp_temp_ns[{fn_name_literal:literal}] = _dp_prepare_ns[{fn_name_literal:literal
 
                 let nested_stmts = rewrite(class_def, decorators, rewriter).into_statements();
                 ns_body.extend(nested_stmts);
-                ns_body.extend(py_stmt!(
-                    "_dp_temp_ns[{name:literal}] = _dp_prepare_ns[{name:literal}] = {name:id}",
-                    name = nested_name.as_str(),
-                ));
+                let nested_expr = py_expr!("{name:id}", name = nested_name.as_str());
+                ns_entries.push((nested_name, nested_expr));
             }
             other => ns_body.push(other),
         }
     }
+
+    let entry_exprs: Vec<Expr> = ns_entries
+        .into_iter()
+        .map(|(name, value)| {
+            make_tuple(vec![
+                py_expr!("{name:literal}", name = name.as_str()),
+                value,
+            ])
+        })
+        .collect();
+    let entries_list = py_expr!(
+        "__dp__.list({entries:expr})",
+        entries = make_tuple(entry_exprs),
+    );
+    ns_body.extend(py_stmt!("return {entries:expr}", entries = entries_list));
 
     // Build class helper function
     let mut bases = Vec::new();
@@ -410,10 +441,6 @@ _dp_temp_ns[{fn_name_literal:literal}] = _dp_prepare_ns[{fn_name_literal:literal
     let mut ns_fn = py_stmt!(
         r#"
 def _dp_ns_{class_name:id}(_dp_prepare_ns):
-    _dp_temp_ns = {}
-    _dp_temp_ns["__module__"] = _dp_prepare_ns["__module__"] = __name__
-    _dp_temp_ns["__qualname__"] = _dp_prepare_ns["__qualname__"] = {class_name:literal}
-
     {ns_body:stmt}
 "#,
         class_name = class_name.as_str(),
@@ -430,7 +457,11 @@ def _dp_make_class_{class_name:id}():
     orig_bases = {bases:expr}
     bases = __dp__.resolve_bases(orig_bases)
     meta, ns, kwds = __dp__.prepare_class({class_name:literal}, bases, {prepare_dict:expr})
-    _dp_ns_{class_name:id}(ns)
+    _dp_namespace_entries = _dp_ns_{class_name:id}(ns)
+    _dp_temp_ns = __dp__.dict()
+    for _dp_name, _dp_value in _dp_namespace_entries:
+        __dp__.setitem(_dp_temp_ns, _dp_name, _dp_value)
+        __dp__.setitem(ns, _dp_name, _dp_value)
     if orig_bases is not bases and "__orig_bases__" not in ns:
         ns["__orig_bases__"] = orig_bases
     return meta({class_name:literal}, bases, ns, **kwds)
@@ -466,35 +497,41 @@ class C:
 "#,
             r#"
 def _dp_ns_C(_dp_prepare_ns):
-    _dp_temp_ns = __dp__.dict()
-    __dp__.setitem(_dp_temp_ns, "__module__", __name__)
-    __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
-    _dp_tmp_2 = "C"
-    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_2)
-    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_2)
-    _dp_class_annotations = _dp_temp_ns.get("__annotations__")
-    _dp_tmp_3 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_3:
+    _dp_class_annotations = _dp_prepare_ns.get("__annotations__")
+    _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_2:
         _dp_class_annotations = __dp__.dict()
 
     def _dp_var_m_1():
         return super(C, None).m()
-    __dp__.setitem(_dp_temp_ns, "m", _dp_var_m_1)
-    __dp__.setitem(_dp_prepare_ns, "m", _dp_var_m_1)
+    return __dp__.list((("__module__", __name__), ("__qualname__", "C"), ("m", _dp_var_m_1)))
 def _dp_make_class_C():
     orig_bases = ()
     bases = __dp__.resolve_bases(orig_bases)
-    _dp_tmp_4 = __dp__.prepare_class("C", bases, None)
-    meta = __dp__.getitem(_dp_tmp_4, 0)
-    ns = __dp__.getitem(_dp_tmp_4, 1)
-    kwds = __dp__.getitem(_dp_tmp_4, 2)
-    _dp_ns_C(ns)
-    _dp_tmp_6 = __dp__.is_not(orig_bases, bases)
-    _dp_tmp_5 = _dp_tmp_6
-    if _dp_tmp_5:
-        _dp_tmp_7 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
-        _dp_tmp_5 = _dp_tmp_7
-    if _dp_tmp_5:
+    _dp_tmp_3 = __dp__.prepare_class("C", bases, None)
+    meta = __dp__.getitem(_dp_tmp_3, 0)
+    ns = __dp__.getitem(_dp_tmp_3, 1)
+    kwds = __dp__.getitem(_dp_tmp_3, 2)
+    _dp_namespace_entries = _dp_ns_C(ns)
+    _dp_temp_ns = __dp__.dict()
+    _dp_iter_4 = __dp__.iter(_dp_namespace_entries)
+    while True:
+        try:
+            _dp_tmp_5 = __dp__.next(_dp_iter_4)
+            _dp_name = __dp__.getitem(_dp_tmp_5, 0)
+            _dp_value = __dp__.getitem(_dp_tmp_5, 1)
+        except:
+            __dp__.check_stopiteration()
+            break
+        else:
+            __dp__.setitem(_dp_temp_ns, _dp_name, _dp_value)
+            __dp__.setitem(ns, _dp_name, _dp_value)
+    _dp_tmp_7 = __dp__.is_not(orig_bases, bases)
+    _dp_tmp_6 = _dp_tmp_7
+    if _dp_tmp_6:
+        _dp_tmp_8 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
+        _dp_tmp_6 = _dp_tmp_8
+    if _dp_tmp_6:
         __dp__.setitem(ns, "__orig_bases__", orig_bases)
     return meta("C", bases, ns, **kwds)
 _dp_class_C = _dp_make_class_C()
