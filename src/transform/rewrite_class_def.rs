@@ -177,27 +177,21 @@ fn rewrite_method(func_def: &mut ast::StmtFunctionDef, class_name: &str) {
 
 fn extend_body_assignment(
     ns_body: &mut Vec<Stmt>,
-    ns_entries: &mut Vec<(String, Expr)>,
     original_name: &str,
     replacement_name: &str,
     value: Expr,
 ) {
-    let assign_stmt = py_stmt!(
-        "{replacement_name:id} = {value:expr}",
+    ns_body.extend(py_stmt!(
+        "{replacement_name:id} = _dp_add_binding({name:literal}, {value:expr})",
         replacement_name = replacement_name,
+        name = original_name,
         value = value,
-    );
-    ns_body.extend(assign_stmt);
-    ns_entries.push((
-        original_name.to_string(),
-        py_expr!("{replacement_name:id}", replacement_name = replacement_name),
     ));
 }
 
 fn extend_body_with_value(
     rewriter: &mut ExprRewriter,
     ns_body: &mut Vec<Stmt>,
-    ns_entries: &mut Vec<(String, Expr)>,
     original_name: &str,
     replacement_name: &str,
     value: Expr,
@@ -206,7 +200,6 @@ fn extend_body_with_value(
     ns_body.extend(stmts);
     extend_body_assignment(
         ns_body,
-        ns_entries,
         original_name,
         replacement_name,
         value_expr,
@@ -236,24 +229,22 @@ pub fn rewrite(
     // Build namespace function body
     // TODO: correctly calculate the qualname of the class when nested
     let mut ns_body = Vec::new();
-    let mut ns_entries: Vec<(String, Expr)> = Vec::new();
 
-    ns_entries.push(("__module__".to_string(), py_expr!("__name__")));
-    ns_entries.push((
-        "__qualname__".to_string(),
-        py_expr!("{class_name:literal}", class_name = class_name.as_str()),
+    ns_body.extend(py_stmt!(
+        "_dp_add_binding({name:literal}, {value:expr})",
+        name = "__module__",
+        value = py_expr!("__name__"),
+    ));
+    ns_body.extend(py_stmt!(
+        "_dp_add_binding({name:literal}, {value:expr})",
+        name = "__qualname__",
+        value = py_expr!("{class_name:literal}", class_name = class_name.as_str()),
     ));
 
     let mut original_body = body;
     if let Some(Stmt::Expr(ast::StmtExpr { value, .. })) = original_body.first() {
         if let Expr::StringLiteral(_) = value.as_ref() {
-            extend_body_assignment(
-                &mut ns_body,
-                &mut ns_entries,
-                "__doc__",
-                "__doc__",
-                *value.clone(),
-            );
+            extend_body_assignment(&mut ns_body, "__doc__", "__doc__", *value.clone());
             original_body.remove(0);
         }
     }
@@ -280,7 +271,6 @@ if _dp_class_annotations is None:
                         extend_body_with_value(
                             rewriter,
                             &mut ns_body,
-                            &mut ns_entries,
                             original_name.as_str(),
                             replacement_name.as_str(),
                             *value,
@@ -298,7 +288,6 @@ if _dp_class_annotations is None:
                             );
                             extend_body_assignment(
                                 &mut ns_body,
-                                &mut ns_entries,
                                 original_name.as_str(),
                                 replacement_name.as_str(),
                                 shared_value.clone(),
@@ -320,7 +309,6 @@ if _dp_class_annotations is None:
                             extend_body_with_value(
                                 rewriter,
                                 &mut ns_body,
-                                &mut ns_entries,
                                 original_name.as_str(),
                                 replacement_name.as_str(),
                                 *value,
@@ -328,9 +316,9 @@ if _dp_class_annotations is None:
                         }
 
                         if !has_class_annotations {
-                            ns_entries.push((
-                                "__annotations__".to_string(),
-                                py_expr!("_dp_class_annotations"),
+                            ns_body.extend(py_stmt!(
+                                "_dp_add_binding({name:literal}, _dp_class_annotations)",
+                                name = "__annotations__",
                             ));
                             has_class_annotations = true;
                         }
@@ -372,9 +360,11 @@ if _dp_class_annotations is None:
                 .into_statements();
 
                 ns_body.extend(method_stmts);
-                ns_entries.push((
-                    original_fn_name,
-                    py_expr!("{fn_name:id}", fn_name = fn_name.as_str()),
+                ns_body.extend(py_stmt!(
+                    "{fn_name:id} = _dp_add_binding({name:literal}, {value:expr})",
+                    fn_name = fn_name.as_str(),
+                    name = original_fn_name.as_str(),
+                    value = py_expr!("{fn_name:id}", fn_name = fn_name.as_str()),
                 ));
             }
             Stmt::ClassDef(mut class_def) => {
@@ -383,27 +373,16 @@ if _dp_class_annotations is None:
 
                 let nested_stmts = rewrite(class_def, decorators, rewriter).into_statements();
                 ns_body.extend(nested_stmts);
-                let nested_expr = py_expr!("{name:id}", name = nested_name.as_str());
-                ns_entries.push((nested_name, nested_expr));
+                ns_body.extend(py_stmt!(
+                    "{name:id} = _dp_add_binding({literal:literal}, {value:expr})",
+                    name = nested_name.as_str(),
+                    literal = nested_name.as_str(),
+                    value = py_expr!("{name:id}", name = nested_name.as_str()),
+                ));
             }
             other => ns_body.push(other),
         }
     }
-
-    let entry_exprs: Vec<Expr> = ns_entries
-        .into_iter()
-        .map(|(name, value)| {
-            make_tuple(vec![
-                py_expr!("{name:literal}", name = name.as_str()),
-                value,
-            ])
-        })
-        .collect();
-    let entries_list = py_expr!(
-        "__dp__.list({entries:expr})",
-        entries = make_tuple(entry_exprs),
-    );
-    ns_body.extend(py_stmt!("return {entries:expr}", entries = entries_list));
 
     // Build class helper function
     let mut bases = Vec::new();
@@ -440,7 +419,7 @@ if _dp_class_annotations is None:
 
     let mut ns_fn = py_stmt!(
         r#"
-def _dp_ns_{class_name:id}(_dp_prepare_ns):
+def _dp_ns_{class_name:id}(_dp_prepare_ns, _dp_add_binding):
     {ns_body:stmt}
 "#,
         class_name = class_name.as_str(),
@@ -457,11 +436,12 @@ def _dp_make_class_{class_name:id}():
     orig_bases = {bases:expr}
     bases = __dp__.resolve_bases(orig_bases)
     meta, ns, kwds = __dp__.prepare_class({class_name:literal}, bases, {prepare_dict:expr})
-    _dp_namespace_entries = _dp_ns_{class_name:id}(ns)
     _dp_temp_ns = __dp__.dict()
-    for _dp_name, _dp_value in _dp_namespace_entries:
-        __dp__.setitem(_dp_temp_ns, _dp_name, _dp_value)
-        __dp__.setitem(ns, _dp_name, _dp_value)
+    def _dp_add_binding(name: str, value):
+        __dp__.setitem(_dp_temp_ns, name, value)
+        __dp__.setitem(ns, name, value)
+        return value
+    _dp_ns_{class_name:id}(ns, _dp_add_binding)
     if orig_bases is not bases and "__orig_bases__" not in ns:
         ns["__orig_bases__"] = orig_bases
     return meta({class_name:literal}, bases, ns, **kwds)
@@ -496,7 +476,9 @@ class C:
         return super().m()
 "#,
             r#"
-def _dp_ns_C(_dp_prepare_ns):
+def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
+    _dp_add_binding("__module__", __name__)
+    _dp_add_binding("__qualname__", "C")
     _dp_class_annotations = _dp_prepare_ns.get("__annotations__")
     _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
     if _dp_tmp_2:
@@ -504,7 +486,7 @@ def _dp_ns_C(_dp_prepare_ns):
 
     def _dp_var_m_1():
         return super(C, None).m()
-    return __dp__.list((("__module__", __name__), ("__qualname__", "C"), ("m", _dp_var_m_1)))
+    _dp_var_m_1 = _dp_add_binding("m", _dp_var_m_1)
 def _dp_make_class_C():
     orig_bases = ()
     bases = __dp__.resolve_bases(orig_bases)
@@ -512,26 +494,19 @@ def _dp_make_class_C():
     meta = __dp__.getitem(_dp_tmp_3, 0)
     ns = __dp__.getitem(_dp_tmp_3, 1)
     kwds = __dp__.getitem(_dp_tmp_3, 2)
-    _dp_namespace_entries = _dp_ns_C(ns)
     _dp_temp_ns = __dp__.dict()
-    _dp_iter_4 = __dp__.iter(_dp_namespace_entries)
-    while True:
-        try:
-            _dp_tmp_5 = __dp__.next(_dp_iter_4)
-            _dp_name = __dp__.getitem(_dp_tmp_5, 0)
-            _dp_value = __dp__.getitem(_dp_tmp_5, 1)
-        except:
-            __dp__.check_stopiteration()
-            break
-        else:
-            __dp__.setitem(_dp_temp_ns, _dp_name, _dp_value)
-            __dp__.setitem(ns, _dp_name, _dp_value)
-    _dp_tmp_7 = __dp__.is_not(orig_bases, bases)
-    _dp_tmp_6 = _dp_tmp_7
-    if _dp_tmp_6:
-        _dp_tmp_8 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
-        _dp_tmp_6 = _dp_tmp_8
-    if _dp_tmp_6:
+
+    def _dp_add_binding(name: str, value):
+        __dp__.setitem(_dp_temp_ns, name, value)
+        __dp__.setitem(ns, name, value)
+        return value
+    _dp_ns_C(ns, _dp_add_binding)
+    _dp_tmp_5 = __dp__.is_not(orig_bases, bases)
+    _dp_tmp_4 = _dp_tmp_5
+    if _dp_tmp_4:
+        _dp_tmp_6 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
+        _dp_tmp_4 = _dp_tmp_6
+    if _dp_tmp_4:
         __dp__.setitem(ns, "__orig_bases__", orig_bases)
     return meta("C", bases, ns, **kwds)
 _dp_class_C = _dp_make_class_C()
