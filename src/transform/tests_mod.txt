@@ -32,7 +32,9 @@ class Foo:
     def method(self):
         return 1
 =
-def _dp_ns_Foo(_dp_prepare_ns):
+def _dp_ns_Foo(_dp_prepare_ns, _dp_add_binding):
+    _dp_add_binding("__module__", __name__)
+    _dp_add_binding("__qualname__", "Foo")
     _dp_class_annotations = _dp_prepare_ns.get("__annotations__")
     _dp_tmp_3 = __dp__.is_(_dp_class_annotations, None)
     if _dp_tmp_3:
@@ -40,7 +42,7 @@ def _dp_ns_Foo(_dp_prepare_ns):
 
     def _dp_var_method_2(self):
         return 1
-    return __dp__.list((("__module__", __name__), ("__qualname__", "Foo"), ("method", _dp_var_method_2)))
+    _dp_var_method_2 = _dp_add_binding("method", _dp_var_method_2)
 def _dp_make_class_Foo():
     orig_bases = ()
     bases = __dp__.resolve_bases(orig_bases)
@@ -48,26 +50,19 @@ def _dp_make_class_Foo():
     meta = __dp__.getitem(_dp_tmp_4, 0)
     ns = __dp__.getitem(_dp_tmp_4, 1)
     kwds = __dp__.getitem(_dp_tmp_4, 2)
-    _dp_namespace_entries = _dp_ns_Foo(ns)
     _dp_temp_ns = __dp__.dict()
-    _dp_iter_5 = __dp__.iter(_dp_namespace_entries)
-    while True:
-        try:
-            _dp_tmp_6 = __dp__.next(_dp_iter_5)
-            _dp_name = __dp__.getitem(_dp_tmp_6, 0)
-            _dp_value = __dp__.getitem(_dp_tmp_6, 1)
-        except:
-            __dp__.check_stopiteration()
-            break
-        else:
-            __dp__.setitem(_dp_temp_ns, _dp_name, _dp_value)
-            __dp__.setitem(ns, _dp_name, _dp_value)
-    _dp_tmp_8 = __dp__.is_not(orig_bases, bases)
-    _dp_tmp_7 = _dp_tmp_8
-    if _dp_tmp_7:
-        _dp_tmp_9 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
-        _dp_tmp_7 = _dp_tmp_9
-    if _dp_tmp_7:
+
+    def _dp_add_binding(name: str, value):
+        __dp__.setitem(_dp_temp_ns, name, value)
+        __dp__.setitem(ns, name, value)
+        return value
+    _dp_ns_Foo(ns, _dp_add_binding)
+    _dp_tmp_6 = __dp__.is_not(orig_bases, bases)
+    _dp_tmp_5 = _dp_tmp_6
+    if _dp_tmp_5:
+        _dp_tmp_7 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
+        _dp_tmp_5 = _dp_tmp_7
+    if _dp_tmp_5:
         __dp__.setitem(ns, "__orig_bases__", orig_bases)
     return meta("Foo", bases, ns, **kwds)
 _dp_class_Foo = _dp_make_class_Foo()
