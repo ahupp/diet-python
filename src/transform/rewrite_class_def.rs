@@ -1,12 +1,13 @@
 use crate::body_transform::{walk_expr, walk_stmt, Transformer};
 use crate::template::make_tuple;
+use crate::transform::class_def::AnnotationCollector;
 use crate::transform::context::Context;
 use crate::transform::driver::{ExprRewriter, Rewrite};
 use crate::transform::rewrite_decorator;
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
 use ruff_text_size::TextRange;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::mem::take;
 
 struct ClassVarRenamer<'a> {
@@ -189,6 +190,7 @@ pub fn rewrite(
 
     let mut renamer = ClassVarRenamer::new(rewriter.context());
     renamer.visit_body(&mut body);
+    let annotations = AnnotationCollector::collect(&mut body);
     let replacements = renamer.into_replacements();
     let mut replacement_to_original: HashMap<String, String> = HashMap::new();
     for (original, replacement) in replacements.iter() {
@@ -221,6 +223,7 @@ pub fn rewrite(
     ));
 
     let mut original_body = body;
+    let mut annotations = VecDeque::from(annotations);
     if let Some(Stmt::Expr(ast::StmtExpr { value, .. })) = original_body.first() {
         if let Expr::StringLiteral(_) = value.as_ref() {
             add_class_binding(&mut ns_body, "__doc__", *value.clone());
@@ -237,112 +240,109 @@ if _dp_class_annotations is None:
 
     let mut has_class_annotations = false;
 
-    for stmt in original_body {
-        match stmt {
-            Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
-                if targets.len() == 1 {
-                    if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
-                        let replacement_name = id.as_str().to_string();
-                        let (stmts, value_expr) = rewriter.maybe_placeholder_within(*value);
-                        ns_body.extend(stmts);
-                        add_class_binding(&mut ns_body, replacement_name.as_str(), value_expr);
-                    }
-                } else {
-                    let (mut stmts, shared_value) = rewriter.maybe_placeholder_within(*value);
-                    ns_body.append(&mut stmts);
-                    for target in targets {
-                        if let Expr::Name(ast::ExprName { id, .. }) = target {
-                            let replacement_name = id.as_str().to_string();
-                            add_class_binding(
-                                &mut ns_body,
-                                replacement_name.as_str(),
-                                shared_value.clone(),
-                            );
-                        }
-                    }
-                }
-            }
-            Stmt::AnnAssign(mut ann_assign) => {
-                if ann_assign.simple {
-                    if let Expr::Name(ast::ExprName { id, .. }) = ann_assign.target.as_ref() {
-                        let replacement_name = id.as_str().to_string();
-                        let original_name = lookup_original_name(
-                            &replacement_to_original,
-                            replacement_name.as_str(),
-                        );
+    for (index, stmt) in original_body.into_iter().enumerate() {
+        let has_annotation = annotations
+            .front()
+            .map(|(ann_index, _, _)| *ann_index == index)
+            .unwrap_or(false);
 
-                        if let Some(value) = ann_assign.value.take() {
+        let skip_stmt = has_annotation && matches!(stmt, Stmt::Pass(_));
+
+        if !skip_stmt {
+            match stmt {
+                Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
+                    if targets.len() == 1 {
+                        if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
+                            let replacement_name = id.as_str().to_string();
                             let (stmts, value_expr) = rewriter.maybe_placeholder_within(*value);
                             ns_body.extend(stmts);
                             add_class_binding(&mut ns_body, replacement_name.as_str(), value_expr);
                         }
-
-                        if !has_class_annotations {
-                            ns_body.extend(py_stmt!(
-                                "_dp_add_binding({name:literal}, _dp_class_annotations)",
-                                name = "__annotations__",
-                            ));
-                            has_class_annotations = true;
+                    } else {
+                        let (mut stmts, shared_value) = rewriter.maybe_placeholder_within(*value);
+                        ns_body.append(&mut stmts);
+                        for target in targets {
+                            if let Expr::Name(ast::ExprName { id, .. }) = target {
+                                let replacement_name = id.as_str().to_string();
+                                add_class_binding(
+                                    &mut ns_body,
+                                    replacement_name.as_str(),
+                                    shared_value.clone(),
+                                );
+                            }
                         }
-
-                        let (ann_stmts, annotation_expr) =
-                            rewriter.maybe_placeholder_within(*ann_assign.annotation);
-                        ns_body.extend(ann_stmts);
-
-                        ns_body.extend(py_stmt!(
-                            "_dp_class_annotations[{name:literal}] = {annotation:expr}",
-                            name = original_name.as_str(),
-                            annotation = annotation_expr,
-                        ));
-
-                        continue;
                     }
                 }
+                Stmt::FunctionDef(mut func_def) => {
+                    let fn_name = func_def.name.id.to_string();
+                    let original_fn_name =
+                        lookup_original_name(&replacement_to_original, fn_name.as_str());
 
-                ns_body.push(Stmt::AnnAssign(ann_assign));
+                    rewrite_method(&mut func_def, &class_name);
+
+                    let decorators = take(&mut func_def.decorator_list);
+
+                    let mut method_stmts = Vec::new();
+                    method_stmts.push(Stmt::FunctionDef(func_def));
+
+                    let method_stmts = rewrite_decorator::rewrite(
+                        decorators,
+                        fn_name.as_str(),
+                        method_stmts,
+                        rewriter.context(),
+                    )
+                    .into_statements();
+
+                    ns_body.extend(method_stmts);
+                    ns_body.extend(py_stmt!(
+                        "{fn_name:id} = _dp_add_binding({name:literal}, {value:expr})",
+                        fn_name = fn_name.as_str(),
+                        name = original_fn_name.as_str(),
+                        value = py_expr!("{fn_name:id}", fn_name = fn_name.as_str()),
+                    ));
+                }
+                Stmt::ClassDef(mut class_def) => {
+                    let nested_name = class_def.name.id.to_string();
+                    let decorators = take(&mut class_def.decorator_list);
+
+                    let nested_stmts = rewrite(class_def, decorators, rewriter).into_statements();
+                    ns_body.extend(nested_stmts);
+                    ns_body.extend(py_stmt!(
+                        "{name:id} = _dp_add_binding({literal:literal}, {value:expr})",
+                        name = nested_name.as_str(),
+                        literal = nested_name.as_str(),
+                        value = py_expr!("{name:id}", name = nested_name.as_str()),
+                    ));
+                }
+                other => ns_body.push(other),
             }
-            Stmt::FunctionDef(mut func_def) => {
-                let fn_name = func_def.name.id.to_string();
-                let original_fn_name =
-                    lookup_original_name(&replacement_to_original, fn_name.as_str());
+        }
 
-                rewrite_method(&mut func_def, &class_name);
+        while annotations
+            .front()
+            .map(|(ann_index, _, _)| *ann_index == index)
+            .unwrap_or(false)
+        {
+            let (_, replacement_name, annotation) = annotations.pop_front().unwrap();
+            let original_name =
+                lookup_original_name(&replacement_to_original, replacement_name.as_str());
 
-                let decorators = take(&mut func_def.decorator_list);
-
-                let mut method_stmts = Vec::new();
-                method_stmts.push(Stmt::FunctionDef(func_def));
-
-                let method_stmts = rewrite_decorator::rewrite(
-                    decorators,
-                    fn_name.as_str(),
-                    method_stmts,
-                    rewriter.context(),
-                )
-                .into_statements();
-
-                ns_body.extend(method_stmts);
+            if !has_class_annotations {
                 ns_body.extend(py_stmt!(
-                    "{fn_name:id} = _dp_add_binding({name:literal}, {value:expr})",
-                    fn_name = fn_name.as_str(),
-                    name = original_fn_name.as_str(),
-                    value = py_expr!("{fn_name:id}", fn_name = fn_name.as_str()),
+                    "_dp_add_binding({name:literal}, _dp_class_annotations)",
+                    name = "__annotations__",
                 ));
+                has_class_annotations = true;
             }
-            Stmt::ClassDef(mut class_def) => {
-                let nested_name = class_def.name.id.to_string();
-                let decorators = take(&mut class_def.decorator_list);
 
-                let nested_stmts = rewrite(class_def, decorators, rewriter).into_statements();
-                ns_body.extend(nested_stmts);
-                ns_body.extend(py_stmt!(
-                    "{name:id} = _dp_add_binding({literal:literal}, {value:expr})",
-                    name = nested_name.as_str(),
-                    literal = nested_name.as_str(),
-                    value = py_expr!("{name:id}", name = nested_name.as_str()),
-                ));
-            }
-            other => ns_body.push(other),
+            let (ann_stmts, annotation_expr) = rewriter.maybe_placeholder_within(annotation);
+            ns_body.extend(ann_stmts);
+
+            ns_body.extend(py_stmt!(
+                "_dp_class_annotations[{name:literal}] = {annotation:expr}",
+                name = original_name.as_str(),
+                annotation = annotation_expr,
+            ));
         }
     }
 
