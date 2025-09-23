@@ -146,7 +146,7 @@ impl<'a> ExprRewriter<'a> {
             Stmt::Assert(assert) => rewrite_assert::rewrite(assert),
             Stmt::ClassDef(mut class_def) => {
                 let decorators = take(&mut class_def.decorator_list);
-                rewrite_class_def::rewrite(class_def.clone(), decorators, self)
+                rewrite_class_def::rewrite(class_def.clone(), decorators, self, None)
             }
             Stmt::Try(try_stmt) => rewrite_exception::rewrite_try(try_stmt, self.ctx),
             Stmt::If(if_stmt)
