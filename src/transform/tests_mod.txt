@@ -33,41 +33,41 @@ class Foo:
     def method(self):
         return 1
 =
-def _dp_meth_Foo_method_1(self):
+def _dp_meth_Foo__dp_var_method_2_3(self):
     return 1
 def _dp_ns_Foo(_dp_prepare_ns):
     _dp_temp_ns = __dp__.dict()
     __dp__.setitem(_dp_temp_ns, "__module__", __name__)
     __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
-    _dp_tmp_2 = "Foo"
-    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_2)
-    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_2)
+    _dp_tmp_4 = "Foo"
+    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_4)
+    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_4)
     _dp_class_annotations = _dp_temp_ns.get("__annotations__")
-    _dp_tmp_3 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_3:
+    _dp_tmp_5 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_5:
         _dp_class_annotations = __dp__.dict()
-    def method(self):
+    def _dp_var_method_2(self):
         pass
-    __dp__.setattr(method, "__code__", _dp_meth_Foo_method_1.__code__)
-    __dp__.setattr(method, "__doc__", _dp_meth_Foo_method_1.__doc__)
-    __dp__.setattr(method, "__annotations__", _dp_meth_Foo_method_1.__annotations__)
-    __dp__.setattr(method, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".method"))
-    __dp__.setitem(_dp_temp_ns, "method", method)
-    __dp__.setitem(_dp_prepare_ns, "method", method)
+    __dp__.setattr(_dp_var_method_2, "__code__", _dp_meth_Foo__dp_var_method_2_3.__code__)
+    __dp__.setattr(_dp_var_method_2, "__doc__", _dp_meth_Foo__dp_var_method_2_3.__doc__)
+    __dp__.setattr(_dp_var_method_2, "__annotations__", _dp_meth_Foo__dp_var_method_2_3.__annotations__)
+    __dp__.setattr(_dp_var_method_2, "__qualname__", __dp__.add(__dp__.getitem(_dp_prepare_ns, "__qualname__"), ".method"))
+    __dp__.setitem(_dp_temp_ns, "method", _dp_var_method_2)
+    __dp__.setitem(_dp_prepare_ns, "method", _dp_var_method_2)
 def _dp_make_class_Foo():
     orig_bases = ()
     bases = __dp__.resolve_bases(orig_bases)
-    _dp_tmp_4 = __dp__.prepare_class("Foo", bases, None)
-    meta = __dp__.getitem(_dp_tmp_4, 0)
-    ns = __dp__.getitem(_dp_tmp_4, 1)
-    kwds = __dp__.getitem(_dp_tmp_4, 2)
+    _dp_tmp_6 = __dp__.prepare_class("Foo", bases, None)
+    meta = __dp__.getitem(_dp_tmp_6, 0)
+    ns = __dp__.getitem(_dp_tmp_6, 1)
+    kwds = __dp__.getitem(_dp_tmp_6, 2)
     _dp_ns_Foo(ns)
-    _dp_tmp_6 = __dp__.is_not(orig_bases, bases)
-    _dp_tmp_5 = _dp_tmp_6
-    if _dp_tmp_5:
-        _dp_tmp_7 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
-        _dp_tmp_5 = _dp_tmp_7
-    if _dp_tmp_5:
+    _dp_tmp_8 = __dp__.is_not(orig_bases, bases)
+    _dp_tmp_7 = _dp_tmp_8
+    if _dp_tmp_7:
+        _dp_tmp_9 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
+        _dp_tmp_7 = _dp_tmp_9
+    if _dp_tmp_7:
         __dp__.setitem(ns, "__orig_bases__", orig_bases)
     return meta("Foo", bases, ns, **kwds)
 _dp_class_Foo = _dp_make_class_Foo()
