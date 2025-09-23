@@ -4,38 +4,43 @@ class C:
     x = 1
 =
 def _dp_ns_C(_dp_prepare_ns):
-    _dp_temp_ns = __dp__.dict()
-    __dp__.setitem(_dp_temp_ns, "__module__", __name__)
-    __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
-    _dp_tmp_2 = "C"
-    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_2)
-    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_2)
-    _dp_class_annotations = _dp_temp_ns.get("__annotations__")
-    _dp_tmp_3 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_3:
+    _dp_class_annotations = _dp_prepare_ns.get("__annotations__")
+    _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_2:
         _dp_class_annotations = __dp__.dict()
     _dp_var_x_1 = 1
-    __dp__.setitem(_dp_temp_ns, "x", _dp_var_x_1)
-    __dp__.setitem(_dp_prepare_ns, "x", _dp_var_x_1)
+    return __dp__.list((("__module__", __name__), ("__qualname__", "C"), ("x", _dp_var_x_1)))
 def _dp_make_class_C():
     orig_bases = ()
     bases = __dp__.resolve_bases(orig_bases)
-    _dp_tmp_4 = __dp__.prepare_class("C", bases, None)
-    meta = __dp__.getitem(_dp_tmp_4, 0)
-    ns = __dp__.getitem(_dp_tmp_4, 1)
-    kwds = __dp__.getitem(_dp_tmp_4, 2)
-    _dp_ns_C(ns)
-    _dp_tmp_6 = __dp__.is_not(orig_bases, bases)
-    _dp_tmp_5 = _dp_tmp_6
-    if _dp_tmp_5:
-        _dp_tmp_7 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
-        _dp_tmp_5 = _dp_tmp_7
-    if _dp_tmp_5:
+    _dp_tmp_3 = __dp__.prepare_class("C", bases, None)
+    meta = __dp__.getitem(_dp_tmp_3, 0)
+    ns = __dp__.getitem(_dp_tmp_3, 1)
+    kwds = __dp__.getitem(_dp_tmp_3, 2)
+    _dp_namespace_entries = _dp_ns_C(ns)
+    _dp_temp_ns = __dp__.dict()
+    _dp_iter_4 = __dp__.iter(_dp_namespace_entries)
+    while True:
+        try:
+            _dp_tmp_5 = __dp__.next(_dp_iter_4)
+            _dp_name = __dp__.getitem(_dp_tmp_5, 0)
+            _dp_value = __dp__.getitem(_dp_tmp_5, 1)
+        except:
+            __dp__.check_stopiteration()
+            break
+        else:
+            __dp__.setitem(_dp_temp_ns, _dp_name, _dp_value)
+            __dp__.setitem(ns, _dp_name, _dp_value)
+    _dp_tmp_7 = __dp__.is_not(orig_bases, bases)
+    _dp_tmp_6 = _dp_tmp_7
+    if _dp_tmp_6:
+        _dp_tmp_8 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
+        _dp_tmp_6 = _dp_tmp_8
+    if _dp_tmp_6:
         __dp__.setitem(ns, "__orig_bases__", orig_bases)
     return meta("C", bases, ns, **kwds)
 _dp_class_C = _dp_make_class_C()
 C = _dp_class_C
-
 $ collects class annotations
 
 class C:
@@ -43,33 +48,35 @@ class C:
     y: str = 1
 =
 def _dp_ns_C(_dp_prepare_ns):
-    _dp_temp_ns = __dp__.dict()
-    __dp__.setitem(_dp_temp_ns, "__module__", __name__)
-    __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
-    _dp_tmp_3 = "C"
-    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_3)
-    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_3)
-    _dp_class_annotations = _dp_temp_ns.get("__annotations__")
-    _dp_tmp_4 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_4:
+    _dp_class_annotations = _dp_prepare_ns.get("__annotations__")
+    _dp_tmp_3 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_3:
         _dp_class_annotations = __dp__.dict()
-    _dp_tmp_5 = __dp__.is_(_dp_temp_ns.get("__annotations__"), None)
-    if _dp_tmp_5:
-        __dp__.setitem(_dp_temp_ns, "__annotations__", _dp_class_annotations)
-    __dp__.setitem(_dp_prepare_ns, "__annotations__", _dp_class_annotations)
     __dp__.setitem(_dp_class_annotations, "x", int)
     _dp_var_y_2 = 1
-    __dp__.setitem(_dp_temp_ns, "y", _dp_var_y_2)
-    __dp__.setitem(_dp_prepare_ns, "y", _dp_var_y_2)
     __dp__.setitem(_dp_class_annotations, "y", str)
+    return __dp__.list((("__module__", __name__), ("__qualname__", "C"), ("__annotations__", _dp_class_annotations), ("y", _dp_var_y_2)))
 def _dp_make_class_C():
     orig_bases = ()
     bases = __dp__.resolve_bases(orig_bases)
-    _dp_tmp_6 = __dp__.prepare_class("C", bases, None)
-    meta = __dp__.getitem(_dp_tmp_6, 0)
-    ns = __dp__.getitem(_dp_tmp_6, 1)
-    kwds = __dp__.getitem(_dp_tmp_6, 2)
-    _dp_ns_C(ns)
+    _dp_tmp_4 = __dp__.prepare_class("C", bases, None)
+    meta = __dp__.getitem(_dp_tmp_4, 0)
+    ns = __dp__.getitem(_dp_tmp_4, 1)
+    kwds = __dp__.getitem(_dp_tmp_4, 2)
+    _dp_namespace_entries = _dp_ns_C(ns)
+    _dp_temp_ns = __dp__.dict()
+    _dp_iter_5 = __dp__.iter(_dp_namespace_entries)
+    while True:
+        try:
+            _dp_tmp_6 = __dp__.next(_dp_iter_5)
+            _dp_name = __dp__.getitem(_dp_tmp_6, 0)
+            _dp_value = __dp__.getitem(_dp_tmp_6, 1)
+        except:
+            __dp__.check_stopiteration()
+            break
+        else:
+            __dp__.setitem(_dp_temp_ns, _dp_name, _dp_value)
+            __dp__.setitem(ns, _dp_name, _dp_value)
     _dp_tmp_8 = __dp__.is_not(orig_bases, bases)
     _dp_tmp_7 = _dp_tmp_8
     if _dp_tmp_7:
@@ -80,45 +87,49 @@ def _dp_make_class_C():
     return meta("C", bases, ns, **kwds)
 _dp_class_C = _dp_make_class_C()
 C = _dp_class_C
-
 $ captures outer reference
 
 class C:
     x = x
 =
 def _dp_ns_C(_dp_prepare_ns):
-    _dp_temp_ns = __dp__.dict()
-    __dp__.setitem(_dp_temp_ns, "__module__", __name__)
-    __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
-    _dp_tmp_2 = "C"
-    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_2)
-    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_2)
-    _dp_class_annotations = _dp_temp_ns.get("__annotations__")
-    _dp_tmp_3 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_3:
+    _dp_class_annotations = _dp_prepare_ns.get("__annotations__")
+    _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_2:
         _dp_class_annotations = __dp__.dict()
     _dp_var_x_1 = x
-    __dp__.setitem(_dp_temp_ns, "x", _dp_var_x_1)
-    __dp__.setitem(_dp_prepare_ns, "x", _dp_var_x_1)
+    return __dp__.list((("__module__", __name__), ("__qualname__", "C"), ("x", _dp_var_x_1)))
 def _dp_make_class_C():
     orig_bases = ()
     bases = __dp__.resolve_bases(orig_bases)
-    _dp_tmp_4 = __dp__.prepare_class("C", bases, None)
-    meta = __dp__.getitem(_dp_tmp_4, 0)
-    ns = __dp__.getitem(_dp_tmp_4, 1)
-    kwds = __dp__.getitem(_dp_tmp_4, 2)
-    _dp_ns_C(ns)
-    _dp_tmp_6 = __dp__.is_not(orig_bases, bases)
-    _dp_tmp_5 = _dp_tmp_6
-    if _dp_tmp_5:
-        _dp_tmp_7 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
-        _dp_tmp_5 = _dp_tmp_7
-    if _dp_tmp_5:
+    _dp_tmp_3 = __dp__.prepare_class("C", bases, None)
+    meta = __dp__.getitem(_dp_tmp_3, 0)
+    ns = __dp__.getitem(_dp_tmp_3, 1)
+    kwds = __dp__.getitem(_dp_tmp_3, 2)
+    _dp_namespace_entries = _dp_ns_C(ns)
+    _dp_temp_ns = __dp__.dict()
+    _dp_iter_4 = __dp__.iter(_dp_namespace_entries)
+    while True:
+        try:
+            _dp_tmp_5 = __dp__.next(_dp_iter_4)
+            _dp_name = __dp__.getitem(_dp_tmp_5, 0)
+            _dp_value = __dp__.getitem(_dp_tmp_5, 1)
+        except:
+            __dp__.check_stopiteration()
+            break
+        else:
+            __dp__.setitem(_dp_temp_ns, _dp_name, _dp_value)
+            __dp__.setitem(ns, _dp_name, _dp_value)
+    _dp_tmp_7 = __dp__.is_not(orig_bases, bases)
+    _dp_tmp_6 = _dp_tmp_7
+    if _dp_tmp_6:
+        _dp_tmp_8 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
+        _dp_tmp_6 = _dp_tmp_8
+    if _dp_tmp_6:
         __dp__.setitem(ns, "__orig_bases__", orig_bases)
     return meta("C", bases, ns, **kwds)
 _dp_class_C = _dp_make_class_C()
 C = _dp_class_C
-
 $ captures names used in annotations
 
 T = object()
@@ -128,29 +139,33 @@ class C:
 =
 T = object()
 def _dp_ns_C(_dp_prepare_ns):
-    _dp_temp_ns = __dp__.dict()
-    __dp__.setitem(_dp_temp_ns, "__module__", __name__)
-    __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
-    _dp_tmp_2 = "C"
-    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_2)
-    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_2)
-    _dp_class_annotations = _dp_temp_ns.get("__annotations__")
-    _dp_tmp_3 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_3:
+    _dp_class_annotations = _dp_prepare_ns.get("__annotations__")
+    _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_2:
         _dp_class_annotations = __dp__.dict()
-    _dp_tmp_4 = __dp__.is_(_dp_temp_ns.get("__annotations__"), None)
-    if _dp_tmp_4:
-        __dp__.setitem(_dp_temp_ns, "__annotations__", _dp_class_annotations)
-    __dp__.setitem(_dp_prepare_ns, "__annotations__", _dp_class_annotations)
     __dp__.setitem(_dp_class_annotations, "x", T)
+    return __dp__.list((("__module__", __name__), ("__qualname__", "C"), ("__annotations__", _dp_class_annotations)))
 def _dp_make_class_C():
     orig_bases = ()
     bases = __dp__.resolve_bases(orig_bases)
-    _dp_tmp_5 = __dp__.prepare_class("C", bases, None)
-    meta = __dp__.getitem(_dp_tmp_5, 0)
-    ns = __dp__.getitem(_dp_tmp_5, 1)
-    kwds = __dp__.getitem(_dp_tmp_5, 2)
-    _dp_ns_C(ns)
+    _dp_tmp_3 = __dp__.prepare_class("C", bases, None)
+    meta = __dp__.getitem(_dp_tmp_3, 0)
+    ns = __dp__.getitem(_dp_tmp_3, 1)
+    kwds = __dp__.getitem(_dp_tmp_3, 2)
+    _dp_namespace_entries = _dp_ns_C(ns)
+    _dp_temp_ns = __dp__.dict()
+    _dp_iter_4 = __dp__.iter(_dp_namespace_entries)
+    while True:
+        try:
+            _dp_tmp_5 = __dp__.next(_dp_iter_4)
+            _dp_name = __dp__.getitem(_dp_tmp_5, 0)
+            _dp_value = __dp__.getitem(_dp_tmp_5, 1)
+        except:
+            __dp__.check_stopiteration()
+            break
+        else:
+            __dp__.setitem(_dp_temp_ns, _dp_name, _dp_value)
+            __dp__.setitem(ns, _dp_name, _dp_value)
     _dp_tmp_7 = __dp__.is_not(orig_bases, bases)
     _dp_tmp_6 = _dp_tmp_7
     if _dp_tmp_6:
@@ -161,7 +176,6 @@ def _dp_make_class_C():
     return meta("C", bases, ns, **kwds)
 _dp_class_C = _dp_make_class_C()
 C = _dp_class_C
-
 $ preserves class locals for references
 
 class C:
@@ -169,30 +183,121 @@ class C:
     y = x
 =
 def _dp_ns_C(_dp_prepare_ns):
-    _dp_temp_ns = __dp__.dict()
-    __dp__.setitem(_dp_temp_ns, "__module__", __name__)
-    __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
-    _dp_tmp_3 = "C"
-    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_3)
-    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_3)
-    _dp_class_annotations = _dp_temp_ns.get("__annotations__")
-    _dp_tmp_4 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_4:
+    _dp_class_annotations = _dp_prepare_ns.get("__annotations__")
+    _dp_tmp_3 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_3:
         _dp_class_annotations = __dp__.dict()
     _dp_var_x_1 = 1
-    __dp__.setitem(_dp_temp_ns, "x", _dp_var_x_1)
-    __dp__.setitem(_dp_prepare_ns, "x", _dp_var_x_1)
     _dp_var_y_2 = _dp_var_x_1
-    __dp__.setitem(_dp_temp_ns, "y", _dp_var_y_2)
-    __dp__.setitem(_dp_prepare_ns, "y", _dp_var_y_2)
+    return __dp__.list((("__module__", __name__), ("__qualname__", "C"), ("x", _dp_var_x_1), ("y", _dp_var_y_2)))
 def _dp_make_class_C():
     orig_bases = ()
     bases = __dp__.resolve_bases(orig_bases)
-    _dp_tmp_5 = __dp__.prepare_class("C", bases, None)
-    meta = __dp__.getitem(_dp_tmp_5, 0)
-    ns = __dp__.getitem(_dp_tmp_5, 1)
-    kwds = __dp__.getitem(_dp_tmp_5, 2)
-    _dp_ns_C(ns)
+    _dp_tmp_4 = __dp__.prepare_class("C", bases, None)
+    meta = __dp__.getitem(_dp_tmp_4, 0)
+    ns = __dp__.getitem(_dp_tmp_4, 1)
+    kwds = __dp__.getitem(_dp_tmp_4, 2)
+    _dp_namespace_entries = _dp_ns_C(ns)
+    _dp_temp_ns = __dp__.dict()
+    _dp_iter_5 = __dp__.iter(_dp_namespace_entries)
+    while True:
+        try:
+            _dp_tmp_6 = __dp__.next(_dp_iter_5)
+            _dp_name = __dp__.getitem(_dp_tmp_6, 0)
+            _dp_value = __dp__.getitem(_dp_tmp_6, 1)
+        except:
+            __dp__.check_stopiteration()
+            break
+        else:
+            __dp__.setitem(_dp_temp_ns, _dp_name, _dp_value)
+            __dp__.setitem(ns, _dp_name, _dp_value)
+    _dp_tmp_8 = __dp__.is_not(orig_bases, bases)
+    _dp_tmp_7 = _dp_tmp_8
+    if _dp_tmp_7:
+        _dp_tmp_9 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
+        _dp_tmp_7 = _dp_tmp_9
+    if _dp_tmp_7:
+        __dp__.setitem(ns, "__orig_bases__", orig_bases)
+    return meta("C", bases, ns, **kwds)
+_dp_class_C = _dp_make_class_C()
+C = _dp_class_C
+$ lowers inherits
+
+class C(B):
+    pass
+=
+def _dp_ns_C(_dp_prepare_ns):
+    _dp_class_annotations = _dp_prepare_ns.get("__annotations__")
+    _dp_tmp_1 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_1:
+        _dp_class_annotations = __dp__.dict()
+    return __dp__.list((("__module__", __name__), ("__qualname__", "C")))
+def _dp_make_class_C():
+    orig_bases = B,
+    bases = __dp__.resolve_bases(orig_bases)
+    _dp_tmp_2 = __dp__.prepare_class("C", bases, None)
+    meta = __dp__.getitem(_dp_tmp_2, 0)
+    ns = __dp__.getitem(_dp_tmp_2, 1)
+    kwds = __dp__.getitem(_dp_tmp_2, 2)
+    _dp_namespace_entries = _dp_ns_C(ns)
+    _dp_temp_ns = __dp__.dict()
+    _dp_iter_3 = __dp__.iter(_dp_namespace_entries)
+    while True:
+        try:
+            _dp_tmp_4 = __dp__.next(_dp_iter_3)
+            _dp_name = __dp__.getitem(_dp_tmp_4, 0)
+            _dp_value = __dp__.getitem(_dp_tmp_4, 1)
+        except:
+            __dp__.check_stopiteration()
+            break
+        else:
+            __dp__.setitem(_dp_temp_ns, _dp_name, _dp_value)
+            __dp__.setitem(ns, _dp_name, _dp_value)
+    _dp_tmp_6 = __dp__.is_not(orig_bases, bases)
+    _dp_tmp_5 = _dp_tmp_6
+    if _dp_tmp_5:
+        _dp_tmp_7 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
+        _dp_tmp_5 = _dp_tmp_7
+    if _dp_tmp_5:
+        __dp__.setitem(ns, "__orig_bases__", orig_bases)
+    return meta("C", bases, ns, **kwds)
+_dp_class_C = _dp_make_class_C()
+C = _dp_class_C
+$ lowers with docstring and keywords
+
+class C(B, metaclass=Meta, kw=1):
+    'doc'
+    x = 2
+=
+def _dp_ns_C(_dp_prepare_ns):
+    __doc__ = 'doc'
+    _dp_class_annotations = _dp_prepare_ns.get("__annotations__")
+    _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_2:
+        _dp_class_annotations = __dp__.dict()
+    _dp_var_x_1 = 2
+    return __dp__.list((("__module__", __name__), ("__qualname__", "C"), ("__doc__", __doc__), ("x", _dp_var_x_1)))
+def _dp_make_class_C():
+    orig_bases = B,
+    bases = __dp__.resolve_bases(orig_bases)
+    _dp_tmp_3 = __dp__.prepare_class("C", bases, __dp__.dict((("metaclass", Meta), ("kw", 1))))
+    meta = __dp__.getitem(_dp_tmp_3, 0)
+    ns = __dp__.getitem(_dp_tmp_3, 1)
+    kwds = __dp__.getitem(_dp_tmp_3, 2)
+    _dp_namespace_entries = _dp_ns_C(ns)
+    _dp_temp_ns = __dp__.dict()
+    _dp_iter_4 = __dp__.iter(_dp_namespace_entries)
+    while True:
+        try:
+            _dp_tmp_5 = __dp__.next(_dp_iter_4)
+            _dp_name = __dp__.getitem(_dp_tmp_5, 0)
+            _dp_value = __dp__.getitem(_dp_tmp_5, 1)
+        except:
+            __dp__.check_stopiteration()
+            break
+        else:
+            __dp__.setitem(_dp_temp_ns, _dp_name, _dp_value)
+            __dp__.setitem(ns, _dp_name, _dp_value)
     _dp_tmp_7 = __dp__.is_not(orig_bases, bases)
     _dp_tmp_6 = _dp_tmp_7
     if _dp_tmp_6:
@@ -203,84 +308,6 @@ def _dp_make_class_C():
     return meta("C", bases, ns, **kwds)
 _dp_class_C = _dp_make_class_C()
 C = _dp_class_C
-
-$ lowers inherits
-
-class C(B):
-    pass
-=
-def _dp_ns_C(_dp_prepare_ns):
-    _dp_temp_ns = __dp__.dict()
-    __dp__.setitem(_dp_temp_ns, "__module__", __name__)
-    __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
-    _dp_tmp_1 = "C"
-    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_1)
-    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_1)
-    _dp_class_annotations = _dp_temp_ns.get("__annotations__")
-    _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_2:
-        _dp_class_annotations = __dp__.dict()
-def _dp_make_class_C():
-    orig_bases = B,
-    bases = __dp__.resolve_bases(orig_bases)
-    _dp_tmp_3 = __dp__.prepare_class("C", bases, None)
-    meta = __dp__.getitem(_dp_tmp_3, 0)
-    ns = __dp__.getitem(_dp_tmp_3, 1)
-    kwds = __dp__.getitem(_dp_tmp_3, 2)
-    _dp_ns_C(ns)
-    _dp_tmp_5 = __dp__.is_not(orig_bases, bases)
-    _dp_tmp_4 = _dp_tmp_5
-    if _dp_tmp_4:
-        _dp_tmp_6 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
-        _dp_tmp_4 = _dp_tmp_6
-    if _dp_tmp_4:
-        __dp__.setitem(ns, "__orig_bases__", orig_bases)
-    return meta("C", bases, ns, **kwds)
-_dp_class_C = _dp_make_class_C()
-C = _dp_class_C
-
-$ lowers with docstring and keywords
-
-class C(B, metaclass=Meta, kw=1):
-    'doc'
-    x = 2
-=
-def _dp_ns_C(_dp_prepare_ns):
-    _dp_temp_ns = __dp__.dict()
-    __dp__.setitem(_dp_temp_ns, "__module__", __name__)
-    __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
-    _dp_tmp_2 = "C"
-    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_2)
-    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_2)
-    __doc__ = 'doc'
-    __dp__.setitem(_dp_temp_ns, "__doc__", __doc__)
-    __dp__.setitem(_dp_prepare_ns, "__doc__", __doc__)
-    _dp_class_annotations = _dp_temp_ns.get("__annotations__")
-    _dp_tmp_3 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_3:
-        _dp_class_annotations = __dp__.dict()
-    _dp_var_x_1 = 2
-    __dp__.setitem(_dp_temp_ns, "x", _dp_var_x_1)
-    __dp__.setitem(_dp_prepare_ns, "x", _dp_var_x_1)
-def _dp_make_class_C():
-    orig_bases = B,
-    bases = __dp__.resolve_bases(orig_bases)
-    _dp_tmp_4 = __dp__.prepare_class("C", bases, __dp__.dict((("metaclass", Meta), ("kw", 1))))
-    meta = __dp__.getitem(_dp_tmp_4, 0)
-    ns = __dp__.getitem(_dp_tmp_4, 1)
-    kwds = __dp__.getitem(_dp_tmp_4, 2)
-    _dp_ns_C(ns)
-    _dp_tmp_6 = __dp__.is_not(orig_bases, bases)
-    _dp_tmp_5 = _dp_tmp_6
-    if _dp_tmp_5:
-        _dp_tmp_7 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
-        _dp_tmp_5 = _dp_tmp_7
-    if _dp_tmp_5:
-        __dp__.setitem(ns, "__orig_bases__", orig_bases)
-    return meta("C", bases, ns, **kwds)
-_dp_class_C = _dp_make_class_C()
-C = _dp_class_C
-
 $ lowers method
 
 class C:
@@ -288,35 +315,41 @@ class C:
         return 1
 =
 def _dp_ns_C(_dp_prepare_ns):
-    _dp_temp_ns = __dp__.dict()
-    __dp__.setitem(_dp_temp_ns, "__module__", __name__)
-    __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
-    _dp_tmp_2 = "C"
-    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_2)
-    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_2)
-    _dp_class_annotations = _dp_temp_ns.get("__annotations__")
-    _dp_tmp_3 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_3:
+    _dp_class_annotations = _dp_prepare_ns.get("__annotations__")
+    _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_2:
         _dp_class_annotations = __dp__.dict()
 
     def _dp_var_m_1(self):
         return 1
-    __dp__.setitem(_dp_temp_ns, "m", _dp_var_m_1)
-    __dp__.setitem(_dp_prepare_ns, "m", _dp_var_m_1)
+    return __dp__.list((("__module__", __name__), ("__qualname__", "C"), ("m", _dp_var_m_1)))
 def _dp_make_class_C():
     orig_bases = ()
     bases = __dp__.resolve_bases(orig_bases)
-    _dp_tmp_4 = __dp__.prepare_class("C", bases, None)
-    meta = __dp__.getitem(_dp_tmp_4, 0)
-    ns = __dp__.getitem(_dp_tmp_4, 1)
-    kwds = __dp__.getitem(_dp_tmp_4, 2)
-    _dp_ns_C(ns)
-    _dp_tmp_6 = __dp__.is_not(orig_bases, bases)
-    _dp_tmp_5 = _dp_tmp_6
-    if _dp_tmp_5:
-        _dp_tmp_7 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
-        _dp_tmp_5 = _dp_tmp_7
-    if _dp_tmp_5:
+    _dp_tmp_3 = __dp__.prepare_class("C", bases, None)
+    meta = __dp__.getitem(_dp_tmp_3, 0)
+    ns = __dp__.getitem(_dp_tmp_3, 1)
+    kwds = __dp__.getitem(_dp_tmp_3, 2)
+    _dp_namespace_entries = _dp_ns_C(ns)
+    _dp_temp_ns = __dp__.dict()
+    _dp_iter_4 = __dp__.iter(_dp_namespace_entries)
+    while True:
+        try:
+            _dp_tmp_5 = __dp__.next(_dp_iter_4)
+            _dp_name = __dp__.getitem(_dp_tmp_5, 0)
+            _dp_value = __dp__.getitem(_dp_tmp_5, 1)
+        except:
+            __dp__.check_stopiteration()
+            break
+        else:
+            __dp__.setitem(_dp_temp_ns, _dp_name, _dp_value)
+            __dp__.setitem(ns, _dp_name, _dp_value)
+    _dp_tmp_7 = __dp__.is_not(orig_bases, bases)
+    _dp_tmp_6 = _dp_tmp_7
+    if _dp_tmp_6:
+        _dp_tmp_8 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
+        _dp_tmp_6 = _dp_tmp_8
+    if _dp_tmp_6:
         __dp__.setitem(ns, "__orig_bases__", orig_bases)
     return meta("C", bases, ns, **kwds)
 _dp_class_C = _dp_make_class_C()
@@ -328,35 +361,41 @@ class C:
         return super().m()
 =
 def _dp_ns_C(_dp_prepare_ns):
-    _dp_temp_ns = __dp__.dict()
-    __dp__.setitem(_dp_temp_ns, "__module__", __name__)
-    __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
-    _dp_tmp_2 = "C"
-    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_2)
-    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_2)
-    _dp_class_annotations = _dp_temp_ns.get("__annotations__")
-    _dp_tmp_3 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_3:
+    _dp_class_annotations = _dp_prepare_ns.get("__annotations__")
+    _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_2:
         _dp_class_annotations = __dp__.dict()
 
     def _dp_var_m_1(self):
         return super(C, self).m()
-    __dp__.setitem(_dp_temp_ns, "m", _dp_var_m_1)
-    __dp__.setitem(_dp_prepare_ns, "m", _dp_var_m_1)
+    return __dp__.list((("__module__", __name__), ("__qualname__", "C"), ("m", _dp_var_m_1)))
 def _dp_make_class_C():
     orig_bases = ()
     bases = __dp__.resolve_bases(orig_bases)
-    _dp_tmp_4 = __dp__.prepare_class("C", bases, None)
-    meta = __dp__.getitem(_dp_tmp_4, 0)
-    ns = __dp__.getitem(_dp_tmp_4, 1)
-    kwds = __dp__.getitem(_dp_tmp_4, 2)
-    _dp_ns_C(ns)
-    _dp_tmp_6 = __dp__.is_not(orig_bases, bases)
-    _dp_tmp_5 = _dp_tmp_6
-    if _dp_tmp_5:
-        _dp_tmp_7 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
-        _dp_tmp_5 = _dp_tmp_7
-    if _dp_tmp_5:
+    _dp_tmp_3 = __dp__.prepare_class("C", bases, None)
+    meta = __dp__.getitem(_dp_tmp_3, 0)
+    ns = __dp__.getitem(_dp_tmp_3, 1)
+    kwds = __dp__.getitem(_dp_tmp_3, 2)
+    _dp_namespace_entries = _dp_ns_C(ns)
+    _dp_temp_ns = __dp__.dict()
+    _dp_iter_4 = __dp__.iter(_dp_namespace_entries)
+    while True:
+        try:
+            _dp_tmp_5 = __dp__.next(_dp_iter_4)
+            _dp_name = __dp__.getitem(_dp_tmp_5, 0)
+            _dp_value = __dp__.getitem(_dp_tmp_5, 1)
+        except:
+            __dp__.check_stopiteration()
+            break
+        else:
+            __dp__.setitem(_dp_temp_ns, _dp_name, _dp_value)
+            __dp__.setitem(ns, _dp_name, _dp_value)
+    _dp_tmp_7 = __dp__.is_not(orig_bases, bases)
+    _dp_tmp_6 = _dp_tmp_7
+    if _dp_tmp_6:
+        _dp_tmp_8 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
+        _dp_tmp_6 = _dp_tmp_8
+    if _dp_tmp_6:
         __dp__.setitem(ns, "__orig_bases__", orig_bases)
     return meta("C", bases, ns, **kwds)
 _dp_class_C = _dp_make_class_C()
@@ -368,35 +407,41 @@ class C:
         return super().m()
 =
 def _dp_ns_C(_dp_prepare_ns):
-    _dp_temp_ns = __dp__.dict()
-    __dp__.setitem(_dp_temp_ns, "__module__", __name__)
-    __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
-    _dp_tmp_2 = "C"
-    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_2)
-    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_2)
-    _dp_class_annotations = _dp_temp_ns.get("__annotations__")
-    _dp_tmp_3 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_3:
+    _dp_class_annotations = _dp_prepare_ns.get("__annotations__")
+    _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_2:
         _dp_class_annotations = __dp__.dict()
 
     def _dp_var_m_1(z):
         return super(C, z).m()
-    __dp__.setitem(_dp_temp_ns, "m", _dp_var_m_1)
-    __dp__.setitem(_dp_prepare_ns, "m", _dp_var_m_1)
+    return __dp__.list((("__module__", __name__), ("__qualname__", "C"), ("m", _dp_var_m_1)))
 def _dp_make_class_C():
     orig_bases = ()
     bases = __dp__.resolve_bases(orig_bases)
-    _dp_tmp_4 = __dp__.prepare_class("C", bases, None)
-    meta = __dp__.getitem(_dp_tmp_4, 0)
-    ns = __dp__.getitem(_dp_tmp_4, 1)
-    kwds = __dp__.getitem(_dp_tmp_4, 2)
-    _dp_ns_C(ns)
-    _dp_tmp_6 = __dp__.is_not(orig_bases, bases)
-    _dp_tmp_5 = _dp_tmp_6
-    if _dp_tmp_5:
-        _dp_tmp_7 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
-        _dp_tmp_5 = _dp_tmp_7
-    if _dp_tmp_5:
+    _dp_tmp_3 = __dp__.prepare_class("C", bases, None)
+    meta = __dp__.getitem(_dp_tmp_3, 0)
+    ns = __dp__.getitem(_dp_tmp_3, 1)
+    kwds = __dp__.getitem(_dp_tmp_3, 2)
+    _dp_namespace_entries = _dp_ns_C(ns)
+    _dp_temp_ns = __dp__.dict()
+    _dp_iter_4 = __dp__.iter(_dp_namespace_entries)
+    while True:
+        try:
+            _dp_tmp_5 = __dp__.next(_dp_iter_4)
+            _dp_name = __dp__.getitem(_dp_tmp_5, 0)
+            _dp_value = __dp__.getitem(_dp_tmp_5, 1)
+        except:
+            __dp__.check_stopiteration()
+            break
+        else:
+            __dp__.setitem(_dp_temp_ns, _dp_name, _dp_value)
+            __dp__.setitem(ns, _dp_name, _dp_value)
+    _dp_tmp_7 = __dp__.is_not(orig_bases, bases)
+    _dp_tmp_6 = _dp_tmp_7
+    if _dp_tmp_6:
+        _dp_tmp_8 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
+        _dp_tmp_6 = _dp_tmp_8
+    if _dp_tmp_6:
         __dp__.setitem(ns, "__orig_bases__", orig_bases)
     return meta("C", bases, ns, **kwds)
 _dp_class_C = _dp_make_class_C()
@@ -408,35 +453,41 @@ class C:
         return super().m()
 =
 def _dp_ns_C(_dp_prepare_ns):
-    _dp_temp_ns = __dp__.dict()
-    __dp__.setitem(_dp_temp_ns, "__module__", __name__)
-    __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
-    _dp_tmp_2 = "C"
-    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_2)
-    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_2)
-    _dp_class_annotations = _dp_temp_ns.get("__annotations__")
-    _dp_tmp_3 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_3:
+    _dp_class_annotations = _dp_prepare_ns.get("__annotations__")
+    _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_2:
         _dp_class_annotations = __dp__.dict()
 
     def _dp_var_m_1():
         return super(C, None).m()
-    __dp__.setitem(_dp_temp_ns, "m", _dp_var_m_1)
-    __dp__.setitem(_dp_prepare_ns, "m", _dp_var_m_1)
+    return __dp__.list((("__module__", __name__), ("__qualname__", "C"), ("m", _dp_var_m_1)))
 def _dp_make_class_C():
     orig_bases = ()
     bases = __dp__.resolve_bases(orig_bases)
-    _dp_tmp_4 = __dp__.prepare_class("C", bases, None)
-    meta = __dp__.getitem(_dp_tmp_4, 0)
-    ns = __dp__.getitem(_dp_tmp_4, 1)
-    kwds = __dp__.getitem(_dp_tmp_4, 2)
-    _dp_ns_C(ns)
-    _dp_tmp_6 = __dp__.is_not(orig_bases, bases)
-    _dp_tmp_5 = _dp_tmp_6
-    if _dp_tmp_5:
-        _dp_tmp_7 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
-        _dp_tmp_5 = _dp_tmp_7
-    if _dp_tmp_5:
+    _dp_tmp_3 = __dp__.prepare_class("C", bases, None)
+    meta = __dp__.getitem(_dp_tmp_3, 0)
+    ns = __dp__.getitem(_dp_tmp_3, 1)
+    kwds = __dp__.getitem(_dp_tmp_3, 2)
+    _dp_namespace_entries = _dp_ns_C(ns)
+    _dp_temp_ns = __dp__.dict()
+    _dp_iter_4 = __dp__.iter(_dp_namespace_entries)
+    while True:
+        try:
+            _dp_tmp_5 = __dp__.next(_dp_iter_4)
+            _dp_name = __dp__.getitem(_dp_tmp_5, 0)
+            _dp_value = __dp__.getitem(_dp_tmp_5, 1)
+        except:
+            __dp__.check_stopiteration()
+            break
+        else:
+            __dp__.setitem(_dp_temp_ns, _dp_name, _dp_value)
+            __dp__.setitem(ns, _dp_name, _dp_value)
+    _dp_tmp_7 = __dp__.is_not(orig_bases, bases)
+    _dp_tmp_6 = _dp_tmp_7
+    if _dp_tmp_6:
+        _dp_tmp_8 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
+        _dp_tmp_6 = _dp_tmp_8
+    if _dp_tmp_6:
         __dp__.setitem(ns, "__orig_bases__", orig_bases)
     return meta("C", bases, ns, **kwds)
 _dp_class_C = _dp_make_class_C()
@@ -452,46 +503,49 @@ class C:
         return self
 =
 def _dp_ns_C(_dp_prepare_ns):
-    _dp_temp_ns = __dp__.dict()
-    __dp__.setitem(_dp_temp_ns, "__module__", __name__)
-    __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
-    _dp_tmp_3 = "C"
-    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_3)
-    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_3)
-    _dp_class_annotations = _dp_temp_ns.get("__annotations__")
-    _dp_tmp_4 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_4:
+    _dp_class_annotations = _dp_prepare_ns.get("__annotations__")
+    _dp_tmp_3 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_3:
         _dp_class_annotations = __dp__.dict()
     _dp_var_y_1 = deco
-    __dp__.setitem(_dp_temp_ns, "y", _dp_var_y_1)
-    __dp__.setitem(_dp_prepare_ns, "y", _dp_var_y_1)
     _dp_decorator__dp_var_m_2_0 = decorator(_dp_var_y_1)
     _dp_decorator__dp_var_m_2_1 = other
 
     def _dp_var_m_2(self):
         return self
     _dp_var_m_2 = _dp_decorator__dp_var_m_2_0(_dp_decorator__dp_var_m_2_1(_dp_var_m_2))
-    __dp__.setitem(_dp_temp_ns, "m", _dp_var_m_2)
-    __dp__.setitem(_dp_prepare_ns, "m", _dp_var_m_2)
+    return __dp__.list((("__module__", __name__), ("__qualname__", "C"), ("y", _dp_var_y_1), ("m", _dp_var_m_2)))
 def _dp_make_class_C():
     orig_bases = ()
     bases = __dp__.resolve_bases(orig_bases)
-    _dp_tmp_5 = __dp__.prepare_class("C", bases, None)
-    meta = __dp__.getitem(_dp_tmp_5, 0)
-    ns = __dp__.getitem(_dp_tmp_5, 1)
-    kwds = __dp__.getitem(_dp_tmp_5, 2)
-    _dp_ns_C(ns)
-    _dp_tmp_7 = __dp__.is_not(orig_bases, bases)
-    _dp_tmp_6 = _dp_tmp_7
-    if _dp_tmp_6:
-        _dp_tmp_8 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
-        _dp_tmp_6 = _dp_tmp_8
-    if _dp_tmp_6:
+    _dp_tmp_4 = __dp__.prepare_class("C", bases, None)
+    meta = __dp__.getitem(_dp_tmp_4, 0)
+    ns = __dp__.getitem(_dp_tmp_4, 1)
+    kwds = __dp__.getitem(_dp_tmp_4, 2)
+    _dp_namespace_entries = _dp_ns_C(ns)
+    _dp_temp_ns = __dp__.dict()
+    _dp_iter_5 = __dp__.iter(_dp_namespace_entries)
+    while True:
+        try:
+            _dp_tmp_6 = __dp__.next(_dp_iter_5)
+            _dp_name = __dp__.getitem(_dp_tmp_6, 0)
+            _dp_value = __dp__.getitem(_dp_tmp_6, 1)
+        except:
+            __dp__.check_stopiteration()
+            break
+        else:
+            __dp__.setitem(_dp_temp_ns, _dp_name, _dp_value)
+            __dp__.setitem(ns, _dp_name, _dp_value)
+    _dp_tmp_8 = __dp__.is_not(orig_bases, bases)
+    _dp_tmp_7 = _dp_tmp_8
+    if _dp_tmp_7:
+        _dp_tmp_9 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
+        _dp_tmp_7 = _dp_tmp_9
+    if _dp_tmp_7:
         __dp__.setitem(ns, "__orig_bases__", orig_bases)
     return meta("C", bases, ns, **kwds)
 _dp_class_C = _dp_make_class_C()
 C = _dp_class_C
-
 $ renames class stores and uses
 
 class C:
@@ -502,41 +556,43 @@ class C:
         return value
 =
 def _dp_ns_C(_dp_prepare_ns):
-    _dp_temp_ns = __dp__.dict()
-    __dp__.setitem(_dp_temp_ns, "__module__", __name__)
-    __dp__.setitem(_dp_prepare_ns, "__module__", __name__)
-    _dp_tmp_4 = "C"
-    __dp__.setitem(_dp_temp_ns, "__qualname__", _dp_tmp_4)
-    __dp__.setitem(_dp_prepare_ns, "__qualname__", _dp_tmp_4)
-    _dp_class_annotations = _dp_temp_ns.get("__annotations__")
-    _dp_tmp_5 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_5:
+    _dp_class_annotations = _dp_prepare_ns.get("__annotations__")
+    _dp_tmp_4 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_4:
         _dp_class_annotations = __dp__.dict()
     _dp_var_a_1 = 1
-    __dp__.setitem(_dp_temp_ns, "a", _dp_var_a_1)
-    __dp__.setitem(_dp_prepare_ns, "a", _dp_var_a_1)
     _dp_var_b_2 = _dp_var_a_1
-    __dp__.setitem(_dp_temp_ns, "b", _dp_var_b_2)
-    __dp__.setitem(_dp_prepare_ns, "b", _dp_var_b_2)
 
     def _dp_var_f_3(self, value: _dp_var_b_2=_dp_var_a_1):
         return value
-    __dp__.setitem(_dp_temp_ns, "f", _dp_var_f_3)
-    __dp__.setitem(_dp_prepare_ns, "f", _dp_var_f_3)
+    return __dp__.list((("__module__", __name__), ("__qualname__", "C"), ("a", _dp_var_a_1), ("b", _dp_var_b_2), ("f", _dp_var_f_3)))
 def _dp_make_class_C():
     orig_bases = ()
     bases = __dp__.resolve_bases(orig_bases)
-    _dp_tmp_6 = __dp__.prepare_class("C", bases, None)
-    meta = __dp__.getitem(_dp_tmp_6, 0)
-    ns = __dp__.getitem(_dp_tmp_6, 1)
-    kwds = __dp__.getitem(_dp_tmp_6, 2)
-    _dp_ns_C(ns)
-    _dp_tmp_8 = __dp__.is_not(orig_bases, bases)
-    _dp_tmp_7 = _dp_tmp_8
-    if _dp_tmp_7:
-        _dp_tmp_9 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
-        _dp_tmp_7 = _dp_tmp_9
-    if _dp_tmp_7:
+    _dp_tmp_5 = __dp__.prepare_class("C", bases, None)
+    meta = __dp__.getitem(_dp_tmp_5, 0)
+    ns = __dp__.getitem(_dp_tmp_5, 1)
+    kwds = __dp__.getitem(_dp_tmp_5, 2)
+    _dp_namespace_entries = _dp_ns_C(ns)
+    _dp_temp_ns = __dp__.dict()
+    _dp_iter_6 = __dp__.iter(_dp_namespace_entries)
+    while True:
+        try:
+            _dp_tmp_7 = __dp__.next(_dp_iter_6)
+            _dp_name = __dp__.getitem(_dp_tmp_7, 0)
+            _dp_value = __dp__.getitem(_dp_tmp_7, 1)
+        except:
+            __dp__.check_stopiteration()
+            break
+        else:
+            __dp__.setitem(_dp_temp_ns, _dp_name, _dp_value)
+            __dp__.setitem(ns, _dp_name, _dp_value)
+    _dp_tmp_9 = __dp__.is_not(orig_bases, bases)
+    _dp_tmp_8 = _dp_tmp_9
+    if _dp_tmp_8:
+        _dp_tmp_10 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
+        _dp_tmp_8 = _dp_tmp_10
+    if _dp_tmp_8:
         __dp__.setitem(ns, "__orig_bases__", orig_bases)
     return meta("C", bases, ns, **kwds)
 _dp_class_C = _dp_make_class_C()
