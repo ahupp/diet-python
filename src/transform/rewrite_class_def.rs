@@ -38,11 +38,23 @@ impl Transformer for NestedClassCollector {
             let nested_name = class_def.name.id.to_string();
             let nested_qualname = format!("{}.{}", self.class_qualname, nested_name);
             let dp_name = class_ident_from_qualname(&nested_qualname);
+            let class_ident = dp_name
+                .strip_prefix("_dp_class_")
+                .expect("dp class names are prefixed")
+                .to_string();
 
             let mut nested_def = class_def.clone();
             let decorators = take(&mut nested_def.decorator_list);
 
-            let mut value = py_expr!("{dp_name:id}", dp_name = dp_name.as_str());
+            let (bases_tuple, prepare_dict) = class_call_arguments(nested_def.arguments.clone());
+
+            let mut value = py_expr!(
+                "__dp__.create_class({class_name:literal}, _dp_ns_{class_ident:id}, {bases:expr}, {prepare_dict:expr})",
+                class_name = nested_name.as_str(),
+                class_ident = class_ident.as_str(),
+                bases = bases_tuple,
+                prepare_dict = prepare_dict,
+            );
             for decorator in decorators.into_iter().rev() {
                 value = py_expr!(
                     "({decorator:expr})({value:expr})",
@@ -64,6 +76,44 @@ impl Transformer for NestedClassCollector {
 
         walk_stmt(self, stmt);
     }
+}
+
+fn class_call_arguments(arguments: Option<Box<ast::Arguments>>) -> (Expr, Expr) {
+    let mut bases = Vec::new();
+    let mut kw_keys = Vec::new();
+    let mut kw_vals = Vec::new();
+    if let Some(args) = arguments {
+        let args = *args;
+        bases.extend(args.args.into_vec());
+        for kw in args.keywords.into_vec() {
+            if let Some(arg) = kw.arg {
+                kw_keys.push(py_expr!("{arg:literal}", arg = arg.as_str()));
+                kw_vals.push(kw.value);
+            }
+        }
+    }
+
+    let has_kw = !kw_keys.is_empty();
+
+    let prepare_dict = if has_kw {
+        let items: Vec<ast::DictItem> = kw_keys
+            .into_iter()
+            .zip(kw_vals.into_iter())
+            .map(|(k, v)| ast::DictItem {
+                key: Some(k),
+                value: v,
+            })
+            .collect();
+        Expr::Dict(ast::ExprDict {
+            node_index: ast::AtomicNodeIndex::default(),
+            range: TextRange::default(),
+            items,
+        })
+    } else {
+        py_expr!("None")
+    };
+
+    (make_tuple(bases), prepare_dict)
 }
 
 struct ClassVarRenamer<'a> {
@@ -250,6 +300,7 @@ pub fn rewrite(
         .strip_prefix("_dp_class_")
         .expect("dp class names are prefixed")
         .to_string();
+    let has_decorators = !decorators.is_empty();
 
     let mut nested_collector = NestedClassCollector::new(class_qualname.clone());
     nested_collector.visit_body(&mut body);
@@ -406,38 +457,6 @@ if _dp_class_annotations is None:
     }
 
     // Build class helper function
-    let mut bases = Vec::new();
-    let mut kw_keys = Vec::new();
-    let mut kw_vals = Vec::new();
-    if let Some(args) = arguments {
-        bases.extend(args.args.into_vec());
-        for kw in args.keywords.into_vec() {
-            if let Some(arg) = kw.arg {
-                kw_keys.push(py_expr!("{arg:literal}", arg = arg.as_str()));
-                kw_vals.push(kw.value);
-            }
-        }
-    }
-    let has_kw = !kw_keys.is_empty();
-
-    let prepare_dict = if has_kw {
-        let items: Vec<ast::DictItem> = kw_keys
-            .into_iter()
-            .zip(kw_vals.into_iter())
-            .map(|(k, v)| ast::DictItem {
-                key: Some(k),
-                value: v,
-            })
-            .collect();
-        Expr::Dict(ast::ExprDict {
-            node_index: ast::AtomicNodeIndex::default(),
-            range: TextRange::default(),
-            items,
-        })
-    } else {
-        py_expr!("None")
-    };
-
     let mut ns_fn = py_stmt!(
         r#"
 def _dp_ns_{class_ident:id}(_dp_prepare_ns, _dp_add_binding):
@@ -451,22 +470,23 @@ def _dp_ns_{class_ident:id}(_dp_prepare_ns, _dp_add_binding):
         unreachable!("expected function definition for namespace helper");
     }
 
-    let bases_tuple = make_tuple(bases);
-
-    let assign_to_class_name = class_qualname == class_name;
-
-    let class_helper = py_stmt!(
-        r#"
-{dp_class_name:id} = __dp__.create_class({class_name:literal}, _dp_ns_{class_ident:id}, {bases:expr}, {prepare_dict:expr})
-"#,
-        dp_class_name = dp_class_name.as_str(),
-        class_ident = class_ident.as_str(),
+    let (bases_tuple, prepare_dict) = class_call_arguments(arguments);
+    let create_call = py_expr!(
+        "__dp__.create_class({class_name:literal}, _dp_ns_{class_ident:id}, {bases:expr}, {prepare_dict:expr})",
         class_name = class_name.as_str(),
+        class_ident = class_ident.as_str(),
         bases = bases_tuple.clone(),
         prepare_dict = prepare_dict.clone(),
     );
 
-    ns_fn.extend(class_helper);
+    let assign_to_class_name = class_qualname == class_name;
+    if assign_to_class_name || has_decorators {
+        ns_fn.extend(py_stmt!(
+            "{dp_class_name:id} = {create_call:expr}",
+            dp_class_name = dp_class_name.as_str(),
+            create_call = create_call,
+        ));
+    }
 
     let mut result = Vec::new();
 
