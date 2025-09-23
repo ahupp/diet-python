@@ -68,6 +68,23 @@ def prepare_class(name, bases, kwds=None):
         return _types.prepare_class(name, bases)
     return _types.prepare_class(name, bases, kwds)
 
+
+def create_class(name, namespace_fn, bases, kwds=None):
+    orig_bases = bases
+    bases = resolve_bases(orig_bases)
+    meta, ns, meta_kwds = prepare_class(name, bases, kwds)
+    temp_ns = dict()
+
+    def add_binding(binding_name: str, value):
+        setitem(temp_ns, binding_name, value)
+        setitem(ns, binding_name, value)
+        return value
+
+    namespace_fn(ns, add_binding)
+    if orig_bases is not bases and "__orig_bases__" not in ns:
+        ns["__orig_bases__"] = orig_bases
+    return meta(name, bases, ns, **meta_kwds)
+
 def exc_info():
     return sys.exc_info()
 

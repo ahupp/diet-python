@@ -43,27 +43,5 @@ def _dp_ns_Foo(_dp_prepare_ns, _dp_add_binding):
     def _dp_var_method_2(self):
         return 1
     _dp_var_method_2 = _dp_add_binding("method", _dp_var_method_2)
-def _dp_make_class_Foo():
-    orig_bases = ()
-    bases = __dp__.resolve_bases(orig_bases)
-    _dp_tmp_4 = __dp__.prepare_class("Foo", bases, None)
-    meta = __dp__.getitem(_dp_tmp_4, 0)
-    ns = __dp__.getitem(_dp_tmp_4, 1)
-    kwds = __dp__.getitem(_dp_tmp_4, 2)
-    _dp_temp_ns = __dp__.dict()
-
-    def _dp_add_binding(name: str, value):
-        __dp__.setitem(_dp_temp_ns, name, value)
-        __dp__.setitem(ns, name, value)
-        return value
-    _dp_ns_Foo(ns, _dp_add_binding)
-    _dp_tmp_6 = __dp__.is_not(orig_bases, bases)
-    _dp_tmp_5 = _dp_tmp_6
-    if _dp_tmp_5:
-        _dp_tmp_7 = __dp__.not_(__dp__.contains(ns, "__orig_bases__"))
-        _dp_tmp_5 = _dp_tmp_7
-    if _dp_tmp_5:
-        __dp__.setitem(ns, "__orig_bases__", orig_bases)
-    return meta("Foo", bases, ns, **kwds)
-_dp_class_Foo = _dp_make_class_Foo()
+_dp_class_Foo = __dp__.create_class("Foo", _dp_ns_Foo, ())
 Foo = _dp_class_Foo
