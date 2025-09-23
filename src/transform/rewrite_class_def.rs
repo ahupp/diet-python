@@ -344,10 +344,12 @@ pub fn rewrite(
 
     let mut original_body = body;
     let mut annotations = VecDeque::from(annotations);
-    if let Some(Stmt::Expr(ast::StmtExpr { value, .. })) = original_body.first() {
-        if let Expr::StringLiteral(_) = value.as_ref() {
-            add_class_binding(&mut ns_body, "__doc__", *value.clone());
-            original_body.remove(0);
+    if let Some(first_stmt) = original_body.first_mut() {
+        if let Stmt::Expr(ast::StmtExpr { value, .. }) = first_stmt {
+            if let Expr::StringLiteral(_) = value.as_ref() {
+                let doc_expr = (*value).clone();
+                *first_stmt = py_stmt_single(py_stmt!("__doc__ = {value:expr}", value = doc_expr));
+            }
         }
     }
     ns_body.extend(py_stmt!(
