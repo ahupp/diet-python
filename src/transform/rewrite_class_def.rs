@@ -1,6 +1,5 @@
 use crate::body_transform::{walk_expr, walk_stmt, Transformer};
 use crate::template::{make_tuple, py_stmt_single};
-use crate::template::make_tuple;
 use crate::transform::class_def::AnnotationCollector;
 use crate::transform::context::Context;
 use crate::transform::driver::{ExprRewriter, Rewrite};
