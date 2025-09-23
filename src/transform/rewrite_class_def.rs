@@ -1,140 +1,13 @@
 use crate::body_transform::{walk_expr, walk_stmt, Transformer};
 use crate::template::make_tuple;
-use crate::transform::driver::{ExprRewriter, Rewrite};
 use crate::transform::context::Context;
+use crate::transform::driver::{ExprRewriter, Rewrite};
 use crate::transform::rewrite_decorator;
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
 use ruff_text_size::TextRange;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::mem::take;
-
-#[derive(Default)]
-struct LoadBeforeStoreCollector {
-    loads: BTreeSet<String>,
-    seen_store: BTreeSet<String>,
-    captured_names: BTreeSet<String>,
-}
-
-struct LoadBeforeStoreResult {
-    captured_names: BTreeSet<String>,
-}
-
-impl LoadBeforeStoreCollector {
-    fn collect_from_body(body: &mut Vec<Stmt>) -> LoadBeforeStoreResult {
-        let mut collector = Self::default();
-        collector.visit_body(body);
-        collector.finish()
-    }
-
-    fn finish(self) -> LoadBeforeStoreResult {
-        LoadBeforeStoreResult {
-            captured_names: self.captured_names,
-        }
-    }
-}
-
-impl Transformer for LoadBeforeStoreCollector {
-    fn visit_stmt(&mut self, stmt: &mut Stmt) {
-        match stmt {
-            Stmt::FunctionDef(ast::StmtFunctionDef {
-                decorator_list,
-                parameters,
-                returns,
-                type_params,
-                ..
-            }) => {
-                for decorator in decorator_list {
-                    self.visit_decorator(decorator);
-                }
-                if let Some(type_params) = type_params {
-                    self.visit_type_params(type_params);
-                }
-                self.visit_parameters(parameters);
-                if let Some(expr) = returns {
-                    self.visit_annotation(expr);
-                }
-            }
-            Stmt::ClassDef(ast::StmtClassDef {
-                decorator_list,
-                arguments,
-                type_params,
-                ..
-            }) => {
-                for decorator in decorator_list {
-                    self.visit_decorator(decorator);
-                }
-                if let Some(type_params) = type_params {
-                    self.visit_type_params(type_params);
-                }
-                if let Some(arguments) = arguments {
-                    self.visit_arguments(arguments);
-                }
-            }
-            Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
-                self.visit_expr(value);
-                for target in targets.iter_mut() {
-                    self.visit_expr(target);
-                }
-
-                if let [Expr::Name(ast::ExprName { id, .. })] = targets.as_slice() {
-                    let name = id.as_str();
-                    if self.loads.contains(name) {
-                        self.captured_names.insert(name.to_string());
-                    }
-                }
-            }
-            Stmt::AnnAssign(ast::StmtAnnAssign {
-                target,
-                annotation,
-                value,
-                ..
-            }) => {
-                if let Some(value) = value.as_mut() {
-                    self.visit_expr(value);
-                    self.visit_expr(target);
-
-                    if let Expr::Name(ast::ExprName { id, .. }) = target.as_ref() {
-                        let name = id.as_str();
-                        if self.loads.contains(name) {
-                            self.captured_names.insert(name.to_string());
-                        }
-                    }
-                } else {
-                    self.visit_expr(target);
-                }
-
-                self.visit_expr(annotation);
-            }
-            _ => walk_stmt(self, stmt),
-        }
-    }
-
-    fn visit_expr(&mut self, expr: &mut Expr) {
-        match expr {
-            Expr::Name(ast::ExprName { id, ctx, .. }) => match ctx {
-                ExprContext::Load => {
-                    if !self.seen_store.contains(id.as_str()) {
-                        self.loads.insert(id.to_string());
-                    }
-                }
-                ExprContext::Store => {
-                    let name = id.to_string();
-                    self.seen_store.insert(name.clone());
-                }
-                _ => {}
-            },
-            Expr::Lambda(ast::ExprLambda { parameters, .. }) => {
-                if let Some(parameters) = parameters {
-                    self.visit_parameters(parameters);
-                }
-                return;
-            }
-            _ => {}
-        }
-        walk_expr(self, expr);
-    }
-}
 
 struct ClassVarRenamer<'a> {
     ctx: &'a Context,
@@ -364,9 +237,6 @@ pub fn rewrite(
         replacement_to_original.insert(replacement.clone(), original.clone());
     }
 
-    let LoadBeforeStoreResult { captured_names, .. } =
-        LoadBeforeStoreCollector::collect_from_body(&mut body);
-
     // Build namespace function body
     // TODO: correctly calculate the qualname of the class when nested
     let mut ns_body = Vec::new();
@@ -395,8 +265,10 @@ if _dp_class_annotations is None:
                 if targets.len() == 1 {
                     if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
                         let replacement_name = id.as_str().to_string();
-                        let original_name =
-                            lookup_original_name(&replacement_to_original, replacement_name.as_str());
+                        let original_name = lookup_original_name(
+                            &replacement_to_original,
+                            replacement_name.as_str(),
+                        );
                         extend_body_with_value(
                             rewriter,
                             &mut ns_body,
@@ -584,21 +456,7 @@ def _dp_ns_{class_name:id}(_dp_prepare_ns):
         ns_body = ns_body,
     );
 
-    if let Stmt::FunctionDef(ast::StmtFunctionDef { parameters, .. }) = &mut ns_fn[0] {
-        for name in captured_names {
-            parameters.args.push(ast::ParameterWithDefault {
-                range: TextRange::default(),
-                node_index: ast::AtomicNodeIndex::default(),
-                parameter: ast::Parameter {
-                    range: TextRange::default(),
-                    node_index: ast::AtomicNodeIndex::default(),
-                    name: ast::Identifier::new(name.clone(), TextRange::default()),
-                    annotation: None,
-                },
-                default: Some(Box::new(py_expr!("{name:id}", name = name.as_str()))),
-            });
-        }
-    } else {
+    if !matches!(&ns_fn[0], Stmt::FunctionDef(_)) {
         unreachable!("expected function definition for namespace helper");
     }
 
