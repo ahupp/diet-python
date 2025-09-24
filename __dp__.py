@@ -62,6 +62,20 @@ set = builtins.set
 slice = builtins.slice
 
 
+def missing_name(name):
+    raise NameError(name)
+
+
+def global_(globals_dict, name):
+    if name in globals_dict:
+        return globals_dict[name]
+
+    if hasattr(builtins, name):
+        return getattr(builtins, name)
+
+    return missing_name(name)
+
+
 def unpack(iterable, spec):
     iterator = iter(iterable)
 

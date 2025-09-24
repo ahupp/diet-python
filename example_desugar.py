@@ -9,43 +9,39 @@ add = _dp_decorator_add_0(_dp_decorator_add_1(add))
 def _dp_ns_A(_dp_prepare_ns, _dp_add_binding):
     _dp_add_binding("__module__", __name__)
     _dp_add_binding("__qualname__", "A")
-    _dp_var_b_1 = _dp_add_binding("b", 1)
+    b = _dp_add_binding("b", 1)
 
-    def _dp_var___init___2(self):
+    def __init__(self):
         __dp__.setattr(self, "arr", __dp__.list((1, 2, 3)))
-    __dp__.setattr(_dp_var___init___2, "__name__", "__init__")
-    _dp_var___init___2 = _dp_add_binding("__init__", _dp_var___init___2)
+    __init__ = _dp_add_binding("__init__", __init__)
 
-    def _dp_var_c_3(self, d):
+    def c(self, d):
         return add(d, 2)
-    __dp__.setattr(_dp_var_c_3, "__name__", "c")
-    _dp_var_c_3 = _dp_add_binding("c", _dp_var_c_3)
+    c = _dp_add_binding("c", c)
 
-    async def _dp_var_test_aiter_4(self):
-        _dp_iter_6 = __dp__.iter(range(10))
+    async def test_aiter(self):
+        _dp_iter_1 = __dp__.iter(range(10))
         while True:
             try:
-                i = __dp__.next(_dp_iter_6)
+                i = __dp__.next(_dp_iter_1)
             except:
                 __dp__.check_stopiteration()
                 break
             else:
                 yield i
-    __dp__.setattr(_dp_var_test_aiter_4, "__name__", "test_aiter")
-    _dp_var_test_aiter_4 = _dp_add_binding("test_aiter", _dp_var_test_aiter_4)
+    test_aiter = _dp_add_binding("test_aiter", test_aiter)
 
-    async def _dp_var_d_5(self):
-        _dp_iter_7 = __dp__.aiter(self.test_aiter())
+    async def d(self):
+        _dp_iter_2 = __dp__.aiter(self.test_aiter())
         while True:
             try:
-                i = await __dp__.anext(_dp_iter_7)
+                i = await __dp__.anext(_dp_iter_2)
             except:
                 __dp__.acheck_stopiteration()
                 break
             else:
                 print(i)
-    __dp__.setattr(_dp_var_d_5, "__name__", "d")
-    _dp_var_d_5 = _dp_add_binding("d", _dp_var_d_5)
+    d = _dp_add_binding("d", d)
 _dp_class_A = __dp__.create_class("A", _dp_ns_A, (), None)
 A = _dp_class_A
 def ff():
@@ -57,42 +53,42 @@ c = ff()
 __dp__.delattr(c.a, "b")
 __dp__.delitem(c.a.arr, 0)
 del c
-def _dp_gen_8(_dp_iter_9):
-    _dp_iter_10 = __dp__.iter(_dp_iter_9)
+def _dp_gen_3(_dp_iter_4):
+    _dp_iter_5 = __dp__.iter(_dp_iter_4)
     while True:
         try:
-            i = __dp__.next(_dp_iter_10)
+            i = __dp__.next(_dp_iter_5)
         except:
             __dp__.check_stopiteration()
             break
         else:
-            _dp_tmp_11 = __dp__.eq(__dp__.mod(i, 2), 0)
-            if _dp_tmp_11:
+            _dp_tmp_6 = __dp__.eq(__dp__.mod(i, 2), 0)
+            if _dp_tmp_6:
                 yield __dp__.add(i, 1)
-x = __dp__.list(_dp_gen_8(__dp__.iter(range(5))))
-def _dp_gen_12(_dp_iter_13):
-    _dp_iter_14 = __dp__.iter(_dp_iter_13)
+x = __dp__.list(_dp_gen_3(__dp__.iter(range(5))))
+def _dp_gen_7(_dp_iter_8):
+    _dp_iter_9 = __dp__.iter(_dp_iter_8)
     while True:
         try:
-            i = __dp__.next(_dp_iter_14)
+            i = __dp__.next(_dp_iter_9)
         except:
             __dp__.check_stopiteration()
             break
         else:
-            _dp_tmp_15 = __dp__.eq(__dp__.mod(i, 2), 0)
-            if _dp_tmp_15:
+            _dp_tmp_10 = __dp__.eq(__dp__.mod(i, 2), 0)
+            if _dp_tmp_10:
                 yield __dp__.add(i, 1)
-y = __dp__.set(_dp_gen_12(__dp__.iter(range(5))))
-def _dp_gen_16(_dp_iter_17):
-    _dp_iter_18 = __dp__.iter(_dp_iter_17)
+y = __dp__.set(_dp_gen_7(__dp__.iter(range(5))))
+def _dp_gen_11(_dp_iter_12):
+    _dp_iter_13 = __dp__.iter(_dp_iter_12)
     while True:
         try:
-            i = __dp__.next(_dp_iter_18)
+            i = __dp__.next(_dp_iter_13)
         except:
             __dp__.check_stopiteration()
             break
         else:
-            _dp_tmp_19 = __dp__.eq(__dp__.mod(i, 2), 0)
-            if _dp_tmp_19:
+            _dp_tmp_14 = __dp__.eq(__dp__.mod(i, 2), 0)
+            if _dp_tmp_14:
                 yield __dp__.add(i, 1)
-z = _dp_gen_16(__dp__.iter(range(5)))
+z = _dp_gen_11(__dp__.iter(range(5)))

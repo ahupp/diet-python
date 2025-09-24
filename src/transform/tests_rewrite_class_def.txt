@@ -6,7 +6,7 @@ class C:
 def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
     _dp_add_binding("__module__", __name__)
     _dp_add_binding("__qualname__", "C")
-    _dp_var_x_1 = _dp_add_binding("x", 1)
+    x = _dp_add_binding("x", 1)
 _dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C
 $ collects class annotations
@@ -18,10 +18,10 @@ class C:
 def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
     _dp_add_binding("__module__", __name__)
     _dp_add_binding("__qualname__", "C")
-    _dp_var_y_2 = _dp_add_binding("y", 1)
+    y = _dp_add_binding("y", 1)
     _dp_class_annotations = _dp_prepare_ns.get("__annotations__")
-    _dp_tmp_3 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_3:
+    _dp_tmp_1 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_1:
         _dp_class_annotations = __dp__.dict()
     _dp_add_binding("__annotations__", _dp_class_annotations)
     __dp__.setitem(_dp_class_annotations, "x", int)
@@ -36,7 +36,8 @@ class C:
 def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
     _dp_add_binding("__module__", __name__)
     _dp_add_binding("__qualname__", "C")
-    _dp_var_x_1 = _dp_add_binding("x", x)
+    _dp_tmp_1 = __dp__.global_(globals(), "x")
+    x = _dp_add_binding("x", _dp_tmp_1)
 _dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C
 $ captures names used in annotations
@@ -55,7 +56,8 @@ def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
     if _dp_tmp_2:
         _dp_class_annotations = __dp__.dict()
     _dp_add_binding("__annotations__", _dp_class_annotations)
-    __dp__.setitem(_dp_class_annotations, "x", T)
+    _dp_tmp_1 = __dp__.global_(globals(), "T")
+    __dp__.setitem(_dp_class_annotations, "x", _dp_tmp_1)
 _dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C
 $ preserves class locals for references
@@ -67,8 +69,8 @@ class C:
 def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
     _dp_add_binding("__module__", __name__)
     _dp_add_binding("__qualname__", "C")
-    _dp_var_x_1 = _dp_add_binding("x", 1)
-    _dp_var_y_2 = _dp_add_binding("y", _dp_var_x_1)
+    x = _dp_add_binding("x", 1)
+    y = _dp_add_binding("y", x)
 _dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C
 $ lowers inherits
@@ -90,9 +92,9 @@ class C(B, metaclass=Meta, kw=1):
 def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
     _dp_add_binding("__module__", __name__)
     _dp_add_binding("__qualname__", "C")
-    _dp_tmp_2 = 'doc'
-    __doc__ = _dp_add_binding("__doc__", _dp_tmp_2)
-    _dp_var_x_1 = _dp_add_binding("x", 2)
+    _dp_tmp_1 = 'doc'
+    __doc__ = _dp_add_binding("__doc__", _dp_tmp_1)
+    x = _dp_add_binding("x", 2)
 _dp_class_C = __dp__.create_class("C", _dp_ns_C, (B,), __dp__.dict((("metaclass", Meta), ("kw", 1))))
 C = _dp_class_C
 $ lowers method
@@ -105,10 +107,9 @@ def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
     _dp_add_binding("__module__", __name__)
     _dp_add_binding("__qualname__", "C")
 
-    def _dp_var_m_1(self):
+    def m(self):
         return 1
-    __dp__.setattr(_dp_var_m_1, "__name__", "m")
-    _dp_var_m_1 = _dp_add_binding("m", _dp_var_m_1)
+    m = _dp_add_binding("m", m)
 _dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C
 $ rewrites super and class
@@ -121,10 +122,9 @@ def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
     _dp_add_binding("__module__", __name__)
     _dp_add_binding("__qualname__", "C")
 
-    def _dp_var_m_1(self):
+    def m(self):
         return super(C, self).m()
-    __dp__.setattr(_dp_var_m_1, "__name__", "m")
-    _dp_var_m_1 = _dp_add_binding("m", _dp_var_m_1)
+    m = _dp_add_binding("m", m)
 _dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C
 $ rewrites super uses first arg
@@ -137,10 +137,9 @@ def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
     _dp_add_binding("__module__", __name__)
     _dp_add_binding("__qualname__", "C")
 
-    def _dp_var_m_1(z):
+    def m(z):
         return super(C, z).m()
-    __dp__.setattr(_dp_var_m_1, "__name__", "m")
-    _dp_var_m_1 = _dp_add_binding("m", _dp_var_m_1)
+    m = _dp_add_binding("m", m)
 _dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C
 $ rewrites super without receiver
@@ -153,10 +152,9 @@ def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
     _dp_add_binding("__module__", __name__)
     _dp_add_binding("__qualname__", "C")
 
-    def _dp_var_m_1():
+    def m():
         return super(C, None).m()
-    __dp__.setattr(_dp_var_m_1, "__name__", "m")
-    _dp_var_m_1 = _dp_add_binding("m", _dp_var_m_1)
+    m = _dp_add_binding("m", m)
 _dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C
 $ applies decorators in namespace
@@ -172,15 +170,15 @@ class C:
 def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
     _dp_add_binding("__module__", __name__)
     _dp_add_binding("__qualname__", "C")
-    _dp_var_y_1 = _dp_add_binding("y", deco)
-    _dp_decorator__dp_var_m_2_0 = decorator(_dp_var_y_1)
-    _dp_decorator__dp_var_m_2_1 = other
+    _dp_tmp_1 = __dp__.global_(globals(), "deco")
+    y = _dp_add_binding("y", _dp_tmp_1)
+    _dp_decorator_m_0 = __dp__.global_(globals(), "decorator")(y)
+    _dp_decorator_m_1 = __dp__.global_(globals(), "other")
 
-    def _dp_var_m_2(self):
+    def m(self):
         return self
-    __dp__.setattr(_dp_var_m_2, "__name__", "m")
-    _dp_var_m_2 = _dp_decorator__dp_var_m_2_0(_dp_decorator__dp_var_m_2_1(_dp_var_m_2))
-    _dp_var_m_2 = _dp_add_binding("m", _dp_var_m_2)
+    m = _dp_decorator_m_0(_dp_decorator_m_1(m))
+    m = _dp_add_binding("m", m)
 _dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C
 $ renames class stores and uses
@@ -195,13 +193,12 @@ class C:
 def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
     _dp_add_binding("__module__", __name__)
     _dp_add_binding("__qualname__", "C")
-    _dp_var_a_1 = _dp_add_binding("a", 1)
-    _dp_var_b_2 = _dp_add_binding("b", _dp_var_a_1)
+    a = _dp_add_binding("a", 1)
+    b = _dp_add_binding("b", a)
 
-    def _dp_var_f_3(self, value: _dp_var_b_2=_dp_var_a_1):
+    def f(self, value: b=a):
         return value
-    __dp__.setattr(_dp_var_f_3, "__name__", "f")
-    _dp_var_f_3 = _dp_add_binding("f", _dp_var_f_3)
+    f = _dp_add_binding("f", f)
 _dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C
 $ nested class uses outer binding in bases
@@ -218,9 +215,9 @@ def _dp_ns_Outer_Inner(_dp_prepare_ns, _dp_add_binding):
 def _dp_ns_Outer(_dp_prepare_ns, _dp_add_binding):
     _dp_add_binding("__module__", __name__)
     _dp_add_binding("__qualname__", "Outer")
-    _dp_var_x_1 = _dp_add_binding("x", 1)
-    _dp_tmp_2 = __dp__.create_class("Inner", _dp_ns_Outer_Inner, (_dp_var_x_1,), None)
-    Inner = _dp_add_binding("Inner", _dp_tmp_2)
+    x = _dp_add_binding("x", 1)
+    _dp_tmp_1 = __dp__.global_(globals(), "__dp__").create_class("Inner", _dp_ns_Outer_Inner, (x,), None)
+    Inner = _dp_add_binding("Inner", _dp_tmp_1)
 _dp_class_Outer = __dp__.create_class("Outer", _dp_ns_Outer, (), None)
 Outer = _dp_class_Outer
 $ function local class remains scoped
@@ -235,7 +232,7 @@ def _dp_ns_Example(_dp_prepare_ns, _dp_add_binding):
     _dp_add_binding("__module__", __name__)
     _dp_add_binding("__qualname__", "Example")
 
-    def _dp_var_trigger_1(self):
+    def trigger(self):
 
         def _dp_ns_Example_trigger__locals__Token(_dp_prepare_ns, _dp_add_binding):
             _dp_add_binding("__module__", __name__)
@@ -243,8 +240,7 @@ def _dp_ns_Example(_dp_prepare_ns, _dp_add_binding):
         _dp_class_Example_trigger__locals__Token = __dp__.create_class("Token", _dp_ns_Example_trigger__locals__Token, (), None)
         Token = _dp_class_Example_trigger__locals__Token
         return Token
-    __dp__.setattr(_dp_var_trigger_1, "__name__", "trigger")
-    _dp_var_trigger_1 = _dp_add_binding("trigger", _dp_var_trigger_1)
+    trigger = _dp_add_binding("trigger", trigger)
 _dp_class_Example = __dp__.create_class("Example", _dp_ns_Example, (), None)
 Example = _dp_class_Example
 $ function local class nested in if
@@ -261,7 +257,7 @@ def _dp_ns_Example(_dp_prepare_ns, _dp_add_binding):
     _dp_add_binding("__module__", __name__)
     _dp_add_binding("__qualname__", "Example")
 
-    def _dp_var_trigger_1(self, flag):
+    def trigger(self, flag):
 
         if flag:
             def _dp_ns_Example_trigger__locals__Token(_dp_prepare_ns, _dp_add_binding):
@@ -276,7 +272,30 @@ def _dp_ns_Example(_dp_prepare_ns, _dp_add_binding):
             Token = _dp_class_Example_trigger__locals__Token
             return Token
         return None
-    __dp__.setattr(_dp_var_trigger_1, "__name__", "trigger")
-    _dp_var_trigger_1 = _dp_add_binding("trigger", _dp_var_trigger_1)
+    trigger = _dp_add_binding("trigger", trigger)
 _dp_class_Example = __dp__.create_class("Example", _dp_ns_Example, (), None)
 Example = _dp_class_Example
+$ function local methods capture locals
+
+def outer():
+    value = 1
+
+    class C:
+        def method(self):
+            return value
+
+    return C
+=
+def outer():
+    value = 1
+
+    def _dp_ns_outer__locals__C(_dp_prepare_ns, _dp_add_binding):
+        _dp_add_binding("__module__", __name__)
+        _dp_add_binding("__qualname__", "outer.<locals>.C")
+
+        def method(self):
+            return value
+        method = _dp_add_binding("method", method)
+    _dp_class_outer__locals__C = __dp__.create_class("C", _dp_ns_outer__locals__C, (), None)
+    C = _dp_class_outer__locals__C
+    return C
