@@ -1,0 +1,47 @@
+$ desugars method_docstring
+
+class Example:
+    def do_thing(self, value: int) -> int:
+        """Example command."""
+        return value
+
+
+def build_help(cls):
+    for name in ("thing",):
+        method = getattr(cls, f"do_{name}")
+        method.__doc__.strip()
+        method.__annotations__["value"]
+
+
+def build_annotations(cls):
+    return cls.do_thing.__annotations__["return"]
+
+
+build_help(Example)
+=
+import __dp__
+def _dp_ns_Example(_dp_prepare_ns, _dp_add_binding):
+    _dp_add_binding("__module__", __name__)
+    _dp_add_binding("__qualname__", "Example")
+
+    def do_thing(self, value: int) -> int:
+        """Example command."""
+        return value
+    do_thing = _dp_add_binding("do_thing", do_thing)
+_dp_class_Example = __dp__.create_class("Example", _dp_ns_Example, (), None)
+Example = _dp_class_Example
+def build_help(cls):
+    _dp_iter_1 = __dp__.iter(("thing",))
+    while True:
+        try:
+            name = __dp__.next(_dp_iter_1)
+        except:
+            __dp__.check_stopiteration()
+            break
+        else:
+            method = getattr(cls, "".join(("do_", format(name))))
+            method.__doc__.strip()
+            __dp__.getitem(method.__annotations__, "value")
+def build_annotations(cls):
+    return __dp__.getitem(cls.do_thing.__annotations__, "return")
+build_help(Example)

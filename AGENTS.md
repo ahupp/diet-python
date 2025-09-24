@@ -19,3 +19,4 @@ def foo():
   Always prefer to update the expected output rather than the transform in the case of a mismatch, unless there's clearly a bug in the transform. 
 
 - **MUST FOLLOW**: Ensure new transform modules include the test execution macro in their test block.
+- **MUST FOLLOW**: For each integration test, add a desugaring test in a text file with the expected inputs and outputs.

@@ -1,0 +1,31 @@
+$ desugars method_name_clash
+
+class date:
+    __slots__ = ()
+
+
+class Example:
+    slots = date.__slots__
+
+    def date(self):
+        return date()
+=
+import __dp__
+def _dp_ns_date(_dp_prepare_ns, _dp_add_binding):
+    _dp_add_binding("__module__", __name__)
+    _dp_add_binding("__qualname__", "date")
+    _dp_tmp_1 = ()
+    __slots__ = _dp_add_binding("__slots__", _dp_tmp_1)
+_dp_class_date = __dp__.create_class("date", _dp_ns_date, (), None)
+date = _dp_class_date
+def _dp_ns_Example(_dp_prepare_ns, _dp_add_binding):
+    _dp_add_binding("__module__", __name__)
+    _dp_add_binding("__qualname__", "Example")
+    _dp_tmp_2 = __dp__.global_(globals(), "date").__slots__
+    slots = _dp_add_binding("slots", _dp_tmp_2)
+
+    def date(self):
+        return __dp__.global_(globals(), "date")()
+    date = _dp_add_binding("date", date)
+_dp_class_Example = __dp__.create_class("Example", _dp_ns_Example, (), None)
+Example = _dp_class_Example

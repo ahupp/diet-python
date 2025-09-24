@@ -1,0 +1,24 @@
+$ desugars map_unpack
+
+try:
+    A, B, C = map(int, (1, 2, 3))
+except Exception as exc:  # pragma: no cover - reproduction module
+    RESULT = ("error", type(exc).__name__, str(exc))
+else:  # pragma: no cover
+    RESULT = ("ok", (A, B, C))
+=
+import __dp__
+try:
+    _dp_tmp_1 = map(int, (1, 2, 3))
+    _dp_tmp_2 = __dp__.unpack(_dp_tmp_1, (True, True, True))
+    A = __dp__.getitem(_dp_tmp_2, 0)
+    B = __dp__.getitem(_dp_tmp_2, 1)
+    C = __dp__.getitem(_dp_tmp_2, 2)
+except:
+    if __dp__.isinstance(__dp__.current_exception(), Exception):
+        exc = __dp__.current_exception()
+        RESULT = "error", type(exc).__name__, str(exc)
+    else:
+        raise
+else:
+    RESULT = "ok", (A, B, C)

@@ -1,0 +1,69 @@
+$ desugars nested_classes
+
+calls = []
+
+
+def record(tag: str):
+    def decorator(cls):
+        calls.append((tag, cls.__qualname__, getattr(cls, "label", None)))
+        applied = list(getattr(cls, "applied_decorators", []))
+        applied.append(tag)
+        cls.applied_decorators = applied
+        return cls
+
+    return decorator
+
+
+class Outer:
+    label = "outer"
+
+    @record(label + "_mid")
+    class Mid:
+        label = "mid"
+
+        @record(label + "_inner")
+        @record("stack")
+        class Inner:
+            label = "inner"
+
+            @record(label + "_leaf")
+            class Leaf:
+                pass
+=
+import __dp__
+calls = __dp__.list(())
+def record(tag: str):
+
+    def decorator(cls):
+        calls.append((tag, cls.__qualname__, getattr(cls, "label", None)))
+        applied = list(getattr(cls, "applied_decorators", __dp__.list(())))
+        applied.append(tag)
+        __dp__.setattr(cls, "applied_decorators", applied)
+        return cls
+    return decorator
+def _dp_ns_Outer_Mid_Inner_Leaf(_dp_prepare_ns, _dp_add_binding):
+    _dp_add_binding("__module__", __name__)
+    _dp_add_binding("__qualname__", "Outer.Mid.Inner.Leaf")
+def _dp_ns_Outer_Mid_Inner(_dp_prepare_ns, _dp_add_binding):
+    _dp_add_binding("__module__", __name__)
+    _dp_add_binding("__qualname__", "Outer.Mid.Inner")
+    _dp_tmp_5 = "inner"
+    label = _dp_add_binding("label", _dp_tmp_5)
+    _dp_tmp_6 = __dp__.global_(globals(), "record")(__dp__.add(label, "_leaf"))(__dp__.global_(globals(), "__dp__").create_class("Leaf", _dp_ns_Outer_Mid_Inner_Leaf, (), None))
+    Leaf = _dp_add_binding("Leaf", _dp_tmp_6)
+def _dp_ns_Outer_Mid(_dp_prepare_ns, _dp_add_binding):
+    _dp_add_binding("__module__", __name__)
+    _dp_add_binding("__qualname__", "Outer.Mid")
+    _dp_tmp_3 = "mid"
+    label = _dp_add_binding("label", _dp_tmp_3)
+    _dp_tmp_4 = __dp__.global_(globals(), "record")(__dp__.add(label, "_inner"))(__dp__.global_(globals(), "record")("stack")(__dp__.global_(globals(), "__dp__").create_class("Inner", _dp_ns_Outer_Mid_Inner, (), None)))
+    Inner = _dp_add_binding("Inner", _dp_tmp_4)
+def _dp_ns_Outer(_dp_prepare_ns, _dp_add_binding):
+    _dp_add_binding("__module__", __name__)
+    _dp_add_binding("__qualname__", "Outer")
+    _dp_tmp_1 = "outer"
+    label = _dp_add_binding("label", _dp_tmp_1)
+    _dp_tmp_2 = __dp__.global_(globals(), "record")(__dp__.add(label, "_mid"))(__dp__.global_(globals(), "__dp__").create_class("Mid", _dp_ns_Outer_Mid, (), None))
+    Mid = _dp_add_binding("Mid", _dp_tmp_2)
+_dp_class_Outer = __dp__.create_class("Outer", _dp_ns_Outer, (), None)
+Outer = _dp_class_Outer

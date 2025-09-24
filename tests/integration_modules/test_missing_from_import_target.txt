@@ -1,0 +1,9 @@
+$ desugars missing_from_import_target
+
+"""Helper module used to exercise ``from ... import`` behavior."""
+
+VALUE = "present"
+=
+"""Helper module used to exercise ``from ... import`` behavior."""
+import __dp__
+VALUE = "present"
