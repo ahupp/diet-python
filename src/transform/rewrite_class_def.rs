@@ -11,7 +11,17 @@ use std::collections::{HashMap, VecDeque};
 use std::mem::take;
 
 fn class_ident_from_qualname(qualname: &str) -> String {
-    format!("_dp_class_{}", qualname.replace('.', "_"))
+    let sanitized: String = qualname
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '_' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    format!("_dp_class_{}", sanitized)
 }
 
 struct NestedClassCollector {
@@ -71,6 +81,10 @@ impl Transformer for NestedClassCollector {
                 value = value,
             ));
 
+            return;
+        }
+
+        if matches!(stmt, Stmt::FunctionDef(_)) {
             return;
         }
 
@@ -259,7 +273,13 @@ impl Transformer for MethodTransformer {
     }
 }
 
-fn rewrite_method(func_def: &mut ast::StmtFunctionDef, class_name: &str) {
+fn rewrite_method(
+    func_def: &mut ast::StmtFunctionDef,
+    class_name: &str,
+    class_qualname: &str,
+    original_method_name: &str,
+    rewriter: &mut ExprRewriter,
+) {
     let first_arg = func_def
         .parameters
         .posonlyargs
@@ -280,6 +300,12 @@ fn rewrite_method(func_def: &mut ast::StmtFunctionDef, class_name: &str) {
     for stmt in &mut func_def.body {
         walk_stmt(&mut transformer, stmt);
     }
+
+    let method_qualname = format!("{class_qualname}.{original_method_name}");
+    let body = take(&mut func_def.body);
+    func_def.body = rewriter.with_function_scope(method_qualname, |rewriter| {
+        rewriter.rewrite_block(body)
+    });
 }
 
 pub fn rewrite(
@@ -400,7 +426,13 @@ if _dp_class_annotations is None:
                     let original_fn_name =
                         lookup_original_name(&replacement_to_original, fn_name.as_str());
 
-                    rewrite_method(&mut func_def, &class_name);
+                    rewrite_method(
+                        &mut func_def,
+                        &class_name,
+                        &class_qualname,
+                        original_fn_name.as_str(),
+                        rewriter,
+                    );
 
                     let decorators = take(&mut func_def.decorator_list);
 
@@ -487,7 +519,8 @@ def _dp_ns_{class_ident:id}(_dp_prepare_ns, _dp_add_binding):
     );
 
     let assign_to_class_name = class_qualname == class_name;
-    if assign_to_class_name || has_decorators {
+    let needs_class_binding = assign_to_class_name || class_qualname.contains("<locals>");
+    if needs_class_binding || has_decorators {
         ns_fn.extend(py_stmt!(
             "{dp_class_name:id} = {create_call:expr}",
             dp_class_name = dp_class_name.as_str(),
@@ -524,7 +557,7 @@ def _dp_ns_{class_ident:id}(_dp_prepare_ns, _dp_add_binding):
         .into_statements(),
     );
 
-    if assign_to_class_name {
+    if needs_class_binding {
         result.extend(py_stmt!(
             "{class_name:id} = {dp_class_name:id}",
             class_name = class_name.as_str(),

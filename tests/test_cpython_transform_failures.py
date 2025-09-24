@@ -155,8 +155,32 @@ class Container:
     with transformed_module(tmp_path, "nested_getattribute", source) as module:
         container = module.Container()
 
-        with pytest.raises(NameError, match="name 'A' is not defined"):
+        with pytest.raises(AttributeError, match="'A' object has no attribute 'missing'"):
             container.probe()
+
+
+def test_nested_class_with_nonlocal_binding_executes(tmp_path: Path) -> None:
+    source = r"""
+
+
+class Example:
+    def trigger(self):
+        counter = 0
+
+        class Token:
+            def bump(self):
+                nonlocal counter
+                counter += 1
+
+        token = Token()
+        token.bump()
+        return counter
+"""
+
+    with transformed_module(tmp_path, "nonlocal_binding", source) as module:
+        Example = module.Example
+
+    assert Example().trigger() == 1
 
 
 @pytest.mark.xfail(reason="Tuple unpacking should raise ValueError; CPython's test_turtle relies on this")

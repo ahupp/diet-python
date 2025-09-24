@@ -10,8 +10,8 @@ def _dp_ns_A(_dp_prepare_ns, _dp_add_binding):
     _dp_add_binding("__module__", __name__)
     _dp_add_binding("__qualname__", "A")
     _dp_class_annotations = _dp_prepare_ns.get("__annotations__")
-    _dp_tmp_6 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_6:
+    _dp_tmp_8 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_8:
         _dp_class_annotations = __dp__.dict()
     _dp_var_b_1 = _dp_add_binding("b", 1)
 
@@ -26,10 +26,10 @@ def _dp_ns_A(_dp_prepare_ns, _dp_add_binding):
     _dp_var_c_3 = _dp_add_binding("c", _dp_var_c_3)
 
     async def _dp_var_test_aiter_4(self):
-        _dp_iter_7 = __dp__.iter(range(10))
+        _dp_iter_6 = __dp__.iter(range(10))
         while True:
             try:
-                i = __dp__.next(_dp_iter_7)
+                i = __dp__.next(_dp_iter_6)
             except:
                 __dp__.check_stopiteration()
                 break
@@ -39,10 +39,10 @@ def _dp_ns_A(_dp_prepare_ns, _dp_add_binding):
     _dp_var_test_aiter_4 = _dp_add_binding("test_aiter", _dp_var_test_aiter_4)
 
     async def _dp_var_d_5(self):
-        _dp_iter_8 = __dp__.aiter(self.test_aiter())
+        _dp_iter_7 = __dp__.aiter(self.test_aiter())
         while True:
             try:
-                i = await __dp__.anext(_dp_iter_8)
+                i = await __dp__.anext(_dp_iter_7)
             except:
                 __dp__.acheck_stopiteration()
                 break

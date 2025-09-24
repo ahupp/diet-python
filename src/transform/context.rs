@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 use super::Options;
 
@@ -23,6 +23,7 @@ impl Namer {
 pub struct Context {
     pub namer: Namer,
     pub options: Options,
+    function_stack: RefCell<Vec<String>>,
 }
 
 impl Context {
@@ -30,10 +31,23 @@ impl Context {
         Self {
             namer: Namer::new(),
             options,
+            function_stack: RefCell::new(Vec::new()),
         }
     }
 
     pub fn fresh(&self, name: &str) -> String {
         self.namer.fresh(name)
+    }
+
+    pub fn push_function(&self, qualname: String) {
+        self.function_stack.borrow_mut().push(qualname);
+    }
+
+    pub fn current_function_qualname(&self) -> Option<String> {
+        self.function_stack.borrow().last().cloned()
+    }
+
+    pub fn pop_function(&self) {
+        self.function_stack.borrow_mut().pop();
     }
 }
