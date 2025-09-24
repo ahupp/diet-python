@@ -155,8 +155,31 @@ class Container:
     with transformed_module(tmp_path, "nested_getattribute", source) as module:
         container = module.Container()
 
-        with pytest.raises(AttributeError, match="'A' object has no attribute 'missing'"):
-            container.probe()
+    with pytest.raises(AttributeError, match="'A' object has no attribute 'missing'"):
+        container.probe()
+
+
+def test_chained_comparisons_evaluate_side_effects_once(tmp_path: Path) -> None:
+    source = r"""
+calls = []
+
+
+def value() -> int:
+    calls.append("hit")
+    return 1
+
+
+def probe() -> list[str]:
+    calls.clear()
+    if 0 <= value() <= 2:
+        return list(calls)
+    return list(calls)
+"""
+
+    with transformed_module(tmp_path, "chained_comparison", source) as module:
+        hits = module.probe()
+
+    assert hits == ["hit"]
 
 
 @pytest.mark.xfail(reason="Nested classes defined inside methods lose their __class__ binding; CPython's test_smtplib depends on this working")

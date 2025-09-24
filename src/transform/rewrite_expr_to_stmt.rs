@@ -36,7 +36,11 @@ if {test:expr}:
     stmts
 }
 
-pub(crate) fn expr_compare_to_stmts(target: &str, compare: ast::ExprCompare) -> Vec<Stmt> {
+pub(crate) fn expr_compare_to_stmts(
+    ctx: &Context,
+    target: &str,
+    compare: ast::ExprCompare,
+) -> Vec<Stmt> {
     let ast::ExprCompare {
         left,
         ops,
@@ -44,38 +48,46 @@ pub(crate) fn expr_compare_to_stmts(target: &str, compare: ast::ExprCompare) -> 
         ..
     } = compare;
 
-    let mut ops = ops.into_vec().into_iter();
-    let mut comparators = comparators.into_vec().into_iter();
+    let ops = ops.into_vec();
+    let comparators = comparators.into_vec();
+    let count = ops.len();
 
-    let first_op = ops
-        .next()
-        .expect("compare expects at least one comparison operator");
-    let first_comparator = comparators
-        .next()
-        .expect("compare expects at least one comparator");
+    let mut stmts = Vec::new();
+    let mut current_left = *left;
 
-    let mut stmts = assign_to_target(
-        target,
-        compare_expr(first_op, *left, first_comparator.clone()),
-    );
+    for (index, (op, comparator)) in ops.into_iter().zip(comparators.into_iter()).enumerate() {
+        let mut comparator_expr = comparator;
+        let mut prelude = Vec::new();
+        if index < count - 1 {
+            let tmp = ctx.fresh("compare");
+            prelude.extend(py_stmt!(
+                "{tmp:id} = {value:expr}",
+                tmp = tmp.as_str(),
+                value = comparator_expr.clone(),
+            ));
+            comparator_expr = py_expr!("{tmp:id}", tmp = tmp.as_str());
+        }
 
-    let mut current_left = first_comparator;
+        let comparison = compare_expr(op, current_left.clone(), comparator_expr.clone());
 
-    for (op, comparator) in ops.zip(comparators) {
-        let body_stmt = assign_to_target(
-            target,
-            compare_expr(op, current_left.clone(), comparator.clone()),
-        );
-        let stmt = py_stmt!(
-            r#"
+        if index == 0 {
+            stmts.extend(prelude);
+            stmts.extend(assign_to_target(target, comparison));
+        } else {
+            let mut body = prelude;
+            body.extend(assign_to_target(target, comparison));
+            let stmt = py_stmt!(
+                r#"
 if {test:expr}:
     {body:stmt}
 "#,
-            test = target_expr(target),
-            body = body_stmt,
-        );
-        stmts.extend(stmt);
-        current_left = comparator;
+                test = target_expr(target),
+                body = body,
+            );
+            stmts.extend(stmt);
+        }
+
+        current_left = comparator_expr;
     }
 
     stmts
