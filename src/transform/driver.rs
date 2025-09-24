@@ -323,7 +323,7 @@ else:
             }
             Expr::Compare(compare) => {
                 let tmp = self.ctx.fresh("tmp");
-                let stmts = expr_compare_to_stmts(tmp.as_str(), compare);
+                let stmts = expr_compare_to_stmts(self.ctx, tmp.as_str(), compare);
                 self.buf.extend(stmts);
                 py_expr!("{tmp:id}", tmp = tmp.as_str())
             }

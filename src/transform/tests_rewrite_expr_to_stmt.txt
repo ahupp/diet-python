@@ -33,20 +33,23 @@ $ rewrites chained compare assignment
 
 x = a < b < c
 =
-_dp_tmp_1 = __dp__.lt(a, b)
+_dp_compare_2 = b
+_dp_tmp_1 = __dp__.lt(a, _dp_compare_2)
 if _dp_tmp_1:
-    _dp_tmp_1 = __dp__.lt(b, c)
+    _dp_tmp_1 = __dp__.lt(_dp_compare_2, c)
 x = _dp_tmp_1
 
 $ rewrites multi chained compare assignment
 
 x = a < b <= c < d
 =
-_dp_tmp_1 = __dp__.lt(a, b)
+_dp_compare_2 = b
+_dp_tmp_1 = __dp__.lt(a, _dp_compare_2)
 if _dp_tmp_1:
-    _dp_tmp_1 = __dp__.le(b, c)
+    _dp_compare_3 = c
+    _dp_tmp_1 = __dp__.le(_dp_compare_2, _dp_compare_3)
 if _dp_tmp_1:
-    _dp_tmp_1 = __dp__.lt(c, d)
+    _dp_tmp_1 = __dp__.lt(_dp_compare_3, d)
 x = _dp_tmp_1
 
 $ rewrites lambda in return stmt
