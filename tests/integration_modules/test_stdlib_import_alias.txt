@@ -1,0 +1,12 @@
+$ desugars stdlib_import_alias
+
+"""Reproduces the failure when importing a stdlib module with an alias."""
+
+import sys as sys_alias
+
+VALUE = sys_alias.version
+=
+"""Reproduces the failure when importing a stdlib module with an alias."""
+import __dp__
+sys_alias = __dp__.import_("sys", __spec__)
+VALUE = sys_alias.version

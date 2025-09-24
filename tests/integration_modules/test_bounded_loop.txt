@@ -1,0 +1,22 @@
+$ desugars bounded_loop
+
+def bounded_loop(limit=1):
+    start = 0
+    while start <= limit:
+        start += 1
+        if start > 2:
+            raise RuntimeError("loop guard not recomputed")
+    return start
+=
+import __dp__
+def bounded_loop(limit=1):
+    start = 0
+    while True:
+        _dp_tmp_1 = __dp__.le(start, limit)
+        if __dp__.not_(_dp_tmp_1):
+            break
+        start = __dp__.iadd(start, 1)
+        _dp_tmp_2 = __dp__.gt(start, 2)
+        if _dp_tmp_2:
+            raise RuntimeError("loop guard not recomputed")
+    return start

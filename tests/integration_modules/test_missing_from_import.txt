@@ -1,0 +1,35 @@
+$ desugars missing_from_import
+
+"""Exercise ``from module import name`` when ``name`` is absent."""
+
+from missing_from_import_target import VALUE
+
+
+try:
+    from missing_from_import_target import MISSING
+except ImportError as exc:
+    RESULT = "fallback"
+    ERROR_NAME = exc.name
+    ERROR_PATH = exc.path
+else:
+    RESULT = MISSING
+    ERROR_NAME = None
+    ERROR_PATH = None
+=
+"""Exercise ``from module import name`` when ``name`` is absent."""
+import __dp__
+VALUE = __dp__.import_("missing_from_import_target", __spec__, __dp__.list(("VALUE",))).VALUE
+try:
+    MISSING = __dp__.import_("missing_from_import_target", __spec__, __dp__.list(("MISSING",))).MISSING
+except:
+    if __dp__.isinstance(__dp__.current_exception(), ImportError):
+        exc = __dp__.current_exception()
+        RESULT = "fallback"
+        ERROR_NAME = exc.name
+        ERROR_PATH = exc.path
+    else:
+        raise
+else:
+    RESULT = MISSING
+    ERROR_NAME = None
+    ERROR_PATH = None

@@ -1,0 +1,6 @@
+$ desugars dotted_import_alias_pkg/__init__
+
+SENTINEL = "package"
+=
+import __dp__
+SENTINEL = "package"

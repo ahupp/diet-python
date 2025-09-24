@@ -1,0 +1,31 @@
+$ desugars translation_module
+
+_ = lambda text: f"translated:{text}"
+
+
+def translate_message():
+    _("before try")
+    try:
+        raise RuntimeError("boom")
+    except RuntimeError:
+        return _("after except")
+
+
+def call_translate():
+    return translate_message()
+=
+import __dp__
+def _dp_lambda_1(text):
+    return "".join(("translated:", format(text)))
+_ = _dp_lambda_1
+def translate_message():
+    _("before try")
+    try:
+        raise RuntimeError("boom")
+    except:
+        if __dp__.isinstance(__dp__.current_exception(), RuntimeError):
+            return _("after except")
+        else:
+            raise
+def call_translate():
+    return translate_message()

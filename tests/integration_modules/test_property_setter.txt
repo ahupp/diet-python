@@ -1,0 +1,36 @@
+$ desugars property_setter
+
+class Example:
+    def __init__(self) -> None:
+        self._value = 0
+
+    @property
+    def value(self) -> int:
+        return self._value
+
+    @value.setter
+    def value(self, value: int) -> None:
+        self._value = value
+=
+import __dp__
+def _dp_ns_Example(_dp_prepare_ns, _dp_add_binding):
+    _dp_add_binding("__module__", __name__)
+    _dp_add_binding("__qualname__", "Example")
+
+    def __init__(self) -> None:
+        __dp__.setattr(self, "_value", 0)
+    __init__ = _dp_add_binding("__init__", __init__)
+    _dp_decorator_value_0 = __dp__.global_(globals(), "property")
+
+    def value(self) -> int:
+        return self._value
+    value = _dp_decorator_value_0(value)
+    value = _dp_add_binding("value", value)
+    _dp_decorator_value_0 = value.setter
+
+    def value(self, value: int) -> None:
+        __dp__.setattr(self, "_value", value)
+    value = _dp_decorator_value_0(value)
+    value = _dp_add_binding("value", value)
+_dp_class_Example = __dp__.create_class("Example", _dp_ns_Example, (), None)
+Example = _dp_class_Example
