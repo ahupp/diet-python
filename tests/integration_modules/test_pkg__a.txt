@@ -1,0 +1,6 @@
+$ desugars pkg.a
+
+from . import b
+=
+import __dp__
+b = __dp__.import_("", __spec__, __dp__.list(("b",)), 1).b

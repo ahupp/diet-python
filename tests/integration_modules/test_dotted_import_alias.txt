@@ -1,0 +1,11 @@
+$ desugars dotted_import_alias
+
+import dotted_import_alias_pkg.submodule as submodule
+
+VALUE = submodule.SENTINEL
+MODULE_NAME = submodule.__name__
+=
+import __dp__
+submodule = __dp__.import_("dotted_import_alias_pkg.submodule", __spec__, __dp__.list(("submodule",)))
+VALUE = submodule.SENTINEL
+MODULE_NAME = submodule.__name__

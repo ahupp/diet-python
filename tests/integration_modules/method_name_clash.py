@@ -7,4 +7,3 @@ class Example:
 
     def date(self):
         return date()
-

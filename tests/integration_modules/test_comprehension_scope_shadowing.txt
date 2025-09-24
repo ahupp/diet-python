@@ -1,0 +1,50 @@
+$ desugars comprehension_scope_shadowing
+
+from enum import Enum
+
+
+class Scope(Enum):
+    Function = "function"
+    Module = "module"
+
+
+HIGH_SCOPES = [scope for scope in Scope if scope is Scope.Function]
+FUNCTION_MEMBERS = [Scope.Function for scope in Scope if scope is Scope.Function]
+=
+import __dp__
+Enum = __dp__.import_("enum", __spec__, __dp__.list(("Enum",))).Enum
+def _dp_ns_Scope(_dp_prepare_ns, _dp_add_binding):
+    _dp_add_binding("__module__", __name__)
+    _dp_add_binding("__qualname__", "Scope")
+    _dp_tmp_1 = "function"
+    Function = _dp_add_binding("Function", _dp_tmp_1)
+    _dp_tmp_2 = "module"
+    Module = _dp_add_binding("Module", _dp_tmp_2)
+_dp_class_Scope = __dp__.create_class("Scope", _dp_ns_Scope, (Enum,), None)
+Scope = _dp_class_Scope
+def _dp_gen_3(_dp_iter_4):
+    _dp_iter_5 = __dp__.iter(_dp_iter_4)
+    while True:
+        try:
+            scope = __dp__.next(_dp_iter_5)
+        except:
+            __dp__.check_stopiteration()
+            break
+        else:
+            _dp_tmp_6 = __dp__.is_(scope, Scope.Function)
+            if _dp_tmp_6:
+                yield scope
+HIGH_SCOPES = __dp__.list(_dp_gen_3(__dp__.iter(Scope)))
+def _dp_gen_7(_dp_iter_8):
+    _dp_iter_9 = __dp__.iter(_dp_iter_8)
+    while True:
+        try:
+            scope = __dp__.next(_dp_iter_9)
+        except:
+            __dp__.check_stopiteration()
+            break
+        else:
+            _dp_tmp_10 = __dp__.is_(scope, Scope.Function)
+            if _dp_tmp_10:
+                yield Scope.Function
+FUNCTION_MEMBERS = __dp__.list(_dp_gen_7(__dp__.iter(Scope)))
