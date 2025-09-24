@@ -275,3 +275,76 @@ def _dp_ns_Outer(_dp_prepare_ns, _dp_add_binding):
     Inner = _dp_add_binding("Inner", _dp_tmp_2)
 _dp_class_Outer = __dp__.create_class("Outer", _dp_ns_Outer, (), None)
 Outer = _dp_class_Outer
+$ function local class remains scoped
+
+class Example:
+    def trigger(self):
+        class Token:
+            pass
+        return Token
+=
+def _dp_ns_Example(_dp_prepare_ns, _dp_add_binding):
+    _dp_add_binding("__module__", __name__)
+    _dp_add_binding("__qualname__", "Example")
+    _dp_class_annotations = _dp_prepare_ns.get("__annotations__")
+    _dp_tmp_3 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_3:
+        _dp_class_annotations = __dp__.dict()
+
+    def _dp_var_trigger_1(self):
+
+        def _dp_ns_Example_trigger__locals__Token(_dp_prepare_ns, _dp_add_binding):
+            _dp_add_binding("__module__", __name__)
+            _dp_add_binding("__qualname__", "Example.trigger.<locals>.Token")
+            _dp_class_annotations = _dp_prepare_ns.get("__annotations__")
+            _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
+            if _dp_tmp_2:
+                _dp_class_annotations = __dp__.dict()
+        _dp_class_Example_trigger__locals__Token = __dp__.create_class("Token", _dp_ns_Example_trigger__locals__Token, (), None)
+        Token = _dp_class_Example_trigger__locals__Token
+        return Token
+    __dp__.setattr(_dp_var_trigger_1, "__name__", "trigger")
+    _dp_var_trigger_1 = _dp_add_binding("trigger", _dp_var_trigger_1)
+_dp_class_Example = __dp__.create_class("Example", _dp_ns_Example, (), None)
+Example = _dp_class_Example
+$ function local class nested in if
+
+class Example:
+    def trigger(self, flag):
+        if flag:
+            class Token:
+                pass
+            return Token
+        return None
+=
+def _dp_ns_Example(_dp_prepare_ns, _dp_add_binding):
+    _dp_add_binding("__module__", __name__)
+    _dp_add_binding("__qualname__", "Example")
+    _dp_class_annotations = _dp_prepare_ns.get("__annotations__")
+    _dp_tmp_3 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_3:
+        _dp_class_annotations = __dp__.dict()
+
+    def _dp_var_trigger_1(self, flag):
+
+        if flag:
+            def _dp_ns_Example_trigger__locals__Token(_dp_prepare_ns, _dp_add_binding):
+                _dp_add_binding("__module__", __name__)
+                _dp_add_binding("__qualname__", "Example.trigger.<locals>.Token")
+                _dp_class_annotations = _dp_prepare_ns.get("__annotations__")
+                _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
+                if _dp_tmp_2:
+                    _dp_class_annotations = __dp__.dict()
+            _dp_class_Example_trigger__locals__Token = __dp__.create_class(
+                "Token",
+                _dp_ns_Example_trigger__locals__Token,
+                (),
+                None,
+            )
+            Token = _dp_class_Example_trigger__locals__Token
+            return Token
+        return None
+    __dp__.setattr(_dp_var_trigger_1, "__name__", "trigger")
+    _dp_var_trigger_1 = _dp_add_binding("trigger", _dp_var_trigger_1)
+_dp_class_Example = __dp__.create_class("Example", _dp_ns_Example, (), None)
+Example = _dp_class_Example

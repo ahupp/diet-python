@@ -44,6 +44,20 @@ impl<'a> ExprRewriter<'a> {
         self.ctx
     }
 
+    pub(crate) fn rewrite_block(&mut self, body: Vec<Stmt>) -> Vec<Stmt> {
+        self.process_statements(body)
+    }
+
+    pub(crate) fn with_function_scope<F, R>(&mut self, qualname: String, f: F) -> R
+    where
+        F: FnOnce(&mut Self) -> R,
+    {
+        self.ctx.push_function(qualname);
+        let result = f(self);
+        self.ctx.pop_function();
+        result
+    }
+
     fn process_statements(&mut self, initial: Vec<Stmt>) -> Vec<Stmt> {
         enum WorkItem {
             Process(Stmt),
@@ -131,6 +145,16 @@ impl<'a> ExprRewriter<'a> {
     fn rewrite_stmt(&mut self, stmt: Stmt) -> Rewrite {
         match stmt {
             Stmt::FunctionDef(mut func_def) => {
+                let func_name = func_def.name.id.as_str().to_string();
+                let qualname = self
+                    .context()
+                    .current_function_qualname()
+                    .map(|enclosing| format!("{enclosing}.<locals>.{func_name}"))
+                    .unwrap_or(func_name.clone());
+                self.with_function_scope(qualname, |rewriter| {
+                    let body = take(&mut func_def.body);
+                    func_def.body = rewriter.rewrite_block(body);
+                });
                 let decorators = take(&mut func_def.decorator_list);
                 let func_name = func_def.name.id.clone();
                 rewrite_decorator::rewrite(
@@ -145,8 +169,13 @@ impl<'a> ExprRewriter<'a> {
             Stmt::For(for_stmt) => rewrite_loop::rewrite_for(for_stmt, self.ctx, self),
             Stmt::Assert(assert) => rewrite_assert::rewrite(assert),
             Stmt::ClassDef(mut class_def) => {
+                let class_name = class_def.name.id.as_str().to_string();
+                let qualname = self
+                    .context()
+                    .current_function_qualname()
+                    .map(|enclosing| format!("{enclosing}.<locals>.{class_name}"));
                 let decorators = take(&mut class_def.decorator_list);
-                rewrite_class_def::rewrite(class_def.clone(), decorators, self, None)
+                rewrite_class_def::rewrite(class_def.clone(), decorators, self, qualname)
             }
             Stmt::Try(try_stmt) => rewrite_exception::rewrite_try(try_stmt, self.ctx),
             Stmt::If(if_stmt)
