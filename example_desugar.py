@@ -9,10 +9,6 @@ add = _dp_decorator_add_0(_dp_decorator_add_1(add))
 def _dp_ns_A(_dp_prepare_ns, _dp_add_binding):
     _dp_add_binding("__module__", __name__)
     _dp_add_binding("__qualname__", "A")
-    _dp_class_annotations = _dp_prepare_ns.get("__annotations__")
-    _dp_tmp_6 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_6:
-        _dp_class_annotations = __dp__.dict()
     _dp_var_b_1 = _dp_add_binding("b", 1)
 
     def _dp_var___init___2(self):
@@ -26,10 +22,10 @@ def _dp_ns_A(_dp_prepare_ns, _dp_add_binding):
     _dp_var_c_3 = _dp_add_binding("c", _dp_var_c_3)
 
     async def _dp_var_test_aiter_4(self):
-        _dp_iter_7 = __dp__.iter(range(10))
+        _dp_iter_6 = __dp__.iter(range(10))
         while True:
             try:
-                i = __dp__.next(_dp_iter_7)
+                i = __dp__.next(_dp_iter_6)
             except:
                 __dp__.check_stopiteration()
                 break
@@ -39,10 +35,10 @@ def _dp_ns_A(_dp_prepare_ns, _dp_add_binding):
     _dp_var_test_aiter_4 = _dp_add_binding("test_aiter", _dp_var_test_aiter_4)
 
     async def _dp_var_d_5(self):
-        _dp_iter_8 = __dp__.aiter(self.test_aiter())
+        _dp_iter_7 = __dp__.aiter(self.test_aiter())
         while True:
             try:
-                i = await __dp__.anext(_dp_iter_8)
+                i = await __dp__.anext(_dp_iter_7)
             except:
                 __dp__.acheck_stopiteration()
                 break
@@ -61,42 +57,42 @@ c = ff()
 __dp__.delattr(c.a, "b")
 __dp__.delitem(c.a.arr, 0)
 del c
-def _dp_gen_9(_dp_iter_10):
-    _dp_iter_11 = __dp__.iter(_dp_iter_10)
+def _dp_gen_8(_dp_iter_9):
+    _dp_iter_10 = __dp__.iter(_dp_iter_9)
     while True:
         try:
-            i = __dp__.next(_dp_iter_11)
+            i = __dp__.next(_dp_iter_10)
         except:
             __dp__.check_stopiteration()
             break
         else:
-            _dp_tmp_12 = __dp__.eq(__dp__.mod(i, 2), 0)
-            if _dp_tmp_12:
+            _dp_tmp_11 = __dp__.eq(__dp__.mod(i, 2), 0)
+            if _dp_tmp_11:
                 yield __dp__.add(i, 1)
-x = __dp__.list(_dp_gen_9(__dp__.iter(range(5))))
-def _dp_gen_13(_dp_iter_14):
-    _dp_iter_15 = __dp__.iter(_dp_iter_14)
+x = __dp__.list(_dp_gen_8(__dp__.iter(range(5))))
+def _dp_gen_12(_dp_iter_13):
+    _dp_iter_14 = __dp__.iter(_dp_iter_13)
     while True:
         try:
-            i = __dp__.next(_dp_iter_15)
+            i = __dp__.next(_dp_iter_14)
         except:
             __dp__.check_stopiteration()
             break
         else:
-            _dp_tmp_16 = __dp__.eq(__dp__.mod(i, 2), 0)
-            if _dp_tmp_16:
+            _dp_tmp_15 = __dp__.eq(__dp__.mod(i, 2), 0)
+            if _dp_tmp_15:
                 yield __dp__.add(i, 1)
-y = __dp__.set(_dp_gen_13(__dp__.iter(range(5))))
-def _dp_gen_17(_dp_iter_18):
-    _dp_iter_19 = __dp__.iter(_dp_iter_18)
+y = __dp__.set(_dp_gen_12(__dp__.iter(range(5))))
+def _dp_gen_16(_dp_iter_17):
+    _dp_iter_18 = __dp__.iter(_dp_iter_17)
     while True:
         try:
-            i = __dp__.next(_dp_iter_19)
+            i = __dp__.next(_dp_iter_18)
         except:
             __dp__.check_stopiteration()
             break
         else:
-            _dp_tmp_20 = __dp__.eq(__dp__.mod(i, 2), 0)
-            if _dp_tmp_20:
+            _dp_tmp_19 = __dp__.eq(__dp__.mod(i, 2), 0)
+            if _dp_tmp_19:
                 yield __dp__.add(i, 1)
-z = _dp_gen_17(__dp__.iter(range(5)))
+z = _dp_gen_16(__dp__.iter(range(5)))

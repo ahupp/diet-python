@@ -62,11 +62,50 @@ set = builtins.set
 slice = builtins.slice
 
 
-def unpack(arr, idx):
-    try:
-        return arr[idx]
-    except IndexError as exc:
-        raise ValueError from exc
+def unpack(iterable, spec):
+    iterator = iter(iterable)
+
+    result = []
+    star_index = None
+
+    for idx, flag in enumerate(spec):
+        if flag:
+            try:
+                result.append(next(iterator))
+            except StopIteration as exc:
+                raise ValueError from exc
+        else:
+            if star_index is not None:
+                raise ValueError("only one starred target is supported")
+            star_index = idx
+            break
+
+    if star_index is None:
+        try:
+            next(iterator)
+        except StopIteration:
+            return tuple(result)
+        raise ValueError
+
+    suffix_flags = list(spec[star_index + 1 :])
+    if not all(suffix_flags):
+        raise ValueError("only one starred target is supported")
+
+    remainder = list(iterator)
+    suffix_count = len(suffix_flags)
+
+    if len(remainder) < suffix_count:
+        raise ValueError
+
+    if suffix_count:
+        tail = remainder[-suffix_count:]
+        remainder = remainder[:-suffix_count]
+    else:
+        tail = []
+
+    result.append(remainder)
+    result.extend(tail)
+    return tuple(result)
 
 
 def resolve_bases(bases):

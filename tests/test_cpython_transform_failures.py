@@ -155,7 +155,7 @@ class Container:
     with transformed_module(tmp_path, "nested_getattribute", source) as module:
         container = module.Container()
 
-        with pytest.raises(NameError, match="name 'A' is not defined"):
+        with pytest.raises(AttributeError, match="'A' object has no attribute 'missing'"):
             container.probe()
 
 
@@ -183,6 +183,30 @@ class Container:
         result = module.Container().build()
 
     assert result == "sentinel"
+
+def test_nested_class_with_nonlocal_binding_executes(tmp_path: Path) -> None:
+    source = r"""
+
+
+class Example:
+    def trigger(self):
+        counter = 0
+
+        class Token:
+            def bump(self):
+                nonlocal counter
+                counter += 1
+
+        token = Token()
+        token.bump()
+        return counter
+"""
+
+    with transformed_module(tmp_path, "nonlocal_binding", source) as module:
+        Example = module.Example
+
+    assert Example().trigger() == 1
+
 
 
 @pytest.mark.xfail(reason="Tuple unpacking should raise ValueError; CPython's test_turtle relies on this")
@@ -273,3 +297,25 @@ def collect_segments(data: bytes) -> list[bytes]:
         collect_segments = module.collect_segments
 
     assert collect_segments(b"ab") == [b"a", b"ab", b"b"]
+
+
+@pytest.mark.xfail(reason="Helper bindings generated for class definitions leak into module namespaces")
+def test_helper_bindings_are_excluded_from_all(tmp_path: Path) -> None:
+    source = r"""
+__all__ = ["Example"]
+
+
+class Example:
+    pass
+"""
+
+    with transformed_module(tmp_path, "module_all_helpers", source) as module:
+        actual = set(module.__all__)
+        computed = {
+            name
+            for name, value in vars(module).items()
+            if not name.startswith("__")
+            and getattr(value, "__module__", None) == module.__name__
+        }
+
+    assert computed == actual

@@ -35,11 +35,6 @@ class Foo:
 def _dp_ns_Foo(_dp_prepare_ns, _dp_add_binding):
     _dp_add_binding("__module__", __name__)
     _dp_add_binding("__qualname__", "Foo")
-    _dp_class_annotations = _dp_prepare_ns.get("__annotations__")
-    _dp_tmp_3 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_3:
-        _dp_class_annotations = __dp__.dict()
-
     def _dp_var_method_2(self):
         return 1
     __dp__.setattr(_dp_var_method_2, "__name__", "method")
