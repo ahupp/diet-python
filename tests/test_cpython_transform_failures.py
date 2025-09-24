@@ -159,6 +159,31 @@ class Container:
             container.probe()
 
 
+@pytest.mark.xfail(reason="Nested classes defined inside methods lose their __class__ binding; CPython's test_smtplib depends on this working")
+def test_nested_class_super_preserves_class_cell(tmp_path: Path) -> None:
+    source = r"""
+class Base:
+    def probe(self):
+        return "sentinel"
+
+
+class Container:
+    def build(self):
+        class Derived(Base):
+            def probe(self):
+                return super().probe()
+
+        instance = Derived()
+        return instance.probe()
+"""
+
+    module_name = "nested_super"
+
+    with transformed_module(tmp_path, module_name, source) as module:
+        result = module.Container().build()
+
+    assert result == "sentinel"
+
 def test_nested_class_with_nonlocal_binding_executes(tmp_path: Path) -> None:
     source = r"""
 
@@ -181,6 +206,7 @@ class Example:
         Example = module.Example
 
     assert Example().trigger() == 1
+
 
 
 @pytest.mark.xfail(reason="Tuple unpacking should raise ValueError; CPython's test_turtle relies on this")
