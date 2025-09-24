@@ -271,3 +271,25 @@ def collect_segments(data: bytes) -> list[bytes]:
         collect_segments = module.collect_segments
 
     assert collect_segments(b"ab") == [b"a", b"ab", b"b"]
+
+
+@pytest.mark.xfail(reason="Helper bindings generated for class definitions leak into module namespaces")
+def test_helper_bindings_are_excluded_from_all(tmp_path: Path) -> None:
+    source = r"""
+__all__ = ["Example"]
+
+
+class Example:
+    pass
+"""
+
+    with transformed_module(tmp_path, "module_all_helpers", source) as module:
+        actual = set(module.__all__)
+        computed = {
+            name
+            for name, value in vars(module).items()
+            if not name.startswith("__")
+            and getattr(value, "__module__", None) == module.__name__
+        }
+
+    assert computed == actual
