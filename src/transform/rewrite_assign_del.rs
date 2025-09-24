@@ -1,6 +1,6 @@
 use super::driver::{ExprRewriter, Rewrite};
 use crate::body_transform::Transformer;
-use crate::template::make_binop;
+use crate::template::{make_binop, make_tuple};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Operator, Stmt};
 
@@ -65,55 +65,52 @@ fn rewrite_unpack_target(
 ) {
     let tmp_expr = rewriter.maybe_placeholder(value);
 
-    let elts_len = elts.len();
-    let mut starred_index: Option<usize> = None;
-    for (i, elt) in elts.iter().enumerate() {
-        if matches!(elt, Expr::Starred(_)) {
-            if starred_index.is_some() {
-                panic!("unsupported starred assignment target");
+    let mut spec_elts = Vec::new();
+    let mut starred_seen = false;
+    for elt in &elts {
+        match elt {
+            Expr::Starred(_) => {
+                if starred_seen {
+                    panic!("unsupported starred assignment target");
+                }
+                spec_elts.push(py_expr!("False"));
+                starred_seen = true;
             }
-            starred_index = Some(i);
+            _ => spec_elts.push(py_expr!("True")),
         }
     }
 
-    let prefix_len = starred_index.unwrap_or(elts_len);
-    let suffix_len = starred_index.map_or(0, |idx| elts_len - idx - 1);
+    let spec_expr = make_tuple(spec_elts);
+    let unpacked_expr = py_expr!(
+        "__dp__.unpack({tmp:expr}, {spec:expr})",
+        tmp = tmp_expr.clone(),
+        spec = spec_expr,
+    );
+    let unpacked_tmp = rewriter.maybe_placeholder(unpacked_expr);
 
     for (i, elt) in elts.into_iter().enumerate() {
         match elt {
             Expr::Starred(ast::ExprStarred { value, .. }) => {
-                let stop_expr = if suffix_len == 0 {
-                    py_expr!("None")
-                } else {
-                    let stop = -(suffix_len as isize);
-                    py_expr!("{stop:literal}", stop = stop)
-                };
-
-                let slice_expr = py_expr!(
-                    "__dp__.getitem({tmp:expr}, __dp__.slice({start:literal}, {stop:expr}, None))",
-                    tmp = tmp_expr.clone(),
-                    start = prefix_len,
-                    stop = stop_expr,
+                let star_value = py_expr!(
+                    "__dp__.getitem({tmp:expr}, {idx:literal})",
+                    tmp = unpacked_tmp.clone(),
+                    idx = i,
                 );
                 let collection_expr = match kind {
                     UnpackTargetKind::Tuple => {
-                        py_expr!("__dp__.tuple({slice:expr})", slice = slice_expr)
+                        py_expr!("__dp__.tuple({value:expr})", value = star_value)
                     }
                     UnpackTargetKind::List => {
-                        py_expr!("__dp__.list({slice:expr})", slice = slice_expr)
+                        py_expr!("__dp__.list({value:expr})", value = star_value)
                     }
                 };
                 rewrite_target(rewriter, *value, collection_expr, out);
             }
             _ => {
-                let idx = match starred_index {
-                    Some(star_idx) if i > star_idx => (i as isize) - (elts_len as isize),
-                    _ => i as isize,
-                };
                 let value = py_expr!(
-                    "__dp__.unpack({tmp:expr}, {idx:literal})",
-                    tmp = tmp_expr.clone(),
-                    idx = idx,
+                    "__dp__.getitem({tmp:expr}, {idx:literal})",
+                    tmp = unpacked_tmp.clone(),
+                    idx = i,
                 );
                 rewrite_target(rewriter, elt, value, out);
             }

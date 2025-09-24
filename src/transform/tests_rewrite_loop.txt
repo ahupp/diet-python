@@ -64,8 +64,9 @@ _dp_iter_1 = __dp__.iter(c)
 while True:
     try:
         _dp_tmp_2 = __dp__.next(_dp_iter_1)
-        a = __dp__.unpack(_dp_tmp_2, 0)
-        b = __dp__.tuple(__dp__.getitem(_dp_tmp_2, __dp__.slice(1, None, None)))
+        _dp_tmp_3 = __dp__.unpack(_dp_tmp_2, (True, False))
+        a = __dp__.getitem(_dp_tmp_3, 0)
+        b = __dp__.tuple(__dp__.getitem(_dp_tmp_3, 1))
     except:
         __dp__.check_stopiteration()
         break
