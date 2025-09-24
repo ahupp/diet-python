@@ -1,13 +1,12 @@
 use crate::body_transform::{walk_expr, walk_stmt, Transformer};
 use crate::template::{make_tuple, py_stmt_single};
 use crate::transform::class_def::AnnotationCollector;
-use crate::transform::context::Context;
 use crate::transform::driver::{ExprRewriter, Rewrite};
 use crate::transform::rewrite_decorator;
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
 use ruff_text_size::TextRange;
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::mem::take;
 
 fn class_ident_from_qualname(qualname: &str) -> String {
@@ -130,38 +129,69 @@ fn class_call_arguments(arguments: Option<Box<ast::Arguments>>) -> (Expr, Expr) 
     (make_tuple(bases), prepare_dict)
 }
 
-struct ClassVarRenamer<'a> {
-    ctx: &'a Context,
-    replacements: HashMap<String, String>,
+struct ClassVarRenamer {
+    stored: HashSet<String>,
 }
 
-impl<'a> ClassVarRenamer<'a> {
-    fn new(ctx: &'a Context) -> Self {
+impl ClassVarRenamer {
+    fn new() -> Self {
         Self {
-            ctx,
-            replacements: HashMap::new(),
+            stored: HashSet::new(),
         }
     }
 
-    fn into_replacements(self) -> HashMap<String, String> {
-        self.replacements
-    }
-
-    fn replacement_for(&mut self, name: &str) -> String {
-        if let Some(existing) = self.replacements.get(name) {
-            existing.clone()
-        } else {
-            let replacement = self.ctx.fresh(&format!("var_{name}"));
-            self.replacements
-                .insert(name.to_string(), replacement.clone());
-            replacement
+    fn visit_store_expr(&mut self, expr: &mut Expr) {
+        match expr {
+            Expr::Name(ast::ExprName { id, .. }) => {
+                let name = id.as_str().to_string();
+                self.stored.insert(name);
+            }
+            Expr::Tuple(ast::ExprTuple { elts, .. }) | Expr::List(ast::ExprList { elts, .. }) => {
+                for elt in elts {
+                    self.visit_store_expr(elt);
+                }
+            }
+            Expr::Starred(ast::ExprStarred { value, .. }) => self.visit_store_expr(value),
+            Expr::Attribute(ast::ExprAttribute { value, .. }) => {
+                self.visit_expr(value);
+            }
+            Expr::Subscript(ast::ExprSubscript { value, slice, .. }) => {
+                self.visit_expr(value);
+                self.visit_expr(slice);
+            }
+            _ => self.visit_expr(expr),
         }
     }
 }
 
-impl Transformer for ClassVarRenamer<'_> {
+impl Transformer for ClassVarRenamer {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
+            Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
+                self.visit_expr(value);
+                for target in targets {
+                    self.visit_store_expr(target);
+                }
+            }
+            Stmt::AnnAssign(ast::StmtAnnAssign {
+                target,
+                annotation,
+                value,
+                ..
+            }) => {
+                if let Some(expr) = value {
+                    self.visit_expr(expr);
+                }
+                self.visit_annotation(annotation);
+                self.visit_store_expr(target);
+            }
+            Stmt::AugAssign(ast::StmtAugAssign {
+                target, op, value, ..
+            }) => {
+                self.visit_expr(value);
+                self.visit_operator(op);
+                self.visit_store_expr(target);
+            }
             Stmt::FunctionDef(ast::StmtFunctionDef {
                 name,
                 decorator_list,
@@ -171,8 +201,7 @@ impl Transformer for ClassVarRenamer<'_> {
                 ..
             }) => {
                 let original_name = name.id.as_str().to_string();
-                let replacement = self.replacement_for(original_name.as_str());
-                name.id = replacement.into();
+                self.stored.insert(original_name);
 
                 for decorator in decorator_list {
                     self.visit_decorator(decorator);
@@ -193,15 +222,19 @@ impl Transformer for ClassVarRenamer<'_> {
         if let Expr::Name(ast::ExprName { id, ctx, .. }) = expr {
             let name = id.as_str().to_string();
             match ctx {
-                ExprContext::Store => {
-                    let replacement = self.replacement_for(name.as_str());
-                    *id = replacement.into();
-                }
-                ExprContext::Load | ExprContext::Del => {
-                    if let Some(replacement) = self.replacements.get(name.as_str()) {
-                        *id = replacement.clone().into();
+                ExprContext::Load => {
+                    let is_builtin = matches!(name.as_str(), "str" | "int" | "list" | "tuple");
+                    if !self.stored.contains(name.as_str())
+                        && !name.starts_with("_dp_")
+                        && !is_builtin
+                    {
+                        *expr = py_expr!(
+                            "__dp__.global_(globals(), {name:literal})",
+                            name = name.as_str()
+                        );
                     }
                 }
+                ExprContext::Del => {}
                 _ => {}
             }
             return;
@@ -210,23 +243,67 @@ impl Transformer for ClassVarRenamer<'_> {
     }
 }
 
-fn lookup_original_name(mapping: &HashMap<String, String>, replacement: &str) -> String {
-    mapping
-        .get(replacement)
-        .cloned()
-        .unwrap_or_else(|| replacement.to_string())
-}
-
 struct MethodTransformer {
     class_expr: String,
     first_arg: Option<String>,
+    method_name: String,
+    local_bindings: HashSet<String>,
+}
+
+impl MethodTransformer {
+    fn collect_store_expr(&mut self, expr: &Expr) {
+        match expr {
+            Expr::Name(ast::ExprName { id, .. }) => {
+                self.local_bindings.insert(id.to_string());
+            }
+            Expr::Tuple(ast::ExprTuple { elts, .. }) | Expr::List(ast::ExprList { elts, .. }) => {
+                for elt in elts {
+                    self.collect_store_expr(elt);
+                }
+            }
+            Expr::Starred(ast::ExprStarred { value, .. }) => {
+                self.collect_store_expr(value);
+            }
+            Expr::Attribute(ast::ExprAttribute { value, .. }) => {
+                self.collect_store_expr(value);
+            }
+            Expr::Subscript(ast::ExprSubscript { value, slice, .. }) => {
+                self.collect_store_expr(value);
+                self.collect_store_expr(slice);
+            }
+            _ => {}
+        }
+    }
 }
 
 impl Transformer for MethodTransformer {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
-        if matches!(stmt, Stmt::FunctionDef(_)) {
-            return;
+        match stmt {
+            Stmt::FunctionDef(_) => return,
+            Stmt::Assign(ast::StmtAssign { targets, .. }) => {
+                for target in targets {
+                    self.collect_store_expr(target);
+                }
+            }
+            Stmt::AnnAssign(ast::StmtAnnAssign { target, .. }) => {
+                self.collect_store_expr(target);
+            }
+            Stmt::AugAssign(ast::StmtAugAssign { target, .. }) => {
+                self.collect_store_expr(target);
+            }
+            Stmt::For(ast::StmtFor { target, .. }) => {
+                self.collect_store_expr(target);
+            }
+            Stmt::With(ast::StmtWith { items, .. }) => {
+                for item in items {
+                    if let Some(optional_vars) = &item.optional_vars {
+                        self.collect_store_expr(optional_vars);
+                    }
+                }
+            }
+            _ => {}
         }
+
         walk_stmt(self, stmt);
     }
 
@@ -261,8 +338,17 @@ impl Transformer for MethodTransformer {
                 return;
             }
             Expr::Name(ast::ExprName { id, ctx, .. }) => {
-                if id == "__class__" && matches!(ctx, ExprContext::Load) {
-                    *expr = py_expr!("{cls:id}", cls = self.class_expr.as_str());
+                if matches!(ctx, ExprContext::Load) {
+                    if id == "__class__" {
+                        *expr = py_expr!("{cls:id}", cls = self.class_expr.as_str());
+                    } else if id.as_str() == self.method_name
+                        && !self.local_bindings.contains(id.as_str())
+                    {
+                        *expr = py_expr!(
+                            "__dp__.global_(globals(), {name:literal})",
+                            name = self.method_name.as_str()
+                        );
+                    }
                 }
                 return;
             }
@@ -293,9 +379,28 @@ fn rewrite_method(
                 .map(|a| a.parameter.name.to_string())
         });
 
+    let mut local_bindings: HashSet<String> = HashSet::new();
+    for param in &func_def.parameters.posonlyargs {
+        local_bindings.insert(param.name().to_string());
+    }
+    for param in &func_def.parameters.args {
+        local_bindings.insert(param.name().to_string());
+    }
+    for param in &func_def.parameters.kwonlyargs {
+        local_bindings.insert(param.name().to_string());
+    }
+    if let Some(param) = &func_def.parameters.vararg {
+        local_bindings.insert(param.name.to_string());
+    }
+    if let Some(param) = &func_def.parameters.kwarg {
+        local_bindings.insert(param.name.to_string());
+    }
+
     let mut transformer = MethodTransformer {
         class_expr: class_name.to_string(),
         first_arg,
+        method_name: original_method_name.to_string(),
+        local_bindings,
     };
     for stmt in &mut func_def.body {
         walk_stmt(&mut transformer, stmt);
@@ -331,22 +436,16 @@ pub fn rewrite(
     nested_collector.visit_body(&mut body);
     let nested_classes = nested_collector.into_nested();
 
-    let mut renamer = ClassVarRenamer::new(rewriter.context());
+    let mut renamer = ClassVarRenamer::new();
     renamer.visit_body(&mut body);
     let annotations = AnnotationCollector::collect(&mut body);
-    let replacements = renamer.into_replacements();
-    let mut replacement_to_original: HashMap<String, String> = HashMap::new();
-    for (original, replacement) in replacements.iter() {
-        replacement_to_original.insert(replacement.clone(), original.clone());
-    }
 
     // Build namespace function body
-    let add_class_binding = |ns_body: &mut Vec<Stmt>, replacement_name: &str, value: Expr| {
-        let original_name = lookup_original_name(&replacement_to_original, replacement_name);
+    let add_class_binding = |ns_body: &mut Vec<Stmt>, binding_name: &str, value: Expr| {
         ns_body.extend(py_stmt!(
-            "{replacement_name:id} = _dp_add_binding({name:literal}, {value:expr})",
-            replacement_name = replacement_name,
-            name = original_name.as_str(),
+            "{binding_name:id} = _dp_add_binding({name:literal}, {value:expr})",
+            binding_name = binding_name,
+            name = binding_name,
             value = value,
         ));
     };
@@ -383,20 +482,20 @@ pub fn rewrite(
             Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
                 if targets.len() == 1 {
                     if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
-                        let replacement_name = id.as_str().to_string();
+                        let binding_name = id.as_str().to_string();
                         let (stmts, value_expr) = rewriter.maybe_placeholder_within(*value);
                         ns_body.extend(stmts);
-                        add_class_binding(&mut ns_body, replacement_name.as_str(), value_expr);
+                        add_class_binding(&mut ns_body, binding_name.as_str(), value_expr);
                     }
                 } else {
                     let (mut stmts, shared_value) = rewriter.maybe_placeholder_within(*value);
                     ns_body.append(&mut stmts);
                     for target in targets {
                         if let Expr::Name(ast::ExprName { id, .. }) = target {
-                            let replacement_name = id.as_str().to_string();
+                            let binding_name = id.as_str().to_string();
                             add_class_binding(
                                 &mut ns_body,
-                                replacement_name.as_str(),
+                                binding_name.as_str(),
                                 shared_value.clone(),
                             );
                         }
@@ -405,14 +504,12 @@ pub fn rewrite(
             }
             Stmt::FunctionDef(mut func_def) => {
                 let fn_name = func_def.name.id.to_string();
-                let original_fn_name =
-                    lookup_original_name(&replacement_to_original, fn_name.as_str());
 
                 rewrite_method(
                     &mut func_def,
                     &class_name,
                     &class_qualname,
-                    original_fn_name.as_str(),
+                    fn_name.as_str(),
                     rewriter,
                 );
 
@@ -420,11 +517,6 @@ pub fn rewrite(
 
                 let mut method_stmts = Vec::new();
                 method_stmts.push(Stmt::FunctionDef(func_def));
-                method_stmts.extend(py_stmt!(
-                    "{fn_name:id}.__name__ = {original_name:literal}",
-                    fn_name = fn_name.as_str(),
-                    original_name = original_fn_name.as_str(),
-                ));
 
                 let method_stmts = rewrite_decorator::rewrite(
                     decorators,
@@ -438,7 +530,7 @@ pub fn rewrite(
                 ns_body.extend(py_stmt!(
                     "{fn_name:id} = _dp_add_binding({name:literal}, {value:expr})",
                     fn_name = fn_name.as_str(),
-                    name = original_fn_name.as_str(),
+                    name = fn_name.as_str(),
                     value = py_expr!("{fn_name:id}", fn_name = fn_name.as_str()),
                 ));
             }
@@ -463,35 +555,19 @@ if _dp_class_annotations is None:
             name = "__annotations__",
         ));
 
-        for (_, replacement_name, annotation) in annotations {
-            let original_name =
-                lookup_original_name(&replacement_to_original, replacement_name.as_str());
-
+        for (_, name, annotation) in annotations {
             let (ann_stmts, annotation_expr) = rewriter.maybe_placeholder_within(annotation);
             ns_body.extend(ann_stmts);
 
             ns_body.extend(py_stmt!(
                 "_dp_class_annotations[{name:literal}] = {annotation:expr}",
-                name = original_name.as_str(),
+                name = name.as_str(),
                 annotation = annotation_expr,
             ));
         }
     }
 
     // Build class helper function
-    let mut ns_fn = py_stmt!(
-        r#"
-def _dp_ns_{class_ident:id}(_dp_prepare_ns, _dp_add_binding):
-    {ns_body:stmt}
-"#,
-        class_ident = class_ident.as_str(),
-        ns_body = ns_body,
-    );
-
-    if !matches!(&ns_fn[0], Stmt::FunctionDef(_)) {
-        unreachable!("expected function definition for namespace helper");
-    }
-
     let (bases_tuple, prepare_dict) = class_call_arguments(arguments);
     let create_call = py_expr!(
         "__dp__.create_class({class_name:literal}, _dp_ns_{class_ident:id}, {bases:expr}, {prepare_dict:expr})",
@@ -503,13 +579,40 @@ def _dp_ns_{class_ident:id}(_dp_prepare_ns, _dp_add_binding):
 
     let assign_to_class_name = class_qualname == class_name;
     let needs_class_binding = assign_to_class_name || class_qualname.contains("<locals>");
+    let decorator_count = decorators.len();
+
+    let mut class_statements = Vec::new();
     if needs_class_binding || has_decorators {
-        ns_fn.extend(py_stmt!(
+        class_statements.extend(py_stmt!(
             "{dp_class_name:id} = {create_call:expr}",
             dp_class_name = dp_class_name.as_str(),
             create_call = create_call,
         ));
     }
+
+    let mut ns_fn = py_stmt!(
+        r#"
+def _dp_ns_{class_ident:id}(_dp_prepare_ns, _dp_add_binding):
+    {ns_body:stmt}
+"#,
+        class_ident = class_ident.as_str(),
+        ns_body = ns_body,
+    );
+
+    let ns_fn_stmt = match ns_fn.pop() {
+        Some(Stmt::FunctionDef(func_def)) => Stmt::FunctionDef(func_def),
+        _ => unreachable!("expected function definition for namespace helper"),
+    };
+
+    let mut decorated_statements = rewrite_decorator::rewrite(
+        decorators,
+        dp_class_name.as_str(),
+        class_statements,
+        rewriter.context(),
+    )
+    .into_statements();
+
+    decorated_statements.insert(decorator_count, ns_fn_stmt);
 
     let mut result = Vec::new();
 
@@ -530,15 +633,7 @@ def _dp_ns_{class_ident:id}(_dp_prepare_ns, _dp_add_binding):
         );
     }
 
-    result.extend(
-        rewrite_decorator::rewrite(
-            decorators,
-            dp_class_name.as_str(),
-            ns_fn,
-            rewriter.context(),
-        )
-        .into_statements(),
-    );
+    result.extend(decorated_statements);
 
     if needs_class_binding {
         result.extend(py_stmt!(
@@ -568,10 +663,9 @@ def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
     _dp_add_binding("__module__", __name__)
     _dp_add_binding("__qualname__", "C")
 
-    def _dp_var_m_1():
+    def m():
         return super(C, None).m()
-    __dp__.setattr(_dp_var_m_1, "__name__", "m")
-    _dp_var_m_1 = _dp_add_binding("m", _dp_var_m_1)
+    m = _dp_add_binding("m", m)
 _dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C
 "#,

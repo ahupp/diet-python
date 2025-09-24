@@ -232,7 +232,6 @@ class Example:
 
 
 
-@pytest.mark.xfail(reason="Tuple unpacking should raise ValueError; CPython's test_turtle relies on this")
 def test_tuple_unpacking_raises_value_error(tmp_path: Path) -> None:
     source = r"""
 def parse_line(line: str) -> str:
@@ -250,7 +249,6 @@ def parse_line(line: str) -> str:
     assert parse_line("no equals here") == "handled"
 
 
-@pytest.mark.xfail(reason="Iterable unpacking must consume the iterator; unittest's TextTestResult expects this")
 def test_map_unpacking_consumes_iterator(tmp_path: Path) -> None:
     source = r"""
 def summarize() -> tuple[int, int]:
@@ -278,7 +276,6 @@ class Example:
     assert hasattr(Example, "right")
 
 
-@pytest.mark.xfail(reason="Nested classes should capture outer scopes; failures surface in test_mmap and test_cmath")
 def test_nested_class_closure_access(tmp_path: Path) -> None:
     source = r"""
 class Container:
@@ -304,7 +301,6 @@ def use_container() -> list[str]:
     assert use_container() == ["payload"]
 
 
-@pytest.mark.xfail(reason="Target named 'slice' shadows the builtin during rewrites; mirrors CPython's test_mmap failure")
 def test_slice_name_does_not_shadow_builtin(tmp_path: Path) -> None:
     source = r"""
 def collect_segments(data: bytes) -> list[bytes]:
