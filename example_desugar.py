@@ -6,18 +6,18 @@ _dp_decorator_add_1 = bar(1, 2)
 def add(a, b):
     return __dp__.add(a, b)
 add = _dp_decorator_add_0(_dp_decorator_add_1(add))
-def _dp_ns_A(_dp_prepare_ns, _dp_add_binding):
-    _dp_add_binding("__module__", __name__)
-    _dp_add_binding("__qualname__", "A")
-    b = _dp_add_binding("b", 1)
+def _dp_ns_A(_dp_ns):
+    __dp__.setitem(_dp_ns, "__module__", __name__)
+    __dp__.setitem(_dp_ns, "__qualname__", "A")
+    __dp__.setitem(_dp_ns, "b", 1)
 
     def __init__(self):
         __dp__.setattr(self, "arr", __dp__.list((1, 2, 3)))
-    __init__ = _dp_add_binding("__init__", __init__)
+    __dp__.setitem(_dp_ns, "__init__", __init__)
 
     def c(self, d):
         return add(d, 2)
-    c = _dp_add_binding("c", c)
+    __dp__.setitem(_dp_ns, "c", c)
 
     async def test_aiter(self):
         _dp_iter_1 = __dp__.iter(range(10))
@@ -29,7 +29,7 @@ def _dp_ns_A(_dp_prepare_ns, _dp_add_binding):
                 break
             else:
                 yield i
-    test_aiter = _dp_add_binding("test_aiter", test_aiter)
+    __dp__.setitem(_dp_ns, "test_aiter", test_aiter)
 
     async def d(self):
         _dp_iter_2 = __dp__.aiter(self.test_aiter())
@@ -41,7 +41,7 @@ def _dp_ns_A(_dp_prepare_ns, _dp_add_binding):
                 break
             else:
                 print(i)
-    d = _dp_add_binding("d", d)
+    __dp__.setitem(_dp_ns, "d", d)
 _dp_class_A = __dp__.create_class("A", _dp_ns_A, (), None)
 A = _dp_class_A
 def ff():

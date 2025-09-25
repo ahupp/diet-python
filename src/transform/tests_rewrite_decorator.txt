@@ -27,9 +27,9 @@ class C:
     pass
 =
 _dp_decorator__dp_class_C_0 = dec
-def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
-    _dp_add_binding("__module__", __name__)
-    _dp_add_binding("__qualname__", "C")
+def _dp_ns_C(_dp_ns):
+    __dp__.setitem(_dp_ns, "__module__", __name__)
+    __dp__.setitem(_dp_ns, "__qualname__", "C")
 _dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 _dp_class_C = _dp_decorator__dp_class_C_0(_dp_class_C)
 C = _dp_class_C
@@ -42,9 +42,9 @@ class C:
 =
 _dp_decorator__dp_class_C_0 = dec2(5)
 _dp_decorator__dp_class_C_1 = dec1
-def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
-    _dp_add_binding("__module__", __name__)
-    _dp_add_binding("__qualname__", "C")
+def _dp_ns_C(_dp_ns):
+    __dp__.setitem(_dp_ns, "__module__", __name__)
+    __dp__.setitem(_dp_ns, "__qualname__", "C")
 _dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 _dp_class_C = _dp_decorator__dp_class_C_0(_dp_decorator__dp_class_C_1(_dp_class_C))
 C = _dp_class_C

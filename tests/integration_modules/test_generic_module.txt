@@ -20,16 +20,16 @@ import __dp__
 Generic = __dp__.import_("typing", __spec__, __dp__.list(("Generic",))).Generic
 TypeVar = __dp__.import_("typing", __spec__, __dp__.list(("TypeVar",))).TypeVar
 T = TypeVar("T")
-def _dp_ns_Box(_dp_prepare_ns, _dp_add_binding):
-    _dp_add_binding("__module__", __name__)
-    _dp_add_binding("__qualname__", "Box")
+def _dp_ns_Box(_dp_ns):
+    __dp__.setitem(_dp_ns, "__module__", __name__)
+    __dp__.setitem(_dp_ns, "__qualname__", "Box")
 _dp_class_Box = __dp__.create_class("Box", _dp_ns_Box, (__dp__.getitem(Generic, T),), None)
 Box = _dp_class_Box
 def make_specialization():
 
-    def _dp_ns_make_specialization__locals__IntBox(_dp_prepare_ns, _dp_add_binding):
-        _dp_add_binding("__module__", __name__)
-        _dp_add_binding("__qualname__", "make_specialization.<locals>.IntBox")
+    def _dp_ns_make_specialization__locals__IntBox(_dp_ns):
+        __dp__.setitem(_dp_ns, "__module__", __name__)
+        __dp__.setitem(_dp_ns, "__qualname__", "make_specialization.<locals>.IntBox")
     _dp_class_make_specialization__locals__IntBox = __dp__.create_class("IntBox", _dp_ns_make_specialization__locals__IntBox, (__dp__.getitem(Box, int),), None)
     IntBox = _dp_class_make_specialization__locals__IntBox
     return IntBox

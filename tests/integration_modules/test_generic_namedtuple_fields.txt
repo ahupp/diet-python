@@ -44,16 +44,16 @@ if __dp__.not_(_dp_tmp_1):
 if _dp_tmp_1:
     _dp_decorator__dp_class_CaptureResult_0 = final
 
-    def _dp_ns_CaptureResult(_dp_prepare_ns, _dp_add_binding):
-        _dp_add_binding("__module__", __name__)
-        _dp_add_binding("__qualname__", "CaptureResult")
+    def _dp_ns_CaptureResult(_dp_ns):
+        __dp__.setitem(_dp_ns, "__module__", __name__)
+        __dp__.setitem(_dp_ns, "__qualname__", "CaptureResult")
         _dp_tmp_2 = """The result of the capture helper."""
-        __doc__ = _dp_add_binding("__doc__", _dp_tmp_2)
-        _dp_class_annotations = _dp_prepare_ns.get("__annotations__")
+        __dp__.setitem(_dp_ns, "__doc__", _dp_tmp_2)
+        _dp_class_annotations = _dp_ns.get("__annotations__")
         _dp_tmp_5 = __dp__.is_(_dp_class_annotations, None)
         if _dp_tmp_5:
             _dp_class_annotations = __dp__.dict()
-        _dp_add_binding("__annotations__", _dp_class_annotations)
+        __dp__.setitem(_dp_ns, "__annotations__", _dp_class_annotations)
         _dp_tmp_3 = "AnyStr"
         __dp__.setitem(_dp_class_annotations, "out", _dp_tmp_3)
         _dp_tmp_4 = "AnyStr"
@@ -63,11 +63,11 @@ if _dp_tmp_1:
     CaptureResult = _dp_class_CaptureResult
 else:
 
-    def _dp_ns_CaptureResult(_dp_prepare_ns, _dp_add_binding):
-        _dp_add_binding("__module__", __name__)
-        _dp_add_binding("__qualname__", "CaptureResult")
+    def _dp_ns_CaptureResult(_dp_ns):
+        __dp__.setitem(_dp_ns, "__module__", __name__)
+        __dp__.setitem(_dp_ns, "__qualname__", "CaptureResult")
         _dp_tmp_6 = ()
-        __slots__ = _dp_add_binding("__slots__", _dp_tmp_6)
+        __dp__.setitem(_dp_ns, "__slots__", _dp_tmp_6)
     _dp_class_CaptureResult = __dp__.create_class("CaptureResult", _dp_ns_CaptureResult, (collections.namedtuple("CaptureResult", __dp__.list(("out", "err"))), __dp__.getitem(Generic, AnyStr)), None)
     CaptureResult = _dp_class_CaptureResult
 RESULT = CaptureResult("out", "err")
