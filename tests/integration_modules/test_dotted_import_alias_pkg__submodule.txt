@@ -1,4 +1,4 @@
-$ desugars dotted_import_alias_pkg/submodule
+$ desugars dotted_import_alias_pkg.submodule
 
 SENTINEL = "submodule"
 =

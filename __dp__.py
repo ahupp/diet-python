@@ -131,18 +131,36 @@ def prepare_class(name, bases, kwds=None):
     return _types.prepare_class(name, bases, kwds)
 
 
+class _ClassNamespace:
+    __slots__ = ("_namespace", "_locals")
+
+    def __init__(self, namespace):
+        self._namespace = namespace
+        self._locals = {}
+
+    def __setitem__(self, name, value):
+        setitem(self._locals, name, value)
+        setitem(self._namespace, name, value)
+        return value
+
+    def __getitem__(self, name):
+        if name in self._locals:
+            return self._locals[name]
+        return self._namespace[name]
+
+    def get(self, name, default=None):
+        if name in self._locals:
+            return self._locals.get(name, default)
+        return self._namespace.get(name, default)
+
+
 def create_class(name, namespace_fn, bases, kwds=None):
     orig_bases = bases
     bases = resolve_bases(orig_bases)
     meta, ns, meta_kwds = prepare_class(name, bases, kwds)
-    temp_ns = dict()
 
-    def add_binding(binding_name: str, value):
-        setitem(temp_ns, binding_name, value)
-        setitem(ns, binding_name, value)
-        return value
-
-    namespace_fn(ns, add_binding)
+    namespace = _ClassNamespace(ns)
+    namespace_fn(namespace)
     if orig_bases is not bases and "__orig_bases__" not in ns:
         ns["__orig_bases__"] = orig_bases
     return meta(name, bases, ns, **meta_kwds)

@@ -131,12 +131,49 @@ fn class_call_arguments(arguments: Option<Box<ast::Arguments>>) -> (Expr, Expr) 
 
 struct ClassVarRenamer {
     stored: HashSet<String>,
+    globals: HashSet<String>,
+    nonlocals: HashSet<String>,
+    pending: HashSet<String>,
+    assignment_targets: HashSet<String>,
 }
 
 impl ClassVarRenamer {
     fn new() -> Self {
         Self {
             stored: HashSet::new(),
+            globals: HashSet::new(),
+            nonlocals: HashSet::new(),
+            pending: HashSet::new(),
+            assignment_targets: HashSet::new(),
+        }
+    }
+
+    fn namespace_subscript(name: &str, ctx: ExprContext) -> Expr {
+        Expr::Subscript(ast::ExprSubscript {
+            node_index: ast::AtomicNodeIndex::default(),
+            range: TextRange::default(),
+            value: Box::new(py_expr!("_dp_ns")),
+            slice: Box::new(py_expr!("{name:literal}", name = name)),
+            ctx,
+        })
+    }
+
+    fn should_rewrite(&self, name: &str) -> bool {
+        !self.globals.contains(name) && !self.nonlocals.contains(name) && !name.starts_with("_dp_")
+    }
+
+    fn collect_target_names(expr: &Expr, names: &mut Vec<String>) {
+        match expr {
+            Expr::Name(ast::ExprName { id, .. }) => names.push(id.as_str().to_string()),
+            Expr::Tuple(ast::ExprTuple { elts, .. }) | Expr::List(ast::ExprList { elts, .. }) => {
+                for elt in elts {
+                    Self::collect_target_names(elt, names);
+                }
+            }
+            Expr::Starred(ast::ExprStarred { value, .. }) => {
+                Self::collect_target_names(value, names);
+            }
+            _ => {}
         }
     }
 
@@ -144,7 +181,11 @@ impl ClassVarRenamer {
         match expr {
             Expr::Name(ast::ExprName { id, .. }) => {
                 let name = id.as_str().to_string();
-                self.stored.insert(name);
+                if self.should_rewrite(name.as_str()) {
+                    *expr = Self::namespace_subscript(name.as_str(), ExprContext::Store);
+                    self.pending.remove(name.as_str());
+                    self.stored.insert(name);
+                }
             }
             Expr::Tuple(ast::ExprTuple { elts, .. }) | Expr::List(ast::ExprList { elts, .. }) => {
                 for elt in elts {
@@ -168,9 +209,19 @@ impl Transformer for ClassVarRenamer {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
             Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
+                let mut tracked_targets = Vec::new();
+                for target in targets.iter() {
+                    Self::collect_target_names(target, &mut tracked_targets);
+                }
+                for name in &tracked_targets {
+                    self.assignment_targets.insert(name.clone());
+                }
                 self.visit_expr(value);
-                for target in targets {
+                for target in targets.iter_mut() {
                     self.visit_store_expr(target);
+                }
+                for name in tracked_targets {
+                    self.assignment_targets.remove(&name);
                 }
             }
             Stmt::AnnAssign(ast::StmtAnnAssign {
@@ -179,11 +230,19 @@ impl Transformer for ClassVarRenamer {
                 value,
                 ..
             }) => {
+                let mut tracked_targets = Vec::new();
+                Self::collect_target_names(target, &mut tracked_targets);
+                for name in &tracked_targets {
+                    self.assignment_targets.insert(name.clone());
+                }
                 if let Some(expr) = value {
                     self.visit_expr(expr);
                 }
                 self.visit_annotation(annotation);
                 self.visit_store_expr(target);
+                for name in tracked_targets {
+                    self.assignment_targets.remove(&name);
+                }
             }
             Stmt::AugAssign(ast::StmtAugAssign {
                 target, op, value, ..
@@ -201,7 +260,10 @@ impl Transformer for ClassVarRenamer {
                 ..
             }) => {
                 let original_name = name.id.as_str().to_string();
-                self.stored.insert(original_name);
+                if self.should_rewrite(original_name.as_str()) {
+                    self.stored.insert(original_name.clone());
+                    self.pending.insert(original_name);
+                }
 
                 for decorator in decorator_list {
                     self.visit_decorator(decorator);
@@ -214,28 +276,35 @@ impl Transformer for ClassVarRenamer {
                     self.visit_annotation(expr);
                 }
             }
+            Stmt::Global(ast::StmtGlobal { names, .. }) => {
+                for name in names {
+                    self.globals.insert(name.id.to_string());
+                }
+            }
+            Stmt::Nonlocal(ast::StmtNonlocal { names, .. }) => {
+                for name in names {
+                    self.nonlocals.insert(name.id.to_string());
+                }
+            }
             _ => walk_stmt(self, stmt),
         }
     }
 
     fn visit_expr(&mut self, expr: &mut Expr) {
         if let Expr::Name(ast::ExprName { id, ctx, .. }) = expr {
-            let name = id.as_str().to_string();
-            match ctx {
-                ExprContext::Load => {
-                    let is_builtin = matches!(name.as_str(), "str" | "int" | "list" | "tuple");
-                    if !self.stored.contains(name.as_str())
-                        && !name.starts_with("_dp_")
-                        && !is_builtin
+            if let ExprContext::Load = ctx {
+                let name = id.as_str().to_string();
+                let name_str = name.as_str();
+                if self.should_rewrite(name_str) {
+                    if self.stored.contains(name_str) && !self.pending.contains(name_str) {
+                        *expr = Self::namespace_subscript(name_str, ExprContext::Load);
+                    } else if self.pending.contains(name_str)
+                        && !self.assignment_targets.contains(name_str)
                     {
-                        *expr = py_expr!(
-                            "__dp__.global_(globals(), {name:literal})",
-                            name = name.as_str()
-                        );
+                        *expr =
+                            py_expr!("__dp__.global_(globals(), {name:literal})", name = name_str,);
                     }
                 }
-                ExprContext::Del => {}
-                _ => {}
             }
             return;
         }
@@ -436,16 +505,13 @@ pub fn rewrite(
     nested_collector.visit_body(&mut body);
     let nested_classes = nested_collector.into_nested();
 
-    let mut renamer = ClassVarRenamer::new();
-    renamer.visit_body(&mut body);
     let annotations = AnnotationCollector::collect(&mut body);
 
     // Build namespace function body
     let add_class_binding = |ns_body: &mut Vec<Stmt>, binding_name: &str, value: Expr| {
         ns_body.extend(py_stmt!(
-            "{binding_name:id} = _dp_add_binding({name:literal}, {value:expr})",
+            "{binding_name:id} = {value:expr}",
             binding_name = binding_name,
-            name = binding_name,
             value = value,
         ));
     };
@@ -453,13 +519,13 @@ pub fn rewrite(
     let mut ns_body = Vec::new();
 
     ns_body.extend(py_stmt!(
-        "_dp_add_binding({name:literal}, {value:expr})",
-        name = "__module__",
+        "{binding_name:id} = {value:expr}",
+        binding_name = "__module__",
         value = py_expr!("__name__"),
     ));
     ns_body.extend(py_stmt!(
-        "_dp_add_binding({name:literal}, {value:expr})",
-        name = "__qualname__",
+        "{binding_name:id} = {value:expr}",
+        binding_name = "__qualname__",
         value = py_expr!(
             "{class_qualname:literal}",
             class_qualname = class_qualname.as_str()
@@ -528,9 +594,8 @@ pub fn rewrite(
 
                 ns_body.extend(method_stmts);
                 ns_body.extend(py_stmt!(
-                    "{fn_name:id} = _dp_add_binding({name:literal}, {value:expr})",
+                    "{fn_name:id} = {value:expr}",
                     fn_name = fn_name.as_str(),
-                    name = fn_name.as_str(),
                     value = py_expr!("{fn_name:id}", fn_name = fn_name.as_str()),
                 ));
             }
@@ -544,15 +609,15 @@ pub fn rewrite(
     if has_class_annotations {
         ns_body.extend(py_stmt!(
             r#"
-_dp_class_annotations = _dp_prepare_ns.get("__annotations__")
+_dp_class_annotations = _dp_ns.get("__annotations__")
 if _dp_class_annotations is None:
     _dp_class_annotations = __dp__.dict()
 "#
         ));
 
         ns_body.extend(py_stmt!(
-            "_dp_add_binding({name:literal}, _dp_class_annotations)",
-            name = "__annotations__",
+            "{binding_name:id} = _dp_class_annotations",
+            binding_name = "__annotations__",
         ));
 
         for (_, name, annotation) in annotations {
@@ -566,6 +631,16 @@ if _dp_class_annotations is None:
             ));
         }
     }
+
+    let mut renamer = ClassVarRenamer::new();
+    for stmt in &ns_body {
+        if let Stmt::FunctionDef(func_def) = stmt {
+            renamer
+                .pending
+                .insert(func_def.name.id.as_str().to_string());
+        }
+    }
+    renamer.visit_body(&mut ns_body);
 
     // Build class helper function
     let (bases_tuple, prepare_dict) = class_call_arguments(arguments);
@@ -592,7 +667,7 @@ if _dp_class_annotations is None:
 
     let mut ns_fn = py_stmt!(
         r#"
-def _dp_ns_{class_ident:id}(_dp_prepare_ns, _dp_add_binding):
+def _dp_ns_{class_ident:id}(_dp_ns):
     {ns_body:stmt}
 "#,
         class_ident = class_ident.as_str(),
@@ -659,13 +734,13 @@ class C:
         return super().m()
 "#,
             r#"
-def _dp_ns_C(_dp_prepare_ns, _dp_add_binding):
-    _dp_add_binding("__module__", __name__)
-    _dp_add_binding("__qualname__", "C")
+def _dp_ns_C(_dp_ns):
+    __dp__.setitem(_dp_ns, "__module__", __name__)
+    __dp__.setitem(_dp_ns, "__qualname__", "C")
 
     def m():
         return super(C, None).m()
-    m = _dp_add_binding("m", m)
+    __dp__.setitem(_dp_ns, "m", m)
 _dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C
 "#,

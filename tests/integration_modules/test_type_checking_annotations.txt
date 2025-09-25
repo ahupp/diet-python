@@ -17,13 +17,12 @@ class Marker:
 import __dp__
 TYPE_CHECKING = __dp__.import_("typing", __spec__, __dp__.list(("TYPE_CHECKING",))).TYPE_CHECKING
 SENTINEL = object()
-def _dp_ns_Marker(_dp_prepare_ns, _dp_add_binding):
-    _dp_add_binding("__module__", __name__)
-    _dp_add_binding("__qualname__", "Marker")
-    if __dp__.global_(globals(), "TYPE_CHECKING"):
-        typed_attr: "int"
-        other_attr: "str"
-    _dp_tmp_1 = __dp__.global_(globals(), "SENTINEL")
-    value = _dp_add_binding("value", _dp_tmp_1)
+def _dp_ns_Marker(_dp_ns):
+    __dp__.setitem(_dp_ns, "__module__", __name__)
+    __dp__.setitem(_dp_ns, "__qualname__", "Marker")
+    if TYPE_CHECKING:
+        _dp_ns["typed_attr"]: "int"
+        _dp_ns["other_attr"]: "str"
+    __dp__.setitem(_dp_ns, "value", SENTINEL)
 _dp_class_Marker = __dp__.create_class("Marker", _dp_ns_Marker, (), None)
 Marker = _dp_class_Marker

@@ -182,15 +182,16 @@ def probe() -> list[str]:
     assert hits == ["hit"]
 
 
-def test_class_scope_comprehension_raises_name_error(tmp_path: Path) -> None:
+def test_class_scope_comprehension_executes(tmp_path: Path) -> None:
     source = r"""
 class Example:
     values = [lc for lc in range(3)]
 """
 
-    with pytest.raises(NameError, match="lc"):
-        with transformed_module(tmp_path, "class_comprehension", source):
-            pass
+    with transformed_module(tmp_path, "class_comprehension", source) as module:
+        Example = module.Example
+
+    assert Example.values == [0, 1, 2]
 
 
 @pytest.mark.xfail(reason="Nested classes defined inside methods lose their __class__ binding; CPython's test_smtplib depends on this working")
