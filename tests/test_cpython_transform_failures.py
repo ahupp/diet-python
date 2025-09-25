@@ -194,7 +194,6 @@ class Example:
     assert Example.values == [0, 1, 2]
 
 
-@pytest.mark.xfail(reason="Nested classes defined inside methods lose their __class__ binding; CPython's test_smtplib depends on this working")
 def test_nested_class_super_preserves_class_cell(tmp_path: Path) -> None:
     source = r"""
 class Base:
