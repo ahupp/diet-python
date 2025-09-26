@@ -30,6 +30,8 @@ def _dp_ns_Example(_dp_ns):
     __dp__.setitem(_dp_ns, "do_thing", do_thing)
 _dp_class_Example = __dp__.create_class("Example", _dp_ns_Example, (), None)
 Example = _dp_class_Example
+del _dp_class_Example
+del _dp_ns_Example
 def build_help(cls):
     _dp_iter_1 = __dp__.iter(("thing",))
     while True:

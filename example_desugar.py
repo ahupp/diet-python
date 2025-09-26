@@ -44,6 +44,8 @@ def _dp_ns_A(_dp_ns):
     __dp__.setitem(_dp_ns, "d", d)
 _dp_class_A = __dp__.create_class("A", _dp_ns_A, (), None)
 A = _dp_class_A
+del _dp_class_A
+del _dp_ns_A
 def ff():
     a = A()
     __dp__.setattr(a, "b", 5)

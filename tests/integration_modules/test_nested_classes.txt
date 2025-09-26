@@ -67,3 +67,5 @@ def _dp_ns_Outer(_dp_ns):
     __dp__.setitem(_dp_ns, "Mid", _dp_tmp_2)
 _dp_class_Outer = __dp__.create_class("Outer", _dp_ns_Outer, (), None)
 Outer = _dp_class_Outer
+del _dp_class_Outer
+del _dp_ns_Outer
