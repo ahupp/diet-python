@@ -19,6 +19,8 @@ def _dp_ns_Example(_dp_ns):
     __dp__.setitem(_dp_ns, "__qualname__", "Example")
 _dp_class_Example = __dp__.create_class("Example", _dp_ns_Example, (), None)
 Example = _dp_class_Example
+del _dp_class_Example
+del _dp_ns_Example
 INSTANCE = Example()
 __dp__.setattr(INSTANCE, "value", 1)
 __dp__.delattr(INSTANCE, "value")

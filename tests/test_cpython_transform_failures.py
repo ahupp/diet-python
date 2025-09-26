@@ -273,7 +273,6 @@ def summarize() -> tuple[int, int]:
     assert summarize() == (2, 3)
 
 
-@pytest.mark.xfail(reason="Class attribute destructuring drops bindings; fractions.Fraction loses arithmetic methods")
 def test_class_attribute_unpacking_binds_each_name(tmp_path: Path) -> None:
     source = r"""
 class Example:
@@ -329,7 +328,6 @@ def collect_segments(data: bytes) -> list[bytes]:
     assert collect_segments(b"ab") == [b"a", b"ab", b"b"]
 
 
-@pytest.mark.xfail(reason="Helper bindings generated for class definitions leak into module namespaces")
 def test_helper_bindings_are_excluded_from_all(tmp_path: Path) -> None:
     source = r"""
 __all__ = ["Example"]

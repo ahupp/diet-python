@@ -545,18 +545,25 @@ pub fn rewrite(
 
     for stmt in original_body.into_iter() {
         match stmt {
-            Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
-                if targets.len() == 1 {
-                    if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
+            Stmt::Assign(assign) => {
+                if assign.targets.len() == 1 {
+                    if let Some(Expr::Name(ast::ExprName { id, .. })) = assign.targets.first() {
                         let binding_name = id.as_str().to_string();
-                        let (stmts, value_expr) = rewriter.maybe_placeholder_within(*value);
+                        let value = *assign.value;
+                        let (stmts, value_expr) = rewriter.maybe_placeholder_within(value);
                         ns_body.extend(stmts);
                         add_class_binding(&mut ns_body, binding_name.as_str(), value_expr);
+                        continue;
                     }
-                } else {
-                    let (mut stmts, shared_value) = rewriter.maybe_placeholder_within(*value);
+                } else if assign
+                    .targets
+                    .iter()
+                    .all(|target| matches!(target, Expr::Name(_)))
+                {
+                    let value = *assign.value;
+                    let (mut stmts, shared_value) = rewriter.maybe_placeholder_within(value);
                     ns_body.append(&mut stmts);
-                    for target in targets {
+                    for target in assign.targets.into_iter() {
                         if let Expr::Name(ast::ExprName { id, .. }) = target {
                             let binding_name = id.as_str().to_string();
                             add_class_binding(
@@ -566,7 +573,10 @@ pub fn rewrite(
                             );
                         }
                     }
+                    continue;
                 }
+
+                ns_body.push(Stmt::Assign(assign));
             }
             Stmt::FunctionDef(mut func_def) => {
                 let fn_name = func_def.name.id.to_string();
@@ -655,6 +665,8 @@ if _dp_class_annotations is None:
     let assign_to_class_name = class_qualname == class_name;
     let needs_class_binding = assign_to_class_name || class_qualname.contains("<locals>");
     let decorator_count = decorators.len();
+    let ns_helper_name = format!("_dp_ns_{}", class_ident);
+    let remove_class_helper = needs_class_binding || has_decorators;
 
     let mut class_statements = Vec::new();
     if needs_class_binding || has_decorators {
@@ -718,6 +730,20 @@ def _dp_ns_{class_ident:id}(_dp_ns):
         ));
     }
 
+    if remove_class_helper {
+        result.extend(py_stmt!(
+            "del {dp_class_name:id}",
+            dp_class_name = dp_class_name.as_str(),
+        ));
+    }
+
+    if needs_class_binding {
+        result.extend(py_stmt!(
+            "del {ns_helper:id}",
+            ns_helper = ns_helper_name.as_str(),
+        ));
+    }
+
     Rewrite::Visit(result)
 }
 
@@ -743,6 +769,8 @@ def _dp_ns_C(_dp_ns):
     __dp__.setitem(_dp_ns, "m", m)
 _dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_class_C
+del _dp_class_C
+del _dp_ns_C
 "#,
         );
     }

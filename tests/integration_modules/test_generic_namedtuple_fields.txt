@@ -61,6 +61,8 @@ if _dp_tmp_1:
     _dp_class_CaptureResult = __dp__.create_class("CaptureResult", _dp_ns_CaptureResult, (NamedTuple, __dp__.getitem(Generic, AnyStr)), None)
     _dp_class_CaptureResult = _dp_decorator__dp_class_CaptureResult_0(_dp_class_CaptureResult)
     CaptureResult = _dp_class_CaptureResult
+    del _dp_class_CaptureResult
+    del _dp_ns_CaptureResult
 else:
 
     def _dp_ns_CaptureResult(_dp_ns):
@@ -70,4 +72,6 @@ else:
         __dp__.setitem(_dp_ns, "__slots__", _dp_tmp_6)
     _dp_class_CaptureResult = __dp__.create_class("CaptureResult", _dp_ns_CaptureResult, (collections.namedtuple("CaptureResult", __dp__.list(("out", "err"))), __dp__.getitem(Generic, AnyStr)), None)
     CaptureResult = _dp_class_CaptureResult
+    del _dp_class_CaptureResult
+    del _dp_ns_CaptureResult
 RESULT = CaptureResult("out", "err")
