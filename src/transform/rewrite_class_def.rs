@@ -203,6 +203,31 @@ impl ClassVarRenamer {
             _ => self.visit_expr(expr),
         }
     }
+
+    fn visit_delete_expr(&mut self, expr: &mut Expr) {
+        match expr {
+            Expr::Name(ast::ExprName { id, .. }) => {
+                let name = id.as_str().to_string();
+                if self.should_rewrite(name.as_str()) {
+                    *expr = Self::namespace_subscript(name.as_str(), ExprContext::Del);
+                }
+            }
+            Expr::Tuple(ast::ExprTuple { elts, .. }) | Expr::List(ast::ExprList { elts, .. }) => {
+                for elt in elts {
+                    self.visit_delete_expr(elt);
+                }
+            }
+            Expr::Starred(ast::ExprStarred { value, .. }) => self.visit_delete_expr(value),
+            Expr::Attribute(ast::ExprAttribute { value, .. }) => {
+                self.visit_expr(value);
+            }
+            Expr::Subscript(ast::ExprSubscript { value, slice, .. }) => {
+                self.visit_expr(value);
+                self.visit_expr(slice);
+            }
+            _ => self.visit_expr(expr),
+        }
+    }
 }
 
 impl Transformer for ClassVarRenamer {
@@ -284,6 +309,11 @@ impl Transformer for ClassVarRenamer {
             Stmt::Nonlocal(ast::StmtNonlocal { names, .. }) => {
                 for name in names {
                     self.nonlocals.insert(name.id.to_string());
+                }
+            }
+            Stmt::Delete(ast::StmtDelete { targets, .. }) => {
+                for target in targets {
+                    self.visit_delete_expr(target);
                 }
             }
             _ => walk_stmt(self, stmt),

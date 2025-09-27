@@ -148,6 +148,11 @@ class _ClassNamespace:
             return self._locals[name]
         return self._namespace[name]
 
+    def __delitem__(self, name):
+        if name in self._locals:
+            del self._locals[name]
+        del self._namespace[name]
+
     def get(self, name, default=None):
         if name in self._locals:
             return self._locals.get(name, default)
