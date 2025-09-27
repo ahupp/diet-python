@@ -1,0 +1,20 @@
+$ desugars class_attr_delete
+
+class Example:
+    value = 1
+    del value
+
+
+EXPECTS_VALUE = hasattr(Example, "value")
+=
+import __dp__
+def _dp_ns_Example(_dp_ns):
+    __dp__.setitem(_dp_ns, "__module__", __name__)
+    __dp__.setitem(_dp_ns, "__qualname__", "Example")
+    __dp__.setitem(_dp_ns, "value", 1)
+    __dp__.delitem(_dp_ns, "value")
+_dp_class_Example = __dp__.create_class("Example", _dp_ns_Example, (), None)
+Example = _dp_class_Example
+del _dp_class_Example
+del _dp_ns_Example
+EXPECTS_VALUE = hasattr(Example, "value")
