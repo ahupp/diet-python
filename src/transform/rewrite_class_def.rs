@@ -217,24 +217,126 @@ fn lookup_original_name(mapping: &HashMap<String, String>, replacement: &str) ->
         .unwrap_or_else(|| replacement.to_string())
 }
 
-struct MethodTransformer {
-    class_expr: String,
+struct ClassContext {
+    qualname: String,
+    dp_name: String,
+    binding: String,
+    function_depth: usize,
+}
+
+struct FunctionContext {
+    class_expr: Option<String>,
+    super_class_expr: Option<String>,
     first_arg: Option<String>,
+}
+
+struct MethodTransformer {
+    class_stack: Vec<ClassContext>,
+    function_stack: Vec<FunctionContext>,
+}
+
+impl MethodTransformer {
+    fn new(class_qualname: String, class_binding: String) -> Self {
+        let dp_name = class_ident_from_qualname(&class_qualname);
+        Self {
+            class_stack: vec![ClassContext {
+                qualname: class_qualname,
+                dp_name,
+                binding: class_binding,
+                function_depth: 0,
+            }],
+            function_stack: Vec::new(),
+        }
+    }
+
+    fn push_class(&mut self, class_name: &str) {
+        let parent_qualname = self
+            .class_stack
+            .last()
+            .map(|context| context.qualname.clone());
+        let qualname = if let Some(parent) = parent_qualname {
+            format!("{parent}.{class_name}")
+        } else {
+            class_name.to_string()
+        };
+        let dp_name = class_ident_from_qualname(&qualname);
+        let function_depth = self.function_stack.len();
+        self.class_stack.push(ClassContext {
+            qualname,
+            dp_name,
+            binding: class_name.to_string(),
+            function_depth,
+        });
+    }
+
+    fn pop_class(&mut self) {
+        self.class_stack.pop();
+    }
+
+    fn push_function(&mut self, parameters: &ast::Parameters) {
+        let (class_expr, super_class_expr) = self.class_stack.last().map_or(
+            (None, None),
+            |class| {
+                if class.function_depth == self.function_stack.len() {
+                    (
+                        Some(class.dp_name.clone()),
+                        Some(class.binding.clone()),
+                    )
+                } else {
+                    (None, None)
+                }
+            },
+        );
+
+        let first_arg = class_expr.as_ref().and_then(|_| {
+            parameters
+                .posonlyargs
+                .first()
+                .map(|arg| arg.parameter.name.to_string())
+                .or_else(|| {
+                    parameters
+                        .args
+                        .first()
+                        .map(|arg| arg.parameter.name.to_string())
+                })
+        });
+
+        self.function_stack.push(FunctionContext {
+            class_expr,
+            super_class_expr,
+            first_arg,
+        });
+    }
+
+    fn pop_function(&mut self) {
+        self.function_stack.pop();
+    }
 }
 
 impl Transformer for MethodTransformer {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
-        if matches!(stmt, Stmt::FunctionDef(_)) {
-            return;
+        match stmt {
+            Stmt::ClassDef(class_def) => {
+                let class_name = class_def.name.id.as_str();
+                self.push_class(class_name);
+                walk_stmt(self, stmt);
+                self.pop_class();
+            }
+            Stmt::FunctionDef(func_def) => {
+                self.push_function(&func_def.parameters);
+                walk_stmt(self, stmt);
+                self.pop_function();
+            }
+            _ => walk_stmt(self, stmt),
         }
-        walk_stmt(self, stmt);
     }
 
     fn visit_expr(&mut self, expr: &mut Expr) {
-        match expr {
-            Expr::Call(call) => {
-                let is_zero_arg_super =
-                    if let Expr::Name(ast::ExprName { id, .. }) = call.func.as_ref() {
+        if let Some(context) = self.function_stack.last() {
+            if let Some(super_class_expr) = context.super_class_expr.as_ref() {
+                if let Expr::Call(call) = expr {
+                    let is_zero_arg_super = if let Expr::Name(ast::ExprName { id, .. }) = call.func.as_ref()
+                    {
                         id == "super"
                             && call.arguments.args.is_empty()
                             && call.arguments.keywords.is_empty()
@@ -242,31 +344,33 @@ impl Transformer for MethodTransformer {
                         false
                     };
 
-                if is_zero_arg_super {
-                    walk_expr(self, expr);
+                    if is_zero_arg_super {
+                        let replacement = match context.first_arg.as_ref() {
+                            Some(arg) => py_expr!(
+                                "super({cls:id}, {arg:id})",
+                                cls = super_class_expr.as_str(),
+                                arg = arg.as_str()
+                            ),
+                            None => py_expr!(
+                                "super({cls:id}, None)",
+                                cls = super_class_expr.as_str()
+                            ),
+                        };
 
-                    let replacement = match &self.first_arg {
-                        Some(arg) => py_expr!(
-                            "super({cls:id}, {arg:id})",
-                            cls = self.class_expr.as_str(),
-                            arg = arg.as_str()
-                        ),
-                        None => py_expr!("super({cls:id}, None)", cls = self.class_expr.as_str()),
-                    };
+                        *expr = replacement;
+                        return;
+                    }
+                }
+            }
 
-                    *expr = replacement;
-                } else {
-                    walk_expr(self, expr);
+            if let Some(class_expr) = context.class_expr.as_ref() {
+                if let Expr::Name(ast::ExprName { id, ctx, .. }) = expr {
+                    if id == "__class__" && matches!(ctx, ExprContext::Load) {
+                        *expr = py_expr!("{cls:id}", cls = class_expr.as_str());
+                        return;
+                    }
                 }
-                return;
             }
-            Expr::Name(ast::ExprName { id, ctx, .. }) => {
-                if id == "__class__" && matches!(ctx, ExprContext::Load) {
-                    *expr = py_expr!("{cls:id}", cls = self.class_expr.as_str());
-                }
-                return;
-            }
-            _ => {}
         }
 
         walk_expr(self, expr);
@@ -275,37 +379,14 @@ impl Transformer for MethodTransformer {
 
 fn rewrite_method(
     func_def: &mut ast::StmtFunctionDef,
-    class_name: &str,
     class_qualname: &str,
     original_method_name: &str,
     rewriter: &mut ExprRewriter,
 ) {
-    let first_arg = func_def
-        .parameters
-        .posonlyargs
-        .first()
-        .map(|a| a.parameter.name.to_string())
-        .or_else(|| {
-            func_def
-                .parameters
-                .args
-                .first()
-                .map(|a| a.parameter.name.to_string())
-        });
-
-    let mut transformer = MethodTransformer {
-        class_expr: class_name.to_string(),
-        first_arg,
-    };
-    for stmt in &mut func_def.body {
-        walk_stmt(&mut transformer, stmt);
-    }
-
     let method_qualname = format!("{class_qualname}.{original_method_name}");
     let body = take(&mut func_def.body);
-    func_def.body = rewriter.with_function_scope(method_qualname, |rewriter| {
-        rewriter.rewrite_block(body)
-    });
+    func_def.body =
+        rewriter.with_function_scope(method_qualname, |rewriter| rewriter.rewrite_block(body));
 }
 
 pub fn rewrite(
@@ -327,6 +408,9 @@ pub fn rewrite(
         .expect("dp class names are prefixed")
         .to_string();
     let has_decorators = !decorators.is_empty();
+
+    let mut method_transformer = MethodTransformer::new(class_qualname.clone(), class_name.clone());
+    method_transformer.visit_body(&mut body);
 
     let mut nested_collector = NestedClassCollector::new(class_qualname.clone());
     nested_collector.visit_body(&mut body);
@@ -411,7 +495,6 @@ pub fn rewrite(
 
                 rewrite_method(
                     &mut func_def,
-                    &class_name,
                     &class_qualname,
                     original_fn_name.as_str(),
                     rewriter,

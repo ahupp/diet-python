@@ -255,6 +255,38 @@ class Example:
     assert hasattr(Example, "right")
 
 
+@pytest.mark.xfail(reason="Tuple destructuring inside class bodies drops bindings, leaving abstract methods undefined")
+def test_abstract_class_instantiation_raises_type_error(tmp_path: Path) -> None:
+    source = r"""
+import abc
+
+
+def fallback():
+    def operate(self):
+        return "sentinel"
+
+    return (operate,)
+
+
+class Abstract(abc.ABC):
+    @abc.abstractmethod
+    def operate(self):
+        ...
+
+
+class Concrete(Abstract):
+    (operate,) = fallback()
+"""
+
+    with transformed_module(tmp_path, "abstract_class_assignment", source) as module:
+        Concrete = module.Concrete
+
+    with pytest.raises(
+        TypeError, match="Can't instantiate abstract class Concrete"
+    ):
+        Concrete()
+
+
 @pytest.mark.xfail(reason="Nested classes should capture outer scopes; failures surface in test_mmap and test_cmath")
 def test_nested_class_closure_access(tmp_path: Path) -> None:
     source = r"""
