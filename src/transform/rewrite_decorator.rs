@@ -1,50 +1,42 @@
-use super::{context::Context, driver::Rewrite};
+use super::driver::Rewrite;
 use ruff_python_ast::{self as ast, Stmt};
 
-use crate::{py_expr, py_stmt};
+use crate::{py_expr, py_stmt, transform::driver::ExprRewriter};
 
 /// Rewrite decorated functions and classes into explicit decorator applications.
 pub fn rewrite(
     decorators: Vec<ast::Decorator>,
     name: &str,
-    mut item: Vec<Stmt>,
-    _ctx: &Context,
+    item: Vec<Stmt>,
+    rewriter: &mut ExprRewriter,
 ) -> Rewrite {
     if decorators.is_empty() {
         return Rewrite::Walk(item);
     }
 
-    let mut assignments: Vec<Stmt> = Vec::new();
-    let mut decorator_names: Vec<String> = Vec::new();
-
-    for (index, decorator) in decorators.into_iter().enumerate() {
-        let temp_name = format!("_dp_decorator_{name}_{index}");
-        assignments.extend(py_stmt!(
-            "{temp_name:id} = {decorator:expr}",
-            temp_name = temp_name.as_str(),
-            decorator = decorator.expression
-        ));
-        decorator_names.push(temp_name);
-    }
+    let to_apply = decorators
+        .into_iter()
+        .map(|decorator| rewriter.maybe_placeholder(decorator.expression))
+        .collect::<Vec<_>>();
 
     let mut decorated = py_expr!("{name:id}", name = name);
-    for decorator_name in decorator_names.iter().rev() {
+    for decorator in to_apply.into_iter().rev() {
         decorated = py_expr!(
-            "{decorator:id}({decorated:expr})",
-            decorator = decorator_name.as_str(),
+            "{decorator:expr}({decorated:expr})",
+            decorator = decorator,
             decorated = decorated
         );
     }
 
-    let mut result = assignments;
-    result.append(&mut item);
-    result.extend(py_stmt!(
-        "{name:id} = {decorated:expr}",
+    Rewrite::Visit(py_stmt!(
+        r#"
+{item:stmt}
+{name:id} = {decorated:expr}
+"#,
         name = name,
+        item = item,
         decorated = decorated
-    ));
-
-    Rewrite::Visit(result)
+    ))
 }
 
 #[cfg(test)]

@@ -3,7 +3,6 @@ pub(crate) mod context;
 pub(crate) mod driver;
 pub(crate) mod rewrite_assert;
 pub(crate) mod rewrite_assign_del;
-pub(crate) mod rewrite_class_def;
 pub(crate) mod rewrite_decorator;
 pub(crate) mod rewrite_exception;
 pub(crate) mod rewrite_expr_to_stmt;

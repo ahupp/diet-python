@@ -1,12 +1,15 @@
 use super::{
     context::Context,
-    rewrite_assert, rewrite_assign_del, rewrite_class_def, rewrite_decorator, rewrite_exception,
+    rewrite_assert, rewrite_assign_del, rewrite_decorator, rewrite_exception,
     rewrite_expr_to_stmt::{expr_boolop_to_stmts, expr_compare_to_stmts, expr_yield_from_to_stmt},
     rewrite_func_expr, rewrite_import, rewrite_loop, rewrite_match_case, rewrite_string,
     rewrite_with, Options,
 };
-use crate::body_transform::{walk_expr, walk_stmt, Transformer};
 use crate::template::{is_simple, make_binop, make_generator, make_tuple, make_unaryop};
+use crate::{
+    body_transform::{walk_expr, walk_stmt, Transformer},
+    transform::class_def,
+};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Operator, Stmt, UnaryOp};
 use ruff_text_size::TextRange;
@@ -161,7 +164,7 @@ impl<'a> ExprRewriter<'a> {
                     decorators,
                     func_name.as_str(),
                     vec![Stmt::FunctionDef(func_def)],
-                    self.ctx,
+                    self,
                 )
             }
             Stmt::With(with) => rewrite_with::rewrite(with, self.ctx, self),
@@ -175,7 +178,7 @@ impl<'a> ExprRewriter<'a> {
                     .current_function_qualname()
                     .map(|enclosing| format!("{enclosing}.<locals>.{class_name}"));
                 let decorators = take(&mut class_def.decorator_list);
-                rewrite_class_def::rewrite(class_def.clone(), decorators, self, qualname)
+                class_def::rewrite(class_def.clone(), decorators, self, qualname)
             }
             Stmt::Try(try_stmt) => rewrite_exception::rewrite_try(try_stmt, self.ctx),
             Stmt::If(if_stmt)
