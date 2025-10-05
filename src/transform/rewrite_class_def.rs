@@ -537,6 +537,8 @@ pub fn rewrite(
 
     let annotations = AnnotationCollector::collect(&mut body);
 
+    let mut ns_body = Vec::new();
+
     // Build namespace function body
     let add_class_binding = |ns_body: &mut Vec<Stmt>, binding_name: &str, value: Expr| {
         ns_body.extend(py_stmt!(
@@ -546,25 +548,15 @@ pub fn rewrite(
         ));
     };
 
-    let mut ns_body = Vec::new();
-
     ns_body.extend(py_stmt!(
-        "{binding_name:id} = {value:expr}",
-        binding_name = "__module__",
-        value = py_expr!("__name__"),
-    ));
-    ns_body.extend(py_stmt!(
-        "{binding_name:id} = {value:expr}",
-        binding_name = "__qualname__",
-        value = py_expr!(
-            "{class_qualname:literal}",
-            class_qualname = class_qualname.as_str()
-        ),
+        r#"
+__module__ = __name__
+__qualname__ = {class_qualname:literal}
+"#,
+        class_qualname = class_qualname.as_str(),
     ));
 
-    let mut original_body = body;
-    let has_class_annotations = !annotations.is_empty();
-    if let Some(first_stmt) = original_body.first_mut() {
+    if let Some(first_stmt) = body.first_mut() {
         if let Stmt::Expr(ast::StmtExpr { value, .. }) = first_stmt {
             if let Expr::StringLiteral(_) = value.as_ref() {
                 let doc_expr = (*value).clone();
@@ -573,7 +565,11 @@ pub fn rewrite(
         }
     }
 
-    for stmt in original_body.into_iter() {
+    let body = rewriter.rewrite_block(body);
+
+    let has_class_annotations = !annotations.is_empty();
+
+    for stmt in body.into_iter() {
         match stmt {
             Stmt::Assign(assign) => {
                 if assign.targets.len() == 1 {
@@ -652,12 +648,8 @@ pub fn rewrite(
 _dp_class_annotations = _dp_ns.get("__annotations__")
 if _dp_class_annotations is None:
     _dp_class_annotations = __dp__.dict()
+__annotations__ = _dp_class_annotations
 "#
-        ));
-
-        ns_body.extend(py_stmt!(
-            "{binding_name:id} = _dp_class_annotations",
-            binding_name = "__annotations__",
         ));
 
         for (_, name, annotation) in annotations {
