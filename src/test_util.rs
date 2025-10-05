@@ -1,5 +1,6 @@
 use ruff_python_ast::{comparable::ComparableStmt, Stmt};
 use ruff_python_parser::parse_module;
+use similar::{ChangeTag, TextDiff};
 
 use crate::transform::Options;
 use crate::{ruff_ast_to_string, transform_str_to_ruff_with_options};
@@ -24,9 +25,27 @@ pub(crate) fn assert_transform_eq_ex(actual: &str, expected: &str, truthy: bool)
     let expected_stmt: Vec<_> = expected_ast.iter().map(ComparableStmt::from).collect();
 
     if actual_stmt != expected_stmt {
-        let message = format!("expected:\n{expected}\nactual:\n{actual_str}");
+        let diff = format_diff(expected, actual_str.as_str());
+        let message = format!("expected:\n{expected}\nactual:\n{actual_str}\n\ndiff:\n{diff}");
         panic!("{message}");
     }
+}
+
+fn format_diff(expected: &str, actual: &str) -> String {
+    let diff = TextDiff::from_lines(expected, actual);
+    let mut formatted = String::new();
+
+    for change in diff.iter_all_changes() {
+        let sign = match change.tag() {
+            ChangeTag::Delete => '-',
+            ChangeTag::Insert => '+',
+            ChangeTag::Equal => ' ',
+        };
+        formatted.push(sign);
+        formatted.push_str(change.value());
+    }
+
+    formatted
 }
 
 fn format_first_difference(actual: &[Stmt], rerun: &[Stmt]) -> String {
