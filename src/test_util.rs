@@ -3,6 +3,7 @@ use ruff_python_parser::parse_module;
 
 use crate::transform::Options;
 use crate::{ruff_ast_to_string, transform_str_to_ruff_with_options};
+use similar::TextDiff;
 
 pub(crate) fn assert_transform_eq_ex(actual: &str, expected: &str, truthy: bool) {
     let options = Options {
@@ -24,8 +25,11 @@ pub(crate) fn assert_transform_eq_ex(actual: &str, expected: &str, truthy: bool)
     let expected_stmt: Vec<_> = expected_ast.iter().map(ComparableStmt::from).collect();
 
     if actual_stmt != expected_stmt {
-        let message = format!("expected:\n{expected}\nactual:\n{actual_str}");
-        panic!("{message}");
+        let diff = TextDiff::from_lines(expected, &actual_str)
+            .unified_diff()
+            .header("expected", "actual")
+            .to_string();
+        panic!("expected desugaring to match fixture:\n{diff}");
     }
 }
 
