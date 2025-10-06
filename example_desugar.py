@@ -5,9 +5,8 @@ _dp_tmp_1 = bar(1, 2)
 def add(a, b):
     return __dp__.add(a, b)
 add = foo(_dp_tmp_1(add))
-def _dp_ns_A(_dp_ns):
-    __dp_class_ns__ = _dp_ns
-    __dp__.setitem(__dp_class_ns__, "b", 1)
+def _dp_ns_A(_dp_class_ns):
+    __dp__.setitem(_dp_class_ns, "b", 1)
 
     def __init__(self):
         __dp__.setattr(self, "arr", __dp__.list((1, 2, 3)))
@@ -36,8 +35,8 @@ def _dp_ns_A(_dp_ns):
                 break
             else:
                 print(i)
-    __dp__.setitem(__dp_class_ns__, "__module__", __name__)
-    __dp__.setitem(__dp_class_ns__, "__qualname__", "A")
+    __dp__.setitem(_dp_class_ns, "__module__", __name__)
+    __dp__.setitem(_dp_class_ns, "__qualname__", "A")
 A = __dp__.create_class("A", _dp_ns_A, (), None)
 def ff():
     a = A()

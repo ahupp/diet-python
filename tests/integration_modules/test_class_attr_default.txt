@@ -7,12 +7,11 @@ class Example:
         return value
 =
 import __dp__
-def _dp_ns_Example(_dp_ns):
-    __dp_class_ns__ = _dp_ns
-    __dp__.setitem(__dp_class_ns__, "SENTINEL", object())
+def _dp_ns_Example(_dp_class_ns):
+    __dp__.setitem(_dp_class_ns, "SENTINEL", object())
 
-    def method(self, value=__dp__.getitem(__dp_class_ns__, "SENTINEL")):
+    def method(self, value=__dp__.getitem(_dp_class_ns, "SENTINEL")):
         return value
-    __dp__.setitem(__dp_class_ns__, "__module__", __name__)
-    __dp__.setitem(__dp_class_ns__, "__qualname__", "Example")
+    __dp__.setitem(_dp_class_ns, "__module__", __name__)
+    __dp__.setitem(_dp_class_ns, "__qualname__", "Example")
 Example = __dp__.create_class("Example", _dp_ns_Example, (), None)

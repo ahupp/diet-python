@@ -67,7 +67,7 @@ impl Transformer for ClassVarRenamer {
                     self.visit_expr(value);
                     // Mark stored after visiting value, in case you have x = x, where rhs is global
                     self.stored.insert(id.as_str().to_string());
-                    *target = py_expr!("__dp_class_ns__[{name:literal}]", name = id.as_str());
+                    *target = py_expr!("_dp_class_ns[{name:literal}]", name = id.as_str());
                 } else {
                     walk_stmt(self, stmt);
                     return;
@@ -98,7 +98,7 @@ impl Transformer for ClassVarRenamer {
                     let name_str = name.as_str();
                     if self.should_rewrite(name_str) {
                         if self.stored.contains(name_str) && !self.pending.contains(name_str) {
-                            *expr = py_expr!("__dp_class_ns__[{name:literal}]", name = name_str);
+                            *expr = py_expr!("_dp_class_ns[{name:literal}]", name = name_str);
                         } else if self.pending.contains(name_str)
                             && !self.assignment_targets.contains(name_str)
                         {

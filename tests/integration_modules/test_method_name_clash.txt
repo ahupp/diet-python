@@ -11,18 +11,16 @@ class Example:
         return date()
 =
 import __dp__
-def _dp_ns_date(_dp_ns):
-    __dp_class_ns__ = _dp_ns
-    __dp__.setitem(__dp_class_ns__, "__slots__", ())
-    __dp__.setitem(__dp_class_ns__, "__module__", __name__)
-    __dp__.setitem(__dp_class_ns__, "__qualname__", "date")
+def _dp_ns_date(_dp_class_ns):
+    __dp__.setitem(_dp_class_ns, "__slots__", ())
+    __dp__.setitem(_dp_class_ns, "__module__", __name__)
+    __dp__.setitem(_dp_class_ns, "__qualname__", "date")
 date = __dp__.create_class("date", _dp_ns_date, (), None)
-def _dp_ns_Example(_dp_ns):
-    __dp_class_ns__ = _dp_ns
-    __dp__.setitem(__dp_class_ns__, "slots", date.__slots__)
+def _dp_ns_Example(_dp_class_ns):
+    __dp__.setitem(_dp_class_ns, "slots", date.__slots__)
 
     def date(self):
         return __dp__.global_(globals(), "date")()
-    __dp__.setitem(__dp_class_ns__, "__module__", __name__)
-    __dp__.setitem(__dp_class_ns__, "__qualname__", "Example")
+    __dp__.setitem(_dp_class_ns, "__module__", __name__)
+    __dp__.setitem(_dp_class_ns, "__qualname__", "Example")
 Example = __dp__.create_class("Example", _dp_ns_Example, (), None)
