@@ -3,11 +3,10 @@ $ lowers simple class
 class C:
     x = 1
 =
-def _dp_ns_C(_dp_ns):
-    __dp_class_ns__ = _dp_ns
-    __dp__.setitem(__dp_class_ns__, "x", 1)
-    __dp__.setitem(__dp_class_ns__, "__module__", __name__)
-    __dp__.setitem(__dp_class_ns__, "__qualname__", "C")
+def _dp_ns_C(_dp_class_ns):
+    __dp__.setitem(_dp_class_ns, "x", 1)
+    __dp__.setitem(_dp_class_ns, "__module__", __name__)
+    __dp__.setitem(_dp_class_ns, "__qualname__", "C")
 C = __dp__.create_class("C", _dp_ns_C, (), None)
 $ collects class annotations
 
@@ -15,16 +14,15 @@ class C:
     x: int
     y: str = 1
 =
-def _dp_ns_C(_dp_ns):
-    __dp_class_ns__ = _dp_ns
-    __dp__.setitem(__dp_class_ns__, "y", 1)
-    __dp__.setitem(__dp_class_ns__, "__module__", __name__)
-    __dp__.setitem(__dp_class_ns__, "__qualname__", "C")
-    __dp__.setitem(__dp_class_ns__, "_dp_class_annotations", _dp_ns.get("__annotations__"))
+def _dp_ns_C(_dp_class_ns):
+    __dp__.setitem(_dp_class_ns, "y", 1)
+    __dp__.setitem(_dp_class_ns, "__module__", __name__)
+    __dp__.setitem(_dp_class_ns, "__qualname__", "C")
+    __dp__.setitem(_dp_class_ns, "_dp_class_annotations", _dp_class_ns.get("__annotations__"))
     _dp_tmp_1 = __dp__.is_(_dp_class_annotations, None)
     if _dp_tmp_1:
-        __dp__.setitem(__dp_class_ns__, "_dp_class_annotations", __dp__.dict())
-    __dp__.setitem(__dp_class_ns__, "__annotations__", _dp_class_annotations)
+        __dp__.setitem(_dp_class_ns, "_dp_class_annotations", __dp__.dict())
+    __dp__.setitem(_dp_class_ns, "__annotations__", _dp_class_annotations)
     __dp__.setitem(_dp_class_annotations, "x", int)
 C = __dp__.create_class("C", _dp_ns_C, (), None)
 $ captures outer reference
@@ -32,11 +30,10 @@ $ captures outer reference
 class C:
     x = x
 =
-def _dp_ns_C(_dp_ns):
-    __dp_class_ns__ = _dp_ns
-    __dp__.setitem(__dp_class_ns__, "x", x)
-    __dp__.setitem(__dp_class_ns__, "__module__", __name__)
-    __dp__.setitem(__dp_class_ns__, "__qualname__", "C")
+def _dp_ns_C(_dp_class_ns):
+    __dp__.setitem(_dp_class_ns, "x", x)
+    __dp__.setitem(_dp_class_ns, "__module__", __name__)
+    __dp__.setitem(_dp_class_ns, "__qualname__", "C")
 C = __dp__.create_class("C", _dp_ns_C, (), None)
 $ captures names used in annotations
 
@@ -46,15 +43,14 @@ class C:
     x: T
 =
 T = object()
-def _dp_ns_C(_dp_ns):
-    __dp_class_ns__ = _dp_ns
-    __dp__.setitem(__dp_class_ns__, "__module__", __name__)
-    __dp__.setitem(__dp_class_ns__, "__qualname__", "C")
-    __dp__.setitem(__dp_class_ns__, "_dp_class_annotations", _dp_ns.get("__annotations__"))
+def _dp_ns_C(_dp_class_ns):
+    __dp__.setitem(_dp_class_ns, "__module__", __name__)
+    __dp__.setitem(_dp_class_ns, "__qualname__", "C")
+    __dp__.setitem(_dp_class_ns, "_dp_class_annotations", _dp_class_ns.get("__annotations__"))
     _dp_tmp_1 = __dp__.is_(_dp_class_annotations, None)
     if _dp_tmp_1:
-        __dp__.setitem(__dp_class_ns__, "_dp_class_annotations", __dp__.dict())
-    __dp__.setitem(__dp_class_ns__, "__annotations__", _dp_class_annotations)
+        __dp__.setitem(_dp_class_ns, "_dp_class_annotations", __dp__.dict())
+    __dp__.setitem(_dp_class_ns, "__annotations__", _dp_class_annotations)
     __dp__.setitem(_dp_class_annotations, "x", T)
 C = __dp__.create_class("C", _dp_ns_C, (), None)
 $ preserves class locals for references
@@ -63,22 +59,20 @@ class C:
     x = 1
     y = x
 =
-def _dp_ns_C(_dp_ns):
-    __dp_class_ns__ = _dp_ns
-    __dp__.setitem(__dp_class_ns__, "x", 1)
-    __dp__.setitem(__dp_class_ns__, "y", __dp__.getitem(__dp_class_ns__, "x"))
-    __dp__.setitem(__dp_class_ns__, "__module__", __name__)
-    __dp__.setitem(__dp_class_ns__, "__qualname__", "C")
+def _dp_ns_C(_dp_class_ns):
+    __dp__.setitem(_dp_class_ns, "x", 1)
+    __dp__.setitem(_dp_class_ns, "y", __dp__.getitem(_dp_class_ns, "x"))
+    __dp__.setitem(_dp_class_ns, "__module__", __name__)
+    __dp__.setitem(_dp_class_ns, "__qualname__", "C")
 C = __dp__.create_class("C", _dp_ns_C, (), None)
 $ lowers inherits
 
 class C(B):
     pass
 =
-def _dp_ns_C(_dp_ns):
-    __dp_class_ns__ = _dp_ns
-    __dp__.setitem(__dp_class_ns__, "__module__", __name__)
-    __dp__.setitem(__dp_class_ns__, "__qualname__", "C")
+def _dp_ns_C(_dp_class_ns):
+    __dp__.setitem(_dp_class_ns, "__module__", __name__)
+    __dp__.setitem(_dp_class_ns, "__qualname__", "C")
 C = __dp__.create_class("C", _dp_ns_C, (B,), None)
 $ lowers with docstring and keywords
 
@@ -86,12 +80,11 @@ class C(B, metaclass=Meta, kw=1):
     'doc'
     x = 2
 =
-def _dp_ns_C(_dp_ns):
-    __dp_class_ns__ = _dp_ns
-    __dp__.setitem(__dp_class_ns__, "__doc__", 'doc')
-    __dp__.setitem(__dp_class_ns__, "x", 2)
-    __dp__.setitem(__dp_class_ns__, "__module__", __name__)
-    __dp__.setitem(__dp_class_ns__, "__qualname__", "C")
+def _dp_ns_C(_dp_class_ns):
+    __dp__.setitem(_dp_class_ns, "__doc__", 'doc')
+    __dp__.setitem(_dp_class_ns, "x", 2)
+    __dp__.setitem(_dp_class_ns, "__module__", __name__)
+    __dp__.setitem(_dp_class_ns, "__qualname__", "C")
 C = __dp__.create_class("C", _dp_ns_C, (B,), __dp__.dict((("metaclass", Meta), ("kw", 1))))
 $ lowers method
 
@@ -99,13 +92,12 @@ class C:
     def m(self):
         return 1
 =
-def _dp_ns_C(_dp_ns):
-    __dp_class_ns__ = _dp_ns
+def _dp_ns_C(_dp_class_ns):
 
     def m(self):
         return 1
-    __dp__.setitem(__dp_class_ns__, "__module__", __name__)
-    __dp__.setitem(__dp_class_ns__, "__qualname__", "C")
+    __dp__.setitem(_dp_class_ns, "__module__", __name__)
+    __dp__.setitem(_dp_class_ns, "__qualname__", "C")
 C = __dp__.create_class("C", _dp_ns_C, (), None)
 $ rewrites super and class
 
@@ -113,13 +105,12 @@ class C:
     def m(self):
         return super().m()
 =
-def _dp_ns_C(_dp_ns):
-    __dp_class_ns__ = _dp_ns
+def _dp_ns_C(_dp_class_ns):
 
     def m(self):
         return super(C, self).m()
-    __dp__.setitem(__dp_class_ns__, "__module__", __name__)
-    __dp__.setitem(__dp_class_ns__, "__qualname__", "C")
+    __dp__.setitem(_dp_class_ns, "__module__", __name__)
+    __dp__.setitem(_dp_class_ns, "__qualname__", "C")
 C = __dp__.create_class("C", _dp_ns_C, (), None)
 $ rewrites super uses first arg
 
@@ -127,13 +118,12 @@ class C:
     def m(z):
         return super().m()
 =
-def _dp_ns_C(_dp_ns):
-    __dp_class_ns__ = _dp_ns
+def _dp_ns_C(_dp_class_ns):
 
     def m(z):
         return super(C, z).m()
-    __dp__.setitem(__dp_class_ns__, "__module__", __name__)
-    __dp__.setitem(__dp_class_ns__, "__qualname__", "C")
+    __dp__.setitem(_dp_class_ns, "__module__", __name__)
+    __dp__.setitem(_dp_class_ns, "__qualname__", "C")
 C = __dp__.create_class("C", _dp_ns_C, (), None)
 $ rewrites super without receiver
 
@@ -141,13 +131,12 @@ class C:
     def m():
         return super().m()
 =
-def _dp_ns_C(_dp_ns):
-    __dp_class_ns__ = _dp_ns
+def _dp_ns_C(_dp_class_ns):
 
     def m():
         return super(C, None).m()
-    __dp__.setitem(__dp_class_ns__, "__module__", __name__)
-    __dp__.setitem(__dp_class_ns__, "__qualname__", "C")
+    __dp__.setitem(_dp_class_ns, "__module__", __name__)
+    __dp__.setitem(_dp_class_ns, "__qualname__", "C")
 C = __dp__.create_class("C", _dp_ns_C, (), None)
 $ applies decorators in namespace
 
@@ -159,16 +148,15 @@ class C:
     def m(self):
         return self
 =
-def _dp_ns_C(_dp_ns):
-    __dp_class_ns__ = _dp_ns
-    __dp__.setitem(__dp_class_ns__, "y", deco)
-    __dp__.setitem(__dp_class_ns__, "_dp_tmp_1", decorator(__dp__.getitem(__dp_class_ns__, "y")))
+def _dp_ns_C(_dp_class_ns):
+    __dp__.setitem(_dp_class_ns, "y", deco)
+    __dp__.setitem(_dp_class_ns, "_dp_tmp_1", decorator(__dp__.getitem(_dp_class_ns, "y")))
 
     def m(self):
         return self
-    __dp__.setitem(__dp_class_ns__, "m", _dp_tmp_1(other(__dp__.global_(globals(), "m"))))
-    __dp__.setitem(__dp_class_ns__, "__module__", __name__)
-    __dp__.setitem(__dp_class_ns__, "__qualname__", "C")
+    __dp__.setitem(_dp_class_ns, "m", _dp_tmp_1(other(__dp__.global_(globals(), "m"))))
+    __dp__.setitem(_dp_class_ns, "__module__", __name__)
+    __dp__.setitem(_dp_class_ns, "__qualname__", "C")
 C = __dp__.create_class("C", _dp_ns_C, (), None)
 $ renames class stores and uses
 
@@ -179,15 +167,14 @@ class C:
     def f(self, value: b = a):
         return value
 =
-def _dp_ns_C(_dp_ns):
-    __dp_class_ns__ = _dp_ns
-    __dp__.setitem(__dp_class_ns__, "a", 1)
-    __dp__.setitem(__dp_class_ns__, "b", __dp__.getitem(__dp_class_ns__, "a"))
+def _dp_ns_C(_dp_class_ns):
+    __dp__.setitem(_dp_class_ns, "a", 1)
+    __dp__.setitem(_dp_class_ns, "b", __dp__.getitem(_dp_class_ns, "a"))
 
-    def f(self, value: __dp__.getitem(__dp_class_ns__, "b")=__dp__.getitem(__dp_class_ns__, "a")):
+    def f(self, value: __dp__.getitem(_dp_class_ns, "b")=__dp__.getitem(_dp_class_ns, "a")):
         return value
-    __dp__.setitem(__dp_class_ns__, "__module__", __name__)
-    __dp__.setitem(__dp_class_ns__, "__qualname__", "C")
+    __dp__.setitem(_dp_class_ns, "__module__", __name__)
+    __dp__.setitem(_dp_class_ns, "__qualname__", "C")
 C = __dp__.create_class("C", _dp_ns_C, (), None)
 $ nested class uses outer binding in bases
 
@@ -197,17 +184,15 @@ class Outer:
     class Inner(x):
         pass
 =
-def _dp_ns_Outer(_dp_ns):
-    __dp_class_ns__ = _dp_ns
-    __dp__.setitem(__dp_class_ns__, "x", 1)
-    __dp__.setitem(__dp_class_ns__, "Inner", __dp__.create_class("Inner", _dp_ns_Outer_Inner, (__dp__.getitem(__dp_class_ns__, "x"),), None))
-    __dp__.setitem(__dp_class_ns__, "__module__", __name__)
-    __dp__.setitem(__dp_class_ns__, "__qualname__", "Outer")
+def _dp_ns_Outer(_dp_class_ns):
+    __dp__.setitem(_dp_class_ns, "x", 1)
+    __dp__.setitem(_dp_class_ns, "Inner", __dp__.create_class("Inner", _dp_ns_Outer_Inner, (__dp__.getitem(_dp_class_ns, "x"),), None))
+    __dp__.setitem(_dp_class_ns, "__module__", __name__)
+    __dp__.setitem(_dp_class_ns, "__qualname__", "Outer")
 Outer = __dp__.create_class("Outer", _dp_ns_Outer, (), None)
-def _dp_ns_Outer_Inner(_dp_ns):
-    __dp_class_ns__ = _dp_ns
-    __dp__.setitem(__dp_class_ns__, "__module__", __name__)
-    __dp__.setitem(__dp_class_ns__, "__qualname__", "Outer.Inner")
+def _dp_ns_Outer_Inner(_dp_class_ns):
+    __dp__.setitem(_dp_class_ns, "__module__", __name__)
+    __dp__.setitem(_dp_class_ns, "__qualname__", "Outer.Inner")
 Inner = __dp__.create_class("Inner", _dp_ns_Outer_Inner, (x,), None)
 $ function local class remains scoped
 
@@ -217,19 +202,17 @@ class Example:
             pass
         return Token
 =
-def _dp_ns_Example(_dp_ns):
-    __dp_class_ns__ = _dp_ns
+def _dp_ns_Example(_dp_class_ns):
 
     def trigger(self):
 
-        def _dp_ns_trigger__locals__Token(_dp_ns):
-            __dp_class_ns__ = _dp_ns
-            __dp__.setitem(__dp_class_ns__, "__module__", __name__)
-            __dp__.setitem(__dp_class_ns__, "__qualname__", "trigger.<locals>.Token")
+        def _dp_ns_trigger__locals__Token(_dp_class_ns):
+            __dp__.setitem(_dp_class_ns, "__module__", __name__)
+            __dp__.setitem(_dp_class_ns, "__qualname__", "trigger.<locals>.Token")
         Token = __dp__.create_class("Token", _dp_ns_trigger__locals__Token, (), None)
         return Token
-    __dp__.setitem(__dp_class_ns__, "__module__", __name__)
-    __dp__.setitem(__dp_class_ns__, "__qualname__", "Example")
+    __dp__.setitem(_dp_class_ns, "__module__", __name__)
+    __dp__.setitem(_dp_class_ns, "__qualname__", "Example")
 Example = __dp__.create_class("Example", _dp_ns_Example, (), None)
 $ function local class nested in if
 
@@ -241,21 +224,19 @@ class Example:
             return Token
         return None
 =
-def _dp_ns_Example(_dp_ns):
-    __dp_class_ns__ = _dp_ns
+def _dp_ns_Example(_dp_class_ns):
 
     def trigger(self, flag):
         if flag:
 
-            def _dp_ns_trigger__locals__Token(_dp_ns):
-                __dp_class_ns__ = _dp_ns
-                __dp__.setitem(__dp_class_ns__, "__module__", __name__)
-                __dp__.setitem(__dp_class_ns__, "__qualname__", "trigger.<locals>.Token")
+            def _dp_ns_trigger__locals__Token(_dp_class_ns):
+                __dp__.setitem(_dp_class_ns, "__module__", __name__)
+                __dp__.setitem(_dp_class_ns, "__qualname__", "trigger.<locals>.Token")
             Token = __dp__.create_class("Token", _dp_ns_trigger__locals__Token, (), None)
             return Token
         return None
-    __dp__.setitem(__dp_class_ns__, "__module__", __name__)
-    __dp__.setitem(__dp_class_ns__, "__qualname__", "Example")
+    __dp__.setitem(_dp_class_ns, "__module__", __name__)
+    __dp__.setitem(_dp_class_ns, "__qualname__", "Example")
 Example = __dp__.create_class("Example", _dp_ns_Example, (), None)
 $ function local methods capture locals
 
@@ -271,12 +252,11 @@ def outer():
 def outer():
     value = 1
 
-    def _dp_ns_outer__locals__C(_dp_ns):
-        __dp_class_ns__ = _dp_ns
+    def _dp_ns_outer__locals__C(_dp_class_ns):
 
         def method(self):
             return value
-        __dp__.setitem(__dp_class_ns__, "__module__", __name__)
-        __dp__.setitem(__dp_class_ns__, "__qualname__", "outer.<locals>.C")
+        __dp__.setitem(_dp_class_ns, "__module__", __name__)
+        __dp__.setitem(_dp_class_ns, "__qualname__", "outer.<locals>.C")
     C = __dp__.create_class("C", _dp_ns_outer__locals__C, (), None)
     return C

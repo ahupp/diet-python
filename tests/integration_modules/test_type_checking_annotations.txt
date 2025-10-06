@@ -17,7 +17,7 @@ class Marker:
 import __dp__
 TYPE_CHECKING = __dp__.import_("typing", __spec__, __dp__.list(("TYPE_CHECKING",))).TYPE_CHECKING
 SENTINEL = object()
-def _dp_ns_Marker(_dp_ns):
+def _dp_ns_Marker(_dp_class_ns):
     __dp__.setitem(_dp_ns, "__module__", __name__)
     __dp__.setitem(_dp_ns, "__qualname__", "Marker")
     if TYPE_CHECKING:

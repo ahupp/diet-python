@@ -74,7 +74,7 @@ __qualname__ = {class_qualname:literal}
     if !annotations.is_empty() {
         body.extend(py_stmt!(
             r#"
-_dp_class_annotations = _dp_ns.get("__annotations__")
+_dp_class_annotations = _dp_class_ns.get("__annotations__")
 if _dp_class_annotations is None:
     _dp_class_annotations = __dp__.dict()
 __annotations__ = _dp_class_annotations
@@ -118,15 +118,11 @@ __annotations__ = _dp_class_annotations
     let mut renamer = ClassVarRenamer::new();
     renamer.visit_body(&mut body);
 
-    let mut alias = py_stmt!("__dp_class_ns__ = _dp_ns");
-    alias.extend(body);
-    let body = alias;
-
     let (bases_tuple, prepare_dict) = class_call_arguments(arguments);
 
     let ns_fn_stmt = py_stmt!(
         r#"
-def _dp_ns_{class_ident:id}(_dp_ns):
+def _dp_ns_{class_ident:id}(_dp_class_ns):
     {ns_body:stmt}
 {class_name:id} = __dp__.create_class({class_name:literal}, _dp_ns_{class_ident:id}, {bases:expr}, {prepare_dict:expr})
 "#,
@@ -224,13 +220,11 @@ class C:
         return super().m()
 "#,
             r#"
-def _dp_ns_C(_dp_ns):
-    __dp_class_ns__ = _dp_ns
-
+def _dp_ns_C(_dp_class_ns):
     def m():
         return super(C, None).m()
-    __dp__.setitem(__dp_class_ns__, "__module__", __name__)
-    __dp__.setitem(__dp_class_ns__, "__qualname__", "C")
+    __dp__.setitem(_dp_class_ns, "__module__", __name__)
+    __dp__.setitem(_dp_class_ns, "__qualname__", "C")
 C = __dp__.create_class("C", _dp_ns_C, (), None)
 "#,
         );
