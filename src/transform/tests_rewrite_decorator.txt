@@ -5,36 +5,31 @@ $ rewrites function decorators
 def foo():
     pass
 =
-_dp_decorator_foo_0 = dec2(5)
-_dp_decorator_foo_1 = dec1
+_dp_tmp_1 = dec2(5)
 def foo():
     pass
-foo = _dp_decorator_foo_0(_dp_decorator_foo_1(foo))
+foo = _dp_tmp_1(dec1(foo))
 $ preserves annotations on decorated functions
 
 @dec
 def foo(x: int) -> str:
     pass
 =
-_dp_decorator_foo_0 = dec
 def foo(x: int) -> str:
     pass
-foo = _dp_decorator_foo_0(foo)
+foo = dec(foo)
 $ rewrites class decorators
 
 @dec
 class C:
     pass
 =
-_dp_decorator__dp_class_C_0 = dec
 def _dp_ns_C(_dp_ns):
-    __dp__.setitem(_dp_ns, "__module__", __name__)
-    __dp__.setitem(_dp_ns, "__qualname__", "C")
-_dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
-_dp_class_C = _dp_decorator__dp_class_C_0(_dp_class_C)
-C = _dp_class_C
-del _dp_class_C
-del _dp_ns_C
+    __dp_class_ns__ = _dp_ns
+    __dp__.setitem(__dp_class_ns__, "__module__", __name__)
+    __dp__.setitem(__dp_class_ns__, "__qualname__", "C")
+C = __dp__.create_class("C", _dp_ns_C, (), None)
+C = dec(C)
 $ rewrites multiple class decorators
 
 @dec2(5)
@@ -42,16 +37,13 @@ $ rewrites multiple class decorators
 class C:
     pass
 =
-_dp_decorator__dp_class_C_0 = dec2(5)
-_dp_decorator__dp_class_C_1 = dec1
+_dp_tmp_1 = dec2(5)
 def _dp_ns_C(_dp_ns):
-    __dp__.setitem(_dp_ns, "__module__", __name__)
-    __dp__.setitem(_dp_ns, "__qualname__", "C")
-_dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
-_dp_class_C = _dp_decorator__dp_class_C_0(_dp_decorator__dp_class_C_1(_dp_class_C))
-C = _dp_class_C
-del _dp_class_C
-del _dp_ns_C
+    __dp_class_ns__ = _dp_ns
+    __dp__.setitem(__dp_class_ns__, "__module__", __name__)
+    __dp__.setitem(__dp_class_ns__, "__qualname__", "C")
+C = __dp__.create_class("C", _dp_ns_C, (), None)
+C = _dp_tmp_1(dec1(C))
 $ preserves existing decorator targets
 
 atexit = property(lambda: None)
@@ -63,7 +55,7 @@ def atexit(value):
 def _dp_lambda_1():
     return None
 atexit = property(_dp_lambda_1)
-_dp_decorator_atexit_0 = atexit.setter
+_dp_tmp_2 = atexit.setter
 def atexit(value):
     pass
-atexit = _dp_decorator_atexit_0(atexit)
+atexit = _dp_tmp_2(atexit)
