@@ -14,39 +14,35 @@ FUNCTION_MEMBERS = [Scope.Function for scope in Scope if scope is Scope.Function
 import __dp__
 Enum = __dp__.import_("enum", __spec__, __dp__.list(("Enum",))).Enum
 def _dp_ns_Scope(_dp_ns):
-    __dp__.setitem(_dp_ns, "__module__", __name__)
-    __dp__.setitem(_dp_ns, "__qualname__", "Scope")
-    _dp_tmp_1 = "function"
-    __dp__.setitem(_dp_ns, "Function", _dp_tmp_1)
-    _dp_tmp_2 = "module"
-    __dp__.setitem(_dp_ns, "Module", _dp_tmp_2)
-_dp_class_Scope = __dp__.create_class("Scope", _dp_ns_Scope, (Enum,), None)
-Scope = _dp_class_Scope
-del _dp_class_Scope
-del _dp_ns_Scope
-def _dp_gen_3(_dp_iter_4):
-    _dp_iter_5 = __dp__.iter(_dp_iter_4)
+    __dp_class_ns__ = _dp_ns
+    __dp__.setitem(__dp_class_ns__, "Function", "function")
+    __dp__.setitem(__dp_class_ns__, "Module", "module")
+    __dp__.setitem(__dp_class_ns__, "__module__", __name__)
+    __dp__.setitem(__dp_class_ns__, "__qualname__", "Scope")
+Scope = __dp__.create_class("Scope", _dp_ns_Scope, (Enum,), None)
+def _dp_gen_1(_dp_iter_2):
+    _dp_iter_3 = __dp__.iter(_dp_iter_2)
     while True:
         try:
-            scope = __dp__.next(_dp_iter_5)
+            scope = __dp__.next(_dp_iter_3)
         except:
             __dp__.check_stopiteration()
             break
         else:
-            _dp_tmp_6 = __dp__.is_(scope, Scope.Function)
-            if _dp_tmp_6:
+            _dp_tmp_4 = __dp__.is_(scope, Scope.Function)
+            if _dp_tmp_4:
                 yield scope
-HIGH_SCOPES = __dp__.list(_dp_gen_3(__dp__.iter(Scope)))
-def _dp_gen_7(_dp_iter_8):
-    _dp_iter_9 = __dp__.iter(_dp_iter_8)
+HIGH_SCOPES = __dp__.list(_dp_gen_1(__dp__.iter(Scope)))
+def _dp_gen_5(_dp_iter_6):
+    _dp_iter_7 = __dp__.iter(_dp_iter_6)
     while True:
         try:
-            scope = __dp__.next(_dp_iter_9)
+            scope = __dp__.next(_dp_iter_7)
         except:
             __dp__.check_stopiteration()
             break
         else:
-            _dp_tmp_10 = __dp__.is_(scope, Scope.Function)
-            if _dp_tmp_10:
+            _dp_tmp_8 = __dp__.is_(scope, Scope.Function)
+            if _dp_tmp_8:
                 yield Scope.Function
-FUNCTION_MEMBERS = __dp__.list(_dp_gen_7(__dp__.iter(Scope)))
+FUNCTION_MEMBERS = __dp__.list(_dp_gen_5(__dp__.iter(Scope)))

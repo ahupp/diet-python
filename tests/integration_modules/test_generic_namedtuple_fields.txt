@@ -37,41 +37,32 @@ NamedTuple = __dp__.import_("typing", __spec__, __dp__.list(("NamedTuple",))).Na
 TypeVar = __dp__.import_("typing", __spec__, __dp__.list(("TypeVar",))).TypeVar
 final = __dp__.import_("typing", __spec__, __dp__.list(("final",))).final
 AnyStr = TypeVar("AnyStr", str, bytes)
-_dp_tmp_7 = __dp__.ge(sys.version_info, (3, 11))
-_dp_tmp_1 = _dp_tmp_7
+_dp_tmp_3 = __dp__.ge(sys.version_info, (3, 11))
+_dp_tmp_1 = _dp_tmp_3
 if __dp__.not_(_dp_tmp_1):
     _dp_tmp_1 = TYPE_CHECKING
 if _dp_tmp_1:
-    _dp_decorator__dp_class_CaptureResult_0 = final
 
     def _dp_ns_CaptureResult(_dp_ns):
-        __dp__.setitem(_dp_ns, "__module__", __name__)
-        __dp__.setitem(_dp_ns, "__qualname__", "CaptureResult")
-        _dp_tmp_2 = """The result of the capture helper."""
-        __dp__.setitem(_dp_ns, "__doc__", _dp_tmp_2)
-        _dp_class_annotations = _dp_ns.get("__annotations__")
-        _dp_tmp_5 = __dp__.is_(_dp_class_annotations, None)
-        if _dp_tmp_5:
-            _dp_class_annotations = __dp__.dict()
-        __dp__.setitem(_dp_ns, "__annotations__", _dp_class_annotations)
-        _dp_tmp_3 = "AnyStr"
-        __dp__.setitem(_dp_class_annotations, "out", _dp_tmp_3)
-        _dp_tmp_4 = "AnyStr"
-        __dp__.setitem(_dp_class_annotations, "err", _dp_tmp_4)
-    _dp_class_CaptureResult = __dp__.create_class("CaptureResult", _dp_ns_CaptureResult, (NamedTuple, __dp__.getitem(Generic, AnyStr)), None)
-    _dp_class_CaptureResult = _dp_decorator__dp_class_CaptureResult_0(_dp_class_CaptureResult)
-    CaptureResult = _dp_class_CaptureResult
-    del _dp_class_CaptureResult
-    del _dp_ns_CaptureResult
+        __dp_class_ns__ = _dp_ns
+        __dp__.setitem(__dp_class_ns__, "__doc__", """The result of the capture helper.""")
+        __dp__.setitem(__dp_class_ns__, "__module__", __name__)
+        __dp__.setitem(__dp_class_ns__, "__qualname__", "CaptureResult")
+        __dp__.setitem(__dp_class_ns__, "_dp_class_annotations", _dp_ns.get("__annotations__"))
+        _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
+        if _dp_tmp_2:
+            __dp__.setitem(__dp_class_ns__, "_dp_class_annotations", __dp__.dict())
+        __dp__.setitem(__dp_class_ns__, "__annotations__", _dp_class_annotations)
+        __dp__.setitem(_dp_class_annotations, "out", "AnyStr")
+        __dp__.setitem(_dp_class_annotations, "err", "AnyStr")
+    CaptureResult = __dp__.create_class("CaptureResult", _dp_ns_CaptureResult, (NamedTuple, __dp__.getitem(Generic, AnyStr)), None)
+    CaptureResult = final(CaptureResult)
 else:
 
     def _dp_ns_CaptureResult(_dp_ns):
-        __dp__.setitem(_dp_ns, "__module__", __name__)
-        __dp__.setitem(_dp_ns, "__qualname__", "CaptureResult")
-        _dp_tmp_6 = ()
-        __dp__.setitem(_dp_ns, "__slots__", _dp_tmp_6)
-    _dp_class_CaptureResult = __dp__.create_class("CaptureResult", _dp_ns_CaptureResult, (collections.namedtuple("CaptureResult", __dp__.list(("out", "err"))), __dp__.getitem(Generic, AnyStr)), None)
-    CaptureResult = _dp_class_CaptureResult
-    del _dp_class_CaptureResult
-    del _dp_ns_CaptureResult
+        __dp_class_ns__ = _dp_ns
+        __dp__.setitem(__dp_class_ns__, "__slots__", ())
+        __dp__.setitem(__dp_class_ns__, "__module__", __name__)
+        __dp__.setitem(__dp_class_ns__, "__qualname__", "CaptureResult")
+    CaptureResult = __dp__.create_class("CaptureResult", _dp_ns_CaptureResult, (collections.namedtuple("CaptureResult", __dp__.list(("out", "err"))), __dp__.getitem(Generic, AnyStr)), None)
 RESULT = CaptureResult("out", "err")
