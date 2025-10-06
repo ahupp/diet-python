@@ -118,6 +118,10 @@ __annotations__ = _dp_class_annotations
     let mut renamer = ClassVarRenamer::new();
     renamer.visit_body(&mut body);
 
+    let mut alias = py_stmt!("__dp_class_ns__ = _dp_ns");
+    alias.extend(body);
+    let body = alias;
+
     let (bases_tuple, prepare_dict) = class_call_arguments(arguments);
 
     let ns_fn_stmt = py_stmt!(
@@ -221,16 +225,13 @@ class C:
 "#,
             r#"
 def _dp_ns_C(_dp_ns):
-    __dp__.setitem(_dp_ns, "__module__", __name__)
-    __dp__.setitem(_dp_ns, "__qualname__", "C")
+    __dp_class_ns__ = _dp_ns
 
     def m():
         return super(C, None).m()
-    __dp__.setitem(_dp_ns, "m", m)
-_dp_class_C = __dp__.create_class("C", _dp_ns_C, (), None)
-C = _dp_class_C
-del _dp_class_C
-del _dp_ns_C
+    __dp__.setitem(__dp_class_ns__, "__module__", __name__)
+    __dp__.setitem(__dp_class_ns__, "__qualname__", "C")
+C = __dp__.create_class("C", _dp_ns_C, (), None)
 "#,
         );
     }

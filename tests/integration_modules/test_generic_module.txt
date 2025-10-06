@@ -21,19 +21,15 @@ Generic = __dp__.import_("typing", __spec__, __dp__.list(("Generic",))).Generic
 TypeVar = __dp__.import_("typing", __spec__, __dp__.list(("TypeVar",))).TypeVar
 T = TypeVar("T")
 def _dp_ns_Box(_dp_ns):
-    __dp__.setitem(_dp_ns, "__module__", __name__)
-    __dp__.setitem(_dp_ns, "__qualname__", "Box")
-_dp_class_Box = __dp__.create_class("Box", _dp_ns_Box, (__dp__.getitem(Generic, T),), None)
-Box = _dp_class_Box
-del _dp_class_Box
-del _dp_ns_Box
+    __dp_class_ns__ = _dp_ns
+    __dp__.setitem(__dp_class_ns__, "__module__", __name__)
+    __dp__.setitem(__dp_class_ns__, "__qualname__", "Box")
+Box = __dp__.create_class("Box", _dp_ns_Box, (__dp__.getitem(Generic, T),), None)
 def make_specialization():
 
     def _dp_ns_make_specialization__locals__IntBox(_dp_ns):
-        __dp__.setitem(_dp_ns, "__module__", __name__)
-        __dp__.setitem(_dp_ns, "__qualname__", "make_specialization.<locals>.IntBox")
-    _dp_class_make_specialization__locals__IntBox = __dp__.create_class("IntBox", _dp_ns_make_specialization__locals__IntBox, (__dp__.getitem(Box, int),), None)
-    IntBox = _dp_class_make_specialization__locals__IntBox
-    del _dp_class_make_specialization__locals__IntBox
-    del _dp_ns_make_specialization__locals__IntBox
+        __dp_class_ns__ = _dp_ns
+        __dp__.setitem(__dp_class_ns__, "__module__", __name__)
+        __dp__.setitem(__dp_class_ns__, "__qualname__", "make_specialization.<locals>.IntBox")
+    IntBox = __dp__.create_class("IntBox", _dp_ns_make_specialization__locals__IntBox, (__dp__.getitem(Box, int),), None)
     return IntBox

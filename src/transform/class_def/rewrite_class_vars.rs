@@ -63,15 +63,15 @@ impl Transformer for ClassVarRenamer {
             Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
                 assert!(targets.len() == 1, "assign should have a single target");
                 let target = targets.first_mut().unwrap();
-                *target = match target {
-                    Expr::Name(ast::ExprName { id, .. }) => {
-                        self.visit_expr(value);
-                        // Mark stored after visiting value, in case you have x = x, where rhs is global
-                        self.stored.insert(id.as_str().to_string());
-                        py_expr!("__dp_class_ns__.{name:id}", name = id.as_str())
-                    }
-                    _ => panic!("assign should have a single name target"),
-                };
+                if let Expr::Name(ast::ExprName { id, .. }) = target {
+                    self.visit_expr(value);
+                    // Mark stored after visiting value, in case you have x = x, where rhs is global
+                    self.stored.insert(id.as_str().to_string());
+                    *target = py_expr!("__dp_class_ns__[{name:literal}]", name = id.as_str());
+                } else {
+                    walk_stmt(self, stmt);
+                    return;
+                }
             }
             Stmt::Global(ast::StmtGlobal { names, .. }) => {
                 for name in names {
@@ -98,7 +98,7 @@ impl Transformer for ClassVarRenamer {
                     let name_str = name.as_str();
                     if self.should_rewrite(name_str) {
                         if self.stored.contains(name_str) && !self.pending.contains(name_str) {
-                            *expr = py_expr!("__dp_class_ns__.{name:id}", name = name_str);
+                            *expr = py_expr!("__dp_class_ns__[{name:literal}]", name = name_str);
                         } else if self.pending.contains(name_str)
                             && !self.assignment_targets.contains(name_str)
                         {
