@@ -85,6 +85,7 @@ x: int
 $ expr 011
 x: int = 1
 =
+x: int
 x = 1
 
 $ expr 012
