@@ -138,6 +138,20 @@ class _ClassNamespace:
         self._namespace = namespace
         self._locals = {}
 
+    def __getattribute__(self, name):
+        if name in ("_namespace", "_locals", "__slots__"):
+            return object.__getattribute__(self, name)
+
+        locals_dict = object.__getattribute__(self, "_locals")
+        if name in locals_dict:
+            return locals_dict[name]
+
+        namespace = object.__getattribute__(self, "_namespace")
+        if name in namespace:
+            return namespace[name]
+
+        return object.__getattribute__(self, name)
+
     def __getattr__(self, name):
         try:
             return self[name]
