@@ -1,0 +1,25 @@
+$ desugars generic_io_typing
+
+from typing import Generic, List, TypeVar
+
+AnyStr = TypeVar("AnyStr", str, bytes)
+
+
+class Example(Generic[AnyStr]):
+    def readlines(self) -> List[AnyStr]:
+        ...
+=
+import __dp__
+Generic = __dp__.import_("typing", __spec__, __dp__.list(("Generic",))).Generic
+List = __dp__.import_("typing", __spec__, __dp__.list(("List",))).List
+TypeVar = __dp__.import_("typing", __spec__, __dp__.list(("TypeVar",))).TypeVar
+AnyStr = TypeVar("AnyStr", str, bytes)
+def _dp_ns_Example(_dp_class_ns):
+
+    def readlines(self) -> __dp__.getitem(List, AnyStr):
+        Ellipsis
+    __dp__.setattr(_dp_class_ns, "readlines", readlines)
+    __dp__.setattr(_dp_class_ns, "__module__", __name__)
+    __dp__.setattr(_dp_class_ns, "__qualname__", "Example")
+Example = __dp__.create_class("Example", _dp_ns_Example, (__dp__.getitem(Generic, AnyStr),), None)
+del _dp_ns_Example
