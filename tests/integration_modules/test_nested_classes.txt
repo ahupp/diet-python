@@ -46,20 +46,21 @@ def _dp_ns_Outer(_dp_class_ns):
     __dp__.setitem(_dp_class_ns, "Mid", record(__dp__.add(__dp__.getitem(_dp_class_ns, "label"), "_mid"))(__dp__.create_class("Mid", _dp_ns_Outer_Mid, (), None)))
     __dp__.setitem(_dp_class_ns, "__module__", __name__)
     __dp__.setitem(_dp_class_ns, "__qualname__", "Outer")
-Outer = __dp__.create_class("Outer", _dp_ns_Outer, (), None)
 def _dp_ns_Outer_Mid(_dp_class_ns):
     __dp__.setitem(_dp_class_ns, "label", "mid")
     __dp__.setitem(_dp_class_ns, "Inner", record(__dp__.add(__dp__.getitem(_dp_class_ns, "label"), "_inner"))(record("stack")(__dp__.create_class("Inner", _dp_ns_Outer_Mid_Inner, (), None))))
     __dp__.setitem(_dp_class_ns, "__module__", __name__)
     __dp__.setitem(_dp_class_ns, "__qualname__", "Outer.Mid")
-Mid = __dp__.create_class("Mid", _dp_ns_Outer_Mid, (), None)
 def _dp_ns_Outer_Mid_Inner(_dp_class_ns):
     __dp__.setitem(_dp_class_ns, "label", "inner")
     __dp__.setitem(_dp_class_ns, "Leaf", record(__dp__.add(__dp__.getitem(_dp_class_ns, "label"), "_leaf"))(__dp__.create_class("Leaf", _dp_ns_Outer_Mid_Inner_Leaf, (), None)))
     __dp__.setitem(_dp_class_ns, "__module__", __name__)
     __dp__.setitem(_dp_class_ns, "__qualname__", "Outer.Mid.Inner")
-Inner = __dp__.create_class("Inner", _dp_ns_Outer_Mid_Inner, (), None)
 def _dp_ns_Outer_Mid_Inner_Leaf(_dp_class_ns):
     __dp__.setitem(_dp_class_ns, "__module__", __name__)
     __dp__.setitem(_dp_class_ns, "__qualname__", "Outer.Mid.Inner.Leaf")
-Leaf = __dp__.create_class("Leaf", _dp_ns_Outer_Mid_Inner_Leaf, (), None)
+Outer = __dp__.create_class("Outer", _dp_ns_Outer, (), None)
+del _dp_ns_Outer_Mid_Inner_Leaf
+del _dp_ns_Outer_Mid_Inner
+del _dp_ns_Outer_Mid
+del _dp_ns_Outer

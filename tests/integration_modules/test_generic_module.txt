@@ -24,10 +24,12 @@ def _dp_ns_Box(_dp_class_ns):
     __dp__.setitem(_dp_class_ns, "__module__", __name__)
     __dp__.setitem(_dp_class_ns, "__qualname__", "Box")
 Box = __dp__.create_class("Box", _dp_ns_Box, (__dp__.getitem(Generic, T),), None)
+del _dp_ns_Box
 def make_specialization():
 
     def _dp_ns_make_specialization__locals__IntBox(_dp_class_ns):
         __dp__.setitem(_dp_class_ns, "__module__", __name__)
         __dp__.setitem(_dp_class_ns, "__qualname__", "make_specialization.<locals>.IntBox")
     IntBox = __dp__.create_class("IntBox", _dp_ns_make_specialization__locals__IntBox, (__dp__.getitem(Box, int),), None)
+    del _dp_ns_make_specialization__locals__IntBox
     return IntBox

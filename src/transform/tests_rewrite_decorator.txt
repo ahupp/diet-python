@@ -29,6 +29,7 @@ def _dp_ns_C(_dp_class_ns):
     __dp__.setitem(_dp_class_ns, "__qualname__", "C")
 C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = dec(C)
+del _dp_ns_C
 $ rewrites multiple class decorators
 
 @dec2(5)
@@ -42,6 +43,7 @@ def _dp_ns_C(_dp_class_ns):
     __dp__.setitem(_dp_class_ns, "__qualname__", "C")
 C = __dp__.create_class("C", _dp_ns_C, (), None)
 C = _dp_tmp_1(dec1(C))
+del _dp_ns_C
 $ preserves existing decorator targets
 
 atexit = property(lambda: None)
