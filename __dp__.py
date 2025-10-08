@@ -138,6 +138,25 @@ class _ClassNamespace:
         self._namespace = namespace
         self._locals = {}
 
+    def __getattr__(self, name):
+        try:
+            return self[name]
+        except KeyError as exc:
+            raise AttributeError(name) from exc
+
+    def __setattr__(self, name, value):
+        if name in self.__slots__:
+            return super().__setattr__(name, value)
+        self[name] = value
+
+    def __delattr__(self, name):
+        if name in self.__slots__:
+            return super().__delattr__(name)
+        try:
+            del self[name]
+        except KeyError as exc:
+            raise AttributeError(name) from exc
+
     def __setitem__(self, name, value):
         setitem(self._locals, name, value)
         setitem(self._namespace, name, value)

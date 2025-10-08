@@ -9,10 +9,10 @@ EXPECTS_VALUE = hasattr(Example, "value")
 =
 import __dp__
 def _dp_ns_Example(_dp_class_ns):
-    __dp__.setitem(_dp_class_ns, "value", 1)
-    __dp__.delitem(_dp_class_ns, "value")
-    __dp__.setitem(_dp_class_ns, "__module__", __name__)
-    __dp__.setitem(_dp_class_ns, "__qualname__", "Example")
+    __dp__.setattr(_dp_class_ns, "value", 1)
+    __dp__.delattr(_dp_class_ns, "value")
+    __dp__.setattr(_dp_class_ns, "__module__", __name__)
+    __dp__.setattr(_dp_class_ns, "__qualname__", "Example")
 Example = __dp__.create_class("Example", _dp_ns_Example, (), None)
 del _dp_ns_Example
 EXPECTS_VALUE = hasattr(Example, "value")
