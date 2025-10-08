@@ -120,19 +120,17 @@ fn rewrite_unpack_target(
 
 pub(crate) fn rewrite_ann_assign(
     rewriter: &mut ExprRewriter,
-    ann_assign: ast::StmtAnnAssign,
+    mut ann_assign: ast::StmtAnnAssign,
 ) -> Rewrite {
-    let ast::StmtAnnAssign {
-        target,
-        value: Some(value),
-        ..
-    } = ann_assign
-    else {
+    let Some(value) = ann_assign.value.take() else {
         return Rewrite::Walk(vec![Stmt::AnnAssign(ann_assign)]);
     };
 
+    let target = (*ann_assign.target).clone();
+
     let mut stmts = Vec::new();
-    rewrite_target(rewriter, *target, *value, &mut stmts);
+    stmts.push(Stmt::AnnAssign(ann_assign));
+    rewrite_target(rewriter, target, *value, &mut stmts);
     Rewrite::Visit(stmts)
 }
 

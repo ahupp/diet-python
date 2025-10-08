@@ -38,6 +38,7 @@ def _dp_ns_C(_dp_class_ns):
         _dp_class_annotations = __dp__.dict()
     __dp__.setattr(_dp_class_ns, "__annotations__", _dp_class_annotations)
     __dp__.setitem(_dp_class_annotations, "x", int)
+    __dp__.setitem(_dp_class_annotations, "y", str)
 C = __dp__.create_class("C", _dp_ns_C, (), None)
 del _dp_ns_C
 $ captures outer reference
