@@ -162,7 +162,9 @@ class _ClassNamespace:
         setitem(self._namespace, name, value)
         return value
 
-    def __getitem__(self, name):
+    def __getitem__(self, name, *rest):
+        if rest:
+            name = (name, *rest)
         if name in self._locals:
             return self._locals[name]
         return self._namespace[name]
