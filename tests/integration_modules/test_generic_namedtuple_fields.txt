@@ -44,14 +44,14 @@ if __dp__.not_(_dp_tmp_1):
 if _dp_tmp_1:
 
     def _dp_ns_CaptureResult(_dp_class_ns):
-        __dp__.setitem(_dp_class_ns, "__doc__", """The result of the capture helper.""")
-        __dp__.setitem(_dp_class_ns, "__module__", __name__)
-        __dp__.setitem(_dp_class_ns, "__qualname__", "CaptureResult")
+        __dp__.setattr(_dp_class_ns, "__doc__", """The result of the capture helper.""")
+        __dp__.setattr(_dp_class_ns, "__module__", __name__)
+        __dp__.setattr(_dp_class_ns, "__qualname__", "CaptureResult")
         _dp_class_annotations = _dp_class_ns.get("__annotations__")
         _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
         if _dp_tmp_2:
             _dp_class_annotations = __dp__.dict()
-        __dp__.setitem(_dp_class_ns, "__annotations__", _dp_class_annotations)
+        __dp__.setattr(_dp_class_ns, "__annotations__", _dp_class_annotations)
         __dp__.setitem(_dp_class_annotations, "out", "AnyStr")
         __dp__.setitem(_dp_class_annotations, "err", "AnyStr")
     CaptureResult = __dp__.create_class("CaptureResult", _dp_ns_CaptureResult, (NamedTuple, __dp__.getitem(Generic, AnyStr)), None)
@@ -60,9 +60,9 @@ if _dp_tmp_1:
 else:
 
     def _dp_ns_CaptureResult(_dp_class_ns):
-        __dp__.setitem(_dp_class_ns, "__slots__", ())
-        __dp__.setitem(_dp_class_ns, "__module__", __name__)
-        __dp__.setitem(_dp_class_ns, "__qualname__", "CaptureResult")
+        __dp__.setattr(_dp_class_ns, "__slots__", ())
+        __dp__.setattr(_dp_class_ns, "__module__", __name__)
+        __dp__.setattr(_dp_class_ns, "__qualname__", "CaptureResult")
     CaptureResult = __dp__.create_class("CaptureResult", _dp_ns_CaptureResult, (collections.namedtuple("CaptureResult", __dp__.list(("out", "err"))), __dp__.getitem(Generic, AnyStr)), None)
     del _dp_ns_CaptureResult
 RESULT = CaptureResult("out", "err")

@@ -263,9 +263,9 @@ class C:
 def _dp_ns_C(_dp_class_ns):
     def m():
         return super(C, None).m()
-    __dp__.setitem(_dp_class_ns, "m", m)
-    __dp__.setitem(_dp_class_ns, "__module__", __name__)
-    __dp__.setitem(_dp_class_ns, "__qualname__", "C")
+    __dp__.setattr(_dp_class_ns, "m", m)
+    __dp__.setattr(_dp_class_ns, "__module__", __name__)
+    __dp__.setattr(_dp_class_ns, "__qualname__", "C")
 C = __dp__.create_class("C", _dp_ns_C, (), None)
 del _dp_ns_C
 "#,

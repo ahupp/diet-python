@@ -21,8 +21,8 @@ def _dp_ns_Marker(_dp_class_ns):
     if TYPE_CHECKING:
         typed_attr: "int"
         other_attr: "str"
-    __dp__.setitem(_dp_class_ns, "value", SENTINEL)
-    __dp__.setitem(_dp_class_ns, "__module__", __name__)
-    __dp__.setitem(_dp_class_ns, "__qualname__", "Marker")
+    __dp__.setattr(_dp_class_ns, "value", SENTINEL)
+    __dp__.setattr(_dp_class_ns, "__module__", __name__)
+    __dp__.setattr(_dp_class_ns, "__qualname__", "Marker")
 Marker = __dp__.create_class("Marker", _dp_ns_Marker, (), None)
 del _dp_ns_Marker

@@ -14,10 +14,10 @@ FUNCTION_MEMBERS = [Scope.Function for scope in Scope if scope is Scope.Function
 import __dp__
 Enum = __dp__.import_("enum", __spec__, __dp__.list(("Enum",))).Enum
 def _dp_ns_Scope(_dp_class_ns):
-    __dp__.setitem(_dp_class_ns, "Function", "function")
-    __dp__.setitem(_dp_class_ns, "Module", "module")
-    __dp__.setitem(_dp_class_ns, "__module__", __name__)
-    __dp__.setitem(_dp_class_ns, "__qualname__", "Scope")
+    __dp__.setattr(_dp_class_ns, "Function", "function")
+    __dp__.setattr(_dp_class_ns, "Module", "module")
+    __dp__.setattr(_dp_class_ns, "__module__", __name__)
+    __dp__.setattr(_dp_class_ns, "__qualname__", "Scope")
 Scope = __dp__.create_class("Scope", _dp_ns_Scope, (Enum,), None)
 del _dp_ns_Scope
 def _dp_gen_1(_dp_iter_2):

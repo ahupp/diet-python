@@ -6,15 +6,15 @@ def add(a, b):
     return __dp__.add(a, b)
 add = foo(_dp_tmp_1(add))
 def _dp_ns_A(_dp_class_ns):
-    __dp__.setitem(_dp_class_ns, "b", 1)
+    __dp__.setattr(_dp_class_ns, "b", 1)
 
     def __init__(self):
         __dp__.setattr(self, "arr", __dp__.list((1, 2, 3)))
-    __dp__.setitem(_dp_class_ns, "__init__", __init__)
+    __dp__.setattr(_dp_class_ns, "__init__", __init__)
 
     def c(self, d):
         return add(d, 2)
-    __dp__.setitem(_dp_class_ns, "c", c)
+    __dp__.setattr(_dp_class_ns, "c", c)
 
     async def test_aiter(self):
         _dp_iter_2 = __dp__.iter(range(10))
@@ -26,7 +26,7 @@ def _dp_ns_A(_dp_class_ns):
                 break
             else:
                 yield i
-    __dp__.setitem(_dp_class_ns, "test_aiter", test_aiter)
+    __dp__.setattr(_dp_class_ns, "test_aiter", test_aiter)
 
     async def d(self):
         _dp_iter_3 = __dp__.aiter(self.test_aiter())
@@ -38,9 +38,9 @@ def _dp_ns_A(_dp_class_ns):
                 break
             else:
                 print(i)
-    __dp__.setitem(_dp_class_ns, "d", d)
-    __dp__.setitem(_dp_class_ns, "__module__", __name__)
-    __dp__.setitem(_dp_class_ns, "__qualname__", "A")
+    __dp__.setattr(_dp_class_ns, "d", d)
+    __dp__.setattr(_dp_class_ns, "__module__", __name__)
+    __dp__.setattr(_dp_class_ns, "__qualname__", "A")
 A = __dp__.create_class("A", _dp_ns_A, (), None)
 del _dp_ns_A
 def ff():

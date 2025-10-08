@@ -93,7 +93,7 @@ impl Transformer for ClassVarRenamer {
                     // see the global binding while decorators run.
                     self.pending.insert(original_name.clone());
                     self.emit_after(py_stmt!(
-                        "__dp__.setitem(_dp_class_ns, {name:literal}, {name:id})",
+                        "_dp_class_ns.{name:id} = {name:id}",
                         name = original_name.as_str(),
                     ));
                     // Once the helper executes the pending state is cleared,
@@ -123,7 +123,7 @@ impl Transformer for ClassVarRenamer {
                         // Mark stored after visiting value, in case you have x = x, where rhs is global
                         // and must still resolve to the outer scope before we rewrite the target.
                         self.stored.insert(name.to_string());
-                        *target = py_expr!("_dp_class_ns[{name:literal}]", name = name);
+                        *target = py_expr!("_dp_class_ns.{name:id}", name = name);
                     }
                 } else {
                     walk_stmt(self, stmt);
@@ -140,7 +140,7 @@ impl Transformer for ClassVarRenamer {
                             self.stored.remove(name);
                             self.pending.remove(name);
                             *stmt = py_stmt_single(py_stmt!(
-                                "__dp__.delitem(_dp_class_ns, {name:literal})",
+                                "del _dp_class_ns.{name:id}",
                                 name = name,
                             ));
                             return;
@@ -182,7 +182,7 @@ impl Transformer for ClassVarRenamer {
                             // After publication we rewrite loads to hit the
                             // explicit `_dp_class_ns` entry so attributes live
                             // on the constructed class.
-                            *expr = py_expr!("_dp_class_ns[{name:literal}]", name = name_str);
+                            *expr = py_expr!("_dp_class_ns.{name:id}", name = name_str);
                         } else if self.pending.contains(name_str)
                             && !self.assignment_targets.contains(name_str)
                         {
