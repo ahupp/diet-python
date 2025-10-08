@@ -1,10 +1,11 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, mem};
 
 use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
 
+use crate::template::py_stmt_single;
 use crate::{
     body_transform::{walk_expr, walk_stmt, Transformer},
-    py_expr,
+    py_expr, py_stmt,
 };
 
 pub struct ClassVarRenamer {
@@ -13,6 +14,7 @@ pub struct ClassVarRenamer {
     nonlocals: HashSet<String>,
     pending: HashSet<String>,
     assignment_targets: HashSet<String>,
+    emitted: Vec<Stmt>,
 }
 
 impl ClassVarRenamer {
@@ -23,15 +25,55 @@ impl ClassVarRenamer {
             nonlocals: HashSet::new(),
             pending: HashSet::new(),
             assignment_targets: HashSet::new(),
+            emitted: Vec::new(),
         }
     }
 
     fn should_rewrite(&self, name: &str) -> bool {
         !self.globals.contains(name) && !self.nonlocals.contains(name) && !name.starts_with("_dp_")
     }
+
+    fn emit_after(&mut self, stmts: Vec<Stmt>) {
+        self.emitted.extend(stmts);
+    }
 }
 
 impl Transformer for ClassVarRenamer {
+    fn visit_body(&mut self, body: &mut Vec<Stmt>) {
+        let mut added_pending = Vec::new();
+        // We collect pending method names up front so loads inside the function
+        // body are treated as globals until the method is published back into
+        // the class namespace. This mirrors Python's class scope behavior
+        // where the def's name is only bound after the body executes.
+        for stmt in body.iter() {
+            if let Stmt::FunctionDef(ast::StmtFunctionDef { name, .. }) = stmt {
+                let function_name = name.id.as_str();
+                if self.should_rewrite(function_name) {
+                    let inserted = self
+                        .pending
+                        .insert(function_name.to_string());
+                    if inserted {
+                        added_pending.push(function_name.to_string());
+                    }
+                }
+            }
+        }
+
+        let mut new_body = Vec::with_capacity(body.len());
+        for mut stmt in mem::take(body) {
+            self.visit_stmt(&mut stmt);
+            new_body.push(stmt);
+            if !self.emitted.is_empty() {
+                new_body.append(&mut self.emitted);
+            }
+        }
+        *body = new_body;
+
+        for name in added_pending {
+            self.pending.remove(&name);
+        }
+    }
+
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
             Stmt::FunctionDef(ast::StmtFunctionDef {
@@ -44,8 +86,19 @@ impl Transformer for ClassVarRenamer {
             }) => {
                 let original_name = name.id.as_str().to_string();
                 if self.should_rewrite(original_name.as_str()) {
+                    // `stored` tracks which names live in `_dp_class_ns`, so we
+                    // record the function before rewriting future loads.
                     self.stored.insert(original_name.clone());
-                    self.pending.insert(original_name);
+                    // Mark this def as pending so the function body can still
+                    // see the global binding while decorators run.
+                    self.pending.insert(original_name.clone());
+                    self.emit_after(py_stmt!(
+                        "__dp__.setitem(_dp_class_ns, {name:literal}, {name:id})",
+                        name = original_name.as_str(),
+                    ));
+                    // Once the helper executes the pending state is cleared,
+                    // restoring class-scope loads to target `_dp_class_ns`.
+                    self.pending.remove(original_name.as_str());
                 }
 
                 for decorator in decorator_list {
@@ -65,13 +118,37 @@ impl Transformer for ClassVarRenamer {
                 let target = targets.first_mut().unwrap();
                 if let Expr::Name(ast::ExprName { id, .. }) = target {
                     self.visit_expr(value);
-                    // Mark stored after visiting value, in case you have x = x, where rhs is global
-                    self.stored.insert(id.as_str().to_string());
-                    *target = py_expr!("_dp_class_ns[{name:literal}]", name = id.as_str());
+                    let name = id.as_str();
+                    if self.should_rewrite(name) {
+                        // Mark stored after visiting value, in case you have x = x, where rhs is global
+                        // and must still resolve to the outer scope before we rewrite the target.
+                        self.stored.insert(name.to_string());
+                        *target = py_expr!("_dp_class_ns[{name:literal}]", name = name);
+                    }
                 } else {
                     walk_stmt(self, stmt);
                     return;
                 }
+            }
+            Stmt::Delete(ast::StmtDelete { targets, .. }) => {
+                if targets.len() == 1 {
+                    if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
+                        let name = id.as_str();
+                        if self.should_rewrite(name) {
+                            // Deletes must update `_dp_class_ns` directly so the
+                            // synthesized class dict matches Python's runtime behavior.
+                            self.stored.remove(name);
+                            self.pending.remove(name);
+                            *stmt = py_stmt_single(py_stmt!(
+                                "__dp__.delitem(_dp_class_ns, {name:literal})",
+                                name = name,
+                            ));
+                            return;
+                        }
+                    }
+                }
+                walk_stmt(self, stmt);
+                return;
             }
             Stmt::Global(ast::StmtGlobal { names, .. }) => {
                 for name in names {
@@ -83,8 +160,12 @@ impl Transformer for ClassVarRenamer {
                     self.nonlocals.insert(name.id.to_string());
                 }
             }
-            Stmt::AnnAssign(_) | Stmt::AugAssign(_) => {
+            Stmt::AugAssign(_) => {
                 panic!("augassign should be rewritten to assign");
+            }
+            Stmt::AnnAssign(_) => {
+                walk_stmt(self, stmt);
+                return;
             }
             _ => walk_stmt(self, stmt),
         }
@@ -98,10 +179,17 @@ impl Transformer for ClassVarRenamer {
                     let name_str = name.as_str();
                     if self.should_rewrite(name_str) {
                         if self.stored.contains(name_str) && !self.pending.contains(name_str) {
+                            // After publication we rewrite loads to hit the
+                            // explicit `_dp_class_ns` entry so attributes live
+                            // on the constructed class.
                             *expr = py_expr!("_dp_class_ns[{name:literal}]", name = name_str);
                         } else if self.pending.contains(name_str)
                             && !self.assignment_targets.contains(name_str)
                         {
+                            // While the method is pending we force loads to
+                            // resolve as globals, matching Python's class body
+                            // semantics where the function name is not yet
+                            // rebound in the local namespace.
                             *expr = py_expr!(
                                 "__dp__.global_(globals(), {name:literal})",
                                 name = name_str,

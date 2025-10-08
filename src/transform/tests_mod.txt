@@ -35,6 +35,8 @@ def _dp_ns_Foo(_dp_class_ns):
 
     def method(self):
         return 1
+    __dp__.setitem(_dp_class_ns, "method", method)
     __dp__.setitem(_dp_class_ns, "__module__", __name__)
     __dp__.setitem(_dp_class_ns, "__qualname__", "Foo")
 Foo = __dp__.create_class("Foo", _dp_ns_Foo, (), None)
+del _dp_ns_Foo

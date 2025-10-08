@@ -5,7 +5,7 @@ pub mod rewrite_nested_class;
 
 use crate::template::make_tuple;
 use crate::{py_expr, py_stmt};
-use ruff_python_ast::{self as ast, Expr};
+use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::TextRange;
 
 use crate::body_transform::Transformer;
@@ -16,7 +16,6 @@ use crate::transform::class_def::rewrite_method::rewrite_method;
 use crate::transform::class_def::rewrite_nested_class::NestedClassCollector;
 use crate::transform::driver::{ExprRewriter, Rewrite};
 use crate::transform::rewrite_decorator;
-use ruff_python_ast::Stmt;
 
 pub fn rewrite(
     ast::StmtClassDef {
@@ -120,37 +119,67 @@ __annotations__ = _dp_class_annotations
 
     let (bases_tuple, prepare_dict) = class_call_arguments(arguments);
 
-    let ns_fn_stmt = py_stmt!(
+    let mut class_statements = py_stmt!(
         r#"
 def _dp_ns_{class_ident:id}(_dp_class_ns):
     {ns_body:stmt}
-{class_name:id} = __dp__.create_class({class_name:literal}, _dp_ns_{class_ident:id}, {bases:expr}, {prepare_dict:expr})
 "#,
         class_ident = class_ident.as_str(),
         ns_body = body,
+    );
+
+    class_statements.push(py_stmt_single(py_stmt!(
+        "{class_name:id} = __dp__.create_class({class_name:literal}, _dp_ns_{class_ident:id}, {bases:expr}, {prepare_dict:expr})",
+        class_ident = class_ident.as_str(),
         class_name = class_name.as_str(),
         bases = bases_tuple.clone(),
         prepare_dict = prepare_dict.clone(),
-    );
+    )));
 
     let mut ns_fn_stmt =
-        rewrite_decorator::rewrite(decorators, &class_name.as_str(), ns_fn_stmt, rewriter)
+        rewrite_decorator::rewrite(decorators, &class_name.as_str(), class_statements, rewriter)
             .into_statements();
+
+    let class_assignment = ns_fn_stmt
+        .pop()
+        .expect("class creation statement should be last");
+
+    let mut pending_dels = Vec::new();
 
     for (_, nested_class_def) in nested_classes {
         let nested_name = nested_class_def.name.id.to_string();
         let nested_qualname = format!("{class_qualname}.{nested_name}");
 
-        ns_fn_stmt.extend(
-            rewrite(
-                nested_class_def,
-                Vec::new(),
-                rewriter,
-                Some(nested_qualname),
-            )
-            .into_statements(),
-        );
+        let mut nested_stmts = rewrite(
+            nested_class_def,
+            Vec::new(),
+            rewriter,
+            Some(nested_qualname),
+        )
+        .into_statements();
+
+        let mut nested_dels = Vec::new();
+        while matches!(nested_stmts.last(), Some(Stmt::Delete(_))) {
+            nested_dels.push(nested_stmts.pop().expect("expected delete statement"));
+        }
+
+        nested_dels.reverse();
+        pending_dels.extend(nested_dels);
+
+        nested_stmts.retain(|stmt| match stmt {
+            Stmt::Assign(ast::StmtAssign { value, .. }) => !is_create_class_call(value),
+            _ => true,
+        });
+
+        ns_fn_stmt.extend(nested_stmts);
     }
+
+    ns_fn_stmt.push(class_assignment);
+    ns_fn_stmt.extend(pending_dels);
+    ns_fn_stmt.extend(py_stmt!(
+        "del _dp_ns_{class_ident:id}",
+        class_ident = class_ident.as_str()
+    ));
 
     Rewrite::Visit(ns_fn_stmt)
 }
@@ -207,6 +236,17 @@ pub fn class_call_arguments(arguments: Option<Box<ast::Arguments>>) -> (Expr, Ex
     (make_tuple(bases), prepare_dict)
 }
 
+fn is_create_class_call(expr: &Expr) -> bool {
+    if let Expr::Call(ast::ExprCall { func, .. }) = expr {
+        if let Expr::Attribute(ast::ExprAttribute { value, attr, .. }) = func.as_ref() {
+            if let Expr::Name(ast::ExprName { id, .. }) = value.as_ref() {
+                return id.as_str() == "__dp__" && attr.as_str() == "create_class";
+            }
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test_util::assert_transform_eq;
@@ -223,9 +263,11 @@ class C:
 def _dp_ns_C(_dp_class_ns):
     def m():
         return super(C, None).m()
+    __dp__.setitem(_dp_class_ns, "m", m)
     __dp__.setitem(_dp_class_ns, "__module__", __name__)
     __dp__.setitem(_dp_class_ns, "__qualname__", "C")
 C = __dp__.create_class("C", _dp_ns_C, (), None)
+del _dp_ns_C
 "#,
         );
     }
