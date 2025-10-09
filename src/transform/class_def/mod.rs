@@ -114,7 +114,7 @@ __annotations__ = _dp_class_annotations
         })
         .collect();
 
-    let mut renamer = ClassVarRenamer::new();
+    let mut renamer = ClassVarRenamer::new(&class_name);
     renamer.visit_body(&mut body);
 
     let (bases_tuple, prepare_dict) = class_call_arguments(arguments);

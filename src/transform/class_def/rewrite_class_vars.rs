@@ -1,4 +1,4 @@
-use std::{collections::HashSet, mem};
+use std::{borrow::Cow, collections::HashSet, mem};
 
 use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
 
@@ -9,6 +9,7 @@ use crate::{
 };
 
 pub struct ClassVarRenamer {
+    class_name: String,
     stored: HashSet<String>,
     globals: HashSet<String>,
     nonlocals: HashSet<String>,
@@ -18,8 +19,9 @@ pub struct ClassVarRenamer {
 }
 
 impl ClassVarRenamer {
-    pub fn new() -> Self {
+    pub fn new(class_name: &str) -> Self {
         Self {
+            class_name: class_name.to_string(),
             stored: HashSet::new(),
             globals: HashSet::new(),
             nonlocals: HashSet::new(),
@@ -35,6 +37,14 @@ impl ClassVarRenamer {
 
     fn emit_after(&mut self, stmts: Vec<Stmt>) {
         self.emitted.extend(stmts);
+    }
+
+    fn storage_name<'a>(&'a self, name: &'a str) -> Cow<'a, str> {
+        if let Some(mangled) = mangle_private_name(self.class_name.as_str(), name) {
+            Cow::Owned(mangled)
+        } else {
+            Cow::Borrowed(name)
+        }
     }
 }
 
@@ -92,8 +102,10 @@ impl Transformer for ClassVarRenamer {
                     // Mark this def as pending so the function body can still
                     // see the global binding while decorators run.
                     self.pending.insert(original_name.clone());
+                    let storage_name = self.storage_name(original_name.as_str());
                     self.emit_after(py_stmt!(
-                        "_dp_class_ns.{name:id} = {name:id}",
+                        "_dp_class_ns.{storage_name:id} = {name:id}",
+                        storage_name = storage_name.as_ref(),
                         name = original_name.as_str(),
                     ));
                     // Once the helper executes the pending state is cleared,
@@ -123,7 +135,11 @@ impl Transformer for ClassVarRenamer {
                         // Mark stored after visiting value, in case you have x = x, where rhs is global
                         // and must still resolve to the outer scope before we rewrite the target.
                         self.stored.insert(name.to_string());
-                        *target = py_expr!("_dp_class_ns.{name:id}", name = name);
+                        let storage_name = self.storage_name(name);
+                        *target = py_expr!(
+                            "_dp_class_ns.{storage_name:id}",
+                            storage_name = storage_name.as_ref(),
+                        );
                     }
                 } else {
                     walk_stmt(self, stmt);
@@ -139,9 +155,10 @@ impl Transformer for ClassVarRenamer {
                             // synthesized class dict matches Python's runtime behavior.
                             self.stored.remove(name);
                             self.pending.remove(name);
+                            let storage_name = self.storage_name(name);
                             *stmt = py_stmt_single(py_stmt!(
-                                "del _dp_class_ns.{name:id}",
-                                name = name,
+                                "del _dp_class_ns.{storage_name:id}",
+                                storage_name = storage_name.as_ref(),
                             ));
                             return;
                         }
@@ -182,7 +199,11 @@ impl Transformer for ClassVarRenamer {
                             // After publication we rewrite loads to hit the
                             // explicit `_dp_class_ns` entry so attributes live
                             // on the constructed class.
-                            *expr = py_expr!("_dp_class_ns.{name:id}", name = name_str);
+                            let storage_name = self.storage_name(name_str);
+                            *expr = py_expr!(
+                                "_dp_class_ns.{storage_name:id}",
+                                storage_name = storage_name.as_ref(),
+                            );
                         } else if self.pending.contains(name_str)
                             && !self.assignment_targets.contains(name_str)
                         {
@@ -202,4 +223,21 @@ impl Transformer for ClassVarRenamer {
         }
         walk_expr(self, expr);
     }
+}
+
+pub(super) fn mangle_private_name(class_name: &str, attr: &str) -> Option<String> {
+    if !attr.starts_with("__") || attr.ends_with("__") {
+        return None;
+    }
+
+    let mut class_name = class_name;
+    while class_name.starts_with('_') {
+        class_name = &class_name[1..];
+    }
+
+    if class_name.is_empty() {
+        return None;
+    }
+
+    Some(format!("_{}{}", class_name, attr))
 }
