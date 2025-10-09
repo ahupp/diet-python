@@ -61,6 +61,16 @@ impl<'a> ExprRewriter<'a> {
         result
     }
 
+    pub(crate) fn with_class_scope<F, R>(&mut self, class_name: &str, f: F) -> R
+    where
+        F: FnOnce(&mut Self) -> R,
+    {
+        self.ctx.push_class(class_name.to_string());
+        let result = f(self);
+        self.ctx.pop_class();
+        result
+    }
+
     fn process_statements(&mut self, initial: Vec<Stmt>) -> Vec<Stmt> {
         enum WorkItem {
             Process(Stmt),

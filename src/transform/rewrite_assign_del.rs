@@ -1,6 +1,7 @@
 use super::driver::{ExprRewriter, Rewrite};
 use crate::body_transform::Transformer;
 use crate::template::{make_binop, make_tuple};
+use crate::transform::class_def::rewrite_class_vars::mangle_private_name;
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Operator, Stmt};
 
@@ -23,10 +24,15 @@ pub(crate) fn rewrite_target(
         }
         Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
             let attr = attr.clone();
+            let mangled_name = rewriter
+                .context()
+                .current_class_name()
+                .and_then(|class| mangle_private_name(class.as_str(), attr.as_str()));
+            let name_literal = mangled_name.as_deref().unwrap_or_else(|| attr.as_str());
             let stmt = py_stmt!(
                 "__dp__.setattr({value:expr}, {name:literal}, {rhs:expr})",
                 value = value,
-                name = attr.as_str(),
+                name = name_literal,
                 rhs = rhs,
             );
             out.extend(stmt);
@@ -207,7 +213,7 @@ pub(crate) fn rewrite_aug_assign(
     Rewrite::Visit(stmts)
 }
 
-pub(crate) fn rewrite_delete(_rewriter: &mut ExprRewriter, delete: ast::StmtDelete) -> Rewrite {
+pub(crate) fn rewrite_delete(rewriter: &mut ExprRewriter, delete: ast::StmtDelete) -> Rewrite {
     if !should_rewrite_targets(&delete.targets) {
         return Rewrite::Walk(vec![Stmt::Delete(delete)]);
     }
@@ -222,11 +228,20 @@ pub(crate) fn rewrite_delete(_rewriter: &mut ExprRewriter, delete: ast::StmtDele
                     obj = sub.value,
                     key = sub.slice
                 ),
-                Expr::Attribute(attr) => py_stmt!(
-                    "__dp__.delattr({obj:expr}, {name:literal})",
-                    obj = attr.value,
-                    name = attr.attr.as_str(),
-                ),
+                Expr::Attribute(attr) => {
+                    let mangled_name = rewriter
+                        .context()
+                        .current_class_name()
+                        .and_then(|class| mangle_private_name(class.as_str(), attr.attr.as_str()));
+                    let name_literal = mangled_name
+                        .as_deref()
+                        .unwrap_or_else(|| attr.attr.as_str());
+                    py_stmt!(
+                        "__dp__.delattr({obj:expr}, {name:literal})",
+                        obj = attr.value,
+                        name = name_literal,
+                    )
+                }
                 _ => py_stmt!("del {target:expr}", target = target),
             })
             .flatten()

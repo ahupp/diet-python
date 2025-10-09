@@ -1,0 +1,40 @@
+$ desugars class_private_attribute
+
+class Example:
+    def __init__(self, value):
+        self.__value = value
+
+    def update(self, value):
+        self.__value = value
+
+    def read(self):
+        return self.__value
+
+
+def use_example():
+    instance = Example("initial")
+    instance.update("payload")
+    return instance.read()
+=
+import __dp__
+def _dp_ns_Example(_dp_class_ns):
+
+    def __init__(self, value):
+        __dp__.setattr(self, "_Example__value", value)
+    __dp__.setattr(_dp_class_ns, "__init__", __init__)
+
+    def update(self, value):
+        __dp__.setattr(self, "_Example__value", value)
+    __dp__.setattr(_dp_class_ns, "update", update)
+
+    def read(self):
+        return self._Example__value
+    __dp__.setattr(_dp_class_ns, "read", read)
+    __dp__.setattr(_dp_class_ns, "__module__", __name__)
+    __dp__.setattr(_dp_class_ns, "__qualname__", "Example")
+Example = __dp__.create_class("Example", _dp_ns_Example, (), None)
+del _dp_ns_Example
+def use_example():
+    instance = Example("initial")
+    instance.update("payload")
+    return instance.read()

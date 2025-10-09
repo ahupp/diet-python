@@ -195,6 +195,9 @@ pub fn rewrite_method(
 
     let method_qualname = format!("{class_qualname}.{original_method_name}");
     let body = take(&mut func_def.body);
-    func_def.body =
-        rewriter.with_function_scope(method_qualname, |rewriter| rewriter.rewrite_block(body));
+    func_def.body = rewriter.with_class_scope(class_name, move |rewriter| {
+        rewriter.with_function_scope(method_qualname, move |rewriter| {
+            rewriter.rewrite_block(body)
+        })
+    });
 }
