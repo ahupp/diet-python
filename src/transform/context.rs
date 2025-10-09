@@ -24,6 +24,7 @@ pub struct Context {
     pub namer: Namer,
     pub options: Options,
     function_stack: RefCell<Vec<String>>,
+    class_stack: RefCell<Vec<String>>,
 }
 
 impl Context {
@@ -32,6 +33,7 @@ impl Context {
             namer: Namer::new(),
             options,
             function_stack: RefCell::new(Vec::new()),
+            class_stack: RefCell::new(Vec::new()),
         }
     }
 
@@ -49,5 +51,17 @@ impl Context {
 
     pub fn pop_function(&self) {
         self.function_stack.borrow_mut().pop();
+    }
+
+    pub fn push_class(&self, class_name: String) {
+        self.class_stack.borrow_mut().push(class_name);
+    }
+
+    pub fn current_class_name(&self) -> Option<String> {
+        self.class_stack.borrow().last().cloned()
+    }
+
+    pub fn pop_class(&self) {
+        self.class_stack.borrow_mut().pop();
     }
 }

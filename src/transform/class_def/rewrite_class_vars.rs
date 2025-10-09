@@ -59,9 +59,7 @@ impl Transformer for ClassVarRenamer {
             if let Stmt::FunctionDef(ast::StmtFunctionDef { name, .. }) = stmt {
                 let function_name = name.id.as_str();
                 if self.should_rewrite(function_name) {
-                    let inserted = self
-                        .pending
-                        .insert(function_name.to_string());
+                    let inserted = self.pending.insert(function_name.to_string());
                     if inserted {
                         added_pending.push(function_name.to_string());
                     }
@@ -225,7 +223,7 @@ impl Transformer for ClassVarRenamer {
     }
 }
 
-pub(super) fn mangle_private_name(class_name: &str, attr: &str) -> Option<String> {
+pub(crate) fn mangle_private_name(class_name: &str, attr: &str) -> Option<String> {
     if !attr.starts_with("__") || attr.ends_with("__") {
         return None;
     }
