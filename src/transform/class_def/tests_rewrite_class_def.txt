@@ -224,6 +224,24 @@ def _dp_ns_C(_dp_class_ns):
     __dp__.setattr(_dp_class_ns, "__qualname__", "C")
 C = __dp__.create_class("C", _dp_ns_C, (), None)
 del _dp_ns_C
+$ mangles private class attributes
+
+class C:
+    __value = 1
+
+    def read(self):
+        return __value
+=
+def _dp_ns_C(_dp_class_ns):
+    __dp__.setattr(_dp_class_ns, "_C__value", 1)
+
+    def read(self):
+        return _dp_class_ns._C__value
+    __dp__.setattr(_dp_class_ns, "read", read)
+    __dp__.setattr(_dp_class_ns, "__module__", __name__)
+    __dp__.setattr(_dp_class_ns, "__qualname__", "C")
+C = __dp__.create_class("C", _dp_ns_C, (), None)
+del _dp_ns_C
 $ nested class uses outer binding in bases
 
 class Outer:

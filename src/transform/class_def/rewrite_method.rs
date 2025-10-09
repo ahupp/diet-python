@@ -1,5 +1,6 @@
 use std::{collections::HashSet, mem::take};
 
+use super::rewrite_class_vars::mangle_private_name;
 use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
 
 use crate::{
@@ -104,6 +105,17 @@ impl Transformer for MethodTransformer {
             }
             Expr::Name(ast::ExprName { id, ctx, .. }) => {
                 if matches!(ctx, ExprContext::Load) {
+                    if let Some(mangled) =
+                        mangle_private_name(self.class_expr.as_str(), id.as_str())
+                    {
+                        if !self.local_bindings.contains(id.as_str()) {
+                            *expr = py_expr!(
+                                "_dp_class_ns.{storage_name:id}",
+                                storage_name = mangled.as_str(),
+                            );
+                            return;
+                        }
+                    }
                     if id == "__class__" {
                         *expr = py_expr!("{cls:id}", cls = self.class_expr.as_str());
                     } else if id.as_str() == self.method_name
