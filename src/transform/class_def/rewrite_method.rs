@@ -103,6 +103,16 @@ impl Transformer for MethodTransformer {
                 }
                 return;
             }
+            Expr::Attribute(ast::ExprAttribute { attr, .. }) => {
+                if let Some(mangled) =
+                    mangle_private_name(self.class_expr.as_str(), attr.id.as_str())
+                {
+                    attr.id = mangled.into();
+                }
+
+                walk_expr(self, expr);
+                return;
+            }
             Expr::Name(ast::ExprName { id, ctx, .. }) => {
                 if matches!(ctx, ExprContext::Load) {
                     if let Some(mangled) =

@@ -1,0 +1,26 @@
+$ desugars private_method
+
+class Example:
+    def __secret(self):
+        return "payload"
+
+    def reveal(self):
+        return self.__secret()
+
+RESULT = Example().reveal()
+=
+import __dp__
+def _dp_ns_Example(_dp_class_ns):
+
+    def __secret(self):
+        return "payload"
+    __dp__.setattr(_dp_class_ns, "_Example__secret", __secret)
+
+    def reveal(self):
+        return self._Example__secret()
+    __dp__.setattr(_dp_class_ns, "reveal", reveal)
+    __dp__.setattr(_dp_class_ns, "__module__", __name__)
+    __dp__.setattr(_dp_class_ns, "__qualname__", "Example")
+Example = __dp__.create_class("Example", _dp_ns_Example, (), None)
+del _dp_ns_Example
+RESULT = Example().reveal()
