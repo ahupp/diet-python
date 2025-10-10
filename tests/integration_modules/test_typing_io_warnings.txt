@@ -1,0 +1,39 @@
+$ desugars typing_io_warnings
+
+"""Importing typing.io should emit a single deprecation warning."""
+
+import warnings
+
+with warnings.catch_warnings(record=True) as caught:
+    warnings.filterwarnings("default", category=DeprecationWarning)
+    from typing.io import IO, TextIO, BinaryIO, __all__, __name__
+    WARNINGS = len(caught)
+    NAMES = (IO, TextIO, BinaryIO, tuple(__all__), __name__)
+=
+"""Importing typing.io should emit a single deprecation warning."""
+import __dp__
+warnings = __dp__.import_("warnings", __spec__)
+_dp_tmp_3 = __dp__.with_enter(warnings.catch_warnings(record=True))
+_dp_tmp_4 = __dp__.unpack(_dp_tmp_3, (True, True))
+caught = __dp__.getitem(_dp_tmp_4, 0)
+_dp_with_exit_1 = __dp__.getitem(_dp_tmp_4, 1)
+_dp_with_active_2 = True
+try:
+    try:
+        warnings.filterwarnings("default", category=DeprecationWarning)
+        IO = __dp__.import_("typing.io", __spec__, __dp__.list(("IO",))).IO
+        TextIO = __dp__.import_("typing.io", __spec__, __dp__.list(("TextIO",))).TextIO
+        BinaryIO = __dp__.import_("typing.io", __spec__, __dp__.list(("BinaryIO",))).BinaryIO
+        __all__ = __dp__.import_("typing.io", __spec__, __dp__.list(("__all__",))).__all__
+        __name__ = __dp__.import_("typing.io", __spec__, __dp__.list(("__name__",))).__name__
+        WARNINGS = len(caught)
+        NAMES = IO, TextIO, BinaryIO, tuple(__all__), __name__
+    except:
+        _dp_with_active_2 = False
+        __dp__.with_exit(_dp_with_exit_1, __dp__.exc_info())
+    else:
+        _dp_with_active_2 = False
+        __dp__.with_exit(_dp_with_exit_1, None)
+finally:
+    if _dp_with_active_2:
+        __dp__.with_exit(_dp_with_exit_1, None)

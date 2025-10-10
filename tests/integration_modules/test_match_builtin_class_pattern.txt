@@ -1,0 +1,21 @@
+$ desugars match_builtin_class_pattern
+
+"""Replicates CPython's dataclasses slot handling using a str class pattern."""
+
+match "aa":
+    case str(slot):
+        MATCHED = slot
+    case _:
+        MATCHED = None
+=
+"""Replicates CPython's dataclasses slot handling using a str class pattern."""
+import __dp__
+_dp_match_1 = "aa"
+_dp_tmp_2 = isinstance(_dp_match_1, str)
+if _dp_tmp_2:
+    _dp_tmp_2 = hasattr(_dp_match_1, __dp__.getitem(str.__match_args__, 0))
+if _dp_tmp_2:
+    slot = getattr(_dp_match_1, __dp__.getitem(str.__match_args__, 0))
+    MATCHED = slot
+else:
+    MATCHED = None
