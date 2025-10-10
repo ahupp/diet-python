@@ -31,37 +31,55 @@ pub fn rewrite(
 
         body = if is_async {
             let exit_name = ctx.fresh("awith_exit");
+            let active_name = ctx.fresh("awith_active");
             py_stmt!(
                 r#"
 ({target:expr}, {exit_name:id}) = await __dp__.with_aenter({ctx:expr})
+{active_name:id} = True
 try:
-    {body:stmt}
-except:
-    await __dp__.with_aexit({exit_name:id}, __dp__.exc_info())
-else:
-    await __dp__.with_aexit({exit_name:id}, None)
+    try:
+        {body:stmt}
+    except:
+        {active_name:id} = False
+        await __dp__.with_aexit({exit_name:id}, __dp__.exc_info())
+    else:
+        {active_name:id} = False
+        await __dp__.with_aexit({exit_name:id}, None)
+finally:
+    if {active_name:id}:
+        await __dp__.with_aexit({exit_name:id}, None)
 "#,
                 ctx = context_expr,
                 target = target,
                 body = body,
                 exit_name = exit_name.as_str(),
+                active_name = active_name.as_str(),
             )
         } else {
             let exit_name = ctx.fresh("with_exit");
+            let active_name = ctx.fresh("with_active");
             py_stmt!(
                 r#"
 ({target:expr}, {exit_name:id}) = __dp__.with_enter({ctx:expr})
+{active_name:id} = True
 try:
-    {body:stmt}
-except:
-    __dp__.with_exit({exit_name:id}, __dp__.exc_info())
-else:
-    __dp__.with_exit({exit_name:id}, None)
+    try:
+        {body:stmt}
+    except:
+        {active_name:id} = False
+        __dp__.with_exit({exit_name:id}, __dp__.exc_info())
+    else:
+        {active_name:id} = False
+        __dp__.with_exit({exit_name:id}, None)
+finally:
+    if {active_name:id}:
+        __dp__.with_exit({exit_name:id}, None)
 "#,
                 ctx = context_expr,
                 target = target,
                 body = body,
                 exit_name = exit_name.as_str(),
+                active_name = active_name.as_str(),
             )
         };
     }

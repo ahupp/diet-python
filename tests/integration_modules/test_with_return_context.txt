@@ -1,0 +1,63 @@
+$ desugars with_return_context
+
+class Recording:
+    def __init__(self) -> None:
+        self.exited = False
+
+    def __enter__(self) -> "Recording":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.exited = True
+
+
+def use_context(manager: "Recording") -> "Recording":
+    with manager as result:
+        return result
+
+
+def run() -> tuple[bool, "Recording"]:
+    manager = Recording()
+    result = use_context(manager)
+    return manager.exited, result
+=
+import __dp__
+def _dp_ns_Recording(_dp_class_ns):
+
+    def __init__(self) -> None:
+        __dp__.setattr(self, "exited", False)
+    __dp__.setattr(_dp_class_ns, "__init__", __init__)
+
+    def __enter__(self) -> "Recording":
+        return self
+    __dp__.setattr(_dp_class_ns, "__enter__", __enter__)
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        __dp__.setattr(self, "exited", True)
+    __dp__.setattr(_dp_class_ns, "__exit__", __exit__)
+    __dp__.setattr(_dp_class_ns, "__module__", __name__)
+    __dp__.setattr(_dp_class_ns, "__qualname__", "Recording")
+Recording = __dp__.create_class("Recording", _dp_ns_Recording, (), None)
+del _dp_ns_Recording
+def use_context(manager: "Recording") -> "Recording":
+    _dp_tmp_3 = __dp__.with_enter(manager)
+    _dp_tmp_4 = __dp__.unpack(_dp_tmp_3, (True, True))
+    result = __dp__.getitem(_dp_tmp_4, 0)
+    _dp_with_exit_1 = __dp__.getitem(_dp_tmp_4, 1)
+    _dp_with_active_2 = True
+    try:
+        try:
+            return result
+        except:
+            _dp_with_active_2 = False
+            __dp__.with_exit(_dp_with_exit_1, __dp__.exc_info())
+        else:
+            _dp_with_active_2 = False
+            __dp__.with_exit(_dp_with_exit_1, None)
+    finally:
+        if _dp_with_active_2:
+            __dp__.with_exit(_dp_with_exit_1, None)
+def run() -> __dp__.getitem(tuple, (bool, "Recording")):
+    manager = Recording()
+    result = use_context(manager)
+    return manager.exited, result
