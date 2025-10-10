@@ -1,0 +1,18 @@
+$ desugars method_local_shadowing
+
+class Example:
+    def run(self):
+        run = 1
+        return run
+=
+import __dp__
+def _dp_ns_Example(_dp_class_ns):
+
+    def run(self):
+        run = 1
+        return __dp__.global_(globals(), "run")
+    __dp__.setattr(_dp_class_ns, "run", run)
+    __dp__.setattr(_dp_class_ns, "__module__", __name__)
+    __dp__.setattr(_dp_class_ns, "__qualname__", "Example")
+Example = __dp__.create_class("Example", _dp_ns_Example, (), None)
+del _dp_ns_Example
