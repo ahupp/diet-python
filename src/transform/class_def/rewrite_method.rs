@@ -6,7 +6,7 @@ use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
 use crate::{
     body_transform::{walk_expr, walk_stmt, Transformer},
     py_expr,
-    transform::driver::ExprRewriter,
+    transform::driver::{collect_function_globals, ExprRewriter},
 };
 
 struct MethodTransformer {
@@ -195,8 +195,9 @@ pub fn rewrite_method(
 
     let method_qualname = format!("{class_qualname}.{original_method_name}");
     let body = take(&mut func_def.body);
+    let globals = collect_function_globals(&body);
     func_def.body = rewriter.with_class_scope(class_name, class_qualname, move |rewriter| {
-        rewriter.with_function_scope(method_qualname, move |rewriter| {
+        rewriter.with_function_scope(method_qualname, globals, move |rewriter| {
             rewriter.rewrite_block(body)
         })
     });

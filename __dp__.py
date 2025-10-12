@@ -3,7 +3,12 @@ import operator as _operator
 import sys
 import builtins
 import types as _types
-import typing as _typing
+
+_TYPEVAR_SUPPORTS_DEFAULT = False
+_PARAMSPEC_SUPPORTS_DEFAULT = False
+_TYPEVAR_TUPLE_SUPPORTS_DEFAULT = False
+_TYPING_FEATURES_INITIALIZED = False
+_typing = None
 
 operator = _operator
 add = _operator.add
@@ -61,28 +66,6 @@ list = builtins.list
 dict = builtins.dict
 set = builtins.set
 slice = builtins.slice
-
-
-try:
-    _typing.TypeVar("_dp_default_probe", default=int)
-except TypeError:
-    _TYPEVAR_SUPPORTS_DEFAULT = False
-else:
-    _TYPEVAR_SUPPORTS_DEFAULT = True
-
-try:
-    _typing.ParamSpec("_dp_param_spec_default_probe", default=int)
-except TypeError:
-    _PARAMSPEC_SUPPORTS_DEFAULT = False
-else:
-    _PARAMSPEC_SUPPORTS_DEFAULT = True
-
-try:
-    _typing.TypeVarTuple("_dp_typevartuple_default_probe", default=())
-except TypeError:
-    _TYPEVAR_TUPLE_SUPPORTS_DEFAULT = False
-else:
-    _TYPEVAR_TUPLE_SUPPORTS_DEFAULT = True
 
 
 def missing_name(name):
@@ -250,6 +233,71 @@ class _ClassNamespace:
         return self._namespace.get(name, default)
 
 
+def _set_qualname(obj, qualname):
+    try:
+        obj.__qualname__ = qualname
+    except (AttributeError, TypeError):
+        pass
+
+
+def _update_qualname(owner_qualname, attr_name, value):
+    target = f"{owner_qualname}.{attr_name}"
+    if isinstance(value, staticmethod):
+        _update_qualname(owner_qualname, attr_name, value.__func__)
+    elif isinstance(value, classmethod):
+        _update_qualname(owner_qualname, attr_name, value.__func__)
+    elif isinstance(value, property):
+        if value.fget is not None:
+            _set_qualname(value.fget, target)
+        if value.fset is not None:
+            _set_qualname(value.fset, target)
+        if value.fdel is not None:
+            _set_qualname(value.fdel, target)
+    elif isinstance(value, _types.FunctionType):
+        _set_qualname(value, target)
+
+
+def _ensure_typing_module():
+    global _typing
+    module = _typing
+    if module is None:
+        module = sys.modules.get("typing")
+        if module is None:
+            module = builtins.__import__("typing")
+        _typing = module
+    return module
+
+
+def _ensure_typing_features(module):
+    global _TYPEVAR_SUPPORTS_DEFAULT, _PARAMSPEC_SUPPORTS_DEFAULT
+    global _TYPEVAR_TUPLE_SUPPORTS_DEFAULT, _TYPING_FEATURES_INITIALIZED
+    if _TYPING_FEATURES_INITIALIZED:
+        return
+
+    try:
+        module.TypeVar("_dp_default_probe", default=int)
+    except TypeError:
+        _TYPEVAR_SUPPORTS_DEFAULT = False
+    else:
+        _TYPEVAR_SUPPORTS_DEFAULT = True
+
+    try:
+        module.ParamSpec("_dp_param_spec_default_probe", default=int)
+    except TypeError:
+        _PARAMSPEC_SUPPORTS_DEFAULT = False
+    else:
+        _PARAMSPEC_SUPPORTS_DEFAULT = True
+
+    try:
+        module.TypeVarTuple("_dp_typevartuple_default_probe", default=())
+    except TypeError:
+        _TYPEVAR_TUPLE_SUPPORTS_DEFAULT = False
+    else:
+        _TYPEVAR_TUPLE_SUPPORTS_DEFAULT = True
+
+    _TYPING_FEATURES_INITIALIZED = True
+
+
 def _normalize_constraints(constraints):
     if constraints is None:
         return ()
@@ -259,6 +307,8 @@ def _normalize_constraints(constraints):
 
 
 def type_param_typevar(name, bound=None, default=None, constraints=None):
+    module = _ensure_typing_module()
+    _ensure_typing_features(module)
     args = _normalize_constraints(constraints)
     kwargs = {}
     if bound is not None:
@@ -266,24 +316,28 @@ def type_param_typevar(name, bound=None, default=None, constraints=None):
     if default is not None and _TYPEVAR_SUPPORTS_DEFAULT:
         kwargs["default"] = default
     try:
-        return _typing.TypeVar(name, *args, **kwargs)
+        return module.TypeVar(name, *args, **kwargs)
     except TypeError:
         if "default" in kwargs and not _TYPEVAR_SUPPORTS_DEFAULT:
             kwargs.pop("default")
-            return _typing.TypeVar(name, *args, **kwargs)
+            return module.TypeVar(name, *args, **kwargs)
         raise
 
 
 def type_param_typevar_tuple(name, default=None):
+    module = _ensure_typing_module()
+    _ensure_typing_features(module)
     if default is not None and _TYPEVAR_TUPLE_SUPPORTS_DEFAULT:
-        return _typing.TypeVarTuple(name, default=default)
-    return _typing.TypeVarTuple(name)
+        return module.TypeVarTuple(name, default=default)
+    return module.TypeVarTuple(name)
 
 
 def type_param_param_spec(name, default=None):
+    module = _ensure_typing_module()
+    _ensure_typing_features(module)
     if default is not None and _PARAMSPEC_SUPPORTS_DEFAULT:
-        return _typing.ParamSpec(name, default=default)
-    return _typing.ParamSpec(name)
+        return module.ParamSpec(name, default=default)
+    return module.ParamSpec(name)
 
 
 def create_class(name, namespace_fn, bases, kwds=None):
@@ -293,6 +347,11 @@ def create_class(name, namespace_fn, bases, kwds=None):
 
     namespace = _ClassNamespace(ns)
     namespace_fn(namespace)
+    qualname = ns.get("__qualname__", name)
+    for attr_name, value in list(ns.items()):
+        if attr_name == "__qualname__":
+            continue
+        _update_qualname(qualname, attr_name, value)
     if orig_bases is not bases and "__orig_bases__" not in ns:
         ns["__orig_bases__"] = orig_bases
     return meta(name, bases, ns, **meta_kwds)
@@ -495,4 +554,3 @@ def with_exit(state, exc_info: tuple | None):
             raise
     else:
         aexit(ctx, None, None, None)
-

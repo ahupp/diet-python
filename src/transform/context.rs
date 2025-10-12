@@ -1,5 +1,7 @@
 use std::cell::{Cell, RefCell};
 
+use std::collections::HashSet;
+
 use super::Options;
 
 pub struct Namer {
@@ -31,6 +33,7 @@ pub struct Context {
     pub options: Options,
     function_stack: RefCell<Vec<String>>,
     class_stack: RefCell<Vec<ClassContext>>,
+    function_globals: RefCell<Vec<HashSet<String>>>,
 }
 
 impl Context {
@@ -40,6 +43,7 @@ impl Context {
             options,
             function_stack: RefCell::new(Vec::new()),
             class_stack: RefCell::new(Vec::new()),
+            function_globals: RefCell::new(Vec::new()),
         }
     }
 
@@ -57,6 +61,21 @@ impl Context {
 
     pub fn pop_function(&self) {
         self.function_stack.borrow_mut().pop();
+    }
+
+    pub fn push_function_globals(&self, globals: HashSet<String>) {
+        self.function_globals.borrow_mut().push(globals);
+    }
+
+    pub fn pop_function_globals(&self) {
+        self.function_globals.borrow_mut().pop();
+    }
+
+    pub fn function_globals_contains(&self, name: &str) -> bool {
+        self.function_globals
+            .borrow()
+            .last()
+            .map_or(false, |globals| globals.contains(name))
     }
 
     pub fn push_class(&self, class_name: String, class_qualname: String) {
