@@ -1,0 +1,12 @@
+$ desugars typing_import
+
+from typing import TypeVar
+
+
+RESULT = TypeVar("Result")
+=
+import __dp__
+_dp_import_1 = __dp__.import_("typing", __spec__, __dp__.list(("TypeVar",)))
+TypeVar = __dp__.import_attr(_dp_import_1, "TypeVar")
+del _dp_import_1
+RESULT = TypeVar("Result")

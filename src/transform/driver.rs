@@ -13,7 +13,7 @@ use crate::{
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Operator, Stmt, UnaryOp};
 use ruff_text_size::TextRange;
-use std::mem::take;
+use std::{collections::HashSet, mem::take};
 
 pub struct ExprRewriter<'a> {
     ctx: &'a Context,
@@ -51,12 +51,19 @@ impl<'a> ExprRewriter<'a> {
         self.process_statements(body)
     }
 
-    pub(crate) fn with_function_scope<F, R>(&mut self, qualname: String, f: F) -> R
+    pub(crate) fn with_function_scope<F, R>(
+        &mut self,
+        qualname: String,
+        globals: HashSet<String>,
+        f: F,
+    ) -> R
     where
         F: FnOnce(&mut Self) -> R,
     {
         self.ctx.push_function(qualname);
+        self.ctx.push_function_globals(globals);
         let result = f(self);
+        self.ctx.pop_function_globals();
         self.ctx.pop_function();
         result
     }
@@ -172,9 +179,10 @@ impl<'a> ExprRewriter<'a> {
                 } else {
                     func_name.clone()
                 };
-                self.with_function_scope(qualname, |rewriter| {
-                    let body = take(&mut func_def.body);
-                    func_def.body = rewriter.rewrite_block(body);
+                let body = take(&mut func_def.body);
+                let globals = collect_function_globals(&body);
+                func_def.body = self.with_function_scope(qualname, globals, |rewriter| {
+                    rewriter.rewrite_block(body)
                 });
                 let decorators = take(&mut func_def.decorator_list);
                 let func_name = func_def.name.id.clone();
@@ -191,10 +199,17 @@ impl<'a> ExprRewriter<'a> {
             Stmt::Assert(assert) => rewrite_assert::rewrite(assert),
             Stmt::ClassDef(mut class_def) => {
                 let class_name = class_def.name.id.as_str().to_string();
-                let qualname = self
-                    .context()
-                    .current_function_qualname()
-                    .map(|enclosing| format!("{enclosing}.<locals>.{class_name}"));
+                let qualname = if self.context().current_function_qualname().is_some()
+                    && self
+                        .context()
+                        .function_globals_contains(class_name.as_str())
+                {
+                    None
+                } else {
+                    self.context()
+                        .current_function_qualname()
+                        .map(|enclosing| format!("{enclosing}.<locals>.{class_name}"))
+                };
                 let decorators = take(&mut class_def.decorator_list);
                 class_def::rewrite(class_def.clone(), decorators, self, qualname)
             }
@@ -221,6 +236,32 @@ impl<'a> ExprRewriter<'a> {
             other => Rewrite::Walk(vec![other]),
         }
     }
+}
+
+#[derive(Default)]
+struct GlobalCollector {
+    globals: HashSet<String>,
+}
+
+impl Transformer for GlobalCollector {
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
+        match stmt {
+            Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {}
+            Stmt::Global(ast::StmtGlobal { names, .. }) => {
+                for name in names {
+                    self.globals.insert(name.id.to_string());
+                }
+            }
+            _ => walk_stmt(self, stmt),
+        }
+    }
+}
+
+pub(crate) fn collect_function_globals(body: &[Stmt]) -> HashSet<String> {
+    let mut collector = GlobalCollector::default();
+    let mut cloned_body: Vec<Stmt> = body.to_vec();
+    collector.visit_body(&mut cloned_body);
+    collector.globals
 }
 
 fn make_tuple_splat(elts: Vec<Expr>) -> Expr {

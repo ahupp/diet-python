@@ -1,0 +1,27 @@
+$ desugars global_class_qualname
+
+def make_name():
+    global Y
+
+    class Y:
+        class Inner:
+            pass
+
+    return Y.__qualname__, Y.Inner.__qualname__
+=
+import __dp__
+def make_name():
+    global Y
+
+    def _dp_ns_Y(_dp_class_ns):
+        __dp__.setattr(_dp_class_ns, "Inner", __dp__.create_class("Inner", _dp_ns_Y_Inner, (), None))
+        __dp__.setattr(_dp_class_ns, "__module__", __name__)
+        __dp__.setattr(_dp_class_ns, "__qualname__", "Y")
+
+    def _dp_ns_Y_Inner(_dp_class_ns):
+        __dp__.setattr(_dp_class_ns, "__module__", __name__)
+        __dp__.setattr(_dp_class_ns, "__qualname__", "Y.Inner")
+    Y = __dp__.create_class("Y", _dp_ns_Y, (), None)
+    del _dp_ns_Y_Inner
+    del _dp_ns_Y
+    return Y.__qualname__, Y.Inner.__qualname__

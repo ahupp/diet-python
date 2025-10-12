@@ -111,11 +111,7 @@ pub fn rewrite_from(import_from: ast::StmtImportFrom, ctx: &Context, options: &O
 
     for alias in names {
         let orig = alias.name.id.as_str();
-        let binding = alias
-            .asname
-            .as_ref()
-            .map(|n| n.id.as_str())
-            .unwrap_or(orig);
+        let binding = alias.asname.as_ref().map(|n| n.id.as_str()).unwrap_or(orig);
         statements.extend(py_stmt!(
             "{name:id} = __dp__.import_attr({module:id}, {attr:literal})",
             name = binding,
