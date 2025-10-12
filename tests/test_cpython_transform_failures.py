@@ -371,7 +371,7 @@ class Example:
 
     assert computed == actual
 
-def test_builtin_str_class_pattern_raises_attribute_error(tmp_path: Path) -> None:
+def test_builtin_str_class_pattern_binds_subject(tmp_path: Path) -> None:
     source = """
 match "aa":
     case str(slot):
@@ -380,9 +380,8 @@ match "aa":
         MATCHED = None
 """
 
-    with pytest.raises(AttributeError):
-        with transformed_module(tmp_path, "match_builtin_class_pattern", source):
-            pass
+    with transformed_module(tmp_path, "match_builtin_class_pattern", source) as module:
+        assert module.MATCHED == "aa"
 
 
 def test_nested_typing_subclass_loses_enclosing_name(tmp_path: Path) -> None:

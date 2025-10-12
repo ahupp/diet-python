@@ -340,6 +340,7 @@ else:
                 cls = *cls.clone()
             )];
             let mut assigns = Vec::new();
+            let positional_total = integer_expr(arguments.patterns.len());
             let mut handle_attr =
                 |pattern: &Pattern, attr_exists: Expr, attr_value: Expr| match test_for_pattern(
                     pattern, attr_value,
@@ -359,24 +360,19 @@ else:
                 };
 
             for (i, p) in arguments.patterns.iter().enumerate() {
-                let idx_expr = *parse_expression(&i.to_string())
-                    .expect("parse error")
-                    .into_syntax()
-                    .body;
-                let attr_name = py_expr!(
-                    "{cls:expr}.__match_args__[{idx:expr}]",
-                    cls = *cls.clone(),
-                    idx = idx_expr
-                );
                 let attr_exists = py_expr!(
-                    "hasattr({subject:expr}, {name:expr})",
+                    "__dp__.match_class_attr_exists({cls:expr}, {subject:expr}, {idx:expr}, {total:expr})",
                     subject = subject.clone(),
-                    name = attr_name.clone()
+                    cls = *cls.clone(),
+                    idx = integer_expr(i),
+                    total = positional_total.clone()
                 );
                 let attr_value = py_expr!(
-                    "getattr({subject:expr}, {name:expr})",
+                    "__dp__.match_class_attr_value({cls:expr}, {subject:expr}, {idx:expr}, {total:expr})",
                     subject = subject.clone(),
-                    name = attr_name
+                    cls = *cls.clone(),
+                    idx = integer_expr(i),
+                    total = positional_total.clone()
                 );
                 handle_attr(p, attr_exists, attr_value);
             }

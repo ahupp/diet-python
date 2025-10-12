@@ -150,14 +150,14 @@ match x:
 _dp_match_1 = x
 _dp_tmp_2 = isinstance(_dp_match_1, C)
 if _dp_tmp_2:
-    _dp_tmp_2 = hasattr(_dp_match_1, __dp__.getitem(C.__match_args__, 0))
+    _dp_tmp_2 = __dp__.match_class_attr_exists(C, _dp_match_1, 0, 2)
 if _dp_tmp_2:
-    _dp_tmp_3 = __dp__.eq(getattr(_dp_match_1, __dp__.getitem(C.__match_args__, 0)), 1)
+    _dp_tmp_3 = __dp__.eq(__dp__.match_class_attr_value(C, _dp_match_1, 0, 2), 1)
     _dp_tmp_2 = _dp_tmp_3
 if _dp_tmp_2:
-    _dp_tmp_2 = hasattr(_dp_match_1, __dp__.getitem(C.__match_args__, 1))
+    _dp_tmp_2 = __dp__.match_class_attr_exists(C, _dp_match_1, 1, 2)
 if _dp_tmp_2:
-    b = getattr(_dp_match_1, __dp__.getitem(C.__match_args__, 1))
+    b = __dp__.match_class_attr_value(C, _dp_match_1, 1, 2)
     a()
 else:
     c()

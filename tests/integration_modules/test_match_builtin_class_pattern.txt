@@ -13,9 +13,9 @@ import __dp__
 _dp_match_1 = "aa"
 _dp_tmp_2 = isinstance(_dp_match_1, str)
 if _dp_tmp_2:
-    _dp_tmp_2 = hasattr(_dp_match_1, __dp__.getitem(str.__match_args__, 0))
+    _dp_tmp_2 = __dp__.match_class_attr_exists(str, _dp_match_1, 0, 1)
 if _dp_tmp_2:
-    slot = getattr(_dp_match_1, __dp__.getitem(str.__match_args__, 0))
+    slot = __dp__.match_class_attr_value(str, _dp_match_1, 0, 1)
     MATCHED = slot
 else:
     MATCHED = None

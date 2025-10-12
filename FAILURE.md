@@ -5,14 +5,13 @@ current transform when it is applied to both standard library and test
 modules. The following sections summarize the observed behavior, the
 integration tests that capture each issue, and the suspected root causes.
 
-## 1. Builtin class pattern destructuring
+## 1. Builtin class pattern destructuring *(fixed)*
 
 *Observed in*: `tests/integration_modules/match_builtin_class_pattern.py`
 
-Matching against builtin classes such as `str` raises `AttributeError` when the
-transformed pattern accesses a synthetic `__match_args__`. CPython falls back to
-the subject value instead of consulting `__match_args__` for builtins, so the
-transform needs a similar fallback path.
+The transform now mirrors CPython’s fallback for builtins that do not define
+`__match_args__`, so the integration module executes without raising
+`AttributeError` and successfully binds the subject value.
 
 ## 2. Nested typing subclass `__qualname__`
 
@@ -52,5 +51,5 @@ invocations, and each one triggers the deprecated proxy’s warning machinery.
 CPython emits one warning, while the transformed module emits several. The
 transform should reuse a shared import result to avoid duplicated warnings.
 
-These failures remain open and are documented by the new integration fixtures
-and regression tests added in the previous change set.
+The remaining failures are still documented by the integration fixtures and
+regression tests added in the previous change set.
