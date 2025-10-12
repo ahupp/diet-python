@@ -63,7 +63,9 @@ __qualname__ = {class_qualname:literal}
         class_qualname = class_qualname.as_str(),
     ));
 
-    let mut body = rewriter.with_class_scope(&class_name, |rewriter| rewriter.rewrite_block(body));
+    let mut body = rewriter.with_class_scope(&class_name, &class_qualname, |rewriter| {
+        rewriter.rewrite_block(body)
+    });
 
     /*
     Collect all AnnAssign statements, rewriting them to bare Assign (if there's a value)

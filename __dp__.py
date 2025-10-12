@@ -131,6 +131,39 @@ def prepare_class(name, bases, kwds=None):
     return _types.prepare_class(name, bases, kwds)
 
 
+def _match_class_validate_arity(cls, match_args, total):
+    allowed = 1 if match_args is None else len(match_args)
+    if total > allowed:
+        plural_allowed = "" if allowed == 1 else "s"
+        raise TypeError(
+            f"{cls.__name__}() accepts {allowed} positional sub-pattern"
+            f"{plural_allowed} ({total} given)"
+        )
+    return allowed
+
+
+def match_class_attr_exists(cls, subject, idx, total):
+    match_args = getattr(cls, "__match_args__", None)
+    _match_class_validate_arity(cls, match_args, total)
+
+    if match_args is None:
+        return True
+
+    name = match_args[idx]
+    return hasattr(subject, name)
+
+
+def match_class_attr_value(cls, subject, idx, total):
+    match_args = getattr(cls, "__match_args__", None)
+    _match_class_validate_arity(cls, match_args, total)
+
+    if match_args is None:
+        return subject
+
+    name = match_args[idx]
+    return getattr(subject, name)
+
+
 class _ClassNamespace:
     __slots__ = ("_namespace", "_locals")
 

@@ -20,11 +20,17 @@ impl Namer {
     }
 }
 
+#[derive(Clone)]
+struct ClassContext {
+    name: String,
+    qualname: String,
+}
+
 pub struct Context {
     pub namer: Namer,
     pub options: Options,
     function_stack: RefCell<Vec<String>>,
-    class_stack: RefCell<Vec<String>>,
+    class_stack: RefCell<Vec<ClassContext>>,
 }
 
 impl Context {
@@ -53,12 +59,22 @@ impl Context {
         self.function_stack.borrow_mut().pop();
     }
 
-    pub fn push_class(&self, class_name: String) {
-        self.class_stack.borrow_mut().push(class_name);
+    pub fn push_class(&self, class_name: String, class_qualname: String) {
+        self.class_stack.borrow_mut().push(ClassContext {
+            name: class_name,
+            qualname: class_qualname,
+        });
     }
 
     pub fn current_class_name(&self) -> Option<String> {
-        self.class_stack.borrow().last().cloned()
+        self.class_stack.borrow().last().map(|ctx| ctx.name.clone())
+    }
+
+    pub fn current_class_qualname(&self) -> Option<String> {
+        self.class_stack
+            .borrow()
+            .last()
+            .map(|ctx| ctx.qualname.clone())
     }
 
     pub fn pop_class(&self) {
