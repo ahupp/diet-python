@@ -61,11 +61,17 @@ impl<'a> ExprRewriter<'a> {
         result
     }
 
-    pub(crate) fn with_class_scope<F, R>(&mut self, class_name: &str, f: F) -> R
+    pub(crate) fn with_class_scope<F, R>(
+        &mut self,
+        class_name: &str,
+        class_qualname: &str,
+        f: F,
+    ) -> R
     where
         F: FnOnce(&mut Self) -> R,
     {
-        self.ctx.push_class(class_name.to_string());
+        self.ctx
+            .push_class(class_name.to_string(), class_qualname.to_string());
         let result = f(self);
         self.ctx.pop_class();
         result
@@ -159,11 +165,13 @@ impl<'a> ExprRewriter<'a> {
         match stmt {
             Stmt::FunctionDef(mut func_def) => {
                 let func_name = func_def.name.id.as_str().to_string();
-                let qualname = self
-                    .context()
-                    .current_function_qualname()
-                    .map(|enclosing| format!("{enclosing}.<locals>.{func_name}"))
-                    .unwrap_or(func_name.clone());
+                let qualname = if let Some(enclosing) = self.context().current_function_qualname() {
+                    format!("{enclosing}.<locals>.{func_name}")
+                } else if let Some(class_qualname) = self.context().current_class_qualname() {
+                    format!("{class_qualname}.{func_name}")
+                } else {
+                    func_name.clone()
+                };
                 self.with_function_scope(qualname, |rewriter| {
                     let body = take(&mut func_def.body);
                     func_def.body = rewriter.rewrite_block(body);

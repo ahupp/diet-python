@@ -295,11 +295,11 @@ def _dp_ns_Example(_dp_class_ns):
 
     def trigger(self):
 
-        def _dp_ns_trigger__locals__Token(_dp_class_ns):
+        def _dp_ns_Example_trigger__locals__Token(_dp_class_ns):
             __dp__.setattr(_dp_class_ns, "__module__", __name__)
-            __dp__.setattr(_dp_class_ns, "__qualname__", "trigger.<locals>.Token")
-        Token = __dp__.create_class("Token", _dp_ns_trigger__locals__Token, (), None)
-        del _dp_ns_trigger__locals__Token
+            __dp__.setattr(_dp_class_ns, "__qualname__", "Example.trigger.<locals>.Token")
+        Token = __dp__.create_class("Token", _dp_ns_Example_trigger__locals__Token, (), None)
+        del _dp_ns_Example_trigger__locals__Token
         return Token
     __dp__.setattr(_dp_class_ns, "trigger", trigger)
     __dp__.setattr(_dp_class_ns, "__module__", __name__)
@@ -321,11 +321,11 @@ def _dp_ns_Example(_dp_class_ns):
     def trigger(self, flag):
         if flag:
 
-            def _dp_ns_trigger__locals__Token(_dp_class_ns):
+            def _dp_ns_Example_trigger__locals__Token(_dp_class_ns):
                 __dp__.setattr(_dp_class_ns, "__module__", __name__)
-                __dp__.setattr(_dp_class_ns, "__qualname__", "trigger.<locals>.Token")
-            Token = __dp__.create_class("Token", _dp_ns_trigger__locals__Token, (), None)
-            del _dp_ns_trigger__locals__Token
+                __dp__.setattr(_dp_class_ns, "__qualname__", "Example.trigger.<locals>.Token")
+            Token = __dp__.create_class("Token", _dp_ns_Example_trigger__locals__Token, (), None)
+            del _dp_ns_Example_trigger__locals__Token
             return Token
         return None
     __dp__.setattr(_dp_class_ns, "trigger", trigger)

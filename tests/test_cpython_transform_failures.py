@@ -384,7 +384,7 @@ match "aa":
         assert module.MATCHED == "aa"
 
 
-def test_nested_typing_subclass_loses_enclosing_name(tmp_path: Path) -> None:
+def test_nested_typing_subclass_preserves_enclosing_name(tmp_path: Path) -> None:
     source = """
 from typing import Any
 
@@ -398,7 +398,7 @@ VALUE = Container().make()
 """
 
     with transformed_module(tmp_path, "typing_nested_class_repr", source) as module:
-        assert "Container" not in module.VALUE
+        assert "Container.make.<locals>.Sub" in module.VALUE
 
 
 def test_pep695_type_params_are_lost(tmp_path: Path) -> None:

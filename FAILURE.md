@@ -13,15 +13,12 @@ The transform now mirrors CPython’s fallback for builtins that do not define
 `__match_args__`, so the integration module executes without raising
 `AttributeError` and successfully binds the subject value.
 
-## 2. Nested typing subclass `__qualname__`
+## 2. Nested typing subclass `__qualname__` *(fixed)*
 
 *Observed in*: `tests/integration_modules/typing_nested_class_repr.py`
 
-The namespace rewriting drops the containing class name when synthesizing
-nested subclasses of `typing.Generic`, causing reprs to omit intermediate
-containers (`make.<locals>.Sub` instead of `Container.make.<locals>.Sub`). The
-transform should propagate the enclosing `__qualname__` when rebuilding nested
-class definitions.
+Method-local class rewrites now preserve the enclosing class name, so reprs of
+`typing` subclasses retain `Container.make.<locals>.Sub` just like CPython.
 
 ## 3. PEP 695 type parameter metadata
 

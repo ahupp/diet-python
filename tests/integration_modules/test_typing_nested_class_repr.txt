@@ -19,11 +19,11 @@ def _dp_ns_Container(_dp_class_ns):
 
     def make(self) -> str:
 
-        def _dp_ns_make__locals__Sub(_dp_class_ns):
+        def _dp_ns_Container_make__locals__Sub(_dp_class_ns):
             __dp__.setattr(_dp_class_ns, "__module__", __name__)
-            __dp__.setattr(_dp_class_ns, "__qualname__", "make.<locals>.Sub")
-        Sub = __dp__.create_class("Sub", _dp_ns_make__locals__Sub, (Any,), None)
-        del _dp_ns_make__locals__Sub
+            __dp__.setattr(_dp_class_ns, "__qualname__", "Container.make.<locals>.Sub")
+        Sub = __dp__.create_class("Sub", _dp_ns_Container_make__locals__Sub, (Any,), None)
+        del _dp_ns_Container_make__locals__Sub
         return repr(Sub)
     __dp__.setattr(_dp_class_ns, "make", make)
     __dp__.setattr(_dp_class_ns, "__module__", __name__)
