@@ -1,0 +1,44 @@
+$ desugars pep695_type_params
+
+"""Shows that PEP 695 type parameters survive the transform."""
+
+from typing import get_type_hints
+
+Eggs = int
+Spam = str
+
+class C[Eggs, **Spam]:
+    x: Eggs
+    y: Spam
+
+HINTS = get_type_hints(C)
+PARAMS = C.__type_params__
+=
+"""Shows that PEP 695 type parameters survive the transform."""
+import __dp__
+_dp_import_1 = __dp__.import_("typing", __spec__, __dp__.list(("get_type_hints",)))
+get_type_hints = __dp__.import_attr(_dp_import_1, "get_type_hints")
+del _dp_import_1
+Eggs = int
+Spam = str
+def _dp_ns_C(_dp_class_ns):
+    __dp__.setattr(_dp_class_ns, "Eggs", __dp__.type_param_typevar("Eggs", None, None, None))
+    __dp__.setattr(_dp_class_ns, "Spam", __dp__.type_param_param_spec("Spam", None))
+    __dp__.setattr(_dp_class_ns, "__type_params__", (_dp_class_ns.Eggs, _dp_class_ns.Spam))
+    __dp__.setattr(_dp_class_ns, "__annotations__", _dp_class_ns.get("__annotations__"))
+    _dp_tmp_2 = __dp__.is_(_dp_class_ns.__annotations__, None)
+    if _dp_tmp_2:
+        __dp__.setattr(_dp_class_ns, "__annotations__", __dp__.dict())
+    __dp__.setattr(_dp_class_ns, "__module__", __name__)
+    __dp__.setattr(_dp_class_ns, "__qualname__", "C")
+    _dp_class_annotations = _dp_class_ns.get("__annotations__")
+    _dp_tmp_3 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_3:
+        _dp_class_annotations = __dp__.dict()
+    __dp__.setattr(_dp_class_ns, "__annotations__", _dp_class_annotations)
+    __dp__.setitem(_dp_class_annotations, "x", _dp_class_ns.Eggs)
+    __dp__.setitem(_dp_class_annotations, "y", _dp_class_ns.Spam)
+C = __dp__.create_class("C", _dp_ns_C, (), None)
+del _dp_ns_C
+HINTS = get_type_hints(C)
+PARAMS = C.__type_params__

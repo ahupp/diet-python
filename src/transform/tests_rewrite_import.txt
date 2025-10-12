@@ -8,7 +8,9 @@ $ rewrites from import
 
 from a.b import c
 =
-c = __dp__.import_("a.b", __spec__, __dp__.list(("c",))).c
+_dp_import_1 = __dp__.import_("a.b", __spec__, __dp__.list(("c",)))
+c = __dp__.import_attr(_dp_import_1, "c")
+del _dp_import_1
 
 $ rewrites aliased import
 
@@ -26,7 +28,9 @@ $ rewrites relative import
 
 from ..a import b
 =
-b = __dp__.import_("a", __spec__, __dp__.list(("b",)), 2).b
+_dp_import_1 = __dp__.import_("a", __spec__, __dp__.list(("b",)), 2)
+b = __dp__.import_attr(_dp_import_1, "b")
+del _dp_import_1
 
 $ inserts after future and docstring
 

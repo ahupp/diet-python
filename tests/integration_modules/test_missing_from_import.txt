@@ -18,9 +18,13 @@ else:
 =
 """Exercise ``from module import name`` when ``name`` is absent."""
 import __dp__
-VALUE = __dp__.import_("missing_from_import_target", __spec__, __dp__.list(("VALUE",))).VALUE
+_dp_import_1 = __dp__.import_("missing_from_import_target", __spec__, __dp__.list(("VALUE",)))
+VALUE = __dp__.import_attr(_dp_import_1, "VALUE")
+del _dp_import_1
 try:
-    MISSING = __dp__.import_("missing_from_import_target", __spec__, __dp__.list(("MISSING",))).MISSING
+    _dp_import_2 = __dp__.import_("missing_from_import_target", __spec__, __dp__.list(("MISSING",)))
+    MISSING = __dp__.import_attr(_dp_import_2, "MISSING")
+    del _dp_import_2
 except:
     if __dp__.isinstance(__dp__.current_exception(), ImportError):
         exc = __dp__.current_exception()

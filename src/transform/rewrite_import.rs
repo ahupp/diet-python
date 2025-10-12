@@ -1,7 +1,8 @@
 use crate::py_stmt;
 
-use super::{driver::Rewrite, ImportStarHandling, Options};
+use super::{context::Context, driver::Rewrite, ImportStarHandling, Options};
 use ruff_python_ast::{self as ast, Stmt};
+use ruff_python_parser::parse_module;
 
 pub fn should_rewrite_import_from(import_from: &ast::StmtImportFrom, options: &Options) -> bool {
     if import_from
@@ -51,7 +52,7 @@ pub fn rewrite(ast::StmtImport { names, .. }: ast::StmtImport) -> Rewrite {
     )
 }
 
-pub fn rewrite_from(import_from: ast::StmtImportFrom, options: &Options) -> Rewrite {
+pub fn rewrite_from(import_from: ast::StmtImportFrom, ctx: &Context, options: &Options) -> Rewrite {
     if !should_rewrite_import_from(&import_from, options) {
         return Rewrite::Walk(vec![Stmt::ImportFrom(import_from)]);
     }
@@ -73,34 +74,59 @@ pub fn rewrite_from(import_from: ast::StmtImportFrom, options: &Options) -> Rewr
         });
     }
     let module_name = module.as_ref().map(|n| n.id.as_str()).unwrap_or("");
-    Rewrite::Visit(
-        names
-            .into_iter()
-            .map(|alias| {
-                let orig = alias.name.id.as_str();
-                let binding = alias.asname.as_ref().map(|n| n.id.as_str()).unwrap_or(orig);
-                if level > 0 {
-                    py_stmt!(
-                        "{name:id} = __dp__.import_({module:literal}, __spec__, [{orig:literal}], {level:literal}).{attr:id}",
-                        name = binding,
-                        module = module_name,
-                        orig = orig,
-                        level = level,
-                        attr = orig,
-                    )
-                } else {
-                    py_stmt!(
-                        "{name:id} = __dp__.import_({module:literal}, __spec__, [{orig:literal}]).{attr:id}",
-                        name = binding,
-                        module = module_name,
-                        orig = orig,
-                        attr = orig,
-                    )
-                }
-            })
-            .flatten()
-            .collect(),
-    )
+    let temp_binding = ctx.fresh("import");
+    let mut statements = Vec::new();
+
+    let fromlist: Vec<String> = names
+        .iter()
+        .map(|alias| format!("{:?}", alias.name.id.as_str()))
+        .collect();
+    let fromlist_literal = format!("[{}]", fromlist.join(", "));
+    let module_literal = format!("{:?}", module_name);
+    let import_stmt_source = if level > 0 {
+        format!(
+            "{tmp} = __dp__.import_({module}, __spec__, {fromlist}, {level})",
+            tmp = temp_binding,
+            module = module_literal,
+            fromlist = fromlist_literal,
+            level = level
+        )
+    } else {
+        format!(
+            "{tmp} = __dp__.import_({module}, __spec__, {fromlist})",
+            tmp = temp_binding,
+            module = module_literal,
+            fromlist = fromlist_literal
+        )
+    };
+
+    let mut import_stmt = parse_module(import_stmt_source.as_str())
+        .expect("failed to parse rewritten import")
+        .into_syntax()
+        .body;
+    let import_stmt = import_stmt
+        .pop()
+        .expect("expected single statement when parsing import rewrite");
+    statements.push(import_stmt);
+
+    for alias in names {
+        let orig = alias.name.id.as_str();
+        let binding = alias
+            .asname
+            .as_ref()
+            .map(|n| n.id.as_str())
+            .unwrap_or(orig);
+        statements.extend(py_stmt!(
+            "{name:id} = __dp__.import_attr({module:id}, {attr:literal})",
+            name = binding,
+            module = temp_binding.as_str(),
+            attr = orig,
+        ));
+    }
+
+    statements.extend(py_stmt!("del {module:id}", module = temp_binding.as_str()));
+
+    Rewrite::Visit(statements)
 }
 
 #[cfg(test)]
@@ -113,7 +139,7 @@ mod tests {
 
     fn rewrite_source(source: &str, options: Options) -> String {
         let mut module = parse_module(source).expect("parse error").into_syntax();
-        let ctx = Context::new(options);
+        let ctx = Context::new(options.clone());
         let mut expr_transformer = ExprRewriter::new(&ctx);
         expr_transformer.visit_body(&mut module.body);
         crate::template::flatten(&mut module.body);

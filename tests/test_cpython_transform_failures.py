@@ -370,3 +370,100 @@ class Example:
         }
 
     assert computed == actual
+
+def test_builtin_str_class_pattern_binds_subject(tmp_path: Path) -> None:
+    source = """
+match "aa":
+    case str(slot):
+        MATCHED = slot
+    case _:
+        MATCHED = None
+"""
+
+    with transformed_module(tmp_path, "match_builtin_class_pattern", source) as module:
+        assert module.MATCHED == "aa"
+
+
+def test_nested_typing_subclass_preserves_enclosing_name(tmp_path: Path) -> None:
+    source = """
+from typing import Any
+
+class Container:
+    def make(self) -> str:
+        class Sub(Any):
+            pass
+        return repr(Sub)
+
+VALUE = Container().make()
+"""
+
+    with transformed_module(tmp_path, "typing_nested_class_repr", source) as module:
+        assert "Container.make.<locals>.Sub" in module.VALUE
+
+
+def test_pep695_type_params_are_preserved(tmp_path: Path) -> None:
+    source = """
+from typing import get_type_hints
+
+Eggs = int
+Spam = str
+
+class C[Eggs, **Spam]:
+    x: Eggs
+    y: Spam
+
+HINTS = get_type_hints(C)
+PARAMS = C.__type_params__
+"""
+
+    with transformed_module(tmp_path, "pep695_type_params", source) as module:
+        assert isinstance(module.PARAMS, tuple)
+        assert len(module.PARAMS) == 2
+        eggs, spam = module.PARAMS
+        assert module.HINTS == {"x": eggs, "y": spam}
+        assert type(eggs).__name__ == "TypeVar"
+        assert eggs.__name__ == "Eggs"
+        assert type(spam).__name__ == "ParamSpec"
+        assert spam.__name__ == "Spam"
+
+
+def test_class_annotations_mutation_preserves_annotations(tmp_path: Path) -> None:
+    source = """
+from typing import get_type_hints
+
+class M(type):
+    __annotations__['123'] = 123
+    o: type = object
+
+HINTS = get_type_hints(M)
+"""
+
+    with transformed_module(tmp_path, "class_annotations_mutation", source) as module:
+        M = module.M
+        hints = module.HINTS
+
+    assert M.__annotations__["123"] == 123
+    assert hints["o"] is type
+    assert hints["123"] == 123
+    assert M.__annotations__["o"] is type
+
+
+def test_typing_io_emits_multiple_deprecation_warnings(tmp_path: Path) -> None:
+    source = """
+import warnings
+
+with warnings.catch_warnings(record=True) as caught:
+    warnings.filterwarnings("default", category=DeprecationWarning)
+    from typing.io import IO, TextIO, BinaryIO, __all__, __name__
+    WARNINGS = len(caught)
+    NAMES = (IO, TextIO, BinaryIO, tuple(__all__), __name__)
+"""
+
+    with transformed_module(tmp_path, "typing_io_warnings", source) as module:
+        assert module.WARNINGS == 1
+        io_mod, text_mod, binary_mod, exported, module_name = module.NAMES
+        assert exported == ("IO", "TextIO", "BinaryIO")
+        assert module_name == "typing.io"
+        assert io_mod.__module__ == "typing"
+        assert text_mod.__module__ == "typing"
+        assert binary_mod.__module__ == "typing"

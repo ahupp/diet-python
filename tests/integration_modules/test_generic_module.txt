@@ -17,8 +17,10 @@ def make_specialization():
     return IntBox
 =
 import __dp__
-Generic = __dp__.import_("typing", __spec__, __dp__.list(("Generic",))).Generic
-TypeVar = __dp__.import_("typing", __spec__, __dp__.list(("TypeVar",))).TypeVar
+_dp_import_1 = __dp__.import_("typing", __spec__, __dp__.list(("Generic", "TypeVar")))
+Generic = __dp__.import_attr(_dp_import_1, "Generic")
+TypeVar = __dp__.import_attr(_dp_import_1, "TypeVar")
+del _dp_import_1
 T = TypeVar("T")
 def _dp_ns_Box(_dp_class_ns):
     __dp__.setattr(_dp_class_ns, "__module__", __name__)
