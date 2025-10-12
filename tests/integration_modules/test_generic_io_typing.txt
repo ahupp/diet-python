@@ -10,9 +10,11 @@ class Example(Generic[AnyStr]):
         ...
 =
 import __dp__
-Generic = __dp__.import_("typing", __spec__, __dp__.list(("Generic",))).Generic
-List = __dp__.import_("typing", __spec__, __dp__.list(("List",))).List
-TypeVar = __dp__.import_("typing", __spec__, __dp__.list(("TypeVar",))).TypeVar
+_dp_import_1 = __dp__.import_("typing", __spec__, __dp__.list(("Generic", "List", "TypeVar")))
+Generic = __dp__.import_attr(_dp_import_1, "Generic")
+List = __dp__.import_attr(_dp_import_1, "List")
+TypeVar = __dp__.import_attr(_dp_import_1, "TypeVar")
+del _dp_import_1
 AnyStr = TypeVar("AnyStr", str, bytes)
 def _dp_ns_Example(_dp_class_ns):
 

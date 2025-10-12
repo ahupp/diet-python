@@ -17,13 +17,17 @@ import __dp__
 dataclasses = __dp__.import_("dataclasses", __spec__)
 _dp_tmp_1 = dataclasses.dataclass(slots=True)
 def _dp_ns_Example(_dp_class_ns):
+    __dp__.setattr(_dp_class_ns, "__annotations__", _dp_class_ns.get("__annotations__"))
+    _dp_tmp_2 = __dp__.is_(_dp_class_ns.__annotations__, None)
+    if _dp_tmp_2:
+        __dp__.setattr(_dp_class_ns, "__annotations__", __dp__.dict())
     __dp__.setattr(_dp_class_ns, "state", None)
     __dp__.setattr(_dp_class_ns, "count", 0)
     __dp__.setattr(_dp_class_ns, "__module__", __name__)
     __dp__.setattr(_dp_class_ns, "__qualname__", "Example")
     _dp_class_annotations = _dp_class_ns.get("__annotations__")
-    _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_2:
+    _dp_tmp_3 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_3:
         _dp_class_annotations = __dp__.dict()
     __dp__.setattr(_dp_class_ns, "__annotations__", _dp_class_annotations)
     __dp__.setitem(_dp_class_annotations, "label", str)

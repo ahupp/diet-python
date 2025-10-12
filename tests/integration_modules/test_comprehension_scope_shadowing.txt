@@ -12,7 +12,9 @@ HIGH_SCOPES = [scope for scope in Scope if scope is Scope.Function]
 FUNCTION_MEMBERS = [Scope.Function for scope in Scope if scope is Scope.Function]
 =
 import __dp__
-Enum = __dp__.import_("enum", __spec__, __dp__.list(("Enum",))).Enum
+_dp_import_1 = __dp__.import_("enum", __spec__, __dp__.list(("Enum",)))
+Enum = __dp__.import_attr(_dp_import_1, "Enum")
+del _dp_import_1
 def _dp_ns_Scope(_dp_class_ns):
     __dp__.setattr(_dp_class_ns, "Function", "function")
     __dp__.setattr(_dp_class_ns, "Module", "module")
@@ -20,29 +22,29 @@ def _dp_ns_Scope(_dp_class_ns):
     __dp__.setattr(_dp_class_ns, "__qualname__", "Scope")
 Scope = __dp__.create_class("Scope", _dp_ns_Scope, (Enum,), None)
 del _dp_ns_Scope
-def _dp_gen_1(_dp_iter_2):
-    _dp_iter_3 = __dp__.iter(_dp_iter_2)
+def _dp_gen_2(_dp_iter_3):
+    _dp_iter_4 = __dp__.iter(_dp_iter_3)
     while True:
         try:
-            scope = __dp__.next(_dp_iter_3)
+            scope = __dp__.next(_dp_iter_4)
         except:
             __dp__.check_stopiteration()
             break
         else:
-            _dp_tmp_4 = __dp__.is_(scope, Scope.Function)
-            if _dp_tmp_4:
+            _dp_tmp_5 = __dp__.is_(scope, Scope.Function)
+            if _dp_tmp_5:
                 yield scope
-HIGH_SCOPES = __dp__.list(_dp_gen_1(__dp__.iter(Scope)))
-def _dp_gen_5(_dp_iter_6):
-    _dp_iter_7 = __dp__.iter(_dp_iter_6)
+HIGH_SCOPES = __dp__.list(_dp_gen_2(__dp__.iter(Scope)))
+def _dp_gen_6(_dp_iter_7):
+    _dp_iter_8 = __dp__.iter(_dp_iter_7)
     while True:
         try:
-            scope = __dp__.next(_dp_iter_7)
+            scope = __dp__.next(_dp_iter_8)
         except:
             __dp__.check_stopiteration()
             break
         else:
-            _dp_tmp_8 = __dp__.is_(scope, Scope.Function)
-            if _dp_tmp_8:
+            _dp_tmp_9 = __dp__.is_(scope, Scope.Function)
+            if _dp_tmp_9:
                 yield Scope.Function
-FUNCTION_MEMBERS = __dp__.list(_dp_gen_5(__dp__.iter(Scope)))
+FUNCTION_MEMBERS = __dp__.list(_dp_gen_6(__dp__.iter(Scope)))

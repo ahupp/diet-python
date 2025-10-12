@@ -29,12 +29,16 @@ class C:
     y: str = 1
 =
 def _dp_ns_C(_dp_class_ns):
+    __dp__.setattr(_dp_class_ns, "__annotations__", _dp_class_ns.get("__annotations__"))
+    _dp_tmp_1 = __dp__.is_(_dp_class_ns.__annotations__, None)
+    if _dp_tmp_1:
+        __dp__.setattr(_dp_class_ns, "__annotations__", __dp__.dict())
     __dp__.setattr(_dp_class_ns, "y", 1)
     __dp__.setattr(_dp_class_ns, "__module__", __name__)
     __dp__.setattr(_dp_class_ns, "__qualname__", "C")
     _dp_class_annotations = _dp_class_ns.get("__annotations__")
-    _dp_tmp_1 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_1:
+    _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_2:
         _dp_class_annotations = __dp__.dict()
     __dp__.setattr(_dp_class_ns, "__annotations__", _dp_class_annotations)
     __dp__.setitem(_dp_class_annotations, "x", int)
@@ -61,11 +65,15 @@ class C:
 =
 T = object()
 def _dp_ns_C(_dp_class_ns):
+    __dp__.setattr(_dp_class_ns, "__annotations__", _dp_class_ns.get("__annotations__"))
+    _dp_tmp_1 = __dp__.is_(_dp_class_ns.__annotations__, None)
+    if _dp_tmp_1:
+        __dp__.setattr(_dp_class_ns, "__annotations__", __dp__.dict())
     __dp__.setattr(_dp_class_ns, "__module__", __name__)
     __dp__.setattr(_dp_class_ns, "__qualname__", "C")
     _dp_class_annotations = _dp_class_ns.get("__annotations__")
-    _dp_tmp_1 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_1:
+    _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_2:
         _dp_class_annotations = __dp__.dict()
     __dp__.setattr(_dp_class_ns, "__annotations__", _dp_class_annotations)
     __dp__.setitem(_dp_class_annotations, "x", T)
@@ -82,6 +90,29 @@ def _dp_ns_C(_dp_class_ns):
     __dp__.setattr(_dp_class_ns, "y", _dp_class_ns.x)
     __dp__.setattr(_dp_class_ns, "__module__", __name__)
     __dp__.setattr(_dp_class_ns, "__qualname__", "C")
+C = __dp__.create_class("C", _dp_ns_C, (), None)
+del _dp_ns_C
+$ lowers PEP 695 type parameters
+
+class C[T, **P]:
+    x: T
+=
+def _dp_ns_C(_dp_class_ns):
+    __dp__.setattr(_dp_class_ns, "T", __dp__.type_param_typevar("T", None, None, None))
+    __dp__.setattr(_dp_class_ns, "P", __dp__.type_param_param_spec("P", None))
+    __dp__.setattr(_dp_class_ns, "__type_params__", (_dp_class_ns.T, _dp_class_ns.P))
+    __dp__.setattr(_dp_class_ns, "__annotations__", _dp_class_ns.get("__annotations__"))
+    _dp_tmp_1 = __dp__.is_(_dp_class_ns.__annotations__, None)
+    if _dp_tmp_1:
+        __dp__.setattr(_dp_class_ns, "__annotations__", __dp__.dict())
+    __dp__.setattr(_dp_class_ns, "__module__", __name__)
+    __dp__.setattr(_dp_class_ns, "__qualname__", "C")
+    _dp_class_annotations = _dp_class_ns.get("__annotations__")
+    _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
+    if _dp_tmp_2:
+        _dp_class_annotations = __dp__.dict()
+    __dp__.setattr(_dp_class_ns, "__annotations__", _dp_class_annotations)
+    __dp__.setitem(_dp_class_annotations, "x", _dp_class_ns.T)
 C = __dp__.create_class("C", _dp_ns_C, (), None)
 del _dp_ns_C
 $ lowers inherits
@@ -295,11 +326,11 @@ def _dp_ns_Example(_dp_class_ns):
 
     def trigger(self):
 
-        def _dp_ns_trigger__locals__Token(_dp_class_ns):
+        def _dp_ns_Example_trigger__locals__Token(_dp_class_ns):
             __dp__.setattr(_dp_class_ns, "__module__", __name__)
-            __dp__.setattr(_dp_class_ns, "__qualname__", "trigger.<locals>.Token")
-        Token = __dp__.create_class("Token", _dp_ns_trigger__locals__Token, (), None)
-        del _dp_ns_trigger__locals__Token
+            __dp__.setattr(_dp_class_ns, "__qualname__", "Example.trigger.<locals>.Token")
+        Token = __dp__.create_class("Token", _dp_ns_Example_trigger__locals__Token, (), None)
+        del _dp_ns_Example_trigger__locals__Token
         return Token
     __dp__.setattr(_dp_class_ns, "trigger", trigger)
     __dp__.setattr(_dp_class_ns, "__module__", __name__)
@@ -321,11 +352,11 @@ def _dp_ns_Example(_dp_class_ns):
     def trigger(self, flag):
         if flag:
 
-            def _dp_ns_trigger__locals__Token(_dp_class_ns):
+            def _dp_ns_Example_trigger__locals__Token(_dp_class_ns):
                 __dp__.setattr(_dp_class_ns, "__module__", __name__)
-                __dp__.setattr(_dp_class_ns, "__qualname__", "trigger.<locals>.Token")
-            Token = __dp__.create_class("Token", _dp_ns_trigger__locals__Token, (), None)
-            del _dp_ns_trigger__locals__Token
+                __dp__.setattr(_dp_class_ns, "__qualname__", "Example.trigger.<locals>.Token")
+            Token = __dp__.create_class("Token", _dp_ns_Example_trigger__locals__Token, (), None)
+            del _dp_ns_Example_trigger__locals__Token
             return Token
         return None
     __dp__.setattr(_dp_class_ns, "trigger", trigger)

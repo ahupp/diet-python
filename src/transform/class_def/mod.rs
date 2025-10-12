@@ -5,10 +5,12 @@ pub mod rewrite_nested_class;
 
 use crate::template::make_tuple;
 use crate::{py_expr, py_stmt};
-use ruff_python_ast::{self as ast, Expr, Stmt};
+use ruff_python_ast::{
+    self as ast, Expr, Stmt, TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple,
+};
 use ruff_text_size::TextRange;
 
-use crate::body_transform::Transformer;
+use crate::body_transform::{walk_expr, walk_stmt, Transformer};
 use crate::template::py_stmt_single;
 use crate::transform::class_def::rewrite_annotation::AnnotationCollector;
 use crate::transform::class_def::rewrite_class_vars::ClassVarRenamer;
@@ -17,11 +19,42 @@ use crate::transform::class_def::rewrite_nested_class::NestedClassCollector;
 use crate::transform::driver::{ExprRewriter, Rewrite};
 use crate::transform::rewrite_decorator;
 
+#[derive(Default)]
+struct AnnotationsUsageDetector {
+    used: bool,
+}
+
+impl AnnotationsUsageDetector {
+    fn used(&self) -> bool {
+        self.used
+    }
+}
+
+impl Transformer for AnnotationsUsageDetector {
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
+        match stmt {
+            Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {}
+            _ => walk_stmt(self, stmt),
+        }
+    }
+
+    fn visit_expr(&mut self, expr: &mut Expr) {
+        if let Expr::Name(ast::ExprName { id, .. }) = expr {
+            if id.as_str() == "__annotations__" {
+                self.used = true;
+            }
+        }
+
+        walk_expr(self, expr);
+    }
+}
+
 pub fn rewrite(
     ast::StmtClassDef {
         name,
         mut body,
         arguments,
+        type_params,
         ..
     }: ast::StmtClassDef,
     decorators: Vec<ast::Decorator>,
@@ -46,14 +79,28 @@ pub fn rewrite(
     /*
     If the first statement is a string literal, assign it to  __doc__
     */
+    let mut has_docstring = false;
     if let Some(first_stmt) = body.first_mut() {
         if let Stmt::Expr(ast::StmtExpr { value, .. }) = first_stmt {
             if let Expr::StringLiteral(_) = value.as_ref() {
                 let doc_expr = (*value).clone();
                 *first_stmt = py_stmt_single(py_stmt!("__doc__ = {value:expr}", value = doc_expr));
+                has_docstring = true;
             }
         }
     }
+
+    let mut annotations_usage = AnnotationsUsageDetector::default();
+    annotations_usage.visit_body(&mut body);
+
+    let mut type_param_statements = if let Some(type_params) = type_params {
+        rewriter.with_class_scope(&class_name, &class_qualname, |rewriter| {
+            make_type_param_statements(*type_params, rewriter)
+        })
+    } else {
+        Vec::new()
+    };
+    let type_param_stmt_count = type_param_statements.len();
 
     body.extend(py_stmt!(
         r#"
@@ -63,13 +110,36 @@ __qualname__ = {class_qualname:literal}
         class_qualname = class_qualname.as_str(),
     ));
 
-    let mut body = rewriter.with_class_scope(&class_name, |rewriter| rewriter.rewrite_block(body));
+    let mut body = rewriter.with_class_scope(&class_name, &class_qualname, |rewriter| {
+        rewriter.rewrite_block(body)
+    });
+
+    if !type_param_statements.is_empty() {
+        type_param_statements.extend(body);
+        body = type_param_statements;
+    }
 
     /*
     Collect all AnnAssign statements, rewriting them to bare Assign (if there's a value)
     or removing (if not).  Assign the annotations to __annotations__
     */
     let annotations = AnnotationCollector::collect(&mut body);
+    let needs_annotations = annotations_usage.used() || !annotations.is_empty();
+
+    if needs_annotations {
+        let insert_index = type_param_stmt_count + usize::from(has_docstring);
+        body.splice(
+            insert_index..insert_index,
+            py_stmt!(
+                r#"
+__annotations__ = _dp_class_ns.get("__annotations__")
+if __annotations__ is None:
+    __annotations__ = __dp__.dict()
+"#
+            ),
+        );
+    }
+
     if !annotations.is_empty() {
         body.extend(py_stmt!(
             r#"
@@ -182,6 +252,94 @@ def _dp_ns_{class_ident:id}(_dp_class_ns):
     ));
 
     Rewrite::Visit(ns_fn_stmt)
+}
+
+fn make_type_param_statements(
+    mut type_params: ast::TypeParams,
+    rewriter: &mut ExprRewriter,
+) -> Vec<Stmt> {
+    rewriter.visit_type_params(&mut type_params);
+
+    let mut statements = Vec::new();
+    let mut param_names = Vec::new();
+
+    for type_param in type_params.type_params {
+        match type_param {
+            TypeParam::TypeVar(TypeParamTypeVar {
+                name,
+                bound,
+                default,
+                ..
+            }) => {
+                let param_name = name.as_str().to_string();
+                let (constraints, bound_expr) = match bound {
+                    Some(expr) => match *expr {
+                        Expr::Tuple(ast::ExprTuple { elts, .. }) => (Some(make_tuple(elts)), None),
+                        other => (None, Some(other)),
+                    },
+                    None => (None, None),
+                };
+                let default_expr = default.map(|expr| *expr);
+
+                let bound_expr = bound_expr.unwrap_or_else(|| py_expr!("None"));
+                let default_expr = default_expr.unwrap_or_else(|| py_expr!("None"));
+                let constraints_expr = constraints.unwrap_or_else(|| py_expr!("None"));
+
+                statements.extend(py_stmt!(
+                    "{name:id} = __dp__.type_param_typevar({name_literal:literal}, {bound:expr}, {default:expr}, {constraints:expr})",
+                    name = param_name.as_str(),
+                    name_literal = param_name.as_str(),
+                    bound = bound_expr,
+                    default = default_expr,
+                    constraints = constraints_expr,
+                ));
+                param_names.push(param_name);
+            }
+            TypeParam::TypeVarTuple(TypeParamTypeVarTuple { name, default, .. }) => {
+                let param_name = name.as_str().to_string();
+                let default_expr = default
+                    .map(|expr| *expr)
+                    .unwrap_or_else(|| py_expr!("None"));
+
+                statements.extend(py_stmt!(
+                    "{name:id} = __dp__.type_param_typevar_tuple({name_literal:literal}, {default:expr})",
+                    name = param_name.as_str(),
+                    name_literal = param_name.as_str(),
+                    default = default_expr,
+                ));
+                param_names.push(param_name);
+            }
+            TypeParam::ParamSpec(TypeParamParamSpec { name, default, .. }) => {
+                let param_name = name.as_str().to_string();
+                let default_expr = default
+                    .map(|expr| *expr)
+                    .unwrap_or_else(|| py_expr!("None"));
+
+                statements.extend(py_stmt!(
+                    "{name:id} = __dp__.type_param_param_spec({name_literal:literal}, {default:expr})",
+                    name = param_name.as_str(),
+                    name_literal = param_name.as_str(),
+                    default = default_expr,
+                ));
+                param_names.push(param_name);
+            }
+        }
+    }
+
+    if !param_names.is_empty() {
+        let tuple_expr = make_tuple(
+            param_names
+                .iter()
+                .map(|name| py_expr!("{name:id}", name = name.as_str()))
+                .collect(),
+        );
+        statements.extend(py_stmt!(
+            "__type_params__ = {tuple:expr}",
+            tuple = tuple_expr
+        ));
+    }
+
+    statements
 }
 
 pub fn class_ident_from_qualname(qualname: &str) -> String {

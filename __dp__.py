@@ -3,6 +3,7 @@ import operator as _operator
 import sys
 import builtins
 import types as _types
+import typing as _typing
 
 operator = _operator
 add = _operator.add
@@ -60,6 +61,28 @@ list = builtins.list
 dict = builtins.dict
 set = builtins.set
 slice = builtins.slice
+
+
+try:
+    _typing.TypeVar("_dp_default_probe", default=int)
+except TypeError:
+    _TYPEVAR_SUPPORTS_DEFAULT = False
+else:
+    _TYPEVAR_SUPPORTS_DEFAULT = True
+
+try:
+    _typing.ParamSpec("_dp_param_spec_default_probe", default=int)
+except TypeError:
+    _PARAMSPEC_SUPPORTS_DEFAULT = False
+else:
+    _PARAMSPEC_SUPPORTS_DEFAULT = True
+
+try:
+    _typing.TypeVarTuple("_dp_typevartuple_default_probe", default=())
+except TypeError:
+    _TYPEVAR_TUPLE_SUPPORTS_DEFAULT = False
+else:
+    _TYPEVAR_TUPLE_SUPPORTS_DEFAULT = True
 
 
 def missing_name(name):
@@ -131,6 +154,39 @@ def prepare_class(name, bases, kwds=None):
     return _types.prepare_class(name, bases, kwds)
 
 
+def _match_class_validate_arity(cls, match_args, total):
+    allowed = 1 if match_args is None else len(match_args)
+    if total > allowed:
+        plural_allowed = "" if allowed == 1 else "s"
+        raise TypeError(
+            f"{cls.__name__}() accepts {allowed} positional sub-pattern"
+            f"{plural_allowed} ({total} given)"
+        )
+    return allowed
+
+
+def match_class_attr_exists(cls, subject, idx, total):
+    match_args = getattr(cls, "__match_args__", None)
+    _match_class_validate_arity(cls, match_args, total)
+
+    if match_args is None:
+        return True
+
+    name = match_args[idx]
+    return hasattr(subject, name)
+
+
+def match_class_attr_value(cls, subject, idx, total):
+    match_args = getattr(cls, "__match_args__", None)
+    _match_class_validate_arity(cls, match_args, total)
+
+    if match_args is None:
+        return subject
+
+    name = match_args[idx]
+    return getattr(subject, name)
+
+
 class _ClassNamespace:
     __slots__ = ("_namespace", "_locals")
 
@@ -192,6 +248,42 @@ class _ClassNamespace:
         if name in self._locals:
             return self._locals.get(name, default)
         return self._namespace.get(name, default)
+
+
+def _normalize_constraints(constraints):
+    if constraints is None:
+        return ()
+    if isinstance(constraints, tuple):
+        return constraints
+    return (constraints,)
+
+
+def type_param_typevar(name, bound=None, default=None, constraints=None):
+    args = _normalize_constraints(constraints)
+    kwargs = {}
+    if bound is not None:
+        kwargs["bound"] = bound
+    if default is not None and _TYPEVAR_SUPPORTS_DEFAULT:
+        kwargs["default"] = default
+    try:
+        return _typing.TypeVar(name, *args, **kwargs)
+    except TypeError:
+        if "default" in kwargs and not _TYPEVAR_SUPPORTS_DEFAULT:
+            kwargs.pop("default")
+            return _typing.TypeVar(name, *args, **kwargs)
+        raise
+
+
+def type_param_typevar_tuple(name, default=None):
+    if default is not None and _TYPEVAR_TUPLE_SUPPORTS_DEFAULT:
+        return _typing.TypeVarTuple(name, default=default)
+    return _typing.TypeVarTuple(name)
+
+
+def type_param_param_spec(name, default=None):
+    if default is not None and _PARAMSPEC_SUPPORTS_DEFAULT:
+        return _typing.ParamSpec(name, default=default)
+    return _typing.ParamSpec(name)
 
 
 def create_class(name, namespace_fn, bases, kwds=None):
@@ -259,6 +351,8 @@ def import_(name, spec, fromlist=None, level=0):
     if fromlist:
         module_name = getattr(module, "__name__", name)
         module_file = getattr(module, "__file__", None)
+        module_dict = getattr(module, "__dict__", None)
+        warned = False
         for attr in fromlist:
             if attr == "*":
                 continue
@@ -268,19 +362,47 @@ def import_(name, spec, fromlist=None, level=0):
                 and module_name.rsplit(".", 1)[1] == attr
             ):
                 continue
-            try:
-                getattr(module, attr)
-            except AttributeError as exc:
-                if module_name:
-                    submodule = sys.modules.get(f"{module_name}.{attr}")
-                    if submodule is not None:
-                        setattr(module, attr, submodule)
-                        continue
-                message = f"cannot import name {attr!r} from {module_name!r}"
-                if module_file is not None:
-                    message = f"{message} ({module_file})"
-                raise ImportError(message, name=module_name, path=module_file) from exc
+            value = None
+            if not warned:
+                try:
+                    value = getattr(module, attr)
+                except AttributeError as exc:
+                    if module_name:
+                        submodule = sys.modules.get(f"{module_name}.{attr}")
+                        if submodule is not None:
+                            setattr(module, attr, submodule)
+                            warned = True
+                            continue
+                    message = f"cannot import name {attr!r} from {module_name!r}"
+                    if module_file is not None:
+                        message = f"{message} ({module_file})"
+                    raise ImportError(message, name=module_name, path=module_file) from exc
+                warned = True
+            elif module_dict is not None and attr in module_dict:
+                value = module_dict[attr]
+            else:
+                try:
+                    value = getattr(module, attr)
+                except AttributeError as exc:
+                    if module_name:
+                        submodule = sys.modules.get(f"{module_name}.{attr}")
+                        if submodule is not None:
+                            setattr(module, attr, submodule)
+                            continue
+                    message = f"cannot import name {attr!r} from {module_name!r}"
+                    if module_file is not None:
+                        message = f"{message} ({module_file})"
+                    raise ImportError(message, name=module_name, path=module_file) from exc
+            if module_dict is not None and attr not in module_dict:
+                setattr(module, attr, value)
     return module
+
+
+def import_attr(module, attr):
+    module_dict = getattr(module, "__dict__", None)
+    if module_dict is not None and attr in module_dict:
+        return module_dict[attr]
+    return getattr(module, attr)
 
 
 # Tags as ints for yield from state machine

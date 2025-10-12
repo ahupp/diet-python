@@ -15,7 +15,9 @@ from __future__ import annotations, division
 def g(x: int | None):
     pass
 =
-division = __dp__.import_("__future__", __spec__, __dp__.list(("division",))).division
+_dp_import_1 = __dp__.import_("__future__", __spec__, __dp__.list(("division",)))
+division = __dp__.import_attr(_dp_import_1, "division")
+del _dp_import_1
 def g(x: "int | None"):
     pass
 
