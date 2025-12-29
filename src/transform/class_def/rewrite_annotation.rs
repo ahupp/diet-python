@@ -4,21 +4,17 @@ use crate::{body_transform::Transformer, py_stmt};
 
 #[derive(Default)]
 pub(crate) struct AnnotationCollector {
-    annotations: Vec<(usize, String, Expr)>,
+    annotations: Vec<(String, Expr)>,
 }
 
 impl AnnotationCollector {
-    pub(crate) fn collect(body: &mut Vec<Stmt>) -> Vec<(usize, String, Expr)> {
+    pub(crate) fn collect(body: &mut Vec<Stmt>) -> Vec<(String, Expr)> {
         let mut collector = Self::default();
         collector.visit_body(body);
         collector.annotations
     }
 
-    fn rewrite_annotation(
-        &mut self,
-        index: usize,
-        ann_assign: &mut ast::StmtAnnAssign,
-    ) -> Option<Stmt> {
+    fn rewrite_annotation(&mut self, ann_assign: &mut ast::StmtAnnAssign) -> Option<Stmt> {
         if !ann_assign.simple {
             return None;
         }
@@ -29,7 +25,7 @@ impl AnnotationCollector {
         let name = id.to_string();
 
         let annotation_expr = (*ann_assign.annotation).clone();
-        self.annotations.push((index, name, annotation_expr));
+        self.annotations.push((name, annotation_expr));
 
         if let Some(value) = ann_assign.value.take() {
             let target = (*ann_assign.target).clone();
@@ -56,15 +52,15 @@ impl AnnotationCollector {
 
 impl Transformer for AnnotationCollector {
     fn visit_body(&mut self, body: &mut Vec<Stmt>) {
-        for (index, stmt) in body.iter_mut().enumerate() {
+        for stmt in body.iter_mut() {
             match stmt {
                 Stmt::AnnAssign(ann_assign) => {
-                    if let Some(replacement) = self.rewrite_annotation(index, ann_assign) {
+                    if let Some(replacement) = self.rewrite_annotation(ann_assign) {
                         *stmt = replacement;
                     }
                 }
                 Stmt::ClassDef(_) => {
-                    panic!("nested classes are not supported by AnnotationCollector");
+                    // Nested classes are handled by the main rewriter.
                 }
                 Stmt::FunctionDef(_) => {}
                 _ => {}

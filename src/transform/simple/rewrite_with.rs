@@ -1,5 +1,6 @@
-use super::{context::Context, driver::Rewrite};
 use crate::body_transform::Transformer;
+use crate::transform::driver::ExprRewriter;
+use crate::transform::driver::Rewrite;
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast};
 
@@ -10,8 +11,7 @@ pub fn rewrite(
         is_async,
         ..
     }: ast::StmtWith,
-    ctx: &Context,
-    transformer: &mut impl Transformer,
+    transformer: &mut ExprRewriter,
 ) -> Rewrite {
     if items.is_empty() {
         return Rewrite::Visit(py_stmt!("pass"));
@@ -29,22 +29,19 @@ pub fn rewrite(
             py_expr!("_")
         };
 
+        let exit_name = transformer.context().fresh("with_exit");
+        let active_name = transformer.context().fresh("with_active");
+
         body = if is_async {
-            let exit_name = ctx.fresh("awith_exit");
-            let active_name = ctx.fresh("awith_active");
             py_stmt!(
                 r#"
 ({target:expr}, {exit_name:id}) = await __dp__.with_aenter({ctx:expr})
 {active_name:id} = True
 try:
-    try:
-        {body:stmt}
-    except:
-        {active_name:id} = False
-        await __dp__.with_aexit({exit_name:id}, __dp__.exc_info())
-    else:
-        {active_name:id} = False
-        await __dp__.with_aexit({exit_name:id}, None)
+    {body:stmt}
+except:
+    {active_name:id} = False
+    await __dp__.with_aexit({exit_name:id}, __dp__.exc_info())
 finally:
     if {active_name:id}:
         await __dp__.with_aexit({exit_name:id}, None)
@@ -56,21 +53,15 @@ finally:
                 active_name = active_name.as_str(),
             )
         } else {
-            let exit_name = ctx.fresh("with_exit");
-            let active_name = ctx.fresh("with_active");
             py_stmt!(
                 r#"
 ({target:expr}, {exit_name:id}) = __dp__.with_enter({ctx:expr})
 {active_name:id} = True
 try:
-    try:
-        {body:stmt}
-    except:
-        {active_name:id} = False
-        __dp__.with_exit({exit_name:id}, __dp__.exc_info())
-    else:
-        {active_name:id} = False
-        __dp__.with_exit({exit_name:id}, None)
+    {body:stmt}
+except:
+    {active_name:id} = False
+    __dp__.with_exit({exit_name:id}, __dp__.exc_info())
 finally:
     if {active_name:id}:
         __dp__.with_exit({exit_name:id}, None)

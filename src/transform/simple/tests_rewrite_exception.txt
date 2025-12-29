@@ -1,0 +1,16 @@
+$ rewrites default handler without temp
+
+try:
+    f()
+except E:
+    h()
+except:
+    g()
+=
+try:
+    f()
+except:
+    if __dp__.isinstance(__dp__.current_exception(), E):
+        h()
+    else:
+        g()

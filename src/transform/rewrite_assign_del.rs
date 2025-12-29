@@ -1,12 +1,24 @@
 use super::driver::{ExprRewriter, Rewrite};
 use crate::body_transform::Transformer;
 use crate::template::{make_binop, make_tuple};
-use crate::transform::class_def::rewrite_class_vars::mangle_private_name;
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Operator, Stmt};
 
-pub(crate) fn should_rewrite_targets(targets: &[Expr]) -> bool {
-    targets.len() > 1 || !matches!(targets.first(), Some(Expr::Name(_)))
+pub(crate) fn should_rewrite_targets(rewriter: &ExprRewriter, targets: &[Expr]) -> bool {
+    if targets.len() > 1 {
+        return true;
+    }
+
+    let Some(first) = targets.first() else {
+        return false;
+    };
+
+    match first {
+        Expr::Name(_) => false,
+        Expr::Attribute(_) => rewriter.context().options.lower_attributes,
+        Expr::Tuple(_) | Expr::List(_) | Expr::Subscript(_) => true,
+        _ => true,
+    }
 }
 
 pub(crate) fn rewrite_target(
@@ -23,22 +35,24 @@ pub(crate) fn rewrite_target(
             rewrite_unpack_target(rewriter, list.elts, rhs, out, UnpackTargetKind::List);
         }
         Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
-            let attr = attr.clone();
-            let mangled_name = rewriter
-                .context()
-                .current_class_name()
-                .and_then(|class| mangle_private_name(class.as_str(), attr.as_str()));
-            let name_literal = mangled_name.as_deref().unwrap_or_else(|| attr.as_str());
-            let stmt = py_stmt!(
-                "__dp__.setattr({value:expr}, {name:literal}, {rhs:expr})",
-                value = value,
-                name = name_literal,
-                rhs = rhs,
-            );
-            out.extend(stmt);
+            if rewriter.context().options.lower_attributes {
+                let stmt = py_stmt!(
+                    "__dp__.setattr({value:expr}, {name:literal}, {rhs:expr})",
+                    value = value,
+                    name = attr.as_str(),
+                    rhs = rhs,
+                );
+                out.extend(stmt);
+            } else {
+                out.extend(py_stmt!(
+                    "{value:expr}.{attr:id} = {rhs:expr}",
+                    value = value,
+                    attr = attr.as_str(),
+                    rhs = rhs
+                ));
+            }
         }
         Expr::Subscript(ast::ExprSubscript { value, slice, .. }) => {
-            let slice = slice.clone();
             let stmt = py_stmt!(
                 "__dp__.setitem({value:expr}, {slice:expr}, {rhs:expr})",
                 value = value,
@@ -141,7 +155,7 @@ pub(crate) fn rewrite_ann_assign(
 }
 
 pub(crate) fn rewrite_assign(rewriter: &mut ExprRewriter, assign: ast::StmtAssign) -> Rewrite {
-    if !should_rewrite_targets(&assign.targets) {
+    if !should_rewrite_targets(rewriter, &assign.targets) {
         return Rewrite::Walk(vec![Stmt::Assign(assign)]);
     }
 
@@ -214,7 +228,7 @@ pub(crate) fn rewrite_aug_assign(
 }
 
 pub(crate) fn rewrite_delete(rewriter: &mut ExprRewriter, delete: ast::StmtDelete) -> Rewrite {
-    if !should_rewrite_targets(&delete.targets) {
+    if !should_rewrite_targets(rewriter, &delete.targets) {
         return Rewrite::Walk(vec![Stmt::Delete(delete)]);
     }
 
@@ -229,17 +243,10 @@ pub(crate) fn rewrite_delete(rewriter: &mut ExprRewriter, delete: ast::StmtDelet
                     key = sub.slice
                 ),
                 Expr::Attribute(attr) => {
-                    let mangled_name = rewriter
-                        .context()
-                        .current_class_name()
-                        .and_then(|class| mangle_private_name(class.as_str(), attr.attr.as_str()));
-                    let name_literal = mangled_name
-                        .as_deref()
-                        .unwrap_or_else(|| attr.attr.as_str());
                     py_stmt!(
                         "__dp__.delattr({obj:expr}, {name:literal})",
                         obj = attr.value,
-                        name = name_literal,
+                        name = attr.attr.as_str(),
                     )
                 }
                 _ => py_stmt!("del {target:expr}", target = target),

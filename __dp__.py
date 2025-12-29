@@ -233,6 +233,44 @@ class _ClassNamespace:
         return self._namespace.get(name, default)
 
 
+class Scope:
+    __slots__ = ("_scope", "_fallback")
+
+    def __init__(self, scope=None, fallback=None):
+        if scope is None:
+            scope = {}
+        self._scope = scope
+        self._fallback = fallback
+
+    def __getattribute__(self, name):
+        if name in ("_scope", "_fallback", "__slots__"):
+            return object.__getattribute__(self, name)
+        scope = object.__getattribute__(self, "_scope")
+        if name in scope:
+            return scope[name]
+        fallback = object.__getattribute__(self, "_fallback")
+        if fallback is not None:
+            if isinstance(fallback, dict):
+                if name in fallback:
+                    return fallback[name]
+            elif hasattr(fallback, name):
+                return getattr(fallback, name)
+        raise AttributeError(name)
+
+    def __setattr__(self, name, value):
+        if name in self.__slots__:
+            return super().__setattr__(name, value)
+        self._scope[name] = value
+
+    def __delattr__(self, name):
+        if name in self.__slots__:
+            return super().__delattr__(name)
+        try:
+            del self._scope[name]
+        except KeyError as exc:
+            raise AttributeError(name) from exc
+
+
 def _set_qualname(obj, qualname):
     try:
         obj.__qualname__ = qualname

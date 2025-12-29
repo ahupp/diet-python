@@ -1,8 +1,0 @@
-$ desugars pkg.a
-
-from . import b
-=
-import __dp__
-_dp_import_1 = __dp__.import_("", __spec__, __dp__.list(("b",)), 1)
-b = __dp__.import_attr(_dp_import_1, "b")
-del _dp_import_1

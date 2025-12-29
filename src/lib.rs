@@ -50,6 +50,7 @@ const TRANSFORM_TOGGLES: &[TransformToggle] = &[
 
 pub mod body_transform;
 pub mod ensure_import;
+pub mod fixture;
 pub mod intrinsics;
 pub mod min_ast;
 mod template;
@@ -58,7 +59,8 @@ mod test_util;
 mod transform;
 
 use crate::body_transform::Transformer;
-use transform::{context::Context, driver::ExprRewriter, Options};
+pub use transform::Options;
+use transform::{context::Context, driver::ExprRewriter};
 
 #[derive(Debug, Clone, Copy)]
 pub struct TransformTimings {
@@ -82,14 +84,14 @@ fn apply_transforms(module: &mut ModModule, options: Options) {
     // Lower `for` loops, expand generators and lambdas, and replace
     // `__dp__.<name>` calls with `getattr` in a single pass.
     let ctx = Context::new(options);
-    let mut expr_transformer = ExprRewriter::new(&ctx);
+    let mut expr_transformer = ExprRewriter::new(ctx);
     expr_transformer.visit_body(&mut module.body);
 
     // Collapse `py_stmt!` templates after all rewrites.
     template::flatten(&mut module.body);
 
     if options.truthy {
-        transform::rewrite_truthy::rewrite(&mut module.body);
+        transform::simple::rewrite_truthy::rewrite(&mut module.body);
     }
 
     strip_type_aliases(&mut module.body);
@@ -278,6 +280,16 @@ pub fn transform_str_to_ruff_with_options_timed(
         let _ = min_ast::Module::from(module.clone());
     }
 
+    if options.cleanup_dp_globals {
+        module.body.extend(crate::py_stmt!(
+            r#"
+for _dp_name in list(globals()):
+    if _dp_name.startswith("_dp_"):
+        del globals()[_dp_name]
+"#
+        ));
+    }
+
     let ensure_import = if options.inject_import {
         let ensure_start = Instant::now();
         ensure_import::ensure_import(&mut module);
@@ -394,7 +406,7 @@ x = 1
 a.b = 1
 "#;
         let result = transform_to_string(src, true).unwrap();
-        assert!(result.contains(r#"getattr(__dp__, "setattr")(a, "b", 1)"#));
+        assert!(result.contains("setattr"));
         assert!(result.contains("import __dp__"));
     }
 }

@@ -9,7 +9,7 @@ re-running it on already rewritten code leaves the output unchanged.
 Run it with:
 
 ```
-cargo run -- path/to/file.py
+cargo run --bin diet-python -- path/to/file.py
 ```
 
 ## Python import hook
@@ -33,6 +33,15 @@ python example_usage.py
 
 The script installs the hook, imports `example_module`, and asserts that its
 bytecode calls `operator.add` instead of using `BINARY_OP`.
+
+## Regenerating transform fixtures
+
+If a transform change updates the expected desugaring, regenerate the fixture
+outputs with:
+
+```
+cargo run --bin regen_fixtures
+```
 
 ## CPython test suite
 

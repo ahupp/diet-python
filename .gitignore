@@ -2,3 +2,4 @@
 cpython
 cpython-venv
 /web/pkg
+*.pyc

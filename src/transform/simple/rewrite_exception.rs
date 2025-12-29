@@ -1,4 +1,4 @@
-use super::{context::Context, driver::Rewrite};
+use crate::transform::{context::Context, driver::Rewrite};
 use ruff_python_ast::{self as ast, Stmt};
 
 use crate::{py_expr, py_stmt};
@@ -130,7 +130,6 @@ fn has_default_handler(stmt: &ast::StmtTry) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_util::assert_transform_eq;
     use crate::transform::Options;
     use crate::transform_str_to_ruff_with_options;
     use ruff_python_ast::{self as ast, Stmt};
@@ -149,10 +148,14 @@ mod tests {
 
     fn first_try_with_options(source: &str, options: Options) -> ast::StmtTry {
         let module = transform_str_to_ruff_with_options(source, options).unwrap();
-        match module.body.first() {
-            Some(Stmt::Try(try_stmt)) => try_stmt.clone(),
-            _ => panic!("expected try statement"),
-        }
+        module
+            .body
+            .into_iter()
+            .find_map(|stmt| match stmt {
+                Stmt::Try(try_stmt) => Some(try_stmt),
+                _ => None,
+            })
+            .expect("expected try statement")
     }
 
     fn first_try(source: &str) -> ast::StmtTry {
@@ -187,28 +190,7 @@ except:
         assert!(!has_non_default_handler(&try_stmt));
     }
 
-    #[test]
-    fn rewrites_default_handler_without_temp() {
-        assert_transform_eq(
-            r#"
-try:
-    f()
-except E:
-    h()
-except:
-    g()
-"#,
-            r#"
-try:
-    f()
-except:
-    if __dp__.isinstance(__dp__.current_exception(), E):
-        h()
-    else:
-        g()
-"#,
-        );
-    }
+    crate::transform_fixture_test!("tests_rewrite_exception.txt");
 
     #[test]
     fn skips_already_rewritten_try() {

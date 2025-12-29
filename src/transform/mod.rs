@@ -1,19 +1,14 @@
 pub(crate) mod class_def;
 pub(crate) mod context;
 pub(crate) mod driver;
-pub(crate) mod rewrite_assert;
 pub(crate) mod rewrite_assign_del;
 pub(crate) mod rewrite_decorator;
-pub(crate) mod rewrite_exception;
 pub(crate) mod rewrite_expr_to_stmt;
 pub(crate) mod rewrite_func_expr;
 pub(crate) mod rewrite_future_annotations;
 pub(crate) mod rewrite_import;
-pub(crate) mod rewrite_loop;
 pub(crate) mod rewrite_match_case;
-pub(crate) mod rewrite_string;
-pub(crate) mod rewrite_truthy;
-pub(crate) mod rewrite_with;
+pub(crate) mod simple;
 
 #[derive(Clone, Copy)]
 pub enum ImportStarHandling {
@@ -28,6 +23,7 @@ pub struct Options {
     pub inject_import: bool,
     pub lower_attributes: bool,
     pub truthy: bool,
+    pub cleanup_dp_globals: bool,
 }
 
 impl Default for Options {
@@ -37,6 +33,7 @@ impl Default for Options {
             inject_import: true,
             lower_attributes: true,
             truthy: false,
+            cleanup_dp_globals: true,
         }
     }
 }
@@ -48,6 +45,7 @@ impl Options {
             inject_import: false,
             lower_attributes: false,
             truthy: false,
+            cleanup_dp_globals: false,
         }
     }
 }

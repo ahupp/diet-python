@@ -1,11 +1,13 @@
 use super::{
-    context::Context,
-    rewrite_assert, rewrite_assign_del, rewrite_decorator, rewrite_exception,
+    context::{Context, ScopeInfo},
+    rewrite_assign_del, rewrite_decorator,
     rewrite_expr_to_stmt::{expr_boolop_to_stmts, expr_compare_to_stmts, expr_yield_from_to_stmt},
-    rewrite_func_expr, rewrite_import, rewrite_loop, rewrite_match_case, rewrite_string,
-    rewrite_with, Options,
+    rewrite_func_expr, rewrite_import, rewrite_match_case, Options,
 };
 use crate::template::{is_simple, make_binop, make_generator, make_tuple, make_unaryop};
+use crate::transform::simple::{
+    rewrite_assert, rewrite_exception, rewrite_loop, rewrite_string, rewrite_with,
+};
 use crate::{
     body_transform::{walk_expr, walk_stmt, Transformer},
     transform::class_def,
@@ -13,10 +15,10 @@ use crate::{
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Operator, Stmt, UnaryOp};
 use ruff_text_size::TextRange;
-use std::{collections::HashSet, mem::take};
+use std::mem::take;
 
-pub struct ExprRewriter<'a> {
-    ctx: &'a Context,
+pub struct ExprRewriter {
+    ctx: Context,
     options: Options,
     buf: Vec<Stmt>,
 }
@@ -34,8 +36,8 @@ impl Rewrite {
     }
 }
 
-impl<'a> ExprRewriter<'a> {
-    pub fn new(ctx: &'a Context) -> Self {
+impl ExprRewriter {
+    pub fn new(ctx: Context) -> Self {
         Self {
             options: ctx.options,
             ctx,
@@ -44,43 +46,20 @@ impl<'a> ExprRewriter<'a> {
     }
 
     pub(super) fn context(&self) -> &Context {
-        self.ctx
+        &self.ctx
     }
 
     pub(crate) fn rewrite_block(&mut self, body: Vec<Stmt>) -> Vec<Stmt> {
         self.process_statements(body)
     }
 
-    pub(crate) fn with_function_scope<F, R>(
-        &mut self,
-        qualname: String,
-        globals: HashSet<String>,
-        f: F,
-    ) -> R
+    pub(crate) fn with_function_scope<F, R>(&mut self, scope: ScopeInfo, f: F) -> R
     where
         F: FnOnce(&mut Self) -> R,
     {
-        self.ctx.push_function(qualname);
-        self.ctx.push_function_globals(globals);
+        self.ctx.push_scope(scope);
         let result = f(self);
-        self.ctx.pop_function_globals();
-        self.ctx.pop_function();
-        result
-    }
-
-    pub(crate) fn with_class_scope<F, R>(
-        &mut self,
-        class_name: &str,
-        class_qualname: &str,
-        f: F,
-    ) -> R
-    where
-        F: FnOnce(&mut Self) -> R,
-    {
-        self.ctx
-            .push_class(class_name.to_string(), class_qualname.to_string());
-        let result = f(self);
-        self.ctx.pop_class();
+        self.ctx.pop_scope();
         result
     }
 
@@ -160,60 +139,27 @@ impl<'a> ExprRewriter<'a> {
         placeholder_expr
     }
 
-    pub(super) fn maybe_placeholder_within(&mut self, expr: Expr) -> (Vec<Stmt>, Expr) {
-        let saved = take(&mut self.buf);
-        let expr = self.maybe_placeholder(expr);
-        let stmts = take(&mut self.buf);
-        self.buf = saved;
-        (stmts, expr)
-    }
-
     fn rewrite_stmt(&mut self, stmt: Stmt) -> Rewrite {
         match stmt {
             Stmt::FunctionDef(mut func_def) => {
-                let func_name = func_def.name.id.as_str().to_string();
-                let qualname = if let Some(enclosing) = self.context().current_function_qualname() {
-                    format!("{enclosing}.<locals>.{func_name}")
-                } else if let Some(class_qualname) = self.context().current_class_qualname() {
-                    format!("{class_qualname}.{func_name}")
-                } else {
-                    func_name.clone()
-                };
-                let body = take(&mut func_def.body);
-                let globals = collect_function_globals(&body);
-                func_def.body = self.with_function_scope(qualname, globals, |rewriter| {
-                    rewriter.rewrite_block(body)
+                let scope = self.context().analyze_function_scope(&func_def);
+                func_def.body = self.with_function_scope(scope, |rewriter| {
+                    rewriter.rewrite_block(take(&mut func_def.body))
                 });
-                let decorators = take(&mut func_def.decorator_list);
-                let func_name = func_def.name.id.clone();
+
                 rewrite_decorator::rewrite(
-                    decorators,
-                    func_name.as_str(),
+                    take(&mut func_def.decorator_list),
+                    func_def.name.id.clone().as_str(),
                     vec![Stmt::FunctionDef(func_def)],
                     self,
                 )
             }
-            Stmt::With(with) => rewrite_with::rewrite(with, self.ctx, self),
+            Stmt::With(with) => rewrite_with::rewrite(with, self),
             Stmt::While(while_stmt) => rewrite_loop::rewrite_while(while_stmt, self),
-            Stmt::For(for_stmt) => rewrite_loop::rewrite_for(for_stmt, self.ctx, self),
+            Stmt::For(for_stmt) => rewrite_loop::rewrite_for(for_stmt, self),
             Stmt::Assert(assert) => rewrite_assert::rewrite(assert),
-            Stmt::ClassDef(mut class_def) => {
-                let class_name = class_def.name.id.as_str().to_string();
-                let qualname = if self.context().current_function_qualname().is_some()
-                    && self
-                        .context()
-                        .function_globals_contains(class_name.as_str())
-                {
-                    None
-                } else {
-                    self.context()
-                        .current_function_qualname()
-                        .map(|enclosing| format!("{enclosing}.<locals>.{class_name}"))
-                };
-                let decorators = take(&mut class_def.decorator_list);
-                class_def::rewrite(class_def.clone(), decorators, self, qualname)
-            }
-            Stmt::Try(try_stmt) => rewrite_exception::rewrite_try(try_stmt, self.ctx),
+            Stmt::ClassDef(class_def) => class_def::rewrite(class_def, self),
+            Stmt::Try(try_stmt) => rewrite_exception::rewrite_try(try_stmt, &self.ctx),
             Stmt::If(if_stmt)
                 if if_stmt
                     .elif_else_clauses
@@ -222,10 +168,10 @@ impl<'a> ExprRewriter<'a> {
             {
                 Rewrite::Visit(vec![expand_if_chain(if_stmt).into()])
             }
-            Stmt::Match(match_stmt) => rewrite_match_case::rewrite(match_stmt, self.ctx),
+            Stmt::Match(match_stmt) => rewrite_match_case::rewrite(match_stmt, &self.ctx),
             Stmt::Import(import) => rewrite_import::rewrite(import),
             Stmt::ImportFrom(import_from) => {
-                rewrite_import::rewrite_from(import_from.clone(), self.ctx, &self.options)
+                rewrite_import::rewrite_from(import_from.clone(), &self.ctx, &self.options)
             }
 
             Stmt::AnnAssign(ann_assign) => rewrite_assign_del::rewrite_ann_assign(self, ann_assign),
@@ -236,32 +182,6 @@ impl<'a> ExprRewriter<'a> {
             other => Rewrite::Walk(vec![other]),
         }
     }
-}
-
-#[derive(Default)]
-struct GlobalCollector {
-    globals: HashSet<String>,
-}
-
-impl Transformer for GlobalCollector {
-    fn visit_stmt(&mut self, stmt: &mut Stmt) {
-        match stmt {
-            Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {}
-            Stmt::Global(ast::StmtGlobal { names, .. }) => {
-                for name in names {
-                    self.globals.insert(name.id.to_string());
-                }
-            }
-            _ => walk_stmt(self, stmt),
-        }
-    }
-}
-
-pub(crate) fn collect_function_globals(body: &[Stmt]) -> HashSet<String> {
-    let mut collector = GlobalCollector::default();
-    let mut cloned_body: Vec<Stmt> = body.to_vec();
-    collector.visit_body(&mut cloned_body);
-    collector.globals
 }
 
 fn make_tuple_splat(elts: Vec<Expr>) -> Expr {
@@ -335,7 +255,7 @@ fn expand_if_chain(mut if_stmt: ast::StmtIf) -> ast::StmtIf {
     if_stmt
 }
 
-impl<'a> Transformer for ExprRewriter<'a> {
+impl Transformer for ExprRewriter {
     fn visit_body(&mut self, body: &mut Vec<Stmt>) {
         let stmts = take(body);
         let output = self.process_statements(stmts);
@@ -385,21 +305,21 @@ else:
             }
             Expr::Compare(compare) => {
                 let tmp = self.ctx.fresh("tmp");
-                let stmts = expr_compare_to_stmts(self.ctx, tmp.as_str(), compare);
+                let stmts = expr_compare_to_stmts(&self.ctx, tmp.as_str(), compare);
                 self.buf.extend(stmts);
                 py_expr!("{tmp:id}", tmp = tmp.as_str())
             }
             Expr::YieldFrom(yield_from) => {
                 let tmp = self.ctx.fresh("tmp");
-                let stmts = expr_yield_from_to_stmt(self.ctx, tmp.as_str(), yield_from);
+                let stmts = expr_yield_from_to_stmt(&self.ctx, tmp.as_str(), yield_from);
                 self.buf.extend(stmts);
                 py_expr!("{tmp:id}", tmp = tmp.as_str())
             }
             Expr::Lambda(lambda) => {
-                rewrite_func_expr::rewrite_lambda(lambda, self.ctx, &mut self.buf)
+                rewrite_func_expr::rewrite_lambda(lambda, &self.ctx, &mut self.buf)
             }
             Expr::Generator(generator) => {
-                rewrite_func_expr::rewrite_generator(generator, self.ctx, &mut self.buf)
+                rewrite_func_expr::rewrite_generator(generator, &self.ctx, &mut self.buf)
             }
             Expr::FString(f_string) => rewrite_string::rewrite_fstring(f_string),
             Expr::TString(t_string) => rewrite_string::rewrite_tstring(t_string),

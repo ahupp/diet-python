@@ -1,4 +1,4 @@
-use super::driver::Rewrite;
+use crate::transform::driver::Rewrite;
 use ruff_python_ast::{self as ast};
 
 use crate::py_stmt;

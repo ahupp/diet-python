@@ -19,8 +19,12 @@ def _should_transform(path: str) -> bool:
 class DietPythonLoader(importlib.machinery.SourceFileLoader):
     """Loader that applies the diet-python transform before executing a module."""
 
+    def get_code(self, fullname):
+        source_bytes = self.get_data(self.path)
+        return self.source_to_code(source_bytes, self.path)
+
     def source_to_code(self, data, path, *, _optimize=-1):
-        cmd = ["cargo", "run", "--quiet", "--", path]
+        cmd = ["cargo", "run", "--quiet", "--bin", "diet-python", "--", path]
         try:
             proc = subprocess.run(
                 cmd,

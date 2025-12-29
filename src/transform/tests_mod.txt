@@ -2,6 +2,8 @@ $ strips type alias statement
 
 type Alias = int
 =
+
+
 $ strips type aliases in if branches
 
 if True:
@@ -21,6 +23,7 @@ else:
         y = 2
     else:
         z = 3
+
 $ strips type alias from class body
 
 type Alias = int
@@ -31,12 +34,15 @@ class Foo:
     def method(self):
         return 1
 =
-def _dp_ns_Foo(_dp_class_ns):
+def _dp_create_class_Foo():
 
-    def method(self):
-        return 1
-    __dp__.setattr(_dp_class_ns, "method", method)
-    __dp__.setattr(_dp_class_ns, "__module__", __name__)
-    __dp__.setattr(_dp_class_ns, "__qualname__", "Foo")
-Foo = __dp__.create_class("Foo", _dp_ns_Foo, (), None)
-del _dp_ns_Foo
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__qualname__ = "Foo"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+
+        def method(self):
+            return 1
+        _dp_class_ns.method = method
+    return __dp__.create_class("Foo", _dp_ns_builder, (), None)
+Foo = _dp_create_class_Foo()

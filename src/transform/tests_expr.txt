@@ -1,76 +1,60 @@
 $ expr 001
 [a, *b, c] = d
 =
-
 _dp_tmp_1 = __dp__.unpack(d, (True, False, True))
 a = __dp__.getitem(_dp_tmp_1, 0)
 b = __dp__.list(__dp__.getitem(_dp_tmp_1, 1))
 c = __dp__.getitem(_dp_tmp_1, 2)
-
 
 $ expr 002
 [a, *b] = c
 =
-
 _dp_tmp_1 = __dp__.unpack(c, (True, False))
 a = __dp__.getitem(_dp_tmp_1, 0)
 b = __dp__.list(__dp__.getitem(_dp_tmp_1, 1))
 
-
 $ expr 003
 [a, b] = c
 =
-
 _dp_tmp_1 = __dp__.unpack(c, (True, True))
 a = __dp__.getitem(_dp_tmp_1, 0)
 b = __dp__.getitem(_dp_tmp_1, 1)
-
 
 $ expr 004
 [*a, b] = c
 =
-
 _dp_tmp_1 = __dp__.unpack(c, (False, True))
 a = __dp__.list(__dp__.getitem(_dp_tmp_1, 0))
 b = __dp__.getitem(_dp_tmp_1, 1)
 
-
 $ expr 005
 a, b = c
 =
-
 _dp_tmp_1 = __dp__.unpack(c, (True, True))
 a = __dp__.getitem(_dp_tmp_1, 0)
 b = __dp__.getitem(_dp_tmp_1, 1)
 
-
 $ expr 006
 a, *b, c = d
 =
-
 _dp_tmp_1 = __dp__.unpack(d, (True, False, True))
 a = __dp__.getitem(_dp_tmp_1, 0)
 b = __dp__.tuple(__dp__.getitem(_dp_tmp_1, 1))
 c = __dp__.getitem(_dp_tmp_1, 2)
 
-
 $ expr 007
 *a, b = c
 =
-
 _dp_tmp_1 = __dp__.unpack(c, (False, True))
 a = __dp__.tuple(__dp__.getitem(_dp_tmp_1, 0))
 b = __dp__.getitem(_dp_tmp_1, 1)
 
-
 $ expr 008
 a, *b = c
 =
-
 _dp_tmp_1 = __dp__.unpack(c, (True, False))
 a = __dp__.getitem(_dp_tmp_1, 0)
 b = __dp__.tuple(__dp__.getitem(_dp_tmp_1, 1))
-
 
 $ expr 009
 raise ValueError
@@ -101,14 +85,12 @@ foo.bar.baz
 $ expr 014
 a.b = c
 =
-
-__dp__.setattr(a, "b", c)
-
+a.b = c
 
 $ expr 015
 a.b += c
 =
-__dp__.setattr(a, "b", __dp__.iadd(a.b, c))
+a.b = __dp__.iadd(a.b, c)
 
 $ expr 016
 
@@ -116,10 +98,8 @@ x = 1
 x += 2
 
 =
-
 x = 1
 x = __dp__.iadd(x, 2)
-
 
 $ expr 017
 a + b
@@ -129,12 +109,10 @@ __dp__.add(a, b)
 $ expr 018
 x = a and b
 =
-
 _dp_tmp_1 = a
 if _dp_tmp_1:
     _dp_tmp_1 = b
 x = _dp_tmp_1
-
 
 $ expr 019
 a - b
@@ -144,132 +122,102 @@ __dp__.sub(a, b)
 $ expr 020
 a or b
 =
-
 _dp_tmp_1 = a
 if __dp__.not_(_dp_tmp_1):
     _dp_tmp_1 = b
 _dp_tmp_1
 
-
 $ expr 021
 a = b = c
 =
-
 a = c
 b = c
-
 
 $ expr 022
 a[0] = b = 1
 =
-
 __dp__.setitem(a, 0, 1)
 b = 1
-
 
 $ expr 023
 a == b
 =
-
 _dp_tmp_1 = __dp__.eq(a, b)
 _dp_tmp_1
-
 
 $ expr 024
 x = a or b
 =
-
 _dp_tmp_1 = a
 if __dp__.not_(_dp_tmp_1):
     _dp_tmp_1 = b
 x = _dp_tmp_1
 
-
 $ expr 025
 a and b
 =
-
 _dp_tmp_1 = a
 if _dp_tmp_1:
     _dp_tmp_1 = b
 _dp_tmp_1
 
-
 $ expr 026
 a != b
 =
-
 _dp_tmp_1 = __dp__.ne(a, b)
 _dp_tmp_1
-
 
 $ expr 027
 a < b
 =
-
 _dp_tmp_1 = __dp__.lt(a, b)
 _dp_tmp_1
-
 
 $ expr 028
 f() or a
 =
-
 _dp_tmp_1 = f()
 if __dp__.not_(_dp_tmp_1):
     _dp_tmp_1 = a
 _dp_tmp_1
 
-
 $ expr 029
 a <= b
 =
-
 _dp_tmp_1 = __dp__.le(a, b)
 _dp_tmp_1
-
 
 $ expr 030
 a > b
 =
-
 _dp_tmp_1 = __dp__.gt(a, b)
 _dp_tmp_1
-
 
 $ expr 031
 a >= b
 =
-
 _dp_tmp_1 = __dp__.ge(a, b)
 _dp_tmp_1
-
 
 $ expr 032
 f() and a
 =
-
 _dp_tmp_1 = f()
 if _dp_tmp_1:
     _dp_tmp_1 = a
 _dp_tmp_1
 
-
 $ expr 033
 a is b
 =
-
 _dp_tmp_1 = __dp__.is_(a, b)
 _dp_tmp_1
-
 
 $ expr 034
 a is not b
 =
-
 _dp_tmp_1 = __dp__.is_not(a, b)
 _dp_tmp_1
-
 
 $ expr 035
 a = 1j
@@ -279,12 +227,12 @@ a = complex(0.0, 1.0)
 $ expr 036
 del a.b
 =
-__dp__.delattr(a, "b")
+del a.b
 
 $ expr 037
 del a.b[1].c
 =
-__dp__.delattr(__dp__.getitem(a.b, 1), "c")
+del __dp__.getitem(a.b, 1).c
 
 $ expr 038
 del a[b]
@@ -299,15 +247,12 @@ a = __dp__.add(1, complex(0.0, 2.0))
 $ expr 040
 a in b
 =
-
 _dp_tmp_1 = __dp__.contains(b, a)
 _dp_tmp_1
-
 
 $ expr 041
 r = {k: v + 1 for k, v in items if k % 2 == 0}
 =
-
 def _dp_gen_1(_dp_iter_2):
     _dp_iter_3 = __dp__.iter(_dp_iter_2)
     while True:
@@ -325,21 +270,16 @@ def _dp_gen_1(_dp_iter_2):
                 yield k, __dp__.add(v, 1)
 r = __dp__.dict(_dp_gen_1(__dp__.iter(items)))
 
-
 $ expr 042
 a = {'a': 1, 'b': 2}
 =
-
 a = __dp__.dict((('a', 1), ('b', 2)))
-
 
 $ expr 043
 a not in b
 =
-
 _dp_tmp_1 = __dp__.not_(__dp__.contains(b, a))
 _dp_tmp_1
-
 
 $ expr 044
 a = {**b, 'c': 2}
@@ -371,13 +311,11 @@ $ expr 049
 a if b else c
 
 =
-
 if b:
     _dp_tmp_1 = a
 else:
     _dp_tmp_1 = c
 _dp_tmp_1
-
 
 $ expr 050
 ...
@@ -387,7 +325,6 @@ Ellipsis
 $ expr 051
 r = [a + 1 for a in items if a % 2 == 0]
 =
-
 def _dp_gen_1(_dp_iter_2):
     _dp_iter_3 = __dp__.iter(_dp_iter_2)
     while True:
@@ -402,26 +339,21 @@ def _dp_gen_1(_dp_iter_2):
                 yield __dp__.add(a, 1)
 r = __dp__.list(_dp_gen_1(__dp__.iter(items)))
 
-
 $ expr 052
 a = [1, 2, 3]
 =
-
 a = __dp__.list((1, 2, 3))
-
 
 $ expr 053
 
 (a + 1) if f() else (b + 2)
 
 =
-
 if f():
     _dp_tmp_1 = __dp__.add(a, 1)
 else:
     _dp_tmp_1 = __dp__.add(b, 2)
 _dp_tmp_1
-
 
 $ expr 054
 a = [1, *b, 2]
@@ -432,7 +364,6 @@ $ expr 055
 while start <= limit:
     start += 1
 =
-
 while True:
     _dp_tmp_1 = __dp__.le(start, limit)
     if __dp__.not_(_dp_tmp_1):
@@ -442,7 +373,6 @@ while True:
 $ expr 055
 a or b or c
 =
-
 _dp_tmp_1 = a
 if __dp__.not_(_dp_tmp_1):
     _dp_tmp_1 = b
@@ -450,19 +380,15 @@ if __dp__.not_(_dp_tmp_1):
     _dp_tmp_1 = c
 _dp_tmp_1
 
-
 $ expr 056
 del a[0], b[0]
 =
-
 __dp__.delitem(a, 0)
 __dp__.delitem(b, 0)
-
 
 $ expr 057
 r = [a * b for a in items for b in items2]
 =
-
 def _dp_gen_1(_dp_iter_2):
     _dp_iter_3 = __dp__.iter(_dp_iter_2)
     while True:
@@ -483,7 +409,6 @@ def _dp_gen_1(_dp_iter_2):
                     yield __dp__.mul(a, b)
 r = __dp__.list(_dp_gen_1(__dp__.iter(items)))
 
-
 $ expr 058
 del a.b[1]
 =
@@ -497,7 +422,6 @@ raise __dp__.raise_from(ValueError, exc)
 $ expr 060
 r = {a for a in items}
 =
-
 def _dp_gen_1(_dp_iter_2):
     _dp_iter_3 = __dp__.iter(_dp_iter_2)
     while True:
@@ -510,11 +434,9 @@ def _dp_gen_1(_dp_iter_2):
             yield a
 r = __dp__.set(_dp_gen_1(__dp__.iter(items)))
 
-
 $ expr 061
 a and b and c
 =
-
 _dp_tmp_1 = a
 if _dp_tmp_1:
     _dp_tmp_1 = b
@@ -522,13 +444,10 @@ if _dp_tmp_1:
     _dp_tmp_1 = c
 _dp_tmp_1
 
-
 $ expr 062
 a = {1, 2, 3}
 =
-
 a = __dp__.set((1, 2, 3))
-
 
 $ expr 063
 a[1:2:3]
@@ -543,9 +462,7 @@ __dp__.getitem(a, __dp__.slice(1, 2, None))
 $ expr 065
 a[b] = c
 =
-
 __dp__.setitem(a, b, c)
-
 
 $ expr 066
 a[:2]
@@ -604,4 +521,3 @@ def f():
             return 2
         else:
             return 3
-

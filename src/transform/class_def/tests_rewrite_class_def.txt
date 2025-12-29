@@ -3,59 +3,85 @@ $ lowers simple class
 class C:
     x = 1
 =
-def _dp_ns_C(_dp_class_ns):
-    __dp__.setattr(_dp_class_ns, "x", 1)
-    __dp__.setattr(_dp_class_ns, "__module__", __name__)
-    __dp__.setattr(_dp_class_ns, "__qualname__", "C")
-C = __dp__.create_class("C", _dp_ns_C, (), None)
-del _dp_ns_C
+def _dp_create_class_C():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__qualname__ = "C"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+        _dp_class_ns.x = 1
+    return __dp__.create_class("C", _dp_ns_builder, (), None)
+C = _dp_create_class_C()
+
+$ rewrites super without explicit first param
+
+class C:
+    def m():
+        return super().m()
+=
+def _dp_create_class_C():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__qualname__ = "C"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+
+        def m():
+            return super(C, None).m()
+        _dp_class_ns.m = m
+    return __dp__.create_class("C", _dp_ns_builder, (), None)
+C = _dp_create_class_C()
+
 $ rewrites class del statements
 
 class C:
     x = 1
     del x
 =
-def _dp_ns_C(_dp_class_ns):
-    __dp__.setattr(_dp_class_ns, "x", 1)
-    __dp__.delattr(_dp_class_ns, "x")
-    __dp__.setattr(_dp_class_ns, "__module__", __name__)
-    __dp__.setattr(_dp_class_ns, "__qualname__", "C")
-C = __dp__.create_class("C", _dp_ns_C, (), None)
-del _dp_ns_C
+def _dp_create_class_C():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__qualname__ = "C"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+        _dp_class_ns.x = 1
+        del _dp_class_ns.x
+    return __dp__.create_class("C", _dp_ns_builder, (), None)
+C = _dp_create_class_C()
+
 $ collects class annotations
 
 class C:
     x: int
     y: str = 1
 =
-def _dp_ns_C(_dp_class_ns):
-    __dp__.setattr(_dp_class_ns, "__annotations__", _dp_class_ns.get("__annotations__"))
-    _dp_tmp_1 = __dp__.is_(_dp_class_ns.__annotations__, None)
-    if _dp_tmp_1:
-        __dp__.setattr(_dp_class_ns, "__annotations__", __dp__.dict())
-    __dp__.setattr(_dp_class_ns, "y", 1)
-    __dp__.setattr(_dp_class_ns, "__module__", __name__)
-    __dp__.setattr(_dp_class_ns, "__qualname__", "C")
-    _dp_class_annotations = _dp_class_ns.get("__annotations__")
-    _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_2:
-        _dp_class_annotations = __dp__.dict()
-    __dp__.setattr(_dp_class_ns, "__annotations__", _dp_class_annotations)
-    __dp__.setitem(_dp_class_annotations, "x", int)
-    __dp__.setitem(_dp_class_annotations, "y", str)
-C = __dp__.create_class("C", _dp_ns_C, (), None)
-del _dp_ns_C
+def _dp_create_class_C():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__qualname__ = "C"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+        __dp__.setitem(_dp_class_ns.__annotations__, "x", int)
+        __dp__.setitem(_dp_class_ns.__annotations__, "y", str)
+        _dp_class_ns.y = 1
+    return __dp__.create_class("C", _dp_ns_builder, (), None)
+C = _dp_create_class_C()
+
 $ captures outer reference
 
 class C:
     x = x
 =
-def _dp_ns_C(_dp_class_ns):
-    __dp__.setattr(_dp_class_ns, "x", x)
-    __dp__.setattr(_dp_class_ns, "__module__", __name__)
-    __dp__.setattr(_dp_class_ns, "__qualname__", "C")
-C = __dp__.create_class("C", _dp_ns_C, (), None)
-del _dp_ns_C
+def _dp_create_class_C():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__qualname__ = "C"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+        _dp_class_ns.x = x
+    return __dp__.create_class("C", _dp_ns_builder, (), None)
+C = _dp_create_class_C()
+
 $ captures names used in annotations
 
 T = object()
@@ -64,155 +90,177 @@ class C:
     x: T
 =
 T = object()
-def _dp_ns_C(_dp_class_ns):
-    __dp__.setattr(_dp_class_ns, "__annotations__", _dp_class_ns.get("__annotations__"))
-    _dp_tmp_1 = __dp__.is_(_dp_class_ns.__annotations__, None)
-    if _dp_tmp_1:
-        __dp__.setattr(_dp_class_ns, "__annotations__", __dp__.dict())
-    __dp__.setattr(_dp_class_ns, "__module__", __name__)
-    __dp__.setattr(_dp_class_ns, "__qualname__", "C")
-    _dp_class_annotations = _dp_class_ns.get("__annotations__")
-    _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_2:
-        _dp_class_annotations = __dp__.dict()
-    __dp__.setattr(_dp_class_ns, "__annotations__", _dp_class_annotations)
-    __dp__.setitem(_dp_class_annotations, "x", T)
-C = __dp__.create_class("C", _dp_ns_C, (), None)
-del _dp_ns_C
+def _dp_create_class_C():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__qualname__ = "C"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+        __dp__.setitem(_dp_class_ns.__annotations__, "x", T)
+    return __dp__.create_class("C", _dp_ns_builder, (), None)
+C = _dp_create_class_C()
+
 $ preserves class locals for references
 
 class C:
     x = 1
     y = x
 =
-def _dp_ns_C(_dp_class_ns):
-    __dp__.setattr(_dp_class_ns, "x", 1)
-    __dp__.setattr(_dp_class_ns, "y", _dp_class_ns.x)
-    __dp__.setattr(_dp_class_ns, "__module__", __name__)
-    __dp__.setattr(_dp_class_ns, "__qualname__", "C")
-C = __dp__.create_class("C", _dp_ns_C, (), None)
-del _dp_ns_C
+def _dp_create_class_C():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__qualname__ = "C"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+        _dp_class_ns.x = 1
+        _dp_class_ns.y = _dp_class_ns.x
+    return __dp__.create_class("C", _dp_ns_builder, (), None)
+C = _dp_create_class_C()
+
 $ lowers PEP 695 type parameters
 
 class C[T, **P]:
     x: T
 =
-def _dp_ns_C(_dp_class_ns):
-    __dp__.setattr(_dp_class_ns, "T", __dp__.type_param_typevar("T", None, None, None))
-    __dp__.setattr(_dp_class_ns, "P", __dp__.type_param_param_spec("P", None))
-    __dp__.setattr(_dp_class_ns, "__type_params__", (_dp_class_ns.T, _dp_class_ns.P))
-    __dp__.setattr(_dp_class_ns, "__annotations__", _dp_class_ns.get("__annotations__"))
-    _dp_tmp_1 = __dp__.is_(_dp_class_ns.__annotations__, None)
-    if _dp_tmp_1:
-        __dp__.setattr(_dp_class_ns, "__annotations__", __dp__.dict())
-    __dp__.setattr(_dp_class_ns, "__module__", __name__)
-    __dp__.setattr(_dp_class_ns, "__qualname__", "C")
-    _dp_class_annotations = _dp_class_ns.get("__annotations__")
-    _dp_tmp_2 = __dp__.is_(_dp_class_annotations, None)
-    if _dp_tmp_2:
-        _dp_class_annotations = __dp__.dict()
-    __dp__.setattr(_dp_class_ns, "__annotations__", _dp_class_annotations)
-    __dp__.setitem(_dp_class_annotations, "x", _dp_class_ns.T)
-C = __dp__.create_class("C", _dp_ns_C, (), None)
-del _dp_ns_C
+def _dp_create_class_C():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__qualname__ = "C"
+        _dp_class_ns.T = __dp__.type_param_typevar("T", None, None, None)
+        _dp_class_ns.P = __dp__.type_param_param_spec("P", None)
+        _dp_class_ns.__type_params__ = _dp_class_ns.T, _dp_class_ns.P
+        _dp_class_ns.__annotations__ = __dp__.dict()
+        __dp__.setitem(_dp_class_ns.__annotations__, "x", _dp_class_ns.T)
+    return __dp__.create_class("C", _dp_ns_builder, (), None)
+C = _dp_create_class_C()
+
 $ lowers inherits
 
 class C(B):
     pass
 =
-def _dp_ns_C(_dp_class_ns):
-    __dp__.setattr(_dp_class_ns, "__module__", __name__)
-    __dp__.setattr(_dp_class_ns, "__qualname__", "C")
-C = __dp__.create_class("C", _dp_ns_C, (B,), None)
-del _dp_ns_C
+def _dp_create_class_C():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__qualname__ = "C"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+    return __dp__.create_class("C", _dp_ns_builder, (B,), None)
+C = _dp_create_class_C()
+
 $ lowers with docstring and keywords
 
 class C(B, metaclass=Meta, kw=1):
     'doc'
     x = 2
 =
-def _dp_ns_C(_dp_class_ns):
-    __dp__.setattr(_dp_class_ns, "__doc__", 'doc')
-    __dp__.setattr(_dp_class_ns, "x", 2)
-    __dp__.setattr(_dp_class_ns, "__module__", __name__)
-    __dp__.setattr(_dp_class_ns, "__qualname__", "C")
-C = __dp__.create_class("C", _dp_ns_C, (B,), __dp__.dict((("metaclass", Meta), ("kw", 1))))
-del _dp_ns_C
+def _dp_create_class_C():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__qualname__ = "C"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+        _dp_class_ns.__doc__ = 'doc'
+        _dp_class_ns.x = 2
+    return __dp__.create_class("C", _dp_ns_builder, (B,), __dp__.dict((("metaclass", Meta), ("kw", 1))))
+C = _dp_create_class_C()
+
 $ lowers method
 
 class C:
     def m(self):
         return 1
 =
-def _dp_ns_C(_dp_class_ns):
+def _dp_create_class_C():
 
-    def m(self):
-        return 1
-    __dp__.setattr(_dp_class_ns, "m", m)
-    __dp__.setattr(_dp_class_ns, "__module__", __name__)
-    __dp__.setattr(_dp_class_ns, "__qualname__", "C")
-C = __dp__.create_class("C", _dp_ns_C, (), None)
-del _dp_ns_C
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__qualname__ = "C"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+
+        def m(self):
+            return 1
+        _dp_class_ns.m = m
+    return __dp__.create_class("C", _dp_ns_builder, (), None)
+C = _dp_create_class_C()
+
 $ lowers async method
 
 class C:
     async def m(self):
         return 1
 =
-def _dp_ns_C(_dp_class_ns):
+def _dp_create_class_C():
 
-    async def m(self):
-        return 1
-    __dp__.setattr(_dp_class_ns, "m", m)
-    __dp__.setattr(_dp_class_ns, "__module__", __name__)
-    __dp__.setattr(_dp_class_ns, "__qualname__", "C")
-C = __dp__.create_class("C", _dp_ns_C, (), None)
-del _dp_ns_C
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__qualname__ = "C"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+
+        async def m(self):
+            return 1
+        _dp_class_ns.m = m
+    return __dp__.create_class("C", _dp_ns_builder, (), None)
+C = _dp_create_class_C()
+
 $ rewrites super and class
 
 class C:
     def m(self):
         return super().m()
 =
-def _dp_ns_C(_dp_class_ns):
+def _dp_create_class_C():
 
-    def m(self):
-        return super(C, self).m()
-    __dp__.setattr(_dp_class_ns, "m", m)
-    __dp__.setattr(_dp_class_ns, "__module__", __name__)
-    __dp__.setattr(_dp_class_ns, "__qualname__", "C")
-C = __dp__.create_class("C", _dp_ns_C, (), None)
-del _dp_ns_C
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__qualname__ = "C"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+
+        def m(self):
+            return super(C, self).m()
+        _dp_class_ns.m = m
+    return __dp__.create_class("C", _dp_ns_builder, (), None)
+C = _dp_create_class_C()
+
 $ rewrites super uses first arg
 
 class C:
     def m(z):
         return super().m()
 =
-def _dp_ns_C(_dp_class_ns):
+def _dp_create_class_C():
 
-    def m(z):
-        return super(C, z).m()
-    __dp__.setattr(_dp_class_ns, "m", m)
-    __dp__.setattr(_dp_class_ns, "__module__", __name__)
-    __dp__.setattr(_dp_class_ns, "__qualname__", "C")
-C = __dp__.create_class("C", _dp_ns_C, (), None)
-del _dp_ns_C
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__qualname__ = "C"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+
+        def m(z):
+            return super(C, z).m()
+        _dp_class_ns.m = m
+    return __dp__.create_class("C", _dp_ns_builder, (), None)
+C = _dp_create_class_C()
+
 $ rewrites super without receiver
 
 class C:
     def m():
         return super().m()
 =
-def _dp_ns_C(_dp_class_ns):
+def _dp_create_class_C():
 
-    def m():
-        return super(C, None).m()
-    __dp__.setattr(_dp_class_ns, "m", m)
-    __dp__.setattr(_dp_class_ns, "__module__", __name__)
-    __dp__.setattr(_dp_class_ns, "__qualname__", "C")
-C = __dp__.create_class("C", _dp_ns_C, (), None)
-del _dp_ns_C
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__qualname__ = "C"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+
+        def m():
+            return super(C, None).m()
+        _dp_class_ns.m = m
+    return __dp__.create_class("C", _dp_ns_builder, (), None)
+C = _dp_create_class_C()
+
 $ applies decorators in namespace
 
 class C:
@@ -223,18 +271,22 @@ class C:
     def m(self):
         return self
 =
-def _dp_ns_C(_dp_class_ns):
-    __dp__.setattr(_dp_class_ns, "y", deco)
-    _dp_tmp_1 = decorator(_dp_class_ns.y)
+def _dp_create_class_C():
 
-    def m(self):
-        return self
-    __dp__.setattr(_dp_class_ns, "m", m)
-    __dp__.setattr(_dp_class_ns, "m", _dp_tmp_1(other(_dp_class_ns.m)))
-    __dp__.setattr(_dp_class_ns, "__module__", __name__)
-    __dp__.setattr(_dp_class_ns, "__qualname__", "C")
-C = __dp__.create_class("C", _dp_ns_C, (), None)
-del _dp_ns_C
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__qualname__ = "C"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+        _dp_class_ns.y = deco
+        _dp_tmp_1 = decorator(_dp_class_ns.y)
+
+        def m(self):
+            return self
+        _dp_class_ns.m = m
+        _dp_class_ns.m = _dp_tmp_1(other(_dp_class_ns.m))
+    return __dp__.create_class("C", _dp_ns_builder, (), None)
+C = _dp_create_class_C()
+
 $ renames class stores and uses
 
 class C:
@@ -244,17 +296,21 @@ class C:
     def f(self, value: b = a):
         return value
 =
-def _dp_ns_C(_dp_class_ns):
-    __dp__.setattr(_dp_class_ns, "a", 1)
-    __dp__.setattr(_dp_class_ns, "b", _dp_class_ns.a)
+def _dp_create_class_C():
 
-    def f(self, value: _dp_class_ns.b=_dp_class_ns.a):
-        return value
-    __dp__.setattr(_dp_class_ns, "f", f)
-    __dp__.setattr(_dp_class_ns, "__module__", __name__)
-    __dp__.setattr(_dp_class_ns, "__qualname__", "C")
-C = __dp__.create_class("C", _dp_ns_C, (), None)
-del _dp_ns_C
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__qualname__ = "C"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+        _dp_class_ns.a = 1
+        _dp_class_ns.b = _dp_class_ns.a
+
+        def f(self, value: _dp_class_ns.b=_dp_class_ns.a):
+            return value
+        _dp_class_ns.f = f
+    return __dp__.create_class("C", _dp_ns_builder, (), None)
+C = _dp_create_class_C()
+
 $ mangles private class attributes
 
 class C:
@@ -263,16 +319,20 @@ class C:
     def read(self):
         return __value
 =
-def _dp_ns_C(_dp_class_ns):
-    __dp__.setattr(_dp_class_ns, "_C__value", 1)
+def _dp_create_class_C():
 
-    def read(self):
-        return _dp_class_ns._C__value
-    __dp__.setattr(_dp_class_ns, "read", read)
-    __dp__.setattr(_dp_class_ns, "__module__", __name__)
-    __dp__.setattr(_dp_class_ns, "__qualname__", "C")
-C = __dp__.create_class("C", _dp_ns_C, (), None)
-del _dp_ns_C
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__qualname__ = "C"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+        _dp_class_ns._C__value = 1
+
+        def read(self):
+            return _dp_class_ns._C__value
+        _dp_class_ns.read = read
+    return __dp__.create_class("C", _dp_ns_builder, (), None)
+C = _dp_create_class_C()
+
 $ mangles private attribute access in methods
 
 class C:
@@ -282,19 +342,23 @@ class C:
     def read(self):
         return self.__value()
 =
-def _dp_ns_C(_dp_class_ns):
+def _dp_create_class_C():
 
-    def __value(self):
-        return 1
-    __dp__.setattr(_dp_class_ns, "_C__value", __value)
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__qualname__ = "C"
+        _dp_class_ns.__annotations__ = __dp__.dict()
 
-    def read(self):
-        return self._C__value()
-    __dp__.setattr(_dp_class_ns, "read", read)
-    __dp__.setattr(_dp_class_ns, "__module__", __name__)
-    __dp__.setattr(_dp_class_ns, "__qualname__", "C")
-C = __dp__.create_class("C", _dp_ns_C, (), None)
-del _dp_ns_C
+        def _C__value(self):
+            return 1
+        _dp_class_ns._C__value = _C__value
+
+        def read(self):
+            return self._C__value()
+        _dp_class_ns.read = read
+    return __dp__.create_class("C", _dp_ns_builder, (), None)
+C = _dp_create_class_C()
+
 $ nested class uses outer binding in bases
 
 class Outer:
@@ -303,17 +367,25 @@ class Outer:
     class Inner(x):
         pass
 =
-def _dp_ns_Outer(_dp_class_ns):
-    __dp__.setattr(_dp_class_ns, "x", 1)
-    __dp__.setattr(_dp_class_ns, "Inner", __dp__.create_class("Inner", _dp_ns_Outer_Inner, (_dp_class_ns.x,), None))
-    __dp__.setattr(_dp_class_ns, "__module__", __name__)
-    __dp__.setattr(_dp_class_ns, "__qualname__", "Outer")
-def _dp_ns_Outer_Inner(_dp_class_ns):
-    __dp__.setattr(_dp_class_ns, "__module__", __name__)
-    __dp__.setattr(_dp_class_ns, "__qualname__", "Outer.Inner")
-Outer = __dp__.create_class("Outer", _dp_ns_Outer, (), None)
-del _dp_ns_Outer_Inner
-del _dp_ns_Outer
+def _dp_create_class_Outer():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__qualname__ = "Outer"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+        _dp_class_ns.x = 1
+
+        def _dp_create_class_Outer_Inner():
+
+            def _dp_ns_builder(_dp_class_ns):
+                _dp_class_ns.__module__ = __name__
+                _dp_class_ns.__qualname__ = "Outer.Inner"
+                _dp_class_ns.__annotations__ = __dp__.dict()
+            return __dp__.create_class("Inner", _dp_ns_builder, (x,), None)
+        _dp_class_ns.Inner = _dp_create_class_Outer_Inner()
+    return __dp__.create_class("Outer", _dp_ns_builder, (), None)
+Outer = _dp_create_class_Outer()
+
 $ function local class remains scoped
 
 class Example:
@@ -322,21 +394,28 @@ class Example:
             pass
         return Token
 =
-def _dp_ns_Example(_dp_class_ns):
+def _dp_create_class_Example():
 
-    def trigger(self):
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__qualname__ = "Example"
+        _dp_class_ns.__annotations__ = __dp__.dict()
 
-        def _dp_ns_Example_trigger__locals__Token(_dp_class_ns):
-            __dp__.setattr(_dp_class_ns, "__module__", __name__)
-            __dp__.setattr(_dp_class_ns, "__qualname__", "Example.trigger.<locals>.Token")
-        Token = __dp__.create_class("Token", _dp_ns_Example_trigger__locals__Token, (), None)
-        del _dp_ns_Example_trigger__locals__Token
-        return Token
-    __dp__.setattr(_dp_class_ns, "trigger", trigger)
-    __dp__.setattr(_dp_class_ns, "__module__", __name__)
-    __dp__.setattr(_dp_class_ns, "__qualname__", "Example")
-Example = __dp__.create_class("Example", _dp_ns_Example, (), None)
-del _dp_ns_Example
+        def trigger(self):
+
+            def _dp_create_class_Example_trigger__locals__Token():
+
+                def _dp_ns_builder(_dp_class_ns):
+                    _dp_class_ns.__module__ = __name__
+                    _dp_class_ns.__qualname__ = "Example.trigger.<locals>.Token"
+                    _dp_class_ns.__annotations__ = __dp__.dict()
+                return __dp__.create_class("Token", _dp_ns_builder, (), None)
+            Token = _dp_create_class_Example_trigger__locals__Token()
+            return Token
+        _dp_class_ns.trigger = trigger
+    return __dp__.create_class("Example", _dp_ns_builder, (), None)
+Example = _dp_create_class_Example()
+
 $ function local class nested in if
 
 class Example:
@@ -347,23 +426,30 @@ class Example:
             return Token
         return None
 =
-def _dp_ns_Example(_dp_class_ns):
+def _dp_create_class_Example():
 
-    def trigger(self, flag):
-        if flag:
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__qualname__ = "Example"
+        _dp_class_ns.__annotations__ = __dp__.dict()
 
-            def _dp_ns_Example_trigger__locals__Token(_dp_class_ns):
-                __dp__.setattr(_dp_class_ns, "__module__", __name__)
-                __dp__.setattr(_dp_class_ns, "__qualname__", "Example.trigger.<locals>.Token")
-            Token = __dp__.create_class("Token", _dp_ns_Example_trigger__locals__Token, (), None)
-            del _dp_ns_Example_trigger__locals__Token
-            return Token
-        return None
-    __dp__.setattr(_dp_class_ns, "trigger", trigger)
-    __dp__.setattr(_dp_class_ns, "__module__", __name__)
-    __dp__.setattr(_dp_class_ns, "__qualname__", "Example")
-Example = __dp__.create_class("Example", _dp_ns_Example, (), None)
-del _dp_ns_Example
+        def trigger(self, flag):
+            if flag:
+
+                def _dp_create_class_Example_trigger__locals__Token():
+
+                    def _dp_ns_builder(_dp_class_ns):
+                        _dp_class_ns.__module__ = __name__
+                        _dp_class_ns.__qualname__ = "Example.trigger.<locals>.Token"
+                        _dp_class_ns.__annotations__ = __dp__.dict()
+                    return __dp__.create_class("Token", _dp_ns_builder, (), None)
+                Token = _dp_create_class_Example_trigger__locals__Token()
+                return Token
+            return None
+        _dp_class_ns.trigger = trigger
+    return __dp__.create_class("Example", _dp_ns_builder, (), None)
+Example = _dp_create_class_Example()
+
 $ function local methods capture locals
 
 def outer():
@@ -378,13 +464,16 @@ def outer():
 def outer():
     value = 1
 
-    def _dp_ns_outer__locals__C(_dp_class_ns):
+    def _dp_create_class_outer__locals__C():
 
-        def method(self):
-            return value
-        __dp__.setattr(_dp_class_ns, "method", method)
-        __dp__.setattr(_dp_class_ns, "__module__", __name__)
-        __dp__.setattr(_dp_class_ns, "__qualname__", "outer.<locals>.C")
-    C = __dp__.create_class("C", _dp_ns_outer__locals__C, (), None)
-    del _dp_ns_outer__locals__C
+        def _dp_ns_builder(_dp_class_ns):
+            _dp_class_ns.__module__ = __name__
+            _dp_class_ns.__qualname__ = "outer.<locals>.C"
+            _dp_class_ns.__annotations__ = __dp__.dict()
+
+            def method(self):
+                return value
+            _dp_class_ns.method = method
+        return __dp__.create_class("C", _dp_ns_builder, (), None)
+    C = _dp_create_class_outer__locals__C()
     return C

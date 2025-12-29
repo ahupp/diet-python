@@ -1,6 +1,0 @@
-$ desugars dotted_import_alias_pkg.submodule
-
-SENTINEL = "submodule"
-=
-import __dp__
-SENTINEL = "submodule"

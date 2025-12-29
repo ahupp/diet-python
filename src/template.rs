@@ -43,7 +43,10 @@ macro_rules! py_stmt {
     }};
 }
 
-use crate::body_transform::{walk_expr, walk_keyword, walk_parameter, walk_stmt, Transformer};
+use crate::{
+    body_transform::{walk_expr, walk_keyword, walk_parameter, walk_stmt, Transformer},
+    ruff_ast_to_string,
+};
 use regex::Regex;
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_python_parser::parse_expression;
@@ -52,14 +55,15 @@ use serde_json::Value;
 use std::{collections::HashMap, sync::LazyLock};
 
 pub(crate) fn py_stmt_single(stmts: Vec<Stmt>) -> Stmt {
-    let mut iter = stmts.into_iter();
-    let stmt = iter
-        .next()
-        .expect("expected template to yield at least one statement");
-    if iter.next().is_some() {
-        panic!("expected template to yield a single statement");
+    if stmts.len() == 0 {
+        panic!("expected template to yield at least one statement");
+    } else if stmts.len() > 1 {
+        panic!(
+            "expected template to yield a single statement, got {:?}",
+            ruff_ast_to_string(&stmts)
+        );
     }
-    stmt
+    stmts.into_iter().next().unwrap()
 }
 
 pub(crate) fn is_simple(expr: &Expr) -> bool {

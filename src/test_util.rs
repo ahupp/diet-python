@@ -1,6 +1,7 @@
 use ruff_python_ast::{comparable::ComparableStmt, Stmt};
 use ruff_python_parser::parse_module;
 
+use crate::fixture::parse_fixture;
 use crate::transform::Options;
 use crate::{ruff_ast_to_string, transform_str_to_ruff_with_options};
 use similar::TextDiff;
@@ -75,111 +76,13 @@ pub(crate) fn assert_transform_eq_truthy(actual: &str, expected: &str) {
 }
 
 pub(crate) fn run_transform_fixture_tests(fixture: &str) {
-    use std::panic::{catch_unwind, AssertUnwindSafe};
-
-    #[derive(Default)]
-    struct Block {
-        name: String,
-        input: String,
-        output: String,
-        seen_separator: bool,
-    }
-
-    enum Section {
-        Waiting,
-        Block(Block),
-    }
-
-    let mut section = Section::Waiting;
-
-    let finalize = |block: Block| {
-        if !block.seen_separator {
-            panic!(
-                "missing `=` separator in transform fixture `{}`",
-                block.name
-            );
-        }
-
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            assert_transform_eq(block.input.as_str(), block.output.as_str());
-        }));
-
-        if let Err(err) = result {
-            let message = match err.downcast::<String>() {
-                Ok(msg) => Some(*msg),
-                Err(err) => match err.downcast::<&'static str>() {
-                    Ok(msg) => Some((*msg).to_string()),
-                    Err(_) => None,
-                },
-            };
-
-            if let Some(message) = message {
-                panic!("transform fixture `{}` failed: {}", block.name, message);
-            } else {
-                panic!("transform fixture `{}` failed", block.name);
-            }
-        }
+    let blocks = match parse_fixture(fixture) {
+        Ok(blocks) => blocks,
+        Err(err) => panic!("{err}"),
     };
 
-    for raw_line in fixture.split_inclusive('\n') {
-        let mut line = raw_line;
-        let has_newline = line.ends_with('\n');
-        if has_newline {
-            line = &line[..line.len() - 1];
-        }
-        if line.ends_with('\r') {
-            line = &line[..line.len() - 1];
-        }
-
-        let trimmed = line.trim_end();
-        if trimmed.starts_with('$') && trimmed.get(..2) == Some("$ ") {
-            if let Section::Block(block) = std::mem::replace(&mut section, Section::Waiting) {
-                finalize(block);
-            }
-
-            let name = trimmed[2..].trim().to_string();
-            section = Section::Block(Block {
-                name,
-                ..Block::default()
-            });
-            continue;
-        }
-
-        match &mut section {
-            Section::Waiting => {
-                if !trimmed.is_empty() {
-                    panic!(
-                        "unexpected content outside of transform fixtures: `{}`",
-                        line
-                    );
-                }
-            }
-            Section::Block(block) => {
-                if trimmed == "=" && line.trim() == "=" {
-                    if block.seen_separator {
-                        panic!(
-                            "multiple `=` separators found in transform fixture `{}`",
-                            block.name
-                        );
-                    }
-                    block.seen_separator = true;
-                } else if block.seen_separator {
-                    block.output.push_str(line);
-                    if has_newline {
-                        block.output.push('\n');
-                    }
-                } else {
-                    block.input.push_str(line);
-                    if has_newline {
-                        block.input.push('\n');
-                    }
-                }
-            }
-        }
-    }
-
-    if let Section::Block(block) = section {
-        finalize(block);
+    for block in blocks {
+        assert_transform_eq(block.input.as_str(), block.output.as_str());
     }
 }
 

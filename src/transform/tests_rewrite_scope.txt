@@ -1,0 +1,28 @@
+$ locals and globals
+x = 1
+def outer():
+    y = 2
+    def inner():
+        nonlocal y
+        global x
+        y = x
+        return y
+    return inner()
+=
+x = 1
+def outer():
+    y = 2
+
+    def inner():
+        nonlocal y
+        global x
+        y = x
+        return y
+    return inner()
+
+$ params seeded
+def f(a, b):
+    return a + b
+=
+def f(a, b):
+    return __dp__.add(a, b)
