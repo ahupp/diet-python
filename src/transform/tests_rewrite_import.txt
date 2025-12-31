@@ -22,7 +22,7 @@ $ rewrites dotted aliased import
 
 import a.b as c
 =
-c = __dp__.import_("a.b", __spec__, __dp__.list(("b",)))
+c = __dp__.import_attr(__dp__.import_("a.b", __spec__), "b")
 
 $ rewrites relative import
 

@@ -6,11 +6,17 @@ class C:
 def _dp_create_class_C():
 
     def _dp_ns_builder(_dp_class_ns):
-        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
         _dp_class_ns.__qualname__ = "C"
         _dp_class_ns.__annotations__ = __dp__.dict()
         _dp_class_ns.x = 1
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
     return __dp__.create_class("C", _dp_ns_builder, (), None)
+_dp_create_class_C.__qualname__ = "_dp_create_class_C"
+_dp_create_class_C.__code__ = _dp_create_class_C.__code__.replace(co_qualname="_dp_create_class_C")
 C = _dp_create_class_C()
 
 $ rewrites super without explicit first param
@@ -22,14 +28,65 @@ class C:
 def _dp_create_class_C():
 
     def _dp_ns_builder(_dp_class_ns):
-        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
         _dp_class_ns.__qualname__ = "C"
         _dp_class_ns.__annotations__ = __dp__.dict()
 
         def m():
-            return super(C, None).m()
+            return __dp__.super_(__class__, None).m()
+        m.__qualname__ = "m"
+        m.__code__ = m.__code__.replace(co_qualname="m")
+        m.__qualname__ = "m"
+        m.__code__ = m.__code__.replace(co_qualname="m")
+        m.__qualname__ = "m"
+        m.__code__ = m.__code__.replace(co_qualname="m")
+        m.__qualname__ = "m"
+        m.__code__ = m.__code__.replace(co_qualname="m")
         _dp_class_ns.m = m
+        _dp_class_ns.m.__qualname__ = "C.m"
+        _dp_class_ns.m.__code__ = _dp_class_ns.m.__code__.replace(co_qualname="C.m")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
     return __dp__.create_class("C", _dp_ns_builder, (), None)
+_dp_create_class_C.__qualname__ = "_dp_create_class_C"
+_dp_create_class_C.__code__ = _dp_create_class_C.__code__.replace(co_qualname="_dp_create_class_C")
+C = _dp_create_class_C()
+
+$ zero-arg super in __new__ uses defining class helper
+
+class C:
+    def __new__(cls, value):
+        return super().__new__(cls, value)
+=
+def _dp_create_class_C():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
+        _dp_class_ns.__qualname__ = "C"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+
+        def __new__(cls, value):
+            return __dp__.super_(__class__, cls).__new__(cls, value)
+        __new__.__qualname__ = "__new__"
+        __new__.__code__ = __new__.__code__.replace(co_qualname="__new__")
+        __new__.__qualname__ = "__new__"
+        __new__.__code__ = __new__.__code__.replace(co_qualname="__new__")
+        __new__.__qualname__ = "__new__"
+        __new__.__code__ = __new__.__code__.replace(co_qualname="__new__")
+        __new__.__qualname__ = "__new__"
+        __new__.__code__ = __new__.__code__.replace(co_qualname="__new__")
+        _dp_class_ns.__new__ = __new__
+        _dp_class_ns.__new__.__qualname__ = "C.__new__"
+        _dp_class_ns.__new__.__code__ = _dp_class_ns.__new__.__code__.replace(co_qualname="C.__new__")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    return __dp__.create_class("C", _dp_ns_builder, (), None)
+_dp_create_class_C.__qualname__ = "_dp_create_class_C"
+_dp_create_class_C.__code__ = _dp_create_class_C.__code__.replace(co_qualname="_dp_create_class_C")
 C = _dp_create_class_C()
 
 $ rewrites class del statements
@@ -41,12 +98,18 @@ class C:
 def _dp_create_class_C():
 
     def _dp_ns_builder(_dp_class_ns):
-        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
         _dp_class_ns.__qualname__ = "C"
         _dp_class_ns.__annotations__ = __dp__.dict()
         _dp_class_ns.x = 1
         del _dp_class_ns.x
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
     return __dp__.create_class("C", _dp_ns_builder, (), None)
+_dp_create_class_C.__qualname__ = "_dp_create_class_C"
+_dp_create_class_C.__code__ = _dp_create_class_C.__code__.replace(co_qualname="_dp_create_class_C")
 C = _dp_create_class_C()
 
 $ collects class annotations
@@ -58,13 +121,19 @@ class C:
 def _dp_create_class_C():
 
     def _dp_ns_builder(_dp_class_ns):
-        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
         _dp_class_ns.__qualname__ = "C"
         _dp_class_ns.__annotations__ = __dp__.dict()
-        __dp__.setitem(_dp_class_ns.__annotations__, "x", int)
-        __dp__.setitem(_dp_class_ns.__annotations__, "y", str)
+        __dp__.setitem(_dp_class_ns.__annotations__, "x", __dp__.class_lookup(_dp_class_ns, globals(), "int"))
+        __dp__.setitem(_dp_class_ns.__annotations__, "y", __dp__.class_lookup(_dp_class_ns, globals(), "str"))
         _dp_class_ns.y = 1
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
     return __dp__.create_class("C", _dp_ns_builder, (), None)
+_dp_create_class_C.__qualname__ = "_dp_create_class_C"
+_dp_create_class_C.__code__ = _dp_create_class_C.__code__.replace(co_qualname="_dp_create_class_C")
 C = _dp_create_class_C()
 
 $ captures outer reference
@@ -75,11 +144,17 @@ class C:
 def _dp_create_class_C():
 
     def _dp_ns_builder(_dp_class_ns):
-        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
         _dp_class_ns.__qualname__ = "C"
         _dp_class_ns.__annotations__ = __dp__.dict()
-        _dp_class_ns.x = x
+        _dp_class_ns.x = __dp__.class_lookup(_dp_class_ns, globals(), "x")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
     return __dp__.create_class("C", _dp_ns_builder, (), None)
+_dp_create_class_C.__qualname__ = "_dp_create_class_C"
+_dp_create_class_C.__code__ = _dp_create_class_C.__code__.replace(co_qualname="_dp_create_class_C")
 C = _dp_create_class_C()
 
 $ captures names used in annotations
@@ -93,11 +168,17 @@ T = object()
 def _dp_create_class_C():
 
     def _dp_ns_builder(_dp_class_ns):
-        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
         _dp_class_ns.__qualname__ = "C"
         _dp_class_ns.__annotations__ = __dp__.dict()
-        __dp__.setitem(_dp_class_ns.__annotations__, "x", T)
+        __dp__.setitem(_dp_class_ns.__annotations__, "x", __dp__.class_lookup(_dp_class_ns, globals(), "T"))
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
     return __dp__.create_class("C", _dp_ns_builder, (), None)
+_dp_create_class_C.__qualname__ = "_dp_create_class_C"
+_dp_create_class_C.__code__ = _dp_create_class_C.__code__.replace(co_qualname="_dp_create_class_C")
 C = _dp_create_class_C()
 
 $ preserves class locals for references
@@ -109,12 +190,18 @@ class C:
 def _dp_create_class_C():
 
     def _dp_ns_builder(_dp_class_ns):
-        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
         _dp_class_ns.__qualname__ = "C"
         _dp_class_ns.__annotations__ = __dp__.dict()
         _dp_class_ns.x = 1
         _dp_class_ns.y = _dp_class_ns.x
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
     return __dp__.create_class("C", _dp_ns_builder, (), None)
+_dp_create_class_C.__qualname__ = "_dp_create_class_C"
+_dp_create_class_C.__code__ = _dp_create_class_C.__code__.replace(co_qualname="_dp_create_class_C")
 C = _dp_create_class_C()
 
 $ lowers PEP 695 type parameters
@@ -125,14 +212,20 @@ class C[T, **P]:
 def _dp_create_class_C():
 
     def _dp_ns_builder(_dp_class_ns):
-        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
         _dp_class_ns.__qualname__ = "C"
         _dp_class_ns.T = __dp__.type_param_typevar("T", None, None, None)
         _dp_class_ns.P = __dp__.type_param_param_spec("P", None)
         _dp_class_ns.__type_params__ = _dp_class_ns.T, _dp_class_ns.P
         _dp_class_ns.__annotations__ = __dp__.dict()
         __dp__.setitem(_dp_class_ns.__annotations__, "x", _dp_class_ns.T)
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
     return __dp__.create_class("C", _dp_ns_builder, (), None)
+_dp_create_class_C.__qualname__ = "_dp_create_class_C"
+_dp_create_class_C.__code__ = _dp_create_class_C.__code__.replace(co_qualname="_dp_create_class_C")
 C = _dp_create_class_C()
 
 $ lowers inherits
@@ -143,10 +236,16 @@ class C(B):
 def _dp_create_class_C():
 
     def _dp_ns_builder(_dp_class_ns):
-        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
         _dp_class_ns.__qualname__ = "C"
         _dp_class_ns.__annotations__ = __dp__.dict()
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
     return __dp__.create_class("C", _dp_ns_builder, (B,), None)
+_dp_create_class_C.__qualname__ = "_dp_create_class_C"
+_dp_create_class_C.__code__ = _dp_create_class_C.__code__.replace(co_qualname="_dp_create_class_C")
 C = _dp_create_class_C()
 
 $ lowers with docstring and keywords
@@ -158,12 +257,18 @@ class C(B, metaclass=Meta, kw=1):
 def _dp_create_class_C():
 
     def _dp_ns_builder(_dp_class_ns):
-        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
         _dp_class_ns.__qualname__ = "C"
         _dp_class_ns.__annotations__ = __dp__.dict()
         _dp_class_ns.__doc__ = 'doc'
         _dp_class_ns.x = 2
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
     return __dp__.create_class("C", _dp_ns_builder, (B,), __dp__.dict((("metaclass", Meta), ("kw", 1))))
+_dp_create_class_C.__qualname__ = "_dp_create_class_C"
+_dp_create_class_C.__code__ = _dp_create_class_C.__code__.replace(co_qualname="_dp_create_class_C")
 C = _dp_create_class_C()
 
 $ lowers method
@@ -175,15 +280,70 @@ class C:
 def _dp_create_class_C():
 
     def _dp_ns_builder(_dp_class_ns):
-        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
         _dp_class_ns.__qualname__ = "C"
         _dp_class_ns.__annotations__ = __dp__.dict()
 
         def m(self):
             return 1
+        m.__qualname__ = "m"
+        m.__code__ = m.__code__.replace(co_qualname="m")
+        m.__qualname__ = "m"
+        m.__code__ = m.__code__.replace(co_qualname="m")
+        m.__qualname__ = "m"
+        m.__code__ = m.__code__.replace(co_qualname="m")
+        m.__qualname__ = "m"
+        m.__code__ = m.__code__.replace(co_qualname="m")
         _dp_class_ns.m = m
+        _dp_class_ns.m.__qualname__ = "C.m"
+        _dp_class_ns.m.__code__ = _dp_class_ns.m.__code__.replace(co_qualname="C.m")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
     return __dp__.create_class("C", _dp_ns_builder, (), None)
+_dp_create_class_C.__qualname__ = "_dp_create_class_C"
+_dp_create_class_C.__code__ = _dp_create_class_C.__code__.replace(co_qualname="_dp_create_class_C")
 C = _dp_create_class_C()
+
+$ method name can be shadowed by locals
+
+class Example:
+    def close(self):
+        close = self._close
+        if close:
+            close()
+=
+def _dp_create_class_Example():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
+        _dp_class_ns.__qualname__ = "Example"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+
+        def close(self):
+            close = self._close
+            if close:
+                close()
+        close.__qualname__ = "close"
+        close.__code__ = close.__code__.replace(co_qualname="close")
+        close.__qualname__ = "close"
+        close.__code__ = close.__code__.replace(co_qualname="close")
+        close.__qualname__ = "close"
+        close.__code__ = close.__code__.replace(co_qualname="close")
+        close.__qualname__ = "close"
+        close.__code__ = close.__code__.replace(co_qualname="close")
+        _dp_class_ns.close = close
+        _dp_class_ns.close.__qualname__ = "Example.close"
+        _dp_class_ns.close.__code__ = _dp_class_ns.close.__code__.replace(co_qualname="Example.close")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    return __dp__.create_class("Example", _dp_ns_builder, (), None)
+_dp_create_class_Example.__qualname__ = "_dp_create_class_Example"
+_dp_create_class_Example.__code__ = _dp_create_class_Example.__code__.replace(co_qualname="_dp_create_class_Example")
+Example = _dp_create_class_Example()
 
 $ lowers async method
 
@@ -194,14 +354,30 @@ class C:
 def _dp_create_class_C():
 
     def _dp_ns_builder(_dp_class_ns):
-        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
         _dp_class_ns.__qualname__ = "C"
         _dp_class_ns.__annotations__ = __dp__.dict()
 
         async def m(self):
             return 1
+        m.__qualname__ = "m"
+        m.__code__ = m.__code__.replace(co_qualname="m")
+        m.__qualname__ = "m"
+        m.__code__ = m.__code__.replace(co_qualname="m")
+        m.__qualname__ = "m"
+        m.__code__ = m.__code__.replace(co_qualname="m")
+        m.__qualname__ = "m"
+        m.__code__ = m.__code__.replace(co_qualname="m")
         _dp_class_ns.m = m
+        _dp_class_ns.m.__qualname__ = "C.m"
+        _dp_class_ns.m.__code__ = _dp_class_ns.m.__code__.replace(co_qualname="C.m")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
     return __dp__.create_class("C", _dp_ns_builder, (), None)
+_dp_create_class_C.__qualname__ = "_dp_create_class_C"
+_dp_create_class_C.__code__ = _dp_create_class_C.__code__.replace(co_qualname="_dp_create_class_C")
 C = _dp_create_class_C()
 
 $ rewrites super and class
@@ -213,14 +389,30 @@ class C:
 def _dp_create_class_C():
 
     def _dp_ns_builder(_dp_class_ns):
-        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
         _dp_class_ns.__qualname__ = "C"
         _dp_class_ns.__annotations__ = __dp__.dict()
 
         def m(self):
-            return super(C, self).m()
+            return __dp__.super_(__class__, self).m()
+        m.__qualname__ = "m"
+        m.__code__ = m.__code__.replace(co_qualname="m")
+        m.__qualname__ = "m"
+        m.__code__ = m.__code__.replace(co_qualname="m")
+        m.__qualname__ = "m"
+        m.__code__ = m.__code__.replace(co_qualname="m")
+        m.__qualname__ = "m"
+        m.__code__ = m.__code__.replace(co_qualname="m")
         _dp_class_ns.m = m
+        _dp_class_ns.m.__qualname__ = "C.m"
+        _dp_class_ns.m.__code__ = _dp_class_ns.m.__code__.replace(co_qualname="C.m")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
     return __dp__.create_class("C", _dp_ns_builder, (), None)
+_dp_create_class_C.__qualname__ = "_dp_create_class_C"
+_dp_create_class_C.__code__ = _dp_create_class_C.__code__.replace(co_qualname="_dp_create_class_C")
 C = _dp_create_class_C()
 
 $ rewrites super uses first arg
@@ -232,14 +424,30 @@ class C:
 def _dp_create_class_C():
 
     def _dp_ns_builder(_dp_class_ns):
-        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
         _dp_class_ns.__qualname__ = "C"
         _dp_class_ns.__annotations__ = __dp__.dict()
 
         def m(z):
-            return super(C, z).m()
+            return __dp__.super_(__class__, z).m()
+        m.__qualname__ = "m"
+        m.__code__ = m.__code__.replace(co_qualname="m")
+        m.__qualname__ = "m"
+        m.__code__ = m.__code__.replace(co_qualname="m")
+        m.__qualname__ = "m"
+        m.__code__ = m.__code__.replace(co_qualname="m")
+        m.__qualname__ = "m"
+        m.__code__ = m.__code__.replace(co_qualname="m")
         _dp_class_ns.m = m
+        _dp_class_ns.m.__qualname__ = "C.m"
+        _dp_class_ns.m.__code__ = _dp_class_ns.m.__code__.replace(co_qualname="C.m")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
     return __dp__.create_class("C", _dp_ns_builder, (), None)
+_dp_create_class_C.__qualname__ = "_dp_create_class_C"
+_dp_create_class_C.__code__ = _dp_create_class_C.__code__.replace(co_qualname="_dp_create_class_C")
 C = _dp_create_class_C()
 
 $ rewrites super without receiver
@@ -251,14 +459,30 @@ class C:
 def _dp_create_class_C():
 
     def _dp_ns_builder(_dp_class_ns):
-        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
         _dp_class_ns.__qualname__ = "C"
         _dp_class_ns.__annotations__ = __dp__.dict()
 
         def m():
-            return super(C, None).m()
+            return __dp__.super_(__class__, None).m()
+        m.__qualname__ = "m"
+        m.__code__ = m.__code__.replace(co_qualname="m")
+        m.__qualname__ = "m"
+        m.__code__ = m.__code__.replace(co_qualname="m")
+        m.__qualname__ = "m"
+        m.__code__ = m.__code__.replace(co_qualname="m")
+        m.__qualname__ = "m"
+        m.__code__ = m.__code__.replace(co_qualname="m")
         _dp_class_ns.m = m
+        _dp_class_ns.m.__qualname__ = "C.m"
+        _dp_class_ns.m.__code__ = _dp_class_ns.m.__code__.replace(co_qualname="C.m")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
     return __dp__.create_class("C", _dp_ns_builder, (), None)
+_dp_create_class_C.__qualname__ = "_dp_create_class_C"
+_dp_create_class_C.__code__ = _dp_create_class_C.__code__.replace(co_qualname="_dp_create_class_C")
 C = _dp_create_class_C()
 
 $ applies decorators in namespace
@@ -274,17 +498,35 @@ class C:
 def _dp_create_class_C():
 
     def _dp_ns_builder(_dp_class_ns):
-        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
         _dp_class_ns.__qualname__ = "C"
         _dp_class_ns.__annotations__ = __dp__.dict()
-        _dp_class_ns.y = deco
-        _dp_tmp_1 = decorator(_dp_class_ns.y)
+        _dp_class_ns.y = __dp__.class_lookup(_dp_class_ns, globals(), "deco")
+        _dp_tmp_1 = __dp__.class_lookup(_dp_class_ns, globals(), "decorator")(_dp_class_ns.y)
 
         def m(self):
             return self
+        m.__qualname__ = "m"
+        m.__code__ = m.__code__.replace(co_qualname="m")
+        m.__qualname__ = "m"
+        m.__code__ = m.__code__.replace(co_qualname="m")
+        m.__qualname__ = "m"
+        m.__code__ = m.__code__.replace(co_qualname="m")
+        m.__qualname__ = "m"
+        m.__code__ = m.__code__.replace(co_qualname="m")
         _dp_class_ns.m = m
-        _dp_class_ns.m = _dp_tmp_1(other(_dp_class_ns.m))
+        _dp_class_ns.m.__qualname__ = "C.m"
+        _dp_class_ns.m.__code__ = _dp_class_ns.m.__code__.replace(co_qualname="C.m")
+        _dp_class_ns.m.__qualname__ = "C.m"
+        _dp_class_ns.m.__code__ = _dp_class_ns.m.__code__.replace(co_qualname="C.m")
+        _dp_class_ns.m = _dp_tmp_1(__dp__.class_lookup(_dp_class_ns, globals(), "other")(_dp_class_ns.m))
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
     return __dp__.create_class("C", _dp_ns_builder, (), None)
+_dp_create_class_C.__qualname__ = "_dp_create_class_C"
+_dp_create_class_C.__code__ = _dp_create_class_C.__code__.replace(co_qualname="_dp_create_class_C")
 C = _dp_create_class_C()
 
 $ renames class stores and uses
@@ -299,7 +541,7 @@ class C:
 def _dp_create_class_C():
 
     def _dp_ns_builder(_dp_class_ns):
-        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
         _dp_class_ns.__qualname__ = "C"
         _dp_class_ns.__annotations__ = __dp__.dict()
         _dp_class_ns.a = 1
@@ -307,8 +549,24 @@ def _dp_create_class_C():
 
         def f(self, value: _dp_class_ns.b=_dp_class_ns.a):
             return value
+        f.__qualname__ = "f"
+        f.__code__ = f.__code__.replace(co_qualname="f")
+        f.__qualname__ = "f"
+        f.__code__ = f.__code__.replace(co_qualname="f")
+        f.__qualname__ = "f"
+        f.__code__ = f.__code__.replace(co_qualname="f")
+        f.__qualname__ = "f"
+        f.__code__ = f.__code__.replace(co_qualname="f")
         _dp_class_ns.f = f
+        _dp_class_ns.f.__qualname__ = "C.f"
+        _dp_class_ns.f.__code__ = _dp_class_ns.f.__code__.replace(co_qualname="C.f")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
     return __dp__.create_class("C", _dp_ns_builder, (), None)
+_dp_create_class_C.__qualname__ = "_dp_create_class_C"
+_dp_create_class_C.__code__ = _dp_create_class_C.__code__.replace(co_qualname="_dp_create_class_C")
 C = _dp_create_class_C()
 
 $ mangles private class attributes
@@ -322,15 +580,31 @@ class C:
 def _dp_create_class_C():
 
     def _dp_ns_builder(_dp_class_ns):
-        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
         _dp_class_ns.__qualname__ = "C"
         _dp_class_ns.__annotations__ = __dp__.dict()
         _dp_class_ns._C__value = 1
 
         def read(self):
-            return _dp_class_ns._C__value
+            return __dp__.global_(globals(), "_C__value")
+        read.__qualname__ = "read"
+        read.__code__ = read.__code__.replace(co_qualname="read")
+        read.__qualname__ = "read"
+        read.__code__ = read.__code__.replace(co_qualname="read")
+        read.__qualname__ = "read"
+        read.__code__ = read.__code__.replace(co_qualname="read")
+        read.__qualname__ = "read"
+        read.__code__ = read.__code__.replace(co_qualname="read")
         _dp_class_ns.read = read
+        _dp_class_ns.read.__qualname__ = "C.read"
+        _dp_class_ns.read.__code__ = _dp_class_ns.read.__code__.replace(co_qualname="C.read")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
     return __dp__.create_class("C", _dp_ns_builder, (), None)
+_dp_create_class_C.__qualname__ = "_dp_create_class_C"
+_dp_create_class_C.__code__ = _dp_create_class_C.__code__.replace(co_qualname="_dp_create_class_C")
 C = _dp_create_class_C()
 
 $ mangles private attribute access in methods
@@ -345,18 +619,44 @@ class C:
 def _dp_create_class_C():
 
     def _dp_ns_builder(_dp_class_ns):
-        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
         _dp_class_ns.__qualname__ = "C"
         _dp_class_ns.__annotations__ = __dp__.dict()
 
         def _C__value(self):
             return 1
+        _C__value.__qualname__ = "_C__value"
+        _C__value.__code__ = _C__value.__code__.replace(co_qualname="_C__value")
+        _C__value.__qualname__ = "_C__value"
+        _C__value.__code__ = _C__value.__code__.replace(co_qualname="_C__value")
+        _C__value.__qualname__ = "_C__value"
+        _C__value.__code__ = _C__value.__code__.replace(co_qualname="_C__value")
+        _C__value.__qualname__ = "_C__value"
+        _C__value.__code__ = _C__value.__code__.replace(co_qualname="_C__value")
         _dp_class_ns._C__value = _C__value
+        _dp_class_ns._C__value.__qualname__ = "C._C__value"
+        _dp_class_ns._C__value.__code__ = _dp_class_ns._C__value.__code__.replace(co_qualname="C._C__value")
 
         def read(self):
             return self._C__value()
+        read.__qualname__ = "read"
+        read.__code__ = read.__code__.replace(co_qualname="read")
+        read.__qualname__ = "read"
+        read.__code__ = read.__code__.replace(co_qualname="read")
+        read.__qualname__ = "read"
+        read.__code__ = read.__code__.replace(co_qualname="read")
+        read.__qualname__ = "read"
+        read.__code__ = read.__code__.replace(co_qualname="read")
         _dp_class_ns.read = read
+        _dp_class_ns.read.__qualname__ = "C.read"
+        _dp_class_ns.read.__code__ = _dp_class_ns.read.__code__.replace(co_qualname="C.read")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
     return __dp__.create_class("C", _dp_ns_builder, (), None)
+_dp_create_class_C.__qualname__ = "_dp_create_class_C"
+_dp_create_class_C.__code__ = _dp_create_class_C.__code__.replace(co_qualname="_dp_create_class_C")
 C = _dp_create_class_C()
 
 $ nested class uses outer binding in bases
@@ -370,7 +670,7 @@ class Outer:
 def _dp_create_class_Outer():
 
     def _dp_ns_builder(_dp_class_ns):
-        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
         _dp_class_ns.__qualname__ = "Outer"
         _dp_class_ns.__annotations__ = __dp__.dict()
         _dp_class_ns.x = 1
@@ -378,12 +678,48 @@ def _dp_create_class_Outer():
         def _dp_create_class_Outer_Inner():
 
             def _dp_ns_builder(_dp_class_ns):
-                _dp_class_ns.__module__ = __name__
+                _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
                 _dp_class_ns.__qualname__ = "Outer.Inner"
                 _dp_class_ns.__annotations__ = __dp__.dict()
-            return __dp__.create_class("Inner", _dp_ns_builder, (x,), None)
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "Outer._dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="Outer._dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "Outer._dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="Outer._dp_ns_builder")
+            return __dp__.create_class("Inner", _dp_ns_builder, (__dp__.class_lookup(_dp_class_ns, globals(), "x"),), None)
+        _dp_create_class_Outer_Inner.__qualname__ = "_dp_create_class_Outer_Inner"
+        _dp_create_class_Outer_Inner.__code__ = _dp_create_class_Outer_Inner.__code__.replace(co_qualname="_dp_create_class_Outer_Inner")
+        _dp_create_class_Outer_Inner.__qualname__ = "_dp_create_class_Outer_Inner"
+        _dp_create_class_Outer_Inner.__code__ = _dp_create_class_Outer_Inner.__code__.replace(co_qualname="_dp_create_class_Outer_Inner")
+        _dp_create_class_Outer_Inner.__qualname__ = "_dp_create_class_Outer_Inner"
+        _dp_create_class_Outer_Inner.__code__ = _dp_create_class_Outer_Inner.__code__.replace(co_qualname="_dp_create_class_Outer_Inner")
+        _dp_create_class_Outer_Inner.__qualname__ = "_dp_create_class_Outer_Inner"
+        _dp_create_class_Outer_Inner.__code__ = _dp_create_class_Outer_Inner.__code__.replace(co_qualname="_dp_create_class_Outer_Inner")
+        _dp_create_class_Outer_Inner.__qualname__ = "Outer._dp_create_class_Outer_Inner"
+        _dp_create_class_Outer_Inner.__code__ = _dp_create_class_Outer_Inner.__code__.replace(co_qualname="Outer._dp_create_class_Outer_Inner")
         _dp_class_ns.Inner = _dp_create_class_Outer_Inner()
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
     return __dp__.create_class("Outer", _dp_ns_builder, (), None)
+_dp_create_class_Outer.__qualname__ = "_dp_create_class_Outer"
+_dp_create_class_Outer.__code__ = _dp_create_class_Outer.__code__.replace(co_qualname="_dp_create_class_Outer")
 Outer = _dp_create_class_Outer()
 
 $ function local class remains scoped
@@ -397,7 +733,7 @@ class Example:
 def _dp_create_class_Example():
 
     def _dp_ns_builder(_dp_class_ns):
-        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
         _dp_class_ns.__qualname__ = "Example"
         _dp_class_ns.__annotations__ = __dp__.dict()
 
@@ -406,14 +742,96 @@ def _dp_create_class_Example():
             def _dp_create_class_Example_trigger__locals__Token():
 
                 def _dp_ns_builder(_dp_class_ns):
-                    _dp_class_ns.__module__ = __name__
+                    _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
                     _dp_class_ns.__qualname__ = "Example.trigger.<locals>.Token"
                     _dp_class_ns.__annotations__ = __dp__.dict()
+                _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "trigger.<locals>._dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="trigger.<locals>._dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "trigger.<locals>._dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="trigger.<locals>._dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "trigger.<locals>._dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="trigger.<locals>._dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "trigger.<locals>._dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="trigger.<locals>._dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "trigger.<locals>._dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="trigger.<locals>._dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "trigger.<locals>._dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="trigger.<locals>._dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "trigger.<locals>._dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="trigger.<locals>._dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "trigger.<locals>._dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="trigger.<locals>._dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "Example.trigger.<locals>._dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="Example.trigger.<locals>._dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "Example.trigger.<locals>._dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="Example.trigger.<locals>._dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "Example._dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="Example._dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "Example._dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="Example._dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "Example.trigger.<locals>._dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="Example.trigger.<locals>._dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "Example.trigger.<locals>._dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="Example.trigger.<locals>._dp_ns_builder")
                 return __dp__.create_class("Token", _dp_ns_builder, (), None)
+            _dp_create_class_Example_trigger__locals__Token.__qualname__ = "_dp_create_class_Example_trigger__locals__Token"
+            _dp_create_class_Example_trigger__locals__Token.__code__ = _dp_create_class_Example_trigger__locals__Token.__code__.replace(co_qualname="_dp_create_class_Example_trigger__locals__Token")
+            _dp_create_class_Example_trigger__locals__Token.__qualname__ = "trigger.<locals>._dp_create_class_Example_trigger__locals__Token"
+            _dp_create_class_Example_trigger__locals__Token.__code__ = _dp_create_class_Example_trigger__locals__Token.__code__.replace(co_qualname="trigger.<locals>._dp_create_class_Example_trigger__locals__Token")
+            _dp_create_class_Example_trigger__locals__Token.__qualname__ = "_dp_create_class_Example_trigger__locals__Token"
+            _dp_create_class_Example_trigger__locals__Token.__code__ = _dp_create_class_Example_trigger__locals__Token.__code__.replace(co_qualname="_dp_create_class_Example_trigger__locals__Token")
+            _dp_create_class_Example_trigger__locals__Token.__qualname__ = "trigger.<locals>._dp_create_class_Example_trigger__locals__Token"
+            _dp_create_class_Example_trigger__locals__Token.__code__ = _dp_create_class_Example_trigger__locals__Token.__code__.replace(co_qualname="trigger.<locals>._dp_create_class_Example_trigger__locals__Token")
+            _dp_create_class_Example_trigger__locals__Token.__qualname__ = "_dp_create_class_Example_trigger__locals__Token"
+            _dp_create_class_Example_trigger__locals__Token.__code__ = _dp_create_class_Example_trigger__locals__Token.__code__.replace(co_qualname="_dp_create_class_Example_trigger__locals__Token")
+            _dp_create_class_Example_trigger__locals__Token.__qualname__ = "trigger.<locals>._dp_create_class_Example_trigger__locals__Token"
+            _dp_create_class_Example_trigger__locals__Token.__code__ = _dp_create_class_Example_trigger__locals__Token.__code__.replace(co_qualname="trigger.<locals>._dp_create_class_Example_trigger__locals__Token")
+            _dp_create_class_Example_trigger__locals__Token.__qualname__ = "_dp_create_class_Example_trigger__locals__Token"
+            _dp_create_class_Example_trigger__locals__Token.__code__ = _dp_create_class_Example_trigger__locals__Token.__code__.replace(co_qualname="_dp_create_class_Example_trigger__locals__Token")
+            _dp_create_class_Example_trigger__locals__Token.__qualname__ = "trigger.<locals>._dp_create_class_Example_trigger__locals__Token"
+            _dp_create_class_Example_trigger__locals__Token.__code__ = _dp_create_class_Example_trigger__locals__Token.__code__.replace(co_qualname="trigger.<locals>._dp_create_class_Example_trigger__locals__Token")
+            _dp_create_class_Example_trigger__locals__Token.__qualname__ = "Example.trigger.<locals>._dp_create_class_Example_trigger__locals__Token"
+            _dp_create_class_Example_trigger__locals__Token.__code__ = _dp_create_class_Example_trigger__locals__Token.__code__.replace(co_qualname="Example.trigger.<locals>._dp_create_class_Example_trigger__locals__Token")
+            _dp_create_class_Example_trigger__locals__Token.__qualname__ = "Example._dp_create_class_Example_trigger__locals__Token"
+            _dp_create_class_Example_trigger__locals__Token.__code__ = _dp_create_class_Example_trigger__locals__Token.__code__.replace(co_qualname="Example._dp_create_class_Example_trigger__locals__Token")
+            _dp_create_class_Example_trigger__locals__Token.__qualname__ = "Example.trigger.<locals>._dp_create_class_Example_trigger__locals__Token"
+            _dp_create_class_Example_trigger__locals__Token.__code__ = _dp_create_class_Example_trigger__locals__Token.__code__.replace(co_qualname="Example.trigger.<locals>._dp_create_class_Example_trigger__locals__Token")
             Token = _dp_create_class_Example_trigger__locals__Token()
             return Token
+        trigger.__qualname__ = "trigger"
+        trigger.__code__ = trigger.__code__.replace(co_qualname="trigger")
+        trigger.__qualname__ = "trigger"
+        trigger.__code__ = trigger.__code__.replace(co_qualname="trigger")
+        trigger.__qualname__ = "trigger"
+        trigger.__code__ = trigger.__code__.replace(co_qualname="trigger")
+        trigger.__qualname__ = "trigger"
+        trigger.__code__ = trigger.__code__.replace(co_qualname="trigger")
         _dp_class_ns.trigger = trigger
+        _dp_class_ns.trigger.__qualname__ = "Example.trigger"
+        _dp_class_ns.trigger.__code__ = _dp_class_ns.trigger.__code__.replace(co_qualname="Example.trigger")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
     return __dp__.create_class("Example", _dp_ns_builder, (), None)
+_dp_create_class_Example.__qualname__ = "_dp_create_class_Example"
+_dp_create_class_Example.__code__ = _dp_create_class_Example.__code__.replace(co_qualname="_dp_create_class_Example")
 Example = _dp_create_class_Example()
 
 $ function local class nested in if
@@ -429,7 +847,7 @@ class Example:
 def _dp_create_class_Example():
 
     def _dp_ns_builder(_dp_class_ns):
-        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
         _dp_class_ns.__qualname__ = "Example"
         _dp_class_ns.__annotations__ = __dp__.dict()
 
@@ -439,15 +857,97 @@ def _dp_create_class_Example():
                 def _dp_create_class_Example_trigger__locals__Token():
 
                     def _dp_ns_builder(_dp_class_ns):
-                        _dp_class_ns.__module__ = __name__
+                        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
                         _dp_class_ns.__qualname__ = "Example.trigger.<locals>.Token"
                         _dp_class_ns.__annotations__ = __dp__.dict()
+                    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+                    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+                    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+                    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+                    _dp_ns_builder.__qualname__ = "trigger.<locals>._dp_ns_builder"
+                    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="trigger.<locals>._dp_ns_builder")
+                    _dp_ns_builder.__qualname__ = "trigger.<locals>._dp_ns_builder"
+                    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="trigger.<locals>._dp_ns_builder")
+                    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+                    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+                    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+                    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+                    _dp_ns_builder.__qualname__ = "trigger.<locals>._dp_ns_builder"
+                    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="trigger.<locals>._dp_ns_builder")
+                    _dp_ns_builder.__qualname__ = "trigger.<locals>._dp_ns_builder"
+                    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="trigger.<locals>._dp_ns_builder")
+                    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+                    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+                    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+                    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+                    _dp_ns_builder.__qualname__ = "trigger.<locals>._dp_ns_builder"
+                    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="trigger.<locals>._dp_ns_builder")
+                    _dp_ns_builder.__qualname__ = "trigger.<locals>._dp_ns_builder"
+                    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="trigger.<locals>._dp_ns_builder")
+                    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+                    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+                    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+                    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+                    _dp_ns_builder.__qualname__ = "trigger.<locals>._dp_ns_builder"
+                    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="trigger.<locals>._dp_ns_builder")
+                    _dp_ns_builder.__qualname__ = "trigger.<locals>._dp_ns_builder"
+                    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="trigger.<locals>._dp_ns_builder")
+                    _dp_ns_builder.__qualname__ = "Example.trigger.<locals>._dp_ns_builder"
+                    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="Example.trigger.<locals>._dp_ns_builder")
+                    _dp_ns_builder.__qualname__ = "Example.trigger.<locals>._dp_ns_builder"
+                    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="Example.trigger.<locals>._dp_ns_builder")
+                    _dp_ns_builder.__qualname__ = "Example._dp_ns_builder"
+                    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="Example._dp_ns_builder")
+                    _dp_ns_builder.__qualname__ = "Example._dp_ns_builder"
+                    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="Example._dp_ns_builder")
+                    _dp_ns_builder.__qualname__ = "Example.trigger.<locals>._dp_ns_builder"
+                    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="Example.trigger.<locals>._dp_ns_builder")
+                    _dp_ns_builder.__qualname__ = "Example.trigger.<locals>._dp_ns_builder"
+                    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="Example.trigger.<locals>._dp_ns_builder")
                     return __dp__.create_class("Token", _dp_ns_builder, (), None)
+                _dp_create_class_Example_trigger__locals__Token.__qualname__ = "_dp_create_class_Example_trigger__locals__Token"
+                _dp_create_class_Example_trigger__locals__Token.__code__ = _dp_create_class_Example_trigger__locals__Token.__code__.replace(co_qualname="_dp_create_class_Example_trigger__locals__Token")
+                _dp_create_class_Example_trigger__locals__Token.__qualname__ = "trigger.<locals>._dp_create_class_Example_trigger__locals__Token"
+                _dp_create_class_Example_trigger__locals__Token.__code__ = _dp_create_class_Example_trigger__locals__Token.__code__.replace(co_qualname="trigger.<locals>._dp_create_class_Example_trigger__locals__Token")
+                _dp_create_class_Example_trigger__locals__Token.__qualname__ = "_dp_create_class_Example_trigger__locals__Token"
+                _dp_create_class_Example_trigger__locals__Token.__code__ = _dp_create_class_Example_trigger__locals__Token.__code__.replace(co_qualname="_dp_create_class_Example_trigger__locals__Token")
+                _dp_create_class_Example_trigger__locals__Token.__qualname__ = "trigger.<locals>._dp_create_class_Example_trigger__locals__Token"
+                _dp_create_class_Example_trigger__locals__Token.__code__ = _dp_create_class_Example_trigger__locals__Token.__code__.replace(co_qualname="trigger.<locals>._dp_create_class_Example_trigger__locals__Token")
+                _dp_create_class_Example_trigger__locals__Token.__qualname__ = "_dp_create_class_Example_trigger__locals__Token"
+                _dp_create_class_Example_trigger__locals__Token.__code__ = _dp_create_class_Example_trigger__locals__Token.__code__.replace(co_qualname="_dp_create_class_Example_trigger__locals__Token")
+                _dp_create_class_Example_trigger__locals__Token.__qualname__ = "trigger.<locals>._dp_create_class_Example_trigger__locals__Token"
+                _dp_create_class_Example_trigger__locals__Token.__code__ = _dp_create_class_Example_trigger__locals__Token.__code__.replace(co_qualname="trigger.<locals>._dp_create_class_Example_trigger__locals__Token")
+                _dp_create_class_Example_trigger__locals__Token.__qualname__ = "_dp_create_class_Example_trigger__locals__Token"
+                _dp_create_class_Example_trigger__locals__Token.__code__ = _dp_create_class_Example_trigger__locals__Token.__code__.replace(co_qualname="_dp_create_class_Example_trigger__locals__Token")
+                _dp_create_class_Example_trigger__locals__Token.__qualname__ = "trigger.<locals>._dp_create_class_Example_trigger__locals__Token"
+                _dp_create_class_Example_trigger__locals__Token.__code__ = _dp_create_class_Example_trigger__locals__Token.__code__.replace(co_qualname="trigger.<locals>._dp_create_class_Example_trigger__locals__Token")
+                _dp_create_class_Example_trigger__locals__Token.__qualname__ = "Example.trigger.<locals>._dp_create_class_Example_trigger__locals__Token"
+                _dp_create_class_Example_trigger__locals__Token.__code__ = _dp_create_class_Example_trigger__locals__Token.__code__.replace(co_qualname="Example.trigger.<locals>._dp_create_class_Example_trigger__locals__Token")
+                _dp_create_class_Example_trigger__locals__Token.__qualname__ = "Example._dp_create_class_Example_trigger__locals__Token"
+                _dp_create_class_Example_trigger__locals__Token.__code__ = _dp_create_class_Example_trigger__locals__Token.__code__.replace(co_qualname="Example._dp_create_class_Example_trigger__locals__Token")
+                _dp_create_class_Example_trigger__locals__Token.__qualname__ = "Example.trigger.<locals>._dp_create_class_Example_trigger__locals__Token"
+                _dp_create_class_Example_trigger__locals__Token.__code__ = _dp_create_class_Example_trigger__locals__Token.__code__.replace(co_qualname="Example.trigger.<locals>._dp_create_class_Example_trigger__locals__Token")
                 Token = _dp_create_class_Example_trigger__locals__Token()
                 return Token
             return None
+        trigger.__qualname__ = "trigger"
+        trigger.__code__ = trigger.__code__.replace(co_qualname="trigger")
+        trigger.__qualname__ = "trigger"
+        trigger.__code__ = trigger.__code__.replace(co_qualname="trigger")
+        trigger.__qualname__ = "trigger"
+        trigger.__code__ = trigger.__code__.replace(co_qualname="trigger")
+        trigger.__qualname__ = "trigger"
+        trigger.__code__ = trigger.__code__.replace(co_qualname="trigger")
         _dp_class_ns.trigger = trigger
+        _dp_class_ns.trigger.__qualname__ = "Example.trigger"
+        _dp_class_ns.trigger.__code__ = _dp_class_ns.trigger.__code__.replace(co_qualname="Example.trigger")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
     return __dp__.create_class("Example", _dp_ns_builder, (), None)
+_dp_create_class_Example.__qualname__ = "_dp_create_class_Example"
+_dp_create_class_Example.__code__ = _dp_create_class_Example.__code__.replace(co_qualname="_dp_create_class_Example")
 Example = _dp_create_class_Example()
 
 $ function local methods capture locals
@@ -467,13 +967,45 @@ def outer():
     def _dp_create_class_outer__locals__C():
 
         def _dp_ns_builder(_dp_class_ns):
-            _dp_class_ns.__module__ = __name__
+            _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
             _dp_class_ns.__qualname__ = "outer.<locals>.C"
             _dp_class_ns.__annotations__ = __dp__.dict()
 
             def method(self):
                 return value
+            method.__qualname__ = "method"
+            method.__code__ = method.__code__.replace(co_qualname="method")
+            method.__qualname__ = "method"
+            method.__code__ = method.__code__.replace(co_qualname="method")
+            method.__qualname__ = "method"
+            method.__code__ = method.__code__.replace(co_qualname="method")
+            method.__qualname__ = "method"
+            method.__code__ = method.__code__.replace(co_qualname="method")
+            method.__qualname__ = "outer.<locals>.method"
+            method.__code__ = method.__code__.replace(co_qualname="outer.<locals>.method")
+            method.__qualname__ = "outer.<locals>.method"
+            method.__code__ = method.__code__.replace(co_qualname="outer.<locals>.method")
+            method.__qualname__ = "outer.<locals>.method"
+            method.__code__ = method.__code__.replace(co_qualname="outer.<locals>.method")
+            method.__qualname__ = "outer.<locals>.method"
+            method.__code__ = method.__code__.replace(co_qualname="outer.<locals>.method")
             _dp_class_ns.method = method
+            _dp_class_ns.method.__qualname__ = "outer.<locals>.C.method"
+            _dp_class_ns.method.__code__ = _dp_class_ns.method.__code__.replace(co_qualname="outer.<locals>.C.method")
+        _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+        _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+        _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+        _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+        _dp_ns_builder.__qualname__ = "outer.<locals>._dp_ns_builder"
+        _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="outer.<locals>._dp_ns_builder")
+        _dp_ns_builder.__qualname__ = "outer.<locals>._dp_ns_builder"
+        _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="outer.<locals>._dp_ns_builder")
         return __dp__.create_class("C", _dp_ns_builder, (), None)
+    _dp_create_class_outer__locals__C.__qualname__ = "_dp_create_class_outer__locals__C"
+    _dp_create_class_outer__locals__C.__code__ = _dp_create_class_outer__locals__C.__code__.replace(co_qualname="_dp_create_class_outer__locals__C")
+    _dp_create_class_outer__locals__C.__qualname__ = "outer.<locals>._dp_create_class_outer__locals__C"
+    _dp_create_class_outer__locals__C.__code__ = _dp_create_class_outer__locals__C.__code__.replace(co_qualname="outer.<locals>._dp_create_class_outer__locals__C")
     C = _dp_create_class_outer__locals__C()
     return C
+outer.__qualname__ = "outer"
+outer.__code__ = outer.__code__.replace(co_qualname="outer")

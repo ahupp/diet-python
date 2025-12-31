@@ -10,7 +10,7 @@ pub fn rewrite(ast::StmtAssert { test, msg, .. }: ast::StmtAssert) -> Rewrite {
             "
 if __debug__:
     if not {test:expr}:
-        raise AssertionError({msg:expr})
+        raise __dp__.builtins.AssertionError({msg:expr})
 ",
             test = test_expr,
             msg = *msg_expr
@@ -20,7 +20,7 @@ if __debug__:
             "
 if __debug__:
     if not {test:expr}:
-        raise AssertionError
+        raise __dp__.builtins.AssertionError
 ",
             test = test_expr
         ))

@@ -5,6 +5,7 @@ _dp_tmp_1 = __dp__.unpack(d, (True, False, True))
 a = __dp__.getitem(_dp_tmp_1, 0)
 b = __dp__.list(__dp__.getitem(_dp_tmp_1, 1))
 c = __dp__.getitem(_dp_tmp_1, 2)
+_dp_tmp_1 = None
 
 $ expr 002
 [a, *b] = c
@@ -12,6 +13,7 @@ $ expr 002
 _dp_tmp_1 = __dp__.unpack(c, (True, False))
 a = __dp__.getitem(_dp_tmp_1, 0)
 b = __dp__.list(__dp__.getitem(_dp_tmp_1, 1))
+_dp_tmp_1 = None
 
 $ expr 003
 [a, b] = c
@@ -19,6 +21,7 @@ $ expr 003
 _dp_tmp_1 = __dp__.unpack(c, (True, True))
 a = __dp__.getitem(_dp_tmp_1, 0)
 b = __dp__.getitem(_dp_tmp_1, 1)
+_dp_tmp_1 = None
 
 $ expr 004
 [*a, b] = c
@@ -26,6 +29,7 @@ $ expr 004
 _dp_tmp_1 = __dp__.unpack(c, (False, True))
 a = __dp__.list(__dp__.getitem(_dp_tmp_1, 0))
 b = __dp__.getitem(_dp_tmp_1, 1)
+_dp_tmp_1 = None
 
 $ expr 005
 a, b = c
@@ -33,6 +37,7 @@ a, b = c
 _dp_tmp_1 = __dp__.unpack(c, (True, True))
 a = __dp__.getitem(_dp_tmp_1, 0)
 b = __dp__.getitem(_dp_tmp_1, 1)
+_dp_tmp_1 = None
 
 $ expr 006
 a, *b, c = d
@@ -41,6 +46,7 @@ _dp_tmp_1 = __dp__.unpack(d, (True, False, True))
 a = __dp__.getitem(_dp_tmp_1, 0)
 b = __dp__.tuple(__dp__.getitem(_dp_tmp_1, 1))
 c = __dp__.getitem(_dp_tmp_1, 2)
+_dp_tmp_1 = None
 
 $ expr 007
 *a, b = c
@@ -48,6 +54,7 @@ $ expr 007
 _dp_tmp_1 = __dp__.unpack(c, (False, True))
 a = __dp__.tuple(__dp__.getitem(_dp_tmp_1, 0))
 b = __dp__.getitem(_dp_tmp_1, 1)
+_dp_tmp_1 = None
 
 $ expr 008
 a, *b = c
@@ -55,6 +62,7 @@ a, *b = c
 _dp_tmp_1 = __dp__.unpack(c, (True, False))
 a = __dp__.getitem(_dp_tmp_1, 0)
 b = __dp__.tuple(__dp__.getitem(_dp_tmp_1, 1))
+_dp_tmp_1 = None
 
 $ expr 009
 raise ValueError
@@ -261,6 +269,8 @@ def _dp_gen_1(_dp_iter_2):
             _dp_tmp_5 = __dp__.unpack(_dp_tmp_4, (True, True))
             k = __dp__.getitem(_dp_tmp_5, 0)
             v = __dp__.getitem(_dp_tmp_5, 1)
+            _dp_tmp_5 = None
+            _dp_tmp_4 = None
         except:
             __dp__.check_stopiteration()
             break
@@ -268,6 +278,11 @@ def _dp_gen_1(_dp_iter_2):
             _dp_tmp_6 = __dp__.eq(__dp__.mod(k, 2), 0)
             if _dp_tmp_6:
                 yield k, __dp__.add(v, 1)
+_dp_gen_1.__qualname__ = "_dp_gen_1"
+_dp_gen_1.__code__ = _dp_gen_1.__code__.replace(co_qualname="_dp_gen_1")
+_dp_gen_1.__name__ = "<genexpr>"
+_dp_gen_1.__qualname__ = "<genexpr>"
+_dp_gen_1.__code__ = _dp_gen_1.__code__.replace(co_name="<genexpr>", co_qualname="<genexpr>")
 r = __dp__.dict(_dp_gen_1(__dp__.iter(items)))
 
 $ expr 042
@@ -299,7 +314,7 @@ a = __dp__.or_(__dp__.or_(__dp__.dict((('a', 1),)), __dp__.dict(b)), __dp__.dict
 $ expr 047
 a = ...
 =
-a = Ellipsis
+a = ...
 
 $ expr 048
 a[b]
@@ -320,7 +335,7 @@ _dp_tmp_1
 $ expr 050
 ...
 =
-Ellipsis
+...
 
 $ expr 051
 r = [a + 1 for a in items if a % 2 == 0]
@@ -337,6 +352,11 @@ def _dp_gen_1(_dp_iter_2):
             _dp_tmp_4 = __dp__.eq(__dp__.mod(a, 2), 0)
             if _dp_tmp_4:
                 yield __dp__.add(a, 1)
+_dp_gen_1.__qualname__ = "_dp_gen_1"
+_dp_gen_1.__code__ = _dp_gen_1.__code__.replace(co_qualname="_dp_gen_1")
+_dp_gen_1.__name__ = "<genexpr>"
+_dp_gen_1.__qualname__ = "<genexpr>"
+_dp_gen_1.__code__ = _dp_gen_1.__code__.replace(co_name="<genexpr>", co_qualname="<genexpr>")
 r = __dp__.list(_dp_gen_1(__dp__.iter(items)))
 
 $ expr 052
@@ -407,6 +427,11 @@ def _dp_gen_1(_dp_iter_2):
                     break
                 else:
                     yield __dp__.mul(a, b)
+_dp_gen_1.__qualname__ = "_dp_gen_1"
+_dp_gen_1.__code__ = _dp_gen_1.__code__.replace(co_qualname="_dp_gen_1")
+_dp_gen_1.__name__ = "<genexpr>"
+_dp_gen_1.__qualname__ = "<genexpr>"
+_dp_gen_1.__code__ = _dp_gen_1.__code__.replace(co_name="<genexpr>", co_qualname="<genexpr>")
 r = __dp__.list(_dp_gen_1(__dp__.iter(items)))
 
 $ expr 058
@@ -432,6 +457,11 @@ def _dp_gen_1(_dp_iter_2):
             break
         else:
             yield a
+_dp_gen_1.__qualname__ = "_dp_gen_1"
+_dp_gen_1.__code__ = _dp_gen_1.__code__.replace(co_qualname="_dp_gen_1")
+_dp_gen_1.__name__ = "<genexpr>"
+_dp_gen_1.__qualname__ = "<genexpr>"
+_dp_gen_1.__code__ = _dp_gen_1.__code__.replace(co_name="<genexpr>", co_qualname="<genexpr>")
 r = __dp__.set(_dp_gen_1(__dp__.iter(items)))
 
 $ expr 061
@@ -521,6 +551,8 @@ def f():
             return 2
         else:
             return 3
+f.__qualname__ = "f"
+f.__code__ = f.__code__.replace(co_qualname="f")
 
 $ async await in list comprehension
 
@@ -547,3 +579,5 @@ async def gather_once() -> __dp__.getitem(list, int):
         else:
             _dp_tmp_1.append(await queue.get())
     return _dp_tmp_1
+gather_once.__qualname__ = "gather_once"
+gather_once.__code__ = gather_once.__code__.replace(co_qualname="gather_once")

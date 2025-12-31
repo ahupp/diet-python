@@ -3,12 +3,7 @@ import operator as _operator
 import sys
 import builtins
 import types as _types
-
-_TYPEVAR_SUPPORTS_DEFAULT = False
-_PARAMSPEC_SUPPORTS_DEFAULT = False
-_TYPEVAR_TUPLE_SUPPORTS_DEFAULT = False
-_TYPING_FEATURES_INITIALIZED = False
-_typing = None
+import warnings
 
 operator = _operator
 add = _operator.add
@@ -72,6 +67,13 @@ def missing_name(name):
     raise NameError(name)
 
 
+def float_from_literal(literal):
+    # Preserve CPython's literal parsing for values that Rust rounds differently.
+    return float(literal.replace("_", ""))
+
+
+
+
 def global_(globals_dict, name):
     if name in globals_dict:
         return globals_dict[name]
@@ -80,6 +82,28 @@ def global_(globals_dict, name):
         return getattr(builtins, name)
 
     return missing_name(name)
+
+
+def class_lookup(class_ns, globals_dict, name):
+    try:
+        return class_ns[name]
+    except KeyError:
+        return global_(globals_dict, name)
+
+
+def _validate_exception_type(exc_type):
+    if isinstance(exc_type, tuple):
+        for entry in exc_type:
+            _validate_exception_type(entry)
+        return
+    if isinstance(exc_type, type) and issubclass(exc_type, BaseException):
+        return
+    raise TypeError("catching classes that do not inherit from BaseException is not allowed")
+
+
+def exception_matches(exc, exc_type):
+    _validate_exception_type(exc_type)
+    return isinstance(exc, exc_type)
 
 
 def unpack(iterable, spec):
@@ -135,6 +159,19 @@ def prepare_class(name, bases, kwds=None):
     if kwds is None:
         return _types.prepare_class(name, bases)
     return _types.prepare_class(name, bases, kwds)
+
+
+def super_(class_namespace, instance_or_cls):
+    """Return a super() proxy using the defining class, falling back to cls during class creation."""
+    defining = None
+    try:
+        locals_dict = object.__getattribute__(class_namespace, "_locals")
+        defining = locals_dict.get("__dp_class")
+    except Exception:
+        defining = None
+    if defining is None:
+        defining = instance_or_cls
+    return super(defining, instance_or_cls)
 
 
 def _match_class_validate_arity(cls, match_args, total):
@@ -211,9 +248,13 @@ class _ClassNamespace:
             raise AttributeError(name) from exc
 
     def __setitem__(self, name, value):
-        setitem(self._locals, name, value)
         setitem(self._namespace, name, value)
-        return value
+        try:
+            stored = self._namespace[name]
+        except Exception:
+            stored = value
+        setitem(self._locals, name, stored)
+        return stored
 
     def __getitem__(self, name, *rest):
         if rest:
@@ -232,45 +273,6 @@ class _ClassNamespace:
             return self._locals.get(name, default)
         return self._namespace.get(name, default)
 
-
-class Scope:
-    __slots__ = ("_scope", "_fallback")
-
-    def __init__(self, scope=None, fallback=None):
-        if scope is None:
-            scope = {}
-        self._scope = scope
-        self._fallback = fallback
-
-    def __getattribute__(self, name):
-        if name in ("_scope", "_fallback", "__slots__"):
-            return object.__getattribute__(self, name)
-        scope = object.__getattribute__(self, "_scope")
-        if name in scope:
-            return scope[name]
-        fallback = object.__getattribute__(self, "_fallback")
-        if fallback is not None:
-            if isinstance(fallback, dict):
-                if name in fallback:
-                    return fallback[name]
-            elif hasattr(fallback, name):
-                return getattr(fallback, name)
-        raise AttributeError(name)
-
-    def __setattr__(self, name, value):
-        if name in self.__slots__:
-            return super().__setattr__(name, value)
-        self._scope[name] = value
-
-    def __delattr__(self, name):
-        if name in self.__slots__:
-            return super().__delattr__(name)
-        try:
-            del self._scope[name]
-        except KeyError as exc:
-            raise AttributeError(name) from exc
-
-
 def _set_qualname(obj, qualname):
     try:
         obj.__qualname__ = qualname
@@ -278,62 +280,55 @@ def _set_qualname(obj, qualname):
         pass
 
 
-def _update_qualname(owner_qualname, attr_name, value):
+def _update_qualname(owner_module, owner_qualname, attr_name, value):
     target = f"{owner_qualname}.{attr_name}"
+
+    def update_if_local(obj):
+        if getattr(obj, "__module__", None) != owner_module:
+            return
+        qualname = getattr(obj, "__qualname__", None)
+        if not isinstance(qualname, str):
+            return
+        if qualname.startswith("_dp_"):
+            return
+        if "<locals>" not in qualname:
+            return
+        _set_qualname(obj, target)
+        if isinstance(obj, _types.FunctionType):
+            try:
+                obj.__code__ = obj.__code__.replace(co_qualname=target)
+            except (AttributeError, ValueError):
+                pass
+
     if isinstance(value, staticmethod):
-        _update_qualname(owner_qualname, attr_name, value.__func__)
+        _update_qualname(owner_module, owner_qualname, attr_name, value.__func__)
     elif isinstance(value, classmethod):
-        _update_qualname(owner_qualname, attr_name, value.__func__)
+        _update_qualname(owner_module, owner_qualname, attr_name, value.__func__)
     elif isinstance(value, property):
         if value.fget is not None:
-            _set_qualname(value.fget, target)
+            update_if_local(value.fget)
         if value.fset is not None:
-            _set_qualname(value.fset, target)
+            update_if_local(value.fset)
         if value.fdel is not None:
-            _set_qualname(value.fdel, target)
+            update_if_local(value.fdel)
     elif isinstance(value, _types.FunctionType):
-        _set_qualname(value, target)
+        update_if_local(value)
+    else:
+        wrapped = getattr(value, "__wrapped__", None)
+        if wrapped is not None and wrapped is not value:
+            _update_qualname(owner_module, owner_qualname, attr_name, wrapped)
+        update_if_local(value)
 
 
-def _ensure_typing_module():
+_typing = None
+
+
+def _typing_module():
+    # Lazy import to avoid circular import when typing imports __dp__ mid-init.
     global _typing
-    module = _typing
-    if module is None:
-        module = sys.modules.get("typing")
-        if module is None:
-            module = builtins.__import__("typing")
-        _typing = module
-    return module
-
-
-def _ensure_typing_features(module):
-    global _TYPEVAR_SUPPORTS_DEFAULT, _PARAMSPEC_SUPPORTS_DEFAULT
-    global _TYPEVAR_TUPLE_SUPPORTS_DEFAULT, _TYPING_FEATURES_INITIALIZED
-    if _TYPING_FEATURES_INITIALIZED:
-        return
-
-    try:
-        module.TypeVar("_dp_default_probe", default=int)
-    except TypeError:
-        _TYPEVAR_SUPPORTS_DEFAULT = False
-    else:
-        _TYPEVAR_SUPPORTS_DEFAULT = True
-
-    try:
-        module.ParamSpec("_dp_param_spec_default_probe", default=int)
-    except TypeError:
-        _PARAMSPEC_SUPPORTS_DEFAULT = False
-    else:
-        _PARAMSPEC_SUPPORTS_DEFAULT = True
-
-    try:
-        module.TypeVarTuple("_dp_typevartuple_default_probe", default=())
-    except TypeError:
-        _TYPEVAR_TUPLE_SUPPORTS_DEFAULT = False
-    else:
-        _TYPEVAR_TUPLE_SUPPORTS_DEFAULT = True
-
-    _TYPING_FEATURES_INITIALIZED = True
+    if _typing is None:
+        _typing = builtins.__import__("typing")
+    return _typing
 
 
 def _normalize_constraints(constraints):
@@ -345,37 +340,28 @@ def _normalize_constraints(constraints):
 
 
 def type_param_typevar(name, bound=None, default=None, constraints=None):
-    module = _ensure_typing_module()
-    _ensure_typing_features(module)
+    module = _typing_module()
     args = _normalize_constraints(constraints)
     kwargs = {}
     if bound is not None:
         kwargs["bound"] = bound
-    if default is not None and _TYPEVAR_SUPPORTS_DEFAULT:
+    if default is not None:
         kwargs["default"] = default
-    try:
-        return module.TypeVar(name, *args, **kwargs)
-    except TypeError:
-        if "default" in kwargs and not _TYPEVAR_SUPPORTS_DEFAULT:
-            kwargs.pop("default")
-            return module.TypeVar(name, *args, **kwargs)
-        raise
+    return module.TypeVar(name, *args, **kwargs)
 
 
 def type_param_typevar_tuple(name, default=None):
-    module = _ensure_typing_module()
-    _ensure_typing_features(module)
-    if default is not None and _TYPEVAR_TUPLE_SUPPORTS_DEFAULT:
-        return module.TypeVarTuple(name, default=default)
-    return module.TypeVarTuple(name)
+    module = _typing_module()
+    if default is None:
+        return module.TypeVarTuple(name)
+    return module.TypeVarTuple(name, default=default)
 
 
 def type_param_param_spec(name, default=None):
-    module = _ensure_typing_module()
-    _ensure_typing_features(module)
-    if default is not None and _PARAMSPEC_SUPPORTS_DEFAULT:
-        return module.ParamSpec(name, default=default)
-    return module.ParamSpec(name)
+    module = _typing_module()
+    if default is None:
+        return module.ParamSpec(name)
+    return module.ParamSpec(name, default=default)
 
 
 def create_class(name, namespace_fn, bases, kwds=None):
@@ -386,20 +372,32 @@ def create_class(name, namespace_fn, bases, kwds=None):
     namespace = _ClassNamespace(ns)
     namespace_fn(namespace)
     qualname = ns.get("__qualname__", name)
+    module_name = ns.get("__module__")
     for attr_name, value in list(ns.items()):
         if attr_name == "__qualname__":
             continue
-        _update_qualname(qualname, attr_name, value)
+        _update_qualname(module_name, qualname, attr_name, value)
     if orig_bases is not bases and "__orig_bases__" not in ns:
         ns["__orig_bases__"] = orig_bases
-    return meta(name, bases, ns, **meta_kwds)
+    cls = meta(name, bases, ns, **meta_kwds)
+    namespace._locals["__dp_class"] = cls
+    return cls
 
 def exc_info():
-    return sys.exc_info()
+    exc = sys.exception()
+    if exc is None:
+        return (None, None, None)
+    return (type(exc), exc, exc.__traceback__)
 
 
 def current_exception():
-    return sys.exc_info()[1]
+    exc = sys.exception()
+    if exc is None:
+        return None
+    tb = _strip_dp_frames(exc.__traceback__)
+    if tb is not exc.__traceback__:
+        exc = exc.with_traceback(tb)
+    return exc
 
 
 def check_stopiteration():
@@ -413,6 +411,7 @@ def acheck_stopiteration():
 
 
 def raise_from(exc, cause):
+    from asyncio import CancelledError
     if exc is None:
         raise TypeError("exceptions must derive from BaseException")
     if isinstance(exc, type):
@@ -433,7 +432,10 @@ def raise_from(exc, cause):
                 raise TypeError("exception causes must derive from BaseException")
         elif not isinstance(cause, BaseException):
             raise TypeError("exception causes must derive from BaseException")
+        if type(cause) is CancelledError:
+            cause = cause.with_traceback(None)
         exc.__cause__ = cause
+        exc.__suppress_context__ = True
     return exc
 
 
@@ -444,62 +446,80 @@ def import_(name, spec, fromlist=None, level=0):
     if spec is not None:
         globals_dict["__package__"] = spec.parent
         globals_dict["__name__"] = spec.name
-    module = builtins.__import__(name, globals_dict, {}, fromlist, level)
-    if fromlist:
-        module_name = getattr(module, "__name__", name)
-        module_file = getattr(module, "__file__", None)
-        module_dict = getattr(module, "__dict__", None)
-        warned = False
-        for attr in fromlist:
-            if attr == "*":
-                continue
-            if (
-                module_name == name
-                and "." in module_name
-                and module_name.rsplit(".", 1)[1] == attr
-            ):
-                continue
-            value = None
-            if not warned:
-                try:
-                    value = getattr(module, attr)
-                except AttributeError as exc:
-                    if module_name:
-                        submodule = sys.modules.get(f"{module_name}.{attr}")
-                        if submodule is not None:
-                            setattr(module, attr, submodule)
-                            warned = True
-                            continue
-                    message = f"cannot import name {attr!r} from {module_name!r}"
-                    if module_file is not None:
-                        message = f"{message} ({module_file})"
-                    raise ImportError(message, name=module_name, path=module_file) from exc
-                warned = True
-            elif module_dict is not None and attr in module_dict:
-                value = module_dict[attr]
-            else:
-                try:
-                    value = getattr(module, attr)
-                except AttributeError as exc:
-                    if module_name:
-                        submodule = sys.modules.get(f"{module_name}.{attr}")
-                        if submodule is not None:
-                            setattr(module, attr, submodule)
-                            continue
-                    message = f"cannot import name {attr!r} from {module_name!r}"
-                    if module_file is not None:
-                        message = f"{message} ({module_file})"
-                    raise ImportError(message, name=module_name, path=module_file) from exc
-            if module_dict is not None and attr not in module_dict:
-                setattr(module, attr, value)
-    return module
+    try:
+        return builtins.__import__(name, globals_dict, {}, fromlist, level)
+    except Exception as exc:
+        tb = _strip_dp_frames(exc.__traceback__)
+        raise exc.with_traceback(tb)
 
 
 def import_attr(module, attr):
-    module_dict = getattr(module, "__dict__", None)
-    if module_dict is not None and attr in module_dict:
-        return module_dict[attr]
-    return getattr(module, attr)
+    try:
+        return getattr(module, attr)
+    except AttributeError as exc:
+        module_name = getattr(module, "__name__", None)
+        if module_name:
+            submodule = sys.modules.get(f"{module_name}.{attr}")
+            if submodule is not None:
+                try:
+                    setattr(module, attr, submodule)
+                except Exception:
+                    warnings.warn(
+                        f"cannot set attribute {attr!r} on {module_name!r}",
+                        ImportWarning,
+                        stacklevel=2,
+                    )
+                return submodule
+        module_spec = getattr(module, "__spec__", None)
+        if (
+            module_name
+            and module_spec is not None
+            and getattr(module_spec, "_initializing", False)
+        ):
+            message = (
+                f"cannot import name {attr!r} from partially initialized module "
+                f"{module_name!r} (most likely due to a circular import)"
+            )
+            import_error = ImportError(message, name=module_name)
+            tb = _strip_dp_frames(exc.__traceback__)
+            raise import_error.with_traceback(tb) from None
+        module_name = module_name or "<unknown module name>"
+        module_file = getattr(module, "__file__", None)
+        message = f"cannot import name {attr!r} from {module_name!r}"
+        if module_file is not None:
+            message = f"{message} ({module_file})"
+        else:
+            message = f"{message} (unknown location)"
+        import_error = ImportError(message, name=module_name, path=module_file)
+        tb = _strip_dp_frames(exc.__traceback__)
+        raise import_error.with_traceback(tb) from None
+
+
+def _strip_dp_frames(tb):
+    if tb is None:
+        return None
+
+    internal_files = {__file__}
+    hook = sys.modules.get("diet_import_hook")
+    if hook is not None:
+        hook_file = getattr(hook, "__file__", None)
+        if hook_file:
+            internal_files.add(hook_file)
+
+    def strip(current):
+        if current is None:
+            return None
+        next_tb = strip(current.tb_next)
+        if current.tb_frame.f_code.co_filename in internal_files:
+            return next_tb
+        return _types.TracebackType(
+            next_tb,
+            current.tb_frame,
+            current.tb_lasti,
+            current.tb_lineno,
+        )
+
+    return strip(tb)
 
 
 # Tags as ints for yield from state machine
@@ -563,32 +583,38 @@ def yield_from_except(state, exc: BaseException):
 
 
 async def with_aenter(ctx):
-    enter = type(ctx).__aenter__
-    exit = type(ctx).__aexit__
-    var = await enter(ctx)
-    return (var, (ctx, exit))
+    enter = ctx.__aenter__
+    exit = ctx.__aexit__
+    var = await enter()
+    return (var, exit)
 
 
-async def with_aexit(state, exc_info: tuple | None):
-    ctx, aexit = state
+async def with_aexit(aexit_fn, exc_info: tuple | None):
     if exc_info is not None:
-        if not await aexit(ctx, *exc_info):
-            raise
+        try:
+            if not await aexit_fn(*exc_info):
+                raise
+        finally:
+            # Clear the reference for GC in long-lived frames.
+            exc_info = None
     else:
-        await aexit(ctx, None, None, None)
+        await aexit_fn(None, None, None)
 
 
 def with_enter(ctx):
-    enter = type(ctx).__enter__
-    exit = type(ctx).__exit__
-    var = enter(ctx)
-    return (var, (ctx, exit))
+    enter = ctx.__enter__
+    exit = ctx.__exit__
+    var = enter()
+    return (var, exit)
 
 
-def with_exit(state, exc_info: tuple | None):
-    ctx, aexit = state
+def with_exit(exit_fn, exc_info: tuple | None):
     if exc_info is not None:
-        if not aexit(ctx, *exc_info):
-            raise
+        try:
+            if not exit_fn(*exc_info):
+                raise
+        finally:
+            # Clear the reference for GC in long-lived frames.
+            exc_info = None
     else:
-        aexit(ctx, None, None, None)
+        exit_fn(None, None, None)

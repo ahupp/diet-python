@@ -7,6 +7,8 @@ def f(x: list[int], y: dict[str, int]) -> tuple[str, ...]:
 =
 def f(x: "list[int]", y: "dict[str, int]") -> "tuple[str, ...]":
     return x
+f.__qualname__ = "f"
+f.__code__ = f.__code__.replace(co_qualname="f")
 
 $ preserves other future imports
 
@@ -15,11 +17,11 @@ from __future__ import annotations, division
 def g(x: int | None):
     pass
 =
-_dp_import_1 = __dp__.import_("__future__", __spec__, __dp__.list(("division",)))
-division = __dp__.import_attr(_dp_import_1, "division")
-del _dp_import_1
+from __future__ import division
 def g(x: "int | None"):
     pass
+g.__qualname__ = "g"
+g.__code__ = g.__code__.replace(co_qualname="g")
 
 $ leaves annotations untouched without future import
 
@@ -28,3 +30,5 @@ def h(x: list[int]):
 =
 def h(x: __dp__.getitem(list, int)):
     return x
+h.__qualname__ = "h"
+h.__code__ = h.__code__.replace(co_qualname="h")

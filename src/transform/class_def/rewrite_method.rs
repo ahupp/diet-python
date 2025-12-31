@@ -9,12 +9,10 @@ use crate::{
 };
 
 struct MethodTransformer {
-    class_expr: String,
     first_arg: Option<String>,
     method_name: String,
     class_locals: HashSet<String>,
     locals: HashSet<String>,
-    params: HashSet<String>,
 }
 
 impl Transformer for MethodTransformer {
@@ -40,49 +38,25 @@ impl Transformer for MethodTransformer {
                 if is_zero_arg_super {
                     walk_expr(self, expr);
 
-                    let replacement = match &self.first_arg {
-                        Some(arg) => py_expr!(
-                            "super({cls:id}, {arg:id})",
-                            cls = self.class_expr.as_str(),
-                            arg = arg.as_str()
-                        ),
-                        None => py_expr!("super({cls:id}, None)", cls = self.class_expr.as_str()),
+                    *expr = match &self.first_arg {
+                        Some(arg) => {
+                            py_expr!("__dp__.super_(__class__, {arg:id})", arg = arg.as_str())
+                        }
+                        None => py_expr!("__dp__.super_(__class__, None)"),
                     };
-
-                    *expr = replacement;
-                } else {
-                    walk_expr(self, expr);
                 }
-                return;
-            }
-            Expr::Attribute(ast::ExprAttribute { attr: _, .. }) => {
-                walk_expr(self, expr);
-                return;
             }
             Expr::Name(ast::ExprName { id, ctx, .. }) => {
                 if matches!(ctx, ExprContext::Load) {
-                    if let Some(prefix) = private_prefix(self.class_expr.as_str()) {
-                        if id.as_str().starts_with(prefix.as_str())
-                            && !self.locals.contains(id.as_str())
-                        {
-                            *expr = py_expr!(
-                                "_dp_class_ns.{storage_name:id}",
-                                storage_name = id.as_str(),
-                            );
-                            return;
-                        }
-                    }
-                    if id == "__class__" {
-                        *expr = py_expr!("{cls:id}", cls = self.class_expr.as_str());
-                    } else if self.class_locals.contains(id.as_str())
+                    if self.class_locals.contains(id.as_str())
                         && !self.locals.contains(id.as_str())
-                        && !self.params.contains(id.as_str())
                     {
                         *expr = py_expr!(
                             "__dp__.global_(globals(), {name:literal})",
                             name = id.as_str()
                         );
-                    } else if id.as_str() == self.method_name && !self.params.contains(id.as_str())
+                    } else if id.as_str() == self.method_name
+                        && !self.locals.contains(id.as_str())
                     {
                         *expr = py_expr!(
                             "__dp__.global_(globals(), {name:literal})",
@@ -99,20 +73,9 @@ impl Transformer for MethodTransformer {
     }
 }
 
-fn private_prefix(class_name: &str) -> Option<String> {
-    let mut class_name = class_name;
-    while class_name.starts_with('_') {
-        class_name = &class_name[1..];
-    }
-    if class_name.is_empty() {
-        return None;
-    }
-    Some(format!("_{}__", class_name))
-}
-
 pub fn rewrite_method(
     func_def: &mut ast::StmtFunctionDef,
-    class_name: &str,
+    class_qualname: &str,
     original_method_name: &str,
     class_locals: &HashSet<String>,
     rewriter: &mut ExprRewriter,
@@ -130,19 +93,18 @@ pub fn rewrite_method(
                 .map(|a| a.parameter.name.to_string())
         });
 
-    let scope = rewriter.context().analyze_function_scope(func_def);
+    let mut scope = rewriter.context().analyze_function_scope(func_def);
+    scope.qualname = format!("{class_qualname}.{original_method_name}");
 
-    let params: HashSet<String> = scope.params.iter().cloned().collect();
+    let locals = scope.local_names();
     let mut transformer = MethodTransformer {
-        class_expr: class_name.to_string(),
         first_arg,
         method_name: original_method_name.to_string(),
         class_locals: class_locals.clone(),
-        locals: scope.locals.clone(),
-        params,
+        locals,
     };
     for stmt in &mut func_def.body {
-        walk_stmt(&mut transformer, stmt);
+        transformer.visit_stmt(stmt);
     }
 
     let body = take(&mut func_def.body);

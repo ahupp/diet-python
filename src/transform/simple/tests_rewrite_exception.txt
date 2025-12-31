@@ -10,7 +10,7 @@ except:
 try:
     f()
 except:
-    if __dp__.isinstance(__dp__.current_exception(), E):
+    if __dp__.exception_matches(__dp__.current_exception(), E):
         h()
     else:
         g()

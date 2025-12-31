@@ -1,7 +1,7 @@
 use super::{
-    context::{Context, ScopeInfo},
+    context::{Context, ScopeInfo, ScopeKind},
     rewrite_assign_del, rewrite_decorator,
-    rewrite_expr_to_stmt::{expr_boolop_to_stmts, expr_compare_to_stmts, expr_yield_from_to_stmt},
+    rewrite_expr_to_stmt::{expr_boolop_to_stmts, expr_compare_to_stmts},
     rewrite_func_expr, rewrite_import, rewrite_match_case, Options,
 };
 use crate::template::{is_simple, make_binop, make_generator, make_tuple, make_unaryop};
@@ -14,6 +14,8 @@ use crate::{
 };
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Operator, Stmt, UnaryOp};
+use ruff_python_codegen::{Generator, Indentation};
+use ruff_source_file::LineEnding;
 use ruff_text_size::TextRange;
 use std::mem::take;
 
@@ -57,19 +59,11 @@ impl ExprRewriter {
         })
     }
 
-    fn comprehension_needs_async(
-        &self,
-        elt: &Expr,
-        generators: &[ast::Comprehension],
-    ) -> bool {
+    fn comprehension_needs_async(&self, elt: &Expr, generators: &[ast::Comprehension]) -> bool {
         expr_contains_await(elt) || self.generators_need_async(generators)
     }
 
-    fn wrap_comprehension_body(
-        &self,
-        body: Vec<Stmt>,
-        comp: &ast::Comprehension,
-    ) -> Vec<Stmt> {
+    fn wrap_comprehension_body(&self, body: Vec<Stmt>, comp: &ast::Comprehension) -> Vec<Stmt> {
         let mut inner = body;
         for if_expr in comp.ifs.iter().rev() {
             inner = py_stmt!(
@@ -105,17 +99,9 @@ for {target:expr} in {iter:expr}:
         }
     }
 
-    fn rewrite_async_list_comp(
-        &mut self,
-        elt: Expr,
-        generators: Vec<ast::Comprehension>,
-    ) -> Expr {
+    fn rewrite_async_list_comp(&mut self, elt: Expr, generators: Vec<ast::Comprehension>) -> Expr {
         let tmp = self.ctx.fresh("tmp");
-        let mut body = py_stmt!(
-            "{tmp:id}.append({elt:expr})",
-            tmp = tmp.as_str(),
-            elt = elt,
-        );
+        let mut body = py_stmt!("{tmp:id}.append({elt:expr})", tmp = tmp.as_str(), elt = elt,);
 
         for comp in generators.iter().rev() {
             body = self.wrap_comprehension_body(body, comp);
@@ -127,17 +113,9 @@ for {target:expr} in {iter:expr}:
         py_expr!("{tmp:id}", tmp = tmp.as_str())
     }
 
-    fn rewrite_async_set_comp(
-        &mut self,
-        elt: Expr,
-        generators: Vec<ast::Comprehension>,
-    ) -> Expr {
+    fn rewrite_async_set_comp(&mut self, elt: Expr, generators: Vec<ast::Comprehension>) -> Expr {
         let tmp = self.ctx.fresh("tmp");
-        let mut body = py_stmt!(
-            "{tmp:id}.add({elt:expr})",
-            tmp = tmp.as_str(),
-            elt = elt,
-        );
+        let mut body = py_stmt!("{tmp:id}.add({elt:expr})", tmp = tmp.as_str(), elt = elt,);
 
         for comp in generators.iter().rev() {
             body = self.wrap_comprehension_body(body, comp);
@@ -263,21 +241,32 @@ for {target:expr} in {iter:expr}:
         placeholder_expr
     }
 
+    fn rewrite_function_def(&mut self, mut func_def: ast::StmtFunctionDef) -> Rewrite {
+        let func_name = func_def.name.id.to_string();
+        let scope = self.context().analyze_function_scope(&func_def);
+        let qualname_literal = scope.qualname.clone();
+
+        func_def.body = self.with_function_scope(scope, |rewriter| {
+            rewriter.rewrite_block(take(&mut func_def.body))
+        });
+
+        let decorators = take(&mut func_def.decorator_list);
+        let mut func_items = vec![Stmt::FunctionDef(func_def)];
+        let qualname_stmt = py_stmt!(
+            r#"
+{name:id}.__qualname__ = {qualname:literal}
+{name:id}.__code__ = {name:id}.__code__.replace(co_qualname={qualname:literal})"#,
+            name = func_name.as_str(),
+            qualname = qualname_literal.clone(),
+        );
+        func_items.extend(qualname_stmt);
+
+        rewrite_decorator::rewrite(decorators, func_name.as_str(), func_items, self)
+    }
+
     fn rewrite_stmt(&mut self, stmt: Stmt) -> Rewrite {
         match stmt {
-            Stmt::FunctionDef(mut func_def) => {
-                let scope = self.context().analyze_function_scope(&func_def);
-                func_def.body = self.with_function_scope(scope, |rewriter| {
-                    rewriter.rewrite_block(take(&mut func_def.body))
-                });
-
-                rewrite_decorator::rewrite(
-                    take(&mut func_def.decorator_list),
-                    func_def.name.id.clone().as_str(),
-                    vec![Stmt::FunctionDef(func_def)],
-                    self,
-                )
-            }
+            Stmt::FunctionDef(func_def) => self.rewrite_function_def(func_def),
             Stmt::With(with) => rewrite_with::rewrite(with, self),
             Stmt::While(while_stmt) => rewrite_loop::rewrite_while(while_stmt, self),
             Stmt::For(for_stmt) => rewrite_loop::rewrite_for(for_stmt, self),
@@ -411,6 +400,42 @@ impl Transformer for ExprRewriter {
     }
 
     fn visit_expr(&mut self, expr: &mut Expr) {
+        if let Expr::YieldFrom(yield_from) = expr.clone() {
+            let ast::ExprYieldFrom {
+                value,
+                range,
+                node_index,
+            } = yield_from;
+            let mut value = *value;
+            self.visit_expr(&mut value);
+            *expr = Expr::YieldFrom(ast::ExprYieldFrom {
+                value: Box::new(value),
+                range,
+                node_index,
+            });
+            return;
+        }
+        if let Expr::NumberLiteral(ast::ExprNumberLiteral {
+            value: ast::Number::Float(_value),
+            range,
+            ..
+        }) = expr
+        {
+            let range = *range;
+            if let Some(src) = self.ctx.source_slice(range) {
+                let src = src.trim();
+                let normalized = src.replace('_', "");
+                let indent = Indentation::new("    ".to_string());
+                let default = Generator::new(&indent, LineEnding::default()).expr(expr);
+                if normalized.len() >= 10 && normalized != default {
+                    *expr = py_expr!(
+                        "__dp__.float_from_literal({literal:literal})",
+                        literal = src
+                    );
+                    return;
+                }
+            }
+        }
         let rewritten = match expr.clone() {
             Expr::Named(named_expr) => {
                 let ast::ExprNamed { target, value, .. } = named_expr;
@@ -457,20 +482,21 @@ else:
                 self.buf.extend(stmts);
                 py_expr!("{tmp:id}", tmp = tmp.as_str())
             }
-            Expr::YieldFrom(yield_from) => {
-                let tmp = self.ctx.fresh("tmp");
-                let stmts = expr_yield_from_to_stmt(&self.ctx, tmp.as_str(), yield_from);
-                self.buf.extend(stmts);
-                py_expr!("{tmp:id}", tmp = tmp.as_str())
-            }
             Expr::Lambda(lambda) => {
                 rewrite_func_expr::rewrite_lambda(lambda, &self.ctx, &mut self.buf)
             }
             Expr::Generator(generator) => {
-                rewrite_func_expr::rewrite_generator(generator, &self.ctx, &mut self.buf)
+                let needs_async =
+                    self.comprehension_needs_async(&generator.elt, &generator.generators);
+                rewrite_func_expr::rewrite_generator(
+                    generator,
+                    &self.ctx,
+                    needs_async,
+                    &mut self.buf,
+                )
             }
-            Expr::FString(f_string) => rewrite_string::rewrite_fstring(f_string),
-            Expr::TString(t_string) => rewrite_string::rewrite_tstring(t_string),
+            Expr::FString(f_string) => rewrite_string::rewrite_fstring(f_string, &self.ctx),
+            Expr::TString(t_string) => rewrite_string::rewrite_tstring(t_string, &self.ctx),
             Expr::Slice(ast::ExprSlice {
                 lower, upper, step, ..
             }) => {
@@ -487,7 +513,6 @@ else:
                     step = step_expr,
                 )
             }
-            Expr::EllipsisLiteral(_) => py_expr!("Ellipsis"),
             Expr::NumberLiteral(ast::ExprNumberLiteral {
                 value: ast::Number::Complex { real, imag },
                 ..
@@ -554,8 +579,7 @@ else:
                 {
                     self.rewrite_async_dict_comp(*key, *value, generators)
                 } else {
-                    let tuple =
-                        py_expr!("({key:expr}, {value:expr})", key = *key, value = *value,);
+                    let tuple = py_expr!("({key:expr}, {value:expr})", key = *key, value = *value,);
                     py_expr!(
                         "__dp__.dict({expr:expr})",
                         expr = make_generator(tuple, generators)

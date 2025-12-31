@@ -6,6 +6,7 @@ use ruff_text_size::TextRange;
 
 pub(crate) fn rewrite_lambda(lambda: ast::ExprLambda, ctx: &Context, buf: &mut Vec<Stmt>) -> Expr {
     let func_name = ctx.fresh("lambda");
+    let qualname = ctx.make_qualname("<lambda>");
 
     let ast::ExprLambda {
         parameters, body, ..
@@ -40,6 +41,16 @@ def {func_name:id}():
     }
 
     buf.extend(func_def);
+    buf.extend(py_stmt!(
+        "{func:id}.__name__ = {name:literal}",
+        func = func_name.as_str(),
+        name = "<lambda>",
+    ));
+    buf.extend(py_stmt!(
+        "{func:id}.__qualname__ = {qualname:literal}",
+        func = func_name.as_str(),
+        qualname = qualname,
+    ));
 
     py_expr!("{func:id}", func = func_name.as_str())
 }
@@ -47,6 +58,7 @@ def {func_name:id}():
 pub(crate) fn rewrite_generator(
     generator: ast::ExprGenerator,
     ctx: &Context,
+    needs_async: bool,
     buf: &mut Vec<Stmt>,
 ) -> Expr {
     let ast::ExprGenerator {
@@ -60,6 +72,7 @@ pub(crate) fn rewrite_generator(
         .clone();
 
     let func_name = ctx.fresh("gen");
+    let qualname = ctx.make_qualname("<genexpr>");
     let param_name = Name::new(ctx.fresh("iter"));
 
     let mut body = py_stmt!("yield {value:expr}", value = *elt);
@@ -103,21 +116,55 @@ for {target:expr} in {iter:expr}:
         *iter = Box::new(py_expr!("\n{name:id}", name = param_name.as_str()));
     }
 
-    let func_def = py_stmt!(
-        r#"
+    let func_def = if needs_async {
+        py_stmt!(
+            r#"
+async def {func:id}({param:id}):
+    {body:stmt}
+"#,
+            func = func_name.as_str(),
+            param = param_name.as_str(),
+            body = body,
+        )
+    } else {
+        py_stmt!(
+            r#"
 def {func:id}({param:id}):
     {body:stmt}
 "#,
-        func = func_name.as_str(),
-        param = param_name.as_str(),
-        body = body,
-    );
+            func = func_name.as_str(),
+            param = param_name.as_str(),
+            body = body,
+        )
+    };
 
     buf.extend(func_def);
-
-    py_expr!(
-        "{func:id}(__dp__.iter({iter:expr}))",
-        iter = first_iter_expr,
+    buf.extend(py_stmt!(
+        r#"
+{func:id}.__name__ = {name:literal}
+{func:id}.__qualname__ = {qualname:literal}
+{func:id}.__code__ = {func:id}.__code__.replace(co_name={name:literal}, co_qualname={qualname:literal})
+"#,
         func = func_name.as_str(),
-    )
+        name = "<genexpr>",
+        qualname = qualname,
+    ));
+
+    if generators
+        .first()
+        .expect("generator expects at least one comprehension")
+        .is_async
+    {
+        py_expr!(
+            "{func:id}({iter:expr})",
+            iter = first_iter_expr,
+            func = func_name.as_str(),
+        )
+    } else {
+        py_expr!(
+            "{func:id}(__dp__.iter({iter:expr}))",
+            iter = first_iter_expr,
+            func = func_name.as_str(),
+        )
+    }
 }

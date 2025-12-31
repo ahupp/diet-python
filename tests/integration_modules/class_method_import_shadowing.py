@@ -1,0 +1,10 @@
+class Example:
+    atexit = "class"
+
+    def __init__(self):
+        import atexit
+        self.module_name = atexit.__name__
+
+
+VALUE = Example().module_name
+CLASS_ATTR = Example.atexit

@@ -29,13 +29,16 @@ pub fn rewrite(
             py_expr!("_")
         };
 
+        let enter_name = transformer.context().fresh("with_enter");
         let exit_name = transformer.context().fresh("with_exit");
         let active_name = transformer.context().fresh("with_active");
 
         body = if is_async {
             py_stmt!(
                 r#"
-({target:expr}, {exit_name:id}) = await __dp__.with_aenter({ctx:expr})
+{enter_name:id} = await __dp__.with_aenter({ctx:expr})
+{target:expr} = __dp__.getitem({enter_name:id}, 0)
+{exit_name:id} = __dp__.getitem({enter_name:id}, 1)
 {active_name:id} = True
 try:
     {body:stmt}
@@ -45,17 +48,22 @@ except:
 finally:
     if {active_name:id}:
         await __dp__.with_aexit({exit_name:id}, None)
+    {exit_name:id} = None
+    {enter_name:id} = None
 "#,
                 ctx = context_expr,
                 target = target,
                 body = body,
+                enter_name = enter_name.as_str(),
                 exit_name = exit_name.as_str(),
                 active_name = active_name.as_str(),
             )
         } else {
             py_stmt!(
                 r#"
-({target:expr}, {exit_name:id}) = __dp__.with_enter({ctx:expr})
+{enter_name:id} = __dp__.with_enter({ctx:expr})
+{target:expr} = __dp__.getitem({enter_name:id}, 0)
+{exit_name:id} = __dp__.getitem({enter_name:id}, 1)
 {active_name:id} = True
 try:
     {body:stmt}
@@ -65,10 +73,13 @@ except:
 finally:
     if {active_name:id}:
         __dp__.with_exit({exit_name:id}, None)
+    {exit_name:id} = None
+    {enter_name:id} = None
 "#,
                 ctx = context_expr,
                 target = target,
                 body = body,
+                enter_name = enter_name.as_str(),
                 exit_name = exit_name.as_str(),
                 active_name = active_name.as_str(),
             )

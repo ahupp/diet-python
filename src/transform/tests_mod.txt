@@ -4,6 +4,12 @@ type Alias = int
 =
 
 
+$ preserves float literal precision
+
+VALUE = 0.9999999999999999
+=
+VALUE = __dp__.float_from_literal("0.9999999999999999")
+
 $ strips type aliases in if branches
 
 if True:
@@ -37,14 +43,30 @@ class Foo:
 def _dp_create_class_Foo():
 
     def _dp_ns_builder(_dp_class_ns):
-        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
         _dp_class_ns.__qualname__ = "Foo"
         _dp_class_ns.__annotations__ = __dp__.dict()
 
         def method(self):
             return 1
+        method.__qualname__ = "method"
+        method.__code__ = method.__code__.replace(co_qualname="method")
+        method.__qualname__ = "method"
+        method.__code__ = method.__code__.replace(co_qualname="method")
+        method.__qualname__ = "method"
+        method.__code__ = method.__code__.replace(co_qualname="method")
+        method.__qualname__ = "method"
+        method.__code__ = method.__code__.replace(co_qualname="method")
         _dp_class_ns.method = method
+        _dp_class_ns.method.__qualname__ = "Foo.method"
+        _dp_class_ns.method.__code__ = _dp_class_ns.method.__code__.replace(co_qualname="Foo.method")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
     return __dp__.create_class("Foo", _dp_ns_builder, (), None)
+_dp_create_class_Foo.__qualname__ = "_dp_create_class_Foo"
+_dp_create_class_Foo.__code__ = _dp_create_class_Foo.__code__.replace(co_qualname="_dp_create_class_Foo")
 Foo = _dp_create_class_Foo()
 
 $ class method name does not shadow module
@@ -64,20 +86,229 @@ time = __dp__.import_("time", __spec__)
 def _dp_create_class_Base():
 
     def _dp_ns_builder(_dp_class_ns):
-        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
         _dp_class_ns.__qualname__ = "Base"
         _dp_class_ns.__annotations__ = __dp__.dict()
 
         def __init__(self):
             self.resolution = __dp__.global_(globals(), "time").get_clock_info("monotonic").resolution
+        __init__.__qualname__ = "__init__"
+        __init__.__code__ = __init__.__code__.replace(co_qualname="__init__")
+        __init__.__qualname__ = "__init__"
+        __init__.__code__ = __init__.__code__.replace(co_qualname="__init__")
+        __init__.__qualname__ = "__init__"
+        __init__.__code__ = __init__.__code__.replace(co_qualname="__init__")
+        __init__.__qualname__ = "__init__"
+        __init__.__code__ = __init__.__code__.replace(co_qualname="__init__")
         _dp_class_ns.__init__ = __init__
+        _dp_class_ns.__init__.__qualname__ = "Base.__init__"
+        _dp_class_ns.__init__.__code__ = _dp_class_ns.__init__.__code__.replace(co_qualname="Base.__init__")
 
         def time(self):
             return __dp__.global_(globals(), "time").monotonic()
+        time.__qualname__ = "time"
+        time.__code__ = time.__code__.replace(co_qualname="time")
+        time.__qualname__ = "time"
+        time.__code__ = time.__code__.replace(co_qualname="time")
+        time.__qualname__ = "time"
+        time.__code__ = time.__code__.replace(co_qualname="time")
+        time.__qualname__ = "time"
+        time.__code__ = time.__code__.replace(co_qualname="time")
         _dp_class_ns.time = time
+        _dp_class_ns.time.__qualname__ = "Base.time"
+        _dp_class_ns.time.__code__ = _dp_class_ns.time.__code__.replace(co_qualname="Base.time")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
     return __dp__.create_class("Base", _dp_ns_builder, (), None)
+_dp_create_class_Base.__qualname__ = "_dp_create_class_Base"
+_dp_create_class_Base.__code__ = _dp_create_class_Base.__code__.replace(co_qualname="_dp_create_class_Base")
 Base = _dp_create_class_Base()
 VALUE = Base().resolution
+
+$ class method import does not shadow class locals
+
+class Example:
+    atexit = "class"
+
+    def __init__(self):
+        import atexit
+        self.module_name = atexit.__name__
+
+VALUE = Example().module_name
+CLASS_ATTR = Example.atexit
+=
+def _dp_create_class_Example():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
+        _dp_class_ns.__qualname__ = "Example"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+        _dp_class_ns.atexit = "class"
+
+        def __init__(self):
+            __dp__.setitem(globals(), "atexit", __dp__.import_("atexit", __spec__))
+            self.module_name = __dp__.global_(globals(), "atexit").__name__
+        __init__.__qualname__ = "__init__"
+        __init__.__code__ = __init__.__code__.replace(co_qualname="__init__")
+        __init__.__qualname__ = "__init__"
+        __init__.__code__ = __init__.__code__.replace(co_qualname="__init__")
+        __init__.__qualname__ = "__init__"
+        __init__.__code__ = __init__.__code__.replace(co_qualname="__init__")
+        __init__.__qualname__ = "__init__"
+        __init__.__code__ = __init__.__code__.replace(co_qualname="__init__")
+        _dp_class_ns.__init__ = __init__
+        _dp_class_ns.__init__.__qualname__ = "Example.__init__"
+        _dp_class_ns.__init__.__code__ = _dp_class_ns.__init__.__code__.replace(co_qualname="Example.__init__")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    return __dp__.create_class("Example", _dp_ns_builder, (), None)
+_dp_create_class_Example.__qualname__ = "_dp_create_class_Example"
+_dp_create_class_Example.__code__ = _dp_create_class_Example.__code__.replace(co_qualname="_dp_create_class_Example")
+Example = _dp_create_class_Example()
+VALUE = Example().module_name
+CLASS_ATTR = Example.atexit
+
+$ super uses defining class even if name is rebound
+
+class Base:
+    def __init__(self):
+        self.value = "base"
+
+class Derived(Base):
+    def __init__(self):
+        super().__init__()
+        self.child = True
+
+Alias = Derived
+Derived = dict
+
+INSTANCE = Alias()
+VALUE = INSTANCE.value
+=
+def _dp_create_class_Base():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
+        _dp_class_ns.__qualname__ = "Base"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+
+        def __init__(self):
+            self.value = "base"
+        __init__.__qualname__ = "__init__"
+        __init__.__code__ = __init__.__code__.replace(co_qualname="__init__")
+        __init__.__qualname__ = "__init__"
+        __init__.__code__ = __init__.__code__.replace(co_qualname="__init__")
+        __init__.__qualname__ = "__init__"
+        __init__.__code__ = __init__.__code__.replace(co_qualname="__init__")
+        __init__.__qualname__ = "__init__"
+        __init__.__code__ = __init__.__code__.replace(co_qualname="__init__")
+        _dp_class_ns.__init__ = __init__
+        _dp_class_ns.__init__.__qualname__ = "Base.__init__"
+        _dp_class_ns.__init__.__code__ = _dp_class_ns.__init__.__code__.replace(co_qualname="Base.__init__")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    return __dp__.create_class("Base", _dp_ns_builder, (), None)
+_dp_create_class_Base.__qualname__ = "_dp_create_class_Base"
+_dp_create_class_Base.__code__ = _dp_create_class_Base.__code__.replace(co_qualname="_dp_create_class_Base")
+Base = _dp_create_class_Base()
+def _dp_create_class_Derived():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
+        _dp_class_ns.__qualname__ = "Derived"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+
+        def __init__(self):
+            __dp__.super_(__class__, self).__init__()
+            self.child = True
+        __init__.__qualname__ = "__init__"
+        __init__.__code__ = __init__.__code__.replace(co_qualname="__init__")
+        __init__.__qualname__ = "__init__"
+        __init__.__code__ = __init__.__code__.replace(co_qualname="__init__")
+        __init__.__qualname__ = "__init__"
+        __init__.__code__ = __init__.__code__.replace(co_qualname="__init__")
+        __init__.__qualname__ = "__init__"
+        __init__.__code__ = __init__.__code__.replace(co_qualname="__init__")
+        _dp_class_ns.__init__ = __init__
+        _dp_class_ns.__init__.__qualname__ = "Derived.__init__"
+        _dp_class_ns.__init__.__code__ = _dp_class_ns.__init__.__code__.replace(co_qualname="Derived.__init__")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    return __dp__.create_class("Derived", _dp_ns_builder, (Base,), None)
+_dp_create_class_Derived.__qualname__ = "_dp_create_class_Derived"
+_dp_create_class_Derived.__code__ = _dp_create_class_Derived.__code__.replace(co_qualname="_dp_create_class_Derived")
+Derived = _dp_create_class_Derived()
+Alias = Derived
+Derived = dict
+INSTANCE = Alias()
+VALUE = INSTANCE.value
+
+$ async future traceback includes await line
+
+import asyncio
+import traceback
+
+async def raise_exc():
+    raise TypeError(42)
+
+async def run():
+    fut = asyncio.create_task(raise_exc())
+    for _ in range(1):
+        try:
+            await fut
+        except TypeError as exc:
+            tb = "".join(traceback.format_tb(exc.__traceback__))
+            return tb.count("await fut")
+    return -1
+
+COUNT = asyncio.run(run())
+=
+asyncio = __dp__.import_("asyncio", __spec__)
+traceback = __dp__.import_("traceback", __spec__)
+async def raise_exc():
+    raise TypeError(42)
+raise_exc.__qualname__ = "raise_exc"
+raise_exc.__code__ = raise_exc.__code__.replace(co_qualname="raise_exc")
+async def run():
+    fut = asyncio.create_task(raise_exc())
+    _dp_iter_1 = __dp__.iter(range(1))
+    while True:
+        try:
+            _ = __dp__.next(_dp_iter_1)
+        except:
+            __dp__.check_stopiteration()
+            break
+        else:
+            try:
+                await fut
+            except:
+                if __dp__.exception_matches(__dp__.current_exception(), TypeError):
+                    exc = __dp__.current_exception()
+                    try:
+                        tb = "".join(traceback.format_tb(exc.__traceback__))
+                        return tb.count("await fut")
+                    finally:
+                        try:
+                            del exc
+                        except:
+                            if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                                pass
+                            else:
+                                raise
+                else:
+                    raise
+    return __dp__.neg(1)
+run.__qualname__ = "run"
+run.__code__ = run.__code__.replace(co_qualname="run")
+COUNT = asyncio.run(run())
 
 $ nested class method name does not shadow outer method
 
@@ -97,26 +328,2728 @@ time = __dp__.import_("time", __spec__)
 def _dp_create_class_Outer():
 
     def _dp_ns_builder(_dp_class_ns):
-        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
         _dp_class_ns.__qualname__ = "Outer"
         _dp_class_ns.__annotations__ = __dp__.dict()
 
         def format_help(self):
             return "outer"
+        format_help.__qualname__ = "format_help"
+        format_help.__code__ = format_help.__code__.replace(co_qualname="format_help")
+        format_help.__qualname__ = "format_help"
+        format_help.__code__ = format_help.__code__.replace(co_qualname="format_help")
+        format_help.__qualname__ = "format_help"
+        format_help.__code__ = format_help.__code__.replace(co_qualname="format_help")
+        format_help.__qualname__ = "format_help"
+        format_help.__code__ = format_help.__code__.replace(co_qualname="format_help")
         _dp_class_ns.format_help = format_help
+        _dp_class_ns.format_help.__qualname__ = "Outer.format_help"
+        _dp_class_ns.format_help.__code__ = _dp_class_ns.format_help.__code__.replace(co_qualname="Outer.format_help")
 
         def _dp_create_class_Outer_Inner():
 
             def _dp_ns_builder(_dp_class_ns):
-                _dp_class_ns.__module__ = __name__
+                _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
                 _dp_class_ns.__qualname__ = "Outer.Inner"
                 _dp_class_ns.__annotations__ = __dp__.dict()
 
                 def format_help(self):
                     return time.get_clock_info("monotonic").resolution
+                format_help.__qualname__ = "format_help"
+                format_help.__code__ = format_help.__code__.replace(co_qualname="format_help")
+                format_help.__qualname__ = "format_help"
+                format_help.__code__ = format_help.__code__.replace(co_qualname="format_help")
+                format_help.__qualname__ = "format_help"
+                format_help.__code__ = format_help.__code__.replace(co_qualname="format_help")
+                format_help.__qualname__ = "format_help"
+                format_help.__code__ = format_help.__code__.replace(co_qualname="format_help")
+                format_help.__qualname__ = "format_help"
+                format_help.__code__ = format_help.__code__.replace(co_qualname="format_help")
+                format_help.__qualname__ = "format_help"
+                format_help.__code__ = format_help.__code__.replace(co_qualname="format_help")
+                format_help.__qualname__ = "format_help"
+                format_help.__code__ = format_help.__code__.replace(co_qualname="format_help")
+                format_help.__qualname__ = "format_help"
+                format_help.__code__ = format_help.__code__.replace(co_qualname="format_help")
+                format_help.__qualname__ = "format_help"
+                format_help.__code__ = format_help.__code__.replace(co_qualname="format_help")
+                format_help.__qualname__ = "format_help"
+                format_help.__code__ = format_help.__code__.replace(co_qualname="format_help")
+                format_help.__qualname__ = "format_help"
+                format_help.__code__ = format_help.__code__.replace(co_qualname="format_help")
+                format_help.__qualname__ = "format_help"
+                format_help.__code__ = format_help.__code__.replace(co_qualname="format_help")
+                format_help.__qualname__ = "format_help"
+                format_help.__code__ = format_help.__code__.replace(co_qualname="format_help")
+                format_help.__qualname__ = "format_help"
+                format_help.__code__ = format_help.__code__.replace(co_qualname="format_help")
+                format_help.__qualname__ = "format_help"
+                format_help.__code__ = format_help.__code__.replace(co_qualname="format_help")
+                format_help.__qualname__ = "format_help"
+                format_help.__code__ = format_help.__code__.replace(co_qualname="format_help")
+                format_help.__qualname__ = "Outer.format_help"
+                format_help.__code__ = format_help.__code__.replace(co_qualname="Outer.format_help")
+                format_help.__qualname__ = "Outer.format_help"
+                format_help.__code__ = format_help.__code__.replace(co_qualname="Outer.format_help")
+                format_help.__qualname__ = "Outer.format_help"
+                format_help.__code__ = format_help.__code__.replace(co_qualname="Outer.format_help")
+                format_help.__qualname__ = "Outer.format_help"
+                format_help.__code__ = format_help.__code__.replace(co_qualname="Outer.format_help")
                 _dp_class_ns.format_help = format_help
+                _dp_class_ns.format_help.__qualname__ = "Outer.Inner.format_help"
+                _dp_class_ns.format_help.__code__ = _dp_class_ns.format_help.__code__.replace(co_qualname="Outer.Inner.format_help")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "Outer._dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="Outer._dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "Outer._dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="Outer._dp_ns_builder")
             return __dp__.create_class("Inner", _dp_ns_builder, (), None)
+        _dp_create_class_Outer_Inner.__qualname__ = "_dp_create_class_Outer_Inner"
+        _dp_create_class_Outer_Inner.__code__ = _dp_create_class_Outer_Inner.__code__.replace(co_qualname="_dp_create_class_Outer_Inner")
+        _dp_create_class_Outer_Inner.__qualname__ = "_dp_create_class_Outer_Inner"
+        _dp_create_class_Outer_Inner.__code__ = _dp_create_class_Outer_Inner.__code__.replace(co_qualname="_dp_create_class_Outer_Inner")
+        _dp_create_class_Outer_Inner.__qualname__ = "_dp_create_class_Outer_Inner"
+        _dp_create_class_Outer_Inner.__code__ = _dp_create_class_Outer_Inner.__code__.replace(co_qualname="_dp_create_class_Outer_Inner")
+        _dp_create_class_Outer_Inner.__qualname__ = "_dp_create_class_Outer_Inner"
+        _dp_create_class_Outer_Inner.__code__ = _dp_create_class_Outer_Inner.__code__.replace(co_qualname="_dp_create_class_Outer_Inner")
+        _dp_create_class_Outer_Inner.__qualname__ = "Outer._dp_create_class_Outer_Inner"
+        _dp_create_class_Outer_Inner.__code__ = _dp_create_class_Outer_Inner.__code__.replace(co_qualname="Outer._dp_create_class_Outer_Inner")
         _dp_class_ns.Inner = _dp_create_class_Outer_Inner()
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
     return __dp__.create_class("Outer", _dp_ns_builder, (), None)
+_dp_create_class_Outer.__qualname__ = "_dp_create_class_Outer"
+_dp_create_class_Outer.__code__ = _dp_create_class_Outer.__code__.replace(co_qualname="_dp_create_class_Outer")
 Outer = _dp_create_class_Outer()
 VALUE = Outer.Inner().format_help()
+
+$ asyncio wait_for releases cancelled task locals
+
+import asyncio
+import gc
+import weakref
+
+class Payload:
+    pass
+
+async def hold_ref(ref_holder):
+    obj = Payload()
+    ref_holder.append(weakref.ref(obj))
+    await asyncio.sleep(10)
+
+def leak_check():
+    ref_holder = []
+
+    async def runner():
+        await asyncio.wait_for(hold_ref(ref_holder), 0.01)
+
+    try:
+        asyncio.run(runner())
+    except asyncio.TimeoutError:
+        pass
+
+    gc.collect()
+    return ref_holder[0]()
+=
+asyncio = __dp__.import_("asyncio", __spec__)
+gc = __dp__.import_("gc", __spec__)
+weakref = __dp__.import_("weakref", __spec__)
+def _dp_create_class_Payload():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
+        _dp_class_ns.__qualname__ = "Payload"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    return __dp__.create_class("Payload", _dp_ns_builder, (), None)
+_dp_create_class_Payload.__qualname__ = "_dp_create_class_Payload"
+_dp_create_class_Payload.__code__ = _dp_create_class_Payload.__code__.replace(co_qualname="_dp_create_class_Payload")
+Payload = _dp_create_class_Payload()
+async def hold_ref(ref_holder):
+    obj = Payload()
+    ref_holder.append(weakref.ref(obj))
+    await asyncio.sleep(10)
+hold_ref.__qualname__ = "hold_ref"
+hold_ref.__code__ = hold_ref.__code__.replace(co_qualname="hold_ref")
+def leak_check():
+    ref_holder = __dp__.list(())
+
+    async def runner():
+        await asyncio.wait_for(hold_ref(ref_holder), 0.01)
+    runner.__qualname__ = "runner"
+    runner.__code__ = runner.__code__.replace(co_qualname="runner")
+    runner.__qualname__ = "leak_check.<locals>.runner"
+    runner.__code__ = runner.__code__.replace(co_qualname="leak_check.<locals>.runner")
+    try:
+        asyncio.run(runner())
+    except:
+        if __dp__.exception_matches(__dp__.current_exception(), asyncio.TimeoutError):
+            pass
+        else:
+            raise
+    gc.collect()
+    return __dp__.getitem(ref_holder, 0)()
+leak_check.__qualname__ = "leak_check"
+leak_check.__code__ = leak_check.__code__.replace(co_qualname="leak_check")
+
+$ asyncio ssl handshake timeout cleanup
+
+import gc
+import importlib
+import ssl
+import sys
+import types
+import weakref
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+CPYTHON_ASYNCIO = ROOT / "cpython" / "Lib" / "asyncio"
+PKG_NAME = "dp_asyncio"
+if PKG_NAME not in sys.modules:
+    package = types.ModuleType(PKG_NAME)
+    package.__path__ = [str(CPYTHON_ASYNCIO)]
+    sys.modules[PKG_NAME] = package
+
+base_events = importlib.import_module(f"{PKG_NAME}.base_events")
+constants = importlib.import_module(f"{PKG_NAME}.constants")
+exceptions = importlib.import_module(f"{PKG_NAME}.exceptions")
+protocols = importlib.import_module(f"{PKG_NAME}.protocols")
+selector_events = importlib.import_module(f"{PKG_NAME}.selector_events")
+sslproto = importlib.import_module(f"{PKG_NAME}.sslproto")
+tasks = importlib.import_module(f"{PKG_NAME}.tasks")
+
+class DummySock:
+    def setblocking(self, flag):
+        pass
+
+class DummyTransport:
+    def __init__(self):
+        self.closed = False
+
+    def _force_close(self, exc):
+        self.closed = True
+
+    def get_extra_info(self, name, default=None):
+        return default
+
+    def write(self, data):
+        pass
+
+    def is_closing(self):
+        return self.closed
+
+    def pause_reading(self):
+        pass
+
+    def resume_reading(self):
+        pass
+
+    def set_write_buffer_limits(self, high=None, low=None):
+        pass
+
+class DummyLoop(selector_events.BaseSelectorEventLoop):
+    def _make_ssl_transport(
+        self,
+        rawsock,
+        protocol,
+        sslcontext,
+        waiter=None,
+        *,
+        server_side=False,
+        server_hostname=None,
+        extra=None,
+        server=None,
+        ssl_handshake_timeout=constants.SSL_HANDSHAKE_TIMEOUT,
+        ssl_shutdown_timeout=constants.SSL_SHUTDOWN_TIMEOUT,
+    ):
+        ssl_protocol = sslproto.SSLProtocol(
+            self,
+            protocol,
+            sslcontext,
+            waiter,
+            server_side,
+            server_hostname,
+            ssl_handshake_timeout=ssl_handshake_timeout,
+            ssl_shutdown_timeout=ssl_shutdown_timeout,
+        )
+        ssl_protocol.connection_made(DummyTransport())
+        return ssl_protocol._app_transport
+
+    def _make_socket_transport(self, sock, protocol, waiter=None, *, extra=None, server=None):
+        return DummyTransport()
+
+def leak_check():
+    loop = DummyLoop()
+    sslctx = ssl.create_default_context()
+    ref = weakref.ref(sslctx)
+    sock = DummySock()
+
+    async def run():
+        await tasks.wait_for(
+            loop._create_connection_transport(
+                sock,
+                protocols.Protocol,
+                sslctx,
+                "",
+                ssl_handshake_timeout=10.0,
+            ),
+            0.01,
+        )
+
+    try:
+        loop.run_until_complete(run())
+    except BaseException as exc:
+        if exc.__class__.__name__ not in ("TimeoutError", "CancelledError"):
+            raise
+    finally:
+        loop.close()
+
+    sslctx = None
+    gc.collect()
+    return ref()
+=
+gc = __dp__.import_("gc", __spec__)
+importlib = __dp__.import_("importlib", __spec__)
+ssl = __dp__.import_("ssl", __spec__)
+sys = __dp__.import_("sys", __spec__)
+types = __dp__.import_("types", __spec__)
+weakref = __dp__.import_("weakref", __spec__)
+_dp_import_1 = __dp__.import_("pathlib", __spec__, __dp__.list(("Path",)))
+Path = __dp__.import_attr(_dp_import_1, "Path")
+del _dp_import_1
+ROOT = __dp__.getitem(Path(__file__).resolve().parents, 2)
+CPYTHON_ASYNCIO = __dp__.truediv(__dp__.truediv(__dp__.truediv(ROOT, "cpython"), "Lib"), "asyncio")
+PKG_NAME = "dp_asyncio"
+_dp_tmp_2 = __dp__.not_(__dp__.contains(sys.modules, PKG_NAME))
+if _dp_tmp_2:
+    package = types.ModuleType(PKG_NAME)
+    package.__path__ = __dp__.list((str(CPYTHON_ASYNCIO),))
+    __dp__.setitem(sys.modules, PKG_NAME, package)
+base_events = importlib.import_module("".join((__dp__.builtins.format(PKG_NAME), ".base_events")))
+constants = importlib.import_module("".join((__dp__.builtins.format(PKG_NAME), ".constants")))
+exceptions = importlib.import_module("".join((__dp__.builtins.format(PKG_NAME), ".exceptions")))
+protocols = importlib.import_module("".join((__dp__.builtins.format(PKG_NAME), ".protocols")))
+selector_events = importlib.import_module("".join((__dp__.builtins.format(PKG_NAME), ".selector_events")))
+sslproto = importlib.import_module("".join((__dp__.builtins.format(PKG_NAME), ".sslproto")))
+tasks = importlib.import_module("".join((__dp__.builtins.format(PKG_NAME), ".tasks")))
+def _dp_create_class_DummySock():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
+        _dp_class_ns.__qualname__ = "DummySock"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+
+        def setblocking(self, flag):
+            pass
+        setblocking.__qualname__ = "setblocking"
+        setblocking.__code__ = setblocking.__code__.replace(co_qualname="setblocking")
+        setblocking.__qualname__ = "setblocking"
+        setblocking.__code__ = setblocking.__code__.replace(co_qualname="setblocking")
+        setblocking.__qualname__ = "setblocking"
+        setblocking.__code__ = setblocking.__code__.replace(co_qualname="setblocking")
+        setblocking.__qualname__ = "setblocking"
+        setblocking.__code__ = setblocking.__code__.replace(co_qualname="setblocking")
+        _dp_class_ns.setblocking = setblocking
+        _dp_class_ns.setblocking.__qualname__ = "DummySock.setblocking"
+        _dp_class_ns.setblocking.__code__ = _dp_class_ns.setblocking.__code__.replace(co_qualname="DummySock.setblocking")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    return __dp__.create_class("DummySock", _dp_ns_builder, (), None)
+_dp_create_class_DummySock.__qualname__ = "_dp_create_class_DummySock"
+_dp_create_class_DummySock.__code__ = _dp_create_class_DummySock.__code__.replace(co_qualname="_dp_create_class_DummySock")
+DummySock = _dp_create_class_DummySock()
+def _dp_create_class_DummyTransport():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
+        _dp_class_ns.__qualname__ = "DummyTransport"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+
+        def __init__(self):
+            self.closed = False
+        __init__.__qualname__ = "__init__"
+        __init__.__code__ = __init__.__code__.replace(co_qualname="__init__")
+        __init__.__qualname__ = "__init__"
+        __init__.__code__ = __init__.__code__.replace(co_qualname="__init__")
+        __init__.__qualname__ = "__init__"
+        __init__.__code__ = __init__.__code__.replace(co_qualname="__init__")
+        __init__.__qualname__ = "__init__"
+        __init__.__code__ = __init__.__code__.replace(co_qualname="__init__")
+        _dp_class_ns.__init__ = __init__
+        _dp_class_ns.__init__.__qualname__ = "DummyTransport.__init__"
+        _dp_class_ns.__init__.__code__ = _dp_class_ns.__init__.__code__.replace(co_qualname="DummyTransport.__init__")
+
+        def _force_close(self, exc):
+            self.closed = True
+        _force_close.__qualname__ = "_force_close"
+        _force_close.__code__ = _force_close.__code__.replace(co_qualname="_force_close")
+        _force_close.__qualname__ = "_force_close"
+        _force_close.__code__ = _force_close.__code__.replace(co_qualname="_force_close")
+        _force_close.__qualname__ = "_force_close"
+        _force_close.__code__ = _force_close.__code__.replace(co_qualname="_force_close")
+        _force_close.__qualname__ = "_force_close"
+        _force_close.__code__ = _force_close.__code__.replace(co_qualname="_force_close")
+        _dp_class_ns._force_close = _force_close
+        _dp_class_ns._force_close.__qualname__ = "DummyTransport._force_close"
+        _dp_class_ns._force_close.__code__ = _dp_class_ns._force_close.__code__.replace(co_qualname="DummyTransport._force_close")
+
+        def get_extra_info(self, name, default=None):
+            return default
+        get_extra_info.__qualname__ = "get_extra_info"
+        get_extra_info.__code__ = get_extra_info.__code__.replace(co_qualname="get_extra_info")
+        get_extra_info.__qualname__ = "get_extra_info"
+        get_extra_info.__code__ = get_extra_info.__code__.replace(co_qualname="get_extra_info")
+        get_extra_info.__qualname__ = "get_extra_info"
+        get_extra_info.__code__ = get_extra_info.__code__.replace(co_qualname="get_extra_info")
+        get_extra_info.__qualname__ = "get_extra_info"
+        get_extra_info.__code__ = get_extra_info.__code__.replace(co_qualname="get_extra_info")
+        _dp_class_ns.get_extra_info = get_extra_info
+        _dp_class_ns.get_extra_info.__qualname__ = "DummyTransport.get_extra_info"
+        _dp_class_ns.get_extra_info.__code__ = _dp_class_ns.get_extra_info.__code__.replace(co_qualname="DummyTransport.get_extra_info")
+
+        def write(self, data):
+            pass
+        write.__qualname__ = "write"
+        write.__code__ = write.__code__.replace(co_qualname="write")
+        write.__qualname__ = "write"
+        write.__code__ = write.__code__.replace(co_qualname="write")
+        write.__qualname__ = "write"
+        write.__code__ = write.__code__.replace(co_qualname="write")
+        write.__qualname__ = "write"
+        write.__code__ = write.__code__.replace(co_qualname="write")
+        _dp_class_ns.write = write
+        _dp_class_ns.write.__qualname__ = "DummyTransport.write"
+        _dp_class_ns.write.__code__ = _dp_class_ns.write.__code__.replace(co_qualname="DummyTransport.write")
+
+        def is_closing(self):
+            return self.closed
+        is_closing.__qualname__ = "is_closing"
+        is_closing.__code__ = is_closing.__code__.replace(co_qualname="is_closing")
+        is_closing.__qualname__ = "is_closing"
+        is_closing.__code__ = is_closing.__code__.replace(co_qualname="is_closing")
+        is_closing.__qualname__ = "is_closing"
+        is_closing.__code__ = is_closing.__code__.replace(co_qualname="is_closing")
+        is_closing.__qualname__ = "is_closing"
+        is_closing.__code__ = is_closing.__code__.replace(co_qualname="is_closing")
+        _dp_class_ns.is_closing = is_closing
+        _dp_class_ns.is_closing.__qualname__ = "DummyTransport.is_closing"
+        _dp_class_ns.is_closing.__code__ = _dp_class_ns.is_closing.__code__.replace(co_qualname="DummyTransport.is_closing")
+
+        def pause_reading(self):
+            pass
+        pause_reading.__qualname__ = "pause_reading"
+        pause_reading.__code__ = pause_reading.__code__.replace(co_qualname="pause_reading")
+        pause_reading.__qualname__ = "pause_reading"
+        pause_reading.__code__ = pause_reading.__code__.replace(co_qualname="pause_reading")
+        pause_reading.__qualname__ = "pause_reading"
+        pause_reading.__code__ = pause_reading.__code__.replace(co_qualname="pause_reading")
+        pause_reading.__qualname__ = "pause_reading"
+        pause_reading.__code__ = pause_reading.__code__.replace(co_qualname="pause_reading")
+        _dp_class_ns.pause_reading = pause_reading
+        _dp_class_ns.pause_reading.__qualname__ = "DummyTransport.pause_reading"
+        _dp_class_ns.pause_reading.__code__ = _dp_class_ns.pause_reading.__code__.replace(co_qualname="DummyTransport.pause_reading")
+
+        def resume_reading(self):
+            pass
+        resume_reading.__qualname__ = "resume_reading"
+        resume_reading.__code__ = resume_reading.__code__.replace(co_qualname="resume_reading")
+        resume_reading.__qualname__ = "resume_reading"
+        resume_reading.__code__ = resume_reading.__code__.replace(co_qualname="resume_reading")
+        resume_reading.__qualname__ = "resume_reading"
+        resume_reading.__code__ = resume_reading.__code__.replace(co_qualname="resume_reading")
+        resume_reading.__qualname__ = "resume_reading"
+        resume_reading.__code__ = resume_reading.__code__.replace(co_qualname="resume_reading")
+        _dp_class_ns.resume_reading = resume_reading
+        _dp_class_ns.resume_reading.__qualname__ = "DummyTransport.resume_reading"
+        _dp_class_ns.resume_reading.__code__ = _dp_class_ns.resume_reading.__code__.replace(co_qualname="DummyTransport.resume_reading")
+
+        def set_write_buffer_limits(self, high=None, low=None):
+            pass
+        set_write_buffer_limits.__qualname__ = "set_write_buffer_limits"
+        set_write_buffer_limits.__code__ = set_write_buffer_limits.__code__.replace(co_qualname="set_write_buffer_limits")
+        set_write_buffer_limits.__qualname__ = "set_write_buffer_limits"
+        set_write_buffer_limits.__code__ = set_write_buffer_limits.__code__.replace(co_qualname="set_write_buffer_limits")
+        set_write_buffer_limits.__qualname__ = "set_write_buffer_limits"
+        set_write_buffer_limits.__code__ = set_write_buffer_limits.__code__.replace(co_qualname="set_write_buffer_limits")
+        set_write_buffer_limits.__qualname__ = "set_write_buffer_limits"
+        set_write_buffer_limits.__code__ = set_write_buffer_limits.__code__.replace(co_qualname="set_write_buffer_limits")
+        _dp_class_ns.set_write_buffer_limits = set_write_buffer_limits
+        _dp_class_ns.set_write_buffer_limits.__qualname__ = "DummyTransport.set_write_buffer_limits"
+        _dp_class_ns.set_write_buffer_limits.__code__ = _dp_class_ns.set_write_buffer_limits.__code__.replace(co_qualname="DummyTransport.set_write_buffer_limits")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    return __dp__.create_class("DummyTransport", _dp_ns_builder, (), None)
+_dp_create_class_DummyTransport.__qualname__ = "_dp_create_class_DummyTransport"
+_dp_create_class_DummyTransport.__code__ = _dp_create_class_DummyTransport.__code__.replace(co_qualname="_dp_create_class_DummyTransport")
+DummyTransport = _dp_create_class_DummyTransport()
+def _dp_create_class_DummyLoop():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
+        _dp_class_ns.__qualname__ = "DummyLoop"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+
+        def _make_ssl_transport(self, rawsock, protocol, sslcontext, waiter=None, *, server_side=False, server_hostname=None, extra=None, server=None, ssl_handshake_timeout=__dp__.class_lookup(_dp_class_ns, globals(), "constants").SSL_HANDSHAKE_TIMEOUT, ssl_shutdown_timeout=__dp__.class_lookup(_dp_class_ns, globals(), "constants").SSL_SHUTDOWN_TIMEOUT):
+            ssl_protocol = sslproto.SSLProtocol(self, protocol, sslcontext, waiter, server_side, server_hostname, ssl_handshake_timeout=ssl_handshake_timeout, ssl_shutdown_timeout=ssl_shutdown_timeout)
+            ssl_protocol.connection_made(DummyTransport())
+            return ssl_protocol._app_transport
+        _make_ssl_transport.__qualname__ = "_make_ssl_transport"
+        _make_ssl_transport.__code__ = _make_ssl_transport.__code__.replace(co_qualname="_make_ssl_transport")
+        _make_ssl_transport.__qualname__ = "_make_ssl_transport"
+        _make_ssl_transport.__code__ = _make_ssl_transport.__code__.replace(co_qualname="_make_ssl_transport")
+        _make_ssl_transport.__qualname__ = "_make_ssl_transport"
+        _make_ssl_transport.__code__ = _make_ssl_transport.__code__.replace(co_qualname="_make_ssl_transport")
+        _make_ssl_transport.__qualname__ = "_make_ssl_transport"
+        _make_ssl_transport.__code__ = _make_ssl_transport.__code__.replace(co_qualname="_make_ssl_transport")
+        _dp_class_ns._make_ssl_transport = _make_ssl_transport
+        _dp_class_ns._make_ssl_transport.__qualname__ = "DummyLoop._make_ssl_transport"
+        _dp_class_ns._make_ssl_transport.__code__ = _dp_class_ns._make_ssl_transport.__code__.replace(co_qualname="DummyLoop._make_ssl_transport")
+
+        def _make_socket_transport(self, sock, protocol, waiter=None, *, extra=None, server=None):
+            return DummyTransport()
+        _make_socket_transport.__qualname__ = "_make_socket_transport"
+        _make_socket_transport.__code__ = _make_socket_transport.__code__.replace(co_qualname="_make_socket_transport")
+        _make_socket_transport.__qualname__ = "_make_socket_transport"
+        _make_socket_transport.__code__ = _make_socket_transport.__code__.replace(co_qualname="_make_socket_transport")
+        _make_socket_transport.__qualname__ = "_make_socket_transport"
+        _make_socket_transport.__code__ = _make_socket_transport.__code__.replace(co_qualname="_make_socket_transport")
+        _make_socket_transport.__qualname__ = "_make_socket_transport"
+        _make_socket_transport.__code__ = _make_socket_transport.__code__.replace(co_qualname="_make_socket_transport")
+        _dp_class_ns._make_socket_transport = _make_socket_transport
+        _dp_class_ns._make_socket_transport.__qualname__ = "DummyLoop._make_socket_transport"
+        _dp_class_ns._make_socket_transport.__code__ = _dp_class_ns._make_socket_transport.__code__.replace(co_qualname="DummyLoop._make_socket_transport")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    return __dp__.create_class("DummyLoop", _dp_ns_builder, (selector_events.BaseSelectorEventLoop,), None)
+_dp_create_class_DummyLoop.__qualname__ = "_dp_create_class_DummyLoop"
+_dp_create_class_DummyLoop.__code__ = _dp_create_class_DummyLoop.__code__.replace(co_qualname="_dp_create_class_DummyLoop")
+DummyLoop = _dp_create_class_DummyLoop()
+def leak_check():
+    loop = DummyLoop()
+    sslctx = ssl.create_default_context()
+    ref = weakref.ref(sslctx)
+    sock = DummySock()
+
+    async def run():
+        await tasks.wait_for(loop._create_connection_transport(sock, protocols.Protocol, sslctx, "", ssl_handshake_timeout=10.0), 0.01)
+    run.__qualname__ = "run"
+    run.__code__ = run.__code__.replace(co_qualname="run")
+    run.__qualname__ = "leak_check.<locals>.run"
+    run.__code__ = run.__code__.replace(co_qualname="leak_check.<locals>.run")
+    try:
+        loop.run_until_complete(run())
+    except:
+        if __dp__.exception_matches(__dp__.current_exception(), BaseException):
+            exc = __dp__.current_exception()
+            try:
+                _dp_tmp_3 = __dp__.not_(__dp__.contains(("TimeoutError", "CancelledError"), exc.__class__.__name__))
+                if _dp_tmp_3:
+                    raise
+            finally:
+                try:
+                    del exc
+                except:
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                        pass
+                    else:
+                        raise
+        else:
+            raise
+    finally:
+        loop.close()
+    sslctx = None
+    gc.collect()
+    return ref()
+leak_check.__qualname__ = "leak_check"
+leak_check.__code__ = leak_check.__code__.replace(co_qualname="leak_check")
+
+$ except star preserves exception groups
+
+
+def handle():
+    exc = None
+    try:
+        raise ExceptionGroup("eg", [OSError("boom")])
+    except* OSError as excs:
+        exc = excs
+    return exc
+=
+def handle():
+    exc = None
+    try:
+        raise ExceptionGroup("eg", __dp__.list((OSError("boom"),)))
+    except* OSError as excs:
+        exc = excs
+    return exc
+handle.__qualname__ = "handle"
+handle.__code__ = handle.__code__.replace(co_qualname="handle")
+
+$ except as clears exception binding
+
+
+import gc
+import types
+
+def capture():
+    try:
+        raise OSError("boom")
+    except OSError as err:
+        return err
+
+def count_exception_referrer_frames():
+    exc = capture()
+    refs = [ref for ref in gc.get_referrers(exc) if isinstance(ref, types.FrameType)]
+    return len(refs)
+=
+gc = __dp__.import_("gc", __spec__)
+types = __dp__.import_("types", __spec__)
+def capture():
+    try:
+        raise OSError("boom")
+    except:
+        if __dp__.exception_matches(__dp__.current_exception(), OSError):
+            err = __dp__.current_exception()
+            try:
+                return err
+            finally:
+                try:
+                    del err
+                except:
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                        pass
+                    else:
+                        raise
+        else:
+            raise
+capture.__qualname__ = "capture"
+capture.__code__ = capture.__code__.replace(co_qualname="capture")
+def count_exception_referrer_frames():
+    exc = capture()
+
+    def _dp_gen_1(_dp_iter_2):
+        _dp_iter_3 = __dp__.iter(_dp_iter_2)
+        while True:
+            try:
+                ref = __dp__.next(_dp_iter_3)
+            except:
+                __dp__.check_stopiteration()
+                break
+            else:
+                if isinstance(ref, types.FrameType):
+                    yield ref
+    _dp_gen_1.__qualname__ = "_dp_gen_1"
+    _dp_gen_1.__code__ = _dp_gen_1.__code__.replace(co_qualname="_dp_gen_1")
+    _dp_gen_1.__qualname__ = "count_exception_referrer_frames.<locals>._dp_gen_1"
+    _dp_gen_1.__code__ = _dp_gen_1.__code__.replace(co_qualname="count_exception_referrer_frames.<locals>._dp_gen_1")
+    _dp_gen_1.__name__ = "<genexpr>"
+    _dp_gen_1.__qualname__ = "count_exception_referrer_frames.<locals>.<genexpr>"
+    _dp_gen_1.__code__ = _dp_gen_1.__code__.replace(co_name="<genexpr>", co_qualname="count_exception_referrer_frames.<locals>.<genexpr>")
+    refs = __dp__.list(_dp_gen_1(__dp__.iter(gc.get_referrers(exc))))
+    return len(refs)
+count_exception_referrer_frames.__qualname__ = "count_exception_referrer_frames"
+count_exception_referrer_frames.__code__ = count_exception_referrer_frames.__code__.replace(co_qualname="count_exception_referrer_frames")
+
+$ lru cache method pickles with stable qualname
+
+
+import functools
+import pickle
+
+class HasCache:
+    @functools.lru_cache()
+    def cached_meth(self, x, y):
+        return x + y
+
+def pickle_cached_method():
+    return pickle.loads(pickle.dumps(HasCache.cached_meth))
+=
+functools = __dp__.import_("functools", __spec__)
+pickle = __dp__.import_("pickle", __spec__)
+def _dp_create_class_HasCache():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
+        _dp_class_ns.__qualname__ = "HasCache"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+        _dp_tmp_1 = __dp__.class_lookup(_dp_class_ns, globals(), "functools").lru_cache()
+
+        def cached_meth(self, x, y):
+            return __dp__.add(x, y)
+        cached_meth.__qualname__ = "cached_meth"
+        cached_meth.__code__ = cached_meth.__code__.replace(co_qualname="cached_meth")
+        cached_meth.__qualname__ = "cached_meth"
+        cached_meth.__code__ = cached_meth.__code__.replace(co_qualname="cached_meth")
+        cached_meth.__qualname__ = "cached_meth"
+        cached_meth.__code__ = cached_meth.__code__.replace(co_qualname="cached_meth")
+        cached_meth.__qualname__ = "cached_meth"
+        cached_meth.__code__ = cached_meth.__code__.replace(co_qualname="cached_meth")
+        _dp_class_ns.cached_meth = cached_meth
+        _dp_class_ns.cached_meth.__qualname__ = "HasCache.cached_meth"
+        _dp_class_ns.cached_meth.__code__ = _dp_class_ns.cached_meth.__code__.replace(co_qualname="HasCache.cached_meth")
+        _dp_class_ns.cached_meth.__qualname__ = "HasCache.cached_meth"
+        _dp_class_ns.cached_meth.__code__ = _dp_class_ns.cached_meth.__code__.replace(co_qualname="HasCache.cached_meth")
+        _dp_class_ns.cached_meth = _dp_tmp_1(_dp_class_ns.cached_meth)
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    return __dp__.create_class("HasCache", _dp_ns_builder, (), None)
+_dp_create_class_HasCache.__qualname__ = "_dp_create_class_HasCache"
+_dp_create_class_HasCache.__code__ = _dp_create_class_HasCache.__code__.replace(co_qualname="_dp_create_class_HasCache")
+HasCache = _dp_create_class_HasCache()
+def pickle_cached_method():
+    return pickle.loads(pickle.dumps(HasCache.cached_meth))
+pickle_cached_method.__qualname__ = "pickle_cached_method"
+pickle_cached_method.__code__ = pickle_cached_method.__code__.replace(co_qualname="pickle_cached_method")
+
+$ positional-only param shadows class attribute
+
+
+def make_value():
+    class Example:
+        a = 40
+
+        def compute(self):
+            def f(a, b, /):
+                return a + b
+
+            return f(1, 2)
+
+    return Example().compute()
+=
+def make_value():
+
+    def _dp_create_class_make_value__locals__Example():
+
+        def _dp_ns_builder(_dp_class_ns):
+            _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
+            _dp_class_ns.__qualname__ = "make_value.<locals>.Example"
+            _dp_class_ns.__annotations__ = __dp__.dict()
+            _dp_class_ns.a = 40
+
+            def compute(self):
+
+                def f(a, b, /):
+                    return __dp__.add(a, b)
+                f.__qualname__ = "f"
+                f.__code__ = f.__code__.replace(co_qualname="f")
+                f.__qualname__ = "compute.<locals>.f"
+                f.__code__ = f.__code__.replace(co_qualname="compute.<locals>.f")
+                f.__qualname__ = "f"
+                f.__code__ = f.__code__.replace(co_qualname="f")
+                f.__qualname__ = "compute.<locals>.f"
+                f.__code__ = f.__code__.replace(co_qualname="compute.<locals>.f")
+                f.__qualname__ = "f"
+                f.__code__ = f.__code__.replace(co_qualname="f")
+                f.__qualname__ = "compute.<locals>.f"
+                f.__code__ = f.__code__.replace(co_qualname="compute.<locals>.f")
+                f.__qualname__ = "f"
+                f.__code__ = f.__code__.replace(co_qualname="f")
+                f.__qualname__ = "compute.<locals>.f"
+                f.__code__ = f.__code__.replace(co_qualname="compute.<locals>.f")
+                f.__qualname__ = "make_value.<locals>.f"
+                f.__code__ = f.__code__.replace(co_qualname="make_value.<locals>.f")
+                f.__qualname__ = "make_value.<locals>.compute.<locals>.f"
+                f.__code__ = f.__code__.replace(co_qualname="make_value.<locals>.compute.<locals>.f")
+                f.__qualname__ = "make_value.<locals>.f"
+                f.__code__ = f.__code__.replace(co_qualname="make_value.<locals>.f")
+                f.__qualname__ = "make_value.<locals>.compute.<locals>.f"
+                f.__code__ = f.__code__.replace(co_qualname="make_value.<locals>.compute.<locals>.f")
+                f.__qualname__ = "make_value.<locals>.f"
+                f.__code__ = f.__code__.replace(co_qualname="make_value.<locals>.f")
+                f.__qualname__ = "make_value.<locals>.compute.<locals>.f"
+                f.__code__ = f.__code__.replace(co_qualname="make_value.<locals>.compute.<locals>.f")
+                f.__qualname__ = "make_value.<locals>.f"
+                f.__code__ = f.__code__.replace(co_qualname="make_value.<locals>.f")
+                f.__qualname__ = "make_value.<locals>.compute.<locals>.f"
+                f.__code__ = f.__code__.replace(co_qualname="make_value.<locals>.compute.<locals>.f")
+                f.__qualname__ = "make_value.<locals>.Example.compute.<locals>.f"
+                f.__code__ = f.__code__.replace(co_qualname="make_value.<locals>.Example.compute.<locals>.f")
+                f.__qualname__ = "make_value.<locals>.Example.f"
+                f.__code__ = f.__code__.replace(co_qualname="make_value.<locals>.Example.f")
+                f.__qualname__ = "make_value.<locals>.Example.compute.<locals>.f"
+                f.__code__ = f.__code__.replace(co_qualname="make_value.<locals>.Example.compute.<locals>.f")
+                return f(1, 2)
+            compute.__qualname__ = "compute"
+            compute.__code__ = compute.__code__.replace(co_qualname="compute")
+            compute.__qualname__ = "compute"
+            compute.__code__ = compute.__code__.replace(co_qualname="compute")
+            compute.__qualname__ = "compute"
+            compute.__code__ = compute.__code__.replace(co_qualname="compute")
+            compute.__qualname__ = "compute"
+            compute.__code__ = compute.__code__.replace(co_qualname="compute")
+            compute.__qualname__ = "make_value.<locals>.compute"
+            compute.__code__ = compute.__code__.replace(co_qualname="make_value.<locals>.compute")
+            compute.__qualname__ = "make_value.<locals>.compute"
+            compute.__code__ = compute.__code__.replace(co_qualname="make_value.<locals>.compute")
+            compute.__qualname__ = "make_value.<locals>.compute"
+            compute.__code__ = compute.__code__.replace(co_qualname="make_value.<locals>.compute")
+            compute.__qualname__ = "make_value.<locals>.compute"
+            compute.__code__ = compute.__code__.replace(co_qualname="make_value.<locals>.compute")
+            _dp_class_ns.compute = compute
+            _dp_class_ns.compute.__qualname__ = "make_value.<locals>.Example.compute"
+            _dp_class_ns.compute.__code__ = _dp_class_ns.compute.__code__.replace(co_qualname="make_value.<locals>.Example.compute")
+        _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+        _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+        _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+        _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+        _dp_ns_builder.__qualname__ = "make_value.<locals>._dp_ns_builder"
+        _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="make_value.<locals>._dp_ns_builder")
+        _dp_ns_builder.__qualname__ = "make_value.<locals>._dp_ns_builder"
+        _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="make_value.<locals>._dp_ns_builder")
+        return __dp__.create_class("Example", _dp_ns_builder, (), None)
+    _dp_create_class_make_value__locals__Example.__qualname__ = "_dp_create_class_make_value__locals__Example"
+    _dp_create_class_make_value__locals__Example.__code__ = _dp_create_class_make_value__locals__Example.__code__.replace(co_qualname="_dp_create_class_make_value__locals__Example")
+    _dp_create_class_make_value__locals__Example.__qualname__ = "make_value.<locals>._dp_create_class_make_value__locals__Example"
+    _dp_create_class_make_value__locals__Example.__code__ = _dp_create_class_make_value__locals__Example.__code__.replace(co_qualname="make_value.<locals>._dp_create_class_make_value__locals__Example")
+    Example = _dp_create_class_make_value__locals__Example()
+    return Example().compute()
+make_value.__qualname__ = "make_value"
+make_value.__code__ = make_value.__code__.replace(co_qualname="make_value")
+
+$ integration: functools singledispatch qualname
+
+from __future__ import annotations
+
+import functools
+
+
+class Wrapper:
+    def make_nested_class(self):
+        class A:
+            @functools.singledispatchmethod
+            def func(self, arg: int) -> str:
+                return str(arg)
+
+        return A
+
+    def bad_register_message(self):
+        @functools.singledispatch
+        def i(arg):
+            return "base"
+
+        try:
+            @i.register
+            def _(arg):
+                return "missing annotation"
+        except TypeError as exc:
+            return str(exc)
+
+        raise AssertionError("expected TypeError")
+=
+functools = __dp__.import_("functools", __spec__)
+def _dp_create_class_Wrapper():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
+        _dp_class_ns.__qualname__ = "Wrapper"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+
+        def make_nested_class(self):
+
+            def _dp_create_class_Wrapper_make_nested_class__locals__A():
+
+                def _dp_ns_builder(_dp_class_ns):
+                    _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
+                    _dp_class_ns.__qualname__ = "Wrapper.make_nested_class.<locals>.A"
+                    _dp_class_ns.__annotations__ = __dp__.dict()
+                    _dp_tmp_1 = __dp__.class_lookup(_dp_class_ns, globals(), "functools").singledispatchmethod
+
+                    def func(self, arg: "int") -> "str":
+                        return str(arg)
+                    func.__qualname__ = "func"
+                    func.__code__ = func.__code__.replace(co_qualname="func")
+                    func.__qualname__ = "func"
+                    func.__code__ = func.__code__.replace(co_qualname="func")
+                    func.__qualname__ = "func"
+                    func.__code__ = func.__code__.replace(co_qualname="func")
+                    func.__qualname__ = "func"
+                    func.__code__ = func.__code__.replace(co_qualname="func")
+                    func.__qualname__ = "make_nested_class.<locals>.func"
+                    func.__code__ = func.__code__.replace(co_qualname="make_nested_class.<locals>.func")
+                    func.__qualname__ = "make_nested_class.<locals>.func"
+                    func.__code__ = func.__code__.replace(co_qualname="make_nested_class.<locals>.func")
+                    func.__qualname__ = "make_nested_class.<locals>.func"
+                    func.__code__ = func.__code__.replace(co_qualname="make_nested_class.<locals>.func")
+                    func.__qualname__ = "make_nested_class.<locals>.func"
+                    func.__code__ = func.__code__.replace(co_qualname="make_nested_class.<locals>.func")
+                    func.__qualname__ = "func"
+                    func.__code__ = func.__code__.replace(co_qualname="func")
+                    func.__qualname__ = "func"
+                    func.__code__ = func.__code__.replace(co_qualname="func")
+                    func.__qualname__ = "func"
+                    func.__code__ = func.__code__.replace(co_qualname="func")
+                    func.__qualname__ = "func"
+                    func.__code__ = func.__code__.replace(co_qualname="func")
+                    func.__qualname__ = "make_nested_class.<locals>.func"
+                    func.__code__ = func.__code__.replace(co_qualname="make_nested_class.<locals>.func")
+                    func.__qualname__ = "make_nested_class.<locals>.func"
+                    func.__code__ = func.__code__.replace(co_qualname="make_nested_class.<locals>.func")
+                    func.__qualname__ = "make_nested_class.<locals>.func"
+                    func.__code__ = func.__code__.replace(co_qualname="make_nested_class.<locals>.func")
+                    func.__qualname__ = "make_nested_class.<locals>.func"
+                    func.__code__ = func.__code__.replace(co_qualname="make_nested_class.<locals>.func")
+                    func.__qualname__ = "func"
+                    func.__code__ = func.__code__.replace(co_qualname="func")
+                    func.__qualname__ = "func"
+                    func.__code__ = func.__code__.replace(co_qualname="func")
+                    func.__qualname__ = "func"
+                    func.__code__ = func.__code__.replace(co_qualname="func")
+                    func.__qualname__ = "func"
+                    func.__code__ = func.__code__.replace(co_qualname="func")
+                    func.__qualname__ = "make_nested_class.<locals>.func"
+                    func.__code__ = func.__code__.replace(co_qualname="make_nested_class.<locals>.func")
+                    func.__qualname__ = "make_nested_class.<locals>.func"
+                    func.__code__ = func.__code__.replace(co_qualname="make_nested_class.<locals>.func")
+                    func.__qualname__ = "make_nested_class.<locals>.func"
+                    func.__code__ = func.__code__.replace(co_qualname="make_nested_class.<locals>.func")
+                    func.__qualname__ = "make_nested_class.<locals>.func"
+                    func.__code__ = func.__code__.replace(co_qualname="make_nested_class.<locals>.func")
+                    func.__qualname__ = "func"
+                    func.__code__ = func.__code__.replace(co_qualname="func")
+                    func.__qualname__ = "func"
+                    func.__code__ = func.__code__.replace(co_qualname="func")
+                    func.__qualname__ = "func"
+                    func.__code__ = func.__code__.replace(co_qualname="func")
+                    func.__qualname__ = "func"
+                    func.__code__ = func.__code__.replace(co_qualname="func")
+                    func.__qualname__ = "make_nested_class.<locals>.func"
+                    func.__code__ = func.__code__.replace(co_qualname="make_nested_class.<locals>.func")
+                    func.__qualname__ = "make_nested_class.<locals>.func"
+                    func.__code__ = func.__code__.replace(co_qualname="make_nested_class.<locals>.func")
+                    func.__qualname__ = "make_nested_class.<locals>.func"
+                    func.__code__ = func.__code__.replace(co_qualname="make_nested_class.<locals>.func")
+                    func.__qualname__ = "make_nested_class.<locals>.func"
+                    func.__code__ = func.__code__.replace(co_qualname="make_nested_class.<locals>.func")
+                    func.__qualname__ = "Wrapper.make_nested_class.<locals>.func"
+                    func.__code__ = func.__code__.replace(co_qualname="Wrapper.make_nested_class.<locals>.func")
+                    func.__qualname__ = "Wrapper.make_nested_class.<locals>.func"
+                    func.__code__ = func.__code__.replace(co_qualname="Wrapper.make_nested_class.<locals>.func")
+                    func.__qualname__ = "Wrapper.make_nested_class.<locals>.func"
+                    func.__code__ = func.__code__.replace(co_qualname="Wrapper.make_nested_class.<locals>.func")
+                    func.__qualname__ = "Wrapper.make_nested_class.<locals>.func"
+                    func.__code__ = func.__code__.replace(co_qualname="Wrapper.make_nested_class.<locals>.func")
+                    func.__qualname__ = "Wrapper.func"
+                    func.__code__ = func.__code__.replace(co_qualname="Wrapper.func")
+                    func.__qualname__ = "Wrapper.func"
+                    func.__code__ = func.__code__.replace(co_qualname="Wrapper.func")
+                    func.__qualname__ = "Wrapper.func"
+                    func.__code__ = func.__code__.replace(co_qualname="Wrapper.func")
+                    func.__qualname__ = "Wrapper.func"
+                    func.__code__ = func.__code__.replace(co_qualname="Wrapper.func")
+                    func.__qualname__ = "Wrapper.make_nested_class.<locals>.func"
+                    func.__code__ = func.__code__.replace(co_qualname="Wrapper.make_nested_class.<locals>.func")
+                    func.__qualname__ = "Wrapper.make_nested_class.<locals>.func"
+                    func.__code__ = func.__code__.replace(co_qualname="Wrapper.make_nested_class.<locals>.func")
+                    func.__qualname__ = "Wrapper.make_nested_class.<locals>.func"
+                    func.__code__ = func.__code__.replace(co_qualname="Wrapper.make_nested_class.<locals>.func")
+                    func.__qualname__ = "Wrapper.make_nested_class.<locals>.func"
+                    func.__code__ = func.__code__.replace(co_qualname="Wrapper.make_nested_class.<locals>.func")
+                    _dp_class_ns.func = func
+                    _dp_class_ns.func.__qualname__ = "Wrapper.make_nested_class.<locals>.A.func"
+                    _dp_class_ns.func.__code__ = _dp_class_ns.func.__code__.replace(co_qualname="Wrapper.make_nested_class.<locals>.A.func")
+                    _dp_class_ns.func.__qualname__ = "Wrapper.make_nested_class.<locals>.A.func"
+                    _dp_class_ns.func.__code__ = _dp_class_ns.func.__code__.replace(co_qualname="Wrapper.make_nested_class.<locals>.A.func")
+                    _dp_class_ns.func = _dp_tmp_1(_dp_class_ns.func)
+                _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "make_nested_class.<locals>._dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="make_nested_class.<locals>._dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "make_nested_class.<locals>._dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="make_nested_class.<locals>._dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "make_nested_class.<locals>._dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="make_nested_class.<locals>._dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "make_nested_class.<locals>._dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="make_nested_class.<locals>._dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "make_nested_class.<locals>._dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="make_nested_class.<locals>._dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "make_nested_class.<locals>._dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="make_nested_class.<locals>._dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "make_nested_class.<locals>._dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="make_nested_class.<locals>._dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "make_nested_class.<locals>._dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="make_nested_class.<locals>._dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "Wrapper.make_nested_class.<locals>._dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="Wrapper.make_nested_class.<locals>._dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "Wrapper.make_nested_class.<locals>._dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="Wrapper.make_nested_class.<locals>._dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "Wrapper._dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="Wrapper._dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "Wrapper._dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="Wrapper._dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "Wrapper.make_nested_class.<locals>._dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="Wrapper.make_nested_class.<locals>._dp_ns_builder")
+                _dp_ns_builder.__qualname__ = "Wrapper.make_nested_class.<locals>._dp_ns_builder"
+                _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="Wrapper.make_nested_class.<locals>._dp_ns_builder")
+                return __dp__.create_class("A", _dp_ns_builder, (), None)
+            _dp_create_class_Wrapper_make_nested_class__locals__A.__qualname__ = "_dp_create_class_Wrapper_make_nested_class__locals__A"
+            _dp_create_class_Wrapper_make_nested_class__locals__A.__code__ = _dp_create_class_Wrapper_make_nested_class__locals__A.__code__.replace(co_qualname="_dp_create_class_Wrapper_make_nested_class__locals__A")
+            _dp_create_class_Wrapper_make_nested_class__locals__A.__qualname__ = "make_nested_class.<locals>._dp_create_class_Wrapper_make_nested_class__locals__A"
+            _dp_create_class_Wrapper_make_nested_class__locals__A.__code__ = _dp_create_class_Wrapper_make_nested_class__locals__A.__code__.replace(co_qualname="make_nested_class.<locals>._dp_create_class_Wrapper_make_nested_class__locals__A")
+            _dp_create_class_Wrapper_make_nested_class__locals__A.__qualname__ = "_dp_create_class_Wrapper_make_nested_class__locals__A"
+            _dp_create_class_Wrapper_make_nested_class__locals__A.__code__ = _dp_create_class_Wrapper_make_nested_class__locals__A.__code__.replace(co_qualname="_dp_create_class_Wrapper_make_nested_class__locals__A")
+            _dp_create_class_Wrapper_make_nested_class__locals__A.__qualname__ = "make_nested_class.<locals>._dp_create_class_Wrapper_make_nested_class__locals__A"
+            _dp_create_class_Wrapper_make_nested_class__locals__A.__code__ = _dp_create_class_Wrapper_make_nested_class__locals__A.__code__.replace(co_qualname="make_nested_class.<locals>._dp_create_class_Wrapper_make_nested_class__locals__A")
+            _dp_create_class_Wrapper_make_nested_class__locals__A.__qualname__ = "_dp_create_class_Wrapper_make_nested_class__locals__A"
+            _dp_create_class_Wrapper_make_nested_class__locals__A.__code__ = _dp_create_class_Wrapper_make_nested_class__locals__A.__code__.replace(co_qualname="_dp_create_class_Wrapper_make_nested_class__locals__A")
+            _dp_create_class_Wrapper_make_nested_class__locals__A.__qualname__ = "make_nested_class.<locals>._dp_create_class_Wrapper_make_nested_class__locals__A"
+            _dp_create_class_Wrapper_make_nested_class__locals__A.__code__ = _dp_create_class_Wrapper_make_nested_class__locals__A.__code__.replace(co_qualname="make_nested_class.<locals>._dp_create_class_Wrapper_make_nested_class__locals__A")
+            _dp_create_class_Wrapper_make_nested_class__locals__A.__qualname__ = "_dp_create_class_Wrapper_make_nested_class__locals__A"
+            _dp_create_class_Wrapper_make_nested_class__locals__A.__code__ = _dp_create_class_Wrapper_make_nested_class__locals__A.__code__.replace(co_qualname="_dp_create_class_Wrapper_make_nested_class__locals__A")
+            _dp_create_class_Wrapper_make_nested_class__locals__A.__qualname__ = "make_nested_class.<locals>._dp_create_class_Wrapper_make_nested_class__locals__A"
+            _dp_create_class_Wrapper_make_nested_class__locals__A.__code__ = _dp_create_class_Wrapper_make_nested_class__locals__A.__code__.replace(co_qualname="make_nested_class.<locals>._dp_create_class_Wrapper_make_nested_class__locals__A")
+            _dp_create_class_Wrapper_make_nested_class__locals__A.__qualname__ = "Wrapper.make_nested_class.<locals>._dp_create_class_Wrapper_make_nested_class__locals__A"
+            _dp_create_class_Wrapper_make_nested_class__locals__A.__code__ = _dp_create_class_Wrapper_make_nested_class__locals__A.__code__.replace(co_qualname="Wrapper.make_nested_class.<locals>._dp_create_class_Wrapper_make_nested_class__locals__A")
+            _dp_create_class_Wrapper_make_nested_class__locals__A.__qualname__ = "Wrapper._dp_create_class_Wrapper_make_nested_class__locals__A"
+            _dp_create_class_Wrapper_make_nested_class__locals__A.__code__ = _dp_create_class_Wrapper_make_nested_class__locals__A.__code__.replace(co_qualname="Wrapper._dp_create_class_Wrapper_make_nested_class__locals__A")
+            _dp_create_class_Wrapper_make_nested_class__locals__A.__qualname__ = "Wrapper.make_nested_class.<locals>._dp_create_class_Wrapper_make_nested_class__locals__A"
+            _dp_create_class_Wrapper_make_nested_class__locals__A.__code__ = _dp_create_class_Wrapper_make_nested_class__locals__A.__code__.replace(co_qualname="Wrapper.make_nested_class.<locals>._dp_create_class_Wrapper_make_nested_class__locals__A")
+            A = _dp_create_class_Wrapper_make_nested_class__locals__A()
+            return A
+        make_nested_class.__qualname__ = "make_nested_class"
+        make_nested_class.__code__ = make_nested_class.__code__.replace(co_qualname="make_nested_class")
+        make_nested_class.__qualname__ = "make_nested_class"
+        make_nested_class.__code__ = make_nested_class.__code__.replace(co_qualname="make_nested_class")
+        make_nested_class.__qualname__ = "make_nested_class"
+        make_nested_class.__code__ = make_nested_class.__code__.replace(co_qualname="make_nested_class")
+        make_nested_class.__qualname__ = "make_nested_class"
+        make_nested_class.__code__ = make_nested_class.__code__.replace(co_qualname="make_nested_class")
+        _dp_class_ns.make_nested_class = make_nested_class
+        _dp_class_ns.make_nested_class.__qualname__ = "Wrapper.make_nested_class"
+        _dp_class_ns.make_nested_class.__code__ = _dp_class_ns.make_nested_class.__code__.replace(co_qualname="Wrapper.make_nested_class")
+
+        def bad_register_message(self):
+            _dp_tmp_2 = functools.singledispatch
+
+            def i(arg):
+                return "base"
+            i.__qualname__ = "i"
+            i.__code__ = i.__code__.replace(co_qualname="i")
+            i.__qualname__ = "bad_register_message.<locals>.i"
+            i.__code__ = i.__code__.replace(co_qualname="bad_register_message.<locals>.i")
+            i.__qualname__ = "i"
+            i.__code__ = i.__code__.replace(co_qualname="i")
+            i.__qualname__ = "bad_register_message.<locals>.i"
+            i.__code__ = i.__code__.replace(co_qualname="bad_register_message.<locals>.i")
+            i.__qualname__ = "i"
+            i.__code__ = i.__code__.replace(co_qualname="i")
+            i.__qualname__ = "bad_register_message.<locals>.i"
+            i.__code__ = i.__code__.replace(co_qualname="bad_register_message.<locals>.i")
+            i.__qualname__ = "i"
+            i.__code__ = i.__code__.replace(co_qualname="i")
+            i.__qualname__ = "bad_register_message.<locals>.i"
+            i.__code__ = i.__code__.replace(co_qualname="bad_register_message.<locals>.i")
+            i.__qualname__ = "Wrapper.bad_register_message.<locals>.i"
+            i.__code__ = i.__code__.replace(co_qualname="Wrapper.bad_register_message.<locals>.i")
+            i.__qualname__ = "Wrapper.i"
+            i.__code__ = i.__code__.replace(co_qualname="Wrapper.i")
+            i.__qualname__ = "Wrapper.bad_register_message.<locals>.i"
+            i.__code__ = i.__code__.replace(co_qualname="Wrapper.bad_register_message.<locals>.i")
+            i.__qualname__ = "Wrapper.bad_register_message.<locals>.i"
+            i.__code__ = i.__code__.replace(co_qualname="Wrapper.bad_register_message.<locals>.i")
+            i = _dp_tmp_2(i)
+            try:
+                _dp_tmp_3 = i.register
+
+                def _(arg):
+                    return "missing annotation"
+                _.__qualname__ = "_"
+                _.__code__ = _.__code__.replace(co_qualname="_")
+                _.__qualname__ = "bad_register_message.<locals>._"
+                _.__code__ = _.__code__.replace(co_qualname="bad_register_message.<locals>._")
+                _.__qualname__ = "_"
+                _.__code__ = _.__code__.replace(co_qualname="_")
+                _.__qualname__ = "bad_register_message.<locals>._"
+                _.__code__ = _.__code__.replace(co_qualname="bad_register_message.<locals>._")
+                _.__qualname__ = "_"
+                _.__code__ = _.__code__.replace(co_qualname="_")
+                _.__qualname__ = "bad_register_message.<locals>._"
+                _.__code__ = _.__code__.replace(co_qualname="bad_register_message.<locals>._")
+                _.__qualname__ = "_"
+                _.__code__ = _.__code__.replace(co_qualname="_")
+                _.__qualname__ = "bad_register_message.<locals>._"
+                _.__code__ = _.__code__.replace(co_qualname="bad_register_message.<locals>._")
+                _.__qualname__ = "Wrapper.bad_register_message.<locals>._"
+                _.__code__ = _.__code__.replace(co_qualname="Wrapper.bad_register_message.<locals>._")
+                _.__qualname__ = "Wrapper._"
+                _.__code__ = _.__code__.replace(co_qualname="Wrapper._")
+                _.__qualname__ = "Wrapper.bad_register_message.<locals>._"
+                _.__code__ = _.__code__.replace(co_qualname="Wrapper.bad_register_message.<locals>._")
+                _.__qualname__ = "Wrapper.bad_register_message.<locals>._"
+                _.__code__ = _.__code__.replace(co_qualname="Wrapper.bad_register_message.<locals>._")
+                _ = _dp_tmp_3(_)
+            except:
+                if __dp__.exception_matches(__dp__.current_exception(), TypeError):
+                    exc = __dp__.current_exception()
+                    try:
+                        return str(exc)
+                    finally:
+                        try:
+                            del exc
+                        except:
+                            if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                                pass
+                            else:
+                                raise
+                else:
+                    raise
+            raise AssertionError("expected TypeError")
+        bad_register_message.__qualname__ = "bad_register_message"
+        bad_register_message.__code__ = bad_register_message.__code__.replace(co_qualname="bad_register_message")
+        bad_register_message.__qualname__ = "bad_register_message"
+        bad_register_message.__code__ = bad_register_message.__code__.replace(co_qualname="bad_register_message")
+        bad_register_message.__qualname__ = "bad_register_message"
+        bad_register_message.__code__ = bad_register_message.__code__.replace(co_qualname="bad_register_message")
+        bad_register_message.__qualname__ = "bad_register_message"
+        bad_register_message.__code__ = bad_register_message.__code__.replace(co_qualname="bad_register_message")
+        _dp_class_ns.bad_register_message = bad_register_message
+        _dp_class_ns.bad_register_message.__qualname__ = "Wrapper.bad_register_message"
+        _dp_class_ns.bad_register_message.__code__ = _dp_class_ns.bad_register_message.__code__.replace(co_qualname="Wrapper.bad_register_message")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    return __dp__.create_class("Wrapper", _dp_ns_builder, (), None)
+_dp_create_class_Wrapper.__qualname__ = "_dp_create_class_Wrapper"
+_dp_create_class_Wrapper.__code__ = _dp_create_class_Wrapper.__code__.replace(co_qualname="_dp_create_class_Wrapper")
+Wrapper = _dp_create_class_Wrapper()
+
+$ integration: enum dynamic members via vars update
+
+from __future__ import annotations
+
+from enum import Enum
+
+
+FOO_DEFINES = {
+    "FOO_CAT": "aloof",
+    "BAR_DOG": "friendly",
+    "FOO_HORSE": "big",
+}
+
+
+class Foo(Enum):
+    vars().update({
+        k: v
+        for k, v in FOO_DEFINES.items()
+        if k.startswith("FOO_")
+    })
+
+    def upper(self):
+        return self.value.upper()
+=
+_dp_import_1 = __dp__.import_("enum", __spec__, __dp__.list(("Enum",)))
+Enum = __dp__.import_attr(_dp_import_1, "Enum")
+del _dp_import_1
+FOO_DEFINES = __dp__.dict((("FOO_CAT", "aloof"), ("BAR_DOG", "friendly"), ("FOO_HORSE", "big")))
+def _dp_create_class_Foo():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
+        _dp_class_ns.__qualname__ = "Foo"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+
+        def _dp_gen_2(_dp_iter_3):
+            _dp_iter_4 = __dp__.iter(_dp_iter_3)
+            while True:
+                try:
+                    _dp_tmp_5 = __dp__.next(_dp_iter_4)
+                    _dp_tmp_6 = __dp__.unpack(_dp_tmp_5, (True, True))
+                    k = __dp__.getitem(_dp_tmp_6, 0)
+                    v = __dp__.getitem(_dp_tmp_6, 1)
+                    _dp_tmp_6 = None
+                    _dp_tmp_5 = None
+                except:
+                    __dp__.check_stopiteration()
+                    break
+                else:
+                    if k.startswith("FOO_"):
+                        yield k, v
+        _dp_gen_2.__qualname__ = "_dp_gen_2"
+        _dp_gen_2.__code__ = _dp_gen_2.__code__.replace(co_qualname="_dp_gen_2")
+        _dp_gen_2.__qualname__ = "_dp_gen_2"
+        _dp_gen_2.__code__ = _dp_gen_2.__code__.replace(co_qualname="_dp_gen_2")
+        _dp_gen_2.__qualname__ = "_dp_gen_2"
+        _dp_gen_2.__code__ = _dp_gen_2.__code__.replace(co_qualname="_dp_gen_2")
+        _dp_gen_2.__qualname__ = "_dp_gen_2"
+        _dp_gen_2.__code__ = _dp_gen_2.__code__.replace(co_qualname="_dp_gen_2")
+        _dp_gen_2.__qualname__ = "Foo._dp_gen_2"
+        _dp_gen_2.__code__ = _dp_gen_2.__code__.replace(co_qualname="Foo._dp_gen_2")
+        _dp_gen_2.__name__ = "<genexpr>"
+        _dp_gen_2.__qualname__ = "Foo.<genexpr>"
+        _dp_gen_2.__code__ = _dp_gen_2.__code__.replace(co_name="<genexpr>", co_qualname="Foo.<genexpr>")
+        _dp_class_ns._namespace.update(__dp__.dict(_dp_gen_2(__dp__.iter(__dp__.class_lookup(_dp_class_ns, globals(), "FOO_DEFINES").items()))))
+
+        def upper(self):
+            return self.value.upper()
+        upper.__qualname__ = "upper"
+        upper.__code__ = upper.__code__.replace(co_qualname="upper")
+        upper.__qualname__ = "upper"
+        upper.__code__ = upper.__code__.replace(co_qualname="upper")
+        upper.__qualname__ = "upper"
+        upper.__code__ = upper.__code__.replace(co_qualname="upper")
+        upper.__qualname__ = "upper"
+        upper.__code__ = upper.__code__.replace(co_qualname="upper")
+        _dp_class_ns.upper = upper
+        _dp_class_ns.upper.__qualname__ = "Foo.upper"
+        _dp_class_ns.upper.__code__ = _dp_class_ns.upper.__code__.replace(co_qualname="Foo.upper")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    return __dp__.create_class("Foo", _dp_ns_builder, (Enum,), None)
+_dp_create_class_Foo.__qualname__ = "_dp_create_class_Foo"
+_dp_create_class_Foo.__code__ = _dp_create_class_Foo.__code__.replace(co_qualname="_dp_create_class_Foo")
+Foo = _dp_create_class_Foo()
+
+$ integration: enum ignore dynamic names
+
+from __future__ import annotations
+
+from enum import Enum
+
+
+class Period(Enum):
+    _ignore_ = "Period i"
+    Period = vars()
+    for i in range(2):
+        Period[f"day_{i}"] = i
+    OneDay = day_1
+=
+_dp_import_1 = __dp__.import_("enum", __spec__, __dp__.list(("Enum",)))
+Enum = __dp__.import_attr(_dp_import_1, "Enum")
+del _dp_import_1
+def _dp_create_class_Period():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
+        _dp_class_ns.__qualname__ = "Period"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+        _dp_class_ns._ignore_ = "Period i"
+        _dp_class_ns.Period = _dp_class_ns._namespace
+        _dp_iter_2 = __dp__.iter(__dp__.class_lookup(_dp_class_ns, globals(), "range")(2))
+        while True:
+            try:
+                _dp_class_ns.i = __dp__.next(_dp_iter_2)
+            except:
+                __dp__.check_stopiteration()
+                break
+            else:
+                __dp__.setitem(_dp_class_ns.Period, "".join(("day_", __dp__.builtins.format(_dp_class_ns.i))), _dp_class_ns.i)
+        _dp_class_ns.OneDay = __dp__.class_lookup(_dp_class_ns, globals(), "day_1")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    return __dp__.create_class("Period", _dp_ns_builder, (Enum,), None)
+_dp_create_class_Period.__qualname__ = "_dp_create_class_Period"
+_dp_create_class_Period.__code__ = _dp_create_class_Period.__code__.replace(co_qualname="_dp_create_class_Period")
+Period = _dp_create_class_Period()
+
+$ integration: enum flag nonmember auto or
+
+from __future__ import annotations
+
+from enum import Flag, auto, nonmember
+
+
+class Status(Flag):
+    A = auto()
+    B = auto()
+    ALL = nonmember(A | B)
+
+
+def build_values():
+    return Status.A, Status.B, Status.ALL
+=
+_dp_import_1 = __dp__.import_("enum", __spec__, __dp__.list(("Flag", "auto", "nonmember")))
+Flag = __dp__.import_attr(_dp_import_1, "Flag")
+auto = __dp__.import_attr(_dp_import_1, "auto")
+nonmember = __dp__.import_attr(_dp_import_1, "nonmember")
+del _dp_import_1
+def _dp_create_class_Status():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
+        _dp_class_ns.__qualname__ = "Status"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+        _dp_class_ns.A = __dp__.class_lookup(_dp_class_ns, globals(), "auto")()
+        _dp_class_ns.B = __dp__.class_lookup(_dp_class_ns, globals(), "auto")()
+        _dp_class_ns.ALL = __dp__.class_lookup(_dp_class_ns, globals(), "nonmember")(__dp__.or_(_dp_class_ns.A, _dp_class_ns.B))
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    return __dp__.create_class("Status", _dp_ns_builder, (Flag,), None)
+_dp_create_class_Status.__qualname__ = "_dp_create_class_Status"
+_dp_create_class_Status.__code__ = _dp_create_class_Status.__code__.replace(co_qualname="_dp_create_class_Status")
+Status = _dp_create_class_Status()
+def build_values():
+    return Status.A, Status.B, Status.ALL
+build_values.__qualname__ = "build_values"
+build_values.__code__ = build_values.__code__.replace(co_qualname="build_values")
+
+$ integration: dynamicclassattribute class scope getter
+
+from __future__ import annotations
+
+from types import DynamicClassAttribute
+
+
+class Base:
+    @DynamicClassAttribute
+    def spam(self):
+        return 1
+
+
+class Sub(Base):
+    spam = Base.__dict__["spam"]
+
+    @spam.getter
+    def spam(self):
+        return 2
+
+
+def get_value():
+    return Sub().spam
+=
+_dp_import_1 = __dp__.import_("types", __spec__, __dp__.list(("DynamicClassAttribute",)))
+DynamicClassAttribute = __dp__.import_attr(_dp_import_1, "DynamicClassAttribute")
+del _dp_import_1
+def _dp_create_class_Base():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
+        _dp_class_ns.__qualname__ = "Base"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+
+        def spam(self):
+            return 1
+        spam.__qualname__ = "spam"
+        spam.__code__ = spam.__code__.replace(co_qualname="spam")
+        spam.__qualname__ = "spam"
+        spam.__code__ = spam.__code__.replace(co_qualname="spam")
+        spam.__qualname__ = "spam"
+        spam.__code__ = spam.__code__.replace(co_qualname="spam")
+        spam.__qualname__ = "spam"
+        spam.__code__ = spam.__code__.replace(co_qualname="spam")
+        _dp_class_ns.spam = spam
+        _dp_class_ns.spam.__qualname__ = "Base.spam"
+        _dp_class_ns.spam.__code__ = _dp_class_ns.spam.__code__.replace(co_qualname="Base.spam")
+        _dp_class_ns.spam.__qualname__ = "Base.spam"
+        _dp_class_ns.spam.__code__ = _dp_class_ns.spam.__code__.replace(co_qualname="Base.spam")
+        _dp_class_ns.spam = __dp__.class_lookup(_dp_class_ns, globals(), "DynamicClassAttribute")(_dp_class_ns.spam)
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    return __dp__.create_class("Base", _dp_ns_builder, (), None)
+_dp_create_class_Base.__qualname__ = "_dp_create_class_Base"
+_dp_create_class_Base.__code__ = _dp_create_class_Base.__code__.replace(co_qualname="_dp_create_class_Base")
+Base = _dp_create_class_Base()
+def _dp_create_class_Sub():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
+        _dp_class_ns.__qualname__ = "Sub"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+        _dp_class_ns.spam = __dp__.getitem(__dp__.class_lookup(_dp_class_ns, globals(), "Base").__dict__, "spam")
+        _dp_tmp_2 = _dp_class_ns.spam.getter
+
+        def spam(self):
+            return 2
+        spam.__qualname__ = "spam"
+        spam.__code__ = spam.__code__.replace(co_qualname="spam")
+        spam.__qualname__ = "spam"
+        spam.__code__ = spam.__code__.replace(co_qualname="spam")
+        spam.__qualname__ = "spam"
+        spam.__code__ = spam.__code__.replace(co_qualname="spam")
+        spam.__qualname__ = "spam"
+        spam.__code__ = spam.__code__.replace(co_qualname="spam")
+        _dp_class_ns.spam = spam
+        _dp_class_ns.spam.__qualname__ = "Sub.spam"
+        _dp_class_ns.spam.__code__ = _dp_class_ns.spam.__code__.replace(co_qualname="Sub.spam")
+        _dp_class_ns.spam.__qualname__ = "Sub.spam"
+        _dp_class_ns.spam.__code__ = _dp_class_ns.spam.__code__.replace(co_qualname="Sub.spam")
+        _dp_class_ns.spam = _dp_tmp_2(_dp_class_ns.spam)
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    return __dp__.create_class("Sub", _dp_ns_builder, (Base,), None)
+_dp_create_class_Sub.__qualname__ = "_dp_create_class_Sub"
+_dp_create_class_Sub.__code__ = _dp_create_class_Sub.__code__.replace(co_qualname="_dp_create_class_Sub")
+Sub = _dp_create_class_Sub()
+def get_value():
+    return Sub().spam
+get_value.__qualname__ = "get_value"
+get_value.__code__ = get_value.__code__.replace(co_qualname="get_value")
+
+$ integration: asyncgen expression async for
+
+from __future__ import annotations
+
+import asyncio
+
+
+async def arange(n):
+    for i in range(n):
+        await asyncio.sleep(0)
+        yield i
+
+
+def make_arange(n):
+    return (i * 2 async for i in arange(n))
+
+
+async def run():
+    return [i async for i in make_arange(3)]
+
+
+def get_values():
+    return asyncio.run(run())
+=
+asyncio = __dp__.import_("asyncio", __spec__)
+async def arange(n):
+    _dp_iter_1 = __dp__.iter(range(n))
+    while True:
+        try:
+            i = __dp__.next(_dp_iter_1)
+        except:
+            __dp__.check_stopiteration()
+            break
+        else:
+            await asyncio.sleep(0)
+            yield i
+arange.__qualname__ = "arange"
+arange.__code__ = arange.__code__.replace(co_qualname="arange")
+def make_arange(n):
+
+    async def _dp_gen_2(_dp_iter_3):
+        _dp_iter_4 = __dp__.aiter(_dp_iter_3)
+        while True:
+            try:
+                i = await __dp__.anext(_dp_iter_4)
+            except:
+                __dp__.acheck_stopiteration()
+                break
+            else:
+                yield __dp__.mul(i, 2)
+    _dp_gen_2.__qualname__ = "_dp_gen_2"
+    _dp_gen_2.__code__ = _dp_gen_2.__code__.replace(co_qualname="_dp_gen_2")
+    _dp_gen_2.__qualname__ = "make_arange.<locals>._dp_gen_2"
+    _dp_gen_2.__code__ = _dp_gen_2.__code__.replace(co_qualname="make_arange.<locals>._dp_gen_2")
+    _dp_gen_2.__name__ = "<genexpr>"
+    _dp_gen_2.__qualname__ = "make_arange.<locals>.<genexpr>"
+    _dp_gen_2.__code__ = _dp_gen_2.__code__.replace(co_name="<genexpr>", co_qualname="make_arange.<locals>.<genexpr>")
+    return _dp_gen_2(arange(n))
+make_arange.__qualname__ = "make_arange"
+make_arange.__code__ = make_arange.__code__.replace(co_qualname="make_arange")
+async def run():
+    _dp_tmp_5 = __dp__.list(())
+    _dp_iter_6 = __dp__.aiter(make_arange(3))
+    while True:
+        try:
+            i = await __dp__.anext(_dp_iter_6)
+        except:
+            __dp__.acheck_stopiteration()
+            break
+        else:
+            _dp_tmp_5.append(i)
+    return _dp_tmp_5
+run.__qualname__ = "run"
+run.__code__ = run.__code__.replace(co_qualname="run")
+def get_values():
+    return asyncio.run(run())
+get_values.__qualname__ = "get_values"
+get_values.__code__ = get_values.__code__.replace(co_qualname="get_values")
+
+$ integration: assert shadowing
+
+from __future__ import annotations
+
+
+def trigger():
+    global AssertionError
+    AssertionError = TypeError
+    try:
+        assert False, "hello"
+    except BaseException as exc:
+        del AssertionError
+        return exc
+    else:
+        del AssertionError
+        raise AssertionError("missing exception")
+=
+def trigger():
+    global AssertionError
+    AssertionError = TypeError
+    try:
+        if __debug__:
+            if __dp__.not_(False):
+                raise __dp__.builtins.AssertionError("hello")
+    except:
+        if __dp__.exception_matches(__dp__.current_exception(), BaseException):
+            exc = __dp__.current_exception()
+            try:
+                del AssertionError
+                return exc
+            finally:
+                try:
+                    del exc
+                except:
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                        pass
+                    else:
+                        raise
+        else:
+            raise
+    else:
+        del AssertionError
+        raise AssertionError("missing exception")
+trigger.__qualname__ = "trigger"
+trigger.__code__ = trigger.__code__.replace(co_qualname="trigger")
+
+$ integration: exception cleanup name
+
+from __future__ import annotations
+
+
+def has_exception_name():
+    try:
+        1 / 0
+    except Exception as e:
+        pass
+    return "e" in locals()
+=
+def has_exception_name():
+    try:
+        __dp__.truediv(1, 0)
+    except:
+        if __dp__.exception_matches(__dp__.current_exception(), Exception):
+            e = __dp__.current_exception()
+            try:
+                pass
+            finally:
+                try:
+                    del e
+                except:
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                        pass
+                    else:
+                        raise
+        else:
+            raise
+    _dp_tmp_1 = __dp__.contains(locals(), "e")
+    return _dp_tmp_1
+has_exception_name.__qualname__ = "has_exception_name"
+has_exception_name.__code__ = has_exception_name.__code__.replace(co_qualname="has_exception_name")
+
+$ integration: exception cleanup deleted
+
+def cleanup_deleted():
+    try:
+        raise Exception()
+    except Exception as e:
+        del e
+    return "e" in locals()
+
+
+def unbound_after_delete():
+    try:
+        raise Exception()
+    except Exception as e:
+        del e
+    try:
+        e
+    except UnboundLocalError:
+        return True
+    return False
+=
+def cleanup_deleted():
+    try:
+        raise Exception()
+    except:
+        if __dp__.exception_matches(__dp__.current_exception(), Exception):
+            e = __dp__.current_exception()
+            try:
+                del e
+            finally:
+                try:
+                    del e
+                except:
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                        pass
+                    else:
+                        raise
+        else:
+            raise
+    _dp_tmp_1 = __dp__.contains(locals(), "e")
+    return _dp_tmp_1
+cleanup_deleted.__qualname__ = "cleanup_deleted"
+cleanup_deleted.__code__ = cleanup_deleted.__code__.replace(co_qualname="cleanup_deleted")
+def unbound_after_delete():
+    try:
+        raise Exception()
+    except:
+        if __dp__.exception_matches(__dp__.current_exception(), Exception):
+            e = __dp__.current_exception()
+            try:
+                del e
+            finally:
+                try:
+                    del e
+                except:
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                        pass
+                    else:
+                        raise
+        else:
+            raise
+    try:
+        e
+    except:
+        if __dp__.exception_matches(__dp__.current_exception(), UnboundLocalError):
+            return True
+        else:
+            raise
+    return False
+unbound_after_delete.__qualname__ = "unbound_after_delete"
+unbound_after_delete.__code__ = unbound_after_delete.__code__.replace(co_qualname="unbound_after_delete")
+
+$ integration: fstring debug conversion
+
+def format_debug():
+    value = "A string"
+    return f"{value=}"
+=
+def format_debug():
+    value = "A string"
+    return "".join(("value=", __dp__.builtins.format(repr(value))))
+format_debug.__qualname__ = "format_debug"
+format_debug.__code__ = format_debug.__code__.replace(co_qualname="format_debug")
+
+$ integration: ast visit ellipsis
+
+import ast
+
+
+def visit_ellipsis():
+    log = []
+
+    class Visitor(ast.NodeVisitor):
+        def visit_Ellipsis(self, node):
+            log.append(("Ellipsis", ...))
+
+    mod = ast.parse("e = ...")
+    Visitor().visit(mod)
+    return log
+=
+ast = __dp__.import_("ast", __spec__)
+def visit_ellipsis():
+    log = __dp__.list(())
+
+    def _dp_create_class_visit_ellipsis__locals__Visitor():
+
+        def _dp_ns_builder(_dp_class_ns):
+            _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
+            _dp_class_ns.__qualname__ = "visit_ellipsis.<locals>.Visitor"
+            _dp_class_ns.__annotations__ = __dp__.dict()
+
+            def visit_Ellipsis(self, node):
+                log.append(("Ellipsis", ...))
+            visit_Ellipsis.__qualname__ = "visit_Ellipsis"
+            visit_Ellipsis.__code__ = visit_Ellipsis.__code__.replace(co_qualname="visit_Ellipsis")
+            visit_Ellipsis.__qualname__ = "visit_Ellipsis"
+            visit_Ellipsis.__code__ = visit_Ellipsis.__code__.replace(co_qualname="visit_Ellipsis")
+            visit_Ellipsis.__qualname__ = "visit_Ellipsis"
+            visit_Ellipsis.__code__ = visit_Ellipsis.__code__.replace(co_qualname="visit_Ellipsis")
+            visit_Ellipsis.__qualname__ = "visit_Ellipsis"
+            visit_Ellipsis.__code__ = visit_Ellipsis.__code__.replace(co_qualname="visit_Ellipsis")
+            visit_Ellipsis.__qualname__ = "visit_ellipsis.<locals>.visit_Ellipsis"
+            visit_Ellipsis.__code__ = visit_Ellipsis.__code__.replace(co_qualname="visit_ellipsis.<locals>.visit_Ellipsis")
+            visit_Ellipsis.__qualname__ = "visit_ellipsis.<locals>.visit_Ellipsis"
+            visit_Ellipsis.__code__ = visit_Ellipsis.__code__.replace(co_qualname="visit_ellipsis.<locals>.visit_Ellipsis")
+            visit_Ellipsis.__qualname__ = "visit_ellipsis.<locals>.visit_Ellipsis"
+            visit_Ellipsis.__code__ = visit_Ellipsis.__code__.replace(co_qualname="visit_ellipsis.<locals>.visit_Ellipsis")
+            visit_Ellipsis.__qualname__ = "visit_ellipsis.<locals>.visit_Ellipsis"
+            visit_Ellipsis.__code__ = visit_Ellipsis.__code__.replace(co_qualname="visit_ellipsis.<locals>.visit_Ellipsis")
+            _dp_class_ns.visit_Ellipsis = visit_Ellipsis
+            _dp_class_ns.visit_Ellipsis.__qualname__ = "visit_ellipsis.<locals>.Visitor.visit_Ellipsis"
+            _dp_class_ns.visit_Ellipsis.__code__ = _dp_class_ns.visit_Ellipsis.__code__.replace(co_qualname="visit_ellipsis.<locals>.Visitor.visit_Ellipsis")
+        _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+        _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+        _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+        _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+        _dp_ns_builder.__qualname__ = "visit_ellipsis.<locals>._dp_ns_builder"
+        _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="visit_ellipsis.<locals>._dp_ns_builder")
+        _dp_ns_builder.__qualname__ = "visit_ellipsis.<locals>._dp_ns_builder"
+        _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="visit_ellipsis.<locals>._dp_ns_builder")
+        return __dp__.create_class("Visitor", _dp_ns_builder, (ast.NodeVisitor,), None)
+    _dp_create_class_visit_ellipsis__locals__Visitor.__qualname__ = "_dp_create_class_visit_ellipsis__locals__Visitor"
+    _dp_create_class_visit_ellipsis__locals__Visitor.__code__ = _dp_create_class_visit_ellipsis__locals__Visitor.__code__.replace(co_qualname="_dp_create_class_visit_ellipsis__locals__Visitor")
+    _dp_create_class_visit_ellipsis__locals__Visitor.__qualname__ = "visit_ellipsis.<locals>._dp_create_class_visit_ellipsis__locals__Visitor"
+    _dp_create_class_visit_ellipsis__locals__Visitor.__code__ = _dp_create_class_visit_ellipsis__locals__Visitor.__code__.replace(co_qualname="visit_ellipsis.<locals>._dp_create_class_visit_ellipsis__locals__Visitor")
+    Visitor = _dp_create_class_visit_ellipsis__locals__Visitor()
+    mod = ast.parse("e = ...")
+    Visitor().visit(mod)
+    return log
+visit_ellipsis.__qualname__ = "visit_ellipsis"
+visit_ellipsis.__code__ = visit_ellipsis.__code__.replace(co_qualname="visit_ellipsis")
+
+$ integration: disable transform temp module
+
+import importlib
+import sys
+import textwrap
+from pathlib import Path
+
+
+def import_without_transform(tmp_path: Path) -> bool:
+    module_name = "dp_disable_temp"
+    module_path = tmp_path / f"{module_name}.py"
+    module_path.write_text(
+        textwrap.dedent(
+            """\
+            # diet-python: disable
+            VALUE = 1
+            """
+        ),
+        encoding="utf-8",
+    )
+    sys.path.insert(0, str(tmp_path))
+    try:
+        sys.modules.pop(module_name, None)
+        module = importlib.import_module(module_name)
+        return "__dp__" in module.__dict__
+    finally:
+        sys.modules.pop(module_name, None)
+        if sys.path and sys.path[0] == str(tmp_path):
+            sys.path.pop(0)
+=
+importlib = __dp__.import_("importlib", __spec__)
+sys = __dp__.import_("sys", __spec__)
+textwrap = __dp__.import_("textwrap", __spec__)
+_dp_import_1 = __dp__.import_("pathlib", __spec__, __dp__.list(("Path",)))
+Path = __dp__.import_attr(_dp_import_1, "Path")
+del _dp_import_1
+def import_without_transform(tmp_path: Path) -> bool:
+    module_name = "dp_disable_temp"
+    module_path = __dp__.truediv(tmp_path, "".join((__dp__.builtins.format(module_name), ".py")))
+    module_path.write_text(textwrap.dedent("""            # diet-python: disable\n            VALUE = 1\n            """), encoding="utf-8")
+    sys.path.insert(0, str(tmp_path))
+    try:
+        sys.modules.pop(module_name, None)
+        module = importlib.import_module(module_name)
+        _dp_tmp_2 = __dp__.contains(module.__dict__, "__dp__")
+        return _dp_tmp_2
+    finally:
+        sys.modules.pop(module_name, None)
+        _dp_tmp_3 = sys.path
+        if _dp_tmp_3:
+            _dp_tmp_4 = __dp__.eq(__dp__.getitem(sys.path, 0), str(tmp_path))
+            _dp_tmp_3 = _dp_tmp_4
+        if _dp_tmp_3:
+            sys.path.pop(0)
+import_without_transform.__qualname__ = "import_without_transform"
+import_without_transform.__code__ = import_without_transform.__code__.replace(co_qualname="import_without_transform")
+
+$ integration: skip outside repo transform
+
+import importlib
+import sys
+from pathlib import Path
+
+
+def imported_without_transform(tmp_path: Path) -> bool:
+    module_name = "dp_outside_repo"
+    module_path = tmp_path / f"{module_name}.py"
+    module_path.write_text("VALUE = 1\n", encoding="utf-8")
+    sys.path.insert(0, str(tmp_path))
+    try:
+        sys.modules.pop(module_name, None)
+        module = importlib.import_module(module_name)
+        return "__dp__" in module.__dict__
+    finally:
+        sys.modules.pop(module_name, None)
+        if sys.path and sys.path[0] == str(tmp_path):
+            sys.path.pop(0)
+=
+importlib = __dp__.import_("importlib", __spec__)
+sys = __dp__.import_("sys", __spec__)
+_dp_import_1 = __dp__.import_("pathlib", __spec__, __dp__.list(("Path",)))
+Path = __dp__.import_attr(_dp_import_1, "Path")
+del _dp_import_1
+def imported_without_transform(tmp_path: Path) -> bool:
+    module_name = "dp_outside_repo"
+    module_path = __dp__.truediv(tmp_path, "".join((__dp__.builtins.format(module_name), ".py")))
+    module_path.write_text("VALUE = 1\n", encoding="utf-8")
+    sys.path.insert(0, str(tmp_path))
+    try:
+        sys.modules.pop(module_name, None)
+        module = importlib.import_module(module_name)
+        _dp_tmp_2 = __dp__.contains(module.__dict__, "__dp__")
+        return _dp_tmp_2
+    finally:
+        sys.modules.pop(module_name, None)
+        _dp_tmp_3 = sys.path
+        if _dp_tmp_3:
+            _dp_tmp_4 = __dp__.eq(__dp__.getitem(sys.path, 0), str(tmp_path))
+            _dp_tmp_3 = _dp_tmp_4
+        if _dp_tmp_3:
+            sys.path.pop(0)
+imported_without_transform.__qualname__ = "imported_without_transform"
+imported_without_transform.__code__ = imported_without_transform.__code__.replace(co_qualname="imported_without_transform")
+
+$ integration: strip internal traceback
+
+from pathlib import Path
+
+
+def traceback_files():
+    try:
+        import nonexistent_xyzzy
+    except ImportError as exc:
+        tb = exc.__traceback__
+        files = []
+        while tb:
+            files.append(Path(tb.tb_frame.f_code.co_filename).name)
+            tb = tb.tb_next
+        return files
+    return []
+=
+_dp_import_1 = __dp__.import_("pathlib", __spec__, __dp__.list(("Path",)))
+Path = __dp__.import_attr(_dp_import_1, "Path")
+del _dp_import_1
+def traceback_files():
+    try:
+        nonexistent_xyzzy = __dp__.import_("nonexistent_xyzzy", __spec__)
+    except:
+        if __dp__.exception_matches(__dp__.current_exception(), ImportError):
+            exc = __dp__.current_exception()
+            try:
+                tb = exc.__traceback__
+                files = __dp__.list(())
+                while tb:
+                    files.append(Path(tb.tb_frame.f_code.co_filename).name)
+                    tb = tb.tb_next
+                return files
+            finally:
+                try:
+                    del exc
+                except:
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                        pass
+                    else:
+                        raise
+        else:
+            raise
+    return __dp__.list(())
+traceback_files.__qualname__ = "traceback_files"
+traceback_files.__code__ = traceback_files.__code__.replace(co_qualname="traceback_files")
+
+$ integration: dotted import alias rebind
+
+import sys
+from pathlib import Path
+
+
+def alias_rebind_attrs(tmp_path: Path) -> tuple[str, str]:
+    package_name = "dp_alias_pkg"
+    package_dir = tmp_path / package_name
+    package_dir.mkdir()
+    init_path = package_dir / "__init__.py"
+    init_path.write_text("from .submodule import submodule\n", encoding="utf-8")
+    submodule_path = package_dir / "submodule.py"
+    submodule_path.write_text(
+        "attr = 'submodule'\nclass submodule:\n    attr = 'rebound'\n",
+        encoding="utf-8",
+    )
+    sys.path.insert(0, str(tmp_path))
+    try:
+        sys.modules.pop(package_name, None)
+        sys.modules.pop(f"{package_name}.submodule", None)
+        from dp_alias_pkg import submodule as from_import
+        import dp_alias_pkg.submodule as direct_import
+        return from_import.attr, direct_import.attr
+    finally:
+        sys.modules.pop(package_name, None)
+        sys.modules.pop(f"{package_name}.submodule", None)
+        if sys.path and sys.path[0] == str(tmp_path):
+            sys.path.pop(0)
+=
+sys = __dp__.import_("sys", __spec__)
+_dp_import_1 = __dp__.import_("pathlib", __spec__, __dp__.list(("Path",)))
+Path = __dp__.import_attr(_dp_import_1, "Path")
+del _dp_import_1
+def alias_rebind_attrs(tmp_path: Path) -> __dp__.getitem(tuple, (str, str)):
+    package_name = "dp_alias_pkg"
+    package_dir = __dp__.truediv(tmp_path, package_name)
+    package_dir.mkdir()
+    init_path = __dp__.truediv(package_dir, "__init__.py")
+    init_path.write_text("from .submodule import submodule\n", encoding="utf-8")
+    submodule_path = __dp__.truediv(package_dir, "submodule.py")
+    submodule_path.write_text("attr = 'submodule'\nclass submodule:\n    attr = 'rebound'\n", encoding="utf-8")
+    sys.path.insert(0, str(tmp_path))
+    try:
+        sys.modules.pop(package_name, None)
+        sys.modules.pop("".join((__dp__.builtins.format(package_name), ".submodule")), None)
+        _dp_import_2 = __dp__.import_("dp_alias_pkg", __spec__, __dp__.list(("submodule",)))
+        from_import = __dp__.import_attr(_dp_import_2, "submodule")
+        del _dp_import_2
+        direct_import = __dp__.import_attr(__dp__.import_("dp_alias_pkg.submodule", __spec__), "submodule")
+        return from_import.attr, direct_import.attr
+    finally:
+        sys.modules.pop(package_name, None)
+        sys.modules.pop("".join((__dp__.builtins.format(package_name), ".submodule")), None)
+        _dp_tmp_3 = sys.path
+        if _dp_tmp_3:
+            _dp_tmp_4 = __dp__.eq(__dp__.getitem(sys.path, 0), str(tmp_path))
+            _dp_tmp_3 = _dp_tmp_4
+        if _dp_tmp_3:
+            sys.path.pop(0)
+alias_rebind_attrs.__qualname__ = "alias_rebind_attrs"
+alias_rebind_attrs.__code__ = alias_rebind_attrs.__code__.replace(co_qualname="alias_rebind_attrs")
+
+$ integration: meta path pathfinder preserved
+
+import importlib
+import sys
+import textwrap
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+import diet_import_hook
+
+
+def import_with_filtered_meta_path() -> bool:
+    diet_import_hook.install()
+    original_meta_path = list(sys.meta_path)
+    try:
+        sys.meta_path[:] = [
+            item for item in sys.meta_path if item.__module__.startswith("_frozen_importlib")
+        ]
+        with TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            module_name = "dp_meta_path_temp"
+            module_path = tmp_path / f"{module_name}.py"
+            module_path.write_text(
+                textwrap.dedent(
+                    """\
+                    # diet-python: disable
+                    VALUE = 1
+                    """
+                ),
+                encoding="utf-8",
+            )
+            sys.path.insert(0, str(tmp_path))
+            try:
+                sys.modules.pop(module_name, None)
+                importlib.import_module(module_name)
+                return True
+            finally:
+                sys.modules.pop(module_name, None)
+                if sys.path and sys.path[0] == str(tmp_path):
+                    sys.path.pop(0)
+    except ModuleNotFoundError:
+        return False
+    finally:
+        sys.meta_path[:] = original_meta_path
+=
+importlib = __dp__.import_("importlib", __spec__)
+sys = __dp__.import_("sys", __spec__)
+textwrap = __dp__.import_("textwrap", __spec__)
+_dp_import_1 = __dp__.import_("pathlib", __spec__, __dp__.list(("Path",)))
+Path = __dp__.import_attr(_dp_import_1, "Path")
+del _dp_import_1
+_dp_import_2 = __dp__.import_("tempfile", __spec__, __dp__.list(("TemporaryDirectory",)))
+TemporaryDirectory = __dp__.import_attr(_dp_import_2, "TemporaryDirectory")
+del _dp_import_2
+diet_import_hook = __dp__.import_("diet_import_hook", __spec__)
+def import_with_filtered_meta_path() -> bool:
+    diet_import_hook.install()
+    original_meta_path = list(sys.meta_path)
+    try:
+
+        def _dp_gen_3(_dp_iter_4):
+            _dp_iter_5 = __dp__.iter(_dp_iter_4)
+            while True:
+                try:
+                    item = __dp__.next(_dp_iter_5)
+                except:
+                    __dp__.check_stopiteration()
+                    break
+                else:
+                    if item.__module__.startswith("_frozen_importlib"):
+                        yield item
+        _dp_gen_3.__qualname__ = "_dp_gen_3"
+        _dp_gen_3.__code__ = _dp_gen_3.__code__.replace(co_qualname="_dp_gen_3")
+        _dp_gen_3.__qualname__ = "import_with_filtered_meta_path.<locals>._dp_gen_3"
+        _dp_gen_3.__code__ = _dp_gen_3.__code__.replace(co_qualname="import_with_filtered_meta_path.<locals>._dp_gen_3")
+        _dp_gen_3.__name__ = "<genexpr>"
+        _dp_gen_3.__qualname__ = "import_with_filtered_meta_path.<locals>.<genexpr>"
+        _dp_gen_3.__code__ = _dp_gen_3.__code__.replace(co_name="<genexpr>", co_qualname="import_with_filtered_meta_path.<locals>.<genexpr>")
+        __dp__.setitem(sys.meta_path, __dp__.slice(None, None, None), __dp__.list(_dp_gen_3(__dp__.iter(sys.meta_path))))
+        _dp_with_enter_6 = __dp__.with_enter(TemporaryDirectory())
+        tmp_dir = __dp__.getitem(_dp_with_enter_6, 0)
+        _dp_with_exit_7 = __dp__.getitem(_dp_with_enter_6, 1)
+        _dp_with_active_8 = True
+        try:
+            tmp_path = Path(tmp_dir)
+            module_name = "dp_meta_path_temp"
+            module_path = __dp__.truediv(tmp_path, "".join((__dp__.builtins.format(module_name), ".py")))
+            module_path.write_text(textwrap.dedent("""                    # diet-python: disable\n                    VALUE = 1\n                    """), encoding="utf-8")
+            sys.path.insert(0, str(tmp_path))
+            try:
+                sys.modules.pop(module_name, None)
+                importlib.import_module(module_name)
+                return True
+            finally:
+                sys.modules.pop(module_name, None)
+                _dp_tmp_9 = sys.path
+                if _dp_tmp_9:
+                    _dp_tmp_10 = __dp__.eq(__dp__.getitem(sys.path, 0), str(tmp_path))
+                    _dp_tmp_9 = _dp_tmp_10
+                if _dp_tmp_9:
+                    sys.path.pop(0)
+        except:
+            _dp_with_active_8 = False
+            __dp__.with_exit(_dp_with_exit_7, __dp__.exc_info())
+        finally:
+            if _dp_with_active_8:
+                __dp__.with_exit(_dp_with_exit_7, None)
+            _dp_with_exit_7 = None
+            _dp_with_enter_6 = None
+    except:
+        if __dp__.exception_matches(__dp__.current_exception(), ModuleNotFoundError):
+            return False
+        else:
+            raise
+    finally:
+        __dp__.setitem(sys.meta_path, __dp__.slice(None, None, None), original_meta_path)
+import_with_filtered_meta_path.__qualname__ = "import_with_filtered_meta_path"
+import_with_filtered_meta_path.__code__ = import_with_filtered_meta_path.__code__.replace(co_qualname="import_with_filtered_meta_path")
+
+$ integration: with class mock calls
+
+from unittest import mock
+
+
+class Context:
+    __enter__ = mock.MagicMock(return_value="value")
+    __exit__ = mock.MagicMock(return_value=False)
+
+
+def run():
+    Context.__enter__.reset_mock()
+    Context.__exit__.reset_mock()
+    with Context():
+        pass
+    return Context.__enter__.mock_calls, Context.__exit__.mock_calls
+=
+_dp_import_1 = __dp__.import_("unittest", __spec__, __dp__.list(("mock",)))
+mock = __dp__.import_attr(_dp_import_1, "mock")
+del _dp_import_1
+def _dp_create_class_Context():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
+        _dp_class_ns.__qualname__ = "Context"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+        _dp_class_ns.__enter__ = __dp__.class_lookup(_dp_class_ns, globals(), "mock").MagicMock(return_value="value")
+        _dp_class_ns.__exit__ = __dp__.class_lookup(_dp_class_ns, globals(), "mock").MagicMock(return_value=False)
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    return __dp__.create_class("Context", _dp_ns_builder, (), None)
+_dp_create_class_Context.__qualname__ = "_dp_create_class_Context"
+_dp_create_class_Context.__code__ = _dp_create_class_Context.__code__.replace(co_qualname="_dp_create_class_Context")
+Context = _dp_create_class_Context()
+def run():
+    Context.__enter__.reset_mock()
+    Context.__exit__.reset_mock()
+    _dp_with_enter_2 = __dp__.with_enter(Context())
+    _ = __dp__.getitem(_dp_with_enter_2, 0)
+    _dp_with_exit_3 = __dp__.getitem(_dp_with_enter_2, 1)
+    _dp_with_active_4 = True
+    try:
+        pass
+    except:
+        _dp_with_active_4 = False
+        __dp__.with_exit(_dp_with_exit_3, __dp__.exc_info())
+    finally:
+        if _dp_with_active_4:
+            __dp__.with_exit(_dp_with_exit_3, None)
+        _dp_with_exit_3 = None
+        _dp_with_enter_2 = None
+    return Context.__enter__.mock_calls, Context.__exit__.mock_calls
+run.__qualname__ = "run"
+run.__code__ = run.__code__.replace(co_qualname="run")
+
+$ integration: exception refcycle after except
+
+import gc
+
+
+def run():
+    exc = None
+    try:
+        raise RuntimeError("boom")
+    except RuntimeError as e:
+        exc = e
+    return gc.get_referrers(exc)
+=
+gc = __dp__.import_("gc", __spec__)
+def run():
+    exc = None
+    try:
+        raise RuntimeError("boom")
+    except:
+        if __dp__.exception_matches(__dp__.current_exception(), RuntimeError):
+            e = __dp__.current_exception()
+            try:
+                exc = e
+            finally:
+                try:
+                    del e
+                except:
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                        pass
+                    else:
+                        raise
+        else:
+            raise
+    return gc.get_referrers(exc)
+run.__qualname__ = "run"
+run.__code__ = run.__code__.replace(co_qualname="run")
+
+$ integration: taskgroup propagate cancellation refcycle
+
+import asyncio
+import gc
+
+
+def run():
+    exc = None
+    try:
+        try:
+            raise asyncio.CancelledError()
+        except asyncio.CancelledError as err:
+            raise TimeoutError from err
+    except TimeoutError as err:
+        exc = err.__cause__
+    return gc.get_referrers(exc)
+=
+asyncio = __dp__.import_("asyncio", __spec__)
+gc = __dp__.import_("gc", __spec__)
+def run():
+    exc = None
+    try:
+        try:
+            raise asyncio.CancelledError()
+        except:
+            if __dp__.exception_matches(__dp__.current_exception(), asyncio.CancelledError):
+                err = __dp__.current_exception()
+                try:
+                    raise __dp__.raise_from(TimeoutError, err)
+                finally:
+                    try:
+                        del err
+                    except:
+                        if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                            pass
+                        else:
+                            raise
+            else:
+                raise
+    except:
+        if __dp__.exception_matches(__dp__.current_exception(), TimeoutError):
+            err = __dp__.current_exception()
+            try:
+                exc = err.__cause__
+            finally:
+                try:
+                    del err
+                except:
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                        pass
+                    else:
+                        raise
+        else:
+            raise
+    return gc.get_referrers(exc)
+run.__qualname__ = "run"
+run.__code__ = run.__code__.replace(co_qualname="run")
+
+$ integration: traceback preserves comments
+
+import traceback
+
+
+def run():
+    try:
+        1 / 0  # search target
+    except ZeroDivisionError:
+        return traceback.format_exc()
+=
+traceback = __dp__.import_("traceback", __spec__)
+def run():
+    try:
+        __dp__.truediv(1, 0)
+    except:
+        if __dp__.exception_matches(__dp__.current_exception(), ZeroDivisionError):
+            return traceback.format_exc()
+        else:
+            raise
+run.__qualname__ = "run"
+run.__code__ = run.__code__.replace(co_qualname="run")
+
+$ integration: traceback linecache clear
+
+import contextlib
+import io
+import linecache
+import sys
+
+
+class Reporter:
+    def run(self):
+        try:
+            exc = ValueError("boom")
+            raise exc
+        except ValueError:
+            linecache.clearcache()
+            buffer = io.StringIO()
+            with contextlib.redirect_stderr(buffer):
+                sys.__excepthook__(*sys.exc_info())
+            return buffer.getvalue()
+
+
+def get_report():
+    return Reporter().run()
+=
+contextlib = __dp__.import_("contextlib", __spec__)
+io = __dp__.import_("io", __spec__)
+linecache = __dp__.import_("linecache", __spec__)
+sys = __dp__.import_("sys", __spec__)
+def _dp_create_class_Reporter():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
+        _dp_class_ns.__qualname__ = "Reporter"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+
+        def run(self):
+            try:
+                exc = ValueError("boom")
+                raise exc
+            except:
+                if __dp__.exception_matches(__dp__.current_exception(), ValueError):
+                    linecache.clearcache()
+                    buffer = io.StringIO()
+                    _dp_with_enter_1 = __dp__.with_enter(contextlib.redirect_stderr(buffer))
+                    _ = __dp__.getitem(_dp_with_enter_1, 0)
+                    _dp_with_exit_2 = __dp__.getitem(_dp_with_enter_1, 1)
+                    _dp_with_active_3 = True
+                    try:
+                        sys.__excepthook__(*sys.exc_info())
+                    except:
+                        _dp_with_active_3 = False
+                        __dp__.with_exit(_dp_with_exit_2, __dp__.exc_info())
+                    finally:
+                        if _dp_with_active_3:
+                            __dp__.with_exit(_dp_with_exit_2, None)
+                        _dp_with_exit_2 = None
+                        _dp_with_enter_1 = None
+                    return buffer.getvalue()
+                else:
+                    raise
+        run.__qualname__ = "run"
+        run.__code__ = run.__code__.replace(co_qualname="run")
+        run.__qualname__ = "run"
+        run.__code__ = run.__code__.replace(co_qualname="run")
+        run.__qualname__ = "run"
+        run.__code__ = run.__code__.replace(co_qualname="run")
+        run.__qualname__ = "run"
+        run.__code__ = run.__code__.replace(co_qualname="run")
+        _dp_class_ns.run = run
+        _dp_class_ns.run.__qualname__ = "Reporter.run"
+        _dp_class_ns.run.__code__ = _dp_class_ns.run.__code__.replace(co_qualname="Reporter.run")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    return __dp__.create_class("Reporter", _dp_ns_builder, (), None)
+_dp_create_class_Reporter.__qualname__ = "_dp_create_class_Reporter"
+_dp_create_class_Reporter.__code__ = _dp_create_class_Reporter.__code__.replace(co_qualname="_dp_create_class_Reporter")
+Reporter = _dp_create_class_Reporter()
+def get_report():
+    return Reporter().run()
+get_report.__qualname__ = "get_report"
+get_report.__code__ = get_report.__code__.replace(co_qualname="get_report")
+
+$ integration: surrogate unicode escape repr
+
+def repr_value():
+    char = "\uDCBA"
+    return repr(char)
+
+
+def ascii_value():
+    char = "\uDCBA"
+    return ascii(char)
+=
+def repr_value():
+    char = "�"
+    return repr(char)
+repr_value.__qualname__ = "repr_value"
+repr_value.__code__ = repr_value.__code__.replace(co_qualname="repr_value")
+def ascii_value():
+    char = "�"
+    return ascii(char)
+ascii_value.__qualname__ = "ascii_value"
+ascii_value.__code__ = ascii_value.__code__.replace(co_qualname="ascii_value")
+
+$ integration: lambda qualname
+
+def global_function():
+    return (lambda: None).__qualname__, (lambda: None).__name__
+=
+def global_function():
+
+    def _dp_lambda_1():
+        return None
+    _dp_lambda_1.__qualname__ = "_dp_lambda_1"
+    _dp_lambda_1.__code__ = _dp_lambda_1.__code__.replace(co_qualname="_dp_lambda_1")
+    _dp_lambda_1.__qualname__ = "global_function.<locals>._dp_lambda_1"
+    _dp_lambda_1.__code__ = _dp_lambda_1.__code__.replace(co_qualname="global_function.<locals>._dp_lambda_1")
+    _dp_lambda_1.__name__ = "<lambda>"
+    _dp_lambda_1.__qualname__ = "global_function.<locals>.<lambda>"
+
+    def _dp_lambda_2():
+        return None
+    _dp_lambda_2.__qualname__ = "_dp_lambda_2"
+    _dp_lambda_2.__code__ = _dp_lambda_2.__code__.replace(co_qualname="_dp_lambda_2")
+    _dp_lambda_2.__qualname__ = "global_function.<locals>._dp_lambda_2"
+    _dp_lambda_2.__code__ = _dp_lambda_2.__code__.replace(co_qualname="global_function.<locals>._dp_lambda_2")
+    _dp_lambda_2.__name__ = "<lambda>"
+    _dp_lambda_2.__qualname__ = "global_function.<locals>.<lambda>"
+    return _dp_lambda_1.__qualname__, _dp_lambda_2.__name__
+global_function.__qualname__ = "global_function"
+global_function.__code__ = global_function.__code__.replace(co_qualname="global_function")
+
+$ integration: yield from stack names
+
+import sys
+
+
+def get_stack_names():
+
+    def f():
+        frame = sys._getframe()
+        yield frame.f_code.co_name, frame.f_back.f_code.co_name
+
+    def g():
+        yield from f()
+
+    gen = g()
+    return gen.send(None)
+=
+sys = __dp__.import_("sys", __spec__)
+def get_stack_names():
+
+    def f():
+        frame = sys._getframe()
+        yield frame.f_code.co_name, frame.f_back.f_code.co_name
+    f.__qualname__ = "f"
+    f.__code__ = f.__code__.replace(co_qualname="f")
+    f.__qualname__ = "get_stack_names.<locals>.f"
+    f.__code__ = f.__code__.replace(co_qualname="get_stack_names.<locals>.f")
+
+    def g():
+        yield from f()
+    g.__qualname__ = "g"
+    g.__code__ = g.__code__.replace(co_qualname="g")
+    g.__qualname__ = "get_stack_names.<locals>.g"
+    g.__code__ = g.__code__.replace(co_qualname="get_stack_names.<locals>.g")
+    gen = g()
+    return gen.send(None)
+get_stack_names.__qualname__ = "get_stack_names"
+get_stack_names.__code__ = get_stack_names.__code__.replace(co_qualname="get_stack_names")
+
+$ integration: yield from gi_yieldfrom
+
+def get_yieldfrom_name():
+
+    def a():
+        yield
+
+    def b():
+        yield from a()
+        yield
+    gen_b = b()
+    gen_b.send(None)
+    return gen_b.gi_yieldfrom.gi_code.co_name
+=
+def get_yieldfrom_name():
+
+    def a():
+        yield
+    a.__qualname__ = "a"
+    a.__code__ = a.__code__.replace(co_qualname="a")
+    a.__qualname__ = "get_yieldfrom_name.<locals>.a"
+    a.__code__ = a.__code__.replace(co_qualname="get_yieldfrom_name.<locals>.a")
+
+    def b():
+        yield from a()
+        yield
+    b.__qualname__ = "b"
+    b.__code__ = b.__code__.replace(co_qualname="b")
+    b.__qualname__ = "get_yieldfrom_name.<locals>.b"
+    b.__code__ = b.__code__.replace(co_qualname="get_yieldfrom_name.<locals>.b")
+    gen_b = b()
+    gen_b.send(None)
+    return gen_b.gi_yieldfrom.gi_code.co_name
+get_yieldfrom_name.__qualname__ = "get_yieldfrom_name"
+get_yieldfrom_name.__code__ = get_yieldfrom_name.__code__.replace(co_qualname="get_yieldfrom_name")
+
+$ integration: genexpr name
+
+def get_genexpr_name():
+    gen = (i for i in ())
+    return gen.__name__
+=
+def get_genexpr_name():
+
+    def _dp_gen_1(_dp_iter_2):
+        _dp_iter_3 = __dp__.iter(_dp_iter_2)
+        while True:
+            try:
+                i = __dp__.next(_dp_iter_3)
+            except:
+                __dp__.check_stopiteration()
+                break
+            else:
+                yield i
+    _dp_gen_1.__qualname__ = "_dp_gen_1"
+    _dp_gen_1.__code__ = _dp_gen_1.__code__.replace(co_qualname="_dp_gen_1")
+    _dp_gen_1.__qualname__ = "get_genexpr_name.<locals>._dp_gen_1"
+    _dp_gen_1.__code__ = _dp_gen_1.__code__.replace(co_qualname="get_genexpr_name.<locals>._dp_gen_1")
+    _dp_gen_1.__name__ = "<genexpr>"
+    _dp_gen_1.__qualname__ = "get_genexpr_name.<locals>.<genexpr>"
+    _dp_gen_1.__code__ = _dp_gen_1.__code__.replace(co_name="<genexpr>", co_qualname="get_genexpr_name.<locals>.<genexpr>")
+    gen = _dp_gen_1(__dp__.iter(()))
+    return gen.__name__
+get_genexpr_name.__qualname__ = "get_genexpr_name"
+get_genexpr_name.__code__ = get_genexpr_name.__code__.replace(co_qualname="get_genexpr_name")
+
+$ integration: nested class base
+
+class Outer:
+    class BaseThing(str):
+        pass
+
+    class Thing(BaseThing):
+        pass
+
+
+def get_base_name():
+    return Outer.Thing.__bases__[0].__name__
+=
+def _dp_create_class_Outer():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
+        _dp_class_ns.__qualname__ = "Outer"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+
+        def _dp_create_class_Outer_BaseThing():
+
+            def _dp_ns_builder(_dp_class_ns):
+                _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
+                _dp_class_ns.__qualname__ = "Outer.BaseThing"
+                _dp_class_ns.__annotations__ = __dp__.dict()
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "Outer._dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="Outer._dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "Outer._dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="Outer._dp_ns_builder")
+            return __dp__.create_class("BaseThing", _dp_ns_builder, (__dp__.class_lookup(_dp_class_ns, globals(), "str"),), None)
+        _dp_create_class_Outer_BaseThing.__qualname__ = "_dp_create_class_Outer_BaseThing"
+        _dp_create_class_Outer_BaseThing.__code__ = _dp_create_class_Outer_BaseThing.__code__.replace(co_qualname="_dp_create_class_Outer_BaseThing")
+        _dp_create_class_Outer_BaseThing.__qualname__ = "_dp_create_class_Outer_BaseThing"
+        _dp_create_class_Outer_BaseThing.__code__ = _dp_create_class_Outer_BaseThing.__code__.replace(co_qualname="_dp_create_class_Outer_BaseThing")
+        _dp_create_class_Outer_BaseThing.__qualname__ = "_dp_create_class_Outer_BaseThing"
+        _dp_create_class_Outer_BaseThing.__code__ = _dp_create_class_Outer_BaseThing.__code__.replace(co_qualname="_dp_create_class_Outer_BaseThing")
+        _dp_create_class_Outer_BaseThing.__qualname__ = "_dp_create_class_Outer_BaseThing"
+        _dp_create_class_Outer_BaseThing.__code__ = _dp_create_class_Outer_BaseThing.__code__.replace(co_qualname="_dp_create_class_Outer_BaseThing")
+        _dp_create_class_Outer_BaseThing.__qualname__ = "Outer._dp_create_class_Outer_BaseThing"
+        _dp_create_class_Outer_BaseThing.__code__ = _dp_create_class_Outer_BaseThing.__code__.replace(co_qualname="Outer._dp_create_class_Outer_BaseThing")
+        _dp_class_ns.BaseThing = _dp_create_class_Outer_BaseThing()
+
+        def _dp_create_class_Outer_Thing():
+
+            def _dp_ns_builder(_dp_class_ns):
+                _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
+                _dp_class_ns.__qualname__ = "Outer.Thing"
+                _dp_class_ns.__annotations__ = __dp__.dict()
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "Outer._dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="Outer._dp_ns_builder")
+            _dp_ns_builder.__qualname__ = "Outer._dp_ns_builder"
+            _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="Outer._dp_ns_builder")
+            return __dp__.create_class("Thing", _dp_ns_builder, (__dp__.class_lookup(_dp_class_ns, globals(), "BaseThing"),), None)
+        _dp_create_class_Outer_Thing.__qualname__ = "_dp_create_class_Outer_Thing"
+        _dp_create_class_Outer_Thing.__code__ = _dp_create_class_Outer_Thing.__code__.replace(co_qualname="_dp_create_class_Outer_Thing")
+        _dp_create_class_Outer_Thing.__qualname__ = "_dp_create_class_Outer_Thing"
+        _dp_create_class_Outer_Thing.__code__ = _dp_create_class_Outer_Thing.__code__.replace(co_qualname="_dp_create_class_Outer_Thing")
+        _dp_create_class_Outer_Thing.__qualname__ = "_dp_create_class_Outer_Thing"
+        _dp_create_class_Outer_Thing.__code__ = _dp_create_class_Outer_Thing.__code__.replace(co_qualname="_dp_create_class_Outer_Thing")
+        _dp_create_class_Outer_Thing.__qualname__ = "_dp_create_class_Outer_Thing"
+        _dp_create_class_Outer_Thing.__code__ = _dp_create_class_Outer_Thing.__code__.replace(co_qualname="_dp_create_class_Outer_Thing")
+        _dp_create_class_Outer_Thing.__qualname__ = "Outer._dp_create_class_Outer_Thing"
+        _dp_create_class_Outer_Thing.__code__ = _dp_create_class_Outer_Thing.__code__.replace(co_qualname="Outer._dp_create_class_Outer_Thing")
+        _dp_class_ns.Thing = _dp_create_class_Outer_Thing()
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    return __dp__.create_class("Outer", _dp_ns_builder, (), None)
+_dp_create_class_Outer.__qualname__ = "_dp_create_class_Outer"
+_dp_create_class_Outer.__code__ = _dp_create_class_Outer.__code__.replace(co_qualname="_dp_create_class_Outer")
+Outer = _dp_create_class_Outer()
+def get_base_name():
+    return __dp__.getitem(Outer.Thing.__bases__, 0).__name__
+get_base_name.__qualname__ = "get_base_name"
+get_base_name.__code__ = get_base_name.__code__.replace(co_qualname="get_base_name")
+
+$ integration: future import invalid feature
+
+from __future__ import not_a_feature
+
+VALUE = 1
+=
+from __future__ import not_a_feature
+VALUE = 1
+
+$ integration: typevar tuple default none
+
+class A[*Ts]:
+    pass
+=
+def _dp_create_class_A():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
+        _dp_class_ns.__qualname__ = "A"
+        _dp_class_ns.Ts = __dp__.type_param_typevar_tuple("Ts", None)
+        _dp_class_ns.__type_params__ = _dp_class_ns.Ts,
+        _dp_class_ns.__annotations__ = __dp__.dict()
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    return __dp__.create_class("A", _dp_ns_builder, (), None)
+_dp_create_class_A.__qualname__ = "_dp_create_class_A"
+_dp_create_class_A.__code__ = _dp_create_class_A.__code__.replace(co_qualname="_dp_create_class_A")
+A = _dp_create_class_A()
+
+$ integration: io.open class attr
+
+import io
+
+
+class Reader:
+    open = io.open
+
+
+def read_self():
+    with Reader().open(__file__, "rb") as handle:
+        return handle.read(1)
+
+
+RESULT = read_self()
+=
+io = __dp__.import_("io", __spec__)
+def _dp_create_class_Reader():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
+        _dp_class_ns.__qualname__ = "Reader"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+        _dp_class_ns.open = __dp__.class_lookup(_dp_class_ns, globals(), "io").open
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    return __dp__.create_class("Reader", _dp_ns_builder, (), None)
+_dp_create_class_Reader.__qualname__ = "_dp_create_class_Reader"
+_dp_create_class_Reader.__code__ = _dp_create_class_Reader.__code__.replace(co_qualname="_dp_create_class_Reader")
+Reader = _dp_create_class_Reader()
+def read_self():
+    _dp_with_enter_1 = __dp__.with_enter(Reader().open(__file__, "rb"))
+    handle = __dp__.getitem(_dp_with_enter_1, 0)
+    _dp_with_exit_2 = __dp__.getitem(_dp_with_enter_1, 1)
+    _dp_with_active_3 = True
+    try:
+        return handle.read(1)
+    except:
+        _dp_with_active_3 = False
+        __dp__.with_exit(_dp_with_exit_2, __dp__.exc_info())
+    finally:
+        if _dp_with_active_3:
+            __dp__.with_exit(_dp_with_exit_2, None)
+        _dp_with_exit_2 = None
+        _dp_with_enter_1 = None
+read_self.__qualname__ = "read_self"
+read_self.__code__ = read_self.__code__.replace(co_qualname="read_self")
+RESULT = read_self()
+
+$ integration: class kwarg metaclass expansion
+
+class Meta(int):
+    def __init__(*args, **kwargs):
+        pass
+
+    def __new__(cls, name, bases, attrs, **kwargs):
+        return bases, kwargs
+
+
+d = {"metaclass": Meta}
+
+
+class A(**d):
+    pass
+
+
+RESULT = A
+=
+def _dp_create_class_Meta():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
+        _dp_class_ns.__qualname__ = "Meta"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+
+        def __init__(*args, **kwargs):
+            pass
+        __init__.__qualname__ = "__init__"
+        __init__.__code__ = __init__.__code__.replace(co_qualname="__init__")
+        __init__.__qualname__ = "__init__"
+        __init__.__code__ = __init__.__code__.replace(co_qualname="__init__")
+        __init__.__qualname__ = "__init__"
+        __init__.__code__ = __init__.__code__.replace(co_qualname="__init__")
+        __init__.__qualname__ = "__init__"
+        __init__.__code__ = __init__.__code__.replace(co_qualname="__init__")
+        _dp_class_ns.__init__ = __init__
+        _dp_class_ns.__init__.__qualname__ = "Meta.__init__"
+        _dp_class_ns.__init__.__code__ = _dp_class_ns.__init__.__code__.replace(co_qualname="Meta.__init__")
+
+        def __new__(cls, name, bases, attrs, **kwargs):
+            return bases, kwargs
+        __new__.__qualname__ = "__new__"
+        __new__.__code__ = __new__.__code__.replace(co_qualname="__new__")
+        __new__.__qualname__ = "__new__"
+        __new__.__code__ = __new__.__code__.replace(co_qualname="__new__")
+        __new__.__qualname__ = "__new__"
+        __new__.__code__ = __new__.__code__.replace(co_qualname="__new__")
+        __new__.__qualname__ = "__new__"
+        __new__.__code__ = __new__.__code__.replace(co_qualname="__new__")
+        _dp_class_ns.__new__ = __new__
+        _dp_class_ns.__new__.__qualname__ = "Meta.__new__"
+        _dp_class_ns.__new__.__code__ = _dp_class_ns.__new__.__code__.replace(co_qualname="Meta.__new__")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    return __dp__.create_class("Meta", _dp_ns_builder, (int,), None)
+_dp_create_class_Meta.__qualname__ = "_dp_create_class_Meta"
+_dp_create_class_Meta.__code__ = _dp_create_class_Meta.__code__.replace(co_qualname="_dp_create_class_Meta")
+Meta = _dp_create_class_Meta()
+d = __dp__.dict((("metaclass", Meta),))
+def _dp_create_class_A():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
+        _dp_class_ns.__qualname__ = "A"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    return __dp__.create_class("A", _dp_ns_builder, (), __dp__.dict(d))
+_dp_create_class_A.__qualname__ = "_dp_create_class_A"
+_dp_create_class_A.__code__ = _dp_create_class_A.__code__.replace(co_qualname="_dp_create_class_A")
+A = _dp_create_class_A()
+RESULT = A

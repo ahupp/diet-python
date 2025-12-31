@@ -6,6 +6,13 @@ use ruff_python_parser::parse_module;
 
 pub fn should_rewrite_import_from(import_from: &ast::StmtImportFrom, options: &Options) -> bool {
     if import_from
+        .module
+        .as_ref()
+        .is_some_and(|module| module.id.as_str() == "__future__")
+    {
+        return false;
+    }
+    if import_from
         .names
         .iter()
         .any(|alias| alias.name.id.as_str() == "*")
@@ -29,16 +36,20 @@ pub fn rewrite(ast::StmtImport { names, .. }: ast::StmtImport) -> Rewrite {
                     .unwrap_or_else(|| module_name.split('.').next().unwrap());
                 let needs_fromlist = alias.asname.is_some() && module_name.contains('.');
                 if needs_fromlist {
-                    let attr = module_name
-                        .rsplit_once('.')
-                        .map(|(_, last)| last)
-                        .unwrap_or(module_name.as_str());
-                    py_stmt!(
-                        "{name:id} = __dp__.import_({module:literal}, __spec__, __dp__.list(({attr:literal},)))",
-                        name = binding,
-                        module = module_name.as_str(),
-                        attr = attr,
-                    )
+                    let mut expr =
+                        format!("__dp__.import_({:?}, __spec__)", module_name.as_str());
+                    let mut parts = module_name.split('.').collect::<Vec<_>>();
+                    if !parts.is_empty() {
+                        parts.remove(0);
+                    }
+                    for part in parts {
+                        expr = format!("__dp__.import_attr({}, {:?})", expr, part);
+                    }
+                    let stmt_source = format!("{binding} = {expr}", binding = binding, expr = expr);
+                    parse_module(stmt_source.as_str())
+                        .expect("failed to parse rewritten dotted import")
+                        .into_syntax()
+                        .body
                 } else {
                     py_stmt!(
                         "{name:id} = __dp__.import_({module:literal}, __spec__)",
@@ -135,7 +146,7 @@ mod tests {
 
     fn rewrite_source(source: &str, options: Options) -> String {
         let mut module = parse_module(source).expect("parse error").into_syntax();
-        let ctx = Context::new(options.clone());
+        let ctx = Context::new(options.clone(), source);
         let mut expr_transformer = ExprRewriter::new(ctx);
         expr_transformer.visit_body(&mut module.body);
         crate::template::flatten(&mut module.body);

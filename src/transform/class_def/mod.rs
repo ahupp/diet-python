@@ -1,7 +1,6 @@
 pub mod rewrite_annotation;
 pub mod rewrite_class_vars;
 pub mod rewrite_method;
-pub mod rewrite_nested_class;
 pub mod rewrite_private;
 
 use crate::template::make_tuple;
@@ -17,11 +16,12 @@ use crate::template::py_stmt_single;
 use crate::transform::class_def::rewrite_annotation::AnnotationCollector;
 use crate::transform::class_def::rewrite_class_vars::rewrite_class_scope;
 use crate::transform::class_def::rewrite_method::rewrite_method;
+use crate::transform::context::ScopeKind;
 use crate::transform::driver::{ExprRewriter, Rewrite};
 
 use std::mem::take;
 
-use crate::{body_transform::walk_stmt, transform::rewrite_decorator};
+use crate::body_transform::walk_stmt;
 
 pub struct NestedClassCollector<'a> {
     rewriter: &'a mut ExprRewriter,
@@ -61,19 +61,26 @@ impl<'a> Transformer for NestedClassCollector<'a> {
             let class_qualname = self.rewriter.context().make_qualname(&class_name);
             let class_ident = class_ident_from_qualname(&class_qualname);
 
-            let create_class_call = py_stmt!(
-                "{class_name:id} = _dp_create_class_{class_ident:id}()",
+            let mut decorated = py_expr!(
+                "_dp_create_class_{class_ident:id}()",
                 class_ident = class_ident,
-                class_name = class_name.as_str(),
             );
-
-            let ns_fn_stmt = rewrite_decorator::rewrite(
-                take(decorator_list),
-                &class_name,
-                create_class_call,
-                self.rewriter,
-            )
-            .into_statements();
+            let to_apply = take(decorator_list)
+                .into_iter()
+                .map(|decorator| self.rewriter.maybe_placeholder(decorator.expression))
+                .collect::<Vec<_>>();
+            for decorator in to_apply.into_iter().rev() {
+                decorated = py_expr!(
+                    "{decorator:expr}({decorated:expr})",
+                    decorator = decorator,
+                    decorated = decorated
+                );
+            }
+            let ns_fn_stmt = py_stmt!(
+                "{class_name:id} = {decorated:expr}",
+                class_name = class_name.as_str(),
+                decorated = decorated,
+            );
 
             // TODO: make better
             let create_stmt = Stmt::If(ast::StmtIf {
@@ -126,9 +133,11 @@ fn class_def_to_create_class_fn<'a>(
     let class_name = name.id.to_string();
     let class_ident = class_ident_from_qualname(&class_qualname);
 
-    let class_scope = rewriter
+    let mut class_scope = rewriter
         .context()
         .analyze_class_scope(&class_qualname, &body);
+
+    rewrite_private::rewrite_class_body(&mut body, &class_name, &mut class_scope);
 
     let body = rewriter.with_function_scope(class_scope.clone(), |rewriter| {
         /*
@@ -143,8 +152,6 @@ fn class_def_to_create_class_fn<'a>(
                 }
             }
         }
-
-        rewrite_private::rewrite_class_body(&mut body, &class_name);
 
         /*
         Collect all AnnAssign statements, rewriting them to bare Assign (if there's a value)
@@ -184,7 +191,8 @@ __qualname__ = {class_qualname:literal}
 
         let ns_builder = rewriter.rewrite_block(ns_builder);
 
-        let mut ns_builder = ns_builder
+        let class_locals = class_scope.local_names();
+        let mut ns_builder: Vec<Stmt> = ns_builder
             .into_iter()
             .map(|stmt| match stmt {
                 Stmt::FunctionDef(mut func_def) => {
@@ -192,9 +200,9 @@ __qualname__ = {class_qualname:literal}
                     if !fn_name.starts_with("_dp_") {
                         rewrite_method(
                             &mut func_def,
-                            &class_name,
+                            &class_qualname,
                             fn_name.as_str(),
-                            &class_scope.locals,
+                            &class_locals,
                             rewriter,
                         );
                     }
@@ -210,12 +218,17 @@ __qualname__ = {class_qualname:literal}
             })
             .collect();
 
-        rewrite_class_scope(&mut ns_builder, class_scope);
+        let enclosing_locals = rewriter.context().enclosing_function_locals();
+        rewrite_class_scope(&mut ns_builder, class_scope, enclosing_locals);
 
         ns_builder
     });
 
-    let (bases_tuple, prepare_dict) = class_call_arguments(arguments);
+    let in_class_scope = matches!(
+        rewriter.context().current_qualname(),
+        Some((_, ScopeKind::Class))
+    );
+    let (bases_tuple, prepare_dict) = class_call_arguments(arguments, in_class_scope);
 
     py_stmt!(
         r#"
@@ -333,36 +346,56 @@ pub fn class_ident_from_qualname(qualname: &str) -> String {
         .collect()
 }
 
-pub fn class_call_arguments(arguments: Option<Box<ast::Arguments>>) -> (Expr, Expr) {
+pub fn class_call_arguments(
+    arguments: Option<Box<ast::Arguments>>,
+    in_class_scope: bool,
+) -> (Expr, Expr) {
     let mut bases = Vec::new();
-    let mut kw_keys = Vec::new();
-    let mut kw_vals = Vec::new();
+    let mut kw_items = Vec::new();
     if let Some(args) = arguments {
         let args = *args;
-        bases.extend(args.args.into_vec());
+        for base in args.args.into_vec() {
+            let base_expr = if in_class_scope {
+                if let Expr::Name(ast::ExprName { id, .. }) = &base {
+                    py_expr!(
+                        "__dp__.class_lookup(_dp_class_ns, globals(), {name:literal})",
+                        name = id.as_str()
+                    )
+                } else {
+                    base
+                }
+            } else {
+                base
+            };
+            bases.push(base_expr);
+        }
         for kw in args.keywords.into_vec() {
-            if let Some(arg) = kw.arg {
-                kw_keys.push(py_expr!("{arg:literal}", arg = arg.as_str()));
-                kw_vals.push(kw.value);
-            }
+            let value = if in_class_scope {
+                if let Expr::Name(ast::ExprName { id, .. }) = &kw.value {
+                    py_expr!(
+                        "__dp__.class_lookup(_dp_class_ns, globals(), {name:literal})",
+                        name = id.as_str()
+                    )
+                } else {
+                    kw.value
+                }
+            } else {
+                kw.value
+            };
+            let key = kw
+                .arg
+                .map(|arg| py_expr!("{arg:literal}", arg = arg.as_str()));
+            kw_items.push(ast::DictItem { key, value });
         }
     }
 
-    let has_kw = !kw_keys.is_empty();
+    let has_kw = !kw_items.is_empty();
 
     let prepare_dict = if has_kw {
-        let items: Vec<ast::DictItem> = kw_keys
-            .into_iter()
-            .zip(kw_vals.into_iter())
-            .map(|(k, v)| ast::DictItem {
-                key: Some(k),
-                value: v,
-            })
-            .collect();
         Expr::Dict(ast::ExprDict {
             node_index: ast::AtomicNodeIndex::default(),
             range: TextRange::default(),
-            items,
+            items: kw_items,
         })
     } else {
         py_expr!("None")

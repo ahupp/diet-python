@@ -54,6 +54,8 @@ async def f():
         else:
             if cond:
                 break
+f.__qualname__ = "f"
+f.__code__ = f.__code__.replace(co_qualname="f")
 
 $ rewrites for loop with starred target
 
@@ -67,6 +69,8 @@ while True:
         _dp_tmp_3 = __dp__.unpack(_dp_tmp_2, (True, False))
         a = __dp__.getitem(_dp_tmp_3, 0)
         b = __dp__.tuple(__dp__.getitem(_dp_tmp_3, 1))
+        _dp_tmp_3 = None
+        _dp_tmp_2 = None
     except:
         __dp__.check_stopiteration()
         break

@@ -76,14 +76,55 @@ fn should_skip(source: &str) -> bool {
         .lines()
         .next()
         .is_some_and(|line| line.contains("diet-python: disabled"))
+        || contains_surrogate_escape(source)
 }
 
-fn apply_transforms(module: &mut ModModule, options: Options) {
+fn contains_surrogate_escape(source: &str) -> bool {
+    let bytes = source.as_bytes();
+    let mut backslashes = 0usize;
+    let mut index = 0usize;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if byte == b'\\' {
+            backslashes += 1;
+            index += 1;
+            continue;
+        }
+        if (byte == b'u' || byte == b'U') && backslashes % 2 == 1 {
+            let digits = if byte == b'u' { 4 } else { 8 };
+            if index + digits < bytes.len() {
+                let mut value = 0u32;
+                let mut valid = true;
+                for offset in 0..digits {
+                    let hex = bytes[index + 1 + offset];
+                    let nibble = match hex {
+                        b'0'..=b'9' => (hex - b'0') as u32,
+                        b'a'..=b'f' => (hex - b'a' + 10) as u32,
+                        b'A'..=b'F' => (hex - b'A' + 10) as u32,
+                        _ => {
+                            valid = false;
+                            break;
+                        }
+                    };
+                    value = (value << 4) | nibble;
+                }
+                if valid && (0xD800..=0xDFFF).contains(&value) {
+                    return true;
+                }
+            }
+        }
+        backslashes = 0;
+        index += 1;
+    }
+    false
+}
+
+fn apply_transforms(module: &mut ModModule, options: Options, source: &str) {
     transform::rewrite_future_annotations::rewrite(&mut module.body);
 
     // Lower `for` loops, expand generators and lambdas, and replace
     // `__dp__.<name>` calls with `getattr` in a single pass.
-    let ctx = Context::new(options);
+    let ctx = Context::new(options, source);
     let mut expr_transformer = ExprRewriter::new(ctx);
     expr_transformer.visit_body(&mut module.body);
 
@@ -107,6 +148,18 @@ fn transform_to_string_with_options_timed(
     source: &str,
     options: Options,
 ) -> Result<(String, TransformTimings), ParseError> {
+    if contains_surrogate_escape(source) {
+        return Ok((
+            source.to_string(),
+            TransformTimings {
+                parse: Duration::ZERO,
+                rewrite: Duration::ZERO,
+                ensure_import: Duration::ZERO,
+                emit: Duration::ZERO,
+                total: Duration::ZERO,
+            },
+        ));
+    }
     let (module, mut timings) = transform_str_to_ruff_with_options_timed(source, options)?;
     let emit_start = Instant::now();
     let output = ruff_ast_to_string(&module.body);
@@ -273,7 +326,7 @@ pub fn transform_str_to_ruff_with_options_timed(
     let parse = parse_start.elapsed();
 
     let rewrite_start = Instant::now();
-    apply_transforms(&mut module, options);
+    apply_transforms(&mut module, options, source);
     let rewrite = rewrite_start.elapsed();
 
     if options.lower_attributes {

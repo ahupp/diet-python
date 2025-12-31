@@ -1,5 +1,5 @@
 use std::cell::{Cell, RefCell};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
 
@@ -12,22 +12,105 @@ pub enum ScopeKind {
     Class,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Scope {
+    Local,
+    Nonlocal,
+    Global,
+}
+
 #[derive(Clone, Debug)]
 pub struct ScopeInfo {
     pub kind: ScopeKind,
     pub qualname: String,
-    pub locals: HashSet<String>,
-    pub globals: HashSet<String>,
-    pub nonlocals: HashSet<String>,
-    pub params: Vec<String>,
-    pub pending: HashSet<String>,
+    bindings: HashMap<String, Scope>,
+}
+
+impl ScopeInfo {
+    pub fn is_local(&self, name: &str) -> bool {
+        self.binding_is(name, Scope::Local)
+    }
+
+    pub fn is_global(&self, name: &str) -> bool {
+        self.binding_is(name, Scope::Global)
+    }
+
+    pub fn is_nonlocal(&self, name: &str) -> bool {
+        self.binding_is(name, Scope::Nonlocal)
+    }
+
+    pub(crate) fn local_names(&self) -> HashSet<String> {
+        self.bindings
+            .keys()
+            .filter(|name| self.is_local(name))
+            .cloned()
+            .collect()
+    }
+
+    pub(crate) fn global_names(&self) -> HashSet<String> {
+        self.bindings
+            .keys()
+            .filter(|name| self.is_global(name))
+            .cloned()
+            .collect()
+    }
+
+    pub(crate) fn nonlocal_names(&self) -> HashSet<String> {
+        self.bindings
+            .keys()
+            .filter(|name| self.is_nonlocal(name))
+            .cloned()
+            .collect()
+    }
+
+    pub(crate) fn remap_bindings<F>(&mut self, f: F)
+    where
+        F: Fn(&str) -> Option<String>,
+    {
+        let mut next = HashMap::with_capacity(self.bindings.len());
+        for (name, binding) in std::mem::take(&mut self.bindings) {
+            let mapped = f(&name);
+            let key = mapped.unwrap_or(name);
+            if let Some(existing) = next.get(&key).copied() {
+                let merged = merge_binding(existing, binding);
+                if merged != existing {
+                    next.insert(key, merged);
+                }
+            } else {
+                next.insert(key, binding);
+            }
+        }
+        self.bindings = next;
+    }
+
+    fn binding_is(&self, name: &str, scope: Scope) -> bool {
+        matches!(self.bindings.get(name), Some(found) if *found == scope)
+    }
+
 }
 
 #[derive(Default)]
 struct ScopeCollector {
-    locals: HashSet<String>,
-    globals: HashSet<String>,
-    nonlocals: HashSet<String>,
+    bindings: HashMap<String, Scope>,
+}
+
+fn merge_binding(existing: Scope, incoming: Scope) -> Scope {
+    match (existing, incoming) {
+        (Scope::Global | Scope::Nonlocal, Scope::Local) => existing,
+        (Scope::Local, Scope::Global | Scope::Nonlocal) => incoming,
+        _ => existing,
+    }
+}
+
+fn set_binding(bindings: &mut HashMap<String, Scope>, name: &str, binding: Scope) {
+    if let Some(existing) = bindings.get(name).copied() {
+        let merged = merge_binding(existing, binding);
+        if merged != existing {
+            bindings.insert(name.to_string(), merged);
+        }
+    } else {
+        bindings.insert(name.to_string(), binding);
+    }
 }
 
 impl ScopeCollector {
@@ -43,7 +126,7 @@ impl ScopeCollector {
                 .next()
                 .unwrap_or_else(|| alias.name.id.as_str())
         };
-        self.locals.insert(name.to_string());
+        set_binding(&mut self.bindings, name, Scope::Local);
     }
 }
 
@@ -51,22 +134,22 @@ impl Transformer for ScopeCollector {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
             Stmt::FunctionDef(ast::StmtFunctionDef { name, .. }) => {
-                self.locals.insert(name.id.to_string());
+                set_binding(&mut self.bindings, name.id.as_str(), Scope::Local);
                 return;
             }
             Stmt::ClassDef(ast::StmtClassDef { name, .. }) => {
-                self.locals.insert(name.id.to_string());
+                set_binding(&mut self.bindings, name.id.as_str(), Scope::Local);
                 return;
             }
             Stmt::Global(ast::StmtGlobal { names, .. }) => {
                 for name in names {
-                    self.globals.insert(name.id.to_string());
+                    set_binding(&mut self.bindings, name.id.as_str(), Scope::Global);
                 }
                 return;
             }
             Stmt::Nonlocal(ast::StmtNonlocal { names, .. }) => {
                 for name in names {
-                    self.nonlocals.insert(name.id.to_string());
+                    set_binding(&mut self.bindings, name.id.as_str(), Scope::Nonlocal);
                 }
                 return;
             }
@@ -91,7 +174,7 @@ impl Transformer for ScopeCollector {
     fn visit_expr(&mut self, expr: &mut Expr) {
         match expr {
             Expr::Name(ast::ExprName { id, ctx, .. }) if matches!(ctx, ExprContext::Store) => {
-                self.locals.insert(id.to_string());
+                set_binding(&mut self.bindings, id.as_str(), Scope::Local);
                 return;
             }
             Expr::Lambda(_)
@@ -109,10 +192,7 @@ impl Transformer for ScopeCollector {
 }
 
 struct ScopeBasics {
-    locals: HashSet<String>,
-    globals: HashSet<String>,
-    nonlocals: HashSet<String>,
-    params: Vec<String>,
+    bindings: HashMap<String, Scope>,
 }
 
 fn collect_scope_info(body: &[Stmt]) -> ScopeBasics {
@@ -120,16 +200,8 @@ fn collect_scope_info(body: &[Stmt]) -> ScopeBasics {
     let mut cloned_body = body.to_vec();
     collector.visit_body(&mut cloned_body);
 
-    let mut locals = collector.locals;
-    for name in collector.globals.iter().chain(collector.nonlocals.iter()) {
-        locals.remove(name);
-    }
-
     ScopeBasics {
-        locals,
-        globals: collector.globals,
-        nonlocals: collector.nonlocals,
-        params: Vec::new(),
+        bindings: collector.bindings,
     }
 }
 
@@ -154,16 +226,24 @@ impl Namer {
 pub struct Context {
     pub namer: Namer,
     pub options: Options,
+    pub source: String,
     function_scopes: RefCell<Vec<ScopeInfo>>,
 }
 
 impl Context {
-    pub fn new(options: Options) -> Self {
+    pub fn new(options: Options, source: &str) -> Self {
         Self {
             namer: Namer::new(),
             options,
+            source: source.to_string(),
             function_scopes: RefCell::new(Vec::new()),
         }
+    }
+
+    pub fn source_slice(&self, range: ruff_text_size::TextRange) -> Option<&str> {
+        let start = range.start().to_usize();
+        let end = range.end().to_usize();
+        self.source.get(start..end)
     }
 
     pub fn fresh(&self, name: &str) -> String {
@@ -173,7 +253,11 @@ impl Context {
     pub fn current_qualname(&self) -> Option<(String, ScopeKind)> {
         self.function_scopes
             .borrow()
-            .last()
+            .iter()
+            .rev()
+            .find(|scope| {
+                !(scope.kind == ScopeKind::Function && is_internal_function(&scope.qualname))
+            })
             .map(|scope| (scope.qualname.clone(), scope.kind))
     }
 
@@ -206,11 +290,12 @@ impl Context {
             .iter()
             .rev()
             .find(|scope| scope.kind == ScopeKind::Function)
-            .map_or(false, |info| info.globals.contains(name))
+            .map_or(false, |info| info.is_global(name))
     }
 
     pub fn analyze_function_scope(&self, func_def: &ast::StmtFunctionDef) -> ScopeInfo {
-        let mut info = collect_scope_info(&func_def.body);
+        let info = collect_scope_info(&func_def.body);
+        let mut bindings = info.bindings;
 
         let ast::Parameters {
             posonlyargs,
@@ -223,32 +308,23 @@ impl Context {
 
         for param in posonlyargs {
             let name = param.parameter.name.to_string();
-            info.locals.insert(name.clone());
-            info.params.push(name);
+            set_binding(&mut bindings, name.as_str(), Scope::Local);
         }
         for param in args {
             let name = param.parameter.name.to_string();
-            info.locals.insert(name.clone());
-            info.params.push(name);
+            set_binding(&mut bindings, name.as_str(), Scope::Local);
         }
         for param in kwonlyargs {
             let name = param.parameter.name.to_string();
-            info.locals.insert(name.clone());
-            info.params.push(name);
+            set_binding(&mut bindings, name.as_str(), Scope::Local);
         }
         if let Some(param) = vararg {
             let name = param.name.to_string();
-            info.locals.insert(name.clone());
-            info.params.push(name);
+            set_binding(&mut bindings, name.as_str(), Scope::Local);
         }
         if let Some(param) = kwarg {
             let name = param.name.to_string();
-            info.locals.insert(name.clone());
-            info.params.push(name);
-        }
-
-        for name in info.globals.iter().chain(info.nonlocals.iter()) {
-            info.locals.remove(name);
+            set_binding(&mut bindings, name.as_str(), Scope::Local);
         }
 
         let qualname = self.make_qualname(func_def.name.id.as_str());
@@ -256,35 +332,34 @@ impl Context {
         ScopeInfo {
             kind: ScopeKind::Function,
             qualname: qualname,
-            locals: info.locals,
-            globals: info.globals,
-            nonlocals: info.nonlocals,
-            params: info.params,
-            pending: HashSet::new(),
+            bindings,
         }
     }
 
     pub fn analyze_class_scope(&self, class_qualname: &str, body: &[Stmt]) -> ScopeInfo {
-        let mut info = collect_scope_info(body);
-        let mut pending = HashSet::new();
-        for stmt in body {
-            if let Stmt::FunctionDef(ast::StmtFunctionDef { name, .. }) = stmt {
-                pending.insert(name.id.to_string());
-            }
-        }
-
-        for name in info.globals.iter().chain(info.nonlocals.iter()) {
-            info.locals.remove(name);
-        }
-
+        let info = collect_scope_info(body);
+        let bindings = info.bindings;
         ScopeInfo {
             kind: ScopeKind::Class,
             qualname: class_qualname.to_string(),
-            locals: info.locals,
-            globals: info.globals,
-            nonlocals: info.nonlocals,
-            params: info.params,
-            pending,
+            bindings,
         }
     }
+
+    pub fn enclosing_function_locals(&self) -> HashSet<String> {
+        self.function_scopes
+            .borrow()
+            .iter()
+            .rev()
+            .find(|scope| scope.kind == ScopeKind::Function)
+            .map(|scope| scope.local_names())
+            .unwrap_or_default()
+    }
+}
+
+fn is_internal_function(qualname: &str) -> bool {
+    qualname
+        .rsplit('.')
+        .next()
+        .map_or(false, |segment| segment.starts_with("_dp_"))
 }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import importlib
 import sys
 from contextlib import contextmanager
@@ -23,6 +24,8 @@ def transformed_module(
 
     module_dir = str(module_path.parent)
     sys.path.insert(0, module_dir)
+    prior_allow_temp = os.environ.get("DIET_PYTHON_ALLOW_TEMP")
+    os.environ["DIET_PYTHON_ALLOW_TEMP"] = "1"
 
     try:
         diet_import_hook.install()
@@ -38,3 +41,7 @@ def transformed_module(
                 sys.path.remove(module_dir)
             except ValueError:
                 pass
+        if prior_allow_temp is None:
+            os.environ.pop("DIET_PYTHON_ALLOW_TEMP", None)
+        else:
+            os.environ["DIET_PYTHON_ALLOW_TEMP"] = prior_allow_temp

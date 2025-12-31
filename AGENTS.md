@@ -20,4 +20,5 @@ def foo():
 
 - **MUST FOLLOW**: Ensure new transform modules include the test execution macro in their test block.
 - **MUST FOLLOW**: For each integration test, add a desugaring test in a text file with the expected inputs and outputs.
+- **NOTE**: Prefer adding behavior at transform time rather than runtime in `__dp__.py` whenever possible.
 - Run tests with "cargo test", and "uvx pytest tests/"

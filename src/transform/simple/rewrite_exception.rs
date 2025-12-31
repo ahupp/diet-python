@@ -4,6 +4,10 @@ use ruff_python_ast::{self as ast, Stmt};
 use crate::{py_expr, py_stmt};
 
 pub fn rewrite_try(stmt: ast::StmtTry, _ctx: &Context) -> Rewrite {
+    if stmt.is_star {
+        return Rewrite::Walk(vec![Stmt::Try(stmt)]);
+    }
+
     if !has_non_default_handler(&stmt) {
         return Rewrite::Walk(vec![Stmt::Try(stmt)]);
     }
@@ -44,17 +48,32 @@ pub fn rewrite_try(stmt: ast::StmtTry, _ctx: &Context) -> Rewrite {
         }
 
         let condition = py_expr!(
-            "__dp__.isinstance(__dp__.current_exception(), {typ:expr})",
+            "__dp__.exception_matches(__dp__.current_exception(), {typ:expr})",
             typ = type_.unwrap()
         );
 
-        let exc_target = if let Some(ast::Identifier { id, .. }) = &name {
-            py_stmt!(
+        let (exc_target, body) = if let Some(ast::Identifier { id, .. }) = &name {
+            let target = id.as_str();
+            let exc_target = py_stmt!(
                 "{target:id} = __dp__.current_exception()",
-                target = id.as_str(),
-            )
+                target = target,
+            );
+            let body = py_stmt!(
+                r#"
+try:
+    {body:stmt}
+finally:
+    try:
+        del {target:id}
+    except NameError:
+        pass
+"#,
+                body = body,
+                target = target,
+            );
+            (exc_target, body)
         } else {
-            py_stmt!("pass")
+            (py_stmt!("pass"), body)
         };
 
         py_stmt!(

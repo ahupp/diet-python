@@ -8,6 +8,10 @@ def foo():
 _dp_tmp_1 = dec2(5)
 def foo():
     pass
+foo.__qualname__ = "foo"
+foo.__code__ = foo.__code__.replace(co_qualname="foo")
+foo.__qualname__ = "foo"
+foo.__code__ = foo.__code__.replace(co_qualname="foo")
 foo = _dp_tmp_1(dec1(foo))
 
 $ preserves annotations on decorated functions
@@ -18,6 +22,10 @@ def foo(x: int) -> str:
 =
 def foo(x: int) -> str:
     pass
+foo.__qualname__ = "foo"
+foo.__code__ = foo.__code__.replace(co_qualname="foo")
+foo.__qualname__ = "foo"
+foo.__code__ = foo.__code__.replace(co_qualname="foo")
 foo = dec(foo)
 
 $ rewrites class decorators
@@ -29,12 +37,17 @@ class C:
 def _dp_create_class_C():
 
     def _dp_ns_builder(_dp_class_ns):
-        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
         _dp_class_ns.__qualname__ = "C"
         _dp_class_ns.__annotations__ = __dp__.dict()
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
     return __dp__.create_class("C", _dp_ns_builder, (), None)
-C = _dp_create_class_C()
-C = dec(C)
+_dp_create_class_C.__qualname__ = "_dp_create_class_C"
+_dp_create_class_C.__code__ = _dp_create_class_C.__code__.replace(co_qualname="_dp_create_class_C")
+C = dec(_dp_create_class_C())
 
 $ rewrites multiple class decorators
 
@@ -47,12 +60,17 @@ _dp_tmp_1 = dec2(5)
 def _dp_create_class_C():
 
     def _dp_ns_builder(_dp_class_ns):
-        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, globals(), "__name__")
         _dp_class_ns.__qualname__ = "C"
         _dp_class_ns.__annotations__ = __dp__.dict()
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
+    _dp_ns_builder.__qualname__ = "_dp_ns_builder"
+    _dp_ns_builder.__code__ = _dp_ns_builder.__code__.replace(co_qualname="_dp_ns_builder")
     return __dp__.create_class("C", _dp_ns_builder, (), None)
-C = _dp_create_class_C()
-C = _dp_tmp_1(dec1(C))
+_dp_create_class_C.__qualname__ = "_dp_create_class_C"
+_dp_create_class_C.__code__ = _dp_create_class_C.__code__.replace(co_qualname="_dp_create_class_C")
+C = _dp_tmp_1(dec1(_dp_create_class_C()))
 
 $ preserves existing decorator targets
 
@@ -64,8 +82,16 @@ def atexit(value):
 =
 def _dp_lambda_1():
     return None
+_dp_lambda_1.__qualname__ = "_dp_lambda_1"
+_dp_lambda_1.__code__ = _dp_lambda_1.__code__.replace(co_qualname="_dp_lambda_1")
+_dp_lambda_1.__name__ = "<lambda>"
+_dp_lambda_1.__qualname__ = "<lambda>"
 atexit = property(_dp_lambda_1)
 _dp_tmp_2 = atexit.setter
 def atexit(value):
     pass
+atexit.__qualname__ = "atexit"
+atexit.__code__ = atexit.__code__.replace(co_qualname="atexit")
+atexit.__qualname__ = "atexit"
+atexit.__code__ = atexit.__code__.replace(co_qualname="atexit")
 atexit = _dp_tmp_2(atexit)

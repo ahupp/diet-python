@@ -9,8 +9,8 @@ use crate::{
     transform::context::ScopeInfo,
 };
 
-pub fn rewrite_class_scope(body: &mut Vec<Stmt>, scope: ScopeInfo) {
-    let mut rewriter = ClassScopeRewriter::new(scope);
+pub fn rewrite_class_scope(body: &mut Vec<Stmt>, scope: ScopeInfo, enclosing: HashSet<String>) {
+    let mut rewriter = ClassScopeRewriter::new(scope, enclosing);
     rewriter.visit_body(body);
 }
 
@@ -18,23 +18,28 @@ struct ClassScopeRewriter {
     stored: HashSet<String>,
     globals: HashSet<String>,
     nonlocals: HashSet<String>,
-    pending: HashSet<String>,
+    enclosing: HashSet<String>,
     emitted: Vec<Stmt>,
 }
 
 impl ClassScopeRewriter {
-    fn new(scope: ScopeInfo) -> Self {
+    fn new(scope: ScopeInfo, enclosing: HashSet<String>) -> Self {
+        let globals = scope.global_names();
+        let nonlocals = scope.nonlocal_names();
         Self {
             stored: HashSet::new(),
-            globals: scope.globals,
-            nonlocals: scope.nonlocals,
-            pending: scope.pending,
+            globals,
+            nonlocals,
+            enclosing,
             emitted: Vec::new(),
         }
     }
 
     fn should_rewrite(&self, name: &str) -> bool {
-        !self.globals.contains(name) && !self.nonlocals.contains(name) && !name.starts_with("_dp_")
+        !self.globals.contains(name)
+            && !self.nonlocals.contains(name)
+            && !name.starts_with("_dp_")
+            && !matches!(name, "__dp__" | "globals" | "locals" | "vars")
     }
 
     fn emit_after(&mut self, stmts: Vec<Stmt>) {
@@ -68,14 +73,11 @@ impl Transformer for ClassScopeRewriter {
                 let original_name = name.id.as_str().to_string();
                 if self.should_rewrite(original_name.as_str()) {
                     self.stored.insert(original_name.clone());
-                    self.pending.insert(original_name.clone());
                     self.emit_after(py_stmt!(
                         "_dp_class_ns.{storage_name:id} = {name:id}",
                         storage_name = original_name.as_str(),
                         name = original_name.as_str(),
                     ));
-
-                    self.pending.remove(original_name.as_str());
                 }
 
                 for decorator in decorator_list {
@@ -110,7 +112,6 @@ impl Transformer for ClassScopeRewriter {
                     let name = id.as_str();
                     if self.should_rewrite(name) {
                         self.stored.remove(name);
-                        self.pending.remove(name);
                         *stmt = py_stmt_single(py_stmt!(
                             "del _dp_class_ns.{storage_name:id}",
                             storage_name = name,
@@ -130,18 +131,36 @@ impl Transformer for ClassScopeRewriter {
     }
 
     fn visit_expr(&mut self, expr: &mut Expr) {
+        if let Expr::Call(ast::ExprCall {
+            func, arguments, ..
+        }) = expr
+        {
+            if let Expr::Name(ast::ExprName { id, .. }) = func.as_ref() {
+                if id.as_str() == "vars"
+                    && arguments.args.is_empty()
+                    && arguments.keywords.is_empty()
+                {
+                    *expr = py_expr!("_dp_class_ns._namespace");
+                    return;
+                }
+            }
+        }
         if let Expr::Name(ast::ExprName { id, ctx, .. }) = expr {
             if matches!(ctx, ExprContext::Load) {
                 let name = id.as_str().to_string();
                 let name_str = name.as_str();
-                if self.should_rewrite(name_str) {
-                    if self.stored.contains(name_str) && !self.pending.contains(name_str) {
-                        *expr =
-                            py_expr!("_dp_class_ns.{storage_name:id}", storage_name = name_str,);
-                    } else if self.pending.contains(name_str) {
-                        *expr =
-                            py_expr!("__dp__.global_(globals(), {name:literal})", name = name_str,);
-                    }
+                if !self.should_rewrite(name_str) {
+                    return;
+                }
+                if self.stored.contains(name_str) {
+                    *expr = py_expr!("_dp_class_ns.{storage_name:id}", storage_name = name_str,);
+                } else if self.enclosing.contains(name_str) {
+                    return;
+                } else {
+                    *expr = py_expr!(
+                        "__dp__.class_lookup(_dp_class_ns, globals(), {name:literal})",
+                        name = name_str,
+                    );
                 }
             }
         }
