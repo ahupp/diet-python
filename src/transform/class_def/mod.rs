@@ -75,6 +75,7 @@ impl<'a> Transformer for NestedClassCollector<'a> {
             )
             .into_statements();
 
+            // TODO: make better
             let create_stmt = Stmt::If(ast::StmtIf {
                 node_index: ast::AtomicNodeIndex::default(),
                 range: TextRange::default(),

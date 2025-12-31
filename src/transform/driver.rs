@@ -49,6 +49,130 @@ impl ExprRewriter {
         &self.ctx
     }
 
+    fn generators_need_async(&self, generators: &[ast::Comprehension]) -> bool {
+        generators.iter().any(|comp| {
+            comp.is_async
+                || expr_contains_await(&comp.iter)
+                || comp.ifs.iter().any(expr_contains_await)
+        })
+    }
+
+    fn comprehension_needs_async(
+        &self,
+        elt: &Expr,
+        generators: &[ast::Comprehension],
+    ) -> bool {
+        expr_contains_await(elt) || self.generators_need_async(generators)
+    }
+
+    fn wrap_comprehension_body(
+        &self,
+        body: Vec<Stmt>,
+        comp: &ast::Comprehension,
+    ) -> Vec<Stmt> {
+        let mut inner = body;
+        for if_expr in comp.ifs.iter().rev() {
+            inner = py_stmt!(
+                r#"
+if {test:expr}:
+    {body:stmt}
+"#,
+                test = if_expr.clone(),
+                body = inner,
+            );
+        }
+
+        if comp.is_async {
+            py_stmt!(
+                r#"
+async for {target:expr} in {iter:expr}:
+    {body:stmt}
+"#,
+                target = comp.target.clone(),
+                iter = comp.iter.clone(),
+                body = inner,
+            )
+        } else {
+            py_stmt!(
+                r#"
+for {target:expr} in {iter:expr}:
+    {body:stmt}
+"#,
+                target = comp.target.clone(),
+                iter = comp.iter.clone(),
+                body = inner,
+            )
+        }
+    }
+
+    fn rewrite_async_list_comp(
+        &mut self,
+        elt: Expr,
+        generators: Vec<ast::Comprehension>,
+    ) -> Expr {
+        let tmp = self.ctx.fresh("tmp");
+        let mut body = py_stmt!(
+            "{tmp:id}.append({elt:expr})",
+            tmp = tmp.as_str(),
+            elt = elt,
+        );
+
+        for comp in generators.iter().rev() {
+            body = self.wrap_comprehension_body(body, comp);
+        }
+
+        self.buf
+            .extend(py_stmt!("{tmp:id} = __dp__.list(())", tmp = tmp.as_str()));
+        self.buf.extend(body);
+        py_expr!("{tmp:id}", tmp = tmp.as_str())
+    }
+
+    fn rewrite_async_set_comp(
+        &mut self,
+        elt: Expr,
+        generators: Vec<ast::Comprehension>,
+    ) -> Expr {
+        let tmp = self.ctx.fresh("tmp");
+        let mut body = py_stmt!(
+            "{tmp:id}.add({elt:expr})",
+            tmp = tmp.as_str(),
+            elt = elt,
+        );
+
+        for comp in generators.iter().rev() {
+            body = self.wrap_comprehension_body(body, comp);
+        }
+
+        self.buf
+            .extend(py_stmt!("{tmp:id} = __dp__.set(())", tmp = tmp.as_str()));
+        self.buf.extend(body);
+        py_expr!("{tmp:id}", tmp = tmp.as_str())
+    }
+
+    fn rewrite_async_dict_comp(
+        &mut self,
+        key: Expr,
+        value: Expr,
+        generators: Vec<ast::Comprehension>,
+    ) -> Expr {
+        let tmp = self.ctx.fresh("tmp");
+        let mut body = py_stmt!(
+            "__dp__.setitem({tmp:id}, {key:expr}, {value:expr})",
+            tmp = tmp.as_str(),
+            key = key,
+            value = value,
+        );
+
+        for comp in generators.iter().rev() {
+            body = self.wrap_comprehension_body(body, comp);
+        }
+
+        self.buf
+            .extend(py_stmt!("{tmp:id} = __dp__.dict(())", tmp = tmp.as_str()));
+        self.buf.extend(body);
+        py_expr!("{tmp:id}", tmp = tmp.as_str())
+    }
+
     pub(crate) fn rewrite_block(&mut self, body: Vec<Stmt>) -> Vec<Stmt> {
         self.process_statements(body)
     }
@@ -208,6 +332,30 @@ fn make_tuple_splat(elts: Vec<Expr>) -> Expr {
         .into_iter()
         .reduce(|left, right| py_expr!("{left:expr} + {right:expr}", left = left, right = right))
         .unwrap_or_else(|| make_tuple(Vec::new()))
+}
+
+fn expr_contains_await(expr: &Expr) -> bool {
+    struct AwaitFinder {
+        found: bool,
+    }
+
+    impl Transformer for AwaitFinder {
+        fn visit_expr(&mut self, expr: &mut Expr) {
+            if matches!(expr, Expr::Await(_)) {
+                self.found = true;
+                return;
+            }
+            if self.found {
+                return;
+            }
+            walk_expr(self, expr);
+        }
+    }
+
+    let mut finder = AwaitFinder { found: false };
+    let mut expr = expr.clone();
+    finder.visit_expr(&mut expr);
+    finder.found
 }
 
 fn expand_if_chain(mut if_stmt: ast::StmtIf) -> ast::StmtIf {
@@ -372,27 +520,47 @@ else:
             }
             Expr::ListComp(ast::ExprListComp {
                 elt, generators, ..
-            }) => py_expr!(
-                "__dp__.list({expr:expr})",
-                expr = make_generator(*elt, generators)
-            ),
+            }) => {
+                if self.comprehension_needs_async(&elt, &generators) {
+                    self.rewrite_async_list_comp(*elt, generators)
+                } else {
+                    py_expr!(
+                        "__dp__.list({expr:expr})",
+                        expr = make_generator(*elt, generators)
+                    )
+                }
+            }
             Expr::SetComp(ast::ExprSetComp {
                 elt, generators, ..
-            }) => py_expr!(
-                "__dp__.set({expr:expr})",
-                expr = make_generator(*elt, generators)
-            ),
+            }) => {
+                if self.comprehension_needs_async(&elt, &generators) {
+                    self.rewrite_async_set_comp(*elt, generators)
+                } else {
+                    py_expr!(
+                        "__dp__.set({expr:expr})",
+                        expr = make_generator(*elt, generators)
+                    )
+                }
+            }
             Expr::DictComp(ast::ExprDictComp {
                 key,
                 value,
                 generators,
                 ..
             }) => {
-                let tuple = py_expr!("({key:expr}, {value:expr})", key = *key, value = *value,);
-                py_expr!(
-                    "__dp__.dict({expr:expr})",
-                    expr = make_generator(tuple, generators)
-                )
+                if expr_contains_await(&key)
+                    || expr_contains_await(&value)
+                    || self.generators_need_async(&generators)
+                {
+                    self.rewrite_async_dict_comp(*key, *value, generators)
+                } else {
+                    let tuple =
+                        py_expr!("({key:expr}, {value:expr})", key = *key, value = *value,);
+                    py_expr!(
+                        "__dp__.dict({expr:expr})",
+                        expr = make_generator(tuple, generators)
+                    )
+                }
             }
 
             // tuple/list/dict unpacking

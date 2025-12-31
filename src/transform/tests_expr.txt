@@ -521,3 +521,29 @@ def f():
             return 2
         else:
             return 3
+
+$ async await in list comprehension
+
+import asyncio
+
+async def gather_once() -> list[int]:
+    queue: asyncio.Queue[int] = asyncio.Queue()
+    await queue.put(1)
+    return [await queue.get() for _ in range(1)]
+=
+asyncio = __dp__.import_("asyncio", __spec__)
+async def gather_once() -> __dp__.getitem(list, int):
+    queue: __dp__.getitem(asyncio.Queue, int)
+    queue = asyncio.Queue()
+    await queue.put(1)
+    _dp_tmp_1 = __dp__.list(())
+    _dp_iter_2 = __dp__.iter(range(1))
+    while True:
+        try:
+            _ = __dp__.next(_dp_iter_2)
+        except:
+            __dp__.check_stopiteration()
+            break
+        else:
+            _dp_tmp_1.append(await queue.get())
+    return _dp_tmp_1
