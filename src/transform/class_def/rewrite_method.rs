@@ -12,6 +12,7 @@ struct MethodTransformer {
     class_expr: String,
     first_arg: Option<String>,
     method_name: String,
+    class_locals: HashSet<String>,
     locals: HashSet<String>,
     params: HashSet<String>,
 }
@@ -73,6 +74,14 @@ impl Transformer for MethodTransformer {
                     }
                     if id == "__class__" {
                         *expr = py_expr!("{cls:id}", cls = self.class_expr.as_str());
+                    } else if self.class_locals.contains(id.as_str())
+                        && !self.locals.contains(id.as_str())
+                        && !self.params.contains(id.as_str())
+                    {
+                        *expr = py_expr!(
+                            "__dp__.global_(globals(), {name:literal})",
+                            name = id.as_str()
+                        );
                     } else if id.as_str() == self.method_name && !self.params.contains(id.as_str())
                     {
                         *expr = py_expr!(
@@ -105,6 +114,7 @@ pub fn rewrite_method(
     func_def: &mut ast::StmtFunctionDef,
     class_name: &str,
     original_method_name: &str,
+    class_locals: &HashSet<String>,
     rewriter: &mut ExprRewriter,
 ) {
     let first_arg = func_def
@@ -127,6 +137,7 @@ pub fn rewrite_method(
         class_expr: class_name.to_string(),
         first_arg,
         method_name: original_method_name.to_string(),
+        class_locals: class_locals.clone(),
         locals: scope.locals.clone(),
         params,
     };

@@ -46,3 +46,35 @@ def _dp_create_class_Foo():
         _dp_class_ns.method = method
     return __dp__.create_class("Foo", _dp_ns_builder, (), None)
 Foo = _dp_create_class_Foo()
+
+$ class method name does not shadow module
+
+import time
+
+class Base:
+    def __init__(self):
+        self.resolution = time.get_clock_info("monotonic").resolution
+
+    def time(self):
+        return time.monotonic()
+
+VALUE = Base().resolution
+=
+time = __dp__.import_("time", __spec__)
+def _dp_create_class_Base():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__qualname__ = "Base"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+
+        def __init__(self):
+            self.resolution = __dp__.global_(globals(), "time").get_clock_info("monotonic").resolution
+        _dp_class_ns.__init__ = __init__
+
+        def time(self):
+            return __dp__.global_(globals(), "time").monotonic()
+        _dp_class_ns.time = time
+    return __dp__.create_class("Base", _dp_ns_builder, (), None)
+Base = _dp_create_class_Base()
+VALUE = Base().resolution

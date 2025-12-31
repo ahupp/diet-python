@@ -381,7 +381,7 @@ def _dp_create_class_Outer():
                 _dp_class_ns.__module__ = __name__
                 _dp_class_ns.__qualname__ = "Outer.Inner"
                 _dp_class_ns.__annotations__ = __dp__.dict()
-            return __dp__.create_class("Inner", _dp_ns_builder, (x,), None)
+            return __dp__.create_class("Inner", _dp_ns_builder, (__dp__.global_(globals(), "x"),), None)
         _dp_class_ns.Inner = _dp_create_class_Outer_Inner()
     return __dp__.create_class("Outer", _dp_ns_builder, (), None)
 Outer = _dp_create_class_Outer()
