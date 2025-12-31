@@ -78,3 +78,45 @@ def _dp_create_class_Base():
     return __dp__.create_class("Base", _dp_ns_builder, (), None)
 Base = _dp_create_class_Base()
 VALUE = Base().resolution
+
+$ nested class method name does not shadow outer method
+
+import time
+
+class Outer:
+    def format_help(self):
+        return "outer"
+
+    class Inner:
+        def format_help(self):
+            return time.get_clock_info("monotonic").resolution
+
+VALUE = Outer.Inner().format_help()
+=
+time = __dp__.import_("time", __spec__)
+def _dp_create_class_Outer():
+
+    def _dp_ns_builder(_dp_class_ns):
+        _dp_class_ns.__module__ = __name__
+        _dp_class_ns.__qualname__ = "Outer"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+
+        def format_help(self):
+            return "outer"
+        _dp_class_ns.format_help = format_help
+
+        def _dp_create_class_Outer_Inner():
+
+            def _dp_ns_builder(_dp_class_ns):
+                _dp_class_ns.__module__ = __name__
+                _dp_class_ns.__qualname__ = "Outer.Inner"
+                _dp_class_ns.__annotations__ = __dp__.dict()
+
+                def format_help(self):
+                    return time.get_clock_info("monotonic").resolution
+                _dp_class_ns.format_help = format_help
+            return __dp__.create_class("Inner", _dp_ns_builder, (), None)
+        _dp_class_ns.Inner = _dp_create_class_Outer_Inner()
+    return __dp__.create_class("Outer", _dp_ns_builder, (), None)
+Outer = _dp_create_class_Outer()
+VALUE = Outer.Inner().format_help()

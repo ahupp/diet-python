@@ -189,14 +189,15 @@ __qualname__ = {class_qualname:literal}
             .map(|stmt| match stmt {
                 Stmt::FunctionDef(mut func_def) => {
                     let fn_name = func_def.name.id.to_string();
-
-                    rewrite_method(
-                        &mut func_def,
-                        &class_name,
-                        fn_name.as_str(),
-                        &class_scope.locals,
-                        rewriter,
-                    );
+                    if !fn_name.starts_with("_dp_") {
+                        rewrite_method(
+                            &mut func_def,
+                            &class_name,
+                            fn_name.as_str(),
+                            &class_scope.locals,
+                            rewriter,
+                        );
+                    }
 
                     assert!(
                         func_def.decorator_list.is_empty(),
