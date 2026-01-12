@@ -42,7 +42,7 @@ async def f():
     else:
         c()
 =
-async def f():
+async def _dp_fn_f():
     _dp_iter_1 = __dp__.aiter(b)
     while True:
         try:
@@ -54,8 +54,7 @@ async def f():
         else:
             if cond:
                 break
-f.__qualname__ = "f"
-f.__code__ = f.__code__.replace(co_qualname="f")
+f = __dp__.update_fn(_dp_fn_f, None, "f")
 
 $ rewrites for loop with starred target
 

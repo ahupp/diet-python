@@ -9,29 +9,26 @@ use crate::{
     transform::context::ScopeInfo,
 };
 
-pub fn rewrite_class_scope(body: &mut Vec<Stmt>, scope: ScopeInfo, enclosing: HashSet<String>) {
-    let mut rewriter = ClassScopeRewriter::new(scope, enclosing);
+pub fn rewrite_class_scope(body: &mut Vec<Stmt>, scope: ScopeInfo) {
+    let locals = scope.local_names();
+    let mut rewriter = ClassScopeRewriter::new(scope, locals);
     rewriter.visit_body(body);
 }
 
 struct ClassScopeRewriter {
-    stored: HashSet<String>,
     globals: HashSet<String>,
     nonlocals: HashSet<String>,
-    enclosing: HashSet<String>,
-    emitted: Vec<Stmt>,
+    locals: HashSet<String>,
 }
 
 impl ClassScopeRewriter {
-    fn new(scope: ScopeInfo, enclosing: HashSet<String>) -> Self {
+    fn new(scope: ScopeInfo, locals: HashSet<String>) -> Self {
         let globals = scope.global_names();
         let nonlocals = scope.nonlocal_names();
         Self {
-            stored: HashSet::new(),
             globals,
             nonlocals,
-            enclosing,
-            emitted: Vec::new(),
+            locals,
         }
     }
 
@@ -39,12 +36,10 @@ impl ClassScopeRewriter {
         !self.globals.contains(name)
             && !self.nonlocals.contains(name)
             && !name.starts_with("_dp_")
-            && !matches!(name, "__dp__" | "globals" | "locals" | "vars")
+            && !matches!(name, "__dp__" | "__classcell__" | "globals" | "locals" | "vars")
+            && (name != "__class__" || self.locals.contains("__class__"))
     }
 
-    fn emit_after(&mut self, stmts: Vec<Stmt>) {
-        self.emitted.extend(stmts);
-    }
 }
 
 impl Transformer for ClassScopeRewriter {
@@ -53,9 +48,6 @@ impl Transformer for ClassScopeRewriter {
         for mut stmt in mem::take(body) {
             self.visit_stmt(&mut stmt);
             new_body.push(stmt);
-            if !self.emitted.is_empty() {
-                new_body.append(&mut self.emitted);
-            }
         }
         *body = new_body;
     }
@@ -63,26 +55,15 @@ impl Transformer for ClassScopeRewriter {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
             Stmt::FunctionDef(ast::StmtFunctionDef {
-                name,
                 decorator_list,
                 parameters,
                 returns,
                 type_params,
                 ..
             }) => {
-                let original_name = name.id.as_str().to_string();
-                if self.should_rewrite(original_name.as_str()) {
-                    self.stored.insert(original_name.clone());
-                    self.emit_after(py_stmt!(
-                        "_dp_class_ns.{storage_name:id} = {name:id}",
-                        storage_name = original_name.as_str(),
-                        name = original_name.as_str(),
-                    ));
-                }
+                // Only visit outer parts of function, not the body
 
-                for decorator in decorator_list {
-                    self.visit_decorator(decorator);
-                }
+                assert!(decorator_list.is_empty(), "decorators should be rewritten to assign");
                 if let Some(type_params) = type_params {
                     self.visit_type_params(type_params);
                 }
@@ -95,10 +76,12 @@ impl Transformer for ClassScopeRewriter {
                 assert!(targets.len() == 1, "assign should have a single target");
                 let target = targets.first_mut().unwrap();
                 if let Expr::Name(ast::ExprName { id, .. }) = target {
+                    if id.as_str() == "__classcell__" {
+                        return;
+                    }
                     self.visit_expr(value);
                     let name = id.as_str();
                     if self.should_rewrite(name) {
-                        self.stored.insert(name.to_string());
                         *target = py_expr!("_dp_class_ns.{storage_name:id}", storage_name = name,);
                     }
                 } else {
@@ -111,7 +94,6 @@ impl Transformer for ClassScopeRewriter {
                 if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
                     let name = id.as_str();
                     if self.should_rewrite(name) {
-                        self.stored.remove(name);
                         *stmt = py_stmt_single(py_stmt!(
                             "del _dp_class_ns.{storage_name:id}",
                             storage_name = name,
@@ -131,6 +113,12 @@ impl Transformer for ClassScopeRewriter {
     }
 
     fn visit_expr(&mut self, expr: &mut Expr) {
+        if let Expr::Lambda(ast::ExprLambda { parameters, .. }) = expr {
+            if let Some(parameters) = parameters {
+                self.visit_parameters(parameters);
+            }
+            return;
+        }
         if let Expr::Call(ast::ExprCall {
             func, arguments, ..
         }) = expr
@@ -152,16 +140,11 @@ impl Transformer for ClassScopeRewriter {
                 if !self.should_rewrite(name_str) {
                     return;
                 }
-                if self.stored.contains(name_str) {
-                    *expr = py_expr!("_dp_class_ns.{storage_name:id}", storage_name = name_str,);
-                } else if self.enclosing.contains(name_str) {
-                    return;
-                } else {
-                    *expr = py_expr!(
-                        "__dp__.class_lookup(_dp_class_ns, globals(), {name:literal})",
-                        name = name_str,
-                    );
-                }
+                *expr = py_expr!(
+                    "__dp__.class_lookup({name:literal}, _dp_class_ns, lambda: {name:id})",
+                    name = name_str,
+                );
+                return;
             }
         }
         walk_expr(self, expr);

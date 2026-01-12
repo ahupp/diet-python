@@ -52,5 +52,6 @@ impl Options {
 
 #[cfg(test)]
 mod tests {
+    crate::transform_fixture_test!(class_scope_fixture, "test_class_scope.txt");
     crate::transform_fixture_test!("tests_mod.txt");
 }

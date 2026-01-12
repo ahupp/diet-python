@@ -139,15 +139,16 @@ def {func:id}({param:id}):
     };
 
     buf.extend(func_def);
+    let scope = scope_expr(&qualname, "<genexpr>");
     buf.extend(py_stmt!(
         r#"
 {func:id}.__name__ = {name:literal}
-{func:id}.__qualname__ = {qualname:literal}
-{func:id}.__code__ = {func:id}.__code__.replace(co_name={name:literal}, co_qualname={qualname:literal})
+{func:id}.__code__ = {func:id}.__code__.replace(co_name={name:literal})
+{func:id} = __dp__.update_fn({func:id}, {scope:expr}, {name:literal})
 "#,
         func = func_name.as_str(),
         name = "<genexpr>",
-        qualname = qualname,
+        scope = scope,
     ));
 
     if generators
@@ -167,4 +168,16 @@ def {func:id}({param:id}):
             func = func_name.as_str(),
         )
     }
+}
+
+fn scope_expr(qualname: &str, name: &str) -> Expr {
+    if qualname == name {
+        return py_expr!("None");
+    }
+    if let Some(scope) = qualname.strip_suffix(name) {
+        if let Some(scope) = scope.strip_suffix('.') {
+            return py_expr!("{scope:literal}", scope = scope);
+        }
+    }
+    py_expr!("None")
 }

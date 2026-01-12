@@ -58,8 +58,6 @@ return lambda: 1
 =
 def _dp_lambda_1():
     return 1
-_dp_lambda_1.__qualname__ = "_dp_lambda_1"
-_dp_lambda_1.__code__ = _dp_lambda_1.__code__.replace(co_qualname="_dp_lambda_1")
 _dp_lambda_1.__name__ = "<lambda>"
 _dp_lambda_1.__qualname__ = "<lambda>"
 return _dp_lambda_1
@@ -70,8 +68,6 @@ x = lambda: 1
 =
 def _dp_lambda_1():
     return 1
-_dp_lambda_1.__qualname__ = "_dp_lambda_1"
-_dp_lambda_1.__code__ = _dp_lambda_1.__code__.replace(co_qualname="_dp_lambda_1")
 _dp_lambda_1.__name__ = "<lambda>"
 _dp_lambda_1.__qualname__ = "<lambda>"
 x = _dp_lambda_1
@@ -90,11 +86,9 @@ def _dp_gen_1(_dp_iter_2):
             break
         else:
             yield i
-_dp_gen_1.__qualname__ = "_dp_gen_1"
-_dp_gen_1.__code__ = _dp_gen_1.__code__.replace(co_qualname="_dp_gen_1")
 _dp_gen_1.__name__ = "<genexpr>"
-_dp_gen_1.__qualname__ = "<genexpr>"
-_dp_gen_1.__code__ = _dp_gen_1.__code__.replace(co_name="<genexpr>", co_qualname="<genexpr>")
+_dp_gen_1.__code__ = _dp_gen_1.__code__.replace(co_name="<genexpr>")
+_dp_gen_1 = __dp__.update_fn(_dp_gen_1, None, "<genexpr>")
 x = _dp_gen_1(__dp__.iter(items))
 
 $ rewrites yield from expression

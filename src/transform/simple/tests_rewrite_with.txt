@@ -57,7 +57,7 @@ async def f():
     async with a as b:
         c
 =
-async def f():
+async def _dp_fn_f():
     _dp_with_enter_1 = await __dp__.with_aenter(a)
     b = __dp__.getitem(_dp_with_enter_1, 0)
     _dp_with_exit_2 = __dp__.getitem(_dp_with_enter_1, 1)
@@ -72,8 +72,7 @@ async def f():
             await __dp__.with_aexit(_dp_with_exit_2, None)
         _dp_with_exit_2 = None
         _dp_with_enter_1 = None
-f.__qualname__ = "f"
-f.__code__ = f.__code__.replace(co_qualname="f")
+f = __dp__.update_fn(_dp_fn_f, None, "f")
 
 $ rewrites with starred target
 

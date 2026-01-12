@@ -5,6 +5,9 @@ This module is imported automatically by Python if present on the
 subsequent imports are transformed before execution.
 """
 
+import os
+
 import diet_import_hook
 
-diet_import_hook.install()
+if os.environ.get("DIET_PYTHON_INSTALL_HOOK") == "1":
+    diet_import_hook.install()

@@ -51,7 +51,6 @@ const TRANSFORM_TOGGLES: &[TransformToggle] = &[
 pub mod body_transform;
 pub mod ensure_import;
 pub mod fixture;
-pub mod intrinsics;
 pub mod min_ast;
 mod template;
 #[cfg(test)]
@@ -120,11 +119,11 @@ fn contains_surrogate_escape(source: &str) -> bool {
 }
 
 fn apply_transforms(module: &mut ModModule, options: Options, source: &str) {
+    let ctx = Context::new(options, source);
     transform::rewrite_future_annotations::rewrite(&mut module.body);
 
     // Lower `for` loops, expand generators and lambdas, and replace
     // `__dp__.<name>` calls with `getattr` in a single pass.
-    let ctx = Context::new(options, source);
     let mut expr_transformer = ExprRewriter::new(ctx);
     expr_transformer.visit_body(&mut module.body);
 

@@ -13,7 +13,7 @@ use crate::{
     transform::class_def,
 };
 use crate::{py_expr, py_stmt};
-use ruff_python_ast::{self as ast, Expr, Operator, Stmt, UnaryOp};
+use ruff_python_ast::{self as ast, Expr, Identifier, Operator, Stmt, UnaryOp};
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_source_file::LineEnding;
 use ruff_text_size::TextRange;
@@ -23,6 +23,7 @@ pub struct ExprRewriter {
     ctx: Context,
     options: Options,
     buf: Vec<Stmt>,
+    qualname_stack: Vec<(ScopeKind, String)>,
 }
 
 pub(crate) enum Rewrite {
@@ -30,13 +31,6 @@ pub(crate) enum Rewrite {
     Visit(Vec<Stmt>),
 }
 
-impl Rewrite {
-    pub(crate) fn into_statements(self) -> Vec<Stmt> {
-        match self {
-            Rewrite::Walk(stmts) | Rewrite::Visit(stmts) => stmts,
-        }
-    }
-}
 
 impl ExprRewriter {
     pub fn new(ctx: Context) -> Self {
@@ -44,6 +38,7 @@ impl ExprRewriter {
             options: ctx.options,
             ctx,
             buf: Vec::new(),
+            qualname_stack: Vec::new(),
         }
     }
 
@@ -165,6 +160,135 @@ for {target:expr} in {iter:expr}:
         result
     }
 
+    fn current_qualname(&self) -> Option<String> {
+        let mut iter = self.qualname_stack.iter();
+        let first = iter.next()?;
+        let mut qualname = first.1.clone();
+        let mut prev_is_function = matches!(first.0, ScopeKind::Function);
+        for (kind, name) in iter {
+            if prev_is_function {
+                qualname = format!("{qualname}.<locals>.{name}");
+            } else {
+                qualname = format!("{qualname}.{name}");
+            }
+            prev_is_function = matches!(kind, ScopeKind::Function);
+        }
+        Some(qualname)
+    }
+
+    fn scope_expr_for_child(&self) -> Expr {
+        match self.context().current_qualname() {
+            Some((mut scope, kind)) => {
+                if kind == ScopeKind::Function {
+                    scope.push_str(".<locals>");
+                }
+                py_expr!("{scope:literal}", scope = scope.as_str())
+            }
+            None => py_expr!("None"),
+        }
+    }
+
+    fn decorator_placeholders(
+        &mut self,
+        decorators: Vec<ast::Decorator>,
+    ) -> (Vec<Stmt>, Vec<Expr>) {
+        let mut prelude = Vec::new();
+        let mut exprs = Vec::with_capacity(decorators.len());
+        for decorator in decorators {
+            let expr = decorator.expression;
+            if is_simple(&expr) {
+                exprs.push(expr);
+            } else {
+                let tmp = self.ctx.fresh("tmp");
+                prelude.extend(py_stmt!(
+                    "{tmp:id} = {value:expr}",
+                    tmp = tmp.as_str(),
+                    value = expr
+                ));
+                exprs.push(py_expr!("{tmp:id}", tmp = tmp.as_str()));
+            }
+        }
+        (prelude, exprs)
+    }
+
+    fn rewrite_function_def_in_class(&mut self, mut func_def: ast::StmtFunctionDef) -> Vec<Stmt> {
+        let original_name = func_def.name.id.to_string();
+        if original_name.starts_with("_dp_") {
+            return vec![Stmt::FunctionDef(func_def)];
+        }
+
+        let renamed = format!("_dp_fn_{original_name}");
+        func_def.name = Identifier::new(renamed.as_str(), TextRange::default());
+
+        let decorators = take(&mut func_def.decorator_list);
+        let (mut prelude, decorator_exprs) = self.decorator_placeholders(decorators);
+
+        let scope_expr = self.scope_expr_for_child();
+        let mut decorated = py_expr!(
+            "__dp__.update_fn({name:id}, {scope:expr}, {orig:literal})",
+            name = renamed.as_str(),
+            scope = scope_expr,
+            orig = original_name.as_str(),
+        );
+        for decorator in decorator_exprs.into_iter().rev() {
+            decorated = py_expr!(
+                "{decorator:expr}({decorated:expr})",
+                decorator = decorator,
+                decorated = decorated
+            );
+        }
+        prelude.push(Stmt::FunctionDef(func_def));
+        prelude.extend(py_stmt!(
+            "{name:id} = {decorated:expr}",
+            name = original_name.as_str(),
+            decorated = decorated
+        ));
+        prelude
+    }
+
+    fn rewrite_class_body_function_defs(&mut self, body: &mut Vec<Stmt>) {
+        struct Rewriter<'a> {
+            driver: &'a mut ExprRewriter,
+        }
+
+        impl Transformer for Rewriter<'_> {
+            fn visit_body(&mut self, body: &mut Vec<Stmt>) {
+                let mut rewritten = Vec::with_capacity(body.len());
+                for stmt in take(body) {
+                    match stmt {
+                        Stmt::FunctionDef(func_def) => {
+                            rewritten.extend(self.driver.rewrite_function_def_in_class(func_def));
+                        }
+                        Stmt::ClassDef(mut class_def) => {
+                            let name = class_def.name.id.to_string();
+                            self.driver
+                                .qualname_stack
+                                .push((ScopeKind::Class, name));
+                            self.visit_body(&mut class_def.body);
+                            self.driver.qualname_stack.pop();
+                            rewritten.push(Stmt::ClassDef(class_def));
+                        }
+                        mut other => {
+                            self.visit_stmt(&mut other);
+                            rewritten.push(other);
+                        }
+                    }
+                }
+                *body = rewritten;
+            }
+
+            fn visit_stmt(&mut self, stmt: &mut Stmt) {
+                match stmt {
+                    Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {}
+                    _ => walk_stmt(self, stmt),
+                }
+            }
+        }
+
+        let mut rewriter = Rewriter { driver: self };
+        rewriter.visit_body(body);
+    }
+
     fn process_statements(&mut self, initial: Vec<Stmt>) -> Vec<Stmt> {
         enum WorkItem {
             Process(Stmt),
@@ -243,25 +367,68 @@ for {target:expr} in {iter:expr}:
 
     fn rewrite_function_def(&mut self, mut func_def: ast::StmtFunctionDef) -> Rewrite {
         let func_name = func_def.name.id.to_string();
-        let scope = self.context().analyze_function_scope(&func_def);
-        let qualname_literal = scope.qualname.clone();
+        let mut scope = self.context().analyze_function_scope(&func_def);
+        let should_rewrite = !func_name.starts_with("_dp_");
+        let original_name = func_name.clone();
+        let renamed = if should_rewrite {
+            format!("_dp_fn_{func_name}")
+        } else {
+            func_name.clone()
+        };
 
+        if should_rewrite {
+            func_def.name = Identifier::new(renamed.as_str(), TextRange::default());
+        }
+
+        if !should_rewrite {
+            if let Some(stripped) = func_name.strip_prefix("_dp_fn_") {
+                if let Some((prefix, _)) = scope.qualname.rsplit_once('.') {
+                    scope.qualname = format!("{prefix}.{stripped}");
+                } else {
+                    scope.qualname = stripped.to_string();
+                }
+            }
+        }
+
+        let scope_expr = self.scope_expr_for_child();
+        let qualname_entry = if let Some(stripped) = func_name.strip_prefix("_dp_fn_") {
+            stripped.to_string()
+        } else {
+            original_name.clone()
+        };
+        self.qualname_stack
+            .push((ScopeKind::Function, qualname_entry));
         func_def.body = self.with_function_scope(scope, |rewriter| {
             rewriter.rewrite_block(take(&mut func_def.body))
         });
+        self.qualname_stack.pop();
 
         let decorators = take(&mut func_def.decorator_list);
-        let mut func_items = vec![Stmt::FunctionDef(func_def)];
-        let qualname_stmt = py_stmt!(
-            r#"
-{name:id}.__qualname__ = {qualname:literal}
-{name:id}.__code__ = {name:id}.__code__.replace(co_qualname={qualname:literal})"#,
-            name = func_name.as_str(),
-            qualname = qualname_literal.clone(),
-        );
-        func_items.extend(qualname_stmt);
+        if !should_rewrite {
+            return rewrite_decorator::rewrite(decorators, func_name.as_str(), vec![Stmt::FunctionDef(func_def)], self);
+        }
 
-        rewrite_decorator::rewrite(decorators, func_name.as_str(), func_items, self)
+        let (mut prelude, decorator_exprs) = self.decorator_placeholders(decorators);
+        let mut decorated = py_expr!(
+            "__dp__.update_fn({name:id}, {scope:expr}, {orig:literal})",
+            name = renamed.as_str(),
+            scope = scope_expr,
+            orig = original_name.as_str(),
+        );
+        for decorator in decorator_exprs.into_iter().rev() {
+            decorated = py_expr!(
+                "{decorator:expr}({decorated:expr})",
+                decorator = decorator,
+                decorated = decorated
+            );
+        }
+        prelude.push(Stmt::FunctionDef(func_def));
+        prelude.extend(py_stmt!(
+            "{name:id} = {decorated:expr}",
+            name = original_name.as_str(),
+            decorated = decorated
+        ));
+        Rewrite::Visit(prelude)
     }
 
     fn rewrite_stmt(&mut self, stmt: Stmt) -> Rewrite {
@@ -271,7 +438,13 @@ for {target:expr} in {iter:expr}:
             Stmt::While(while_stmt) => rewrite_loop::rewrite_while(while_stmt, self),
             Stmt::For(for_stmt) => rewrite_loop::rewrite_for(for_stmt, self),
             Stmt::Assert(assert) => rewrite_assert::rewrite(assert),
-            Stmt::ClassDef(class_def) => class_def::rewrite(class_def, self),
+            Stmt::ClassDef(mut class_def) => {
+                let name = class_def.name.id.to_string();
+                self.qualname_stack.push((ScopeKind::Class, name));
+                self.rewrite_class_body_function_defs(&mut class_def.body);
+                self.qualname_stack.pop();
+                class_def::rewrite(class_def, self)
+            }
             Stmt::Try(try_stmt) => rewrite_exception::rewrite_try(try_stmt, &self.ctx),
             Stmt::If(if_stmt)
                 if if_stmt

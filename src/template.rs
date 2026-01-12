@@ -2,6 +2,7 @@
 macro_rules! py_expr {
     ($template:literal $(, $name:ident = $value:expr)* $(,)?) => {{
         use ruff_python_ast::{self as ast, Stmt};
+        #[allow(unused_imports)]
         use crate::py_stmt;
         let stmts = py_stmt!($template $(, $name = $value)*);
         if stmts.len() != 1 {

@@ -11,8 +11,8 @@ use crate::{
 struct MethodTransformer {
     first_arg: Option<String>,
     method_name: String,
-    class_locals: HashSet<String>,
     locals: HashSet<String>,
+    needs_class_cell: bool,
 }
 
 impl Transformer for MethodTransformer {
@@ -36,7 +36,7 @@ impl Transformer for MethodTransformer {
                     };
 
                 if is_zero_arg_super {
-                    walk_expr(self, expr);
+                    self.needs_class_cell = true;
 
                     *expr = match &self.first_arg {
                         Some(arg) => {
@@ -48,20 +48,15 @@ impl Transformer for MethodTransformer {
             }
             Expr::Name(ast::ExprName { id, ctx, .. }) => {
                 if matches!(ctx, ExprContext::Load) {
-                    if self.class_locals.contains(id.as_str())
-                        && !self.locals.contains(id.as_str())
-                    {
-                        *expr = py_expr!(
-                            "__dp__.global_(globals(), {name:literal})",
-                            name = id.as_str()
-                        );
-                    } else if id.as_str() == self.method_name
+                    if id.as_str() == self.method_name
                         && !self.locals.contains(id.as_str())
                     {
                         *expr = py_expr!(
                             "__dp__.global_(globals(), {name:literal})",
                             name = self.method_name.as_str()
                         );
+                    } else if id.as_str() == "__class__" && !self.locals.contains("__class__") {
+                        self.needs_class_cell = true;
                     }
                 }
                 return;
@@ -77,9 +72,8 @@ pub fn rewrite_method(
     func_def: &mut ast::StmtFunctionDef,
     class_qualname: &str,
     original_method_name: &str,
-    class_locals: &HashSet<String>,
     rewriter: &mut ExprRewriter,
-) {
+) -> bool {
     let first_arg = func_def
         .parameters
         .posonlyargs
@@ -100,8 +94,8 @@ pub fn rewrite_method(
     let mut transformer = MethodTransformer {
         first_arg,
         method_name: original_method_name.to_string(),
-        class_locals: class_locals.clone(),
         locals,
+        needs_class_cell: false,
     };
     for stmt in &mut func_def.body {
         transformer.visit_stmt(stmt);
@@ -110,4 +104,5 @@ pub fn rewrite_method(
     let body = take(&mut func_def.body);
     func_def.body =
         rewriter.with_function_scope(scope, move |rewriter| rewriter.rewrite_block(body));
+    transformer.needs_class_cell
 }

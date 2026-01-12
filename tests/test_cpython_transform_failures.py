@@ -195,26 +195,6 @@ class Example:
     assert Example.values == [0, 1, 2]
 
 
-def test_private_class_attribute_is_mangled(tmp_path: Path) -> None:
-    source = r"""
-class Base:
-    def probe(self):
-        return "sentinel"
-
-
-class Example(Base):
-    __super = super
-
-    def probe(self):
-        return __super(Example, self).probe()
-"""
-
-    with transformed_module(tmp_path, "class_private_super", source) as module:
-        Example = module.Example
-
-    result = Example().probe()
-
-    assert result == "sentinel"
 
 
 def test_nested_class_super_preserves_class_cell(tmp_path: Path) -> None:

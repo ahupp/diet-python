@@ -5,10 +5,9 @@ from __future__ import annotations
 def f(x: list[int], y: dict[str, int]) -> tuple[str, ...]:
     return x
 =
-def f(x: "list[int]", y: "dict[str, int]") -> "tuple[str, ...]":
+def _dp_fn_f(x: "list[int]", y: "dict[str, int]") -> "tuple[str, ...]":
     return x
-f.__qualname__ = "f"
-f.__code__ = f.__code__.replace(co_qualname="f")
+f = __dp__.update_fn(_dp_fn_f, None, "f")
 
 $ preserves other future imports
 
@@ -18,17 +17,15 @@ def g(x: int | None):
     pass
 =
 from __future__ import division
-def g(x: "int | None"):
+def _dp_fn_g(x: "int | None"):
     pass
-g.__qualname__ = "g"
-g.__code__ = g.__code__.replace(co_qualname="g")
+g = __dp__.update_fn(_dp_fn_g, None, "g")
 
 $ leaves annotations untouched without future import
 
 def h(x: list[int]):
     return x
 =
-def h(x: __dp__.getitem(list, int)):
+def _dp_fn_h(x: __dp__.getitem(list, int)):
     return x
-h.__qualname__ = "h"
-h.__code__ = h.__code__.replace(co_qualname="h")
+h = __dp__.update_fn(_dp_fn_h, None, "h")

@@ -346,15 +346,6 @@ impl Context {
         }
     }
 
-    pub fn enclosing_function_locals(&self) -> HashSet<String> {
-        self.function_scopes
-            .borrow()
-            .iter()
-            .rev()
-            .find(|scope| scope.kind == ScopeKind::Function)
-            .map(|scope| scope.local_names())
-            .unwrap_or_default()
-    }
 }
 
 fn is_internal_function(qualname: &str) -> bool {

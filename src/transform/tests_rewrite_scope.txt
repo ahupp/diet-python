@@ -10,25 +10,22 @@ def outer():
     return inner()
 =
 x = 1
-def outer():
+def _dp_fn_outer():
     y = 2
 
-    def inner():
+    def _dp_fn_inner():
         nonlocal y
         global x
         y = x
         return y
-    inner.__qualname__ = "outer.<locals>.inner"
-    inner.__code__ = inner.__code__.replace(co_qualname="outer.<locals>.inner")
+    inner = __dp__.update_fn(_dp_fn_inner, "outer.<locals>", "inner")
     return inner()
-outer.__qualname__ = "outer"
-outer.__code__ = outer.__code__.replace(co_qualname="outer")
+outer = __dp__.update_fn(_dp_fn_outer, None, "outer")
 
 $ params seeded
 def f(a, b):
     return a + b
 =
-def f(a, b):
+def _dp_fn_f(a, b):
     return __dp__.add(a, b)
-f.__qualname__ = "f"
-f.__code__ = f.__code__.replace(co_qualname="f")
+f = __dp__.update_fn(_dp_fn_f, None, "f")

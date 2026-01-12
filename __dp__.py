@@ -67,13 +67,13 @@ def missing_name(name):
     raise NameError(name)
 
 
+# TODO: very questionable
 def float_from_literal(literal):
     # Preserve CPython's literal parsing for values that Rust rounds differently.
     return float(literal.replace("_", ""))
 
 
-
-
+# TODO: questionable, can we defer any scope awareness?
 def global_(globals_dict, name):
     if name in globals_dict:
         return globals_dict[name]
@@ -84,11 +84,20 @@ def global_(globals_dict, name):
     return missing_name(name)
 
 
-def class_lookup(class_ns, globals_dict, name):
+_MISSING = object()
+
+
+def class_lookup(name, class_ns, lookup_fn):
     try:
-        return class_ns[name]
-    except KeyError:
-        return global_(globals_dict, name)
+        value = class_ns.get(name, _MISSING)
+    except AttributeError:
+        try:
+            return class_ns[name]
+        except KeyError:
+            return lookup_fn()
+    if value is _MISSING:
+        return lookup_fn()
+    return value
 
 
 def _validate_exception_type(exc_type):
@@ -159,6 +168,17 @@ def prepare_class(name, bases, kwds=None):
     if kwds is None:
         return _types.prepare_class(name, bases)
     return _types.prepare_class(name, bases, kwds)
+
+
+class _ClassCell:
+    __slots__ = ("_locals",)
+
+    def __init__(self):
+        self._locals = {}
+
+
+def make_classcell():
+    return _ClassCell()
 
 
 def super_(class_namespace, instance_or_cls):
@@ -280,44 +300,25 @@ def _set_qualname(obj, qualname):
         pass
 
 
-def _update_qualname(owner_module, owner_qualname, attr_name, value):
-    target = f"{owner_qualname}.{attr_name}"
-
-    def update_if_local(obj):
-        if getattr(obj, "__module__", None) != owner_module:
-            return
-        qualname = getattr(obj, "__qualname__", None)
-        if not isinstance(qualname, str):
-            return
-        if qualname.startswith("_dp_"):
-            return
-        if "<locals>" not in qualname:
-            return
-        _set_qualname(obj, target)
-        if isinstance(obj, _types.FunctionType):
-            try:
-                obj.__code__ = obj.__code__.replace(co_qualname=target)
-            except (AttributeError, ValueError):
-                pass
-
-    if isinstance(value, staticmethod):
-        _update_qualname(owner_module, owner_qualname, attr_name, value.__func__)
-    elif isinstance(value, classmethod):
-        _update_qualname(owner_module, owner_qualname, attr_name, value.__func__)
-    elif isinstance(value, property):
-        if value.fget is not None:
-            update_if_local(value.fget)
-        if value.fset is not None:
-            update_if_local(value.fset)
-        if value.fdel is not None:
-            update_if_local(value.fdel)
-    elif isinstance(value, _types.FunctionType):
-        update_if_local(value)
+def update_fn(func, scope, name):
+    if scope is None:
+        qualname = name
     else:
-        wrapped = getattr(value, "__wrapped__", None)
-        if wrapped is not None and wrapped is not value:
-            _update_qualname(owner_module, owner_qualname, attr_name, wrapped)
-        update_if_local(value)
+        qualname = f"{scope}.{name}"
+    _set_qualname(func, qualname)
+    try:
+        func.__name__ = name
+    except (AttributeError, TypeError):
+        pass
+    if isinstance(func, _types.FunctionType):
+        try:
+            func.__code__ = func.__code__.replace(
+                co_name=name,
+                co_qualname=qualname,
+            )
+        except (AttributeError, ValueError):
+            pass
+    return func
 
 
 _typing = None
@@ -371,15 +372,17 @@ def create_class(name, namespace_fn, bases, kwds=None):
 
     namespace = _ClassNamespace(ns)
     namespace_fn(namespace)
-    qualname = ns.get("__qualname__", name)
-    module_name = ns.get("__module__")
-    for attr_name, value in list(ns.items()):
-        if attr_name == "__qualname__":
-            continue
-        _update_qualname(module_name, qualname, attr_name, value)
+    class_cell = ns.pop("__classcell__", None)
+
     if orig_bases is not bases and "__orig_bases__" not in ns:
         ns["__orig_bases__"] = orig_bases
     cls = meta(name, bases, ns, **meta_kwds)
+    if class_cell is not None:
+        try:
+            locals_dict = object.__getattribute__(class_cell, "_locals")
+            locals_dict["__dp_class"] = cls
+        except Exception:
+            pass
     namespace._locals["__dp_class"] = cls
     return cls
 

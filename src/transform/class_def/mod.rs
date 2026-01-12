@@ -11,7 +11,7 @@ use ruff_python_ast::{
 };
 use ruff_text_size::TextRange;
 
-use crate::body_transform::Transformer;
+use crate::body_transform::{walk_expr, walk_stmt, Transformer};
 use crate::template::py_stmt_single;
 use crate::transform::class_def::rewrite_annotation::AnnotationCollector;
 use crate::transform::class_def::rewrite_class_vars::rewrite_class_scope;
@@ -21,7 +21,92 @@ use crate::transform::driver::{ExprRewriter, Rewrite};
 
 use std::mem::take;
 
-use crate::body_transform::walk_stmt;
+fn rewrite_methods_in_class_body(
+    body: &mut Vec<Stmt>,
+    class_qualname: &str,
+    rewriter: &mut ExprRewriter,
+) -> bool {
+    let mut rewriter = MethodRewriter {
+        class_qualname: class_qualname.to_string(),
+        expr_rewriter: rewriter,
+        needs_class_cell: false,
+    };
+    rewriter.visit_body(body);
+    rewriter.needs_class_cell
+}
+
+struct MethodQualnameRewriter {
+    class_qualname: String,
+}
+
+impl Transformer for MethodQualnameRewriter {
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
+        match stmt {
+            Stmt::FunctionDef(_) | Stmt::ClassDef(_) => return,
+            _ => walk_stmt(self, stmt),
+        }
+    }
+
+    fn visit_expr(&mut self, expr: &mut Expr) {
+        if let Expr::Call(ast::ExprCall {
+            func, arguments, ..
+        }) = expr
+        {
+            let is_update_fn = match func.as_ref() {
+                Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
+                    if let Expr::Name(ast::ExprName { id, .. }) = value.as_ref() {
+                        id.as_str() == "__dp__" && attr.as_str() == "update_fn"
+                    } else {
+                        false
+                    }
+                }
+                Expr::Name(ast::ExprName { id, .. }) => id.as_str() == "update_fn",
+                _ => false,
+            };
+
+            if is_update_fn && arguments.args.len() >= 2 {
+                arguments.args[1] = py_expr!(
+                    "{qualname:literal}",
+                    qualname = self.class_qualname.as_str()
+                );
+            }
+        }
+        walk_expr(self, expr);
+    }
+}
+
+struct MethodRewriter<'a> {
+    class_qualname: String,
+    expr_rewriter: &'a mut ExprRewriter,
+    needs_class_cell: bool,
+}
+
+impl<'a> Transformer for MethodRewriter<'a> {
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
+        match stmt {
+            Stmt::FunctionDef(func_def) => {
+                let fn_name = func_def.name.id.to_string();
+                assert!(
+                    func_def.decorator_list.is_empty(),
+                    "decorators should be gone by now"
+                );
+                assert!(fn_name.starts_with("_dp_"), "function name should start with _dp_");
+                if let Some(original_name) =
+                    fn_name.strip_prefix("_dp_fn_")
+                {
+                    self.needs_class_cell |= rewrite_method(
+                        func_def,
+                        &self.class_qualname,
+                        original_name,
+                        self.expr_rewriter,
+                    );
+                }
+            }
+            Stmt::ClassDef(_) => {}
+            _ => walk_stmt(self, stmt),
+        }
+    }
+}
 
 pub struct NestedClassCollector<'a> {
     rewriter: &'a mut ExprRewriter,
@@ -189,37 +274,31 @@ __qualname__ = {class_qualname:literal}
             annotations = annotation_stmt,
         );
 
-        let ns_builder = rewriter.rewrite_block(ns_builder);
+        let mut ns_builder = rewriter.rewrite_block(ns_builder);
 
-        let class_locals = class_scope.local_names();
-        let mut ns_builder: Vec<Stmt> = ns_builder
-            .into_iter()
-            .map(|stmt| match stmt {
-                Stmt::FunctionDef(mut func_def) => {
-                    let fn_name = func_def.name.id.to_string();
-                    if !fn_name.starts_with("_dp_") {
-                        rewrite_method(
-                            &mut func_def,
-                            &class_qualname,
-                            fn_name.as_str(),
-                            &class_locals,
-                            rewriter,
-                        );
-                    }
+        let needs_class_cell = rewrite_methods_in_class_body(
+            &mut ns_builder,
+            &class_qualname,
+            rewriter,
+        );
 
-                    assert!(
-                        func_def.decorator_list.is_empty(),
-                        "decorators should be gone by now"
-                    );
+        let mut method_qualname_rewriter = MethodQualnameRewriter {
+            class_qualname: class_qualname.clone(),
+        };
+        method_qualname_rewriter.visit_body(&mut ns_builder);
 
-                    Stmt::FunctionDef(func_def)
-                }
-                other => other,
-            })
-            .collect();
+        rewrite_class_scope(&mut ns_builder, class_scope);
 
-        let enclosing_locals = rewriter.context().enclosing_function_locals();
-        rewrite_class_scope(&mut ns_builder, class_scope, enclosing_locals);
+        if needs_class_cell {
+            ns_builder = py_stmt!(
+                r#"
+__class__ = __dp__.make_classcell()
+_dp_class_ns.__classcell__ = __class__
+{ns_builder:stmt}
+"#, ns_builder = ns_builder,
+            );
+        }
+
 
         ns_builder
     });
@@ -358,7 +437,7 @@ pub fn class_call_arguments(
             let base_expr = if in_class_scope {
                 if let Expr::Name(ast::ExprName { id, .. }) = &base {
                     py_expr!(
-                        "__dp__.class_lookup(_dp_class_ns, globals(), {name:literal})",
+                        "__dp__.class_lookup({name:literal}, _dp_class_ns, lambda: {name:id})",
                         name = id.as_str()
                     )
                 } else {
@@ -373,7 +452,7 @@ pub fn class_call_arguments(
             let value = if in_class_scope {
                 if let Expr::Name(ast::ExprName { id, .. }) = &kw.value {
                     py_expr!(
-                        "__dp__.class_lookup(_dp_class_ns, globals(), {name:literal})",
+                        "__dp__.class_lookup({name:literal}, _dp_class_ns, lambda: {name:id})",
                         name = id.as_str()
                     )
                 } else {
