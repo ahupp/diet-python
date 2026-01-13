@@ -7,16 +7,19 @@ else:
     c()
 =
 _dp_iter_1 = __dp__.iter(b)
+_dp_loop_broken_2 = False
 while True:
     try:
         a = __dp__.next(_dp_iter_1)
     except:
         __dp__.check_stopiteration()
-        c()
         break
     else:
         if cond:
+            _dp_loop_broken_2 = True
             break
+if __dp__.not_(_dp_loop_broken_2):
+    c()
 
 $ rewrites for loop without else
 
@@ -43,18 +46,32 @@ async def f():
         c()
 =
 async def _dp_fn_f():
-    _dp_iter_1 = __dp__.aiter(b)
+    _dp_iter_obj_4 = b
+    if __dp__.not_(hasattr(_dp_iter_obj_4, "__aiter__")):
+        _dp_iter_type_5 = type(_dp_iter_obj_4).__name__
+        _dp_iter_obj_4 = None
+        raise TypeError(__dp__.add("'async for' requires an object with __aiter__ method, got ", _dp_iter_type_5))
+    _dp_iter_1 = _dp_iter_obj_4.__aiter__()
+    if __dp__.not_(hasattr(_dp_iter_1, "__anext__")):
+        _dp_iter_type_5 = type(_dp_iter_1).__name__
+        _dp_iter_1 = None
+        raise TypeError(__dp__.add("'async for' received an object from __aiter__ that does not implement __anext__: ", _dp_iter_type_5))
+    _dp_loop_broken_2 = False
     while True:
         try:
-            a = await __dp__.anext(_dp_iter_1)
+            _dp_iter_next_3 = await __dp__.anext(_dp_iter_1)
         except:
             __dp__.acheck_stopiteration()
-            c()
             break
         else:
+            a = _dp_iter_next_3
             if cond:
+                _dp_loop_broken_2 = True
                 break
+    if __dp__.not_(_dp_loop_broken_2):
+        c()
 f = __dp__.update_fn(_dp_fn_f, None, "f")
+del _dp_fn_f
 
 $ rewrites for loop with starred target
 

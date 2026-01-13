@@ -293,6 +293,24 @@ impl Context {
             .map_or(false, |info| info.is_global(name))
     }
 
+    pub fn is_global_in_current_scope(&self, name: &str) -> bool {
+        self.function_scopes
+            .borrow()
+            .iter()
+            .rev()
+            .find(|scope| scope.kind == ScopeKind::Function)
+            .map_or(false, |info| info.is_global(name))
+    }
+
+    pub fn is_nonlocal_in_current_scope(&self, name: &str) -> bool {
+        self.function_scopes
+            .borrow()
+            .iter()
+            .rev()
+            .find(|scope| scope.kind == ScopeKind::Function)
+            .map_or(false, |info| info.is_nonlocal(name))
+    }
+
     pub fn analyze_function_scope(&self, func_def: &ast::StmtFunctionDef) -> ScopeInfo {
         let info = collect_scope_info(&func_def.body);
         let mut bindings = info.bindings;

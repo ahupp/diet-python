@@ -1,0 +1,104 @@
+$ typing generics cases
+from __future__ import annotations
+
+from typing import Generic, TypeVar, get_type_hints
+
+T = TypeVar("T")
+
+
+class Outer(Generic[T]):
+    class Inner(Generic[T]):
+        pass
+
+    inner_ref: Inner
+
+
+class C[T]:
+    value: T
+
+
+def inner_class_hint_is_inner() -> bool:
+    return get_type_hints(Outer)["inner_ref"] is Outer.Inner
+
+
+def pep695_generic_info():
+    hints = get_type_hints(C)
+    return (
+        "T" in C.__dict__,
+        C.__bases__,
+        C.__orig_bases__,
+        C.__type_params__,
+        hints["value"],
+    )
+=
+_dp_import_1 = __dp__.import_("typing", __spec__, __dp__.list(("Generic", "TypeVar", "get_type_hints")))
+Generic = __dp__.import_attr(_dp_import_1, "Generic")
+TypeVar = __dp__.import_attr(_dp_import_1, "TypeVar")
+get_type_hints = __dp__.import_attr(_dp_import_1, "get_type_hints")
+del _dp_import_1
+T = TypeVar("T")
+def _dp_create_class_Outer():
+
+    def _dp_ns_builder(_dp_class_ns):
+
+        def _dp_lambda_3():
+            return __name__
+        _dp_lambda_3.__name__ = "<lambda>"
+        _dp_lambda_3.__qualname__ = "<lambda>"
+        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_3)
+        _dp_class_ns.__qualname__ = "Outer"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+
+        def _dp_create_class_Outer_Inner():
+
+            def _dp_ns_builder(_dp_class_ns):
+
+                def _dp_lambda_2():
+                    return __name__
+                _dp_lambda_2.__name__ = "<lambda>"
+                _dp_lambda_2.__qualname__ = "Outer.<lambda>"
+                _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_2)
+                _dp_class_ns.__qualname__ = "Outer.Inner"
+                _dp_class_ns.__annotations__ = __dp__.dict()
+            return __dp__.create_class("Inner", _dp_ns_builder, (__dp__.getitem(Generic, T),), None)
+        _dp_class_ns.Inner = _dp_create_class_Outer_Inner()
+
+        def _dp_lambda_4():
+            return __annotations__
+        _dp_lambda_4.__name__ = "<lambda>"
+        _dp_lambda_4.__qualname__ = "<lambda>"
+        __dp__.setitem(__dp__.class_lookup("__annotations__", _dp_class_ns, _dp_lambda_4), "inner_ref", "Inner")
+    return __dp__.create_class("Outer", _dp_ns_builder, (__dp__.getitem(Generic, T),), None)
+Outer = _dp_create_class_Outer()
+def _dp_create_class_C():
+    T = __dp__.type_param_typevar("T", None, None, None)
+
+    def _dp_ns_builder(_dp_class_ns):
+
+        def _dp_lambda_5():
+            return __name__
+        _dp_lambda_5.__name__ = "<lambda>"
+        _dp_lambda_5.__qualname__ = "<lambda>"
+        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_5)
+        _dp_class_ns.__qualname__ = "C"
+        _dp_class_ns.__type_params__ = T,
+        _dp_class_ns.__annotations__ = __dp__.dict()
+
+        def _dp_lambda_6():
+            return __annotations__
+        _dp_lambda_6.__name__ = "<lambda>"
+        _dp_lambda_6.__qualname__ = "<lambda>"
+        __dp__.setitem(__dp__.class_lookup("__annotations__", _dp_class_ns, _dp_lambda_6), "value", "T")
+    return __dp__.create_class("C", _dp_ns_builder, (__dp__.getitem(__import__("typing").Generic, T),), None)
+C = _dp_create_class_C()
+def _dp_fn_inner_class_hint_is_inner() -> "bool":
+    _dp_tmp_7 = __dp__.is_(__dp__.getitem(get_type_hints(Outer), "inner_ref"), Outer.Inner)
+    return _dp_tmp_7
+inner_class_hint_is_inner = __dp__.update_fn(_dp_fn_inner_class_hint_is_inner, None, "inner_class_hint_is_inner")
+del _dp_fn_inner_class_hint_is_inner
+def _dp_fn_pep695_generic_info():
+    hints = get_type_hints(C)
+    _dp_tmp_8 = __dp__.contains(C.__dict__, "T")
+    return _dp_tmp_8, C.__bases__, C.__orig_bases__, C.__type_params__, __dp__.getitem(hints, "value")
+pep695_generic_info = __dp__.update_fn(_dp_fn_pep695_generic_info, None, "pep695_generic_info")
+del _dp_fn_pep695_generic_info

@@ -1,0 +1,155 @@
+$ nested async comprehension
+from __future__ import annotations
+
+import asyncio
+
+
+async def asynciter(items):
+    for item in items:
+        await asyncio.sleep(0)
+        yield item
+
+
+async def nested():
+    return [[i + j async for i in asynciter([1, 2])] for j in [10, 20]]
+
+
+async def gen_inside_gen():
+    gens = ((i async for i in asynciter(range(j))) for j in [3, 5])
+    return [x for g in gens async for x in g]
+
+
+def get_values():
+    return asyncio.run(nested())
+
+
+def get_gen_values():
+    return asyncio.run(gen_inside_gen())
+=
+asyncio = __dp__.import_("asyncio", __spec__)
+async def _dp_fn_asynciter(items):
+    _dp_iter_1 = __dp__.iter(items)
+    while True:
+        try:
+            item = __dp__.next(_dp_iter_1)
+        except:
+            __dp__.check_stopiteration()
+            break
+        else:
+            await asyncio.sleep(0)
+            yield item
+asynciter = __dp__.update_fn(_dp_fn_asynciter, None, "asynciter")
+del _dp_fn_asynciter
+async def _dp_fn_nested():
+    _dp_tmp_2 = __dp__.list(())
+    _dp_iter_3 = __dp__.iter(__dp__.list((10, 20)))
+    while True:
+        try:
+            j = __dp__.next(_dp_iter_3)
+        except:
+            __dp__.check_stopiteration()
+            break
+        else:
+            _dp_tmp_4 = __dp__.list(())
+            _dp_iter_obj_7 = asynciter(__dp__.list((1, 2)))
+            if __dp__.not_(hasattr(_dp_iter_obj_7, "__aiter__")):
+                _dp_iter_type_8 = type(_dp_iter_obj_7).__name__
+                _dp_iter_obj_7 = None
+                raise TypeError(__dp__.add("'async for' requires an object with __aiter__ method, got ", _dp_iter_type_8))
+            _dp_iter_5 = _dp_iter_obj_7.__aiter__()
+            if __dp__.not_(hasattr(_dp_iter_5, "__anext__")):
+                _dp_iter_type_8 = type(_dp_iter_5).__name__
+                _dp_iter_5 = None
+                raise TypeError(__dp__.add("'async for' received an object from __aiter__ that does not implement __anext__: ", _dp_iter_type_8))
+            while True:
+                try:
+                    _dp_iter_next_6 = await __dp__.anext(_dp_iter_5)
+                except:
+                    __dp__.acheck_stopiteration()
+                    break
+                else:
+                    i = _dp_iter_next_6
+                    _dp_tmp_4.append(__dp__.add(i, j))
+            _dp_tmp_2.append(_dp_tmp_4)
+    return _dp_tmp_2
+nested = __dp__.update_fn(_dp_fn_nested, None, "nested")
+del _dp_fn_nested
+async def _dp_fn_gen_inside_gen():
+
+    def _dp_gen_9(_dp_iter_10):
+        _dp_iter_11 = __dp__.iter(_dp_iter_10)
+        while True:
+            try:
+                j = __dp__.next(_dp_iter_11)
+            except:
+                __dp__.check_stopiteration()
+                break
+            else:
+
+                async def _dp_gen_12(_dp_iter_13):
+                    _dp_iter_obj_16 = _dp_iter_13
+                    if __dp__.not_(hasattr(_dp_iter_obj_16, "__aiter__")):
+                        _dp_iter_type_17 = type(_dp_iter_obj_16).__name__
+                        _dp_iter_obj_16 = None
+                        raise TypeError(__dp__.add("'async for' requires an object with __aiter__ method, got ", _dp_iter_type_17))
+                    _dp_iter_14 = _dp_iter_obj_16.__aiter__()
+                    if __dp__.not_(hasattr(_dp_iter_14, "__anext__")):
+                        _dp_iter_type_17 = type(_dp_iter_14).__name__
+                        _dp_iter_14 = None
+                        raise TypeError(__dp__.add("'async for' received an object from __aiter__ that does not implement __anext__: ", _dp_iter_type_17))
+                    while True:
+                        try:
+                            _dp_iter_next_15 = await __dp__.anext(_dp_iter_14)
+                        except:
+                            __dp__.acheck_stopiteration()
+                            break
+                        else:
+                            i = _dp_iter_next_15
+                            yield i
+                _dp_gen_12.__name__ = "<genexpr>"
+                _dp_gen_12.__code__ = _dp_gen_12.__code__.replace(co_name="<genexpr>")
+                _dp_gen_12 = __dp__.update_fn(_dp_gen_12, "gen_inside_gen.<locals>", "<genexpr>")
+                yield _dp_gen_12(asynciter(range(j)))
+    _dp_gen_9.__name__ = "<genexpr>"
+    _dp_gen_9.__code__ = _dp_gen_9.__code__.replace(co_name="<genexpr>")
+    _dp_gen_9 = __dp__.update_fn(_dp_gen_9, "gen_inside_gen.<locals>", "<genexpr>")
+    gens = _dp_gen_9(__dp__.iter(__dp__.list((3, 5))))
+    _dp_tmp_18 = __dp__.list(())
+    _dp_iter_19 = __dp__.iter(gens)
+    while True:
+        try:
+            g = __dp__.next(_dp_iter_19)
+        except:
+            __dp__.check_stopiteration()
+            break
+        else:
+            _dp_iter_obj_22 = g
+            if __dp__.not_(hasattr(_dp_iter_obj_22, "__aiter__")):
+                _dp_iter_type_23 = type(_dp_iter_obj_22).__name__
+                _dp_iter_obj_22 = None
+                raise TypeError(__dp__.add("'async for' requires an object with __aiter__ method, got ", _dp_iter_type_23))
+            _dp_iter_20 = _dp_iter_obj_22.__aiter__()
+            if __dp__.not_(hasattr(_dp_iter_20, "__anext__")):
+                _dp_iter_type_23 = type(_dp_iter_20).__name__
+                _dp_iter_20 = None
+                raise TypeError(__dp__.add("'async for' received an object from __aiter__ that does not implement __anext__: ", _dp_iter_type_23))
+            while True:
+                try:
+                    _dp_iter_next_21 = await __dp__.anext(_dp_iter_20)
+                except:
+                    __dp__.acheck_stopiteration()
+                    break
+                else:
+                    x = _dp_iter_next_21
+                    _dp_tmp_18.append(x)
+    return _dp_tmp_18
+gen_inside_gen = __dp__.update_fn(_dp_fn_gen_inside_gen, None, "gen_inside_gen")
+del _dp_fn_gen_inside_gen
+def _dp_fn_get_values():
+    return asyncio.run(nested())
+get_values = __dp__.update_fn(_dp_fn_get_values, None, "get_values")
+del _dp_fn_get_values
+def _dp_fn_get_gen_values():
+    return asyncio.run(gen_inside_gen())
+get_gen_values = __dp__.update_fn(_dp_fn_get_gen_values, None, "get_gen_values")
+del _dp_fn_get_gen_values

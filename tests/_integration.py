@@ -15,6 +15,26 @@ if str(ROOT) not in sys.path:
 import diet_import_hook
 
 
+def _print_integration_failure_context(module_path: Path) -> None:
+    try:
+        source = module_path.read_text(encoding="utf-8")
+    except OSError as err:
+        source = f"<<failed to read source: {err}>>"
+
+    try:
+        transformed = diet_import_hook._transform_source(str(module_path))
+    except Exception as err:
+        transformed = f"<<failed to transform source: {err}>>"
+
+    print("\n--- diet-python integration failure context ---", file=sys.stderr)
+    print(f"module: {module_path}", file=sys.stderr)
+    print("--- input module ---", file=sys.stderr)
+    print(source, file=sys.stderr)
+    print("--- transformed module ---", file=sys.stderr)
+    print(transformed, file=sys.stderr)
+    print("--- end diet-python integration context ---", file=sys.stderr)
+
+
 @contextmanager
 def transformed_module(
     tmp_path: Path, module_name: str, source: str
@@ -32,6 +52,9 @@ def transformed_module(
         sys.modules.pop(module_name, None)
         module = importlib.import_module(module_name)
         yield module
+    except Exception:
+        _print_integration_failure_context(module_path)
+        raise
     finally:
         sys.modules.pop(module_name, None)
         if sys.path and sys.path[0] == module_dir:

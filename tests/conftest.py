@@ -17,6 +17,26 @@ import pytest
 _MODULES_DIR = Path(__file__).resolve().parent / "integration_modules"
 
 
+def _print_integration_failure_context(module_path: Path) -> None:
+    try:
+        source = module_path.read_text(encoding="utf-8")
+    except OSError as err:
+        source = f"<<failed to read source: {err}>>"
+
+    try:
+        transformed = diet_import_hook._transform_source(str(module_path))
+    except Exception as err:
+        transformed = f"<<failed to transform source: {err}>>"
+
+    print("\n--- diet-python integration failure context ---", file=sys.stderr)
+    print(f"module: {module_path}", file=sys.stderr)
+    print("--- input module ---", file=sys.stderr)
+    print(source, file=sys.stderr)
+    print("--- transformed module ---", file=sys.stderr)
+    print(transformed, file=sys.stderr)
+    print("--- end diet-python integration context ---", file=sys.stderr)
+
+
 @contextmanager
 def _load_integration_module(module_name: str) -> Iterator[ModuleType]:
     diet_import_hook.install()
@@ -31,6 +51,9 @@ def _load_integration_module(module_name: str) -> Iterator[ModuleType]:
         sys.modules.pop(module_name, None)
         module = importlib.import_module(module_name)
         yield module
+    except Exception:
+        _print_integration_failure_context(module_path)
+        raise
     finally:
         sys.modules.pop(module_name, None)
         if module_dir in sys.path:

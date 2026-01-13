@@ -1,0 +1,10 @@
+$ integration: cleanup dp globals
+
+def has_dp_name():
+    return "_dp_name" in globals()
+=
+def _dp_fn_has_dp_name():
+    _dp_tmp_1 = __dp__.contains(globals(), "_dp_name")
+    return _dp_tmp_1
+has_dp_name = __dp__.update_fn(_dp_fn_has_dp_name, None, "has_dp_name")
+del _dp_fn_has_dp_name

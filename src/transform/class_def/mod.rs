@@ -19,6 +19,7 @@ use crate::transform::class_def::rewrite_method::rewrite_method;
 use crate::transform::context::ScopeKind;
 use crate::transform::driver::{ExprRewriter, Rewrite};
 
+use std::collections::HashSet;
 use std::mem::take;
 
 fn rewrite_methods_in_class_body(
@@ -91,16 +92,11 @@ impl<'a> Transformer for MethodRewriter<'a> {
                     "decorators should be gone by now"
                 );
                 assert!(fn_name.starts_with("_dp_"), "function name should start with _dp_");
-                if let Some(original_name) =
-                    fn_name.strip_prefix("_dp_fn_")
-                {
-                    self.needs_class_cell |= rewrite_method(
-                        func_def,
-                        &self.class_qualname,
-                        original_name,
-                        self.expr_rewriter,
-                    );
-                }
+                self.needs_class_cell |= rewrite_method(
+                    func_def,
+                    &self.class_qualname,
+                    self.expr_rewriter,
+                );
             }
             Stmt::ClassDef(_) => {}
             _ => walk_stmt(self, stmt),
@@ -223,8 +219,9 @@ fn class_def_to_create_class_fn<'a>(
         .analyze_class_scope(&class_qualname, &body);
 
     rewrite_private::rewrite_class_body(&mut body, &class_name, &mut class_scope);
+    let class_locals = class_scope.local_names();
 
-    let body = rewriter.with_function_scope(class_scope.clone(), |rewriter| {
+    let (body, type_param_info) = rewriter.with_function_scope(class_scope.clone(), |rewriter| {
         /*
         If the first statement is a string literal, assign it to  __doc__
         */
@@ -242,22 +239,22 @@ fn class_def_to_create_class_fn<'a>(
         Collect all AnnAssign statements, rewriting them to bare Assign (if there's a value)
         or removing (if not).  Assign the annotations to __annotations__
         */
-        let annotations = AnnotationCollector::collect(&mut body);
+        AnnotationCollector::rewrite(&mut body);
+        let annotation_stmt = py_stmt!("__annotations__ = {}");
 
-        let mut annotation_stmt = py_stmt!("__annotations__ = {}");
-        for (name, annotation) in annotations {
-            annotation_stmt.extend(py_stmt!(
-                "__annotations__[{name:literal}] = {annotation:expr}",
-                name = name.as_str(),
-                annotation = annotation,
-            ));
-        }
-
-        let type_param_statements = if let Some(type_params) = type_params {
-            make_type_param_statements(*type_params, rewriter)
-        } else {
-            vec![]
-        };
+        let type_param_info = type_params.map(|type_params| {
+            make_type_param_info(*type_params, rewriter)
+        });
+        let type_param_statements = type_param_info
+            .as_ref()
+            .and_then(|info| info.type_params_tuple.as_ref())
+            .map(|tuple_expr| {
+                py_stmt!(
+                    "__type_params__ = {tuple:expr}",
+                    tuple = tuple_expr.clone()
+                )
+            })
+            .unwrap_or_default();
 
         let ns_builder = py_stmt!(
             r#"
@@ -287,7 +284,17 @@ __qualname__ = {class_qualname:literal}
         };
         method_qualname_rewriter.visit_body(&mut ns_builder);
 
-        rewrite_class_scope(&mut ns_builder, class_scope);
+        let type_param_skip = type_param_info
+            .as_ref()
+            .map(|info| {
+                info.param_names
+                    .iter()
+                    .filter(|name| !class_locals.contains(*name))
+                    .cloned()
+                    .collect::<HashSet<String>>()
+            })
+            .unwrap_or_default();
+        rewrite_class_scope(&mut ns_builder, class_scope, type_param_skip);
 
         if needs_class_cell {
             ns_builder = py_stmt!(
@@ -300,23 +307,35 @@ _dp_class_ns.__classcell__ = __class__
         }
 
 
-        ns_builder
+        (ns_builder, type_param_info)
     });
 
+    let type_param_bindings = type_param_info
+        .as_ref()
+        .map_or_else(Vec::new, |info| info.bindings.clone());
     let in_class_scope = matches!(
         rewriter.context().current_qualname(),
         Some((_, ScopeKind::Class))
     );
-    let (bases_tuple, prepare_dict) = class_call_arguments(arguments, in_class_scope);
+    let has_generic_base = arguments_has_generic(arguments.as_deref());
+    let generic_base = type_param_info
+        .as_ref()
+        .filter(|_| !has_generic_base)
+        .and_then(make_generic_base);
+    let extra_bases = generic_base.into_iter().collect::<Vec<_>>();
+    let (bases_tuple, prepare_dict) =
+        class_call_arguments(arguments, in_class_scope, extra_bases);
 
     py_stmt!(
         r#"
 def _dp_create_class_{class_ident:id}():
+    {type_param_bindings:stmt}
     def _dp_ns_builder(_dp_class_ns):
         {ns_body:stmt}
     return __dp__.create_class({class_name:literal}, _dp_ns_builder, {bases:expr}, {prepare_dict:expr})
 "#,
         class_ident = class_ident.as_str(),
+        type_param_bindings = type_param_bindings,
         ns_body = body,
         class_name = class_name.as_str(),
         bases = bases_tuple.clone(),
@@ -324,14 +343,23 @@ def _dp_create_class_{class_ident:id}():
     )
 }
 
-fn make_type_param_statements(
+struct TypeParamInfo {
+    bindings: Vec<Stmt>,
+    param_names: Vec<String>,
+    type_params_tuple: Option<Expr>,
+    generic_params: Vec<Expr>,
+}
+
+fn make_type_param_info(
     mut type_params: ast::TypeParams,
     rewriter: &mut ExprRewriter,
-) -> Vec<Stmt> {
+) -> TypeParamInfo {
     rewriter.visit_type_params(&mut type_params);
 
-    let mut statements = Vec::new();
+    let mut bindings = Vec::new();
     let mut param_names = Vec::new();
+    let mut type_param_exprs = Vec::new();
+    let mut generic_params = Vec::new();
 
     for type_param in type_params.type_params {
         match type_param {
@@ -355,7 +383,7 @@ fn make_type_param_statements(
                 let default_expr = default_expr.unwrap_or_else(|| py_expr!("None"));
                 let constraints_expr = constraints.unwrap_or_else(|| py_expr!("None"));
 
-                statements.extend(py_stmt!(
+                bindings.extend(py_stmt!(
                     "{name:id} = __dp__.type_param_typevar({name_literal:literal}, {bound:expr}, {default:expr}, {constraints:expr})",
                     name = param_name.as_str(),
                     name_literal = param_name.as_str(),
@@ -363,6 +391,8 @@ fn make_type_param_statements(
                     default = default_expr,
                     constraints = constraints_expr,
                 ));
+                type_param_exprs.push(py_expr!("{name:id}", name = param_name.as_str()));
+                generic_params.push(py_expr!("{name:id}", name = param_name.as_str()));
                 param_names.push(param_name);
             }
             TypeParam::TypeVarTuple(TypeParamTypeVarTuple { name, default, .. }) => {
@@ -371,11 +401,16 @@ fn make_type_param_statements(
                     .map(|expr| *expr)
                     .unwrap_or_else(|| py_expr!("None"));
 
-                statements.extend(py_stmt!(
+                bindings.extend(py_stmt!(
                     "{name:id} = __dp__.type_param_typevar_tuple({name_literal:literal}, {default:expr})",
                     name = param_name.as_str(),
                     name_literal = param_name.as_str(),
                     default = default_expr,
+                ));
+                type_param_exprs.push(py_expr!("{name:id}", name = param_name.as_str()));
+                generic_params.push(py_expr!(
+                    "__dp__.getitem(__import__(\"typing\").Unpack, {name:id})",
+                    name = param_name.as_str()
                 ));
                 param_names.push(param_name);
             }
@@ -385,31 +420,66 @@ fn make_type_param_statements(
                     .map(|expr| *expr)
                     .unwrap_or_else(|| py_expr!("None"));
 
-                statements.extend(py_stmt!(
+                bindings.extend(py_stmt!(
                     "{name:id} = __dp__.type_param_param_spec({name_literal:literal}, {default:expr})",
                     name = param_name.as_str(),
                     name_literal = param_name.as_str(),
                     default = default_expr,
                 ));
+                type_param_exprs.push(py_expr!("{name:id}", name = param_name.as_str()));
+                generic_params.push(py_expr!("{name:id}", name = param_name.as_str()));
                 param_names.push(param_name);
             }
         }
     }
 
-    if !param_names.is_empty() {
-        let tuple_expr = make_tuple(
-            param_names
-                .iter()
-                .map(|name| py_expr!("{name:id}", name = name.as_str()))
-                .collect(),
-        );
-        statements.extend(py_stmt!(
-            "__type_params__ = {tuple:expr}",
-            tuple = tuple_expr
-        ));
-    }
+    let type_params_tuple = if type_param_exprs.is_empty() {
+        None
+    } else {
+        Some(make_tuple(type_param_exprs))
+    };
 
-    statements
+    TypeParamInfo {
+        bindings,
+        param_names,
+        type_params_tuple,
+        generic_params,
+    }
+}
+
+fn make_generic_base(info: &TypeParamInfo) -> Option<Expr> {
+    if info.generic_params.is_empty() {
+        return None;
+    }
+    let params_expr = if info.generic_params.len() == 1 {
+        info.generic_params[0].clone()
+    } else {
+        make_tuple(info.generic_params.clone())
+    };
+    let generic_expr = py_expr!("__import__(\"typing\").Generic");
+    Some(py_expr!(
+        "__dp__.getitem({generic:expr}, {params:expr})",
+        generic = generic_expr,
+        params = params_expr,
+    ))
+}
+
+fn arguments_has_generic(arguments: Option<&ast::Arguments>) -> bool {
+    arguments.map_or(false, |arguments| {
+        arguments
+            .args
+            .iter()
+            .any(|expr| is_generic_expr(expr))
+    })
+}
+
+fn is_generic_expr(expr: &Expr) -> bool {
+    match expr {
+        Expr::Name(ast::ExprName { id, .. }) => id.as_str() == "Generic",
+        Expr::Attribute(ast::ExprAttribute { attr, .. }) => attr.as_str() == "Generic",
+        Expr::Subscript(ast::ExprSubscript { value, .. }) => is_generic_expr(value),
+        _ => false,
+    }
 }
 
 pub fn class_ident_from_qualname(qualname: &str) -> String {
@@ -428,6 +498,7 @@ pub fn class_ident_from_qualname(qualname: &str) -> String {
 pub fn class_call_arguments(
     arguments: Option<Box<ast::Arguments>>,
     in_class_scope: bool,
+    mut extra_bases: Vec<Expr>,
 ) -> (Expr, Expr) {
     let mut bases = Vec::new();
     let mut kw_items = Vec::new();
@@ -466,6 +537,10 @@ pub fn class_call_arguments(
                 .map(|arg| py_expr!("{arg:literal}", arg = arg.as_str()));
             kw_items.push(ast::DictItem { key, value });
         }
+    }
+
+    if !extra_bases.is_empty() {
+        bases.append(&mut extra_bases);
     }
 
     let has_kw = !kw_items.is_empty();

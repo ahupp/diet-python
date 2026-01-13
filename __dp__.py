@@ -73,28 +73,30 @@ def float_from_literal(literal):
     return float(literal.replace("_", ""))
 
 
-# TODO: questionable, can we defer any scope awareness?
-def global_(globals_dict, name):
-    if name in globals_dict:
-        return globals_dict[name]
-
-    if hasattr(builtins, name):
-        return getattr(builtins, name)
-
-    return missing_name(name)
-
 
 _MISSING = object()
 
 
 def class_lookup(name, class_ns, lookup_fn):
+    # Bypass _ClassNamespace.__getattribute__ so class body method names (like get)
+    # do not shadow namespace lookups during class creation.
     try:
-        value = class_ns.get(name, _MISSING)
-    except AttributeError:
+        locals_dict = object.__getattribute__(class_ns, "_locals")
+        namespace = object.__getattribute__(class_ns, "_namespace")
+    except Exception:
+        locals_dict = None
+        namespace = None
+
+    if locals_dict is not None and namespace is not None:
+        value = locals_dict.get(name, _MISSING) if name in locals_dict else namespace.get(name, _MISSING)
+    else:
         try:
-            return class_ns[name]
-        except KeyError:
-            return lookup_fn()
+            value = class_ns.get(name, _MISSING)
+        except AttributeError:
+            try:
+                return class_ns[name]
+            except KeyError:
+                return lookup_fn()
     if value is _MISSING:
         return lookup_fn()
     return value
@@ -283,6 +285,11 @@ class _ClassNamespace:
             return self._locals[name]
         return self._namespace[name]
 
+    def get(self, name, default=None):
+        if name in self._locals:
+            return self._locals.get(name, default)
+        return self._namespace.get(name, default)
+
     def __delitem__(self, name):
         if name in self._locals:
             del self._locals[name]
@@ -413,8 +420,109 @@ def acheck_stopiteration():
         raise
 
 
+def aiter(obj):
+    try:
+        aiter_fn = obj.__aiter__
+    except AttributeError:
+        obj_type = type(obj).__name__
+        obj = None
+        raise TypeError(
+            f"'async for' requires an object with __aiter__ method, got {obj_type}"
+        ) from None
+    iterator = aiter_fn()
+    if not hasattr(iterator, "__anext__"):
+        iter_type = type(iterator).__name__
+        iterator = None
+        raise TypeError(
+            "'async for' received an object from __aiter__ that does not implement __anext__"
+            f": {iter_type}"
+        ) from None
+    return iterator
+
+
+@_types.coroutine
+def _await_from_iter(iterator):
+    return (yield from iterator)
+
+
+def _get_awaitable_iter(awaitable):
+    try:
+        iterator = awaitable.__await__()
+    except AttributeError:
+        awaitable_type = type(awaitable).__name__
+        awaitable = None
+        raise TypeError(
+            "'async for' received an invalid object from __anext__"
+            f": {awaitable_type}"
+        ) from None
+    except Exception as exc:
+        awaitable_type = type(awaitable).__name__
+        awaitable = None
+        raise TypeError(
+            "'async for' received an invalid object from __anext__"
+            f": {awaitable_type}"
+        ) from exc
+    if not hasattr(iterator, "__next__"):
+        awaitable_type = type(awaitable).__name__
+        awaitable = None
+        raise TypeError(
+            "'async for' received an invalid object from __anext__"
+            f": {awaitable_type}"
+        ) from None
+    return iterator
+
+
+async def anext(iterator):
+    try:
+        awaitable = iterator.__anext__()
+    except AttributeError:
+        iter_type = type(iterator).__name__
+        iterator = None
+        raise TypeError(
+            "'async for' received an object from __aiter__ that does not implement __anext__"
+            f": {iter_type}"
+        ) from None
+    try:
+        await_iter = _get_awaitable_iter(awaitable)
+    except Exception:
+        iterator = None
+        awaitable = None
+        raise
+    return await _await_from_iter(await_iter)
+
+
+def _get_async_with_awaitable(awaitable, method_label):
+    try:
+        iterator = awaitable.__await__()
+    except AttributeError:
+        awaitable_type = type(awaitable).__name__
+        awaitable = None
+        raise TypeError(
+            "'async with' received an object from "
+            f"{method_label} that does not implement __await__: {awaitable_type}"
+        ) from None
+    except Exception as exc:
+        awaitable_type = type(awaitable).__name__
+        awaitable = None
+        raise TypeError(
+            "'async with' received an object from "
+            f"{method_label} that does not implement __await__: {awaitable_type}"
+        ) from exc
+    if not hasattr(iterator, "__next__"):
+        awaitable_type = type(awaitable).__name__
+        awaitable = None
+        raise TypeError(
+            "'async with' received an object from "
+            f"{method_label} that does not implement __await__: {awaitable_type}"
+        ) from None
+    return iterator
+
+
 def raise_from(exc, cause):
-    from asyncio import CancelledError
+    CancelledError = None
+    asyncio_mod = sys.modules.get("asyncio")
+    if asyncio_mod is not None:
+        CancelledError = getattr(asyncio_mod, "CancelledError", None)
     if exc is None:
         raise TypeError("exceptions must derive from BaseException")
     if isinstance(exc, type):
@@ -435,7 +543,7 @@ def raise_from(exc, cause):
                 raise TypeError("exception causes must derive from BaseException")
         elif not isinstance(cause, BaseException):
             raise TypeError("exception causes must derive from BaseException")
-        if type(cause) is CancelledError:
+        if CancelledError is not None and type(cause) is CancelledError:
             cause = cause.with_traceback(None)
         exc.__cause__ = cause
         exc.__suppress_context__ = True
@@ -586,22 +694,47 @@ def yield_from_except(state, exc: BaseException):
 
 
 async def with_aenter(ctx):
-    enter = ctx.__aenter__
-    exit = ctx.__aexit__
-    var = await enter()
+    try:
+        enter = ctx.__aenter__
+    except AttributeError as exc:
+        raise TypeError(
+            "asynchronous context manager protocol requires __aenter__"
+        ) from exc
+    try:
+        exit = ctx.__aexit__
+    except AttributeError as exc:
+        raise TypeError(
+            "asynchronous context manager protocol requires __aexit__"
+        ) from exc
+    awaitable = enter()
+    await_iter = _get_async_with_awaitable(awaitable, "__aenter__")
+    var = await _await_from_iter(await_iter)
     return (var, exit)
 
 
 async def with_aexit(aexit_fn, exc_info: tuple | None):
     if exc_info is not None:
+        exc_type, exc, tb = exc_info
         try:
-            if not await aexit_fn(*exc_info):
+            awaitable = aexit_fn(*exc_info)
+            try:
+                await_iter = _get_async_with_awaitable(awaitable, "__aexit__")
+            except TypeError as err:
+                err.__context__ = exc
+                err.__suppress_context__ = False
                 raise
+            suppress = await _await_from_iter(await_iter)
         finally:
             # Clear the reference for GC in long-lived frames.
             exc_info = None
+        if suppress:
+            exc.__traceback__ = None
+        else:
+            raise exc.with_traceback(tb)
     else:
-        await aexit_fn(None, None, None)
+        awaitable = aexit_fn(None, None, None)
+        await_iter = _get_async_with_awaitable(awaitable, "__aexit__")
+        await _await_from_iter(await_iter)
 
 
 def with_enter(ctx):
@@ -613,11 +746,15 @@ def with_enter(ctx):
 
 def with_exit(exit_fn, exc_info: tuple | None):
     if exc_info is not None:
+        exc_type, exc, tb = exc_info
         try:
-            if not exit_fn(*exc_info):
-                raise
+            suppress = exit_fn(*exc_info)
         finally:
             # Clear the reference for GC in long-lived frames.
             exc_info = None
+        if suppress:
+            exc.__traceback__ = None
+        else:
+            raise exc.with_traceback(tb)
     else:
         exit_fn(None, None, None)

@@ -4,38 +4,6 @@ use crate::template::{make_binop, make_tuple};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Operator, Stmt};
 
-fn is_dp_global_func(func: &Expr) -> bool {
-    match func {
-        Expr::Attribute(ast::ExprAttribute { value, attr, .. }) if attr.as_str() == "global_" => {
-            matches!(
-                value.as_ref(),
-                Expr::Name(ast::ExprName { id, .. }) if id.as_str() == "__dp__"
-            ) || matches!(
-                value.as_ref(),
-                Expr::Attribute(ast::ExprAttribute { value, attr, .. })
-                    if attr.as_str() == "__dp__"
-                        && matches!(value.as_ref(), Expr::Name(ast::ExprName { id, .. }) if id.as_str() == "_dp_global")
-            )
-        }
-        _ => false,
-    }
-}
-
-fn dp_global_call_args(call: &ast::ExprCall) -> Option<(Expr, Expr)> {
-    if !is_dp_global_func(call.func.as_ref()) {
-        return None;
-    }
-    if !call.arguments.keywords.is_empty() {
-        return None;
-    }
-    let mut args = call.arguments.args.iter();
-    let globals_expr = args.next()?.clone();
-    let name_expr = args.next()?.clone();
-    if args.next().is_some() {
-        return None;
-    }
-    Some((globals_expr, name_expr))
-}
 
 pub(crate) fn should_rewrite_targets(rewriter: &ExprRewriter, targets: &[Expr]) -> bool {
     if targets.len() > 1 {
@@ -60,18 +28,6 @@ pub(crate) fn rewrite_target(
     rhs: Expr,
     out: &mut Vec<Stmt>,
 ) {
-    if let Expr::Call(call) = &target {
-        if let Some((globals_expr, name_expr)) = dp_global_call_args(call) {
-            let stmt = py_stmt!(
-                "__dp__.setitem({globals:expr}, {name:expr}, {rhs:expr})",
-                globals = globals_expr,
-                name = name_expr,
-                rhs = rhs,
-            );
-            out.extend(stmt);
-            return;
-        }
-    }
 
     match target {
         Expr::Tuple(tuple) => {
@@ -319,17 +275,6 @@ pub(crate) fn rewrite_delete(rewriter: &mut ExprRewriter, delete: ast::StmtDelet
                         obj = attr.value,
                         name = attr.attr.as_str(),
                     )
-                }
-                Expr::Call(call) => {
-                    if let Some((globals_expr, name_expr)) = dp_global_call_args(&call) {
-                        py_stmt!(
-                            "__dp__.delitem({globals:expr}, {name:expr})",
-                            globals = globals_expr,
-                            name = name_expr
-                        )
-                    } else {
-                        py_stmt!("del {target:expr}", target = Expr::Call(call))
-                    }
                 }
                 other => py_stmt!("del {target:expr}", target = other),
             })

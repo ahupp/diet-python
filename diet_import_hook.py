@@ -30,6 +30,14 @@ def _resolve_transform_cmd(path: str) -> list[str]:
     else:
         bin_path = REPO_ROOT / "target" / "debug" / "diet-python"
 
+    if not _BUILD_ATTEMPTED and not bin_override:
+        _BUILD_ATTEMPTED = True
+        subprocess.run(
+            ["cargo", "build", "--quiet", "--bin", "diet-python"],
+            cwd=str(REPO_ROOT),
+            check=True,
+        )
+
     if not (bin_path.exists() and os.access(bin_path, os.X_OK)):
         subprocess.run(
             ["cargo", "build", "--quiet", "--bin", "diet-python"],
@@ -66,7 +74,16 @@ def _transform_source(path: str) -> str:
                 compiled_source = file.read()
         except OSError as read_err:
             raise ImportError(f"diet-python could not read source for {path}: {read_err}") from err
+    _SOURCE_SHADOWS[path] = compiled_source
+    _update_linecache(path, compiled_source)
     return compiled_source
+
+
+def _update_linecache(path: str, source: str) -> None:
+    lines = source.splitlines(True)
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    linecache.cache[path] = (len(source), None, lines, path)
 
 
 
@@ -127,6 +144,18 @@ def install():
 
     if any(finder is DietPythonFinder for finder in sys.meta_path):
         return
+
+    if not _LINECACHE_PATCHED:
+        def _diet_updatecache(filename, module_globals=None):
+            shadow = _SOURCE_SHADOWS.get(filename)
+            if shadow is not None:
+                _update_linecache(filename, shadow)
+                return linecache.cache[filename][2]
+            return _ORIGINAL_UPDATECACHE(filename, module_globals)
+
+        _LINECACHE_PATCHED = True
+        _ORIGINAL_UPDATECACHE = linecache.updatecache
+        linecache.updatecache = _diet_updatecache
 
     for index, finder in enumerate(sys.meta_path):
         if finder is importlib.machinery.PathFinder:

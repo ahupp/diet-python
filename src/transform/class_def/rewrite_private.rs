@@ -64,6 +64,16 @@ impl Transformer for PrivateRewriter {
             Stmt::ClassDef(_) => {
                 // Do not recurse into nested classes; they are rewritten separately.
             }
+            Stmt::Global(ast::StmtGlobal { names, .. }) => {
+                for name in names {
+                    self.mangle_identifier(name);
+                }
+            }
+            Stmt::Nonlocal(ast::StmtNonlocal { names, .. }) => {
+                for name in names {
+                    self.mangle_identifier(name);
+                }
+            }
             Stmt::FunctionDef(ast::StmtFunctionDef { name, .. }) => {
                 self.mangle_name(&mut name.id);
                 walk_stmt(self, stmt);

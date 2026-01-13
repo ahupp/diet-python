@@ -7,6 +7,7 @@ description: Run the CPython regression test suite in this repo via scripts/run_
 
 ## Run the full suite
 
+- Run with full permissions, including network.
 - Use a 3-minute per-test timeout and keep parallelism enabled (run_cpython_tests.sh already uses -j0).
 - If the local `cpython/` checkout is missing the target branch, re-run with `FETCH_CPYTHON=1` to allow a network update.
 - Capture output to a single log file while preserving the exit status:

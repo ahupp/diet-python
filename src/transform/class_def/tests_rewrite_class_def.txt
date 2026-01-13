@@ -226,6 +226,8 @@ class C[T, **P]:
     x: T
 =
 def _dp_create_class_C():
+    T = __dp__.type_param_typevar("T", None, None, None)
+    P = __dp__.type_param_param_spec("P", None)
 
     def _dp_ns_builder(_dp_class_ns):
 
@@ -235,32 +237,15 @@ def _dp_create_class_C():
         _dp_lambda_1.__qualname__ = "<lambda>"
         _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
         _dp_class_ns.__qualname__ = "C"
-        _dp_class_ns.T = __dp__.type_param_typevar("T", None, None, None)
-        _dp_class_ns.P = __dp__.type_param_param_spec("P", None)
-
-        def _dp_lambda_2():
-            return T
-        _dp_lambda_2.__name__ = "<lambda>"
-        _dp_lambda_2.__qualname__ = "<lambda>"
-
-        def _dp_lambda_3():
-            return P
-        _dp_lambda_3.__name__ = "<lambda>"
-        _dp_lambda_3.__qualname__ = "<lambda>"
-        _dp_class_ns.__type_params__ = __dp__.class_lookup("T", _dp_class_ns, _dp_lambda_2), __dp__.class_lookup("P", _dp_class_ns, _dp_lambda_3)
+        _dp_class_ns.__type_params__ = T, P
         _dp_class_ns.__annotations__ = __dp__.dict()
 
-        def _dp_lambda_4():
+        def _dp_lambda_2():
             return __annotations__
-        _dp_lambda_4.__name__ = "<lambda>"
-        _dp_lambda_4.__qualname__ = "<lambda>"
-
-        def _dp_lambda_5():
-            return T
-        _dp_lambda_5.__name__ = "<lambda>"
-        _dp_lambda_5.__qualname__ = "<lambda>"
-        __dp__.setitem(__dp__.class_lookup("__annotations__", _dp_class_ns, _dp_lambda_4), "x", __dp__.class_lookup("T", _dp_class_ns, _dp_lambda_5))
-    return __dp__.create_class("C", _dp_ns_builder, (), None)
+        _dp_lambda_2.__name__ = "<lambda>"
+        _dp_lambda_2.__qualname__ = "<lambda>"
+        __dp__.setitem(__dp__.class_lookup("__annotations__", _dp_class_ns, _dp_lambda_2), "x", T)
+    return __dp__.create_class("C", _dp_ns_builder, (__dp__.getitem(__import__("typing").Generic, (T, P)),), None)
 C = _dp_create_class_C()
 
 $ lowers inherits
@@ -769,6 +754,7 @@ def _dp_fn_outer():
     C = _dp_create_class_outer__locals__C()
     return C
 outer = __dp__.update_fn(_dp_fn_outer, None, "outer")
+del _dp_fn_outer
 
 $ class scope combinations
 
@@ -938,6 +924,7 @@ def _dp_create_class_C4():
                 nonlocal x
                 x = "inner"
             inner = __dp__.update_fn(_dp_fn_inner, "C4.outer.<locals>", "inner")
+            del _dp_fn_inner
             inner()
             return x
         _dp_class_ns.outer = __dp__.update_fn(_dp_fn_outer, "C4", "outer")
@@ -968,6 +955,7 @@ def _dp_fn_outer_with_inner_class():
     Inner = _dp_create_class_outer_with_inner_class__locals__Inner()
     return Inner.y
 outer_with_inner_class = __dp__.update_fn(_dp_fn_outer_with_inner_class, None, "outer_with_inner_class")
+del _dp_fn_outer_with_inner_class
 __dp__.setitem(results, "def_with_inner_class_capture", outer_with_inner_class())
 x = "module"
 def _dp_fn_outer_with_inner_class_global_assignment():
@@ -991,6 +979,7 @@ def _dp_fn_outer_with_inner_class_global_assignment():
     Inner = _dp_create_class_outer_with_inner_class_global_assignment__locals__Inner()
     return x, getattr(Inner, "x", None), Inner.y
 outer_with_inner_class_global_assignment = __dp__.update_fn(_dp_fn_outer_with_inner_class_global_assignment, None, "outer_with_inner_class_global_assignment")
+del _dp_fn_outer_with_inner_class_global_assignment
 __dp__.setitem(results, "def_with_inner_class_global_assignment", (outer_with_inner_class_global_assignment(), x))
 x = "module"
 def _dp_fn_outer_with_class_method_reads_global():
@@ -1016,6 +1005,7 @@ def _dp_fn_outer_with_class_method_reads_global():
     Inner = _dp_create_class_outer_with_class_method_reads_global__locals__Inner()
     return Inner.x, Inner.read(), x
 outer_with_class_method_reads_global = __dp__.update_fn(_dp_fn_outer_with_class_method_reads_global, None, "outer_with_class_method_reads_global")
+del _dp_fn_outer_with_class_method_reads_global
 __dp__.setitem(results, "def_with_class_with_method_reads_global", outer_with_class_method_reads_global())
 def _dp_fn_outer_with_nonlocal_and_inner_class():
     x = "outer"
@@ -1045,9 +1035,11 @@ def _dp_fn_outer_with_nonlocal_and_inner_class():
         Inner = _dp_create_class_outer_with_nonlocal_and_inner_class__locals__inner__locals__Inner()
         return Inner.y
     inner = __dp__.update_fn(_dp_fn_inner, "outer_with_nonlocal_and_inner_class.<locals>", "inner")
+    del _dp_fn_inner
     y = inner()
     return x, y
 outer_with_nonlocal_and_inner_class = __dp__.update_fn(_dp_fn_outer_with_nonlocal_and_inner_class, None, "outer_with_nonlocal_and_inner_class")
+del _dp_fn_outer_with_nonlocal_and_inner_class
 __dp__.setitem(results, "def_with_nonlocal_and_inner_class", outer_with_nonlocal_and_inner_class())
 def _dp_fn_nonlocal_in_class_body_error():
     try:
@@ -1069,6 +1061,7 @@ def _dp_fn_nonlocal_in_class_body_error():
             raise
     return None
 nonlocal_in_class_body_error = __dp__.update_fn(_dp_fn_nonlocal_in_class_body_error, None, "nonlocal_in_class_body_error")
+del _dp_fn_nonlocal_in_class_body_error
 __dp__.setitem(results, "class_nonlocal_syntaxerror", nonlocal_in_class_body_error())
 
 $ class body captures non-immediate enclosing locals
@@ -1109,8 +1102,10 @@ def _dp_fn_outer():
         C = _dp_create_class_outer__locals__inner__locals__C()
         return C
     inner = __dp__.update_fn(_dp_fn_inner, "outer.<locals>", "inner")
+    del _dp_fn_inner
     return inner()
 outer = __dp__.update_fn(_dp_fn_outer, None, "outer")
+del _dp_fn_outer
 
 $ class locals shadow enclosing locals
 
@@ -1148,3 +1143,4 @@ def _dp_fn_outer():
     C = _dp_create_class_outer__locals__C()
     return C
 outer = __dp__.update_fn(_dp_fn_outer, None, "outer")
+del _dp_fn_outer

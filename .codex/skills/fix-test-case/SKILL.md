@@ -9,6 +9,7 @@ description: Fix a specific failing test case in this repo by identifying the ro
 
 - Work on one concrete failing test at a time.
 - Keep the repro small and isolated under tests/.
+- Do not try to fix failures that are due to changing the source layout; add them to `EXPECTED_FAILURE.md` instead.
 
 ## Workflow
 

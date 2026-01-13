@@ -1,3 +1,8 @@
 # Expected Failures
 
 - `test.test_code.CodeTest.test_code_hash_uses_bytecode`: diet-python rewrites `lambda x, y: x + y` and `lambda x, y: x * y` to calls like `__dp__.add(x, y)` and `__dp__.mul(x, y)`, so both lambdas compile to the same call shape. As a result, their `co_code` bytecode is identical and `c.replace(co_code=d.co_code)` does not change the code object, even though the original CPython bytecode would differ for `BINARY_ADD` vs `BINARY_MULTIPLY`.
+- `test.test_dictcomps.DictComprehensionTest.test_exception_locations`: diet-python rewrites dict comprehensions into generated functions, so the traceback locations point at the generated code instead of the original comprehension source.
+- `test.test_setcomps.SetComprehensionTest.test_exception_locations`: diet-python rewrites set comprehensions into generated functions, so the traceback locations point at the generated code instead of the original comprehension source.
+- `test.test_listcomps.ListComprehensionTest.test_exception_locations`: diet-python rewrites list comprehensions into generated functions, so the traceback locations point at the generated code instead of the original comprehension source.
+- `test.test_unittest.test_case.Test_TestCase.testAssertWarnsContext`: inspect/linecache cannot map transformed sources back to original line numbers, so `inspect.getsourcelines` fails with lineno bounds errors.
+- `test.test_unittest.test_case.Test_TestCase.testAssertWarnsRegexContext`: inspect/linecache cannot map transformed sources back to original line numbers, so `inspect.getsourcelines` fails with lineno bounds errors.

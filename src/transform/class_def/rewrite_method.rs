@@ -10,7 +10,6 @@ use crate::{
 
 struct MethodTransformer {
     first_arg: Option<String>,
-    method_name: String,
     locals: HashSet<String>,
     needs_class_cell: bool,
 }
@@ -48,14 +47,7 @@ impl Transformer for MethodTransformer {
             }
             Expr::Name(ast::ExprName { id, ctx, .. }) => {
                 if matches!(ctx, ExprContext::Load) {
-                    if id.as_str() == self.method_name
-                        && !self.locals.contains(id.as_str())
-                    {
-                        *expr = py_expr!(
-                            "__dp__.global_(globals(), {name:literal})",
-                            name = self.method_name.as_str()
-                        );
-                    } else if id.as_str() == "__class__" && !self.locals.contains("__class__") {
+                    if id.as_str() == "__class__" && !self.locals.contains("__class__") {
                         self.needs_class_cell = true;
                     }
                 }
@@ -71,9 +63,15 @@ impl Transformer for MethodTransformer {
 pub fn rewrite_method(
     func_def: &mut ast::StmtFunctionDef,
     class_qualname: &str,
-    original_method_name: &str,
     rewriter: &mut ExprRewriter,
 ) -> bool {
+    let func_name = func_def.name.id.to_string();
+    let Some(original_method_name) = func_name.strip_prefix("_dp_fn_") 
+    else {
+        // Internal function, not actually a method
+        return false;
+    };
+
     let first_arg = func_def
         .parameters
         .posonlyargs
@@ -93,7 +91,6 @@ pub fn rewrite_method(
     let locals = scope.local_names();
     let mut transformer = MethodTransformer {
         first_arg,
-        method_name: original_method_name.to_string(),
         locals,
         needs_class_cell: false,
     };

@@ -19,8 +19,10 @@ def _dp_fn_outer():
         y = x
         return y
     inner = __dp__.update_fn(_dp_fn_inner, "outer.<locals>", "inner")
+    del _dp_fn_inner
     return inner()
 outer = __dp__.update_fn(_dp_fn_outer, None, "outer")
+del _dp_fn_outer
 
 $ params seeded
 def f(a, b):
@@ -29,3 +31,4 @@ def f(a, b):
 def _dp_fn_f(a, b):
     return __dp__.add(a, b)
 f = __dp__.update_fn(_dp_fn_f, None, "f")
+del _dp_fn_f

@@ -73,6 +73,7 @@ async def _dp_fn_f():
         _dp_with_exit_2 = None
         _dp_with_enter_1 = None
 f = __dp__.update_fn(_dp_fn_f, None, "f")
+del _dp_fn_f
 
 $ rewrites with starred target
 

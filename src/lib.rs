@@ -338,6 +338,8 @@ pub fn transform_str_to_ruff_with_options_timed(
 for _dp_name in list(globals()):
     if _dp_name.startswith("_dp_"):
         del globals()[_dp_name]
+if "_dp_name" in globals():
+    del globals()["_dp_name"]
 "#
         ));
     }

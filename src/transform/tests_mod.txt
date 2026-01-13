@@ -122,11 +122,54 @@ def _dp_create_class_Base():
         _dp_class_ns.__init__ = __dp__.update_fn(_dp_fn___init__, "Base", "__init__")
 
         def _dp_fn_time(self):
-            return __dp__.global_(globals(), "time").monotonic()
+            return time.monotonic()
         _dp_class_ns.time = __dp__.update_fn(_dp_fn_time, "Base", "time")
     return __dp__.create_class("Base", _dp_ns_builder, (), None)
 Base = _dp_create_class_Base()
 VALUE = Base().resolution
+
+$ integration: class namespace get method
+
+import types
+
+class Example:
+    def get(self):
+        return "value"
+
+    __class_getitem__ = classmethod(types.GenericAlias)
+
+RESULT = Example[int]
+=
+types = __dp__.import_("types", __spec__)
+def _dp_create_class_Example():
+
+    def _dp_ns_builder(_dp_class_ns):
+
+        def _dp_lambda_1():
+            return __name__
+        _dp_lambda_1.__name__ = "<lambda>"
+        _dp_lambda_1.__qualname__ = "<lambda>"
+        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
+        _dp_class_ns.__qualname__ = "Example"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+
+        def _dp_fn_get(self):
+            return "value"
+        _dp_class_ns.get = __dp__.update_fn(_dp_fn_get, "Example", "get")
+
+        def _dp_lambda_2():
+            return classmethod
+        _dp_lambda_2.__name__ = "<lambda>"
+        _dp_lambda_2.__qualname__ = "<lambda>"
+
+        def _dp_lambda_3():
+            return types
+        _dp_lambda_3.__name__ = "<lambda>"
+        _dp_lambda_3.__qualname__ = "<lambda>"
+        _dp_class_ns.__class_getitem__ = __dp__.class_lookup("classmethod", _dp_class_ns, _dp_lambda_2)(__dp__.class_lookup("types", _dp_class_ns, _dp_lambda_3).GenericAlias)
+    return __dp__.create_class("Example", _dp_ns_builder, (), None)
+Example = _dp_create_class_Example()
+RESULT = __dp__.getitem(Example, int)
 
 $ class method import does not shadow class locals
 
@@ -246,6 +289,7 @@ traceback = __dp__.import_("traceback", __spec__)
 async def _dp_fn_raise_exc():
     raise TypeError(42)
 raise_exc = __dp__.update_fn(_dp_fn_raise_exc, None, "raise_exc")
+del _dp_fn_raise_exc
 async def _dp_fn_run():
     fut = asyncio.create_task(raise_exc())
     _dp_iter_1 = __dp__.iter(range(1))
@@ -276,6 +320,7 @@ async def _dp_fn_run():
                     raise
     return __dp__.neg(1)
 run = __dp__.update_fn(_dp_fn_run, None, "run")
+del _dp_fn_run
 COUNT = asyncio.run(run())
 
 $ nested class method name does not shadow outer method
@@ -379,12 +424,14 @@ async def _dp_fn_hold_ref(ref_holder):
     ref_holder.append(weakref.ref(obj))
     await asyncio.sleep(10)
 hold_ref = __dp__.update_fn(_dp_fn_hold_ref, None, "hold_ref")
+del _dp_fn_hold_ref
 def _dp_fn_leak_check():
     ref_holder = __dp__.list(())
 
     async def _dp_fn_runner():
         await asyncio.wait_for(hold_ref(ref_holder), 0.01)
     runner = __dp__.update_fn(_dp_fn_runner, "leak_check.<locals>", "runner")
+    del _dp_fn_runner
     try:
         asyncio.run(runner())
     except:
@@ -395,6 +442,7 @@ def _dp_fn_leak_check():
     gc.collect()
     return __dp__.getitem(ref_holder, 0)()
 leak_check = __dp__.update_fn(_dp_fn_leak_check, None, "leak_check")
+del _dp_fn_leak_check
 
 $ asyncio ssl handshake timeout cleanup
 
@@ -640,6 +688,7 @@ def _dp_fn_leak_check():
     async def _dp_fn_run():
         await tasks.wait_for(loop._create_connection_transport(sock, protocols.Protocol, sslctx, "", ssl_handshake_timeout=10.0), 0.01)
     run = __dp__.update_fn(_dp_fn_run, "leak_check.<locals>", "run")
+    del _dp_fn_run
     try:
         loop.run_until_complete(run())
     except:
@@ -665,6 +714,7 @@ def _dp_fn_leak_check():
     gc.collect()
     return ref()
 leak_check = __dp__.update_fn(_dp_fn_leak_check, None, "leak_check")
+del _dp_fn_leak_check
 
 $ except star preserves exception groups
 
@@ -685,6 +735,7 @@ def _dp_fn_handle():
         exc = excs
     return exc
 handle = __dp__.update_fn(_dp_fn_handle, None, "handle")
+del _dp_fn_handle
 
 $ except as clears exception binding
 
@@ -724,6 +775,7 @@ def _dp_fn_capture():
         else:
             raise
 capture = __dp__.update_fn(_dp_fn_capture, None, "capture")
+del _dp_fn_capture
 def _dp_fn_count_exception_referrer_frames():
     exc = capture()
 
@@ -744,6 +796,7 @@ def _dp_fn_count_exception_referrer_frames():
     refs = __dp__.list(_dp_gen_1(__dp__.iter(gc.get_referrers(exc))))
     return len(refs)
 count_exception_referrer_frames = __dp__.update_fn(_dp_fn_count_exception_referrer_frames, None, "count_exception_referrer_frames")
+del _dp_fn_count_exception_referrer_frames
 
 $ lru cache method pickles with stable qualname
 
@@ -787,6 +840,7 @@ HasCache = _dp_create_class_HasCache()
 def _dp_fn_pickle_cached_method():
     return pickle.loads(pickle.dumps(HasCache.cached_meth))
 pickle_cached_method = __dp__.update_fn(_dp_fn_pickle_cached_method, None, "pickle_cached_method")
+del _dp_fn_pickle_cached_method
 
 $ positional-only param shadows class attribute
 
@@ -823,12 +877,14 @@ def _dp_fn_make_value():
                 def _dp_fn_f(a, b, /):
                     return __dp__.add(a, b)
                 f = __dp__.update_fn(_dp_fn_f, "make_value.<locals>.Example.compute.<locals>", "f")
+                del _dp_fn_f
                 return f(1, 2)
             _dp_class_ns.compute = __dp__.update_fn(_dp_fn_compute, "make_value.<locals>.Example", "compute")
         return __dp__.create_class("Example", _dp_ns_builder, (), None)
     Example = _dp_create_class_make_value__locals__Example()
     return Example().compute()
 make_value = __dp__.update_fn(_dp_fn_make_value, None, "make_value")
+del _dp_fn_make_value
 
 $ integration: functools singledispatch qualname
 
@@ -907,12 +963,14 @@ def _dp_create_class_Wrapper():
             def _dp_fn_i(arg):
                 return "base"
             i = _dp_tmp_4(__dp__.update_fn(_dp_fn_i, "Wrapper.bad_register_message.<locals>", "i"))
+            del _dp_fn_i
             try:
                 _dp_tmp_5 = i.register
 
                 def _dp_fn__(arg):
                     return "missing annotation"
                 _ = _dp_tmp_5(__dp__.update_fn(_dp_fn__, "Wrapper.bad_register_message.<locals>", "_"))
+                del _dp_fn__
             except:
                 if __dp__.exception_matches(__dp__.current_exception(), TypeError):
                     exc = __dp__.current_exception()
@@ -1138,6 +1196,7 @@ Status = _dp_create_class_Status()
 def _dp_fn_build_values():
     return Status.A, Status.B, Status.ALL
 build_values = __dp__.update_fn(_dp_fn_build_values, None, "build_values")
+del _dp_fn_build_values
 
 $ integration: dynamicclassattribute class scope getter
 
@@ -1220,6 +1279,7 @@ Sub = _dp_create_class_Sub()
 def _dp_fn_get_value():
     return Sub().spam
 get_value = __dp__.update_fn(_dp_fn_get_value, None, "get_value")
+del _dp_fn_get_value
 
 $ integration: asyncgen expression async for
 
@@ -1258,39 +1318,63 @@ async def _dp_fn_arange(n):
             await asyncio.sleep(0)
             yield i
 arange = __dp__.update_fn(_dp_fn_arange, None, "arange")
+del _dp_fn_arange
 def _dp_fn_make_arange(n):
 
     async def _dp_gen_2(_dp_iter_3):
-        _dp_iter_4 = __dp__.aiter(_dp_iter_3)
+        _dp_iter_obj_6 = _dp_iter_3
+        if __dp__.not_(hasattr(_dp_iter_obj_6, "__aiter__")):
+            _dp_iter_type_7 = type(_dp_iter_obj_6).__name__
+            _dp_iter_obj_6 = None
+            raise TypeError(__dp__.add("'async for' requires an object with __aiter__ method, got ", _dp_iter_type_7))
+        _dp_iter_4 = _dp_iter_obj_6.__aiter__()
+        if __dp__.not_(hasattr(_dp_iter_4, "__anext__")):
+            _dp_iter_type_7 = type(_dp_iter_4).__name__
+            _dp_iter_4 = None
+            raise TypeError(__dp__.add("'async for' received an object from __aiter__ that does not implement __anext__: ", _dp_iter_type_7))
         while True:
             try:
-                i = await __dp__.anext(_dp_iter_4)
+                _dp_iter_next_5 = await __dp__.anext(_dp_iter_4)
             except:
                 __dp__.acheck_stopiteration()
                 break
             else:
+                i = _dp_iter_next_5
                 yield __dp__.mul(i, 2)
     _dp_gen_2.__name__ = "<genexpr>"
     _dp_gen_2.__code__ = _dp_gen_2.__code__.replace(co_name="<genexpr>")
     _dp_gen_2 = __dp__.update_fn(_dp_gen_2, "make_arange.<locals>", "<genexpr>")
     return _dp_gen_2(arange(n))
 make_arange = __dp__.update_fn(_dp_fn_make_arange, None, "make_arange")
+del _dp_fn_make_arange
 async def _dp_fn_run():
-    _dp_tmp_5 = __dp__.list(())
-    _dp_iter_6 = __dp__.aiter(make_arange(3))
+    _dp_tmp_8 = __dp__.list(())
+    _dp_iter_obj_11 = make_arange(3)
+    if __dp__.not_(hasattr(_dp_iter_obj_11, "__aiter__")):
+        _dp_iter_type_12 = type(_dp_iter_obj_11).__name__
+        _dp_iter_obj_11 = None
+        raise TypeError(__dp__.add("'async for' requires an object with __aiter__ method, got ", _dp_iter_type_12))
+    _dp_iter_9 = _dp_iter_obj_11.__aiter__()
+    if __dp__.not_(hasattr(_dp_iter_9, "__anext__")):
+        _dp_iter_type_12 = type(_dp_iter_9).__name__
+        _dp_iter_9 = None
+        raise TypeError(__dp__.add("'async for' received an object from __aiter__ that does not implement __anext__: ", _dp_iter_type_12))
     while True:
         try:
-            i = await __dp__.anext(_dp_iter_6)
+            _dp_iter_next_10 = await __dp__.anext(_dp_iter_9)
         except:
             __dp__.acheck_stopiteration()
             break
         else:
-            _dp_tmp_5.append(i)
-    return _dp_tmp_5
+            i = _dp_iter_next_10
+            _dp_tmp_8.append(i)
+    return _dp_tmp_8
 run = __dp__.update_fn(_dp_fn_run, None, "run")
+del _dp_fn_run
 def _dp_fn_get_values():
     return asyncio.run(run())
 get_values = __dp__.update_fn(_dp_fn_get_values, None, "get_values")
+del _dp_fn_get_values
 
 $ integration: assert shadowing
 
@@ -1336,6 +1420,7 @@ def _dp_fn_trigger():
         del AssertionError
         raise AssertionError("missing exception")
 trigger = __dp__.update_fn(_dp_fn_trigger, None, "trigger")
+del _dp_fn_trigger
 
 $ integration: exception cleanup name
 
@@ -1370,6 +1455,7 @@ def _dp_fn_has_exception_name():
     _dp_tmp_1 = __dp__.contains(locals(), "e")
     return _dp_tmp_1
 has_exception_name = __dp__.update_fn(_dp_fn_has_exception_name, None, "has_exception_name")
+del _dp_fn_has_exception_name
 
 $ integration: exception cleanup deleted
 
@@ -1413,6 +1499,7 @@ def _dp_fn_cleanup_deleted():
     _dp_tmp_1 = __dp__.contains(locals(), "e")
     return _dp_tmp_1
 cleanup_deleted = __dp__.update_fn(_dp_fn_cleanup_deleted, None, "cleanup_deleted")
+del _dp_fn_cleanup_deleted
 def _dp_fn_unbound_after_delete():
     try:
         raise Exception()
@@ -1440,6 +1527,7 @@ def _dp_fn_unbound_after_delete():
             raise
     return False
 unbound_after_delete = __dp__.update_fn(_dp_fn_unbound_after_delete, None, "unbound_after_delete")
+del _dp_fn_unbound_after_delete
 
 $ integration: fstring debug conversion
 
@@ -1451,6 +1539,7 @@ def _dp_fn_format_debug():
     value = "A string"
     return "".join(("value=", __dp__.builtins.format(repr(value))))
 format_debug = __dp__.update_fn(_dp_fn_format_debug, None, "format_debug")
+del _dp_fn_format_debug
 
 $ integration: ast visit ellipsis
 
@@ -1493,6 +1582,7 @@ def _dp_fn_visit_ellipsis():
     Visitor().visit(mod)
     return log
 visit_ellipsis = __dp__.update_fn(_dp_fn_visit_ellipsis, None, "visit_ellipsis")
+del _dp_fn_visit_ellipsis
 
 $ integration: disable transform temp module
 
@@ -1549,6 +1639,7 @@ def _dp_fn_import_without_transform(tmp_path: Path) -> bool:
         if _dp_tmp_3:
             sys.path.pop(0)
 import_without_transform = __dp__.update_fn(_dp_fn_import_without_transform, None, "import_without_transform")
+del _dp_fn_import_without_transform
 
 $ integration: skip outside repo transform
 
@@ -1595,6 +1686,7 @@ def _dp_fn_imported_without_transform(tmp_path: Path) -> bool:
         if _dp_tmp_3:
             sys.path.pop(0)
 imported_without_transform = __dp__.update_fn(_dp_fn_imported_without_transform, None, "imported_without_transform")
+del _dp_fn_imported_without_transform
 
 $ integration: strip internal traceback
 
@@ -1641,6 +1733,7 @@ def _dp_fn_traceback_files():
             raise
     return __dp__.list(())
 traceback_files = __dp__.update_fn(_dp_fn_traceback_files, None, "traceback_files")
+del _dp_fn_traceback_files
 
 $ integration: dotted import alias rebind
 
@@ -1703,6 +1796,7 @@ def _dp_fn_alias_rebind_attrs(tmp_path: Path) -> __dp__.getitem(tuple, (str, str
         if _dp_tmp_3:
             sys.path.pop(0)
 alias_rebind_attrs = __dp__.update_fn(_dp_fn_alias_rebind_attrs, None, "alias_rebind_attrs")
+del _dp_fn_alias_rebind_attrs
 
 $ integration: meta path pathfinder preserved
 
@@ -1817,6 +1911,7 @@ def _dp_fn_import_with_filtered_meta_path() -> bool:
     finally:
         __dp__.setitem(sys.meta_path, __dp__.slice(None, None, None), original_meta_path)
 import_with_filtered_meta_path = __dp__.update_fn(_dp_fn_import_with_filtered_meta_path, None, "import_with_filtered_meta_path")
+del _dp_fn_import_with_filtered_meta_path
 
 $ integration: with class mock calls
 
@@ -1882,6 +1977,7 @@ def _dp_fn_run():
         _dp_with_enter_5 = None
     return Context.__enter__.mock_calls, Context.__exit__.mock_calls
 run = __dp__.update_fn(_dp_fn_run, None, "run")
+del _dp_fn_run
 
 $ integration: exception refcycle after except
 
@@ -1918,6 +2014,7 @@ def _dp_fn_run():
             raise
     return gc.get_referrers(exc)
 run = __dp__.update_fn(_dp_fn_run, None, "run")
+del _dp_fn_run
 
 $ integration: taskgroup propagate cancellation refcycle
 
@@ -1975,6 +2072,7 @@ def _dp_fn_run():
             raise
     return gc.get_referrers(exc)
 run = __dp__.update_fn(_dp_fn_run, None, "run")
+del _dp_fn_run
 
 $ integration: traceback preserves comments
 
@@ -1997,6 +2095,7 @@ def _dp_fn_run():
         else:
             raise
 run = __dp__.update_fn(_dp_fn_run, None, "run")
+del _dp_fn_run
 
 $ integration: traceback linecache clear
 
@@ -2069,6 +2168,7 @@ Reporter = _dp_create_class_Reporter()
 def _dp_fn_get_report():
     return Reporter().run()
 get_report = __dp__.update_fn(_dp_fn_get_report, None, "get_report")
+del _dp_fn_get_report
 
 $ integration: surrogate unicode escape repr
 
@@ -2085,10 +2185,12 @@ def _dp_fn_repr_value():
     char = "�"
     return repr(char)
 repr_value = __dp__.update_fn(_dp_fn_repr_value, None, "repr_value")
+del _dp_fn_repr_value
 def _dp_fn_ascii_value():
     char = "�"
     return ascii(char)
 ascii_value = __dp__.update_fn(_dp_fn_ascii_value, None, "ascii_value")
+del _dp_fn_ascii_value
 
 $ integration: lambda qualname
 
@@ -2108,6 +2210,7 @@ def _dp_fn_global_function():
     _dp_lambda_2.__qualname__ = "global_function.<locals>.<lambda>"
     return _dp_lambda_1.__qualname__, _dp_lambda_2.__name__
 global_function = __dp__.update_fn(_dp_fn_global_function, None, "global_function")
+del _dp_fn_global_function
 
 $ integration: yield from stack names
 
@@ -2133,13 +2236,16 @@ def _dp_fn_get_stack_names():
         frame = sys._getframe()
         yield frame.f_code.co_name, frame.f_back.f_code.co_name
     f = __dp__.update_fn(_dp_fn_f, "get_stack_names.<locals>", "f")
+    del _dp_fn_f
 
     def _dp_fn_g():
         yield from f()
     g = __dp__.update_fn(_dp_fn_g, "get_stack_names.<locals>", "g")
+    del _dp_fn_g
     gen = g()
     return gen.send(None)
 get_stack_names = __dp__.update_fn(_dp_fn_get_stack_names, None, "get_stack_names")
+del _dp_fn_get_stack_names
 
 $ integration: yield from gi_yieldfrom
 
@@ -2160,15 +2266,18 @@ def _dp_fn_get_yieldfrom_name():
     def _dp_fn_a():
         yield
     a = __dp__.update_fn(_dp_fn_a, "get_yieldfrom_name.<locals>", "a")
+    del _dp_fn_a
 
     def _dp_fn_b():
         yield from a()
         yield
     b = __dp__.update_fn(_dp_fn_b, "get_yieldfrom_name.<locals>", "b")
+    del _dp_fn_b
     gen_b = b()
     gen_b.send(None)
     return gen_b.gi_yieldfrom.gi_code.co_name
 get_yieldfrom_name = __dp__.update_fn(_dp_fn_get_yieldfrom_name, None, "get_yieldfrom_name")
+del _dp_fn_get_yieldfrom_name
 
 $ integration: genexpr name
 
@@ -2194,6 +2303,7 @@ def _dp_fn_get_genexpr_name():
     gen = _dp_gen_1(__dp__.iter(()))
     return gen.__name__
 get_genexpr_name = __dp__.update_fn(_dp_fn_get_genexpr_name, None, "get_genexpr_name")
+del _dp_fn_get_genexpr_name
 
 $ integration: nested class base
 
@@ -2262,6 +2372,7 @@ Outer = _dp_create_class_Outer()
 def _dp_fn_get_base_name():
     return __dp__.getitem(Outer.Thing.__bases__, 0).__name__
 get_base_name = __dp__.update_fn(_dp_fn_get_base_name, None, "get_base_name")
+del _dp_fn_get_base_name
 
 $ integration: future import invalid feature
 
@@ -2278,6 +2389,7 @@ class A[*Ts]:
     pass
 =
 def _dp_create_class_A():
+    Ts = __dp__.type_param_typevar_tuple("Ts", None)
 
     def _dp_ns_builder(_dp_class_ns):
 
@@ -2287,15 +2399,9 @@ def _dp_create_class_A():
         _dp_lambda_1.__qualname__ = "<lambda>"
         _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
         _dp_class_ns.__qualname__ = "A"
-        _dp_class_ns.Ts = __dp__.type_param_typevar_tuple("Ts", None)
-
-        def _dp_lambda_2():
-            return Ts
-        _dp_lambda_2.__name__ = "<lambda>"
-        _dp_lambda_2.__qualname__ = "<lambda>"
-        _dp_class_ns.__type_params__ = __dp__.class_lookup("Ts", _dp_class_ns, _dp_lambda_2),
+        _dp_class_ns.__type_params__ = Ts,
         _dp_class_ns.__annotations__ = __dp__.dict()
-    return __dp__.create_class("A", _dp_ns_builder, (), None)
+    return __dp__.create_class("A", _dp_ns_builder, (__dp__.getitem(__import__("typing").Generic, __dp__.getitem(__import__("typing").Unpack, Ts)),), None)
 A = _dp_create_class_A()
 
 $ integration: io.open class attr
@@ -2350,6 +2456,7 @@ def _dp_fn_read_self():
         _dp_with_exit_4 = None
         _dp_with_enter_3 = None
 read_self = __dp__.update_fn(_dp_fn_read_self, None, "read_self")
+del _dp_fn_read_self
 RESULT = read_self()
 
 $ integration: class kwarg metaclass expansion
@@ -2407,3 +2514,224 @@ def _dp_create_class_A():
     return __dp__.create_class("A", _dp_ns_builder, (), __dp__.dict(d))
 A = _dp_create_class_A()
 RESULT = A
+
+$ integration: for else continue
+
+def collect_for_else_continue():
+    seen = []
+    for outer in range(3):
+        for _inner in []:
+            seen.append((_inner, outer))
+        else:
+            seen.append(outer)
+            continue
+        seen.append("unreachable")
+    return seen
+
+
+RESULT = collect_for_else_continue()
+=
+def _dp_fn_collect_for_else_continue():
+    seen = __dp__.list(())
+    _dp_iter_1 = __dp__.iter(range(3))
+    while True:
+        try:
+            outer = __dp__.next(_dp_iter_1)
+        except:
+            __dp__.check_stopiteration()
+            break
+        else:
+            _dp_iter_2 = __dp__.iter(__dp__.list(()))
+            _dp_loop_broken_3 = False
+            while True:
+                try:
+                    _inner = __dp__.next(_dp_iter_2)
+                except:
+                    __dp__.check_stopiteration()
+                    break
+                else:
+                    seen.append((_inner, outer))
+            if __dp__.not_(_dp_loop_broken_3):
+                seen.append(outer)
+                continue
+            seen.append("unreachable")
+    return seen
+collect_for_else_continue = __dp__.update_fn(_dp_fn_collect_for_else_continue, None, "collect_for_else_continue")
+del _dp_fn_collect_for_else_continue
+RESULT = collect_for_else_continue()
+
+$ integration: raise from import shadow
+
+import builtins
+import sys
+import types
+
+
+def raise_from_with_import_patch():
+    package = types.ModuleType("package")
+
+    def _import(name, *args, **kwargs):
+        sys.modules[name] = package
+        return package
+
+    original_import = builtins.__import__
+    builtins.__import__ = _import
+    try:
+        try:
+            raise ValueError("boom")
+        except ValueError as exc:
+            raise RuntimeError("wrapped") from exc
+    except RuntimeError:
+        pass
+    finally:
+        builtins.__import__ = original_import
+    return sys.modules.get("asyncio") is package
+
+
+ASYNCIO_SHADOWED = raise_from_with_import_patch()
+=
+builtins = __dp__.import_("builtins", __spec__)
+sys = __dp__.import_("sys", __spec__)
+types = __dp__.import_("types", __spec__)
+def _dp_fn_raise_from_with_import_patch():
+    package = types.ModuleType("package")
+
+    def _dp_fn__import(name, *args, **kwargs):
+        __dp__.setitem(sys.modules, name, package)
+        return package
+    _import = __dp__.update_fn(_dp_fn__import, "raise_from_with_import_patch.<locals>", "_import")
+    del _dp_fn__import
+    original_import = builtins.__import__
+    builtins.__import__ = _import
+    try:
+        try:
+            raise ValueError("boom")
+        except:
+            if __dp__.exception_matches(__dp__.current_exception(), ValueError):
+                exc = __dp__.current_exception()
+                try:
+                    raise __dp__.raise_from(RuntimeError("wrapped"), exc)
+                finally:
+                    try:
+                        del exc
+                    except:
+                        if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                            pass
+                        else:
+                            raise
+            else:
+                raise
+    except:
+        if __dp__.exception_matches(__dp__.current_exception(), RuntimeError):
+            pass
+        else:
+            raise
+    finally:
+        builtins.__import__ = original_import
+    _dp_tmp_1 = __dp__.is_(sys.modules.get("asyncio"), package)
+    return _dp_tmp_1
+raise_from_with_import_patch = __dp__.update_fn(_dp_fn_raise_from_with_import_patch, None, "raise_from_with_import_patch")
+del _dp_fn_raise_from_with_import_patch
+ASYNCIO_SHADOWED = raise_from_with_import_patch()
+
+$ integration: mock class property
+
+from unittest import mock
+
+
+def mock_class_property_ok():
+    m = mock.Mock(spec=int)
+    return isinstance(m, int)
+
+
+RESULT = mock_class_property_ok()
+=
+_dp_import_1 = __dp__.import_("unittest", __spec__, __dp__.list(("mock",)))
+mock = __dp__.import_attr(_dp_import_1, "mock")
+del _dp_import_1
+def _dp_fn_mock_class_property_ok():
+    m = mock.Mock(spec=int)
+    return isinstance(m, int)
+mock_class_property_ok = __dp__.update_fn(_dp_fn_mock_class_property_ok, None, "mock_class_property_ok")
+del _dp_fn_mock_class_property_ok
+RESULT = mock_class_property_ok()
+
+$ integration: traceback linecache source
+
+import traceback
+
+class Boom:
+    def explode(self):
+        raise RuntimeError("boom")
+
+def get_traceback():
+    try:
+        Boom().explode()
+    except RuntimeError:
+        return traceback.format_exc()
+=
+traceback = __dp__.import_("traceback", __spec__)
+def _dp_create_class_Boom():
+
+    def _dp_ns_builder(_dp_class_ns):
+
+        def _dp_lambda_1():
+            return __name__
+        _dp_lambda_1.__name__ = "<lambda>"
+        _dp_lambda_1.__qualname__ = "<lambda>"
+        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
+        _dp_class_ns.__qualname__ = "Boom"
+        _dp_class_ns.__annotations__ = __dp__.dict()
+
+        def _dp_fn_explode(self):
+            raise RuntimeError("boom")
+        _dp_class_ns.explode = __dp__.update_fn(_dp_fn_explode, "Boom", "explode")
+    return __dp__.create_class("Boom", _dp_ns_builder, (), None)
+Boom = _dp_create_class_Boom()
+def _dp_fn_get_traceback():
+    try:
+        Boom().explode()
+    except:
+        if __dp__.exception_matches(__dp__.current_exception(), RuntimeError):
+            return traceback.format_exc()
+        else:
+            raise
+get_traceback = __dp__.update_fn(_dp_fn_get_traceback, None, "get_traceback")
+del _dp_fn_get_traceback
+
+$ integration: assert raises refcount
+
+import sys
+import unittest
+
+def _boom():
+    try:
+        raise ValueError("boom")
+    except ValueError:
+        raise ValueError("boom")
+
+def run():
+    case = unittest.TestCase()
+    before = sys.getrefcount(_boom)
+    case.assertRaises(ValueError, _boom)
+    return before, sys.getrefcount(_boom)
+=
+sys = __dp__.import_("sys", __spec__)
+unittest = __dp__.import_("unittest", __spec__)
+def _dp_fn__boom():
+    try:
+        raise ValueError("boom")
+    except:
+        if __dp__.exception_matches(__dp__.current_exception(), ValueError):
+            raise ValueError("boom")
+        else:
+            raise
+_boom = __dp__.update_fn(_dp_fn__boom, None, "_boom")
+del _dp_fn__boom
+def _dp_fn_run():
+    case = unittest.TestCase()
+    before = sys.getrefcount(_boom)
+    case.assertRaises(ValueError, _boom)
+    return before, sys.getrefcount(_boom)
+run = __dp__.update_fn(_dp_fn_run, None, "run")
+del _dp_fn_run

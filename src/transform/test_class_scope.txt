@@ -165,6 +165,7 @@ def _dp_create_class_C4():
                 nonlocal x
                 x = "inner"
             inner = __dp__.update_fn(_dp_fn_inner, "C4.outer.<locals>", "inner")
+            del _dp_fn_inner
             inner()
             return x
         _dp_class_ns.outer = __dp__.update_fn(_dp_fn_outer, "C4", "outer")
@@ -195,6 +196,7 @@ def _dp_fn_outer_with_inner_class():
     Inner = _dp_create_class_outer_with_inner_class__locals__Inner()
     return Inner.y
 outer_with_inner_class = __dp__.update_fn(_dp_fn_outer_with_inner_class, None, "outer_with_inner_class")
+del _dp_fn_outer_with_inner_class
 __dp__.setitem(results, "def_with_inner_class_capture", outer_with_inner_class())
 x = "module"
 def _dp_fn_outer_with_inner_class_global_assignment():
@@ -218,6 +220,7 @@ def _dp_fn_outer_with_inner_class_global_assignment():
     Inner = _dp_create_class_outer_with_inner_class_global_assignment__locals__Inner()
     return x, getattr(Inner, "x", None), Inner.y
 outer_with_inner_class_global_assignment = __dp__.update_fn(_dp_fn_outer_with_inner_class_global_assignment, None, "outer_with_inner_class_global_assignment")
+del _dp_fn_outer_with_inner_class_global_assignment
 __dp__.setitem(results, "def_with_inner_class_global_assignment", (outer_with_inner_class_global_assignment(), x))
 x = "module"
 def _dp_fn_outer_with_class_method_reads_global():
@@ -243,6 +246,7 @@ def _dp_fn_outer_with_class_method_reads_global():
     Inner = _dp_create_class_outer_with_class_method_reads_global__locals__Inner()
     return Inner.x, Inner.read(), x
 outer_with_class_method_reads_global = __dp__.update_fn(_dp_fn_outer_with_class_method_reads_global, None, "outer_with_class_method_reads_global")
+del _dp_fn_outer_with_class_method_reads_global
 __dp__.setitem(results, "def_with_class_with_method_reads_global", outer_with_class_method_reads_global())
 def _dp_fn_outer_with_nonlocal_and_inner_class():
     x = "outer"
@@ -272,9 +276,11 @@ def _dp_fn_outer_with_nonlocal_and_inner_class():
         Inner = _dp_create_class_outer_with_nonlocal_and_inner_class__locals__inner__locals__Inner()
         return Inner.y
     inner = __dp__.update_fn(_dp_fn_inner, "outer_with_nonlocal_and_inner_class.<locals>", "inner")
+    del _dp_fn_inner
     y = inner()
     return x, y
 outer_with_nonlocal_and_inner_class = __dp__.update_fn(_dp_fn_outer_with_nonlocal_and_inner_class, None, "outer_with_nonlocal_and_inner_class")
+del _dp_fn_outer_with_nonlocal_and_inner_class
 __dp__.setitem(results, "def_with_nonlocal_and_inner_class", outer_with_nonlocal_and_inner_class())
 def _dp_fn_nonlocal_in_class_body_error():
     try:
@@ -296,4 +302,5 @@ def _dp_fn_nonlocal_in_class_body_error():
             raise
     return None
 nonlocal_in_class_body_error = __dp__.update_fn(_dp_fn_nonlocal_in_class_body_error, None, "nonlocal_in_class_body_error")
+del _dp_fn_nonlocal_in_class_body_error
 __dp__.setitem(results, "class_nonlocal_syntaxerror", nonlocal_in_class_body_error())

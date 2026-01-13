@@ -53,3 +53,10 @@ scripts/run_cpython_tests.sh
 
 The script clones the `cpython` repository if necessary, creates a virtual
 environment using `uv`, and executes the test suite with that interpreter.
+
+
+# Log
+
+2026-01-15:
+  - Totals: duration 18m 3s; tests run 37,414; failures 747; skipped 1,706; test files run 483/492; failed 103; env_changed 1;
+    skipped 31; resource_denied 9

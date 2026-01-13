@@ -9,9 +9,13 @@ use crate::{
     transform::context::ScopeInfo,
 };
 
-pub fn rewrite_class_scope(body: &mut Vec<Stmt>, scope: ScopeInfo) {
+pub fn rewrite_class_scope(
+    body: &mut Vec<Stmt>,
+    scope: ScopeInfo,
+    type_params: HashSet<String>,
+) {
     let locals = scope.local_names();
-    let mut rewriter = ClassScopeRewriter::new(scope, locals);
+    let mut rewriter = ClassScopeRewriter::new(scope, locals, type_params);
     rewriter.visit_body(body);
 }
 
@@ -19,22 +23,25 @@ struct ClassScopeRewriter {
     globals: HashSet<String>,
     nonlocals: HashSet<String>,
     locals: HashSet<String>,
+    type_params: HashSet<String>,
 }
 
 impl ClassScopeRewriter {
-    fn new(scope: ScopeInfo, locals: HashSet<String>) -> Self {
+    fn new(scope: ScopeInfo, locals: HashSet<String>, type_params: HashSet<String>) -> Self {
         let globals = scope.global_names();
         let nonlocals = scope.nonlocal_names();
         Self {
             globals,
             nonlocals,
             locals,
+            type_params,
         }
     }
 
     fn should_rewrite(&self, name: &str) -> bool {
         !self.globals.contains(name)
             && !self.nonlocals.contains(name)
+            && !self.type_params.contains(name)
             && !name.starts_with("_dp_")
             && !matches!(name, "__dp__" | "__classcell__" | "globals" | "locals" | "vars")
             && (name != "__class__" || self.locals.contains("__class__"))
@@ -81,7 +88,7 @@ impl Transformer for ClassScopeRewriter {
                     }
                     self.visit_expr(value);
                     let name = id.as_str();
-                    if self.should_rewrite(name) {
+                    if name == "__class__" || self.should_rewrite(name) {
                         *target = py_expr!("_dp_class_ns.{storage_name:id}", storage_name = name,);
                     }
                 } else {
@@ -124,12 +131,11 @@ impl Transformer for ClassScopeRewriter {
         }) = expr
         {
             if let Expr::Name(ast::ExprName { id, .. }) = func.as_ref() {
-                if id.as_str() == "vars"
-                    && arguments.args.is_empty()
-                    && arguments.keywords.is_empty()
-                {
-                    *expr = py_expr!("_dp_class_ns._namespace");
-                    return;
+                if arguments.args.is_empty() && arguments.keywords.is_empty() {
+                    if id.as_str() == "vars" || id.as_str() == "locals" {
+                        *expr = py_expr!("_dp_class_ns._namespace");
+                        return;
+                    }
                 }
             }
         }
@@ -137,6 +143,9 @@ impl Transformer for ClassScopeRewriter {
             if matches!(ctx, ExprContext::Load) {
                 let name = id.as_str().to_string();
                 let name_str = name.as_str();
+                if self.type_params.contains(name_str) {
+                    return;
+                }
                 if !self.should_rewrite(name_str) {
                     return;
                 }

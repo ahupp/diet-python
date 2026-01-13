@@ -1,8 +1,10 @@
 use super::context::Context;
+use crate::body_transform::{walk_expr, Transformer};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::name::Name;
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::TextRange;
+use std::collections::HashSet;
 
 pub(crate) fn rewrite_lambda(lambda: ast::ExprLambda, ctx: &Context, buf: &mut Vec<Stmt>) -> Expr {
     let func_name = ctx.fresh("lambda");
@@ -75,6 +77,7 @@ pub(crate) fn rewrite_generator(
     let qualname = ctx.make_qualname("<genexpr>");
     let param_name = Name::new(ctx.fresh("iter"));
 
+    let named_targets = collect_named_targets(elt.as_ref(), &generators);
     let mut body = py_stmt!("yield {value:expr}", value = *elt);
 
     for comp in generators.iter().rev() {
@@ -114,6 +117,23 @@ for {target:expr} in {iter:expr}:
 
     if let Stmt::For(ast::StmtFor { iter, .. }) = body.first_mut().unwrap() {
         *iter = Box::new(py_expr!("\n{name:id}", name = param_name.as_str()));
+    }
+
+    let (global_targets, nonlocal_targets, prelude) = named_target_bindings(ctx, &named_targets);
+    if !prelude.is_empty() {
+        buf.extend(prelude);
+    }
+
+    if !global_targets.is_empty() || !nonlocal_targets.is_empty() {
+        let mut bindings = Vec::new();
+        for name in global_targets {
+            bindings.extend(py_stmt!("global {name:id}", name = name.as_str()));
+        }
+        for name in nonlocal_targets {
+            bindings.extend(py_stmt!("nonlocal {name:id}", name = name.as_str()));
+        }
+        bindings.extend(body);
+        body = bindings;
     }
 
     let func_def = if needs_async {
@@ -167,6 +187,79 @@ def {func:id}({param:id}):
             iter = first_iter_expr,
             func = func_name.as_str(),
         )
+    }
+}
+
+fn collect_named_targets(elt: &Expr, generators: &[ast::Comprehension]) -> Vec<String> {
+    struct Collector {
+        names: HashSet<String>,
+    }
+
+    impl Transformer for Collector {
+        fn visit_expr(&mut self, expr: &mut Expr) {
+            match expr {
+                Expr::Named(ast::ExprNamed { target, value, .. }) => {
+                    if let Expr::Name(ast::ExprName { id, .. }) = &**target {
+                        self.names.insert(id.to_string());
+                    }
+                    self.visit_expr(value);
+                    return;
+                }
+                Expr::Lambda(_) => return,
+                _ => {}
+            }
+            walk_expr(self, expr);
+        }
+    }
+
+    let mut collector = Collector {
+        names: HashSet::new(),
+    };
+    let mut expr = Expr::Generator(ast::ExprGenerator {
+        node_index: ast::AtomicNodeIndex::default(),
+        range: TextRange::default(),
+        elt: Box::new(elt.clone()),
+        generators: generators.to_vec(),
+        parenthesized: false,
+    });
+    collector.visit_expr(&mut expr);
+    let mut names: Vec<String> = collector.names.into_iter().collect();
+    names.sort();
+    names
+}
+
+fn named_target_bindings(
+    ctx: &Context,
+    names: &[String],
+) -> (Vec<String>, Vec<String>, Vec<Stmt>) {
+    if names.is_empty() {
+        return (Vec::new(), Vec::new(), Vec::new());
+    }
+
+    match ctx.current_qualname() {
+        Some((_qualname, super::context::ScopeKind::Function)) => {
+            let mut globals = Vec::new();
+            let mut nonlocals = Vec::new();
+            let mut prelude = Vec::new();
+            for name in names {
+                if ctx.is_global_in_current_scope(name) {
+                    globals.push(name.clone());
+                    continue;
+                }
+                nonlocals.push(name.clone());
+                if !ctx.is_nonlocal_in_current_scope(name) {
+                    prelude.extend(py_stmt!(
+                        r#"
+if False:
+    {name:id} = None
+"#,
+                        name = name.as_str(),
+                    ));
+                }
+            }
+            (globals, nonlocals, prelude)
+        }
+        _ => (names.to_vec(), Vec::new(), Vec::new()),
     }
 }
 

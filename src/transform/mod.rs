@@ -53,5 +53,22 @@ impl Options {
 #[cfg(test)]
 mod tests {
     crate::transform_fixture_test!(class_scope_fixture, "test_class_scope.txt");
+    crate::transform_fixture_test!(
+        multiprocessing_barrier_fixture,
+        "test_multiprocessing_barrier_abort_reset.txt"
+    );
+    crate::transform_fixture_test!(cleanup_dp_globals_fixture, "test_cleanup_dp_globals.txt");
+    crate::transform_fixture_test!(
+        named_expression_cases_fixture,
+        "test_named_expression_cases.txt"
+    );
+    crate::transform_fixture_test!(
+        typing_generics_cases_fixture,
+        "test_typing_generics_cases.txt"
+    );
+    crate::transform_fixture_test!(
+        generator_exception_context_fixture,
+        "test_generator_exception_context.txt"
+    );
     crate::transform_fixture_test!("tests_mod.txt");
 }

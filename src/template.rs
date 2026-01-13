@@ -437,6 +437,13 @@ impl Transformer for PlaceholderReplacer {
             Stmt::ClassDef(class_def) => {
                 self.replace_identifier(&mut class_def.name);
             }
+            Stmt::Global(ast::StmtGlobal { names, .. })
+            | Stmt::Nonlocal(ast::StmtNonlocal { names, .. }) => {
+                for name in names {
+                    self.replace_identifier(name);
+                }
+                return;
+            }
             _ => {}
         }
 

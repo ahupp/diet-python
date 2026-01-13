@@ -19,6 +19,7 @@ use ruff_source_file::LineEnding;
 use ruff_text_size::TextRange;
 use std::mem::take;
 
+// TODO: rename RewriteContext, fold Context into it
 pub struct ExprRewriter {
     ctx: Context,
     options: Options,
@@ -160,21 +161,6 @@ for {target:expr} in {iter:expr}:
         result
     }
 
-    fn current_qualname(&self) -> Option<String> {
-        let mut iter = self.qualname_stack.iter();
-        let first = iter.next()?;
-        let mut qualname = first.1.clone();
-        let mut prev_is_function = matches!(first.0, ScopeKind::Function);
-        for (kind, name) in iter {
-            if prev_is_function {
-                qualname = format!("{qualname}.<locals>.{name}");
-            } else {
-                qualname = format!("{qualname}.{name}");
-            }
-            prev_is_function = matches!(kind, ScopeKind::Function);
-        }
-        Some(qualname)
-    }
 
     fn scope_expr_for_child(&self) -> Expr {
         match self.context().current_qualname() {
@@ -428,6 +414,7 @@ for {target:expr} in {iter:expr}:
             name = original_name.as_str(),
             decorated = decorated
         ));
+        prelude.extend(py_stmt!("del {name:id}", name = renamed.as_str()));
         Rewrite::Visit(prelude)
     }
 
@@ -503,6 +490,19 @@ fn expr_contains_await(expr: &Expr) -> bool {
 
     impl Transformer for AwaitFinder {
         fn visit_expr(&mut self, expr: &mut Expr) {
+            let has_async_generator = match expr {
+                Expr::ListComp(ast::ExprListComp { generators, .. })
+                | Expr::SetComp(ast::ExprSetComp { generators, .. })
+                | Expr::DictComp(ast::ExprDictComp { generators, .. }) => {
+                    generators.iter().any(|comp| comp.is_async)
+                }
+                _ => false,
+            };
+
+            if has_async_generator {
+                self.found = true;
+                return;
+            }
             if matches!(expr, Expr::Await(_)) {
                 self.found = true;
                 return;
@@ -519,6 +519,7 @@ fn expr_contains_await(expr: &Expr) -> bool {
     finder.visit_expr(&mut expr);
     finder.found
 }
+
 
 fn expand_if_chain(mut if_stmt: ast::StmtIf) -> ast::StmtIf {
     let mut else_body: Option<Vec<Stmt>> = None;
@@ -615,13 +616,19 @@ impl Transformer for ExprRewriter {
                 let target = *target;
                 let value = *value;
                 let value_expr = self.maybe_placeholder(value);
-                let assign_target = py_stmt!(
-                    "\n{target:expr} = {value:expr}\n",
+                let tmp = self.ctx.fresh("tmp");
+                let tmp_expr = py_expr!("{tmp:id}", tmp = tmp.as_str());
+                self.buf.extend(py_stmt!(
+                    "{tmp:id} = {value:expr}",
+                    tmp = tmp.as_str(),
+                    value = value_expr,
+                ));
+                self.buf.extend(py_stmt!(
+                    "{target:expr} = {tmp:expr}",
                     target = target,
-                    value = value_expr.clone(),
-                );
-                self.buf.extend(assign_target);
-                value_expr
+                    tmp = tmp_expr.clone(),
+                ));
+                tmp_expr
             }
             Expr::If(if_expr) => {
                 let tmp = self.ctx.fresh("tmp");

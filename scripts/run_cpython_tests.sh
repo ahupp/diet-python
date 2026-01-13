@@ -35,6 +35,19 @@ if [ ! -x "$PYTHON_BIN" ]; then
   )
 fi
 
+SITE_PACKAGES="$($PYTHON_BIN - <<'PY'
+import sysconfig
+print(sysconfig.get_paths()["purelib"])
+PY
+)"
+mkdir -p "$SITE_PACKAGES"
+$PYTHON_BIN - <<PY > "$SITE_PACKAGES/diet_python.pth"
+import pathlib
+repo_root = pathlib.Path(${REPO_ROOT@Q})
+stdlib = repo_root / ${CPYTHON_DIR@Q} / "Lib"
+print(f"import sys; sys.path.insert(0, {str(stdlib)!r}); sys.path.insert(0, {str(repo_root)!r})")
+PY
+
 # Expose CPython's standard library and test package so modules are loaded from
 # source and can be transformed.
 
@@ -58,5 +71,5 @@ fi
   DIET_PYTHON_INSTALL_HOOK=1 \
   PYTHONDONTWRITEBYTECODE=1 \
   PYTHONPATH="$PYTHONPATH_PREFIX${PYTHONPATH:+:$PYTHONPATH}" \
-  "$PYTHON_BIN" -m test -j0 "${SKIP_ARGS[@]}" "$@"
+  "$PYTHON_BIN" -m test -j0 -v "${SKIP_ARGS[@]}" "$@"
 )
