@@ -1,0 +1,31 @@
+$ dataclasses make_dataclass invalid field
+import dataclasses
+
+
+try:
+    dataclasses.make_dataclass("C", [("for", int)])
+except TypeError as exc:
+    ERROR = str(exc)
+else:
+    ERROR = None
+=
+dataclasses = __dp__.import_("dataclasses", __spec__)
+try:
+    dataclasses.make_dataclass("C", __dp__.list((("for", int),)))
+except:
+    if __dp__.exception_matches(__dp__.current_exception(), TypeError):
+        exc = __dp__.current_exception()
+        try:
+            ERROR = str(exc)
+        finally:
+            try:
+                del exc
+            except:
+                if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                    pass
+                else:
+                    raise
+    else:
+        raise
+else:
+    ERROR = None

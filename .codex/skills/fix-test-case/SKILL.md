@@ -10,6 +10,7 @@ description: Fix a specific failing test case in this repo by identifying the ro
 - Work on one concrete failing test at a time.
 - Keep the repro small and isolated under tests/.
 - Do not try to fix failures that are due to changing the source layout; add them to `EXPECTED_FAILURE.md` instead.
+- If a failure is due to shifting line numbers or changed source content (literal tracebacks, linecache, etc.), add it to `EXPECTED_FAILURE.md`.
 
 ## Workflow
 
@@ -20,8 +21,9 @@ description: Fix a specific failing test case in this repo by identifying the ro
 2. Identify the root cause
    - Inspect the failing code path and surrounding logic.
    - Map the failure back to the minimal incorrect behavior (state mismatch, wrong transform, missing edge case).
+   - If needed, use the `python-debug` skill for pdb stepping or the `python-monitoring-trace` skill for a sys.monitoring trace.
 
-3. Add a minimal repro under tests/
+3. *Always* add a minimal repro under tests/
    - Create a new test file or extend the most relevant existing test file.
    - Keep the input as small as possible while still reproducing the failure.
    - Prefer integration-style tests consistent with existing tests/ conventions.
@@ -34,6 +36,7 @@ description: Fix a specific failing test case in this repo by identifying the ro
    - Apply the smallest change that makes the repro pass.
    - Avoid unrelated refactors or behavior changes.
    - Never change the cpython source to fix a test.
+   - The goal is to transform python to a minimal form, so do not selectively disable that to fix the tests.
 
 6. Re-run the test
    - Re-run the specific failing test and the new repro.

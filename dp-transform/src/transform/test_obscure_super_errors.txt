@@ -1,0 +1,66 @@
+$ obscure super errors
+
+from __future__ import annotations
+
+
+def exercise():
+    class X:
+        def f(x):
+            nonlocal __class__
+            del __class__
+            super()
+
+    try:
+        X().f()
+    except Exception as exc:
+        return type(exc), str(exc)
+
+    return None, None
+=
+def _dp_fn_exercise():
+
+    def _dp_create_class_exercise__locals__X():
+
+        def _dp_ns_builder(_dp_class_ns):
+            _dp_classcell = __dp__.empty_classcell()
+
+            def _dp_lambda_1():
+                return _dp_classcell
+            _dp_lambda_1.__name__ = "<lambda>"
+            _dp_lambda_1.__qualname__ = "exercise.<locals>.<lambda>"
+            _dp_class_ns.__classcell__ = __dp__.getitem(_dp_lambda_1.__closure__, 0)
+
+            def _dp_lambda_2():
+                return __name__
+            _dp_lambda_2.__name__ = "<lambda>"
+            _dp_lambda_2.__qualname__ = "exercise.<locals>.<lambda>"
+            _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_2)
+            _dp_class_ns.__qualname__ = "exercise.<locals>.X"
+
+            def _dp_fn_f(x):
+                nonlocal _dp_classcell
+                _dp_classcell = __dp__.empty_classcell()
+                __dp__.call_super(super, _dp_classcell, x)
+            _dp_class_ns.f = __dp__.update_fn(_dp_fn_f, "exercise.<locals>.X", "f")
+        return __dp__.create_class("X", _dp_ns_builder, (), None)
+    X = _dp_create_class_exercise__locals__X()
+    try:
+        X().f()
+    except:
+        if __dp__.exception_matches(__dp__.current_exception(), Exception):
+            exc = __dp__.current_exception()
+            try:
+                return type(exc), str(exc)
+            finally:
+                try:
+                    del exc
+                except:
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                        pass
+                    else:
+                        raise
+        else:
+            raise
+    return None, None
+exercise = __dp__.update_fn(_dp_fn_exercise, None, "exercise")
+del _dp_fn_exercise

@@ -102,6 +102,36 @@ def class_lookup(name, class_ns, lookup_fn):
     return value
 
 
+def class_lookup_annotate(name, class_ns, globals_dict):
+    # Mirror LOAD_FROM_DICT_OR_GLOBALS so annotationlib can supply ForwardRefs.
+    try:
+        locals_dict = object.__getattribute__(class_ns, "_locals")
+        namespace = object.__getattribute__(class_ns, "_namespace")
+    except Exception:
+        locals_dict = None
+        namespace = None
+
+    if locals_dict is not None and namespace is not None:
+        if name in locals_dict:
+            return locals_dict[name]
+        if name in namespace:
+            return namespace[name]
+    else:
+        try:
+            if name in class_ns:
+                return class_ns[name]
+        except Exception:
+            pass
+
+    try:
+        return globals_dict[name]
+    except KeyError as exc:
+        try:
+            return getattr(builtins, name)
+        except AttributeError:
+            raise NameError(name) from exc
+
+
 def _validate_exception_type(exc_type):
     if isinstance(exc_type, tuple):
         for entry in exc_type:
@@ -113,12 +143,19 @@ def _validate_exception_type(exc_type):
 
 
 def exception_matches(exc, exc_type):
+    if isinstance(exc, RecursionError):
+        return isinstance(exc, exc_type)
     _validate_exception_type(exc_type)
     return isinstance(exc, exc_type)
 
 
 def unpack(iterable, spec):
-    iterator = iter(iterable)
+    try:
+        iterator = iter(iterable)
+    except TypeError as exc:
+        raise TypeError(
+            f"cannot unpack non-iterable {type(iterable).__name__} object"
+        ) from exc
 
     result = []
     star_index = None
@@ -172,6 +209,11 @@ def prepare_class(name, bases, kwds=None):
     return _types.prepare_class(name, bases, kwds)
 
 
+_CELL_TYPE = _types.CellType
+_MISSING_CLASSCELL = object()
+_EMPTY_CLASSCELL = object()
+
+
 class _ClassCell:
     __slots__ = ("_locals",)
 
@@ -179,21 +221,74 @@ class _ClassCell:
         self._locals = {}
 
 
-def make_classcell():
-    return _ClassCell()
+def make_classcell(value=_MISSING_CLASSCELL):
+    if value is _MISSING_CLASSCELL:
+        return _CELL_TYPE()
+    def inner():
+        return value
+    return inner.__closure__[0]
 
+
+def empty_classcell():
+    return _EMPTY_CLASSCELL
+
+def class_cell_value(class_cell):
+    if class_cell is _EMPTY_CLASSCELL:
+        raise RuntimeError("empty __class__ cell")
+    if isinstance(class_cell, _CELL_TYPE):
+        try:
+            value = class_cell.cell_contents
+        except ValueError:
+            raise RuntimeError("empty __class__ cell") from None
+        if value is _EMPTY_CLASSCELL:
+            raise RuntimeError("empty __class__ cell")
+        return value
+    try:
+        locals_dict = object.__getattribute__(class_cell, "_locals")
+    except Exception:
+        return class_cell
+    value = locals_dict.get("__dp_class", class_cell)
+    if value is _EMPTY_CLASSCELL:
+        raise RuntimeError("empty __class__ cell")
+    return value
 
 def super_(class_namespace, instance_or_cls):
     """Return a super() proxy using the defining class, falling back to cls during class creation."""
     defining = None
-    try:
-        locals_dict = object.__getattribute__(class_namespace, "_locals")
-        defining = locals_dict.get("__dp_class")
-    except Exception:
-        defining = None
+    if class_namespace is _EMPTY_CLASSCELL:
+        raise RuntimeError("empty __class__ cell")
+    if isinstance(class_namespace, _ClassNamespace):
+        defining = class_namespace._locals.get("__dp_class")
+    elif isinstance(class_namespace, _CELL_TYPE):
+        try:
+            defining = class_namespace.cell_contents
+        except ValueError:
+            raise RuntimeError("empty __class__ cell") from None
+        if defining is _EMPTY_CLASSCELL:
+            raise RuntimeError("empty __class__ cell")
+    else:
+        try:
+            locals_dict = object.__getattribute__(class_namespace, "_locals")
+            defining = locals_dict.get("__dp_class")
+        except Exception:
+            defining = None
+    if defining is None and isinstance(class_namespace, type):
+        defining = class_namespace
     if defining is None:
         defining = instance_or_cls
     return super(defining, instance_or_cls)
+
+
+def call_super(super_fn, class_namespace, instance_or_cls):
+    if super_fn is builtins.super:
+        return super_(class_namespace, instance_or_cls)
+    return super_fn()
+
+
+def call_super_noargs(super_fn):
+    if super_fn is builtins.super:
+        raise RuntimeError("super(): no arguments")
+    return super_fn()
 
 
 def _match_class_validate_arity(cls, match_args, total):
@@ -300,11 +395,6 @@ class _ClassNamespace:
             return self._locals.get(name, default)
         return self._namespace.get(name, default)
 
-def _set_qualname(obj, qualname):
-    try:
-        obj.__qualname__ = qualname
-    except (AttributeError, TypeError):
-        pass
 
 
 def update_fn(func, scope, name):
@@ -312,7 +402,10 @@ def update_fn(func, scope, name):
         qualname = name
     else:
         qualname = f"{scope}.{name}"
-    _set_qualname(func, qualname)
+    try:
+        func.__qualname__ = qualname
+    except (AttributeError, TypeError):
+        pass        
     try:
         func.__name__ = name
     except (AttributeError, TypeError):
@@ -337,6 +430,44 @@ def _typing_module():
     if _typing is None:
         _typing = builtins.__import__("typing")
     return _typing
+
+
+_templatelib = None
+_template_type = None
+_interpolation_type = None
+
+try:
+    _template_probe = t"{0}"
+    _template_type = type(_template_probe)
+    _interpolation_type = type(_template_probe.interpolations[0])
+except Exception:
+    _template_type = None
+    _interpolation_type = None
+
+
+def _templatelib_module():
+    global _templatelib
+    if _templatelib is None:
+        _templatelib = builtins.__import__(
+            "string.templatelib", fromlist=["templatelib"]
+        )
+    return _templatelib
+
+
+def template(*parts):
+    if _template_type is not None:
+        return _template_type(*parts)
+    module = _templatelib_module()
+    return module.Template(*parts)
+
+
+def interpolation(value, expression, conversion, format_spec):
+    if format_spec is None:
+        format_spec = ""
+    if _interpolation_type is not None:
+        return _interpolation_type(value, expression, conversion, format_spec)
+    module = _templatelib_module()
+    return module.Interpolation(value, expression, conversion, format_spec)
 
 
 def _normalize_constraints(constraints):
@@ -379,17 +510,35 @@ def create_class(name, namespace_fn, bases, kwds=None):
 
     namespace = _ClassNamespace(ns)
     namespace_fn(namespace)
-    class_cell = ns.pop("__classcell__", None)
+    class_cell = ns.get("__classcell__")
 
     if orig_bases is not bases and "__orig_bases__" not in ns:
         ns["__orig_bases__"] = orig_bases
     cls = meta(name, bases, ns, **meta_kwds)
+    if cls is None:
+        return None
     if class_cell is not None:
-        try:
+        if isinstance(class_cell, _CELL_TYPE):
+            try:
+                cell_value = class_cell.cell_contents
+            except ValueError:
+                cell_value = _EMPTY_CLASSCELL
+            if cell_value is _EMPTY_CLASSCELL:
+                raise RuntimeError(
+                    "__class__ not set; was __classcell__ propagated to type.__new__?"
+                ) from None
+            if cell_value is not cls:
+                raise TypeError("__classcell__ is not set to the class being created")
+        elif isinstance(class_cell, _ClassCell):
             locals_dict = object.__getattribute__(class_cell, "_locals")
-            locals_dict["__dp_class"] = cls
-        except Exception:
-            pass
+            existing = locals_dict.get("__dp_class", _EMPTY_CLASSCELL)
+            if existing is _EMPTY_CLASSCELL:
+                locals_dict["__dp_class"] = cls
+                existing = cls
+            if existing is not cls:
+                raise TypeError("__classcell__ is not set to the class being created")
+        else:
+            raise TypeError("__classcell__ must be a cell")
     namespace._locals["__dp_class"] = cls
     return cls
 
@@ -404,6 +553,8 @@ def current_exception():
     exc = sys.exception()
     if exc is None:
         return None
+    if isinstance(exc, RecursionError):
+        return exc
     tb = _strip_dp_frames(exc.__traceback__)
     if tb is not exc.__traceback__:
         exc = exc.with_traceback(tb)
@@ -491,31 +642,6 @@ async def anext(iterator):
     return await _await_from_iter(await_iter)
 
 
-def _get_async_with_awaitable(awaitable, method_label):
-    try:
-        iterator = awaitable.__await__()
-    except AttributeError:
-        awaitable_type = type(awaitable).__name__
-        awaitable = None
-        raise TypeError(
-            "'async with' received an object from "
-            f"{method_label} that does not implement __await__: {awaitable_type}"
-        ) from None
-    except Exception as exc:
-        awaitable_type = type(awaitable).__name__
-        awaitable = None
-        raise TypeError(
-            "'async with' received an object from "
-            f"{method_label} that does not implement __await__: {awaitable_type}"
-        ) from exc
-    if not hasattr(iterator, "__next__"):
-        awaitable_type = type(awaitable).__name__
-        awaitable = None
-        raise TypeError(
-            "'async with' received an object from "
-            f"{method_label} that does not implement __await__: {awaitable_type}"
-        ) from None
-    return iterator
 
 
 def raise_from(exc, cause):
@@ -616,130 +742,35 @@ def _strip_dp_frames(tb):
         hook_file = getattr(hook, "__file__", None)
         if hook_file:
             internal_files.add(hook_file)
-
-    def strip(current):
-        if current is None:
-            return None
-        next_tb = strip(current.tb_next)
+    frames = []
+    changed = False
+    current = tb
+    while current is not None:
         if current.tb_frame.f_code.co_filename in internal_files:
-            return next_tb
-        return _types.TracebackType(
-            next_tb,
-            current.tb_frame,
-            current.tb_lasti,
-            current.tb_lineno,
-        )
-
-    return strip(tb)
-
-
-# Tags as ints for yield from state machine
-RUNNING = 0
-RETURN = 1
-
-# Discriminated union for state
-def yield_from_init(iterable):
-    it = iter(iterable)
-    try:
-        y = next(it)  # prime
-    except StopIteration as e:
-        return (RETURN, getattr(e, "value", None), None, None)
-    else:
-        return (RUNNING, y, None, it)
-
-
-def yield_from_next(state, sent):
-    """Advance one step given the value just sent into the outer generator.
-       Must be called only while RUNNING."""
-    tag, _y, _to_send, it = state
-    assert tag == RUNNING and it is not None, "yield_from_next requires RUNNING state"
-
-    try:
-        if sent is None:
-            y = next(it)
+            changed = True
         else:
-            send = getattr(it, "send", None)
-            y = next(it) if send is None else send(sent)
-    except StopIteration as e:
-        return (RETURN, getattr(e, "value", None), None, None)
-    else:
-        return (RUNNING, y, None, it)
+            frames.append((current.tb_frame, current.tb_lasti, current.tb_lineno))
+        current = current.tb_next
 
+    if not changed:
+        return tb
 
-def yield_from_except(state, exc: BaseException):
-    """Forward exceptions immediately to the subgenerator."""
-    # Unpack first, then assert as requested
-    tag, _y, _to_send, it = state
-    assert tag == RUNNING and it is not None, "Invalid state for exception forwarding"
+    stripped = None
+    for frame, lasti, lineno in reversed(frames):
+        stripped = _types.TracebackType(stripped, frame, lasti, lineno)
+    return stripped
 
-    if isinstance(exc, GeneratorExit):
-        close = getattr(it, "close", None)
-        if close is not None:
-            try:
-                close()
-            finally:
-                raise exc
-        raise exc
-
-    throw = getattr(it, "throw", None)
-    if throw is None:
-        raise exc
-
-    try:
-        y = throw(exc)
-    except StopIteration as e:
-        return (RETURN, getattr(e, "value", None), None, None)
-    else:
-        return (RUNNING, y, None, it)
-
-
-async def with_aenter(ctx):
-    try:
-        enter = ctx.__aenter__
-    except AttributeError as exc:
-        raise TypeError(
-            "asynchronous context manager protocol requires __aenter__"
-        ) from exc
-    try:
-        exit = ctx.__aexit__
-    except AttributeError as exc:
-        raise TypeError(
-            "asynchronous context manager protocol requires __aexit__"
-        ) from exc
-    awaitable = enter()
-    await_iter = _get_async_with_awaitable(awaitable, "__aenter__")
-    var = await _await_from_iter(await_iter)
-    return (var, exit)
-
-
-async def with_aexit(aexit_fn, exc_info: tuple | None):
-    if exc_info is not None:
-        exc_type, exc, tb = exc_info
-        try:
-            awaitable = aexit_fn(*exc_info)
-            try:
-                await_iter = _get_async_with_awaitable(awaitable, "__aexit__")
-            except TypeError as err:
-                err.__context__ = exc
-                err.__suppress_context__ = False
-                raise
-            suppress = await _await_from_iter(await_iter)
-        finally:
-            # Clear the reference for GC in long-lived frames.
-            exc_info = None
-        if suppress:
-            exc.__traceback__ = None
-        else:
-            raise exc.with_traceback(tb)
-    else:
-        awaitable = aexit_fn(None, None, None)
-        await_iter = _get_async_with_awaitable(awaitable, "__aexit__")
-        await _await_from_iter(await_iter)
 
 
 def with_enter(ctx):
-    enter = ctx.__enter__
-    exit = ctx.__exit__
+    try:
+        enter = ctx.__enter__
+    except AttributeError as exc:
+        raise TypeError("the context manager protocol requires __enter__") from exc
+    try:
+        exit = ctx.__exit__
+    except AttributeError as exc:
+        raise TypeError("the context manager protocol requires __exit__") from exc
     var = enter()
     return (var, exit)
 
@@ -749,12 +780,73 @@ def with_exit(exit_fn, exc_info: tuple | None):
         exc_type, exc, tb = exc_info
         try:
             suppress = exit_fn(*exc_info)
+            if suppress:
+                exc.__traceback__ = None
+                return
+            raise exc.with_traceback(tb)
         finally:
             # Clear the reference for GC in long-lived frames.
             exc_info = None
-        if suppress:
-            exc.__traceback__ = None
-        else:
-            raise exc.with_traceback(tb)
+            exc_type = None
+            exc = None
+            tb = None
     else:
         exit_fn(None, None, None)
+
+
+def _ensure_awaitable(awaitable, method_name: str):
+    try:
+        iterator = awaitable.__await__()
+    except AttributeError:
+        awaitable_type = type(awaitable).__name__
+        awaitable = None
+        raise TypeError(
+            f"object returned from {method_name} does not implement __await__: {awaitable_type}"
+        ) from None
+    except Exception as exc:
+        awaitable_type = type(awaitable).__name__
+        awaitable = None
+        raise TypeError(
+            f"object returned from {method_name} does not implement __await__: {awaitable_type}"
+        ) from exc
+    if not hasattr(iterator, "__next__"):
+        awaitable_type = type(awaitable).__name__
+        awaitable = None
+        raise TypeError(
+            f"object returned from {method_name} does not implement __await__: {awaitable_type}"
+        ) from None
+    return iterator
+
+
+async def with_aenter(ctx):
+    try:
+        aenter = ctx.__aenter__
+    except AttributeError as exc:
+        raise TypeError("the asynchronous context manager protocol requires __aenter__") from exc
+    try:
+        aexit = ctx.__aexit__
+    except AttributeError as exc:
+        raise TypeError("the asynchronous context manager protocol requires __aexit__") from exc
+    await_iter = _ensure_awaitable(aenter(), "__aenter__")
+    var = await _await_from_iter(await_iter)
+    return (var, aexit)
+
+
+async def with_aexit(exit_fn, exc_info: tuple | None):
+    if exc_info is not None:
+        exc_type, exc, tb = exc_info
+        try:
+            await_iter = _ensure_awaitable(exit_fn(*exc_info), "__aexit__")
+            suppress = await _await_from_iter(await_iter)
+            if suppress:
+                exc.__traceback__ = None
+                return
+            raise exc.with_traceback(tb)
+        finally:
+            exc_info = None
+            exc_type = None
+            exc = None
+            tb = None
+    else:
+        await_iter = _ensure_awaitable(exit_fn(None, None, None), "__aexit__")
+        await _await_from_iter(await_iter)

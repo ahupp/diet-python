@@ -1,0 +1,113 @@
+$ generator exception context
+class CaptureException:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.exc = exc
+        return True
+
+
+def exception_context():
+    def f():
+        try:
+            raise KeyError("a")
+        except Exception:
+            yield
+
+    gen = f()
+    gen.send(None)
+    capture = CaptureException()
+    with capture:
+        gen.throw(ValueError)
+    context = capture.exc.__context__
+    return type(context), context.args
+=
+def _dp_create_class_CaptureException():
+
+    def _dp_ns_builder(_dp_class_ns):
+
+        def _dp_lambda_1():
+            return __name__
+        _dp_lambda_1.__name__ = "<lambda>"
+        _dp_lambda_1.__qualname__ = "<lambda>"
+        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
+        _dp_class_ns.__qualname__ = "CaptureException"
+
+        def _dp_fn___enter__(self):
+            return self
+        _dp_class_ns.__enter__ = __dp__.update_fn(_dp_fn___enter__, "CaptureException", "__enter__")
+
+        def _dp_fn___exit__(self, exc_type, exc, tb):
+            self.exc = exc
+            return True
+        _dp_class_ns.__exit__ = __dp__.update_fn(_dp_fn___exit__, "CaptureException", "__exit__")
+    return __dp__.create_class("CaptureException", _dp_ns_builder, (), None)
+CaptureException = _dp_create_class_CaptureException()
+def _dp_fn_exception_context():
+
+    def _dp_fn_f():
+        try:
+            raise KeyError("a")
+        except:
+            if __dp__.exception_matches(__dp__.current_exception(), Exception):
+                yield
+            else:
+                raise
+    f = __dp__.update_fn(_dp_fn_f, "exception_context.<locals>", "f")
+    del _dp_fn_f
+    gen = f()
+    gen.send(None)
+    capture = CaptureException()
+    _dp_with_ctx_2 = capture
+    try:
+        _dp_with_enter_3 = _dp_with_ctx_2.__enter__
+    except:
+        if __dp__.exception_matches(__dp__.current_exception(), AttributeError):
+            _dp_with_exc = __dp__.current_exception()
+            try:
+                raise __dp__.raise_from(TypeError("the context manager protocol requires __enter__"), _dp_with_exc)
+            finally:
+                try:
+                    del _dp_with_exc
+                except:
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                        pass
+                    else:
+                        raise
+        else:
+            raise
+    try:
+        _dp_with_exit_4 = _dp_with_ctx_2.__exit__
+    except:
+        if __dp__.exception_matches(__dp__.current_exception(), AttributeError):
+            _dp_with_exc = __dp__.current_exception()
+            try:
+                raise __dp__.raise_from(TypeError("the context manager protocol requires __exit__"), _dp_with_exc)
+            finally:
+                try:
+                    del _dp_with_exc
+                except:
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                        pass
+                    else:
+                        raise
+        else:
+            raise
+    _ = _dp_with_enter_3()
+    _dp_with_active_5 = True
+    try:
+        gen.throw(ValueError)
+    except:
+        _dp_with_active_5 = False
+        __dp__.with_exit(_dp_with_exit_4, __dp__.exc_info())
+    finally:
+        if _dp_with_active_5:
+            __dp__.with_exit(_dp_with_exit_4, None)
+        _dp_with_exit_4 = None
+        _dp_with_enter_3 = None
+        _dp_with_ctx_2 = None
+    context = capture.exc.__context__
+    return type(context), context.args
+exception_context = __dp__.update_fn(_dp_fn_exception_context, None, "exception_context")
+del _dp_fn_exception_context

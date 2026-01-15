@@ -1,0 +1,59 @@
+$ support current_exception recursion
+
+from __future__ import annotations
+
+import sys
+import __dp__
+
+
+def exercise():
+    original_limit = sys.getrecursionlimit()
+    sys.setrecursionlimit(50)
+
+    def recurse():
+        return recurse()
+
+    try:
+        try:
+            recurse()
+        except RecursionError:
+            try:
+                __dp__.current_exception()
+            except RecursionError:
+                return False
+            return True
+
+        return False
+    finally:
+        sys.setrecursionlimit(original_limit)
+=
+sys = __dp__.import_("sys", __spec__)
+__dp__ = __dp__.import_("__dp__", __spec__)
+def _dp_fn_exercise():
+    original_limit = sys.getrecursionlimit()
+    sys.setrecursionlimit(50)
+
+    def _dp_fn_recurse():
+        return recurse()
+    recurse = __dp__.update_fn(_dp_fn_recurse, "exercise.<locals>", "recurse")
+    del _dp_fn_recurse
+    try:
+        try:
+            recurse()
+        except:
+            if __dp__.exception_matches(__dp__.current_exception(), RecursionError):
+                try:
+                    __dp__.current_exception()
+                except:
+                    if __dp__.exception_matches(__dp__.current_exception(), RecursionError):
+                        return False
+                    else:
+                        raise
+                return True
+            else:
+                raise
+        return False
+    finally:
+        sys.setrecursionlimit(original_limit)
+exercise = __dp__.update_fn(_dp_fn_exercise, None, "exercise")
+del _dp_fn_exercise

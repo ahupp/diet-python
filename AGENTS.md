@@ -22,4 +22,7 @@ def foo():
 - **MUST FOLLOW**: For each integration test, add a desugaring test in a text file with the expected inputs and outputs.
 - **NOTE**: Prefer adding behavior at transform time rather than runtime in `__dp__.py` whenever possible.
 - **NOTE**: Use `cargo run --bin regen_fixtures` to regenerate fixtures instead of manual edits.
-- Run tests with "cargo test", and "uvx pytest tests/"
+- Run tests with "cargo test", and "./scripts/run_integration_tests.sh"
+- To inspect the transformed output of some code, run `cargo run file_with_code.py`, which prints output to stdout.
+ - *MUST FOLLOW* when fixing a bug that fails a cpython test case *always* add a minimal reproducing integration test to reproduce it first.
+ 

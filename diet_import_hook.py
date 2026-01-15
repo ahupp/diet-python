@@ -1,82 +1,97 @@
-import hashlib
+
 import importlib.machinery
-import importlib._bootstrap_external as _bootstrap_external
-import io
 import linecache
 import os
-import subprocess
 import sys
 import tempfile
-import tokenize
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parent
-_BUILD_ATTEMPTED = False
 _LINECACHE_PATCHED = False
 _ORIGINAL_UPDATECACHE = None
 _IO_OPEN_PATCHED = False
 _ORIGINAL_IO_OPEN = None
 _SOURCE_SHADOWS: dict[str, str] = {}
 _SHADOW_ROOT = REPO_ROOT / ".diet_python_cache"
+_PYO3_TRANSFORM = None
 
 
-def _resolve_transform_cmd(path: str) -> list[str]:
-    """Return the command to transform ``path``, preferring a built binary."""
-    global _BUILD_ATTEMPTED
-    bin_override = os.environ.get("DIET_PYTHON_BIN")
-    if bin_override:
-        bin_path = Path(bin_override)
-    else:
-        bin_path = REPO_ROOT / "target" / "debug" / "diet-python"
-
-    if not _BUILD_ATTEMPTED and not bin_override:
-        _BUILD_ATTEMPTED = True
-        subprocess.run(
-            ["cargo", "build", "--quiet", "--bin", "diet-python"],
-            cwd=str(REPO_ROOT),
-            check=True,
-        )
-
-    if not (bin_path.exists() and os.access(bin_path, os.X_OK)):
-        subprocess.run(
-            ["cargo", "build", "--quiet", "--bin", "diet-python"],
-            cwd=str(REPO_ROOT),
-            check=True,
-        )
-
-        if not (bin_path.exists() and os.access(bin_path, os.X_OK)):
-            raise ImportError(f"failed to find diet-python after build, looking for {str(bin_path)}")
-
-    return [str(bin_path), path]
 
 
 def _transform_source(path: str) -> str:
     try:
         with open(path, "r", encoding="utf-8") as file:
             original_source = file.read()
-    except OSError:
-        original_source = ""
-    cmd = _resolve_transform_cmd(path)
+    except OSError as err:
+        raise ImportError(f"diet-python could not read source for {path}: {err}") from err
+    transformer = _get_pyo3_transform()
     try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            cwd=str(REPO_ROOT),
-            check=True,
-        )
-        compiled_source = proc.stdout
-    except (OSError, subprocess.CalledProcessError) as err:
-        print(f"diet-python failed for {path}: {err}", file=sys.stderr)
-        try:
-            with open(path, "r", encoding="utf-8") as file:
-                compiled_source = file.read()
-        except OSError as read_err:
-            raise ImportError(f"diet-python could not read source for {path}: {read_err}") from err
+        compiled_source = transformer.transform_source(original_source, True)
+    except Exception as err:
+        raise ImportError(f"diet-python failed for {path}: {err}") from err
     _SOURCE_SHADOWS[path] = compiled_source
     _update_linecache(path, compiled_source)
     return compiled_source
+
+
+def _get_pyo3_transform():
+    global _PYO3_TRANSFORM
+    if _PYO3_TRANSFORM is None:
+        try:
+            import diet_python as transform
+        except Exception as err:
+            transform = _load_pyo3_extension()
+            if transform is None:
+                raise ImportError("diet-python pyo3 module is required but could not be imported") from err
+        _PYO3_TRANSFORM = transform
+    return _PYO3_TRANSFORM
+
+
+def _load_pyo3_extension():
+    removed_indexes = []
+    for index in range(len(sys.meta_path) - 1, -1, -1):
+        if sys.meta_path[index] is DietPythonFinder:
+            removed_indexes.append(index)
+            sys.meta_path.pop(index)
+    try:
+        import importlib.machinery
+        import importlib.util
+
+        suffixes = set(importlib.machinery.EXTENSION_SUFFIXES)
+        suffixes.update({".so", ".dylib", ".dll"})
+        candidates = []
+        for build in ("debug", "release"):
+            base = REPO_ROOT / "target" / build
+            for suffix in sorted(suffixes):
+                candidates.append(base / f"libdiet_python{suffix}")
+                candidates.append(base / f"diet_python{suffix}")
+            if base.is_dir():
+                for path in base.glob("libdiet_python*"):
+                    candidates.append(path)
+                for path in base.glob("diet_python*"):
+                    candidates.append(path)
+        for path in candidates:
+            if not path.exists():
+                continue
+            try:
+                spec = importlib.util.spec_from_file_location(
+                    "diet_python",
+                    path,
+                    loader=importlib.machinery.ExtensionFileLoader("diet_python", str(path)),
+                )
+                if spec is None or spec.loader is None:
+                    continue
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                sys.modules["diet_python"] = module
+                return module
+            except Exception:
+                continue
+        return None
+    finally:
+        for index in reversed(removed_indexes):
+            sys.meta_path.insert(index, DietPythonFinder)
 
 
 def _update_linecache(path: str, source: str) -> None:
@@ -92,6 +107,8 @@ def _should_transform(path: str) -> bool:
     try:
         resolved = Path(path).resolve()
     except OSError:
+        return False
+    if resolved.name == "threading.py":
         return False
     if os.environ.get("DIET_PYTHON_ALLOW_TEMP") != "1":
         try:
@@ -144,6 +161,9 @@ def install():
 
     if any(finder is DietPythonFinder for finder in sys.meta_path):
         return
+
+    # Ensure the transform module is loaded before we intercept stdlib imports.
+    _get_pyo3_transform()
 
     if not _LINECACHE_PATCHED:
         def _diet_updatecache(filename, module_globals=None):

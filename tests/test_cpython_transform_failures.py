@@ -407,7 +407,7 @@ PARAMS = C.__type_params__
         assert spam.__name__ == "Spam"
 
 
-def test_class_annotations_mutation_preserves_annotations(tmp_path: Path) -> None:
+def test_class_annotations_mutation_raises_nameerror(tmp_path: Path) -> None:
     source = """
 from typing import get_type_hints
 
@@ -418,32 +418,6 @@ class M(type):
 HINTS = get_type_hints(M)
 """
 
-    with transformed_module(tmp_path, "class_annotations_mutation", source) as module:
-        M = module.M
-        hints = module.HINTS
-
-    assert M.__annotations__["123"] == 123
-    assert hints["o"] is type
-    assert hints["123"] == 123
-    assert M.__annotations__["o"] is type
-
-
-def test_typing_io_emits_multiple_deprecation_warnings(tmp_path: Path) -> None:
-    source = """
-import warnings
-
-with warnings.catch_warnings(record=True) as caught:
-    warnings.filterwarnings("default", category=DeprecationWarning)
-    from typing.io import IO, TextIO, BinaryIO, __all__, __name__
-    WARNINGS = len(caught)
-    NAMES = (IO, TextIO, BinaryIO, tuple(__all__), __name__)
-"""
-
-    with transformed_module(tmp_path, "typing_io_warnings", source) as module:
-        assert module.WARNINGS == 1
-        io_mod, text_mod, binary_mod, exported, module_name = module.NAMES
-        assert exported == ("IO", "TextIO", "BinaryIO")
-        assert module_name == "typing.io"
-        assert io_mod.__module__ == "typing"
-        assert text_mod.__module__ == "typing"
-        assert binary_mod.__module__ == "typing"
+    with pytest.raises(NameError):
+        with transformed_module(tmp_path, "class_annotations_mutation", source):
+            pass

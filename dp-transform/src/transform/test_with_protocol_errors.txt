@@ -1,0 +1,139 @@
+$ with protocol errors
+
+from __future__ import annotations
+
+
+def exercise():
+    class LacksEnter:
+        def __exit__(self, *exc_info):
+            pass
+
+    class LacksExit:
+        def __enter__(self):
+            return self
+
+    errors = []
+    for ctx in (LacksEnter(), LacksExit()):
+        try:
+            with ctx:
+                pass
+        except Exception as exc:
+            errors.append((type(exc), str(exc)))
+        else:
+            errors.append(None)
+
+    return errors
+=
+def _dp_fn_exercise():
+
+    def _dp_create_class_exercise__locals__LacksEnter():
+
+        def _dp_ns_builder(_dp_class_ns):
+
+            def _dp_lambda_1():
+                return __name__
+            _dp_lambda_1.__name__ = "<lambda>"
+            _dp_lambda_1.__qualname__ = "exercise.<locals>.<lambda>"
+            _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
+            _dp_class_ns.__qualname__ = "exercise.<locals>.LacksEnter"
+
+            def _dp_fn___exit__(self, *exc_info):
+                pass
+            _dp_class_ns.__exit__ = __dp__.update_fn(_dp_fn___exit__, "exercise.<locals>.LacksEnter", "__exit__")
+        return __dp__.create_class("LacksEnter", _dp_ns_builder, (), None)
+    LacksEnter = _dp_create_class_exercise__locals__LacksEnter()
+
+    def _dp_create_class_exercise__locals__LacksExit():
+
+        def _dp_ns_builder(_dp_class_ns):
+
+            def _dp_lambda_2():
+                return __name__
+            _dp_lambda_2.__name__ = "<lambda>"
+            _dp_lambda_2.__qualname__ = "exercise.<locals>.<lambda>"
+            _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_2)
+            _dp_class_ns.__qualname__ = "exercise.<locals>.LacksExit"
+
+            def _dp_fn___enter__(self):
+                return self
+            _dp_class_ns.__enter__ = __dp__.update_fn(_dp_fn___enter__, "exercise.<locals>.LacksExit", "__enter__")
+        return __dp__.create_class("LacksExit", _dp_ns_builder, (), None)
+    LacksExit = _dp_create_class_exercise__locals__LacksExit()
+    errors = __dp__.list(())
+    _dp_iter_3 = __dp__.iter((LacksEnter(), LacksExit()))
+    while True:
+        try:
+            ctx = __dp__.next(_dp_iter_3)
+        except:
+            __dp__.check_stopiteration()
+            break
+        else:
+            try:
+                _dp_with_ctx_4 = ctx
+                try:
+                    _dp_with_enter_5 = _dp_with_ctx_4.__enter__
+                except:
+                    if __dp__.exception_matches(__dp__.current_exception(), AttributeError):
+                        _dp_with_exc = __dp__.current_exception()
+                        try:
+                            raise __dp__.raise_from(TypeError("the context manager protocol requires __enter__"), _dp_with_exc)
+                        finally:
+                            try:
+                                del _dp_with_exc
+                            except:
+                                if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                                    pass
+                                else:
+                                    raise
+                    else:
+                        raise
+                try:
+                    _dp_with_exit_6 = _dp_with_ctx_4.__exit__
+                except:
+                    if __dp__.exception_matches(__dp__.current_exception(), AttributeError):
+                        _dp_with_exc = __dp__.current_exception()
+                        try:
+                            raise __dp__.raise_from(TypeError("the context manager protocol requires __exit__"), _dp_with_exc)
+                        finally:
+                            try:
+                                del _dp_with_exc
+                            except:
+                                if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                                    pass
+                                else:
+                                    raise
+                    else:
+                        raise
+                _ = _dp_with_enter_5()
+                _dp_with_active_7 = True
+                try:
+                    pass
+                except:
+                    _dp_with_active_7 = False
+                    __dp__.with_exit(_dp_with_exit_6, __dp__.exc_info())
+                finally:
+                    if _dp_with_active_7:
+                        __dp__.with_exit(_dp_with_exit_6, None)
+                    _dp_with_exit_6 = None
+                    _dp_with_enter_5 = None
+                    _dp_with_ctx_4 = None
+            except:
+                if __dp__.exception_matches(__dp__.current_exception(), Exception):
+                    exc = __dp__.current_exception()
+                    try:
+                        errors.append((type(exc), str(exc)))
+                    finally:
+                        try:
+                            del exc
+                        except:
+                            if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                                pass
+                            else:
+                                raise
+                else:
+                    raise
+            else:
+                errors.append(None)
+    return errors
+exercise = __dp__.update_fn(_dp_fn_exercise, None, "exercise")
+del _dp_fn_exercise

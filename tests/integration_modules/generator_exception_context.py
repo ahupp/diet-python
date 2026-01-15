@@ -1,13 +1,7 @@
-class CaptureException:
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        self.exc = exc
-        return True
+from __future__ import annotations
 
 
-def exception_context():
+def exercise():
     def f():
         try:
             raise KeyError("a")
@@ -16,8 +10,9 @@ def exception_context():
 
     gen = f()
     gen.send(None)
-    capture = CaptureException()
-    with capture:
+    try:
         gen.throw(ValueError)
-    context = capture.exc.__context__
-    return type(context), context.args
+    except Exception as exc:
+        context = exc.__context__
+        return type(context), getattr(context, "args", None)
+    return None, None

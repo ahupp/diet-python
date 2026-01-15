@@ -6,6 +6,9 @@ augmented assignments (e.g., `+=`) into calls to the corresponding functions in
 the standard library's `operator` module. The transformation is idempotent, so
 re-running it on already rewritten code leaves the output unchanged.
 
+TODO: Preserve PEP 695 type alias semantics (lazy evaluation) while still
+transforming `type Alias = ...` statements; currently they are left unchanged.
+
 Run it with:
 
 ```
@@ -54,9 +57,38 @@ scripts/run_cpython_tests.sh
 The script clones the `cpython` repository if necessary, creates a virtual
 environment using `uv`, and executes the test suite with that interpreter.
 
+# CLIF
+
+```
+ ./rust-clif-dist/rustc-clif --out-dir=clif-out/ --crate-type=rlib fastadd.rs -Cdebuginfo=0 --emit link,llvm-ir
+```
 
 # Log
 
 2026-01-15:
   - Totals: duration 18m 3s; tests run 37,414; failures 747; skipped 1,706; test files run 483/492; failed 103; env_changed 1;
     skipped 31; resource_denied 9
+2026-01-16:
+  - Test files: 401 passed / 492 total (483 run; 81 failed; 1 env_changed; 31 skipped; 9 resource_denied).
+  - Test cases: 39,237 passed / 39,820 total (583 failed; 1,835 skipped).
+
+Then 
+• Test File Counts
+
+  - Passing: 388/492
+  - Run: 483/492
+  - Failed: 95
+  - Skipped files: 44
+  
+  Individual Test Cases
+
+  - Run: 39,320
+  - Passed: 38,685
+  - Failed: 635
+  - Skipped: 1,754
+
+2026-01-17:
+Total duration: 33 min 49 sec
+Total tests: run=28,491 failures=612 skipped=1,426
+Total test files: run=488/492 failed=160 skipped=24 resource_denied=4
+Result: FAILURE

@@ -1,8 +1,43 @@
 # Expected Failures
 
 - `test.test_code.CodeTest.test_code_hash_uses_bytecode`: diet-python rewrites `lambda x, y: x + y` and `lambda x, y: x * y` to calls like `__dp__.add(x, y)` and `__dp__.mul(x, y)`, so both lambdas compile to the same call shape. As a result, their `co_code` bytecode is identical and `c.replace(co_code=d.co_code)` does not change the code object, even though the original CPython bytecode would differ for `BINARY_ADD` vs `BINARY_MULTIPLY`.
+- `test.test_dis` (entire module): diet-python rewrites operations into helper calls, so opcode sequences and disassembly output differ from CPython.
+- `test.test_peepholer`: diet-python rewrites operations into helper calls, so peephole optimizations and bytecode expectations no longer match.
+- `test.test_opcodes`: diet-python rewrites operations into helper calls, so opcode tracing expectations no longer match CPython.
+- `test.test_sys_settrace`: diet-python rewrites control flow (including `with`/`async with`, comprehensions, and helper calls), so tracing/jump behavior and line events no longer match CPython expectations.
 - `test.test_dictcomps.DictComprehensionTest.test_exception_locations`: diet-python rewrites dict comprehensions into generated functions, so the traceback locations point at the generated code instead of the original comprehension source.
 - `test.test_setcomps.SetComprehensionTest.test_exception_locations`: diet-python rewrites set comprehensions into generated functions, so the traceback locations point at the generated code instead of the original comprehension source.
 - `test.test_listcomps.ListComprehensionTest.test_exception_locations`: diet-python rewrites list comprehensions into generated functions, so the traceback locations point at the generated code instead of the original comprehension source.
+- `test.test_with.NestedWith.testExceptionLocation`: diet-python rewrites `with` statements to helper calls, so traceback line/column data and source snippets no longer align with the original source.
+- `test.test_contextlib.ContextManagerTestCase.test_contextmanager_traceback`: diet-python rewrites `with` statements, so traceback frame counts differ from the original source.
+- `test.test_contextlib.TestExitStack.test_exit_exception_traceback`: diet-python rewrites `with` statements, so traceback frame sources differ from the original source.
+- `test.test_contextlib_async.AsyncContextManagerTestCase.test_contextmanager_traceback`: diet-python rewrites `async with` statements, so traceback frame sources differ from the original source.
+- `test.test_contextlib_async.TestAsyncExitStack.test_exit_exception_traceback`: diet-python rewrites `async with` statements, so traceback frame sources differ from the original source.
+- `test.test_future_stmt.test_future`: diet-python rewrites source layout, so SyntaxError line/column data no longer matches the original source.
+- `test.test_inspect.test_inspect`: inspect/linecache cannot map transformed sources back to original line numbers, so source retrieval and comment expectations fail.
+- `test.test_iter.TestCase.test_exception_locations`: diet-python rewrites iterator usage, so exception line/column data and source snippets no longer align with the original source.
+- `test.test_coroutines.OriginTrackingTest.test_origin_tracking`: origin tracking warnings reference transformed sources, so line numbers shift under diet-python transforms.
+- `test.test_coroutines.OriginTrackingTest.test_origin_tracking_warning`: origin tracking warnings reference transformed sources without comments, so line numbers and source snippets no longer match.
+- `test.test_frame.ReprTest.test_repr`: frame repr line numbers shift under diet-python transforms.
+- `test.test_zoneinfo.test_zoneinfo.CTzPathTest.test_env_variable_relative_paths_warning_location`: warnings originate from transformed sources, so warning filename expectations no longer match.
+- `test.test_zoneinfo.test_zoneinfo.TzPathTest.test_env_variable_relative_paths_warning_location`: warnings originate from transformed sources, so warning filename expectations no longer match.
+- `test.test_asyncio.test_tasks.CTaskSubclass_PyFuture_Tests.test_cancel_traceback_for_future_exception`: tracebacks come from transformed sources without comments, so the expected `# search target` text is missing.
+- `test.test_asyncio.test_tasks.CTaskSubclass_PyFuture_Tests.test_cancel_traceback_for_future_result`: tracebacks come from transformed sources without comments, so the expected `# search target` text is missing.
+- `test.test_asyncio.test_tasks.CTask_CFuture_SubclassTests.test_cancel_traceback_for_future_exception`: tracebacks come from transformed sources without comments, so the expected `# search target` text is missing.
+- `test.test_asyncio.test_tasks.CTask_CFuture_SubclassTests.test_cancel_traceback_for_future_result`: tracebacks come from transformed sources without comments, so the expected `# search target` text is missing.
+- `test.test_asyncio.test_tasks.CTask_CFuture_Tests.test_cancel_traceback_for_future_exception`: tracebacks come from transformed sources without comments, so the expected `# search target` text is missing.
+- `test.test_asyncio.test_tasks.CTask_CFuture_Tests.test_cancel_traceback_for_future_result`: tracebacks come from transformed sources without comments, so the expected `# search target` text is missing.
+- `test.test_asyncio.test_tasks.CTask_PyFuture_Tests.test_cancel_traceback_for_future_exception`: tracebacks come from transformed sources without comments, so the expected `# search target` text is missing.
+- `test.test_asyncio.test_tasks.CTask_PyFuture_Tests.test_cancel_traceback_for_future_result`: tracebacks come from transformed sources without comments, so the expected `# search target` text is missing.
+- `test.test_asyncio.test_tasks.PyTask_CFutureSubclass_Tests.test_cancel_traceback_for_future_exception`: tracebacks come from transformed sources without comments, so the expected `# search target` text is missing.
+- `test.test_asyncio.test_tasks.PyTask_CFutureSubclass_Tests.test_cancel_traceback_for_future_result`: tracebacks come from transformed sources without comments, so the expected `# search target` text is missing.
+- `test.test_asyncio.test_tasks.PyTask_CFuture_Tests.test_cancel_traceback_for_future_exception`: tracebacks come from transformed sources without comments, so the expected `# search target` text is missing.
+- `test.test_asyncio.test_tasks.PyTask_CFuture_Tests.test_cancel_traceback_for_future_result`: tracebacks come from transformed sources without comments, so the expected `# search target` text is missing.
+- `test.test_asyncio.test_tasks.PyTask_PyFuture_SubclassTests.test_cancel_traceback_for_future_exception`: tracebacks come from transformed sources without comments, so the expected `# search target` text is missing.
+- `test.test_asyncio.test_tasks.PyTask_PyFuture_SubclassTests.test_cancel_traceback_for_future_result`: tracebacks come from transformed sources without comments, so the expected `# search target` text is missing.
+- `test.test_asyncio.test_tasks.PyTask_PyFuture_Tests.test_cancel_traceback_for_future_exception`: tracebacks come from transformed sources without comments, so the expected `# search target` text is missing.
+- `test.test_asyncio.test_tasks.PyTask_PyFuture_Tests.test_cancel_traceback_for_future_result`: tracebacks come from transformed sources without comments, so the expected `# search target` text is missing.
 - `test.test_unittest.test_case.Test_TestCase.testAssertWarnsContext`: inspect/linecache cannot map transformed sources back to original line numbers, so `inspect.getsourcelines` fails with lineno bounds errors.
 - `test.test_unittest.test_case.Test_TestCase.testAssertWarnsRegexContext`: inspect/linecache cannot map transformed sources back to original line numbers, so `inspect.getsourcelines` fails with lineno bounds errors.
+- `test.test_threading.ExceptHookTests.test_excepthook`: diet-python rewrites source layout, so thread exception tracebacks lack the original source line text.
+- `test.test_threading.ExceptHookTests.test_excepthook_thread_None`: diet-python rewrites source layout, so thread exception tracebacks lack the original source line text.

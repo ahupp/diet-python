@@ -1,0 +1,58 @@
+$ operator all module attrs
+
+from __future__ import annotations
+
+import operator
+
+
+def exercise():
+    bad = []
+    for name, value in vars(operator).items():
+        if name.startswith("__"):
+            continue
+        try:
+            _ = value.__module__
+        except Exception as exc:
+            bad.append((name, type(value).__name__, type(exc).__name__))
+    return bad
+=
+operator = __dp__.import_("operator", __spec__)
+def _dp_fn_exercise():
+    bad = __dp__.list(())
+    _dp_iter_1 = __dp__.iter(vars(operator).items())
+    while True:
+        try:
+            _dp_tmp_2 = __dp__.next(_dp_iter_1)
+            try:
+                _dp_tmp_3 = __dp__.unpack(_dp_tmp_2, (True, True))
+                name = __dp__.getitem(_dp_tmp_3, 0)
+                value = __dp__.getitem(_dp_tmp_3, 1)
+            finally:
+                _dp_tmp_3 = None
+                _dp_tmp_2 = None
+        except:
+            __dp__.check_stopiteration()
+            break
+        else:
+            if name.startswith("__"):
+                continue
+            try:
+                _ = value.__module__
+            except:
+                if __dp__.exception_matches(__dp__.current_exception(), Exception):
+                    exc = __dp__.current_exception()
+                    try:
+                        bad.append((name, type(value).__name__, type(exc).__name__))
+                    finally:
+                        try:
+                            del exc
+                        except:
+                            if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                                pass
+                            else:
+                                raise
+                else:
+                    raise
+    return bad
+exercise = __dp__.update_fn(_dp_fn_exercise, None, "exercise")
+del _dp_fn_exercise
