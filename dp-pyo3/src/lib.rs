@@ -1,4 +1,4 @@
-use dp_transform::transform_to_string_without_attribute_lowering;
+use dp_transform::transform_to_string_without_attribute_lowering_cpython;
 use pyo3::exceptions::{PyRuntimeError, PySyntaxError};
 use pyo3::prelude::*;
 use std::fs;
@@ -8,7 +8,7 @@ mod eval;
 #[pyfunction]
 fn transform_source(source: &str, ensure: Option<bool>) -> PyResult<String> {
     let ensure = ensure.unwrap_or(true);
-    match transform_to_string_without_attribute_lowering(source, ensure) {
+    match transform_to_string_without_attribute_lowering_cpython(source, ensure) {
         Ok(output) => Ok(output),
         Err(err) => Err(pyo3::exceptions::PySyntaxError::new_err(err.to_string())),
     }
@@ -16,6 +16,7 @@ fn transform_source(source: &str, ensure: Option<bool>) -> PyResult<String> {
 
 #[pyfunction]
 fn eval_source(py: Python<'_>, path: &str) -> PyResult<Py<PyAny>> {
+ 
     let source = fs::read_to_string(path)
         .map_err(|err| PyRuntimeError::new_err(format!("failed to read {path}: {err}")))?;
     let result = match std::panic::catch_unwind(|| eval::eval_source_impl(py, path, &source)) {
@@ -36,6 +37,7 @@ fn eval_source(py: Python<'_>, path: &str) -> PyResult<Py<PyAny>> {
 
 #[pymodule]
 fn diet_python(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
+    dp_transform::init_logging();
     module.add_function(wrap_pyfunction!(transform_source, module)?)?;
     module.add_function(wrap_pyfunction!(eval_source, module)?)?;
     Ok(())

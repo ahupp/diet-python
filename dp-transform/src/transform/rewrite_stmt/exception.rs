@@ -111,7 +111,7 @@ finally:
 
 pub fn rewrite_raise(mut raise: ast::StmtRaise) -> Rewrite {
     match (raise.exc.take(), raise.cause.take()) {
-        (Some(exc), Some(cause)) => Rewrite::Visit(py_stmt!(
+        (Some(exc), Some(cause)) => Rewrite::Walk(py_stmt!(
             "raise __dp__.raise_from({exc:expr}, {cause:expr})",
             exc = exc,
             cause = cause,

@@ -19,38 +19,34 @@ def exercise():
         return type(context), getattr(context, "args", None)
     return None, None
 =
-def _dp_fn_exercise():
+def exercise():
 
-    def _dp_fn_f():
+    def f():
         try:
-            raise KeyError$0("a")
+            raise KeyError("a")
         except:
-            if __dp__.exception_matches(__dp__.current_exception(), Exception$0):
+            if __dp__.exception_matches(__dp__.current_exception(), Exception):
                 yield
             else:
                 raise
-    f = __dp__.update_fn(_dp_fn_f, "exercise.<locals>", "f")
-    del _dp_fn_f
     gen = f()
     gen.send(None)
     try:
-        gen.throw(ValueError$0)
+        gen.throw(ValueError)
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), Exception$0):
+        if __dp__.exception_matches(__dp__.current_exception(), Exception):
             exc = __dp__.current_exception()
             try:
                 context = exc.__context__
-                return type$0(context), getattr$0(context, "args", None)
+                return type(context), getattr(context, "args", None)
             finally:
                 try:
                     del exc
                 except:
-                    if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
                         pass
                     else:
                         raise
         else:
             raise
     return None, None
-exercise = __dp__.update_fn(_dp_fn_exercise, None, "exercise")
-del _dp_fn_exercise

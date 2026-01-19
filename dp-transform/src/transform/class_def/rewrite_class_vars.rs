@@ -13,6 +13,7 @@ use crate::{
 };
 
 pub fn rewrite_class_scope(
+    qualname: String,
     body: &mut Vec<Stmt>,
     scope: ScopeInfo,
     type_params: HashSet<String>,
@@ -20,6 +21,7 @@ pub fn rewrite_class_scope(
 ) {
     let locals = scope.local_names();
     let mut rewriter = ClassScopeRewriter::new(
+        qualname,
         scope,
         locals,
         type_params,
@@ -29,6 +31,7 @@ pub fn rewrite_class_scope(
 }
 
 struct ClassScopeRewriter {
+    qualname: String,
     globals: HashSet<String>,
     nonlocals: HashSet<String>,
     locals: HashSet<String>,
@@ -39,6 +42,7 @@ struct ClassScopeRewriter {
 
 impl ClassScopeRewriter {
     fn new(
+        qualname: String,
         scope: ScopeInfo,
         locals: HashSet<String>,
         type_params: HashSet<String>,
@@ -47,6 +51,7 @@ impl ClassScopeRewriter {
         let globals = scope.global_names();
         let nonlocals = scope.nonlocal_names();
         Self {
+            qualname,
             globals,
             nonlocals,
             locals,
@@ -120,6 +125,18 @@ def {tmp:id}():
                     new_body.extend(helper);
                     new_body.extend(assign);
                 }
+                Stmt::FunctionDef(func_def) => {
+                    let func_name = func_def.name.id.clone();
+
+                    let mut stmt = Stmt::FunctionDef(func_def.clone());
+                    self.visit_stmt(&mut stmt);
+                    new_body.push(stmt);
+                    let mut with_assign = py_stmt!(r#"
+{func_name:id} = __dp__.update_fn({func_name:id}, {qualname:literal}, "<locals>")                    
+"#, func_name = func_name.as_str(), qualname = self.qualname.as_str());
+                    self.visit_body(&mut with_assign);
+                    new_body.extend(with_assign);
+                }                
                 mut stmt => {
                     self.visit_stmt(&mut stmt);
                     new_body.push(stmt);
@@ -210,10 +227,8 @@ def {tmp:id}():
                         return;
                     }
                 }
-                walk_stmt(self, stmt);
-                return;
             }
-            Stmt::Global(_) => {}
+
             Stmt::Nonlocal(ast::StmtNonlocal { names, .. }) => {
                 if names.iter().any(|name| name.id.as_str() == "__class__") {
                     for name in names.iter_mut() {
@@ -231,12 +246,6 @@ def {tmp:id}():
     }
 
     fn visit_expr(&mut self, expr: &mut Expr) {
-        if let Expr::Lambda(ast::ExprLambda { parameters, .. }) = expr {
-            if let Some(parameters) = parameters {
-                self.visit_parameters(parameters);
-            }
-            return;
-        }
         if let Expr::Call(ast::ExprCall {
             func, arguments, ..
         }) = expr
@@ -273,17 +282,10 @@ def {tmp:id}():
                 if !self.should_rewrite(name_str) {
                     return;
                 }
-                if self.in_annotate {
-                    *expr = py_expr!(
-                        "__dp__.class_lookup_annotate({name:literal}, _dp_class_ns, globals())",
-                        name = name_str,
-                    );
-                } else {
-                    *expr = py_expr!(
-                        "__dp__.class_lookup(_dp_class_ns, {name:literal}, lambda: {name:id})",
-                        name = name_str,
-                    );
-                }
+                *expr = py_expr!(
+                    "__dp__.class_lookup(_dp_class_ns, {name:literal}, lambda: {name:id})",
+                    name = name_str,
+                );
                 return;
             }
         }

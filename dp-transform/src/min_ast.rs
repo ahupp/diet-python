@@ -20,6 +20,12 @@ pub struct Module<S: StmtInfo = (), E: ExprInfo = ()> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum StmtNode<S: StmtInfo = (), E: ExprInfo = ()> {
     FunctionDef(FunctionDef<S, E>),
+    ImportFrom {
+        info: S,
+        module: Option<String>,
+        names: Vec<String>,
+        level: usize,
+    },
     While {
         info: S,
         test: ExprNode<E>,
@@ -274,6 +280,28 @@ impl StmtNode {
                     scope_vars: fn_scope_vars,
                 }))
             }
+            Stmt::ImportFrom(ast::StmtImportFrom {
+                module,
+                names,
+                level,
+                ..
+            }) => {
+                let import_names = names
+                    .into_iter()
+                    .map(|alias| {
+                        if alias.asname.is_some() {
+                            panic!("unsupported import alias");
+                        }
+                        alias.name.id.to_string()
+                    })
+                    .collect::<Vec<_>>();
+                Some(StmtNode::ImportFrom {
+                    info: (),
+                    module: module.map(|m| m.id.to_string()),
+                    names: import_names,
+                    level: level as usize,
+                })
+            }
             Stmt::While(ast::StmtWhile {
                 test, body, orelse, ..
             }) => Some(StmtNode::While {
@@ -312,10 +340,21 @@ impl StmtNode {
                 handlers,
                 orelse,
                 finalbody,
+                is_star,
                 ..
             }) => {
                 let handler = if handlers.is_empty() {
                     None
+                } else if is_star {
+                    let mut handler_body = Vec::new();
+                    for handler in handlers {
+                        match handler {
+                            ast::ExceptHandler::ExceptHandler(
+                                ast::ExceptHandlerExceptHandler { body: h_body, .. },
+                            ) => handler_body.extend(h_body),
+                        }
+                    }
+                    Some(StmtNode::from_stmts(handler_body, scope_vars))
                 } else if handlers.len() == 1 {
                     match handlers.into_iter().next().unwrap() {
                         ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
@@ -376,6 +415,23 @@ impl StmtNode {
                     value: ExprNode::from(*value),
                 })
             }
+            Stmt::TypeAlias(ast::StmtTypeAlias { name, value, .. }) => {
+                match *name {
+                    Expr::Name(ast::ExprName { id, .. }) => Some(StmtNode::Assign {
+                        info: (),
+                        target: id.to_string(),
+                        value: ExprNode::from(*value),
+                    }),
+                    other => {
+                        let _ = ExprNode::from(other);
+                        Some(StmtNode::Expr {
+                            info: (),
+                            value: ExprNode::from(*value),
+                        })
+                    }
+                }
+            }
+            Stmt::Import(_) => Some(StmtNode::Pass(())),
             Stmt::Delete(ast::StmtDelete { targets, .. }) => {
                 let target_name = if targets.len() == 1 {
                     if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
@@ -436,6 +492,10 @@ impl From<Expr> for ExprNode {
                 info: (),
                 id: "None".to_string(),
             },
+            Expr::EllipsisLiteral(_) => ExprNode::Name {
+                info: (),
+                id: "Ellipsis".to_string(),
+            },
             Expr::Tuple(ast::ExprTuple { elts, .. }) => ExprNode::Tuple {
                 info: (),
                 elts: elts.into_iter().map(ExprNode::from).collect(),
@@ -481,7 +541,18 @@ impl From<Expr> for ExprNode {
                 }
             }
             Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
-                if let Expr::Name(ast::ExprName { id: base, .. }) = *value {
+                fn flatten_attr(expr: Expr) -> Option<String> {
+                    match expr {
+                        Expr::Name(ast::ExprName { id, .. }) => Some(id.to_string()),
+                        Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
+                            let base = flatten_attr(*value)?;
+                            Some(format!("{}.{}", base, attr.id.as_str()))
+                        }
+                        _ => None,
+                    }
+                }
+
+                if let Some(base) = flatten_attr(*value) {
                     let id = format!("{}.{}", base, attr.id.as_str());
                     ExprNode::Name { info: (), id }
                 } else {

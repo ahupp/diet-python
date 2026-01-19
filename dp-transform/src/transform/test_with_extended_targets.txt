@@ -9,62 +9,28 @@ def unpack_starred_list():
 _dp_import_1 = __dp__.import_("contextlib", __spec__, __dp__.list(("nullcontext",)))
 nullcontext = __dp__.import_attr(_dp_import_1, "nullcontext")
 del _dp_import_1
-def _dp_fn_unpack_starred_list():
-    _dp_with_ctx_2 = nullcontext$0(range$0(1, 5))
+def unpack_starred_list():
+    _dp_tmp_3 = __dp__.with_enter(nullcontext(range(1, 5)))
     try:
-        _dp_with_enter_3 = _dp_with_ctx_2.__enter__
-    except:
-        if __dp__.exception_matches(__dp__.current_exception(), AttributeError$0):
-            _dp_with_exc = __dp__.current_exception()
-            try:
-                raise __dp__.raise_from(TypeError$0("the context manager protocol requires __enter__"), _dp_with_exc)
-            finally:
-                try:
-                    del _dp_with_exc
-                except:
-                    if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
-                        pass
-                    else:
-                        raise
-        else:
-            raise
-    try:
-        _dp_with_exit_4 = _dp_with_ctx_2.__exit__
-    except:
-        if __dp__.exception_matches(__dp__.current_exception(), AttributeError$0):
-            _dp_with_exc = __dp__.current_exception()
-            try:
-                raise __dp__.raise_from(TypeError$0("the context manager protocol requires __exit__"), _dp_with_exc)
-            finally:
-                try:
-                    del _dp_with_exc
-                except:
-                    if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
-                        pass
-                    else:
-                        raise
-        else:
-            raise
-    _dp_tmp_6 = _dp_with_enter_3()
-    try:
-        _dp_tmp_7 = __dp__.unpack(_dp_tmp_6, (True, False, True))
-        a = __dp__.getitem(_dp_tmp_7, 0)
-        b = __dp__.list(__dp__.getitem(_dp_tmp_7, 1))
-        c = __dp__.getitem(_dp_tmp_7, 2)
+        _dp_tmp_4 = __dp__.unpack(_dp_tmp_3, (True, True))
+        _dp_tmp_5 = __dp__.getitem(_dp_tmp_4, 0)
+        try:
+            _dp_tmp_6 = __dp__.unpack(_dp_tmp_5, (True, False, True))
+            a = __dp__.getitem(_dp_tmp_6, 0)
+            b = __dp__.list(__dp__.getitem(_dp_tmp_6, 1))
+            c = __dp__.getitem(_dp_tmp_6, 2)
+        finally:
+            _dp_tmp_6 = None
+            _dp_tmp_5 = None
+        _dp_with_exit_2 = __dp__.getitem(_dp_tmp_4, 1)
     finally:
-        _dp_tmp_7 = None
-        _dp_tmp_6 = None
-    _dp_with_active_5 = True
+        _dp_tmp_4 = None
+        _dp_tmp_3 = None
     try:
         return a, b, c
     except:
-        _dp_with_active_5 = False
-        __dp__.with_exit(_dp_with_exit_4, __dp__.exc_info())
+        __dp__.with_exit(_dp_with_exit_2, __dp__.exc_info())
+    else:
+        __dp__.with_exit(_dp_with_exit_2, None)
     finally:
-        if _dp_with_active_5:
-            __dp__.with_exit(_dp_with_exit_4, None)
-        _dp_with_exit_4 = None
-        _dp_with_enter_3 = None
-        _dp_with_ctx_2 = None
-unpack_starred_list = __dp__.update_fn(_dp_fn_unpack_starred_list, None, "unpack_starred_list")
-del _dp_fn_unpack_starred_list
+        _dp_with_exit_2 = None

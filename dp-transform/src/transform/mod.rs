@@ -1,15 +1,13 @@
 pub(crate) mod class_def;
 pub(crate) mod context;
 pub(crate) mod driver;
-pub(crate) mod rewrite_assign_del;
 pub(crate) mod rewrite_decorator;
-pub(crate) mod rewrite_expr_to_stmt;
 pub(crate) mod rewrite_explicit_scope;
-pub(crate) mod rewrite_func_expr;
 pub(crate) mod rewrite_future_annotations;
 pub(crate) mod rewrite_import;
 pub(crate) mod rewrite_match_case;
-pub(crate) mod simple;
+pub(crate) mod rewrite_stmt;
+pub(crate) mod rewrite_expr;
 
 #[derive(Clone, Copy)]
 pub enum ImportStarHandling {
@@ -83,6 +81,7 @@ mod tests {
         "test_with_extended_targets.txt"
     );
     crate::transform_fixture_test!(listcomp_classcell_fixture, "test_listcomp_classcell.txt");
+    crate::transform_fixture_test!(compare_in_while_fixture, "test_compare_in_while.txt");
     crate::transform_fixture_test!(
         asyncio_taskgroup_base_error_refcycle_fixture,
         "test_asyncio_taskgroup_base_error_refcycle.txt"
@@ -94,6 +93,19 @@ mod tests {
     crate::transform_fixture_test!(
         class_annotations_deferred_fixture,
         "test_class_annotations_deferred.txt"
+    );
+    crate::transform_fixture_test!(for_loop_no_else_fixture, "test_for_loop_no_else.txt");
+    crate::transform_fixture_test!(
+        for_else_continue_minimal_fixture,
+        "test_for_else_continue_minimal.txt"
+    );
+    crate::transform_fixture_test!(
+        support_current_exception_recursion_minimal_fixture,
+        "test_support_current_exception_recursion_minimal.txt"
+    );
+    crate::transform_fixture_test!(
+        lambda_qualname_minimal_fixture,
+        "test_lambda_qualname_minimal.txt"
     );
     crate::transform_fixture_test!("tests_mod.txt");
 }

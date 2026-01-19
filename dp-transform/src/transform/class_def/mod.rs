@@ -3,7 +3,8 @@ pub mod rewrite_class_vars;
 pub mod rewrite_method;
 pub mod rewrite_private;
 
-use crate::template::make_tuple;
+use crate::transform::rewrite_decorator;
+use crate::transform::rewrite_expr::make_tuple;
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{
     self as ast, Arguments, Expr, Identifier, Stmt, StmtClassDef, TypeParam, TypeParamParamSpec,
@@ -11,7 +12,7 @@ use ruff_python_ast::{
 };
 use ruff_text_size::TextRange;
 
-use crate::body_transform::{walk_expr, walk_stmt, Transformer};
+use crate::body_transform::{walk_stmt, Transformer};
 use crate::template::py_stmt_single;
 use crate::transform::class_def::rewrite_annotation::AnnotationCollector;
 use crate::transform::class_def::rewrite_class_vars::rewrite_class_scope;
@@ -21,6 +22,15 @@ use crate::transform::driver::{ExprRewriter, Rewrite};
 
 use std::collections::HashSet;
 use std::mem::take;
+
+pub fn class_lookup_literal_name(name: &str) -> &str {
+    if let Some((base, suffix)) = name.rsplit_once('$') {
+        if !base.is_empty() && suffix.chars().all(|ch| ch.is_ascii_digit()) {
+            return base;
+        }
+    }
+    name
+}
 
 fn rewrite_methods_in_class_body(
     body: &mut Vec<Stmt>,
@@ -38,45 +48,6 @@ fn rewrite_methods_in_class_body(
     rewriter.needs_class_cell
 }
 
-struct MethodQualnameRewriter {
-    class_qualname: String,
-}
-
-impl Transformer for MethodQualnameRewriter {
-    fn visit_stmt(&mut self, stmt: &mut Stmt) {
-        match stmt {
-            Stmt::FunctionDef(_) | Stmt::ClassDef(_) => return,
-            _ => walk_stmt(self, stmt),
-        }
-    }
-
-    fn visit_expr(&mut self, expr: &mut Expr) {
-        if let Expr::Call(ast::ExprCall {
-            func, arguments, ..
-        }) = expr
-        {
-            let is_update_fn = match func.as_ref() {
-                Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
-                    if let Expr::Name(ast::ExprName { id, .. }) = value.as_ref() {
-                        id.as_str() == "__dp__" && attr.as_str() == "update_fn"
-                    } else {
-                        false
-                    }
-                }
-                Expr::Name(ast::ExprName { id, .. }) => id.as_str() == "update_fn",
-                _ => false,
-            };
-
-            if is_update_fn && arguments.args.len() >= 2 {
-                arguments.args[1] = py_expr!(
-                    "{qualname:literal}",
-                    qualname = self.class_qualname.as_str()
-                );
-            }
-        }
-        walk_expr(self, expr);
-    }
-}
 
 struct MethodRewriter<'a> {
     class_qualname: String,
@@ -89,12 +60,10 @@ impl<'a> Transformer for MethodRewriter<'a> {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
             Stmt::FunctionDef(func_def) => {
-                let fn_name = func_def.name.id.to_string();
                 assert!(
                     func_def.decorator_list.is_empty(),
                     "decorators should be gone by now"
                 );
-                assert!(fn_name.starts_with("_dp_"), "function name should start with _dp_");
                 self.needs_class_cell |= rewrite_method(
                     func_def,
                     &self.class_qualname,
@@ -108,103 +77,30 @@ impl<'a> Transformer for MethodRewriter<'a> {
     }
 }
 
-pub struct NestedClassCollector<'a> {
-    rewriter: &'a mut ExprRewriter,
-    nested: Vec<Stmt>,
-}
 
-impl<'a> NestedClassCollector<'a> {
-    pub fn new(rewriter: &'a mut ExprRewriter) -> Self {
-        Self {
-            rewriter,
-            nested: Vec::new(),
-        }
-    }
 
-    pub fn into_nested(self) -> Vec<Stmt> {
-        self.nested
-    }
-}
+pub fn rewrite(ast::StmtClassDef {
+    name,
+    mut body,
+    mut arguments,
+    mut type_params,
+    decorator_list,
+    ..
+}: StmtClassDef, rewriter: &mut ExprRewriter) -> Rewrite {
+    let class_name = name.id.to_string();
+    let class_qualname = rewriter.context().make_qualname(&class_name);
 
-impl<'a> Transformer for NestedClassCollector<'a> {
-    fn visit_stmt(&mut self, stmt: &mut Stmt) {
-        if let Stmt::FunctionDef(_) = stmt {
-            // Don't recurse into functions
-            return;
-        }
 
-        *stmt = if let Stmt::ClassDef(ast::StmtClassDef {
-            name,
-            body,
-            arguments,
-            type_params,
-            decorator_list,
-            ..
-        }) = stmt
-        {
-            let class_name = name.id.to_string();
-            let class_qualname = self.rewriter.context().make_qualname(&class_name);
-            let class_ident = class_ident_from_qualname(&class_qualname);
+    let create_class_fn = class_def_to_create_class_fn(
+        &name,
+        take(&mut body),
+        take(&mut arguments),
+        take(&mut type_params),
+        class_qualname.to_owned(),
+        rewriter,
+    );
 
-            let mut decorated = py_expr!(
-                "_dp_create_class_{class_ident:id}()",
-                class_ident = class_ident,
-            );
-            let to_apply = take(decorator_list)
-                .into_iter()
-                .map(|decorator| self.rewriter.maybe_placeholder(decorator.expression))
-                .collect::<Vec<_>>();
-            for decorator in to_apply.into_iter().rev() {
-                decorated = py_expr!(
-                    "{decorator:expr}({decorated:expr})",
-                    decorator = decorator,
-                    decorated = decorated
-                );
-            }
-            let ns_fn_stmt = py_stmt!(
-                "{class_name:id} = {decorated:expr}",
-                class_name = class_name.as_str(),
-                decorated = decorated,
-            );
-
-            // TODO: make better
-            let create_stmt = Stmt::If(ast::StmtIf {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: TextRange::default(),
-                test: Box::new(py_expr!("True")),
-                body: ns_fn_stmt,
-                elif_else_clauses: Vec::new(),
-            });
-
-            let create_class_fn = class_def_to_create_class_fn(
-                name,
-                take(body),
-                take(arguments),
-                take(type_params),
-                class_qualname,
-                self.rewriter,
-            );
-            self.nested.extend(create_class_fn);
-
-            create_stmt
-        } else {
-            walk_stmt(self, stmt);
-            return;
-        }
-    }
-}
-
-pub fn rewrite<'a>(class_def: StmtClassDef, rewriter: &'a mut ExprRewriter) -> Rewrite {
-    let mut class_def_stmt = Stmt::ClassDef(class_def);
-
-    let mut nested_classes = {
-        let mut nested_collector = NestedClassCollector::new(rewriter);
-        nested_collector.visit_stmt(&mut class_def_stmt);
-        nested_collector.into_nested()
-    };
-    nested_classes.push(class_def_stmt);
-
-    Rewrite::Visit(nested_classes)
+    rewrite_decorator::rewrite(decorator_list, class_name.as_str(), create_class_fn, rewriter)
 }
 
 fn class_def_to_create_class_fn<'a>(
@@ -216,7 +112,6 @@ fn class_def_to_create_class_fn<'a>(
     rewriter: &'a mut ExprRewriter,
 ) -> Vec<Stmt> {
     let class_name = name.id.to_string();
-    let class_ident = class_ident_from_qualname(&class_qualname);
 
     let mut class_scope = rewriter
         .context()
@@ -233,7 +128,7 @@ fn class_def_to_create_class_fn<'a>(
         "_dp_classcell".to_string()
     };
 
-    let (body, type_param_info) = rewriter.with_function_scope(class_scope.clone(), |rewriter| {
+    let (body, type_param_info) = rewriter.with_scope(class_scope.clone(), |rewriter| {
         /*
         If the first statement is a string literal, assign it to  __doc__
         */
@@ -276,7 +171,6 @@ __qualname__ = {class_qualname:literal}
 {annotations:stmt}
 {ns_body:stmt}
 "#,
-            class_ident = class_ident.as_str(),
             class_qualname = class_qualname.as_str(),
             ns_body = body,
             type_param_statements = type_param_statements,
@@ -292,11 +186,6 @@ __qualname__ = {class_qualname:literal}
             &class_cell_name,
         );
 
-        let mut method_qualname_rewriter = MethodQualnameRewriter {
-            class_qualname: class_qualname.clone(),
-        };
-        method_qualname_rewriter.visit_body(&mut ns_builder);
-
         let type_param_skip = type_param_info
             .as_ref()
             .map(|info| {
@@ -307,7 +196,9 @@ __qualname__ = {class_qualname:literal}
                     .collect::<HashSet<String>>()
             })
             .unwrap_or_default();
+
         rewrite_class_scope(
+            class_qualname.clone(),
             &mut ns_builder,
             class_scope,
             type_param_skip,
@@ -358,16 +249,14 @@ _dp_class_ns.__classcell__ = (lambda: {class_cell:id}).__closure__[0]
 
     py_stmt!(
         r#"
-def _dp_create_class_{class_ident:id}():
+def _dp_ns_{class_name:id}(_dp_class_ns):
     {type_param_bindings:stmt}
-    def _dp_ns_builder(_dp_class_ns):
-        {ns_body:stmt}
-    return __dp__.create_class({class_name:literal}, _dp_ns_builder, {bases:expr}, {prepare_dict:expr})
+    {ns_body:stmt}
+{class_name:id} = __dp__.create_class({class_name:literal}, _dp_ns_{class_name:id}, {bases:expr}, {prepare_dict:expr})
 "#,
-        class_ident = class_ident.as_str(),
+        class_name = class_name.as_str(),
         type_param_bindings = type_param_bindings,
         ns_body = body,
-        class_name = class_name.as_str(),
         bases = bases_tuple.clone(),
         prepare_dict = prepare_dict.clone(),
     )
@@ -540,18 +429,6 @@ fn is_generic_expr(expr: &Expr) -> bool {
     }
 }
 
-pub fn class_ident_from_qualname(qualname: &str) -> String {
-    qualname
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '_' {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .collect()
-}
 
 pub fn class_call_arguments(
     arguments: Option<Box<ast::Arguments>>,
@@ -565,10 +442,13 @@ pub fn class_call_arguments(
         for base in args.args.into_vec() {
                     let base_expr = if in_class_scope {
                     if let Expr::Name(ast::ExprName { id, .. }) = &base {
+                        let name = id.as_str();
+                        let literal_name = class_lookup_literal_name(name);
                         py_expr!(
-                        "__dp__.class_lookup(_dp_class_ns, {name:literal}, lambda: {name:id})",
-                        name = id.as_str()
-                    )
+                            "__dp__.class_lookup(_dp_class_ns, {literal_name:literal}, lambda: {name:id})",
+                            literal_name = literal_name,
+                            name = name,
+                        )
                 } else {
                     base
                 }
@@ -580,9 +460,12 @@ pub fn class_call_arguments(
         for kw in args.keywords.into_vec() {
             let value = if in_class_scope {
                 if let Expr::Name(ast::ExprName { id, .. }) = &kw.value {
+                    let name = id.as_str();
+                    let literal_name = class_lookup_literal_name(name);
                     py_expr!(
-                        "__dp__.class_lookup(_dp_class_ns, {name:literal}, lambda: {name:id})",
-                        name = id.as_str()
+                        "__dp__.class_lookup(_dp_class_ns, {literal_name:literal}, lambda: {name:id})",
+                        literal_name = literal_name,
+                        name = name,
                     )
                 } else {
                     kw.value

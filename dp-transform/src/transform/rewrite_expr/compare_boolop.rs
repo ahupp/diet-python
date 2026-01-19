@@ -1,26 +1,38 @@
-use crate::template::{make_binop, make_unaryop};
-use crate::transform::context::Context;
+use crate::transform::rewrite_expr::make_binop;
+use crate::transform::driver::{ExprRewriter, LoweredExpr};
+use crate::transform::rewrite_expr::make_unaryop;
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, CmpOp, Expr, Stmt};
 
-pub(crate) fn expr_boolop_to_stmts(target: &str, bool_op: ast::ExprBoolOp) -> Vec<Stmt> {
+
+pub(crate) fn expr_boolop_to_stmts(rewriter: &ExprRewriter, bool_op: ast::ExprBoolOp) -> LoweredExpr {
+    let target = rewriter.context().fresh("target");
+
+    LoweredExpr::unmodified_modified(
+        py_expr!("{target:id}", target=target.as_str()),
+        expr_boolop_to_stmts_inner(target.as_str(), bool_op),
+    )
+}
+
+fn expr_boolop_to_stmts_inner(target: &str, bool_op: ast::ExprBoolOp) -> Vec<Stmt> {
+   
     let ast::ExprBoolOp { op, values, .. } = bool_op;
 
     let mut values = values.into_iter();
     let first = values.next().expect("bool op expects at least one value");
     let mut stmts = match first {
-        Expr::BoolOp(bool_op) => expr_boolop_to_stmts(target, bool_op),
+        Expr::BoolOp(bool_op) => expr_boolop_to_stmts_inner(target, bool_op),
         other => py_stmt!("{target:id} = {value:expr}", target = target, value = other),
     };
 
     for value in values {
         let body_stmt = match value {
-            Expr::BoolOp(bool_op) => expr_boolop_to_stmts(target, bool_op),
+            Expr::BoolOp(bool_op) => expr_boolop_to_stmts_inner(target, bool_op),
             other => py_stmt!("{target:id} = {value:expr}", target = target, value = other),
         };
         let test_expr = match op {
-            ast::BoolOp::And => target_expr(target),
-            ast::BoolOp::Or => py_expr!("not {target:expr}", target = target_expr(target),),
+            ast::BoolOp::And => py_expr!("{target:id}", target = target),
+            ast::BoolOp::Or => py_expr!("not {target:id}", target = target),
         };
         let stmt = py_stmt!(
             r#"
@@ -31,16 +43,15 @@ if {test:expr}:
             body = body_stmt,
         );
         stmts.extend(stmt);
-    }
+    };
 
     stmts
 }
 
 pub(crate) fn expr_compare_to_stmts(
-    ctx: &Context,
-    target: &str,
+    rewriter: &ExprRewriter,
     compare: ast::ExprCompare,
-) -> Vec<Stmt> {
+) -> LoweredExpr {
     let ast::ExprCompare {
         left,
         ops,
@@ -55,11 +66,13 @@ pub(crate) fn expr_compare_to_stmts(
     let mut stmts = Vec::new();
     let mut current_left = *left;
 
+    let target = rewriter.context().fresh("target");
+
     for (index, (op, comparator)) in ops.into_iter().zip(comparators.into_iter()).enumerate() {
         let mut comparator_expr = comparator;
         let mut prelude = Vec::new();
         if index < count - 1 {
-            let tmp = ctx.fresh("compare");
+            let tmp = rewriter.context().fresh("compare");
             prelude.extend(py_stmt!(
                 "{tmp:id} = {value:expr}",
                 tmp = tmp.as_str(),
@@ -71,26 +84,33 @@ pub(crate) fn expr_compare_to_stmts(
         let comparison = compare_expr(op, current_left.clone(), comparator_expr.clone());
 
         if index == 0 {
-            stmts.extend(prelude);
-            stmts.extend(assign_to_target(target, comparison));
+            stmts.extend(py_stmt!(
+                "{target:id} = {value:expr}",
+                target = target.as_str(),
+                value = comparison,
+            ));
         } else {
-            let mut body = prelude;
-            body.extend(assign_to_target(target, comparison));
-            let stmt = py_stmt!(
+            stmts = py_stmt!(
                 r#"
-if {test:expr}:
+{prelude:stmt}
+{target:id} = {value:expr}                
+if {target:id}:
     {body:stmt}
 "#,
-                test = target_expr(target),
-                body = body,
+                prelude = prelude,
+                target = target.as_str(),
+                value = comparison,
+                body = stmts,
             );
-            stmts.extend(stmt);
         }
 
         current_left = comparator_expr;
     }
 
-    stmts
+    LoweredExpr::unmodified_modified(
+        py_expr!("{tmp:id}", tmp = target.as_str()),
+        stmts,
+    )
 }
 
 fn compare_expr(op: CmpOp, left: Expr, right: Expr) -> Expr {
@@ -106,14 +126,6 @@ fn compare_expr(op: CmpOp, left: Expr, right: Expr) -> Expr {
         CmpOp::In => make_binop("contains", right, left),
         CmpOp::NotIn => make_unaryop("not_", make_binop("contains", right, left)),
     }
-}
-
-fn assign_to_target(target: &str, value: Expr) -> Vec<Stmt> {
-    py_stmt!("{target:id} = {value:expr}", target = target, value = value,)
-}
-
-fn target_expr(target: &str) -> Expr {
-    py_expr!("\n{target:id}", target = target,)
 }
 
 #[cfg(test)]

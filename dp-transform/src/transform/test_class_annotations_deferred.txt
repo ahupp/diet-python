@@ -4,31 +4,41 @@ class ThemeSection:
         from typing import ClassVar
     __dataclass_fields__: ClassVar[int]
 =
-def _dp_create_class_ThemeSection():
+def _dp_ns_ThemeSection(_dp_class_ns):
 
-    def _dp_ns_builder(_dp_class_ns):
+    def _dp_lambda_3():
+        return __name__
+    _dp_lambda_3 = __dp__.update_fn(_dp_lambda_3, None, "<lambda>")
+    __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_3))
+    __dp__.setattr(_dp_class_ns, "__qualname__", "ThemeSection")
 
-        def _dp_lambda_3():
-            return __name__$0
-        _dp_lambda_3 = __dp__.update_fn(_dp_lambda_3, "<lambda>", "<lambda>")
-        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_3)
-        _dp_class_ns.__qualname__ = "ThemeSection"
-
-        def _dp_annotate(_dp_format):
-            _dp_tmp_1 = __dp__.gt(_dp_format, 2)
-            if _dp_tmp_1:
-                raise __dp__.class_lookup_annotate("NotImplementedError", _dp_class_ns, globals$0())
-            _dp_annotations = __dp__.dict()
-            __dp__.setitem(_dp_annotations, "__dataclass_fields__", __dp__.getitem(__dp__.class_lookup_annotate("ClassVar", _dp_class_ns, globals$0()), __dp__.class_lookup_annotate("int", _dp_class_ns, globals$0())))
-            return _dp_annotations
-        _dp_class_ns.__annotate__ = _dp_annotate
-        if False:
+    def _dp_annotate(_dp_format):
+        _dp_target_1 = __dp__.gt(_dp_format, 2)
+        if _dp_target_1:
 
             def _dp_lambda_4():
-                return __spec__$0
-            _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, "<lambda>", "<lambda>")
-            _dp_import_2 = __dp__.import_("typing", __dp__.class_lookup(_dp_class_ns, "__spec__", _dp_lambda_4), __dp__.list(("ClassVar",)))
-            _dp_class_ns.ClassVar = __dp__.import_attr(_dp_import_2, "ClassVar")
-            del _dp_import_2
-    return __dp__.create_class("ThemeSection", _dp_ns_builder, (), None)
-ThemeSection = _dp_create_class_ThemeSection()
+                return NotImplementedError
+            _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, None, "<lambda>")
+            raise __dp__.class_lookup(_dp_class_ns, "NotImplementedError", _dp_lambda_4)
+        _dp_annotations = __dp__.dict()
+
+        def _dp_lambda_5():
+            return ClassVar
+        _dp_lambda_5 = __dp__.update_fn(_dp_lambda_5, None, "<lambda>")
+
+        def _dp_lambda_6():
+            return int
+        _dp_lambda_6 = __dp__.update_fn(_dp_lambda_6, None, "<lambda>")
+        __dp__.setitem(_dp_annotations, "__dataclass_fields__", __dp__.getitem(__dp__.class_lookup(_dp_class_ns, "ClassVar", _dp_lambda_5), __dp__.class_lookup(_dp_class_ns, "int", _dp_lambda_6)))
+        return _dp_annotations
+    _dp_annotate = __dp__.update_fn(_dp_annotate, "ThemeSection", "<locals>")
+    __dp__.setattr(_dp_class_ns, "__annotate__", _dp_annotate)
+    if False:
+
+        def _dp_lambda_7():
+            return __spec__
+        _dp_lambda_7 = __dp__.update_fn(_dp_lambda_7, None, "<lambda>")
+        _dp_import_2 = __dp__.import_("typing", __dp__.class_lookup(_dp_class_ns, "__spec__", _dp_lambda_7), __dp__.list(("ClassVar",)))
+        __dp__.setattr(_dp_class_ns, "ClassVar", __dp__.import_attr(_dp_import_2, "ClassVar"))
+        del _dp_import_2
+ThemeSection = __dp__.create_class("ThemeSection", _dp_ns_ThemeSection, (), None)

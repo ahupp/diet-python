@@ -1,14 +1,23 @@
-use super::context::Context;
+use ruff_python_ast::{self as ast};
+use ruff_python_ast::{Expr, Stmt};
+
+use crate::transform::driver::ExprRewriter;
+use crate::{py_expr, py_stmt, template::make_generator, transform::{driver::LoweredExpr}};
+use crate::transform::context::{Context, ScopeKind};
 use crate::body_transform::{walk_expr, Transformer};
-use crate::{py_expr, py_stmt};
 use ruff_python_ast::name::Name;
-use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::TextRange;
 use std::collections::HashSet;
 
-pub(crate) fn rewrite_lambda(lambda: ast::ExprLambda, ctx: &Context, buf: &mut Vec<Stmt>) -> Expr {
+
+pub(crate) fn rewrite_lambda(lambda: ast::ExprLambda, ctx: &Context) -> LoweredExpr {
     let func_name = ctx.fresh("lambda");
-    let qualname = ctx.make_qualname("<lambda>");
+    let scope = ctx.current_qualname().map(|(mut scope, kind)| {
+        if kind == ScopeKind::Function {
+            scope.push_str(".<locals>");
+        }
+        scope
+    });
 
     let ast::ExprLambda {
         parameters, body, ..
@@ -26,15 +35,21 @@ pub(crate) fn rewrite_lambda(lambda: ast::ExprLambda, ctx: &Context, buf: &mut V
             kwarg: None,
         });
 
+    let scope_expr = match scope {
+        Some(scope) => py_expr!("{scope:literal}", scope = scope),
+        None => py_expr!("None"),
+    };
+    let mut buf = Vec::new();
+
     let mut func_def = py_stmt!(
         r#"
 def {func_name:id}():
     return {body:expr}
-{func_name:id} = __dp__.update_fn({func_name:id}, {qualname:literal}, "<lambda>")
+{func_name:id} = __dp__.update_fn({func_name:id}, {qualname:expr}, "<lambda>")
 "#,
         func_name = func_name.as_str(),
         body = *body,
-        qualname = qualname,
+        qualname = scope_expr,
     );
 
     if let Stmt::FunctionDef(ast::StmtFunctionDef {
@@ -46,15 +61,16 @@ def {func_name:id}():
 
     buf.extend(func_def);
 
-    py_expr!("{func:id}", func = func_name.as_str())
+    LoweredExpr::unmodified_modified(py_expr!("{func:id}", func = func_name.as_str()), buf)
 }
 
 pub(crate) fn rewrite_generator(
     generator: ast::ExprGenerator,
     ctx: &Context,
-    needs_async: bool,
-    buf: &mut Vec<Stmt>,
-) -> Expr {
+) -> LoweredExpr {
+
+    let needs_async = comprehension_needs_async(&generator.elt, &generator.generators);
+    let mut buf = Vec::new();
     let ast::ExprGenerator {
         elt, generators, ..
     } = generator;
@@ -108,7 +124,7 @@ for {target:expr} in {iter:expr}:
     }
 
     if let Stmt::For(ast::StmtFor { iter, .. }) = body.first_mut().unwrap() {
-        *iter = Box::new(py_expr!("\n{name:id}", name = param_name.as_str()));
+        *iter = Box::new(py_expr!("{name:id}", name = param_name.as_str()));
     }
 
     let (global_targets, nonlocal_targets, prelude) = named_target_bindings(ctx, &named_targets);
@@ -154,8 +170,6 @@ def {func:id}({param:id}):
     let scope = scope_expr(&qualname, "<genexpr>");
     buf.extend(py_stmt!(
         r#"
-{func:id}.__name__ = {name:literal}
-{func:id}.__code__ = {func:id}.__code__.replace(co_name={name:literal})
 {func:id} = __dp__.update_fn({func:id}, {scope:expr}, {name:literal})
 "#,
         func = func_name.as_str(),
@@ -163,7 +177,7 @@ def {func:id}({param:id}):
         scope = scope,
     ));
 
-    if generators
+    let expr = if generators
         .first()
         .expect("generator expects at least one comprehension")
         .is_async
@@ -179,7 +193,8 @@ def {func:id}({param:id}):
             iter = first_iter_expr,
             func = func_name.as_str(),
         )
-    }
+    };
+    LoweredExpr::unmodified_modified(expr, buf) 
 }
 
 fn collect_named_targets(elt: &Expr, generators: &[ast::Comprehension]) -> Vec<String> {
@@ -229,7 +244,7 @@ fn named_target_bindings(
     }
 
     match ctx.current_qualname() {
-        Some((_qualname, super::context::ScopeKind::Function)) => {
+        Some((_qualname, ScopeKind::Function)) => {
             let mut globals = Vec::new();
             let mut nonlocals = Vec::new();
             let mut prelude = Vec::new();
@@ -265,4 +280,108 @@ fn scope_expr(qualname: &str, name: &str) -> Expr {
         }
     }
     py_expr!("None")
+}
+
+
+fn generators_need_async(generators: &[ast::Comprehension]) -> bool {
+    generators.iter().any(|comp| {
+        comp.is_async
+            || expr_contains_await(&comp.iter)
+            || comp.ifs.iter().any(expr_contains_await)
+    })
+}
+
+pub fn comprehension_needs_async(elt: &Expr, generators: &[ast::Comprehension]) -> bool {
+    expr_contains_await(elt) || generators_need_async(generators)
+}
+
+fn wrap_comprehension_body(body: Vec<Stmt>, comp: &ast::Comprehension) -> Vec<Stmt> {
+    let mut inner = body;
+    for if_expr in comp.ifs.iter().rev() {
+        inner = py_stmt!(
+            r#"
+if {test:expr}:
+    {body:stmt}
+"#,
+            test = if_expr.clone(),
+            body = inner,
+        );
+    }
+
+    if comp.is_async {
+        py_stmt!(
+            r#"
+async for {target:expr} in {iter:expr}:
+    {body:stmt}
+"#,
+            target = comp.target.clone(),
+            iter = comp.iter.clone(),
+            body = inner,
+        )
+    } else {
+        py_stmt!(
+            r#"
+for {target:expr} in {iter:expr}:
+    {body:stmt}
+"#,
+            target = comp.target.clone(),
+            iter = comp.iter.clone(),
+            body = inner,
+        )
+    }
+}
+
+
+
+
+pub fn rewrite(elt: Expr, generators: Vec<ast::Comprehension>, container_type: &str, _append_fn: &str, rewrite: &mut ExprRewriter) -> LoweredExpr {
+
+    let generator = match make_generator(elt, generators) {
+        Expr::Generator(generator) => generator,
+        _ => unreachable!("expected generator expression"),
+    };
+
+    let expr = rewrite_generator(generator, rewrite.context());
+    let container_expr = py_expr!("__dp__.{container_type:id}({expr:expr})", expr = expr.expr, container_type = container_type);
+    LoweredExpr::unmodified_modified(container_expr, expr.stmts)
+}
+
+
+fn expr_contains_await(expr: &Expr) -> bool {
+    // TODO
+    false
+    // struct AwaitFinder {
+    //     found: bool,
+    // }
+
+    // impl Transformer for AwaitFinder {
+    //     fn visit_expr(&mut self, expr: &mut Expr) {
+    //         let has_async_generator = match expr {
+    //             Expr::ListComp(ast::ExprListComp { generators, .. })
+    //             | Expr::SetComp(ast::ExprSetComp { generators, .. })
+    //             | Expr::DictComp(ast::ExprDictComp { generators, .. }) => {
+    //                 generators.iter().any(|comp| comp.is_async)
+    //             }
+    //             _ => false,
+    //         };
+
+    //         if has_async_generator {
+    //             self.found = true;
+    //             return;
+    //         }
+    //         if matches!(expr, Expr::Await(_)) {
+    //             self.found = true;
+    //             return;
+    //         }
+    //         if self.found {
+    //             return;
+    //         }
+    //         walk_expr(&mut self, expr);
+    //     }
+    // }
+
+    // let mut finder = AwaitFinder { found: false };
+    // let mut expr = expr.clone();
+    // finder.visit_expr(&mut expr);
+    // finder.found
 }

@@ -2,7 +2,7 @@ $ desugars fstring
 
 f"x={x}"
 =
-"".join(("x=", __dp__.builtins.format(x)))
+getattr("", "join")(("x=", __dp__.builtins.format(x)))
 
 $ desugars tstring
 
@@ -14,7 +14,7 @@ $ preserves conversions and format specifiers
 
 f"{value!r}:{other:0.2f}"
 =
-"".join((__dp__.builtins.format(__dp__.builtins.repr(value)), ":", __dp__.builtins.format(other, "0.2f")))
+getattr("", "join")((__dp__.builtins.format(__dp__.builtins.repr(value)), ":", __dp__.builtins.format(other, "0.2f")))
 
 $ fstring uses builtins format when shadowed
 
@@ -30,4 +30,4 @@ $ fstring debug uses repr and source text
 
 f"{x=}"
 =
-"".join(("x=", __dp__.builtins.format(__dp__.builtins.repr(x))))
+getattr("", "join")(("x=", __dp__.builtins.format(__dp__.builtins.repr(x))))

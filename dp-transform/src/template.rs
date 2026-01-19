@@ -53,7 +53,10 @@ use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_python_parser::parse_expression;
 use ruff_text_size::TextRange;
 use serde_json::Value;
-use std::{collections::HashMap, sync::LazyLock};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::LazyLock,
+};
 
 pub(crate) fn py_stmt_single(stmts: Vec<Stmt>) -> Stmt {
     if stmts.len() == 0 {
@@ -77,33 +80,6 @@ pub(crate) fn is_simple(expr: &Expr) -> bool {
             | Expr::BooleanLiteral(_)
             | Expr::NoneLiteral(_)
             | Expr::EllipsisLiteral(_)
-    )
-}
-
-pub(crate) fn make_tuple(elts: Vec<Expr>) -> Expr {
-    Expr::Tuple(ast::ExprTuple {
-        node_index: ast::AtomicNodeIndex::default(),
-        range: TextRange::default(),
-        elts,
-        ctx: ast::ExprContext::Load,
-        parenthesized: false,
-    })
-}
-
-pub(crate) fn make_binop(func_name: &'static str, left: Expr, right: Expr) -> Expr {
-    py_expr!(
-        "__dp__.{func:id}({left:expr}, {right:expr})",
-        left = left,
-        right = right,
-        func = func_name
-    )
-}
-
-pub(crate) fn make_unaryop(func_name: &'static str, operand: Expr) -> Expr {
-    py_expr!(
-        "__dp__.{func:id}({operand:expr})",
-        operand = operand,
-        func = func_name
     )
 }
 
@@ -276,11 +252,18 @@ impl SyntaxTemplate {
 struct PlaceholderReplacer {
     values: HashMap<String, PlaceholderValue>,
     ids: HashMap<String, Value>,
+    used_ids: HashSet<String>,
+    errors: Vec<String>,
 }
 
 impl PlaceholderReplacer {
     fn new(values: HashMap<String, PlaceholderValue>, ids: HashMap<String, Value>) -> Self {
-        Self { values, ids }
+        Self {
+            values,
+            ids,
+            used_ids: HashSet::new(),
+            errors: Vec::new(),
+        }
     }
 
     fn parse_placeholder<'b>(&self, symbol: &'b str) -> Option<(PlaceholderType, &'b str)> {
@@ -298,16 +281,25 @@ impl PlaceholderReplacer {
     }
 
     fn take_value(&mut self, name: &str) -> PlaceholderValue {
-        self.values
-            .remove(name)
-            .unwrap_or_else(|| panic!("expected value for placeholder {name}"))
+        self.values.remove(name).unwrap_or_else(|| {
+            self.errors
+                .push(format!("expected value for placeholder {name}"));
+            PlaceholderValue::Expr(Box::new(py_expr!("None")))
+        })
     }
 
-    fn get_id(&self, name: &str) -> Value {
-        self.ids
-            .get(name)
-            .cloned()
-            .unwrap_or_else(|| panic!("expected id or literal for placeholder {name}"))
+    fn get_id(&mut self, name: &str) -> Value {
+        match self.ids.get(name) {
+            Some(value) => {
+                self.used_ids.insert(name.to_string());
+                value.clone()
+            }
+            None => {
+                self.errors
+                    .push(format!("expected id or literal for placeholder {name}"));
+                Value::String(format!("_dp_missing_{name}"))
+            }
+        }
     }
 
     fn replace_identifier(&mut self, identifier: &mut ast::Identifier) {
@@ -379,10 +371,28 @@ impl PlaceholderReplacer {
         }
     }
 
-    fn finish(self) {
+    fn finish(mut self) {
         if !self.values.is_empty() {
-            let keys: Vec<_> = self.values.keys().cloned().collect();
-            panic!("unused placeholders: {}", keys.join(", "));
+            let mut keys: Vec<_> = self.values.keys().cloned().collect();
+            keys.sort();
+            self.errors
+                .push(format!("unused placeholders: {}", keys.join(", ")));
+        }
+
+        let mut unused_ids: Vec<_> = self
+            .ids
+            .keys()
+            .filter(|name| !self.used_ids.contains(*name))
+            .cloned()
+            .collect();
+        if !unused_ids.is_empty() {
+            unused_ids.sort();
+            self.errors
+                .push(format!("unused ids: {}", unused_ids.join(", ")));
+        }
+
+        if !self.errors.is_empty() {
+            panic!("template errors:\n{}", self.errors.join("\n"));
         }
     }
 }
@@ -885,5 +895,20 @@ else:
         let actual = py_stmt!("return {expr:expr}", expr = Box::new(expr.clone()));
         let expected = py_stmt!("return {expr:expr}", expr = expr);
         assert_ast_eq(actual, expected);
+    }
+
+    #[test]
+    fn reports_missing_and_unused_placeholders_together() {
+        let result = std::panic::catch_unwind(|| {
+            let _ = py_stmt!("{missing:id}", unused = "x");
+        });
+        let err = result.expect_err("expected template instantiation to panic");
+        let msg = err
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| err.downcast_ref::<&str>().copied())
+            .unwrap_or("<non-string panic>");
+        assert!(msg.contains("expected id or literal for placeholder missing"));
+        assert!(msg.contains("unused ids: unused"));
     }
 }

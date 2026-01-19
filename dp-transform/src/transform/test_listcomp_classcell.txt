@@ -10,72 +10,65 @@ def classcell_values():
 
     return C.y, C().method(), C
 =
-def _dp_fn_classcell_values():
+def classcell_values():
 
-    def _dp_create_class_classcell_values__locals__C():
+    def _dp_ns_C(_dp_class_ns):
 
-        def _dp_ns_builder(_dp_class_ns):
-            _dp_classcell = __dp__.empty_classcell()
+        def _dp_lambda_8():
+            return __name__
+        _dp_lambda_8 = __dp__.update_fn(_dp_lambda_8, "classcell_values.<locals>", "<lambda>")
+        __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_8))
+        __dp__.setattr(_dp_class_ns, "__qualname__", "classcell_values.<locals>.C")
 
-            def _dp_lambda_8():
-                return _dp_classcell
-            _dp_lambda_8 = __dp__.update_fn(_dp_lambda_8, "classcell_values.<locals>.<lambda>", "<lambda>")
-            _dp_class_ns.__classcell__ = __dp__.getitem(_dp_lambda_8.__closure__, 0)
+        def method(self):
+            super()
+            return __class__
 
-            def _dp_lambda_9():
-                return __name__$0
-            _dp_lambda_9 = __dp__.update_fn(_dp_lambda_9, "classcell_values.<locals>.<lambda>", "<lambda>")
-            _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_9)
-            _dp_class_ns.__qualname__ = "classcell_values.<locals>.C"
+        def _dp_lambda_9():
+            return method
+        _dp_lambda_9 = __dp__.update_fn(_dp_lambda_9, "classcell_values.<locals>", "<lambda>")
+        __dp__.setattr(_dp_class_ns, "method", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "method", _dp_lambda_9), "classcell_values.<locals>.C", "<locals>"))
 
-            def _dp_fn_method(self):
-                __dp__.call_super(super$0, _dp_classcell, self)
-                return __dp__.class_cell_value(_dp_classcell)
-            _dp_class_ns.method = __dp__.update_fn(_dp_fn_method, "classcell_values.<locals>.C", "method")
-
-            def _dp_gen_1(_dp_iter_2):
-                _dp_iter_3 = __dp__.iter(_dp_iter_2)
+        def _dp_gen_1(_dp_iter_2):
+            _dp_iter_3 = __dp__.iter(_dp_iter_2)
+            try:
                 while True:
-                    try:
-                        i = __dp__.next(_dp_iter_3)
-                    except:
-                        __dp__.check_stopiteration()
-                        break
-                    else:
+                    i = __dp__.next(_dp_iter_3)
 
-                        def _dp_lambda_4():
-                            return i$4
-                        _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, "classcell_values.<locals>.C.<lambda>", "<lambda>")
-                        yield _dp_lambda_4
-            _dp_gen_1.__name__ = "<genexpr>"
-            _dp_gen_1.__code__ = _dp_gen_1.__code__.replace(co_name="<genexpr>")
-            _dp_gen_1 = __dp__.update_fn(_dp_gen_1, "classcell_values.<locals>.C", "<genexpr>")
+                    def _dp_lambda_4():
+                        return i
+                    _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, "classcell_values.<locals>.C", "<lambda>")
+                    yield _dp_lambda_4
+            except:
+                if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+                    pass
+                else:
+                    raise
+        _dp_gen_1 = __dp__.update_fn(_dp_gen_1, "classcell_values.<locals>.C", "<locals>")
+        _dp_gen_1 = __dp__.update_fn(_dp_gen_1, "classcell_values.<locals>.C", "<genexpr>")
 
-            def _dp_lambda_10():
-                return range$0
-            _dp_lambda_10 = __dp__.update_fn(_dp_lambda_10, "classcell_values.<locals>.<lambda>", "<lambda>")
-            _dp_class_ns.items = __dp__.list(_dp_gen_1(__dp__.iter(__dp__.class_lookup(_dp_class_ns, "range", _dp_lambda_10)(5))))
+        def _dp_lambda_10():
+            return range
+        _dp_lambda_10 = __dp__.update_fn(_dp_lambda_10, "classcell_values.<locals>", "<lambda>")
+        __dp__.setattr(_dp_class_ns, "items", __dp__.list(_dp_gen_1(__dp__.iter(__dp__.class_lookup(_dp_class_ns, "range", _dp_lambda_10)(5)))))
 
-            def _dp_gen_5(_dp_iter_6):
-                _dp_iter_7 = __dp__.iter(_dp_iter_6)
+        def _dp_gen_5(_dp_iter_6):
+            _dp_iter_7 = __dp__.iter(_dp_iter_6)
+            try:
                 while True:
-                    try:
-                        x = __dp__.next(_dp_iter_7)
-                    except:
-                        __dp__.check_stopiteration()
-                        break
-                    else:
-                        yield x()
-            _dp_gen_5.__name__ = "<genexpr>"
-            _dp_gen_5.__code__ = _dp_gen_5.__code__.replace(co_name="<genexpr>")
-            _dp_gen_5 = __dp__.update_fn(_dp_gen_5, "classcell_values.<locals>.C", "<genexpr>")
+                    x = __dp__.next(_dp_iter_7)
+                    yield x()
+            except:
+                if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+                    pass
+                else:
+                    raise
+        _dp_gen_5 = __dp__.update_fn(_dp_gen_5, "classcell_values.<locals>.C", "<locals>")
+        _dp_gen_5 = __dp__.update_fn(_dp_gen_5, "classcell_values.<locals>.C", "<genexpr>")
 
-            def _dp_lambda_11():
-                return items$0
-            _dp_lambda_11 = __dp__.update_fn(_dp_lambda_11, "classcell_values.<locals>.<lambda>", "<lambda>")
-            _dp_class_ns.y = __dp__.list(_dp_gen_5(__dp__.iter(__dp__.class_lookup(_dp_class_ns, "items", _dp_lambda_11))))
-        return __dp__.create_class("C", _dp_ns_builder, (), None)
-    C = _dp_create_class_classcell_values__locals__C()
-    return C.y, C().method(), C
-classcell_values = __dp__.update_fn(_dp_fn_classcell_values, None, "classcell_values")
-del _dp_fn_classcell_values
+        def _dp_lambda_11():
+            return items
+        _dp_lambda_11 = __dp__.update_fn(_dp_lambda_11, "classcell_values.<locals>", "<lambda>")
+        __dp__.setattr(_dp_class_ns, "y", __dp__.list(_dp_gen_5(__dp__.iter(__dp__.class_lookup(_dp_class_ns, "items", _dp_lambda_11)))))
+    C = __dp__.create_class("C", _dp_ns_C, (), None)
+    return C.y, getattr(C(), "method")(), C

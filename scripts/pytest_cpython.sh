@@ -25,11 +25,13 @@ if test ! -d "$VENV_DIR" ; then
   )
 fi
 
+echo "building dp-pyo3"
 (
   cd "$REPO_ROOT" &&
   cargo build --quiet -p dp-pyo3
 )
 
+echo "starting tests"
 (
   cd "$REPO_ROOT" &&
   if [ "$#" -eq 0 ]; then

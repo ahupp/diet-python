@@ -166,6 +166,6 @@ pub fn rewrite_method(
 
     let body = take(&mut func_def.body);
     func_def.body =
-        rewriter.with_function_scope(scope, move |rewriter| rewriter.rewrite_block(body));
+        rewriter.with_scope(scope, move |rewriter| rewriter.rewrite_block(body));
     transformer.needs_class_cell
 }

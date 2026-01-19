@@ -63,10 +63,6 @@ set = builtins.set
 slice = builtins.slice
 
 
-def missing_name(name):
-    raise NameError(name)
-
-
 # TODO: very questionable
 def float_from_literal(literal):
     # Preserve CPython's literal parsing for values that Rust rounds differently.
@@ -78,62 +74,10 @@ _MISSING = object()
 
 
 def class_lookup(class_ns, name, lookup_fn):
-    # Bypass _ClassNamespace.__getattribute__ so class body method names (like get)
-    # do not shadow namespace lookups during class creation.
     try:
-        locals_dict = object.__getattribute__(class_ns, "_locals")
-        namespace = object.__getattribute__(class_ns, "_namespace")
-    except Exception:
-        locals_dict = None
-        namespace = None
-
-    if locals_dict is not None and namespace is not None:
-        value = (
-            locals_dict.get(name, _MISSING)
-            if name in locals_dict
-            else namespace.get(name, _MISSING)
-        )
-    else:
-        try:
-            value = class_ns.get(name, _MISSING)
-        except AttributeError:
-            try:
-                return class_ns[name]
-            except KeyError:
-                return lookup_fn()
-    if value is _MISSING:
+        return class_ns[name]
+    except KeyError:
         return lookup_fn()
-    return value
-
-
-def class_lookup_annotate(name, class_ns, globals_dict):
-    # Mirror LOAD_FROM_DICT_OR_GLOBALS so annotationlib can supply ForwardRefs.
-    try:
-        locals_dict = object.__getattribute__(class_ns, "_locals")
-        namespace = object.__getattribute__(class_ns, "_namespace")
-    except Exception:
-        locals_dict = None
-        namespace = None
-
-    if locals_dict is not None and namespace is not None:
-        if name in locals_dict:
-            return locals_dict[name]
-        if name in namespace:
-            return namespace[name]
-    else:
-        try:
-            if name in class_ns:
-                return class_ns[name]
-        except Exception:
-            pass
-
-    try:
-        return globals_dict[name]
-    except KeyError as exc:
-        try:
-            return getattr(builtins, name)
-        except AttributeError:
-            raise NameError(name) from exc
 
 
 def _validate_exception_type(exc_type):
@@ -256,7 +200,7 @@ def class_cell_value(class_cell):
         raise RuntimeError("empty __class__ cell")
     return value
 
-def super_(class_namespace, instance_or_cls):
+def super_(super_fn, class_namespace, instance_or_cls):
     """Return a super() proxy using the defining class, falling back to cls during class creation."""
     defining = None
     if class_namespace is _EMPTY_CLASSCELL:
@@ -565,16 +509,6 @@ def current_exception():
     return exc
 
 
-def check_stopiteration():
-    if not isinstance(current_exception(), StopIteration):
-        raise
-
-
-def acheck_stopiteration():
-    if not isinstance(current_exception(), StopAsyncIteration):
-        raise
-
-
 def aiter(obj):
     try:
         aiter_fn = obj.__aiter__
@@ -854,3 +788,8 @@ async def with_aexit(exit_fn, exc_info: tuple | None):
     else:
         await_iter = _ensure_awaitable(exit_fn(None, None, None), "__aexit__")
         await _await_from_iter(await_iter)
+
+def cleanup_dp_globals(globals_dict):    
+    for _dp_name in list(globals_dict):
+        if _dp_name.startswith("_dp_"):
+            del globals_dict[_dp_name]

@@ -2,8 +2,15 @@ $ rewrites annotated assignment with value
 
 x: int = 1
 =
-x: int
 x = 1
+try:
+    __annotations__
+except:
+    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+        __annotations__ = __dp__.dict()
+    else:
+        raise
+__dp__.setitem(__annotations__, "x", int)
 
 $ rewrites chained assignment
 

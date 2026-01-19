@@ -1,6 +1,5 @@
-use super::driver::{ExprRewriter, Rewrite};
-use crate::body_transform::Transformer;
-use crate::template::{is_simple, make_binop, make_tuple};
+use crate::transform::driver::{ExprRewriter, Rewrite};
+use crate::transform::rewrite_expr::{make_binop, make_tuple};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Operator, Stmt};
 
@@ -16,7 +15,7 @@ pub(crate) fn should_rewrite_targets(rewriter: &ExprRewriter, targets: &[Expr]) 
 
     match first {
         Expr::Name(_) => false,
-        Expr::Attribute(_) => rewriter.context().options.lower_attributes,
+        Expr::Attribute(_) => true,
         Expr::Tuple(_) | Expr::List(_) | Expr::Subscript(_) => true,
         _ => true,
     }
@@ -37,22 +36,13 @@ pub(crate) fn rewrite_target(
             rewrite_unpack_target(rewriter, list.elts, rhs, out, UnpackTargetKind::List);
         }
         Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
-            if rewriter.context().options.lower_attributes {
-                let stmt = py_stmt!(
-                    "__dp__.setattr({value:expr}, {name:literal}, {rhs:expr})",
-                    value = value,
-                    name = attr.as_str(),
-                    rhs = rhs,
-                );
-                out.extend(stmt);
-            } else {
-                out.extend(py_stmt!(
-                    "{value:expr}.{attr:id} = {rhs:expr}",
-                    value = value,
-                    attr = attr.as_str(),
-                    rhs = rhs
-                ));
-            }
+            let stmt = py_stmt!(
+                "__dp__.setattr({value:expr}, {name:literal}, {rhs:expr})",
+                value = value,
+                name = attr.as_str(),
+                rhs = rhs,
+            );
+            out.extend(stmt);
         }
         Expr::Subscript(ast::ExprSubscript { value, slice, .. }) => {
             let stmt = py_stmt!(
@@ -89,30 +79,12 @@ fn temp_name(expr: &Expr) -> Option<&str> {
 
 fn maybe_placeholder_in(
     rewriter: &mut ExprRewriter,
-    mut expr: Expr,
+    expr: Expr,
     out: &mut Vec<Stmt>,
 ) -> Expr {
-    fn is_temp_skippable(expr: &Expr) -> bool {
-        is_simple(expr) && !matches!(expr, Expr::StringLiteral(_) | Expr::BytesLiteral(_))
-    }
-
-    if is_temp_skippable(&expr) {
-        return expr;
-    }
-
-    out.extend(rewriter.expand_here(&mut expr));
-
-    if is_temp_skippable(&expr) {
-        return expr;
-    }
-
-    let tmp = rewriter.context().fresh("tmp");
-    out.extend(py_stmt!(
-        "{tmp:id} = {value:expr}",
-        tmp = tmp.as_str(),
-        value = expr
-    ));
-    py_expr!("{tmp:id}", tmp = tmp.as_str())
+    let lowered = rewriter.maybe_placeholder_lowered(expr);
+    out.extend(lowered.stmts);
+    lowered.expr
 }
 
 fn rewrite_unpack_target(
@@ -208,15 +180,48 @@ pub(crate) fn rewrite_ann_assign(
     rewriter: &mut ExprRewriter,
     mut ann_assign: ast::StmtAnnAssign,
 ) -> Rewrite {
-    let Some(value) = ann_assign.value.take() else {
-        return Rewrite::Walk(vec![Stmt::AnnAssign(ann_assign)]);
+    let ast::StmtAnnAssign {
+        target,
+        annotation,
+        value,
+        simple,
+        ..
+    } = ann_assign;
+
+    let target_expr = *target;
+    let annotation_expr = *annotation;
+    let name = if simple {
+        match &target_expr {
+            Expr::Name(ast::ExprName { id, .. }) => Some(id.to_string()),
+            _ => None,
+        }
+    } else {
+        None
     };
 
-    let target = (*ann_assign.target).clone();
-
     let mut stmts = Vec::new();
-    stmts.push(Stmt::AnnAssign(ann_assign));
-    rewrite_target(rewriter, target, *value, &mut stmts);
+    if let Some(value) = value {
+        rewrite_target(rewriter, target_expr, *value, &mut stmts);
+    }
+
+    if let Some(name) = name {
+        stmts.extend(py_stmt!(
+            r#"
+try:
+    __annotations__
+except NameError:
+    __annotations__ = __dp__.dict()
+"#
+        ));
+        stmts.extend(py_stmt!(
+            "__dp__.setitem(__annotations__, {name:literal}, {value:expr})",
+            name = name.as_str(),
+            value = annotation_expr
+        ));
+    } else {
+        stmts.extend(py_stmt!("{value:expr}", value = annotation_expr));
+    }
+
     Rewrite::Visit(stmts)
 }
 
@@ -227,33 +232,17 @@ pub(crate) fn rewrite_assign(rewriter: &mut ExprRewriter, assign: ast::StmtAssig
 
     let ast::StmtAssign { targets, value, .. } = assign;
     let mut stmts = Vec::new();
-    let mut value = value.as_ref().clone();
-    let multi_assign = targets.len() > 1;
-
-    let (shared_expr, mut single_value) = if multi_assign {
+    if targets.len() > 1 {
         // When multiple targets share the same value we need to evaluate the expression
         // exactly once and fan the result out, so materialize a placeholder.
-        (Some(rewriter.maybe_placeholder(value)), None)
-    } else {
-        // With a single target there's no fan-out, so rewrite the value in place and feed
-        // it directly to the lowering helpers without synthesizing an intermediate
-        // placeholder.
-        rewriter.visit_expr(&mut value);
-        (None, Some(value))
-    };
-
-    for target in targets.into_iter() {
-        let expr = shared_expr.as_ref().map_or_else(
-            || single_value.take().expect("value already consumed"),
-            Clone::clone,
-        );
-        rewrite_target(rewriter, target, expr, &mut stmts);
-    }
-
-    if let Some(expr) = shared_expr {
-        if let Some(name) = temp_name(&expr) {
-            stmts.extend(py_stmt!("{name:id} = None", name = name));
+        let lowered = rewriter.maybe_placeholder_lowered(*value);
+        stmts.extend(lowered.stmts);
+        for target in targets {
+            stmts.extend(py_stmt!("{target:expr} = {value:expr}", target = target, value = lowered.expr.clone()));
         }
+    } else {
+        let target = targets.into_iter().next().unwrap();
+        rewrite_target(rewriter, target, *value, &mut stmts);
     }
 
     Rewrite::Visit(stmts)
@@ -304,7 +293,7 @@ pub(crate) fn rewrite_delete(rewriter: &mut ExprRewriter, delete: ast::StmtDelet
         return Rewrite::Walk(vec![Stmt::Delete(delete)]);
     }
 
-    Rewrite::Visit(
+    Rewrite::Walk(
         delete
             .targets
             .into_iter()

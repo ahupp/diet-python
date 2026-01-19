@@ -84,6 +84,7 @@ pub(crate) fn run_transform_fixture_tests(fixture: &str) {
     };
 
     for block in blocks {
+        eprintln!("transform_fixture: {}", block.name);
         assert_transform_eq(block.input.as_str(), block.output.as_str());
     }
 }

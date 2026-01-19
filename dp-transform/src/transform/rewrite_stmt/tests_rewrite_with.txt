@@ -1,0 +1,111 @@
+$ rewrites with statement
+
+with a as b:
+    c
+=
+_dp_tmp_2 = __dp__.with_enter(a)
+try:
+    _dp_tmp_3 = __dp__.unpack(_dp_tmp_2, (True, True))
+    b = __dp__.getitem(_dp_tmp_3, 0)
+    _dp_with_exit_1 = __dp__.getitem(_dp_tmp_3, 1)
+finally:
+    _dp_tmp_3 = None
+    _dp_tmp_2 = None
+try:
+    c
+except:
+    __dp__.with_exit(_dp_with_exit_1, __dp__.exc_info())
+else:
+    __dp__.with_exit(_dp_with_exit_1, None)
+finally:
+    _dp_with_exit_1 = None
+
+$ rewrites multiple with statement
+
+with a as b, c as d:
+    e
+=
+_dp_tmp_3 = __dp__.with_enter(a)
+try:
+    _dp_tmp_4 = __dp__.unpack(_dp_tmp_3, (True, True))
+    b = __dp__.getitem(_dp_tmp_4, 0)
+    _dp_with_exit_2 = __dp__.getitem(_dp_tmp_4, 1)
+finally:
+    _dp_tmp_4 = None
+    _dp_tmp_3 = None
+try:
+    _dp_tmp_5 = __dp__.with_enter(c)
+    try:
+        _dp_tmp_6 = __dp__.unpack(_dp_tmp_5, (True, True))
+        d = __dp__.getitem(_dp_tmp_6, 0)
+        _dp_with_exit_1 = __dp__.getitem(_dp_tmp_6, 1)
+    finally:
+        _dp_tmp_6 = None
+        _dp_tmp_5 = None
+    try:
+        e
+    except:
+        __dp__.with_exit(_dp_with_exit_1, __dp__.exc_info())
+    else:
+        __dp__.with_exit(_dp_with_exit_1, None)
+    finally:
+        _dp_with_exit_1 = None
+except:
+    __dp__.with_exit(_dp_with_exit_2, __dp__.exc_info())
+else:
+    __dp__.with_exit(_dp_with_exit_2, None)
+finally:
+    _dp_with_exit_2 = None
+
+$ rewrites async with statement
+
+async def f():
+    async with a as b:
+        c
+=
+async def f():
+    _dp_tmp_2 = await __dp__.with_aenter(a)
+    try:
+        _dp_tmp_3 = __dp__.unpack(_dp_tmp_2, (True, True))
+        b = __dp__.getitem(_dp_tmp_3, 0)
+        _dp_with_exit_1 = __dp__.getitem(_dp_tmp_3, 1)
+    finally:
+        _dp_tmp_3 = None
+        _dp_tmp_2 = None
+    try:
+        c
+    except:
+        await __dp__.with_aexit(_dp_with_exit_1, __dp__.exc_info())
+    else:
+        await __dp__.with_aexit(_dp_with_exit_1, None)
+    finally:
+        _dp_with_exit_1 = None
+
+$ rewrites with starred target
+
+with a as (b, *c):
+    pass
+=
+_dp_tmp_2 = __dp__.with_enter(a)
+try:
+    _dp_tmp_3 = __dp__.unpack(_dp_tmp_2, (True, True))
+    _dp_tmp_4 = __dp__.getitem(_dp_tmp_3, 0)
+    try:
+        _dp_tmp_5 = __dp__.unpack(_dp_tmp_4, (True, False))
+        b = __dp__.getitem(_dp_tmp_5, 0)
+        c = __dp__.list(__dp__.getitem(_dp_tmp_5, 1))
+    finally:
+        _dp_tmp_5 = None
+        _dp_tmp_4 = None
+    _dp_with_exit_1 = __dp__.getitem(_dp_tmp_3, 1)
+finally:
+    _dp_tmp_3 = None
+    _dp_tmp_2 = None
+try:
+    pass
+except:
+    __dp__.with_exit(_dp_with_exit_1, __dp__.exc_info())
+else:
+    __dp__.with_exit(_dp_with_exit_1, None)
+finally:
+    _dp_with_exit_1 = None

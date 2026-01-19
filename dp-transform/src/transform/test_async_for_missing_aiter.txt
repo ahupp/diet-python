@@ -17,45 +17,32 @@ def get_error():
     return "no error"
 =
 asyncio = __dp__.import_("asyncio", __spec__)
-async def _dp_fn_run():
-    _dp_iter_obj_3 = 1, 2, 3
-    if __dp__.not_(hasattr$0(_dp_iter_obj_3, "__aiter__")):
-        _dp_iter_type_4 = type$0(_dp_iter_obj_3).__name__
-        _dp_iter_obj_3 = None
-        raise TypeError$0(__dp__.add("'async for' requires an object with __aiter__ method, got ", _dp_iter_type_4))
-    _dp_iter_1 = _dp_iter_obj_3.__aiter__()
-    if __dp__.not_(hasattr$0(_dp_iter_1, "__anext__")):
-        _dp_iter_type_4 = type$0(_dp_iter_1).__name__
-        _dp_iter_1 = None
-        raise TypeError$0(__dp__.add("'async for' received an object from __aiter__ that does not implement __anext__: ", _dp_iter_type_4))
-    while True:
-        try:
-            _dp_iter_next_2 = await __dp__.anext(_dp_iter_1)
-        except:
-            __dp__.acheck_stopiteration()
-            break
-        else:
-            _ = _dp_iter_next_2
-run = __dp__.update_fn(_dp_fn_run, None, "run")
-del _dp_fn_run
-def _dp_fn_get_error():
+async def run():
+    _dp_iter_1 = __dp__.aiter((1, 2, 3))
     try:
-        asyncio$0.run(run$0())
+        while True:
+            _ = await __dp__.anext(_dp_iter_1)
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), TypeError$0):
+        if __dp__.exception_matches(__dp__.current_exception(), StopAsyncIteration):
+            pass
+        else:
+            raise
+def get_error():
+    try:
+        asyncio.run(run())
+    except:
+        if __dp__.exception_matches(__dp__.current_exception(), TypeError):
             exc = __dp__.current_exception()
             try:
-                return str$0(exc)
+                return str(exc)
             finally:
                 try:
                     del exc
                 except:
-                    if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
                         pass
                     else:
                         raise
         else:
             raise
     return "no error"
-get_error = __dp__.update_fn(_dp_fn_get_error, None, "get_error")
-del _dp_fn_get_error

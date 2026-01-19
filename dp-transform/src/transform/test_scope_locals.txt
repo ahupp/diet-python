@@ -31,82 +31,66 @@ def class_namespace_overrides_closure():
         y = x
     return X.y
 =
-def _dp_fn_function_locals():
+def function_locals():
 
-    def _dp_fn_f(x):
+    def f(x):
 
-        def _dp_fn_g(y):
+        def g(y):
 
-            def _dp_fn_h(z):
-                return __dp__.add(y$3, z)
-            h = __dp__.update_fn(_dp_fn_h, "function_locals.<locals>.f.<locals>.g.<locals>", "h")
-            del _dp_fn_h
-            w = __dp__.add(x$2, y)
+            def h(z):
+                return __dp__.add(y, z)
+            w = __dp__.add(x, y)
             y = __dp__.iadd(y, 3)
-            return locals$0()
-        g = __dp__.update_fn(_dp_fn_g, "function_locals.<locals>.f.<locals>", "g")
-        del _dp_fn_g
+            return locals()
         return g
-    f = __dp__.update_fn(_dp_fn_f, "function_locals.<locals>", "f")
-    del _dp_fn_f
     return f(2)(4)
-function_locals = __dp__.update_fn(_dp_fn_function_locals, None, "function_locals")
-del _dp_fn_function_locals
-def _dp_fn_class_locals():
+def class_locals():
 
-    def _dp_fn_f(x):
+    def f(x):
 
-        def _dp_create_class_class_locals__locals__f__locals__C():
+        def _dp_ns_C(_dp_class_ns):
 
-            def _dp_ns_builder(_dp_class_ns):
+            def _dp_lambda_1():
+                return __name__
+            _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "class_locals.<locals>.f.<locals>", "<lambda>")
+            __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1))
+            __dp__.setattr(_dp_class_ns, "__qualname__", "class_locals.<locals>.f.<locals>.C")
 
-                def _dp_lambda_1():
-                    return __name__$0
-                _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "class_locals.<locals>.f.<locals>.<lambda>", "<lambda>")
-                _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1)
-                _dp_class_ns.__qualname__ = "class_locals.<locals>.f.<locals>.C"
+            def _dp_lambda_2():
+                return x
+            _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "class_locals.<locals>.f.<locals>", "<lambda>")
+            __dp__.setattr(_dp_class_ns, "y", __dp__.class_lookup(_dp_class_ns, "x", _dp_lambda_2))
 
-                def _dp_lambda_2():
-                    return x$2
-                _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "class_locals.<locals>.f.<locals>.<lambda>", "<lambda>")
-                _dp_class_ns.y = __dp__.class_lookup(_dp_class_ns, "x", _dp_lambda_2)
+            def m(self):
+                return x
 
-                def _dp_fn_m(self):
-                    return x$2
-                _dp_class_ns.m = __dp__.update_fn(_dp_fn_m, "class_locals.<locals>.f.<locals>.C", "m")
-
-                def _dp_lambda_3():
-                    return list$0
-                _dp_lambda_3 = __dp__.update_fn(_dp_lambda_3, "class_locals.<locals>.f.<locals>.<lambda>", "<lambda>")
-                _dp_class_ns.z = __dp__.class_lookup(_dp_class_ns, "list", _dp_lambda_3)(_dp_class_ns._namespace)
-            return __dp__.create_class("C", _dp_ns_builder, (), None)
-        C = _dp_create_class_class_locals__locals__f__locals__C()
-        return C
-    f = __dp__.update_fn(_dp_fn_f, "class_locals.<locals>", "f")
-    del _dp_fn_f
-    return f(1).z
-class_locals = __dp__.update_fn(_dp_fn_class_locals, None, "class_locals")
-del _dp_fn_class_locals
-def _dp_fn_class_namespace_overrides_closure():
-    x = 42
-
-    def _dp_create_class_class_namespace_overrides_closure__locals__X():
-
-        def _dp_ns_builder(_dp_class_ns):
+            def _dp_lambda_3():
+                return m
+            _dp_lambda_3 = __dp__.update_fn(_dp_lambda_3, "class_locals.<locals>.f.<locals>", "<lambda>")
+            __dp__.setattr(_dp_class_ns, "m", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "m", _dp_lambda_3), "class_locals.<locals>.f.<locals>.C", "<locals>"))
 
             def _dp_lambda_4():
-                return __name__$0
-            _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, "class_namespace_overrides_closure.<locals>.<lambda>", "<lambda>")
-            _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_4)
-            _dp_class_ns.__qualname__ = "class_namespace_overrides_closure.<locals>.X"
-            __dp__.setitem(_dp_class_ns._namespace, "x", 43)
+                return list
+            _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, "class_locals.<locals>.f.<locals>", "<lambda>")
+            __dp__.setattr(_dp_class_ns, "z", __dp__.class_lookup(_dp_class_ns, "list", _dp_lambda_4)(_dp_class_ns._namespace))
+        C = __dp__.create_class("C", _dp_ns_C, (), None)
+        return C
+    return getattr(f(1), "z")
+def class_namespace_overrides_closure():
+    x = 42
 
-            def _dp_lambda_5():
-                return x$1
-            _dp_lambda_5 = __dp__.update_fn(_dp_lambda_5, "class_namespace_overrides_closure.<locals>.<lambda>", "<lambda>")
-            _dp_class_ns.y = __dp__.class_lookup(_dp_class_ns, "x", _dp_lambda_5)
-        return __dp__.create_class("X", _dp_ns_builder, (), None)
-    X = _dp_create_class_class_namespace_overrides_closure__locals__X()
+    def _dp_ns_X(_dp_class_ns):
+
+        def _dp_lambda_5():
+            return __name__
+        _dp_lambda_5 = __dp__.update_fn(_dp_lambda_5, "class_namespace_overrides_closure.<locals>", "<lambda>")
+        __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_5))
+        __dp__.setattr(_dp_class_ns, "__qualname__", "class_namespace_overrides_closure.<locals>.X")
+        __dp__.setitem(_dp_class_ns._namespace, "x", 43)
+
+        def _dp_lambda_6():
+            return x
+        _dp_lambda_6 = __dp__.update_fn(_dp_lambda_6, "class_namespace_overrides_closure.<locals>", "<lambda>")
+        __dp__.setattr(_dp_class_ns, "y", __dp__.class_lookup(_dp_class_ns, "x", _dp_lambda_6))
+    X = __dp__.create_class("X", _dp_ns_X, (), None)
     return X.y
-class_namespace_overrides_closure = __dp__.update_fn(_dp_fn_class_namespace_overrides_closure, None, "class_namespace_overrides_closure")
-del _dp_fn_class_namespace_overrides_closure

@@ -2,10 +2,10 @@ $ rewrites bool and assignment
 
 x = a and b
 =
-_dp_tmp_1 = a
-if _dp_tmp_1:
-    _dp_tmp_1 = b
-x = _dp_tmp_1
+_dp_target_1 = a
+if _dp_target_1:
+    _dp_target_1 = b
+x = _dp_target_1
 
 $ skips non bool assignment
 
@@ -17,40 +17,38 @@ $ rewrites bool expr statement
 
 a and b
 =
-_dp_tmp_1 = a
-if _dp_tmp_1:
-    _dp_tmp_1 = b
-_dp_tmp_1
+_dp_target_1 = a
+if _dp_target_1:
+    _dp_target_1 = b
+_dp_target_1
 
 $ rewrites simple compare assignment
 
 x = a == b
 =
-_dp_tmp_1 = __dp__.eq(a, b)
-x = _dp_tmp_1
+_dp_target_1 = __dp__.eq(a, b)
+x = _dp_target_1
 
 $ rewrites chained compare assignment
 
 x = a < b < c
 =
-_dp_compare_2 = b
-_dp_tmp_1 = __dp__.lt(a, _dp_compare_2)
-if _dp_tmp_1:
-    _dp_tmp_1 = __dp__.lt(_dp_compare_2, c)
-x = _dp_tmp_1
+_dp_target_1 = __dp__.lt(_dp_compare_2, c)
+if _dp_target_1:
+    _dp_target_1 = __dp__.lt(a, _dp_compare_2)
+x = _dp_target_1
 
 $ rewrites multi chained compare assignment
 
 x = a < b <= c < d
 =
-_dp_compare_2 = b
-_dp_tmp_1 = __dp__.lt(a, _dp_compare_2)
-if _dp_tmp_1:
+_dp_target_1 = __dp__.lt(_dp_compare_3, d)
+if _dp_target_1:
     _dp_compare_3 = c
-    _dp_tmp_1 = __dp__.le(_dp_compare_2, _dp_compare_3)
-if _dp_tmp_1:
-    _dp_tmp_1 = __dp__.lt(_dp_compare_3, d)
-x = _dp_tmp_1
+    _dp_target_1 = __dp__.le(_dp_compare_2, _dp_compare_3)
+    if _dp_target_1:
+        _dp_target_1 = __dp__.lt(a, _dp_compare_2)
+x = _dp_target_1
 
 $ rewrites lambda in return stmt
 
@@ -58,7 +56,7 @@ return lambda: 1
 =
 def _dp_lambda_1():
     return 1
-_dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "<lambda>", "<lambda>")
+_dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, None, "<lambda>")
 return _dp_lambda_1
 
 $ rewrites lambda assignment
@@ -67,7 +65,7 @@ x = lambda: 1
 =
 def _dp_lambda_1():
     return 1
-_dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "<lambda>", "<lambda>")
+_dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, None, "<lambda>")
 x = _dp_lambda_1
 
 $ rewrites generator assignment
@@ -76,16 +74,15 @@ x = (i for i in items)
 =
 def _dp_gen_1(_dp_iter_2):
     _dp_iter_3 = __dp__.iter(_dp_iter_2)
-    while True:
-        try:
+    try:
+        while True:
             i = __dp__.next(_dp_iter_3)
-        except:
-            __dp__.check_stopiteration()
-            break
-        else:
             yield i
-_dp_gen_1.__name__ = "<genexpr>"
-_dp_gen_1.__code__ = _dp_gen_1.__code__.replace(co_name="<genexpr>")
+    except:
+        if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+            pass
+        else:
+            raise
 _dp_gen_1 = __dp__.update_fn(_dp_gen_1, None, "<genexpr>")
 x = _dp_gen_1(__dp__.iter(items))
 
@@ -101,10 +98,9 @@ if (y := foo()) and bar:
     pass
 =
 _dp_tmp_2 = foo()
-_dp_tmp_3 = _dp_tmp_2
-y = _dp_tmp_3
-_dp_tmp_1 = _dp_tmp_3
-if _dp_tmp_1:
-    _dp_tmp_1 = bar
-if _dp_tmp_1:
+y = _dp_tmp_2
+_dp_target_1 = _dp_tmp_2
+if _dp_target_1:
+    _dp_target_1 = bar
+if _dp_target_1:
     pass

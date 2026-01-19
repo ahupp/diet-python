@@ -227,15 +227,17 @@ pub struct Context {
     pub namer: Namer,
     pub options: Options,
     pub source: String,
+    pub cpython: bool,
     function_scopes: RefCell<Vec<ScopeInfo>>,
 }
 
 impl Context {
-    pub fn new(options: Options, source: &str) -> Self {
+    pub fn new(options: Options, source: &str, cpython: bool) -> Self {
         Self {
             namer: Namer::new(),
             options,
             source: source.to_string(),
+            cpython,
             function_scopes: RefCell::new(Vec::new()),
         }
     }

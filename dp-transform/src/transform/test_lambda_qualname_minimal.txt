@@ -1,0 +1,19 @@
+$ lambda qualname minimal
+
+def global_function():
+    return (lambda: None).__qualname__, (lambda: None).__name__
+
+
+RESULT = global_function()
+=
+def global_function():
+
+    def _dp_lambda_1():
+        return None
+    _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "global_function.<locals>", "<lambda>")
+
+    def _dp_lambda_2():
+        return None
+    _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "global_function.<locals>", "<lambda>")
+    return getattr(_dp_lambda_1, "__qualname__"), getattr(_dp_lambda_2, "__name__")
+RESULT = global_function()

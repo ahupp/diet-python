@@ -17,11 +17,11 @@ def exercise():
     return bad
 =
 operator = __dp__.import_("operator", __spec__)
-def _dp_fn_exercise():
+def exercise():
     bad = __dp__.list(())
-    _dp_iter_1 = __dp__.iter(vars$0(operator$0).items())
-    while True:
-        try:
+    _dp_iter_1 = __dp__.iter(getattr(vars(operator), "items")())
+    try:
+        while True:
             _dp_tmp_2 = __dp__.next(_dp_iter_1)
             try:
                 _dp_tmp_3 = __dp__.unpack(_dp_tmp_2, (True, True))
@@ -30,29 +30,28 @@ def _dp_fn_exercise():
             finally:
                 _dp_tmp_3 = None
                 _dp_tmp_2 = None
-        except:
-            __dp__.check_stopiteration()
-            break
-        else:
             if name.startswith("__"):
                 continue
             try:
                 _ = value.__module__
             except:
-                if __dp__.exception_matches(__dp__.current_exception(), Exception$0):
+                if __dp__.exception_matches(__dp__.current_exception(), Exception):
                     exc = __dp__.current_exception()
                     try:
-                        bad.append((name, type$0(value).__name__, type$0(exc).__name__))
+                        bad.append((name, getattr(type(value), "__name__"), getattr(type(exc), "__name__")))
                     finally:
                         try:
                             del exc
                         except:
-                            if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
+                            if __dp__.exception_matches(__dp__.current_exception(), NameError):
                                 pass
                             else:
                                 raise
                 else:
                     raise
+    except:
+        if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+            pass
+        else:
+            raise
     return bad
-exercise = __dp__.update_fn(_dp_fn_exercise, None, "exercise")
-del _dp_fn_exercise

@@ -166,7 +166,7 @@ mod tests {
 
     fn rewrite_source(source: &str, options: Options) -> String {
         let mut module = parse_module(source).expect("parse error").into_syntax();
-        let ctx = Context::new(options.clone(), source);
+        let ctx = Context::new(options.clone(), source, false);
         let mut expr_transformer = ExprRewriter::new(ctx);
         expr_transformer.visit_body(&mut module.body);
         crate::template::flatten(&mut module.body);

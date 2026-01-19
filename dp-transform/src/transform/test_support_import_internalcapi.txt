@@ -12,15 +12,13 @@ def exercise():
     return "ok"
 =
 unittest = __dp__.import_("unittest", __spec__)
-def _dp_fn_exercise():
+def exercise():
     try:
         import _testinternalcapi
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), ImportError$0):
+        if __dp__.exception_matches(__dp__.current_exception(), ImportError):
             return "ok"
         else:
             raise
     _testinternalcapi.get_config()
     return "ok"
-exercise = __dp__.update_fn(_dp_fn_exercise, None, "exercise")
-del _dp_fn_exercise

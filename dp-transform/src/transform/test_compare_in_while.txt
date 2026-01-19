@@ -1,0 +1,14 @@
+$ compare in while
+
+def loop_compare(a, b):
+    while True:
+        if a == b:
+            return True
+        return False
+=
+def loop_compare(a, b):
+    while True:
+        _dp_target_1 = __dp__.eq(a, b)
+        if _dp_target_1:
+            return True
+        return False

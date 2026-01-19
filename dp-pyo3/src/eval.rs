@@ -62,6 +62,7 @@ fn count_min_ast_nodes(module: min_ast::Module) -> usize {
                     + orelse.iter().map(count_stmt).sum::<usize>()
                     + finalbody.iter().map(count_stmt).sum::<usize>()
             }
+            min_ast::StmtNode::ImportFrom { .. } => 1,
             min_ast::StmtNode::Raise { exc, .. } => {
                 1 + exc.as_ref().map_or(0, |value| count_expr(value))
             }

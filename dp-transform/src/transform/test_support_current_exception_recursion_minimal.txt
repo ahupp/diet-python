@@ -1,0 +1,27 @@
+$ support current_exception recursion minimal
+
+def exercise():
+    def recurse():
+        return recurse()
+    try:
+        recurse()
+    except RecursionError:
+        return True
+    return False
+
+
+RESULT = exercise()
+=
+def exercise():
+
+    def recurse():
+        return recurse()
+    try:
+        recurse()
+    except:
+        if __dp__.exception_matches(__dp__.current_exception(), RecursionError):
+            return True
+        else:
+            raise
+    return False
+RESULT = exercise()

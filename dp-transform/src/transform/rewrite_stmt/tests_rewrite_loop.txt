@@ -1,0 +1,81 @@
+$ rewrites for loop with else
+
+for a in b:
+    if cond:
+        break
+else:
+    c()
+=
+_dp_iter_1 = __dp__.iter(b)
+try:
+    while True:
+        a = __dp__.next(_dp_iter_1)
+        if cond:
+            break
+    c()
+except:
+    if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+        pass
+    else:
+        raise
+
+$ rewrites for loop without else
+
+for a in b:
+    c(a)
+=
+_dp_iter_1 = __dp__.iter(b)
+try:
+    while True:
+        a = __dp__.next(_dp_iter_1)
+        c(a)
+except:
+    if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+        pass
+    else:
+        raise
+
+$ rewrites async for loop with else
+
+async def f():
+    async for a in b:
+        if cond:
+            break
+    else:
+        c()
+=
+async def f():
+    _dp_iter_1 = __dp__.aiter(b)
+    try:
+        while True:
+            a = await __dp__.anext(_dp_iter_1)
+            if cond:
+                break
+        c()
+    except:
+        if __dp__.exception_matches(__dp__.current_exception(), StopAsyncIteration):
+            pass
+        else:
+            raise
+
+$ rewrites for loop with starred target
+
+for (a, *b) in c:
+    pass
+=
+_dp_iter_1 = __dp__.iter(c)
+try:
+    while True:
+        _dp_tmp_2 = __dp__.next(_dp_iter_1)
+        try:
+            _dp_tmp_3 = __dp__.unpack(_dp_tmp_2, (True, False))
+            a = __dp__.getitem(_dp_tmp_3, 0)
+            b = __dp__.list(__dp__.getitem(_dp_tmp_3, 1))
+        finally:
+            _dp_tmp_3 = None
+            _dp_tmp_2 = None
+except:
+    if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+        pass
+    else:
+        raise

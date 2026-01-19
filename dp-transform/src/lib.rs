@@ -5,6 +5,7 @@ use ruff_python_codegen::{Generator, Indentation};
 use ruff_python_parser::parse_module;
 pub use ruff_python_parser::ParseError;
 use ruff_source_file::LineEnding;
+use std::sync::Once;
 use std::time::{Duration, Instant};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -71,6 +72,20 @@ pub struct TransformTimings {
     pub total: Duration,
 }
 
+static INIT_LOGGER: Once = Once::new();
+
+pub fn init_logging() {
+    INIT_LOGGER.call_once(|| {
+        let mut builder = env_logger::Builder::from_env(
+            env_logger::Env::default().default_filter_or(""),
+        );
+        if cfg!(test) {
+            builder.is_test(true);
+        }
+        let _ = builder.try_init();
+    });
+}
+
 fn should_skip(source: &str) -> bool {
     source
         .lines()
@@ -119,22 +134,28 @@ fn contains_surrogate_escape(source: &str) -> bool {
     false
 }
 
-fn apply_transforms(module: &mut ModModule, options: Options, source: &str) {
-    let ctx = Context::new(options, source);
+fn apply_transforms(module: &mut ModModule, options: Options, source: &str, cpython: bool) {
+    let ctx = Context::new(options, source, cpython);
     transform::rewrite_future_annotations::rewrite(&mut module.body);
+    if ctx.cpython {
+//       ensure_import::ensure_future_explicit_scope(module);
+    }
+//    transform::rewrite_explicit_scope::rewrite(&mut module.body);
 
-    // Lower `for` loops, expand generators and lambdas, and replace
-    // `__dp__.<name>` calls with `getattr` in a single pass.
+    // Stage 1: lower everything except ClassDef, generators, and lambdas.
     let mut expr_transformer = ExprRewriter::new(ctx);
+    expr_transformer.set_stage(transform::driver::TransformStage::Stage1);
+    expr_transformer.visit_body(&mut module.body);
+
+    // Stage 2: lower ClassDef, generators, and lambdas.
+    expr_transformer.set_stage(transform::driver::TransformStage::Stage2);
     expr_transformer.visit_body(&mut module.body);
 
     // Collapse `py_stmt!` templates after all rewrites.
     template::flatten(&mut module.body);
 
-    transform::rewrite_explicit_scope::rewrite(&mut module.body);
-
     if options.truthy {
-        transform::simple::rewrite_truthy::rewrite(&mut module.body);
+        transform::rewrite_expr::truthy::rewrite(&mut module.body);
     }
 
     strip_generated_passes(&mut module.body);
@@ -149,6 +170,14 @@ fn transform_to_string_with_options_timed(
     source: &str,
     options: Options,
 ) -> Result<(String, TransformTimings), ParseError> {
+    transform_to_string_with_options_timed_internal(source, options, false)
+}
+
+fn transform_to_string_with_options_timed_internal(
+    source: &str,
+    options: Options,
+    cpython: bool,
+) -> Result<(String, TransformTimings), ParseError> {
     if contains_surrogate_escape(source) {
         return Ok((
             source.to_string(),
@@ -161,7 +190,8 @@ fn transform_to_string_with_options_timed(
             },
         ));
     }
-    let (module, mut timings) = transform_str_to_ruff_with_options_timed(source, options)?;
+    let (module, mut timings) =
+        transform_str_to_ruff_with_options_timed_internal(source, options, cpython)?;
     let emit_start = Instant::now();
     let output = ruff_ast_to_string(&module.body);
     timings.emit = emit_start.elapsed();
@@ -234,6 +264,29 @@ pub fn transform_to_string_without_attribute_lowering_with_timing(
     )
 }
 
+pub fn transform_to_string_without_attribute_lowering_cpython(
+    source: &str,
+    ensure: bool,
+) -> Result<String, ParseError> {
+    transform_to_string_without_attribute_lowering_with_timing_cpython(source, ensure)
+        .map(|(output, _)| output)
+}
+
+pub fn transform_to_string_without_attribute_lowering_with_timing_cpython(
+    source: &str,
+    ensure: bool,
+) -> Result<(String, TransformTimings), ParseError> {
+    transform_to_string_with_options_timed_internal(
+        source,
+        Options {
+            inject_import: ensure,
+            lower_attributes: false,
+            ..Options::default()
+        },
+        true,
+    )
+}
+
 pub fn transform_str_to_str_exec(source: &str) -> Result<String, ParseError> {
     if should_skip(source) {
         return Ok(source.to_string());
@@ -254,29 +307,28 @@ pub fn transform_str_to_ruff_with_options_timed(
     source: &str,
     options: Options,
 ) -> Result<(ModModule, TransformTimings), ParseError> {
+    transform_str_to_ruff_with_options_timed_internal(source, options, false)
+}
+
+fn transform_str_to_ruff_with_options_timed_internal(
+    source: &str,
+    options: Options,
+    cpython: bool,
+) -> Result<(ModModule, TransformTimings), ParseError> {
+    init_logging();
     let total_start = Instant::now();
     let parse_start = Instant::now();
     let mut module = parse_module(source)?.into_syntax();
     let parse = parse_start.elapsed();
 
     let rewrite_start = Instant::now();
-    apply_transforms(&mut module, options, source);
+    apply_transforms(&mut module, options, source, cpython);
     let rewrite = rewrite_start.elapsed();
 
-    if options.lower_attributes {
-        let _ = min_ast::Module::from(module.clone());
-    }
+    let _ = min_ast::Module::from(module.clone());
 
     if options.cleanup_dp_globals {
-        module.body.extend(crate::py_stmt!(
-            r#"
-for _dp_name in list(globals()):
-    if _dp_name.startswith("_dp_"):
-        del globals()[_dp_name]
-if "_dp_name" in globals():
-    del globals()["_dp_name"]
-"#
-        ));
+        module.body.extend(crate::py_stmt!("__dp__.cleanup_dp_globals(globals())"));
     }
 
     let ensure_import = if options.inject_import {

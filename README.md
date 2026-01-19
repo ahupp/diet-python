@@ -1,9 +1,18 @@
 # Plan
 
 
-Python is a surprisingly complicated language; so we first need to make it a smaller language while preserving the semantics.  dp-transform lowers python to a subset of python with a much smaller featureset.
+Python is a surprisingly complicated language; so we first need to make it a smaller language.  dp-transform lowers python to a subset of python with a much smaller featureset: 
 
-soac-codegen 
+ - functions
+ - variables
+ - while loops without "else" blocks
+ - if stmt without elif/else blocks
+ - try/except, async and yield.
+
+In particular, this removes class definitions, lambda, generators, set/dict/list literals, unpacking, 
+with / async with, operators, and f/t-strings.
+
+For codegen, we want to expose as much 
 
 # diet-python
 
