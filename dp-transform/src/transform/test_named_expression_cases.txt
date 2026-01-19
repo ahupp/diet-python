@@ -42,9 +42,6 @@ def _dp_fn_dict_comp_fib():
         c = None
 
     def _dp_gen_3(_dp_iter_4):
-        nonlocal a
-        nonlocal b
-        nonlocal c
         _dp_iter_5 = __dp__.iter(_dp_iter_4)
         while True:
             try:
@@ -53,18 +50,18 @@ def _dp_fn_dict_comp_fib():
                 __dp__.check_stopiteration()
                 break
             else:
-                _dp_tmp_6 = a
-                c = _dp_tmp_6
-                _dp_tmp_7 = b
-                a = _dp_tmp_7
-                _dp_tmp_8 = __dp__.add(a, c)
+                _dp_tmp_6 = a$1
+                c$1 = _dp_tmp_6
+                _dp_tmp_7 = b$1
+                a$1 = _dp_tmp_7
+                _dp_tmp_8 = __dp__.add(a$1, c$1)
                 _dp_tmp_9 = _dp_tmp_8
-                b = _dp_tmp_9
-                yield _dp_tmp_6, __dp__.sub(__dp__.add(_dp_tmp_7, _dp_tmp_9), b)
+                b$1 = _dp_tmp_9
+                yield _dp_tmp_6, __dp__.sub(__dp__.add(_dp_tmp_7, _dp_tmp_9), b$1)
     _dp_gen_3.__name__ = "<genexpr>"
     _dp_gen_3.__code__ = _dp_gen_3.__code__.replace(co_name="<genexpr>")
     _dp_gen_3 = __dp__.update_fn(_dp_gen_3, "dict_comp_fib.<locals>", "<genexpr>")
-    fib = __dp__.dict(_dp_gen_3(__dp__.iter(range(6))))
+    fib = __dp__.dict(_dp_gen_3(__dp__.iter(range$0(6))))
     return fib
 dict_comp_fib = __dp__.update_fn(_dp_fn_dict_comp_fib, None, "dict_comp_fib")
 del _dp_fn_dict_comp_fib
@@ -75,7 +72,6 @@ def _dp_fn_genexp_scope_state():
         c = None
 
     def _dp_gen_10(_dp_iter_11):
-        nonlocal c
         _dp_iter_12 = __dp__.iter(_dp_iter_11)
         while True:
             try:
@@ -84,17 +80,17 @@ def _dp_fn_genexp_scope_state():
                 __dp__.check_stopiteration()
                 break
             else:
-                _dp_tmp_13 = __dp__.add(i, a)
+                _dp_tmp_13 = __dp__.add(i, a$1)
                 _dp_tmp_14 = _dp_tmp_13
-                c = _dp_tmp_14
+                c$1 = _dp_tmp_14
                 yield _dp_tmp_14
     _dp_gen_10.__name__ = "<genexpr>"
     _dp_gen_10.__code__ = _dp_gen_10.__code__.replace(co_name="<genexpr>")
     _dp_gen_10 = __dp__.update_fn(_dp_gen_10, "genexp_scope_state.<locals>", "<genexpr>")
     genexp = _dp_gen_10(__dp__.iter(b))
-    _dp_tmp_15 = __dp__.contains(locals(), "c")
+    _dp_tmp_15 = __dp__.contains(locals$0(), "c")
     has_c_before = _dp_tmp_15
-    values = list(genexp)
+    values = list$0(genexp)
     return has_c_before, values, c
 genexp_scope_state = __dp__.update_fn(_dp_fn_genexp_scope_state, None, "genexp_scope_state")
 del _dp_fn_genexp_scope_state
@@ -105,18 +101,15 @@ def _dp_fn_mangled_global_value():
         def _dp_ns_builder(_dp_class_ns):
 
             def _dp_lambda_24():
-                return __name__
-            _dp_lambda_24.__name__ = "<lambda>"
-            _dp_lambda_24.__qualname__ = "mangled_global_value.<locals>.<lambda>"
-            _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_24)
+                return __name__$0
+            _dp_lambda_24 = __dp__.update_fn(_dp_lambda_24, "mangled_global_value.<locals>.<lambda>", "<lambda>")
+            _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_24)
             _dp_class_ns.__qualname__ = "mangled_global_value.<locals>.Foo"
 
             def _dp_fn_f(self_):
-                global _Foo__x1
-                _Foo__x1 = 0
+                _Foo__x1$0 = 0
 
                 def _dp_gen_16(_dp_iter_17):
-                    global _Foo__x1
                     _dp_iter_18 = __dp__.iter(_dp_iter_17)
                     while True:
                         try:
@@ -126,7 +119,7 @@ def _dp_fn_mangled_global_value():
                             break
                         else:
                             _dp_tmp_19 = 1
-                            _Foo__x1 = _dp_tmp_19
+                            _Foo__x1$0 = _dp_tmp_19
                             yield _dp_tmp_19
                 _dp_gen_16.__name__ = "<genexpr>"
                 _dp_gen_16.__code__ = _dp_gen_16.__code__.replace(co_name="<genexpr>")
@@ -134,7 +127,6 @@ def _dp_fn_mangled_global_value():
                 __dp__.list(_dp_gen_16(__dp__.iter(__dp__.list((2,)))))
 
                 def _dp_gen_20(_dp_iter_21):
-                    global _Foo__x1
                     _dp_iter_22 = __dp__.iter(_dp_iter_21)
                     while True:
                         try:
@@ -144,7 +136,7 @@ def _dp_fn_mangled_global_value():
                             break
                         else:
                             _dp_tmp_23 = 2
-                            _Foo__x1 = _dp_tmp_23
+                            _Foo__x1$0 = _dp_tmp_23
                             yield _dp_tmp_23
                 _dp_gen_20.__name__ = "<genexpr>"
                 _dp_gen_20.__code__ = _dp_gen_20.__code__.replace(co_name="<genexpr>")
@@ -154,6 +146,6 @@ def _dp_fn_mangled_global_value():
         return __dp__.create_class("Foo", _dp_ns_builder, (), None)
     Foo = _dp_create_class_mangled_global_value__locals__Foo()
     Foo().f()
-    return _Foo__x1
+    return _Foo__x1$0
 mangled_global_value = __dp__.update_fn(_dp_fn_mangled_global_value, None, "mangled_global_value")
 del _dp_fn_mangled_global_value

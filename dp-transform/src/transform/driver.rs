@@ -453,7 +453,7 @@ for {target:expr} in {iter:expr}:
                 Rewrite::Visit(vec![expand_if_chain(if_stmt).into()])
             }
             Stmt::Match(match_stmt) => rewrite_match_case::rewrite(match_stmt, &self.ctx),
-            Stmt::Import(import) => rewrite_import::rewrite(import),
+            Stmt::Import(import) => rewrite_import::rewrite(import, &self.options),
             Stmt::ImportFrom(import_from) => {
                 rewrite_import::rewrite_from(import_from.clone(), &self.ctx, &self.options)
             }

@@ -31,10 +31,9 @@ def _dp_fn_exercise():
         def _dp_ns_builder(_dp_class_ns):
 
             def _dp_lambda_1():
-                return __name__
-            _dp_lambda_1.__name__ = "<lambda>"
-            _dp_lambda_1.__qualname__ = "exercise.<locals>.<lambda>"
-            _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
+                return __name__$0
+            _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "exercise.<locals>.<lambda>", "<lambda>")
+            _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1)
             _dp_class_ns.__qualname__ = "exercise.<locals>.LacksEnter"
 
             def _dp_fn___exit__(self, *exc_info):
@@ -48,10 +47,9 @@ def _dp_fn_exercise():
         def _dp_ns_builder(_dp_class_ns):
 
             def _dp_lambda_2():
-                return __name__
-            _dp_lambda_2.__name__ = "<lambda>"
-            _dp_lambda_2.__qualname__ = "exercise.<locals>.<lambda>"
-            _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_2)
+                return __name__$0
+            _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "exercise.<locals>.<lambda>", "<lambda>")
+            _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_2)
             _dp_class_ns.__qualname__ = "exercise.<locals>.LacksExit"
 
             def _dp_fn___enter__(self):
@@ -73,15 +71,15 @@ def _dp_fn_exercise():
                 try:
                     _dp_with_enter_5 = _dp_with_ctx_4.__enter__
                 except:
-                    if __dp__.exception_matches(__dp__.current_exception(), AttributeError):
+                    if __dp__.exception_matches(__dp__.current_exception(), AttributeError$0):
                         _dp_with_exc = __dp__.current_exception()
                         try:
-                            raise __dp__.raise_from(TypeError("the context manager protocol requires __enter__"), _dp_with_exc)
+                            raise __dp__.raise_from(TypeError$0("the context manager protocol requires __enter__"), _dp_with_exc)
                         finally:
                             try:
                                 del _dp_with_exc
                             except:
-                                if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                                if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                                     pass
                                 else:
                                     raise
@@ -90,15 +88,15 @@ def _dp_fn_exercise():
                 try:
                     _dp_with_exit_6 = _dp_with_ctx_4.__exit__
                 except:
-                    if __dp__.exception_matches(__dp__.current_exception(), AttributeError):
+                    if __dp__.exception_matches(__dp__.current_exception(), AttributeError$0):
                         _dp_with_exc = __dp__.current_exception()
                         try:
-                            raise __dp__.raise_from(TypeError("the context manager protocol requires __exit__"), _dp_with_exc)
+                            raise __dp__.raise_from(TypeError$0("the context manager protocol requires __exit__"), _dp_with_exc)
                         finally:
                             try:
                                 del _dp_with_exc
                             except:
-                                if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                                if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                                     pass
                                 else:
                                     raise
@@ -118,15 +116,15 @@ def _dp_fn_exercise():
                     _dp_with_enter_5 = None
                     _dp_with_ctx_4 = None
             except:
-                if __dp__.exception_matches(__dp__.current_exception(), Exception):
+                if __dp__.exception_matches(__dp__.current_exception(), Exception$0):
                     exc = __dp__.current_exception()
                     try:
-                        errors.append((type(exc), str(exc)))
+                        errors.append((type$0(exc), str$0(exc)))
                     finally:
                         try:
                             del exc
                         except:
-                            if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                            if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                                 pass
                             else:
                                 raise

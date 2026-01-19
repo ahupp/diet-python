@@ -30,9 +30,11 @@ pub(crate) fn rewrite_lambda(lambda: ast::ExprLambda, ctx: &Context, buf: &mut V
         r#"
 def {func_name:id}():
     return {body:expr}
+{func_name:id} = __dp__.update_fn({func_name:id}, {qualname:literal}, "<lambda>")
 "#,
         func_name = func_name.as_str(),
-        body = *body
+        body = *body,
+        qualname = qualname,
     );
 
     if let Stmt::FunctionDef(ast::StmtFunctionDef {
@@ -43,16 +45,6 @@ def {func_name:id}():
     }
 
     buf.extend(func_def);
-    buf.extend(py_stmt!(
-        "{func:id}.__name__ = {name:literal}",
-        func = func_name.as_str(),
-        name = "<lambda>",
-    ));
-    buf.extend(py_stmt!(
-        "{func:id}.__qualname__ = {qualname:literal}",
-        func = func_name.as_str(),
-        qualname = qualname,
-    ));
 
     py_expr!("{func:id}", func = func_name.as_str())
 }

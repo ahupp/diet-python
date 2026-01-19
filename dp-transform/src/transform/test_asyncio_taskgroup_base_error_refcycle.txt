@@ -33,24 +33,23 @@ def _dp_create_class_BaseError():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_1():
-            return __name__
-        _dp_lambda_1.__name__ = "<lambda>"
-        _dp_lambda_1.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
+            return __name__$0
+        _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1)
         _dp_class_ns.__qualname__ = "BaseError"
-    return __dp__.create_class("BaseError", _dp_ns_builder, (BaseException,), None)
+    return __dp__.create_class("BaseError", _dp_ns_builder, (BaseException$0,), None)
 BaseError = _dp_create_class_BaseError()
 async def _dp_fn__run_taskgroup():
-    exc = BaseError()
+    exc = BaseError$0()
     try:
-        _dp_with_enter_3 = await __dp__.with_aenter(asyncio.TaskGroup())
+        _dp_with_enter_3 = await __dp__.with_aenter(asyncio$0.TaskGroup())
         tg = __dp__.getitem(_dp_with_enter_3, 0)
         _dp_with_exit_4 = __dp__.getitem(_dp_with_enter_3, 1)
         _dp_with_active_5 = True
         try:
 
             async def _dp_fn_boom():
-                raise exc
+                raise exc$1
             boom = __dp__.update_fn(_dp_fn_boom, "_run_taskgroup.<locals>", "boom")
             del _dp_fn_boom
             tg.create_task(boom())
@@ -62,14 +61,14 @@ async def _dp_fn__run_taskgroup():
                 await __dp__.with_aexit(_dp_with_exit_4, None)
             _dp_with_exit_4 = None
             _dp_with_enter_3 = None
-    except* BaseError:
+    except* BaseError$0:
         pass
     return exc
 _run_taskgroup = __dp__.update_fn(_dp_fn__run_taskgroup, None, "_run_taskgroup")
 del _dp_fn__run_taskgroup
 def _dp_fn_referrer_frames():
-    exc = asyncio.run(_run_taskgroup())
-    gc.collect()
+    exc = asyncio$0.run(_run_taskgroup$0())
+    gc$0.collect()
 
     def _dp_gen_6(_dp_iter_7):
         _dp_iter_8 = __dp__.iter(_dp_iter_7)
@@ -80,11 +79,11 @@ def _dp_fn_referrer_frames():
                 __dp__.check_stopiteration()
                 break
             else:
-                if isinstance(ref, types.FrameType):
+                if isinstance$0(ref, types$0.FrameType):
                     yield ref
     _dp_gen_6.__name__ = "<genexpr>"
     _dp_gen_6.__code__ = _dp_gen_6.__code__.replace(co_name="<genexpr>")
     _dp_gen_6 = __dp__.update_fn(_dp_gen_6, "referrer_frames.<locals>", "<genexpr>")
-    return __dp__.list(_dp_gen_6(__dp__.iter(gc.get_referrers(exc))))
+    return __dp__.list(_dp_gen_6(__dp__.iter(gc$0.get_referrers(exc))))
 referrer_frames = __dp__.update_fn(_dp_fn_referrer_frames, None, "referrer_frames")
 del _dp_fn_referrer_frames

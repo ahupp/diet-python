@@ -563,10 +563,10 @@ pub fn class_call_arguments(
     if let Some(args) = arguments {
         let args = *args;
         for base in args.args.into_vec() {
-            let base_expr = if in_class_scope {
-                if let Expr::Name(ast::ExprName { id, .. }) = &base {
-                    py_expr!(
-                        "__dp__.class_lookup({name:literal}, _dp_class_ns, lambda: {name:id})",
+                    let base_expr = if in_class_scope {
+                    if let Expr::Name(ast::ExprName { id, .. }) = &base {
+                        py_expr!(
+                        "__dp__.class_lookup(_dp_class_ns, {name:literal}, lambda: {name:id})",
                         name = id.as_str()
                     )
                 } else {
@@ -581,7 +581,7 @@ pub fn class_call_arguments(
             let value = if in_class_scope {
                 if let Expr::Name(ast::ExprName { id, .. }) = &kw.value {
                     py_expr!(
-                        "__dp__.class_lookup({name:literal}, _dp_class_ns, lambda: {name:id})",
+                        "__dp__.class_lookup(_dp_class_ns, {name:literal}, lambda: {name:id})",
                         name = id.as_str()
                     )
                 } else {

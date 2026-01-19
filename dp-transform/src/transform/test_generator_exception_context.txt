@@ -28,10 +28,9 @@ def _dp_create_class_CaptureException():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_1():
-            return __name__
-        _dp_lambda_1.__name__ = "<lambda>"
-        _dp_lambda_1.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
+            return __name__$0
+        _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1)
         _dp_class_ns.__qualname__ = "CaptureException"
 
         def _dp_fn___enter__(self):
@@ -48,9 +47,9 @@ def _dp_fn_exception_context():
 
     def _dp_fn_f():
         try:
-            raise KeyError("a")
+            raise KeyError$0("a")
         except:
-            if __dp__.exception_matches(__dp__.current_exception(), Exception):
+            if __dp__.exception_matches(__dp__.current_exception(), Exception$0):
                 yield
             else:
                 raise
@@ -58,20 +57,20 @@ def _dp_fn_exception_context():
     del _dp_fn_f
     gen = f()
     gen.send(None)
-    capture = CaptureException()
+    capture = CaptureException$0()
     _dp_with_ctx_2 = capture
     try:
         _dp_with_enter_3 = _dp_with_ctx_2.__enter__
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), AttributeError):
+        if __dp__.exception_matches(__dp__.current_exception(), AttributeError$0):
             _dp_with_exc = __dp__.current_exception()
             try:
-                raise __dp__.raise_from(TypeError("the context manager protocol requires __enter__"), _dp_with_exc)
+                raise __dp__.raise_from(TypeError$0("the context manager protocol requires __enter__"), _dp_with_exc)
             finally:
                 try:
                     del _dp_with_exc
                 except:
-                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                         pass
                     else:
                         raise
@@ -80,15 +79,15 @@ def _dp_fn_exception_context():
     try:
         _dp_with_exit_4 = _dp_with_ctx_2.__exit__
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), AttributeError):
+        if __dp__.exception_matches(__dp__.current_exception(), AttributeError$0):
             _dp_with_exc = __dp__.current_exception()
             try:
-                raise __dp__.raise_from(TypeError("the context manager protocol requires __exit__"), _dp_with_exc)
+                raise __dp__.raise_from(TypeError$0("the context manager protocol requires __exit__"), _dp_with_exc)
             finally:
                 try:
                     del _dp_with_exc
                 except:
-                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                         pass
                     else:
                         raise
@@ -97,7 +96,7 @@ def _dp_fn_exception_context():
     _ = _dp_with_enter_3()
     _dp_with_active_5 = True
     try:
-        gen.throw(ValueError)
+        gen.throw(ValueError$0)
     except:
         _dp_with_active_5 = False
         __dp__.with_exit(_dp_with_exit_4, __dp__.exc_info())
@@ -108,6 +107,6 @@ def _dp_fn_exception_context():
         _dp_with_enter_3 = None
         _dp_with_ctx_2 = None
     context = capture.exc.__context__
-    return type(context), context.args
+    return type$0(context), context.args
 exception_context = __dp__.update_fn(_dp_fn_exception_context, None, "exception_context")
 del _dp_fn_exception_context

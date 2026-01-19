@@ -448,6 +448,10 @@ impl From<Expr> for ExprNode {
                 info: (),
                 value: value.map(|v| Box::new(ExprNode::from(*v))),
             },
+            Expr::YieldFrom(ast::ExprYieldFrom { value, .. }) => ExprNode::Yield {
+                info: (),
+                value: Some(Box::new(ExprNode::from(*value))),
+            },
             Expr::Call(ast::ExprCall {
                 func, arguments, ..
             }) => {

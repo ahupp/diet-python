@@ -162,10 +162,7 @@ fn rewrite_unpack_target(
                     idx = i,
                 );
                 let collection_expr = match kind {
-                    UnpackTargetKind::Tuple => {
-                        py_expr!("__dp__.list({value:expr})", value = star_value)
-                    }
-                    UnpackTargetKind::List => {
+                    UnpackTargetKind::Tuple | UnpackTargetKind::List => {
                         py_expr!("__dp__.list({value:expr})", value = star_value)
                     }
                 };

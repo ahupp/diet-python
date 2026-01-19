@@ -10,4 +10,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 dp-transform = { path = "../dp-transform" }
-pyo3 = { version = "0.21", features = ["extension-module", "abi3-py312"] }
+pyo3 = { version = "0.27.2", features = ["extension-module"] }

@@ -7,7 +7,3 @@ cpython-install-*/
 cpython_test_run.log
 .diet_python_cache
 cpython_full_test_run.log
-.diet_python_cache/
-rust-clif-dist/
-
-clif-out/

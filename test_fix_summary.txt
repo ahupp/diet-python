@@ -1,8 +1,0 @@
-Summary of recent fixes and test status
-
-- test_operator, test_named_expressions, test_typing, and test_generators all pass via scripts/run_cpython_tests.sh.
-- Named expressions: named target assignment now uses a temp; class-scoped named targets avoid polluting locals.
-- Typing: type params are bound outside class namespace; implicit Generic base added when needed; class annotations preserve order.
-- Generators: suppressed exceptions keep __context__ while tracebacks are cleared.
-- Added integration tests + transform fixtures for named expressions, typing generics, and generator exception context.
-- Regenerated transform fixtures with cargo run --bin regen_fixtures.

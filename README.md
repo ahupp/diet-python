@@ -1,3 +1,10 @@
+# Plan
+
+
+Python is a surprisingly complicated language; so we first need to make it a smaller language while preserving the semantics.  dp-transform lowers python to a subset of python with a much smaller featureset.
+
+soac-codegen 
+
 # diet-python
 
 This repository includes a small Rust utility for transforming Python source
@@ -60,7 +67,12 @@ environment using `uv`, and executes the test suite with that interpreter.
 # CLIF
 
 ```
- ./rust-clif-dist/rustc-clif --out-dir=clif-out/ --crate-type=rlib fastadd.rs -Cdebuginfo=0 --emit link,llvm-ir
+$ rustup component add rustc-codegen-cranelift-preview --toolchain nightly
+$ CARGO_PROFILE_DEV_CODEGEN_BACKEND=cranelift \
+      cargo +nightly rustc -Zcodegen-backend -p soac-runtime --lib --   --emit=llvm-ir -Ccodegen-units=1
+
+# or
+$ ./rust-clif-dist/rustc-clif --out-dir=clif-out/ --crate-type=rlib fastadd.rs -Cdebuginfo=0 --emit link,llvm-ir
 ```
 
 # Log

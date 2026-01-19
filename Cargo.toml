@@ -1,4 +1,6 @@
 [workspace]
-members = ["dp-transform", "dp-pyo3", "soac-exec"]
+members = ["dp-transform", "dp-pyo3", "soac-codegen"]
 default-members = ["dp-transform", "dp-pyo3"]
+# soac-runtime is standalone since its built to CLIF 
+exclude = ["vendor/ruff", "soac-runtime"]
 resolver = "2"

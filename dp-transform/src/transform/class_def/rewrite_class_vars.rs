@@ -280,7 +280,7 @@ def {tmp:id}():
                     );
                 } else {
                     *expr = py_expr!(
-                        "__dp__.class_lookup({name:literal}, _dp_class_ns, lambda: {name:id})",
+                        "__dp__.class_lookup(_dp_class_ns, {name:literal}, lambda: {name:id})",
                         name = name_str,
                     );
                 }

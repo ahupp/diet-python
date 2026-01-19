@@ -16,7 +16,7 @@ def _dp_fn_exercise():
     try:
         import _testinternalcapi
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), ImportError):
+        if __dp__.exception_matches(__dp__.current_exception(), ImportError$0):
             return "ok"
         else:
             raise

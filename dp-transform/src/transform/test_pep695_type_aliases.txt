@@ -16,35 +16,31 @@ def _dp_create_class_X():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_1():
-            return __name__
-        _dp_lambda_1.__name__ = "<lambda>"
-        _dp_lambda_1.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
+            return __name__$0
+        _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1)
         _dp_class_ns.__qualname__ = "X"
 
         def _dp_lambda_2():
-            return int
-        _dp_lambda_2.__name__ = "<lambda>"
-        _dp_lambda_2.__qualname__ = "<lambda>"
-        _dp_class_ns.T = __dp__.class_lookup("int", _dp_class_ns, _dp_lambda_2)
+            return int$0
+        _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "<lambda>", "<lambda>")
+        _dp_class_ns.T = __dp__.class_lookup(_dp_class_ns, "int", _dp_lambda_2)
 
         def _dp_type_alias_U():
 
             def _dp_lambda_3():
-                return T
-            _dp_lambda_3.__name__ = "<lambda>"
-            _dp_lambda_3.__qualname__ = "<lambda>"
-            type U = __dp__.class_lookup("T", _dp_class_ns, _dp_lambda_3)
+                return T$0
+            _dp_lambda_3 = __dp__.update_fn(_dp_lambda_3, "<lambda>", "<lambda>")
+            type U = __dp__.class_lookup(_dp_class_ns, "T", _dp_lambda_3)
             return U
         _dp_class_ns.U = _dp_type_alias_U()
 
         def _dp_type_alias_V():
 
             def _dp_lambda_4():
-                return Alias
-            _dp_lambda_4.__name__ = "<lambda>"
-            _dp_lambda_4.__qualname__ = "<lambda>"
-            type V = __dp__.class_lookup("Alias", _dp_class_ns, _dp_lambda_4)
+                return Alias$0
+            _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, "<lambda>", "<lambda>")
+            type V = __dp__.class_lookup(_dp_class_ns, "Alias", _dp_lambda_4)
             return V
         _dp_class_ns.V = _dp_type_alias_V()
     return __dp__.create_class("X", _dp_ns_builder, (), None)
@@ -55,25 +51,24 @@ def _dp_create_class_Y():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_6():
-            return __name__
-        _dp_lambda_6.__name__ = "<lambda>"
-        _dp_lambda_6.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_6)
+            return __name__$0
+        _dp_lambda_6 = __dp__.update_fn(_dp_lambda_6, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_6)
         _dp_class_ns.__qualname__ = "Y"
-        _dp_class_ns.__type_params__ = T,
+        _dp_class_ns.__type_params__ = T$1,
 
         def _dp_annotate(_dp_format):
             _dp_tmp_5 = __dp__.gt(_dp_format, 2)
             if _dp_tmp_5:
-                raise __dp__.class_lookup_annotate("NotImplementedError", _dp_class_ns, globals())
+                raise __dp__.class_lookup_annotate("NotImplementedError", _dp_class_ns, globals$0())
             _dp_annotations = __dp__.dict()
-            __dp__.setitem(_dp_annotations, "value", T)
+            __dp__.setitem(_dp_annotations, "value", T$1)
             return _dp_annotations
         _dp_class_ns.__annotate__ = _dp_annotate
 
         def _dp_type_alias_V():
-            type V = T
+            type V = T$1
             return V
         _dp_class_ns.V = _dp_type_alias_V()
-    return __dp__.create_class("Y", _dp_ns_builder, (__dp__.getitem(__import__("typing").Generic, T),), None)
+    return __dp__.create_class("Y", _dp_ns_builder, (__dp__.getitem(__import__$0("typing").Generic, T),), None)
 Y = _dp_create_class_Y()

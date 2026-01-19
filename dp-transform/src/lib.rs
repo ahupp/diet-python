@@ -2,7 +2,8 @@
 use js_sys::{Array, Object, Reflect};
 use ruff_python_ast::{ModModule, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
-use ruff_python_parser::{parse_module, ParseError};
+use ruff_python_parser::parse_module;
+pub use ruff_python_parser::ParseError;
 use ruff_source_file::LineEnding;
 use std::time::{Duration, Instant};
 #[cfg(target_arch = "wasm32")]
@@ -58,7 +59,7 @@ mod test_util;
 mod transform;
 
 use crate::body_transform::Transformer;
-pub use transform::Options;
+pub use transform::{ImportStarHandling, Options};
 use transform::{context::Context, driver::ExprRewriter};
 
 #[derive(Debug, Clone, Copy)]
@@ -129,6 +130,8 @@ fn apply_transforms(module: &mut ModModule, options: Options, source: &str) {
 
     // Collapse `py_stmt!` templates after all rewrites.
     template::flatten(&mut module.body);
+
+    transform::rewrite_explicit_scope::rewrite(&mut module.body);
 
     if options.truthy {
         transform::simple::rewrite_truthy::rewrite(&mut module.body);

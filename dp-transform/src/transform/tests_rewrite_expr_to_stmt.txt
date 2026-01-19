@@ -58,8 +58,7 @@ return lambda: 1
 =
 def _dp_lambda_1():
     return 1
-_dp_lambda_1.__name__ = "<lambda>"
-_dp_lambda_1.__qualname__ = "<lambda>"
+_dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "<lambda>", "<lambda>")
 return _dp_lambda_1
 
 $ rewrites lambda assignment
@@ -68,8 +67,7 @@ x = lambda: 1
 =
 def _dp_lambda_1():
     return 1
-_dp_lambda_1.__name__ = "<lambda>"
-_dp_lambda_1.__qualname__ = "<lambda>"
+_dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "<lambda>", "<lambda>")
 x = _dp_lambda_1
 
 $ rewrites generator assignment

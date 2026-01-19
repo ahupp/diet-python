@@ -23,9 +23,9 @@ def _dp_fn_exercise():
 
     def _dp_fn_f():
         try:
-            raise KeyError("a")
+            raise KeyError$0("a")
         except:
-            if __dp__.exception_matches(__dp__.current_exception(), Exception):
+            if __dp__.exception_matches(__dp__.current_exception(), Exception$0):
                 yield
             else:
                 raise
@@ -34,18 +34,18 @@ def _dp_fn_exercise():
     gen = f()
     gen.send(None)
     try:
-        gen.throw(ValueError)
+        gen.throw(ValueError$0)
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), Exception):
+        if __dp__.exception_matches(__dp__.current_exception(), Exception$0):
             exc = __dp__.current_exception()
             try:
                 context = exc.__context__
-                return type(context), getattr(context, "args", None)
+                return type$0(context), getattr$0(context, "args", None)
             finally:
                 try:
                     del exc
                 except:
-                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                         pass
                     else:
                         raise

@@ -10,10 +10,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent
 _LINECACHE_PATCHED = False
 _ORIGINAL_UPDATECACHE = None
-_IO_OPEN_PATCHED = False
-_ORIGINAL_IO_OPEN = None
 _SOURCE_SHADOWS: dict[str, str] = {}
-_SHADOW_ROOT = REPO_ROOT / ".diet_python_cache"
 _PYO3_TRANSFORM = None
 
 
@@ -156,8 +153,6 @@ def install():
     """Install the diet-python import hook."""
     global _LINECACHE_PATCHED
     global _ORIGINAL_UPDATECACHE
-    global _IO_OPEN_PATCHED
-    global _ORIGINAL_IO_OPEN
 
     if any(finder is DietPythonFinder for finder in sys.meta_path):
         return

@@ -28,7 +28,7 @@ $ leaves annotations untouched without future import
 def h(x: list[int]):
     return x
 =
-def _dp_fn_h(x: __dp__.getitem(list, int)):
+def _dp_fn_h(x: __dp__.getitem(list$0, int$0)):
     return x
 h = __dp__.update_fn(_dp_fn_h, None, "h")
 del _dp_fn_h

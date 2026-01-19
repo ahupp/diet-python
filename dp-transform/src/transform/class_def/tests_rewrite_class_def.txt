@@ -8,10 +8,9 @@ def _dp_create_class_C():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_1():
-            return __name__
-        _dp_lambda_1.__name__ = "<lambda>"
-        _dp_lambda_1.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
+            return __name__$0
+        _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1)
         _dp_class_ns.__qualname__ = "C"
         _dp_class_ns.x = 1
     return __dp__.create_class("C", _dp_ns_builder, (), None)
@@ -30,19 +29,17 @@ def _dp_create_class_C():
 
         def _dp_lambda_1():
             return _dp_classcell
-        _dp_lambda_1.__name__ = "<lambda>"
-        _dp_lambda_1.__qualname__ = "<lambda>"
+        _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "<lambda>", "<lambda>")
         _dp_class_ns.__classcell__ = __dp__.getitem(_dp_lambda_1.__closure__, 0)
 
         def _dp_lambda_2():
-            return __name__
-        _dp_lambda_2.__name__ = "<lambda>"
-        _dp_lambda_2.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_2)
+            return __name__$0
+        _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_2)
         _dp_class_ns.__qualname__ = "C"
 
         def _dp_fn_m():
-            return __dp__.call_super_noargs(super).m()
+            return __dp__.call_super_noargs(super$0).m()
         _dp_class_ns.m = __dp__.update_fn(_dp_fn_m, "C", "m")
     return __dp__.create_class("C", _dp_ns_builder, (), None)
 C = _dp_create_class_C()
@@ -60,19 +57,17 @@ def _dp_create_class_C():
 
         def _dp_lambda_1():
             return _dp_classcell
-        _dp_lambda_1.__name__ = "<lambda>"
-        _dp_lambda_1.__qualname__ = "<lambda>"
+        _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "<lambda>", "<lambda>")
         _dp_class_ns.__classcell__ = __dp__.getitem(_dp_lambda_1.__closure__, 0)
 
         def _dp_lambda_2():
-            return __name__
-        _dp_lambda_2.__name__ = "<lambda>"
-        _dp_lambda_2.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_2)
+            return __name__$0
+        _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_2)
         _dp_class_ns.__qualname__ = "C"
 
         def _dp_fn___new__(cls, value):
-            return __dp__.call_super(super, _dp_classcell, cls).__new__(cls, value)
+            return __dp__.call_super(super$0, _dp_classcell, cls).__new__(cls, value)
         _dp_class_ns.__new__ = __dp__.update_fn(_dp_fn___new__, "C", "__new__")
     return __dp__.create_class("C", _dp_ns_builder, (), None)
 C = _dp_create_class_C()
@@ -88,10 +83,9 @@ def _dp_create_class_C():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_1():
-            return __name__
-        _dp_lambda_1.__name__ = "<lambda>"
-        _dp_lambda_1.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
+            return __name__$0
+        _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1)
         _dp_class_ns.__qualname__ = "C"
         _dp_class_ns.x = 1
         del _dp_class_ns.x
@@ -109,19 +103,18 @@ def _dp_create_class_C():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_2():
-            return __name__
-        _dp_lambda_2.__name__ = "<lambda>"
-        _dp_lambda_2.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_2)
+            return __name__$0
+        _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_2)
         _dp_class_ns.__qualname__ = "C"
 
         def _dp_annotate(_dp_format):
             _dp_tmp_1 = __dp__.gt(_dp_format, 2)
             if _dp_tmp_1:
-                raise __dp__.class_lookup_annotate("NotImplementedError", _dp_class_ns, globals())
+                raise __dp__.class_lookup_annotate("NotImplementedError", _dp_class_ns, globals$0())
             _dp_annotations = __dp__.dict()
-            __dp__.setitem(_dp_annotations, "x", __dp__.class_lookup_annotate("int", _dp_class_ns, globals()))
-            __dp__.setitem(_dp_annotations, "y", __dp__.class_lookup_annotate("str", _dp_class_ns, globals()))
+            __dp__.setitem(_dp_annotations, "x", __dp__.class_lookup_annotate("int", _dp_class_ns, globals$0()))
+            __dp__.setitem(_dp_annotations, "y", __dp__.class_lookup_annotate("str", _dp_class_ns, globals$0()))
             return _dp_annotations
         _dp_class_ns.__annotate__ = _dp_annotate
         _dp_class_ns.y = 1
@@ -138,17 +131,15 @@ def _dp_create_class_C():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_1():
-            return __name__
-        _dp_lambda_1.__name__ = "<lambda>"
-        _dp_lambda_1.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
+            return __name__$0
+        _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1)
         _dp_class_ns.__qualname__ = "C"
 
         def _dp_lambda_2():
-            return x
-        _dp_lambda_2.__name__ = "<lambda>"
-        _dp_lambda_2.__qualname__ = "<lambda>"
-        _dp_class_ns.x = __dp__.class_lookup("x", _dp_class_ns, _dp_lambda_2)
+            return x$0
+        _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "<lambda>", "<lambda>")
+        _dp_class_ns.x = __dp__.class_lookup(_dp_class_ns, "x", _dp_lambda_2)
     return __dp__.create_class("C", _dp_ns_builder, (), None)
 C = _dp_create_class_C()
 
@@ -165,18 +156,17 @@ def _dp_create_class_C():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_2():
-            return __name__
-        _dp_lambda_2.__name__ = "<lambda>"
-        _dp_lambda_2.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_2)
+            return __name__$0
+        _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_2)
         _dp_class_ns.__qualname__ = "C"
 
         def _dp_annotate(_dp_format):
             _dp_tmp_1 = __dp__.gt(_dp_format, 2)
             if _dp_tmp_1:
-                raise __dp__.class_lookup_annotate("NotImplementedError", _dp_class_ns, globals())
+                raise __dp__.class_lookup_annotate("NotImplementedError", _dp_class_ns, globals$0())
             _dp_annotations = __dp__.dict()
-            __dp__.setitem(_dp_annotations, "x", __dp__.class_lookup_annotate("T", _dp_class_ns, globals()))
+            __dp__.setitem(_dp_annotations, "x", __dp__.class_lookup_annotate("T", _dp_class_ns, globals$0()))
             return _dp_annotations
         _dp_class_ns.__annotate__ = _dp_annotate
     return __dp__.create_class("C", _dp_ns_builder, (), None)
@@ -193,18 +183,16 @@ def _dp_create_class_C():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_1():
-            return __name__
-        _dp_lambda_1.__name__ = "<lambda>"
-        _dp_lambda_1.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
+            return __name__$0
+        _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1)
         _dp_class_ns.__qualname__ = "C"
         _dp_class_ns.x = 1
 
         def _dp_lambda_2():
-            return x
-        _dp_lambda_2.__name__ = "<lambda>"
-        _dp_lambda_2.__qualname__ = "<lambda>"
-        _dp_class_ns.y = __dp__.class_lookup("x", _dp_class_ns, _dp_lambda_2)
+            return x$0
+        _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "<lambda>", "<lambda>")
+        _dp_class_ns.y = __dp__.class_lookup(_dp_class_ns, "x", _dp_lambda_2)
     return __dp__.create_class("C", _dp_ns_builder, (), None)
 C = _dp_create_class_C()
 
@@ -220,22 +208,21 @@ def _dp_create_class_C():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_2():
-            return __name__
-        _dp_lambda_2.__name__ = "<lambda>"
-        _dp_lambda_2.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_2)
+            return __name__$0
+        _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_2)
         _dp_class_ns.__qualname__ = "C"
-        _dp_class_ns.__type_params__ = T, P
+        _dp_class_ns.__type_params__ = T$1, P$1
 
         def _dp_annotate(_dp_format):
             _dp_tmp_1 = __dp__.gt(_dp_format, 2)
             if _dp_tmp_1:
-                raise __dp__.class_lookup_annotate("NotImplementedError", _dp_class_ns, globals())
+                raise __dp__.class_lookup_annotate("NotImplementedError", _dp_class_ns, globals$0())
             _dp_annotations = __dp__.dict()
-            __dp__.setitem(_dp_annotations, "x", T)
+            __dp__.setitem(_dp_annotations, "x", T$1)
             return _dp_annotations
         _dp_class_ns.__annotate__ = _dp_annotate
-    return __dp__.create_class("C", _dp_ns_builder, (__dp__.getitem(__import__("typing").Generic, (T, P)),), None)
+    return __dp__.create_class("C", _dp_ns_builder, (__dp__.getitem(__import__$0("typing").Generic, (T, P)),), None)
 C = _dp_create_class_C()
 
 $ lowers inherits
@@ -248,12 +235,11 @@ def _dp_create_class_C():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_1():
-            return __name__
-        _dp_lambda_1.__name__ = "<lambda>"
-        _dp_lambda_1.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
+            return __name__$0
+        _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1)
         _dp_class_ns.__qualname__ = "C"
-    return __dp__.create_class("C", _dp_ns_builder, (B,), None)
+    return __dp__.create_class("C", _dp_ns_builder, (B$0,), None)
 C = _dp_create_class_C()
 
 $ lowers with docstring and keywords
@@ -267,14 +253,13 @@ def _dp_create_class_C():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_1():
-            return __name__
-        _dp_lambda_1.__name__ = "<lambda>"
-        _dp_lambda_1.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
+            return __name__$0
+        _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1)
         _dp_class_ns.__qualname__ = "C"
         _dp_class_ns.__doc__ = 'doc'
         _dp_class_ns.x = 2
-    return __dp__.create_class("C", _dp_ns_builder, (B,), __dp__.dict((("metaclass", Meta), ("kw", 1))))
+    return __dp__.create_class("C", _dp_ns_builder, (B$0,), __dp__.dict((("metaclass", Meta$0), ("kw", 1))))
 C = _dp_create_class_C()
 
 $ lowers method
@@ -288,10 +273,9 @@ def _dp_create_class_C():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_1():
-            return __name__
-        _dp_lambda_1.__name__ = "<lambda>"
-        _dp_lambda_1.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
+            return __name__$0
+        _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1)
         _dp_class_ns.__qualname__ = "C"
 
         def _dp_fn_m(self):
@@ -313,10 +297,9 @@ def _dp_create_class_Example():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_1():
-            return __name__
-        _dp_lambda_1.__name__ = "<lambda>"
-        _dp_lambda_1.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
+            return __name__$0
+        _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1)
         _dp_class_ns.__qualname__ = "Example"
 
         def _dp_fn_close(self):
@@ -338,10 +321,9 @@ def _dp_create_class_C():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_1():
-            return __name__
-        _dp_lambda_1.__name__ = "<lambda>"
-        _dp_lambda_1.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
+            return __name__$0
+        _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1)
         _dp_class_ns.__qualname__ = "C"
 
         async def _dp_fn_m(self):
@@ -363,19 +345,17 @@ def _dp_create_class_C():
 
         def _dp_lambda_1():
             return _dp_classcell
-        _dp_lambda_1.__name__ = "<lambda>"
-        _dp_lambda_1.__qualname__ = "<lambda>"
+        _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "<lambda>", "<lambda>")
         _dp_class_ns.__classcell__ = __dp__.getitem(_dp_lambda_1.__closure__, 0)
 
         def _dp_lambda_2():
-            return __name__
-        _dp_lambda_2.__name__ = "<lambda>"
-        _dp_lambda_2.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_2)
+            return __name__$0
+        _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_2)
         _dp_class_ns.__qualname__ = "C"
 
         def _dp_fn_m(self):
-            return __dp__.call_super(super, _dp_classcell, self).m()
+            return __dp__.call_super(super$0, _dp_classcell, self).m()
         _dp_class_ns.m = __dp__.update_fn(_dp_fn_m, "C", "m")
     return __dp__.create_class("C", _dp_ns_builder, (), None)
 C = _dp_create_class_C()
@@ -393,19 +373,17 @@ def _dp_create_class_C():
 
         def _dp_lambda_1():
             return _dp_classcell
-        _dp_lambda_1.__name__ = "<lambda>"
-        _dp_lambda_1.__qualname__ = "<lambda>"
+        _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "<lambda>", "<lambda>")
         _dp_class_ns.__classcell__ = __dp__.getitem(_dp_lambda_1.__closure__, 0)
 
         def _dp_lambda_2():
-            return __name__
-        _dp_lambda_2.__name__ = "<lambda>"
-        _dp_lambda_2.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_2)
+            return __name__$0
+        _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_2)
         _dp_class_ns.__qualname__ = "C"
 
         def _dp_fn_m(z):
-            return __dp__.call_super(super, _dp_classcell, z).m()
+            return __dp__.call_super(super$0, _dp_classcell, z).m()
         _dp_class_ns.m = __dp__.update_fn(_dp_fn_m, "C", "m")
     return __dp__.create_class("C", _dp_ns_builder, (), None)
 C = _dp_create_class_C()
@@ -423,19 +401,17 @@ def _dp_create_class_C():
 
         def _dp_lambda_1():
             return _dp_classcell
-        _dp_lambda_1.__name__ = "<lambda>"
-        _dp_lambda_1.__qualname__ = "<lambda>"
+        _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "<lambda>", "<lambda>")
         _dp_class_ns.__classcell__ = __dp__.getitem(_dp_lambda_1.__closure__, 0)
 
         def _dp_lambda_2():
-            return __name__
-        _dp_lambda_2.__name__ = "<lambda>"
-        _dp_lambda_2.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_2)
+            return __name__$0
+        _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_2)
         _dp_class_ns.__qualname__ = "C"
 
         def _dp_fn_m():
-            return __dp__.call_super_noargs(super).m()
+            return __dp__.call_super_noargs(super$0).m()
         _dp_class_ns.m = __dp__.update_fn(_dp_fn_m, "C", "m")
     return __dp__.create_class("C", _dp_ns_builder, (), None)
 C = _dp_create_class_C()
@@ -455,37 +431,32 @@ def _dp_create_class_C():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_2():
-            return __name__
-        _dp_lambda_2.__name__ = "<lambda>"
-        _dp_lambda_2.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_2)
+            return __name__$0
+        _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_2)
         _dp_class_ns.__qualname__ = "C"
 
         def _dp_lambda_3():
-            return deco
-        _dp_lambda_3.__name__ = "<lambda>"
-        _dp_lambda_3.__qualname__ = "<lambda>"
-        _dp_class_ns.y = __dp__.class_lookup("deco", _dp_class_ns, _dp_lambda_3)
+            return deco$0
+        _dp_lambda_3 = __dp__.update_fn(_dp_lambda_3, "<lambda>", "<lambda>")
+        _dp_class_ns.y = __dp__.class_lookup(_dp_class_ns, "deco", _dp_lambda_3)
 
         def _dp_lambda_4():
-            return decorator
-        _dp_lambda_4.__name__ = "<lambda>"
-        _dp_lambda_4.__qualname__ = "<lambda>"
+            return decorator$0
+        _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, "<lambda>", "<lambda>")
 
         def _dp_lambda_5():
-            return y
-        _dp_lambda_5.__name__ = "<lambda>"
-        _dp_lambda_5.__qualname__ = "<lambda>"
-        _dp_tmp_1 = __dp__.class_lookup("decorator", _dp_class_ns, _dp_lambda_4)(__dp__.class_lookup("y", _dp_class_ns, _dp_lambda_5))
+            return y$0
+        _dp_lambda_5 = __dp__.update_fn(_dp_lambda_5, "<lambda>", "<lambda>")
+        _dp_tmp_1 = __dp__.class_lookup(_dp_class_ns, "decorator", _dp_lambda_4)(__dp__.class_lookup(_dp_class_ns, "y", _dp_lambda_5))
 
         def _dp_fn_m(self):
             return self
 
         def _dp_lambda_6():
-            return other
-        _dp_lambda_6.__name__ = "<lambda>"
-        _dp_lambda_6.__qualname__ = "<lambda>"
-        _dp_class_ns.m = _dp_tmp_1(__dp__.class_lookup("other", _dp_class_ns, _dp_lambda_6)(__dp__.update_fn(_dp_fn_m, "C", "m")))
+            return other$0
+        _dp_lambda_6 = __dp__.update_fn(_dp_lambda_6, "<lambda>", "<lambda>")
+        _dp_class_ns.m = _dp_tmp_1(__dp__.class_lookup(_dp_class_ns, "other", _dp_lambda_6)(__dp__.update_fn(_dp_fn_m, "C", "m")))
     return __dp__.create_class("C", _dp_ns_builder, (), None)
 C = _dp_create_class_C()
 
@@ -503,30 +474,26 @@ def _dp_create_class_C():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_1():
-            return __name__
-        _dp_lambda_1.__name__ = "<lambda>"
-        _dp_lambda_1.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
+            return __name__$0
+        _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1)
         _dp_class_ns.__qualname__ = "C"
         _dp_class_ns.a = 1
 
         def _dp_lambda_2():
-            return a
-        _dp_lambda_2.__name__ = "<lambda>"
-        _dp_lambda_2.__qualname__ = "<lambda>"
-        _dp_class_ns.b = __dp__.class_lookup("a", _dp_class_ns, _dp_lambda_2)
+            return a$0
+        _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "<lambda>", "<lambda>")
+        _dp_class_ns.b = __dp__.class_lookup(_dp_class_ns, "a", _dp_lambda_2)
 
         def _dp_lambda_3():
-            return a
-        _dp_lambda_3.__name__ = "<lambda>"
-        _dp_lambda_3.__qualname__ = "<lambda>"
+            return a$0
+        _dp_lambda_3 = __dp__.update_fn(_dp_lambda_3, "<lambda>", "<lambda>")
 
         def _dp_lambda_4():
-            return b
-        _dp_lambda_4.__name__ = "<lambda>"
-        _dp_lambda_4.__qualname__ = "<lambda>"
+            return b$0
+        _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, "<lambda>", "<lambda>")
 
-        def _dp_fn_f(self, value: __dp__.class_lookup("b", _dp_class_ns, _dp_lambda_4)=__dp__.class_lookup("a", _dp_class_ns, _dp_lambda_3)):
+        def _dp_fn_f(self, value: __dp__.class_lookup(_dp_class_ns, "b", _dp_lambda_4)=__dp__.class_lookup(_dp_class_ns, "a", _dp_lambda_3)):
             return value
         _dp_class_ns.f = __dp__.update_fn(_dp_fn_f, "C", "f")
     return __dp__.create_class("C", _dp_ns_builder, (), None)
@@ -545,10 +512,9 @@ def _dp_create_class_C():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_1():
-            return __name__
-        _dp_lambda_1.__name__ = "<lambda>"
-        _dp_lambda_1.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
+            return __name__$0
+        _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1)
         _dp_class_ns.__qualname__ = "C"
         _dp_class_ns._C__value = 1
 
@@ -572,10 +538,9 @@ def _dp_create_class_C():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_1():
-            return __name__
-        _dp_lambda_1.__name__ = "<lambda>"
-        _dp_lambda_1.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
+            return __name__$0
+        _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1)
         _dp_class_ns.__qualname__ = "C"
 
         def _dp_fn___value(self):
@@ -601,10 +566,9 @@ def _dp_create_class_Outer():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_3():
-            return __name__
-        _dp_lambda_3.__name__ = "<lambda>"
-        _dp_lambda_3.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_3)
+            return __name__$0
+        _dp_lambda_3 = __dp__.update_fn(_dp_lambda_3, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_3)
         _dp_class_ns.__qualname__ = "Outer"
         _dp_class_ns.x = 1
 
@@ -613,17 +577,15 @@ def _dp_create_class_Outer():
             def _dp_ns_builder(_dp_class_ns):
 
                 def _dp_lambda_1():
-                    return __name__
-                _dp_lambda_1.__name__ = "<lambda>"
-                _dp_lambda_1.__qualname__ = "Outer.<lambda>"
-                _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
+                    return __name__$0
+                _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "Outer.<lambda>", "<lambda>")
+                _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1)
                 _dp_class_ns.__qualname__ = "Outer.Inner"
 
             def _dp_lambda_2():
-                return x
-            _dp_lambda_2.__name__ = "<lambda>"
-            _dp_lambda_2.__qualname__ = "Outer.<lambda>"
-            return __dp__.create_class("Inner", _dp_ns_builder, (__dp__.class_lookup("x", _dp_class_ns, _dp_lambda_2),), None)
+                return x$0
+            _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "Outer.<lambda>", "<lambda>")
+            return __dp__.create_class("Inner", _dp_ns_builder, (__dp__.class_lookup(_dp_class_ns, "x", _dp_lambda_2),), None)
         _dp_class_ns.Inner = _dp_create_class_Outer_Inner()
     return __dp__.create_class("Outer", _dp_ns_builder, (), None)
 Outer = _dp_create_class_Outer()
@@ -641,10 +603,9 @@ def _dp_create_class_Example():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_3():
-            return __name__
-        _dp_lambda_3.__name__ = "<lambda>"
-        _dp_lambda_3.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_3)
+            return __name__$0
+        _dp_lambda_3 = __dp__.update_fn(_dp_lambda_3, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_3)
         _dp_class_ns.__qualname__ = "Example"
 
         def _dp_fn_trigger(self):
@@ -654,10 +615,9 @@ def _dp_create_class_Example():
                 def _dp_ns_builder(_dp_class_ns):
 
                     def _dp_lambda_2():
-                        return __name__
-                    _dp_lambda_2.__name__ = "<lambda>"
-                    _dp_lambda_2.__qualname__ = "Example.trigger.<locals>.<lambda>"
-                    _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_2)
+                        return __name__$0
+                    _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "Example.trigger.<locals>.<lambda>", "<lambda>")
+                    _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_2)
                     _dp_class_ns.__qualname__ = "Example.trigger.<locals>.Token"
                 return __dp__.create_class("Token", _dp_ns_builder, (), None)
             Token = _dp_create_class_Example_trigger__locals__Token()
@@ -681,10 +641,9 @@ def _dp_create_class_Example():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_3():
-            return __name__
-        _dp_lambda_3.__name__ = "<lambda>"
-        _dp_lambda_3.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_3)
+            return __name__$0
+        _dp_lambda_3 = __dp__.update_fn(_dp_lambda_3, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_3)
         _dp_class_ns.__qualname__ = "Example"
 
         def _dp_fn_trigger(self, flag):
@@ -695,10 +654,9 @@ def _dp_create_class_Example():
                     def _dp_ns_builder(_dp_class_ns):
 
                         def _dp_lambda_2():
-                            return __name__
-                        _dp_lambda_2.__name__ = "<lambda>"
-                        _dp_lambda_2.__qualname__ = "Example.trigger.<locals>.<lambda>"
-                        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_2)
+                            return __name__$0
+                        _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "Example.trigger.<locals>.<lambda>", "<lambda>")
+                        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_2)
                         _dp_class_ns.__qualname__ = "Example.trigger.<locals>.Token"
                     return __dp__.create_class("Token", _dp_ns_builder, (), None)
                 Token = _dp_create_class_Example_trigger__locals__Token()
@@ -727,14 +685,13 @@ def _dp_fn_outer():
         def _dp_ns_builder(_dp_class_ns):
 
             def _dp_lambda_1():
-                return __name__
-            _dp_lambda_1.__name__ = "<lambda>"
-            _dp_lambda_1.__qualname__ = "outer.<locals>.<lambda>"
-            _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
+                return __name__$0
+            _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "outer.<locals>.<lambda>", "<lambda>")
+            _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1)
             _dp_class_ns.__qualname__ = "outer.<locals>.C"
 
             def _dp_fn_method(self):
-                return value
+                return value$1
             _dp_class_ns.method = __dp__.update_fn(_dp_fn_method, "outer.<locals>.C", "method")
         return __dp__.create_class("C", _dp_ns_builder, (), None)
     C = _dp_create_class_outer__locals__C()
@@ -834,15 +791,14 @@ def _dp_create_class_C1():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_1():
-            return __name__
-        _dp_lambda_1.__name__ = "<lambda>"
-        _dp_lambda_1.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
+            return __name__$0
+        _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1)
         _dp_class_ns.__qualname__ = "C1"
         _dp_class_ns.x = "class"
 
         def _dp_fn_read():
-            return x
+            return x$0
         _dp_class_ns.read = __dp__.update_fn(_dp_fn_read, "C1", "read")
     return __dp__.create_class("C1", _dp_ns_builder, (), None)
 C1 = _dp_create_class_C1()
@@ -853,13 +809,11 @@ def _dp_create_class_C2():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_2():
-            return __name__
-        _dp_lambda_2.__name__ = "<lambda>"
-        _dp_lambda_2.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_2)
+            return __name__$0
+        _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_2)
         _dp_class_ns.__qualname__ = "C2"
-        global x
-        x = "class-global"
+        x$0 = "class-global"
         _dp_class_ns.y = "class-attr"
     return __dp__.create_class("C2", _dp_ns_builder, (), None)
 C2 = _dp_create_class_C2()
@@ -870,19 +824,17 @@ def _dp_create_class_C3():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_3():
-            return __name__
-        _dp_lambda_3.__name__ = "<lambda>"
-        _dp_lambda_3.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_3)
+            return __name__$0
+        _dp_lambda_3 = __dp__.update_fn(_dp_lambda_3, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_3)
         _dp_class_ns.__qualname__ = "C3"
 
         def _dp_fn_set_x():
-            global x
-            x = "method-global"
+            x$0 = "method-global"
         _dp_class_ns.set_x = __dp__.update_fn(_dp_fn_set_x, "C3", "set_x")
 
         def _dp_fn_read_x():
-            return x
+            return x$0
         _dp_class_ns.read_x = __dp__.update_fn(_dp_fn_read_x, "C3", "read_x")
     return __dp__.create_class("C3", _dp_ns_builder, (), None)
 C3 = _dp_create_class_C3()
@@ -893,18 +845,16 @@ def _dp_create_class_C4():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_4():
-            return __name__
-        _dp_lambda_4.__name__ = "<lambda>"
-        _dp_lambda_4.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_4)
+            return __name__$0
+        _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_4)
         _dp_class_ns.__qualname__ = "C4"
 
         def _dp_fn_outer():
             x = "outer"
 
             def _dp_fn_inner():
-                nonlocal x
-                x = "inner"
+                x$3 = "inner"
             inner = __dp__.update_fn(_dp_fn_inner, "C4.outer.<locals>", "inner")
             del _dp_fn_inner
             inner()
@@ -921,17 +871,15 @@ def _dp_fn_outer_with_inner_class():
         def _dp_ns_builder(_dp_class_ns):
 
             def _dp_lambda_5():
-                return __name__
-            _dp_lambda_5.__name__ = "<lambda>"
-            _dp_lambda_5.__qualname__ = "outer_with_inner_class.<locals>.<lambda>"
-            _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_5)
+                return __name__$0
+            _dp_lambda_5 = __dp__.update_fn(_dp_lambda_5, "outer_with_inner_class.<locals>.<lambda>", "<lambda>")
+            _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_5)
             _dp_class_ns.__qualname__ = "outer_with_inner_class.<locals>.Inner"
 
             def _dp_lambda_6():
-                return x
-            _dp_lambda_6.__name__ = "<lambda>"
-            _dp_lambda_6.__qualname__ = "outer_with_inner_class.<locals>.<lambda>"
-            _dp_class_ns.y = __dp__.class_lookup("x", _dp_class_ns, _dp_lambda_6)
+                return x$1
+            _dp_lambda_6 = __dp__.update_fn(_dp_lambda_6, "outer_with_inner_class.<locals>.<lambda>", "<lambda>")
+            _dp_class_ns.y = __dp__.class_lookup(_dp_class_ns, "x", _dp_lambda_6)
         return __dp__.create_class("Inner", _dp_ns_builder, (), None)
     Inner = _dp_create_class_outer_with_inner_class__locals__Inner()
     return Inner.y
@@ -947,17 +895,15 @@ def _dp_fn_outer_with_inner_class_global_assignment():
         def _dp_ns_builder(_dp_class_ns):
 
             def _dp_lambda_7():
-                return __name__
-            _dp_lambda_7.__name__ = "<lambda>"
-            _dp_lambda_7.__qualname__ = "outer_with_inner_class_global_assignment.<locals>.<lambda>"
-            _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_7)
+                return __name__$0
+            _dp_lambda_7 = __dp__.update_fn(_dp_lambda_7, "outer_with_inner_class_global_assignment.<locals>.<lambda>", "<lambda>")
+            _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_7)
             _dp_class_ns.__qualname__ = "outer_with_inner_class_global_assignment.<locals>.Inner"
-            global x
-            x = "class-global"
+            x$0 = "class-global"
             _dp_class_ns.y = "class-attr"
         return __dp__.create_class("Inner", _dp_ns_builder, (), None)
     Inner = _dp_create_class_outer_with_inner_class_global_assignment__locals__Inner()
-    return x, getattr(Inner, "x", None), Inner.y
+    return x, getattr$0(Inner, "x", None), Inner.y
 outer_with_inner_class_global_assignment = __dp__.update_fn(_dp_fn_outer_with_inner_class_global_assignment, None, "outer_with_inner_class_global_assignment")
 del _dp_fn_outer_with_inner_class_global_assignment
 __dp__.setitem(results, "def_with_inner_class_global_assignment", (outer_with_inner_class_global_assignment(), x))
@@ -970,15 +916,14 @@ def _dp_fn_outer_with_class_method_reads_global():
         def _dp_ns_builder(_dp_class_ns):
 
             def _dp_lambda_8():
-                return __name__
-            _dp_lambda_8.__name__ = "<lambda>"
-            _dp_lambda_8.__qualname__ = "outer_with_class_method_reads_global.<locals>.<lambda>"
-            _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_8)
+                return __name__$0
+            _dp_lambda_8 = __dp__.update_fn(_dp_lambda_8, "outer_with_class_method_reads_global.<locals>.<lambda>", "<lambda>")
+            _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_8)
             _dp_class_ns.__qualname__ = "outer_with_class_method_reads_global.<locals>.Inner"
             _dp_class_ns.x = "class"
 
             def _dp_fn_read():
-                return x
+                return x$1
             _dp_class_ns.read = __dp__.update_fn(_dp_fn_read, "outer_with_class_method_reads_global.<locals>.Inner", "read")
         return __dp__.create_class("Inner", _dp_ns_builder, (), None)
     Inner = _dp_create_class_outer_with_class_method_reads_global__locals__Inner()
@@ -990,25 +935,22 @@ def _dp_fn_outer_with_nonlocal_and_inner_class():
     x = "outer"
 
     def _dp_fn_inner():
-        nonlocal x
-        x = "inner"
+        x$1 = "inner"
 
         def _dp_create_class_outer_with_nonlocal_and_inner_class__locals__inner__locals__Inner():
 
             def _dp_ns_builder(_dp_class_ns):
 
                 def _dp_lambda_9():
-                    return __name__
-                _dp_lambda_9.__name__ = "<lambda>"
-                _dp_lambda_9.__qualname__ = "outer_with_nonlocal_and_inner_class.<locals>.inner.<locals>.<lambda>"
-                _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_9)
+                    return __name__$0
+                _dp_lambda_9 = __dp__.update_fn(_dp_lambda_9, "outer_with_nonlocal_and_inner_class.<locals>.inner.<locals>.<lambda>", "<lambda>")
+                _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_9)
                 _dp_class_ns.__qualname__ = "outer_with_nonlocal_and_inner_class.<locals>.inner.<locals>.Inner"
 
                 def _dp_lambda_10():
-                    return x
-                _dp_lambda_10.__name__ = "<lambda>"
-                _dp_lambda_10.__qualname__ = "outer_with_nonlocal_and_inner_class.<locals>.inner.<locals>.<lambda>"
-                _dp_class_ns.y = __dp__.class_lookup("x", _dp_class_ns, _dp_lambda_10)
+                    return x$1
+                _dp_lambda_10 = __dp__.update_fn(_dp_lambda_10, "outer_with_nonlocal_and_inner_class.<locals>.inner.<locals>.<lambda>", "<lambda>")
+                _dp_class_ns.y = __dp__.class_lookup(_dp_class_ns, "x", _dp_lambda_10)
             return __dp__.create_class("Inner", _dp_ns_builder, (), None)
         Inner = _dp_create_class_outer_with_nonlocal_and_inner_class__locals__inner__locals__Inner()
         return Inner.y
@@ -1021,9 +963,9 @@ del _dp_fn_outer_with_nonlocal_and_inner_class
 __dp__.setitem(results, "def_with_nonlocal_and_inner_class", outer_with_nonlocal_and_inner_class())
 def _dp_fn_nonlocal_in_class_body_error():
     try:
-        exec("class Bad:\\n    nonlocal x\\n")
+        exec$0("class Bad:\\n    nonlocal x\\n")
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), SyntaxError):
+        if __dp__.exception_matches(__dp__.current_exception(), SyntaxError$0):
             exc = __dp__.current_exception()
             try:
                 return exc.msg
@@ -1031,7 +973,7 @@ def _dp_fn_nonlocal_in_class_body_error():
                 try:
                     del exc
                 except:
-                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                         pass
                     else:
                         raise
@@ -1064,17 +1006,15 @@ def _dp_fn_outer():
             def _dp_ns_builder(_dp_class_ns):
 
                 def _dp_lambda_1():
-                    return __name__
-                _dp_lambda_1.__name__ = "<lambda>"
-                _dp_lambda_1.__qualname__ = "outer.<locals>.inner.<locals>.<lambda>"
-                _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
+                    return __name__$0
+                _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "outer.<locals>.inner.<locals>.<lambda>", "<lambda>")
+                _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1)
                 _dp_class_ns.__qualname__ = "outer.<locals>.inner.<locals>.C"
 
                 def _dp_lambda_2():
-                    return value
-                _dp_lambda_2.__name__ = "<lambda>"
-                _dp_lambda_2.__qualname__ = "outer.<locals>.inner.<locals>.<lambda>"
-                _dp_class_ns.x = __dp__.class_lookup("value", _dp_class_ns, _dp_lambda_2)
+                    return value$1
+                _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "outer.<locals>.inner.<locals>.<lambda>", "<lambda>")
+                _dp_class_ns.x = __dp__.class_lookup(_dp_class_ns, "value", _dp_lambda_2)
             return __dp__.create_class("C", _dp_ns_builder, (), None)
         C = _dp_create_class_outer__locals__inner__locals__C()
         return C
@@ -1103,17 +1043,15 @@ def _dp_fn_outer():
         def _dp_ns_builder(_dp_class_ns):
 
             def _dp_lambda_1():
-                return __name__
-            _dp_lambda_1.__name__ = "<lambda>"
-            _dp_lambda_1.__qualname__ = "outer.<locals>.<lambda>"
-            _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
+                return __name__$0
+            _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "outer.<locals>.<lambda>", "<lambda>")
+            _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1)
             _dp_class_ns.__qualname__ = "outer.<locals>.C"
 
             def _dp_lambda_2():
-                return value
-            _dp_lambda_2.__name__ = "<lambda>"
-            _dp_lambda_2.__qualname__ = "outer.<locals>.<lambda>"
-            _dp_class_ns.x = __dp__.class_lookup("value", _dp_class_ns, _dp_lambda_2)
+                return value$1
+            _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "outer.<locals>.<lambda>", "<lambda>")
+            _dp_class_ns.x = __dp__.class_lookup(_dp_class_ns, "value", _dp_lambda_2)
             _dp_class_ns.value = 2
         return __dp__.create_class("C", _dp_ns_builder, (), None)
     C = _dp_create_class_outer__locals__C()

@@ -65,13 +65,13 @@ def _dp_fn__participant(barrier, barrier2, result_queue):
         index = barrier.wait()
         _dp_tmp_1 = __dp__.eq(index, 1)
         if _dp_tmp_1:
-            raise RuntimeError("boom")
+            raise RuntimeError$0("boom")
         barrier.wait()
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), threading.BrokenBarrierError):
+        if __dp__.exception_matches(__dp__.current_exception(), threading$0.BrokenBarrierError):
             result_queue.put("broken")
         else:
-            if __dp__.exception_matches(__dp__.current_exception(), RuntimeError):
+            if __dp__.exception_matches(__dp__.current_exception(), RuntimeError$0):
                 barrier.abort()
             else:
                 raise
@@ -83,14 +83,14 @@ def _dp_fn__participant(barrier, barrier2, result_queue):
         barrier.wait()
         result_queue.put("done")
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), threading.BrokenBarrierError):
+        if __dp__.exception_matches(__dp__.current_exception(), threading$0.BrokenBarrierError):
             result_queue.put("barrier2_broken")
         else:
             raise
 _participant = __dp__.update_fn(_dp_fn__participant, None, "_participant")
 del _dp_fn__participant
-def _dp_fn_run() -> bool:
-    ctx = mp.get_context("spawn")
+def _dp_fn_run() -> bool$0:
+    ctx = mp$0.get_context("spawn")
     barrier = ctx.Barrier(3, timeout=2.0)
     barrier2 = ctx.Barrier(3, timeout=2.0)
     result_queue = ctx.Queue()
@@ -104,11 +104,11 @@ def _dp_fn_run() -> bool:
                 __dp__.check_stopiteration()
                 break
             else:
-                yield ctx.Process(target=_participant, args=(barrier, barrier2, result_queue))
+                yield ctx$1.Process(target=_participant$0, args=(barrier$1, barrier2$1, result_queue$1))
     _dp_gen_3.__name__ = "<genexpr>"
     _dp_gen_3.__code__ = _dp_gen_3.__code__.replace(co_name="<genexpr>")
     _dp_gen_3 = __dp__.update_fn(_dp_gen_3, "run.<locals>", "<genexpr>")
-    processes = __dp__.list(_dp_gen_3(__dp__.iter(range(2))))
+    processes = __dp__.list(_dp_gen_3(__dp__.iter(range$0(2))))
     _dp_iter_6 = __dp__.iter(processes)
     while True:
         try:
@@ -118,7 +118,7 @@ def _dp_fn_run() -> bool:
             break
         else:
             proc.start()
-    _participant(barrier, barrier2, result_queue)
+    _participant$0(barrier, barrier2, result_queue)
     _dp_iter_7 = __dp__.iter(processes)
     while True:
         try:
@@ -142,7 +142,7 @@ def _dp_fn_run() -> bool:
     _dp_gen_8.__name__ = "<genexpr>"
     _dp_gen_8.__code__ = _dp_gen_8.__code__.replace(co_name="<genexpr>")
     _dp_gen_8 = __dp__.update_fn(_dp_gen_8, "run.<locals>", "<genexpr>")
-    if any(_dp_gen_8(__dp__.iter(processes))):
+    if any$0(_dp_gen_8(__dp__.iter(processes))):
         _dp_iter_10 = __dp__.iter(processes)
         while True:
             try:
@@ -155,13 +155,13 @@ def _dp_fn_run() -> bool:
         return False
     results = __dp__.list(())
     while True:
-        _dp_tmp_12 = __dp__.lt(len(results), 3)
+        _dp_tmp_12 = __dp__.lt(len$0(results), 3)
         if __dp__.not_(_dp_tmp_12):
             break
         try:
             results.append(result_queue.get(timeout=1))
         except:
-            if __dp__.exception_matches(__dp__.current_exception(), queue.Empty):
+            if __dp__.exception_matches(__dp__.current_exception(), queue$0.Empty):
                 break
             else:
                 raise

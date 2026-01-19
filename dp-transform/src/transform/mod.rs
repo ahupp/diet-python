@@ -4,6 +4,7 @@ pub(crate) mod driver;
 pub(crate) mod rewrite_assign_del;
 pub(crate) mod rewrite_decorator;
 pub(crate) mod rewrite_expr_to_stmt;
+pub(crate) mod rewrite_explicit_scope;
 pub(crate) mod rewrite_func_expr;
 pub(crate) mod rewrite_future_annotations;
 pub(crate) mod rewrite_import;
@@ -24,6 +25,7 @@ pub struct Options {
     pub lower_attributes: bool,
     pub truthy: bool,
     pub cleanup_dp_globals: bool,
+    pub force_import_rewrite: bool,
 }
 
 impl Default for Options {
@@ -34,6 +36,7 @@ impl Default for Options {
             lower_attributes: true,
             truthy: false,
             cleanup_dp_globals: true,
+            force_import_rewrite: false,
         }
     }
 }
@@ -46,6 +49,7 @@ impl Options {
             lower_attributes: false,
             truthy: false,
             cleanup_dp_globals: false,
+            force_import_rewrite: false,
         }
     }
 }

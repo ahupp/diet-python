@@ -30,10 +30,9 @@ def _dp_create_class_CM():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_1():
-            return __name__
-        _dp_lambda_1.__name__ = "<lambda>"
-        _dp_lambda_1.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
+            return __name__$0
+        _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1)
         _dp_class_ns.__qualname__ = "CM"
 
         async def _dp_fn___aenter__(self):
@@ -46,7 +45,7 @@ def _dp_create_class_CM():
     return __dp__.create_class("CM", _dp_ns_builder, (), None)
 CM = _dp_create_class_CM()
 async def _dp_fn_run():
-    _dp_with_enter_3 = await __dp__.with_aenter(CM())
+    _dp_with_enter_3 = await __dp__.with_aenter(CM$0())
     _ = __dp__.getitem(_dp_with_enter_3, 0)
     _dp_with_exit_4 = __dp__.getitem(_dp_with_enter_3, 1)
     _dp_with_active_5 = True
@@ -64,17 +63,17 @@ run = __dp__.update_fn(_dp_fn_run, None, "run")
 del _dp_fn_run
 def _dp_fn_get_error():
     try:
-        asyncio.run(run())
+        asyncio$0.run(run$0())
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), TypeError):
+        if __dp__.exception_matches(__dp__.current_exception(), TypeError$0):
             exc = __dp__.current_exception()
             try:
-                return str(exc)
+                return str$0(exc)
             finally:
                 try:
                     del exc
                 except:
-                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                         pass
                     else:
                         raise

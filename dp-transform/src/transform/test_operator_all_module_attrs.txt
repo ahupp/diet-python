@@ -19,7 +19,7 @@ def exercise():
 operator = __dp__.import_("operator", __spec__)
 def _dp_fn_exercise():
     bad = __dp__.list(())
-    _dp_iter_1 = __dp__.iter(vars(operator).items())
+    _dp_iter_1 = __dp__.iter(vars$0(operator$0).items())
     while True:
         try:
             _dp_tmp_2 = __dp__.next(_dp_iter_1)
@@ -39,15 +39,15 @@ def _dp_fn_exercise():
             try:
                 _ = value.__module__
             except:
-                if __dp__.exception_matches(__dp__.current_exception(), Exception):
+                if __dp__.exception_matches(__dp__.current_exception(), Exception$0):
                     exc = __dp__.current_exception()
                     try:
-                        bad.append((name, type(value).__name__, type(exc).__name__))
+                        bad.append((name, type$0(value).__name__, type$0(exc).__name__))
                     finally:
                         try:
                             del exc
                         except:
-                            if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                            if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                                 pass
                             else:
                                 raise

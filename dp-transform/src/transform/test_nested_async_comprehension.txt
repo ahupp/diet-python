@@ -36,7 +36,7 @@ async def _dp_fn_asynciter(items):
             __dp__.check_stopiteration()
             break
         else:
-            await asyncio.sleep(0)
+            await asyncio$0.sleep(0)
             yield item
 asynciter = __dp__.update_fn(_dp_fn_asynciter, None, "asynciter")
 del _dp_fn_asynciter
@@ -51,16 +51,16 @@ async def _dp_fn_nested():
             break
         else:
             _dp_tmp_4 = __dp__.list(())
-            _dp_iter_obj_7 = asynciter(__dp__.list((1, 2)))
-            if __dp__.not_(hasattr(_dp_iter_obj_7, "__aiter__")):
-                _dp_iter_type_8 = type(_dp_iter_obj_7).__name__
+            _dp_iter_obj_7 = asynciter$0(__dp__.list((1, 2)))
+            if __dp__.not_(hasattr$0(_dp_iter_obj_7, "__aiter__")):
+                _dp_iter_type_8 = type$0(_dp_iter_obj_7).__name__
                 _dp_iter_obj_7 = None
-                raise TypeError(__dp__.add("'async for' requires an object with __aiter__ method, got ", _dp_iter_type_8))
+                raise TypeError$0(__dp__.add("'async for' requires an object with __aiter__ method, got ", _dp_iter_type_8))
             _dp_iter_5 = _dp_iter_obj_7.__aiter__()
-            if __dp__.not_(hasattr(_dp_iter_5, "__anext__")):
-                _dp_iter_type_8 = type(_dp_iter_5).__name__
+            if __dp__.not_(hasattr$0(_dp_iter_5, "__anext__")):
+                _dp_iter_type_8 = type$0(_dp_iter_5).__name__
                 _dp_iter_5 = None
-                raise TypeError(__dp__.add("'async for' received an object from __aiter__ that does not implement __anext__: ", _dp_iter_type_8))
+                raise TypeError$0(__dp__.add("'async for' received an object from __aiter__ that does not implement __anext__: ", _dp_iter_type_8))
             while True:
                 try:
                     _dp_iter_next_6 = await __dp__.anext(_dp_iter_5)
@@ -88,15 +88,15 @@ async def _dp_fn_gen_inside_gen():
 
                 async def _dp_gen_12(_dp_iter_13):
                     _dp_iter_obj_16 = _dp_iter_13
-                    if __dp__.not_(hasattr(_dp_iter_obj_16, "__aiter__")):
-                        _dp_iter_type_17 = type(_dp_iter_obj_16).__name__
+                    if __dp__.not_(hasattr$0(_dp_iter_obj_16, "__aiter__")):
+                        _dp_iter_type_17 = type$0(_dp_iter_obj_16).__name__
                         _dp_iter_obj_16 = None
-                        raise TypeError(__dp__.add("'async for' requires an object with __aiter__ method, got ", _dp_iter_type_17))
+                        raise TypeError$0(__dp__.add("'async for' requires an object with __aiter__ method, got ", _dp_iter_type_17))
                     _dp_iter_14 = _dp_iter_obj_16.__aiter__()
-                    if __dp__.not_(hasattr(_dp_iter_14, "__anext__")):
-                        _dp_iter_type_17 = type(_dp_iter_14).__name__
+                    if __dp__.not_(hasattr$0(_dp_iter_14, "__anext__")):
+                        _dp_iter_type_17 = type$0(_dp_iter_14).__name__
                         _dp_iter_14 = None
-                        raise TypeError(__dp__.add("'async for' received an object from __aiter__ that does not implement __anext__: ", _dp_iter_type_17))
+                        raise TypeError$0(__dp__.add("'async for' received an object from __aiter__ that does not implement __anext__: ", _dp_iter_type_17))
                     while True:
                         try:
                             _dp_iter_next_15 = await __dp__.anext(_dp_iter_14)
@@ -109,7 +109,7 @@ async def _dp_fn_gen_inside_gen():
                 _dp_gen_12.__name__ = "<genexpr>"
                 _dp_gen_12.__code__ = _dp_gen_12.__code__.replace(co_name="<genexpr>")
                 _dp_gen_12 = __dp__.update_fn(_dp_gen_12, "gen_inside_gen.<locals>", "<genexpr>")
-                yield _dp_gen_12(asynciter(range(j)))
+                yield _dp_gen_12(asynciter$0(range$0(j)))
     _dp_gen_9.__name__ = "<genexpr>"
     _dp_gen_9.__code__ = _dp_gen_9.__code__.replace(co_name="<genexpr>")
     _dp_gen_9 = __dp__.update_fn(_dp_gen_9, "gen_inside_gen.<locals>", "<genexpr>")
@@ -124,15 +124,15 @@ async def _dp_fn_gen_inside_gen():
             break
         else:
             _dp_iter_obj_22 = g
-            if __dp__.not_(hasattr(_dp_iter_obj_22, "__aiter__")):
-                _dp_iter_type_23 = type(_dp_iter_obj_22).__name__
+            if __dp__.not_(hasattr$0(_dp_iter_obj_22, "__aiter__")):
+                _dp_iter_type_23 = type$0(_dp_iter_obj_22).__name__
                 _dp_iter_obj_22 = None
-                raise TypeError(__dp__.add("'async for' requires an object with __aiter__ method, got ", _dp_iter_type_23))
+                raise TypeError$0(__dp__.add("'async for' requires an object with __aiter__ method, got ", _dp_iter_type_23))
             _dp_iter_20 = _dp_iter_obj_22.__aiter__()
-            if __dp__.not_(hasattr(_dp_iter_20, "__anext__")):
-                _dp_iter_type_23 = type(_dp_iter_20).__name__
+            if __dp__.not_(hasattr$0(_dp_iter_20, "__anext__")):
+                _dp_iter_type_23 = type$0(_dp_iter_20).__name__
                 _dp_iter_20 = None
-                raise TypeError(__dp__.add("'async for' received an object from __aiter__ that does not implement __anext__: ", _dp_iter_type_23))
+                raise TypeError$0(__dp__.add("'async for' received an object from __aiter__ that does not implement __anext__: ", _dp_iter_type_23))
             while True:
                 try:
                     _dp_iter_next_21 = await __dp__.anext(_dp_iter_20)
@@ -146,10 +146,10 @@ async def _dp_fn_gen_inside_gen():
 gen_inside_gen = __dp__.update_fn(_dp_fn_gen_inside_gen, None, "gen_inside_gen")
 del _dp_fn_gen_inside_gen
 def _dp_fn_get_values():
-    return asyncio.run(nested())
+    return asyncio$0.run(nested$0())
 get_values = __dp__.update_fn(_dp_fn_get_values, None, "get_values")
 del _dp_fn_get_values
 def _dp_fn_get_gen_values():
-    return asyncio.run(gen_inside_gen())
+    return asyncio$0.run(gen_inside_gen$0())
 get_gen_values = __dp__.update_fn(_dp_fn_get_gen_values, None, "get_gen_values")
 del _dp_fn_get_gen_values

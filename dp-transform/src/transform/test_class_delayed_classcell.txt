@@ -28,18 +28,16 @@ def _dp_fn_exercise():
         def _dp_ns_builder(_dp_class_ns):
 
             def _dp_lambda_1():
-                return __name__
-            _dp_lambda_1.__name__ = "<lambda>"
-            _dp_lambda_1.__qualname__ = "exercise.<locals>.<lambda>"
-            _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
+                return __name__$0
+            _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "exercise.<locals>.<lambda>", "<lambda>")
+            _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1)
             _dp_class_ns.__qualname__ = "exercise.<locals>.Meta"
 
             def _dp_fn___new__(cls, name, bases, namespace):
-                nonlocal test_namespace
-                test_namespace = namespace
+                test_namespace$1 = namespace
                 return None
             _dp_class_ns.__new__ = __dp__.update_fn(_dp_fn___new__, "exercise.<locals>.Meta", "__new__")
-        return __dp__.create_class("Meta", _dp_ns_builder, (type,), None)
+        return __dp__.create_class("Meta", _dp_ns_builder, (type$0,), None)
     Meta = _dp_create_class_exercise__locals__Meta()
 
     def _dp_create_class_exercise__locals__A():
@@ -49,28 +47,25 @@ def _dp_fn_exercise():
 
             def _dp_lambda_2():
                 return _dp_classcell
-            _dp_lambda_2.__name__ = "<lambda>"
-            _dp_lambda_2.__qualname__ = "exercise.<locals>.<lambda>"
+            _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "exercise.<locals>.<lambda>", "<lambda>")
             _dp_class_ns.__classcell__ = __dp__.getitem(_dp_lambda_2.__closure__, 0)
 
             def _dp_lambda_3():
-                return __name__
-            _dp_lambda_3.__name__ = "<lambda>"
-            _dp_lambda_3.__qualname__ = "exercise.<locals>.<lambda>"
-            _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_3)
+                return __name__$0
+            _dp_lambda_3 = __dp__.update_fn(_dp_lambda_3, "exercise.<locals>.<lambda>", "<lambda>")
+            _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_3)
             _dp_class_ns.__qualname__ = "exercise.<locals>.A"
 
             def _dp_fn_f():
                 return __dp__.class_cell_value(_dp_classcell)
 
             def _dp_lambda_4():
-                return staticmethod
-            _dp_lambda_4.__name__ = "<lambda>"
-            _dp_lambda_4.__qualname__ = "exercise.<locals>.<lambda>"
-            _dp_class_ns.f = __dp__.class_lookup("staticmethod", _dp_class_ns, _dp_lambda_4)(__dp__.update_fn(_dp_fn_f, "exercise.<locals>.A", "f"))
-        return __dp__.create_class("A", _dp_ns_builder, (), __dp__.dict((("metaclass", Meta),)))
+                return staticmethod$0
+            _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, "exercise.<locals>.<lambda>", "<lambda>")
+            _dp_class_ns.f = __dp__.class_lookup(_dp_class_ns, "staticmethod", _dp_lambda_4)(__dp__.update_fn(_dp_fn_f, "exercise.<locals>.A", "f"))
+        return __dp__.create_class("A", _dp_ns_builder, (), __dp__.dict((("metaclass", Meta$1),)))
     A = _dp_create_class_exercise__locals__A()
-    B = type("B", (), test_namespace)
+    B = type$0("B", (), test_namespace)
     return A, B, B.f()
 exercise = __dp__.update_fn(_dp_fn_exercise, None, "exercise")
 del _dp_fn_exercise

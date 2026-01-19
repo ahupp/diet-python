@@ -46,16 +46,16 @@ async def f():
         c()
 =
 async def _dp_fn_f():
-    _dp_iter_obj_4 = b
-    if __dp__.not_(hasattr(_dp_iter_obj_4, "__aiter__")):
-        _dp_iter_type_5 = type(_dp_iter_obj_4).__name__
+    _dp_iter_obj_4 = b$0
+    if __dp__.not_(hasattr$0(_dp_iter_obj_4, "__aiter__")):
+        _dp_iter_type_5 = type$0(_dp_iter_obj_4).__name__
         _dp_iter_obj_4 = None
-        raise TypeError(__dp__.add("'async for' requires an object with __aiter__ method, got ", _dp_iter_type_5))
+        raise TypeError$0(__dp__.add("'async for' requires an object with __aiter__ method, got ", _dp_iter_type_5))
     _dp_iter_1 = _dp_iter_obj_4.__aiter__()
-    if __dp__.not_(hasattr(_dp_iter_1, "__anext__")):
-        _dp_iter_type_5 = type(_dp_iter_1).__name__
+    if __dp__.not_(hasattr$0(_dp_iter_1, "__anext__")):
+        _dp_iter_type_5 = type$0(_dp_iter_1).__name__
         _dp_iter_1 = None
-        raise TypeError(__dp__.add("'async for' received an object from __aiter__ that does not implement __anext__: ", _dp_iter_type_5))
+        raise TypeError$0(__dp__.add("'async for' received an object from __aiter__ that does not implement __anext__: ", _dp_iter_type_5))
     _dp_loop_broken_2 = False
     while True:
         try:
@@ -65,11 +65,11 @@ async def _dp_fn_f():
             break
         else:
             a = _dp_iter_next_3
-            if cond:
+            if cond$0:
                 _dp_loop_broken_2 = True
                 break
     if __dp__.not_(_dp_loop_broken_2):
-        c()
+        c$0()
 f = __dp__.update_fn(_dp_fn_f, None, "f")
 del _dp_fn_f
 

@@ -77,7 +77,7 @@ def float_from_literal(literal):
 _MISSING = object()
 
 
-def class_lookup(name, class_ns, lookup_fn):
+def class_lookup(class_ns, name, lookup_fn):
     # Bypass _ClassNamespace.__getattribute__ so class body method names (like get)
     # do not shadow namespace lookups during class creation.
     try:
@@ -88,7 +88,11 @@ def class_lookup(name, class_ns, lookup_fn):
         namespace = None
 
     if locals_dict is not None and namespace is not None:
-        value = locals_dict.get(name, _MISSING) if name in locals_dict else namespace.get(name, _MISSING)
+        value = (
+            locals_dict.get(name, _MISSING)
+            if name in locals_dict
+            else namespace.get(name, _MISSING)
+        )
     else:
         try:
             value = class_ns.get(name, _MISSING)

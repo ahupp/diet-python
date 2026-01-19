@@ -17,7 +17,7 @@ $ preserves annotations on decorated functions
 def foo(x: int) -> str:
     pass
 =
-def _dp_fn_foo(x: int) -> str:
+def _dp_fn_foo(x: int$0) -> str$0:
     pass
 foo = dec(__dp__.update_fn(_dp_fn_foo, None, "foo"))
 del _dp_fn_foo
@@ -33,10 +33,9 @@ def _dp_create_class_C():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_1():
-            return __name__
-        _dp_lambda_1.__name__ = "<lambda>"
-        _dp_lambda_1.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_1)
+            return __name__$0
+        _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1)
         _dp_class_ns.__qualname__ = "C"
     return __dp__.create_class("C", _dp_ns_builder, (), None)
 C = dec(_dp_create_class_C())
@@ -54,10 +53,9 @@ def _dp_create_class_C():
     def _dp_ns_builder(_dp_class_ns):
 
         def _dp_lambda_2():
-            return __name__
-        _dp_lambda_2.__name__ = "<lambda>"
-        _dp_lambda_2.__qualname__ = "<lambda>"
-        _dp_class_ns.__module__ = __dp__.class_lookup("__name__", _dp_class_ns, _dp_lambda_2)
+            return __name__$0
+        _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "<lambda>", "<lambda>")
+        _dp_class_ns.__module__ = __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_2)
         _dp_class_ns.__qualname__ = "C"
     return __dp__.create_class("C", _dp_ns_builder, (), None)
 C = _dp_tmp_1(dec1(_dp_create_class_C()))
@@ -72,8 +70,7 @@ def atexit(value):
 =
 def _dp_lambda_1():
     return None
-_dp_lambda_1.__name__ = "<lambda>"
-_dp_lambda_1.__qualname__ = "<lambda>"
+_dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "<lambda>", "<lambda>")
 atexit = property(_dp_lambda_1)
 _dp_tmp_2 = atexit.setter
 def _dp_fn_atexit(value):

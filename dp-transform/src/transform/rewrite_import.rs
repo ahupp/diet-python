@@ -5,6 +5,16 @@ use ruff_python_ast::{self as ast, Stmt};
 use ruff_python_parser::parse_module;
 
 pub fn should_rewrite_import_from(import_from: &ast::StmtImportFrom, options: &Options) -> bool {
+    let has_import_star = import_from
+        .names
+        .iter()
+        .any(|alias| alias.name.id.as_str() == "*");
+    if has_import_star && matches!(options.import_star_handling, ImportStarHandling::Allowed) {
+        return false;
+    }
+    if options.force_import_rewrite {
+        return true;
+    }
     if import_from
         .module
         .as_ref()
@@ -12,21 +22,20 @@ pub fn should_rewrite_import_from(import_from: &ast::StmtImportFrom, options: &O
     {
         return false;
     }
-    if import_from
-        .names
-        .iter()
-        .any(|alias| alias.name.id.as_str() == "*")
-    {
+    if has_import_star {
         !matches!(options.import_star_handling, ImportStarHandling::Allowed)
     } else {
         true
     }
 }
 
-pub fn rewrite(ast::StmtImport { names, .. }: ast::StmtImport) -> Rewrite {
+pub fn rewrite(ast::StmtImport { names, .. }: ast::StmtImport, options: &Options) -> Rewrite {
     // Keep _testinternalcapi as a normal import to avoid import-hook recursion in
     // CPython tests. TODO: find a better solution than a hard-coded exception.
-    if names.len() == 1 && names[0].name.id.as_str() == "_testinternalcapi" {
+    if !options.force_import_rewrite
+        && names.len() == 1
+        && names[0].name.id.as_str() == "_testinternalcapi"
+    {
         if let Some(asname) = names[0].asname.as_ref().map(|n| n.id.as_str()) {
             return Rewrite::Walk(py_stmt!(
                 "import _testinternalcapi as {name:id}",

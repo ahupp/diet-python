@@ -10,19 +10,19 @@ _dp_import_1 = __dp__.import_("contextlib", __spec__, __dp__.list(("nullcontext"
 nullcontext = __dp__.import_attr(_dp_import_1, "nullcontext")
 del _dp_import_1
 def _dp_fn_unpack_starred_list():
-    _dp_with_ctx_2 = nullcontext(range(1, 5))
+    _dp_with_ctx_2 = nullcontext$0(range$0(1, 5))
     try:
         _dp_with_enter_3 = _dp_with_ctx_2.__enter__
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), AttributeError):
+        if __dp__.exception_matches(__dp__.current_exception(), AttributeError$0):
             _dp_with_exc = __dp__.current_exception()
             try:
-                raise __dp__.raise_from(TypeError("the context manager protocol requires __enter__"), _dp_with_exc)
+                raise __dp__.raise_from(TypeError$0("the context manager protocol requires __enter__"), _dp_with_exc)
             finally:
                 try:
                     del _dp_with_exc
                 except:
-                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                         pass
                     else:
                         raise
@@ -31,15 +31,15 @@ def _dp_fn_unpack_starred_list():
     try:
         _dp_with_exit_4 = _dp_with_ctx_2.__exit__
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), AttributeError):
+        if __dp__.exception_matches(__dp__.current_exception(), AttributeError$0):
             _dp_with_exc = __dp__.current_exception()
             try:
-                raise __dp__.raise_from(TypeError("the context manager protocol requires __exit__"), _dp_with_exc)
+                raise __dp__.raise_from(TypeError$0("the context manager protocol requires __exit__"), _dp_with_exc)
             finally:
                 try:
                     del _dp_with_exc
                 except:
-                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                         pass
                     else:
                         raise

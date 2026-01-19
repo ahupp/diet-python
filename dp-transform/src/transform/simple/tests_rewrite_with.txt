@@ -160,12 +160,12 @@ async def f():
         c
 =
 async def _dp_fn_f():
-    _dp_with_enter_2 = await __dp__.with_aenter(a)
+    _dp_with_enter_2 = await __dp__.with_aenter(a$0)
     b = __dp__.getitem(_dp_with_enter_2, 0)
     _dp_with_exit_3 = __dp__.getitem(_dp_with_enter_2, 1)
     _dp_with_active_4 = True
     try:
-        c
+        c$0
     except:
         _dp_with_active_4 = False
         await __dp__.with_aexit(_dp_with_exit_3, __dp__.exc_info())
