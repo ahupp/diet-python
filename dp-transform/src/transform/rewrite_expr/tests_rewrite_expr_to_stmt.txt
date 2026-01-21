@@ -79,7 +79,7 @@ def _dp_gen_1(_dp_iter_2):
             i = __dp__.next(_dp_iter_3)
             yield i
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+        if __dp__.exception_matches(__dp__.current_exception(), StopIteration$0):
             pass
         else:
             raise

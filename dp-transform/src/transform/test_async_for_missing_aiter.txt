@@ -23,23 +23,23 @@ async def run():
         while True:
             _ = await __dp__.anext(_dp_iter_1)
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), StopAsyncIteration):
+        if __dp__.exception_matches(__dp__.current_exception(), StopAsyncIteration$0):
             pass
         else:
             raise
 def get_error():
     try:
-        asyncio.run(run())
+        asyncio$0.run(run$0())
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), TypeError):
+        if __dp__.exception_matches(__dp__.current_exception(), TypeError$0):
             exc = __dp__.current_exception()
             try:
-                return str(exc)
+                return str$0(exc)
             finally:
                 try:
                     del exc
                 except:
-                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                         pass
                     else:
                         raise

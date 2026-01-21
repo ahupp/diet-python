@@ -22,33 +22,32 @@ def exercise():
     def _dp_ns_X(_dp_class_ns):
 
         def _dp_lambda_1():
-            return __name__
+            return __name__$0
         _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "exercise.<locals>", "<lambda>")
         __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1))
         __dp__.setattr(_dp_class_ns, "__qualname__", "exercise.<locals>.X")
 
         def f(x):
-            nonlocal __class__
             del __class__
-            super()
+            super$0()
 
         def _dp_lambda_2():
-            return f
+            return f$0
         _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "exercise.<locals>", "<lambda>")
         __dp__.setattr(_dp_class_ns, "f", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "f", _dp_lambda_2), "exercise.<locals>.X", "<locals>"))
     X = __dp__.create_class("X", _dp_ns_X, (), None)
     try:
-        getattr(X(), "f")()
+        getattr$0(X(), "f")()
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), Exception):
+        if __dp__.exception_matches(__dp__.current_exception(), Exception$0):
             exc = __dp__.current_exception()
             try:
-                return type(exc), str(exc)
+                return type$0(exc), str$0(exc)
             finally:
                 try:
                     del exc
                 except:
-                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                         pass
                     else:
                         raise

@@ -44,15 +44,8 @@ pub(crate) struct LoweredExpr {
 
 impl LoweredExpr {
 
-    pub fn new_modified(expr: Expr, stmts: Vec<Stmt>) -> Self {
-        Self {
-            stmts,
-            expr,
-            modified: true,
-        }
-    }
 
-    pub fn unmodified_modified(expr: Expr, stmts: Vec<Stmt>) -> Self {
+    pub fn modified(expr: Expr, stmts: Vec<Stmt>) -> Self {
         Self {
             stmts,
             expr,
@@ -119,7 +112,7 @@ impl ExprRewriter {
             tmp = tmp.as_str(),
             expr = expr
         );
-        LoweredExpr::unmodified_modified(py_expr!("{tmp:id}", tmp = tmp.as_str()), assign)
+        LoweredExpr::modified(py_expr!("{tmp:id}", tmp = tmp.as_str()), assign)
     }
 
     pub(crate) fn with_scope<F, R>(&mut self, scope: ScopeInfo, f: F) -> R

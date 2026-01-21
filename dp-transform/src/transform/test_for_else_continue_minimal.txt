@@ -16,7 +16,7 @@ RESULT = collect_for_else_continue_minimal()
 =
 def collect_for_else_continue_minimal():
     seen = __dp__.list(())
-    _dp_iter_1 = __dp__.iter(range(2))
+    _dp_iter_1 = __dp__.iter(range$0(2))
     try:
         while True:
             outer = __dp__.next(_dp_iter_1)
@@ -28,13 +28,13 @@ def collect_for_else_continue_minimal():
                 seen.append(outer)
                 continue
             except:
-                if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+                if __dp__.exception_matches(__dp__.current_exception(), StopIteration$0):
                     pass
                 else:
                     raise
             seen.append("unreachable")
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+        if __dp__.exception_matches(__dp__.current_exception(), StopIteration$0):
             pass
         else:
             raise

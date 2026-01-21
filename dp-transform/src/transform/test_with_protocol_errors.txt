@@ -29,7 +29,7 @@ def exercise():
     def _dp_ns_LacksEnter(_dp_class_ns):
 
         def _dp_lambda_5():
-            return __name__
+            return __name__$0
         _dp_lambda_5 = __dp__.update_fn(_dp_lambda_5, "exercise.<locals>", "<lambda>")
         __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_5))
         __dp__.setattr(_dp_class_ns, "__qualname__", "exercise.<locals>.LacksEnter")
@@ -38,7 +38,7 @@ def exercise():
             pass
 
         def _dp_lambda_6():
-            return __exit__
+            return __exit__$0
         _dp_lambda_6 = __dp__.update_fn(_dp_lambda_6, "exercise.<locals>", "<lambda>")
         __dp__.setattr(_dp_class_ns, "__exit__", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "__exit__", _dp_lambda_6), "exercise.<locals>.LacksEnter", "<locals>"))
     LacksEnter = __dp__.create_class("LacksEnter", _dp_ns_LacksEnter, (), None)
@@ -46,7 +46,7 @@ def exercise():
     def _dp_ns_LacksExit(_dp_class_ns):
 
         def _dp_lambda_7():
-            return __name__
+            return __name__$0
         _dp_lambda_7 = __dp__.update_fn(_dp_lambda_7, "exercise.<locals>", "<lambda>")
         __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_7))
         __dp__.setattr(_dp_class_ns, "__qualname__", "exercise.<locals>.LacksExit")
@@ -55,7 +55,7 @@ def exercise():
             return self
 
         def _dp_lambda_8():
-            return __enter__
+            return __enter__$0
         _dp_lambda_8 = __dp__.update_fn(_dp_lambda_8, "exercise.<locals>", "<lambda>")
         __dp__.setattr(_dp_class_ns, "__enter__", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "__enter__", _dp_lambda_8), "exercise.<locals>.LacksExit", "<locals>"))
     LacksExit = __dp__.create_class("LacksExit", _dp_ns_LacksExit, (), None)
@@ -82,15 +82,15 @@ def exercise():
                 finally:
                     _dp_with_exit_2 = None
             except:
-                if __dp__.exception_matches(__dp__.current_exception(), Exception):
+                if __dp__.exception_matches(__dp__.current_exception(), Exception$0):
                     exc = __dp__.current_exception()
                     try:
-                        errors.append((type(exc), str(exc)))
+                        errors.append((type$0(exc), str$0(exc)))
                     finally:
                         try:
                             del exc
                         except:
-                            if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                            if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                                 pass
                             else:
                                 raise
@@ -99,7 +99,7 @@ def exercise():
             else:
                 errors.append(None)
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+        if __dp__.exception_matches(__dp__.current_exception(), StopIteration$0):
             pass
         else:
             raise

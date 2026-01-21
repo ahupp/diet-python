@@ -15,17 +15,17 @@ def classcell_values():
     def _dp_ns_C(_dp_class_ns):
 
         def _dp_lambda_8():
-            return __name__
+            return __name__$0
         _dp_lambda_8 = __dp__.update_fn(_dp_lambda_8, "classcell_values.<locals>", "<lambda>")
         __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_8))
         __dp__.setattr(_dp_class_ns, "__qualname__", "classcell_values.<locals>.C")
 
         def method(self):
-            super()
+            super$0()
             return __class__
 
         def _dp_lambda_9():
-            return method
+            return method$0
         _dp_lambda_9 = __dp__.update_fn(_dp_lambda_9, "classcell_values.<locals>", "<lambda>")
         __dp__.setattr(_dp_class_ns, "method", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "method", _dp_lambda_9), "classcell_values.<locals>.C", "<locals>"))
 
@@ -36,11 +36,11 @@ def classcell_values():
                     i = __dp__.next(_dp_iter_3)
 
                     def _dp_lambda_4():
-                        return i
+                        return i$2
                     _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, "classcell_values.<locals>.C", "<lambda>")
                     yield _dp_lambda_4
             except:
-                if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+                if __dp__.exception_matches(__dp__.current_exception(), StopIteration$0):
                     pass
                 else:
                     raise
@@ -48,7 +48,7 @@ def classcell_values():
         _dp_gen_1 = __dp__.update_fn(_dp_gen_1, "classcell_values.<locals>.C", "<genexpr>")
 
         def _dp_lambda_10():
-            return range
+            return range$0
         _dp_lambda_10 = __dp__.update_fn(_dp_lambda_10, "classcell_values.<locals>", "<lambda>")
         __dp__.setattr(_dp_class_ns, "items", __dp__.list(_dp_gen_1(__dp__.iter(__dp__.class_lookup(_dp_class_ns, "range", _dp_lambda_10)(5)))))
 
@@ -59,7 +59,7 @@ def classcell_values():
                     x = __dp__.next(_dp_iter_7)
                     yield x()
             except:
-                if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+                if __dp__.exception_matches(__dp__.current_exception(), StopIteration$0):
                     pass
                 else:
                     raise
@@ -67,8 +67,8 @@ def classcell_values():
         _dp_gen_5 = __dp__.update_fn(_dp_gen_5, "classcell_values.<locals>.C", "<genexpr>")
 
         def _dp_lambda_11():
-            return items
+            return items$0
         _dp_lambda_11 = __dp__.update_fn(_dp_lambda_11, "classcell_values.<locals>", "<lambda>")
         __dp__.setattr(_dp_class_ns, "y", __dp__.list(_dp_gen_5(__dp__.iter(__dp__.class_lookup(_dp_class_ns, "items", _dp_lambda_11)))))
     C = __dp__.create_class("C", _dp_ns_C, (), None)
-    return C.y, getattr(C(), "method")(), C
+    return C.y, getattr$0(C(), "method")(), C

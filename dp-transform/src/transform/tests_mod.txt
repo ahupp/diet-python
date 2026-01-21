@@ -47,7 +47,7 @@ type Alias = int
 def _dp_ns_Foo(_dp_class_ns):
 
     def _dp_lambda_1():
-        return __name__
+        return __name__$0
     _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1))
     __dp__.setattr(_dp_class_ns, "__qualname__", "Foo")
@@ -55,7 +55,7 @@ def _dp_ns_Foo(_dp_class_ns):
     def _dp_type_alias_Inner():
 
         def _dp_lambda_2():
-            return str
+            return str$0
         _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, None, "<lambda>")
         type Inner = __dp__.class_lookup(_dp_class_ns, "str", _dp_lambda_2)
         return Inner
@@ -65,7 +65,7 @@ def _dp_ns_Foo(_dp_class_ns):
         return 1
 
     def _dp_lambda_3():
-        return method
+        return method$0
     _dp_lambda_3 = __dp__.update_fn(_dp_lambda_3, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "method", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "method", _dp_lambda_3), "Foo", "<locals>"))
 Foo = __dp__.create_class("Foo", _dp_ns_Foo, (), None)
@@ -80,13 +80,13 @@ RESULT = Example.value
 def _dp_ns_Example(_dp_class_ns):
 
     def _dp_lambda_1():
-        return __name__
+        return __name__$0
     _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1))
     __dp__.setattr(_dp_class_ns, "__qualname__", "Example")
 
     def _dp_lambda_2():
-        return __name__
+        return __name__$0
     _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "value", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_2))
 Example = __dp__.create_class("Example", _dp_ns_Example, (), None)
@@ -109,24 +109,24 @@ time = __dp__.import_("time", __spec__)
 def _dp_ns_Base(_dp_class_ns):
 
     def _dp_lambda_1():
-        return __name__
+        return __name__$0
     _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1))
     __dp__.setattr(_dp_class_ns, "__qualname__", "Base")
 
     def __init__(self):
-        __dp__.setattr(self, "resolution", getattr(time.get_clock_info("monotonic"), "resolution"))
+        __dp__.setattr(self, "resolution", getattr$0(time$0.get_clock_info("monotonic"), "resolution"))
 
     def _dp_lambda_2():
-        return __init__
+        return __init__$0
     _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__init__", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "__init__", _dp_lambda_2), "Base", "<locals>"))
 
     def time(self):
-        return time.monotonic()
+        return time$0.monotonic()
 
     def _dp_lambda_3():
-        return time
+        return time$0
     _dp_lambda_3 = __dp__.update_fn(_dp_lambda_3, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "time", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "time", _dp_lambda_3), "Base", "<locals>"))
 Base = __dp__.create_class("Base", _dp_ns_Base, (), None)
@@ -148,7 +148,7 @@ types = __dp__.import_("types", __spec__)
 def _dp_ns_Example(_dp_class_ns):
 
     def _dp_lambda_1():
-        return __name__
+        return __name__$0
     _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1))
     __dp__.setattr(_dp_class_ns, "__qualname__", "Example")
@@ -157,18 +157,18 @@ def _dp_ns_Example(_dp_class_ns):
         return "value"
 
     def _dp_lambda_2():
-        return get
+        return get$0
     _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "get", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "get", _dp_lambda_2), "Example", "<locals>"))
 
     def _dp_lambda_3():
-        return classmethod
+        return classmethod$0
     _dp_lambda_3 = __dp__.update_fn(_dp_lambda_3, None, "<lambda>")
 
     def _dp_lambda_4():
-        return types
+        return types$0
     _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, None, "<lambda>")
-    __dp__.setattr(_dp_class_ns, "__class_getitem__", __dp__.class_lookup(_dp_class_ns, "classmethod", _dp_lambda_3)(getattr(__dp__.class_lookup(_dp_class_ns, "types", _dp_lambda_4), "GenericAlias")))
+    __dp__.setattr(_dp_class_ns, "__class_getitem__", __dp__.class_lookup(_dp_class_ns, "classmethod", _dp_lambda_3)(getattr$0(__dp__.class_lookup(_dp_class_ns, "types", _dp_lambda_4), "GenericAlias")))
 Example = __dp__.create_class("Example", _dp_ns_Example, (), None)
 RESULT = __dp__.getitem(Example, int)
 
@@ -187,18 +187,18 @@ CLASS_ATTR = Example.atexit
 def _dp_ns_Example(_dp_class_ns):
 
     def _dp_lambda_1():
-        return __name__
+        return __name__$0
     _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1))
     __dp__.setattr(_dp_class_ns, "__qualname__", "Example")
     __dp__.setattr(_dp_class_ns, "atexit", "class")
 
     def __init__(self):
-        atexit = __dp__.import_("atexit", __spec__)
+        atexit = __dp__.import_("atexit", __spec__$0)
         __dp__.setattr(self, "module_name", atexit.__name__)
 
     def _dp_lambda_2():
-        return __init__
+        return __init__$0
     _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__init__", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "__init__", _dp_lambda_2), "Example", "<locals>"))
 Example = __dp__.create_class("Example", _dp_ns_Example, (), None)
@@ -225,7 +225,7 @@ VALUE = INSTANCE.value
 def _dp_ns_Base(_dp_class_ns):
 
     def _dp_lambda_1():
-        return __name__
+        return __name__$0
     _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1))
     __dp__.setattr(_dp_class_ns, "__qualname__", "Base")
@@ -234,24 +234,24 @@ def _dp_ns_Base(_dp_class_ns):
         __dp__.setattr(self, "value", "base")
 
     def _dp_lambda_2():
-        return __init__
+        return __init__$0
     _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__init__", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "__init__", _dp_lambda_2), "Base", "<locals>"))
 Base = __dp__.create_class("Base", _dp_ns_Base, (), None)
 def _dp_ns_Derived(_dp_class_ns):
 
     def _dp_lambda_3():
-        return __name__
+        return __name__$0
     _dp_lambda_3 = __dp__.update_fn(_dp_lambda_3, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_3))
     __dp__.setattr(_dp_class_ns, "__qualname__", "Derived")
 
     def __init__(self):
-        getattr(super(), "__init__")()
+        getattr$0(super$0(), "__init__")()
         __dp__.setattr(self, "child", True)
 
     def _dp_lambda_4():
-        return __init__
+        return __init__$0
     _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__init__", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "__init__", _dp_lambda_4), "Derived", "<locals>"))
 Derived = __dp__.create_class("Derived", _dp_ns_Derived, (Base,), None)
@@ -283,33 +283,33 @@ COUNT = asyncio.run(run())
 asyncio = __dp__.import_("asyncio", __spec__)
 traceback = __dp__.import_("traceback", __spec__)
 async def raise_exc():
-    raise TypeError(42)
+    raise TypeError$0(42)
 async def run():
-    fut = asyncio.create_task(raise_exc())
-    _dp_iter_1 = __dp__.iter(range(1))
+    fut = asyncio$0.create_task(raise_exc$0())
+    _dp_iter_1 = __dp__.iter(range$0(1))
     try:
         while True:
             _ = __dp__.next(_dp_iter_1)
             try:
                 await fut
             except:
-                if __dp__.exception_matches(__dp__.current_exception(), TypeError):
+                if __dp__.exception_matches(__dp__.current_exception(), TypeError$0):
                     exc = __dp__.current_exception()
                     try:
-                        tb = getattr("", "join")(traceback.format_tb(exc.__traceback__))
+                        tb = getattr$0("", "join")(traceback$0.format_tb(exc.__traceback__))
                         return tb.count("await fut")
                     finally:
                         try:
                             del exc
                         except:
-                            if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                            if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                                 pass
                             else:
                                 raise
                 else:
                     raise
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+        if __dp__.exception_matches(__dp__.current_exception(), StopIteration$0):
             pass
         else:
             raise
@@ -334,7 +334,7 @@ time = __dp__.import_("time", __spec__)
 def _dp_ns_Outer(_dp_class_ns):
 
     def _dp_lambda_3():
-        return __name__
+        return __name__$0
     _dp_lambda_3 = __dp__.update_fn(_dp_lambda_3, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_3))
     __dp__.setattr(_dp_class_ns, "__qualname__", "Outer")
@@ -343,23 +343,23 @@ def _dp_ns_Outer(_dp_class_ns):
         return "outer"
 
     def _dp_lambda_4():
-        return format_help
+        return format_help$0
     _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "format_help", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "format_help", _dp_lambda_4), "Outer", "<locals>"))
 
     def _dp_ns_Inner(_dp_class_ns):
 
         def _dp_lambda_1():
-            return __name__
+            return __name__$0
         _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "Outer", "<lambda>")
         __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1))
         __dp__.setattr(_dp_class_ns, "__qualname__", "Outer.Inner")
 
         def format_help(self):
-            return getattr(time.get_clock_info("monotonic"), "resolution")
+            return getattr$0(time$0.get_clock_info("monotonic"), "resolution")
 
         def _dp_lambda_2():
-            return format_help
+            return format_help$0
         _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "Outer", "<lambda>")
         __dp__.setattr(_dp_class_ns, "format_help", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "format_help", _dp_lambda_2), "Outer.Inner", "<locals>"))
     _dp_ns_Inner = __dp__.update_fn(_dp_ns_Inner, "Outer", "<locals>")
@@ -401,28 +401,28 @@ weakref = __dp__.import_("weakref", __spec__)
 def _dp_ns_Payload(_dp_class_ns):
 
     def _dp_lambda_1():
-        return __name__
+        return __name__$0
     _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1))
     __dp__.setattr(_dp_class_ns, "__qualname__", "Payload")
 Payload = __dp__.create_class("Payload", _dp_ns_Payload, (), None)
 async def hold_ref(ref_holder):
-    obj = Payload()
-    ref_holder.append(weakref.ref(obj))
-    await asyncio.sleep(10)
+    obj = Payload$0()
+    ref_holder.append(weakref$0.ref(obj))
+    await asyncio$0.sleep(10)
 def leak_check():
     ref_holder = __dp__.list(())
 
     async def runner():
-        await asyncio.wait_for(hold_ref(ref_holder), 0.01)
+        await asyncio$0.wait_for(hold_ref$0(ref_holder$1), 0.01)
     try:
-        asyncio.run(runner())
+        asyncio$0.run(runner())
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), asyncio.TimeoutError):
+        if __dp__.exception_matches(__dp__.current_exception(), asyncio$0.TimeoutError):
             pass
         else:
             raise
-    gc.collect()
+    gc$0.collect()
     return __dp__.getitem(ref_holder, 0)()
 
 $ asyncio ssl handshake timeout cleanup
@@ -568,7 +568,7 @@ tasks = importlib.import_module(getattr("", "join")((__dp__.builtins.format(PKG_
 def _dp_ns_DummySock(_dp_class_ns):
 
     def _dp_lambda_4():
-        return __name__
+        return __name__$0
     _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_4))
     __dp__.setattr(_dp_class_ns, "__qualname__", "DummySock")
@@ -577,14 +577,14 @@ def _dp_ns_DummySock(_dp_class_ns):
         pass
 
     def _dp_lambda_5():
-        return setblocking
+        return setblocking$0
     _dp_lambda_5 = __dp__.update_fn(_dp_lambda_5, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "setblocking", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "setblocking", _dp_lambda_5), "DummySock", "<locals>"))
 DummySock = __dp__.create_class("DummySock", _dp_ns_DummySock, (), None)
 def _dp_ns_DummyTransport(_dp_class_ns):
 
     def _dp_lambda_6():
-        return __name__
+        return __name__$0
     _dp_lambda_6 = __dp__.update_fn(_dp_lambda_6, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_6))
     __dp__.setattr(_dp_class_ns, "__qualname__", "DummyTransport")
@@ -593,7 +593,7 @@ def _dp_ns_DummyTransport(_dp_class_ns):
         __dp__.setattr(self, "closed", False)
 
     def _dp_lambda_7():
-        return __init__
+        return __init__$0
     _dp_lambda_7 = __dp__.update_fn(_dp_lambda_7, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__init__", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "__init__", _dp_lambda_7), "DummyTransport", "<locals>"))
 
@@ -601,7 +601,7 @@ def _dp_ns_DummyTransport(_dp_class_ns):
         __dp__.setattr(self, "closed", True)
 
     def _dp_lambda_8():
-        return _force_close
+        return _force_close$0
     _dp_lambda_8 = __dp__.update_fn(_dp_lambda_8, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "_force_close", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "_force_close", _dp_lambda_8), "DummyTransport", "<locals>"))
 
@@ -609,7 +609,7 @@ def _dp_ns_DummyTransport(_dp_class_ns):
         return default
 
     def _dp_lambda_9():
-        return get_extra_info
+        return get_extra_info$0
     _dp_lambda_9 = __dp__.update_fn(_dp_lambda_9, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "get_extra_info", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "get_extra_info", _dp_lambda_9), "DummyTransport", "<locals>"))
 
@@ -617,7 +617,7 @@ def _dp_ns_DummyTransport(_dp_class_ns):
         pass
 
     def _dp_lambda_10():
-        return write
+        return write$0
     _dp_lambda_10 = __dp__.update_fn(_dp_lambda_10, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "write", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "write", _dp_lambda_10), "DummyTransport", "<locals>"))
 
@@ -625,7 +625,7 @@ def _dp_ns_DummyTransport(_dp_class_ns):
         return self.closed
 
     def _dp_lambda_11():
-        return is_closing
+        return is_closing$0
     _dp_lambda_11 = __dp__.update_fn(_dp_lambda_11, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "is_closing", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "is_closing", _dp_lambda_11), "DummyTransport", "<locals>"))
 
@@ -633,7 +633,7 @@ def _dp_ns_DummyTransport(_dp_class_ns):
         pass
 
     def _dp_lambda_12():
-        return pause_reading
+        return pause_reading$0
     _dp_lambda_12 = __dp__.update_fn(_dp_lambda_12, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "pause_reading", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "pause_reading", _dp_lambda_12), "DummyTransport", "<locals>"))
 
@@ -641,7 +641,7 @@ def _dp_ns_DummyTransport(_dp_class_ns):
         pass
 
     def _dp_lambda_13():
-        return resume_reading
+        return resume_reading$0
     _dp_lambda_13 = __dp__.update_fn(_dp_lambda_13, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "resume_reading", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "resume_reading", _dp_lambda_13), "DummyTransport", "<locals>"))
 
@@ -649,56 +649,56 @@ def _dp_ns_DummyTransport(_dp_class_ns):
         pass
 
     def _dp_lambda_14():
-        return set_write_buffer_limits
+        return set_write_buffer_limits$0
     _dp_lambda_14 = __dp__.update_fn(_dp_lambda_14, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "set_write_buffer_limits", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "set_write_buffer_limits", _dp_lambda_14), "DummyTransport", "<locals>"))
 DummyTransport = __dp__.create_class("DummyTransport", _dp_ns_DummyTransport, (), None)
 def _dp_ns_DummyLoop(_dp_class_ns):
 
     def _dp_lambda_15():
-        return __name__
+        return __name__$0
     _dp_lambda_15 = __dp__.update_fn(_dp_lambda_15, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_15))
     __dp__.setattr(_dp_class_ns, "__qualname__", "DummyLoop")
 
     def _dp_lambda_16():
-        return constants
+        return constants$0
     _dp_lambda_16 = __dp__.update_fn(_dp_lambda_16, None, "<lambda>")
 
     def _dp_lambda_17():
-        return constants
+        return constants$0
     _dp_lambda_17 = __dp__.update_fn(_dp_lambda_17, None, "<lambda>")
 
-    def _make_ssl_transport(self, rawsock, protocol, sslcontext, waiter=None, *, server_side=False, server_hostname=None, extra=None, server=None, ssl_handshake_timeout=getattr(__dp__.class_lookup(_dp_class_ns, "constants", _dp_lambda_16), "SSL_HANDSHAKE_TIMEOUT"), ssl_shutdown_timeout=getattr(__dp__.class_lookup(_dp_class_ns, "constants", _dp_lambda_17), "SSL_SHUTDOWN_TIMEOUT")):
-        ssl_protocol = sslproto.SSLProtocol(self, protocol, sslcontext, waiter, server_side, server_hostname, ssl_handshake_timeout=ssl_handshake_timeout, ssl_shutdown_timeout=ssl_shutdown_timeout)
-        ssl_protocol.connection_made(DummyTransport())
+    def _make_ssl_transport(self, rawsock, protocol, sslcontext, waiter=None, *, server_side=False, server_hostname=None, extra=None, server=None, ssl_handshake_timeout=getattr$0(__dp__.class_lookup(_dp_class_ns, "constants", _dp_lambda_16), "SSL_HANDSHAKE_TIMEOUT"), ssl_shutdown_timeout=getattr$0(__dp__.class_lookup(_dp_class_ns, "constants", _dp_lambda_17), "SSL_SHUTDOWN_TIMEOUT")):
+        ssl_protocol = sslproto$0.SSLProtocol(self, protocol, sslcontext, waiter, server_side, server_hostname, ssl_handshake_timeout=ssl_handshake_timeout, ssl_shutdown_timeout=ssl_shutdown_timeout)
+        ssl_protocol.connection_made(DummyTransport$0())
         return ssl_protocol._app_transport
 
     def _dp_lambda_18():
-        return _make_ssl_transport
+        return _make_ssl_transport$0
     _dp_lambda_18 = __dp__.update_fn(_dp_lambda_18, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "_make_ssl_transport", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "_make_ssl_transport", _dp_lambda_18), "DummyLoop", "<locals>"))
 
     def _make_socket_transport(self, sock, protocol, waiter=None, *, extra=None, server=None):
-        return DummyTransport()
+        return DummyTransport$0()
 
     def _dp_lambda_19():
-        return _make_socket_transport
+        return _make_socket_transport$0
     _dp_lambda_19 = __dp__.update_fn(_dp_lambda_19, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "_make_socket_transport", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "_make_socket_transport", _dp_lambda_19), "DummyLoop", "<locals>"))
 DummyLoop = __dp__.create_class("DummyLoop", _dp_ns_DummyLoop, (selector_events.BaseSelectorEventLoop,), None)
 def leak_check():
-    loop = DummyLoop()
-    sslctx = ssl.create_default_context()
-    ref = weakref.ref(sslctx)
-    sock = DummySock()
+    loop = DummyLoop$0()
+    sslctx = ssl$0.create_default_context()
+    ref = weakref$0.ref(sslctx)
+    sock = DummySock$0()
 
     async def run():
-        await tasks.wait_for(loop._create_connection_transport(sock, protocols.Protocol, sslctx, "", ssl_handshake_timeout=10.0), 0.01)
+        await tasks$0.wait_for(loop$1._create_connection_transport(sock$1, protocols$0.Protocol, sslctx$1, "", ssl_handshake_timeout=10.0), 0.01)
     try:
         loop.run_until_complete(run())
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), BaseException):
+        if __dp__.exception_matches(__dp__.current_exception(), BaseException$0):
             exc = __dp__.current_exception()
             try:
                 _dp_target_3 = __dp__.not_(__dp__.contains(("TimeoutError", "CancelledError"), exc.__class__.__name__))
@@ -708,7 +708,7 @@ def leak_check():
                 try:
                     del exc
                 except:
-                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                         pass
                     else:
                         raise
@@ -717,7 +717,7 @@ def leak_check():
     finally:
         loop.close()
     sslctx = None
-    gc.collect()
+    gc$0.collect()
     return ref()
 
 $ except star preserves exception groups
@@ -734,9 +734,9 @@ def handle():
 def handle():
     exc = None
     try:
-        raise ExceptionGroup("eg", __dp__.list((OSError("boom"),)))
-    except* OSError as excs:
-        exc = excs
+        raise ExceptionGroup$0("eg", __dp__.list((OSError$0("boom"),)))
+    except* OSError$0 as excs:
+        exc = excs$0
     return exc
 
 $ except as clears exception binding
@@ -760,9 +760,9 @@ gc = __dp__.import_("gc", __spec__)
 types = __dp__.import_("types", __spec__)
 def capture():
     try:
-        raise OSError("boom")
+        raise OSError$0("boom")
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), OSError):
+        if __dp__.exception_matches(__dp__.current_exception(), OSError$0):
             err = __dp__.current_exception()
             try:
                 return err
@@ -770,30 +770,30 @@ def capture():
                 try:
                     del err
                 except:
-                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                         pass
                     else:
                         raise
         else:
             raise
 def count_exception_referrer_frames():
-    exc = capture()
+    exc = capture$0()
 
     def _dp_gen_1(_dp_iter_2):
         _dp_iter_3 = __dp__.iter(_dp_iter_2)
         try:
             while True:
                 ref = __dp__.next(_dp_iter_3)
-                if isinstance(ref, types.FrameType):
+                if isinstance$0(ref, types$0.FrameType):
                     yield ref
         except:
-            if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+            if __dp__.exception_matches(__dp__.current_exception(), StopIteration$0):
                 pass
             else:
                 raise
     _dp_gen_1 = __dp__.update_fn(_dp_gen_1, "count_exception_referrer_frames.<locals>", "<genexpr>")
-    refs = __dp__.list(_dp_gen_1(__dp__.iter(gc.get_referrers(exc))))
-    return len(refs)
+    refs = __dp__.list(_dp_gen_1(__dp__.iter(gc$0.get_referrers(exc))))
+    return len$0(refs)
 
 $ lru cache method pickles with stable qualname
 
@@ -814,7 +814,7 @@ pickle = __dp__.import_("pickle", __spec__)
 def _dp_ns_HasCache(_dp_class_ns):
 
     def _dp_lambda_1():
-        return __name__
+        return __name__$0
     _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1))
     __dp__.setattr(_dp_class_ns, "__qualname__", "HasCache")
@@ -823,21 +823,21 @@ def _dp_ns_HasCache(_dp_class_ns):
         return __dp__.add(x, y)
 
     def _dp_lambda_2():
-        return cached_meth
+        return cached_meth$0
     _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "cached_meth", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "cached_meth", _dp_lambda_2), "HasCache", "<locals>"))
 
     def _dp_lambda_3():
-        return cached_meth
+        return cached_meth$0
     _dp_lambda_3 = __dp__.update_fn(_dp_lambda_3, None, "<lambda>")
 
     def _dp_lambda_4():
-        return functools
+        return functools$0
     _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, None, "<lambda>")
-    __dp__.setattr(_dp_class_ns, "cached_meth", getattr(__dp__.class_lookup(_dp_class_ns, "functools", _dp_lambda_4), "lru_cache")()(__dp__.class_lookup(_dp_class_ns, "cached_meth", _dp_lambda_3)))
+    __dp__.setattr(_dp_class_ns, "cached_meth", getattr$0(__dp__.class_lookup(_dp_class_ns, "functools", _dp_lambda_4), "lru_cache")()(__dp__.class_lookup(_dp_class_ns, "cached_meth", _dp_lambda_3)))
 HasCache = __dp__.create_class("HasCache", _dp_ns_HasCache, (), None)
 def pickle_cached_method():
-    return pickle.loads(pickle.dumps(HasCache.cached_meth))
+    return pickle$0.loads(pickle$0.dumps(HasCache$0.cached_meth))
 
 $ positional-only param shadows class attribute
 
@@ -859,7 +859,7 @@ def make_value():
     def _dp_ns_Example(_dp_class_ns):
 
         def _dp_lambda_1():
-            return __name__
+            return __name__$0
         _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "make_value.<locals>", "<lambda>")
         __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1))
         __dp__.setattr(_dp_class_ns, "__qualname__", "make_value.<locals>.Example")
@@ -872,11 +872,11 @@ def make_value():
             return f(1, 2)
 
         def _dp_lambda_2():
-            return compute
+            return compute$0
         _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "make_value.<locals>", "<lambda>")
         __dp__.setattr(_dp_class_ns, "compute", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "compute", _dp_lambda_2), "make_value.<locals>.Example", "<locals>"))
     Example = __dp__.create_class("Example", _dp_ns_Example, (), None)
-    return getattr(Example(), "compute")()
+    return getattr$0(Example(), "compute")()
 
 $ integration: functools singledispatch qualname
 
@@ -912,7 +912,7 @@ functools = __dp__.import_("functools", __spec__)
 def _dp_ns_Wrapper(_dp_class_ns):
 
     def _dp_lambda_6():
-        return __name__
+        return __name__$0
     _dp_lambda_6 = __dp__.update_fn(_dp_lambda_6, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_6))
     __dp__.setattr(_dp_class_ns, "__qualname__", "Wrapper")
@@ -922,32 +922,32 @@ def _dp_ns_Wrapper(_dp_class_ns):
         def _dp_ns_A(_dp_class_ns):
 
             def _dp_lambda_2():
-                return __name__
+                return __name__$0
             _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "Wrapper.make_nested_class.<locals>", "<lambda>")
             __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_2))
             __dp__.setattr(_dp_class_ns, "__qualname__", "Wrapper.make_nested_class.<locals>.A")
 
             def func(self, arg: "int") -> "str":
-                return str(arg)
+                return str$0(arg)
 
             def _dp_lambda_3():
-                return func
+                return func$0
             _dp_lambda_3 = __dp__.update_fn(_dp_lambda_3, "Wrapper.make_nested_class.<locals>", "<lambda>")
             __dp__.setattr(_dp_class_ns, "func", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "func", _dp_lambda_3), "Wrapper.make_nested_class.<locals>.A", "<locals>"))
 
             def _dp_lambda_4():
-                return func
+                return func$0
             _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, "Wrapper.make_nested_class.<locals>", "<lambda>")
 
             def _dp_lambda_5():
-                return functools
+                return functools$0
             _dp_lambda_5 = __dp__.update_fn(_dp_lambda_5, "Wrapper.make_nested_class.<locals>", "<lambda>")
-            __dp__.setattr(_dp_class_ns, "func", getattr(__dp__.class_lookup(_dp_class_ns, "functools", _dp_lambda_5), "singledispatchmethod")(__dp__.class_lookup(_dp_class_ns, "func", _dp_lambda_4)))
+            __dp__.setattr(_dp_class_ns, "func", getattr$0(__dp__.class_lookup(_dp_class_ns, "functools", _dp_lambda_5), "singledispatchmethod")(__dp__.class_lookup(_dp_class_ns, "func", _dp_lambda_4)))
         A = __dp__.create_class("A", _dp_ns_A, (), None)
         return A
 
     def _dp_lambda_7():
-        return make_nested_class
+        return make_nested_class$0
     _dp_lambda_7 = __dp__.update_fn(_dp_lambda_7, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "make_nested_class", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "make_nested_class", _dp_lambda_7), "Wrapper", "<locals>"))
 
@@ -955,31 +955,31 @@ def _dp_ns_Wrapper(_dp_class_ns):
 
         def i(arg):
             return "base"
-        i = functools.singledispatch(i)
+        i = functools$0.singledispatch(i)
         try:
 
             def _(arg):
                 return "missing annotation"
             _ = i.register(_)
         except:
-            if __dp__.exception_matches(__dp__.current_exception(), TypeError):
+            if __dp__.exception_matches(__dp__.current_exception(), TypeError$0):
                 exc = __dp__.current_exception()
                 try:
-                    return str(exc)
+                    return str$0(exc)
                 finally:
                     try:
                         del exc
                     except:
-                        if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                        if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                             pass
                         else:
                             raise
             else:
                 raise
-        raise AssertionError("expected TypeError")
+        raise AssertionError$0("expected TypeError")
 
     def _dp_lambda_8():
-        return bad_register_message
+        return bad_register_message$0
     _dp_lambda_8 = __dp__.update_fn(_dp_lambda_8, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "bad_register_message", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "bad_register_message", _dp_lambda_8), "Wrapper", "<locals>"))
 Wrapper = __dp__.create_class("Wrapper", _dp_ns_Wrapper, (), None)
@@ -1015,7 +1015,7 @@ FOO_DEFINES = __dp__.dict((("FOO_CAT", "aloof"), ("BAR_DOG", "friendly"), ("FOO_
 def _dp_ns_Foo(_dp_class_ns):
 
     def _dp_lambda_7():
-        return __name__
+        return __name__$0
     _dp_lambda_7 = __dp__.update_fn(_dp_lambda_7, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_7))
     __dp__.setattr(_dp_class_ns, "__qualname__", "Foo")
@@ -1035,7 +1035,7 @@ def _dp_ns_Foo(_dp_class_ns):
                 if k.startswith("FOO_"):
                     yield k, v
         except:
-            if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+            if __dp__.exception_matches(__dp__.current_exception(), StopIteration$0):
                 pass
             else:
                 raise
@@ -1043,19 +1043,19 @@ def _dp_ns_Foo(_dp_class_ns):
     _dp_gen_2 = __dp__.update_fn(_dp_gen_2, "Foo", "<genexpr>")
 
     def _dp_lambda_8():
-        return getattr
+        return getattr$0
     _dp_lambda_8 = __dp__.update_fn(_dp_lambda_8, None, "<lambda>")
 
     def _dp_lambda_9():
-        return FOO_DEFINES
+        return FOO_DEFINES$0
     _dp_lambda_9 = __dp__.update_fn(_dp_lambda_9, None, "<lambda>")
-    __dp__.class_lookup(_dp_class_ns, "getattr", _dp_lambda_8)(_dp_class_ns._namespace, "update")(__dp__.dict(_dp_gen_2(__dp__.iter(getattr(__dp__.class_lookup(_dp_class_ns, "FOO_DEFINES", _dp_lambda_9), "items")()))))
+    __dp__.class_lookup(_dp_class_ns, "getattr", _dp_lambda_8)(_dp_class_ns._namespace, "update")(__dp__.dict(_dp_gen_2(__dp__.iter(getattr$0(__dp__.class_lookup(_dp_class_ns, "FOO_DEFINES", _dp_lambda_9), "items")()))))
 
     def upper(self):
         return self.value.upper()
 
     def _dp_lambda_10():
-        return upper
+        return upper$0
     _dp_lambda_10 = __dp__.update_fn(_dp_lambda_10, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "upper", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "upper", _dp_lambda_10), "Foo", "<locals>"))
 Foo = __dp__.create_class("Foo", _dp_ns_Foo, (Enum,), None)
@@ -1080,7 +1080,7 @@ del _dp_import_1
 def _dp_ns_Period(_dp_class_ns):
 
     def _dp_lambda_3():
-        return __name__
+        return __name__$0
     _dp_lambda_3 = __dp__.update_fn(_dp_lambda_3, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_3))
     __dp__.setattr(_dp_class_ns, "__qualname__", "Period")
@@ -1088,7 +1088,7 @@ def _dp_ns_Period(_dp_class_ns):
     __dp__.setattr(_dp_class_ns, "Period", _dp_class_ns._namespace)
 
     def _dp_lambda_4():
-        return range
+        return range$0
     _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, None, "<lambda>")
     _dp_iter_2 = __dp__.iter(__dp__.class_lookup(_dp_class_ns, "range", _dp_lambda_4)(2))
     try:
@@ -1096,25 +1096,25 @@ def _dp_ns_Period(_dp_class_ns):
             __dp__.setattr(_dp_class_ns, "i", __dp__.next(_dp_iter_2))
 
             def _dp_lambda_5():
-                return Period
+                return Period$0
             _dp_lambda_5 = __dp__.update_fn(_dp_lambda_5, None, "<lambda>")
 
             def _dp_lambda_6():
-                return getattr
+                return getattr$0
             _dp_lambda_6 = __dp__.update_fn(_dp_lambda_6, None, "<lambda>")
 
             def _dp_lambda_7():
-                return i
+                return i$0
             _dp_lambda_7 = __dp__.update_fn(_dp_lambda_7, None, "<lambda>")
 
             def _dp_lambda_8():
-                return i
+                return i$0
             _dp_lambda_8 = __dp__.update_fn(_dp_lambda_8, None, "<lambda>")
             __dp__.setitem(__dp__.class_lookup(_dp_class_ns, "Period", _dp_lambda_5), __dp__.class_lookup(_dp_class_ns, "getattr", _dp_lambda_6)("", "join")(("day_", __dp__.builtins.format(__dp__.class_lookup(_dp_class_ns, "i", _dp_lambda_7)))), __dp__.class_lookup(_dp_class_ns, "i", _dp_lambda_8))
     except:
 
         def _dp_lambda_9():
-            return StopIteration
+            return StopIteration$0
         _dp_lambda_9 = __dp__.update_fn(_dp_lambda_9, None, "<lambda>")
         if __dp__.exception_matches(__dp__.current_exception(), __dp__.class_lookup(_dp_class_ns, "StopIteration", _dp_lambda_9)):
             pass
@@ -1122,7 +1122,7 @@ def _dp_ns_Period(_dp_class_ns):
             raise
 
     def _dp_lambda_10():
-        return day_1
+        return day_1$0
     _dp_lambda_10 = __dp__.update_fn(_dp_lambda_10, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "OneDay", __dp__.class_lookup(_dp_class_ns, "day_1", _dp_lambda_10))
 Period = __dp__.create_class("Period", _dp_ns_Period, (Enum,), None)
@@ -1151,36 +1151,36 @@ del _dp_import_1
 def _dp_ns_Status(_dp_class_ns):
 
     def _dp_lambda_2():
-        return __name__
+        return __name__$0
     _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_2))
     __dp__.setattr(_dp_class_ns, "__qualname__", "Status")
 
     def _dp_lambda_3():
-        return auto
+        return auto$0
     _dp_lambda_3 = __dp__.update_fn(_dp_lambda_3, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "A", __dp__.class_lookup(_dp_class_ns, "auto", _dp_lambda_3)())
 
     def _dp_lambda_4():
-        return auto
+        return auto$0
     _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "B", __dp__.class_lookup(_dp_class_ns, "auto", _dp_lambda_4)())
 
     def _dp_lambda_5():
-        return nonmember
+        return nonmember$0
     _dp_lambda_5 = __dp__.update_fn(_dp_lambda_5, None, "<lambda>")
 
     def _dp_lambda_6():
-        return A
+        return A$0
     _dp_lambda_6 = __dp__.update_fn(_dp_lambda_6, None, "<lambda>")
 
     def _dp_lambda_7():
-        return B
+        return B$0
     _dp_lambda_7 = __dp__.update_fn(_dp_lambda_7, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "ALL", __dp__.class_lookup(_dp_class_ns, "nonmember", _dp_lambda_5)(__dp__.or_(__dp__.class_lookup(_dp_class_ns, "A", _dp_lambda_6), __dp__.class_lookup(_dp_class_ns, "B", _dp_lambda_7))))
 Status = __dp__.create_class("Status", _dp_ns_Status, (Flag,), None)
 def build_values():
-    return Status.A, Status.B, Status.ALL
+    return Status$0.A, Status$0.B, Status$0.ALL
 
 $ integration: dynamicclassattribute class scope getter
 
@@ -1212,7 +1212,7 @@ del _dp_import_1
 def _dp_ns_Base(_dp_class_ns):
 
     def _dp_lambda_2():
-        return __name__
+        return __name__$0
     _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_2))
     __dp__.setattr(_dp_class_ns, "__qualname__", "Base")
@@ -1221,51 +1221,51 @@ def _dp_ns_Base(_dp_class_ns):
         return 1
 
     def _dp_lambda_3():
-        return spam
+        return spam$0
     _dp_lambda_3 = __dp__.update_fn(_dp_lambda_3, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "spam", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "spam", _dp_lambda_3), "Base", "<locals>"))
 
     def _dp_lambda_4():
-        return DynamicClassAttribute
+        return DynamicClassAttribute$0
     _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, None, "<lambda>")
 
     def _dp_lambda_5():
-        return spam
+        return spam$0
     _dp_lambda_5 = __dp__.update_fn(_dp_lambda_5, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "spam", __dp__.class_lookup(_dp_class_ns, "DynamicClassAttribute", _dp_lambda_4)(__dp__.class_lookup(_dp_class_ns, "spam", _dp_lambda_5)))
 Base = __dp__.create_class("Base", _dp_ns_Base, (), None)
 def _dp_ns_Sub(_dp_class_ns):
 
     def _dp_lambda_6():
-        return __name__
+        return __name__$0
     _dp_lambda_6 = __dp__.update_fn(_dp_lambda_6, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_6))
     __dp__.setattr(_dp_class_ns, "__qualname__", "Sub")
 
     def _dp_lambda_7():
-        return Base
+        return Base$0
     _dp_lambda_7 = __dp__.update_fn(_dp_lambda_7, None, "<lambda>")
-    __dp__.setattr(_dp_class_ns, "spam", __dp__.getitem(getattr(__dp__.class_lookup(_dp_class_ns, "Base", _dp_lambda_7), "__dict__"), "spam"))
+    __dp__.setattr(_dp_class_ns, "spam", __dp__.getitem(getattr$0(__dp__.class_lookup(_dp_class_ns, "Base", _dp_lambda_7), "__dict__"), "spam"))
 
     def spam(self):
         return 2
 
     def _dp_lambda_8():
-        return spam
+        return spam$0
     _dp_lambda_8 = __dp__.update_fn(_dp_lambda_8, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "spam", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "spam", _dp_lambda_8), "Sub", "<locals>"))
 
     def _dp_lambda_9():
-        return spam
+        return spam$0
     _dp_lambda_9 = __dp__.update_fn(_dp_lambda_9, None, "<lambda>")
 
     def _dp_lambda_10():
-        return spam
+        return spam$0
     _dp_lambda_10 = __dp__.update_fn(_dp_lambda_10, None, "<lambda>")
-    __dp__.setattr(_dp_class_ns, "spam", getattr(__dp__.class_lookup(_dp_class_ns, "spam", _dp_lambda_10), "getter")(__dp__.class_lookup(_dp_class_ns, "spam", _dp_lambda_9)))
+    __dp__.setattr(_dp_class_ns, "spam", getattr$0(__dp__.class_lookup(_dp_class_ns, "spam", _dp_lambda_10), "getter")(__dp__.class_lookup(_dp_class_ns, "spam", _dp_lambda_9)))
 Sub = __dp__.create_class("Sub", _dp_ns_Sub, (Base,), None)
 def get_value():
-    return getattr(Sub(), "spam")
+    return getattr$0(Sub$0(), "spam")
 
 $ integration: asyncgen expression async for
 
@@ -1293,14 +1293,14 @@ def get_values():
 =
 asyncio = __dp__.import_("asyncio", __spec__)
 async def arange(n):
-    _dp_iter_1 = __dp__.iter(range(n))
+    _dp_iter_1 = __dp__.iter(range$0(n))
     try:
         while True:
             i = __dp__.next(_dp_iter_1)
-            await asyncio.sleep(0)
+            await asyncio$0.sleep(0)
             yield i
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+        if __dp__.exception_matches(__dp__.current_exception(), StopIteration$0):
             pass
         else:
             raise
@@ -1313,12 +1313,12 @@ def make_arange(n):
                 i = await __dp__.anext(_dp_iter_7)
                 yield __dp__.mul(i, 2)
         except:
-            if __dp__.exception_matches(__dp__.current_exception(), StopAsyncIteration):
+            if __dp__.exception_matches(__dp__.current_exception(), StopAsyncIteration$0):
                 pass
             else:
                 raise
     _dp_gen_5 = __dp__.update_fn(_dp_gen_5, "make_arange.<locals>", "<genexpr>")
-    return _dp_gen_5(arange(n))
+    return _dp_gen_5(arange$0(n))
 async def run():
 
     async def _dp_gen_2(_dp_iter_3):
@@ -1328,14 +1328,14 @@ async def run():
                 i = await __dp__.anext(_dp_iter_4)
                 yield i
         except:
-            if __dp__.exception_matches(__dp__.current_exception(), StopAsyncIteration):
+            if __dp__.exception_matches(__dp__.current_exception(), StopAsyncIteration$0):
                 pass
             else:
                 raise
     _dp_gen_2 = __dp__.update_fn(_dp_gen_2, "run.<locals>", "<genexpr>")
-    return __dp__.list(_dp_gen_2(make_arange(3)))
+    return __dp__.list(_dp_gen_2(make_arange$0(3)))
 def get_values():
-    return asyncio.run(run())
+    return asyncio$0.run(run$0())
 
 $ integration: assert shadowing
 
@@ -1355,31 +1355,30 @@ def trigger():
         raise AssertionError("missing exception")
 =
 def trigger():
-    global AssertionError
-    AssertionError = TypeError
+    AssertionError$0 = TypeError$0
     try:
-        if __debug__:
+        if __debug__$0:
             if __dp__.not_(False):
                 raise __dp__.builtins.AssertionError("hello")
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), BaseException):
+        if __dp__.exception_matches(__dp__.current_exception(), BaseException$0):
             exc = __dp__.current_exception()
             try:
-                del AssertionError
+                del AssertionError$0
                 return exc
             finally:
                 try:
                     del exc
                 except:
-                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                         pass
                     else:
                         raise
         else:
             raise
     else:
-        del AssertionError
-        raise AssertionError("missing exception")
+        del AssertionError$0
+        raise AssertionError$0("missing exception")
 
 $ integration: exception cleanup name
 
@@ -1397,7 +1396,7 @@ def has_exception_name():
     try:
         __dp__.truediv(1, 0)
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), Exception):
+        if __dp__.exception_matches(__dp__.current_exception(), Exception$0):
             e = __dp__.current_exception()
             try:
                 pass
@@ -1405,13 +1404,13 @@ def has_exception_name():
                 try:
                     del e
                 except:
-                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                         pass
                     else:
                         raise
         else:
             raise
-    _dp_target_1 = __dp__.contains(locals(), "e")
+    _dp_target_1 = __dp__.contains(locals$0(), "e")
     return _dp_target_1
 
 $ integration: exception cleanup deleted
@@ -1437,9 +1436,9 @@ def unbound_after_delete():
 =
 def cleanup_deleted():
     try:
-        raise Exception()
+        raise Exception$0()
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), Exception):
+        if __dp__.exception_matches(__dp__.current_exception(), Exception$0):
             e = __dp__.current_exception()
             try:
                 del e
@@ -1447,19 +1446,19 @@ def cleanup_deleted():
                 try:
                     del e
                 except:
-                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                         pass
                     else:
                         raise
         else:
             raise
-    _dp_target_1 = __dp__.contains(locals(), "e")
+    _dp_target_1 = __dp__.contains(locals$0(), "e")
     return _dp_target_1
 def unbound_after_delete():
     try:
-        raise Exception()
+        raise Exception$0()
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), Exception):
+        if __dp__.exception_matches(__dp__.current_exception(), Exception$0):
             e = __dp__.current_exception()
             try:
                 del e
@@ -1467,7 +1466,7 @@ def unbound_after_delete():
                 try:
                     del e
                 except:
-                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                         pass
                     else:
                         raise
@@ -1476,7 +1475,7 @@ def unbound_after_delete():
     try:
         e
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), UnboundLocalError):
+        if __dp__.exception_matches(__dp__.current_exception(), UnboundLocalError$0):
             return True
         else:
             raise
@@ -1490,7 +1489,7 @@ def format_debug():
 =
 def format_debug():
     value = "A string"
-    return getattr("", "join")(("value=", __dp__.builtins.format(__dp__.builtins.repr(value))))
+    return getattr$0("", "join")(("value=", __dp__.builtins.format(__dp__.builtins.repr(value))))
 
 $ integration: ast visit ellipsis
 
@@ -1515,21 +1514,21 @@ def visit_ellipsis():
     def _dp_ns_Visitor(_dp_class_ns):
 
         def _dp_lambda_1():
-            return __name__
+            return __name__$0
         _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "visit_ellipsis.<locals>", "<lambda>")
         __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1))
         __dp__.setattr(_dp_class_ns, "__qualname__", "visit_ellipsis.<locals>.Visitor")
 
         def visit_Ellipsis(self, node):
-            log.append(("Ellipsis", ...))
+            log$1.append(("Ellipsis", ...))
 
         def _dp_lambda_2():
-            return visit_Ellipsis
+            return visit_Ellipsis$0
         _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "visit_ellipsis.<locals>", "<lambda>")
         __dp__.setattr(_dp_class_ns, "visit_Ellipsis", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "visit_Ellipsis", _dp_lambda_2), "visit_ellipsis.<locals>.Visitor", "<locals>"))
-    Visitor = __dp__.create_class("Visitor", _dp_ns_Visitor, (ast.NodeVisitor,), None)
-    mod = ast.parse("e = ...")
-    getattr(Visitor(), "visit")(mod)
+    Visitor = __dp__.create_class("Visitor", _dp_ns_Visitor, (ast$0.NodeVisitor,), None)
+    mod = ast$0.parse("e = ...")
+    getattr$0(Visitor(), "visit")(mod)
     return log
 
 $ integration: disable transform temp module
@@ -1568,24 +1567,24 @@ textwrap = __dp__.import_("textwrap", __spec__)
 _dp_import_1 = __dp__.import_("pathlib", __spec__, __dp__.list(("Path",)))
 Path = __dp__.import_attr(_dp_import_1, "Path")
 del _dp_import_1
-def import_without_transform(tmp_path: Path) -> bool:
+def import_without_transform(tmp_path: Path$0) -> bool$0:
     module_name = "dp_disable_temp"
-    module_path = __dp__.truediv(tmp_path, getattr("", "join")((__dp__.builtins.format(module_name), ".py")))
-    module_path.write_text(textwrap.dedent("""            # diet-python: disable\n            VALUE = 1\n            """), encoding="utf-8")
-    sys.path.insert(0, str(tmp_path))
+    module_path = __dp__.truediv(tmp_path, getattr$0("", "join")((__dp__.builtins.format(module_name), ".py")))
+    module_path.write_text(textwrap$0.dedent("""            # diet-python: disable\n            VALUE = 1\n            """), encoding="utf-8")
+    sys$0.path.insert(0, str$0(tmp_path))
     try:
-        sys.modules.pop(module_name, None)
-        module = importlib.import_module(module_name)
+        sys$0.modules.pop(module_name, None)
+        module = importlib$0.import_module(module_name)
         _dp_target_2 = __dp__.contains(module.__dict__, "__dp__")
         return _dp_target_2
     finally:
-        sys.modules.pop(module_name, None)
-        _dp_target_3 = sys.path
+        sys$0.modules.pop(module_name, None)
+        _dp_target_3 = sys$0.path
         if _dp_target_3:
-            _dp_target_4 = __dp__.eq(__dp__.getitem(sys.path, 0), str(tmp_path))
+            _dp_target_4 = __dp__.eq(__dp__.getitem(sys$0.path, 0), str$0(tmp_path))
             _dp_target_3 = _dp_target_4
         if _dp_target_3:
-            sys.path.pop(0)
+            sys$0.path.pop(0)
 
 $ integration: skip outside repo transform
 
@@ -1613,24 +1612,24 @@ sys = __dp__.import_("sys", __spec__)
 _dp_import_1 = __dp__.import_("pathlib", __spec__, __dp__.list(("Path",)))
 Path = __dp__.import_attr(_dp_import_1, "Path")
 del _dp_import_1
-def imported_without_transform(tmp_path: Path) -> bool:
+def imported_without_transform(tmp_path: Path$0) -> bool$0:
     module_name = "dp_outside_repo"
-    module_path = __dp__.truediv(tmp_path, getattr("", "join")((__dp__.builtins.format(module_name), ".py")))
+    module_path = __dp__.truediv(tmp_path, getattr$0("", "join")((__dp__.builtins.format(module_name), ".py")))
     module_path.write_text("VALUE = 1\n", encoding="utf-8")
-    sys.path.insert(0, str(tmp_path))
+    sys$0.path.insert(0, str$0(tmp_path))
     try:
-        sys.modules.pop(module_name, None)
-        module = importlib.import_module(module_name)
+        sys$0.modules.pop(module_name, None)
+        module = importlib$0.import_module(module_name)
         _dp_target_2 = __dp__.contains(module.__dict__, "__dp__")
         return _dp_target_2
     finally:
-        sys.modules.pop(module_name, None)
-        _dp_target_3 = sys.path
+        sys$0.modules.pop(module_name, None)
+        _dp_target_3 = sys$0.path
         if _dp_target_3:
-            _dp_target_4 = __dp__.eq(__dp__.getitem(sys.path, 0), str(tmp_path))
+            _dp_target_4 = __dp__.eq(__dp__.getitem(sys$0.path, 0), str$0(tmp_path))
             _dp_target_3 = _dp_target_4
         if _dp_target_3:
-            sys.path.pop(0)
+            sys$0.path.pop(0)
 
 $ integration: strip internal traceback
 
@@ -1654,9 +1653,9 @@ Path = __dp__.import_attr(_dp_import_1, "Path")
 del _dp_import_1
 def traceback_files():
     try:
-        nonexistent_xyzzy = __dp__.import_("nonexistent_xyzzy", __spec__)
+        nonexistent_xyzzy = __dp__.import_("nonexistent_xyzzy", __spec__$0)
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), ImportError):
+        if __dp__.exception_matches(__dp__.current_exception(), ImportError$0):
             exc = __dp__.current_exception()
             try:
                 tb = exc.__traceback__
@@ -1666,7 +1665,7 @@ def traceback_files():
                     _dp_test_flag_2 = tb
                     if __dp__.not_(_dp_test_flag_2):
                         break
-                    files.append(getattr(Path(tb.tb_frame.f_code.co_filename), "name"))
+                    files.append(getattr$0(Path$0(tb.tb_frame.f_code.co_filename), "name"))
                     tb = tb.tb_next
                 if _dp_test_flag_2:
                     pass
@@ -1675,7 +1674,7 @@ def traceback_files():
                 try:
                     del exc
                 except:
-                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                         pass
                     else:
                         raise
@@ -1717,7 +1716,7 @@ sys = __dp__.import_("sys", __spec__)
 _dp_import_1 = __dp__.import_("pathlib", __spec__, __dp__.list(("Path",)))
 Path = __dp__.import_attr(_dp_import_1, "Path")
 del _dp_import_1
-def alias_rebind_attrs(tmp_path: Path) -> __dp__.getitem(tuple, (str, str)):
+def alias_rebind_attrs(tmp_path: Path$0) -> __dp__.getitem(tuple$0, (str$0, str$0)):
     package_name = "dp_alias_pkg"
     package_dir = __dp__.truediv(tmp_path, package_name)
     package_dir.mkdir()
@@ -1725,24 +1724,24 @@ def alias_rebind_attrs(tmp_path: Path) -> __dp__.getitem(tuple, (str, str)):
     init_path.write_text("from .submodule import submodule\n", encoding="utf-8")
     submodule_path = __dp__.truediv(package_dir, "submodule.py")
     submodule_path.write_text("attr = 'submodule'\nclass submodule:\n    attr = 'rebound'\n", encoding="utf-8")
-    sys.path.insert(0, str(tmp_path))
+    sys$0.path.insert(0, str$0(tmp_path))
     try:
-        sys.modules.pop(package_name, None)
-        sys.modules.pop(getattr("", "join")((__dp__.builtins.format(package_name), ".submodule")), None)
-        _dp_import_2 = __dp__.import_("dp_alias_pkg", __spec__, __dp__.list(("submodule",)))
+        sys$0.modules.pop(package_name, None)
+        sys$0.modules.pop(getattr$0("", "join")((__dp__.builtins.format(package_name), ".submodule")), None)
+        _dp_import_2 = __dp__.import_("dp_alias_pkg", __spec__$0, __dp__.list(("submodule",)))
         from_import = __dp__.import_attr(_dp_import_2, "submodule")
         del _dp_import_2
-        direct_import = __dp__.import_attr(__dp__.import_("dp_alias_pkg.submodule", __spec__), "submodule")
+        direct_import = __dp__.import_attr(__dp__.import_("dp_alias_pkg.submodule", __spec__$0), "submodule")
         return from_import.attr, direct_import.attr
     finally:
-        sys.modules.pop(package_name, None)
-        sys.modules.pop(getattr("", "join")((__dp__.builtins.format(package_name), ".submodule")), None)
-        _dp_target_3 = sys.path
+        sys$0.modules.pop(package_name, None)
+        sys$0.modules.pop(getattr$0("", "join")((__dp__.builtins.format(package_name), ".submodule")), None)
+        _dp_target_3 = sys$0.path
         if _dp_target_3:
-            _dp_target_4 = __dp__.eq(__dp__.getitem(sys.path, 0), str(tmp_path))
+            _dp_target_4 = __dp__.eq(__dp__.getitem(sys$0.path, 0), str$0(tmp_path))
             _dp_target_3 = _dp_target_4
         if _dp_target_3:
-            sys.path.pop(0)
+            sys$0.path.pop(0)
 
 $ integration: meta path pathfinder preserved
 
@@ -1799,9 +1798,9 @@ _dp_import_2 = __dp__.import_("tempfile", __spec__, __dp__.list(("TemporaryDirec
 TemporaryDirectory = __dp__.import_attr(_dp_import_2, "TemporaryDirectory")
 del _dp_import_2
 diet_import_hook = __dp__.import_("diet_import_hook", __spec__)
-def import_with_filtered_meta_path() -> bool:
-    diet_import_hook.install()
-    original_meta_path = list(sys.meta_path)
+def import_with_filtered_meta_path() -> bool$0:
+    diet_import_hook$0.install()
+    original_meta_path = list$0(sys$0.meta_path)
     try:
 
         def _dp_gen_3(_dp_iter_4):
@@ -1812,13 +1811,13 @@ def import_with_filtered_meta_path() -> bool:
                     if item.__module__.startswith("_frozen_importlib"):
                         yield item
             except:
-                if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+                if __dp__.exception_matches(__dp__.current_exception(), StopIteration$0):
                     pass
                 else:
                     raise
         _dp_gen_3 = __dp__.update_fn(_dp_gen_3, "import_with_filtered_meta_path.<locals>", "<genexpr>")
-        __dp__.setitem(sys.meta_path, __dp__.slice(None, None, None), __dp__.list(_dp_gen_3(__dp__.iter(sys.meta_path))))
-        _dp_tmp_7 = __dp__.with_enter(TemporaryDirectory())
+        __dp__.setitem(sys$0.meta_path, __dp__.slice(None, None, None), __dp__.list(_dp_gen_3(__dp__.iter(sys$0.meta_path))))
+        _dp_tmp_7 = __dp__.with_enter(TemporaryDirectory$0())
         try:
             _dp_tmp_8 = __dp__.unpack(_dp_tmp_7, (True, True))
             tmp_dir = __dp__.getitem(_dp_tmp_8, 0)
@@ -1827,23 +1826,23 @@ def import_with_filtered_meta_path() -> bool:
             _dp_tmp_8 = None
             _dp_tmp_7 = None
         try:
-            tmp_path = Path(tmp_dir)
+            tmp_path = Path$0(tmp_dir)
             module_name = "dp_meta_path_temp"
-            module_path = __dp__.truediv(tmp_path, getattr("", "join")((__dp__.builtins.format(module_name), ".py")))
-            module_path.write_text(textwrap.dedent("""                    # diet-python: disable\n                    VALUE = 1\n                    """), encoding="utf-8")
-            sys.path.insert(0, str(tmp_path))
+            module_path = __dp__.truediv(tmp_path, getattr$0("", "join")((__dp__.builtins.format(module_name), ".py")))
+            module_path.write_text(textwrap$0.dedent("""                    # diet-python: disable\n                    VALUE = 1\n                    """), encoding="utf-8")
+            sys$0.path.insert(0, str$0(tmp_path))
             try:
-                sys.modules.pop(module_name, None)
-                importlib.import_module(module_name)
+                sys$0.modules.pop(module_name, None)
+                importlib$0.import_module(module_name)
                 return True
             finally:
-                sys.modules.pop(module_name, None)
-                _dp_target_9 = sys.path
+                sys$0.modules.pop(module_name, None)
+                _dp_target_9 = sys$0.path
                 if _dp_target_9:
-                    _dp_target_10 = __dp__.eq(__dp__.getitem(sys.path, 0), str(tmp_path))
+                    _dp_target_10 = __dp__.eq(__dp__.getitem(sys$0.path, 0), str$0(tmp_path))
                     _dp_target_9 = _dp_target_10
                 if _dp_target_9:
-                    sys.path.pop(0)
+                    sys$0.path.pop(0)
         except:
             __dp__.with_exit(_dp_with_exit_6, __dp__.exc_info())
         else:
@@ -1851,12 +1850,12 @@ def import_with_filtered_meta_path() -> bool:
         finally:
             _dp_with_exit_6 = None
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), ModuleNotFoundError):
+        if __dp__.exception_matches(__dp__.current_exception(), ModuleNotFoundError$0):
             return False
         else:
             raise
     finally:
-        __dp__.setitem(sys.meta_path, __dp__.slice(None, None, None), original_meta_path)
+        __dp__.setitem(sys$0.meta_path, __dp__.slice(None, None, None), original_meta_path)
 
 $ integration: with class mock calls
 
@@ -1881,25 +1880,25 @@ del _dp_import_1
 def _dp_ns_Context(_dp_class_ns):
 
     def _dp_lambda_5():
-        return __name__
+        return __name__$0
     _dp_lambda_5 = __dp__.update_fn(_dp_lambda_5, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_5))
     __dp__.setattr(_dp_class_ns, "__qualname__", "Context")
 
     def _dp_lambda_6():
-        return mock
+        return mock$0
     _dp_lambda_6 = __dp__.update_fn(_dp_lambda_6, None, "<lambda>")
-    __dp__.setattr(_dp_class_ns, "__enter__", getattr(__dp__.class_lookup(_dp_class_ns, "mock", _dp_lambda_6), "MagicMock")(return_value="value"))
+    __dp__.setattr(_dp_class_ns, "__enter__", getattr$0(__dp__.class_lookup(_dp_class_ns, "mock", _dp_lambda_6), "MagicMock")(return_value="value"))
 
     def _dp_lambda_7():
-        return mock
+        return mock$0
     _dp_lambda_7 = __dp__.update_fn(_dp_lambda_7, None, "<lambda>")
-    __dp__.setattr(_dp_class_ns, "__exit__", getattr(__dp__.class_lookup(_dp_class_ns, "mock", _dp_lambda_7), "MagicMock")(return_value=False))
+    __dp__.setattr(_dp_class_ns, "__exit__", getattr$0(__dp__.class_lookup(_dp_class_ns, "mock", _dp_lambda_7), "MagicMock")(return_value=False))
 Context = __dp__.create_class("Context", _dp_ns_Context, (), None)
 def run():
-    Context.__enter__.reset_mock()
-    Context.__exit__.reset_mock()
-    _dp_tmp_3 = __dp__.with_enter(Context())
+    Context$0.__enter__.reset_mock()
+    Context$0.__exit__.reset_mock()
+    _dp_tmp_3 = __dp__.with_enter(Context$0())
     try:
         _dp_tmp_4 = __dp__.unpack(_dp_tmp_3, (True, True))
         _ = __dp__.getitem(_dp_tmp_4, 0)
@@ -1915,7 +1914,7 @@ def run():
         __dp__.with_exit(_dp_with_exit_2, None)
     finally:
         _dp_with_exit_2 = None
-    return Context.__enter__.mock_calls, Context.__exit__.mock_calls
+    return Context$0.__enter__.mock_calls, Context$0.__exit__.mock_calls
 
 $ integration: exception refcycle after except
 
@@ -1934,9 +1933,9 @@ gc = __dp__.import_("gc", __spec__)
 def run():
     exc = None
     try:
-        raise RuntimeError("boom")
+        raise RuntimeError$0("boom")
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), RuntimeError):
+        if __dp__.exception_matches(__dp__.current_exception(), RuntimeError$0):
             e = __dp__.current_exception()
             try:
                 exc = e
@@ -1944,13 +1943,13 @@ def run():
                 try:
                     del e
                 except:
-                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                         pass
                     else:
                         raise
         else:
             raise
-    return gc.get_referrers(exc)
+    return gc$0.get_referrers(exc)
 
 $ integration: taskgroup propagate cancellation refcycle
 
@@ -1975,24 +1974,24 @@ def run():
     exc = None
     try:
         try:
-            raise asyncio.CancelledError()
+            raise asyncio$0.CancelledError()
         except:
-            if __dp__.exception_matches(__dp__.current_exception(), asyncio.CancelledError):
+            if __dp__.exception_matches(__dp__.current_exception(), asyncio$0.CancelledError):
                 err = __dp__.current_exception()
                 try:
-                    raise __dp__.raise_from(TimeoutError, err)
+                    raise __dp__.raise_from(TimeoutError$0, err)
                 finally:
                     try:
                         del err
                     except:
-                        if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                        if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                             pass
                         else:
                             raise
             else:
                 raise
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), TimeoutError):
+        if __dp__.exception_matches(__dp__.current_exception(), TimeoutError$0):
             err = __dp__.current_exception()
             try:
                 exc = err.__cause__
@@ -2000,13 +1999,13 @@ def run():
                 try:
                     del err
                 except:
-                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                         pass
                     else:
                         raise
         else:
             raise
-    return gc.get_referrers(exc)
+    return gc$0.get_referrers(exc)
 
 $ integration: traceback preserves comments
 
@@ -2024,8 +2023,8 @@ def run():
     try:
         __dp__.truediv(1, 0)
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), ZeroDivisionError):
-            return traceback.format_exc()
+        if __dp__.exception_matches(__dp__.current_exception(), ZeroDivisionError$0):
+            return traceback$0.format_exc()
         else:
             raise
 
@@ -2060,20 +2059,20 @@ sys = __dp__.import_("sys", __spec__)
 def _dp_ns_Reporter(_dp_class_ns):
 
     def _dp_lambda_4():
-        return __name__
+        return __name__$0
     _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_4))
     __dp__.setattr(_dp_class_ns, "__qualname__", "Reporter")
 
     def run(self):
         try:
-            exc = ValueError("boom")
+            exc = ValueError$0("boom")
             raise exc
         except:
-            if __dp__.exception_matches(__dp__.current_exception(), ValueError):
-                linecache.clearcache()
-                buffer = io.StringIO()
-                _dp_tmp_2 = __dp__.with_enter(contextlib.redirect_stderr(buffer))
+            if __dp__.exception_matches(__dp__.current_exception(), ValueError$0):
+                linecache$0.clearcache()
+                buffer = io$0.StringIO()
+                _dp_tmp_2 = __dp__.with_enter(contextlib$0.redirect_stderr(buffer))
                 try:
                     _dp_tmp_3 = __dp__.unpack(_dp_tmp_2, (True, True))
                     _ = __dp__.getitem(_dp_tmp_3, 0)
@@ -2082,7 +2081,7 @@ def _dp_ns_Reporter(_dp_class_ns):
                     _dp_tmp_3 = None
                     _dp_tmp_2 = None
                 try:
-                    sys.__excepthook__(*sys.exc_info())
+                    sys$0.__excepthook__(*sys$0.exc_info())
                 except:
                     __dp__.with_exit(_dp_with_exit_1, __dp__.exc_info())
                 else:
@@ -2094,12 +2093,12 @@ def _dp_ns_Reporter(_dp_class_ns):
                 raise
 
     def _dp_lambda_5():
-        return run
+        return run$0
     _dp_lambda_5 = __dp__.update_fn(_dp_lambda_5, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "run", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "run", _dp_lambda_5), "Reporter", "<locals>"))
 Reporter = __dp__.create_class("Reporter", _dp_ns_Reporter, (), None)
 def get_report():
-    return getattr(Reporter(), "run")()
+    return getattr$0(Reporter$0(), "run")()
 
 $ integration: surrogate unicode escape repr
 
@@ -2114,10 +2113,10 @@ def ascii_value():
 =
 def repr_value():
     char = "�"
-    return repr(char)
+    return repr$0(char)
 def ascii_value():
     char = "�"
-    return ascii(char)
+    return ascii$0(char)
 
 $ integration: lambda qualname
 
@@ -2133,7 +2132,7 @@ def global_function():
     def _dp_lambda_2():
         return None
     _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "global_function.<locals>", "<lambda>")
-    return getattr(_dp_lambda_1, "__qualname__"), getattr(_dp_lambda_2, "__name__")
+    return getattr$0(_dp_lambda_1, "__qualname__"), getattr$0(_dp_lambda_2, "__name__")
 
 $ integration: global inner function qualname
 
@@ -2162,17 +2161,16 @@ def build_qualnames():
     def global_function():
 
         def inner_function():
-            global inner_global_function
 
             def inner_global_function():
 
                 def inner_function2():
                     pass
                 return inner_function2
-            return inner_global_function
+            return inner_global_function$0
         return inner_function()
     inner_fn = global_function()
-    return inner_global_function.__qualname__, getattr(inner_fn(), "__qualname__")
+    return inner_global_function$0.__qualname__, getattr$0(inner_fn(), "__qualname__")
 RESULT = build_qualnames()
 
 $ integration: coroutine origin tracking line
@@ -2204,9 +2202,9 @@ sys.set_coroutine_origin_tracking_depth(1)
 async def corofn():
     return 1
 def a1():
-    return corofn()
+    return corofn$0()
 def get_origin():
-    coro = a1()
+    coro = a1$0()
     origin = coro.cr_origin
     coro.close()
     return origin
@@ -2228,29 +2226,29 @@ RESULT = run()
 def _dp_ns_My(_dp_class_ns):
 
     def _dp_lambda_1():
-        return __name__
+        return __name__$0
     _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1))
     __dp__.setattr(_dp_class_ns, "__qualname__", "My")
 
     def _dp_lambda_2():
-        return str
+        return str$0
     _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, None, "<lambda>")
 
     def _dp_lambda_3():
-        return str
+        return str$0
     _dp_lambda_3 = __dp__.update_fn(_dp_lambda_3, None, "<lambda>")
 
-    def __repr__[T: __dp__.class_lookup(_dp_class_ns, "str", _dp_lambda_2)](self, default: T="") -> __dp__.class_lookup(_dp_class_ns, "str", _dp_lambda_3):
+    def __repr__[T: __dp__.class_lookup(_dp_class_ns, "str", _dp_lambda_2)](self, default: T$0="") -> __dp__.class_lookup(_dp_class_ns, "str", _dp_lambda_3):
         return default
 
     def _dp_lambda_4():
-        return __repr__
+        return __repr__$0
     _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__repr__", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "__repr__", _dp_lambda_4), "My", "<locals>"))
 My = __dp__.create_class("My", _dp_ns_My, (), None)
 def run():
-    return getattr(My(), "__repr__")()
+    return getattr$0(My$0(), "__repr__")()
 RESULT = run()
 
 $ integration: iter refcount behavior
@@ -2287,7 +2285,7 @@ gc = __dp__.import_("gc", __spec__)
 def _dp_ns_C(_dp_class_ns):
 
     def _dp_lambda_3():
-        return __name__
+        return __name__$0
     _dp_lambda_3 = __dp__.update_fn(_dp_lambda_3, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_3))
     __dp__.setattr(_dp_class_ns, "__qualname__", "C")
@@ -2295,10 +2293,10 @@ def _dp_ns_C(_dp_class_ns):
 
     def __new__(cls):
         __dp__.setattr(cls, "count", __dp__.iadd(cls.count, 1))
-        return object.__new__(cls)
+        return object$0.__new__(cls)
 
     def _dp_lambda_4():
-        return __new__
+        return __new__$0
     _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__new__", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "__new__", _dp_lambda_4), "C", "<locals>"))
 
@@ -2307,14 +2305,14 @@ def _dp_ns_C(_dp_class_ns):
         __dp__.setattr(cls, "count", __dp__.isub(cls.count, 1))
 
     def _dp_lambda_5():
-        return __del__
+        return __del__$0
     _dp_lambda_5 = __dp__.update_fn(_dp_lambda_5, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__del__", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "__del__", _dp_lambda_5), "C", "<locals>"))
 C = __dp__.create_class("C", _dp_ns_C, (), None)
 def run():
-    l = __dp__.list((C(), C(), C()))
+    l = __dp__.list((C$0(), C$0(), C$0()))
     try:
-        _dp_tmp_1 = iter(l)
+        _dp_tmp_1 = iter$0(l)
         try:
             _dp_tmp_2 = __dp__.unpack(_dp_tmp_1, (True, True))
             a = __dp__.getitem(_dp_tmp_2, 0)
@@ -2323,13 +2321,13 @@ def run():
             _dp_tmp_2 = None
             _dp_tmp_1 = None
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), ValueError):
+        if __dp__.exception_matches(__dp__.current_exception(), ValueError$0):
             pass
         else:
             raise
     del l
-    gc.collect()
-    return C.count
+    gc$0.collect()
+    return C$0.count
 RESULT = run()
 
 $ integration: eval_source yield from
@@ -2338,7 +2336,7 @@ def f():
     yield from g()
 =
 def f():
-    yield from g()
+    yield from g$0()
 
 $ integration: yield from stack names
 
@@ -2361,11 +2359,11 @@ sys = __dp__.import_("sys", __spec__)
 def get_stack_names():
 
     def f():
-        frame = sys._getframe()
+        frame = sys$0._getframe()
         yield frame.f_code.co_name, frame.f_back.f_code.co_name
 
     def g():
-        yield from f()
+        yield from f$1()
     gen = g()
     return gen.send(None)
 
@@ -2389,7 +2387,7 @@ def get_yieldfrom_name():
         yield
 
     def b():
-        yield from a()
+        yield from a$1()
         yield
     gen_b = b()
     gen_b.send(None)
@@ -2410,7 +2408,7 @@ def get_genexpr_name():
                 i = __dp__.next(_dp_iter_3)
                 yield i
         except:
-            if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+            if __dp__.exception_matches(__dp__.current_exception(), StopIteration$0):
                 pass
             else:
                 raise
@@ -2434,7 +2432,7 @@ def get_base_name():
 def _dp_ns_Outer(_dp_class_ns):
 
     def _dp_lambda_5():
-        return __name__
+        return __name__$0
     _dp_lambda_5 = __dp__.update_fn(_dp_lambda_5, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_5))
     __dp__.setattr(_dp_class_ns, "__qualname__", "Outer")
@@ -2442,14 +2440,14 @@ def _dp_ns_Outer(_dp_class_ns):
     def _dp_ns_BaseThing(_dp_class_ns):
 
         def _dp_lambda_1():
-            return __name__
+            return __name__$0
         _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "Outer", "<lambda>")
         __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1))
         __dp__.setattr(_dp_class_ns, "__qualname__", "Outer.BaseThing")
     _dp_ns_BaseThing = __dp__.update_fn(_dp_ns_BaseThing, "Outer", "<locals>")
 
     def _dp_lambda_2():
-        return str
+        return str$0
     _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "Outer", "<locals>")
     _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "Outer", "<lambda>")
     __dp__.setattr(_dp_class_ns, "BaseThing", __dp__.create_class("BaseThing", _dp_ns_BaseThing, (__dp__.class_lookup(_dp_class_ns, "str", _dp_lambda_2),), None))
@@ -2457,20 +2455,20 @@ def _dp_ns_Outer(_dp_class_ns):
     def _dp_ns_Thing(_dp_class_ns):
 
         def _dp_lambda_3():
-            return __name__
+            return __name__$0
         _dp_lambda_3 = __dp__.update_fn(_dp_lambda_3, "Outer", "<lambda>")
         __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_3))
         __dp__.setattr(_dp_class_ns, "__qualname__", "Outer.Thing")
     _dp_ns_Thing = __dp__.update_fn(_dp_ns_Thing, "Outer", "<locals>")
 
     def _dp_lambda_4():
-        return BaseThing
+        return BaseThing$0
     _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, "Outer", "<locals>")
     _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, "Outer", "<lambda>")
     __dp__.setattr(_dp_class_ns, "Thing", __dp__.create_class("Thing", _dp_ns_Thing, (__dp__.class_lookup(_dp_class_ns, "BaseThing", _dp_lambda_4),), None))
 Outer = __dp__.create_class("Outer", _dp_ns_Outer, (), None)
 def get_base_name():
-    return getattr(__dp__.getitem(Outer.Thing.__bases__, 0), "__name__")
+    return getattr$0(__dp__.getitem(Outer$0.Thing.__bases__, 0), "__name__")
 
 $ integration: future import invalid feature
 
@@ -2490,7 +2488,7 @@ def _dp_ns_A(_dp_class_ns):
     Ts = __dp__.type_param_typevar_tuple("Ts", None)
 
     def _dp_lambda_1():
-        return __name__
+        return __name__$0
     _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1))
     __dp__.setattr(_dp_class_ns, "__qualname__", "A")
@@ -2517,18 +2515,18 @@ io = __dp__.import_("io", __spec__)
 def _dp_ns_Reader(_dp_class_ns):
 
     def _dp_lambda_4():
-        return __name__
+        return __name__$0
     _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_4))
     __dp__.setattr(_dp_class_ns, "__qualname__", "Reader")
 
     def _dp_lambda_5():
-        return io
+        return io$0
     _dp_lambda_5 = __dp__.update_fn(_dp_lambda_5, None, "<lambda>")
-    __dp__.setattr(_dp_class_ns, "open", getattr(__dp__.class_lookup(_dp_class_ns, "io", _dp_lambda_5), "open"))
+    __dp__.setattr(_dp_class_ns, "open", getattr$0(__dp__.class_lookup(_dp_class_ns, "io", _dp_lambda_5), "open"))
 Reader = __dp__.create_class("Reader", _dp_ns_Reader, (), None)
 def read_self():
-    _dp_tmp_2 = __dp__.with_enter(getattr(Reader(), "open")(__file__, "rb"))
+    _dp_tmp_2 = __dp__.with_enter(getattr$0(Reader$0(), "open")(__file__$0, "rb"))
     try:
         _dp_tmp_3 = __dp__.unpack(_dp_tmp_2, (True, True))
         handle = __dp__.getitem(_dp_tmp_3, 0)
@@ -2568,7 +2566,7 @@ RESULT = A
 def _dp_ns_Meta(_dp_class_ns):
 
     def _dp_lambda_1():
-        return __name__
+        return __name__$0
     _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1))
     __dp__.setattr(_dp_class_ns, "__qualname__", "Meta")
@@ -2577,7 +2575,7 @@ def _dp_ns_Meta(_dp_class_ns):
         pass
 
     def _dp_lambda_2():
-        return __init__
+        return __init__$0
     _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__init__", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "__init__", _dp_lambda_2), "Meta", "<locals>"))
 
@@ -2585,7 +2583,7 @@ def _dp_ns_Meta(_dp_class_ns):
         return bases, kwargs
 
     def _dp_lambda_3():
-        return __new__
+        return __new__$0
     _dp_lambda_3 = __dp__.update_fn(_dp_lambda_3, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__new__", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "__new__", _dp_lambda_3), "Meta", "<locals>"))
 Meta = __dp__.create_class("Meta", _dp_ns_Meta, (int,), None)
@@ -2593,7 +2591,7 @@ d = __dp__.dict((("metaclass", Meta),))
 def _dp_ns_A(_dp_class_ns):
 
     def _dp_lambda_4():
-        return __name__
+        return __name__$0
     _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_4))
     __dp__.setattr(_dp_class_ns, "__qualname__", "A")
@@ -2618,7 +2616,7 @@ RESULT = collect_for_else_continue()
 =
 def collect_for_else_continue():
     seen = __dp__.list(())
-    _dp_iter_1 = __dp__.iter(range(3))
+    _dp_iter_1 = __dp__.iter(range$0(3))
     try:
         while True:
             outer = __dp__.next(_dp_iter_1)
@@ -2630,13 +2628,13 @@ def collect_for_else_continue():
                 seen.append(outer)
                 continue
             except:
-                if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+                if __dp__.exception_matches(__dp__.current_exception(), StopIteration$0):
                     pass
                 else:
                     raise
             seen.append("unreachable")
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+        if __dp__.exception_matches(__dp__.current_exception(), StopIteration$0):
             pass
         else:
             raise
@@ -2677,39 +2675,39 @@ builtins = __dp__.import_("builtins", __spec__)
 sys = __dp__.import_("sys", __spec__)
 types = __dp__.import_("types", __spec__)
 def raise_from_with_import_patch():
-    package = types.ModuleType("package")
+    package = types$0.ModuleType("package")
 
     def _import(name, *args, **kwargs):
-        __dp__.setitem(sys.modules, name, package)
-        return package
-    original_import = builtins.__import__
-    __dp__.setattr(builtins, "__import__", _import)
+        __dp__.setitem(sys$0.modules, name, package$1)
+        return package$1
+    original_import = builtins$0.__import__
+    __dp__.setattr(builtins$0, "__import__", _import)
     try:
         try:
-            raise ValueError("boom")
+            raise ValueError$0("boom")
         except:
-            if __dp__.exception_matches(__dp__.current_exception(), ValueError):
+            if __dp__.exception_matches(__dp__.current_exception(), ValueError$0):
                 exc = __dp__.current_exception()
                 try:
-                    raise __dp__.raise_from(RuntimeError("wrapped"), exc)
+                    raise __dp__.raise_from(RuntimeError$0("wrapped"), exc)
                 finally:
                     try:
                         del exc
                     except:
-                        if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                        if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                             pass
                         else:
                             raise
             else:
                 raise
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), RuntimeError):
+        if __dp__.exception_matches(__dp__.current_exception(), RuntimeError$0):
             pass
         else:
             raise
     finally:
-        __dp__.setattr(builtins, "__import__", original_import)
-    _dp_target_1 = __dp__.is_(sys.modules.get("asyncio"), package)
+        __dp__.setattr(builtins$0, "__import__", original_import)
+    _dp_target_1 = __dp__.is_(sys$0.modules.get("asyncio"), package)
     return _dp_target_1
 ASYNCIO_SHADOWED = raise_from_with_import_patch()
 
@@ -2729,8 +2727,8 @@ _dp_import_1 = __dp__.import_("unittest", __spec__, __dp__.list(("mock",)))
 mock = __dp__.import_attr(_dp_import_1, "mock")
 del _dp_import_1
 def mock_class_property_ok():
-    m = mock.Mock(spec=int)
-    return isinstance(m, int)
+    m = mock$0.Mock(spec=int$0)
+    return isinstance$0(m, int$0)
 RESULT = mock_class_property_ok()
 
 $ integration: traceback linecache source
@@ -2751,25 +2749,25 @@ traceback = __dp__.import_("traceback", __spec__)
 def _dp_ns_Boom(_dp_class_ns):
 
     def _dp_lambda_1():
-        return __name__
+        return __name__$0
     _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1))
     __dp__.setattr(_dp_class_ns, "__qualname__", "Boom")
 
     def explode(self):
-        raise RuntimeError("boom")
+        raise RuntimeError$0("boom")
 
     def _dp_lambda_2():
-        return explode
+        return explode$0
     _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "explode", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "explode", _dp_lambda_2), "Boom", "<locals>"))
 Boom = __dp__.create_class("Boom", _dp_ns_Boom, (), None)
 def get_traceback():
     try:
-        getattr(Boom(), "explode")()
+        getattr$0(Boom$0(), "explode")()
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), RuntimeError):
-            return traceback.format_exc()
+        if __dp__.exception_matches(__dp__.current_exception(), RuntimeError$0):
+            return traceback$0.format_exc()
         else:
             raise
 
@@ -2794,14 +2792,14 @@ sys = __dp__.import_("sys", __spec__)
 unittest = __dp__.import_("unittest", __spec__)
 def _boom():
     try:
-        raise ValueError("boom")
+        raise ValueError$0("boom")
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), ValueError):
-            raise ValueError("boom")
+        if __dp__.exception_matches(__dp__.current_exception(), ValueError$0):
+            raise ValueError$0("boom")
         else:
             raise
 def run():
-    case = unittest.TestCase()
-    before = sys.getrefcount(_boom)
-    case.assertRaises(ValueError, _boom)
-    return before, sys.getrefcount(_boom)
+    case = unittest$0.TestCase()
+    before = sys$0.getrefcount(_boom$0)
+    case.assertRaises(ValueError$0, _boom$0)
+    return before, sys$0.getrefcount(_boom$0)

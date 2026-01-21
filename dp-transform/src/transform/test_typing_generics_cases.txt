@@ -40,7 +40,7 @@ T = TypeVar("T")
 def _dp_ns_Outer(_dp_class_ns):
 
     def _dp_lambda_6():
-        return __name__
+        return __name__$0
     _dp_lambda_6 = __dp__.update_fn(_dp_lambda_6, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_6))
     __dp__.setattr(_dp_class_ns, "__qualname__", "Outer")
@@ -50,7 +50,7 @@ def _dp_ns_Outer(_dp_class_ns):
         if _dp_target_4:
 
             def _dp_lambda_7():
-                return NotImplementedError
+                return NotImplementedError$0
             _dp_lambda_7 = __dp__.update_fn(_dp_lambda_7, None, "<lambda>")
             raise __dp__.class_lookup(_dp_class_ns, "NotImplementedError", _dp_lambda_7)
         _dp_annotations = __dp__.dict()
@@ -62,18 +62,18 @@ def _dp_ns_Outer(_dp_class_ns):
     def _dp_ns_Inner(_dp_class_ns):
 
         def _dp_lambda_5():
-            return __name__
+            return __name__$0
         _dp_lambda_5 = __dp__.update_fn(_dp_lambda_5, "Outer", "<lambda>")
         __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_5))
         __dp__.setattr(_dp_class_ns, "__qualname__", "Outer.Inner")
     _dp_ns_Inner = __dp__.update_fn(_dp_ns_Inner, "Outer", "<locals>")
 
     def _dp_lambda_8():
-        return Generic
+        return Generic$0
     _dp_lambda_8 = __dp__.update_fn(_dp_lambda_8, None, "<lambda>")
 
     def _dp_lambda_9():
-        return T
+        return T$0
     _dp_lambda_9 = __dp__.update_fn(_dp_lambda_9, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "Inner", __dp__.create_class("Inner", _dp_ns_Inner, (__dp__.getitem(__dp__.class_lookup(_dp_class_ns, "Generic", _dp_lambda_8), __dp__.class_lookup(_dp_class_ns, "T", _dp_lambda_9)),), None))
 Outer = __dp__.create_class("Outer", _dp_ns_Outer, (__dp__.getitem(Generic, T),), None)
@@ -81,7 +81,7 @@ def _dp_ns_C(_dp_class_ns):
     T = __dp__.type_param_typevar("T", None, None, None)
 
     def _dp_lambda_11():
-        return __name__
+        return __name__$0
     _dp_lambda_11 = __dp__.update_fn(_dp_lambda_11, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_11))
     __dp__.setattr(_dp_class_ns, "__qualname__", "C")
@@ -92,7 +92,7 @@ def _dp_ns_C(_dp_class_ns):
         if _dp_target_10:
 
             def _dp_lambda_12():
-                return NotImplementedError
+                return NotImplementedError$0
             _dp_lambda_12 = __dp__.update_fn(_dp_lambda_12, None, "<lambda>")
             raise __dp__.class_lookup(_dp_class_ns, "NotImplementedError", _dp_lambda_12)
         _dp_annotations = __dp__.dict()
@@ -102,9 +102,9 @@ def _dp_ns_C(_dp_class_ns):
     __dp__.setattr(_dp_class_ns, "__annotate__", _dp_annotate)
 C = __dp__.create_class("C", _dp_ns_C, (__dp__.getitem(getattr(__import__("typing"), "Generic"), T),), None)
 def inner_class_hint_is_inner() -> "bool":
-    _dp_target_2 = __dp__.is_(__dp__.getitem(get_type_hints(Outer), "inner_ref"), Outer.Inner)
+    _dp_target_2 = __dp__.is_(__dp__.getitem(get_type_hints$0(Outer$0), "inner_ref"), Outer$0.Inner)
     return _dp_target_2
 def pep695_generic_info():
-    hints = get_type_hints(C)
-    _dp_target_3 = __dp__.contains(C.__dict__, "T")
-    return _dp_target_3, C.__bases__, C.__orig_bases__, C.__type_params__, __dp__.getitem(hints, "value")
+    hints = get_type_hints$0(C$0)
+    _dp_target_3 = __dp__.contains(C$0.__dict__, "T")
+    return _dp_target_3, C$0.__bases__, C$0.__orig_bases__, C$0.__type_params__, __dp__.getitem(hints, "value")

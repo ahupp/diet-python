@@ -87,17 +87,17 @@ x = "global"
 def _dp_ns_C1(_dp_class_ns):
 
     def _dp_lambda_1():
-        return __name__
+        return __name__$0
     _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1))
     __dp__.setattr(_dp_class_ns, "__qualname__", "C1")
     __dp__.setattr(_dp_class_ns, "x", "class")
 
     def read():
-        return x
+        return x$0
 
     def _dp_lambda_2():
-        return read
+        return read$0
     _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "read", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "read", _dp_lambda_2), "C1", "<locals>"))
 C1 = __dp__.create_class("C1", _dp_ns_C1, (), None)
@@ -106,12 +106,11 @@ x = "module"
 def _dp_ns_C2(_dp_class_ns):
 
     def _dp_lambda_3():
-        return __name__
+        return __name__$0
     _dp_lambda_3 = __dp__.update_fn(_dp_lambda_3, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_3))
     __dp__.setattr(_dp_class_ns, "__qualname__", "C2")
-    global x
-    x = "class-global"
+    x$0 = "class-global"
     __dp__.setattr(_dp_class_ns, "y", "class-attr")
 C2 = __dp__.create_class("C2", _dp_ns_C2, (), None)
 __dp__.setitem(results, "class_global_assignment", (x, getattr(C2, "x", None), C2.y))
@@ -119,25 +118,24 @@ x = "module"
 def _dp_ns_C3(_dp_class_ns):
 
     def _dp_lambda_4():
-        return __name__
+        return __name__$0
     _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_4))
     __dp__.setattr(_dp_class_ns, "__qualname__", "C3")
 
     def set_x():
-        global x
-        x = "method-global"
+        x$0 = "method-global"
 
     def _dp_lambda_5():
-        return set_x
+        return set_x$0
     _dp_lambda_5 = __dp__.update_fn(_dp_lambda_5, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "set_x", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "set_x", _dp_lambda_5), "C3", "<locals>"))
 
     def read_x():
-        return x
+        return x$0
 
     def _dp_lambda_6():
-        return read_x
+        return read_x$0
     _dp_lambda_6 = __dp__.update_fn(_dp_lambda_6, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "read_x", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "read_x", _dp_lambda_6), "C3", "<locals>"))
 C3 = __dp__.create_class("C3", _dp_ns_C3, (), None)
@@ -146,7 +144,7 @@ __dp__.setitem(results, "class_method_global_assignment", (x, C3.read_x()))
 def _dp_ns_C4(_dp_class_ns):
 
     def _dp_lambda_7():
-        return __name__
+        return __name__$0
     _dp_lambda_7 = __dp__.update_fn(_dp_lambda_7, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_7))
     __dp__.setattr(_dp_class_ns, "__qualname__", "C4")
@@ -155,13 +153,12 @@ def _dp_ns_C4(_dp_class_ns):
         x = "outer"
 
         def inner():
-            nonlocal x
-            x = "inner"
+            x$1 = "inner"
         inner()
         return x
 
     def _dp_lambda_8():
-        return outer
+        return outer$0
     _dp_lambda_8 = __dp__.update_fn(_dp_lambda_8, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "outer", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "outer", _dp_lambda_8), "C4", "<locals>"))
 C4 = __dp__.create_class("C4", _dp_ns_C4, (), None)
@@ -172,13 +169,13 @@ def outer_with_inner_class():
     def _dp_ns_Inner(_dp_class_ns):
 
         def _dp_lambda_9():
-            return __name__
+            return __name__$0
         _dp_lambda_9 = __dp__.update_fn(_dp_lambda_9, "outer_with_inner_class.<locals>", "<lambda>")
         __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_9))
         __dp__.setattr(_dp_class_ns, "__qualname__", "outer_with_inner_class.<locals>.Inner")
 
         def _dp_lambda_10():
-            return x
+            return x$1
         _dp_lambda_10 = __dp__.update_fn(_dp_lambda_10, "outer_with_inner_class.<locals>", "<lambda>")
         __dp__.setattr(_dp_class_ns, "y", __dp__.class_lookup(_dp_class_ns, "x", _dp_lambda_10))
     Inner = __dp__.create_class("Inner", _dp_ns_Inner, (), None)
@@ -191,15 +188,14 @@ def outer_with_inner_class_global_assignment():
     def _dp_ns_Inner(_dp_class_ns):
 
         def _dp_lambda_11():
-            return __name__
+            return __name__$0
         _dp_lambda_11 = __dp__.update_fn(_dp_lambda_11, "outer_with_inner_class_global_assignment.<locals>", "<lambda>")
         __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_11))
         __dp__.setattr(_dp_class_ns, "__qualname__", "outer_with_inner_class_global_assignment.<locals>.Inner")
-        global x
-        x = "class-global"
+        x$0 = "class-global"
         __dp__.setattr(_dp_class_ns, "y", "class-attr")
     Inner = __dp__.create_class("Inner", _dp_ns_Inner, (), None)
-    return x, getattr(Inner, "x", None), Inner.y
+    return x, getattr$0(Inner, "x", None), Inner.y
 __dp__.setitem(results, "def_with_inner_class_global_assignment", (outer_with_inner_class_global_assignment(), x))
 x = "module"
 def outer_with_class_method_reads_global():
@@ -208,17 +204,17 @@ def outer_with_class_method_reads_global():
     def _dp_ns_Inner(_dp_class_ns):
 
         def _dp_lambda_12():
-            return __name__
+            return __name__$0
         _dp_lambda_12 = __dp__.update_fn(_dp_lambda_12, "outer_with_class_method_reads_global.<locals>", "<lambda>")
         __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_12))
         __dp__.setattr(_dp_class_ns, "__qualname__", "outer_with_class_method_reads_global.<locals>.Inner")
         __dp__.setattr(_dp_class_ns, "x", "class")
 
         def read():
-            return x
+            return x$1
 
         def _dp_lambda_13():
-            return read
+            return read$0
         _dp_lambda_13 = __dp__.update_fn(_dp_lambda_13, "outer_with_class_method_reads_global.<locals>", "<lambda>")
         __dp__.setattr(_dp_class_ns, "read", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "read", _dp_lambda_13), "outer_with_class_method_reads_global.<locals>.Inner", "<locals>"))
     Inner = __dp__.create_class("Inner", _dp_ns_Inner, (), None)
@@ -228,19 +224,18 @@ def outer_with_nonlocal_and_inner_class():
     x = "outer"
 
     def inner():
-        nonlocal x
-        x = "inner"
+        x$1 = "inner"
 
         def _dp_ns_Inner(_dp_class_ns):
 
             def _dp_lambda_14():
-                return __name__
+                return __name__$0
             _dp_lambda_14 = __dp__.update_fn(_dp_lambda_14, "outer_with_nonlocal_and_inner_class.<locals>.inner.<locals>", "<lambda>")
             __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_14))
             __dp__.setattr(_dp_class_ns, "__qualname__", "outer_with_nonlocal_and_inner_class.<locals>.inner.<locals>.Inner")
 
             def _dp_lambda_15():
-                return x
+                return x$1
             _dp_lambda_15 = __dp__.update_fn(_dp_lambda_15, "outer_with_nonlocal_and_inner_class.<locals>.inner.<locals>", "<lambda>")
             __dp__.setattr(_dp_class_ns, "y", __dp__.class_lookup(_dp_class_ns, "x", _dp_lambda_15))
         Inner = __dp__.create_class("Inner", _dp_ns_Inner, (), None)
@@ -250,9 +245,9 @@ def outer_with_nonlocal_and_inner_class():
 __dp__.setitem(results, "def_with_nonlocal_and_inner_class", outer_with_nonlocal_and_inner_class())
 def nonlocal_in_class_body_error():
     try:
-        exec("class Bad:\\n    nonlocal x\\n")
+        exec$0("class Bad:\\n    nonlocal x\\n")
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), SyntaxError):
+        if __dp__.exception_matches(__dp__.current_exception(), SyntaxError$0):
             exc = __dp__.current_exception()
             try:
                 return exc.msg
@@ -260,7 +255,7 @@ def nonlocal_in_class_body_error():
                 try:
                     del exc
                 except:
-                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                         pass
                     else:
                         raise

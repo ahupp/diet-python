@@ -28,7 +28,7 @@ asyncio = __dp__.import_("asyncio", __spec__)
 def _dp_ns_CM(_dp_class_ns):
 
     def _dp_lambda_4():
-        return __name__
+        return __name__$0
     _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_4))
     __dp__.setattr(_dp_class_ns, "__qualname__", "CM")
@@ -37,7 +37,7 @@ def _dp_ns_CM(_dp_class_ns):
         return 1
 
     def _dp_lambda_5():
-        return __aenter__
+        return __aenter__$0
     _dp_lambda_5 = __dp__.update_fn(_dp_lambda_5, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__aenter__", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "__aenter__", _dp_lambda_5), "CM", "<locals>"))
 
@@ -45,12 +45,12 @@ def _dp_ns_CM(_dp_class_ns):
         return False
 
     def _dp_lambda_6():
-        return __aexit__
+        return __aexit__$0
     _dp_lambda_6 = __dp__.update_fn(_dp_lambda_6, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__aexit__", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "__aexit__", _dp_lambda_6), "CM", "<locals>"))
 CM = __dp__.create_class("CM", _dp_ns_CM, (), None)
 async def run():
-    _dp_tmp_2 = await __dp__.with_aenter(CM())
+    _dp_tmp_2 = await __dp__.with_aenter(CM$0())
     try:
         _dp_tmp_3 = __dp__.unpack(_dp_tmp_2, (True, True))
         _ = __dp__.getitem(_dp_tmp_3, 0)
@@ -68,17 +68,17 @@ async def run():
         _dp_with_exit_1 = None
 def get_error():
     try:
-        asyncio.run(run())
+        asyncio$0.run(run$0())
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), TypeError):
+        if __dp__.exception_matches(__dp__.current_exception(), TypeError$0):
             exc = __dp__.current_exception()
             try:
-                return str(exc)
+                return str$0(exc)
             finally:
                 try:
                     del exc
                 except:
-                    if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                    if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
                         pass
                     else:
                         raise

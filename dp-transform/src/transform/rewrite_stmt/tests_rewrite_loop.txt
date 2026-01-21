@@ -45,15 +45,15 @@ async def f():
         c()
 =
 async def f():
-    _dp_iter_1 = __dp__.aiter(b)
+    _dp_iter_1 = __dp__.aiter(b$0)
     try:
         while True:
             a = await __dp__.anext(_dp_iter_1)
-            if cond:
+            if cond$0:
                 break
-        c()
+        c$0()
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), StopAsyncIteration):
+        if __dp__.exception_matches(__dp__.current_exception(), StopAsyncIteration$0):
             pass
         else:
             raise

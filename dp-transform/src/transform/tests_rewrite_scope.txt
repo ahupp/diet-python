@@ -14,10 +14,8 @@ def outer():
     y = 2
 
     def inner():
-        nonlocal y
-        global x
-        y = x
-        return y
+        y$1 = x$0
+        return y$1
     return inner()
 
 $ params seeded

@@ -8,7 +8,7 @@ use ruff_python_ast::{self as ast, CmpOp, Expr, Stmt};
 pub(crate) fn expr_boolop_to_stmts(rewriter: &ExprRewriter, bool_op: ast::ExprBoolOp) -> LoweredExpr {
     let target = rewriter.context().fresh("target");
 
-    LoweredExpr::unmodified_modified(
+    LoweredExpr::modified(
         py_expr!("{target:id}", target=target.as_str()),
         expr_boolop_to_stmts_inner(target.as_str(), bool_op),
     )
@@ -107,7 +107,7 @@ if {target:id}:
         current_left = comparator_expr;
     }
 
-    LoweredExpr::unmodified_modified(
+    LoweredExpr::modified(
         py_expr!("{tmp:id}", tmp = target.as_str()),
         stmts,
     )

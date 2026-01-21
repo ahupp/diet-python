@@ -15,5 +15,5 @@ def global_function():
     def _dp_lambda_2():
         return None
     _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "global_function.<locals>", "<lambda>")
-    return getattr(_dp_lambda_1, "__qualname__"), getattr(_dp_lambda_2, "__name__")
+    return getattr$0(_dp_lambda_1, "__qualname__"), getattr$0(_dp_lambda_2, "__name__")
 RESULT = global_function()

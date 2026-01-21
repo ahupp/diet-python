@@ -138,7 +138,7 @@ fn apply_transforms(module: &mut ModModule, options: Options, source: &str, cpyt
     let ctx = Context::new(options, source, cpython);
     transform::rewrite_future_annotations::rewrite(&mut module.body);
     if ctx.cpython {
-//       ensure_import::ensure_future_explicit_scope(module);
+       ensure_import::ensure_future_explicit_scope(module);
     }
 //    transform::rewrite_explicit_scope::rewrite(&mut module.body);
 
@@ -153,6 +153,9 @@ fn apply_transforms(module: &mut ModModule, options: Options, source: &str, cpyt
 
     // Collapse `py_stmt!` templates after all rewrites.
     template::flatten(&mut module.body);
+
+    // Rewrite names to explicit scope bindings after desugaring.
+    transform::rewrite_explicit_scope::rewrite(&mut module.body);
 
     if options.truthy {
         transform::rewrite_expr::truthy::rewrite(&mut module.body);

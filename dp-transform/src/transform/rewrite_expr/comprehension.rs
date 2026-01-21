@@ -61,7 +61,7 @@ def {func_name:id}():
 
     buf.extend(func_def);
 
-    LoweredExpr::unmodified_modified(py_expr!("{func:id}", func = func_name.as_str()), buf)
+    LoweredExpr::modified(py_expr!("{func:id}", func = func_name.as_str()), buf)
 }
 
 pub(crate) fn rewrite_generator(
@@ -194,7 +194,7 @@ def {func:id}({param:id}):
             func = func_name.as_str(),
         )
     };
-    LoweredExpr::unmodified_modified(expr, buf) 
+    LoweredExpr::modified(expr, buf) 
 }
 
 fn collect_named_targets(elt: &Expr, generators: &[ast::Comprehension]) -> Vec<String> {
@@ -343,7 +343,7 @@ pub fn rewrite(elt: Expr, generators: Vec<ast::Comprehension>, container_type: &
 
     let expr = rewrite_generator(generator, rewrite.context());
     let container_expr = py_expr!("__dp__.{container_type:id}({expr:expr})", expr = expr.expr, container_type = container_type);
-    LoweredExpr::unmodified_modified(container_expr, expr.stmts)
+    LoweredExpr::modified(container_expr, expr.stmts)
 }
 
 

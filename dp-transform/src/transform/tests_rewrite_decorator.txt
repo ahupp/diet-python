@@ -15,7 +15,7 @@ $ preserves annotations on decorated functions
 def foo(x: int) -> str:
     pass
 =
-def foo(x: int) -> str:
+def foo(x: int$0) -> str$0:
     pass
 foo = dec(foo)
 
@@ -28,7 +28,7 @@ class C:
 def _dp_ns_C(_dp_class_ns):
 
     def _dp_lambda_1():
-        return __name__
+        return __name__$0
     _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1))
     __dp__.setattr(_dp_class_ns, "__qualname__", "C")
@@ -45,7 +45,7 @@ class C:
 def _dp_ns_C(_dp_class_ns):
 
     def _dp_lambda_1():
-        return __name__
+        return __name__$0
     _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1))
     __dp__.setattr(_dp_class_ns, "__qualname__", "C")

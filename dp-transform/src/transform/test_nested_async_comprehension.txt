@@ -32,10 +32,10 @@ async def asynciter(items):
     try:
         while True:
             item = __dp__.next(_dp_iter_1)
-            await asyncio.sleep(0)
+            await asyncio$0.sleep(0)
             yield item
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+        if __dp__.exception_matches(__dp__.current_exception(), StopIteration$0):
             pass
         else:
             raise
@@ -52,16 +52,16 @@ async def nested():
                     try:
                         while True:
                             i = await __dp__.anext(_dp_iter_7)
-                            yield __dp__.add(i, j)
+                            yield __dp__.add(i, j$2)
                     except:
-                        if __dp__.exception_matches(__dp__.current_exception(), StopAsyncIteration):
+                        if __dp__.exception_matches(__dp__.current_exception(), StopAsyncIteration$0):
                             pass
                         else:
                             raise
                 _dp_gen_5 = __dp__.update_fn(_dp_gen_5, "nested.<locals>", "<genexpr>")
-                yield __dp__.list(_dp_gen_5(asynciter(__dp__.list((1, 2)))))
+                yield __dp__.list(_dp_gen_5(asynciter$0(__dp__.list((1, 2)))))
         except:
-            if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+            if __dp__.exception_matches(__dp__.current_exception(), StopIteration$0):
                 pass
             else:
                 raise
@@ -82,14 +82,14 @@ async def gen_inside_gen():
                             i = await __dp__.anext(_dp_iter_17)
                             yield i
                     except:
-                        if __dp__.exception_matches(__dp__.current_exception(), StopAsyncIteration):
+                        if __dp__.exception_matches(__dp__.current_exception(), StopAsyncIteration$0):
                             pass
                         else:
                             raise
                 _dp_gen_15 = __dp__.update_fn(_dp_gen_15, "gen_inside_gen.<locals>", "<genexpr>")
-                yield _dp_gen_15(asynciter(range(j)))
+                yield _dp_gen_15(asynciter$0(range$0(j)))
         except:
-            if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+            if __dp__.exception_matches(__dp__.current_exception(), StopIteration$0):
                 pass
             else:
                 raise
@@ -107,18 +107,18 @@ async def gen_inside_gen():
                         x = await __dp__.anext(_dp_iter_11)
                         yield x
                 except:
-                    if __dp__.exception_matches(__dp__.current_exception(), StopAsyncIteration):
+                    if __dp__.exception_matches(__dp__.current_exception(), StopAsyncIteration$0):
                         pass
                     else:
                         raise
         except:
-            if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+            if __dp__.exception_matches(__dp__.current_exception(), StopIteration$0):
                 pass
             else:
                 raise
     _dp_gen_8 = __dp__.update_fn(_dp_gen_8, "gen_inside_gen.<locals>", "<genexpr>")
     return __dp__.list(_dp_gen_8(__dp__.iter(gens)))
 def get_values():
-    return asyncio.run(nested())
+    return asyncio$0.run(nested$0())
 def get_gen_values():
-    return asyncio.run(gen_inside_gen())
+    return asyncio$0.run(gen_inside_gen$0())

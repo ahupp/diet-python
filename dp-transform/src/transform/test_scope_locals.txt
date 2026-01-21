@@ -38,10 +38,10 @@ def function_locals():
         def g(y):
 
             def h(z):
-                return __dp__.add(y, z)
-            w = __dp__.add(x, y)
+                return __dp__.add(y$3, z)
+            w = __dp__.add(x$2, y)
             y = __dp__.iadd(y, 3)
-            return locals()
+            return locals$0()
         return g
     return f(2)(4)
 def class_locals():
@@ -51,45 +51,45 @@ def class_locals():
         def _dp_ns_C(_dp_class_ns):
 
             def _dp_lambda_1():
-                return __name__
+                return __name__$0
             _dp_lambda_1 = __dp__.update_fn(_dp_lambda_1, "class_locals.<locals>.f.<locals>", "<lambda>")
             __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1))
             __dp__.setattr(_dp_class_ns, "__qualname__", "class_locals.<locals>.f.<locals>.C")
 
             def _dp_lambda_2():
-                return x
+                return x$2
             _dp_lambda_2 = __dp__.update_fn(_dp_lambda_2, "class_locals.<locals>.f.<locals>", "<lambda>")
             __dp__.setattr(_dp_class_ns, "y", __dp__.class_lookup(_dp_class_ns, "x", _dp_lambda_2))
 
             def m(self):
-                return x
+                return x$2
 
             def _dp_lambda_3():
-                return m
+                return m$0
             _dp_lambda_3 = __dp__.update_fn(_dp_lambda_3, "class_locals.<locals>.f.<locals>", "<lambda>")
             __dp__.setattr(_dp_class_ns, "m", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "m", _dp_lambda_3), "class_locals.<locals>.f.<locals>.C", "<locals>"))
 
             def _dp_lambda_4():
-                return list
+                return list$0
             _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, "class_locals.<locals>.f.<locals>", "<lambda>")
             __dp__.setattr(_dp_class_ns, "z", __dp__.class_lookup(_dp_class_ns, "list", _dp_lambda_4)(_dp_class_ns._namespace))
         C = __dp__.create_class("C", _dp_ns_C, (), None)
         return C
-    return getattr(f(1), "z")
+    return getattr$0(f(1), "z")
 def class_namespace_overrides_closure():
     x = 42
 
     def _dp_ns_X(_dp_class_ns):
 
         def _dp_lambda_5():
-            return __name__
+            return __name__$0
         _dp_lambda_5 = __dp__.update_fn(_dp_lambda_5, "class_namespace_overrides_closure.<locals>", "<lambda>")
         __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_5))
         __dp__.setattr(_dp_class_ns, "__qualname__", "class_namespace_overrides_closure.<locals>.X")
         __dp__.setitem(_dp_class_ns._namespace, "x", 43)
 
         def _dp_lambda_6():
-            return x
+            return x$1
         _dp_lambda_6 = __dp__.update_fn(_dp_lambda_6, "class_namespace_overrides_closure.<locals>", "<lambda>")
         __dp__.setattr(_dp_class_ns, "y", __dp__.class_lookup(_dp_class_ns, "x", _dp_lambda_6))
     X = __dp__.create_class("X", _dp_ns_X, (), None)

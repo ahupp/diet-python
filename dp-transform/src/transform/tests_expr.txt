@@ -307,7 +307,7 @@ def _dp_gen_1(_dp_iter_2):
             if _dp_target_6:
                 yield k, __dp__.add(v, 1)
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+        if __dp__.exception_matches(__dp__.current_exception(), StopIteration$0):
             pass
         else:
             raise
@@ -378,7 +378,7 @@ def _dp_gen_1(_dp_iter_2):
             if _dp_target_4:
                 yield __dp__.add(a, 1)
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+        if __dp__.exception_matches(__dp__.current_exception(), StopIteration$0):
             pass
         else:
             raise
@@ -444,18 +444,18 @@ def _dp_gen_1(_dp_iter_2):
     try:
         while True:
             a = __dp__.next(_dp_iter_3)
-            _dp_iter_4 = __dp__.iter(items2)
+            _dp_iter_4 = __dp__.iter(items2$0)
             try:
                 while True:
                     b = __dp__.next(_dp_iter_4)
                     yield __dp__.mul(a, b)
             except:
-                if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+                if __dp__.exception_matches(__dp__.current_exception(), StopIteration$0):
                     pass
                 else:
                     raise
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+        if __dp__.exception_matches(__dp__.current_exception(), StopIteration$0):
             pass
         else:
             raise
@@ -482,7 +482,7 @@ def _dp_gen_1(_dp_iter_2):
             a = __dp__.next(_dp_iter_3)
             yield a
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+        if __dp__.exception_matches(__dp__.current_exception(), StopIteration$0):
             pass
         else:
             raise
@@ -569,10 +569,10 @@ def f():
         return 3
 =
 def f():
-    if a:
+    if a$0:
         return 1
     else:
-        if b:
+        if b$0:
             return 2
         else:
             return 3
@@ -587,16 +587,16 @@ async def gather_once() -> list[int]:
     return [await queue.get() for _ in range(1)]
 =
 asyncio = __dp__.import_("asyncio", __spec__)
-async def gather_once() -> __dp__.getitem(list, int):
-    queue = asyncio.Queue()
+async def gather_once() -> __dp__.getitem(list$0, int$0):
+    queue = asyncio$0.Queue()
     try:
         __annotations__
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), NameError):
+        if __dp__.exception_matches(__dp__.current_exception(), NameError$0):
             __annotations__ = __dp__.dict()
         else:
             raise
-    __dp__.setitem(__annotations__, "queue", __dp__.getitem(asyncio.Queue, int))
+    __dp__.setitem(__annotations__, "queue", __dp__.getitem(asyncio$0.Queue, int$0))
     await queue.put(1)
 
     def _dp_gen_1(_dp_iter_2):
@@ -604,11 +604,11 @@ async def gather_once() -> __dp__.getitem(list, int):
         try:
             while True:
                 _ = __dp__.next(_dp_iter_3)
-                yield await queue.get()
+                yield await queue$1.get()
         except:
-            if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+            if __dp__.exception_matches(__dp__.current_exception(), StopIteration$0):
                 pass
             else:
                 raise
     _dp_gen_1 = __dp__.update_fn(_dp_gen_1, "gather_once.<locals>", "<genexpr>")
-    return __dp__.list(_dp_gen_1(__dp__.iter(range(1))))
+    return __dp__.list(_dp_gen_1(__dp__.iter(range$0(1))))

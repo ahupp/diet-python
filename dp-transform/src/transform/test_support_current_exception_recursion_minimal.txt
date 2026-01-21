@@ -15,11 +15,11 @@ RESULT = exercise()
 def exercise():
 
     def recurse():
-        return recurse()
+        return recurse$1()
     try:
         recurse()
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), RecursionError):
+        if __dp__.exception_matches(__dp__.current_exception(), RecursionError$0):
             return True
         else:
             raise

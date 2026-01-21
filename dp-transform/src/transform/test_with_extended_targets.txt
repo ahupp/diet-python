@@ -10,7 +10,7 @@ _dp_import_1 = __dp__.import_("contextlib", __spec__, __dp__.list(("nullcontext"
 nullcontext = __dp__.import_attr(_dp_import_1, "nullcontext")
 del _dp_import_1
 def unpack_starred_list():
-    _dp_tmp_3 = __dp__.with_enter(nullcontext(range(1, 5)))
+    _dp_tmp_3 = __dp__.with_enter(nullcontext$0(range$0(1, 5)))
     try:
         _dp_tmp_4 = __dp__.unpack(_dp_tmp_3, (True, True))
         _dp_tmp_5 = __dp__.getitem(_dp_tmp_4, 0)

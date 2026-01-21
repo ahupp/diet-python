@@ -64,7 +64,7 @@ async def f():
         c
 =
 async def f():
-    _dp_tmp_2 = await __dp__.with_aenter(a)
+    _dp_tmp_2 = await __dp__.with_aenter(a$0)
     try:
         _dp_tmp_3 = __dp__.unpack(_dp_tmp_2, (True, True))
         b = __dp__.getitem(_dp_tmp_3, 0)
@@ -73,7 +73,7 @@ async def f():
         _dp_tmp_3 = None
         _dp_tmp_2 = None
     try:
-        c
+        c$0
     except:
         await __dp__.with_aexit(_dp_with_exit_1, __dp__.exc_info())
     else:

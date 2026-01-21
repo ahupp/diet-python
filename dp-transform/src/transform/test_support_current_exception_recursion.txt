@@ -30,20 +30,20 @@ def exercise():
 sys = __dp__.import_("sys", __spec__)
 __dp__ = __dp__.import_("__dp__", __spec__)
 def exercise():
-    original_limit = sys.getrecursionlimit()
-    sys.setrecursionlimit(50)
+    original_limit = sys$0.getrecursionlimit()
+    sys$0.setrecursionlimit(50)
 
     def recurse():
-        return recurse()
+        return recurse$1()
     try:
         try:
             recurse()
         except:
-            if __dp__.exception_matches(__dp__.current_exception(), RecursionError):
+            if __dp__.exception_matches(__dp__.current_exception(), RecursionError$0):
                 try:
                     __dp__.current_exception()
                 except:
-                    if __dp__.exception_matches(__dp__.current_exception(), RecursionError):
+                    if __dp__.exception_matches(__dp__.current_exception(), RecursionError$0):
                         return False
                     else:
                         raise
@@ -52,4 +52,4 @@ def exercise():
                 raise
         return False
     finally:
-        sys.setrecursionlimit(original_limit)
+        sys$0.setrecursionlimit(original_limit)

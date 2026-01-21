@@ -26,7 +26,7 @@ def exception_context():
 def _dp_ns_CaptureException(_dp_class_ns):
 
     def _dp_lambda_4():
-        return __name__
+        return __name__$0
     _dp_lambda_4 = __dp__.update_fn(_dp_lambda_4, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_4))
     __dp__.setattr(_dp_class_ns, "__qualname__", "CaptureException")
@@ -35,7 +35,7 @@ def _dp_ns_CaptureException(_dp_class_ns):
         return self
 
     def _dp_lambda_5():
-        return __enter__
+        return __enter__$0
     _dp_lambda_5 = __dp__.update_fn(_dp_lambda_5, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__enter__", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "__enter__", _dp_lambda_5), "CaptureException", "<locals>"))
 
@@ -44,7 +44,7 @@ def _dp_ns_CaptureException(_dp_class_ns):
         return True
 
     def _dp_lambda_6():
-        return __exit__
+        return __exit__$0
     _dp_lambda_6 = __dp__.update_fn(_dp_lambda_6, None, "<lambda>")
     __dp__.setattr(_dp_class_ns, "__exit__", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "__exit__", _dp_lambda_6), "CaptureException", "<locals>"))
 CaptureException = __dp__.create_class("CaptureException", _dp_ns_CaptureException, (), None)
@@ -52,15 +52,15 @@ def exception_context():
 
     def f():
         try:
-            raise KeyError("a")
+            raise KeyError$0("a")
         except:
-            if __dp__.exception_matches(__dp__.current_exception(), Exception):
+            if __dp__.exception_matches(__dp__.current_exception(), Exception$0):
                 yield
             else:
                 raise
     gen = f()
     gen.send(None)
-    capture = CaptureException()
+    capture = CaptureException$0()
     _dp_tmp_2 = __dp__.with_enter(capture)
     try:
         _dp_tmp_3 = __dp__.unpack(_dp_tmp_2, (True, True))
@@ -70,7 +70,7 @@ def exception_context():
         _dp_tmp_3 = None
         _dp_tmp_2 = None
     try:
-        gen.throw(ValueError)
+        gen.throw(ValueError$0)
     except:
         __dp__.with_exit(_dp_with_exit_1, __dp__.exc_info())
     else:
@@ -78,4 +78,4 @@ def exception_context():
     finally:
         _dp_with_exit_1 = None
     context = capture.exc.__context__
-    return type(context), context.args
+    return type$0(context), context.args

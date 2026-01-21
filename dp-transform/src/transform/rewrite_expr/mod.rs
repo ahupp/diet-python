@@ -49,7 +49,7 @@ else:
                 body = *body,
                 orelse = *orelse,
             );
-            LoweredExpr::unmodified_modified(py_expr!("{tmp:id}", tmp = tmp.as_str()), stmts)
+            LoweredExpr::modified(py_expr!("{tmp:id}", tmp = tmp.as_str()), stmts)
         }
         Expr::BoolOp(bool_op) => {
             compare_boolop::expr_boolop_to_stmts(rewriter, bool_op)
@@ -144,7 +144,7 @@ else:
             if stmts.is_empty() && !modified {
                 LoweredExpr::unmodified(new_call)
             } else {
-                LoweredExpr::unmodified_modified(new_call, stmts)
+                LoweredExpr::modified(new_call, stmts)
             }
         }
         Expr::FString(f_string) => {
@@ -281,7 +281,7 @@ else:
             if stmts.is_empty() && !modified {
                 LoweredExpr::unmodified(expr)
             } else {
-                LoweredExpr::unmodified_modified(expr, stmts)
+                LoweredExpr::modified(expr, stmts)
             }
         }
         Expr::Tuple(ast::ExprTuple {
@@ -310,7 +310,7 @@ else:
             if stmts.is_empty() && !modified {
                 LoweredExpr::unmodified(expr)
             } else {
-                LoweredExpr::unmodified_modified(expr, stmts)
+                LoweredExpr::modified(expr, stmts)
             }
         }
         Expr::List(list) if matches!(list.ctx, ast::ExprContext::Load) => {
@@ -349,7 +349,7 @@ else:
             if stmts.is_empty() && !modified {
                 LoweredExpr::unmodified(expr)
             } else {
-                LoweredExpr::unmodified_modified(expr, stmts)
+                LoweredExpr::modified(expr, stmts)
             }
         }
         Expr::Set(ast::ExprSet { elts, .. }) => {
@@ -367,7 +367,7 @@ else:
             if stmts.is_empty() && !modified {
                 LoweredExpr::unmodified(expr)
             } else {
-                LoweredExpr::unmodified_modified(expr, stmts)
+                LoweredExpr::modified(expr, stmts)
             }
         }
         Expr::Dict(ast::ExprDict { items, .. }) => {
@@ -425,7 +425,7 @@ else:
             if stmts.is_empty() && !modified {
                 LoweredExpr::unmodified(expr)
             } else {
-                LoweredExpr::unmodified_modified(expr, stmts)
+                LoweredExpr::modified(expr, stmts)
             }
         }
         Expr::BinOp(ast::ExprBinOp {
@@ -468,7 +468,7 @@ else:
             if stmts.is_empty() && !value_lowered.modified && !slice_lowered.modified {
                 LoweredExpr::unmodified(expr)
             } else {
-                LoweredExpr::unmodified_modified(expr, stmts)
+                LoweredExpr::modified(expr, stmts)
             }
         }
         other => LoweredExpr::unmodified(other),
