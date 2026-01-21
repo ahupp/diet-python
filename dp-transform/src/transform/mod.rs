@@ -1,13 +1,12 @@
 pub(crate) mod class_def;
 pub(crate) mod context;
 pub(crate) mod driver;
-pub(crate) mod rewrite_decorator;
 pub(crate) mod rewrite_explicit_scope;
 pub(crate) mod rewrite_future_annotations;
 pub(crate) mod rewrite_import;
-pub(crate) mod rewrite_match_case;
 pub(crate) mod rewrite_stmt;
 pub(crate) mod rewrite_expr;
+pub(crate) mod util;
 
 #[derive(Clone, Copy)]
 pub enum ImportStarHandling {

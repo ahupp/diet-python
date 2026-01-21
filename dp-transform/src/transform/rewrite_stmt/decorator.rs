@@ -1,7 +1,6 @@
-use super::driver::Rewrite;
 use ruff_python_ast::{self as ast, Expr, Stmt};
 
-use crate::{py_expr, py_stmt, transform::driver::ExprRewriter};
+use crate::{py_expr, py_stmt, transform::driver::{ExprRewriter, Rewrite}};
 
 /// Rewrite decorated functions and classes into explicit decorator applications.
 pub fn rewrite(

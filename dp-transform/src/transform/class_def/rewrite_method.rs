@@ -3,10 +3,10 @@ use std::{collections::HashSet, mem::take};
 use ruff_python_ast::{self as ast, name::Name, Expr, ExprContext, Stmt};
 
 use crate::{
-    body_transform::{walk_expr, walk_stmt, Transformer},
+    body_transform::{Transformer, walk_expr, walk_stmt},
     py_expr, py_stmt,
     template::py_stmt_single,
-    transform::driver::ExprRewriter,
+    transform::{driver::ExprRewriter, util::is_noarg_call},
 };
 
 struct MethodTransformer {
@@ -78,16 +78,8 @@ impl Transformer for MethodTransformer {
     fn visit_expr(&mut self, expr: &mut Expr) {
         match expr {
             Expr::Call(call) => {
-                let is_zero_arg_super =
-                    if let Expr::Name(ast::ExprName { id, .. }) = call.func.as_ref() {
-                        id == "super"
-                            && call.arguments.args.is_empty()
-                            && call.arguments.keywords.is_empty()
-                    } else {
-                        false
-                    };
 
-                if is_zero_arg_super {
+                if is_noarg_call("super", expr) {
                     self.needs_class_cell = true;
 
                     *expr = match &self.first_arg {

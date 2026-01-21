@@ -1,9 +1,8 @@
-use super::{context::Context, driver::Rewrite};
 use ruff_python_ast::{self as ast, name::Name, Expr, Pattern, Stmt};
 use ruff_python_parser::parse_expression;
 use ruff_text_size::TextRange;
 
-use crate::{py_expr, py_stmt};
+use crate::{py_expr, py_stmt, transform::{context::Context, driver::Rewrite}};
 
 enum PatternTest {
     Test { expr: Expr, assigns: Vec<Stmt> },

@@ -205,14 +205,16 @@ pub(crate) fn rewrite_ann_assign(
     }
 
     if let Some(name) = name {
-        stmts.extend(py_stmt!(
-            r#"
+        if rewriter.context().current_qualname().is_some() {
+            stmts.extend(py_stmt!(
+                r#"
 try:
     __annotations__
 except NameError:
     __annotations__ = __dp__.dict()
 "#
-        ));
+            ));
+        }
         stmts.extend(py_stmt!(
             "__dp__.setitem(__annotations__, {name:literal}, {value:expr})",
             name = name.as_str(),

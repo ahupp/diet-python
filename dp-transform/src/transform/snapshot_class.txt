@@ -18,11 +18,7 @@ def _dp_ns_C(_dp_class_ns):
 
     def m(self):
         return self.x
-
-    def _dp_lambda_2():
-        return m$0
-    __dp__.update_fn(_dp_lambda_2, None, "<lambda>")
-    __dp__.setattr(_dp_class_ns, "m", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "m", _dp_lambda_2), "C", "<locals>"))
+    __dp__.setattr(_dp_class_ns, "m", __dp__.update_fn(m$local, "C", "<locals>"))
 C = __dp__.create_class("C", _dp_ns_C, (), None)
 
 $ class_with_base

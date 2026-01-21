@@ -11,6 +11,8 @@ use crate::{
     py_expr, py_stmt,
     transform::context::ScopeInfo,
 };
+use super::class_body_load;
+use crate::transform::util::is_noarg_call;
 
 pub fn rewrite_class_scope(
     qualname: String,
@@ -100,7 +102,6 @@ impl Transformer for ClassScopeRewriter {
                         new_body.push(stmt);
                         continue;
                     };
-                    let name_expr = py_expr!("{name:id}", name = name_str.as_str());
                     if let Some(type_params) = alias.type_params.as_mut() {
                         self.visit_type_params(type_params);
                     }
@@ -111,19 +112,15 @@ impl Transformer for ClassScopeRewriter {
                         r#"
 def {tmp:id}():
     {alias_stmt:stmt}
-    return {name:expr}
+    return {name:id}
+{name:id} = {tmp:id}()    
 "#,
                         tmp = tmp_name.as_str(),
                         alias_stmt = vec![alias_stmt],
-                        name = name_expr,
-                    );
-                    let assign = py_stmt!(
-                        "_dp_class_ns.{name:id} = {tmp:id}()",
                         name = name_str.as_str(),
                         tmp = tmp_name.as_str(),
                     );
                     new_body.extend(helper);
-                    new_body.extend(assign);
                 }
                 Stmt::FunctionDef(func_def) => {
                     let func_name = func_def.name.id.clone();
@@ -132,7 +129,7 @@ def {tmp:id}():
                     self.visit_stmt(&mut stmt);
                     new_body.push(stmt);
                     let mut with_assign = py_stmt!(r#"
-{func_name:id} = __dp__.update_fn({func_name:id}, {qualname:literal}, "<locals>")                    
+{func_name:id} = __dp__.update_fn({func_name:id}$local, {qualname:literal}, "<locals>")                    
 "#, func_name = func_name.as_str(), qualname = self.qualname.as_str());
                     self.visit_body(&mut with_assign);
                     new_body.extend(with_assign);
@@ -246,18 +243,9 @@ def {tmp:id}():
     }
 
     fn visit_expr(&mut self, expr: &mut Expr) {
-        if let Expr::Call(ast::ExprCall {
-            func, arguments, ..
-        }) = expr
-        {
-            if let Expr::Name(ast::ExprName { id, .. }) = func.as_ref() {
-                if arguments.args.is_empty() && arguments.keywords.is_empty() {
-                    if id.as_str() == "vars" || id.as_str() == "locals" {
-                        *expr = py_expr!("_dp_class_ns._namespace");
-                        return;
-                    }
-                }
-            }
+        if is_noarg_call("vars", expr) || is_noarg_call("locals", expr) {
+            *expr = py_expr!("lambda: _dp_class_ns");
+            return;
         }
         if let Expr::Name(ast::ExprName { id, ctx, .. }) = expr {
             if matches!(ctx, ExprContext::Load) {
@@ -282,10 +270,7 @@ def {tmp:id}():
                 if !self.should_rewrite(name_str) {
                     return;
                 }
-                *expr = py_expr!(
-                    "__dp__.class_lookup(_dp_class_ns, {name:literal}, lambda: {name:id})",
-                    name = name_str,
-                );
+                *expr = class_body_load(name_str);
                 return;
             }
         }

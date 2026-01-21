@@ -3,7 +3,7 @@ pub mod rewrite_class_vars;
 pub mod rewrite_method;
 pub mod rewrite_private;
 
-use crate::transform::{rewrite_decorator, rewrite_stmt};
+use crate::transform::{rewrite_stmt};
 use crate::transform::rewrite_expr::make_tuple;
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{
@@ -24,12 +24,24 @@ use std::collections::HashSet;
 use std::mem::take;
 
 pub fn class_lookup_literal_name(name: &str) -> &str {
-    if let Some((base, suffix)) = name.rsplit_once('$') {
-        if !base.is_empty() && suffix.chars().all(|ch| ch.is_ascii_digit()) {
-            return base;
-        }
+    if let Some((base, _suffix)) = name.rsplit_once('$') {
+        base    
+    } else {
+        name
     }
-    name
+}
+
+pub fn class_body_load(name: &str) -> Expr {
+    let literal_name = class_lookup_literal_name(name);
+    if literal_name == name {
+        py_expr!(
+            "__dp__.class_lookup(_dp_class_ns, {literal_name:literal}, lambda: {name:id})",
+            literal_name = literal_name,
+            name = name,
+        )
+    } else {
+        py_expr!("{name:id}", name = name)
+    }
 }
 
 fn rewrite_methods_in_class_body(
@@ -440,17 +452,10 @@ pub fn class_call_arguments(
     if let Some(args) = arguments {
         let args = *args;
         for base in args.args.into_vec() {
-                    let base_expr = if in_class_scope {
-                    if let Expr::Name(ast::ExprName { id, .. }) = &base {
-                        let name = id.as_str();
-                        let literal_name = class_lookup_literal_name(name);
-                        py_expr!(
-                            "__dp__.class_lookup(_dp_class_ns, {literal_name:literal}, lambda: {name:id})",
-                            literal_name = literal_name,
-                            name = name,
-                        )
-                } else {
-                    base
+            let base_expr = if in_class_scope {
+                match base {
+                    Expr::Name(name_expr) => class_body_load(name_expr.id.as_str()),
+                    other => other,
                 }
             } else {
                 base
@@ -459,16 +464,9 @@ pub fn class_call_arguments(
         }
         for kw in args.keywords.into_vec() {
             let value = if in_class_scope {
-                if let Expr::Name(ast::ExprName { id, .. }) = &kw.value {
-                    let name = id.as_str();
-                    let literal_name = class_lookup_literal_name(name);
-                    py_expr!(
-                        "__dp__.class_lookup(_dp_class_ns, {literal_name:literal}, lambda: {name:id})",
-                        literal_name = literal_name,
-                        name = name,
-                    )
-                } else {
-                    kw.value
+                match kw.value {
+                    Expr::Name(name_expr) => class_body_load(name_expr.id.as_str()),
+                    other => other,
                 }
             } else {
                 kw.value

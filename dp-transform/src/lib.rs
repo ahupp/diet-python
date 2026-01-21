@@ -140,6 +140,7 @@ fn apply_transforms(module: &mut ModModule, options: Options, source: &str, cpyt
     if ctx.cpython {
        ensure_import::ensure_future_explicit_scope(module);
     }
+    ensure_import::ensure_module_annotations(module);
 //    transform::rewrite_explicit_scope::rewrite(&mut module.body);
 
     // Stage 1: lower everything except ClassDef, generators, and lambdas.
