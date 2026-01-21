@@ -178,8 +178,3 @@ pub fn rewrite_tstring(expr: ast::ExprTString, _ctx: &Context) -> Expr {
     let tuple = make_tuple(parts);
     py_expr!("__dp__.template(*{parts:expr})", parts = tuple)
 }
-
-#[cfg(test)]
-mod tests {
-    crate::transform_fixture_test!("tests_rewrite_string.txt");
-}

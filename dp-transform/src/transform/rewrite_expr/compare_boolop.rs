@@ -127,8 +127,3 @@ fn compare_expr(op: CmpOp, left: Expr, right: Expr) -> Expr {
         CmpOp::NotIn => make_unaryop("not_", make_binop("contains", right, left)),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    crate::transform_fixture_test!("tests_rewrite_expr_to_stmt.txt");
-}

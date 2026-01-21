@@ -45,7 +45,7 @@ pub(crate) fn rewrite_lambda(lambda: ast::ExprLambda, ctx: &Context) -> LoweredE
         r#"
 def {func_name:id}():
     return {body:expr}
-{func_name:id} = __dp__.update_fn({func_name:id}, {qualname:expr}, "<lambda>")
+__dp__.update_fn({func_name:id}, {qualname:expr}, "<lambda>")
 "#,
         func_name = func_name.as_str(),
         body = *body,
@@ -170,7 +170,7 @@ def {func:id}({param:id}):
     let scope = scope_expr(&qualname, "<genexpr>");
     buf.extend(py_stmt!(
         r#"
-{func:id} = __dp__.update_fn({func:id}, {scope:expr}, {name:literal})
+__dp__.update_fn({func:id}, {scope:expr}, {name:literal})
 "#,
         func = func_name.as_str(),
         name = "<genexpr>",

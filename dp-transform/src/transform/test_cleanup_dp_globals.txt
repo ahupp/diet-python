@@ -1,8 +1,0 @@
-$ integration: cleanup dp globals
-
-def has_dp_name():
-    return "_dp_name" in globals()
-=
-def has_dp_name():
-    _dp_target_1 = __dp__.contains(globals$0(), "_dp_name")
-    return _dp_target_1

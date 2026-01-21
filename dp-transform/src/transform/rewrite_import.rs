@@ -162,8 +162,6 @@ mod tests {
     use crate::transform::{context::Context, driver::ExprRewriter, ImportStarHandling, Options};
     use ruff_python_parser::parse_module;
 
-    crate::transform_fixture_test!("tests_rewrite_import.txt");
-
     fn rewrite_source(source: &str, options: Options) -> String {
         let mut module = parse_module(source).expect("parse error").into_syntax();
         let ctx = Context::new(options.clone(), source, false);

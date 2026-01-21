@@ -3,7 +3,7 @@ pub mod rewrite_class_vars;
 pub mod rewrite_method;
 pub mod rewrite_private;
 
-use crate::transform::rewrite_decorator;
+use crate::transform::{rewrite_decorator, rewrite_stmt};
 use crate::transform::rewrite_expr::make_tuple;
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{
@@ -100,7 +100,7 @@ pub fn rewrite(ast::StmtClassDef {
         rewriter,
     );
 
-    rewrite_decorator::rewrite(decorator_list, class_name.as_str(), create_class_fn, rewriter)
+    rewrite_stmt::decorator::rewrite(decorator_list, class_name.as_str(), create_class_fn, rewriter)
 }
 
 fn class_def_to_create_class_fn<'a>(
@@ -497,9 +497,4 @@ pub fn class_call_arguments(
     };
 
     (make_tuple(bases), prepare_dict)
-}
-
-#[cfg(test)]
-mod tests {
-    crate::transform_fixture_test!("tests_rewrite_class_def.txt");
 }

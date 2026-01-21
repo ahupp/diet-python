@@ -1,0 +1,42 @@
+$ class_with_method
+
+class C:
+    x = 1
+    def m(self):
+        return self.x
+
+=
+
+def _dp_ns_C(_dp_class_ns):
+
+    def _dp_lambda_1():
+        return __name__$0
+    __dp__.update_fn(_dp_lambda_1, None, "<lambda>")
+    __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1))
+    __dp__.setattr(_dp_class_ns, "__qualname__", "C")
+    __dp__.setattr(_dp_class_ns, "x", 1)
+
+    def m(self):
+        return self.x
+
+    def _dp_lambda_2():
+        return m$0
+    __dp__.update_fn(_dp_lambda_2, None, "<lambda>")
+    __dp__.setattr(_dp_class_ns, "m", __dp__.update_fn(__dp__.class_lookup(_dp_class_ns, "m", _dp_lambda_2), "C", "<locals>"))
+C = __dp__.create_class("C", _dp_ns_C, (), None)
+
+$ class_with_base
+
+class D(Base):
+    pass
+
+=
+
+def _dp_ns_D(_dp_class_ns):
+
+    def _dp_lambda_1():
+        return __name__$0
+    __dp__.update_fn(_dp_lambda_1, None, "<lambda>")
+    __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1))
+    __dp__.setattr(_dp_class_ns, "__qualname__", "D")
+D = __dp__.create_class("D", _dp_ns_D, (Base,), None)

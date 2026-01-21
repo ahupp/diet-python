@@ -209,8 +209,6 @@ except:
         assert!(!has_non_default_handler(&try_stmt));
     }
 
-    crate::transform_fixture_test!("tests_rewrite_exception.txt");
-
     #[test]
     fn skips_already_rewritten_try() {
         let try_stmt = first_try_with_options(

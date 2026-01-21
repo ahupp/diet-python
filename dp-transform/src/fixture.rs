@@ -100,14 +100,17 @@ pub fn render_fixture(blocks: &[FixtureBlock]) -> String {
         }
         output.push_str("$ ");
         output.push_str(&block.name);
-        output.push('\n');
-        output.push_str(&block.input);
-        if !block.input.ends_with('\n') {
+        output.push_str("\n\n");
+        let input = block.input.trim_matches('\n');
+        if !input.is_empty() {
+            output.push_str(input);
             output.push('\n');
         }
-        output.push_str("=\n");
-        output.push_str(&block.output);
-        if !block.output.ends_with('\n') {
+        output.push('\n');
+        output.push_str("=\n\n");
+        let output_block = block.output.trim_matches('\n');
+        if !output_block.is_empty() {
+            output.push_str(output_block);
             output.push('\n');
         }
     }

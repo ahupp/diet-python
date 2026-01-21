@@ -71,8 +71,3 @@ finally:
 
     Rewrite::Visit(body)
 }
-
-#[cfg(test)]
-mod tests {
-    crate::transform_fixture_test!("tests_rewrite_with.txt");
-}

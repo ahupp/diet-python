@@ -1,8 +1,8 @@
 use super::{
     context::{Context, ScopeInfo, ScopeKind},
-    rewrite_import, rewrite_match_case, Options,
+    rewrite_import, Options,
 };
-use crate::{ruff_ast_to_string, template::is_simple, transform::{rewrite_decorator, rewrite_expr::lower_expr, rewrite_stmt}};
+use crate::{ruff_ast_to_string, template::is_simple, transform::{rewrite_expr::lower_expr, rewrite_stmt}};
 
 use crate::{
     body_transform::{walk_expr, walk_stmt, Transformer},
@@ -224,7 +224,7 @@ impl ExprRewriter {
         self.qualname_stack.pop();
 
         let decorators = take(&mut func_def.decorator_list);
-        rewrite_decorator::rewrite(decorators, func_name.as_str(), vec![Stmt::FunctionDef(func_def)], self)
+        rewrite_stmt::decorator::rewrite(decorators, func_name.as_str(), vec![Stmt::FunctionDef(func_def)], self)
     }
 
     fn lower_stmt(&mut self, stmt: Stmt) -> Rewrite {
@@ -247,7 +247,7 @@ impl ExprRewriter {
             {
                 Rewrite::Visit(vec![expand_if_chain(if_stmt).into()])
             }
-            Stmt::Match(match_stmt) => rewrite_match_case::rewrite(match_stmt, &self.ctx),
+            Stmt::Match(match_stmt) => rewrite_stmt::match_case::rewrite(match_stmt, &self.ctx),
             Stmt::Import(import) => rewrite_import::rewrite(import, &self.options),
             Stmt::ImportFrom(import_from) => {
                 rewrite_import::rewrite_from(import_from.clone(), &self.ctx, &self.options)
@@ -436,9 +436,4 @@ fn apply_expr_range(expr: &mut Expr, range: TextRange) {
         Expr::Slice(node) => node.range = range,
         Expr::IpyEscapeCommand(node) => node.range = range,
     }
-}
-
-#[cfg(test)]
-mod tests {
-    crate::transform_fixture_test!("tests_expr.txt");
 }

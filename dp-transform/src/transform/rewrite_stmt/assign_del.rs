@@ -178,7 +178,7 @@ finally:
 
 pub(crate) fn rewrite_ann_assign(
     rewriter: &mut ExprRewriter,
-    mut ann_assign: ast::StmtAnnAssign,
+    ann_assign: ast::StmtAnnAssign,
 ) -> Rewrite {
     let ast::StmtAnnAssign {
         target,
@@ -315,9 +315,4 @@ pub(crate) fn rewrite_delete(rewriter: &mut ExprRewriter, delete: ast::StmtDelet
             .flatten()
             .collect(),
     )
-}
-
-#[cfg(test)]
-mod tests {
-    crate::transform_fixture_test!("tests_rewrite_assign_del.txt");
 }

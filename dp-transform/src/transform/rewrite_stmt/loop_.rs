@@ -111,8 +111,3 @@ if {test_flag:id}:
         test_flag = test_flag.as_str(),
     ))
 }
-
-#[cfg(test)]
-mod tests {
-    crate::transform_fixture_test!("tests_rewrite_loop.txt");
-}

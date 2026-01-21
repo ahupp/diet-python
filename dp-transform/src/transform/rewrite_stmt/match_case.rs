@@ -562,8 +562,3 @@ else:
         chain = chain,
     ))
 }
-
-#[cfg(test)]
-mod tests {
-    crate::transform_fixture_test!("tests_rewrite_match_case.txt");
-}

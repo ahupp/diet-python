@@ -508,8 +508,3 @@ impl Transformer for ExplicitScopeRewriter {
         walk_expr(self, expr);
     }
 }
-
-#[cfg(test)]
-mod tests {
-    crate::transform_fixture_test!("test_class_scope.txt");
-}

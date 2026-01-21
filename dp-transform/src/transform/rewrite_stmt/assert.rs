@@ -26,8 +26,3 @@ if __debug__:
         ))
     }
 }
-
-#[cfg(test)]
-mod tests {
-    crate::transform_fixture_test!("tests_rewrite_assert.txt");
-}

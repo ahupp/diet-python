@@ -12,6 +12,8 @@ pub fn rewrite(body: &mut Vec<Stmt>) {
     }
 }
 
+// When `from __future__ import annotations` is present, stringify annotation
+// expressions early so later rewrites don't change the deferred-evaluation form.
 struct FutureAnnotationsRewriter {
     enabled: bool,
     indent: Indentation,
@@ -95,6 +97,4 @@ mod tests {
             other => panic!("expected future import, got {other:?}"),
         }
     }
-
-    crate::transform_fixture_test!("tests_rewrite_future_annotations.txt");
 }

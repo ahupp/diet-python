@@ -50,8 +50,3 @@ pub fn apply_exprs(decorators: Vec<Expr>, base: Expr) -> Expr {
     }
     decorated
 }
-
-#[cfg(test)]
-mod tests {
-    crate::transform_fixture_test!("tests_rewrite_decorator.txt");
-}

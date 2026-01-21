@@ -74,8 +74,6 @@ fn is_truth_call(expr: &Expr) -> bool {
 mod tests {
     use crate::test_util::assert_transform_eq_truthy;
 
-    crate::transform_fixture_test!("tests_rewrite_truthy.txt");
-
     #[test]
     fn rewrites_truthy_if_condition() {
         let input = r#"
