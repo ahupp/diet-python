@@ -239,11 +239,8 @@ finally:
     _dp_tmp_2 = None
 try:
     body()
-except:
-    __dp__.with_exit(_dp_with_exit_1, __dp__.exc_info())
-else:
-    __dp__.with_exit(_dp_with_exit_1, None)
 finally:
+    __dp__.with_exit(_dp_with_exit_1, __dp__.exc_info())
     _dp_with_exit_1 = None
 
 $ with_multi
@@ -272,17 +269,11 @@ try:
         _dp_tmp_5 = None
     try:
         body()
-    except:
-        __dp__.with_exit(_dp_with_exit_1, __dp__.exc_info())
-    else:
-        __dp__.with_exit(_dp_with_exit_1, None)
     finally:
+        __dp__.with_exit(_dp_with_exit_1, __dp__.exc_info())
         _dp_with_exit_1 = None
-except:
-    __dp__.with_exit(_dp_with_exit_2, __dp__.exc_info())
-else:
-    __dp__.with_exit(_dp_with_exit_2, None)
 finally:
+    __dp__.with_exit(_dp_with_exit_2, __dp__.exc_info())
     _dp_with_exit_2 = None
 
 $ async_for
@@ -324,11 +315,8 @@ async def run():
         _dp_tmp_2 = None
     try:
         body$0()
-    except:
-        await __dp__.with_aexit(_dp_with_exit_1, __dp__.exc_info())
-    else:
-        await __dp__.with_aexit(_dp_with_exit_1, None)
     finally:
+        await __dp__.with_aexit(_dp_with_exit_1, __dp__.exc_info())
         _dp_with_exit_1 = None
 
 $ match_simple

@@ -157,21 +157,15 @@ def prepare_class(name, bases, kwds=None):
     return _types.prepare_class(name, bases, kwds)
 
 
-_CELL_TYPE = _types.CellType
+
 _MISSING_CLASSCELL = object()
 _EMPTY_CLASSCELL = object()
 
 
-class _ClassCell:
-    __slots__ = ("_locals",)
-
-    def __init__(self):
-        self._locals = {}
-
 
 def make_classcell(value=_MISSING_CLASSCELL):
     if value is _MISSING_CLASSCELL:
-        return _CELL_TYPE()
+        return _types.CellType()
     def inner():
         return value
     return inner.__closure__[0]
@@ -180,34 +174,13 @@ def make_classcell(value=_MISSING_CLASSCELL):
 def empty_classcell():
     return _EMPTY_CLASSCELL
 
-def class_cell_value(class_cell):
-    if class_cell is _EMPTY_CLASSCELL:
-        raise RuntimeError("empty __class__ cell")
-    if isinstance(class_cell, _CELL_TYPE):
-        try:
-            value = class_cell.cell_contents
-        except ValueError:
-            raise RuntimeError("empty __class__ cell") from None
-        if value is _EMPTY_CLASSCELL:
-            raise RuntimeError("empty __class__ cell")
-        return value
-    try:
-        locals_dict = object.__getattribute__(class_cell, "_locals")
-    except Exception:
-        return class_cell
-    value = locals_dict.get("__dp_class", class_cell)
-    if value is _EMPTY_CLASSCELL:
-        raise RuntimeError("empty __class__ cell")
-    return value
 
 def super_(super_fn, class_namespace, instance_or_cls):
     """Return a super() proxy using the defining class, falling back to cls during class creation."""
     defining = None
     if class_namespace is _EMPTY_CLASSCELL:
         raise RuntimeError("empty __class__ cell")
-    if isinstance(class_namespace, _ClassNamespace):
-        defining = class_namespace._locals.get("__dp_class")
-    elif isinstance(class_namespace, _CELL_TYPE):
+    if isinstance(class_namespace, _types.CellType):
         try:
             defining = class_namespace.cell_contents
         except ValueError:
@@ -227,9 +200,9 @@ def super_(super_fn, class_namespace, instance_or_cls):
     return super(defining, instance_or_cls)
 
 
-def call_super(super_fn, class_namespace, instance_or_cls):
+def call_super(super_fn, cls, instance_or_cls):
     if super_fn is builtins.super:
-        return super_(class_namespace, instance_or_cls)
+        return builtins.super(cls, instance_or_cls)
     return super_fn()
 
 
@@ -272,78 +245,6 @@ def match_class_attr_value(cls, subject, idx, total):
     return getattr(subject, name)
 
 
-class _ClassNamespace:
-    __slots__ = ("_namespace", "_locals")
-
-    def __init__(self, namespace):
-        self._namespace = namespace
-        self._locals = {}
-
-    def __getattribute__(self, name):
-        if name in ("_namespace", "_locals", "__slots__"):
-            return object.__getattribute__(self, name)
-
-        locals_dict = object.__getattribute__(self, "_locals")
-        if name in locals_dict:
-            return locals_dict[name]
-
-        namespace = object.__getattribute__(self, "_namespace")
-        if name in namespace:
-            return namespace[name]
-
-        return object.__getattribute__(self, name)
-
-    def __getattr__(self, name):
-        try:
-            return self[name]
-        except KeyError as exc:
-            raise AttributeError(name) from exc
-
-    def __setattr__(self, name, value):
-        if name in self.__slots__:
-            return super().__setattr__(name, value)
-        self[name] = value
-
-    def __delattr__(self, name):
-        if name in self.__slots__:
-            return super().__delattr__(name)
-        try:
-            del self[name]
-        except KeyError as exc:
-            raise AttributeError(name) from exc
-
-    def __setitem__(self, name, value):
-        setitem(self._namespace, name, value)
-        try:
-            stored = self._namespace[name]
-        except Exception:
-            stored = value
-        setitem(self._locals, name, stored)
-        return stored
-
-    def __getitem__(self, name, *rest):
-        if rest:
-            name = (name, *rest)
-        if name in self._locals:
-            return self._locals[name]
-        return self._namespace[name]
-
-    def get(self, name, default=None):
-        if name in self._locals:
-            return self._locals.get(name, default)
-        return self._namespace.get(name, default)
-
-    def __delitem__(self, name):
-        if name in self._locals:
-            del self._locals[name]
-        del self._namespace[name]
-
-    def get(self, name, default=None):
-        if name in self._locals:
-            return self._locals.get(name, default)
-        return self._namespace.get(name, default)
-
-
 
 def update_fn(func, scope, name):
     if scope is None:
@@ -369,131 +270,47 @@ def update_fn(func, scope, name):
     return func
 
 
-_typing = None
+typing = None
+templatelib = None
 
-
-def _typing_module():
-    # Lazy import to avoid circular import when typing imports __dp__ mid-init.
-    global _typing
-    if _typing is None:
-        _typing = builtins.__import__("typing")
-    return _typing
-
-
-_templatelib = None
-_template_type = None
-_interpolation_type = None
-
-try:
-    _template_probe = t"{0}"
-    _template_type = type(_template_probe)
-    _interpolation_type = type(_template_probe.interpolations[0])
-except Exception:
-    _template_type = None
-    _interpolation_type = None
-
-
-def _templatelib_module():
-    global _templatelib
-    if _templatelib is None:
-        _templatelib = builtins.__import__(
+def init_lazy_imports():
+    global typing, templatelib
+    typing = builtins.__import__("typing")
+    templatelib = builtins.__import__(
             "string.templatelib", fromlist=["templatelib"]
-        )
-    return _templatelib
+    )
 
 
-def template(*parts):
-    if _template_type is not None:
-        return _template_type(*parts)
-    module = _templatelib_module()
-    return module.Template(*parts)
-
-
-def interpolation(value, expression, conversion, format_spec):
-    if format_spec is None:
-        format_spec = ""
-    if _interpolation_type is not None:
-        return _interpolation_type(value, expression, conversion, format_spec)
-    module = _templatelib_module()
-    return module.Interpolation(value, expression, conversion, format_spec)
-
-
-def _normalize_constraints(constraints):
-    if constraints is None:
-        return ()
-    if isinstance(constraints, tuple):
-        return constraints
-    return (constraints,)
-
-
-def type_param_typevar(name, bound=None, default=None, constraints=None):
-    module = _typing_module()
-    args = _normalize_constraints(constraints)
-    kwargs = {}
-    if bound is not None:
-        kwargs["bound"] = bound
-    if default is not None:
-        kwargs["default"] = default
-    return module.TypeVar(name, *args, **kwargs)
-
-
-def type_param_typevar_tuple(name, default=None):
-    module = _typing_module()
-    if default is None:
-        return module.TypeVarTuple(name)
-    return module.TypeVarTuple(name, default=default)
-
-
-def type_param_param_spec(name, default=None):
-    module = _typing_module()
-    if default is None:
-        return module.ParamSpec(name)
-    return module.ParamSpec(name, default=default)
-
-
-def create_class(name, namespace_fn, bases, kwds=None):
-    orig_bases = bases
-    bases = resolve_bases(orig_bases)
+def create_class(name, namespace_fn, bases, kwds, requires_class_cell):
+    resolved_bases = resolve_bases(bases)
     meta, ns, meta_kwds = prepare_class(name, bases, kwds)
 
-    namespace = _ClassNamespace(ns)
-    namespace_fn(namespace)
-    class_cell = ns.get("__classcell__")
+    class_cell = ns.get("__classcell__", None)
+    if requires_class_cell and class_cell is None:
+        class_cell = make_classcell()
+        ns["__classcell__"] = class_cell
 
-    if orig_bases is not bases and "__orig_bases__" not in ns:
-        ns["__orig_bases__"] = orig_bases
-    cls = meta(name, bases, ns, **meta_kwds)
-    if cls is None:
-        return None
-    if class_cell is not None:
-        if isinstance(class_cell, _CELL_TYPE):
-            try:
-                cell_value = class_cell.cell_contents
-            except ValueError:
-                cell_value = _EMPTY_CLASSCELL
-            if cell_value is _EMPTY_CLASSCELL:
-                raise RuntimeError(
-                    "__class__ not set; was __classcell__ propagated to type.__new__?"
-                ) from None
-            if cell_value is not cls:
-                raise TypeError("__classcell__ is not set to the class being created")
-        elif isinstance(class_cell, _ClassCell):
-            locals_dict = object.__getattribute__(class_cell, "_locals")
-            existing = locals_dict.get("__dp_class", _EMPTY_CLASSCELL)
-            if existing is _EMPTY_CLASSCELL:
-                locals_dict["__dp_class"] = cls
-                existing = cls
-            if existing is not cls:
-                raise TypeError("__classcell__ is not set to the class being created")
-        else:
-            raise TypeError("__classcell__ must be a cell")
-    namespace._locals["__dp_class"] = cls
+    namespace_fn(ns, class_cell)
+
+    if resolved_bases is not bases and "__orig_bases__" not in ns:
+        ns["__orig_bases__"] = bases
+    cls = meta(name, resolved_bases, ns, **meta_kwds)
+
+    if cls is not None:
+        ns.pop("__classcell__", None)
+
+        if class_cell is not None:
+            if isinstance(class_cell, _types.CellType):
+                class_cell.cell_contents = cls
+            else:
+                raise TypeError("__classcell__ must be a cell")
+
     return cls
 
 def exc_info():
     exc = sys.exception()
     if exc is None:
-        return (None, None, None)
+        return None
     return (type(exc), exc, exc.__traceback__)
 
 

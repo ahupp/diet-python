@@ -1,4 +1,4 @@
-pub(crate) mod class_def;
+pub(crate) mod rewrite_class_def;
 pub(crate) mod context;
 pub(crate) mod driver;
 pub(crate) mod rewrite_explicit_scope;

@@ -37,15 +37,3 @@ pub fn apply(decorators: Vec<ast::Decorator>, base: Expr) -> Expr {
     }
     decorated
 }
-
-pub fn apply_exprs(decorators: Vec<Expr>, base: Expr) -> Expr {
-    let mut decorated = base;
-    for decorator in decorators.into_iter().rev() {
-        decorated = py_expr!(
-            "{decorator:expr}({decorated:expr})",
-            decorator = decorator,
-            decorated = decorated
-        );
-    }
-    decorated
-}

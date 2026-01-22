@@ -40,5 +40,7 @@ fn diet_python(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     dp_transform::init_logging();
     module.add_function(wrap_pyfunction!(transform_source, module)?)?;
     module.add_function(wrap_pyfunction!(eval_source, module)?)?;
+    let dp = _py.import("__dp__")?;
+    dp.getattr("init_lazy_imports")?.call0()?;
     Ok(())
 }

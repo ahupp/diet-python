@@ -1,7 +1,7 @@
 use std::{collections::HashSet, mem};
 
 use ruff_python_ast::{
-    self as ast, name::Name, Expr, ExprContext, Stmt, TypeParam, TypeParamParamSpec,
+    self as ast, Expr, ExprContext, Stmt, TypeParam, TypeParamParamSpec,
     TypeParamTypeVar, TypeParamTypeVarTuple,
 };
 
@@ -19,15 +19,11 @@ pub fn rewrite_class_scope(
     body: &mut Vec<Stmt>,
     scope: ScopeInfo,
     type_params: HashSet<String>,
-    has_enclosing_class_cell: bool,
 ) {
-    let locals = scope.local_names();
     let mut rewriter = ClassScopeRewriter::new(
         qualname,
         scope,
-        locals,
         type_params,
-        has_enclosing_class_cell,
     );
     rewriter.visit_body(body);
 }
@@ -36,19 +32,14 @@ struct ClassScopeRewriter {
     qualname: String,
     globals: HashSet<String>,
     nonlocals: HashSet<String>,
-    locals: HashSet<String>,
     type_params: HashSet<String>,
-    has_enclosing_class_cell: bool,
-    in_annotate: bool,
 }
 
 impl ClassScopeRewriter {
     fn new(
         qualname: String,
         scope: ScopeInfo,
-        locals: HashSet<String>,
         type_params: HashSet<String>,
-        has_enclosing_class_cell: bool,
     ) -> Self {
         let globals = scope.global_names();
         let nonlocals = scope.nonlocal_names();
@@ -56,10 +47,7 @@ impl ClassScopeRewriter {
             qualname,
             globals,
             nonlocals,
-            locals,
             type_params,
-            has_enclosing_class_cell,
-            in_annotate: false,
         }
     }
 
@@ -68,8 +56,7 @@ impl ClassScopeRewriter {
             && !self.nonlocals.contains(name)
             && !self.type_params.contains(name)
             && !name.starts_with("_dp_")
-            && !matches!(name, "__dp__" | "__classcell__" | "globals" | "locals" | "vars")
-            && (name != "__class__" || self.locals.contains("__class__"))
+            && !matches!(name, "__dp__"  | "globals")
     }
 
 }
@@ -129,7 +116,7 @@ def {tmp:id}():
                     self.visit_stmt(&mut stmt);
                     new_body.push(stmt);
                     let mut with_assign = py_stmt!(r#"
-{func_name:id} = __dp__.update_fn({func_name:id}$local, {qualname:literal}, "<locals>")                    
+{func_name:id} = __dp__.update_fn({func_name:id}, {qualname:literal}, {func_name:literal})
 "#, func_name = func_name.as_str(), qualname = self.qualname.as_str());
                     self.visit_body(&mut with_assign);
                     new_body.extend(with_assign);
@@ -166,77 +153,32 @@ def {tmp:id}():
                 if let Some(expr) = returns {
                     self.visit_annotation(expr);
                 }
-                if name.id.as_str() == "_dp_annotate" {
-                    let was_in_annotate = self.in_annotate;
-                    self.in_annotate = true;
+                if name.id.as_str() == "__annotate__" {
                     for stmt in body {
                         self.visit_stmt(stmt);
                     }
-                    self.in_annotate = was_in_annotate;
                 }
                 self.type_params = saved_type_params;
-            }
-            Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
-                assert!(targets.len() == 1, "assign should have a single target");
-                let target = targets.first_mut().unwrap();
-                if let Expr::Name(ast::ExprName { id, .. }) = target {
-                    if id.as_str() == "__classcell__" {
-                        return;
-                    }
-                    self.visit_expr(value);
-                    let name = id.as_str();
-                    if name == "__class__" && self.nonlocals.contains(name) {
-                        *stmt = py_stmt_single(py_stmt!(
-                            "_dp_classcell = {value:expr}",
-                            value = value.clone()
-                        ));
-                        return;
-                    }
-                    let is_class_name = name == "__class__";
-                    if is_class_name
-                        && (self.globals.contains(name) || self.nonlocals.contains(name))
-                    {
-                        return;
-                    }
-                    if is_class_name || self.should_rewrite(name) {
-                        *target = py_expr!("_dp_class_ns.{storage_name:id}", storage_name = name,);
-                    }
-                } else {
-                    walk_stmt(self, stmt);
-                    return;
-                }
             }
             Stmt::Delete(ast::StmtDelete { targets, .. }) => {
                 assert!(targets.len() == 1);
                 if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
                     let name = id.as_str();
-                    if name == "__class__" && self.nonlocals.contains(name) {
-                        *stmt = py_stmt_single(py_stmt!(
-                            "_dp_classcell = __dp__.empty_classcell()",
-                        ));
-                        return;
-                    }
                     if self.should_rewrite(name) {
-                        *stmt = py_stmt_single(py_stmt!(
-                            "del _dp_class_ns.{storage_name:id}",
-                            storage_name = name,
-                        ));
-                        return;
+                        *stmt = py_stmt_single(py_stmt!("del _dp_class_ns[{name:literal}]", name = name));
                     }
                 }
+                walk_stmt(self, stmt);
             }
-
-            Stmt::Nonlocal(ast::StmtNonlocal { names, .. }) => {
-                if names.iter().any(|name| name.id.as_str() == "__class__") {
-                    for name in names.iter_mut() {
-                        if name.id.as_str() == "__class__" {
-                            name.id = Name::new("_dp_classcell");
-                        }
+            Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
+                assert!(targets.len() == 1);
+                if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
+                    let name = id.as_str();
+                    if self.should_rewrite(name) {
+                        *stmt = py_stmt_single(py_stmt!("_dp_class_ns[{name:literal}] = {value:expr}", name = name, value = value.clone()));
                     }
                 }
-            }
-            Stmt::AugAssign(_) => {
-                panic!("augassign should be rewritten to assign");
+                walk_stmt(self, stmt);
             }
             _ => walk_stmt(self, stmt),
         }
@@ -248,31 +190,18 @@ def {tmp:id}():
             return;
         }
         if let Expr::Name(ast::ExprName { id, ctx, .. }) = expr {
-            if matches!(ctx, ExprContext::Load) {
-                let name = id.as_str().to_string();
-                let name_str = name.as_str();
-                if name_str == "__class__" && self.nonlocals.contains(name_str) {
-                    *expr = py_expr!("__dp__.class_cell_value(_dp_classcell)");
-                    return;
-                }
-                if name_str == "__class__"
-                    && self.has_enclosing_class_cell
-                    && !self.locals.contains(name_str)
-                    && !self.globals.contains(name_str)
-                    && !self.nonlocals.contains(name_str)
-                {
-                    *expr = py_expr!("__dp__.class_cell_value(_dp_classcell)");
-                    return;
-                }
-                if self.type_params.contains(name_str) {
-                    return;
-                }
-                if !self.should_rewrite(name_str) {
-                    return;
-                }
-                *expr = class_body_load(name_str);
+            let name = id.as_str().to_string();
+            let name_str = name.as_str();
+            if self.type_params.contains(name_str) {
                 return;
             }
+            if !self.should_rewrite(name_str) {
+                return;
+            }
+            if *ctx == ExprContext::Load {
+                *expr = class_body_load(name_str);
+                return;
+            } 
         }
         walk_expr(self, expr);
     }

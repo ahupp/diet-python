@@ -7,19 +7,18 @@ class C:
 
 =
 
-def _dp_ns_C(_dp_class_ns):
+def _dp_class_create_C():
 
-    def _dp_lambda_1():
-        return __name__$0
-    __dp__.update_fn(_dp_lambda_1, None, "<lambda>")
-    __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1))
-    __dp__.setattr(_dp_class_ns, "__qualname__", "C")
-    __dp__.setattr(_dp_class_ns, "x", 1)
+    def _dp_class_ns_C(_dp_class_ns, __classcell__):
+        __dp__.setitem(_dp_class_ns, "__module__", __name__$0)
+        __dp__.setitem(_dp_class_ns, "__qualname__", "C")
+        __dp__.setitem(_dp_class_ns, "x", 1)
 
-    def m(self):
-        return self.x
-    __dp__.setattr(_dp_class_ns, "m", __dp__.update_fn(m$local, "C", "<locals>"))
-C = __dp__.create_class("C", _dp_ns_C, (), None)
+        def m(self):
+            return self.x
+        __dp__.setitem(_dp_class_ns, "m", __dp__.update_fn(m$local, "C", "m"))
+    return __dp__.create_class("C", _dp_class_ns_C, (), None, False)
+C = _dp_class_create_C()
 
 $ class_with_base
 
@@ -28,11 +27,10 @@ class D(Base):
 
 =
 
-def _dp_ns_D(_dp_class_ns):
+def _dp_class_create_D():
 
-    def _dp_lambda_1():
-        return __name__$0
-    __dp__.update_fn(_dp_lambda_1, None, "<lambda>")
-    __dp__.setattr(_dp_class_ns, "__module__", __dp__.class_lookup(_dp_class_ns, "__name__", _dp_lambda_1))
-    __dp__.setattr(_dp_class_ns, "__qualname__", "D")
-D = __dp__.create_class("D", _dp_ns_D, (Base,), None)
+    def _dp_class_ns_D(_dp_class_ns, __classcell__):
+        __dp__.setitem(_dp_class_ns, "__module__", __name__$0)
+        __dp__.setitem(_dp_class_ns, "__qualname__", "D")
+    return __dp__.create_class("D", _dp_class_ns_D, (Base$0,), None, False)
+D = _dp_class_create_D()

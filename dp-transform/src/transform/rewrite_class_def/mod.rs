@@ -1,7 +1,7 @@
-pub mod rewrite_annotation;
-pub mod rewrite_class_vars;
-pub mod rewrite_method;
-pub mod rewrite_private;
+pub mod annotation;
+pub mod class_vars;
+pub mod method;
+pub mod private;
 
 use crate::transform::{rewrite_stmt};
 use crate::transform::rewrite_expr::make_tuple;
@@ -12,11 +12,10 @@ use ruff_python_ast::{
 };
 use ruff_text_size::TextRange;
 
-use crate::body_transform::{walk_stmt, Transformer};
+use crate::body_transform::{Transformer};
 use crate::template::py_stmt_single;
-use crate::transform::class_def::rewrite_annotation::AnnotationCollector;
-use crate::transform::class_def::rewrite_class_vars::rewrite_class_scope;
-use crate::transform::class_def::rewrite_method::rewrite_method;
+use crate::transform::rewrite_class_def::annotation::AnnotationCollector;
+use crate::transform::rewrite_class_def::class_vars::rewrite_class_scope;
 use crate::transform::context::ScopeKind;
 use crate::transform::driver::{ExprRewriter, Rewrite};
 
@@ -33,60 +32,11 @@ pub fn class_lookup_literal_name(name: &str) -> &str {
 
 pub fn class_body_load(name: &str) -> Expr {
     let literal_name = class_lookup_literal_name(name);
-    if literal_name == name {
-        py_expr!(
-            "__dp__.class_lookup(_dp_class_ns, {literal_name:literal}, lambda: {name:id})",
-            literal_name = literal_name,
-            name = name,
-        )
-    } else {
-        py_expr!("{name:id}", name = name)
-    }
-}
-
-fn rewrite_methods_in_class_body(
-    body: &mut Vec<Stmt>,
-    class_qualname: &str,
-    rewriter: &mut ExprRewriter,
-    class_cell_name: &str,
-) -> bool {
-    let mut rewriter = MethodRewriter {
-        class_qualname: class_qualname.to_string(),
-        expr_rewriter: rewriter,
-        needs_class_cell: false,
-        class_cell_name: class_cell_name.to_string(),
-    };
-    rewriter.visit_body(body);
-    rewriter.needs_class_cell
-}
-
-
-struct MethodRewriter<'a> {
-    class_qualname: String,
-    expr_rewriter: &'a mut ExprRewriter,
-    needs_class_cell: bool,
-    class_cell_name: String,
-}
-
-impl<'a> Transformer for MethodRewriter<'a> {
-    fn visit_stmt(&mut self, stmt: &mut Stmt) {
-        match stmt {
-            Stmt::FunctionDef(func_def) => {
-                assert!(
-                    func_def.decorator_list.is_empty(),
-                    "decorators should be gone by now"
-                );
-                self.needs_class_cell |= rewrite_method(
-                    func_def,
-                    &self.class_qualname,
-                    self.expr_rewriter,
-                    &self.class_cell_name,
-                );
-            }
-            Stmt::ClassDef(_) => {}
-            _ => walk_stmt(self, stmt),
-        }
-    }
+    py_expr!(
+        "__dp__.class_lookup(_dp_class_ns, {literal_name:literal}, lambda: {name:id})",
+        literal_name = literal_name,
+        name = name,
+    )
 }
 
 
@@ -129,21 +79,12 @@ fn class_def_to_create_class_fn<'a>(
         .context()
         .analyze_class_scope(&class_qualname, &body);
 
-    rewrite_private::rewrite_class_body(&mut body, &class_name, &mut class_scope);
-    let class_locals = class_scope.local_names();
-    let has_enclosing_class_cell = rewriter.context().has_enclosing_method_class_cell();
-    let class_cell_name = if has_enclosing_class_cell
-        || class_scope.nonlocal_names().contains("__class__")
-    {
-        rewriter.context().fresh("_dp_classcell")
-    } else {
-        "_dp_classcell".to_string()
-    };
+    private::rewrite_class_body(&mut body, &class_name, &mut class_scope);
+    let class_locals: HashSet<String> = class_scope.local_names();
 
+    let mut needs_class_cell = false;
     let (body, type_param_info) = rewriter.with_scope(class_scope.clone(), |rewriter| {
-        /*
-        If the first statement is a string literal, assign it to  __doc__
-        */
+        // If the first statement is a string literal, assign it to  __doc__
         if let Some(first_stmt) = body.first_mut() {
             if let Stmt::Expr(ast::StmtExpr { value, .. }) = first_stmt {
                 if let Expr::StringLiteral(_) = value.as_ref() {
@@ -191,11 +132,10 @@ __qualname__ = {class_qualname:literal}
 
         let mut ns_builder = rewriter.rewrite_block(ns_builder);
 
-        let needs_class_cell = rewrite_methods_in_class_body(
+        needs_class_cell = method::rewrite_methods_in_class_body(
             &mut ns_builder,
             &class_qualname,
             rewriter,
-            &class_cell_name,
         );
 
         let type_param_skip = type_param_info
@@ -214,31 +154,7 @@ __qualname__ = {class_qualname:literal}
             &mut ns_builder,
             class_scope,
             type_param_skip,
-            has_enclosing_class_cell,
         );
-
-        if needs_class_cell {
-            let mut insert_pos = 0;
-            for (idx, stmt) in ns_builder.iter().enumerate() {
-                let names = match stmt {
-                    Stmt::Global(ast::StmtGlobal { names, .. })
-                    | Stmt::Nonlocal(ast::StmtNonlocal { names, .. }) => names,
-                    _ => continue,
-                };
-                if names.iter().any(|name| name.id.as_str() == "__class__") {
-                    insert_pos = idx + 1;
-                }
-            }
-            let classcell = py_stmt!(
-                r#"
-{class_cell:id} = __dp__.empty_classcell()
-_dp_class_ns.__classcell__ = (lambda: {class_cell:id}).__closure__[0]
-"#,
-                class_cell = class_cell_name,
-            );
-            ns_builder.splice(insert_pos..insert_pos, classcell);
-        }
-
 
         (ns_builder, type_param_info)
     });
@@ -259,14 +175,20 @@ _dp_class_ns.__classcell__ = (lambda: {class_cell:id}).__closure__[0]
     let (bases_tuple, prepare_dict) =
         class_call_arguments(arguments, in_class_scope, extra_bases);
 
+
     py_stmt!(
         r#"
-def _dp_ns_{class_name:id}(_dp_class_ns):
+def _dp_class_create_{class_name:id}():
     {type_param_bindings:stmt}
-    {ns_body:stmt}
-{class_name:id} = __dp__.create_class({class_name:literal}, _dp_ns_{class_name:id}, {bases:expr}, {prepare_dict:expr})
+
+    def _dp_class_ns_{class_name:id}(_dp_class_ns, __classcell__):
+        {ns_body:stmt}
+
+    return __dp__.create_class({class_name:literal}, _dp_class_ns_{class_name:id}, {bases:expr}, {prepare_dict:expr}, {requires_class_cell:literal})
+{class_name:id} = _dp_class_create_{class_name:id}()
 "#,
         class_name = class_name.as_str(),
+        requires_class_cell = needs_class_cell,
         type_param_bindings = type_param_bindings,
         ns_body = body,
         bases = bases_tuple.clone(),
@@ -275,6 +197,7 @@ def _dp_ns_{class_name:id}(_dp_class_ns):
 }
 
 fn build_class_annotate_stmt(entries: Vec<(String, Expr)>) -> Vec<Stmt> {
+    // TODO: what if user provides __annotate__?
     if entries.is_empty() {
         return Vec::new();
     }
@@ -290,13 +213,12 @@ fn build_class_annotate_stmt(entries: Vec<(String, Expr)>) -> Vec<Stmt> {
 
     py_stmt!(
         r#"
-def _dp_annotate(_dp_format):
+def __annotate__(_dp_format):
     if _dp_format > 2:
         raise NotImplementedError
     _dp_annotations = {}
     {annotation_writes:stmt}
     return _dp_annotations
-__annotate__ = _dp_annotate
 "#,
         annotation_writes = annotation_writes,
     )
@@ -343,7 +265,7 @@ fn make_type_param_info(
                 let constraints_expr = constraints.unwrap_or_else(|| py_expr!("None"));
 
                 bindings.extend(py_stmt!(
-                    "{name:id} = __dp__.type_param_typevar({name_literal:literal}, {bound:expr}, {default:expr}, {constraints:expr})",
+                    "{name:id} = __dp__.typing.TypeVar({name_literal:literal}, {bound:expr}, {default:expr}, {constraints:expr})",
                     name = param_name.as_str(),
                     name_literal = param_name.as_str(),
                     bound = bound_expr,
@@ -356,35 +278,45 @@ fn make_type_param_info(
             }
             TypeParam::TypeVarTuple(TypeParamTypeVarTuple { name, default, .. }) => {
                 let param_name = name.as_str().to_string();
-                let default_expr = default
-                    .map(|expr| *expr)
-                    .unwrap_or_else(|| py_expr!("None"));
+                let binding = match default.map(|expr| *expr) {
+                    Some(default_expr) => py_stmt!(
+                        "{name:id} = __dp__.typing.TypeVarTuple({name_literal:literal}, default={default:expr})",
+                        name = param_name.as_str(),
+                        name_literal = param_name.as_str(),
+                        default = default_expr,
+                    ),
+                    None => py_stmt!(
+                        "{name:id} = __dp__.typing.TypeVarTuple({name_literal:literal})",
+                        name = param_name.as_str(),
+                        name_literal = param_name.as_str(),
+                    ),
+                };
 
-                bindings.extend(py_stmt!(
-                    "{name:id} = __dp__.type_param_typevar_tuple({name_literal:literal}, {default:expr})",
-                    name = param_name.as_str(),
-                    name_literal = param_name.as_str(),
-                    default = default_expr,
-                ));
+                bindings.extend(binding);
                 type_param_exprs.push(py_expr!("{name:id}", name = param_name.as_str()));
                 generic_params.push(py_expr!(
-                    "__dp__.getitem(__import__(\"typing\").Unpack, {name:id})",
+                    "__dp__.typing.Unpack[{name:id}]",
                     name = param_name.as_str()
                 ));
                 param_names.push(param_name);
             }
             TypeParam::ParamSpec(TypeParamParamSpec { name, default, .. }) => {
                 let param_name = name.as_str().to_string();
-                let default_expr = default
-                    .map(|expr| *expr)
-                    .unwrap_or_else(|| py_expr!("None"));
+                let binding = match default.map(|expr| *expr) {
+                    Some(default_expr) => py_stmt!(
+                        "{name:id} = __dp__.typing.ParamSpec({name_literal:literal}, default={default:expr})",
+                        name = param_name.as_str(),
+                        name_literal = param_name.as_str(),
+                        default = default_expr,
+                    ),
+                    None => py_stmt!(
+                        "{name:id} = __dp__.typing.ParamSpec({name_literal:literal})",
+                        name = param_name.as_str(),
+                        name_literal = param_name.as_str(),
+                    ),
+                };
 
-                bindings.extend(py_stmt!(
-                    "{name:id} = __dp__.type_param_param_spec({name_literal:literal}, {default:expr})",
-                    name = param_name.as_str(),
-                    name_literal = param_name.as_str(),
-                    default = default_expr,
-                ));
+                bindings.extend(binding);
                 type_param_exprs.push(py_expr!("{name:id}", name = param_name.as_str()));
                 generic_params.push(py_expr!("{name:id}", name = param_name.as_str()));
                 param_names.push(param_name);
@@ -415,10 +347,8 @@ fn make_generic_base(info: &TypeParamInfo) -> Option<Expr> {
     } else {
         make_tuple(info.generic_params.clone())
     };
-    let generic_expr = py_expr!("__import__(\"typing\").Generic");
     Some(py_expr!(
-        "__dp__.getitem({generic:expr}, {params:expr})",
-        generic = generic_expr,
+        "__dp__.typing.Generic[{params:expr}]",
         params = params_expr,
     ))
 }

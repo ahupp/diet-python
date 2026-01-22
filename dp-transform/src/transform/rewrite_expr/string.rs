@@ -135,7 +135,7 @@ fn rewrite_tstring_interpolation(interp: &ast::InterpolatedElement, ctx: &Contex
         py_expr!("{literal:literal}", literal = "")
     };
     py_expr!(
-        "__dp__.interpolation({value:expr}, {expr_text:literal}, {conversion:expr}, {format_spec:expr})",
+        "__dp__.templatelib.Interpolation({value:expr}, {expr_text:literal}, {conversion:expr}, {format_spec:expr})",
         value = value,
         expr_text = expr_text.as_str(),
         conversion = conversion_expr,
@@ -176,5 +176,5 @@ pub fn rewrite_tstring(expr: ast::ExprTString, _ctx: &Context) -> Expr {
         }
     }
     let tuple = make_tuple(parts);
-    py_expr!("__dp__.template(*{parts:expr})", parts = tuple)
+    py_expr!("__dp__.templatelib.Template(*{parts:expr})", parts = tuple)
 }

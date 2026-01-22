@@ -243,10 +243,7 @@ else:
         {
             let ast::ExprTuple {
                 elts,
-                ctx,
-                range,
-                node_index,
-                parenthesized,
+                ..
             } = tuple;
             let mut stmts = Vec::new();
             let mut modified = false;

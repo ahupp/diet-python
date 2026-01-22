@@ -186,6 +186,12 @@ macro_rules! impl_into_placeholder_for_unsigned {
 impl_into_placeholder_for_signed!(i8, i16, i32, i64, isize);
 impl_into_placeholder_for_unsigned!(u8, u16, u32, u64, usize);
 
+impl IntoPlaceholder for bool {
+    fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
+        Err(Value::Bool(self))
+    }
+}
+
 pub(crate) fn var_for_placeholder(name: &str, ty: PlaceholderType) -> String {
     match ty {
         PlaceholderType::Expr => format!("_dp_placeholder_expr_{}__", name),
@@ -737,6 +743,17 @@ mod tests {
     fn inserts_int_literal() {
         let expr = py_expr!("{n:literal}", n = 5);
         let expected = *parse_expression("5").unwrap().into_syntax().body;
+        assert_eq!(ComparableExpr::from(&expr), ComparableExpr::from(&expected));
+    }
+
+    #[test]
+    fn inserts_bool_literal() {
+        let expr = py_expr!("{b:literal}", b = true);
+        let expected = *parse_expression("True").unwrap().into_syntax().body;
+        assert_eq!(ComparableExpr::from(&expr), ComparableExpr::from(&expected));
+
+        let expr = py_expr!("{b:literal}", b = false);
+        let expected = *parse_expression("False").unwrap().into_syntax().body;
         assert_eq!(ComparableExpr::from(&expr), ComparableExpr::from(&expected));
     }
 

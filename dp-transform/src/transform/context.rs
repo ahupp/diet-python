@@ -313,24 +313,6 @@ impl Context {
             .map_or(false, |info| info.is_nonlocal(name))
     }
 
-    pub fn has_enclosing_method_class_cell(&self) -> bool {
-        let mut saw_function = false;
-        for scope in self.function_scopes.borrow().iter().rev() {
-            match scope.kind {
-                ScopeKind::Function => {
-                    if !is_internal_function(&scope.qualname) {
-                        saw_function = true;
-                    }
-                }
-                ScopeKind::Class => {
-                    if saw_function {
-                        return true;
-                    }
-                }
-            }
-        }
-        false
-    }
 
     pub fn analyze_function_scope(&self, func_def: &ast::StmtFunctionDef) -> ScopeInfo {
         let info = collect_scope_info(&func_def.body);

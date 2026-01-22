@@ -6,7 +6,7 @@ use crate::{ruff_ast_to_string, template::is_simple, transform::{rewrite_expr::l
 
 use crate::{
     body_transform::{walk_expr, walk_stmt, Transformer},
-    transform::class_def,
+    transform::rewrite_class_def,
 };
 use crate::{py_expr, py_stmt};
 use log::{Level, log_enabled, trace};
@@ -237,7 +237,7 @@ impl ExprRewriter {
             Stmt::ClassDef(class_def) if self.stage == TransformStage::Stage1 => {
                 Rewrite::Walk(vec![Stmt::ClassDef(class_def)])
             }
-            Stmt::ClassDef(class_def) => class_def::rewrite(class_def, self),
+            Stmt::ClassDef(class_def) => rewrite_class_def::rewrite(class_def, self),
             Stmt::Try(try_stmt) => rewrite_stmt::exception::rewrite_try(try_stmt, &self.ctx),
             Stmt::If(if_stmt)
                 if if_stmt

@@ -4,7 +4,7 @@ use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Operator, Stmt};
 
 
-pub(crate) fn should_rewrite_targets(rewriter: &ExprRewriter, targets: &[Expr]) -> bool {
+pub(crate) fn should_rewrite_targets(targets: &[Expr]) -> bool {
     if targets.len() > 1 {
         return true;
     }
@@ -228,7 +228,7 @@ except NameError:
 }
 
 pub(crate) fn rewrite_assign(rewriter: &mut ExprRewriter, assign: ast::StmtAssign) -> Rewrite {
-    if !should_rewrite_targets(rewriter, &assign.targets) {
+    if !should_rewrite_targets(&assign.targets) {
         return Rewrite::Walk(vec![Stmt::Assign(assign)]);
     }
 
@@ -290,8 +290,8 @@ pub(crate) fn rewrite_aug_assign(
     Rewrite::Visit(stmts)
 }
 
-pub(crate) fn rewrite_delete(rewriter: &mut ExprRewriter, delete: ast::StmtDelete) -> Rewrite {
-    if !should_rewrite_targets(rewriter, &delete.targets) {
+pub(crate) fn rewrite_delete(_rewriter: &mut ExprRewriter, delete: ast::StmtDelete) -> Rewrite {
+    if !should_rewrite_targets(&delete.targets) {
         return Rewrite::Walk(vec![Stmt::Delete(delete)]);
     }
 

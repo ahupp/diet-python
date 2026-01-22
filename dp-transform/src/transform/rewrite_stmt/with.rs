@@ -36,11 +36,8 @@ pub fn rewrite(
 ({target:expr}, {exit_name:id}) = await __dp__.with_aenter({ctx:expr})
 try:
     {body:stmt}
-except:
-    await __dp__.with_aexit({exit_name:id}, __dp__.exc_info())
-else:
-    await __dp__.with_aexit({exit_name:id}, None)
 finally:
+    await __dp__.with_aexit({exit_name:id}, __dp__.exc_info())
     {exit_name:id} = None
 "#,
                 ctx = context_expr,
@@ -54,11 +51,8 @@ finally:
 ({target:expr}, {exit_name:id}) = __dp__.with_enter({ctx:expr})
 try:
     {body:stmt}
-except:
-    __dp__.with_exit({exit_name:id}, __dp__.exc_info())
-else:
-    __dp__.with_exit({exit_name:id}, None)
 finally:
+    __dp__.with_exit({exit_name:id}, __dp__.exc_info())
     {exit_name:id} = None
 "#,
                 ctx = context_expr,
