@@ -188,6 +188,8 @@ struct Frame {
     locals: HashSet<String>,
     globals: HashSet<String>,
     nonlocals: HashSet<String>,
+    allow_class_bindings: bool,
+    is_class_ns_builder: bool,
 }
 
 impl Frame {
@@ -198,16 +200,25 @@ impl Frame {
             locals: scope.local_names(),
             globals: scope.global_names(),
             nonlocals: scope.nonlocal_names(),
+            allow_class_bindings: false,
+            is_class_ns_builder: false,
         }
     }
 
-    fn function(scope: ScopeInfo, parent_depth: usize) -> Self {
+    fn function(
+        scope: ScopeInfo,
+        parent_depth: usize,
+        allow_class_bindings: bool,
+        is_class_ns_builder: bool,
+    ) -> Self {
         Self {
             kind: FrameKind::Function,
             depth: parent_depth + 1,
             locals: scope.local_names(),
             globals: scope.global_names(),
             nonlocals: scope.nonlocal_names(),
+            allow_class_bindings,
+            is_class_ns_builder,
         }
     }
 
@@ -218,6 +229,8 @@ impl Frame {
             locals: scope.local_names(),
             globals: scope.global_names(),
             nonlocals: scope.nonlocal_names(),
+            allow_class_bindings: false,
+            is_class_ns_builder: false,
         }
     }
 }
@@ -242,7 +255,11 @@ impl ExplicitScopeRewriter {
     }
 
     fn find_binding_depth(&self, name: &str) -> Option<usize> {
+        let include_class_ns = self.current().allow_class_bindings;
         for frame in self.stack.iter().rev() {
+            if frame.is_class_ns_builder && !include_class_ns {
+                continue;
+            }
             if matches!(frame.kind, FrameKind::Module | FrameKind::Function)
                 && frame.locals.contains(name)
             {
@@ -251,7 +268,6 @@ impl ExplicitScopeRewriter {
         }
         None
     }
-
     fn in_class_scope(&self) -> bool {
         self.stack
             .iter()
@@ -318,7 +334,12 @@ impl ExplicitScopeRewriter {
         *id = ast::name::Name::new(rewritten.as_str());
     }
 
-    fn push_function_frame(&mut self, func_def: &ast::StmtFunctionDef) {
+    fn push_function_frame(
+        &mut self,
+        func_def: &ast::StmtFunctionDef,
+        allow_class_bindings: bool,
+        is_class_ns_builder: bool,
+    ) {
         let mut scope = collect_scope_info(&func_def.body);
         let ast::Parameters {
             posonlyargs,
@@ -346,38 +367,16 @@ impl ExplicitScopeRewriter {
         }
 
         let parent_depth = self.current().depth;
-        self.stack.push(Frame::function(scope, parent_depth));
+        self.stack.push(Frame::function(
+            scope,
+            parent_depth,
+            allow_class_bindings,
+            is_class_ns_builder,
+        ));
     }
 
-    fn push_class_builder_frame(&mut self, func_def: &ast::StmtFunctionDef) {
-        let mut scope = collect_scope_info(&func_def.body);
-        let ast::Parameters {
-            posonlyargs,
-            args,
-            vararg,
-            kwonlyargs,
-            kwarg,
-            ..
-        } = func_def.parameters.as_ref();
-
-        for param in posonlyargs {
-            set_binding(&mut scope.bindings, param.parameter.name.as_str(), Binding::Local);
-        }
-        for param in args {
-            set_binding(&mut scope.bindings, param.parameter.name.as_str(), Binding::Local);
-        }
-        for param in kwonlyargs {
-            set_binding(&mut scope.bindings, param.parameter.name.as_str(), Binding::Local);
-        }
-        if let Some(param) = vararg {
-            set_binding(&mut scope.bindings, param.name.as_str(), Binding::Local);
-        }
-        if let Some(param) = kwarg {
-            set_binding(&mut scope.bindings, param.name.as_str(), Binding::Local);
-        }
-
-        let parent_depth = self.current().depth;
-        self.stack.push(Frame::class(scope, parent_depth));
+    fn push_class_ns_builder_frame(&mut self, func_def: &ast::StmtFunctionDef) {
+        self.push_function_frame(func_def, false, true);
     }
 
     fn push_class_frame(&mut self, class_def: &ast::StmtClassDef) {
@@ -389,11 +388,21 @@ impl ExplicitScopeRewriter {
     fn pop_frame(&mut self) {
         self.stack.pop();
     }
+
+    fn is_class_lookup_lambda(&self, func_def: &ast::StmtFunctionDef) -> bool {
+        let name = func_def.name.id.as_str();
+        if !name.starts_with("_dp_lambda_") {
+            return false;
+        }
+        self.stack
+            .iter()
+            .any(|frame| frame.is_class_ns_builder)
+    }
 }
 
 fn is_class_ns_builder(func_def: &ast::StmtFunctionDef) -> bool {
     let name = func_def.name.id.as_str();
-    if !name.starts_with("_dp_ns_") {
+    if !name.starts_with("_dp_class_ns_") {
         return false;
     }
     let params = func_def.parameters.as_ref();
@@ -473,9 +482,10 @@ impl Transformer for ExplicitScopeRewriter {
             }
             Stmt::FunctionDef(func_def) => {
                 if is_class_ns_builder(func_def) {
-                    self.push_class_builder_frame(func_def);
+                    self.push_class_ns_builder_frame(func_def);
                 } else {
-                    self.push_function_frame(func_def);
+                    let allow_class_bindings = self.is_class_lookup_lambda(func_def);
+                    self.push_function_frame(func_def, allow_class_bindings, false);
                 }
                 walk_stmt(self, stmt);
                 self.pop_frame();

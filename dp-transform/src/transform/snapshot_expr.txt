@@ -4,7 +4,7 @@ x = a[b]
 
 =
 
-x = __dp__.getitem(a, b)
+x = getattr(__dp__, "getitem")(a, b)
 
 $ subscript_slice
 
@@ -12,7 +12,7 @@ x = a[1:2:3]
 
 =
 
-x = __dp__.getitem(a, __dp__.slice(1, 2, 3))
+x = getattr(__dp__, "getitem")(a, getattr(__dp__, "slice")(1, 2, 3))
 
 $ binary_add
 
@@ -20,7 +20,7 @@ x = a + b
 
 =
 
-x = __dp__.add(a, b)
+x = getattr(__dp__, "add")(a, b)
 
 $ binary_bitwise_or
 
@@ -28,7 +28,7 @@ x = a | b
 
 =
 
-x = __dp__.or_(a, b)
+x = getattr(__dp__, "or_")(a, b)
 
 $ unary_neg
 
@@ -36,7 +36,7 @@ x = -a
 
 =
 
-x = __dp__.neg(a)
+x = getattr(__dp__, "neg")(a)
 
 $ boolop_chain
 
@@ -47,7 +47,7 @@ x = a and b or c
 _dp_target_1 = a
 if _dp_target_1:
     _dp_target_1 = b
-if __dp__.not_(_dp_target_1):
+if getattr(__dp__, "not_")(_dp_target_1):
     _dp_target_1 = c
 x = _dp_target_1
 
@@ -57,7 +57,7 @@ x = a < b
 
 =
 
-_dp_target_1 = __dp__.lt(a, b)
+_dp_target_1 = getattr(__dp__, "lt")(a, b)
 x = _dp_target_1
 
 $ compare_chain
@@ -68,9 +68,9 @@ x = a < b < c
 
 _dp_compare_2 = a
 _dp_compare_3 = b
-_dp_target_1 = __dp__.lt(_dp_compare_2, _dp_compare_3)
+_dp_target_1 = getattr(__dp__, "lt")(_dp_compare_2, _dp_compare_3)
 if _dp_target_1:
-    _dp_target_1 = __dp__.lt(_dp_compare_3, c)
+    _dp_target_1 = getattr(__dp__, "lt")(_dp_compare_3, c)
 x = _dp_target_1
 
 $ compare_not_in
@@ -79,7 +79,7 @@ x = a not in b
 
 =
 
-_dp_target_1 = __dp__.not_(__dp__.contains(b, a))
+_dp_target_1 = getattr(__dp__, "not_")(getattr(__dp__, "contains")(b, a))
 x = _dp_target_1
 
 $ if_expr
@@ -111,8 +111,8 @@ x = lambda y: y + 1
 =
 
 def _dp_lambda_1(y):
-    return __dp__.add(y, 1)
-__dp__.update_fn(_dp_lambda_1, None, "<lambda>")
+    return getattr$0(__dp__, "add")(y, 1)
+getattr(__dp__, "update_fn")(_dp_lambda_1, None, "<lambda>")
 x = _dp_lambda_1
 
 $ generator_expr
@@ -122,18 +122,18 @@ x = (i for i in it)
 =
 
 def _dp_gen_1(_dp_iter_2):
-    _dp_iter_3 = __dp__.iter(_dp_iter_2)
+    _dp_iter_3 = getattr$0(__dp__, "iter")(_dp_iter_2)
     try:
         while True:
-            i = __dp__.next(_dp_iter_3)
+            i = getattr$0(__dp__, "next")(_dp_iter_3)
             yield i
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), StopIteration$0):
+        if getattr$0(__dp__, "exception_matches")(getattr$0(__dp__, "current_exception")(), StopIteration$0):
             pass
         else:
             raise
-__dp__.update_fn(_dp_gen_1, None, "<genexpr>")
-x = _dp_gen_1(__dp__.iter(it))
+getattr(__dp__, "update_fn")(_dp_gen_1, None, "<genexpr>")
+x = _dp_gen_1(getattr(__dp__, "iter")(it))
 
 $ list_literal
 
@@ -141,7 +141,7 @@ x = [a, b]
 
 =
 
-x = __dp__.list((a, b))
+x = getattr(__dp__, "list")((a, b))
 
 $ list_literal_splat
 
@@ -149,7 +149,7 @@ x = [a, *b]
 
 =
 
-x = __dp__.list(__dp__.add((a,), __dp__.tuple(b)))
+x = getattr(__dp__, "list")(getattr(__dp__, "add")((a,), getattr(__dp__, "tuple")(b)))
 
 $ tuple_splat
 
@@ -157,7 +157,7 @@ x = (a, *b)
 
 =
 
-x = __dp__.add((a,), __dp__.tuple(b))
+x = getattr(__dp__, "add")((a,), getattr(__dp__, "tuple")(b))
 
 $ set_literal
 
@@ -165,7 +165,7 @@ x = {a, b}
 
 =
 
-x = __dp__.set((a, b))
+x = getattr(__dp__, "set")((a, b))
 
 $ dict_literal
 
@@ -173,7 +173,7 @@ x = {"a": 1, "b": 2}
 
 =
 
-x = __dp__.dict((("a", 1), ("b", 2)))
+x = getattr(__dp__, "dict")((("a", 1), ("b", 2)))
 
 $ dict_literal_unpack
 
@@ -181,7 +181,7 @@ x = {"a": 1, **m, "b": 2}
 
 =
 
-x = __dp__.or_(__dp__.or_(__dp__.dict((("a", 1),)), __dp__.dict(m)), __dp__.dict((("b", 2),)))
+x = getattr(__dp__, "or_")(getattr(__dp__, "or_")(getattr(__dp__, "dict")((("a", 1),)), getattr(__dp__, "dict")(m)), getattr(__dp__, "dict")((("b", 2),)))
 
 $ list_comp
 
@@ -190,20 +190,20 @@ x = [i for i in it]
 =
 
 def _dp_gen_1(_dp_iter_2):
-    _dp_gen_1_tmp = __dp__.list()
-    _dp_iter_3 = __dp__.iter(_dp_iter_2)
+    _dp_gen_1_tmp = getattr$0(__dp__, "list")()
+    _dp_iter_3 = getattr$0(__dp__, "iter")(_dp_iter_2)
     try:
         while True:
-            i = __dp__.next(_dp_iter_3)
-            _dp_gen_1_tmp.append(i)
+            i = getattr$0(__dp__, "next")(_dp_iter_3)
+            getattr$0(_dp_gen_1_tmp, "append")(i)
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), StopIteration$0):
+        if getattr$0(__dp__, "exception_matches")(getattr$0(__dp__, "current_exception")(), StopIteration$0):
             pass
         else:
             raise
     return _dp_gen_1_tmp
-_dp_gen_1 = __dp__.update_fn(_dp_gen_1, None, "<genexpr>")
-x = _dp_gen_1(__dp__.iter(it))
+_dp_gen_1 = getattr(__dp__, "update_fn")(_dp_gen_1, None, "<genexpr>")
+x = _dp_gen_1(getattr(__dp__, "iter")(it))
 
 $ set_comp
 
@@ -212,20 +212,20 @@ x = {i for i in it}
 =
 
 def _dp_gen_1(_dp_iter_2):
-    _dp_gen_1_tmp = __dp__.set()
-    _dp_iter_3 = __dp__.iter(_dp_iter_2)
+    _dp_gen_1_tmp = getattr$0(__dp__, "set")()
+    _dp_iter_3 = getattr$0(__dp__, "iter")(_dp_iter_2)
     try:
         while True:
-            i = __dp__.next(_dp_iter_3)
-            _dp_gen_1_tmp.add(i)
+            i = getattr$0(__dp__, "next")(_dp_iter_3)
+            getattr$0(_dp_gen_1_tmp, "add")(i)
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), StopIteration$0):
+        if getattr$0(__dp__, "exception_matches")(getattr$0(__dp__, "current_exception")(), StopIteration$0):
             pass
         else:
             raise
     return _dp_gen_1_tmp
-_dp_gen_1 = __dp__.update_fn(_dp_gen_1, None, "<genexpr>")
-x = _dp_gen_1(__dp__.iter(it))
+_dp_gen_1 = getattr(__dp__, "update_fn")(_dp_gen_1, None, "<genexpr>")
+x = _dp_gen_1(getattr(__dp__, "iter")(it))
 
 $ dict_comp
 
@@ -234,27 +234,27 @@ x = {k: v for k, v in it}
 =
 
 def _dp_gen_1(_dp_iter_2):
-    _dp_gen_1_tmp = __dp__.dict()
-    _dp_iter_3 = __dp__.iter(_dp_iter_2)
+    _dp_gen_1_tmp = getattr$0(__dp__, "dict")()
+    _dp_iter_3 = getattr$0(__dp__, "iter")(_dp_iter_2)
     try:
         while True:
-            _dp_tmp_4 = __dp__.next(_dp_iter_3)
+            _dp_tmp_4 = getattr$0(__dp__, "next")(_dp_iter_3)
             try:
-                _dp_tmp_5 = __dp__.unpack(_dp_tmp_4, (True, True))
-                k = __dp__.getitem(_dp_tmp_5, 0)
-                v = __dp__.getitem(_dp_tmp_5, 1)
+                _dp_tmp_5 = getattr$0(__dp__, "unpack")(_dp_tmp_4, (True, True))
+                k = getattr$0(__dp__, "getitem")(_dp_tmp_5, 0)
+                v = getattr$0(__dp__, "getitem")(_dp_tmp_5, 1)
             finally:
                 _dp_tmp_5 = None
                 _dp_tmp_4 = None
-            __dp__.setitem(_dp_gen_1_tmp, k, v)
+            getattr$0(__dp__, "setitem")(_dp_gen_1_tmp, k, v)
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), StopIteration$0):
+        if getattr$0(__dp__, "exception_matches")(getattr$0(__dp__, "current_exception")(), StopIteration$0):
             pass
         else:
             raise
     return _dp_gen_1_tmp
-_dp_gen_1 = __dp__.update_fn(_dp_gen_1, None, "<genexpr>")
-x = _dp_gen_1(__dp__.iter(it))
+_dp_gen_1 = getattr(__dp__, "update_fn")(_dp_gen_1, None, "<genexpr>")
+x = _dp_gen_1(getattr(__dp__, "iter")(it))
 
 $ attribute_non_chain
 
@@ -270,7 +270,7 @@ x = f"{a}"
 
 =
 
-x = __dp__.builtins.format(a)
+x = getattr(getattr(__dp__, "builtins"), "format")(a)
 
 $ tstring_simple
 
@@ -278,7 +278,7 @@ x = t"{a}"
 
 =
 
-x = __dp__.templatelib.Template(*(__dp__.templatelib.Interpolation(a, "a", None, ""),))
+x = getattr(getattr(__dp__, "templatelib"), "Template")(*(getattr(getattr(__dp__, "templatelib"), "Interpolation")(a, "a", None, ""),))
 
 $ complex_literal
 
@@ -294,4 +294,4 @@ x = 1.234567890123456789
 
 =
 
-x = __dp__.float_from_literal("1.234567890123456789")
+x = getattr(__dp__, "float_from_literal")("1.234567890123456789")

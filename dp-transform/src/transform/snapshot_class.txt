@@ -10,15 +10,59 @@ class C:
 def _dp_class_create_C():
 
     def _dp_class_ns_C(_dp_class_ns, __classcell__):
-        __dp__.setitem(_dp_class_ns, "__module__", __name__$0)
-        __dp__.setitem(_dp_class_ns, "__qualname__", "C")
-        __dp__.setitem(_dp_class_ns, "x", 1)
+
+        def _dp_lambda_1():
+            return __name__$0
+        getattr$0(__dp__, "update_fn")(_dp_lambda_1, None, "<lambda>")
+        getattr$0(__dp__, "setitem")(_dp_class_ns, "__module__", getattr$0(__dp__, "class_lookup")(_dp_class_ns, "__name__", _dp_lambda_1))
+        getattr$0(__dp__, "setitem")(_dp_class_ns, "__qualname__", "C")
+        getattr$0(__dp__, "setitem")(_dp_class_ns, "x", 1)
 
         def m(self):
-            return self.x
-        __dp__.setitem(_dp_class_ns, "m", __dp__.update_fn(m$local, "C", "m"))
-    return __dp__.create_class("C", _dp_class_ns_C, (), None, False)
+            return getattr$0(self, "x")
+
+        def _dp_lambda_2():
+            return m$2
+        getattr$0(__dp__, "update_fn")(_dp_lambda_2, None, "<lambda>")
+        getattr$0(__dp__, "setitem")(_dp_class_ns, "m", getattr$0(__dp__, "update_fn")(getattr$0(__dp__, "class_lookup")(_dp_class_ns, "m", _dp_lambda_2), "C", "m"))
+    return getattr$0(__dp__, "create_class")("C", _dp_class_ns_C, (), None, False)
 C = _dp_class_create_C()
+
+$ class_method_named_open_calls_builtin
+
+class Wrapper:
+    def open(self, mode: str = "r", *, encoding: str = "utf8"):
+        return open(mode, encoding=encoding)
+
+=
+
+def _dp_class_create_Wrapper():
+
+    def _dp_class_ns_Wrapper(_dp_class_ns, __classcell__):
+
+        def _dp_lambda_1():
+            return __name__$0
+        getattr$0(__dp__, "update_fn")(_dp_lambda_1, None, "<lambda>")
+        getattr$0(__dp__, "setitem")(_dp_class_ns, "__module__", getattr$0(__dp__, "class_lookup")(_dp_class_ns, "__name__", _dp_lambda_1))
+        getattr$0(__dp__, "setitem")(_dp_class_ns, "__qualname__", "Wrapper")
+
+        def _dp_lambda_2():
+            return str$0
+        getattr$0(__dp__, "update_fn")(_dp_lambda_2, None, "<lambda>")
+
+        def _dp_lambda_3():
+            return str$0
+        getattr$0(__dp__, "update_fn")(_dp_lambda_3, None, "<lambda>")
+
+        def open(self, mode: getattr$0(__dp__, "class_lookup")(_dp_class_ns, "str", _dp_lambda_2)="r", *, encoding: getattr$0(__dp__, "class_lookup")(_dp_class_ns, "str", _dp_lambda_3)="utf8"):
+            return open$0(mode, encoding=encoding)
+
+        def _dp_lambda_4():
+            return open$2
+        getattr$0(__dp__, "update_fn")(_dp_lambda_4, None, "<lambda>")
+        getattr$0(__dp__, "setitem")(_dp_class_ns, "open", getattr$0(__dp__, "update_fn")(getattr$0(__dp__, "class_lookup")(_dp_class_ns, "open", _dp_lambda_4), "Wrapper", "open"))
+    return getattr$0(__dp__, "create_class")("Wrapper", _dp_class_ns_Wrapper, (), None, False)
+Wrapper = _dp_class_create_Wrapper()
 
 $ class_with_base
 
@@ -30,7 +74,11 @@ class D(Base):
 def _dp_class_create_D():
 
     def _dp_class_ns_D(_dp_class_ns, __classcell__):
-        __dp__.setitem(_dp_class_ns, "__module__", __name__$0)
-        __dp__.setitem(_dp_class_ns, "__qualname__", "D")
-    return __dp__.create_class("D", _dp_class_ns_D, (Base$0,), None, False)
+
+        def _dp_lambda_1():
+            return __name__$0
+        getattr$0(__dp__, "update_fn")(_dp_lambda_1, None, "<lambda>")
+        getattr$0(__dp__, "setitem")(_dp_class_ns, "__module__", getattr$0(__dp__, "class_lookup")(_dp_class_ns, "__name__", _dp_lambda_1))
+        getattr$0(__dp__, "setitem")(_dp_class_ns, "__qualname__", "D")
+    return getattr$0(__dp__, "create_class")("D", _dp_class_ns_D, (Base$0,), None, False)
 D = _dp_class_create_D()

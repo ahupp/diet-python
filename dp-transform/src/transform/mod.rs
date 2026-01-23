@@ -43,7 +43,7 @@ impl Options {
         Self {
             import_star_handling: ImportStarHandling::Error,
             inject_import: false,
-            lower_attributes: false,
+            lower_attributes: true,
             truthy: false,
             cleanup_dp_globals: false,
             force_import_rewrite: false,

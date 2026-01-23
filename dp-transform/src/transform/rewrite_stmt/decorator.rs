@@ -1,4 +1,4 @@
-use ruff_python_ast::{self as ast, Expr, Stmt};
+use ruff_python_ast::{self as ast, Stmt};
 
 use crate::{py_expr, py_stmt, transform::driver::{ExprRewriter, Rewrite}};
 
@@ -13,7 +13,14 @@ pub fn rewrite(
         return Rewrite::Walk(item);
     }
 
-    let decorated = apply(decorators, py_expr!("{name:id}", name = name));
+    let mut decorated = py_expr!("{name:id}", name = name);
+    for decorator in decorators.into_iter().rev() {
+        decorated = py_expr!(
+            "{decorator:expr}({decorated:expr})",
+            decorator = decorator.expression,
+            decorated = decorated
+        );
+    }
 
     Rewrite::Visit(py_stmt!(
         r#"
@@ -24,16 +31,4 @@ pub fn rewrite(
         item = item,
         decorated = decorated
     ))
-}
-
-pub fn apply(decorators: Vec<ast::Decorator>, base: Expr) -> Expr {
-    let mut decorated = base;
-    for decorator in decorators.into_iter().rev() {
-        decorated = py_expr!(
-            "{decorator:expr}({decorated:expr})",
-            decorator = decorator.expression,
-            decorated = decorated
-        );
-    }
-    decorated
 }

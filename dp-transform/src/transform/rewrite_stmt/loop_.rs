@@ -96,13 +96,12 @@ pub fn rewrite_while(while_stmt: ast::StmtWhile, rewriter: &mut ExprRewriter) ->
 
     Rewrite::Walk(py_stmt!(
         r#"
-{test_flag:id} = True
 while True:
     {test_flag:id} = {test:expr}
     if not {test_flag:id}:
         break
     {body:stmt}
-if {test_flag:id}:
+if not {test_flag:id}:
     {orelse:stmt}
 "#,
         test = *test,

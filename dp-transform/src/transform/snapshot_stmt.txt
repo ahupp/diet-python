@@ -4,7 +4,7 @@ import a
 
 =
 
-a = __dp__.import_("a", __spec__)
+a = getattr(__dp__, "import_")("a", __spec__)
 
 $ import_dotted_alias
 
@@ -12,7 +12,7 @@ import a.b as c
 
 =
 
-c = __dp__.import_attr(__dp__.import_("a.b", __spec__), "b")
+c = getattr(__dp__, "import_attr")(getattr(__dp__, "import_")("a.b", __spec__), "b")
 
 $ import_from_alias
 
@@ -20,8 +20,8 @@ from pkg.mod import name as alias
 
 =
 
-_dp_import_1 = __dp__.import_("pkg.mod", __spec__, __dp__.list(("name",)))
-alias = __dp__.import_attr(_dp_import_1, "name")
+_dp_import_1 = getattr(__dp__, "import_")("pkg.mod", __spec__, getattr(__dp__, "list")(("name",)))
+alias = getattr(__dp__, "import_attr")(_dp_import_1, "name")
 del _dp_import_1
 
 $ decorator_function
@@ -42,7 +42,7 @@ obj.x = 1
 
 =
 
-__dp__.setattr(obj, "x", 1)
+getattr(__dp__, "setattr")(obj, "x", 1)
 
 $ assign_subscript
 
@@ -50,7 +50,7 @@ obj[i] = v
 
 =
 
-__dp__.setitem(obj, i, v)
+getattr(__dp__, "setitem")(obj, i, v)
 
 $ assign_tuple_unpack
 
@@ -59,9 +59,9 @@ a, b = it
 =
 
 try:
-    _dp_tmp_1 = __dp__.unpack(it, (True, True))
-    a = __dp__.getitem(_dp_tmp_1, 0)
-    b = __dp__.getitem(_dp_tmp_1, 1)
+    _dp_tmp_1 = getattr(__dp__, "unpack")(it, (True, True))
+    a = getattr(__dp__, "getitem")(_dp_tmp_1, 0)
+    b = getattr(__dp__, "getitem")(_dp_tmp_1, 1)
 finally:
     _dp_tmp_1 = None
 
@@ -72,9 +72,9 @@ a, *b = it
 =
 
 try:
-    _dp_tmp_1 = __dp__.unpack(it, (True, False))
-    a = __dp__.getitem(_dp_tmp_1, 0)
-    b = __dp__.list(__dp__.getitem(_dp_tmp_1, 1))
+    _dp_tmp_1 = getattr(__dp__, "unpack")(it, (True, False))
+    a = getattr(__dp__, "getitem")(_dp_tmp_1, 0)
+    b = getattr(__dp__, "list")(getattr(__dp__, "getitem")(_dp_tmp_1, 1))
 finally:
     _dp_tmp_1 = None
 
@@ -94,9 +94,9 @@ x: int = 1
 
 =
 
-__annotations__ = __dp__.dict()
+__annotations__ = getattr(__dp__, "dict")()
 x = 1
-__dp__.setitem(__annotations__, "x", int)
+getattr(__dp__, "setitem")(__annotations__, "x", int)
 
 $ ann_assign_attr
 
@@ -104,8 +104,8 @@ obj.x: int = 1
 
 =
 
-__annotations__ = __dp__.dict()
-__dp__.setattr(obj, "x", 1)
+__annotations__ = getattr(__dp__, "dict")()
+getattr(__dp__, "setattr")(obj, "x", 1)
 int
 
 $ aug_assign_attr
@@ -114,7 +114,7 @@ obj.x += 1
 
 =
 
-__dp__.setattr(obj, "x", __dp__.iadd(obj.x, 1))
+getattr(__dp__, "setattr")(obj, "x", getattr(__dp__, "iadd")(getattr(obj, "x"), 1))
 
 $ delete_mixed
 
@@ -122,8 +122,8 @@ del obj.x, obj[i], x
 
 =
 
-__dp__.delattr(obj, "x")
-__dp__.delitem(obj, i)
+getattr(__dp__, "delattr")(obj, "x")
+getattr(__dp__, "delitem")(obj, i)
 del x
 
 $ assert_no_msg
@@ -133,8 +133,8 @@ assert cond
 =
 
 if __debug__:
-    if __dp__.not_(cond):
-        raise __dp__.builtins.AssertionError
+    if getattr(__dp__, "not_")(cond):
+        raise getattr(getattr(__dp__, "builtins"), "AssertionError")
 
 $ assert_with_msg
 
@@ -143,8 +143,8 @@ assert cond, "oops"
 =
 
 if __debug__:
-    if __dp__.not_(cond):
-        raise __dp__.builtins.AssertionError("oops")
+    if getattr(__dp__, "not_")(cond):
+        raise getattr(getattr(__dp__, "builtins"), "AssertionError")("oops")
 
 $ raise_from
 
@@ -152,7 +152,7 @@ raise E from cause
 
 =
 
-raise __dp__.raise_from(E, cause)
+raise getattr(__dp__, "raise_from")(E, cause)
 
 $ try_except_typed
 
@@ -168,15 +168,15 @@ except:
 try:
     f()
 except:
-    if __dp__.exception_matches(__dp__.current_exception(), E):
-        e = __dp__.current_exception()
+    if getattr(__dp__, "exception_matches")(getattr(__dp__, "current_exception")(), E):
+        e = getattr(__dp__, "current_exception")()
         try:
             g(e)
         finally:
             try:
                 del e
             except:
-                if __dp__.exception_matches(__dp__.current_exception(), NameError):
+                if getattr(__dp__, "exception_matches")(getattr(__dp__, "current_exception")(), NameError):
                     pass
                 else:
                     raise
@@ -192,14 +192,14 @@ else:
 
 =
 
-_dp_iter_1 = __dp__.iter(it)
+_dp_iter_1 = getattr(__dp__, "iter")(it)
 try:
     while True:
-        x = __dp__.next(_dp_iter_1)
+        x = getattr(__dp__, "next")(_dp_iter_1)
         body()
     done()
 except:
-    if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
+    if getattr(__dp__, "exception_matches")(getattr(__dp__, "current_exception")(), StopIteration):
         pass
     else:
         raise
@@ -213,13 +213,12 @@ else:
 
 =
 
-_dp_test_flag_1 = True
 while True:
     _dp_test_flag_1 = cond
-    if __dp__.not_(_dp_test_flag_1):
+    if getattr(__dp__, "not_")(_dp_test_flag_1):
         break
     body()
-if _dp_test_flag_1:
+if getattr(__dp__, "not_")(_dp_test_flag_1):
     done()
 
 $ with_as
@@ -229,18 +228,18 @@ with cm as x:
 
 =
 
-_dp_tmp_2 = __dp__.with_enter(cm)
+_dp_tmp_2 = getattr(__dp__, "with_enter")(cm)
 try:
-    _dp_tmp_3 = __dp__.unpack(_dp_tmp_2, (True, True))
-    x = __dp__.getitem(_dp_tmp_3, 0)
-    _dp_with_exit_1 = __dp__.getitem(_dp_tmp_3, 1)
+    _dp_tmp_3 = getattr(__dp__, "unpack")(_dp_tmp_2, (True, True))
+    x = getattr(__dp__, "getitem")(_dp_tmp_3, 0)
+    _dp_with_exit_1 = getattr(__dp__, "getitem")(_dp_tmp_3, 1)
 finally:
     _dp_tmp_3 = None
     _dp_tmp_2 = None
 try:
     body()
 finally:
-    __dp__.with_exit(_dp_with_exit_1, __dp__.exc_info())
+    getattr(__dp__, "with_exit")(_dp_with_exit_1, getattr(__dp__, "exc_info")())
     _dp_with_exit_1 = None
 
 $ with_multi
@@ -250,30 +249,30 @@ with a as x, b as y:
 
 =
 
-_dp_tmp_3 = __dp__.with_enter(a)
+_dp_tmp_3 = getattr(__dp__, "with_enter")(a)
 try:
-    _dp_tmp_4 = __dp__.unpack(_dp_tmp_3, (True, True))
-    x = __dp__.getitem(_dp_tmp_4, 0)
-    _dp_with_exit_2 = __dp__.getitem(_dp_tmp_4, 1)
+    _dp_tmp_4 = getattr(__dp__, "unpack")(_dp_tmp_3, (True, True))
+    x = getattr(__dp__, "getitem")(_dp_tmp_4, 0)
+    _dp_with_exit_2 = getattr(__dp__, "getitem")(_dp_tmp_4, 1)
 finally:
     _dp_tmp_4 = None
     _dp_tmp_3 = None
 try:
-    _dp_tmp_5 = __dp__.with_enter(b)
+    _dp_tmp_5 = getattr(__dp__, "with_enter")(b)
     try:
-        _dp_tmp_6 = __dp__.unpack(_dp_tmp_5, (True, True))
-        y = __dp__.getitem(_dp_tmp_6, 0)
-        _dp_with_exit_1 = __dp__.getitem(_dp_tmp_6, 1)
+        _dp_tmp_6 = getattr(__dp__, "unpack")(_dp_tmp_5, (True, True))
+        y = getattr(__dp__, "getitem")(_dp_tmp_6, 0)
+        _dp_with_exit_1 = getattr(__dp__, "getitem")(_dp_tmp_6, 1)
     finally:
         _dp_tmp_6 = None
         _dp_tmp_5 = None
     try:
         body()
     finally:
-        __dp__.with_exit(_dp_with_exit_1, __dp__.exc_info())
+        getattr(__dp__, "with_exit")(_dp_with_exit_1, getattr(__dp__, "exc_info")())
         _dp_with_exit_1 = None
 finally:
-    __dp__.with_exit(_dp_with_exit_2, __dp__.exc_info())
+    getattr(__dp__, "with_exit")(_dp_with_exit_2, getattr(__dp__, "exc_info")())
     _dp_with_exit_2 = None
 
 $ async_for
@@ -285,13 +284,13 @@ async def run():
 =
 
 async def run():
-    _dp_iter_1 = __dp__.aiter(ait$0)
+    _dp_iter_1 = getattr$0(__dp__, "aiter")(ait$0)
     try:
         while True:
-            x = await __dp__.anext(_dp_iter_1)
+            x = await getattr$0(__dp__, "anext")(_dp_iter_1)
             body$0()
     except:
-        if __dp__.exception_matches(__dp__.current_exception(), StopAsyncIteration$0):
+        if getattr$0(__dp__, "exception_matches")(getattr$0(__dp__, "current_exception")(), StopAsyncIteration$0):
             pass
         else:
             raise
@@ -305,18 +304,18 @@ async def run():
 =
 
 async def run():
-    _dp_tmp_2 = await __dp__.with_aenter(cm$0)
+    _dp_tmp_2 = await getattr$0(__dp__, "with_aenter")(cm$0)
     try:
-        _dp_tmp_3 = __dp__.unpack(_dp_tmp_2, (True, True))
-        x = __dp__.getitem(_dp_tmp_3, 0)
-        _dp_with_exit_1 = __dp__.getitem(_dp_tmp_3, 1)
+        _dp_tmp_3 = getattr$0(__dp__, "unpack")(_dp_tmp_2, (True, True))
+        x = getattr$0(__dp__, "getitem")(_dp_tmp_3, 0)
+        _dp_with_exit_1 = getattr$0(__dp__, "getitem")(_dp_tmp_3, 1)
     finally:
         _dp_tmp_3 = None
         _dp_tmp_2 = None
     try:
         body$0()
     finally:
-        await __dp__.with_aexit(_dp_with_exit_1, __dp__.exc_info())
+        await getattr$0(__dp__, "with_aexit")(_dp_with_exit_1, getattr$0(__dp__, "exc_info")())
         _dp_with_exit_1 = None
 
 $ match_simple
@@ -330,7 +329,7 @@ match value:
 =
 
 _dp_match_1 = value
-_dp_target_2 = __dp__.eq(_dp_match_1, 1)
+_dp_target_2 = getattr(__dp__, "eq")(_dp_match_1, 1)
 if _dp_target_2:
     one()
 else:
