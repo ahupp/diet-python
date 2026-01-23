@@ -14,3 +14,10 @@ class A(**d):
 
 
 RESULT = A
+
+# diet-python: validate
+
+from __future__ import annotations
+
+def validate(module):
+    assert module.RESULT == ((), {})

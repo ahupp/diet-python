@@ -9,3 +9,8 @@ def exercise():
 
 
 RESULT = exercise()
+
+# diet-python: validate
+
+def validate(module):
+    assert module.RESULT is True

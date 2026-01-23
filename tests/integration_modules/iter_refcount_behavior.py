@@ -25,3 +25,8 @@ def run():
 
 
 RESULT = run()
+
+# diet-python: validate
+
+def validate(module):
+    assert module.RESULT == 0

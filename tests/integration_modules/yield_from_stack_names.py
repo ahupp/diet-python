@@ -11,3 +11,8 @@ def get_stack_names():
 
     gen = g()
     return gen.send(None)
+
+# diet-python: validate
+
+def validate(module):
+    assert module.get_stack_names() == ("f", "g")

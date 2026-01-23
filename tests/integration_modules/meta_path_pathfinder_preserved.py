@@ -40,3 +40,8 @@ def import_with_filtered_meta_path() -> bool:
         return False
     finally:
         sys.meta_path[:] = original_meta_path
+
+# diet-python: validate
+
+def validate(module):
+    assert module.import_with_filtered_meta_path() is True

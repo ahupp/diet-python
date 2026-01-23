@@ -7,3 +7,10 @@ def mock_class_property_ok():
 
 
 RESULT = mock_class_property_ok()
+
+# diet-python: validate
+
+from __future__ import annotations
+
+def validate(module):
+    assert module.RESULT is True

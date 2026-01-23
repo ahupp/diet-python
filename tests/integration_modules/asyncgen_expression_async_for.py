@@ -19,3 +19,10 @@ async def run():
 
 def get_values():
     return asyncio.run(run())
+
+# diet-python: validate
+
+from __future__ import annotations
+
+def validate(module):
+    assert module.get_values() == [0, 2, 4]

@@ -25,3 +25,13 @@ else:
 
 
 RESULT = CaptureResult("out", "err")
+
+# diet-python: validate
+
+from __future__ import annotations
+
+import pytest
+
+def validate(module):
+    assert module.RESULT.out == "out"
+    assert module.RESULT.err == "err"

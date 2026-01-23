@@ -23,3 +23,10 @@ def referrer_frames():
     exc = asyncio.run(_run_taskgroup())
     gc.collect()
     return [ref for ref in gc.get_referrers(exc) if isinstance(ref, types.FrameType)]
+
+# diet-python: validate
+
+from __future__ import annotations
+
+def validate(module):
+    assert module.referrer_frames() == []

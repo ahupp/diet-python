@@ -12,3 +12,12 @@ def trigger():
     else:
         del AssertionError
         raise AssertionError("missing exception")
+
+# diet-python: validate
+
+from __future__ import annotations
+
+def validate(module):
+    exc = module.trigger()
+    assert isinstance(exc, AssertionError)
+    assert str(exc) == "hello"

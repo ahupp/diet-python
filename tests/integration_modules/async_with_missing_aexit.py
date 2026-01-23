@@ -19,3 +19,10 @@ def get_result():
     except TypeError as exc:
         return str(exc)
     return "no error"
+
+# diet-python: validate
+
+def validate(module):
+    message = module.get_result()
+    assert "asynchronous context manager" in message
+    assert "__aexit__" in message

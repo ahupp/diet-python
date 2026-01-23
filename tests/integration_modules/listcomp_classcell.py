@@ -7,3 +7,12 @@ def classcell_values():
         y = [x() for x in items]
 
     return C.y, C().method(), C
+
+# diet-python: validate
+
+from __future__ import annotations
+
+def validate(module):
+    values, method_class, cls = module.classcell_values()
+    assert values == [4, 4, 4, 4, 4]
+    assert method_class is cls

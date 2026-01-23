@@ -3,3 +3,12 @@
 import sys as sys_alias
 
 VALUE = sys_alias.version
+
+# diet-python: validate
+
+from __future__ import annotations
+
+import pytest
+
+def validate(module):
+    assert module.VALUE == __import__("sys").version

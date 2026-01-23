@@ -22,3 +22,10 @@ def write_and_read() -> str:
 
 
 RESULT = write_and_read()
+
+# diet-python: validate
+
+from __future__ import annotations
+
+def validate(module):
+    assert module.RESULT == "payload"

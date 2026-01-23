@@ -22,3 +22,10 @@ def leak_check():
     victim = None
     gc.collect()
     return ref()
+
+# diet-python: validate
+
+from __future__ import annotations
+
+def validate(module):
+    assert module.leak_check() is None

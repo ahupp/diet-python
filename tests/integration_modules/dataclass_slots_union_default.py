@@ -10,3 +10,14 @@ class Example:
 
 def build_example(**kwargs):
     return Example("label", **kwargs)
+
+# diet-python: validate
+
+from __future__ import annotations
+
+import pytest
+
+def validate(module):
+    instance = module.build_example(state="ready", count=3)
+    assert instance.state == "ready"
+    assert instance.count == 3

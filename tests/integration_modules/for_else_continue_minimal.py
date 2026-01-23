@@ -11,3 +11,8 @@ def collect_for_else_continue_minimal():
 
 
 RESULT = collect_for_else_continue_minimal()
+
+# diet-python: validate
+
+def validate(module):
+    assert module.RESULT == [0, 1]

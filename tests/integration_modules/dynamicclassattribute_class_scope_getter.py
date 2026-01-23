@@ -19,3 +19,10 @@ class Sub(Base):
 
 def get_value():
     return Sub().spam
+
+# diet-python: validate
+
+from __future__ import annotations
+
+def validate(module):
+    assert module.get_value() == 2

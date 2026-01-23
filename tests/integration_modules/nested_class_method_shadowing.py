@@ -11,3 +11,8 @@ class Outer:
 
 
 VALUE = Outer.Inner().format_help()
+
+# diet-python: validate
+
+def validate(module):
+    assert isinstance(module.VALUE, float)

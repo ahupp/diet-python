@@ -11,3 +11,11 @@ class Marker:
         other_attr: str
 
     value = SENTINEL
+
+# diet-python: validate
+
+from __future__ import annotations
+
+def validate(module):
+    assert module.Marker.value is module.SENTINEL
+    assert not hasattr(module.Marker, "typed_attr")

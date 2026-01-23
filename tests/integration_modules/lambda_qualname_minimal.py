@@ -3,3 +3,10 @@ def global_function():
 
 
 RESULT = global_function()
+
+# diet-python: validate
+
+def validate(module):
+    qualname, name = module.RESULT
+    assert qualname == "global_function.<locals>.<lambda>"
+    assert name == "<lambda>"

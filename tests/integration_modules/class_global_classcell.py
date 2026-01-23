@@ -14,3 +14,13 @@ def exercise():
     global_value = globals()["__class__"]
     del globals()["__class__"]
     return value, global_value, X
+
+# diet-python: validate
+
+from __future__ import annotations
+
+def validate(module):
+    value, global_value, cls = module.exercise()
+    assert value is cls
+    assert global_value == 42
+    assert "__class__" not in module.__dict__

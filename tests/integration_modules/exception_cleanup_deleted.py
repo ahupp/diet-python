@@ -16,3 +16,9 @@ def unbound_after_delete():
     except UnboundLocalError:
         return True
     return False
+
+# diet-python: validate
+
+def validate(module):
+    assert module.cleanup_deleted() is False
+    assert module.unbound_after_delete() is True

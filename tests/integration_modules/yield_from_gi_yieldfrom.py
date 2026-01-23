@@ -9,3 +9,8 @@ def get_yieldfrom_name():
     gen_b = b()
     gen_b.send(None)
     return gen_b.gi_yieldfrom.gi_code.co_name
+
+# diet-python: validate
+
+def validate(module):
+    assert module.get_yieldfrom_name() == "a"

@@ -25,3 +25,16 @@ def alias_rebind_attrs(tmp_path: Path) -> tuple[str, str]:
         sys.modules.pop(f"{package_name}.submodule", None)
         if sys.path and sys.path[0] == str(tmp_path):
             sys.path.pop(0)
+
+# diet-python: validate
+
+def validate(module):
+    import tempfile
+    from pathlib import Path
+
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        from_attr, direct_attr = module.alias_rebind_attrs(tmp_path)
+        assert from_attr == "rebound"
+        assert direct_attr == "rebound"

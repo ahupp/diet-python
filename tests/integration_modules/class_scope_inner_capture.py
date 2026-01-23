@@ -8,3 +8,8 @@ def outer():
 
 
 RESULT = outer()
+
+# diet-python: validate
+
+def validate(module):
+    assert module.RESULT == "outer"

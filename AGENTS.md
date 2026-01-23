@@ -7,4 +7,5 @@
 - **NOTE**: Use `cargo run --bin regen_fixtures` to regenerate fixtures instead of manual edits.
 - To inspect the transformed output of some code, run `cargo run --bin diet-python file_with_code.py`, which prints output to stdout.
 - *MUST FOLLOW* when fixing a bug that fails a cpython test case *always* add a minimal reproducing integration test to reproduce it first.
+- CPython source for tests lives in `../cpython` relative to this repo root (scripts expect the `python` binary there).
  

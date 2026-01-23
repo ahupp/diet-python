@@ -16,3 +16,12 @@ def build_annotations(cls):
 
 
 build_help(Example)
+
+# diet-python: validate
+
+from __future__ import annotations
+
+def validate(module):
+    assert module.Example.do_thing.__doc__ == "Example command."
+    assert module.Example.do_thing.__annotations__ == {"value": int, "return": int}
+    assert module.build_annotations(module.Example) is int

@@ -13,3 +13,10 @@ def exercise():
         except Exception as exc:
             bad.append((name, type(value).__name__, type(exc).__name__))
     return bad
+
+# diet-python: validate
+
+from __future__ import annotations
+
+def validate(module):
+    assert module.exercise() == []

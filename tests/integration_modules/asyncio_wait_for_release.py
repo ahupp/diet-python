@@ -28,3 +28,10 @@ def leak_check():
 
     gc.collect()
     return ref_holder[0]()
+
+# diet-python: validate
+
+from __future__ import annotations
+
+def validate(module):
+    assert module.leak_check() is None

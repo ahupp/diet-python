@@ -25,3 +25,14 @@ def import_without_transform(tmp_path: Path) -> bool:
         sys.modules.pop(module_name, None)
         if sys.path and sys.path[0] == str(tmp_path):
             sys.path.pop(0)
+
+# diet-python: validate
+
+def validate(module):
+    import tempfile
+    from pathlib import Path
+
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        assert module.import_without_transform(tmp_path) is False

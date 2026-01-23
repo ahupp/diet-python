@@ -14,3 +14,9 @@ Derived = dict
 
 INSTANCE = Alias()
 VALUE = INSTANCE.value
+
+# diet-python: validate
+
+def validate(module):
+    assert module.VALUE == "base"
+    assert module.INSTANCE.child is True

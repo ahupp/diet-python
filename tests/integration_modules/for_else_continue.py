@@ -11,3 +11,10 @@ def collect_for_else_continue():
 
 
 RESULT = collect_for_else_continue()
+
+# diet-python: validate
+
+from __future__ import annotations
+
+def validate(module):
+    assert module.RESULT == [0, 1, 2]

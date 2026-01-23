@@ -25,3 +25,10 @@ def raise_from_with_import_patch():
 
 
 ASYNCIO_SHADOWED = raise_from_with_import_patch()
+
+# diet-python: validate
+
+from __future__ import annotations
+
+def validate(module):
+    assert module.ASYNCIO_SHADOWED is False

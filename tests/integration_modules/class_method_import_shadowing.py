@@ -8,3 +8,9 @@ class Example:
 
 VALUE = Example().module_name
 CLASS_ATTR = Example.atexit
+
+# diet-python: validate
+
+def validate(module):
+    assert module.VALUE == "atexit"
+    assert module.CLASS_ATTR == "class"

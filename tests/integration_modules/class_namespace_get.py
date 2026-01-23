@@ -9,3 +9,10 @@ class Example:
 
 
 RESULT = Example[int]
+
+# diet-python: validate
+
+from __future__ import annotations
+
+def validate(module):
+    assert module.RESULT == module.Example[int]

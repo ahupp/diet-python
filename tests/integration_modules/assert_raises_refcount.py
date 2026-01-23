@@ -14,3 +14,9 @@ def run():
     before = sys.getrefcount(_boom)
     case.assertRaises(ValueError, _boom)
     return before, sys.getrefcount(_boom)
+
+# diet-python: validate
+
+def validate(module):
+    before, after = module.run()
+    assert before == after

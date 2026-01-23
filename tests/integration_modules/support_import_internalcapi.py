@@ -8,3 +8,10 @@ def exercise():
         return "ok"
     _testinternalcapi.get_configs()
     return "ok"
+
+# diet-python: validate
+
+from __future__ import annotations
+
+def validate(module):
+    assert module.exercise() == "ok"

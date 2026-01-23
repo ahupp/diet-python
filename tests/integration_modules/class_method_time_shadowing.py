@@ -10,3 +10,8 @@ class Base:
 
 
 VALUE = Base().resolution
+
+# diet-python: validate
+
+def validate(module):
+    assert isinstance(module.VALUE, float)

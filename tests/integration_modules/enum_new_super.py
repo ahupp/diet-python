@@ -11,3 +11,13 @@ def build_enum():
             return obj
 
     return Example
+
+# diet-python: validate
+
+from __future__ import annotations
+
+import pytest
+
+def validate(module):
+    with pytest.raises(TypeError, match="do not use `super\\(\\).__new__"):
+        module.build_enum()

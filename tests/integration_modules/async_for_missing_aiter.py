@@ -14,3 +14,10 @@ def get_error():
     except TypeError as exc:
         return str(exc)
     return "no error"
+
+# diet-python: validate
+
+def validate(module):
+    message = module.get_error()
+    assert "async for" in message
+    assert "__aiter__" in message

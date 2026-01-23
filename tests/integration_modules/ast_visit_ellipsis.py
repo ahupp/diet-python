@@ -12,3 +12,8 @@ def visit_ellipsis():
     mod = ast.parse("e = ...")
     Visitor().visit(mod)
     return log
+
+# diet-python: validate
+
+def validate(module):
+    assert module.visit_ellipsis() == [("Ellipsis", ...)]

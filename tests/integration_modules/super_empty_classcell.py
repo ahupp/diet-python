@@ -14,3 +14,12 @@ def exercise():
         return type(exc), str(exc)
 
     return None, None
+
+# diet-python: validate
+
+from __future__ import annotations
+
+def validate(module):
+    exc_type, message = module.exercise()
+    assert exc_type is RuntimeError
+    assert "empty __class__ cell" in message

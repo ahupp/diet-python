@@ -7,3 +7,10 @@ def has_exception_name():
     except Exception as e:
         pass
     return "e" in locals()
+
+# diet-python: validate
+
+from __future__ import annotations
+
+def validate(module):
+    assert module.has_exception_name() is False

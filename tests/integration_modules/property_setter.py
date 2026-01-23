@@ -9,3 +9,13 @@ class Example:
     @value.setter
     def value(self, value: int) -> None:
         self._value = value
+
+# diet-python: validate
+
+from __future__ import annotations
+
+def validate(module):
+    """Property setters should round-trip values under the transform."""
+    instance = module.Example()
+    instance.value = 5
+    assert instance.value == 5

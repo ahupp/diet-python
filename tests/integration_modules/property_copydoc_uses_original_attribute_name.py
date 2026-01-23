@@ -15,3 +15,10 @@ class Derived(Base):
     @copydoc
     def value(self):
         return 2
+
+# diet-python: validate
+
+from __future__ import annotations
+
+def validate(module):
+    assert module.Derived.value.__doc__ == "base doc"

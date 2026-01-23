@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CPYTHON_DIR="$REPO_ROOT/cpython"
+CPYTHON_DIR="$REPO_ROOT/../cpython"
 VENV_DIR="$REPO_ROOT/.venv-cpython"
 PYTHON_BIN="$CPYTHON_DIR/python"
 export UV_CACHE_DIR="$REPO_ROOT/.uv-cache"

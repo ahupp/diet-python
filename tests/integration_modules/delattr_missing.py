@@ -9,3 +9,12 @@ INSTANCE = Example()
 INSTANCE.value = 1
 del INSTANCE.value
 ATTRIBUTE_DELETED = not hasattr(INSTANCE, "value")
+
+# diet-python: validate
+
+from __future__ import annotations
+
+import pytest
+
+def validate(module):
+    assert module.ATTRIBUTE_DELETED is True

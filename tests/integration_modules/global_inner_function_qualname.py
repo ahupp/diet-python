@@ -18,3 +18,10 @@ def build_qualnames():
 
 
 RESULT = build_qualnames()
+
+# diet-python: validate
+
+def validate(module):
+    qualname, inner_qualname = module.RESULT
+    assert qualname == "inner_global_function"
+    assert inner_qualname == "inner_global_function.<locals>.inner_function2"

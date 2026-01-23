@@ -11,3 +11,9 @@ def get_traceback():
         Boom().explode()
     except RuntimeError:
         return traceback.format_exc()
+
+# diet-python: validate
+
+def validate(module):
+    traceback_text = module.get_traceback()
+    assert 'raise RuntimeError$0("boom")' in traceback_text

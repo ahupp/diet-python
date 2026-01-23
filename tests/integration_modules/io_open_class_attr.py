@@ -11,3 +11,11 @@ def read_self():
 
 
 RESULT = read_self()
+
+# diet-python: validate
+
+from __future__ import annotations
+
+def validate(module):
+    assert isinstance(module.RESULT, bytes)
+    assert len(module.RESULT) == 1

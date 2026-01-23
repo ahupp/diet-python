@@ -14,6 +14,16 @@ if str(ROOT) not in sys.path:
 
 import diet_import_hook
 
+_VALIDATE_DELIMITER = "# diet-python: validate"
+
+
+def split_integration_case(module_path: Path) -> tuple[str, str]:
+    source = module_path.read_text(encoding="utf-8")
+    if _VALIDATE_DELIMITER not in source:
+        raise ValueError(f"missing integration validate delimiter in {module_path}")
+    raw_source, raw_validate = source.split(_VALIDATE_DELIMITER, 1)
+    return raw_source.rstrip() + "\n", raw_validate.lstrip("\n")
+
 
 def _print_integration_failure_context(module_path: Path) -> None:
     try:

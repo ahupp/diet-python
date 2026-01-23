@@ -22,3 +22,10 @@ def get_error():
     except TypeError as exc:
         return str(exc)
     return "no error"
+
+# diet-python: validate
+
+def validate(module):
+    message = module.get_error()
+    assert "__aenter__" in message
+    assert "__await__" in message

@@ -7,3 +7,10 @@ def exercise():
         return value
 
     return inner()
+
+# diet-python: validate
+
+from __future__ import annotations
+
+def validate(module):
+    assert module.exercise() == 1

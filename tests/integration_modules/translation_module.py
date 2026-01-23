@@ -11,3 +11,10 @@ def translate_message():
 
 def call_translate():
     return translate_message()
+
+# diet-python: validate
+
+from __future__ import annotations
+
+def validate(module):
+    assert module.call_translate() == "translated:after except"

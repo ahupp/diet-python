@@ -12,3 +12,12 @@ class Child(Base):
 
 def build_child():
     return Child(1)
+
+# diet-python: validate
+
+from __future__ import annotations
+
+def validate(module):
+    instance = module.build_child()
+    assert instance.a == 1
+    assert instance.b == 1

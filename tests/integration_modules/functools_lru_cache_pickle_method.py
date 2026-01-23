@@ -12,3 +12,12 @@ class HasCache:
 
 def pickle_cached_method():
     return pickle.loads(pickle.dumps(HasCache.cached_meth))
+
+# diet-python: validate
+
+from __future__ import annotations
+
+def validate(module):
+    cached = module.pickle_cached_method()
+    assert cached is not None
+    assert cached.__qualname__ == "HasCache.cached_meth"

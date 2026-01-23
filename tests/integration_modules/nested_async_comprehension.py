@@ -24,3 +24,9 @@ def get_values():
 
 def get_gen_values():
     return asyncio.run(gen_inside_gen())
+
+# diet-python: validate
+
+def validate(module):
+    assert module.get_values() == [[11, 12], [21, 22]]
+    assert module.get_gen_values() == [0, 1, 2, 0, 1, 2, 3, 4]

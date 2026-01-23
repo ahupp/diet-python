@@ -12,3 +12,10 @@ def make_value():
             return f(1, 2)
 
     return Example().compute()
+
+# diet-python: validate
+
+from __future__ import annotations
+
+def validate(module):
+    assert module.make_value() == 3
