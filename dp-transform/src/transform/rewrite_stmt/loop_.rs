@@ -23,6 +23,7 @@ pub fn rewrite_for(
     rewriter: &mut ExprRewriter,
 ) -> Rewrite {
     let iter_name = rewriter.context().fresh("iter");
+    let is_complete_name = rewriter.context().fresh("is_complete");
     let orelse = if orelse.is_empty() {
         non_placeholder_pass()
     } else {
@@ -33,37 +34,43 @@ pub fn rewrite_for(
         py_stmt!(
             r#"
 {iter_name:id} = __dp__.aiter({iter:expr})
+{flag_name:id} = False
 try:
     while True:
         {target:expr} = await __dp__.anext({iter_name:id})
         {body:stmt}
-    {orelse:stmt}
 except StopAsyncIteration:
-    pass
+    {flag_name:id} = True
+if {flag_name:id}:
+    {orelse:stmt}
 "#,
             iter_name = iter_name.as_str(),
             iter = iter,
             target = target,
             body = body,
             orelse = orelse,
+            flag_name = is_complete_name.as_str(),
         )
     } else {
         py_stmt!(
             r#"
 {iter_name:id} = __dp__.iter({iter:expr})
+{flag_name:id} = False
 try:
     while True:
         {target:expr} = __dp__.next({iter_name:id})
         {body:stmt}
-    {orelse:stmt}
 except StopIteration:
-    pass
+    {flag_name:id} = True
+if {flag_name:id}:
+    {orelse:stmt}
 "#,
             iter_name = iter_name.as_str(),
             iter = iter,
             target = target,
             body = body,
             orelse = orelse,
+            flag_name = is_complete_name.as_str(),
         )
     })
 }
@@ -101,7 +108,7 @@ while True:
     if not {test_flag:id}:
         break
     {body:stmt}
-if not {test_flag:id}:
+if {test_flag:id}:
     {orelse:stmt}
 "#,
         test = *test,

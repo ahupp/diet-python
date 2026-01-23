@@ -223,8 +223,25 @@ impl ExprRewriter {
         });
         self.qualname_stack.pop();
 
+        let qualname = self.context().make_qualname(&func_name);
+        let scope_expr = if qualname == func_name {
+            py_expr!("None")
+        } else {
+            let scope = qualname
+                .rsplit_once('.')
+                .map(|(scope, _)| scope)
+                .unwrap_or(&qualname);
+            py_expr!("{scope:literal}", scope = scope)
+        };
+
         let decorators = take(&mut func_def.decorator_list);
-        rewrite_stmt::decorator::rewrite(decorators, func_name.as_str(), vec![Stmt::FunctionDef(func_def)], self)
+        let mut stmts = vec![Stmt::FunctionDef(func_def)];
+        stmts.extend(py_stmt!(
+            "{name:id} = __dp__.update_fn({name:id}, {scope:expr}, {name:literal})",
+            name = func_name.as_str(),
+            scope = scope_expr,
+        ));
+        rewrite_stmt::decorator::rewrite(decorators, func_name.as_str(), stmts, self)
     }
 
     fn lower_stmt(&mut self, stmt: Stmt) -> Rewrite {

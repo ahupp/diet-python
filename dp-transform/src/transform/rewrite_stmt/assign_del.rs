@@ -190,6 +190,19 @@ pub(crate) fn rewrite_ann_assign(
 
     let target_expr = *target;
     let annotation_expr = *annotation;
+    if matches!(
+        rewriter.context().current_qualname(),
+        Some((_, crate::transform::context::ScopeKind::Function))
+    ) {
+        if let Some(value) = value {
+            return Rewrite::Visit(py_stmt!(
+                "{target:expr} = {value:expr}",
+                target = target_expr,
+                value = *value
+            ));
+        }
+        return Rewrite::Visit(Vec::new());
+    }
     let name = if simple {
         match &target_expr {
             Expr::Name(ast::ExprName { id, .. }) => Some(id.to_string()),
@@ -201,29 +214,21 @@ pub(crate) fn rewrite_ann_assign(
 
     let mut stmts = Vec::new();
     if let Some(value) = value {
-        rewrite_target(rewriter, target_expr, *value, &mut stmts);
-    }
-
-    if let Some(name) = name {
-        if rewriter.context().current_qualname().is_some() {
-            stmts.extend(py_stmt!(
-                r#"
-try:
-    __annotations__
-except NameError:
-    __annotations__ = __dp__.dict()
-"#
-            ));
-        }
         stmts.extend(py_stmt!(
-            "__dp__.setitem(__annotations__, {name:literal}, {value:expr})",
+            "{target:expr} = {value:expr}",
+            target = target_expr,
+            value = *value
+        ));
+    }
+    if let Some(name) = name {
+        stmts.extend(py_stmt!(
+            "__annotations__[{name:literal}] = {value:expr}",
             name = name.as_str(),
             value = annotation_expr
         ));
     } else {
         stmts.extend(py_stmt!("{value:expr}", value = annotation_expr));
     }
-
     Rewrite::Visit(stmts)
 }
 

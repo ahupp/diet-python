@@ -66,9 +66,7 @@ impl Transformer for AnnotationCollector {
                 Stmt::AnnAssign(ann_assign) => {
                     new_body.extend(self.rewrite_annotation(ann_assign));
                 }
-                Stmt::ClassDef(_) | Stmt::FunctionDef(_) => {
-                    new_body.push(stmt);
-                }
+
                 _ => new_body.push(stmt),
             }
         }

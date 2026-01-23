@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
 
 use crate::body_transform::{walk_expr, walk_stmt, Transformer};
+use crate::{py_expr, py_stmt};
 
 pub fn rewrite(body: &mut Vec<Stmt>) {
     let module_scope = collect_scope_info(body);
@@ -138,6 +139,15 @@ impl Transformer for ScopeCollector {
                     self.add_import_binding(alias);
                 }
                 return;
+            }
+            Stmt::Try(ast::StmtTry { handlers, .. }) => {
+                for handler in handlers {
+                    if let ast::ExceptHandler::ExceptHandler(handler) = handler {
+                        if let Some(name) = &handler.name {
+                            set_binding(&mut self.bindings, name.id.as_str(), Binding::Local);
+                        }
+                    }
+                }
             }
             _ => {}
         }
@@ -286,6 +296,43 @@ impl ExplicitScopeRewriter {
         if self.should_skip_name(name) {
             return;
         }
+        if self.current().allow_class_bindings {
+            if let Some(class_frame) = self
+                .stack
+                .iter()
+                .rev()
+                .find(|frame| frame.is_class_ns_builder)
+            {
+                if !class_frame.locals.contains(name) {
+                    return;
+                }
+                let depth = if class_frame.globals.contains(name) {
+                    Some(0)
+                } else if class_frame.nonlocals.contains(name) {
+                    self.stack
+                        .iter()
+                        .rev()
+                        .skip(1)
+                        .find_map(|frame| {
+                            if matches!(frame.kind, FrameKind::Module | FrameKind::Function)
+                                && frame.locals.contains(name)
+                            {
+                                Some(frame.depth)
+                            } else {
+                                None
+                            }
+                        })
+                } else {
+                    Some(0)
+                };
+                if let Some(depth) = depth {
+                    let rewritten = format!("{name}${depth}");
+                    *id = ast::name::Name::new(rewritten.as_str());
+                }
+                return;
+            }
+            return;
+        }
         if name == "__class__" && self.in_class_scope() {
             return;
         }
@@ -333,6 +380,31 @@ impl ExplicitScopeRewriter {
         let rewritten = format!("{name}${depth}");
         *id = ast::name::Name::new(rewritten.as_str());
     }
+
+    fn binding_target_depth(&self, name: &str) -> Option<usize> {
+        let current = self.current();
+        if current.globals.contains(name) {
+            return Some(0);
+        }
+        if current.nonlocals.contains(name) {
+            return self
+                .stack
+                .iter()
+                .rev()
+                .skip(1)
+                .find_map(|frame| {
+                    if matches!(frame.kind, FrameKind::Module | FrameKind::Function)
+                        && frame.locals.contains(name)
+                    {
+                        Some(frame.depth)
+                    } else {
+                        None
+                    }
+                });
+        }
+        None
+    }
+
 
     fn push_function_frame(
         &mut self,
@@ -423,8 +495,53 @@ impl Transformer for ExplicitScopeRewriter {
                     continue;
                 }
                 _ => {
+                    let alias_depth = match &stmt {
+                        Stmt::FunctionDef(func_def) => {
+                            let name = func_def.name.id.as_str();
+                            if self.should_skip_name(name) {
+                                None
+                            } else {
+                                self.binding_target_depth(name)
+                            }
+                        }
+                        Stmt::ClassDef(class_def) => {
+                            let name = class_def.name.id.as_str();
+                            if self.should_skip_name(name) {
+                                None
+                            } else {
+                                self.binding_target_depth(name)
+                            }
+                        }
+                        _ => None,
+                    };
                     self.visit_stmt(&mut stmt);
                     new_body.push(stmt);
+                    if let Some(depth) = alias_depth {
+                        let (name, alias) = match &new_body.last().unwrap() {
+                            Stmt::FunctionDef(func_def) => {
+                                let raw = func_def.name.id.as_str();
+                                (raw.to_string(), format!("{raw}${depth}"))
+                            }
+                            Stmt::ClassDef(class_def) => {
+                                let raw = class_def.name.id.as_str();
+                                (raw.to_string(), format!("{raw}${depth}"))
+                            }
+                            _ => continue,
+                        };
+                        if depth == 0 {
+                            new_body.extend(py_stmt!(
+                                "{alias:id} = __dp__.update_fn({name:id}, None, {name:literal})",
+                                alias = alias.as_str(),
+                                name = name.as_str(),
+                            ));
+                        } else {
+                            new_body.extend(py_stmt!(
+                                "{alias:id} = {name:id}",
+                                alias = alias.as_str(),
+                                name = name.as_str(),
+                            ));
+                        }
+                    }
                 }
             }
         }
@@ -503,6 +620,17 @@ impl Transformer for ExplicitScopeRewriter {
     }
 
     fn visit_expr(&mut self, expr: &mut Expr) {
+        if let Expr::Call(ast::ExprCall { func, arguments, .. }) = expr {
+            if let Expr::Name(ast::ExprName { id, .. }) = func.as_ref() {
+                if id.as_str() == "locals"
+                    && arguments.args.is_empty()
+                    && arguments.keywords.is_empty()
+                {
+                    *expr = py_expr!("__dp__.locals_map(locals())");
+                    return;
+                }
+            }
+        }
         if let Expr::Name(ast::ExprName { id, ctx, .. }) = expr {
             if self.in_binding > 0 {
                 if let Some(current) = self.stack.last_mut() {

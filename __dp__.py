@@ -171,37 +171,14 @@ def make_classcell(value=_MISSING_CLASSCELL):
     return inner.__closure__[0]
 
 
-def empty_classcell():
-    return _EMPTY_CLASSCELL
-
-
-def super_(super_fn, class_namespace, instance_or_cls):
-    """Return a super() proxy using the defining class, falling back to cls during class creation."""
-    defining = None
-    if class_namespace is _EMPTY_CLASSCELL:
-        raise RuntimeError("empty __class__ cell")
-    if isinstance(class_namespace, _types.CellType):
-        try:
-            defining = class_namespace.cell_contents
-        except ValueError:
-            raise RuntimeError("empty __class__ cell") from None
-        if defining is _EMPTY_CLASSCELL:
-            raise RuntimeError("empty __class__ cell")
-    else:
-        try:
-            locals_dict = object.__getattribute__(class_namespace, "_locals")
-            defining = locals_dict.get("__dp_class")
-        except Exception:
-            defining = None
-    if defining is None and isinstance(class_namespace, type):
-        defining = class_namespace
-    if defining is None:
-        defining = instance_or_cls
-    return super(defining, instance_or_cls)
-
-
 def call_super(super_fn, cls, instance_or_cls):
     if super_fn is builtins.super:
+        if isinstance(cls, _types.CellType):
+            try:
+                cls_value = cls.cell_contents
+            except ValueError:
+                raise RuntimeError("super(): empty __class__ cell")
+            return builtins.super(cls_value, instance_or_cls)
         return builtins.super(cls, instance_or_cls)
     return super_fn()
 
@@ -283,7 +260,7 @@ def init_lazy_imports():
 
 def create_class(name, namespace_fn, bases, kwds, requires_class_cell):
     resolved_bases = resolve_bases(bases)
-    meta, ns, meta_kwds = prepare_class(name, bases, kwds)
+    meta, ns, meta_kwds = prepare_class(name, resolved_bases, kwds)
 
     class_cell = ns.get("__classcell__", None)
     if requires_class_cell and class_cell is None:
@@ -528,6 +505,21 @@ def with_enter(ctx):
         raise TypeError("the context manager protocol requires __exit__") from exc
     var = enter()
     return (var, exit)
+
+
+def locals_map(locals_dict):
+    normalized = {}
+    for name, value in locals_dict.items():
+        base = name
+        if "$" in name:
+            prefix, suffix = name.rsplit("$", 1)
+            if suffix.isdigit():
+                if prefix in locals_dict:
+                    continue
+                base = prefix
+        if base not in normalized:
+            normalized[base] = value
+    return normalized
 
 
 def with_exit(exit_fn, exc_info: tuple | None):

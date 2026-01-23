@@ -184,7 +184,13 @@ def _dp_class_create_{class_name:id}():
     def _dp_class_ns_{class_name:id}(_dp_class_ns, __classcell__):
         {ns_body:stmt}
 
-    return __dp__.create_class({class_name:literal}, _dp_class_ns_{class_name:id}, {bases:expr}, {prepare_dict:expr}, {requires_class_cell:literal})
+    return __dp__.create_class(
+      {class_name:literal}, 
+      _dp_class_ns_{class_name:id}, 
+      {bases:expr}, 
+      {prepare_dict:expr}, 
+      {requires_class_cell:literal}
+    )
 {class_name:id} = _dp_class_create_{class_name:id}()
 "#,
         class_name = class_name.as_str(),

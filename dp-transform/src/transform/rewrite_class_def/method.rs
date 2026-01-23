@@ -4,7 +4,7 @@ use ruff_python_ast::{self as ast,Expr, ExprContext, Stmt};
 
 use crate::{
     body_transform::{Transformer, walk_expr, walk_stmt},
-    py_expr,
+    py_expr, py_stmt,
     transform::{driver::ExprRewriter, util::is_noarg_call},
 };
 
@@ -17,6 +17,17 @@ impl Transformer for MethodTransformer {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
             Stmt::FunctionDef(_) => return,
+            Stmt::Delete(ast::StmtDelete { targets, .. }) => {
+                if targets.len() == 1 {
+                    if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
+                        if id.as_str() == "__class__" {
+                            *stmt = py_stmt!("del __classcell__.cell_contents").remove(0);
+                            self.needs_class_cell = true;
+                            return;
+                        }
+                    }
+                }
+            }
             _ => {}
         }
 
@@ -28,9 +39,10 @@ impl Transformer for MethodTransformer {
             Expr::Call(_) => {
 
                 if is_noarg_call("super", expr) {
+                    self.needs_class_cell = true;
                     *expr = match &self.first_arg {
                         Some(arg) => py_expr!(
-                            "__dp__.call_super(super, __class__, {arg:id})",
+                            "__dp__.call_super(super, __classcell__, {arg:id})",
                             arg = arg.as_str()
                         ),
                         None => py_expr!("__dp__.call_super_noargs(super)"),
@@ -121,7 +133,6 @@ pub fn rewrite_method(
         });
 
     let mut scope = rewriter.context().analyze_function_scope(func_def);
-    scope.qualname = format!("{class_qualname}.{func_name}");
 
     let mut transformer = MethodTransformer {
         first_arg,
@@ -130,6 +141,7 @@ pub fn rewrite_method(
     for stmt in &mut func_def.body {
         transformer.visit_stmt(stmt);
     }
+    scope.qualname = format!("{class_qualname}.{func_name}");
 
     let body = take(&mut func_def.body);
     func_def.body =

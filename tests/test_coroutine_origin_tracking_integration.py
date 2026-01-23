@@ -11,7 +11,7 @@ def test_coroutine_origin_tracking_line(run_integration_module):
         transformed = diet_import_hook._transform_source(module.__file__)
         target_line = None
         for idx, line in enumerate(transformed.splitlines(), 1):
-            if "return corofn()" in line:
+            if "return corofn$0()" in line:
                 target_line = idx
                 break
         assert target_line is not None

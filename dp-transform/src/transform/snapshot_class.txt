@@ -12,7 +12,9 @@ def _dp_class_create_C():
     def _dp_class_ns_C(_dp_class_ns, __classcell__):
 
         def _dp_lambda_1():
-            return __name__$0
+            return __name__
+        _dp_lambda_1 = getattr$0(__dp__, "update_fn")(_dp_lambda_1, None, "_dp_lambda_1")
+        _dp_lambda_1 = getattr$0(__dp__, "update_fn")(_dp_lambda_1, None, "_dp_lambda_1")
         getattr$0(__dp__, "update_fn")(_dp_lambda_1, None, "<lambda>")
         getattr$0(__dp__, "setitem")(_dp_class_ns, "__module__", getattr$0(__dp__, "class_lookup")(_dp_class_ns, "__name__", _dp_lambda_1))
         getattr$0(__dp__, "setitem")(_dp_class_ns, "__qualname__", "C")
@@ -20,11 +22,23 @@ def _dp_class_create_C():
 
         def m(self):
             return getattr$0(self, "x")
+        m = getattr$0(__dp__, "update_fn")(m, None, "m")
+        m = getattr$0(__dp__, "update_fn")(m, None, "m")
+        getattr$0(__dp__, "setitem")(_dp_class_ns, "m", getattr$0(__dp__, "update_fn")(m, "C", "m"))
 
         def _dp_lambda_2():
-            return m$2
+            return getattr
+        _dp_lambda_2 = getattr$0(__dp__, "update_fn")(_dp_lambda_2, None, "_dp_lambda_2")
+        _dp_lambda_2 = getattr$0(__dp__, "update_fn")(_dp_lambda_2, None, "_dp_lambda_2")
         getattr$0(__dp__, "update_fn")(_dp_lambda_2, None, "<lambda>")
-        getattr$0(__dp__, "setitem")(_dp_class_ns, "m", getattr$0(__dp__, "update_fn")(getattr$0(__dp__, "class_lookup")(_dp_class_ns, "m", _dp_lambda_2), "C", "m"))
+
+        def _dp_lambda_3():
+            return m$0
+        _dp_lambda_3 = getattr$0(__dp__, "update_fn")(_dp_lambda_3, None, "_dp_lambda_3")
+        _dp_lambda_3 = getattr$0(__dp__, "update_fn")(_dp_lambda_3, None, "_dp_lambda_3")
+        getattr$0(__dp__, "update_fn")(_dp_lambda_3, None, "<lambda>")
+        getattr$0(__dp__, "setitem")(_dp_class_ns, "m", getattr$0(__dp__, "class_lookup")(_dp_class_ns, "getattr", _dp_lambda_2)(__dp__, "update_fn")(getattr$0(__dp__, "class_lookup")(_dp_class_ns, "m", _dp_lambda_3), "C", "m"))
+    _dp_class_ns_C = getattr$0(__dp__, "update_fn")(_dp_class_ns_C, None, "_dp_class_ns_C")
     return getattr$0(__dp__, "create_class")("C", _dp_class_ns_C, (), None, False)
 C = _dp_class_create_C()
 
@@ -41,26 +55,44 @@ def _dp_class_create_Wrapper():
     def _dp_class_ns_Wrapper(_dp_class_ns, __classcell__):
 
         def _dp_lambda_1():
-            return __name__$0
+            return __name__
+        _dp_lambda_1 = getattr$0(__dp__, "update_fn")(_dp_lambda_1, None, "_dp_lambda_1")
+        _dp_lambda_1 = getattr$0(__dp__, "update_fn")(_dp_lambda_1, None, "_dp_lambda_1")
         getattr$0(__dp__, "update_fn")(_dp_lambda_1, None, "<lambda>")
         getattr$0(__dp__, "setitem")(_dp_class_ns, "__module__", getattr$0(__dp__, "class_lookup")(_dp_class_ns, "__name__", _dp_lambda_1))
         getattr$0(__dp__, "setitem")(_dp_class_ns, "__qualname__", "Wrapper")
 
         def _dp_lambda_2():
-            return str$0
+            return str
+        _dp_lambda_2 = getattr$0(__dp__, "update_fn")(_dp_lambda_2, None, "_dp_lambda_2")
+        _dp_lambda_2 = getattr$0(__dp__, "update_fn")(_dp_lambda_2, None, "_dp_lambda_2")
         getattr$0(__dp__, "update_fn")(_dp_lambda_2, None, "<lambda>")
 
         def _dp_lambda_3():
-            return str$0
+            return str
+        _dp_lambda_3 = getattr$0(__dp__, "update_fn")(_dp_lambda_3, None, "_dp_lambda_3")
+        _dp_lambda_3 = getattr$0(__dp__, "update_fn")(_dp_lambda_3, None, "_dp_lambda_3")
         getattr$0(__dp__, "update_fn")(_dp_lambda_3, None, "<lambda>")
 
         def open(self, mode: getattr$0(__dp__, "class_lookup")(_dp_class_ns, "str", _dp_lambda_2)="r", *, encoding: getattr$0(__dp__, "class_lookup")(_dp_class_ns, "str", _dp_lambda_3)="utf8"):
             return open$0(mode, encoding=encoding)
+        open = getattr$0(__dp__, "update_fn")(open, None, "open")
+        open = getattr$0(__dp__, "update_fn")(open, None, "open")
+        getattr$0(__dp__, "setitem")(_dp_class_ns, "open", getattr$0(__dp__, "update_fn")(open, "Wrapper", "open"))
 
         def _dp_lambda_4():
-            return open$2
+            return getattr
+        _dp_lambda_4 = getattr$0(__dp__, "update_fn")(_dp_lambda_4, None, "_dp_lambda_4")
+        _dp_lambda_4 = getattr$0(__dp__, "update_fn")(_dp_lambda_4, None, "_dp_lambda_4")
         getattr$0(__dp__, "update_fn")(_dp_lambda_4, None, "<lambda>")
-        getattr$0(__dp__, "setitem")(_dp_class_ns, "open", getattr$0(__dp__, "update_fn")(getattr$0(__dp__, "class_lookup")(_dp_class_ns, "open", _dp_lambda_4), "Wrapper", "open"))
+
+        def _dp_lambda_5():
+            return open$0
+        _dp_lambda_5 = getattr$0(__dp__, "update_fn")(_dp_lambda_5, None, "_dp_lambda_5")
+        _dp_lambda_5 = getattr$0(__dp__, "update_fn")(_dp_lambda_5, None, "_dp_lambda_5")
+        getattr$0(__dp__, "update_fn")(_dp_lambda_5, None, "<lambda>")
+        getattr$0(__dp__, "setitem")(_dp_class_ns, "open", getattr$0(__dp__, "class_lookup")(_dp_class_ns, "getattr", _dp_lambda_4)(__dp__, "update_fn")(getattr$0(__dp__, "class_lookup")(_dp_class_ns, "open", _dp_lambda_5), "Wrapper", "open"))
+    _dp_class_ns_Wrapper = getattr$0(__dp__, "update_fn")(_dp_class_ns_Wrapper, None, "_dp_class_ns_Wrapper")
     return getattr$0(__dp__, "create_class")("Wrapper", _dp_class_ns_Wrapper, (), None, False)
 Wrapper = _dp_class_create_Wrapper()
 
@@ -76,9 +108,108 @@ def _dp_class_create_D():
     def _dp_class_ns_D(_dp_class_ns, __classcell__):
 
         def _dp_lambda_1():
-            return __name__$0
+            return __name__
+        _dp_lambda_1 = getattr$0(__dp__, "update_fn")(_dp_lambda_1, None, "_dp_lambda_1")
+        _dp_lambda_1 = getattr$0(__dp__, "update_fn")(_dp_lambda_1, None, "_dp_lambda_1")
         getattr$0(__dp__, "update_fn")(_dp_lambda_1, None, "<lambda>")
         getattr$0(__dp__, "setitem")(_dp_class_ns, "__module__", getattr$0(__dp__, "class_lookup")(_dp_class_ns, "__name__", _dp_lambda_1))
         getattr$0(__dp__, "setitem")(_dp_class_ns, "__qualname__", "D")
+    _dp_class_ns_D = getattr$0(__dp__, "update_fn")(_dp_class_ns_D, None, "_dp_class_ns_D")
     return getattr$0(__dp__, "create_class")("D", _dp_class_ns_D, (Base$0,), None, False)
 D = _dp_class_create_D()
+
+$ class_scope_inner_capture
+
+def outer():
+    x = "outer"
+
+    class Inner:
+        y = x
+
+    return Inner.y
+
+=
+
+def outer():
+    x = "outer"
+
+    def _dp_class_create_Inner():
+
+        def _dp_class_ns_Inner(_dp_class_ns, __classcell__):
+
+            def _dp_lambda_1():
+                return __name__
+            _dp_lambda_1 = getattr$0(__dp__, "update_fn")(_dp_lambda_1, None, "_dp_lambda_1")
+            _dp_lambda_1 = getattr$0(__dp__, "update_fn")(_dp_lambda_1, None, "_dp_lambda_1")
+            _dp_lambda_1 = getattr$0(__dp__, "update_fn")(_dp_lambda_1, None, "_dp_lambda_1")
+            _dp_lambda_1 = getattr$0(__dp__, "update_fn")(_dp_lambda_1, None, "_dp_lambda_1")
+            _dp_lambda_1 = getattr$0(__dp__, "update_fn")(_dp_lambda_1, "outer.<locals>", "_dp_lambda_1")
+            _dp_lambda_1 = getattr$0(__dp__, "update_fn")(_dp_lambda_1, "outer.<locals>", "_dp_lambda_1")
+            getattr$0(__dp__, "update_fn")(_dp_lambda_1, "outer.<locals>", "<lambda>")
+            getattr$0(__dp__, "setitem")(_dp_class_ns, "__module__", getattr$0(__dp__, "class_lookup")(_dp_class_ns, "__name__", _dp_lambda_1))
+            getattr$0(__dp__, "setitem")(_dp_class_ns, "__qualname__", "outer.<locals>.Inner")
+
+            def _dp_lambda_2():
+                return x
+            _dp_lambda_2 = getattr$0(__dp__, "update_fn")(_dp_lambda_2, None, "_dp_lambda_2")
+            _dp_lambda_2 = getattr$0(__dp__, "update_fn")(_dp_lambda_2, None, "_dp_lambda_2")
+            _dp_lambda_2 = getattr$0(__dp__, "update_fn")(_dp_lambda_2, None, "_dp_lambda_2")
+            _dp_lambda_2 = getattr$0(__dp__, "update_fn")(_dp_lambda_2, None, "_dp_lambda_2")
+            _dp_lambda_2 = getattr$0(__dp__, "update_fn")(_dp_lambda_2, "outer.<locals>", "_dp_lambda_2")
+            _dp_lambda_2 = getattr$0(__dp__, "update_fn")(_dp_lambda_2, "outer.<locals>", "_dp_lambda_2")
+            getattr$0(__dp__, "update_fn")(_dp_lambda_2, "outer.<locals>", "<lambda>")
+            getattr$0(__dp__, "setitem")(_dp_class_ns, "y", getattr$0(__dp__, "class_lookup")(_dp_class_ns, "x", _dp_lambda_2))
+        _dp_class_ns_Inner = getattr$0(__dp__, "update_fn")(_dp_class_ns_Inner, None, "_dp_class_ns_Inner")
+        _dp_class_ns_Inner = getattr$0(__dp__, "update_fn")(_dp_class_ns_Inner, None, "_dp_class_ns_Inner")
+        _dp_class_ns_Inner = getattr$0(__dp__, "update_fn")(_dp_class_ns_Inner, "outer.<locals>", "_dp_class_ns_Inner")
+        return getattr$0(__dp__, "create_class")("Inner", _dp_class_ns_Inner, (), None, False)
+    _dp_class_create_Inner = getattr$0(__dp__, "update_fn")(_dp_class_create_Inner, None, "_dp_class_create_Inner")
+    Inner = _dp_class_create_Inner()
+    return getattr$0(Inner, "y")
+outer = getattr(__dp__, "update_fn")(outer, None, "outer")
+outer = getattr(__dp__, "update_fn")(outer, None, "outer")
+
+$ class_super_empty_classcell
+
+class X:
+    def f(x):
+        nonlocal __class__
+        del __class__
+        super()
+
+=
+
+def _dp_class_create_X():
+
+    def _dp_class_ns_X(_dp_class_ns, __classcell__):
+
+        def _dp_lambda_1():
+            return __name__
+        _dp_lambda_1 = getattr$0(__dp__, "update_fn")(_dp_lambda_1, None, "_dp_lambda_1")
+        _dp_lambda_1 = getattr$0(__dp__, "update_fn")(_dp_lambda_1, None, "_dp_lambda_1")
+        getattr$0(__dp__, "update_fn")(_dp_lambda_1, None, "<lambda>")
+        getattr$0(__dp__, "setitem")(_dp_class_ns, "__module__", getattr$0(__dp__, "class_lookup")(_dp_class_ns, "__name__", _dp_lambda_1))
+        getattr$0(__dp__, "setitem")(_dp_class_ns, "__qualname__", "X")
+
+        def f(x):
+            getattr$0(__dp__, "delattr")(__classcell__, "cell_contents")
+            getattr$0(__dp__, "call_super")(super$0, __classcell__, x)
+        f = getattr$0(__dp__, "update_fn")(f, None, "f")
+        f = getattr$0(__dp__, "update_fn")(f, None, "f")
+        getattr$0(__dp__, "setitem")(_dp_class_ns, "f", getattr$0(__dp__, "update_fn")(f, "X", "f"))
+
+        def _dp_lambda_2():
+            return getattr
+        _dp_lambda_2 = getattr$0(__dp__, "update_fn")(_dp_lambda_2, None, "_dp_lambda_2")
+        _dp_lambda_2 = getattr$0(__dp__, "update_fn")(_dp_lambda_2, None, "_dp_lambda_2")
+        getattr$0(__dp__, "update_fn")(_dp_lambda_2, None, "<lambda>")
+
+        def _dp_lambda_3():
+            return f$0
+        _dp_lambda_3 = getattr$0(__dp__, "update_fn")(_dp_lambda_3, None, "_dp_lambda_3")
+        _dp_lambda_3 = getattr$0(__dp__, "update_fn")(_dp_lambda_3, None, "_dp_lambda_3")
+        getattr$0(__dp__, "update_fn")(_dp_lambda_3, None, "<lambda>")
+        getattr$0(__dp__, "setitem")(_dp_class_ns, "f", getattr$0(__dp__, "class_lookup")(_dp_class_ns, "getattr", _dp_lambda_2)(__dp__, "update_fn")(getattr$0(__dp__, "class_lookup")(_dp_class_ns, "f", _dp_lambda_3), "X", "f"))
+    _dp_class_ns_X = getattr$0(__dp__, "update_fn")(_dp_class_ns_X, None, "_dp_class_ns_X")
+    return getattr$0(__dp__, "create_class")("X", _dp_class_ns_X, (), None, True)
+X = _dp_class_create_X()

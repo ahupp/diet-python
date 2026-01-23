@@ -124,7 +124,7 @@ while __dp__.truth(True):
     _dp_test_flag_1 = a
     if __dp__.truth(getattr(__dp__, "not_")(_dp_test_flag_1)):
         break
-if __dp__.truth(getattr(__dp__, "not_")(_dp_test_flag_1)):
+if __dp__.truth(_dp_test_flag_1):
     pass
 "#;
         assert_transform_eq_truthy(input, expected);

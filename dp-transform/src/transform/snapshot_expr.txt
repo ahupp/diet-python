@@ -112,6 +112,7 @@ x = lambda y: y + 1
 
 def _dp_lambda_1(y):
     return getattr$0(__dp__, "add")(y, 1)
+_dp_lambda_1 = getattr(__dp__, "update_fn")(_dp_lambda_1, None, "_dp_lambda_1")
 getattr(__dp__, "update_fn")(_dp_lambda_1, None, "<lambda>")
 x = _dp_lambda_1
 
@@ -123,15 +124,19 @@ x = (i for i in it)
 
 def _dp_gen_1(_dp_iter_2):
     _dp_iter_3 = getattr$0(__dp__, "iter")(_dp_iter_2)
+    _dp_is_complete_4 = False
     try:
         while True:
             i = getattr$0(__dp__, "next")(_dp_iter_3)
             yield i
     except:
         if getattr$0(__dp__, "exception_matches")(getattr$0(__dp__, "current_exception")(), StopIteration$0):
-            pass
+            _dp_is_complete_4 = True
         else:
             raise
+    if _dp_is_complete_4:
+        pass
+_dp_gen_1 = getattr(__dp__, "update_fn")(_dp_gen_1, None, "_dp_gen_1")
 getattr(__dp__, "update_fn")(_dp_gen_1, None, "<genexpr>")
 x = _dp_gen_1(getattr(__dp__, "iter")(it))
 
@@ -192,16 +197,21 @@ x = [i for i in it]
 def _dp_gen_1(_dp_iter_2):
     _dp_gen_1_tmp = getattr$0(__dp__, "list")()
     _dp_iter_3 = getattr$0(__dp__, "iter")(_dp_iter_2)
+    _dp_is_complete_4 = False
     try:
         while True:
             i = getattr$0(__dp__, "next")(_dp_iter_3)
             getattr$0(_dp_gen_1_tmp, "append")(i)
     except:
         if getattr$0(__dp__, "exception_matches")(getattr$0(__dp__, "current_exception")(), StopIteration$0):
-            pass
+            _dp_is_complete_4 = True
         else:
             raise
+    if _dp_is_complete_4:
+        pass
     return _dp_gen_1_tmp
+_dp_gen_1 = getattr(__dp__, "update_fn")(_dp_gen_1, None, "_dp_gen_1")
+_dp_gen_1 = getattr(__dp__, "update_fn")(_dp_gen_1, None, "_dp_gen_1")
 _dp_gen_1 = getattr(__dp__, "update_fn")(_dp_gen_1, None, "<genexpr>")
 x = _dp_gen_1(getattr(__dp__, "iter")(it))
 
@@ -214,16 +224,21 @@ x = {i for i in it}
 def _dp_gen_1(_dp_iter_2):
     _dp_gen_1_tmp = getattr$0(__dp__, "set")()
     _dp_iter_3 = getattr$0(__dp__, "iter")(_dp_iter_2)
+    _dp_is_complete_4 = False
     try:
         while True:
             i = getattr$0(__dp__, "next")(_dp_iter_3)
             getattr$0(_dp_gen_1_tmp, "add")(i)
     except:
         if getattr$0(__dp__, "exception_matches")(getattr$0(__dp__, "current_exception")(), StopIteration$0):
-            pass
+            _dp_is_complete_4 = True
         else:
             raise
+    if _dp_is_complete_4:
+        pass
     return _dp_gen_1_tmp
+_dp_gen_1 = getattr(__dp__, "update_fn")(_dp_gen_1, None, "_dp_gen_1")
+_dp_gen_1 = getattr(__dp__, "update_fn")(_dp_gen_1, None, "_dp_gen_1")
 _dp_gen_1 = getattr(__dp__, "update_fn")(_dp_gen_1, None, "<genexpr>")
 x = _dp_gen_1(getattr(__dp__, "iter")(it))
 
@@ -236,23 +251,28 @@ x = {k: v for k, v in it}
 def _dp_gen_1(_dp_iter_2):
     _dp_gen_1_tmp = getattr$0(__dp__, "dict")()
     _dp_iter_3 = getattr$0(__dp__, "iter")(_dp_iter_2)
+    _dp_is_complete_4 = False
     try:
         while True:
-            _dp_tmp_4 = getattr$0(__dp__, "next")(_dp_iter_3)
+            _dp_tmp_5 = getattr$0(__dp__, "next")(_dp_iter_3)
             try:
-                _dp_tmp_5 = getattr$0(__dp__, "unpack")(_dp_tmp_4, (True, True))
-                k = getattr$0(__dp__, "getitem")(_dp_tmp_5, 0)
-                v = getattr$0(__dp__, "getitem")(_dp_tmp_5, 1)
+                _dp_tmp_6 = getattr$0(__dp__, "unpack")(_dp_tmp_5, (True, True))
+                k = getattr$0(__dp__, "getitem")(_dp_tmp_6, 0)
+                v = getattr$0(__dp__, "getitem")(_dp_tmp_6, 1)
             finally:
+                _dp_tmp_6 = None
                 _dp_tmp_5 = None
-                _dp_tmp_4 = None
             getattr$0(__dp__, "setitem")(_dp_gen_1_tmp, k, v)
     except:
         if getattr$0(__dp__, "exception_matches")(getattr$0(__dp__, "current_exception")(), StopIteration$0):
-            pass
+            _dp_is_complete_4 = True
         else:
             raise
+    if _dp_is_complete_4:
+        pass
     return _dp_gen_1_tmp
+_dp_gen_1 = getattr(__dp__, "update_fn")(_dp_gen_1, None, "_dp_gen_1")
+_dp_gen_1 = getattr(__dp__, "update_fn")(_dp_gen_1, None, "_dp_gen_1")
 _dp_gen_1 = getattr(__dp__, "update_fn")(_dp_gen_1, None, "<genexpr>")
 x = _dp_gen_1(getattr(__dp__, "iter")(it))
 
