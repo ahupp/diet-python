@@ -10,7 +10,9 @@ def trigger(name):
 from __future__ import annotations
 
 import pytest
+import re
 
 def validate(module):
-    with pytest.raises(AttributeError, match="module 'fstring_format_shadow' has no attribute 'missing'"):
+    expected = f"module '{module.__name__}' has no attribute 'missing'"
+    with pytest.raises(AttributeError, match=re.escape(expected)):
         module.trigger("missing")

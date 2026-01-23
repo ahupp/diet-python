@@ -1,16 +1,16 @@
-use crate::transform::driver::ExprRewriter;
-use crate::transform::driver::Rewrite;
+use crate::transform::ast_rewrite::Rewrite;
+use crate::transform::context::Context;
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast};
 
 pub fn rewrite(
+    context: &Context,
     ast::StmtWith {
         items,
         mut body,
         is_async,
         ..
     }: ast::StmtWith,
-    transformer: &mut ExprRewriter,
 ) -> Rewrite {
     if items.is_empty() {
         return Rewrite::Walk(py_stmt!("pass"));
@@ -28,8 +28,8 @@ pub fn rewrite(
             py_expr!("_")
         };
 
-        let exit_name = transformer.context().fresh("with_exit");
-        let ok_name = transformer.context().fresh("with_ok");
+        let exit_name = context.fresh("with_exit");
+        let ok_name = context.fresh("with_ok");
 
         body = if is_async {
             py_stmt!(

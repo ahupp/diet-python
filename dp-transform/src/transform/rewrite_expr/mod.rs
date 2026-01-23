@@ -5,7 +5,7 @@ use ruff_python_codegen::{Generator, Indentation};
 use ruff_source_file::LineEnding;
 use ruff_text_size::TextRange;
 
-use crate::{py_expr, py_stmt, transform::driver::{ExprRewriter, LoweredExpr}};
+use crate::{py_expr, py_stmt, transform::{ast_rewrite::LoweredExpr, context::Context}};
 
 pub mod comprehension;
 pub mod string;
@@ -13,18 +13,12 @@ pub mod compare_boolop;
 pub mod truthy;
 
 
-pub fn lower_expr(rewriter: &mut ExprRewriter, expr: Expr) -> LoweredExpr {
-
-    if rewriter.stage() == crate::transform::driver::TransformStage::Stage1 {
-        if matches!(expr, Expr::Lambda(_) | Expr::Generator(_)) {
-            return LoweredExpr::unmodified(expr);
-        }
-    }
+pub fn lower_expr(context: &Context, expr: Expr) -> LoweredExpr {
 
     match expr {
         Expr::Named(named_expr) => {
             let ast::ExprNamed { target, value, .. } = named_expr;
-            let tmp = rewriter.tmpify("tmp", *value);
+            let tmp = context.tmpify("tmp", *value);
             let assign = py_stmt!(
                 "{target:expr} = {tmp:expr}",
                 target = *target,
@@ -33,7 +27,7 @@ pub fn lower_expr(rewriter: &mut ExprRewriter, expr: Expr) -> LoweredExpr {
             tmp.extend(assign)
         }
         Expr::If(if_expr) => {
-            let tmp = rewriter.fresh("tmp");
+            let tmp = context.fresh("tmp");
             let ast::ExprIf {
                 test, body, orelse, ..
             } = if_expr;
@@ -52,16 +46,10 @@ else:
             LoweredExpr::modified(py_expr!("{tmp:id}", tmp = tmp.as_str()), stmts)
         }
         Expr::BoolOp(bool_op) => {
-            compare_boolop::expr_boolop_to_stmts(rewriter, bool_op)
+            compare_boolop::expr_boolop_to_stmts(context, bool_op)
         }
         Expr::Compare(compare) => {
-            compare_boolop::expr_compare_to_stmts(rewriter, compare)
-        }
-        Expr::Lambda(lambda) => {
-            comprehension::rewrite_lambda(lambda, rewriter.context())
-        }
-        Expr::Generator(generator) => {
-            comprehension::rewrite_generator(generator, rewriter.context())
+            compare_boolop::expr_compare_to_stmts(context, compare)
         }
         Expr::Call(ast::ExprCall {
             func,
@@ -78,7 +66,7 @@ else:
             let mut stmts = Vec::new();
             let mut modified = false;
 
-            let func_lowered = lower_expr(rewriter, *func);
+            let func_lowered = lower_expr(context, *func);
             modified |= func_lowered.modified;
             stmts.extend(func_lowered.stmts);
             let func_expr = func_lowered.expr;
@@ -92,7 +80,7 @@ else:
                         range,
                         node_index,
                     }) => {
-                        let lowered = lower_expr(rewriter, *value);
+                        let lowered = lower_expr(context, *value);
                         modified |= lowered.modified;
                         stmts.extend(lowered.stmts);
                         new_args.push(Expr::Starred(ast::ExprStarred {
@@ -103,7 +91,7 @@ else:
                         }));
                     }
                     other => {
-                        let lowered = lower_expr(rewriter, other);
+                        let lowered = lower_expr(context, other);
                         modified |= lowered.modified;
                         stmts.extend(lowered.stmts);
                         new_args.push(lowered.expr);
@@ -119,7 +107,7 @@ else:
                     range,
                     node_index,
                 } = keyword;
-                let lowered = lower_expr(rewriter, value);
+                let lowered = lower_expr(context, value);
                 modified |= lowered.modified;
                 stmts.extend(lowered.stmts);
                 new_keywords.push(ast::Keyword {
@@ -148,10 +136,10 @@ else:
             }
         }
         Expr::FString(f_string) => {
-            LoweredExpr::unmodified(string::rewrite_fstring(f_string, rewriter.context()))
+            LoweredExpr::unmodified(string::rewrite_fstring(f_string, context))
         }
         Expr::TString(t_string) => {
-            LoweredExpr::unmodified(string::rewrite_tstring(t_string, rewriter.context()))
+            LoweredExpr::unmodified(string::rewrite_tstring(t_string, context))
         }
         Expr::Slice(ast::ExprSlice {
             lower, upper, step, ..
@@ -189,7 +177,7 @@ else:
             ..
         }) => {
         
-            let src = rewriter.context().source_slice(range).expect("missing source slice");
+            let src = context.source_slice(range).expect("missing source slice");
             let src = src.trim();
             let normalized = src.replace('_', "");
             let indent = Indentation::new("    ".to_string());
@@ -204,7 +192,7 @@ else:
             }
         }            
         Expr::Attribute(attr_expr) if matches!(attr_expr.ctx, ast::ExprContext::Load) => {
-            let should_lower = rewriter.context().options.lower_attributes
+            let should_lower = context.options.lower_attributes
                 || !is_attribute_chain(attr_expr.value.as_ref());
             if should_lower {
                 let ast::ExprAttribute { value, attr, .. } = attr_expr;
@@ -216,24 +204,6 @@ else:
             } else {
                 LoweredExpr::unmodified(Expr::Attribute(attr_expr))
             }
-        }
-        Expr::ListComp(ast::ExprListComp {
-            elt, generators, ..
-        }) => {
-            comprehension::rewrite(*elt, generators, "list", "append", rewriter)
-        }
-        Expr::SetComp(ast::ExprSetComp {
-            elt, generators, ..
-        }) => {
-            comprehension::rewrite(*elt, generators, "set", "add", rewriter)
-        }
-        Expr::DictComp(ast::ExprDictComp {
-            key,
-            value,
-            generators,
-            ..
-        }) => {
-            comprehension::rewrite(py_expr!("({key:expr}, {value:expr})", key = *key, value = *value), generators, "dict", "update", rewriter)
         }
 
         // tuple/list/dict unpacking
@@ -256,7 +226,7 @@ else:
                         range: star_range,
                         node_index: star_node_index,
                     }) => {
-                        let lowered = lower_expr(rewriter, *value);
+                        let lowered = lower_expr(context, *value);
                         modified |= lowered.modified;
                         stmts.extend(lowered.stmts);
                         lowered_elts.push(Expr::Starred(ast::ExprStarred {
@@ -267,7 +237,7 @@ else:
                         }));
                     }
                     other => {
-                        let lowered = lower_expr(rewriter, other);
+                        let lowered = lower_expr(context, other);
                         modified |= lowered.modified;
                         stmts.extend(lowered.stmts);
                         lowered_elts.push(lowered.expr);
@@ -292,7 +262,7 @@ else:
             let mut modified = false;
             let mut lowered_elts = Vec::new();
             for elt in elts {
-                let lowered = lower_expr(rewriter, elt);
+                let lowered = lower_expr(context, elt);
                 modified |= lowered.modified;
                 stmts.extend(lowered.stmts);
                 lowered_elts.push(lowered.expr);
@@ -323,7 +293,7 @@ else:
                         range: star_range,
                         node_index: star_node_index,
                     }) => {
-                        let lowered = lower_expr(rewriter, *value);
+                        let lowered = lower_expr(context, *value);
                         modified |= lowered.modified;
                         stmts.extend(lowered.stmts);
                         lowered_elts.push(Expr::Starred(ast::ExprStarred {
@@ -334,7 +304,7 @@ else:
                         }));
                     }
                     other => {
-                        let lowered = lower_expr(rewriter, other);
+                        let lowered = lower_expr(context, other);
                         modified |= lowered.modified;
                         stmts.extend(lowered.stmts);
                         lowered_elts.push(lowered.expr);
@@ -354,7 +324,7 @@ else:
             let mut modified = false;
             let mut lowered_elts = Vec::new();
             for elt in elts {
-                let lowered = lower_expr(rewriter, elt);
+                let lowered = lower_expr(context, elt);
                 modified |= lowered.modified;
                 stmts.extend(lowered.stmts);
                 lowered_elts.push(lowered.expr);
@@ -379,10 +349,10 @@ else:
                         key: Some(key),
                         value,
                     } => {
-                        let lowered_key = lower_expr(rewriter, key);
+                        let lowered_key = lower_expr(context, key);
                         modified |= lowered_key.modified;
                         stmts.extend(lowered_key.stmts);
-                        let lowered_value = lower_expr(rewriter, value);
+                        let lowered_value = lower_expr(context, value);
                         modified |= lowered_value.modified;
                         stmts.extend(lowered_value.stmts);
                         keyed_pairs.push(py_expr!(
@@ -392,7 +362,7 @@ else:
                         ));
                     }
                     ast::DictItem { key: None, value } => {
-                        let lowered_value = lower_expr(rewriter, value);
+                        let lowered_value = lower_expr(context, value);
                         modified |= lowered_value.modified;
                         stmts.extend(lowered_value.stmts);
                         if !keyed_pairs.is_empty() {
@@ -457,8 +427,8 @@ else:
         Expr::Subscript(ast::ExprSubscript {
             value, slice, ctx, ..
         }) if matches!(ctx, ast::ExprContext::Load) => {
-            let value_lowered = lower_expr(rewriter, *value);
-            let slice_lowered = lower_expr(rewriter, *slice);
+            let value_lowered = lower_expr(context, *value);
+            let slice_lowered = lower_expr(context, *slice);
             let mut stmts = value_lowered.stmts;
             stmts.extend(slice_lowered.stmts);
             let expr = make_binop("getitem", value_lowered.expr, slice_lowered.expr);

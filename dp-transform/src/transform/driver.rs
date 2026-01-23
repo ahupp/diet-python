@@ -1,456 +1,193 @@
-use super::{
-    context::{Context, ScopeInfo, ScopeKind},
-    rewrite_import, Options,
-};
-use crate::{ruff_ast_to_string, template::is_simple, transform::{rewrite_expr::lower_expr, rewrite_stmt}};
 
+
+use log::{log_enabled, trace, Level};
+use ruff_python_ast::{self as ast, Expr, Stmt};
+use super::{
+    context::{Context},
+    rewrite_import, 
+};
+use crate::transform::{rewrite_expr, rewrite_future_annotations};
+use crate::transform::simplify::strip_generated_passes;
+use crate::{ensure_import, py_expr, template};
+use crate::transform::ast_rewrite::rewrite_with_pass;
+use crate::transform::scope::{Scope, analyze_module_scope};
+use crate::transform::{ast_rewrite::{LoweredExpr, Rewrite, RewritePass}, rewrite_expr::{comprehension, lower_expr}, rewrite_stmt};
 use crate::{
-    body_transform::{walk_expr, walk_stmt, Transformer},
     transform::rewrite_class_def,
 };
-use crate::{py_expr, py_stmt};
-use log::{Level, log_enabled, trace};
-use ruff_python_ast::{self as ast, Expr, Stmt};
-use ruff_text_size::{Ranged, TextRange};
-use std::collections::VecDeque;
-use std::mem::take;
-
-// TODO: rename RewriteContext, fold Context into it
-pub struct ExprRewriter {
-    ctx: Context,
-    options: Options,
-    buf: Vec<Stmt>,
-    qualname_stack: Vec<(ScopeKind, String)>,
-    stage: TransformStage,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TransformStage {
-    Stage1,
-    Stage2,
-}
-
-pub(crate) enum Rewrite {
-    Walk(Vec<Stmt>),
-    Visit(Vec<Stmt>),
-}
-
-pub(crate) struct LoweredExpr {
-    pub stmts: Vec<Stmt>,
-    pub expr: Expr,
-    pub modified: bool,
-}
 
 
-impl LoweredExpr {
+pub fn rewrite_module(context: &Context, module: &mut Vec<Stmt>) {
+    
+    rewrite_future_annotations::rewrite(module);
+    rewrite_with_pass(context, &SimplifyPass, module);
 
+    let scope = analyze_module_scope(module);
 
-    pub fn modified(expr: Expr, stmts: Vec<Stmt>) -> Self {
-        Self {
-            stmts,
-            expr,
-            modified: true,
-        }
+    let class_pass = ScopeAwareLoweringPass::new(scope);
+    rewrite_with_pass(context, &class_pass, module);
+
+    // Collapse `py_stmt!` templates after all rewrites.
+    template::flatten(module);
+
+    strip_generated_passes(module);
+
+    if context.options.truthy {
+        rewrite_expr::truthy::rewrite(module);
     }
 
-    pub fn unmodified(expr: Expr) -> Self {
-        Self {
-            stmts: Vec::new(),
-            expr,
-            modified: false,
-        }
+    if context.options.cleanup_dp_globals {
+        module.extend(crate::py_stmt!("__dp__.cleanup_dp_globals(globals())"));
     }
 
-    pub fn extend(self, other: Vec<Stmt>) -> Self {
-        let Self { mut stmts, expr, modified } = self;
-        stmts.extend(other);
-        Self {
-            stmts,
-            expr,
-            modified,
-        }
+    if context.options.inject_import {
+        ensure_import::ensure_import(module);
     }
+
 }
 
 
-impl ExprRewriter {
-    pub fn new(ctx: Context) -> Self {
-        Self {
-            options: ctx.options,
-            ctx,
-            buf: Vec::new(),
-            qualname_stack: Vec::new(),
-            stage: TransformStage::Stage1,
-        }
-    }
 
-    pub(super) fn context(&self) -> &Context {
-        &self.ctx
-    }
+pub struct SimplifyPass;
 
-    pub fn set_stage(&mut self, stage: TransformStage) {
-        self.stage = stage;
-    }
+impl RewritePass for SimplifyPass {
 
-    pub fn stage(&self) -> TransformStage {
-        self.stage
-    }
-
-
-    pub(crate) fn rewrite_block(&mut self, body: Vec<Stmt>) -> Vec<Stmt> {
-        self.process_statements(body)
-    }
-
-    pub(crate) fn fresh(&self, name: &str) -> String {
-        self.ctx.fresh(name)
-    }
-
-    pub(crate) fn tmpify(&self, name: &str, expr: Expr) -> LoweredExpr {
-        let tmp = self.ctx.fresh(name);
-        let assign = py_stmt!(
-            "{tmp:id} = {expr:expr}",
-            tmp = tmp.as_str(),
-            expr = expr
-        );
-        LoweredExpr::modified(py_expr!("{tmp:id}", tmp = tmp.as_str()), assign)
-    }
-
-    pub(crate) fn with_scope<F, R>(&mut self, scope: ScopeInfo, f: F) -> R
-    where
-        F: FnOnce(&mut Self) -> R,
-    {
-        self.ctx.push_scope(scope);
-        let result = f(self);
-        self.ctx.pop_scope();
-        result
-    }
-
-    fn process_statements(&mut self, initial: Vec<Stmt>) -> Vec<Stmt> {
-        enum WorkItem {
-            Process(Stmt),
-            Emit(Stmt),
-        }
-
-        let mut buf_stack = take(&mut self.buf);
-        buf_stack.extend(initial);
-
-        let mut output = Vec::new();
-        let mut worklist: VecDeque<WorkItem> =
-            buf_stack.into_iter().map(WorkItem::Process).collect();
-
-        while let Some(item) = worklist.pop_front() {
-            match item {
-                WorkItem::Process(stmt) => {
-                    let original_range = stmt.range();
-                    if log_enabled!(Level::Trace) {
-                        trace!(
-                            "rewrite input: {}",
-                            crate::ruff_ast_to_string(std::slice::from_ref(&stmt)).trim_end()
-                        );
-                    }
-
-                    let res = self.lower_stmt(stmt);
-
-                    match res {
-                        Rewrite::Visit(stmts) => {
-                            if log_enabled!(Level::Trace) {
-                                trace!(
-                                    "rewrite output (Visit): {}",
-                                    crate::ruff_ast_to_string(&stmts).trim_end()
-                                );
-                            }
-                            let mut items: Vec<WorkItem> =
-                                take(&mut self.buf).into_iter().map(WorkItem::Process).collect();
-                            items.extend(stmts.into_iter().map(WorkItem::Process));
-                            for item in items.into_iter().rev() {
-                                worklist.push_front(item);
-                            }
-                        }
-                        Rewrite::Walk(stmts) => {
-                            if log_enabled!(Level::Trace) {
-                                trace!(
-                                    "rewrite output (Walk): {}",
-                                    crate::ruff_ast_to_string(&stmts).trim_end()
-                                );
-                            }
-                            let mut items: Vec<WorkItem> =
-                                take(&mut self.buf).into_iter().map(WorkItem::Process).collect();
-                            for mut stmt in stmts {
-                                if !(self.stage == TransformStage::Stage1
-                                    && matches!(stmt, Stmt::ClassDef(_)))
-                                {
-                                    walk_stmt(self, &mut stmt);
-                                }
-                                items.extend(
-                                    take(&mut self.buf)
-                                        .into_iter()
-                                        .map(WorkItem::Process),
-                                );
-                                items.push(WorkItem::Emit(stmt));
-                            }
-                            for item in items.into_iter().rev() {
-                                worklist.push_front(item);
-                            }
-                        }
-                    };
-                }
-                WorkItem::Emit(stmt) => {
-                    output.push(stmt);
-                }
-            }
-        }
-
-        output
-    }
-
-    pub(crate) fn maybe_placeholder_lowered(&mut self, expr: Expr) -> LoweredExpr {
-
-        if is_simple(&expr) && !matches!(&expr, Expr::StringLiteral(_) | Expr::BytesLiteral(_)) {
-            return LoweredExpr::unmodified(expr);
-        }
-
-        self.tmpify("tmp", expr)
-    }
-
-    fn rewrite_function_def(&mut self, mut func_def: ast::StmtFunctionDef) -> Rewrite {
-        let func_name = func_def.name.id.to_string();
-        let scope = self.context().analyze_function_scope(&func_def);
-   
-        self.qualname_stack
-            .push((ScopeKind::Function, func_name.clone()));
-        func_def.body = self.with_scope(scope, |rewriter| {
-            rewriter.rewrite_block(take(&mut func_def.body))
-        });
-        self.qualname_stack.pop();
-
-        let qualname = self.context().make_qualname(&func_name);
-        let scope_expr = if qualname == func_name {
-            py_expr!("None")
-        } else {
-            let scope = qualname
-                .rsplit_once('.')
-                .map(|(scope, _)| scope)
-                .unwrap_or(&qualname);
-            py_expr!("{scope:literal}", scope = scope)
-        };
-
-        let decorators = take(&mut func_def.decorator_list);
-        let mut stmts = vec![Stmt::FunctionDef(func_def)];
-        stmts.extend(py_stmt!(
-            "{name:id} = __dp__.update_fn({name:id}, {scope:expr}, {name:literal})",
-            name = func_name.as_str(),
-            scope = scope_expr,
-        ));
-        rewrite_stmt::decorator::rewrite(decorators, func_name.as_str(), stmts, self)
-    }
-
-    fn lower_stmt(&mut self, stmt: Stmt) -> Rewrite {
+    fn lower_stmt(&self, context: &Context, stmt: Stmt) -> Rewrite {
         match stmt {
-            Stmt::FunctionDef(func_def) => self.rewrite_function_def(func_def),
-            Stmt::With(with) => rewrite_stmt::with::rewrite(with, self),
-            Stmt::While(while_stmt) => rewrite_stmt::loop_::rewrite_while(while_stmt, self),
-            Stmt::For(for_stmt) => rewrite_stmt::loop_::rewrite_for(for_stmt, self),
+
+            Stmt::With(with) => rewrite_stmt::with::rewrite(context, with),
+            Stmt::While(while_stmt) => rewrite_stmt::loop_cond::rewrite_while(context, while_stmt),
+            Stmt::For(for_stmt) => rewrite_stmt::loop_cond::rewrite_for(context, for_stmt),
             Stmt::Assert(assert) => rewrite_stmt::assert::rewrite(assert),
-            Stmt::ClassDef(class_def) if self.stage == TransformStage::Stage1 => {
-                Rewrite::Walk(vec![Stmt::ClassDef(class_def)])
-            }
-            Stmt::ClassDef(class_def) => rewrite_class_def::rewrite(class_def, self),
-            Stmt::Try(try_stmt) => rewrite_stmt::exception::rewrite_try(try_stmt, &self.ctx),
+            Stmt::Try(try_stmt) => rewrite_stmt::exception::rewrite_try(try_stmt),
             Stmt::If(if_stmt)
                 if if_stmt
                     .elif_else_clauses
                     .iter()
                     .any(|clause| clause.test.is_some()) =>
             {
-                Rewrite::Visit(vec![expand_if_chain(if_stmt).into()])
+                Rewrite::Visit(vec![rewrite_stmt::loop_cond::expand_if_chain(if_stmt).into()])
             }
-            Stmt::Match(match_stmt) => rewrite_stmt::match_case::rewrite(match_stmt, &self.ctx),
-            Stmt::Import(import) => rewrite_import::rewrite(import, &self.options),
+            Stmt::Match(match_stmt) => rewrite_stmt::match_case::rewrite(context, match_stmt),
+            Stmt::Import(import) => rewrite_import::rewrite(import, &context.options),
             Stmt::ImportFrom(import_from) => {
-                rewrite_import::rewrite_from(import_from.clone(), &self.ctx, &self.options)
+                rewrite_import::rewrite_from(context, import_from.clone())
             }
 
-            Stmt::AnnAssign(ann_assign) => rewrite_stmt::assign_del::rewrite_ann_assign(self, ann_assign),
-            Stmt::Assign(assign) => rewrite_stmt::assign_del::rewrite_assign(self, assign),
-            Stmt::AugAssign(aug) => rewrite_stmt::assign_del::rewrite_aug_assign(self, aug),
-            Stmt::Delete(del) => rewrite_stmt::assign_del::rewrite_delete(self, del),
+            Stmt::AnnAssign(ann_assign) => rewrite_stmt::assign_del::rewrite_ann_assign(ann_assign),
+            Stmt::Assign(assign) => rewrite_stmt::assign_del::rewrite_assign(context, assign),
+            Stmt::AugAssign(aug) => rewrite_stmt::assign_del::rewrite_aug_assign(context, aug),
+            Stmt::Delete(del) => rewrite_stmt::assign_del::rewrite_delete(del),
             Stmt::Raise(raise) => rewrite_stmt::exception::rewrite_raise(raise),
             other => Rewrite::Walk(vec![other]),
         }
     }
+
+
+    fn lower_expr(&self, context: &Context, expr: Expr) -> LoweredExpr {
+        lower_expr(context, expr)
+    }
 }
 
-fn expand_if_chain(mut if_stmt: ast::StmtIf) -> ast::StmtIf {
-    let mut else_body: Option<Vec<Stmt>> = None;
+struct ScopeAwareLoweringPass {
+    scope: std::sync::Arc<Scope>,
+}
 
-    for clause in if_stmt.elif_else_clauses.into_iter().rev() {
-        match clause.test {
-            Some(test) => {
-                let mut nested_if = ast::StmtIf {
-                    node_index: ast::AtomicNodeIndex::default(),
-                    range: TextRange::default(),
-                    test: Box::new(test),
-                    body: clause.body,
-                    elif_else_clauses: Vec::new(),
-                };
+impl ScopeAwareLoweringPass {
+    fn new(scope: std::sync::Arc<Scope>) -> Self {
+        Self {
+            scope
+        }
+    }
+}
 
-                if let Some(body) = else_body.take() {
-                    nested_if.elif_else_clauses.push(ast::ElifElseClause {
-                        test: None,
-                        body,
-                        range: TextRange::default(),
-                        node_index: ast::AtomicNodeIndex::default(),
-                    });
+impl RewritePass for ScopeAwareLoweringPass {
+    fn lower_stmt(&self, context: &Context, stmt: Stmt) -> Rewrite {
+        let (mut output, visit) = match stmt {
+            Stmt::FunctionDef(mut func_def) => {
+                if log_enabled!(Level::Trace) {
+                    trace!(
+                        "class_lower: function {} body_len={}",
+                        func_def.name.id,
+                        func_def.body.len()
+                    );
                 }
 
-                else_body = Some(vec![Stmt::If(nested_if)]);
+                let scope = self.scope.ensure_child_scope_for_function(&func_def);
+        
+                let pass = ScopeAwareLoweringPass::new(scope);
+                rewrite_with_pass(context, &pass, &mut func_def.body);
+
+                rewrite_stmt::annotation::rewrite_ann_assign_delete(&mut func_def.body);
+
+                (vec![Stmt::FunctionDef(func_def)], false)
             }
-            None => {
-                else_body = Some(clause.body);
+            Stmt::ClassDef(mut class_def) => {
+                if log_enabled!(Level::Trace) {
+                    trace!(
+                        "class_lower: class {} body_len={}",
+                        class_def.name.id,
+                        class_def.body.len()
+                    );
+                }
+             
+                // Rewrite private names before scope analysis
+                rewrite_class_def::private::rewrite_class_body(&mut class_def.body, &class_def.name.id.to_string());
+
+                let class_scope = self.scope.ensure_child_scope_for_class(&class_def);   
+
+                rewrite_stmt::annotation::rewrite_ann_assign_to_dunder_annotate(&mut class_def.body);
+
+                match rewrite_class_def::rewrite(context, class_scope.as_ref(), class_def) {
+                    Rewrite::Walk(stmts) => (stmts, false),
+                    Rewrite::Visit(stmts) => (stmts, true),
+                }
             }
+            _ => (vec![stmt], false),
+        };
+
+        rewrite_with_pass(context, &SimplifyPass, &mut output);
+
+        if visit {
+            Rewrite::Visit(output)
+        } else {
+            Rewrite::Walk(output)
         }
     }
 
-    if let Some(body) = else_body {
-        if_stmt.elif_else_clauses = vec![ast::ElifElseClause {
-            range: TextRange::default(),
-            node_index: ast::AtomicNodeIndex::default(),
-            test: None,
-            body,
-        }];
-    } else {
-        if_stmt.elif_else_clauses = Vec::new();
-    }
-
-    if_stmt
-}
-
-impl Transformer for ExprRewriter {
-    fn visit_body(&mut self, body: &mut Vec<Stmt>) {
-        let saved_buf = take(&mut self.buf);
-        let stmts = take(body);
-        *body = self.process_statements(stmts);
-        self.buf = saved_buf;
-    }
-
-    fn visit_expr(&mut self, expr_input: &mut Expr) {
-        if self.stage == TransformStage::Stage1
-            && matches!(expr_input, Expr::Lambda(_) | Expr::Generator(_))
-        {
-            return;
-        }
-
-        let original_range = expr_input.range();
-        let mut lowered: LoweredExpr;
-        let mut current = expr_input.clone();
-        let mut modified_any = false;
-        loop {
-            lowered = lower_expr(self, current);
-            if log_enabled!(Level::Trace) {
-                let es = Stmt::Expr(ast::StmtExpr {
-                    value: Box::new(lowered.expr.clone()),
-                    range: original_range,
-                    node_index: ast::AtomicNodeIndex::default(),
-                });
-                trace!("lower_expr input: {}", ruff_ast_to_string(&[es]).trim_end());
+    fn lower_expr(&self, context: &Context, expr: Expr) -> LoweredExpr {
+        match expr {
+            Expr::Lambda(lambda) => {
+                comprehension::rewrite_lambda(lambda, context, self.scope.as_ref())
             }
-
-            let LoweredExpr { stmts, expr, modified } = lowered;
-            self.buf.extend(stmts);
-            current = expr;
-
-            apply_expr_range(&mut current, original_range);
-            if !modified {
-                break;
+            Expr::Generator(generator) => {
+                comprehension::rewrite_generator(generator, context, self.scope.as_ref())
             }
-            modified_any = true;
-        }
-
-        if !modified_any {
-            walk_expr(self, &mut current);
-        }
-        *expr_input = current;
-    }
-
-    fn visit_stmt(&mut self, stmt: &mut Stmt) {
-        let mut rewritten = self.process_statements(vec![stmt.clone()]);
-        match rewritten.len() {
-            0 => *stmt = py_stmt!("pass")[0].clone(),
-            1 => *stmt = rewritten.remove(0),
-            _ => {
-                *stmt = rewritten.remove(0);
-                self.buf.extend(rewritten);
+            Expr::ListComp(ast::ExprListComp {
+                elt, generators, ..
+            }) => {
+                comprehension::rewrite(context, self.scope.as_ref(),  *elt, generators, "list", "append")
             }
+            Expr::SetComp(ast::ExprSetComp {
+                elt, generators, ..
+            }) => {
+                comprehension::rewrite(context, self.scope.as_ref(), *elt, generators, "set", "add")
+            }
+            Expr::DictComp(ast::ExprDictComp {
+                key,
+                value,
+                generators,
+                ..
+            }) => {
+                comprehension::rewrite(context, 
+                    self.scope.as_ref(), 
+                    py_expr!("({key:expr}, {value:expr})", key = *key, value = *value), 
+                    generators, "dict", 
+                    "update"
+                )
+            }
+    
+            _ => lower_expr(context, expr)
         }
-    }
-}
-
-fn apply_stmt_range(stmts: &mut [Stmt], range: TextRange) {
-    for stmt in stmts {
-        match stmt {
-            Stmt::FunctionDef(node) => node.range = range,
-            Stmt::ClassDef(node) => node.range = range,
-            Stmt::Return(node) => node.range = range,
-            Stmt::Delete(node) => node.range = range,
-            Stmt::TypeAlias(node) => node.range = range,
-            Stmt::Assign(node) => node.range = range,
-            Stmt::AugAssign(node) => node.range = range,
-            Stmt::AnnAssign(node) => node.range = range,
-            Stmt::For(node) => node.range = range,
-            Stmt::While(node) => node.range = range,
-            Stmt::If(node) => node.range = range,
-            Stmt::With(node) => node.range = range,
-            Stmt::Match(node) => node.range = range,
-            Stmt::Raise(node) => node.range = range,
-            Stmt::Try(node) => node.range = range,
-            Stmt::Assert(node) => node.range = range,
-            Stmt::Import(node) => node.range = range,
-            Stmt::ImportFrom(node) => node.range = range,
-            Stmt::Global(node) => node.range = range,
-            Stmt::Nonlocal(node) => node.range = range,
-            Stmt::Expr(node) => node.range = range,
-            Stmt::Pass(node) => node.range = range,
-            Stmt::Break(node) => node.range = range,
-            Stmt::Continue(node) => node.range = range,
-            Stmt::IpyEscapeCommand(node) => node.range = range,
-        }
-    }
-}
-
-fn apply_expr_range(expr: &mut Expr, range: TextRange) {
-    match expr {
-        Expr::BoolOp(node) => node.range = range,
-        Expr::Named(node) => node.range = range,
-        Expr::BinOp(node) => node.range = range,
-        Expr::UnaryOp(node) => node.range = range,
-        Expr::Lambda(node) => node.range = range,
-        Expr::If(node) => node.range = range,
-        Expr::Dict(node) => node.range = range,
-        Expr::Set(node) => node.range = range,
-        Expr::ListComp(node) => node.range = range,
-        Expr::SetComp(node) => node.range = range,
-        Expr::DictComp(node) => node.range = range,
-        Expr::Generator(node) => node.range = range,
-        Expr::Await(node) => node.range = range,
-        Expr::Yield(node) => node.range = range,
-        Expr::YieldFrom(node) => node.range = range,
-        Expr::Compare(node) => node.range = range,
-        Expr::Call(node) => node.range = range,
-        Expr::FString(node) => node.range = range,
-        Expr::TString(node) => node.range = range,
-        Expr::StringLiteral(node) => node.range = range,
-        Expr::BytesLiteral(node) => node.range = range,
-        Expr::NumberLiteral(node) => node.range = range,
-        Expr::BooleanLiteral(node) => node.range = range,
-        Expr::NoneLiteral(node) => node.range = range,
-        Expr::EllipsisLiteral(node) => node.range = range,
-        Expr::Attribute(node) => node.range = range,
-        Expr::Subscript(node) => node.range = range,
-        Expr::Starred(node) => node.range = range,
-        Expr::Name(node) => node.range = range,
-        Expr::List(node) => node.range = range,
-        Expr::Tuple(node) => node.range = range,
-        Expr::Slice(node) => node.range = range,
-        Expr::IpyEscapeCommand(node) => node.range = range,
     }
 }

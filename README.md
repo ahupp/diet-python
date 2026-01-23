@@ -59,7 +59,7 @@ If a transform change updates the expected desugaring, regenerate the fixture
 outputs with:
 
 ```
-cargo run --bin regen_fixtures
+cargo run --bin regen_snapshots
 ```
 
 ## CPython test suite

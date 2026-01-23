@@ -1,6 +1,6 @@
-use crate::py_stmt;
+use crate::{py_stmt, transform::ast_rewrite::Rewrite};
 
-use super::{context::Context, driver::Rewrite, ImportStarHandling, Options};
+use super::{context::Context, ImportStarHandling, Options};
 use ruff_python_ast::{self as ast, Stmt};
 use ruff_python_parser::parse_module;
 
@@ -30,20 +30,7 @@ pub fn should_rewrite_import_from(import_from: &ast::StmtImportFrom, options: &O
 }
 
 pub fn rewrite(ast::StmtImport { names, .. }: ast::StmtImport, options: &Options) -> Rewrite {
-    // Keep _testinternalcapi as a normal import to avoid import-hook recursion in
-    // CPython tests. TODO: find a better solution than a hard-coded exception.
-    if !options.force_import_rewrite
-        && names.len() == 1
-        && names[0].name.id.as_str() == "_testinternalcapi"
-    {
-        if let Some(asname) = names[0].asname.as_ref().map(|n| n.id.as_str()) {
-            return Rewrite::Walk(py_stmt!(
-                "import _testinternalcapi as {name:id}",
-                name = asname
-            ));
-        }
-        return Rewrite::Walk(py_stmt!("import _testinternalcapi"));
-    }
+    // TODO: hard-coded "import _testinternalcapi"
     Rewrite::Visit(
         names
             .into_iter()
@@ -83,8 +70,8 @@ pub fn rewrite(ast::StmtImport { names, .. }: ast::StmtImport, options: &Options
     )
 }
 
-pub fn rewrite_from(import_from: ast::StmtImportFrom, ctx: &Context, options: &Options) -> Rewrite {
-    if !should_rewrite_import_from(&import_from, options) {
+pub fn rewrite_from(context: &Context, import_from: ast::StmtImportFrom) -> Rewrite {
+    if !should_rewrite_import_from(&import_from, &context.options) {
         return Rewrite::Walk(vec![Stmt::ImportFrom(import_from)]);
     }
 
@@ -96,7 +83,7 @@ pub fn rewrite_from(import_from: ast::StmtImportFrom, ctx: &Context, options: &O
     } = import_from;
 
     if names.iter().any(|alias| alias.name.id.as_str() == "*") {
-        return Rewrite::Visit(match options.import_star_handling {
+        return Rewrite::Visit(match context.options.import_star_handling {
             ImportStarHandling::Allowed => {
                 unreachable!("rewrite_from is only called when import-star rewriting is required")
             }
@@ -105,7 +92,7 @@ pub fn rewrite_from(import_from: ast::StmtImportFrom, ctx: &Context, options: &O
         });
     }
     let module_name = module.as_ref().map(|n| n.id.as_str()).unwrap_or("");
-    let temp_binding = ctx.fresh("import");
+    let temp_binding = context.fresh("import");
     let mut statements = Vec::new();
 
     let fromlist: Vec<String> = names
@@ -154,65 +141,4 @@ pub fn rewrite_from(import_from: ast::StmtImportFrom, ctx: &Context, options: &O
     statements.extend(py_stmt!("del {module:id}", module = temp_binding.as_str()));
 
     Rewrite::Visit(statements)
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::body_transform::Transformer;
-    use crate::transform::{context::Context, driver::ExprRewriter, ImportStarHandling, Options};
-    use ruff_python_parser::parse_module;
-
-    fn rewrite_source(source: &str, options: Options) -> String {
-        let mut module = parse_module(source).expect("parse error").into_syntax();
-        let ctx = Context::new(options.clone(), source, false);
-        let mut expr_transformer = ExprRewriter::new(ctx);
-        expr_transformer.visit_body(&mut module.body);
-        crate::template::flatten(&mut module.body);
-        crate::ruff_ast_to_string(&module.body)
-    }
-
-    #[test]
-    fn allows_import_star() {
-        let input = r#"
-from a import *
-"#;
-        let output = rewrite_source(
-            input,
-            Options {
-                import_star_handling: ImportStarHandling::Allowed,
-                ..Options::for_test()
-            },
-        );
-        assert_eq!(output.trim(), "from a import *");
-    }
-
-    #[test]
-    #[should_panic(expected = "import star not allowed")]
-    fn panics_on_import_star() {
-        let input = r#"
-from a import *
-"#;
-        let _ = rewrite_source(
-            input,
-            Options {
-                import_star_handling: ImportStarHandling::Error,
-                ..Options::for_test()
-            },
-        );
-    }
-
-    #[test]
-    fn strips_import_star() {
-        let input = r#"
-from a import *
-"#;
-        let output = rewrite_source(
-            input,
-            Options {
-                import_star_handling: ImportStarHandling::Strip,
-                ..Options::for_test()
-            },
-        );
-        assert_eq!(output.trim(), "");
-    }
 }

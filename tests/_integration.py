@@ -4,6 +4,7 @@ import os
 import importlib
 import sys
 from contextlib import contextmanager
+from uuid import uuid4
 from pathlib import Path
 from types import ModuleType
 from typing import Iterator
@@ -49,18 +50,26 @@ def _print_integration_failure_context(module_path: Path) -> None:
 def transformed_module(
     tmp_path: Path, module_name: str, source: str
 ) -> Iterator[ModuleType]:
-    module_path = tmp_path / f"{module_name}.py"
+    package_name = f"_dp_integration_{uuid4().hex}"
+    package_dir = tmp_path / package_name
+    package_dir.mkdir(parents=True, exist_ok=True)
+    (package_dir / "__init__.py").write_text("", encoding="utf-8")
+
+    module_path = package_dir / f"{module_name}.py"
     module_path.write_text(source, encoding="utf-8")
 
-    module_dir = str(module_path.parent)
-    sys.path.insert(0, module_dir)
+    package_root = str(tmp_path)
+    sys.path.insert(0, package_root)
     prior_allow_temp = os.environ.get("DIET_PYTHON_ALLOW_TEMP")
     os.environ["DIET_PYTHON_ALLOW_TEMP"] = "1"
 
+    full_name = f"{package_name}.{module_name}"
+
     try:
         diet_import_hook.install()
-        sys.modules.pop(module_name, None)
-        module = importlib.import_module(module_name)
+        sys.modules.pop(full_name, None)
+        sys.modules.pop(package_name, None)
+        module = importlib.import_module(full_name)
         if prior_allow_temp is None:
             os.environ.pop("DIET_PYTHON_ALLOW_TEMP", None)
         else:
@@ -70,12 +79,13 @@ def transformed_module(
         _print_integration_failure_context(module_path)
         raise
     finally:
-        sys.modules.pop(module_name, None)
-        if sys.path and sys.path[0] == module_dir:
+        sys.modules.pop(full_name, None)
+        sys.modules.pop(package_name, None)
+        if sys.path and sys.path[0] == package_root:
             sys.path.pop(0)
         else:
             try:
-                sys.path.remove(module_dir)
+                sys.path.remove(package_root)
             except ValueError:
                 pass
         if prior_allow_temp is None:

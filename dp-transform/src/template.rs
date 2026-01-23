@@ -1,23 +1,6 @@
-#[macro_export]
-macro_rules! py_expr {
-    ($template:literal $(, $name:ident = $value:expr)* $(,)?) => {{
-        use ruff_python_ast::{self as ast, Stmt};
-        #[allow(unused_imports)]
-        use crate::py_stmt;
-        let stmts = py_stmt!($template $(, $name = $value)*);
-        if stmts.len() != 1 {
-            panic!("expected single statement");
-        }
-        let stmt = stmts.into_iter().next().unwrap();
-        match stmt {
-            Stmt::Expr(ast::StmtExpr { value, .. }) => *value,
-            _ => panic!("expected expression statement"),
-        }
-    }};
-}
 
 #[macro_export]
-macro_rules! py_stmt {
+macro_rules! py_stmt_internal {
     ($template:literal $(, $name:ident = $value:expr)* $(,)?) => {{
         use std::collections::HashMap;
         #[allow(unused_imports)]
@@ -41,6 +24,46 @@ macro_rules! py_stmt {
         let values = values.into_iter().map(|(name, value)| (name.to_string(), value)).collect();
         let ids = ids.into_iter().map(|(name, value)| (name.to_string(), value)).collect();
         template.instantiate(values, ids)
+    }};
+}
+
+#[macro_export]
+macro_rules! py_expr {
+    ($template:literal $(, $name:ident = $value:expr)* $(,)?) => {{
+        use ruff_python_ast::{self as ast, Stmt};
+        let stmts = $crate::py_stmt_internal!($template $(, $name = $value)*);
+        if stmts.len() != 1 {
+            if log::log_enabled!(log::Level::Trace) {
+                log::trace!(
+                    "py_expr expected single statement, got {} from template `{}`: {}",
+                    stmts.len(),
+                    $template,
+                    crate::ruff_ast_to_string(&stmts).trim_end()
+                );
+            }
+            panic!("expected single statement");
+        }
+        let stmt = stmts.into_iter().next().unwrap();
+        match stmt {
+            Stmt::Expr(ast::StmtExpr { value, .. }) => *value,
+            other => {
+                if log::log_enabled!(log::Level::Trace) {
+                    log::trace!(
+                        "py_expr expected expression statement from template `{}`; got {:?}",
+                        $template,
+                        other
+                    );
+                }
+                panic!("expected expression statement");
+            }
+        }
+    }};
+}
+
+#[macro_export]
+macro_rules! py_stmt {
+    ($template:literal $(, $name:ident = $value:expr)* $(,)?) => {{
+        $crate::py_stmt_internal!($template $(, $name = $value)*)
     }};
 }
 
@@ -83,15 +106,6 @@ pub(crate) fn is_simple(expr: &Expr) -> bool {
     )
 }
 
-pub(crate) fn make_generator(elt: Expr, generators: Vec<ast::Comprehension>) -> Expr {
-    Expr::Generator(ast::ExprGenerator {
-        node_index: ast::AtomicNodeIndex::default(),
-        range: TextRange::default(),
-        elt: Box::new(elt),
-        generators,
-        parenthesized: false,
-    })
-}
 
 pub(crate) enum PlaceholderValue {
     Expr(Box<Expr>),

@@ -1,4 +1,4 @@
-use dp_transform::transform_to_string_without_attribute_lowering_cpython;
+use dp_transform::{Options, transform_str_to_ruff_with_options};
 use pyo3::exceptions::{PyRuntimeError, PySyntaxError};
 use pyo3::prelude::*;
 use std::fs;
@@ -7,9 +7,14 @@ mod eval;
 
 #[pyfunction]
 fn transform_source(source: &str, ensure: Option<bool>) -> PyResult<String> {
-    let ensure = ensure.unwrap_or(true);
-    match transform_to_string_without_attribute_lowering_cpython(source, ensure) {
-        Ok(output) => Ok(output),
+
+    let options = Options {
+        inject_import: ensure.unwrap_or(true),
+        lower_attributes: false,
+        ..Options::default()
+    };
+    match transform_str_to_ruff_with_options(source, options) {
+        Ok(output) => Ok(output.to_string()),
         Err(err) => Err(pyo3::exceptions::PySyntaxError::new_err(err.to_string())),
     }
 }

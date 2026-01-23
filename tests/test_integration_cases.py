@@ -45,7 +45,7 @@ def test_integration_case(tmp_path: Path, case_path: Path) -> None:
                 "__file__": str(case_path),
                 "run_integration_module": run_integration_module,
             }
-            exec(validate_source, namespace)
+            exec(compile(validate_source, str(case_path), "exec"), namespace)
             validate = namespace.get("validate")
             if validate is None:
                 raise AssertionError(f"validate(module) not defined in {case_path}")

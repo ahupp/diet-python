@@ -1,7 +1,10 @@
 // Minimal AST definitions for desugared language
 
-use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
+use ruff_python_ast::{self as ast, AtomicNodeIndex, Expr, ModModule, Stmt};
+use ruff_text_size::TextRange;
 use std::borrow::Cow;
+
+use crate::ruff_ast_to_string;
 
 pub trait AstInfo: Clone + std::fmt::Debug + PartialEq {}
 impl<T: Clone + std::fmt::Debug + PartialEq> AstInfo for T {}
@@ -115,6 +118,11 @@ pub enum ExprNode<E: ExprInfo = ()> {
     Name {
         info: E,
         id: String,
+    },
+    Attribute {
+        info: E,
+        value: Box<ExprNode<E>>,
+        attr: String,
     },
     Number {
         info: E,
@@ -399,12 +407,18 @@ impl StmtNode {
                 info: (),
                 value: ExprNode::from(*value),
             }),
-            Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
+            Stmt::Assign(ast::StmtAssign {targets, value, .. }) => {
                 let target_name = if targets.len() == 1 {
                     if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
                         id.to_string()
                     } else {
-                        panic!("unsupported assignment target")
+                        let s = ast::StmtAssign {
+                            targets,
+                            value,
+                            node_index: AtomicNodeIndex::default(),
+                            range: TextRange::default(),
+                        };
+                        panic!("unsupported assignment target {}", ruff_ast_to_string(&[Stmt::Assign(s)]));
                     }
                 } else {
                     panic!("unsupported assignment targets")
@@ -431,7 +445,10 @@ impl StmtNode {
                     }
                 }
             }
-            Stmt::Import(_) => Some(StmtNode::Pass(())),
+            Stmt::AnnAssign(ast::StmtAnnAssign { annotation, .. }) => Some(StmtNode::Expr {
+                info: (),
+                value: ExprNode::from(*annotation),
+            }),
             Stmt::Delete(ast::StmtDelete { targets, .. }) => {
                 let target_name = if targets.len() == 1 {
                     if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
@@ -540,25 +557,11 @@ impl From<Expr> for ExprNode {
                     args: args_vec,
                 }
             }
-            Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
-                fn flatten_attr(expr: Expr) -> Option<String> {
-                    match expr {
-                        Expr::Name(ast::ExprName { id, .. }) => Some(id.to_string()),
-                        Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
-                            let base = flatten_attr(*value)?;
-                            Some(format!("{}.{}", base, attr.id.as_str()))
-                        }
-                        _ => None,
-                    }
-                }
-
-                if let Some(base) = flatten_attr(*value) {
-                    let id = format!("{}.{}", base, attr.id.as_str());
-                    ExprNode::Name { info: (), id }
-                } else {
-                    panic!("unsupported expr: Attribute");
-                }
-            }
+            Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => ExprNode::Attribute {
+                info: (),
+                value: Box::new(ExprNode::from(*value)),
+                attr: attr.id.to_string(),
+            },
             other => panic!("unsupported expr: {:?}", other),
         }
     }

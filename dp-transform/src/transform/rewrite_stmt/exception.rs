@@ -1,9 +1,9 @@
-use crate::transform::{context::Context, driver::Rewrite};
+
 use ruff_python_ast::{self as ast, Stmt};
 
-use crate::{py_expr, py_stmt};
+use crate::{py_expr, py_stmt, transform::ast_rewrite::Rewrite};
 
-pub fn rewrite_try(stmt: ast::StmtTry, _ctx: &Context) -> Rewrite {
+pub fn rewrite_try(stmt: ast::StmtTry) -> Rewrite {
     if stmt.is_star {
         return Rewrite::Walk(vec![Stmt::Try(stmt)]);
     }

@@ -1,11 +1,13 @@
-pub(crate) mod rewrite_class_def;
+pub(crate) mod scope;
+pub(crate) mod ast_rewrite;
 pub(crate) mod context;
 pub(crate) mod driver;
-pub(crate) mod rewrite_explicit_scope;
+pub(crate) mod rewrite_class_def;
 pub(crate) mod rewrite_future_annotations;
 pub(crate) mod rewrite_import;
 pub(crate) mod rewrite_stmt;
 pub(crate) mod rewrite_expr;
+pub(crate) mod simplify;
 pub(crate) mod util;
 
 #[derive(Clone, Copy)]
@@ -19,6 +21,7 @@ pub enum ImportStarHandling {
 pub struct Options {
     pub import_star_handling: ImportStarHandling,
     pub inject_import: bool,
+    pub cpython: bool,
     pub lower_attributes: bool,
     pub truthy: bool,
     pub cleanup_dp_globals: bool,
@@ -31,6 +34,7 @@ impl Default for Options {
             import_star_handling: ImportStarHandling::Allowed,
             inject_import: true,
             lower_attributes: true,
+            cpython: false,
             truthy: false,
             cleanup_dp_globals: true,
             force_import_rewrite: false,
@@ -43,12 +47,14 @@ impl Options {
         Self {
             import_star_handling: ImportStarHandling::Error,
             inject_import: false,
-            lower_attributes: true,
+            lower_attributes: false,
+            cpython: false,
             truthy: false,
             cleanup_dp_globals: false,
             force_import_rewrite: false,
         }
     }
+    
 }
 
 #[cfg(test)]

@@ -23,8 +23,6 @@ from types import ModuleType
 
 import diet_import_hook
 
-from ._integration import transformed_module
-
 
 
 
@@ -43,14 +41,4 @@ def _assert_generic_module_invariants(module: ModuleType) -> None:
     assert issubclass(specialized, module.Box)
 
 def validate(module):
-    module_name = "generic_module"
-    previous_typing = sys.modules.get("typing")
-    sys.modules.pop("typing", None)
-
-    try:
-        _assert_generic_module_invariants(module)
-    finally:
-        if previous_typing is not None:
-            sys.modules["typing"] = previous_typing
-        else:
-            sys.modules.pop("typing", None)
+    _assert_generic_module_invariants(module)

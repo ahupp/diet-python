@@ -12,14 +12,24 @@ pub(crate) fn assert_transform_eq_ex(actual: &str, expected: &str, truthy: bool)
         ..Options::for_test()
     };
     let module = transform_str_to_ruff_with_options(actual, options).unwrap();
-    let actual_str = ruff_ast_to_string(&module.body);
-    let actual_stmt: Vec<_> = module.body.iter().map(ComparableStmt::from).collect();
+    let actual_str = ruff_ast_to_string(&module.module.body);
+    let actual_stmt: Vec<_> = module
+        .module
+        .body
+        .iter()
+        .map(ComparableStmt::from)
+        .collect();
 
     if std::env::var("DP_ENFORCE_IDEMPOTENCE").is_ok() {
         let rerun_module = transform_str_to_ruff_with_options(&actual_str, options).unwrap();
-        let rerun_stmt: Vec<_> = rerun_module.body.iter().map(ComparableStmt::from).collect();
+        let rerun_stmt: Vec<_> = rerun_module
+            .module
+            .body
+            .iter()
+            .map(ComparableStmt::from)
+            .collect();
         if actual_stmt != rerun_stmt {
-            let difference = format_first_difference(&module.body, &rerun_module.body);
+            let difference = format_first_difference(&module.module.body, &rerun_module.module.body);
             panic!("transform is not idempotent: {difference}");
         }
     }

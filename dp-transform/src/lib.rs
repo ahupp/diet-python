@@ -1,6 +1,6 @@
 #[cfg(target_arch = "wasm32")]
 use js_sys::{Array, Object, Reflect};
-use ruff_python_ast::{ModModule, Stmt};
+use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_python_parser::parse_module;
 pub use ruff_python_parser::ParseError;
@@ -59,17 +59,15 @@ mod template;
 mod test_util;
 mod transform;
 
-use crate::body_transform::Transformer;
+use crate::transform::driver::rewrite_module;
 pub use transform::{ImportStarHandling, Options};
-use transform::{context::Context, driver::ExprRewriter};
+use transform::{context::Context};
 
 #[derive(Debug, Clone, Copy)]
 pub struct TransformTimings {
-    pub parse: Duration,
-    pub rewrite: Duration,
-    pub ensure_import: Duration,
-    pub emit: Duration,
-    pub total: Duration,
+    pub parse_time: Duration,
+    pub rewrite_time: Duration,
+    pub total_time: Duration,
 }
 
 static INIT_LOGGER: Once = Once::new();
@@ -91,274 +89,67 @@ fn should_skip(source: &str) -> bool {
         .lines()
         .next()
         .is_some_and(|line| line.contains("diet-python: disabled"))
-        || contains_surrogate_escape(source)
 }
 
-fn contains_surrogate_escape(source: &str) -> bool {
-    let bytes = source.as_bytes();
-    let mut backslashes = 0usize;
-    let mut index = 0usize;
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if byte == b'\\' {
-            backslashes += 1;
-            index += 1;
-            continue;
-        }
-        if (byte == b'u' || byte == b'U') && backslashes % 2 == 1 {
-            let digits = if byte == b'u' { 4 } else { 8 };
-            if index + digits < bytes.len() {
-                let mut value = 0u32;
-                let mut valid = true;
-                for offset in 0..digits {
-                    let hex = bytes[index + 1 + offset];
-                    let nibble = match hex {
-                        b'0'..=b'9' => (hex - b'0') as u32,
-                        b'a'..=b'f' => (hex - b'a' + 10) as u32,
-                        b'A'..=b'F' => (hex - b'A' + 10) as u32,
-                        _ => {
-                            valid = false;
-                            break;
-                        }
-                    };
-                    value = (value << 4) | nibble;
-                }
-                if valid && (0xD800..=0xDFFF).contains(&value) {
-                    return true;
-                }
-            }
-        }
-        backslashes = 0;
-        index += 1;
+
+
+pub struct LoweringResult {
+    pub timings: TransformTimings,
+    pub module: ruff_python_ast::ModModule,
+} 
+
+impl LoweringResult {
+    pub fn to_string(&self) -> String {
+        ruff_ast_to_string(&self.module.body)
     }
-    false
 }
 
-fn apply_transforms(module: &mut ModModule, options: Options, source: &str, cpython: bool) {
-    let ctx = Context::new(options, source, cpython);
-    transform::rewrite_future_annotations::rewrite(&mut module.body);
-    if ctx.cpython {
-       ensure_import::ensure_future_explicit_scope(module);
-    }
-    ensure_import::ensure_module_annotations(module);
-//    transform::rewrite_explicit_scope::rewrite(&mut module.body);
-
-    // Stage 1: lower everything except ClassDef, generators, and lambdas.
-    let mut expr_transformer = ExprRewriter::new(ctx);
-    expr_transformer.set_stage(transform::driver::TransformStage::Stage1);
-    expr_transformer.visit_body(&mut module.body);
-
-    // Stage 2: lower ClassDef, generators, and lambdas.
-    expr_transformer.set_stage(transform::driver::TransformStage::Stage2);
-    expr_transformer.visit_body(&mut module.body);
-
-    // Collapse `py_stmt!` templates after all rewrites.
-    template::flatten(&mut module.body);
-
-    // Rewrite names to explicit scope bindings after desugaring.
-    transform::rewrite_explicit_scope::rewrite(&mut module.body);
-
-    if options.truthy {
-        transform::rewrite_expr::truthy::rewrite(&mut module.body);
-    }
-
-    strip_generated_passes(&mut module.body);
-}
-
-/// Transform the source code and return the resulting string.
-fn transform_to_string_with_options(source: &str, options: Options) -> Result<String, ParseError> {
-    transform_to_string_with_options_timed(source, options).map(|(output, _)| output)
-}
-
-fn transform_to_string_with_options_timed(
-    source: &str,
-    options: Options,
-) -> Result<(String, TransformTimings), ParseError> {
-    transform_to_string_with_options_timed_internal(source, options, false)
-}
-
-fn transform_to_string_with_options_timed_internal(
-    source: &str,
-    options: Options,
-    cpython: bool,
-) -> Result<(String, TransformTimings), ParseError> {
-    if contains_surrogate_escape(source) {
-        return Ok((
-            source.to_string(),
-            TransformTimings {
-                parse: Duration::ZERO,
-                rewrite: Duration::ZERO,
-                ensure_import: Duration::ZERO,
-                emit: Duration::ZERO,
-                total: Duration::ZERO,
-            },
-        ));
-    }
-    let (module, mut timings) =
-        transform_str_to_ruff_with_options_timed_internal(source, options, cpython)?;
-    let emit_start = Instant::now();
-    let output = ruff_ast_to_string(&module.body);
-    timings.emit = emit_start.elapsed();
-    timings.total += timings.emit;
-    Ok((output, timings))
-}
-
-pub fn transform_to_string(source: &str, ensure: bool) -> Result<String, ParseError> {
-    transform_to_string_with_options(
-        source,
-        Options {
-            inject_import: ensure,
-            ..Options::default()
-        },
-    )
-}
-
-pub fn transform_to_string_with_timing(
-    source: &str,
-    ensure: bool,
-) -> Result<(String, TransformTimings), ParseError> {
-    transform_to_string_with_options_timed(
-        source,
-        Options {
-            inject_import: ensure,
-            ..Options::default()
-        },
-    )
-}
-
-fn strip_generated_passes(stmts: &mut Vec<Stmt>) {
-    struct StripGeneratedPasses;
-
-    impl Transformer for StripGeneratedPasses {
-        fn visit_body(&mut self, body: &mut Vec<Stmt>) {
-            crate::body_transform::walk_body(self, body);
-            if body.len() > 1 {
-                body.retain(|stmt| !matches!(stmt, Stmt::Pass(_)));
-
-                if body.is_empty() {
-                    body.extend(crate::py_stmt!("pass"));
-                }
-            }
-        }
-    }
-
-    let mut stripper = StripGeneratedPasses;
-    stripper.visit_body(stmts);
-}
-
-pub fn transform_to_string_without_attribute_lowering(
-    source: &str,
-    ensure: bool,
-) -> Result<String, ParseError> {
-    transform_to_string_without_attribute_lowering_with_timing(source, ensure)
-        .map(|(output, _)| output)
-}
-
-pub fn transform_to_string_without_attribute_lowering_with_timing(
-    source: &str,
-    ensure: bool,
-) -> Result<(String, TransformTimings), ParseError> {
-    transform_to_string_with_options_timed(
-        source,
-        Options {
-            inject_import: ensure,
-            lower_attributes: false,
-            ..Options::default()
-        },
-    )
-}
-
-pub fn transform_to_string_without_attribute_lowering_cpython(
-    source: &str,
-    ensure: bool,
-) -> Result<String, ParseError> {
-    transform_to_string_without_attribute_lowering_with_timing_cpython(source, ensure)
-        .map(|(output, _)| output)
-}
-
-pub fn transform_to_string_without_attribute_lowering_with_timing_cpython(
-    source: &str,
-    ensure: bool,
-) -> Result<(String, TransformTimings), ParseError> {
-    transform_to_string_with_options_timed_internal(
-        source,
-        Options {
-            inject_import: ensure,
-            lower_attributes: false,
-            ..Options::default()
-        },
-        true,
-    )
-}
-
-pub fn transform_str_to_str_exec(source: &str) -> Result<String, ParseError> {
-    if should_skip(source) {
-        return Ok(source.to_string());
-    }
-
-    transform_to_string(source, true)
-}
 
 /// Transform the source code and return the resulting Ruff AST.
 pub fn transform_str_to_ruff_with_options(
     source: &str,
     options: Options,
-) -> Result<ModModule, ParseError> {
-    transform_str_to_ruff_with_options_timed(source, options).map(|(module, _)| module)
-}
-
-pub fn transform_str_to_ruff_with_options_timed(
-    source: &str,
-    options: Options,
-) -> Result<(ModModule, TransformTimings), ParseError> {
-    transform_str_to_ruff_with_options_timed_internal(source, options, false)
-}
-
-fn transform_str_to_ruff_with_options_timed_internal(
-    source: &str,
-    options: Options,
-    cpython: bool,
-) -> Result<(ModModule, TransformTimings), ParseError> {
+) -> Result<LoweringResult, ParseError> {
     init_logging();
+
     let total_start = Instant::now();
+
     let parse_start = Instant::now();
     let mut module = parse_module(source)?.into_syntax();
-    let parse = parse_start.elapsed();
+    let parse_time = parse_start.elapsed();
+
+    if should_skip(source) {
+        return Ok(LoweringResult {
+            timings: TransformTimings {
+                parse_time: Duration::from_nanos(0),
+                rewrite_time: Duration::from_nanos(0),
+                total_time: Duration::from_nanos(0),
+            },
+            module,
+        });
+    }
+
+
+    let ctx = Context::new(options, source);
 
     let rewrite_start = Instant::now();
-    apply_transforms(&mut module, options, source, cpython);
-    let rewrite = rewrite_start.elapsed();
+    rewrite_module(&ctx, &mut module.body);
+    let rewrite_time = rewrite_start.elapsed();
 
     let _ = min_ast::Module::from(module.clone());
 
-    if options.cleanup_dp_globals {
-        module.body.extend(crate::py_stmt!("__dp__.cleanup_dp_globals(globals())"));
-    }
-
-    let ensure_import = if options.inject_import {
-        let ensure_start = Instant::now();
-        ensure_import::ensure_import(&mut module);
-        ensure_start.elapsed()
-    } else {
-        Duration::ZERO
-    };
-
     let timings = TransformTimings {
-        parse,
-        rewrite,
-        ensure_import,
-        emit: Duration::ZERO,
-        total: total_start.elapsed(),
+        parse_time,
+        rewrite_time,
+        total_time: total_start.elapsed(),
     };
 
-    Ok((module, timings))
+    Ok(LoweringResult {
+        timings,
+        module,
+    })
 }
 
-
-/// Transform the source code with default options and return the resulting Ruff AST.
-pub fn transform_str_to_ruff(source: &str) -> Result<ModModule, ParseError> {
-    transform_str_to_ruff_with_options(source, Options::default())
-}
 
 /// Convert a ruff AST ModModule to a pretty-printed string.
 pub fn ruff_ast_to_string(module: &[Stmt]) -> String {
@@ -376,14 +167,17 @@ pub fn ruff_ast_to_string(module: &[Stmt]) -> String {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn transform(source: &str) -> Result<String, JsValue> {
-    transform_to_string(source, true).map_err(|e| e.to_string().into())
+    let options = Options::default();
+    let result = transform_str_to_ruff_with_options(source, options).map_err(|e| e.to_string().into())?;
+    Ok(result.to_string())    
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn transform_selected(source: &str, transforms: Array) -> Result<String, JsValue> {
     let options = wasm_options_from_selected(&transforms);
-    transform_to_string_with_options(source, options).map_err(|e| e.to_string().into())
+    let result = transform_str_to_ruff_with_options(source, options).map_err(|e| e.to_string().into())?;
+    Ok(result.to_string())
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -433,26 +227,3 @@ fn wasm_options_from_selected(transforms: &Array) -> Options {
     options
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn always_imports_dp() {
-        let src = r#"
-x = 1
-"#;
-        let result = transform_to_string(src, true).unwrap();
-        assert!(result.contains("import __dp__"));
-    }
-
-    #[test]
-    fn transform_string_rewrites_attribute_assign() {
-        let src = r#"
-a.b = 1
-"#;
-        let result = transform_to_string(src, true).unwrap();
-        assert!(result.contains("setattr"));
-        assert!(result.contains("import __dp__"));
-    }
-}

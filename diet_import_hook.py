@@ -160,6 +160,12 @@ def install():
     # Ensure the transform module is loaded before we intercept stdlib imports.
     _get_pyo3_transform()
 
+    existing_typing = sys.modules.get("typing")
+    if existing_typing is not None:
+        loader = getattr(getattr(existing_typing, "__spec__", None), "loader", None)
+        if not isinstance(loader, DietPythonLoader):
+            sys.modules.pop("typing", None)
+
     if not _LINECACHE_PATCHED:
         def _diet_updatecache(filename, module_globals=None):
             shadow = _SOURCE_SHADOWS.get(filename)

@@ -1,23 +1,19 @@
+use std::collections::HashSet;
+
 use ruff_python_ast::{self as ast};
 use ruff_python_ast::{Expr, Stmt};
 
-use crate::transform::driver::ExprRewriter;
-use crate::{py_expr, py_stmt, transform::{driver::LoweredExpr}};
-use crate::transform::context::{Context, ScopeKind};
+use crate::transform::ast_rewrite::LoweredExpr;
+use crate::transform::scope::Scope;
+use crate::{py_expr, py_stmt};
+use crate::transform::context::{Context};
 use crate::body_transform::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::name::Name;
 use ruff_text_size::TextRange;
-use std::collections::HashSet;
 
 
-pub(crate) fn rewrite_lambda(lambda: ast::ExprLambda, ctx: &Context) -> LoweredExpr {
+pub(crate) fn rewrite_lambda<'a>(lambda: ast::ExprLambda, ctx: &Context, _scope: &'a Scope<'a>) -> LoweredExpr {
     let func_name = ctx.fresh("lambda");
-    let scope = ctx.current_qualname().map(|(mut scope, kind)| {
-        if kind == ScopeKind::Function {
-            scope.push_str(".<locals>");
-        }
-        scope
-    });
 
     let ast::ExprLambda {
         parameters, body, ..
@@ -25,31 +21,18 @@ pub(crate) fn rewrite_lambda(lambda: ast::ExprLambda, ctx: &Context) -> LoweredE
 
     let updated_parameters = parameters
         .map(|params| *params)
-        .unwrap_or_else(|| ast::Parameters {
-            range: TextRange::default(),
-            node_index: ast::AtomicNodeIndex::default(),
-            posonlyargs: vec![],
-            args: vec![],
-            vararg: None,
-            kwonlyargs: vec![],
-            kwarg: None,
-        });
+        .unwrap_or_default();
 
-    let scope_expr = match scope {
-        Some(scope) => py_expr!("{scope:literal}", scope = scope),
-        None => py_expr!("None"),
-    };
     let mut buf = Vec::new();
 
+    // TODO: qualname
     let mut func_def = py_stmt!(
         r#"
 def {func_name:id}():
     return {body:expr}
-__dp__.update_fn({func_name:id}, {qualname:expr}, "<lambda>")
 "#,
         func_name = func_name.as_str(),
         body = *body,
-        qualname = scope_expr,
     );
 
     if let Stmt::FunctionDef(ast::StmtFunctionDef {
@@ -64,16 +47,20 @@ __dp__.update_fn({func_name:id}, {qualname:expr}, "<lambda>")
     LoweredExpr::modified(py_expr!("{func:id}", func = func_name.as_str()), buf)
 }
 
-pub(crate) fn rewrite_generator(
+pub(crate) fn rewrite_generator<'a>(
     generator: ast::ExprGenerator,
     ctx: &Context,
+    scope: &'a Scope<'a>,
 ) -> LoweredExpr {
 
     let needs_async = comprehension_needs_async(&generator.elt, &generator.generators);
-    let mut buf = Vec::new();
     let ast::ExprGenerator {
         elt, generators, ..
     } = generator;
+
+    let named_expr_targets = collect_named_expr_targets(&elt, &generators, true);
+    let (global_targets, nonlocal_targets) =
+        classify_named_expr_targets(&named_expr_targets, scope);
 
     let first_iter_expr = generators
         .first()
@@ -82,10 +69,9 @@ pub(crate) fn rewrite_generator(
         .clone();
 
     let func_name = ctx.fresh("gen");
-    let qualname = ctx.make_qualname("<genexpr>");
+
     let param_name = Name::new(ctx.fresh("iter"));
 
-    let named_targets = collect_named_targets(elt.as_ref(), &generators);
     let mut body = py_stmt!("yield {value:expr}", value = *elt);
 
     for comp in generators.iter().rev() {
@@ -127,24 +113,8 @@ for {target:expr} in {iter:expr}:
         *iter = Box::new(py_expr!("{name:id}", name = param_name.as_str()));
     }
 
-    let (global_targets, nonlocal_targets, prelude) = named_target_bindings(ctx, &named_targets);
-    if !prelude.is_empty() {
-        buf.extend(prelude);
-    }
-
-    if !global_targets.is_empty() || !nonlocal_targets.is_empty() {
-        let mut bindings = Vec::new();
-        for name in global_targets {
-            bindings.extend(py_stmt!("global {name:id}", name = name.as_str()));
-        }
-        for name in nonlocal_targets {
-            bindings.extend(py_stmt!("nonlocal {name:id}", name = name.as_str()));
-        }
-        bindings.extend(body);
-        body = bindings;
-    }
-
-    let func_def = if needs_async {
+    // TODO: qualname
+    let mut func_def = if needs_async {
         py_stmt!(
             r#"
 async def {func:id}({param:id}):
@@ -166,120 +136,16 @@ def {func:id}({param:id}):
         )
     };
 
-    buf.extend(func_def);
-    let scope = scope_expr(&qualname, "<genexpr>");
-    buf.extend(py_stmt!(
-        r#"
-__dp__.update_fn({func:id}, {scope:expr}, {name:literal})
-"#,
+    if let Stmt::FunctionDef(func_def_stmt) = &mut func_def[0] {
+        insert_scope_decls(func_def_stmt, global_targets, nonlocal_targets);
+    }
+
+    let expr = py_expr!(
+        "{func:id}({iter:expr})",
+        iter = first_iter_expr,
         func = func_name.as_str(),
-        name = "<genexpr>",
-        scope = scope,
-    ));
-
-    let expr = if generators
-        .first()
-        .expect("generator expects at least one comprehension")
-        .is_async
-    {
-        py_expr!(
-            "{func:id}({iter:expr})",
-            iter = first_iter_expr,
-            func = func_name.as_str(),
-        )
-    } else {
-        py_expr!(
-            "{func:id}(__dp__.iter({iter:expr}))",
-            iter = first_iter_expr,
-            func = func_name.as_str(),
-        )
-    };
-    LoweredExpr::modified(expr, buf) 
-}
-
-fn collect_named_targets(elt: &Expr, generators: &[ast::Comprehension]) -> Vec<String> {
-    struct Collector {
-        names: HashSet<String>,
-    }
-
-    impl Transformer for Collector {
-        fn visit_expr(&mut self, expr: &mut Expr) {
-            match expr {
-                Expr::Named(ast::ExprNamed { target, value, .. }) => {
-                    if let Expr::Name(ast::ExprName { id, .. }) = &**target {
-                        self.names.insert(id.to_string());
-                    }
-                    self.visit_expr(value);
-                    return;
-                }
-                Expr::Lambda(_) => return,
-                _ => {}
-            }
-            walk_expr(self, expr);
-        }
-    }
-
-    let mut collector = Collector {
-        names: HashSet::new(),
-    };
-    let mut expr = Expr::Generator(ast::ExprGenerator {
-        node_index: ast::AtomicNodeIndex::default(),
-        range: TextRange::default(),
-        elt: Box::new(elt.clone()),
-        generators: generators.to_vec(),
-        parenthesized: false,
-    });
-    collector.visit_expr(&mut expr);
-    let mut names: Vec<String> = collector.names.into_iter().collect();
-    names.sort();
-    names
-}
-
-fn named_target_bindings(
-    ctx: &Context,
-    names: &[String],
-) -> (Vec<String>, Vec<String>, Vec<Stmt>) {
-    if names.is_empty() {
-        return (Vec::new(), Vec::new(), Vec::new());
-    }
-
-    match ctx.current_qualname() {
-        Some((_qualname, ScopeKind::Function)) => {
-            let mut globals = Vec::new();
-            let mut nonlocals = Vec::new();
-            let mut prelude = Vec::new();
-            for name in names {
-                if ctx.is_global_in_current_scope(name) {
-                    globals.push(name.clone());
-                    continue;
-                }
-                nonlocals.push(name.clone());
-                if !ctx.is_nonlocal_in_current_scope(name) {
-                    prelude.extend(py_stmt!(
-                        r#"
-if False:
-    {name:id} = None
-"#,
-                        name = name.as_str(),
-                    ));
-                }
-            }
-            (globals, nonlocals, prelude)
-        }
-        _ => (names.to_vec(), Vec::new(), Vec::new()),
-    }
-}
-
-fn scope_expr(qualname: &str, name: &str) -> Expr {
-    if qualname == name {
-        return py_expr!("None");
-    }
-    if let Some(scope) = qualname.strip_suffix(name) {
-        if let Some(scope) = scope.strip_suffix('.') {
-            return py_expr!("{scope:literal}", scope = scope);
-        }
-    }
-    py_expr!("None")
+    );
+    LoweredExpr::modified(expr, func_def) 
 }
 
 
@@ -295,13 +161,13 @@ pub fn comprehension_needs_async(elt: &Expr, generators: &[ast::Comprehension]) 
     expr_contains_await(elt) || generators_need_async(generators)
 }
 
-
-pub fn rewrite(
+pub fn rewrite<'a>(
+    context: &Context,
+    scope: &'a Scope<'a>,
     elt: Expr,
     generators: Vec<ast::Comprehension>,
     container_type: &str,
     append_fn: &str,
-    rewrite: &mut ExprRewriter,
 ) -> LoweredExpr {
     let mut needs_async = comprehension_needs_async(&elt, &generators);
     let first_iter_expr = generators
@@ -310,11 +176,14 @@ pub fn rewrite(
         .iter
         .clone();
 
-    let func_name = rewrite.context().fresh("comp");
-    let param_name = Name::new(rewrite.context().fresh("iter"));
-    let result_name = rewrite.context().fresh("result");
+    let func_name = context.fresh("comp");
+    let param_name = Name::new(context.fresh("iter"));
+    let result_name = context.fresh("result");
 
-    let named_targets = collect_named_targets(&elt, &generators);
+
+    let named_expr_targets = collect_named_expr_targets(&elt, &generators, true);
+    let (global_targets, nonlocal_targets) =
+        classify_named_expr_targets(&named_expr_targets, scope);
 
     let mut body = if container_type == "dict" {
         let (key, value) = match elt {
@@ -377,77 +246,176 @@ for {target:expr} in {iter:expr}:
         *iter = Box::new(py_expr!("{name:id}", name = param_name.as_str()));
     }
 
-    let mut full_body = py_stmt!(
-        "{result:id} = __dp__.{container_type:id}()",
-        result = result_name.as_str(),
-        container_type = container_type,
-    );
-    full_body.extend(body);
-    full_body.extend(py_stmt!("return {result:id}", result = result_name.as_str()));
-    body = full_body;
-
-    let (global_targets, nonlocal_targets, prelude) =
-        named_target_bindings(rewrite.context(), &named_targets);
-    let mut buf = Vec::new();
-    if !prelude.is_empty() {
-        buf.extend(prelude);
-    }
-
-    if !global_targets.is_empty() || !nonlocal_targets.is_empty() {
-        let mut bindings = Vec::new();
-        for name in global_targets {
-            bindings.extend(py_stmt!("global {name:id}", name = name.as_str()));
-        }
-        for name in nonlocal_targets {
-            bindings.extend(py_stmt!("nonlocal {name:id}", name = name.as_str()));
-        }
-        bindings.extend(body);
-        body = bindings;
-    }
 
     let mut func_def = py_stmt!(
         r#"
 def {func:id}({param:id}):
+    {result:id} = __dp__.{container_type:id}()
     {body:stmt}
+    return {result:id}
 "#,
         func = func_name.as_str(),
         param = param_name.as_str(),
         body = body,
+        result = result_name.as_str(),
+        container_type = container_type,
     );
     if let Stmt::FunctionDef(func_def_stmt) = &mut func_def[0] {
+        insert_scope_decls(func_def_stmt, global_targets, nonlocal_targets);
         asyncify_internal_function(func_def_stmt);
         if needs_async {
             func_def_stmt.is_async = true;
         }
         needs_async = func_def_stmt.is_async;
     }
-    buf.extend(func_def);
 
-    let call_expr = if generators
-        .first()
-        .expect("comprehension expects at least one generator")
-        .is_async
-    {
-        py_expr!(
-            "{func:id}({iter:expr})",
-            iter = first_iter_expr,
-            func = func_name.as_str(),
-        )
-    } else {
-        py_expr!(
-            "{func:id}(__dp__.iter({iter:expr}))",
-            iter = first_iter_expr,
-            func = func_name.as_str(),
-        )
-    };
-
+    let call_expr = py_expr!(
+        "{func:id}({iter:expr})",
+        iter = first_iter_expr,
+        func = func_name.as_str(),
+    );
     let expr = if needs_async {
         py_expr!("await {value:expr}", value = call_expr)
     } else {
         call_expr
     };
 
-    LoweredExpr::modified(expr, buf)
+    LoweredExpr::modified(expr, func_def)
+}
+
+fn collect_named_expr_targets(
+    elt: &Expr,
+    generators: &[ast::Comprehension],
+    skip_first_iter: bool,
+) -> HashSet<String> {
+    let mut collector = NamedExprCollector {
+        names: HashSet::new(),
+    };
+
+    let mut elt_clone = elt.clone();
+    collector.visit_expr(&mut elt_clone);
+
+    for (index, comp) in generators.iter().enumerate() {
+        for if_expr in &comp.ifs {
+            let mut if_clone = if_expr.clone();
+            collector.visit_expr(&mut if_clone);
+        }
+        if !skip_first_iter || index > 0 {
+            let mut iter_clone = comp.iter.clone();
+            collector.visit_expr(&mut iter_clone);
+        }
+    }
+
+    collector.names
+}
+
+fn classify_named_expr_targets<'a>(
+    names: &HashSet<String>,
+    scope: &'a Scope<'a>,
+) -> (Vec<String>, Vec<String>) {
+    if names.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+
+    let mut global_targets = Vec::new();
+    let mut nonlocal_targets = Vec::new();
+
+    for name in names {
+        if scope.is_global(name) {
+            global_targets.push(name.clone());
+        } else {
+            nonlocal_targets.push(name.clone());
+        }
+    }
+
+    global_targets.sort();
+    nonlocal_targets.sort();
+    (global_targets, nonlocal_targets)
+}
+
+fn insert_scope_decls(
+    func_def: &mut ast::StmtFunctionDef,
+    global_targets: Vec<String>,
+    nonlocal_targets: Vec<String>,
+) {
+    let mut decls = Vec::new();
+    if let Some(stmt) = build_global_stmt(global_targets) {
+        decls.push(stmt);
+    }
+    if let Some(stmt) = build_nonlocal_stmt(nonlocal_targets) {
+        decls.push(stmt);
+    }
+
+    if decls.is_empty() {
+        return;
+    }
+
+    let insert_at = match func_def.body.first() {
+        Some(Stmt::Expr(ast::StmtExpr { value, .. }))
+            if matches!(value.as_ref(), Expr::StringLiteral(_)) => 1,
+        _ => 0,
+    };
+    func_def.body.splice(insert_at..insert_at, decls);
+}
+
+fn build_global_stmt(names: Vec<String>) -> Option<Stmt> {
+    if names.is_empty() {
+        return None;
+    }
+    let names = names
+        .into_iter()
+        .map(|name| ast::Identifier::new(name.as_str(), TextRange::default()))
+        .collect();
+    Some(Stmt::Global(ast::StmtGlobal {
+        names,
+        range: TextRange::default(),
+        node_index: ast::AtomicNodeIndex::default(),
+    }))
+}
+
+fn build_nonlocal_stmt(names: Vec<String>) -> Option<Stmt> {
+    if names.is_empty() {
+        return None;
+    }
+    let names = names
+        .into_iter()
+        .map(|name| ast::Identifier::new(name.as_str(), TextRange::default()))
+        .collect();
+    Some(Stmt::Nonlocal(ast::StmtNonlocal {
+        names,
+        range: TextRange::default(),
+        node_index: ast::AtomicNodeIndex::default(),
+    }))
+}
+
+struct NamedExprCollector {
+    names: HashSet<String>,
+}
+
+impl Transformer for NamedExprCollector {
+    fn visit_expr(&mut self, expr: &mut Expr) {
+        match expr {
+            Expr::Named(ast::ExprNamed { target, value, .. }) => {
+                if let Expr::Name(ast::ExprName { id, .. }) = target.as_ref() {
+                    self.names.insert(id.as_str().to_string());
+                } else {
+                    self.visit_expr(target);
+                }
+                self.visit_expr(value);
+                return;
+            }
+            Expr::Lambda(_)
+            | Expr::Generator(_)
+            | Expr::ListComp(_)
+            | Expr::SetComp(_)
+            | Expr::DictComp(_) => {
+                return;
+            }
+            _ => {}
+        }
+
+        walk_expr(self, expr);
+    }
 }
 
 fn asyncify_internal_function(func_def: &mut ast::StmtFunctionDef) -> bool {
@@ -466,8 +434,15 @@ fn asyncify_internal_function(func_def: &mut ast::StmtFunctionDef) -> bool {
             }
             match stmt {
                 Stmt::FunctionDef(_) | Stmt::ClassDef(_) => return,
-                _ => walk_stmt(self, stmt),
+                Stmt::For(ast::StmtFor { is_async, .. }) => {
+                    if *is_async {
+                        self.found = true;
+                        return;
+                    }
+                }
+                _ => {}
             }
+            walk_stmt(self, stmt);
         }
 
         fn visit_expr(&mut self, expr: &mut Expr) {

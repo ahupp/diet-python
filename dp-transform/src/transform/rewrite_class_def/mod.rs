@@ -1,8 +1,9 @@
-pub mod annotation;
 pub mod class_vars;
 pub mod method;
 pub mod private;
 
+use crate::transform::ast_rewrite::Rewrite;
+use crate::transform::scope::Scope;
 use crate::transform::{rewrite_stmt};
 use crate::transform::rewrite_expr::make_tuple;
 use crate::{py_expr, py_stmt};
@@ -12,12 +13,11 @@ use ruff_python_ast::{
 };
 use ruff_text_size::TextRange;
 
-use crate::body_transform::{Transformer};
 use crate::template::py_stmt_single;
-use crate::transform::rewrite_class_def::annotation::AnnotationCollector;
 use crate::transform::rewrite_class_def::class_vars::rewrite_class_scope;
-use crate::transform::context::ScopeKind;
-use crate::transform::driver::{ExprRewriter, Rewrite};
+use crate::transform::context::{Context};
+
+use log::{log_enabled, trace, Level};
 
 use std::collections::HashSet;
 use std::mem::take;
@@ -33,7 +33,7 @@ pub fn class_lookup_literal_name(name: &str) -> &str {
 pub fn class_body_load(name: &str) -> Expr {
     let literal_name = class_lookup_literal_name(name);
     py_expr!(
-        "__dp__.class_lookup(_dp_class_ns, {literal_name:literal}, lambda: {name:id})",
+        "__dp__.class_lookup_cell(_dp_class_ns, {literal_name:literal}, {name:id})",
         literal_name = literal_name,
         name = name,
     )
@@ -41,16 +41,28 @@ pub fn class_body_load(name: &str) -> Expr {
 
 
 
-pub fn rewrite(ast::StmtClassDef {
+pub fn rewrite<'a>(
+    context: &Context,
+    scope: &'a mut Scope<'a>,
+    ast::StmtClassDef {
     name,
     mut body,
     mut arguments,
     mut type_params,
     decorator_list,
     ..
-}: StmtClassDef, rewriter: &mut ExprRewriter) -> Rewrite {
+}: StmtClassDef) -> Rewrite {
     let class_name = name.id.to_string();
-    let class_qualname = rewriter.context().make_qualname(&class_name);
+    let class_qualname = scope.make_qualname(&class_name);
+    if log_enabled!(Level::Trace) {
+        trace!(
+            "rewrite_class_def: class {} qualname={} body_len={} decorators={}",
+            class_name,
+            class_qualname,
+            body.len(),
+            decorator_list.len()
+        );
+    }
 
 
     let create_class_fn = class_def_to_create_class_fn(
@@ -59,10 +71,11 @@ pub fn rewrite(ast::StmtClassDef {
         take(&mut arguments),
         take(&mut type_params),
         class_qualname.to_owned(),
-        rewriter,
+        context, 
+        scope,
     );
 
-    rewrite_stmt::decorator::rewrite(decorator_list, class_name.as_str(), create_class_fn, rewriter)
+    rewrite_stmt::decorator::rewrite(context, decorator_list, class_name.as_str(), create_class_fn)
 }
 
 fn class_def_to_create_class_fn<'a>(
@@ -71,101 +84,95 @@ fn class_def_to_create_class_fn<'a>(
     arguments: Option<Box<Arguments>>,
     type_params: Option<Box<TypeParams>>,
     class_qualname: String,
-    rewriter: &'a mut ExprRewriter,
+    context: &Context,
+    scope: &'a mut Scope<'a>,
 ) -> Vec<Stmt> {
     let class_name = name.id.to_string();
+    if log_enabled!(Level::Trace) {
+        trace!(
+            "class_def_to_create_class_fn: class {} body_len={} args={} type_params={}",
+            class_name,
+            body.len(),
+            arguments.is_some(),
+            type_params.is_some()
+        );
+    }
 
-    let mut class_scope = rewriter
-        .context()
-        .analyze_class_scope(&class_qualname, &body);
 
-    private::rewrite_class_body(&mut body, &class_name, &mut class_scope);
-    let class_locals: HashSet<String> = class_scope.local_names();
+    let global_names = scope.global_names().clone();
+    let class_locals: HashSet<String> = scope.local_names();
 
-    let mut needs_class_cell = false;
-    let (body, type_param_info) = rewriter.with_scope(class_scope.clone(), |rewriter| {
-        // If the first statement is a string literal, assign it to  __doc__
-        if let Some(first_stmt) = body.first_mut() {
-            if let Stmt::Expr(ast::StmtExpr { value, .. }) = first_stmt {
-                if let Expr::StringLiteral(_) = value.as_ref() {
-                    let doc_expr = (*value).clone();
-                    *first_stmt =
-                        py_stmt_single(py_stmt!("__doc__ = {value:expr}", value = doc_expr));
-                }
+    // If the first statement is a string literal, assign it to  __doc__
+    if let Some(first_stmt) = body.first_mut() {
+        if let Stmt::Expr(ast::StmtExpr { value, .. }) = first_stmt {
+            if let Expr::StringLiteral(_) = value.as_ref() {
+                let doc_expr = (*value).clone();
+                *first_stmt =
+                    py_stmt_single(py_stmt!("__doc__ = {value:expr}", value = doc_expr));
             }
         }
+    }
 
-        /*
-        Collect all AnnAssign statements, rewriting them to bare Assign (if there's a value)
-        or removing (if not). Build a deferred __annotate__ function for class annotations.
-        */
-        let annotation_entries = AnnotationCollector::rewrite(&mut body);
-        let annotation_stmt = build_class_annotate_stmt(annotation_entries);
+    let type_param_info = type_params.map(|type_params| {
+        make_type_param_info(*type_params)
+    });
+    let type_param_statements = type_param_info
+        .as_ref()
+        .and_then(|info| info.type_params_tuple.as_ref())
+        .map(|tuple_expr| {
+            py_stmt!(
+                "__type_params__ = {tuple:expr}",
+                tuple = tuple_expr.clone()
+            )
+        })
+        .unwrap_or_default();
 
-        let type_param_info = type_params.map(|type_params| {
-            make_type_param_info(*type_params, rewriter)
-        });
-        let type_param_statements = type_param_info
-            .as_ref()
-            .and_then(|info| info.type_params_tuple.as_ref())
-            .map(|tuple_expr| {
-                py_stmt!(
-                    "__type_params__ = {tuple:expr}",
-                    tuple = tuple_expr.clone()
-                )
-            })
-            .unwrap_or_default();
-
-        let ns_builder = py_stmt!(
-            r#"
+    let mut ns_builder = py_stmt!(
+        r#"
 __module__ = __name__
 __qualname__ = {class_qualname:literal}
 {type_param_statements:stmt}
-{annotations:stmt}
 {ns_body:stmt}
 "#,
-            class_qualname = class_qualname.as_str(),
-            ns_body = body,
-            type_param_statements = type_param_statements,
-            annotations = annotation_stmt,
+        class_qualname = class_qualname.as_str(),
+        ns_body = body,
+        type_param_statements = type_param_statements,
+    );
+
+    let needs_class_cell = method::rewrite_methods_in_class_body(
+        &mut ns_builder,
+    );
+    if log_enabled!(Level::Trace) {
+        trace!(
+            "class_def_to_create_class_fn: class {} ns_len={} needs_class_cell={}",
+            class_name,
+            ns_builder.len(),
+            needs_class_cell
         );
+    }
 
-        let mut ns_builder = rewriter.rewrite_block(ns_builder);
+    let type_param_skip = type_param_info
+        .as_ref()
+        .map(|info| {
+            info.param_names
+                .iter()
+                .filter(|name| !class_locals.contains(*name))
+                .cloned()
+                .collect::<HashSet<String>>()
+        })
+        .unwrap_or_default();
 
-        needs_class_cell = method::rewrite_methods_in_class_body(
-            &mut ns_builder,
-            &class_qualname,
-            rewriter,
-        );
+    rewrite_class_scope(
+        class_qualname.clone(),
+        &mut ns_builder,
+        type_param_skip,
+        global_names,
+    );
 
-        let type_param_skip = type_param_info
-            .as_ref()
-            .map(|info| {
-                info.param_names
-                    .iter()
-                    .filter(|name| !class_locals.contains(*name))
-                    .cloned()
-                    .collect::<HashSet<String>>()
-            })
-            .unwrap_or_default();
-
-        rewrite_class_scope(
-            class_qualname.clone(),
-            &mut ns_builder,
-            class_scope,
-            type_param_skip,
-        );
-
-        (ns_builder, type_param_info)
-    });
 
     let type_param_bindings = type_param_info
         .as_ref()
         .map_or_else(Vec::new, |info| info.bindings.clone());
-    let in_class_scope = matches!(
-        rewriter.context().current_qualname(),
-        Some((_, ScopeKind::Class))
-    );
     let has_generic_base = arguments_has_generic(arguments.as_deref());
     let generic_base = type_param_info
         .as_ref()
@@ -173,10 +180,18 @@ __qualname__ = {class_qualname:literal}
         .and_then(make_generic_base);
     let extra_bases = generic_base.into_iter().collect::<Vec<_>>();
     let (bases_tuple, prepare_dict) =
-        class_call_arguments(arguments, in_class_scope, extra_bases);
+        class_call_arguments(arguments, false, extra_bases); // TODO: class scope?
 
+    if log_enabled!(Level::Trace) {
+        trace!(
+            "class_def_to_create_class_fn: class {} bases={:?} prepare_dict={:?}",
+            class_name,
+            bases_tuple,
+            prepare_dict
+        );
+    }
 
-    py_stmt!(
+    let out = py_stmt!(
         r#"
 def _dp_class_create_{class_name:id}():
     {type_param_bindings:stmt}
@@ -196,39 +211,13 @@ def _dp_class_create_{class_name:id}():
         class_name = class_name.as_str(),
         requires_class_cell = needs_class_cell,
         type_param_bindings = type_param_bindings,
-        ns_body = body,
+        ns_body = ns_builder,
         bases = bases_tuple.clone(),
         prepare_dict = prepare_dict.clone(),
-    )
+    );
+    out
 }
 
-fn build_class_annotate_stmt(entries: Vec<(String, Expr)>) -> Vec<Stmt> {
-    // TODO: what if user provides __annotate__?
-    if entries.is_empty() {
-        return Vec::new();
-    }
-
-    let mut annotation_writes = Vec::new();
-    for (name, expr) in entries {
-        annotation_writes.extend(py_stmt!(
-            "_dp_annotations[{name:literal}] = {value:expr}",
-            name = name.as_str(),
-            value = expr,
-        ));
-    }
-
-    py_stmt!(
-        r#"
-def __annotate__(_dp_format):
-    if _dp_format > 2:
-        raise NotImplementedError
-    _dp_annotations = {}
-    {annotation_writes:stmt}
-    return _dp_annotations
-"#,
-        annotation_writes = annotation_writes,
-    )
-}
 
 struct TypeParamInfo {
     bindings: Vec<Stmt>,
@@ -239,9 +228,10 @@ struct TypeParamInfo {
 
 fn make_type_param_info(
     mut type_params: ast::TypeParams,
-    rewriter: &mut ExprRewriter,
+//    rewriter: &mut ExprRewriter,
 ) -> TypeParamInfo {
-    rewriter.visit_type_params(&mut type_params);
+    // TODO
+//    rewriter.visit_type_params(&mut type_params);
 
     let mut bindings = Vec::new();
     let mut param_names = Vec::new();

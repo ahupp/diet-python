@@ -1,12 +1,14 @@
+use crate::transform::ast_rewrite::LoweredExpr;
+use crate::transform::context::Context;
 use crate::transform::rewrite_expr::make_binop;
-use crate::transform::driver::{ExprRewriter, LoweredExpr};
+
 use crate::transform::rewrite_expr::make_unaryop;
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, CmpOp, Expr, Stmt};
 
 
-pub(crate) fn expr_boolop_to_stmts(rewriter: &ExprRewriter, bool_op: ast::ExprBoolOp) -> LoweredExpr {
-    let target = rewriter.context().fresh("target");
+pub(crate) fn expr_boolop_to_stmts(context: &Context, bool_op: ast::ExprBoolOp) -> LoweredExpr {
+    let target = context.fresh("target");
 
     LoweredExpr::modified(
         py_expr!("{target:id}", target=target.as_str()),
@@ -49,7 +51,7 @@ if {test:expr}:
 }
 
 pub(crate) fn expr_compare_to_stmts(
-    rewriter: &ExprRewriter,
+    context: &Context,
     compare: ast::ExprCompare,
 ) -> LoweredExpr {
     let ast::ExprCompare {
@@ -65,12 +67,12 @@ pub(crate) fn expr_compare_to_stmts(
 
     let mut current_left = *left;
 
-    let target = rewriter.context().fresh("target");
+    let target = context.fresh("target");
 
     let mut steps: Vec<(Vec<Stmt>, Expr)> = Vec::with_capacity(count);
     let mut left_prelude: Vec<Stmt> = Vec::new();
     if count > 1 {
-        let left_tmp = rewriter.context().fresh("compare");
+        let left_tmp = context.fresh("compare");
         left_prelude.extend(py_stmt!(
             "{tmp:id} = {value:expr}",
             tmp = left_tmp.as_str(),
@@ -86,7 +88,7 @@ pub(crate) fn expr_compare_to_stmts(
             prelude.extend(left_prelude.clone());
         }
         if index < count - 1 {
-            let tmp = rewriter.context().fresh("compare");
+            let tmp = context.fresh("compare");
             prelude.extend(py_stmt!(
                 "{tmp:id} = {value:expr}",
                 tmp = tmp.as_str(),

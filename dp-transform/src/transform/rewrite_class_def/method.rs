@@ -1,11 +1,11 @@
-use std::{mem::take};
+
 
 use ruff_python_ast::{self as ast,Expr, ExprContext, Stmt};
 
 use crate::{
     body_transform::{Transformer, walk_expr, walk_stmt},
     py_expr, py_stmt,
-    transform::{driver::ExprRewriter, util::is_noarg_call},
+    transform::{util::is_noarg_call},
 };
 
 struct MethodTransformer {
@@ -69,12 +69,8 @@ impl Transformer for MethodTransformer {
 
 pub fn rewrite_methods_in_class_body(
     body: &mut Vec<Stmt>,
-    class_qualname: &str,
-    rewriter: &mut ExprRewriter,
 ) -> bool {
     let mut rewriter = MethodRewriter {
-        class_qualname: class_qualname.to_string(),
-        expr_rewriter: rewriter,
         needs_class_cell: false,
     };
     rewriter.visit_body(body);
@@ -82,13 +78,11 @@ pub fn rewrite_methods_in_class_body(
 }
 
 
-struct MethodRewriter<'a> {
-    class_qualname: String,
-    expr_rewriter: &'a mut ExprRewriter,
+struct MethodRewriter {
     needs_class_cell: bool,
 }
 
-impl<'a> Transformer for MethodRewriter<'a> {
+impl Transformer for MethodRewriter {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
             Stmt::FunctionDef(func_def) => {
@@ -98,8 +92,6 @@ impl<'a> Transformer for MethodRewriter<'a> {
                 );
                 self.needs_class_cell |= rewrite_method(
                     func_def,
-                    &self.class_qualname,
-                    self.expr_rewriter,
                 );
             }
             Stmt::ClassDef(_) => {}
@@ -111,8 +103,6 @@ impl<'a> Transformer for MethodRewriter<'a> {
 
 pub fn rewrite_method(
     func_def: &mut ast::StmtFunctionDef,
-    class_qualname: &str,
-    rewriter: &mut ExprRewriter,
 ) -> bool {
     let func_name = func_def.name.id.to_string();
     if let Some(_) = func_name.strip_prefix("_dp_fn_") {
@@ -132,7 +122,6 @@ pub fn rewrite_method(
                 .map(|a| a.parameter.name.to_string())
         });
 
-    let mut scope = rewriter.context().analyze_function_scope(func_def);
 
     let mut transformer = MethodTransformer {
         first_arg,
@@ -141,10 +130,5 @@ pub fn rewrite_method(
     for stmt in &mut func_def.body {
         transformer.visit_stmt(stmt);
     }
-    scope.qualname = format!("{class_qualname}.{func_name}");
-
-    let body = take(&mut func_def.body);
-    func_def.body =
-        rewriter.with_scope(scope, move |rewriter| rewriter.rewrite_block(body));
     transformer.needs_class_cell
 }

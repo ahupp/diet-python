@@ -1,6 +1,9 @@
 #![no_std]
 
+extern crate alloc;
+
 mod long;
+mod scope;
 
 use core::ffi::c_long;
 use pyo3_ffi::{PyLong_CheckExact, PyLong_FromLong, PyNumber_Add, PyObject};
@@ -16,6 +19,8 @@ mod cpython_bindings;
 use cpython_bindings::{
     PyLongObject, PyLong_SHIFT, _PyLong_NON_SIZE_BITS, _PyLong_SIGN_MASK,
 };
+
+pub use scope::{Scope, ScopeLayout};
 
 #[inline]
 unsafe fn compact_long_value(op: *mut PyLongObject) -> Option<i64> {

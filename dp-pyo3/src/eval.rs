@@ -16,9 +16,10 @@ fn transform_to_min_ast(source: &str) -> Result<min_ast::Module, String> {
         force_import_rewrite: true,
         ..Options::default()
     };
-    let module = transform_str_to_ruff_with_options(source, options)
-        .map_err(|err| err.to_string())?;
-    Ok(min_ast::Module::from(module))
+
+    let result = transform_str_to_ruff_with_options(source, options).map_err(|err| err.to_string())?;
+
+    Ok(min_ast::Module::from(result.module))
 }
 
 fn count_min_ast_nodes(module: min_ast::Module) -> usize {
@@ -105,6 +106,7 @@ fn count_min_ast_nodes(module: min_ast::Module) -> usize {
             | min_ast::ExprNode::Number { .. }
             | min_ast::ExprNode::String { .. }
             | min_ast::ExprNode::Bytes { .. } => 1,
+            min_ast::ExprNode::Attribute { value, .. } => 1 + count_expr(value),
             min_ast::ExprNode::Tuple { elts, .. } => {
                 1 + elts.iter().map(count_expr).sum::<usize>()
             }

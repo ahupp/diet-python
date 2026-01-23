@@ -80,6 +80,26 @@ def class_lookup(class_ns, name, lookup_fn):
         return lookup_fn()
 
 
+def class_lookup_cell(class_ns, name, cell):
+    try:
+        return class_ns[name]
+    except KeyError:
+        return load_deref(cell)
+
+
+def class_lookup_global(class_ns, name, globals_dict):
+    try:
+        return class_ns[name]
+    except KeyError:
+        try:
+            return globals_dict[name]
+        except KeyError:
+            try:
+                return builtins.__dict__[name]
+            except KeyError as exc:
+                raise NameError(f"name {name!r} is not defined") from exc
+
+
 def _validate_exception_type(exc_type):
     if isinstance(exc_type, tuple):
         for entry in exc_type:
@@ -160,6 +180,7 @@ def prepare_class(name, bases, kwds=None):
 
 _MISSING_CLASSCELL = object()
 _EMPTY_CLASSCELL = object()
+_MISSING_CELL = object()
 
 
 
@@ -169,6 +190,33 @@ def make_classcell(value=_MISSING_CLASSCELL):
     def inner():
         return value
     return inner.__closure__[0]
+
+
+def make_cell(value=_MISSING_CELL):
+    if value is _MISSING_CELL:
+        return _types.CellType()
+    def inner():
+        return value
+    return inner.__closure__[0]
+
+
+def load_deref(cell):
+    try:
+        return cell.cell_contents
+    except ValueError as exc:
+        raise UnboundLocalError("local variable referenced before assignment") from exc
+
+
+def store_deref(cell, value):
+    cell.cell_contents = value
+    return value
+
+
+def del_deref(cell):
+    try:
+        del cell.cell_contents
+    except ValueError as exc:
+        raise UnboundLocalError("local variable referenced before assignment") from exc
 
 
 def call_super(super_fn, cls, instance_or_cls):
@@ -510,15 +558,25 @@ def with_enter(ctx):
 def locals_map(locals_dict):
     normalized = {}
     for name, value in locals_dict.items():
-        base = name
+        if "$" not in name:
+            if name not in normalized:
+                normalized[name] = value
+            continue
+        prefix, suffix = name.rsplit("$", 1)
+        if not suffix.isdigit():
+            if name not in normalized:
+                normalized[name] = value
+
+    for name, value in locals_dict.items():
         if "$" in name:
             prefix, suffix = name.rsplit("$", 1)
             if suffix.isdigit():
-                if prefix in locals_dict:
-                    continue
-                base = prefix
-        if base not in normalized:
-            normalized[base] = value
+                if isinstance(value, _types.CellType):
+                    try:
+                        value = value.cell_contents
+                    except ValueError:
+                        continue
+                normalized[prefix] = value
     return normalized
 
 

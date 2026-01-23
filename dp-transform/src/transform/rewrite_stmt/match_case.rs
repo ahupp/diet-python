@@ -1,8 +1,9 @@
+use log::{log_enabled, trace, Level};
 use ruff_python_ast::{self as ast, name::Name, Expr, Pattern, Stmt};
 use ruff_python_parser::parse_expression;
 use ruff_text_size::TextRange;
 
-use crate::{py_expr, py_stmt, transform::{context::Context, driver::Rewrite}};
+use crate::{py_expr, py_stmt, ruff_ast_to_string, transform::{ast_rewrite::Rewrite, context::Context}};
 
 enum PatternTest {
     Test { expr: Expr, assigns: Vec<Stmt> },
@@ -29,6 +30,18 @@ fn integer_expr(value: usize) -> Expr {
         .body
 }
 
+fn trace_expr(label: &str, expr: &Expr) {
+    if !log_enabled!(Level::Trace) {
+        return;
+    }
+    let stmt = Stmt::Expr(ast::StmtExpr {
+        value: Box::new(expr.clone()),
+        range: TextRange::default(),
+        node_index: ast::AtomicNodeIndex::default(),
+    });
+    trace!("{label}: {}", ruff_ast_to_string(&[stmt]).trim_end());
+}
+
 fn test_for_pattern(pattern: &Pattern, subject: Expr) -> PatternTest {
     use ast::{
         PatternMatchAs, PatternMatchClass, PatternMatchMapping, PatternMatchOr,
@@ -36,6 +49,10 @@ fn test_for_pattern(pattern: &Pattern, subject: Expr) -> PatternTest {
         Singleton,
     };
     use PatternTest::*;
+    if log_enabled!(Level::Trace) {
+        trace!("match_case test_for_pattern pattern={pattern:?}");
+        trace_expr("match_case subject", &subject);
+    }
     match pattern {
         Pattern::MatchValue(PatternMatchValue { value, .. }) => Test {
             expr: py_expr!(
@@ -447,12 +464,12 @@ fn assigned_names(stmts: &[Stmt]) -> Vec<Name> {
     names
 }
 
-pub fn rewrite(ast::StmtMatch { subject, cases, .. }: ast::StmtMatch, ctx: &Context) -> Rewrite {
+pub fn rewrite(context: &Context, ast::StmtMatch { subject, cases, .. }: ast::StmtMatch) -> Rewrite {
     if cases.is_empty() {
         return Rewrite::Visit(py_stmt!("pass"));
     }
 
-    let subject_name = ctx.fresh("match");
+    let subject_name = context.fresh("match");
     let tmp_expr = py_expr!("{name:id}", name = subject_name.as_str());
 
     let assign = py_stmt!(

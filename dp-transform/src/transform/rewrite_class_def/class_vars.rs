@@ -9,7 +9,6 @@ use crate::template::py_stmt_single;
 use crate::{
     body_transform::{walk_expr, walk_stmt, Transformer},
     py_expr, py_stmt,
-    transform::context::ScopeInfo,
 };
 use super::class_body_load;
 use crate::transform::util::is_noarg_call;
@@ -17,23 +16,21 @@ use crate::transform::util::is_noarg_call;
 pub fn rewrite_class_scope(
     qualname: String,
     body: &mut Vec<Stmt>,
-    scope: ScopeInfo,
     type_params: HashSet<String>,
+    global_names: HashSet<String>,
 ) {
     let mut rewriter = ClassScopeRewriter::new(
         qualname,
-        scope,
         type_params,
+        global_names,
     );
     rewriter.visit_body(body);
 }
 
 struct ClassScopeRewriter {
     qualname: String,
-    globals: HashSet<String>,
-    nonlocals: HashSet<String>,
     type_params: HashSet<String>,
-    update_fn_target: Option<String>,
+    global_names: HashSet<String>,
     decorated_names: HashSet<String>,
     function_defs: HashSet<String>,
 }
@@ -41,98 +38,24 @@ struct ClassScopeRewriter {
 impl ClassScopeRewriter {
     fn new(
         qualname: String,
-        scope: ScopeInfo,
         type_params: HashSet<String>,
+        global_names: HashSet<String>,
     ) -> Self {
-        let globals = scope.global_names();
-        let nonlocals = scope.nonlocal_names();
         Self {
             qualname,
-            globals,
-            nonlocals,
             type_params,
-            update_fn_target: None,
+            global_names,
             decorated_names: HashSet::new(),
             function_defs: HashSet::new(),
         }
     }
 
     fn should_rewrite(&self, name: &str) -> bool {
-        !self.globals.contains(name)
-            && !self.nonlocals.contains(name)
-            && !self.type_params.contains(name)
+            !self.type_params.contains(name)
+            && !self.global_names.contains(name)
+            && !name.contains('$')
             && !name.starts_with("_dp_")
             && !matches!(name, "__dp__"  | "globals")
-    }
-
-    fn is_update_fn_assign(&self, name: &str, value: &Expr) -> bool {
-        let Expr::Call(ast::ExprCall { func, arguments, .. }) = value else {
-            return false;
-        };
-        let Expr::Attribute(ast::ExprAttribute { value, attr, .. }) = func.as_ref() else {
-            return false;
-        };
-        if attr.as_str() != "update_fn" {
-            return false;
-        }
-        let Expr::Name(ast::ExprName { id, .. }) = value.as_ref() else {
-            return false;
-        };
-        if id.as_str() != "__dp__" {
-            return false;
-        }
-        match arguments.args.first() {
-            Some(Expr::Name(ast::ExprName { id, .. })) => id.as_str() == name,
-            _ => false,
-        }
-    }
-
-    fn is_decorator_assign(&self, name: &str, value: &Expr) -> bool {
-        let mut expr = value;
-        loop {
-            let Expr::Call(ast::ExprCall { arguments, .. }) = expr else {
-                return false;
-            };
-            if !arguments.keywords.is_empty() || arguments.args.len() != 1 {
-                return false;
-            }
-            let arg = &arguments.args[0];
-            match arg {
-                Expr::Call(_) => {
-                    expr = arg;
-                    continue;
-                }
-                Expr::Name(ast::ExprName { id, .. }) => return id.as_str() == name,
-                _ => return false,
-            }
-        }
-    }
-
-    fn rewrite_decorator_assign_value(&mut self, value: &mut Expr, target: &str) {
-        let Expr::Call(ast::ExprCall { func, arguments, .. }) = value else {
-            return;
-        };
-        self.visit_expr(func);
-        if arguments.args.len() == 1 && arguments.keywords.is_empty() {
-            if let Some(arg) = arguments.args.first_mut() {
-                match arg {
-                    Expr::Call(_) => self.rewrite_decorator_assign_value(arg, target),
-                    Expr::Name(ast::ExprName { id, .. }) if id.as_str() == target => {
-                        if !self.function_defs.contains(target) {
-                            *arg = class_body_load(target);
-                        }
-                    }
-                    _ => self.visit_expr(arg),
-                }
-            }
-        } else {
-            for arg in &mut arguments.args {
-                self.visit_expr(arg);
-            }
-            for keyword in &mut arguments.keywords {
-                self.visit_expr(&mut keyword.value);
-            }
-        }
     }
 
 }
@@ -159,15 +82,6 @@ impl Transformer for ClassScopeRewriter {
         for stmt in body.iter() {
             if let Stmt::FunctionDef(ast::StmtFunctionDef { name, .. }) = stmt {
                 self.function_defs.insert(name.id.to_string());
-            }
-            if let Stmt::Assign(ast::StmtAssign { targets, value, .. }) = stmt {
-                if targets.len() == 1 {
-                    if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
-                        if self.is_decorator_assign(id.as_str(), value.as_ref()) {
-                            self.decorated_names.insert(id.as_str().to_string());
-                        }
-                    }
-                }
             }
         }
         for stmt in mem::take(body) {
@@ -210,8 +124,14 @@ def {tmp:id}():
                     let mut stmt = Stmt::FunctionDef(func_def.clone());
                     self.visit_stmt(&mut stmt);
                     new_body.push(stmt);
+                    if func_name.as_str().starts_with("_dp_class_")
+                        || func_name.as_str().starts_with("_dp_class_ns_")
+                    {
+                        continue;
+                    }
                     let mut with_assign = py_stmt!(r#"
-{func_name:id} = __dp__.update_fn({func_name:id}, {qualname:literal}, {func_name:literal})
+__dp__.update_fn({func_name:id}$local, {qualname:literal}, {func_name:literal})
+_dp_class_ns[{func_name:literal}] = {func_name:id}$local
 "#, func_name = func_name.as_str(), qualname = self.qualname.as_str());
                     for stmt in &mut with_assign {
                         self.visit_stmt(stmt);
@@ -272,28 +192,7 @@ def {tmp:id}():
                 if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
                     let name = id.as_str();
                     if self.should_rewrite(name) {
-                        if self.is_update_fn_assign(name, value.as_ref()) {
-                            let saved = self.update_fn_target.take();
-                            self.update_fn_target = Some(name.to_string());
-                            self.visit_expr(value);
-                            self.update_fn_target = saved;
-                            if self.decorated_names.contains(name) {
-                                return;
-                            }
-                        }
-                        if self.is_decorator_assign(name, value.as_ref()) {
-                            self.rewrite_decorator_assign_value(value, name);
-                            *stmt = py_stmt_single(py_stmt!(
-                                "_dp_class_ns[{name:literal}] = {value:expr}",
-                                name = name,
-                                value = value.clone()
-                            ));
-                            return;
-                        }
-                        let saved = self.update_fn_target.take();
-                        self.update_fn_target = Some(name.to_string());
                         self.visit_expr(value);
-                        self.update_fn_target = saved;
                         *stmt = py_stmt_single(py_stmt!("_dp_class_ns[{name:literal}] = {value:expr}", name = name, value = value.clone()));
                         return;
                     }
@@ -309,35 +208,7 @@ def {tmp:id}():
             *expr = py_expr!("_dp_class_ns");
             return;
         }
-        if let Expr::Call(ast::ExprCall { func, arguments, .. }) = expr {
-            if let Expr::Attribute(ast::ExprAttribute { value, attr, .. }) = func.as_ref() {
-                if attr.as_str() == "update_fn" {
-                    if let Expr::Name(ast::ExprName { id, .. }) = value.as_ref() {
-                        if id.as_str() == "__dp__" {
-                            let target = self.update_fn_target.as_deref();
-                            if let Some(target_name) = target {
-                                if let Some(first_arg) = arguments.args.first() {
-                                    if matches!(first_arg, Expr::Name(ast::ExprName { id, .. }) if id.as_str() == target_name) {
-                                        if let Some(first) = arguments.args.first_mut() {
-                                            // Skip rewriting the local function binding used to update metadata.
-                                            if let Expr::Name(_) = first {
-                                                for arg in arguments.args.iter_mut().skip(1) {
-                                                    self.visit_expr(arg);
-                                                }
-                                                for keyword in &mut arguments.keywords {
-                                                    self.visit_expr(&mut keyword.value);
-                                                }
-                                                return;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+   
         if let Expr::Name(ast::ExprName { id, ctx, .. }) = expr {
             let name = id.as_str().to_string();
             let name_str = name.as_str();

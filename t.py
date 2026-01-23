@@ -1,8 +1,4 @@
-
-def foo():
-    class A: pass
-    x = A()
-    x.y : int = 4
-
-
+from unittest import mock
+m = mock.Mock()
+print(isinstance(m, int))
 

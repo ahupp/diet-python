@@ -1,16 +1,22 @@
 use ruff_python_ast::{self as ast, name::Name, Expr, ExprContext, Stmt};
 
-use crate::body_transform::{walk_expr, walk_parameter, walk_stmt, Transformer};
-use crate::transform::context::ScopeInfo;
+use crate::{body_transform::{Transformer, walk_expr, walk_parameter, walk_stmt}};
+use log::{log_enabled, trace, Level};
 
-pub(crate) fn rewrite_class_body(
+
+pub(crate) fn rewrite_class_body<'a>(
     body: &mut Vec<Stmt>,
     class_name: &str,
-    scope: &mut ScopeInfo,
-) {
+    ) {
+    if log_enabled!(Level::Trace) {
+        trace!(
+            "rewrite_class_body: class {} body_len={}",
+            class_name,
+            body.len()
+        );
+    }
     let mut rewriter = PrivateRewriter::new(class_name);
     rewriter.visit_body(body);
-    rewriter.update_scope_info(scope);
 }
 
 struct PrivateRewriter {
@@ -53,9 +59,6 @@ impl PrivateRewriter {
         }
     }
 
-    fn update_scope_info(&self, scope: &mut ScopeInfo) {
-        scope.remap_bindings(|name| self.maybe_mangle(name));
-    }
 }
 
 impl Transformer for PrivateRewriter {

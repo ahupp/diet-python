@@ -1,6 +1,6 @@
 use std::{env, fs, process};
 
-use dp_transform::transform_to_string_without_attribute_lowering_with_timing;
+use dp_transform::{transform_str_to_ruff_with_options, Options};
 
 const USAGE: &str = "usage: diet-python [--timing] <python-file>";
 
@@ -45,24 +45,23 @@ fn main() {
         }
     };
 
-    let (output, timings) =
-        match transform_to_string_without_attribute_lowering_with_timing(&source, true) {
+    let result =
+        match transform_str_to_ruff_with_options(&source, Options::default()) {
             Ok(result) => result,
             Err(err) => {
                 eprintln!("failed to parse {}: {}", path, err);
                 process::exit(1);
             }
         };
-    print!("{}", output);
+    print!("{}", result.to_string());
+    let timings = result.timings;
 
     if timing {
         eprintln!(
-            "{{\"parse_ns\":{},\"rewrite_ns\":{},\"ensure_import_ns\":{},\"emit_ns\":{},\"total_ns\":{}}}",
-            timings.parse.as_nanos(),
-            timings.rewrite.as_nanos(),
-            timings.ensure_import.as_nanos(),
-            timings.emit.as_nanos(),
-            timings.total.as_nanos()
+            "{{\"parse_ns\":{},\"rewrite_ns\":{},\"total_ns\":{}}}",
+            timings.parse_time.as_nanos(),
+            timings.rewrite_time.as_nanos(),
+            timings.total_time.as_nanos()
         );
     }
 }
