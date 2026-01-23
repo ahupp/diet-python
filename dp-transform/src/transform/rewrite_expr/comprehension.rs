@@ -2,9 +2,9 @@ use ruff_python_ast::{self as ast};
 use ruff_python_ast::{Expr, Stmt};
 
 use crate::transform::driver::ExprRewriter;
-use crate::{py_expr, py_stmt, template::make_generator, transform::{driver::LoweredExpr}};
+use crate::{py_expr, py_stmt, transform::{driver::LoweredExpr}};
 use crate::transform::context::{Context, ScopeKind};
-use crate::body_transform::{walk_expr, Transformer};
+use crate::body_transform::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::name::Name;
 use ruff_text_size::TextRange;
 use std::collections::HashSet;
@@ -295,55 +295,7 @@ pub fn comprehension_needs_async(elt: &Expr, generators: &[ast::Comprehension]) 
     expr_contains_await(elt) || generators_need_async(generators)
 }
 
-fn wrap_comprehension_body(body: Vec<Stmt>, comp: &ast::Comprehension) -> Vec<Stmt> {
-    let mut inner = body;
-    for if_expr in comp.ifs.iter().rev() {
-        inner = py_stmt!(
-            r#"
-if {test:expr}:
-    {body:stmt}
-"#,
-            test = if_expr.clone(),
-            body = inner,
-        );
-    }
 
-    if comp.is_async {
-        py_stmt!(
-            r#"
-async for {target:expr} in {iter:expr}:
-    {body:stmt}
-"#,
-            target = comp.target.clone(),
-            iter = comp.iter.clone(),
-            body = inner,
-        )
-    } else {
-        py_stmt!(
-            r#"
-for {target:expr} in {iter:expr}:
-    {body:stmt}
-"#,
-            target = comp.target.clone(),
-            iter = comp.iter.clone(),
-            body = inner,
-        )
-    }
-}
-
-
-
-
-pub fn rewrite(elt: Expr, generators: Vec<ast::Comprehension>, container_type: &str, _append_fn: &str, rewrite: &mut ExprRewriter) -> LoweredExpr {
-
-    let generator = match make_generator(elt, generators) {
-        Expr::Generator(generator) => generator,
-        _ => unreachable!("expected generator expression"),
-    };
-
-    let expr = rewrite_generator(generator, rewrite.context());
-    let container_expr = py_expr!("__dp__.{container_type:id}({expr:expr})", expr = expr.expr, container_type = container_type);
-    LoweredExpr::modified(container_expr, expr.stmts)
 pub fn rewrite(
     elt: Expr,
     generators: Vec<ast::Comprehension>,
@@ -351,68 +303,91 @@ pub fn rewrite(
     append_fn: &str,
     rewrite: &mut ExprRewriter,
 ) -> LoweredExpr {
-    let needs_async = comprehension_needs_async(&elt, &generators);
+    let mut needs_async = comprehension_needs_async(&elt, &generators);
     let first_iter_expr = generators
         .first()
         .expect("comprehension expects at least one generator")
         .iter
         .clone();
 
-    let func_name = rewrite.context().fresh("gen");
-    let qualname = rewrite.context().make_qualname("<genexpr>");
+    let func_name = rewrite.context().fresh("comp");
     let param_name = Name::new(rewrite.context().fresh("iter"));
-    let tmp_name = format!("{func_name}_tmp");
+    let result_name = rewrite.context().fresh("result");
 
     let named_targets = collect_named_targets(&elt, &generators);
-    let mut body = match container_type {
-        "dict" => {
-            let (key, value) = match elt {
-                Expr::Tuple(ast::ExprTuple { elts, .. }) => {
-                    if elts.len() != 2 {
-                        unreachable!("dict comprehension expects a key/value tuple");
-                    }
-                    let mut elts = elts;
-                    let value = elts.pop().unwrap();
-                    let key = elts.pop().unwrap();
-                    (key, value)
-                }
-                _ => unreachable!("dict comprehension expects a key/value tuple"),
-            };
-            py_stmt!(
-                "__dp__.setitem({tmp:id}, {key:expr}, {value:expr})",
-                tmp = tmp_name.as_str(),
-                key = key,
-                value = value,
-            )
-        }
-        _ => py_stmt!(
-            "{tmp:id}.{method:id}({value:expr})",
-            tmp = tmp_name.as_str(),
-            method = append_fn,
+
+    let mut body = if container_type == "dict" {
+        let (key, value) = match elt {
+            Expr::Tuple(ast::ExprTuple { mut elts, .. }) if elts.len() == 2 => {
+                (elts.remove(0), elts.remove(0))
+            }
+            _ => unreachable!("dict comprehension expects tuple key/value"),
+        };
+        py_stmt!(
+            "__dp__.setitem({result:id}, {key:expr}, {value:expr})",
+            result = result_name.as_str(),
+            key = key,
+            value = value,
+        )
+    } else {
+        py_stmt!(
+            "{result:id}.{append_fn:id}({value:expr})",
+            result = result_name.as_str(),
+            append_fn = append_fn,
             value = elt,
-        ),
+        )
     };
 
     for comp in generators.iter().rev() {
-        body = wrap_comprehension_body(body, comp);
+        let mut inner = body;
+        for if_expr in comp.ifs.iter().rev() {
+            inner = py_stmt!(
+                r#"
+if {test:expr}:
+    {body:stmt}
+"#,
+                test = if_expr.clone(),
+                body = inner,
+            );
+        }
+        body = if comp.is_async {
+            py_stmt!(
+                r#"
+async for {target:expr} in {iter:expr}:
+    {body:stmt}
+"#,
+                target = comp.target.clone(),
+                iter = comp.iter.clone(),
+                body = inner,
+            )
+        } else {
+            py_stmt!(
+                r#"
+for {target:expr} in {iter:expr}:
+    {body:stmt}
+"#,
+                target = comp.target.clone(),
+                iter = comp.iter.clone(),
+                body = inner,
+            )
+        };
     }
 
     if let Stmt::For(ast::StmtFor { iter, .. }) = body.first_mut().unwrap() {
         *iter = Box::new(py_expr!("{name:id}", name = param_name.as_str()));
     }
 
-    let mut full_body = Vec::new();
-    full_body.extend(py_stmt!(
-        "{tmp:id} = __dp__.{container_type:id}()",
-        tmp = tmp_name.as_str(),
+    let mut full_body = py_stmt!(
+        "{result:id} = __dp__.{container_type:id}()",
+        result = result_name.as_str(),
         container_type = container_type,
-    ));
+    );
     full_body.extend(body);
-    full_body.extend(py_stmt!("return {tmp:id}", tmp = tmp_name.as_str()));
+    full_body.extend(py_stmt!("return {result:id}", result = result_name.as_str()));
+    body = full_body;
 
     let (global_targets, nonlocal_targets, prelude) =
         named_target_bindings(rewrite.context(), &named_targets);
-
     let mut buf = Vec::new();
     if !prelude.is_empty() {
         buf.extend(prelude);
@@ -426,40 +401,27 @@ pub fn rewrite(
         for name in nonlocal_targets {
             bindings.extend(py_stmt!("nonlocal {name:id}", name = name.as_str()));
         }
-        bindings.extend(full_body);
-        full_body = bindings;
+        bindings.extend(body);
+        body = bindings;
     }
 
-    let func_def = if needs_async {
-        py_stmt!(
-            r#"
-async def {func:id}({param:id}):
-    {body:stmt}
-"#,
-            func = func_name.as_str(),
-            param = param_name.as_str(),
-            body = full_body,
-        )
-    } else {
-        py_stmt!(
-            r#"
+    let mut func_def = py_stmt!(
+        r#"
 def {func:id}({param:id}):
     {body:stmt}
 "#,
-            func = func_name.as_str(),
-            param = param_name.as_str(),
-            body = full_body,
-        )
-    };
-
-    buf.extend(func_def);
-    let scope = scope_expr(&qualname, "<genexpr>");
-    buf.extend(py_stmt!(
-        "{func:id} = __dp__.update_fn({func:id}, {scope:expr}, {name:literal})",
         func = func_name.as_str(),
-        name = "<genexpr>",
-        scope = scope,
-    ));
+        param = param_name.as_str(),
+        body = body,
+    );
+    if let Stmt::FunctionDef(func_def_stmt) = &mut func_def[0] {
+        asyncify_internal_function(func_def_stmt);
+        if needs_async {
+            func_def_stmt.is_async = true;
+        }
+        needs_async = func_def_stmt.is_async;
+    }
+    buf.extend(func_def);
 
     let call_expr = if generators
         .first()
@@ -479,15 +441,63 @@ def {func:id}({param:id}):
         )
     };
 
-    let call_expr = if needs_async {
-        py_expr!("await {call:expr}", call = call_expr)
+    let expr = if needs_async {
+        py_expr!("await {value:expr}", value = call_expr)
     } else {
         call_expr
     };
 
-    LoweredExpr::modified(call_expr, buf)
+    LoweredExpr::modified(expr, buf)
 }
 
+fn asyncify_internal_function(func_def: &mut ast::StmtFunctionDef) -> bool {
+    if func_def.is_async || !func_def.name.id.as_str().starts_with("_dp_") {
+        return func_def.is_async;
+    }
+
+    struct AwaitFinder {
+        found: bool,
+    }
+
+    impl Transformer for AwaitFinder {
+        fn visit_stmt(&mut self, stmt: &mut Stmt) {
+            if self.found {
+                return;
+            }
+            match stmt {
+                Stmt::FunctionDef(_) | Stmt::ClassDef(_) => return,
+                _ => walk_stmt(self, stmt),
+            }
+        }
+
+        fn visit_expr(&mut self, expr: &mut Expr) {
+            if self.found {
+                return;
+            }
+            if matches!(expr, Expr::Await(_)) {
+                self.found = true;
+                return;
+            }
+            if matches!(expr, Expr::Lambda(_)) {
+                return;
+            }
+            walk_expr(self, expr);
+        }
+    }
+
+    let mut finder = AwaitFinder { found: false };
+    for stmt in &mut func_def.body {
+        finder.visit_stmt(stmt);
+        if finder.found {
+            break;
+        }
+    }
+
+    if finder.found {
+        func_def.is_async = true;
+    }
+    func_def.is_async
+}
 
 fn expr_contains_await(expr: &Expr) -> bool {
     struct AwaitFinder {

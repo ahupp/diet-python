@@ -194,26 +194,25 @@ x = [i for i in it]
 
 =
 
-def _dp_gen_1(_dp_iter_2):
-    _dp_gen_1_tmp = getattr$0(__dp__, "list")()
-    _dp_iter_3 = getattr$0(__dp__, "iter")(_dp_iter_2)
-    _dp_is_complete_4 = False
+def _dp_comp_1(_dp_iter_2):
+    _dp_result_3 = getattr$0(__dp__, "list")()
+    _dp_iter_4 = getattr$0(__dp__, "iter")(_dp_iter_2)
+    _dp_is_complete_5 = False
     try:
         while True:
-            i = getattr$0(__dp__, "next")(_dp_iter_3)
-            getattr$0(_dp_gen_1_tmp, "append")(i)
+            i = getattr$0(__dp__, "next")(_dp_iter_4)
+            getattr$0(_dp_result_3, "append")(i)
     except:
         if getattr$0(__dp__, "exception_matches")(getattr$0(__dp__, "current_exception")(), StopIteration$0):
-            _dp_is_complete_4 = True
+            _dp_is_complete_5 = True
         else:
             raise
-    if _dp_is_complete_4:
+    if _dp_is_complete_5:
         pass
-    return _dp_gen_1_tmp
-_dp_gen_1 = getattr(__dp__, "update_fn")(_dp_gen_1, None, "_dp_gen_1")
-_dp_gen_1 = getattr(__dp__, "update_fn")(_dp_gen_1, None, "_dp_gen_1")
-_dp_gen_1 = getattr(__dp__, "update_fn")(_dp_gen_1, None, "<genexpr>")
-x = _dp_gen_1(getattr(__dp__, "iter")(it))
+    return _dp_result_3
+_dp_comp_1 = getattr(__dp__, "update_fn")(_dp_comp_1, None, "_dp_comp_1")
+_dp_comp_1 = getattr(__dp__, "update_fn")(_dp_comp_1, None, "_dp_comp_1")
+x = _dp_comp_1(getattr(__dp__, "iter")(it))
 
 $ set_comp
 
@@ -221,26 +220,25 @@ x = {i for i in it}
 
 =
 
-def _dp_gen_1(_dp_iter_2):
-    _dp_gen_1_tmp = getattr$0(__dp__, "set")()
-    _dp_iter_3 = getattr$0(__dp__, "iter")(_dp_iter_2)
-    _dp_is_complete_4 = False
+def _dp_comp_1(_dp_iter_2):
+    _dp_result_3 = getattr$0(__dp__, "set")()
+    _dp_iter_4 = getattr$0(__dp__, "iter")(_dp_iter_2)
+    _dp_is_complete_5 = False
     try:
         while True:
-            i = getattr$0(__dp__, "next")(_dp_iter_3)
-            getattr$0(_dp_gen_1_tmp, "add")(i)
+            i = getattr$0(__dp__, "next")(_dp_iter_4)
+            getattr$0(_dp_result_3, "add")(i)
     except:
         if getattr$0(__dp__, "exception_matches")(getattr$0(__dp__, "current_exception")(), StopIteration$0):
-            _dp_is_complete_4 = True
+            _dp_is_complete_5 = True
         else:
             raise
-    if _dp_is_complete_4:
+    if _dp_is_complete_5:
         pass
-    return _dp_gen_1_tmp
-_dp_gen_1 = getattr(__dp__, "update_fn")(_dp_gen_1, None, "_dp_gen_1")
-_dp_gen_1 = getattr(__dp__, "update_fn")(_dp_gen_1, None, "_dp_gen_1")
-_dp_gen_1 = getattr(__dp__, "update_fn")(_dp_gen_1, None, "<genexpr>")
-x = _dp_gen_1(getattr(__dp__, "iter")(it))
+    return _dp_result_3
+_dp_comp_1 = getattr(__dp__, "update_fn")(_dp_comp_1, None, "_dp_comp_1")
+_dp_comp_1 = getattr(__dp__, "update_fn")(_dp_comp_1, None, "_dp_comp_1")
+x = _dp_comp_1(getattr(__dp__, "iter")(it))
 
 $ dict_comp
 
@@ -248,33 +246,32 @@ x = {k: v for k, v in it}
 
 =
 
-def _dp_gen_1(_dp_iter_2):
-    _dp_gen_1_tmp = getattr$0(__dp__, "dict")()
-    _dp_iter_3 = getattr$0(__dp__, "iter")(_dp_iter_2)
-    _dp_is_complete_4 = False
+def _dp_comp_1(_dp_iter_2):
+    _dp_result_3 = getattr$0(__dp__, "dict")()
+    _dp_iter_4 = getattr$0(__dp__, "iter")(_dp_iter_2)
+    _dp_is_complete_5 = False
     try:
         while True:
-            _dp_tmp_5 = getattr$0(__dp__, "next")(_dp_iter_3)
+            _dp_tmp_6 = getattr$0(__dp__, "next")(_dp_iter_4)
             try:
-                _dp_tmp_6 = getattr$0(__dp__, "unpack")(_dp_tmp_5, (True, True))
-                k = getattr$0(__dp__, "getitem")(_dp_tmp_6, 0)
-                v = getattr$0(__dp__, "getitem")(_dp_tmp_6, 1)
+                _dp_tmp_7 = getattr$0(__dp__, "unpack")(_dp_tmp_6, (True, True))
+                k = getattr$0(__dp__, "getitem")(_dp_tmp_7, 0)
+                v = getattr$0(__dp__, "getitem")(_dp_tmp_7, 1)
             finally:
+                _dp_tmp_7 = None
                 _dp_tmp_6 = None
-                _dp_tmp_5 = None
-            getattr$0(__dp__, "setitem")(_dp_gen_1_tmp, k, v)
+            getattr$0(__dp__, "setitem")(_dp_result_3, k, v)
     except:
         if getattr$0(__dp__, "exception_matches")(getattr$0(__dp__, "current_exception")(), StopIteration$0):
-            _dp_is_complete_4 = True
+            _dp_is_complete_5 = True
         else:
             raise
-    if _dp_is_complete_4:
+    if _dp_is_complete_5:
         pass
-    return _dp_gen_1_tmp
-_dp_gen_1 = getattr(__dp__, "update_fn")(_dp_gen_1, None, "_dp_gen_1")
-_dp_gen_1 = getattr(__dp__, "update_fn")(_dp_gen_1, None, "_dp_gen_1")
-_dp_gen_1 = getattr(__dp__, "update_fn")(_dp_gen_1, None, "<genexpr>")
-x = _dp_gen_1(getattr(__dp__, "iter")(it))
+    return _dp_result_3
+_dp_comp_1 = getattr(__dp__, "update_fn")(_dp_comp_1, None, "_dp_comp_1")
+_dp_comp_1 = getattr(__dp__, "update_fn")(_dp_comp_1, None, "_dp_comp_1")
+x = _dp_comp_1(getattr(__dp__, "iter")(it))
 
 $ attribute_non_chain
 

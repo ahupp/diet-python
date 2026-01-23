@@ -51,6 +51,10 @@ def transformed_module(
         diet_import_hook.install()
         sys.modules.pop(module_name, None)
         module = importlib.import_module(module_name)
+        if prior_allow_temp is None:
+            os.environ.pop("DIET_PYTHON_ALLOW_TEMP", None)
+        else:
+            os.environ["DIET_PYTHON_ALLOW_TEMP"] = prior_allow_temp
         yield module
     except Exception:
         _print_integration_failure_context(module_path)
