@@ -403,7 +403,9 @@ def _get_awaitable_iter(awaitable):
     return iterator
 
 
-async def anext(iterator):
+ITER_COMPLETE = object()
+
+async def anext_or_sentinel(iterator):
     try:
         awaitable = iterator.__anext__()
     except AttributeError:
@@ -419,10 +421,26 @@ async def anext(iterator):
         iterator = None
         awaitable = None
         raise
-    return await _await_from_iter(await_iter)
+    try:
+        return await _await_from_iter(await_iter)
+    except StopAsyncIteration:
+        return ITER_COMPLETE
 
 
-
+def next_or_sentinel(iterator):
+    try:
+        value = iterator.__next__()
+    except AttributeError:
+        iter_type = type(iterator).__name__
+        iterator = None
+        raise TypeError(
+            "'for' received an object from __iter__ that does not implement __next__"
+            f": {iter_type}"
+        ) from None
+    try:
+        return iterator.__next__()
+    except StopIteration:
+        return ITER_COMPLETE
 
 def raise_from(exc, cause):
     CancelledError = None
@@ -542,18 +560,18 @@ def _strip_dp_frames(tb):
 
 
 
-def with_enter(ctx):
+def contextmanager_enter(ctx):
     try:
         enter = ctx.__enter__
     except AttributeError as exc:
         raise TypeError("the context manager protocol requires __enter__") from exc
+    return enter()
+
+def contextmanager_get_exit(cm):
     try:
-        exit = ctx.__exit__
+        return cm.__exit__
     except AttributeError as exc:
         raise TypeError("the context manager protocol requires __exit__") from exc
-    var = enter()
-    return (var, exit)
-
 
 def locals_map(locals_dict):
     normalized = {}
@@ -580,7 +598,7 @@ def locals_map(locals_dict):
     return normalized
 
 
-def with_exit(exit_fn, exc_info: tuple | None):
+def contextmanager_exit(exit_fn, exc_info: tuple | None):
     if exc_info is not None:
         exc_type, exc, tb = exc_info
         try:
@@ -623,21 +641,22 @@ def _ensure_awaitable(awaitable, method_name: str):
     return iterator
 
 
-async def with_aenter(ctx):
+async def asynccontextmanager_aenter(ctx):
     try:
         aenter = ctx.__aenter__
     except AttributeError as exc:
         raise TypeError("the asynchronous context manager protocol requires __aenter__") from exc
+    await_iter = _ensure_awaitable(aenter(), "__aenter__")
+    return await _await_from_iter(await_iter)
+
+def asynccontextmanager_get_aexit(acm):
     try:
-        aexit = ctx.__aexit__
+        return acm.__aexit__
     except AttributeError as exc:
         raise TypeError("the asynchronous context manager protocol requires __aexit__") from exc
-    await_iter = _ensure_awaitable(aenter(), "__aenter__")
-    var = await _await_from_iter(await_iter)
-    return (var, aexit)
 
 
-async def with_aexit(exit_fn, exc_info: tuple | None):
+async def asynccontextmanager_aexit(exit_fn, exc_info: tuple | None):
     if exc_info is not None:
         exc_type, exc, tb = exc_info
         try:

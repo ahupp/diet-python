@@ -129,10 +129,7 @@ def {tmp:id}():
                     {
                         continue;
                     }
-                    let mut with_assign = py_stmt!(r#"
-__dp__.update_fn({func_name:id}$local, {qualname:literal}, {func_name:literal})
-_dp_class_ns[{func_name:literal}] = {func_name:id}$local
-"#, func_name = func_name.as_str(), qualname = self.qualname.as_str());
+                    let mut with_assign = py_stmt!(r#"_dp_class_ns[{func_name:literal}] = {func_name:id}"#, func_name = func_name.as_str());
                     for stmt in &mut with_assign {
                         self.visit_stmt(stmt);
                     }

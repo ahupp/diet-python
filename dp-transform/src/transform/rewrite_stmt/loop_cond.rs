@@ -23,88 +23,49 @@ pub fn rewrite_for(
         ..
     }: ast::StmtFor,
 ) -> Rewrite {
-    let iter_name = context.fresh("iter");
-    let has_orelse = !orelse.is_empty();
-    if has_orelse {
-        let is_complete_name = context.fresh("is_complete");
-        return Rewrite::Visit(if is_async {
+    let iter_tmp = context.fresh("iter");
+    let target_tmp = context.fresh("tmp");    
+    Rewrite::Visit(if is_async {
             py_stmt!(
                 r#"
 {iter_name:id} = __dp__.aiter({iter:expr})
-{is_complete:id} = False
-try:
-    while True:
-        {target:expr} = await __dp__.anext({iter_name:id})
-        {body:stmt}
-except StopAsyncIteration:
-    {is_complete:id} = True
-if {is_complete:id}:
+while True:
+    {target_tmp:id} = await __dp__.anext_or_sentinel({iter_name:id})
+    if {target_tmp:id} is __dp__.ITER_COMPLETE:
+        break
+    {target:expr} = {target_tmp:id}
+    {body:stmt}
+else:
     {orelse:stmt}
 "#,
-                iter_name = iter_name.as_str(),
+                iter_name = iter_tmp.as_str(),
                 iter = iter,
                 target = target,
                 body = body,
                 orelse = orelse,
-                is_complete = is_complete_name.as_str(),
+                target_tmp = target_tmp.as_str(),
             )
         } else {
             py_stmt!(
                 r#"
 {iter_name:id} = __dp__.iter({iter:expr})
-{is_complete:id} = False
-try:
-    while True:
-        {target:expr} = __dp__.next({iter_name:id})
-        {body:stmt}
-except StopIteration:
-    {is_complete:id} = True
-if {is_complete:id}:
+while True:
+    {target_tmp:id} = __dp__.next_or_sentinel({iter_name:id})
+    if {target_tmp:id} is __dp__.ITER_COMPLETE:
+        break
+    {target:expr} = {target_tmp:id}
+    {body:stmt}
+else:
     {orelse:stmt}
 "#,
-                iter_name = iter_name.as_str(),
+                iter_name = iter_tmp.as_str(),
                 iter = iter,
                 target = target,
                 body = body,
                 orelse = orelse,
-                is_complete = is_complete_name.as_str(),
+                target_tmp = target_tmp.as_str(),
             )
-        });
-    }
-
-    Rewrite::Visit(if is_async {
-        py_stmt!(
-            r#"
-{iter_name:id} = __dp__.aiter({iter:expr})
-try:
-    while True:
-        {target:expr} = await __dp__.anext({iter_name:id})
-        {body:stmt}
-except StopAsyncIteration:
-    pass
-"#,
-            iter_name = iter_name.as_str(),
-            iter = iter,
-            target = target,
-            body = body,
-        )
-    } else {
-        py_stmt!(
-            r#"
-{iter_name:id} = __dp__.iter({iter:expr})
-try:
-    while True:
-        {target:expr} = __dp__.next({iter_name:id})
-        {body:stmt}
-except StopIteration:
-    pass
-"#,
-            iter_name = iter_name.as_str(),
-            iter = iter,
-            target = target,
-            body = body,
-        )
-    })
+        })
 }
 
 pub fn rewrite_while(context: &Context, while_stmt: ast::StmtWhile) -> Rewrite {

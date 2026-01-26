@@ -43,7 +43,7 @@ pub fn class_body_load(name: &str) -> Expr {
 
 pub fn rewrite<'a>(
     context: &Context,
-    scope: &'a mut Scope<'a>,
+    scope: &Scope,
     ast::StmtClassDef {
     name,
     mut body,
@@ -85,7 +85,7 @@ fn class_def_to_create_class_fn<'a>(
     type_params: Option<Box<TypeParams>>,
     class_qualname: String,
     context: &Context,
-    scope: &'a mut Scope<'a>,
+    scope: &Scope,
 ) -> Vec<Stmt> {
     let class_name = name.id.to_string();
     if log_enabled!(Level::Trace) {

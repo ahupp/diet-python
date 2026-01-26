@@ -191,17 +191,17 @@ else:
 =
 
 _dp_iter_1 = __dp__.iter(it)
-_dp_is_complete_2 = False
-try:
-    while True:
-        x = __dp__.next(_dp_iter_1)
-        body()
-except:
-    if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
-        _dp_is_complete_2 = True
-    else:
-        raise
-if _dp_is_complete_2:
+while True:
+    _dp_test_flag_3 = True
+    if __dp__.not_(_dp_test_flag_3):
+        break
+    _dp_tmp_2 = __dp__.next_or_sentinel(_dp_iter_1)
+    _dp_target_4 = __dp__.is_(_dp_tmp_2, __dp__.ITER_COMPLETE)
+    if _dp_target_4:
+        break
+    x = _dp_tmp_2
+    body()
+if _dp_test_flag_3:
     done()
 
 $ while_else
@@ -228,23 +228,18 @@ with cm as x:
 
 =
 
-_dp_tmp_3 = __dp__.with_enter(cm)
-try:
-    _dp_tmp_4 = __dp__.unpack(_dp_tmp_3, (True, True))
-    x = __dp__.getitem(_dp_tmp_4, 0)
-    _dp_with_exit_1 = __dp__.getitem(_dp_tmp_4, 1)
-finally:
-    _dp_tmp_4 = None
-    _dp_tmp_3 = None
+_dp_tmp_3 = cm
+_dp_with_exit_1 = __dp__.contextmanager_get_exit(_dp_tmp_3)
+x = __dp__.contextmanager_enter(_dp_tmp_3)
 _dp_with_ok_2 = True
 try:
     body()
 except:
     _dp_with_ok_2 = False
-    __dp__.with_exit(_dp_with_exit_1, __dp__.exc_info())
+    __dp__.contextmanager_exit(_dp_with_exit_1, __dp__.exc_info())
 finally:
     if _dp_with_ok_2:
-        __dp__.with_exit(_dp_with_exit_1, None)
+        __dp__.contextmanager_exit(_dp_with_exit_1, None)
     _dp_with_exit_1 = None
 
 $ function_local_ann_assign
@@ -270,52 +265,44 @@ zs = {k: v for k, v in items}
 def _dp_comp_1(_dp_iter_2):
     _dp_result_3 = __dp__.list()
     _dp_iter_4 = __dp__.iter(_dp_iter_2)
-    try:
-        while True:
-            x = __dp__.next(_dp_iter_4)
-            _dp_result_3.append(x)
-    except:
-        if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
-            pass
-        else:
-            raise
+    while True:
+        _dp_tmp_5 = __dp__.next_or_sentinel(_dp_iter_4)
+        _dp_target_6 = __dp__.is_(_dp_tmp_5, __dp__.ITER_COMPLETE)
+        if _dp_target_6:
+            break
+        x = _dp_tmp_5
+        _dp_result_3.append(x)
     return _dp_result_3
 xs = _dp_comp_1(it)
-def _dp_comp_5(_dp_iter_6):
-    _dp_result_7 = __dp__.set()
-    _dp_iter_8 = __dp__.iter(_dp_iter_6)
-    try:
-        while True:
-            x = __dp__.next(_dp_iter_8)
-            _dp_result_7.add(x)
-    except:
-        if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
-            pass
-        else:
-            raise
-    return _dp_result_7
-ys = _dp_comp_5(it)
-def _dp_comp_9(_dp_iter_10):
-    _dp_result_11 = __dp__.dict()
-    _dp_iter_12 = __dp__.iter(_dp_iter_10)
-    try:
-        while True:
-            _dp_tmp_13 = __dp__.next(_dp_iter_12)
-            try:
-                _dp_tmp_14 = __dp__.unpack(_dp_tmp_13, (True, True))
-                k = __dp__.getitem(_dp_tmp_14, 0)
-                v = __dp__.getitem(_dp_tmp_14, 1)
-            finally:
-                _dp_tmp_14 = None
-                _dp_tmp_13 = None
-            __dp__.setitem(_dp_result_11, k, v)
-    except:
-        if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
-            pass
-        else:
-            raise
-    return _dp_result_11
-zs = _dp_comp_9(items)
+def _dp_comp_7(_dp_iter_8):
+    _dp_result_9 = __dp__.set()
+    _dp_iter_10 = __dp__.iter(_dp_iter_8)
+    while True:
+        _dp_tmp_11 = __dp__.next_or_sentinel(_dp_iter_10)
+        _dp_target_12 = __dp__.is_(_dp_tmp_11, __dp__.ITER_COMPLETE)
+        if _dp_target_12:
+            break
+        x = _dp_tmp_11
+        _dp_result_9.add(x)
+    return _dp_result_9
+ys = _dp_comp_7(it)
+def _dp_comp_13(_dp_iter_14):
+    _dp_result_15 = __dp__.dict()
+    _dp_iter_16 = __dp__.iter(_dp_iter_14)
+    while True:
+        _dp_tmp_17 = __dp__.next_or_sentinel(_dp_iter_16)
+        _dp_target_18 = __dp__.is_(_dp_tmp_17, __dp__.ITER_COMPLETE)
+        if _dp_target_18:
+            break
+        try:
+            _dp_tmp_19 = __dp__.unpack(_dp_tmp_17, (True, True))
+            k = __dp__.getitem(_dp_tmp_19, 0)
+            v = __dp__.getitem(_dp_tmp_19, 1)
+        finally:
+            _dp_tmp_19 = None
+        __dp__.setitem(_dp_result_15, k, v)
+    return _dp_result_15
+zs = _dp_comp_13(items)
 
 $ comprehension_in_function
 
@@ -330,16 +317,14 @@ def f():
     def _dp_comp_2(_dp_iter_3):
         _dp_result_4 = __dp__.list()
         _dp_iter_5 = __dp__.iter(_dp_iter_3)
-        try:
-            while True:
-                x = __dp__.next(_dp_iter_5)
-                if _dp_target_1:
-                    _dp_result_4.append(x)
-        except:
-            if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
-                pass
-            else:
-                raise
+        while True:
+            _dp_tmp_6 = __dp__.next_or_sentinel(_dp_iter_5)
+            _dp_target_7 = __dp__.is_(_dp_tmp_6, __dp__.ITER_COMPLETE)
+            if _dp_target_7:
+                break
+            x = _dp_tmp_6
+            if _dp_target_1:
+                _dp_result_4.append(x)
         return _dp_result_4
     return _dp_comp_2(it)
 
@@ -359,15 +344,13 @@ def _dp_class_create_C():
         def _dp_comp_2(_dp_iter_3):
             _dp_result_4 = __dp__.list()
             _dp_iter_5 = __dp__.iter(_dp_iter_3)
-            try:
-                while True:
-                    x = __dp__.next(_dp_iter_5)
-                    _dp_result_4.append(__dp__.class_lookup_cell(_dp_class_ns, "x", x))
-            except:
-                if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
-                    pass
-                else:
-                    raise
+            while True:
+                _dp_tmp_6 = __dp__.next_or_sentinel(_dp_iter_5)
+                _dp_target_7 = __dp__.is_(_dp_tmp_6, __dp__.ITER_COMPLETE)
+                if _dp_target_7:
+                    break
+                x = _dp_tmp_6
+                _dp_result_4.append(__dp__.class_lookup_cell(_dp_class_ns, "x", x))
             return _dp_result_4
         __dp__.setitem(_dp_class_ns, "xs", _dp_comp_2(__dp__.class_lookup_cell(_dp_class_ns, "it", it)))
 
@@ -389,41 +372,31 @@ with a as x, b as y:
 
 =
 
-_dp_tmp_5 = __dp__.with_enter(a)
+_dp_tmp_6 = a
+_dp_with_exit_4 = __dp__.contextmanager_get_exit(_dp_tmp_6)
+x = __dp__.contextmanager_enter(_dp_tmp_6)
+_dp_with_ok_5 = True
 try:
-    _dp_tmp_6 = __dp__.unpack(_dp_tmp_5, (True, True))
-    x = __dp__.getitem(_dp_tmp_6, 0)
-    _dp_with_exit_3 = __dp__.getitem(_dp_tmp_6, 1)
-finally:
-    _dp_tmp_6 = None
-    _dp_tmp_5 = None
-_dp_with_ok_4 = True
-try:
-    _dp_tmp_7 = __dp__.with_enter(b)
-    try:
-        _dp_tmp_8 = __dp__.unpack(_dp_tmp_7, (True, True))
-        y = __dp__.getitem(_dp_tmp_8, 0)
-        _dp_with_exit_1 = __dp__.getitem(_dp_tmp_8, 1)
-    finally:
-        _dp_tmp_8 = None
-        _dp_tmp_7 = None
+    _dp_tmp_3 = b
+    _dp_with_exit_1 = __dp__.contextmanager_get_exit(_dp_tmp_3)
+    y = __dp__.contextmanager_enter(_dp_tmp_3)
     _dp_with_ok_2 = True
     try:
         body()
     except:
         _dp_with_ok_2 = False
-        __dp__.with_exit(_dp_with_exit_1, __dp__.exc_info())
+        __dp__.contextmanager_exit(_dp_with_exit_1, __dp__.exc_info())
     finally:
         if _dp_with_ok_2:
-            __dp__.with_exit(_dp_with_exit_1, None)
+            __dp__.contextmanager_exit(_dp_with_exit_1, None)
         _dp_with_exit_1 = None
 except:
-    _dp_with_ok_4 = False
-    __dp__.with_exit(_dp_with_exit_3, __dp__.exc_info())
+    _dp_with_ok_5 = False
+    __dp__.contextmanager_exit(_dp_with_exit_4, __dp__.exc_info())
 finally:
-    if _dp_with_ok_4:
-        __dp__.with_exit(_dp_with_exit_3, None)
-    _dp_with_exit_3 = None
+    if _dp_with_ok_5:
+        __dp__.contextmanager_exit(_dp_with_exit_4, None)
+    _dp_with_exit_4 = None
 
 $ async_for
 
@@ -435,15 +408,13 @@ async def run():
 
 async def run():
     _dp_iter_1 = __dp__.aiter(ait)
-    try:
-        while True:
-            x = await __dp__.anext(_dp_iter_1)
-            body()
-    except:
-        if __dp__.exception_matches(__dp__.current_exception(), StopAsyncIteration):
-            pass
-        else:
-            raise
+    while True:
+        _dp_tmp_2 = await __dp__.anext_or_sentinel(_dp_iter_1)
+        _dp_target_3 = __dp__.is_(_dp_tmp_2, __dp__.ITER_COMPLETE)
+        if _dp_target_3:
+            break
+        x = _dp_tmp_2
+        body()
 
 $ async_with
 
@@ -454,23 +425,18 @@ async def run():
 =
 
 async def run():
-    _dp_tmp_3 = await __dp__.with_aenter(cm)
-    try:
-        _dp_tmp_4 = __dp__.unpack(_dp_tmp_3, (True, True))
-        x = __dp__.getitem(_dp_tmp_4, 0)
-        _dp_with_exit_1 = __dp__.getitem(_dp_tmp_4, 1)
-    finally:
-        _dp_tmp_4 = None
-        _dp_tmp_3 = None
+    _dp_tmp_3 = cm
+    _dp_with_exit_1 = __dp__.asynccontextmanager_get_aexit(_dp_tmp_3)
+    x = await __dp__.asynccontextmanager_aenter(_dp_tmp_3)
     _dp_with_ok_2 = True
     try:
         body()
     except:
         _dp_with_ok_2 = False
-        await __dp__.with_aexit(_dp_with_exit_1, __dp__.exc_info())
+        await __dp__.asynccontextmanager_aexit(_dp_with_exit_1, __dp__.exc_info())
     finally:
         if _dp_with_ok_2:
-            await __dp__.with_aexit(_dp_with_exit_1, None)
+            await __dp__.asynccontextmanager_aexit(_dp_with_exit_1, None)
         _dp_with_exit_1 = None
 
 $ match_simple
@@ -517,24 +483,19 @@ with Suppress():
 
 =
 
-_dp_tmp_3 = __dp__.with_enter(Suppress())
-try:
-    _dp_tmp_4 = __dp__.unpack(_dp_tmp_3, (True, True))
-    _ = __dp__.getitem(_dp_tmp_4, 0)
-    _dp_with_exit_1 = __dp__.getitem(_dp_tmp_4, 1)
-finally:
-    _dp_tmp_4 = None
-    _dp_tmp_3 = None
-_dp_with_ok_2 = True
+_dp_tmp_4 = Suppress()
+_dp_with_exit_2 = __dp__.contextmanager_get_exit(_dp_tmp_4)
+_dp_tmp_1 = __dp__.contextmanager_enter(_dp_tmp_4)
+_dp_with_ok_3 = True
 try:
     raise RuntimeError("boom")
 except:
-    _dp_with_ok_2 = False
-    __dp__.with_exit(_dp_with_exit_1, __dp__.exc_info())
+    _dp_with_ok_3 = False
+    __dp__.contextmanager_exit(_dp_with_exit_2, __dp__.exc_info())
 finally:
-    if _dp_with_ok_2:
-        __dp__.with_exit(_dp_with_exit_1, None)
-    _dp_with_exit_1 = None
+    if _dp_with_ok_3:
+        __dp__.contextmanager_exit(_dp_with_exit_2, None)
+    _dp_with_exit_2 = None
 
 $ closure_cell_simple
 

@@ -122,15 +122,13 @@ x = (i for i in it)
 
 def _dp_gen_1(_dp_iter_2):
     _dp_iter_3 = __dp__.iter(_dp_iter_2)
-    try:
-        while True:
-            i = __dp__.next(_dp_iter_3)
-            yield i
-    except:
-        if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
-            pass
-        else:
-            raise
+    while True:
+        _dp_tmp_4 = __dp__.next_or_sentinel(_dp_iter_3)
+        _dp_target_5 = __dp__.is_(_dp_tmp_4, __dp__.ITER_COMPLETE)
+        if _dp_target_5:
+            break
+        i = _dp_tmp_4
+        yield i
 x = _dp_gen_1(it)
 
 $ list_literal
@@ -190,15 +188,13 @@ x = [i for i in it]
 def _dp_comp_1(_dp_iter_2):
     _dp_result_3 = __dp__.list()
     _dp_iter_4 = __dp__.iter(_dp_iter_2)
-    try:
-        while True:
-            i = __dp__.next(_dp_iter_4)
-            _dp_result_3.append(i)
-    except:
-        if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
-            pass
-        else:
-            raise
+    while True:
+        _dp_tmp_5 = __dp__.next_or_sentinel(_dp_iter_4)
+        _dp_target_6 = __dp__.is_(_dp_tmp_5, __dp__.ITER_COMPLETE)
+        if _dp_target_6:
+            break
+        i = _dp_tmp_5
+        _dp_result_3.append(i)
     return _dp_result_3
 x = _dp_comp_1(it)
 
@@ -211,15 +207,13 @@ x = {i for i in it}
 def _dp_comp_1(_dp_iter_2):
     _dp_result_3 = __dp__.set()
     _dp_iter_4 = __dp__.iter(_dp_iter_2)
-    try:
-        while True:
-            i = __dp__.next(_dp_iter_4)
-            _dp_result_3.add(i)
-    except:
-        if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
-            pass
-        else:
-            raise
+    while True:
+        _dp_tmp_5 = __dp__.next_or_sentinel(_dp_iter_4)
+        _dp_target_6 = __dp__.is_(_dp_tmp_5, __dp__.ITER_COMPLETE)
+        if _dp_target_6:
+            break
+        i = _dp_tmp_5
+        _dp_result_3.add(i)
     return _dp_result_3
 x = _dp_comp_1(it)
 
@@ -232,22 +226,18 @@ x = {k: v for k, v in it}
 def _dp_comp_1(_dp_iter_2):
     _dp_result_3 = __dp__.dict()
     _dp_iter_4 = __dp__.iter(_dp_iter_2)
-    try:
-        while True:
-            _dp_tmp_5 = __dp__.next(_dp_iter_4)
-            try:
-                _dp_tmp_6 = __dp__.unpack(_dp_tmp_5, (True, True))
-                k = __dp__.getitem(_dp_tmp_6, 0)
-                v = __dp__.getitem(_dp_tmp_6, 1)
-            finally:
-                _dp_tmp_6 = None
-                _dp_tmp_5 = None
-            __dp__.setitem(_dp_result_3, k, v)
-    except:
-        if __dp__.exception_matches(__dp__.current_exception(), StopIteration):
-            pass
-        else:
-            raise
+    while True:
+        _dp_tmp_5 = __dp__.next_or_sentinel(_dp_iter_4)
+        _dp_target_6 = __dp__.is_(_dp_tmp_5, __dp__.ITER_COMPLETE)
+        if _dp_target_6:
+            break
+        try:
+            _dp_tmp_7 = __dp__.unpack(_dp_tmp_5, (True, True))
+            k = __dp__.getitem(_dp_tmp_7, 0)
+            v = __dp__.getitem(_dp_tmp_7, 1)
+        finally:
+            _dp_tmp_7 = None
+        __dp__.setitem(_dp_result_3, k, v)
     return _dp_result_3
 x = _dp_comp_1(it)
 

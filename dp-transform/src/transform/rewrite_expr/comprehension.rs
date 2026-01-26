@@ -12,7 +12,7 @@ use ruff_python_ast::name::Name;
 use ruff_text_size::TextRange;
 
 
-pub(crate) fn rewrite_lambda<'a>(lambda: ast::ExprLambda, ctx: &Context, _scope: &'a Scope<'a>) -> LoweredExpr {
+pub(crate) fn rewrite_lambda(lambda: ast::ExprLambda, ctx: &Context, _scope: &Scope) -> LoweredExpr {
     let func_name = ctx.fresh("lambda");
 
     let ast::ExprLambda {
@@ -47,10 +47,10 @@ def {func_name:id}():
     LoweredExpr::modified(py_expr!("{func:id}", func = func_name.as_str()), buf)
 }
 
-pub(crate) fn rewrite_generator<'a>(
+pub(crate) fn rewrite_generator(
     generator: ast::ExprGenerator,
     ctx: &Context,
-    scope: &'a Scope<'a>,
+    scope: &Scope,
 ) -> LoweredExpr {
 
     let needs_async = comprehension_needs_async(&generator.elt, &generator.generators);
@@ -161,9 +161,9 @@ pub fn comprehension_needs_async(elt: &Expr, generators: &[ast::Comprehension]) 
     expr_contains_await(elt) || generators_need_async(generators)
 }
 
-pub fn rewrite<'a>(
+pub fn rewrite(
     context: &Context,
-    scope: &'a Scope<'a>,
+    scope: &Scope,
     elt: Expr,
     generators: Vec<ast::Comprehension>,
     container_type: &str,
@@ -309,9 +309,9 @@ fn collect_named_expr_targets(
     collector.names
 }
 
-fn classify_named_expr_targets<'a>(
+fn classify_named_expr_targets(
     names: &HashSet<String>,
-    scope: &'a Scope<'a>,
+    scope: &Scope,
 ) -> (Vec<String>, Vec<String>) {
     if names.is_empty() {
         return (Vec::new(), Vec::new());
