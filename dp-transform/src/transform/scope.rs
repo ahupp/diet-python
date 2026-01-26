@@ -144,6 +144,7 @@ pub struct Scope {
     kind: ScopeKind,
     bindings: ScopeBindings,
     tree: Arc<ScopeTree>,
+    child_nonlocals: Mutex<HashSet<String>>,
 }
 
 impl Scope {
@@ -194,6 +195,24 @@ impl Scope {
 
     pub fn child_scope_for_class(&self, class_def: &ast::StmtClassDef) -> Option<Arc<Scope>> {
         self.lookup_child_scope(class_def.node_index.load(), class_def.range)
+    }
+
+    pub fn child_nonlocal_names(&self) -> HashSet<String> {
+        self.child_nonlocals
+            .lock()
+            .expect("Scope child_nonlocals mutex poisoned")
+            .clone()
+    }
+
+    pub fn is_nonlocal_in_children(&self, name: &str) -> bool {
+        self.child_nonlocals
+            .lock()
+            .expect("Scope child_nonlocals mutex poisoned")
+            .contains(name)
+    }
+
+    pub fn binding_in_scope(&self, name: &str) -> Option<BindingKind> {
+        self.bindings.get(name).copied()
     }
 
     pub fn ensure_child_scope_for_function(
@@ -262,20 +281,6 @@ impl Scope {
 
     pub fn is_nonlocal(&self, name: &str) -> bool {
         self.binding_is(name, BindingKind::Nonlocal)
-    }
-
-    pub fn is_nonlocal_in_children(&self, name: &str) -> bool {
-        let mut stack = self.child_ids();
-        while let Some(child_id) = stack.pop() {
-            let Some(scope) = self.tree.get(child_id) else {
-                continue;
-            };
-            if matches!(scope.bindings.get(name), Some(BindingKind::Nonlocal)) {
-                return true;
-            }
-            stack.extend(scope.child_ids());
-        }
-        false
     }
 
     fn binding_is(&self, name: &str, scope: BindingKind) -> bool {
