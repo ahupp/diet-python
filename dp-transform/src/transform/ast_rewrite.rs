@@ -59,22 +59,37 @@ pub fn rewrite_with_pass<'a, P: RewritePass>(
     stmts: &mut Vec<Stmt>,
 ) {
     let pass_name = std::any::type_name::<P>();
-    if log_enabled!(Level::Trace) {
-        trace!("rewrite_with_pass start: {} stmts_len={}", pass_name, stmts.len());
-    }
-    let mut rloop = RewriteLoop {
-        context,
-        pass,
-        pass_name,
-        buf: Vec::new(),
-    };
-    rloop.visit_body(stmts);
-    if log_enabled!(Level::Trace) {
-        trace!(
-            "rewrite_with_pass end: {} stmts_len={}",
+    let mut iteration = 0usize;
+    loop {
+        iteration += 1;
+        if log_enabled!(Level::Trace) {
+            trace!(
+                "rewrite_with_pass iteration {} start: {} stmts_len={}",
+                iteration,
+                pass_name,
+                stmts.len()
+            );
+        }
+        let mut rloop = RewriteLoop {
+            context,
+            pass,
             pass_name,
-            stmts.len()
-        );
+            buf: Vec::new(),
+            modified: false,
+        };
+        rloop.visit_body(stmts);
+        if log_enabled!(Level::Trace) {
+            trace!(
+                "rewrite_with_pass iteration {} end: {} stmts_len={} modified={}",
+                iteration,
+                pass_name,
+                stmts.len(),
+                rloop.modified
+            );
+        }
+        if !rloop.modified {
+            break;
+        }
     }
 }
 
@@ -83,25 +98,27 @@ struct RewriteLoop<'a, P: RewritePass> {
     context: &'a Context,
     pass: &'a P,
     pass_name: &'static str,
+    modified: bool,
 }
 
 
 impl<'a, P: RewritePass> RewriteLoop<'a, P> {
-    fn process_statements(&mut self, initial: Vec<Stmt>) -> Vec<Stmt> {
-        enum WorkItem {
-            Process(Stmt),
-            Emit(Stmt),
+    fn flush_buffered(&mut self, output: &mut Vec<Stmt>) {
+        let buffered = take(&mut self.buf);
+        for mut stmt in buffered {
+            walk_stmt(self, &mut stmt);
+            self.flush_buffered(output);
+            output.push(stmt);
         }
+    }
 
-        let mut buf_stack = take(&mut self.buf);
-        buf_stack.extend(initial);
-
+    fn process_statements(&mut self, initial: Vec<Stmt>) -> Vec<Stmt> {
         let mut output = Vec::new();
-        let mut worklist: VecDeque<WorkItem> =
-            buf_stack.into_iter().map(WorkItem::Process).collect();
+        self.flush_buffered(&mut output);
 
         let mut steps = 0usize;
-        while let Some(item) = worklist.pop_front() {
+        let mut worklist: VecDeque<Stmt> = initial.into();
+        while let Some(stmt) = worklist.pop_front() {
             steps += 1;
             if log_enabled!(Level::Trace) {
                 trace!(
@@ -111,66 +128,48 @@ impl<'a, P: RewritePass> RewriteLoop<'a, P> {
                     worklist.len()
                 );
             }
-            match item {
-                WorkItem::Process(stmt) => {
-                    let original_range = stmt.range();
+            if log_enabled!(Level::Trace) {
+                trace!(
+                    "rewrite input (pass={} node_index={:?}): {}",
+                    self.pass_name,
+                    stmt.node_index(),
+                    crate::ruff_ast_to_string(&stmt),
+                );
+            }
+
+            let res = self.pass.lower_stmt(self.context, stmt);
+
+            match res {
+                Rewrite::Visit(stmts) => {
                     if log_enabled!(Level::Trace) {
                         trace!(
-                            "rewrite input (pass={} node_index={:?}): {}",
+                            "rewrite output (Visit, pass={}): {}",
                             self.pass_name,
-                            stmt.node_index(),
-                            crate::ruff_ast_to_string(&stmt),
+                            crate::ruff_ast_to_string(&stmts).trim_end()
                         );
                     }
-
-                    let res = self.pass.lower_stmt(self.context, stmt);
-
-                    match res {
-                        Rewrite::Visit(stmts) => {
-                            if log_enabled!(Level::Trace) {
-                                trace!(
-                                    "rewrite output (Visit, pass={}): {}",
-                                    self.pass_name,
-                                    crate::ruff_ast_to_string(&stmts).trim_end()
-                                );
-                            }
-                            let mut items: Vec<WorkItem> =
-                                take(&mut self.buf).into_iter().map(WorkItem::Process).collect();
-                            items.extend(stmts.into_iter().map(WorkItem::Process));
-                            for item in items.into_iter().rev() {
-                                worklist.push_front(item);
-                            }
-                        }
-                        Rewrite::Walk(stmts) => {
-                            if log_enabled!(Level::Trace) {
-                                trace!(
-                                    "rewrite output (Walk, pass={}): {}",
-                                    self.pass_name,
-                                    crate::ruff_ast_to_string(&stmts).trim_end()
-                                );
-                            }
-                            let mut items: Vec<WorkItem> =
-                                take(&mut self.buf).into_iter().map(WorkItem::Process).collect();
-                            for mut stmt in stmts {
-                                walk_stmt(self, &mut stmt);
-
-                                items.extend(
-                                    take(&mut self.buf)
-                                        .into_iter()
-                                        .map(WorkItem::Process),
-                                );
-                                items.push(WorkItem::Emit(stmt));
-                            }
-                            for item in items.into_iter().rev() {
-                                worklist.push_front(item);
-                            }
-                        }
-                    };
+                    self.modified = true;
+                    for mut stmt in stmts {
+                        walk_stmt(self, &mut stmt);
+                        self.flush_buffered(&mut output);
+                        output.push(stmt);
+                    }
                 }
-                WorkItem::Emit(stmt) => {
-                    output.push(stmt);
+                Rewrite::Walk(stmts) => {
+                    if log_enabled!(Level::Trace) {
+                        trace!(
+                            "rewrite output (Walk, pass={}): {}",
+                            self.pass_name,
+                            crate::ruff_ast_to_string(&stmts).trim_end()
+                        );
+                    }
+                    for mut stmt in stmts {
+                        walk_stmt(self, &mut stmt);
+                        self.flush_buffered(&mut output);
+                        output.push(stmt);
+                    }
                 }
-            }
+            };
         }
 
         output
@@ -287,38 +286,6 @@ pub trait RewritePass {
     }
 }
 
-
-fn apply_stmt_range(stmts: &mut [Stmt], range: TextRange) {
-    for stmt in stmts {
-        match stmt {
-            Stmt::FunctionDef(node) => node.range = range,
-            Stmt::ClassDef(node) => node.range = range,
-            Stmt::Return(node) => node.range = range,
-            Stmt::Delete(node) => node.range = range,
-            Stmt::TypeAlias(node) => node.range = range,
-            Stmt::Assign(node) => node.range = range,
-            Stmt::AugAssign(node) => node.range = range,
-            Stmt::AnnAssign(node) => node.range = range,
-            Stmt::For(node) => node.range = range,
-            Stmt::While(node) => node.range = range,
-            Stmt::If(node) => node.range = range,
-            Stmt::With(node) => node.range = range,
-            Stmt::Match(node) => node.range = range,
-            Stmt::Raise(node) => node.range = range,
-            Stmt::Try(node) => node.range = range,
-            Stmt::Assert(node) => node.range = range,
-            Stmt::Import(node) => node.range = range,
-            Stmt::ImportFrom(node) => node.range = range,
-            Stmt::Global(node) => node.range = range,
-            Stmt::Nonlocal(node) => node.range = range,
-            Stmt::Expr(node) => node.range = range,
-            Stmt::Pass(node) => node.range = range,
-            Stmt::Break(node) => node.range = range,
-            Stmt::Continue(node) => node.range = range,
-            Stmt::IpyEscapeCommand(node) => node.range = range,
-        }
-    }
-}
 
 fn apply_expr_range(expr: &mut Expr, range: TextRange) {
     match expr {
