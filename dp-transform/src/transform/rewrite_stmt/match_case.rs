@@ -39,7 +39,7 @@ fn trace_expr(label: &str, expr: &Expr) {
         range: TextRange::default(),
         node_index: ast::AtomicNodeIndex::default(),
     });
-    trace!("{label}: {}", ruff_ast_to_string(&[stmt]).trim_end());
+    trace!("{label}: {}", ruff_ast_to_string(&stmt).trim_end());
 }
 
 fn test_for_pattern(pattern: &Pattern, subject: Expr) -> PatternTest {

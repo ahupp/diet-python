@@ -16,4 +16,4 @@ def get_traceback():
 
 def validate(module):
     traceback_text = module.get_traceback()
-    assert 'raise RuntimeError$0("boom")' in traceback_text
+    assert 'getattr(Boom(), "explode")()' in traceback_text

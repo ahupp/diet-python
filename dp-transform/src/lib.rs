@@ -1,10 +1,11 @@
 #[cfg(target_arch = "wasm32")]
 use js_sys::{Array, Object, Reflect};
-use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
+use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_python_parser::parse_module;
 pub use ruff_python_parser::ParseError;
 use ruff_source_file::LineEnding;
+use ruff_text_size::TextRange;
 use std::sync::Once;
 use std::time::{Duration, Instant};
 #[cfg(target_arch = "wasm32")]
@@ -54,6 +55,7 @@ pub mod body_transform;
 pub mod ensure_import;
 pub mod fixture;
 pub mod min_ast;
+mod namegen;
 mod template;
 #[cfg(test)]
 mod test_util;
@@ -111,6 +113,7 @@ pub fn transform_str_to_ruff_with_options(
     options: Options,
 ) -> Result<LoweringResult, ParseError> {
     init_logging();
+    namegen::reset_namegen_state();
 
     let total_start = Instant::now();
 
@@ -136,8 +139,6 @@ pub fn transform_str_to_ruff_with_options(
     rewrite_module(&ctx, &mut module.body);
     let rewrite_time = rewrite_start.elapsed();
 
-    let _ = min_ast::Module::from(module.clone());
-
     let timings = TransformTimings {
         parse_time,
         rewrite_time,
@@ -151,14 +152,55 @@ pub fn transform_str_to_ruff_with_options(
 }
 
 
+
+trait ToRuffAst {
+    fn to_ruff_ast(&self) -> Vec<Stmt>;
+}
+
+impl ToRuffAst for Expr {
+    fn to_ruff_ast(&self) -> Vec<Stmt> {
+        vec![Stmt::Expr(ast::StmtExpr { value: Box::new(self.clone()), range: TextRange::default(), node_index: ast::AtomicNodeIndex::default() })]
+    }
+}
+
+impl ToRuffAst for Stmt {
+    fn to_ruff_ast(&self) -> Vec<Stmt> {
+        vec![self.clone()]
+    }
+}
+
+impl ToRuffAst for &Stmt {
+
+    fn to_ruff_ast(&self) -> Vec<Stmt> {
+        vec![self.to_owned().clone()]
+    }
+}
+
+
+impl ToRuffAst for &Vec<Stmt> {
+    fn to_ruff_ast(&self) -> Vec<Stmt> {
+        self.to_vec()
+    }
+}
+
+
+
+impl ToRuffAst for &Expr {
+    fn to_ruff_ast(&self) -> Vec<Stmt> {
+        let expr = self.to_owned().clone();
+        vec![Stmt::Expr(ast::StmtExpr { value: Box::new(expr), range: TextRange::default(), node_index: ast::AtomicNodeIndex::default() })]
+    }        
+}
+
 /// Convert a ruff AST ModModule to a pretty-printed string.
-pub fn ruff_ast_to_string(module: &[Stmt]) -> String {
+pub fn ruff_ast_to_string(module: impl ToRuffAst) -> String {
+    let module = module.to_ruff_ast();
     // Use default stylist settings for pretty printing
     let indent = Indentation::new("    ".to_string());
     let mut output = String::new();
     for stmt in module {
         let gen = Generator::new(&indent, LineEnding::default());
-        output.push_str(&gen.stmt(stmt));
+        output.push_str(&gen.stmt(&stmt));
         output.push_str(LineEnding::default().as_str());
     }
     output
@@ -226,4 +268,3 @@ fn wasm_options_from_selected(transforms: &Array) -> Options {
     }
     options
 }
-

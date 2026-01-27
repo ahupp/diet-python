@@ -119,7 +119,7 @@ impl<'a, P: RewritePass> RewriteLoop<'a, P> {
                             "rewrite input (pass={} node_index={:?}): {}",
                             self.pass_name,
                             stmt.node_index(),
-                            crate::ruff_ast_to_string(std::slice::from_ref(&stmt)).trim_end()
+                            crate::ruff_ast_to_string(&stmt),
                         );
                     }
 
@@ -153,6 +153,7 @@ impl<'a, P: RewritePass> RewriteLoop<'a, P> {
                                 take(&mut self.buf).into_iter().map(WorkItem::Process).collect();
                             for mut stmt in stmts {
                                 walk_stmt(self, &mut stmt);
+
                                 items.extend(
                                     take(&mut self.buf)
                                         .into_iter()
@@ -204,7 +205,7 @@ impl<'a, P: RewritePass> Transformer for RewriteLoop<'a, P> {
                     "lower_expr iteration {} pass={} input: {}",
                     iteration,
                     self.pass_name,
-                    ruff_ast_to_string(&[es]).trim_end()
+                    ruff_ast_to_string(&es).trim_end()
                 );
             }
             lowered = self.pass.lower_expr(self.context, current);
@@ -218,7 +219,7 @@ impl<'a, P: RewritePass> Transformer for RewriteLoop<'a, P> {
                     "lower_expr iteration {} pass={} output: {}",
                     iteration,
                     self.pass_name,
-                    ruff_ast_to_string(&[es]).trim_end()
+                    ruff_ast_to_string(&es).trim_end()
                 );
             }
 
@@ -246,15 +247,20 @@ impl<'a, P: RewritePass> Transformer for RewriteLoop<'a, P> {
                 trace!(
                     "walk_expr (pass={}): {}",
                     self.pass_name,
-                    ruff_ast_to_string(&[Stmt::Expr(ast::StmtExpr {
-                        value: Box::new(current.clone()),
-                        range: original_range,
-                        node_index: ast::AtomicNodeIndex::default(),
-                    })])
+                    ruff_ast_to_string(&current)
                     .trim_end()
                 );
             }
-            walk_expr(self, &mut current);
+            if !matches!(
+                current,
+                Expr::Lambda(_)
+                    | Expr::Generator(_)
+                    | Expr::ListComp(_)
+                    | Expr::SetComp(_)
+                    | Expr::DictComp(_)
+            ) {
+                walk_expr(self, &mut current);
+            }
         }
         *expr_input = current;
     }
@@ -276,6 +282,9 @@ impl<'a, P: RewritePass> Transformer for RewriteLoop<'a, P> {
 pub trait RewritePass {
     fn lower_stmt(&self, context: &Context, stmt: Stmt) -> Rewrite;
     fn lower_expr(&self, context: &Context, expr: Expr) -> LoweredExpr;
+    fn should_walk(&self, _stmt: &Stmt) -> bool {
+        true
+    }
 }
 
 

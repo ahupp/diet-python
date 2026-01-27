@@ -69,6 +69,7 @@ macro_rules! py_stmt {
 
 use crate::{
     body_transform::{walk_expr, walk_keyword, walk_parameter, walk_stmt, Transformer},
+    namegen::fresh_name,
     ruff_ast_to_string,
 };
 use regex::Regex;
@@ -212,6 +213,7 @@ pub(crate) fn var_for_placeholder(name: &str, ty: PlaceholderType) -> String {
         PlaceholderType::Stmt => format!("_dp_placeholder_stmt_{}__", name),
         PlaceholderType::Identifier => format!("_dp_placeholder_id_{}__", name),
         PlaceholderType::Literal => format!("_dp_placeholder_literal_{}__", name),
+        PlaceholderType::TmpName => format!("_dp_placeholder_tmpname_{}__", name),
     }
 }
 
@@ -221,6 +223,7 @@ pub(crate) enum PlaceholderType {
     Stmt,
     Identifier,
     Literal,
+    TmpName,
 }
 
 #[derive(Clone, Debug)]
@@ -239,6 +242,7 @@ impl SyntaxTemplate {
                     "stmt" => PlaceholderType::Stmt,
                     "id" => PlaceholderType::Identifier,
                     "literal" => PlaceholderType::Literal,
+                    "tmpname" => PlaceholderType::TmpName,
                     other => panic!("unknown placeholder type `{other}` for `{name}`"),
                 };
                 var_for_placeholder(name, ty)
@@ -272,6 +276,7 @@ impl SyntaxTemplate {
 struct PlaceholderReplacer {
     values: HashMap<String, PlaceholderValue>,
     ids: HashMap<String, Value>,
+    tmpnames: HashMap<String, String>,
     used_ids: HashSet<String>,
     errors: Vec<String>,
 }
@@ -281,6 +286,7 @@ impl PlaceholderReplacer {
         Self {
             values,
             ids,
+            tmpnames: HashMap::new(),
             used_ids: HashSet::new(),
             errors: Vec::new(),
         }
@@ -293,6 +299,7 @@ impl PlaceholderReplacer {
                 "stmt" => PlaceholderType::Stmt,
                 "id" => PlaceholderType::Identifier,
                 "literal" => PlaceholderType::Literal,
+                "tmpname" => PlaceholderType::TmpName,
                 other => panic!("unknown placeholder type `{other}`"),
             };
             let name = caps.name("name").unwrap().as_str();
@@ -322,12 +329,25 @@ impl PlaceholderReplacer {
         }
     }
 
+    fn get_tmpname(&mut self, name: &str) -> String {
+        if let Some(value) = self.tmpnames.get(name) {
+            return value.clone();
+        }
+        let value = fresh_name("tmp");
+        self.tmpnames.insert(name.to_string(), value.clone());
+        value
+    }
+
     fn replace_identifier(&mut self, identifier: &mut ast::Identifier) {
         if let Some((ty, name)) = self.parse_placeholder(identifier.id.as_str()) {
             match ty {
                 PlaceholderType::Identifier => {
                     let value = self.get_id(name);
                     identifier.id = identifier_string(name, value).into();
+                    return;
+                }
+                PlaceholderType::TmpName => {
+                    identifier.id = self.get_tmpname(name).into();
                     return;
                 }
                 PlaceholderType::Literal | PlaceholderType::Expr | PlaceholderType::Stmt => {
@@ -350,6 +370,10 @@ impl PlaceholderReplacer {
                     "id" => {
                         let value = self.get_id(name);
                         result.push_str(&identifier_string(name, value));
+                    }
+                    "tmpname" => {
+                        let value = self.get_tmpname(name);
+                        result.push_str(&value);
                     }
                     other => panic!("unsupported placeholder type `{other}` in identifier"),
                 }
@@ -381,6 +405,10 @@ impl PlaceholderReplacer {
                     "id" => {
                         let value = self.get_id(placeholder);
                         result.push_str(&identifier_string(placeholder, value));
+                    }
+                    "tmpname" => {
+                        let value = self.get_tmpname(placeholder);
+                        result.push_str(&value);
                     }
                     other => panic!("unsupported placeholder type `{other}` in name"),
                 }
@@ -435,6 +463,11 @@ impl Transformer for PlaceholderReplacer {
                         PlaceholderType::Identifier => {
                             let value = self.get_id(name);
                             *expr = identifier_expr(name, value);
+                            return;
+                        }
+                        PlaceholderType::TmpName => {
+                            let value = self.get_tmpname(name);
+                            *expr = identifier_expr(name, Value::String(value));
                             return;
                         }
                         PlaceholderType::Literal => {
@@ -534,7 +567,7 @@ impl Transformer for PlaceholderReplacer {
 fn placeholder_regex() -> &'static Regex {
     static REGEX: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
-            r"^_dp_placeholder_(?P<ty>expr|stmt|id|literal)_(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)__$",
+            r"^_dp_placeholder_(?P<ty>expr|stmt|id|literal|tmpname)_(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)__$",
         )
         .unwrap()
     });
@@ -551,7 +584,7 @@ fn placeholder_template_regex() -> &'static Regex {
 fn placeholder_text_regex() -> &'static Regex {
     static REGEX: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
-            r"_dp_placeholder_(?P<ty>expr|stmt|id|literal)_(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)__",
+            r"_dp_placeholder_(?P<ty>expr|stmt|id|literal|tmpname)_(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)__",
         )
         .unwrap()
     });
@@ -717,7 +750,7 @@ mod tests {
     use ruff_python_ast::{
         self as ast,
         comparable::{ComparableExpr, ComparableStmt},
-        Stmt,
+        Expr, Stmt,
     };
     use ruff_python_parser::{parse_expression, parse_module};
 
@@ -744,6 +777,55 @@ mod tests {
         let expr = py_expr!("{name:id} + {name:id}", name = "x");
         let expected = *parse_expression("x + x").unwrap().into_syntax().body;
         assert_eq!(ComparableExpr::from(&expr), ComparableExpr::from(&expected));
+    }
+
+    #[test]
+    fn inserts_tmpname() {
+        fn assign_name(stmt: &Stmt) -> String {
+            match stmt {
+                Stmt::Assign(ast::StmtAssign { targets, .. }) => match &targets[0] {
+                    Expr::Name(ast::ExprName { id, .. }) => id.as_str().to_string(),
+                    other => panic!("expected name target, got {other:?}"),
+                },
+                other => panic!("expected assign, got {other:?}"),
+            }
+        }
+
+        let stmts = py_stmt!(
+            "
+{tmp:tmpname} = 1
+{tmp:tmpname} = 2
+",
+        );
+        let first = assign_name(&stmts[0]);
+        let second = assign_name(&stmts[1]);
+        assert!(first.starts_with("_dp_tmp_"));
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn tmpname_is_distinct_per_placeholder() {
+        fn assign_name(stmt: &Stmt) -> String {
+            match stmt {
+                Stmt::Assign(ast::StmtAssign { targets, .. }) => match &targets[0] {
+                    Expr::Name(ast::ExprName { id, .. }) => id.as_str().to_string(),
+                    other => panic!("expected name target, got {other:?}"),
+                },
+                other => panic!("expected assign, got {other:?}"),
+            }
+        }
+
+        let stmts = py_stmt!(
+            "
+{left:tmpname} = 1
+{right:tmpname} = 2
+",
+        );
+        let left = assign_name(&stmts[0]);
+        let right = assign_name(&stmts[1]);
+        assert_ne!(left, right);
+        assert!(left.starts_with("_dp_tmp_"));
+        assert!(right.starts_with("_dp_tmp_"));
     }
 
     #[test]

@@ -5,6 +5,7 @@ pub(crate) mod driver;
 pub(crate) mod rewrite_class_def;
 pub(crate) mod rewrite_future_annotations;
 pub(crate) mod rewrite_import;
+pub(crate) mod rewrite_names;
 pub(crate) mod rewrite_stmt;
 pub(crate) mod rewrite_expr;
 pub(crate) mod simplify;
@@ -33,7 +34,7 @@ impl Default for Options {
         Self {
             import_star_handling: ImportStarHandling::Allowed,
             inject_import: true,
-            lower_attributes: true,
+            lower_attributes: false,
             cpython: false,
             truthy: false,
             cleanup_dp_globals: true,

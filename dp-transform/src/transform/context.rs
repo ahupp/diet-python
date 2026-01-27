@@ -1,5 +1,3 @@
-use std::cell::{Cell};
-
 use ruff_python_ast::{ Expr, Stmt};
 
 use super::Options;
@@ -7,27 +5,9 @@ use super::Options;
 use crate::transform::ast_rewrite::LoweredExpr;
 use crate::{py_expr, py_stmt};
 use crate::template::is_simple;
-
-pub struct Namer {
-    counter: Cell<usize>,
-}
-
-impl Namer {
-    pub fn new() -> Self {
-        Self {
-            counter: Cell::new(0),
-        }
-    }
-
-    pub fn fresh(&self, name: &str) -> String {
-        let id = self.counter.get() + 1;
-        self.counter.set(id);
-        format!("_dp_{name}_{id}")
-    }
-}
+use crate::namegen::fresh_name;
 
 pub struct Context {
-    pub namer: Namer,
     pub options: Options,
     pub source: String,
 }
@@ -36,14 +16,13 @@ pub struct Context {
 impl Context {
     pub fn new(options: Options, source: &str) -> Self {
         Self {
-            namer: Namer::new(),
             options,
             source: source.to_string(),
         }
     }
 
     pub(crate) fn tmpify(&self, name: &str, expr: Expr) -> LoweredExpr {
-        let tmp = self.namer.fresh(name);
+        let tmp = fresh_name(name);
         let assign = py_stmt!(
             "{tmp:id} = {expr:expr}",
             tmp = tmp.as_str(),
@@ -80,7 +59,7 @@ impl Context {
     }
 
     pub fn fresh(&self, name: &str) -> String {
-        self.namer.fresh(name)
+        fresh_name(name)
     }
 
 

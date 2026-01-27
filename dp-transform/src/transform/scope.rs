@@ -107,7 +107,7 @@ impl ScopeTree {
     }
 
     fn scope_for_stmt(&self, stmt: &Stmt) -> Option<Arc<Scope>> {
-        let mut inner = self.inner.lock().expect("ScopeTree mutex poisoned");
+        let inner = self.inner.lock().expect("ScopeTree mutex poisoned");
         let node_index = stmt.node_index().load();
         if node_index != NodeIndex::NONE {
             if let Some(id) = inner.node_index_map.get(&node_index).copied() {
@@ -122,7 +122,7 @@ impl ScopeTree {
     }
 
     fn scope_for_def(&self, node_index: NodeIndex, range: TextRange) -> Option<Arc<Scope>> {
-        let mut inner = self.inner.lock().expect("ScopeTree mutex poisoned");
+        let inner = self.inner.lock().expect("ScopeTree mutex poisoned");
         if node_index != NodeIndex::NONE {
             if let Some(id) = inner.node_index_map.get(&node_index).copied() {
                 return inner.scopes.get(id).cloned();
@@ -137,7 +137,7 @@ impl ScopeTree {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Scope {
     id: usize,
     parent_id: Option<usize>,
@@ -152,7 +152,14 @@ impl Scope {
         self.id
     }
 
+    pub fn kind(&self) -> &ScopeKind {
+        &self.kind
+    }
+
     pub fn make_qualname(&self, func_name: &str) -> String {
+        if self.is_global(func_name) {
+            return func_name.to_string();
+        }
         let mut components = vec![func_name.to_string()];
         let mut current = self.parent_scope();
 
@@ -165,6 +172,13 @@ impl Scope {
                 }
                 ScopeKind::Class { name } => {
                     components.push(name.clone());
+                    if scope
+                        .parent_scope()
+                        .as_ref()
+                        .is_some_and(|parent| parent.is_global(name))
+                    {
+                        break;
+                    }
                     current = scope.parent_scope();
                 }
                 ScopeKind::Module => {
@@ -513,9 +527,8 @@ impl ScopeAnalyzer {
             }) => {
                 self.visit_body(body, parent_id);
                 for handler in handlers {
-                    if let ast::ExceptHandler::ExceptHandler(handler) = handler {
-                        self.visit_body(&handler.body, parent_id);
-                    }
+                    let ast::ExceptHandler::ExceptHandler(handler) = handler;
+                    self.visit_body(&handler.body, parent_id);
                 }
                 self.visit_body(orelse, parent_id);
                 self.visit_body(finalbody, parent_id);

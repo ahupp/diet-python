@@ -73,12 +73,6 @@ def float_from_literal(literal):
 _MISSING = object()
 
 
-def class_lookup(class_ns, name, lookup_fn):
-    try:
-        return class_ns[name]
-    except KeyError:
-        return lookup_fn()
-
 
 def class_lookup_cell(class_ns, name, cell):
     try:
@@ -168,28 +162,8 @@ def unpack(iterable, spec):
     return tuple(result)
 
 
-def resolve_bases(bases):
-    return _types.resolve_bases(bases)
 
-def prepare_class(name, bases, kwds=None):
-    if kwds is None:
-        return _types.prepare_class(name, bases)
-    return _types.prepare_class(name, bases, kwds)
-
-
-
-_MISSING_CLASSCELL = object()
-_EMPTY_CLASSCELL = object()
 _MISSING_CELL = object()
-
-
-
-def make_classcell(value=_MISSING_CLASSCELL):
-    if value is _MISSING_CLASSCELL:
-        return _types.CellType()
-    def inner():
-        return value
-    return inner.__closure__[0]
 
 
 def make_cell(value=_MISSING_CELL):
@@ -199,8 +173,7 @@ def make_cell(value=_MISSING_CELL):
         return value
     return inner.__closure__[0]
 
-
-def load_deref(cell):
+def load_cell(cell):
     try:
         return cell.cell_contents
     except ValueError as exc:
@@ -210,6 +183,22 @@ def load_deref(cell):
 def store_deref(cell, value):
     cell.cell_contents = value
     return value
+
+
+def load_global(globals_dict, name):
+    try:
+        return globals_dict[name]
+    except KeyError:
+        try:
+            return builtins.__dict__[name]
+        except KeyError as exc:
+            raise NameError(f"name {name!r} is not defined") from exc
+
+
+def store_global(globals_dict, name, value):
+    globals_dict[name] = value
+    return value
+
 
 
 def del_deref(cell):
@@ -307,12 +296,12 @@ def init_lazy_imports():
 
 
 def create_class(name, namespace_fn, bases, kwds, requires_class_cell):
-    resolved_bases = resolve_bases(bases)
-    meta, ns, meta_kwds = prepare_class(name, resolved_bases, kwds)
+    resolved_bases = _types.resolve_bases(bases)
+    meta, ns, meta_kwds = _types.prepare_class(name, resolved_bases, kwds)
 
     class_cell = ns.get("__classcell__", None)
     if requires_class_cell and class_cell is None:
-        class_cell = make_classcell()
+        class_cell = make_cell()
         ns["__classcell__"] = class_cell
 
     namespace_fn(ns, class_cell)
@@ -429,7 +418,7 @@ async def anext_or_sentinel(iterator):
 
 def next_or_sentinel(iterator):
     try:
-        value = iterator.__next__()
+        return iterator.__next__()
     except AttributeError:
         iter_type = type(iterator).__name__
         iterator = None
@@ -437,8 +426,6 @@ def next_or_sentinel(iterator):
             "'for' received an object from __iter__ that does not implement __next__"
             f": {iter_type}"
         ) from None
-    try:
-        return iterator.__next__()
     except StopIteration:
         return ITER_COMPLETE
 

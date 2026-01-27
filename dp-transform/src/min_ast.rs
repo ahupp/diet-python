@@ -418,7 +418,7 @@ impl StmtNode {
                             node_index: AtomicNodeIndex::default(),
                             range: TextRange::default(),
                         };
-                        panic!("unsupported assignment target {}", ruff_ast_to_string(&[Stmt::Assign(s)]));
+                        panic!("unsupported assignment target {}", ruff_ast_to_string(Stmt::Assign(s)));
                     }
                 } else {
                     panic!("unsupported assignment targets")
