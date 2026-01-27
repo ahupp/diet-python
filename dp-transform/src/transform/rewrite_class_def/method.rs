@@ -1,6 +1,6 @@
 
 
-use ruff_python_ast::{self as ast,Expr, ExprContext, Stmt};
+use ruff_python_ast::{self as ast,Expr, Stmt};
 
 use crate::{
     body_transform::{Transformer, walk_expr, walk_stmt},
@@ -46,15 +46,22 @@ impl Transformer for MethodRewriteSuperClasscell {
                         ),
                         None => py_expr!("__dp__.call_super_noargs(super)"),
                     };
+                    return;
+                }
+                if is_dp_call(expr, "call_super") || is_dp_call(expr, "call_super_noargs") {
+                    self.needs_class_cell = true;
                 }
             }
             Expr::Name(ast::ExprName { id, .. }) => {
-                if id.as_str() == "__class__"
-                {
+                if id.as_str() == "__class__" {
                     self.needs_class_cell = true;
                     *expr = py_expr!("__classcell__.cell_contents");
+                    return;
                 }
-                return;
+                if id.as_str() == "__classcell__" {
+                    self.needs_class_cell = true;
+                    return;
+                }
             }
             _ => {}
         }
@@ -63,11 +70,27 @@ impl Transformer for MethodRewriteSuperClasscell {
     }
 }
 
+fn is_dp_call(expr: &Expr, name: &str) -> bool {
+    let Expr::Call(ast::ExprCall { func, .. }) = expr else {
+        return false;
+    };
+    let Expr::Attribute(ast::ExprAttribute { value, attr, .. }) = func.as_ref() else {
+        return false;
+    };
+    if attr.as_str() != name {
+        return false;
+    }
+    matches!(
+        value.as_ref(),
+        Expr::Name(ast::ExprName { id, .. }) if id.as_str() == "__dp__"
+    )
+}
 
-pub fn rewrite_methods_in_class_body(
+
+pub fn rewrite_explicit_super_classcell(
     class_def: &mut ast::StmtClassDef,
 ) -> bool {
-    let mut rewriter = MethodRewriter {
+    let mut rewriter = MethodExplicitSuperRewriter {
         needs_class_cell: false,
     };
     rewriter.visit_body(&mut class_def.body);
@@ -75,11 +98,11 @@ pub fn rewrite_methods_in_class_body(
 }
 
 
-struct MethodRewriter {
+struct MethodExplicitSuperRewriter {
     needs_class_cell: bool,
 }
 
-impl Transformer for MethodRewriter {
+impl Transformer for MethodExplicitSuperRewriter {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
             Stmt::FunctionDef(func_def) => {

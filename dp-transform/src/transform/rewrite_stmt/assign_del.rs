@@ -17,8 +17,6 @@ pub(crate) fn should_rewrite_targets(targets: &[Expr]) -> bool {
 
     match first {
         Expr::Name(_) => false,
-        Expr::Attribute(_) => true,
-        Expr::Tuple(_) | Expr::List(_) | Expr::Subscript(_) => true,
         _ => true,
     }
 }
@@ -50,9 +48,8 @@ pub(crate) fn rewrite_target(
             let stmt = py_stmt!("__dp__.setattr({value:expr}, {name:literal}, {rhs:expr})", value = value, name = attr.as_str(), rhs = rhs);
             out.extend(stmt);
         }
-        Expr::Name(_) => {
-            let stmt = py_stmt!("{target:expr} = {rhs:expr}", target = target, rhs = rhs,);
-            out.extend(stmt);
+        Expr::Name(ast::ExprName { id, .. }) => {
+            out.extend(py_stmt!("{name:id} = {rhs:expr}", name = id.as_str(), rhs = rhs));
         }
         other => {
             panic!("unsupported assignment target: {other:?}");
@@ -148,36 +145,14 @@ fn rewrite_unpack_target(
         }
     }
 
-    let mut cleanup_stmts = Vec::new();
-    cleanup_stmts.extend(py_stmt!("{name:id} = None", name = unpacked_name.as_str()));
-    if !value_is_name {
-        if let Some(name) = temp_name(&tmp_expr) {
-            cleanup_stmts.extend(py_stmt!("{name:id} = None", name = name));
-        }
-    }
-
-    if cleanup_stmts.is_empty() {
-        out.extend(body_stmts);
-    } else {
-        let try_stmt = py_stmt!(
-            r#"
-try:
-    {body:stmt}
-finally:
-    {cleanup:stmt}
-"#,
-            body = body_stmts,
-            cleanup = cleanup_stmts,
-        );
-        out.extend(try_stmt);
-    }
+    out.extend(body_stmts);
 }
 
 pub(crate) fn rewrite_ann_assign(
     ann_assign: ast::StmtAnnAssign,
 ) -> Rewrite {
     if ann_assign.value.is_none() {
-        return Rewrite::Walk(vec![Stmt::AnnAssign(ann_assign)]);
+        return Rewrite::Unmodified(ann_assign.into());
     }
     let ast::StmtAnnAssign {
         target,
@@ -206,12 +181,12 @@ pub(crate) fn rewrite_ann_assign(
         ));
     }
     
-    Rewrite::Visit(stmts)
+    Rewrite::Walk(stmts)
 }
 
 pub(crate) fn rewrite_assign(context: &Context, assign: ast::StmtAssign) -> Rewrite {
     if !should_rewrite_targets(&assign.targets) {
-        return Rewrite::Walk(vec![Stmt::Assign(assign)]);
+        return Rewrite::Unmodified(assign.into());
     }
 
     let ast::StmtAssign { targets, value, .. } = assign;
@@ -229,7 +204,7 @@ pub(crate) fn rewrite_assign(context: &Context, assign: ast::StmtAssign) -> Rewr
         rewrite_target(context, target, *value, &mut stmts);
     }
 
-    Rewrite::Visit(stmts)
+    Rewrite::Walk(stmts)
 }
 
 pub(crate) fn rewrite_aug_assign(
@@ -269,12 +244,12 @@ pub(crate) fn rewrite_aug_assign(
     let call = make_binop(func_name, *target.clone(), *value);
     let mut stmts = Vec::new();
     rewrite_target(context, *target, call, &mut stmts);
-    Rewrite::Visit(stmts)
+    Rewrite::Walk(stmts)
 }
 
 pub(crate) fn rewrite_delete(delete: ast::StmtDelete) -> Rewrite {
     if !should_rewrite_targets(&delete.targets) {
-        return Rewrite::Walk(vec![Stmt::Delete(delete)]);
+        return Rewrite::Unmodified(delete.into());
     }
 
     Rewrite::Walk(

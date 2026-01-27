@@ -2,6 +2,7 @@ pub(crate) mod scope;
 pub(crate) mod ast_rewrite;
 pub(crate) mod context;
 pub(crate) mod driver;
+pub(crate) mod node_index;
 pub(crate) mod rewrite_class_def;
 pub(crate) mod rewrite_future_annotations;
 pub(crate) mod rewrite_import;

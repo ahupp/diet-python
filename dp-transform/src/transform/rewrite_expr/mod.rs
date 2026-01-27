@@ -168,6 +168,20 @@ else:
                 step = step.map(|expr| *expr).unwrap_or_else(|| py_expr!("None")),
             ))
         }
+        Expr::ListComp(ast::ExprListComp { elt, generators, .. }) => {
+            comprehension::lower_inline_list_comp(context, *elt, generators)
+        }
+        Expr::SetComp(ast::ExprSetComp { elt, generators, .. }) => {
+            comprehension::lower_inline_set_comp(context, *elt, generators)
+        }
+        Expr::DictComp(ast::ExprDictComp {
+            key,
+            value,
+            generators,
+            ..
+        }) => {
+            comprehension::lower_inline_dict_comp(context, *key, *value, generators)
+        }
         Expr::NumberLiteral(ast::ExprNumberLiteral {
             value: ast::Number::Complex { real, imag },
             ..

@@ -5,11 +5,11 @@ use ruff_python_ast::{self as ast, name::Name, Expr, ExprContext, Stmt};
 use crate::{
     body_transform::{walk_expr, walk_stmt, Transformer},
     py_expr, py_stmt,
-    transform::scope::{BindingKind, Scope, ScopeKind},
+    transform::scope::{BindingKind, BindingUse, Scope, ScopeKind},
 };
 use crate::namegen::fresh_name;
 
-pub fn rewrite_names(scope: Arc<Scope>, body: &mut Vec<Stmt>) {
+pub fn rewrite_explicit_bindings(scope: Arc<Scope>, body: &mut Vec<Stmt>) {
     let mut rewriter = NameScopeRewriter::new(scope);
     rewriter.visit_body(body);
 }
@@ -28,13 +28,19 @@ impl NameScopeRewriter {
     }
 
     fn needs_cell(&self, name: &str) -> bool {
-        matches!(self.scope.binding_in_scope(name), Some(BindingKind::Nonlocal))
+        matches!(
+            self.scope.binding_in_scope(name, BindingUse::Load),
+            BindingKind::Nonlocal
+        )
             || self.scope.is_nonlocal_in_children(name)
             || self.extra_cell_names.contains(name)
     }
 
     fn needs_global(&self, name: &str) -> bool {
-        matches!(self.scope.binding_in_scope(name), Some(BindingKind::Global))
+        matches!(
+            self.scope.binding_in_scope(name, BindingUse::Load),
+            BindingKind::Global
+        )
     }
 
     fn cell_init_needed(&self) -> bool {
@@ -88,8 +94,8 @@ impl NameScopeRewriter {
             match scope.kind() {
                 ScopeKind::Function { .. } => {
                     if matches!(
-                        scope.binding_in_scope(name),
-                        Some(BindingKind::Local | BindingKind::Nonlocal)
+                        scope.scope_bindings().get(name),
+                        Some(BindingKind::Local) | Some(BindingKind::Nonlocal)
                     ) {
                         return true;
                     }
@@ -108,16 +114,13 @@ impl NameScopeRewriter {
         if self.enclosing_function_binds_name("locals") {
             return false;
         }
-        match self.scope.binding_in_scope("locals") {
-            Some(BindingKind::Local | BindingKind::Nonlocal) => return false,
-            Some(BindingKind::Global) => {
-                if self.module_binds_name("locals") {
-                    return false;
-                }
-            }
-            None => {
-                if self.module_binds_name("locals") {
-                    return false;
+        if let Some(binding) = self.scope.scope_bindings().get("locals").copied() {
+            match binding {
+                BindingKind::Local | BindingKind::Nonlocal => return false,
+                BindingKind::Global => {
+                    if self.module_binds_name("locals") {
+                        return false;
+                    }
                 }
             }
         }
@@ -177,14 +180,14 @@ impl NameScopeRewriter {
 
         let child_scope = self
             .scope
-            .child_scope_for_function(func_def)
-            .unwrap_or_else(|| self.scope.ensure_child_scope_for_function(func_def));
+            .child_scope_for_function(func_def);
+
         let mut extra_cells = collect_named_expr_cells(&func_def.body);
         let declared_globals = collect_declared_globals(&func_def.body);
         extra_cells.retain(|name| {
             if matches!(
-                child_scope.binding_in_scope(name),
-                Some(BindingKind::Global | BindingKind::Nonlocal)
+                child_scope.binding_in_scope(name, BindingUse::Load),
+                BindingKind::Global | BindingKind::Nonlocal
             ) {
                 return false;
             }
@@ -195,8 +198,9 @@ impl NameScopeRewriter {
         });
         let mut child_rewriter = NameScopeRewriter::new(child_scope);
         child_rewriter.set_extra_cell_names(extra_cells);
-        child_rewriter.insert_preamble(&mut func_def.body);
         child_rewriter.visit_body(&mut func_def.body);
+        child_rewriter.insert_preamble(&mut func_def.body);
+        crate::transform::rewrite_stmt::annotation::rewrite_ann_assign_delete(&mut func_def.body);
     }
 
     fn rewrite_function_def_binding(
@@ -204,6 +208,10 @@ impl NameScopeRewriter {
         mut func_def: ast::StmtFunctionDef,
         binding: BindingKind,
     ) -> Vec<Stmt> {
+
+        if func_def.name.id.as_str().starts_with("_dp_class_create") {
+            return vec![func_def.into()];
+        }
         let original_name = func_def.name.id.to_string();
         let mut decorators = std::mem::take(&mut func_def.decorator_list);
         let mut prefix = Vec::with_capacity(decorators.len());
@@ -224,15 +232,10 @@ impl NameScopeRewriter {
         func_def.name.id = Name::new(temp_name.as_str());
         self.rewrite_function_def(&mut func_def);
 
-        let scope_expr = if matches!(binding, BindingKind::Global) {
-            py_expr!("None")
-        } else {
-            py_expr!("__dp__.nested_scope()")
-        };
 
         let mut out = Vec::new();
         out.extend(prefix);
-        out.push(Stmt::FunctionDef(func_def));
+        out.push(func_def.into());
 
         if !decorator_names.is_empty() {
             let mut decorated = py_expr!("{func:id}", func = temp_name.as_str());
@@ -253,7 +256,7 @@ impl NameScopeRewriter {
         match binding {
             BindingKind::Global => {
                 out.extend(py_stmt!(
-                    "__dp__.store_global(__globals__, {name:literal}, {value:id})",
+                    "__dp__.store_global(globals(), {name:literal}, {value:id})",
                     name = original_name.as_str(),
                     value = temp_name.as_str()
                 ));
@@ -292,13 +295,13 @@ impl NameScopeRewriter {
                 }
                 if self.needs_global(name) {
                     out.extend(py_stmt!(
-                        "__dp__.delitem(__globals__, {name:literal})",
+                        "__dp__.delitem(globals(), {name:literal})",
                         name = name
                     ));
                     continue;
                 }
                 if self.needs_cell(name) {
-                    out.extend(py_stmt!("__dp__.del_deref({cell:id})", cell = name));
+                    out.extend(py_stmt!("__dp__.del_cell({cell:id})", cell = name));
                     continue;
                 }
             }
@@ -326,8 +329,9 @@ impl NameScopeRewriter {
 
         let class_scope = self
             .scope
-            .child_scope_for_class(class_def)
-            .unwrap_or_else(|| self.scope.ensure_child_scope_for_class(class_def));
+            .child_scope_for_class(class_def);
+
+
         let mut class_rewriter = NameScopeRewriter::new(class_scope);
         class_rewriter.rewrite_class_children(&mut class_def.body);
     }
@@ -351,13 +355,13 @@ impl NameScopeRewriter {
 
     fn rewrite_load(&self, name: &ast::ExprName) -> Option<Expr> {
         let id = name.id.as_str();
-        if id == "__dp__" || id == "__globals__" {
+        if id == "__dp__" {
             return None;
         }
 
         if self.needs_global(id) {
             Some(py_expr!(
-                "__dp__.load_global(__globals__, {name:literal})",
+                "__dp__.load_global(globals(), {name:literal})",
                 name = id
             ))
         } else if self.needs_cell(id) {
@@ -515,12 +519,15 @@ impl Transformer for NameScopeRewriter {
                     new_body.extend(self.rewrite_assign(assign));
                 }
                 Stmt::FunctionDef(mut func_def) => {
+                    if func_def.name.as_str().starts_with("_dp_class_create") {
+                        new_body.push(func_def.into());
+                        continue;
+                    }
                     let name = func_def.name.id.to_string();
-                    if let Some(binding) = self.scope.binding_in_scope(&name) {
-                        if matches!(binding, BindingKind::Global | BindingKind::Nonlocal) {
-                            new_body.extend(self.rewrite_function_def_binding(func_def, binding));
-                            continue;
-                        }
+                    let binding = self.scope.binding_in_scope(&name, BindingUse::Modify);
+                    if matches!(binding, BindingKind::Global | BindingKind::Nonlocal) {
+                        new_body.extend(self.rewrite_function_def_binding(func_def, binding));
+                        continue;
                     }
 
                     self.rewrite_function_def(&mut func_def);
@@ -574,4 +581,3 @@ impl Transformer for NameScopeRewriter {
         crate::body_transform::walk_expr(self, expr);
     }
 }
-

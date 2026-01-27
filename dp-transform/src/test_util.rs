@@ -50,8 +50,8 @@ fn format_first_difference(actual: &[Stmt], rerun: &[Stmt]) -> String {
     let min_len = actual.len().min(rerun.len());
     for (index, (actual_stmt, rerun_stmt)) in actual.iter().zip(rerun).enumerate().take(min_len) {
         if ComparableStmt::from(actual_stmt) != ComparableStmt::from(rerun_stmt) {
-            let actual_str = ruff_ast_to_string(std::slice::from_ref(actual_stmt));
-            let rerun_str = ruff_ast_to_string(std::slice::from_ref(rerun_stmt));
+            let actual_str = ruff_ast_to_string(actual_stmt);
+            let rerun_str = ruff_ast_to_string(rerun_stmt);
             return format!(
                 "first difference at stmt index {index}:\nactual: {actual_str}\nrerun: {rerun_str}"
             );
@@ -83,9 +83,6 @@ pub(crate) fn assert_transform_eq(actual: &str, expected: &str) {
     assert_transform_eq_ex(actual, expected, false);
 }
 
-pub(crate) fn assert_transform_eq_truthy(actual: &str, expected: &str) {
-    assert_transform_eq_ex(actual, expected, true);
-}
 
 pub(crate) fn run_transform_fixture_tests(fixture: &str) {
     let blocks = match parse_fixture(fixture) {

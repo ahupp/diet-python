@@ -1,7 +1,7 @@
-use std::{collections::VecDeque, mem::take};
+use std::{mem::take};
 
 use log::{Level, log_enabled, trace};
-use ruff_python_ast::{self as ast, Expr, Stmt, HasNodeIndex};
+use ruff_python_ast::{Expr, Stmt};
 use ruff_text_size::{Ranged, TextRange};
 
 use crate::{
@@ -13,8 +13,8 @@ use crate::{
 
 
 pub enum Rewrite {
+    Unmodified(Stmt),
     Walk(Vec<Stmt>),
-    Visit(Vec<Stmt>),
 }
 
 pub struct LoweredExpr {
@@ -53,28 +53,55 @@ impl LoweredExpr {
     }
 }
 
+pub fn rewrite_once_with_pass<'a, P: RewritePass>(
+    context: &'a Context,
+    pass: &'a P,
+    stmts: &mut Vec<Stmt>,
+) -> bool {
+    let pass_name = std::any::type_name::<P>();
+    let mut rloop = RewriteLoop {
+        context,
+        pass,
+        pass_name,
+        buf: Vec::new(),
+        modified: false,
+    };
+    rloop.visit_body(stmts);
+    assert!(rloop.buf.is_empty());
+    rloop.modified
+}
+
 pub fn rewrite_with_pass<'a, P: RewritePass>(
     context: &'a Context,
     pass: &'a P,
     stmts: &mut Vec<Stmt>,
 ) {
     let pass_name = std::any::type_name::<P>();
-    if log_enabled!(Level::Trace) {
-        trace!("rewrite_with_pass start: {} stmts_len={}", pass_name, stmts.len());
-    }
-    let mut rloop = RewriteLoop {
-        context,
-        pass,
-        pass_name,
-        buf: Vec::new(),
-    };
-    rloop.visit_body(stmts);
-    if log_enabled!(Level::Trace) {
-        trace!(
-            "rewrite_with_pass end: {} stmts_len={}",
-            pass_name,
-            stmts.len()
-        );
+    let mut iteration = 0usize;
+    loop {
+        iteration += 1;
+        if log_enabled!(Level::Trace) {
+            trace!(
+                "rewrite_with_pass iteration {} start: {} stmts_len={}",
+                iteration,
+                pass_name,
+                stmts.len()
+            );
+        }
+        let modified = rewrite_once_with_pass(context, pass, stmts);
+
+        if log_enabled!(Level::Trace) {
+            trace!(
+                "rewrite_with_pass iteration {} end: {} stmts_len={} modified={}",
+                iteration,
+                pass_name,
+                stmts.len(),
+                modified
+            );
+        }
+        if !modified {
+            break;
+        }
     }
 }
 
@@ -83,93 +110,50 @@ struct RewriteLoop<'a, P: RewritePass> {
     context: &'a Context,
     pass: &'a P,
     pass_name: &'static str,
+    modified: bool,
 }
 
 
 impl<'a, P: RewritePass> RewriteLoop<'a, P> {
-    fn process_statements(&mut self, initial: Vec<Stmt>) -> Vec<Stmt> {
-        enum WorkItem {
-            Process(Stmt),
-            Emit(Stmt),
+    fn flush_buffered(&mut self, mut stmt: Stmt, output: &mut Vec<Stmt>) {
+        walk_stmt(self, &mut stmt);
+
+        let buffered = take(&mut self.buf);
+
+        for stmt in buffered.into_iter() {
+            self.flush_buffered(stmt, output);
         }
+        output.push(stmt);
+    }
 
-        let mut buf_stack = take(&mut self.buf);
-        buf_stack.extend(initial);
-
+    fn process_statements(&mut self, initial: Vec<Stmt>) -> Vec<Stmt> {
         let mut output = Vec::new();
-        let mut worklist: VecDeque<WorkItem> =
-            buf_stack.into_iter().map(WorkItem::Process).collect();
+        assert!(self.buf.is_empty());
 
-        let mut steps = 0usize;
-        while let Some(item) = worklist.pop_front() {
-            steps += 1;
+        for stmt in initial.into_iter() {
+            let mut before = None;
             if log_enabled!(Level::Trace) {
-                trace!(
-                    "rewrite loop step {} pass={} worklist_len={}",
-                    steps,
-                    self.pass_name,
-                    worklist.len()
-                );
+                before = Some(crate::ruff_ast_to_string(&stmt));
             }
-            match item {
-                WorkItem::Process(stmt) => {
-                    let original_range = stmt.range();
+            let res = self.pass.lower_stmt(self.context, stmt);
+            match res {
+                Rewrite::Unmodified(stmt) => {
+                    self.flush_buffered(stmt, &mut output);
+                }
+                Rewrite::Walk(stmts) => {
                     if log_enabled!(Level::Trace) {
                         trace!(
-                            "rewrite input (pass={} node_index={:?}): {}",
+                            "rewrite (pass={}) before: \n{} after: \n{}",
                             self.pass_name,
-                            stmt.node_index(),
-                            crate::ruff_ast_to_string(&stmt),
+                            before.unwrap_or_default(),
+                            crate::ruff_ast_to_string(&stmts).trim_end()
                         );
                     }
-
-                    let res = self.pass.lower_stmt(self.context, stmt);
-
-                    match res {
-                        Rewrite::Visit(stmts) => {
-                            if log_enabled!(Level::Trace) {
-                                trace!(
-                                    "rewrite output (Visit, pass={}): {}",
-                                    self.pass_name,
-                                    crate::ruff_ast_to_string(&stmts).trim_end()
-                                );
-                            }
-                            let mut items: Vec<WorkItem> =
-                                take(&mut self.buf).into_iter().map(WorkItem::Process).collect();
-                            items.extend(stmts.into_iter().map(WorkItem::Process));
-                            for item in items.into_iter().rev() {
-                                worklist.push_front(item);
-                            }
-                        }
-                        Rewrite::Walk(stmts) => {
-                            if log_enabled!(Level::Trace) {
-                                trace!(
-                                    "rewrite output (Walk, pass={}): {}",
-                                    self.pass_name,
-                                    crate::ruff_ast_to_string(&stmts).trim_end()
-                                );
-                            }
-                            let mut items: Vec<WorkItem> =
-                                take(&mut self.buf).into_iter().map(WorkItem::Process).collect();
-                            for mut stmt in stmts {
-                                walk_stmt(self, &mut stmt);
-
-                                items.extend(
-                                    take(&mut self.buf)
-                                        .into_iter()
-                                        .map(WorkItem::Process),
-                                );
-                                items.push(WorkItem::Emit(stmt));
-                            }
-                            for item in items.into_iter().rev() {
-                                worklist.push_front(item);
-                            }
-                        }
-                    };
-                }
-                WorkItem::Emit(stmt) => {
-                    output.push(stmt);
-                }
+                    self.modified = true;
+                    for stmt in stmts {
+                        self.flush_buffered(stmt, &mut output);
+                    }
+                }                
             }
         }
 
@@ -196,30 +180,20 @@ impl<'a, P: RewritePass> Transformer for RewriteLoop<'a, P> {
         loop {
             iteration += 1;
             if log_enabled!(Level::Trace) {
-                let es = Stmt::Expr(ast::StmtExpr {
-                    value: Box::new(current.clone()),
-                    range: original_range,
-                    node_index: ast::AtomicNodeIndex::default(),
-                });
                 trace!(
                     "lower_expr iteration {} pass={} input: {}",
                     iteration,
                     self.pass_name,
-                    ruff_ast_to_string(&es).trim_end()
+                    ruff_ast_to_string(&current).trim_end()
                 );
             }
             lowered = self.pass.lower_expr(self.context, current);
             if log_enabled!(Level::Trace) {
-                let es = Stmt::Expr(ast::StmtExpr {
-                    value: Box::new(lowered.expr.clone()),
-                    range: original_range,
-                    node_index: ast::AtomicNodeIndex::default(),
-                });
                 trace!(
                     "lower_expr iteration {} pass={} output: {}",
                     iteration,
                     self.pass_name,
-                    ruff_ast_to_string(&es).trim_end()
+                    ruff_ast_to_string(&lowered.expr).trim_end()
                 );
             }
 
@@ -240,6 +214,7 @@ impl<'a, P: RewritePass> Transformer for RewriteLoop<'a, P> {
                 break;
             }
             modified_any = true;
+            self.modified = true;
         }
 
         if !modified_any {
@@ -251,16 +226,8 @@ impl<'a, P: RewritePass> Transformer for RewriteLoop<'a, P> {
                     .trim_end()
                 );
             }
-            if !matches!(
-                current,
-                Expr::Lambda(_)
-                    | Expr::Generator(_)
-                    | Expr::ListComp(_)
-                    | Expr::SetComp(_)
-                    | Expr::DictComp(_)
-            ) {
-                walk_expr(self, &mut current);
-            }
+
+            walk_expr(self, &mut current);
         }
         *expr_input = current;
     }
@@ -282,43 +249,8 @@ impl<'a, P: RewritePass> Transformer for RewriteLoop<'a, P> {
 pub trait RewritePass {
     fn lower_stmt(&self, context: &Context, stmt: Stmt) -> Rewrite;
     fn lower_expr(&self, context: &Context, expr: Expr) -> LoweredExpr;
-    fn should_walk(&self, _stmt: &Stmt) -> bool {
-        true
-    }
 }
 
-
-fn apply_stmt_range(stmts: &mut [Stmt], range: TextRange) {
-    for stmt in stmts {
-        match stmt {
-            Stmt::FunctionDef(node) => node.range = range,
-            Stmt::ClassDef(node) => node.range = range,
-            Stmt::Return(node) => node.range = range,
-            Stmt::Delete(node) => node.range = range,
-            Stmt::TypeAlias(node) => node.range = range,
-            Stmt::Assign(node) => node.range = range,
-            Stmt::AugAssign(node) => node.range = range,
-            Stmt::AnnAssign(node) => node.range = range,
-            Stmt::For(node) => node.range = range,
-            Stmt::While(node) => node.range = range,
-            Stmt::If(node) => node.range = range,
-            Stmt::With(node) => node.range = range,
-            Stmt::Match(node) => node.range = range,
-            Stmt::Raise(node) => node.range = range,
-            Stmt::Try(node) => node.range = range,
-            Stmt::Assert(node) => node.range = range,
-            Stmt::Import(node) => node.range = range,
-            Stmt::ImportFrom(node) => node.range = range,
-            Stmt::Global(node) => node.range = range,
-            Stmt::Nonlocal(node) => node.range = range,
-            Stmt::Expr(node) => node.range = range,
-            Stmt::Pass(node) => node.range = range,
-            Stmt::Break(node) => node.range = range,
-            Stmt::Continue(node) => node.range = range,
-            Stmt::IpyEscapeCommand(node) => node.range = range,
-        }
-    }
-}
 
 fn apply_expr_range(expr: &mut Expr, range: TextRange) {
     match expr {

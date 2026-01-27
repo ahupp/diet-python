@@ -63,6 +63,7 @@ mod transform;
 
 use crate::transform::driver::rewrite_module;
 pub use transform::{ImportStarHandling, Options};
+pub use crate::transform::scope::{analyze_module_scope, Scope};
 use transform::{context::Context};
 
 #[derive(Debug, Clone, Copy)]
@@ -153,7 +154,7 @@ pub fn transform_str_to_ruff_with_options(
 
 
 
-trait ToRuffAst {
+pub trait ToRuffAst {
     fn to_ruff_ast(&self) -> Vec<Stmt>;
 }
 
@@ -190,6 +191,12 @@ impl ToRuffAst for &Expr {
         let expr = self.to_owned().clone();
         vec![Stmt::Expr(ast::StmtExpr { value: Box::new(expr), range: TextRange::default(), node_index: ast::AtomicNodeIndex::default() })]
     }        
+}
+
+impl ToRuffAst for &[Stmt] {
+    fn to_ruff_ast(&self) -> Vec<Stmt> {
+        self.to_vec()
+    }
 }
 
 /// Convert a ruff AST ModModule to a pretty-printed string.
