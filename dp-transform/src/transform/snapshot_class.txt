@@ -10,23 +10,15 @@ class C:
 def _dp_class_create_C():
 
     def _dp_class_ns_C(_dp_class_ns, __classcell__):
-        __dp__.setitem(_dp_class_ns, "__module__", __dp__.class_lookup_cell(_dp_class_ns, "__name__", __name__))
-        __dp__.setitem(_dp_class_ns, "__qualname__", "C")
-        __dp__.setitem(_dp_class_ns, "x", 1)
+        _dp_class_ns["__module__"] = __name__
+        _dp_class_ns["__qualname__"] = "C"
+        _dp_class_ns["x"] = 1
 
-        def m(self):
+        def _dp_method_m(self):
             return self.x
-        __dp__.update_fn(m$local, "C", "m")
-        __dp__.setitem(_dp_class_ns, "m", m$local)
-
-        def __annotate__(_dp_format):
-            _dp_target_1 = __dp__.gt(_dp_format, 2)
-            if _dp_target_1:
-                raise NotImplementedError$0
-            _dp_annotations = __dp__.dict()
-            return _dp_annotations
-        __dp__.update_fn(__annotate__$local, "C", "__annotate__")
-        __dp__.setitem(_dp_class_ns, "__annotate__", __annotate__$local)
+        __dp__.setattr(_dp_method_m, "__name__", "m")
+        __dp__.setattr(_dp_method_m, "__qualname__", "C.m")
+        _dp_class_ns["m"] = _dp_method_m
     return __dp__.create_class("C", _dp_class_ns_C, (), None, False)
 C = _dp_class_create_C()
 
@@ -41,22 +33,14 @@ class Wrapper:
 def _dp_class_create_Wrapper():
 
     def _dp_class_ns_Wrapper(_dp_class_ns, __classcell__):
-        __dp__.setitem(_dp_class_ns, "__module__", __dp__.class_lookup_cell(_dp_class_ns, "__name__", __name__))
-        __dp__.setitem(_dp_class_ns, "__qualname__", "Wrapper")
+        _dp_class_ns["__module__"] = __name__
+        _dp_class_ns["__qualname__"] = "Wrapper"
 
-        def open(self, mode: __dp__.class_lookup_cell(_dp_class_ns, "str", str)="r", *, encoding: __dp__.class_lookup_cell(_dp_class_ns, "str", str)="utf8"):
+        def _dp_method_open(self, mode: __dp__.class_lookup_global(_dp_class_ns, "str", globals())="r", *, encoding: __dp__.class_lookup_global(_dp_class_ns, "str", globals())="utf8"):
             return open(mode, encoding=encoding)
-        __dp__.update_fn(open$local, "Wrapper", "open")
-        __dp__.setitem(_dp_class_ns, "open", open$local)
-
-        def __annotate__(_dp_format):
-            _dp_target_1 = __dp__.gt(_dp_format, 2)
-            if _dp_target_1:
-                raise NotImplementedError$0
-            _dp_annotations = __dp__.dict()
-            return _dp_annotations
-        __dp__.update_fn(__annotate__$local, "Wrapper", "__annotate__")
-        __dp__.setitem(_dp_class_ns, "__annotate__", __annotate__$local)
+        __dp__.setattr(_dp_method_open, "__name__", "open")
+        __dp__.setattr(_dp_method_open, "__qualname__", "Wrapper.open")
+        _dp_class_ns["open"] = _dp_method_open
     return __dp__.create_class("Wrapper", _dp_class_ns_Wrapper, (), None, False)
 Wrapper = _dp_class_create_Wrapper()
 
@@ -70,17 +54,8 @@ class D(Base):
 def _dp_class_create_D():
 
     def _dp_class_ns_D(_dp_class_ns, __classcell__):
-        __dp__.setitem(_dp_class_ns, "__module__", __dp__.class_lookup_cell(_dp_class_ns, "__name__", __name__))
-        __dp__.setitem(_dp_class_ns, "__qualname__", "D")
-
-        def __annotate__(_dp_format):
-            _dp_target_1 = __dp__.gt(_dp_format, 2)
-            if _dp_target_1:
-                raise NotImplementedError$0
-            _dp_annotations = __dp__.dict()
-            return _dp_annotations
-        __dp__.update_fn(__annotate__$local, "D", "__annotate__")
-        __dp__.setitem(_dp_class_ns, "__annotate__", __annotate__$local)
+        _dp_class_ns["__module__"] = __name__
+        _dp_class_ns["__qualname__"] = "D"
     return __dp__.create_class("D", _dp_class_ns_D, (Base,), None, False)
 D = _dp_class_create_D()
 
@@ -102,18 +77,9 @@ def outer():
     def _dp_class_create_Inner():
 
         def _dp_class_ns_Inner(_dp_class_ns, __classcell__):
-            __dp__.setitem(_dp_class_ns, "__module__", __dp__.class_lookup_cell(_dp_class_ns, "__name__", __name__))
-            __dp__.setitem(_dp_class_ns, "__qualname__", "outer.<locals>.Inner")
-            __dp__.setitem(_dp_class_ns, "y", __dp__.class_lookup_cell(_dp_class_ns, "x", x))
-
-            def __annotate__(_dp_format):
-                _dp_target_1 = __dp__.gt(_dp_format, 2)
-                if _dp_target_1:
-                    raise NotImplementedError$0
-                _dp_annotations = __dp__.dict()
-                return _dp_annotations
-            __dp__.update_fn(__annotate__$local, "outer.<locals>.Inner", "__annotate__")
-            __dp__.setitem(_dp_class_ns, "__annotate__", __annotate__$local)
+            _dp_class_ns["__module__"] = __name__
+            _dp_class_ns["__qualname__"] = "outer.<locals>.Inner"
+            _dp_class_ns["y"] = __dp__.class_lookup_cell(_dp_class_ns, "x", x)
         return __dp__.create_class("Inner", _dp_class_ns_Inner, (), None, False)
     Inner = _dp_class_create_Inner()
     return Inner.y
@@ -131,23 +97,15 @@ class X:
 def _dp_class_create_X():
 
     def _dp_class_ns_X(_dp_class_ns, __classcell__):
-        __dp__.setitem(_dp_class_ns, "__module__", __dp__.class_lookup_cell(_dp_class_ns, "__name__", __name__))
-        __dp__.setitem(_dp_class_ns, "__qualname__", "X")
+        _dp_class_ns["__module__"] = __name__
+        _dp_class_ns["__qualname__"] = "X"
 
-        def f(x):
+        def _dp_method_f(x):
             nonlocal __class__
-            __dp__.delattr(__classcell__, "cell_contents")
+            del __classcell__.cell_contents
             __dp__.call_super(super, __classcell__, x)
-        __dp__.update_fn(f$local, "X", "f")
-        __dp__.setitem(_dp_class_ns, "f", f$local)
-
-        def __annotate__(_dp_format):
-            _dp_target_1 = __dp__.gt(_dp_format, 2)
-            if _dp_target_1:
-                raise NotImplementedError$0
-            _dp_annotations = __dp__.dict()
-            return _dp_annotations
-        __dp__.update_fn(__annotate__$local, "X", "__annotate__")
-        __dp__.setitem(_dp_class_ns, "__annotate__", __annotate__$local)
+        __dp__.setattr(_dp_method_f, "__name__", "f")
+        __dp__.setattr(_dp_method_f, "__qualname__", "X.f")
+        _dp_class_ns["f"] = _dp_method_f
     return __dp__.create_class("X", _dp_class_ns_X, (), None, True)
 X = _dp_class_create_X()

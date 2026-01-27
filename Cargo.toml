@@ -2,5 +2,5 @@
 members = ["dp-transform", "dp-pyo3", "soac-codegen"]
 default-members = ["dp-transform", "dp-pyo3"]
 # soac-runtime is standalone since its built to CLIF 
-exclude = ["vendor/ruff", "soac-runtime"]
+exclude = ["soac-runtime"]
 resolver = "2"

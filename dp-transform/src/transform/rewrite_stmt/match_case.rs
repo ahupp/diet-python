@@ -464,19 +464,22 @@ fn assigned_names(stmts: &[Stmt]) -> Vec<Name> {
     names
 }
 
-pub fn rewrite(context: &Context, ast::StmtMatch { subject, cases, .. }: ast::StmtMatch) -> Rewrite {
-    if cases.is_empty() {
-        return Rewrite::Visit(py_stmt!("pass"));
+pub fn rewrite(context: &Context, match_stmt: ast::StmtMatch) -> Rewrite {
+    if match_stmt.cases.is_empty() {
+        return Rewrite::Unmodified(match_stmt.into());
     }
 
+    let ast::StmtMatch { subject, cases, .. } = match_stmt;
+
+    let subject_expr = *subject;
     let subject_name = context.fresh("match");
     let tmp_expr = py_expr!("{name:id}", name = subject_name.as_str());
-
     let assign = py_stmt!(
         "{name:id} = {value:expr}",
         name = subject_name.as_str(),
-        value = *subject.clone(),
+        value = subject_expr.clone(),
     );
+    let subject_tmp = tmp_expr;
 
     let mut chain = py_stmt!("pass");
     for case in cases.into_iter().rev() {
@@ -487,7 +490,7 @@ pub fn rewrite(context: &Context, ast::StmtMatch { subject, cases, .. }: ast::St
             ..
         } = case;
         use PatternTest::*;
-        match test_for_pattern(&pattern, tmp_expr.clone()) {
+        match test_for_pattern(&pattern, subject_tmp.clone()) {
             Wildcard { assigns } => {
                 if let Some(g) = guard {
                     let mut cleanup = assigned_names(&assigns)
@@ -570,11 +573,15 @@ else:
         }
     }
 
-    Rewrite::Visit(py_stmt!(
-        "
+    if assign.is_empty() {
+        Rewrite::Walk(chain)
+    } else {
+        Rewrite::Walk(py_stmt!(
+            "
 {assign:stmt}
 {chain:stmt}",
-        assign = assign,
-        chain = chain,
-    ))
+            assign = assign,
+            chain = chain,
+        ))
+    }
 }

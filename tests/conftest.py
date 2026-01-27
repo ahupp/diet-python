@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import diet_import_hook
+from tests import _integration
 import pytest
 
 _MODULES_DIR = Path(__file__).resolve().parent / "integration_modules"
@@ -46,6 +47,7 @@ def _load_integration_module(module_name: str) -> Iterator[ModuleType]:
         raise FileNotFoundError(
             f"Integration module '{module_name}' not found at {module_path}"
         )
+    _integration.register_integration_module(module_path)
     sys.path.insert(0, module_dir)
     try:
         sys.modules.pop(module_name, None)
@@ -67,3 +69,19 @@ def pytest_configure(config):
 @pytest.fixture
 def run_integration_module():
     return _load_integration_module
+
+
+@pytest.hookimpl(hookwrapper=True, tryfirst=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    rep = outcome.get_result()
+    setattr(item, f"rep_{rep.when}", rep)
+
+
+@pytest.fixture(autouse=True)
+def _integration_failure_context(request):
+    _integration.clear_integration_modules()
+    yield
+    rep = getattr(request.node, "rep_call", None)
+    if rep is not None and rep.failed:
+        _integration.print_integration_failure_contexts()

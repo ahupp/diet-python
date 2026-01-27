@@ -25,7 +25,7 @@ pub fn rewrite_for(
 ) -> Rewrite {
     let iter_tmp = context.fresh("iter");
     let target_tmp = context.fresh("tmp");    
-    Rewrite::Visit(if is_async {
+    Rewrite::Walk(if is_async {
             py_stmt!(
                 r#"
 {iter_name:id} = __dp__.aiter({iter:expr})
@@ -77,7 +77,7 @@ pub fn rewrite_while(context: &Context, while_stmt: ast::StmtWhile) -> Rewrite {
             Expr::BooleanLiteral(ast::ExprBooleanLiteral { value: true, .. })
         )
     {
-        return Rewrite::Walk(vec![Stmt::While(while_stmt)]);
+        return Rewrite::Unmodified(while_stmt.into());
     }
 
     let ast::StmtWhile { test, body, orelse, .. } = while_stmt;
@@ -113,7 +113,12 @@ if {test_flag:id}:
     )
 }
 
-pub fn expand_if_chain(mut if_stmt: ast::StmtIf) -> ast::StmtIf {
+pub fn expand_if_chain(mut if_stmt: ast::StmtIf) -> Rewrite {
+    if !if_stmt.elif_else_clauses
+        .iter()
+        .any(|clause| clause.test.is_some()) {
+            return Rewrite::Unmodified(if_stmt.into());
+    }
     let mut else_body: Option<Vec<Stmt>> = None;
 
     for clause in if_stmt.elif_else_clauses.into_iter().rev() {
@@ -155,5 +160,5 @@ pub fn expand_if_chain(mut if_stmt: ast::StmtIf) -> ast::StmtIf {
         if_stmt.elif_else_clauses = Vec::new();
     }
 
-    if_stmt
+    Rewrite::Walk(vec![if_stmt.into()])
 }

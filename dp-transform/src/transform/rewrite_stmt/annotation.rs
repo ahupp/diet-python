@@ -129,14 +129,28 @@ impl Transformer for AnnotationCollector {
         for mut stmt in body.drain(..) {
 
             match stmt {
-                Stmt::AnnAssign(ast::StmtAnnAssign { target, annotation, value, .. }) => {
-                    let Expr::Name(ast::ExprName { id, .. }) = target.as_ref() else {
-                        panic!("unsupported AnnAssign target, should be gone: {target:?}");
-                    };
-                    if value.is_some() {
-                        panic!("AnnAssign with value should have been split into a bare annotation and an assignment");
+                Stmt::AnnAssign(ast::StmtAnnAssign {
+                    target,
+                    annotation,
+                    value,
+                    simple,
+                    range,
+                    node_index,
+                }) => {
+                    if value.is_none() {
+                        if let Expr::Name(ast::ExprName { id, .. }) = target.as_ref() {
+                            self.entries.push((id.to_string(), annotation));
+                            continue;
+                        }
                     }
-                    self.entries.push((id.to_string(), annotation));
+                    new_body.push(Stmt::AnnAssign(ast::StmtAnnAssign {
+                        target,
+                        annotation,
+                        value,
+                        simple,
+                        range,
+                        node_index,
+                    }));
                 }
                 Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
                     new_body.push(stmt);
@@ -162,6 +176,9 @@ pub fn rewrite_ann_assign_delete(stmts: &mut Vec<Stmt>) {
 pub fn rewrite_ann_assign_to_dunder_annotate(stmts: &mut Vec<Stmt>) {
     let mut collector = AnnotationCollector::default();
     collector.visit_body(stmts);
+    if collector.entries.is_empty() {
+        return;
+    }
 
     let mut annotation_writes = Vec::new();
     for (name, expr) in collector.entries.into_iter() {

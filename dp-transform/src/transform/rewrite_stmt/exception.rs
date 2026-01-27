@@ -1,15 +1,11 @@
 
-use ruff_python_ast::{self as ast, Stmt};
+use ruff_python_ast::{self as ast};
 
 use crate::{py_expr, py_stmt, transform::ast_rewrite::Rewrite};
 
 pub fn rewrite_try(stmt: ast::StmtTry) -> Rewrite {
-    if stmt.is_star {
-        return Rewrite::Walk(vec![Stmt::Try(stmt)]);
-    }
-
-    if !has_non_default_handler(&stmt) {
-        return Rewrite::Walk(vec![Stmt::Try(stmt)]);
+    if stmt.is_star || !has_non_default_handler(&stmt){
+        return Rewrite::Unmodified(stmt.into());
     }
 
     let base = if has_default_handler(&stmt) {
@@ -91,7 +87,7 @@ else:
         )
     });
 
-    Rewrite::Visit(py_stmt!(
+    Rewrite::Walk(py_stmt!(
         r#"
 try:
     {body:stmt}
@@ -118,7 +114,7 @@ pub fn rewrite_raise(mut raise: ast::StmtRaise) -> Rewrite {
         )),
         (exc, None) => {
             raise.exc = exc;
-            Rewrite::Walk(vec![Stmt::Raise(raise)])
+            Rewrite::Unmodified(raise.into())
         }
         (None, Some(_)) => {
             panic!("raise with a cause but without an exception should be impossible")

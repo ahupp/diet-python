@@ -12,6 +12,7 @@ _LINECACHE_PATCHED = False
 _ORIGINAL_UPDATECACHE = None
 _SOURCE_SHADOWS: dict[str, str] = {}
 _PYO3_TRANSFORM = None
+_INTEGRATION_ONLY_ENV = "DIET_PYTHON_INTEGRATION_ONLY"
 
 
 
@@ -99,11 +100,29 @@ def _update_linecache(path: str, source: str) -> None:
 
 
 
+def _integration_only_enabled() -> bool:
+    return os.environ.get(_INTEGRATION_ONLY_ENV) == "1"
+
+
+def _is_integration_module(resolved: Path) -> bool:
+    try:
+        resolved.relative_to(REPO_ROOT / "tests" / "integration_modules")
+        return True
+    except (OSError, ValueError):
+        pass
+    for parent in resolved.parents:
+        if parent.name.startswith("_dp_integration_"):
+            return True
+    return False
+
+
 def _should_transform(path: str) -> bool:
     """Return ``True`` if ``path`` should be passed through the transform."""
     try:
         resolved = Path(path).resolve()
     except OSError:
+        return False
+    if _integration_only_enabled() and not _is_integration_module(resolved):
         return False
     if resolved.name == "threading.py":
         return False

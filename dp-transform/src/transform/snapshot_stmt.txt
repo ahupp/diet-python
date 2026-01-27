@@ -58,12 +58,9 @@ a, b = it
 
 =
 
-try:
-    _dp_tmp_1 = __dp__.unpack(it, (True, True))
-    a = __dp__.getitem(_dp_tmp_1, 0)
-    b = __dp__.getitem(_dp_tmp_1, 1)
-finally:
-    _dp_tmp_1 = None
+_dp_tmp_1 = __dp__.unpack(it, (True, True))
+a = __dp__.getitem(_dp_tmp_1, 0)
+b = __dp__.getitem(_dp_tmp_1, 1)
 
 $ assign_star_unpack
 
@@ -71,12 +68,9 @@ a, *b = it
 
 =
 
-try:
-    _dp_tmp_1 = __dp__.unpack(it, (True, False))
-    a = __dp__.getitem(_dp_tmp_1, 0)
-    b = __dp__.list(__dp__.getitem(_dp_tmp_1, 1))
-finally:
-    _dp_tmp_1 = None
+_dp_tmp_1 = __dp__.unpack(it, (True, False))
+a = __dp__.getitem(_dp_tmp_1, 0)
+b = __dp__.list(__dp__.getitem(_dp_tmp_1, 1))
 
 $ assign_multi_targets
 
@@ -94,8 +88,13 @@ x: int = 1
 
 =
 
-x: int
 x = 1
+def __annotate__(_dp_format):
+    if _dp_format > 2:
+        raise NotImplementedError
+    _dp_annotations = {}
+    _dp_annotations["x"] = int
+    return _dp_annotations
 
 $ ann_assign_attr
 
@@ -192,16 +191,16 @@ else:
 
 _dp_iter_1 = __dp__.iter(it)
 while True:
-    _dp_test_flag_3 = True
-    if __dp__.not_(_dp_test_flag_3):
+    _dp_test_flag_4 = True
+    if __dp__.not_(_dp_test_flag_4):
         break
     _dp_tmp_2 = __dp__.next_or_sentinel(_dp_iter_1)
-    _dp_target_4 = __dp__.is_(_dp_tmp_2, __dp__.ITER_COMPLETE)
-    if _dp_target_4:
+    _dp_target_3 = __dp__.is_(_dp_tmp_2, __dp__.ITER_COMPLETE)
+    if _dp_target_3:
         break
     x = _dp_tmp_2
     body()
-if _dp_test_flag_3:
+if _dp_test_flag_4:
     done()
 
 $ while_else
@@ -262,47 +261,50 @@ zs = {k: v for k, v in items}
 
 =
 
-def _dp_comp_1(_dp_iter_2):
-    _dp_result_3 = __dp__.list()
-    _dp_iter_4 = __dp__.iter(_dp_iter_2)
-    while True:
-        _dp_tmp_5 = __dp__.next_or_sentinel(_dp_iter_4)
-        _dp_target_6 = __dp__.is_(_dp_tmp_5, __dp__.ITER_COMPLETE)
-        if _dp_target_6:
-            break
-        x = _dp_tmp_5
-        _dp_result_3.append(x)
-    return _dp_result_3
-xs = _dp_comp_1(it)
-def _dp_comp_7(_dp_iter_8):
-    _dp_result_9 = __dp__.set()
-    _dp_iter_10 = __dp__.iter(_dp_iter_8)
-    while True:
-        _dp_tmp_11 = __dp__.next_or_sentinel(_dp_iter_10)
-        _dp_target_12 = __dp__.is_(_dp_tmp_11, __dp__.ITER_COMPLETE)
-        if _dp_target_12:
-            break
-        x = _dp_tmp_11
-        _dp_result_9.add(x)
-    return _dp_result_9
-ys = _dp_comp_7(it)
-def _dp_comp_13(_dp_iter_14):
-    _dp_result_15 = __dp__.dict()
-    _dp_iter_16 = __dp__.iter(_dp_iter_14)
-    while True:
-        _dp_tmp_17 = __dp__.next_or_sentinel(_dp_iter_16)
-        _dp_target_18 = __dp__.is_(_dp_tmp_17, __dp__.ITER_COMPLETE)
-        if _dp_target_18:
-            break
-        try:
-            _dp_tmp_19 = __dp__.unpack(_dp_tmp_17, (True, True))
-            k = __dp__.getitem(_dp_tmp_19, 0)
-            v = __dp__.getitem(_dp_tmp_19, 1)
-        finally:
-            _dp_tmp_19 = None
-        __dp__.setitem(_dp_result_15, k, v)
-    return _dp_result_15
-zs = _dp_comp_13(items)
+_dp_tmp_1 = __dp__.list(())
+_dp_iter_8 = __dp__.iter(it)
+while True:
+    _dp_test_flag_18 = True
+    if __dp__.not_(_dp_test_flag_18):
+        break
+    _dp_tmp_9 = __dp__.next_or_sentinel(_dp_iter_8)
+    _dp_target_10 = __dp__.is_(_dp_tmp_9, __dp__.ITER_COMPLETE)
+    if _dp_target_10:
+        break
+    _dp_tmp_2 = _dp_tmp_9
+    _dp_tmp_1.append(_dp_tmp_2)
+_dp_test_flag_18
+xs = _dp_tmp_1
+_dp_tmp_3 = set()
+_dp_iter_11 = __dp__.iter(it)
+while True:
+    _dp_test_flag_19 = True
+    if __dp__.not_(_dp_test_flag_19):
+        break
+    _dp_tmp_12 = __dp__.next_or_sentinel(_dp_iter_11)
+    _dp_target_13 = __dp__.is_(_dp_tmp_12, __dp__.ITER_COMPLETE)
+    if _dp_target_13:
+        break
+    _dp_tmp_4 = _dp_tmp_12
+    _dp_tmp_3.add(_dp_tmp_4)
+_dp_test_flag_19
+ys = _dp_tmp_3
+_dp_tmp_5 = __dp__.dict()
+_dp_iter_14 = __dp__.iter(items)
+while True:
+    _dp_test_flag_20 = True
+    if __dp__.not_(_dp_test_flag_20):
+        break
+    _dp_tmp_15 = __dp__.next_or_sentinel(_dp_iter_14)
+    _dp_target_16 = __dp__.is_(_dp_tmp_15, __dp__.ITER_COMPLETE)
+    if _dp_target_16:
+        break
+    _dp_tmp_17 = __dp__.unpack(_dp_tmp_15, (True, True))
+    _dp_tmp_6 = __dp__.getitem(_dp_tmp_17, 0)
+    _dp_tmp_7 = __dp__.getitem(_dp_tmp_17, 1)
+    __dp__.setitem(_dp_tmp_5, _dp_tmp_6, _dp_tmp_7)
+_dp_test_flag_20
+zs = _dp_tmp_5
 
 $ comprehension_in_function
 
@@ -312,21 +314,22 @@ def f():
 =
 
 def f():
-    _dp_target_1 = __dp__.gt(x, 0)
-
-    def _dp_comp_2(_dp_iter_3):
-        _dp_result_4 = __dp__.list()
-        _dp_iter_5 = __dp__.iter(_dp_iter_3)
-        while True:
-            _dp_tmp_6 = __dp__.next_or_sentinel(_dp_iter_5)
-            _dp_target_7 = __dp__.is_(_dp_tmp_6, __dp__.ITER_COMPLETE)
-            if _dp_target_7:
-                break
-            x = _dp_tmp_6
-            if _dp_target_1:
-                _dp_result_4.append(x)
-        return _dp_result_4
-    return _dp_comp_2(it)
+    _dp_tmp_1 = __dp__.list(())
+    _dp_iter_4 = __dp__.iter(it)
+    while True:
+        _dp_test_flag_7 = True
+        if __dp__.not_(_dp_test_flag_7):
+            break
+        _dp_tmp_5 = __dp__.next_or_sentinel(_dp_iter_4)
+        _dp_target_6 = __dp__.is_(_dp_tmp_5, __dp__.ITER_COMPLETE)
+        if _dp_target_6:
+            break
+        _dp_tmp_2 = _dp_tmp_5
+        _dp_target_3 = __dp__.gt(_dp_tmp_2, 0)
+        if _dp_target_3:
+            _dp_tmp_1.append(_dp_tmp_2)
+    _dp_test_flag_7
+    return _dp_tmp_1
 
 $ comprehension_in_class_body
 
@@ -338,30 +341,22 @@ class C:
 def _dp_class_create_C():
 
     def _dp_class_ns_C(_dp_class_ns, __classcell__):
-        __dp__.setitem(_dp_class_ns, "__module__", __dp__.class_lookup_cell(_dp_class_ns, "__name__", __name__))
-        __dp__.setitem(_dp_class_ns, "__qualname__", "C")
-
-        def _dp_comp_2(_dp_iter_3):
-            _dp_result_4 = __dp__.list()
-            _dp_iter_5 = __dp__.iter(_dp_iter_3)
-            while True:
-                _dp_tmp_6 = __dp__.next_or_sentinel(_dp_iter_5)
-                _dp_target_7 = __dp__.is_(_dp_tmp_6, __dp__.ITER_COMPLETE)
-                if _dp_target_7:
-                    break
-                x = _dp_tmp_6
-                _dp_result_4.append(__dp__.class_lookup_cell(_dp_class_ns, "x", x))
-            return _dp_result_4
-        __dp__.setitem(_dp_class_ns, "xs", _dp_comp_2(__dp__.class_lookup_cell(_dp_class_ns, "it", it)))
-
-        def __annotate__(_dp_format):
-            _dp_target_1 = __dp__.gt(_dp_format, 2)
-            if _dp_target_1:
-                raise NotImplementedError$0
-            _dp_annotations = __dp__.dict()
-            return _dp_annotations
-        __dp__.update_fn(__annotate__$local, "C", "__annotate__")
-        __dp__.setitem(_dp_class_ns, "__annotate__", __annotate__$local)
+        _dp_class_ns["__module__"] = __name__
+        _dp_class_ns["__qualname__"] = "C"
+        _dp_tmp_1 = __dp__.list(())
+        _dp_iter_3 = __dp__.iter(__dp__.class_lookup_global(_dp_class_ns, "it", globals()))
+        while True:
+            _dp_test_flag_6 = True
+            if __dp__.not_(_dp_test_flag_6):
+                break
+            _dp_tmp_4 = __dp__.next_or_sentinel(_dp_iter_3)
+            _dp_target_5 = __dp__.is_(_dp_tmp_4, __dp__.ITER_COMPLETE)
+            if _dp_target_5:
+                break
+            _dp_tmp_2 = _dp_tmp_4
+            _dp_tmp_1.append(_dp_tmp_2)
+        _dp_test_flag_6
+        _dp_class_ns["xs"] = _dp_tmp_1
     return __dp__.create_class("C", _dp_class_ns_C, (), None, False)
 C = _dp_class_create_C()
 
@@ -409,12 +404,16 @@ async def run():
 async def run():
     _dp_iter_1 = __dp__.aiter(ait)
     while True:
+        _dp_test_flag_4 = True
+        if __dp__.not_(_dp_test_flag_4):
+            break
         _dp_tmp_2 = await __dp__.anext_or_sentinel(_dp_iter_1)
         _dp_target_3 = __dp__.is_(_dp_tmp_2, __dp__.ITER_COMPLETE)
         if _dp_target_3:
             break
         x = _dp_tmp_2
         body()
+    _dp_test_flag_4
 
 $ async_with
 
@@ -508,10 +507,11 @@ def outer():
 =
 
 def outer():
-    x = 5
+    x = __dp__.make_cell()
+    __dp__.store_cell(x, 5)
 
     def inner():
-        return x
+        return __dp__.load_cell(x)
     return inner()
 
 $ closure_cell_nonlocal
@@ -527,10 +527,10 @@ def outer():
 =
 
 def outer():
-    x = 5
+    x = __dp__.make_cell()
+    __dp__.store_cell(x, 5)
 
     def inner():
-        nonlocal x
-        x = 2
-        return x
+        __dp__.store_cell(x, 2)
+        return __dp__.load_cell(x)
     return inner()

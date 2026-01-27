@@ -5,16 +5,19 @@ use ruff_python_ast::{self as ast};
 
 pub fn rewrite(
     context: &Context,
-    ast::StmtWith {
+    with_stmt: ast::StmtWith,
+) -> Rewrite {
+    if with_stmt.items.is_empty() {
+        return Rewrite::Unmodified(with_stmt.into());
+    }
+
+    let ast::StmtWith {
         items,
         mut body,
         is_async,
         ..
-    }: ast::StmtWith,
-) -> Rewrite {
-    if items.is_empty() {
-        return Rewrite::Walk(py_stmt!("pass"));
-    }
+    } = with_stmt;
+
     for ast::WithItem {
         context_expr,
         optional_vars,
@@ -84,5 +87,5 @@ finally:
         };
     }
 
-    Rewrite::Visit(body)
+    Rewrite::Walk(body)
 }

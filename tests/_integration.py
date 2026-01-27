@@ -17,6 +17,32 @@ import diet_import_hook
 
 _VALIDATE_DELIMITER = "# diet-python: validate"
 
+_REGISTERED_MODULES: list[Path] = []
+_PRINTED_MODULES: set[Path] = set()
+
+
+def register_integration_module(module_path: Path) -> None:
+    _REGISTERED_MODULES.append(module_path)
+
+
+def mark_integration_module_printed(module_path: Path) -> None:
+    _PRINTED_MODULES.add(module_path)
+
+
+def clear_integration_modules() -> None:
+    _REGISTERED_MODULES.clear()
+    _PRINTED_MODULES.clear()
+
+
+def print_integration_failure_contexts() -> None:
+    seen: set[Path] = set()
+    for module_path in _REGISTERED_MODULES:
+        if module_path in seen or module_path in _PRINTED_MODULES:
+            continue
+        seen.add(module_path)
+        _print_integration_failure_context(module_path)
+        _PRINTED_MODULES.add(module_path)
+
 
 def split_integration_case(module_path: Path) -> tuple[str, str]:
     source = module_path.read_text(encoding="utf-8")
@@ -44,6 +70,7 @@ def _print_integration_failure_context(module_path: Path) -> None:
     print("--- transformed module ---", file=sys.stderr)
     print(transformed, file=sys.stderr)
     print("--- end diet-python integration context ---", file=sys.stderr)
+    _PRINTED_MODULES.add(module_path)
 
 
 @contextmanager
@@ -57,6 +84,7 @@ def transformed_module(
 
     module_path = package_dir / f"{module_name}.py"
     module_path.write_text(source, encoding="utf-8")
+    register_integration_module(module_path)
 
     package_root = str(tmp_path)
     sys.path.insert(0, package_root)

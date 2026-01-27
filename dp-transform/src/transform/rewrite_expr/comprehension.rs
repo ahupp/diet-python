@@ -1,7 +1,7 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use ruff_python_ast::{self as ast};
-use ruff_python_ast::{Expr, Stmt};
+use ruff_python_ast::{Expr, ExprContext, Stmt};
 
 use crate::transform::ast_rewrite::LoweredExpr;
 use crate::transform::scope::{Scope, ScopeKind};
@@ -56,7 +56,7 @@ impl Transformer for NamedExprTargetRewriter {
                     if self.globals.contains(id.as_str()) {
                         self.visit_expr(value.as_mut());
                         *stmt = py_stmt!(
-                            "__dp__.store_global(__globals__, {name:literal}, {value:expr})",
+                            "__dp__.store_global(globals(), {name:literal}, {value:expr})",
                             name = id.as_str(),
                             value = value.clone()
                         )
@@ -95,7 +95,7 @@ impl Transformer for NamedExprTargetRewriter {
                     if self.globals.contains(id.as_str()) {
                         self.visit_expr(value);
                         *expr = py_expr!(
-                            "__dp__.store_global(__globals__, {name:literal}, {value:expr})",
+                            "__dp__.store_global(globals(), {name:literal}, {value:expr})",
                             name = id.as_str(),
                             value = *value.clone()
                         );
@@ -118,7 +118,7 @@ impl Transformer for NamedExprTargetRewriter {
             if matches!(ctx, ast::ExprContext::Load) {
                 if self.globals.contains(id.as_str()) {
                     *expr = py_expr!(
-                        "__dp__.load_global(__globals__, {name:literal})",
+                        "__dp__.load_global(globals(), {name:literal})",
                         name = id.as_str()
                     );
                     return;

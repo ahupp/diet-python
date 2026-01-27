@@ -1,7 +1,7 @@
 use crate::{py_stmt, transform::ast_rewrite::Rewrite};
 
 use super::{context::Context, ImportStarHandling, Options};
-use ruff_python_ast::{self as ast, Stmt};
+use ruff_python_ast::{self as ast};
 use ruff_python_parser::parse_module;
 
 pub fn should_rewrite_import_from(import_from: &ast::StmtImportFrom, options: &Options) -> bool {
@@ -29,9 +29,9 @@ pub fn should_rewrite_import_from(import_from: &ast::StmtImportFrom, options: &O
     }
 }
 
-pub fn rewrite(ast::StmtImport { names, .. }: ast::StmtImport, options: &Options) -> Rewrite {
+pub fn rewrite(ast::StmtImport { names, .. }: ast::StmtImport) -> Rewrite {
     // TODO: hard-coded "import _testinternalcapi"
-    Rewrite::Visit(
+    Rewrite::Walk(
         names
             .into_iter()
             .map(|alias| {
@@ -72,7 +72,7 @@ pub fn rewrite(ast::StmtImport { names, .. }: ast::StmtImport, options: &Options
 
 pub fn rewrite_from(context: &Context, import_from: ast::StmtImportFrom) -> Rewrite {
     if !should_rewrite_import_from(&import_from, &context.options) {
-        return Rewrite::Walk(vec![Stmt::ImportFrom(import_from)]);
+        return Rewrite::Unmodified(import_from.into());
     }
 
     let ast::StmtImportFrom {
@@ -83,7 +83,7 @@ pub fn rewrite_from(context: &Context, import_from: ast::StmtImportFrom) -> Rewr
     } = import_from;
 
     if names.iter().any(|alias| alias.name.id.as_str() == "*") {
-        return Rewrite::Visit(match context.options.import_star_handling {
+        return Rewrite::Walk(match context.options.import_star_handling {
             ImportStarHandling::Allowed => {
                 unreachable!("rewrite_from is only called when import-star rewriting is required")
             }
@@ -140,5 +140,5 @@ pub fn rewrite_from(context: &Context, import_from: ast::StmtImportFrom) -> Rewr
 
     statements.extend(py_stmt!("del {module:id}", module = temp_binding.as_str()));
 
-    Rewrite::Visit(statements)
+    Rewrite::Walk(statements)
 }
