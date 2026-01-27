@@ -1,6 +1,7 @@
 use std::mem::take;
 
 use ruff_python_ast::{self as ast, Expr, Operator, UnaryOp};
+use ruff_python_ast::str_prefix::StringLiteralPrefix;
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_source_file::LineEnding;
 use ruff_text_size::TextRange;
@@ -16,6 +17,22 @@ pub mod truthy;
 pub fn lower_expr(context: &Context, expr: Expr) -> LoweredExpr {
 
     match expr {
+        Expr::StringLiteral(ast::ExprStringLiteral { value, range, node_index }) => {
+            if string_literal_needs_surrogate_decode(context, &value) {
+                if let Some(src) = context.source_slice(range) {
+                    let expr = py_expr!(
+                        "__dp__.decode_surrogate_literal({literal:literal})",
+                        literal = src
+                    );
+                    return LoweredExpr::modified(expr, Vec::new());
+                }
+            }
+            LoweredExpr::unmodified(Expr::StringLiteral(ast::ExprStringLiteral {
+                value,
+                range,
+                node_index,
+            }))
+        }
         Expr::Named(named_expr) => {
             let ast::ExprNamed { target, value, .. } = named_expr;
             let tmp = context.tmpify("tmp", *value);
@@ -191,21 +208,6 @@ else:
                 LoweredExpr::unmodified(expr)
             }
         }            
-        Expr::Attribute(attr_expr) if matches!(attr_expr.ctx, ast::ExprContext::Load) => {
-            let should_lower = context.options.lower_attributes
-                || !is_attribute_chain(attr_expr.value.as_ref());
-            if should_lower {
-                let ast::ExprAttribute { value, attr, .. } = attr_expr;
-                LoweredExpr::unmodified(py_expr!(
-                    "getattr({value:expr}, {attr:literal})",
-                    value = *value,
-                    attr = attr.id.as_str(),
-                ))
-            } else {
-                LoweredExpr::unmodified(Expr::Attribute(attr_expr))
-            }
-        }
-
         // tuple/list/dict unpacking
         Expr::Tuple(tuple)
             if matches!(tuple.ctx, ast::ExprContext::Load)
@@ -440,6 +442,78 @@ else:
         }
         other => LoweredExpr::unmodified(other),
     }
+}
+
+fn string_literal_needs_surrogate_decode(context: &Context, value: &ast::StringLiteralValue) -> bool {
+    for literal in value.iter() {
+        if matches!(literal.flags.prefix(), StringLiteralPrefix::Raw { .. }) {
+            continue;
+        }
+        if let Some(content) = context.source_slice(literal.content_range()) {
+            if has_surrogate_escape(content) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn has_surrogate_escape(content: &str) -> bool {
+    let bytes = content.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'\\' {
+            i += 1;
+            continue;
+        }
+        if i + 1 >= bytes.len() {
+            break;
+        }
+        match bytes[i + 1] {
+            b'u' => {
+                if i + 5 < bytes.len() {
+                    if let Some(value) = parse_hex(&bytes[i + 2..i + 6]) {
+                        if (0xD800..=0xDFFF).contains(&value) {
+                            return true;
+                        }
+                    }
+                    i += 6;
+                    continue;
+                }
+                i += 2;
+            }
+            b'U' => {
+                if i + 9 < bytes.len() {
+                    if let Some(value) = parse_hex(&bytes[i + 2..i + 10]) {
+                        if (0xD800..=0xDFFF).contains(&value) {
+                            return true;
+                        }
+                    }
+                    i += 10;
+                    continue;
+                }
+                i += 2;
+            }
+            _ => {
+                i += 2;
+            }
+        }
+    }
+    false
+}
+
+fn parse_hex(bytes: &[u8]) -> Option<u32> {
+    let mut value: u32 = 0;
+    for &b in bytes {
+        value <<= 4;
+        value |= match b {
+            b'0'..=b'9' => (b - b'0') as u32,
+            b'a'..=b'f' => (b - b'a' + 10) as u32,
+            b'A'..=b'F' => (b - b'A' + 10) as u32,
+            _ => return None,
+        };
+    }
+    Some(value)
 }
 
 

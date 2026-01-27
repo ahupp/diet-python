@@ -1,5 +1,6 @@
 # diet-python: disabled
 import operator as _operator
+import ast
 import sys
 import builtins
 import types as _types
@@ -78,7 +79,10 @@ def class_lookup_cell(class_ns, name, cell):
     try:
         return class_ns[name]
     except KeyError:
-        return load_deref(cell)
+        try:
+            return load_cell(cell)
+        except AttributeError:
+            return cell
 
 
 def class_lookup_global(class_ns, name, globals_dict):
@@ -179,8 +183,19 @@ def load_cell(cell):
     except ValueError as exc:
         raise UnboundLocalError("local variable referenced before assignment") from exc
 
+def locals():
+    frame = sys._getframe(1)
+    values = dict(frame.f_locals)
+    for name, value in list(values.items()):
+        if isinstance(value, _types.CellType):
+            try:
+                values[name] = value.cell_contents
+            except ValueError:
+                values.pop(name, None)
+    return values
 
-def store_deref(cell, value):
+
+def store_cell(cell, value):
     cell.cell_contents = value
     return value
 
@@ -260,6 +275,16 @@ def match_class_attr_value(cls, subject, idx, total):
 
 
 
+def nested_scope():
+    try:
+        qualname = sys._getframe(1).f_code.co_qualname
+    except Exception:
+        return None
+    if qualname == "<module>":
+        return None
+    return f"{qualname}.<locals>"
+
+
 def update_fn(func, scope, name):
     if scope is None:
         qualname = name
@@ -282,6 +307,13 @@ def update_fn(func, scope, name):
         except (AttributeError, ValueError):
             pass
     return func
+
+
+def decode_surrogate_literal(src):
+    try:
+        return ast.literal_eval(src)
+    except Exception:
+        return src
 
 
 typing = None

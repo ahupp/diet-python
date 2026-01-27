@@ -4,47 +4,39 @@ use ruff_python_ast::{
     self as ast, Expr, ExprContext, Stmt, TypeParam, TypeParamParamSpec,
     TypeParamTypeVar, TypeParamTypeVarTuple,
 };
+use ruff_python_ast::name::Name;
 
 use crate::template::py_stmt_single;
 use crate::{
     body_transform::{walk_expr, walk_stmt, Transformer},
     py_expr, py_stmt,
 };
-use super::class_body_load;
+use super::{class_body_load};
 use crate::transform::util::is_noarg_call;
+use crate::namegen::{fresh_name};
 
 pub fn rewrite_class_scope(
-    qualname: String,
     body: &mut Vec<Stmt>,
     type_params: HashSet<String>,
-    global_names: HashSet<String>,
 ) {
     let mut rewriter = ClassScopeRewriter::new(
-        qualname,
         type_params,
-        global_names,
     );
     rewriter.visit_body(body);
 }
 
 struct ClassScopeRewriter {
-    qualname: String,
     type_params: HashSet<String>,
-    global_names: HashSet<String>,
     decorated_names: HashSet<String>,
     function_defs: HashSet<String>,
 }
 
 impl ClassScopeRewriter {
     fn new(
-        qualname: String,
         type_params: HashSet<String>,
-        global_names: HashSet<String>,
     ) -> Self {
         Self {
-            qualname,
             type_params,
-            global_names,
             decorated_names: HashSet::new(),
             function_defs: HashSet::new(),
         }
@@ -52,7 +44,6 @@ impl ClassScopeRewriter {
 
     fn should_rewrite(&self, name: &str) -> bool {
             !self.type_params.contains(name)
-            && !self.global_names.contains(name)
             && !name.contains('$')
             && !name.starts_with("_dp_")
             && !matches!(name, "__dp__"  | "globals")
@@ -118,23 +109,56 @@ def {tmp:id}():
                     }
                     new_body.extend(helper);
                 }
-                Stmt::FunctionDef(func_def) => {
-                    let func_name = func_def.name.id.clone();
-
+            Stmt::FunctionDef(func_def) => {
+                let original_name = func_def.name.id.to_string();
+                if original_name.starts_with("_dp_class_")
+                    || original_name.starts_with("_dp_class_ns_")
+                {
                     let mut stmt = Stmt::FunctionDef(func_def.clone());
                     self.visit_stmt(&mut stmt);
                     new_body.push(stmt);
-                    if func_name.as_str().starts_with("_dp_class_")
-                        || func_name.as_str().starts_with("_dp_class_ns_")
-                    {
-                        continue;
-                    }
-                    let mut with_assign = py_stmt!(r#"_dp_class_ns[{func_name:literal}] = {func_name:id}"#, func_name = func_name.as_str());
-                    for stmt in &mut with_assign {
-                        self.visit_stmt(stmt);
-                    }
-                    new_body.extend(with_assign);
-                }                
+                    continue;
+                }
+
+                let mut func_def = func_def.clone();
+                let decorators = std::mem::take(&mut func_def.decorator_list);
+                let local_name = fresh_name("fn");
+
+                func_def.name.id = Name::new(local_name.as_str());
+
+                let mut prefix = Vec::with_capacity(decorators.len());
+                let mut decorator_names = Vec::with_capacity(decorators.len());
+                for decorator in decorators {
+                    let temp = fresh_name("decorator");
+                    let mut expr = decorator.expression;
+                    self.visit_expr(&mut expr);
+                    prefix.extend(py_stmt!(
+                        "{temp:id} = {decorator:expr}",
+                        temp = temp.as_str(),
+                        decorator = expr
+                    ));
+                    decorator_names.push(temp);
+                }
+
+                let mut stmt = Stmt::FunctionDef(func_def);
+                self.visit_stmt(&mut stmt);
+                new_body.extend(prefix);
+                new_body.push(stmt);
+
+                let mut decorated = py_expr!("{func:id}", func = local_name.as_str());
+                for decorator in decorator_names.iter().rev() {
+                    decorated = py_expr!(
+                        "{decorator:id}({decorated:expr})",
+                        decorator = decorator.as_str(),
+                        decorated = decorated
+                    );
+                }
+                new_body.extend(py_stmt!(
+                    r#"_dp_class_ns[{name:literal}] = {decorated:expr}"#,
+                    name = original_name.as_str(),
+                    decorated = decorated
+                ));
+            }                
                 mut stmt => {
                     self.visit_stmt(&mut stmt);
                     new_body.push(stmt);
@@ -174,12 +198,33 @@ def {tmp:id}():
                 }
                 self.type_params = saved_type_params;
             }
+            Stmt::ClassDef(_) => {
+                if let Stmt::ClassDef(ast::StmtClassDef {
+                    decorator_list,
+                    arguments,
+                    type_params,
+                    ..
+                }) = stmt
+                {
+                    for decorator in decorator_list {
+                        self.visit_decorator(decorator);
+                    }
+                    if let Some(type_params) = type_params {
+                        self.visit_type_params(type_params);
+                    }
+                    if let Some(arguments) = arguments {
+                        self.visit_arguments(arguments);
+                    }
+                }
+                return;
+            }
             Stmt::Delete(ast::StmtDelete { targets, .. }) => {
                 assert!(targets.len() == 1);
                 if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
                     let name = id.as_str();
                     if self.should_rewrite(name) {
                         *stmt = py_stmt_single(py_stmt!("del _dp_class_ns[{name:literal}]", name = name));
+                        return;
                     }
                 }
                 walk_stmt(self, stmt);
@@ -190,7 +235,11 @@ def {tmp:id}():
                     let name = id.as_str();
                     if self.should_rewrite(name) {
                         self.visit_expr(value);
-                        *stmt = py_stmt_single(py_stmt!("_dp_class_ns[{name:literal}] = {value:expr}", name = name, value = value.clone()));
+                        *stmt = py_stmt_single(py_stmt!(
+                            "_dp_class_ns[{name:literal}] = {value:expr}",
+                            name = name,
+                            value = value.clone()
+                        ));
                         return;
                     }
                 }
@@ -201,6 +250,27 @@ def {tmp:id}():
     }
 
     fn visit_expr(&mut self, expr: &mut Expr) {
+        match expr {
+            Expr::ListComp(ast::ExprListComp { generators, .. })
+            | Expr::SetComp(ast::ExprSetComp { generators, .. })
+            | Expr::Generator(ast::ExprGenerator { generators, .. }) => {
+                if let Some(first) = generators.first_mut() {
+                    self.visit_expr(&mut first.iter);
+                }
+                return;
+            }
+            Expr::DictComp(ast::ExprDictComp { generators, .. }) => {
+                if let Some(first) = generators.first_mut() {
+                    self.visit_expr(&mut first.iter);
+                }
+                return;
+            }
+            Expr::Lambda(_) => {
+                return;
+            }
+            _ => {}
+        }
+
         if is_noarg_call("vars", expr) || is_noarg_call("locals", expr) {
             *expr = py_expr!("_dp_class_ns");
             return;

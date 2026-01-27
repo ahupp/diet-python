@@ -66,6 +66,7 @@ impl ScopeTree {
             kind,
             bindings,
             tree: Arc::clone(self),
+            child_nonlocals: Mutex::new(HashSet::new()),
         });
         inner.scopes.push(Arc::clone(&scope));
         inner.children.push(Vec::new());
@@ -104,21 +105,6 @@ impl ScopeTree {
             .get(id)
             .cloned()
             .unwrap_or_default()
-    }
-
-    fn scope_for_stmt(&self, stmt: &Stmt) -> Option<Arc<Scope>> {
-        let inner = self.inner.lock().expect("ScopeTree mutex poisoned");
-        let node_index = stmt.node_index().load();
-        if node_index != NodeIndex::NONE {
-            if let Some(id) = inner.node_index_map.get(&node_index).copied() {
-                return inner.scopes.get(id).cloned();
-            }
-        }
-        let range = stmt.range();
-        if let Some(id) = inner.range_map.get(&range).copied() {
-            return inner.scopes.get(id).cloned();
-        }
-        None
     }
 
     fn scope_for_def(&self, node_index: NodeIndex, range: TextRange) -> Option<Arc<Scope>> {
@@ -168,6 +154,7 @@ impl Scope {
                 ScopeKind::Function { name } => {
                     components.push("<locals>".to_string());
                     components.push(name.clone());
+
                     current = scope.parent_scope();
                 }
                 ScopeKind::Class { name } => {
@@ -204,7 +191,22 @@ impl Scope {
     }
 
     pub fn child_scope_for_function(&self, func_def: &ast::StmtFunctionDef) -> Option<Arc<Scope>> {
-        self.lookup_child_scope(func_def.node_index.load(), func_def.range)
+        if let Some(scope) = self.lookup_child_scope(func_def.node_index.load(), func_def.range) {
+            return Some(scope);
+        }
+        let mut candidates = Vec::new();
+        let name = func_def.name.id.to_string();
+        candidates.push(name.clone());
+        for child_id in self.child_ids() {
+            if let Some(scope) = self.tree.get(child_id) {
+                if let ScopeKind::Function { name: scope_name } = scope.kind() {
+                    if candidates.iter().any(|candidate| candidate == scope_name) {
+                        return Some(scope);
+                    }
+                }
+            }
+        }
+        None
     }
 
     pub fn child_scope_for_class(&self, class_def: &ast::StmtClassDef) -> Option<Arc<Scope>> {
@@ -436,6 +438,7 @@ pub fn analyze_module_scope(module: &[Stmt]) -> Arc<Scope> {
     let root = tree.add_scope(ScopeKind::Module, bindings, None, None, None);
     let analyzer = ScopeAnalyzer::new(Arc::clone(&tree));
     analyzer.visit_body(module, root.id);
+    annotate_child_nonlocals(&tree);
     root
 }
 
@@ -538,6 +541,44 @@ impl ScopeAnalyzer {
     }
 }
 
+fn annotate_child_nonlocals(tree: &Arc<ScopeTree>) {
+    let scopes = {
+        let inner = tree.inner.lock().expect("ScopeTree mutex poisoned");
+        inner.scopes.clone()
+    };
+
+    for scope in scopes {
+        let nonlocals = scope
+            .bindings
+            .iter()
+            .filter_map(|(name, kind)| {
+                if matches!(kind, BindingKind::Nonlocal) {
+                    Some(name.clone())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        for name in nonlocals {
+            let mut current = scope.parent_scope();
+            while let Some(parent) = current {
+                if matches!(parent.binding_in_scope(&name), Some(BindingKind::Local))
+                    && matches!(parent.kind, ScopeKind::Function { .. })
+                {
+                    let mut set = parent
+                        .child_nonlocals
+                        .lock()
+                        .expect("Scope child_nonlocals mutex poisoned");
+                    set.insert(name.clone());
+                    break;
+                }
+                current = parent.parent_scope();
+            }
+        }
+    }
+}
+
 fn function_bindings(func_def: &ast::StmtFunctionDef) -> ScopeBindings {
     let mut bindings = collect_scope_info(&func_def.body);
 
@@ -575,12 +616,7 @@ fn function_bindings(func_def: &ast::StmtFunctionDef) -> ScopeBindings {
 }
 
 fn class_bindings(class_def: &ast::StmtClassDef) -> ScopeBindings {
-    let mut body = class_def.body.clone();
-    crate::transform::rewrite_class_def::private::rewrite_class_body(
-        &mut body,
-        class_def.name.id.as_str(),
-    );
-    collect_scope_info(&body)
+    collect_scope_info(&class_def.body)
 }
 
 pub(crate) mod explicit_scope {

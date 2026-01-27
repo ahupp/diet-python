@@ -8,23 +8,22 @@ use crate::{
     transform::{util::is_noarg_call},
 };
 
-struct MethodTransformer {
+struct MethodRewriteSuperClasscell {
     first_arg: Option<String>,
     needs_class_cell: bool,
 }
 
-impl Transformer for MethodTransformer {
+impl Transformer for MethodRewriteSuperClasscell {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
             Stmt::FunctionDef(_) => return,
             Stmt::Delete(ast::StmtDelete { targets, .. }) => {
-                if targets.len() == 1 {
-                    if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
-                        if id.as_str() == "__class__" {
-                            *stmt = py_stmt!("del __classcell__.cell_contents").remove(0);
-                            self.needs_class_cell = true;
-                            return;
-                        }
+                assert!(targets.len() == 1);
+                if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
+                    if id.as_str() == "__class__" {
+                        *stmt = py_stmt!("del __classcell__.cell_contents").remove(0);
+                        self.needs_class_cell = true;
+                        return;
                     }
                 }
             }
@@ -49,13 +48,11 @@ impl Transformer for MethodTransformer {
                     };
                 }
             }
-            Expr::Name(ast::ExprName { id, ctx, .. }) => {
-                if matches!(ctx, ExprContext::Load) {
-                    if id.as_str() == "__class__"
-                    {
-                        self.needs_class_cell = true;
-                        *expr = py_expr!("__classcell__.cell_contents");
-                    }
+            Expr::Name(ast::ExprName { id, .. }) => {
+                if id.as_str() == "__class__"
+                {
+                    self.needs_class_cell = true;
+                    *expr = py_expr!("__classcell__.cell_contents");
                 }
                 return;
             }
@@ -68,12 +65,12 @@ impl Transformer for MethodTransformer {
 
 
 pub fn rewrite_methods_in_class_body(
-    body: &mut Vec<Stmt>,
+    class_def: &mut ast::StmtClassDef,
 ) -> bool {
     let mut rewriter = MethodRewriter {
         needs_class_cell: false,
     };
-    rewriter.visit_body(body);
+    rewriter.visit_body(&mut class_def.body);
     rewriter.needs_class_cell
 }
 
@@ -86,10 +83,6 @@ impl Transformer for MethodRewriter {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
             Stmt::FunctionDef(func_def) => {
-                assert!(
-                    func_def.decorator_list.is_empty(),
-                    "decorators should be gone by now"
-                );
                 self.needs_class_cell |= rewrite_method(
                     func_def,
                 );
@@ -101,13 +94,9 @@ impl Transformer for MethodRewriter {
 }
 
 
-pub fn rewrite_method(
+fn rewrite_method(
     func_def: &mut ast::StmtFunctionDef,
 ) -> bool {
-    let func_name = func_def.name.id.to_string();
-    if let Some(_) = func_name.strip_prefix("_dp_fn_") {
-        return false;
-    }
 
     let first_arg = func_def
         .parameters
@@ -123,7 +112,7 @@ pub fn rewrite_method(
         });
 
 
-    let mut transformer = MethodTransformer {
+    let mut transformer = MethodRewriteSuperClasscell {
         first_arg,
         needs_class_cell: false,
     };

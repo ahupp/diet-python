@@ -37,15 +37,6 @@ pub(crate) fn rewrite_target(
         Expr::List(list) => {
             rewrite_unpack_target(context, list.elts, rhs, out, UnpackTargetKind::List);
         }
-        Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
-            let stmt = py_stmt!(
-                "__dp__.setattr({value:expr}, {name:literal}, {rhs:expr})",
-                value = value,
-                name = attr.as_str(),
-                rhs = rhs,
-            );
-            out.extend(stmt);
-        }
         Expr::Subscript(ast::ExprSubscript { value, slice, .. }) => {
             let stmt = py_stmt!(
                 "__dp__.setitem({value:expr}, {slice:expr}, {rhs:expr})",
@@ -53,6 +44,10 @@ pub(crate) fn rewrite_target(
                 slice = slice,
                 rhs = rhs,
             );
+            out.extend(stmt);
+        }
+        Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
+            let stmt = py_stmt!("__dp__.setattr({value:expr}, {name:literal}, {rhs:expr})", value = value, name = attr.as_str(), rhs = rhs);
             out.extend(stmt);
         }
         Expr::Name(_) => {

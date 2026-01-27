@@ -1,50 +1,48 @@
 use ruff_python_ast::{self as ast, name::Name, Expr, ExprContext, Stmt};
 
+
 use crate::{body_transform::{Transformer, walk_expr, walk_parameter, walk_stmt}};
 use log::{log_enabled, trace, Level};
 
 
 pub(crate) fn rewrite_class_body<'a>(
     body: &mut Vec<Stmt>,
-    class_name: &str,
-    ) {
+    class_name: Option<String>,
+) {
     if log_enabled!(Level::Trace) {
         trace!(
-            "rewrite_class_body: class {} body_len={}",
-            class_name,
+            "rewrite_class_body: body_len={}",
             body.len()
         );
     }
-    let mut rewriter = PrivateRewriter::new(class_name);
+    let mut rewriter = PrivateRewriter {
+        class_name,
+    };
     rewriter.visit_body(body);
 }
 
+#[derive(Default)]
 struct PrivateRewriter {
-    class_name: String,
+    class_name: Option<String>,
 }
 
 impl PrivateRewriter {
-    fn new(class_name: &str) -> Self {
-        Self {
-            class_name: class_name.to_string(),
-        }
-    }
 
     pub fn maybe_mangle(&self, attr: &str) -> Option<String> {
+        let Some(mut class_name) = self.class_name.as_ref().map(|s| s.as_str()) else {
+            return None;
+        };
+
         if !attr.starts_with("__") || attr.ends_with("__") {
             return None;
         }
 
-        let mut class_name = self.class_name.as_str();
         while class_name.starts_with('_') {
             class_name = &class_name[1..];
         }
 
-        if class_name.is_empty() {
-            return None;
-        }
-
-        Some(format!("_{}{}", class_name, attr))
+        let ret = format!("_{}{}", class_name, attr);
+        Some(ret)
     }
 
     fn mangle_identifier(&self, name: &mut ast::Identifier) {
@@ -64,8 +62,8 @@ impl PrivateRewriter {
 impl Transformer for PrivateRewriter {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
-            Stmt::ClassDef(_) => {
-                // Do not recurse into nested classes; they are rewritten separately.
+            Stmt::ClassDef(ast::StmtClassDef { name, body, .. }) => {
+                rewrite_class_body(body, Some(name.to_string()));
             }
             Stmt::Global(ast::StmtGlobal { names, .. }) => {
                 for name in names {
@@ -110,3 +108,4 @@ impl Transformer for PrivateRewriter {
         walk_expr(self, expr);
     }
 }
+

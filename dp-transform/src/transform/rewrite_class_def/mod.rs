@@ -3,7 +3,7 @@ pub mod method;
 pub mod private;
 
 use crate::transform::ast_rewrite::Rewrite;
-use crate::transform::scope::Scope;
+use crate::transform::scope::{BindingKind, Scope, ScopeKind};
 use crate::transform::{rewrite_stmt};
 use crate::transform::rewrite_expr::make_tuple;
 use crate::{py_expr, py_stmt};
@@ -39,68 +39,66 @@ pub fn class_body_load(name: &str) -> Expr {
     )
 }
 
+pub fn class_body_load_global(name: &str) -> Expr {
+    let literal_name = class_lookup_literal_name(name);
+    py_expr!(
+        "__dp__.class_lookup_global(_dp_class_ns, {literal_name:literal}, globals())",
+        literal_name = literal_name,
+    )
+}
+
 
 
 pub fn rewrite<'a>(
     context: &Context,
     scope: &Scope,
-    ast::StmtClassDef {
-    name,
-    mut body,
-    mut arguments,
-    mut type_params,
-    decorator_list,
-    ..
-}: StmtClassDef) -> Rewrite {
-    let class_name = name.id.to_string();
+    mut class_def: ast::StmtClassDef,
+) -> Rewrite {
+    let class_name = class_def.name.id.to_string();
     let class_qualname = scope.make_qualname(&class_name);
-    if log_enabled!(Level::Trace) {
-        trace!(
-            "rewrite_class_def: class {} qualname={} body_len={} decorators={}",
-            class_name,
-            class_qualname,
-            body.len(),
-            decorator_list.len()
-        );
-    }
 
+    let decorator_list = take(&mut class_def.decorator_list);
 
     let create_class_fn = class_def_to_create_class_fn(
-        &name,
-        take(&mut body),
-        take(&mut arguments),
-        take(&mut type_params),
+        &mut class_def,
         class_qualname.to_owned(),
         context, 
         scope,
     );
 
-    rewrite_stmt::decorator::rewrite(context, decorator_list, class_name.as_str(), create_class_fn)
+    rewrite_stmt::decorator::rewrite(
+        context,
+        decorator_list,
+        class_name.as_str(),
+        create_class_fn,
+    )
+
 }
 
 fn class_def_to_create_class_fn<'a>(
-    name: &Identifier,
-    mut body: Vec<Stmt>,
-    arguments: Option<Box<Arguments>>,
-    type_params: Option<Box<TypeParams>>,
+    class_def: &mut ast::StmtClassDef,
     class_qualname: String,
     context: &Context,
     scope: &Scope,
 ) -> Vec<Stmt> {
+
+    let needs_class_cell = method::rewrite_methods_in_class_body(
+        class_def,
+    );
+
+    let ast::StmtClassDef {
+        name,
+        body,
+        arguments,
+        type_params,
+        ..
+    } = class_def;
+
+    let type_params = take(type_params);
+    let arguments = take(arguments);
+    let mut body = take(body);
+
     let class_name = name.id.to_string();
-    if log_enabled!(Level::Trace) {
-        trace!(
-            "class_def_to_create_class_fn: class {} body_len={} args={} type_params={}",
-            class_name,
-            body.len(),
-            arguments.is_some(),
-            type_params.is_some()
-        );
-    }
-
-
-    let global_names = scope.global_names().clone();
-    let class_locals: HashSet<String> = scope.local_names();
 
     // If the first statement is a string literal, assign it to  __doc__
     if let Some(first_stmt) = body.first_mut() {
@@ -139,17 +137,18 @@ __qualname__ = {class_qualname:literal}
         type_param_statements = type_param_statements,
     );
 
-    let needs_class_cell = method::rewrite_methods_in_class_body(
-        &mut ns_builder,
-    );
-    if log_enabled!(Level::Trace) {
-        trace!(
-            "class_def_to_create_class_fn: class {} ns_len={} needs_class_cell={}",
-            class_name,
-            ns_builder.len(),
-            needs_class_cell
-        );
-    }
+    let class_locals: HashSet<String> = scope
+        .scope_bindings()
+        .iter()
+        .filter_map(|(name, kind)| {
+            if *kind == BindingKind::Local {
+                Some(name.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+
 
     let type_param_skip = type_param_info
         .as_ref()
@@ -162,13 +161,6 @@ __qualname__ = {class_qualname:literal}
         })
         .unwrap_or_default();
 
-    rewrite_class_scope(
-        class_qualname.clone(),
-        &mut ns_builder,
-        type_param_skip,
-        global_names,
-    );
-
 
     let type_param_bindings = type_param_info
         .as_ref()
@@ -179,17 +171,15 @@ __qualname__ = {class_qualname:literal}
         .filter(|_| !has_generic_base)
         .and_then(make_generic_base);
     let extra_bases = generic_base.into_iter().collect::<Vec<_>>();
-    let (bases_tuple, prepare_dict) =
-        class_call_arguments(arguments, false, extra_bases); // TODO: class scope?
+    let (bases_tuple, prepare_dict) = class_call_arguments(
+        arguments,
+        extra_bases,
+    );
 
-    if log_enabled!(Level::Trace) {
-        trace!(
-            "class_def_to_create_class_fn: class {} bases={:?} prepare_dict={:?}",
-            class_name,
-            bases_tuple,
-            prepare_dict
-        );
-    }
+    rewrite_class_scope(
+        &mut ns_builder,
+        type_param_skip,
+    );
 
     let out = py_stmt!(
         r#"
@@ -216,6 +206,65 @@ def _dp_class_create_{class_name:id}():
         prepare_dict = prepare_dict.clone(),
     );
     out
+}
+
+fn rewrite_nested_class_def(
+    context: &Context,
+    class_name: &str,
+    decorators: Vec<ast::Decorator>,
+    mut create_class_fn: Vec<Stmt>,
+) -> Rewrite {
+    if create_class_fn.is_empty() {
+        return Rewrite::Walk(create_class_fn);
+    }
+
+    let _ = create_class_fn.pop();
+    if decorators.is_empty() {
+        let assign = py_stmt!(
+            "_dp_class_ns[{name:literal}] = _dp_class_create_{name:id}()",
+            name = class_name,
+        );
+        create_class_fn.extend(assign);
+        return Rewrite::Walk(create_class_fn);
+    }
+
+    let mut prefix = Vec::with_capacity(decorators.len());
+    let mut decorator_names = Vec::with_capacity(decorators.len());
+    for decorator in decorators {
+        let temp = context.fresh("decorator");
+        prefix.extend(py_stmt!(
+            "{temp:id} = {decorator:expr}",
+            temp = temp.as_str(),
+            decorator = decorator.expression
+        ));
+        decorator_names.push(temp);
+    }
+
+    let class_tmp = context.fresh("class");
+    let mut decorated = py_expr!("{class_tmp:id}", class_tmp = class_tmp.as_str());
+    for decorator in decorator_names.iter().rev() {
+        decorated = py_expr!(
+            "{decorator:id}({decorated:expr})",
+            decorator = decorator.as_str(),
+            decorated = decorated
+        );
+    }
+
+    let mut out = Vec::new();
+    out.extend(prefix);
+    out.extend(create_class_fn);
+    out.extend(py_stmt!(
+        "{class_tmp:id} = _dp_class_create_{name:id}()",
+        class_tmp = class_tmp.as_str(),
+        name = class_name
+    ));
+    out.extend(py_stmt!(
+        "_dp_class_ns[{name:literal}] = {decorated:expr}",
+        name = class_name,
+        decorated = decorated
+    ));
+
+    Rewrite::Walk(out)
 }
 
 
@@ -370,7 +419,6 @@ fn is_generic_expr(expr: &Expr) -> bool {
 
 pub fn class_call_arguments(
     arguments: Option<Box<ast::Arguments>>,
-    in_class_scope: bool,
     mut extra_bases: Vec<Expr>,
 ) -> (Expr, Expr) {
     let mut bases = Vec::new();
@@ -378,25 +426,10 @@ pub fn class_call_arguments(
     if let Some(args) = arguments {
         let args = *args;
         for base in args.args.into_vec() {
-            let base_expr = if in_class_scope {
-                match base {
-                    Expr::Name(name_expr) => class_body_load(name_expr.id.as_str()),
-                    other => other,
-                }
-            } else {
-                base
-            };
-            bases.push(base_expr);
+            bases.push(base);
         }
         for kw in args.keywords.into_vec() {
-            let value = if in_class_scope {
-                match kw.value {
-                    Expr::Name(name_expr) => class_body_load(name_expr.id.as_str()),
-                    other => other,
-                }
-            } else {
-                kw.value
-            };
+            let value = kw.value;
             let key = kw
                 .arg
                 .map(|arg| py_expr!("{arg:literal}", arg = arg.as_str()));

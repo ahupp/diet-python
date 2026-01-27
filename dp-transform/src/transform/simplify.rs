@@ -13,6 +13,20 @@ pub fn strip_generated_passes(stmts: &mut Vec<Stmt>) {
             for stmt in body.drain(..) {
                 match stmt {
                     Stmt::If(mut if_stmt) => {
+                        if if_stmt.body.is_empty() {
+                            if_stmt.body.push(Stmt::Pass(ast::StmtPass {
+                                node_index: Default::default(),
+                                range: Default::default(),
+                            }));
+                        }
+                        for clause in if_stmt.elif_else_clauses.iter_mut() {
+                            if clause.body.is_empty() {
+                                clause.body.push(Stmt::Pass(ast::StmtPass {
+                                    node_index: Default::default(),
+                                    range: Default::default(),
+                                }));
+                            }
+                        }
                         if_stmt.elif_else_clauses.retain(|clause| {
                             !(clause.body.len() == 1 && matches!(clause.body[0], Stmt::Pass(_)))
                         });

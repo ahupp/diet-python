@@ -4,15 +4,145 @@ use ruff_python_ast::{self as ast};
 use ruff_python_ast::{Expr, Stmt};
 
 use crate::transform::ast_rewrite::LoweredExpr;
-use crate::transform::scope::Scope;
+use crate::transform::scope::{Scope, ScopeKind};
 use crate::{py_expr, py_stmt};
 use crate::transform::context::{Context};
 use crate::body_transform::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::name::Name;
-use ruff_text_size::TextRange;
 
 
-pub(crate) fn rewrite_lambda(lambda: ast::ExprLambda, ctx: &Context, _scope: &Scope) -> LoweredExpr {
+
+fn rewrite_named_expr_targets(
+    func_def: &mut ast::StmtFunctionDef,
+    global_targets: &[String],
+    nonlocal_targets: &[String],
+) {
+    if global_targets.is_empty() && nonlocal_targets.is_empty() {
+        return;
+    }
+    if !global_targets.is_empty() {
+        let insert_at = match func_def.body.first() {
+            Some(Stmt::Expr(ast::StmtExpr { value, .. }))
+                if matches!(value.as_ref(), Expr::StringLiteral(_)) => 1,
+            _ => 0,
+        };
+        func_def
+            .body
+            .splice(insert_at..insert_at, py_stmt!("__globals__ = globals()"));
+    }
+    let mut rewriter = NamedExprTargetRewriter::new(global_targets, nonlocal_targets);
+    rewriter.visit_body(&mut func_def.body);
+}
+
+struct NamedExprTargetRewriter {
+    globals: HashSet<String>,
+    cells: HashSet<String>,
+}
+
+impl NamedExprTargetRewriter {
+    fn new(global_targets: &[String], nonlocal_targets: &[String]) -> Self {
+        Self {
+            globals: global_targets.iter().cloned().collect(),
+            cells: nonlocal_targets.iter().cloned().collect(),
+        }
+    }
+}
+
+impl Transformer for NamedExprTargetRewriter {
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
+        if let Stmt::Assign(ast::StmtAssign { targets, value, .. }) = stmt {
+            if targets.len() == 1 {
+                if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
+                    if self.globals.contains(id.as_str()) {
+                        self.visit_expr(value.as_mut());
+                        *stmt = py_stmt!(
+                            "__dp__.store_global(__globals__, {name:literal}, {value:expr})",
+                            name = id.as_str(),
+                            value = value.clone()
+                        )
+                        .remove(0);
+                        return;
+                    }
+                    if self.cells.contains(id.as_str()) {
+                        self.visit_expr(value.as_mut());
+                        *stmt = py_stmt!(
+                            "__dp__.store_cell({cell:id}, {value:expr})",
+                            cell = id.as_str(),
+                            value = value.clone()
+                        )
+                        .remove(0);
+                        return;
+                    }
+                }
+            }
+        }
+        walk_stmt(self, stmt);
+    }
+
+    fn visit_expr(&mut self, expr: &mut Expr) {
+        match expr {
+            Expr::Call(ast::ExprCall { func, .. }) => {
+                if is_dp_attr(func.as_ref(), "load_cell")
+                    || is_dp_attr(func.as_ref(), "load_global")
+                    || is_dp_attr(func.as_ref(), "store_cell")
+                    || is_dp_attr(func.as_ref(), "store_global")
+                {
+                    return;
+                }
+            }
+            Expr::Named(ast::ExprNamed { target, value, .. }) => {
+                if let Expr::Name(ast::ExprName { id, .. }) = target.as_ref() {
+                    if self.globals.contains(id.as_str()) {
+                        self.visit_expr(value);
+                        *expr = py_expr!(
+                            "__dp__.store_global(__globals__, {name:literal}, {value:expr})",
+                            name = id.as_str(),
+                            value = *value.clone()
+                        );
+                        return;
+                    }
+                    if self.cells.contains(id.as_str()) {
+                        self.visit_expr(value);
+                        *expr = py_expr!(
+                            "__dp__.store_cell({cell:id}, {value:expr})",
+                            cell = id.as_str(),
+                            value = *value.clone()
+                        );
+                        return;
+                    }
+                }
+            }
+            _ => {}
+        }
+        if let Expr::Name(ast::ExprName { id, ctx, .. }) = expr {
+            if matches!(ctx, ast::ExprContext::Load) {
+                if self.globals.contains(id.as_str()) {
+                    *expr = py_expr!(
+                        "__dp__.load_global(__globals__, {name:literal})",
+                        name = id.as_str()
+                    );
+                    return;
+                }
+                if self.cells.contains(id.as_str()) {
+                    *expr = py_expr!("__dp__.load_cell({name:id})", name = id.as_str());
+                    return;
+                }
+            }
+        }
+        walk_expr(self, expr);
+    }
+}
+
+fn is_dp_attr(expr: &Expr, attr: &str) -> bool {
+    matches!(
+        expr,
+        Expr::Attribute(ast::ExprAttribute { value, attr: name, .. })
+            if matches!(value.as_ref(), Expr::Name(ast::ExprName { id, .. }) if id.as_str() == "__dp__")
+                && name.as_str() == attr
+    )
+}
+
+pub(crate) fn rewrite_lambda(lambda: ast::ExprLambda, ctx: &Context, scope: &Scope) -> LoweredExpr {
     let func_name = ctx.fresh("lambda");
 
     let ast::ExprLambda {
@@ -137,7 +267,7 @@ def {func:id}({param:id}):
     };
 
     if let Stmt::FunctionDef(func_def_stmt) = &mut func_def[0] {
-        insert_scope_decls(func_def_stmt, global_targets, nonlocal_targets);
+        rewrite_named_expr_targets(func_def_stmt, &global_targets, &nonlocal_targets);
     }
 
     let expr = py_expr!(
@@ -175,6 +305,7 @@ pub fn rewrite(
         .expect("comprehension expects at least one generator")
         .iter
         .clone();
+    let lowered_iter = super::lower_expr(context, first_iter_expr);
 
     let func_name = context.fresh("comp");
     let param_name = Name::new(context.fresh("iter"));
@@ -261,7 +392,7 @@ def {func:id}({param:id}):
         container_type = container_type,
     );
     if let Stmt::FunctionDef(func_def_stmt) = &mut func_def[0] {
-        insert_scope_decls(func_def_stmt, global_targets, nonlocal_targets);
+        rewrite_named_expr_targets(func_def_stmt, &global_targets, &nonlocal_targets);
         asyncify_internal_function(func_def_stmt);
         if needs_async {
             func_def_stmt.is_async = true;
@@ -271,7 +402,7 @@ def {func:id}({param:id}):
 
     let call_expr = py_expr!(
         "{func:id}({iter:expr})",
-        iter = first_iter_expr,
+        iter = lowered_iter.expr,
         func = func_name.as_str(),
     );
     let expr = if needs_async {
@@ -280,7 +411,9 @@ def {func:id}({param:id}):
         call_expr
     };
 
-    LoweredExpr::modified(expr, func_def)
+    let mut stmts = func_def;
+    stmts.extend(lowered_iter.stmts);
+    LoweredExpr::modified(expr, stmts)
 }
 
 fn collect_named_expr_targets(
@@ -317,11 +450,20 @@ fn classify_named_expr_targets(
         return (Vec::new(), Vec::new());
     }
 
+    if matches!(scope.kind(), ScopeKind::Module) {
+        let mut globals = names.iter().cloned().collect::<Vec<_>>();
+        globals.sort();
+        return (globals, Vec::new());
+    }
+
     let mut global_targets = Vec::new();
     let mut nonlocal_targets = Vec::new();
 
     for name in names {
-        if scope.is_global(name) {
+        if scope.is_global(name)
+            || unmangle_private_name(name)
+                .is_some_and(|unmangled| scope.is_global(unmangled.as_str()))
+        {
             global_targets.push(name.clone());
         } else {
             nonlocal_targets.push(name.clone());
@@ -333,59 +475,16 @@ fn classify_named_expr_targets(
     (global_targets, nonlocal_targets)
 }
 
-fn insert_scope_decls(
-    func_def: &mut ast::StmtFunctionDef,
-    global_targets: Vec<String>,
-    nonlocal_targets: Vec<String>,
-) {
-    let mut decls = Vec::new();
-    if let Some(stmt) = build_global_stmt(global_targets) {
-        decls.push(stmt);
-    }
-    if let Some(stmt) = build_nonlocal_stmt(nonlocal_targets) {
-        decls.push(stmt);
-    }
-
-    if decls.is_empty() {
-        return;
-    }
-
-    let insert_at = match func_def.body.first() {
-        Some(Stmt::Expr(ast::StmtExpr { value, .. }))
-            if matches!(value.as_ref(), Expr::StringLiteral(_)) => 1,
-        _ => 0,
-    };
-    func_def.body.splice(insert_at..insert_at, decls);
-}
-
-fn build_global_stmt(names: Vec<String>) -> Option<Stmt> {
-    if names.is_empty() {
+fn unmangle_private_name(name: &str) -> Option<String> {
+    if !name.starts_with('_') {
         return None;
     }
-    let names = names
-        .into_iter()
-        .map(|name| ast::Identifier::new(name.as_str(), TextRange::default()))
-        .collect();
-    Some(Stmt::Global(ast::StmtGlobal {
-        names,
-        range: TextRange::default(),
-        node_index: ast::AtomicNodeIndex::default(),
-    }))
-}
-
-fn build_nonlocal_stmt(names: Vec<String>) -> Option<Stmt> {
-    if names.is_empty() {
+    let rest = &name[1..];
+    let sep = rest.find("__")?;
+    if sep == 0 {
         return None;
     }
-    let names = names
-        .into_iter()
-        .map(|name| ast::Identifier::new(name.as_str(), TextRange::default()))
-        .collect();
-    Some(Stmt::Nonlocal(ast::StmtNonlocal {
-        names,
-        range: TextRange::default(),
-        node_index: ast::AtomicNodeIndex::default(),
-    }))
+    Some(format!("__{}", &rest[sep + 2..]))
 }
 
 struct NamedExprCollector {
