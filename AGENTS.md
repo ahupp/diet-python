@@ -2,6 +2,7 @@
 - **MUST FOLLOW**: Never add new variants to the minimal AST unless explicitly asked.
 - **MUST FOLLOW**: Always run `cargo test` and `./scripts/pytest_cpython.sh tests/` before submitting changes.
 - **MUST FOLLOW**: Always preserve behavior in the transformed code, particularly evaluation order.
+- **MUST FOLLOW**: When traversing the AST, always use an impl of `crate::transformer::Transformer`.
 - **NOTE**: Prefer adding behavior at transform time rather than runtime in `__dp__.py` whenever possible.
 - **MUST FOLLOW**: If a fixture error occurs, regenerate all fixtures by running `cargo run --bin regen_snapshots` with no file arguments.
 - **NOTE**: Use `cargo run --bin regen_snapshots` to regenerate fixtures instead of manual edits.

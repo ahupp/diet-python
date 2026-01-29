@@ -12,7 +12,7 @@ class Example:
 
 from __future__ import annotations
 
-def validate(module):
-    instance = module.Example()
-    result = instance.date()
-    assert isinstance(result, module.date)
+module = __import__("sys").modules[__name__]
+instance = module.Example()
+result = instance.date()
+assert isinstance(result, module.date)

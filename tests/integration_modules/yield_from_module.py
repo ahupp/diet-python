@@ -27,23 +27,24 @@ from __future__ import annotations
 
 import pytest
 
-def validate(module):
+module = __import__("sys").modules[__name__]
+if __dp_integration_transformed__:
     assert "__dp__" in module.__dict__
 
-    gen = module.delegator()
+gen = module.delegator()
 
-    assert next(gen) == "start"
-    assert gen.send("first") == "first"
-    assert gen.throw(KeyError("boom")) == "handled"
+assert next(gen) == "start"
+assert gen.send("first") == "first"
+assert gen.throw(KeyError("boom")) == "handled"
 
-    with pytest.raises(StopIteration) as exc:
-        gen.send("stop")
+with pytest.raises(StopIteration) as exc:
+    gen.send("stop")
 
-        result = exc.value.value
-        assert result[0] == "done"
-        assert result[1] == [
-        ("send", "first"),
-        ("throw", "'boom'"),
-        ("send", "stop"),
-        ("finally", None),
-        ]
+    result = exc.value.value
+    assert result[0] == "done"
+    assert result[1] == [
+    ("send", "first"),
+    ("throw", "'boom'"),
+    ("send", "stop"),
+    ("finally", None),
+    ]

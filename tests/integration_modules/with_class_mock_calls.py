@@ -19,8 +19,8 @@ from __future__ import annotations
 
 import pytest
 
-def validate(module):
-    enter_calls, exit_calls = module.run()
+module = __import__("sys").modules[__name__]
+enter_calls, exit_calls = module.run()
 
-    assert enter_calls == [module.mock.call()]
-    assert exit_calls == [module.mock.call(None, None, None)]
+assert enter_calls == [module.mock.call()]
+assert exit_calls == [module.mock.call(None, None, None)]

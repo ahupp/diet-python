@@ -1,15 +1,14 @@
+use std::cell::{Ref, RefCell};
+use anyhow::{Result, anyhow, Context};
 use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
 };
 
-use ruff_python_ast::{self as ast, Expr, ExprContext, HasNodeIndex, NodeIndex, Stmt};
-use ruff_text_size::{Ranged, TextRange};
-
-use crate::body_transform::{Transformer, walk_expr, walk_stmt};
-use crate::transform::node_index;
+use ruff_python_ast::{self as ast, Expr, ExprContext, HasNodeIndex, NodeIndex, Stmt, StmtBody};
 
 
+use crate::transformer::{Transformer, walk_expr, walk_stmt};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BindingKind {
     Local,
@@ -25,10 +24,10 @@ pub enum BindingUse {
 
 type ScopeBindings = HashMap<String, BindingKind>;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ScopeKind {
-    Function { name: String },
-    Class { name: String },
+    Function,
+    Class,
     Module,
 }
 
@@ -42,7 +41,7 @@ struct ScopeTreeInner {
     scopes: Vec<Arc<Scope>>,
     children: Vec<Vec<usize>>,
     node_index_map: HashMap<NodeIndex, usize>,
-    range_map: HashMap<TextRange, usize>,
+    next_node_index: u32,
 }
 
 impl ScopeTree {
@@ -52,47 +51,98 @@ impl ScopeTree {
                 scopes: Vec::new(),
                 children: Vec::new(),
                 node_index_map: HashMap::new(),
-                range_map: HashMap::new(),
+                next_node_index: 1,
             }),
         })
     }
 
+    pub fn child_scope_for_function(&self, func_def: &ast::StmtFunctionDef) -> Result<Arc<Scope>> {
+        Ok(self.scope_for_def(func_def)
+            .with_context(|| format!("no child scope for function {}", func_def.name.id.as_str()))?)
+    }
+
+    pub fn child_scope_for_class(&self, class_def: &ast::StmtClassDef) -> Result<Arc<Scope>> {
+        Ok(self.scope_for_def(class_def)
+            .with_context(|| format!("no child scope for class {}", class_def.name.id.as_str()))?)
+    }
+
+
     fn add_scope(
         self: &Arc<Self>,
         kind: ScopeKind,
+        name: &str,
         bindings: ScopeBindings,
-        parent_id: Option<usize>,
+        parent: Option<Arc<Scope>>,
         node_index: Option<NodeIndex>,
-        range: Option<TextRange>,
     ) -> Arc<Scope> {
         let mut inner = self.inner.lock().expect("ScopeTree mutex poisoned");
         let id = inner.scopes.len();
+        let parent_id = parent.as_ref().map(|id| id.id);
+        let qualnamer = match &parent {
+            Some(ps) => {
+                let is_global = matches!(
+                    ps.scope_bindings().get(name),
+                    Some(BindingKind::Global)
+                );
+                if is_global {
+                    QualNamer::new().enter_scope(kind, name.to_string())
+                } else {
+                    ps.qualnamer.enter_scope(kind, name.to_string())
+                }
+            }
+            None => QualNamer::new(),
+        };
+
+        if let Some(ps) = parent {
+            ps.inner.borrow_mut().child_ids.push(id);
+        }
+
         let scope = Arc::new(Scope {
             id,
             parent_id,
             kind,
-            bindings,
             tree: Arc::clone(self),
-            child_nonlocals: Mutex::new(HashSet::new()),
+            qualnamer,
+            inner: RefCell::new(ScopeInner {
+                bindings,
+                child_nonlocals: HashSet::new(),
+                child_ids: Vec::new(),
+            }),
         });
         inner.scopes.push(Arc::clone(&scope));
         inner.children.push(Vec::new());
-        if let Some(parent_id) = parent_id {
-            if let Some(children) = inner.children.get_mut(parent_id) {
-                children.push(id);
-            }
-        }
+
         if let Some(node_index) = node_index {
             if node_index != NodeIndex::NONE {
                 inner.node_index_map.insert(node_index, id);
-            }
-        }
-        if let Some(range) = range {
-            if !range.is_empty() {
-                inner.range_map.insert(range, id);
+                if let Some(value) = node_index.as_u32() {
+                    inner.next_node_index = inner.next_node_index.max(value + 1);
+                }
             }
         }
         scope
+    }
+
+    fn ensure_node_index<T: HasNodeIndex>(&self, node: &T) -> NodeIndex {
+        let mut inner = self.inner.lock().expect("ScopeTree mutex poisoned");
+        let node_index = node.node_index().load();
+        if node_index != NodeIndex::NONE {
+            if inner.node_index_map.contains_key(&node_index) {
+                let index = NodeIndex::from(inner.next_node_index);
+                inner.next_node_index += 1;
+                node.node_index().set(index);
+                return index;
+            }
+            if let Some(value) = node_index.as_u32() {
+                inner.next_node_index = inner.next_node_index.max(value + 1);
+            }
+            return node_index;
+        }
+
+        let index = NodeIndex::from(inner.next_node_index);
+        inner.next_node_index += 1;
+        node.node_index().set(index);
+        index
     }
 
     fn get(&self, id: usize) -> Option<Arc<Scope>> {
@@ -104,29 +154,24 @@ impl ScopeTree {
             .cloned()
     }
 
-    fn child_ids(&self, id: usize) -> Vec<usize> {
-        self.inner
-            .lock()
-            .expect("ScopeTree mutex poisoned")
-            .children
-            .get(id)
-            .cloned()
-            .unwrap_or_default()
-    }
-
-    fn scope_for_def(&self, node_index: NodeIndex, parent_id: Option<usize>) -> Option<Arc<Scope>> {
+    pub fn scope_for_def(&self, has_node_index: &impl HasNodeIndex) -> Result<Arc<Scope>> {
         let inner = self.inner.lock().expect("ScopeTree mutex poisoned");
 
-        if let Some(id) = inner.node_index_map.get(&node_index).copied() {
-            let scope = inner.scopes.get(id).cloned();
-            if let Some(expected_parent_id) = parent_id {
-                assert_eq!(scope.as_ref().map(|scope| scope.parent_id), Some(Some(expected_parent_id)));
+        if let Some(id) = inner.node_index_map.get(&has_node_index.node_index().load()).copied() {
+            if let Some(scope) = inner.scopes.get(id).cloned() {
+                return Ok(scope);
             }
-            return scope;
-        }
-
-        None
+        } 
+        Err(anyhow!("no scope for {:?}", has_node_index.node_index().load()))
     }
+}
+
+
+#[derive(Debug)]
+struct ScopeInner {
+    bindings: ScopeBindings,
+    child_nonlocals: HashSet<String>,
+    child_ids: Vec<usize>,
 }
 
 #[derive(Debug)]
@@ -134,9 +179,9 @@ pub struct Scope {
     id: usize,
     parent_id: Option<usize>,
     kind: ScopeKind,
-    bindings: ScopeBindings,
-    tree: Arc<ScopeTree>,
-    child_nonlocals: Mutex<HashSet<String>>,
+    pub tree: Arc<ScopeTree>,
+    pub qualnamer: QualNamer,
+    inner: RefCell<ScopeInner>,
 }
 
 impl Scope {
@@ -148,82 +193,49 @@ impl Scope {
         &self.kind
     }
 
-    pub fn make_qualname(&self, func_name: &str) -> String {
-        if self.is_global(func_name) {
-            return func_name.to_string();
-        }
-        let mut components = vec![func_name.to_string()];
-        let mut current = self.parent_scope();
-
-        while let Some(scope) = current {
-            match &scope.kind {
-                ScopeKind::Function { name } => {
-                    components.push("<locals>".to_string());
-                    components.push(name.clone());
-
-                    current = scope.parent_scope();
-                }
-                ScopeKind::Class { name } => {
-                    components.push(name.clone());
-                    if scope
-                        .parent_scope()
-                        .as_ref()
-                        .is_some_and(|parent| parent.is_global(name))
-                    {
-                        break;
-                    }
-                    current = scope.parent_scope();
-                }
-                ScopeKind::Module => {
-                    break;
-                }
-            }
-        }
-        components.reverse();
-        components.join(".")
+    pub fn child_ids<'a>(&'a self) -> Ref<'a, Vec<usize>> {
+        Ref::map(self.inner.borrow(), |inner| &inner.child_ids)
     }
 
 
-    pub fn scope_bindings(&self) -> &ScopeBindings {
-        &self.bindings
+    pub fn scope_bindings<'a>(&'a self) -> Ref<'a, ScopeBindings> {
+        Ref::map(self.inner.borrow(), |inner| &inner.bindings)
+    }
+
+    pub fn nonlocal_in_children<'a>(&'a self) -> Ref<'a, HashSet<String>> {
+        Ref::map(self.inner.borrow(), |inner| &inner.child_nonlocals)
     }
     
     pub fn parent_scope(&self) -> Option<Arc<Scope>> {
         self.parent_id.and_then(|id| self.tree.get(id))
     }
 
-    pub fn child_ids(&self) -> Vec<usize> {
-        self.tree.child_ids(self.id)
+    pub fn any_parent_scope<T>(&self, mut func: impl FnMut(&Scope) -> Option<T>) -> Option<T> {
+        if let Some(ret) = func(self) {
+            return Some(ret);
+        }
+        self.parent_scope().and_then(|parent| parent.any_parent_scope(func))
     }
 
-    pub fn child_scope_for_function(&self, func_def: &ast::StmtFunctionDef) -> Arc<Scope> {
-        self.lookup_child_scope(func_def).unwrap_or_else(|| {
-           panic!("no child scope for function {} {:?}", func_def.name.id.as_str(), func_def.node_index.load());
-        })
+    pub fn child_scope_for_function(&self, func_def: &ast::StmtFunctionDef) -> Result<Arc<Scope>> {
+        self.tree.child_scope_for_function(func_def)
     }
 
-    pub fn child_scope_for_class(&self, class_def: &ast::StmtClassDef) -> Arc<Scope> {
-        self.lookup_child_scope(class_def).unwrap_or_else(|| {
-           panic!("no child scope for class {} {:?}", class_def.name.id.as_str(), class_def.node_index.load());
-        })
+    pub fn child_scope_for_class(&self, class_def: &ast::StmtClassDef) -> Result<Arc<Scope>> {
+        Ok(self.lookup_child_scope(class_def)
+            .with_context(|| format!("no child scope for class {}", class_def.name.id.as_str()))?)
     }
 
     pub fn child_nonlocal_names(&self) -> HashSet<String> {
-        self.child_nonlocals
-            .lock()
-            .expect("Scope child_nonlocals mutex poisoned")
-            .clone()
+        self.nonlocal_in_children().clone()
     }
 
     pub fn is_nonlocal_in_children(&self, name: &str) -> bool {
-        self.child_nonlocals
-            .lock()
-            .expect("Scope child_nonlocals mutex poisoned")
-            .contains(name)
+        self.nonlocal_in_children().contains(name)
     }
 
     pub fn binding_in_scope(&self, name: &str, use_kind: BindingUse) -> BindingKind {
-        match self.bindings.get(name).copied() {
+        match self.scope_bindings().get(name).copied() {
             Some(binding) => binding,
             None => match use_kind {
                 BindingUse::Load => BindingKind::Local,
@@ -234,53 +246,6 @@ impl Scope {
         }
     }
 
-    pub fn ensure_child_scope_for_function(
-        &self,
-        func_def: &ast::StmtFunctionDef,
-    ) -> Arc<Scope> {
-        self.child_scope_for_function(func_def)
-    }
-
-    pub fn ensure_child_scope_for_class(&self, class_def: &ast::StmtClassDef) -> Arc<Scope> {
-        self.child_scope_for_class(class_def)
-    }
-
-    pub(crate) fn local_names(&self) -> HashSet<String> {
-        self.collect_by_binding(BindingKind::Local)
-    }
-
-    pub(crate) fn global_names(&self) -> HashSet<String> {
-        self.collect_by_binding(BindingKind::Global)
-    }
-
-    pub(crate) fn nonlocal_names(&self) -> HashSet<String> {
-        self.collect_by_binding(BindingKind::Nonlocal)
-    }
-
-    fn collect_by_binding(&self, kind: BindingKind) -> HashSet<String> {
-        let mut ret = HashSet::new();
-        self.binding_like(|bindings| {
-            for (name, binding) in bindings {
-                if *binding == kind {
-                    ret.insert(name.clone());
-                }
-            }
-            None
-        }).unwrap_or_default()
-    }
-
-    fn binding_like<T>(&self, mut find: impl FnMut(&ScopeBindings) -> Option<T>) -> Option<T> {
-
-        let mut current = self.tree.get(self.id);
-        while let Some(current_scope) = current {
-            let bindings = current_scope.scope_bindings();
-            if let Some(ret) = find(bindings) {
-                return Some(ret);
-            }
-            current = current_scope.parent_scope();
-        };
-        None
-    }
 
     pub fn is_local(&self, name: &str) -> bool {
         self.binding_is(name, BindingKind::Local)
@@ -294,10 +259,10 @@ impl Scope {
         self.binding_is(name, BindingKind::Nonlocal)
     }
 
-    fn binding_is(&self, name: &str, scope: BindingKind) -> bool {
-        self.binding_like(|bindings| {
-            if let Some(found) = bindings.get(name) {
-                Some(*found == scope)
+    fn binding_is(&self, name: &str, kind: BindingKind) -> bool {
+        self.any_parent_scope(|scope| {
+            if let Some(found) = scope.scope_bindings().get(name) {
+                Some(*found == kind)
             } else {
                 None
             }
@@ -307,9 +272,11 @@ impl Scope {
     pub fn lookup_child_scope(
         &self,
         has_node_index: & impl HasNodeIndex,
-    ) -> Option<Arc<Scope>> {
-        self.tree
-            .scope_for_def(has_node_index.node_index().load(), Some(self.id))
+    ) -> Result<Arc<Scope>> {
+        let child_scope = self.tree
+            .scope_for_def(has_node_index)?;
+        assert_eq!(Some(self.id), child_scope.parent_id);
+        Ok(child_scope)        
     }
 
 }
@@ -327,7 +294,16 @@ fn merge_binding(existing: BindingKind, incoming: BindingKind) -> BindingKind {
     }
 }
 
+pub fn is_internal_symbol(name: &str) -> bool {
+    name.starts_with("_dp_") || name == "__dp__"
+}
+
 fn set_binding(bindings: &mut HashMap<String, BindingKind>, name: &str, binding: BindingKind) {
+    let binding = if is_internal_symbol(name) {
+        BindingKind::Local
+    } else {
+        binding
+    };
     if let Some(existing) = bindings.get(name).copied() {
         let merged = merge_binding(existing, binding);
         if merged != existing {
@@ -402,11 +378,7 @@ impl Transformer for ScopeCollector {
                 set_binding(&mut self.bindings, id.as_str(), BindingKind::Local);
                 return;
             }
-            Expr::Lambda(_)
-            | Expr::Generator(_)
-            | Expr::ListComp(_)
-            | Expr::SetComp(_)
-            | Expr::DictComp(_) => {
+            Expr::Lambda(_) | Expr::Generator(_) => {
                 return;
             }
             _ => {}
@@ -417,170 +389,116 @@ impl Transformer for ScopeCollector {
 }
 
 
-fn collect_scope_info(body: &[Stmt]) -> ScopeBindings {
+fn collect_scope_info(body: &StmtBody) -> ScopeBindings {
     let mut collector = ScopeCollector::default();
-    let mut cloned_body = body.to_vec();
+    let mut cloned_body = body.clone();
     collector.visit_body(&mut cloned_body);
 
     collector.bindings
 }
 
-pub fn analyze_module_scope(module: &mut Vec<Stmt>) -> Arc<Scope> {
-    node_index::ensure_node_indices(module);
+pub fn analyze_module_scope(module: &mut StmtBody) -> Arc<Scope> {
     let tree = ScopeTree::new();
     let bindings = collect_scope_info(module);
-    let root = tree.add_scope(ScopeKind::Module, bindings, None, None, None);
-    let analyzer = ScopeAnalyzer::new(Arc::clone(&tree));
-    analyzer.visit_body(module, root.id);
+    let root = tree.add_scope(ScopeKind::Module, "", bindings, None, None);
+    let mut analyzer = ScopeAnalyzer::new(root.clone());
+    analyzer.visit_body(module);
     annotate_child_nonlocals(&tree);
     root
 }
 
 struct ScopeAnalyzer {
-    tree: Arc<ScopeTree>,
+    scope: Arc<Scope>,
 }
 
 impl ScopeAnalyzer {
-    fn new(tree: Arc<ScopeTree>) -> Self {
-        Self { tree }
+    fn new(scope: Arc<Scope>) -> Self {
+        Self { scope }
     }
 
-    fn add_function_scope(&self, func_def: &ast::StmtFunctionDef, parent_id: usize) -> Arc<Scope> {
-        let mut bindings = function_bindings(func_def);
-        let load_names = collect_load_names(&func_def.body);
-        for name in load_names {
-            if bindings.contains_key(name.as_str()) {
-                continue;
-            }
-            if self.resolves_to_enclosing_function(parent_id, name.as_str()) {
-                set_binding(&mut bindings, name.as_str(), BindingKind::Nonlocal);
-            }
-        }
-        let node_index = func_def.node_index.load();
-        let range = func_def.range;
-        let scope = self.tree.add_scope(
-            ScopeKind::Function {
-                name: func_def.name.id.to_string(),
-            },
-            bindings,
-            Some(parent_id),
-            Some(node_index),
-            Some(range),
-        );
-        self.visit_body(&func_def.body, scope.id);
-        scope
-    }
-
-    fn add_class_scope(&self, class_def: &ast::StmtClassDef, parent_id: usize) -> Arc<Scope> {
-        let bindings = class_bindings(class_def);
-        let node_index = class_def.node_index.load();
-        let range = class_def.range;
-        let scope = self.tree.add_scope(
-            ScopeKind::Class {
-                name: class_def.name.id.to_string(),
-            },
-            bindings,
-            Some(parent_id),
-            Some(node_index),
-            Some(range),
-        );
-        self.visit_body(&class_def.body, scope.id);
-        scope
-    }
-
-    fn visit_body(&self, body: &[Stmt], parent_id: usize) {
-        for stmt in body {
-            self.visit_stmt(stmt, parent_id);
-        }
-    }
-
-    fn resolves_to_enclosing_function(&self, parent_id: usize, name: &str) -> bool {
-        let mut current = self.tree.get(parent_id);
-        while let Some(scope) = current {
+    fn resolves_to_enclosing_function(&self, name: &str) -> bool {
+        self.scope.any_parent_scope(|scope| {
             match scope.kind() {
-                ScopeKind::Function { .. } => {
+                ScopeKind::Function => {
                     if let Some(binding) = scope.scope_bindings().get(name).copied() {
                         match binding {
-                            BindingKind::Local => return true,
-                            BindingKind::Nonlocal => {
-                                current = scope.parent_scope();
-                                continue;
-                            }
-                            BindingKind::Global => return false,
+                            BindingKind::Local => Some(true),
+                            BindingKind::Nonlocal => None,
+                            BindingKind::Global => Some(false),
                         }
+                    } else {
+                        None
                     }
                 }
-                ScopeKind::Module => return false,
-                ScopeKind::Class { .. } => {}
+                ScopeKind::Module => Some(false),
+                ScopeKind::Class => None,
             }
-            current = scope.parent_scope();
-        }
-        false
-    }
-
-    fn visit_stmt(&self, stmt: &Stmt, parent_id: usize) {
-        match stmt {
-            Stmt::FunctionDef(func_def) => {
-                self.add_function_scope(func_def, parent_id);
-            }
-            Stmt::ClassDef(class_def) => {
-                self.add_class_scope(class_def, parent_id);
-            }
-            Stmt::If(ast::StmtIf { body, elif_else_clauses, .. }) => {
-                self.visit_body(body, parent_id);
-                for clause in elif_else_clauses {
-                    self.visit_body(&clause.body, parent_id);
-                }
-            }
-            Stmt::For(ast::StmtFor { body, orelse, .. }) => {
-                self.visit_body(body, parent_id);
-                self.visit_body(orelse, parent_id);
-            }
-            Stmt::While(ast::StmtWhile { body, orelse, .. }) => {
-                self.visit_body(body, parent_id);
-                self.visit_body(orelse, parent_id);
-            }
-            Stmt::With(ast::StmtWith { body, .. }) => {
-                self.visit_body(body, parent_id);
-            }
-            Stmt::Match(ast::StmtMatch { cases, .. }) => {
-                for case in cases {
-                    self.visit_body(&case.body, parent_id);
-                }
-            }
-            Stmt::Try(ast::StmtTry {
-                body,
-                handlers,
-                orelse,
-                finalbody,
-                ..
-            }) => {
-                self.visit_body(body, parent_id);
-                for handler in handlers {
-                    let ast::ExceptHandler::ExceptHandler(handler) = handler;
-                    self.visit_body(&handler.body, parent_id);
-                }
-                self.visit_body(orelse, parent_id);
-                self.visit_body(finalbody, parent_id);
-            }
-            _ => {}
-        }
+        }).unwrap_or(false)
     }
 }
 
-fn collect_load_names(body: &[Stmt]) -> HashSet<String> {
+impl Transformer for ScopeAnalyzer {
+
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
+        match stmt {
+            Stmt::FunctionDef(func_def) => {
+                let mut bindings = function_param_bindings(func_def);
+                let load_names = collect_load_names(&func_def.body);
+                for name in load_names {
+                    if is_internal_symbol(name.as_str()) {
+                        continue;
+                    }
+                    if bindings.contains_key(name.as_str()) {
+                        continue;
+                    }
+                    if self.resolves_to_enclosing_function(name.as_str()) {
+                        set_binding(&mut bindings, name.as_str(), BindingKind::Nonlocal);
+                    }
+                }
+                let node_index = self.scope.tree.ensure_node_index(func_def);
+        
+                let scope = self.scope.tree.add_scope(
+                    ScopeKind::Function,
+                    func_def.name.id.as_str(),
+                    bindings,
+                    Some(self.scope.clone()),
+                    Some(node_index),
+                );
+                ScopeAnalyzer::new(scope.clone()).visit_body(&mut func_def.body);                
+            }
+            Stmt::ClassDef(class_def) => {
+                let bindings = class_bindings(class_def);
+                let node_index = self.scope.tree.ensure_node_index(class_def);
+        
+                let scope = self.scope.tree.add_scope(
+                    ScopeKind::Class,
+                    class_def.name.id.as_str(),
+                    bindings,
+                    Some(self.scope.clone()),
+                    Some(node_index),
+        
+                );
+                ScopeAnalyzer::new(scope.clone()).visit_body(&mut class_def.body);
+            }
+            _ => {
+                walk_stmt(self, stmt);
+            }
+        }
+    }
+    
+}
+fn collect_load_names(body: &StmtBody) -> HashSet<String> {
     #[derive(Default)]
     struct LoadCollector {
         names: HashSet<String>,
     }
 
-    impl Transformer for LoadCollector {
+    impl Transformer for &mut LoadCollector {
         fn visit_stmt(&mut self, stmt: &mut Stmt) {
             match stmt {
                 Stmt::FunctionDef(_) | Stmt::ClassDef(_) => return,
-                _ => {}
+                _ => walk_stmt(self, stmt)
             }
-            walk_stmt(self, stmt);
         }
 
         fn visit_expr(&mut self, expr: &mut Expr) {
@@ -588,14 +506,13 @@ fn collect_load_names(body: &[Stmt]) -> HashSet<String> {
                 Expr::Name(ast::ExprName { id, ctx, .. })
                     if matches!(ctx, ExprContext::Load) =>
                 {
+                    if is_internal_symbol(id.as_str()) {
+                        return;
+                    }
                     self.names.insert(id.as_str().to_string());
                     return;
                 }
-                Expr::Lambda(_)
-                | Expr::Generator(_)
-                | Expr::ListComp(_)
-                | Expr::SetComp(_)
-                | Expr::DictComp(_) => {
+                Expr::Lambda(_) | Expr::Generator(_) => {
                     return;
                 }
                 _ => {}
@@ -605,8 +522,8 @@ fn collect_load_names(body: &[Stmt]) -> HashSet<String> {
     }
 
     let mut collector = LoadCollector::default();
-    let mut cloned = body.to_vec();
-    collector.visit_body(&mut cloned);
+    let mut cloned = body.clone();
+    (&mut collector).visit_body(&mut cloned);
     collector.names
 }
 
@@ -618,7 +535,7 @@ fn annotate_child_nonlocals(tree: &Arc<ScopeTree>) {
 
     for scope in scopes {
         let nonlocals = scope
-            .bindings
+            .scope_bindings()
             .iter()
             .filter_map(|(name, kind)| {
                 if matches!(kind, BindingKind::Nonlocal) {
@@ -633,13 +550,9 @@ fn annotate_child_nonlocals(tree: &Arc<ScopeTree>) {
             let mut current = scope.parent_scope();
             while let Some(parent) = current {
                 if matches!(parent.scope_bindings().get(&name), Some(BindingKind::Local))
-                    && matches!(parent.kind, ScopeKind::Function { .. })
+                    && matches!(parent.kind, ScopeKind::Function)
                 {
-                    let mut set = parent
-                        .child_nonlocals
-                        .lock()
-                        .expect("Scope child_nonlocals mutex poisoned");
-                    set.insert(name.clone());
+                    parent.inner.borrow_mut().child_nonlocals.insert(name.clone());
                     break;
                 }
                 current = parent.parent_scope();
@@ -648,7 +561,7 @@ fn annotate_child_nonlocals(tree: &Arc<ScopeTree>) {
     }
 }
 
-fn function_bindings(func_def: &ast::StmtFunctionDef) -> ScopeBindings {
+fn function_param_bindings(func_def: &ast::StmtFunctionDef) -> ScopeBindings {
     let mut bindings = collect_scope_info(&func_def.body);
 
     let ast::Parameters {
@@ -688,224 +601,55 @@ fn class_bindings(class_def: &ast::StmtClassDef) -> ScopeBindings {
     collect_scope_info(&class_def.body)
 }
 
-pub(crate) mod explicit_scope {
-    use std::collections::{HashMap, HashSet};
 
-    use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
-
-    use crate::body_transform::{walk_expr, walk_pattern, walk_stmt, Transformer};
-    use super::{BindingKind, set_binding, ScopeBindings};
-
-
-    struct ScopeCollector {
-        bindings: ScopeBindings,
-        named_expr_nonlocal: bool,
-    }
-
-    impl ScopeCollector {
-        fn new(named_expr_nonlocal: bool) -> Self {
-            Self {
-                bindings: HashMap::new(),
-                named_expr_nonlocal,
-            }
-        }
-    }
-
-
-    impl ScopeCollector {
-        fn add_import_binding(&mut self, alias: &ast::Alias) {
-            let name = alias_binding_name(alias);
-            set_binding(&mut self.bindings, name, BindingKind::Local);
-        }
-    }
-
-    fn is_comprehension_function(name: &str) -> bool {
-        name.starts_with("_dp_comp_") || name.starts_with("_dp_gen_")
-    }
-
-    fn comprehension_nonlocals(body: &[Stmt]) -> HashSet<String> {
-        let mut names = HashSet::new();
-        for stmt in body {
-            if let Stmt::Nonlocal(ast::StmtNonlocal { names: decls, .. }) = stmt {
-                for name in decls {
-                    names.insert(name.id.as_str().to_string());
-                }
-            }
-        }
-        names
-    }
-
-    impl Transformer for ScopeCollector {
-        fn visit_stmt(&mut self, stmt: &mut Stmt) {
-            match stmt {
-                Stmt::FunctionDef(ast::StmtFunctionDef { name, body, .. }) => {
-                    set_binding(&mut self.bindings, name.id.as_str(), BindingKind::Local);
-                    if is_comprehension_function(name.id.as_str()) {
-                        for name in comprehension_nonlocals(body) {
-                            set_binding(&mut self.bindings, name.as_str(), BindingKind::Local);
-                        }
-                    }
-                    return;
-                }
-                Stmt::ClassDef(ast::StmtClassDef { name, .. }) => {
-                    set_binding(&mut self.bindings, name.id.as_str(), BindingKind::Local);
-                    return;
-                }
-                Stmt::Global(ast::StmtGlobal { names, .. }) => {
-                    for name in names {
-                        set_binding(&mut self.bindings, name.id.as_str(), BindingKind::Global);
-                    }
-                    return;
-                }
-                Stmt::Nonlocal(ast::StmtNonlocal { names, .. }) => {
-                    for name in names {
-                        set_binding(&mut self.bindings, name.id.as_str(), BindingKind::Nonlocal);
-                    }
-                    return;
-                }
-                Stmt::Import(ast::StmtImport { names, .. }) => {
-                    for alias in names {
-                        self.add_import_binding(alias);
-                    }
-                    return;
-                }
-                Stmt::ImportFrom(ast::StmtImportFrom { names, .. }) => {
-                    for alias in names {
-                        self.add_import_binding(alias);
-                    }
-                    return;
-                }
-                Stmt::Try(ast::StmtTry { handlers, .. }) => {
-                    for ast::ExceptHandler::ExceptHandler(handler) in handlers {
-                        if let Some(name) = &handler.name {
-                            set_binding(&mut self.bindings, name.id.as_str(), BindingKind::Local);
-                        }
-                    }
-                }
-                _ => {}
-            }
-
-            walk_stmt(self, stmt);
-        }
-
-        fn visit_expr(&mut self, expr: &mut Expr) {
-            match expr {
-                Expr::Named(ast::ExprNamed { target, value, .. }) => {
-                    if let Expr::Name(ast::ExprName { id, .. }) = target.as_ref() {
-                        let binding = if self.named_expr_nonlocal {
-                            BindingKind::Nonlocal
-                        } else {
-                            BindingKind::Local
-                        };
-                        set_binding(&mut self.bindings, id.as_str(), binding);
-                    } else {
-                        self.visit_expr(target);
-                    }
-                    self.visit_expr(value);
-                    return;
-                }
-                Expr::Name(ast::ExprName { id, ctx, .. }) if matches!(ctx, ExprContext::Store) => {
-                    set_binding(&mut self.bindings, id.as_str(), BindingKind::Local);
-                    return;
-                }
-                Expr::Lambda(_)
-                | Expr::Generator(_)
-                | Expr::ListComp(_)
-                | Expr::SetComp(_)
-                | Expr::DictComp(_) => {
-                    return;
-                }
-                _ => {}
-            }
-
-            walk_expr(self, expr);
-        }
-
-        fn visit_pattern(&mut self, pattern: &mut ast::Pattern) {
-            match pattern {
-                ast::Pattern::MatchStar(ast::PatternMatchStar { name, .. }) => {
-                    if let Some(name) = name.as_ref() {
-                        let name_str = name.id.as_str();
-                        if name_str != "_" {
-                            set_binding(&mut self.bindings, name_str, BindingKind::Local);
-                        }
-                    }
-                }
-                ast::Pattern::MatchAs(ast::PatternMatchAs { name, pattern, .. }) => {
-                    if let Some(name) = name.as_ref() {
-                        let name_str = name.id.as_str();
-                        if name_str != "_" {
-                            set_binding(&mut self.bindings, name_str, BindingKind::Local);
-                        }
-                    }
-                    if let Some(pattern) = pattern {
-                        self.visit_pattern(pattern);
-                    }
-                    return;
-                }
-                ast::Pattern::MatchMapping(ast::PatternMatchMapping { rest, patterns, .. }) => {
-                    if let Some(rest) = rest.as_ref() {
-                        let name_str = rest.id.as_str();
-                        if name_str != "_" {
-                            set_binding(&mut self.bindings, name_str, BindingKind::Local);
-                        }
-                    }
-                    for pattern in patterns {
-                        self.visit_pattern(pattern);
-                    }
-                    return;
-                }
-                _ => {}
-            }
-
-            walk_pattern(self, pattern);
-        }
-    }
-
-    pub(crate) fn collect_scope_info(body: &[Stmt]) -> ScopeBindings {
-        collect_scope_info_with_named_expr(body, false)
-    }
-
-    pub(crate) fn collect_scope_info_with_named_expr(
-        body: &[Stmt],
-        named_expr_nonlocal: bool,
-    ) -> ScopeBindings {
-        let mut collector = ScopeCollector::new(named_expr_nonlocal);
-        let mut cloned_body = body.to_vec();
-        collector.visit_body(&mut cloned_body);
-        collector.bindings
-    }
-
-    pub(crate) fn alias_binding_name(alias: &ast::Alias) -> &str {
-        if let Some(asname) = &alias.asname {
-            asname.id.as_str()
-        } else {
-            alias
-                .name
-                .id
-                .as_str()
-                .split('.')
-                .next()
-                .unwrap_or_else(|| alias.name.id.as_str())
-        }
-    }
+#[derive(Debug, Clone)]
+pub struct QualNamer {
+    pub kind: ScopeKind,
+    pub qualname: String,
 }
+
+impl QualNamer {
+    pub fn new() -> Self {
+        Self { kind: ScopeKind::Module, qualname: "".to_string() }
+    }
+
+    pub fn enter_scope(&self, kind: ScopeKind, name: String) -> QualNamer {
+        let display_name = name.strip_prefix("_dp_fn_").unwrap_or(name.as_str());
+        let qualname = match self.kind {
+            ScopeKind::Function => {
+                format!("{}.<locals>.{}", self.qualname, display_name)
+            }
+            ScopeKind::Class => {
+                format!("{}.{}", self.qualname, display_name)
+            }
+            ScopeKind::Module => {
+                display_name.to_string()
+            }
+        };
+        QualNamer {
+            kind,
+            qualname,
+        }
+    }    
+}
+
+
 
 #[cfg(test)]
 mod test {
     use super::*;
     use ruff_python_parser::parse_module;
 
-    fn parse_module_body(source: &str) -> Vec<Stmt> {
+    fn parse_module_body(source: &str) -> StmtBody {
         parse_module(source)
             .expect("parse failure")
             .into_syntax()
             .body
     }
 
-    fn find_function<'a>(body: &'a [Stmt], name: &str) -> &'a ast::StmtFunctionDef {
+    fn find_function<'a>(body: &'a [Box<Stmt>], name: &str) -> &'a ast::StmtFunctionDef {
         for stmt in body {
-            if let Stmt::FunctionDef(func_def) = stmt {
+            if let Stmt::FunctionDef(func_def) = stmt.as_ref() {
                 if func_def.name.id.as_str() == name {
                     return func_def;
                 }
@@ -914,9 +658,9 @@ mod test {
         panic!("function {name} not found");
     }
 
-    fn find_class<'a>(body: &'a [Stmt], name: &str) -> &'a ast::StmtClassDef {
+    fn find_class<'a>(body: &'a [Box<Stmt>], name: &str) -> &'a ast::StmtClassDef {
         for stmt in body {
-            if let Stmt::ClassDef(class_def) = stmt {
+            if let Stmt::ClassDef(class_def) = stmt.as_ref() {
                 if class_def.name.id.as_str() == name {
                     return class_def;
                 }
@@ -944,7 +688,7 @@ mod test {
             "    y = b\n",
         ));
         let module_scope = analyze_module_scope(&mut body);
-        let func_def = find_function(&body, "f");
+        let func_def = find_function(&body.body, "f");
         let func_scope = module_scope
             .lookup_child_scope(func_def)
             .expect("missing function scope");
@@ -969,11 +713,11 @@ mod test {
             "    return inner\n",
         ));
         let module_scope = analyze_module_scope(&mut body);
-        let outer_def = find_function(&body, "outer");
+        let outer_def = find_function(&body.body, "outer");
         let outer_scope = module_scope
             .lookup_child_scope(outer_def)
             .expect("missing outer scope");
-        let inner_def = find_function(&outer_def.body, "inner");
+        let inner_def = find_function(&outer_def.body.body, "inner");
         let inner_scope = outer_scope
             .lookup_child_scope(inner_def)
             .expect("missing inner scope");
@@ -992,7 +736,7 @@ mod test {
             "        z = y\n",
         ));
         let module_scope = analyze_module_scope(&mut body);
-        let class_def = find_class(&body, "C");
+        let class_def = find_class(&body.body, "C");
         let class_scope = module_scope
             .lookup_child_scope(class_def)
             .expect("missing class scope");
@@ -1000,26 +744,4 @@ mod test {
         assert!(!class_scope.is_global("y"));
     }
 
-    #[test]
-    fn module_children_track_top_level_defs() {
-        let mut body = parse_module_body(concat!(
-            "def f():\n",
-            "    return 1\n",
-            "class C:\n",
-            "    pass\n",
-        ));
-        let module_scope = analyze_module_scope(&mut body);
-        let mut names = module_scope
-            .child_ids()
-            .into_iter()
-            .filter_map(|id| module_scope.tree.get(id))
-            .map(|scope| match &scope.kind {
-                ScopeKind::Function { name } => format!("func:{name}"),
-                ScopeKind::Class { name } => format!("class:{name}"),
-                ScopeKind::Module => "module".to_string(),
-            })
-            .collect::<Vec<_>>();
-        names.sort();
-        assert_eq!(names, vec!["class:C".to_string(), "func:f".to_string()]);
-    }
 }

@@ -26,9 +26,9 @@ def exercise():
 
 from __future__ import annotations
 
-def validate(module):
-    errors = module.exercise()
-    assert errors[0][0] is TypeError
-    assert "context manager" in errors[0][1]
-    assert errors[1][0] is TypeError
-    assert "__exit__" in errors[1][1]
+module = __import__("sys").modules[__name__]
+errors = module.exercise()
+assert errors[0][0] is TypeError
+assert "context manager" in errors[0][1]
+assert errors[1][0] is TypeError
+assert "__exit__" in errors[1][1]

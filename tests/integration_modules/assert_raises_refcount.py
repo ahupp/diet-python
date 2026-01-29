@@ -17,6 +17,6 @@ def run():
 
 # diet-python: validate
 
-def validate(module):
-    before, after = module.run()
-    assert before == after
+module = __import__("sys").modules[__name__]
+before, after = module.run()
+assert before == after

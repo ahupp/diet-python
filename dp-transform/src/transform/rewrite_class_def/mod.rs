@@ -3,59 +3,27 @@ pub mod method;
 pub mod private;
 pub mod class_body;
 
-use crate::transform::ast_rewrite::Rewrite;
-use crate::transform::scope::{BindingKind, Scope};
-use crate::transform::{rewrite_stmt};
+
+use crate::template::empty_body;
 use crate::transform::rewrite_expr::make_tuple;
-use crate::{py_expr, py_stmt};
+use crate::transform::context::Context;
+use crate::{py_expr, py_stmt, py_stmt_typed};
 use ruff_python_ast::{
     self as ast, Expr, Stmt, TypeParam, TypeParamParamSpec,
     TypeParamTypeVar, TypeParamTypeVarTuple,
 };
 use ruff_text_size::TextRange;
 
-use crate::template::py_stmt_single;
-use crate::transform::context::{Context};
 
-
-use std::collections::HashSet;
 use std::mem::take;
 
 
-pub fn rewrite<'a>(
-    context: &'a Context,
-    scope: &'a Scope,
-    class_def: &mut ast::StmtClassDef,
-    needs_class_cell: bool,
-) -> Rewrite {
-    let class_name = class_def.name.id.to_string();
-    let class_qualname = scope.make_qualname(&class_name);
-
-    let decorator_list = take(&mut class_def.decorator_list);
-
-    let create_class_fn = class_def_to_create_class_fn(
-        class_def,
-        class_qualname.to_owned(),
-        context, 
-        scope,
-        needs_class_cell,
-    );
-
-    rewrite_stmt::decorator::rewrite(
-        context,
-        decorator_list,
-        class_name.as_str(),
-        create_class_fn,
-    )
-}
-
 fn class_def_to_create_class_fn<'a>(
+    context: &Context,
     class_def: &mut ast::StmtClassDef,
     class_qualname: String,
-    context: &Context,
-    scope: &Scope,
     needs_class_cell: bool,
-) -> Vec<Stmt> {
+) -> (ast::StmtFunctionDef, ast::StmtFunctionDef) {
 
 
     let ast::StmtClassDef {
@@ -68,66 +36,128 @@ fn class_def_to_create_class_fn<'a>(
 
     let type_params = take(type_params);
     let arguments = take(arguments);
-    let mut body = take(body);
+    let mut body = std::mem::replace(
+        body,
+        empty_body().into(),
+    );
 
     let class_name = name.id.to_string();
 
     // If the first statement is a string literal, assign it to __doc__ in the class dict.
-    if let Some(first_stmt) = body.first_mut() {
-        if let Stmt::Expr(ast::StmtExpr { value, .. }) = first_stmt {
+    if let Some(first_stmt) = body.body.first_mut() {
+        if let Stmt::Expr(ast::StmtExpr { value, .. }) = first_stmt.as_ref() {
             if let Expr::StringLiteral(_) = value.as_ref() {
                 let doc_expr = (*value).clone();
-                *first_stmt =
-                    py_stmt_single(py_stmt!(
-                        "_dp_class_ns[{name:literal}] = {value:expr}",
-                        name = "__doc__",
-                        value = doc_expr
-                    ));
+                *first_stmt = py_stmt!(
+                    "_dp_class_ns[{name:literal}] = {value:expr}",
+                    name = "__doc__",
+                    value = doc_expr
+                ).into();
             }
         }
     }
 
-    let type_param_info = type_params.map(|type_params| {
-        make_type_param_info(*type_params)
-    });
-    let type_param_statements = type_param_info
+    let mut orig_bases_expr: Option<Expr> = None;
+    let original_bases: Vec<Expr> = arguments
         .as_ref()
-        .and_then(|info| info.type_params_tuple.as_ref())
-        .map(|tuple_expr| {
-            py_stmt!(
+        .map(|args| args.args.clone().into_vec())
+        .unwrap_or_default();
+
+    let mut type_param_cleanup: Vec<Stmt> = Vec::new();
+    let (type_param_bindings, mut type_param_statements, extra_bases) = if let Some(type_params) = type_params {
+        context.require_typing_import();
+        let type_param_info = make_type_param_info(*type_params);
+        let has_generic_base = arguments_has_generic(arguments.as_deref());
+        let generic_param_base = make_generic_base(&type_param_info);
+        let mut extra_bases = Vec::new();
+        if !has_generic_base {
+            extra_bases.push(py_expr!("_dp_typing.Generic"));
+        }
+
+        if let Some(generic_param_base) = generic_param_base {
+            let mut orig_bases = Vec::new();
+            if has_generic_base {
+                for base in &original_bases {
+                    if is_generic_expr(base) {
+                        orig_bases.push(generic_param_base.clone());
+                    } else {
+                        orig_bases.push(base.clone());
+                    }
+                }
+            } else {
+                orig_bases.extend(original_bases.clone());
+                orig_bases.push(generic_param_base);
+            }
+            if !orig_bases.is_empty() {
+                orig_bases_expr = Some(make_tuple(orig_bases));
+            }
+        }
+        let mut type_param_statements = type_param_info.type_params_tuple.map(|tuple_expr| {
+            vec![py_stmt!(
                 "_dp_class_ns[{name:literal}] = {tuple:expr}",
                 name = "__type_params__",
                 tuple = tuple_expr.clone()
-            )
-        })
-        .unwrap_or_default();
+            )]
+        }).unwrap_or_default();
 
-    let type_param_bindings = type_param_info
-        .as_ref()
-        .map_or_else(Vec::new, |info| info.bindings.clone());
-    let has_generic_base = arguments_has_generic(arguments.as_deref());
-    let generic_base = type_param_info
-        .as_ref()
-        .filter(|_| !has_generic_base)
-        .and_then(make_generic_base);
-    let extra_bases = generic_base.into_iter().collect::<Vec<_>>();
+        for name in &type_param_info.param_names {
+            type_param_statements.push(py_stmt!(
+                "_dp_class_ns[{name:literal}] = {name:id}",
+                name = name.as_str(),
+            ));
+            type_param_cleanup.push(py_stmt!(
+                r#"
+if _dp_class_ns.get({name:literal}) is {name:id}:
+    del _dp_class_ns[{name:literal}]
+"#,
+                name = name.as_str(),
+            ));
+        }
+
+        (type_param_info.bindings, type_param_statements, extra_bases)
+    } else {
+        (vec![], vec![], vec![])
+    };
+
+    if let Some(orig_bases_expr) = orig_bases_expr {
+        type_param_statements.push(py_stmt!(
+            "_dp_class_ns[{name:literal}] = {value:expr}",
+            name = "__orig_bases__",
+            value = orig_bases_expr
+        ));
+    }
+
+
     let (bases_tuple, prepare_dict) = class_call_arguments(
         arguments,
         extra_bases,
     );
 
+    // TODO: bases probably depends on the type params too
 
-    let out = py_stmt!(
+    // type params are written as regular locals rather than direct assignments to _dp_class_ns
+    // so they are visible to inner scopes
+    let class_ns_def: ast::StmtFunctionDef = py_stmt_typed!(
         r#"
-def _dp_class_create_{class_name:id}():
+def _dp_class_ns_{class_name:id}(_dp_class_ns, __classcell__):
+    _dp_class_ns["__module__"] = __name__
+    _dp_class_ns["__qualname__"] = {class_qualname:literal}
     {type_param_bindings:stmt}
+    {type_param_statements:stmt}
+    {ns_body:stmt}
+    {type_param_cleanup:stmt}"#,
 
-    def _dp_class_ns_{class_name:id}(_dp_class_ns, __classcell__):
-        _dp_class_ns["__module__"] = __name__
-        _dp_class_ns["__qualname__"] = {class_qualname:literal}
-        {type_param_statements:stmt}
-        {ns_body:stmt}
+    class_name = class_name.as_str(),
+        class_qualname = class_qualname.as_str(),
+        ns_body = body,
+        type_param_statements = type_param_statements,
+        type_param_bindings = type_param_bindings.clone(),
+        type_param_cleanup = type_param_cleanup,
+    );
 
+    let define_class_fn: ast::StmtFunctionDef = py_stmt_typed!(r#"
+def _dp_define_class_{class_name:id}():
+    {type_param_bindings:stmt}
     return __dp__.create_class(
       {class_name:literal}, 
       _dp_class_ns_{class_name:id}, 
@@ -135,18 +165,16 @@ def _dp_class_create_{class_name:id}():
       {prepare_dict:expr}, 
       {requires_class_cell:literal}
     )
-{class_name:id} = _dp_class_create_{class_name:id}()
 "#,
         class_name = class_name.as_str(),
-        class_qualname = class_qualname.as_str(),
-        ns_body = body,
-        type_param_statements = type_param_statements,
+        type_param_bindings = type_param_bindings.clone(),
         requires_class_cell = needs_class_cell,
         type_param_bindings = type_param_bindings,
         bases = bases_tuple.clone(),
         prepare_dict = prepare_dict.clone(),
     );
-    out
+
+    (class_ns_def, define_class_fn)
 }
 
 
@@ -158,8 +186,7 @@ struct TypeParamInfo {
 }
 
 fn make_type_param_info(
-    mut type_params: ast::TypeParams,
-//    rewriter: &mut ExprRewriter,
+    type_params: ast::TypeParams,
 ) -> TypeParamInfo {
     // TODO
 //    rewriter.visit_type_params(&mut type_params);
@@ -191,8 +218,8 @@ fn make_type_param_info(
                 let default_expr = default_expr.unwrap_or_else(|| py_expr!("None"));
                 let constraints_expr = constraints.unwrap_or_else(|| py_expr!("None"));
 
-                bindings.extend(py_stmt!(
-                    "{name:id} = __dp__.typing.TypeVar({name_literal:literal}, {bound:expr}, {default:expr}, {constraints:expr})",
+                bindings.push(py_stmt!(
+                    "{name:id} = _dp_typing.TypeVar({name_literal:literal}, {bound:expr}, {default:expr}, {constraints:expr})",
                     name = param_name.as_str(),
                     name_literal = param_name.as_str(),
                     bound = bound_expr,
@@ -207,22 +234,22 @@ fn make_type_param_info(
                 let param_name = name.as_str().to_string();
                 let binding = match default.map(|expr| *expr) {
                     Some(default_expr) => py_stmt!(
-                        "{name:id} = __dp__.typing.TypeVarTuple({name_literal:literal}, default={default:expr})",
+                        "{name:id} = _dp_typing.TypeVarTuple({name_literal:literal}, default={default:expr})",
                         name = param_name.as_str(),
                         name_literal = param_name.as_str(),
                         default = default_expr,
                     ),
                     None => py_stmt!(
-                        "{name:id} = __dp__.typing.TypeVarTuple({name_literal:literal})",
+                        "{name:id} = _dp_typing.TypeVarTuple({name_literal:literal})",
                         name = param_name.as_str(),
                         name_literal = param_name.as_str(),
                     ),
                 };
 
-                bindings.extend(binding);
+                bindings.push(binding);
                 type_param_exprs.push(py_expr!("{name:id}", name = param_name.as_str()));
                 generic_params.push(py_expr!(
-                    "__dp__.typing.Unpack[{name:id}]",
+                    "_dp_typing.Unpack[{name:id}]",
                     name = param_name.as_str()
                 ));
                 param_names.push(param_name);
@@ -231,19 +258,19 @@ fn make_type_param_info(
                 let param_name = name.as_str().to_string();
                 let binding = match default.map(|expr| *expr) {
                     Some(default_expr) => py_stmt!(
-                        "{name:id} = __dp__.typing.ParamSpec({name_literal:literal}, default={default:expr})",
+                        "{name:id} = _dp_typing.ParamSpec({name_literal:literal}, default={default:expr})",
                         name = param_name.as_str(),
                         name_literal = param_name.as_str(),
                         default = default_expr,
                     ),
                     None => py_stmt!(
-                        "{name:id} = __dp__.typing.ParamSpec({name_literal:literal})",
+                        "{name:id} = _dp_typing.ParamSpec({name_literal:literal})",
                         name = param_name.as_str(),
                         name_literal = param_name.as_str(),
                     ),
                 };
 
-                bindings.extend(binding);
+                bindings.push(binding);
                 type_param_exprs.push(py_expr!("{name:id}", name = param_name.as_str()));
                 generic_params.push(py_expr!("{name:id}", name = param_name.as_str()));
                 param_names.push(param_name);
@@ -275,7 +302,7 @@ fn make_generic_base(info: &TypeParamInfo) -> Option<Expr> {
         make_tuple(info.generic_params.clone())
     };
     Some(py_expr!(
-        "__dp__.typing.Generic[{params:expr}]",
+        "_dp_typing.Generic[{params:expr}]",
         params = params_expr,
     ))
 }

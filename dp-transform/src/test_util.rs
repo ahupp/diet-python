@@ -13,29 +13,32 @@ pub(crate) fn assert_transform_eq_ex(actual: &str, expected: &str, truthy: bool)
     };
     let module = transform_str_to_ruff_with_options(actual, options).unwrap();
     let actual_str = ruff_ast_to_string(&module.module.body);
-    let actual_stmt: Vec<_> = module
-        .module
-        .body
+    let actual_body = &module.module.body.body;
+    let actual_stmt: Vec<_> = actual_body
         .iter()
-        .map(ComparableStmt::from)
+        .map(|stmt| ComparableStmt::from(stmt.as_ref()))
         .collect();
 
     if std::env::var("DP_ENFORCE_IDEMPOTENCE").is_ok() {
         let rerun_module = transform_str_to_ruff_with_options(&actual_str, options).unwrap();
-        let rerun_stmt: Vec<_> = rerun_module
-            .module
-            .body
+        let rerun_body = &rerun_module.module.body.body;
+        let rerun_stmt: Vec<_> = rerun_body
             .iter()
-            .map(ComparableStmt::from)
+            .map(|stmt| ComparableStmt::from(stmt.as_ref()))
             .collect();
         if actual_stmt != rerun_stmt {
-            let difference = format_first_difference(&module.module.body, &rerun_module.module.body);
+            let difference =
+                format_first_difference(&module.module.body.body, rerun_body);
             panic!("transform is not idempotent: {difference}");
         }
     }
 
     let expected_ast = parse_module(expected).unwrap().into_syntax().body;
-    let expected_stmt: Vec<_> = expected_ast.iter().map(ComparableStmt::from).collect();
+    let expected_body = &expected_ast.body;
+    let expected_stmt: Vec<_> = expected_body
+        .iter()
+        .map(|stmt| ComparableStmt::from(stmt.as_ref()))
+        .collect();
 
     if actual_stmt != expected_stmt {
         let diff = TextDiff::from_lines(expected, &actual_str)
@@ -46,12 +49,12 @@ pub(crate) fn assert_transform_eq_ex(actual: &str, expected: &str, truthy: bool)
     }
 }
 
-fn format_first_difference(actual: &[Stmt], rerun: &[Stmt]) -> String {
+fn format_first_difference(actual: &[Box<Stmt>], rerun: &[Box<Stmt>]) -> String {
     let min_len = actual.len().min(rerun.len());
     for (index, (actual_stmt, rerun_stmt)) in actual.iter().zip(rerun).enumerate().take(min_len) {
-        if ComparableStmt::from(actual_stmt) != ComparableStmt::from(rerun_stmt) {
-            let actual_str = ruff_ast_to_string(actual_stmt);
-            let rerun_str = ruff_ast_to_string(rerun_stmt);
+        if ComparableStmt::from(actual_stmt.as_ref()) != ComparableStmt::from(rerun_stmt.as_ref()) {
+            let actual_str = ruff_ast_to_string(actual_stmt.as_ref());
+            let rerun_str = ruff_ast_to_string(rerun_stmt.as_ref());
             return format!(
                 "first difference at stmt index {index}:\nactual: {actual_str}\nrerun: {rerun_str}"
             );
@@ -96,9 +99,9 @@ pub(crate) fn run_transform_fixture_tests(fixture: &str) {
     }
 }
 
-pub(crate) fn assert_ast_eq(actual: Vec<Stmt>, expected: Vec<Stmt>) {
-    let actual_stmt: Vec<_> = actual.iter().map(ComparableStmt::from).collect();
-    let expected_stmt: Vec<_> = expected.iter().map(ComparableStmt::from).collect();
+pub(crate) fn assert_ast_eq(actual: Stmt, expected: Stmt) {
+    let actual_stmt: ComparableStmt = ComparableStmt::from(&actual);
+    let expected_stmt: ComparableStmt = ComparableStmt::from(&expected);
     assert_eq!(actual_stmt, expected_stmt);
 }
 

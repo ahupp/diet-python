@@ -11,5 +11,5 @@ RESULT = outer()
 
 # diet-python: validate
 
-def validate(module):
-    assert module.RESULT == "outer"
+module = __import__("sys").modules[__name__]
+assert module.RESULT == "outer"

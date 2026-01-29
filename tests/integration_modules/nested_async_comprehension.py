@@ -27,6 +27,6 @@ def get_gen_values():
 
 # diet-python: validate
 
-def validate(module):
-    assert module.get_values() == [[11, 12], [21, 22]]
-    assert module.get_gen_values() == [0, 1, 2, 0, 1, 2, 3, 4]
+module = __import__("sys").modules[__name__]
+assert module.get_values() == [[11, 12], [21, 22]]
+assert module.get_gen_values() == [0, 1, 2, 0, 1, 2, 3, 4]

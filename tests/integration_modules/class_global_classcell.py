@@ -19,8 +19,8 @@ def exercise():
 
 from __future__ import annotations
 
-def validate(module):
-    value, global_value, cls = module.exercise()
-    assert value is cls
-    assert global_value == 42
-    assert "__class__" not in module.__dict__
+module = __import__("sys").modules[__name__]
+value, global_value, cls = module.exercise()
+assert value is cls
+assert global_value == 42
+assert "__class__" not in module.__dict__

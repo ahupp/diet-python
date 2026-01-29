@@ -11,5 +11,5 @@ RESULT = run()
 
 # diet-python: validate
 
-def validate(module):
-    assert module.RESULT == ""
+module = __import__("sys").modules[__name__]
+assert module.RESULT == ""

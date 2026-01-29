@@ -1,34 +1,96 @@
-use std::{mem::take};
+use std::{backtrace::Backtrace, mem::take};
 
 use log::{Level, log_enabled, trace};
-use ruff_python_ast::{Expr, Stmt};
+use ruff_python_ast::{Expr, Stmt, StmtBody, self as ast};
 use ruff_text_size::{Ranged, TextRange};
 
-use crate::{
-    body_transform::{Transformer, walk_expr, walk_stmt},
-    py_stmt,
-    ruff_ast_to_string,
-    transform::context::Context,
-};
+use crate::{ruff_ast_to_string, template::{empty_body, into_body}, transform::context::Context};
+use crate::transformer::{Transformer, walk_expr, walk_stmt};
 
 
 pub enum Rewrite {
     Unmodified(Stmt),
-    Walk(Vec<Stmt>),
+    Walk(Stmt),
 }
 
 pub struct LoweredExpr {
-    pub stmts: Vec<Stmt>,
+    pub stmt: Stmt,
     pub expr: Expr,
     pub modified: bool,
 }
 
+#[derive(Default)]
+pub struct BodyBuilder {
+    pub modified: bool,
+    pub body: Vec<Box<Stmt>>,
+}
+
+impl BodyBuilder {
+
+
+    pub fn into_stmt(self) -> Stmt {
+        Stmt::BodyStmt(ast::StmtBody { body: self.body, range: TextRange::default(), node_index: ast::AtomicNodeIndex::default() })
+    }
+
+    pub fn push(&mut self, expr: LoweredExpr) -> Expr {
+        extend_body(&mut self.body, Box::new(expr.stmt));
+        self.modified |= expr.modified;
+        expr.expr
+    }
+}
+
+struct FlattenBodyTransformer;
+
+fn extend_body(new_body: &mut Vec<Box<Stmt>>, mut stmt: Box<Stmt>) {
+
+    match stmt.as_mut() {
+        Stmt::BodyStmt(ast::StmtBody { body, ..}) => {
+            for stmt in take(body).into_iter() {
+                extend_body(new_body, stmt);
+            }
+        }
+        _ => {
+            new_body.push(stmt);
+            return;
+        }
+    }
+}
+
+
+impl Transformer for FlattenBodyTransformer {
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
+        match stmt {
+            Stmt::BodyStmt(ast::StmtBody { body, range, node_index }) => {
+                let mut new_body = Vec::new();
+                for stmt in take(body).into_iter() {
+                    extend_body(&mut new_body, stmt);
+                }
+                *stmt = Stmt::BodyStmt(ast::StmtBody { body: new_body, range: *range, node_index: node_index.clone() });
+            }
+            _ => {}
+        }
+    }
+}
+
+pub fn push_stmt(stmt: &mut Stmt, new_stmt: Stmt) -> bool {
+   
+    let this_stmt = std::mem::replace( stmt, empty_body().into());
+    *stmt = into_body(vec![this_stmt, new_stmt]).into();
+    FlattenBodyTransformer.visit_stmt(stmt);
+    match &stmt {
+        Stmt::BodyStmt(ast::StmtBody { body, .. }) => {
+            !body.is_empty()
+        }
+        _ => false
+    }
+}
 
 impl LoweredExpr {
 
-    pub fn modified(expr: Expr, stmts: Vec<Stmt>) -> Self {
+    pub fn modified(expr: Expr, stmt: impl Into<Stmt>) -> Self {
+        trace!("LoweredExpr::modified {}",  Backtrace::capture());
         Self {
-            stmts,
+            stmt: stmt.into(),
             expr,
             modified: true,
         }
@@ -36,19 +98,9 @@ impl LoweredExpr {
 
     pub fn unmodified(expr: Expr) -> Self {
         Self {
-            stmts: Vec::new(),
+            stmt: empty_body().into(),
             expr,
             modified: false,
-        }
-    }
-
-    pub fn extend(self, other: Vec<Stmt>) -> Self {
-        let Self { mut stmts, expr, modified } = self;
-        stmts.extend(other);
-        Self {
-            stmts,
-            expr,
-            modified,
         }
     }
 }
@@ -56,7 +108,7 @@ impl LoweredExpr {
 pub fn rewrite_once_with_pass<'a, P: RewritePass>(
     context: &'a Context,
     pass: &'a P,
-    stmts: &mut Vec<Stmt>,
+    body: &mut StmtBody,
 ) -> bool {
     let pass_name = std::any::type_name::<P>();
     let mut rloop = RewriteLoop {
@@ -65,8 +117,9 @@ pub fn rewrite_once_with_pass<'a, P: RewritePass>(
         pass_name,
         buf: Vec::new(),
         modified: false,
+        suppress_lowering: 0,
     };
-    rloop.visit_body(stmts);
+    rloop.visit_body(body);
     assert!(rloop.buf.is_empty());
     rloop.modified
 }
@@ -74,7 +127,7 @@ pub fn rewrite_once_with_pass<'a, P: RewritePass>(
 pub fn rewrite_with_pass<'a, P: RewritePass>(
     context: &'a Context,
     pass: &'a P,
-    stmts: &mut Vec<Stmt>,
+    body: &mut StmtBody,
 ) {
     let pass_name = std::any::type_name::<P>();
     let mut iteration = 0usize;
@@ -82,20 +135,18 @@ pub fn rewrite_with_pass<'a, P: RewritePass>(
         iteration += 1;
         if log_enabled!(Level::Trace) {
             trace!(
-                "rewrite_with_pass iteration {} start: {} stmts_len={}",
+                "rewrite_with_pass iteration {} start: {}",
                 iteration,
                 pass_name,
-                stmts.len()
             );
         }
-        let modified = rewrite_once_with_pass(context, pass, stmts);
+        let modified = rewrite_once_with_pass(context, pass, body);
 
         if log_enabled!(Level::Trace) {
             trace!(
-                "rewrite_with_pass iteration {} end: {} stmts_len={} modified={}",
+                "rewrite_with_pass iteration {} end: {} modified={}",
                 iteration,
                 pass_name,
-                stmts.len(),
                 modified
             );
         }
@@ -111,6 +162,7 @@ struct RewriteLoop<'a, P: RewritePass> {
     pass: &'a P,
     pass_name: &'static str,
     modified: bool,
+    suppress_lowering: usize,
 }
 
 
@@ -140,19 +192,17 @@ impl<'a, P: RewritePass> RewriteLoop<'a, P> {
                 Rewrite::Unmodified(stmt) => {
                     self.flush_buffered(stmt, &mut output);
                 }
-                Rewrite::Walk(stmts) => {
+                Rewrite::Walk(stmt) => {
                     if log_enabled!(Level::Trace) {
                         trace!(
                             "rewrite (pass={}) before: \n{} after: \n{}",
                             self.pass_name,
                             before.unwrap_or_default(),
-                            crate::ruff_ast_to_string(&stmts).trim_end()
+                            crate::ruff_ast_to_string(&stmt).trim_end()
                         );
                     }
                     self.modified = true;
-                    for stmt in stmts {
-                        self.flush_buffered(stmt, &mut output);
-                    }
+                    self.flush_buffered(stmt, &mut output);
                 }                
             }
         }
@@ -163,14 +213,32 @@ impl<'a, P: RewritePass> RewriteLoop<'a, P> {
 }
 
 impl<'a, P: RewritePass> Transformer for RewriteLoop<'a, P> {
-    fn visit_body(&mut self, body: &mut Vec<Stmt>) {
+    fn visit_body(&mut self, body: &mut StmtBody) {
+
         let saved_buf = take(&mut self.buf);
-        let stmts = take(body);
-        *body = self.process_statements(stmts);
+        let stmts = take(&mut body.body)
+            .into_iter()
+            .map(|stmt| *stmt)
+            .collect::<Vec<_>>();
+        body.body = self
+            .process_statements(stmts)
+            .into_iter()
+            .map(Box::new)
+            .collect();
         self.buf = saved_buf;
     }
 
     fn visit_expr(&mut self, expr_input: &mut Expr) {
+        if self.suppress_lowering > 0 {
+            walk_expr(self, expr_input);
+            return;
+        }
+        if matches!(expr_input, Expr::Lambda(_) | Expr::Generator(_)) {
+            self.suppress_lowering += 1;
+            walk_expr(self, expr_input);
+            self.suppress_lowering -= 1;
+            return;
+        }
 
         let original_range = expr_input.range();
         let mut lowered: LoweredExpr;
@@ -179,34 +247,26 @@ impl<'a, P: RewritePass> Transformer for RewriteLoop<'a, P> {
         let mut iteration = 0usize;
         loop {
             iteration += 1;
+            let mut log_input = None;
             if log_enabled!(Level::Trace) {
-                trace!(
-                    "lower_expr iteration {} pass={} input: {}",
-                    iteration,
-                    self.pass_name,
-                    ruff_ast_to_string(&current).trim_end()
-                );
+                log_input = Some(ruff_ast_to_string(&current).trim_end().to_string());
             }
             lowered = self.pass.lower_expr(self.context, current);
-            if log_enabled!(Level::Trace) {
-                trace!(
-                    "lower_expr iteration {} pass={} output: {}",
-                    iteration,
-                    self.pass_name,
-                    ruff_ast_to_string(&lowered.expr).trim_end()
-                );
-            }
 
-            let LoweredExpr { stmts, expr, modified } = lowered;
+            let LoweredExpr { stmt, expr, modified } = lowered;
             if log_enabled!(Level::Trace) {
                 trace!(
-                    "lower_expr iteration {} pass={} modified={}",
+                    "lower_expr iteration={} modified={} pass={} \ninput: {}\noutput: \n{}\nstmt: \n{}",
                     iteration,
+                    modified,
                     self.pass_name,
-                    modified
+                    log_input.unwrap_or_default(),
+                    ruff_ast_to_string(&expr).trim_end(),
+                    ruff_ast_to_string(&stmt).trim_end(),
                 );
             }
-            self.buf.extend(stmts);
+            self.buf.push(stmt);
+            
             current = expr;
 
             apply_expr_range(&mut current, original_range);
@@ -233,15 +293,8 @@ impl<'a, P: RewritePass> Transformer for RewriteLoop<'a, P> {
     }
 
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
-        let mut rewritten = self.process_statements(vec![stmt.clone()]);
-        match rewritten.len() {
-            0 => *stmt = py_stmt!("pass")[0].clone(),
-            1 => *stmt = rewritten.remove(0),
-            _ => {
-                *stmt = rewritten.remove(0);
-                self.buf.extend(rewritten);
-            }
-        }
+        let rewritten = self.process_statements(vec![stmt.clone()]);
+        *stmt = into_body(rewritten);
     }
 }
 

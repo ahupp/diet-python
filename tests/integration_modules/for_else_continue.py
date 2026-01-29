@@ -16,5 +16,5 @@ RESULT = collect_for_else_continue()
 
 from __future__ import annotations
 
-def validate(module):
-    assert module.RESULT == [0, 1, 2]
+module = __import__("sys").modules[__name__]
+assert module.RESULT == [0, 1, 2]

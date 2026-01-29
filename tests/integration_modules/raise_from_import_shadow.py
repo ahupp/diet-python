@@ -30,5 +30,5 @@ ASYNCIO_SHADOWED = raise_from_with_import_patch()
 
 from __future__ import annotations
 
-def validate(module):
-    assert module.ASYNCIO_SHADOWED is False
+module = __import__("sys").modules[__name__]
+assert module.ASYNCIO_SHADOWED is False

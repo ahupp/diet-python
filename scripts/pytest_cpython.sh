@@ -5,13 +5,9 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CPYTHON_DIR="$REPO_ROOT/../cpython"
 VENV_DIR="$REPO_ROOT/.venv-cpython"
 PYTHON_BIN="$CPYTHON_DIR/python"
-export RUST_BACKTRACE=1
+
 export UV_CACHE_DIR="$REPO_ROOT/.uv-cache"
-if [ -z "${UV_PYTHON:-}" ]; then
-  export UV_PYTHON="python3.14"
-else
-  export UV_PYTHON
-fi
+export UV_PYTHON="${UV_PYTHON:-python3.14}"
 
 rm -rf "${VENV_DIR}"
 uv venv "$VENV_DIR"

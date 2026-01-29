@@ -1,4 +1,5 @@
-use ruff_python_ast::{ Expr, Stmt};
+use ruff_python_ast::Expr;
+use std::cell::Cell;
 
 use super::Options;
 
@@ -10,6 +11,8 @@ use crate::namegen::fresh_name;
 pub struct Context {
     pub options: Options,
     pub source: String,
+    needs_typing_import: Cell<bool>,
+    needs_templatelib_import: Cell<bool>,
 }
 
 
@@ -18,6 +21,8 @@ impl Context {
         Self {
             options,
             source: source.to_string(),
+            needs_typing_import: Cell::new(false),
+            needs_templatelib_import: Cell::new(false),
         }
     }
 
@@ -29,18 +34,6 @@ impl Context {
             expr = expr
         );
         LoweredExpr::modified(py_expr!("{tmp:id}", tmp = tmp.as_str()), assign)
-    }
-
-
-    pub(crate) fn named_placeholder(&self, expr: Expr) -> (String, Vec<Stmt>) {
-
-        let name = self.fresh("tmp");
-        let assign = py_stmt!(
-            "{name:id} = {expr:expr}",
-            name = name.as_str(),
-            expr = expr
-        );
-        (name, assign)
     }
 
     pub(crate) fn maybe_placeholder_lowered(&self, expr: Expr) -> LoweredExpr {
@@ -62,5 +55,20 @@ impl Context {
         fresh_name(name)
     }
 
+    pub fn require_typing_import(&self) {
+        self.needs_typing_import.set(true);
+    }
+
+    pub fn require_templatelib_import(&self) {
+        self.needs_templatelib_import.set(true);
+    }
+
+    pub fn needs_typing_import(&self) -> bool {
+        self.needs_typing_import.get()
+    }
+
+    pub fn needs_templatelib_import(&self) -> bool {
+        self.needs_templatelib_import.get()
+    }
 
 }

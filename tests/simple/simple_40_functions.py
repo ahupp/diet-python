@@ -10,6 +10,6 @@ RESULT = double(4)
 
 # diet-python: validate
 
-def validate(module):
-    assert module.add(2, 3) == 5
-    assert module.RESULT == 8
+module = __import__("sys").modules[__name__]
+assert module.add(2, 3) == 5
+assert module.RESULT == 8

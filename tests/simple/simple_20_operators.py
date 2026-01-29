@@ -3,6 +3,6 @@ S = T + 1
 
 # diet-python: validate
 
-def validate(module):
-    assert module.T == 3
-    assert module.S == 4
+module = __import__("sys").modules[__name__]
+assert module.T == 3
+assert module.S == 4

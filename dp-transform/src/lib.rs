@@ -1,6 +1,6 @@
 #[cfg(target_arch = "wasm32")]
 use js_sys::{Array, Object, Reflect};
-use ruff_python_ast::{self as ast, Expr, Stmt};
+use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_python_parser::parse_module;
 pub use ruff_python_parser::ParseError;
@@ -51,12 +51,13 @@ const TRANSFORM_TOGGLES: &[TransformToggle] = &[
     },
 ];
 
-pub mod body_transform;
 pub mod ensure_import;
+pub mod scope_aware_transformer;
 pub mod fixture;
 pub mod min_ast;
 mod namegen;
 mod template;
+pub(crate) mod transformer;
 #[cfg(test)]
 mod test_util;
 mod transform;
@@ -108,6 +109,7 @@ impl LoweringResult {
 }
 
 
+
 /// Transform the source code and return the resulting Ruff AST.
 pub fn transform_str_to_ruff_with_options(
     source: &str,
@@ -137,6 +139,7 @@ pub fn transform_str_to_ruff_with_options(
     let ctx = Context::new(options, source);
 
     let rewrite_start = Instant::now();
+
     rewrite_module(&ctx, &mut module.body);
     let rewrite_time = rewrite_start.elapsed();
 
@@ -181,6 +184,40 @@ impl ToRuffAst for &Stmt {
 impl ToRuffAst for &Vec<Stmt> {
     fn to_ruff_ast(&self) -> Vec<Stmt> {
         self.to_vec()
+    }
+}
+
+impl ToRuffAst for &Box<Stmt> {
+    fn to_ruff_ast(&self) -> Vec<Stmt> {
+        if let Some(body) = self.as_body() {
+            body.iter().map(|stmt| stmt.as_ref().clone()).collect()
+        } else {
+            vec![self.as_ref().clone()]
+        }
+    }
+}
+
+impl ToRuffAst for &[Box<Stmt>] {
+    fn to_ruff_ast(&self) -> Vec<Stmt> {
+        self.iter().map(|stmt| stmt.as_ref().clone()).collect()
+    }
+}
+
+impl ToRuffAst for &Vec<Box<Stmt>> {
+    fn to_ruff_ast(&self) -> Vec<Stmt> {
+        self.iter().map(|stmt| stmt.as_ref().clone()).collect()
+    }
+}
+
+impl ToRuffAst for StmtBody {
+    fn to_ruff_ast(&self) -> Vec<Stmt> {
+        self.body.iter().map(|stmt| stmt.as_ref().clone()).collect()
+    }
+}
+
+impl ToRuffAst for &StmtBody {
+    fn to_ruff_ast(&self) -> Vec<Stmt> {
+        self.body.iter().map(|stmt| stmt.as_ref().clone()).collect()
     }
 }
 

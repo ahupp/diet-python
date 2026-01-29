@@ -18,7 +18,7 @@ pub fn parse_fixture(contents: &str) -> Result<Vec<FixtureBlock>, String> {
     let finalize = |blocks: &mut Vec<FixtureBlock>, block: FixtureBlock| -> Result<(), String> {
         if !block.seen_separator {
             return Err(format!(
-                "missing `=` separator in transform fixture `{}`",
+                "missing `# ==` separator in transform fixture `{}`",
                 block.name
             ));
         }
@@ -37,7 +37,7 @@ pub fn parse_fixture(contents: &str) -> Result<Vec<FixtureBlock>, String> {
         }
 
         let trimmed = line.trim_end();
-        if trimmed.starts_with('$') && trimmed.get(..2) == Some("$ ") {
+        if trimmed.starts_with("# ") && trimmed.get(..2) == Some("# ") && trimmed != "# ==" {
             if let FixtureSection::Block(block) =
                 std::mem::replace(&mut section, FixtureSection::Waiting)
             {
@@ -54,6 +54,9 @@ pub fn parse_fixture(contents: &str) -> Result<Vec<FixtureBlock>, String> {
 
         match &mut section {
             FixtureSection::Waiting => {
+                if trimmed == "# ==" && line.trim() == "# ==" {
+                    return Err("unexpected `# ==` outside of a fixture block".to_string());
+                }
                 if !trimmed.is_empty() {
                     return Err(format!(
                         "unexpected content outside of transform fixtures: `{}`",
@@ -62,10 +65,10 @@ pub fn parse_fixture(contents: &str) -> Result<Vec<FixtureBlock>, String> {
                 }
             }
             FixtureSection::Block(block) => {
-                if trimmed == "=" && line.trim() == "=" {
+                if trimmed == "# ==" && line.trim() == "# ==" {
                     if block.seen_separator {
                         return Err(format!(
-                            "multiple `=` separators found in transform fixture `{}`",
+                            "multiple `# ==` separators found in transform fixture `{}`",
                             block.name
                         ));
                     }
@@ -98,7 +101,7 @@ pub fn render_fixture(blocks: &[FixtureBlock]) -> String {
         if index > 0 {
             output.push('\n');
         }
-        output.push_str("$ ");
+        output.push_str("# ");
         output.push_str(&block.name);
         output.push_str("\n\n");
         let input = block.input.trim_matches('\n');
@@ -107,7 +110,7 @@ pub fn render_fixture(blocks: &[FixtureBlock]) -> String {
             output.push('\n');
         }
         output.push('\n');
-        output.push_str("=\n\n");
+        output.push_str("# ==\n\n");
         let output_block = block.output.trim_matches('\n');
         if !output_block.is_empty() {
             output.push_str(output_block);

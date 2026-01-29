@@ -9,6 +9,6 @@ def outer():
 
 from __future__ import annotations
 
-def validate(module):
-    result = module.outer()
-    assert result == {"x": 2, "y": 4, "z": 6}
+module = __import__("sys").modules[__name__]
+result = module.outer()
+assert result == {"x": 2, "y": 4, "z": 6}

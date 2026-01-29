@@ -24,5 +24,5 @@ def get_values():
 
 from __future__ import annotations
 
-def validate(module):
-    assert module.get_values() == [0, 2, 4]
+module = __import__("sys").modules[__name__]
+assert module.get_values() == [0, 2, 4]

@@ -17,7 +17,7 @@ def build_child():
 
 from __future__ import annotations
 
-def validate(module):
-    instance = module.build_child()
-    assert instance.a == 1
-    assert instance.b == 1
+module = __import__("sys").modules[__name__]
+instance = module.build_child()
+assert instance.a == 1
+assert instance.b == 1

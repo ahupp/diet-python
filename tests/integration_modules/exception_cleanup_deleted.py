@@ -19,6 +19,6 @@ def unbound_after_delete():
 
 # diet-python: validate
 
-def validate(module):
-    assert module.cleanup_deleted() is False
-    assert module.unbound_after_delete() is True
+module = __import__("sys").modules[__name__]
+assert module.cleanup_deleted() is False
+assert module.unbound_after_delete() is True

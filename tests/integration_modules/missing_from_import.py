@@ -20,8 +20,8 @@ from __future__ import annotations
 
 import pytest
 
-def validate(module):
-    assert module.RESULT == "fallback"
-    assert module.ERROR_NAME == "missing_from_import_target"
-    assert module.ERROR_PATH is not None
-    assert module.ERROR_PATH.endswith("missing_from_import_target.py")
+module = __import__("sys").modules[__name__]
+assert module.RESULT == "fallback"
+assert module.ERROR_NAME == "missing_from_import_target"
+assert module.ERROR_PATH is not None
+assert module.ERROR_PATH.endswith("missing_from_import_target.py")

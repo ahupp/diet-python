@@ -1,21 +1,26 @@
-use ruff_python_ast::{self as ast, Expr, Stmt};
-
-use crate::body_transform::Transformer;
+use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
+use crate::{transform::context::Context, transformer::{Transformer, walk_body}};
 
 
 pub(crate) struct Flattener;
 
 impl Flattener {
-    fn visit_stmts(&mut self, body: &mut Vec<Stmt>) {
+    fn visit_body(&mut self, body: &mut StmtBody) {
+        let body = &mut body.body;
         let mut i = 0;
         while i < body.len() {
-            self.visit_stmt(&mut body[i]);
+            self.visit_stmt(body[i].as_mut());
+            if let Stmt::BodyStmt(ast::StmtBody { body: inner, .. }) = body[i].as_mut() {
+                let replacement = std::mem::take(inner);
+                body.splice(i..=i, replacement);
+                continue;
+            }
             if let Stmt::If(ast::StmtIf {
                 test,
                 body: inner,
                 elif_else_clauses,
                 ..
-            }) = &mut body[i]
+            }) = body[i].as_mut()
             {
                 if elif_else_clauses.is_empty()
                     && matches!(
@@ -23,7 +28,7 @@ impl Flattener {
                         Expr::BooleanLiteral(ast::ExprBooleanLiteral { value: true, .. })
                     )
                 {
-                    let replacement = std::mem::take(inner);
+                    let replacement = std::mem::take(&mut inner.body);
                     body.splice(i..=i, replacement);
                     continue;
                 }
@@ -33,11 +38,12 @@ impl Flattener {
     }
 }
 
-fn remove_placeholder_pass(stmts: &mut Vec<Stmt>) {
-    if stmts.len() == 1 {
-        if let Stmt::Pass(ast::StmtPass { range, .. }) = &stmts[0] {
+fn remove_placeholder_pass(body: &mut StmtBody) {
+    let body = &mut body.body;
+    if body.len() == 1 {
+        if let Stmt::Pass(ast::StmtPass { range, .. }) = body[0].as_ref() {
             if range.is_empty() {
-                stmts.clear();
+                body.clear();
             }
         }
     }
@@ -51,10 +57,10 @@ impl Transformer for Flattener {
                 elif_else_clauses,
                 ..
             }) => {
-                self.visit_stmts(body);
+                self.visit_body(body);
                 remove_placeholder_pass(body);
                 for clause in elif_else_clauses.iter_mut() {
-                    self.visit_stmts(&mut clause.body);
+                    self.visit_body(&mut clause.body);
                     remove_placeholder_pass(&mut clause.body);
                 }
             }
@@ -63,9 +69,9 @@ impl Transformer for Flattener {
                 orelse,
                 ..
             }) => {
-                self.visit_stmts(inner);
+                self.visit_body(inner);
                 remove_placeholder_pass(inner);
-                self.visit_stmts(orelse);
+                self.visit_body(orelse);
                 remove_placeholder_pass(orelse);
             }
             Stmt::While(ast::StmtWhile {
@@ -73,9 +79,9 @@ impl Transformer for Flattener {
                 orelse,
                 ..
             }) => {
-                self.visit_stmts(inner);
+                self.visit_body(inner);
                 remove_placeholder_pass(inner);
-                self.visit_stmts(orelse);
+                self.visit_body(orelse);
                 remove_placeholder_pass(orelse);
             }
             Stmt::Try(ast::StmtTry {
@@ -85,23 +91,23 @@ impl Transformer for Flattener {
                 finalbody,
                 ..
             }) => {
-                self.visit_stmts(inner);
+                self.visit_body(inner);
                 remove_placeholder_pass(inner);
                 for handler in handlers.iter_mut() {
                     let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
                         body,
                         ..
                     }) = handler;
-                    self.visit_stmts(body);
+                    self.visit_body(body);
                     remove_placeholder_pass(body);
                 }
-                self.visit_stmts(orelse);
+                self.visit_body(orelse);
                 remove_placeholder_pass(orelse);
-                self.visit_stmts(finalbody);
+                self.visit_body(finalbody);
                 remove_placeholder_pass(finalbody);
             }
             Stmt::FunctionDef(ast::StmtFunctionDef { body: inner, .. }) => {
-                self.visit_stmts(inner);
+                self.visit_body(inner);
                 remove_placeholder_pass(inner);
             }
             _ => {}
@@ -112,36 +118,52 @@ impl Transformer for Flattener {
 
 struct StripGeneratedPasses;
 
-impl Transformer for StripGeneratedPasses {
-    fn visit_body(&mut self, body: &mut Vec<Stmt>) {
-        crate::body_transform::walk_body(self, body);
-        let mut updated = Vec::with_capacity(body.len());
-        for stmt in body.drain(..) {
+impl Transformer for &mut StripGeneratedPasses {
+    fn visit_body(&mut self, body: &mut StmtBody) {
+        walk_body(self, body);
+        let mut updated = Vec::with_capacity(body.body.len());
+        for stmt in body.body.drain(..) {
+            let stmt = *stmt;
             match stmt {
                 Stmt::If(mut if_stmt) => {
-                    if if_stmt.body.is_empty() {
-                        if_stmt.body.push(Stmt::Pass(ast::StmtPass {
-                            node_index: Default::default(),
-                            range: Default::default(),
-                        }));
-                    }
-                    for clause in if_stmt.elif_else_clauses.iter_mut() {
-                        if clause.body.is_empty() {
-                            clause.body.push(Stmt::Pass(ast::StmtPass {
+                    if if_stmt.body.body.is_empty() {
+                        if_stmt
+                            .body
+                            .body
+                            .push(Box::new(Stmt::Pass(ast::StmtPass {
                                 node_index: Default::default(),
                                 range: Default::default(),
-                            }));
+                            })));
+                    }
+                    for clause in if_stmt.elif_else_clauses.iter_mut() {
+                        if clause.body.body.is_empty() {
+                            clause
+                                .body
+                                .body
+                                .push(Box::new(Stmt::Pass(ast::StmtPass {
+                                    node_index: Default::default(),
+                                    range: Default::default(),
+                                })));
                         }
                     }
                     if_stmt.elif_else_clauses.retain(|clause| {
-                        !(clause.body.len() == 1 && matches!(clause.body[0], Stmt::Pass(_)))
+                        clause
+                            .body
+                            .body
+                            .len()
+                            .ne(&1)
+                            || !matches!(clause.body.body[0].as_ref(), Stmt::Pass(_))
                     });
 
-                    if if_stmt.body.len() == 1
-                        && matches!(if_stmt.body[0], Stmt::Pass(_))
-                        && if_stmt.elif_else_clauses.is_empty()
-                    {
-                        updated.extend(crate::py_stmt!("{expr:expr}", expr = if_stmt.test));
+                    let is_empty_if = if_stmt
+                        .body
+                        .body
+                        .len()
+                        .eq(&1)
+                        && matches!(if_stmt.body.body[0].as_ref(), Stmt::Pass(_))
+                        && if_stmt.elif_else_clauses.is_empty();
+                    if is_empty_if {
+                        updated.push(crate::py_stmt!("{expr:expr}", expr = if_stmt.test));
                         continue;
                     }
 
@@ -168,23 +190,23 @@ impl Transformer for StripGeneratedPasses {
             updated.retain(|stmt| !matches!(stmt, Stmt::Pass(_)));
 
             if updated.is_empty() {
-                updated.extend(crate::py_stmt!("pass"));
+                updated.push(crate::py_stmt!("pass"));
             }
         }
 
-        *body = updated;
+        body.body = updated.into_iter().map(Box::new).collect();
     }
 }
 
 
-pub fn flatten(stmts: &mut Vec<Stmt>) {
+pub fn flatten(stmts: &mut StmtBody) {
     let mut flattener = Flattener;
-    flattener.visit_stmts(stmts);
+    (&mut flattener).visit_body(stmts);
 }
 
-pub fn strip_generated_passes(stmts: &mut Vec<Stmt>) {
+pub fn strip_generated_passes(_context: &Context, stmts: &mut StmtBody) {
     flatten(stmts);
 
     let mut stripper = StripGeneratedPasses;
-    stripper.visit_body(stmts);
+    (&mut stripper).visit_body(stmts);
 }

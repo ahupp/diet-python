@@ -1,7 +1,11 @@
 
-use ruff_python_ast::{self as ast};
+use ruff_python_ast::{self as ast, Stmt};
 
 use crate::{py_expr, py_stmt, transform::ast_rewrite::Rewrite};
+
+fn body_to_vec(body: ast::StmtBody) -> Vec<Stmt> {
+    body.body.into_iter().map(|stmt| *stmt).collect()
+}
 
 pub fn rewrite_try(stmt: ast::StmtTry) -> Rewrite {
     if stmt.is_star || !has_non_default_handler(&stmt){
@@ -22,6 +26,9 @@ pub fn rewrite_try(stmt: ast::StmtTry) -> Rewrite {
         is_star: _,
         ..
     } = stmt;
+    let body = body_to_vec(body);
+    let orelse = body_to_vec(orelse);
+    let finalbody = body_to_vec(finalbody);
 
     let handler_chain = handlers.into_iter().rev().fold(base, |acc, handler| {
         let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
@@ -69,7 +76,7 @@ finally:
             );
             (exc_target, body)
         } else {
-            (py_stmt!("pass"), body)
+            (py_stmt!("pass"), body.into())
         };
 
         py_stmt!(

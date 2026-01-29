@@ -28,11 +28,12 @@ import diet_import_hook
 
 def _assert_generic_module_invariants(module: ModuleType) -> None:
     transformed_typing = sys.modules["typing"]
-    assert isinstance(
-        transformed_typing.__spec__.loader, diet_import_hook.DietPythonLoader
-    ), "typing should be transformed"
+    if __dp_integration_transformed__:
+        assert isinstance(
+            transformed_typing.__spec__.loader, diet_import_hook.DietPythonLoader
+        ), "typing should be transformed"
 
-    assert "__dp__" in module.__dict__, "module should be transformed"
+        assert "__dp__" in module.__dict__, "module should be transformed"
 
     assert module.Box.__orig_bases__ == (transformed_typing.Generic[module.T],)
 
@@ -40,5 +41,5 @@ def _assert_generic_module_invariants(module: ModuleType) -> None:
     assert specialized.__orig_bases__[0].__args__ == (int,)
     assert issubclass(specialized, module.Box)
 
-def validate(module):
-    _assert_generic_module_invariants(module)
+module = __import__("sys").modules[__name__]
+_assert_generic_module_invariants(module)

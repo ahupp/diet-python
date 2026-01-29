@@ -1,15 +1,15 @@
-use crate::body_transform::{walk_stmt, Transformer};
+use crate::transformer::{Transformer, walk_stmt};
 use crate::py_expr;
-use ruff_python_ast::{self as ast, Expr, Stmt};
+use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
 
-pub(crate) fn rewrite(body: &mut Vec<Stmt>) {
+pub(crate) fn rewrite(body: &mut StmtBody) {
     let mut transformer = TruthyRewriter;
-    transformer.visit_body(body);
+    (&mut transformer).visit_body(body);
 }
 
 struct TruthyRewriter;
 
-impl Transformer for TruthyRewriter {
+impl Transformer for &mut TruthyRewriter {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         walk_stmt(self, stmt);
 
@@ -69,4 +69,3 @@ fn is_truth_call(expr: &Expr) -> bool {
         _ => false,
     }
 }
-

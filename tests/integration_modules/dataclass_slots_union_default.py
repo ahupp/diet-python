@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-def validate(module):
-    instance = module.build_example(state="ready", count=3)
-    assert instance.state == "ready"
-    assert instance.count == 3
+module = __import__("sys").modules[__name__]
+instance = module.build_example(state="ready", count=3)
+assert instance.state == "ready"
+assert instance.count == 3

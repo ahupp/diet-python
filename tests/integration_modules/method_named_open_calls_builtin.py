@@ -27,5 +27,5 @@ RESULT = write_and_read()
 
 from __future__ import annotations
 
-def validate(module):
-    assert module.RESULT == "payload"
+module = __import__("sys").modules[__name__]
+assert module.RESULT == "payload"

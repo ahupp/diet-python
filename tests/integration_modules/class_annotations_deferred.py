@@ -9,6 +9,6 @@ from __future__ import annotations
 
 import pytest
 
-def validate(module):
-    with pytest.raises(NameError):
-        _ = module.ThemeSection.__annotations__
+module = __import__("sys").modules[__name__]
+with pytest.raises(NameError):
+    _ = module.ThemeSection.__annotations__

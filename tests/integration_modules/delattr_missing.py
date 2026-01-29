@@ -16,5 +16,5 @@ from __future__ import annotations
 
 import pytest
 
-def validate(module):
-    assert module.ATTRIBUTE_DELETED is True
+module = __import__("sys").modules[__name__]
+assert module.ATTRIBUTE_DELETED is True

@@ -22,7 +22,7 @@ def exercise():
 
 from __future__ import annotations
 
-def validate(module):
-    value, cls, class_value = module.exercise()
-    assert value is None
-    assert class_value is cls
+module = __import__("sys").modules[__name__]
+value, cls, class_value = module.exercise()
+assert value is None
+assert class_value is cls

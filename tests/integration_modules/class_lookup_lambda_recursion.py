@@ -8,5 +8,5 @@ RESULT = Example.value
 
 from __future__ import annotations
 
-def validate(module):
-    assert module.RESULT == module.__name__
+module = __import__("sys").modules[__name__]
+assert module.RESULT == module.__name__

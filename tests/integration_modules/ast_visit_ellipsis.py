@@ -15,5 +15,5 @@ def visit_ellipsis():
 
 # diet-python: validate
 
-def validate(module):
-    assert module.visit_ellipsis() == [("Ellipsis", ...)]
+module = __import__("sys").modules[__name__]
+assert module.visit_ellipsis() == [("Ellipsis", ...)]

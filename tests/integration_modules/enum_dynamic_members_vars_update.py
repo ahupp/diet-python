@@ -24,8 +24,8 @@ class Foo(Enum):
 
 from __future__ import annotations
 
-def validate(module):
-    foo = module.Foo
-    assert list(foo) == [foo.FOO_CAT, foo.FOO_HORSE]
-    assert foo.FOO_CAT.value == "aloof"
-    assert foo.FOO_HORSE.upper() == "BIG"
+module = __import__("sys").modules[__name__]
+foo = module.Foo
+assert list(foo) == [foo.FOO_CAT, foo.FOO_HORSE]
+assert foo.FOO_CAT.value == "aloof"
+assert foo.FOO_HORSE.upper() == "BIG"

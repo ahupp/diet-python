@@ -16,6 +16,6 @@ RESULT = read_self()
 
 from __future__ import annotations
 
-def validate(module):
-    assert isinstance(module.RESULT, bytes)
-    assert len(module.RESULT) == 1
+module = __import__("sys").modules[__name__]
+assert isinstance(module.RESULT, bytes)
+assert len(module.RESULT) == 1

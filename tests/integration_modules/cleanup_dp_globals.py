@@ -5,5 +5,5 @@ def has_dp_name() -> bool:
 
 from __future__ import annotations
 
-def validate(module):
-    assert module.has_dp_name() is False
+module = __import__("sys").modules[__name__]
+assert module.has_dp_name() is False

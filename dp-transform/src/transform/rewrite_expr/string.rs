@@ -113,6 +113,7 @@ fn rewrite_elements(
 }
 
 fn rewrite_tstring_interpolation(interp: &ast::InterpolatedElement, ctx: &Context) -> Expr {
+    ctx.require_templatelib_import();
     let value = (*interp.expression).clone();
     let expr_text = ctx
         .source_slice(interp.expression.range())
@@ -135,7 +136,7 @@ fn rewrite_tstring_interpolation(interp: &ast::InterpolatedElement, ctx: &Contex
         py_expr!("{literal:literal}", literal = "")
     };
     py_expr!(
-        "__dp__.templatelib.Interpolation({value:expr}, {expr_text:literal}, {conversion:expr}, {format_spec:expr})",
+        "_dp_templatelib.Interpolation({value:expr}, {expr_text:literal}, {conversion:expr}, {format_spec:expr})",
         value = value,
         expr_text = expr_text.as_str(),
         conversion = conversion_expr,
@@ -162,6 +163,7 @@ pub fn rewrite_fstring(expr: ast::ExprFString, ctx: &Context) -> Expr {
 }
 
 pub fn rewrite_tstring(expr: ast::ExprTString, _ctx: &Context) -> Expr {
+    _ctx.require_templatelib_import();
     let mut parts = Vec::new();
     for t in expr.value.iter() {
         for element in t.elements.iter() {
@@ -176,5 +178,5 @@ pub fn rewrite_tstring(expr: ast::ExprTString, _ctx: &Context) -> Expr {
         }
     }
     let tuple = make_tuple(parts);
-    py_expr!("__dp__.templatelib.Template(*{parts:expr})", parts = tuple)
+    py_expr!("_dp_templatelib.Template(*{parts:expr})", parts = tuple)
 }

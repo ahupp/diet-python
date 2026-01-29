@@ -10,7 +10,7 @@ def forward(gen):
 
 from __future__ import annotations
 
-def validate(module):
-    gen = module.make_values()
-    forwarded = module.forward(gen)
-    assert list(forwarded) == [1, 2, 3]
+module = __import__("sys").modules[__name__]
+gen = module.make_values()
+forwarded = module.forward(gen)
+assert list(forwarded) == [1, 2, 3]

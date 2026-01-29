@@ -1,16 +1,12 @@
-use crate::transform::ast_rewrite::Rewrite;
-use crate::transform::context::Context;
-use crate::{py_stmt};
-use ruff_python_ast::{self as ast, Expr, Stmt};
-use ruff_text_size::{TextRange, TextSize};
 
-fn non_placeholder_pass() -> Vec<Stmt> {
-    let mut stmts = py_stmt!("pass");
-    if let Some(Stmt::Pass(pass)) = stmts.get_mut(0) {
-        pass.range = TextRange::new(TextSize::new(0), TextSize::new(4));
-    }
-    stmts
-}
+
+use crate::transform::rewrite_expr::lower_expr;
+use crate::{py_stmt, transform::ast_rewrite::Rewrite};
+use crate::transform::context::Context;
+
+use ruff_python_ast::{self as ast, Stmt};
+use ruff_text_size::{TextRange};
+
 
 pub fn rewrite_for(
     context: &Context,
@@ -24,18 +20,22 @@ pub fn rewrite_for(
     }: ast::StmtFor,
 ) -> Rewrite {
     let iter_tmp = context.fresh("iter");
-    let target_tmp = context.fresh("tmp");    
+    let target_tmp = context.fresh("tmp");
+    let completed_flag = context.fresh("completed");
+
     Rewrite::Walk(if is_async {
             py_stmt!(
                 r#"
+{completed_flag:id} = False            
 {iter_name:id} = __dp__.aiter({iter:expr})
-while True:
+while not {completed_flag:id}:
     {target_tmp:id} = await __dp__.anext_or_sentinel({iter_name:id})
     if {target_tmp:id} is __dp__.ITER_COMPLETE:
-        break
-    {target:expr} = {target_tmp:id}
-    {body:stmt}
-else:
+        {completed_flag:id} = True
+    else:
+        {target:expr} = {target_tmp:id}
+        {body:stmt}
+if {completed_flag:id}:
     {orelse:stmt}
 "#,
                 iter_name = iter_tmp.as_str(),
@@ -44,18 +44,21 @@ else:
                 body = body,
                 orelse = orelse,
                 target_tmp = target_tmp.as_str(),
+                completed_flag = completed_flag.as_str(),
             )
         } else {
             py_stmt!(
                 r#"
+{completed_flag:id} = False            
 {iter_name:id} = __dp__.iter({iter:expr})
-while True:
+while not {completed_flag:id}:
     {target_tmp:id} = __dp__.next_or_sentinel({iter_name:id})
     if {target_tmp:id} is __dp__.ITER_COMPLETE:
-        break
-    {target:expr} = {target_tmp:id}
-    {body:stmt}
-else:
+        {completed_flag:id} = True
+    else:
+        {target:expr} = {target_tmp:id}
+        {body:stmt}
+if {completed_flag:id}:
     {orelse:stmt}
 "#,
                 iter_name = iter_tmp.as_str(),
@@ -64,51 +67,46 @@ else:
                 body = body,
                 orelse = orelse,
                 target_tmp = target_tmp.as_str(),
+                completed_flag = completed_flag.as_str(),
             )
         })
 }
 
 pub fn rewrite_while(context: &Context, while_stmt: ast::StmtWhile) -> Rewrite {
 
+    let test_lowered = lower_expr(context, *while_stmt.test.clone());
+
+
     // Since the is written to another (simpler) while loop, avoid infinite rewrite
-    if while_stmt.orelse.is_empty()
-        && matches!(
-            while_stmt.test.as_ref(),
-            Expr::BooleanLiteral(ast::ExprBooleanLiteral { value: true, .. })
-        )
+    if !test_lowered.modified
     {
         return Rewrite::Unmodified(while_stmt.into());
     }
 
-    let ast::StmtWhile { test, body, orelse, .. } = while_stmt;
-    let has_orelse = !orelse.is_empty();
-    let orelse = if has_orelse {
-        orelse
-    } else {
-        non_placeholder_pass()
-    };
+    let ast::StmtWhile {  body, orelse, .. } = while_stmt;
 
+    let did_exit_normally = context.fresh("did_exit_normally");
     // Move the test into the loop body so a) if/when the test expression is lowered, 
     // any new statements are re-evaluated each loop, and b) to explicitly handle the or-else case that only runs if 
     // there was no break
     // The orelse handling needs to be outside the loop in case it has a break, where it should apply to the outer loop.
 
-    let test_flag : String = context.fresh("test_flag");
-
-    Rewrite::Walk(py_stmt!(
-            r#"
+    Rewrite::Walk(py_stmt!(r#"
+{did_exit_normally:id} = False
 while True:
-    {test_flag:id} = {test:expr}
-    if not {test_flag:id}:
+    {test_lowered:stmt}
+    if not {test_expr:expr}:
+        {did_exit_normally:id} = True
         break
     {body:stmt}
-if {test_flag:id}:
+if {did_exit_normally:id}:
     {orelse:stmt}
 "#,
-            test = *test,
+            test_expr = test_lowered.expr,
+            test_lowered = test_lowered.stmt,
             body = body,
             orelse = orelse,
-            test_flag = test_flag.as_str(),
+            did_exit_normally = did_exit_normally.as_str(),
         )
     )
 }
@@ -119,7 +117,7 @@ pub fn expand_if_chain(mut if_stmt: ast::StmtIf) -> Rewrite {
         .any(|clause| clause.test.is_some()) {
             return Rewrite::Unmodified(if_stmt.into());
     }
-    let mut else_body: Option<Vec<Stmt>> = None;
+    let mut else_body: Option<ast::StmtBody> = None;
 
     for clause in if_stmt.elif_else_clauses.into_iter().rev() {
         match clause.test {
@@ -141,7 +139,11 @@ pub fn expand_if_chain(mut if_stmt: ast::StmtIf) -> Rewrite {
                     });
                 }
 
-                else_body = Some(vec![Stmt::If(nested_if)]);
+                else_body = Some(ast::StmtBody {
+                    body: vec![Box::new(Stmt::If(nested_if))],
+                    range: TextRange::default(),
+                    node_index: ast::AtomicNodeIndex::default(),
+                });
             }
             None => {
                 else_body = Some(clause.body);
@@ -160,5 +162,5 @@ pub fn expand_if_chain(mut if_stmt: ast::StmtIf) -> Rewrite {
         if_stmt.elif_else_clauses = Vec::new();
     }
 
-    Rewrite::Walk(vec![if_stmt.into()])
+    Rewrite::Walk(if_stmt.into())
 }

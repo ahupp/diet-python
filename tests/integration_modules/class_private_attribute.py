@@ -18,15 +18,15 @@ def use_example():
 
 import pytest
 
-def validate(module):
-    Example = module.Example
+module = __import__("sys").modules[__name__]
+Example = module.Example
 
-    instance = Example("initial")
-    assert instance._Example__value == "initial"
+instance = Example("initial")
+assert instance._Example__value == "initial"
 
-    instance.update("payload")
-    assert instance._Example__value == "payload"
-    assert module.use_example() == "payload"
+instance.update("payload")
+assert instance._Example__value == "payload"
+assert module.use_example() == "payload"
 
-    with pytest.raises(AttributeError, match="__value"):
-        getattr(instance, "__value")
+with pytest.raises(AttributeError, match="__value"):
+    getattr(instance, "__value")

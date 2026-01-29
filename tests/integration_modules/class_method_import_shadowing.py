@@ -11,6 +11,6 @@ CLASS_ATTR = Example.atexit
 
 # diet-python: validate
 
-def validate(module):
-    assert module.VALUE == "atexit"
-    assert module.CLASS_ATTR == "class"
+module = __import__("sys").modules[__name__]
+assert module.VALUE == "atexit"
+assert module.CLASS_ATTR == "class"

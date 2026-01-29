@@ -28,5 +28,5 @@ def referrer_frames():
 
 from __future__ import annotations
 
-def validate(module):
-    assert module.referrer_frames() == []
+module = __import__("sys").modules[__name__]
+assert module.referrer_frames() == []

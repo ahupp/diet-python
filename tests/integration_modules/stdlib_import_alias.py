@@ -10,5 +10,5 @@ from __future__ import annotations
 
 import pytest
 
-def validate(module):
-    assert module.VALUE == __import__("sys").version
+module = __import__("sys").modules[__name__]
+assert module.VALUE == __import__("sys").version

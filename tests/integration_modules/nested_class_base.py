@@ -11,5 +11,5 @@ def get_base_name():
 
 # diet-python: validate
 
-def validate(module):
-    assert module.get_base_name() == "BaseThing"
+module = __import__("sys").modules[__name__]
+assert module.get_base_name() == "BaseThing"

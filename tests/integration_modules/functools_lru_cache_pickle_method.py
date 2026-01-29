@@ -17,7 +17,7 @@ def pickle_cached_method():
 
 from __future__ import annotations
 
-def validate(module):
-    cached = module.pickle_cached_method()
-    assert cached is not None
-    assert cached.__qualname__ == "HasCache.cached_meth"
+module = __import__("sys").modules[__name__]
+cached = module.pickle_cached_method()
+assert cached is not None
+assert cached.__qualname__ == "HasCache.cached_meth"

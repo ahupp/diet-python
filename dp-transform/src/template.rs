@@ -20,10 +20,11 @@ macro_rules! py_stmt_internal {
                 $crate::template::SyntaxTemplate::parse($template)
             });
 
+        use ruff_python_ast::Stmt;
         let template = (*TEMPLATE).clone();
         let values = values.into_iter().map(|(name, value)| (name.to_string(), value)).collect();
         let ids = ids.into_iter().map(|(name, value)| (name.to_string(), value)).collect();
-        template.instantiate(values, ids)
+        Stmt::from(template.instantiate(values, ids))
     }};
 }
 
@@ -31,19 +32,7 @@ macro_rules! py_stmt_internal {
 macro_rules! py_expr {
     ($template:literal $(, $name:ident = $value:expr)* $(,)?) => {{
         use ruff_python_ast::{self as ast, Stmt};
-        let stmts = $crate::py_stmt_internal!($template $(, $name = $value)*);
-        if stmts.len() != 1 {
-            if log::log_enabled!(log::Level::Trace) {
-                log::trace!(
-                    "py_expr expected single statement, got {} from template `{}`: {}",
-                    stmts.len(),
-                    $template,
-                    crate::ruff_ast_to_string(&stmts).trim_end()
-                );
-            }
-            panic!("expected single statement");
-        }
-        let stmt = stmts.into_iter().next().unwrap();
+        let stmt = $crate::py_stmt_internal!($template $(, $name = $value)*);
         match stmt {
             Stmt::Expr(ast::StmtExpr { value, .. }) => *value,
             other => {
@@ -63,36 +52,103 @@ macro_rules! py_expr {
 #[macro_export]
 macro_rules! py_stmt {
     ($template:literal $(, $name:ident = $value:expr)* $(,)?) => {{
-        $crate::py_stmt_internal!($template $(, $name = $value)*)
+            $crate::py_stmt_internal!($template $(, $name = $value)*)
     }};
 }
 
-use crate::{
-    body_transform::{Transformer, walk_expr, walk_keyword, walk_parameter, walk_stmt},
-    namegen::fresh_name,
-    ruff_ast_to_string, transform::simplify::{flatten},
-};
+#[macro_export]
+macro_rules! py_stmt_typed {
+    ($template:literal $(, $name:ident = $value:expr)* $(,)?) => {{
+        let stmt = $crate::py_stmt_internal!($template $(, $name = $value)*);
+        $crate::template::expect_stmt::<_>(stmt, $template)
+    }};
+}
+
+
+use crate::{namegen::fresh_name, transform::simplify::flatten};
 use regex::Regex;
-use ruff_python_ast::{self as ast, Expr, Stmt};
+use ruff_python_ast::{self as ast, DictItem, Expr, Stmt, StmtBody};
+use crate::transformer::{Transformer, walk_expr, walk_keyword, walk_parameter, walk_stmt};
 use ruff_python_parser::parse_expression;
-use ruff_text_size::TextRange;
+use ruff_text_size::{TextRange};
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
     sync::LazyLock,
 };
 
-#[allow(dead_code)]
-pub(crate) fn py_stmt_single(stmts: Vec<Stmt>) -> Stmt {
-    if stmts.len() == 0 {
-        panic!("expected template to yield at least one statement");
-    } else if stmts.len() > 1 {
-        panic!(
-            "expected template to yield a single statement, got {:?}",
-            ruff_ast_to_string(&stmts)
-        );
+pub trait StmtTryFrom: Sized {
+    const EXPECTED: &'static str;
+    fn try_from_stmt(stmt: Stmt) -> Result<Self, Stmt>;
+}
+
+macro_rules! impl_stmt_try_from {
+    ($ty:ty, $variant:ident) => {
+        impl StmtTryFrom for $ty {
+            const EXPECTED: &'static str = stringify!($ty);
+            fn try_from_stmt(stmt: Stmt) -> Result<Self, Stmt> {
+                match stmt {
+                    Stmt::$variant(val) => Ok(val),
+                    other => Err(other),
+                }
+            }
+        }
+    };
+}
+
+impl StmtTryFrom for Stmt {
+    const EXPECTED: &'static str = "Stmt";
+    fn try_from_stmt(stmt: Stmt) -> Result<Self, Stmt> {
+        Ok(stmt)
     }
-    stmts.into_iter().next().unwrap()
+}
+
+impl_stmt_try_from!(ast::StmtFunctionDef, FunctionDef);
+impl_stmt_try_from!(ast::StmtClassDef, ClassDef);
+impl_stmt_try_from!(ast::StmtReturn, Return);
+impl_stmt_try_from!(ast::StmtDelete, Delete);
+impl_stmt_try_from!(ast::StmtTypeAlias, TypeAlias);
+impl_stmt_try_from!(ast::StmtAssign, Assign);
+impl_stmt_try_from!(ast::StmtAugAssign, AugAssign);
+impl_stmt_try_from!(ast::StmtAnnAssign, AnnAssign);
+impl_stmt_try_from!(ast::StmtFor, For);
+impl_stmt_try_from!(ast::StmtWhile, While);
+impl_stmt_try_from!(ast::StmtIf, If);
+impl_stmt_try_from!(ast::StmtWith, With);
+impl_stmt_try_from!(ast::StmtMatch, Match);
+impl_stmt_try_from!(ast::StmtRaise, Raise);
+impl_stmt_try_from!(ast::StmtTry, Try);
+impl_stmt_try_from!(ast::StmtAssert, Assert);
+impl_stmt_try_from!(ast::StmtImport, Import);
+impl_stmt_try_from!(ast::StmtImportFrom, ImportFrom);
+impl_stmt_try_from!(ast::StmtGlobal, Global);
+impl_stmt_try_from!(ast::StmtNonlocal, Nonlocal);
+impl_stmt_try_from!(ast::StmtExpr, Expr);
+impl_stmt_try_from!(ast::StmtPass, Pass);
+impl_stmt_try_from!(ast::StmtBreak, Break);
+impl_stmt_try_from!(ast::StmtContinue, Continue);
+impl_stmt_try_from!(ast::StmtBody, BodyStmt);
+impl_stmt_try_from!(ast::StmtIpyEscapeCommand, IpyEscapeCommand);
+
+pub fn expect_stmt<T: StmtTryFrom>(stmt: Stmt, template: &'static str) -> T {
+    match T::try_from_stmt(stmt) {
+        Ok(value) => value,
+        Err(other) => panic!(
+            "py_stmt expected {}, got {:?} (template: {})",
+            T::EXPECTED,
+            other,
+            template,
+        ),
+    }
+}
+
+fn body_from_stmts(stmts: Vec<Stmt>) -> ast::StmtBody {
+    let body = stmts.into_iter().map(Box::new).collect();
+    ast::StmtBody {
+        body,
+        range: TextRange::default(),
+        node_index: ast::AtomicNodeIndex::default(),
+    }
 }
 
 pub(crate) fn is_simple(expr: &Expr) -> bool {
@@ -112,6 +168,19 @@ pub(crate) fn is_simple(expr: &Expr) -> bool {
 pub(crate) enum PlaceholderValue {
     Expr(Box<Expr>),
     Stmt(Vec<Stmt>),
+}
+
+pub(crate) struct DictEntries<I>(I);
+
+pub(crate) fn dict_entries<I>(entries: I) -> DictEntries<I> {
+    DictEntries(entries)
+}
+
+fn expand_body_stmt(stmt: Stmt) -> Vec<Stmt> {
+    match stmt {
+        Stmt::BodyStmt(body) => body.body.into_iter().map(|stmt| *stmt).collect(),
+        other => vec![other],
+    }
 }
 
 pub(crate) trait IntoPlaceholder {
@@ -144,31 +213,89 @@ impl IntoPlaceholder for String {
 
 impl IntoPlaceholder for Stmt {
     fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
-        Ok(PlaceholderValue::Stmt(vec![self]))
+        Ok(PlaceholderValue::Stmt(expand_body_stmt(self)))
     }
 }
 
 impl IntoPlaceholder for Box<Stmt> {
     fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
-        Ok(PlaceholderValue::Stmt(vec![*self]))
+        Ok(PlaceholderValue::Stmt(expand_body_stmt(*self)))
+    }
+}
+
+macro_rules! impl_into_placeholder_for_stmt {
+    ($($ty:ty),* $(,)?) => {
+        $(impl IntoPlaceholder for $ty {
+            fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
+                Ok(PlaceholderValue::Stmt(expand_body_stmt(self.into())))
+            }
+        })*
+    };
+}
+
+impl_into_placeholder_for_stmt!(
+    ast::StmtFunctionDef,
+    ast::StmtClassDef,
+    ast::StmtReturn,
+    ast::StmtDelete,
+    ast::StmtTypeAlias,
+    ast::StmtAssign,
+    ast::StmtAugAssign,
+    ast::StmtAnnAssign,
+    ast::StmtFor,
+    ast::StmtWhile,
+    ast::StmtIf,
+    ast::StmtWith,
+    ast::StmtMatch,
+    ast::StmtRaise,
+    ast::StmtTry,
+    ast::StmtAssert,
+    ast::StmtImport,
+    ast::StmtImportFrom,
+    ast::StmtGlobal,
+    ast::StmtNonlocal,
+    ast::StmtExpr,
+    ast::StmtPass,
+    ast::StmtBreak,
+    ast::StmtContinue,
+    ast::StmtIpyEscapeCommand,
+);
+
+impl IntoPlaceholder for StmtBody {
+    fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
+        Ok(PlaceholderValue::Stmt(
+            self.body.into_iter().map(|stmt| *stmt).collect(),
+        ))
+    }
+}
+
+impl IntoPlaceholder for &StmtBody {
+    fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
+        Ok(PlaceholderValue::Stmt(
+            self.body.iter().map(|stmt| stmt.as_ref().clone()).collect(),
+        ))
     }
 }
 
 impl IntoPlaceholder for Vec<Stmt> {
     fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
-        if self.is_empty() {
+        let stmts = self
+            .into_iter()
+            .flat_map(expand_body_stmt)
+            .collect::<Vec<_>>();
+        if stmts.is_empty() {
             return Ok(PlaceholderValue::Stmt(vec![Stmt::Pass(ast::StmtPass {
                 node_index: Default::default(),
                 range: Default::default(),
             })]));
         }
-        Ok(PlaceholderValue::Stmt(self))
+        Ok(PlaceholderValue::Stmt(stmts))
     }
 }
 
 impl IntoPlaceholder for std::vec::IntoIter<Stmt> {
     fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
-        let mut stmts: Vec<Stmt> = self.collect();
+        let mut stmts: Vec<Stmt> = self.flat_map(expand_body_stmt).collect();
         if stmts.is_empty() {
             stmts.push(Stmt::Pass(ast::StmtPass {
                 node_index: Default::default(),
@@ -176,6 +303,27 @@ impl IntoPlaceholder for std::vec::IntoIter<Stmt> {
             }));
         }
         Ok(PlaceholderValue::Stmt(stmts))
+    }
+}
+
+impl<K> IntoPlaceholder for Vec<(K, Expr)>
+where
+    K: Into<String>,
+{
+    fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
+        DictEntries(self).into_placeholder()
+    }
+}
+
+impl<K, I> IntoPlaceholder for DictEntries<I>
+where
+    I: IntoIterator<Item = (K, Expr)>,
+    K: Into<String>,
+{
+    fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
+        Ok(PlaceholderValue::Expr(Box::new(dict_expr_from_entries(
+            self.0,
+        ))))
     }
 }
 
@@ -215,6 +363,7 @@ pub(crate) fn var_for_placeholder(name: &str, ty: PlaceholderType) -> String {
         PlaceholderType::Identifier => format!("_dp_placeholder_id_{}__", name),
         PlaceholderType::Literal => format!("_dp_placeholder_literal_{}__", name),
         PlaceholderType::TmpName => format!("_dp_placeholder_tmpname_{}__", name),
+        PlaceholderType::Dict => format!("_dp_placeholder_dict_{}__", name),
     }
 }
 
@@ -225,11 +374,12 @@ pub(crate) enum PlaceholderType {
     Identifier,
     Literal,
     TmpName,
+    Dict,
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct SyntaxTemplate {
-    stmts: Vec<Stmt>,
+    stmts: StmtBody,
 }
 
 impl SyntaxTemplate {
@@ -244,6 +394,7 @@ impl SyntaxTemplate {
                     "id" => PlaceholderType::Identifier,
                     "literal" => PlaceholderType::Literal,
                     "tmpname" => PlaceholderType::TmpName,
+                    "dict" => PlaceholderType::Dict,
                     other => panic!("unknown placeholder type `{other}` for `{name}`"),
                 };
                 var_for_placeholder(name, ty)
@@ -265,13 +416,26 @@ impl SyntaxTemplate {
         mut self,
         values: HashMap<String, PlaceholderValue>,
         ids: HashMap<String, Value>,
-    ) -> Vec<Stmt> {
+    ) -> Stmt {
         let mut transformer = PlaceholderReplacer::new(values, ids);
         transformer.visit_body(&mut self.stmts);
         transformer.finish();
-        //flatten(&mut self.stmts);
-        self.stmts
+        flatten(&mut self.stmts);
+        if self.stmts.body.len() == 1 {
+            *self.stmts.body.remove(0)
+        } else {
+            self.stmts.into()
+        }
+        
     }
+}
+
+pub fn empty_body() -> StmtBody {
+    StmtBody { body: vec![], range: TextRange::default(), node_index: ast::AtomicNodeIndex::default() }
+}
+
+pub fn into_body(stmts: impl IntoIterator<Item = Stmt>) -> Stmt {
+    Stmt::BodyStmt(StmtBody { body: stmts.into_iter().map(|stmt| Box::new(stmt)).collect(), range: TextRange::default(), node_index: ast::AtomicNodeIndex::default() }).into()
 }
 
 struct PlaceholderReplacer {
@@ -301,6 +465,7 @@ impl PlaceholderReplacer {
                 "id" => PlaceholderType::Identifier,
                 "literal" => PlaceholderType::Literal,
                 "tmpname" => PlaceholderType::TmpName,
+                "dict" => PlaceholderType::Dict,
                 other => panic!("unknown placeholder type `{other}`"),
             };
             let name = caps.name("name").unwrap().as_str();
@@ -351,7 +516,10 @@ impl PlaceholderReplacer {
                     identifier.id = self.get_tmpname(name).into();
                     return;
                 }
-                PlaceholderType::Literal | PlaceholderType::Expr | PlaceholderType::Stmt => {
+                PlaceholderType::Literal
+                | PlaceholderType::Expr
+                | PlaceholderType::Stmt
+                | PlaceholderType::Dict => {
                     panic!("unexpected placeholder `{name}` in identifier context");
                 }
             }
@@ -476,6 +644,15 @@ impl Transformer for PlaceholderReplacer {
                             *expr = literal_expr(name, value);
                             return;
                         }
+                        PlaceholderType::Dict => match self.take_value(name) {
+                            PlaceholderValue::Expr(value) => {
+                                *expr = *value;
+                                return;
+                            }
+                            PlaceholderValue::Stmt(_) => {
+                                panic!("expected dict expression for placeholder {name}");
+                            }
+                        },
                         PlaceholderType::Stmt => {
                             panic!("expected stmt placeholder {name}");
                         }
@@ -522,7 +699,7 @@ impl Transformer for PlaceholderReplacer {
                                         node_index: ast::AtomicNodeIndex::default(),
                                         range: TextRange::default(),
                                         test: Box::new(py_expr!("True")),
-                                        body: value,
+                                        body: body_from_stmts(value),
                                         elif_else_clauses: Vec::new(),
                                     });
                                 }
@@ -531,11 +708,11 @@ impl Transformer for PlaceholderReplacer {
                                         node_index: ast::AtomicNodeIndex::default(),
                                         range: TextRange::default(),
                                         test: Box::new(crate::py_expr!("True")),
-                                        body: vec![Stmt::Expr(ast::StmtExpr {
+                                        body: body_from_stmts(vec![Stmt::Expr(ast::StmtExpr {
                                             node_index: ast::AtomicNodeIndex::default(),
                                             range: TextRange::default(),
                                             value,
-                                        })],
+                                        })]),
                                         elif_else_clauses: Vec::new(),
                                     });
                                 }
@@ -568,7 +745,7 @@ impl Transformer for PlaceholderReplacer {
 fn placeholder_regex() -> &'static Regex {
     static REGEX: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
-            r"^_dp_placeholder_(?P<ty>expr|stmt|id|literal|tmpname)_(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)__$",
+            r"^_dp_placeholder_(?P<ty>expr|stmt|id|literal|tmpname|dict)_(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)__$",
         )
         .unwrap()
     });
@@ -585,11 +762,30 @@ fn placeholder_template_regex() -> &'static Regex {
 fn placeholder_text_regex() -> &'static Regex {
     static REGEX: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
-            r"_dp_placeholder_(?P<ty>expr|stmt|id|literal|tmpname)_(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)__",
+            r"_dp_placeholder_(?P<ty>expr|stmt|id|literal|tmpname|dict)_(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)__",
         )
         .unwrap()
     });
     &REGEX
+}
+
+fn dict_expr_from_entries<K, I>(entries: I) -> Expr
+where
+    I: IntoIterator<Item = (K, Expr)>,
+    K: Into<String>,
+{
+    let items = entries
+        .into_iter()
+        .map(|(key, value)| DictItem {
+            key: Some(literal_expr("dict_key", Value::String(key.into()))),
+            value,
+        })
+        .collect();
+    Expr::Dict(ast::ExprDict {
+        node_index: ast::AtomicNodeIndex::default(),
+        range: TextRange::default(),
+        items,
+    })
 }
 
 fn identifier_string(name: &str, value: Value) -> String {
@@ -634,15 +830,15 @@ fn parse_dynamic_expr(src: &str, name: &str) -> Expr {
         })
 }
 
+
 #[cfg(test)]
 mod tests {
     use crate::{test_util::assert_ast_eq, transform::simplify::flatten};
     use ruff_python_ast::{
-        self as ast,
-        comparable::{ComparableExpr, ComparableStmt},
-        Expr, Stmt,
+        self as ast, Stmt, StmtBody, comparable::{ComparableExpr, ComparableStmt}
     };
     use ruff_python_parser::{parse_expression, parse_module};
+    use ruff_text_size::TextRange;
 
     #[test]
     fn inserts_placeholder() {
@@ -667,55 +863,6 @@ mod tests {
         let expr = py_expr!("{name:id} + {name:id}", name = "x");
         let expected = *parse_expression("x + x").unwrap().into_syntax().body;
         assert_eq!(ComparableExpr::from(&expr), ComparableExpr::from(&expected));
-    }
-
-    #[test]
-    fn inserts_tmpname() {
-        fn assign_name(stmt: &Stmt) -> String {
-            match stmt {
-                Stmt::Assign(ast::StmtAssign { targets, .. }) => match &targets[0] {
-                    Expr::Name(ast::ExprName { id, .. }) => id.as_str().to_string(),
-                    other => panic!("expected name target, got {other:?}"),
-                },
-                other => panic!("expected assign, got {other:?}"),
-            }
-        }
-
-        let stmts = py_stmt!(
-            "
-{tmp:tmpname} = 1
-{tmp:tmpname} = 2
-",
-        );
-        let first = assign_name(&stmts[0]);
-        let second = assign_name(&stmts[1]);
-        assert!(first.starts_with("_dp_tmp_"));
-        assert_eq!(first, second);
-    }
-
-    #[test]
-    fn tmpname_is_distinct_per_placeholder() {
-        fn assign_name(stmt: &Stmt) -> String {
-            match stmt {
-                Stmt::Assign(ast::StmtAssign { targets, .. }) => match &targets[0] {
-                    Expr::Name(ast::ExprName { id, .. }) => id.as_str().to_string(),
-                    other => panic!("expected name target, got {other:?}"),
-                },
-                other => panic!("expected assign, got {other:?}"),
-            }
-        }
-
-        let stmts = py_stmt!(
-            "
-{left:tmpname} = 1
-{right:tmpname} = 2
-",
-        );
-        let left = assign_name(&stmts[0]);
-        let right = assign_name(&stmts[1]);
-        assert_ne!(left, right);
-        assert!(left.starts_with("_dp_tmp_"));
-        assert!(right.starts_with("_dp_tmp_"));
     }
 
     #[test]
@@ -769,9 +916,9 @@ b = 2
     #[test]
     fn inserts_boxed_stmt() {
         let mut body = parse_module("a = 1").unwrap().into_syntax().body;
-        let stmt = body.pop().unwrap();
-        let actual = py_stmt!("{body:stmt}", body = Box::new(stmt.clone()));
-        let expected = py_stmt!("{body:stmt}", body = vec![stmt]);
+        let stmt = body.body.pop().unwrap();
+        let actual = py_stmt!("{body:stmt}", body = Box::new(*stmt.clone()));
+        let expected = py_stmt!("{body:stmt}", body = vec![*stmt]);
         assert_ast_eq(actual, expected);
     }
 
@@ -786,7 +933,11 @@ b = 2
         .unwrap()
         .into_syntax()
         .body;
-        let iter_body = body.clone();
+        let iter_body = body
+            .body
+            .iter()
+            .map(|stmt| stmt.as_ref().clone())
+            .collect::<Vec<_>>();
 
         assert_ast_eq(
             py_stmt!("{body:stmt}", body = iter_body.into_iter()),
@@ -802,22 +953,31 @@ b = 2
     #[test]
     fn inserts_empty_stmt_from_iterator() {
         let actual = py_stmt!("{body:stmt}", body = Vec::<Stmt>::new().into_iter(),);
-        let expected: Vec<Stmt> = Vec::new();
+        let expected: Stmt = Stmt::BodyStmt(StmtBody { body: vec![], range: TextRange::default(), node_index: ast::AtomicNodeIndex::default() }).into();
         assert_ast_eq(actual, expected);
     }
 
     #[test]
     fn wraps_expr_in_stmt() {
         let expr = *parse_expression("a + 1").unwrap().into_syntax().body;
-        let mut actual = py_stmt!(
+        let actual = py_stmt!(
             "
 {expr:stmt}
 ",
             expr = expr,
         );
-        flatten(&mut actual);
+        let mut body = ast::StmtBody {
+            body: vec![Box::new(actual)],
+            range: TextRange::default(),
+            node_index: ast::AtomicNodeIndex::default(),
+        };
+        flatten(&mut body);
         assert_ast_eq(
-            actual,
+            body.body
+                .first()
+                .expect("expected single statement after flatten")
+                .as_ref()
+                .clone(),
             py_stmt!(
                 "
 a + 1
@@ -838,7 +998,7 @@ def {func:id}({param:id}):
             param = "arg",
             body = body.clone(),
         );
-        match stmt.into_iter().next().unwrap() {
+        match stmt {
             ruff_python_ast::Stmt::FunctionDef(ast::StmtFunctionDef {
                 name,
                 parameters,
@@ -849,12 +1009,26 @@ def {func:id}({param:id}):
                 assert_eq!(name.id.as_str(), "foo");
                 assert_eq!(parameters.args[0].parameter.name.id.as_str(), "arg");
                 assert_eq!(
-                    ComparableStmt::from(&fn_body[0]),
-                    ComparableStmt::from(&body[0])
+                    ComparableStmt::from(fn_body.body[0].as_ref()),
+                    ComparableStmt::from(body.body[0].as_ref())
                 );
             }
             _ => panic!("expected function def"),
         }
+    }
+
+    #[test]
+    fn inserts_dict_placeholder() {
+        let entries = vec![
+            ("a".to_string(), py_expr!("1")),
+            ("b".to_string(), py_expr!("x")),
+        ];
+        let expr = py_expr!("{entries:dict}", entries = entries);
+        let expected = *parse_expression("{'a': 1, 'b': x}")
+            .unwrap()
+            .into_syntax()
+            .body;
+        assert_eq!(ComparableExpr::from(&expr), ComparableExpr::from(&expected));
     }
 
     #[test]

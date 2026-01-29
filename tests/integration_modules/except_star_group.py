@@ -13,9 +13,9 @@ def handle():
 
 from __future__ import annotations
 
-def validate(module):
-    exc = module.handle()
-    assert exc is not None
-    assert isinstance(exc, ExceptionGroup)
-    assert exc.exceptions
-    assert isinstance(exc.exceptions[0], OSError)
+module = __import__("sys").modules[__name__]
+exc = module.handle()
+assert exc is not None
+assert isinstance(exc, ExceptionGroup)
+assert exc.exceptions
+assert isinstance(exc.exceptions[0], OSError)

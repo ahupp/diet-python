@@ -24,5 +24,5 @@ def get_value():
 
 from __future__ import annotations
 
-def validate(module):
-    assert module.get_value() == 2
+module = __import__("sys").modules[__name__]
+assert module.get_value() == 2

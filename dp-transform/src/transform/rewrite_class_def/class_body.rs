@@ -1,17 +1,16 @@
+use std::mem::take;
 use std::sync::Arc;
 
-use ruff_python_ast::{self as ast, name::Name, Expr, ExprContext, Stmt};
+use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt, StmtBody};
 
-use crate::body_transform::{Transformer, walk_expr, walk_stmt};
-use crate::template::py_stmt_single;
-use crate::transform::ast_rewrite::Rewrite;
-use crate::{py_expr, py_stmt};
+use crate::template::{empty_body, into_body};
 use crate::transform::context::Context;
-use crate::transform::rewrite_class_def::{method};
+use crate::transform::rewrite_class_def::{class_def_to_create_class_fn, method};
 use crate::transform::rewrite_stmt;
-use crate::transform::scope::{BindingKind, BindingUse, Scope, ScopeKind};
-
-
+use crate::transform::scope::{BindingKind, BindingUse, Scope, ScopeKind, is_internal_symbol};
+use crate::transform::util::is_noarg_call;
+use crate::transformer::{Transformer, walk_expr, walk_stmt};
+use crate::{py_expr, py_stmt};
 
 pub fn class_body_load_cell(name: &str) -> Expr {
     py_expr!(
@@ -43,67 +42,25 @@ fn class_body_store_global(name: &str, ctx: ExprContext) -> Expr {
     expr
 }
 
-fn is_dp_temp_name(name: &str) -> bool {
-    name.starts_with("_dp_")
-}
 
-
-
-pub fn rewrite_class_body_scopes(context: &Context, scope: Arc<Scope>, body: &mut Vec<Stmt>) {
-    let mut rewriter = ClassBodyScopeRewriter::new(context, scope);
-    rewriter.visit_body(body);
+pub fn rewrite_class_body_scopes(context: &Context, scope: Arc<Scope>, body: &mut StmtBody) {
+    ClassBodyScopeRewriter::new(context, scope).visit_body(body);
 }
 
 struct ClassBodyScopeRewriter<'a> {
     context: &'a Context,
     scope: Arc<Scope>,
+    hoisted_class_defs: Vec<Stmt>,
+    body_name_rewriter: ClassBodyNameRewriter,
 }
 
 impl<'a> ClassBodyScopeRewriter<'a> {
     fn new(context: &'a Context, scope: Arc<Scope>) -> Self {
-        Self { context, scope }
+        Self { context, scope: scope.clone(), hoisted_class_defs: Vec::new(), body_name_rewriter: ClassBodyNameRewriter::new(scope.clone()) }
     }
 
-    fn child_scope(&self, scope: Arc<Scope>) -> ClassBodyScopeRewriter<'a> {
-        ClassBodyScopeRewriter::new(self.context, scope)
-    }
-
-    fn rewrite_class_def(&mut self, class_def: &mut ast::StmtClassDef) -> Stmt {
-        let needs_class_cell = method::rewrite_explicit_super_classcell(class_def);
-
-        let class_scope = self.scope.child_scope_for_class(class_def);
-
-        let mut child = self.child_scope(class_scope.clone());
-        child.visit_body(&mut class_def.body);
-
-        let mut name_rewriter = ClassBodyNameRewriter::new(class_scope.clone());
-        name_rewriter.visit_body(&mut class_def.body);
-        rewrite_stmt::annotation::rewrite_ann_assign_to_dunder_annotate(&mut class_def.body);
-        bind_function_defs_to_class_ns(class_scope.clone(), &mut class_def.body);
-
-        let rewrite = crate::transform::rewrite_class_def::rewrite(self.context, &class_scope, class_def, needs_class_cell);
-
-        let stmts = match rewrite {
-            Rewrite::Unmodified(stmt) => {
-                vec![stmt]
-            }
-            Rewrite::Walk(stmts) => {
-                stmts
-            }
-        };
-
-        // TODO: make this a rewrite pass
-
-        py_stmt_single(py_stmt!(r#"
-if True:
-    {stmts:stmt}
-"#, stmts = stmts))
-    }
-
-    fn rewrite_function_def(&mut self, func_def: &mut ast::StmtFunctionDef) {
-        let func_scope = self.scope.child_scope_for_function(func_def);
-        let mut child = self.child_scope(func_scope.clone());
-        child.visit_body(&mut func_def.body);
+    fn take_hoisted(&mut self) -> Vec<Stmt> {
+        take(&mut self.hoisted_class_defs)
     }
 }
 
@@ -111,14 +68,66 @@ impl<'a> Transformer for ClassBodyScopeRewriter<'a> {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
             Stmt::ClassDef(class_def) => {
-                *stmt = self.rewrite_class_def(class_def);
-                return;
+                if matches!(self.scope.kind(), ScopeKind::Class) {
+                    
+                    if let Some(arguments) = class_def.arguments.as_mut() {
+                        self.body_name_rewriter.visit_arguments(arguments);
+                    }
+                    for dec in &mut class_def.decorator_list {
+                        self.body_name_rewriter.visit_decorator(dec);
+                    }
+                    if let Some(type_params) = class_def.type_params.as_mut() {
+                        self.body_name_rewriter.visit_type_params(type_params);
+                    }
+                }
+
+                let decorator_list = take(&mut class_def.decorator_list);
+                let needs_class_cell = method::rewrite_explicit_super_classcell(class_def);
+
+                let class_scope = self
+                    .scope
+                    .child_scope_for_class(class_def)
+                    .expect("no child scope for class");
+
+                let mut class_rewriter = ClassBodyScopeRewriter::new(self.context, class_scope.clone());
+                class_rewriter.visit_body(&mut class_def.body);
+                let mut hoisted = class_rewriter.take_hoisted();
+                class_rewriter.body_name_rewriter.visit_body(&mut class_def.body);
+
+                let (class_ns_def, define_class_fn) = class_def_to_create_class_fn(
+                    self.context,
+                    class_def,
+                    class_scope.qualnamer.qualname.clone(),
+                    needs_class_cell,
+                );
+
+                hoisted.push(class_ns_def.clone().into());
+
+                let mut children = Vec::new();
+                if matches!(self.scope.kind(), ScopeKind::Class) {
+                    self.hoisted_class_defs.append(&mut hoisted);
+                } else {
+                    children.append(&mut hoisted);
+                }
+                children.push(define_class_fn.clone().into());
+
+                let decorated_class = rewrite_stmt::decorator::rewrite(
+                    decorator_list, 
+                    py_expr!(r"{define_class_fn:id}()", define_class_fn = define_class_fn.name.id.as_str()));
+
+                children.push(py_stmt!(r"{class_name:id} = {decorated_class:expr}", 
+                                        class_name = class_def.name.id.as_str(), 
+                                        decorated_class = decorated_class));
+
+                *stmt = into_body(children);
             }
             Stmt::FunctionDef(func_def) => {
-                if func_def.name.id.as_str().starts_with("_dp_class_create_") {
-                    return;
-                }
-                self.rewrite_function_def(func_def);
+                let func_scope = self
+                    .scope
+                    .child_scope_for_function(func_def)
+                    .expect("no child scope for function");
+                ClassBodyScopeRewriter::new(self.context, func_scope).visit_body(&mut func_def.body);
+  
                 return;
             }
             _ => walk_stmt(self, stmt),
@@ -136,11 +145,14 @@ impl ClassBodyNameRewriter {
     }
 
     fn rewrite_load(&self, name: &ast::ExprName) -> Option<Expr> {
-        let id = name.id.as_str();
-        if id == "__dp__" || id == "_dp_class_ns" || id == "__classcell__" || is_dp_temp_name(id) {
+        if !matches!(self.scope.kind(), ScopeKind::Class) {
             return None;
         }
 
+        let id = name.id.as_str();
+        if id == "__classcell__" || is_internal_symbol(id) {
+            return None;
+        }
         let binding = self.scope.scope_bindings().get(id).copied();
         match binding {
             Some(BindingKind::Global) => Some(class_body_load_global(id)),
@@ -163,8 +175,12 @@ impl ClassBodyNameRewriter {
     }
 
     fn rewrite_store(&self, name: &ast::ExprName) -> Option<Expr> {
+        if !matches!(self.scope.kind(), ScopeKind::Class) {
+            return None;
+        }
+
         let id = name.id.as_str();
-        if id == "__dp__" || id == "_dp_class_ns" || id == "__classcell__" || is_dp_temp_name(id) {
+        if id == "__classcell__" || is_internal_symbol(id) {
             return None;
         }
 
@@ -176,37 +192,40 @@ impl ClassBodyNameRewriter {
     }
 
     fn enclosing_function_binds_name(&self, name: &str) -> bool {
-        let mut current = self.scope.parent_scope();
-        while let Some(scope) = current {
-            match scope.kind() {
-                ScopeKind::Function { .. } => {
+        self.scope
+            .any_parent_scope(|scope| match scope.kind() {
+                ScopeKind::Function => {
                     if let Some(binding) = scope.scope_bindings().get(name).copied() {
                         match binding {
-                            BindingKind::Local | BindingKind::Nonlocal => return true,
-                            BindingKind::Global => return false,
+                            BindingKind::Local | BindingKind::Nonlocal => Some(true),
+                            BindingKind::Global => Some(false),
                         }
+                    } else {
+                        None
                     }
                 }
-                ScopeKind::Module => break,
-                ScopeKind::Class { .. } => {}
-            }
-            current = scope.parent_scope();
-        }
-        false
+                ScopeKind::Module => Some(false),
+                ScopeKind::Class => None,
+            })
+            .unwrap_or(false)
     }
 }
 
 impl Transformer for ClassBodyNameRewriter {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
+        if !matches!(self.scope.kind(), ScopeKind::Class) {
+            return;
+        }
         match stmt {
             Stmt::Assign(ast::StmtAssign {
                 targets,
                 value,
                 range,
                 node_index,
-            }) if targets.len() == 1 => {
+            }) => {
+                assert!(targets.len() == 1);
                 if let Expr::Name(name) = &targets[0] {
-                    if is_dp_temp_name(name.id.as_str()) {
+                    if is_internal_symbol(name.id.as_str()) {
                         self.visit_expr(value.as_mut());
                         return;
                     }
@@ -215,15 +234,16 @@ impl Transformer for ClassBodyNameRewriter {
                     self.visit_expr(value.as_mut());
                     match binding {
                         BindingKind::Global => {
-                            *stmt = py_stmt_single(py_stmt!(
+                            *stmt = py_stmt!(
                                 "__dp__.store_global(globals(), {name:literal}, {value:expr})",
                                 name = name.id.as_str(),
                                 value = value
-                            ));
+                            );
                             return;
                         }
                         BindingKind::Local => {
-                            let target = class_body_store_target(name.id.as_str(), ExprContext::Store);
+                            let target =
+                                class_body_store_target(name.id.as_str(), ExprContext::Store);
                             *stmt = Stmt::Assign(ast::StmtAssign {
                                 targets: vec![target],
                                 value,
@@ -237,9 +257,6 @@ impl Transformer for ClassBodyNameRewriter {
                 }
             }
             Stmt::FunctionDef(func_def) => {
-                if func_def.name.id.as_str().starts_with("_dp_class_create_") {
-                    return;
-                }
                 for decorator in &mut func_def.decorator_list {
                     self.visit_decorator(decorator);
                 }
@@ -264,17 +281,12 @@ impl Transformer for ClassBodyNameRewriter {
                 }
                 return;
             }
-            Stmt::AnnAssign(ast::StmtAnnAssign {
-                target: _,
-                annotation,
-                value,
-                ..
-            }) => {
-                if let Some(value) = value.as_mut() {
-                    self.visit_expr(value);
-                }
-                self.visit_annotation(annotation);
+            Stmt::Global(_) => {
+                *stmt = empty_body().into();
                 return;
+            }
+            Stmt::AnnAssign(_) => {
+                panic!("AnnAssign should be gone now");
             }
             _ => {}
         }
@@ -282,7 +294,16 @@ impl Transformer for ClassBodyNameRewriter {
     }
 
     fn visit_expr(&mut self, expr: &mut Expr) {
+        if !matches!(self.scope.kind(), ScopeKind::Class) {
+            return;
+        }
         match expr {
+            Expr::Call(..) => {
+                if is_noarg_call("locals", expr) || is_noarg_call("vars", expr) {
+                    *expr = py_expr!("_dp_class_ns");
+                    return;
+                }
+            }
             Expr::Name(name) if matches!(name.ctx, ExprContext::Load) => {
                 if let Some(rewritten) = self.rewrite_load(name) {
                     *expr = rewritten;
@@ -301,10 +322,7 @@ impl Transformer for ClassBodyNameRewriter {
                 }
                 return;
             }
-            Expr::Generator(ast::ExprGenerator { generators, .. })
-            | Expr::ListComp(ast::ExprListComp { generators, .. })
-            | Expr::SetComp(ast::ExprSetComp { generators, .. })
-            | Expr::DictComp(ast::ExprDictComp { generators, .. }) => {
+            Expr::Generator(ast::ExprGenerator { generators, .. }) => {
                 if let Some(first) = generators.first_mut() {
                     self.visit_expr(&mut first.iter);
                 }
@@ -313,100 +331,5 @@ impl Transformer for ClassBodyNameRewriter {
             _ => {}
         }
         walk_expr(self, expr);
-    }
-}
-
-fn bind_function_defs_to_class_ns(scope: Arc<Scope>, body: &mut Vec<Stmt>) {
-    let mut binder = ClassBodyFunctionBinder { scope };
-    binder.visit_body(body);
-}
-
-struct ClassBodyFunctionBinder {
-    scope: Arc<Scope>,
-}
-
-impl ClassBodyFunctionBinder {
-    fn method_qualname(
-        &self,
-        func_def: &ast::StmtFunctionDef,
-        original_name: &str,
-    ) -> String {
-        if let Some(child_scope) = self.scope.lookup_child_scope(func_def) {
-            return child_scope.make_qualname(original_name);
-        }
-        match self.scope.kind() {
-            ScopeKind::Class { name } => {
-                let class_qualname = self.scope.make_qualname(name.as_str());
-                format!("{class_qualname}.{original_name}")
-            }
-            _ => original_name.to_string(),
-        }
-    }
-
-    fn store_function(&self, name: &str, value: &str) -> Vec<Stmt> {
-        match self.scope.binding_in_scope(name, BindingUse::Load) {
-            BindingKind::Global => py_stmt!(
-                "__dp__.store_global(globals(), {name:literal}, {value:id})",
-                name = name,
-                value = value
-            ),
-            BindingKind::Nonlocal => py_stmt!(
-                "__dp__.store_cell({cell:id}, {value:id})",
-                cell = name,
-                value = value
-            ),
-            BindingKind::Local => py_stmt!(
-                "_dp_class_ns[{name:literal}] = {value:id}",
-                name = name,
-                value = value
-            ),
-        }
-    }
-}
-
-impl Transformer for ClassBodyFunctionBinder {
-    fn visit_body(&mut self, body: &mut Vec<Stmt>) {
-        let mut new_body = Vec::with_capacity(body.len());
-        for mut stmt in body.drain(..) {
-            match stmt {
-                Stmt::FunctionDef(mut func_def) => {
-                    let original_name = func_def.name.id.to_string();
-                    if original_name.starts_with("_dp_class_create_") {
-                        new_body.push(Stmt::FunctionDef(func_def));
-                        continue;
-                    }
-                    let qualname = self.method_qualname(&func_def, original_name.as_str());
-                    let temp_name = format!("_dp_method_{original_name}");
-                    func_def.name.id = Name::new(temp_name.as_str());
-                    new_body.push(Stmt::FunctionDef(func_def));
-                    new_body.extend(py_stmt!(
-                        "__dp__.setattr({value:id}, \"__name__\", {name:literal})",
-                        value = temp_name.as_str(),
-                        name = original_name.as_str()
-                    ));
-                    new_body.extend(py_stmt!(
-                        "__dp__.setattr({value:id}, \"__qualname__\", {qualname:literal})",
-                        value = temp_name.as_str(),
-                        qualname = qualname.as_str()
-                    ));
-                    new_body.extend(self.store_function(original_name.as_str(), temp_name.as_str()));
-                }
-                Stmt::ClassDef(class_def) => {
-                    new_body.push(Stmt::ClassDef(class_def));
-                }
-                _ => {
-                    self.visit_stmt(&mut stmt);
-                    new_body.push(stmt);
-                }
-            }
-        }
-        *body = new_body;
-    }
-
-    fn visit_stmt(&mut self, stmt: &mut Stmt) {
-        match stmt {
-            Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {}
-            _ => walk_stmt(self, stmt),
-        }
     }
 }

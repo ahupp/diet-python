@@ -1,6 +1,10 @@
-use std::{env, fs, process};
+use std::{
+    env, fs, process,
+};
 
-use dp_transform::{transform_str_to_ruff_with_options, Options};
+use dp_transform::{
+    transform_str_to_ruff_with_options, Options,
+};
 
 const USAGE: &str = "usage: diet-python [--timing] <python-file>";
 
@@ -65,3 +69,4 @@ fn main() {
         );
     }
 }
+

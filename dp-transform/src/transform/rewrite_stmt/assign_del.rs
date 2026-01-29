@@ -1,4 +1,5 @@
 
+use crate::template::into_body;
 use crate::transform::ast_rewrite::Rewrite;
 use crate::transform::context::Context;
 use crate::transform::rewrite_expr::{make_binop, make_tuple};
@@ -42,14 +43,14 @@ pub(crate) fn rewrite_target(
                 slice = slice,
                 rhs = rhs,
             );
-            out.extend(stmt);
+            out.push(stmt);
         }
         Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
             let stmt = py_stmt!("__dp__.setattr({value:expr}, {name:literal}, {rhs:expr})", value = value, name = attr.as_str(), rhs = rhs);
-            out.extend(stmt);
+            out.push(stmt);
         }
         Expr::Name(ast::ExprName { id, .. }) => {
-            out.extend(py_stmt!("{name:id} = {rhs:expr}", name = id.as_str(), rhs = rhs));
+            out.push(py_stmt!("{name:id} = {rhs:expr}", name = id.as_str(), rhs = rhs));
         }
         other => {
             panic!("unsupported assignment target: {other:?}");
@@ -62,25 +63,6 @@ enum UnpackTargetKind {
     List,
 }
 
-fn temp_name(expr: &Expr) -> Option<&str> {
-    match expr {
-        Expr::Name(ast::ExprName { id, .. }) if id.as_str().starts_with("_dp_tmp_") => {
-            Some(id.as_str())
-        }
-        _ => None,
-    }
-}
-
-fn maybe_placeholder_in(
-    context: &Context,
-    expr: Expr,
-    out: &mut Vec<Stmt>,
-) -> Expr {
-    let lowered = context.maybe_placeholder_lowered(expr);
-    out.extend(lowered.stmts);
-    lowered.expr
-}
-
 fn rewrite_unpack_target(
     context: &Context,
     elts: Vec<Expr>,
@@ -88,8 +70,7 @@ fn rewrite_unpack_target(
     out: &mut Vec<Stmt>,
     kind: UnpackTargetKind,
 ) {
-    let value_is_name = matches!(&value, Expr::Name(_));
-    let tmp_expr = maybe_placeholder_in(context, value, out);
+    let tmp_expr = value;
 
     let mut spec_elts = Vec::new();
     let mut starred_seen = false;
@@ -117,7 +98,7 @@ fn rewrite_unpack_target(
     );
 
     let mut body_stmts = Vec::new();
-    body_stmts.extend(unpack_stmt);
+    body_stmts.push(unpack_stmt);
 
     for (i, elt) in elts.into_iter().enumerate() {
         match elt {
@@ -148,41 +129,6 @@ fn rewrite_unpack_target(
     out.extend(body_stmts);
 }
 
-pub(crate) fn rewrite_ann_assign(
-    ann_assign: ast::StmtAnnAssign,
-) -> Rewrite {
-    if ann_assign.value.is_none() {
-        return Rewrite::Unmodified(ann_assign.into());
-    }
-    let ast::StmtAnnAssign {
-        target,
-        annotation,
-        value,
-        ..
-    } = ann_assign;
-
-    let target_expr = *target;
-    let is_simple = matches!(target_expr, Expr::Name(_));
-
-    let mut stmts = py_stmt!(
-        "{target:expr} : {annotation:expr}",
-        target = target_expr.clone(),
-        annotation = *annotation
-    );
-    if let Some(Stmt::AnnAssign(ann)) = stmts.first_mut() {
-        ann.simple = is_simple;
-    }
-
-    if let Some(value) = value {
-        stmts.extend(py_stmt!(
-            "{target:expr} = {value:expr}",
-            target = target_expr,
-            value = *value
-        ));
-    }
-    
-    Rewrite::Walk(stmts)
-}
 
 pub(crate) fn rewrite_assign(context: &Context, assign: ast::StmtAssign) -> Rewrite {
     if !should_rewrite_targets(&assign.targets) {
@@ -195,16 +141,16 @@ pub(crate) fn rewrite_assign(context: &Context, assign: ast::StmtAssign) -> Rewr
         // When multiple targets share the same value we need to evaluate the expression
         // exactly once and fan the result out, so materialize a placeholder.
         let lowered = context.maybe_placeholder_lowered(*value);
-        stmts.extend(lowered.stmts);
+        stmts.push(lowered.stmt);
         for target in targets {
-            stmts.extend(py_stmt!("{target:expr} = {value:expr}", target = target, value = lowered.expr.clone()));
+            stmts.push(py_stmt!("{target:expr} = {value:expr}", target = target, value = lowered.expr.clone()));
         }
     } else {
         let target = targets.into_iter().next().unwrap();
         rewrite_target(context, target, *value, &mut stmts);
     }
 
-    Rewrite::Walk(stmts)
+    Rewrite::Walk(into_body(stmts))
 }
 
 pub(crate) fn rewrite_aug_assign(
@@ -244,7 +190,7 @@ pub(crate) fn rewrite_aug_assign(
     let call = make_binop(func_name, *target.clone(), *value);
     let mut stmts = Vec::new();
     rewrite_target(context, *target, call, &mut stmts);
-    Rewrite::Walk(stmts)
+    Rewrite::Walk(into_body(stmts))
 }
 
 pub(crate) fn rewrite_delete(delete: ast::StmtDelete) -> Rewrite {
@@ -252,11 +198,10 @@ pub(crate) fn rewrite_delete(delete: ast::StmtDelete) -> Rewrite {
         return Rewrite::Unmodified(delete.into());
     }
 
-    Rewrite::Walk(
-        delete
-            .targets
-            .into_iter()
-            .map(|target| match target {
+    let stmts: Vec<Stmt> = delete
+        .targets
+        .into_iter()
+        .map(|target| match target {
                 Expr::Subscript(sub) => py_stmt!(
                     "__dp__.delitem({obj:expr}, {key:expr})",
                     obj = sub.value,
@@ -271,7 +216,6 @@ pub(crate) fn rewrite_delete(delete: ast::StmtDelete) -> Rewrite {
                 }
                 other => py_stmt!("del {target:expr}", target = other),
             })
-            .flatten()
-            .collect(),
-    )
+        .collect();
+    Rewrite::Walk(into_body(stmts))
 }

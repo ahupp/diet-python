@@ -32,6 +32,6 @@ from __future__ import annotations
 
 import pytest
 
-def validate(module):
-    assert module.RESULT.out == "out"
-    assert module.RESULT.err == "err"
+module = __import__("sys").modules[__name__]
+assert module.RESULT.out == "out"
+assert module.RESULT.err == "err"

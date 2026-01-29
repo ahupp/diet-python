@@ -32,17 +32,17 @@ class Outer:
 
 from __future__ import annotations
 
-def validate(module):
-    outer = module.Outer
+module = __import__("sys").modules[__name__]
+outer = module.Outer
 
-    assert module.calls == [
-    ("inner_leaf", "Outer.Mid.Inner.Leaf", None),
-    ("stack", "Outer.Mid.Inner", "inner"),
-    ("mid_inner", "Outer.Mid.Inner", "inner"),
-    ("outer_mid", "Outer.Mid", "mid"),
-    ]
+assert module.calls == [
+("inner_leaf", "Outer.Mid.Inner.Leaf", None),
+("stack", "Outer.Mid.Inner", "inner"),
+("mid_inner", "Outer.Mid.Inner", "inner"),
+("outer_mid", "Outer.Mid", "mid"),
+]
 
-    assert outer.Mid.applied_decorators == ["outer_mid"]
-    assert outer.Mid.Inner.applied_decorators == ["stack", "mid_inner"]
-    assert outer.Mid.Inner.Leaf.applied_decorators == ["inner_leaf"]
-    assert outer.Mid.Inner.Leaf.__qualname__ == "Outer.Mid.Inner.Leaf"
+assert outer.Mid.applied_decorators == ["outer_mid"]
+assert outer.Mid.Inner.applied_decorators == ["stack", "mid_inner"]
+assert outer.Mid.Inner.Leaf.applied_decorators == ["inner_leaf"]
+assert outer.Mid.Inner.Leaf.__qualname__ == "Outer.Mid.Inner.Leaf"

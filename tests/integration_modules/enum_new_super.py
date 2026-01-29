@@ -18,6 +18,6 @@ from __future__ import annotations
 
 import pytest
 
-def validate(module):
-    with pytest.raises(TypeError, match="do not use `super\\(\\).__new__"):
-        module.build_enum()
+module = __import__("sys").modules[__name__]
+with pytest.raises(TypeError, match="do not use `super\\(\\).__new__"):
+    module.build_enum()

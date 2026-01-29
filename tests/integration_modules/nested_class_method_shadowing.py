@@ -14,5 +14,5 @@ VALUE = Outer.Inner().format_help()
 
 # diet-python: validate
 
-def validate(module):
-    assert isinstance(module.VALUE, float)
+module = __import__("sys").modules[__name__]
+assert isinstance(module.VALUE, float)

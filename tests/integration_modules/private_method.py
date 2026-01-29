@@ -11,5 +11,5 @@ RESULT = Example().reveal()
 
 import pytest
 
-def validate(module):
-    assert module.RESULT == "payload"
+module = __import__("sys").modules[__name__]
+assert module.RESULT == "payload"

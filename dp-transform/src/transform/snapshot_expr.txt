@@ -1,48 +1,48 @@
-$ subscript
+# subscript
 
 x = a[b]
 
-=
+# ==
 
 x = __dp__.getitem(a, b)
 
-$ subscript_slice
+# subscript_slice
 
 x = a[1:2:3]
 
-=
+# ==
 
 x = __dp__.getitem(a, __dp__.slice(1, 2, 3))
 
-$ binary_add
+# binary_add
 
 x = a + b
 
-=
+# ==
 
 x = __dp__.add(a, b)
 
-$ binary_bitwise_or
+# binary_bitwise_or
 
 x = a | b
 
-=
+# ==
 
 x = __dp__.or_(a, b)
 
-$ unary_neg
+# unary_neg
 
 x = -a
 
-=
+# ==
 
 x = __dp__.neg(a)
 
-$ boolop_chain
+# boolop_chain
 
 x = a and b or c
 
-=
+# ==
 
 _dp_target_1 = a
 if _dp_target_1:
@@ -51,20 +51,19 @@ if __dp__.not_(_dp_target_1):
     _dp_target_1 = c
 x = _dp_target_1
 
-$ compare_lt
+# compare_lt
 
 x = a < b
 
-=
+# ==
 
-_dp_target_1 = __dp__.lt(a, b)
-x = _dp_target_1
+x = __dp__.lt(a, b)
 
-$ compare_chain
+# compare_chain
 
 x = a < b < c
 
-=
+# ==
 
 _dp_compare_2 = a
 _dp_compare_3 = b
@@ -73,20 +72,19 @@ if _dp_target_1:
     _dp_target_1 = __dp__.lt(_dp_compare_3, c)
 x = _dp_target_1
 
-$ compare_not_in
+# compare_not_in
 
 x = a not in b
 
-=
+# ==
 
-_dp_target_1 = __dp__.not_(__dp__.contains(b, a))
-x = _dp_target_1
+x = __dp__.not_(__dp__.contains(b, a))
 
-$ if_expr
+# if_expr
 
 x = a if cond else b
 
-=
+# ==
 
 if cond:
     _dp_tmp_1 = a
@@ -94,181 +92,174 @@ else:
     _dp_tmp_1 = b
 x = _dp_tmp_1
 
-$ named_expr
+# named_expr
 
 x = (y := f())
 
-=
+# ==
 
-_dp_tmp_1 = f()
-y = _dp_tmp_1
-x = _dp_tmp_1
+y = f()
+x = y
 
-$ lambda_simple
+# lambda_simple
 
 x = lambda y: y + 1
 
-=
+# ==
 
-x = lambda y: __dp__.add(y, 1)
+x = lambda y: y + 1
 
-$ generator_expr
-
-x = (i for i in it)
-
-=
+# generator_expr
 
 x = (i for i in it)
 
-$ list_literal
+# ==
+
+x = (i for i in it)
+
+# list_literal
 
 x = [a, b]
 
-=
+# ==
 
 x = __dp__.list((a, b))
 
-$ list_literal_splat
+# list_literal_splat
 
 x = [a, *b]
 
-=
+# ==
 
 x = __dp__.list(__dp__.add((a,), __dp__.tuple(b)))
 
-$ tuple_splat
+# tuple_splat
 
 x = (a, *b)
 
-=
+# ==
 
 x = __dp__.add((a,), __dp__.tuple(b))
 
-$ set_literal
+# set_literal
 
 x = {a, b}
 
-=
+# ==
 
 x = __dp__.set((a, b))
 
-$ dict_literal
+# dict_literal
 
 x = {"a": 1, "b": 2}
 
-=
+# ==
 
 x = __dp__.dict((("a", 1), ("b", 2)))
 
-$ dict_literal_unpack
+# dict_literal_unpack
 
 x = {"a": 1, **m, "b": 2}
 
-=
+# ==
 
 x = __dp__.or_(__dp__.or_(__dp__.dict((("a", 1),)), __dp__.dict(m)), __dp__.dict((("b", 2),)))
 
-$ list_comp
+# list_comp
 
 x = [i for i in it]
 
-=
+# ==
 
 _dp_tmp_1 = __dp__.list(())
+_dp_completed_5 = False
 _dp_iter_3 = __dp__.iter(it)
-while True:
-    _dp_test_flag_6 = True
-    if __dp__.not_(_dp_test_flag_6):
-        break
+while __dp__.not_(_dp_completed_5):
     _dp_tmp_4 = __dp__.next_or_sentinel(_dp_iter_3)
-    _dp_target_5 = __dp__.is_(_dp_tmp_4, __dp__.ITER_COMPLETE)
-    if _dp_target_5:
-        break
-    _dp_tmp_2 = _dp_tmp_4
-    _dp_tmp_1.append(_dp_tmp_2)
-_dp_test_flag_6
+    if __dp__.is_(_dp_tmp_4, __dp__.ITER_COMPLETE):
+        _dp_completed_5 = True
+    else:
+        _dp_tmp_2 = _dp_tmp_4
+        _dp_tmp_1.append(_dp_tmp_2)
+_dp_completed_5
 x = _dp_tmp_1
 
-$ set_comp
+# set_comp
 
 x = {i for i in it}
 
-=
+# ==
 
 _dp_tmp_1 = set()
+_dp_completed_5 = False
 _dp_iter_3 = __dp__.iter(it)
-while True:
-    _dp_test_flag_6 = True
-    if __dp__.not_(_dp_test_flag_6):
-        break
+while __dp__.not_(_dp_completed_5):
     _dp_tmp_4 = __dp__.next_or_sentinel(_dp_iter_3)
-    _dp_target_5 = __dp__.is_(_dp_tmp_4, __dp__.ITER_COMPLETE)
-    if _dp_target_5:
-        break
-    _dp_tmp_2 = _dp_tmp_4
-    _dp_tmp_1.add(_dp_tmp_2)
-_dp_test_flag_6
+    if __dp__.is_(_dp_tmp_4, __dp__.ITER_COMPLETE):
+        _dp_completed_5 = True
+    else:
+        _dp_tmp_2 = _dp_tmp_4
+        _dp_tmp_1.add(_dp_tmp_2)
+_dp_completed_5
 x = _dp_tmp_1
 
-$ dict_comp
+# dict_comp
 
 x = {k: v for k, v in it}
 
-=
+# ==
 
 _dp_tmp_1 = __dp__.dict()
+_dp_completed_6 = False
 _dp_iter_4 = __dp__.iter(it)
-while True:
-    _dp_test_flag_8 = True
-    if __dp__.not_(_dp_test_flag_8):
-        break
+while __dp__.not_(_dp_completed_6):
     _dp_tmp_5 = __dp__.next_or_sentinel(_dp_iter_4)
-    _dp_target_6 = __dp__.is_(_dp_tmp_5, __dp__.ITER_COMPLETE)
-    if _dp_target_6:
-        break
-    _dp_tmp_7 = __dp__.unpack(_dp_tmp_5, (True, True))
-    _dp_tmp_2 = __dp__.getitem(_dp_tmp_7, 0)
-    _dp_tmp_3 = __dp__.getitem(_dp_tmp_7, 1)
-    __dp__.setitem(_dp_tmp_1, _dp_tmp_2, _dp_tmp_3)
-_dp_test_flag_8
+    if __dp__.is_(_dp_tmp_5, __dp__.ITER_COMPLETE):
+        _dp_completed_6 = True
+    else:
+        _dp_tmp_7 = __dp__.unpack(_dp_tmp_5, (True, True))
+        _dp_tmp_2 = __dp__.getitem(_dp_tmp_7, 0)
+        _dp_tmp_3 = __dp__.getitem(_dp_tmp_7, 1)
+        __dp__.setitem(_dp_tmp_1, _dp_tmp_2, _dp_tmp_3)
+_dp_completed_6
 x = _dp_tmp_1
 
-$ attribute_non_chain
+# attribute_non_chain
 
 x = f().y
 
-=
+# ==
 
 x = f().y
 
-$ fstring_simple
+# fstring_simple
 
 x = f"{a}"
 
-=
+# ==
 
 x = __dp__.builtins.format(a)
 
-$ tstring_simple
+# tstring_simple
 
 x = t"{a}"
 
-=
+# ==
 
-x = __dp__.templatelib.Template(*(__dp__.templatelib.Interpolation(a, "a", None, ""),))
+x = _dp_templatelib.Template(*(_dp_templatelib.Interpolation(a, "a", None, ""),))
 
-$ complex_literal
+# complex_literal
 
 x = 1j
 
-=
+# ==
 
 x = complex(0.0, 1.0)
 
-$ float_literal_long
+# float_literal_long
 
 x = 1.234567890123456789
 
-=
+# ==
 
 x = __dp__.float_from_literal("1.234567890123456789")

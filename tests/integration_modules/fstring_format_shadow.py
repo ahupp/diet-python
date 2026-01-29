@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 import re
 
-def validate(module):
-    expected = f"module '{module.__name__}' has no attribute 'missing'"
-    with pytest.raises(AttributeError, match=re.escape(expected)):
-        module.trigger("missing")
+module = __import__("sys").modules[__name__]
+expected = f"module '{module.__name__}' has no attribute 'missing'"
+with pytest.raises(AttributeError, match=re.escape(expected)):
+    module.trigger("missing")

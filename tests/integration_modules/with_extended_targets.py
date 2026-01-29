@@ -9,8 +9,8 @@ def unpack_starred_list():
 
 from __future__ import annotations
 
-def validate(module):
-    a, b, c = module.unpack_starred_list()
-    assert a == 1
-    assert b == [2, 3]
-    assert c == 4
+module = __import__("sys").modules[__name__]
+a, b, c = module.unpack_starred_list()
+assert a == 1
+assert b == [2, 3]
+assert c == 4

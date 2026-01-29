@@ -8,11 +8,8 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parent
-_LINECACHE_PATCHED = False
-_ORIGINAL_UPDATECACHE = None
-_SOURCE_SHADOWS: dict[str, str] = {}
 _PYO3_TRANSFORM = None
-_INTEGRATION_ONLY_ENV = "DIET_PYTHON_INTEGRATION_ONLY"
+INTEGRATION_ONLY = os.environ.get("DIET_PYTHON_INTEGRATION_ONLY") == "1"
 
 
 
@@ -28,8 +25,6 @@ def _transform_source(path: str) -> str:
         compiled_source = transformer.transform_source(original_source, True)
     except Exception as err:
         raise ImportError(f"diet-python failed for {path}: {err}") from err
-    _SOURCE_SHADOWS[path] = compiled_source
-    _update_linecache(path, compiled_source)
     return compiled_source
 
 
@@ -92,17 +87,6 @@ def _load_pyo3_extension():
             sys.meta_path.insert(index, DietPythonFinder)
 
 
-def _update_linecache(path: str, source: str) -> None:
-    lines = source.splitlines(True)
-    if lines and not lines[-1].endswith("\n"):
-        lines[-1] += "\n"
-    linecache.cache[path] = (len(source), None, lines, path)
-
-
-
-def _integration_only_enabled() -> bool:
-    return os.environ.get(_INTEGRATION_ONLY_ENV) == "1"
-
 
 def _is_integration_module(resolved: Path) -> bool:
     try:
@@ -122,9 +106,7 @@ def _should_transform(path: str) -> bool:
         resolved = Path(path).resolve()
     except OSError:
         return False
-    if _integration_only_enabled() and not _is_integration_module(resolved):
-        return False
-    if resolved.name == "threading.py":
+    if INTEGRATION_ONLY and not _is_integration_module(resolved):
         return False
     if os.environ.get("DIET_PYTHON_ALLOW_TEMP") != "1":
         try:
@@ -170,8 +152,6 @@ class DietPythonFinder(importlib.machinery.PathFinder):
 
 def install():
     """Install the diet-python import hook."""
-    global _LINECACHE_PATCHED
-    global _ORIGINAL_UPDATECACHE
 
     if any(finder is DietPythonFinder for finder in sys.meta_path):
         return
@@ -184,18 +164,6 @@ def install():
         loader = getattr(getattr(existing_typing, "__spec__", None), "loader", None)
         if not isinstance(loader, DietPythonLoader):
             sys.modules.pop("typing", None)
-
-    if not _LINECACHE_PATCHED:
-        def _diet_updatecache(filename, module_globals=None):
-            shadow = _SOURCE_SHADOWS.get(filename)
-            if shadow is not None:
-                _update_linecache(filename, shadow)
-                return linecache.cache[filename][2]
-            return _ORIGINAL_UPDATECACHE(filename, module_globals)
-
-        _LINECACHE_PATCHED = True
-        _ORIGINAL_UPDATECACHE = linecache.updatecache
-        linecache.updatecache = _diet_updatecache
 
     for index, finder in enumerate(sys.meta_path):
         if finder is importlib.machinery.PathFinder:

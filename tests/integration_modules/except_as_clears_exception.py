@@ -20,5 +20,5 @@ def count_exception_referrer_frames():
 
 from __future__ import annotations
 
-def validate(module):
-    assert module.count_exception_referrer_frames() == 0
+module = __import__("sys").modules[__name__]
+assert module.count_exception_referrer_frames() == 0

@@ -14,5 +14,5 @@ def get_stack_names():
 
 # diet-python: validate
 
-def validate(module):
-    assert module.get_stack_names() == ("f", "g")
+module = __import__("sys").modules[__name__]
+assert module.get_stack_names() == ("f", "g")

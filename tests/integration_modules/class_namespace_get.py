@@ -14,5 +14,5 @@ RESULT = Example[int]
 
 from __future__ import annotations
 
-def validate(module):
-    assert module.RESULT == module.Example[int]
+module = __import__("sys").modules[__name__]
+assert module.RESULT == module.Example[int]

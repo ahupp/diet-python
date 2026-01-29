@@ -10,5 +10,5 @@ async def gather_once() -> list[int]:
 
 import asyncio
 
-def validate(module):
-    assert asyncio.run(module.gather_once()) == [1]
+module = __import__("sys").modules[__name__]
+assert asyncio.run(module.gather_once()) == [1]

@@ -1,22 +1,11 @@
+use ruff_python_ast::StmtBody;
 use ruff_python_ast::{self as ast, name::Name, Expr, ExprContext, Stmt};
+use crate::transform::context::Context;
+use crate::transformer::{Transformer, walk_expr, walk_parameter, walk_stmt};
 
-
-use crate::{body_transform::{Transformer, walk_expr, walk_parameter, walk_stmt}};
-use log::{log_enabled, trace, Level};
-
-
-pub(crate) fn rewrite_class_body<'a>(
-    body: &mut Vec<Stmt>,
-    class_name: Option<String>,
-) {
-    if log_enabled!(Level::Trace) {
-        trace!(
-            "rewrite_class_body: body_len={}",
-            body.len()
-        );
-    }
+pub fn rewrite_private_names(_context: &Context, body: &mut StmtBody) {
     let mut rewriter = PrivateRewriter {
-        class_name,
+        class_name: None,
     };
     rewriter.visit_body(body);
 }
@@ -63,7 +52,9 @@ impl Transformer for PrivateRewriter {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
             Stmt::ClassDef(ast::StmtClassDef { name, body, .. }) => {
-                rewrite_class_body(body, Some(name.to_string()));
+                PrivateRewriter {
+                    class_name: Some(name.to_string()),
+                }.visit_body(body);
             }
             Stmt::Global(ast::StmtGlobal { names, .. }) => {
                 for name in names {
@@ -108,4 +99,3 @@ impl Transformer for PrivateRewriter {
         walk_expr(self, expr);
     }
 }
-

@@ -14,7 +14,7 @@ class Period(Enum):
 
 from __future__ import annotations
 
-def validate(module):
-    period = module.Period
-    assert period.OneDay is period.day_1
-    assert period.OneDay.value == 1
+module = __import__("sys").modules[__name__]
+period = module.Period
+assert period.OneDay is period.day_1
+assert period.OneDay.value == 1

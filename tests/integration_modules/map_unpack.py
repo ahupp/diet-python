@@ -9,6 +9,6 @@ else:  # pragma: no cover
 
 import pytest
 
-def validate(module):
-    assert module.RESULT[0] == "ok"
-    assert module.RESULT[1] == (1, 2, 3)
+module = __import__("sys").modules[__name__]
+assert module.RESULT[0] == "ok"
+assert module.RESULT[1] == (1, 2, 3)

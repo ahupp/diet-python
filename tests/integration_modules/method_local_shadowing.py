@@ -7,6 +7,6 @@ class Example:
 
 from __future__ import annotations
 
-def validate(module):
-    instance = module.Example()
-    assert instance.run() == 1
+module = __import__("sys").modules[__name__]
+instance = module.Example()
+assert instance.run() == 1

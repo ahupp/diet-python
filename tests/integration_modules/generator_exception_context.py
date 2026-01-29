@@ -21,7 +21,7 @@ def exercise():
 
 from __future__ import annotations
 
-def validate(module):
-    exc_type, args = module.exercise()
-    assert exc_type is KeyError
-    assert args == ("a",)
+module = __import__("sys").modules[__name__]
+exc_type, args = module.exercise()
+assert exc_type is KeyError
+assert args == ("a",)

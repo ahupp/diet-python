@@ -2,8 +2,8 @@ use ruff_python_ast::{
     self as ast, Alias, Arguments, BoolOp, BytesLiteral, CmpOp, Comprehension, Decorator,
     ElifElseClause, ExceptHandler, Expr, ExprContext, FString, InterpolatedStringElement, Keyword,
     MatchCase, Operator, Parameter, Parameters, Pattern, PatternArguments, PatternKeyword, Stmt,
-    StringLiteral, TString, TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple,
-    TypeParams, UnaryOp, WithItem,
+    StmtBody, StringLiteral, TString, TypeParam, TypeParamParamSpec, TypeParamTypeVar,
+    TypeParamTypeVarTuple, TypeParams, UnaryOp, WithItem,
 };
 
 /// A trait for transforming ASTs. Visits all nodes in the AST recursively in evaluation-order.
@@ -77,7 +77,7 @@ pub trait Transformer {
     fn visit_pattern_keyword(&mut self, pattern_keyword: &mut PatternKeyword) {
         walk_pattern_keyword(self, pattern_keyword);
     }
-    fn visit_body(&mut self, body: &mut Vec<Stmt>) {
+    fn visit_body(&mut self, body: &mut StmtBody) {
         walk_body(self, body);
     }
     fn visit_elif_else_clause(&mut self, elif_else_clause: &mut ElifElseClause) {
@@ -103,9 +103,9 @@ pub trait Transformer {
     }
 }
 
-pub fn walk_body<V: Transformer + ?Sized>(visitor: &mut V, body: &mut Vec<Stmt>) {
-    for stmt in body {
-        visitor.visit_stmt(stmt);
+pub fn walk_body<V: Transformer + ?Sized>(visitor: &mut V, body: &mut StmtBody) {
+    for stmt in body.body.iter_mut() {
+        visitor.visit_stmt(stmt.as_mut());
     }
 }
 
@@ -333,6 +333,11 @@ pub fn walk_stmt<V: Transformer + ?Sized>(visitor: &mut V, stmt: &mut Stmt) {
             range: _,
             node_index: _,
         }) => visitor.visit_expr(value),
+        Stmt::BodyStmt(ast::StmtBody { body, .. }) => {
+            for stmt in body {
+                visitor.visit_stmt(stmt);
+            }
+        }
         Stmt::Pass(_) | Stmt::Break(_) | Stmt::Continue(_) | Stmt::IpyEscapeCommand(_) => {}
     }
 }
@@ -622,10 +627,7 @@ pub fn walk_expr<V: Transformer + ?Sized>(visitor: &mut V, expr: &mut Expr) {
     }
 }
 
-pub fn walk_comprehension<V: Transformer + ?Sized>(
-    visitor: &mut V,
-    comprehension: &mut Comprehension,
-) {
+pub fn walk_comprehension<V: Transformer + ?Sized>(visitor: &mut V, comprehension: &mut Comprehension) {
     visitor.visit_expr(&mut comprehension.iter);
     visitor.visit_expr(&mut comprehension.target);
     for expr in &mut comprehension.ifs {
@@ -851,11 +853,7 @@ pub fn walk_t_string<V: Transformer + ?Sized>(visitor: &mut V, t_string: &mut TS
     }
 }
 
-pub fn walk_expr_context<V: Transformer + ?Sized>(
-    _visitor: &mut V,
-    _expr_context: &mut ExprContext,
-) {
-}
+pub fn walk_expr_context<V: Transformer + ?Sized>(_visitor: &mut V, _expr_context: &mut ExprContext) {}
 
 pub fn walk_bool_op<V: Transformer + ?Sized>(_visitor: &mut V, _bool_op: &mut BoolOp) {}
 

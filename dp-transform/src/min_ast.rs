@@ -181,11 +181,21 @@ impl From<ModModule> for Module {
 }
 
 impl StmtNode {
-    fn from_stmts(stmts: Vec<Stmt>, scope_vars: &mut OuterScopeVars) -> Vec<Self> {
-        stmts
-            .into_iter()
-            .filter_map(|stmt| StmtNode::from_stmt(stmt, scope_vars))
-            .collect()
+    fn from_stmts(body: ast::StmtBody, scope_vars: &mut OuterScopeVars) -> Vec<Self> {
+        let mut out = Vec::new();
+        for stmt in body.body {
+            match *stmt {
+                Stmt::BodyStmt(inner) => {
+                    out.extend(StmtNode::from_stmts(inner, scope_vars));
+                }
+                other => {
+                    if let Some(node) = StmtNode::from_stmt(other, scope_vars) {
+                        out.push(node);
+                    }
+                }
+            }
+        }
+        out
     }
 
     fn from_stmt(stmt: Stmt, scope_vars: &mut OuterScopeVars) -> Option<Self> {
@@ -359,10 +369,10 @@ impl StmtNode {
                         match handler {
                             ast::ExceptHandler::ExceptHandler(
                                 ast::ExceptHandlerExceptHandler { body: h_body, .. },
-                            ) => handler_body.extend(h_body),
+                            ) => handler_body.extend(StmtNode::from_stmts(h_body, scope_vars)),
                         }
                     }
-                    Some(StmtNode::from_stmts(handler_body, scope_vars))
+                    Some(handler_body)
                 } else if handlers.len() == 1 {
                     match handlers.into_iter().next().unwrap() {
                         ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {

@@ -6,3 +6,4 @@ pub mod assign_del;
 pub mod match_case;
 pub mod decorator;
 pub mod annotation;
+pub mod type_alias;

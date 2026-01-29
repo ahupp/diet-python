@@ -19,7 +19,7 @@ def exercise():
 
 from __future__ import annotations
 
-def validate(module):
-    exc_type, message = module.exercise()
-    assert exc_type is RuntimeError
-    assert "empty __class__ cell" in message
+module = __import__("sys").modules[__name__]
+exc_type, message = module.exercise()
+assert exc_type is RuntimeError
+assert "empty __class__ cell" in message

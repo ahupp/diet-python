@@ -11,7 +11,7 @@ def make_name():
 
 from __future__ import annotations
 
-def validate(module):
-    qualname, inner_qualname = module.make_name()
-    assert qualname == "Y"
-    assert inner_qualname == "Y.Inner"
+module = __import__("sys").modules[__name__]
+qualname, inner_qualname = module.make_name()
+assert qualname == "Y"
+assert inner_qualname == "Y.Inner"

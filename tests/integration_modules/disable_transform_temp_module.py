@@ -28,11 +28,11 @@ def import_without_transform(tmp_path: Path) -> bool:
 
 # diet-python: validate
 
-def validate(module):
-    import tempfile
-    from pathlib import Path
+module = __import__("sys").modules[__name__]
+import tempfile
+from pathlib import Path
 
 
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        tmp_path = Path(tmp_dir)
-        assert module.import_without_transform(tmp_path) is False
+with tempfile.TemporaryDirectory() as tmp_dir:
+    tmp_path = Path(tmp_dir)
+    assert module.import_without_transform(tmp_path) is False

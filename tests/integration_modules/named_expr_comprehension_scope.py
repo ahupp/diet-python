@@ -13,12 +13,12 @@ def genexpr_scope():
 
 from __future__ import annotations
 
-def validate(module):
-    a, values = module.comp_scope()
-    assert a == 3
-    assert values == [2, 3]
+module = __import__("sys").modules[__name__]
+a, values = module.comp_scope()
+assert a == 3
+assert values == [2, 3]
 
-    a2, values2, b2 = module.genexpr_scope()
-    assert a2 == 1
-    assert values2 == [1, 2]
-    assert b2 == 2
+a2, values2, b2 = module.genexpr_scope()
+assert a2 == 1
+assert values2 == [1, 2]
+assert b2 == 2

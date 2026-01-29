@@ -49,10 +49,14 @@ def split_integration_case(module_path: Path) -> tuple[str, str]:
     if _VALIDATE_DELIMITER not in source:
         raise ValueError(f"missing integration validate delimiter in {module_path}")
     raw_source, raw_validate = source.split(_VALIDATE_DELIMITER, 1)
-    return raw_source.rstrip() + "\n", raw_validate.lstrip("\n")
+    line_offset = raw_source.count("\n")
+    padded_validate = "\n" * line_offset + raw_validate
+    return raw_source.rstrip() + "\n", padded_validate
 
 
 def _print_integration_failure_context(module_path: Path) -> None:
+    if module_path in _PRINTED_MODULES:
+        return
     try:
         source = module_path.read_text(encoding="utf-8")
     except OSError as err:
@@ -74,8 +78,22 @@ def _print_integration_failure_context(module_path: Path) -> None:
 
 
 @contextmanager
-def transformed_module(
-    tmp_path: Path, module_name: str, source: str
+def _disable_import_hook() -> Iterator[None]:
+    removed_indexes: list[int] = []
+    for index in range(len(sys.meta_path) - 1, -1, -1):
+        if sys.meta_path[index] is diet_import_hook.DietPythonFinder:
+            removed_indexes.append(index)
+            sys.meta_path.pop(index)
+    try:
+        yield
+    finally:
+        for index in reversed(removed_indexes):
+            sys.meta_path.insert(index, diet_import_hook.DietPythonFinder)
+
+
+@contextmanager
+def _load_module(
+    tmp_path: Path, module_name: str, source: str, *, transform: bool
 ) -> Iterator[ModuleType]:
     package_name = f"_dp_integration_{uuid4().hex}"
     package_dir = tmp_path / package_name
@@ -94,10 +112,17 @@ def transformed_module(
     full_name = f"{package_name}.{module_name}"
 
     try:
-        diet_import_hook.install()
-        sys.modules.pop(full_name, None)
-        sys.modules.pop(package_name, None)
-        module = importlib.import_module(full_name)
+        if transform:
+            diet_import_hook.install()
+            sys.modules.pop(full_name, None)
+            sys.modules.pop(package_name, None)
+            module = importlib.import_module(full_name)
+        else:
+            with _disable_import_hook():
+                sys.modules.pop(full_name, None)
+                sys.modules.pop(package_name, None)
+                module = importlib.import_module(full_name)
+        _print_integration_failure_context(module_path)
         if prior_allow_temp is None:
             os.environ.pop("DIET_PYTHON_ALLOW_TEMP", None)
         else:
@@ -120,3 +145,26 @@ def transformed_module(
             os.environ.pop("DIET_PYTHON_ALLOW_TEMP", None)
         else:
             os.environ["DIET_PYTHON_ALLOW_TEMP"] = prior_allow_temp
+
+
+@contextmanager
+def transformed_module(
+    tmp_path: Path, module_name: str, source: str
+) -> Iterator[ModuleType]:
+    with _load_module(tmp_path, module_name, source, transform=True) as module:
+        yield module
+
+
+@contextmanager
+def untransformed_module(
+    tmp_path: Path, module_name: str, source: str
+) -> Iterator[ModuleType]:
+    with _load_module(tmp_path, module_name, source, transform=False) as module:
+        yield module
+
+
+def exec_integration_validation(
+    validate_source: str, module: ModuleType, module_path: Path, *, transformed: bool
+) -> None:
+    module.__dict__["__dp_integration_transformed__"] = transformed
+    exec(compile(validate_source, str(module_path), "exec"), module.__dict__)

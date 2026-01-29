@@ -25,8 +25,8 @@ from __future__ import annotations
 
 import pytest
 
-def validate(module):
-    exited, result = module.run()
+module = __import__("sys").modules[__name__]
+exited, result = module.run()
 
-    assert exited is True
-    assert isinstance(result, module.Recording)
+assert exited is True
+assert isinstance(result, module.Recording)

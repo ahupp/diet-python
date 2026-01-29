@@ -13,6 +13,6 @@ FUNCTION_MEMBERS = [Scope.Function for scope in Scope if scope is Scope.Function
 
 from __future__ import annotations
 
-def validate(module):
-    assert module.HIGH_SCOPES == [module.Scope.Function]
-    assert module.FUNCTION_MEMBERS == [module.Scope.Function]
+module = __import__("sys").modules[__name__]
+assert module.HIGH_SCOPES == [module.Scope.Function]
+assert module.FUNCTION_MEMBERS == [module.Scope.Function]

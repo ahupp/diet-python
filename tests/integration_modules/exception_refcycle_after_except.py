@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-def validate(module):
-    referrers = module.run()
+module = __import__("sys").modules[__name__]
+referrers = module.run()
 
-    assert referrers == []
+assert referrers == []

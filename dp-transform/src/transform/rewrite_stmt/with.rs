@@ -1,7 +1,8 @@
 use crate::transform::ast_rewrite::Rewrite;
 use crate::transform::context::Context;
 use crate::{py_expr, py_stmt};
-use ruff_python_ast::{self as ast};
+use ruff_python_ast::{self as ast, Stmt};
+
 
 pub fn rewrite(
     context: &Context,
@@ -11,13 +12,10 @@ pub fn rewrite(
         return Rewrite::Unmodified(with_stmt.into());
     }
 
-    let ast::StmtWith {
-        items,
-        mut body,
-        is_async,
-        ..
-    } = with_stmt;
+    let ast::StmtWith { items, body, is_async, .. } = with_stmt;
 
+    let mut body: Stmt = body.into();
+    
     for ast::WithItem {
         context_expr,
         optional_vars,
@@ -34,14 +32,15 @@ pub fn rewrite(
         let ok_name = context.fresh("with_ok");
 
 
-        let (ctx_name, ctx_assign) = context.named_placeholder(context_expr);
+        let ctx_placeholder = context.maybe_placeholder_lowered(context_expr);
 
+        // TODO: more formal handling of placeholder reuse
         body = if is_async {
             py_stmt!(
                 r#"
-{ctx_assign:stmt}
-{exit_name:id} = __dp__.asynccontextmanager_get_aexit({ctx_name:id})
-{target:expr} = await __dp__.asynccontextmanager_aenter({ctx_name:id})
+{ctx_placeholder_stmt:stmt}
+{exit_name:id} = __dp__.asynccontextmanager_get_aexit({ctx_placeholder_expr_1:expr})
+{target:expr} = await __dp__.asynccontextmanager_aenter({ctx_placeholder_expr_2:expr})
 {ok_name:id} = True
 try:
     {body:stmt}
@@ -53,8 +52,9 @@ finally:
         await __dp__.asynccontextmanager_aexit({exit_name:id}, None)
     {exit_name:id} = None
 "#,
-                ctx_name = ctx_name.as_str(),
-                ctx_assign = ctx_assign,
+                ctx_placeholder_expr_1 = ctx_placeholder.expr.clone(),
+                ctx_placeholder_expr_2 = ctx_placeholder.expr.clone(),
+                ctx_placeholder_stmt = ctx_placeholder.stmt,
                 target = target,
                 body = body,
                 exit_name = exit_name.as_str(),
@@ -63,9 +63,9 @@ finally:
         } else {
             py_stmt!(
                 r#"
-{ctx_assign:stmt}
-{exit_name:id} = __dp__.contextmanager_get_exit({ctx_name:id})
-{target:expr} = __dp__.contextmanager_enter({ctx_name:id})
+{ctx_placeholder_stmt:stmt}
+{exit_name:id} = __dp__.contextmanager_get_exit({ctx_placeholder_expr_1:expr})
+{target:expr} = __dp__.contextmanager_enter({ctx_placeholder_expr_2:expr})
 {ok_name:id} = True
 try:
     {body:stmt}
@@ -77,8 +77,9 @@ finally:
         __dp__.contextmanager_exit({exit_name:id}, None)
     {exit_name:id} = None
 "#,
-                ctx_name = ctx_name.as_str(),
-                ctx_assign = ctx_assign,
+                ctx_placeholder_expr_1 = ctx_placeholder.expr.clone(),
+                ctx_placeholder_expr_2 = ctx_placeholder.expr.clone(),
+                ctx_placeholder_stmt = ctx_placeholder.stmt,
                 target = target,
                 body = body,
                 exit_name = exit_name.as_str(),

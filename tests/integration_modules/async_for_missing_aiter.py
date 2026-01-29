@@ -17,7 +17,7 @@ def get_error():
 
 # diet-python: validate
 
-def validate(module):
-    message = module.get_error()
-    assert "async for" in message
-    assert "__aiter__" in message
+module = __import__("sys").modules[__name__]
+message = module.get_error()
+assert "async for" in message
+assert "__aiter__" in message

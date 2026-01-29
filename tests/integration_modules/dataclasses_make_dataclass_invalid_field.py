@@ -15,5 +15,5 @@ from __future__ import annotations
 
 import pytest
 
-def validate(module):
-    assert module.ERROR == "Field names must not be keywords: 'for'"
+module = __import__("sys").modules[__name__]
+assert module.ERROR == "Field names must not be keywords: 'for'"

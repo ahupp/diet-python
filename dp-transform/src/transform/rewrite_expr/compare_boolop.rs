@@ -1,3 +1,5 @@
+use crate::template::empty_body;
+use crate::template::into_body;
 use crate::transform::ast_rewrite::LoweredExpr;
 use crate::transform::context::Context;
 use crate::transform::rewrite_expr::make_binop;
@@ -16,16 +18,21 @@ pub(crate) fn expr_boolop_to_stmts(context: &Context, bool_op: ast::ExprBoolOp) 
     )
 }
 
-fn expr_boolop_to_stmts_inner(target: &str, bool_op: ast::ExprBoolOp) -> Vec<Stmt> {
+fn is_empty_body_stmt(stmt: &Stmt) -> bool {
+    matches!(stmt, Stmt::BodyStmt(ast::StmtBody { body, .. }) if body.is_empty())
+}
+
+fn expr_boolop_to_stmts_inner(target: &str, bool_op: ast::ExprBoolOp) -> Stmt {
    
     let ast::ExprBoolOp { op, values, .. } = bool_op;
 
     let mut values = values.into_iter();
     let first = values.next().expect("bool op expects at least one value");
-    let mut stmts = match first {
+    let stmts = match first {
         Expr::BoolOp(bool_op) => expr_boolop_to_stmts_inner(target, bool_op),
         other => py_stmt!("{target:id} = {value:expr}", target = target, value = other),
     };
+    let mut stmts = vec![stmts];
 
     for value in values {
         let body_stmt = match value {
@@ -44,10 +51,10 @@ if {test:expr}:
             test = test_expr,
             body = body_stmt,
         );
-        stmts.extend(stmt);
+        stmts.push(stmt);
     };
 
-    stmts
+    into_body(stmts)
 }
 
 pub(crate) fn expr_compare_to_stmts(
@@ -65,6 +72,10 @@ pub(crate) fn expr_compare_to_stmts(
     let comparators = comparators.into_vec();
     let count = ops.len();
 
+    if count == 1 {
+        return LoweredExpr::modified(compare_expr(ops[0], *left.clone(), comparators[0].clone()), empty_body());
+    }
+
     let mut current_left = *left;
 
     let target = context.fresh("target");
@@ -73,7 +84,7 @@ pub(crate) fn expr_compare_to_stmts(
     let mut left_prelude: Vec<Stmt> = Vec::new();
     if count > 1 {
         let left_tmp = context.fresh("compare");
-        left_prelude.extend(py_stmt!(
+        left_prelude.push(py_stmt!(
             "{tmp:id} = {value:expr}",
             tmp = left_tmp.as_str(),
             value = current_left.clone(),
@@ -89,7 +100,7 @@ pub(crate) fn expr_compare_to_stmts(
         }
         if index < count - 1 {
             let tmp = context.fresh("compare");
-            prelude.extend(py_stmt!(
+            prelude.push(py_stmt!(
                 "{tmp:id} = {value:expr}",
                 tmp = tmp.as_str(),
                 value = comparator_expr.clone(),
@@ -103,20 +114,18 @@ pub(crate) fn expr_compare_to_stmts(
         current_left = comparator_expr;
     }
 
-    let mut stmts = Vec::new();
+    let mut stmt: Stmt = empty_body().into();
     for (prelude, comparison) in steps.into_iter().rev() {
-        if stmts.is_empty() {
-            stmts = py_stmt!(
-                r#"
-{prelude:stmt}
-{target:id} = {value:expr}
-"#,
-                prelude = prelude,
+        if is_empty_body_stmt(&stmt) {
+            let mut stmts = prelude;
+            stmts.push(py_stmt!(
+                "{target:id} = {value:expr}",
                 target = target.as_str(),
-                value = comparison,
-            );
+                value = comparison
+            ));
+            stmt = into_body(stmts);
         } else {
-            stmts = py_stmt!(
+            stmt = py_stmt!(
                 r#"
 {prelude:stmt}
 {target:id} = {value:expr}
@@ -126,14 +135,14 @@ if {target:id}:
                 prelude = prelude,
                 target = target.as_str(),
                 value = comparison,
-                body = stmts,
+                body = stmt,
             );
         }
     }
 
     LoweredExpr::modified(
         py_expr!("{tmp:id}", tmp = target.as_str()),
-        stmts,
+        stmt,
     )
 }
 

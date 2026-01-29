@@ -1,15 +1,13 @@
 use std::{collections::HashSet, sync::Arc};
 
-use ruff_python_ast::{self as ast, name::Name, Expr, ExprContext, Stmt};
+use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt, StmtBody};
 
 use crate::{
-    body_transform::{walk_expr, walk_stmt, Transformer},
-    py_expr, py_stmt,
-    transform::scope::{BindingKind, BindingUse, Scope, ScopeKind},
+    py_expr, py_stmt, scope_aware_transformer::ScopeAwareTransformer, template::empty_body, transform::{scope::{BindingKind, BindingUse, Scope, ScopeKind}, util::is_noarg_call}
 };
-use crate::namegen::fresh_name;
+use crate::transformer::{Transformer, walk_expr, walk_stmt};
 
-pub fn rewrite_explicit_bindings(scope: Arc<Scope>, body: &mut Vec<Stmt>) {
+pub fn rewrite_explicit_bindings(scope: Arc<Scope>, body: &mut StmtBody) {
     let mut rewriter = NameScopeRewriter::new(scope);
     rewriter.visit_body(body);
 }
@@ -17,6 +15,19 @@ pub fn rewrite_explicit_bindings(scope: Arc<Scope>, body: &mut Vec<Stmt>) {
 struct NameScopeRewriter {
     scope: Arc<Scope>,
     extra_cell_names: HashSet<String>,
+}
+
+impl ScopeAwareTransformer for NameScopeRewriter {
+    fn scope(&self) -> &Arc<Scope> {
+        &self.scope
+    }
+
+    fn enter_scope(&self, scope: Arc<Scope>) -> Self {
+        Self {
+            scope,
+            extra_cell_names: HashSet::new(),
+        }
+    }
 }
 
 impl NameScopeRewriter {
@@ -27,7 +38,14 @@ impl NameScopeRewriter {
         }
     }
 
+    fn explicit_bindings_enabled(&self) -> bool {
+        !matches!(self.scope.kind(), ScopeKind::Function)
+    }
+
     fn needs_cell(&self, name: &str) -> bool {
+        if !self.explicit_bindings_enabled() {
+            return false;
+        }
         matches!(
             self.scope.binding_in_scope(name, BindingUse::Load),
             BindingKind::Nonlocal
@@ -37,6 +55,9 @@ impl NameScopeRewriter {
     }
 
     fn needs_global(&self, name: &str) -> bool {
+        if !self.explicit_bindings_enabled() {
+            return false;
+        }
         matches!(
             self.scope.binding_in_scope(name, BindingUse::Load),
             BindingKind::Global
@@ -47,22 +68,34 @@ impl NameScopeRewriter {
         !self.scope.child_nonlocal_names().is_empty() || !self.extra_cell_names.is_empty()
     }
 
-    fn insert_preamble(&self, body: &mut Vec<Stmt>) {
+    fn insert_preamble(&self, body: &mut StmtBody, param_names: &HashSet<String>) {
+        if !self.explicit_bindings_enabled() {
+            return;
+        }
+        let body = &mut body.body;
         let mut stmts = Vec::new();
 
         if self.cell_init_needed() {
+            // TODO: do we need to mut the underlying Scope?
             let mut names = self.scope.child_nonlocal_names();
             names.extend(self.extra_cell_names.iter().cloned());
             let mut names = names.into_iter().collect::<Vec<_>>();
             names.sort();
             for name in names {
-                stmts.extend(py_stmt!("{name:id} = __dp__.make_cell()", name = name.as_str()));
+                if param_names.contains(&name) {
+                    stmts.push(py_stmt!(
+                        "{name:id} = __dp__.make_cell({name:id})",
+                        name = name.as_str()
+                    ));
+                } else {
+                    stmts.push(py_stmt!("{name:id} = __dp__.make_cell()", name = name.as_str()));
+                }
             }
         }
         if stmts.is_empty() {
             return;
         }
-        let insert_at = match body.first() {
+        let insert_at = match body.first().map(|stmt| stmt.as_ref()) {
             Some(Stmt::Expr(ast::StmtExpr { value, .. }))
                 if matches!(value.as_ref(), Expr::StringLiteral(_)) =>
             {
@@ -70,7 +103,10 @@ impl NameScopeRewriter {
             }
             _ => 0,
         };
-        body.splice(insert_at..insert_at, stmts);
+        body.splice(
+            insert_at..insert_at,
+            stmts.into_iter().map(Box::new),
+        );
     }
 
     fn set_extra_cell_names(&mut self, names: HashSet<String>) {
@@ -78,36 +114,34 @@ impl NameScopeRewriter {
     }
 
     fn module_binds_name(&self, name: &str) -> bool {
-        let mut current = Some(Arc::clone(&self.scope));
-        while let Some(scope) = current {
+        self.scope.any_parent_scope(|scope| {
             if matches!(scope.kind(), ScopeKind::Module) {
-                return scope.scope_bindings().contains_key(name);
+                return Some(scope.scope_bindings().contains_key(name));
+            } else {
+                None
             }
-            current = scope.parent_scope();
-        }
-        false
+        }).unwrap_or(false)
     }
 
     fn enclosing_function_binds_name(&self, name: &str) -> bool {
-        let mut current = self.scope.parent_scope();
-        while let Some(scope) = current {
+        self.scope.parent_scope().and_then(|scope| scope.any_parent_scope(|scope| {
             match scope.kind() {
-                ScopeKind::Function { .. } => {
+                ScopeKind::Function => {
                     if matches!(
                         scope.scope_bindings().get(name),
                         Some(BindingKind::Local) | Some(BindingKind::Nonlocal)
                     ) {
-                        return true;
+                        return Some(true);
+                    } else {
+                        None
                     }
                 }
                 ScopeKind::Module => {
-                    break;
+                    Some(false)
                 }
-                ScopeKind::Class { .. } => {}
+                ScopeKind::Class => None,
             }
-            current = scope.parent_scope();
-        }
-        false
+        })).unwrap_or(false)
     }
 
     fn should_rewrite_locals_call(&self) -> bool {
@@ -127,44 +161,6 @@ impl NameScopeRewriter {
         true
     }
 
-    fn rewrite_assign(&mut self, assign: ast::StmtAssign) -> Vec<Stmt> {
-        let ast::StmtAssign {
-            mut targets,
-            mut value,
-            range,
-            node_index,
-        } = assign;
-        assert!(targets.len() == 1);
-
-        self.visit_expr(value.as_mut());
-
-        if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
-            if self.needs_global(id.as_str()) {
-                return py_stmt!(
-                    "__dp__.store_global(globals(), {name:literal}, {value:expr})",
-                    name = id.as_str(),
-                    value = value
-                );
-            }
-            if self.needs_cell(id.as_str()) {
-                return py_stmt!(
-                    "__dp__.store_cell({cell:id}, {value:expr})",
-                    cell = id.as_str(),
-                    value = value
-                );
-            }
-        }
-
-        for target in &mut targets {
-            self.visit_expr(target);
-        }
-        vec![Stmt::Assign(ast::StmtAssign {
-            targets,
-            value,
-            range,
-            node_index,
-        })]
-    }
 
     fn rewrite_function_def(&mut self, func_def: &mut ast::StmtFunctionDef) {
         for decorator in &mut func_def.decorator_list {
@@ -180,7 +176,8 @@ impl NameScopeRewriter {
 
         let child_scope = self
             .scope
-            .child_scope_for_function(func_def);
+            .child_scope_for_function(func_def)
+            .expect("no child scope for function");
 
         let mut extra_cells = collect_named_expr_cells(&func_def.body);
         let declared_globals = collect_declared_globals(&func_def.body);
@@ -199,121 +196,47 @@ impl NameScopeRewriter {
         let mut child_rewriter = NameScopeRewriter::new(child_scope);
         child_rewriter.set_extra_cell_names(extra_cells);
         child_rewriter.visit_body(&mut func_def.body);
-        child_rewriter.insert_preamble(&mut func_def.body);
-        crate::transform::rewrite_stmt::annotation::rewrite_ann_assign_delete(&mut func_def.body);
+        let param_names = collect_parameter_names(&func_def.parameters);
+        child_rewriter.insert_preamble(&mut func_def.body, &param_names);
     }
 
-    fn rewrite_function_def_binding(
-        &mut self,
-        mut func_def: ast::StmtFunctionDef,
-        binding: BindingKind,
-    ) -> Vec<Stmt> {
-
-        if func_def.name.id.as_str().starts_with("_dp_class_create") {
-            return vec![func_def.into()];
-        }
-        let original_name = func_def.name.id.to_string();
-        let mut decorators = std::mem::take(&mut func_def.decorator_list);
-        let mut prefix = Vec::with_capacity(decorators.len());
-        let mut decorator_names = Vec::with_capacity(decorators.len());
-        for decorator in decorators.drain(..) {
-            let temp = fresh_name("decorator");
-            let mut expr = decorator.expression;
-            self.visit_expr(&mut expr);
-            prefix.extend(py_stmt!(
-                "{temp:id} = {decorator:expr}",
-                temp = temp.as_str(),
-                decorator = expr
-            ));
-            decorator_names.push(temp);
-        }
-
-        let temp_name = fresh_name("fn");
-        func_def.name.id = Name::new(temp_name.as_str());
-        self.rewrite_function_def(&mut func_def);
-
-
-        let mut out = Vec::new();
-        out.extend(prefix);
-        out.push(func_def.into());
-
-        if !decorator_names.is_empty() {
-            let mut decorated = py_expr!("{func:id}", func = temp_name.as_str());
-            for decorator in decorator_names.iter().rev() {
-                decorated = py_expr!(
-                    "{decorator:id}({decorated:expr})",
-                    decorator = decorator.as_str(),
-                    decorated = decorated
-                );
-            }
-            out.extend(py_stmt!(
-                "{func:id} = {decorated:expr}",
-                func = temp_name.as_str(),
-                decorated = decorated
-            ));
-        }
-
-        match binding {
-            BindingKind::Global => {
-                out.extend(py_stmt!(
-                    "__dp__.store_global(globals(), {name:literal}, {value:id})",
-                    name = original_name.as_str(),
-                    value = temp_name.as_str()
-                ));
-            }
-            BindingKind::Nonlocal => {
-                out.extend(py_stmt!(
-                    "__dp__.store_cell({cell:id}, {value:id})",
-                    cell = original_name.as_str(),
-                    value = temp_name.as_str()
-                ));
-            }
-            BindingKind::Local => {}
-        }
-        out
-    }
-
-    fn rewrite_delete(&mut self, delete: ast::StmtDelete) -> Vec<Stmt> {
+    fn rewrite_delete(&mut self, delete: ast::StmtDelete) -> Stmt {
+        
         let ast::StmtDelete {
-            targets,
+            mut targets,
             range,
             node_index,
         } = delete;
-        let mut out = Vec::with_capacity(targets.len());
-        for target in targets {
-            if let Expr::Name(ast::ExprName { id, .. }) = &target {
-                let name = id.as_str();
-                if name == "__class__" {
-                    let mut target = target;
-                    self.visit_expr(&mut target);
-                    out.push(Stmt::Delete(ast::StmtDelete {
-                        targets: vec![target],
-                        range,
-                        node_index: node_index.clone(),
-                    }));
-                    continue;
-                }
-                if self.needs_global(name) {
-                    out.extend(py_stmt!(
-                        "__dp__.delitem(globals(), {name:literal})",
-                        name = name
-                    ));
-                    continue;
-                }
-                if self.needs_cell(name) {
-                    out.extend(py_stmt!("__dp__.del_cell({cell:id})", cell = name));
-                    continue;
-                }
+        assert!(targets.len() == 1);
+
+        let target = &mut targets[0];
+        self.visit_expr(target);
+        if let Expr::Name(ast::ExprName { id, .. }) = &target {
+            let name = id.as_str();
+            if name == "__class__" {
+
+                return Stmt::Delete(ast::StmtDelete {
+                    targets: vec![target.clone()],
+                    range,
+                    node_index: node_index.clone(),
+                });
             }
-            let mut target = target;
-            self.visit_expr(&mut target);
-            out.push(Stmt::Delete(ast::StmtDelete {
-                targets: vec![target],
-                range,
-                node_index: node_index.clone(),
-            }));
+            if self.needs_global(name) {
+                return py_stmt!(
+                    "__dp__.delitem(globals(), {name:literal})",
+                    name = name
+                );
+            }
+            if self.needs_cell(name) {
+                return py_stmt!("__dp__.del_cell({cell:id})", cell = name);
+            }
         }
-        out
+        Stmt::Delete(ast::StmtDelete {
+            targets: vec![target.clone()],
+            range,
+            node_index: node_index.clone(),
+        })
+
     }
 
     fn rewrite_class_def(&mut self, class_def: &mut ast::StmtClassDef) {
@@ -329,16 +252,18 @@ impl NameScopeRewriter {
 
         let class_scope = self
             .scope
-            .child_scope_for_class(class_def);
+            .child_scope_for_class(class_def)
+            .expect("no child scope for class");
 
 
         let mut class_rewriter = NameScopeRewriter::new(class_scope);
         class_rewriter.rewrite_class_children(&mut class_def.body);
     }
 
-    fn rewrite_class_children(&mut self, body: &mut Vec<Stmt>) {
-        let mut new_body = Vec::with_capacity(body.len());
-        for mut stmt in body.drain(..) {
+    fn rewrite_class_children(&mut self, body: &mut StmtBody) {
+        let mut new_body = Vec::with_capacity(body.body.len());
+        for stmt in body.body.drain(..) {
+            let mut stmt = *stmt;
             match &mut stmt {
                 Stmt::FunctionDef(func_def) => {
                     self.rewrite_function_def(func_def);
@@ -348,9 +273,9 @@ impl NameScopeRewriter {
                 }
                 _ => {}
             }
-            new_body.push(stmt);
+            new_body.push(Box::new(stmt));
         }
-        *body = new_body;
+        body.body = new_body;
     }
 
     fn rewrite_load(&self, name: &ast::ExprName) -> Option<Expr> {
@@ -372,15 +297,35 @@ impl NameScopeRewriter {
     }
 }
 
+fn collect_parameter_names(parameters: &ast::Parameters) -> HashSet<String> {
+    let mut names = HashSet::new();
+    for param in parameters.posonlyargs.iter() {
+        names.insert(param.parameter.name.to_string());
+    }
+    for param in parameters.args.iter() {
+        names.insert(param.parameter.name.to_string());
+    }
+    for param in parameters.kwonlyargs.iter() {
+        names.insert(param.parameter.name.to_string());
+    }
+    if let Some(param) = &parameters.vararg {
+        names.insert(param.name.to_string());
+    }
+    if let Some(param) = &parameters.kwarg {
+        names.insert(param.name.to_string());
+    }
+    names
+}
 
-fn collect_named_expr_cells(body: &[Stmt]) -> HashSet<String> {
+
+fn collect_named_expr_cells(body: &StmtBody) -> HashSet<String> {
     let mut collector = NamedExprComprehensionCollector::default();
-    let mut cloned = body.to_vec();
-    collector.visit_body(&mut cloned);
+    let mut cloned = body.clone();
+    (&mut collector).visit_body(&mut cloned);
     collector.names
 }
 
-fn collect_declared_globals(body: &[Stmt]) -> HashSet<String> {
+fn collect_declared_globals(body: &StmtBody) -> HashSet<String> {
     #[derive(Default)]
     struct GlobalCollector {
         names: HashSet<String>,
@@ -403,8 +348,8 @@ fn collect_declared_globals(body: &[Stmt]) -> HashSet<String> {
     }
 
     let mut collector = GlobalCollector::default();
-    let mut cloned = body.to_vec();
-    collector.visit_body(&mut cloned);
+    let mut cloned = body.clone();
+    (&mut collector).visit_body(&mut cloned);
     collector.names
 }
 
@@ -417,14 +362,14 @@ impl NamedExprComprehensionCollector {
     fn collect_from_comprehension(&mut self, elt: &Expr, generators: &[ast::Comprehension]) {
         let mut collector = NamedExprTargetCollector::default();
         let mut elt_clone = elt.clone();
-        collector.visit_expr(&mut elt_clone);
+        (&mut collector).visit_expr(&mut elt_clone);
         for comp in generators {
             for if_expr in &comp.ifs {
                 let mut if_clone = if_expr.clone();
-                collector.visit_expr(&mut if_clone);
+                (&mut collector).visit_expr(&mut if_clone);
             }
             let mut iter_clone = comp.iter.clone();
-            collector.visit_expr(&mut iter_clone);
+            (&mut collector).visit_expr(&mut iter_clone);
         }
         self.names.extend(collector.names);
     }
@@ -445,24 +390,6 @@ impl Transformer for NamedExprComprehensionCollector {
         match expr {
             Expr::Generator(ast::ExprGenerator { elt, generators, .. }) => {
                 self.collect_from_comprehension(elt, generators);
-                return;
-            }
-            Expr::ListComp(ast::ExprListComp { elt, generators, .. }) => {
-                self.collect_from_comprehension(elt, generators);
-                return;
-            }
-            Expr::SetComp(ast::ExprSetComp { elt, generators, .. }) => {
-                self.collect_from_comprehension(elt, generators);
-                return;
-            }
-            Expr::DictComp(ast::ExprDictComp {
-                key,
-                value,
-                generators,
-                ..
-            }) => {
-                let elt = py_expr!("({key:expr}, {value:expr})", key = key.clone(), value = value.clone());
-                self.collect_from_comprehension(&elt, generators);
                 return;
             }
             Expr::Lambda(_) => {
@@ -492,10 +419,7 @@ impl Transformer for NamedExprTargetCollector {
                 return;
             }
             Expr::Lambda(_)
-            | Expr::Generator(_)
-            | Expr::ListComp(_)
-            | Expr::SetComp(_)
-            | Expr::DictComp(_) => {
+            | Expr::Generator(_)=> {
                 return;
             }
             _ => {}
@@ -505,55 +429,68 @@ impl Transformer for NamedExprTargetCollector {
 }
 
 impl Transformer for NameScopeRewriter {
-    fn visit_body(&mut self, body: &mut Vec<Stmt>) {
-        let mut new_body = Vec::with_capacity(body.len());
-        for stmt in body.drain(..) {
-            match stmt {
-                Stmt::Delete(delete) => {
-                    new_body.extend(self.rewrite_delete(delete));
-                }
-                Stmt::Global(_) | Stmt::Nonlocal(_) => {
-                    continue;
-                }
-                Stmt::Assign(assign) => {
-                    new_body.extend(self.rewrite_assign(assign));
-                }
-                Stmt::FunctionDef(mut func_def) => {
-                    if func_def.name.as_str().starts_with("_dp_class_create") {
-                        new_body.push(func_def.into());
-                        continue;
-                    }
-                    let name = func_def.name.id.to_string();
-                    let binding = self.scope.binding_in_scope(&name, BindingUse::Modify);
-                    if matches!(binding, BindingKind::Global | BindingKind::Nonlocal) {
-                        new_body.extend(self.rewrite_function_def_binding(func_def, binding));
-                        continue;
-                    }
-
-                    self.rewrite_function_def(&mut func_def);
-                    new_body.push(Stmt::FunctionDef(func_def));
-                }
-                Stmt::ClassDef(mut class_def) => {
-                    self.rewrite_class_def(&mut class_def);
-                    new_body.push(Stmt::ClassDef(class_def));
-                }
-                mut stmt => {
-                    self.visit_stmt(&mut stmt);
-                    new_body.push(stmt);
-                }
-            }
-        }
-        *body = new_body;
-    }
-
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
-            Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
-                // handled in visit_body
+            Stmt::Delete(delete) => {
+                *stmt = self.rewrite_delete(delete.clone());
+            }
+            Stmt::Global(_) | Stmt::Nonlocal(_) => {
+                if self.explicit_bindings_enabled() {
+                    *stmt = empty_body().into();
+                }
+                return;
+            }
+            Stmt::Assign(ast::StmtAssign {
+                targets,
+                value,
+                range,
+                node_index,
+            }) => {
+                assert!(targets.len() == 1);
+
+                let mut target = targets[0].clone();
+        
+                self.visit_expr(value.as_mut());
+        
+                if let Expr::Name(ast::ExprName { id, .. }) = &target {
+                    if self.needs_global(id.as_str()) {
+                        *stmt = py_stmt!(
+                            "__dp__.store_global(globals(), {name:literal}, {value:expr})",
+                            name = id.as_str(),
+                            value = value.clone()
+                        );
+                        return;
+                    }
+                    if self.needs_cell(id.as_str()) {
+                        *stmt = py_stmt!(
+                            "__dp__.store_cell({cell:id}, {value:expr})",
+                            cell = id.as_str(),
+                            value = value.clone()
+                        );
+                        return;
+                    }
+                }
+        
+                self.visit_expr(&mut target);
+
+                *stmt = Stmt::Assign(ast::StmtAssign {
+                    targets: vec![target],
+                    value: value.clone(),
+                    range: range.clone(),
+                    node_index: node_index.clone(),
+                });
+
+            }
+            Stmt::FunctionDef(func_def) => {
+                self.rewrite_function_def(func_def);
+            }
+            Stmt::ClassDef(class_def) => {
+                self.rewrite_class_def(class_def);
             }
             _ => walk_stmt(self, stmt),
         }
     }
+
 
     fn visit_expr(&mut self, expr: &mut Expr) {
         match expr {
@@ -563,14 +500,30 @@ impl Transformer for NameScopeRewriter {
                 }
                 return;
             }
+            Expr::Named(ast::ExprNamed { target, value, .. }) => {
+                if let Expr::Name(ast::ExprName { id, .. }) = target.as_ref() {
+                    if self.needs_global(id.as_str()) {
+                        self.visit_expr(value.as_mut());
+                        *expr = py_expr!(
+                            "__dp__.store_global(globals(), {name:literal}, {value:expr})",
+                            name = id.as_str(),
+                            value = value.as_ref().clone()
+                        );
+                        return;
+                    }
+                    if self.needs_cell(id.as_str()) {
+                        self.visit_expr(value.as_mut());
+                        *expr = py_expr!(
+                            "__dp__.store_cell({cell:id}, {value:expr})",
+                            cell = id.as_str(),
+                            value = value.as_ref().clone()
+                        );
+                        return;
+                    }
+                }
+            }
             Expr::Call(ast::ExprCall { func, arguments, .. }) => {
-                if matches!(
-                    func.as_ref(),
-                    Expr::Name(ast::ExprName { id, .. }) if id.as_str() == "locals"
-                ) && arguments.args.is_empty()
-                    && arguments.keywords.is_empty()
-                    && self.should_rewrite_locals_call()
-                {
+                if is_noarg_call("locals", func.as_ref()) && self.should_rewrite_locals_call() {
                     *expr = py_expr!("__dp__.locals()");
                     return;
                 }
@@ -578,6 +531,6 @@ impl Transformer for NameScopeRewriter {
             _ => {}
         }
 
-        crate::body_transform::walk_expr(self, expr);
+        walk_expr(self, expr);
     }
 }

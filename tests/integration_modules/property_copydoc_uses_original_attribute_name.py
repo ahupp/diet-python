@@ -20,5 +20,5 @@ class Derived(Base):
 
 from __future__ import annotations
 
-def validate(module):
-    assert module.Derived.value.__doc__ == "base doc"
+module = __import__("sys").modules[__name__]
+assert module.Derived.value.__doc__ == "base doc"

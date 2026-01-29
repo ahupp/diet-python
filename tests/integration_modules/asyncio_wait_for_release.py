@@ -33,5 +33,5 @@ def leak_check():
 
 from __future__ import annotations
 
-def validate(module):
-    assert module.leak_check() is None
+module = __import__("sys").modules[__name__]
+assert module.leak_check() is None

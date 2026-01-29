@@ -12,7 +12,7 @@ def classcell_values():
 
 from __future__ import annotations
 
-def validate(module):
-    values, method_class, cls = module.classcell_values()
-    assert values == [4, 4, 4, 4, 4]
-    assert method_class is cls
+module = __import__("sys").modules[__name__]
+values, method_class, cls = module.classcell_values()
+assert values == [4, 4, 4, 4, 4]
+assert method_class is cls

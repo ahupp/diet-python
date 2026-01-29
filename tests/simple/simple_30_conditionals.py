@@ -7,7 +7,7 @@ else:
 
 # diet-python: validate
 
-def validate(module):
-    assert module.X == 5
-    assert module.Y == 8
-    assert module.Z == 1
+module = __import__("sys").modules[__name__]
+assert module.X == 5
+assert module.Y == 8
+assert module.Z == 1

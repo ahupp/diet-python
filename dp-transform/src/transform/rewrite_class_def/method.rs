@@ -2,11 +2,9 @@
 
 use ruff_python_ast::{self as ast,Expr, Stmt};
 
-use crate::{
-    body_transform::{Transformer, walk_expr, walk_stmt},
-    py_expr, py_stmt,
-    transform::{util::is_noarg_call},
-};
+use crate::template::empty_body;
+use crate::{py_expr, py_stmt, transform::util::is_noarg_call};
+use crate::transformer::{Transformer, walk_expr, walk_stmt};
 
 struct MethodRewriteSuperClasscell {
     first_arg: Option<String>,
@@ -21,10 +19,25 @@ impl Transformer for MethodRewriteSuperClasscell {
                 assert!(targets.len() == 1);
                 if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
                     if id.as_str() == "__class__" {
-                        *stmt = py_stmt!("del __classcell__.cell_contents").remove(0);
+                        *stmt = py_stmt!("del __classcell__.cell_contents");
                         self.needs_class_cell = true;
                         return;
                     }
+                }
+            }
+            Stmt::Nonlocal(ast::StmtNonlocal { names, .. }) => {
+                let mut removed = false;
+                names.retain(|name| {
+                    let keep = name.id.as_str() != "__class__";
+                    removed |= !keep;
+                    keep
+                });
+                if removed {
+                    self.needs_class_cell = true;
+                    if names.is_empty() {
+                        *stmt = empty_body().into();
+                    }
+                    return;
                 }
             }
             _ => {}
@@ -93,7 +106,7 @@ pub fn rewrite_explicit_super_classcell(
     let mut rewriter = MethodExplicitSuperRewriter {
         needs_class_cell: false,
     };
-    rewriter.visit_body(&mut class_def.body);
+    (&mut rewriter).visit_body(&mut class_def.body);
     rewriter.needs_class_cell
 }
 
@@ -139,8 +152,8 @@ fn rewrite_method(
         first_arg,
         needs_class_cell: false,
     };
-    for stmt in &mut func_def.body {
-        transformer.visit_stmt(stmt);
+    for stmt in func_def.body.body.iter_mut() {
+        (&mut transformer).visit_stmt(stmt.as_mut());
     }
     transformer.needs_class_cell
 }

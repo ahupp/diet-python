@@ -7,5 +7,5 @@ RESULT = TypeVar("Result")
 
 from __future__ import annotations
 
-def validate(module):
-    assert module.RESULT.__name__ == "Result"
+module = __import__("sys").modules[__name__]
+assert module.RESULT.__name__ == "Result"

@@ -12,5 +12,5 @@ RESULT = mock_class_property_ok()
 
 from __future__ import annotations
 
-def validate(module):
-    assert module.RESULT is True
+module = __import__("sys").modules[__name__]
+assert module.RESULT is True

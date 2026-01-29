@@ -171,17 +171,26 @@ _MISSING_CELL = object()
 
 
 def make_cell(value=_MISSING_CELL):
-    if value is _MISSING_CELL:
-        return _types.CellType()
-    def inner():
-        return value
-    return inner.__closure__[0]
+    cell = _types.CellType()
+    if value is not _MISSING_CELL:
+        cell.cell_contents = value
+    return cell
 
 def load_cell(cell):
     try:
         return cell.cell_contents
     except ValueError as exc:
         raise UnboundLocalError("local variable referenced before assignment") from exc
+
+class LocalsProxy:
+    def __init__(self, frame):
+        self.frame = frame
+
+    def __getitem__(self, name):
+        return self.frame.f_locals[name]
+
+    def __setitem__(self, name, value):
+        self.frame.f_locals[name] = value
 
 def locals():
     frame = sys._getframe(1)
@@ -275,21 +284,7 @@ def match_class_attr_value(cls, subject, idx, total):
 
 
 
-def nested_scope():
-    try:
-        qualname = sys._getframe(1).f_code.co_qualname
-    except Exception:
-        return None
-    if qualname == "<module>":
-        return None
-    return f"{qualname}.<locals>"
-
-
-def update_fn(func, scope, name):
-    if scope is None:
-        qualname = name
-    else:
-        qualname = f"{scope}.{name}"
+def update_fn(func, qualname, name):
     try:
         func.__qualname__ = qualname
     except (AttributeError, TypeError):
@@ -316,15 +311,6 @@ def decode_surrogate_literal(src):
         return src
 
 
-typing = None
-templatelib = None
-
-def init_lazy_imports():
-    global typing, templatelib
-    typing = builtins.__import__("typing")
-    templatelib = builtins.__import__(
-            "string.templatelib", fromlist=["templatelib"]
-    )
 
 
 def create_class(name, namespace_fn, bases, kwds, requires_class_cell):
@@ -591,30 +577,6 @@ def contextmanager_get_exit(cm):
         return cm.__exit__
     except AttributeError as exc:
         raise TypeError("the context manager protocol requires __exit__") from exc
-
-def locals_map(locals_dict):
-    normalized = {}
-    for name, value in locals_dict.items():
-        if "$" not in name:
-            if name not in normalized:
-                normalized[name] = value
-            continue
-        prefix, suffix = name.rsplit("$", 1)
-        if not suffix.isdigit():
-            if name not in normalized:
-                normalized[name] = value
-
-    for name, value in locals_dict.items():
-        if "$" in name:
-            prefix, suffix = name.rsplit("$", 1)
-            if suffix.isdigit():
-                if isinstance(value, _types.CellType):
-                    try:
-                        value = value.cell_contents
-                    except ValueError:
-                        continue
-                normalized[prefix] = value
-    return normalized
 
 
 def contextmanager_exit(exit_fn, exc_info: tuple | None):

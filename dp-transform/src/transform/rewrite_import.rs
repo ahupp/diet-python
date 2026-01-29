@@ -1,4 +1,4 @@
-use crate::{py_stmt, transform::ast_rewrite::Rewrite};
+use crate::{py_stmt, template::{empty_body, into_body}, transform::ast_rewrite::Rewrite};
 
 use super::{context::Context, ImportStarHandling, Options};
 use ruff_python_ast::{self as ast};
@@ -31,16 +31,15 @@ pub fn should_rewrite_import_from(import_from: &ast::StmtImportFrom, options: &O
 
 pub fn rewrite(ast::StmtImport { names, .. }: ast::StmtImport) -> Rewrite {
     // TODO: hard-coded "import _testinternalcapi"
-    Rewrite::Walk(
-        names
-            .into_iter()
-            .map(|alias| {
-                let module_name = alias.name.id.to_string();
-                let binding = alias
-                    .asname
-                    .as_ref()
-                    .map(|n| n.id.as_str())
-                    .unwrap_or_else(|| module_name.split('.').next().unwrap());
+    let stmts: Vec<ast::Stmt> = names
+        .into_iter()
+        .flat_map(|alias| {
+            let module_name = alias.name.id.to_string();
+            let binding = alias
+                .asname
+                .as_ref()
+                .map(|n| n.id.as_str())
+                .unwrap_or_else(|| module_name.split('.').next().unwrap());
                 let needs_fromlist = alias.asname.is_some() && module_name.contains('.');
                 if needs_fromlist {
                     let mut expr =
@@ -53,21 +52,24 @@ pub fn rewrite(ast::StmtImport { names, .. }: ast::StmtImport) -> Rewrite {
                         expr = format!("__dp__.import_attr({}, {:?})", expr, part);
                     }
                     let stmt_source = format!("{binding} = {expr}", binding = binding, expr = expr);
-                    parse_module(stmt_source.as_str())
+                    let body = parse_module(stmt_source.as_str())
                         .expect("failed to parse rewritten dotted import")
                         .into_syntax()
-                        .body
+                        .body;
+                    body.body
+                        .iter()
+                        .map(|stmt| stmt.as_ref().clone())
+                        .collect::<Vec<_>>()
                 } else {
-                    py_stmt!(
+                    vec![py_stmt!(
                         "{name:id} = __dp__.import_({module:literal}, __spec__)",
                         name = binding,
                         module = module_name.as_str(),
-                    )
+                    )]
                 }
             })
-            .flatten()
-            .collect(),
-    )
+        .collect();
+    Rewrite::Walk(into_body(stmts))
 }
 
 pub fn rewrite_from(context: &Context, import_from: ast::StmtImportFrom) -> Rewrite {
@@ -88,7 +90,7 @@ pub fn rewrite_from(context: &Context, import_from: ast::StmtImportFrom) -> Rewr
                 unreachable!("rewrite_from is only called when import-star rewriting is required")
             }
             ImportStarHandling::Error => panic!("import star not allowed"),
-            ImportStarHandling::Strip => vec![],
+            ImportStarHandling::Strip => empty_body().into(),
         });
     }
     let module_name = module.as_ref().map(|n| n.id.as_str()).unwrap_or("");
@@ -123,14 +125,15 @@ pub fn rewrite_from(context: &Context, import_from: ast::StmtImportFrom) -> Rewr
         .into_syntax()
         .body;
     let import_stmt = import_stmt
+        .body
         .pop()
         .expect("expected single statement when parsing import rewrite");
-    statements.push(import_stmt);
+    statements.push(*import_stmt);
 
     for alias in names {
         let orig = alias.name.id.as_str();
         let binding = alias.asname.as_ref().map(|n| n.id.as_str()).unwrap_or(orig);
-        statements.extend(py_stmt!(
+        statements.push(py_stmt!(
             "{name:id} = __dp__.import_attr({module:id}, {attr:literal})",
             name = binding,
             module = temp_binding.as_str(),
@@ -138,7 +141,5 @@ pub fn rewrite_from(context: &Context, import_from: ast::StmtImportFrom) -> Rewr
         ));
     }
 
-    statements.extend(py_stmt!("del {module:id}", module = temp_binding.as_str()));
-
-    Rewrite::Walk(statements)
+    Rewrite::Walk(into_body(statements))
 }

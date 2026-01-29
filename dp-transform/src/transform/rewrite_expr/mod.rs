@@ -6,12 +6,21 @@ use ruff_python_codegen::{Generator, Indentation};
 use ruff_source_file::LineEnding;
 use ruff_text_size::TextRange;
 
-use crate::{py_expr, py_stmt, transform::{ast_rewrite::LoweredExpr, context::Context}};
+use crate::template::empty_body;
+use crate::transform::ast_rewrite::{BodyBuilder, push_stmt};
+use crate::{
+    py_expr,
+    py_stmt,
+    template::into_body,
+    transform::{ast_rewrite::LoweredExpr, context::Context},
+};
 
 pub mod comprehension;
 pub mod string;
 pub mod compare_boolop;
 pub mod truthy;
+
+
 
 
 pub fn lower_expr(context: &Context, expr: Expr) -> LoweredExpr {
@@ -24,7 +33,7 @@ pub fn lower_expr(context: &Context, expr: Expr) -> LoweredExpr {
                         "__dp__.decode_surrogate_literal({literal:literal})",
                         literal = src
                     );
-                    return LoweredExpr::modified(expr, Vec::new());
+                    return LoweredExpr::modified(expr, empty_body());
                 }
             }
             LoweredExpr::unmodified(Expr::StringLiteral(ast::ExprStringLiteral {
@@ -35,13 +44,13 @@ pub fn lower_expr(context: &Context, expr: Expr) -> LoweredExpr {
         }
         Expr::Named(named_expr) => {
             let ast::ExprNamed { target, value, .. } = named_expr;
-            let tmp = context.tmpify("tmp", *value);
-            let assign = py_stmt!(
-                "{target:expr} = {tmp:expr}",
+            LoweredExpr::modified(
+                py_expr!("{target:expr}", target = target.clone()), 
+            py_stmt!(
+                "{target:expr} = {value:expr}",
                 target = *target,
-                tmp = tmp.expr.clone()
-            );
-            tmp.extend(assign)
+                value = value
+            ))
         }
         Expr::If(if_expr) => {
             let tmp = context.fresh("tmp");
@@ -80,14 +89,10 @@ else:
                 range: args_range,
                 node_index: args_node_index,
             } = arguments;
-            let mut stmts = Vec::new();
-            let mut modified = false;
 
             let func_lowered = lower_expr(context, *func);
-            modified |= func_lowered.modified;
-            stmts.extend(func_lowered.stmts);
-            let func_expr = func_lowered.expr;
-
+            let mut body_builder = BodyBuilder::default();
+            let func_expr = body_builder.push(func_lowered);
             let mut new_args = Vec::new();
             for arg in args.into_vec() {
                 match arg {
@@ -98,20 +103,18 @@ else:
                         node_index,
                     }) => {
                         let lowered = lower_expr(context, *value);
-                        modified |= lowered.modified;
-                        stmts.extend(lowered.stmts);
+
+                        let expr = body_builder.push(lowered);
                         new_args.push(Expr::Starred(ast::ExprStarred {
-                            value: Box::new(lowered.expr),
+                            value: Box::new(expr),
                             ctx,
                             range,
                             node_index,
                         }));
                     }
                     other => {
-                        let lowered = lower_expr(context, other);
-                        modified |= lowered.modified;
-                        stmts.extend(lowered.stmts);
-                        new_args.push(lowered.expr);
+                        let expr = body_builder.push(lower_expr(context, other));
+                        new_args.push(expr);
                     }
                 }
             }
@@ -125,11 +128,11 @@ else:
                     node_index,
                 } = keyword;
                 let lowered = lower_expr(context, value);
-                modified |= lowered.modified;
-                stmts.extend(lowered.stmts);
+
+                let expr = body_builder.push(lowered);
                 new_keywords.push(ast::Keyword {
                     arg,
-                    value: lowered.expr,
+                    value: expr,
                     range,
                     node_index,
                 });
@@ -146,10 +149,10 @@ else:
                 range,
                 node_index,
             });
-            if stmts.is_empty() && !modified {
+            if !body_builder.modified {
                 LoweredExpr::unmodified(new_call)
             } else {
-                LoweredExpr::modified(new_call, stmts)
+                LoweredExpr::modified(new_call, body_builder.into_stmt())
             }
         }
         Expr::FString(f_string) => {
@@ -231,7 +234,7 @@ else:
                 elts,
                 ..
             } = tuple;
-            let mut stmts = Vec::new();
+            let mut stmts = vec![];
             let mut modified = false;
             let mut lowered_elts = Vec::new();
             for elt in elts {
@@ -244,7 +247,7 @@ else:
                     }) => {
                         let lowered = lower_expr(context, *value);
                         modified |= lowered.modified;
-                        stmts.extend(lowered.stmts);
+                        stmts.push(lowered.stmt);
                         lowered_elts.push(Expr::Starred(ast::ExprStarred {
                             value: Box::new(lowered.expr),
                             ctx: star_ctx,
@@ -255,7 +258,7 @@ else:
                     other => {
                         let lowered = lower_expr(context, other);
                         modified |= lowered.modified;
-                        stmts.extend(lowered.stmts);
+                        stmts.push(lowered.stmt);
                         lowered_elts.push(lowered.expr);
                     }
                 }
@@ -264,7 +267,7 @@ else:
             if stmts.is_empty() && !modified {
                 LoweredExpr::unmodified(expr)
             } else {
-                LoweredExpr::modified(expr, stmts)
+                LoweredExpr::modified(expr, into_body(stmts))
             }
         }
         Expr::Tuple(ast::ExprTuple {
@@ -274,13 +277,13 @@ else:
             node_index,
             parenthesized,
         }) if matches!(ctx, ast::ExprContext::Load) => {
-            let mut stmts = Vec::new();
+            let mut stmts = empty_body().into();
             let mut modified = false;
             let mut lowered_elts = Vec::new();
             for elt in elts {
                 let lowered = lower_expr(context, elt);
                 modified |= lowered.modified;
-                stmts.extend(lowered.stmts);
+                modified |= push_stmt(&mut stmts, lowered.stmt);
                 lowered_elts.push(lowered.expr);
             }
             let expr = Expr::Tuple(ast::ExprTuple {
@@ -290,7 +293,7 @@ else:
                 node_index,
                 parenthesized,
             });
-            if stmts.is_empty() && !modified {
+            if !modified {
                 LoweredExpr::unmodified(expr)
             } else {
                 LoweredExpr::modified(expr, stmts)
@@ -298,9 +301,8 @@ else:
         }
         Expr::List(list) if matches!(list.ctx, ast::ExprContext::Load) => {
             let ast::ExprList { elts, .. } = list;
-            let mut stmts = Vec::new();
-            let mut modified = false;
             let mut lowered_elts = Vec::new();
+            let mut body_builder = BodyBuilder::default();
             for elt in elts {
                 match elt {
                     Expr::Starred(ast::ExprStarred {
@@ -309,85 +311,73 @@ else:
                         range: star_range,
                         node_index: star_node_index,
                     }) => {
-                        let lowered = lower_expr(context, *value);
-                        modified |= lowered.modified;
-                        stmts.extend(lowered.stmts);
+                        let expr = body_builder.push(lower_expr(context, *value));
                         lowered_elts.push(Expr::Starred(ast::ExprStarred {
-                            value: Box::new(lowered.expr),
+                            value: Box::new(expr),
                             ctx: star_ctx,
                             range: star_range,
                             node_index: star_node_index,
                         }));
                     }
                     other => {
-                        let lowered = lower_expr(context, other);
-                        modified |= lowered.modified;
-                        stmts.extend(lowered.stmts);
-                        lowered_elts.push(lowered.expr);
+                        let expr = body_builder.push(lower_expr(context, other));
+                        lowered_elts.push(expr);
                     }
                 }
             }
             let tuple = make_tuple_splat(lowered_elts);
             let expr = py_expr!("__dp__.list({tuple:expr})", tuple = tuple,);
-            if stmts.is_empty() && !modified {
+            if !body_builder.modified {
                 LoweredExpr::unmodified(expr)
             } else {
-                LoweredExpr::modified(expr, stmts)
+                LoweredExpr::modified(expr, body_builder.into_stmt())
             }
         }
         Expr::Set(ast::ExprSet { elts, .. }) => {
-            let mut stmts = Vec::new();
-            let mut modified = false;
+
             let mut lowered_elts = Vec::new();
+            let mut body_builder = BodyBuilder::default();
             for elt in elts {
-                let lowered = lower_expr(context, elt);
-                modified |= lowered.modified;
-                stmts.extend(lowered.stmts);
-                lowered_elts.push(lowered.expr);
+                let expr = body_builder.push(lower_expr(context, elt));
+                lowered_elts.push(expr);
             }
             let tuple = make_tuple(lowered_elts);
             let expr = py_expr!("__dp__.set({tuple:expr})", tuple = tuple,);
-            if stmts.is_empty() && !modified {
+            if !body_builder.modified {
                 LoweredExpr::unmodified(expr)
             } else {
-                LoweredExpr::modified(expr, stmts)
+                LoweredExpr::modified(expr, body_builder.into_stmt())
             }
         }
         Expr::Dict(ast::ExprDict { items, .. }) => {
             let mut segments: Vec<Expr> = Vec::new();
 
             let mut keyed_pairs = Vec::new();
-            let mut stmts = Vec::new();
-            let mut modified = false;
+
+            let mut body_builder = BodyBuilder::default();
             for item in items.into_iter() {
                 match item {
                     ast::DictItem {
                         key: Some(key),
                         value,
                     } => {
-                        let lowered_key = lower_expr(context, key);
-                        modified |= lowered_key.modified;
-                        stmts.extend(lowered_key.stmts);
-                        let lowered_value = lower_expr(context, value);
-                        modified |= lowered_value.modified;
-                        stmts.extend(lowered_value.stmts);
+                        let key_expr = body_builder.push(lower_expr(context, key));
+                        let value_expr = body_builder.push(lower_expr(context, value));
                         keyed_pairs.push(py_expr!(
                             "({key:expr}, {value:expr})",
-                            key = lowered_key.expr,
-                            value = lowered_value.expr,
+                            key = key_expr,
+                            value = value_expr,
                         ));
                     }
                     ast::DictItem { key: None, value } => {
-                        let lowered_value = lower_expr(context, value);
-                        modified |= lowered_value.modified;
-                        stmts.extend(lowered_value.stmts);
+                        let value_expr = body_builder.push(lower_expr(context, value));
                         if !keyed_pairs.is_empty() {
                             let tuple = make_tuple(take(&mut keyed_pairs));
                             segments.push(py_expr!("__dp__.dict({tuple:expr})", tuple = tuple));
                         }
                         segments.push(py_expr!(
                             "__dp__.dict({mapping:expr})",
-                            mapping = lowered_value.expr
+                            mapping = value_expr
                         ));
                     }
                 }
@@ -405,10 +395,10 @@ else:
                     .reduce(|left, right| make_binop("or_", left, right))
                     .expect("segments is non-empty"),
             };
-            if stmts.is_empty() && !modified {
+            if !body_builder.modified {
                 LoweredExpr::unmodified(expr)
             } else {
-                LoweredExpr::modified(expr, stmts)
+                LoweredExpr::modified(expr, body_builder.into_stmt())
             }
         }
         Expr::BinOp(ast::ExprBinOp {
@@ -445,13 +435,13 @@ else:
         }) if matches!(ctx, ast::ExprContext::Load) => {
             let value_lowered = lower_expr(context, *value);
             let slice_lowered = lower_expr(context, *slice);
-            let mut stmts = value_lowered.stmts;
-            stmts.extend(slice_lowered.stmts);
+            let stmts = vec![value_lowered.stmt, slice_lowered.stmt];
+
             let expr = make_binop("getitem", value_lowered.expr, slice_lowered.expr);
             if stmts.is_empty() && !value_lowered.modified && !slice_lowered.modified {
                 LoweredExpr::unmodified(expr)
             } else {
-                LoweredExpr::modified(expr, stmts)
+                LoweredExpr::modified(expr, into_body(stmts))
             }
         }
         other => LoweredExpr::unmodified(other),
@@ -557,13 +547,6 @@ fn make_tuple_splat(elts: Vec<Expr>) -> Expr {
         .unwrap_or_else(|| make_tuple(Vec::new()))
 }
 
-fn is_attribute_chain(expr: &Expr) -> bool {
-    match expr {
-        Expr::Name(_) => true,
-        Expr::Attribute(ast::ExprAttribute { value, .. }) => is_attribute_chain(value.as_ref()),
-        _ => false,
-    }
-}
 
 
 pub(crate) fn make_tuple(elts: Vec<Expr>) -> Expr {

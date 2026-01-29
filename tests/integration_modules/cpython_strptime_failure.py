@@ -10,5 +10,5 @@ def parse_invalid_offset():
 
 from __future__ import annotations
 
-def validate(module):
-    assert module.parse_invalid_offset() == "Inconsistent use of : in -01:3030"
+module = __import__("sys").modules[__name__]
+assert module.parse_invalid_offset() == "Inconsistent use of : in -01:3030"

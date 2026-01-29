@@ -13,5 +13,5 @@ def exercise():
 
 from __future__ import annotations
 
-def validate(module):
-    assert module.exercise() == "ok"
+module = __import__("sys").modules[__name__]
+assert module.exercise() == "ok"

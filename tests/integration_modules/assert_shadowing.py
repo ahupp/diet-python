@@ -17,7 +17,7 @@ def trigger():
 
 from __future__ import annotations
 
-def validate(module):
-    exc = module.trigger()
-    assert isinstance(exc, AssertionError)
-    assert str(exc) == "hello"
+module = __import__("sys").modules[__name__]
+exc = module.trigger()
+assert isinstance(exc, AssertionError)
+assert str(exc) == "hello"

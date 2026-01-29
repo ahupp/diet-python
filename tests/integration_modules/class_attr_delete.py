@@ -9,5 +9,5 @@ EXPECTS_VALUE = hasattr(Example, "value")
 
 from __future__ import annotations
 
-def validate(module):
-    assert module.EXPECTS_VALUE is False
+module = __import__("sys").modules[__name__]
+assert module.EXPECTS_VALUE is False

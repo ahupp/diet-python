@@ -13,7 +13,7 @@ class Example:
 
 import pytest
 
-def validate(module):
-    for item in [1]:
-        example = module.Example()
-        assert example[item] == item
+module = __import__("sys").modules[__name__]
+for item in [1]:
+    example = module.Example()
+    assert example[item] == item

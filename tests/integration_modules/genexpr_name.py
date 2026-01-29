@@ -4,5 +4,5 @@ def get_genexpr_name():
 
 # diet-python: validate
 
-def validate(module):
-    assert module.get_genexpr_name() == "<genexpr>"
+module = __import__("sys").modules[__name__]
+assert module.get_genexpr_name() == "<genexpr>"

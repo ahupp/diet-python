@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import annotationlib
 
-def validate(module):
-    annotations = annotationlib.get_annotations(
-    module.ThemeSection,
-    format=annotationlib.Format.FORWARDREF,
-    )
-    assert "__dataclass_fields__" in annotations
-    assert isinstance(annotations["__dataclass_fields__"], annotationlib.ForwardRef)
+module = __import__("sys").modules[__name__]
+annotations = annotationlib.get_annotations(
+module.ThemeSection,
+format=annotationlib.Format.FORWARDREF,
+)
+assert "__dataclass_fields__" in annotations
+assert isinstance(annotations["__dataclass_fields__"], annotationlib.ForwardRef)

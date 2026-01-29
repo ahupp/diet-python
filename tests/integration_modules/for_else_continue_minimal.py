@@ -14,5 +14,5 @@ RESULT = collect_for_else_continue_minimal()
 
 # diet-python: validate
 
-def validate(module):
-    assert module.RESULT == [0, 1]
+module = __import__("sys").modules[__name__]
+assert module.RESULT == [0, 1]
