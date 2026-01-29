@@ -1,0 +1,40 @@
+# Publish ruff_wasm to npm.
+#
+# Assumed to run as a subworkflow of .github/workflows/release.yml; specifically, as a publish
+# job within `cargo-dist`.
+name: "Publish wasm"
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      matrix:
+        target: [web, bundler, nodejs]
+      fail-fast: false
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: artifacts-wasm-${{ matrix.target }}
+          path: pkg
+      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
+      - name: "Publish (dry-run)"
+        if: ${{ inputs.plan == '' || fromJson(inputs.plan).announcement_tag_is_implicit }}
+        run: npm publish --dry-run pkg/
+      - name: "Publish"
+        if: ${{ inputs.plan != '' && !fromJson(inputs.plan).announcement_tag_is_implicit }}
+        run: npm publish --provenance --access public pkg/
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
