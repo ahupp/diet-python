@@ -1,0 +1,10 @@
+{
+    "rust-analyzer.check.extraArgs": [
+        "--all-features"
+    ],
+    "rust-analyzer.check.command": "clippy",
+    "search.exclude": {
+        "**/*.snap": true
+    },
+    "ty.diagnosticMode": "openFilesOnly"
+}
