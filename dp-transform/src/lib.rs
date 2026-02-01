@@ -55,6 +55,7 @@ pub mod ensure_import;
 pub mod scope_aware_transformer;
 pub mod fixture;
 pub mod min_ast;
+pub mod side_by_side;
 mod namegen;
 mod template;
 pub(crate) mod transformer;
