@@ -100,14 +100,25 @@ def _is_integration_module(resolved: Path) -> bool:
     return False
 
 
+def _is_typing_module(resolved: Path) -> bool:
+    if resolved.name == "typing.py":
+        return True
+    if resolved.name == "__init__.py" and resolved.parent.name == "typing":
+        return True
+    return False
+
+
 def _should_transform(path: str) -> bool:
     """Return ``True`` if ``path`` should be passed through the transform."""
     try:
         resolved = Path(path).resolve()
     except OSError:
         return False
-    if INTEGRATION_ONLY and not _is_integration_module(resolved):
+    if resolved.name == "templatelib.py" and resolved.parent.name == "string":
         return False
+    if INTEGRATION_ONLY and not _is_integration_module(resolved):
+        if not _is_typing_module(resolved):
+            return False
     if os.environ.get("DIET_PYTHON_ALLOW_TEMP") != "1":
         try:
             resolved.relative_to(Path(tempfile.gettempdir()).resolve())

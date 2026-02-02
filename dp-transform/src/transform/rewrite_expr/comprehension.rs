@@ -6,10 +6,12 @@ use ruff_python_ast::{Expr, ExprContext, Stmt};
 use crate::template::into_body;
 use crate::transform::ast_rewrite::LoweredExpr;
 
-use crate::{py_expr, py_stmt};
+use crate::{py_expr, py_stmt, py_stmt_typed};
 use crate::transform::context::Context;
 use crate::transformer::{Transformer, walk_expr};
+use crate::transform::scope::ScopeKind;
 use ruff_python_ast::name::Name;
+use ruff_text_size::TextRange;
 
 
 
@@ -125,46 +127,134 @@ if {test:expr}:
     body
 }
 
-pub(crate) fn lower_inline_list_comp(
+
+pub(crate) fn lower_list_comp(
     context: &Context,
     elt: Expr,
     generators: Vec<ast::Comprehension>,
 ) -> LoweredExpr {
-    lower_inline(context, InlineCompKind::List, elt, None, generators)
+    let is_async = comp_is_async(&elt, None, &generators);
+    lower_function(context, InlineCompKind::List, elt, None, generators, is_async)
 }
 
-pub(crate) fn lower_inline_set_comp(
+pub(crate) fn lower_set_comp(
     context: &Context,
     elt: Expr,
     generators: Vec<ast::Comprehension>,
 ) -> LoweredExpr {
-    lower_inline(context, InlineCompKind::Set, elt, None, generators)
+    let is_async = comp_is_async(&elt, None, &generators);
+    lower_function(context, InlineCompKind::Set, elt, None, generators, is_async)
 }
 
-pub(crate) fn lower_inline_dict_comp(
+pub(crate) fn lower_dict_comp(
     context: &Context,
     key: Expr,
     value: Expr,
     generators: Vec<ast::Comprehension>,
 ) -> LoweredExpr {
-    lower_inline(context, InlineCompKind::Dict, key, Some(value), generators)
+    let is_async = comp_is_async(&key, Some(&value), &generators);
+    lower_function(
+        context,
+        InlineCompKind::Dict,
+        key,
+        Some(value),
+        generators,
+        is_async,
+    )
 }
 
-fn lower_inline(
+
+fn lower_function(
     context: &Context,
     kind: InlineCompKind,
-    elt_or_key: Expr,
-    value: Option<Expr>,
-    generators: Vec<ast::Comprehension>,
+    mut elt_or_key: Expr,
+    mut value: Option<Expr>,
+    mut generators: Vec<ast::Comprehension>,
+    is_async: bool,
 ) -> LoweredExpr {
+    if generators.is_empty() {
+        return LoweredExpr::unmodified(match kind {
+            InlineCompKind::List => Expr::ListComp(ast::ExprListComp {
+                elt: Box::new(elt_or_key),
+                generators,
+                range: TextRange::default(),
+                node_index: ast::AtomicNodeIndex::default(),
+            }),
+            InlineCompKind::Set => Expr::SetComp(ast::ExprSetComp {
+                elt: Box::new(elt_or_key),
+                generators,
+                range: TextRange::default(),
+                node_index: ast::AtomicNodeIndex::default(),
+            }),
+            InlineCompKind::Dict => Expr::DictComp(ast::ExprDictComp {
+                key: Box::new(elt_or_key),
+                value: Box::new(value.unwrap_or_else(|| py_expr!("None"))),
+                generators,
+                range: TextRange::default(),
+                node_index: ast::AtomicNodeIndex::default(),
+            }),
+        });
+    }
+
+    let scope = context.current_scope();
+    let named_targets = collect_named_expr_targets(&elt_or_key, value.as_ref(), &generators);
+    let mut global_targets: HashSet<String> = HashSet::new();
+    let mut class_targets: HashSet<String> = HashSet::new();
+    let mut nonlocal_targets: HashSet<String> = HashSet::new();
+    let mut dummy_targets: Vec<String> = Vec::new();
+
+    match scope.kind {
+        ScopeKind::Module => {
+            global_targets = named_targets;
+        }
+        ScopeKind::Class => {
+            class_targets = named_targets;
+        }
+        ScopeKind::Function => {
+            for name in named_targets {
+                if scope.globals.contains(&name) {
+                    global_targets.insert(name);
+                } else {
+                    nonlocal_targets.insert(name.clone());
+                    if !scope.nonlocals.contains(&name) {
+                        dummy_targets.push(name);
+                    }
+                }
+            }
+        }
+    }
+
+    if !global_targets.is_empty() || !class_targets.is_empty() {
+        let mut rewriter = super::NamedExprRewriter::new(&global_targets, &class_targets);
+        rewriter.visit_expr(&mut elt_or_key);
+        if let Some(value_expr) = value.as_mut() {
+            rewriter.visit_expr(value_expr);
+        }
+        for gen in &mut generators {
+            rewriter.visit_expr(&mut gen.iter);
+            for if_expr in &mut gen.ifs {
+                rewriter.visit_expr(if_expr);
+            }
+        }
+    }
+
+    let first_gen = generators
+        .first()
+        .expect("comprehension expects at least one generator");
+    let iter_lowered = super::lower_expr(context, first_gen.iter.clone());
+    let iter_call = if first_gen.is_async {
+        py_expr!("__dp__.aiter({iter:expr})", iter = iter_lowered.expr.clone())
+    } else {
+        py_expr!("__dp__.iter({iter:expr})", iter = iter_lowered.expr.clone())
+    };
+
     let result_name = context.fresh("tmp");
     let result_expr = py_expr!("{name:id}", name = result_name.as_str());
-    let stmts = match kind {
+    let init_stmt = match kind {
         InlineCompKind::List => py_stmt!("{name:id} = []", name = result_name.as_str()),
         InlineCompKind::Set => py_stmt!("{name:id} = set()", name = result_name.as_str()),
         InlineCompKind::Dict => py_stmt!("{name:id} = {}", name = result_name.as_str()),
     };
-    let mut stmts = vec![stmts];
 
     let mut renames: HashMap<String, Name> = HashMap::new();
     let mut lowered_gens = Vec::with_capacity(generators.len());
@@ -234,8 +324,42 @@ fn lower_inline(
         }
     };
 
-    for gen in lowered_gens.into_iter().rev() {
+    let iter_param = context.fresh("iter");
+    let func_name = context.fresh(match kind {
+        InlineCompKind::List => "listcomp",
+        InlineCompKind::Set => "setcomp",
+        InlineCompKind::Dict => "dictcomp",
+    });
+    let mut func_def: ast::StmtFunctionDef = if is_async {
+        py_stmt_typed!(
+            r#"
+async def {func:id}({param:id}):
+    pass
+"#,
+            func = func_name.as_str(),
+            param = iter_param.as_str(),
+        )
+    } else {
+        py_stmt_typed!(
+            r#"
+def {func:id}({param:id}):
+    pass
+"#,
+            func = func_name.as_str(),
+            param = iter_param.as_str(),
+        )
+    };
+
+    let iter_param_expr = py_expr!("{param:id}", param = iter_param.as_str());
+    let gen_count = lowered_gens.len();
+    for (rev_index, gen) in lowered_gens.into_iter().rev().enumerate() {
+        let is_outermost = rev_index + 1 == gen_count;
         body = wrap_ifs(body, gen.ifs);
+        let iter_expr = if is_outermost {
+            iter_param_expr.clone()
+        } else {
+            gen.iter.expr
+        };
         let for_stmt = if gen.is_async {
             py_stmt!(
                 r#"
@@ -243,7 +367,7 @@ async for {target:expr} in {iter:expr}:
     {body:stmt}
 "#,
                 target = gen.target,
-                iter = gen.iter.expr,
+                iter = iter_expr,
                 body = body,
             )
         } else {
@@ -253,15 +377,171 @@ for {target:expr} in {iter:expr}:
     {body:stmt}
 "#,
                 target = gen.target,
-                iter = gen.iter.expr,
+                iter = iter_expr,
                 body = body,
             )
         };
-        body = vec![gen.iter.stmt, for_stmt];
+        if is_outermost {
+            body = vec![for_stmt];
+        } else {
+            body = vec![gen.iter.stmt, for_stmt];
+        }
     }
 
-    stmts.extend(body);
-    LoweredExpr::modified(result_expr, into_body(stmts))
+    let mut func_body: Vec<Stmt> = Vec::new();
+    if !nonlocal_targets.is_empty() {
+        let mut names = nonlocal_targets.into_iter().collect::<Vec<_>>();
+        names.sort();
+        let names = names
+            .into_iter()
+            .map(|name| ast::name::Name::new(name))
+            .map(|name| ast::Identifier::new(name, TextRange::default()))
+            .collect();
+        func_body.push(Stmt::Nonlocal(ast::StmtNonlocal {
+            names,
+            range: TextRange::default(),
+            node_index: ast::AtomicNodeIndex::default(),
+        }));
+    }
+    func_body.push(init_stmt);
+    func_body.extend(body);
+    func_body.push(py_stmt!("return {result:expr}", result = result_expr));
+
+    func_def.body = ast::StmtBody {
+        body: func_body.into_iter().map(Box::new).collect(),
+        range: TextRange::default(),
+        node_index: ast::AtomicNodeIndex::default(),
+    };
+
+    let mut prefix: Vec<Stmt> = Vec::new();
+    for name in dummy_targets {
+        prefix.push(py_stmt!(
+            r#"
+if False:
+    {name:id} = None
+"#,
+            name = name.as_str()
+        ));
+    }
+    super::append_stmt(&mut prefix, iter_lowered.stmt);
+    prefix.push(func_def.into());
+    let call_expr = py_expr!(
+        "{func:id}({iter:expr})",
+        func = func_name.as_str(),
+        iter = iter_call,
+    );
+    let expr = if is_async {
+        py_expr!("await {call:expr}", call = call_expr)
+    } else {
+        call_expr
+    };
+
+    LoweredExpr::modified(expr, into_body(prefix))
 }
 
+fn collect_named_expr_targets(
+    elt_or_key: &Expr,
+    value: Option<&Expr>,
+    generators: &[ast::Comprehension],
+) -> HashSet<String> {
+    let mut collector = super::NamedExprTargetCollector::default();
+    let mut elt_clone = elt_or_key.clone();
+    collector.visit_expr(&mut elt_clone);
+    if let Some(value) = value {
+        let mut value_clone = value.clone();
+        collector.visit_expr(&mut value_clone);
+    }
+    for gen in generators {
+        let mut iter_clone = gen.iter.clone();
+        collector.visit_expr(&mut iter_clone);
+        for if_expr in &gen.ifs {
+            let mut if_clone = if_expr.clone();
+            collector.visit_expr(&mut if_clone);
+        }
+    }
+    collector.names
+}
 
+fn comp_is_async(
+    elt_or_key: &Expr,
+    value: Option<&Expr>,
+    generators: &[ast::Comprehension],
+) -> bool {
+    if generators.iter().any(|gen| gen.is_async) {
+        return true;
+    }
+    if expr_requires_async(elt_or_key) {
+        return true;
+    }
+    if let Some(value) = value {
+        if expr_requires_async(value) {
+            return true;
+        }
+    }
+    for gen in generators {
+        if expr_requires_async(&gen.iter) {
+            return true;
+        }
+        for if_expr in &gen.ifs {
+            if expr_requires_async(if_expr) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn expr_requires_async(expr: &Expr) -> bool {
+    #[derive(Default)]
+    struct AwaitFinder {
+        found: bool,
+    }
+
+    impl Transformer for AwaitFinder {
+        fn visit_expr(&mut self, expr: &mut Expr) {
+            if self.found {
+                return;
+            }
+            match expr {
+                Expr::Await(_) => {
+                    self.found = true;
+                    return;
+                }
+                Expr::ListComp(ast::ExprListComp { elt, generators, .. }) => {
+                    if comp_is_async(elt.as_ref(), None, generators) {
+                        self.found = true;
+                    }
+                    return;
+                }
+                Expr::SetComp(ast::ExprSetComp { elt, generators, .. }) => {
+                    if comp_is_async(elt.as_ref(), None, generators) {
+                        self.found = true;
+                    }
+                    return;
+                }
+                Expr::DictComp(ast::ExprDictComp {
+                    key,
+                    value,
+                    generators,
+                    ..
+                }) => {
+                    if comp_is_async(key.as_ref(), Some(value.as_ref()), generators) {
+                        self.found = true;
+                    }
+                    return;
+                }
+                Expr::Lambda(_)
+                | Expr::Generator(_) => {
+                    return;
+                }
+                _ => {}
+            }
+            walk_expr(self, expr);
+        }
+    }
+
+    let mut finder = AwaitFinder::default();
+    let mut cloned = expr.clone();
+    finder.visit_expr(&mut cloned);
+    finder.found
+}

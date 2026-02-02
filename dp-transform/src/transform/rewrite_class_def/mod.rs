@@ -139,7 +139,7 @@ if _dp_class_ns.get({name:literal}) is {name:id}:
     // so they are visible to inner scopes
     let class_ns_def: ast::StmtFunctionDef = py_stmt_typed!(
         r#"
-def _dp_class_ns_{class_name:id}(_dp_class_ns, __classcell__):
+def _dp_class_ns_{class_name:id}(_dp_class_ns, _dp_classcell):
     _dp_class_ns["__module__"] = __name__
     _dp_class_ns["__qualname__"] = {class_qualname:literal}
     {type_param_bindings:stmt}

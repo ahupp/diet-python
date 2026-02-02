@@ -7,3 +7,4 @@ cpython-install-*/
 cpython_test_run.log
 .diet_python_cache
 cpython_full_test_run.log
+cpython_full_test_run_summary.txt

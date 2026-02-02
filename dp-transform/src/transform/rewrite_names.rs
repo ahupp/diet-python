@@ -3,7 +3,20 @@ use std::{collections::HashSet, sync::Arc};
 use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt, StmtBody};
 
 use crate::{
-    py_expr, py_stmt, scope_aware_transformer::ScopeAwareTransformer, template::empty_body, transform::{scope::{BindingKind, BindingUse, Scope, ScopeKind}, util::is_noarg_call}
+    py_expr,
+    py_stmt,
+    scope_aware_transformer::ScopeAwareTransformer,
+    template::empty_body,
+    transform::{
+        rewrite_class_def::class_body::{
+            class_body_load_cell,
+            class_body_load_global,
+            class_body_store_global,
+            class_body_store_target,
+        },
+        scope::{is_internal_symbol, BindingKind, BindingUse, Scope, ScopeKind},
+        util::is_noarg_call,
+    },
 };
 use crate::transformer::{Transformer, walk_expr, walk_stmt};
 
@@ -14,7 +27,6 @@ pub fn rewrite_explicit_bindings(scope: Arc<Scope>, body: &mut StmtBody) {
 
 struct NameScopeRewriter {
     scope: Arc<Scope>,
-    extra_cell_names: HashSet<String>,
 }
 
 impl ScopeAwareTransformer for NameScopeRewriter {
@@ -23,63 +35,31 @@ impl ScopeAwareTransformer for NameScopeRewriter {
     }
 
     fn enter_scope(&self, scope: Arc<Scope>) -> Self {
-        Self {
-            scope,
-            extra_cell_names: HashSet::new(),
-        }
+        Self { scope }
     }
 }
 
 impl NameScopeRewriter {
     fn new(scope: Arc<Scope>) -> Self {
-        Self {
-            scope,
-            extra_cell_names: HashSet::new(),
-        }
+        Self { scope }
     }
 
-    fn explicit_bindings_enabled(&self) -> bool {
-        !matches!(self.scope.kind(), ScopeKind::Function)
-    }
-
-    fn needs_cell(&self, name: &str) -> bool {
-        if !self.explicit_bindings_enabled() {
-            return false;
-        }
-        matches!(
-            self.scope.binding_in_scope(name, BindingUse::Load),
-            BindingKind::Nonlocal
-        )
-            || self.scope.is_nonlocal_in_children(name)
-            || self.extra_cell_names.contains(name)
-    }
-
-    fn needs_global(&self, name: &str) -> bool {
-        if !self.explicit_bindings_enabled() {
-            return false;
-        }
-        matches!(
-            self.scope.binding_in_scope(name, BindingUse::Load),
-            BindingKind::Global
-        )
+    fn is_class_scope(&self) -> bool {
+        matches!(self.scope.kind(), ScopeKind::Class)
     }
 
     fn cell_init_needed(&self) -> bool {
-        !self.scope.child_nonlocal_names().is_empty() || !self.extra_cell_names.is_empty()
+        !self.cell_binding_names().is_empty()
     }
 
     fn insert_preamble(&self, body: &mut StmtBody, param_names: &HashSet<String>) {
-        if !self.explicit_bindings_enabled() {
-            return;
-        }
+       
         let body = &mut body.body;
         let mut stmts = Vec::new();
 
         if self.cell_init_needed() {
             // TODO: do we need to mut the underlying Scope?
-            let mut names = self.scope.child_nonlocal_names();
-            names.extend(self.extra_cell_names.iter().cloned());
-            let mut names = names.into_iter().collect::<Vec<_>>();
+            let mut names = self.cell_binding_names().into_iter().collect::<Vec<_>>();
             names.sort();
             for name in names {
                 if param_names.contains(&name) {
@@ -109,8 +89,21 @@ impl NameScopeRewriter {
         );
     }
 
-    fn set_extra_cell_names(&mut self, names: HashSet<String>) {
-        self.extra_cell_names = names;
+    fn cell_binding_names(&self) -> HashSet<String> {
+        self.scope
+            .scope_bindings()
+            .iter()
+            .filter_map(|(name, kind)| {
+                if matches!(kind, BindingKind::Nonlocal)
+                    && self.scope.is_local_definition(name)
+                    && !self.scope.is_explicit_nonlocal(name)
+                {
+                    Some(name.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     fn module_binds_name(&self, name: &str) -> bool {
@@ -123,31 +116,7 @@ impl NameScopeRewriter {
         }).unwrap_or(false)
     }
 
-    fn enclosing_function_binds_name(&self, name: &str) -> bool {
-        self.scope.parent_scope().and_then(|scope| scope.any_parent_scope(|scope| {
-            match scope.kind() {
-                ScopeKind::Function => {
-                    if matches!(
-                        scope.scope_bindings().get(name),
-                        Some(BindingKind::Local) | Some(BindingKind::Nonlocal)
-                    ) {
-                        return Some(true);
-                    } else {
-                        None
-                    }
-                }
-                ScopeKind::Module => {
-                    Some(false)
-                }
-                ScopeKind::Class => None,
-            }
-        })).unwrap_or(false)
-    }
-
     fn should_rewrite_locals_call(&self) -> bool {
-        if self.enclosing_function_binds_name("locals") {
-            return false;
-        }
         if let Some(binding) = self.scope.scope_bindings().get("locals").copied() {
             match binding {
                 BindingKind::Local | BindingKind::Nonlocal => return false,
@@ -162,139 +131,90 @@ impl NameScopeRewriter {
     }
 
 
-    fn rewrite_function_def(&mut self, func_def: &mut ast::StmtFunctionDef) {
-        for decorator in &mut func_def.decorator_list {
-            self.visit_decorator(decorator);
-        }
-        if let Some(type_params) = func_def.type_params.as_mut() {
-            self.visit_type_params(type_params);
-        }
-        self.visit_parameters(&mut func_def.parameters);
-        if let Some(returns) = func_def.returns.as_mut() {
-            self.visit_annotation(returns);
-        }
+    fn rewrite_name_load(&self, name: &ast::ExprName) -> Option<Expr> {
 
-        let child_scope = self
-            .scope
-            .child_scope_for_function(func_def)
-            .expect("no child scope for function");
-
-        let mut extra_cells = collect_named_expr_cells(&func_def.body);
-        let declared_globals = collect_declared_globals(&func_def.body);
-        extra_cells.retain(|name| {
-            if matches!(
-                child_scope.binding_in_scope(name, BindingUse::Load),
-                BindingKind::Global | BindingKind::Nonlocal
-            ) {
-                return false;
-            }
-            if declared_globals.contains(name) {
-                return false;
-            }
-            true
-        });
-        let mut child_rewriter = NameScopeRewriter::new(child_scope);
-        child_rewriter.set_extra_cell_names(extra_cells);
-        child_rewriter.visit_body(&mut func_def.body);
-        let param_names = collect_parameter_names(&func_def.parameters);
-        child_rewriter.insert_preamble(&mut func_def.body, &param_names);
-    }
-
-    fn rewrite_delete(&mut self, delete: ast::StmtDelete) -> Stmt {
-        
-        let ast::StmtDelete {
-            mut targets,
-            range,
-            node_index,
-        } = delete;
-        assert!(targets.len() == 1);
-
-        let target = &mut targets[0];
-        self.visit_expr(target);
-        if let Expr::Name(ast::ExprName { id, .. }) = &target {
-            let name = id.as_str();
-            if name == "__class__" {
-
-                return Stmt::Delete(ast::StmtDelete {
-                    targets: vec![target.clone()],
-                    range,
-                    node_index: node_index.clone(),
-                });
-            }
-            if self.needs_global(name) {
-                return py_stmt!(
-                    "__dp__.delitem(globals(), {name:literal})",
-                    name = name
-                );
-            }
-            if self.needs_cell(name) {
-                return py_stmt!("__dp__.del_cell({cell:id})", cell = name);
-            }
-        }
-        Stmt::Delete(ast::StmtDelete {
-            targets: vec![target.clone()],
-            range,
-            node_index: node_index.clone(),
-        })
-
-    }
-
-    fn rewrite_class_def(&mut self, class_def: &mut ast::StmtClassDef) {
-        for decorator in &mut class_def.decorator_list {
-            self.visit_decorator(decorator);
-        }
-        if let Some(type_params) = class_def.type_params.as_mut() {
-            self.visit_type_params(type_params);
-        }
-        if let Some(arguments) = class_def.arguments.as_mut() {
-            self.visit_arguments(arguments);
-        }
-
-        let class_scope = self
-            .scope
-            .child_scope_for_class(class_def)
-            .expect("no child scope for class");
-
-
-        let mut class_rewriter = NameScopeRewriter::new(class_scope);
-        class_rewriter.rewrite_class_children(&mut class_def.body);
-    }
-
-    fn rewrite_class_children(&mut self, body: &mut StmtBody) {
-        let mut new_body = Vec::with_capacity(body.body.len());
-        for stmt in body.body.drain(..) {
-            let mut stmt = *stmt;
-            match &mut stmt {
-                Stmt::FunctionDef(func_def) => {
-                    self.rewrite_function_def(func_def);
-                }
-                Stmt::ClassDef(class_def) => {
-                    self.rewrite_class_def(class_def);
-                }
-                _ => {}
-            }
-            new_body.push(Box::new(stmt));
-        }
-        body.body = new_body;
-    }
-
-    fn rewrite_load(&self, name: &ast::ExprName) -> Option<Expr> {
         let id = name.id.as_str();
-        if id == "__dp__" {
+        if is_internal_symbol(id) {
             return None;
         }
 
-        if self.needs_global(id) {
-            Some(py_expr!(
+        let binding = self.scope.scope_bindings().get(id).copied();
+        match (self.scope.kind(), binding) {
+            (ScopeKind::Class, Some(BindingKind::Global)) => Some(class_body_load_global(id)),
+            (ScopeKind::Class, Some(BindingKind::Nonlocal)) => Some(class_body_load_cell(id)),
+            (ScopeKind::Class, Some(BindingKind::Local)) => Some(class_body_load_global(id)),
+            (ScopeKind::Class, None) => Some(class_body_load_global(id)),
+            (_, Some(BindingKind::Global)) => Some(py_expr!(
                 "__dp__.load_global(globals(), {name:literal})",
                 name = id
-            ))
-        } else if self.needs_cell(id) {
-            Some(py_expr!("__dp__.load_cell({name:id})", name = id))
-        } else {
-            None
+            )),
+            (_, Some(BindingKind::Nonlocal)) => Some(py_expr!("__dp__.load_cell({name:id})", name = id)),
+            (_, Some(BindingKind::Local)) => None,
+            (_, None) => None,
         }
     }
+
+    fn rewrite_name_store(&self, name: &ast::ExprName) -> Option<Expr> {
+        let id = name.id.as_str();
+        if is_internal_symbol(id) {
+            return None;
+        }
+
+        match (self.scope.kind(), self.scope.binding_in_scope(id, BindingUse::Load)) {
+            (ScopeKind::Class, BindingKind::Global) => Some(class_body_store_global(id, name.ctx)),
+            (ScopeKind::Class, BindingKind::Nonlocal) => None,
+            (ScopeKind::Class, BindingKind::Local) => Some(class_body_store_target(id, name.ctx)),
+            (_, _) => None,
+        }
+    }
+
+    fn rewrite_named_expr_any(&mut self, named: &mut ast::ExprNamed) -> Option<Expr> {
+
+        let ast::ExprNamed { target, value, .. } = named;
+        let Expr::Name(ast::ExprName { id, .. }) = target.as_ref() else {
+            return None;
+        };
+
+        let name = id.as_str();
+        if is_internal_symbol(name) {
+            return None;
+        }
+
+        self.visit_expr(value.as_mut());
+
+        match self.scope.binding_in_scope(id.as_str(), BindingUse::Modify) {
+            BindingKind::Global => {
+                Some(py_expr!(
+                    "__dp__.store_global(globals(), {name:literal}, {value:expr})",
+                    name = id.as_str(),
+                    value = value.as_ref().clone()
+                ))
+            }
+            BindingKind::Nonlocal => {
+                Some(py_expr!(
+                    "__dp__.store_cell({cell:id}, {value:expr})",
+                    cell = id.as_str(),
+                    value = value.as_ref().clone()
+                ))
+            },
+            _ => None,
+        }
+    }
+
+    fn is_class_lookup_call(expr: &Expr) -> bool {
+        let Expr::Call(ast::ExprCall { func, .. }) = expr else {
+            return false;
+        };
+        let Expr::Attribute(ast::ExprAttribute { value, attr, .. }) = func.as_ref() else {
+            return false;
+        };
+        let Expr::Name(ast::ExprName { id, .. }) = value.as_ref() else {
+            return false;
+        };
+        id.as_str() == "__dp__"
+            && matches!(attr.id.as_str(), "class_lookup_cell" | "class_lookup_global")
+    }
+
 }
 
 fn collect_parameter_names(parameters: &ast::Parameters) -> HashSet<String> {
@@ -318,174 +238,124 @@ fn collect_parameter_names(parameters: &ast::Parameters) -> HashSet<String> {
 }
 
 
-fn collect_named_expr_cells(body: &StmtBody) -> HashSet<String> {
-    let mut collector = NamedExprComprehensionCollector::default();
-    let mut cloned = body.clone();
-    (&mut collector).visit_body(&mut cloned);
-    collector.names
-}
-
-fn collect_declared_globals(body: &StmtBody) -> HashSet<String> {
-    #[derive(Default)]
-    struct GlobalCollector {
-        names: HashSet<String>,
-    }
-
-    impl Transformer for GlobalCollector {
-        fn visit_stmt(&mut self, stmt: &mut Stmt) {
-            match stmt {
-                Stmt::FunctionDef(_) | Stmt::ClassDef(_) => return,
-                Stmt::Global(ast::StmtGlobal { names, .. }) => {
-                    for name in names {
-                        self.names.insert(name.id.to_string());
-                    }
-                    return;
-                }
-                _ => {}
-            }
-            walk_stmt(self, stmt);
-        }
-    }
-
-    let mut collector = GlobalCollector::default();
-    let mut cloned = body.clone();
-    (&mut collector).visit_body(&mut cloned);
-    collector.names
-}
-
-#[derive(Default)]
-struct NamedExprComprehensionCollector {
-    names: HashSet<String>,
-}
-
-impl NamedExprComprehensionCollector {
-    fn collect_from_comprehension(&mut self, elt: &Expr, generators: &[ast::Comprehension]) {
-        let mut collector = NamedExprTargetCollector::default();
-        let mut elt_clone = elt.clone();
-        (&mut collector).visit_expr(&mut elt_clone);
-        for comp in generators {
-            for if_expr in &comp.ifs {
-                let mut if_clone = if_expr.clone();
-                (&mut collector).visit_expr(&mut if_clone);
-            }
-            let mut iter_clone = comp.iter.clone();
-            (&mut collector).visit_expr(&mut iter_clone);
-        }
-        self.names.extend(collector.names);
-    }
-}
-
-impl Transformer for NamedExprComprehensionCollector {
-    fn visit_stmt(&mut self, stmt: &mut Stmt) {
-        match stmt {
-            Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
-                return;
-            }
-            _ => {}
-        }
-        walk_stmt(self, stmt);
-    }
-
-    fn visit_expr(&mut self, expr: &mut Expr) {
-        match expr {
-            Expr::Generator(ast::ExprGenerator { elt, generators, .. }) => {
-                self.collect_from_comprehension(elt, generators);
-                return;
-            }
-            Expr::Lambda(_) => {
-                return;
-            }
-            _ => {}
-        }
-        walk_expr(self, expr);
-    }
-}
-
-#[derive(Default)]
-struct NamedExprTargetCollector {
-    names: HashSet<String>,
-}
-
-impl Transformer for NamedExprTargetCollector {
-    fn visit_expr(&mut self, expr: &mut Expr) {
-        match expr {
-            Expr::Named(ast::ExprNamed { target, value, .. }) => {
-                if let Expr::Name(ast::ExprName { id, .. }) = target.as_ref() {
-                    self.names.insert(id.as_str().to_string());
-                } else {
-                    self.visit_expr(target);
-                }
-                self.visit_expr(value);
-                return;
-            }
-            Expr::Lambda(_)
-            | Expr::Generator(_)=> {
-                return;
-            }
-            _ => {}
-        }
-        walk_expr(self, expr);
-    }
-}
-
 impl Transformer for NameScopeRewriter {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
             Stmt::Delete(delete) => {
-                *stmt = self.rewrite_delete(delete.clone());
+
+                assert!(delete.targets.len() == 1);
+
+                let target = &mut delete.targets[0];
+                self.visit_expr(target);
+                if let Expr::Name(ast::ExprName { id, .. }) = &target {
+                    let name = id.as_str();
+                    if name == "__class__" {
+                        return;
+                    }
+        
+                    match self.scope.binding_in_scope(name, BindingUse::Load) {
+                        BindingKind::Global => {
+                            *stmt = py_stmt!(
+                                "__dp__.delitem(globals(), {name:literal})",
+                                name = name
+                            );
+                        }
+                        BindingKind::Nonlocal => {
+                            *stmt = py_stmt!("del {cell:id}.cell_contents", cell = name);
+                        }
+                        _ => {},
+                    }
+                }
             }
             Stmt::Global(_) | Stmt::Nonlocal(_) => {
-                if self.explicit_bindings_enabled() {
-                    *stmt = empty_body().into();
-                }
-                return;
+                *stmt = empty_body().into();
             }
             Stmt::Assign(ast::StmtAssign {
                 targets,
                 value,
-                range,
-                node_index,
+                ..
             }) => {
                 assert!(targets.len() == 1);
 
                 let mut target = targets[0].clone();
-        
-                self.visit_expr(value.as_mut());
-        
-                if let Expr::Name(ast::ExprName { id, .. }) = &target {
-                    if self.needs_global(id.as_str()) {
-                        *stmt = py_stmt!(
-                            "__dp__.store_global(globals(), {name:literal}, {value:expr})",
-                            name = id.as_str(),
-                            value = value.clone()
-                        );
-                        return;
-                    }
-                    if self.needs_cell(id.as_str()) {
-                        *stmt = py_stmt!(
-                            "__dp__.store_cell({cell:id}, {value:expr})",
-                            cell = id.as_str(),
-                            value = value.clone()
-                        );
-                        return;
-                    }
+                if let Expr::Name(ast::ExprName { ctx, .. }) = &mut target {
+                    *ctx = ExprContext::Store;
                 }
         
-                self.visit_expr(&mut target);
+                self.visit_expr(value.as_mut());
 
-                *stmt = Stmt::Assign(ast::StmtAssign {
-                    targets: vec![target],
-                    value: value.clone(),
-                    range: range.clone(),
-                    node_index: node_index.clone(),
-                });
+                if let Expr::Name(ast::ExprName { id, .. }) = &target {
+                    if is_internal_symbol(id.as_str()) {
+                        return;
+                    }
+                    let binding =
+                        self.scope.binding_in_scope(id.as_str(), BindingUse::Load);
 
+                    match (self.scope.kind(), binding) {
+                        (ScopeKind::Class, BindingKind::Local) => {
+                            *stmt = py_stmt!("_dp_class_ns[{name:literal}] = {value:expr}", name = id.as_str(), value = value.clone());
+                        }
+                        (_, BindingKind::Global) => {
+                            *stmt = py_stmt!(
+                                "__dp__.store_global(globals(), {name:literal}, {value:expr})",
+                                name = id.as_str(),
+                                value = value.clone()
+                            );
+                        }
+                        (_, BindingKind::Nonlocal) => {
+                            *stmt = py_stmt!(
+                                "__dp__.store_cell({cell:id}, {value:expr})",
+                                cell = id.as_str(),
+                                value = value.clone()
+                            );
+                        }
+                        (_, _) => {},
+                    }
+                }
             }
             Stmt::FunctionDef(func_def) => {
-                self.rewrite_function_def(func_def);
+                for decorator in &mut func_def.decorator_list {
+                    self.visit_decorator(decorator);
+                }
+                if let Some(type_params) = func_def.type_params.as_mut() {
+                    self.visit_type_params(type_params);
+                }
+                self.visit_parameters(&mut func_def.parameters);
+                if let Some(returns) = func_def.returns.as_mut() {
+                    self.visit_annotation(returns);
+                }
+        
+                let child_scope = self
+                    .scope
+                    .child_scope_for_function(func_def)
+                    .expect("no child scope for function");
+        
+                let mut child_rewriter = NameScopeRewriter::new(child_scope);
+                child_rewriter.visit_body(&mut func_def.body);
+                let param_names = collect_parameter_names(&func_def.parameters);
+                child_rewriter.insert_preamble(&mut func_def.body, &param_names);
             }
             Stmt::ClassDef(class_def) => {
-                self.rewrite_class_def(class_def);
+                for decorator in &mut class_def.decorator_list {
+                    self.visit_decorator(decorator);
+                }
+                if let Some(type_params) = class_def.type_params.as_mut() {
+                    self.visit_type_params(type_params);
+                }
+                if let Some(arguments) = class_def.arguments.as_mut() {
+                    self.visit_arguments(arguments);
+                }
+        
+                let class_scope = self
+                    .scope
+                    .child_scope_for_class(class_def)
+                    .expect("no child scope for class");
+        
+        
+                NameScopeRewriter::new(class_scope).visit_body(&mut class_def.body);        
+            }
+            Stmt::AnnAssign(_) => {
+                panic!("AnnAssign should be gone now");
             }
             _ => walk_stmt(self, stmt),
         }
@@ -493,40 +363,59 @@ impl Transformer for NameScopeRewriter {
 
 
     fn visit_expr(&mut self, expr: &mut Expr) {
+        if self.is_class_scope() {
+            match expr {
+                Expr::Lambda(ast::ExprLambda { parameters, .. }) => {
+                    if let Some(parameters) = parameters {
+                        self.visit_parameters(parameters);
+                    }
+                    return;
+                }
+                Expr::Generator(ast::ExprGenerator { generators, .. })
+                | Expr::ListComp(ast::ExprListComp { generators, .. })
+                | Expr::SetComp(ast::ExprSetComp { generators, .. })
+                | Expr::DictComp(ast::ExprDictComp { generators, .. }) => {
+                    if let Some(first) = generators.first_mut() {
+                        self.visit_expr(&mut first.iter);
+                    }
+                    return;
+                }
+                _ => {}
+            }
+        }
         match expr {
+            Expr::Call(ast::ExprCall { .. }) => {
+                if self.is_class_scope() {
+                    if Self::is_class_lookup_call(expr) {
+                        return;
+                    }
+                    if is_noarg_call("locals", expr) || is_noarg_call("vars", expr) {
+                        *expr = py_expr!("_dp_class_ns");
+                        return;
+                    }
+                } else if is_noarg_call("locals", expr) && self.should_rewrite_locals_call()
+                {
+                    *expr = py_expr!("__dp__.locals()");
+                    return;
+                }
+            }
+            Expr::Named(named) => {
+                if let Some(rewritten) = self.rewrite_named_expr_any(named) {
+                    *expr = rewritten;
+                    return;
+                }
+            }
             Expr::Name(name) if matches!(name.ctx, ExprContext::Load) => {
-                if let Some(rewritten) = self.rewrite_load(name) {
+                if let Some(rewritten) = self.rewrite_name_load(name) {
                     *expr = rewritten;
                 }
                 return;
             }
-            Expr::Named(ast::ExprNamed { target, value, .. }) => {
-                if let Expr::Name(ast::ExprName { id, .. }) = target.as_ref() {
-                    if self.needs_global(id.as_str()) {
-                        self.visit_expr(value.as_mut());
-                        *expr = py_expr!(
-                            "__dp__.store_global(globals(), {name:literal}, {value:expr})",
-                            name = id.as_str(),
-                            value = value.as_ref().clone()
-                        );
-                        return;
-                    }
-                    if self.needs_cell(id.as_str()) {
-                        self.visit_expr(value.as_mut());
-                        *expr = py_expr!(
-                            "__dp__.store_cell({cell:id}, {value:expr})",
-                            cell = id.as_str(),
-                            value = value.as_ref().clone()
-                        );
-                        return;
-                    }
+            Expr::Name(name) if matches!(name.ctx, ExprContext::Store | ExprContext::Del) => {
+                if let Some(rewritten) = self.rewrite_name_store(name) {
+                    *expr = rewritten;
                 }
-            }
-            Expr::Call(ast::ExprCall { func, arguments, .. }) => {
-                if is_noarg_call("locals", func.as_ref()) && self.should_rewrite_locals_call() {
-                    *expr = py_expr!("__dp__.locals()");
-                    return;
-                }
+                return;
             }
             _ => {}
         }

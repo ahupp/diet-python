@@ -27,6 +27,33 @@ impl AnnotationStripper {
   }
 }
 
+fn class_body_binds_annotate(body: &StmtBody) -> bool {
+    for stmt in &body.body {
+        match stmt.as_ref() {
+            Stmt::FunctionDef(func_def) => {
+                if func_def.name.id.as_str() == "__annotate__" {
+                    return true;
+                }
+            }
+            Stmt::Assign(ast::StmtAssign { targets, .. }) => {
+                if targets.iter().any(|target| {
+                    matches!(target, Expr::Name(ast::ExprName { id, .. }) if id.as_str() == "__annotate__")
+                }) {
+                    return true;
+                }
+            }
+            Stmt::AnnAssign(ast::StmtAnnAssign { target, .. })
+            | Stmt::AugAssign(ast::StmtAugAssign { target, .. }) => {
+                if matches!(target.as_ref(), Expr::Name(ast::ExprName { id, .. }) if id.as_str() == "__annotate__") {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
 
 impl Transformer for AnnotationStripper {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
@@ -36,8 +63,16 @@ impl Transformer for AnnotationStripper {
                 // drop the collected annotations
             }
             Stmt::ClassDef(class_def) => {
-                let ds = to_dunder_annotate(AnnotationStripper::strip(&mut class_def.body));
-                class_def.body.body.push(Box::new(ds));
+                let entries = AnnotationStripper::strip(&mut class_def.body);
+                if !entries.is_empty() {
+                    let ds = to_dunder_annotate(entries);
+                    class_def.body.body.push(Box::new(ds));
+                } else if !class_body_binds_annotate(&class_def.body) {
+                    class_def
+                        .body
+                        .body
+                        .push(Box::new(py_stmt!("__annotate__ = None")));
+                }
             }
             Stmt::AnnAssign(ast::StmtAnnAssign { target, annotation, value, .. }) => {
                 if let Expr::Name(ast::ExprName { id, .. }) = target.as_ref() {

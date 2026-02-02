@@ -6,12 +6,12 @@ use super::{
     context::{Context},
     rewrite_import, 
 };
-use crate::transform::{rewrite_expr, rewrite_function_def, rewrite_future_annotations, rewrite_names};
+use crate::transform::{ast_rewrite::{ExprRewritePass, StmtRewritePass}, rewrite_expr, rewrite_function_def, rewrite_future_annotations, rewrite_names};
 use crate::transform::simplify::strip_generated_passes;
 use crate::ensure_import;
 use crate::transform::ast_rewrite::rewrite_with_pass;
 use crate::transform::scope::{analyze_module_scope};
-use crate::transform::{ast_rewrite::{LoweredExpr, Rewrite, RewritePass}, rewrite_expr::{lower_expr}, rewrite_stmt};
+use crate::transform::{ast_rewrite::{LoweredExpr, Rewrite}, rewrite_expr::{lower_expr}, rewrite_stmt};
 use crate::{
     transform::rewrite_class_def,
 };
@@ -25,30 +25,27 @@ pub fn rewrite_module(context: &Context, module: &mut StmtBody) {
     // Rewrite names like "__foo" in class bodies to "_<class_name>__foo"
     rewrite_class_def::private::rewrite_private_names(context, module);
 
-        
     // Replace annotated assignments ("x: int = 1") with regular assignments,
     // and either drop the annotations (in functions) or generate an
     // __annotate__ function (in modules and classes)
     rewrite_stmt::annotation::rewrite_ann_assign_to_dunder_annotate(context, module);
 
-
     // Lower many kinds of statements and expressions into simpler forms. This removes:
     // for, with, augassign, annassign, get/set/del item, unpack, multi-target assignment,
     // operators, comparisons, and comprehensions.
-    rewrite_with_pass(context, &SimplifyPass, module);
+    rewrite_with_pass(context, Some(&SimplifyStmtPass), Some(&SimplifyExprPass), module);
 
     let scope = analyze_module_scope(module);
+    
 
     // Rename functions to _dp_fn_<original_name>, manually update
     // __qualname__/__name__ and apply decorators, and then assign the _dp_fn_
     // name back to the original name.  This:
-    //  - give correct qualname even when the transform inserts functions
+    //  - gives correct qualname even when the transform inserts functions
     //  - avoids making the method name visible inside method bodies.  
     //  - The assignment back to the original name will be re-written by later scoping passes
     //    to the correct global dict / cell load/store / class body load/store operation 
     rewrite_function_def::rewrite_function_defs(context, scope.clone(), module);
-
-    rewrite_class_def::class_body::rewrite_class_body_scopes(context, scope.clone(), module);
 
     let scope = analyze_module_scope(module);
 
@@ -56,7 +53,9 @@ pub fn rewrite_module(context: &Context, module: &mut StmtBody) {
     //  - globals: __dp__.load/store_global(globals(), name)
     //  - nonlocal: create a cell in the outermost scope, and access with __dp__.load/store_cell(cell, value)
     //  - class-body: class_body_load_cell/global(_dp_class_ns, name, cell / globals()) captures "try class, then outer"
-    rewrite_names::rewrite_explicit_bindings(scope, module);
+    rewrite_names::rewrite_explicit_bindings(scope.clone(), module);
+
+    rewrite_class_def::class_body::rewrite_class_body_scopes(context, scope, module);
 
     strip_generated_passes(context, module);
 
@@ -75,9 +74,9 @@ pub fn rewrite_module(context: &Context, module: &mut StmtBody) {
 }
 
 
-pub struct SimplifyPass;
+pub struct SimplifyStmtPass;
 
-impl RewritePass for SimplifyPass {
+impl StmtRewritePass for SimplifyStmtPass {
 
     fn lower_stmt(&self, context: &Context, stmt: Stmt) -> Rewrite {
         match stmt {
@@ -102,6 +101,11 @@ impl RewritePass for SimplifyPass {
             other => Rewrite::Unmodified(other),
         }
     }
+}
+
+pub struct SimplifyExprPass;    
+
+impl ExprRewritePass for SimplifyExprPass {
 
     fn lower_expr(&self, context: &Context, expr: Expr) -> LoweredExpr {
         lower_expr(context, expr)

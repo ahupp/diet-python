@@ -19,7 +19,7 @@ impl Transformer for MethodRewriteSuperClasscell {
                 assert!(targets.len() == 1);
                 if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
                     if id.as_str() == "__class__" {
-                        *stmt = py_stmt!("del __classcell__.cell_contents");
+                        *stmt = py_stmt!("del _dp_classcell.cell_contents");
                         self.needs_class_cell = true;
                         return;
                     }
@@ -54,7 +54,7 @@ impl Transformer for MethodRewriteSuperClasscell {
                     self.needs_class_cell = true;
                     *expr = match &self.first_arg {
                         Some(arg) => py_expr!(
-                            "__dp__.call_super(super, __classcell__, {arg:id})",
+                            "__dp__.call_super(super, _dp_classcell, {arg:id})",
                             arg = arg.as_str()
                         ),
                         None => py_expr!("__dp__.call_super_noargs(super)"),
@@ -68,11 +68,7 @@ impl Transformer for MethodRewriteSuperClasscell {
             Expr::Name(ast::ExprName { id, .. }) => {
                 if id.as_str() == "__class__" {
                     self.needs_class_cell = true;
-                    *expr = py_expr!("__classcell__.cell_contents");
-                    return;
-                }
-                if id.as_str() == "__classcell__" {
-                    self.needs_class_cell = true;
+                    *expr = py_expr!("_dp_classcell.cell_contents");
                     return;
                 }
             }

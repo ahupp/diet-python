@@ -1,10 +1,15 @@
-use std::{backtrace::Backtrace, mem::take};
+use std::{backtrace::Backtrace, collections::HashSet, mem::take};
 
 use log::{Level, log_enabled, trace};
 use ruff_python_ast::{Expr, Stmt, StmtBody, self as ast};
 use ruff_text_size::{Ranged, TextRange};
 
-use crate::{ruff_ast_to_string, template::{empty_body, into_body}, transform::context::Context};
+use crate::{
+    ruff_ast_to_string,
+    template::{empty_body, into_body},
+    transform::context::{Context, ScopeFrame},
+};
+use crate::transform::scope::ScopeKind;
 use crate::transformer::{Transformer, walk_expr, walk_stmt};
 
 
@@ -105,31 +110,32 @@ impl LoweredExpr {
     }
 }
 
-pub fn rewrite_once_with_pass<'a, P: RewritePass>(
+pub fn rewrite_once_with_pass<'a>(
     context: &'a Context,
-    pass: &'a P,
+    stmt_pass: Option<&'a dyn StmtRewritePass>,
+    expr_pass: Option<&'a dyn ExprRewritePass>,
     body: &mut StmtBody,
 ) -> bool {
-    let pass_name = std::any::type_name::<P>();
-    let mut rloop = RewriteLoop {
+
+        let mut rloop = RewriteLoop {
         context,
-        pass,
-        pass_name,
+        stmt_pass,
+        expr_pass,
         buf: Vec::new(),
         modified: false,
-        suppress_lowering: 0,
     };
     rloop.visit_body(body);
     assert!(rloop.buf.is_empty());
     rloop.modified
 }
 
-pub fn rewrite_with_pass<'a, P: RewritePass>(
+pub fn rewrite_with_pass<'a>(
     context: &'a Context,
-    pass: &'a P,
+    stmt_pass: Option<&'a dyn StmtRewritePass>,
+    expr_pass: Option<&'a dyn ExprRewritePass>,
     body: &mut StmtBody,
 ) {
-    let pass_name = std::any::type_name::<P>();
+    let pass_name = "rewrite_with_pass";
     let mut iteration = 0usize;
     loop {
         iteration += 1;
@@ -140,7 +146,7 @@ pub fn rewrite_with_pass<'a, P: RewritePass>(
                 pass_name,
             );
         }
-        let modified = rewrite_once_with_pass(context, pass, body);
+        let modified = rewrite_once_with_pass(context, stmt_pass, expr_pass, body);
 
         if log_enabled!(Level::Trace) {
             trace!(
@@ -156,19 +162,65 @@ pub fn rewrite_with_pass<'a, P: RewritePass>(
     }
 }
 
-struct RewriteLoop<'a, P: RewritePass> {
+struct RewriteLoop<'a> {
     buf: Vec<Stmt>,
     context: &'a Context,
-    pass: &'a P,
-    pass_name: &'static str,
+    stmt_pass: Option<&'a dyn StmtRewritePass>,
+    expr_pass: Option<&'a dyn ExprRewritePass>,
     modified: bool,
-    suppress_lowering: usize,
+}
+
+pub trait StmtRewritePass {
+    fn lower_stmt(&self, context: &Context, stmt: Stmt) -> Rewrite;
+}
+
+pub trait ExprRewritePass {
+    fn lower_expr(&self, context: &Context, expr: Expr) -> LoweredExpr;
 }
 
 
-impl<'a, P: RewritePass> RewriteLoop<'a, P> {
+impl<'a> RewriteLoop<'a> {
     fn flush_buffered(&mut self, mut stmt: Stmt, output: &mut Vec<Stmt>) {
-        walk_stmt(self, &mut stmt);
+        match &mut stmt {
+            Stmt::FunctionDef(func_def) => {
+                for decorator in &mut func_def.decorator_list {
+                    self.visit_decorator(decorator);
+                }
+                if let Some(type_params) = func_def.type_params.as_mut() {
+                    self.visit_type_params(type_params);
+                }
+                self.visit_parameters(&mut func_def.parameters);
+                if let Some(returns) = func_def.returns.as_mut() {
+                    self.visit_annotation(returns);
+                }
+
+                let (globals, nonlocals) = collect_declared_bindings(&func_def.body);
+                self.context
+                    .push_scope(ScopeFrame::new(ScopeKind::Function, globals, nonlocals));
+                self.visit_body(&mut func_def.body);
+                self.context.pop_scope();
+            }
+            Stmt::ClassDef(class_def) => {
+                for decorator in &mut class_def.decorator_list {
+                    self.visit_decorator(decorator);
+                }
+                if let Some(type_params) = class_def.type_params.as_mut() {
+                    self.visit_type_params(type_params);
+                }
+                if let Some(arguments) = class_def.arguments.as_mut() {
+                    self.visit_arguments(arguments);
+                }
+
+                self.context.push_scope(ScopeFrame::new(
+                    ScopeKind::Class,
+                    HashSet::new(),
+                    HashSet::new(),
+                ));
+                self.visit_body(&mut class_def.body);
+                self.context.pop_scope();
+            }
+            _ => walk_stmt(self, &mut stmt),
+        }
 
         let buffered = take(&mut self.buf);
 
@@ -179,6 +231,10 @@ impl<'a, P: RewritePass> RewriteLoop<'a, P> {
     }
 
     fn process_statements(&mut self, initial: Vec<Stmt>) -> Vec<Stmt> {
+        let stmt_pass = if let Some(stmt_pass) = self.stmt_pass { stmt_pass } else {
+            return initial;
+        };
+
         let mut output = Vec::new();
         assert!(self.buf.is_empty());
 
@@ -187,7 +243,7 @@ impl<'a, P: RewritePass> RewriteLoop<'a, P> {
             if log_enabled!(Level::Trace) {
                 before = Some(crate::ruff_ast_to_string(&stmt));
             }
-            let res = self.pass.lower_stmt(self.context, stmt);
+            let res = stmt_pass.lower_stmt(self.context, stmt);
             match res {
                 Rewrite::Unmodified(stmt) => {
                     self.flush_buffered(stmt, &mut output);
@@ -195,8 +251,7 @@ impl<'a, P: RewritePass> RewriteLoop<'a, P> {
                 Rewrite::Walk(stmt) => {
                     if log_enabled!(Level::Trace) {
                         trace!(
-                            "rewrite (pass={}) before: \n{} after: \n{}",
-                            self.pass_name,
+                            "rewrite before: \n{} after: \n{}",
                             before.unwrap_or_default(),
                             crate::ruff_ast_to_string(&stmt).trim_end()
                         );
@@ -212,7 +267,7 @@ impl<'a, P: RewritePass> RewriteLoop<'a, P> {
 
 }
 
-impl<'a, P: RewritePass> Transformer for RewriteLoop<'a, P> {
+impl<'a> Transformer for RewriteLoop<'a> {
     fn visit_body(&mut self, body: &mut StmtBody) {
 
         let saved_buf = take(&mut self.buf);
@@ -229,17 +284,9 @@ impl<'a, P: RewritePass> Transformer for RewriteLoop<'a, P> {
     }
 
     fn visit_expr(&mut self, expr_input: &mut Expr) {
-        if self.suppress_lowering > 0 {
-            walk_expr(self, expr_input);
+        let expr_pass = if let Some(expr_pass) = self.expr_pass { expr_pass } else {
             return;
-        }
-        if matches!(expr_input, Expr::Lambda(_) | Expr::Generator(_)) {
-            self.suppress_lowering += 1;
-            walk_expr(self, expr_input);
-            self.suppress_lowering -= 1;
-            return;
-        }
-
+        };
         let original_range = expr_input.range();
         let mut lowered: LoweredExpr;
         let mut current = expr_input.clone();
@@ -251,15 +298,14 @@ impl<'a, P: RewritePass> Transformer for RewriteLoop<'a, P> {
             if log_enabled!(Level::Trace) {
                 log_input = Some(ruff_ast_to_string(&current).trim_end().to_string());
             }
-            lowered = self.pass.lower_expr(self.context, current);
+            lowered = expr_pass.lower_expr(self.context, current);
 
             let LoweredExpr { stmt, expr, modified } = lowered;
             if log_enabled!(Level::Trace) {
                 trace!(
-                    "lower_expr iteration={} modified={} pass={} \ninput: {}\noutput: \n{}\nstmt: \n{}",
+                    "lower_expr iteration={} modified={} \ninput: {}\noutput: \n{}\nstmt: \n{}",
                     iteration,
                     modified,
-                    self.pass_name,
                     log_input.unwrap_or_default(),
                     ruff_ast_to_string(&expr).trim_end(),
                     ruff_ast_to_string(&stmt).trim_end(),
@@ -278,14 +324,7 @@ impl<'a, P: RewritePass> Transformer for RewriteLoop<'a, P> {
         }
 
         if !modified_any {
-            if log_enabled!(Level::Trace) {
-                trace!(
-                    "walk_expr (pass={}): {}",
-                    self.pass_name,
-                    ruff_ast_to_string(&current)
-                    .trim_end()
-                );
-            }
+            trace!("walk_expr: {}", ruff_ast_to_string(&current).trim_end());
 
             walk_expr(self, &mut current);
         }
@@ -299,9 +338,42 @@ impl<'a, P: RewritePass> Transformer for RewriteLoop<'a, P> {
 }
 
 
-pub trait RewritePass {
-    fn lower_stmt(&self, context: &Context, stmt: Stmt) -> Rewrite;
-    fn lower_expr(&self, context: &Context, expr: Expr) -> LoweredExpr;
+
+fn collect_declared_bindings(body: &StmtBody) -> (HashSet<String>, HashSet<String>) {
+    #[derive(Default)]
+    struct Collector {
+        globals: HashSet<String>,
+        nonlocals: HashSet<String>,
+    }
+
+    impl Transformer for Collector {
+        fn visit_stmt(&mut self, stmt: &mut Stmt) {
+            match stmt {
+                Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
+                    return;
+                }
+                Stmt::Global(ast::StmtGlobal { names, .. }) => {
+                    for name in names {
+                        self.globals.insert(name.id.to_string());
+                    }
+                    return;
+                }
+                Stmt::Nonlocal(ast::StmtNonlocal { names, .. }) => {
+                    for name in names {
+                        self.nonlocals.insert(name.id.to_string());
+                    }
+                    return;
+                }
+                _ => {}
+            }
+            walk_stmt(self, stmt);
+        }
+    }
+
+    let mut collector = Collector::default();
+    let mut cloned = body.clone();
+    collector.visit_body(&mut cloned);
+    (collector.globals, collector.nonlocals)
 }
 
 

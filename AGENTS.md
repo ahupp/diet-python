@@ -11,7 +11,3 @@
 - To inspect the transformed output of some code, run `cargo run --bin diet-python file_with_code.py`, which prints output to stdout.
 - *MUST FOLLOW* when fixing a bug that fails a cpython test case *always* add a minimal reproducing integration test to reproduce it first.
 - CPython source for tests lives in `../cpython` relative to this repo root (scripts expect the `python` binary there).
-- **NOTE**: Default test protocol for `./scripts/pytest_cpython.sh tests/` is:
-  - run with `DIET_PYTHON_INTEGRATION_ONLY=1` (transform only the integration module)
-  - then run without it (transform all imports)
- 

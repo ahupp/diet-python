@@ -54,7 +54,6 @@ pub struct _object {
 pub union _object__bindgen_ty_1 {
     pub ob_refcnt_full: i64,
     pub __bindgen_anon_1: _object__bindgen_ty_1__bindgen_ty_1,
-    pub _aligner: core::ffi::c_char,
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone)]

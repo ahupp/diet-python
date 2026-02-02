@@ -172,10 +172,6 @@ pub(crate) enum PlaceholderValue {
 
 pub(crate) struct DictEntries<I>(I);
 
-pub(crate) fn dict_entries<I>(entries: I) -> DictEntries<I> {
-    DictEntries(entries)
-}
-
 fn expand_body_stmt(stmt: Stmt) -> Vec<Stmt> {
     match stmt {
         Stmt::BodyStmt(body) => body.body.into_iter().map(|stmt| *stmt).collect(),
@@ -438,7 +434,7 @@ pub fn into_body(stmts: impl IntoIterator<Item = Stmt>) -> Stmt {
     Stmt::BodyStmt(StmtBody { body: stmts.into_iter().map(|stmt| Box::new(stmt)).collect(), range: TextRange::default(), node_index: ast::AtomicNodeIndex::default() }).into()
 }
 
-struct PlaceholderReplacer {
+    struct PlaceholderReplacer {
     values: HashMap<String, PlaceholderValue>,
     ids: HashMap<String, Value>,
     tmpnames: HashMap<String, String>,

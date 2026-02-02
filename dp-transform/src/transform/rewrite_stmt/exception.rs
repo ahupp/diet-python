@@ -39,7 +39,7 @@ pub fn rewrite_try(stmt: ast::StmtTry) -> Rewrite {
         }) = handler;
 
         if type_.is_none() {
-            debug_assert!(name.is_none());
+            assert!(name.is_none());
             return py_stmt!(
                 r#"
 {body:stmt}

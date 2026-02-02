@@ -1,6 +1,7 @@
+use std::collections::HashSet;
 use std::mem::take;
 
-use ruff_python_ast::{self as ast, Expr, Operator, UnaryOp};
+use ruff_python_ast::{self as ast, Expr, Operator, Stmt, UnaryOp};
 use ruff_python_ast::str_prefix::StringLiteralPrefix;
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_source_file::LineEnding;
@@ -11,9 +12,13 @@ use crate::transform::ast_rewrite::{BodyBuilder, push_stmt};
 use crate::{
     py_expr,
     py_stmt,
+    py_stmt_typed,
     template::into_body,
     transform::{ast_rewrite::LoweredExpr, context::Context},
 };
+use crate::transform::scope::ScopeKind;
+use crate::transformer::{Transformer, walk_expr};
+use ruff_python_ast::Identifier;
 
 pub mod comprehension;
 pub mod string;
@@ -44,8 +49,17 @@ pub fn lower_expr(context: &Context, expr: Expr) -> LoweredExpr {
         }
         Expr::Named(named_expr) => {
             let ast::ExprNamed { target, value, .. } = named_expr;
+            let mut target_expr = *target.clone();
+            match &mut target_expr {
+                Expr::Name(ast::ExprName { ctx, .. })
+                | Expr::Attribute(ast::ExprAttribute { ctx, .. })
+                | Expr::Subscript(ast::ExprSubscript { ctx, .. }) => {
+                    *ctx = ast::ExprContext::Load;
+                }
+                _ => {}
+            }
             LoweredExpr::modified(
-                py_expr!("{target:expr}", target = target.clone()), 
+                py_expr!("{target:expr}", target = target_expr),
             py_stmt!(
                 "{target:expr} = {value:expr}",
                 target = *target,
@@ -172,10 +186,10 @@ else:
             ))
         }
         Expr::ListComp(ast::ExprListComp { elt, generators, .. }) => {
-            comprehension::lower_inline_list_comp(context, *elt, generators)
+            comprehension::lower_list_comp(context, *elt, generators)
         }
         Expr::SetComp(ast::ExprSetComp { elt, generators, .. }) => {
-            comprehension::lower_inline_set_comp(context, *elt, generators)
+            comprehension::lower_set_comp(context, *elt, generators)
         }
         Expr::DictComp(ast::ExprDictComp {
             key,
@@ -183,7 +197,30 @@ else:
             generators,
             ..
         }) => {
-            comprehension::lower_inline_dict_comp(context, *key, *value, generators)
+            comprehension::lower_dict_comp(context, *key, *value, generators)
+        }
+        Expr::Lambda(ast::ExprLambda { parameters, body, .. }) => {
+            let func_name = context.fresh("lambda");
+            let mut func_def: ast::StmtFunctionDef = py_stmt_typed!(
+                r#"
+def {func:id}():
+    pass
+"#,
+                func = func_name.as_str(),
+            );
+            if let Some(params) = parameters {
+                func_def.parameters = params;
+            }
+            let return_stmt = py_stmt!("return {value:expr}", value = *body);
+            func_def.body = ast::StmtBody {
+                body: vec![Box::new(return_stmt)],
+                range: TextRange::default(),
+                node_index: ast::AtomicNodeIndex::default(),
+            };
+            LoweredExpr::modified(py_expr!("{func:id}", func = func_name.as_str()), func_def)
+        }
+        Expr::Generator(ast::ExprGenerator { elt, generators, .. }) => {
+            lower_generator_expr(context, *elt, generators)
         }
         Expr::NumberLiteral(ast::ExprNumberLiteral {
             value: ast::Number::Complex { real, imag },
@@ -445,6 +482,294 @@ else:
             }
         }
         other => LoweredExpr::unmodified(other),
+    }
+}
+
+fn lower_generator_expr(
+    context: &Context,
+    mut elt: Expr,
+    mut generators: Vec<ast::Comprehension>,
+) -> LoweredExpr {
+    let scope = context.current_scope();
+    let named_targets = collect_named_expr_targets(&elt, &generators);
+    let mut global_targets: HashSet<String> = HashSet::new();
+    let mut class_targets: HashSet<String> = HashSet::new();
+    let mut nonlocal_targets: HashSet<String> = HashSet::new();
+    let mut dummy_targets: Vec<String> = Vec::new();
+
+    match scope.kind {
+        ScopeKind::Module => {
+            global_targets = named_targets;
+        }
+        ScopeKind::Class => {
+            class_targets = named_targets;
+        }
+        ScopeKind::Function => {
+            for name in named_targets {
+                if scope.globals.contains(&name) {
+                    global_targets.insert(name);
+                } else {
+                    nonlocal_targets.insert(name.clone());
+                    if !scope.nonlocals.contains(&name) {
+                        dummy_targets.push(name);
+                    }
+                }
+            }
+        }
+    }
+
+    if !global_targets.is_empty() || !class_targets.is_empty() {
+        let mut rewriter = NamedExprRewriter::new(&global_targets, &class_targets);
+        rewriter.visit_expr(&mut elt);
+        for gen in &mut generators {
+            rewriter.visit_expr(&mut gen.iter);
+            for if_expr in &mut gen.ifs {
+                rewriter.visit_expr(if_expr);
+            }
+        }
+    }
+
+    let first_gen = match generators.first() {
+        Some(gen) => gen,
+        None => {
+            return LoweredExpr::unmodified(Expr::Generator(ast::ExprGenerator {
+                elt: Box::new(elt),
+                generators,
+                parenthesized: true,
+                range: TextRange::default(),
+                node_index: ast::AtomicNodeIndex::default(),
+            }))
+        }
+    };
+
+    let iter_expr = first_gen.iter.clone();
+    let iter_lowered = lower_expr(context, iter_expr);
+    let iter_call = if first_gen.is_async {
+        py_expr!("__dp__.aiter({iter:expr})", iter = iter_lowered.expr.clone())
+    } else {
+        py_expr!("__dp__.iter({iter:expr})", iter = iter_lowered.expr.clone())
+    };
+
+    let func_name = context.fresh("genexpr");
+    let iter_param = context.fresh("iter");
+    let is_async = generators.iter().any(|gen| gen.is_async);
+    let mut func_def: ast::StmtFunctionDef = if is_async {
+        py_stmt_typed!(
+            r#"
+async def {func:id}({param:id}):
+    pass
+"#,
+            func = func_name.as_str(),
+            param = iter_param.as_str(),
+        )
+    } else {
+        py_stmt_typed!(
+            r#"
+def {func:id}({param:id}):
+    pass
+"#,
+            func = func_name.as_str(),
+            param = iter_param.as_str(),
+        )
+    };
+
+    let iter_param_expr = py_expr!("{name:id}", name = iter_param.as_str());
+    let mut body = vec![py_stmt!("yield {value:expr}", value = elt)];
+    let gen_count = generators.len();
+    for (rev_index, gen) in generators.into_iter().rev().enumerate() {
+        let is_outermost = rev_index + 1 == gen_count;
+        let loop_body = wrap_ifs(body, gen.ifs);
+        let iter = if is_outermost {
+            iter_param_expr.clone()
+        } else {
+            gen.iter
+        };
+        let for_stmt = if gen.is_async {
+            py_stmt!(
+                r#"
+async for {target:expr} in {iter:expr}:
+    {body:stmt}
+"#,
+                target = gen.target,
+                iter = iter,
+                body = loop_body,
+            )
+        } else {
+            py_stmt!(
+                r#"
+for {target:expr} in {iter:expr}:
+    {body:stmt}
+"#,
+                target = gen.target,
+                iter = iter,
+                body = loop_body,
+            )
+        };
+        body = vec![for_stmt];
+    }
+
+    let mut func_body: Vec<Stmt> = Vec::new();
+    if !nonlocal_targets.is_empty() {
+        let mut names = nonlocal_targets.into_iter().collect::<Vec<_>>();
+        names.sort();
+        let names = names
+            .into_iter()
+            .map(|name| Identifier::new(name, TextRange::default()))
+            .collect();
+        func_body.push(Stmt::Nonlocal(ast::StmtNonlocal {
+            names,
+            range: TextRange::default(),
+            node_index: ast::AtomicNodeIndex::default(),
+        }));
+    }
+    func_body.extend(body);
+    func_def.body = ast::StmtBody {
+        body: func_body.into_iter().map(Box::new).collect(),
+        range: TextRange::default(),
+        node_index: ast::AtomicNodeIndex::default(),
+    };
+
+    let mut prefix: Vec<Stmt> = Vec::new();
+    for name in dummy_targets {
+        prefix.push(py_stmt!(
+            r#"
+if False:
+    {name:id} = None
+"#,
+            name = name.as_str()
+        ));
+    }
+    append_stmt(&mut prefix, iter_lowered.stmt);
+    prefix.push(func_def.into());
+
+    let call_expr = py_expr!(
+        "{func:id}({iter:expr})",
+        func = func_name.as_str(),
+        iter = iter_call,
+    );
+
+    LoweredExpr::modified(call_expr, into_body(prefix))
+}
+
+
+fn wrap_ifs(mut body: Vec<Stmt>, ifs: Vec<Expr>) -> Vec<Stmt> {
+    for if_expr in ifs.into_iter().rev() {
+        body = vec![py_stmt!(
+            r#"
+if {test:expr}:
+    {body:stmt}
+"#,
+            test = if_expr,
+            body = body,
+        )];
+    }
+    body
+}
+
+fn append_stmt(stmts: &mut Vec<Stmt>, stmt: Stmt) {
+    match stmt {
+        Stmt::BodyStmt(ast::StmtBody { body, .. }) => {
+            for inner in body {
+                append_stmt(stmts, *inner);
+            }
+        }
+        other => stmts.push(other),
+    }
+}
+
+fn collect_named_expr_targets(
+    elt: &Expr,
+    generators: &[ast::Comprehension],
+) -> HashSet<String> {
+    let mut collector = NamedExprTargetCollector::default();
+    let mut elt_clone = elt.clone();
+    collector.visit_expr(&mut elt_clone);
+    for gen in generators {
+        let mut iter_clone = gen.iter.clone();
+        collector.visit_expr(&mut iter_clone);
+        for if_expr in &gen.ifs {
+            let mut if_clone = if_expr.clone();
+            collector.visit_expr(&mut if_clone);
+        }
+    }
+    collector.names
+}
+
+#[derive(Default)]
+struct NamedExprTargetCollector {
+    names: HashSet<String>,
+}
+
+impl Transformer for NamedExprTargetCollector {
+    fn visit_expr(&mut self, expr: &mut Expr) {
+        match expr {
+            Expr::Named(ast::ExprNamed { target, value, .. }) => {
+                if let Expr::Name(ast::ExprName { id, .. }) = target.as_ref() {
+                    self.names.insert(id.as_str().to_string());
+                } else {
+                    self.visit_expr(target);
+                }
+                self.visit_expr(value);
+                return;
+            }
+            Expr::Lambda(_) | Expr::Generator(_) => {
+                return;
+            }
+            _ => {}
+        }
+        walk_expr(self, expr);
+    }
+}
+
+struct NamedExprRewriter<'a> {
+    global_targets: &'a HashSet<String>,
+    class_targets: &'a HashSet<String>,
+}
+
+impl<'a> NamedExprRewriter<'a> {
+    fn new(global_targets: &'a HashSet<String>, class_targets: &'a HashSet<String>) -> Self {
+        Self {
+            global_targets,
+            class_targets,
+        }
+    }
+}
+
+impl Transformer for NamedExprRewriter<'_> {
+    fn visit_expr(&mut self, expr: &mut Expr) {
+        match expr {
+            Expr::Named(ast::ExprNamed { target, value, .. }) => {
+                if let Expr::Name(ast::ExprName { id, .. }) = target.as_ref() {
+                    let name = id.as_str();
+                    if self.global_targets.contains(name) {
+                        self.visit_expr(value.as_mut());
+                        *expr = py_expr!(
+                            "__dp__.store_global(globals(), {name:literal}, {value:expr})",
+                            name = name,
+                            value = value.as_ref().clone(),
+                        );
+                        return;
+                    }
+                    if self.class_targets.contains(name) {
+                        self.visit_expr(value.as_mut());
+                        *expr = py_expr!(
+                            "__dp__.store_global(_dp_class_ns, {name:literal}, {value:expr})",
+                            name = name,
+                            value = value.as_ref().clone(),
+                        );
+                        return;
+                    }
+                }
+                self.visit_expr(target.as_mut());
+                self.visit_expr(value.as_mut());
+                return;
+            }
+            Expr::Lambda(_) | Expr::Generator(_) => {
+                return;
+            }
+            _ => {}
+        }
+        walk_expr(self, expr);
     }
 }
 

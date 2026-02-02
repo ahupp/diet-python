@@ -26,6 +26,19 @@ impl<'a> Transformer for FunctionDefRewriter<'a> {
         match stmt {
             Stmt::FunctionDef(func_def) => {
                 let original_name = func_def.name.id.to_string();
+                let display_name = if original_name.starts_with("_dp_lambda_") {
+                    "<lambda>"
+                } else if original_name.starts_with("_dp_genexpr_") {
+                    "<genexpr>"
+                } else if original_name.starts_with("_dp_listcomp_") {
+                    "<listcomp>"
+                } else if original_name.starts_with("_dp_setcomp_") {
+                    "<setcomp>"
+                } else if original_name.starts_with("_dp_dictcomp_") {
+                    "<dictcomp>"
+                } else {
+                    original_name.as_str()
+                };
 
                 let child_scope = self.scope.child_scope_for_function(func_def).unwrap();
 
@@ -48,13 +61,15 @@ impl<'a> Transformer for FunctionDefRewriter<'a> {
                 );
 
                 let suffix = py_stmt!(r#"
-__dp__.update_fn({temp_name:id}, {qualname:literal}, {original_name:literal})
+__dp__.update_fn({temp_name:id}, {qualname:literal}, {display_name:literal})
 {original_name:id} = {decorated:expr}
+del {temp_name:id}
 "#,
                     decorated = decorated,
                     original_name = original_name.as_str(),
                     temp_name = temp_name.as_str(),
                     qualname = qualname.as_str(),
+                    display_name = display_name,
                 );
                 *stmt = into_body(vec![func_def.clone().into(), suffix]);
             }

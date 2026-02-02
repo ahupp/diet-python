@@ -1,6 +1,5 @@
 # diet-python: disabled
 import operator as _operator
-import ast
 import sys
 import builtins
 import types as _types
@@ -306,6 +305,7 @@ def update_fn(func, qualname, name):
 
 def decode_surrogate_literal(src):
     try:
+        import ast
         return ast.literal_eval(src)
     except Exception:
         return src

@@ -39,13 +39,7 @@ fn wrap_truthy_expr(expr: &mut Expr) {
         return;
     }
 
-    let original = expr.clone();
-    *expr = py_expr!(
-        "
-__dp__.truth({expr:expr})
-",
-        expr = original,
-    );
+    *expr = py_expr!("__dp__.truth({expr:expr})", expr = (*expr).clone());
 }
 
 fn is_truth_call(expr: &Expr) -> bool {
@@ -57,11 +51,6 @@ fn is_truth_call(expr: &Expr) -> bool {
                 matches!(
                     value.as_ref(),
                     Expr::Name(ast::ExprName { id, .. }) if id.as_str() == "__dp__"
-                ) || matches!(
-                    value.as_ref(),
-                    Expr::Attribute(ast::ExprAttribute { value, attr, .. })
-                        if attr.as_str() == "__dp__"
-                            && matches!(value.as_ref(), Expr::Name(ast::ExprName { id, .. }) if id.as_str() == "_dp_global")
                 )
             }
             _ => false,

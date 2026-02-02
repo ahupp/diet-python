@@ -36,7 +36,9 @@ pub fn ensure_imports(context: &Context, module: &mut StmtBody) {
     }
 
     if context.needs_templatelib_import() {
-        imports.push(py_stmt!("_dp_templatelib = __import__(\"string.templatelib\")"));
+        imports.push(py_stmt!(
+            "_dp_templatelib = __import__(\"string.templatelib\", fromlist=[\"templatelib\"])"
+        ));
     }
 
     let insert_at = future_import_insert_index(&module.body);

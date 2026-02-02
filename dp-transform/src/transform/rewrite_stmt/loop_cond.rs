@@ -76,8 +76,6 @@ pub fn rewrite_while(context: &Context, while_stmt: ast::StmtWhile) -> Rewrite {
 
     let test_lowered = lower_expr(context, *while_stmt.test.clone());
 
-
-    // Since the is written to another (simpler) while loop, avoid infinite rewrite
     if !test_lowered.modified
     {
         return Rewrite::Unmodified(while_stmt.into());
@@ -86,10 +84,11 @@ pub fn rewrite_while(context: &Context, while_stmt: ast::StmtWhile) -> Rewrite {
     let ast::StmtWhile {  body, orelse, .. } = while_stmt;
 
     let did_exit_normally = context.fresh("did_exit_normally");
-    // Move the test into the loop body so a) if/when the test expression is lowered, 
-    // any new statements are re-evaluated each loop, and b) to explicitly handle the or-else case that only runs if 
-    // there was no break
-    // The orelse handling needs to be outside the loop in case it has a break, where it should apply to the outer loop.
+    // Move the test into the loop body so a) if/when the test expression is
+    // lowered, any new statements are re-evaluated each loop, and b) to
+    // explicitly handle the or-else case that only runs if there was no break
+    // The orelse handling needs to be outside the loop in case it has a break,
+    // where it should apply to the outer loop.
 
     Rewrite::Walk(py_stmt!(r#"
 {did_exit_normally:id} = False

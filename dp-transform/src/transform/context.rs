@@ -1,18 +1,46 @@
 use ruff_python_ast::Expr;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 
 use super::Options;
+use crate::transform::scope::ScopeKind;
 
 use crate::transform::ast_rewrite::LoweredExpr;
 use crate::{py_expr, py_stmt};
 use crate::template::is_simple;
 use crate::namegen::fresh_name;
 
+#[derive(Clone, Debug)]
+pub struct ScopeFrame {
+    pub kind: ScopeKind,
+    pub globals: HashSet<String>,
+    pub nonlocals: HashSet<String>,
+}
+
+impl ScopeFrame {
+    pub fn module() -> Self {
+        Self {
+            kind: ScopeKind::Module,
+            globals: HashSet::new(),
+            nonlocals: HashSet::new(),
+        }
+    }
+
+    pub fn new(kind: ScopeKind, globals: HashSet<String>, nonlocals: HashSet<String>) -> Self {
+        Self {
+            kind,
+            globals,
+            nonlocals,
+        }
+    }
+}
+
 pub struct Context {
     pub options: Options,
     pub source: String,
     needs_typing_import: Cell<bool>,
     needs_templatelib_import: Cell<bool>,
+    scope_stack: RefCell<Vec<ScopeFrame>>,
 }
 
 
@@ -23,6 +51,7 @@ impl Context {
             source: source.to_string(),
             needs_typing_import: Cell::new(false),
             needs_templatelib_import: Cell::new(false),
+            scope_stack: RefCell::new(vec![ScopeFrame::module()]),
         }
     }
 
@@ -53,6 +82,26 @@ impl Context {
 
     pub fn fresh(&self, name: &str) -> String {
         fresh_name(name)
+    }
+
+    pub fn reset_scope_stack(&self) {
+        self.scope_stack.replace(vec![ScopeFrame::module()]);
+    }
+
+    pub fn push_scope(&self, frame: ScopeFrame) {
+        self.scope_stack.borrow_mut().push(frame);
+    }
+
+    pub fn pop_scope(&self) {
+        self.scope_stack.borrow_mut().pop();
+    }
+
+    pub fn current_scope(&self) -> ScopeFrame {
+        self.scope_stack
+            .borrow()
+            .last()
+            .cloned()
+            .unwrap_or_else(ScopeFrame::module)
     }
 
     pub fn require_typing_import(&self) {
