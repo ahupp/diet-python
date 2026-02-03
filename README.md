@@ -22,8 +22,6 @@ augmented assignments (e.g., `+=`) into calls to the corresponding functions in
 the standard library's `operator` module. The transformation is idempotent, so
 re-running it on already rewritten code leaves the output unchanged.
 
-TODO: Preserve PEP 695 type alias semantics (lazy evaluation) while still
-transforming `type Alias = ...` statements; currently they are left unchanged.
 
 Run it with:
 
@@ -113,3 +111,15 @@ Total duration: 33 min 49 sec
 Total tests: run=28,491 failures=612 skipped=1,426
 Total test files: run=488/492 failed=160 skipped=24 resource_denied=4
 Result: FAILURE
+
+
+2026-02-02:
+
+Total duration: 48 min 11 sec
+Total tests: run=32,863 failures=705 skipped=1,778
+Total test files: run=483/491 failed=132 skipped=27 resource_denied=8
+Result: FAILURE
+
+# TODO
+
+* Exec rewriting to get raw dict from the GlobalsProxy is probably wrong

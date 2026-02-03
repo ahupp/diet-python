@@ -126,6 +126,7 @@ fn rewrite_unpack_target(
         }
     }
 
+    body_stmts.push(py_stmt!("del {tmp:id}", tmp = unpacked_name.as_str()));
     out.extend(body_stmts);
 }
 

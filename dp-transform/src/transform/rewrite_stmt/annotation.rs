@@ -1,6 +1,6 @@
 use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
 
-use crate::{py_stmt, template::empty_body, transform::context::Context};
+use crate::{py_stmt, transform::context::Context};
 use crate::transformer::{Transformer, walk_stmt};
 
 pub fn rewrite_ann_assign_to_dunder_annotate(_context: &Context, stmt: &mut StmtBody) {
@@ -27,34 +27,6 @@ impl AnnotationStripper {
   }
 }
 
-fn class_body_binds_annotate(body: &StmtBody) -> bool {
-    for stmt in &body.body {
-        match stmt.as_ref() {
-            Stmt::FunctionDef(func_def) => {
-                if func_def.name.id.as_str() == "__annotate__" {
-                    return true;
-                }
-            }
-            Stmt::Assign(ast::StmtAssign { targets, .. }) => {
-                if targets.iter().any(|target| {
-                    matches!(target, Expr::Name(ast::ExprName { id, .. }) if id.as_str() == "__annotate__")
-                }) {
-                    return true;
-                }
-            }
-            Stmt::AnnAssign(ast::StmtAnnAssign { target, .. })
-            | Stmt::AugAssign(ast::StmtAugAssign { target, .. }) => {
-                if matches!(target.as_ref(), Expr::Name(ast::ExprName { id, .. }) if id.as_str() == "__annotate__") {
-                    return true;
-                }
-            }
-            _ => {}
-        }
-    }
-    false
-}
-
-
 impl Transformer for AnnotationStripper {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
@@ -67,11 +39,6 @@ impl Transformer for AnnotationStripper {
                 if !entries.is_empty() {
                     let ds = to_dunder_annotate(entries);
                     class_def.body.body.push(Box::new(ds));
-                } else if !class_body_binds_annotate(&class_def.body) {
-                    class_def
-                        .body
-                        .body
-                        .push(Box::new(py_stmt!("__annotate__ = None")));
                 }
             }
             Stmt::AnnAssign(ast::StmtAnnAssign { target, annotation, value, .. }) => {
@@ -87,7 +54,7 @@ impl Transformer for AnnotationStripper {
                     // TODO: copy range and node_index from the original statement
                     *stmt = py_stmt!("{target:expr} = {value:expr}", target = target.clone(), value = value.clone());
                 } else {
-                    *stmt = empty_body().into();
+                    *stmt = py_stmt!("pass");
                 }
             }
             _ => {

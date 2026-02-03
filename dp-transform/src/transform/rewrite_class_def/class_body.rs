@@ -7,14 +7,15 @@ use crate::template::into_body;
 use crate::transform::context::Context;
 use crate::transform::rewrite_class_def::{class_def_to_create_class_fn, method};
 use crate::transform::rewrite_stmt;
-use crate::transform::scope::{BindingKind, BindingUse, Scope, ScopeKind};
+use crate::transform::scope::{cell_name, BindingKind, BindingUse, Scope, ScopeKind};
 use crate::transformer::{Transformer, walk_stmt};
 use crate::{py_expr, py_stmt};
 
-pub fn class_body_load_cell(name: &str) -> Expr {
+pub fn class_body_load_cell(name: &str, cell: &str) -> Expr {
     py_expr!(
-        "__dp__.class_lookup_cell(_dp_class_ns, {name:literal}, {name:id})",
+        "__dp__.class_lookup_cell(_dp_class_ns, {name:literal}, {cell:id})",
         name = name,
+        cell = cell,
     )
 }
 
@@ -65,11 +66,14 @@ fn class_binding_stmt(scope: &Scope, name: &str, value: Expr) -> Stmt {
                 name = name,
                 value = value
             ),
-            BindingKind::Nonlocal => py_stmt!(
-                "__dp__.store_cell({cell:id}, {value:expr})",
-                cell = name,
-                value = value
-            ),
+            BindingKind::Nonlocal => {
+                let cell = cell_name(name);
+                py_stmt!(
+                    "__dp__.store_cell({cell:id}, {value:expr})",
+                    cell = cell.as_str(),
+                    value = value
+                )
+            }
             BindingKind::Local => {
                 py_stmt!("{name:id} = {value:expr}", name = name, value = value)
             }

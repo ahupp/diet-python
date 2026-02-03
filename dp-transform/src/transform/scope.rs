@@ -348,6 +348,10 @@ pub fn is_internal_symbol(name: &str) -> bool {
     name.starts_with("_dp_") || name == "__dp__"
 }
 
+pub fn cell_name(name: &str) -> String {
+    format!("_dp_cell_{name}")
+}
+
 fn set_binding(bindings: &mut HashMap<String, BindingKind>, name: &str, binding: BindingKind) {
     let binding = if is_internal_symbol(name) {
         BindingKind::Local
@@ -442,6 +446,17 @@ impl Transformer for ScopeCollector {
                             optional_vars,
                         );
                     }
+                }
+            }
+            Stmt::Delete(ast::StmtDelete { targets, .. }) => {
+                for target in targets {
+                    bind_target_names(
+                        &mut self.bindings,
+                        &mut self.local_defs,
+                        &self.explicit_globals,
+                        &self.explicit_nonlocals,
+                        target,
+                    );
                 }
             }
             Stmt::Try(ast::StmtTry { handlers, .. }) => {
@@ -641,7 +656,42 @@ fn collect_load_names(body: &StmtBody) -> HashSet<String> {
     impl Transformer for &mut LoadCollector {
         fn visit_stmt(&mut self, stmt: &mut Stmt) {
             match stmt {
-                Stmt::FunctionDef(_) | Stmt::ClassDef(_) => return,
+                Stmt::FunctionDef(ast::StmtFunctionDef {
+                    parameters,
+                    decorator_list,
+                    returns,
+                    type_params,
+                    ..
+                }) => {
+                    for decorator in decorator_list {
+                        self.visit_decorator(decorator);
+                    }
+                    if let Some(type_params) = type_params {
+                        self.visit_type_params(type_params);
+                    }
+                    self.visit_parameters(parameters);
+                    if let Some(expr) = returns {
+                        self.visit_annotation(expr);
+                    }
+                    return;
+                }
+                Stmt::ClassDef(ast::StmtClassDef {
+                    arguments,
+                    decorator_list,
+                    type_params,
+                    ..
+                }) => {
+                    for decorator in decorator_list {
+                        self.visit_decorator(decorator);
+                    }
+                    if let Some(type_params) = type_params {
+                        self.visit_type_params(type_params);
+                    }
+                    if let Some(arguments) = arguments {
+                        self.visit_arguments(arguments);
+                    }
+                    return;
+                }
                 _ => walk_stmt(self, stmt)
             }
         }

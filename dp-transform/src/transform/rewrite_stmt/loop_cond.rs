@@ -34,6 +34,7 @@ while not {completed_flag:id}:
         {completed_flag:id} = True
     else:
         {target:expr} = {target_tmp:id}
+        {target_tmp:id} = None
         {body:stmt}
 if {completed_flag:id}:
     {orelse:stmt}
@@ -57,6 +58,7 @@ while not {completed_flag:id}:
         {completed_flag:id} = True
     else:
         {target:expr} = {target_tmp:id}
+        {target_tmp:id} = None
         {body:stmt}
 if {completed_flag:id}:
     {orelse:stmt}

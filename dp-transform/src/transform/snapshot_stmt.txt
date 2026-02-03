@@ -62,6 +62,7 @@ a, b = it
 _dp_tmp_1 = __dp__.unpack(it, (True, True))
 a = __dp__.getitem(_dp_tmp_1, 0)
 b = __dp__.getitem(_dp_tmp_1, 1)
+del _dp_tmp_1
 
 # assign_star_unpack
 
@@ -72,6 +73,7 @@ a, *b = it
 _dp_tmp_1 = __dp__.unpack(it, (True, False))
 a = __dp__.getitem(_dp_tmp_1, 0)
 b = __dp__.list(__dp__.getitem(_dp_tmp_1, 1))
+del _dp_tmp_1
 
 # assign_multi_targets
 
@@ -198,6 +200,7 @@ while __dp__.not_(_dp_completed_3):
         _dp_completed_3 = True
     else:
         x = _dp_tmp_2
+        _dp_tmp_2 = None
         body()
 if _dp_completed_3:
     done()
@@ -259,59 +262,63 @@ zs = {k: v for k, v in items}
 
 # ==
 
-def _dp_fn__dp_listcomp_4(_dp_iter_3):
+def _dp_fn__dp_listcomp_3(_dp_iter_2):
     _dp_tmp_1 = __dp__.list(())
-    _dp_completed_7 = False
-    _dp_iter_5 = __dp__.iter(_dp_iter_3)
-    while __dp__.not_(_dp_completed_7):
-        _dp_tmp_6 = __dp__.next_or_sentinel(_dp_iter_5)
-        if __dp__.is_(_dp_tmp_6, __dp__.ITER_COMPLETE):
-            _dp_completed_7 = True
+    _dp_completed_6 = False
+    _dp_iter_4 = __dp__.iter(_dp_iter_2)
+    while __dp__.not_(_dp_completed_6):
+        _dp_tmp_5 = __dp__.next_or_sentinel(_dp_iter_4)
+        if __dp__.is_(_dp_tmp_5, __dp__.ITER_COMPLETE):
+            _dp_completed_6 = True
         else:
-            _dp_tmp_2 = _dp_tmp_6
-            _dp_tmp_1.append(_dp_tmp_2)
-    _dp_completed_7
+            x = _dp_tmp_5
+            _dp_tmp_5 = None
+            _dp_tmp_1.append(x)
+    __dp__.truth(_dp_completed_6)
     return _dp_tmp_1
-__dp__.update_fn(_dp_fn__dp_listcomp_4, "_dp_listcomp_4", "<listcomp>")
-_dp_listcomp_4 = _dp_fn__dp_listcomp_4
-del _dp_fn__dp_listcomp_4
-xs = _dp_listcomp_4(__dp__.iter(it))
-def _dp_fn__dp_setcomp_11(_dp_iter_10):
-    _dp_tmp_8 = set()
-    _dp_completed_14 = False
-    _dp_iter_12 = __dp__.iter(_dp_iter_10)
-    while __dp__.not_(_dp_completed_14):
-        _dp_tmp_13 = __dp__.next_or_sentinel(_dp_iter_12)
-        if __dp__.is_(_dp_tmp_13, __dp__.ITER_COMPLETE):
-            _dp_completed_14 = True
+__dp__.update_fn(_dp_fn__dp_listcomp_3, "_dp_listcomp_3", "<listcomp>")
+_dp_listcomp_3 = _dp_fn__dp_listcomp_3
+del _dp_fn__dp_listcomp_3
+xs = _dp_listcomp_3(it)
+def _dp_fn__dp_setcomp_9(_dp_iter_8):
+    _dp_tmp_7 = set()
+    _dp_completed_12 = False
+    _dp_iter_10 = __dp__.iter(_dp_iter_8)
+    while __dp__.not_(_dp_completed_12):
+        _dp_tmp_11 = __dp__.next_or_sentinel(_dp_iter_10)
+        if __dp__.is_(_dp_tmp_11, __dp__.ITER_COMPLETE):
+            _dp_completed_12 = True
         else:
-            _dp_tmp_9 = _dp_tmp_13
-            _dp_tmp_8.add(_dp_tmp_9)
-    _dp_completed_14
-    return _dp_tmp_8
-__dp__.update_fn(_dp_fn__dp_setcomp_11, "_dp_setcomp_11", "<setcomp>")
-_dp_setcomp_11 = _dp_fn__dp_setcomp_11
-del _dp_fn__dp_setcomp_11
-ys = _dp_setcomp_11(__dp__.iter(it))
-def _dp_fn__dp_dictcomp_19(_dp_iter_18):
-    _dp_tmp_15 = __dp__.dict()
-    _dp_completed_22 = False
-    _dp_iter_20 = __dp__.iter(_dp_iter_18)
-    while __dp__.not_(_dp_completed_22):
-        _dp_tmp_21 = __dp__.next_or_sentinel(_dp_iter_20)
-        if __dp__.is_(_dp_tmp_21, __dp__.ITER_COMPLETE):
-            _dp_completed_22 = True
+            x = _dp_tmp_11
+            _dp_tmp_11 = None
+            _dp_tmp_7.add(x)
+    __dp__.truth(_dp_completed_12)
+    return _dp_tmp_7
+__dp__.update_fn(_dp_fn__dp_setcomp_9, "_dp_setcomp_9", "<setcomp>")
+_dp_setcomp_9 = _dp_fn__dp_setcomp_9
+del _dp_fn__dp_setcomp_9
+ys = _dp_setcomp_9(it)
+def _dp_fn__dp_dictcomp_15(_dp_iter_14):
+    _dp_tmp_13 = __dp__.dict()
+    _dp_completed_18 = False
+    _dp_iter_16 = __dp__.iter(_dp_iter_14)
+    while __dp__.not_(_dp_completed_18):
+        _dp_tmp_17 = __dp__.next_or_sentinel(_dp_iter_16)
+        if __dp__.is_(_dp_tmp_17, __dp__.ITER_COMPLETE):
+            _dp_completed_18 = True
         else:
-            _dp_tmp_23 = __dp__.unpack(_dp_tmp_21, (True, True))
-            _dp_tmp_16 = __dp__.getitem(_dp_tmp_23, 0)
-            _dp_tmp_17 = __dp__.getitem(_dp_tmp_23, 1)
-            __dp__.setitem(_dp_tmp_15, _dp_tmp_16, _dp_tmp_17)
-    _dp_completed_22
-    return _dp_tmp_15
-__dp__.update_fn(_dp_fn__dp_dictcomp_19, "_dp_dictcomp_19", "<dictcomp>")
-_dp_dictcomp_19 = _dp_fn__dp_dictcomp_19
-del _dp_fn__dp_dictcomp_19
-zs = _dp_dictcomp_19(__dp__.iter(items))
+            _dp_tmp_19 = __dp__.unpack(_dp_tmp_17, (True, True))
+            k = __dp__.getitem(_dp_tmp_19, 0)
+            v = __dp__.getitem(_dp_tmp_19, 1)
+            del _dp_tmp_19
+            _dp_tmp_17 = None
+            __dp__.setitem(_dp_tmp_13, k, v)
+    __dp__.truth(_dp_completed_18)
+    return _dp_tmp_13
+__dp__.update_fn(_dp_fn__dp_dictcomp_15, "_dp_dictcomp_15", "<dictcomp>")
+_dp_dictcomp_15 = _dp_fn__dp_dictcomp_15
+del _dp_fn__dp_dictcomp_15
+zs = _dp_dictcomp_15(items)
 
 # comprehension_in_function
 
@@ -322,24 +329,25 @@ def f():
 
 def _dp_fn_f():
 
-    def _dp_fn__dp_listcomp_4(_dp_iter_3):
+    def _dp_fn__dp_listcomp_3(_dp_iter_2):
         _dp_tmp_1 = __dp__.list(())
-        _dp_completed_7 = False
-        _dp_iter_5 = __dp__.iter(_dp_iter_3)
-        while __dp__.not_(_dp_completed_7):
-            _dp_tmp_6 = __dp__.next_or_sentinel(_dp_iter_5)
-            if __dp__.is_(_dp_tmp_6, __dp__.ITER_COMPLETE):
-                _dp_completed_7 = True
+        _dp_completed_6 = False
+        _dp_iter_4 = __dp__.iter(_dp_iter_2)
+        while __dp__.not_(_dp_completed_6):
+            _dp_tmp_5 = __dp__.next_or_sentinel(_dp_iter_4)
+            if __dp__.is_(_dp_tmp_5, __dp__.ITER_COMPLETE):
+                _dp_completed_6 = True
             else:
-                _dp_tmp_2 = _dp_tmp_6
-                if __dp__.gt(_dp_tmp_2, 0):
-                    _dp_tmp_1.append(_dp_tmp_2)
-        _dp_completed_7
+                x = _dp_tmp_5
+                _dp_tmp_5 = None
+                if __dp__.gt(x, 0):
+                    _dp_tmp_1.append(x)
+        __dp__.truth(_dp_completed_6)
         return _dp_tmp_1
-    __dp__.update_fn(_dp_fn__dp_listcomp_4, "f.<locals>._dp_listcomp_4", "<listcomp>")
-    _dp_listcomp_4 = _dp_fn__dp_listcomp_4
-    del _dp_fn__dp_listcomp_4
-    return _dp_listcomp_4(__dp__.iter(it))
+    __dp__.update_fn(_dp_fn__dp_listcomp_3, "f.<locals>._dp_listcomp_3", "<listcomp>")
+    _dp_listcomp_3 = _dp_fn__dp_listcomp_3
+    del _dp_fn__dp_listcomp_3
+    return _dp_listcomp_3(it)
 __dp__.update_fn(_dp_fn_f, "f", "f")
 f = _dp_fn_f
 del _dp_fn_f
@@ -355,26 +363,26 @@ def _dp_class_ns_C(_dp_class_ns, _dp_classcell):
     _dp_class_ns["__module__"] = __name__
     _dp_class_ns["__qualname__"] = "C"
 
-    def _dp_fn__dp_listcomp_4(_dp_iter_3):
+    def _dp_fn__dp_listcomp_3(_dp_iter_2):
         _dp_tmp_1 = __dp__.list(())
-        _dp_completed_7 = False
-        _dp_iter_5 = __dp__.iter(_dp_iter_3)
-        while __dp__.not_(_dp_completed_7):
-            _dp_tmp_6 = __dp__.next_or_sentinel(_dp_iter_5)
-            if __dp__.is_(_dp_tmp_6, __dp__.ITER_COMPLETE):
-                _dp_completed_7 = True
+        _dp_completed_6 = False
+        _dp_iter_4 = __dp__.iter(_dp_iter_2)
+        while __dp__.not_(_dp_completed_6):
+            _dp_tmp_5 = __dp__.next_or_sentinel(_dp_iter_4)
+            if __dp__.is_(_dp_tmp_5, __dp__.ITER_COMPLETE):
+                _dp_completed_6 = True
             else:
-                _dp_tmp_2 = _dp_tmp_6
-                _dp_tmp_1.append(_dp_tmp_2)
-        _dp_completed_7
+                x = _dp_tmp_5
+                _dp_tmp_5 = None
+                _dp_tmp_1.append(x)
+        __dp__.truth(_dp_completed_6)
         return _dp_tmp_1
-    __dp__.update_fn(_dp_fn__dp_listcomp_4, "C._dp_listcomp_4", "<listcomp>")
-    _dp_listcomp_4 = _dp_fn__dp_listcomp_4
-    del _dp_fn__dp_listcomp_4
-    _dp_class_ns["xs"] = _dp_listcomp_4(__dp__.iter(__dp__.class_lookup_global(_dp_class_ns, "it", globals())))
-    _dp_class_ns["__annotate__"] = None
+    __dp__.update_fn(_dp_fn__dp_listcomp_3, "C._dp_listcomp_3", "<listcomp>")
+    _dp_listcomp_3 = _dp_fn__dp_listcomp_3
+    del _dp_fn__dp_listcomp_3
+    _dp_class_ns["xs"] = _dp_listcomp_3(__dp__.class_lookup_global(_dp_class_ns, "it", globals()))
 def _dp_define_class_C():
-    return __dp__.create_class("C", _dp_class_ns_C, (), None, False)
+    return __dp__.create_class("C", _dp_class_ns_C, (), None, False, 2, ())
 C = _dp_define_class_C()
 
 # with_multi
@@ -384,9 +392,9 @@ with a as x, b as y:
 
 # ==
 
-_dp_with_exit_3 = __dp__.contextmanager_get_exit(a)
+_dp_with_exit_4 = __dp__.contextmanager_get_exit(a)
 x = __dp__.contextmanager_enter(a)
-_dp_with_ok_4 = True
+_dp_with_ok_5 = True
 try:
     _dp_with_exit_1 = __dp__.contextmanager_get_exit(b)
     y = __dp__.contextmanager_enter(b)
@@ -401,12 +409,12 @@ try:
             __dp__.contextmanager_exit(_dp_with_exit_1, None)
         _dp_with_exit_1 = None
 except:
-    _dp_with_ok_4 = False
-    __dp__.contextmanager_exit(_dp_with_exit_3, __dp__.exc_info())
+    _dp_with_ok_5 = False
+    __dp__.contextmanager_exit(_dp_with_exit_4, __dp__.exc_info())
 finally:
-    if _dp_with_ok_4:
-        __dp__.contextmanager_exit(_dp_with_exit_3, None)
-    _dp_with_exit_3 = None
+    if _dp_with_ok_5:
+        __dp__.contextmanager_exit(_dp_with_exit_4, None)
+    _dp_with_exit_4 = None
 
 # async_for
 
@@ -425,8 +433,9 @@ async def _dp_fn_run():
             _dp_completed_3 = True
         else:
             x = _dp_tmp_2
+            _dp_tmp_2 = None
             body()
-    _dp_completed_3
+    __dp__.truth(_dp_completed_3)
 __dp__.update_fn(_dp_fn_run, "run", "run")
 run = _dp_fn_run
 del _dp_fn_run
@@ -447,7 +456,9 @@ async def _dp_fn_run():
         body()
     except:
         _dp_with_ok_2 = False
-        await __dp__.asynccontextmanager_aexit(_dp_with_exit_1, __dp__.exc_info())
+        _dp_with_suppress_3 = await __dp__.asynccontextmanager_aexit(_dp_with_exit_1, __dp__.exc_info())
+        if __dp__.not_(_dp_with_suppress_3):
+            raise
     finally:
         if _dp_with_ok_2:
             await __dp__.asynccontextmanager_aexit(_dp_with_exit_1, None)
@@ -506,18 +517,19 @@ with Suppress():
 # ==
 
 _dp_tmp_4 = Suppress()
-_dp_with_exit_2 = __dp__.contextmanager_get_exit(_dp_tmp_4)
-_dp_tmp_1 = __dp__.contextmanager_enter(_dp_tmp_4)
-_dp_with_ok_3 = True
+_dp_with_exit_1 = __dp__.contextmanager_get_exit(_dp_tmp_4)
+__dp__.contextmanager_enter(_dp_tmp_4)
+_dp_with_ok_2 = True
 try:
     raise RuntimeError("boom")
 except:
-    _dp_with_ok_3 = False
-    __dp__.contextmanager_exit(_dp_with_exit_2, __dp__.exc_info())
+    _dp_with_ok_2 = False
+    __dp__.contextmanager_exit(_dp_with_exit_1, __dp__.exc_info())
 finally:
-    if _dp_with_ok_3:
-        __dp__.contextmanager_exit(_dp_with_exit_2, None)
-    _dp_with_exit_2 = None
+    if _dp_with_ok_2:
+        __dp__.contextmanager_exit(_dp_with_exit_1, None)
+    _dp_with_exit_1 = None
+    _dp_tmp_4 = None
 
 # closure_cell_simple
 
@@ -530,11 +542,11 @@ def outer():
 # ==
 
 def _dp_fn_outer():
-    x = __dp__.make_cell()
-    __dp__.store_cell(x, 5)
+    _dp_cell_x = __dp__.make_cell()
+    __dp__.store_cell(_dp_cell_x, 5)
 
     def _dp_fn_inner():
-        return __dp__.load_cell(x)
+        return __dp__.load_cell(_dp_cell_x)
     __dp__.update_fn(_dp_fn_inner, "outer.<locals>.inner", "inner")
     inner = _dp_fn_inner
     del _dp_fn_inner
@@ -556,12 +568,13 @@ def outer():
 # ==
 
 def _dp_fn_outer():
-    x = __dp__.make_cell()
-    __dp__.store_cell(x, 5)
+    _dp_cell_x = __dp__.make_cell()
+    __dp__.store_cell(_dp_cell_x, 5)
 
     def _dp_fn_inner():
-        __dp__.store_cell(x, 2)
-        return __dp__.load_cell(x)
+        nonlocal _dp_cell_x
+        __dp__.store_cell(_dp_cell_x, 2)
+        return __dp__.load_cell(_dp_cell_x)
     __dp__.update_fn(_dp_fn_inner, "outer.<locals>.inner", "inner")
     inner = _dp_fn_inner
     del _dp_fn_inner

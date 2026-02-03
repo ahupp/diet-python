@@ -1,12 +1,12 @@
 use std::{collections::HashSet, sync::Arc};
 
 use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt, StmtBody};
+use ruff_python_ast::name::Name;
 
 use crate::{
     py_expr,
     py_stmt,
     scope_aware_transformer::ScopeAwareTransformer,
-    template::empty_body,
     transform::{
         rewrite_class_def::class_body::{
             class_body_load_cell,
@@ -14,7 +14,7 @@ use crate::{
             class_body_store_global,
             class_body_store_target,
         },
-        scope::{is_internal_symbol, BindingKind, BindingUse, Scope, ScopeKind},
+        scope::{cell_name, is_internal_symbol, BindingKind, BindingUse, Scope, ScopeKind},
         util::is_noarg_call,
     },
 };
@@ -62,13 +62,18 @@ impl NameScopeRewriter {
             let mut names = self.cell_binding_names().into_iter().collect::<Vec<_>>();
             names.sort();
             for name in names {
+                let cell = cell_name(&name);
                 if param_names.contains(&name) {
                     stmts.push(py_stmt!(
-                        "{name:id} = __dp__.make_cell({name:id})",
-                        name = name.as_str()
+                        "{cell:id} = __dp__.make_cell({name:id})",
+                        cell = cell.as_str(),
+                        name = name.as_str(),
                     ));
                 } else {
-                    stmts.push(py_stmt!("{name:id} = __dp__.make_cell()", name = name.as_str()));
+                    stmts.push(py_stmt!(
+                        "{cell:id} = __dp__.make_cell()",
+                        cell = cell.as_str()
+                    ));
                 }
             }
         }
@@ -130,6 +135,72 @@ impl NameScopeRewriter {
         true
     }
 
+    fn should_rewrite_globals_call(&self) -> bool {
+        if let Some(binding) = self.scope.scope_bindings().get("globals").copied() {
+            match binding {
+                BindingKind::Local | BindingKind::Nonlocal => return false,
+                BindingKind::Global => {
+                    if self.module_binds_name("globals") {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    }
+
+    fn should_rewrite_exec_call(&self) -> bool {
+        if let Some(binding) = self.scope.scope_bindings().get("exec").copied() {
+            match binding {
+                BindingKind::Local | BindingKind::Nonlocal => return false,
+                BindingKind::Global => {
+                    if self.module_binds_name("exec") {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    }
+
+    fn should_rewrite_eval_call(&self) -> bool {
+        if let Some(binding) = self.scope.scope_bindings().get("eval").copied() {
+            match binding {
+                BindingKind::Local | BindingKind::Nonlocal => return false,
+                BindingKind::Global => {
+                    if self.module_binds_name("eval") {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    }
+
+    fn should_rewrite_dir_call(&self) -> bool {
+        if let Some(binding) = self.scope.scope_bindings().get("dir").copied() {
+            match binding {
+                BindingKind::Local | BindingKind::Nonlocal => return false,
+                BindingKind::Global => {
+                    if self.module_binds_name("dir") {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    }
+
+    fn is_name_call(name: &str, expr: &Expr) -> bool {
+        let Expr::Call(ast::ExprCall { func, .. }) = expr else {
+            return false;
+        };
+        let Expr::Name(ast::ExprName { id, .. }) = func.as_ref() else {
+            return false;
+        };
+        id.as_str() == name
+    }
+
 
     fn rewrite_name_load(&self, name: &ast::ExprName) -> Option<Expr> {
 
@@ -141,14 +212,20 @@ impl NameScopeRewriter {
         let binding = self.scope.scope_bindings().get(id).copied();
         match (self.scope.kind(), binding) {
             (ScopeKind::Class, Some(BindingKind::Global)) => Some(class_body_load_global(id)),
-            (ScopeKind::Class, Some(BindingKind::Nonlocal)) => Some(class_body_load_cell(id)),
+            (ScopeKind::Class, Some(BindingKind::Nonlocal)) => {
+                let cell = cell_name(id);
+                Some(class_body_load_cell(id, cell.as_str()))
+            }
             (ScopeKind::Class, Some(BindingKind::Local)) => Some(class_body_load_global(id)),
             (ScopeKind::Class, None) => Some(class_body_load_global(id)),
             (_, Some(BindingKind::Global)) => Some(py_expr!(
                 "__dp__.load_global(globals(), {name:literal})",
                 name = id
             )),
-            (_, Some(BindingKind::Nonlocal)) => Some(py_expr!("__dp__.load_cell({name:id})", name = id)),
+            (_, Some(BindingKind::Nonlocal)) => {
+                let cell = cell_name(id);
+                Some(py_expr!("__dp__.load_cell({cell:id})", cell = cell.as_str()))
+            }
             (_, Some(BindingKind::Local)) => None,
             (_, None) => None,
         }
@@ -191,12 +268,13 @@ impl NameScopeRewriter {
                 ))
             }
             BindingKind::Nonlocal => {
+                let cell = cell_name(id.as_str());
                 Some(py_expr!(
                     "__dp__.store_cell({cell:id}, {value:expr})",
-                    cell = id.as_str(),
+                    cell = cell.as_str(),
                     value = value.as_ref().clone()
                 ))
-            },
+            }
             _ => None,
         }
     }
@@ -246,29 +324,57 @@ impl Transformer for NameScopeRewriter {
                 assert!(delete.targets.len() == 1);
 
                 let target = &mut delete.targets[0];
-                self.visit_expr(target);
                 if let Expr::Name(ast::ExprName { id, .. }) = &target {
                     let name = id.as_str();
                     if name == "__class__" {
                         return;
                     }
-        
-                    match self.scope.binding_in_scope(name, BindingUse::Load) {
-                        BindingKind::Global => {
+                    if is_internal_symbol(name) {
+                        return;
+                    }
+
+                    match (self.scope.kind(), self.scope.binding_in_scope(name, BindingUse::Load)) {
+                        (&ScopeKind::Class, BindingKind::Local) => {
+                            *stmt = py_stmt!(
+                                "__dp__.delitem(_dp_class_ns, {name:literal})",
+                                name = name
+                            );
+                        }
+                        (&ScopeKind::Class, BindingKind::Global) => {
                             *stmt = py_stmt!(
                                 "__dp__.delitem(globals(), {name:literal})",
                                 name = name
                             );
                         }
-                        BindingKind::Nonlocal => {
-                            *stmt = py_stmt!("del {cell:id}.cell_contents", cell = name);
+                        (&ScopeKind::Class, BindingKind::Nonlocal) => {
+                            let cell = cell_name(name);
+                            *stmt = py_stmt!("del {cell:id}.cell_contents", cell = cell.as_str());
+                        }
+                        (_, BindingKind::Global) => {
+                            *stmt = py_stmt!(
+                                "__dp__.delitem(globals(), {name:literal})",
+                                name = name
+                            );
+                        }
+                        (_, BindingKind::Nonlocal) => {
+                            let cell = cell_name(name);
+                            *stmt = py_stmt!("del {cell:id}.cell_contents", cell = cell.as_str());
                         }
                         _ => {},
                     }
                 }
             }
-            Stmt::Global(_) | Stmt::Nonlocal(_) => {
-                *stmt = empty_body().into();
+            Stmt::Global(_) => {
+                *stmt = py_stmt!("pass");
+            }
+            Stmt::Nonlocal(ast::StmtNonlocal { names, .. }) => {
+                for name in names {
+                    if name.id.as_str() == "__class__" {
+                        continue;
+                    }
+                    let cell = cell_name(name.id.as_str());
+                    name.id = Name::new(cell);
+                }
             }
             Stmt::Assign(ast::StmtAssign {
                 targets,
@@ -303,15 +409,116 @@ impl Transformer for NameScopeRewriter {
                             );
                         }
                         (_, BindingKind::Nonlocal) => {
+                            let cell = cell_name(id.as_str());
                             *stmt = py_stmt!(
                                 "__dp__.store_cell({cell:id}, {value:expr})",
-                                cell = id.as_str(),
+                                cell = cell.as_str(),
                                 value = value.clone()
                             );
                         }
                         (_, _) => {},
                     }
                 }
+            }
+            Stmt::Try(try_stmt) => {
+                self.visit_body(&mut try_stmt.body);
+                for handler in &mut try_stmt.handlers {
+                    let ast::ExceptHandler::ExceptHandler(handler) = handler;
+                    if let Some(type_) = handler.type_.as_mut() {
+                        self.visit_expr(type_);
+                    }
+                    if let Some(name) = handler.name.as_mut() {
+                        let exc_name = name.id.as_str().to_string();
+                        if exc_name != "__class__" && !is_internal_symbol(&exc_name) {
+                            let binding =
+                                self.scope.binding_in_scope(exc_name.as_str(), BindingUse::Load);
+                            let needs_rewrite = matches!(
+                                (self.scope.kind(), binding),
+                                (&ScopeKind::Class, BindingKind::Local)
+                                    | (&ScopeKind::Class, BindingKind::Global)
+                                    | (&ScopeKind::Class, BindingKind::Nonlocal)
+                                    | (_, BindingKind::Global)
+                                    | (_, BindingKind::Nonlocal)
+                            );
+                            if needs_rewrite {
+                                let temp_name = format!("_dp_exc_{exc_name}");
+                                name.id = Name::new(temp_name.as_str());
+                                let store_stmt = match (self.scope.kind(), binding) {
+                                    (&ScopeKind::Class, BindingKind::Local) => py_stmt!(
+                                        "_dp_class_ns[{name:literal}] = {value:expr}",
+                                        name = exc_name.as_str(),
+                                        value = py_expr!("{temp:id}", temp = temp_name.as_str()),
+                                    ),
+                                    (&ScopeKind::Class, BindingKind::Global) => py_stmt!(
+                                        "__dp__.store_global(globals(), {name:literal}, {value:expr})",
+                                        name = exc_name.as_str(),
+                                        value = py_expr!("{temp:id}", temp = temp_name.as_str()),
+                                    ),
+                                    (&ScopeKind::Class, BindingKind::Nonlocal) => {
+                                        let cell = cell_name(exc_name.as_str());
+                                        py_stmt!(
+                                            "__dp__.store_cell({cell:id}, {value:expr})",
+                                            cell = cell.as_str(),
+                                            value = py_expr!("{temp:id}", temp = temp_name.as_str()),
+                                        )
+                                    }
+                                    (_, BindingKind::Global) => py_stmt!(
+                                        "__dp__.store_global(globals(), {name:literal}, {value:expr})",
+                                        name = exc_name.as_str(),
+                                        value = py_expr!("{temp:id}", temp = temp_name.as_str()),
+                                    ),
+                                    (_, BindingKind::Nonlocal) => {
+                                        let cell = cell_name(exc_name.as_str());
+                                        py_stmt!(
+                                            "__dp__.store_cell({cell:id}, {value:expr})",
+                                            cell = cell.as_str(),
+                                            value = py_expr!("{temp:id}", temp = temp_name.as_str()),
+                                        )
+                                    }
+                                    _ => py_stmt!("pass"),
+                                };
+                                let delete_stmt = match (self.scope.kind(), binding) {
+                                    (&ScopeKind::Class, BindingKind::Local) => py_stmt!(
+                                        "__dp__.delitem(_dp_class_ns, {name:literal})",
+                                        name = exc_name.as_str()
+                                    ),
+                                    (&ScopeKind::Class, BindingKind::Global) | (_, BindingKind::Global) => {
+                                        py_stmt!(
+                                            "__dp__.delitem(globals(), {name:literal})",
+                                            name = exc_name.as_str()
+                                        )
+                                    }
+                                    (&ScopeKind::Class, BindingKind::Nonlocal) | (_, BindingKind::Nonlocal) => {
+                                        let cell = cell_name(exc_name.as_str());
+                                        py_stmt!(
+                                            "del {cell:id}.cell_contents",
+                                            cell = cell.as_str()
+                                        )
+                                    }
+                                    _ => py_stmt!("pass"),
+                                };
+                                let original_body = std::mem::take(&mut handler.body.body)
+                                    .into_iter()
+                                    .map(|stmt| *stmt)
+                                    .collect::<Vec<_>>();
+                                let wrapped = py_stmt!(
+                                    r#"
+try:
+    {body:stmt}
+finally:
+    {delete:stmt}
+"#,
+                                    body = original_body,
+                                    delete = delete_stmt,
+                                );
+                                handler.body.body = vec![Box::new(store_stmt), Box::new(wrapped)];
+                            }
+                        }
+                    }
+                    self.visit_body(&mut handler.body);
+                }
+                self.visit_body(&mut try_stmt.orelse);
+                self.visit_body(&mut try_stmt.finalbody);
             }
             Stmt::FunctionDef(func_def) => {
                 for decorator in &mut func_def.decorator_list {
@@ -385,6 +592,16 @@ impl Transformer for NameScopeRewriter {
         }
         match expr {
             Expr::Call(ast::ExprCall { .. }) => {
+                if Self::is_name_call("exec", expr) && self.should_rewrite_exec_call() {
+                    if let Expr::Call(ast::ExprCall { func, .. }) = expr {
+                        *func = Box::new(py_expr!("__dp__.exec_"));
+                    }
+                }
+                if Self::is_name_call("eval", expr) && self.should_rewrite_eval_call() {
+                    if let Expr::Call(ast::ExprCall { func, .. }) = expr {
+                        *func = Box::new(py_expr!("__dp__.eval_"));
+                    }
+                }
                 if self.is_class_scope() {
                     if Self::is_class_lookup_call(expr) {
                         return;
@@ -393,9 +610,19 @@ impl Transformer for NameScopeRewriter {
                         *expr = py_expr!("_dp_class_ns");
                         return;
                     }
+                    if is_noarg_call("globals", expr) {
+                        *expr = py_expr!("__dp__.globals()");
+                        return;
+                    }
                 } else if is_noarg_call("locals", expr) && self.should_rewrite_locals_call()
                 {
                     *expr = py_expr!("__dp__.locals()");
+                    return;
+                } else if is_noarg_call("dir", expr) && self.should_rewrite_dir_call() {
+                    *expr = py_expr!("__dp__.dir_()");
+                    return;
+                } else if is_noarg_call("globals", expr) && self.should_rewrite_globals_call() {
+                    *expr = py_expr!("__dp__.globals()");
                     return;
                 }
             }

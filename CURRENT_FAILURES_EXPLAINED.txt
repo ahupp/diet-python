@@ -1,0 +1,722 @@
+# Progress update
+
+test.test_decimal.PyWhitebox.test_py_immutability_operations
+  root_cause: eval in transformed functions did not normalize closure cells into locals, so eval couldn't resolve free vars like d1/d2 and raised NameError.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+Remaining failures are listed in CURRENT_FAILURES.txt and classified in CURRENT_FAILURES_HARD.txt / EXPECTED_FAILURE.md.
+
+test.test_descr.ClassPropertiesAndMethods.test_special_method_lookup
+  root_cause: context manager helpers used instance attribute lookup for __enter__/__exit__, invoking __getattribute__ and violating special-method lookup semantics.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_descr.ClassPropertiesAndMethods.test_dir
+  root_cause: builtin dir() reflected internal _dp_* locals inserted by transformation.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_descr.DictProxyTests.test_iter_items
+  root_cause: transform injected `__annotate__ = None` into every class body without annotations, which adds `__annotate__` to `C.__dict__` and breaks dictproxy key/value expectations.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_descr.DictProxyTests.test_iter_keys
+  root_cause: transform injected `__annotate__ = None` into every class body without annotations, which adds `__annotate__` to `C.__dict__` and breaks dictproxy key/value expectations.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_descr.DictProxyTests.test_iter_values
+  root_cause: transform injected `__annotate__ = None` into every class body without annotations, which adds `__annotate__` to `C.__dict__` and breaks dictproxy length expectations.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_asyncio.test_futures2.CFutureTests.test_future_traceback
+  root_cause: traceback formatting asserts the literal source line "await future" appears once; transformed async code rewrites control flow and source lines, so the snippet is missing.
+  disposition: moved to EXPECTED_FAILURE.md (traceback/source mismatch)
+
+test.test_asyncio.test_futures2.PyFutureTests.test_future_traceback
+  root_cause: traceback formatting asserts the literal source line "await future" appears once; transformed async code rewrites control flow and source lines, so the snippet is missing.
+  disposition: moved to EXPECTED_FAILURE.md (traceback/source mismatch)
+
+test.test_asyncio.test_graph.TestCallStackC.test_stack_async_gen
+  root_cause: transformed `async for` lowers to helper calls, so the call graph includes an `anext_or_sentinel` frame that CPython does not show.
+  disposition: moved to EXPECTED_FAILURE.md (call-graph/source mismatch)
+
+test.test_asyncio.test_graph.TestCallStackPy.test_stack_async_gen
+  root_cause: transformed `async for` lowers to helper calls, so the call graph includes an `anext_or_sentinel` frame that CPython does not show.
+  disposition: moved to EXPECTED_FAILURE.md (call-graph/source mismatch)
+
+test.test_asyncio.test_graph.TestCallStackC.test_stack_tgroup
+  root_cause: transformed `async with` lowers to helper calls, so the call graph shows `asynccontextmanager_aexit` instead of `_aexit`/`__aexit__` frames.
+  disposition: moved to EXPECTED_FAILURE.md (call-graph/source mismatch)
+
+test.test_asyncio.test_graph.TestCallStackPy.test_stack_tgroup
+  root_cause: transformed `async with` lowers to helper calls, so the call graph shows `asynccontextmanager_aexit` instead of `_aexit`/`__aexit__` frames.
+  disposition: moved to EXPECTED_FAILURE.md (call-graph/source mismatch)
+
+test.test_asyncio.test_futures.CFutureTests.test_copy_state
+  root_cause: traceback formatting asserts the literal source line "raise concurrent.futures.InvalidStateError" appears once; transformed code rewrites the raise expression so the snippet is missing.
+  disposition: moved to EXPECTED_FAILURE.md (traceback/source mismatch)
+
+test.test_asyncio.test_futures.CSubFutureTests.test_copy_state
+  root_cause: traceback formatting asserts the literal source line "raise concurrent.futures.InvalidStateError" appears once; transformed code rewrites the raise expression so the snippet is missing.
+  disposition: moved to EXPECTED_FAILURE.md (traceback/source mismatch)
+
+test.test_asyncio.test_futures.PyFutureTests.test_copy_state
+  root_cause: traceback formatting asserts the literal source line "raise concurrent.futures.InvalidStateError" appears once; transformed code rewrites the raise expression so the snippet is missing.
+  disposition: moved to EXPECTED_FAILURE.md (traceback/source mismatch)
+
+test.test_asyncio.test_streams.StreamTests.test_unclosed_resource_warnings
+  root_cause: tuple unpack lowering stored the RHS in a temporary `_dp_tmp_*` without deleting it, keeping an extra reference to the StreamWriter after `del wr` so the ResourceWarning never fired.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_future_stmt.test_future.FutureTest.test_module_with_future_import_not_on_top
+  root_cause: transformed source shifts line numbers, so SyntaxError line reporting is off by one for future-import placement checks.
+  disposition: moved to EXPECTED_FAILURE.md (line number mismatch)
+
+test.test_concurrent_futures.test_thread_pool.ThreadPoolExecutorTest.test_free_reference
+  root_cause: for-loop lowering kept a hidden `_dp_tmp_*` reference to each yielded item, so objects stayed alive after `del obj` and the weakref never cleared.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_concurrent_futures.test_interpreter_pool.InterpreterPoolExecutorTest.test_thread_name_prefix_with_thread_get_name
+  root_cause: transformed callables are not shareable across subinterpreters, so InterpreterPoolExecutor raises NotShareableError when submitting a local function.
+  disposition: moved to CURRENT_FAILURES_HARD.txt (cross-interpreter shareability)
+
+inspect/linecache source retrieval mismatches (test.test_inspect)
+  tests:
+    test.test_inspect.test_inspect.TestBlockComments.test_class_async_method
+    test.test_inspect.test_inspect.TestBlockComments.test_class_method
+    test.test_inspect.test_inspect.TestBlockComments.test_toplevel_class
+    test.test_inspect.test_inspect.TestBuggyCases.test_class_decorator
+    test.test_inspect.test_inspect.TestBuggyCases.test_class_definition_in_multiline_comment
+    test.test_inspect.test_inspect.TestBuggyCases.test_class_definition_in_multiline_string_definition
+    test.test_inspect.test_inspect.TestBuggyCases.test_class_definition_same_name_diff_methods
+    test.test_inspect.test_inspect.TestBuggyCases.test_class_inside_conditional
+    test.test_inspect.test_inspect.TestBuggyCases.test_comment_or_empty_line_after_decorator
+    test.test_inspect.test_inspect.TestBuggyCases.test_generator_expression
+    test.test_inspect.test_inspect.TestBuggyCases.test_getsource_on_class_code_object
+    test.test_inspect.test_inspect.TestBuggyCases.test_multiple_children_classes
+    test.test_inspect.test_inspect.TestBuggyCases.test_nested_class_definition
+    test.test_inspect.test_inspect.TestBuggyCases.test_nested_class_definition_indented_string
+    test.test_inspect.test_inspect.TestBuggyCases.test_nested_class_definition_inside_async_function
+    test.test_inspect.test_inspect.TestBuggyCases.test_nested_class_definition_inside_function
+    test.test_inspect.test_inspect.TestComplexDecorator.test_parens_in_decorator
+    test.test_inspect.test_inspect.TestGetsourceStdlib.test_getsource_stdlib_decimal
+    test.test_inspect.test_inspect.TestMain.test_qualname_source
+    test.test_inspect.test_inspect.TestNoEOL.test_class
+    test.test_inspect.test_inspect.TestOneliners.test_dataclass
+    test.test_inspect.test_inspect.TestOneliners.test_enum
+    test.test_inspect.test_inspect.TestOneliners.test_namedtuple
+    test.test_inspect.test_inspect.TestOneliners.test_nested_lambda
+    test.test_inspect.test_inspect.TestOneliners.test_parenthesized_multiline_lambda
+    test.test_inspect.test_inspect.TestOneliners.test_post_line_parenthesized_lambda
+    test.test_inspect.test_inspect.TestOneliners.test_typeddict
+    test.test_inspect.test_inspect.TestSignatureBind.test_signature_bind_implicit_arg
+    test.test_inspect.test_inspect.TestBuggyCases.test_getsource_on_method
+    test.test_inspect.test_inspect.TestBuggyCases.test_method_in_dynamic_class
+    test.test_inspect.test_inspect.TestBuggyCases.test_multiline_sig
+    test.test_inspect.test_inspect.TestBuggyCases.test_nested_class
+    test.test_inspect.test_inspect.TestBuggyCases.test_nested_func
+    test.test_inspect.test_inspect.TestBuggyCases.test_one_liner_dedent_non_name
+    test.test_inspect.test_inspect.TestBuggyCases.test_one_liner_followed_by_non_name
+    test.test_inspect.test_inspect.TestBuggyCases.test_with_comment
+    test.test_inspect.test_inspect.TestBuggyCases.test_with_comment_instead_of_docstring
+    test.test_inspect.test_inspect.TestDecorators.test_decorator_with_lambda
+    test.test_inspect.test_inspect.TestDecorators.test_getsource_unwrap
+    test.test_inspect.test_inspect.TestDecorators.test_replacing_decorator
+    test.test_inspect.test_inspect.TestDecorators.test_wrapped_decorator
+    test.test_inspect.test_inspect.TestGetAsyncGenState.test_getasyncgenlocals
+    test.test_inspect.test_inspect.TestGetClosureVars.test_attribute_same_name_as_global_var
+    test.test_inspect.test_inspect.TestGetClosureVars.test_generator_closure
+    test.test_inspect.test_inspect.TestGetClosureVars.test_method_closure
+    test.test_inspect.test_inspect.TestGetClosureVars.test_name_resolution
+    test.test_inspect.test_inspect.TestGetClosureVars.test_nonlocal_vars
+    test.test_inspect.test_inspect.TestGetCoroutineState.test_getcoroutinelocals
+    test.test_inspect.test_inspect.TestGetGeneratorState.test_getgeneratorlocals
+    test.test_inspect.test_inspect.TestInterpreterStack.test_stack
+    test.test_inspect.test_inspect.TestInterpreterStack.test_trace
+    test.test_inspect.test_inspect.TestOneliners.test_anonymous
+    test.test_inspect.test_inspect.TestOneliners.test_lambda_in_list
+    test.test_inspect.test_inspect.TestOneliners.test_manyargs
+    test.test_inspect.test_inspect.TestOneliners.test_oneline_lambda
+    test.test_inspect.test_inspect.TestOneliners.test_onelinefunc
+    test.test_inspect.test_inspect.TestOneliners.test_threeline_lambda
+    test.test_inspect.test_inspect.TestOneliners.test_twoline_indented_lambda
+    test.test_inspect.test_inspect.TestOneliners.test_twolinefunc
+    test.test_inspect.test_inspect.TestRetrievingSourceCode.test_getcomments
+    test.test_inspect.test_inspect.TestRetrievingSourceCode.test_getdoc
+    test.test_inspect.test_inspect.TestRetrievingSourceCode.test_getdoc_inherited
+    test.test_inspect.test_inspect.TestRetrievingSourceCode.test_getsource
+    test.test_inspect.test_inspect.TestRetrievingSourceCode.test_getsource_on_code_object
+    test.test_inspect.test_inspect.TestSignatureDefinitions.test_base_class_have_text_signature
+    test.test_inspect.test_inspect.TestSignatureObject.test_signature_eval_str
+  root_cause: transformed source layout and helper rewrites break inspect/linecache expectations for source text, comments, and line numbers.
+  disposition: moved to EXPECTED_FAILURE.md (pattern `test.test_inspect.test_inspect.*`)
+
+bytecode/disassembly mismatches (test.test_dis)
+  tests:
+    test.test_dis.BytecodeTests.test_explicit_first_line
+    test.test_dis.BytecodeTests.test_from_traceback_dis
+    test.test_dis.BytecodeTests.test_info
+    test.test_dis.CodeInfoTests.test_code_info
+    test.test_dis.CodeInfoTests.test_show_code
+    test.test_dis.DisTests.test_async_for_presentation
+    test.test_dis.DisTests.test_big_linenos
+    test.test_dis.DisTests.test_bug_1333982
+    test.test_dis.DisTests.test_bug_708901
+    test.test_dis.DisTests.test_dis_with_all_positions
+    test.test_dis.DisTests.test_disassemble_asyncwith
+    test.test_dis.DisTests.test_disassemble_class
+    test.test_dis.DisTests.test_disassemble_class_method
+    test.test_dis.DisTests.test_disassemble_fstring
+    test.test_dis.DisTests.test_disassemble_instance_method
+    test.test_dis.DisTests.test_disassemble_instance_method_bytes
+    test.test_dis.DisTests.test_disassemble_recursive
+    test.test_dis.DisTests.test_disassemble_static_method
+    test.test_dis.DisTests.test_disassemble_with
+    test.test_dis.DisTests.test_extended_arg_quick
+    test.test_dis.DisTests.test_loop_quicken
+    test.test_dis.DisTests.test_loop_with_conditional_at_end_is_quickened
+    test.test_dis.DisTests.test_show_caches
+    test.test_dis.DisTests.test_super_instructions
+    test.test_dis.DisWithFileTests.test_async_for_presentation
+    test.test_dis.DisWithFileTests.test_big_linenos
+    test.test_dis.DisWithFileTests.test_bug_1333982
+    test.test_dis.DisWithFileTests.test_bug_708901
+    test.test_dis.DisWithFileTests.test_dis_with_all_positions
+    test.test_dis.DisWithFileTests.test_disassemble_asyncwith
+    test.test_dis.DisWithFileTests.test_disassemble_class
+    test.test_dis.DisWithFileTests.test_disassemble_class_method
+    test.test_dis.DisWithFileTests.test_disassemble_fstring
+    test.test_dis.DisWithFileTests.test_disassemble_instance_method
+    test.test_dis.DisWithFileTests.test_disassemble_instance_method_bytes
+    test.test_dis.DisWithFileTests.test_disassemble_recursive
+    test.test_dis.DisWithFileTests.test_disassemble_static_method
+    test.test_dis.DisWithFileTests.test_disassemble_with
+    test.test_dis.DisWithFileTests.test_extended_arg_quick
+    test.test_dis.DisWithFileTests.test_loop_quicken
+    test.test_dis.DisWithFileTests.test_loop_with_conditional_at_end_is_quickened
+    test.test_dis.DisWithFileTests.test_show_caches
+    test.test_dis.DisWithFileTests.test_super_instructions
+    test.test_dis.InstructionTests.test_default_first_line
+    test.test_dis.InstructionTests.test_doubly_nested
+    test.test_dis.InstructionTests.test_first_line_set_to_None
+    test.test_dis.InstructionTests.test_jumpy
+    test.test_dis.InstructionTests.test_nested
+    test.test_dis.InstructionTests.test_outer
+    test.test_dis.TestDisTraceback.test_distb_explicit_arg
+    test.test_dis.TestDisTraceback.test_distb_last_traceback
+    test.test_dis.TestDisTracebackWithFile.test_distb_explicit_arg
+    test.test_dis.TestDisTracebackWithFile.test_distb_last_traceback
+    test.test_dis.TestFinderMethods.test_findlabels
+  root_cause: transformed code replaces opcodes with helper calls, so disassembly, instruction positions, and traceback-disassembly output no longer match CPython bytecode expectations.
+  disposition: moved to EXPECTED_FAILURE.md (pattern `test.test_dis.*`)
+
+code object/bytecode metadata mismatches (test.test_code)
+  tests:
+    test.test_code.CodeTest.test_stateless
+    test.test_code.CodeLocationTest.test_co_branches
+    test.test_code.CodeTest.test_closure_injection
+    test.test_code.CodeTest.test_code_hash_uses_bytecode
+    test.test_code.CodeTest.test_local_kinds
+    test.test_code.CodeTest.test_var_counts
+  root_cause: transformed functions introduce helper locals and rewrite operations, so co_varnames/localsplus counts, locals kinds, and bytecode-dependent invariants diverge from CPython expectations.
+  disposition: moved to EXPECTED_FAILURE.md (pattern `test.test_code.*`)
+
+annotationlib evaluation/formatting mismatches (test.test_annotationlib)
+  tests:
+    test.test_annotationlib.TestCallAnnotateFunction.test_user_annotate_string_fakeglobals
+    test.test_annotationlib.TestCallEvaluateFunction.test_evaluation
+    test.test_annotationlib.TestForwardRefClass.test_fwdref_evaluate_argument_mutation
+    test.test_annotationlib.TestGetAnnotations.test_missing_dunder_dict
+    test.test_annotationlib.TestGetAnnotations.test_nonlocal_in_annotation_scope
+    test.test_annotationlib.TestGetAnnotations.test_partial_evaluation_cell
+    test.test_annotationlib.TestGetAnnotations.test_stock_annotations_in_module
+    test.test_annotationlib.TestGetAnnotations.test_stringized_annotations_in_module
+    test.test_annotationlib.TestCallEvaluateFunction.test_fake_global_evaluation
+    test.test_annotationlib.TestGetAnnotations.test_partial_evaluation
+    test.test_annotationlib.TestGetAnnotations.test_partial_evaluation_error
+    test.test_annotationlib.TestStringFormat.test_displays
+    test.test_annotationlib.TestStringFormat.test_expressions
+    test.test_annotationlib.TestStringFormat.test_getitem
+    test.test_annotationlib.TestStringFormat.test_literals
+    test.test_annotationlib.TestStringFormat.test_nested_expressions
+    test.test_annotationlib.TestStringFormat.test_reverse_ops
+    test.test_annotationlib.TestStringFormat.test_shenanigans
+    test.test_annotationlib.TestStringFormat.test_slice
+    test.test_annotationlib.TestStringFormat.test_template_str
+    test.test_annotationlib.TestStringFormat.test_unsupported_operations
+    test.test_annotationlib.TestTypeRepr.test_type_repr
+  root_cause: transformed __annotate__ functions and tuple-unpack/closure handling diverge from CPython's annotationlib expectations (fake globals, ForwardRef evaluation, stringification).
+  disposition: moved to CURRENT_FAILURES_HARD.txt (requires broader annotation/closure semantics work)
+
+test.test_contextlib.ContextManagerTestCase.test_contextmanager_traceback
+  root_cause: transformed `with` lowers to helper calls, so traceback frames and source snippets differ from CPython.
+  disposition: moved to EXPECTED_FAILURE.md (traceback/source mismatch)
+
+test.test_contextlib.TestExitStack.test_exit_exception_traceback
+  root_cause: transformed `with` lowers to helper calls, so traceback frames and source snippets differ from CPython.
+  disposition: moved to EXPECTED_FAILURE.md (traceback/source mismatch)
+
+test.test_contextlib_async.AsyncContextManagerTestCase.test_contextmanager_traceback
+  root_cause: transformed `async with` lowers to helper calls, so traceback frames and source snippets differ from CPython.
+  disposition: moved to EXPECTED_FAILURE.md (traceback/source mismatch)
+
+test.test_contextlib_async.TestAsyncExitStack.test_exit_exception_traceback
+  root_cause: transformed `async with` lowers to helper calls, so traceback frames and source snippets differ from CPython.
+  disposition: moved to EXPECTED_FAILURE.md (traceback/source mismatch)
+
+test.test_dictcomps.DictComprehensionTest.test_exception_locations
+  root_cause: comprehension lowering generates helper functions, so traceback locations differ from CPython.
+  disposition: moved to EXPECTED_FAILURE.md (traceback/source mismatch)
+
+bdb stepping/trace line mismatches (test.test_bdb)
+  tests:
+    test.test_bdb.IssuesTestCase.test_next_command_in_generator_for_loop
+    test.test_bdb.IssuesTestCase.test_next_command_in_generator_with_subiterator
+    test.test_bdb.IssuesTestCase.test_next_to_botframe
+    test.test_bdb.IssuesTestCase.test_next_until_return_in_generator
+    test.test_bdb.IssuesTestCase.test_return_command_in_generator_with_subiterator
+    test.test_bdb.IssuesTestCase.test_step_at_return_with_no_trace_in_caller
+    test.test_bdb.RunTestCase.test_run_step
+    test.test_bdb.StateTestCase.test_skip
+  root_cause: transformed control flow inserts helper frames and shifts line events, so bdb step/next expectations no longer line up with CPython tracing behavior.
+  disposition: moved to EXPECTED_FAILURE.md (pattern `test.test_bdb.*`)
+
+test.test_copy.TestCopy.test_copy_weakkeydict
+  root_cause: loop/unpack lowering kept hidden `_dp_tmp_*` references to weakdict keys/values, so `del` + GC did not drop entries.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_copy.TestCopy.test_copy_weakvaluedict
+  root_cause: loop/unpack lowering kept hidden `_dp_tmp_*` references to weakdict keys/values, so `del` + GC did not drop entries.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_copy.TestCopy.test_deepcopy_weakkeydict
+  root_cause: loop/unpack lowering kept hidden `_dp_tmp_*` references to weakdict keys/values, so `del` + GC did not drop entries.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_copy.TestCopy.test_deepcopy_weakvaluedict
+  root_cause: loop/unpack lowering kept hidden `_dp_tmp_*` references to weakdict keys/values, so `del` + GC did not drop entries.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_cprofile.CProfileTest.test_cprofile
+  root_cause: profiling output includes diet-python helper frames and shifted line numbers from transformed code.
+  disposition: moved to EXPECTED_FAILURE.md (profiling/traceback mismatch)
+
+test.test_profile.ProfileTest.test_cprofile
+  root_cause: profiling output includes diet-python helper frames and shifted line numbers from transformed code.
+  disposition: moved to EXPECTED_FAILURE.md (profiling/traceback mismatch)
+
+cross-interpreter shareability mismatches (test.test_crossinterp)
+  tests:
+    test.test_crossinterp.PureShareableScriptTests.test_pure_script_code
+    test.test_crossinterp.PureShareableScriptTests.test_pure_script_function
+    test.test_crossinterp.ShareableFallbackTests.test_not_shareable
+    test.test_crossinterp.ShareableFuncTests.test_stateless
+  root_cause: diet-python wraps/transforms functions and code objects, which makes them non-shareable under subinterpreter constraints.
+  disposition: moved to CURRENT_FAILURES_HARD.txt (cross-interpreter support)
+
+test.test_multiprocessing_fork.test_threads.WithThreadsTestPool.test_release_task_refs
+  root_cause: loop/unpack lowering kept hidden `_dp_tmp_*` references to pool results, so CountedObject instances were not released after task completion.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+dataclasses semantic mismatches (test.test_dataclasses)
+  tests:
+    test.test_dataclasses.TestInitAnnotate.test_annotate_function
+    test.test_dataclasses.TestInitAnnotate.test_annotate_function_contains_forwardref
+    test.test_dataclasses.TestInitAnnotate.test_annotate_function_forwardref
+    test.test_dataclasses.TestSlots.test_original_class_is_gced
+    test.test_dataclasses.TestStringAnnotations.test_classvar_module_level_import
+    test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_wrapped
+    test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_zero_argument_super
+    test.test_dataclasses.TestCase.test_incomplete_annotations
+    test.test_dataclasses.TestCase.test_recursive_annotation
+    test.test_dataclasses.TestDocString.test_existing_docstring_not_overridden
+    test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_dunder_class_with_new_property
+    test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_dunder_class_with_old_property
+    test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_remembered_class
+    test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_slots_dunder_class_property_deleter
+    test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_slots_dunder_class_property_getter
+    test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_slots_dunder_class_property_setter
+  root_cause: transformed class bodies and annotation handling change dataclass initialization/slots/__class__ cell behavior.
+  disposition: moved to CURRENT_FAILURES_HARD.txt (broad class/annotation semantics)
+
+doctest source mismatches (test.test_doctest)
+  tests:
+    test.test_doctest.test_doctest.test_DocTestFinder
+    test.test_doctest.test_doctest
+    test.test_doctest.test_doctest2.Test.test_testmod
+  root_cause: transformed source text/line numbers differ from CPython, so doctest expectations for source snippets fail.
+  disposition: moved to EXPECTED_FAILURE.md (pattern `test.test_doctest.*`)
+
+test.test_exception_group.ExceptionGroupFields.test_basics_ExceptionGroup_fields
+  root_cause: transformed source/traceback content changes ExceptionGroup traceback field expectations.
+  disposition: moved to EXPECTED_FAILURE.md (traceback/source mismatch)
+
+test.test_exception_group.NestedExceptionGroupBasicsTest.test_iteration_full_tracebacks
+  root_cause: transformed source/traceback content changes nested ExceptionGroup traceback expectations.
+  disposition: moved to EXPECTED_FAILURE.md (traceback/source mismatch)
+
+test.test_exception_group.NestedExceptionGroupBasicsTest.test_nested_exception_group_tracebacks
+  root_cause: transformed source/traceback content changes nested ExceptionGroup traceback expectations.
+  disposition: moved to EXPECTED_FAILURE.md (traceback/source mismatch)
+
+test.datetimetester.*.test_strftime_special / test.test_time.TimeTestCase.test_strftime_special
+  root_cause: f-string literal parts were emitted from AST string values, which already decoded surrogate escapes into replacement characters, so runtime f-strings lost lone surrogate code points used in strftime tests.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_generators.GeneratorTest.test_genexpr_only_calls_dunder_iter_once
+  root_cause: lowering pre-iterated the genexpr iterable and the genexpr helper re-iterated it, so __iter__ ran twice.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_listcomps.ListComprehensionTest.test_only_calls_dunder_iter_once
+  root_cause: lowering pre-iterated the listcomp iterable and the listcomp helper re-iterated it, so __iter__ ran twice.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_fstring.TestCase.test_ast
+  root_cause: f-string literal surrogate escapes were decoded into replacement characters during transform, which broke downstream f-string AST expectations and triggered NameError in test_ast under transformed imports.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_fstring.TestCase.test_ast_compile_time_concat
+  root_cause: f-string literal surrogate escapes were decoded into replacement characters during transform, which broke downstream f-string AST expectations and triggered NameError in test_ast_compile_time_concat under transformed imports.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_email.test_headerregistry.TestContentTypeHeader.test_value_non_ascii_in_params
+  root_cause: implicit string literal concatenation with surrogate escapes was passed to decode_surrogate_literal without parentheses, so only the first literal was evaluated and the result kept extra quotes; expected header folding mismatched.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_fstring.TestCase.test_debug_conversion
+  root_cause: debug f-string expressions include the raw source text; diet-python strips comments from debug text in rewrite_interpolation, so the emitted debug string omits inline comments.
+  disposition: moved to EXPECTED_FAILURE.md (source/traceback text mismatch)
+
+test.test_utf8_mode.UTF8ModeTests.test_cmd_line
+  root_cause: diet-python import hook tried to transform encodings during startup, causing bootstrap failures when running UTF-8 mode checks.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_property.PropertySubclassTests.test_issue41287
+  root_cause: class docstrings were not assigned into the class namespace after transformation, so property subclass __doc__ values were incorrect.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_asyncgen.AsyncGenAsyncioTest.test_async_gen_expression_incorrect
+  root_cause: async genexpr lowering wrapped the outer iterable in __dp__.aiter twice, so __aiter__ ran twice and raised.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_frame.*
+  root_cause: f_locals is rewritten to a FrameLocalsProxy and frame locals are normalized through explicit cell objects, which does not match CPython proxy semantics for deletion, key views, repr, and scope resolution.
+  disposition: moved to CURRENT_FAILURES_HARD.txt (broad frame semantics)
+
+test.test_funcattrs.FunctionPropertiesTest.test_empty_cell
+  root_cause: explicit cell objects are stored as closure contents; reading f.__closure__[0].cell_contents yields a cell object instead of raising ValueError for an empty cell.
+  disposition: moved to CURRENT_FAILURES_HARD.txt (cell/closure semantics)
+
+test.test_import.ImportTracebackTests.test_syntax_error
+  root_cause: diet-python raises SyntaxError during transformation; the traceback includes importlib frames instead of only the importing test file.
+  disposition: moved to EXPECTED_FAILURE.md (traceback/source mismatch)
+
+test.test_import.PycRewritingTests.test_foreign_code
+  root_cause: diet-python transforms source on import, so mutated .pyc contents (foreign code constants) are ignored and not surfaced in the loaded module.
+  disposition: moved to CURRENT_FAILURES_HARD.txt (import/pyc semantics)
+
+test.test_import.SubinterpImportTests.test_isolated_config
+  root_cause: diet-python loader is not registered as a pure-python loader for subinterpreters and diet_python extension cannot be imported in isolated subinterpreters.
+  disposition: moved to CURRENT_FAILURES_HARD.txt (subinterpreter import semantics)
+
+test.test_import.SubinterpImportTests.test_python_compat
+  root_cause: diet-python loader is not registered as a pure-python loader for subinterpreters and diet_python extension cannot be imported in isolated subinterpreters.
+  disposition: moved to CURRENT_FAILURES_HARD.txt (subinterpreter import semantics)
+
+test.test_gettext.*PluralForms*
+  root_cause: plural form tests assert DeprecationWarning line numbers derived from co_firstlineno; diet-python transforms shift line numbers so warning locations differ.
+  disposition: moved to EXPECTED_FAILURE.md (line number mismatch)
+
+test.test_with.FailureTestCase.*
+  root_cause: context manager helper error messages did not match CPython for missing __enter__/__exit__/__aenter__/__aexit__.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_getpath.MockGetPathTests.test_registry_win32
+  root_cause: builtins.__dp__ stored a module object in __builtins__, so copy.deepcopy on the namespace failed because module objects are not pickleable.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_listcomps.ListComprehensionTest.test_unbound_local_inside_comprehension
+  root_cause: comprehension target renaming ignored Load occurrences of target names in the target expression, so target rebinding did not trigger UnboundLocalError.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_pyclbr.PyclbrTest.test_cases
+  root_cause: private name mangling rewrote __a inside classes whose names are only underscores (e.g. "_", "__"), but CPython does not mangle in that case. The transform emitted "___a" while pyclbr (and CPython runtime) expect "__a".
+  disposition: fixed (skip mangling when the stripped class name is empty; see FIXED_FAILURES.txt)
+
+test.test_raise.TestCause.test_class_cause_nonexception_result
+  root_cause: __dp__.raise_from instantiated the cause class but did not verify the result was a BaseException instance; when __new__ returned a list, we assigned it to __cause__ and got the wrong TypeError message.
+  disposition: fixed (validate instantiated exception classes and raise the CPython-style "should have returned an instance of BaseException" error)
+
+test.test_re.ReTests.test_regression_gh94675
+  root_cause: no longer reproducible; test now passes under current transform.
+  disposition: removed from CURRENT_FAILURES.txt (no change needed)
+
+test.test_repl.TestInteractiveInterpreter.test_asyncio_repl_reaches_python_startup_script
+  root_cause: no longer reproducible; test now passes under current transform.
+  disposition: removed from CURRENT_FAILURES.txt (no change needed)
+
+test.test_reprlib.ReprTests.test_cell
+  root_cause: transformed closures store explicit cell objects in local variables (_dp_cell_x), so the real Python closure cell contains a cell object. repr(cell) then shows "cell object" instead of the expected "int object".
+  disposition: moved to CURRENT_FAILURES_HARD.txt (requires rethinking cell/closure representation to avoid cell-of-cell)
+
+test.test_support.TestSupport.test_recursion
+  root_cause: transformed `with` adds extra helper frames (`__dp__.contextmanager_*`) before calling the contextmanager's __enter__, so `support.infinite_recursion` computes a too-low recursion limit (current depth already near the limit) and `sys.setrecursionlimit` raises.
+  disposition: moved to CURRENT_FAILURES_HARD.txt (would require reworking with-statement lowering to avoid helper frames or otherwise adjust recursion depth accounting)
+
+test.test_unicode_identifiers.PEP3131Test.test_invalid
+  root_cause: syntax error message comes from the diet-python parser/tokenizer ("Got unexpected token … at byte range") rather than CPython's "invalid character …" wording/line info.
+  disposition: moved to EXPECTED_FAILURE.md (syntax error message/content mismatch)
+
+test.test_zipimport_support.ZipSupportTests.test_doctest_issue4197
+  root_cause: doctest debug uses exec/eval; diet-python wraps exec in __dp__.exec_ which adds helper frames and changes debugger interaction (Pdb stops in __dp__.py, locals differ, NameError for x). This is a traceback/debugger/source mismatch.
+  disposition: moved to EXPECTED_FAILURE.md (doctest/traceback mismatch due to exec wrapper)
+
+test.test_venv.BasicTest.test_multiprocessing
+  root_cause: no longer reproducible; test now passes under current transform.
+  disposition: removed from CURRENT_FAILURES.txt (no change needed)
+
+test.test_io.*.test_error_through_destructor
+  root_cause: with-statement lowering kept a temporary reference to the context manager expression (e.g., assertRaises) in a placeholder variable, so exception objects (holding the target object via AttributeError.obj) stayed alive until after catch_unraisable_exception exited. Unraisable exceptions then bypassed the temporary sys.unraisablehook and were reported as warnings, leaving cm.unraisable unset.
+  disposition: fixed (clear placeholder temps after with and avoid storing __enter__ results when no "as" target)
+
+test.test_socket.GeneralModuleTests.test_weakref
+  root_cause: same with-statement placeholder retention as the io destructor cases; the socket object stayed alive past gc because __enter__ result and/or context expression temp was kept until after the with block.
+  disposition: fixed by clearing placeholder temps and avoiding unused __enter__ assignment (see FIXED_FAILURES.txt)
+
+test.test_ssl.BasicSocketTests.test_refcycle
+  root_cause: with-statement lowering kept a reference to the context manager/socket through a placeholder temp, so the SSL socket object wasn't reclaimed after del.
+  disposition: fixed by clearing placeholder temps after the with block and skipping unused __enter__ assignment.
+
+test.test_compile
+  root_cause: AnnAssign/global stripping could leave empty function/class bodies, producing IndentationError during import.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_scope
+  root_cause: global-only functions lost their sole statement and became empty, producing IndentationError during import.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_exceptions
+  root_cause: delete target rewriting turned nonlocal deletes into `del __dp__.load_cell(...)`, producing SyntaxError during import.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_global.GlobalTests.test_caught_exception_group
+  root_cause: except* handler names in global scope were left as locals, so global loads failed with NameError inside the handler.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_type_aliases
+  root_cause: type alias lowering eagerly evaluates the alias RHS, so recursive aliases reference themselves before binding and raise NameError.
+  disposition: moved to CURRENT_FAILURES_HARD.txt
+
+test.test_exceptions.ExceptionTests.test_unhandled
+  root_cause: traceback text expects the original `raise exc` source line; transformed code rewrites raises into helper calls so the line is missing.
+  disposition: moved to EXPECTED_FAILURE.md (traceback/source mismatch)
+
+test.test_exceptions.PEP626Tests.test_lineno_after_other_except
+  root_cause: control-flow lowering inserts helper calls, shifting line number events.
+  disposition: moved to EXPECTED_FAILURE.md (line number mismatch)
+
+test.test_exceptions.PEP626Tests.test_lineno_after_raise_in_with_exit
+  root_cause: `with` lowering inserts helper calls, shifting line number events.
+  disposition: moved to EXPECTED_FAILURE.md (line number mismatch)
+
+test.test_exceptions.PEP626Tests.test_lineno_after_with
+  root_cause: `with` lowering inserts helper calls, shifting line number events.
+  disposition: moved to EXPECTED_FAILURE.md (line number mismatch)
+
+test.test_exceptions.PEP626Tests.test_lineno_in_named_except
+  root_cause: try/except lowering inserts helper calls, shifting line number events.
+  disposition: moved to EXPECTED_FAILURE.md (line number mismatch)
+
+test.test_compile.TestBooleanExpression.test_compound
+  root_cause: boolean lowering rewrites expressions into helper calls, changing bytecode/stack behavior.
+  disposition: moved to EXPECTED_FAILURE.md (bytecode mismatch)
+
+test.test_compile.TestSourcePositions.test_return_in_with_positions
+  root_cause: with-statement lowering inserts helper calls, shifting source positions.
+  disposition: moved to EXPECTED_FAILURE.md (source position mismatch)
+
+test.test_compile.TestSpecifics.test_consts_in_conditionals
+  root_cause: constant folding expectations differ after lowering boolean/constant expressions.
+  disposition: moved to EXPECTED_FAILURE.md (bytecode mismatch)
+
+test.test_compile.TestSpecifics.test_dont_merge_constants
+  root_cause: constant pooling differs after lowering expressions.
+  disposition: moved to EXPECTED_FAILURE.md (bytecode mismatch)
+
+test.test_compile.TestSpecifics.test_line_number_genexp
+  root_cause: comprehension lowering inserts helper calls, shifting line number events.
+  disposition: moved to EXPECTED_FAILURE.md (line number mismatch)
+
+test.test_compile.TestSpecifics.test_line_number_implicit_return_after_async_for
+  root_cause: async for lowering inserts helper calls, shifting line number events.
+  disposition: moved to EXPECTED_FAILURE.md (line number mismatch)
+
+test.test_compile.TestSpecifics.test_lineno_after_no_code
+  root_cause: helper call insertion shifts opcode source positions.
+  disposition: moved to EXPECTED_FAILURE.md (line number mismatch)
+
+test.test_compile.TestSpecifics.test_lineno_after_implicit_return
+  root_cause: helper call insertion shifts opcode source positions.
+  disposition: moved to EXPECTED_FAILURE.md (line number mismatch)
+
+test.test_compile.TestSpecifics.test_lineno_attribute
+  root_cause: attribute lowering inserts helper calls, shifting opcode source positions.
+  disposition: moved to EXPECTED_FAILURE.md (line number mismatch)
+
+test.test_compile.TestSpecifics.test_lineno_procedure_call
+  root_cause: call lowering inserts helper calls, shifting opcode source positions.
+  disposition: moved to EXPECTED_FAILURE.md (line number mismatch)
+
+test.test_compile.TestSpecifics.test_mangling
+  root_cause: helper-name injection changes name-mangling expectations during compilation.
+  disposition: moved to EXPECTED_FAILURE.md (name/bytecode mismatch)
+
+test.test_compile.TestSpecifics.test_merge_constants
+  root_cause: constant pooling differs after lowering expressions.
+  disposition: moved to EXPECTED_FAILURE.md (bytecode mismatch)
+
+test.test_compile.TestSpecifics.test_uses_slice_instructions
+  root_cause: slice lowering uses helper calls, so opcode counts differ.
+  disposition: moved to EXPECTED_FAILURE.md (bytecode mismatch)
+
+test.test_compile.TestStaticAttributes.test_basic
+  root_cause: class/function lowering changes static-attribute detection results.
+  disposition: moved to EXPECTED_FAILURE.md (bytecode/analysis mismatch)
+
+test.test_compile.TestStaticAttributes.test_nested_class
+  root_cause: class lowering changes static-attribute detection results.
+  disposition: moved to EXPECTED_FAILURE.md (bytecode/analysis mismatch)
+
+test.test_compile.TestStaticAttributes.test_nested_function
+  root_cause: function lowering changes static-attribute detection results.
+  disposition: moved to EXPECTED_FAILURE.md (bytecode/analysis mismatch)
+
+test.test_compile.TestStaticAttributes.test_subclass
+  root_cause: class lowering changes static-attribute detection results.
+  disposition: moved to EXPECTED_FAILURE.md (bytecode/analysis mismatch)
+
+test.test_unicode_identifiers.PEP3131Test.test_invalid
+  root_cause: diet-python parser reports different syntax error text/locations for invalid identifiers.
+  disposition: moved to EXPECTED_FAILURE.md (syntax error text mismatch)
+
+test.test_zipimport_support.ZipSupportTests.test_doctest_issue4197
+  root_cause: doctest debug flows through __dp__.exec_ wrapper with extra frames/locals.
+  disposition: moved to EXPECTED_FAILURE.md (traceback/source mismatch)
+
+test.test_frame.TestFrameLocals.test_as_dict
+  root_cause: FrameLocalsProxy relied on MutableMapping.keys(), which returns a KeysView without __reversed__, so reversed(d.keys()) raised TypeError. FrameLocalsProxy.__reversed__ also returned an iterator, not the list CPython's f_locals expects.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_funcattrs.FunctionPropertiesTest.test_empty_cell
+  root_cause: transformed closures capture _dp_cell_* variables as free vars, so f.__closure__[0].cell_contents holds a cell object rather than the underlying value. Empty cell checks see a non-empty cell-of-cell.
+  disposition: moved to CURRENT_FAILURES_HARD.txt
+
+test.test_reprlib.ReprTests.test_cell
+  root_cause: same cell-of-cell closure representation; repr shows a cell containing a cell object instead of the expected value.
+  disposition: moved to CURRENT_FAILURES_HARD.txt
+
+test.test_frame.TestFrameLocals.test_constructor
+  root_cause: FrameLocalsProxy constructor accepted arbitrary args/keywords and non-frame types, so expected TypeError cases did not raise.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_frame.TestFrameLocals.test_delete
+  root_cause: FrameLocalsProxy allowed deletion of true locals and inherited MutableMapping.clear/popitem, so deletion/pop expectations differed from CPython.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_frame.TestFrameLocals.test_write_with_hidden
+  root_cause: list comprehension lowering introduced a real frame, so sys._getframe().f_locals inside a comprehension targeted the comprehension frame instead of the enclosing function.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_frame.TestFrameLocals.test_closure_with_inline_comprehension
+  root_cause: comprehension lowering renamed target variables to _dp_tmp_* even though the comprehension has its own scope, so locals() inside the comprehension lost the original target name.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_frame.TestFrameLocals.test_scope
+  root_cause: __dp__.frame_locals only treated class scopes when frame.f_locals was a dict; class-body frames expose a FrameLocalsProxy mapping, so _dp_class_ns was missed and writes went to a locals proxy instead of the class namespace.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_frame.FrameLocalsProxyMappingTests.test_repr
+  root_cause: FrameLocalsProxy.__repr__ called repr() on a snapshot dict that often contains the proxy itself, so repr recursed indefinitely and raised RecursionError.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_frame.TestFrameLocals.test_sizeof
+  root_cause: FrameLocalsProxy is a Python-level proxy object, so sys.getsizeof reports a different size than CPython's builtin frame locals proxy (expected calcobjsize("P") but got a larger size).
+  disposition: moved to CURRENT_FAILURES_HARD.txt (frame inspection behavior is infeasible right now)
+
+test.test_frame.TestFrameLocals.test_unsupport
+  root_cause: copy.copy/copy.deepcopy of FrameLocalsProxy do not raise TypeError, because the proxy is a Python mapping that is copyable by default.
+  disposition: moved to CURRENT_FAILURES_HARD.txt (frame inspection behavior is infeasible right now)
+
+test.test_annotationlib.MetaclassTests.test_annotated_meta
+  root_cause: metaclass __annotate__ functions are regular functions, so classes using that metaclass inherit a bound __annotate__ method; type.__annotations__ invokes it with a format, resulting in an extra implicit self and a TypeError.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_annotationlib.TestCallAnnotateFunction.test_user_annotate_string_fakeglobals
+  root_cause: annotationlib.call_annotate_function re-executes annotate() with a _StringifierDict globals; transformed annotate functions reference __dp__, which resolved to a _Stringifier instead of the real runtime module, so annotate returned a _Stringifier rather than a dict and tuple-unpacking failed.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_annotationlib.TestCallEvaluateFunction.test_evaluation
+  root_cause: same fake-globals __dp__ resolution issue as test_user_annotate_string_fakeglobals; transformed evaluate functions referenced __dp__ and broke under _StringifierDict globals.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_annotationlib.TestCallEvaluateFunction.test_fake_global_evaluation
+  root_cause: same fake-globals __dp__ resolution issue as test_user_annotate_string_fakeglobals; transformed evaluate functions referenced __dp__ and broke under _StringifierDict globals.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_annotationlib.TestForwardRefClass.test_fwdref_evaluate_argument_mutation
+  root_cause: same fake-globals __dp__ resolution issue as test_user_annotate_string_fakeglobals; transformed evaluate functions referenced __dp__ and broke under _StringifierDict globals.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_annotationlib.TestGetAnnotations.test_nonlocal_in_annotation_scope
+  root_cause: annotationlib ForwardRef stringifiers were created with a cell-of-cell __cell__ from transformed closures; transmogrify kept that cell, so ForwardRef.evaluate returned the inner cell object instead of a ForwardRef.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_annotationlib.TestGetAnnotations.test_partial_evaluation_cell
+  root_cause: same cell-of-cell handling in annotationlib stringifiers caused ForwardRef to carry the wrong __cell__, producing 'obj.cell_contents.missing' instead of 'obj.missing'.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_annotationlib.TestGetAnnotations.test_stringized_annotations_in_module
+  root_cause: future-annotation stringification uses ruff codegen output rather than CPython ast.unparse canonical form, so stringized annotations differ (quotes and constants).
+  disposition: moved to EXPECTED_FAILURE.md (stringized source mismatch)
+
+test.test_annotationlib.TestStringFormat.test_literals
+  root_cause: ruff codegen renders complex literals as complex(0.0, 1.0) instead of 1j, so annotation string format mismatches.
+  disposition: moved to EXPECTED_FAILURE.md (stringized source mismatch)
+
+test.test_annotationlib.TestStringFormat.test_nested_expressions
+  root_cause: same complex-literal stringification mismatch inside nested annotations.
+  disposition: moved to EXPECTED_FAILURE.md (stringized source mismatch)
+
+test.test_annotationlib.TestStringFormat.test_template_str
+  root_cause: t-strings are lowered to templatelib.Template, so annotationlib string formatting sees Template objects and emits constructor reprs instead of t'...' syntax.
+  disposition: moved to EXPECTED_FAILURE.md (stringized source mismatch)
+
+test.test_annotationlib.TestTypeRepr.test_type_repr
+  root_cause: type_repr formatting differs from CPython for template-string whitespace/formatting (ruff codegen vs ast.unparse).
+  disposition: moved to EXPECTED_FAILURE.md (stringized source mismatch)
+
+test.test_coroutines.CoroutineTest.test_with_6
+  root_cause: asynccontextmanager helper raised TypeError with the generic "object returned from __aenter__" wording instead of CPython's async-with phrasing.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_coroutines.CoroutineTest.test_with_7
+  root_cause: asynccontextmanager helper raised TypeError with suppressed context when __aexit__ returned a non-awaitable during exception handling, so ZeroDivisionError was not preserved as __context__.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_coroutines.CoroutineTest.test_with_8
+  root_cause: asynccontextmanager helper raised TypeError with the generic "object returned from __aexit__" wording instead of CPython's async-with phrasing.
+  disposition: fixed (see FIXED_FAILURES.txt)
+
+test.test_coroutines.OriginTrackingTest.test_origin_tracking
+  root_cause: transformed async code shifts line numbers for coroutine origin tracking, so the recorded frame line is off by a few lines.
+  disposition: moved to EXPECTED_FAILURE.md (line number mismatch)
+
+test.test_coroutines.OriginTrackingTest.test_origin_tracking_warning
+  root_cause: transformed async code shifts line numbers and source snippets, so the origin-tracking warning text and line numbers differ.
+  disposition: moved to EXPECTED_FAILURE.md (source/line mismatch)
+
+test.test_generators.ModifyUnderlyingIterableTest.test_modify_f_locals
+  root_cause: generator expression parameters are renamed to internal _dp_iter_* names, so mutating f_locals[".0"] no longer affects the active iterator; this is a frame inspection mismatch.
+  disposition: moved to CURRENT_FAILURES_HARD.txt (frame inspection is infeasible right now)
+
+test.test_generators.ModifyUnderlyingIterableTest.test_new_gen_from_gi_code
+  root_cause: generator expression code object expected an iterator parameter, but diet-python passed/handled iterables and called iter() inside, so new generator instances accepted iterables and produced "not iterable" errors instead of "not an iterator".
+  disposition: fixed (see FIXED_FAILURES.txt)

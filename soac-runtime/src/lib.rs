@@ -2,8 +2,14 @@
 
 extern crate alloc;
 
-mod long;
-mod scope;
+/*
+
+__add__(PyLong, *)
+__add__(int, int)
+
+
+*/
+
 
 use core::ffi::c_long;
 use pyo3_ffi::{PyLong_CheckExact, PyLong_FromLong, PyNumber_Add, PyObject};

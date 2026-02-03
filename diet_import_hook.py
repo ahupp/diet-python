@@ -23,6 +23,10 @@ def _transform_source(path: str) -> str:
     transformer = _get_pyo3_transform()
     try:
         compiled_source = transformer.transform_source(original_source, True)
+    except SyntaxError as err:
+        if err.filename is None:
+            err.filename = path
+        raise
     except Exception as err:
         raise ImportError(f"diet-python failed for {path}: {err}") from err
     return compiled_source
@@ -110,9 +114,13 @@ def _is_typing_module(resolved: Path) -> bool:
 
 def _should_transform(path: str) -> bool:
     """Return ``True`` if ``path`` should be passed through the transform."""
+    if path.endswith(os.path.join("encodings", "__init__.py")):
+        return False
     try:
         resolved = Path(path).resolve()
     except OSError:
+        return False
+    if resolved.name == "__init__.py" and resolved.parent.name == "encodings":
         return False
     if resolved.name == "templatelib.py" and resolved.parent.name == "string":
         return False
@@ -127,8 +135,8 @@ def _should_transform(path: str) -> bool:
         else:
             return False
     try:
-        with open(path, "r", encoding="utf-8") as file:
-            return "diet-python: disable" not in file.read()
+        with open(path, "rb") as file:
+            return b"diet-python: disable" not in file.read()
     except OSError:
         return False
 
@@ -137,6 +145,11 @@ class DietPythonLoader(importlib.machinery.SourceFileLoader):
     """Loader that applies the diet-python transform before executing a module."""
 
     def get_code(self, fullname):
+        if self.path and (
+            self.path.endswith(os.path.join("encodings", "__init__.py"))
+            or os.path.basename(self.path) == "encodings.py"
+        ):
+            return super().get_code(fullname)
         source_bytes = self.get_data(self.path)
         return self.source_to_code(source_bytes, self.path)
 
@@ -151,6 +164,8 @@ class DietPythonFinder(importlib.machinery.PathFinder):
     @classmethod
     def find_spec(cls, fullname, path=None, target=None):
         spec = super().find_spec(fullname, path, target)
+        if fullname == "encodings" or fullname.startswith("encodings."):
+            return spec
         if (
             spec
             and isinstance(spec.loader, importlib.machinery.SourceFileLoader)

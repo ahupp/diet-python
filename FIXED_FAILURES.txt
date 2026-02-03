@@ -1,0 +1,376 @@
+Globals/exec dict handling
+  cause: globals()/exec/eval were using GlobalsProxy, but CPython APIs require a real dict.
+  fix: __dp__.globals() now returns the real module dict and exec calls are rewritten to __dp__.exec_ to unwrap proxy globals.
+  repro: tests/test_regression_exec_globals.py
+  rerun: ./scripts/run_cpython_tests.sh test_profile -m "*test_runctx*" (ok)
+  affected_tests:
+    - test.test_annotationlib.TestForwardRefClass.test_fwdref_evaluate_argument_mutation
+    - test.test_builtin.BuiltinTest.test_general_eval
+    - test.test_code.CodeTest.test_closure_injection
+    - test.test_code.CodeWeakRefTest.test_basic
+    - test.test_cprofile.CProfileTest.test_calling_conventions
+    - test.test_cprofile.CProfileTest.test_cprofile
+    - test.test_cprofile.CProfileTest.test_runctx
+    - test.test_frame.TestFrameCApi.test_basic
+    - test.test_funcattrs.FunctionPropertiesTest.test___globals__
+    - test.test_pkg.TestPkg.test_2
+    - test.test_pkg.TestPkg.test_4
+    - test.test_pkg.TestPkg.test_5
+    - test.test_pkg.TestPkg.test_6
+    - test.test_profile.ProfileTest.test_calling_conventions
+    - test.test_profile.ProfileTest.test_cprofile
+    - test.test_profile.ProfileTest.test_runctx
+    - test.test_timeit.TestTimeit.test_timeit_globals_args
+    - test.test_trace.TestTrace.test_no_source_file
+
+t-string templatelib cleanup
+  cause: cleanup_dp_globals removed _dp_templatelib, but transformed t-strings reference it at runtime.
+  fix: preserve _dp_templatelib in cleanup_dp_globals.
+  repro: tests/test_regression_templatelib_cleanup.py
+  rerun: ./scripts/run_cpython_tests.sh test_string -m "*test_abc*" (ok)
+  affected_tests:
+    - test.test_annotationlib.TestStringFormat.test_template_str
+    - test.test_annotationlib.TestTypeRepr.test_type_repr
+    - test.test_string.test_templatelib.TemplateIterTests.test_abc
+    - test.test_string.test_templatelib.TemplateIterTests.test_exhausted
+    - test.test_string.test_templatelib.TemplateIterTests.test_final
+    - test.test_string.test_templatelib.TemplateIterTests.test_iter
+    - test.test_string.test_templatelib.TestTemplate.test_basic_creation
+    - test.test_string.test_templatelib.TestTemplate.test_common
+    - test.test_string.test_templatelib.TestTemplate.test_pickle_template
+    - test.test_string.test_templatelib.TestTemplate.test_template_values
+    - test.test_tstring.TestTString.test_conversions
+    - test.test_tstring.TestTString.test_debug_specifier
+    - test.test_tstring.TestTString.test_format_specifiers
+    - test.test_tstring.TestTString.test_interpolation_basics
+    - test.test_tstring.TestTString.test_literal_concatenation
+    - test.test_tstring.TestTString.test_nested_templates
+    - test.test_tstring.TestTString.test_raw_tstrings
+    - test.test_tstring.TestTString.test_string_representation
+    - test.test_tstring.TestTString.test_template_concatenation
+    - test.test_tstring.TestTString.test_triple_quoted
+
+exec keyword/closure handling
+  cause: __dp__.exec_ rejected globals/locals keywords and didn't normalize closure cells to the cell-of-cell layout expected by transformed code, so exec with manual closures raised AttributeError.
+  fix: accept globals/locals keyword args, normalize closure cells for exec_ and restore after execution.
+  repro: tests/test_regression_exec_keywords.py
+  rerun: ./scripts/run_cpython_tests.sh test_builtin -m "test_exec_kwargs" (ok), ./scripts/run_cpython_tests.sh test_builtin -m "test_exec_closure" (ok)
+  affected_tests:
+    - test.test_builtin.BuiltinTest.test_exec_kwargs
+    - test.test_builtin.BuiltinTest.test_exec_closure
+
+empty-if truthiness
+  cause: strip_generated_passes replaced empty if statements with a bare expression, skipping boolean-context evaluation (e.g. NotImplemented should raise TypeError).
+  fix: lower empty ifs to __dp__.truth(test) and add __dp__.truth helper.
+  repro: tests/test_regression_truthiness_notimplemented.py
+  rerun: ./scripts/run_cpython_tests.sh test_builtin -m "test_bool_notimplemented" (ok)
+  affected_tests:
+    - test.test_builtin.BuiltinTest.test_bool_notimplemented
+
+functiontype globals for transformed closures
+  cause: transformed nested code objects reference __dp__ and may call __dp__.load_cell; when a code object is executed via types.FunctionType(co, {}) the globals are empty, so __dp__ resolution failed and load_cell could see non-cell values.
+  fix: expose __dp__ via builtins and make __dp__.load_cell return the input when it is not a real cell.
+  repro: tests/test_regression_functiontype_globals.py
+  rerun: ./scripts/run_cpython_tests.sh -v test_compiler_assemble -m test_expression_with_pseudo_instruction_load_closure (ok)
+  affected_tests:
+    - test.test_compiler_assemble.IsolatedAssembleTests.test_expression_with_pseudo_instruction_load_closure
+
+eval sees closure cells
+  cause: eval used builtins.eval directly, so locals from transformed frames exposed only _dp_cell_* entries and eval could not resolve free vars like d1/d2, raising NameError.
+  fix: rewrite eval calls to __dp__.eval_ and normalize frame locals to include closure cell values under their original names.
+
+delete targets, empty bodies, and except* globals
+  cause: delete handling rewrote nonlocal delete targets into __dp__.load_cell calls (invalid `del __dp__.load_cell(...)` syntax), and stripping AnnAssign/global statements could leave empty function/class bodies, producing IndentationError. except* handler names in global/class scopes were left as locals, so global name lookups failed.
+  fix: skip rewriting delete targets and ignore internal symbols; map global/nonlocal/class deletes to delitem/cell_contents; replace annotation-only/global statements with `pass` to keep bodies non-empty; rewrite except* handler names to temp locals and explicitly store/delete global/class bindings.
+  repro: tests/test_regression_delete_nonlocal_and_empty_body.py
+  rerun: ./scripts/run_cpython_tests.sh test_global (ok)
+  affected_tests:
+    - test.test_compile (crash)
+    - test.test_exceptions (crash)
+    - test.test_global (crash)
+    - test.test_scope (crash)
+    - test.test_type_aliases (crash)
+  repro: tests/test_regression_eval_closure.py
+  rerun: ./scripts/run_cpython_tests.sh -v test_decimal -m test_py_immutability_operations (ok)
+  affected_tests:
+    - test.test_decimal.PyWhitebox.test_py_immutability_operations
+
+with-statement special method lookup
+  cause: context manager helpers used instance attribute access (ctx.__enter__/__exit__), which invoked __getattribute__ and violated special-method lookup semantics, breaking test_special_method_lookup.
+  fix: added _lookup_special_method to resolve __enter__/__exit__/__aenter__/__aexit__ via type MRO and descriptor binding, bypassing instance __getattribute__.
+  repro: tests/test_regression_contextmanager_special_lookup.py
+  rerun: ./scripts/run_cpython_tests.sh -v test_descr -m test_special_method_lookup (ok)
+  affected_tests:
+    - test.test_descr.ClassPropertiesAndMethods.test_special_method_lookup
+
+no-arg dir hides internal symbols
+  cause: transformed functions introduce _dp_* locals, and builtin dir() reflects them; CPython would only show user locals, so test_dir saw extra internal names.
+  fix: rewrite no-arg dir() to __dp__.dir_() and filter _dp_* names from the current frame locals.
+  repro: tests/test_regression_dir_filters_internal.py
+  rerun: ./scripts/run_cpython_tests.sh -v test_descr -m test_dir (ok)
+  affected_tests:
+    - test.test_descr.ClassPropertiesAndMethods.test_dir
+
+class dictproxy extra __annotate__ key
+  cause: transformer always injected `__annotate__ = None` into class bodies with no annotations, adding an extra key in `C.__dict__` and breaking dictproxy key/value expectations.
+  fix: only emit `__annotate__` when a class actually has annotations (removed the unconditional `__annotate__ = None` insertion).
+  repro: tests/test_regression_class_dictproxy_no_annotate.py
+  rerun: ./scripts/run_cpython_tests.sh -v test_descr -m "*DictProxyTests.test_iter_*" (ok)
+  affected_tests:
+    - test.test_descr.DictProxyTests.test_iter_items
+    - test.test_descr.DictProxyTests.test_iter_keys
+    - test.test_descr.DictProxyTests.test_iter_values
+
+unpack temp retention prevents ResourceWarning
+  cause: tuple/list unpack lowering stored the RHS in a `_dp_tmp_*` and never deleted it, so GC still saw references after `del` and unclosed-resource warnings didn’t fire.
+  fix: delete the unpack temporary after assignments to drop references.
+  repro: tests/test_regression_unpack_temp_drop.py
+  rerun: ./scripts/run_cpython_tests.sh -v test_asyncio.test_streams -m "*test_unclosed_resource_warnings" (ok)
+  affected_tests:
+    - test.test_asyncio.test_streams.StreamTests.test_unclosed_resource_warnings
+
+for-loop temp retention prevents GC in executor.map
+  cause: for-loop lowering stored each item in a hidden `_dp_tmp_*` that remained live for the rest of the loop, so weakrefs in `executor.map` never cleared.
+  fix: clear the loop temp immediately after assigning to the target.
+  repro: tests/test_regression_for_loop_temp_drop.py
+  rerun: ./scripts/run_cpython_tests.sh -v test_concurrent_futures.test_thread_pool -m "*test_free_reference" (ok)
+  affected_tests:
+    - test.test_concurrent_futures.test_thread_pool.ThreadPoolExecutorTest.test_free_reference
+
+weakdict copy/deepcopy retain references
+  cause: hidden loop/unpack temporaries kept strong references to weakdict keys/values, so GC did not drop entries after `del`.
+  fix: clear loop temps per-iteration and delete unpack temporaries after assignment.
+  repro: tests/test_regression_for_loop_temp_drop.py, tests/test_regression_unpack_temp_drop.py
+  rerun: ./scripts/run_cpython_tests.sh -v test_copy -m "*weakkeydict" (ok), ./scripts/run_cpython_tests.sh -v test_copy -m "*weakvaluedict" (ok)
+  affected_tests:
+    - test.test_copy.TestCopy.test_copy_weakkeydict
+    - test.test_copy.TestCopy.test_copy_weakvaluedict
+    - test.test_copy.TestCopy.test_deepcopy_weakkeydict
+    - test.test_copy.TestCopy.test_deepcopy_weakvaluedict
+
+pool task refs released after loop temp cleanup
+  cause: hidden loop/unpack temporaries kept CountedObject references alive inside pool test.
+  fix: clear loop temps and delete unpack temps after assignment.
+  repro: tests/test_regression_for_loop_temp_drop.py
+  rerun: ./scripts/run_cpython_tests.sh -v test.test_multiprocessing_fork.test_threads -m "*test_release_task_refs" (ok)
+  affected_tests:
+    - test.test_multiprocessing_fork.test_threads.WithThreadsTestPool.test_release_task_refs
+
+f-string literal surrogate escapes in f-strings
+  cause: f-string literal parts were emitted from AST string values, which already decoded surrogate escapes into replacement characters, so runtime strings lost lone surrogate code points.
+  fix: detect surrogate escape sequences in f-string literal source slices and emit __dp__.decode_surrogate_literal on a quoted literal so ast.literal_eval preserves surrogates; keep raw f-strings unmodified.
+  repro: tests/test_regression_fstring_surrogates.py
+  rerun: ./scripts/run_cpython_tests.sh -v test_datetime -m "*test_strftime_special" (ok), ./scripts/run_cpython_tests.sh -v test_time -m "*test_strftime_special" (ok)
+  affected_tests:
+    - test.datetimetester.TestDateTime_Pure.test_strftime_special
+    - test.datetimetester.TestDateTimeTZ_Pure.test_strftime_special
+    - test.datetimetester.TestSubclassDateTime_Pure.test_strftime_special
+    - test.datetimetester.TestTime_Pure.test_strftime_special
+    - test.datetimetester.TestTimeTZ_Pure.test_strftime_special
+    - test.datetimetester.TestDateTime_Fast.test_strftime_special
+    - test.datetimetester.TestDateTimeTZ_Fast.test_strftime_special
+    - test.datetimetester.TestSubclassDateTime_Fast.test_strftime_special
+    - test.datetimetester.TestTime_Fast.test_strftime_special
+    - test.datetimetester.TestTimeTZ_Fast.test_strftime_special
+    - test.test_time.TimeTestCase.test_strftime_special
+
+genexpr/listcomp iter called twice
+  cause: lowering eagerly wrapped the outer iterable with __dp__.iter and the comprehension helper called iter again, so __iter__ ran twice.
+  fix: for the outermost generator/list/set/dict comprehension, pass the iterable expression directly and let the helper call iter once.
+  repro: tests/test_regression_genexpr_iter_once.py, tests/test_regression_listcomp_iter_once.py
+  rerun: ./scripts/run_cpython_tests.sh -v test_generators -m "*test_genexpr_only_calls_dunder_iter_once" (ok), ./scripts/run_cpython_tests.sh -v test_listcomps -m "*test_only_calls_dunder_iter_once" (ok)
+  affected_tests:
+    - test.test_generators.GeneratorTest.test_genexpr_only_calls_dunder_iter_once
+    - test.test_listcomps.ListComprehensionTest.test_only_calls_dunder_iter_once
+
+f-string AST parsing in test_fstring
+  cause: transformed test still uses __dp__.exec_ for compiled code; however, the earlier failures were from the old transformed f-string literal handling that replaced surrogate escapes with U+FFFD, which indirectly broke f-string AST tests.
+  fix: preserve surrogate escapes in f-string literal parts via decode_surrogate_literal, which also restores f-string AST behaviors for test_ast/test_ast_compile_time_concat.
+  repro: tests/test_regression_fstring_surrogates.py
+  rerun: ./scripts/run_cpython_tests.sh -v test_fstring -m "test_ast" (ok), ./scripts/run_cpython_tests.sh -v test_fstring -m "test_ast_compile_time_concat" (ok)
+  affected_tests:
+    - test.test_fstring.TestCase.test_ast
+    - test.test_fstring.TestCase.test_ast_compile_time_concat
+
+concatenated string literals preserve surrogate escapes
+  cause: implicitly concatenated string literals were passed to decode_surrogate_literal without parentheses, so ast.literal_eval saw only the first literal and returned a string whose repr included quotes, breaking callers and surrogate handling.
+  fix: wrap concatenated literal source in parentheses before decode_surrogate_literal so ast.literal_eval evaluates the full concatenation.
+  repro: tests/test_regression_concatenated_surrogates.py
+  rerun: ./scripts/run_cpython_tests.sh -v test_email -m "*test_value_non_ascii_in_params" (ok)
+  affected_tests:
+    - test.test_email.test_headerregistry.TestContentTypeHeader.test_value_non_ascii_in_params
+
+utf8 mode startup should not transform encodings
+  cause: diet-python import hook tried to transform encodings during startup, which is unsafe for UTF-8 mode bootstrap.
+  fix: skip the encodings package in DietPythonFinder to avoid transforming it during import.
+  repro: tests/test_regression_utf8_mode_hook.py
+  rerun: ./scripts/run_cpython_tests.sh -v test_utf8_mode -m "test_cmd_line" (ok)
+  affected_tests:
+    - test.test_utf8_mode.UTF8ModeTests.test_cmd_line
+
+property subclass __doc__ preservation (issue41287)
+  cause: class docstrings were not assigned into the class namespace after transformation, so PropertySubclassTests saw missing or wrong __doc__.
+  fix: detect leading class docstring and insert _dp_class_ns["__doc__"] assignment before executing the class body.
+  repro: tests/test_regression_property_subclass_docstring.py
+  rerun: ./scripts/run_cpython_tests.sh -v test_property -m "test_issue41287" (ok)
+  affected_tests:
+    - test.test_property.PropertySubclassTests.test_issue41287
+
+async genexpr __aiter__ called twice
+  cause: outer async genexpr was wrapped in __dp__.aiter before and inside the generator, so __aiter__ executed twice and could raise erroneously.
+  fix: pre-aiter the iterable once and reuse it inside the async genexpr loop.
+  repro: tests/test_regression_genexpr_async_await.py
+  rerun: ./scripts/run_cpython_tests.sh -v test_asyncgen -m "*test_async_gen_expression_incorrect" (ok)
+  affected_tests:
+    - test.test_asyncgen.AsyncGenAsyncioTest.test_async_gen_expression_incorrect
+
+with-statement failure error messages
+  cause: __dp__ context manager helper raised mismatched AttributeError messages when __enter__/__exit__ methods were missing.
+  fix: align error messages with CPython wording for missing __enter__/__exit__/__aenter__/__aexit__.
+  repro: tests/test_regression_with_error_messages.py
+  rerun: ./scripts/run_cpython_tests.sh -v test_with -m "FailureTestCase" (ok)
+  affected_tests:
+    - test.test_with.FailureTestCase.testAsyncEnterAttributeError
+    - test.test_with.FailureTestCase.testAsyncExitAttributeError
+    - test.test_with.FailureTestCase.testAsyncWithForSyncManager
+    - test.test_with.FailureTestCase.testEnterAttributeError
+    - test.test_with.FailureTestCase.testExitAttributeError
+    - test.test_with.FailureTestCase.testWithForAsyncManager
+
+builtins.__dp__ deepcopy-safe in getpath
+  cause: __dp__ module was installed into builtins.__dict__, so deepcopy on __builtins__ attempted to pickle a module object and failed in test_getpath.
+  fix: install a lightweight _DpProxy in builtins.__dp__ with __deepcopy__ returning self so deepcopy ignores it.
+  repro: tests/test_regression_builtins_deepcopy.py
+  rerun: ./scripts/run_cpython_tests.sh -v test_getpath -m "test_registry_win32" (ok)
+  affected_tests:
+    - test.test_getpath.MockGetPathTests.test_registry_win32
+
+listcomp target rebinding causes UnboundLocalError
+  cause: comprehension target renaming only applied to Store context, so Load occurrences of target names inside the target expression were left unrenamed, avoiding UnboundLocalError.
+  fix: pre-rename target-bound names for both Store and Load contexts inside the comprehension target, using a bound-name collector.
+  repro: tests/test_regression_listcomp_unbound_target.py
+  rerun: ./scripts/run_cpython_tests.sh -v test_listcomps -m "test_unbound_local_inside_comprehension" (ok)
+  affected_tests:
+    - test.test_listcomps.ListComprehensionTest.test_unbound_local_inside_comprehension
+
+test.test_pyclbr.PyclbrTest.test_cases
+  root_cause: private name mangling ran for classes with names composed only of underscores, but CPython skips mangling when the stripped class name is empty; this produced "___a" instead of "__a".
+  fix: in `rewrite_class_def/private.rs`, bail out of mangling when the stripped class name is empty; added regression test `tests/test_regression_private_name_mangling_empty_class_name.py`.
+
+test.test_raise.TestCause.test_class_cause_nonexception_result
+  root_cause: __dp__.raise_from accepted non-BaseException results from exception/cause classes, leading to a later "exception cause must be None..." error.
+  fix: added `_call_exception_class` to validate instantiation and raise the CPython-style error; added regression test `tests/test_regression_raise_from_nonexception_cause.py`.
+
+test.test_io.*.test_error_through_destructor
+  root_cause: with-statement lowering retained temporary references to context manager expressions and __enter__ results, delaying destruction until after catch_unraisable_exception exited, so unraisable exceptions were not captured.
+  fix: avoid assigning __enter__ when no "as" target, and clear placeholder temporaries after the with block; added regression test `tests/test_regression_with_enter_result_lifetime.py`.
+
+test.test_socket.GeneralModuleTests.test_weakref
+  root_cause: with-statement lowering kept references to the context manager, preventing socket weakref from clearing after the with block.
+  fix: clear placeholder temps after the with block and skip __enter__ assignment when no "as" target.
+
+test.test_ssl.BasicSocketTests.test_refcycle
+  root_cause: with-statement lowering kept references alive past `del ss`, so weakref didn't clear.
+  fix: clear placeholder temps after the with block and skip __enter__ assignment when unused.
+
+frame locals reversed keys
+  cause: FrameLocalsProxy inherited MutableMapping.keys(), which returns a KeysView without __reversed__, and __reversed__ returned an iterator, so test_frame expected list behavior failed.
+  fix: implement keys/values/items to return snapshot dict views and make __reversed__ return a list of reversed keys.
+  repro: tests/test_regression_frame_locals_proxy.py::test_frame_locals_reversed_keys
+  rerun: ./scripts/run_cpython_tests.sh test_frame -m test_as_dict (ok)
+  affected_tests:
+    - test.test_frame.TestFrameLocals.test_as_dict
+
+frame locals proxy constructor
+  cause: FrameLocalsProxy __init__ accepted any argument and keyword args, so tests expecting TypeError for wrong constructor usage failed.
+  fix: make FrameLocalsProxy __init__ positional-only and validate the argument is a frame object.
+  repro: tests/test_regression_frame_locals_proxy.py::test_frame_locals_proxy_constructor
+  rerun: ./scripts/run_cpython_tests.sh test_frame -m test_constructor (ok)
+  affected_tests:
+    - test.test_frame.TestFrameLocals.test_constructor
+
+frame locals delete semantics
+  cause: FrameLocalsProxy allowed deletion of true local variables and inherited MutableMapping.clear/popitem behavior, which conflicted with CPython expectations.
+  fix: detect local names via frame code metadata, raise ValueError when deleting locals, and raise AttributeError for clear.
+  repro: tests/test_regression_frame_locals_proxy.py::test_frame_locals_delete_semantics
+  rerun: ./scripts/run_cpython_tests.sh test_frame -m test_delete (ok)
+  affected_tests:
+    - test.test_frame.TestFrameLocals.test_delete
+
+frame locals for comprehension frames
+  cause: list comprehension lowering introduced a real frame, so sys._getframe().f_locals inside a comprehension returned the comprehension frame instead of the enclosing function, breaking f_locals writes.
+  fix: in __dp__.frame_locals, detect comprehension frames and redirect to f_back.
+  repro: tests/test_regression_frame_locals_proxy.py::test_frame_locals_listcomp_frame
+  rerun: ./scripts/run_cpython_tests.sh test_frame -m test_write_with_hidden (ok)
+  affected_tests:
+    - test.test_frame.TestFrameLocals.test_write_with_hidden
+
+list comprehension locals naming
+  cause: comprehension lowering renamed target variables to fresh _dp_tmp_* names, so locals() inside a comprehension lost the original target name.
+  fix: preserve non-internal target names when renaming comprehension bindings; only rename internal _dp_* identifiers.
+  repro: tests/test_regression_frame_locals_proxy.py::test_locals_in_listcomp
+  rerun: ./scripts/run_cpython_tests.sh test_frame -m test_closure_with_inline_comprehension (ok)
+  affected_tests:
+    - test.test_frame.TestFrameLocals.test_closure_with_inline_comprehension
+
+frame locals class scope updates
+  cause: __dp__.frame_locals only detected class scope when frame.f_locals was a dict; class-body frames provide a FrameLocalsProxy mapping, so _dp_class_ns was missed and f_locals writes did not update the class namespace.
+  fix: detect _dp_class_ns through any mapping and return GlobalsProxy for the class namespace.
+  repro: tests/test_regression_frame_locals_proxy.py
+  rerun: ./scripts/run_cpython_tests.sh test_frame -m test_scope (ok)
+  affected_tests:
+    - test.test_frame.TestFrameLocals.test_scope
+
+frame locals proxy repr recursion
+  cause: FrameLocalsProxy.__repr__ called repr() on a snapshot dict that can contain the proxy itself, causing infinite recursion and RecursionError.
+  fix: guard __repr__ with reprlib.recursive_repr("{...}") to emulate dict recursion handling.
+  repro: tests/test_regression_frame_locals_proxy.py
+  rerun: ./scripts/run_cpython_tests.sh test_frame -m "FrameLocalsProxyMappingTests" (ok)
+  affected_tests:
+    - test.test_frame.FrameLocalsProxyMappingTests.test_repr
+
+metaclass __annotate__ masking
+  cause: classes created with an annotated metaclass inherited a bound __annotate__ method from the metaclass; type.__annotations__ invoked it with a format, adding an implicit self and raising TypeError.
+  fix: in __dp__.create_class, if the metaclass defines __annotate__ and the class body did not, inject __annotate__ = None to mask the metaclass attribute.
+  repro: tests/test_regression_annotationlib_meta.py
+  rerun: ./scripts/run_cpython_tests.sh test_annotationlib -m test_annotated_meta (ok)
+  affected_tests:
+    - test.test_annotationlib.MetaclassTests.test_annotated_meta
+
+annotationlib fake-globals __dp__ injection
+  cause: call_annotate_function rebuilds __annotate__ functions with a _StringifierDict globals mapping; transformed annotate functions reference __dp__, which was missing from that mapping and therefore resolved to a _Stringifier, causing annotate to return non-dicts and unpack failures.
+  fix: patch annotationlib._StringifierDict.__init__ on import to inject "__dp__" pointing at the real runtime module.
+  repro: tests/test_regression_annotationlib_fakeglobals.py
+  rerun: ./scripts/run_cpython_tests.sh test_annotationlib -m test_user_annotate_string_fakeglobals (ok)
+  affected_tests:
+    - test.test_annotationlib.TestCallAnnotateFunction.test_user_annotate_string_fakeglobals
+    - test.test_annotationlib.TestCallEvaluateFunction.test_evaluation
+    - test.test_annotationlib.TestCallEvaluateFunction.test_fake_global_evaluation
+    - test.test_annotationlib.TestForwardRefClass.test_fwdref_evaluate_argument_mutation
+
+annotationlib nonlocal/cell forwardrefs
+  cause: annotationlib _build_closure created _Stringifier objects with __cell__ set to the original cell-of-cell from transformed closures, so transmogrify preserved the cell and ForwardRef.evaluate returned a cell (or 'obj.cell_contents.*' strings) instead of proper ForwardRef behavior.
+  fix: patch annotationlib._build_closure to clear __cell__ for cell-of-cell inputs, normalize cell_dict keys (strip _dp_cell_), and unwrap inner cells; this lets transmogrify attach the nonlocal cell_dict and yields correct ForwardRef strings/evaluation.
+  repro: tests/test_regression_annotationlib_nonlocal.py
+  rerun: ./scripts/run_cpython_tests.sh test_annotationlib -m test_nonlocal_in_annotation_scope (ok), ./scripts/run_cpython_tests.sh test_annotationlib -m test_partial_evaluation_cell (ok)
+  affected_tests:
+    - test.test_annotationlib.TestGetAnnotations.test_nonlocal_in_annotation_scope
+    - test.test_annotationlib.TestGetAnnotations.test_partial_evaluation_cell
+
+async with awaitable error message + context
+  cause: __dp__._ensure_awaitable always raised TypeError with suppressed context, so async-with failures reported "object returned from __aenter__/__aexit__" and dropped the original exception context in test_with_7.
+  fix: use the CPython async-with wording and allow __context__ to propagate when __aexit__ fails while handling an exception by skipping context suppression.
+  repro: tests/test_regression_async_with_error_message.py
+  rerun: ./scripts/run_cpython_tests.sh -v test_coroutines (ok for test_with_6/7/8)
+  affected_tests:
+    - test.test_coroutines.CoroutineTest.test_with_6
+    - test.test_coroutines.CoroutineTest.test_with_7
+    - test.test_coroutines.CoroutineTest.test_with_8
+
+generator expression iterator semantics
+  cause: generator expressions were lowered to accept iterables and call iter() internally, so reusing gi_code treated iterables as acceptable and produced "not iterable" errors instead of "not an iterator".
+  fix: pre-iterate the outer iterable when creating the genexpr and lower the outer loop to drive the iterator directly via __dp__.next with StopIteration handling.
+  repro: tests/test_regression_genexpr_iterator_semantics.py
+  rerun: ./scripts/run_cpython_tests.sh -v test_generators (ok for ModifyUnderlyingIterableTest.test_new_gen_from_gi_code)
+  affected_tests:
+    - test.test_generators.ModifyUnderlyingIterableTest.test_new_gen_from_gi_code

@@ -80,6 +80,10 @@ impl Context {
         self.source.get(start..end)
     }
 
+    pub fn line_number_at(&self, offset: usize) -> usize {
+        self.source[..offset].bytes().filter(|&b| b == b'\n').count() + 1
+    }
+
     pub fn fresh(&self, name: &str) -> String {
         fresh_name(name)
     }

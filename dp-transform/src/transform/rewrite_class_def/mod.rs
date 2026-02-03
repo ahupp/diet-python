@@ -42,18 +42,46 @@ fn class_def_to_create_class_fn<'a>(
     );
 
     let class_name = name.id.to_string();
+    let class_firstlineno = context.line_number_at(class_def.range.start().to_usize());
 
-    // If the first statement is a string literal, assign it to __doc__ in the class dict.
-    if let Some(first_stmt) = body.body.first_mut() {
-        if let Stmt::Expr(ast::StmtExpr { value, .. }) = first_stmt.as_ref() {
-            if let Expr::StringLiteral(_) = value.as_ref() {
-                let doc_expr = (*value).clone();
-                *first_stmt = py_stmt!(
-                    "_dp_class_ns[{name:literal}] = {value:expr}",
-                    name = "__doc__",
-                    value = doc_expr
-                ).into();
+    // If the first (non-empty) statement is a string literal, assign it to __doc__ in the class dict.
+    fn is_empty_body(stmt: &Stmt) -> bool {
+        matches!(stmt, Stmt::BodyStmt(ast::StmtBody { body, .. }) if body.is_empty())
+    }
+
+    fn first_non_empty_stmt<'a>(body: &'a [Box<Stmt>]) -> Option<&'a Stmt> {
+        for stmt in body {
+            if is_empty_body(stmt.as_ref()) {
+                continue;
             }
+            return Some(stmt.as_ref());
+        }
+        None
+    }
+
+    fn class_doc_expr(stmt: &Stmt) -> Option<Expr> {
+        match stmt {
+            Stmt::Expr(ast::StmtExpr { value, .. }) => {
+                if let Expr::StringLiteral(_) = value.as_ref() {
+                    Some((**value).clone())
+                } else {
+                    None
+                }
+            }
+            Stmt::BodyStmt(ast::StmtBody { body, .. }) => {
+                first_non_empty_stmt(body).and_then(class_doc_expr)
+            }
+            _ => None,
+        }
+    }
+
+    if let Some(first_stmt) = first_non_empty_stmt(&body.body) {
+        if let Some(doc_expr) = class_doc_expr(first_stmt) {
+            body.body.insert(0, Box::new(py_stmt!(
+                "_dp_class_ns[{name:literal}] = {value:expr}",
+                name = "__doc__",
+                value = doc_expr
+            )));
         }
     }
 
@@ -163,13 +191,16 @@ def _dp_define_class_{class_name:id}():
       _dp_class_ns_{class_name:id}, 
       {bases:expr}, 
       {prepare_dict:expr}, 
-      {requires_class_cell:literal}
+      {requires_class_cell:literal},
+      {firstlineno:literal},
+      ()
     )
 "#,
         class_name = class_name.as_str(),
         type_param_bindings = type_param_bindings.clone(),
         requires_class_cell = needs_class_cell,
         type_param_bindings = type_param_bindings,
+        firstlineno = class_firstlineno,
         bases = bases_tuple.clone(),
         prepare_dict = prepare_dict.clone(),
     );

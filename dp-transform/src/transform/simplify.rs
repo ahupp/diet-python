@@ -163,7 +163,7 @@ impl Transformer for &mut StripGeneratedPasses {
                         && matches!(if_stmt.body.body[0].as_ref(), Stmt::Pass(_))
                         && if_stmt.elif_else_clauses.is_empty();
                     if is_empty_if {
-                        updated.push(crate::py_stmt!("{expr:expr}", expr = if_stmt.test));
+                        updated.push(crate::py_stmt!("__dp__.truth({expr:expr})", expr = if_stmt.test));
                         continue;
                     }
 

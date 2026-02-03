@@ -1,0 +1,443 @@
+test.test_concurrent_futures.test_interpreter_pool.InterpreterPoolExecutorTest.test_thread_name_prefix_with_thread_get_name
+  root_cause: concurrency/shareability regressions: timeouts in reference-release checks and NotShareableError for transformed callables in interpreter pools.
+  evidence: AttributeError: 'NoneType' object has no attribute 'gt'
+
+test.test_annotationlib.TestCallAnnotateFunction.test_user_annotate_string_fakeglobals
+  root_cause: annotationlib evaluation/forward-ref handling breaks because transformation changes annotation scopes, cell construction, and global/locals resolution.
+  evidence: ValueError
+
+test.test_annotationlib.TestCallEvaluateFunction.test_evaluation
+  root_cause: annotationlib evaluation/forward-ref handling breaks because transformation changes annotation scopes, cell construction, and global/locals resolution.
+  evidence: log did not capture a concise reason line
+
+test.test_annotationlib.TestForwardRefClass.test_fwdref_evaluate_argument_mutation
+  root_cause: annotationlib evaluation/forward-ref handling breaks because transformation changes annotation scopes, cell construction, and global/locals resolution.
+  evidence: TypeError: exceptions must derive from BaseException
+
+test.test_annotationlib.TestGetAnnotations.test_missing_dunder_dict
+  root_cause: annotationlib evaluation/forward-ref handling breaks because transformation changes annotation scopes, cell construction, and global/locals resolution.
+  evidence: TypeError: exceptions must derive from BaseException
+
+test.test_annotationlib.TestGetAnnotations.test_nonlocal_in_annotation_scope
+  root_cause: annotationlib evaluation/forward-ref handling breaks because transformation changes annotation scopes, cell construction, and global/locals resolution.
+  evidence: TypeError: exceptions must derive from BaseException
+
+test.test_annotationlib.TestGetAnnotations.test_partial_evaluation_cell
+  root_cause: annotationlib evaluation/forward-ref handling breaks because transformation changes annotation scopes, cell construction, and global/locals resolution.
+  evidence: TypeError: exceptions must derive from BaseException
+
+test.test_annotationlib.TestGetAnnotations.test_stock_annotations_in_module
+  root_cause: annotationlib evaluation/forward-ref handling breaks because transformation changes annotation scopes, cell construction, and global/locals resolution.
+  evidence: TypeError: exceptions must derive from BaseException
+
+test.test_annotationlib.TestGetAnnotations.test_stringized_annotations_in_module
+  root_cause: annotationlib evaluation/forward-ref handling breaks because transformation changes annotation scopes, cell construction, and global/locals resolution.
+  evidence: TypeError: exceptions must derive from BaseException
+
+test.test_annotationlib.TestCallEvaluateFunction.test_fake_global_evaluation
+  root_cause: annotationlib evaluation/forward-ref handling breaks because transformation changes annotation scopes, cell construction, and global/locals resolution.
+  evidence: AssertionError: ForwardRef('__dp__.or_(builtins.undefined, __dp__.getitem(list, int))') != EqualToForwardRef('builtins.undefined | list[int]')
+
+test.test_type_aliases
+  root_cause: type alias lowering eagerly evaluates the alias RHS, so recursive aliases reference themselves before binding. Fix requires lazy evaluation/forward-ref handling for TypeAliasType across modules/classes.
+  evidence: NameError: name 'RecursiveAlias' is not defined
+
+test.test_annotationlib.TestGetAnnotations.test_partial_evaluation
+  root_cause: annotationlib evaluation/forward-ref handling breaks because transformation changes annotation scopes, cell construction, and global/locals resolution.
+  evidence: AssertionError: {'x': ForwardRef('builtins.undef', owner=<funct[392 chars]c0>)} != {'x': EqualToForwardRef('builtins.undef', owner[500 chars]0>)]}
+
+test.test_annotationlib.TestGetAnnotations.test_partial_evaluation_error
+  root_cause: annotationlib evaluation/forward-ref handling breaks because transformation changes annotation scopes, cell construction, and global/locals resolution.
+  evidence: AssertionError: {'x': ForwardRef('__dp__.getitem(range, 1)', ow[89 chars]c0>)} != {'x': EqualToForwardRef('range[1]', owner=<func[80 chars]c0>)}
+
+test.test_annotationlib.TestStringFormat.test_displays
+  root_cause: annotationlib evaluation/forward-ref handling breaks because transformation changes annotation scopes, cell construction, and global/locals resolution.
+  evidence: AssertionError: {'x': '__dp__.getitem(a, (__dp__.list((int, str)), float))'} != {'x': 'a[[int, str], float]'}
+
+test.test_annotationlib.TestStringFormat.test_expressions
+  root_cause: annotationlib evaluation/forward-ref handling breaks because transformation changes annotation scopes, cell construction, and global/locals resolution.
+  evidence: AssertionError: {'add': '__dp__.add(a, b)', 'sub': '__dp__.sub(a, [655 chars]'*a'} != {'add': 'a + b', 'sub': 'a - b', 'mul': 'a * b', '[389 chars]'*a'}
+
+test.test_annotationlib.TestStringFormat.test_getitem
+  root_cause: annotationlib evaluation/forward-ref handling breaks because transformation changes annotation scopes, cell construction, and global/locals resolution.
+  evidence: AssertionError: {'x': '__dp__.getitem(undef1, (str, undef2))'} != {'x': 'undef1[str, undef2]'}
+
+test.test_annotationlib.TestStringFormat.test_literals
+  root_cause: annotationlib evaluation/forward-ref handling breaks because transformation changes annotation scopes, cell construction, and global/locals resolution.
+  evidence: AssertionError: {'a':[49 chars]'e': 'True', 'f': 'None', 'g': '...', 'h': 'complex(0.0, 1.0)'} != {'a':[49 chars]'e': 'True', 'f': 'None', 'g': '...', 'h': '1j'}
+
+test.test_annotationlib.TestStringFormat.test_nested_expressions
+  root_cause: annotationlib evaluation/forward-ref handling breaks because transformation changes annotation scopes, cell construction, and global/locals resolution.
+  evidence: AssertionError: {'nested': "__dp__.getitem(list, __dp__.getitem(Annot[830 chars])))'} != {'nested': "list[Annotated[set[int], 'set of ints', 4[247 chars] c]'}
+
+test.test_annotationlib.TestStringFormat.test_reverse_ops
+  root_cause: annotationlib evaluation/forward-ref handling breaks because transformation changes annotation scopes, cell construction, and global/locals resolution.
+  evidence: AssertionError: {'radd': '__dp__.add(1, a)', 'rsub': '__dp__.sub(1,[344 chars] a)'} != {'radd': '1 + a', 'rsub': '1 - a', 'rmul': '1 * a',[186 chars]* a'}
+
+test.test_annotationlib.TestStringFormat.test_shenanigans
+  root_cause: annotationlib evaluation/forward-ref handling breaks because transformation changes annotation scopes, cell construction, and global/locals resolution.
+  evidence: AssertionError: {'x': "__dp__.or_(x, <class 'int'>)", 'y': "<class 'int'>"} != {'x': "x | <class 'int'>", 'y': "<class 'int'>"}
+
+test.test_annotationlib.TestStringFormat.test_slice
+  root_cause: annotationlib evaluation/forward-ref handling breaks because transformation changes annotation scopes, cell construction, and global/locals resolution.
+  evidence: AssertionError: {'x': '__dp__.getitem(a, __dp__.slice(b, c, None))'} != {'x': 'a[b:c]'}
+
+test.test_annotationlib.TestStringFormat.test_template_str
+  root_cause: annotationlib evaluation/forward-ref handling breaks because transformation changes annotation scopes, cell construction, and global/locals resolution.
+  evidence: AssertionError: {'x': "_dp_templatelib.Template(_dp_templatelib.[837 chars]'))"} != {'x': "t'{a}'", 'y': "list[t'{a}']", 'z': "t'{a:[102 chars]0}'"}
+
+test.test_annotationlib.TestStringFormat.test_unsupported_operations
+  root_cause: annotationlib evaluation/forward-ref handling breaks because transformation changes annotation scopes, cell construction, and global/locals resolution.
+  evidence: AssertionError: TypeError not raised
+
+test.test_annotationlib.TestTypeRepr.test_type_repr
+  root_cause: annotationlib evaluation/forward-ref handling breaks because transformation changes annotation scopes, cell construction, and global/locals resolution.
+  evidence: AssertionError: 't"""{0\n            & 1\n            | 2}"""' != 't"""{ 0\n            & 1\n            | 2}"""'
+
+test.test_code.CodeTest.test_closure_injection
+  root_cause: behavioral mismatch introduced by transformation; requires broader semantic changes.
+  evidence: AssertionError: <cell at 0x7d9abd1e5090: type object at 0x5dcfd3c930d0> is not <class 'test.test_code.CodeTest.test_closure_injection.<locals>.List'>
+
+test.test_copy.TestCopy.test_copy_weakkeydict
+  root_cause: extra references held by transformed helpers/closures prevent weakref dict entries from being cleared.
+  evidence: AssertionError: 2 != 1
+
+test.test_copy.TestCopy.test_copy_weakvaluedict
+  root_cause: extra references held by transformed helpers/closures prevent weakref dict entries from being cleared.
+  evidence: AssertionError: 2 != 1
+
+test.test_copy.TestCopy.test_deepcopy_weakkeydict
+  root_cause: extra references held by transformed helpers/closures prevent weakref dict entries from being cleared.
+  evidence: AssertionError: 2 != 1
+
+test.test_copy.TestCopy.test_deepcopy_weakvaluedict
+  root_cause: extra references held by transformed helpers/closures prevent weakref dict entries from being cleared.
+  evidence: AssertionError: 2 != 1
+
+test.test_crossinterp.PureShareableScriptTests.test_pure_script_code
+  root_cause: transformed code objects/functions are not cross-interpreter shareable due to injected globals/helper calls.
+  evidence: ValueError: globals not supported
+
+test.test_crossinterp.PureShareableScriptTests.test_pure_script_function
+  root_cause: transformed code objects/functions are not cross-interpreter shareable due to injected globals/helper calls.
+  evidence: ValueError: globals not supported
+
+test.test_crossinterp.ShareableFallbackTests.test_not_shareable
+  root_cause: transformed code objects/functions are not cross-interpreter shareable due to injected globals/helper calls.
+  evidence: log did not capture a concise reason line
+
+test.test_crossinterp.ShareableFuncTests.test_stateless
+  root_cause: transformed code objects/functions are not cross-interpreter shareable due to injected globals/helper calls.
+  evidence: ValueError: globals not supported
+
+test.test_dataclasses.TestInitAnnotate.test_annotate_function
+  root_cause: dataclass generation relies on __class__ cells and annotations; transformed class bodies introduce extra cells and alter class identity/GC behavior.
+  evidence: TypeError: exceptions must derive from BaseException
+
+test.test_dataclasses.TestInitAnnotate.test_annotate_function_contains_forwardref
+  root_cause: dataclass generation relies on __class__ cells and annotations; transformed class bodies introduce extra cells and alter class identity/GC behavior.
+  evidence: TypeError: exceptions must derive from BaseException
+
+test.test_dataclasses.TestInitAnnotate.test_annotate_function_forwardref
+  root_cause: dataclass generation relies on __class__ cells and annotations; transformed class bodies introduce extra cells and alter class identity/GC behavior.
+  evidence: TypeError: exceptions must derive from BaseException
+
+test.test_dataclasses.TestSlots.test_original_class_is_gced
+  root_cause: dataclass generation relies on __class__ cells and annotations; transformed class bodies introduce extra cells and alter class identity/GC behavior.
+  evidence: AttributeError: type object 'SlotsTest' has no attribute '__firstlineno__'
+
+test.test_dataclasses.TestStringAnnotations.test_classvar_module_level_import
+  root_cause: dataclass generation relies on __class__ cells and annotations; transformed class bodies introduce extra cells and alter class identity/GC behavior.
+  evidence: TypeError: CV.__init__() missing 1 required positional argument: 'not_cv4'
+
+test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_wrapped
+  root_cause: dataclass generation relies on __class__ cells and annotations; transformed class bodies introduce extra cells and alter class identity/GC behavior.
+  evidence: TypeError: super(type, obj): obj (instance of A) is not an instance or subtype of type (A).
+
+test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_zero_argument_super
+  root_cause: dataclass generation relies on __class__ cells and annotations; transformed class bodies introduce extra cells and alter class identity/GC behavior.
+  evidence: TypeError: super(type, obj): obj (instance of A) is not an instance or subtype of type (A).
+
+test.test_dataclasses.TestCase.test_incomplete_annotations
+  root_cause: dataclass generation relies on __class__ cells and annotations; transformed class bodies introduce extra cells and alter class identity/GC behavior.
+  evidence: AssertionError: {'x': <class 'int'>, 'return': None} != {'return': None}
+
+test.test_dataclasses.TestCase.test_recursive_annotation
+  root_cause: dataclass generation relies on __class__ cells and annotations; transformed class bodies introduce extra cells and alter class identity/GC behavior.
+  evidence: AssertionError: ',type=...,' not found in "Field(name='C',type=<class 'test.test_dataclasses.TestCase.test_recursive_annotation.<locals>.C'>,default=<dataclasses._MISSING_TYPE object at 0x7b0fdbc538c0>,default_factory=<dataclasses._MISSING_TYPE object at 0x7b0fdbc538c0>,init=True,repr=True,hash=None,compare=True,metadata=mappingproxy({}),kw_only=False,doc=None,_field_type=_FIELD)"
+
+test.test_dataclasses.TestDocString.test_existing_docstring_not_overridden
+  root_cause: dataclass generation relies on __class__ cells and annotations; transformed class bodies introduce extra cells and alter class identity/GC behavior.
+  evidence: AssertionError: 'C(x: int)' != 'Lorem ipsum'
+
+test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_dunder_class_with_new_property
+  root_cause: dataclass generation relies on __class__ cells and annotations; transformed class bodies introduce extra cells and alter class identity/GC behavior.
+  evidence: AssertionError: <class 'test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_dunder_class_with_new_property.<locals>.A'> is not <class 'test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_dunder_class_with_new_property.<locals>.A'>
+
+test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_dunder_class_with_old_property
+  root_cause: dataclass generation relies on __class__ cells and annotations; transformed class bodies introduce extra cells and alter class identity/GC behavior.
+  evidence: AssertionError: <class 'test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_dunder_class_with_old_property.<locals>.A'> is not <class 'test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_dunder_class_with_old_property.<locals>.A'>
+
+test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_remembered_class
+  root_cause: dataclass generation relies on __class__ cells and annotations; transformed class bodies introduce extra cells and alter class identity/GC behavior.
+  evidence: AssertionError: <class 'test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_remembered_class.<locals>.A'> is not <class 'test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_remembered_class.<locals>.A'>
+
+test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_slots_dunder_class_property_deleter
+  root_cause: dataclass generation relies on __class__ cells and annotations; transformed class bodies introduce extra cells and alter class identity/GC behavior.
+  evidence: AssertionError: <class 'test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_slots_dunder_class_property_deleter.<locals>.A'> is not <class 'test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_slots_dunder_class_property_deleter.<locals>.A'>
+
+test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_slots_dunder_class_property_getter
+  root_cause: dataclass generation relies on __class__ cells and annotations; transformed class bodies introduce extra cells and alter class identity/GC behavior.
+  evidence: AssertionError: <class 'test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_slots_dunder_class_property_getter.<locals>.A'> is not <class 'test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_slots_dunder_class_property_getter.<locals>.A'>
+
+test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_slots_dunder_class_property_setter
+  root_cause: dataclass generation relies on __class__ cells and annotations; transformed class bodies introduce extra cells and alter class identity/GC behavior.
+  evidence: AssertionError: <class 'test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_slots_dunder_class_property_setter.<locals>.A'> is not <class 'test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_slots_dunder_class_property_setter.<locals>.A'>
+test.test_annotationlib.TestCallAnnotateFunction.test_user_annotate_string_fakeglobals
+  root_cause: annotationlib exercises __annotate__/ForwardRef/format evaluation paths that diverge under transformation (closure rebuilding, fake globals, and __annotate__ evaluation semantics).
+  evidence: errors in annotationlib call_annotate_function/get_annotations (TypeError/ValueError/NotImplementedError) and failed stringification expectations.
+
+test.test_annotationlib.TestCallEvaluateFunction.test_evaluation
+  root_cause: annotationlib exercises __annotate__/ForwardRef/format evaluation paths that diverge under transformation (closure rebuilding, fake globals, and __annotate__ evaluation semantics).
+  evidence: errors in annotationlib call_annotate_function/get_annotations (TypeError/ValueError/NotImplementedError) and failed stringification expectations.
+
+test.test_annotationlib.TestForwardRefClass.test_fwdref_evaluate_argument_mutation
+  root_cause: annotationlib exercises __annotate__/ForwardRef/format evaluation paths that diverge under transformation (closure rebuilding, fake globals, and __annotate__ evaluation semantics).
+  evidence: errors in annotationlib call_annotate_function/get_annotations (TypeError/ValueError/NotImplementedError) and failed stringification expectations.
+
+test.test_annotationlib.TestGetAnnotations.test_missing_dunder_dict
+  root_cause: annotationlib exercises __annotate__/ForwardRef/format evaluation paths that diverge under transformation (closure rebuilding, fake globals, and __annotate__ evaluation semantics).
+  evidence: errors in annotationlib call_annotate_function/get_annotations (TypeError/ValueError/NotImplementedError) and failed stringification expectations.
+
+test.test_annotationlib.TestGetAnnotations.test_nonlocal_in_annotation_scope
+  root_cause: annotationlib exercises __annotate__/ForwardRef/format evaluation paths that diverge under transformation (closure rebuilding, fake globals, and __annotate__ evaluation semantics).
+  evidence: errors in annotationlib call_annotate_function/get_annotations (TypeError/ValueError/NotImplementedError) and failed stringification expectations.
+
+test.test_annotationlib.TestGetAnnotations.test_partial_evaluation_cell
+  root_cause: annotationlib exercises __annotate__/ForwardRef/format evaluation paths that diverge under transformation (closure rebuilding, fake globals, and __annotate__ evaluation semantics).
+  evidence: errors in annotationlib call_annotate_function/get_annotations (TypeError/ValueError/NotImplementedError) and failed stringification expectations.
+
+test.test_annotationlib.TestGetAnnotations.test_stock_annotations_in_module
+  root_cause: annotationlib exercises __annotate__/ForwardRef/format evaluation paths that diverge under transformation (closure rebuilding, fake globals, and __annotate__ evaluation semantics).
+  evidence: errors in annotationlib call_annotate_function/get_annotations (TypeError/ValueError/NotImplementedError) and failed stringification expectations.
+
+test.test_annotationlib.TestGetAnnotations.test_stringized_annotations_in_module
+  root_cause: annotationlib exercises __annotate__/ForwardRef/format evaluation paths that diverge under transformation (closure rebuilding, fake globals, and __annotate__ evaluation semantics).
+  evidence: errors in annotationlib call_annotate_function/get_annotations (TypeError/ValueError/NotImplementedError) and failed stringification expectations.
+
+test.test_annotationlib.TestCallEvaluateFunction.test_fake_global_evaluation
+  root_cause: annotationlib exercises __annotate__/ForwardRef/format evaluation paths that diverge under transformation (closure rebuilding, fake globals, and __annotate__ evaluation semantics).
+  evidence: errors in annotationlib call_annotate_function/get_annotations (TypeError/ValueError/NotImplementedError) and failed stringification expectations.
+
+test.test_annotationlib.TestGetAnnotations.test_partial_evaluation
+  root_cause: annotationlib exercises __annotate__/ForwardRef/format evaluation paths that diverge under transformation (closure rebuilding, fake globals, and __annotate__ evaluation semantics).
+  evidence: errors in annotationlib call_annotate_function/get_annotations (TypeError/ValueError/NotImplementedError) and failed stringification expectations.
+
+test.test_annotationlib.TestGetAnnotations.test_partial_evaluation_error
+  root_cause: annotationlib exercises __annotate__/ForwardRef/format evaluation paths that diverge under transformation (closure rebuilding, fake globals, and __annotate__ evaluation semantics).
+  evidence: errors in annotationlib call_annotate_function/get_annotations (TypeError/ValueError/NotImplementedError) and failed stringification expectations.
+
+test.test_annotationlib.TestStringFormat.test_displays
+  root_cause: annotationlib exercises __annotate__/ForwardRef/format evaluation paths that diverge under transformation (closure rebuilding, fake globals, and __annotate__ evaluation semantics).
+  evidence: errors in annotationlib call_annotate_function/get_annotations (TypeError/ValueError/NotImplementedError) and failed stringification expectations.
+
+test.test_annotationlib.TestStringFormat.test_expressions
+  root_cause: annotationlib exercises __annotate__/ForwardRef/format evaluation paths that diverge under transformation (closure rebuilding, fake globals, and __annotate__ evaluation semantics).
+  evidence: errors in annotationlib call_annotate_function/get_annotations (TypeError/ValueError/NotImplementedError) and failed stringification expectations.
+
+test.test_annotationlib.TestStringFormat.test_getitem
+  root_cause: annotationlib exercises __annotate__/ForwardRef/format evaluation paths that diverge under transformation (closure rebuilding, fake globals, and __annotate__ evaluation semantics).
+  evidence: errors in annotationlib call_annotate_function/get_annotations (TypeError/ValueError/NotImplementedError) and failed stringification expectations.
+
+test.test_annotationlib.TestStringFormat.test_literals
+  root_cause: annotationlib exercises __annotate__/ForwardRef/format evaluation paths that diverge under transformation (closure rebuilding, fake globals, and __annotate__ evaluation semantics).
+  evidence: errors in annotationlib call_annotate_function/get_annotations (TypeError/ValueError/NotImplementedError) and failed stringification expectations.
+
+test.test_annotationlib.TestStringFormat.test_nested_expressions
+  root_cause: annotationlib exercises __annotate__/ForwardRef/format evaluation paths that diverge under transformation (closure rebuilding, fake globals, and __annotate__ evaluation semantics).
+  evidence: errors in annotationlib call_annotate_function/get_annotations (TypeError/ValueError/NotImplementedError) and failed stringification expectations.
+
+test.test_annotationlib.TestStringFormat.test_reverse_ops
+  root_cause: annotationlib exercises __annotate__/ForwardRef/format evaluation paths that diverge under transformation (closure rebuilding, fake globals, and __annotate__ evaluation semantics).
+  evidence: errors in annotationlib call_annotate_function/get_annotations (TypeError/ValueError/NotImplementedError) and failed stringification expectations.
+
+test.test_annotationlib.TestStringFormat.test_shenanigans
+  root_cause: annotationlib exercises __annotate__/ForwardRef/format evaluation paths that diverge under transformation (closure rebuilding, fake globals, and __annotate__ evaluation semantics).
+  evidence: errors in annotationlib call_annotate_function/get_annotations (TypeError/ValueError/NotImplementedError) and failed stringification expectations.
+
+test.test_annotationlib.TestStringFormat.test_slice
+  root_cause: annotationlib exercises __annotate__/ForwardRef/format evaluation paths that diverge under transformation (closure rebuilding, fake globals, and __annotate__ evaluation semantics).
+  evidence: errors in annotationlib call_annotate_function/get_annotations (TypeError/ValueError/NotImplementedError) and failed stringification expectations.
+
+test.test_annotationlib.TestStringFormat.test_template_str
+  root_cause: annotationlib exercises __annotate__/ForwardRef/format evaluation paths that diverge under transformation (closure rebuilding, fake globals, and __annotate__ evaluation semantics).
+  evidence: errors in annotationlib call_annotate_function/get_annotations (TypeError/ValueError/NotImplementedError) and failed stringification expectations.
+
+test.test_annotationlib.TestStringFormat.test_unsupported_operations
+  root_cause: annotationlib exercises __annotate__/ForwardRef/format evaluation paths that diverge under transformation (closure rebuilding, fake globals, and __annotate__ evaluation semantics).
+  evidence: errors in annotationlib call_annotate_function/get_annotations (TypeError/ValueError/NotImplementedError) and failed stringification expectations.
+
+test.test_annotationlib.TestTypeRepr.test_type_repr
+  root_cause: annotationlib exercises __annotate__/ForwardRef/format evaluation paths that diverge under transformation (closure rebuilding, fake globals, and __annotate__ evaluation semantics).
+  evidence: errors in annotationlib call_annotate_function/get_annotations (TypeError/ValueError/NotImplementedError) and failed stringification expectations.
+test.test_crossinterp.PureShareableScriptTests.test_pure_script_code
+  root_cause: transformed code objects/functions are not shareable across subinterpreters, so cross-interpreter shareability checks raise NotShareableError.
+  evidence: crossinterp shareable/pure-script tests report NotShareableError for transformed callables/code objects.
+
+test.test_crossinterp.PureShareableScriptTests.test_pure_script_function
+  root_cause: transformed code objects/functions are not shareable across subinterpreters, so cross-interpreter shareability checks raise NotShareableError.
+  evidence: crossinterp shareable/pure-script tests report NotShareableError for transformed callables/code objects.
+
+test.test_crossinterp.ShareableFallbackTests.test_not_shareable
+  root_cause: transformed code objects/functions are not shareable across subinterpreters, so cross-interpreter shareability checks raise NotShareableError.
+  evidence: crossinterp shareable/pure-script tests report NotShareableError for transformed callables/code objects.
+
+test.test_crossinterp.ShareableFuncTests.test_stateless
+  root_cause: transformed code objects/functions are not shareable across subinterpreters, so cross-interpreter shareability checks raise NotShareableError.
+  evidence: crossinterp shareable/pure-script tests report NotShareableError for transformed callables/code objects.
+test.test_dataclasses.TestInitAnnotate.test_annotate_function
+  root_cause: dataclass generation relies on precise __class__ cell handling, annotation evaluation, and class body semantics that diverge under transformation.
+  evidence: assertion mismatches around __class__ identity, annotation handling, and slot/property behavior.
+
+test.test_dataclasses.TestInitAnnotate.test_annotate_function_contains_forwardref
+  root_cause: dataclass generation relies on precise __class__ cell handling, annotation evaluation, and class body semantics that diverge under transformation.
+  evidence: assertion mismatches around __class__ identity, annotation handling, and slot/property behavior.
+
+test.test_dataclasses.TestInitAnnotate.test_annotate_function_forwardref
+  root_cause: dataclass generation relies on precise __class__ cell handling, annotation evaluation, and class body semantics that diverge under transformation.
+  evidence: assertion mismatches around __class__ identity, annotation handling, and slot/property behavior.
+
+test.test_dataclasses.TestSlots.test_original_class_is_gced
+  root_cause: dataclass generation relies on precise __class__ cell handling, annotation evaluation, and class body semantics that diverge under transformation.
+  evidence: assertion mismatches around __class__ identity, annotation handling, and slot/property behavior.
+
+test.test_dataclasses.TestStringAnnotations.test_classvar_module_level_import
+  root_cause: dataclass generation relies on precise __class__ cell handling, annotation evaluation, and class body semantics that diverge under transformation.
+  evidence: assertion mismatches around __class__ identity, annotation handling, and slot/property behavior.
+
+test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_wrapped
+  root_cause: dataclass generation relies on precise __class__ cell handling, annotation evaluation, and class body semantics that diverge under transformation.
+  evidence: assertion mismatches around __class__ identity, annotation handling, and slot/property behavior.
+
+test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_zero_argument_super
+  root_cause: dataclass generation relies on precise __class__ cell handling, annotation evaluation, and class body semantics that diverge under transformation.
+  evidence: assertion mismatches around __class__ identity, annotation handling, and slot/property behavior.
+
+test.test_dataclasses.TestCase.test_incomplete_annotations
+  root_cause: dataclass generation relies on precise __class__ cell handling, annotation evaluation, and class body semantics that diverge under transformation.
+  evidence: assertion mismatches around __class__ identity, annotation handling, and slot/property behavior.
+
+test.test_dataclasses.TestCase.test_recursive_annotation
+  root_cause: dataclass generation relies on precise __class__ cell handling, annotation evaluation, and class body semantics that diverge under transformation.
+  evidence: assertion mismatches around __class__ identity, annotation handling, and slot/property behavior.
+
+test.test_dataclasses.TestDocString.test_existing_docstring_not_overridden
+  root_cause: dataclass generation relies on precise __class__ cell handling, annotation evaluation, and class body semantics that diverge under transformation.
+  evidence: assertion mismatches around __class__ identity, annotation handling, and slot/property behavior.
+
+test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_dunder_class_with_new_property
+  root_cause: dataclass generation relies on precise __class__ cell handling, annotation evaluation, and class body semantics that diverge under transformation.
+  evidence: assertion mismatches around __class__ identity, annotation handling, and slot/property behavior.
+
+test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_dunder_class_with_old_property
+  root_cause: dataclass generation relies on precise __class__ cell handling, annotation evaluation, and class body semantics that diverge under transformation.
+  evidence: assertion mismatches around __class__ identity, annotation handling, and slot/property behavior.
+
+test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_remembered_class
+  root_cause: dataclass generation relies on precise __class__ cell handling, annotation evaluation, and class body semantics that diverge under transformation.
+  evidence: assertion mismatches around __class__ identity, annotation handling, and slot/property behavior.
+
+test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_slots_dunder_class_property_deleter
+  root_cause: dataclass generation relies on precise __class__ cell handling, annotation evaluation, and class body semantics that diverge under transformation.
+  evidence: assertion mismatches around __class__ identity, annotation handling, and slot/property behavior.
+
+test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_slots_dunder_class_property_getter
+  root_cause: dataclass generation relies on precise __class__ cell handling, annotation evaluation, and class body semantics that diverge under transformation.
+  evidence: assertion mismatches around __class__ identity, annotation handling, and slot/property behavior.
+
+test.test_dataclasses.TestZeroArgumentSuperWithSlots.test_slots_dunder_class_property_setter
+  root_cause: dataclass generation relies on precise __class__ cell handling, annotation evaluation, and class body semantics that diverge under transformation.
+  evidence: assertion mismatches around __class__ identity, annotation handling, and slot/property behavior.
+
+test.test_frame.*
+  root_cause: FrameLocalsProxy and locals mutation semantics diverge from CPython; transformed code uses explicit cell objects and proxy locals, so f_locals views, deletion, scope behavior, and reprs do not match.
+  evidence: test_frame failures include non-reversible KeysView, inability to delete locals, repr mismatches, and scope/key handling differences.
+
+test.test_funcattrs.FunctionPropertiesTest.test_empty_cell
+  root_cause: explicit cell objects are stored inside closure cells, so f.__closure__[0].cell_contents returns a cell object instead of raising ValueError for empty cells.
+  evidence: AssertionError: shouldn't be able to read an empty cell
+
+test.test_generators.FinalizationTest.test_frame_resurrect
+  root_cause: frame and f_locals proxy semantics differ when resurrecting generator frames; explicit cell objects and proxy locals do not mirror CPython frame lifecycle.
+  evidence: generator frame expectations differ in test_generators
+
+test.test_generators.GeneratorDeallocTest.test_frame_locals_outlive_generator_with_exec
+  root_cause: frame locals proxy and exec locals normalization do not match CPython frame teardown semantics for generators.
+  evidence: generator locals/outliving checks fail
+
+test.test_generators.ModifyUnderlyingIterableTest.test_modify_f_locals
+  root_cause: f_locals proxy uses normalized mapping instead of live locals, so modifying f_locals does not affect execution the same way as CPython.
+  evidence: modifications to f_locals do not reflect in execution
+
+test.test_generators.ModifyUnderlyingIterableTest.test_new_gen_from_gi_code
+  root_cause: generator frame and f_locals proxy semantics differ due to explicit cell handling, so gi_code-based generator recreation diverges.
+  evidence: generator recreation assertions fail
+
+test.test_patma.*
+  root_cause: match statement lowering and class pattern helpers diverge from CPython semantics; class pattern validation and source locations differ under transformation.
+  evidence: multiple patma tests fail across inheritance, tracing, and error cases
+
+test.test_super.*
+  root_cause: transformed class cell and __class__ closure handling diverges from CPython, impacting super() semantics across many class patterns.
+  evidence: extensive failures across TestSuper cases
+
+test.test_type_annotations.*
+  root_cause: annotation scopes and __annotate__ handling diverge from CPython under transformation, impacting deferred evaluation and generated annotate behavior.
+  evidence: annotationlib/type_annotations failures
+
+test.test_annotationlib.MetaclassTests.test_annotated_meta
+  root_cause: annotationlib evaluation/forward-ref handling breaks because transformation changes annotation scopes, cell construction, and global/locals resolution.
+  evidence: metaclass annotated evaluation mismatch
+
+test.test_annotationlib.MetaclassTests.test_ordering
+  root_cause: annotationlib evaluation/forward-ref handling breaks because transformation changes annotation scopes, cell construction, and global/locals resolution.
+  evidence: metaclass ordering expectations fail
+
+test.test_import.PycRewritingTests.test_foreign_code
+  root_cause: diet-python always transforms source modules and does not honor mutated .pyc contents, so foreign code objects inserted into pyc constants are ignored.
+  evidence: AttributeError: 'int' object has no attribute 'co_filename'
+
+test.test_import.SubinterpImportTests.test_isolated_config
+  root_cause: diet-python loader is not registered as an allowed pure-python loader for subinterpreters, and diet_python pyo3 module is not available in isolated subinterpreters.
+  evidence: KeyError for DietPythonLoader in require_pure_python
+
+test.test_import.SubinterpImportTests.test_python_compat
+  root_cause: diet-python loader is not registered as an allowed pure-python loader for subinterpreters, and diet_python pyo3 module is not available in isolated subinterpreters.
+  evidence: KeyError for DietPythonLoader in require_pure_python
+
+test.test_reprlib.ReprTests.test_cell
+  root_cause: closure variables are rewritten to explicit cell objects stored in locals (_dp_cell_x). When a nested function closes over _dp_cell_x, the closure cell contains a cell object, so repr(cell) shows "cell object" rather than "int object" as CPython expects. Fixing requires changing the cell representation strategy (avoid cell-of-cell), which is broad and intersects with existing closure/cell semantics issues.
+
+test.test_support.TestSupport.test_recursion
+  root_cause: with-statement lowering inserts helper calls (`__dp__.contextmanager_get_exit` / `__dp__.contextmanager_enter`) which add extra frames before `support.infinite_recursion` calls `sys.setrecursionlimit`. The recursion depth at that point is high enough that the computed limit is too low, so `sys.setrecursionlimit` raises.
+  scope: fixing likely requires changing with-statement lowering to inline special-method lookup or otherwise avoid extra frames; this is cross-cutting.
+
+test.test_funcattrs.FunctionPropertiesTest.test_empty_cell
+  root_cause: transformed closures capture _dp_cell_* variables as free vars, so f.__closure__[0].cell_contents holds a cell object rather than the underlying value. Empty cell checks see a non-empty cell-of-cell.
+  evidence: AssertionError: shouldn't be able to read an empty cell
+
+test.test_reprlib.ReprTests.test_cell
+  root_cause: same cell-of-cell closure representation; repr shows a cell containing a cell object instead of the expected value.
+  evidence: expected '<cell ...: int object ...>' but got '<cell ...: cell object ...>'
+
+test.test_frame.TestFrameLocals.test_sizeof
+  root_cause: FrameLocalsProxy is a Python-level proxy object, so sys.getsizeof reports a different size than CPython's builtin frame locals proxy (expected calcobjsize("P") but got a larger size).
+  notes: fixing requires changing the runtime representation of frame locals proxies (C-level object/layout), which is infeasible right now and is tied to sys._getframe/frame-inspection semantics.
+
+test.test_frame.TestFrameLocals.test_unsupport
+  root_cause: copy.copy/copy.deepcopy of FrameLocalsProxy do not raise TypeError, because the proxy is a Python mapping that is copyable by default.
+  notes: matching CPython would require making the proxy non-copyable via C-level slots or global copy hooks, which is tied to frame inspection behavior and is infeasible right now.
+
+test.test_generators.ModifyUnderlyingIterableTest.test_modify_f_locals
+  root_cause: generator expression frame locals no longer expose the `.0` iterator name because the transformer renames it to internal `_dp_iter_*`, so mutating f_locals does not affect the generator.
+  evidence: AssertionError: TypeError not raised by list (f_locals mutation had no effect)

@@ -29,6 +29,9 @@ impl PrivateRewriter {
         while class_name.starts_with('_') {
             class_name = &class_name[1..];
         }
+        if class_name.is_empty() {
+            return None;
+        }
 
         let ret = format!("_{}{}", class_name, attr);
         Some(ret)

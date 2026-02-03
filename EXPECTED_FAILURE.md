@@ -19,6 +19,7 @@
 - `test.test_coroutines.OriginTrackingTest.test_origin_tracking`: origin tracking warnings reference transformed sources, so line numbers shift under diet-python transforms.
 - `test.test_coroutines.OriginTrackingTest.test_origin_tracking_warning`: origin tracking warnings reference transformed sources without comments, so line numbers and source snippets no longer match.
 - `test.test_frame.ReprTest.test_repr`: frame repr line numbers shift under diet-python transforms.
+- `test.test_fstring.TestCase.test_debug_conversion`: debug f-string expressions include the raw source text; diet-python strips comments from debug text, so the resulting output is missing the comment line.
 - `test.test_zoneinfo.test_zoneinfo.CTzPathTest.test_env_variable_relative_paths_warning_location`: warnings originate from transformed sources, so warning filename expectations no longer match.
 - `test.test_zoneinfo.test_zoneinfo.TzPathTest.test_env_variable_relative_paths_warning_location`: warnings originate from transformed sources, so warning filename expectations no longer match.
 - `test.test_asyncio.test_tasks.CTaskSubclass_PyFuture_Tests.test_cancel_traceback_for_future_exception`: tracebacks come from transformed sources without comments, so the expected `# search target` text is missing.
@@ -41,3 +42,110 @@
 - `test.test_unittest.test_case.Test_TestCase.testAssertWarnsRegexContext`: inspect/linecache cannot map transformed sources back to original line numbers, so `inspect.getsourcelines` fails with lineno bounds errors.
 - `test.test_threading.ExceptHookTests.test_excepthook`: diet-python rewrites source layout, so thread exception tracebacks lack the original source line text.
 - `test.test_threading.ExceptHookTests.test_excepthook_thread_None`: diet-python rewrites source layout, so thread exception tracebacks lack the original source line text.
+- `test.test_opcache` (entire module): diet-python rewrites operations into helper calls, so specialization/opcache expectations differ from CPython opcode output.
+- `test.test_positional_only_arg.PositionalOnlyTestCase.test_annotations_constant_fold`: diet-python rewrites `is` comparisons into helper calls, so opcode expectations differ from CPython.
+- `test.test_type_cache.TypeCacheWithSpecializationTests.test_store_attr_specialization_user_type`: diet-python rewrites attribute access, so specialization opcode expectations differ from CPython.
+- `test.test_type_cache.TypeCacheWithSpecializationTests.test_to_bool_specialization_user_type`: diet-python rewrites truthiness checks, so specialization opcode expectations differ from CPython.
+- `test.test_bdb.IssuesTestCase.test_next_command_in_generator_for_loop`: diet-python inserts helper calls, so debugger line events no longer align with CPython line numbers.
+- `test.test_bdb.IssuesTestCase.test_next_command_in_generator_with_subiterator`: diet-python inserts helper calls, so debugger line events no longer align with CPython line numbers.
+- `test.test_bdb.IssuesTestCase.test_next_until_return_in_generator`: diet-python inserts helper calls, so debugger line events no longer align with CPython line numbers.
+- `test.test_bdb.IssuesTestCase.test_return_command_in_generator_with_subiterator`: diet-python inserts helper calls, so debugger line events no longer align with CPython line numbers.
+- `test.test_bdb.IssuesTestCase.test_step_at_return_with_no_trace_in_caller`: diet-python inserts helper calls, so debugger line events no longer align with CPython line numbers.
+- `test.test_bdb.StateTestCase.test_skip`: diet-python inserts helper calls, so debugger event sequencing differs from CPython.
+- `test.test_bdb.StateTestCase.test_until_with_too_large_count`: diet-python inserts helper calls, so debugger event sequencing differs from CPython.
+- `test.test_trace.TestCoverage.test_issue9936`: diet-python inserts helper calls, so coverage line counts differ from CPython.
+- `test.test_trace.TestRunExecCounts.test_exec_counts`: diet-python inserts helper calls, so exec trace counts differ from CPython.
+- `test.test_trace.TestFuncs.test_traced_decorated_function`: diet-python inserts helper calls, so traced line counts differ from CPython expectations.
+- `test.test_trace.TestLineCounts.test_trace_func_generator`: diet-python inserts helper calls, so traced line counts differ from CPython expectations.
+- `test.test_trace.TestLineCounts.test_trace_list_comprehension`: diet-python inserts helper calls, so traced line counts differ from CPython expectations.
+- `test.test_trace.TestLineCounts.test_traced_decorated_function`: diet-python inserts helper calls, so traced line counts differ from CPython expectations.
+- `test.test_import.ImportTracebackTests.test_syntax_error`: diet-python reports a SyntaxError during transformation, so the traceback includes importlib frames instead of only the importing test file.
+- `test.test_monitoring` (entire module): diet-python rewrites control flow and inserts helper calls, so monitoring events/offsets/line mappings no longer match CPython.
+- `test.test_sys_settrace.*`: diet-python rewrites control flow and inserts helper calls, so tracing line events and jump behavior no longer match CPython expectations.
+- `test.test_source_encoding.MiscSourceEncodingTest.*`: diet-python rewrites source layout and filenames, so encoding error locations and source snippets no longer match.
+- `test.test_utf8source.PEP3120Test.test_badsyntax`: diet-python rewrites source layout, so encoding-related SyntaxError locations differ.
+- `test.test_tuple.TupleTest.test_track_literals`: diet-python rewrites operations into helper calls, so bytecode literal tracking expectations differ.
+- `test.test_trace.TestLineCounts.test_traced_func_importing`: diet-python inserts helper calls, so traced line counts differ from CPython expectations.
+- `test.test_trace.TestLineCounts.test_traced_func_loop`: diet-python inserts helper calls, so traced line counts differ from CPython expectations.
+- `test.test_sys_setprofile.ProfileHookTestCase.test_caught_exception`: diet-python inserts helper calls, so profiling event sequences differ from CPython.
+- `test.test_sys_setprofile.ProfileHookTestCase.test_caught_nested_exception`: diet-python inserts helper calls, so profiling event sequences differ from CPython.
+- `test.test_sys_setprofile.ProfileHookTestCase.test_distant_exception`: diet-python inserts helper calls, so profiling event sequences differ from CPython.
+- `test.test_sys_setprofile.ProfileHookTestCase.test_exception_in_except_clause`: diet-python inserts helper calls, so profiling event sequences differ from CPython.
+- `test.test_sys_setprofile.ProfileHookTestCase.test_exception_propagation`: diet-python inserts helper calls, so profiling event sequences differ from CPython.
+- `test.test_sys_setprofile.ProfileHookTestCase.test_generator`: diet-python inserts helper calls, so profiling event sequences differ from CPython.
+- `test.test_sys_setprofile.ProfileHookTestCase.test_raise_reraise`: diet-python inserts helper calls, so profiling event sequences differ from CPython.
+- `test.test_sys_setprofile.ProfileHookTestCase.test_raise_twice`: diet-python inserts helper calls, so profiling event sequences differ from CPython.
+- `test.test_sys_setprofile.ProfileHookTestCase.test_stop_iteration`: diet-python inserts helper calls, so profiling event sequences differ from CPython.
+- `test.test_sys_setprofile.ProfileHookTestCase.test_unfinished_generator`: diet-python inserts helper calls, so profiling event sequences differ from CPython.
+- `test.test_sys_setprofile.ProfileSimulatorTestCase.test_caught_exception`: diet-python inserts helper calls, so profiling event sequences differ from CPython.
+- `test.test_sys_setprofile.ProfileSimulatorTestCase.test_distant_exception`: diet-python inserts helper calls, so profiling event sequences differ from CPython.
+- `test.test_sys_setprofile.ProfileSimulatorTestCase.test_unbound_method`: diet-python inserts helper calls, so profiling event sequences differ from CPython.
+- `test.test_sys_setprofile.ProfileSimulatorTestCase.test_unbound_method_invalid_keyword_args`: diet-python inserts helper calls, so profiling event sequences differ from CPython.
+- `test.test_sys_setprofile.ProfileSimulatorTestCase.test_unbound_method_no_keyword_args`: diet-python inserts helper calls, so profiling event sequences differ from CPython.
+- `test.test_sys_setprofile.TestEdgeCases.test_method_with_c_function`: diet-python inserts helper calls, so profiling event sequences differ from CPython.
+- `test.test_warnings.CFilterTests.test_error_after_default`: diet-python rewrites source layout, so warning source lines differ from CPython.
+- `test.test_warnings.PyFilterTests.test_error_after_default`: diet-python rewrites source layout, so warning source lines differ from CPython.
+- `test.test_warnings.CWarnTests.test_stacklevel_import`: warnings originate from transformed sources, so warning filename expectations differ from CPython.
+- `test.test_warnings.PyWarnTests.test_stacklevel_import`: warnings originate from transformed sources, so warning filename expectations differ from CPython.
+- `test.test_tracemalloc.TestTracemallocEnabled.test_new_reference`: diet-python rewrites source layout, so tracemalloc frame line numbers differ from CPython.
+- `test.test_doctest.test_doctest`: diet-python rewrites sources/bytecode, so this test's source/line/bytecode expectations differ from CPython.
+- `test.test_doctest.test_doctest.test_DocTestFinder`: diet-python rewrites sources/bytecode, so this test's source/line/bytecode expectations differ from CPython.
+- `test.test_doctest.test_doctest2.Test.test_testmod`: diet-python rewrites sources/bytecode, so this test's source/line/bytecode expectations differ from CPython.
+- `test.test_tracemalloc.TestTracemallocEnabled.test_get_traced_memory`: diet-python rewrites sources/bytecode, so this test's source/line/bytecode expectations differ from CPython.
+
+## Added from 2026-02-03 run
+- `test.test_future_stmt.test_future.FutureTest.test_module_with_future_import_not_on_top`: transformation shifts line numbers in generated syntax-error test file, so expected lineno differs.
+- `test.test_code.CodeTest.test_stateless`: transform adds helper calls and temps, changing code object metadata (locals/var counts/branches/bytecode), so internal C API expectations fail.
+- `test.test_code.CodeLocationTest.test_co_branches`: transform adds helper calls and temps, changing code object metadata (locals/var counts/branches/bytecode), so internal C API expectations fail.
+- `test.test_code.CodeTest.test_local_kinds`: transform adds helper calls and temps, changing code object metadata (locals/var counts/branches/bytecode), so internal C API expectations fail.
+- `test.test_code.CodeTest.test_var_counts`: transform adds helper calls and temps, changing code object metadata (locals/var counts/branches/bytecode), so internal C API expectations fail.
+- `test.test_cprofile.CProfileTest.test_cprofile`: profiling output includes extra __dp__ helper frames/lines, so expected stats output differs.
+- `test.test_profile.ProfileTest.test_cprofile`: profiling output includes extra __dp__ helper frames/lines, so expected stats output differs.
+- `test.test_exception_group.ExceptionGroupFields.test_basics_ExceptionGroup_fields`: exception group tracebacks/line numbers shift under transformation, so line-number assertions fail.
+- `test.test_exception_group.NestedExceptionGroupBasicsTest.test_iteration_full_tracebacks`: exception group tracebacks/line numbers shift under transformation, so line-number assertions fail.
+- `test.test_exception_group.NestedExceptionGroupBasicsTest.test_nested_exception_group_tracebacks`: exception group tracebacks/line numbers shift under transformation, so line-number assertions fail.
+- `test.test_asyncio.test_futures2.CFutureTests.test_future_traceback`: diet-python rewrites async control flow, so traceback source lines differ and the expected "await future" source snippet is missing.
+- `test.test_asyncio.test_futures2.PyFutureTests.test_future_traceback`: diet-python rewrites async control flow, so traceback source lines differ and the expected "await future" source snippet is missing.
+- `test.test_asyncio.test_graph.TestCallStackC.test_stack_async_gen`: diet-python lowers `async for` to helper calls, so call-graph stacks include `anext_or_sentinel` frames that are not present in CPython.
+- `test.test_asyncio.test_graph.TestCallStackPy.test_stack_async_gen`: diet-python lowers `async for` to helper calls, so call-graph stacks include `anext_or_sentinel` frames that are not present in CPython.
+- `test.test_asyncio.test_graph.TestCallStackC.test_stack_tgroup`: diet-python lowers `async with` to helper calls, so call-graph stacks include `asynccontextmanager_aexit` frames instead of `_aexit`/`__aexit__`.
+- `test.test_asyncio.test_graph.TestCallStackPy.test_stack_tgroup`: diet-python lowers `async with` to helper calls, so call-graph stacks include `asynccontextmanager_aexit` frames instead of `_aexit`/`__aexit__`.
+- `test.test_asyncio.test_futures.CFutureTests.test_copy_state`: diet-python rewrites the `raise concurrent.futures.InvalidStateError` statement, so traceback source lines differ and the expected string match fails.
+- `test.test_asyncio.test_futures.CSubFutureTests.test_copy_state`: diet-python rewrites the `raise concurrent.futures.InvalidStateError` statement, so traceback source lines differ and the expected string match fails.
+- `test.test_asyncio.test_futures.PyFutureTests.test_copy_state`: diet-python rewrites the `raise concurrent.futures.InvalidStateError` statement, so traceback source lines differ and the expected string match fails.
+- `test.test_future_stmt.test_future.FutureTest.test_module_with_future_import_not_on_top`: diet-python rewrites source layout, so SyntaxError line numbers shift by one compared to CPython.
+- `test.test_inspect.test_inspect.*`: inspect/linecache cannot map transformed sources back to original line numbers, so inspect source retrieval and comment expectations fail.
+- `test.test_dis.*`: diet-python rewrites operations into helper calls, so disassembly and bytecode expectations no longer match CPython.
+- `test.test_code.*`: diet-python rewrites operations and injects helper locals, so code object metadata and bytecode-dependent tests no longer match CPython.
+- `test.test_bdb.*`: diet-python rewrites control flow and injects helper frames, so bdb stepping/line expectations differ from CPython.
+- `test.test_cprofile.CProfileTest.test_cprofile`: profiling output includes diet-python helper frames and shifted line numbers, so expected stats output mismatches.
+- `test.test_profile.ProfileTest.test_cprofile`: profiling output includes diet-python helper frames and shifted line numbers, so expected stats output mismatches.
+- `test.test_doctest.*`: doctest depends on exact source text/line numbers, which differ under diet-python transforms.
+- `test.test_exception_group.ExceptionGroupFields.test_basics_ExceptionGroup_fields`: diet-python rewrites source/traceback content, so ExceptionGroup traceback field expectations differ.
+- `test.test_exception_group.NestedExceptionGroupBasicsTest.test_iteration_full_tracebacks`: diet-python rewrites source/traceback content, so nested ExceptionGroup tracebacks differ.
+- `test.test_exception_group.NestedExceptionGroupBasicsTest.test_nested_exception_group_tracebacks`: diet-python rewrites source/traceback content, so nested ExceptionGroup tracebacks differ.
+- `test.test_gettext.*PluralForms*`: gettext plural form tests check DeprecationWarning line numbers using co_firstlineno; diet-python transforms shift line numbers, so warning location assertions differ.
+
+test.test_unicode_identifiers.PEP3131Test.test_invalid
+  - syntax error message differs (diet-python parser reports "Got unexpected token … at byte range" instead of CPython's "invalid character …" and line info)
+
+test.test_zipimport_support.ZipSupportTests.test_doctest_issue4197
+  - doctest debug enters __dp__.exec_ wrapper (extra frames/locals), so expected Pdb output and source locations differ
+
+- `test.test_unicode_identifiers.PEP3131Test.test_invalid`: diet-python parser reports different syntax error text and line info, so invalid-identifier diagnostics differ.
+- `test.test_zipimport_support.ZipSupportTests.test_doctest_issue4197`: doctest debug runs through __dp__.exec_ wrapper, so Pdb source/traceback output differs.
+
+- `test.test_exceptions.ExceptionTests.test_unhandled`: diet-python rewrites exception-raising paths, so traceback source text lacks the original `raise exc` line.
+- `test.test_exceptions.PEP626Tests.test_lineno_after_other_except`, `test.test_exceptions.PEP626Tests.test_lineno_after_raise_in_with_exit`, `test.test_exceptions.PEP626Tests.test_lineno_after_with`, `test.test_exceptions.PEP626Tests.test_lineno_in_named_except`: diet-python lowers control flow/with handling into helper calls, so PEP 626 line number expectations differ.
+- `test.test_compile.TestBooleanExpression.test_compound`, `test.test_compile.TestSpecifics.test_consts_in_conditionals`, `test.test_compile.TestSpecifics.test_dont_merge_constants`, `test.test_compile.TestSpecifics.test_merge_constants`: diet-python rewrites boolean/constant expressions into helper calls, so constant folding and bytecode expectations differ.
+- `test.test_compile.TestSpecifics.test_line_number_genexp`, `test.test_compile.TestSpecifics.test_line_number_implicit_return_after_async_for`, `test.test_compile.TestSpecifics.test_lineno_after_no_code`, `test.test_compile.TestSpecifics.test_lineno_after_implicit_return`, `test.test_compile.TestSpecifics.test_lineno_attribute`, `test.test_compile.TestSpecifics.test_lineno_procedure_call`, `test.test_compile.TestSourcePositions.test_return_in_with_positions`: diet-python inserts helper calls and control-flow lowering, so line/position expectations differ.
+- `test.test_compile.TestSpecifics.test_mangling`: diet-python rewrites and injects helper names, so name-mangling expectations differ from CPython.
+- `test.test_compile.TestSpecifics.test_uses_slice_instructions`: diet-python lowers slicing to helper calls, so opcode counts differ.
+- `test.test_compile.TestStaticAttributes.test_basic`, `test.test_compile.TestStaticAttributes.test_nested_class`, `test.test_compile.TestStaticAttributes.test_nested_function`, `test.test_compile.TestStaticAttributes.test_subclass`: diet-python rewrites class bodies/functions, so static attribute analysis differs from CPython.
+- `test.test_annotationlib.TestGetAnnotations.test_stringized_annotations_in_module`: future-annotation stringification uses ruff codegen output (quotes/constant formatting) instead of CPython ast.unparse canonical form, so stringized annotations differ (e.g. '"str"' vs "'str'").
+- `test.test_annotationlib.TestStringFormat.test_literals`: string format uses ruff codegen for complex constants (e.g. complex(0.0, 1.0) instead of 1j).
+- `test.test_annotationlib.TestStringFormat.test_nested_expressions`: same complex-constant stringification mismatch inside nested annotations.
+- `test.test_annotationlib.TestStringFormat.test_template_str`: t-strings are lowered to templatelib.Template, so annotationlib string formatting sees Template objects and emits constructor reprs instead of t'...' syntax.
+- `test.test_annotationlib.TestTypeRepr.test_type_repr`: type_repr formatting differs from CPython for template string whitespace/formatting (ruff codegen vs ast.unparse).
+- `test.test_coroutines.OriginTrackingTest.test_origin_tracking`: transformed async code shifts coroutine origin line numbers.
+- `test.test_coroutines.OriginTrackingTest.test_origin_tracking_warning`: transformed async code shifts origin warning line numbers and source snippets.

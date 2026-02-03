@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::mem::take;
 
-use ruff_python_ast::{self as ast, Expr, Operator, Stmt, UnaryOp};
+use ruff_python_ast::{self as ast, Expr, ExprContext, Operator, Stmt, UnaryOp};
 use ruff_python_ast::str_prefix::StringLiteralPrefix;
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_source_file::LineEnding;
@@ -31,12 +31,30 @@ pub mod truthy;
 pub fn lower_expr(context: &Context, expr: Expr) -> LoweredExpr {
 
     match expr {
+        Expr::Attribute(ast::ExprAttribute {
+            value,
+            attr,
+            ctx: ExprContext::Load,
+            range: _,
+            node_index: _,
+        }) if attr.id.as_str() == "f_locals" => {
+            let lowered = lower_expr(context, *value);
+            let mut body_builder = BodyBuilder::default();
+            let value_expr = body_builder.push(lowered);
+            let expr = py_expr!("__dp__.frame_locals({value:expr})", value = value_expr);
+            return LoweredExpr::modified(expr, body_builder.into_stmt());
+        }
         Expr::StringLiteral(ast::ExprStringLiteral { value, range, node_index }) => {
             if string_literal_needs_surrogate_decode(context, &value) {
                 if let Some(src) = context.source_slice(range) {
+                    let literal_src = if value.is_implicit_concatenated() {
+                        format!("({src})")
+                    } else {
+                        src.to_string()
+                    };
                     let expr = py_expr!(
                         "__dp__.decode_surrogate_literal({literal:literal})",
-                        literal = src
+                        literal = literal_src.as_str()
                     );
                     return LoweredExpr::modified(expr, empty_body());
                 }
@@ -465,7 +483,13 @@ def {func:id}():
                 UnaryOp::USub => "neg",
                 UnaryOp::UAdd => "pos",
             };
-            LoweredExpr::unmodified(make_unaryop(func_name, *operand))
+            let lowered = lower_expr(context, *operand);
+            let expr = make_unaryop(func_name, lowered.expr);
+            if lowered.modified {
+                LoweredExpr::modified(expr, lowered.stmt)
+            } else {
+                LoweredExpr::unmodified(expr)
+            }
         }
         Expr::Subscript(ast::ExprSubscript {
             value, slice, ctx, ..
@@ -542,9 +566,10 @@ fn lower_generator_expr(
         }
     };
 
+    let outer_async = first_gen.is_async;
     let iter_expr = first_gen.iter.clone();
     let iter_lowered = lower_expr(context, iter_expr);
-    let iter_call = if first_gen.is_async {
+    let iter_value = if outer_async {
         py_expr!("__dp__.aiter({iter:expr})", iter = iter_lowered.expr.clone())
     } else {
         py_expr!("__dp__.iter({iter:expr})", iter = iter_lowered.expr.clone())
@@ -552,7 +577,7 @@ fn lower_generator_expr(
 
     let func_name = context.fresh("genexpr");
     let iter_param = context.fresh("iter");
-    let is_async = generators.iter().any(|gen| gen.is_async);
+    let is_async = genexpr_requires_async(&elt, &generators);
     let mut func_def: ast::StmtFunctionDef = if is_async {
         py_stmt_typed!(
             r#"
@@ -585,13 +610,65 @@ def {func:id}({param:id}):
             gen.iter
         };
         let for_stmt = if gen.is_async {
-            py_stmt!(
-                r#"
+            if is_outermost {
+                let iter_name = context.fresh("iter");
+                let target_tmp = context.fresh("tmp");
+                let completed_flag = context.fresh("completed");
+                py_stmt!(
+                    r#"
+{completed_flag:id} = False
+{iter_name:id} = {iter:expr}
+while not {completed_flag:id}:
+    {target_tmp:id} = await __dp__.anext_or_sentinel({iter_name:id})
+    if {target_tmp:id} is __dp__.ITER_COMPLETE:
+        {completed_flag:id} = True
+    else:
+        {target:expr} = {target_tmp:id}
+        {target_tmp:id} = None
+        {body:stmt}
+"#,
+                    iter_name = iter_name.as_str(),
+                    iter = iter,
+                    target_tmp = target_tmp.as_str(),
+                    completed_flag = completed_flag.as_str(),
+                    target = gen.target,
+                    body = loop_body,
+                )
+            } else {
+                py_stmt!(
+                    r#"
 async for {target:expr} in {iter:expr}:
     {body:stmt}
 "#,
-                target = gen.target,
+                    target = gen.target,
+                    iter = iter,
+                    body = loop_body,
+                )
+            }
+        } else if is_outermost {
+            let iter_name = context.fresh("iter");
+            let target_tmp = context.fresh("tmp");
+            let completed_flag = context.fresh("completed");
+            py_stmt!(
+                r#"
+{completed_flag:id} = False
+{iter_name:id} = {iter:expr}
+while not {completed_flag:id}:
+    try:
+        {target_tmp:id} = __dp__.next({iter_name:id})
+    except __dp__.builtins.StopIteration:
+        {completed_flag:id} = True
+    else:
+        {target:expr} = {target_tmp:id}
+        {target_tmp:id} = None
+        {body:stmt}
+__dp__.truth({completed_flag:id})
+"#,
+                iter_name = iter_name.as_str(),
                 iter = iter,
+                target_tmp = target_tmp.as_str(),
+                completed_flag = completed_flag.as_str(),
+                target = gen.target,
                 body = loop_body,
             )
         } else {
@@ -645,10 +722,113 @@ if False:
     let call_expr = py_expr!(
         "{func:id}({iter:expr})",
         func = func_name.as_str(),
-        iter = iter_call,
+        iter = iter_value,
     );
 
     LoweredExpr::modified(call_expr, into_body(prefix))
+}
+
+fn genexpr_requires_async(elt: &Expr, generators: &[ast::Comprehension]) -> bool {
+    if generators.iter().any(|gen| gen.is_async) {
+        return true;
+    }
+    if expr_requires_async(elt) {
+        return true;
+    }
+    for gen in generators {
+        if expr_requires_async(&gen.iter) {
+            return true;
+        }
+        for if_expr in &gen.ifs {
+            if expr_requires_async(if_expr) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn comp_is_async(
+    elt_or_key: &Expr,
+    value: Option<&Expr>,
+    generators: &[ast::Comprehension],
+) -> bool {
+    if generators.iter().any(|gen| gen.is_async) {
+        return true;
+    }
+    if expr_requires_async(elt_or_key) {
+        return true;
+    }
+    if let Some(value) = value {
+        if expr_requires_async(value) {
+            return true;
+        }
+    }
+    for gen in generators {
+        if expr_requires_async(&gen.iter) {
+            return true;
+        }
+        for if_expr in &gen.ifs {
+            if expr_requires_async(if_expr) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn expr_requires_async(expr: &Expr) -> bool {
+    #[derive(Default)]
+    struct AwaitFinder {
+        found: bool,
+    }
+
+    impl Transformer for AwaitFinder {
+        fn visit_expr(&mut self, expr: &mut Expr) {
+            if self.found {
+                return;
+            }
+            match expr {
+                Expr::Await(_) => {
+                    self.found = true;
+                    return;
+                }
+                Expr::ListComp(ast::ExprListComp { elt, generators, .. }) => {
+                    if comp_is_async(elt.as_ref(), None, generators) {
+                        self.found = true;
+                    }
+                    return;
+                }
+                Expr::SetComp(ast::ExprSetComp { elt, generators, .. }) => {
+                    if comp_is_async(elt.as_ref(), None, generators) {
+                        self.found = true;
+                    }
+                    return;
+                }
+                Expr::DictComp(ast::ExprDictComp {
+                    key,
+                    value,
+                    generators,
+                    ..
+                }) => {
+                    if comp_is_async(key.as_ref(), Some(value.as_ref()), generators) {
+                        self.found = true;
+                    }
+                    return;
+                }
+                Expr::Lambda(_) | Expr::Generator(_) => {
+                    return;
+                }
+                _ => {}
+            }
+            walk_expr(self, expr);
+        }
+    }
+
+    let mut finder = AwaitFinder::default();
+    let mut expr = expr.clone();
+    finder.visit_expr(&mut expr);
+    finder.found
 }
 
 

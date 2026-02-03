@@ -9,7 +9,7 @@ use crate::transform::ast_rewrite::LoweredExpr;
 use crate::{py_expr, py_stmt, py_stmt_typed};
 use crate::transform::context::Context;
 use crate::transformer::{Transformer, walk_expr};
-use crate::transform::scope::ScopeKind;
+use crate::transform::scope::{is_internal_symbol, ScopeKind};
 use ruff_python_ast::name::Name;
 use ruff_text_size::TextRange;
 
@@ -47,11 +47,29 @@ struct TargetRenamer<'a> {
 }
 
 impl<'a> TargetRenamer<'a> {
-    fn new(context: &'a Context, renames: &'a mut HashMap<String, Name>) -> Self {
+    fn new(
+        context: &'a Context,
+        renames: &'a mut HashMap<String, Name>,
+        bound_here: HashSet<String>,
+    ) -> Self {
         Self {
             context,
             renames,
-            bound_here: HashSet::new(),
+            bound_here,
+        }
+    }
+
+    fn ensure_binding(&mut self, name: &str) {
+        if self.renames.contains_key(name) {
+            return;
+        }
+        if self.bound_here.contains(name) {
+            if is_internal_symbol(name) {
+                let fresh = Name::new(self.context.fresh("tmp"));
+                self.renames.insert(name.to_string(), fresh);
+            } else {
+                self.renames.insert(name.to_string(), Name::new(name));
+            }
         }
     }
 }
@@ -60,22 +78,17 @@ impl Transformer for TargetRenamer<'_> {
     fn visit_expr(&mut self, expr: &mut Expr) {
         match expr {
             Expr::Name(ast::ExprName { id, ctx, .. }) => {
+                let name = id.as_str();
                 if matches!(ctx, ExprContext::Store) {
-                    let key = id.as_str().to_string();
-                    if self.bound_here.contains(&key) {
-                        if let Some(existing) = self.renames.get(&key).cloned() {
-                            *id = existing;
-                        }
-                    } else {
-                        let fresh = Name::new(self.context.fresh("tmp"));
-                        self.renames.insert(key.clone(), fresh.clone());
-                        self.bound_here.insert(key);
-                        *id = fresh;
+                    self.ensure_binding(name);
+                    if let Some(existing) = self.renames.get(name).cloned() {
+                        *id = existing;
                     }
                     return;
                 }
                 if matches!(ctx, ExprContext::Load) {
-                    if let Some(new) = self.renames.get(id.as_str()) {
+                    self.ensure_binding(name);
+                    if let Some(new) = self.renames.get(name) {
                         *id = new.clone();
                     }
                     return;
@@ -99,6 +112,39 @@ fn rename_loads(mut expr: Expr, renames: &HashMap<String, Name>) -> Expr {
     let mut renamer = LoadRenamer { renames };
     (&mut renamer).visit_expr(&mut expr);
     expr
+}
+
+fn collect_store_names(target: &Expr) -> HashSet<String> {
+    #[derive(Default)]
+    struct Collector {
+        names: HashSet<String>,
+    }
+
+    impl Transformer for Collector {
+        fn visit_expr(&mut self, expr: &mut Expr) {
+            match expr {
+                Expr::Name(ast::ExprName { id, ctx, .. }) => {
+                    if matches!(ctx, ExprContext::Store) {
+                        self.names.insert(id.to_string());
+                        return;
+                    }
+                }
+                Expr::Generator(_)
+                | Expr::ListComp(_)
+                | Expr::SetComp(_)
+                | Expr::DictComp(_) => {
+                    return;
+                }
+                _ => {}
+            }
+            walk_expr(self, expr);
+        }
+    }
+
+    let mut collector = Collector::default();
+    let mut clone = target.clone();
+    collector.visit_expr(&mut clone);
+    collector.names
 }
 
 struct LoweredGenerator {
@@ -242,11 +288,7 @@ fn lower_function(
         .first()
         .expect("comprehension expects at least one generator");
     let iter_lowered = super::lower_expr(context, first_gen.iter.clone());
-    let iter_call = if first_gen.is_async {
-        py_expr!("__dp__.aiter({iter:expr})", iter = iter_lowered.expr.clone())
-    } else {
-        py_expr!("__dp__.iter({iter:expr})", iter = iter_lowered.expr.clone())
-    };
+    let iter_call = iter_lowered.expr.clone();
 
     let result_name = context.fresh("tmp");
     let result_expr = py_expr!("{name:id}", name = result_name.as_str());
@@ -264,7 +306,8 @@ fn lower_function(
         let iter_lowered = super::lower_expr(context, iter_expr);
 
         let mut target_expr = gen.target;
-        let mut target_renamer = TargetRenamer::new(context, &mut renames);
+        let bound_here = collect_store_names(&target_expr);
+        let mut target_renamer = TargetRenamer::new(context, &mut renames, bound_here);
         target_renamer.visit_expr(&mut target_expr);
 
         let mut ifs = Vec::with_capacity(gen.ifs.len());
