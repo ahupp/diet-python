@@ -13,6 +13,8 @@ pub struct RuntimeFns {
     dp_locals: *mut ffi::PyObject,
 }
 
+const SOAC_FUNCTION_CAPSULE: &[u8] = b"diet_python.soac_function\0";
+
 impl RuntimeFns {
     pub unsafe fn new(
         builtins: *mut ffi::PyObject,
@@ -497,7 +499,10 @@ unsafe extern "C" fn soac_function_call(
     kwargs: *mut ffi::PyObject,
 ) -> *mut ffi::PyObject {
     let capsule = slf;
-    let ptr = ffi::PyCapsule_GetPointer(capsule, ptr::null());
+    let ptr = ffi::PyCapsule_GetPointer(
+        capsule,
+        SOAC_FUNCTION_CAPSULE.as_ptr() as *const c_char,
+    );
     if ptr.is_null() {
         ffi::PyErr_SetString(
             ffi::PyExc_RuntimeError,
@@ -506,11 +511,12 @@ unsafe extern "C" fn soac_function_call(
         return ptr::null_mut();
     }
     let func = &*(ptr as *const FunctionData);
-    func.call(args, kwargs)
+    func.call_from_python(args, kwargs)
 }
 
 unsafe extern "C" fn soac_function_capsule_destructor(obj: *mut ffi::PyObject) {
-    let ptr = ffi::PyCapsule_GetPointer(obj, ptr::null());
+    let ptr =
+        ffi::PyCapsule_GetPointer(obj, SOAC_FUNCTION_CAPSULE.as_ptr() as *const c_char);
     if ptr.is_null() {
         return;
     }
@@ -802,7 +808,7 @@ fn capture_closure(
 }
 
 impl FunctionData {
-    unsafe fn call(
+    unsafe fn call_from_python(
         &self,
         args: *mut ffi::PyObject,
         kwargs: *mut ffi::PyObject,
@@ -822,7 +828,11 @@ impl FunctionData {
             return ptr::null_mut();
         }
 
-        if apply_param_defaults(&self.params, params_ptr).is_err() {
+        self.call(params_ptr)
+    }
+
+    unsafe fn call(&self, params_scope: *mut ScopeInstance) -> *mut ffi::PyObject {
+        if apply_param_defaults(&self.params, params_scope).is_err() {
             return ptr::null_mut();
         }
 
@@ -832,7 +842,7 @@ impl FunctionData {
         let ctx = ExecContext {
             globals: self.globals,
             globals_owner: self.globals_owner,
-            params: params_ptr,
+            params: params_scope,
             locals: locals_ptr,
             builtins: self.builtins,
             closure: self.closure.as_ref().map(|closure| &closure.scope),
@@ -1001,7 +1011,7 @@ pub unsafe fn build_function(
 
     let capsule = ffi::PyCapsule_New(
         Box::into_raw(data) as *mut c_void,
-        ptr::null(),
+        SOAC_FUNCTION_CAPSULE.as_ptr() as *const c_char,
         Some(soac_function_capsule_destructor),
     );
     if capsule.is_null() {
@@ -1205,6 +1215,274 @@ fn apply_param_defaults(params: &[ParamSpec], param_scope: *mut ScopeInstance) -
                     return Err(());
                 }
             }
+        }
+    }
+    Ok(())
+}
+
+struct CallArgs {
+    positional: Vec<*mut ffi::PyObject>,
+    kw_map: HashMap<String, *mut ffi::PyObject>,
+}
+
+impl CallArgs {
+    unsafe fn cleanup(self) {
+        for value in self.positional {
+            if !value.is_null() {
+                ffi::Py_DECREF(value);
+            }
+        }
+        for (_, value) in self.kw_map {
+            if !value.is_null() {
+                ffi::Py_DECREF(value);
+            }
+        }
+    }
+}
+
+fn collect_call_args(args: &[min_ast::Arg], ctx: &ExecContext<'_>) -> Result<CallArgs, ()> {
+    let mut positional: Vec<*mut ffi::PyObject> = Vec::new();
+    let mut kw_map: HashMap<String, *mut ffi::PyObject> = HashMap::new();
+
+    for arg in args {
+        match arg {
+            min_ast::Arg::Positional(expr) => {
+                let value = eval_expr(expr, ctx)?;
+                positional.push(value);
+            }
+            min_ast::Arg::Starred(expr) => unsafe {
+                let value = eval_expr(expr, ctx)?;
+                let seq = ffi::PySequence_Fast(
+                    value,
+                    b"argument after * must be iterable\0".as_ptr() as *const c_char,
+                );
+                ffi::Py_DECREF(value);
+                if seq.is_null() {
+                    CallArgs { positional, kw_map }.cleanup();
+                    return Err(());
+                }
+                let seq_len = ffi::PySequence_Size(seq);
+                if seq_len < 0 {
+                    ffi::Py_DECREF(seq);
+                    CallArgs { positional, kw_map }.cleanup();
+                    return Err(());
+                }
+                for idx in 0..seq_len {
+                    let item = ffi::PySequence_GetItem(seq, idx);
+                    if item.is_null() {
+                        ffi::Py_DECREF(seq);
+                        CallArgs { positional, kw_map }.cleanup();
+                        return Err(());
+                    }
+                    positional.push(item);
+                }
+                ffi::Py_DECREF(seq);
+            },
+            min_ast::Arg::Keyword { name, value } => unsafe {
+                let val = eval_expr(value, ctx)?;
+                if kw_map.contains_key(name) {
+                    ffi::Py_DECREF(val);
+                    CallArgs { positional, kw_map }.cleanup();
+                    return set_type_error("multiple values for keyword argument");
+                }
+                kw_map.insert(name.clone(), val);
+            },
+            min_ast::Arg::KwStarred(expr) => unsafe {
+                let mapping = eval_expr(expr, ctx)?;
+                let items = ffi::PyMapping_Items(mapping);
+                ffi::Py_DECREF(mapping);
+                if items.is_null() {
+                    CallArgs { positional, kw_map }.cleanup();
+                    return Err(());
+                }
+                let items_len = ffi::PySequence_Size(items);
+                if items_len < 0 {
+                    ffi::Py_DECREF(items);
+                    CallArgs { positional, kw_map }.cleanup();
+                    return Err(());
+                }
+                for idx in 0..items_len {
+                    let item = ffi::PySequence_GetItem(items, idx);
+                    if item.is_null() {
+                        ffi::Py_DECREF(items);
+                        CallArgs { positional, kw_map }.cleanup();
+                        return Err(());
+                    }
+                    let key = ffi::PySequence_GetItem(item, 0);
+                    let val = ffi::PySequence_GetItem(item, 1);
+                    ffi::Py_DECREF(item);
+                    if key.is_null() || val.is_null() {
+                        ffi::Py_XDECREF(key);
+                        ffi::Py_XDECREF(val);
+                        ffi::Py_DECREF(items);
+                        CallArgs { positional, kw_map }.cleanup();
+                        return Err(());
+                    }
+                    if ffi::PyUnicode_Check(key) == 0 {
+                        ffi::Py_DECREF(key);
+                        ffi::Py_DECREF(val);
+                        ffi::Py_DECREF(items);
+                        CallArgs { positional, kw_map }.cleanup();
+                        return set_type_error("keywords must be strings");
+                    }
+                    let mut len: ffi::Py_ssize_t = 0;
+                    let ptr = ffi::PyUnicode_AsUTF8AndSize(key, &mut len);
+                    if ptr.is_null() {
+                        ffi::Py_DECREF(key);
+                        ffi::Py_DECREF(val);
+                        ffi::Py_DECREF(items);
+                        CallArgs { positional, kw_map }.cleanup();
+                        return Err(());
+                    }
+                    let key_str = std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                        ptr as *const u8,
+                        len as usize,
+                    ));
+                    if kw_map.contains_key(key_str) {
+                        ffi::Py_DECREF(key);
+                        ffi::Py_DECREF(val);
+                        ffi::Py_DECREF(items);
+                        CallArgs { positional, kw_map }.cleanup();
+                        return set_type_error("multiple values for keyword argument");
+                    }
+                    kw_map.insert(key_str.to_string(), val);
+                    ffi::Py_DECREF(key);
+                }
+                ffi::Py_DECREF(items);
+            },
+        }
+    }
+
+    Ok(CallArgs { positional, kw_map })
+}
+
+fn bind_args_direct(
+    params: &[ParamSpec],
+    mut call_args: CallArgs,
+    param_scope: *mut ScopeInstance,
+) -> Result<(), ()> {
+    unsafe {
+        let mut arg_index: usize = 0;
+        let mut has_vararg = false;
+
+        for param in params {
+            match param.kind {
+                ParamKind::Positional => {
+                    if arg_index < call_args.positional.len() {
+                        if call_args.kw_map.contains_key(&param.name) {
+                            call_args.cleanup();
+                            return set_type_error("multiple values for argument");
+                        }
+                        let value = call_args.positional[arg_index];
+                        if scope_assign_name(&mut *param_scope, param.name.as_str(), value).is_err()
+                        {
+                            call_args.cleanup();
+                            return Err(());
+                        }
+                        ffi::Py_DECREF(value);
+                        call_args.positional[arg_index] = ptr::null_mut();
+                        arg_index += 1;
+                    } else if let Some(value) = call_args.kw_map.remove(&param.name) {
+                        if scope_assign_name(&mut *param_scope, param.name.as_str(), value).is_err()
+                        {
+                            ffi::Py_DECREF(value);
+                            call_args.cleanup();
+                            return Err(());
+                        }
+                        ffi::Py_DECREF(value);
+                    } else {
+                        call_args.cleanup();
+                        return set_type_error("missing required positional argument");
+                    }
+                }
+                ParamKind::VarArg => {
+                    has_vararg = true;
+                    let remaining = call_args.positional.len().saturating_sub(arg_index);
+                    let tuple = ffi::PyTuple_New(remaining as _);
+                    if tuple.is_null() {
+                        call_args.cleanup();
+                        return Err(());
+                    }
+                    for idx in 0..remaining {
+                        let pos = arg_index + idx;
+                        let value = call_args.positional[pos];
+                        if value.is_null() {
+                            ffi::Py_DECREF(tuple);
+                            call_args.cleanup();
+                            return Err(());
+                        }
+                        if ffi::PyTuple_SetItem(tuple, idx as _, value) != 0 {
+                            ffi::Py_DECREF(tuple);
+                            call_args.cleanup();
+                            return Err(());
+                        }
+                        call_args.positional[pos] = ptr::null_mut();
+                    }
+                    arg_index = call_args.positional.len();
+                    if scope_assign_name(&mut *param_scope, param.name.as_str(), tuple).is_err() {
+                        ffi::Py_DECREF(tuple);
+                        call_args.cleanup();
+                        return Err(());
+                    }
+                    ffi::Py_DECREF(tuple);
+                }
+                ParamKind::KwOnly => {
+                    if let Some(value) = call_args.kw_map.remove(&param.name) {
+                        if scope_assign_name(&mut *param_scope, param.name.as_str(), value).is_err()
+                        {
+                            ffi::Py_DECREF(value);
+                            call_args.cleanup();
+                            return Err(());
+                        }
+                        ffi::Py_DECREF(value);
+                    } else {
+                        call_args.cleanup();
+                        return set_type_error("missing required keyword-only argument");
+                    }
+                }
+                ParamKind::KwArg => {
+                    let dict = ffi::PyDict_New();
+                    if dict.is_null() {
+                        call_args.cleanup();
+                        return Err(());
+                    }
+                    let mut kw_map = std::mem::take(&mut call_args.kw_map);
+                    let mut iter = kw_map.drain();
+                    while let Some((key, value)) = iter.next() {
+                        if ffi::PyDict_SetItemString(
+                            dict,
+                            CString::new(key.as_str()).unwrap().as_ptr(),
+                            value,
+                        ) != 0
+                        {
+                            ffi::Py_DECREF(value);
+                            for (_, value) in iter {
+                                ffi::Py_DECREF(value);
+                            }
+                            ffi::Py_DECREF(dict);
+                            call_args.cleanup();
+                            return Err(());
+                        }
+                        ffi::Py_DECREF(value);
+                    }
+                    if scope_assign_name(&mut *param_scope, param.name.as_str(), dict).is_err() {
+                        ffi::Py_DECREF(dict);
+                        call_args.cleanup();
+                        return Err(());
+                    }
+                    ffi::Py_DECREF(dict);
+                }
+            }
+        }
+
+        if arg_index < call_args.positional.len() && !has_vararg {
+            call_args.cleanup();
+            return set_type_error("too many positional arguments");
+        }
+
+        if !call_args.kw_map.is_empty() {
+            call_args.cleanup();
+            return set_type_error("unexpected keyword argument");
         }
     }
     Ok(())
@@ -1625,6 +1903,28 @@ fn eval_call(
         }
     }
 
+    let soac_func = unsafe { get_soac_function(func_obj) };
+    if let Some(soac_func) = soac_func {
+        let call_args = match collect_call_args(args, ctx) {
+            Ok(call_args) => call_args,
+            Err(()) => unsafe {
+                ffi::Py_DECREF(func_obj);
+                return Err(());
+            },
+        };
+        unsafe {
+            let mut params_scope = ScopeInstance::new(&*(*soac_func).param_layout);
+            let params_ptr = &mut params_scope as *mut ScopeInstance;
+            if bind_args_direct(&(*soac_func).params, call_args, params_ptr).is_err() {
+                ffi::Py_DECREF(func_obj);
+                return Err(());
+            }
+            let result = (*soac_func).call(params_ptr);
+            ffi::Py_DECREF(func_obj);
+            return if result.is_null() { Err(()) } else { Ok(result) };
+        }
+    }
+
     let mut positional: Vec<*mut ffi::PyObject> = Vec::new();
     let kwargs = unsafe { ffi::PyDict_New() };
     if kwargs.is_null() {
@@ -1817,4 +2117,32 @@ fn cleanup_call_args(
             ffi::Py_DECREF(value);
         }
     }
+}
+
+unsafe fn get_soac_function(func_obj: *mut ffi::PyObject) -> Option<*const FunctionData> {
+    if ffi::PyCFunction_Check(func_obj) == 0 {
+        return None;
+    }
+    let cfunc = ffi::PyCFunction_GetFunction(func_obj);
+    let soac_ptr = soac_function_call as *const c_void;
+    let Some(cfunc) = cfunc else {
+        return None;
+    };
+    let cfunc_ptr = cfunc as *const c_void;
+    if cfunc_ptr != soac_ptr {
+        return None;
+    }
+    let capsule = ffi::PyCFunction_GetSelf(func_obj);
+    if capsule.is_null() {
+        return None;
+    }
+    if ffi::PyCapsule_IsValid(capsule, SOAC_FUNCTION_CAPSULE.as_ptr() as *const c_char) == 0 {
+        return None;
+    }
+    let ptr =
+        ffi::PyCapsule_GetPointer(capsule, SOAC_FUNCTION_CAPSULE.as_ptr() as *const c_char);
+    if ptr.is_null() {
+        return None;
+    }
+    Some(ptr as *const FunctionData)
 }
