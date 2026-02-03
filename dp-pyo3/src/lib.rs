@@ -4,6 +4,7 @@ use pyo3::prelude::*;
 use std::fs;
 
 mod eval;
+mod interpreter;
 
 #[pyfunction]
 fn transform_source(source: &str, ensure: Option<bool>) -> PyResult<String> {

@@ -1,15 +1,17 @@
+use crate::interpreter::{self, RuntimeFns};
 use dp_transform::{min_ast, transform_str_to_ruff_with_options, ImportStarHandling, Options};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::ffi;
 use pyo3::prelude::*;
-use std::mem::{offset_of, size_of};
+use std::ffi::CString;
+use std::mem::size_of;
 use std::os::raw::{c_char, c_int};
 use std::sync::Once;
 
 fn transform_to_min_ast(source: &str) -> Result<min_ast::Module, String> {
     let options = Options {
         import_star_handling: ImportStarHandling::Error,
-        inject_import: false,
+        inject_import: true,
         lower_attributes: true,
         truthy: false,
         cleanup_dp_globals: false,
@@ -22,7 +24,7 @@ fn transform_to_min_ast(source: &str) -> Result<min_ast::Module, String> {
     Ok(min_ast::Module::from(result.module))
 }
 
-fn count_min_ast_nodes(module: min_ast::Module) -> usize {
+fn count_min_ast_nodes(module: &min_ast::Module) -> usize {
     fn count_stmt(stmt: &min_ast::StmtNode) -> usize {
         match stmt {
             min_ast::StmtNode::FunctionDef(func) => {
@@ -136,20 +138,18 @@ fn count_min_ast_nodes(module: min_ast::Module) -> usize {
 #[repr(C)]
 struct SoacModule {
     ob_base: ffi::PyObject,
-    dict: *mut ffi::PyObject,
+    scope: *mut interpreter::ScopeInstance,
+    layout: *mut interpreter::ScopeLayout,
     nodes: usize,
-}
-
-#[repr(C)]
-struct SoacModuleDictProxy {
-    ob_base: ffi::PyObject,
-    module: *mut SoacModule,
 }
 
 unsafe extern "C" fn soac_module_dealloc(obj: *mut ffi::PyObject) {
     let module = obj as *mut SoacModule;
-    if !(*module).dict.is_null() {
-        ffi::Py_DECREF((*module).dict);
+    if !(*module).scope.is_null() {
+        drop(Box::from_raw((*module).scope));
+    }
+    if !(*module).layout.is_null() {
+        drop(Box::from_raw((*module).layout));
     }
     ffi::PyObject_Free(obj as *mut std::ffi::c_void);
 }
@@ -167,19 +167,39 @@ unsafe fn soac_module_setattr_impl(
         return -1;
     }
 
-    if (*module).dict.is_null() {
-        (*module).dict = ffi::PyDict_New();
-        if (*module).dict.is_null() {
-            return -1;
-        }
+    if (*module).scope.is_null() {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"module scope unavailable\0".as_ptr() as *const c_char,
+        );
+        return -1;
     }
 
-    if !value.is_null() {
-        ffi::PySys_WriteStdout(b"setattr\n\0".as_ptr() as *const c_char);
-        ffi::PyDict_SetItem((*module).dict, name, value)
-    } else {
-        ffi::PyDict_DelItem((*module).dict, name)
+    let mut len: ffi::Py_ssize_t = 0;
+    let ptr = ffi::PyUnicode_AsUTF8AndSize(name, &mut len);
+    if ptr.is_null() {
+        return -1;
     }
+    let key = std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+        ptr as *const u8,
+        len as usize,
+    ));
+
+    let result = if value.is_null() {
+        interpreter::scope_delete_name(&mut *(*module).scope, key)
+    } else {
+        interpreter::scope_assign_name(&mut *(*module).scope, key, value)
+    };
+
+    if result.is_err() {
+        if value.is_null() && ffi::PyErr_ExceptionMatches(ffi::PyExc_NameError) != 0 {
+            ffi::PyErr_Clear();
+            let msg = CString::new(format!("module has no attribute '{key}'")).unwrap();
+            ffi::PyErr_SetString(ffi::PyExc_AttributeError, msg.as_ptr());
+        }
+        return -1;
+    }
+    0
 }
 
 unsafe extern "C" fn soac_module_getattro(
@@ -192,7 +212,15 @@ unsafe extern "C" fn soac_module_getattro(
         if !ptr.is_null() && len == 8 {
             let bytes = std::slice::from_raw_parts(ptr as *const u8, 8);
             if bytes == b"__dict__" {
-                return soac_module_dictproxy_new(obj as *mut SoacModule);
+                let module = obj as *mut SoacModule;
+                if (*module).scope.is_null() {
+                    ffi::PyErr_SetString(
+                        ffi::PyExc_RuntimeError,
+                        b"module scope unavailable\0".as_ptr() as *const c_char,
+                    );
+                    return std::ptr::null_mut();
+                }
+                return interpreter::scope_dictproxy_new((*module).scope, obj);
             }
         }
         if !ptr.is_null() && len == 5 {
@@ -204,13 +232,19 @@ unsafe extern "C" fn soac_module_getattro(
         }
     }
     let module = obj as *mut SoacModule;
-    if !(*module).dict.is_null() {
-        let value = ffi::PyDict_GetItemWithError((*module).dict, name);
-        if !value.is_null() {
-            ffi::Py_INCREF(value);
-            return value;
-        }
-        if ffi::PyErr_Occurred().is_null() == false {
+    if !(*module).scope.is_null() && ffi::PyUnicode_Check(name) != 0 {
+        let mut len: ffi::Py_ssize_t = 0;
+        let ptr = ffi::PyUnicode_AsUTF8AndSize(name, &mut len);
+        if !ptr.is_null() {
+            let key = std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                ptr as *const u8,
+                len as usize,
+            ));
+            let value = interpreter::scope_lookup_name(&*(*module).scope, key);
+            if !value.is_null() {
+                return value;
+            }
+        } else {
             return std::ptr::null_mut();
         }
     }
@@ -244,11 +278,19 @@ unsafe extern "C" fn soac_module_dir(
     _args: *mut ffi::PyObject,
 ) -> *mut ffi::PyObject {
     let module = obj as *mut SoacModule;
-    let list = if (*module).dict.is_null() {
-        ffi::PyList_New(0)
-    } else {
-        ffi::PyDict_Keys((*module).dict)
+    if (*module).scope.is_null() {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"module scope unavailable\0".as_ptr() as *const c_char,
+        );
+        return std::ptr::null_mut();
+    }
+    let dict = match interpreter::scope_to_dict(&*(*module).scope) {
+        Ok(dict) => dict,
+        Err(()) => return std::ptr::null_mut(),
     };
+    let list = ffi::PyDict_Keys(dict);
+    ffi::Py_DECREF(dict);
     if list.is_null() {
         return std::ptr::null_mut();
     }
@@ -280,94 +322,6 @@ unsafe extern "C" fn soac_module_setattribute(
     }
     ffi::Py_INCREF(ffi::Py_None());
     ffi::Py_None()
-}
-
-unsafe extern "C" fn soac_module_dictproxy_dealloc(obj: *mut ffi::PyObject) {
-    let proxy = obj as *mut SoacModuleDictProxy;
-    if !(*proxy).module.is_null() {
-        ffi::Py_DECREF((*proxy).module as *mut ffi::PyObject);
-    }
-    ffi::PyObject_Free(obj as *mut std::ffi::c_void);
-}
-
-unsafe extern "C" fn soac_module_dictproxy_subscript(
-    obj: *mut ffi::PyObject,
-    key: *mut ffi::PyObject,
-) -> *mut ffi::PyObject {
-    let proxy = obj as *mut SoacModuleDictProxy;
-    if (*proxy).module.is_null() || (*(*proxy).module).dict.is_null() {
-        ffi::PyErr_SetString(
-            ffi::PyExc_RuntimeError,
-            b"module dict unavailable\0".as_ptr() as *const c_char,
-        );
-        return std::ptr::null_mut();
-    }
-    ffi::PyObject_GetItem((*(*proxy).module).dict, key)
-}
-
-unsafe extern "C" fn soac_module_dictproxy_ass_subscript(
-    obj: *mut ffi::PyObject,
-    key: *mut ffi::PyObject,
-    value: *mut ffi::PyObject,
-) -> c_int {
-    let proxy = obj as *mut SoacModuleDictProxy;
-    if (*proxy).module.is_null() {
-        ffi::PyErr_SetString(
-            ffi::PyExc_RuntimeError,
-            b"module dict unavailable\0".as_ptr() as *const c_char,
-        );
-        return -1;
-    }
-    soac_module_setattro((*proxy).module as *mut ffi::PyObject, key, value)
-}
-
-static mut SOAC_MODULE_DICTPROXY_MAPPING: ffi::PyMappingMethods = ffi::PyMappingMethods {
-    mp_length: None,
-    mp_subscript: Some(soac_module_dictproxy_subscript),
-    mp_ass_subscript: Some(soac_module_dictproxy_ass_subscript),
-};
-
-#[allow(clippy::uninit_assumed_init)]
-static mut SOAC_MODULE_DICTPROXY_TYPE: ffi::PyTypeObject = ffi::PyTypeObject {
-    ob_base: ffi::PyVarObject {
-        ob_base: ffi::PyObject_HEAD_INIT,
-        ob_size: 0,
-    },
-    tp_name: b"diet_python.SoacModuleDictProxy\0".as_ptr() as *const _,
-    tp_basicsize: size_of::<SoacModuleDictProxy>() as ffi::Py_ssize_t,
-    tp_itemsize: 0,
-    tp_dealloc: Some(soac_module_dictproxy_dealloc),
-    tp_as_mapping: std::ptr::addr_of_mut!(SOAC_MODULE_DICTPROXY_MAPPING),
-    tp_flags: ffi::Py_TPFLAGS_DEFAULT,
-    ..unsafe { std::mem::zeroed() }
-};
-
-static INIT_SOAC_MODULE_DICTPROXY_TYPE: Once = Once::new();
-
-unsafe fn init_soac_module_dictproxy_type() -> PyResult<()> {
-    let mut result = Ok(());
-    INIT_SOAC_MODULE_DICTPROXY_TYPE.call_once(|| {
-        if ffi::PyType_Ready(std::ptr::addr_of_mut!(SOAC_MODULE_DICTPROXY_TYPE)) < 0 {
-            result = Err(PyErr::fetch(Python::assume_attached()));
-        }
-    });
-    result?;
-    Ok(())
-}
-
-unsafe fn soac_module_dictproxy_new(module: *mut SoacModule) -> *mut ffi::PyObject {
-    if let Err(err) = init_soac_module_dictproxy_type() {
-        err.restore(Python::assume_attached());
-        return std::ptr::null_mut();
-    }
-    let proxy = ffi::_PyObject_New(std::ptr::addr_of_mut!(SOAC_MODULE_DICTPROXY_TYPE))
-        as *mut SoacModuleDictProxy;
-    if proxy.is_null() {
-        return std::ptr::null_mut();
-    }
-    (*proxy).module = module;
-    ffi::Py_INCREF(module as *mut ffi::PyObject);
-    proxy as *mut ffi::PyObject
 }
 
 static mut SOAC_MODULE_METHODS: [ffi::PyMethodDef; 3] = [
@@ -404,7 +358,6 @@ static mut SOAC_MODULE_TYPE: ffi::PyTypeObject = ffi::PyTypeObject {
     tp_setattro: Some(soac_module_setattro),
     tp_methods: std::ptr::addr_of_mut!(SOAC_MODULE_METHODS) as *mut ffi::PyMethodDef,
     tp_flags: ffi::Py_TPFLAGS_DEFAULT,
-    tp_dictoffset: offset_of!(SoacModule, dict) as ffi::Py_ssize_t,
     ..unsafe { std::mem::zeroed() }
 };
 
@@ -422,26 +375,78 @@ unsafe fn init_soac_module_type() -> PyResult<()> {
 }
 
 pub(crate) fn eval_source_impl(py: Python<'_>, path: &str, source: &str) -> PyResult<Py<PyAny>> {
-    let module = transform_to_min_ast(source).map_err(PyRuntimeError::new_err)?;
-    let nodes = count_min_ast_nodes(module);
+    let module_ast = transform_to_min_ast(source).map_err(PyRuntimeError::new_err)?;
+    let nodes = count_min_ast_nodes(&module_ast);
     unsafe {
         init_soac_module_type()?;
-        let module = ffi::_PyObject_New(std::ptr::addr_of_mut!(SOAC_MODULE_TYPE)) as *mut SoacModule;
+        let module =
+            ffi::_PyObject_New(std::ptr::addr_of_mut!(SOAC_MODULE_TYPE)) as *mut SoacModule;
         if module.is_null() {
             return Err(PyErr::fetch(py));
         }
-
-        (*module).dict = ffi::PyDict_New();
-        if (*module).dict.is_null() {
-            ffi::PyObject_Free(module as *mut std::ffi::c_void);
-            return Err(PyErr::fetch(py));
-        }
+        (*module).scope = std::ptr::null_mut();
+        (*module).layout = std::ptr::null_mut();
         (*module).nodes = nodes;
 
+        let layout = Box::new(interpreter::build_module_layout(&module_ast));
+        let layout_ptr = Box::into_raw(layout);
+        let scope = Box::new(interpreter::ScopeInstance::new(layout_ptr));
+        let scope_ptr = Box::into_raw(scope);
+        (*module).layout = layout_ptr;
+        (*module).scope = scope_ptr;
+
+        let name_obj = ffi::PyUnicode_FromString(b"eval_source\0".as_ptr() as *const c_char);
+        if name_obj.is_null()
+            || interpreter::scope_assign_name(&mut *scope_ptr, "__name__", name_obj).is_err()
+        {
+            ffi::Py_XDECREF(name_obj);
+            ffi::Py_DECREF(module as *mut ffi::PyObject);
+            return Err(PyErr::fetch(py));
+        }
+        ffi::Py_DECREF(name_obj);
+
+        let file_obj = ffi::PyUnicode_FromString(CString::new(path).unwrap().as_ptr());
+        if file_obj.is_null()
+            || interpreter::scope_assign_name(&mut *scope_ptr, "__file__", file_obj).is_err()
+        {
+            ffi::Py_XDECREF(file_obj);
+            ffi::Py_DECREF(module as *mut ffi::PyObject);
+            return Err(PyErr::fetch(py));
+        }
+        ffi::Py_DECREF(file_obj);
+
+        let builtins = ffi::PyEval_GetBuiltins();
+        if builtins.is_null()
+            || interpreter::scope_assign_name(&mut *scope_ptr, "__builtins__", builtins).is_err()
+        {
+            ffi::Py_DECREF(module as *mut ffi::PyObject);
+            return Err(PyErr::fetch(py));
+        }
+
+        let dp_module = ffi::PyImport_ImportModule(b"__dp__\0".as_ptr() as *const c_char);
+        if dp_module.is_null() {
+            ffi::Py_DECREF(module as *mut ffi::PyObject);
+            return Err(PyErr::fetch(py));
+        }
+
+        let runtime_fns = RuntimeFns::new(builtins, dp_module);
+        ffi::Py_DECREF(dp_module);
+        let runtime_fns = runtime_fns.map_err(|_| PyErr::fetch(py))?;
+
+        if interpreter::eval_module(
+            &module_ast,
+            scope_ptr,
+            module as *mut ffi::PyObject,
+            builtins,
+            &runtime_fns,
+        )
+        .is_err()
+        {
+            ffi::Py_DECREF(module as *mut ffi::PyObject);
+            return Err(PyErr::fetch(py));
+        }
+
         let module_obj = Bound::<PyAny>::from_owned_ptr(py, module as *mut ffi::PyObject);
-        module_obj.setattr("__name__", "eval_source")?;
-        module_obj.setattr("__file__", path)?;
-        module_obj.setattr("nodes", nodes)?;
         Ok(module_obj.unbind())
     }
 }
