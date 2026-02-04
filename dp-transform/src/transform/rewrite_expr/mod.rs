@@ -1,35 +1,29 @@
 use std::collections::HashSet;
 use std::mem::take;
 
-use ruff_python_ast::{self as ast, Expr, ExprContext, Operator, Stmt, UnaryOp};
 use ruff_python_ast::str_prefix::StringLiteralPrefix;
+use ruff_python_ast::{self as ast, Expr, ExprContext, Operator, Stmt, UnaryOp};
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_source_file::LineEnding;
 use ruff_text_size::TextRange;
 
 use crate::template::empty_body;
-use crate::transform::ast_rewrite::{BodyBuilder, push_stmt};
+use crate::transform::ast_rewrite::{push_stmt, BodyBuilder};
+use crate::transform::scope::ScopeKind;
+use crate::transformer::{walk_expr, Transformer};
 use crate::{
-    py_expr,
-    py_stmt,
-    py_stmt_typed,
+    py_expr, py_stmt, py_stmt_typed,
     template::into_body,
     transform::{ast_rewrite::LoweredExpr, context::Context},
 };
-use crate::transform::scope::ScopeKind;
-use crate::transformer::{Transformer, walk_expr};
 use ruff_python_ast::Identifier;
 
+pub mod compare_boolop;
 pub mod comprehension;
 pub mod string;
-pub mod compare_boolop;
 pub mod truthy;
 
-
-
-
 pub fn lower_expr(context: &Context, expr: Expr) -> LoweredExpr {
-
     match expr {
         Expr::Attribute(ast::ExprAttribute {
             value,
@@ -44,7 +38,11 @@ pub fn lower_expr(context: &Context, expr: Expr) -> LoweredExpr {
             let expr = py_expr!("__dp__.frame_locals({value:expr})", value = value_expr);
             return LoweredExpr::modified(expr, body_builder.into_stmt());
         }
-        Expr::StringLiteral(ast::ExprStringLiteral { value, range, node_index }) => {
+        Expr::StringLiteral(ast::ExprStringLiteral {
+            value,
+            range,
+            node_index,
+        }) => {
             if string_literal_needs_surrogate_decode(context, &value) {
                 if let Some(src) = context.source_slice(range) {
                     let literal_src = if value.is_implicit_concatenated() {
@@ -78,11 +76,12 @@ pub fn lower_expr(context: &Context, expr: Expr) -> LoweredExpr {
             }
             LoweredExpr::modified(
                 py_expr!("{target:expr}", target = target_expr),
-            py_stmt!(
-                "{target:expr} = {value:expr}",
-                target = *target,
-                value = value
-            ))
+                py_stmt!(
+                    "{target:expr} = {value:expr}",
+                    target = *target,
+                    value = value
+                ),
+            )
         }
         Expr::If(if_expr) => {
             let tmp = context.fresh("tmp");
@@ -103,12 +102,8 @@ else:
             );
             LoweredExpr::modified(py_expr!("{tmp:id}", tmp = tmp.as_str()), stmts)
         }
-        Expr::BoolOp(bool_op) => {
-            compare_boolop::expr_boolop_to_stmts(context, bool_op)
-        }
-        Expr::Compare(compare) => {
-            compare_boolop::expr_compare_to_stmts(context, compare)
-        }
+        Expr::BoolOp(bool_op) => compare_boolop::expr_boolop_to_stmts(context, bool_op),
+        Expr::Compare(compare) => compare_boolop::expr_compare_to_stmts(context, compare),
         Expr::Call(ast::ExprCall {
             func,
             arguments,
@@ -195,29 +190,27 @@ else:
         }
         Expr::Slice(ast::ExprSlice {
             lower, upper, step, ..
-        }) => {
-            LoweredExpr::unmodified(py_expr!(
-                "__dp__.slice({lower:expr}, {upper:expr}, {step:expr})",
-                lower = lower.map(|expr| *expr).unwrap_or_else(|| py_expr!("None")),
-                upper = upper.map(|expr| *expr).unwrap_or_else(|| py_expr!("None")),
-                step = step.map(|expr| *expr).unwrap_or_else(|| py_expr!("None")),
-            ))
-        }
-        Expr::ListComp(ast::ExprListComp { elt, generators, .. }) => {
-            comprehension::lower_list_comp(context, *elt, generators)
-        }
-        Expr::SetComp(ast::ExprSetComp { elt, generators, .. }) => {
-            comprehension::lower_set_comp(context, *elt, generators)
-        }
+        }) => LoweredExpr::unmodified(py_expr!(
+            "__dp__.slice({lower:expr}, {upper:expr}, {step:expr})",
+            lower = lower.map(|expr| *expr).unwrap_or_else(|| py_expr!("None")),
+            upper = upper.map(|expr| *expr).unwrap_or_else(|| py_expr!("None")),
+            step = step.map(|expr| *expr).unwrap_or_else(|| py_expr!("None")),
+        )),
+        Expr::ListComp(ast::ExprListComp {
+            elt, generators, ..
+        }) => comprehension::lower_list_comp(context, *elt, generators),
+        Expr::SetComp(ast::ExprSetComp {
+            elt, generators, ..
+        }) => comprehension::lower_set_comp(context, *elt, generators),
         Expr::DictComp(ast::ExprDictComp {
             key,
             value,
             generators,
             ..
+        }) => comprehension::lower_dict_comp(context, *key, *value, generators),
+        Expr::Lambda(ast::ExprLambda {
+            parameters, body, ..
         }) => {
-            comprehension::lower_dict_comp(context, *key, *value, generators)
-        }
-        Expr::Lambda(ast::ExprLambda { parameters, body, .. }) => {
             let func_name = context.fresh("lambda");
             let mut func_def: ast::StmtFunctionDef = py_stmt_typed!(
                 r#"
@@ -237,9 +230,9 @@ def {func:id}():
             };
             LoweredExpr::modified(py_expr!("{func:id}", func = func_name.as_str()), func_def)
         }
-        Expr::Generator(ast::ExprGenerator { elt, generators, .. }) => {
-            lower_generator_expr(context, *elt, generators)
-        }
+        Expr::Generator(ast::ExprGenerator {
+            elt, generators, ..
+        }) => lower_generator_expr(context, *elt, generators),
         Expr::NumberLiteral(ast::ExprNumberLiteral {
             value: ast::Number::Complex { real, imag },
             ..
@@ -265,7 +258,6 @@ def {func:id}():
             range,
             ..
         }) => {
-        
             let src = context.source_slice(range).expect("missing source slice");
             let src = src.trim();
             let normalized = src.replace('_', "");
@@ -279,16 +271,13 @@ def {func:id}():
             } else {
                 LoweredExpr::unmodified(expr)
             }
-        }            
+        }
         // tuple/list/dict unpacking
         Expr::Tuple(tuple)
             if matches!(tuple.ctx, ast::ExprContext::Load)
                 && tuple.elts.iter().any(|elt| matches!(elt, Expr::Starred(_))) =>
         {
-            let ast::ExprTuple {
-                elts,
-                ..
-            } = tuple;
+            let ast::ExprTuple { elts, .. } = tuple;
             let mut stmts = vec![];
             let mut modified = false;
             let mut lowered_elts = Vec::new();
@@ -389,7 +378,6 @@ def {func:id}():
             }
         }
         Expr::Set(ast::ExprSet { elts, .. }) => {
-
             let mut lowered_elts = Vec::new();
             let mut body_builder = BodyBuilder::default();
             for elt in elts {
@@ -570,7 +558,10 @@ fn lower_generator_expr(
     let iter_expr = first_gen.iter.clone();
     let iter_lowered = lower_expr(context, iter_expr);
     let iter_value = if outer_async {
-        py_expr!("__dp__.aiter({iter:expr})", iter = iter_lowered.expr.clone())
+        py_expr!(
+            "__dp__.aiter({iter:expr})",
+            iter = iter_lowered.expr.clone()
+        )
     } else {
         py_expr!("__dp__.iter({iter:expr})", iter = iter_lowered.expr.clone())
     };
@@ -793,13 +784,17 @@ fn expr_requires_async(expr: &Expr) -> bool {
                     self.found = true;
                     return;
                 }
-                Expr::ListComp(ast::ExprListComp { elt, generators, .. }) => {
+                Expr::ListComp(ast::ExprListComp {
+                    elt, generators, ..
+                }) => {
                     if comp_is_async(elt.as_ref(), None, generators) {
                         self.found = true;
                     }
                     return;
                 }
-                Expr::SetComp(ast::ExprSetComp { elt, generators, .. }) => {
+                Expr::SetComp(ast::ExprSetComp {
+                    elt, generators, ..
+                }) => {
                     if comp_is_async(elt.as_ref(), None, generators) {
                         self.found = true;
                     }
@@ -831,7 +826,6 @@ fn expr_requires_async(expr: &Expr) -> bool {
     finder.found
 }
 
-
 fn wrap_ifs(mut body: Vec<Stmt>, ifs: Vec<Expr>) -> Vec<Stmt> {
     for if_expr in ifs.into_iter().rev() {
         body = vec![py_stmt!(
@@ -857,10 +851,7 @@ fn append_stmt(stmts: &mut Vec<Stmt>, stmt: Stmt) {
     }
 }
 
-fn collect_named_expr_targets(
-    elt: &Expr,
-    generators: &[ast::Comprehension],
-) -> HashSet<String> {
+fn collect_named_expr_targets(elt: &Expr, generators: &[ast::Comprehension]) -> HashSet<String> {
     let mut collector = NamedExprTargetCollector::default();
     let mut elt_clone = elt.clone();
     collector.visit_expr(&mut elt_clone);
@@ -953,7 +944,10 @@ impl Transformer for NamedExprRewriter<'_> {
     }
 }
 
-fn string_literal_needs_surrogate_decode(context: &Context, value: &ast::StringLiteralValue) -> bool {
+fn string_literal_needs_surrogate_decode(
+    context: &Context,
+    value: &ast::StringLiteralValue,
+) -> bool {
     for literal in value.iter() {
         if matches!(literal.flags.prefix(), StringLiteralPrefix::Raw { .. }) {
             continue;
@@ -1025,7 +1019,6 @@ fn parse_hex(bytes: &[u8]) -> Option<u32> {
     Some(value)
 }
 
-
 fn make_tuple_splat(elts: Vec<Expr>) -> Expr {
     let mut segments: Vec<Expr> = Vec::new();
     let mut values: Vec<Expr> = Vec::new();
@@ -1051,8 +1044,6 @@ fn make_tuple_splat(elts: Vec<Expr>) -> Expr {
         .reduce(|left, right| make_binop("add", left, right))
         .unwrap_or_else(|| make_tuple(Vec::new()))
 }
-
-
 
 pub(crate) fn make_tuple(elts: Vec<Expr>) -> Expr {
     Expr::Tuple(ast::ExprTuple {

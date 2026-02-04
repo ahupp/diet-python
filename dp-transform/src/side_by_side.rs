@@ -49,11 +49,7 @@ impl Transformer for StmtLineCollector<'_> {
     }
 }
 
-fn line_number(
-    range: TextRange,
-    line_index: &LineIndex,
-    source: &str,
-) -> Option<usize> {
+fn line_number(range: TextRange, line_index: &LineIndex, source: &str) -> Option<usize> {
     if range.is_empty() {
         return None;
     }

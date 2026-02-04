@@ -6,14 +6,12 @@ use ruff_python_ast::{Expr, ExprContext, Stmt};
 use crate::template::into_body;
 use crate::transform::ast_rewrite::LoweredExpr;
 
-use crate::{py_expr, py_stmt, py_stmt_typed};
 use crate::transform::context::Context;
-use crate::transformer::{Transformer, walk_expr};
 use crate::transform::scope::{is_internal_symbol, ScopeKind};
+use crate::transformer::{walk_expr, Transformer};
+use crate::{py_expr, py_stmt, py_stmt_typed};
 use ruff_python_ast::name::Name;
 use ruff_text_size::TextRange;
-
-
 
 #[derive(Clone, Copy)]
 pub(crate) enum InlineCompKind {
@@ -94,11 +92,10 @@ impl Transformer for TargetRenamer<'_> {
                     return;
                 }
             }
-            Expr::Generator(_)
-            | Expr::ListComp(_)
-            | Expr::SetComp(_)
-            | Expr::DictComp(_) => {
-                let mut renamer = LoadRenamer { renames: self.renames };
+            Expr::Generator(_) | Expr::ListComp(_) | Expr::SetComp(_) | Expr::DictComp(_) => {
+                let mut renamer = LoadRenamer {
+                    renames: self.renames,
+                };
                 (&mut renamer).visit_expr(expr);
                 return;
             }
@@ -129,10 +126,7 @@ fn collect_store_names(target: &Expr) -> HashSet<String> {
                         return;
                     }
                 }
-                Expr::Generator(_)
-                | Expr::ListComp(_)
-                | Expr::SetComp(_)
-                | Expr::DictComp(_) => {
+                Expr::Generator(_) | Expr::ListComp(_) | Expr::SetComp(_) | Expr::DictComp(_) => {
                     return;
                 }
                 _ => {}
@@ -158,21 +152,18 @@ fn wrap_ifs(mut body: Vec<Stmt>, ifs: Vec<LoweredExpr>) -> Vec<Stmt> {
     for lowered in ifs.into_iter().rev() {
         let mut block = Vec::new();
         block.push(lowered.stmt);
-        block.push(
-            py_stmt!(
-                r#"
+        block.push(py_stmt!(
+            r#"
 if {test:expr}:
     {body:stmt}
 "#,
-                test = lowered.expr,
-                body = body,
-            )
-        );
+            test = lowered.expr,
+            body = body,
+        ));
         body = block;
     }
     body
 }
-
 
 pub(crate) fn lower_list_comp(
     context: &Context,
@@ -180,7 +171,14 @@ pub(crate) fn lower_list_comp(
     generators: Vec<ast::Comprehension>,
 ) -> LoweredExpr {
     let is_async = comp_is_async(&elt, None, &generators);
-    lower_function(context, InlineCompKind::List, elt, None, generators, is_async)
+    lower_function(
+        context,
+        InlineCompKind::List,
+        elt,
+        None,
+        generators,
+        is_async,
+    )
 }
 
 pub(crate) fn lower_set_comp(
@@ -189,7 +187,14 @@ pub(crate) fn lower_set_comp(
     generators: Vec<ast::Comprehension>,
 ) -> LoweredExpr {
     let is_async = comp_is_async(&elt, None, &generators);
-    lower_function(context, InlineCompKind::Set, elt, None, generators, is_async)
+    lower_function(
+        context,
+        InlineCompKind::Set,
+        elt,
+        None,
+        generators,
+        is_async,
+    )
 }
 
 pub(crate) fn lower_dict_comp(
@@ -208,7 +213,6 @@ pub(crate) fn lower_dict_comp(
         is_async,
     )
 }
-
 
 fn lower_function(
     context: &Context,
@@ -327,10 +331,8 @@ fn lower_function(
     let mut body = match kind {
         InlineCompKind::Dict => {
             let key_expr = rename_loads(elt_or_key, &renames);
-            let value_expr = rename_loads(
-                value.expect("dict comprehension expects value"),
-                &renames,
-            );
+            let value_expr =
+                rename_loads(value.expect("dict comprehension expects value"), &renames);
             let lowered_key = super::lower_expr(context, key_expr);
             let lowered_value = super::lower_expr(context, value_expr);
             let mut body = vec![lowered_key.stmt];
@@ -550,13 +552,17 @@ fn expr_requires_async(expr: &Expr) -> bool {
                     self.found = true;
                     return;
                 }
-                Expr::ListComp(ast::ExprListComp { elt, generators, .. }) => {
+                Expr::ListComp(ast::ExprListComp {
+                    elt, generators, ..
+                }) => {
                     if comp_is_async(elt.as_ref(), None, generators) {
                         self.found = true;
                     }
                     return;
                 }
-                Expr::SetComp(ast::ExprSetComp { elt, generators, .. }) => {
+                Expr::SetComp(ast::ExprSetComp {
+                    elt, generators, ..
+                }) => {
                     if comp_is_async(elt.as_ref(), None, generators) {
                         self.found = true;
                     }
@@ -573,8 +579,7 @@ fn expr_requires_async(expr: &Expr) -> bool {
                     }
                     return;
                 }
-                Expr::Lambda(_)
-                | Expr::Generator(_) => {
+                Expr::Lambda(_) | Expr::Generator(_) => {
                     return;
                 }
                 _ => {}

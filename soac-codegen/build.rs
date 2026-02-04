@@ -60,7 +60,7 @@ fn build_runtime(repo_root: &Path, target_dir: &Path) -> Result<(), Box<dyn Erro
         .arg("--")
         .arg("--emit=llvm-ir")
         .arg("-Ccodegen-units=1");
- 
+
     let status = command.status()?;
     if !status.success() {
         return Err("failed to build soac-runtime; run `rustup component add rustc-codegen-cranelift-preview --toolchain nightly`"
@@ -69,7 +69,6 @@ fn build_runtime(repo_root: &Path, target_dir: &Path) -> Result<(), Box<dyn Erro
     }
     Ok(())
 }
-
 
 fn soac_codegen_target_dir(repo_root: &Path) -> PathBuf {
     let target_dir = repo_root.join("target").join("soac-codegen-clif");

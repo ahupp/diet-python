@@ -1,17 +1,16 @@
 use std::{backtrace::Backtrace, collections::HashSet, mem::take};
 
-use log::{Level, log_enabled, trace};
-use ruff_python_ast::{Expr, Stmt, StmtBody, self as ast};
+use log::{log_enabled, trace, Level};
+use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
 use ruff_text_size::{Ranged, TextRange};
 
+use crate::transform::scope::ScopeKind;
+use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{
     ruff_ast_to_string,
     template::{empty_body, into_body},
     transform::context::{Context, ScopeFrame},
 };
-use crate::transform::scope::ScopeKind;
-use crate::transformer::{Transformer, walk_expr, walk_stmt};
-
 
 pub enum Rewrite {
     Unmodified(Stmt),
@@ -31,10 +30,12 @@ pub struct BodyBuilder {
 }
 
 impl BodyBuilder {
-
-
     pub fn into_stmt(self) -> Stmt {
-        Stmt::BodyStmt(ast::StmtBody { body: self.body, range: TextRange::default(), node_index: ast::AtomicNodeIndex::default() })
+        Stmt::BodyStmt(ast::StmtBody {
+            body: self.body,
+            range: TextRange::default(),
+            node_index: ast::AtomicNodeIndex::default(),
+        })
     }
 
     pub fn push(&mut self, expr: LoweredExpr) -> Expr {
@@ -47,9 +48,8 @@ impl BodyBuilder {
 struct FlattenBodyTransformer;
 
 fn extend_body(new_body: &mut Vec<Box<Stmt>>, mut stmt: Box<Stmt>) {
-
     match stmt.as_mut() {
-        Stmt::BodyStmt(ast::StmtBody { body, ..}) => {
+        Stmt::BodyStmt(ast::StmtBody { body, .. }) => {
             for stmt in take(body).into_iter() {
                 extend_body(new_body, stmt);
             }
@@ -61,16 +61,23 @@ fn extend_body(new_body: &mut Vec<Box<Stmt>>, mut stmt: Box<Stmt>) {
     }
 }
 
-
 impl Transformer for FlattenBodyTransformer {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
-            Stmt::BodyStmt(ast::StmtBody { body, range, node_index }) => {
+            Stmt::BodyStmt(ast::StmtBody {
+                body,
+                range,
+                node_index,
+            }) => {
                 let mut new_body = Vec::new();
                 for stmt in take(body).into_iter() {
                     extend_body(&mut new_body, stmt);
                 }
-                *stmt = Stmt::BodyStmt(ast::StmtBody { body: new_body, range: *range, node_index: node_index.clone() });
+                *stmt = Stmt::BodyStmt(ast::StmtBody {
+                    body: new_body,
+                    range: *range,
+                    node_index: node_index.clone(),
+                });
             }
             _ => {}
         }
@@ -78,22 +85,18 @@ impl Transformer for FlattenBodyTransformer {
 }
 
 pub fn push_stmt(stmt: &mut Stmt, new_stmt: Stmt) -> bool {
-   
-    let this_stmt = std::mem::replace( stmt, empty_body().into());
+    let this_stmt = std::mem::replace(stmt, empty_body().into());
     *stmt = into_body(vec![this_stmt, new_stmt]).into();
     FlattenBodyTransformer.visit_stmt(stmt);
     match &stmt {
-        Stmt::BodyStmt(ast::StmtBody { body, .. }) => {
-            !body.is_empty()
-        }
-        _ => false
+        Stmt::BodyStmt(ast::StmtBody { body, .. }) => !body.is_empty(),
+        _ => false,
     }
 }
 
 impl LoweredExpr {
-
     pub fn modified(expr: Expr, stmt: impl Into<Stmt>) -> Self {
-        trace!("LoweredExpr::modified {}",  Backtrace::capture());
+        trace!("LoweredExpr::modified {}", Backtrace::capture());
         Self {
             stmt: stmt.into(),
             expr,
@@ -116,8 +119,7 @@ pub fn rewrite_once_with_pass<'a>(
     expr_pass: Option<&'a dyn ExprRewritePass>,
     body: &mut StmtBody,
 ) -> bool {
-
-        let mut rloop = RewriteLoop {
+    let mut rloop = RewriteLoop {
         context,
         stmt_pass,
         expr_pass,
@@ -178,7 +180,6 @@ pub trait ExprRewritePass {
     fn lower_expr(&self, context: &Context, expr: Expr) -> LoweredExpr;
 }
 
-
 impl<'a> RewriteLoop<'a> {
     fn flush_buffered(&mut self, mut stmt: Stmt, output: &mut Vec<Stmt>) {
         match &mut stmt {
@@ -195,8 +196,11 @@ impl<'a> RewriteLoop<'a> {
                 }
 
                 let (globals, nonlocals) = collect_declared_bindings(&func_def.body);
-                self.context
-                    .push_scope(ScopeFrame::new(ScopeKind::Function, globals, nonlocals));
+                self.context.push_scope(ScopeFrame::new(
+                    ScopeKind::Function,
+                    globals,
+                    nonlocals,
+                ));
                 self.visit_body(&mut func_def.body);
                 self.context.pop_scope();
             }
@@ -231,7 +235,9 @@ impl<'a> RewriteLoop<'a> {
     }
 
     fn process_statements(&mut self, initial: Vec<Stmt>) -> Vec<Stmt> {
-        let stmt_pass = if let Some(stmt_pass) = self.stmt_pass { stmt_pass } else {
+        let stmt_pass = if let Some(stmt_pass) = self.stmt_pass {
+            stmt_pass
+        } else {
             return initial;
         };
 
@@ -258,18 +264,16 @@ impl<'a> RewriteLoop<'a> {
                     }
                     self.modified = true;
                     self.flush_buffered(stmt, &mut output);
-                }                
+                }
             }
         }
 
         output
     }
-
 }
 
 impl<'a> Transformer for RewriteLoop<'a> {
     fn visit_body(&mut self, body: &mut StmtBody) {
-
         let saved_buf = take(&mut self.buf);
         let stmts = take(&mut body.body)
             .into_iter()
@@ -284,7 +288,9 @@ impl<'a> Transformer for RewriteLoop<'a> {
     }
 
     fn visit_expr(&mut self, expr_input: &mut Expr) {
-        let expr_pass = if let Some(expr_pass) = self.expr_pass { expr_pass } else {
+        let expr_pass = if let Some(expr_pass) = self.expr_pass {
+            expr_pass
+        } else {
             return;
         };
         let original_range = expr_input.range();
@@ -300,7 +306,11 @@ impl<'a> Transformer for RewriteLoop<'a> {
             }
             lowered = expr_pass.lower_expr(self.context, current);
 
-            let LoweredExpr { stmt, expr, modified } = lowered;
+            let LoweredExpr {
+                stmt,
+                expr,
+                modified,
+            } = lowered;
             if log_enabled!(Level::Trace) {
                 trace!(
                     "lower_expr iteration={} modified={} \ninput: {}\noutput: \n{}\nstmt: \n{}",
@@ -312,7 +322,7 @@ impl<'a> Transformer for RewriteLoop<'a> {
                 );
             }
             self.buf.push(stmt);
-            
+
             current = expr;
 
             apply_expr_range(&mut current, original_range);
@@ -336,8 +346,6 @@ impl<'a> Transformer for RewriteLoop<'a> {
         *stmt = into_body(rewritten);
     }
 }
-
-
 
 fn collect_declared_bindings(body: &StmtBody) -> (HashSet<String>, HashSet<String>) {
     #[derive(Default)]
@@ -375,7 +383,6 @@ fn collect_declared_bindings(body: &StmtBody) -> (HashSet<String>, HashSet<Strin
     collector.visit_body(&mut cloned);
     (collector.globals, collector.nonlocals)
 }
-
 
 fn apply_expr_range(expr: &mut Expr, range: TextRange) {
     match expr {

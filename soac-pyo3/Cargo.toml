@@ -1,7 +1,7 @@
 [package]
-name = "dp-pyo3"
+name = "soac-pyo3"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [lib]
 name = "diet_python"
@@ -10,4 +10,6 @@ crate-type = ["cdylib"]
 
 [dependencies]
 dp-transform = { path = "../dp-transform" }
-pyo3 = { version = "0.27.2", features = ["extension-module"] }
+soac-eval = { path = "../soac-eval" }
+pyo3 = { workspace = true, features = ["extension-module"] }
+log = "0.4"

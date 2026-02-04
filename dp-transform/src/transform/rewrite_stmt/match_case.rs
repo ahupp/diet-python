@@ -4,9 +4,7 @@ use ruff_python_parser::parse_expression;
 use ruff_text_size::TextRange;
 
 use crate::{
-    py_expr,
-    py_stmt,
-    ruff_ast_to_string,
+    py_expr, py_stmt, ruff_ast_to_string,
     template::into_body,
     transform::{ast_rewrite::Rewrite, context::Context},
 };
@@ -449,7 +447,9 @@ else:
                         Wildcard { assigns }
                     }
                 },
-                None => Wildcard { assigns: vec![assign] },
+                None => Wildcard {
+                    assigns: vec![assign],
+                },
             }
         }
         Pattern::MatchAs(PatternMatchAs {

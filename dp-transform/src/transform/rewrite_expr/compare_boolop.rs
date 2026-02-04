@@ -8,12 +8,11 @@ use crate::transform::rewrite_expr::make_unaryop;
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, CmpOp, Expr, Stmt};
 
-
 pub(crate) fn expr_boolop_to_stmts(context: &Context, bool_op: ast::ExprBoolOp) -> LoweredExpr {
     let target = context.fresh("target");
 
     LoweredExpr::modified(
-        py_expr!("{target:id}", target=target.as_str()),
+        py_expr!("{target:id}", target = target.as_str()),
         expr_boolop_to_stmts_inner(target.as_str(), bool_op),
     )
 }
@@ -23,7 +22,6 @@ fn is_empty_body_stmt(stmt: &Stmt) -> bool {
 }
 
 fn expr_boolop_to_stmts_inner(target: &str, bool_op: ast::ExprBoolOp) -> Stmt {
-   
     let ast::ExprBoolOp { op, values, .. } = bool_op;
 
     let mut values = values.into_iter();
@@ -52,15 +50,12 @@ if {test:expr}:
             body = body_stmt,
         );
         stmts.push(stmt);
-    };
+    }
 
     into_body(stmts)
 }
 
-pub(crate) fn expr_compare_to_stmts(
-    context: &Context,
-    compare: ast::ExprCompare,
-) -> LoweredExpr {
+pub(crate) fn expr_compare_to_stmts(context: &Context, compare: ast::ExprCompare) -> LoweredExpr {
     let ast::ExprCompare {
         left,
         ops,
@@ -73,7 +68,10 @@ pub(crate) fn expr_compare_to_stmts(
     let count = ops.len();
 
     if count == 1 {
-        return LoweredExpr::modified(compare_expr(ops[0], *left.clone(), comparators[0].clone()), empty_body());
+        return LoweredExpr::modified(
+            compare_expr(ops[0], *left.clone(), comparators[0].clone()),
+            empty_body(),
+        );
     }
 
     let mut current_left = *left;
@@ -140,10 +138,7 @@ if {target:id}:
         }
     }
 
-    LoweredExpr::modified(
-        py_expr!("{tmp:id}", tmp = target.as_str()),
-        stmt,
-    )
+    LoweredExpr::modified(py_expr!("{tmp:id}", tmp = target.as_str()), stmt)
 }
 
 fn compare_expr(op: CmpOp, left: Expr, right: Expr) -> Expr {

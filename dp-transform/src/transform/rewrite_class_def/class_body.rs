@@ -8,7 +8,7 @@ use crate::transform::context::Context;
 use crate::transform::rewrite_class_def::{class_def_to_create_class_fn, method};
 use crate::transform::rewrite_stmt;
 use crate::transform::scope::{cell_name, BindingKind, BindingUse, Scope, ScopeKind};
-use crate::transformer::{Transformer, walk_stmt};
+use crate::transformer::{walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
 
 pub fn class_body_load_cell(name: &str, cell: &str) -> Expr {
@@ -42,7 +42,6 @@ pub(crate) fn class_body_store_global(name: &str, ctx: ExprContext) -> Expr {
     expr
 }
 
-
 pub fn rewrite_class_body_scopes(context: &Context, scope: Arc<Scope>, body: &mut StmtBody) {
     ClassBodyScopeRewriter::new(context, scope).visit_body(body);
 }
@@ -57,7 +56,11 @@ fn class_binding_stmt(scope: &Scope, name: &str, value: Expr) -> Stmt {
             ),
             BindingKind::Local | BindingKind::Nonlocal => {
                 let target = class_body_store_target(name, ExprContext::Store);
-                py_stmt!("{target:expr} = {value:expr}", target = target, value = value)
+                py_stmt!(
+                    "{target:expr} = {value:expr}",
+                    target = target,
+                    value = value
+                )
             }
         },
         ScopeKind::Function => match scope.binding_in_scope(name, BindingUse::Load) {
@@ -90,7 +93,11 @@ struct ClassBodyScopeRewriter<'a> {
 
 impl<'a> ClassBodyScopeRewriter<'a> {
     fn new(context: &'a Context, scope: Arc<Scope>) -> Self {
-        Self { context, scope: scope.clone(), hoisted_class_defs: Vec::new() }
+        Self {
+            context,
+            scope: scope.clone(),
+            hoisted_class_defs: Vec::new(),
+        }
     }
 
     fn take_hoisted(&mut self) -> Vec<Stmt> {
@@ -110,7 +117,8 @@ impl<'a> Transformer for ClassBodyScopeRewriter<'a> {
                     .child_scope_for_class(class_def)
                     .expect("no child scope for class");
 
-                let mut class_rewriter = ClassBodyScopeRewriter::new(self.context, class_scope.clone());
+                let mut class_rewriter =
+                    ClassBodyScopeRewriter::new(self.context, class_scope.clone());
                 class_rewriter.visit_body(&mut class_def.body);
                 let mut hoisted = class_rewriter.take_hoisted();
 
@@ -132,8 +140,12 @@ impl<'a> Transformer for ClassBodyScopeRewriter<'a> {
                 children.push(define_class_fn.clone().into());
 
                 let decorated_class = rewrite_stmt::decorator::rewrite(
-                    decorator_list, 
-                    py_expr!(r"{define_class_fn:id}()", define_class_fn = define_class_fn.name.id.as_str()));
+                    decorator_list,
+                    py_expr!(
+                        r"{define_class_fn:id}()",
+                        define_class_fn = define_class_fn.name.id.as_str()
+                    ),
+                );
 
                 children.push(class_binding_stmt(
                     self.scope.as_ref(),
@@ -148,7 +160,8 @@ impl<'a> Transformer for ClassBodyScopeRewriter<'a> {
                     .scope
                     .child_scope_for_function(func_def)
                     .expect("no child scope for function");
-                ClassBodyScopeRewriter::new(self.context, func_scope).visit_body(&mut func_def.body);
+                ClassBodyScopeRewriter::new(self.context, func_scope)
+                    .visit_body(&mut func_def.body);
             }
             _ => walk_stmt(self, stmt),
         }

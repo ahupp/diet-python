@@ -1,14 +1,9 @@
-use std::{
-    env, fs, process,
-};
+use std::{env, fs, process};
 
-use dp_transform::{
-    side_by_side, transform_str_to_ruff_with_options, Options,
-};
+use dp_transform::{side_by_side, transform_str_to_ruff_with_options, Options};
 use ruff_source_file::LineIndex;
 
-const USAGE: &str =
-    "usage: diet-python [--timing] [--side-by-side] <python-file>";
+const USAGE: &str = "usage: diet-python [--timing] [--side-by-side] <python-file>";
 const SIDE_BY_SIDE_WIDTH: usize = 80;
 
 fn main() {
@@ -54,14 +49,13 @@ fn main() {
         }
     };
 
-    let mut result =
-        match transform_str_to_ruff_with_options(&source, Options::default()) {
-            Ok(result) => result,
-            Err(err) => {
-                eprintln!("failed to parse {}: {}", path, err);
-                process::exit(1);
-            }
-        };
+    let mut result = match transform_str_to_ruff_with_options(&source, Options::default()) {
+        Ok(result) => result,
+        Err(err) => {
+            eprintln!("failed to parse {}: {}", path, err);
+            process::exit(1);
+        }
+    };
     if side_by_side_output {
         print_side_by_side(&source, &mut result.module);
     } else {
@@ -79,21 +73,13 @@ fn main() {
     }
 }
 
-fn print_side_by_side(
-    source: &str,
-    module: &mut ruff_python_ast::ModModule,
-) {
+fn print_side_by_side(source: &str, module: &mut ruff_python_ast::ModModule) {
     let line_index = LineIndex::from_source_text(source);
     let left_lines = side_by_side::source_lines(source);
-    let right_entries =
-        side_by_side::stmt_lines_with_locations(module, &line_index, source);
-    let (right_map, right_unknown, max_right_line) =
-        group_right_lines(right_entries);
+    let right_entries = side_by_side::stmt_lines_with_locations(module, &line_index, source);
+    let (right_map, right_unknown, max_right_line) = group_right_lines(right_entries);
     let max_line = left_lines.len().max(max_right_line);
-    let num_width = max_line
-        .to_string()
-        .len()
-        .max(2);
+    let num_width = max_line.to_string().len().max(2);
 
     for line_no in 1..=max_line {
         let left_text = left_lines

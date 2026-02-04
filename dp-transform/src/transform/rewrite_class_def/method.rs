@@ -1,10 +1,8 @@
-
-
-use ruff_python_ast::{self as ast,Expr, Stmt};
+use ruff_python_ast::{self as ast, Expr, Stmt};
 
 use crate::template::empty_body;
+use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{py_expr, py_stmt, transform::util::is_noarg_call};
-use crate::transformer::{Transformer, walk_expr, walk_stmt};
 
 struct MethodRewriteSuperClasscell {
     first_arg: Option<String>,
@@ -49,7 +47,6 @@ impl Transformer for MethodRewriteSuperClasscell {
     fn visit_expr(&mut self, expr: &mut Expr) {
         match expr {
             Expr::Call(_) => {
-
                 if is_noarg_call("super", expr) {
                     self.needs_class_cell = true;
                     *expr = match &self.first_arg {
@@ -95,17 +92,13 @@ fn is_dp_call(expr: &Expr, name: &str) -> bool {
     )
 }
 
-
-pub fn rewrite_explicit_super_classcell(
-    class_def: &mut ast::StmtClassDef,
-) -> bool {
+pub fn rewrite_explicit_super_classcell(class_def: &mut ast::StmtClassDef) -> bool {
     let mut rewriter = MethodExplicitSuperRewriter {
         needs_class_cell: false,
     };
     (&mut rewriter).visit_body(&mut class_def.body);
     rewriter.needs_class_cell
 }
-
 
 struct MethodExplicitSuperRewriter {
     needs_class_cell: bool,
@@ -115,9 +108,7 @@ impl Transformer for MethodExplicitSuperRewriter {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
             Stmt::FunctionDef(func_def) => {
-                self.needs_class_cell |= rewrite_method(
-                    func_def,
-                );
+                self.needs_class_cell |= rewrite_method(func_def);
             }
             Stmt::ClassDef(_) => {}
             _ => walk_stmt(self, stmt),
@@ -125,11 +116,7 @@ impl Transformer for MethodExplicitSuperRewriter {
     }
 }
 
-
-fn rewrite_method(
-    func_def: &mut ast::StmtFunctionDef,
-) -> bool {
-
+fn rewrite_method(func_def: &mut ast::StmtFunctionDef) -> bool {
     let first_arg = func_def
         .parameters
         .posonlyargs
@@ -142,7 +129,6 @@ fn rewrite_method(
                 .first()
                 .map(|a| a.parameter.name.to_string())
         });
-
 
     let mut transformer = MethodRewriteSuperClasscell {
         first_arg,

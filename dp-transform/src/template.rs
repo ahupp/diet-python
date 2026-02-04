@@ -1,4 +1,3 @@
-
 #[macro_export]
 macro_rules! py_stmt_internal {
     ($template:literal $(, $name:ident = $value:expr)* $(,)?) => {{
@@ -64,13 +63,12 @@ macro_rules! py_stmt_typed {
     }};
 }
 
-
+use crate::transformer::{walk_expr, walk_keyword, walk_parameter, walk_stmt, Transformer};
 use crate::{namegen::fresh_name, transform::simplify::flatten};
 use regex::Regex;
 use ruff_python_ast::{self as ast, DictItem, Expr, Stmt, StmtBody};
-use crate::transformer::{Transformer, walk_expr, walk_keyword, walk_parameter, walk_stmt};
 use ruff_python_parser::parse_expression;
-use ruff_text_size::{TextRange};
+use ruff_text_size::TextRange;
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
@@ -163,7 +161,6 @@ pub(crate) fn is_simple(expr: &Expr) -> bool {
             | Expr::EllipsisLiteral(_)
     )
 }
-
 
 pub(crate) enum PlaceholderValue {
     Expr(Box<Expr>),
@@ -422,19 +419,27 @@ impl SyntaxTemplate {
         } else {
             self.stmts.into()
         }
-        
     }
 }
 
 pub fn empty_body() -> StmtBody {
-    StmtBody { body: vec![], range: TextRange::default(), node_index: ast::AtomicNodeIndex::default() }
+    StmtBody {
+        body: vec![],
+        range: TextRange::default(),
+        node_index: ast::AtomicNodeIndex::default(),
+    }
 }
 
 pub fn into_body(stmts: impl IntoIterator<Item = Stmt>) -> Stmt {
-    Stmt::BodyStmt(StmtBody { body: stmts.into_iter().map(|stmt| Box::new(stmt)).collect(), range: TextRange::default(), node_index: ast::AtomicNodeIndex::default() }).into()
+    Stmt::BodyStmt(StmtBody {
+        body: stmts.into_iter().map(|stmt| Box::new(stmt)).collect(),
+        range: TextRange::default(),
+        node_index: ast::AtomicNodeIndex::default(),
+    })
+    .into()
 }
 
-    struct PlaceholderReplacer {
+struct PlaceholderReplacer {
     values: HashMap<String, PlaceholderValue>,
     ids: HashMap<String, Value>,
     tmpnames: HashMap<String, String>,
@@ -826,12 +831,13 @@ fn parse_dynamic_expr(src: &str, name: &str) -> Expr {
         })
 }
 
-
 #[cfg(test)]
 mod tests {
     use crate::{test_util::assert_ast_eq, transform::simplify::flatten};
     use ruff_python_ast::{
-        self as ast, Stmt, StmtBody, comparable::{ComparableExpr, ComparableStmt}
+        self as ast,
+        comparable::{ComparableExpr, ComparableStmt},
+        Stmt, StmtBody,
     };
     use ruff_python_parser::{parse_expression, parse_module};
     use ruff_text_size::TextRange;
@@ -949,7 +955,12 @@ b = 2
     #[test]
     fn inserts_empty_stmt_from_iterator() {
         let actual = py_stmt!("{body:stmt}", body = Vec::<Stmt>::new().into_iter(),);
-        let expected: Stmt = Stmt::BodyStmt(StmtBody { body: vec![], range: TextRange::default(), node_index: ast::AtomicNodeIndex::default() }).into();
+        let expected: Stmt = Stmt::BodyStmt(StmtBody {
+            body: vec![],
+            range: TextRange::default(),
+            node_index: ast::AtomicNodeIndex::default(),
+        })
+        .into();
         assert_ast_eq(actual, expected);
     }
 

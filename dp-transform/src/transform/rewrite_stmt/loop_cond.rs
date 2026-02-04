@@ -1,12 +1,9 @@
-
-
+use crate::transform::context::Context;
 use crate::transform::rewrite_expr::lower_expr;
 use crate::{py_stmt, transform::ast_rewrite::Rewrite};
-use crate::transform::context::Context;
 
 use ruff_python_ast::{self as ast, Stmt};
-use ruff_text_size::{TextRange};
-
+use ruff_text_size::TextRange;
 
 pub fn rewrite_for(
     context: &Context,
@@ -24,8 +21,8 @@ pub fn rewrite_for(
     let completed_flag = context.fresh("completed");
 
     Rewrite::Walk(if is_async {
-            py_stmt!(
-                r#"
+        py_stmt!(
+            r#"
 {completed_flag:id} = False            
 {iter_name:id} = __dp__.aiter({iter:expr})
 while not {completed_flag:id}:
@@ -39,17 +36,17 @@ while not {completed_flag:id}:
 if {completed_flag:id}:
     {orelse:stmt}
 "#,
-                iter_name = iter_tmp.as_str(),
-                iter = iter,
-                target = target,
-                body = body,
-                orelse = orelse,
-                target_tmp = target_tmp.as_str(),
-                completed_flag = completed_flag.as_str(),
-            )
-        } else {
-            py_stmt!(
-                r#"
+            iter_name = iter_tmp.as_str(),
+            iter = iter,
+            target = target,
+            body = body,
+            orelse = orelse,
+            target_tmp = target_tmp.as_str(),
+            completed_flag = completed_flag.as_str(),
+        )
+    } else {
+        py_stmt!(
+            r#"
 {completed_flag:id} = False            
 {iter_name:id} = __dp__.iter({iter:expr})
 while not {completed_flag:id}:
@@ -63,27 +60,25 @@ while not {completed_flag:id}:
 if {completed_flag:id}:
     {orelse:stmt}
 "#,
-                iter_name = iter_tmp.as_str(),
-                iter = iter,
-                target = target,
-                body = body,
-                orelse = orelse,
-                target_tmp = target_tmp.as_str(),
-                completed_flag = completed_flag.as_str(),
-            )
-        })
+            iter_name = iter_tmp.as_str(),
+            iter = iter,
+            target = target,
+            body = body,
+            orelse = orelse,
+            target_tmp = target_tmp.as_str(),
+            completed_flag = completed_flag.as_str(),
+        )
+    })
 }
 
 pub fn rewrite_while(context: &Context, while_stmt: ast::StmtWhile) -> Rewrite {
-
     let test_lowered = lower_expr(context, *while_stmt.test.clone());
 
-    if !test_lowered.modified
-    {
+    if !test_lowered.modified {
         return Rewrite::Unmodified(while_stmt.into());
     }
 
-    let ast::StmtWhile {  body, orelse, .. } = while_stmt;
+    let ast::StmtWhile { body, orelse, .. } = while_stmt;
 
     let did_exit_normally = context.fresh("did_exit_normally");
     // Move the test into the loop body so a) if/when the test expression is
@@ -92,7 +87,8 @@ pub fn rewrite_while(context: &Context, while_stmt: ast::StmtWhile) -> Rewrite {
     // The orelse handling needs to be outside the loop in case it has a break,
     // where it should apply to the outer loop.
 
-    Rewrite::Walk(py_stmt!(r#"
+    Rewrite::Walk(py_stmt!(
+        r#"
 {did_exit_normally:id} = False
 while True:
     {test_lowered:stmt}
@@ -103,20 +99,21 @@ while True:
 if {did_exit_normally:id}:
     {orelse:stmt}
 "#,
-            test_expr = test_lowered.expr,
-            test_lowered = test_lowered.stmt,
-            body = body,
-            orelse = orelse,
-            did_exit_normally = did_exit_normally.as_str(),
-        )
-    )
+        test_expr = test_lowered.expr,
+        test_lowered = test_lowered.stmt,
+        body = body,
+        orelse = orelse,
+        did_exit_normally = did_exit_normally.as_str(),
+    ))
 }
 
 pub fn expand_if_chain(mut if_stmt: ast::StmtIf) -> Rewrite {
-    if !if_stmt.elif_else_clauses
+    if !if_stmt
+        .elif_else_clauses
         .iter()
-        .any(|clause| clause.test.is_some()) {
-            return Rewrite::Unmodified(if_stmt.into());
+        .any(|clause| clause.test.is_some())
+    {
+        return Rewrite::Unmodified(if_stmt.into());
     }
     let mut else_body: Option<ast::StmtBody> = None;
 

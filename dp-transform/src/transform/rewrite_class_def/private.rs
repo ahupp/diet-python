@@ -1,12 +1,10 @@
+use crate::transform::context::Context;
+use crate::transformer::{walk_expr, walk_parameter, walk_stmt, Transformer};
 use ruff_python_ast::StmtBody;
 use ruff_python_ast::{self as ast, name::Name, Expr, ExprContext, Stmt};
-use crate::transform::context::Context;
-use crate::transformer::{Transformer, walk_expr, walk_parameter, walk_stmt};
 
 pub fn rewrite_private_names(_context: &Context, body: &mut StmtBody) {
-    let mut rewriter = PrivateRewriter {
-        class_name: None,
-    };
+    let mut rewriter = PrivateRewriter { class_name: None };
     rewriter.visit_body(body);
 }
 
@@ -16,7 +14,6 @@ struct PrivateRewriter {
 }
 
 impl PrivateRewriter {
-
     pub fn maybe_mangle(&self, attr: &str) -> Option<String> {
         let Some(mut class_name) = self.class_name.as_ref().map(|s| s.as_str()) else {
             return None;
@@ -48,7 +45,6 @@ impl PrivateRewriter {
             *name = Name::new(mangled);
         }
     }
-
 }
 
 impl Transformer for PrivateRewriter {
@@ -57,7 +53,8 @@ impl Transformer for PrivateRewriter {
             Stmt::ClassDef(ast::StmtClassDef { name, body, .. }) => {
                 PrivateRewriter {
                     class_name: Some(name.to_string()),
-                }.visit_body(body);
+                }
+                .visit_body(body);
             }
             Stmt::Global(ast::StmtGlobal { names, .. }) => {
                 for name in names {

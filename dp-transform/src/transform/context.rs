@@ -5,10 +5,10 @@ use std::collections::HashSet;
 use super::Options;
 use crate::transform::scope::ScopeKind;
 
+use crate::namegen::fresh_name;
+use crate::template::is_simple;
 use crate::transform::ast_rewrite::LoweredExpr;
 use crate::{py_expr, py_stmt};
-use crate::template::is_simple;
-use crate::namegen::fresh_name;
 
 #[derive(Clone, Debug)]
 pub struct ScopeFrame {
@@ -43,7 +43,6 @@ pub struct Context {
     scope_stack: RefCell<Vec<ScopeFrame>>,
 }
 
-
 impl Context {
     pub fn new(options: Options, source: &str) -> Self {
         Self {
@@ -57,16 +56,11 @@ impl Context {
 
     pub(crate) fn tmpify(&self, name: &str, expr: Expr) -> LoweredExpr {
         let tmp = fresh_name(name);
-        let assign = py_stmt!(
-            "{tmp:id} = {expr:expr}",
-            tmp = tmp.as_str(),
-            expr = expr
-        );
+        let assign = py_stmt!("{tmp:id} = {expr:expr}", tmp = tmp.as_str(), expr = expr);
         LoweredExpr::modified(py_expr!("{tmp:id}", tmp = tmp.as_str()), assign)
     }
 
     pub(crate) fn maybe_placeholder_lowered(&self, expr: Expr) -> LoweredExpr {
-
         if is_simple(&expr) && !matches!(&expr, Expr::StringLiteral(_) | Expr::BytesLiteral(_)) {
             return LoweredExpr::unmodified(expr);
         }
@@ -81,7 +75,11 @@ impl Context {
     }
 
     pub fn line_number_at(&self, offset: usize) -> usize {
-        self.source[..offset].bytes().filter(|&b| b == b'\n').count() + 1
+        self.source[..offset]
+            .bytes()
+            .filter(|&b| b == b'\n')
+            .count()
+            + 1
     }
 
     pub fn fresh(&self, name: &str) -> String {
@@ -123,5 +121,4 @@ impl Context {
     pub fn needs_templatelib_import(&self) -> bool {
         self.needs_templatelib_import.get()
     }
-
 }

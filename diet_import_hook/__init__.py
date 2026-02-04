@@ -7,10 +7,16 @@ import tempfile
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parent.parent
 _PYO3_TRANSFORM = None
 INTEGRATION_ONLY = os.environ.get("DIET_PYTHON_INTEGRATION_ONLY") == "1"
 
+
+def _diet_python_mode() -> str:
+    mode = os.environ.get("DIET_PYTHON_MODE", "transform").strip().lower()
+    if mode == "eval":
+        return "eval"
+    return "transform"
 
 
 
@@ -124,9 +130,14 @@ def _should_transform(path: str) -> bool:
         return False
     if resolved.name == "templatelib.py" and resolved.parent.name == "string":
         return False
+    if resolved.name == "site.py" and _diet_python_mode() == "eval":
+        return False
+    if resolved.name == "annotationlib.py" and _diet_python_mode() == "eval":
+        return False
+    if _is_typing_module(resolved) and _diet_python_mode() == "eval":
+        return False
     if INTEGRATION_ONLY and not _is_integration_module(resolved):
-        if not _is_typing_module(resolved):
-            return False
+        return False
     if os.environ.get("DIET_PYTHON_ALLOW_TEMP") != "1":
         try:
             resolved.relative_to(Path(tempfile.gettempdir()).resolve())
@@ -143,6 +154,27 @@ def _should_transform(path: str) -> bool:
 
 class DietPythonLoader(importlib.machinery.SourceFileLoader):
     """Loader that applies the diet-python transform before executing a module."""
+
+    def create_module(self, spec):
+        if _diet_python_mode() != "eval":
+            return None
+        if not self.path:
+            return None
+        fullname = getattr(spec, "name", None)
+        if not fullname:
+            return None
+        package = fullname if self.path.endswith("__init__.py") else fullname.rpartition(".")[0]
+        package = package or None
+        transform = _get_pyo3_transform()
+        eval_with_spec = getattr(transform, "eval_source_with_spec", None)
+        if eval_with_spec is not None:
+            return eval_with_spec(self.path, fullname, package, spec)
+        return transform.eval_source_with_name(self.path, fullname, package)
+
+    def exec_module(self, module):
+        if _diet_python_mode() != "eval":
+            return super().exec_module(module)
+        return None
 
     def get_code(self, fullname):
         if self.path and (
@@ -184,6 +216,13 @@ def install():
 
     # Ensure the transform module is loaded before we intercept stdlib imports.
     _get_pyo3_transform()
+    try:
+        import __dp__ as _dp_module
+        hook_fn = getattr(_dp_module, "_ensure_annotationlib_import_hook", None)
+        if hook_fn is not None:
+            hook_fn()
+    except Exception:
+        pass
 
     existing_typing = sys.modules.get("typing")
     if existing_typing is not None:

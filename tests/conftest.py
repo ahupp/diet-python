@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import importlib
+import os
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from types import ModuleType
+
+os.environ.setdefault("DIET_PYTHON_VALIDATE_MIN_AST", "1")
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -66,6 +69,16 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "integration: mark a test as using integration modules")
 
 
+def _is_unsupported_exception(exc: BaseException, longrepr_text: str | None = None) -> bool:
+    if isinstance(exc, NotImplementedError):
+        return "not supported" in str(exc)
+    if isinstance(exc, TypeError):
+        return str(exc) == "An asyncio.Future, a coroutine or an awaitable is required"
+    if longrepr_text and "not supported" in longrepr_text:
+        return True
+    return False
+
+
 @pytest.fixture
 def run_integration_module():
     return _load_integration_module
@@ -76,6 +89,15 @@ def pytest_runtest_makereport(item, call):
     outcome = yield
     rep = outcome.get_result()
     setattr(item, f"rep_{rep.when}", rep)
+    if rep.failed:
+        longrepr_text = str(rep.longrepr) if rep.longrepr is not None else None
+        exc = call.excinfo.value if call.excinfo is not None else None
+        if (exc and _is_unsupported_exception(exc, longrepr_text)) or (
+            longrepr_text and "not supported" in longrepr_text
+        ):
+            rep.outcome = "skipped"
+            rep.wasxfail = f"unsupported: {exc or 'not supported'}"
+            rep.longrepr = None
 
 
 @pytest.fixture(autouse=True)

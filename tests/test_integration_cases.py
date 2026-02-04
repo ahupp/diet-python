@@ -7,9 +7,8 @@ import pytest
 
 from tests._integration import (
     exec_integration_validation,
+    integration_module,
     split_integration_case,
-    transformed_module,
-    untransformed_module,
 )
 
 MODULES_DIR = Path(__file__).resolve().parent / "integration_modules"
@@ -28,18 +27,15 @@ def _case_paths() -> list[Path]:
 
 @pytest.mark.integration
 @pytest.mark.parametrize("case_path", _case_paths(), ids=lambda path: path.stem)
-@pytest.mark.parametrize("transform", [False, True], ids=["untransformed", "transformed"])
-def test_integration_case(tmp_path: Path, case_path: Path, transform: bool) -> None:
+@pytest.mark.parametrize("mode", ["stock", "transform", "eval"], ids=["stock", "transformed", "eval"])
+def test_integration_case(tmp_path: Path, case_path: Path, mode: str) -> None:
     source, validate_source = split_integration_case(case_path)
     module_name = case_path.stem
-    module_loader = transformed_module if transform else untransformed_module
 
     sys.path.insert(0, str(MODULES_DIR))
     try:
-        with module_loader(tmp_path, module_name, source) as module:
-            exec_integration_validation(
-                validate_source, module, case_path, transformed=transform
-            )
+        with integration_module(tmp_path, module_name, source, mode=mode) as module:
+            exec_integration_validation(validate_source, module, case_path, mode=mode)
     finally:
         if str(MODULES_DIR) in sys.path:
             sys.path.remove(str(MODULES_DIR))

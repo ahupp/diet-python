@@ -1,0 +1,9 @@
+[package]
+name = "soac-eval"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+dp-transform = { path = "../dp-transform" }
+pyo3 = { workspace = true, features = ["extension-module"] }
+log = "0.4"

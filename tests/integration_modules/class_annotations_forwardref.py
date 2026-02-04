@@ -15,4 +15,6 @@ module.ThemeSection,
 format=annotationlib.Format.FORWARDREF,
 )
 assert "__dataclass_fields__" in annotations
-assert isinstance(annotations["__dataclass_fields__"], annotationlib.ForwardRef)
+value = annotations["__dataclass_fields__"]
+assert isinstance(value, annotationlib.ForwardRef)
+assert value.__forward_arg__.startswith("ClassVar[")

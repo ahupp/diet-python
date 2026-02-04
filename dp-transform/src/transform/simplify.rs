@@ -1,6 +1,8 @@
+use crate::{
+    transform::context::Context,
+    transformer::{walk_body, Transformer},
+};
 use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
-use crate::{transform::context::Context, transformer::{Transformer, walk_body}};
-
 
 pub(crate) struct Flattener;
 
@@ -115,7 +117,6 @@ impl Transformer for Flattener {
     }
 }
 
-
 struct StripGeneratedPasses;
 
 impl Transformer for &mut StripGeneratedPasses {
@@ -127,43 +128,32 @@ impl Transformer for &mut StripGeneratedPasses {
             match stmt {
                 Stmt::If(mut if_stmt) => {
                     if if_stmt.body.body.is_empty() {
-                        if_stmt
-                            .body
-                            .body
-                            .push(Box::new(Stmt::Pass(ast::StmtPass {
-                                node_index: Default::default(),
-                                range: Default::default(),
-                            })));
+                        if_stmt.body.body.push(Box::new(Stmt::Pass(ast::StmtPass {
+                            node_index: Default::default(),
+                            range: Default::default(),
+                        })));
                     }
                     for clause in if_stmt.elif_else_clauses.iter_mut() {
                         if clause.body.body.is_empty() {
-                            clause
-                                .body
-                                .body
-                                .push(Box::new(Stmt::Pass(ast::StmtPass {
-                                    node_index: Default::default(),
-                                    range: Default::default(),
-                                })));
+                            clause.body.body.push(Box::new(Stmt::Pass(ast::StmtPass {
+                                node_index: Default::default(),
+                                range: Default::default(),
+                            })));
                         }
                     }
                     if_stmt.elif_else_clauses.retain(|clause| {
-                        clause
-                            .body
-                            .body
-                            .len()
-                            .ne(&1)
+                        clause.body.body.len().ne(&1)
                             || !matches!(clause.body.body[0].as_ref(), Stmt::Pass(_))
                     });
 
-                    let is_empty_if = if_stmt
-                        .body
-                        .body
-                        .len()
-                        .eq(&1)
+                    let is_empty_if = if_stmt.body.body.len().eq(&1)
                         && matches!(if_stmt.body.body[0].as_ref(), Stmt::Pass(_))
                         && if_stmt.elif_else_clauses.is_empty();
                     if is_empty_if {
-                        updated.push(crate::py_stmt!("__dp__.truth({expr:expr})", expr = if_stmt.test));
+                        updated.push(crate::py_stmt!(
+                            "__dp__.truth({expr:expr})",
+                            expr = if_stmt.test
+                        ));
                         continue;
                     }
 
@@ -197,7 +187,6 @@ impl Transformer for &mut StripGeneratedPasses {
         body.body = updated.into_iter().map(Box::new).collect();
     }
 }
-
 
 pub fn flatten(stmts: &mut StmtBody) {
     let mut flattener = Flattener;

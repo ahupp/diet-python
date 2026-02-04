@@ -1,5 +1,5 @@
-use crate::transformer::{Transformer, walk_stmt};
 use crate::py_expr;
+use crate::transformer::{walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
 
 pub(crate) fn rewrite(body: &mut StmtBody) {

@@ -123,3 +123,17 @@ Result: FAILURE
 # TODO
 
 * Exec rewriting to get raw dict from the GlobalsProxy is probably wrong
+
+# Perf
+
+
+2026-02-04: First run of interpreter
+
+tree-walking eval
+15880011868 3148 loops/s
+stock cpython
+967408991 1033688 loops/s
+transform-only
+1001108600 998892 loops/s
+
+= 328x slower

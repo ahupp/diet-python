@@ -1,25 +1,25 @@
-
-
-
-use ruff_python_ast::{Expr, Stmt, StmtBody};
-use super::{
-    context::{Context},
-    rewrite_import, 
-};
-use crate::transform::{ast_rewrite::{ExprRewritePass, StmtRewritePass}, rewrite_expr, rewrite_function_def, rewrite_future_annotations, rewrite_names};
-use crate::transform::simplify::strip_generated_passes;
+use super::{context::Context, rewrite_import};
 use crate::ensure_import;
 use crate::transform::ast_rewrite::rewrite_with_pass;
-use crate::transform::scope::{analyze_module_scope};
-use crate::transform::{ast_rewrite::{LoweredExpr, Rewrite}, rewrite_expr::{lower_expr}, rewrite_stmt};
-use crate::{
-    transform::rewrite_class_def,
+use crate::transform::rewrite_class_def;
+use crate::transform::scope::analyze_module_scope;
+use crate::transform::simplify::strip_generated_passes;
+use crate::transform::{
+    ast_rewrite::{ExprRewritePass, StmtRewritePass},
+    rewrite_expr, rewrite_function_def, rewrite_future_annotations, rewrite_names,
 };
+use crate::transform::{
+    ast_rewrite::{LoweredExpr, Rewrite},
+    rewrite_expr::lower_expr,
+    rewrite_stmt,
+};
+use ruff_python_ast::{Expr, Stmt, StmtBody};
+use std::collections::HashMap;
 
-
-
-pub fn rewrite_module(context: &Context, module: &mut StmtBody) {
-
+pub fn rewrite_module(
+    context: &Context,
+    module: &mut StmtBody,
+) -> HashMap<String, (String, String)> {
     rewrite_future_annotations::rewrite(context, module);
 
     // Rewrite names like "__foo" in class bodies to "_<class_name>__foo"
@@ -33,19 +33,24 @@ pub fn rewrite_module(context: &Context, module: &mut StmtBody) {
     // Lower many kinds of statements and expressions into simpler forms. This removes:
     // for, with, augassign, annassign, get/set/del item, unpack, multi-target assignment,
     // operators, comparisons, and comprehensions.
-    rewrite_with_pass(context, Some(&SimplifyStmtPass), Some(&SimplifyExprPass), module);
+    rewrite_with_pass(
+        context,
+        Some(&SimplifyStmtPass),
+        Some(&SimplifyExprPass),
+        module,
+    );
 
     let scope = analyze_module_scope(module);
-    
 
     // Rename functions to _dp_fn_<original_name>, manually update
     // __qualname__/__name__ and apply decorators, and then assign the _dp_fn_
     // name back to the original name.  This:
     //  - gives correct qualname even when the transform inserts functions
-    //  - avoids making the method name visible inside method bodies.  
+    //  - avoids making the method name visible inside method bodies.
     //  - The assignment back to the original name will be re-written by later scoping passes
-    //    to the correct global dict / cell load/store / class body load/store operation 
-    rewrite_function_def::rewrite_function_defs(context, scope.clone(), module);
+    //    to the correct global dict / cell load/store / class body load/store operation
+    let function_name_map =
+        rewrite_function_def::rewrite_function_defs(context, scope.clone(), module);
 
     let scope = analyze_module_scope(module);
 
@@ -56,6 +61,14 @@ pub fn rewrite_module(context: &Context, module: &mut StmtBody) {
     rewrite_names::rewrite_explicit_bindings(scope.clone(), module);
 
     rewrite_class_def::class_body::rewrite_class_body_scopes(context, scope, module);
+
+    // Re-run simplification to lower any constructs introduced by later passes.
+    rewrite_with_pass(
+        context,
+        Some(&SimplifyStmtPass),
+        Some(&SimplifyExprPass),
+        module,
+    );
 
     strip_generated_passes(context, module);
 
@@ -71,13 +84,13 @@ pub fn rewrite_module(context: &Context, module: &mut StmtBody) {
     if context.options.inject_import {
         ensure_import::ensure_imports(context, module);
     }
-}
 
+    function_name_map
+}
 
 pub struct SimplifyStmtPass;
 
 impl StmtRewritePass for SimplifyStmtPass {
-
     fn lower_stmt(&self, context: &Context, stmt: Stmt) -> Rewrite {
         match stmt {
             Stmt::With(with) => rewrite_stmt::with::rewrite(context, with),
@@ -88,25 +101,26 @@ impl StmtRewritePass for SimplifyStmtPass {
             Stmt::If(if_stmt) => rewrite_stmt::loop_cond::expand_if_chain(if_stmt),
             Stmt::Match(match_stmt) => rewrite_stmt::match_case::rewrite(context, match_stmt),
             Stmt::Import(import) => rewrite_import::rewrite(import),
-            Stmt::ImportFrom(import_from) => {
-                rewrite_import::rewrite_from(context, import_from)
-            }
+            Stmt::ImportFrom(import_from) => rewrite_import::rewrite_from(context, import_from),
             Stmt::Assign(assign) => rewrite_stmt::assign_del::rewrite_assign(context, assign),
             Stmt::AugAssign(aug) => rewrite_stmt::assign_del::rewrite_aug_assign(context, aug),
             Stmt::Delete(del) => rewrite_stmt::assign_del::rewrite_delete(del),
             Stmt::Raise(raise) => rewrite_stmt::exception::rewrite_raise(raise),
-            Stmt::TypeAlias(type_alias) => rewrite_stmt::type_alias::rewrite_type_alias(context, type_alias),
-            Stmt::AnnAssign(_) => panic!("should be removed by rewrite_ann_assign_to_dunder_annotate"),
+            Stmt::TypeAlias(type_alias) => {
+                rewrite_stmt::type_alias::rewrite_type_alias(context, type_alias)
+            }
+            Stmt::AnnAssign(_) => {
+                panic!("should be removed by rewrite_ann_assign_to_dunder_annotate")
+            }
 
             other => Rewrite::Unmodified(other),
         }
     }
 }
 
-pub struct SimplifyExprPass;    
+pub struct SimplifyExprPass;
 
 impl ExprRewritePass for SimplifyExprPass {
-
     fn lower_expr(&self, context: &Context, expr: Expr) -> LoweredExpr {
         lower_expr(context, expr)
     }

@@ -1,16 +1,15 @@
-use std::{sync::Arc};
+use std::sync::Arc;
 
 use ruff_python_ast::Stmt;
 
-use crate::{Scope, transformer::{Transformer, walk_stmt}};
-
-
+use crate::{
+    transformer::{walk_stmt, Transformer},
+    Scope,
+};
 
 pub trait ScopeAwareTransformer: Transformer + Sized {
-
-
     fn enter_scope(&self, scope: Arc<Scope>) -> Self;
-    
+
     fn scope(&self) -> &Arc<Scope>;
 
     fn visit_stmt_scope_aware(&mut self, stmt: &mut Stmt) {
@@ -30,8 +29,11 @@ pub trait ScopeAwareTransformer: Transformer + Sized {
                 if let Some(returns) = func_def.returns.as_mut() {
                     self.visit_annotation(returns);
                 }
-        
-                let func_scope = self.scope().tree.child_scope_for_function(func_def)
+
+                let func_scope = self
+                    .scope()
+                    .tree
+                    .child_scope_for_function(func_def)
                     .expect("no child scope for class");
                 let mut child_transformer = self.enter_scope(func_scope);
                 child_transformer.visit_stmt_scope_aware(stmt);
@@ -46,8 +48,11 @@ pub trait ScopeAwareTransformer: Transformer + Sized {
                 if let Some(arguments) = class_def.arguments.as_mut() {
                     self.visit_arguments(arguments);
                 }
-        
-                let class_scope = self.scope().tree.child_scope_for_class(class_def)
+
+                let class_scope = self
+                    .scope()
+                    .tree
+                    .child_scope_for_class(class_def)
                     .expect("no child scope for class");
                 let mut child_transformer = self.enter_scope(class_scope);
                 child_transformer.visit_stmt_scope_aware(stmt);

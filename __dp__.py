@@ -1,75 +1,13 @@
 # diet-python: disabled
-import operator as _operator
 import collections.abc as _abc
+import os
+import operator as _operator
 import reprlib
 import sys
 import builtins
 import types as _types
 import warnings
 
-class _DpProxy:
-    def __init__(self, module):
-        object.__setattr__(self, "_module", module)
-
-    def __getattr__(self, name):
-        return getattr(self._module, name)
-
-    def __setattr__(self, name, value):
-        return setattr(self._module, name, value)
-
-    def __repr__(self):
-        return repr(self._module)
-
-    def __deepcopy__(self, memo):
-        return self
-
-if not isinstance(getattr(builtins, "__dp__", None), _DpProxy):
-    builtins.__dp__ = _DpProxy(sys.modules[__name__])
-
-operator = _operator
-add = _operator.add
-sub = _operator.sub
-mul = _operator.mul
-matmul = _operator.matmul
-truediv = _operator.truediv
-floordiv = _operator.floordiv
-mod = _operator.mod
-pow = _operator.pow
-lshift = _operator.lshift
-rshift = _operator.rshift
-or_ = _operator.or_
-xor = _operator.xor
-and_ = _operator.and_
-getitem = _operator.getitem
-setitem = _operator.setitem
-delitem = _operator.delitem
-iadd = _operator.iadd
-isub = _operator.isub
-imul = _operator.imul
-imatmul = _operator.imatmul
-itruediv = _operator.itruediv
-imod = _operator.imod
-ipow = _operator.ipow
-ilshift = _operator.ilshift
-irshift = _operator.irshift
-ior = _operator.ior
-ixor = _operator.ixor
-iand = _operator.iand
-ifloordiv = _operator.ifloordiv
-pos = _operator.pos
-neg = _operator.neg
-invert = _operator.invert
-not_ = _operator.not_
-truth = _operator.truth
-eq = _operator.eq
-ne = _operator.ne
-lt = _operator.lt
-le = _operator.le
-gt = _operator.gt
-ge = _operator.ge
-is_ = _operator.is_
-is_not = _operator.is_not
-contains = _operator.contains
 next = builtins.next
 iter = builtins.iter
 aiter = builtins.aiter
@@ -82,6 +20,337 @@ list = builtins.list
 dict = builtins.dict
 set = builtins.set
 slice = builtins.slice
+classmethod = builtins.classmethod
+
+
+def __deepcopy__(memo):
+    # Modules are not pickleable; keep __dp__ as a singleton during deepcopy().
+    return sys.modules[__name__]
+
+
+builtins.__dp__ = sys.modules[__name__]
+
+_OP_MISSING = object()
+
+
+def _mro_getattr(cls, name: str):
+    for base in cls.__mro__:
+        try:
+            return base.__dict__[name]
+        except KeyError:
+            continue
+    return _OP_MISSING
+
+
+def _call_special_method(method, first_obj, *args):
+    if first_obj is not None and hasattr(method, "__get__"):
+        method = method.__get__(first_obj, type(first_obj))
+        return method(*args)
+    return method(first_obj, *args)
+
+
+def oper(lhs_method_name: str, rhs_method_name: str, op_symbol: str, lhs, rhs):
+
+    lhs_type = type(lhs)
+    lhs_method = _mro_getattr(lhs_type, lhs_method_name)
+    lhs_rmethod = _mro_getattr(lhs_type, rhs_method_name)
+
+    rhs_type = type(rhs)
+    rhs_method = _mro_getattr(rhs_type, rhs_method_name)
+
+    call_lhs = (lhs, lhs_method, rhs)
+    call_rhs = (rhs, rhs_method, lhs)
+    if (
+        rhs_method is not _OP_MISSING
+        and rhs_type is not lhs_type
+        and issubclass(rhs_type, lhs_type)
+        and lhs_rmethod is not rhs_method
+    ):
+        calls = (call_rhs, call_lhs)
+    elif lhs_type is not rhs_type:
+        calls = (call_lhs, call_rhs)
+    else:
+        calls = (call_lhs,)
+
+    for first_obj, method, second_obj in calls:
+        if method is _OP_MISSING:
+            continue
+        value = _call_special_method(method, first_obj, second_obj)
+        if value is not NotImplemented:
+            return value
+
+    raise TypeError(
+        f"unsupported operand type(s) for {op_symbol}: "
+        f"'{lhs_type.__name__}' and '{rhs_type.__name__}'"
+    )
+
+
+def _pow_with_mod(lhs, rhs, mod):
+    lhs_type = type(lhs)
+    lhs_method = _mro_getattr(lhs_type, "__pow__")
+    lhs_rmethod = _mro_getattr(lhs_type, "__rpow__")
+
+    rhs_type = type(rhs)
+    rhs_method = _mro_getattr(rhs_type, "__rpow__")
+
+    call_lhs = (lhs, lhs_method, rhs, mod)
+    call_rhs = (rhs, rhs_method, lhs, mod)
+    if (
+        rhs_method is not _OP_MISSING
+        and rhs_type is not lhs_type
+        and issubclass(rhs_type, lhs_type)
+        and lhs_rmethod is not rhs_method
+    ):
+        calls = (call_rhs, call_lhs)
+    elif lhs_type is not rhs_type:
+        calls = (call_lhs, call_rhs)
+    else:
+        calls = (call_lhs,)
+
+    for first_obj, method, second_obj, third_obj in calls:
+        if method is _OP_MISSING:
+            continue
+        value = _call_special_method(method, first_obj, second_obj, third_obj)
+        if value is not NotImplemented:
+            return value
+
+    raise TypeError(
+        f"unsupported operand type(s) for **: "
+        f"'{lhs_type.__name__}' and '{rhs_type.__name__}'"
+    )
+
+
+def _ioper(inplace_name: str, lhs_method_name: str, rhs_method_name: str, op_symbol: str, lhs, rhs):
+    method = _mro_getattr(type(lhs), inplace_name)
+    if method is not _OP_MISSING:
+        value = _call_special_method(method, lhs, rhs)
+        if value is not NotImplemented:
+            return value
+    return oper(lhs_method_name, rhs_method_name, op_symbol, lhs, rhs)
+
+
+def add(lhs, rhs):
+    return oper("__add__", "__radd__", "+", lhs, rhs)
+
+
+def sub(lhs, rhs):
+    return oper("__sub__", "__rsub__", "-", lhs, rhs)
+
+
+def mul(lhs, rhs):
+    return oper("__mul__", "__rmul__", "*", lhs, rhs)
+
+
+def matmul(lhs, rhs):
+    return oper("__matmul__", "__rmatmul__", "@", lhs, rhs)
+
+
+def truediv(lhs, rhs):
+    return oper("__truediv__", "__rtruediv__", "/", lhs, rhs)
+
+
+def floordiv(lhs, rhs):
+    return oper("__floordiv__", "__rfloordiv__", "//", lhs, rhs)
+
+
+def mod(lhs, rhs):
+    return oper("__mod__", "__rmod__", "%", lhs, rhs)
+
+
+def pow(lhs, rhs, mod=None):
+    if mod is None:
+        return oper("__pow__", "__rpow__", "**", lhs, rhs)
+    return _pow_with_mod(lhs, rhs, mod)
+
+
+def lshift(lhs, rhs):
+    return oper("__lshift__", "__rlshift__", "<<", lhs, rhs)
+
+
+def rshift(lhs, rhs):
+    return oper("__rshift__", "__rrshift__", ">>", lhs, rhs)
+
+
+def or_(lhs, rhs):
+    return oper("__or__", "__ror__", "|", lhs, rhs)
+
+
+def xor(lhs, rhs):
+    return oper("__xor__", "__rxor__", "^", lhs, rhs)
+
+
+def and_(lhs, rhs):
+    return oper("__and__", "__rand__", "&", lhs, rhs)
+
+
+def iadd(lhs, rhs):
+    return _ioper("__iadd__", "__add__", "__radd__", "+", lhs, rhs)
+
+
+def isub(lhs, rhs):
+    return _ioper("__isub__", "__sub__", "__rsub__", "-", lhs, rhs)
+
+
+def imul(lhs, rhs):
+    return _ioper("__imul__", "__mul__", "__rmul__", "*", lhs, rhs)
+
+
+def imatmul(lhs, rhs):
+    return _ioper("__imatmul__", "__matmul__", "__rmatmul__", "@", lhs, rhs)
+
+
+def itruediv(lhs, rhs):
+    return _ioper("__itruediv__", "__truediv__", "__rtruediv__", "/", lhs, rhs)
+
+
+def imod(lhs, rhs):
+    return _ioper("__imod__", "__mod__", "__rmod__", "%", lhs, rhs)
+
+
+def ipow(lhs, rhs, mod=None):
+    if mod is not None:
+        return _pow_with_mod(lhs, rhs, mod)
+    return _ioper("__ipow__", "__pow__", "__rpow__", "**", lhs, rhs)
+
+
+def ilshift(lhs, rhs):
+    return _ioper("__ilshift__", "__lshift__", "__rlshift__", "<<", lhs, rhs)
+
+
+def irshift(lhs, rhs):
+    return _ioper("__irshift__", "__rshift__", "__rrshift__", ">>", lhs, rhs)
+
+
+def ior(lhs, rhs):
+    return _ioper("__ior__", "__or__", "__ror__", "|", lhs, rhs)
+
+
+def ixor(lhs, rhs):
+    return _ioper("__ixor__", "__xor__", "__rxor__", "^", lhs, rhs)
+
+
+def iand(lhs, rhs):
+    return _ioper("__iand__", "__and__", "__rand__", "&", lhs, rhs)
+
+
+def ifloordiv(lhs, rhs):
+    return _ioper("__ifloordiv__", "__floordiv__", "__rfloordiv__", "//", lhs, rhs)
+
+
+
+def pos(value):
+    return +value
+
+
+def neg(value):
+    return -value
+
+
+def invert(value):
+    return ~value
+
+
+def not_(value):
+    return not bool(value)
+
+
+def truth(value):
+    return bool(value)
+
+
+def _rich_compare(lhs_method_name: str, rhs_method_name: str, lhs, rhs):
+    lhs_type = type(lhs)
+    lhs_method = _mro_getattr(lhs_type, lhs_method_name)
+    lhs_rmethod = _mro_getattr(lhs_type, rhs_method_name)
+
+    rhs_type = type(rhs)
+    rhs_method = _mro_getattr(rhs_type, rhs_method_name)
+
+    call_lhs = (lhs, lhs_method, rhs)
+    call_rhs = (rhs, rhs_method, lhs)
+    if (
+        rhs_method is not _OP_MISSING
+        and rhs_type is not lhs_type
+        and issubclass(rhs_type, lhs_type)
+        and lhs_rmethod is not rhs_method
+    ):
+        calls = (call_rhs, call_lhs)
+    elif lhs_type is not rhs_type:
+        calls = (call_lhs, call_rhs)
+    else:
+        calls = (call_lhs,)
+
+    for first_obj, method, second_obj in calls:
+        if method is _OP_MISSING:
+            continue
+        value = _call_special_method(method, first_obj, second_obj)
+        if value is not NotImplemented:
+            return value
+
+    return NotImplemented
+
+
+def _rich_compare_error(lhs_method_name: str, rhs_method_name: str, lhs, rhs):
+    cmp = _rich_compare(lhs_method_name, rhs_method_name, lhs, rhs)
+    if cmp is NotImplemented:
+        raise TypeError(
+            f"'{type(lhs).__name__}' not supported between instances of "
+            f"'{type(lhs).__name__}' and '{type(rhs).__name__}'"
+        )
+
+    return cmp
+
+
+def eq(lhs, rhs):
+    cmp = _rich_compare("__eq__", "__eq__", lhs, rhs)
+    if cmp is NotImplemented:
+        return False
+    return cmp
+
+
+def ne(lhs, rhs):
+    cmp = _rich_compare("__ne__", "__ne__", lhs, rhs)
+    if cmp is NotImplemented:
+        return True
+    return cmp
+
+
+def lt(lhs, rhs):
+    return _rich_compare_error("__lt__", "__gt__", lhs, rhs)
+
+
+def le(lhs, rhs):
+    return _rich_compare_error("__le__", "__ge__", lhs, rhs)
+
+
+def gt(lhs, rhs):
+    return _rich_compare_error("__gt__", "__lt__", lhs, rhs)
+
+
+def ge(lhs, rhs):
+    return _rich_compare_error("__ge__", "__le__", lhs, rhs)
+
+
+is_ = _operator.is_
+
+
+is_not = _operator.is_not
+
+
+def contains(container, item):
+    return item in container
+
+
+def getitem(obj, key):
+    return obj[key]
+
+
+def setitem(obj, key, value):
+    obj[key] = value
+
+
+def delitem(obj, key):
+    del obj[key]
 
 
 # TODO: very questionable
@@ -134,6 +403,15 @@ def exception_matches(exc, exc_type):
         return isinstance(exc, exc_type)
     _validate_exception_type(exc_type)
     return isinstance(exc, exc_type)
+
+def exceptiongroup_split(exc, exc_type):
+    _validate_exception_type(exc_type)
+    if isinstance(exc, BaseExceptionGroup):
+        match, rest = exc.split(exc_type)
+        return match, rest
+    if isinstance(exc, exc_type):
+        return exc, None
+    return None, exc
 
 
 def unpack(iterable, spec):
@@ -198,12 +476,12 @@ def make_cell(value=_MISSING_CELL):
     return cell
 
 def load_cell(cell):
-    if isinstance(cell, _types.CellType):
-        try:
-            return cell.cell_contents
-        except ValueError as exc:
-            raise UnboundLocalError("local variable referenced before assignment") from exc
-    return cell
+    if not isinstance(cell, _types.CellType):
+        raise TypeError("expected cell")
+    try:
+        return cell.cell_contents
+    except ValueError as exc:
+        raise UnboundLocalError("local variable referenced before assignment") from exc
 
 class LocalsProxy:
     def __init__(self, frame):
@@ -244,14 +522,93 @@ def _normalize_mapping(values):
     return result
 
 
-class FrameLocalsProxy(_abc.MutableMapping):
-    def __init__(self, frame, /):
-        if not isinstance(frame, _types.FrameType):
-            raise TypeError("expected a frame object")
-        self.frame = frame
+def _lookup_normalized_name(mapping, name, *, hide_internal=False):
+    if hide_internal and isinstance(name, str) and name.startswith("_dp_"):
+        raise KeyError(name)
+    if isinstance(name, str):
+        if not name.startswith(_DP_CELL_PREFIX):
+            cell_name = _DP_CELL_PREFIX + name
+            if cell_name in mapping:
+                value = mapping[cell_name]
+                if isinstance(value, _types.CellType):
+                    try:
+                        return value.cell_contents
+                    except ValueError:
+                        raise KeyError(name)
+                return value
+        if name in mapping:
+            value = mapping[name]
+            if isinstance(value, _types.CellType):
+                try:
+                    return value.cell_contents
+                except ValueError:
+                    raise KeyError(name)
+            return value
+        raise KeyError(name)
+    return mapping[name]
+
+
+class _NormalizedMappingProxy(_abc.MutableMapping):
+    def _mapping(self):
+        raise NotImplementedError
+
+    def _hide_internal_name(self, name):
+        return False
+
+    def _snapshot(self):
+        return _normalize_mapping(self._mapping())
+
+    def __getitem__(self, name):
+        return _lookup_normalized_name(
+            self._mapping(),
+            name,
+            hide_internal=self._hide_internal_name(name),
+        )
+
+    def __iter__(self):
+        return iter(self._snapshot())
+
+    def __len__(self):
+        return len(self._snapshot())
+
+    def __contains__(self, name):
+        try:
+            self[name]
+        except KeyError:
+            return False
+        return True
+
+    def keys(self):
+        return self._snapshot().keys()
+
+    def values(self):
+        return self._snapshot().values()
+
+    def items(self):
+        return self._snapshot().items()
+
+
+class FrameLocalsProxy(_NormalizedMappingProxy):
+    def __init__(self, frame_or_mapping, /):
+        if isinstance(frame_or_mapping, _types.FrameType):
+            self.frame = frame_or_mapping
+            self._mapping_override = None
+            return
+        if isinstance(frame_or_mapping, dict):
+            self.frame = None
+            self._mapping_override = frame_or_mapping
+            return
+        raise TypeError("expected a frame object")
+
+    def _mapping(self):
+        if self._mapping_override is not None:
+            return self._mapping_override
+        return self.frame.f_locals
 
     def _is_local_name(self, name):
         if not isinstance(name, str):
+            return False
+        if self.frame is None:
             return False
         code = self.frame.f_code
         if (
@@ -268,34 +625,10 @@ class FrameLocalsProxy(_abc.MutableMapping):
         )
 
     def _snapshot(self):
-        return _normalize_mapping(self.frame.f_locals)
-
-    def __getitem__(self, name):
-        locals_map = self.frame.f_locals
-        if isinstance(name, str):
-            if not name.startswith(_DP_CELL_PREFIX):
-                cell_name = _DP_CELL_PREFIX + name
-                if cell_name in locals_map:
-                    value = locals_map[cell_name]
-                    if isinstance(value, _types.CellType):
-                        try:
-                            return value.cell_contents
-                        except ValueError:
-                            raise KeyError(name)
-                    return value
-            if name in locals_map:
-                value = locals_map[name]
-                if isinstance(value, _types.CellType):
-                    try:
-                        return value.cell_contents
-                    except ValueError:
-                        raise KeyError(name)
-                return value
-            raise KeyError(name)
-        return locals_map[name]
+        return _normalize_mapping(self._mapping())
 
     def __setitem__(self, name, value):
-        locals_map = self.frame.f_locals
+        locals_map = self._mapping()
         if isinstance(name, str) and not name.startswith(_DP_CELL_PREFIX):
             cell_name = _DP_CELL_PREFIX + name
             if cell_name in locals_map and isinstance(locals_map[cell_name], _types.CellType):
@@ -306,7 +639,7 @@ class FrameLocalsProxy(_abc.MutableMapping):
     def __delitem__(self, name):
         if self._is_local_name(name):
             raise ValueError("cannot remove local variables from FrameLocalsProxy")
-        locals_map = self.frame.f_locals
+        locals_map = self._mapping()
         if isinstance(name, str) and not name.startswith(_DP_CELL_PREFIX):
             cell_name = _DP_CELL_PREFIX + name
             if cell_name in locals_map:
@@ -318,12 +651,6 @@ class FrameLocalsProxy(_abc.MutableMapping):
                     except ValueError:
                         pass
         del locals_map[name]
-
-    def __iter__(self):
-        return iter(self._snapshot())
-
-    def __len__(self):
-        return len(self._snapshot())
 
     @reprlib.recursive_repr("{...}")
     def __repr__(self):
@@ -345,7 +672,7 @@ class FrameLocalsProxy(_abc.MutableMapping):
         raise AttributeError("FrameLocalsProxy object has no attribute 'clear'")
 
     def __or__(self, other):
-        if isinstance(other, FrameLocalsProxy):
+        if isinstance(other, _NormalizedMappingProxy):
             other = other._snapshot()
         if not isinstance(other, dict):
             try:
@@ -373,54 +700,29 @@ class FrameLocalsProxy(_abc.MutableMapping):
     def copy(self):
         return dict(self._snapshot())
 
-class GlobalsProxy(_abc.MutableMapping):
+class GlobalsProxy(_NormalizedMappingProxy):
     def __init__(self, globals_dict):
         self._globals = globals_dict
 
-    def __getitem__(self, name):
-        if name.startswith("_dp_"):
-            raise KeyError(name)
-        if name in self._globals:
-            value = self._globals[name]
-        else:
-            cell_name = _DP_CELL_PREFIX + name
-            if cell_name not in self._globals:
-                raise KeyError(name)
-            value = self._globals[cell_name]
-        if isinstance(value, _types.CellType):
-            try:
-                return value.cell_contents
-            except ValueError:
-                raise KeyError(name)
-        return value
+    def _mapping(self):
+        return self._globals
+
+    def _hide_internal_name(self, name):
+        return isinstance(name, str) and name.startswith("_dp_")
+
+    __getitem__ = _NormalizedMappingProxy.__getitem__
+    __iter__ = _NormalizedMappingProxy.__iter__
+    __len__ = _NormalizedMappingProxy.__len__
+    __contains__ = _NormalizedMappingProxy.__contains__
+    keys = _NormalizedMappingProxy.keys
+    values = _NormalizedMappingProxy.values
+    items = _NormalizedMappingProxy.items
 
     def __setitem__(self, name, value):
         self._globals[name] = value
 
     def __delitem__(self, name):
         del self._globals[name]
-
-    def __iter__(self):
-        return iter(_normalize_mapping(self._globals))
-
-    def __len__(self):
-        return len(_normalize_mapping(self._globals))
-
-    def __contains__(self, name):
-        try:
-            self[name]
-        except KeyError:
-            return False
-        return True
-
-    def keys(self):
-        return _normalize_mapping(self._globals).keys()
-
-    def items(self):
-        return _normalize_mapping(self._globals).items()
-
-    def values(self):
-        return _normalize_mapping(self._globals).values()
 
 def locals():
     frame = sys._getframe(1)
@@ -456,22 +758,12 @@ def dir_(*args):
     return sorted(name for name in names if not name.startswith("_dp_"))
 
 def eval_(source, globals=None, locals=None):
-    if globals is None:
+    if globals is None or locals is None:
         frame = sys._getframe(1)
-        globals = frame.f_globals
+        if globals is None:
+            globals = frame.f_globals
         if locals is None:
             locals = _normalize_mapping(frame.f_locals)
-    else:
-        if isinstance(globals, GlobalsProxy):
-            globals = globals._globals
-        if locals is None:
-            locals = globals
-    if isinstance(locals, LocalsProxy):
-        locals = _normalize_mapping(locals.frame.f_locals)
-    elif isinstance(locals, dict) and any(
-        name.startswith(_DP_CELL_PREFIX) for name in locals
-    ):
-        locals = _normalize_mapping(locals)
     return builtins.eval(source, globals, locals)
 
 def _normalize_exec_closure(closure):
@@ -540,9 +832,6 @@ def exec_(source, globals=None, locals=None, *, closure=None):
     finally:
         _restore_exec_closure(mutated)
 
-
-def truth(value):
-    return builtins.bool(value)
 
 
 def store_cell(cell, value):
@@ -673,11 +962,6 @@ def create_class(
         ns["__classcell__"] = class_cell
 
     namespace_fn(ns, class_cell)
-    if "__annotate__" not in ns:
-        meta_annotate = getattr(meta, "__annotate__", None)
-        if meta_annotate is not None:
-            ns["__annotate__"] = None
-
     if "__firstlineno__" not in ns and firstlineno is not None:
         ns["__firstlineno__"] = firstlineno
     if "__static_attributes__" not in ns:
@@ -706,15 +990,7 @@ def exc_info():
 
 
 def current_exception():
-    exc = sys.exception()
-    if exc is None:
-        return None
-    if isinstance(exc, RecursionError):
-        return exc
-    tb = _strip_dp_frames(exc.__traceback__)
-    if tb is not exc.__traceback__:
-        exc = exc.with_traceback(tb)
-    return exc
+    return sys.exception()
 
 
 def aiter(obj):
@@ -959,8 +1235,51 @@ def _patch_annotationlib(module):
         module._build_closure = _build_closure_patched
 
 
-if "annotationlib" in sys.modules:
-    _patch_annotationlib(sys.modules["annotationlib"])
+def _annotationlib_patch_enabled():
+    return os.environ.get("DIET_PYTHON_MODE") != "eval"
+
+
+def _ensure_annotationlib_import_hook():
+    try:
+        import importlib.abc
+        import importlib.machinery
+    except Exception:
+        return
+
+    class _AnnotationlibFinder(importlib.abc.MetaPathFinder):
+        _dp_annotationlib_finder = True
+
+        def find_spec(self, fullname, path, target=None):
+            if fullname != "annotationlib":
+                return None
+            spec = importlib.machinery.PathFinder.find_spec(fullname, path)
+            if spec is None or spec.loader is None:
+                return spec
+            if getattr(spec.loader, "_dp_annotationlib_wrapped", False):
+                return spec
+            exec_module = getattr(spec.loader, "exec_module", None)
+            if exec_module is None:
+                return spec
+
+            def exec_module_wrapped(module):
+                exec_module(module)
+                _patch_annotationlib(module)
+
+            spec.loader.exec_module = exec_module_wrapped
+            spec.loader._dp_annotationlib_wrapped = True
+            return spec
+
+    for finder in sys.meta_path:
+        if getattr(finder, "_dp_annotationlib_finder", False):
+            return
+    sys.meta_path.insert(0, _AnnotationlibFinder())
+
+
+if _annotationlib_patch_enabled():
+    if "annotationlib" in sys.modules:
+        _patch_annotationlib(sys.modules["annotationlib"])
+    else:
+        _ensure_annotationlib_import_hook()
 
 
 def import_(name, spec, fromlist=None, level=0):
@@ -968,16 +1287,18 @@ def import_(name, spec, fromlist=None, level=0):
         fromlist = []
     globals_dict = {"__spec__": spec}
     if spec is not None:
-        globals_dict["__package__"] = spec.parent
+        package = spec.parent
+        if not package and getattr(spec, "submodule_search_locations", None):
+            package = spec.name
+        globals_dict["__package__"] = package
         globals_dict["__name__"] = spec.name
     try:
         module = builtins.__import__(name, globals_dict, {}, fromlist, level)
-        if name == "annotationlib":
+        if name == "annotationlib" and _annotationlib_patch_enabled():
             _patch_annotationlib(module)
         return module
     except Exception as exc:
-        tb = _strip_dp_frames(exc.__traceback__)
-        raise exc.with_traceback(tb)
+        raise exc from None
 
 
 def import_attr(module, attr):
@@ -1008,8 +1329,7 @@ def import_attr(module, attr):
                 f"{module_name!r} (most likely due to a circular import)"
             )
             import_error = ImportError(message, name=module_name)
-            tb = _strip_dp_frames(exc.__traceback__)
-            raise import_error.with_traceback(tb) from None
+            raise import_error.with_traceback(exc.__traceback__) from None
         module_name = module_name or "<unknown module name>"
         module_file = getattr(module, "__file__", None)
         message = f"cannot import name {attr!r} from {module_name!r}"
@@ -1018,38 +1338,21 @@ def import_attr(module, attr):
         else:
             message = f"{message} (unknown location)"
         import_error = ImportError(message, name=module_name, path=module_file)
-        tb = _strip_dp_frames(exc.__traceback__)
-        raise import_error.with_traceback(tb) from None
+
+        raise import_error.with_traceback(exc.__traceback__) from None
 
 
-def _strip_dp_frames(tb):
-    if tb is None:
-        return None
-
-    internal_files = {__file__}
-    hook = sys.modules.get("diet_import_hook")
-    if hook is not None:
-        hook_file = getattr(hook, "__file__", None)
-        if hook_file:
-            internal_files.add(hook_file)
-    frames = []
-    changed = False
-    current = tb
-    while current is not None:
-        if current.tb_frame.f_code.co_filename in internal_files:
-            changed = True
-        else:
-            frames.append((current.tb_frame, current.tb_lasti, current.tb_lineno))
-        current = current.tb_next
-
-    if not changed:
-        return tb
-
-    stripped = None
-    for frame, lasti, lineno in reversed(frames):
-        stripped = _types.TracebackType(stripped, frame, lasti, lineno)
-    return stripped
-
+def import_star(name, spec, globals_dict, level=0):
+    module = import_(name, spec, ["*"], level)
+    try:
+        names = getattr(module, "__all__", None)
+    except Exception:
+        names = None
+    if names is None:
+        names = [name for name in dir(module) if not name.startswith("_")]
+    for name in names:
+        globals_dict[name] = getattr(module, name)
+    return module
 
 
 def _lookup_special_method(obj, name: str):
@@ -1106,7 +1409,7 @@ def contextmanager_exit(exit_fn, exc_info: tuple | None):
             if suppress:
                 exc.__traceback__ = None
                 return
-            raise exc.with_traceback(tb)
+            raise exc
         finally:
             # Clear the reference for GC in long-lived frames.
             exc_info = None

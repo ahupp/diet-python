@@ -3,6 +3,7 @@
 use ruff_python_ast::{self as ast, AtomicNodeIndex, Expr, ModModule, Stmt};
 use ruff_text_size::TextRange;
 use std::borrow::Cow;
+use std::collections::{HashMap, HashSet};
 
 use crate::ruff_ast_to_string;
 
@@ -23,12 +24,6 @@ pub struct Module<S: StmtInfo = (), E: ExprInfo = ()> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum StmtNode<S: StmtInfo = (), E: ExprInfo = ()> {
     FunctionDef(FunctionDef<S, E>),
-    ImportFrom {
-        info: S,
-        module: Option<String>,
-        names: Vec<String>,
-        level: usize,
-    },
     While {
         info: S,
         test: ExprNode<E>,
@@ -84,11 +79,33 @@ pub struct OuterScopeVars {
 pub struct FunctionDef<S: StmtInfo = (), E: ExprInfo = ()> {
     pub info: S,
     pub name: String,
+    pub display_name: String,
+    pub qualname: String,
+    pub type_params: Vec<TypeParam<E>>,
     pub params: Vec<Parameter<E>>,
     pub returns: Option<ExprNode<E>>,
     pub body: Vec<StmtNode<S, E>>,
     pub is_async: bool,
     pub scope_vars: OuterScopeVars,
+    pub freevars: Vec<String>,
+    pub cellvars: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypeParam<E: ExprInfo = ()> {
+    TypeVar {
+        name: String,
+        bound: Option<ExprNode<E>>,
+        default: Option<ExprNode<E>>,
+    },
+    TypeVarTuple {
+        name: String,
+        default: Option<ExprNode<E>>,
+    },
+    ParamSpec {
+        name: String,
+        default: Option<ExprNode<E>>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -146,12 +163,17 @@ pub enum ExprNode<E: ExprInfo = ()> {
     },
     Yield {
         info: E,
+        from: bool,
         value: Option<Box<ExprNode<E>>>,
     },
     Call {
         info: E,
         func: Box<ExprNode<E>>,
         args: Vec<Arg<E>>,
+    },
+    Raw {
+        info: E,
+        expr: Expr,
     },
 }
 
@@ -171,8 +193,17 @@ pub enum Number {
 
 impl From<ModModule> for Module {
     fn from(module: ModModule) -> Self {
+        Module::from_with_function_name_map(module, &HashMap::new())
+    }
+}
+
+impl Module {
+    pub fn from_with_function_name_map(
+        module: ModModule,
+        function_name_map: &HashMap<String, (String, String)>,
+    ) -> Self {
         let mut lost = OuterScopeVars::default();
-        let body = StmtNode::from_stmts(module.body, &mut lost);
+        let body = StmtNode::from_stmts(module.body, &mut lost, function_name_map);
         if !lost.nonlocals.is_empty() {
             panic!("nonlocal declarations at module scope");
         }
@@ -180,16 +211,277 @@ impl From<ModModule> for Module {
     }
 }
 
+fn collect_bound_names<S: StmtInfo, E: ExprInfo>(
+    stmts: &[StmtNode<S, E>],
+    names: &mut HashSet<String>,
+) {
+    for stmt in stmts {
+        match stmt {
+            StmtNode::Assign { target, .. } | StmtNode::Delete { target, .. } => {
+                names.insert(target.clone());
+            }
+            StmtNode::FunctionDef(func) => {
+                names.insert(func.name.clone());
+            }
+            StmtNode::While { body, orelse, .. } | StmtNode::If { body, orelse, .. } => {
+                collect_bound_names(body, names);
+                collect_bound_names(orelse, names);
+            }
+            StmtNode::Try {
+                body,
+                handler,
+                orelse,
+                finalbody,
+                ..
+            } => {
+                collect_bound_names(body, names);
+                if let Some(handler) = handler {
+                    collect_bound_names(handler, names);
+                }
+                collect_bound_names(orelse, names);
+                collect_bound_names(finalbody, names);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_local_names<S: StmtInfo, E: ExprInfo>(def: &FunctionDef<S, E>) -> HashSet<String> {
+    let mut locals = HashSet::new();
+    for param in &def.params {
+        match param {
+            Parameter::Positional { name, .. }
+            | Parameter::VarArg { name, .. }
+            | Parameter::KwOnly { name, .. }
+            | Parameter::KwArg { name, .. } => {
+                locals.insert(name.clone());
+            }
+        }
+    }
+    collect_bound_names(&def.body, &mut locals);
+    locals
+}
+
+fn collect_used_names<S: StmtInfo, E: ExprInfo>(def: &FunctionDef<S, E>) -> HashSet<String> {
+    fn visit_expr<E: ExprInfo>(expr: &ExprNode<E>, names: &mut HashSet<String>) {
+        match expr {
+            ExprNode::Name { id, .. } => {
+                names.insert(id.clone());
+            }
+            ExprNode::Attribute { value, .. } => {
+                visit_expr(value, names);
+            }
+            ExprNode::Tuple { elts, .. } => {
+                for elt in elts {
+                    visit_expr(elt, names);
+                }
+            }
+            ExprNode::Await { value, .. } => {
+                visit_expr(value, names);
+            }
+            ExprNode::Yield { value, .. } => {
+                if let Some(value) = value {
+                    visit_expr(value, names);
+                }
+            }
+            ExprNode::Call { func, args, .. } => {
+                visit_expr(func, names);
+                for arg in args {
+                    match arg {
+                        Arg::Positional(expr) | Arg::Starred(expr) | Arg::KwStarred(expr) => {
+                            visit_expr(expr, names)
+                        }
+                        Arg::Keyword { value, .. } => visit_expr(value, names),
+                    }
+                }
+            }
+            ExprNode::Raw { expr, .. } => {
+                collect_load_names_from_raw_expr(expr, names);
+            }
+            ExprNode::Number { .. } | ExprNode::String { .. } | ExprNode::Bytes { .. } => {}
+        }
+    }
+
+    fn visit_stmt<S: StmtInfo, E: ExprInfo>(stmt: &StmtNode<S, E>, names: &mut HashSet<String>) {
+        match stmt {
+            StmtNode::FunctionDef(def) => {
+                let inner_used = collect_used_names(def);
+                let inner_locals = collect_local_names(def);
+                for name in inner_used {
+                    if !inner_locals.contains(&name) {
+                        names.insert(name);
+                    }
+                }
+            }
+            StmtNode::While {
+                test, body, orelse, ..
+            }
+            | StmtNode::If {
+                test, body, orelse, ..
+            } => {
+                visit_expr(test, names);
+                for stmt in body {
+                    visit_stmt(stmt, names);
+                }
+                for stmt in orelse {
+                    visit_stmt(stmt, names);
+                }
+            }
+            StmtNode::Try {
+                body,
+                handler,
+                orelse,
+                finalbody,
+                ..
+            } => {
+                for stmt in body {
+                    visit_stmt(stmt, names);
+                }
+                if let Some(handler) = handler {
+                    for stmt in handler {
+                        visit_stmt(stmt, names);
+                    }
+                }
+                for stmt in orelse {
+                    visit_stmt(stmt, names);
+                }
+                for stmt in finalbody {
+                    visit_stmt(stmt, names);
+                }
+            }
+            StmtNode::Raise { exc, .. } => {
+                if let Some(expr) = exc {
+                    visit_expr(expr, names);
+                }
+            }
+            StmtNode::Return { value, .. } => {
+                if let Some(expr) = value {
+                    visit_expr(expr, names);
+                }
+            }
+            StmtNode::Expr { value, .. } => visit_expr(value, names),
+            StmtNode::Assign { value, .. } => visit_expr(value, names),
+            StmtNode::Delete { .. }
+            | StmtNode::Break(_)
+            | StmtNode::Continue(_)
+            | StmtNode::Pass(_) => {}
+        }
+    }
+
+    let mut names = HashSet::new();
+    for stmt in &def.body {
+        visit_stmt(stmt, &mut names);
+    }
+    for param in &def.params {
+        let annotation = match param {
+            Parameter::Positional { annotation, .. }
+            | Parameter::VarArg { annotation, .. }
+            | Parameter::KwOnly { annotation, .. }
+            | Parameter::KwArg { annotation, .. } => annotation,
+        };
+        if let Some(annotation) = annotation {
+            visit_expr(annotation, &mut names);
+        }
+    }
+    if let Some(returns) = &def.returns {
+        visit_expr(returns, &mut names);
+    }
+    names
+}
+
+fn collect_child_free_uses<S: StmtInfo, E: ExprInfo>(def: &FunctionDef<S, E>) -> HashSet<String> {
+    fn visit_stmt<S: StmtInfo, E: ExprInfo>(stmt: &StmtNode<S, E>, names: &mut HashSet<String>) {
+        match stmt {
+            StmtNode::FunctionDef(inner) => {
+                let inner_used = collect_used_names(inner);
+                let inner_locals = collect_local_names(inner);
+                for name in inner_used {
+                    if !inner_locals.contains(&name) {
+                        names.insert(name);
+                    }
+                }
+            }
+            StmtNode::While { body, orelse, .. } | StmtNode::If { body, orelse, .. } => {
+                for stmt in body {
+                    visit_stmt(stmt, names);
+                }
+                for stmt in orelse {
+                    visit_stmt(stmt, names);
+                }
+            }
+            StmtNode::Try {
+                body,
+                handler,
+                orelse,
+                finalbody,
+                ..
+            } => {
+                for stmt in body {
+                    visit_stmt(stmt, names);
+                }
+                if let Some(handler) = handler {
+                    for stmt in handler {
+                        visit_stmt(stmt, names);
+                    }
+                }
+                for stmt in orelse {
+                    visit_stmt(stmt, names);
+                }
+                for stmt in finalbody {
+                    visit_stmt(stmt, names);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut names = HashSet::new();
+    for stmt in &def.body {
+        visit_stmt(stmt, &mut names);
+    }
+    names
+}
+
+fn finalize_function_scope_metadata<S: StmtInfo, E: ExprInfo>(def: &mut FunctionDef<S, E>) {
+    let locals = collect_local_names(def);
+    let mut freevars = collect_used_names(def);
+    for local in &locals {
+        freevars.remove(local);
+    }
+    for global_name in &def.scope_vars.globals {
+        freevars.remove(global_name);
+    }
+
+    let child_free_uses = collect_child_free_uses(def);
+    let mut cellvars = HashSet::new();
+    for name in child_free_uses {
+        if locals.contains(&name) && !def.scope_vars.nonlocals.contains(&name) {
+            cellvars.insert(name);
+        }
+    }
+
+    let mut freevars = freevars.into_iter().collect::<Vec<_>>();
+    freevars.sort();
+    let mut cellvars = cellvars.into_iter().collect::<Vec<_>>();
+    cellvars.sort();
+    def.freevars = freevars;
+    def.cellvars = cellvars;
+}
+
 impl StmtNode {
-    fn from_stmts(body: ast::StmtBody, scope_vars: &mut OuterScopeVars) -> Vec<Self> {
+    fn from_stmts(
+        body: ast::StmtBody,
+        scope_vars: &mut OuterScopeVars,
+        function_name_map: &HashMap<String, (String, String)>,
+    ) -> Vec<Self> {
         let mut out = Vec::new();
         for stmt in body.body {
             match *stmt {
                 Stmt::BodyStmt(inner) => {
-                    out.extend(StmtNode::from_stmts(inner, scope_vars));
+                    out.extend(StmtNode::from_stmts(inner, scope_vars, function_name_map));
                 }
                 other => {
-                    if let Some(node) = StmtNode::from_stmt(other, scope_vars) {
+                    if let Some(node) = StmtNode::from_stmt(other, scope_vars, function_name_map) {
                         out.push(node);
                     }
                 }
@@ -198,7 +490,11 @@ impl StmtNode {
         out
     }
 
-    fn from_stmt(stmt: Stmt, scope_vars: &mut OuterScopeVars) -> Option<Self> {
+    fn from_stmt(
+        stmt: Stmt,
+        scope_vars: &mut OuterScopeVars,
+        function_name_map: &HashMap<String, (String, String)>,
+    ) -> Option<Self> {
         match stmt {
             Stmt::Global(ast::StmtGlobal { names, .. }) => {
                 scope_vars
@@ -218,9 +514,38 @@ impl StmtNode {
                 returns,
                 body,
                 is_async,
+                type_params,
                 ..
             }) => {
                 let mut params = Vec::new();
+                let mut type_params_out = Vec::new();
+                if let Some(type_params) = type_params {
+                    for param in type_params.type_params {
+                        match param {
+                            ast::TypeParam::TypeVar(type_var) => {
+                                type_params_out.push(TypeParam::TypeVar {
+                                    name: type_var.name.to_string(),
+                                    bound: type_var.bound.map(|expr| ExprNode::from(*expr)),
+                                    default: type_var.default.map(|expr| ExprNode::from(*expr)),
+                                });
+                            }
+                            ast::TypeParam::TypeVarTuple(type_var_tuple) => {
+                                type_params_out.push(TypeParam::TypeVarTuple {
+                                    name: type_var_tuple.name.to_string(),
+                                    default: type_var_tuple
+                                        .default
+                                        .map(|expr| ExprNode::from(*expr)),
+                                });
+                            }
+                            ast::TypeParam::ParamSpec(param_spec) => {
+                                type_params_out.push(TypeParam::ParamSpec {
+                                    name: param_spec.name.to_string(),
+                                    default: param_spec.default.map(|expr| ExprNode::from(*expr)),
+                                });
+                            }
+                        }
+                    }
+                }
                 let ast::Parameters {
                     posonlyargs,
                     args,
@@ -287,46 +612,39 @@ impl StmtNode {
                     });
                 }
                 let mut fn_scope_vars = OuterScopeVars::default();
-                let body = StmtNode::from_stmts(body, &mut fn_scope_vars);
-                Some(StmtNode::FunctionDef(FunctionDef {
+                let body = StmtNode::from_stmts(body, &mut fn_scope_vars, function_name_map);
+                let rewritten_name = name.to_string();
+                let (display_name, qualname) = function_name_map
+                    .get(&rewritten_name)
+                    .cloned()
+                    .unwrap_or_else(|| (rewritten_name.clone(), rewritten_name.clone()));
+                let mut def = FunctionDef {
                     info: (),
-                    name: name.to_string(),
+                    name: rewritten_name,
+                    display_name,
+                    qualname,
+                    type_params: type_params_out,
                     params,
                     returns: returns.map(|expr| ExprNode::from(*expr)),
                     body,
                     is_async,
                     scope_vars: fn_scope_vars,
-                }))
+                    freevars: Vec::new(),
+                    cellvars: Vec::new(),
+                };
+                finalize_function_scope_metadata(&mut def);
+                Some(StmtNode::FunctionDef(def))
             }
-            Stmt::ImportFrom(ast::StmtImportFrom {
-                module,
-                names,
-                level,
-                ..
-            }) => {
-                let import_names = names
-                    .into_iter()
-                    .map(|alias| {
-                        if alias.asname.is_some() {
-                            panic!("unsupported import alias");
-                        }
-                        alias.name.id.to_string()
-                    })
-                    .collect::<Vec<_>>();
-                Some(StmtNode::ImportFrom {
-                    info: (),
-                    module: module.map(|m| m.id.to_string()),
-                    names: import_names,
-                    level: level as usize,
-                })
+            Stmt::ImportFrom(ast::StmtImportFrom { .. }) => {
+                panic!("ImportFrom should be rewritten before min_ast conversion")
             }
             Stmt::While(ast::StmtWhile {
                 test, body, orelse, ..
             }) => Some(StmtNode::While {
                 info: (),
                 test: ExprNode::from(*test),
-                body: StmtNode::from_stmts(body, scope_vars),
-                orelse: StmtNode::from_stmts(orelse, scope_vars),
+                body: StmtNode::from_stmts(body, scope_vars, function_name_map),
+                orelse: StmtNode::from_stmts(orelse, scope_vars, function_name_map),
             }),
             Stmt::If(ast::StmtIf {
                 test,
@@ -344,12 +662,12 @@ impl StmtNode {
                         panic!("multiple else clauses not supported in min_ast");
                     }
                     seen_else = true;
-                    orelse = StmtNode::from_stmts(clause.body, scope_vars);
+                    orelse = StmtNode::from_stmts(clause.body, scope_vars, function_name_map);
                 }
                 Some(StmtNode::If {
                     info: (),
                     test: ExprNode::from(*test),
-                    body: StmtNode::from_stmts(body, scope_vars),
+                    body: StmtNode::from_stmts(body, scope_vars, function_name_map),
                     orelse,
                 })
             }
@@ -369,7 +687,11 @@ impl StmtNode {
                         match handler {
                             ast::ExceptHandler::ExceptHandler(
                                 ast::ExceptHandlerExceptHandler { body: h_body, .. },
-                            ) => handler_body.extend(StmtNode::from_stmts(h_body, scope_vars)),
+                            ) => handler_body.extend(StmtNode::from_stmts(
+                                h_body,
+                                scope_vars,
+                                function_name_map,
+                            )),
                         }
                     }
                     Some(handler_body)
@@ -384,7 +706,7 @@ impl StmtNode {
                             if type_.is_some() || name.is_some() {
                                 panic!("only bare except handlers supported");
                             }
-                            Some(StmtNode::from_stmts(h_body, scope_vars))
+                            Some(StmtNode::from_stmts(h_body, scope_vars, function_name_map))
                         }
                     }
                 } else {
@@ -392,10 +714,10 @@ impl StmtNode {
                 };
                 Some(StmtNode::Try {
                     info: (),
-                    body: StmtNode::from_stmts(body, scope_vars),
+                    body: StmtNode::from_stmts(body, scope_vars, function_name_map),
                     handler,
-                    orelse: StmtNode::from_stmts(orelse, scope_vars),
-                    finalbody: StmtNode::from_stmts(finalbody, scope_vars),
+                    orelse: StmtNode::from_stmts(orelse, scope_vars, function_name_map),
+                    finalbody: StmtNode::from_stmts(finalbody, scope_vars, function_name_map),
                 })
             }
             Stmt::Break(_) => Some(StmtNode::Break(())),
@@ -417,7 +739,7 @@ impl StmtNode {
                 info: (),
                 value: ExprNode::from(*value),
             }),
-            Stmt::Assign(ast::StmtAssign {targets, value, .. }) => {
+            Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
                 let target_name = if targets.len() == 1 {
                     if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
                         id.to_string()
@@ -428,7 +750,10 @@ impl StmtNode {
                             node_index: AtomicNodeIndex::default(),
                             range: TextRange::default(),
                         };
-                        panic!("unsupported assignment target {}", ruff_ast_to_string(Stmt::Assign(s)));
+                        panic!(
+                            "unsupported assignment target {}",
+                            ruff_ast_to_string(Stmt::Assign(s))
+                        );
                     }
                 } else {
                     panic!("unsupported assignment targets")
@@ -439,22 +764,20 @@ impl StmtNode {
                     value: ExprNode::from(*value),
                 })
             }
-            Stmt::TypeAlias(ast::StmtTypeAlias { name, value, .. }) => {
-                match *name {
-                    Expr::Name(ast::ExprName { id, .. }) => Some(StmtNode::Assign {
+            Stmt::TypeAlias(ast::StmtTypeAlias { name, value, .. }) => match *name {
+                Expr::Name(ast::ExprName { id, .. }) => Some(StmtNode::Assign {
+                    info: (),
+                    target: id.to_string(),
+                    value: ExprNode::from(*value),
+                }),
+                other => {
+                    let _ = ExprNode::from(other);
+                    Some(StmtNode::Expr {
                         info: (),
-                        target: id.to_string(),
                         value: ExprNode::from(*value),
-                    }),
-                    other => {
-                        let _ = ExprNode::from(other);
-                        Some(StmtNode::Expr {
-                            info: (),
-                            value: ExprNode::from(*value),
-                        })
-                    }
+                    })
                 }
-            }
+            },
             Stmt::AnnAssign(ast::StmtAnnAssign { annotation, .. }) => Some(StmtNode::Expr {
                 info: (),
                 value: ExprNode::from(*annotation),
@@ -533,10 +856,12 @@ impl From<Expr> for ExprNode {
             },
             Expr::Yield(ast::ExprYield { value, .. }) => ExprNode::Yield {
                 info: (),
+                from: false,
                 value: value.map(|v| Box::new(ExprNode::from(*v))),
             },
             Expr::YieldFrom(ast::ExprYieldFrom { value, .. }) => ExprNode::Yield {
                 info: (),
+                from: true,
                 value: Some(Box::new(ExprNode::from(*value))),
             },
             Expr::Call(ast::ExprCall {
@@ -572,7 +897,34 @@ impl From<Expr> for ExprNode {
                 value: Box::new(ExprNode::from(*value)),
                 attr: attr.id.to_string(),
             },
-            other => panic!("unsupported expr: {:?}", other),
+            other => ExprNode::Raw {
+                info: (),
+                expr: other,
+            },
         }
     }
+}
+
+fn collect_load_names_from_raw_expr(expr: &Expr, names: &mut HashSet<String>) {
+    use crate::transformer::{Transformer, walk_expr};
+    use ruff_python_ast::ExprContext;
+
+    struct LoadNameCollector<'a> {
+        names: &'a mut HashSet<String>,
+    }
+
+    impl Transformer for LoadNameCollector<'_> {
+        fn visit_expr(&mut self, expr: &mut Expr) {
+            if let Expr::Name(ast::ExprName { id, ctx, .. }) = expr {
+                if matches!(ctx, ExprContext::Load) {
+                    self.names.insert(id.to_string());
+                }
+            }
+            walk_expr(self, expr);
+        }
+    }
+
+    let mut cloned = expr.clone();
+    let mut collector = LoadNameCollector { names };
+    collector.visit_expr(&mut cloned);
 }

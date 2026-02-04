@@ -2,12 +2,12 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CPYTHON_DIR="$REPO_ROOT/../cpython"
+CPYTHON_DIR="$REPO_ROOT/vendor/cpython"
 VENV_DIR="$REPO_ROOT/.venv-cpython"
 PYTHON_BIN="$CPYTHON_DIR/python"
 
 export UV_CACHE_DIR="$REPO_ROOT/.uv-cache"
-export UV_PYTHON="${UV_PYTHON:-python3.14}"
+export UV_PYTHON="${UV_PYTHON:-$PYTHON_BIN}"
 
 if [ ! -d "$CPYTHON_DIR" ]; then
   echo "cpython checkout not found" >&2
@@ -20,7 +20,7 @@ if [ ! -x "$PYTHON_BIN" ]; then
 fi
 
 rm -rf "${VENV_DIR}"
-uv venv "$VENV_DIR"
+uv venv --python "$PYTHON_BIN" "$VENV_DIR"
 
 (
   cd "$REPO_ROOT" &&
@@ -37,7 +37,7 @@ PY
 )" &&
 (
   cd "$REPO_ROOT" &&
-  PYO3_PYTHON="$PYO3_PYTHON_REAL" cargo build --quiet -p dp-pyo3
+  PYO3_PYTHON="$PYO3_PYTHON_REAL" cargo build --quiet -p soac-pyo3
 )
 
 # Ensure stale bytecode doesn't bypass the transform.

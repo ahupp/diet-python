@@ -4,6 +4,7 @@
 - **MUST FOLLOW**: Always preserve behavior in the transformed code, particularly evaluation order.
 - **MUST FOLLOW**: When traversing the AST, always use an impl of `crate::transformer::Transformer`.
 - **NOTE**: Prefer adding behavior at transform time rather than runtime in `__dp__.py` whenever possible.
+- **MUST FOLLOW**: If a change requires adding a compatibility interface for a Python standard type/function, or patching one, stop and describe the reason before implementing.
 - **MUST FOLLOW**: If a fixture error occurs, regenerate all fixtures by running `cargo run --bin regen_snapshots` with no file arguments.
 - **NOTE**: Use `cargo run --bin regen_snapshots` to regenerate fixtures instead of manual edits.
 - **NOTE**: `regen_fixtures` has been renamed to `regen_snapshots`.

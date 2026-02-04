@@ -1,7 +1,7 @@
 # class_with_method
 
 class C:
-    x = 1
+    x : int = 1
 
     def m(self):
         return self.x
@@ -9,15 +9,25 @@ class C:
 # ==
 
 def _dp_class_ns_C(_dp_class_ns, _dp_classcell):
-    _dp_class_ns["__module__"] = __name__
-    _dp_class_ns["__qualname__"] = "C"
-    _dp_class_ns["x"] = 1
+    __dp__.setitem(_dp_class_ns, "__module__", __name__)
+    __dp__.setitem(_dp_class_ns, "__qualname__", "C")
+    __dp__.setitem(_dp_class_ns, "x", 1)
 
-    def _dp_fn_m(self):
+    def _dp_fn_m_0(self):
         return self.x
-    __dp__.update_fn(_dp_fn_m, "C.m", "m")
-    _dp_class_ns["m"] = _dp_fn_m
-    del _dp_fn_m
+    __dp__.update_fn(_dp_fn_m_0, "C.m", "m")
+    __dp__.setitem(_dp_class_ns, "m", _dp_fn_m_0)
+    del _dp_fn_m_0
+
+    def _dp_fn___annotate_func___1(_dp_format, _dp=__dp__):
+        if _dp.eq(_dp_format, 4):
+            return __dp__.dict((("x", "int"),))
+        if _dp.gt(_dp_format, 2):
+            raise _dp.builtins.NotImplementedError
+        return __dp__.dict((("x", int),))
+    __dp__.update_fn(_dp_fn___annotate_func___1, "C.__annotate_func__", "__annotate_func__")
+    __dp__.setitem(_dp_class_ns, "__annotate_func__", _dp_fn___annotate_func___1)
+    del _dp_fn___annotate_func___1
 def _dp_define_class_C():
     return __dp__.create_class("C", _dp_class_ns_C, (), None, False, 2, ())
 C = _dp_define_class_C()
@@ -31,14 +41,14 @@ class Wrapper:
 # ==
 
 def _dp_class_ns_Wrapper(_dp_class_ns, _dp_classcell):
-    _dp_class_ns["__module__"] = __name__
-    _dp_class_ns["__qualname__"] = "Wrapper"
+    __dp__.setitem(_dp_class_ns, "__module__", __name__)
+    __dp__.setitem(_dp_class_ns, "__qualname__", "Wrapper")
 
-    def _dp_fn_open(self, mode: __dp__.class_lookup_global(_dp_class_ns, "str", globals())="r", *, encoding: __dp__.class_lookup_global(_dp_class_ns, "str", globals())="utf8"):
+    def _dp_fn_open_0(self, mode: __dp__.class_lookup_global(_dp_class_ns, "str", globals())="r", *, encoding: __dp__.class_lookup_global(_dp_class_ns, "str", globals())="utf8"):
         return open(mode, encoding=encoding)
-    __dp__.update_fn(_dp_fn_open, "Wrapper.open", "open")
-    _dp_class_ns["open"] = _dp_fn_open
-    del _dp_fn_open
+    __dp__.update_fn(_dp_fn_open_0, "Wrapper.open", "open")
+    __dp__.setitem(_dp_class_ns, "open", _dp_fn_open_0)
+    del _dp_fn_open_0
 def _dp_define_class_Wrapper():
     return __dp__.create_class("Wrapper", _dp_class_ns_Wrapper, (), None, False, 2, ())
 Wrapper = _dp_define_class_Wrapper()
@@ -51,8 +61,8 @@ class D(Base):
 # ==
 
 def _dp_class_ns_D(_dp_class_ns, _dp_classcell):
-    _dp_class_ns["__module__"] = __name__
-    _dp_class_ns["__qualname__"] = "D"
+    __dp__.setitem(_dp_class_ns, "__module__", __name__)
+    __dp__.setitem(_dp_class_ns, "__qualname__", "D")
 def _dp_define_class_D():
     return __dp__.create_class("D", _dp_class_ns_D, (Base,), None, False, 2, ())
 D = _dp_define_class_D()
@@ -69,22 +79,22 @@ def outer():
 
 # ==
 
-def _dp_fn_outer():
+def _dp_fn_outer_0():
     _dp_cell_x = __dp__.make_cell()
     __dp__.store_cell(_dp_cell_x, "outer")
 
     def _dp_class_ns_Inner(_dp_class_ns, _dp_classcell):
-        _dp_class_ns["__module__"] = __name__
-        _dp_class_ns["__qualname__"] = "outer.<locals>.Inner"
-        _dp_class_ns["y"] = __dp__.class_lookup_cell(_dp_class_ns, "x", _dp_cell_x)
+        __dp__.setitem(_dp_class_ns, "__module__", __name__)
+        __dp__.setitem(_dp_class_ns, "__qualname__", "outer.<locals>.Inner")
+        __dp__.setitem(_dp_class_ns, "y", __dp__.class_lookup_cell(_dp_class_ns, "x", _dp_cell_x))
 
     def _dp_define_class_Inner():
         return __dp__.create_class("Inner", _dp_class_ns_Inner, (), None, False, 5, ())
     Inner = _dp_define_class_Inner()
     return Inner.y
-__dp__.update_fn(_dp_fn_outer, "outer", "outer")
-outer = _dp_fn_outer
-del _dp_fn_outer
+__dp__.update_fn(_dp_fn_outer_0, "outer", "outer")
+outer = _dp_fn_outer_0
+del _dp_fn_outer_0
 
 # class_super_empty_classcell
 
@@ -97,15 +107,15 @@ class X:
 # ==
 
 def _dp_class_ns_X(_dp_class_ns, _dp_classcell):
-    _dp_class_ns["__module__"] = __name__
-    _dp_class_ns["__qualname__"] = "X"
+    __dp__.setitem(_dp_class_ns, "__module__", __name__)
+    __dp__.setitem(_dp_class_ns, "__qualname__", "X")
 
-    def _dp_fn_f(x):
-        del _dp_classcell.cell_contents
+    def _dp_fn_f_0(x):
+        __dp__.delattr(_dp_classcell, "cell_contents")
         __dp__.call_super(super, _dp_classcell, x)
-    __dp__.update_fn(_dp_fn_f, "X.f", "f")
-    _dp_class_ns["f"] = _dp_fn_f
-    del _dp_fn_f
+    __dp__.update_fn(_dp_fn_f_0, "X.f", "f")
+    __dp__.setitem(_dp_class_ns, "f", _dp_fn_f_0)
+    del _dp_fn_f_0
 def _dp_define_class_X():
     return __dp__.create_class("X", _dp_class_ns_X, (), None, True, 2, ())
 X = _dp_define_class_X()
@@ -119,15 +129,15 @@ class A:
 # ==
 
 def _dp_class_ns_B(_dp_class_ns, _dp_classcell):
-    _dp_class_ns["__module__"] = __name__
-    _dp_class_ns["__qualname__"] = "A.B"
+    __dp__.setitem(_dp_class_ns, "__module__", __name__)
+    __dp__.setitem(_dp_class_ns, "__qualname__", "A.B")
 def _dp_class_ns_A(_dp_class_ns, _dp_classcell):
-    _dp_class_ns["__module__"] = __name__
-    _dp_class_ns["__qualname__"] = "A"
+    __dp__.setitem(_dp_class_ns, "__module__", __name__)
+    __dp__.setitem(_dp_class_ns, "__qualname__", "A")
 
     def _dp_define_class_B():
         return __dp__.create_class("B", _dp_class_ns_B, (), None, False, 3, ())
-    _dp_class_ns["B"] = _dp_define_class_B()
+    __dp__.setitem(_dp_class_ns, "B", _dp_define_class_B())
 def _dp_define_class_A():
     return __dp__.create_class("A", _dp_class_ns_A, (), None, False, 2, ())
 A = _dp_define_class_A()
@@ -143,15 +153,15 @@ def foo():
 
 # ==
 
-def _dp_fn_foo():
+def _dp_fn_foo_0():
 
     def _dp_class_ns_B(_dp_class_ns, _dp_classcell):
-        _dp_class_ns["__module__"] = __name__
-        _dp_class_ns["__qualname__"] = "B"
+        __dp__.setitem(_dp_class_ns, "__module__", __name__)
+        __dp__.setitem(_dp_class_ns, "__qualname__", "B")
 
     def _dp_class_ns_A(_dp_class_ns, _dp_classcell):
-        _dp_class_ns["__module__"] = __name__
-        _dp_class_ns["__qualname__"] = "foo.<locals>.A"
+        __dp__.setitem(_dp_class_ns, "__module__", __name__)
+        __dp__.setitem(_dp_class_ns, "__qualname__", "foo.<locals>.A")
 
         def _dp_define_class_B():
             return __dp__.create_class("B", _dp_class_ns_B, (), None, False, 6, ())
@@ -160,6 +170,6 @@ def _dp_fn_foo():
     def _dp_define_class_A():
         return __dp__.create_class("A", _dp_class_ns_A, (), None, False, 3, ())
     A = _dp_define_class_A()
-__dp__.update_fn(_dp_fn_foo, "foo", "foo")
-foo = _dp_fn_foo
-del _dp_fn_foo
+__dp__.update_fn(_dp_fn_foo_0, "foo", "foo")
+foo = _dp_fn_foo_0
+del _dp_fn_foo_0

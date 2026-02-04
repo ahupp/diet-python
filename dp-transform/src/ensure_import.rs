@@ -5,8 +5,7 @@ use crate::transform::context::Context;
 
 fn future_import_insert_index(module: &[Box<Stmt>]) -> usize {
     let mut insert_at = 0;
-    if let Some(Stmt::Expr(ast::StmtExpr { value, .. })) = module.get(0).map(|stmt| stmt.as_ref())
-    {
+    if let Some(Stmt::Expr(ast::StmtExpr { value, .. })) = module.get(0).map(|stmt| stmt.as_ref()) {
         if matches!(**value, Expr::StringLiteral(_)) {
             insert_at = 1;
         }
@@ -28,7 +27,6 @@ fn future_import_insert_index(module: &[Box<Stmt>]) -> usize {
 }
 
 pub fn ensure_imports(context: &Context, module: &mut StmtBody) {
-
     let mut imports = vec![py_stmt!("__dp__ = __import__(\"__dp__\")")];
 
     if context.needs_typing_import() {
@@ -37,12 +35,11 @@ pub fn ensure_imports(context: &Context, module: &mut StmtBody) {
 
     if context.needs_templatelib_import() {
         imports.push(py_stmt!(
-            "_dp_templatelib = __import__(\"string.templatelib\", fromlist=[\"templatelib\"])"
+            "_dp_templatelib = __dp__.import_(\"string.templatelib\", __spec__, __dp__.list((\"templatelib\",)))"
         ));
     }
 
     let insert_at = future_import_insert_index(&module.body);
     let imports = imports.into_iter().map(Box::new).collect::<Vec<_>>();
     module.body.splice(insert_at..insert_at, imports);
-
 }

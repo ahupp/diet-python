@@ -5,8 +5,8 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-}"
 
 if [ -z "$PYTHON_BIN" ]; then
-  if [ -x "$REPO_ROOT/cpython/python" ]; then
-    PYTHON_BIN="$REPO_ROOT/cpython/python"
+  if [ -x "$REPO_ROOT/vendor/cpython/python" ]; then
+    PYTHON_BIN="$REPO_ROOT/vendor/cpython/python"
   elif command -v python3 >/dev/null 2>&1; then
     PYTHON_BIN="$(command -v python3)"
   else
@@ -16,7 +16,7 @@ fi
 
 (
   cd "$REPO_ROOT" &&
-  cargo build --quiet -p dp-pyo3
+  cargo build --quiet -p soac-pyo3
 )
 
 export PYTHONDONTWRITEBYTECODE=1

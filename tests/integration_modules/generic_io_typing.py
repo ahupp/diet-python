@@ -18,7 +18,14 @@ import pytest
 
 
 module = __import__("sys").modules[__name__]
-cpython_lib = Path(__file__).resolve().parents[1] / "cpython" / "Lib"
+try:
+    import tests as _tests_pkg
+    repo_root = Path(_tests_pkg.__file__).resolve().parents[1]
+except Exception:
+    repo_root = Path(__file__).resolve().parents[2]
+cpython_lib = repo_root / "cpython" / "Lib"
+if not cpython_lib.exists():
+    cpython_lib = repo_root.parent / "cpython" / "Lib"
 if not cpython_lib.exists():
     pytest.skip("CPython stdlib checkout not available")
 prev_sys_path = list(sys.path)
@@ -28,8 +35,12 @@ try:
     example = module.Example
     readlines = example.readlines
     annotations = readlines.__annotations__
-    assert annotations["return"] == module.List[module.AnyStr]
-    assert example.__orig_bases__[0] == module.Generic[module.AnyStr]
+    ann = annotations["return"]
+    assert getattr(ann, "__origin__", None) is list
+    assert getattr(ann, "__args__", None) == (module.AnyStr,)
+    orig_base = example.__orig_bases__[0]
+    assert orig_base.__origin__ is module.Generic
+    assert orig_base.__args__ == (module.AnyStr,)
 finally:
     sys.path[:] = prev_sys_path
     if prev_typing is not None:

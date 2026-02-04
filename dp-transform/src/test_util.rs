@@ -27,8 +27,7 @@ pub(crate) fn assert_transform_eq_ex(actual: &str, expected: &str, truthy: bool)
             .map(|stmt| ComparableStmt::from(stmt.as_ref()))
             .collect();
         if actual_stmt != rerun_stmt {
-            let difference =
-                format_first_difference(&module.module.body.body, rerun_body);
+            let difference = format_first_difference(&module.module.body.body, rerun_body);
             panic!("transform is not idempotent: {difference}");
         }
     }
@@ -85,7 +84,6 @@ fn format_first_difference(actual: &[Box<Stmt>], rerun: &[Box<Stmt>]) -> String 
 pub(crate) fn assert_transform_eq(actual: &str, expected: &str) {
     assert_transform_eq_ex(actual, expected, false);
 }
-
 
 pub(crate) fn run_transform_fixture_tests(fixture: &str) {
     let blocks = match parse_fixture(fixture) {

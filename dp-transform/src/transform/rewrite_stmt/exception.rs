@@ -1,4 +1,3 @@
-
 use ruff_python_ast::{self as ast, Stmt};
 
 use crate::{py_expr, py_stmt, transform::ast_rewrite::Rewrite};
@@ -8,7 +7,97 @@ fn body_to_vec(body: ast::StmtBody) -> Vec<Stmt> {
 }
 
 pub fn rewrite_try(stmt: ast::StmtTry) -> Rewrite {
-    if stmt.is_star || !has_non_default_handler(&stmt){
+    if stmt.is_star {
+        let ast::StmtTry {
+            body,
+            handlers,
+            orelse,
+            finalbody,
+            is_star: _,
+            ..
+        } = stmt;
+        let body = body_to_vec(body);
+        let orelse = body_to_vec(orelse);
+        let finalbody = body_to_vec(finalbody);
+
+        let mut handler_body: Vec<Stmt> = Vec::new();
+        handler_body.push(py_stmt!("_dp_exc = __dp__.current_exception()"));
+        handler_body.push(py_stmt!("_dp_rest = _dp_exc"));
+
+        for handler in handlers {
+            let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
+                type_,
+                name,
+                body: h_body,
+                ..
+            }) = handler;
+
+            let typ = match type_ {
+                Some(expr) => expr,
+                None => Box::new(py_expr!("BaseException")),
+            };
+
+            let (exc_target, body) = if let Some(ast::Identifier { id, .. }) = &name {
+                let target = id.as_str();
+                let exc_target = py_stmt!("{target:id} = _dp_match", target = target);
+                let body = py_stmt!(
+                    r#"
+try:
+    {body:stmt}
+finally:
+    try:
+        del {target:id}
+    except NameError:
+        pass
+"#,
+                    body = h_body,
+                    target = target,
+                );
+                (exc_target, body)
+            } else {
+                (py_stmt!("pass"), h_body.into())
+            };
+
+            handler_body.push(py_stmt!(
+                "_dp_match, _dp_rest = __dp__.exceptiongroup_split(_dp_rest, {typ:expr})",
+                typ = typ,
+            ));
+            handler_body.push(py_stmt!(
+                r#"
+if _dp_match is not None:
+    {exc_target:stmt}
+    {body:stmt}
+"#,
+                exc_target = exc_target,
+                body = body,
+            ));
+        }
+
+        handler_body.push(py_stmt!(
+            r#"
+if _dp_rest is not None:
+    raise _dp_rest
+"#
+        ));
+
+        return Rewrite::Walk(py_stmt!(
+            r#"
+try:
+    {body:stmt}
+except:
+    {handler:stmt}
+else:
+    {orelse:stmt}
+finally:
+    {finally:stmt}
+    "#,
+            body = body,
+            handler = handler_body,
+            orelse = orelse,
+            finally = finalbody,
+        ));
+    }
+    if !has_non_default_handler(&stmt) {
         return Rewrite::Unmodified(stmt.into());
     }
 
@@ -57,10 +146,7 @@ pub fn rewrite_try(stmt: ast::StmtTry) -> Rewrite {
 
         let (exc_target, body) = if let Some(ast::Identifier { id, .. }) = &name {
             let target = id.as_str();
-            let exc_target = py_stmt!(
-                "{target:id} = __dp__.current_exception()",
-                target = target,
-            );
+            let exc_target = py_stmt!("{target:id} = __dp__.current_exception()", target = target,);
             let body = py_stmt!(
                 r#"
 try:

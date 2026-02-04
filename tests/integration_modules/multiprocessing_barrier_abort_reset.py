@@ -103,5 +103,5 @@ def _supports_multiprocessing_barrier() -> bool:
 
 module = __import__("sys").modules[__name__]
 if not _supports_multiprocessing_barrier():
-    pytest.skip("multiprocessing barrier not available in this environment")
+    pytest.xfail("multiprocessing barrier not available in this environment")
 assert module.run() is True

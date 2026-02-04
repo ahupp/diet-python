@@ -1,11 +1,9 @@
-
 use crate::template::into_body;
 use crate::transform::ast_rewrite::Rewrite;
 use crate::transform::context::Context;
 use crate::transform::rewrite_expr::{make_binop, make_tuple};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Operator, Stmt};
-
 
 pub(crate) fn should_rewrite_targets(targets: &[Expr]) -> bool {
     if targets.len() > 1 {
@@ -22,13 +20,7 @@ pub(crate) fn should_rewrite_targets(targets: &[Expr]) -> bool {
     }
 }
 
-pub(crate) fn rewrite_target(
-    context: &Context,
-    target: Expr,
-    rhs: Expr,
-    out: &mut Vec<Stmt>,
-) {
-
+pub(crate) fn rewrite_target(context: &Context, target: Expr, rhs: Expr, out: &mut Vec<Stmt>) {
     match target {
         Expr::Tuple(tuple) => {
             rewrite_unpack_target(context, tuple.elts, rhs, out, UnpackTargetKind::Tuple);
@@ -46,11 +38,20 @@ pub(crate) fn rewrite_target(
             out.push(stmt);
         }
         Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
-            let stmt = py_stmt!("__dp__.setattr({value:expr}, {name:literal}, {rhs:expr})", value = value, name = attr.as_str(), rhs = rhs);
+            let stmt = py_stmt!(
+                "__dp__.setattr({value:expr}, {name:literal}, {rhs:expr})",
+                value = value,
+                name = attr.as_str(),
+                rhs = rhs
+            );
             out.push(stmt);
         }
         Expr::Name(ast::ExprName { id, .. }) => {
-            out.push(py_stmt!("{name:id} = {rhs:expr}", name = id.as_str(), rhs = rhs));
+            out.push(py_stmt!(
+                "{name:id} = {rhs:expr}",
+                name = id.as_str(),
+                rhs = rhs
+            ));
         }
         other => {
             panic!("unsupported assignment target: {other:?}");
@@ -130,7 +131,6 @@ fn rewrite_unpack_target(
     out.extend(body_stmts);
 }
 
-
 pub(crate) fn rewrite_assign(context: &Context, assign: ast::StmtAssign) -> Rewrite {
     if !should_rewrite_targets(&assign.targets) {
         return Rewrite::Unmodified(assign.into());
@@ -144,7 +144,11 @@ pub(crate) fn rewrite_assign(context: &Context, assign: ast::StmtAssign) -> Rewr
         let lowered = context.maybe_placeholder_lowered(*value);
         stmts.push(lowered.stmt);
         for target in targets {
-            stmts.push(py_stmt!("{target:expr} = {value:expr}", target = target, value = lowered.expr.clone()));
+            stmts.push(py_stmt!(
+                "{target:expr} = {value:expr}",
+                target = target,
+                value = lowered.expr.clone()
+            ));
         }
     } else {
         let target = targets.into_iter().next().unwrap();
@@ -154,10 +158,7 @@ pub(crate) fn rewrite_assign(context: &Context, assign: ast::StmtAssign) -> Rewr
     Rewrite::Walk(into_body(stmts))
 }
 
-pub(crate) fn rewrite_aug_assign(
-    context: &Context,
-    aug_assign: ast::StmtAugAssign,
-) -> Rewrite {
+pub(crate) fn rewrite_aug_assign(context: &Context, aug_assign: ast::StmtAugAssign) -> Rewrite {
     let ast::StmtAugAssign {
         mut target,
         op,
@@ -203,20 +204,20 @@ pub(crate) fn rewrite_delete(delete: ast::StmtDelete) -> Rewrite {
         .targets
         .into_iter()
         .map(|target| match target {
-                Expr::Subscript(sub) => py_stmt!(
-                    "__dp__.delitem({obj:expr}, {key:expr})",
-                    obj = sub.value,
-                    key = sub.slice
-                ),
-                Expr::Attribute(attr) => {
-                    py_stmt!(
-                        "__dp__.delattr({obj:expr}, {name:literal})",
-                        obj = attr.value,
-                        name = attr.attr.as_str(),
-                    )
-                }
-                other => py_stmt!("del {target:expr}", target = other),
-            })
+            Expr::Subscript(sub) => py_stmt!(
+                "__dp__.delitem({obj:expr}, {key:expr})",
+                obj = sub.value,
+                key = sub.slice
+            ),
+            Expr::Attribute(attr) => {
+                py_stmt!(
+                    "__dp__.delattr({obj:expr}, {name:literal})",
+                    obj = attr.value,
+                    name = attr.attr.as_str(),
+                )
+            }
+            other => py_stmt!("del {target:expr}", target = other),
+        })
         .collect();
     Rewrite::Walk(into_body(stmts))
 }

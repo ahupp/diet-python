@@ -1,28 +1,25 @@
-use crate::{transform::context::Context, transformer::Transformer};
 use crate::py_expr;
+use crate::{transform::context::Context, transformer::Transformer};
 use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_source_file::LineEnding;
 
 pub fn rewrite(_context: &Context, body: &mut StmtBody) {
     let mut rewriter = FutureAnnotationsRewriter::new();
-    rewriter.strip_future_import(body);
-    if rewriter.enabled {
-        (&mut rewriter).visit_body(body);
+    if !rewriter.has_future_annotations(body) {
+        return;
     }
+    rewriter.strip_future_import(body);
+    (&mut rewriter).visit_body(body);
 }
 
-// When `from __future__ import annotations` is present, stringify annotation
-// expressions early so later rewrites don't change the deferred-evaluation form.
 struct FutureAnnotationsRewriter {
-    enabled: bool,
     indent: Indentation,
 }
 
 impl FutureAnnotationsRewriter {
     fn new() -> Self {
         Self {
-            enabled: false,
             indent: Indentation::new("    ".to_string()),
         }
     }
@@ -33,15 +30,11 @@ impl FutureAnnotationsRewriter {
             let mut remove_stmt = false;
             if let Stmt::ImportFrom(import_from) = body.body[index].as_mut() {
                 if is_future_annotations(import_from) {
-                    let before_len = import_from.names.len();
                     import_from
                         .names
                         .retain(|alias| alias.name.id.as_str() != "annotations");
                     if import_from.names.is_empty() {
                         remove_stmt = true;
-                    }
-                    if import_from.names.len() != before_len {
-                        self.enabled = true;
                     }
                 }
             }
@@ -52,6 +45,19 @@ impl FutureAnnotationsRewriter {
                 index += 1;
             }
         }
+    }
+
+    fn has_future_annotations(&self, body: &StmtBody) -> bool {
+        body.body.iter().any(|stmt| match stmt.as_ref() {
+            Stmt::ImportFrom(import_from) => {
+                is_future_annotations(import_from)
+                    && import_from
+                        .names
+                        .iter()
+                        .any(|alias| alias.name.id.as_str() == "annotations")
+            }
+            _ => false,
+        })
     }
 
     fn annotation_string(&self, expr: &Expr) -> String {

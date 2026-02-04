@@ -92,6 +92,7 @@
 - `test.test_doctest.test_doctest.test_DocTestFinder`: diet-python rewrites sources/bytecode, so this test's source/line/bytecode expectations differ from CPython.
 - `test.test_doctest.test_doctest2.Test.test_testmod`: diet-python rewrites sources/bytecode, so this test's source/line/bytecode expectations differ from CPython.
 - `test.test_tracemalloc.TestTracemallocEnabled.test_get_traced_memory`: diet-python rewrites sources/bytecode, so this test's source/line/bytecode expectations differ from CPython.
+- `test.test__interpreters`: without `__dp__`'s `_patch_interpreters` compatibility layer, `_interpreters.run_func()` no longer accepts transformed callables and related behavior diverges from CPython expectations.
 
 ## Added from 2026-02-03 run
 - `test.test_future_stmt.test_future.FutureTest.test_module_with_future_import_not_on_top`: transformation shifts line numbers in generated syntax-error test file, so expected lineno differs.

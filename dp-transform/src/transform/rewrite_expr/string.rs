@@ -1,6 +1,6 @@
 use crate::{py_expr, transform::rewrite_expr::make_tuple};
-use ruff_python_ast::{self as ast, Expr};
 use ruff_python_ast::str_prefix::StringLiteralPrefix;
+use ruff_python_ast::{self as ast, Expr};
 use ruff_text_size::Ranged;
 
 use crate::transform::context::Context;
@@ -61,7 +61,9 @@ fn rewrite_interpolation(
         interp.conversion
     };
     value = match conversion {
-        ast::ConversionFlag::Ascii => py_expr!("__dp__.builtins.ascii({value:expr})", value = value),
+        ast::ConversionFlag::Ascii => {
+            py_expr!("__dp__.builtins.ascii({value:expr})", value = value)
+        }
         ast::ConversionFlag::Repr => py_expr!("__dp__.builtins.repr({value:expr})", value = value),
         ast::ConversionFlag::Str => py_expr!("__dp__.builtins.str({value:expr})", value = value),
         ast::ConversionFlag::None => value,

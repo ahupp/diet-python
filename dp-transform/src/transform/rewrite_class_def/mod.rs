@@ -1,22 +1,17 @@
-
+pub mod class_body;
 pub mod method;
 pub mod private;
-pub mod class_body;
-
 
 use crate::template::empty_body;
-use crate::transform::rewrite_expr::make_tuple;
 use crate::transform::context::Context;
+use crate::transform::rewrite_expr::make_tuple;
 use crate::{py_expr, py_stmt, py_stmt_typed};
 use ruff_python_ast::{
-    self as ast, Expr, Stmt, TypeParam, TypeParamParamSpec,
-    TypeParamTypeVar, TypeParamTypeVarTuple,
+    self as ast, Expr, Stmt, TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple,
 };
 use ruff_text_size::TextRange;
 
-
 use std::mem::take;
-
 
 fn class_def_to_create_class_fn<'a>(
     context: &Context,
@@ -24,8 +19,6 @@ fn class_def_to_create_class_fn<'a>(
     class_qualname: String,
     needs_class_cell: bool,
 ) -> (ast::StmtFunctionDef, ast::StmtFunctionDef) {
-
-
     let ast::StmtClassDef {
         name,
         body,
@@ -36,10 +29,7 @@ fn class_def_to_create_class_fn<'a>(
 
     let type_params = take(type_params);
     let arguments = take(arguments);
-    let mut body = std::mem::replace(
-        body,
-        empty_body().into(),
-    );
+    let mut body = std::mem::replace(body, empty_body().into());
 
     let class_name = name.id.to_string();
     let class_firstlineno = context.line_number_at(class_def.range.start().to_usize());
@@ -77,11 +67,14 @@ fn class_def_to_create_class_fn<'a>(
 
     if let Some(first_stmt) = first_non_empty_stmt(&body.body) {
         if let Some(doc_expr) = class_doc_expr(first_stmt) {
-            body.body.insert(0, Box::new(py_stmt!(
-                "_dp_class_ns[{name:literal}] = {value:expr}",
-                name = "__doc__",
-                value = doc_expr
-            )));
+            body.body.insert(
+                0,
+                Box::new(py_stmt!(
+                    "_dp_class_ns[{name:literal}] = {value:expr}",
+                    name = "__doc__",
+                    value = doc_expr
+                )),
+            );
         }
     }
 
@@ -92,60 +85,64 @@ fn class_def_to_create_class_fn<'a>(
         .unwrap_or_default();
 
     let mut type_param_cleanup: Vec<Stmt> = Vec::new();
-    let (type_param_bindings, mut type_param_statements, extra_bases) = if let Some(type_params) = type_params {
-        context.require_typing_import();
-        let type_param_info = make_type_param_info(*type_params);
-        let has_generic_base = arguments_has_generic(arguments.as_deref());
-        let generic_param_base = make_generic_base(&type_param_info);
-        let mut extra_bases = Vec::new();
-        if !has_generic_base {
-            extra_bases.push(py_expr!("_dp_typing.Generic"));
-        }
+    let (type_param_bindings, mut type_param_statements, extra_bases) =
+        if let Some(type_params) = type_params {
+            context.require_typing_import();
+            let type_param_info = make_type_param_info(*type_params);
+            let has_generic_base = arguments_has_generic(arguments.as_deref());
+            let generic_param_base = make_generic_base(&type_param_info);
+            let mut extra_bases = Vec::new();
+            if !has_generic_base {
+                extra_bases.push(py_expr!("_dp_typing.Generic"));
+            }
 
-        if let Some(generic_param_base) = generic_param_base {
-            let mut orig_bases = Vec::new();
-            if has_generic_base {
-                for base in &original_bases {
-                    if is_generic_expr(base) {
-                        orig_bases.push(generic_param_base.clone());
-                    } else {
-                        orig_bases.push(base.clone());
+            if let Some(generic_param_base) = generic_param_base {
+                let mut orig_bases = Vec::new();
+                if has_generic_base {
+                    for base in &original_bases {
+                        if is_generic_expr(base) {
+                            orig_bases.push(generic_param_base.clone());
+                        } else {
+                            orig_bases.push(base.clone());
+                        }
                     }
+                } else {
+                    orig_bases.extend(original_bases.clone());
+                    orig_bases.push(generic_param_base);
                 }
-            } else {
-                orig_bases.extend(original_bases.clone());
-                orig_bases.push(generic_param_base);
+                if !orig_bases.is_empty() {
+                    orig_bases_expr = Some(make_tuple(orig_bases));
+                }
             }
-            if !orig_bases.is_empty() {
-                orig_bases_expr = Some(make_tuple(orig_bases));
-            }
-        }
-        let mut type_param_statements = type_param_info.type_params_tuple.map(|tuple_expr| {
-            vec![py_stmt!(
-                "_dp_class_ns[{name:literal}] = {tuple:expr}",
-                name = "__type_params__",
-                tuple = tuple_expr.clone()
-            )]
-        }).unwrap_or_default();
+            let mut type_param_statements = type_param_info
+                .type_params_tuple
+                .map(|tuple_expr| {
+                    vec![py_stmt!(
+                        "_dp_class_ns[{name:literal}] = {tuple:expr}",
+                        name = "__type_params__",
+                        tuple = tuple_expr.clone()
+                    )]
+                })
+                .unwrap_or_default();
 
-        for name in &type_param_info.param_names {
-            type_param_statements.push(py_stmt!(
-                "_dp_class_ns[{name:literal}] = {name:id}",
-                name = name.as_str(),
-            ));
-            type_param_cleanup.push(py_stmt!(
-                r#"
+            for name in &type_param_info.param_names {
+                type_param_statements.push(py_stmt!(
+                    "_dp_class_ns[{name:literal}] = {name:id}",
+                    name = name.as_str(),
+                ));
+                type_param_cleanup.push(py_stmt!(
+                    r#"
 if _dp_class_ns.get({name:literal}) is {name:id}:
     del _dp_class_ns[{name:literal}]
 "#,
-                name = name.as_str(),
-            ));
-        }
+                    name = name.as_str(),
+                ));
+            }
 
-        (type_param_info.bindings, type_param_statements, extra_bases)
-    } else {
-        (vec![], vec![], vec![])
-    };
+            (type_param_info.bindings, type_param_statements, extra_bases)
+        } else {
+            (vec![], vec![], vec![])
+        };
 
     if let Some(orig_bases_expr) = orig_bases_expr {
         type_param_statements.push(py_stmt!(
@@ -155,11 +152,7 @@ if _dp_class_ns.get({name:literal}) is {name:id}:
         ));
     }
 
-
-    let (bases_tuple, prepare_dict) = class_call_arguments(
-        arguments,
-        extra_bases,
-    );
+    let (bases_tuple, prepare_dict) = class_call_arguments(arguments, extra_bases);
 
     // TODO: bases probably depends on the type params too
 
@@ -174,8 +167,7 @@ def _dp_class_ns_{class_name:id}(_dp_class_ns, _dp_classcell):
     {type_param_statements:stmt}
     {ns_body:stmt}
     {type_param_cleanup:stmt}"#,
-
-    class_name = class_name.as_str(),
+        class_name = class_name.as_str(),
         class_qualname = class_qualname.as_str(),
         ns_body = body,
         type_param_statements = type_param_statements,
@@ -183,7 +175,8 @@ def _dp_class_ns_{class_name:id}(_dp_class_ns, _dp_classcell):
         type_param_cleanup = type_param_cleanup,
     );
 
-    let define_class_fn: ast::StmtFunctionDef = py_stmt_typed!(r#"
+    let define_class_fn: ast::StmtFunctionDef = py_stmt_typed!(
+        r#"
 def _dp_define_class_{class_name:id}():
     {type_param_bindings:stmt}
     return __dp__.create_class(
@@ -208,7 +201,6 @@ def _dp_define_class_{class_name:id}():
     (class_ns_def, define_class_fn)
 }
 
-
 struct TypeParamInfo {
     bindings: Vec<Stmt>,
     param_names: Vec<String>,
@@ -216,11 +208,9 @@ struct TypeParamInfo {
     generic_params: Vec<Expr>,
 }
 
-fn make_type_param_info(
-    type_params: ast::TypeParams,
-) -> TypeParamInfo {
+fn make_type_param_info(type_params: ast::TypeParams) -> TypeParamInfo {
     // TODO
-//    rewriter.visit_type_params(&mut type_params);
+    //    rewriter.visit_type_params(&mut type_params);
 
     let mut bindings = Vec::new();
     let mut param_names = Vec::new();
@@ -340,10 +330,7 @@ fn make_generic_base(info: &TypeParamInfo) -> Option<Expr> {
 
 fn arguments_has_generic(arguments: Option<&ast::Arguments>) -> bool {
     arguments.map_or(false, |arguments| {
-        arguments
-            .args
-            .iter()
-            .any(|expr| is_generic_expr(expr))
+        arguments.args.iter().any(|expr| is_generic_expr(expr))
     })
 }
 
@@ -355,7 +342,6 @@ fn is_generic_expr(expr: &Expr) -> bool {
         _ => false,
     }
 }
-
 
 pub fn class_call_arguments(
     arguments: Option<Box<ast::Arguments>>,

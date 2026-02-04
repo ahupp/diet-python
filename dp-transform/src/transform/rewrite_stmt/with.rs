@@ -1,22 +1,23 @@
-use crate::transform::ast_rewrite::Rewrite;
-use crate::transform::context::Context;
 use crate::py_stmt;
 use crate::template::empty_body;
+use crate::transform::ast_rewrite::Rewrite;
+use crate::transform::context::Context;
 use ruff_python_ast::{self as ast, Stmt};
 
-
-pub fn rewrite(
-    context: &Context,
-    with_stmt: ast::StmtWith,
-) -> Rewrite {
+pub fn rewrite(context: &Context, with_stmt: ast::StmtWith) -> Rewrite {
     if with_stmt.items.is_empty() {
         return Rewrite::Unmodified(with_stmt.into());
     }
 
-    let ast::StmtWith { items, body, is_async, .. } = with_stmt;
+    let ast::StmtWith {
+        items,
+        body,
+        is_async,
+        ..
+    } = with_stmt;
 
     let mut body: Stmt = body.into();
-    
+
     for ast::WithItem {
         context_expr,
         optional_vars,
@@ -29,15 +30,11 @@ pub fn rewrite(
         let ok_name = context.fresh("with_ok");
         let suppress_name = context.fresh("with_suppress");
 
-
         let ctx_placeholder = context.maybe_placeholder_lowered(context_expr);
 
         // TODO: more formal handling of placeholder reuse
         let ctx_cleanup = if ctx_placeholder.modified {
-            py_stmt!(
-                "{ctx:expr} = None",
-                ctx = ctx_placeholder.expr.clone(),
-            )
+            py_stmt!("{ctx:expr} = None", ctx = ctx_placeholder.expr.clone(),)
         } else {
             empty_body().into()
         };

@@ -93,7 +93,7 @@ def _disable_import_hook() -> Iterator[None]:
 
 @contextmanager
 def _load_module(
-    tmp_path: Path, module_name: str, source: str, *, transform: bool
+    tmp_path: Path, module_name: str, source: str, *, mode: str
 ) -> Iterator[ModuleType]:
     package_name = f"_dp_integration_{uuid4().hex}"
     package_dir = tmp_path / package_name
@@ -108,25 +108,37 @@ def _load_module(
     sys.path.insert(0, package_root)
     prior_allow_temp = os.environ.get("DIET_PYTHON_ALLOW_TEMP")
     os.environ["DIET_PYTHON_ALLOW_TEMP"] = "1"
+    prior_mode = os.environ.get("DIET_PYTHON_MODE")
 
     full_name = f"{package_name}.{module_name}"
 
     try:
-        if transform:
+        if mode == "transform":
+            os.environ["DIET_PYTHON_MODE"] = "transform"
+            diet_import_hook.install()
+            sys.modules.pop(full_name, None)
+            sys.modules.pop(package_name, None)
+            module = importlib.import_module(full_name)
+        elif mode == "eval":
+            os.environ["DIET_PYTHON_MODE"] = "eval"
             diet_import_hook.install()
             sys.modules.pop(full_name, None)
             sys.modules.pop(package_name, None)
             module = importlib.import_module(full_name)
         else:
+            os.environ.pop("DIET_PYTHON_MODE", None)
             with _disable_import_hook():
                 sys.modules.pop(full_name, None)
                 sys.modules.pop(package_name, None)
                 module = importlib.import_module(full_name)
-        _print_integration_failure_context(module_path)
         if prior_allow_temp is None:
             os.environ.pop("DIET_PYTHON_ALLOW_TEMP", None)
         else:
             os.environ["DIET_PYTHON_ALLOW_TEMP"] = prior_allow_temp
+        if prior_mode is None:
+            os.environ.pop("DIET_PYTHON_MODE", None)
+        else:
+            os.environ["DIET_PYTHON_MODE"] = prior_mode
         yield module
     except Exception:
         _print_integration_failure_context(module_path)
@@ -145,13 +157,17 @@ def _load_module(
             os.environ.pop("DIET_PYTHON_ALLOW_TEMP", None)
         else:
             os.environ["DIET_PYTHON_ALLOW_TEMP"] = prior_allow_temp
+        if prior_mode is None:
+            os.environ.pop("DIET_PYTHON_MODE", None)
+        else:
+            os.environ["DIET_PYTHON_MODE"] = prior_mode
 
 
 @contextmanager
 def transformed_module(
     tmp_path: Path, module_name: str, source: str
 ) -> Iterator[ModuleType]:
-    with _load_module(tmp_path, module_name, source, transform=True) as module:
+    with _load_module(tmp_path, module_name, source, mode="transform") as module:
         yield module
 
 
@@ -159,12 +175,22 @@ def transformed_module(
 def untransformed_module(
     tmp_path: Path, module_name: str, source: str
 ) -> Iterator[ModuleType]:
-    with _load_module(tmp_path, module_name, source, transform=False) as module:
+    with _load_module(tmp_path, module_name, source, mode="stock") as module:
         yield module
 
 
 def exec_integration_validation(
-    validate_source: str, module: ModuleType, module_path: Path, *, transformed: bool
+    validate_source: str, module: ModuleType, module_path: Path, *, mode: str
 ) -> None:
-    module.__dict__["__dp_integration_transformed__"] = transformed
-    exec(compile(validate_source, str(module_path), "exec"), module.__dict__)
+    module.__dict__["__dp_integration_transformed__"] = mode != "stock"
+    module.__dict__["__dp_integration_mode__"] = mode
+    globals_dict = dict(module.__dict__)
+    exec(compile(validate_source, str(module_path), "exec"), globals_dict)
+
+
+@contextmanager
+def integration_module(
+    tmp_path: Path, module_name: str, source: str, *, mode: str
+) -> Iterator[ModuleType]:
+    with _load_module(tmp_path, module_name, source, mode=mode) as module:
+        yield module

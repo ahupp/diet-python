@@ -627,7 +627,10 @@ pub fn walk_expr<V: Transformer + ?Sized>(visitor: &mut V, expr: &mut Expr) {
     }
 }
 
-pub fn walk_comprehension<V: Transformer + ?Sized>(visitor: &mut V, comprehension: &mut Comprehension) {
+pub fn walk_comprehension<V: Transformer + ?Sized>(
+    visitor: &mut V,
+    comprehension: &mut Comprehension,
+) {
     visitor.visit_expr(&mut comprehension.iter);
     visitor.visit_expr(&mut comprehension.target);
     for expr in &mut comprehension.ifs {
@@ -853,7 +856,11 @@ pub fn walk_t_string<V: Transformer + ?Sized>(visitor: &mut V, t_string: &mut TS
     }
 }
 
-pub fn walk_expr_context<V: Transformer + ?Sized>(_visitor: &mut V, _expr_context: &mut ExprContext) {}
+pub fn walk_expr_context<V: Transformer + ?Sized>(
+    _visitor: &mut V,
+    _expr_context: &mut ExprContext,
+) {
+}
 
 pub fn walk_bool_op<V: Transformer + ?Sized>(_visitor: &mut V, _bool_op: &mut BoolOp) {}
 

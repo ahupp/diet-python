@@ -1,9 +1,9 @@
-pub mod with;
-pub mod exception;
-pub mod loop_cond;
+pub mod annotation;
 pub mod assert;
 pub mod assign_del;
-pub mod match_case;
 pub mod decorator;
-pub mod annotation;
+pub mod exception;
+pub mod loop_cond;
+pub mod match_case;
 pub mod type_alias;
+pub mod with;

@@ -1,4 +1,6 @@
-use ruff_python_ast::{self as ast, Expr, Stmt, TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple};
+use ruff_python_ast::{
+    self as ast, Expr, Stmt, TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple,
+};
 
 use crate::template::into_body;
 use crate::transform::ast_rewrite::Rewrite;
@@ -139,14 +141,22 @@ pub(crate) fn rewrite_type_alias(context: &Context, type_alias: ast::StmtTypeAli
                 value = value,
                 params = type_params_tuple,
             );
-            stmts.push(py_stmt!("{target:expr} = {alias:expr}", target = name, alias = alias_expr));
+            stmts.push(py_stmt!(
+                "{target:expr} = {alias:expr}",
+                target = name,
+                alias = alias_expr
+            ));
         } else {
             let alias_expr = py_expr!(
                 "_dp_typing.TypeAliasType({name:literal}, {value:expr})",
                 name = alias_name,
                 value = value,
             );
-            stmts.push(py_stmt!("{target:expr} = {alias:expr}", target = name, alias = alias_expr));
+            stmts.push(py_stmt!(
+                "{target:expr} = {alias:expr}",
+                target = name,
+                alias = alias_expr
+            ));
         }
         for name in type_param_info.param_names {
             stmts.push(py_stmt!("del {name:id}", name = name.as_str()));
@@ -160,7 +170,11 @@ pub(crate) fn rewrite_type_alias(context: &Context, type_alias: ast::StmtTypeAli
         name = alias_name,
         value = value,
     );
-    stmts.push(py_stmt!("{target:expr} = {alias:expr}", target = name, alias = alias_expr));
+    stmts.push(py_stmt!(
+        "{target:expr} = {alias:expr}",
+        target = name,
+        alias = alias_expr
+    ));
 
     Rewrite::Walk(into_body(stmts))
 }

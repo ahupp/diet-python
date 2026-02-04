@@ -52,21 +52,21 @@ const TRANSFORM_TOGGLES: &[TransformToggle] = &[
 ];
 
 pub mod ensure_import;
-pub mod scope_aware_transformer;
 pub mod fixture;
 pub mod min_ast;
-pub mod side_by_side;
 mod namegen;
+pub mod scope_aware_transformer;
+pub mod side_by_side;
 mod template;
-pub(crate) mod transformer;
 #[cfg(test)]
 mod test_util;
 mod transform;
+pub(crate) mod transformer;
 
 use crate::transform::driver::rewrite_module;
-pub use transform::{ImportStarHandling, Options};
 pub use crate::transform::scope::{analyze_module_scope, Scope};
-use transform::{context::Context};
+use transform::context::Context;
+pub use transform::Options;
 
 #[derive(Debug, Clone, Copy)]
 pub struct TransformTimings {
@@ -79,9 +79,8 @@ static INIT_LOGGER: Once = Once::new();
 
 pub fn init_logging() {
     INIT_LOGGER.call_once(|| {
-        let mut builder = env_logger::Builder::from_env(
-            env_logger::Env::default().default_filter_or(""),
-        );
+        let mut builder =
+            env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(""));
         if cfg!(test) {
             builder.is_test(true);
         }
@@ -96,20 +95,21 @@ fn should_skip(source: &str) -> bool {
         .is_some_and(|line| line.contains("diet-python: disabled"))
 }
 
-
-
 pub struct LoweringResult {
     pub timings: TransformTimings,
     pub module: ruff_python_ast::ModModule,
-} 
+    function_name_map: std::collections::HashMap<String, (String, String)>,
+}
 
 impl LoweringResult {
     pub fn to_string(&self) -> String {
         ruff_ast_to_string(&self.module.body)
     }
+
+    pub fn into_min_ast(self) -> min_ast::Module {
+        min_ast::Module::from_with_function_name_map(self.module, &self.function_name_map)
+    }
 }
-
-
 
 /// Transform the source code and return the resulting Ruff AST.
 pub fn transform_str_to_ruff_with_options(
@@ -133,15 +133,15 @@ pub fn transform_str_to_ruff_with_options(
                 total_time: Duration::from_nanos(0),
             },
             module,
+            function_name_map: std::collections::HashMap::new(),
         });
     }
-
 
     let ctx = Context::new(options, source);
 
     let rewrite_start = Instant::now();
 
-    rewrite_module(&ctx, &mut module.body);
+    let function_name_map = rewrite_module(&ctx, &mut module.body);
     let rewrite_time = rewrite_start.elapsed();
 
     let timings = TransformTimings {
@@ -153,10 +153,9 @@ pub fn transform_str_to_ruff_with_options(
     Ok(LoweringResult {
         timings,
         module,
+        function_name_map,
     })
 }
-
-
 
 pub trait ToRuffAst {
     fn to_ruff_ast(&self) -> Vec<Stmt>;
@@ -164,7 +163,11 @@ pub trait ToRuffAst {
 
 impl ToRuffAst for Expr {
     fn to_ruff_ast(&self) -> Vec<Stmt> {
-        vec![Stmt::Expr(ast::StmtExpr { value: Box::new(self.clone()), range: TextRange::default(), node_index: ast::AtomicNodeIndex::default() })]
+        vec![Stmt::Expr(ast::StmtExpr {
+            value: Box::new(self.clone()),
+            range: TextRange::default(),
+            node_index: ast::AtomicNodeIndex::default(),
+        })]
     }
 }
 
@@ -175,12 +178,10 @@ impl ToRuffAst for Stmt {
 }
 
 impl ToRuffAst for &Stmt {
-
     fn to_ruff_ast(&self) -> Vec<Stmt> {
         vec![self.to_owned().clone()]
     }
 }
-
 
 impl ToRuffAst for &Vec<Stmt> {
     fn to_ruff_ast(&self) -> Vec<Stmt> {
@@ -222,13 +223,15 @@ impl ToRuffAst for &StmtBody {
     }
 }
 
-
-
 impl ToRuffAst for &Expr {
     fn to_ruff_ast(&self) -> Vec<Stmt> {
         let expr = self.to_owned().clone();
-        vec![Stmt::Expr(ast::StmtExpr { value: Box::new(expr), range: TextRange::default(), node_index: ast::AtomicNodeIndex::default() })]
-    }        
+        vec![Stmt::Expr(ast::StmtExpr {
+            value: Box::new(expr),
+            range: TextRange::default(),
+            node_index: ast::AtomicNodeIndex::default(),
+        })]
+    }
 }
 
 impl ToRuffAst for &[Stmt] {
@@ -255,15 +258,17 @@ pub fn ruff_ast_to_string(module: impl ToRuffAst) -> String {
 #[wasm_bindgen]
 pub fn transform(source: &str) -> Result<String, JsValue> {
     let options = Options::default();
-    let result = transform_str_to_ruff_with_options(source, options).map_err(|e| e.to_string().into())?;
-    Ok(result.to_string())    
+    let result =
+        transform_str_to_ruff_with_options(source, options).map_err(|e| e.to_string().into())?;
+    Ok(result.to_string())
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn transform_selected(source: &str, transforms: Array) -> Result<String, JsValue> {
     let options = wasm_options_from_selected(&transforms);
-    let result = transform_str_to_ruff_with_options(source, options).map_err(|e| e.to_string().into())?;
+    let result =
+        transform_str_to_ruff_with_options(source, options).map_err(|e| e.to_string().into())?;
     Ok(result.to_string())
 }
 
