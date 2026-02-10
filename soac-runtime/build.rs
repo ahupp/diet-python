@@ -6,7 +6,12 @@ fn main() {
     let repo_root = manifest_dir
         .parent()
         .expect("soac-runtime should live under the repo root");
-    let cpython_dir = repo_root.join("cpython");
+    let vendor_cpython_dir = repo_root.join("vendor").join("cpython");
+    let cpython_dir = if vendor_cpython_dir.exists() {
+        vendor_cpython_dir
+    } else {
+        repo_root.join("cpython")
+    };
     let header = manifest_dir.join("bindings.h");
 
     println!("cargo:rerun-if-changed={}", header.display());

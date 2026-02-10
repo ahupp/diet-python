@@ -12,12 +12,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
     let repo_root = manifest_dir
         .parent()
-        .ok_or("soac-codegen should live under the repo root")?;
+        .ok_or("soac-eval should live under the repo root")?;
     let runtime_dir = repo_root.join("soac-runtime");
     let target_dir = soac_codegen_target_dir(repo_root);
 
     emit_rerun_if_changed(&runtime_dir)?;
-
     build_runtime(repo_root, &target_dir)?;
 
     let clif_files = find_runtime_clif_files(&target_dir)?;
@@ -31,7 +30,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let clif_text = read_clif_files(&clif_files)?;
     write_clif_constant(&clif_text)?;
-
     Ok(())
 }
 
@@ -51,6 +49,13 @@ fn build_runtime(repo_root: &Path, target_dir: &Path) -> Result<(), Box<dyn Erro
         .current_dir(repo_root.join("soac-runtime"))
         .env("CARGO_PROFILE_DEV_CODEGEN_BACKEND", "cranelift")
         .env("CARGO_TARGET_DIR", target_dir)
+        .env_remove("PYO3_PYTHON")
+        .env_remove("PYO3_CONFIG_FILE")
+        .env_remove("PYO3_CROSS")
+        .env_remove("PYO3_CROSS_LIB_DIR")
+        .env_remove("PYO3_CROSS_PYTHON_VERSION")
+        .env_remove("PYO3_CROSS_PYTHON_IMPLEMENTATION")
+        .env_remove("PYO3_PRINT_CONFIG")
         .arg("rustc")
         .arg("-vv")
         .arg("-Zcodegen-backend")

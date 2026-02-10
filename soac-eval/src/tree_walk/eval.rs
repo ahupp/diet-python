@@ -1,5 +1,7 @@
 use super::eval_genawait::stmt_has_yield;
 use super::*;
+use pyo3::prelude::*;
+use pyo3::types::PyDict;
 
 type TypeParamScope = HashMap<String, *mut ffi::PyObject>;
 
@@ -915,7 +917,8 @@ fn closure_name_requires_cell(name: &str) -> bool {
     name.starts_with("_dp_cell_") || name == "_dp_classcell"
 }
 
-unsafe fn function_defaults_object(params: &[ParamSpec]) -> Result<*mut ffi::PyObject, ()> {
+unsafe fn function_defaults_object(params: &[ParamSpec]) -> Result<Py<PyAny>, ()> {
+    let py = Python::assume_attached();
     let mut defaults = Vec::new();
     let mut seen_default = false;
     for param in params {
@@ -929,8 +932,9 @@ unsafe fn function_defaults_object(params: &[ParamSpec]) -> Result<*mut ffi::PyO
         }
     }
     if defaults.is_empty() {
-        ffi::Py_INCREF(ffi::Py_None());
-        return Ok(ffi::Py_None());
+        let none = ffi::Py_None();
+        ffi::Py_INCREF(none);
+        return Ok(Bound::<PyAny>::from_owned_ptr(py, none).unbind());
     }
     let tuple = ffi::PyTuple_New(defaults.len() as ffi::Py_ssize_t);
     if tuple.is_null() {
@@ -943,11 +947,13 @@ unsafe fn function_defaults_object(params: &[ParamSpec]) -> Result<*mut ffi::PyO
             return Err(());
         }
     }
-    Ok(tuple)
+    Ok(Bound::<PyAny>::from_owned_ptr(py, tuple).unbind())
 }
 
-unsafe fn function_kwdefaults_object(params: &[ParamSpec]) -> Result<*mut ffi::PyObject, ()> {
-    let mut dict: *mut ffi::PyObject = ptr::null_mut();
+unsafe fn function_kwdefaults_object(params: &[ParamSpec]) -> Result<Py<PyAny>, ()> {
+    let py = Python::assume_attached();
+    let dict = PyDict::new(py);
+    let mut has_defaults = false;
     for param in params {
         if param.kind != ParamKind::KwOnly {
             continue;
@@ -955,32 +961,29 @@ unsafe fn function_kwdefaults_object(params: &[ParamSpec]) -> Result<*mut ffi::P
         let Some(value) = param.default else {
             continue;
         };
-        if dict.is_null() {
-            dict = ffi::PyDict_New();
-            if dict.is_null() {
-                return Err(());
-            }
-        }
-        let key = CString::new(param.name.as_str()).unwrap();
-        if ffi::PyDict_SetItemString(dict, key.as_ptr(), value) != 0 {
-            ffi::Py_DECREF(dict);
+        has_defaults = true;
+        let value_obj = Bound::<PyAny>::from_borrowed_ptr(py, value);
+        if dict.set_item(param.name.as_str(), value_obj).is_err() {
             return Err(());
         }
     }
-    if dict.is_null() {
-        ffi::Py_INCREF(ffi::Py_None());
-        return Ok(ffi::Py_None());
+    if !has_defaults {
+        let none = ffi::Py_None();
+        ffi::Py_INCREF(none);
+        return Ok(Bound::<PyAny>::from_owned_ptr(py, none).unbind());
     }
-    Ok(dict)
+    Ok(dict.into_any().unbind())
 }
 
 unsafe fn function_closure_object(
     data: &FunctionData,
     code: *mut ffi::PyObject,
-) -> Result<*mut ffi::PyObject, ()> {
+) -> Result<Py<PyAny>, ()> {
+    let py = Python::assume_attached();
     let Some(closure) = data.closure.as_ref() else {
-        ffi::Py_INCREF(ffi::Py_None());
-        return Ok(ffi::Py_None());
+        let none = ffi::Py_None();
+        ffi::Py_INCREF(none);
+        return Ok(Bound::<PyAny>::from_owned_ptr(py, none).unbind());
     };
     if ffi::PyObject_TypeCheck(code, std::ptr::addr_of_mut!(ffi::PyCode_Type)) != 0 {
         let freevars = ffi::PyObject_GetAttrString(code, b"co_freevars\0".as_ptr() as *const c_char);
@@ -1064,7 +1067,7 @@ unsafe fn function_closure_object(
             }
         }
         ffi::Py_DECREF(freevars);
-        return Ok(tuple);
+        return Ok(Bound::<PyAny>::from_owned_ptr(py, tuple).unbind());
     }
 
     let tuple = ffi::PyTuple_New(closure._layout.names.len() as ffi::Py_ssize_t);
@@ -1092,10 +1095,11 @@ unsafe fn function_closure_object(
             return Err(());
         }
     }
-    Ok(tuple)
+    Ok(Bound::<PyAny>::from_owned_ptr(py, tuple).unbind())
 }
 
-unsafe fn function_code_object(data: &FunctionData) -> Result<*mut ffi::PyObject, ()> {
+unsafe fn function_code_object(data: &FunctionData) -> Result<Py<PyAny>, ()> {
+    let py = Python::assume_attached();
     if !data.function_codes.is_null() {
         let code = ffi::PyDict_GetItemString(
             data.function_codes,
@@ -1157,10 +1161,10 @@ unsafe fn function_code_object(data: &FunctionData) -> Result<*mut ffi::PyObject
             if replaced.is_null() {
                 // Keep compiled code if replace fails.
                 ffi::PyErr_Clear();
-                return Ok(code);
+                return Ok(Bound::<PyAny>::from_owned_ptr(py, code).unbind());
             }
             ffi::Py_DECREF(code);
-            return Ok(replaced);
+            return Ok(Bound::<PyAny>::from_owned_ptr(py, replaced).unbind());
         }
     }
 
@@ -1456,7 +1460,7 @@ unsafe fn function_code_object(data: &FunctionData) -> Result<*mut ffi::PyObject
     if replaced.is_null() {
         return Err(());
     }
-    Ok(replaced)
+    Ok(Bound::<PyAny>::from_owned_ptr(py, replaced).unbind())
 }
 
 static mut SOAC_FUNCTION_ANNOTATE_PYFUNC_DEF: ffi::PyMethodDef = ffi::PyMethodDef {
@@ -1504,7 +1508,7 @@ unsafe extern "C" fn soac_function_annotate_pyfunc(
         return ptr::null_mut();
     };
     match eval_function_annotations(&*data, format as i32) {
-        Ok(dict) => dict,
+        Ok(dict) => dict.into_ptr(),
         Err(()) => ptr::null_mut(),
     }
 }
@@ -1650,6 +1654,7 @@ pub unsafe fn build_function(
     if !function_codes.is_null() {
         ffi::Py_INCREF(function_codes);
     }
+    let py = Python::assume_attached();
 
     let data = Box::new(FunctionData {
         def,
@@ -1687,7 +1692,6 @@ pub unsafe fn build_function(
         Ok(index) => index,
         Err(()) => {
             drop(Box::from_raw(code_extra_ptr));
-            ffi::Py_DECREF(code);
             ffi::Py_DECREF(name_obj);
             ffi::Py_DECREF(qualname_obj);
             ffi::Py_DECREF(doc);
@@ -1695,9 +1699,10 @@ pub unsafe fn build_function(
             return Err(());
         }
     };
-    if PyUnstable_Code_SetExtra(code, extra_index, code_extra_ptr as *mut c_void) != 0 {
+    if PyUnstable_Code_SetExtra(code.bind(py).as_ptr(), extra_index, code_extra_ptr as *mut c_void)
+        != 0
+    {
         drop(Box::from_raw(code_extra_ptr));
-        ffi::Py_DECREF(code);
         ffi::Py_DECREF(name_obj);
         ffi::Py_DECREF(qualname_obj);
         ffi::Py_DECREF(doc);
@@ -1705,9 +1710,8 @@ pub unsafe fn build_function(
         return Err(());
     }
 
-    let func = ffi::PyFunction_NewWithQualName(code, globals_dict, qualname_obj);
+    let func = ffi::PyFunction_NewWithQualName(code.bind(py).as_ptr(), globals_dict, qualname_obj);
     if func.is_null() {
-        ffi::Py_DECREF(code);
         ffi::Py_DECREF(name_obj);
         ffi::Py_DECREF(qualname_obj);
         ffi::Py_DECREF(doc);
@@ -1719,7 +1723,6 @@ pub unsafe fn build_function(
             ffi::PyExc_RuntimeError,
             b"PyFunction_NewWithQualName did not return function\0".as_ptr() as *const c_char,
         );
-        ffi::Py_DECREF(code);
         ffi::Py_DECREF(func);
         ffi::Py_DECREF(name_obj);
         ffi::Py_DECREF(qualname_obj);
@@ -1729,9 +1732,7 @@ pub unsafe fn build_function(
     }
 
     let defaults = function_defaults_object(&(*data_ptr).params)?;
-    if ffi::PyFunction_SetDefaults(func, defaults) != 0 {
-        ffi::Py_DECREF(defaults);
-        ffi::Py_DECREF(code);
+    if ffi::PyFunction_SetDefaults(func, defaults.bind(py).as_ptr()) != 0 {
         ffi::Py_DECREF(func);
         ffi::Py_DECREF(name_obj);
         ffi::Py_DECREF(qualname_obj);
@@ -1739,12 +1740,9 @@ pub unsafe fn build_function(
         ffi::Py_DECREF(module_obj);
         return Err(());
     }
-    ffi::Py_DECREF(defaults);
 
     let kwdefaults = function_kwdefaults_object(&(*data_ptr).params)?;
-    if ffi::PyFunction_SetKwDefaults(func, kwdefaults) != 0 {
-        ffi::Py_DECREF(kwdefaults);
-        ffi::Py_DECREF(code);
+    if ffi::PyFunction_SetKwDefaults(func, kwdefaults.bind(py).as_ptr()) != 0 {
         ffi::Py_DECREF(func);
         ffi::Py_DECREF(name_obj);
         ffi::Py_DECREF(qualname_obj);
@@ -1752,12 +1750,10 @@ pub unsafe fn build_function(
         ffi::Py_DECREF(module_obj);
         return Err(());
     }
-    ffi::Py_DECREF(kwdefaults);
 
-    let closure = match function_closure_object(&*data_ptr, code) {
+    let closure = match function_closure_object(&*data_ptr, code.bind(py).as_ptr()) {
         Ok(closure) => closure,
         Err(()) => {
-            ffi::Py_DECREF(code);
             ffi::Py_DECREF(func);
             ffi::Py_DECREF(name_obj);
             ffi::Py_DECREF(qualname_obj);
@@ -1766,9 +1762,7 @@ pub unsafe fn build_function(
             return Err(());
         }
     };
-    if ffi::PyFunction_SetClosure(func, closure) != 0 {
-        ffi::Py_DECREF(closure);
-        ffi::Py_DECREF(code);
+    if ffi::PyFunction_SetClosure(func, closure.bind(py).as_ptr()) != 0 {
         ffi::Py_DECREF(func);
         ffi::Py_DECREF(name_obj);
         ffi::Py_DECREF(qualname_obj);
@@ -1776,8 +1770,6 @@ pub unsafe fn build_function(
         ffi::Py_DECREF(module_obj);
         return Err(());
     }
-    ffi::Py_DECREF(closure);
-    ffi::Py_DECREF(code);
 
     if ffi::PyObject_SetAttrString(func, b"__module__\0".as_ptr() as *const c_char, module_obj) != 0
     {
@@ -1830,11 +1822,9 @@ pub(crate) fn function_has_annotations(def: &min_ast::FunctionDef) -> bool {
 pub(crate) unsafe fn eval_function_annotations(
     data: &FunctionData,
     _format: i32,
-) -> Result<*mut ffi::PyObject, ()> {
-    let annotations = ffi::PyDict_New();
-    if annotations.is_null() {
-        return Err(());
-    }
+) -> Result<Py<PyDict>, ()> {
+    let py = Python::assume_attached();
+    let annotations = PyDict::new(py);
 
     let ctx = ExecContext {
         globals_scope: data.globals_scope,
@@ -1861,33 +1851,22 @@ pub(crate) unsafe fn eval_function_annotations(
         };
         if let Some(annotation) = annotation {
             let value = eval_expr(annotation, &ctx)?;
-            if ffi::PyDict_SetItemString(
-                annotations,
-                CString::new(name.as_str()).unwrap().as_ptr(),
-                value,
-            ) != 0
-            {
-                ffi::Py_DECREF(value);
-                ffi::Py_DECREF(annotations);
+            let value_obj = Bound::<PyAny>::from_owned_ptr(py, value);
+            if annotations.set_item(name.as_str(), value_obj).is_err() {
                 return Err(());
             }
-            ffi::Py_DECREF(value);
         }
     }
 
     if let Some(returns) = &data.def.returns {
         let value = eval_expr(returns, &ctx)?;
-        if ffi::PyDict_SetItemString(annotations, CString::new("return").unwrap().as_ptr(), value)
-            != 0
-        {
-            ffi::Py_DECREF(value);
-            ffi::Py_DECREF(annotations);
+        let value_obj = Bound::<PyAny>::from_owned_ptr(py, value);
+        if annotations.set_item("return", value_obj).is_err() {
             return Err(());
         }
-        ffi::Py_DECREF(value);
     }
 
-    Ok(annotations)
+    Ok(annotations.unbind())
 }
 
 pub(crate) fn bind_args(
@@ -1896,19 +1875,18 @@ pub(crate) fn bind_args(
     kwargs: *mut ffi::PyObject,
     param_scope: *mut ScopeInstance,
 ) -> Result<(), ()> {
+    let py = unsafe { Python::assume_attached() };
     unsafe {
         let args_tuple = if args.is_null() {
-            ffi::PyTuple_New(0)
+            match Bound::<PyAny>::from_owned_ptr_or_opt(py, ffi::PyTuple_New(0)) {
+                Some(tuple) => tuple,
+                None => return Err(()),
+            }
         } else {
-            ffi::Py_INCREF(args);
-            args
+            Bound::<PyAny>::from_borrowed_ptr(py, args)
         };
-        if args_tuple.is_null() {
-            return Err(());
-        }
-        let args_len = ffi::PyTuple_Size(args_tuple);
+        let args_len = ffi::PyTuple_Size(args_tuple.as_ptr());
         if args_len < 0 {
-            ffi::Py_DECREF(args_tuple);
             return Err(());
         }
         let mut kw_map = HashMap::new();
@@ -1918,13 +1896,11 @@ pub(crate) fn bind_args(
             let mut value: *mut ffi::PyObject = ptr::null_mut();
             while ffi::PyDict_Next(kwargs, &mut pos, &mut key, &mut value) != 0 {
                 if ffi::PyUnicode_Check(key) == 0 {
-                    ffi::Py_DECREF(args_tuple);
                     return set_type_error("keywords must be strings");
                 }
                 let mut len: ffi::Py_ssize_t = 0;
                 let ptr = ffi::PyUnicode_AsUTF8AndSize(key, &mut len);
                 if ptr.is_null() {
-                    ffi::Py_DECREF(args_tuple);
                     return Err(());
                 }
                 let name = std::str::from_utf8_unchecked(std::slice::from_raw_parts(
@@ -1943,117 +1919,92 @@ pub(crate) fn bind_args(
                 ParamKind::Positional => {
                     if arg_index < args_len {
                         if kw_map.contains_key(&param.name) {
-                            ffi::Py_DECREF(args_tuple);
                             return set_type_error("multiple values for argument");
                         }
-                        let value = ffi::PyTuple_GetItem(args_tuple, arg_index);
+                        let value = ffi::PyTuple_GetItem(args_tuple.as_ptr(), arg_index);
                         if value.is_null() {
-                            ffi::Py_DECREF(args_tuple);
                             return Err(());
                         }
                         if scope_assign_name(&mut *param_scope, param.name.as_str(), value).is_err()
                         {
-                            ffi::Py_DECREF(args_tuple);
                             return Err(());
                         }
                         arg_index += 1;
                     } else if let Some(value) = kw_map.remove(&param.name) {
                         if scope_assign_name(&mut *param_scope, param.name.as_str(), value).is_err()
                         {
-                            ffi::Py_DECREF(args_tuple);
                             return Err(());
                         }
                     } else if param.default.is_some() {
                         // Default applied later by apply_param_defaults.
                     } else {
-                        ffi::Py_DECREF(args_tuple);
                         return set_type_error("missing required positional argument");
                     }
                 }
                 ParamKind::VarArg => {
                     has_vararg = true;
                     let remaining = args_len - arg_index;
-                    let tuple = ffi::PyTuple_New(remaining);
-                    if tuple.is_null() {
-                        ffi::Py_DECREF(args_tuple);
-                        return Err(());
-                    }
+                    let tuple =
+                        match Bound::<PyAny>::from_owned_ptr_or_opt(py, ffi::PyTuple_New(remaining))
+                        {
+                            Some(tuple) => tuple,
+                            None => return Err(()),
+                        };
                     for idx in 0..remaining {
-                        let value = ffi::PyTuple_GetItem(args_tuple, arg_index + idx);
+                        let value = ffi::PyTuple_GetItem(args_tuple.as_ptr(), arg_index + idx);
                         if value.is_null() {
-                            ffi::Py_DECREF(tuple);
-                            ffi::Py_DECREF(args_tuple);
                             return Err(());
                         }
                         ffi::Py_INCREF(value);
-                        if ffi::PyTuple_SetItem(tuple, idx, value) != 0 {
-                            ffi::Py_DECREF(tuple);
-                            ffi::Py_DECREF(args_tuple);
+                        if ffi::PyTuple_SetItem(tuple.as_ptr(), idx, value) != 0 {
                             return Err(());
                         }
                     }
                     arg_index = args_len;
-                    if scope_assign_name(&mut *param_scope, param.name.as_str(), tuple).is_err() {
-                        ffi::Py_DECREF(tuple);
-                        ffi::Py_DECREF(args_tuple);
+                    if scope_assign_name(&mut *param_scope, param.name.as_str(), tuple.as_ptr())
+                        .is_err()
+                    {
                         return Err(());
                     }
-                    ffi::Py_DECREF(tuple);
                 }
                 ParamKind::KwOnly => {
                     if let Some(value) = kw_map.remove(&param.name) {
                         if scope_assign_name(&mut *param_scope, param.name.as_str(), value).is_err()
                         {
-                            ffi::Py_DECREF(args_tuple);
                             return Err(());
                         }
                     } else if param.default.is_some() {
                         // Default applied later by apply_param_defaults.
                     } else {
-                        ffi::Py_DECREF(args_tuple);
                         return set_type_error("missing required keyword-only argument");
                     }
                 }
                 ParamKind::KwArg => {
-                    let dict = ffi::PyDict_New();
-                    if dict.is_null() {
-                        ffi::Py_DECREF(args_tuple);
-                        return Err(());
-                    }
+                    let dict = PyDict::new(py);
                     for (key, value) in &kw_map {
-                        if ffi::PyDict_SetItemString(
-                            dict,
-                            CString::new(key.as_str()).unwrap().as_ptr(),
-                            *value,
-                        ) != 0
-                        {
-                            ffi::Py_DECREF(dict);
-                            ffi::Py_DECREF(args_tuple);
+                        let value_obj = Bound::<PyAny>::from_borrowed_ptr(py, *value);
+                        if dict.set_item(key.as_str(), value_obj).is_err() {
                             return Err(());
                         }
                     }
                     kw_map.clear();
-                    if scope_assign_name(&mut *param_scope, param.name.as_str(), dict).is_err() {
-                        ffi::Py_DECREF(dict);
-                        ffi::Py_DECREF(args_tuple);
+                    if scope_assign_name(&mut *param_scope, param.name.as_str(), dict.as_ptr())
+                        .is_err()
+                    {
                         return Err(());
                     }
-                    ffi::Py_DECREF(dict);
                 }
             }
         }
 
         if arg_index < args_len && !has_vararg {
-            ffi::Py_DECREF(args_tuple);
             return set_type_error("too many positional arguments");
         }
 
         if !kw_map.is_empty() {
-            ffi::Py_DECREF(args_tuple);
             return set_type_error("unexpected keyword argument");
         }
 
-        ffi::Py_DECREF(args_tuple);
         Ok(())
     }
 }
@@ -2081,118 +2032,82 @@ pub(crate) fn apply_param_defaults(
     Ok(())
 }
 
-struct CallArgs {
-    positional: Vec<*mut ffi::PyObject>,
-    kw_map: HashMap<String, *mut ffi::PyObject>,
-}
-
-impl CallArgs {
-    unsafe fn cleanup(self) {
-        for value in self.positional {
-            if !value.is_null() {
-                ffi::Py_DECREF(value);
-            }
-        }
-        for (_, value) in self.kw_map {
-            if !value.is_null() {
-                ffi::Py_DECREF(value);
-            }
-        }
-    }
-}
-
-fn collect_call_args(args: &[min_ast::Arg], ctx: &ExecContext<'_>) -> Result<CallArgs, ()> {
-    let mut positional: Vec<*mut ffi::PyObject> = Vec::new();
-    let mut kw_map: HashMap<String, *mut ffi::PyObject> = HashMap::new();
+fn collect_call_args(args: &[min_ast::Arg], ctx: &ExecContext<'_>) -> Result<(), ()> {
+    let py = unsafe { Python::assume_attached() };
+    let mut positional: Vec<Py<PyAny>> = Vec::new();
+    let mut kw_map: HashMap<String, Py<PyAny>> = HashMap::new();
 
     for arg in args {
         match arg {
             min_ast::Arg::Positional(expr) => {
                 let value = eval_expr(expr, ctx)?;
-                positional.push(value);
+                positional.push(unsafe { Bound::<PyAny>::from_owned_ptr(py, value).unbind() });
             }
             min_ast::Arg::Starred(expr) => unsafe {
                 let value = eval_expr(expr, ctx)?;
+                let value_obj = Bound::<PyAny>::from_owned_ptr(py, value);
                 let seq = ffi::PySequence_Fast(
-                    value,
+                    value_obj.as_ptr(),
                     b"argument after * must be iterable\0".as_ptr() as *const c_char,
                 );
-                ffi::Py_DECREF(value);
                 if seq.is_null() {
-                    CallArgs { positional, kw_map }.cleanup();
                     return Err(());
                 }
+                let seq_obj = Bound::<PyAny>::from_owned_ptr(py, seq);
                 let seq_len = ffi::PySequence_Size(seq);
                 if seq_len < 0 {
-                    ffi::Py_DECREF(seq);
-                    CallArgs { positional, kw_map }.cleanup();
                     return Err(());
                 }
                 for idx in 0..seq_len {
                     let item = ffi::PySequence_GetItem(seq, idx);
                     if item.is_null() {
-                        ffi::Py_DECREF(seq);
-                        CallArgs { positional, kw_map }.cleanup();
                         return Err(());
                     }
-                    positional.push(item);
+                    positional.push(Bound::<PyAny>::from_owned_ptr(py, item).unbind());
                 }
-                ffi::Py_DECREF(seq);
+                drop(seq_obj);
             },
             min_ast::Arg::Keyword { name, value } => unsafe {
                 let val = eval_expr(value, ctx)?;
+                let val_obj = Bound::<PyAny>::from_owned_ptr(py, val);
                 if kw_map.contains_key(name) {
-                    ffi::Py_DECREF(val);
-                    CallArgs { positional, kw_map }.cleanup();
                     return set_type_error("multiple values for keyword argument");
                 }
-                kw_map.insert(name.clone(), val);
+                kw_map.insert(name.clone(), val_obj.unbind());
             },
             min_ast::Arg::KwStarred(expr) => unsafe {
                 let mapping = eval_expr(expr, ctx)?;
+                let mapping_obj = Bound::<PyAny>::from_owned_ptr(py, mapping);
                 let items = ffi::PyMapping_Items(mapping);
-                ffi::Py_DECREF(mapping);
                 if items.is_null() {
-                    CallArgs { positional, kw_map }.cleanup();
                     return Err(());
                 }
+                let items_obj = Bound::<PyAny>::from_owned_ptr(py, items);
                 let items_len = ffi::PySequence_Size(items);
                 if items_len < 0 {
-                    ffi::Py_DECREF(items);
-                    CallArgs { positional, kw_map }.cleanup();
                     return Err(());
                 }
                 for idx in 0..items_len {
                     let item = ffi::PySequence_GetItem(items, idx);
                     if item.is_null() {
-                        ffi::Py_DECREF(items);
-                        CallArgs { positional, kw_map }.cleanup();
                         return Err(());
                     }
+                    let item_obj = Bound::<PyAny>::from_owned_ptr(py, item);
                     let key = ffi::PySequence_GetItem(item, 0);
                     let val = ffi::PySequence_GetItem(item, 1);
-                    ffi::Py_DECREF(item);
                     if key.is_null() || val.is_null() {
-                        ffi::Py_XDECREF(key);
-                        ffi::Py_XDECREF(val);
-                        ffi::Py_DECREF(items);
-                        CallArgs { positional, kw_map }.cleanup();
+                        let _ = Bound::<PyAny>::from_owned_ptr_or_opt(py, key);
+                        let _ = Bound::<PyAny>::from_owned_ptr_or_opt(py, val);
                         return Err(());
                     }
+                    let key_obj = Bound::<PyAny>::from_owned_ptr(py, key);
+                    let val_obj = Bound::<PyAny>::from_owned_ptr(py, val);
                     if ffi::PyUnicode_Check(key) == 0 {
-                        ffi::Py_DECREF(key);
-                        ffi::Py_DECREF(val);
-                        ffi::Py_DECREF(items);
-                        CallArgs { positional, kw_map }.cleanup();
                         return set_type_error("keywords must be strings");
                     }
                     let mut len: ffi::Py_ssize_t = 0;
                     let ptr = ffi::PyUnicode_AsUTF8AndSize(key, &mut len);
                     if ptr.is_null() {
-                        ffi::Py_DECREF(key);
-                        ffi::Py_DECREF(val);
-                        ffi::Py_DECREF(items);
-                        CallArgs { positional, kw_map }.cleanup();
                         return Err(());
                     }
                     let key_str = std::str::from_utf8_unchecked(std::slice::from_raw_parts(
@@ -2200,21 +2115,21 @@ fn collect_call_args(args: &[min_ast::Arg], ctx: &ExecContext<'_>) -> Result<Cal
                         len as usize,
                     ));
                     if kw_map.contains_key(key_str) {
-                        ffi::Py_DECREF(key);
-                        ffi::Py_DECREF(val);
-                        ffi::Py_DECREF(items);
-                        CallArgs { positional, kw_map }.cleanup();
                         return set_type_error("multiple values for keyword argument");
                     }
-                    kw_map.insert(key_str.to_string(), val);
-                    ffi::Py_DECREF(key);
+                    kw_map.insert(key_str.to_string(), val_obj.unbind());
+                    drop(key_obj);
+                    drop(item_obj);
                 }
-                ffi::Py_DECREF(items);
+                drop(items_obj);
+                drop(mapping_obj);
             },
         }
     }
 
-    Ok(CallArgs { positional, kw_map })
+    drop(positional);
+    drop(kw_map);
+    Ok(())
 }
 
 
@@ -2607,7 +2522,7 @@ unsafe fn eval_raw_expr_source(
         globals_obj
     } else {
         match locals_snapshot(ctx) {
-            Ok(locals) => locals,
+            Ok(locals) => locals.into_ptr(),
             Err(()) => {
                 ffi::Py_DECREF(source_obj);
                 ffi::Py_DECREF(globals_obj);
@@ -2721,7 +2636,7 @@ fn lookup_name(name: &str, ctx: &ExecContext<'_>) -> Result<*mut ffi::PyObject, 
     set_name_error(name)
 }
 
-unsafe fn locals_snapshot(ctx: &ExecContext<'_>) -> Result<*mut ffi::PyObject, ()> {
+unsafe fn locals_snapshot(ctx: &ExecContext<'_>) -> Result<Py<PyDict>, ()> {
     unsafe fn merge_scope_dict(
         target: *mut ffi::PyObject,
         source: *mut ffi::PyObject,
@@ -2801,36 +2716,31 @@ unsafe fn locals_snapshot(ctx: &ExecContext<'_>) -> Result<*mut ffi::PyObject, (
         Ok(())
     }
 
-    let dict = ffi::PyDict_New();
-    if dict.is_null() {
-        return Err(());
-    }
+    let py = Python::assume_attached();
+    let dict = PyDict::new(py);
     if !ctx.params.is_null() {
-        let params = scope_to_dict(&*ctx.params)?;
-        if merge_scope_dict(dict, params, true).is_err() {
-            ffi::Py_DECREF(params);
-            ffi::Py_DECREF(dict);
+        let params = Bound::<PyAny>::from_owned_ptr(py, scope_to_dict(&*ctx.params)?)
+            .cast_into::<PyDict>()
+            .map_err(|_| ())?;
+        if merge_scope_dict(dict.as_ptr(), params.as_ptr(), true).is_err() {
             return Err(());
         }
-        ffi::Py_DECREF(params);
     }
-    let locals = scope_to_dict(&*ctx.locals)?;
-    if merge_scope_dict(dict, locals, true).is_err() {
-        ffi::Py_DECREF(locals);
-        ffi::Py_DECREF(dict);
+    let locals = Bound::<PyAny>::from_owned_ptr(py, scope_to_dict(&*ctx.locals)?)
+        .cast_into::<PyDict>()
+        .map_err(|_| ())?;
+    if merge_scope_dict(dict.as_ptr(), locals.as_ptr(), true).is_err() {
         return Err(());
     }
-    ffi::Py_DECREF(locals);
     if let Some(closure) = ctx.closure {
-        let closure_dict = scope_to_dict(closure)?;
-        if merge_scope_dict(dict, closure_dict, false).is_err() {
-            ffi::Py_DECREF(closure_dict);
-            ffi::Py_DECREF(dict);
+        let closure_dict = Bound::<PyAny>::from_owned_ptr(py, scope_to_dict(closure)?)
+            .cast_into::<PyDict>()
+            .map_err(|_| ())?;
+        if merge_scope_dict(dict.as_ptr(), closure_dict.as_ptr(), false).is_err() {
             return Err(());
         }
-        ffi::Py_DECREF(closure_dict);
     }
-    Ok(dict)
+    Ok(dict.unbind())
 }
 
 fn eval_call(
@@ -2840,9 +2750,8 @@ fn eval_call(
 ) -> Result<*mut ffi::PyObject, ()> {
     if let Some(type_param) = type_param_lookup_target(func, args, ctx) {
         let func_obj = eval_expr(func, ctx)?;
-        let call_args = collect_call_args(args, ctx)?;
+        collect_call_args(args, ctx)?;
         unsafe {
-            call_args.cleanup();
             ffi::Py_DECREF(func_obj);
             ffi::Py_INCREF(type_param);
         }
@@ -2852,21 +2761,21 @@ fn eval_call(
     let func_obj = eval_expr(func, ctx)?;
 
     unsafe {
-        if (func_obj == ctx.runtime_fns.builtins_globals
-            || func_obj == ctx.runtime_fns.builtins_locals
-            || func_obj == ctx.runtime_fns.dp_globals
-            || func_obj == ctx.runtime_fns.dp_locals)
+        if (func_obj == ctx.runtime_fns.builtins_globals.as_ptr()
+            || func_obj == ctx.runtime_fns.builtins_locals.as_ptr()
+            || func_obj == ctx.runtime_fns.dp_globals.as_ptr()
+            || func_obj == ctx.runtime_fns.dp_locals.as_ptr())
             && args.is_empty()
         {
-            let result = if func_obj == ctx.runtime_fns.builtins_locals
-                || func_obj == ctx.runtime_fns.dp_locals
+            let result = if func_obj == ctx.runtime_fns.builtins_locals.as_ptr()
+                || func_obj == ctx.runtime_fns.dp_locals.as_ptr()
             {
                 if ctx.locals == ctx.globals_scope {
                     ffi::Py_INCREF(ctx.globals_dict);
                     ctx.globals_dict
                 } else {
                     match locals_snapshot(ctx) {
-                        Ok(dict) => dict,
+                        Ok(dict) => dict.into_ptr(),
                         Err(()) => {
                             ffi::Py_DECREF(func_obj);
                             return Err(());

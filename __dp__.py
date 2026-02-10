@@ -30,7 +30,7 @@ def __deepcopy__(memo):
 
 builtins.__dp__ = sys.modules[__name__]
 
-_OP_MISSING = object()
+_MISSING = object()
 
 
 def _mro_getattr(cls, name: str):
@@ -39,7 +39,7 @@ def _mro_getattr(cls, name: str):
             return base.__dict__[name]
         except KeyError:
             continue
-    return _OP_MISSING
+    return _MISSING
 
 
 def _call_special_method(method, first_obj, *args):
@@ -61,7 +61,7 @@ def oper(lhs_method_name: str, rhs_method_name: str, op_symbol: str, lhs, rhs):
     call_lhs = (lhs, lhs_method, rhs)
     call_rhs = (rhs, rhs_method, lhs)
     if (
-        rhs_method is not _OP_MISSING
+        rhs_method is not _MISSING
         and rhs_type is not lhs_type
         and issubclass(rhs_type, lhs_type)
         and lhs_rmethod is not rhs_method
@@ -73,7 +73,7 @@ def oper(lhs_method_name: str, rhs_method_name: str, op_symbol: str, lhs, rhs):
         calls = (call_lhs,)
 
     for first_obj, method, second_obj in calls:
-        if method is _OP_MISSING:
+        if method is _MISSING:
             continue
         value = _call_special_method(method, first_obj, second_obj)
         if value is not NotImplemented:
@@ -96,7 +96,7 @@ def _pow_with_mod(lhs, rhs, mod):
     call_lhs = (lhs, lhs_method, rhs, mod)
     call_rhs = (rhs, rhs_method, lhs, mod)
     if (
-        rhs_method is not _OP_MISSING
+        rhs_method is not _MISSING
         and rhs_type is not lhs_type
         and issubclass(rhs_type, lhs_type)
         and lhs_rmethod is not rhs_method
@@ -108,7 +108,7 @@ def _pow_with_mod(lhs, rhs, mod):
         calls = (call_lhs,)
 
     for first_obj, method, second_obj, third_obj in calls:
-        if method is _OP_MISSING:
+        if method is _MISSING:
             continue
         value = _call_special_method(method, first_obj, second_obj, third_obj)
         if value is not NotImplemented:
@@ -122,7 +122,7 @@ def _pow_with_mod(lhs, rhs, mod):
 
 def _ioper(inplace_name: str, lhs_method_name: str, rhs_method_name: str, op_symbol: str, lhs, rhs):
     method = _mro_getattr(type(lhs), inplace_name)
-    if method is not _OP_MISSING:
+    if method is not _MISSING:
         value = _call_special_method(method, lhs, rhs)
         if value is not NotImplemented:
             return value
@@ -269,7 +269,7 @@ def _rich_compare(lhs_method_name: str, rhs_method_name: str, lhs, rhs):
     call_lhs = (lhs, lhs_method, rhs)
     call_rhs = (rhs, rhs_method, lhs)
     if (
-        rhs_method is not _OP_MISSING
+        rhs_method is not _MISSING
         and rhs_type is not lhs_type
         and issubclass(rhs_type, lhs_type)
         and lhs_rmethod is not rhs_method
@@ -281,7 +281,7 @@ def _rich_compare(lhs_method_name: str, rhs_method_name: str, lhs, rhs):
         calls = (call_lhs,)
 
     for first_obj, method, second_obj in calls:
-        if method is _OP_MISSING:
+        if method is _MISSING:
             continue
         value = _call_special_method(method, first_obj, second_obj)
         if value is not NotImplemented:
@@ -360,7 +360,6 @@ def float_from_literal(literal):
 
 
 
-_MISSING = object()
 _DP_CELL_PREFIX = "_dp_cell_"
 
 
@@ -466,12 +465,9 @@ def unpack(iterable, spec):
 
 
 
-_MISSING_CELL = object()
-
-
-def make_cell(value=_MISSING_CELL):
+def make_cell(value=_MISSING):
     cell = _types.CellType()
-    if value is not _MISSING_CELL:
+    if value is not _MISSING:
         cell.cell_contents = value
     return cell
 

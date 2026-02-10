@@ -86,10 +86,10 @@ fn eval_source_with_spec(
 
     let source = fs::read_to_string(path)
         .map_err(|err| PyRuntimeError::new_err(format!("failed to read {path}: {err}")))?;
-    let spec_ptr = spec.as_ptr();
-    match std::panic::catch_unwind(|| {
-        eval::eval_source_impl_with_spec(py, path, &source, name, package, spec_ptr)
-    }) {
+    let spec_obj = spec.clone().unbind();
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        eval::eval_source_impl_with_spec(py, path, &source, name, package, spec_obj)
+    })) {
         Ok(result) => result,
         Err(payload) => {
             let msg = if let Some(s) = payload.downcast_ref::<&str>() {

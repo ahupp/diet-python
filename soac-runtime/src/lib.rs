@@ -26,8 +26,6 @@ use cpython_bindings::{
     PyLongObject, PyLong_SHIFT, _PyLong_NON_SIZE_BITS, _PyLong_SIGN_MASK,
 };
 
-pub use scope::{Scope, ScopeLayout};
-
 #[inline]
 unsafe fn compact_long_value(op: *mut PyLongObject) -> Option<i64> {
     let tag = unsafe { (*op).long_value.lv_tag as u64 };

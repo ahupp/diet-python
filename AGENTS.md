@@ -11,6 +11,10 @@
 - **NOTE**: Set `DIET_PYTHON_INTEGRATION_ONLY=1` to only transform integration test modules (skip transforming all imports).
 - To inspect the transformed output of some code, run `cargo run --bin diet-python file_with_code.py`, which prints output to stdout.
 - *MUST FOLLOW* when fixing a bug that fails a cpython test case *always* add a minimal reproducing integration test to reproduce it first.
-- CPython source for tests lives in `../cpython` relative to this repo root (scripts expect the `python` binary there).
+- CPython source for tests is vendored at `vendor/cpython` (the scripts use `vendor/cpython/python`).
+- **NOTE**: For `./scripts/run_cpython_tests.sh -f <file>`, pass an absolute path for `<file>` since the script runs from `vendor/cpython`.
+- **NOTE**: In sandboxed environments, set `--tempdir /tmp/<dir>` when running CPython tests; default worker temp dirs under `/home/adam/project/cpython/build/...` can fail with permission errors.
+- **NOTE**: After interrupting CPython test runs, clean stale workers before retrying (`pkill -f test.libregrtest.worker`).
+- **NOTE**: For sequential eval-mode shard runs, use `./scripts/run_cpython_test_sets.sh --mode eval`; it enforces single-process regrtest (`DIET_PYTHON_TEST_JOBS=1`), absolute set paths, and a safe tempdir.
 - **MUST FOLLOW**: In any test failure summary, list expected failures separately from unexpected failures.
 - When running tests, put the output in logs/

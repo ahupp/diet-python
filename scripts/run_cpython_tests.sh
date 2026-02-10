@@ -8,6 +8,7 @@ SKIP_FILE="$REPO_ROOT/cpython_skipped_tests.txt"
 EXPECTED_FAILURES_FILE="$REPO_ROOT/EXPECTED_FAILURE.md"
 SKIP_EXPECTED_FAILURES="${SKIP_EXPECTED_FAILURES:-1}"
 MEMORY_LIMIT_MB="${DIET_PYTHON_MEMORY_LIMIT_MB:-16384}"
+TEST_JOBS="${DIET_PYTHON_TEST_JOBS:-0}"
 
 export SOURCE_DATE_EPOCH="$(date +%s)"
 
@@ -120,6 +121,17 @@ while [ "$#" -gt 0 ]; do
     --memory-limit-mb=*)
       MEMORY_LIMIT_MB="${1#*=}"
       ;;
+    --jobs)
+      shift
+      if [ "$#" -eq 0 ]; then
+        echo "--jobs requires an integer value" >&2
+        exit 2
+      fi
+      TEST_JOBS="$1"
+      ;;
+    --jobs=*)
+      TEST_JOBS="${1#*=}"
+      ;;
     *)
       FORWARD_ARGS+=("$1")
       ;;
@@ -129,6 +141,10 @@ done
 
 if ! [[ "$MEMORY_LIMIT_MB" =~ ^[0-9]+$ ]]; then
   echo "invalid memory limit '$MEMORY_LIMIT_MB' (expected integer MiB)" >&2
+  exit 2
+fi
+if ! [[ "$TEST_JOBS" =~ ^[0-9]+$ ]]; then
+  echo "invalid jobs '$TEST_JOBS' (expected non-negative integer)" >&2
   exit 2
 fi
 
@@ -152,7 +168,7 @@ fi
 
   TEST_CMD=(
     "$PYTHON_BIN"
-    -m test -j0 -v
+    -m test "-j$TEST_JOBS" -v
     "${SKIP_ARGS[@]}"
     "${FORWARD_ARGS[@]}"
   )
