@@ -137,3 +137,11 @@ transform-only
 1001108600 998892 loops/s
 
 = 328x slower
+
+
+# Design
+
+Dropping to basic block format:
+
+ - gave control over name binding for functions
+ - significantly improved fidelity to flow control, made generators easier, and reduced JIT surface area

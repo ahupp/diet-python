@@ -6,15 +6,42 @@ use crate::transform::Options;
 use crate::{ruff_ast_to_string, transform_str_to_ruff_with_options};
 use similar::TextDiff;
 
-pub(crate) fn assert_transform_eq_ex(actual: &str, expected: &str, truthy: bool) {
+fn expected_output_for_mode(expected: &str, lower_basic_blocks: bool) -> &str {
+    const PRE_BB_MARKER: &str = "# -- pre-bb --";
+    const BB_MARKER: &str = "# -- bb --";
+    if lower_basic_blocks {
+        if let Some(index) = expected.find(BB_MARKER) {
+            return &expected[index + BB_MARKER.len()..];
+        }
+        return expected;
+    }
+    if let (Some(pre), Some(bb)) = (expected.find(PRE_BB_MARKER), expected.find(BB_MARKER)) {
+        let start = pre + PRE_BB_MARKER.len();
+        if start <= bb {
+            return &expected[start..bb];
+        }
+    }
+    expected
+}
+
+pub(crate) fn assert_transform_eq_ex(
+    actual: &str,
+    expected: &str,
+    truthy: bool,
+    lower_basic_blocks: bool,
+) {
+    let expected_for_mode = expected_output_for_mode(expected, lower_basic_blocks);
+    let mut expected_normalized = expected_for_mode.trim_matches('\n').to_string();
+    expected_normalized.push('\n');
     let options = Options {
         truthy,
+        lower_basic_blocks,
         ..Options::for_test()
     };
     let module = transform_str_to_ruff_with_options(actual, options).unwrap();
     let actual_str = ruff_ast_to_string(&module.module.body);
     let actual_body = &module.module.body.body;
-    let actual_stmt: Vec<_> = actual_body
+    let actual_stmt_internal: Vec<_> = actual_body
         .iter()
         .map(|stmt| ComparableStmt::from(stmt.as_ref()))
         .collect();
@@ -26,13 +53,26 @@ pub(crate) fn assert_transform_eq_ex(actual: &str, expected: &str, truthy: bool)
             .iter()
             .map(|stmt| ComparableStmt::from(stmt.as_ref()))
             .collect();
-        if actual_stmt != rerun_stmt {
+        if actual_stmt_internal != rerun_stmt {
             let difference = format_first_difference(&module.module.body.body, rerun_body);
             panic!("transform is not idempotent: {difference}");
         }
     }
 
-    let expected_ast = parse_module(expected).unwrap().into_syntax().body;
+    let actual_parsed = parse_module(actual_str.as_str())
+        .unwrap()
+        .into_syntax()
+        .body;
+    let actual_stmt: Vec<_> = actual_parsed
+        .body
+        .iter()
+        .map(|stmt| ComparableStmt::from(stmt.as_ref()))
+        .collect();
+
+    let expected_ast = parse_module(expected_normalized.as_str())
+        .unwrap()
+        .into_syntax()
+        .body;
     let expected_body = &expected_ast.body;
     let expected_stmt: Vec<_> = expected_body
         .iter()
@@ -40,7 +80,7 @@ pub(crate) fn assert_transform_eq_ex(actual: &str, expected: &str, truthy: bool)
         .collect();
 
     if actual_stmt != expected_stmt {
-        let diff = TextDiff::from_lines(expected, &actual_str)
+        let diff = TextDiff::from_lines(expected_normalized.as_str(), &actual_str)
             .unified_diff()
             .header("expected", "actual")
             .to_string();
@@ -81,8 +121,8 @@ fn format_first_difference(actual: &[Box<Stmt>], rerun: &[Box<Stmt>]) -> String 
     }
 }
 
-pub(crate) fn assert_transform_eq(actual: &str, expected: &str) {
-    assert_transform_eq_ex(actual, expected, false);
+pub(crate) fn assert_transform_eq_basic_blocks(actual: &str, expected: &str) {
+    assert_transform_eq_ex(actual, expected, false, true);
 }
 
 pub(crate) fn run_transform_fixture_tests(fixture: &str) {
@@ -93,7 +133,7 @@ pub(crate) fn run_transform_fixture_tests(fixture: &str) {
 
     for block in blocks {
         eprintln!("transform_fixture: {}", block.name);
-        assert_transform_eq(block.input.as_str(), block.output.as_str());
+        assert_transform_eq_basic_blocks(block.input.as_str(), block.output.as_str());
     }
 }
 

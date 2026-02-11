@@ -95,6 +95,7 @@ pub(crate) struct FunctionData {
     pub(crate) params: Vec<ParamSpec>,
     pub(crate) param_layout: Box<ScopeLayout>,
     pub(crate) local_layout: Box<ScopeLayout>,
+    pub(crate) cellvars: HashSet<String>,
     pub(crate) closure: Option<ClosureScope>,
     pub(crate) type_params: Option<TypeParamState>,
     pub(crate) has_yield: bool,
@@ -145,6 +146,7 @@ pub struct ExecContext<'a> {
     builtins: *mut ffi::PyObject,
     function_codes: *mut ffi::PyObject,
     closure: Option<&'a ScopeInstance>,
+    cellvars: Option<&'a HashSet<String>>,
     runtime_fns: &'a RuntimeFns,
     type_params: Option<&'a TypeParamScope>,
 }
@@ -200,6 +202,44 @@ fn set_not_implemented<T>(msg: &str) -> Result<T, ()> {
     Err(())
 }
 
+fn is_cellvar_name(ctx: &ExecContext<'_>, name: &str) -> bool {
+    !closure_name_requires_cell(name)
+        && ctx
+            .cellvars
+            .map(|cellvars| cellvars.contains(name))
+            .unwrap_or(false)
+}
+
+unsafe fn initialize_cellvars_for_function(
+    data: &FunctionData,
+    params_scope: *mut ScopeInstance,
+    locals_scope: *mut ScopeInstance,
+) -> Result<(), ()> {
+    for name in &data.def.cellvars {
+        if closure_name_requires_cell(name.as_str()) {
+            continue;
+        }
+        let initial = if params_scope.is_null() {
+            ptr::null_mut()
+        } else {
+            scope_lookup_name(&*params_scope, name.as_str())
+        };
+        let cell = PyCell_New(initial);
+        if !initial.is_null() {
+            ffi::Py_DECREF(initial);
+        }
+        if cell.is_null() {
+            return Err(());
+        }
+        if scope_assign_name(&mut *locals_scope, name.as_str(), cell).is_err() {
+            ffi::Py_DECREF(cell);
+            return Err(());
+        }
+        ffi::Py_DECREF(cell);
+    }
+    Ok(())
+}
+
 unsafe extern "C" fn soac_code_extra_free(ptr: *mut c_void) {
     let _ = ptr;
 }
@@ -240,6 +280,29 @@ unsafe fn frame_var_get_optional(
     frame_obj: *mut ffi::PyFrameObject,
     name: &str,
 ) -> Result<*mut ffi::PyObject, ()> {
+    unsafe fn mapping_lookup_optional(
+        mapping: *mut ffi::PyObject,
+        name: &str,
+    ) -> Result<*mut ffi::PyObject, ()> {
+        if mapping.is_null() {
+            return Ok(ptr::null_mut());
+        }
+        let key = ffi::PyUnicode_FromStringAndSize(name.as_ptr() as *const c_char, name.len() as _);
+        if key.is_null() {
+            return Err(());
+        }
+        let value = ffi::PyObject_GetItem(mapping, key);
+        ffi::Py_DECREF(key);
+        if value.is_null() {
+            if ffi::PyErr_ExceptionMatches(ffi::PyExc_KeyError) != 0 {
+                ffi::PyErr_Clear();
+                return Ok(ptr::null_mut());
+            }
+            return Err(());
+        }
+        Ok(value)
+    }
+
     let c_name = match CString::new(name) {
         Ok(name) => name,
         Err(_) => return Err(()),
@@ -250,7 +313,25 @@ unsafe fn frame_var_get_optional(
             || ffi::PyErr_ExceptionMatches(ffi::PyExc_UnboundLocalError) != 0
         {
             ffi::PyErr_Clear();
-            return Ok(ptr::null_mut());
+            // `PyFrame_GetVarString` can legitimately miss names that *do* exist in the
+            // executing frame at this point, especially for class-body namespace functions
+            // where `_dp_classcell` is both a parameter and an implicit cellvar.
+            //
+            // In that shape, CPython stores the authoritative runtime binding in the frame
+            // locals mapping while the fast lookup path can still report NameError/Unbound.
+            // If we treat that as truly missing, nested functions are built with an empty
+            // closure slot and later fail with `NameError: _dp_classcell is not defined`.
+            //
+            // So for name-like misses we fall back to `PyFrame_GetLocals` + mapping lookup,
+            // preserving CPython-visible bindings when transitioning from frame execution into
+            // SOAC eval. Other exception types remain hard errors.
+            let locals = ffi::PyFrame_GetLocals(frame_obj);
+            if locals.is_null() {
+                return Ok(ptr::null_mut());
+            }
+            let fallback = mapping_lookup_optional(locals, name);
+            ffi::Py_DECREF(locals);
+            return fallback;
         }
         return Err(());
     }
@@ -305,6 +386,11 @@ unsafe fn eval_frame_with_data(
 
     let mut locals_box = Box::new(ScopeInstance::new(&*data.local_layout));
     let locals_ptr = locals_box.as_mut() as *mut ScopeInstance;
+    if initialize_cellvars_for_function(data, params_ptr, locals_ptr).is_err() {
+        ffi::Py_DECREF(globals_dict);
+        ffi::Py_DECREF(builtins);
+        return ptr::null_mut();
+    }
     let ctx = ExecContext {
         globals_scope: data.globals_scope,
         globals_dict,
@@ -313,6 +399,7 @@ unsafe fn eval_frame_with_data(
         builtins,
         function_codes: data.function_codes,
         closure: data.closure.as_ref().map(|closure| &closure.scope),
+        cellvars: Some(&data.cellvars),
         runtime_fns: &data.runtime_fns,
         type_params: None,
     };
@@ -345,6 +432,9 @@ unsafe fn eval_frame_with_data_no_frame(data: &FunctionData) -> *mut ffi::PyObje
 
     let mut locals_box = Box::new(ScopeInstance::new(&*data.local_layout));
     let locals_ptr = locals_box.as_mut() as *mut ScopeInstance;
+    if initialize_cellvars_for_function(data, params_ptr, locals_ptr).is_err() {
+        return ptr::null_mut();
+    }
     let ctx = ExecContext {
         globals_scope: data.globals_scope,
         globals_dict: data.globals_dict,
@@ -353,6 +443,7 @@ unsafe fn eval_frame_with_data_no_frame(data: &FunctionData) -> *mut ffi::PyObje
         builtins: data.builtins,
         function_codes: data.function_codes,
         closure: data.closure.as_ref().map(|closure| &closure.scope),
+        cellvars: Some(&data.cellvars),
         runtime_fns: &data.runtime_fns,
         type_params: None,
     };
@@ -475,6 +566,7 @@ fn context_with_type_params<'a>(
         builtins: ctx.builtins,
         function_codes: ctx.function_codes,
         closure: ctx.closure,
+        cellvars: ctx.cellvars,
         runtime_fns: ctx.runtime_fns,
         type_params: Some(type_params),
     }
@@ -493,6 +585,7 @@ pub(crate) fn exec_context_for_scopes<'a>(
         builtins: data.builtins,
         function_codes: data.function_codes,
         closure: data.closure.as_ref().map(|closure| &closure.scope),
+        cellvars: Some(&data.cellvars),
         runtime_fns: &data.runtime_fns,
         type_params: None,
     }
@@ -849,6 +942,9 @@ impl FunctionData {
 
         let mut locals_box = Box::new(ScopeInstance::new(&*self.local_layout));
         let locals_ptr = locals_box.as_mut() as *mut ScopeInstance;
+        if initialize_cellvars_for_function(self, params_scope, locals_ptr).is_err() {
+            return ptr::null_mut();
+        }
 
         let ctx = ExecContext {
             globals_scope: self.globals_scope,
@@ -856,11 +952,12 @@ impl FunctionData {
             params: params_scope,
             locals: locals_ptr,
             builtins: self.builtins,
+            function_codes: self.function_codes,
             closure: self.closure.as_ref().map(|closure| &closure.scope),
-        runtime_fns: &self.runtime_fns,
-        function_codes: self.function_codes,
-        type_params: None,
-    };
+            cellvars: Some(&self.cellvars),
+            runtime_fns: &self.runtime_fns,
+            type_params: None,
+        };
 
         let result = match eval_block(&self.def.body, &ctx) {
             Ok(StmtFlow::Return(value)) => value,
@@ -896,6 +993,7 @@ pub unsafe fn eval_module(
         builtins,
         function_codes,
         closure: None,
+        cellvars: None,
         runtime_fns,
         type_params: None,
     };
@@ -986,7 +1084,8 @@ unsafe fn function_closure_object(
         return Ok(Bound::<PyAny>::from_owned_ptr(py, none).unbind());
     };
     if ffi::PyObject_TypeCheck(code, std::ptr::addr_of_mut!(ffi::PyCode_Type)) != 0 {
-        let freevars = ffi::PyObject_GetAttrString(code, b"co_freevars\0".as_ptr() as *const c_char);
+        let freevars =
+            ffi::PyObject_GetAttrString(code, b"co_freevars\0".as_ptr() as *const c_char);
         if freevars.is_null() {
             return Err(());
         }
@@ -1130,14 +1229,16 @@ unsafe fn function_code_object(data: &FunctionData) -> Result<Py<PyAny>, ()> {
                 ffi::Py_DECREF(code);
                 return Err(());
             }
-            let ok =
-                ffi::PyDict_SetItemString(kwargs, b"co_name\0".as_ptr() as *const c_char, co_name_obj)
-                    == 0
-                    && ffi::PyDict_SetItemString(
-                        kwargs,
-                        b"co_qualname\0".as_ptr() as *const c_char,
-                        qualname_obj,
-                    ) == 0;
+            let ok = ffi::PyDict_SetItemString(
+                kwargs,
+                b"co_name\0".as_ptr() as *const c_char,
+                co_name_obj,
+            ) == 0
+                && ffi::PyDict_SetItemString(
+                    kwargs,
+                    b"co_qualname\0".as_ptr() as *const c_char,
+                    qualname_obj,
+                ) == 0;
             ffi::Py_DECREF(co_name_obj);
             ffi::Py_DECREF(qualname_obj);
             if !ok {
@@ -1305,7 +1406,7 @@ unsafe fn function_code_object(data: &FunctionData) -> Result<Py<PyAny>, ()> {
         .map(|closure| closure._layout.names.len())
         .unwrap_or(0);
     let freevars_tuple = ffi::PyTuple_New(freevars_len as ffi::Py_ssize_t);
-    let cellvars_tuple = ffi::PyTuple_New(0);
+    let cellvars_tuple = ffi::PyTuple_New(data.def.cellvars.len() as ffi::Py_ssize_t);
     if freevars_tuple.is_null() || cellvars_tuple.is_null() {
         ffi::Py_XDECREF(freevars_tuple);
         ffi::Py_XDECREF(cellvars_tuple);
@@ -1343,6 +1444,27 @@ unsafe fn function_code_object(data: &FunctionData) -> Result<Py<PyAny>, ()> {
                 ffi::Py_DECREF(filename_obj);
                 return Err(());
             }
+        }
+    }
+    for (idx, name) in data.def.cellvars.iter().enumerate() {
+        let name_obj = ffi::PyUnicode_FromString(CString::new(name.as_str()).unwrap().as_ptr());
+        if name_obj.is_null()
+            || ffi::PyTuple_SetItem(cellvars_tuple, idx as ffi::Py_ssize_t, name_obj) != 0
+        {
+            ffi::Py_XDECREF(name_obj);
+            ffi::Py_DECREF(freevars_tuple);
+            ffi::Py_DECREF(cellvars_tuple);
+            ffi::Py_DECREF(varnames_tuple);
+            ffi::Py_DECREF(argcount_obj);
+            ffi::Py_DECREF(posonly_obj);
+            ffi::Py_DECREF(kwonly_obj);
+            ffi::Py_DECREF(nlocals_obj);
+            ffi::Py_DECREF(flags_obj);
+            ffi::Py_DECREF(co_name_obj);
+            ffi::Py_DECREF(qualname_obj);
+            ffi::Py_DECREF(firstlineno_obj);
+            ffi::Py_DECREF(filename_obj);
+            return Err(());
         }
     }
     let code = ffi::PyCode_NewEmpty(
@@ -1520,6 +1642,7 @@ pub unsafe fn build_function(
 ) -> Result<*mut ffi::PyObject, ()> {
     let has_yield = def.body.iter().any(stmt_has_yield);
     let local_names = collect_local_names(&def);
+    let cellvars = def.cellvars.iter().cloned().collect::<HashSet<_>>();
     let closure = capture_closure(&def.freevars, ctx)?;
     let local_layout = Box::new(ScopeLayout::new(local_names));
 
@@ -1661,6 +1784,7 @@ pub unsafe fn build_function(
         params,
         param_layout,
         local_layout,
+        cellvars,
         closure,
         type_params,
         has_yield,
@@ -1699,8 +1823,11 @@ pub unsafe fn build_function(
             return Err(());
         }
     };
-    if PyUnstable_Code_SetExtra(code.bind(py).as_ptr(), extra_index, code_extra_ptr as *mut c_void)
-        != 0
+    if PyUnstable_Code_SetExtra(
+        code.bind(py).as_ptr(),
+        extra_index,
+        code_extra_ptr as *mut c_void,
+    ) != 0
     {
         drop(Box::from_raw(code_extra_ptr));
         ffi::Py_DECREF(name_obj);
@@ -1834,6 +1961,7 @@ pub(crate) unsafe fn eval_function_annotations(
         builtins: data.builtins,
         function_codes: data.function_codes,
         closure: data.closure.as_ref().map(|closure| &closure.scope),
+        cellvars: Some(&data.cellvars),
         runtime_fns: &data.runtime_fns,
         type_params: data.type_params.as_ref().map(|state| &state.map),
     };
@@ -1944,12 +2072,13 @@ pub(crate) fn bind_args(
                 ParamKind::VarArg => {
                     has_vararg = true;
                     let remaining = args_len - arg_index;
-                    let tuple =
-                        match Bound::<PyAny>::from_owned_ptr_or_opt(py, ffi::PyTuple_New(remaining))
-                        {
-                            Some(tuple) => tuple,
-                            None => return Err(()),
-                        };
+                    let tuple = match Bound::<PyAny>::from_owned_ptr_or_opt(
+                        py,
+                        ffi::PyTuple_New(remaining),
+                    ) {
+                        Some(tuple) => tuple,
+                        None => return Err(()),
+                    };
                     for idx in 0..remaining {
                         let value = ffi::PyTuple_GetItem(args_tuple.as_ptr(), arg_index + idx);
                         if value.is_null() {
@@ -2132,7 +2261,6 @@ fn collect_call_args(args: &[min_ast::Arg], ctx: &ExecContext<'_>) -> Result<(),
     Ok(())
 }
 
-
 fn eval_block(stmts: &[min_ast::StmtNode], ctx: &ExecContext<'_>) -> Result<StmtFlow, ()> {
     for stmt in stmts {
         match eval_stmt(stmt, ctx)? {
@@ -2149,11 +2277,7 @@ unsafe fn scope_is_module_globals(ctx: &ExecContext<'_>) -> bool {
 
 unsafe fn name_key(name: &str) -> Result<*mut ffi::PyObject, ()> {
     let key = ffi::PyUnicode_FromStringAndSize(name.as_ptr() as *const c_char, name.len() as _);
-    if key.is_null() {
-        Err(())
-    } else {
-        Ok(key)
-    }
+    if key.is_null() { Err(()) } else { Ok(key) }
 }
 
 unsafe fn dict_lookup_name(dict: *mut ffi::PyObject, name: &str) -> Result<*mut ffi::PyObject, ()> {
@@ -2184,6 +2308,32 @@ unsafe fn assign_name_in_context(
         }
         return Ok(());
     }
+    if is_cellvar_name(ctx, name) {
+        let locals = &mut *ctx.locals;
+        let existing = scope_lookup_name(&*locals, name);
+        if !existing.is_null() {
+            if ffi::PyObject_TypeCheck(existing, std::ptr::addr_of_mut!(PyCell_Type)) != 0 {
+                let status = ffi::PyObject_SetAttrString(
+                    existing,
+                    b"cell_contents\0".as_ptr() as *const c_char,
+                    value,
+                );
+                ffi::Py_DECREF(existing);
+                if status != 0 {
+                    return Err(());
+                }
+                return Ok(());
+            }
+            ffi::Py_DECREF(existing);
+        }
+        let cell = PyCell_New(value);
+        if cell.is_null() {
+            return Err(());
+        }
+        let status = scope_assign_name(locals, name, cell);
+        ffi::Py_DECREF(cell);
+        return status;
+    }
     scope_assign_name(&mut *ctx.locals, name, value)
 }
 
@@ -2200,6 +2350,29 @@ unsafe fn delete_name_in_context(ctx: &ExecContext<'_>, name: &str) -> Result<()
             return Err(());
         }
         return Ok(());
+    }
+    if is_cellvar_name(ctx, name) {
+        let locals = &mut *ctx.locals;
+        let existing = scope_lookup_name(&*locals, name);
+        if existing.is_null() {
+            return set_unbound_local(name);
+        }
+        if ffi::PyObject_TypeCheck(existing, std::ptr::addr_of_mut!(PyCell_Type)) != 0 {
+            let status =
+                ffi::PyObject_DelAttrString(existing, b"cell_contents\0".as_ptr() as *const c_char);
+            ffi::Py_DECREF(existing);
+            if status != 0 {
+                if ffi::PyErr_ExceptionMatches(ffi::PyExc_ValueError) != 0
+                    || ffi::PyErr_ExceptionMatches(ffi::PyExc_AttributeError) != 0
+                {
+                    ffi::PyErr_Clear();
+                    return set_unbound_local(name);
+                }
+                return Err(());
+            }
+            return Ok(());
+        }
+        ffi::Py_DECREF(existing);
     }
     scope_delete_name(&mut *ctx.locals, name)
 }
@@ -2553,7 +2726,11 @@ unsafe fn eval_raw_expr_source(
     ffi::Py_DECREF(source_obj);
     ffi::Py_DECREF(globals_obj);
     ffi::Py_DECREF(locals_obj);
-    if result.is_null() { Err(()) } else { Ok(result) }
+    if result.is_null() {
+        Err(())
+    } else {
+        Ok(result)
+    }
 }
 
 fn lookup_name(name: &str, ctx: &ExecContext<'_>) -> Result<*mut ffi::PyObject, ()> {
@@ -2576,6 +2753,23 @@ fn lookup_name(name: &str, ctx: &ExecContext<'_>) -> Result<*mut ffi::PyObject, 
                         }
                     }
                     return set_unbound_local(name);
+                }
+                if is_cellvar_name(ctx, name)
+                    && ffi::PyObject_TypeCheck(value, std::ptr::addr_of_mut!(PyCell_Type)) != 0
+                {
+                    let loaded = ffi::PyObject_GetAttrString(
+                        value,
+                        b"cell_contents\0".as_ptr() as *const c_char,
+                    );
+                    ffi::Py_DECREF(value);
+                    if loaded.is_null() {
+                        if ffi::PyErr_ExceptionMatches(ffi::PyExc_ValueError) != 0 {
+                            ffi::PyErr_Clear();
+                            return set_unbound_local(name);
+                        }
+                        return Err(());
+                    }
+                    return Ok(loaded);
                 }
                 return Ok(value);
             }

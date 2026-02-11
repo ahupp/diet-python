@@ -10,10 +10,7 @@ pub struct RuntimeFns {
 }
 
 impl RuntimeFns {
-    pub fn new(
-        builtins: &Bound<'_, PyDict>,
-        dp_module: &Bound<'_, PyAny>,
-    ) -> PyResult<Self> {
+    pub fn new(builtins: &Bound<'_, PyDict>, dp_module: &Bound<'_, PyAny>) -> PyResult<Self> {
         let builtins_globals = builtins
             .get_item("globals")?
             .ok_or_else(|| PyRuntimeError::new_err("missing builtins globals"))?

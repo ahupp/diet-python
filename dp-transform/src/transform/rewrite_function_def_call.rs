@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use crate::transform::context::Context;
 use crate::transform::rewrite_stmt;
+use crate::transform::util::strip_synthetic_module_init_qualname;
 use crate::{py_expr, py_stmt, Scope};
 
 pub type FunctionRenameMap = HashMap<String, (String, String)>;
@@ -19,7 +20,7 @@ pub fn rewrite_function_defs(
     body: &mut StmtBody,
 ) -> FunctionRenameMap {
     let renamed = Rc::new(RefCell::new(FunctionRenameMap::new()));
-    let mut rewriter = FunctionDefRewriter {
+    let mut rewriter = FunctionDefCallRewriter {
         context,
         scope,
         next_fn_id: Rc::new(Cell::new(0)),
@@ -30,14 +31,14 @@ pub fn rewrite_function_defs(
     result
 }
 
-struct FunctionDefRewriter<'a> {
+struct FunctionDefCallRewriter<'a> {
     context: &'a Context,
     scope: Arc<Scope>,
     next_fn_id: Rc<Cell<usize>>,
     renamed: Rc<RefCell<FunctionRenameMap>>,
 }
 
-impl<'a> Transformer for FunctionDefRewriter<'a> {
+impl<'a> Transformer for FunctionDefCallRewriter<'a> {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
             Stmt::FunctionDef(func_def) => {
@@ -57,9 +58,10 @@ impl<'a> Transformer for FunctionDefRewriter<'a> {
                 };
 
                 let child_scope = self.scope.child_scope_for_function(func_def).unwrap();
+                let qualname =
+                    strip_synthetic_module_init_qualname(child_scope.qualnamer.qualname.as_str());
 
-                let qualname = child_scope.qualnamer.qualname.to_string();
-                let mut rewriter = FunctionDefRewriter {
+                let mut rewriter = FunctionDefCallRewriter {
                     context: self.context,
                     scope: child_scope,
                     next_fn_id: self.next_fn_id.clone(),
@@ -78,7 +80,6 @@ impl<'a> Transformer for FunctionDefRewriter<'a> {
                     (display_name.to_string(), qualname.clone()),
                 );
 
-                // Decorators should be applied after name/qualname updates
                 let decorated = rewrite_stmt::decorator::rewrite(
                     decorators,
                     py_expr!(r"{temp_name:id}", temp_name = temp_name.as_str()),
@@ -124,8 +125,7 @@ del {temp_name:id}
             }
             Stmt::ClassDef(class_def) => {
                 let child_scope = self.scope.child_scope_for_class(class_def).unwrap();
-
-                let mut class_rewriter = FunctionDefRewriter {
+                let mut class_rewriter = FunctionDefCallRewriter {
                     context: self.context,
                     scope: child_scope,
                     next_fn_id: self.next_fn_id.clone(),

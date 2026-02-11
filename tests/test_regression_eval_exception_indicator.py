@@ -13,18 +13,18 @@ def test_eval_clears_exception_indicator_in_async(tmp_path: Path, mode: str) -> 
 import asyncio
 import ctypes
 import pytest
-import __dp__
+dp = __import__("__dp__")
 
 async def main():
     err = ctypes.pythonapi.PyErr_Occurred
     err.restype = ctypes.c_void_p
-    orig_is = __dp__.is_
+    orig_is = dp.is_
 
     def is_check(lhs, rhs):
         assert err() is None
         return orig_is(lhs, rhs)
 
-    __dp__.is_ = is_check
+    dp.is_ = is_check
     try:
         async def afunc():
             await asyncio.sleep(0.1)
@@ -37,7 +37,7 @@ async def main():
         task.cancel()
         return True
     finally:
-        __dp__.is_ = orig_is
+        dp.is_ = orig_is
 
 def run():
     return asyncio.run(main())

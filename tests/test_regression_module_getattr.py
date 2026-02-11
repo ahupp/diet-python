@@ -7,7 +7,11 @@ import pytest
 from tests._integration import integration_module
 
 
-@pytest.mark.parametrize("mode", ["stock", "transform", "eval"], ids=["stock", "transformed", "eval"])
+@pytest.mark.parametrize(
+    "mode",
+    ["stock", "transform", "transform-bb", "eval"],
+    ids=["stock", "transformed", "transformed-bb", "eval"],
+)
 def test_module_getattr_lazy_attribute(tmp_path: Path, mode: str) -> None:
     source = """
 value = 41

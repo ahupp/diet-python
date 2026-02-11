@@ -12,9 +12,12 @@ mod eval;
 fn transform_source(source: &str, ensure: Option<bool>) -> PyResult<String> {
     let preview = source.get(..100).unwrap_or(source);
     trace!("transform_source: {}", preview);
+    let lower_basic_blocks =
+        std::env::var_os("DIET_PYTHON_BASIC_BLOCKS").as_deref() == Some("1".as_ref());
     let options = Options {
         inject_import: ensure.unwrap_or(true),
         lower_attributes: false,
+        lower_basic_blocks,
         ..Options::default()
     };
     match transform_str_to_ruff_with_options(source, options) {

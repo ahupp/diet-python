@@ -17,7 +17,10 @@ fn collect_fixtures(root: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
         let path = entry.path();
         if path.is_dir() {
             collect_fixtures(&path, out)?;
-        } else if path.extension().is_some_and(|ext| ext == "txt") {
+        } else if path.file_name().is_some_and(|name| {
+            name.to_string_lossy().starts_with("snapshot_")
+                && path.extension().is_some_and(|ext| ext == "py")
+        }) {
             if log_enabled!(Level::Trace) {
                 trace!("collect_fixtures: found {}", path.display());
             }
@@ -38,14 +41,37 @@ fn regenerate_fixture(path: &Path) -> Result<(), String> {
         trace!("regenerate_fixture: parsed {} blocks", blocks.len());
     }
 
-    let options = Options::for_test();
-    for block in &mut blocks {
+    let mut pre_bb_options = Options::for_test();
+    pre_bb_options.lower_basic_blocks = true;
+    pre_bb_options.emit_basic_blocks = false;
+    let mut bb_options = Options::for_test();
+    bb_options.lower_basic_blocks = true;
+    let mut bb_outputs = Vec::with_capacity(blocks.len());
+    for block in &blocks {
         if log_enabled!(Level::Trace) {
-            trace!("regenerate_fixture: transforming {}", block.name);
+            trace!("regenerate_fixture: transforming bb {}", block.name);
         }
-        let module = transform_str_to_ruff_with_options(&block.input, options)
+        let bb = transform_str_to_ruff_with_options(&block.input, bb_options)
             .map_err(|err| format!("{}: {}", path.display(), err))?;
-        block.output = module.to_string();
+        bb_outputs.push(bb.to_string());
+    }
+
+    let mut pre_bb_outputs = Vec::with_capacity(blocks.len());
+    for block in &blocks {
+        if log_enabled!(Level::Trace) {
+            trace!("regenerate_fixture: transforming pre-bb {}", block.name);
+        }
+        let pre_bb = transform_str_to_ruff_with_options(&block.input, pre_bb_options)
+            .map_err(|err| format!("{}: {}", path.display(), err))?;
+        pre_bb_outputs.push(pre_bb.to_string());
+    }
+
+    for (index, block) in blocks.iter_mut().enumerate() {
+        block.output = format!(
+            "# -- pre-bb --\n{pre}\n\n# -- bb --\n{bb}\n",
+            pre = pre_bb_outputs[index].trim_end(),
+            bb = bb_outputs[index].trim_end()
+        );
     }
 
     let rendered = render_fixture(&blocks);

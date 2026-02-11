@@ -45,12 +45,14 @@ fn panic_payload_to_string(payload: Box<dyn Any + Send>) -> String {
 }
 
 fn parse_and_lower(source: &str) -> Result<dp_transform::LoweringResult, TransformToMinAstError> {
+    let lower_basic_blocks =
+        std::env::var_os("DIET_PYTHON_BASIC_BLOCKS").as_deref() == Some("1".as_ref());
     let options = Options {
         inject_import: true,
         eval_mode: true,
         lower_attributes: true,
+        lower_basic_blocks,
         truthy: false,
-        cleanup_dp_globals: false,
         force_import_rewrite: true,
         ..Options::default()
     };
@@ -123,7 +125,7 @@ fn collect_function_codes_from_code(
 
     let name_obj = code_obj.getattr("co_name")?;
     if let Ok(name) = name_obj.extract::<String>() {
-        if name.starts_with("_dp_fn_") {
+        if name.starts_with("_dp_fn_") || name.starts_with("_dp_class_ns_") {
             code_map.set_item(name_obj, code_obj)?;
         }
     }
@@ -216,8 +218,8 @@ fn eval_source_impl_with_name_and_spec(
             if builtins.is_null() {
                 return Err(PyErr::fetch(py));
             }
-            let builtins_dict = Bound::<PyAny>::from_borrowed_ptr(py, builtins)
-                .cast_into::<PyDict>()?;
+            let builtins_dict =
+                Bound::<PyAny>::from_borrowed_ptr(py, builtins).cast_into::<PyDict>()?;
             module.setattr("__builtins__", &builtins_dict)?;
 
             let dp_module = py.import("__dp__")?;
@@ -248,6 +250,14 @@ fn eval_source_impl_with_name_and_spec(
             {
                 ffi::PyDict_DelItemString(modules, name_cstr.as_ptr());
                 return Err(PyErr::fetch(py));
+            }
+
+            if let Err(err) = module
+                .getattr("_dp_module_init")
+                .and_then(|init_fn| init_fn.call0())
+            {
+                ffi::PyDict_DelItemString(modules, name_cstr.as_ptr());
+                return Err(err);
             }
 
             Ok(())

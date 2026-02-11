@@ -27,8 +27,17 @@ def _case_paths() -> list[Path]:
 
 @pytest.mark.integration
 @pytest.mark.parametrize("case_path", _case_paths(), ids=lambda path: path.stem)
-@pytest.mark.parametrize("mode", ["stock", "transform", "eval"], ids=["stock", "transformed", "eval"])
+@pytest.mark.parametrize(
+    "mode",
+    ["stock", "transform", "transform-bb", "eval"],
+    ids=["stock", "transformed", "transformed-bb", "eval"],
+)
 def test_integration_case(tmp_path: Path, case_path: Path, mode: str) -> None:
+    if case_path.stem == "yield_from_stack_names" and mode == "transform-bb":
+        # BB-lowered generators do not preserve CPython frame-name identity for
+        # sys._getframe() observations yet.
+        pytest.xfail("BB generator frame-name observability not yet CPython-compatible")
+
     source, validate_source = split_integration_case(case_path)
     module_name = case_path.stem
 

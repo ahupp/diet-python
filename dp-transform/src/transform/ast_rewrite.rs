@@ -176,6 +176,16 @@ pub trait StmtRewritePass {
     fn lower_stmt(&self, context: &Context, stmt: Stmt) -> Rewrite;
 }
 
+pub trait BBRewritePass {
+    fn lower_bb_stmt(&self, context: &Context, stmt: Stmt) -> Rewrite;
+}
+
+impl<T: BBRewritePass + ?Sized> StmtRewritePass for T {
+    fn lower_stmt(&self, context: &Context, stmt: Stmt) -> Rewrite {
+        self.lower_bb_stmt(context, stmt)
+    }
+}
+
 pub trait ExprRewritePass {
     fn lower_expr(&self, context: &Context, expr: Expr) -> LoweredExpr;
 }
@@ -196,11 +206,9 @@ impl<'a> RewriteLoop<'a> {
                 }
 
                 let (globals, nonlocals) = collect_declared_bindings(&func_def.body);
-                self.context.push_scope(ScopeFrame::new(
-                    ScopeKind::Function,
-                    globals,
-                    nonlocals,
-                ));
+                let mut frame = ScopeFrame::new(ScopeKind::Function, globals, nonlocals);
+                frame.in_async_function = func_def.is_async;
+                self.context.push_scope(frame);
                 self.visit_body(&mut func_def.body);
                 self.context.pop_scope();
             }

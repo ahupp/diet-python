@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import sys
-import __dp__
+
+dp = __import__("__dp__")
 
 
 def exercise():
@@ -16,7 +17,7 @@ def exercise():
             recurse()
         except RecursionError:
             try:
-                __dp__.current_exception()
+                dp.current_exception()
             except RecursionError:
                 return False
             return True

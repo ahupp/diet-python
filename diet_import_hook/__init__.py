@@ -38,6 +38,19 @@ def _transform_source(path: str) -> str:
     return compiled_source
 
 
+def _run_module_init(module) -> None:
+    init = getattr(module, "_dp_module_init", None)
+    if init is None:
+        return
+    try:
+        init()
+    finally:
+        try:
+            delattr(module, "_dp_module_init")
+        except Exception:
+            pass
+
+
 def _get_pyo3_transform():
     global _PYO3_TRANSFORM
     if _PYO3_TRANSFORM is None:
@@ -173,7 +186,9 @@ class DietPythonLoader(importlib.machinery.SourceFileLoader):
 
     def exec_module(self, module):
         if _diet_python_mode() != "eval":
-            return super().exec_module(module)
+            result = super().exec_module(module)
+            _run_module_init(module)
+            return result
         return None
 
     def get_code(self, fullname):
@@ -186,6 +201,13 @@ class DietPythonLoader(importlib.machinery.SourceFileLoader):
         return self.source_to_code(source_bytes, self.path)
 
     def source_to_code(self, data, path, *, _optimize=-1):
+        if os.environ.get("DIET_PYTHON_BASIC_BLOCKS") == "1":
+            try:
+                resolved = Path(path).resolve()
+            except OSError:
+                resolved = None
+            if resolved is not None and _is_typing_module(resolved):
+                return super().source_to_code(data, path, _optimize=_optimize)
         source = _transform_source(path)
         return super().source_to_code(source.encode("utf-8"), path, _optimize=_optimize)
 

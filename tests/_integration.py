@@ -54,7 +54,36 @@ def split_integration_case(module_path: Path) -> tuple[str, str]:
     return raw_source.rstrip() + "\n", padded_validate
 
 
-def _print_integration_failure_context(module_path: Path) -> None:
+@contextmanager
+def _transform_env_for_mode(mode: str | None) -> Iterator[None]:
+    prior_mode = os.environ.get("DIET_PYTHON_MODE")
+    prior_basic_blocks = os.environ.get("DIET_PYTHON_BASIC_BLOCKS")
+    try:
+        if mode == "transform-bb":
+            os.environ["DIET_PYTHON_MODE"] = "transform"
+            os.environ["DIET_PYTHON_BASIC_BLOCKS"] = "1"
+        elif mode == "transform":
+            os.environ["DIET_PYTHON_MODE"] = "transform"
+            os.environ.pop("DIET_PYTHON_BASIC_BLOCKS", None)
+        elif mode == "eval":
+            os.environ["DIET_PYTHON_MODE"] = "eval"
+            os.environ.pop("DIET_PYTHON_BASIC_BLOCKS", None)
+        elif mode == "stock":
+            os.environ.pop("DIET_PYTHON_MODE", None)
+            os.environ.pop("DIET_PYTHON_BASIC_BLOCKS", None)
+        yield
+    finally:
+        if prior_mode is None:
+            os.environ.pop("DIET_PYTHON_MODE", None)
+        else:
+            os.environ["DIET_PYTHON_MODE"] = prior_mode
+        if prior_basic_blocks is None:
+            os.environ.pop("DIET_PYTHON_BASIC_BLOCKS", None)
+        else:
+            os.environ["DIET_PYTHON_BASIC_BLOCKS"] = prior_basic_blocks
+
+
+def _print_integration_failure_context(module_path: Path, mode: str | None = None) -> None:
     if module_path in _PRINTED_MODULES:
         return
     try:
@@ -63,16 +92,19 @@ def _print_integration_failure_context(module_path: Path) -> None:
         source = f"<<failed to read source: {err}>>"
 
     try:
-        transformed = diet_import_hook._transform_source(str(module_path))
+        with _transform_env_for_mode(mode):
+            transformed = diet_import_hook._transform_source(str(module_path))
     except Exception as err:
         transformed = f"<<failed to transform source: {err}>>"
 
     print("\n--- diet-python integration failure context ---", file=sys.stderr)
     print(f"module: {module_path}", file=sys.stderr)
-    print("--- input module ---", file=sys.stderr)
-    print(source, file=sys.stderr)
+    if mode is not None:
+        print(f"mode: {mode}", file=sys.stderr)
     print("--- transformed module ---", file=sys.stderr)
     print(transformed, file=sys.stderr)
+    print("--- input module ---", file=sys.stderr)
+    print(source, file=sys.stderr)
     print("--- end diet-python integration context ---", file=sys.stderr)
     _PRINTED_MODULES.add(module_path)
 
@@ -109,24 +141,31 @@ def _load_module(
     prior_allow_temp = os.environ.get("DIET_PYTHON_ALLOW_TEMP")
     os.environ["DIET_PYTHON_ALLOW_TEMP"] = "1"
     prior_mode = os.environ.get("DIET_PYTHON_MODE")
+    prior_basic_blocks = os.environ.get("DIET_PYTHON_BASIC_BLOCKS")
 
     full_name = f"{package_name}.{module_name}"
 
     try:
-        if mode == "transform":
+        if mode == "transform" or mode == "transform-bb":
             os.environ["DIET_PYTHON_MODE"] = "transform"
+            if mode == "transform-bb":
+                os.environ["DIET_PYTHON_BASIC_BLOCKS"] = "1"
+            else:
+                os.environ.pop("DIET_PYTHON_BASIC_BLOCKS", None)
             diet_import_hook.install()
             sys.modules.pop(full_name, None)
             sys.modules.pop(package_name, None)
             module = importlib.import_module(full_name)
         elif mode == "eval":
             os.environ["DIET_PYTHON_MODE"] = "eval"
+            os.environ.pop("DIET_PYTHON_BASIC_BLOCKS", None)
             diet_import_hook.install()
             sys.modules.pop(full_name, None)
             sys.modules.pop(package_name, None)
             module = importlib.import_module(full_name)
         else:
             os.environ.pop("DIET_PYTHON_MODE", None)
+            os.environ.pop("DIET_PYTHON_BASIC_BLOCKS", None)
             with _disable_import_hook():
                 sys.modules.pop(full_name, None)
                 sys.modules.pop(package_name, None)
@@ -139,9 +178,13 @@ def _load_module(
             os.environ.pop("DIET_PYTHON_MODE", None)
         else:
             os.environ["DIET_PYTHON_MODE"] = prior_mode
+        if prior_basic_blocks is None:
+            os.environ.pop("DIET_PYTHON_BASIC_BLOCKS", None)
+        else:
+            os.environ["DIET_PYTHON_BASIC_BLOCKS"] = prior_basic_blocks
         yield module
     except Exception:
-        _print_integration_failure_context(module_path)
+        _print_integration_failure_context(module_path, mode=mode)
         raise
     finally:
         sys.modules.pop(full_name, None)
@@ -161,6 +204,10 @@ def _load_module(
             os.environ.pop("DIET_PYTHON_MODE", None)
         else:
             os.environ["DIET_PYTHON_MODE"] = prior_mode
+        if prior_basic_blocks is None:
+            os.environ.pop("DIET_PYTHON_BASIC_BLOCKS", None)
+        else:
+            os.environ["DIET_PYTHON_BASIC_BLOCKS"] = prior_basic_blocks
 
 
 @contextmanager

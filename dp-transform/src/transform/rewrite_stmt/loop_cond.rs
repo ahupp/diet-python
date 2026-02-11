@@ -19,12 +19,13 @@ pub fn rewrite_for(
     let iter_tmp = context.fresh("iter");
     let target_tmp = context.fresh("tmp");
     let completed_flag = context.fresh("completed");
+    let has_orelse = !orelse.body.is_empty();
 
-    Rewrite::Walk(if is_async {
+    Rewrite::Walk(if is_async && has_orelse {
         py_stmt!(
             r#"
-{completed_flag:id} = False            
 {iter_name:id} = __dp__.aiter({iter:expr})
+{completed_flag:id} = False
 while not {completed_flag:id}:
     {target_tmp:id} = await __dp__.anext_or_sentinel({iter_name:id})
     if {target_tmp:id} is __dp__.ITER_COMPLETE:
@@ -33,7 +34,50 @@ while not {completed_flag:id}:
         {target:expr} = {target_tmp:id}
         {target_tmp:id} = None
         {body:stmt}
-if {completed_flag:id}:
+else:
+    {orelse:stmt}
+"#,
+            iter_name = iter_tmp.as_str(),
+            iter = iter,
+            target = target,
+            body = body,
+            orelse = orelse,
+            target_tmp = target_tmp.as_str(),
+            completed_flag = completed_flag.as_str(),
+        )
+    } else if is_async {
+        py_stmt!(
+            r#"
+{iter_name:id} = __dp__.aiter({iter:expr})
+while True:
+    {target_tmp:id} = await __dp__.anext_or_sentinel({iter_name:id})
+    if {target_tmp:id} is __dp__.ITER_COMPLETE:
+        break
+    else:
+        {target:expr} = {target_tmp:id}
+        {target_tmp:id} = None
+        {body:stmt}
+"#,
+            iter_name = iter_tmp.as_str(),
+            iter = iter,
+            target = target,
+            body = body,
+            target_tmp = target_tmp.as_str(),
+        )
+    } else if has_orelse {
+        py_stmt!(
+            r#"
+{iter_name:id} = __dp__.iter({iter:expr})
+{completed_flag:id} = False
+while not {completed_flag:id}:
+    {target_tmp:id} = __dp__.next_or_sentinel({iter_name:id})
+    if {target_tmp:id} is __dp__.ITER_COMPLETE:
+        {completed_flag:id} = True
+    else:
+        {target:expr} = {target_tmp:id}
+        {target_tmp:id} = None
+        {body:stmt}
+else:
     {orelse:stmt}
 "#,
             iter_name = iter_tmp.as_str(),
@@ -47,26 +91,21 @@ if {completed_flag:id}:
     } else {
         py_stmt!(
             r#"
-{completed_flag:id} = False            
 {iter_name:id} = __dp__.iter({iter:expr})
-while not {completed_flag:id}:
+while True:
     {target_tmp:id} = __dp__.next_or_sentinel({iter_name:id})
     if {target_tmp:id} is __dp__.ITER_COMPLETE:
-        {completed_flag:id} = True
+        break
     else:
         {target:expr} = {target_tmp:id}
         {target_tmp:id} = None
         {body:stmt}
-if {completed_flag:id}:
-    {orelse:stmt}
 "#,
             iter_name = iter_tmp.as_str(),
             iter = iter,
             target = target,
             body = body,
-            orelse = orelse,
             target_tmp = target_tmp.as_str(),
-            completed_flag = completed_flag.as_str(),
         )
     })
 }

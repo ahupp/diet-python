@@ -906,7 +906,7 @@ impl From<Expr> for ExprNode {
 }
 
 fn collect_load_names_from_raw_expr(expr: &Expr, names: &mut HashSet<String>) {
-    use crate::transformer::{Transformer, walk_expr};
+    use crate::transformer::{walk_expr, Transformer};
     use ruff_python_ast::ExprContext;
 
     struct LoadNameCollector<'a> {

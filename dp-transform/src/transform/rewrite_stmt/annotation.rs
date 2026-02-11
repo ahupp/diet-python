@@ -110,7 +110,12 @@ fn to_annotate_fn(entries: Vec<(String, Expr, String)>, name: &str) -> Stmt {
         .collect::<Vec<_>>();
     let value_dict = py_expr!(
         "__dp__.dict({items:expr})",
-        items = make_tuple(value_pairs.iter().map(|(value_pair, _)| value_pair.clone()).collect())
+        items = make_tuple(
+            value_pairs
+                .iter()
+                .map(|(value_pair, _)| value_pair.clone())
+                .collect()
+        )
     );
     let string_dict = py_expr!(
         "__dp__.dict({items:expr})",

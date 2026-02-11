@@ -1,9 +1,11 @@
 # diet-python: disabled
 import collections.abc as _abc
+import inspect as _inspect
 import os
 import operator as _operator
 import reprlib
 import sys
+import threading as _threading
 import builtins
 import types as _types
 import warnings
@@ -31,6 +33,20 @@ def __deepcopy__(memo):
 builtins.__dp__ = sys.modules[__name__]
 
 _MISSING = object()
+DELETED = object()
+NO_DEFAULT = object()
+
+
+class UnboundNameError(UnboundLocalError):
+    pass
+
+
+def load_deleted_name(name, value):
+    if value is DELETED:
+        raise UnboundNameError(
+            f"cannot access local variable {name!r} where it is not associated with a value"
+        )
+    return value
 
 
 def _mro_getattr(cls, name: str):
@@ -256,6 +272,551 @@ def not_(value):
 
 def truth(value):
     return bool(value)
+
+
+_BB_TERM_JUMP = "jump"
+_BB_TERM_RET = "ret"
+_BB_TERM_YIELD = "yield"
+_BB_TERM_RAISE = "raise"
+_GEN_PC_DONE = -1
+_GEN_PC_UNSTARTED = -2
+_BB_TRY_PASS_TARGET = object()
+_CURRENT_EXCEPTION_STATE = _threading.local()
+_CURRENT_GENERATOR_STATE = _threading.local()
+
+
+def jump(target, args):
+    return (_BB_TERM_JUMP, target, args)
+
+
+def ret(value=None, state=None):
+    if state is None:
+        return (_BB_TERM_RET, value)
+    return (_BB_TERM_RET, value, state)
+
+
+def yield_(next_pc, next_args, value=None):
+    return (_BB_TERM_YIELD, next_pc, next_args, value)
+
+
+def raise_(exc, state=None):
+    if state is None:
+        return (_BB_TERM_RAISE, exc)
+    return (_BB_TERM_RAISE, exc, state)
+
+
+def brif(cond, then_target, then_args, else_target, else_args):
+    if truth(cond):
+        return jump(then_target, then_args)
+    return jump(else_target, else_args)
+
+
+_BR_TABLE_NO_ARGS = object()
+
+
+def br_table(index, targets, default_target, args=_BR_TABLE_NO_ARGS):
+    if not isinstance(index, int):
+        target = default_target
+    elif index < 0 or index >= len(targets):
+        target = default_target
+    else:
+        target = targets[index]
+    if args is _BR_TABLE_NO_ARGS:
+        return target
+    return jump(target, args)
+
+
+def take_args(args_ptr):
+    args = args_ptr[0]
+    args_ptr[0] = None
+    return args
+
+
+def take_arg1(args_ptr):
+    args = args_ptr[0]
+    args_ptr[0] = None
+    if len(args) != 1:
+        raise ValueError(f"too many values to unpack (expected 1, got {len(args)})")
+    return args[0]
+
+
+def try_jump(
+    body,
+    pass_target,
+    pass_args,
+    except_target,
+    except_args,
+    ret_target,
+    ret_args,
+):
+    try:
+        term = body()
+    except BaseException:
+        # Invoke the lowered except-dispatch while the exception context is
+        # still active so helpers like current_exception() and bare `raise`
+        # preserve CPython semantics.
+        term = except_target(*except_args)
+
+    if isinstance(term, tuple) and term:
+        tag = term[0]
+        if tag == _BB_TERM_RET and len(term) == 2:
+            return jump(ret_target, tuple(ret_args) + (term[1],))
+        if tag == _BB_TERM_JUMP and len(term) == 3:
+            return term
+
+    return jump(pass_target, pass_args)
+
+
+def _is_valid_bb_term(term):
+    if not (isinstance(term, tuple) and term):
+        return False
+    tag = term[0]
+    if tag == _BB_TERM_JUMP and len(term) == 3:
+        return True
+    if tag == _BB_TERM_RET and len(term) in (2, 3):
+        return True
+    if tag == _BB_TERM_RAISE and len(term) in (2, 3):
+        return True
+    if tag == _BB_TERM_YIELD and len(term) == 4:
+        return True
+    return False
+
+
+def _current_exception_override_stack():
+    stack = getattr(_CURRENT_EXCEPTION_STATE, "stack", None)
+    if stack is None:
+        stack = []
+        _CURRENT_EXCEPTION_STATE.stack = stack
+    return stack
+
+
+def _push_current_exception_override(exc):
+    _current_exception_override_stack().append(exc)
+
+
+def _pop_current_exception_override():
+    stack = _current_exception_override_stack()
+    if stack:
+        stack.pop()
+
+
+def _current_generator_state_stack():
+    stack = getattr(_CURRENT_GENERATOR_STATE, "stack", None)
+    if stack is None:
+        stack = []
+        _CURRENT_GENERATOR_STATE.stack = stack
+    return stack
+
+
+def _push_current_generator_state(state):
+    _current_generator_state_stack().append(state)
+
+
+def _pop_current_generator_state():
+    stack = _current_generator_state_stack()
+    if stack:
+        stack.pop()
+
+
+def _current_generator_state():
+    stack = _current_generator_state_stack()
+    if stack:
+        return stack[-1]
+    return None
+
+
+def gen_resume_value():
+    state = _current_generator_state()
+    if state is None:
+        return None
+    return state.get("_dp_send_value", None)
+
+
+def gen_resume_exception():
+    return _consume_pending_gen_throw()
+
+
+def set_gen_yieldfrom(value):
+    state = _current_generator_state()
+    if state is None:
+        return None
+    state["_dp_yieldfrom"] = value
+    return value
+
+
+def _consume_pending_gen_throw():
+    state = _current_generator_state()
+    return _consume_pending_gen_throw_for_state(state)
+
+
+def _consume_pending_gen_throw_for_state(state):
+    if state is None or not state.get("_dp_resume_pending", False):
+        return None
+
+    state["_dp_resume_pending"] = False
+    pending_throw = state.pop("_dp_pending_throw", None)
+    if pending_throw is None:
+        return None
+
+    if pending_throw.__context__ is None:
+        try:
+            state_args = state.get("args", ())
+            for candidate in reversed(state_args):
+                if isinstance(candidate, BaseException):
+                    pending_throw.__context__ = candidate
+                    break
+        except Exception:
+            pass
+    return pending_throw
+
+
+def _dispatch_except_term(except_target, except_args, except_region_targets, fallback_exc=None):
+    if except_target is None:
+        if fallback_exc is not None:
+            return raise_(fallback_exc)
+        return raise_(current_exception())
+    try:
+        return run_bb_term(except_target, except_args, except_region_targets)
+    except BaseException as exc:
+        return raise_(exc)
+
+
+def try_jump_term(
+    body_target,
+    body_args,
+    body_region_targets,
+    except_target,
+    except_args,
+    except_region_targets,
+    finally_target=None,
+    finally_args=(),
+    finally_region_targets=(),
+    try_pass_target=_BB_TRY_PASS_TARGET,
+    finally_fallthrough_target=None,
+):
+    base_term = None
+    pending_resume_exc = _consume_pending_gen_throw()
+    if pending_resume_exc is not None:
+        # Generator throw() dispatch can target a lowered try-region entry
+        # block. Treat a pending resumed throw as if the first body operation
+        # raised, so we select the appropriate except path without per-block
+        # resume-hook calls.
+        _push_current_exception_override(pending_resume_exc)
+        try:
+            base_term = _dispatch_except_term(
+                except_target,
+                except_args,
+                except_region_targets,
+                fallback_exc=pending_resume_exc,
+            )
+        finally:
+            _pop_current_exception_override()
+    else:
+        try:
+            base_term = run_bb_term(body_target, body_args, body_region_targets)
+        except BaseException:
+            # Keep except dispatch under an active exception context so
+            # current_exception()/explicit re-raise rewrites preserve CPython
+            # behavior while selecting the handler path.
+            base_term = _dispatch_except_term(except_target, except_args, except_region_targets)
+
+    if (
+        isinstance(base_term, tuple)
+        and base_term
+        and base_term[0] == _BB_TERM_RAISE
+        and len(base_term) >= 2
+        and isinstance(base_term[1], BaseException)
+    ):
+        # Raise-terminators from body blocks must flow through except dispatch
+        # just like native `raise` statements inside the original try-body.
+        _push_current_exception_override(base_term[1])
+        try:
+            base_term = _dispatch_except_term(
+                except_target,
+                except_args,
+                except_region_targets,
+                fallback_exc=base_term[1],
+            )
+        finally:
+            _pop_current_exception_override()
+
+    if not _is_valid_bb_term(base_term):
+        raise RuntimeError(f"invalid try term: {base_term!r}")
+
+    if finally_target is None:
+        return base_term
+
+    effective_finally_args = finally_args
+    if (
+        isinstance(base_term, tuple)
+        and base_term
+        and base_term[0] == _BB_TERM_JUMP
+        and len(base_term) == 3
+        and base_term[1] is finally_target
+    ):
+        effective_finally_args = base_term[2]
+    try:
+        if (
+            isinstance(base_term, tuple)
+            and base_term
+            and base_term[0] == _BB_TERM_RAISE
+            and len(base_term) >= 2
+            and isinstance(base_term[1], BaseException)
+        ):
+            # Preserve current_exception()/exc_info() visibility for finally on
+            # raise-paths without performing a real Python raise, which would
+            # attach traceback frames and retain exception locals.
+            _push_current_exception_override(base_term[1])
+            try:
+                final_term = run_bb_term(
+                    finally_target,
+                    effective_finally_args,
+                    finally_region_targets,
+                )
+            finally:
+                _pop_current_exception_override()
+        else:
+            final_term = run_bb_term(
+                finally_target,
+                effective_finally_args,
+                finally_region_targets,
+            )
+    except BaseException:
+        return raise_(current_exception())
+
+    if not _is_valid_bb_term(final_term):
+        raise RuntimeError(f"invalid finally term: {final_term!r}")
+
+    if (
+        isinstance(final_term, tuple)
+        and final_term
+        and final_term[0] == _BB_TERM_JUMP
+        and len(final_term) == 3
+        and finally_fallthrough_target is not None
+        and final_term[1] is finally_fallthrough_target
+    ):
+        if (
+            isinstance(base_term, tuple)
+            and base_term
+            and base_term[0] == _BB_TERM_JUMP
+            and len(base_term) == 3
+            and (base_term[1] is try_pass_target or base_term[1] is finally_target)
+        ):
+            return final_term
+        return base_term
+
+    if (
+        finally_fallthrough_target is not None
+        and isinstance(final_term, tuple)
+        and final_term
+        and final_term[0] == _BB_TERM_RET
+        and len(final_term) in (2, 3)
+        and final_term[1] is None
+        and isinstance(base_term, tuple)
+        and base_term
+        and base_term[0] in (_BB_TERM_RET, _BB_TERM_RAISE)
+    ):
+        return base_term
+
+    return final_term
+
+
+def apply_try_term(term, pass_target, pass_args, pass_sentinel):
+    if not (isinstance(term, tuple) and term):
+        raise RuntimeError(f"invalid try term: {term!r}")
+    tag = term[0]
+    if tag == _BB_TERM_RET and len(term) in (2, 3):
+        if term[1] is pass_sentinel:
+            return jump(pass_target, pass_args)
+        return term
+    if tag == _BB_TERM_JUMP and len(term) == 3:
+        return term
+    if tag == _BB_TERM_RAISE and len(term) in (2, 3):
+        return term
+    raise RuntimeError(f"invalid try term: {term!r}")
+
+
+def run_bb(entry, args):
+    block = entry
+    block_args_ptr = [args]
+    term = None
+    while True:
+        if not callable(block):
+            raise RuntimeError(f"invalid basic-block target: {block!r}")
+        # Drop the prior terminator tuple before entering the next block.
+        term = None
+        term = block(block_args_ptr)
+        block_args_ptr = None
+        if isinstance(term, tuple) and term:
+            tag = term[0]
+            if tag == _BB_TERM_JUMP and len(term) == 3:
+                block = term[1]
+                block_args_ptr = [term[2]]
+                continue
+            if tag == _BB_TERM_RET and len(term) in (2, 3):
+                return term[1]
+            if tag == _BB_TERM_RAISE and len(term) in (2, 3):
+                raise term[1]
+        raise RuntimeError(f"invalid basic-block terminator: {term!r}")
+
+
+def run_bb_term(entry, args, region_targets):
+    block = entry
+    block_args_ptr = [args]
+    while True:
+        if not callable(block):
+            raise RuntimeError(f"invalid basic-block target: {block!r}")
+        term = block(block_args_ptr)
+        block_args_ptr = None
+        if isinstance(term, tuple) and term:
+            tag = term[0]
+            if tag == _BB_TERM_JUMP and len(term) == 3:
+                target = term[1]
+                if target in region_targets:
+                    block = target
+                    block_args_ptr = [term[2]]
+                    continue
+                return term
+            if tag == _BB_TERM_RET and len(term) in (2, 3):
+                return term
+            if tag == _BB_TERM_YIELD and len(term) == 4:
+                return term
+            if tag == _BB_TERM_RAISE and len(term) in (2, 3):
+                return term
+        raise RuntimeError(f"invalid basic-block terminator: {term!r}")
+
+
+def run_gen_bb(state, value=None):
+    state["_dp_send_value"] = value
+    state["_dp_resume_pending"] = True
+    while True:
+        pc = state["pc"]
+        if not isinstance(pc, int):
+            raise RuntimeError(f"invalid generator pc: {pc!r}")
+        targets = state["targets"]
+        if state.get("_dp_resume_pending", False) and "_dp_pending_throw" in state:
+            resume_hook_flags = state["_dp_resume_hook_flags"]
+            throw_dispatch_pcs = state["_dp_throw_dispatch_pcs"]
+            if 0 <= pc < len(resume_hook_flags) and resume_hook_flags[pc]:
+                dispatch_pc = throw_dispatch_pcs[pc]
+                if dispatch_pc >= 0 and dispatch_pc < len(targets):
+                    state["pc"] = dispatch_pc
+                    pc = dispatch_pc
+                else:
+                    pending_throw = _consume_pending_gen_throw_for_state(state)
+                    if pending_throw is not None:
+                        raise pending_throw
+        block = br_table(pc, targets, state.get("_dp_invalid_pc"))
+        if block is None or not callable(block):
+            raise RuntimeError(f"invalid generator pc: {pc!r}")
+        _push_current_generator_state(state)
+        try:
+            term = block([state["args"]])
+        finally:
+            _pop_current_generator_state()
+        if isinstance(term, tuple) and term:
+            tag = term[0]
+            if tag == _BB_TERM_JUMP and len(term) == 3:
+                target = term[1]
+                if not callable(target):
+                    raise RuntimeError(f"invalid generator basic-block target: {target!r}")
+                try:
+                    state["pc"] = targets.index(target)
+                except ValueError:
+                    raise RuntimeError(f"invalid generator jump target: {target!r}") from None
+                state["args"] = term[2]
+                continue
+            if tag == _BB_TERM_RET and len(term) in (2, 3):
+                state["pc"] = state.get("_dp_pc_done", _GEN_PC_DONE)
+                raise StopIteration(term[1])
+            if tag == _BB_TERM_YIELD and len(term) == 4:
+                state["pc"] = term[1] + 2
+                state["args"] = term[2]
+                return term[3]
+            if tag == _BB_TERM_RAISE and len(term) in (2, 3):
+                state["pc"] = state.get("_dp_pc_done", _GEN_PC_DONE)
+                raise term[1]
+        raise RuntimeError(f"invalid generator basic-block terminator: {term!r}")
+
+
+class _DpGenerator:
+    __slots__ = (
+        "_dp_state",
+        "_dp_name",
+        "_dp_qualname",
+        "_dp_code",
+    )
+
+    def __init__(self, state, *, name=None, qualname=None, code=None):
+        self._dp_state = state
+        self._dp_name = name
+        self._dp_qualname = qualname
+        self._dp_code = code
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return self.send(None)
+
+    def __getattr__(self, name):
+        if name == "__name__" and self._dp_name is not None:
+            return self._dp_name
+        if name == "__qualname__" and self._dp_qualname is not None:
+            return self._dp_qualname
+        if name == "gi_code" and self._dp_code is not None:
+            return self._dp_code
+        if name == "gi_running":
+            return False
+        if name == "gi_frame":
+            return None
+        if name == "gi_yieldfrom":
+            return self._dp_state.get("_dp_yieldfrom")
+        raise AttributeError(name)
+
+    def send(self, value):
+        return run_gen_bb(self._dp_state, value)
+
+    def throw(self, typ=None, val=None, tb=None):
+        if val is not None or tb is not None:
+            raise TypeError("DpGen.throw() does not support value/traceback in this mode")
+        if isinstance(typ, BaseException):
+            exc = typ
+        elif isinstance(typ, type) and issubclass(typ, BaseException):
+            exc = typ()
+        else:
+            raise TypeError("exceptions must derive from BaseException")
+        state = self._dp_state
+        if state["pc"] == state["_dp_pc_done"]:
+            raise exc
+        state["_dp_pending_throw"] = exc
+        try:
+            return run_gen_bb(state, None)
+        except BaseException:
+            state["pc"] = state["_dp_pc_done"]
+            raise
+
+    def close(self):
+        try:
+            self.throw(GeneratorExit)
+        except (GeneratorExit, StopIteration):
+            return None
+        raise RuntimeError("generator ignored GeneratorExit")
+
+
+def new_gen(state, *, name=None, qualname=None, code=None):
+    if name is None:
+        name = getattr(state, "__name__", None)
+    if qualname is None:
+        qualname = getattr(state, "__qualname__", None)
+    if code is None:
+        code = getattr(state, "gi_code", None)
+    return _DpGenerator(
+        state,
+        name=name,
+        qualname=qualname,
+        code=code,
+    )
 
 
 def _rich_compare(lhs_method_name: str, rhs_method_name: str, lhs, rhs):
@@ -850,7 +1411,6 @@ def store_global(globals_dict, name, value):
     return value
 
 
-
 def del_deref(cell):
     try:
         del cell.cell_contents
@@ -930,6 +1490,287 @@ def update_fn(func, qualname, name):
     return func
 
 
+def _bb_param_kind_and_name(raw_name):
+    if raw_name.startswith("**"):
+        return (_inspect.Parameter.VAR_KEYWORD, raw_name[2:])
+    if raw_name.startswith("*"):
+        return (_inspect.Parameter.VAR_POSITIONAL, raw_name[1:])
+    if raw_name.startswith("kw:"):
+        return (_inspect.Parameter.KEYWORD_ONLY, raw_name[3:])
+    if raw_name.startswith("/"):
+        return (_inspect.Parameter.POSITIONAL_ONLY, raw_name[1:])
+    return (_inspect.Parameter.POSITIONAL_OR_KEYWORD, raw_name)
+
+
+def _build_bb_signature(params):
+    sig_params = []
+    state_order = []
+    for param in params:
+        if len(param) >= 3:
+            raw_name, _, default = param[:3]
+        elif len(param) == 2:
+            raw_name, _ = param
+            default = NO_DEFAULT
+        else:
+            raise RuntimeError(f"invalid bb param spec: {param!r}")
+
+        kind, name = _bb_param_kind_and_name(raw_name)
+        state_order.append(name)
+        param_default = _inspect._empty if default is NO_DEFAULT else default
+        sig_params.append(
+            _inspect.Parameter(name, kind, default=param_default)
+        )
+
+    return (_inspect.Signature(sig_params), tuple(state_order))
+
+
+def _bb_state_order(default_order, closure):
+    if not isinstance(closure, tuple):
+        return (default_order, {})
+    state_order = []
+    closure_values = {}
+    for item in closure:
+        if isinstance(item, str):
+            state_order.append(item)
+            continue
+        if (
+            isinstance(item, tuple)
+            and len(item) == 2
+            and isinstance(item[0], str)
+        ):
+            state_order.append(item[0])
+            closure_values[item[0]] = item[1]
+            continue
+        return (default_order, {})
+    # An explicit closure tuple (including empty tuple) defines the exact BB
+    # state order expected by lowered blocks.
+    return (tuple(state_order), closure_values)
+
+
+def _bb_wrap_with_closure(entry, closure_values):
+    if not closure_values:
+        return entry
+    if getattr(entry, "__closure__", None):
+        return entry
+    captured_names = tuple(closure_values.keys())
+    captured_values = tuple(closure_values[name] for name in captured_names)
+
+    assigns = "\n".join(
+        f"    {name} = __dp_values[{idx}]"
+        for idx, name in enumerate(captured_names)
+    )
+    refs = "\n".join(f"        {name}" for name in captured_names)
+    if not assigns:
+        assigns = "    pass"
+    if not refs:
+        refs = "        pass"
+
+    # Build a wrapper whose closure freevar names match captured_names.
+    src = (
+        "def __dp_make(__dp_entry, __dp_values):\n"
+        f"{assigns}\n"
+        "    def wrapped(*args, __dp_entry=__dp_entry, **kwargs):\n"
+        f"{refs}\n"
+        "        return __dp_entry(*args, **kwargs)\n"
+        "    return wrapped\n"
+    )
+    ns = {}
+    exec(src, {}, ns)
+    return ns["__dp_make"](entry, captured_values)
+
+
+def apply_fn_metadata(fn_obj, doc, annotation_items):
+    if doc is not None:
+        fn_obj.__doc__ = doc
+    if annotation_items:
+        annotations = {}
+        for item in annotation_items:
+            if isinstance(item, tuple) and len(item) == 3:
+                key, thunk, fallback = item
+                try:
+                    annotations[key] = thunk()
+                except NameError:
+                    annotations[key] = fallback
+            else:
+                key, value = item
+                annotations[key] = value
+        fn_obj.__annotations__ = annotations
+    return fn_obj
+
+
+def def_fn(entry_bb, name, qualname, closure, params, module_name=None):
+    # BB mode passes a lowered entry block, and def_fn builds the callable
+    # wrapper so we don't need an extra transformed outer function call layer.
+    signature, default_state_order = _build_bb_signature(params)
+    state_order, closure_values = _bb_state_order(default_state_order, closure)
+
+    if getattr(entry_bb, "__closure__", None):
+        # Preserve closure-observable behavior for lowered functions that
+        # close over outer scope values.
+        def entry(*args, __dp_closure=closure_values, **kwargs):
+            bound = signature.bind(*args, **kwargs)
+            bound.apply_defaults()
+            state = tuple(
+                bound.arguments[param]
+                if param in bound.arguments
+                else __dp_closure.get(param)
+                for param in state_order
+            )
+            return run_bb(entry_bb, state)
+    else:
+        # Bind BB state via keyword-only defaults so functions without
+        # captured values keep __closure__ == None.
+        def entry(
+            *args,
+            __dp_sig=signature,
+            __dp_state_order=state_order,
+            __dp_closure=closure_values,
+            __dp_entry_bb=entry_bb,
+            __dp_run_bb=run_bb,
+            **kwargs,
+        ):
+            bound = __dp_sig.bind(*args, **kwargs)
+            bound.apply_defaults()
+            state = tuple(
+                bound.arguments[param]
+                if param in bound.arguments
+                else __dp_closure.get(param)
+                for param in __dp_state_order
+            )
+            return __dp_run_bb(__dp_entry_bb, state)
+
+    entry = _bb_wrap_with_closure(entry, closure_values)
+    entry.__signature__ = signature
+    entry = update_fn(entry, qualname, name)
+    if module_name is not None:
+        entry.__module__ = module_name
+    return entry
+
+
+_DP_GEN_CODE_TEMPLATE = None
+
+
+def _dp_make_gen_code(name, qualname):
+    global _DP_GEN_CODE_TEMPLATE
+    if _DP_GEN_CODE_TEMPLATE is None:
+        ns = {}
+        exec(
+            "def _dp_gen_code_template(_it):\n"
+            "    while True:\n"
+            "        yield next(_it)\n",
+            {},
+            ns,
+        )
+        _DP_GEN_CODE_TEMPLATE = ns["_dp_gen_code_template"].__code__
+
+    code = _DP_GEN_CODE_TEMPLATE
+    replace = getattr(code, "replace", None)
+    if callable(replace):
+        try:
+            return replace(co_name=name, co_qualname=qualname)
+        except TypeError:
+            # Older builds may not support co_qualname replacement.
+            return replace(co_name=name)
+    return code
+
+
+def def_gen(
+    start_pc,
+    targets,
+    resume_hook_flags,
+    throw_dispatch_pcs,
+    name,
+    qualname,
+    closure,
+    params,
+):
+    signature, default_state_order = _build_bb_signature(params)
+    state_order, closure_values = _bb_state_order(default_state_order, closure)
+    gen_code = _dp_make_gen_code(name, qualname)
+    if (
+        len(targets) != len(resume_hook_flags)
+        or len(targets) != len(throw_dispatch_pcs)
+    ):
+        raise RuntimeError("invalid generator metadata table sizes")
+
+    def entry(
+        *args,
+        __dp_sig=signature,
+        __dp_state_order=state_order,
+        __dp_closure=closure_values,
+        __dp_targets=targets,
+        __dp_start_pc=start_pc,
+        __dp_name=name,
+        __dp_qualname=qualname,
+        __dp_code=gen_code,
+        **kwargs,
+    ):
+        bound = __dp_sig.bind(*args, **kwargs)
+        bound.apply_defaults()
+        state_args = tuple(
+            bound.arguments[param]
+            if param in bound.arguments
+            else __dp_closure.get(param)
+            for param in __dp_state_order
+        )
+        def _dp_send_invalid_pc(_dp_args_ptr):
+            raise RuntimeError(f"invalid generator pc: {state['pc']!r}")
+
+        def _dp_send_unstarted(_dp_args_ptr):
+            _dp_send_value = state.get("_dp_send_value", None)
+            if _dp_send_value is not None:
+                raise TypeError("can't send non-None value to a just-started generator")
+            state["pc"] = state["_dp_start_pc"]
+            return br_table(state["pc"], state["targets"], _dp_send_invalid_pc, state["args"])
+
+        def _dp_send_done(_dp_args_ptr):
+            return raise_(StopIteration())
+
+        _dp_targets = (_dp_send_unstarted, _dp_send_done) + tuple(__dp_targets)
+        _dp_resume_hook_flags = (False, False) + tuple(bool(flag) for flag in resume_hook_flags)
+        _dp_throw_dispatch_pcs = (None, None) + tuple(
+            (pc + 2) if isinstance(pc, int) and pc >= 0 else None
+            for pc in throw_dispatch_pcs
+        )
+        _dp_throw_dispatch_pcs = tuple(
+            -1 if pc is None else int(pc) for pc in _dp_throw_dispatch_pcs
+        )
+        _dp_pc_unstarted = 0
+        _dp_pc_done = 1
+        state = {
+            "targets": _dp_targets,
+            "_dp_resume_hook_flags": _dp_resume_hook_flags,
+            "_dp_throw_dispatch_pcs": _dp_throw_dispatch_pcs,
+            "pc": _dp_pc_unstarted,
+            "_dp_start_pc": __dp_start_pc + 2,
+            "_dp_pc_unstarted": _dp_pc_unstarted,
+            "_dp_pc_done": _dp_pc_done,
+            "_dp_invalid_pc": _dp_send_invalid_pc,
+            "_dp_send_value": None,
+            "_dp_resume_pending": False,
+            "_dp_yieldfrom": None,
+            "args": state_args,
+        }
+        return new_gen(
+            state,
+            name=__dp_name,
+            qualname=__dp_qualname,
+            code=__dp_code,
+        )
+
+    entry = _bb_wrap_with_closure(entry, closure_values)
+    entry.__signature__ = signature
+    entry = update_fn(entry, qualname, name)
+    try:
+        module_name = targets[0].__globals__.get("__name__")
+        if module_name is not None:
+            entry.__module__ = module_name
+    except (AttributeError, IndexError, TypeError):
+        pass
+    return entry
+
+
+# TODO: gross
 def decode_surrogate_literal(src):
     try:
         import ast
@@ -979,13 +1820,16 @@ def create_class(
     return cls
 
 def exc_info():
-    exc = sys.exception()
+    exc = current_exception()
     if exc is None:
         return None
     return (type(exc), exc, exc.__traceback__)
 
 
 def current_exception():
+    stack = _current_exception_override_stack()
+    if stack:
+        return stack[-1]
     return sys.exception()
 
 
@@ -1493,10 +2337,3 @@ async def asynccontextmanager_aexit(exit_fn, exc_info: tuple | None):
         await_iter = _ensure_awaitable(exit_fn(None, None, None), "__aexit__")
         await _AwaitIterWrapper(await_iter)
         return False
-
-def cleanup_dp_globals(globals_dict):    
-    for _dp_name in list(globals_dict):
-        if _dp_name.startswith("_dp_"):
-            if _dp_name in ("_dp_typing", "_dp_templatelib"):
-                continue
-            del globals_dict[_dp_name]

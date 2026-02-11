@@ -13,6 +13,7 @@ use crate::{py_expr, py_stmt};
 #[derive(Clone, Debug)]
 pub struct ScopeFrame {
     pub kind: ScopeKind,
+    pub in_async_function: bool,
     pub globals: HashSet<String>,
     pub nonlocals: HashSet<String>,
 }
@@ -21,6 +22,7 @@ impl ScopeFrame {
     pub fn module() -> Self {
         Self {
             kind: ScopeKind::Module,
+            in_async_function: false,
             globals: HashSet::new(),
             nonlocals: HashSet::new(),
         }
@@ -29,6 +31,7 @@ impl ScopeFrame {
     pub fn new(kind: ScopeKind, globals: HashSet<String>, nonlocals: HashSet<String>) -> Self {
         Self {
             kind,
+            in_async_function: false,
             globals,
             nonlocals,
         }

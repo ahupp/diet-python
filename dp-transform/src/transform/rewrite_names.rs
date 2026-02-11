@@ -298,6 +298,38 @@ impl NameScopeRewriter {
                 "class_lookup_cell" | "class_lookup_global"
             )
     }
+
+    fn loop_target_sync_stmts(&self, target_names: &[String]) -> Vec<Stmt> {
+        let mut names = target_names.to_vec();
+        names.sort();
+        names.dedup();
+        names
+            .into_iter()
+            .filter_map(|name| {
+                if name == "__class__" || is_internal_symbol(name.as_str()) {
+                    return None;
+                }
+                let value = py_expr!("{name:id}", name = name.as_str());
+                let binding = self.scope.binding_in_scope(name.as_str(), BindingUse::Load);
+                match (self.scope.kind(), binding) {
+                    (ScopeKind::Class, BindingKind::Nonlocal) | (_, BindingKind::Nonlocal) => {
+                        let cell = cell_name(name.as_str());
+                        Some(py_stmt!(
+                            "__dp__.store_cell({cell:id}, {value:expr})",
+                            cell = cell.as_str(),
+                            value = value
+                        ))
+                    }
+                    (_, BindingKind::Global) => Some(py_stmt!(
+                        "__dp__.store_global(globals(), {name:literal}, {value:expr})",
+                        name = name.as_str(),
+                        value = value
+                    )),
+                    _ => None,
+                }
+            })
+            .collect()
+    }
 }
 
 fn collect_parameter_names(parameters: &ast::Parameters) -> HashSet<String> {
@@ -320,9 +352,47 @@ fn collect_parameter_names(parameters: &ast::Parameters) -> HashSet<String> {
     names
 }
 
+fn collect_assigned_names(target: &Expr, names: &mut HashSet<String>) {
+    match target {
+        Expr::Name(name) => {
+            names.insert(name.id.to_string());
+        }
+        Expr::Tuple(tuple) => {
+            for elt in &tuple.elts {
+                collect_assigned_names(elt, names);
+            }
+        }
+        Expr::List(list) => {
+            for elt in &list.elts {
+                collect_assigned_names(elt, names);
+            }
+        }
+        Expr::Starred(starred) => collect_assigned_names(starred.value.as_ref(), names),
+        _ => {}
+    }
+}
+
 impl Transformer for NameScopeRewriter {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
+            Stmt::For(for_stmt) => {
+                let mut target_names = HashSet::new();
+                collect_assigned_names(for_stmt.target.as_ref(), &mut target_names);
+                let target_names = target_names.into_iter().collect::<Vec<_>>();
+
+                self.visit_expr(for_stmt.iter.as_mut());
+                self.visit_expr(for_stmt.target.as_mut());
+                self.visit_body(&mut for_stmt.body);
+                self.visit_body(&mut for_stmt.orelse);
+
+                let sync_stmts = self.loop_target_sync_stmts(&target_names);
+                if !sync_stmts.is_empty() {
+                    for_stmt
+                        .body
+                        .body
+                        .splice(0..0, sync_stmts.into_iter().map(Box::new));
+                }
+            }
             Stmt::Delete(delete) => {
                 assert!(delete.targets.len() == 1);
 

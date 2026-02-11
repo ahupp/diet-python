@@ -37,7 +37,12 @@ pub fn parse_fixture(contents: &str) -> Result<Vec<FixtureBlock>, String> {
         }
 
         let trimmed = line.trim_end();
-        if trimmed.starts_with("# ") && trimmed.get(..2) == Some("# ") && trimmed != "# ==" {
+        if trimmed.starts_with("# ")
+            && trimmed.get(..2) == Some("# ")
+            && trimmed != "# =="
+            && trimmed != "# -- pre-bb --"
+            && trimmed != "# -- bb --"
+        {
             if let FixtureSection::Block(block) =
                 std::mem::replace(&mut section, FixtureSection::Waiting)
             {
