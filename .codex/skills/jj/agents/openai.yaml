@@ -1,0 +1,3 @@
+interface:
+  display_name: "JJ"
+  short_description: "Use JJ skill for safe, reviewable VCS workflows"

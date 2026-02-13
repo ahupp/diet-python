@@ -1,7 +1,18 @@
 # Plan
 
 
-Python is a surprisingly complicated language; so we first need to make it a smaller language.  dp-transform lowers python to a subset of python with a much smaller featureset: 
+Python is a surprisingly complicated language, and to run it fast it first needs
+to be made into a smaller language.  There are a few phases here:
+
+python -> simpler python:  
+  * Strip annotated assignments ("x : int = 1"), and emit as `__annotate__` / `__annotate_func__`.
+  * Rewrite "private" names in classes like `__foo` -> `_{classname}_foo`.
+  * `assert` -> `if __debug__`
+  * 
+
+
+dp-transform lowers python to a subset of python with a much
+smaller featureset: 
 
  - functions
  - variables

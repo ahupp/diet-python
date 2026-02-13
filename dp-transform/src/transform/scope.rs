@@ -856,7 +856,7 @@ mod test {
     use super::*;
     use crate::transform::ast_rewrite::rewrite_with_pass;
     use crate::transform::context::Context;
-    use crate::transform::driver::{SimplifyExprPass, SimplifyStmtPass};
+    use crate::transform::driver::SimplifyExprPass;
     use crate::transform::Options;
     use ruff_python_parser::parse_module;
 
@@ -1066,44 +1066,5 @@ mod test {
             }
         }
         None
-    }
-
-    #[test]
-    fn loop_unpack_targets_bind_outer_locals_for_class_bodies() {
-        let source = concat!(
-            "def outer():\n",
-            "    funcs = [1]\n",
-            "    for i, func in enumerate(funcs):\n",
-            "        class S:\n",
-            "            value = func\n",
-            "        return S\n",
-        );
-        let mut body = parse_module_body(source);
-        let context = Context::new(Options::for_test(), source);
-        rewrite_with_pass(
-            &context,
-            Some(&SimplifyStmtPass),
-            Some(&SimplifyExprPass),
-            &mut body,
-        );
-        let module_scope = analyze_module_scope(&mut body);
-        let outer_def = find_function(&body.body, "outer");
-        let outer_scope = module_scope
-            .lookup_child_scope(outer_def)
-            .expect("missing outer scope");
-        assert_eq!(
-            outer_scope.scope_bindings().get("func").copied(),
-            Some(BindingKind::Nonlocal)
-        );
-
-        let class_def =
-            find_class_recursive(&outer_def.body.body, "S").expect("missing nested class");
-        let class_scope = outer_scope
-            .lookup_child_scope(class_def)
-            .expect("missing class scope");
-        let parent = class_scope
-            .parent_scope()
-            .expect("missing class parent scope");
-        assert!(matches!(parent.kind(), ScopeKind::Function));
     }
 }

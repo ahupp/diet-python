@@ -4,8 +4,7 @@ from tests._integration import integration_module
 
 
 @pytest.mark.parametrize("mode", ["transform", "eval"])
-def test_basic_block_lowering_if_else(tmp_path, monkeypatch, mode):
-    monkeypatch.setenv("DIET_PYTHON_BASIC_BLOCKS", "1")
+def test_basic_block_lowering_if_else(tmp_path, mode):
     source = """
 def foo(a, b):
     c = a + b
@@ -20,8 +19,7 @@ def foo(a, b):
         assert module.foo(1, 2) == ("lo", 3)
 
 
-def test_basic_block_lowering_preserves_raise(tmp_path, monkeypatch):
-    monkeypatch.setenv("DIET_PYTHON_BASIC_BLOCKS", "1")
+def test_basic_block_lowering_preserves_raise(tmp_path):
     source = """
 def trigger(name):
     raise AttributeError(f"module has no attribute {name!r}")
@@ -31,8 +29,7 @@ def trigger(name):
             module.trigger("missing")
 
 
-def test_basic_block_lowering_preserves_class_annotation_scope(tmp_path, monkeypatch):
-    monkeypatch.setenv("DIET_PYTHON_BASIC_BLOCKS", "1")
+def test_basic_block_lowering_preserves_class_annotation_scope(tmp_path):
     source = """
 class Z[T]:
     value: T
@@ -44,8 +41,7 @@ TP = Z.__type_params__[0]
         assert module.A["value"] is module.TP
 
 
-def test_basic_block_lowering_nested_generator_def(tmp_path, monkeypatch):
-    monkeypatch.setenv("DIET_PYTHON_BASIC_BLOCKS", "1")
+def test_basic_block_lowering_nested_generator_def(tmp_path):
     source = """
 def outer():
     x = 3
@@ -58,8 +54,7 @@ def outer():
         assert module.outer() == [3, 4]
 
 
-def test_basic_block_lowering_try_except_else_finally(tmp_path, monkeypatch):
-    monkeypatch.setenv("DIET_PYTHON_BASIC_BLOCKS", "1")
+def test_basic_block_lowering_try_except_else_finally(tmp_path):
     source = """
 events = []
 

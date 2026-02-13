@@ -757,9 +757,23 @@ unsafe fn build_type_params(
 }
 
 fn collect_bound_names(stmts: &[min_ast::StmtNode], names: &mut HashSet<String>) {
+    fn add_assign_target_names(target: &min_ast::AssignTarget, names: &mut HashSet<String>) {
+        match target {
+            min_ast::AssignTarget::Name(name) => {
+                names.insert(name.clone());
+            }
+            min_ast::AssignTarget::Unpack(targets) | min_ast::AssignTarget::Chained(targets) => {
+                for target in targets {
+                    names.insert(target.clone());
+                }
+            }
+        }
+    }
+
     for stmt in stmts {
         match stmt {
-            min_ast::StmtNode::Assign { target, .. } | min_ast::StmtNode::Delete { target, .. } => {
+            min_ast::StmtNode::Assign { target, .. } => add_assign_target_names(target, names),
+            min_ast::StmtNode::Delete { target, .. } => {
                 names.insert(target.clone());
             }
             min_ast::StmtNode::FunctionDef(func) => {
@@ -2551,7 +2565,63 @@ fn eval_stmt(stmt: &min_ast::StmtNode, ctx: &ExecContext<'_>) -> Result<StmtFlow
         }
         min_ast::StmtNode::Assign { target, value, .. } => {
             let result = eval_expr(value, ctx)?;
-            let status = unsafe { assign_name_in_context(ctx, target.as_str(), result) };
+            let status = unsafe {
+                match target {
+                    min_ast::AssignTarget::Name(name) => {
+                        assign_name_in_context(ctx, name.as_str(), result)
+                    }
+                    min_ast::AssignTarget::Chained(targets) => {
+                        for name in targets {
+                            assign_name_in_context(ctx, name.as_str(), result)?;
+                        }
+                        Ok(())
+                    }
+                    min_ast::AssignTarget::Unpack(targets) => {
+                        let seq = ffi::PySequence_Fast(
+                            result,
+                            b"cannot unpack non-iterable object\0".as_ptr() as *const c_char,
+                        );
+                        if seq.is_null() {
+                            Err(())
+                        } else {
+                            let count = ffi::PySequence_Size(seq);
+                            if count < 0 {
+                                ffi::Py_DECREF(seq);
+                                return Err(());
+                            }
+                            let count = count as usize;
+                            if count != targets.len() {
+                                ffi::Py_DECREF(seq);
+                                ffi::PyErr_SetString(
+                                    ffi::PyExc_ValueError,
+                                    b"wrong number of values to unpack\0".as_ptr() as *const c_char,
+                                );
+                                Err(())
+                            } else {
+                                let mut ok = Ok(());
+                                for (idx, name) in targets.iter().enumerate() {
+                                    let item = ffi::PySequence_GetItem(seq, idx as ffi::Py_ssize_t);
+                                    if item.is_null() {
+                                        ok = Err(());
+                                        break;
+                                    }
+                                    if let Err(()) =
+                                        assign_name_in_context(ctx, name.as_str(), item)
+                                    {
+                                        ok = Err(());
+                                    }
+                                    ffi::Py_DECREF(item);
+                                    if ok.is_err() {
+                                        break;
+                                    }
+                                }
+                                ffi::Py_DECREF(seq);
+                                ok
+                            }
+                        }
+                    }
+                }
+            };
             unsafe {
                 ffi::Py_DECREF(result);
             }
@@ -2942,6 +3012,10 @@ fn eval_call(
     args: &[min_ast::Arg],
     ctx: &ExecContext<'_>,
 ) -> Result<*mut ffi::PyObject, ()> {
+    if let Some(result) = try_eval_dp_bb_helper_call(func, args, ctx)? {
+        return Ok(result);
+    }
+
     if let Some(type_param) = type_param_lookup_target(func, args, ctx) {
         let func_obj = eval_expr(func, ctx)?;
         collect_call_args(args, ctx)?;
@@ -3166,6 +3240,377 @@ fn eval_call(
         }
     }
     Ok(result)
+}
+
+fn try_dp_helper_name(func: &min_ast::ExprNode) -> Option<&str> {
+    let min_ast::ExprNode::Attribute { value, attr, .. } = func else {
+        return None;
+    };
+    if !matches!(value.as_ref(), min_ast::ExprNode::Name { id, .. } if id == "__dp__") {
+        return None;
+    }
+    Some(attr.as_str())
+}
+
+fn try_eval_dp_bb_helper_call(
+    func: &min_ast::ExprNode,
+    args: &[min_ast::Arg],
+    ctx: &ExecContext<'_>,
+) -> Result<Option<*mut ffi::PyObject>, ()> {
+    let Some(helper) = try_dp_helper_name(func) else {
+        return Ok(None);
+    };
+    match helper {
+        "run_bb" => eval_dp_run_bb(args, ctx),
+        "jump" => eval_dp_jump(args, ctx),
+        "brif" => eval_dp_brif(args, ctx),
+        "ret" => eval_dp_ret(args, ctx),
+        "raise_" => eval_dp_raise(args, ctx),
+        "take_args" => eval_dp_take_args(args, ctx),
+        "take_arg1" => eval_dp_take_arg1(args, ctx),
+        _ => Ok(None),
+    }
+}
+
+unsafe fn call_dp_term_helper(
+    ctx: &ExecContext<'_>,
+    helper_name: &[u8],
+    positional: Vec<*mut ffi::PyObject>,
+) -> Result<*mut ffi::PyObject, ()> {
+    let dp_module = lookup_name("__dp__", ctx)?;
+    let helper = ffi::PyObject_GetAttrString(dp_module, helper_name.as_ptr() as *const c_char);
+    ffi::Py_DECREF(dp_module);
+    if helper.is_null() {
+        for value in positional {
+            ffi::Py_DECREF(value);
+        }
+        return Err(());
+    }
+
+    let args_ptr = if positional.is_empty() {
+        ptr::null()
+    } else {
+        positional.as_ptr()
+    };
+    let result = ffi::PyObject_VectorcallDict(helper, args_ptr, positional.len() as _, ptr::null_mut());
+    ffi::Py_DECREF(helper);
+    for value in positional {
+        ffi::Py_DECREF(value);
+    }
+    if result.is_null() {
+        return Err(());
+    }
+    Ok(result)
+}
+
+fn eval_dp_jump(
+    args: &[min_ast::Arg],
+    ctx: &ExecContext<'_>,
+) -> Result<Option<*mut ffi::PyObject>, ()> {
+    if args.len() != 2
+        || !args
+            .iter()
+            .all(|arg| matches!(arg, min_ast::Arg::Positional(_)))
+    {
+        return Ok(None);
+    }
+    unsafe {
+        let target = match &args[0] {
+            min_ast::Arg::Positional(expr) => eval_expr(expr, ctx)?,
+            _ => unreachable!(),
+        };
+        let jump_args = match &args[1] {
+            min_ast::Arg::Positional(expr) => eval_expr(expr, ctx)?,
+            _ => unreachable!(),
+        };
+        call_dp_term_helper(ctx, b"jump\0", vec![target, jump_args]).map(Some)
+    }
+}
+
+fn eval_dp_brif(
+    args: &[min_ast::Arg],
+    ctx: &ExecContext<'_>,
+) -> Result<Option<*mut ffi::PyObject>, ()> {
+    if args.len() != 5
+        || !args
+            .iter()
+            .all(|arg| matches!(arg, min_ast::Arg::Positional(_)))
+    {
+        return Ok(None);
+    }
+    unsafe {
+        let cond = match &args[0] {
+            min_ast::Arg::Positional(expr) => eval_expr(expr, ctx)?,
+            _ => unreachable!(),
+        };
+        let then_target = match &args[1] {
+            min_ast::Arg::Positional(expr) => eval_expr(expr, ctx)?,
+            _ => unreachable!(),
+        };
+        let then_args = match &args[2] {
+            min_ast::Arg::Positional(expr) => eval_expr(expr, ctx)?,
+            _ => unreachable!(),
+        };
+        let else_target = match &args[3] {
+            min_ast::Arg::Positional(expr) => eval_expr(expr, ctx)?,
+            _ => unreachable!(),
+        };
+        let else_args = match &args[4] {
+            min_ast::Arg::Positional(expr) => eval_expr(expr, ctx)?,
+            _ => unreachable!(),
+        };
+        let truthy = ffi::PyObject_IsTrue(cond);
+        ffi::Py_DECREF(cond);
+        if truthy < 0 {
+            ffi::Py_DECREF(then_target);
+            ffi::Py_DECREF(then_args);
+            ffi::Py_DECREF(else_target);
+            ffi::Py_DECREF(else_args);
+            return Err(());
+        }
+        if truthy != 0 {
+            ffi::Py_DECREF(else_target);
+            ffi::Py_DECREF(else_args);
+            call_dp_term_helper(ctx, b"jump\0", vec![then_target, then_args]).map(Some)
+        } else {
+            ffi::Py_DECREF(then_target);
+            ffi::Py_DECREF(then_args);
+            call_dp_term_helper(ctx, b"jump\0", vec![else_target, else_args]).map(Some)
+        }
+    }
+}
+
+fn eval_dp_ret(
+    args: &[min_ast::Arg],
+    ctx: &ExecContext<'_>,
+) -> Result<Option<*mut ffi::PyObject>, ()> {
+    if args.len() > 2
+        || !args
+            .iter()
+            .all(|arg| matches!(arg, min_ast::Arg::Positional(_)))
+    {
+        return Ok(None);
+    }
+    unsafe {
+        let value = if let Some(min_ast::Arg::Positional(expr)) = args.first() {
+            eval_expr(expr, ctx)?
+        } else {
+            ffi::Py_INCREF(ffi::Py_None());
+            ffi::Py_None()
+        };
+        if let Some(min_ast::Arg::Positional(expr)) = args.get(1) {
+            let state = eval_expr(expr, ctx)?;
+            ffi::Py_DECREF(state);
+        }
+        call_dp_term_helper(ctx, b"ret\0", vec![value]).map(Some)
+    }
+}
+
+fn eval_dp_raise(
+    args: &[min_ast::Arg],
+    ctx: &ExecContext<'_>,
+) -> Result<Option<*mut ffi::PyObject>, ()> {
+    if args.is_empty()
+        || args.len() > 2
+        || !args
+            .iter()
+            .all(|arg| matches!(arg, min_ast::Arg::Positional(_)))
+    {
+        return Ok(None);
+    }
+    unsafe {
+        let exc = match &args[0] {
+            min_ast::Arg::Positional(expr) => eval_expr(expr, ctx)?,
+            _ => unreachable!(),
+        };
+        if let Some(min_ast::Arg::Positional(expr)) = args.get(1) {
+            let state = eval_expr(expr, ctx)?;
+            ffi::Py_DECREF(state);
+        }
+        call_dp_term_helper(ctx, b"raise_\0", vec![exc]).map(Some)
+    }
+}
+
+fn eval_dp_take_args(
+    args: &[min_ast::Arg],
+    ctx: &ExecContext<'_>,
+) -> Result<Option<*mut ffi::PyObject>, ()> {
+    if args.len() != 1 || !matches!(args[0], min_ast::Arg::Positional(_)) {
+        return Ok(None);
+    }
+    unsafe {
+        let args_ptr = match &args[0] {
+            min_ast::Arg::Positional(expr) => eval_expr(expr, ctx)?,
+            _ => unreachable!(),
+        };
+        let index = ffi::PyLong_FromLong(0);
+        if index.is_null() {
+            ffi::Py_DECREF(args_ptr);
+            return Err(());
+        }
+        let value = ffi::PyObject_GetItem(args_ptr, index);
+        ffi::Py_DECREF(index);
+        if value.is_null() {
+            ffi::Py_DECREF(args_ptr);
+            return Err(());
+        }
+        let set_index = ffi::PyLong_FromLong(0);
+        if set_index.is_null() {
+            ffi::Py_DECREF(value);
+            ffi::Py_DECREF(args_ptr);
+            return Err(());
+        }
+        let none = ffi::Py_None();
+        ffi::Py_INCREF(none);
+        let set_result = ffi::PyObject_SetItem(args_ptr, set_index, none);
+        ffi::Py_DECREF(set_index);
+        ffi::Py_DECREF(none);
+        ffi::Py_DECREF(args_ptr);
+        if set_result != 0 {
+            ffi::Py_DECREF(value);
+            return Err(());
+        }
+        Ok(Some(value))
+    }
+}
+
+fn eval_dp_take_arg1(
+    args: &[min_ast::Arg],
+    ctx: &ExecContext<'_>,
+) -> Result<Option<*mut ffi::PyObject>, ()> {
+    let Some(value) = eval_dp_take_args(args, ctx)? else {
+        return Ok(None);
+    };
+    unsafe {
+        let len = ffi::PySequence_Size(value);
+        if len < 0 {
+            ffi::Py_DECREF(value);
+            return Err(());
+        }
+        if len != 1 {
+            ffi::Py_DECREF(value);
+            let msg =
+                CString::new(format!("too many values to unpack (expected 1, got {len})")).unwrap();
+            ffi::PyErr_SetString(ffi::PyExc_ValueError, msg.as_ptr());
+            return Err(());
+        }
+        let item = ffi::PySequence_GetItem(value, 0);
+        ffi::Py_DECREF(value);
+        if item.is_null() {
+            return Err(());
+        }
+        Ok(Some(item))
+    }
+}
+
+fn eval_dp_run_bb(
+    args: &[min_ast::Arg],
+    ctx: &ExecContext<'_>,
+) -> Result<Option<*mut ffi::PyObject>, ()> {
+    if args.len() != 2
+        || !args
+            .iter()
+            .all(|arg| matches!(arg, min_ast::Arg::Positional(_)))
+    {
+        return Ok(None);
+    }
+    unsafe {
+        let mut block = match &args[0] {
+            min_ast::Arg::Positional(expr) => eval_expr(expr, ctx)?,
+            _ => unreachable!(),
+        };
+        let mut block_args = match &args[1] {
+            min_ast::Arg::Positional(expr) => eval_expr(expr, ctx)?,
+            _ => unreachable!(),
+        };
+
+        loop {
+            if ffi::PyCallable_Check(block) == 0 {
+                ffi::Py_DECREF(block);
+                ffi::Py_DECREF(block_args);
+                let _ = set_runtime_error::<()>("invalid basic-block target");
+                return Err(());
+            }
+            let args_ptr = ffi::PyList_New(1);
+            if args_ptr.is_null() {
+                ffi::Py_DECREF(block);
+                ffi::Py_DECREF(block_args);
+                return Err(());
+            }
+            ffi::Py_INCREF(block_args);
+            if ffi::PyList_SetItem(args_ptr, 0, block_args) != 0 {
+                ffi::Py_DECREF(block);
+                ffi::Py_DECREF(block_args);
+                ffi::Py_DECREF(args_ptr);
+                return Err(());
+            }
+            let term = ffi::PyObject_CallFunctionObjArgs(
+                block,
+                args_ptr,
+                ptr::null_mut::<ffi::PyObject>(),
+            );
+            ffi::Py_DECREF(args_ptr);
+            ffi::Py_DECREF(block);
+            ffi::Py_DECREF(block_args);
+            if term.is_null() {
+                return Err(());
+            }
+            if ffi::PyTuple_Check(term) == 0 || ffi::PyTuple_Size(term) <= 0 {
+                ffi::Py_DECREF(term);
+                let _ = set_runtime_error::<()>("invalid basic-block terminator");
+                return Err(());
+            }
+            let tag = ffi::PyTuple_GetItem(term, 0);
+            if tag.is_null() || ffi::PyUnicode_Check(tag) == 0 {
+                ffi::Py_DECREF(term);
+                let _ = set_runtime_error::<()>("invalid basic-block terminator");
+                return Err(());
+            }
+            let is_jump =
+                ffi::PyUnicode_CompareWithASCIIString(tag, b"jump\0".as_ptr() as *const c_char)
+                    == 0;
+            let is_ret =
+                ffi::PyUnicode_CompareWithASCIIString(tag, b"ret\0".as_ptr() as *const c_char) == 0;
+            let is_raise =
+                ffi::PyUnicode_CompareWithASCIIString(tag, b"raise\0".as_ptr() as *const c_char)
+                    == 0;
+            let term_len = ffi::PyTuple_Size(term);
+            if is_jump && term_len == 3 {
+                let next_block = ffi::PyTuple_GetItem(term, 1);
+                let next_args = ffi::PyTuple_GetItem(term, 2);
+                ffi::Py_INCREF(next_block);
+                ffi::Py_INCREF(next_args);
+                ffi::Py_DECREF(term);
+                block = next_block;
+                block_args = next_args;
+                continue;
+            }
+            if is_ret && (term_len == 2 || term_len == 3) {
+                let value = ffi::PyTuple_GetItem(term, 1);
+                ffi::Py_INCREF(value);
+                ffi::Py_DECREF(term);
+                return Ok(Some(value));
+            }
+            if is_raise && (term_len == 2 || term_len == 3) {
+                let exc = ffi::PyTuple_GetItem(term, 1);
+                if exc.is_null() {
+                    ffi::Py_DECREF(term);
+                    return Err(());
+                }
+                let typ = if ffi::PyExceptionInstance_Check(exc) != 0 {
+                    ffi::Py_TYPE(exc) as *mut ffi::PyObject
+                } else {
+                    exc
+                };
+                ffi::PyErr_SetObject(typ, exc);
+                ffi::Py_DECREF(term);
+                return Err(());
+            }
+            ffi::Py_DECREF(term);
+            let _ = set_runtime_error::<()>("invalid basic-block terminator");
+            return Err(());
+        }
+    }
 }
 
 fn type_param_lookup_target(

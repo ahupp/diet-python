@@ -14,7 +14,7 @@ pub fn rewrite_ann_assign_to_dunder_annotate(_context: &Context, stmt: &mut Stmt
     if entries.is_empty() {
         return;
     }
-    let ds = to_annotate_fn(entries, "__annotate__");
+    let ds = build_annotate_fn(entries, "__annotate__");
     stmt.body.push(Box::new(ds));
 }
 
@@ -51,7 +51,7 @@ impl Transformer for AnnotationStripper {
                 if !entries.is_empty() {
                     // CPython stores class annotation thunks under __annotate_func__,
                     // and exposes __annotate__ via type-level descriptor logic.
-                    let ds = to_annotate_fn(entries, "__annotate_func__");
+                    let ds = build_annotate_fn(entries, "__annotate_func__");
                     class_def.body.body.push(Box::new(ds));
                 }
             }
@@ -90,7 +90,7 @@ impl Transformer for AnnotationStripper {
     }
 }
 
-fn to_annotate_fn(entries: Vec<(String, Expr, String)>, name: &str) -> Stmt {
+pub(crate) fn build_annotate_fn(entries: Vec<(String, Expr, String)>, name: &str) -> Stmt {
     let value_pairs = entries
         .into_iter()
         .map(|(key, value, source)| {

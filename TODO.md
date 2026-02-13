@@ -1,40 +1,30 @@
 
-## BB Lowering: Unsupported / Not Fully Lowered
+## Follow-up: weakref callback during shutdown (eval/BB mode)
 
-- Function-level exclusions:
-- `async def` is excluded from BB lowering.
-- Function docstrings exclude the function from BB lowering.
-- Function signature/return annotations exclude the function from BB lowering.
-- Generated annotation helpers (`__annotate__`, `__annotate_func__`) are excluded.
-- Empty function bodies are excluded.
-- Eval mode currently skips BB lowering.
-
-- Generator exclusions:
-- Any generator containing `yield from` is excluded.
-- Any generator containing `await` is excluded.
-- Generated genexprs that load outer `_dp_cell_*` / `_dp_classcell` are excluded.
-- Non-genexpr generators must satisfy `is_simple_generator_function_body`:
-- only `pass`, `assign`, `function def`, `yield` expr statements, and `return`.
-- no `if/while/for/try/with/match`, etc.
-
-- Statement/expression exclusions in non-generator BB support checker:
-- `async for` unsupported.
-- `try*` / `except*` unsupported.
-- `await`, `yield`, `yield from` in expression traversal unsupported for non-generator BB path.
-- `break` / `continue` outside loops unsupported.
-- Any surviving unsupported stmt kind (for example `class`, `with`, `match`) causes fallback.
-
-- Try lowering that is not fully BB-split (`try_jump`) today:
-- `try` with `else` and/or `finally`.
-- Handler shapes beyond plain dispatch candidate shape.
-- Nested `try` in the lowered `try` region.
-- `try` containing `break` / `continue`.
-- Cases with defs in the remaining stmt slice.
-
-- Known CFG/liveness follow-up:
-- `del` is modeled via sentinel rewrite, but BB liveness still needs kill-set modeling.
-
-## Best Next Step
-
-- Implement full `try/except/else/finally` BB terminator lowering (single structured path, no linear `try` fallback), then expand generator support to `yield from` on top of that control-flow substrate.
- 
+- Symptom:
+  - Sharded CPython run reports at process shutdown:
+    - `Exception ignored while calling weakref callback <function _removeHandlerRef ...>`
+    - Trace enters `__dp__.py`:
+      - `entry` at `__dp__.py:1993`
+      - `run_bb` at `__dp__.py:778`
+      - `AttributeError: 'NoneType' object has no attribute 'take_arg1'`
+- Repro context:
+  - Seen in eval mode on fast shard runs (BB lowering enabled by default), e.g.:
+    - `logs/cpython_eval_test_set_part01_after_targeted_for_fix.log`
+  - The shard still exits `0`, so this is currently a shutdown warning, not a hard failure.
+- Working hypothesis:
+  - BB block functions still resolve `__dp__` from module globals at call time.
+  - During interpreter/module teardown, module globals are cleared to `None`.
+  - Late weakref callbacks (for example from `logging._removeHandlerRef`) can run after this, so transformed callback code executes with `__dp__ is None`.
+  - That makes emitted block code like `__dp__.take_arg1(...)` fail.
+- Why this is important:
+  - Indicates transformed functions are not teardown-safe when invoked late in shutdown.
+  - Could become noisy across stdlib code paths that rely on weakref finalizers/callbacks.
+- Suggested fix direction:
+  - Make BB block call paths independent of module-global `__dp__` at runtime:
+    - Prefer capturing `__dp__` as a default/closure on emitted block functions (not only wrappers).
+    - Or otherwise ensure block runtime helpers used by blocks are bound/captured and not global lookups.
+  - Keep behavior unchanged for normal execution/eval order; this is a teardown robustness fix.
+- Suggested validation:
+  - Add a regression that simulates late callback execution after clobbering module globals (or equivalent teardown simulation) and verifies no `AttributeError` from `__dp__` lookups.
+  - Re-run shard `test_sets/cpython_fast_tests_part_01.txt` and confirm warning disappears.

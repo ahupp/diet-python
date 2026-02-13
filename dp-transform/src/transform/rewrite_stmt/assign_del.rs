@@ -72,34 +72,49 @@ fn rewrite_unpack_target(
     kind: UnpackTargetKind,
 ) {
     let tmp_expr = value;
-
-    let mut spec_elts = Vec::new();
     let mut starred_seen = false;
     for elt in &elts {
-        match elt {
-            Expr::Starred(_) => {
-                if starred_seen {
-                    panic!("unsupported starred assignment target");
-                }
-                spec_elts.push(py_expr!("False"));
-                starred_seen = true;
+        if let Expr::Starred(_) = elt {
+            if starred_seen {
+                panic!("unsupported starred assignment target");
             }
-            _ => spec_elts.push(py_expr!("True")),
+            starred_seen = true;
         }
     }
 
-    let spec_expr = make_tuple(spec_elts);
     let unpacked_name = context.fresh("tmp");
     let unpacked_tmp = py_expr!("{tmp:id}", tmp = unpacked_name.as_str());
-    let unpack_stmt = py_stmt!(
-        "{tmp:id} = __dp__.unpack({value:expr}, {spec:expr})",
-        tmp = unpacked_name.as_str(),
-        value = tmp_expr.clone(),
-        spec = spec_expr,
-    );
 
     let mut body_stmts = Vec::new();
-    body_stmts.push(unpack_stmt);
+    let use_indexable_synthetic_tmp = !starred_seen
+        && matches!(
+            &tmp_expr,
+            Expr::Name(ast::ExprName { id, .. }) if id.as_str().starts_with("_dp_tmp_")
+        );
+
+    if starred_seen || !use_indexable_synthetic_tmp {
+        let mut spec_elts = Vec::new();
+        for elt in &elts {
+            if matches!(elt, Expr::Starred(_)) {
+                spec_elts.push(py_expr!("False"));
+            } else {
+                spec_elts.push(py_expr!("True"));
+            }
+        }
+        let spec_expr = make_tuple(spec_elts);
+        body_stmts.push(py_stmt!(
+            "{tmp:id} = __dp__.unpack({value:expr}, {spec:expr})",
+            tmp = unpacked_name.as_str(),
+            value = tmp_expr.clone(),
+            spec = spec_expr,
+        ));
+    } else {
+        body_stmts.push(py_stmt!(
+            "{tmp:id} = {value:expr}",
+            tmp = unpacked_name.as_str(),
+            value = tmp_expr.clone(),
+        ));
+    }
 
     for (i, elt) in elts.into_iter().enumerate() {
         match elt {

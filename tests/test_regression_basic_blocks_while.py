@@ -4,8 +4,7 @@ from tests._integration import integration_module
 
 
 @pytest.mark.parametrize("mode", ["transform", "eval"])
-def test_basic_block_lowering_while_break_continue_else(tmp_path, monkeypatch, mode):
-    monkeypatch.setenv("DIET_PYTHON_BASIC_BLOCKS", "1")
+def test_basic_block_lowering_while_break_continue_else(tmp_path, mode):
     source = """
 def run(limit):
     i = 0

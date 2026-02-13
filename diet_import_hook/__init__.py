@@ -201,7 +201,7 @@ class DietPythonLoader(importlib.machinery.SourceFileLoader):
         return self.source_to_code(source_bytes, self.path)
 
     def source_to_code(self, data, path, *, _optimize=-1):
-        if os.environ.get("DIET_PYTHON_BASIC_BLOCKS") == "1":
+        if _diet_python_mode() == "transform":
             try:
                 resolved = Path(path).resolve()
             except OSError:

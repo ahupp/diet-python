@@ -604,24 +604,20 @@ def {func:id}({param:id}):
             if is_outermost {
                 let iter_name = context.fresh("iter");
                 let target_tmp = context.fresh("tmp");
-                let completed_flag = context.fresh("completed");
                 py_stmt!(
                     r#"
-{completed_flag:id} = False
 {iter_name:id} = {iter:expr}
-while not {completed_flag:id}:
+while True:
     {target_tmp:id} = await __dp__.anext_or_sentinel({iter_name:id})
     if {target_tmp:id} is __dp__.ITER_COMPLETE:
-        {completed_flag:id} = True
+        break
     else:
         {target:expr} = {target_tmp:id}
-        {target_tmp:id} = None
         {body:stmt}
 "#,
                     iter_name = iter_name.as_str(),
                     iter = iter,
                     target_tmp = target_tmp.as_str(),
-                    completed_flag = completed_flag.as_str(),
                     target = gen.target,
                     body = loop_body,
                 )
@@ -639,53 +635,23 @@ async for {target:expr} in {iter:expr}:
         } else if is_outermost {
             let iter_name = context.fresh("iter");
             let target_tmp = context.fresh("tmp");
-            let completed_flag = context.fresh("completed");
-            if context.options.lower_basic_blocks {
-                py_stmt!(
-                    r#"
-{completed_flag:id} = False
+            py_stmt!(
+                r#"
 {iter_name:id} = {iter:expr}
-while not {completed_flag:id}:
+while True:
     {target_tmp:id} = __dp__.next_or_sentinel({iter_name:id})
     if {target_tmp:id} is __dp__.ITER_COMPLETE:
-        {completed_flag:id} = True
+        break
     else:
         {target:expr} = {target_tmp:id}
-        {target_tmp:id} = None
         {body:stmt}
-__dp__.truth({completed_flag:id})
 "#,
-                    iter_name = iter_name.as_str(),
-                    iter = iter,
-                    target_tmp = target_tmp.as_str(),
-                    completed_flag = completed_flag.as_str(),
-                    target = gen.target,
-                    body = loop_body,
-                )
-            } else {
-                py_stmt!(
-                    r#"
-{completed_flag:id} = False
-{iter_name:id} = {iter:expr}
-while not {completed_flag:id}:
-    try:
-        {target_tmp:id} = __dp__.next({iter_name:id})
-    except __dp__.builtins.StopIteration:
-        {completed_flag:id} = True
-    else:
-        {target:expr} = {target_tmp:id}
-        {target_tmp:id} = None
-        {body:stmt}
-__dp__.truth({completed_flag:id})
-"#,
-                    iter_name = iter_name.as_str(),
-                    iter = iter,
-                    target_tmp = target_tmp.as_str(),
-                    completed_flag = completed_flag.as_str(),
-                    target = gen.target,
-                    body = loop_body,
-                )
-            }
+                iter_name = iter_name.as_str(),
+                iter = iter,
+                target_tmp = target_tmp.as_str(),
+                target = gen.target,
+                body = loop_body,
+            )
         } else {
             py_stmt!(
                 r#"

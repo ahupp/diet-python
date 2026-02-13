@@ -1,4 +1,4 @@
-use dp_transform::{Options, min_ast, transform_str_to_ruff_with_options};
+use dp_transform::{Options, bb_ir, min_ast, transform_str_to_ruff_with_options};
 use pyo3::exceptions::{PyRuntimeError, PySyntaxError};
 use pyo3::ffi;
 use pyo3::prelude::*;
@@ -17,6 +17,7 @@ pub(crate) enum TransformToMinAstError {
 
 pub(crate) struct EvalLoweringResult {
     pub(crate) min_ast_module: min_ast::Module,
+    pub(crate) bb_module: Option<bb_ir::BbModule>,
     pub(crate) transformed_source: String,
 }
 
@@ -45,13 +46,10 @@ fn panic_payload_to_string(payload: Box<dyn Any + Send>) -> String {
 }
 
 fn parse_and_lower(source: &str) -> Result<dp_transform::LoweringResult, TransformToMinAstError> {
-    let lower_basic_blocks =
-        std::env::var_os("DIET_PYTHON_BASIC_BLOCKS").as_deref() == Some("1".as_ref());
     let options = Options {
         inject_import: true,
         eval_mode: true,
         lower_attributes: true,
-        lower_basic_blocks,
         truthy: false,
         force_import_rewrite: true,
         ..Options::default()
@@ -70,10 +68,12 @@ pub(crate) fn transform_to_min_ast(
     source: &str,
 ) -> Result<EvalLoweringResult, TransformToMinAstError> {
     let lowered = parse_and_lower(source)?;
+    let bb_module = lowered.bb_module.clone();
     let transformed_source = lowered.to_string();
     match std::panic::catch_unwind(|| lowered.into_min_ast()) {
         Ok(module) => Ok(EvalLoweringResult {
             min_ast_module: module,
+            bb_module,
             transformed_source,
         }),
         Err(payload) => Err(TransformToMinAstError::MinAstConversion(
@@ -115,6 +115,7 @@ fn set_spec_initializing(spec: &Bound<'_, PyAny>, value: bool) {
 fn collect_function_codes_from_code(
     code_obj: &Bound<'_, PyAny>,
     code_map: &Bound<'_, PyDict>,
+    expected_names: &HashSet<String>,
 ) -> PyResult<()> {
     unsafe {
         if ffi::PyObject_TypeCheck(code_obj.as_ptr(), std::ptr::addr_of_mut!(ffi::PyCode_Type)) == 0
@@ -125,29 +126,86 @@ fn collect_function_codes_from_code(
 
     let name_obj = code_obj.getattr("co_name")?;
     if let Ok(name) = name_obj.extract::<String>() {
-        if name.starts_with("_dp_fn_") || name.starts_with("_dp_class_ns_") {
+        if expected_names.contains(name.as_str()) {
             code_map.set_item(name_obj, code_obj)?;
         }
     }
 
     let consts = code_obj.getattr("co_consts")?;
     for item in consts.try_iter()? {
-        collect_function_codes_from_code(&item?, code_map)?;
+        collect_function_codes_from_code(&item?, code_map, expected_names)?;
     }
     Ok(())
+}
+
+fn collect_min_ast_function_names(stmts: &[min_ast::StmtNode], out: &mut HashSet<String>) {
+    for stmt in stmts {
+        match stmt {
+            min_ast::StmtNode::FunctionDef(def) => {
+                out.insert(def.name.clone());
+                collect_min_ast_function_names(&def.body, out);
+            }
+            min_ast::StmtNode::While { body, orelse, .. }
+            | min_ast::StmtNode::If { body, orelse, .. } => {
+                collect_min_ast_function_names(body, out);
+                collect_min_ast_function_names(orelse, out);
+            }
+            min_ast::StmtNode::Try {
+                body,
+                handler,
+                orelse,
+                finalbody,
+                ..
+            } => {
+                collect_min_ast_function_names(body, out);
+                if let Some(handler) = handler {
+                    collect_min_ast_function_names(handler, out);
+                }
+                collect_min_ast_function_names(orelse, out);
+                collect_min_ast_function_names(finalbody, out);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_bb_function_names(bb_module: &bb_ir::BbModule, out: &mut HashSet<String>) {
+    for function in &bb_module.functions {
+        out.insert(function.bind_name.clone());
+        out.insert(function.entry.clone());
+        for block in &function.blocks {
+            out.insert(block.label.clone());
+        }
+    }
+    if let Some(module_init) = bb_module.module_init.as_ref() {
+        out.insert(module_init.clone());
+    }
+}
+
+fn expected_function_code_names(
+    module_ast: &min_ast::Module,
+    bb_module: Option<&bb_ir::BbModule>,
+) -> HashSet<String> {
+    let mut names = HashSet::new();
+    collect_min_ast_function_names(&module_ast.body, &mut names);
+    if let Some(bb_module) = bb_module {
+        collect_bb_function_names(bb_module, &mut names);
+    }
+    names
 }
 
 fn compile_transformed_function_code_map(
     py: Python<'_>,
     path: &str,
     transformed_source: &str,
+    expected_names: &HashSet<String>,
 ) -> PyResult<Py<PyDict>> {
     let builtins = py.import("builtins")?;
     let module_code = builtins
         .getattr("compile")?
         .call1((transformed_source, path, "exec"))?;
     let code_map = PyDict::new(py);
-    collect_function_codes_from_code(&module_code, &code_map)?;
+    collect_function_codes_from_code(&module_code, &code_map, expected_names)?;
     Ok(code_map.unbind())
 }
 
@@ -165,6 +223,7 @@ fn eval_source_impl_with_name_and_spec(
 ) -> PyResult<Py<PyAny>> {
     let lowering = transform_to_min_ast(source).map_err(TransformToMinAstError::to_py_err)?;
     let module_ast = lowering.min_ast_module;
+    let bb_module = lowering.bb_module;
     let transformed_source = lowering.transformed_source;
 
     unsafe {
@@ -224,8 +283,13 @@ fn eval_source_impl_with_name_and_spec(
 
             let dp_module = py.import("__dp__")?;
             let runtime_fns = RuntimeFns::new(&builtins_dict, &dp_module.as_any())?;
-            let function_code_map =
-                compile_transformed_function_code_map(py, path, transformed_source.as_str())?;
+            let expected_names = expected_function_code_names(&module_ast, bb_module.as_ref());
+            let function_code_map = compile_transformed_function_code_map(
+                py,
+                path,
+                transformed_source.as_str(),
+                &expected_names,
+            )?;
 
             let module_dict = module.dict();
             let name_cstr =

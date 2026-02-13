@@ -6,36 +6,20 @@ use crate::transform::Options;
 use crate::{ruff_ast_to_string, transform_str_to_ruff_with_options};
 use similar::TextDiff;
 
-fn expected_output_for_mode(expected: &str, lower_basic_blocks: bool) -> &str {
-    const PRE_BB_MARKER: &str = "# -- pre-bb --";
+fn expected_output_for_mode(expected: &str) -> &str {
     const BB_MARKER: &str = "# -- bb --";
-    if lower_basic_blocks {
-        if let Some(index) = expected.find(BB_MARKER) {
-            return &expected[index + BB_MARKER.len()..];
-        }
-        return expected;
-    }
-    if let (Some(pre), Some(bb)) = (expected.find(PRE_BB_MARKER), expected.find(BB_MARKER)) {
-        let start = pre + PRE_BB_MARKER.len();
-        if start <= bb {
-            return &expected[start..bb];
-        }
+    if let Some(index) = expected.find(BB_MARKER) {
+        return &expected[index + BB_MARKER.len()..];
     }
     expected
 }
 
-pub(crate) fn assert_transform_eq_ex(
-    actual: &str,
-    expected: &str,
-    truthy: bool,
-    lower_basic_blocks: bool,
-) {
-    let expected_for_mode = expected_output_for_mode(expected, lower_basic_blocks);
+pub(crate) fn assert_transform_eq_ex(actual: &str, expected: &str, truthy: bool) {
+    let expected_for_mode = expected_output_for_mode(expected);
     let mut expected_normalized = expected_for_mode.trim_matches('\n').to_string();
     expected_normalized.push('\n');
     let options = Options {
         truthy,
-        lower_basic_blocks,
         ..Options::for_test()
     };
     let module = transform_str_to_ruff_with_options(actual, options).unwrap();
@@ -122,7 +106,7 @@ fn format_first_difference(actual: &[Box<Stmt>], rerun: &[Box<Stmt>]) -> String 
 }
 
 pub(crate) fn assert_transform_eq_basic_blocks(actual: &str, expected: &str) {
-    assert_transform_eq_ex(actual, expected, false, true);
+    assert_transform_eq_ex(actual, expected, false);
 }
 
 pub(crate) fn run_transform_fixture_tests(fixture: &str) {

@@ -5,6 +5,7 @@
 - **MUST FOLLOW**: When traversing the AST, always use an impl of `crate::transformer::Transformer`.
 - **NOTE**: Prefer adding behavior at transform time rather than runtime in `__dp__.py` whenever possible.
 - **MUST FOLLOW**: If a change requires adding a compatibility interface for a Python standard type/function, or patching one, stop and describe the reason before implementing.
+- **MUST FOLLOW**: When changing implementation details, do not keep compatibility stubs/interfaces around; assume transformed inputs are regenerated each time.
 - **MUST FOLLOW**: If a fixture error occurs, regenerate all fixtures by running `cargo run --bin regen_snapshots` with no file arguments.
 - **NOTE**: Use `cargo run --bin regen_snapshots` to regenerate fixtures instead of manual edits.
 - **NOTE**: `regen_fixtures` has been renamed to `regen_snapshots`.
@@ -18,3 +19,4 @@
 - **NOTE**: For sequential eval-mode shard runs, use `./scripts/run_cpython_test_sets.sh --mode eval`; it enforces single-process regrtest (`DIET_PYTHON_TEST_JOBS=1`), absolute set paths, and a safe tempdir.
 - **MUST FOLLOW**: In any test failure summary, list expected failures separately from unexpected failures.
 - When running tests, put the output in logs/
+- **MUST FOLLOW**: If a new PR is requested, open a new jj change first with `jj new`, then immediately update its description so the head (`@`) is up to date using `jj describe -m <message> @`, including both the change summary and the rationale.

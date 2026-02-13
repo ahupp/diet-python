@@ -1,70 +1,692 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>diet-python WASM demo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>diet-python pipeline inspector</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <style>
-body { margin:0; height:100vh; display:flex; flex-direction:column; }
-#controls { padding:10px; }
-#editors { flex:1; display:flex; }
-textarea, .CodeMirror { flex:1; font-family: monospace; padding:10px; border:none; height:100%; }
-.CodeMirror-readonly { background:#f0f0f0; }
+:root {
+  --bg-0: #f5efe2;
+  --bg-1: #f9f4ea;
+  --ink-0: #1f2a36;
+  --ink-1: #4b5563;
+  --accent: #007f6b;
+  --accent-soft: #d8f0e9;
+  --card: rgba(255, 255, 255, 0.8);
+  --line: rgba(31, 42, 54, 0.16);
+  --jump: rgba(199, 49, 90, 0.95);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Manrope", "Segoe UI", sans-serif;
+  color: var(--ink-0);
+  background:
+    radial-gradient(circle at 12% 8%, #fff7d9 0%, transparent 36%),
+    radial-gradient(circle at 88% 92%, #d6f4ec 0%, transparent 34%),
+    linear-gradient(135deg, var(--bg-0), var(--bg-1));
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  gap: 14px;
+  padding: 14px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 16px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  backdrop-filter: blur(10px);
+}
+
+.title {
+  font-size: 1.02rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.subtitle {
+  font-size: 0.82rem;
+  color: var(--ink-1);
+}
+
+.status {
+  font-size: 0.8rem;
+  color: var(--ink-1);
+  white-space: nowrap;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: 1.05fr 1fr 1fr;
+  grid-template-rows: minmax(280px, 1fr) minmax(280px, 1fr);
+  gap: 14px;
+  min-height: 0;
+  flex: 1;
+}
+
+.panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  box-shadow: 0 8px 30px rgba(31, 42, 54, 0.06);
+}
+
+.source-panel {
+  grid-row: 1 / 3;
+}
+
+.structure-panel {
+  grid-column: 2 / 4;
+}
+
+.panel-head {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: linear-gradient(to right, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.5));
+}
+
+.panel-title {
+  font-weight: 700;
+  font-size: 0.88rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+textarea,
+pre,
+code {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+textarea {
+  width: 100%;
+  height: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 14px;
+  font-size: 0.83rem;
+  line-height: 1.4;
+  background: transparent;
+  color: var(--ink-0);
+}
+
+pre {
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  font-size: 0.78rem;
+  line-height: 1.44;
+  color: #1a2430;
+  white-space: pre;
+  height: 100%;
+}
+
+.select-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.72rem;
+  color: var(--ink-1);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+select {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--ink-0);
+}
+
+.structure-root {
+  position: relative;
+  overflow: auto;
+  height: 100%;
+  padding: 12px;
+}
+
+.tree-layer {
+  position: relative;
+  z-index: 2;
+  min-width: max-content;
+}
+
+.link-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.node {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.92);
+  margin-bottom: 8px;
+  min-width: 340px;
+}
+
+.node-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.node-label {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: #0f3e5f;
+}
+
+.node-term {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.72rem;
+  color: #43566b;
+  background: #f2f7fb;
+  border-radius: 8px;
+  padding: 3px 6px;
+}
+
+.node-ops {
+  margin-top: 6px;
+  border-radius: 8px;
+  border: 1px solid rgba(31, 42, 54, 0.1);
+  background: #fbfdff;
+  padding: 6px;
+  white-space: pre-wrap;
+  font-size: 0.72rem;
+  color: #394b60;
+}
+
+.node-children {
+  margin-left: 24px;
+  padding-left: 12px;
+  border-left: 2px solid rgba(0, 127, 107, 0.2);
+}
+
+.placeholder {
+  font-size: 0.82rem;
+  color: var(--ink-1);
+  padding: 18px;
+}
+
+@media (max-width: 1200px) {
+  .workspace {
+    grid-template-columns: 1fr;
+    grid-template-rows: 280px 280px 280px minmax(340px, 1fr);
+  }
+
+  .source-panel {
+    grid-row: auto;
+  }
+
+  .structure-panel {
+    grid-column: auto;
+  }
+
+  .node {
+    min-width: 0;
+  }
+}
 </style>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/codemirror.min.css" />
 </head>
 <body>
-<div id="controls"></div>
-<div id="editors">
-  <textarea id="input" placeholder="Paste Python code here"></textarea>
-  <textarea id="output" readonly></textarea>
+<div class="app">
+  <div class="header">
+    <div>
+      <div class="title">diet-python transform pipeline inspector</div>
+      <div class="subtitle">Phase 1 output, raw BB output, and dominator-tree BB rendering</div>
+    </div>
+    <div class="status" id="status">ready</div>
+  </div>
+
+  <div class="workspace">
+    <section class="panel source-panel">
+      <div class="panel-head">
+        <div class="panel-title">Source Python</div>
+      </div>
+      <textarea id="source" spellcheck="false" placeholder="Paste Python code here"></textarea>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-title">Phase 1 (pre-BB)</div>
+      </div>
+      <pre id="phase1"></pre>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-title">Raw BB Output</div>
+      </div>
+      <pre id="bbRaw"></pre>
+    </section>
+
+    <section class="panel structure-panel">
+      <div class="panel-head">
+        <div class="panel-title">BB Dominance View</div>
+        <div class="select-wrap">
+          function
+          <select id="functionPicker"></select>
+        </div>
+      </div>
+      <div class="structure-root" id="structureRoot">
+        <svg class="link-layer" id="links"></svg>
+        <div class="tree-layer" id="tree"></div>
+      </div>
+    </section>
+  </div>
 </div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/codemirror.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/python/python.min.js"></script>
+
 <script type="module">
-import init, { transform_selected, available_transforms } from "./pkg/diet_python.js";
+import init, { inspect_pipeline } from "./pkg/diet_python.js";
+
+const sourceEl = document.getElementById("source");
+const phase1El = document.getElementById("phase1");
+const bbRawEl = document.getElementById("bbRaw");
+const pickerEl = document.getElementById("functionPicker");
+const statusEl = document.getElementById("status");
+const treeEl = document.getElementById("tree");
+const linksEl = document.getElementById("links");
+const structureRootEl = document.getElementById("structureRoot");
+
+const state = {
+  payload: null,
+  selectedFunction: "",
+  crossEdges: [],
+};
+
+const SAMPLE = `def classify(n):
+    if n < 0:
+        return "neg"
+    if n == 0:
+        return "zero"
+    return "pos"`;
+
+function debounce(fn, delayMs) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), delayMs);
+  };
+}
+
+function setStatus(message, isError = false) {
+  statusEl.textContent = message;
+  statusEl.style.color = isError ? "#b42352" : "var(--ink-1)";
+}
+
+function edgeKey(from, to) {
+  return `${from}::${to}`;
+}
+
+function buildDominance(functionData) {
+  const blocks = functionData.blocks || [];
+  const labels = blocks.map((block) => block.label);
+  const all = new Set(labels);
+  if (!labels.length) {
+    return { dom: new Map(), idom: new Map(), children: new Map(), crossEdges: [] };
+  }
+
+  const preds = new Map(labels.map((label) => [label, new Set()]));
+  const cfgEdges = [];
+  for (const block of blocks) {
+    for (const successor of block.successors || []) {
+      if (!all.has(successor.target)) {
+        continue;
+      }
+      preds.get(successor.target).add(block.label);
+      cfgEdges.push({ from: block.label, to: successor.target, kind: successor.kind });
+    }
+  }
+
+  const entry = functionData.entry;
+  const dom = new Map();
+  for (const label of labels) {
+    dom.set(label, label === entry ? new Set([label]) : new Set(all));
+  }
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const label of labels) {
+      if (label === entry) {
+        continue;
+      }
+      const predecessors = Array.from(preds.get(label) || []);
+      let next = new Set([label]);
+      if (predecessors.length > 0) {
+        const intersection = new Set(dom.get(predecessors[0]));
+        for (const pred of predecessors.slice(1)) {
+          for (const candidate of Array.from(intersection)) {
+            if (!dom.get(pred).has(candidate)) {
+              intersection.delete(candidate);
+            }
+          }
+        }
+        for (const candidate of intersection) {
+          next.add(candidate);
+        }
+      }
+      if (!sameSet(next, dom.get(label))) {
+        dom.set(label, next);
+        changed = true;
+      }
+    }
+  }
+
+  const idom = new Map();
+  idom.set(entry, null);
+  for (const label of labels) {
+    if (label === entry) {
+      continue;
+    }
+    const strictDominators = Array.from(dom.get(label)).filter((value) => value !== label);
+    let immediate = null;
+    for (const candidate of strictDominators) {
+      let dominatedByAnother = false;
+      for (const other of strictDominators) {
+        if (other === candidate) {
+          continue;
+        }
+        if (dom.get(other).has(candidate)) {
+          dominatedByAnother = true;
+          break;
+        }
+      }
+      if (!dominatedByAnother) {
+        immediate = candidate;
+        break;
+      }
+    }
+    idom.set(label, immediate);
+  }
+
+  const children = new Map(labels.map((label) => [label, []]));
+  for (const label of labels) {
+    const parent = idom.get(label);
+    if (parent) {
+      children.get(parent).push(label);
+    }
+  }
+
+  const treeEdges = new Set();
+  for (const [label, parent] of idom) {
+    if (parent) {
+      treeEdges.add(edgeKey(parent, label));
+    }
+  }
+
+  const crossEdges = cfgEdges.filter((edge) => !treeEdges.has(edgeKey(edge.from, edge.to)));
+  return { dom, idom, children, crossEdges };
+}
+
+function sameSet(a, b) {
+  if (!a || !b || a.size !== b.size) {
+    return false;
+  }
+  for (const item of a) {
+    if (!b.has(item)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function renderBlockNode(blockByLabel, label, childrenMap) {
+  const block = blockByLabel.get(label);
+  if (!block) {
+    return null;
+  }
+
+  const nodeEl = document.createElement("div");
+  nodeEl.className = "node";
+  nodeEl.dataset.blockLabel = label;
+
+  const headerEl = document.createElement("div");
+  headerEl.className = "node-header";
+  const labelEl = document.createElement("div");
+  labelEl.className = "node-label";
+  labelEl.textContent = block.label;
+  const termEl = document.createElement("div");
+  termEl.className = "node-term";
+  termEl.textContent = block.termText;
+  headerEl.appendChild(labelEl);
+  headerEl.appendChild(termEl);
+  nodeEl.appendChild(headerEl);
+
+  if (block.opsText && block.opsText.trim()) {
+    const opsEl = document.createElement("div");
+    opsEl.className = "node-ops";
+    opsEl.textContent = block.opsText;
+    nodeEl.appendChild(opsEl);
+  }
+
+  const childLabels = childrenMap.get(label) || [];
+  if (childLabels.length) {
+    const childrenEl = document.createElement("div");
+    childrenEl.className = "node-children";
+    for (const child of childLabels) {
+      const childNode = renderBlockNode(blockByLabel, child, childrenMap);
+      if (childNode) {
+        childrenEl.appendChild(childNode);
+      }
+    }
+    nodeEl.appendChild(childrenEl);
+  }
+
+  return nodeEl;
+}
+
+function renderStructure() {
+  treeEl.innerHTML = "";
+  linksEl.innerHTML = "";
+
+  const module = state.payload?.bbModule;
+  const functions = module?.functions || [];
+  if (!functions.length) {
+    state.crossEdges = [];
+    treeEl.innerHTML = `<div class="placeholder">No basic-block functions were emitted.</div>`;
+    return;
+  }
+
+  const fn = functions.find((item) => item.qualname === state.selectedFunction) || functions[0];
+  state.selectedFunction = fn.qualname;
+  if (pickerEl.value !== state.selectedFunction) {
+    pickerEl.value = state.selectedFunction;
+  }
+
+  const dominance = buildDominance(fn);
+  state.crossEdges = dominance.crossEdges;
+  const blockByLabel = new Map((fn.blocks || []).map((block) => [block.label, block]));
+  const rootNode = renderBlockNode(blockByLabel, fn.entry, dominance.children);
+  if (!rootNode) {
+    state.crossEdges = [];
+    treeEl.innerHTML = `<div class="placeholder">Entry block ${fn.entry} is missing.</div>`;
+    return;
+  }
+  treeEl.appendChild(rootNode);
+
+  drawCrossEdges(state.crossEdges);
+}
+
+function drawCrossEdges(edges) {
+  linksEl.innerHTML = "";
+  if (!edges.length) {
+    return;
+  }
+
+  const rootRect = structureRootEl.getBoundingClientRect();
+  const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+  const marker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+  marker.setAttribute("id", "arrow");
+  marker.setAttribute("viewBox", "0 0 10 10");
+  marker.setAttribute("refX", "8");
+  marker.setAttribute("refY", "5");
+  marker.setAttribute("markerWidth", "6");
+  marker.setAttribute("markerHeight", "6");
+  marker.setAttribute("orient", "auto-start-reverse");
+  const arrowPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  arrowPath.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
+  arrowPath.setAttribute("fill", "var(--jump)");
+  marker.appendChild(arrowPath);
+  defs.appendChild(marker);
+  linksEl.appendChild(defs);
+
+  let maxX = structureRootEl.scrollWidth;
+  let maxY = structureRootEl.scrollHeight;
+
+  for (const edge of edges) {
+    const fromEl = treeEl.querySelector(`[data-block-label="${edge.from}"]`);
+    const toEl = treeEl.querySelector(`[data-block-label="${edge.to}"]`);
+    if (!fromEl || !toEl) {
+      continue;
+    }
+    const fromRect = fromEl.getBoundingClientRect();
+    const toRect = toEl.getBoundingClientRect();
+
+    const startX = fromRect.right - rootRect.left + structureRootEl.scrollLeft;
+    const startY = fromRect.top + fromRect.height / 2 - rootRect.top + structureRootEl.scrollTop;
+    const endX = toRect.left - rootRect.left + structureRootEl.scrollLeft;
+    const endY = toRect.top + toRect.height / 2 - rootRect.top + structureRootEl.scrollTop;
+    const bend = Math.max(24, Math.abs(endX - startX) * 0.35);
+
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute(
+      "d",
+      `M ${startX} ${startY} C ${startX + bend} ${startY}, ${endX - bend} ${endY}, ${endX} ${endY}`
+    );
+    path.setAttribute("stroke", "var(--jump)");
+    path.setAttribute("stroke-width", "1.6");
+    path.setAttribute("fill", "none");
+    path.setAttribute("marker-end", "url(#arrow)");
+    path.setAttribute("opacity", "0.9");
+    linksEl.appendChild(path);
+
+    maxX = Math.max(maxX, startX, endX);
+    maxY = Math.max(maxY, startY, endY);
+  }
+
+  linksEl.setAttribute("width", String(maxX + 24));
+  linksEl.setAttribute("height", String(maxY + 24));
+}
+
+function refreshFunctionPicker(functions) {
+  const previous = state.selectedFunction;
+  pickerEl.innerHTML = "";
+  for (const fn of functions) {
+    const option = document.createElement("option");
+    option.value = fn.qualname;
+    option.textContent = `${fn.qualname} [${fn.blocks.length} blocks]`;
+    pickerEl.appendChild(option);
+  }
+  const next = functions.find((fn) => fn.qualname === previous) || functions[0] || null;
+  state.selectedFunction = next ? next.qualname : "";
+  pickerEl.value = state.selectedFunction;
+}
+
+function updateQueryParam(source) {
+  const params = new URLSearchParams(window.location.search);
+  if (source) {
+    params.set("src", source);
+  } else {
+    params.delete("src");
+  }
+  const query = params.toString();
+  history.replaceState(null, "", query ? `?${query}` : window.location.pathname);
+}
+
+function inspectNow() {
+  const source = sourceEl.value;
+  updateQueryParam(source);
+  if (!source.trim()) {
+    phase1El.textContent = "";
+    bbRawEl.textContent = "";
+    pickerEl.innerHTML = "";
+    treeEl.innerHTML = `<div class="placeholder">Enter Python source to inspect the BB pipeline.</div>`;
+    linksEl.innerHTML = "";
+    setStatus("ready");
+    return;
+  }
+
+  try {
+    const raw = inspect_pipeline(source);
+    const payload = JSON.parse(raw);
+    state.payload = payload;
+
+    phase1El.textContent = payload.phase1 || "";
+    bbRawEl.textContent = payload.bbRaw || "";
+
+    const functions = payload.bbModule?.functions || [];
+    refreshFunctionPicker(functions);
+    renderStructure();
+
+    setStatus(`ok | ${functions.length} bb function${functions.length === 1 ? "" : "s"}`);
+  } catch (error) {
+    phase1El.textContent = "";
+    bbRawEl.textContent = "";
+    pickerEl.innerHTML = "";
+    treeEl.innerHTML = `<div class="placeholder">${String(error)}</div>`;
+    linksEl.innerHTML = "";
+    setStatus("transform error", true);
+  }
+}
+
+const debouncedInspect = debounce(inspectNow, 150);
 
 async function run() {
   await init();
-  const controls = document.getElementById('controls');
-  const input = document.getElementById('input');
-  const output = document.getElementById('output');
-  const inputEditor = CodeMirror.fromTextArea(input, { lineNumbers: true, mode: 'python' });
-  const outputEditor = CodeMirror.fromTextArea(output, { lineNumbers: true, mode: 'python', readOnly: true });
-  inputEditor.setSize(null, '100%');
-  outputEditor.setSize(null, '100%');
-  available_transforms().forEach(transform => {
-    const { id, label: transformLabel, defaultEnabled } = transform;
-    const wrapper = document.createElement('label');
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.value = id;
-    checkbox.checked = defaultEnabled;
-    checkbox.addEventListener('change', update);
-    wrapper.appendChild(checkbox);
-    wrapper.appendChild(document.createTextNode(transformLabel));
-    controls.appendChild(wrapper);
-  });
-  function update() {
-    const selected = Array.from(controls.querySelectorAll('input:checked')).map(cb => cb.value);
-    outputEditor.setValue(transform_selected(inputEditor.getValue(), selected));
-    const params = new URLSearchParams(window.location.search);
-    const src = inputEditor.getValue();
-    if (src) {
-      params.set('src', src);
-    } else {
-      params.delete('src');
-    }
-    const query = params.toString();
-    history.replaceState(null, '', query ? `?${query}` : window.location.pathname);
-  }
+
   const params = new URLSearchParams(window.location.search);
-  const initial = params.get('src');
-  if (initial !== null) {
-    inputEditor.setValue(initial);
-  }
-  inputEditor.on('change', update);
-  update();
+  sourceEl.value = params.get("src") || SAMPLE;
+
+  sourceEl.addEventListener("input", debouncedInspect);
+  pickerEl.addEventListener("change", () => {
+    state.selectedFunction = pickerEl.value;
+    renderStructure();
+  });
+
+  const redrawLinks = debounce(() => renderStructure(), 60);
+  window.addEventListener("resize", redrawLinks);
+  structureRootEl.addEventListener("scroll", () => drawCrossEdges(state.crossEdges));
+
+  inspectNow();
 }
+
 run();
 </script>
 </body>

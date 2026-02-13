@@ -59,7 +59,7 @@ pub enum StmtNode<S: StmtInfo = (), E: ExprInfo = ()> {
     },
     Assign {
         info: S,
-        target: String,
+        target: AssignTarget,
         value: ExprNode<E>,
     },
     Delete {
@@ -67,6 +67,13 @@ pub enum StmtNode<S: StmtInfo = (), E: ExprInfo = ()> {
         target: String,
     },
     Pass(S),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AssignTarget {
+    Name(String),
+    Unpack(Vec<String>),
+    Chained(Vec<String>),
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -215,9 +222,23 @@ fn collect_bound_names<S: StmtInfo, E: ExprInfo>(
     stmts: &[StmtNode<S, E>],
     names: &mut HashSet<String>,
 ) {
+    fn add_assign_target_names(target: &AssignTarget, names: &mut HashSet<String>) {
+        match target {
+            AssignTarget::Name(name) => {
+                names.insert(name.clone());
+            }
+            AssignTarget::Unpack(targets) | AssignTarget::Chained(targets) => {
+                for target in targets {
+                    names.insert(target.clone());
+                }
+            }
+        }
+    }
+
     for stmt in stmts {
         match stmt {
-            StmtNode::Assign { target, .. } | StmtNode::Delete { target, .. } => {
+            StmtNode::Assign { target, .. } => add_assign_target_names(target, names),
+            StmtNode::Delete { target, .. } => {
                 names.insert(target.clone());
             }
             StmtNode::FunctionDef(func) => {
@@ -740,9 +761,30 @@ impl StmtNode {
                 value: ExprNode::from(*value),
             }),
             Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
-                let target_name = if targets.len() == 1 {
+                fn unpack_targets(expr: &Expr) -> Option<Vec<String>> {
+                    match expr {
+                        Expr::Tuple(ast::ExprTuple { elts, .. })
+                        | Expr::List(ast::ExprList { elts, .. }) => {
+                            let mut names = Vec::with_capacity(elts.len());
+                            for elt in elts {
+                                match elt {
+                                    Expr::Name(ast::ExprName { id, .. }) => {
+                                        names.push(id.to_string());
+                                    }
+                                    _ => return None,
+                                }
+                            }
+                            Some(names)
+                        }
+                        _ => None,
+                    }
+                }
+
+                let assign_target = if targets.len() == 1 {
                     if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
-                        id.to_string()
+                        AssignTarget::Name(id.to_string())
+                    } else if let Some(names) = unpack_targets(&targets[0]) {
+                        AssignTarget::Unpack(names)
                     } else {
                         let s = ast::StmtAssign {
                             targets,
@@ -756,18 +798,36 @@ impl StmtNode {
                         );
                     }
                 } else {
-                    panic!("unsupported assignment targets")
+                    let mut names = Vec::with_capacity(targets.len());
+                    for target in &targets {
+                        match target {
+                            Expr::Name(ast::ExprName { id, .. }) => names.push(id.to_string()),
+                            _ => {
+                                let s = ast::StmtAssign {
+                                    targets,
+                                    value,
+                                    node_index: AtomicNodeIndex::default(),
+                                    range: TextRange::default(),
+                                };
+                                panic!(
+                                    "unsupported assignment target {}",
+                                    ruff_ast_to_string(Stmt::Assign(s))
+                                );
+                            }
+                        }
+                    }
+                    AssignTarget::Chained(names)
                 };
                 Some(StmtNode::Assign {
                     info: (),
-                    target: target_name,
+                    target: assign_target,
                     value: ExprNode::from(*value),
                 })
             }
             Stmt::TypeAlias(ast::StmtTypeAlias { name, value, .. }) => match *name {
                 Expr::Name(ast::ExprName { id, .. }) => Some(StmtNode::Assign {
                     info: (),
-                    target: id.to_string(),
+                    target: AssignTarget::Name(id.to_string()),
                     value: ExprNode::from(*value),
                 }),
                 other => {

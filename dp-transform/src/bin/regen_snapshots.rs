@@ -1,6 +1,7 @@
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use dp_transform::fixture::{parse_fixture, render_fixture};
 use dp_transform::{init_logging, transform_str_to_ruff_with_options, Options};
@@ -42,10 +43,8 @@ fn regenerate_fixture(path: &Path) -> Result<(), String> {
     }
 
     let mut pre_bb_options = Options::for_test();
-    pre_bb_options.lower_basic_blocks = true;
     pre_bb_options.emit_basic_blocks = false;
-    let mut bb_options = Options::for_test();
-    bb_options.lower_basic_blocks = true;
+    let bb_options = Options::for_test();
     let mut bb_outputs = Vec::with_capacity(blocks.len());
     for block in &blocks {
         if log_enabled!(Level::Trace) {
@@ -82,6 +81,26 @@ fn regenerate_fixture(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn format_fixtures(paths: &[PathBuf]) -> Result<(), String> {
+    if paths.is_empty() {
+        return Ok(());
+    }
+
+    let mut command = Command::new("ruff");
+    command.arg("format");
+    for path in paths {
+        command.arg(path);
+    }
+    let status = command
+        .status()
+        .map_err(|err| format!("failed to run ruff format: {}", err))?;
+    if !status.success() {
+        return Err(format!("ruff format failed with status {}", status));
+    }
+
+    Ok(())
+}
+
 fn main() -> Result<(), String> {
     init_logging();
     let args: Vec<String> = env::args().skip(1).collect();
@@ -97,9 +116,10 @@ fn main() -> Result<(), String> {
     }
 
     fixtures.sort();
-    for path in fixtures {
+    for path in &fixtures {
         regenerate_fixture(&path)?;
     }
+    format_fixtures(&fixtures)?;
 
     Ok(())
 }
