@@ -37,15 +37,15 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb_m_start(_dp_args_ptr):
-    self = __dp__.take_arg1(_dp_args_ptr)
+def _dp_bb_m_start(self):
+    self = self.take()
     return __dp__.ret(self.x)
 
 
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
 
-    def _dp_bb__dp_class_ns_C_start(_dp_args_ptr):
-        _dp_class_ns, _dp_classcell_arg = __dp__.take_args(_dp_args_ptr)
+    def _dp_bb__dp_class_ns_C_start(_dp_class_ns, _dp_classcell_arg):
+        _dp_class_ns, _dp_classcell_arg = _dp_class_ns.take(), _dp_classcell_arg.take()
         _dp_classcell = _dp_classcell_arg
         __dp__.setitem(_dp_class_ns, "__module__", __name__)
         __dp__.setitem(_dp_class_ns, "__qualname__", "C")
@@ -91,7 +91,7 @@ def _dp_bb__dp_module_init_start(_dp_args_ptr):
         __name__,
     )
 
-    def _dp_bb__dp_define_class_C_start(_dp_args_ptr):
+    def _dp_bb__dp_define_class_C_start():
         return __dp__.ret(
             __dp__.create_class("C", _dp_class_ns_C, (), None, False, 3, ())
         )
@@ -151,15 +151,15 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb_open_start(_dp_args_ptr):
-    mode, encoding = __dp__.take_args(_dp_args_ptr)
+def _dp_bb_open_start(mode, encoding):
+    mode, encoding = mode.take(), encoding.take()
     return __dp__.ret(open(mode, encoding=encoding))
 
 
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
 
-    def _dp_bb__dp_class_ns_Wrapper_start(_dp_args_ptr):
-        _dp_class_ns, _dp_classcell_arg = __dp__.take_args(_dp_args_ptr)
+    def _dp_bb__dp_class_ns_Wrapper_start(_dp_class_ns, _dp_classcell_arg):
+        _dp_class_ns, _dp_classcell_arg = _dp_class_ns.take(), _dp_classcell_arg.take()
         _dp_classcell = _dp_classcell_arg
         __dp__.setitem(_dp_class_ns, "__module__", __name__)
         __dp__.setitem(_dp_class_ns, "__qualname__", "Wrapper")
@@ -227,7 +227,7 @@ def _dp_bb__dp_module_init_start(_dp_args_ptr):
         __name__,
     )
 
-    def _dp_bb__dp_define_class_Wrapper_start(_dp_args_ptr):
+    def _dp_bb__dp_define_class_Wrapper_start():
         return __dp__.ret(
             __dp__.create_class("Wrapper", _dp_class_ns_Wrapper, (), None, False, 3, ())
         )
@@ -274,10 +274,10 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
 
-    def _dp_bb__dp_class_ns_D_start(_dp_args_ptr):
-        _dp_class_ns, _dp_classcell_arg = __dp__.take_args(_dp_args_ptr)
+    def _dp_bb__dp_class_ns_D_start(_dp_class_ns, _dp_classcell_arg):
+        _dp_class_ns, _dp_classcell_arg = _dp_class_ns.take(), _dp_classcell_arg.take()
         _dp_classcell = _dp_classcell_arg
         __dp__.setitem(_dp_class_ns, "__module__", __name__)
         __dp__.setitem(_dp_class_ns, "__qualname__", "D")
@@ -295,7 +295,7 @@ def _dp_bb__dp_module_init_start(_dp_args_ptr):
         __name__,
     )
 
-    def _dp_bb__dp_define_class_D_start(_dp_args_ptr):
+    def _dp_bb__dp_define_class_D_start():
         return __dp__.ret(
             __dp__.create_class("D", _dp_class_ns_D, (Base,), None, False, 3, ())
         )
@@ -359,12 +359,16 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb_outer_start(_dp_args_ptr):
+def _dp_bb_outer_start():
     _dp_cell_x = __dp__.make_cell()
     __dp__.store_cell(_dp_cell_x, "outer")
 
-    def _dp_bb__dp_class_ns_Inner_start(_dp_args_ptr):
-        _dp_class_ns, _dp_classcell_arg, _dp_cell_x = __dp__.take_args(_dp_args_ptr)
+    def _dp_bb__dp_class_ns_Inner_start(_dp_class_ns, _dp_classcell_arg, _dp_cell_x):
+        _dp_class_ns, _dp_classcell_arg, _dp_cell_x = (
+            _dp_class_ns.take(),
+            _dp_classcell_arg.take(),
+            _dp_cell_x.take(),
+        )
         _dp_classcell = _dp_classcell_arg
         __dp__.setitem(_dp_class_ns, "__module__", __name__)
         __dp__.setitem(_dp_class_ns, "__qualname__", "outer.<locals>.Inner")
@@ -385,7 +389,7 @@ def _dp_bb_outer_start(_dp_args_ptr):
         __name__,
     )
 
-    def _dp_bb__dp_define_class_Inner_start(_dp_args_ptr):
+    def _dp_bb__dp_define_class_Inner_start():
         return __dp__.ret(
             __dp__.create_class("Inner", _dp_class_ns_Inner, (), None, False, 6, ())
         )
@@ -402,7 +406,7 @@ def _dp_bb_outer_start(_dp_args_ptr):
     return __dp__.ret(Inner.y)
 
 
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     __dp__.store_global(
         globals(),
         "outer",
@@ -448,17 +452,17 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb_f_start(_dp_args_ptr):
-    x, _dp_classcell = __dp__.take_args(_dp_args_ptr)
+def _dp_bb_f_start(x, _dp_classcell):
+    x, _dp_classcell = x.take(), _dp_classcell.take()
     __dp__.delattr(_dp_classcell, "cell_contents")
     __dp__.call_super(super, _dp_classcell, x)
     return __dp__.ret(None)
 
 
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
 
-    def _dp_bb__dp_class_ns_X_start(_dp_args_ptr):
-        _dp_class_ns, _dp_classcell_arg = __dp__.take_args(_dp_args_ptr)
+    def _dp_bb__dp_class_ns_X_start(_dp_class_ns, _dp_classcell_arg):
+        _dp_class_ns, _dp_classcell_arg = _dp_class_ns.take(), _dp_classcell_arg.take()
         _dp_classcell = _dp_classcell_arg
         __dp__.setitem(_dp_class_ns, "__module__", __name__)
         __dp__.setitem(_dp_class_ns, "__qualname__", "X")
@@ -488,7 +492,7 @@ def _dp_bb__dp_module_init_start(_dp_args_ptr):
         __name__,
     )
 
-    def _dp_bb__dp_define_class_X_start(_dp_args_ptr):
+    def _dp_bb__dp_define_class_X_start():
         return __dp__.ret(
             __dp__.create_class("X", _dp_class_ns_X, (), None, True, 3, ())
         )
@@ -546,10 +550,10 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
 
-    def _dp_bb__dp_class_ns_B_start(_dp_args_ptr):
-        _dp_class_ns, _dp_classcell_arg = __dp__.take_args(_dp_args_ptr)
+    def _dp_bb__dp_class_ns_B_start(_dp_class_ns, _dp_classcell_arg):
+        _dp_class_ns, _dp_classcell_arg = _dp_class_ns.take(), _dp_classcell_arg.take()
         _dp_classcell = _dp_classcell_arg
         __dp__.setitem(_dp_class_ns, "__module__", __name__)
         __dp__.setitem(_dp_class_ns, "__qualname__", "A.B")
@@ -567,13 +571,13 @@ def _dp_bb__dp_module_init_start(_dp_args_ptr):
         __name__,
     )
 
-    def _dp_bb__dp_class_ns_A_start(_dp_args_ptr):
-        _dp_class_ns, _dp_classcell_arg = __dp__.take_args(_dp_args_ptr)
+    def _dp_bb__dp_class_ns_A_start(_dp_class_ns, _dp_classcell_arg):
+        _dp_class_ns, _dp_classcell_arg = _dp_class_ns.take(), _dp_classcell_arg.take()
         _dp_classcell = _dp_classcell_arg
         __dp__.setitem(_dp_class_ns, "__module__", __name__)
         __dp__.setitem(_dp_class_ns, "__qualname__", "A")
 
-        def _dp_bb__dp_define_class_B_start(_dp_args_ptr):
+        def _dp_bb__dp_define_class_B_start():
             return __dp__.ret(
                 __dp__.create_class("B", _dp_class_ns_B, (), None, False, 4, ())
             )
@@ -601,7 +605,7 @@ def _dp_bb__dp_module_init_start(_dp_args_ptr):
         __name__,
     )
 
-    def _dp_bb__dp_define_class_A_start(_dp_args_ptr):
+    def _dp_bb__dp_define_class_A_start():
         return __dp__.ret(
             __dp__.create_class("A", _dp_class_ns_A, (), None, False, 3, ())
         )
@@ -664,10 +668,10 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb_foo_start(_dp_args_ptr):
+def _dp_bb_foo_start():
 
-    def _dp_bb__dp_class_ns_B_start(_dp_args_ptr):
-        _dp_class_ns, _dp_classcell_arg = __dp__.take_args(_dp_args_ptr)
+    def _dp_bb__dp_class_ns_B_start(_dp_class_ns, _dp_classcell_arg):
+        _dp_class_ns, _dp_classcell_arg = _dp_class_ns.take(), _dp_classcell_arg.take()
         _dp_classcell = _dp_classcell_arg
         __dp__.setitem(_dp_class_ns, "__module__", __name__)
         __dp__.setitem(_dp_class_ns, "__qualname__", "B")
@@ -685,13 +689,13 @@ def _dp_bb_foo_start(_dp_args_ptr):
         __name__,
     )
 
-    def _dp_bb__dp_class_ns_A_start(_dp_args_ptr):
-        _dp_class_ns, _dp_classcell_arg = __dp__.take_args(_dp_args_ptr)
+    def _dp_bb__dp_class_ns_A_start(_dp_class_ns, _dp_classcell_arg):
+        _dp_class_ns, _dp_classcell_arg = _dp_class_ns.take(), _dp_classcell_arg.take()
         _dp_classcell = _dp_classcell_arg
         __dp__.setitem(_dp_class_ns, "__module__", __name__)
         __dp__.setitem(_dp_class_ns, "__qualname__", "foo.<locals>.A")
 
-        def _dp_bb__dp_define_class_B_start(_dp_args_ptr):
+        def _dp_bb__dp_define_class_B_start():
             return __dp__.ret(
                 __dp__.create_class("B", _dp_class_ns_B, (), None, False, 7, ())
             )
@@ -719,7 +723,7 @@ def _dp_bb_foo_start(_dp_args_ptr):
         __name__,
     )
 
-    def _dp_bb__dp_define_class_A_start(_dp_args_ptr):
+    def _dp_bb__dp_define_class_A_start():
         return __dp__.ret(
             __dp__.create_class("A", _dp_class_ns_A, (), None, False, 4, ())
         )
@@ -736,7 +740,7 @@ def _dp_bb_foo_start(_dp_args_ptr):
     return __dp__.ret(None)
 
 
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     __dp__.store_global(
         globals(),
         "foo",

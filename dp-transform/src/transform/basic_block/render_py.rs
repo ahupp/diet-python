@@ -13,11 +13,16 @@ enum GeneratorFlavor {
     Async,
 }
 
-fn parse_function_skeleton(name: &str, is_async: bool) -> Option<ast::StmtFunctionDef> {
+fn parse_function_skeleton(
+    name: &str,
+    is_async: bool,
+    params: &[String],
+) -> Option<ast::StmtFunctionDef> {
+    let params = params.join(", ");
     let header = if is_async {
-        format!("async def {name}(_dp_args_ptr):\n    pass\n")
+        format!("async def {name}({params}):\n    pass\n")
     } else {
-        format!("def {name}(_dp_args_ptr):\n    pass\n")
+        format!("def {name}({params}):\n    pass\n")
     };
     let mut parsed = parse_module(&header).ok()?.into_syntax().body.body;
     let stmt = *parsed.remove(0);
@@ -27,18 +32,17 @@ fn parse_function_skeleton(name: &str, is_async: bool) -> Option<ast::StmtFuncti
     }
 }
 
-fn make_take_args_stmt(args: &[String]) -> Option<Stmt> {
-    if args.is_empty() {
-        return Some(py_stmt!("__dp__.take_args(_dp_args_ptr)"));
+fn make_take_params_stmt(params: &[String]) -> Option<Stmt> {
+    if params.is_empty() {
+        return None;
     }
-    if args.len() == 1 {
-        return Some(py_stmt!(
-            "{name:id} = __dp__.take_arg1(_dp_args_ptr)",
-            name = args[0].as_str(),
-        ));
-    }
-    let targets = args.join(", ");
-    let source = format!("{targets} = __dp__.take_args(_dp_args_ptr)");
+    let targets = params.join(", ");
+    let values = params
+        .iter()
+        .map(|name| format!("{name}.take()"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let source = format!("{targets} = {values}");
     let mut module = parse_module(&source).ok()?.into_syntax().body.body;
     if module.len() != 1 {
         return None;
@@ -109,10 +113,10 @@ pub(super) fn render_block_defs_from_bb(bb_function: &BbFunction) -> Option<Vec<
     let generator_flavor = generator_flavor_for_kind(&bb_function.kind);
     let mut block_defs = Vec::new();
     for block in &bb_function.blocks {
-        let mut block_fn = parse_function_skeleton(block.label.as_str(), is_async)?;
+        let mut block_fn = parse_function_skeleton(block.label.as_str(), is_async, &block.params)?;
         let mut block_body = block.ops.clone();
-        if !block.params.is_empty() {
-            block_body.insert(0, make_take_args_stmt(&block.params)?);
+        if let Some(take_stmt) = make_take_params_stmt(&block.params) {
+            block_body.insert(0, take_stmt);
         }
         block_body.extend(terminator_stmts(
             &block.term,
@@ -194,9 +198,11 @@ fn terminator_stmts(
         BbTerm::TryJump {
             body_label,
             except_label,
+            except_exc_name,
             body_region_labels,
             except_region_labels,
             finally_label,
+            finally_exc_name,
             finally_region_labels,
             finally_fallthrough_label,
         } => {
@@ -208,12 +214,27 @@ fn terminator_stmts(
                     .unwrap_or(&[]),
             )?;
             let except_target_expr = name_expr(except_label.as_str())?;
+            let except_param_names = block_params
+                .get(except_label.as_str())
+                .map(|names| names.as_slice())
+                .unwrap_or(&[]);
             let except_args = tuple_expr_from_names(
-                block_params
-                    .get(except_label.as_str())
-                    .map(|names| names.as_slice())
-                    .unwrap_or(&[]),
+                &except_param_names
+                    .iter()
+                    .filter(|name| {
+                        except_exc_name
+                            .as_ref()
+                            .map(|exc_name| exc_name != *name)
+                            .unwrap_or(true)
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>(),
             )?;
+            let except_takes_exc =
+                except_exc_name
+                    .as_ref()
+                    .map(|exc_name| except_param_names.iter().any(|name| name == exc_name))
+                    .unwrap_or(false);
             let body_region_targets = make_tuple(
                 body_region_labels
                     .iter()
@@ -231,14 +252,36 @@ fn terminator_stmts(
                 .and_then(|label| name_expr(label.as_str()))
                 .unwrap_or_else(|| py_expr!("None"));
             let finally_args = if let Some(finally_label_name) = finally_label.as_ref() {
+                let finally_param_names = block_params
+                    .get(finally_label_name.as_str())
+                    .map(|names| names.as_slice())
+                    .unwrap_or(&[]);
                 tuple_expr_from_names(
-                    block_params
-                        .get(finally_label_name.as_str())
-                        .map(|names| names.as_slice())
-                        .unwrap_or(&[]),
+                    &finally_param_names
+                        .iter()
+                        .filter(|name| {
+                            finally_exc_name
+                                .as_ref()
+                                .map(|exc_name| exc_name != *name)
+                                .unwrap_or(true)
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>(),
                 )?
             } else {
                 tuple_expr_from_names(&[])?
+            };
+            let finally_takes_exc = if let Some(finally_label_name) = finally_label.as_ref() {
+                let finally_param_names = block_params
+                    .get(finally_label_name.as_str())
+                    .map(|names| names.as_slice())
+                    .unwrap_or(&[]);
+                finally_exc_name
+                    .as_ref()
+                    .map(|exc_name| finally_param_names.iter().any(|name| name == exc_name))
+                    .unwrap_or(false)
+            } else {
+                false
             };
             let finally_region_targets = make_tuple(
                 finally_region_labels
@@ -258,29 +301,33 @@ fn terminator_stmts(
                 .unwrap_or_else(|| py_expr!("None"));
             if is_async {
                 Some(vec![py_stmt!(
-                    "return await __dp__.try_jump_term_async({body_target:expr}, {body_args:expr}, {body_region_targets:expr}, {except_target:expr}, {except_args:expr}, {except_region_targets:expr}, {finally_target:expr}, {finally_args:expr}, {finally_region_targets:expr}, {finally_fallthrough_target:expr})",
+                    "return await __dp__.try_jump_term_async({body_target:expr}, {body_args:expr}, {body_region_targets:expr}, {except_target:expr}, {except_args:expr}, {except_takes_exc:expr}, {except_region_targets:expr}, {finally_target:expr}, {finally_args:expr}, {finally_takes_exc:expr}, {finally_region_targets:expr}, {finally_fallthrough_target:expr})",
                     body_target = body_target_expr,
                     body_args = body_args,
                     body_region_targets = body_region_targets,
                     except_target = except_target_expr,
                     except_args = except_args,
+                    except_takes_exc = py_expr!("{value:literal}", value = except_takes_exc),
                     except_region_targets = except_region_targets,
                     finally_target = finally_target_expr,
                     finally_args = finally_args,
+                    finally_takes_exc = py_expr!("{value:literal}", value = finally_takes_exc),
                     finally_region_targets = finally_region_targets,
                     finally_fallthrough_target = finally_fallthrough_target_expr,
                 )])
             } else {
                 Some(vec![py_stmt!(
-                    "return __dp__.try_jump_term({body_target:expr}, {body_args:expr}, {body_region_targets:expr}, {except_target:expr}, {except_args:expr}, {except_region_targets:expr}, {finally_target:expr}, {finally_args:expr}, {finally_region_targets:expr}, {finally_fallthrough_target:expr})",
+                    "return __dp__.try_jump_term({body_target:expr}, {body_args:expr}, {body_region_targets:expr}, {except_target:expr}, {except_args:expr}, {except_takes_exc:expr}, {except_region_targets:expr}, {finally_target:expr}, {finally_args:expr}, {finally_takes_exc:expr}, {finally_region_targets:expr}, {finally_fallthrough_target:expr})",
                     body_target = body_target_expr,
                     body_args = body_args,
                     body_region_targets = body_region_targets,
                     except_target = except_target_expr,
                     except_args = except_args,
+                    except_takes_exc = py_expr!("{value:literal}", value = except_takes_exc),
                     except_region_targets = except_region_targets,
                     finally_target = finally_target_expr,
                     finally_args = finally_args,
+                    finally_takes_exc = py_expr!("{value:literal}", value = finally_takes_exc),
                     finally_region_targets = finally_region_targets,
                     finally_fallthrough_target = finally_fallthrough_target_expr,
                 )])
@@ -290,41 +337,44 @@ fn terminator_stmts(
             value,
             resume_label,
         } => {
-            let next_state_args = tuple_expr_from_names(
-                block_params
-                    .get(resume_label.as_str())
-                    .map(|names| {
-                        names
-                            .iter()
-                            .filter(|name| {
-                                name.as_str() != "_dp_send_value"
-                                    && name.as_str() != "_dp_resume_exc"
-                            })
-                            .cloned()
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap_or_default()
-                    .as_slice(),
-            )?;
+            let next_state_names = block_params
+                .get(resume_label.as_str())
+                .map(|names| {
+                    names
+                        .iter()
+                        .filter(|name| {
+                            name.as_str() != "_dp_send_value" && name.as_str() != "_dp_resume_exc"
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
             let next_pc = block_pc_by_label.get(resume_label.as_str()).copied()?;
             let yielded_value = value.clone().unwrap_or_else(|| py_expr!("None"));
             match generator_flavor {
                 GeneratorFlavor::None => {
                     panic!("internal error: Terminator::Yield emitted for non-generator lowering")
                 }
-                GeneratorFlavor::Sync | GeneratorFlavor::Async => Some(vec![
-                    py_stmt!(
-                        "__dp__.setitem(_dp_state, \"pc\", {next_pc:literal})",
+                GeneratorFlavor::Sync | GeneratorFlavor::Async => {
+                    let mut stmts = vec![py_stmt!(
+                        "_dp_self._pc = {next_pc:literal}",
                         // Generator runtime reserves only synthetic pc=0 (unstarted).
                         // done/invalid are emitted as explicit lowered blocks.
                         next_pc = (next_pc as i64) + 1,
-                    ),
-                    py_stmt!(
-                        "__dp__.setitem(_dp_state, \"args\", {next_state_args:expr})",
-                        next_state_args = next_state_args,
-                    ),
-                    py_stmt!("return __dp__.ret({value:expr})", value = yielded_value,),
-                ]),
+                    )];
+                    for name in next_state_names {
+                        stmts.push(py_stmt!(
+                            "__dp__.frame_store(_dp_self, {name:literal}, {value:id})",
+                            name = name.as_str(),
+                            value = name.as_str(),
+                        ));
+                    }
+                    stmts.push(py_stmt!(
+                        "return __dp__.ret({value:expr})",
+                        value = yielded_value,
+                    ));
+                    Some(stmts)
+                }
             }
         }
         BbTerm::Ret(value) => {
@@ -335,9 +385,7 @@ fn terminator_stmts(
                     value = ret_value,
                 )]),
                 GeneratorFlavor::Sync | GeneratorFlavor::Async => Some(vec![
-                    py_stmt!(
-                        "__dp__.setitem(_dp_state, \"pc\", __dp__._GEN_PC_DONE)"
-                    ),
+                    py_stmt!("_dp_self._pc = __dp__._GEN_PC_DONE"),
                     py_stmt!(
                         "return __dp__.ret({value:expr})",
                         value = ret_value,

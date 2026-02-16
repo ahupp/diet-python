@@ -62,14 +62,61 @@ fn is_take_args_unpack_assign(assign: &ast::StmtAssign) -> bool {
         return false;
     }
     let target = &assign.targets[0];
-    let is_unpack_target = match target {
+    let target_names = match target {
         Expr::Tuple(ast::ExprTuple { elts, .. }) | Expr::List(ast::ExprList { elts, .. }) => {
-            !elts.is_empty() && elts.iter().all(|elt| matches!(elt, Expr::Name(_)))
+            if elts.is_empty() || !elts.iter().all(|elt| matches!(elt, Expr::Name(_))) {
+                return false;
+            }
+            elts.iter()
+                .map(|elt| match elt {
+                    Expr::Name(name) => Some(name.id.as_str()),
+                    _ => None,
+                })
+                .collect::<Option<Vec<_>>>()
         }
-        _ => false,
+        _ => None,
     };
-    if !is_unpack_target {
+    let Some(target_names) = target_names else {
         return false;
+    };
+
+    // Preserve BB block-param prologue assignments:
+    //   a, b = a.take(), b.take()
+    if let Expr::Tuple(ast::ExprTuple { elts, .. }) | Expr::List(ast::ExprList { elts, .. }) =
+        assign.value.as_ref()
+    {
+        if elts.len() == target_names.len() {
+            let mut all_take_calls = true;
+            for (target_name, value) in target_names.iter().zip(elts.iter()) {
+                let Expr::Call(call) = value else {
+                    all_take_calls = false;
+                    break;
+                };
+                if !call.arguments.keywords.is_empty() || !call.arguments.args.is_empty() {
+                    all_take_calls = false;
+                    break;
+                }
+                let Expr::Attribute(attr) = call.func.as_ref() else {
+                    all_take_calls = false;
+                    break;
+                };
+                if attr.attr.as_str() != "take" {
+                    all_take_calls = false;
+                    break;
+                }
+                let Expr::Name(base) = attr.value.as_ref() else {
+                    all_take_calls = false;
+                    break;
+                };
+                if base.id.as_str() != *target_name {
+                    all_take_calls = false;
+                    break;
+                }
+            }
+            if all_take_calls {
+                return true;
+            }
+        }
     }
 
     let Expr::Call(call) = assign.value.as_ref() else {
@@ -348,9 +395,11 @@ enum Terminator {
     TryJump {
         body_label: String,
         except_label: String,
+        except_exc_name: Option<String>,
         body_region_labels: Vec<String>,
         except_region_labels: Vec<String>,
         finally_label: Option<String>,
+        finally_exc_name: Option<String>,
         finally_region_labels: Vec<String>,
         finally_fallthrough_label: Option<String>,
     },
@@ -641,7 +690,7 @@ impl BasicBlockRewriter<'_> {
                 "invalid generator pc: {}"
             };
             let invalid_raise_stmt = match py_stmt!(
-                "raise RuntimeError({msg:literal}.format(_dp_state['pc']))",
+                "raise RuntimeError({msg:literal}.format(_dp_self._pc))",
                 msg = invalid_msg,
             ) {
                 Stmt::Raise(stmt) => stmt,
@@ -717,7 +766,7 @@ impl BasicBlockRewriter<'_> {
         let mut block_params = compute_block_params(&blocks, &state_vars, &extra_successors);
         if has_yield {
             // Generator/async-generator runtime dispatch passes state through
-            // block args; keep `_dp_state` threaded even when local liveness
+            // block args; keep `_dp_self` threaded even when local liveness
             // for a specific block would otherwise drop it.
             //
             // `_dp_try_exc_*` carries active exception context for resumed
@@ -731,9 +780,9 @@ impl BasicBlockRewriter<'_> {
             for block in &blocks {
                 let params = block_params.entry(block.label.clone()).or_default();
                 params.retain(|name| {
-                    name != "_dp_state" && name != "_dp_send_value" && name != "_dp_resume_exc"
+                    name != "_dp_self" && name != "_dp_send_value" && name != "_dp_resume_exc"
                 });
-                params.insert(0, "_dp_state".to_string());
+                params.insert(0, "_dp_self".to_string());
                 params.insert(1, "_dp_send_value".to_string());
                 params.insert(2, "_dp_resume_exc".to_string());
                 if block.label != entry_label {
@@ -758,13 +807,14 @@ impl BasicBlockRewriter<'_> {
                 }
             }
         }
+        ensure_try_exception_params(&blocks, &mut block_params);
         let entry_params = block_params
             .get(entry_label.as_str())
             .cloned()
             .unwrap_or_default()
             .into_iter()
             .filter(|name| {
-                name != "_dp_state" && name != "_dp_send_value" && name != "_dp_resume_exc"
+                name != "_dp_self" && name != "_dp_send_value" && name != "_dp_resume_exc"
             })
             .collect::<Vec<_>>();
         let extra_state_vars: Vec<String> = entry_params
@@ -1293,10 +1343,20 @@ impl BasicBlockRewriter<'_> {
                     );
 
                     let has_finally = !try_stmt.finalbody.body.is_empty();
+                    let mut finally_exc_name: Option<String> = None;
                     let (finally_label, finally_region_labels, finally_fallthrough_label) =
                         if has_finally {
                             let finally_region_start = blocks.len();
-                            let finally_body = flatten_stmt_boxes(&try_stmt.finalbody.body);
+                            let mut finally_body = flatten_stmt_boxes(&try_stmt.finalbody.body);
+                            let finally_exc_candidate = self.next_temp("try_exc");
+                            finally_body = rewrite_exception_accesses(
+                                finally_body,
+                                finally_exc_candidate.as_str(),
+                            );
+                            if body_uses_name(finally_body.as_slice(), finally_exc_candidate.as_str())
+                            {
+                                finally_exc_name = Some(finally_exc_candidate);
+                            }
                             let finally_label = self.lower_stmt_sequence(
                                 fn_name,
                                 &finally_body,
@@ -1365,10 +1425,13 @@ impl BasicBlockRewriter<'_> {
                             flatten_stmt_boxes(&handler.body.body)
                         })
                         .unwrap_or_else(|| {
-                            vec![Box::new(py_stmt!("raise __dp__.current_exception()"))]
+                            vec![Box::new(py_stmt!(
+                                "raise {exc:id}",
+                                exc = except_exc_name.as_str(),
+                            ))]
                         });
                     let except_body =
-                        capture_except_exception(except_body, except_exc_name.as_str());
+                        rewrite_exception_accesses(except_body, except_exc_name.as_str());
                     let except_label = self.lower_stmt_sequence(
                         fn_name,
                         &except_body,
@@ -1389,9 +1452,11 @@ impl BasicBlockRewriter<'_> {
                         terminator: Terminator::TryJump {
                             body_label,
                             except_label,
+                            except_exc_name: Some(except_exc_name),
                             body_region_labels,
                             except_region_labels,
                             finally_label,
+                            finally_exc_name,
                             finally_region_labels,
                             finally_fallthrough_label,
                         },
@@ -1489,13 +1554,14 @@ impl BasicBlockRewriter<'_> {
                     iter_expr = value,
                 ),
                 py_stmt!(
-                    "__dp__.setitem(_dp_state, \"gi_yieldfrom\", {iter_name:id})",
+                    "__dp__.setattr(_dp_self, \"gi_yieldfrom\", {iter_name:id})",
                     iter_name = iter_name.as_str(),
                 ),
             ],
             terminator: Terminator::TryJump {
                 body_label: next_body_label.clone(),
                 except_label: stop_except_label.clone(),
+                except_exc_name: Some(stop_name.clone()),
                 body_region_labels: vec![next_body_label.clone()],
                 except_region_labels: vec![
                     stop_except_label.clone(),
@@ -1503,6 +1569,7 @@ impl BasicBlockRewriter<'_> {
                     raise_stop_label.clone(),
                 ],
                 finally_label: None,
+                finally_exc_name: None,
                 finally_region_labels: Vec::new(),
                 finally_fallthrough_label: None,
             },
@@ -1518,10 +1585,7 @@ impl BasicBlockRewriter<'_> {
         });
         blocks.push(Block {
             label: stop_except_label.clone(),
-            body: vec![py_stmt!(
-                "{stop:id} = __dp__.current_exception()",
-                stop = stop_name.as_str(),
-            )],
+            body: Vec::new(),
             terminator: Terminator::BrIf {
                 test: py_expr!(
                     "__dp__.exception_matches({stop:id}, StopIteration)",
@@ -1546,7 +1610,7 @@ impl BasicBlockRewriter<'_> {
         });
         blocks.push(Block {
             label: clear_done_label,
-            body: vec![py_stmt!("__dp__.setitem(_dp_state, \"gi_yieldfrom\", None)")],
+            body: vec![py_stmt!("__dp__.setattr(_dp_self, \"gi_yieldfrom\", None)")],
             terminator: Terminator::Jump(after_label),
         });
         blocks.push(Block {
@@ -1631,7 +1695,7 @@ impl BasicBlockRewriter<'_> {
         });
         blocks.push(Block {
             label: clear_raise_label,
-            body: vec![py_stmt!("__dp__.setitem(_dp_state, \"gi_yieldfrom\", None)")],
+            body: vec![py_stmt!("__dp__.setattr(_dp_self, \"gi_yieldfrom\", None)")],
             terminator: Terminator::Raise(raise_stmt_from_name(raise_name.as_str())),
         });
         blocks.push(Block {
@@ -1653,6 +1717,7 @@ impl BasicBlockRewriter<'_> {
             terminator: Terminator::TryJump {
                 body_label: throw_body_label.clone(),
                 except_label: stop_except_label.clone(),
+                except_exc_name: Some(stop_name.clone()),
                 body_region_labels: vec![throw_body_label.clone()],
                 except_region_labels: vec![
                     stop_except_label.clone(),
@@ -1660,6 +1725,7 @@ impl BasicBlockRewriter<'_> {
                     raise_stop_label.clone(),
                 ],
                 finally_label: None,
+                finally_exc_name: None,
                 finally_region_labels: Vec::new(),
                 finally_fallthrough_label: None,
             },
@@ -1680,6 +1746,7 @@ impl BasicBlockRewriter<'_> {
             terminator: Terminator::TryJump {
                 body_label: send_dispatch_label.clone(),
                 except_label: stop_except_label.clone(),
+                except_exc_name: Some(stop_name.clone()),
                 body_region_labels: vec![
                     send_dispatch_label.clone(),
                     next_body_label.clone(),
@@ -1691,6 +1758,7 @@ impl BasicBlockRewriter<'_> {
                     raise_stop_label.clone(),
                 ],
                 finally_label: None,
+                finally_exc_name: None,
                 finally_region_labels: Vec::new(),
                 finally_fallthrough_label: None,
             },
@@ -2137,17 +2205,21 @@ fn bb_term_from_terminator(terminator: &Terminator) -> BbTerm {
         Terminator::TryJump {
             body_label,
             except_label,
+            except_exc_name,
             body_region_labels,
             except_region_labels,
             finally_label,
+            finally_exc_name,
             finally_region_labels,
             finally_fallthrough_label,
         } => BbTerm::TryJump {
             body_label: body_label.clone(),
             except_label: except_label.clone(),
+            except_exc_name: except_exc_name.clone(),
             body_region_labels: body_region_labels.clone(),
             except_region_labels: except_region_labels.clone(),
             finally_label: finally_label.clone(),
+            finally_exc_name: finally_exc_name.clone(),
             finally_region_labels: finally_region_labels.clone(),
             finally_fallthrough_label: finally_fallthrough_label.clone(),
         },
@@ -2957,7 +3029,10 @@ fn collect_state_vars(
         let mut names = defs.into_iter().collect::<Vec<_>>();
         for name in uses {
             let is_special_runtime_state =
-                name == "_dp_state" || name.starts_with("_dp_cell_") || name == "_dp_classcell";
+                name == "_dp_self"
+                    || name.starts_with("_dp_cell_")
+                    || name.starts_with("_dp_try_exc_")
+                    || name == "_dp_classcell";
             let is_known_local = defs_anywhere.contains(name.as_str())
                 || param_names.iter().any(|param| param == &name);
             let include = if module_init_mode {
@@ -3058,6 +3133,32 @@ fn compute_block_params(
         params.insert(block.label.clone(), ordered);
     }
     params
+}
+
+fn ensure_try_exception_params(blocks: &[Block], block_params: &mut HashMap<String, Vec<String>>) {
+    for block in blocks {
+        let Terminator::TryJump {
+            except_label,
+            except_exc_name,
+            finally_label,
+            finally_exc_name,
+            ..
+        } = &block.terminator
+        else {
+            continue;
+        };
+
+        if let Some(exc_name) = except_exc_name {
+            let params = block_params.entry(except_label.clone()).or_default();
+            params.retain(|name| name != exc_name);
+            params.push(exc_name.clone());
+        }
+        if let (Some(finally_label), Some(exc_name)) = (finally_label, finally_exc_name) {
+            let params = block_params.entry(finally_label.clone()).or_default();
+            params.retain(|name| name != exc_name);
+            params.push(exc_name.clone());
+        }
+    }
 }
 
 fn analyze_block_use_def(block: &Block) -> (HashSet<String>, HashSet<String>) {
@@ -3979,6 +4080,7 @@ fn apply_label_rename(
                 finally_label,
                 finally_region_labels,
                 finally_fallthrough_label,
+                ..
             } => {
                 if let Some(renamed) = rename.get(body_label.as_str()) {
                     *body_label = renamed.clone();
@@ -4148,20 +4250,19 @@ fn prune_unreachable_blocks(entry_label: &str, blocks: &mut Vec<Block>) {
     blocks.retain(|block| reachable.contains(block.label.as_str()));
 }
 
-fn capture_except_exception(mut body: Vec<Box<Stmt>>, exc_name: &str) -> Vec<Box<Stmt>> {
-    let mut out = Vec::with_capacity(body.len() + 1);
-    out.push(Box::new(py_stmt!(
-        "{exc:id} = __dp__.current_exception()",
-        exc = exc_name,
-    )));
+fn rewrite_exception_accesses(mut body: Vec<Box<Stmt>>, exc_name: &str) -> Vec<Box<Stmt>> {
     let mut rewriter = ExceptExceptionRewriter {
         exception_name: exc_name.to_string(),
     };
     for stmt in body.iter_mut() {
         rewriter.visit_stmt(stmt.as_mut());
     }
-    out.extend(body);
-    out
+    body
+}
+
+fn body_uses_name(body: &[Box<Stmt>], name: &str) -> bool {
+    body.iter()
+        .any(|stmt| load_names_in_stmt(stmt.as_ref()).contains(name))
 }
 
 struct ExceptExceptionRewriter {
@@ -4193,6 +4294,17 @@ impl Transformer for ExceptExceptionRewriter {
                         if let Expr::Name(module) = attr.value.as_ref() {
                             if module.id.as_str() == "__dp__" {
                                 *expr = self.exception_name_expr();
+                                return;
+                            }
+                        }
+                    }
+                    if attr.attr.as_str() == "exc_info" {
+                        if let Expr::Name(module) = attr.value.as_ref() {
+                            if module.id.as_str() == "__dp__" {
+                                *expr = py_expr!(
+                                    "__dp__.exc_info_from_exception({exc:id})",
+                                    exc = self.exception_name.as_str(),
+                                );
                                 return;
                             }
                         }

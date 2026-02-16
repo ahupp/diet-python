@@ -11,7 +11,7 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     __dp__.store_global(globals(), "x", __dp__.getitem(a, b))
     return __dp__.ret(None)
 
@@ -34,7 +34,7 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     __dp__.store_global(globals(), "x", __dp__.getitem(a, __dp__.slice(1, 2, 3)))
     return __dp__.ret(None)
 
@@ -57,7 +57,7 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     __dp__.store_global(globals(), "x", __dp__.add(a, b))
     return __dp__.ret(None)
 
@@ -80,7 +80,7 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     __dp__.store_global(globals(), "x", __dp__.or_(a, b))
     return __dp__.ret(None)
 
@@ -103,7 +103,7 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     __dp__.store_global(globals(), "x", __dp__.neg(a))
     return __dp__.ret(None)
 
@@ -131,19 +131,19 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_module_init_0(_dp_args_ptr):
-    _dp_target_1 = __dp__.take_arg1(_dp_args_ptr)
+def _dp_bb__dp_module_init_0(_dp_target_1):
+    _dp_target_1 = _dp_target_1.take()
     __dp__.store_global(globals(), "x", _dp_target_1)
     return __dp__.ret(None)
 
 
-def _dp_bb__dp_module_init_1(_dp_args_ptr):
+def _dp_bb__dp_module_init_1():
     _dp_target_1 = c
     return __dp__.jump(_dp_bb__dp_module_init_0, (_dp_target_1,))
 
 
-def _dp_bb__dp_module_init_2(_dp_args_ptr):
-    _dp_target_1 = __dp__.take_arg1(_dp_args_ptr)
+def _dp_bb__dp_module_init_2(_dp_target_1):
+    _dp_target_1 = _dp_target_1.take()
     return __dp__.brif(
         __dp__.not_(_dp_target_1),
         _dp_bb__dp_module_init_1,
@@ -153,12 +153,12 @@ def _dp_bb__dp_module_init_2(_dp_args_ptr):
     )
 
 
-def _dp_bb__dp_module_init_3(_dp_args_ptr):
+def _dp_bb__dp_module_init_3():
     _dp_target_1 = b
     return __dp__.jump(_dp_bb__dp_module_init_2, (_dp_target_1,))
 
 
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     _dp_target_1 = a
     return __dp__.brif(
         _dp_target_1,
@@ -187,7 +187,7 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     __dp__.store_global(globals(), "x", __dp__.lt(a, b))
     return __dp__.ret(None)
 
@@ -215,19 +215,19 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_module_init_0(_dp_args_ptr):
-    _dp_target_1 = __dp__.take_arg1(_dp_args_ptr)
+def _dp_bb__dp_module_init_0(_dp_target_1):
+    _dp_target_1 = _dp_target_1.take()
     __dp__.store_global(globals(), "x", _dp_target_1)
     return __dp__.ret(None)
 
 
-def _dp_bb__dp_module_init_1(_dp_args_ptr):
-    _dp_compare_3 = __dp__.take_arg1(_dp_args_ptr)
+def _dp_bb__dp_module_init_1(_dp_compare_3):
+    _dp_compare_3 = _dp_compare_3.take()
     _dp_target_1 = __dp__.lt(_dp_compare_3, c)
     return __dp__.jump(_dp_bb__dp_module_init_0, (_dp_target_1,))
 
 
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     _dp_compare_2 = a
     _dp_compare_3 = b
     _dp_target_1 = __dp__.lt(_dp_compare_2, _dp_compare_3)
@@ -258,7 +258,7 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     __dp__.store_global(globals(), "x", __dp__.not_(__dp__.contains(b, a)))
     return __dp__.ret(None)
 
@@ -285,23 +285,23 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_module_init_0(_dp_args_ptr):
-    _dp_tmp_1 = __dp__.take_arg1(_dp_args_ptr)
+def _dp_bb__dp_module_init_0(_dp_tmp_1):
+    _dp_tmp_1 = _dp_tmp_1.take()
     __dp__.store_global(globals(), "x", _dp_tmp_1)
     return __dp__.ret(None)
 
 
-def _dp_bb__dp_module_init_1(_dp_args_ptr):
+def _dp_bb__dp_module_init_1():
     _dp_tmp_1 = a
     return __dp__.jump(_dp_bb__dp_module_init_0, (_dp_tmp_1,))
 
 
-def _dp_bb__dp_module_init_2(_dp_args_ptr):
+def _dp_bb__dp_module_init_2():
     _dp_tmp_1 = b
     return __dp__.jump(_dp_bb__dp_module_init_0, (_dp_tmp_1,))
 
 
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     return __dp__.brif(cond, _dp_bb__dp_module_init_1, (), _dp_bb__dp_module_init_2, ())
 
 
@@ -324,7 +324,7 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     __dp__.store_global(globals(), "y", f())
     __dp__.store_global(globals(), "x", __dp__.load_global(globals(), "y"))
     return __dp__.ret(None)
@@ -352,12 +352,12 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_lambda_1_start(_dp_args_ptr):
-    y = __dp__.take_arg1(_dp_args_ptr)
+def _dp_bb__dp_lambda_1_start(y):
+    y = y.take()
     return __dp__.ret(__dp__.add(y, 1))
 
 
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     _dp_lambda_1 = __dp__.def_fn(
         _dp_bb__dp_lambda_1_start,
         "<lambda>",
@@ -399,71 +399,99 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_genexpr_1_done(_dp_args_ptr):
-    _dp_state, _dp_send_value, _dp_resume_exc = __dp__.take_args(_dp_args_ptr)
-    __dp__.setitem(_dp_state, "pc", __dp__._GEN_PC_DONE)
-    return __dp__.ret(None)
-
-
-def _dp_bb__dp_genexpr_1_invalid(_dp_args_ptr):
-    _dp_state, _dp_send_value, _dp_resume_exc = __dp__.take_args(_dp_args_ptr)
-    return __dp__.raise_(
-        RuntimeError("invalid generator pc: {}".format(_dp_state["pc"]))
+def _dp_bb__dp_genexpr_1_done(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
     )
-
-
-def _dp_bb__dp_genexpr_1_internal_0(_dp_args_ptr):
-    _dp_state, _dp_send_value, _dp_resume_exc = __dp__.take_args(_dp_args_ptr)
-    __dp__.setitem(_dp_state, "pc", __dp__._GEN_PC_DONE)
+    __dp__.setattr(_dp_self, "_pc", __dp__._GEN_PC_DONE)
     return __dp__.ret(None)
 
 
-def _dp_bb__dp_genexpr_1_internal_1(_dp_args_ptr):
-    _dp_state, _dp_send_value, _dp_resume_exc, _dp_tmp_4, _dp_iter_3 = __dp__.take_args(
-        _dp_args_ptr
+def _dp_bb__dp_genexpr_1_invalid(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.raise_(RuntimeError("invalid generator pc: {}".format(_dp_self._pc)))
+
+
+def _dp_bb__dp_genexpr_1_internal_0(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    __dp__.setattr(_dp_self, "_pc", __dp__._GEN_PC_DONE)
+    return __dp__.ret(None)
+
+
+def _dp_bb__dp_genexpr_1_internal_1(
+    _dp_self, _dp_send_value, _dp_resume_exc, _dp_tmp_4, _dp_iter_3
+):
+    _dp_self, _dp_send_value, _dp_resume_exc, _dp_tmp_4, _dp_iter_3 = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+        _dp_tmp_4.take(),
+        _dp_iter_3.take(),
     )
     i = _dp_tmp_4
-    __dp__.setitem(_dp_state, "pc", 6)
-    __dp__.setitem(_dp_state, "args", (_dp_state, _dp_iter_3))
+    __dp__.setattr(_dp_self, "_pc", 6)
+    __dp__.frame_store(_dp_self, "_dp_self", _dp_self)
+    __dp__.frame_store(_dp_self, "_dp_iter_3", _dp_iter_3)
     return __dp__.ret(i)
 
 
-def _dp_bb__dp_genexpr_1_internal_2(_dp_args_ptr):
-    _dp_state, _dp_send_value, _dp_resume_exc, _dp_iter_3 = __dp__.take_args(
-        _dp_args_ptr
+def _dp_bb__dp_genexpr_1_internal_2(
+    _dp_self, _dp_send_value, _dp_resume_exc, _dp_iter_3
+):
+    _dp_self, _dp_send_value, _dp_resume_exc, _dp_iter_3 = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+        _dp_iter_3.take(),
     )
     _dp_tmp_4 = __dp__.next_or_sentinel(_dp_iter_3)
     return __dp__.brif(
         __dp__.is_(_dp_tmp_4, __dp__.ITER_COMPLETE),
         _dp_bb__dp_genexpr_1_internal_0,
-        (_dp_state, _dp_send_value, _dp_resume_exc),
+        (_dp_self, _dp_send_value, _dp_resume_exc),
         _dp_bb__dp_genexpr_1_internal_1,
-        (_dp_state, _dp_send_value, _dp_resume_exc, _dp_tmp_4, _dp_iter_3),
+        (_dp_self, _dp_send_value, _dp_resume_exc, _dp_tmp_4, _dp_iter_3),
     )
 
 
-def _dp_bb__dp_genexpr_1_resume_0(_dp_args_ptr):
-    _dp_state, _dp_send_value, _dp_resume_exc, _dp_iter_3 = __dp__.take_args(
-        _dp_args_ptr
+def _dp_bb__dp_genexpr_1_resume_0(_dp_self, _dp_send_value, _dp_resume_exc, _dp_iter_3):
+    _dp_self, _dp_send_value, _dp_resume_exc, _dp_iter_3 = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+        _dp_iter_3.take(),
     )
     return __dp__.jump(
         _dp_bb__dp_genexpr_1_internal_2,
-        (_dp_state, _dp_send_value, _dp_resume_exc, _dp_iter_3),
+        (_dp_self, _dp_send_value, _dp_resume_exc, _dp_iter_3),
     )
 
 
-def _dp_bb__dp_genexpr_1_resume_1(_dp_args_ptr):
-    _dp_state, _dp_send_value, _dp_resume_exc, _dp_iter_2 = __dp__.take_args(
-        _dp_args_ptr
+def _dp_bb__dp_genexpr_1_resume_1(_dp_self, _dp_send_value, _dp_resume_exc, _dp_iter_2):
+    _dp_self, _dp_send_value, _dp_resume_exc, _dp_iter_2 = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+        _dp_iter_2.take(),
     )
     _dp_iter_3 = _dp_iter_2
     return __dp__.jump(
         _dp_bb__dp_genexpr_1_resume_0,
-        (_dp_state, _dp_send_value, _dp_resume_exc, _dp_iter_3),
+        (_dp_self, _dp_send_value, _dp_resume_exc, _dp_iter_3),
     )
 
 
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     _dp_genexpr_1 = __dp__.def_gen(
         6,
         (
@@ -504,7 +532,7 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     __dp__.store_global(globals(), "x", __dp__.list((a, b)))
     return __dp__.ret(None)
 
@@ -527,7 +555,7 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     __dp__.store_global(globals(), "x", __dp__.list(__dp__.add((a,), __dp__.tuple(b))))
     return __dp__.ret(None)
 
@@ -550,7 +578,7 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     __dp__.store_global(globals(), "x", __dp__.add((a,), __dp__.tuple(b)))
     return __dp__.ret(None)
 
@@ -573,7 +601,7 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     __dp__.store_global(globals(), "x", __dp__.set((a, b)))
     return __dp__.ret(None)
 
@@ -596,7 +624,7 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     __dp__.store_global(globals(), "x", __dp__.dict((("a", 1), ("b", 2))))
     return __dp__.ret(None)
 
@@ -626,7 +654,7 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     __dp__.store_global(
         globals(),
         "x",
@@ -663,26 +691,30 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_listcomp_3_0(_dp_args_ptr):
-    _dp_tmp_1 = __dp__.take_arg1(_dp_args_ptr)
+def _dp_bb__dp_listcomp_3_0(_dp_tmp_1):
+    _dp_tmp_1 = _dp_tmp_1.take()
     return __dp__.ret(_dp_tmp_1)
 
 
-def _dp_bb__dp_listcomp_3_1(_dp_args_ptr):
-    _dp_iter_2, _dp_tmp_1, i = __dp__.take_args(_dp_args_ptr)
+def _dp_bb__dp_listcomp_3_1(_dp_iter_2, _dp_tmp_1, i):
+    _dp_iter_2, _dp_tmp_1, i = _dp_iter_2.take(), _dp_tmp_1.take(), i.take()
     _dp_tmp_1.append(i)
     return __dp__.jump(_dp_bb__dp_listcomp_3_3, (_dp_iter_2, _dp_tmp_1))
 
 
-def _dp_bb__dp_listcomp_3_2(_dp_args_ptr):
-    _dp_iter_2, _dp_tmp_1, _dp_tmp_3 = __dp__.take_args(_dp_args_ptr)
+def _dp_bb__dp_listcomp_3_2(_dp_iter_2, _dp_tmp_1, _dp_tmp_3):
+    _dp_iter_2, _dp_tmp_1, _dp_tmp_3 = (
+        _dp_iter_2.take(),
+        _dp_tmp_1.take(),
+        _dp_tmp_3.take(),
+    )
     i = _dp_tmp_3
     _dp_tmp_3 = None
     return __dp__.jump(_dp_bb__dp_listcomp_3_1, (_dp_iter_2, _dp_tmp_1, i))
 
 
-def _dp_bb__dp_listcomp_3_3(_dp_args_ptr):
-    _dp_iter_2, _dp_tmp_1 = __dp__.take_args(_dp_args_ptr)
+def _dp_bb__dp_listcomp_3_3(_dp_iter_2, _dp_tmp_1):
+    _dp_iter_2, _dp_tmp_1 = _dp_iter_2.take(), _dp_tmp_1.take()
     _dp_tmp_3 = __dp__.next_or_sentinel(_dp_iter_2)
     return __dp__.brif(
         __dp__.is_(_dp_tmp_3, __dp__.ITER_COMPLETE),
@@ -693,14 +725,14 @@ def _dp_bb__dp_listcomp_3_3(_dp_args_ptr):
     )
 
 
-def _dp_bb__dp_listcomp_3_start(_dp_args_ptr):
-    _dp_iter_2 = __dp__.take_arg1(_dp_args_ptr)
+def _dp_bb__dp_listcomp_3_start(_dp_iter_2):
+    _dp_iter_2 = _dp_iter_2.take()
     _dp_tmp_1 = __dp__.list(())
     _dp_iter_2 = __dp__.iter(_dp_iter_2)
     return __dp__.jump(_dp_bb__dp_listcomp_3_3, (_dp_iter_2, _dp_tmp_1))
 
 
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     _dp_listcomp_3 = __dp__.def_fn(
         _dp_bb__dp_listcomp_3_start,
         "<listcomp>",
@@ -738,26 +770,30 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_setcomp_3_0(_dp_args_ptr):
-    _dp_tmp_1 = __dp__.take_arg1(_dp_args_ptr)
+def _dp_bb__dp_setcomp_3_0(_dp_tmp_1):
+    _dp_tmp_1 = _dp_tmp_1.take()
     return __dp__.ret(_dp_tmp_1)
 
 
-def _dp_bb__dp_setcomp_3_1(_dp_args_ptr):
-    _dp_iter_2, _dp_tmp_1, i = __dp__.take_args(_dp_args_ptr)
+def _dp_bb__dp_setcomp_3_1(_dp_iter_2, _dp_tmp_1, i):
+    _dp_iter_2, _dp_tmp_1, i = _dp_iter_2.take(), _dp_tmp_1.take(), i.take()
     _dp_tmp_1.add(i)
     return __dp__.jump(_dp_bb__dp_setcomp_3_3, (_dp_iter_2, _dp_tmp_1))
 
 
-def _dp_bb__dp_setcomp_3_2(_dp_args_ptr):
-    _dp_iter_2, _dp_tmp_1, _dp_tmp_3 = __dp__.take_args(_dp_args_ptr)
+def _dp_bb__dp_setcomp_3_2(_dp_iter_2, _dp_tmp_1, _dp_tmp_3):
+    _dp_iter_2, _dp_tmp_1, _dp_tmp_3 = (
+        _dp_iter_2.take(),
+        _dp_tmp_1.take(),
+        _dp_tmp_3.take(),
+    )
     i = _dp_tmp_3
     _dp_tmp_3 = None
     return __dp__.jump(_dp_bb__dp_setcomp_3_1, (_dp_iter_2, _dp_tmp_1, i))
 
 
-def _dp_bb__dp_setcomp_3_3(_dp_args_ptr):
-    _dp_iter_2, _dp_tmp_1 = __dp__.take_args(_dp_args_ptr)
+def _dp_bb__dp_setcomp_3_3(_dp_iter_2, _dp_tmp_1):
+    _dp_iter_2, _dp_tmp_1 = _dp_iter_2.take(), _dp_tmp_1.take()
     _dp_tmp_3 = __dp__.next_or_sentinel(_dp_iter_2)
     return __dp__.brif(
         __dp__.is_(_dp_tmp_3, __dp__.ITER_COMPLETE),
@@ -768,14 +804,14 @@ def _dp_bb__dp_setcomp_3_3(_dp_args_ptr):
     )
 
 
-def _dp_bb__dp_setcomp_3_start(_dp_args_ptr):
-    _dp_iter_2 = __dp__.take_arg1(_dp_args_ptr)
+def _dp_bb__dp_setcomp_3_start(_dp_iter_2):
+    _dp_iter_2 = _dp_iter_2.take()
     _dp_tmp_1 = set()
     _dp_iter_2 = __dp__.iter(_dp_iter_2)
     return __dp__.jump(_dp_bb__dp_setcomp_3_3, (_dp_iter_2, _dp_tmp_1))
 
 
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     _dp_setcomp_3 = __dp__.def_fn(
         _dp_bb__dp_setcomp_3_start,
         "<setcomp>",
@@ -813,27 +849,36 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_dictcomp_3_0(_dp_args_ptr):
-    _dp_tmp_1 = __dp__.take_arg1(_dp_args_ptr)
+def _dp_bb__dp_dictcomp_3_0(_dp_tmp_1):
+    _dp_tmp_1 = _dp_tmp_1.take()
     return __dp__.ret(_dp_tmp_1)
 
 
-def _dp_bb__dp_dictcomp_3_1(_dp_args_ptr):
-    _dp_iter_2, _dp_tmp_1, k, v = __dp__.take_args(_dp_args_ptr)
+def _dp_bb__dp_dictcomp_3_1(_dp_iter_2, _dp_tmp_1, k, v):
+    _dp_iter_2, _dp_tmp_1, k, v = (
+        _dp_iter_2.take(),
+        _dp_tmp_1.take(),
+        k.take(),
+        v.take(),
+    )
     __dp__.setitem(_dp_tmp_1, k, v)
     return __dp__.jump(_dp_bb__dp_dictcomp_3_3, (_dp_iter_2, _dp_tmp_1))
 
 
-def _dp_bb__dp_dictcomp_3_2(_dp_args_ptr):
-    _dp_iter_2, _dp_tmp_1, _dp_tmp_3 = __dp__.take_args(_dp_args_ptr)
+def _dp_bb__dp_dictcomp_3_2(_dp_iter_2, _dp_tmp_1, _dp_tmp_3):
+    _dp_iter_2, _dp_tmp_1, _dp_tmp_3 = (
+        _dp_iter_2.take(),
+        _dp_tmp_1.take(),
+        _dp_tmp_3.take(),
+    )
     k = _dp_tmp_3[0]
     v = _dp_tmp_3[1]
     _dp_tmp_3 = None
     return __dp__.jump(_dp_bb__dp_dictcomp_3_1, (_dp_iter_2, _dp_tmp_1, k, v))
 
 
-def _dp_bb__dp_dictcomp_3_3(_dp_args_ptr):
-    _dp_iter_2, _dp_tmp_1 = __dp__.take_args(_dp_args_ptr)
+def _dp_bb__dp_dictcomp_3_3(_dp_iter_2, _dp_tmp_1):
+    _dp_iter_2, _dp_tmp_1 = _dp_iter_2.take(), _dp_tmp_1.take()
     _dp_tmp_3 = __dp__.next_or_sentinel(_dp_iter_2)
     return __dp__.brif(
         __dp__.is_(_dp_tmp_3, __dp__.ITER_COMPLETE),
@@ -844,14 +889,14 @@ def _dp_bb__dp_dictcomp_3_3(_dp_args_ptr):
     )
 
 
-def _dp_bb__dp_dictcomp_3_start(_dp_args_ptr):
-    _dp_iter_2 = __dp__.take_arg1(_dp_args_ptr)
+def _dp_bb__dp_dictcomp_3_start(_dp_iter_2):
+    _dp_iter_2 = _dp_iter_2.take()
     _dp_tmp_1 = __dp__.dict()
     _dp_iter_2 = __dp__.iter(_dp_iter_2)
     return __dp__.jump(_dp_bb__dp_dictcomp_3_3, (_dp_iter_2, _dp_tmp_1))
 
 
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     _dp_dictcomp_3 = __dp__.def_fn(
         _dp_bb__dp_dictcomp_3_start,
         "<dictcomp>",
@@ -882,7 +927,7 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     __dp__.store_global(globals(), "x", f().y)
     return __dp__.ret(None)
 
@@ -905,7 +950,7 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     __dp__.store_global(globals(), "x", __dp__.builtins.format(a))
     return __dp__.ret(None)
 
@@ -932,7 +977,7 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     __dp__.store_global(
         globals(),
         "x",
@@ -959,7 +1004,7 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     __dp__.store_global(globals(), "x", complex(0.0, 1.0))
     return __dp__.ret(None)
 
@@ -984,7 +1029,7 @@ def _dp_module_init():
 
 
 # -- bb --
-def _dp_bb__dp_module_init_start(_dp_args_ptr):
+def _dp_bb__dp_module_init_start():
     __dp__.store_global(
         globals(), "x", __dp__.float_from_literal("1.234567890123456789")
     )

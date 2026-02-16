@@ -67,9 +67,11 @@ pub enum BbTerm {
     TryJump {
         body_label: String,
         except_label: String,
+        except_exc_name: Option<String>,
         body_region_labels: Vec<String>,
         except_region_labels: Vec<String>,
         finally_label: Option<String>,
+        finally_exc_name: Option<String>,
         finally_region_labels: Vec<String>,
         finally_fallthrough_label: Option<String>,
     },

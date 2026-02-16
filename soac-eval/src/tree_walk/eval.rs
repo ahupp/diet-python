@@ -2911,6 +2911,7 @@ unsafe fn locals_snapshot(ctx: &ExecContext<'_>) -> Result<Py<PyDict>, ()> {
         let mut value: *mut ffi::PyObject = ptr::null_mut();
         while ffi::PyDict_Next(source, &mut pos, &mut key, &mut value) != 0 {
             let mut alias_key: *mut ffi::PyObject = ptr::null_mut();
+            let mut is_dp_cell_alias = false;
             if ffi::PyUnicode_Check(key) != 0 {
                 let mut len: ffi::Py_ssize_t = 0;
                 let ptr = ffi::PyUnicode_AsUTF8AndSize(key, &mut len);
@@ -2922,6 +2923,7 @@ unsafe fn locals_snapshot(ctx: &ExecContext<'_>) -> Result<Py<PyDict>, ()> {
                     len as usize,
                 ));
                 if let Some(stripped) = name.strip_prefix("_dp_cell_") {
+                    is_dp_cell_alias = true;
                     alias_key = ffi::PyUnicode_FromStringAndSize(
                         stripped.as_ptr() as *const c_char,
                         stripped.len() as _,
@@ -2946,6 +2948,14 @@ unsafe fn locals_snapshot(ctx: &ExecContext<'_>) -> Result<Py<PyDict>, ()> {
                     ffi::Py_XDECREF(alias_key);
                     continue;
                 }
+            } else if is_dp_cell_alias {
+                // `_dp_cell_*` should only be surfaced as the stripped public
+                // name when the runtime value is an actual cell. During BB
+                // prologue execution these slots can transiently hold helper
+                // wrapper values (e.g. BlockParam), which must not appear as
+                // user-visible locals.
+                ffi::Py_XDECREF(alias_key);
+                continue;
             }
             let target_key = if !alias_key.is_null() { alias_key } else { key };
             if !allow_overwrite {
