@@ -3302,7 +3302,8 @@ unsafe fn call_dp_term_helper(
     } else {
         positional.as_ptr()
     };
-    let result = ffi::PyObject_VectorcallDict(helper, args_ptr, positional.len() as _, ptr::null_mut());
+    let result =
+        ffi::PyObject_VectorcallDict(helper, args_ptr, positional.len() as _, ptr::null_mut());
     ffi::Py_DECREF(helper);
     for value in positional {
         ffi::Py_DECREF(value);

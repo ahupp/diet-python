@@ -1,5 +1,5 @@
 use super::render_py;
-use crate::bb_ir::{BbBindingTarget, BbBlock, BbFunction, BbFunctionKind, BbModule, BbTerm};
+use super::bb_ir::{BbBindingTarget, BbBlock, BbFunction, BbFunctionKind, BbModule, BbTerm};
 use crate::template::{empty_body, into_body};
 use crate::transform::context::Context;
 use crate::transform::rewrite_import;
@@ -22,289 +22,15 @@ use ruff_text_size::TextRange;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-pub struct BBSimplifyStmtPass;
-struct AnnotationHelperForLoweringPass;
-pub type FunctionIdentityByNode = HashMap<NodeIndex, (String, String, String, BindingTarget)>;
+mod pre_lower;
+mod support;
 
-pub(crate) fn lower_stmt_default(context: &Context, stmt: Stmt) -> Rewrite {
-    match stmt {
-        Stmt::With(with) => rewrite_stmt::with::rewrite(context, with),
-        Stmt::While(while_stmt) => rewrite_stmt::loop_cond::rewrite_while(context, while_stmt),
-        Stmt::For(for_stmt) => rewrite_stmt::loop_cond::rewrite_for(context, for_stmt),
-        Stmt::Try(try_stmt) => rewrite_stmt::exception::rewrite_try(try_stmt),
-        Stmt::If(if_stmt) => rewrite_stmt::loop_cond::expand_if_chain(if_stmt),
-        Stmt::Assert(assert) => rewrite_stmt::assert::rewrite(assert),
-        Stmt::Match(match_stmt) => rewrite_stmt::match_case::rewrite(context, match_stmt),
-        Stmt::Import(import) => rewrite_import::rewrite(import),
-        Stmt::ImportFrom(import_from) => rewrite_import::rewrite_from(context, import_from),
-        Stmt::Assign(assign) => {
-            if is_take_args_unpack_assign(&assign) {
-                Rewrite::Unmodified(Stmt::Assign(assign))
-            } else {
-                rewrite_stmt::assign_del::rewrite_assign(context, assign)
-            }
-        }
-        Stmt::AugAssign(aug) => rewrite_stmt::assign_del::rewrite_aug_assign(context, aug),
-        Stmt::Delete(del) => rewrite_stmt::assign_del::rewrite_delete(del),
-        Stmt::Raise(raise) => rewrite_stmt::exception::rewrite_raise(raise),
-        Stmt::TypeAlias(type_alias) => {
-            rewrite_stmt::type_alias::rewrite_type_alias(context, type_alias)
-        }
-        Stmt::AnnAssign(_) => {
-            panic!("should be removed by rewrite_ann_assign_to_dunder_annotate")
-        }
-        other => Rewrite::Unmodified(other),
-    }
-}
-
-fn is_take_args_unpack_assign(assign: &ast::StmtAssign) -> bool {
-    if assign.targets.len() != 1 {
-        return false;
-    }
-    let target = &assign.targets[0];
-    let target_names = match target {
-        Expr::Tuple(ast::ExprTuple { elts, .. }) | Expr::List(ast::ExprList { elts, .. }) => {
-            if elts.is_empty() || !elts.iter().all(|elt| matches!(elt, Expr::Name(_))) {
-                return false;
-            }
-            elts.iter()
-                .map(|elt| match elt {
-                    Expr::Name(name) => Some(name.id.as_str()),
-                    _ => None,
-                })
-                .collect::<Option<Vec<_>>>()
-        }
-        _ => None,
-    };
-    let Some(target_names) = target_names else {
-        return false;
-    };
-
-    // Preserve BB block-param prologue assignments:
-    //   a, b = a.take(), b.take()
-    if let Expr::Tuple(ast::ExprTuple { elts, .. }) | Expr::List(ast::ExprList { elts, .. }) =
-        assign.value.as_ref()
-    {
-        if elts.len() == target_names.len() {
-            let mut all_take_calls = true;
-            for (target_name, value) in target_names.iter().zip(elts.iter()) {
-                let Expr::Call(call) = value else {
-                    all_take_calls = false;
-                    break;
-                };
-                if !call.arguments.keywords.is_empty() || !call.arguments.args.is_empty() {
-                    all_take_calls = false;
-                    break;
-                }
-                let Expr::Attribute(attr) = call.func.as_ref() else {
-                    all_take_calls = false;
-                    break;
-                };
-                if attr.attr.as_str() != "take" {
-                    all_take_calls = false;
-                    break;
-                }
-                let Expr::Name(base) = attr.value.as_ref() else {
-                    all_take_calls = false;
-                    break;
-                };
-                if base.id.as_str() != *target_name {
-                    all_take_calls = false;
-                    break;
-                }
-            }
-            if all_take_calls {
-                return true;
-            }
-        }
-    }
-
-    let Expr::Call(call) = assign.value.as_ref() else {
-        return false;
-    };
-    if !call.arguments.keywords.is_empty() || call.arguments.args.len() != 1 {
-        return false;
-    }
-    let Expr::Name(arg_name) = &call.arguments.args[0] else {
-        return false;
-    };
-    if arg_name.id.as_str() != "_dp_args_ptr" {
-        return false;
-    }
-    let Expr::Attribute(attr) = call.func.as_ref() else {
-        return false;
-    };
-    let Expr::Name(module_name) = attr.value.as_ref() else {
-        return false;
-    };
-    module_name.id.as_str() == "__dp__" && attr.attr.as_str() == "take_args"
-}
-
-pub(crate) fn lower_stmt_bb(context: &Context, stmt: Stmt) -> Rewrite {
-    match stmt {
-        Stmt::With(with_stmt) => rewrite_with_for_bb(context, with_stmt),
-        Stmt::Try(try_stmt) => lower_stmt_default(context, Stmt::Try(try_stmt)),
-        Stmt::For(for_stmt) => {
-            let in_async_fn = context.current_scope().in_async_function;
-            if in_async_fn || for_stmt.is_async {
-                lower_stmt_default(context, Stmt::For(for_stmt))
-            } else {
-                Rewrite::Unmodified(Stmt::For(for_stmt))
-            }
-        }
-        other => lower_stmt_default(context, other),
-    }
-}
-
-impl StmtRewritePass for AnnotationHelperForLoweringPass {
-    fn lower_stmt(&self, context: &Context, stmt: Stmt) -> Rewrite {
-        match stmt {
-            Stmt::For(for_stmt) => lower_stmt_default(context, Stmt::For(for_stmt)),
-            other => Rewrite::Unmodified(other),
-        }
-    }
-}
-
-fn rewrite_with_for_bb(context: &Context, with_stmt: ast::StmtWith) -> Rewrite {
-    if with_stmt.is_async {
-        return rewrite_stmt::with::rewrite(context, with_stmt);
-    }
-    if with_stmt.items.is_empty() {
-        return Rewrite::Unmodified(with_stmt.into());
-    }
-
-    let ast::StmtWith { items, body, .. } = with_stmt;
-    let mut body: Stmt = body.into();
-
-    for ast::WithItem {
-        context_expr,
-        optional_vars,
-        ..
-    } in items.into_iter().rev()
-    {
-        let target = optional_vars.map(|var| *var);
-        let exit_name = context.fresh("with_exit");
-        let ok_name = context.fresh("with_ok");
-        let body_needs_transfer_safe_cleanup = contains_control_transfer_stmt(&body);
-
-        let ctx_placeholder = context.maybe_placeholder_lowered(context_expr);
-        let ctx_cleanup = if ctx_placeholder.modified {
-            py_stmt!("{ctx:expr} = None", ctx = ctx_placeholder.expr.clone())
-        } else {
-            empty_body().into()
-        };
-
-        let enter_stmt = if let Some(target) = target {
-            py_stmt!(
-                "{target:expr} = __dp__.contextmanager_enter({ctx:expr})",
-                target = target,
-                ctx = ctx_placeholder.expr.clone(),
-            )
-        } else {
-            py_stmt!(
-                "__dp__.contextmanager_enter({ctx:expr})",
-                ctx = ctx_placeholder.expr.clone(),
-            )
-        };
-
-        body = if body_needs_transfer_safe_cleanup {
-            py_stmt!(
-                r#"
-{ctx_placeholder_stmt:stmt}
-{exit_name:id} = __dp__.contextmanager_get_exit({ctx_placeholder_expr_1:expr})
-{enter_stmt:stmt}
-{ok_name:id} = True
-try:
-    {body:stmt}
-except BaseException:
-    {ok_name:id} = False
-    __dp__.contextmanager_exit({exit_name:id}, __dp__.exc_info())
-finally:
-    if {ok_name:id}:
-        __dp__.contextmanager_exit({exit_name:id}, None)
-    {exit_name:id} = None
-    {ctx_cleanup:stmt}
-"#,
-                ctx_placeholder_stmt = ctx_placeholder.stmt,
-                ctx_placeholder_expr_1 = ctx_placeholder.expr.clone(),
-                enter_stmt = enter_stmt,
-                body = body,
-                exit_name = exit_name.as_str(),
-                ok_name = ok_name.as_str(),
-                ctx_cleanup = ctx_cleanup,
-            )
-        } else {
-            py_stmt!(
-                r#"
-{ctx_placeholder_stmt:stmt}
-{exit_name:id} = __dp__.contextmanager_get_exit({ctx_placeholder_expr_1:expr})
-{enter_stmt:stmt}
-{ok_name:id} = True
-try:
-    {body:stmt}
-except BaseException:
-    {ok_name:id} = False
-    __dp__.contextmanager_exit({exit_name:id}, __dp__.exc_info())
-if {ok_name:id}:
-    __dp__.contextmanager_exit({exit_name:id}, None)
-{exit_name:id} = None
-{ctx_cleanup:stmt}
-"#,
-                ctx_placeholder_stmt = ctx_placeholder.stmt,
-                ctx_placeholder_expr_1 = ctx_placeholder.expr.clone(),
-                enter_stmt = enter_stmt,
-                body = body,
-                exit_name = exit_name.as_str(),
-                ok_name = ok_name.as_str(),
-                ctx_cleanup = ctx_cleanup,
-            )
-        };
-    }
-
-    Rewrite::Walk(body)
-}
-
-fn contains_control_transfer_stmt(stmt: &Stmt) -> bool {
-    let mut probe = stmt.clone();
-    let mut visitor = ControlTransferVisitor { found: false };
-    visitor.visit_stmt(&mut probe);
-    visitor.found
-}
-
-struct ControlTransferVisitor {
-    found: bool,
-}
-
-fn is_simple_index_target(target: &Expr) -> bool {
-    match target {
-        Expr::Name(_) => true,
-        Expr::Tuple(tuple) => tuple.elts.iter().all(is_simple_index_target),
-        Expr::List(list) => list.elts.iter().all(is_simple_index_target),
-        Expr::Starred(_) => false,
-        _ => false,
-    }
-}
-
-impl Transformer for ControlTransferVisitor {
-    fn visit_stmt(&mut self, stmt: &mut Stmt) {
-        if self.found {
-            return;
-        }
-        match stmt {
-            Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {}
-            Stmt::Return(_) | Stmt::Break(_) | Stmt::Continue(_) => {
-                self.found = true;
-            }
-            _ => walk_stmt(self, stmt),
-        }
-    }
-}
-
-impl StmtRewritePass for BBSimplifyStmtPass {
-    fn lower_stmt(&self, context: &Context, stmt: Stmt) -> Rewrite {
-        lower_stmt_bb(context, stmt)
-    }
-}
+pub use pre_lower::{BBSimplifyStmtPass, FunctionIdentityByNode};
+use pre_lower::{AnnotationHelperForLoweringPass, is_simple_index_target};
+use support::{
+    has_await_in_stmts, has_dead_stmt_suffixes, has_yield_exprs_in_stmts,
+    is_module_init_temp_name, prune_dead_stmt_suffixes, BasicBlockSupportChecker,
+};
 
 pub fn collect_function_identity_by_node(
     module: &mut StmtBody,
@@ -757,12 +483,22 @@ impl BasicBlockRewriter<'_> {
             rewrite_deleted_name_loads(&mut blocks, &HashSet::new(), &unbound_local_names);
         }
 
+        let exception_edges = compute_exception_edge_by_label(&blocks);
         let state_vars = collect_state_vars(
             &param_names,
             &blocks,
             is_module_init_temp_name(func.name.id.as_str()),
         );
-        let extra_successors = build_extra_successors(&blocks);
+        let mut extra_successors = build_extra_successors(&blocks);
+        for (source, (target, _)) in &exception_edges {
+            let Some(target) = target.as_ref() else {
+                continue;
+            };
+            let successors = extra_successors.entry(source.clone()).or_default();
+            if !successors.iter().any(|existing| existing == target) {
+                successors.push(target.clone());
+            }
+        }
         let mut block_params = compute_block_params(&blocks, &state_vars, &extra_successors);
         if has_yield {
             // Generator/async-generator runtime dispatch passes state through
@@ -822,57 +558,44 @@ impl BasicBlockRewriter<'_> {
             .filter(|name| !param_names.iter().any(|param| param == *name))
             .cloned()
             .collect();
-        let block_pc_by_label: HashMap<String, usize> = blocks
-            .iter()
-            .enumerate()
-            .map(|(idx, block)| (block.label.clone(), idx))
-            .collect();
-        let start_pc = block_pc_by_label
-            .get(entry_label.as_str())
-            .copied()
-            .unwrap_or(0);
         let target_labels = blocks
             .iter()
             .map(|block| block.label.clone())
             .collect::<Vec<_>>();
-        let throw_dispatch_by_label =
-            compute_throw_dispatch_by_label(&blocks, entry_label.as_str());
-        let mut throw_dispatch_pcs: Vec<Option<usize>> = Vec::new();
+        let resume_pcs = target_labels
+            .iter()
+            .enumerate()
+            .map(|(idx, label)| (label.clone(), idx))
+            .collect::<Vec<_>>();
         let lowered_is_async = func.is_async;
-        for block in &blocks {
-            let skip_resume_hook = block_starts_with_resume_value_assign(&block)
-                || matches!(block.terminator, Terminator::TryJump { .. })
-                || done_block_label.as_deref() == Some(block.label.as_str())
-                || invalid_block_label.as_deref() == Some(block.label.as_str());
-            let dispatch_pc = if has_yield && !skip_resume_hook {
-                throw_dispatch_by_label
-                    .get(block.label.as_str())
-                    .and_then(|dispatch_label| block_pc_by_label.get(dispatch_label).copied())
-            } else {
-                None
-            };
-            throw_dispatch_pcs.push(dispatch_pc);
-        }
         let mut state_order = entry_params.clone();
         for name in extra_state_vars {
             if !state_order.iter().any(|existing| existing == &name) {
                 state_order.push(name);
             }
         }
-
         let ir_blocks = blocks
             .iter()
-            .map(|block| BbBlock {
-                label: block.label.clone(),
-                params: block_params
+            .map(|block| {
+                let (exc_target_label, exc_name) = exception_edges
                     .get(block.label.as_str())
                     .cloned()
-                    .unwrap_or_default(),
-                ops: block.body.clone(),
-                term: bb_term_from_terminator(&block.terminator),
+                    .unwrap_or((None, None));
+                BbBlock {
+                    label: block.label.clone(),
+                    params: block_params
+                        .get(block.label.as_str())
+                        .cloned()
+                        .unwrap_or_default(),
+                    ops: block.body.clone(),
+                    exc_target_label,
+                    exc_name,
+                    term: bb_term_from_terminator(&block.terminator),
+                }
             })
             .collect::<Vec<_>>();
 
+        let resume_entry_label = entry_label.clone();
         Some(LoweredFunction {
             blocks: ir_blocks,
             entry_label,
@@ -883,15 +606,15 @@ impl BasicBlockRewriter<'_> {
             kind: if has_yield {
                 if lowered_is_async {
                     LoweredKind::AsyncGenerator {
-                        start_pc,
+                        resume_label: resume_entry_label.clone(),
                         target_labels,
-                        throw_dispatch_pcs,
+                        resume_pcs,
                     }
                 } else {
                     LoweredKind::Generator {
-                        start_pc,
+                        resume_label: resume_entry_label.clone(),
                         target_labels,
-                        throw_dispatch_pcs,
+                        resume_pcs,
                     }
                 }
             } else if lowered_is_async {
@@ -1193,10 +916,6 @@ impl BasicBlockRewriter<'_> {
                     return linear_label;
                 }
                 Stmt::For(for_stmt) => {
-                    if for_stmt.is_async {
-                        return cont_label;
-                    }
-
                     let rest_entry = self.lower_stmt_sequence(
                         fn_name,
                         &stmts[index + 1..],
@@ -1277,13 +996,22 @@ impl BasicBlockRewriter<'_> {
                         "__dp__.is_({value:expr}, __dp__.ITER_COMPLETE)",
                         value = tmp_expr.clone(),
                     );
-                    blocks.push(Block {
-                        label: loop_check_label.clone(),
-                        body: vec![py_stmt!(
+                    let next_stmt = if for_stmt.is_async {
+                        py_stmt!(
+                            "{tmp:id} = await __dp__.anext_or_sentinel({iter:expr})",
+                            tmp = tmp_name.as_str(),
+                            iter = iter_expr.clone(),
+                        )
+                    } else {
+                        py_stmt!(
                             "{tmp:id} = __dp__.next_or_sentinel({iter:expr})",
                             tmp = tmp_name.as_str(),
                             iter = iter_expr.clone(),
-                        )],
+                        )
+                    };
+                    blocks.push(Block {
+                        label: loop_check_label.clone(),
+                        body: vec![next_stmt],
                         terminator: Terminator::BrIf {
                             test: exhausted_test,
                             then_label: exhausted_entry,
@@ -1292,11 +1020,19 @@ impl BasicBlockRewriter<'_> {
                     });
 
                     let mut setup_body = linear;
-                    setup_body.push(py_stmt!(
-                        "{iter:id} = __dp__.iter({iterable:expr})",
-                        iter = iter_name.as_str(),
-                        iterable = *for_stmt.iter.clone(),
-                    ));
+                    if for_stmt.is_async {
+                        setup_body.push(py_stmt!(
+                            "{iter:id} = __dp__.aiter({iterable:expr})",
+                            iter = iter_name.as_str(),
+                            iterable = *for_stmt.iter.clone(),
+                        ));
+                    } else {
+                        setup_body.push(py_stmt!(
+                            "{iter:id} = __dp__.iter({iterable:expr})",
+                            iter = iter_name.as_str(),
+                            iterable = *for_stmt.iter.clone(),
+                        ));
+                    }
                     let setup_label = self.next_label(fn_name);
                     blocks.push(Block {
                         label: setup_label.clone(),
@@ -1343,9 +1079,43 @@ impl BasicBlockRewriter<'_> {
                     );
 
                     let has_finally = !try_stmt.finalbody.body.is_empty();
+                    let needs_finally_return_flow = has_finally
+                        && (contains_return_stmt_in_body(&try_stmt.body.body)
+                            || contains_return_stmt_in_handlers(&try_stmt.handlers)
+                            || contains_return_stmt_in_body(&try_stmt.orelse.body));
                     let mut finally_exc_name: Option<String> = None;
+                    let mut finally_reason_name: Option<String> = None;
+                    let mut finally_return_value_name: Option<String> = None;
                     let (finally_label, finally_region_labels, finally_fallthrough_label) =
                         if has_finally {
+                            let reason_name = if needs_finally_return_flow {
+                                let name = self.next_temp("try_reason");
+                                finally_reason_name = Some(name.clone());
+                                Some(name)
+                            } else {
+                                None
+                            };
+                            let return_name = if needs_finally_return_flow {
+                                let name = self.next_temp("try_value");
+                                finally_return_value_name = Some(name.clone());
+                                Some(name)
+                            } else {
+                                None
+                            };
+                            let finally_dispatch_label = if needs_finally_return_flow {
+                                Some(self.next_label(fn_name))
+                            } else {
+                                None
+                            };
+                            let finally_return_label = if needs_finally_return_flow {
+                                Some(self.next_label(fn_name))
+                            } else {
+                                None
+                            };
+                            let finally_cont_label = finally_dispatch_label
+                                .clone()
+                                .unwrap_or_else(|| rest_entry.clone());
+
                             let finally_region_start = blocks.len();
                             let mut finally_body = flatten_stmt_boxes(&try_stmt.finalbody.body);
                             let finally_exc_candidate = self.next_temp("try_exc");
@@ -1353,14 +1123,15 @@ impl BasicBlockRewriter<'_> {
                                 finally_body,
                                 finally_exc_candidate.as_str(),
                             );
-                            if body_uses_name(finally_body.as_slice(), finally_exc_candidate.as_str())
-                            {
-                                finally_exc_name = Some(finally_exc_candidate);
-                            }
+                            finally_body.push(Box::new(py_stmt!(
+                                "if {exc:id} is not None:\n    raise {exc:id}",
+                                exc = finally_exc_candidate.as_str(),
+                            )));
+                            finally_exc_name = Some(finally_exc_candidate);
                             let finally_label = self.lower_stmt_sequence(
                                 fn_name,
                                 &finally_body,
-                                rest_entry.clone(),
+                                finally_cont_label,
                                 blocks,
                                 loop_ctx,
                                 cell_slots,
@@ -1369,10 +1140,36 @@ impl BasicBlockRewriter<'_> {
                                 .iter()
                                 .map(|block| block.label.clone())
                                 .collect::<Vec<_>>();
+                            if let (Some(finally_return_label), Some(finally_dispatch_label), Some(return_name), Some(reason_name)) =
+                                (finally_return_label, finally_dispatch_label.clone(), return_name, reason_name)
+                            {
+                                blocks.push(Block {
+                                    label: finally_return_label.clone(),
+                                    body: Vec::new(),
+                                    terminator: Terminator::Ret(Some(py_expr!(
+                                        "{name:id}",
+                                        name = return_name.as_str(),
+                                    ))),
+                                });
+                                blocks.push(Block {
+                                    label: finally_dispatch_label.clone(),
+                                    body: Vec::new(),
+                                    terminator: Terminator::BrIf {
+                                        test: py_expr!(
+                                            "{reason:id} == 'return'",
+                                            reason = reason_name.as_str(),
+                                        ),
+                                        then_label: finally_return_label,
+                                        else_label: rest_entry.clone(),
+                                    },
+                                });
+                            }
                             (
                                 Some(finally_label),
                                 finally_region_labels,
-                                Some(rest_entry.clone()),
+                                Some(
+                                    finally_dispatch_label.unwrap_or_else(|| rest_entry.clone()),
+                                ),
                             )
                         } else {
                             (None, Vec::new(), None)
@@ -1381,9 +1178,22 @@ impl BasicBlockRewriter<'_> {
 
                     let body_region_start = blocks.len();
                     let body_pass_label = self.next_label(fn_name);
+                    let mut body_pass_stmts = Vec::new();
+                    if let Some(reason_name) = finally_reason_name.as_ref() {
+                        body_pass_stmts.push(py_stmt!(
+                            "{reason:id} = None",
+                            reason = reason_name.as_str(),
+                        ));
+                    }
+                    if let Some(exc_name) = finally_exc_name.as_ref() {
+                        body_pass_stmts.push(py_stmt!(
+                            "{exc:id} = None",
+                            exc = exc_name.as_str(),
+                        ));
+                    }
                     blocks.push(Block {
                         label: body_pass_label.clone(),
-                        body: Vec::new(),
+                        body: body_pass_stmts,
                         terminator: Terminator::Jump(pass_target.clone()),
                     });
 
@@ -1409,12 +1219,26 @@ impl BasicBlockRewriter<'_> {
                     let except_region_start = blocks.len();
                     let except_pass_label = self.next_label(fn_name);
                     let except_exc_name = self.next_temp("try_exc");
+                    let mut except_pass_stmts = Vec::new();
+                    if let Some(reason_name) = finally_reason_name.as_ref() {
+                        except_pass_stmts.push(py_stmt!(
+                            "{reason:id} = None",
+                            reason = reason_name.as_str(),
+                        ));
+                    }
+                    if let Some(exc_name) = finally_exc_name.as_ref() {
+                        except_pass_stmts.push(py_stmt!(
+                            "{exc:id} = None",
+                            exc = exc_name.as_str(),
+                        ));
+                    }
+                    except_pass_stmts.push(py_stmt!(
+                        "{exc:id} = __dp__.DELETED",
+                        exc = except_exc_name.as_str(),
+                    ));
                     blocks.push(Block {
                         label: except_pass_label.clone(),
-                        body: vec![py_stmt!(
-                            "{exc:id} = __dp__.DELETED",
-                            exc = except_exc_name.as_str(),
-                        )],
+                        body: except_pass_stmts,
                         terminator: Terminator::Jump(pass_target),
                     });
                     let except_body = try_stmt
@@ -1444,6 +1268,30 @@ impl BasicBlockRewriter<'_> {
                         .iter()
                         .map(|block| block.label.clone())
                         .collect::<Vec<_>>();
+
+                    if let (Some(reason_name), Some(return_name), Some(finally_target)) = (
+                        finally_reason_name.as_ref(),
+                        finally_return_value_name.as_ref(),
+                        finally_label.as_ref(),
+                    ) {
+                        let finally_exc_name = finally_exc_name.as_deref();
+                        rewrite_region_returns_to_finally(
+                            blocks,
+                            &body_region_labels,
+                            reason_name.as_str(),
+                            return_name.as_str(),
+                            finally_target.as_str(),
+                            finally_exc_name,
+                        );
+                        rewrite_region_returns_to_finally(
+                            blocks,
+                            &except_region_labels,
+                            reason_name.as_str(),
+                            return_name.as_str(),
+                            finally_target.as_str(),
+                            finally_exc_name,
+                        );
+                    }
 
                     let label = self.next_label(fn_name);
                     blocks.push(Block {
@@ -1651,7 +1499,7 @@ impl BasicBlockRewriter<'_> {
             terminator: Terminator::BrIf {
                 test: py_expr!("{exc:id} is not None", exc = exc_name.as_str()),
                 then_label: exc_dispatch_label.clone(),
-                else_label: send_dispatch_label.clone(),
+                else_label: send_try_label.clone(),
             },
         });
         blocks.push(Block {
@@ -1863,26 +1711,20 @@ impl BasicBlockRewriter<'_> {
                 module_name = py_expr!("__name__"),
             )),
             BbFunctionKind::AsyncGenerator {
-                start_pc,
+                resume_label,
                 target_labels,
-                throw_dispatch_pcs,
+                ..
             } => {
                 let target_exprs = target_labels
                     .iter()
                     .map(|label| name_expr(label.as_str()))
                     .collect::<Option<Vec<_>>>()?;
                 let targets = make_tuple(target_exprs);
-                let throw_dispatch_pcs_expr = make_tuple(
-                    throw_dispatch_pcs
-                        .iter()
-                        .map(|pc| py_expr!("{value:literal}", value = pc.map(|p| p as i64).unwrap_or(-1)))
-                        .collect(),
-                );
+                let resume = name_expr(resume_label.as_str())?;
                 Some(py_expr!(
-                    "__dp__.def_async_gen({start_pc:literal}, {targets:expr}, {throw_dispatch_pcs:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __name__)",
-                    start_pc = *start_pc as i64,
+                    "__dp__.def_async_gen({resume:expr}, {targets:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __name__)",
+                    resume = resume,
                     targets = targets,
-                    throw_dispatch_pcs = throw_dispatch_pcs_expr,
                     name = bb_function.display_name.as_str(),
                     qualname = bb_function.qualname.as_str(),
                     closure = closure,
@@ -1890,26 +1732,20 @@ impl BasicBlockRewriter<'_> {
                 ))
             }
             BbFunctionKind::Generator {
-                start_pc,
+                resume_label,
                 target_labels,
-                throw_dispatch_pcs,
+                ..
             } => {
                 let target_exprs = target_labels
                     .iter()
                     .map(|label| name_expr(label.as_str()))
                     .collect::<Option<Vec<_>>>()?;
                 let targets = make_tuple(target_exprs);
-                let throw_dispatch_pcs_expr = make_tuple(
-                    throw_dispatch_pcs
-                        .iter()
-                        .map(|pc| py_expr!("{value:literal}", value = pc.map(|p| p as i64).unwrap_or(-1)))
-                        .collect(),
-                );
+                let resume = name_expr(resume_label.as_str())?;
                 Some(py_expr!(
-                    "__dp__.def_gen({start_pc:literal}, {targets:expr}, {throw_dispatch_pcs:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __name__)",
-                    start_pc = *start_pc as i64,
+                    "__dp__.def_gen({resume:expr}, {targets:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __name__)",
+                    resume = resume,
                     targets = targets,
-                    throw_dispatch_pcs = throw_dispatch_pcs_expr,
                     name = bb_function.display_name.as_str(),
                     qualname = bb_function.qualname.as_str(),
                     closure = closure,
@@ -2175,14 +2011,14 @@ enum LoweredKind {
     Function,
     Coroutine,
     AsyncGenerator {
-        start_pc: usize,
+        resume_label: String,
         target_labels: Vec<String>,
-        throw_dispatch_pcs: Vec<Option<usize>>,
+        resume_pcs: Vec<(String, usize)>,
     },
     Generator {
-        start_pc: usize,
+        resume_label: String,
         target_labels: Vec<String>,
-        throw_dispatch_pcs: Vec<Option<usize>>,
+        resume_pcs: Vec<(String, usize)>,
     },
 }
 
@@ -2204,25 +2040,8 @@ fn bb_term_from_terminator(terminator: &Terminator) -> BbTerm {
         },
         Terminator::TryJump {
             body_label,
-            except_label,
-            except_exc_name,
-            body_region_labels,
-            except_region_labels,
-            finally_label,
-            finally_exc_name,
-            finally_region_labels,
-            finally_fallthrough_label,
-        } => BbTerm::TryJump {
-            body_label: body_label.clone(),
-            except_label: except_label.clone(),
-            except_exc_name: except_exc_name.clone(),
-            body_region_labels: body_region_labels.clone(),
-            except_region_labels: except_region_labels.clone(),
-            finally_label: finally_label.clone(),
-            finally_exc_name: finally_exc_name.clone(),
-            finally_region_labels: finally_region_labels.clone(),
-            finally_fallthrough_label: finally_fallthrough_label.clone(),
-        },
+            ..
+        } => BbTerm::Jump(body_label.clone()),
         Terminator::Yield {
             value,
             resume_label,
@@ -2247,22 +2066,22 @@ fn bb_function_kind_from(kind: &LoweredKind) -> BbFunctionKind {
         LoweredKind::Function => BbFunctionKind::Function,
         LoweredKind::Coroutine => BbFunctionKind::Coroutine,
         LoweredKind::Generator {
-            start_pc,
+            resume_label,
             target_labels,
-            throw_dispatch_pcs,
+            resume_pcs,
         } => BbFunctionKind::Generator {
-            start_pc: *start_pc,
+            resume_label: resume_label.clone(),
             target_labels: target_labels.clone(),
-            throw_dispatch_pcs: throw_dispatch_pcs.clone(),
+            resume_pcs: resume_pcs.clone(),
         },
         LoweredKind::AsyncGenerator {
-            start_pc,
+            resume_label,
             target_labels,
-            throw_dispatch_pcs,
+            resume_pcs,
         } => BbFunctionKind::AsyncGenerator {
-            start_pc: *start_pc,
+            resume_label: resume_label.clone(),
             target_labels: target_labels.clone(),
-            throw_dispatch_pcs: throw_dispatch_pcs.clone(),
+            resume_pcs: resume_pcs.clone(),
         },
     }
 }
@@ -2519,309 +2338,6 @@ impl Transformer for BasicBlockRewriter<'_> {
     }
 }
 
-fn is_module_init_temp_name(name: &str) -> bool {
-    name == "_dp_module_init" || name.starts_with("_dp_fn__dp_module_init_")
-}
-
-struct BasicBlockSupportChecker {
-    supported: bool,
-    loop_depth: usize,
-    allow_await: bool,
-}
-
-impl Default for BasicBlockSupportChecker {
-    fn default() -> Self {
-        Self {
-            supported: true,
-            loop_depth: 0,
-            allow_await: false,
-        }
-    }
-}
-
-impl BasicBlockSupportChecker {
-    fn mark_unsupported(&mut self) {
-        self.supported = false;
-    }
-
-    fn panic_stmt(&self, message: &str, stmt: &Stmt) -> ! {
-        let rendered = crate::ruff_ast_to_string(stmt);
-        panic!(
-            "BB lowering invariant violated: {message}\nstmt:\n{}",
-            rendered.trim_end()
-        );
-    }
-}
-
-impl Transformer for BasicBlockSupportChecker {
-    fn visit_body(&mut self, body: &mut StmtBody) {
-        if !self.supported {
-            return;
-        }
-        if has_dead_stmt_after_terminator(body) {
-            self.mark_unsupported();
-            return;
-        }
-        walk_stmt_body(self, body);
-    }
-
-    fn visit_stmt(&mut self, stmt: &mut Stmt) {
-        if !self.supported {
-            return;
-        }
-        match stmt {
-            Stmt::Expr(_)
-            | Stmt::Pass(_)
-            | Stmt::Assign(_)
-            | Stmt::Delete(_)
-            | Stmt::Return(_)
-            | Stmt::Raise(_) => {
-                walk_stmt(self, stmt);
-            }
-            Stmt::FunctionDef(_) => {
-                // A nested function definition is executable as a linear
-                // statement in the parent CFG. We intentionally don't inspect
-                // its body here; nested-function support is validated when the
-                // nested function itself is visited for BB lowering.
-            }
-            Stmt::BodyStmt(_) => walk_stmt(self, stmt),
-            Stmt::If(if_stmt) => {
-                if if_stmt
-                    .elif_else_clauses
-                    .iter()
-                    .any(|clause| clause.test.is_some())
-                {
-                    self.panic_stmt("`elif` chain reached support checker", stmt);
-                }
-                walk_stmt(self, stmt);
-            }
-            Stmt::While(while_stmt) => {
-                self.visit_expr(while_stmt.test.as_mut());
-                self.loop_depth += 1;
-                self.visit_body(&mut while_stmt.body);
-                self.loop_depth -= 1;
-                self.visit_body(&mut while_stmt.orelse);
-            }
-            Stmt::For(for_stmt) => {
-                if for_stmt.is_async {
-                    self.mark_unsupported();
-                    return;
-                }
-                self.visit_expr(for_stmt.iter.as_mut());
-                self.loop_depth += 1;
-                self.visit_body(&mut for_stmt.body);
-                self.loop_depth -= 1;
-                self.visit_body(&mut for_stmt.orelse);
-            }
-            Stmt::Try(try_stmt) => {
-                self.visit_body(&mut try_stmt.body);
-                for handler in try_stmt.handlers.iter_mut() {
-                    let ast::ExceptHandler::ExceptHandler(handler) = handler;
-                    if let Some(type_) = handler.type_.as_mut() {
-                        self.visit_expr(type_.as_mut());
-                    }
-                    self.visit_body(&mut handler.body);
-                }
-                self.visit_body(&mut try_stmt.orelse);
-                self.visit_body(&mut try_stmt.finalbody);
-            }
-            Stmt::Break(_) | Stmt::Continue(_) => {
-                if self.loop_depth == 0 {
-                    self.panic_stmt(
-                        "`break`/`continue` outside loop reached support checker",
-                        stmt,
-                    );
-                }
-            }
-            _ => self.panic_stmt("unsupported statement kind reached support checker", stmt),
-        }
-    }
-
-    fn visit_expr(&mut self, expr: &mut Expr) {
-        if !self.supported {
-            return;
-        }
-        match expr {
-            Expr::Await(_) => {
-                if !self.allow_await {
-                    self.mark_unsupported();
-                    return;
-                }
-            }
-            Expr::Yield(_) | Expr::YieldFrom(_) => {
-                self.mark_unsupported();
-                return;
-            }
-            _ => {}
-        }
-        walk_expr(self, expr);
-    }
-}
-
-fn has_dead_stmt_after_terminator(body: &StmtBody) -> bool {
-    let mut terminated = false;
-    for stmt in &body.body {
-        if terminated {
-            return true;
-        }
-        terminated = matches!(
-            stmt.as_ref(),
-            Stmt::Return(_) | Stmt::Raise(_) | Stmt::Break(_) | Stmt::Continue(_)
-        );
-    }
-    false
-}
-
-fn has_dead_stmt_suffixes(stmts: &[Box<Stmt>]) -> bool {
-    let mut terminated = false;
-    for stmt in stmts {
-        let stmt = stmt.as_ref();
-        if terminated {
-            return true;
-        }
-        if has_dead_stmt_suffixes_in_stmt(stmt) {
-            return true;
-        }
-        if matches!(
-            stmt,
-            Stmt::Return(_) | Stmt::Raise(_) | Stmt::Break(_) | Stmt::Continue(_)
-        ) {
-            terminated = true;
-        }
-    }
-    false
-}
-
-fn has_dead_stmt_suffixes_in_stmt(stmt: &Stmt) -> bool {
-    match stmt {
-        Stmt::BodyStmt(body) => has_dead_stmt_suffixes(&body.body),
-        Stmt::If(if_stmt) => {
-            has_dead_stmt_suffixes(&if_stmt.body.body)
-                || if_stmt
-                    .elif_else_clauses
-                    .iter()
-                    .any(|clause| has_dead_stmt_suffixes(&clause.body.body))
-        }
-        Stmt::While(while_stmt) => {
-            has_dead_stmt_suffixes(&while_stmt.body.body)
-                || has_dead_stmt_suffixes(&while_stmt.orelse.body)
-        }
-        Stmt::For(for_stmt) => {
-            has_dead_stmt_suffixes(&for_stmt.body.body)
-                || has_dead_stmt_suffixes(&for_stmt.orelse.body)
-        }
-        Stmt::Try(try_stmt) => {
-            has_dead_stmt_suffixes(&try_stmt.body.body)
-                || try_stmt.handlers.iter().any(|handler| {
-                    let ast::ExceptHandler::ExceptHandler(handler) = handler;
-                    has_dead_stmt_suffixes(&handler.body.body)
-                })
-                || has_dead_stmt_suffixes(&try_stmt.orelse.body)
-                || has_dead_stmt_suffixes(&try_stmt.finalbody.body)
-        }
-        _ => false,
-    }
-}
-
-fn prune_dead_stmt_suffixes(stmts: &[Box<Stmt>]) -> Vec<Box<Stmt>> {
-    let mut out = Vec::new();
-    for stmt in stmts {
-        let mut stmt = stmt.as_ref().clone();
-        prune_dead_stmt_suffixes_in_stmt(&mut stmt);
-        let terminates = matches!(
-            stmt,
-            Stmt::Return(_) | Stmt::Raise(_) | Stmt::Break(_) | Stmt::Continue(_)
-        );
-        out.push(Box::new(stmt));
-        if terminates {
-            break;
-        }
-    }
-    out
-}
-
-fn prune_dead_stmt_suffixes_in_stmt(stmt: &mut Stmt) {
-    match stmt {
-        Stmt::BodyStmt(body) => {
-            body.body = prune_dead_stmt_suffixes(&body.body);
-        }
-        Stmt::If(if_stmt) => {
-            if_stmt.body.body = prune_dead_stmt_suffixes(&if_stmt.body.body);
-            for clause in &mut if_stmt.elif_else_clauses {
-                clause.body.body = prune_dead_stmt_suffixes(&clause.body.body);
-            }
-        }
-        Stmt::While(while_stmt) => {
-            while_stmt.body.body = prune_dead_stmt_suffixes(&while_stmt.body.body);
-            while_stmt.orelse.body = prune_dead_stmt_suffixes(&while_stmt.orelse.body);
-        }
-        Stmt::For(for_stmt) => {
-            for_stmt.body.body = prune_dead_stmt_suffixes(&for_stmt.body.body);
-            for_stmt.orelse.body = prune_dead_stmt_suffixes(&for_stmt.orelse.body);
-        }
-        Stmt::Try(try_stmt) => {
-            try_stmt.body.body = prune_dead_stmt_suffixes(&try_stmt.body.body);
-            for handler in &mut try_stmt.handlers {
-                let ast::ExceptHandler::ExceptHandler(handler) = handler;
-                handler.body.body = prune_dead_stmt_suffixes(&handler.body.body);
-            }
-            try_stmt.orelse.body = prune_dead_stmt_suffixes(&try_stmt.orelse.body);
-            try_stmt.finalbody.body = prune_dead_stmt_suffixes(&try_stmt.finalbody.body);
-        }
-        _ => {}
-    }
-}
-
-#[derive(Default)]
-struct YieldLikeProbe {
-    has_yield: bool,
-    has_yield_from: bool,
-    has_await: bool,
-}
-
-impl Transformer for YieldLikeProbe {
-    fn visit_stmt(&mut self, stmt: &mut Stmt) {
-        if matches!(stmt, Stmt::FunctionDef(_) | Stmt::ClassDef(_)) {
-            return;
-        }
-        walk_stmt(self, stmt);
-    }
-
-    fn visit_expr(&mut self, expr: &mut Expr) {
-        match expr {
-            Expr::Yield(_) => self.has_yield = true,
-            Expr::YieldFrom(_) => self.has_yield_from = true,
-            Expr::Await(_) => self.has_await = true,
-            _ => {}
-        }
-        walk_expr(self, expr);
-    }
-}
-
-fn has_yield_exprs_in_stmts(stmts: &[Box<Stmt>]) -> bool {
-    let mut probe = YieldLikeProbe::default();
-    for stmt in stmts {
-        let mut stmt = stmt.as_ref().clone();
-        probe.visit_stmt(&mut stmt);
-        if probe.has_yield || probe.has_yield_from {
-            return true;
-        }
-    }
-    false
-}
-
-fn has_await_in_stmts(stmts: &[Box<Stmt>]) -> bool {
-    let mut probe = YieldLikeProbe::default();
-    for stmt in stmts {
-        let mut stmt = stmt.as_ref().clone();
-        probe.visit_stmt(&mut stmt);
-        if probe.has_await {
-            return true;
-        }
-    }
-    false
-}
-
 fn walk_stmt_body<V: Transformer + ?Sized>(visitor: &mut V, body: &mut StmtBody) {
     for stmt in body.body.iter_mut() {
         visitor.visit_stmt(stmt.as_mut());
@@ -3017,9 +2533,23 @@ fn collect_state_vars(
     module_init_mode: bool,
 ) -> Vec<String> {
     let mut defs_anywhere = HashSet::new();
+    let mut injected_exception_names = HashSet::new();
     for block in blocks {
         for stmt in &block.body {
             defs_anywhere.extend(assigned_names_in_stmt(stmt));
+        }
+        if let Terminator::TryJump {
+            except_exc_name,
+            finally_exc_name,
+            ..
+        } = &block.terminator
+        {
+            if let Some(name) = except_exc_name.as_ref() {
+                injected_exception_names.insert(name.clone());
+            }
+            if let Some(name) = finally_exc_name.as_ref() {
+                injected_exception_names.insert(name.clone());
+            }
         }
     }
 
@@ -3034,6 +2564,7 @@ fn collect_state_vars(
                     || name.starts_with("_dp_try_exc_")
                     || name == "_dp_classcell";
             let is_known_local = defs_anywhere.contains(name.as_str())
+                || injected_exception_names.contains(name.as_str())
                 || param_names.iter().any(|param| param == &name);
             let include = if module_init_mode {
                 is_special_runtime_state || is_known_local
@@ -3194,9 +2725,22 @@ fn assigned_names_in_terminator(terminator: &Terminator) -> HashSet<String> {
         Terminator::Jump(_)
         | Terminator::BrIf { .. }
         | Terminator::Raise(_)
-        | Terminator::TryJump { .. }
         | Terminator::Yield { .. }
         | Terminator::Ret(_) => HashSet::new(),
+        Terminator::TryJump {
+            except_exc_name,
+            finally_exc_name,
+            ..
+        } => {
+            let mut names = HashSet::new();
+            if let Some(name) = except_exc_name.as_ref() {
+                names.insert(name.clone());
+            }
+            if let Some(name) = finally_exc_name.as_ref() {
+                names.insert(name.clone());
+            }
+            names
+        }
     }
 }
 
@@ -3586,6 +3130,146 @@ fn block_starts_with_resume_value_assign(block: &Block) -> bool {
         assign.value.as_ref(),
         Expr::Name(name) if matches!(name.id.as_str(), "_dp_send_value" | "_dp_resume_exc")
     )
+}
+
+fn compute_exception_edge_by_label(
+    blocks: &[Block],
+) -> HashMap<String, (Option<String>, Option<String>)> {
+    let mut best: HashMap<String, (usize, Option<String>, Option<String>)> = HashMap::new();
+    for block in blocks {
+        let Terminator::TryJump {
+            body_region_labels,
+            except_region_labels,
+            except_label,
+            except_exc_name,
+            finally_label,
+            finally_exc_name,
+            ..
+        } = &block.terminator
+        else {
+            continue;
+        };
+
+        let body_rank = body_region_labels.len();
+        for label in body_region_labels {
+            let update = match best.get(label.as_str()) {
+                Some((best_rank, _, _)) => body_rank < *best_rank,
+                None => true,
+            };
+            if update {
+                best.insert(
+                    label.clone(),
+                    (
+                        body_rank,
+                        Some(except_label.clone()),
+                        except_exc_name.clone(),
+                    ),
+                );
+            }
+        }
+
+        if let Some(finally_target) = finally_label.as_ref() {
+            let except_rank = except_region_labels.len();
+            for label in except_region_labels {
+                let update = match best.get(label.as_str()) {
+                    Some((best_rank, _, _)) => except_rank < *best_rank,
+                    None => true,
+                };
+                if update {
+                    best.insert(
+                        label.clone(),
+                        (
+                            except_rank,
+                            Some(finally_target.clone()),
+                            finally_exc_name.clone(),
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    best.into_iter()
+        .map(|(label, (_, target, exc_name))| (label, (target, exc_name)))
+        .collect()
+}
+
+fn rewrite_region_returns_to_finally(
+    blocks: &mut [Block],
+    region_labels: &[String],
+    reason_name: &str,
+    return_value_name: &str,
+    finally_target: &str,
+    finally_exc_name: Option<&str>,
+) {
+    let region: HashSet<&str> = region_labels.iter().map(|label| label.as_str()).collect();
+    for block in blocks.iter_mut() {
+        if !region.contains(block.label.as_str()) {
+            continue;
+        }
+        let ret_value = match &block.terminator {
+            Terminator::Ret(value) => value.clone(),
+            _ => continue,
+        };
+        let ret_expr = ret_value.unwrap_or_else(|| py_expr!("None"));
+        block.body.push(py_stmt!(
+            "{name:id} = 'return'",
+            name = reason_name,
+        ));
+        block.body.push(py_stmt!(
+            "{name:id} = {value:expr}",
+            name = return_value_name,
+            value = ret_expr,
+        ));
+        if let Some(finally_exc_name) = finally_exc_name {
+            block.body.push(py_stmt!(
+                "{name:id} = None",
+                name = finally_exc_name,
+            ));
+        }
+        block.terminator = Terminator::Jump(finally_target.to_string());
+    }
+}
+
+fn contains_return_stmt_in_body(stmts: &[Box<Stmt>]) -> bool {
+    stmts.iter().any(|stmt| contains_return_stmt(stmt.as_ref()))
+}
+
+fn contains_return_stmt_in_handlers(handlers: &[ast::ExceptHandler]) -> bool {
+    handlers.iter().any(|handler| {
+        let ast::ExceptHandler::ExceptHandler(handler) = handler;
+        contains_return_stmt_in_body(&handler.body.body)
+    })
+}
+
+fn contains_return_stmt(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Return(_) => true,
+        Stmt::If(stmt) => {
+            contains_return_stmt_in_body(&stmt.body.body)
+                || stmt
+                    .elif_else_clauses
+                    .iter()
+                    .any(|clause| contains_return_stmt_in_body(&clause.body.body))
+        }
+        Stmt::While(stmt) => {
+            contains_return_stmt_in_body(&stmt.body.body)
+                || contains_return_stmt_in_body(&stmt.orelse.body)
+        }
+        Stmt::For(stmt) => {
+            contains_return_stmt_in_body(&stmt.body.body)
+                || contains_return_stmt_in_body(&stmt.orelse.body)
+        }
+        Stmt::Try(stmt) => {
+            contains_return_stmt_in_body(&stmt.body.body)
+                || contains_return_stmt_in_handlers(&stmt.handlers)
+                || contains_return_stmt_in_body(&stmt.orelse.body)
+                || contains_return_stmt_in_body(&stmt.finalbody.body)
+        }
+        Stmt::With(stmt) => contains_return_stmt_in_body(&stmt.body.body),
+        Stmt::FunctionDef(_) | Stmt::ClassDef(_) => false,
+        _ => false,
+    }
 }
 
 fn compute_throw_dispatch_by_label(blocks: &[Block], entry_label: &str) -> HashMap<String, String> {
@@ -4437,6 +4121,29 @@ def run(items):
     }
 
     #[test]
+    fn lowers_async_for_else_directly_without_completed_flag() {
+        let source = r#"
+async def run():
+    async for x in ait:
+        body()
+    else:
+        done()
+"#;
+
+        let options = Options {
+            inject_import: false,
+            ..Options::for_test()
+        };
+        let lowered = transform_str_to_ruff_with_options(source, options)
+            .expect("transform should succeed")
+            .to_string();
+
+        assert!(lowered.contains("__dp__.anext_or_sentinel("), "{lowered}");
+        assert!(lowered.contains("__dp__.aiter("), "{lowered}");
+        assert!(!lowered.contains("_dp_completed_"), "{lowered}");
+    }
+
+    #[test]
     fn omits_synthetic_end_block_when_unreachable() {
         let source = r#"
 def f():
@@ -4523,7 +4230,7 @@ def f(x):
             .expect("transform should succeed")
             .to_string();
 
-        assert!(lowered.contains("__dp__.try_jump_term("), "{lowered}");
+        assert!(lowered.contains("\"_dp_exc_target\""), "{lowered}");
         assert!(!lowered.contains("finally:"), "{lowered}");
     }
 
@@ -4544,7 +4251,7 @@ except Exception:
             .expect("transform should succeed")
             .to_string();
 
-        assert!(lowered.contains("__dp__.try_jump_term("), "{lowered}");
+        assert!(lowered.contains("\"_dp_exc_target\""), "{lowered}");
     }
 
     #[test]
@@ -4569,7 +4276,7 @@ def f():
             lowered.contains("__dp__.exceptiongroup_split("),
             "{lowered}"
         );
-        assert!(lowered.contains("__dp__.try_jump_term("), "{lowered}");
+        assert!(lowered.contains("\"_dp_exc_target\""), "{lowered}");
     }
 
     #[test]

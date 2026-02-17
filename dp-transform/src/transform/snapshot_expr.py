@@ -406,7 +406,7 @@ def _dp_bb__dp_genexpr_1_done(_dp_self, _dp_send_value, _dp_resume_exc):
         _dp_resume_exc.take(),
     )
     __dp__.setattr(_dp_self, "_pc", __dp__._GEN_PC_DONE)
-    return __dp__.ret(None)
+    return __dp__.raise_(StopIteration(None))
 
 
 def _dp_bb__dp_genexpr_1_invalid(_dp_self, _dp_send_value, _dp_resume_exc):
@@ -425,7 +425,7 @@ def _dp_bb__dp_genexpr_1_internal_0(_dp_self, _dp_send_value, _dp_resume_exc):
         _dp_resume_exc.take(),
     )
     __dp__.setattr(_dp_self, "_pc", __dp__._GEN_PC_DONE)
-    return __dp__.ret(None)
+    return __dp__.raise_(StopIteration(None))
 
 
 def _dp_bb__dp_genexpr_1_internal_1(
@@ -439,9 +439,8 @@ def _dp_bb__dp_genexpr_1_internal_1(
         _dp_iter_3.take(),
     )
     i = _dp_tmp_4
-    __dp__.setattr(_dp_self, "_pc", 6)
-    __dp__.frame_store(_dp_self, "_dp_self", _dp_self)
-    __dp__.frame_store(_dp_self, "_dp_iter_3", _dp_iter_3)
+    __dp__.setattr(_dp_self, "_pc", 5)
+    __dp_store_local(_dp_self, "_dp_iter_3", _dp_iter_3)
     return __dp__.ret(i)
 
 
@@ -460,7 +459,13 @@ def _dp_bb__dp_genexpr_1_internal_2(
         _dp_bb__dp_genexpr_1_internal_0,
         (_dp_self, _dp_send_value, _dp_resume_exc),
         _dp_bb__dp_genexpr_1_internal_1,
-        (_dp_self, _dp_send_value, _dp_resume_exc, _dp_tmp_4, _dp_iter_3),
+        (
+            _dp_self,
+            _dp_send_value,
+            _dp_resume_exc,
+            locals().get("_dp_tmp_4", __dp_load_local_raw(_dp_self, "_dp_tmp_4")),
+            locals().get("_dp_iter_3", __dp_load_local_raw(_dp_self, "_dp_iter_3")),
+        ),
     )
 
 
@@ -471,9 +476,16 @@ def _dp_bb__dp_genexpr_1_resume_0(_dp_self, _dp_send_value, _dp_resume_exc, _dp_
         _dp_resume_exc.take(),
         _dp_iter_3.take(),
     )
+    if _dp_resume_exc is not None:
+        return __dp__.raise_(_dp_resume_exc)
     return __dp__.jump(
         _dp_bb__dp_genexpr_1_internal_2,
-        (_dp_self, _dp_send_value, _dp_resume_exc, _dp_iter_3),
+        (
+            _dp_self,
+            _dp_send_value,
+            _dp_resume_exc,
+            locals().get("_dp_iter_3", __dp_load_local_raw(_dp_self, "_dp_iter_3")),
+        ),
     )
 
 
@@ -484,16 +496,27 @@ def _dp_bb__dp_genexpr_1_resume_1(_dp_self, _dp_send_value, _dp_resume_exc, _dp_
         _dp_resume_exc.take(),
         _dp_iter_2.take(),
     )
+    if _dp_resume_exc is not None:
+        return __dp__.raise_(_dp_resume_exc)
+    if _dp_resume_exc is None and _dp_send_value is not None:
+        return __dp__.raise_(
+            TypeError("can't send non-None value to a just-started generator")
+        )
     _dp_iter_3 = _dp_iter_2
     return __dp__.jump(
         _dp_bb__dp_genexpr_1_resume_0,
-        (_dp_self, _dp_send_value, _dp_resume_exc, _dp_iter_3),
+        (
+            _dp_self,
+            _dp_send_value,
+            _dp_resume_exc,
+            locals().get("_dp_iter_3", __dp_load_local_raw(_dp_self, "_dp_iter_3")),
+        ),
     )
 
 
 def _dp_bb__dp_module_init_start():
     _dp_genexpr_1 = __dp__.def_gen(
-        6,
+        _dp_bb__dp_genexpr_1_resume_1,
         (
             _dp_bb__dp_genexpr_1_done,
             _dp_bb__dp_genexpr_1_invalid,
@@ -503,7 +526,6 @@ def _dp_bb__dp_module_init_start():
             _dp_bb__dp_genexpr_1_resume_0,
             _dp_bb__dp_genexpr_1_resume_1,
         ),
-        (-1, -1, -1, -1, -1, -1, -1),
         "<genexpr>",
         "<genexpr>",
         ("_dp_iter_2",),
@@ -683,8 +705,15 @@ def _dp_module_init():
 
     def _dp_listcomp_3(_dp_iter_2):
         _dp_tmp_1 = __dp__.list(())
-        for i in _dp_iter_2:
-            _dp_tmp_1.append(i)
+        _dp_iter_4 = __dp__.iter(_dp_iter_2)
+        while True:
+            _dp_tmp_5 = __dp__.next_or_sentinel(_dp_iter_4)
+            if __dp__.is_(_dp_tmp_5, __dp__.ITER_COMPLETE):
+                break
+            else:
+                i = _dp_tmp_5
+                _dp_tmp_5 = None
+                _dp_tmp_1.append(i)
         return _dp_tmp_1
 
     __dp__.store_global(globals(), "x", _dp_listcomp_3(it))
@@ -762,8 +791,15 @@ def _dp_module_init():
 
     def _dp_setcomp_3(_dp_iter_2):
         _dp_tmp_1 = set()
-        for i in _dp_iter_2:
-            _dp_tmp_1.add(i)
+        _dp_iter_4 = __dp__.iter(_dp_iter_2)
+        while True:
+            _dp_tmp_5 = __dp__.next_or_sentinel(_dp_iter_4)
+            if __dp__.is_(_dp_tmp_5, __dp__.ITER_COMPLETE):
+                break
+            else:
+                i = _dp_tmp_5
+                _dp_tmp_5 = None
+                _dp_tmp_1.add(i)
         return _dp_tmp_1
 
     __dp__.store_global(globals(), "x", _dp_setcomp_3(it))
@@ -841,8 +877,18 @@ def _dp_module_init():
 
     def _dp_dictcomp_3(_dp_iter_2):
         _dp_tmp_1 = __dp__.dict()
-        for k, v in _dp_iter_2:
-            __dp__.setitem(_dp_tmp_1, k, v)
+        _dp_iter_4 = __dp__.iter(_dp_iter_2)
+        while True:
+            _dp_tmp_5 = __dp__.next_or_sentinel(_dp_iter_4)
+            if __dp__.is_(_dp_tmp_5, __dp__.ITER_COMPLETE):
+                break
+            else:
+                _dp_tmp_7 = _dp_tmp_5
+                k = __dp__.getitem(_dp_tmp_7, 0)
+                v = __dp__.getitem(_dp_tmp_7, 1)
+                del _dp_tmp_7
+                _dp_tmp_5 = None
+                __dp__.setitem(_dp_tmp_1, k, v)
         return _dp_tmp_1
 
     __dp__.store_global(globals(), "x", _dp_dictcomp_3(it))

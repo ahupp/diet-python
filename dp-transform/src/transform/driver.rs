@@ -1,8 +1,8 @@
 use super::context::Context;
-use crate::bb_ir::BbModule;
+use crate::basic_block;
+use crate::basic_block::bb_ir::BbModule;
 use crate::ensure_import;
 use crate::transform::ast_rewrite::rewrite_with_pass;
-use crate::transform::basic_block;
 use crate::transform::rewrite_class_def;
 use crate::transform::scope::{analyze_module_scope, BindingKind};
 use crate::transform::simplify::strip_generated_passes;

@@ -147,8 +147,6 @@ def _should_transform(path: str) -> bool:
         return False
     if resolved.name == "annotationlib.py" and _diet_python_mode() == "eval":
         return False
-    if _is_typing_module(resolved) and _diet_python_mode() == "eval":
-        return False
     if INTEGRATION_ONLY and not _is_integration_module(resolved):
         return False
     if os.environ.get("DIET_PYTHON_ALLOW_TEMP") != "1":
@@ -173,6 +171,14 @@ class DietPythonLoader(importlib.machinery.SourceFileLoader):
             return None
         if not self.path:
             return None
+        try:
+            resolved = Path(self.path).resolve()
+        except OSError:
+            resolved = None
+        if resolved is not None and _is_typing_module(resolved):
+            # Keep typing under DietPythonLoader for import-hook invariants, but
+            # execute it through CPython's regular source path in eval mode.
+            return None
         fullname = getattr(spec, "name", None)
         if not fullname:
             return None
@@ -189,6 +195,15 @@ class DietPythonLoader(importlib.machinery.SourceFileLoader):
             result = super().exec_module(module)
             _run_module_init(module)
             return result
+        if self.path:
+            try:
+                resolved = Path(self.path).resolve()
+            except OSError:
+                resolved = None
+            if resolved is not None and _is_typing_module(resolved):
+                result = super().exec_module(module)
+                _run_module_init(module)
+                return result
         return None
 
     def get_code(self, fullname):
@@ -201,7 +216,7 @@ class DietPythonLoader(importlib.machinery.SourceFileLoader):
         return self.source_to_code(source_bytes, self.path)
 
     def source_to_code(self, data, path, *, _optimize=-1):
-        if _diet_python_mode() == "transform":
+        if _diet_python_mode() == "eval":
             try:
                 resolved = Path(path).resolve()
             except OSError:
@@ -232,10 +247,6 @@ class DietPythonFinder(importlib.machinery.PathFinder):
 
 def install():
     """Install the diet-python import hook."""
-
-    if any(finder is DietPythonFinder for finder in sys.meta_path):
-        return
-
     # Ensure the transform module is loaded before we intercept stdlib imports.
     _get_pyo3_transform()
     try:
@@ -251,6 +262,9 @@ def install():
         loader = getattr(getattr(existing_typing, "__spec__", None), "loader", None)
         if not isinstance(loader, DietPythonLoader):
             sys.modules.pop("typing", None)
+
+    if any(finder is DietPythonFinder for finder in sys.meta_path):
+        return
 
     for index, finder in enumerate(sys.meta_path):
         if finder is importlib.machinery.PathFinder:

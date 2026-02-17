@@ -1,3 +1,4 @@
+pub mod bb_ir;
 mod ast_to_bb;
 mod render_py;
 

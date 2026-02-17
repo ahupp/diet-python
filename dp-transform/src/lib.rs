@@ -53,7 +53,7 @@ const TRANSFORM_TOGGLES: &[TransformToggle] = &[
     },
 ];
 
-pub mod bb_ir;
+pub mod basic_block;
 pub mod ensure_import;
 pub mod fixture;
 pub mod min_ast;
@@ -66,6 +66,7 @@ mod test_util;
 mod transform;
 pub(crate) mod transformer;
 
+use crate::basic_block::bb_ir;
 use crate::transform::driver::rewrite_module;
 pub use crate::transform::scope::{analyze_module_scope, Scope};
 use transform::context::Context;
@@ -437,24 +438,24 @@ fn bb_function_kind_to_json(kind: &bb_ir::BbFunctionKind) -> Value {
         bb_ir::BbFunctionKind::Function => json!({"kind": "function"}),
         bb_ir::BbFunctionKind::Coroutine => json!({"kind": "coroutine"}),
         bb_ir::BbFunctionKind::Generator {
-            start_pc,
+            resume_label,
             target_labels,
-            throw_dispatch_pcs,
+            resume_pcs,
         } => json!({
             "kind": "generator",
-            "startPc": start_pc,
+            "resumeLabel": resume_label,
             "targetLabels": target_labels,
-            "throwDispatchPcs": throw_dispatch_pcs,
+            "resumePcs": resume_pcs,
         }),
         bb_ir::BbFunctionKind::AsyncGenerator {
-            start_pc,
+            resume_label,
             target_labels,
-            throw_dispatch_pcs,
+            resume_pcs,
         } => json!({
             "kind": "async_generator",
-            "startPc": start_pc,
+            "resumeLabel": resume_label,
             "targetLabels": target_labels,
-            "throwDispatchPcs": throw_dispatch_pcs,
+            "resumePcs": resume_pcs,
         }),
     }
 }

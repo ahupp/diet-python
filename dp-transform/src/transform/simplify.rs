@@ -117,6 +117,138 @@ impl Transformer for Flattener {
     }
 }
 
+fn is_dp_current_exception_call(expr: &Expr) -> bool {
+    let Expr::Call(ast::ExprCall {
+        func,
+        arguments,
+        ..
+    }) = expr
+    else {
+        return false;
+    };
+    if !arguments.args.is_empty() || !arguments.keywords.is_empty() {
+        return false;
+    }
+    let Expr::Attribute(ast::ExprAttribute { value, attr, .. }) = func.as_ref() else {
+        return false;
+    };
+    let Expr::Name(ast::ExprName { id, .. }) = value.as_ref() else {
+        return false;
+    };
+    id.as_str() == "__dp__" && attr.as_str() == "current_exception"
+}
+
+fn is_nameerror_expr(expr: &Expr) -> bool {
+    matches!(
+        expr,
+        Expr::Name(ast::ExprName { id, .. }) if id.as_str() == "NameError"
+    )
+}
+
+fn extract_quiet_delitem_args(try_stmt: &ast::StmtTry) -> Option<(Expr, Expr)> {
+    if !try_stmt.orelse.body.is_empty() || !try_stmt.finalbody.body.is_empty() {
+        return None;
+    }
+    if try_stmt.body.body.len() != 1 || try_stmt.handlers.len() != 1 {
+        return None;
+    }
+
+    let Stmt::Expr(ast::StmtExpr { value, .. }) = try_stmt.body.body[0].as_ref() else {
+        return None;
+    };
+    let Expr::Call(ast::ExprCall {
+        func,
+        arguments,
+        ..
+    }) = value.as_ref()
+    else {
+        return None;
+    };
+    if arguments.args.len() != 2 || !arguments.keywords.is_empty() {
+        return None;
+    }
+    let Expr::Attribute(ast::ExprAttribute { value, attr, .. }) = func.as_ref() else {
+        return None;
+    };
+    let Expr::Name(ast::ExprName { id, .. }) = value.as_ref() else {
+        return None;
+    };
+    if id.as_str() != "__dp__" || attr.as_str() != "delitem" {
+        return None;
+    }
+    let del_obj = arguments.args[0].clone();
+    let del_key = arguments.args[1].clone();
+
+    let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
+        type_,
+        name,
+        body,
+        ..
+    }) = &try_stmt.handlers[0];
+    if type_.is_some() || name.is_some() || body.body.len() != 1 {
+        return None;
+    }
+    let Stmt::If(ast::StmtIf {
+        test,
+        body: if_body,
+        elif_else_clauses,
+        ..
+    }) = body.body[0].as_ref()
+    else {
+        return None;
+    };
+    let Expr::Call(ast::ExprCall {
+        func,
+        arguments: test_arguments,
+        ..
+    }) = test.as_ref()
+    else {
+        return None;
+    };
+    if test_arguments.args.len() != 2 || !test_arguments.keywords.is_empty() {
+        return None;
+    }
+    let Expr::Attribute(ast::ExprAttribute { value, attr, .. }) = func.as_ref() else {
+        return None;
+    };
+    let Expr::Name(ast::ExprName { id, .. }) = value.as_ref() else {
+        return None;
+    };
+    if id.as_str() != "__dp__" || attr.as_str() != "exception_matches" {
+        return None;
+    }
+    if !is_dp_current_exception_call(&test_arguments.args[0])
+        || !is_nameerror_expr(&test_arguments.args[1])
+    {
+        return None;
+    }
+    if if_body.body.len() != 1 || !matches!(if_body.body[0].as_ref(), Stmt::Pass(_)) {
+        return None;
+    }
+    if elif_else_clauses.len() != 1 {
+        return None;
+    }
+    let else_clause = &elif_else_clauses[0];
+    if else_clause.test.is_some() {
+        return None;
+    }
+    if else_clause.body.body.len() != 1 {
+        return None;
+    }
+    if !matches!(
+        else_clause.body.body[0].as_ref(),
+        Stmt::Raise(ast::StmtRaise {
+            exc: None,
+            cause: None,
+            ..
+        })
+    ) {
+        return None;
+    }
+
+    Some((del_obj, del_key))
+}
+
 struct StripGeneratedPasses;
 
 impl Transformer for &mut StripGeneratedPasses {
@@ -126,6 +258,18 @@ impl Transformer for &mut StripGeneratedPasses {
         for stmt in body.body.drain(..) {
             let stmt = *stmt;
             match stmt {
+                Stmt::Try(try_stmt) => {
+                    if let Some((obj, key)) = extract_quiet_delitem_args(&try_stmt) {
+                        updated.push(crate::py_stmt!(
+                            "__dp__.delitem_quietly({obj:expr}, {key:expr})",
+                            obj = obj,
+                            key = key,
+                        ));
+                    } else {
+                        updated.push(Stmt::Try(try_stmt));
+                    }
+                    continue;
+                }
                 Stmt::If(mut if_stmt) => {
                     if if_stmt.body.body.is_empty() {
                         if_stmt.body.body.push(Box::new(Stmt::Pass(ast::StmtPass {

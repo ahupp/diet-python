@@ -171,8 +171,61 @@ select {
 .structure-root {
   position: relative;
   overflow: auto;
+  min-width: 0;
   height: 100%;
   padding: 12px;
+}
+
+.structure-split {
+  display: grid;
+  grid-template-columns: minmax(360px, 1fr) minmax(360px, 1fr);
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+  padding: 12px;
+}
+
+.structure-pane,
+.graphviz-pane {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.68);
+  position: relative;
+  isolation: isolate;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.subpanel-head {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.subpanel-title {
+  font-weight: 700;
+  font-size: 0.73rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--ink-1);
+}
+
+.graphviz-root {
+  padding: 12px;
+  overflow: auto;
+  min-width: 0;
+  height: 100%;
+}
+
+.graphviz-root svg {
+  display: block;
+  min-width: max-content;
 }
 
 .tree-layer {
@@ -261,6 +314,10 @@ select {
   .node {
     min-width: 0;
   }
+
+  .structure-split {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
 </head>
@@ -269,7 +326,7 @@ select {
   <div class="header">
     <div>
       <div class="title">diet-python transform pipeline inspector</div>
-      <div class="subtitle">Phase 1 output, raw BB output, and dominator-tree BB rendering</div>
+      <div class="subtitle">Phase 1 output, raw BB output, dominance tree, and Graphviz CFG rendering</div>
     </div>
     <div class="status" id="status">ready</div>
   </div>
@@ -298,15 +355,30 @@ select {
 
     <section class="panel structure-panel">
       <div class="panel-head">
-        <div class="panel-title">BB Dominance View</div>
+        <div class="panel-title">BB Structure Views</div>
         <div class="select-wrap">
           function
           <select id="functionPicker"></select>
         </div>
       </div>
-      <div class="structure-root" id="structureRoot">
-        <svg class="link-layer" id="links"></svg>
-        <div class="tree-layer" id="tree"></div>
+      <div class="structure-split">
+        <div class="structure-pane">
+          <div class="subpanel-head">
+            <div class="subpanel-title">Dominance Tree</div>
+          </div>
+          <div class="structure-root" id="structureRoot">
+            <svg class="link-layer" id="links"></svg>
+            <div class="tree-layer" id="tree"></div>
+          </div>
+        </div>
+        <div class="graphviz-pane">
+          <div class="subpanel-head">
+            <div class="subpanel-title">Graphviz CFG</div>
+          </div>
+          <div class="graphviz-root" id="graphvizRoot">
+            <div class="placeholder">Graphviz graph will appear here.</div>
+          </div>
+        </div>
       </div>
     </section>
   </div>
@@ -314,6 +386,7 @@ select {
 
 <script type="module">
 import init, { inspect_pipeline } from "./pkg/diet_python.js";
+import { instance as createVizInstance } from "https://cdn.jsdelivr.net/npm/@viz-js/viz@3.24.0/+esm";
 
 const sourceEl = document.getElementById("source");
 const phase1El = document.getElementById("phase1");
@@ -323,11 +396,14 @@ const statusEl = document.getElementById("status");
 const treeEl = document.getElementById("tree");
 const linksEl = document.getElementById("links");
 const structureRootEl = document.getElementById("structureRoot");
+const graphvizRootEl = document.getElementById("graphvizRoot");
 
 const state = {
   payload: null,
   selectedFunction: "",
   crossEdges: [],
+  viz: null,
+  vizError: null,
 };
 
 const SAMPLE = `def classify(n):
@@ -352,6 +428,104 @@ function setStatus(message, isError = false) {
 
 function edgeKey(from, to) {
   return `${from}::${to}`;
+}
+
+function escapeDotString(value) {
+  return String(value ?? "")
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n");
+}
+
+function buildCfgDot(functionData) {
+  const blocks = functionData.blocks || [];
+  const labels = new Set(blocks.map((block) => block.label));
+  const lines = [
+    "digraph BB {",
+    '  graph [rankdir=TB, bgcolor="transparent", pad="0.18", nodesep="0.34", ranksep="0.58"];',
+    '  node [shape=box, style="rounded,filled", fillcolor="#f8fcff", color="#a5b3c1", fontname="IBM Plex Mono", fontsize=11, margin="0.12,0.09"];',
+    '  edge [color="#4f6479", arrowsize=0.7, penwidth=1.1, fontname="IBM Plex Mono", fontsize=10];',
+  ];
+
+  for (const block of blocks) {
+    const pieces = [block.label];
+    if (block.opsText && block.opsText.trim()) {
+      pieces.push("");
+      pieces.push(block.opsText.trim());
+    }
+    if (block.termKind) {
+      pieces.push("");
+      pieces.push(`[${block.termKind}]`);
+    }
+    lines.push(
+      `  "${escapeDotString(block.label)}" [label="${escapeDotString(pieces.join("\n"))}"];`
+    );
+  }
+
+  for (const block of blocks) {
+    for (const successor of block.successors || []) {
+      if (!labels.has(successor.target)) {
+        continue;
+      }
+      const attrs = [];
+      if (successor.kind) {
+        attrs.push(`label="${escapeDotString(successor.kind)}"`);
+      }
+      if (successor.kind === "exception") {
+        attrs.push('color="#b42352"');
+        attrs.push('fontcolor="#b42352"');
+      }
+      const attrText = attrs.length ? ` [${attrs.join(", ")}]` : "";
+      lines.push(
+        `  "${escapeDotString(block.label)}" -> "${escapeDotString(successor.target)}"${attrText};`
+      );
+    }
+  }
+
+  lines.push("}");
+  return lines.join("\n");
+}
+
+function setGraphvizPlaceholder(message) {
+  graphvizRootEl.innerHTML = "";
+  const el = document.createElement("div");
+  el.className = "placeholder";
+  el.textContent = message;
+  graphvizRootEl.appendChild(el);
+}
+
+function renderGraphviz(functionData) {
+  if (!functionData) {
+    setGraphvizPlaceholder("No function selected.");
+    return;
+  }
+
+  if (state.vizError) {
+    setGraphvizPlaceholder(`Graphviz unavailable: ${state.vizError}`);
+    return;
+  }
+
+  if (!state.viz) {
+    setGraphvizPlaceholder("Loading Graphviz runtime...");
+    return;
+  }
+
+  const blocks = functionData.blocks || [];
+  if (!blocks.length) {
+    setGraphvizPlaceholder("No basic blocks to graph.");
+    return;
+  }
+
+  const dot = buildCfgDot(functionData);
+  try {
+    const svg = state.viz.renderSVGElement(dot, { engine: "dot" });
+    svg.removeAttribute("width");
+    svg.removeAttribute("height");
+    graphvizRootEl.innerHTML = "";
+    graphvizRootEl.appendChild(svg);
+  } catch (error) {
+    setGraphvizPlaceholder(`Graphviz render failed: ${String(error)}`);
+  }
 }
 
 function buildDominance(functionData) {
@@ -521,6 +695,7 @@ function renderStructure() {
   if (!functions.length) {
     state.crossEdges = [];
     treeEl.innerHTML = `<div class="placeholder">No basic-block functions were emitted.</div>`;
+    setGraphvizPlaceholder("No basic-block functions were emitted.");
     return;
   }
 
@@ -532,6 +707,7 @@ function renderStructure() {
 
   const dominance = buildDominance(fn);
   state.crossEdges = dominance.crossEdges;
+  renderGraphviz(fn);
   const blockByLabel = new Map((fn.blocks || []).map((block) => [block.label, block]));
   const rootNode = renderBlockNode(blockByLabel, fn.entry, dominance.children);
   if (!rootNode) {
@@ -639,6 +815,7 @@ function inspectNow() {
     pickerEl.innerHTML = "";
     treeEl.innerHTML = `<div class="placeholder">Enter Python source to inspect the BB pipeline.</div>`;
     linksEl.innerHTML = "";
+    setGraphvizPlaceholder("Enter Python source to render the Graphviz CFG.");
     setStatus("ready");
     return;
   }
@@ -662,6 +839,7 @@ function inspectNow() {
     pickerEl.innerHTML = "";
     treeEl.innerHTML = `<div class="placeholder">${String(error)}</div>`;
     linksEl.innerHTML = "";
+    setGraphvizPlaceholder(String(error));
     setStatus("transform error", true);
   }
 }
@@ -670,6 +848,11 @@ const debouncedInspect = debounce(inspectNow, 150);
 
 async function run() {
   await init();
+  try {
+    state.viz = await createVizInstance();
+  } catch (error) {
+    state.vizError = String(error);
+  }
 
   const params = new URLSearchParams(window.location.search);
   sourceEl.value = params.get("src") || SAMPLE;

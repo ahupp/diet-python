@@ -33,14 +33,14 @@ pub enum BbFunctionKind {
     Function,
     Coroutine,
     Generator {
-        start_pc: usize,
+        resume_label: String,
         target_labels: Vec<String>,
-        throw_dispatch_pcs: Vec<Option<usize>>,
+        resume_pcs: Vec<(String, usize)>,
     },
     AsyncGenerator {
-        start_pc: usize,
+        resume_label: String,
         target_labels: Vec<String>,
-        throw_dispatch_pcs: Vec<Option<usize>>,
+        resume_pcs: Vec<(String, usize)>,
     },
 }
 
@@ -49,6 +49,8 @@ pub struct BbBlock {
     pub label: String,
     pub params: Vec<String>,
     pub ops: Vec<Stmt>,
+    pub exc_target_label: Option<String>,
+    pub exc_name: Option<String>,
     pub term: BbTerm,
 }
 

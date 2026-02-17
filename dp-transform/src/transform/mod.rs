@@ -1,5 +1,4 @@
 pub(crate) mod ast_rewrite;
-pub(crate) mod basic_block;
 pub(crate) mod context;
 pub(crate) mod driver;
 pub(crate) mod rewrite_class_def;
