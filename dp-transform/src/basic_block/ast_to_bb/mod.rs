@@ -407,9 +407,17 @@ impl BasicBlockRewriter<'_> {
         entry_label = relabel_blocks(label_prefix.as_str(), entry_label.as_str(), &mut blocks);
         let mut done_block_label: Option<String> = None;
         let mut invalid_block_label: Option<String> = None;
+        let mut generator_uncaught_label: Option<String> = None;
+        let mut generator_uncaught_exc_name: Option<String> = None;
+        let mut generator_resume_entry_label: Option<String> = None;
+        let mut generator_resume_order: Vec<String> = Vec::new();
+        let mut generator_dispatch_only_labels: HashSet<String> = HashSet::new();
+        let mut generator_throw_passthrough_labels: HashSet<String> = HashSet::new();
         if has_yield {
             let done_label = format!("{label_prefix}_done");
             let invalid_label = format!("{label_prefix}_invalid");
+            let uncaught_label = format!("{label_prefix}_uncaught");
+            let uncaught_exc_name = self.next_temp("uncaught_exc");
             let invalid_msg = if func.is_async {
                 "invalid async generator pc: {}"
             } else {
@@ -438,20 +446,35 @@ impl BasicBlockRewriter<'_> {
                     terminator: Terminator::Raise(invalid_raise_stmt),
                 },
             );
+            let uncaught_raise_stmt = raise_stmt_from_name(uncaught_exc_name.as_str());
+            let uncaught_helper_name = if func.is_async {
+                "raise_uncaught_async_generator_exception"
+            } else {
+                "raise_uncaught_generator_exception"
+            };
+            blocks.insert(
+                2,
+                Block {
+                    label: uncaught_label.clone(),
+                    body: vec![py_stmt!(
+                        "if _dp_self._pc != __dp__._GEN_PC_DONE:\n    __dp__.setattr(_dp_self, \"_pc\", __dp__._GEN_PC_DONE)\n    __dp__.{helper:id}({exc:id})",
+                        helper = uncaught_helper_name,
+                        exc = uncaught_exc_name.as_str(),
+                    )],
+                    terminator: Terminator::Raise(uncaught_raise_stmt),
+                },
+            );
             done_block_label = Some(done_label);
             invalid_block_label = Some(invalid_label);
+            generator_uncaught_label = Some(uncaught_label);
+            generator_uncaught_exc_name = Some(uncaught_exc_name.clone());
 
-            let throw_dispatch_by_label =
-                compute_throw_dispatch_by_label(&blocks, entry_label.as_str());
             let mut resume_labels: HashSet<String> = HashSet::new();
             resume_labels.insert(entry_label.clone());
             for block in &blocks {
                 if let Terminator::Yield { resume_label, .. } = &block.terminator {
                     resume_labels.insert(resume_label.clone());
                 }
-            }
-            for dispatch_label in throw_dispatch_by_label.values() {
-                resume_labels.insert(dispatch_label.clone());
             }
 
             let mut rename: HashMap<String, String> = HashMap::new();
@@ -460,6 +483,7 @@ impl BasicBlockRewriter<'_> {
             for block in &blocks {
                 if done_block_label.as_deref() == Some(block.label.as_str())
                     || invalid_block_label.as_deref() == Some(block.label.as_str())
+                    || generator_uncaught_label.as_deref() == Some(block.label.as_str())
                 {
                     continue;
                 }
@@ -475,6 +499,115 @@ impl BasicBlockRewriter<'_> {
                 rename.insert(block.label.clone(), new_name);
             }
             entry_label = apply_label_rename(entry_label.as_str(), &rename, &mut blocks);
+            generator_resume_entry_label = Some(entry_label.clone());
+
+            let mut resume_order = vec![entry_label.clone()];
+            for block in &blocks {
+                if let Terminator::Yield { resume_label, .. } = &block.terminator {
+                    if !resume_order.iter().any(|label| label == resume_label) {
+                        resume_order.push(resume_label.clone());
+                    }
+                }
+            }
+            generator_resume_order = resume_order.clone();
+
+            let done_label = done_block_label
+                .clone()
+                .expect("generator lowering requires done block label");
+            let invalid_label = invalid_block_label
+                .clone()
+                .expect("generator lowering requires invalid block label");
+
+            let resume_throw_done_label = format!("{label_prefix}_dispatch_throw_done");
+            let resume_throw_unstarted_label = format!("{label_prefix}_dispatch_throw_unstarted");
+            generator_dispatch_only_labels.insert(resume_throw_done_label.clone());
+            generator_dispatch_only_labels.insert(resume_throw_unstarted_label.clone());
+            generator_throw_passthrough_labels.insert(resume_throw_done_label.clone());
+            generator_throw_passthrough_labels.insert(resume_throw_unstarted_label.clone());
+            let throw_resume_exc_stmt = match py_stmt!("raise _dp_resume_exc") {
+                Stmt::Raise(stmt) => stmt,
+                _ => unreachable!("expected raise statement"),
+            };
+            blocks.push(Block {
+                label: resume_throw_done_label.clone(),
+                body: Vec::new(),
+                terminator: Terminator::Raise(throw_resume_exc_stmt.clone()),
+            });
+            blocks.push(Block {
+                label: resume_throw_unstarted_label.clone(),
+                body: Vec::new(),
+                terminator: Terminator::Raise(throw_resume_exc_stmt),
+            });
+
+            let mut send_dispatch_head = invalid_label.clone();
+            let mut throw_dispatch_head = invalid_label;
+            for (pc, resume_target) in resume_order.iter().enumerate().rev() {
+                let send_check_label = format!("{label_prefix}_dispatch_send_pc_{pc}");
+                generator_dispatch_only_labels.insert(send_check_label.clone());
+                blocks.push(Block {
+                    label: send_check_label.clone(),
+                    body: Vec::new(),
+                    terminator: Terminator::BrIf {
+                        test: py_expr!("_dp_self._pc == {pc:literal}", pc = pc as i64),
+                        then_label: resume_target.clone(),
+                        else_label: send_dispatch_head,
+                    },
+                });
+                send_dispatch_head = send_check_label;
+
+                let throw_check_label = format!("{label_prefix}_dispatch_throw_pc_{pc}");
+                generator_dispatch_only_labels.insert(throw_check_label.clone());
+                let throw_target = if pc == 0 {
+                    resume_throw_unstarted_label.clone()
+                } else {
+                    resume_target.clone()
+                };
+                blocks.push(Block {
+                    label: throw_check_label.clone(),
+                    body: Vec::new(),
+                    terminator: Terminator::BrIf {
+                        test: py_expr!("_dp_self._pc == {pc:literal}", pc = pc as i64),
+                        then_label: throw_target,
+                        else_label: throw_dispatch_head,
+                    },
+                });
+                throw_dispatch_head = throw_check_label;
+            }
+
+            let resume_send_label = format!("{label_prefix}_dispatch_send");
+            let resume_throw_label = format!("{label_prefix}_dispatch_throw");
+            let resume_dispatch_label = format!("{label_prefix}_dispatch");
+            generator_dispatch_only_labels.insert(resume_send_label.clone());
+            generator_dispatch_only_labels.insert(resume_throw_label.clone());
+            generator_dispatch_only_labels.insert(resume_dispatch_label.clone());
+            blocks.push(Block {
+                label: resume_send_label.clone(),
+                body: Vec::new(),
+                terminator: Terminator::BrIf {
+                    test: py_expr!("_dp_self._pc == __dp__._GEN_PC_DONE"),
+                    then_label: done_label,
+                    else_label: send_dispatch_head,
+                },
+            });
+            blocks.push(Block {
+                label: resume_throw_label.clone(),
+                body: Vec::new(),
+                terminator: Terminator::BrIf {
+                    test: py_expr!("_dp_self._pc == __dp__._GEN_PC_DONE"),
+                    then_label: resume_throw_done_label,
+                    else_label: throw_dispatch_head,
+                },
+            });
+            blocks.push(Block {
+                label: resume_dispatch_label.clone(),
+                body: Vec::new(),
+                terminator: Terminator::BrIf {
+                    test: py_expr!("_dp_resume_exc is None"),
+                    then_label: resume_send_label,
+                    else_label: resume_throw_label,
+                },
+            });
+            entry_label = resume_dispatch_label;
         }
 
         if !deleted_names.is_empty() {
@@ -484,6 +617,28 @@ impl BasicBlockRewriter<'_> {
         }
 
         let exception_edges = compute_exception_edge_by_label(&blocks);
+        let mut exception_edges = exception_edges;
+        if has_yield {
+            if let (Some(uncaught_label), Some(uncaught_exc_name)) = (
+                generator_uncaught_label.as_ref(),
+                generator_uncaught_exc_name.as_ref(),
+            ) {
+                for block in &blocks {
+                    let label = block.label.as_str();
+                    if done_block_label.as_deref() == Some(label)
+                        || invalid_block_label.as_deref() == Some(label)
+                        || Some(label) == generator_uncaught_label.as_deref()
+                        || generator_throw_passthrough_labels.contains(label)
+                    {
+                        continue;
+                    }
+                    exception_edges.entry(block.label.clone()).or_insert((
+                        Some(uncaught_label.clone()),
+                        Some(uncaught_exc_name.clone()),
+                    ));
+                }
+            }
+        }
         let state_vars = collect_state_vars(
             &param_names,
             &blocks,
@@ -521,6 +676,10 @@ impl BasicBlockRewriter<'_> {
                 params.insert(0, "_dp_self".to_string());
                 params.insert(1, "_dp_send_value".to_string());
                 params.insert(2, "_dp_resume_exc".to_string());
+                if generator_dispatch_only_labels.contains(block.label.as_str()) {
+                    params.truncate(3);
+                    continue;
+                }
                 if block.label != entry_label {
                     for exc_name in &try_exc_names {
                         if !params.iter().any(|name| name == exc_name) {
@@ -532,7 +691,12 @@ impl BasicBlockRewriter<'_> {
             if !try_exc_names.is_empty() {
                 if let Some(entry_block) = blocks
                     .iter_mut()
-                    .find(|block| block.label.as_str() == entry_label.as_str())
+                    .find(|block| {
+                        block.label.as_str()
+                            == generator_resume_entry_label
+                                .as_deref()
+                                .unwrap_or(entry_label.as_str())
+                    })
                 {
                     for exc_name in try_exc_names.iter().rev() {
                         entry_block.body.insert(
@@ -544,8 +708,19 @@ impl BasicBlockRewriter<'_> {
             }
         }
         ensure_try_exception_params(&blocks, &mut block_params);
+        if let (Some(uncaught_label), Some(uncaught_exc_name)) = (
+            generator_uncaught_label.as_ref(),
+            generator_uncaught_exc_name.as_ref(),
+        ) {
+            let params = block_params.entry(uncaught_label.clone()).or_default();
+            params.retain(|name| name != uncaught_exc_name);
+            params.push(uncaught_exc_name.clone());
+        }
+        let state_entry_label = generator_resume_entry_label
+            .as_deref()
+            .unwrap_or(entry_label.as_str());
         let entry_params = block_params
-            .get(entry_label.as_str())
+            .get(state_entry_label)
             .cloned()
             .unwrap_or_default()
             .into_iter()
@@ -562,11 +737,15 @@ impl BasicBlockRewriter<'_> {
             .iter()
             .map(|block| block.label.clone())
             .collect::<Vec<_>>();
-        let resume_pcs = target_labels
-            .iter()
-            .enumerate()
-            .map(|(idx, label)| (label.clone(), idx))
-            .collect::<Vec<_>>();
+        let resume_pcs = if has_yield {
+            generator_resume_order
+                .iter()
+                .enumerate()
+                .map(|(idx, label)| (label.clone(), idx))
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
         let lowered_is_async = func.is_async;
         let mut state_order = entry_params.clone();
         for name in extra_state_vars {
@@ -595,7 +774,9 @@ impl BasicBlockRewriter<'_> {
             })
             .collect::<Vec<_>>();
 
-        let resume_entry_label = entry_label.clone();
+        let resume_entry_label = generator_resume_entry_label
+            .clone()
+            .unwrap_or_else(|| entry_label.clone());
         Some(LoweredFunction {
             blocks: ir_blocks,
             entry_label,
@@ -1711,20 +1892,12 @@ impl BasicBlockRewriter<'_> {
                 module_name = py_expr!("__name__"),
             )),
             BbFunctionKind::AsyncGenerator {
-                resume_label,
-                target_labels,
                 ..
             } => {
-                let target_exprs = target_labels
-                    .iter()
-                    .map(|label| name_expr(label.as_str()))
-                    .collect::<Option<Vec<_>>>()?;
-                let targets = make_tuple(target_exprs);
-                let resume = name_expr(resume_label.as_str())?;
+                let resume = name_expr(bb_function.entry.as_str())?;
                 Some(py_expr!(
-                    "__dp__.def_async_gen({resume:expr}, {targets:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __name__)",
+                    "__dp__.def_async_gen({resume:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __name__)",
                     resume = resume,
-                    targets = targets,
                     name = bb_function.display_name.as_str(),
                     qualname = bb_function.qualname.as_str(),
                     closure = closure,
@@ -1732,20 +1905,12 @@ impl BasicBlockRewriter<'_> {
                 ))
             }
             BbFunctionKind::Generator {
-                resume_label,
-                target_labels,
                 ..
             } => {
-                let target_exprs = target_labels
-                    .iter()
-                    .map(|label| name_expr(label.as_str()))
-                    .collect::<Option<Vec<_>>>()?;
-                let targets = make_tuple(target_exprs);
-                let resume = name_expr(resume_label.as_str())?;
+                let resume = name_expr(bb_function.entry.as_str())?;
                 Some(py_expr!(
-                    "__dp__.def_gen({resume:expr}, {targets:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __name__)",
+                    "__dp__.def_gen({resume:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __name__)",
                     resume = resume,
-                    targets = targets,
                     name = bb_function.display_name.as_str(),
                     qualname = bb_function.qualname.as_str(),
                     closure = closure,

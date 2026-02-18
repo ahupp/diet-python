@@ -2088,6 +2088,19 @@ def _dp_bb_gen_invalid(_dp_self, _dp_send_value, _dp_resume_exc):
     return __dp__.raise_(RuntimeError("invalid generator pc: {}".format(_dp_self._pc)))
 
 
+def _dp_bb_gen_uncaught(_dp_self, _dp_send_value, _dp_resume_exc, _dp_uncaught_exc_2):
+    _dp_self, _dp_send_value, _dp_resume_exc, _dp_uncaught_exc_2 = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+        _dp_uncaught_exc_2.take(),
+    )
+    if _dp_self._pc != __dp__._GEN_PC_DONE:
+        __dp__.setattr(_dp_self, "_pc", __dp__._GEN_PC_DONE)
+        __dp__.raise_uncaught_generator_exception(_dp_uncaught_exc_2)
+    return __dp__.raise_(_dp_uncaught_exc_2)
+
+
 def _dp_bb_gen_resume_0(_dp_self, _dp_send_value, _dp_resume_exc):
     _dp_self, _dp_send_value, _dp_resume_exc = (
         _dp_self.take(),
@@ -2100,7 +2113,7 @@ def _dp_bb_gen_resume_0(_dp_self, _dp_send_value, _dp_resume_exc):
         return __dp__.raise_(
             TypeError("can't send non-None value to a just-started generator")
         )
-    __dp__.setattr(_dp_self, "_pc", 3)
+    __dp__.setattr(_dp_self, "_pc", 1)
     return __dp__.ret(1)
 
 
@@ -2116,24 +2129,154 @@ def _dp_bb_gen_resume_1(_dp_self, _dp_send_value, _dp_resume_exc):
     return __dp__.raise_(StopIteration(None))
 
 
+def _dp_bb_gen_dispatch_throw_done(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.raise_(_dp_resume_exc)
+
+
+def _dp_bb_gen_dispatch_throw_unstarted(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.raise_(_dp_resume_exc)
+
+
+def _dp_bb_gen_dispatch_send_pc_1(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.brif(
+        _dp_self._pc == 1,
+        _dp_bb_gen_resume_1,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+        _dp_bb_gen_invalid,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+    )
+
+
+def _dp_bb_gen_dispatch_throw_pc_1(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.brif(
+        _dp_self._pc == 1,
+        _dp_bb_gen_resume_1,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+        _dp_bb_gen_invalid,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+    )
+
+
+def _dp_bb_gen_dispatch_send_pc_0(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.brif(
+        _dp_self._pc == 0,
+        _dp_bb_gen_resume_0,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+        _dp_bb_gen_dispatch_send_pc_1,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+    )
+
+
+def _dp_bb_gen_dispatch_throw_pc_0(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.brif(
+        _dp_self._pc == 0,
+        _dp_bb_gen_dispatch_throw_unstarted,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+        _dp_bb_gen_dispatch_throw_pc_1,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+    )
+
+
+def _dp_bb_gen_dispatch_send(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.brif(
+        _dp_self._pc == __dp__._GEN_PC_DONE,
+        _dp_bb_gen_done,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+        _dp_bb_gen_dispatch_send_pc_0,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+    )
+
+
+def _dp_bb_gen_dispatch_throw(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.brif(
+        _dp_self._pc == __dp__._GEN_PC_DONE,
+        _dp_bb_gen_dispatch_throw_done,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+        _dp_bb_gen_dispatch_throw_pc_0,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+    )
+
+
+def _dp_bb_gen_dispatch(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.brif(
+        _dp_resume_exc is None,
+        _dp_bb_gen_dispatch_send,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+        _dp_bb_gen_dispatch_throw,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+    )
+
+
+__dp__.setattr(_dp_bb_gen_resume_0, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_resume_0, "_dp_exc_name", "_dp_uncaught_exc_2")
+__dp__.setattr(_dp_bb_gen_resume_1, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_resume_1, "_dp_exc_name", "_dp_uncaught_exc_2")
+__dp__.setattr(_dp_bb_gen_dispatch_send_pc_1, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_dispatch_send_pc_1, "_dp_exc_name", "_dp_uncaught_exc_2")
+__dp__.setattr(_dp_bb_gen_dispatch_throw_pc_1, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_dispatch_throw_pc_1, "_dp_exc_name", "_dp_uncaught_exc_2")
+__dp__.setattr(_dp_bb_gen_dispatch_send_pc_0, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_dispatch_send_pc_0, "_dp_exc_name", "_dp_uncaught_exc_2")
+__dp__.setattr(_dp_bb_gen_dispatch_throw_pc_0, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_dispatch_throw_pc_0, "_dp_exc_name", "_dp_uncaught_exc_2")
+__dp__.setattr(_dp_bb_gen_dispatch_send, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_dispatch_send, "_dp_exc_name", "_dp_uncaught_exc_2")
+__dp__.setattr(_dp_bb_gen_dispatch_throw, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_dispatch_throw, "_dp_exc_name", "_dp_uncaught_exc_2")
+__dp__.setattr(_dp_bb_gen_dispatch, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_dispatch, "_dp_exc_name", "_dp_uncaught_exc_2")
+
+
 def _dp_bb__dp_module_init_start():
     __dp__.store_global(
         globals(),
         "gen",
-        __dp__.def_gen(
-            _dp_bb_gen_resume_0,
-            (
-                _dp_bb_gen_done,
-                _dp_bb_gen_invalid,
-                _dp_bb_gen_resume_0,
-                _dp_bb_gen_resume_1,
-            ),
-            "gen",
-            "gen",
-            (),
-            (),
-            __name__,
-        ),
+        __dp__.def_gen(_dp_bb_gen_dispatch, "gen", "gen", (), (), __name__),
     )
     return __dp__.ret(None)
 
@@ -2180,18 +2323,29 @@ def _dp_bb_gen_invalid(_dp_self, _dp_send_value, _dp_resume_exc):
     return __dp__.raise_(RuntimeError("invalid generator pc: {}".format(_dp_self._pc)))
 
 
-def _dp_bb_gen_resume_0(_dp_self, _dp_send_value, _dp_resume_exc):
+def _dp_bb_gen_uncaught(_dp_self, _dp_send_value, _dp_resume_exc, _dp_uncaught_exc_29):
+    _dp_self, _dp_send_value, _dp_resume_exc, _dp_uncaught_exc_29 = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+        _dp_uncaught_exc_29.take(),
+    )
+    if _dp_self._pc != __dp__._GEN_PC_DONE:
+        __dp__.setattr(_dp_self, "_pc", __dp__._GEN_PC_DONE)
+        __dp__.raise_uncaught_generator_exception(_dp_uncaught_exc_29)
+    return __dp__.raise_(_dp_uncaught_exc_29)
+
+
+def _dp_bb_gen_internal_0(_dp_self, _dp_send_value, _dp_resume_exc):
     _dp_self, _dp_send_value, _dp_resume_exc = (
         _dp_self.take(),
         _dp_send_value.take(),
         _dp_resume_exc.take(),
     )
-    if _dp_resume_exc is not None:
-        return __dp__.raise_(_dp_resume_exc)
     _dp_yield_from_iter_1 = iter(it)
     __dp__.setattr(_dp_self, "gi_yieldfrom", _dp_yield_from_iter_1)
     return __dp__.jump(
-        _dp_bb_gen_internal_0,
+        _dp_bb_gen_internal_1,
         (
             _dp_self,
             _dp_send_value,
@@ -2208,7 +2362,7 @@ def _dp_bb_gen_resume_0(_dp_self, _dp_send_value, _dp_resume_exc):
     )
 
 
-def _dp_bb_gen_internal_0(
+def _dp_bb_gen_internal_1(
     _dp_self,
     _dp_send_value,
     _dp_resume_exc,
@@ -2230,7 +2384,7 @@ def _dp_bb_gen_internal_0(
     )
     _dp_yield_from_y_2 = next(_dp_yield_from_iter_1)
     return __dp__.jump(
-        _dp_bb_gen_internal_5,
+        _dp_bb_gen_internal_6,
         (
             _dp_self,
             _dp_send_value,
@@ -2247,7 +2401,7 @@ def _dp_bb_gen_internal_0(
     )
 
 
-def _dp_bb_gen_internal_1(
+def _dp_bb_gen_internal_2(
     _dp_self, _dp_send_value, _dp_resume_exc, _dp_yield_from_stop_4
 ):
     _dp_self, _dp_send_value, _dp_resume_exc, _dp_yield_from_stop_4 = (
@@ -2258,9 +2412,9 @@ def _dp_bb_gen_internal_1(
     )
     return __dp__.brif(
         __dp__.exception_matches(_dp_yield_from_stop_4, StopIteration),
-        _dp_bb_gen_internal_2,
+        _dp_bb_gen_internal_3,
         (_dp_self, _dp_send_value, _dp_resume_exc),
-        _dp_bb_gen_internal_4,
+        _dp_bb_gen_internal_5,
         (
             _dp_self,
             _dp_send_value,
@@ -2273,18 +2427,18 @@ def _dp_bb_gen_internal_1(
     )
 
 
-def _dp_bb_gen_internal_2(_dp_self, _dp_send_value, _dp_resume_exc):
+def _dp_bb_gen_internal_3(_dp_self, _dp_send_value, _dp_resume_exc):
     _dp_self, _dp_send_value, _dp_resume_exc = (
         _dp_self.take(),
         _dp_send_value.take(),
         _dp_resume_exc.take(),
     )
     return __dp__.jump(
-        _dp_bb_gen_internal_3, (_dp_self, _dp_send_value, _dp_resume_exc)
+        _dp_bb_gen_internal_4, (_dp_self, _dp_send_value, _dp_resume_exc)
     )
 
 
-def _dp_bb_gen_internal_3(_dp_self, _dp_send_value, _dp_resume_exc):
+def _dp_bb_gen_internal_4(_dp_self, _dp_send_value, _dp_resume_exc):
     _dp_self, _dp_send_value, _dp_resume_exc = (
         _dp_self.take(),
         _dp_send_value.take(),
@@ -2295,7 +2449,7 @@ def _dp_bb_gen_internal_3(_dp_self, _dp_send_value, _dp_resume_exc):
     return __dp__.raise_(StopIteration(None))
 
 
-def _dp_bb_gen_internal_4(
+def _dp_bb_gen_internal_5(
     _dp_self, _dp_send_value, _dp_resume_exc, _dp_yield_from_stop_4
 ):
     _dp_self, _dp_send_value, _dp_resume_exc, _dp_yield_from_stop_4 = (
@@ -2306,7 +2460,7 @@ def _dp_bb_gen_internal_4(
     )
     _dp_yield_from_raise_6 = _dp_yield_from_stop_4
     return __dp__.jump(
-        _dp_bb_gen_internal_10,
+        _dp_bb_gen_internal_11,
         (
             _dp_self,
             _dp_send_value,
@@ -2319,7 +2473,7 @@ def _dp_bb_gen_internal_4(
     )
 
 
-def _dp_bb_gen_internal_5(
+def _dp_bb_gen_internal_6(
     _dp_self, _dp_send_value, _dp_resume_exc, _dp_yield_from_iter_1, _dp_yield_from_y_2
 ):
     (
@@ -2335,12 +2489,12 @@ def _dp_bb_gen_internal_5(
         _dp_yield_from_iter_1.take(),
         _dp_yield_from_y_2.take(),
     )
-    __dp__.setattr(_dp_self, "_pc", 9)
+    __dp__.setattr(_dp_self, "_pc", 1)
     __dp_store_local(_dp_self, "_dp_yield_from_iter_1", _dp_yield_from_iter_1)
     return __dp__.ret(_dp_yield_from_y_2)
 
 
-def _dp_bb_gen_resume_1(
+def _dp_bb_gen_resume_0(
     _dp_self, _dp_send_value, _dp_resume_exc, _dp_yield_from_iter_1
 ):
     _dp_self, _dp_send_value, _dp_resume_exc, _dp_yield_from_iter_1 = (
@@ -2354,59 +2508,6 @@ def _dp_bb_gen_resume_1(
     _dp_resume_exc = None
     return __dp__.brif(
         _dp_yield_from_exc_5 is not None,
-        _dp_bb_gen_internal_6,
-        (
-            _dp_self,
-            _dp_send_value,
-            _dp_resume_exc,
-            locals().get(
-                "_dp_yield_from_iter_1",
-                __dp_load_local_raw(_dp_self, "_dp_yield_from_iter_1"),
-            ),
-            locals().get(
-                "_dp_yield_from_exc_5",
-                __dp_load_local_raw(_dp_self, "_dp_yield_from_exc_5"),
-            ),
-        ),
-        _dp_bb_gen_resume_3,
-        (
-            _dp_self,
-            _dp_send_value,
-            _dp_resume_exc,
-            locals().get(
-                "_dp_yield_from_iter_1",
-                __dp_load_local_raw(_dp_self, "_dp_yield_from_iter_1"),
-            ),
-            locals().get(
-                "_dp_yield_from_sent_3",
-                __dp_load_local_raw(_dp_self, "_dp_yield_from_sent_3"),
-            ),
-        ),
-    )
-
-
-def _dp_bb_gen_internal_6(
-    _dp_self,
-    _dp_send_value,
-    _dp_resume_exc,
-    _dp_yield_from_iter_1,
-    _dp_yield_from_exc_5,
-):
-    (
-        _dp_self,
-        _dp_send_value,
-        _dp_resume_exc,
-        _dp_yield_from_iter_1,
-        _dp_yield_from_exc_5,
-    ) = (
-        _dp_self.take(),
-        _dp_send_value.take(),
-        _dp_resume_exc.take(),
-        _dp_yield_from_iter_1.take(),
-        _dp_yield_from_exc_5.take(),
-    )
-    return __dp__.brif(
-        __dp__.exception_matches(_dp_yield_from_exc_5, GeneratorExit),
         _dp_bb_gen_internal_7,
         (
             _dp_self,
@@ -2421,7 +2522,7 @@ def _dp_bb_gen_internal_6(
                 __dp_load_local_raw(_dp_self, "_dp_yield_from_exc_5"),
             ),
         ),
-        _dp_bb_gen_internal_11,
+        _dp_bb_gen_internal_15,
         (
             _dp_self,
             _dp_send_value,
@@ -2431,8 +2532,8 @@ def _dp_bb_gen_internal_6(
                 __dp_load_local_raw(_dp_self, "_dp_yield_from_iter_1"),
             ),
             locals().get(
-                "_dp_yield_from_exc_5",
-                __dp_load_local_raw(_dp_self, "_dp_yield_from_exc_5"),
+                "_dp_yield_from_sent_3",
+                __dp_load_local_raw(_dp_self, "_dp_yield_from_sent_3"),
             ),
         ),
     )
@@ -2458,10 +2559,63 @@ def _dp_bb_gen_internal_7(
         _dp_yield_from_iter_1.take(),
         _dp_yield_from_exc_5.take(),
     )
+    return __dp__.brif(
+        __dp__.exception_matches(_dp_yield_from_exc_5, GeneratorExit),
+        _dp_bb_gen_internal_8,
+        (
+            _dp_self,
+            _dp_send_value,
+            _dp_resume_exc,
+            locals().get(
+                "_dp_yield_from_iter_1",
+                __dp_load_local_raw(_dp_self, "_dp_yield_from_iter_1"),
+            ),
+            locals().get(
+                "_dp_yield_from_exc_5",
+                __dp_load_local_raw(_dp_self, "_dp_yield_from_exc_5"),
+            ),
+        ),
+        _dp_bb_gen_internal_12,
+        (
+            _dp_self,
+            _dp_send_value,
+            _dp_resume_exc,
+            locals().get(
+                "_dp_yield_from_iter_1",
+                __dp_load_local_raw(_dp_self, "_dp_yield_from_iter_1"),
+            ),
+            locals().get(
+                "_dp_yield_from_exc_5",
+                __dp_load_local_raw(_dp_self, "_dp_yield_from_exc_5"),
+            ),
+        ),
+    )
+
+
+def _dp_bb_gen_internal_8(
+    _dp_self,
+    _dp_send_value,
+    _dp_resume_exc,
+    _dp_yield_from_iter_1,
+    _dp_yield_from_exc_5,
+):
+    (
+        _dp_self,
+        _dp_send_value,
+        _dp_resume_exc,
+        _dp_yield_from_iter_1,
+        _dp_yield_from_exc_5,
+    ) = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+        _dp_yield_from_iter_1.take(),
+        _dp_yield_from_exc_5.take(),
+    )
     _dp_yield_from_close_7 = getattr(_dp_yield_from_iter_1, "close", None)
     return __dp__.brif(
         _dp_yield_from_close_7 is not None,
-        _dp_bb_gen_internal_8,
+        _dp_bb_gen_internal_9,
         (
             _dp_self,
             _dp_send_value,
@@ -2475,7 +2629,7 @@ def _dp_bb_gen_internal_7(
                 __dp_load_local_raw(_dp_self, "_dp_yield_from_close_7"),
             ),
         ),
-        _dp_bb_gen_internal_9,
+        _dp_bb_gen_internal_10,
         (
             _dp_self,
             _dp_send_value,
@@ -2488,7 +2642,7 @@ def _dp_bb_gen_internal_7(
     )
 
 
-def _dp_bb_gen_internal_8(
+def _dp_bb_gen_internal_9(
     _dp_self,
     _dp_send_value,
     _dp_resume_exc,
@@ -2510,7 +2664,7 @@ def _dp_bb_gen_internal_8(
     )
     _dp_yield_from_close_7()
     return __dp__.jump(
-        _dp_bb_gen_internal_9,
+        _dp_bb_gen_internal_10,
         (
             _dp_self,
             _dp_send_value,
@@ -2523,7 +2677,7 @@ def _dp_bb_gen_internal_8(
     )
 
 
-def _dp_bb_gen_internal_9(
+def _dp_bb_gen_internal_10(
     _dp_self, _dp_send_value, _dp_resume_exc, _dp_yield_from_exc_5
 ):
     _dp_self, _dp_send_value, _dp_resume_exc, _dp_yield_from_exc_5 = (
@@ -2534,7 +2688,7 @@ def _dp_bb_gen_internal_9(
     )
     _dp_yield_from_raise_6 = _dp_yield_from_exc_5
     return __dp__.jump(
-        _dp_bb_gen_internal_10,
+        _dp_bb_gen_internal_11,
         (
             _dp_self,
             _dp_send_value,
@@ -2547,7 +2701,7 @@ def _dp_bb_gen_internal_9(
     )
 
 
-def _dp_bb_gen_internal_10(
+def _dp_bb_gen_internal_11(
     _dp_self, _dp_send_value, _dp_resume_exc, _dp_yield_from_raise_6
 ):
     _dp_self, _dp_send_value, _dp_resume_exc, _dp_yield_from_raise_6 = (
@@ -2560,7 +2714,7 @@ def _dp_bb_gen_internal_10(
     return __dp__.raise_(_dp_yield_from_raise_6)
 
 
-def _dp_bb_gen_internal_11(
+def _dp_bb_gen_internal_12(
     _dp_self,
     _dp_send_value,
     _dp_resume_exc,
@@ -2583,7 +2737,7 @@ def _dp_bb_gen_internal_11(
     _dp_yield_from_throw_8 = getattr(_dp_yield_from_iter_1, "throw", None)
     return __dp__.brif(
         _dp_yield_from_throw_8 is None,
-        _dp_bb_gen_internal_9,
+        _dp_bb_gen_internal_10,
         (
             _dp_self,
             _dp_send_value,
@@ -2593,7 +2747,7 @@ def _dp_bb_gen_internal_11(
                 __dp_load_local_raw(_dp_self, "_dp_yield_from_exc_5"),
             ),
         ),
-        _dp_bb_gen_resume_2,
+        _dp_bb_gen_internal_13,
         (
             _dp_self,
             _dp_send_value,
@@ -2614,7 +2768,7 @@ def _dp_bb_gen_internal_11(
     )
 
 
-def _dp_bb_gen_resume_2(
+def _dp_bb_gen_internal_13(
     _dp_self,
     _dp_send_value,
     _dp_resume_exc,
@@ -2637,10 +2791,8 @@ def _dp_bb_gen_resume_2(
         _dp_yield_from_exc_5.take(),
         _dp_yield_from_throw_8.take(),
     )
-    if _dp_resume_exc is not None:
-        return __dp__.raise_(_dp_resume_exc)
     return __dp__.jump(
-        _dp_bb_gen_internal_12,
+        _dp_bb_gen_internal_14,
         (
             _dp_self,
             _dp_send_value,
@@ -2665,7 +2817,7 @@ def _dp_bb_gen_resume_2(
     )
 
 
-def _dp_bb_gen_internal_12(
+def _dp_bb_gen_internal_14(
     _dp_self,
     _dp_send_value,
     _dp_resume_exc,
@@ -2693,7 +2845,7 @@ def _dp_bb_gen_internal_12(
     )
     _dp_yield_from_y_2 = _dp_yield_from_throw_8(_dp_yield_from_exc_5)
     return __dp__.jump(
-        _dp_bb_gen_internal_5,
+        _dp_bb_gen_internal_6,
         (
             _dp_self,
             _dp_send_value,
@@ -2710,7 +2862,7 @@ def _dp_bb_gen_internal_12(
     )
 
 
-def _dp_bb_gen_resume_3(
+def _dp_bb_gen_internal_15(
     _dp_self,
     _dp_send_value,
     _dp_resume_exc,
@@ -2730,10 +2882,8 @@ def _dp_bb_gen_resume_3(
         _dp_yield_from_iter_1.take(),
         _dp_yield_from_sent_3.take(),
     )
-    if _dp_resume_exc is not None:
-        return __dp__.raise_(_dp_resume_exc)
     return __dp__.jump(
-        _dp_bb_gen_internal_13,
+        _dp_bb_gen_internal_16,
         (
             _dp_self,
             _dp_send_value,
@@ -2754,7 +2904,7 @@ def _dp_bb_gen_resume_3(
     )
 
 
-def _dp_bb_gen_internal_13(
+def _dp_bb_gen_internal_16(
     _dp_self,
     _dp_send_value,
     _dp_resume_exc,
@@ -2779,7 +2929,7 @@ def _dp_bb_gen_internal_13(
     )
     return __dp__.brif(
         _dp_yield_from_sent_3 is None,
-        _dp_bb_gen_internal_0,
+        _dp_bb_gen_internal_1,
         (
             _dp_self,
             _dp_send_value,
@@ -2793,7 +2943,7 @@ def _dp_bb_gen_internal_13(
                 __dp_load_local_raw(_dp_self, "_dp_yield_from_stop_4"),
             ),
         ),
-        _dp_bb_gen_internal_14,
+        _dp_bb_gen_internal_17,
         (
             _dp_self,
             _dp_send_value,
@@ -2814,7 +2964,7 @@ def _dp_bb_gen_internal_13(
     )
 
 
-def _dp_bb_gen_internal_14(
+def _dp_bb_gen_internal_17(
     _dp_self,
     _dp_send_value,
     _dp_resume_exc,
@@ -2839,7 +2989,7 @@ def _dp_bb_gen_internal_14(
     )
     _dp_yield_from_y_2 = _dp_yield_from_iter_1.send(_dp_yield_from_sent_3)
     return __dp__.jump(
-        _dp_bb_gen_internal_5,
+        _dp_bb_gen_internal_6,
         (
             _dp_self,
             _dp_send_value,
@@ -2856,7 +3006,7 @@ def _dp_bb_gen_internal_14(
     )
 
 
-def _dp_bb_gen_resume_4(_dp_self, _dp_send_value, _dp_resume_exc):
+def _dp_bb_gen_resume_1(_dp_self, _dp_send_value, _dp_resume_exc):
     _dp_self, _dp_send_value, _dp_resume_exc = (
         _dp_self.take(),
         _dp_send_value.take(),
@@ -2868,55 +3018,211 @@ def _dp_bb_gen_resume_4(_dp_self, _dp_send_value, _dp_resume_exc):
         return __dp__.raise_(
             TypeError("can't send non-None value to a just-started generator")
         )
-    return __dp__.jump(_dp_bb_gen_resume_0, (_dp_self, _dp_send_value, _dp_resume_exc))
+    return __dp__.jump(
+        _dp_bb_gen_internal_0, (_dp_self, _dp_send_value, _dp_resume_exc)
+    )
 
 
-__dp__.setattr(_dp_bb_gen_internal_0, "_dp_exc_target", _dp_bb_gen_internal_1)
-__dp__.setattr(_dp_bb_gen_internal_0, "_dp_exc_name", "_dp_yield_from_stop_4")
-__dp__.setattr(_dp_bb_gen_internal_12, "_dp_exc_target", _dp_bb_gen_internal_1)
-__dp__.setattr(_dp_bb_gen_internal_12, "_dp_exc_name", "_dp_yield_from_stop_4")
-__dp__.setattr(_dp_bb_gen_internal_13, "_dp_exc_target", _dp_bb_gen_internal_1)
-__dp__.setattr(_dp_bb_gen_internal_13, "_dp_exc_name", "_dp_yield_from_stop_4")
-__dp__.setattr(_dp_bb_gen_internal_14, "_dp_exc_target", _dp_bb_gen_internal_1)
+def _dp_bb_gen_dispatch_throw_done(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.raise_(_dp_resume_exc)
+
+
+def _dp_bb_gen_dispatch_throw_unstarted(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.raise_(_dp_resume_exc)
+
+
+def _dp_bb_gen_dispatch_send_pc_1(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.brif(
+        _dp_self._pc == 1,
+        _dp_bb_gen_resume_0,
+        (
+            _dp_self,
+            _dp_send_value,
+            _dp_resume_exc,
+            locals().get(
+                "_dp_yield_from_iter_1",
+                __dp_load_local_raw(_dp_self, "_dp_yield_from_iter_1"),
+            ),
+        ),
+        _dp_bb_gen_invalid,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+    )
+
+
+def _dp_bb_gen_dispatch_throw_pc_1(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.brif(
+        _dp_self._pc == 1,
+        _dp_bb_gen_resume_0,
+        (
+            _dp_self,
+            _dp_send_value,
+            _dp_resume_exc,
+            locals().get(
+                "_dp_yield_from_iter_1",
+                __dp_load_local_raw(_dp_self, "_dp_yield_from_iter_1"),
+            ),
+        ),
+        _dp_bb_gen_invalid,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+    )
+
+
+def _dp_bb_gen_dispatch_send_pc_0(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.brif(
+        _dp_self._pc == 0,
+        _dp_bb_gen_resume_1,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+        _dp_bb_gen_dispatch_send_pc_1,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+    )
+
+
+def _dp_bb_gen_dispatch_throw_pc_0(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.brif(
+        _dp_self._pc == 0,
+        _dp_bb_gen_dispatch_throw_unstarted,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+        _dp_bb_gen_dispatch_throw_pc_1,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+    )
+
+
+def _dp_bb_gen_dispatch_send(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.brif(
+        _dp_self._pc == __dp__._GEN_PC_DONE,
+        _dp_bb_gen_done,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+        _dp_bb_gen_dispatch_send_pc_0,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+    )
+
+
+def _dp_bb_gen_dispatch_throw(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.brif(
+        _dp_self._pc == __dp__._GEN_PC_DONE,
+        _dp_bb_gen_dispatch_throw_done,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+        _dp_bb_gen_dispatch_throw_pc_0,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+    )
+
+
+def _dp_bb_gen_dispatch(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.brif(
+        _dp_resume_exc is None,
+        _dp_bb_gen_dispatch_send,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+        _dp_bb_gen_dispatch_throw,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+    )
+
+
+__dp__.setattr(_dp_bb_gen_internal_0, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_internal_0, "_dp_exc_name", "_dp_uncaught_exc_29")
+__dp__.setattr(_dp_bb_gen_internal_1, "_dp_exc_target", _dp_bb_gen_internal_2)
+__dp__.setattr(_dp_bb_gen_internal_1, "_dp_exc_name", "_dp_yield_from_stop_4")
+__dp__.setattr(_dp_bb_gen_internal_2, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_internal_2, "_dp_exc_name", "_dp_uncaught_exc_29")
+__dp__.setattr(_dp_bb_gen_internal_3, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_internal_3, "_dp_exc_name", "_dp_uncaught_exc_29")
+__dp__.setattr(_dp_bb_gen_internal_4, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_internal_4, "_dp_exc_name", "_dp_uncaught_exc_29")
+__dp__.setattr(_dp_bb_gen_internal_5, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_internal_5, "_dp_exc_name", "_dp_uncaught_exc_29")
+__dp__.setattr(_dp_bb_gen_internal_6, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_internal_6, "_dp_exc_name", "_dp_uncaught_exc_29")
+__dp__.setattr(_dp_bb_gen_resume_0, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_resume_0, "_dp_exc_name", "_dp_uncaught_exc_29")
+__dp__.setattr(_dp_bb_gen_internal_7, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_internal_7, "_dp_exc_name", "_dp_uncaught_exc_29")
+__dp__.setattr(_dp_bb_gen_internal_8, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_internal_8, "_dp_exc_name", "_dp_uncaught_exc_29")
+__dp__.setattr(_dp_bb_gen_internal_9, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_internal_9, "_dp_exc_name", "_dp_uncaught_exc_29")
+__dp__.setattr(_dp_bb_gen_internal_10, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_internal_10, "_dp_exc_name", "_dp_uncaught_exc_29")
+__dp__.setattr(_dp_bb_gen_internal_11, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_internal_11, "_dp_exc_name", "_dp_uncaught_exc_29")
+__dp__.setattr(_dp_bb_gen_internal_12, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_internal_12, "_dp_exc_name", "_dp_uncaught_exc_29")
+__dp__.setattr(_dp_bb_gen_internal_13, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_internal_13, "_dp_exc_name", "_dp_uncaught_exc_29")
+__dp__.setattr(_dp_bb_gen_internal_14, "_dp_exc_target", _dp_bb_gen_internal_2)
 __dp__.setattr(_dp_bb_gen_internal_14, "_dp_exc_name", "_dp_yield_from_stop_4")
+__dp__.setattr(_dp_bb_gen_internal_15, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_internal_15, "_dp_exc_name", "_dp_uncaught_exc_29")
+__dp__.setattr(_dp_bb_gen_internal_16, "_dp_exc_target", _dp_bb_gen_internal_2)
+__dp__.setattr(_dp_bb_gen_internal_16, "_dp_exc_name", "_dp_yield_from_stop_4")
+__dp__.setattr(_dp_bb_gen_internal_17, "_dp_exc_target", _dp_bb_gen_internal_2)
+__dp__.setattr(_dp_bb_gen_internal_17, "_dp_exc_name", "_dp_yield_from_stop_4")
+__dp__.setattr(_dp_bb_gen_resume_1, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_resume_1, "_dp_exc_name", "_dp_uncaught_exc_29")
+__dp__.setattr(_dp_bb_gen_dispatch_send_pc_1, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_dispatch_send_pc_1, "_dp_exc_name", "_dp_uncaught_exc_29")
+__dp__.setattr(_dp_bb_gen_dispatch_throw_pc_1, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_dispatch_throw_pc_1, "_dp_exc_name", "_dp_uncaught_exc_29")
+__dp__.setattr(_dp_bb_gen_dispatch_send_pc_0, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_dispatch_send_pc_0, "_dp_exc_name", "_dp_uncaught_exc_29")
+__dp__.setattr(_dp_bb_gen_dispatch_throw_pc_0, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_dispatch_throw_pc_0, "_dp_exc_name", "_dp_uncaught_exc_29")
+__dp__.setattr(_dp_bb_gen_dispatch_send, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_dispatch_send, "_dp_exc_name", "_dp_uncaught_exc_29")
+__dp__.setattr(_dp_bb_gen_dispatch_throw, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_dispatch_throw, "_dp_exc_name", "_dp_uncaught_exc_29")
+__dp__.setattr(_dp_bb_gen_dispatch, "_dp_exc_target", _dp_bb_gen_uncaught)
+__dp__.setattr(_dp_bb_gen_dispatch, "_dp_exc_name", "_dp_uncaught_exc_29")
 
 
 def _dp_bb__dp_module_init_start():
     __dp__.store_global(
         globals(),
         "gen",
-        __dp__.def_gen(
-            _dp_bb_gen_resume_4,
-            (
-                _dp_bb_gen_done,
-                _dp_bb_gen_invalid,
-                _dp_bb_gen_resume_0,
-                _dp_bb_gen_internal_0,
-                _dp_bb_gen_internal_1,
-                _dp_bb_gen_internal_2,
-                _dp_bb_gen_internal_3,
-                _dp_bb_gen_internal_4,
-                _dp_bb_gen_internal_5,
-                _dp_bb_gen_resume_1,
-                _dp_bb_gen_internal_6,
-                _dp_bb_gen_internal_7,
-                _dp_bb_gen_internal_8,
-                _dp_bb_gen_internal_9,
-                _dp_bb_gen_internal_10,
-                _dp_bb_gen_internal_11,
-                _dp_bb_gen_resume_2,
-                _dp_bb_gen_internal_12,
-                _dp_bb_gen_resume_3,
-                _dp_bb_gen_internal_13,
-                _dp_bb_gen_internal_14,
-                _dp_bb_gen_resume_4,
-            ),
-            "gen",
-            "gen",
-            (),
-            (),
-            __name__,
-        ),
+        __dp__.def_gen(_dp_bb_gen_dispatch, "gen", "gen", (), (), __name__),
     )
     return __dp__.ret(None)
 
@@ -3366,6 +3672,22 @@ def _dp_bb_complicated_invalid(_dp_self, _dp_send_value, _dp_resume_exc, _dp_try
     return __dp__.raise_(RuntimeError("invalid generator pc: {}".format(_dp_self._pc)))
 
 
+def _dp_bb_complicated_uncaught(
+    _dp_self, _dp_send_value, _dp_resume_exc, _dp_try_exc_8, _dp_uncaught_exc_15
+):
+    _dp_self, _dp_send_value, _dp_resume_exc, _dp_try_exc_8, _dp_uncaught_exc_15 = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+        _dp_try_exc_8.take(),
+        _dp_uncaught_exc_15.take(),
+    )
+    if _dp_self._pc != __dp__._GEN_PC_DONE:
+        __dp__.setattr(_dp_self, "_pc", __dp__._GEN_PC_DONE)
+        __dp__.raise_uncaught_generator_exception(_dp_uncaught_exc_15)
+    return __dp__.raise_(_dp_uncaught_exc_15)
+
+
 def _dp_bb_complicated_internal_0(
     _dp_self, _dp_send_value, _dp_resume_exc, _dp_try_exc_8
 ):
@@ -3393,7 +3715,7 @@ def _dp_bb_complicated_resume_0(
     if _dp_resume_exc is not None:
         return __dp__.raise_(_dp_resume_exc)
     return __dp__.jump(
-        _dp_bb_complicated_internal_7,
+        _dp_bb_complicated_internal_8,
         (
             _dp_self,
             _dp_send_value,
@@ -3418,7 +3740,7 @@ def _dp_bb_complicated_internal_1(
         _dp_iter_2.take(),
     )
     j = __dp__.add(i, 1)
-    __dp__.setattr(_dp_self, "_pc", 3)
+    __dp__.setattr(_dp_self, "_pc", 1)
     __dp_store_local(_dp_self, "_dp_try_exc_8", _dp_try_exc_8)
     __dp_store_local(_dp_self, "_dp_iter_2", _dp_iter_2)
     return __dp__.ret(j)
@@ -3436,7 +3758,7 @@ def _dp_bb_complicated_internal_2(
     )
     _dp_try_exc_8 = __dp__.DELETED
     return __dp__.jump(
-        _dp_bb_complicated_internal_7,
+        _dp_bb_complicated_internal_8,
         (
             _dp_self,
             _dp_send_value,
@@ -3520,7 +3842,7 @@ def _dp_bb_complicated_internal_5(
     )
 
 
-def _dp_bb_complicated_resume_1(
+def _dp_bb_complicated_internal_6(
     _dp_self, _dp_send_value, _dp_resume_exc, i, _dp_iter_2, _dp_try_exc_8
 ):
     _dp_self, _dp_send_value, _dp_resume_exc, i, _dp_iter_2, _dp_try_exc_8 = (
@@ -3531,8 +3853,6 @@ def _dp_bb_complicated_resume_1(
         _dp_iter_2.take(),
         _dp_try_exc_8.take(),
     )
-    if _dp_resume_exc is not None:
-        return __dp__.raise_(_dp_resume_exc)
     return __dp__.jump(
         _dp_bb_complicated_internal_1,
         (
@@ -3548,7 +3868,7 @@ def _dp_bb_complicated_resume_1(
     )
 
 
-def _dp_bb_complicated_internal_6(
+def _dp_bb_complicated_internal_7(
     _dp_self, _dp_send_value, _dp_resume_exc, _dp_tmp_3, _dp_iter_2, _dp_try_exc_8
 ):
     _dp_self, _dp_send_value, _dp_resume_exc, _dp_tmp_3, _dp_iter_2, _dp_try_exc_8 = (
@@ -3562,7 +3882,7 @@ def _dp_bb_complicated_internal_6(
     i = _dp_tmp_3
     _dp_tmp_3 = None
     return __dp__.jump(
-        _dp_bb_complicated_resume_1,
+        _dp_bb_complicated_internal_6,
         (
             _dp_self,
             _dp_send_value,
@@ -3576,7 +3896,7 @@ def _dp_bb_complicated_internal_6(
     )
 
 
-def _dp_bb_complicated_internal_7(
+def _dp_bb_complicated_internal_8(
     _dp_self, _dp_send_value, _dp_resume_exc, _dp_iter_2, _dp_try_exc_8
 ):
     _dp_self, _dp_send_value, _dp_resume_exc, _dp_iter_2, _dp_try_exc_8 = (
@@ -3598,7 +3918,7 @@ def _dp_bb_complicated_internal_7(
                 "_dp_try_exc_8", __dp_load_local_raw(_dp_self, "_dp_try_exc_8")
             ),
         ),
-        _dp_bb_complicated_internal_6,
+        _dp_bb_complicated_internal_7,
         (
             _dp_self,
             _dp_send_value,
@@ -3612,12 +3932,15 @@ def _dp_bb_complicated_internal_7(
     )
 
 
-def _dp_bb_complicated_resume_2(_dp_self, _dp_send_value, _dp_resume_exc, a):
-    _dp_self, _dp_send_value, _dp_resume_exc, a = (
+def _dp_bb_complicated_resume_1(
+    _dp_self, _dp_send_value, _dp_resume_exc, a, _dp_try_exc_8
+):
+    _dp_self, _dp_send_value, _dp_resume_exc, a, _dp_try_exc_8 = (
         _dp_self.take(),
         _dp_send_value.take(),
         _dp_resume_exc.take(),
         a.take(),
+        _dp_try_exc_8.take(),
     )
     if _dp_resume_exc is not None:
         return __dp__.raise_(_dp_resume_exc)
@@ -3628,7 +3951,7 @@ def _dp_bb_complicated_resume_2(_dp_self, _dp_send_value, _dp_resume_exc, a):
     _dp_try_exc_8 = __dp__.DELETED
     _dp_iter_2 = __dp__.iter(a)
     return __dp__.jump(
-        _dp_bb_complicated_internal_7,
+        _dp_bb_complicated_internal_8,
         (
             _dp_self,
             _dp_send_value,
@@ -3641,6 +3964,180 @@ def _dp_bb_complicated_resume_2(_dp_self, _dp_send_value, _dp_resume_exc, a):
     )
 
 
+def _dp_bb_complicated_dispatch_throw_done(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.raise_(_dp_resume_exc)
+
+
+def _dp_bb_complicated_dispatch_throw_unstarted(
+    _dp_self, _dp_send_value, _dp_resume_exc
+):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.raise_(_dp_resume_exc)
+
+
+def _dp_bb_complicated_dispatch_send_pc_1(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.brif(
+        _dp_self._pc == 1,
+        _dp_bb_complicated_resume_0,
+        (
+            _dp_self,
+            _dp_send_value,
+            _dp_resume_exc,
+            locals().get(
+                "_dp_try_exc_8", __dp_load_local_raw(_dp_self, "_dp_try_exc_8")
+            ),
+            locals().get("_dp_iter_2", __dp_load_local_raw(_dp_self, "_dp_iter_2")),
+        ),
+        _dp_bb_complicated_invalid,
+        (
+            _dp_self,
+            _dp_send_value,
+            _dp_resume_exc,
+            locals().get(
+                "_dp_try_exc_8", __dp_load_local_raw(_dp_self, "_dp_try_exc_8")
+            ),
+        ),
+    )
+
+
+def _dp_bb_complicated_dispatch_throw_pc_1(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.brif(
+        _dp_self._pc == 1,
+        _dp_bb_complicated_resume_0,
+        (
+            _dp_self,
+            _dp_send_value,
+            _dp_resume_exc,
+            locals().get(
+                "_dp_try_exc_8", __dp_load_local_raw(_dp_self, "_dp_try_exc_8")
+            ),
+            locals().get("_dp_iter_2", __dp_load_local_raw(_dp_self, "_dp_iter_2")),
+        ),
+        _dp_bb_complicated_invalid,
+        (
+            _dp_self,
+            _dp_send_value,
+            _dp_resume_exc,
+            locals().get(
+                "_dp_try_exc_8", __dp_load_local_raw(_dp_self, "_dp_try_exc_8")
+            ),
+        ),
+    )
+
+
+def _dp_bb_complicated_dispatch_send_pc_0(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.brif(
+        _dp_self._pc == 0,
+        _dp_bb_complicated_resume_1,
+        (
+            _dp_self,
+            _dp_send_value,
+            _dp_resume_exc,
+            locals().get("a", __dp_load_local_raw(_dp_self, "a")),
+            locals().get(
+                "_dp_try_exc_8", __dp_load_local_raw(_dp_self, "_dp_try_exc_8")
+            ),
+        ),
+        _dp_bb_complicated_dispatch_send_pc_1,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+    )
+
+
+def _dp_bb_complicated_dispatch_throw_pc_0(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.brif(
+        _dp_self._pc == 0,
+        _dp_bb_complicated_dispatch_throw_unstarted,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+        _dp_bb_complicated_dispatch_throw_pc_1,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+    )
+
+
+def _dp_bb_complicated_dispatch_send(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.brif(
+        _dp_self._pc == __dp__._GEN_PC_DONE,
+        _dp_bb_complicated_done,
+        (
+            _dp_self,
+            _dp_send_value,
+            _dp_resume_exc,
+            locals().get(
+                "_dp_try_exc_8", __dp_load_local_raw(_dp_self, "_dp_try_exc_8")
+            ),
+        ),
+        _dp_bb_complicated_dispatch_send_pc_0,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+    )
+
+
+def _dp_bb_complicated_dispatch_throw(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.brif(
+        _dp_self._pc == __dp__._GEN_PC_DONE,
+        _dp_bb_complicated_dispatch_throw_done,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+        _dp_bb_complicated_dispatch_throw_pc_0,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+    )
+
+
+def _dp_bb_complicated_dispatch(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.brif(
+        _dp_resume_exc is None,
+        _dp_bb_complicated_dispatch_send,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+        _dp_bb_complicated_dispatch_throw,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+    )
+
+
+__dp__.setattr(
+    _dp_bb_complicated_internal_0, "_dp_exc_target", _dp_bb_complicated_uncaught
+)
+__dp__.setattr(_dp_bb_complicated_internal_0, "_dp_exc_name", "_dp_uncaught_exc_15")
 __dp__.setattr(
     _dp_bb_complicated_resume_0, "_dp_exc_target", _dp_bb_complicated_internal_5
 )
@@ -3649,6 +4146,78 @@ __dp__.setattr(
     _dp_bb_complicated_internal_1, "_dp_exc_target", _dp_bb_complicated_internal_5
 )
 __dp__.setattr(_dp_bb_complicated_internal_1, "_dp_exc_name", "_dp_try_exc_8")
+__dp__.setattr(
+    _dp_bb_complicated_internal_2, "_dp_exc_target", _dp_bb_complicated_uncaught
+)
+__dp__.setattr(_dp_bb_complicated_internal_2, "_dp_exc_name", "_dp_uncaught_exc_15")
+__dp__.setattr(
+    _dp_bb_complicated_internal_3, "_dp_exc_target", _dp_bb_complicated_uncaught
+)
+__dp__.setattr(_dp_bb_complicated_internal_3, "_dp_exc_name", "_dp_uncaught_exc_15")
+__dp__.setattr(
+    _dp_bb_complicated_internal_4, "_dp_exc_target", _dp_bb_complicated_uncaught
+)
+__dp__.setattr(_dp_bb_complicated_internal_4, "_dp_exc_name", "_dp_uncaught_exc_15")
+__dp__.setattr(
+    _dp_bb_complicated_internal_5, "_dp_exc_target", _dp_bb_complicated_uncaught
+)
+__dp__.setattr(_dp_bb_complicated_internal_5, "_dp_exc_name", "_dp_uncaught_exc_15")
+__dp__.setattr(
+    _dp_bb_complicated_internal_6, "_dp_exc_target", _dp_bb_complicated_uncaught
+)
+__dp__.setattr(_dp_bb_complicated_internal_6, "_dp_exc_name", "_dp_uncaught_exc_15")
+__dp__.setattr(
+    _dp_bb_complicated_internal_7, "_dp_exc_target", _dp_bb_complicated_uncaught
+)
+__dp__.setattr(_dp_bb_complicated_internal_7, "_dp_exc_name", "_dp_uncaught_exc_15")
+__dp__.setattr(
+    _dp_bb_complicated_internal_8, "_dp_exc_target", _dp_bb_complicated_uncaught
+)
+__dp__.setattr(_dp_bb_complicated_internal_8, "_dp_exc_name", "_dp_uncaught_exc_15")
+__dp__.setattr(
+    _dp_bb_complicated_resume_1, "_dp_exc_target", _dp_bb_complicated_uncaught
+)
+__dp__.setattr(_dp_bb_complicated_resume_1, "_dp_exc_name", "_dp_uncaught_exc_15")
+__dp__.setattr(
+    _dp_bb_complicated_dispatch_send_pc_1, "_dp_exc_target", _dp_bb_complicated_uncaught
+)
+__dp__.setattr(
+    _dp_bb_complicated_dispatch_send_pc_1, "_dp_exc_name", "_dp_uncaught_exc_15"
+)
+__dp__.setattr(
+    _dp_bb_complicated_dispatch_throw_pc_1,
+    "_dp_exc_target",
+    _dp_bb_complicated_uncaught,
+)
+__dp__.setattr(
+    _dp_bb_complicated_dispatch_throw_pc_1, "_dp_exc_name", "_dp_uncaught_exc_15"
+)
+__dp__.setattr(
+    _dp_bb_complicated_dispatch_send_pc_0, "_dp_exc_target", _dp_bb_complicated_uncaught
+)
+__dp__.setattr(
+    _dp_bb_complicated_dispatch_send_pc_0, "_dp_exc_name", "_dp_uncaught_exc_15"
+)
+__dp__.setattr(
+    _dp_bb_complicated_dispatch_throw_pc_0,
+    "_dp_exc_target",
+    _dp_bb_complicated_uncaught,
+)
+__dp__.setattr(
+    _dp_bb_complicated_dispatch_throw_pc_0, "_dp_exc_name", "_dp_uncaught_exc_15"
+)
+__dp__.setattr(
+    _dp_bb_complicated_dispatch_send, "_dp_exc_target", _dp_bb_complicated_uncaught
+)
+__dp__.setattr(_dp_bb_complicated_dispatch_send, "_dp_exc_name", "_dp_uncaught_exc_15")
+__dp__.setattr(
+    _dp_bb_complicated_dispatch_throw, "_dp_exc_target", _dp_bb_complicated_uncaught
+)
+__dp__.setattr(_dp_bb_complicated_dispatch_throw, "_dp_exc_name", "_dp_uncaught_exc_15")
+__dp__.setattr(
+    _dp_bb_complicated_dispatch, "_dp_exc_target", _dp_bb_complicated_uncaught
+)
+__dp__.setattr(_dp_bb_complicated_dispatch, "_dp_exc_name", "_dp_uncaught_exc_15")
 
 
 def _dp_bb__dp_module_init_start():
@@ -3656,25 +4225,10 @@ def _dp_bb__dp_module_init_start():
         globals(),
         "complicated",
         __dp__.def_gen(
-            _dp_bb_complicated_resume_2,
-            (
-                _dp_bb_complicated_done,
-                _dp_bb_complicated_invalid,
-                _dp_bb_complicated_internal_0,
-                _dp_bb_complicated_resume_0,
-                _dp_bb_complicated_internal_1,
-                _dp_bb_complicated_internal_2,
-                _dp_bb_complicated_internal_3,
-                _dp_bb_complicated_internal_4,
-                _dp_bb_complicated_internal_5,
-                _dp_bb_complicated_resume_1,
-                _dp_bb_complicated_internal_6,
-                _dp_bb_complicated_internal_7,
-                _dp_bb_complicated_resume_2,
-            ),
+            _dp_bb_complicated_dispatch,
             "complicated",
             "complicated",
-            ("a",),
+            ("a", "_dp_try_exc_8"),
             (("a", None, __dp__.NO_DEFAULT),),
             __name__,
         ),

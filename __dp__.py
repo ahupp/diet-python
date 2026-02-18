@@ -388,74 +388,20 @@ def _block_param_names(block):
     return code.co_varnames[: code.co_argcount]
 
 
-def _bb_build_resume_args(resume_block, gen, send_value, resume_exc, transport_sent=None):
-    frame = getattr(gen, "gi_frame", None)
-    args = []
-    for name in _block_param_names(resume_block):
-        if name in ("_dp_self", "_dp_state"):
-            args.append(gen)
-        elif name == "_dp_send_value":
-            args.append(send_value)
-        elif name == "_dp_resume_exc":
-            args.append(resume_exc)
-        elif name == "_dp_transport_sent":
-            args.append(transport_sent)
-        elif isinstance(frame, dict):
-            args.append(frame.get(name, DELETED))
-        else:
-            args.append(DELETED)
-    return tuple(args)
-
-
-def _select_gen_resume_block(gen, send_value, resume_exc, *, async_gen=False, start_block=None):
-    done_exc = StopAsyncIteration if async_gen else StopIteration
-    pc = getattr(gen, "_pc", 0)
-    if pc == _GEN_PC_DONE:
-        if resume_exc is None:
-            raise done_exc()
-        raise resume_exc
-    if pc == 0:
-        if start_block is not None:
-            return start_block
-        return gen._dp_resume
-    targets = getattr(gen, "_targets", ())
-    if isinstance(pc, int) and 0 <= pc < len(targets):
-        return targets[pc]
-    if len(targets) > 1:
-        return targets[1]
-    raise RuntimeError(f"invalid {'async ' if async_gen else ''}generator pc: {pc!r}")
-
-
-def _raise_uncaught_generator_exception(exc, *, async_gen):
-    if async_gen:
-        if isinstance(exc, StopIteration):
-            raise RuntimeError("async generator raised StopIteration") from exc
-        if isinstance(exc, StopAsyncIteration):
-            raise RuntimeError("async generator raised StopAsyncIteration") from exc
-    else:
-        if isinstance(exc, StopIteration):
-            raise RuntimeError("generator raised StopIteration") from exc
+def raise_uncaught_generator_exception(exc):
+    if isinstance(exc, StopIteration):
+        raise RuntimeError("generator raised StopIteration") from exc
     raise exc
 
 
-def _run_sync_generator_block(gen, block, args):
-    try:
-        return run_bb(block, args)
-    except BaseException as exc:
-        if gen._pc != _GEN_PC_DONE:
-            gen._pc = _GEN_PC_DONE
-            _raise_uncaught_generator_exception(exc, async_gen=False)
-        raise
+def raise_uncaught_async_generator_exception(exc):
+    if isinstance(exc, StopIteration):
+        raise RuntimeError("async generator raised StopIteration") from exc
+    if isinstance(exc, StopAsyncIteration):
+        raise RuntimeError("async generator raised StopAsyncIteration") from exc
+    raise exc
 
 
-async def _run_async_generator_block(gen, block, args):
-    try:
-        return await run_coro_bb(block, args)
-    except BaseException as exc:
-        if gen._pc != _GEN_PC_DONE:
-            gen._pc = _GEN_PC_DONE
-            _raise_uncaught_generator_exception(exc, async_gen=True)
-        raise
 
 
 def _attach_throw_context_from_state(state, exc):
@@ -555,7 +501,7 @@ async def run_coro_bb(entry, args):
 async def run_coro_bb_term(entry, args, region_targets):
     block = entry
     raw_args = _bb_raw_args(args)
-    term_obj = None
+
     while True:
         assert callable(block), f"invalid basic-block target: {block!r}"
 
@@ -598,7 +544,7 @@ async def run_coro_bb_term(entry, args, region_targets):
 def run_bb_term(entry, args, region_targets):
     block = entry
     raw_args = _bb_raw_args(args)
-    term_obj = None
+
     while True:
         assert callable(block), f"invalid basic-block target: {block!r}"
 
@@ -610,7 +556,7 @@ def run_bb_term(entry, args, region_targets):
         except BaseException as exc:
             term_obj = _dispatch_block_exception(block, raw_args, exc)
             if term_obj is None:
-                term_obj = raise_(exc)
+                return raise_(exc)
         while True:
             if isinstance(term_obj, _JumpTerm):
                 routed = _route_region_jump(term_obj.target, term_obj.args, region_targets)
@@ -631,13 +577,8 @@ def run_bb_term(entry, args, region_targets):
 
 
 
-async def run_async_gen_bb(gen, value=None, resume_exc=None, transport_sent=None):
-    return await gen._dp_resume(gen, value, resume_exc, transport_sent)
-
-
 class _DpGenerator:
     __slots__ = (
-        "_targets",
         "_dp_resume",
         "_pc",
         "__name__",
@@ -650,7 +591,6 @@ class _DpGenerator:
     def __init__(
         self,
         *,
-        targets,
         resume,
         pc,
         gi_frame,
@@ -658,7 +598,6 @@ class _DpGenerator:
         qualname,
         code,
     ):
-        self._targets = targets
         self._dp_resume = resume
         self._pc = pc
         self.gi_frame = gi_frame
@@ -674,15 +613,7 @@ class _DpGenerator:
         return self.send(None)
 
     def _resume(self, value, resume_exc):
-        resume_block = _select_gen_resume_block(
-            self,
-            value,
-            resume_exc,
-            async_gen=False,
-            start_block=self._dp_resume,
-        )
-        resume_args = _bb_build_resume_args(resume_block, self, value, resume_exc)
-        return _run_sync_generator_block(self, resume_block, resume_args)
+        return run_bb(self._dp_resume, (self, value, resume_exc))
 
     def send(self, value):
         return self._resume(value, None)
@@ -704,7 +635,6 @@ class _DpGenerator:
 
 class _DpAsyncGenerator:
     __slots__ = (
-        "_targets",
         "_dp_resume",
         "_pc",
         "_dp_transport_sent",
@@ -718,7 +648,6 @@ class _DpAsyncGenerator:
     def __init__(
         self,
         *,
-        targets,
         resume,
         pc,
         gi_frame,
@@ -726,7 +655,6 @@ class _DpAsyncGenerator:
         qualname,
         code,
     ):
-        self._targets = targets
         self._dp_resume = resume
         self._pc = pc
         self._dp_transport_sent = None
@@ -751,6 +679,10 @@ class _DpAsyncGenerator:
             return None
         raise AttributeError(name)
 
+    async def _resume(self, value, resume_exc, transport_sent):
+        self._dp_resume._dp_transport_sent = transport_sent
+        return await run_coro_bb(self._dp_resume, (self, value, resume_exc))
+
     def asend(self, value):
         return _DpAsyncGenSend(self, value)
 
@@ -759,7 +691,7 @@ class _DpAsyncGenerator:
             raise TypeError("DpAsyncGen.athrow() does not support value/traceback in this mode")
         exc = raise_from(typ, None)
         _attach_throw_context_from_state(self, exc)
-        return await run_async_gen_bb(self, None, resume_exc=exc)
+        return await self._resume(None, exc, None)
 
     async def aclose(self):
         try:
@@ -795,17 +727,17 @@ class _DpAsyncGenSend:
                 and getattr(self._dp_gen, "_pc", 0) == 0
             ):
                 initial_send = value
-            self._dp_coro = run_async_gen_bb(
-                self._dp_gen,
+            self._dp_coro = self._dp_gen._resume(
                 initial_send,
-                transport_sent=value,
+                None,
+                value,
             )
             return self._dp_coro.send(None)
         return self._dp_coro.send(value)
 
     def throw(self, typ, val=None, tb=None):
         if self._dp_coro is None:
-            self._dp_coro = run_async_gen_bb(self._dp_gen, self._dp_value)
+            self._dp_coro = self._dp_gen._resume(self._dp_value, None, None)
         return self._dp_coro.throw(typ, val, tb)
 
     def close(self):
@@ -1728,7 +1660,6 @@ class DefGenConst(NamedTuple):
 
 def def_gen(
     resume,
-    targets,
     name,
     qualname,
     closure,
@@ -1745,7 +1676,6 @@ def def_gen(
         __dp_state_order=state_order,
         __dp_closure=closure_values,
         __dp_resume=resume,
-        __dp_targets=targets,
         __dp_name=name,
         __dp_qualname=qualname,
         __dp_code=gen_code,
@@ -1764,7 +1694,6 @@ def def_gen(
             _dp_frame[_dp_state_name] = _dp_state_value
 
         _dp_gen = _DpGenerator(
-            targets=__dp_targets,
             resume=__dp_resume,
             pc=0,
             gi_frame=_dp_frame,
@@ -1784,7 +1713,6 @@ def def_gen(
 
 def def_async_gen(
     resume,
-    targets,
     name,
     qualname,
     closure,
@@ -1801,7 +1729,6 @@ def def_async_gen(
         __dp_state_order=state_order,
         __dp_closure=closure_values,
         __dp_resume=resume,
-        __dp_targets=targets,
         __dp_name=name,
         __dp_qualname=qualname,
         __dp_code=ag_code,
@@ -1819,23 +1746,8 @@ def def_async_gen(
         for _dp_state_name, _dp_state_value in zip(__dp_state_order, state_args):
             _dp_frame[_dp_state_name] = _dp_state_value
 
-        async def _dp_resume_entry(
-            _dp_self,
-            _dp_send_value=None,
-            _dp_resume_exc=None,
-            _dp_transport_sent=None,
-        ):
-            return await _dp_run_async_gen_resume(
-                __dp_resume,
-                _dp_self,
-                _dp_send_value,
-                _dp_resume_exc,
-                _dp_transport_sent,
-            )
-
         _dp_gen = _DpAsyncGenerator(
-            targets=__dp_targets,
-            resume=_dp_resume_entry,
+            resume=__dp_resume,
             pc=0,
             gi_frame=_dp_frame,
             name=__dp_name,
@@ -1861,21 +1773,7 @@ async def _dp_run_async_gen_resume(
     transport_sent=None,
 ):
     gen._dp_transport_sent = transport_sent
-    resume_block = _select_gen_resume_block(
-        gen,
-        value,
-        resume_exc,
-        async_gen=True,
-        start_block=resume_block,
-    )
-    resume_args = _bb_build_resume_args(
-        resume_block,
-        gen,
-        value,
-        resume_exc,
-        transport_sent=transport_sent,
-    )
-    return await _run_async_generator_block(gen, resume_block, resume_args)
+    return await run_coro_bb(resume_block, (gen, value, resume_exc))
 
 
 # TODO: gross

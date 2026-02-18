@@ -418,6 +418,21 @@ def _dp_bb__dp_genexpr_1_invalid(_dp_self, _dp_send_value, _dp_resume_exc):
     return __dp__.raise_(RuntimeError("invalid generator pc: {}".format(_dp_self._pc)))
 
 
+def _dp_bb__dp_genexpr_1_uncaught(
+    _dp_self, _dp_send_value, _dp_resume_exc, _dp_uncaught_exc_6
+):
+    _dp_self, _dp_send_value, _dp_resume_exc, _dp_uncaught_exc_6 = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+        _dp_uncaught_exc_6.take(),
+    )
+    if _dp_self._pc != __dp__._GEN_PC_DONE:
+        __dp__.setattr(_dp_self, "_pc", __dp__._GEN_PC_DONE)
+        __dp__.raise_uncaught_generator_exception(_dp_uncaught_exc_6)
+    return __dp__.raise_(_dp_uncaught_exc_6)
+
+
 def _dp_bb__dp_genexpr_1_internal_0(_dp_self, _dp_send_value, _dp_resume_exc):
     _dp_self, _dp_send_value, _dp_resume_exc = (
         _dp_self.take(),
@@ -439,7 +454,7 @@ def _dp_bb__dp_genexpr_1_internal_1(
         _dp_iter_3.take(),
     )
     i = _dp_tmp_4
-    __dp__.setattr(_dp_self, "_pc", 5)
+    __dp__.setattr(_dp_self, "_pc", 1)
     __dp_store_local(_dp_self, "_dp_iter_3", _dp_iter_3)
     return __dp__.ret(i)
 
@@ -514,18 +529,217 @@ def _dp_bb__dp_genexpr_1_resume_1(_dp_self, _dp_send_value, _dp_resume_exc, _dp_
     )
 
 
-def _dp_bb__dp_module_init_start():
-    _dp_genexpr_1 = __dp__.def_gen(
+def _dp_bb__dp_genexpr_1_dispatch_throw_done(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.raise_(_dp_resume_exc)
+
+
+def _dp_bb__dp_genexpr_1_dispatch_throw_unstarted(
+    _dp_self, _dp_send_value, _dp_resume_exc
+):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.raise_(_dp_resume_exc)
+
+
+def _dp_bb__dp_genexpr_1_dispatch_send_pc_1(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.brif(
+        _dp_self._pc == 1,
+        _dp_bb__dp_genexpr_1_resume_0,
+        (
+            _dp_self,
+            _dp_send_value,
+            _dp_resume_exc,
+            locals().get("_dp_iter_3", __dp_load_local_raw(_dp_self, "_dp_iter_3")),
+        ),
+        _dp_bb__dp_genexpr_1_invalid,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+    )
+
+
+def _dp_bb__dp_genexpr_1_dispatch_throw_pc_1(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.brif(
+        _dp_self._pc == 1,
+        _dp_bb__dp_genexpr_1_resume_0,
+        (
+            _dp_self,
+            _dp_send_value,
+            _dp_resume_exc,
+            locals().get("_dp_iter_3", __dp_load_local_raw(_dp_self, "_dp_iter_3")),
+        ),
+        _dp_bb__dp_genexpr_1_invalid,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+    )
+
+
+def _dp_bb__dp_genexpr_1_dispatch_send_pc_0(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.brif(
+        _dp_self._pc == 0,
         _dp_bb__dp_genexpr_1_resume_1,
         (
-            _dp_bb__dp_genexpr_1_done,
-            _dp_bb__dp_genexpr_1_invalid,
-            _dp_bb__dp_genexpr_1_internal_0,
-            _dp_bb__dp_genexpr_1_internal_1,
-            _dp_bb__dp_genexpr_1_internal_2,
-            _dp_bb__dp_genexpr_1_resume_0,
-            _dp_bb__dp_genexpr_1_resume_1,
+            _dp_self,
+            _dp_send_value,
+            _dp_resume_exc,
+            locals().get("_dp_iter_2", __dp_load_local_raw(_dp_self, "_dp_iter_2")),
         ),
+        _dp_bb__dp_genexpr_1_dispatch_send_pc_1,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+    )
+
+
+def _dp_bb__dp_genexpr_1_dispatch_throw_pc_0(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.brif(
+        _dp_self._pc == 0,
+        _dp_bb__dp_genexpr_1_dispatch_throw_unstarted,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+        _dp_bb__dp_genexpr_1_dispatch_throw_pc_1,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+    )
+
+
+def _dp_bb__dp_genexpr_1_dispatch_send(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.brif(
+        _dp_self._pc == __dp__._GEN_PC_DONE,
+        _dp_bb__dp_genexpr_1_done,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+        _dp_bb__dp_genexpr_1_dispatch_send_pc_0,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+    )
+
+
+def _dp_bb__dp_genexpr_1_dispatch_throw(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.brif(
+        _dp_self._pc == __dp__._GEN_PC_DONE,
+        _dp_bb__dp_genexpr_1_dispatch_throw_done,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+        _dp_bb__dp_genexpr_1_dispatch_throw_pc_0,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+    )
+
+
+def _dp_bb__dp_genexpr_1_dispatch(_dp_self, _dp_send_value, _dp_resume_exc):
+    _dp_self, _dp_send_value, _dp_resume_exc = (
+        _dp_self.take(),
+        _dp_send_value.take(),
+        _dp_resume_exc.take(),
+    )
+    return __dp__.brif(
+        _dp_resume_exc is None,
+        _dp_bb__dp_genexpr_1_dispatch_send,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+        _dp_bb__dp_genexpr_1_dispatch_throw,
+        (_dp_self, _dp_send_value, _dp_resume_exc),
+    )
+
+
+__dp__.setattr(
+    _dp_bb__dp_genexpr_1_internal_0, "_dp_exc_target", _dp_bb__dp_genexpr_1_uncaught
+)
+__dp__.setattr(_dp_bb__dp_genexpr_1_internal_0, "_dp_exc_name", "_dp_uncaught_exc_6")
+__dp__.setattr(
+    _dp_bb__dp_genexpr_1_internal_1, "_dp_exc_target", _dp_bb__dp_genexpr_1_uncaught
+)
+__dp__.setattr(_dp_bb__dp_genexpr_1_internal_1, "_dp_exc_name", "_dp_uncaught_exc_6")
+__dp__.setattr(
+    _dp_bb__dp_genexpr_1_internal_2, "_dp_exc_target", _dp_bb__dp_genexpr_1_uncaught
+)
+__dp__.setattr(_dp_bb__dp_genexpr_1_internal_2, "_dp_exc_name", "_dp_uncaught_exc_6")
+__dp__.setattr(
+    _dp_bb__dp_genexpr_1_resume_0, "_dp_exc_target", _dp_bb__dp_genexpr_1_uncaught
+)
+__dp__.setattr(_dp_bb__dp_genexpr_1_resume_0, "_dp_exc_name", "_dp_uncaught_exc_6")
+__dp__.setattr(
+    _dp_bb__dp_genexpr_1_resume_1, "_dp_exc_target", _dp_bb__dp_genexpr_1_uncaught
+)
+__dp__.setattr(_dp_bb__dp_genexpr_1_resume_1, "_dp_exc_name", "_dp_uncaught_exc_6")
+__dp__.setattr(
+    _dp_bb__dp_genexpr_1_dispatch_send_pc_1,
+    "_dp_exc_target",
+    _dp_bb__dp_genexpr_1_uncaught,
+)
+__dp__.setattr(
+    _dp_bb__dp_genexpr_1_dispatch_send_pc_1, "_dp_exc_name", "_dp_uncaught_exc_6"
+)
+__dp__.setattr(
+    _dp_bb__dp_genexpr_1_dispatch_throw_pc_1,
+    "_dp_exc_target",
+    _dp_bb__dp_genexpr_1_uncaught,
+)
+__dp__.setattr(
+    _dp_bb__dp_genexpr_1_dispatch_throw_pc_1, "_dp_exc_name", "_dp_uncaught_exc_6"
+)
+__dp__.setattr(
+    _dp_bb__dp_genexpr_1_dispatch_send_pc_0,
+    "_dp_exc_target",
+    _dp_bb__dp_genexpr_1_uncaught,
+)
+__dp__.setattr(
+    _dp_bb__dp_genexpr_1_dispatch_send_pc_0, "_dp_exc_name", "_dp_uncaught_exc_6"
+)
+__dp__.setattr(
+    _dp_bb__dp_genexpr_1_dispatch_throw_pc_0,
+    "_dp_exc_target",
+    _dp_bb__dp_genexpr_1_uncaught,
+)
+__dp__.setattr(
+    _dp_bb__dp_genexpr_1_dispatch_throw_pc_0, "_dp_exc_name", "_dp_uncaught_exc_6"
+)
+__dp__.setattr(
+    _dp_bb__dp_genexpr_1_dispatch_send, "_dp_exc_target", _dp_bb__dp_genexpr_1_uncaught
+)
+__dp__.setattr(_dp_bb__dp_genexpr_1_dispatch_send, "_dp_exc_name", "_dp_uncaught_exc_6")
+__dp__.setattr(
+    _dp_bb__dp_genexpr_1_dispatch_throw, "_dp_exc_target", _dp_bb__dp_genexpr_1_uncaught
+)
+__dp__.setattr(
+    _dp_bb__dp_genexpr_1_dispatch_throw, "_dp_exc_name", "_dp_uncaught_exc_6"
+)
+__dp__.setattr(
+    _dp_bb__dp_genexpr_1_dispatch, "_dp_exc_target", _dp_bb__dp_genexpr_1_uncaught
+)
+__dp__.setattr(_dp_bb__dp_genexpr_1_dispatch, "_dp_exc_name", "_dp_uncaught_exc_6")
+
+
+def _dp_bb__dp_module_init_start():
+    _dp_genexpr_1 = __dp__.def_gen(
+        _dp_bb__dp_genexpr_1_dispatch,
         "<genexpr>",
         "<genexpr>",
         ("_dp_iter_2",),
