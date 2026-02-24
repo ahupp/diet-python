@@ -2735,71 +2735,8 @@ pub(crate) fn eval_expr(
                 Ok(tuple)
             }
         }
-        min_ast::ExprNode::Raw { expr, .. } => unsafe {
-            let source = dp_transform::ruff_ast_to_string(expr);
-            eval_raw_expr_source(source.trim(), ctx)
-        },
         min_ast::ExprNode::Await { .. } => set_not_implemented("await not supported"),
-        min_ast::ExprNode::Yield { .. } => set_not_implemented("yield not supported"),
         min_ast::ExprNode::Call { func, args, .. } => eval_call(func, args, ctx),
-    }
-}
-
-unsafe fn eval_raw_expr_source(
-    source: &str,
-    ctx: &ExecContext<'_>,
-) -> Result<*mut ffi::PyObject, ()> {
-    let source_obj =
-        ffi::PyUnicode_FromStringAndSize(source.as_ptr() as *const c_char, source.len() as _);
-    if source_obj.is_null() {
-        return Err(());
-    }
-
-    let globals_obj = {
-        ffi::Py_INCREF(ctx.globals_dict);
-        ctx.globals_dict
-    };
-
-    let locals_obj = if ctx.locals == ctx.globals_scope {
-        ffi::Py_INCREF(globals_obj);
-        globals_obj
-    } else {
-        match locals_snapshot(ctx) {
-            Ok(locals) => locals.into_ptr(),
-            Err(()) => {
-                ffi::Py_DECREF(source_obj);
-                ffi::Py_DECREF(globals_obj);
-                return Err(());
-            }
-        }
-    };
-
-    let eval_fn = dict_lookup_name(ctx.builtins, "eval")?;
-    if eval_fn.is_null() {
-        ffi::Py_DECREF(source_obj);
-        ffi::Py_DECREF(globals_obj);
-        ffi::Py_DECREF(locals_obj);
-        ffi::PyErr_SetString(
-            ffi::PyExc_RuntimeError,
-            b"missing builtins.eval\0".as_ptr() as *const c_char,
-        );
-        return Err(());
-    }
-    let result = ffi::PyObject_CallFunctionObjArgs(
-        eval_fn,
-        source_obj,
-        globals_obj,
-        locals_obj,
-        ptr::null_mut::<ffi::PyObject>(),
-    );
-    ffi::Py_DECREF(eval_fn);
-    ffi::Py_DECREF(source_obj);
-    ffi::Py_DECREF(globals_obj);
-    ffi::Py_DECREF(locals_obj);
-    if result.is_null() {
-        Err(())
-    } else {
-        Ok(result)
     }
 }
 

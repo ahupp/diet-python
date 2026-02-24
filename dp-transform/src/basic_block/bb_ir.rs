@@ -1,4 +1,6 @@
-use ruff_python_ast::{Expr, Stmt};
+use ruff_python_ast::{
+    Expr, Stmt, StmtAssign, StmtDelete, StmtExpr, StmtFunctionDef, StmtIf,
+};
 
 #[derive(Debug, Clone)]
 pub struct BbModule {
@@ -48,10 +50,47 @@ pub enum BbFunctionKind {
 pub struct BbBlock {
     pub label: String,
     pub params: Vec<String>,
-    pub ops: Vec<Stmt>,
+    pub ops: Vec<BbOp>,
     pub exc_target_label: Option<String>,
     pub exc_name: Option<String>,
     pub term: BbTerm,
+}
+
+#[derive(Debug, Clone)]
+pub enum BbOp {
+    Assign(StmtAssign),
+    Expr(StmtExpr),
+    Delete(StmtDelete),
+    FunctionDef(StmtFunctionDef),
+    If(StmtIf),
+}
+
+impl BbOp {
+    pub fn from_stmt(stmt: Stmt) -> Option<Self> {
+        match stmt {
+            Stmt::Assign(assign) => Some(Self::Assign(assign)),
+            Stmt::Expr(expr) => Some(Self::Expr(expr)),
+            Stmt::Delete(delete) => Some(Self::Delete(delete)),
+            Stmt::Pass(_) => None,
+            Stmt::FunctionDef(function_def) => Some(Self::FunctionDef(function_def)),
+            Stmt::If(if_stmt) => Some(Self::If(if_stmt)),
+            other => panic!("unsupported statement in BbBlock.ops: {other:?}"),
+        }
+    }
+
+    pub fn to_stmt(&self) -> Stmt {
+        match self {
+            Self::Assign(assign) => Stmt::Assign(assign.clone()),
+            Self::Expr(expr) => Stmt::Expr(expr.clone()),
+            Self::Delete(delete) => Stmt::Delete(delete.clone()),
+            Self::FunctionDef(function_def) => Stmt::FunctionDef(function_def.clone()),
+            Self::If(if_stmt) => Stmt::If(if_stmt.clone()),
+        }
+    }
+}
+
+pub fn bb_ops_to_stmts(ops: &[BbOp]) -> Vec<Stmt> {
+    ops.iter().map(BbOp::to_stmt).collect()
 }
 
 #[derive(Debug, Clone)]
@@ -61,6 +100,11 @@ pub enum BbTerm {
         test: Expr,
         then_label: String,
         else_label: String,
+    },
+    BrTable {
+        index: Expr,
+        targets: Vec<String>,
+        default_label: String,
     },
     Raise {
         exc: Option<Expr>,
@@ -76,10 +120,6 @@ pub enum BbTerm {
         finally_exc_name: Option<String>,
         finally_region_labels: Vec<String>,
         finally_fallthrough_label: Option<String>,
-    },
-    Yield {
-        value: Option<Expr>,
-        resume_label: String,
     },
     Ret(Option<Expr>),
 }

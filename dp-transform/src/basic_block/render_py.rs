@@ -1,4 +1,4 @@
-use super::bb_ir::{BbBlock, BbFunction, BbFunctionKind, BbTerm};
+use super::bb_ir::{bb_ops_to_stmts, BbBlock, BbFunction, BbFunctionKind, BbTerm};
 use crate::transform::rewrite_expr::make_tuple;
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
@@ -88,18 +88,17 @@ fn term_uses_resume_exc(term: &BbTerm) -> bool {
     match term {
         BbTerm::Jump(_) | BbTerm::TryJump { .. } => false,
         BbTerm::BrIf { test, .. } => expr_uses_resume_exc(test),
+        BbTerm::BrTable { index, .. } => expr_uses_resume_exc(index),
         BbTerm::Raise { exc, cause } => {
             exc.as_ref().is_some_and(expr_uses_resume_exc)
                 || cause.as_ref().is_some_and(expr_uses_resume_exc)
         }
-        BbTerm::Yield { value, .. } | BbTerm::Ret(value) => {
-            value.as_ref().is_some_and(expr_uses_resume_exc)
-        }
+        BbTerm::Ret(value) => value.as_ref().is_some_and(expr_uses_resume_exc),
     }
 }
 
 fn block_uses_resume_exc(block: &BbBlock) -> bool {
-    crate::ruff_ast_to_string(&block.ops).contains("_dp_resume_exc")
+    crate::ruff_ast_to_string(&bb_ops_to_stmts(&block.ops)).contains("_dp_resume_exc")
         || term_uses_resume_exc(&block.term)
 }
 
@@ -173,11 +172,6 @@ pub(super) fn render_block_defs_from_bb(bb_function: &BbFunction) -> Option<Vec<
         .iter()
         .map(|block| (block.label.clone(), block.params.clone()))
         .collect();
-    let resume_pc_by_label: HashMap<String, usize> = match &bb_function.kind {
-        BbFunctionKind::Generator { resume_pcs, .. }
-        | BbFunctionKind::AsyncGenerator { resume_pcs, .. } => resume_pcs.iter().cloned().collect(),
-        BbFunctionKind::Function | BbFunctionKind::Coroutine => HashMap::new(),
-    };
     let is_async = is_async_block_function(&bb_function.kind);
     let generator_flavor = generator_flavor_for_kind(&bb_function.kind);
     let mut block_defs = Vec::new();
@@ -210,7 +204,7 @@ pub(super) fn render_block_defs_from_bb(bb_function: &BbFunction) -> Option<Vec<
                 ));
             }
         }
-        block_body.extend(block.ops.clone());
+        block_body.extend(bb_ops_to_stmts(&block.ops));
         let body_terminates = matches!(
             block_body.last(),
             Some(Stmt::Return(_)) | Some(Stmt::Raise(_))
@@ -219,7 +213,6 @@ pub(super) fn render_block_defs_from_bb(bb_function: &BbFunction) -> Option<Vec<
             block_body.extend(terminator_stmts(
                 &block.term,
                 &block_params,
-                &resume_pc_by_label,
                 generator_flavor,
             )?);
         }
@@ -249,7 +242,6 @@ pub(super) fn render_block_defs_from_bb(bb_function: &BbFunction) -> Option<Vec<
 fn terminator_stmts(
     terminator: &BbTerm,
     block_params: &HashMap<String, Vec<String>>,
-    resume_pc_by_label: &HashMap<String, usize>,
     generator_flavor: GeneratorFlavor,
 ) -> Option<Vec<Stmt>> {
     match terminator {
@@ -298,6 +290,47 @@ fn terminator_stmts(
                 else_args = else_args,
             )])
         }
+        BbTerm::BrTable {
+            index,
+            targets,
+            default_label,
+        } => {
+            let default_target_expr = name_expr(default_label.as_str())?;
+            let mut target_exprs = Vec::with_capacity(targets.len());
+            for label in targets {
+                target_exprs.push(name_expr(label.as_str())?);
+            }
+            let targets_expr = make_tuple(target_exprs);
+
+            let mut arg_shapes = Vec::with_capacity(targets.len() + 1);
+            arg_shapes.push(
+                block_params
+                    .get(default_label.as_str())
+                    .cloned()
+                    .unwrap_or_default(),
+            );
+            for label in targets {
+                arg_shapes.push(block_params.get(label.as_str()).cloned().unwrap_or_default());
+            }
+            let first_shape = arg_shapes.first().cloned().unwrap_or_default();
+            if arg_shapes
+                .iter()
+                .any(|shape| shape.as_slice() != first_shape.as_slice())
+            {
+                panic!(
+                    "internal error: BrTable requires uniform target params, got {:?}",
+                    arg_shapes
+                );
+            }
+            let args = tuple_expr_for_target_params(first_shape.as_slice(), generator_flavor)?;
+            Some(vec![py_stmt!(
+                "return __dp__.br_table({index:expr}, {targets:expr}, {default_target:expr}, {args:expr})",
+                index = index.clone(),
+                targets = targets_expr,
+                default_target = default_target_expr,
+                args = args,
+            )])
+        }
         BbTerm::Raise { exc, cause } => {
             if cause.is_none() {
                 if let Some(exc) = exc.as_ref() {
@@ -315,69 +348,12 @@ fn terminator_stmts(
         BbTerm::TryJump { .. } => {
             panic!("internal error: BbTerm::TryJump must be lowered before Python rendering")
         }
-        BbTerm::Yield {
-            value,
-            resume_label,
-        } => {
-            let next_state_names = block_params
-                .get(resume_label.as_str())
-                .map(|names| {
-                    names
-                        .iter()
-                        .filter(|name| {
-                            name.as_str() != "_dp_self"
-                                && name.as_str() != "_dp_send_value"
-                                && name.as_str() != "_dp_resume_exc"
-                        })
-                        .cloned()
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-            let next_pc = resume_pc_by_label.get(resume_label.as_str()).copied()?;
-            let yielded_value = value.clone().unwrap_or_else(|| py_expr!("None"));
-            match generator_flavor {
-                GeneratorFlavor::None => {
-                    panic!("internal error: Terminator::Yield emitted for non-generator lowering")
-                }
-                GeneratorFlavor::Sync | GeneratorFlavor::Async => {
-                    let mut stmts = vec![py_stmt!(
-                        "_dp_self._pc = {next_pc:literal}",
-                        next_pc = next_pc as i64,
-                    )];
-                    for name in next_state_names {
-                        stmts.push(py_stmt!(
-                            "__dp_store_local(_dp_self, {name:literal}, {value:id})",
-                            name = name.as_str(),
-                            value = name.as_str(),
-                        ));
-                    }
-                    stmts.push(py_stmt!(
-                        "return __dp__.ret({value:expr})",
-                        value = yielded_value,
-                    ));
-                    Some(stmts)
-                }
-            }
-        }
         BbTerm::Ret(value) => {
             let ret_value = value.clone().unwrap_or_else(|| py_expr!("None"));
-            match generator_flavor {
-                GeneratorFlavor::None => Some(vec![py_stmt!(
-                    "return __dp__.ret({value:expr})",
-                    value = ret_value,
-                )]),
-                GeneratorFlavor::Sync => Some(vec![
-                    py_stmt!("_dp_self._pc = __dp__._GEN_PC_DONE"),
-                    py_stmt!(
-                        "return __dp__.raise_(StopIteration({value:expr}))",
-                        value = ret_value,
-                    ),
-                ]),
-                GeneratorFlavor::Async => Some(vec![
-                    py_stmt!("_dp_self._pc = __dp__._GEN_PC_DONE"),
-                    py_stmt!("return __dp__.raise_(StopAsyncIteration())"),
-                ]),
-            }
+            Some(vec![py_stmt!(
+                "return __dp__.ret({value:expr})",
+                value = ret_value,
+            )])
         }
     }
 }

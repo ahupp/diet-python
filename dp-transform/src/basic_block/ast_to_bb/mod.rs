@@ -1,5 +1,5 @@
 use super::render_py;
-use super::bb_ir::{BbBindingTarget, BbBlock, BbFunction, BbFunctionKind, BbModule, BbTerm};
+use super::bb_ir::{BbBindingTarget, BbBlock, BbFunction, BbFunctionKind, BbModule, BbOp, BbTerm};
 use crate::template::{empty_body, into_body};
 use crate::transform::context::Context;
 use crate::transform::rewrite_import;
@@ -117,6 +117,11 @@ enum Terminator {
         then_label: String,
         else_label: String,
     },
+    BrTable {
+        index: Expr,
+        targets: Vec<String>,
+        default_label: String,
+    },
     Raise(ast::StmtRaise),
     TryJump {
         body_label: String,
@@ -145,6 +150,11 @@ impl Terminator {
                 else_label,
                 ..
             } => then_label == label || else_label == label,
+            Terminator::BrTable {
+                targets,
+                default_label,
+                ..
+            } => default_label == label || targets.iter().any(|target| target == label),
             Terminator::Raise(_) => false,
             Terminator::TryJump {
                 body_label,
@@ -180,6 +190,15 @@ impl Block {
                 else_label,
                 ..
             } => vec![then_label.clone(), else_label.clone()],
+            Terminator::BrTable {
+                targets,
+                default_label,
+                ..
+            } => {
+                let mut out = targets.clone();
+                out.push(default_label.clone());
+                out
+            }
             Terminator::Raise(_) => Vec::new(),
             Terminator::TryJump {
                 body_label,
@@ -539,54 +558,78 @@ impl BasicBlockRewriter<'_> {
                 terminator: Terminator::Raise(throw_resume_exc_stmt),
             });
 
-            let mut send_dispatch_head = invalid_label.clone();
-            let mut throw_dispatch_head = invalid_label;
-            for (pc, resume_target) in resume_order.iter().enumerate().rev() {
-                let send_check_label = format!("{label_prefix}_dispatch_send_pc_{pc}");
-                generator_dispatch_only_labels.insert(send_check_label.clone());
-                blocks.push(Block {
-                    label: send_check_label.clone(),
-                    body: Vec::new(),
-                    terminator: Terminator::BrIf {
-                        test: py_expr!("_dp_self._pc == {pc:literal}", pc = pc as i64),
-                        then_label: resume_target.clone(),
-                        else_label: send_dispatch_head,
-                    },
-                });
-                send_dispatch_head = send_check_label;
+            let resume_send_label = format!("{label_prefix}_dispatch_send");
+            let resume_throw_label = format!("{label_prefix}_dispatch_throw");
+            let resume_dispatch_label = format!("{label_prefix}_dispatch");
+            let resume_send_table_label = format!("{label_prefix}_dispatch_send_table");
+            let resume_throw_table_label = format!("{label_prefix}_dispatch_throw_table");
+            let resume_invalid_table_label = format!("{label_prefix}_dispatch_invalid");
+            generator_dispatch_only_labels.insert(resume_send_label.clone());
+            generator_dispatch_only_labels.insert(resume_throw_label.clone());
+            generator_dispatch_only_labels.insert(resume_dispatch_label.clone());
+            generator_dispatch_only_labels.insert(resume_send_table_label.clone());
+            generator_dispatch_only_labels.insert(resume_throw_table_label.clone());
+            generator_dispatch_only_labels.insert(resume_invalid_table_label.clone());
 
-                let throw_check_label = format!("{label_prefix}_dispatch_throw_pc_{pc}");
-                generator_dispatch_only_labels.insert(throw_check_label.clone());
+            let mut send_table_targets = Vec::with_capacity(resume_order.len());
+            let mut throw_table_targets = Vec::with_capacity(resume_order.len());
+            for (pc, resume_target) in resume_order.iter().enumerate() {
+                let send_dispatch_target_label =
+                    format!("{label_prefix}_dispatch_send_target_{pc}");
+                generator_dispatch_only_labels.insert(send_dispatch_target_label.clone());
+                blocks.push(Block {
+                    label: send_dispatch_target_label.clone(),
+                    body: Vec::new(),
+                    terminator: Terminator::Jump(resume_target.clone()),
+                });
+                send_table_targets.push(send_dispatch_target_label);
+
+                let throw_dispatch_target_label =
+                    format!("{label_prefix}_dispatch_throw_target_{pc}");
+                generator_dispatch_only_labels.insert(throw_dispatch_target_label.clone());
                 let throw_target = if pc == 0 {
                     resume_throw_unstarted_label.clone()
                 } else {
                     resume_target.clone()
                 };
                 blocks.push(Block {
-                    label: throw_check_label.clone(),
+                    label: throw_dispatch_target_label.clone(),
                     body: Vec::new(),
-                    terminator: Terminator::BrIf {
-                        test: py_expr!("_dp_self._pc == {pc:literal}", pc = pc as i64),
-                        then_label: throw_target,
-                        else_label: throw_dispatch_head,
-                    },
+                    terminator: Terminator::Jump(throw_target),
                 });
-                throw_dispatch_head = throw_check_label;
+                throw_table_targets.push(throw_dispatch_target_label);
             }
+            blocks.push(Block {
+                label: resume_invalid_table_label.clone(),
+                body: Vec::new(),
+                terminator: Terminator::Jump(invalid_label.clone()),
+            });
 
-            let resume_send_label = format!("{label_prefix}_dispatch_send");
-            let resume_throw_label = format!("{label_prefix}_dispatch_throw");
-            let resume_dispatch_label = format!("{label_prefix}_dispatch");
-            generator_dispatch_only_labels.insert(resume_send_label.clone());
-            generator_dispatch_only_labels.insert(resume_throw_label.clone());
-            generator_dispatch_only_labels.insert(resume_dispatch_label.clone());
+            blocks.push(Block {
+                label: resume_send_table_label.clone(),
+                body: Vec::new(),
+                terminator: Terminator::BrTable {
+                    index: py_expr!("_dp_self._pc"),
+                    targets: send_table_targets,
+                    default_label: resume_invalid_table_label.clone(),
+                },
+            });
+            blocks.push(Block {
+                label: resume_throw_table_label.clone(),
+                body: Vec::new(),
+                terminator: Terminator::BrTable {
+                    index: py_expr!("_dp_self._pc"),
+                    targets: throw_table_targets,
+                    default_label: resume_invalid_table_label,
+                },
+            });
             blocks.push(Block {
                 label: resume_send_label.clone(),
                 body: Vec::new(),
                 terminator: Terminator::BrIf {
                     test: py_expr!("_dp_self._pc == __dp__._GEN_PC_DONE"),
                     then_label: done_label,
-                    else_label: send_dispatch_head,
+                    else_label: resume_send_table_label,
                 },
             });
             blocks.push(Block {
@@ -595,7 +638,7 @@ impl BasicBlockRewriter<'_> {
                 terminator: Terminator::BrIf {
                     test: py_expr!("_dp_self._pc == __dp__._GEN_PC_DONE"),
                     then_label: resume_throw_done_label,
-                    else_label: throw_dispatch_head,
+                    else_label: resume_throw_table_label,
                 },
             });
             blocks.push(Block {
@@ -746,6 +789,14 @@ impl BasicBlockRewriter<'_> {
         } else {
             Vec::new()
         };
+        if has_yield {
+            lower_generator_yield_terms_to_explicit_return(
+                &mut blocks,
+                &block_params,
+                &resume_pcs,
+                func.is_async,
+            );
+        }
         let lowered_is_async = func.is_async;
         let mut state_order = entry_params.clone();
         for name in extra_state_vars {
@@ -766,7 +817,12 @@ impl BasicBlockRewriter<'_> {
                         .get(block.label.as_str())
                         .cloned()
                         .unwrap_or_default(),
-                    ops: block.body.clone(),
+                    ops: block
+                        .body
+                        .iter()
+                        .cloned()
+                        .filter_map(BbOp::from_stmt)
+                        .collect(),
                     exc_target_label,
                     exc_name,
                     term: bb_term_from_terminator(&block.terminator),
@@ -2199,6 +2255,15 @@ fn bb_term_from_terminator(terminator: &Terminator) -> BbTerm {
             then_label: then_label.clone(),
             else_label: else_label.clone(),
         },
+        Terminator::BrTable {
+            index,
+            targets,
+            default_label,
+        } => BbTerm::BrTable {
+            index: index.clone(),
+            targets: targets.clone(),
+            default_label: default_label.clone(),
+        },
         Terminator::Raise(ast::StmtRaise { exc, cause, .. }) => BbTerm::Raise {
             exc: exc.as_ref().map(|expr| *expr.clone()),
             cause: cause.as_ref().map(|expr| *expr.clone()),
@@ -2207,14 +2272,89 @@ fn bb_term_from_terminator(terminator: &Terminator) -> BbTerm {
             body_label,
             ..
         } => BbTerm::Jump(body_label.clone()),
-        Terminator::Yield {
-            value,
-            resume_label,
-        } => BbTerm::Yield {
-            value: value.clone(),
-            resume_label: resume_label.clone(),
-        },
+        Terminator::Yield { .. } => {
+            panic!("internal error: Terminator::Yield must be lowered before BB IR export")
+        }
         Terminator::Ret(value) => BbTerm::Ret(value.clone()),
+    }
+}
+
+fn raise_done_stmt(is_async: bool, value: Option<Expr>) -> ast::StmtRaise {
+    if is_async {
+        match py_stmt!("raise StopAsyncIteration()") {
+            Stmt::Raise(stmt) => stmt,
+            _ => unreachable!("expected raise statement"),
+        }
+    } else if let Some(value) = value {
+        match py_stmt!("raise StopIteration({value:expr})", value = value) {
+            Stmt::Raise(stmt) => stmt,
+            _ => unreachable!("expected raise statement"),
+        }
+    } else {
+        match py_stmt!("raise StopIteration()") {
+            Stmt::Raise(stmt) => stmt,
+            _ => unreachable!("expected raise statement"),
+        }
+    }
+}
+
+fn lower_generator_yield_terms_to_explicit_return(
+    blocks: &mut [Block],
+    block_params: &HashMap<String, Vec<String>>,
+    resume_pcs: &[(String, usize)],
+    is_async: bool,
+) {
+    let resume_pc_by_label = resume_pcs
+        .iter()
+        .cloned()
+        .collect::<HashMap<String, usize>>();
+
+    // Existing Ret terminators in generator functions represent completion.
+    // Rewrite them to explicit completion exceptions so Ret can represent
+    // suspension value returns uniformly.
+    for block in blocks.iter_mut() {
+        if let Terminator::Ret(value) = &block.terminator {
+            block
+                .body
+                .push(py_stmt!("_dp_self._pc = __dp__._GEN_PC_DONE"));
+            block.terminator = Terminator::Raise(raise_done_stmt(is_async, value.clone()));
+        }
+    }
+
+    // Rewrite yield terminators to explicit state updates plus Ret(value).
+    for block in blocks.iter_mut() {
+        let (yield_value, resume_label) = match &block.terminator {
+            Terminator::Yield {
+                value,
+                resume_label,
+            } => (value.clone(), resume_label.clone()),
+            _ => continue,
+        };
+        let next_pc = *resume_pc_by_label
+            .get(resume_label.as_str())
+            .unwrap_or_else(|| panic!("missing resume pc for label: {resume_label}"));
+        block.body.push(py_stmt!(
+            "_dp_self._pc = {next_pc:literal}",
+            next_pc = next_pc as i64,
+        ));
+        let next_state_names = block_params
+            .get(resume_label.as_str())
+            .cloned()
+            .unwrap_or_default();
+        for name in next_state_names {
+            if matches!(
+                name.as_str(),
+                "_dp_self" | "_dp_send_value" | "_dp_resume_exc"
+            ) {
+                continue;
+            }
+            block.body.push(py_stmt!(
+                "__dp_store_local(_dp_self, {name:literal}, {value:id})",
+                name = name.as_str(),
+                value = name.as_str(),
+            ));
+        }
+        block.terminator = Terminator::Ret(yield_value);
     }
 }
 
@@ -2889,6 +3029,7 @@ fn assigned_names_in_terminator(terminator: &Terminator) -> HashSet<String> {
     match terminator {
         Terminator::Jump(_)
         | Terminator::BrIf { .. }
+        | Terminator::BrTable { .. }
         | Terminator::Raise(_)
         | Terminator::Yield { .. }
         | Terminator::Ret(_) => HashSet::new(),
@@ -3034,6 +3175,7 @@ fn load_names_in_stmt(stmt: &Stmt) -> HashSet<String> {
 fn load_names_in_terminator(terminator: &Terminator) -> HashSet<String> {
     match terminator {
         Terminator::BrIf { test, .. } => load_names_in_expr(test),
+        Terminator::BrTable { index, .. } => load_names_in_expr(index),
         Terminator::Raise(raise_stmt) => {
             let mut names = HashSet::new();
             if let Some(exc) = raise_stmt.exc.as_ref() {
@@ -3480,6 +3622,7 @@ fn rewrite_deleted_name_loads(
         }
         match &mut block.terminator {
             Terminator::BrIf { test, .. } => rewriter.visit_expr(test),
+            Terminator::BrTable { index, .. } => rewriter.visit_expr(index),
             Terminator::Raise(raise_stmt) => {
                 if let Some(exc) = raise_stmt.exc.as_mut() {
                     rewriter.visit_expr(exc.as_mut());
@@ -3911,6 +4054,25 @@ fn apply_label_rename(
                     *else_label = renamed.clone();
                 } else if !known_labels.contains(else_label.as_str()) {
                     panic!("missing renamed false target: {else_label}");
+                }
+            }
+            Terminator::BrTable {
+                index,
+                targets,
+                default_label,
+            } => {
+                body_renamer.visit_expr(index);
+                for target in targets.iter_mut() {
+                    if let Some(renamed) = rename.get(target.as_str()) {
+                        *target = renamed.clone();
+                    } else if !known_labels.contains(target.as_str()) {
+                        panic!("missing renamed br_table target: {target}");
+                    }
+                }
+                if let Some(renamed) = rename.get(default_label.as_str()) {
+                    *default_label = renamed.clone();
+                } else if !known_labels.contains(default_label.as_str()) {
+                    panic!("missing renamed br_table default target: {default_label}");
                 }
             }
             Terminator::Raise(raise_stmt) => {

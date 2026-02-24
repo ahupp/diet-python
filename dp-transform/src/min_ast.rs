@@ -168,19 +168,10 @@ pub enum ExprNode<E: ExprInfo = ()> {
         info: E,
         value: Box<ExprNode<E>>,
     },
-    Yield {
-        info: E,
-        from: bool,
-        value: Option<Box<ExprNode<E>>>,
-    },
     Call {
         info: E,
         func: Box<ExprNode<E>>,
         args: Vec<Arg<E>>,
-    },
-    Raw {
-        info: E,
-        expr: Expr,
     },
 }
 
@@ -300,11 +291,6 @@ fn collect_used_names<S: StmtInfo, E: ExprInfo>(def: &FunctionDef<S, E>) -> Hash
             ExprNode::Await { value, .. } => {
                 visit_expr(value, names);
             }
-            ExprNode::Yield { value, .. } => {
-                if let Some(value) = value {
-                    visit_expr(value, names);
-                }
-            }
             ExprNode::Call { func, args, .. } => {
                 visit_expr(func, names);
                 for arg in args {
@@ -315,9 +301,6 @@ fn collect_used_names<S: StmtInfo, E: ExprInfo>(def: &FunctionDef<S, E>) -> Hash
                         Arg::Keyword { value, .. } => visit_expr(value, names),
                     }
                 }
-            }
-            ExprNode::Raw { expr, .. } => {
-                collect_load_names_from_raw_expr(expr, names);
             }
             ExprNode::Number { .. } | ExprNode::String { .. } | ExprNode::Bytes { .. } => {}
         }
@@ -914,16 +897,9 @@ impl From<Expr> for ExprNode {
                 info: (),
                 value: Box::new(ExprNode::from(*value)),
             },
-            Expr::Yield(ast::ExprYield { value, .. }) => ExprNode::Yield {
-                info: (),
-                from: false,
-                value: value.map(|v| Box::new(ExprNode::from(*v))),
-            },
-            Expr::YieldFrom(ast::ExprYieldFrom { value, .. }) => ExprNode::Yield {
-                info: (),
-                from: true,
-                value: Some(Box::new(ExprNode::from(*value))),
-            },
+            Expr::Yield(_) | Expr::YieldFrom(_) => {
+                panic!("yield/yield from should be lowered before min_ast conversion")
+            }
             Expr::Call(ast::ExprCall {
                 func, arguments, ..
             }) => {
@@ -957,34 +933,7 @@ impl From<Expr> for ExprNode {
                 value: Box::new(ExprNode::from(*value)),
                 attr: attr.id.to_string(),
             },
-            other => ExprNode::Raw {
-                info: (),
-                expr: other,
-            },
+            other => panic!("unsupported expression in min_ast conversion: {:?}", other),
         }
     }
-}
-
-fn collect_load_names_from_raw_expr(expr: &Expr, names: &mut HashSet<String>) {
-    use crate::transformer::{walk_expr, Transformer};
-    use ruff_python_ast::ExprContext;
-
-    struct LoadNameCollector<'a> {
-        names: &'a mut HashSet<String>,
-    }
-
-    impl Transformer for LoadNameCollector<'_> {
-        fn visit_expr(&mut self, expr: &mut Expr) {
-            if let Expr::Name(ast::ExprName { id, ctx, .. }) = expr {
-                if matches!(ctx, ExprContext::Load) {
-                    self.names.insert(id.to_string());
-                }
-            }
-            walk_expr(self, expr);
-        }
-    }
-
-    let mut cloned = expr.clone();
-    let mut collector = LoadNameCollector { names };
-    collector.visit_expr(&mut cloned);
 }

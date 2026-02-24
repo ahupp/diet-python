@@ -2,7 +2,6 @@ use super::*;
 
 fn expr_has_yield(expr: &min_ast::ExprNode) -> bool {
     match expr {
-        min_ast::ExprNode::Yield { .. } => true,
         min_ast::ExprNode::Attribute { value, .. } => expr_has_yield(value),
         min_ast::ExprNode::Tuple { elts, .. } => elts.iter().any(expr_has_yield),
         min_ast::ExprNode::Await { value, .. } => expr_has_yield(value),
@@ -15,7 +14,10 @@ fn expr_has_yield(expr: &min_ast::ExprNode) -> bool {
                     min_ast::Arg::Keyword { value, .. } => expr_has_yield(value),
                 })
         }
-        _ => false,
+        min_ast::ExprNode::Name { .. }
+        | min_ast::ExprNode::Number { .. }
+        | min_ast::ExprNode::String { .. }
+        | min_ast::ExprNode::Bytes { .. } => false,
     }
 }
 

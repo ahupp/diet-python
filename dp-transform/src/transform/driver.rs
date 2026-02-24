@@ -84,7 +84,7 @@ pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> RewriteModule
         rewrite_with_pass(
             context,
             Some(&basic_block::BBSimplifyStmtPass),
-            None,
+            Some(&SimplifyExprPass),
             module,
         );
         strip_generated_passes(context, module);

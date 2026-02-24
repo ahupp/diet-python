@@ -382,7 +382,9 @@ fn bb_module_to_json(module: &bb_ir::BbModule) -> Value {
                 .blocks
                 .iter()
                 .map(|block| {
-                    let ops_text = ruff_ast_to_string(&block.ops).trim().to_string();
+                    let ops_text = ruff_ast_to_string(&bb_ir::bb_ops_to_stmts(&block.ops))
+                        .trim()
+                        .to_string();
                     let successors = bb_term_successors(&block.term)
                         .into_iter()
                         .map(|(target, edge_kind)| {
@@ -465,9 +467,9 @@ fn bb_term_kind(term: &bb_ir::BbTerm) -> &'static str {
     match term {
         bb_ir::BbTerm::Jump(_) => "jump",
         bb_ir::BbTerm::BrIf { .. } => "br_if",
+        bb_ir::BbTerm::BrTable { .. } => "br_table",
         bb_ir::BbTerm::Raise { .. } => "raise",
         bb_ir::BbTerm::TryJump { .. } => "try_jump",
-        bb_ir::BbTerm::Yield { .. } => "yield",
         bb_ir::BbTerm::Ret(_) => "return",
     }
 }
@@ -483,6 +485,17 @@ fn bb_term_text(term: &bb_ir::BbTerm) -> String {
         } => {
             let test = expr_to_one_line(test);
             format!("if {test} then {then_label} else {else_label}")
+        }
+        bb_ir::BbTerm::BrTable {
+            index,
+            targets,
+            default_label,
+        } => {
+            let index = expr_to_one_line(index);
+            format!(
+                "br_table index={index} targets=[{}] default={default_label}",
+                targets.join(", ")
+            )
         }
         bb_ir::BbTerm::Raise { exc, cause } => {
             let exc = exc
@@ -506,16 +519,6 @@ fn bb_term_text(term: &bb_ir::BbTerm) -> String {
             finally_label.as_deref().unwrap_or("-"),
             finally_fallthrough_label.as_deref().unwrap_or("-"),
         ),
-        bb_ir::BbTerm::Yield {
-            value,
-            resume_label,
-        } => {
-            let value = value
-                .as_ref()
-                .map(expr_to_one_line)
-                .unwrap_or_else(|| "None".to_string());
-            format!("yield {value} -> {resume_label}")
-        }
         bb_ir::BbTerm::Ret(value) => {
             let value = value
                 .as_ref()
@@ -538,6 +541,18 @@ fn bb_term_successors(term: &bb_ir::BbTerm) -> Vec<(&str, &'static str)> {
             (then_label.as_str(), "branch_then"),
             (else_label.as_str(), "branch_else"),
         ],
+        bb_ir::BbTerm::BrTable {
+            targets,
+            default_label,
+            ..
+        } => {
+            let mut out = targets
+                .iter()
+                .map(|label| (label.as_str(), "table_target"))
+                .collect::<Vec<_>>();
+            out.push((default_label.as_str(), "table_default"));
+            out
+        }
         bb_ir::BbTerm::Raise { .. } => Vec::new(),
         bb_ir::BbTerm::TryJump {
             body_label,
@@ -558,7 +573,6 @@ fn bb_term_successors(term: &bb_ir::BbTerm) -> Vec<(&str, &'static str)> {
             }
             out
         }
-        bb_ir::BbTerm::Yield { resume_label, .. } => vec![(resume_label.as_str(), "yield_resume")],
         bb_ir::BbTerm::Ret(_) => Vec::new(),
     }
 }
