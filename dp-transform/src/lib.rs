@@ -316,11 +316,17 @@ pub fn inspect_pipeline(source: &str) -> Result<String, JsValue> {
         .as_ref()
         .map(bb_module_to_json)
         .unwrap_or(Value::Null);
+    let clif = bb
+        .bb_module
+        .as_ref()
+        .map(bb_module_to_clif)
+        .unwrap_or_else(|| "; no basic-block module emitted".to_string());
 
     let payload = json!({
         "phase1": phase_one.to_string(),
         "bbRaw": bb.to_string(),
         "bbModule": bb_module_json,
+        "clif": clif,
     });
     Ok(payload.to_string())
 }
@@ -584,4 +590,184 @@ fn expr_to_one_line(expr: &Expr) -> String {
         .next()
         .map(|line| line.trim().to_string())
         .unwrap_or_default()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn bb_module_to_clif(module: &bb_ir::BbModule) -> String {
+    if module.functions.is_empty() {
+        return "; no basic-block functions emitted".to_string();
+    }
+
+    let mut out = String::new();
+    for function in &module.functions {
+        let kind = match &function.kind {
+            bb_ir::BbFunctionKind::Function => "function",
+            bb_ir::BbFunctionKind::Coroutine => "coroutine",
+            bb_ir::BbFunctionKind::Generator { .. } => "generator",
+            bb_ir::BbFunctionKind::AsyncGenerator { .. } => "async_generator",
+        };
+
+        let mut label_to_index = std::collections::HashMap::new();
+        let mut label_to_params = std::collections::HashMap::new();
+        for (index, block) in function.blocks.iter().enumerate() {
+            label_to_index.insert(block.label.clone(), index);
+            label_to_params.insert(block.label.clone(), block.params.clone());
+        }
+
+        out.push_str(&format!(
+            "function %{} ; kind={kind}\n",
+            function.qualname
+        ));
+        out.push_str("{\n");
+
+        for (index, block) in function.blocks.iter().enumerate() {
+            let params = block
+                .params
+                .iter()
+                .map(|name| format!("%{name}: pyobj"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            out.push_str(&format!(
+                "  block{index}({params}): ; {}\n",
+                block.label
+            ));
+
+            if let Some(exc_target) = block.exc_target_label.as_ref() {
+                out.push_str(&format!(
+                    "    ; exc_target = {}\n",
+                    clif_target_call(exc_target, &label_to_index, &label_to_params)
+                ));
+            }
+            if let Some(exc_name) = block.exc_name.as_ref() {
+                out.push_str(&format!("    ; exc_name = %{exc_name}\n"));
+            }
+
+            let ops = ruff_ast_to_string(&bb_ir::bb_ops_to_stmts(&block.ops));
+            for line in ops.lines() {
+                let line = line.trim_end();
+                if line.trim().is_empty() {
+                    continue;
+                }
+                out.push_str("    ; ");
+                out.push_str(line);
+                out.push('\n');
+            }
+
+            out.push_str("    ");
+            out.push_str(&clif_term_text(
+                &block.term,
+                &label_to_index,
+                &label_to_params,
+            ));
+            out.push('\n');
+        }
+
+        out.push_str("}\n\n");
+    }
+
+    out
+}
+
+#[cfg(target_arch = "wasm32")]
+fn clif_target_call(
+    label: &str,
+    label_to_index: &std::collections::HashMap<String, usize>,
+    label_to_params: &std::collections::HashMap<String, Vec<String>>,
+) -> String {
+    let target = label_to_index
+        .get(label)
+        .map(|index| format!("block{index}"))
+        .unwrap_or_else(|| format!("%{label}"));
+    let args = label_to_params.get(label).cloned().unwrap_or_default();
+    if args.is_empty() {
+        target
+    } else {
+        format!(
+            "{target}({})",
+            args.iter()
+                .map(|name| format!("%{name}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn clif_term_text(
+    term: &bb_ir::BbTerm,
+    label_to_index: &std::collections::HashMap<String, usize>,
+    label_to_params: &std::collections::HashMap<String, Vec<String>>,
+) -> String {
+    match term {
+        bb_ir::BbTerm::Jump(label) => {
+            format!(
+                "jump {}",
+                clif_target_call(label.as_str(), label_to_index, label_to_params)
+            )
+        }
+        bb_ir::BbTerm::BrIf {
+            test,
+            then_label,
+            else_label,
+        } => format!(
+            "brif {}, {}, {}",
+            expr_to_one_line(test),
+            clif_target_call(then_label.as_str(), label_to_index, label_to_params),
+            clif_target_call(else_label.as_str(), label_to_index, label_to_params),
+        ),
+        bb_ir::BbTerm::BrTable {
+            index,
+            targets,
+            default_label,
+        } => {
+            let targets = targets
+                .iter()
+                .map(|label| clif_target_call(label.as_str(), label_to_index, label_to_params))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "br_table {}, [{}], {}",
+                expr_to_one_line(index),
+                targets,
+                clif_target_call(default_label.as_str(), label_to_index, label_to_params),
+            )
+        }
+        bb_ir::BbTerm::Raise { exc, cause } => {
+            let exc = exc
+                .as_ref()
+                .map(expr_to_one_line)
+                .unwrap_or_else(|| "None".to_string());
+            let cause = cause
+                .as_ref()
+                .map(expr_to_one_line)
+                .unwrap_or_else(|| "None".to_string());
+            format!("raise exc={exc} cause={cause}")
+        }
+        bb_ir::BbTerm::TryJump {
+            body_label,
+            except_label,
+            finally_label,
+            finally_fallthrough_label,
+            ..
+        } => format!(
+            "try_jump body={} except={} finally={} fallthrough={}",
+            clif_target_call(body_label.as_str(), label_to_index, label_to_params),
+            clif_target_call(except_label.as_str(), label_to_index, label_to_params),
+            finally_label
+                .as_ref()
+                .map(|label| clif_target_call(label.as_str(), label_to_index, label_to_params))
+                .unwrap_or_else(|| "-".to_string()),
+            finally_fallthrough_label
+                .as_ref()
+                .map(|label| clif_target_call(label.as_str(), label_to_index, label_to_params))
+                .unwrap_or_else(|| "-".to_string()),
+        ),
+        bb_ir::BbTerm::Ret(value) => {
+            let value = value
+                .as_ref()
+                .map(expr_to_one_line)
+                .unwrap_or_else(|| "None".to_string());
+            format!("return {value}")
+        }
+    }
 }

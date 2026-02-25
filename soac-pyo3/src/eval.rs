@@ -213,6 +213,42 @@ pub(crate) fn eval_source_impl(py: Python<'_>, path: &str, source: &str) -> PyRe
     eval_source_impl_with_name(py, path, source, "eval_source", None)
 }
 
+fn jit_mode_enabled() -> bool {
+    std::env::var_os("DIET_PYTHON_JIT").as_deref() == Some("1".as_ref())
+}
+
+fn validate_bb_module_for_jit(bb_module: Option<&bb_ir::BbModule>) -> Result<(), String> {
+    let bb_module = bb_module.ok_or_else(|| {
+        "JIT mode requires emitted basic-block IR, but none was produced".to_string()
+    })?;
+    for function in &bb_module.functions {
+        match &function.kind {
+            bb_ir::BbFunctionKind::Function | bb_ir::BbFunctionKind::Generator { .. } => {}
+            bb_ir::BbFunctionKind::Coroutine => {
+                return Err(format!(
+                    "JIT mode does not support coroutine functions yet: {}",
+                    function.qualname
+                ));
+            }
+            bb_ir::BbFunctionKind::AsyncGenerator { .. } => {
+                return Err(format!(
+                    "JIT mode does not support async generator functions yet: {}",
+                    function.qualname
+                ));
+            }
+        }
+        for block in &function.blocks {
+            if matches!(block.term, bb_ir::BbTerm::TryJump { .. }) {
+                return Err(format!(
+                    "JIT mode does not support try_jump terminators yet: {}:{}",
+                    function.qualname, block.label
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn eval_source_impl_with_name_and_spec(
     py: Python<'_>,
     path: &str,
@@ -225,6 +261,9 @@ fn eval_source_impl_with_name_and_spec(
     let module_ast = lowering.min_ast_module;
     let bb_module = lowering.bb_module;
     let transformed_source = lowering.transformed_source;
+    if jit_mode_enabled() {
+        validate_bb_module_for_jit(bb_module.as_ref()).map_err(PyRuntimeError::new_err)?;
+    }
 
     unsafe {
         let module = PyModule::new(py, name)?;
@@ -352,4 +391,85 @@ pub(crate) fn eval_source_impl_with_spec(
     spec: Py<PyAny>,
 ) -> PyResult<Py<PyAny>> {
     eval_source_impl_with_name_and_spec(py, path, source, name, package, Some(spec))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{transform_to_min_ast, validate_bb_module_for_jit};
+    use dp_transform::basic_block::bb_ir;
+
+    #[test]
+    fn jit_validator_accepts_nested_defs_and_generators() {
+        let source = r#"
+def outer(x):
+    def inner(y):
+        return y + 1
+    def gen():
+        yield inner(x)
+    return list(gen())
+"#;
+        let bb_module = transform_to_min_ast(source)
+            .expect("lowering should succeed")
+            .bb_module;
+        assert!(validate_bb_module_for_jit(bb_module.as_ref()).is_ok());
+    }
+
+    #[test]
+    fn jit_validator_rejects_coroutines() {
+        let source = r#"
+async def run():
+    return 1
+"#;
+        let bb_module = transform_to_min_ast(source)
+            .expect("lowering should succeed")
+            .bb_module;
+        let err = validate_bb_module_for_jit(bb_module.as_ref()).expect_err("must reject");
+        assert!(err.contains("coroutine"), "{err}");
+    }
+
+    #[test]
+    fn jit_validator_rejects_async_generators() {
+        let source = r#"
+async def run():
+    yield 1
+"#;
+        let bb_module = transform_to_min_ast(source)
+            .expect("lowering should succeed")
+            .bb_module;
+        let err = validate_bb_module_for_jit(bb_module.as_ref()).expect_err("must reject");
+        assert!(err.contains("async generator"), "{err}");
+    }
+
+    #[test]
+    fn jit_validator_rejects_try_jump_terminators() {
+        let source = r#"
+def f():
+    return 1
+"#;
+        let mut bb_module = transform_to_min_ast(source)
+            .expect("lowering should succeed")
+            .bb_module
+            .expect("bb module should be present");
+        let function = bb_module
+            .functions
+            .first_mut()
+            .expect("must contain at least one function");
+        let block = function
+            .blocks
+            .first_mut()
+            .expect("function must contain at least one block");
+        block.term = bb_ir::BbTerm::TryJump {
+            body_label: "body".to_string(),
+            except_label: "except".to_string(),
+            except_exc_name: None,
+            body_region_labels: vec![],
+            except_region_labels: vec![],
+            finally_label: None,
+            finally_exc_name: None,
+            finally_region_labels: vec![],
+            finally_fallthrough_label: None,
+        };
+        let err = validate_bb_module_for_jit(Some(&bb_module)).expect_err("must reject");
+        assert!(err.contains("try_jump"), "{err}");
+    }
 }

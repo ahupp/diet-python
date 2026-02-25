@@ -75,7 +75,7 @@ body {
 
 .workspace {
   display: grid;
-  grid-template-columns: 1.05fr 1fr 1fr;
+  grid-template-columns: 1.05fr 1fr 1fr 1fr;
   grid-template-rows: minmax(280px, 1fr) minmax(280px, 1fr);
   gap: 14px;
   min-height: 0;
@@ -98,7 +98,7 @@ body {
 }
 
 .structure-panel {
-  grid-column: 2 / 4;
+  grid-column: 2 / 5;
 }
 
 .panel-head {
@@ -300,7 +300,7 @@ select {
 @media (max-width: 1200px) {
   .workspace {
     grid-template-columns: 1fr;
-    grid-template-rows: 280px 280px 280px minmax(340px, 1fr);
+    grid-template-rows: 280px 280px 280px 280px minmax(340px, 1fr);
   }
 
   .source-panel {
@@ -324,9 +324,9 @@ select {
 <body>
 <div class="app">
   <div class="header">
-    <div>
-      <div class="title">diet-python transform pipeline inspector</div>
-      <div class="subtitle">Phase 1 output, raw BB output, dominance tree, and Graphviz CFG rendering</div>
+      <div>
+        <div class="title">diet-python transform pipeline inspector</div>
+      <div class="subtitle">Phase 1 output, raw BB output, generated CLIF, dominance tree, and Graphviz CFG rendering</div>
     </div>
     <div class="status" id="status">ready</div>
   </div>
@@ -351,6 +351,13 @@ select {
         <div class="panel-title">Raw BB Output</div>
       </div>
       <pre id="bbRaw"></pre>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-title">Generated CLIF</div>
+      </div>
+      <pre id="clifRaw"></pre>
     </section>
 
     <section class="panel structure-panel">
@@ -391,6 +398,7 @@ import { instance as createVizInstance } from "https://cdn.jsdelivr.net/npm/@viz
 const sourceEl = document.getElementById("source");
 const phase1El = document.getElementById("phase1");
 const bbRawEl = document.getElementById("bbRaw");
+const clifRawEl = document.getElementById("clifRaw");
 const pickerEl = document.getElementById("functionPicker");
 const statusEl = document.getElementById("status");
 const treeEl = document.getElementById("tree");
@@ -812,6 +820,7 @@ function inspectNow() {
   if (!source.trim()) {
     phase1El.textContent = "";
     bbRawEl.textContent = "";
+    clifRawEl.textContent = "";
     pickerEl.innerHTML = "";
     treeEl.innerHTML = `<div class="placeholder">Enter Python source to inspect the BB pipeline.</div>`;
     linksEl.innerHTML = "";
@@ -827,6 +836,7 @@ function inspectNow() {
 
     phase1El.textContent = payload.phase1 || "";
     bbRawEl.textContent = payload.bbRaw || "";
+    clifRawEl.textContent = payload.clif || "";
 
     const functions = payload.bbModule?.functions || [];
     refreshFunctionPicker(functions);
@@ -836,6 +846,7 @@ function inspectNow() {
   } catch (error) {
     phase1El.textContent = "";
     bbRawEl.textContent = "";
+    clifRawEl.textContent = "";
     pickerEl.innerHTML = "";
     treeEl.innerHTML = `<div class="placeholder">${String(error)}</div>`;
     linksEl.innerHTML = "";
