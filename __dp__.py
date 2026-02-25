@@ -476,7 +476,11 @@ def _route_region_jump(target, next_args, region_targets):
     return None
 
 
-def run_bb(entry, args):
+_jit_run_bb = None
+_jit_render_bb = None
+
+
+def _run_bb_interpreted(entry, args):
     term_obj = run_bb_term(entry, args, None)
     if isinstance(term_obj, _RetTerm):
         return term_obj.value
@@ -485,6 +489,135 @@ def run_bb(entry, args):
     if isinstance(term_obj, _JumpTerm):
         raise RuntimeError(f"unexpected out-of-region jump in run_bb: {term_obj!r}")
     raise RuntimeError(f"invalid basic-block terminator: {term_obj!r}")
+
+
+def _run_bb_step(block, args):
+    raw_args = _bb_raw_args(args)
+    try:
+        preserve_entry_args = getattr(block, "_dp_exc_target", None) is not None
+        block_params = _block_params(raw_args, copy_args=preserve_entry_args)
+        term_obj = block(*block_params)
+    except BaseException as exc:
+        term_obj = _dispatch_block_exception(block, raw_args, exc)
+        if term_obj is None:
+            return raise_(exc)
+
+    while isinstance(term_obj, _RaiseTerm):
+        dispatched = _dispatch_block_exception(block, raw_args, term_obj.exc)
+        if dispatched is None:
+            return term_obj
+        term_obj = dispatched
+    return term_obj
+
+
+def _bb_term_kind(term):
+    if isinstance(term, _JumpTerm):
+        return 0
+    if isinstance(term, _RetTerm):
+        return 1
+    if isinstance(term, _RaiseTerm):
+        return 2
+    return -1
+
+
+def _bb_term_jump_target(term):
+    return term.target
+
+
+def _bb_term_jump_args(term):
+    return term.args
+
+
+def _bb_term_ret_value(term):
+    return term.value
+
+
+def _bb_term_raise(term):
+    raise term.exc
+
+
+def _bb_term_invalid(term):
+    raise RuntimeError(f"invalid basic-block terminator: {term!r}")
+
+
+def _bb_resolve_blocks(entry, labels):
+    if not isinstance(labels, tuple):
+        labels = tuple(labels)
+    if not labels:
+        return ()
+
+    cached_labels = getattr(entry, "_dp_jit_labels", None)
+    cached_blocks = getattr(entry, "_dp_jit_blocks", None)
+    if cached_labels == labels and isinstance(cached_blocks, tuple) and len(cached_blocks) == len(labels):
+        return cached_blocks
+
+    wanted = set(labels)
+    found = dict(())
+    seen_ids = set()
+    stack = [entry]
+    while stack:
+        fn = stack.pop()
+        obj_id = id(fn)
+        if obj_id in seen_ids:
+            continue
+        seen_ids.add(obj_id)
+        name = getattr(fn, "__name__", None)
+        if isinstance(name, str) and name in wanted and callable(fn):
+            found[name] = fn
+            if len(found) == len(wanted):
+                break
+        closure = getattr(fn, "__closure__", None)
+        if closure:
+            for cell in closure:
+                try:
+                    cell_value = cell.cell_contents
+                except ValueError:
+                    continue
+                if callable(cell_value):
+                    stack.append(cell_value)
+        defaults = getattr(fn, "__defaults__", None)
+        if defaults:
+            for value in defaults:
+                if callable(value):
+                    stack.append(value)
+        kwdefaults = getattr(fn, "__kwdefaults__", None)
+        if isinstance(kwdefaults, dict):
+            for value in kwdefaults.values():
+                if callable(value):
+                    stack.append(value)
+
+    if len(found) != len(wanted):
+        globals_dict = getattr(entry, "__globals__", None)
+        if isinstance(globals_dict, dict):
+            for name in labels:
+                if name in found:
+                    continue
+                value = globals_dict.get(name, None)
+                if callable(value):
+                    found[name] = value
+
+    missing = [name for name in labels if name not in found]
+    if missing:
+        raise RuntimeError(
+            f"failed to resolve basic blocks for {entry!r}: missing {missing!r}"
+        )
+
+    resolved = tuple(found[name] for name in labels)
+    entry._dp_jit_labels = labels
+    entry._dp_jit_blocks = resolved
+    return resolved
+
+
+def run_bb(entry, args):
+    if _jit_run_bb is not None:
+        return _jit_run_bb(entry, args)
+    return _run_bb_interpreted(entry, args)
+
+
+def render_jit_bb(entry):
+    if _jit_render_bb is None:
+        raise RuntimeError("JIT CLIF renderer is unavailable")
+    return _jit_render_bb(entry)
 
 
 async def run_coro_bb(entry, args):

@@ -2,5 +2,6 @@
 #![allow(unused_unsafe)]
 
 pub mod tree_walk;
+pub mod jit;
 
 include!(concat!(env!("OUT_DIR"), "/soac_clif.rs"));

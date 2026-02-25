@@ -1,12 +1,19 @@
-use dp_transform::{Options, basic_block::bb_ir, min_ast, transform_str_to_ruff_with_options};
+use dp_transform::{
+    Options,
+    basic_block::{bb_ir, normalize_bb_module_for_codegen},
+    min_ast,
+    transform_str_to_ruff_with_options,
+};
 use pyo3::exceptions::{PyRuntimeError, PySyntaxError};
 use pyo3::ffi;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PyList, PyTuple};
 use soac_eval::tree_walk::{self as interpreter, RuntimeFns};
 use std::any::Any;
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::ffi::CString;
+use std::ffi::c_void;
 
 #[derive(Debug)]
 pub(crate) enum TransformToMinAstError {
@@ -19,6 +26,61 @@ pub(crate) struct EvalLoweringResult {
     pub(crate) min_ast_module: min_ast::Module,
     pub(crate) bb_module: Option<bb_ir::BbModule>,
     pub(crate) transformed_source: String,
+}
+
+#[derive(Clone, Copy)]
+struct JitRunBbHooks {
+    run_bb_step: *mut ffi::PyObject,
+    term_kind: *mut ffi::PyObject,
+    term_jump_target: *mut ffi::PyObject,
+    term_jump_args: *mut ffi::PyObject,
+    term_ret_value: *mut ffi::PyObject,
+    term_raise: *mut ffi::PyObject,
+    term_invalid: *mut ffi::PyObject,
+}
+
+thread_local! {
+    static JIT_RUN_BB_HOOK_STACK: RefCell<Vec<JitRunBbHooks>> = const { RefCell::new(Vec::new()) };
+}
+
+fn push_jit_run_bb_hooks(hooks: JitRunBbHooks) {
+    unsafe {
+        ffi::Py_INCREF(hooks.run_bb_step);
+        ffi::Py_INCREF(hooks.term_kind);
+        ffi::Py_INCREF(hooks.term_jump_target);
+        ffi::Py_INCREF(hooks.term_jump_args);
+        ffi::Py_INCREF(hooks.term_ret_value);
+        ffi::Py_INCREF(hooks.term_raise);
+        ffi::Py_INCREF(hooks.term_invalid);
+    }
+    JIT_RUN_BB_HOOK_STACK.with(|stack| stack.borrow_mut().push(hooks));
+}
+
+fn pop_jit_run_bb_hooks() {
+    let popped = JIT_RUN_BB_HOOK_STACK.with(|stack| stack.borrow_mut().pop());
+    if let Some(hooks) = popped {
+        unsafe {
+            ffi::Py_DECREF(hooks.run_bb_step);
+            ffi::Py_DECREF(hooks.term_kind);
+            ffi::Py_DECREF(hooks.term_jump_target);
+            ffi::Py_DECREF(hooks.term_jump_args);
+            ffi::Py_DECREF(hooks.term_ret_value);
+            ffi::Py_DECREF(hooks.term_raise);
+            ffi::Py_DECREF(hooks.term_invalid);
+        }
+    }
+}
+
+fn current_jit_run_bb_hooks() -> Option<JitRunBbHooks> {
+    JIT_RUN_BB_HOOK_STACK.with(|stack| stack.borrow().last().copied())
+}
+
+struct JitRunBbHooksGuard;
+
+impl Drop for JitRunBbHooksGuard {
+    fn drop(&mut self) {
+        pop_jit_run_bb_hooks();
+    }
 }
 
 impl TransformToMinAstError {
@@ -249,6 +311,353 @@ fn validate_bb_module_for_jit(bb_module: Option<&bb_ir::BbModule>) -> Result<(),
     Ok(())
 }
 
+fn run_cranelift_jit_preflight(bb_module: Option<&bb_ir::BbModule>) -> Result<(), String> {
+    let bb_module = bb_module.ok_or_else(|| {
+        "JIT mode requires emitted basic-block IR, but none was produced".to_string()
+    })?;
+    let normalized = normalize_bb_module_for_codegen(bb_module);
+    soac_eval::jit::run_cranelift_smoke(&normalized)
+}
+
+fn run_cranelift_python_call_preflight(py: Python<'_>) -> Result<(), String> {
+    unsafe extern "C" fn preflight_incref(obj: *mut c_void) {
+        if !obj.is_null() {
+            ffi::Py_INCREF(obj as *mut ffi::PyObject);
+        }
+    }
+
+    unsafe extern "C" fn preflight_decref(obj: *mut c_void) {
+        if !obj.is_null() {
+            ffi::Py_DECREF(obj as *mut ffi::PyObject);
+        }
+    }
+
+    unsafe extern "C" fn preflight_call_one_arg(
+        callable: *mut c_void,
+        arg: *mut c_void,
+    ) -> *mut c_void {
+        ffi::PyObject_CallFunctionObjArgs(
+            callable as *mut ffi::PyObject,
+            arg as *mut ffi::PyObject,
+            std::ptr::null_mut::<ffi::PyObject>(),
+        ) as *mut c_void
+    }
+
+    unsafe extern "C" fn preflight_compare_eq(lhs: *mut c_void, rhs: *mut c_void) -> i32 {
+        ffi::PyObject_RichCompareBool(
+            lhs as *mut ffi::PyObject,
+            rhs as *mut ffi::PyObject,
+            ffi::Py_EQ,
+        )
+    }
+
+    // Execute one real Python call through JITed machine code, including
+    // imported INCREF/DECREF and Python-call helper symbols.
+    let builtins = py
+        .import("builtins")
+        .map_err(|err| format!("failed to import builtins for JIT preflight: {err}"))?;
+    let len_fn = builtins
+        .getattr("len")
+        .map_err(|err| format!("failed to resolve builtins.len for JIT preflight: {err}"))?;
+    let arg = PyList::new(py, [1_i64, 2, 3])
+        .map_err(|err| format!("failed to build list arg for JIT preflight: {err}"))?;
+    let expected = 3_i64.into_pyobject(py).map_err(|err| {
+        format!("failed to build expected result object for JIT preflight: {err}")
+    })?;
+    unsafe {
+        soac_eval::jit::run_cranelift_python_call_smoke(
+            len_fn.as_ptr() as *mut c_void,
+            arg.as_ptr() as *mut c_void,
+            expected.as_ptr() as *mut c_void,
+            preflight_incref,
+            preflight_decref,
+            preflight_call_one_arg,
+            preflight_compare_eq,
+        )?;
+    }
+    Ok(())
+}
+
+pub(crate) fn jit_run_bb_impl(
+    py: Python<'_>,
+    entry: &Bound<'_, PyAny>,
+    args: &Bound<'_, PyAny>,
+) -> PyResult<Py<PyAny>> {
+    unsafe extern "C" fn preflight_incref(obj: *mut c_void) {
+        if !obj.is_null() {
+            ffi::Py_INCREF(obj as *mut ffi::PyObject);
+        }
+    }
+
+    unsafe extern "C" fn preflight_decref(obj: *mut c_void) {
+        if !obj.is_null() {
+            ffi::Py_DECREF(obj as *mut ffi::PyObject);
+        }
+    }
+
+    unsafe extern "C" fn preflight_call_two_args(
+        callable: *mut c_void,
+        arg1: *mut c_void,
+        arg2: *mut c_void,
+    ) -> *mut c_void {
+        ffi::PyObject_CallFunctionObjArgs(
+            callable as *mut ffi::PyObject,
+            arg1 as *mut ffi::PyObject,
+            arg2 as *mut ffi::PyObject,
+            std::ptr::null_mut::<ffi::PyObject>(),
+        ) as *mut c_void
+    }
+
+    unsafe extern "C" fn run_bb_step_hook(block: *mut c_void, args: *mut c_void) -> *mut c_void {
+        let Some(hooks) = current_jit_run_bb_hooks() else {
+            return std::ptr::null_mut();
+        };
+        ffi::PyObject_CallFunctionObjArgs(
+            hooks.run_bb_step,
+            block as *mut ffi::PyObject,
+            args as *mut ffi::PyObject,
+            std::ptr::null_mut::<ffi::PyObject>(),
+        ) as *mut c_void
+    }
+
+    unsafe extern "C" fn term_kind_hook(term: *mut c_void) -> i64 {
+        let Some(hooks) = current_jit_run_bb_hooks() else {
+            return -1;
+        };
+        let result = ffi::PyObject_CallFunctionObjArgs(
+            hooks.term_kind,
+            term as *mut ffi::PyObject,
+            std::ptr::null_mut::<ffi::PyObject>(),
+        );
+        if result.is_null() {
+            return -1;
+        }
+        let value = ffi::PyLong_AsLongLong(result);
+        ffi::Py_DECREF(result);
+        value as i64
+    }
+
+    unsafe extern "C" fn term_jump_target_hook(term: *mut c_void) -> *mut c_void {
+        let Some(hooks) = current_jit_run_bb_hooks() else {
+            return std::ptr::null_mut();
+        };
+        ffi::PyObject_CallFunctionObjArgs(
+            hooks.term_jump_target,
+            term as *mut ffi::PyObject,
+            std::ptr::null_mut::<ffi::PyObject>(),
+        ) as *mut c_void
+    }
+
+    unsafe extern "C" fn term_jump_args_hook(term: *mut c_void) -> *mut c_void {
+        let Some(hooks) = current_jit_run_bb_hooks() else {
+            return std::ptr::null_mut();
+        };
+        ffi::PyObject_CallFunctionObjArgs(
+            hooks.term_jump_args,
+            term as *mut ffi::PyObject,
+            std::ptr::null_mut::<ffi::PyObject>(),
+        ) as *mut c_void
+    }
+
+    unsafe extern "C" fn term_ret_value_hook(term: *mut c_void) -> *mut c_void {
+        let Some(hooks) = current_jit_run_bb_hooks() else {
+            return std::ptr::null_mut();
+        };
+        ffi::PyObject_CallFunctionObjArgs(
+            hooks.term_ret_value,
+            term as *mut ffi::PyObject,
+            std::ptr::null_mut::<ffi::PyObject>(),
+        ) as *mut c_void
+    }
+
+    unsafe extern "C" fn term_raise_hook(term: *mut c_void) -> i32 {
+        let Some(hooks) = current_jit_run_bb_hooks() else {
+            return -1;
+        };
+        let result = ffi::PyObject_CallFunctionObjArgs(
+            hooks.term_raise,
+            term as *mut ffi::PyObject,
+            std::ptr::null_mut::<ffi::PyObject>(),
+        );
+        if result.is_null() {
+            return -1;
+        }
+        ffi::Py_DECREF(result);
+        0
+    }
+
+    unsafe extern "C" fn term_invalid_hook(term: *mut c_void) -> i32 {
+        let Some(hooks) = current_jit_run_bb_hooks() else {
+            return -1;
+        };
+        let result = ffi::PyObject_CallFunctionObjArgs(
+            hooks.term_invalid,
+            term as *mut ffi::PyObject,
+            std::ptr::null_mut::<ffi::PyObject>(),
+        );
+        if result.is_null() {
+            return -1;
+        }
+        ffi::Py_DECREF(result);
+        0
+    }
+
+    let dp_module = py.import("__dp__")?;
+    let run_bb_step = dp_module.getattr("_run_bb_step")?;
+    let term_kind = dp_module.getattr("_bb_term_kind")?;
+    let term_jump_target = dp_module.getattr("_bb_term_jump_target")?;
+    let term_jump_args = dp_module.getattr("_bb_term_jump_args")?;
+    let term_ret_value = dp_module.getattr("_bb_term_ret_value")?;
+    let term_raise = dp_module.getattr("_bb_term_raise")?;
+    let term_invalid = dp_module.getattr("_bb_term_invalid")?;
+    let resolve_blocks = dp_module.getattr("_bb_resolve_blocks")?;
+
+    push_jit_run_bb_hooks(JitRunBbHooks {
+        run_bb_step: run_bb_step.as_ptr(),
+        term_kind: term_kind.as_ptr(),
+        term_jump_target: term_jump_target.as_ptr(),
+        term_jump_args: term_jump_args.as_ptr(),
+        term_ret_value: term_ret_value.as_ptr(),
+        term_raise: term_raise.as_ptr(),
+        term_invalid: term_invalid.as_ptr(),
+    });
+    let _hooks_guard = JitRunBbHooksGuard;
+
+    let result_ptr = if let Some((entry_index, block_ptrs)) =
+        resolve_specialized_jit_blocks(py, entry, &resolve_blocks, true)?
+    {
+        unsafe {
+            soac_eval::jit::run_cranelift_run_bb_specialized(
+                block_ptrs.as_slice(),
+                entry_index,
+                args.as_ptr() as *mut c_void,
+                preflight_incref,
+                preflight_decref,
+                run_bb_step_hook,
+                term_kind_hook,
+                term_jump_target_hook,
+                term_jump_args_hook,
+                term_ret_value_hook,
+                term_raise_hook,
+                term_invalid_hook,
+            )
+            .map_err(PyRuntimeError::new_err)?
+        }
+    } else {
+        unsafe {
+            soac_eval::jit::run_cranelift_run_bb(
+                entry.as_ptr() as *mut c_void,
+                args.as_ptr() as *mut c_void,
+                preflight_incref,
+                preflight_decref,
+                run_bb_step_hook,
+                term_kind_hook,
+                term_jump_target_hook,
+                term_jump_args_hook,
+                term_ret_value_hook,
+                term_raise_hook,
+            )
+            .map_err(PyRuntimeError::new_err)?
+        }
+    };
+
+    if result_ptr.is_null() {
+        if unsafe { ffi::PyErr_Occurred() }.is_null() {
+            return Err(PyRuntimeError::new_err("Cranelift JIT run_bb returned null result without exception"));
+        }
+        return Err(PyErr::fetch(py));
+    }
+    let result = unsafe { Bound::<PyAny>::from_owned_ptr(py, result_ptr as *mut ffi::PyObject) };
+    Ok(result.unbind())
+}
+
+fn resolve_specialized_jit_blocks(
+    py: Python<'_>,
+    entry: &Bound<'_, PyAny>,
+    resolve_blocks: &Bound<'_, PyAny>,
+    allow_missing: bool,
+) -> PyResult<Option<(usize, Vec<*mut c_void>)>> {
+    let module_name = entry
+        .getattr("__module__")
+        .ok()
+        .and_then(|obj| obj.extract::<String>().ok())
+        .unwrap_or_default();
+    let entry_label = entry
+        .getattr("__name__")
+        .ok()
+        .and_then(|obj| obj.extract::<String>().ok())
+        .unwrap_or_default();
+
+    let mut plan = soac_eval::jit::lookup_bb_entry_plan(module_name.as_str(), entry_label.as_str());
+    if plan.is_none() && !allow_missing {
+        if let Ok(kwdefaults_obj) = entry.getattr("__kwdefaults__") {
+            if let Ok(kwdefaults) = kwdefaults_obj.cast::<PyDict>() {
+                if let Ok(Some(entry_bb_obj)) = kwdefaults.get_item("__dp_entry_bb") {
+                    if let Ok(entry_bb_name) = entry_bb_obj.getattr("__name__").and_then(|o| o.extract::<String>()) {
+                        plan = soac_eval::jit::lookup_bb_entry_plan(module_name.as_str(), entry_bb_name.as_str());
+                    }
+                }
+            }
+        }
+    }
+    let Some(plan) = plan else {
+        return Ok(None);
+    };
+    let block_labels = PyTuple::new(py, plan.block_labels.iter().map(String::as_str))?;
+    let resolved_blocks_obj = match resolve_blocks.call1((entry, block_labels)) {
+        Ok(value) => value,
+        Err(err) if allow_missing => {
+            drop(err);
+            return Ok(None);
+        }
+        Err(err) => return Err(err),
+    };
+    let resolved_blocks = resolved_blocks_obj
+        .cast::<PyTuple>()
+        .map_err(|_| PyRuntimeError::new_err("expected _bb_resolve_blocks() to return a tuple"))?;
+    let mut block_ptrs = Vec::with_capacity(resolved_blocks.len());
+    for item in resolved_blocks.iter() {
+        block_ptrs.push(item.as_ptr() as *mut c_void);
+    }
+    if plan.entry_index >= block_ptrs.len() {
+        if allow_missing {
+            return Ok(None);
+        }
+        return Err(PyRuntimeError::new_err(format!(
+            "invalid JIT entry index {} for {} blocks",
+            plan.entry_index,
+            block_ptrs.len()
+        )));
+    }
+    Ok(Some((plan.entry_index, block_ptrs)))
+}
+
+pub(crate) fn jit_render_bb_impl(py: Python<'_>, entry: &Bound<'_, PyAny>) -> PyResult<String> {
+    let dp_module = py.import("__dp__")?;
+    let resolve_blocks = dp_module.getattr("_bb_resolve_blocks")?;
+    let Some((entry_index, block_ptrs)) =
+        resolve_specialized_jit_blocks(py, entry, &resolve_blocks, false)?
+    else {
+        let module_name = entry
+            .getattr("__module__")
+            .ok()
+            .and_then(|obj| obj.extract::<String>().ok())
+            .unwrap_or_default();
+        let entry_label = entry
+            .getattr("__name__")
+            .ok()
+            .and_then(|obj| obj.extract::<String>().ok())
+            .unwrap_or_default();
+        return Err(PyRuntimeError::new_err(format!(
+            "no specialized JIT plan for {module_name}.{entry_label}"
+        )));
+    };
+    unsafe {
+        soac_eval::jit::render_cranelift_run_bb_specialized(block_ptrs.as_slice(), entry_index)
+            .map_err(PyRuntimeError::new_err)
+    }
+}
+
 fn eval_source_impl_with_name_and_spec(
     py: Python<'_>,
     path: &str,
@@ -263,6 +672,18 @@ fn eval_source_impl_with_name_and_spec(
     let transformed_source = lowering.transformed_source;
     if jit_mode_enabled() {
         validate_bb_module_for_jit(bb_module.as_ref()).map_err(PyRuntimeError::new_err)?;
+        if let Some(bb_module) = bb_module.as_ref() {
+            let normalized = normalize_bb_module_for_codegen(bb_module);
+            soac_eval::jit::register_bb_module_plans(name, &normalized).map_err(|err| {
+                PyRuntimeError::new_err(format!("Cranelift JIT plan registration failed: {err}"))
+            })?;
+        }
+        run_cranelift_jit_preflight(bb_module.as_ref()).map_err(|err| {
+            PyRuntimeError::new_err(format!("Cranelift JIT preflight failed: {err}"))
+        })?;
+        run_cranelift_python_call_preflight(py).map_err(|err| {
+            PyRuntimeError::new_err(format!("Cranelift JIT Python-call preflight failed: {err}"))
+        })?;
     }
 
     unsafe {
@@ -321,6 +742,16 @@ fn eval_source_impl_with_name_and_spec(
             module.setattr("__builtins__", &builtins_dict)?;
 
             let dp_module = py.import("__dp__")?;
+            if jit_mode_enabled() {
+                let runtime_module = py.import("diet_python")?;
+                let jit_run_bb = runtime_module.getattr("jit_run_bb")?;
+                let jit_render_bb = runtime_module.getattr("jit_render_bb")?;
+                dp_module.setattr("_jit_run_bb", jit_run_bb)?;
+                dp_module.setattr("_jit_render_bb", jit_render_bb)?;
+            } else {
+                dp_module.setattr("_jit_run_bb", py.None())?;
+                dp_module.setattr("_jit_render_bb", py.None())?;
+            }
             let runtime_fns = RuntimeFns::new(&builtins_dict, &dp_module.as_any())?;
             let expected_names = expected_function_code_names(&module_ast, bb_module.as_ref());
             let function_code_map = compile_transformed_function_code_map(
@@ -395,7 +826,7 @@ pub(crate) fn eval_source_impl_with_spec(
 
 #[cfg(test)]
 mod tests {
-    use super::{transform_to_min_ast, validate_bb_module_for_jit};
+    use super::{run_cranelift_jit_preflight, transform_to_min_ast, validate_bb_module_for_jit};
     use dp_transform::basic_block::bb_ir;
 
     #[test]
@@ -471,5 +902,18 @@ def f():
         };
         let err = validate_bb_module_for_jit(Some(&bb_module)).expect_err("must reject");
         assert!(err.contains("try_jump"), "{err}");
+    }
+
+    #[test]
+    fn jit_preflight_runs_cranelift_for_supported_module() {
+        let source = r#"
+def f(x):
+    return x
+"#;
+        let bb_module = transform_to_min_ast(source)
+            .expect("lowering should succeed")
+            .bb_module;
+        validate_bb_module_for_jit(bb_module.as_ref()).expect("validator should allow module");
+        run_cranelift_jit_preflight(bb_module.as_ref()).expect("cranelift preflight should run");
     }
 }

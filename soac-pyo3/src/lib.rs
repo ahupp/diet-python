@@ -104,6 +104,16 @@ fn eval_source_with_spec(
     }
 }
 
+#[pyfunction]
+fn jit_run_bb(py: Python<'_>, entry: &Bound<'_, PyAny>, args: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+    eval::jit_run_bb_impl(py, entry, args)
+}
+
+#[pyfunction]
+fn jit_render_bb(py: Python<'_>, entry: &Bound<'_, PyAny>) -> PyResult<String> {
+    eval::jit_render_bb_impl(py, entry)
+}
+
 #[pymodule]
 fn diet_python(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     dp_transform::init_logging();
@@ -111,5 +121,7 @@ fn diet_python(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(eval_source, module)?)?;
     module.add_function(wrap_pyfunction!(eval_source_with_name, module)?)?;
     module.add_function(wrap_pyfunction!(eval_source_with_spec, module)?)?;
+    module.add_function(wrap_pyfunction!(jit_run_bb, module)?)?;
+    module.add_function(wrap_pyfunction!(jit_render_bb, module)?)?;
     Ok(())
 }
