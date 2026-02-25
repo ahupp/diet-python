@@ -194,8 +194,7 @@ else:
                                 start = start_expr,
                                 end = end_expr
                             );
-                            let list_expr =
-                                py_expr!("__dp__.list({value:expr})", value = slice_expr);
+                            let list_expr = py_expr!("__dp_list({value:expr})", value = slice_expr);
                             assigns.push(py_stmt!(
                                 "{name:id} = {value:expr}",
                                 name = name.as_str(),
@@ -311,7 +310,7 @@ else:
 
             if let Some(name) = rest {
                 assigns.push(py_stmt!(
-                    "{name:id} = __dp__.dict({subject:expr})",
+                    "{name:id} = __dp_dict({subject:expr})",
                     name = name.as_str(),
                     subject = subject.clone()
                 ));
@@ -348,7 +347,7 @@ else:
             let expr = fold_exprs(tests, ast::BoolOp::And);
             let mut assigns = Vec::new();
             if let Some(name) = name {
-                let list_expr = py_expr!("__dp__.list({subject:expr})", subject = subject.clone());
+                let list_expr = py_expr!("__dp_list({subject:expr})", subject = subject.clone());
                 assigns.push(py_stmt!(
                     "{name:id} = {value:expr}",
                     name = name.as_str(),
@@ -385,14 +384,14 @@ else:
 
             for (i, p) in arguments.patterns.iter().enumerate() {
                 let attr_exists = py_expr!(
-                    "__dp__.match_class_attr_exists({cls:expr}, {subject:expr}, {idx:expr}, {total:expr})",
+                    "__dp_match_class_attr_exists({cls:expr}, {subject:expr}, {idx:expr}, {total:expr})",
                     subject = subject.clone(),
                     cls = *cls.clone(),
                     idx = integer_expr(i),
                     total = positional_total.clone()
                 );
                 let attr_value = py_expr!(
-                    "__dp__.match_class_attr_value({cls:expr}, {subject:expr}, {idx:expr}, {total:expr})",
+                    "__dp_match_class_attr_value({cls:expr}, {subject:expr}, {idx:expr}, {total:expr})",
                     subject = subject.clone(),
                     cls = *cls.clone(),
                     idx = integer_expr(i),

@@ -8,7 +8,8 @@ python -> simpler python:
   * Strip annotated assignments ("x : int = 1"), and emit as `__annotate__` / `__annotate_func__`.
   * Rewrite "private" names in classes like `__foo` -> `_{classname}_foo`.
   * `assert` -> `if __debug__`
-  * 
+  * `if..elif` into a chain of `if..else`
+  * type aliases and parameters into calls to `TypeVar` / `TypeParam` etc.
 
 
 dp-transform lowers python to a subset of python with a much
@@ -131,9 +132,6 @@ Total tests: run=32,863 failures=705 skipped=1,778
 Total test files: run=483/491 failed=132 skipped=27 resource_denied=8
 Result: FAILURE
 
-# TODO
-
-* Exec rewriting to get raw dict from the GlobalsProxy is probably wrong
 
 # Perf
 
@@ -156,3 +154,12 @@ Dropping to basic block format:
 
  - gave control over name binding for functions
  - significantly improved fidelity to flow control, made generators easier, and reduced JIT surface area
+
+
+ # Principles
+
+  * Locality: for any specific concept, it's better to handle it in one place.
+    e.g, prefer to handle different kinds of load/store (global, nonlocal,
+    local, class-body) in one place, rather than spreading them across many
+    different transforms.
+  * 

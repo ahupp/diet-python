@@ -21,7 +21,7 @@ pub fn rewrite_try(stmt: ast::StmtTry) -> Rewrite {
         let finalbody = body_to_vec(finalbody);
 
         let mut handler_body: Vec<Stmt> = Vec::new();
-        handler_body.push(py_stmt!("_dp_exc = __dp__.current_exception()"));
+        handler_body.push(py_stmt!("_dp_exc = __dp_current_exception()"));
         handler_body.push(py_stmt!("_dp_rest = _dp_exc"));
 
         for handler in handlers {
@@ -59,7 +59,7 @@ finally:
             };
 
             handler_body.push(py_stmt!(
-                "_dp_match, _dp_rest = __dp__.exceptiongroup_split(_dp_rest, {typ:expr})",
+                "_dp_match, _dp_rest = __dp_exceptiongroup_split(_dp_rest, {typ:expr})",
                 typ = typ,
             ));
             handler_body.push(py_stmt!(
@@ -140,13 +140,13 @@ finally:
         }
 
         let condition = py_expr!(
-            "__dp__.exception_matches(__dp__.current_exception(), {typ:expr})",
+            "__dp_exception_matches(__dp_current_exception(), {typ:expr})",
             typ = type_.unwrap()
         );
 
         let (exc_target, body) = if let Some(ast::Identifier { id, .. }) = &name {
             let target = id.as_str();
-            let exc_target = py_stmt!("{target:id} = __dp__.current_exception()", target = target,);
+            let exc_target = py_stmt!("{target:id} = __dp_current_exception()", target = target,);
             let body = py_stmt!(
                 r#"
 try:
@@ -201,7 +201,7 @@ finally:
 pub fn rewrite_raise(mut raise: ast::StmtRaise) -> Rewrite {
     match (raise.exc.take(), raise.cause.take()) {
         (Some(exc), Some(cause)) => Rewrite::Walk(py_stmt!(
-            "raise __dp__.raise_from({exc:expr}, {cause:expr})",
+            "raise __dp_raise_from({exc:expr}, {cause:expr})",
             exc = exc,
             cause = cause,
         )),

@@ -42,32 +42,32 @@ pub fn rewrite(context: &Context, with_stmt: ast::StmtWith) -> Rewrite {
         body = if is_async {
             let enter_stmt = if let Some(target) = target.clone() {
                 py_stmt!(
-                    "{target:expr} = await __dp__.asynccontextmanager_aenter({ctx:expr})",
+                    "{target:expr} = await __dp_asynccontextmanager_aenter({ctx:expr})",
                     target = target,
                     ctx = ctx_placeholder.expr.clone(),
                 )
             } else {
                 py_stmt!(
-                    "await __dp__.asynccontextmanager_aenter({ctx:expr})",
+                    "await __dp_asynccontextmanager_aenter({ctx:expr})",
                     ctx = ctx_placeholder.expr.clone(),
                 )
             };
             py_stmt!(
                 r#"
 {ctx_placeholder_stmt:stmt}
-{exit_name:id} = __dp__.asynccontextmanager_get_aexit({ctx_placeholder_expr_1:expr})
+{exit_name:id} = __dp_asynccontextmanager_get_aexit({ctx_placeholder_expr_1:expr})
 {enter_stmt:stmt}
 {ok_name:id} = True
 try:
     {body:stmt}
 except:
     {ok_name:id} = False
-    {suppress_name:id} = await __dp__.asynccontextmanager_aexit({exit_name:id}, __dp__.exc_info())
+    {suppress_name:id} = await __dp_asynccontextmanager_aexit({exit_name:id}, __dp_exc_info())
     if not {suppress_name:id}:
         raise
 finally:
     if {ok_name:id}:
-        await __dp__.asynccontextmanager_aexit({exit_name:id}, None)
+        await __dp_asynccontextmanager_aexit({exit_name:id}, None)
     {exit_name:id} = None
     {ctx_cleanup:stmt}
 "#,
@@ -83,30 +83,30 @@ finally:
         } else {
             let enter_stmt = if let Some(target) = target.clone() {
                 py_stmt!(
-                    "{target:expr} = __dp__.contextmanager_enter({ctx:expr})",
+                    "{target:expr} = __dp_contextmanager_enter({ctx:expr})",
                     target = target,
                     ctx = ctx_placeholder.expr.clone(),
                 )
             } else {
                 py_stmt!(
-                    "__dp__.contextmanager_enter({ctx:expr})",
+                    "__dp_contextmanager_enter({ctx:expr})",
                     ctx = ctx_placeholder.expr.clone(),
                 )
             };
             py_stmt!(
                 r#"
 {ctx_placeholder_stmt:stmt}
-{exit_name:id} = __dp__.contextmanager_get_exit({ctx_placeholder_expr_1:expr})
+{exit_name:id} = __dp_contextmanager_get_exit({ctx_placeholder_expr_1:expr})
 {enter_stmt:stmt}
 {ok_name:id} = True
 try:
     {body:stmt}
 except:
     {ok_name:id} = False
-    __dp__.contextmanager_exit({exit_name:id}, __dp__.exc_info())
+    __dp_contextmanager_exit({exit_name:id}, __dp_exc_info())
 finally:
     if {ok_name:id}:
-        __dp__.contextmanager_exit({exit_name:id}, None)
+        __dp_contextmanager_exit({exit_name:id}, None)
     {exit_name:id} = None
     {ctx_cleanup:stmt}
 "#,

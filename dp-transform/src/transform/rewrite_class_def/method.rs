@@ -51,10 +51,10 @@ impl Transformer for MethodRewriteSuperClasscell {
                     self.needs_class_cell = true;
                     *expr = match &self.first_arg {
                         Some(arg) => py_expr!(
-                            "__dp__.call_super(super, _dp_classcell, {arg:id})",
+                            "__dp_call_super(super, _dp_classcell, {arg:id})",
                             arg = arg.as_str()
                         ),
-                        None => py_expr!("__dp__.call_super_noargs(super)"),
+                        None => py_expr!("__dp_call_super_noargs(super)"),
                     };
                     return;
                 }
@@ -80,6 +80,11 @@ fn is_dp_call(expr: &Expr, name: &str) -> bool {
     let Expr::Call(ast::ExprCall { func, .. }) = expr else {
         return false;
     };
+    if let Expr::Name(ast::ExprName { id, .. }) = func.as_ref() {
+        if id.as_str() == format!("__dp_{name}") {
+            return true;
+        }
+    }
     let Expr::Attribute(ast::ExprAttribute { value, attr, .. }) = func.as_ref() else {
         return false;
     };

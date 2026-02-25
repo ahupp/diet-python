@@ -178,11 +178,11 @@ def _dp_class_ns_{class_name:id}(_dp_class_ns, _dp_classcell_arg):
 
     let define_class_fn: ast::StmtFunctionDef = py_stmt_typed!(
         r#"
-def _dp_define_class_{class_name:id}():
+def _dp_define_class_{class_name:id}(_dp_class_ns_fn):
     {type_param_bindings:stmt}
-    return __dp__.create_class(
+    return __dp_create_class(
       {class_name:literal}, 
-      _dp_class_ns_{class_name:id}, 
+      _dp_class_ns_fn, 
       {bases:expr}, 
       {prepare_dict:expr}, 
       {requires_class_cell:literal},

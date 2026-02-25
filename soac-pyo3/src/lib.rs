@@ -3,7 +3,9 @@
 use dp_transform::{Options, transform_str_to_ruff_with_options};
 use log::trace;
 use pyo3::exceptions::PyRuntimeError;
+use pyo3::ffi;
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 use std::fs;
 
 mod eval;
@@ -105,13 +107,50 @@ fn eval_source_with_spec(
 }
 
 #[pyfunction]
-fn jit_run_bb(py: Python<'_>, entry: &Bound<'_, PyAny>, args: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
-    eval::jit_run_bb_impl(py, entry, args)
+fn jit_run_bb_plan(
+    py: Python<'_>,
+    module_name: &str,
+    qualname: &str,
+    globals_obj: &Bound<'_, PyAny>,
+    args: &Bound<'_, PyAny>,
+) -> PyResult<Py<PyAny>> {
+    eval::jit_run_bb_plan_impl(py, module_name, qualname, globals_obj, args)
 }
 
 #[pyfunction]
-fn jit_render_bb(py: Python<'_>, entry: &Bound<'_, PyAny>) -> PyResult<String> {
-    eval::jit_render_bb_impl(py, entry)
+fn jit_has_bb_plan(module_name: &str, qualname: &str) -> bool {
+    eval::jit_has_bb_plan_impl(module_name, qualname)
+}
+
+#[pyfunction]
+fn jit_render_bb_plan(py: Python<'_>, module_name: &str, qualname: &str) -> PyResult<String> {
+    eval::jit_render_bb_plan_impl(py, module_name, qualname)
+}
+
+#[pyfunction]
+fn jit_render_bb_with_cfg_plan(
+    py: Python<'_>,
+    module_name: &str,
+    qualname: &str,
+) -> PyResult<Py<PyDict>> {
+    let (clif, cfg_dot) = eval::jit_render_bb_with_cfg_plan_impl(py, module_name, qualname)?;
+    let payload = PyDict::new(py);
+    payload.set_item("clif", clif)?;
+    payload.set_item("cfg_dot", cfg_dot)?;
+    Ok(payload.unbind())
+}
+
+#[pyfunction]
+fn register_clif_wrapper(py: Python<'_>, func: &Bound<'_, PyAny>) -> PyResult<()> {
+    unsafe {
+        soac_eval::tree_walk::register_clif_wrapper_code_extra(func.as_ptr()).map_err(|_| {
+            if ffi::PyErr_Occurred().is_null() {
+                PyRuntimeError::new_err("failed to register CLIF wrapper code extra")
+            } else {
+                PyErr::fetch(py)
+            }
+        })
+    }
 }
 
 #[pymodule]
@@ -121,7 +160,10 @@ fn diet_python(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(eval_source, module)?)?;
     module.add_function(wrap_pyfunction!(eval_source_with_name, module)?)?;
     module.add_function(wrap_pyfunction!(eval_source_with_spec, module)?)?;
-    module.add_function(wrap_pyfunction!(jit_run_bb, module)?)?;
-    module.add_function(wrap_pyfunction!(jit_render_bb, module)?)?;
+    module.add_function(wrap_pyfunction!(jit_run_bb_plan, module)?)?;
+    module.add_function(wrap_pyfunction!(jit_has_bb_plan, module)?)?;
+    module.add_function(wrap_pyfunction!(jit_render_bb_plan, module)?)?;
+    module.add_function(wrap_pyfunction!(jit_render_bb_with_cfg_plan, module)?)?;
+    module.add_function(wrap_pyfunction!(register_clif_wrapper, module)?)?;
     Ok(())
 }

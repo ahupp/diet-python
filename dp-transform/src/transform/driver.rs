@@ -5,7 +5,7 @@ use crate::ensure_import;
 use crate::transform::ast_rewrite::rewrite_with_pass;
 use crate::transform::rewrite_class_def;
 use crate::transform::scope::{analyze_module_scope, BindingKind};
-use crate::transform::simplify::strip_generated_passes;
+use crate::transform::simplify::{lower_string_literals_to_bytes, strip_generated_passes};
 use crate::transform::{
     ast_rewrite::ExprRewritePass, rewrite_expr, rewrite_future_annotations, rewrite_names,
 };
@@ -71,6 +71,11 @@ pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> RewriteModule
     if context.options.inject_import {
         ensure_import::ensure_imports(context, module);
     }
+
+    // Lower string literals into byte-literal decode form in the normal transform
+    // pipeline so downstream representations (including BB IR) see one
+    // consistent pure-Python shape.
+    lower_string_literals_to_bytes(module);
 
     let bb_module = if context.options.emit_basic_blocks {
         let bb_module = basic_block::rewrite_with_function_identity_and_collect_ir(

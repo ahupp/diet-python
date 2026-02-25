@@ -1,4 +1,4 @@
-use super::bb_ir::{bb_ops_to_stmts, BbBlock, BbFunction, BbFunctionKind, BbTerm};
+use super::bb_ir::{bb_ops_to_stmts, BbBlock, BbExpr, BbFunction, BbFunctionKind, BbTerm};
 use crate::transform::rewrite_expr::make_tuple;
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
@@ -80,8 +80,8 @@ fn generator_flavor_for_kind(kind: &BbFunctionKind) -> GeneratorFlavor {
     }
 }
 
-fn expr_uses_resume_exc(expr: &Expr) -> bool {
-    crate::ruff_ast_to_string(expr).contains("_dp_resume_exc")
+fn expr_uses_resume_exc(expr: &BbExpr) -> bool {
+    crate::ruff_ast_to_string(&expr.to_expr()).contains("_dp_resume_exc")
 }
 
 fn term_uses_resume_exc(term: &BbTerm) -> bool {
@@ -125,7 +125,7 @@ fn tuple_expr_for_target_params(names: &[String], flavor: GeneratorFlavor) -> Op
         for name in names {
             if name.starts_with("_dp_try_exc_") {
                 exprs.push(py_expr!(
-                    "locals().get({name:literal}, __dp__.DELETED)",
+                    "locals().get({name:literal}, __dp_DELETED)",
                     name = name.as_str(),
                 ));
             } else {
@@ -181,6 +181,9 @@ pub(super) fn render_block_defs_from_bb(bb_function: &BbFunction) -> Option<Vec<
         if let Some(take_stmt) = make_take_params_stmt(&block.params) {
             block_body.push(take_stmt);
         }
+        for local_def in &block.local_defs {
+            block_body.push(Stmt::FunctionDef(local_def.clone()));
+        }
         let is_resume_block = is_resume_block_label(&bb_function.kind, block.label.as_str());
         if matches!(
             bb_function.kind,
@@ -189,7 +192,7 @@ pub(super) fn render_block_defs_from_bb(bb_function: &BbFunction) -> Option<Vec<
         {
             if !block_uses_resume_exc(block) {
                 block_body.push(py_stmt!(
-                    "if _dp_resume_exc is not None:\n    return __dp__.raise_(_dp_resume_exc)"
+                    "if _dp_resume_exc is not None:\n    return __dp_raise_(_dp_resume_exc)"
                 ));
             }
             if resume_start_label(&bb_function.kind) == Some(block.label.as_str()) {
@@ -199,7 +202,7 @@ pub(super) fn render_block_defs_from_bb(bb_function: &BbFunction) -> Option<Vec<
                     "can't send non-None value to a just-started generator"
                 };
                 block_body.push(py_stmt!(
-                    "if _dp_resume_exc is None and _dp_send_value is not None:\n    return __dp__.raise_(TypeError({msg:literal}))",
+                    "if _dp_resume_exc is None and _dp_send_value is not None:\n    return __dp_raise_(TypeError({msg:literal}))",
                     msg = msg,
                 ));
             }
@@ -236,6 +239,7 @@ pub(super) fn render_block_defs_from_bb(bb_function: &BbFunction) -> Option<Vec<
             ));
         }
     }
+
     Some(block_defs)
 }
 
@@ -255,7 +259,7 @@ fn terminator_stmts(
                 generator_flavor,
             )?;
             Some(vec![py_stmt!(
-                "return __dp__.jump({target:expr}, {args:expr})",
+                "return __dp_jump({target:expr}, {args:expr})",
                 target = target_expr,
                 args = args,
             )])
@@ -282,8 +286,8 @@ fn terminator_stmts(
                 generator_flavor,
             )?;
             Some(vec![py_stmt!(
-                "return __dp__.brif({test:expr}, {then_target:expr}, {then_args:expr}, {else_target:expr}, {else_args:expr})",
-                test = test.clone(),
+                "return __dp_brif({test:expr}, {then_target:expr}, {then_args:expr}, {else_target:expr}, {else_args:expr})",
+                test = test.to_expr(),
                 then_target = then_target_expr,
                 then_args = then_args,
                 else_target = else_target_expr,
@@ -310,7 +314,12 @@ fn terminator_stmts(
                     .unwrap_or_default(),
             );
             for label in targets {
-                arg_shapes.push(block_params.get(label.as_str()).cloned().unwrap_or_default());
+                arg_shapes.push(
+                    block_params
+                        .get(label.as_str())
+                        .cloned()
+                        .unwrap_or_default(),
+                );
             }
             let first_shape = arg_shapes.first().cloned().unwrap_or_default();
             if arg_shapes
@@ -324,8 +333,8 @@ fn terminator_stmts(
             }
             let args = tuple_expr_for_target_params(first_shape.as_slice(), generator_flavor)?;
             Some(vec![py_stmt!(
-                "return __dp__.br_table({index:expr}, {targets:expr}, {default_target:expr}, {args:expr})",
-                index = index.clone(),
+                "return __dp_br_table({index:expr}, {targets:expr}, {default_target:expr}, {args:expr})",
+                index = index.to_expr(),
                 targets = targets_expr,
                 default_target = default_target_expr,
                 args = args,
@@ -335,23 +344,26 @@ fn terminator_stmts(
             if cause.is_none() {
                 if let Some(exc) = exc.as_ref() {
                     return Some(vec![py_stmt!(
-                        "return __dp__.raise_({exc:expr})",
-                        exc = exc.clone(),
+                        "return __dp_raise_({exc:expr})",
+                        exc = exc.to_expr(),
                     )]);
                 }
             }
             let mut raise_stmt = raise_stmt_from_name("None");
-            raise_stmt.exc = exc.clone().map(Box::new);
-            raise_stmt.cause = cause.clone().map(Box::new);
+            raise_stmt.exc = exc.as_ref().map(|value| Box::new(value.to_expr()));
+            raise_stmt.cause = cause.as_ref().map(|value| Box::new(value.to_expr()));
             Some(vec![Stmt::Raise(raise_stmt)])
         }
         BbTerm::TryJump { .. } => {
             panic!("internal error: BbTerm::TryJump must be lowered before Python rendering")
         }
         BbTerm::Ret(value) => {
-            let ret_value = value.clone().unwrap_or_else(|| py_expr!("None"));
+            let ret_value = value
+                .as_ref()
+                .map(BbExpr::to_expr)
+                .unwrap_or_else(|| py_expr!("None"));
             Some(vec![py_stmt!(
-                "return __dp__.ret({value:expr})",
+                "return __dp_ret({value:expr})",
                 value = ret_value,
             )])
         }

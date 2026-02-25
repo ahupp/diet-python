@@ -4,6 +4,7 @@ use std::mem::take;
 use ruff_python_ast::str_prefix::StringLiteralPrefix;
 use ruff_python_ast::{self as ast, Expr, ExprContext, Operator, Stmt, UnaryOp};
 use ruff_python_codegen::{Generator, Indentation};
+use ruff_python_parser::parse_expression;
 use ruff_source_file::LineEnding;
 use ruff_text_size::TextRange;
 
@@ -35,7 +36,24 @@ pub fn lower_expr(context: &Context, expr: Expr) -> LoweredExpr {
             let lowered = lower_expr(context, *value);
             let mut body_builder = BodyBuilder::default();
             let value_expr = body_builder.push(lowered);
-            let expr = py_expr!("__dp__.frame_locals({value:expr})", value = value_expr);
+            let expr = py_expr!("__dp_frame_locals({value:expr})", value = value_expr);
+            return LoweredExpr::modified(expr, body_builder.into_stmt());
+        }
+        Expr::Attribute(ast::ExprAttribute {
+            value,
+            attr,
+            ctx: ExprContext::Load,
+            range: _,
+            node_index: _,
+        }) if context.options.lower_attributes => {
+            let lowered = lower_expr(context, *value);
+            let mut body_builder = BodyBuilder::default();
+            let value_expr = body_builder.push(lowered);
+            let expr = py_expr!(
+                "__dp_getattr({value:expr}, {attr:literal})",
+                value = value_expr,
+                attr = attr.id.as_str(),
+            );
             return LoweredExpr::modified(expr, body_builder.into_stmt());
         }
         Expr::StringLiteral(ast::ExprStringLiteral {
@@ -50,10 +68,7 @@ pub fn lower_expr(context: &Context, expr: Expr) -> LoweredExpr {
                     } else {
                         src.to_string()
                     };
-                    let expr = py_expr!(
-                        "__dp__.decode_surrogate_literal({literal:literal})",
-                        literal = literal_src.as_str()
-                    );
+                    let expr = decode_literal_source_bytes_expr(literal_src.as_str());
                     return LoweredExpr::modified(expr, empty_body());
                 }
             }
@@ -191,7 +206,7 @@ else:
         Expr::Slice(ast::ExprSlice {
             lower, upper, step, ..
         }) => LoweredExpr::unmodified(py_expr!(
-            "__dp__.slice({lower:expr}, {upper:expr}, {step:expr})",
+            "__dp_slice({lower:expr}, {upper:expr}, {step:expr})",
             lower = lower.map(|expr| *expr).unwrap_or_else(|| py_expr!("None")),
             upper = upper.map(|expr| *expr).unwrap_or_else(|| py_expr!("None")),
             step = step.map(|expr| *expr).unwrap_or_else(|| py_expr!("None")),
@@ -265,7 +280,7 @@ def {func:id}():
             let default = Generator::new(&indent, LineEnding::default()).expr(&expr);
             if normalized.len() >= 10 && normalized != default {
                 LoweredExpr::unmodified(py_expr!(
-                    "__dp__.float_from_literal({literal:literal})",
+                    "__dp_float_from_literal({literal:literal})",
                     literal = src
                 ))
             } else {
@@ -370,7 +385,7 @@ def {func:id}():
                 }
             }
             let tuple = make_tuple_splat(lowered_elts);
-            let expr = py_expr!("__dp__.list({tuple:expr})", tuple = tuple,);
+            let expr = py_expr!("__dp_list({tuple:expr})", tuple = tuple,);
             if !body_builder.modified {
                 LoweredExpr::unmodified(expr)
             } else {
@@ -385,7 +400,7 @@ def {func:id}():
                 lowered_elts.push(expr);
             }
             let tuple = make_tuple(lowered_elts);
-            let expr = py_expr!("__dp__.set({tuple:expr})", tuple = tuple,);
+            let expr = py_expr!("__dp_set({tuple:expr})", tuple = tuple,);
             if !body_builder.modified {
                 LoweredExpr::unmodified(expr)
             } else {
@@ -416,23 +431,20 @@ def {func:id}():
                         let value_expr = body_builder.push(lower_expr(context, value));
                         if !keyed_pairs.is_empty() {
                             let tuple = make_tuple(take(&mut keyed_pairs));
-                            segments.push(py_expr!("__dp__.dict({tuple:expr})", tuple = tuple));
+                            segments.push(py_expr!("__dp_dict({tuple:expr})", tuple = tuple));
                         }
-                        segments.push(py_expr!(
-                            "__dp__.dict({mapping:expr})",
-                            mapping = value_expr
-                        ));
+                        segments.push(py_expr!("__dp_dict({mapping:expr})", mapping = value_expr));
                     }
                 }
             }
 
             if !keyed_pairs.is_empty() {
                 let tuple = make_tuple(take(&mut keyed_pairs));
-                segments.push(py_expr!("__dp__.dict({tuple:expr})", tuple = tuple));
+                segments.push(py_expr!("__dp_dict({tuple:expr})", tuple = tuple));
             }
 
             let expr = match segments.len() {
-                0 => py_expr!("__dp__.dict()"),
+                0 => py_expr!("__dp_dict()"),
                 _ => segments
                     .into_iter()
                     .reduce(|left, right| make_binop("or_", left, right))
@@ -558,12 +570,9 @@ fn lower_generator_expr(
     let iter_expr = first_gen.iter.clone();
     let iter_lowered = lower_expr(context, iter_expr);
     let iter_value = if outer_async {
-        py_expr!(
-            "__dp__.aiter({iter:expr})",
-            iter = iter_lowered.expr.clone()
-        )
+        py_expr!("__dp_aiter({iter:expr})", iter = iter_lowered.expr.clone())
     } else {
-        py_expr!("__dp__.iter({iter:expr})", iter = iter_lowered.expr.clone())
+        py_expr!("__dp_iter({iter:expr})", iter = iter_lowered.expr.clone())
     };
 
     let func_name = context.fresh("genexpr");
@@ -608,7 +617,7 @@ def {func:id}({param:id}):
                     r#"
 {iter_name:id} = {iter:expr}
 while True:
-    {target_tmp:id} = await __dp__.anext_or_sentinel({iter_name:id})
+    {target_tmp:id} = await __dp_anext_or_sentinel({iter_name:id})
     if {target_tmp:id} is __dp__.ITER_COMPLETE:
         break
     else:
@@ -639,7 +648,7 @@ async for {target:expr} in {iter:expr}:
                 r#"
 {iter_name:id} = {iter:expr}
 while True:
-    {target_tmp:id} = __dp__.next_or_sentinel({iter_name:id})
+    {target_tmp:id} = __dp_next_or_sentinel({iter_name:id})
     if {target_tmp:id} is __dp__.ITER_COMPLETE:
         break
     else:
@@ -905,7 +914,7 @@ impl Transformer for NamedExprRewriter<'_> {
                     if self.global_targets.contains(name) {
                         self.visit_expr(value.as_mut());
                         *expr = py_expr!(
-                            "__dp__.store_global(globals(), {name:literal}, {value:expr})",
+                            "__dp_store_global(globals(), {name:literal}, {value:expr})",
                             name = name,
                             value = value.as_ref().clone(),
                         );
@@ -914,7 +923,7 @@ impl Transformer for NamedExprRewriter<'_> {
                     if self.class_targets.contains(name) {
                         self.visit_expr(value.as_mut());
                         *expr = py_expr!(
-                            "__dp__.store_global(_dp_class_ns, {name:literal}, {value:expr})",
+                            "__dp_store_global(_dp_class_ns, {name:literal}, {value:expr})",
                             name = name,
                             value = value.as_ref().clone(),
                         );
@@ -1009,6 +1018,32 @@ fn parse_hex(bytes: &[u8]) -> Option<u32> {
     Some(value)
 }
 
+fn decode_literal_source_bytes_expr(src: &str) -> Expr {
+    let mut source = String::from("__dp_decode_literal_source_bytes(b\"");
+    source.push_str(&escape_bytes_for_double_quoted_literal(src.as_bytes()));
+    source.push_str("\")");
+    let parsed = parse_expression(&source).unwrap_or_else(|err| {
+        panic!("failed to build surrogate decode expression from {source:?}: {err}")
+    });
+    *parsed.into_syntax().body
+}
+
+fn escape_bytes_for_double_quoted_literal(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 4);
+    for &byte in bytes {
+        match byte {
+            b'\\' => out.push_str("\\\\"),
+            b'"' => out.push_str("\\\""),
+            b'\n' => out.push_str("\\n"),
+            b'\r' => out.push_str("\\r"),
+            b'\t' => out.push_str("\\t"),
+            0x20..=0x7e => out.push(byte as char),
+            _ => out.push_str(&format!("\\x{:02x}", byte)),
+        }
+    }
+    out
+}
+
 fn make_tuple_splat(elts: Vec<Expr>) -> Expr {
     let mut segments: Vec<Expr> = Vec::new();
     let mut values: Vec<Expr> = Vec::new();
@@ -1019,7 +1054,7 @@ fn make_tuple_splat(elts: Vec<Expr>) -> Expr {
                 if !values.is_empty() {
                     segments.push(make_tuple(std::mem::take(&mut values)));
                 }
-                segments.push(py_expr!("__dp__.tuple({value:expr})", value = *value));
+                segments.push(py_expr!("__dp_tuple({value:expr})", value = *value));
             }
             other => values.push(other),
         }
@@ -1047,7 +1082,7 @@ pub(crate) fn make_tuple(elts: Vec<Expr>) -> Expr {
 
 pub(crate) fn make_binop(func_name: &'static str, left: Expr, right: Expr) -> Expr {
     py_expr!(
-        "__dp__.{func:id}({left:expr}, {right:expr})",
+        "__dp_{func:id}({left:expr}, {right:expr})",
         left = left,
         right = right,
         func = func_name
@@ -1056,7 +1091,7 @@ pub(crate) fn make_binop(func_name: &'static str, left: Expr, right: Expr) -> Ex
 
 pub(crate) fn make_unaryop(func_name: &'static str, operand: Expr) -> Expr {
     py_expr!(
-        "__dp__.{func:id}({operand:expr})",
+        "__dp_{func:id}({operand:expr})",
         operand = operand,
         func = func_name
     )

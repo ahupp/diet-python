@@ -74,6 +74,9 @@ fn is_take_args_unpack_assign(assign: &ast::StmtAssign) -> bool {
                     all_take_calls = false;
                     break;
                 }
+                if is_take_method_call(call.func.as_ref(), target_name) {
+                    continue;
+                }
                 let Expr::Attribute(attr) = call.func.as_ref() else {
                     all_take_calls = false;
                     break;
@@ -109,13 +112,87 @@ fn is_take_args_unpack_assign(assign: &ast::StmtAssign) -> bool {
     if arg_name.id.as_str() != "_dp_args_ptr" {
         return false;
     }
-    let Expr::Attribute(attr) = call.func.as_ref() else {
-        return false;
-    };
-    let Expr::Name(module_name) = attr.value.as_ref() else {
-        return false;
-    };
-    module_name.id.as_str() == "__dp__" && attr.attr.as_str() == "take_args"
+    is_dp_helper_lookup(call.func.as_ref(), "__dp__", "take_args")
+}
+
+fn is_take_method_call(func: &Expr, target_name: &str) -> bool {
+    if let Expr::Call(call) = func {
+        if call.arguments.keywords.is_empty() && call.arguments.args.len() == 2 {
+            if let Expr::Name(helper) = call.func.as_ref() {
+                if helper.id.as_str() == "__dp_getattr" {
+                    if let Expr::Name(base) = &call.arguments.args[0] {
+                        if base.id.as_str() == target_name {
+                            return expr_static_str(&call.arguments.args[1]).as_deref()
+                                == Some("take");
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+fn is_dp_helper_lookup(expr: &Expr, module_name: &str, attr_name: &str) -> bool {
+    if let Expr::Name(name) = expr {
+        if module_name == "__dp__" && name.id.as_str() == format!("__dp_{attr_name}") {
+            return true;
+        }
+    }
+    if let Expr::Attribute(attr) = expr {
+        if attr.attr.as_str() == attr_name {
+            if let Expr::Name(module) = attr.value.as_ref() {
+                return module.id.as_str() == module_name;
+            }
+        }
+    }
+    if let Expr::Call(call) = expr {
+        if !call.arguments.keywords.is_empty() || call.arguments.args.len() != 2 {
+            return false;
+        }
+        if !matches!(
+            call.func.as_ref(),
+            Expr::Name(name) if name.id.as_str() == "__dp_getattr"
+        ) {
+            return false;
+        }
+        let base_matches = matches!(
+            &call.arguments.args[0],
+            Expr::Name(base) if base.id.as_str() == module_name
+        );
+        if !base_matches {
+            return false;
+        }
+        return expr_static_str(&call.arguments.args[1]).as_deref() == Some(attr_name);
+    }
+    false
+}
+
+fn expr_static_str(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::StringLiteral(value) => Some(value.value.to_str().to_string()),
+        Expr::Call(call)
+            if call.arguments.keywords.is_empty()
+                && call.arguments.args.len() == 1
+                && matches!(
+                    call.func.as_ref(),
+                    Expr::Name(name)
+                        if matches!(
+                            name.id.as_str(),
+                            "__dp_decode_literal_bytes" | "__dp_decode_literal_source_bytes"
+                        )
+                ) =>
+        {
+            match &call.arguments.args[0] {
+                Expr::BytesLiteral(bytes) => {
+                    let value: std::borrow::Cow<[u8]> = (&bytes.value).into();
+                    String::from_utf8(value.into_owned()).ok()
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
 }
 
 pub(crate) fn lower_stmt_bb(context: &Context, stmt: Stmt) -> Rewrite {
@@ -173,13 +250,13 @@ fn rewrite_with_for_bb(context: &Context, with_stmt: ast::StmtWith) -> Rewrite {
 
         let enter_stmt = if let Some(target) = target {
             py_stmt!(
-                "{target:expr} = __dp__.contextmanager_enter({ctx:expr})",
+                "{target:expr} = __dp_contextmanager_enter({ctx:expr})",
                 target = target,
                 ctx = ctx_placeholder.expr.clone(),
             )
         } else {
             py_stmt!(
-                "__dp__.contextmanager_enter({ctx:expr})",
+                "__dp_contextmanager_enter({ctx:expr})",
                 ctx = ctx_placeholder.expr.clone(),
             )
         };
@@ -188,17 +265,17 @@ fn rewrite_with_for_bb(context: &Context, with_stmt: ast::StmtWith) -> Rewrite {
             py_stmt!(
                 r#"
 {ctx_placeholder_stmt:stmt}
-{exit_name:id} = __dp__.contextmanager_get_exit({ctx_placeholder_expr_1:expr})
+{exit_name:id} = __dp_contextmanager_get_exit({ctx_placeholder_expr_1:expr})
 {enter_stmt:stmt}
 {ok_name:id} = True
 try:
     {body:stmt}
 except BaseException:
     {ok_name:id} = False
-    __dp__.contextmanager_exit({exit_name:id}, __dp__.exc_info())
+    __dp_contextmanager_exit({exit_name:id}, __dp_exc_info())
 finally:
     if {ok_name:id}:
-        __dp__.contextmanager_exit({exit_name:id}, None)
+        __dp_contextmanager_exit({exit_name:id}, None)
     {exit_name:id} = None
     {ctx_cleanup:stmt}
 "#,
@@ -214,16 +291,16 @@ finally:
             py_stmt!(
                 r#"
 {ctx_placeholder_stmt:stmt}
-{exit_name:id} = __dp__.contextmanager_get_exit({ctx_placeholder_expr_1:expr})
+{exit_name:id} = __dp_contextmanager_get_exit({ctx_placeholder_expr_1:expr})
 {enter_stmt:stmt}
 {ok_name:id} = True
 try:
     {body:stmt}
 except BaseException:
     {ok_name:id} = False
-    __dp__.contextmanager_exit({exit_name:id}, __dp__.exc_info())
+    __dp_contextmanager_exit({exit_name:id}, __dp_exc_info())
 if {ok_name:id}:
-    __dp__.contextmanager_exit({exit_name:id}, None)
+    __dp_contextmanager_exit({exit_name:id}, None)
 {exit_name:id} = None
 {ctx_cleanup:stmt}
 "#,

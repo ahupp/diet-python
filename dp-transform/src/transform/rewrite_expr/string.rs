@@ -1,6 +1,7 @@
 use crate::{py_expr, transform::rewrite_expr::make_tuple};
 use ruff_python_ast::str_prefix::StringLiteralPrefix;
 use ruff_python_ast::{self as ast, Expr};
+use ruff_python_parser::parse_expression;
 use ruff_text_size::Ranged;
 
 use crate::transform::context::Context;
@@ -61,11 +62,9 @@ fn rewrite_interpolation(
         interp.conversion
     };
     value = match conversion {
-        ast::ConversionFlag::Ascii => {
-            py_expr!("__dp__.builtins.ascii({value:expr})", value = value)
-        }
-        ast::ConversionFlag::Repr => py_expr!("__dp__.builtins.repr({value:expr})", value = value),
-        ast::ConversionFlag::Str => py_expr!("__dp__.builtins.str({value:expr})", value = value),
+        ast::ConversionFlag::Ascii => py_expr!("__dp_ascii({value:expr})", value = value),
+        ast::ConversionFlag::Repr => py_expr!("__dp_repr({value:expr})", value = value),
+        ast::ConversionFlag::Str => py_expr!("__dp_str({value:expr})", value = value),
         ast::ConversionFlag::None => value,
     };
 
@@ -87,12 +86,12 @@ fn rewrite_interpolation(
             join_parts(parts, false)
         };
         py_expr!(
-            "__dp__.builtins.format({value:expr}, {format_spec:expr})",
+            "__dp_format({value:expr}, {format_spec:expr})",
             value = value,
             format_spec = spec
         )
     } else {
-        py_expr!("__dp__.builtins.format({value:expr})", value = value)
+        py_expr!("__dp_format({value:expr})", value = value)
     };
 
     parts.push(formatted);
@@ -197,10 +196,7 @@ fn rewrite_string_literal(lit: &ast::StringLiteral, ctx: &Context) -> Expr {
     if let Some(content) = ctx.source_slice(lit.content_range()) {
         if has_surrogate_escape(content) {
             if let Some(src) = ctx.source_slice(lit.range) {
-                return py_expr!(
-                    "__dp__.decode_surrogate_literal({literal:literal})",
-                    literal = src
-                );
+                return decode_literal_source_bytes_expr(src);
             }
         }
     }
@@ -216,10 +212,7 @@ fn rewrite_fstring_literal(
         if let Some(src) = ctx.source_slice(lit.range) {
             if has_surrogate_escape(src) {
                 let literal_src = quote_fstring_literal(src);
-                return py_expr!(
-                    "__dp__.decode_surrogate_literal({literal:literal})",
-                    literal = literal_src.as_str()
-                );
+                return decode_literal_source_bytes_expr(literal_src.as_str());
             }
         }
     }
@@ -339,4 +332,30 @@ fn parse_hex(bytes: &[u8]) -> Option<u32> {
         };
     }
     Some(value)
+}
+
+fn decode_literal_source_bytes_expr(src: &str) -> Expr {
+    let mut source = String::from("__dp_decode_literal_source_bytes(b\"");
+    source.push_str(&escape_bytes_for_double_quoted_literal(src.as_bytes()));
+    source.push_str("\")");
+    let parsed = parse_expression(&source).unwrap_or_else(|err| {
+        panic!("failed to build surrogate decode expression from {source:?}: {err}")
+    });
+    *parsed.into_syntax().body
+}
+
+fn escape_bytes_for_double_quoted_literal(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 4);
+    for &byte in bytes {
+        match byte {
+            b'\\' => out.push_str("\\\\"),
+            b'"' => out.push_str("\\\""),
+            b'\n' => out.push_str("\\n"),
+            b'\r' => out.push_str("\\r"),
+            b'\t' => out.push_str("\\t"),
+            0x20..=0x7e => out.push(byte as char),
+            _ => out.push_str(&format!("\\x{:02x}", byte)),
+        }
+    }
+    out
 }

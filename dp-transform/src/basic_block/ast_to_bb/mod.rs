@@ -1,20 +1,23 @@
+use super::bb_ir::{
+    BbBindingTarget, BbBlock, BbExpr, BbFunction, BbFunctionKind, BbModule, BbOp, BbTerm,
+};
 use super::render_py;
-use super::bb_ir::{BbBindingTarget, BbBlock, BbFunction, BbFunctionKind, BbModule, BbOp, BbTerm};
 use crate::template::{empty_body, into_body};
 use crate::transform::context::Context;
+use crate::transform::driver::SimplifyExprPass;
 use crate::transform::rewrite_import;
 use crate::transform::scope::{
     analyze_module_scope, cell_name, is_internal_symbol, BindingKind, BindingUse, Scope, ScopeKind,
 };
 use crate::transform::util::strip_synthetic_module_init_qualname;
 use crate::transform::{
-    ast_rewrite::{rewrite_with_pass, Rewrite, StmtRewritePass},
+    ast_rewrite::{rewrite_with_pass, ExprRewritePass, Rewrite, StmtRewritePass},
     rewrite_expr::make_tuple,
     rewrite_stmt,
 };
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
-use ruff_python_ast::{self as ast, name::Name, Expr, NodeIndex, Stmt, StmtBody};
+use ruff_python_ast::{self as ast, name::Name, Expr, ExprContext, NodeIndex, Stmt, StmtBody};
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_python_parser::parse_expression;
 use ruff_source_file::LineEnding;
@@ -25,11 +28,11 @@ use std::sync::Arc;
 mod pre_lower;
 mod support;
 
+use pre_lower::{is_simple_index_target, AnnotationHelperForLoweringPass};
 pub use pre_lower::{BBSimplifyStmtPass, FunctionIdentityByNode};
-use pre_lower::{AnnotationHelperForLoweringPass, is_simple_index_target};
 use support::{
-    has_await_in_stmts, has_dead_stmt_suffixes, has_yield_exprs_in_stmts,
-    is_module_init_temp_name, prune_dead_stmt_suffixes, BasicBlockSupportChecker,
+    has_await_in_stmts, has_dead_stmt_suffixes, has_yield_exprs_in_stmts, is_module_init_temp_name,
+    prune_dead_stmt_suffixes, BasicBlockSupportChecker,
 };
 
 pub fn collect_function_identity_by_node(
@@ -97,7 +100,7 @@ fn rewrite_internal(
         function_cell_bindings_stack: Vec::new(),
         module_init_hoisted_blocks: Vec::new(),
         lowered_functions_ir: Vec::new(),
-        module_init_function: None,
+        module_init_function: Some("_dp_module_init".to_string()),
     };
     rewriter.visit_body(module);
     // BB lowering hoists nested lowered block functions into module-init and
@@ -105,7 +108,7 @@ fn rewrite_internal(
     crate::transform::simplify::strip_generated_passes(context, module);
     BbModule {
         functions: rewriter.lowered_functions_ir,
-        module_init: rewriter.module_init_function,
+        module_init: Some("_dp_module_init".to_string()),
     }
 }
 
@@ -253,7 +256,7 @@ impl BasicBlockRewriter<'_> {
             Expr::Subscript(ast::ExprSubscript {
                 value: obj, slice, ..
             }) => out.push(py_stmt!(
-                "__dp__.setitem({obj:expr}, {slice:expr}, {value:expr})",
+                "__dp_setitem({obj:expr}, {slice:expr}, {value:expr})",
                 obj = *obj.clone(),
                 slice = *slice.clone(),
                 value = value,
@@ -261,7 +264,7 @@ impl BasicBlockRewriter<'_> {
             Expr::Attribute(ast::ExprAttribute {
                 value: obj, attr, ..
             }) => out.push(py_stmt!(
-                "__dp__.setattr({obj:expr}, {name:literal}, {value:expr})",
+                "__dp_setattr({obj:expr}, {name:literal}, {value:expr})",
                 obj = *obj.clone(),
                 name = attr.as_str(),
                 value = value,
@@ -305,7 +308,7 @@ impl BasicBlockRewriter<'_> {
             }
             let spec_expr = make_tuple(spec_elts);
             out.push(py_stmt!(
-                "{tmp:id} = __dp__.unpack({value:expr}, {spec:expr})",
+                "{tmp:id} = __dp_unpack({value:expr}, {spec:expr})",
                 tmp = unpacked_name.as_str(),
                 value = value,
                 spec = spec_expr,
@@ -315,7 +318,7 @@ impl BasicBlockRewriter<'_> {
                 match elt {
                     Expr::Starred(starred) if idx == starred_index => {
                         let starred_value = py_expr!(
-                            "__dp__.list(__dp__.getitem({tmp:expr}, {idx:literal}))",
+                            "__dp_list(__dp_getitem({tmp:expr}, {idx:literal}))",
                             tmp = unpacked_expr.clone(),
                             idx = idx as i64,
                         );
@@ -323,7 +326,7 @@ impl BasicBlockRewriter<'_> {
                     }
                     _ => {
                         let element_value = py_expr!(
-                            "__dp__.getitem({tmp:expr}, {idx:literal})",
+                            "__dp_getitem({tmp:expr}, {idx:literal})",
                             tmp = unpacked_expr.clone(),
                             idx = idx as i64,
                         );
@@ -367,8 +370,14 @@ impl BasicBlockRewriter<'_> {
             } else {
                 lowered_input_body
             };
-        let runtime_input_body = prune_dead_stmt_suffixes(&lowered_input_body);
         let param_names = collect_parameter_names(&func.parameters);
+        let runtime_input_body = prune_dead_stmt_suffixes(&lowered_input_body);
+        let mut outer_scope_names = collect_bound_names(&runtime_input_body);
+        outer_scope_names.extend(param_names.iter().cloned());
+        let runtime_input_body =
+            rewrite_annotation_helper_defs_as_exec_calls(runtime_input_body, &outer_scope_names);
+        let mut outer_scope_names = collect_bound_names(&runtime_input_body);
+        outer_scope_names.extend(param_names.iter().cloned());
         let unbound_local_names = if has_dead_stmt_suffixes(&lowered_input_body) {
             self.always_unbound_local_names(&lowered_input_body, &runtime_input_body, &param_names)
         } else {
@@ -407,6 +416,7 @@ impl BasicBlockRewriter<'_> {
             &mut blocks,
             None,
             &cell_slots,
+            &outer_scope_names,
         );
         let needs_end_block = entry_label == end_label
             || blocks
@@ -428,6 +438,8 @@ impl BasicBlockRewriter<'_> {
         let mut invalid_block_label: Option<String> = None;
         let mut generator_uncaught_label: Option<String> = None;
         let mut generator_uncaught_exc_name: Option<String> = None;
+        let mut generator_uncaught_set_done_label: Option<String> = None;
+        let mut generator_uncaught_raise_label: Option<String> = None;
         let mut generator_resume_entry_label: Option<String> = None;
         let mut generator_resume_order: Vec<String> = Vec::new();
         let mut generator_dispatch_only_labels: HashSet<String> = HashSet::new();
@@ -443,7 +455,7 @@ impl BasicBlockRewriter<'_> {
                 "invalid generator pc: {}"
             };
             let invalid_raise_stmt = match py_stmt!(
-                "raise RuntimeError({msg:literal}.format(_dp_self._pc))",
+                "raise RuntimeError({msg:literal}.format(__dp_getattr(_dp_self, \"_pc\")))",
                 msg = invalid_msg,
             ) {
                 Stmt::Raise(stmt) => stmt,
@@ -471,18 +483,49 @@ impl BasicBlockRewriter<'_> {
             } else {
                 "raise_uncaught_generator_exception"
             };
+            let uncaught_set_done_label = format!("{label_prefix}_uncaught_set_done");
+            let uncaught_raise_label = format!("{label_prefix}_uncaught_raise");
+            generator_uncaught_set_done_label = Some(uncaught_set_done_label.clone());
+            generator_uncaught_raise_label = Some(uncaught_raise_label.clone());
+            blocks.insert(
+                2,
+                Block {
+                    label: uncaught_raise_label.clone(),
+                    body: Vec::new(),
+                    terminator: Terminator::Raise(uncaught_raise_stmt),
+                },
+            );
+            blocks.insert(
+                2,
+                Block {
+                    label: uncaught_set_done_label.clone(),
+                    body: vec![
+                        py_stmt!("__dp_setattr(_dp_self, \"_pc\", __dp__._GEN_PC_DONE)"),
+                        py_stmt!(
+                            "__dp_{helper:id}({exc:id})",
+                            helper = uncaught_helper_name,
+                            exc = uncaught_exc_name.as_str(),
+                        ),
+                    ],
+                    terminator: Terminator::Jump(uncaught_raise_label.clone()),
+                },
+            );
             blocks.insert(
                 2,
                 Block {
                     label: uncaught_label.clone(),
-                    body: vec![py_stmt!(
-                        "if _dp_self._pc != __dp__._GEN_PC_DONE:\n    __dp__.setattr(_dp_self, \"_pc\", __dp__._GEN_PC_DONE)\n    __dp__.{helper:id}({exc:id})",
-                        helper = uncaught_helper_name,
-                        exc = uncaught_exc_name.as_str(),
-                    )],
-                    terminator: Terminator::Raise(uncaught_raise_stmt),
+                    body: Vec::new(),
+                    terminator: Terminator::BrIf {
+                        test: py_expr!(
+                            "__dp_ne(__dp_getattr(_dp_self, \"_pc\"), __dp__._GEN_PC_DONE)"
+                        ),
+                        then_label: uncaught_set_done_label.clone(),
+                        else_label: uncaught_raise_label.clone(),
+                    },
                 },
             );
+            generator_throw_passthrough_labels.insert(uncaught_set_done_label);
+            generator_throw_passthrough_labels.insert(uncaught_raise_label);
             done_block_label = Some(done_label);
             invalid_block_label = Some(invalid_label);
             generator_uncaught_label = Some(uncaught_label);
@@ -503,6 +546,8 @@ impl BasicBlockRewriter<'_> {
                 if done_block_label.as_deref() == Some(block.label.as_str())
                     || invalid_block_label.as_deref() == Some(block.label.as_str())
                     || generator_uncaught_label.as_deref() == Some(block.label.as_str())
+                    || generator_uncaught_set_done_label.as_deref() == Some(block.label.as_str())
+                    || generator_uncaught_raise_label.as_deref() == Some(block.label.as_str())
                 {
                     continue;
                 }
@@ -609,7 +654,7 @@ impl BasicBlockRewriter<'_> {
                 label: resume_send_table_label.clone(),
                 body: Vec::new(),
                 terminator: Terminator::BrTable {
-                    index: py_expr!("_dp_self._pc"),
+                    index: py_expr!("__dp_getattr(_dp_self, \"_pc\")"),
                     targets: send_table_targets,
                     default_label: resume_invalid_table_label.clone(),
                 },
@@ -618,7 +663,7 @@ impl BasicBlockRewriter<'_> {
                 label: resume_throw_table_label.clone(),
                 body: Vec::new(),
                 terminator: Terminator::BrTable {
-                    index: py_expr!("_dp_self._pc"),
+                    index: py_expr!("__dp_getattr(_dp_self, \"_pc\")"),
                     targets: throw_table_targets,
                     default_label: resume_invalid_table_label,
                 },
@@ -627,7 +672,7 @@ impl BasicBlockRewriter<'_> {
                 label: resume_send_label.clone(),
                 body: Vec::new(),
                 terminator: Terminator::BrIf {
-                    test: py_expr!("_dp_self._pc == __dp__._GEN_PC_DONE"),
+                    test: py_expr!("__dp_eq(__dp_getattr(_dp_self, \"_pc\"), __dp__._GEN_PC_DONE)"),
                     then_label: done_label,
                     else_label: resume_send_table_label,
                 },
@@ -636,7 +681,7 @@ impl BasicBlockRewriter<'_> {
                 label: resume_throw_label.clone(),
                 body: Vec::new(),
                 terminator: Terminator::BrIf {
-                    test: py_expr!("_dp_self._pc == __dp__._GEN_PC_DONE"),
+                    test: py_expr!("__dp_eq(__dp_getattr(_dp_self, \"_pc\"), __dp__._GEN_PC_DONE)"),
                     then_label: resume_throw_done_label,
                     else_label: resume_throw_table_label,
                 },
@@ -645,7 +690,7 @@ impl BasicBlockRewriter<'_> {
                 label: resume_dispatch_label.clone(),
                 body: Vec::new(),
                 terminator: Terminator::BrIf {
-                    test: py_expr!("_dp_resume_exc is None"),
+                    test: py_expr!("__dp_is_(_dp_resume_exc, None)"),
                     then_label: resume_send_label,
                     else_label: resume_throw_label,
                 },
@@ -732,19 +777,16 @@ impl BasicBlockRewriter<'_> {
                 }
             }
             if !try_exc_names.is_empty() {
-                if let Some(entry_block) = blocks
-                    .iter_mut()
-                    .find(|block| {
-                        block.label.as_str()
-                            == generator_resume_entry_label
-                                .as_deref()
-                                .unwrap_or(entry_label.as_str())
-                    })
-                {
+                if let Some(entry_block) = blocks.iter_mut().find(|block| {
+                    block.label.as_str()
+                        == generator_resume_entry_label
+                            .as_deref()
+                            .unwrap_or(entry_label.as_str())
+                }) {
                     for exc_name in try_exc_names.iter().rev() {
                         entry_block.body.insert(
                             0,
-                            py_stmt!("{name:id} = __dp__.DELETED", name = exc_name.as_str(),),
+                            py_stmt!("{name:id} = __dp_DELETED", name = exc_name.as_str(),),
                         );
                     }
                 }
@@ -758,6 +800,20 @@ impl BasicBlockRewriter<'_> {
             let params = block_params.entry(uncaught_label.clone()).or_default();
             params.retain(|name| name != uncaught_exc_name);
             params.push(uncaught_exc_name.clone());
+            if let Some(uncaught_set_done_label) = generator_uncaught_set_done_label.as_ref() {
+                let params = block_params
+                    .entry(uncaught_set_done_label.clone())
+                    .or_default();
+                params.retain(|name| name != uncaught_exc_name);
+                params.push(uncaught_exc_name.clone());
+            }
+            if let Some(uncaught_raise_label) = generator_uncaught_raise_label.as_ref() {
+                let params = block_params
+                    .entry(uncaught_raise_label.clone())
+                    .or_default();
+                params.retain(|name| name != uncaught_exc_name);
+                params.push(uncaught_exc_name.clone());
+            }
         }
         let state_entry_label = generator_resume_entry_label
             .as_deref()
@@ -804,28 +860,59 @@ impl BasicBlockRewriter<'_> {
                 state_order.push(name);
             }
         }
+        let simplify_expr_pass = SimplifyExprPass;
         let ir_blocks = blocks
             .iter()
             .map(|block| {
+                let mut normalized_body_stmt = stmt_body_from_stmts(block.body.clone());
+                rewrite_with_pass(
+                    self.context,
+                    None,
+                    Some(&simplify_expr_pass),
+                    &mut normalized_body_stmt,
+                );
+                let mut normalized_body = flatten_stmt_boxes(&normalized_body_stmt.body)
+                    .into_iter()
+                    .map(|stmt| *stmt)
+                    .collect::<Vec<_>>();
+                let mut normalized_term = block.terminator.clone();
+                simplify_terminator_exprs(
+                    self.context,
+                    &simplify_expr_pass,
+                    &mut normalized_term,
+                    &mut normalized_body,
+                );
                 let (exc_target_label, exc_name) = exception_edges
                     .get(block.label.as_str())
                     .cloned()
                     .unwrap_or((None, None));
+                let mut local_defs = Vec::new();
+                let mut ops = Vec::new();
+                for stmt in normalized_body {
+                    match stmt {
+                        Stmt::FunctionDef(func_def)
+                            if func_def.name.id.as_str().starts_with("_dp_bb_") =>
+                        {
+                            local_defs.push(func_def);
+                        }
+                        other => {
+                            if let Some(op) = BbOp::from_stmt(other) {
+                                ops.push(op);
+                            }
+                        }
+                    }
+                }
                 BbBlock {
                     label: block.label.clone(),
                     params: block_params
                         .get(block.label.as_str())
                         .cloned()
                         .unwrap_or_default(),
-                    ops: block
-                        .body
-                        .iter()
-                        .cloned()
-                        .filter_map(BbOp::from_stmt)
-                        .collect(),
+                    local_defs,
+                    ops,
                     exc_target_label,
                     exc_name,
-                    term: bb_term_from_terminator(&block.terminator),
+                    term: bb_term_from_terminator(&normalized_term),
                 }
             })
             .collect::<Vec<_>>();
@@ -838,7 +925,7 @@ impl BasicBlockRewriter<'_> {
             entry_label,
             entry_params: state_order,
             local_cell_slots: cell_slots.clone(),
-            param_specs: make_param_specs_expr(func.parameters.as_ref()),
+            param_specs: BbExpr::from_expr(make_param_specs_expr(func.parameters.as_ref())),
             param_names,
             kind: if has_yield {
                 if lowered_is_async {
@@ -870,6 +957,7 @@ impl BasicBlockRewriter<'_> {
         blocks: &mut Vec<Block>,
         loop_ctx: Option<&LoopContext>,
         cell_slots: &HashSet<String>,
+        outer_scope_names: &HashSet<String>,
     ) -> String {
         if stmts.is_empty() {
             return cont_label;
@@ -889,6 +977,7 @@ impl BasicBlockRewriter<'_> {
                             blocks,
                             loop_ctx,
                             cell_slots,
+                            outer_scope_names,
                         );
                         blocks.push(Block {
                             label: label.clone(),
@@ -908,6 +997,7 @@ impl BasicBlockRewriter<'_> {
                             blocks,
                             loop_ctx,
                             cell_slots,
+                            outer_scope_names,
                         );
                         let (yield_from_entry, _result_name) = self.lower_yield_from_direct(
                             fn_name,
@@ -927,8 +1017,20 @@ impl BasicBlockRewriter<'_> {
                     linear.push(stmts[index].as_ref().clone());
                     index += 1;
                 }
-                Stmt::Pass(_) | Stmt::FunctionDef(_) => {
+                Stmt::Pass(_) => {
                     linear.push(stmts[index].as_ref().clone());
+                    index += 1;
+                }
+                Stmt::FunctionDef(func_def) => {
+                    if func_def.name.id.as_str().starts_with("_dp_bb_") {
+                        linear.push(stmts[index].as_ref().clone());
+                    } else {
+                        linear.extend(self.lower_non_bb_def_stmt_to_exec_binding(
+                            func_def,
+                            cell_slots,
+                            outer_scope_names,
+                        ));
+                    }
                     index += 1;
                 }
                 Stmt::Assign(assign_stmt) => {
@@ -940,6 +1042,7 @@ impl BasicBlockRewriter<'_> {
                             blocks,
                             loop_ctx,
                             cell_slots,
+                            outer_scope_names,
                         );
                         let resume_label = self.next_label(fn_name);
                         let mut resume_assign = assign_stmt.clone();
@@ -974,6 +1077,7 @@ impl BasicBlockRewriter<'_> {
                             blocks,
                             loop_ctx,
                             cell_slots,
+                            outer_scope_names,
                         );
                         let assign_result_label = self.next_label(fn_name);
                         let (yield_from_entry, result_name) = self.lower_yield_from_direct(
@@ -1067,6 +1171,7 @@ impl BasicBlockRewriter<'_> {
                         blocks,
                         loop_ctx,
                         cell_slots,
+                        outer_scope_names,
                     );
                     let then_entry = self.lower_stmt_sequence(
                         fn_name,
@@ -1075,9 +1180,16 @@ impl BasicBlockRewriter<'_> {
                         blocks,
                         loop_ctx,
                         cell_slots,
+                        outer_scope_names,
                     );
                     let else_entry = self.lower_stmt_sequence(
-                        fn_name, &else_body, rest_entry, blocks, loop_ctx, cell_slots,
+                        fn_name,
+                        &else_body,
+                        rest_entry,
+                        blocks,
+                        loop_ctx,
+                        cell_slots,
+                        outer_scope_names,
                     );
                     let label = self.next_label(fn_name);
                     blocks.push(Block {
@@ -1099,6 +1211,7 @@ impl BasicBlockRewriter<'_> {
                         blocks,
                         loop_ctx,
                         cell_slots,
+                        outer_scope_names,
                     );
 
                     let test_label = self.next_label(fn_name);
@@ -1114,6 +1227,7 @@ impl BasicBlockRewriter<'_> {
                             blocks,
                             loop_ctx,
                             cell_slots,
+                            outer_scope_names,
                         )
                     };
 
@@ -1129,6 +1243,7 @@ impl BasicBlockRewriter<'_> {
                         blocks,
                         Some(&loop_ctx),
                         cell_slots,
+                        outer_scope_names,
                     );
 
                     blocks.push(Block {
@@ -1160,6 +1275,7 @@ impl BasicBlockRewriter<'_> {
                         blocks,
                         loop_ctx,
                         cell_slots,
+                        outer_scope_names,
                     );
 
                     let else_body = flatten_stmt_boxes(&for_stmt.orelse.body);
@@ -1173,6 +1289,7 @@ impl BasicBlockRewriter<'_> {
                             blocks,
                             loop_ctx,
                             cell_slots,
+                            outer_scope_names,
                         )
                     };
 
@@ -1198,6 +1315,7 @@ impl BasicBlockRewriter<'_> {
                         blocks,
                         Some(&loop_ctx),
                         cell_slots,
+                        outer_scope_names,
                     );
 
                     let assign_label = self.next_label(fn_name);
@@ -1209,14 +1327,23 @@ impl BasicBlockRewriter<'_> {
                             &mut assign_body,
                         );
                     } else {
-                        // Keep complex destructuring (subscript/attribute/starred) in
-                        // canonical assignment form so the normal assignment lowerer
-                        // can preserve Python assignment semantics.
-                        assign_body.push(py_stmt!(
-                            "{target:expr} = {value:expr}",
-                            target = *for_stmt.target.clone(),
-                            value = tmp_expr.clone(),
-                        ));
+                        // Normalize complex assignment targets at the lowering site so
+                        // BbOp::Assign only ever sees name targets.
+                        let rewritten = rewrite_stmt::assign_del::rewrite_assign(
+                            self.context,
+                            ast::StmtAssign {
+                                range: TextRange::default(),
+                                node_index: ast::AtomicNodeIndex::default(),
+                                targets: vec![*for_stmt.target.clone()],
+                                value: Box::new(tmp_expr.clone()),
+                            },
+                        );
+                        let rewritten_stmt = match rewritten {
+                            Rewrite::Unmodified(stmt) | Rewrite::Walk(stmt) => stmt,
+                        };
+                        let mut lowered = Vec::new();
+                        flatten_stmt(&rewritten_stmt, &mut lowered);
+                        assign_body.extend(lowered.into_iter().map(|stmt| *stmt));
                     }
                     assign_body.extend(sync_target_cells_stmts(
                         for_stmt.target.as_ref(),
@@ -1230,18 +1357,18 @@ impl BasicBlockRewriter<'_> {
                     });
 
                     let exhausted_test = py_expr!(
-                        "__dp__.is_({value:expr}, __dp__.ITER_COMPLETE)",
+                        "__dp_is_({value:expr}, __dp__.ITER_COMPLETE)",
                         value = tmp_expr.clone(),
                     );
                     let next_stmt = if for_stmt.is_async {
                         py_stmt!(
-                            "{tmp:id} = await __dp__.anext_or_sentinel({iter:expr})",
+                            "{tmp:id} = await __dp_anext_or_sentinel({iter:expr})",
                             tmp = tmp_name.as_str(),
                             iter = iter_expr.clone(),
                         )
                     } else {
                         py_stmt!(
-                            "{tmp:id} = __dp__.next_or_sentinel({iter:expr})",
+                            "{tmp:id} = __dp_next_or_sentinel({iter:expr})",
                             tmp = tmp_name.as_str(),
                             iter = iter_expr.clone(),
                         )
@@ -1259,13 +1386,13 @@ impl BasicBlockRewriter<'_> {
                     let mut setup_body = linear;
                     if for_stmt.is_async {
                         setup_body.push(py_stmt!(
-                            "{iter:id} = __dp__.aiter({iterable:expr})",
+                            "{iter:id} = __dp_aiter({iterable:expr})",
                             iter = iter_name.as_str(),
                             iterable = *for_stmt.iter.clone(),
                         ));
                     } else {
                         setup_body.push(py_stmt!(
-                            "{iter:id} = __dp__.iter({iterable:expr})",
+                            "{iter:id} = __dp_iter({iterable:expr})",
                             iter = iter_name.as_str(),
                             iterable = *for_stmt.iter.clone(),
                         ));
@@ -1296,6 +1423,7 @@ impl BasicBlockRewriter<'_> {
                             blocks,
                             loop_ctx,
                             cell_slots,
+                            outer_scope_names,
                         );
                         let label = self.next_label(fn_name);
                         blocks.push(Block {
@@ -1313,6 +1441,7 @@ impl BasicBlockRewriter<'_> {
                         blocks,
                         loop_ctx,
                         cell_slots,
+                        outer_scope_names,
                     );
 
                     let has_finally = !try_stmt.finalbody.body.is_empty();
@@ -1361,7 +1490,7 @@ impl BasicBlockRewriter<'_> {
                                 finally_exc_candidate.as_str(),
                             );
                             finally_body.push(Box::new(py_stmt!(
-                                "if {exc:id} is not None:\n    raise {exc:id}",
+                                "if __dp_is_not({exc:id}, None):\n    raise {exc:id}",
                                 exc = finally_exc_candidate.as_str(),
                             )));
                             finally_exc_name = Some(finally_exc_candidate);
@@ -1372,14 +1501,23 @@ impl BasicBlockRewriter<'_> {
                                 blocks,
                                 loop_ctx,
                                 cell_slots,
+                                outer_scope_names,
                             );
                             let finally_region_labels = blocks[finally_region_start..]
                                 .iter()
                                 .map(|block| block.label.clone())
                                 .collect::<Vec<_>>();
-                            if let (Some(finally_return_label), Some(finally_dispatch_label), Some(return_name), Some(reason_name)) =
-                                (finally_return_label, finally_dispatch_label.clone(), return_name, reason_name)
-                            {
+                            if let (
+                                Some(finally_return_label),
+                                Some(finally_dispatch_label),
+                                Some(return_name),
+                                Some(reason_name),
+                            ) = (
+                                finally_return_label,
+                                finally_dispatch_label.clone(),
+                                return_name,
+                                reason_name,
+                            ) {
                                 blocks.push(Block {
                                     label: finally_return_label.clone(),
                                     body: Vec::new(),
@@ -1393,7 +1531,7 @@ impl BasicBlockRewriter<'_> {
                                     body: Vec::new(),
                                     terminator: Terminator::BrIf {
                                         test: py_expr!(
-                                            "{reason:id} == 'return'",
+                                            "__dp_eq({reason:id}, 'return')",
                                             reason = reason_name.as_str(),
                                         ),
                                         then_label: finally_return_label,
@@ -1404,9 +1542,7 @@ impl BasicBlockRewriter<'_> {
                             (
                                 Some(finally_label),
                                 finally_region_labels,
-                                Some(
-                                    finally_dispatch_label.unwrap_or_else(|| rest_entry.clone()),
-                                ),
+                                Some(finally_dispatch_label.unwrap_or_else(|| rest_entry.clone())),
                             )
                         } else {
                             (None, Vec::new(), None)
@@ -1423,10 +1559,7 @@ impl BasicBlockRewriter<'_> {
                         ));
                     }
                     if let Some(exc_name) = finally_exc_name.as_ref() {
-                        body_pass_stmts.push(py_stmt!(
-                            "{exc:id} = None",
-                            exc = exc_name.as_str(),
-                        ));
+                        body_pass_stmts.push(py_stmt!("{exc:id} = None", exc = exc_name.as_str(),));
                     }
                     blocks.push(Block {
                         label: body_pass_label.clone(),
@@ -1442,11 +1575,18 @@ impl BasicBlockRewriter<'_> {
                         blocks,
                         loop_ctx,
                         cell_slots,
+                        outer_scope_names,
                     );
 
                     let try_body = flatten_stmt_boxes(&try_stmt.body.body);
                     let body_label = self.lower_stmt_sequence(
-                        fn_name, &try_body, else_entry, blocks, loop_ctx, cell_slots,
+                        fn_name,
+                        &try_body,
+                        else_entry,
+                        blocks,
+                        loop_ctx,
+                        cell_slots,
+                        outer_scope_names,
                     );
                     let body_region_labels = blocks[body_region_start..]
                         .iter()
@@ -1464,13 +1604,11 @@ impl BasicBlockRewriter<'_> {
                         ));
                     }
                     if let Some(exc_name) = finally_exc_name.as_ref() {
-                        except_pass_stmts.push(py_stmt!(
-                            "{exc:id} = None",
-                            exc = exc_name.as_str(),
-                        ));
+                        except_pass_stmts
+                            .push(py_stmt!("{exc:id} = None", exc = exc_name.as_str(),));
                     }
                     except_pass_stmts.push(py_stmt!(
-                        "{exc:id} = __dp__.DELETED",
+                        "{exc:id} = __dp_DELETED",
                         exc = except_exc_name.as_str(),
                     ));
                     blocks.push(Block {
@@ -1500,6 +1638,7 @@ impl BasicBlockRewriter<'_> {
                         blocks,
                         loop_ctx,
                         cell_slots,
+                        outer_scope_names,
                     );
                     let except_region_labels = blocks[except_region_start..]
                         .iter()
@@ -1585,6 +1724,46 @@ impl BasicBlockRewriter<'_> {
         label
     }
 
+    fn lower_non_bb_def_stmt_to_exec_binding(
+        &self,
+        func_def: &ast::StmtFunctionDef,
+        cell_slots: &HashSet<String>,
+        outer_scope_names: &HashSet<String>,
+    ) -> Vec<Stmt> {
+        let mut source_fn = func_def.clone();
+        let bind_name = source_fn.name.id.to_string();
+        ensure_dp_default_param(&mut source_fn);
+        let capture_names = collect_capture_names(&source_fn, Some(outer_scope_names));
+        ensure_capture_default_params(&mut source_fn, &capture_names);
+        let source = render_stmt_source(&Stmt::FunctionDef(source_fn));
+        let captures = make_tuple(
+            capture_names
+                .iter()
+                .map(|name| {
+                    py_expr!(
+                        "({name:literal}, {value:id})",
+                        name = name.as_str(),
+                        value = name.as_str(),
+                    )
+                })
+                .collect(),
+        );
+        let base_value = py_expr!(
+            "__dp_exec_function_def_source({source:literal}, __dp_globals(), {captures:expr}, {name:literal})",
+            source = source.as_str(),
+            captures = captures,
+            name = bind_name.as_str(),
+        );
+        let mut out = vec![py_stmt!(
+            "{name:id} = {value:expr}",
+            name = bind_name.as_str(),
+            value = base_value,
+        )];
+        let target_expr = py_expr!("{name:id}", name = bind_name.as_str());
+        out.extend(sync_target_cells_stmts(&target_expr, cell_slots));
+        out
+    }
+
     fn lower_yield_from_direct(
         &mut self,
         fn_name: &str,
@@ -1639,7 +1818,7 @@ impl BasicBlockRewriter<'_> {
                     iter_expr = value,
                 ),
                 py_stmt!(
-                    "__dp__.setattr(_dp_self, \"gi_yieldfrom\", {iter_name:id})",
+                    "__dp_setattr(_dp_self, \"gi_yieldfrom\", {iter_name:id})",
                     iter_name = iter_name.as_str(),
                 ),
             ],
@@ -1673,7 +1852,7 @@ impl BasicBlockRewriter<'_> {
             body: Vec::new(),
             terminator: Terminator::BrIf {
                 test: py_expr!(
-                    "__dp__.exception_matches({stop:id}, StopIteration)",
+                    "__dp_exception_matches({stop:id}, StopIteration)",
                     stop = stop_name.as_str(),
                 ),
                 then_label: stop_done_label.clone(),
@@ -1695,7 +1874,7 @@ impl BasicBlockRewriter<'_> {
         });
         blocks.push(Block {
             label: clear_done_label,
-            body: vec![py_stmt!("__dp__.setattr(_dp_self, \"gi_yieldfrom\", None)")],
+            body: vec![py_stmt!("__dp_setattr(_dp_self, \"gi_yieldfrom\", None)")],
             terminator: Terminator::Jump(after_label),
         });
         blocks.push(Block {
@@ -1728,13 +1907,10 @@ impl BasicBlockRewriter<'_> {
                     exc = exc_name.as_str(),
                     resume = "_dp_resume_exc",
                 ),
-                py_stmt!(
-                    "{resume:id} = None",
-                    resume = "_dp_resume_exc",
-                ),
+                py_stmt!("{resume:id} = None", resume = "_dp_resume_exc",),
             ],
             terminator: Terminator::BrIf {
-                test: py_expr!("{exc:id} is not None", exc = exc_name.as_str()),
+                test: py_expr!("__dp_is_not({exc:id}, None)", exc = exc_name.as_str()),
                 then_label: exc_dispatch_label.clone(),
                 else_label: send_try_label.clone(),
             },
@@ -1744,7 +1920,7 @@ impl BasicBlockRewriter<'_> {
             body: Vec::new(),
             terminator: Terminator::BrIf {
                 test: py_expr!(
-                    "__dp__.exception_matches({exc:id}, GeneratorExit)",
+                    "__dp_exception_matches({exc:id}, GeneratorExit)",
                     exc = exc_name.as_str(),
                 ),
                 then_label: genexit_close_lookup_label.clone(),
@@ -1759,7 +1935,7 @@ impl BasicBlockRewriter<'_> {
                 iter = iter_name.as_str(),
             )],
             terminator: Terminator::BrIf {
-                test: py_expr!("{close:id} is not None", close = close_name.as_str()),
+                test: py_expr!("__dp_is_not({close:id}, None)", close = close_name.as_str()),
                 then_label: genexit_call_close_label.clone(),
                 else_label: raise_exc_label.clone(),
             },
@@ -1780,7 +1956,7 @@ impl BasicBlockRewriter<'_> {
         });
         blocks.push(Block {
             label: clear_raise_label,
-            body: vec![py_stmt!("__dp__.setattr(_dp_self, \"gi_yieldfrom\", None)")],
+            body: vec![py_stmt!("__dp_setattr(_dp_self, \"gi_yieldfrom\", None)")],
             terminator: Terminator::Raise(raise_stmt_from_name(raise_name.as_str())),
         });
         blocks.push(Block {
@@ -1791,7 +1967,7 @@ impl BasicBlockRewriter<'_> {
                 iter = iter_name.as_str(),
             )],
             terminator: Terminator::BrIf {
-                test: py_expr!("{throw:id} is None", throw = throw_name.as_str()),
+                test: py_expr!("__dp_is_({throw:id}, None)", throw = throw_name.as_str()),
                 then_label: raise_exc_label,
                 else_label: throw_try_label.clone(),
             },
@@ -1852,7 +2028,7 @@ impl BasicBlockRewriter<'_> {
             label: send_dispatch_label,
             body: Vec::new(),
             terminator: Terminator::BrIf {
-                test: py_expr!("{sent:id} is None", sent = sent_name.as_str()),
+                test: py_expr!("__dp_is_({sent:id}, None)", sent = sent_name.as_str()),
                 then_label: next_body_label,
                 else_label: send_call_body_label.clone(),
             },
@@ -1889,6 +2065,14 @@ impl BasicBlockRewriter<'_> {
     }
 
     fn function_identity_for(&self, func: &ast::StmtFunctionDef) -> FunctionIdentity {
+        if is_module_init_temp_name(func.name.id.as_str()) {
+            return FunctionIdentity {
+                bind_name: "_dp_module_init".to_string(),
+                display_name: "_dp_module_init".to_string(),
+                qualname: "_dp_module_init".to_string(),
+                binding_target: BindingTarget::ModuleGlobal,
+            };
+        }
         let node_index = func.node_index.load();
         if let Some(identity) = self.function_identity_by_node.get(&node_index) {
             return identity.clone();
@@ -1903,8 +2087,14 @@ impl BasicBlockRewriter<'_> {
         }
     }
 
-    fn build_def_expr_from_bb(&self, bb_function: &BbFunction) -> Option<Expr> {
-        let entry = name_expr(bb_function.entry.as_str())?;
+    fn build_def_expr_from_bb(
+        &self,
+        bb_function: &BbFunction,
+        doc_expr: Option<Expr>,
+        annotate_fn_expr: Option<Expr>,
+    ) -> Option<Expr> {
+        let entry_label = bb_function.entry.as_str();
+        let entry_ref_expr = name_expr(entry_label)?;
         let param_names: HashSet<&str> =
             bb_function.param_names.iter().map(String::as_str).collect();
         let mut closure_items = Vec::new();
@@ -1928,49 +2118,59 @@ impl BasicBlockRewriter<'_> {
             }
         }
         let closure = make_tuple(closure_items);
+        let doc = doc_expr.unwrap_or_else(|| py_expr!("None"));
+        let annotate_fn = annotate_fn_expr.unwrap_or_else(|| py_expr!("None"));
         match &bb_function.kind {
             BbFunctionKind::Function => Some(py_expr!(
-                "__dp__.def_fn({entry:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, {module_name:expr})",
-                entry = entry,
+                "__dp_def_fn({entry:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, {module_globals:expr}, {module_name:expr}, {doc:expr}, {annotate_fn:expr})",
+                entry = entry_ref_expr.clone(),
                 name = bb_function.display_name.as_str(),
                 qualname = bb_function.qualname.as_str(),
                 closure = closure,
-                params = bb_function.param_specs.clone(),
+                params = bb_function.param_specs.to_expr(),
+                module_globals = py_expr!("__dp_globals()"),
                 module_name = py_expr!("__name__"),
+                doc = doc.clone(),
+                annotate_fn = annotate_fn.clone(),
             )),
             BbFunctionKind::Coroutine => Some(py_expr!(
-                "__dp__.def_coro({entry:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, {module_name:expr})",
-                entry = entry,
+                "__dp_def_coro({entry:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, {module_globals:expr}, {module_name:expr}, {doc:expr}, {annotate_fn:expr})",
+                entry = entry_ref_expr.clone(),
                 name = bb_function.display_name.as_str(),
                 qualname = bb_function.qualname.as_str(),
                 closure = closure,
-                params = bb_function.param_specs.clone(),
+                params = bb_function.param_specs.to_expr(),
+                module_globals = py_expr!("__dp_globals()"),
                 module_name = py_expr!("__name__"),
+                doc = doc.clone(),
+                annotate_fn = annotate_fn.clone(),
             )),
             BbFunctionKind::AsyncGenerator {
                 ..
             } => {
-                let resume = name_expr(bb_function.entry.as_str())?;
                 Some(py_expr!(
-                    "__dp__.def_async_gen({resume:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __name__)",
-                    resume = resume,
+                    "__dp_def_async_gen({resume:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __dp_globals(), __name__, {doc:expr}, {annotate_fn:expr})",
+                    resume = entry_ref_expr.clone(),
                     name = bb_function.display_name.as_str(),
                     qualname = bb_function.qualname.as_str(),
                     closure = closure,
-                    params = bb_function.param_specs.clone(),
+                    params = bb_function.param_specs.to_expr(),
+                    doc = doc.clone(),
+                    annotate_fn = annotate_fn.clone(),
                 ))
             }
             BbFunctionKind::Generator {
                 ..
             } => {
-                let resume = name_expr(bb_function.entry.as_str())?;
                 Some(py_expr!(
-                    "__dp__.def_gen({resume:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __name__)",
-                    resume = resume,
+                    "__dp_def_gen({resume:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __dp_globals(), __name__, {doc:expr}, {annotate_fn:expr})",
+                    resume = entry_ref_expr,
                     name = bb_function.display_name.as_str(),
                     qualname = bb_function.qualname.as_str(),
                     closure = closure,
-                    params = bb_function.param_specs.clone(),
+                    params = bb_function.param_specs.to_expr(),
+                    doc = doc,
+                    annotate_fn = annotate_fn,
                 ))
             }
         }
@@ -1991,13 +2191,19 @@ impl BasicBlockRewriter<'_> {
         } else {
             // Keep helper name in __annotate__ family so BB lowering keeps it in lexical scope.
             let annotate_helper_name = format!("_dp_fn___annotate___{bind_name}");
-            Some((
-                annotate_helper_name.clone(),
-                rewrite_stmt::annotation::build_annotate_fn(
-                    annotation_entries,
+            let helper_stmt = rewrite_stmt::annotation::build_annotate_fn(
+                annotation_entries,
+                annotate_helper_name.as_str(),
+            );
+            let helper_stmt = match helper_stmt {
+                Stmt::FunctionDef(helper_fn) => annotation_helper_exec_binding_stmt(
+                    helper_fn,
                     annotate_helper_name.as_str(),
+                    None,
                 ),
-            ))
+                other => other,
+            };
+            Some((annotate_helper_name.clone(), helper_stmt))
         };
 
         let annotate_fn_expr = match annotate_helper_stmt.as_ref() {
@@ -2006,8 +2212,7 @@ impl BasicBlockRewriter<'_> {
         };
         let doc_expr = function_docstring_expr(func);
 
-        let base_expr = self.build_def_expr_from_bb(bb_function)?;
-        let base_expr = maybe_wrap_function_metadata_expr(base_expr, doc_expr, annotate_fn_expr);
+        let base_expr = self.build_def_expr_from_bb(bb_function, doc_expr, annotate_fn_expr)?;
         let decorated = rewrite_stmt::decorator::rewrite(func.decorator_list.clone(), base_expr);
         let binding_stmt = self.make_binding_stmt(target, bind_name, decorated);
         let mut stmts = Vec::new();
@@ -2018,7 +2223,7 @@ impl BasicBlockRewriter<'_> {
         if target == BindingTarget::Local && self.needs_cell_sync(bind_name) {
             let cell = cell_name(bind_name);
             stmts.push(py_stmt!(
-                "__dp__.store_cell({cell:id}, {name:id})",
+                "__dp_store_cell({cell:id}, {name:id})",
                 cell = cell.as_str(),
                 name = bind_name,
             ));
@@ -2056,12 +2261,12 @@ impl BasicBlockRewriter<'_> {
                 py_stmt!("{name:id} = {value:expr}", name = bind_name, value = value,)
             }
             BindingTarget::ModuleGlobal => py_stmt!(
-                "__dp__.store_global(globals(), {name:literal}, {value:expr})",
+                "__dp_store_global(globals(), {name:literal}, {value:expr})",
                 name = bind_name,
                 value = value,
             ),
             BindingTarget::ClassNamespace => py_stmt!(
-                "__dp__.setitem(_dp_class_ns, {name:literal}, {value:expr})",
+                "__dp_setitem(_dp_class_ns, {name:literal}, {value:expr})",
                 name = bind_name,
                 value = value,
             ),
@@ -2097,7 +2302,7 @@ impl BasicBlockRewriter<'_> {
             if self.needs_cell_sync(bind_name.as_str()) {
                 let cell = cell_name(bind_name.as_str());
                 return Some(py_stmt!(
-                    "__dp__.store_cell({cell:id}, {name:id})",
+                    "__dp_store_cell({cell:id}, {name:id})",
                     cell = cell.as_str(),
                     name = bind_name.as_str(),
                 ));
@@ -2119,7 +2324,7 @@ impl BasicBlockRewriter<'_> {
 
         let decorators = std::mem::take(&mut func.decorator_list);
         let updated = py_expr!(
-            "__dp__.update_fn({name:id}, {qualname:literal}, {display_name:literal})",
+            "__dp_update_fn({name:id}, {qualname:literal}, {display_name:literal})",
             name = local_name.as_str(),
             qualname = identity.qualname.as_str(),
             display_name = identity.display_name.as_str(),
@@ -2179,19 +2384,176 @@ fn ensure_dp_default_param(func: &mut ast::StmtFunctionDef) {
     if function_has_global_or_nonlocal_dp(func) {
         return;
     }
-    if collect_parameter_names(func.parameters.as_ref())
-        .iter()
-        .any(|name| name == "__dp__")
-    {
-        return;
+    let mut existing_params = collect_parameter_names(func.parameters.as_ref())
+        .into_iter()
+        .collect::<HashSet<_>>();
+    if !existing_params.contains("__dp__") {
+        func.parameters
+            .kwonlyargs
+            .push(build_kwonly_capture_default("__dp__"));
+        existing_params.insert("__dp__".to_string());
     }
+
+    // annotationlib.call_annotate_function rebuilds callables with fake globals.
+    // Capture direct helper globals (`__dp_*`) as kw-only defaults so helper
+    // resolution stays stable without relying on global lookups.
+    for helper in collect_used_dp_helpers(func) {
+        if existing_params.contains(helper.as_str()) {
+            continue;
+        }
+        func.parameters
+            .kwonlyargs
+            .push(build_kwonly_capture_default(helper.as_str()));
+        existing_params.insert(helper);
+    }
+}
+
+fn rewrite_annotation_helper_defs_as_exec_calls(
+    body: Vec<Box<Stmt>>,
+    outer_scope_names: &HashSet<String>,
+) -> Vec<Box<Stmt>> {
+    body.into_iter()
+        .map(|stmt| match stmt.as_ref() {
+            Stmt::FunctionDef(func) if is_annotation_helper_name(func.name.id.as_str()) => {
+                Box::new(annotation_helper_exec_binding_stmt(
+                    func.clone(),
+                    func.name.id.as_str(),
+                    Some(outer_scope_names),
+                ))
+            }
+            _ => stmt,
+        })
+        .collect()
+}
+
+fn annotation_helper_exec_binding_stmt(
+    func: ast::StmtFunctionDef,
+    bind_name: &str,
+    outer_scope_names: Option<&HashSet<String>>,
+) -> Stmt {
+    let mut helper_fn = func;
+    ensure_dp_default_param(&mut helper_fn);
+    let capture_names = collect_capture_names(&helper_fn, outer_scope_names);
+    ensure_capture_default_params(&mut helper_fn, &capture_names);
+    let source = render_stmt_source(&Stmt::FunctionDef(helper_fn));
+    let captures = make_tuple(
+        capture_names
+            .iter()
+            .map(|name| {
+                py_expr!(
+                    "({name:literal}, {value:id})",
+                    name = name.as_str(),
+                    value = name.as_str(),
+                )
+            })
+            .collect(),
+    );
+    // TODO: Avoid source-string re-exec here by representing annotation helpers
+    // as first-class BB/IR defs with explicit lexical captures that still satisfy
+    // annotationlib fake-globals FunctionType semantics.
+    py_stmt!(
+        "{bind:id} = __dp_exec_function_def_source({source:literal}, __dp_globals(), {captures:expr}, {name:literal})",
+        bind = bind_name,
+        source = source.as_str(),
+        captures = captures,
+        name = bind_name,
+    )
+}
+
+fn ensure_capture_default_params(func: &mut ast::StmtFunctionDef, capture_names: &[String]) {
+    let mut existing = collect_parameter_names(func.parameters.as_ref())
+        .into_iter()
+        .collect::<HashSet<_>>();
+    for capture in capture_names {
+        if existing.contains(capture.as_str()) {
+            continue;
+        }
+        func.parameters
+            .kwonlyargs
+            .push(build_kwonly_capture_default(capture.as_str()));
+        existing.insert(capture.clone());
+    }
+}
+
+#[derive(Default)]
+struct InternalCaptureCollector {
+    names: HashSet<String>,
+}
+
+impl Transformer for InternalCaptureCollector {
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
+        match stmt {
+            Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {}
+            _ => walk_stmt(self, stmt),
+        }
+    }
+
+    fn visit_expr(&mut self, expr: &mut Expr) {
+        if let Expr::Name(ast::ExprName { id, ctx, .. }) = expr {
+            if matches!(ctx, ExprContext::Load) {
+                self.names.insert(id.to_string());
+            }
+        }
+        walk_expr(self, expr);
+    }
+}
+
+fn collect_capture_names(
+    func: &ast::StmtFunctionDef,
+    outer_scope_names: Option<&HashSet<String>>,
+) -> Vec<String> {
+    let mut body = func.body.clone();
+    let mut collector = InternalCaptureCollector::default();
+    collector.visit_body(&mut body);
+    let params = collect_parameter_names(func.parameters.as_ref())
+        .into_iter()
+        .collect::<HashSet<_>>();
+    let bound = collect_bound_names(&func.body.body);
+    let mut names = collector
+        .names
+        .into_iter()
+        .filter(|name| !name.starts_with("__dp_"))
+        .filter(|name| !params.contains(name.as_str()))
+        .filter(|name| !bound.contains(name.as_str()))
+        .filter(|name| !looks_like_generated_dp_temp(name.as_str()))
+        .collect::<Vec<_>>();
+    if let Some(outer_scope) = outer_scope_names {
+        names.retain(|name| outer_scope.contains(name.as_str()));
+    } else {
+        names.retain(|name| is_internal_capture_name(name.as_str()));
+    }
+    names.sort();
+    names
+}
+
+fn is_internal_capture_name(name: &str) -> bool {
+    ((name.starts_with("_dp_") && !name.starts_with("__dp_")) || name == "__class__")
+        && !looks_like_generated_dp_temp(name)
+}
+
+fn looks_like_generated_dp_temp(name: &str) -> bool {
+    if !name.starts_with("_dp_") {
+        return false;
+    }
+    let Some((_, suffix)) = name.rsplit_once('_') else {
+        return false;
+    };
+    !suffix.is_empty() && suffix.chars().all(|ch| ch.is_ascii_digit())
+}
+
+fn render_stmt_source(stmt: &Stmt) -> String {
+    Generator::new(&Indentation::new("    ".to_string()), LineEnding::default()).stmt(stmt)
+}
+
+fn build_kwonly_capture_default(name: &str) -> ast::ParameterWithDefault {
     let template = py_stmt!(
         r#"
-def _dp_template(*, __dp__=__dp__):
+def _dp_template(*, {name:id}={name:id}):
     pass
-"#
+"#,
+        name = name,
     );
-    let kwonly = match template {
+    match template {
         Stmt::FunctionDef(template_fn) => template_fn
             .parameters
             .kwonlyargs
@@ -2199,8 +2561,42 @@ def _dp_template(*, __dp__=__dp__):
             .cloned()
             .expect("template kwonly param missing"),
         _ => unreachable!("template did not parse as function"),
-    };
-    func.parameters.kwonlyargs.push(kwonly);
+    }
+}
+
+#[derive(Default)]
+struct DpHelperCollector {
+    names: HashSet<String>,
+}
+
+impl Transformer for DpHelperCollector {
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
+        match stmt {
+            Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {}
+            _ => walk_stmt(self, stmt),
+        }
+    }
+
+    fn visit_expr(&mut self, expr: &mut Expr) {
+        if let Expr::Name(ast::ExprName { id, ctx, .. }) = expr {
+            if matches!(ctx, ExprContext::Load) {
+                let name = id.as_str();
+                if name.starts_with("__dp_") && name != "__dp__" {
+                    self.names.insert(name.to_string());
+                }
+            }
+        }
+        walk_expr(self, expr);
+    }
+}
+
+fn collect_used_dp_helpers(func: &ast::StmtFunctionDef) -> Vec<String> {
+    let mut body = func.body.clone();
+    let mut collector = DpHelperCollector::default();
+    collector.visit_body(&mut body);
+    let mut names = collector.names.into_iter().collect::<Vec<_>>();
+    names.sort();
+    names
 }
 
 fn function_has_global_or_nonlocal_dp(func: &ast::StmtFunctionDef) -> bool {
@@ -2222,7 +2618,7 @@ struct LoweredFunction {
     entry_label: String,
     entry_params: Vec<String>,
     local_cell_slots: HashSet<String>,
-    param_specs: Expr,
+    param_specs: BbExpr,
     param_names: Vec<String>,
     kind: LoweredKind,
 }
@@ -2243,6 +2639,54 @@ enum LoweredKind {
     },
 }
 
+fn simplify_expr_for_bb_term(
+    context: &Context,
+    pass: &SimplifyExprPass,
+    expr: &mut Expr,
+    body: &mut Vec<Stmt>,
+) {
+    let lowered = pass.lower_expr(context, expr.clone());
+    if lowered.modified {
+        let mut lowered_stmts = Vec::new();
+        flatten_stmt(&lowered.stmt, &mut lowered_stmts);
+        body.extend(lowered_stmts.into_iter().map(|stmt| *stmt));
+    }
+    *expr = lowered.expr;
+}
+
+fn simplify_terminator_exprs(
+    context: &Context,
+    pass: &SimplifyExprPass,
+    terminator: &mut Terminator,
+    body: &mut Vec<Stmt>,
+) {
+    match terminator {
+        Terminator::BrIf { test, .. } => simplify_expr_for_bb_term(context, pass, test, body),
+        Terminator::BrTable { index, .. } => {
+            simplify_expr_for_bb_term(context, pass, index, body);
+        }
+        Terminator::Raise(raise_stmt) => {
+            if let Some(exc) = raise_stmt.exc.as_mut() {
+                simplify_expr_for_bb_term(context, pass, exc, body);
+            }
+            if let Some(cause) = raise_stmt.cause.as_mut() {
+                simplify_expr_for_bb_term(context, pass, cause, body);
+            }
+        }
+        Terminator::Yield { value, .. } => {
+            if let Some(value) = value.as_mut() {
+                simplify_expr_for_bb_term(context, pass, value, body);
+            }
+        }
+        Terminator::Ret(value) => {
+            if let Some(value) = value.as_mut() {
+                simplify_expr_for_bb_term(context, pass, value, body);
+            }
+        }
+        Terminator::Jump(_) | Terminator::TryJump { .. } => {}
+    }
+}
+
 fn bb_term_from_terminator(terminator: &Terminator) -> BbTerm {
     match terminator {
         Terminator::Jump(target) => BbTerm::Jump(target.clone()),
@@ -2251,7 +2695,7 @@ fn bb_term_from_terminator(terminator: &Terminator) -> BbTerm {
             then_label,
             else_label,
         } => BbTerm::BrIf {
-            test: test.clone(),
+            test: BbExpr::from_expr(test.clone()),
             then_label: then_label.clone(),
             else_label: else_label.clone(),
         },
@@ -2260,22 +2704,19 @@ fn bb_term_from_terminator(terminator: &Terminator) -> BbTerm {
             targets,
             default_label,
         } => BbTerm::BrTable {
-            index: index.clone(),
+            index: BbExpr::from_expr(index.clone()),
             targets: targets.clone(),
             default_label: default_label.clone(),
         },
         Terminator::Raise(ast::StmtRaise { exc, cause, .. }) => BbTerm::Raise {
-            exc: exc.as_ref().map(|expr| *expr.clone()),
-            cause: cause.as_ref().map(|expr| *expr.clone()),
+            exc: exc.as_ref().map(|expr| BbExpr::from_expr(*expr.clone())),
+            cause: cause.as_ref().map(|expr| BbExpr::from_expr(*expr.clone())),
         },
-        Terminator::TryJump {
-            body_label,
-            ..
-        } => BbTerm::Jump(body_label.clone()),
+        Terminator::TryJump { body_label, .. } => BbTerm::Jump(body_label.clone()),
         Terminator::Yield { .. } => {
             panic!("internal error: Terminator::Yield must be lowered before BB IR export")
         }
-        Terminator::Ret(value) => BbTerm::Ret(value.clone()),
+        Terminator::Ret(value) => BbTerm::Ret(value.clone().map(BbExpr::from_expr)),
     }
 }
 
@@ -2314,9 +2755,9 @@ fn lower_generator_yield_terms_to_explicit_return(
     // suspension value returns uniformly.
     for block in blocks.iter_mut() {
         if let Terminator::Ret(value) = &block.terminator {
-            block
-                .body
-                .push(py_stmt!("_dp_self._pc = __dp__._GEN_PC_DONE"));
+            block.body.push(py_stmt!(
+                "__dp_setattr(_dp_self, \"_pc\", __dp__._GEN_PC_DONE)"
+            ));
             block.terminator = Terminator::Raise(raise_done_stmt(is_async, value.clone()));
         }
     }
@@ -2334,7 +2775,7 @@ fn lower_generator_yield_terms_to_explicit_return(
             .get(resume_label.as_str())
             .unwrap_or_else(|| panic!("missing resume pc for label: {resume_label}"));
         block.body.push(py_stmt!(
-            "_dp_self._pc = {next_pc:literal}",
+            "__dp_setattr(_dp_self, \"_pc\", {next_pc:literal})",
             next_pc = next_pc as i64,
         ));
         let next_state_names = block_params
@@ -2461,7 +2902,12 @@ fn collect_function_identity_private(
                 Stmt::FunctionDef(func) => {
                     let node_index = func.node_index.load();
                     if node_index != NodeIndex::NONE {
-                        let bind_name = func.name.id.to_string();
+                        let raw_bind_name = func.name.id.to_string();
+                        let bind_name = if is_module_init_temp_name(raw_bind_name.as_str()) {
+                            "_dp_module_init".to_string()
+                        } else {
+                            raw_bind_name.clone()
+                        };
                         let display_name =
                             display_name_for_function(bind_name.as_str()).to_string();
                         let parent_scope = self
@@ -2469,16 +2915,20 @@ fn collect_function_identity_private(
                             .last()
                             .expect("missing scope while collecting function identity");
                         let child_scope = parent_scope.tree.scope_for_def(func).ok();
-                        let qualname = child_scope
-                            .as_ref()
-                            .map(|scope| {
-                                normalize_qualname(
-                                    scope.qualnamer.qualname.as_str(),
-                                    bind_name.as_str(),
-                                    display_name.as_str(),
-                                )
-                            })
-                            .unwrap_or_else(|| bind_name.clone());
+                        let qualname = if is_module_init_temp_name(raw_bind_name.as_str()) {
+                            "_dp_module_init".to_string()
+                        } else {
+                            child_scope
+                                .as_ref()
+                                .map(|scope| {
+                                    normalize_qualname(
+                                        scope.qualnamer.qualname.as_str(),
+                                        bind_name.as_str(),
+                                        display_name.as_str(),
+                                    )
+                                })
+                                .unwrap_or_else(|| bind_name.clone())
+                        };
                         self.out.insert(
                             node_index,
                             FunctionIdentity {
@@ -2487,7 +2937,7 @@ fn collect_function_identity_private(
                                 qualname,
                                 binding_target: binding_target_for_scope(
                                     parent_scope.as_ref(),
-                                    bind_name.as_str(),
+                                    raw_bind_name.as_str(),
                                 ),
                             },
                         );
@@ -2532,9 +2982,7 @@ impl Transformer for BasicBlockRewriter<'_> {
         if let Stmt::FunctionDef(func) = stmt {
             let fn_name = func.name.id.to_string();
             let entering_module_init = is_module_init_temp_name(fn_name.as_str());
-            if entering_module_init {
-                self.module_init_hoisted_blocks.push(Vec::new());
-            }
+            self.module_init_hoisted_blocks.push(Vec::new());
             let function_cell_bindings = collect_cell_slots(&func.body.body)
                 .into_iter()
                 .filter_map(|slot| slot.strip_prefix("_dp_cell_").map(str::to_string))
@@ -2545,10 +2993,7 @@ impl Transformer for BasicBlockRewriter<'_> {
             walk_stmt(self, stmt);
             self.function_stack.pop();
             self.function_cell_bindings_stack.pop();
-            let mut module_init_hoisted = Vec::new();
-            if entering_module_init {
-                module_init_hoisted = self.module_init_hoisted_blocks.pop().unwrap_or_default();
-            }
+            let mut function_hoisted = self.module_init_hoisted_blocks.pop().unwrap_or_default();
 
             if let Stmt::FunctionDef(func) = stmt {
                 if let Some(lowered) = self.try_lower_function(func) {
@@ -2582,10 +3027,12 @@ impl Transformer for BasicBlockRewriter<'_> {
                     let binding_stmt = self
                         .build_lowered_binding_stmt(func, &bb_function)
                         .expect("failed to build BB function binding");
-                    let keep_local_blocks = func.name.id.as_str().starts_with("_dp_class_ns_")
-                        || func.name.id.as_str().starts_with("_dp_define_class_");
+                    let keep_local_blocks = !entering_module_init
+                        && !self.module_init_hoisted_blocks.is_empty()
+                        && (identity.bind_name.starts_with("_dp_class_ns_")
+                            || identity.bind_name.starts_with("_dp_define_class_"));
                     if entering_module_init {
-                        let mut lowered_defs = module_init_hoisted;
+                        let mut lowered_defs = function_hoisted;
                         lowered_defs.extend(block_defs);
                         lowered_defs.push(binding_stmt);
                         lowered_defs.push(py_stmt!(
@@ -2594,16 +3041,19 @@ impl Transformer for BasicBlockRewriter<'_> {
                         ));
                         *stmt = into_body(lowered_defs);
                     } else if keep_local_blocks {
-                        let mut body = block_defs;
+                        let mut body = function_hoisted;
+                        body.extend(block_defs);
                         body.push(binding_stmt);
                         *stmt = into_body(body);
                     } else if !self.module_init_hoisted_blocks.is_empty() {
                         if let Some(hoisted) = self.module_init_hoisted_blocks.last_mut() {
+                            hoisted.append(&mut function_hoisted);
                             hoisted.extend(block_defs);
                         }
                         *stmt = binding_stmt;
                     } else {
-                        let mut body = block_defs;
+                        let mut body = function_hoisted;
+                        body.extend(block_defs);
                         body.push(binding_stmt);
                         *stmt = into_body(body);
                     }
@@ -2620,14 +3070,12 @@ impl Transformer for BasicBlockRewriter<'_> {
                     let non_lowered_binding = self.build_non_lowered_binding_stmt(func);
                     if let Some(binding_stmt) = non_lowered_binding {
                         let mut body = Vec::new();
-                        if entering_module_init {
-                            body.extend(module_init_hoisted.clone());
-                        }
+                        body.append(&mut function_hoisted);
                         body.push(Stmt::FunctionDef(func.clone()));
                         body.push(binding_stmt);
                         *stmt = into_body(body);
-                    } else if entering_module_init && !module_init_hoisted.is_empty() {
-                        let mut new_body = module_init_hoisted
+                    } else if !function_hoisted.is_empty() {
+                        let mut new_body = function_hoisted
                             .into_iter()
                             .map(Box::new)
                             .collect::<Vec<_>>();
@@ -2752,23 +3200,6 @@ fn annotation_expr_string(expr: &Expr) -> String {
     Generator::new(&Indentation::new("    ".to_string()), LineEnding::default()).expr(expr)
 }
 
-fn maybe_wrap_function_metadata_expr(
-    base_expr: Expr,
-    doc_expr: Option<Expr>,
-    annotate_fn_expr: Option<Expr>,
-) -> Expr {
-    if doc_expr.is_none() && annotate_fn_expr.is_none() {
-        return base_expr;
-    }
-
-    py_expr!(
-        "__dp__.apply_fn_metadata({fn_obj:expr}, {doc:expr}, {annotate_fn:expr})",
-        fn_obj = base_expr,
-        doc = doc_expr.unwrap_or_else(|| py_expr!("None")),
-        annotate_fn = annotate_fn_expr.unwrap_or_else(|| py_expr!("None")),
-    )
-}
-
 fn flatten_stmt_boxes(stmts: &[Box<Stmt>]) -> Vec<Box<Stmt>> {
     let mut out = Vec::new();
     for stmt in stmts {
@@ -2863,11 +3294,10 @@ fn collect_state_vars(
         let (uses, defs) = analyze_block_use_def(block);
         let mut names = defs.into_iter().collect::<Vec<_>>();
         for name in uses {
-            let is_special_runtime_state =
-                name == "_dp_self"
-                    || name.starts_with("_dp_cell_")
-                    || name.starts_with("_dp_try_exc_")
-                    || name == "_dp_classcell";
+            let is_special_runtime_state = name == "_dp_self"
+                || name.starts_with("_dp_cell_")
+                || name.starts_with("_dp_try_exc_")
+                || name == "_dp_classcell";
             let is_known_local = defs_anywhere.contains(name.as_str())
                 || injected_exception_names.contains(name.as_str())
                 || param_names.iter().any(|param| param == &name);
@@ -3148,16 +3578,19 @@ fn load_names_in_stmt(stmt: &Stmt) -> HashSet<String> {
             collector.visit_stmt(&mut stmt);
             let mut names = collector.names;
 
-            // Nested transformed functions can require outer closure cells at
-            // definition time so the created function captures those cells.
-            // We only care about transformed cell names, not generic body
-            // loads.
-            let mut full_stmt = Stmt::FunctionDef(func_def.clone());
-            let mut body_collector = LoadNameCollector::default();
-            body_collector.visit_stmt(&mut full_stmt);
-            for name in body_collector.names {
-                if name.starts_with("_dp_cell_") {
-                    names.insert(name);
+            if !func_def.name.id.as_str().starts_with("_dp_bb_") {
+                // Nested transformed non-BB helper functions can require outer
+                // closure cells at definition time so the created function
+                // captures those cells. BB helper defs thread cells explicitly
+                // via parameters/closure tuples and should not force the outer
+                // function's entry-params.
+                let mut full_stmt = Stmt::FunctionDef(func_def.clone());
+                let mut body_collector = LoadNameCollector::default();
+                body_collector.visit_stmt(&mut full_stmt);
+                for name in body_collector.names {
+                    if name.starts_with("_dp_cell_") {
+                        names.insert(name);
+                    }
                 }
             }
 
@@ -3386,7 +3819,7 @@ fn rewrite_delete_target_to_deleted_sentinel(target: &Expr, out: &mut Vec<Stmt>)
     match target {
         Expr::Name(name) => {
             out.push(py_stmt!(
-                "{name:id} = __dp__.DELETED",
+                "{name:id} = __dp_DELETED",
                 name = name.id.as_str(),
             ));
         }
@@ -3421,7 +3854,7 @@ fn sync_target_cells_stmts(target: &Expr, cell_slots: &HashSet<String>) -> Vec<S
                 return None;
             }
             Some(py_stmt!(
-                "__dp__.store_cell({cell:id}, {value:id})",
+                "__dp_store_cell({cell:id}, {value:id})",
                 cell = cell.as_str(),
                 value = name.as_str(),
             ))
@@ -3519,20 +3952,18 @@ fn rewrite_region_returns_to_finally(
             _ => continue,
         };
         let ret_expr = ret_value.unwrap_or_else(|| py_expr!("None"));
-        block.body.push(py_stmt!(
-            "{name:id} = 'return'",
-            name = reason_name,
-        ));
+        block
+            .body
+            .push(py_stmt!("{name:id} = 'return'", name = reason_name,));
         block.body.push(py_stmt!(
             "{name:id} = {value:expr}",
             name = return_value_name,
             value = ret_expr,
         ));
         if let Some(finally_exc_name) = finally_exc_name {
-            block.body.push(py_stmt!(
-                "{name:id} = None",
-                name = finally_exc_name,
-            ));
+            block
+                .body
+                .push(py_stmt!("{name:id} = None", name = finally_exc_name,));
         }
         block.terminator = Terminator::Jump(finally_target.to_string());
     }
@@ -3720,13 +4151,13 @@ impl Transformer for DeletedNameLoadRewriter<'_> {
                     return;
                 }
                 let value = if always_unbound {
-                    py_expr!("__dp__.DELETED")
+                    py_expr!("__dp_DELETED")
                 } else {
                     Expr::Name(name.clone())
                 };
                 let name_value = name.id.to_string();
                 *expr = py_expr!(
-                    "__dp__.load_deleted_name({name:literal}, {value:expr})",
+                    "__dp_load_deleted_name({name:literal}, {value:expr})",
                     name = name_value.as_str(),
                     value = value,
                 );
@@ -4300,30 +4731,83 @@ impl Transformer for ExceptExceptionRewriter {
     fn visit_expr(&mut self, expr: &mut Expr) {
         if let Expr::Call(call) = expr {
             if call.arguments.args.is_empty() && call.arguments.keywords.is_empty() {
-                if let Expr::Attribute(attr) = call.func.as_ref() {
-                    if attr.attr.as_str() == "current_exception" {
-                        if let Expr::Name(module) = attr.value.as_ref() {
-                            if module.id.as_str() == "__dp__" {
-                                *expr = self.exception_name_expr();
-                                return;
-                            }
-                        }
-                    }
-                    if attr.attr.as_str() == "exc_info" {
-                        if let Expr::Name(module) = attr.value.as_ref() {
-                            if module.id.as_str() == "__dp__" {
-                                *expr = py_expr!(
-                                    "__dp__.exc_info_from_exception({exc:id})",
-                                    exc = self.exception_name.as_str(),
-                                );
-                                return;
-                            }
-                        }
-                    }
+                if is_dp_lookup_call(call.func.as_ref(), "current_exception") {
+                    *expr = self.exception_name_expr();
+                    return;
+                }
+                if is_dp_lookup_call(call.func.as_ref(), "exc_info") {
+                    *expr = py_expr!(
+                        "__dp_exc_info_from_exception({exc:id})",
+                        exc = self.exception_name.as_str(),
+                    );
+                    return;
                 }
             }
         }
         walk_expr(self, expr);
+    }
+}
+
+fn is_dp_lookup_call(func: &Expr, attr_name: &str) -> bool {
+    if matches!(
+        func,
+        Expr::Name(name) if name.id.as_str() == format!("__dp_{attr_name}")
+    ) {
+        return true;
+    }
+    if let Expr::Attribute(attr) = func {
+        if attr.attr.as_str() == attr_name {
+            if let Expr::Name(module) = attr.value.as_ref() {
+                return module.id.as_str() == "__dp__";
+            }
+        }
+    }
+    if let Expr::Call(call) = func {
+        if !call.arguments.keywords.is_empty() || call.arguments.args.len() != 2 {
+            return false;
+        }
+        if !matches!(
+            call.func.as_ref(),
+            Expr::Name(name) if name.id.as_str() == "__dp_getattr"
+        ) {
+            return false;
+        }
+        let base_matches = matches!(
+            &call.arguments.args[0],
+            Expr::Name(base) if base.id.as_str() == "__dp__"
+        );
+        if !base_matches {
+            return false;
+        }
+        return expr_static_str(&call.arguments.args[1]).as_deref() == Some(attr_name);
+    }
+    false
+}
+
+fn expr_static_str(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::StringLiteral(value) => Some(value.value.to_str().to_string()),
+        Expr::Call(call)
+            if call.arguments.keywords.is_empty()
+                && call.arguments.args.len() == 1
+                && matches!(
+                    call.func.as_ref(),
+                    Expr::Name(name)
+                        if matches!(
+                            name.id.as_str(),
+                            "__dp_decode_literal_bytes" | "__dp_decode_literal_source_bytes"
+                        )
+                ) =>
+        {
+            match &call.arguments.args[0] {
+                Expr::BytesLiteral(bytes) => {
+                    let value: std::borrow::Cow<[u8]> = (&bytes.value).into();
+                    String::from_utf8(value.into_owned()).ok()
+                }
+                _ => None,
+            }
+        }
+        _ => None,
     }
 }
 
@@ -4336,8 +4820,17 @@ fn name_expr(name: &str) -> Option<Expr> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        transform::Options, transform_str_to_bb_ir_with_options, transform_str_to_ruff_with_options,
+        py_expr, transform::Options, transform_str_to_bb_ir_with_options,
+        transform_str_to_ruff_with_options,
     };
+
+    fn contains_dp_call(lowered: &str, name: &str) -> bool {
+        lowered.contains(&format!("__dp_{name}("))
+            || lowered.contains(&format!("__dp_getattr(__dp__, \"{name}\")("))
+            || lowered.contains(&format!(
+                "__dp_getattr(__dp__, __dp_decode_literal_bytes(b\"{name}\"))("
+            ))
+    }
 
     #[test]
     fn lowers_simple_if_function_into_basic_blocks() {
@@ -4359,8 +4852,8 @@ def foo(a, b):
             .expect("transform should succeed")
             .to_string();
 
-        assert!(lowered.contains("__dp__.def_fn("), "{lowered}");
-        assert!(lowered.contains("__dp__.brif("), "{lowered}");
+        assert!(contains_dp_call(&lowered, "def_fn"), "{lowered}");
+        assert!(contains_dp_call(&lowered, "brif"), "{lowered}");
         assert!(lowered.contains("def _dp_bb_"), "{lowered}");
     }
 
@@ -4415,9 +4908,9 @@ def run(limit):
             .expect("transform should succeed")
             .to_string();
 
-        assert!(lowered.contains("__dp__.def_fn("), "{lowered}");
-        assert!(lowered.contains("__dp__.brif("), "{lowered}");
-        assert!(lowered.contains("__dp__.jump("), "{lowered}");
+        assert!(contains_dp_call(&lowered, "def_fn"), "{lowered}");
+        assert!(contains_dp_call(&lowered, "brif"), "{lowered}");
+        assert!(contains_dp_call(&lowered, "jump"), "{lowered}");
     }
 
     #[test]
@@ -4442,9 +4935,9 @@ def run(items):
             .expect("transform should succeed")
             .to_string();
 
-        assert!(lowered.contains("__dp__.next_or_sentinel("), "{lowered}");
-        assert!(lowered.contains("__dp__.iter("), "{lowered}");
-        assert!(lowered.contains("__dp__.brif("), "{lowered}");
+        assert!(contains_dp_call(&lowered, "next_or_sentinel"), "{lowered}");
+        assert!(contains_dp_call(&lowered, "iter"), "{lowered}");
+        assert!(contains_dp_call(&lowered, "brif"), "{lowered}");
     }
 
     #[test]
@@ -4465,8 +4958,8 @@ async def run():
             .expect("transform should succeed")
             .to_string();
 
-        assert!(lowered.contains("__dp__.anext_or_sentinel("), "{lowered}");
-        assert!(lowered.contains("__dp__.aiter("), "{lowered}");
+        assert!(contains_dp_call(&lowered, "anext_or_sentinel"), "{lowered}");
+        assert!(contains_dp_call(&lowered, "aiter"), "{lowered}");
         assert!(!lowered.contains("_dp_completed_"), "{lowered}");
     }
 
@@ -4485,7 +4978,7 @@ def f():
             .expect("transform should succeed")
             .to_string();
 
-        assert!(lowered.contains("__dp__.def_fn("), "{lowered}");
+        assert!(contains_dp_call(&lowered, "def_fn"), "{lowered}");
         assert!(lowered.contains("def _dp_bb_f_start"), "{lowered}");
         assert!(!lowered.contains("def _dp_bb_f_0"), "{lowered}");
     }
@@ -4505,8 +4998,9 @@ def f():
             .expect("transform should succeed")
             .to_string();
 
-        assert!(lowered.contains("__dp__.ret(None)"), "{lowered}");
-        assert!(!lowered.contains("__dp__.jump("), "{lowered}");
+        assert!(contains_dp_call(&lowered, "ret"), "{lowered}");
+        assert!(lowered.contains("None"), "{lowered}");
+        assert!(!contains_dp_call(&lowered, "jump"), "{lowered}");
     }
 
     #[test]
@@ -4600,7 +5094,7 @@ def f():
             .to_string();
 
         assert!(
-            lowered.contains("__dp__.exceptiongroup_split("),
+            contains_dp_call(&lowered, "exceptiongroup_split"),
             "{lowered}"
         );
         assert!(lowered.contains("\"_dp_exc_target\""), "{lowered}");
@@ -4623,10 +5117,15 @@ def f():
             .expect("transform should succeed")
             .to_string();
 
-        assert!(
-            lowered.contains("__dp__.load_deleted_name(\"x\", __dp__.DELETED)"),
-            "{lowered}"
-        );
+        assert!(lowered.contains("load_deleted_name"), "{lowered}");
+        assert!(lowered.contains("DELETED"), "{lowered}");
         assert!(!lowered.contains("x = 1"), "{lowered}");
+    }
+
+    #[test]
+    fn matches_dp_lookup_call_with_decoded_name_arg() {
+        let expr =
+            py_expr!("__dp_getattr(__dp__, __dp_decode_literal_bytes(b\"current_exception\"))");
+        assert!(super::is_dp_lookup_call(&expr, "current_exception"));
     }
 }

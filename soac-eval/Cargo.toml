@@ -6,6 +6,7 @@ build = "build.rs"
 
 [dependencies]
 dp-transform = { path = "../dp-transform" }
+ruff_python_ast = { path = "../vendor/ruff/crates/ruff_python_ast" }
 pyo3 = { workspace = true, features = ["extension-module"] }
 log = "0.4"
 cranelift-codegen = "0.125"

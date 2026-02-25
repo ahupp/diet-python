@@ -143,11 +143,6 @@ pub enum ExprNode<E: ExprInfo = ()> {
         info: E,
         id: String,
     },
-    Attribute {
-        info: E,
-        value: Box<ExprNode<E>>,
-        attr: String,
-    },
     Number {
         info: E,
         value: Number,
@@ -279,9 +274,6 @@ fn collect_used_names<S: StmtInfo, E: ExprInfo>(def: &FunctionDef<S, E>) -> Hash
         match expr {
             ExprNode::Name { id, .. } => {
                 names.insert(id.clone());
-            }
-            ExprNode::Attribute { value, .. } => {
-                visit_expr(value, names);
             }
             ExprNode::Tuple { elts, .. } => {
                 for elt in elts {
@@ -928,11 +920,6 @@ impl From<Expr> for ExprNode {
                     args: args_vec,
                 }
             }
-            Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => ExprNode::Attribute {
-                info: (),
-                value: Box::new(ExprNode::from(*value)),
-                attr: attr.id.to_string(),
-            },
             other => panic!("unsupported expression in min_ast conversion: {:?}", other),
         }
     }

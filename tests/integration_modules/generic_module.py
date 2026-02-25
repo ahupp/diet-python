@@ -19,6 +19,7 @@ def make_specialization():
 from __future__ import annotations
 
 import sys
+import builtins
 from types import ModuleType
 
 import diet_import_hook
@@ -32,7 +33,8 @@ def _assert_generic_module_invariants(module: ModuleType) -> None:
         assert isinstance(
             transformed_typing.__spec__.loader, diet_import_hook.DietPythonLoader
         ), "typing should be transformed"
-        assert "__dp__" in module.__dict__, "module should be transformed"
+        assert "__dp__" not in module.__dict__, "__dp__ should not be injected into module globals"
+        assert hasattr(builtins, "__dp__"), "__dp__ runtime should be available via builtins"
 
     assert module.Box.__orig_bases__ == (transformed_typing.Generic[module.T],)
 

@@ -27,7 +27,7 @@ fn future_import_insert_index(module: &[Box<Stmt>]) -> usize {
 }
 
 pub fn ensure_imports(context: &Context, module: &mut StmtBody) {
-    let mut imports = vec![py_stmt!("__dp__ = __import__(\"__dp__\")")];
+    let mut imports = Vec::new();
 
     if context.needs_typing_import() {
         imports.push(py_stmt!("_dp_typing = __import__(\"typing\")"));
@@ -35,7 +35,7 @@ pub fn ensure_imports(context: &Context, module: &mut StmtBody) {
 
     if context.needs_templatelib_import() {
         imports.push(py_stmt!(
-            "_dp_templatelib = __dp__.import_(\"string.templatelib\", __spec__, __dp__.list((\"templatelib\",)))"
+            "_dp_templatelib = __dp_import_(\"string.templatelib\", __spec__, __dp_list((\"templatelib\",)))"
         ));
     }
 

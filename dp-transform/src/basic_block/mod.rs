@@ -1,5 +1,5 @@
-pub mod bb_ir;
 mod ast_to_bb;
+pub mod bb_ir;
 mod codegen_normalize;
 mod render_py;
 

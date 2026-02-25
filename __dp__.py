@@ -24,6 +24,11 @@ dict = builtins.dict
 set = builtins.set
 slice = builtins.slice
 classmethod = builtins.classmethod
+ascii = builtins.ascii
+repr = builtins.repr
+str = builtins.str
+format = builtins.format
+AssertionError = builtins.AssertionError
 
 
 def __deepcopy__(memo):
@@ -32,11 +37,18 @@ def __deepcopy__(memo):
 
 
 builtins.__dp__ = sys.modules[__name__]
+builtins.__dp_getattr = builtins.getattr
 
 _MISSING = object()
 DELETED = object()
 NO_DEFAULT = object()
 _GEN_PC_DONE = -1
+builtins.__dp_DELETED = DELETED
+builtins.__dp_Ellipsis = Ellipsis
+builtins.__dp_TRUE = True
+builtins.__dp_FALSE = False
+builtins.__dp_NONE = None
+
 
 def load_deleted_name(name, value):
     if value is DELETED:
@@ -133,7 +145,14 @@ def _pow_with_mod(lhs, rhs, mod):
     )
 
 
-def _ioper(inplace_name: str, lhs_method_name: str, rhs_method_name: str, op_symbol: str, lhs, rhs):
+def _ioper(
+    inplace_name: str,
+    lhs_method_name: str,
+    rhs_method_name: str,
+    op_symbol: str,
+    lhs,
+    rhs,
+):
     method = _mro_getattr(type(lhs), inplace_name)
     if method is not _MISSING:
         value = _call_special_method(method, lhs, rhs)
@@ -250,7 +269,6 @@ def ifloordiv(lhs, rhs):
     return _ioper("__ifloordiv__", "__floordiv__", "__rfloordiv__", "//", lhs, rhs)
 
 
-
 def pos(value):
     return +value
 
@@ -269,7 +287,6 @@ def not_(value):
 
 def truth(value):
     return bool(value)
-
 
 
 class _JumpTerm(NamedTuple):
@@ -294,6 +311,9 @@ class BlockParam:
         value = self.args[self.index]
         self.args[self.index] = None
         return value
+
+
+builtins.__dp_BlockParam = BlockParam
 
 
 def jump(target, args):
@@ -339,7 +359,10 @@ def _block_params(args, *, copy_args=True):
         args = list(args)
     elif not isinstance(args, list):
         args = list(args)
-    return tuple(BlockParam(args, idx) for idx in range(len(args)))
+    params = []
+    for idx in range(len(args)):
+        params.append(BlockParam(args, idx))
+    return tuple(params)
 
 
 def _resolve_local_frame(owner):
@@ -400,8 +423,6 @@ def raise_uncaught_async_generator_exception(exc):
     if isinstance(exc, StopAsyncIteration):
         raise RuntimeError("async generator raised StopAsyncIteration") from exc
     raise exc
-
-
 
 
 def _attach_throw_context_from_state(state, exc):
@@ -476,8 +497,10 @@ def _route_region_jump(target, next_args, region_targets):
     return None
 
 
-_jit_run_bb = None
-_jit_render_bb = None
+_jit_run_bb_plan = None
+_jit_render_bb_plan = None
+_jit_has_bb_plan = None
+_register_clif_wrapper = None
 
 
 def _run_bb_interpreted(entry, args):
@@ -491,133 +514,35 @@ def _run_bb_interpreted(entry, args):
     raise RuntimeError(f"invalid basic-block terminator: {term_obj!r}")
 
 
-def _run_bb_step(block, args):
-    raw_args = _bb_raw_args(args)
-    try:
-        preserve_entry_args = getattr(block, "_dp_exc_target", None) is not None
-        block_params = _block_params(raw_args, copy_args=preserve_entry_args)
-        term_obj = block(*block_params)
-    except BaseException as exc:
-        term_obj = _dispatch_block_exception(block, raw_args, exc)
-        if term_obj is None:
-            return raise_(exc)
-
-    while isinstance(term_obj, _RaiseTerm):
-        dispatched = _dispatch_block_exception(block, raw_args, term_obj.exc)
-        if dispatched is None:
-            return term_obj
-        term_obj = dispatched
-    return term_obj
-
-
-def _bb_term_kind(term):
-    if isinstance(term, _JumpTerm):
-        return 0
-    if isinstance(term, _RetTerm):
-        return 1
-    if isinstance(term, _RaiseTerm):
-        return 2
-    return -1
-
-
-def _bb_term_jump_target(term):
-    return term.target
-
-
-def _bb_term_jump_args(term):
-    return term.args
-
-
-def _bb_term_ret_value(term):
-    return term.value
-
-
-def _bb_term_raise(term):
-    raise term.exc
-
-
-def _bb_term_invalid(term):
-    raise RuntimeError(f"invalid basic-block terminator: {term!r}")
-
-
-def _bb_resolve_blocks(entry, labels):
-    if not isinstance(labels, tuple):
-        labels = tuple(labels)
-    if not labels:
-        return ()
-
-    cached_labels = getattr(entry, "_dp_jit_labels", None)
-    cached_blocks = getattr(entry, "_dp_jit_blocks", None)
-    if cached_labels == labels and isinstance(cached_blocks, tuple) and len(cached_blocks) == len(labels):
-        return cached_blocks
-
-    wanted = set(labels)
-    found = dict(())
-    seen_ids = set()
-    stack = [entry]
-    while stack:
-        fn = stack.pop()
-        obj_id = id(fn)
-        if obj_id in seen_ids:
-            continue
-        seen_ids.add(obj_id)
-        name = getattr(fn, "__name__", None)
-        if isinstance(name, str) and name in wanted and callable(fn):
-            found[name] = fn
-            if len(found) == len(wanted):
-                break
-        closure = getattr(fn, "__closure__", None)
-        if closure:
-            for cell in closure:
-                try:
-                    cell_value = cell.cell_contents
-                except ValueError:
-                    continue
-                if callable(cell_value):
-                    stack.append(cell_value)
-        defaults = getattr(fn, "__defaults__", None)
-        if defaults:
-            for value in defaults:
-                if callable(value):
-                    stack.append(value)
-        kwdefaults = getattr(fn, "__kwdefaults__", None)
-        if isinstance(kwdefaults, dict):
-            for value in kwdefaults.values():
-                if callable(value):
-                    stack.append(value)
-
-    if len(found) != len(wanted):
-        globals_dict = getattr(entry, "__globals__", None)
-        if isinstance(globals_dict, dict):
-            for name in labels:
-                if name in found:
-                    continue
-                value = globals_dict.get(name, None)
-                if callable(value):
-                    found[name] = value
-
-    missing = [name for name in labels if name not in found]
-    if missing:
+def _run_bb_plan_from_entry(entry, args):
+    if _jit_run_bb_plan is None:
+        raise RuntimeError("JIT basic-block plan runner is unavailable")
+    plan_module = getattr(entry, "__dp_plan_module", None)
+    plan_qualname = getattr(entry, "__dp_plan_qualname", None)
+    if not isinstance(plan_module, str) or not isinstance(plan_qualname, str):
         raise RuntimeError(
-            f"failed to resolve basic blocks for {entry!r}: missing {missing!r}"
+            f"JIT basic-block execution requires plan metadata on entry: {entry!r}"
         )
-
-    resolved = tuple(found[name] for name in labels)
-    entry._dp_jit_labels = labels
-    entry._dp_jit_blocks = resolved
-    return resolved
+    if _jit_has_bb_plan is not None and not _jit_has_bb_plan(plan_module, plan_qualname):
+        return _run_bb_interpreted(entry, args)
+    globals_dict = getattr(entry, "__globals__", None)
+    return _jit_run_bb_plan(plan_module, plan_qualname, globals_dict, args)
 
 
 def run_bb(entry, args):
-    if _jit_run_bb is not None:
-        return _jit_run_bb(entry, args)
+    if _jit_run_bb_plan is not None:
+        return _run_bb_plan_from_entry(entry, args)
     return _run_bb_interpreted(entry, args)
 
 
 def render_jit_bb(entry):
-    if _jit_render_bb is None:
+    if _jit_render_bb_plan is None:
         raise RuntimeError("JIT CLIF renderer is unavailable")
-    return _jit_render_bb(entry)
+    plan_module = getattr(entry, "__dp_plan_module", None)
+    plan_qualname = getattr(entry, "__dp_plan_qualname", None)
+    if not isinstance(plan_module, str) or not isinstance(plan_qualname, str):
+        raise RuntimeError("entry is missing JIT plan metadata")
+    return _jit_render_bb_plan(plan_module, plan_qualname)
 
 
 async def run_coro_bb(entry, args):
@@ -627,7 +552,9 @@ async def run_coro_bb(entry, args):
     if isinstance(term_obj, _RaiseTerm):
         raise term_obj.exc
     if isinstance(term_obj, _JumpTerm):
-        raise RuntimeError(f"unexpected out-of-region jump in run_coro_bb: {term_obj!r}")
+        raise RuntimeError(
+            f"unexpected out-of-region jump in run_coro_bb: {term_obj!r}"
+        )
     raise RuntimeError(f"invalid basic-block terminator: {term_obj!r}")
 
 
@@ -650,7 +577,9 @@ async def run_coro_bb_term(entry, args, region_targets):
             # original stop exception in __cause__. Recover the original
             # exception so region-level try/except matching sees the same
             # semantics as in-function execution.
-            if isinstance(exc, RuntimeError) and isinstance(exc.__cause__, (StopIteration, StopAsyncIteration)):
+            if isinstance(exc, RuntimeError) and isinstance(
+                exc.__cause__, (StopIteration, StopAsyncIteration)
+            ):
                 term_obj = raise_(exc.__cause__)
             else:
                 term_obj = _dispatch_block_exception(block, raw_args, exc)
@@ -658,7 +587,9 @@ async def run_coro_bb_term(entry, args, region_targets):
                     term_obj = raise_(exc)
         while True:
             if isinstance(term_obj, _JumpTerm):
-                routed = _route_region_jump(term_obj.target, term_obj.args, region_targets)
+                routed = _route_region_jump(
+                    term_obj.target, term_obj.args, region_targets
+                )
                 if routed is not None:
                     block, raw_args = routed
                     break
@@ -692,7 +623,9 @@ def run_bb_term(entry, args, region_targets):
                 return raise_(exc)
         while True:
             if isinstance(term_obj, _JumpTerm):
-                routed = _route_region_jump(term_obj.target, term_obj.args, region_targets)
+                routed = _route_region_jump(
+                    term_obj.target, term_obj.args, region_targets
+                )
                 if routed is not None:
                     block, raw_args = routed
                     break
@@ -706,8 +639,6 @@ def run_bb_term(entry, args, region_targets):
             if isinstance(term_obj, _RetTerm):
                 return term_obj
             raise RuntimeError(f"invalid basic-block terminator: {term_obj!r}")
-
-
 
 
 class _DpGenerator:
@@ -753,7 +684,9 @@ class _DpGenerator:
 
     def throw(self, typ=None, val=None, tb=None):
         if val is not None or tb is not None:
-            raise TypeError("DpGen.throw() does not support value/traceback in this mode")
+            raise TypeError(
+                "DpGen.throw() does not support value/traceback in this mode"
+            )
         exc = raise_from(typ, None)
         _attach_throw_context_from_state(self, exc)
         return self._resume(None, exc)
@@ -821,7 +754,9 @@ class _DpAsyncGenerator:
 
     async def athrow(self, typ=None, val=None, tb=None):
         if val is not None or tb is not None:
-            raise TypeError("DpAsyncGen.athrow() does not support value/traceback in this mode")
+            raise TypeError(
+                "DpAsyncGen.athrow() does not support value/traceback in this mode"
+            )
         exc = raise_from(typ, None)
         _attach_throw_context_from_state(self, exc)
         return await self._resume(None, exc, None)
@@ -993,9 +928,7 @@ def float_from_literal(literal):
     return float(literal.replace("_", ""))
 
 
-
 _DP_CELL_PREFIX = "_dp_cell_"
-
 
 
 def class_lookup_cell(class_ns, name, cell):
@@ -1031,7 +964,9 @@ def _validate_exception_type(exc_type):
         return
     if isinstance(exc_type, type) and issubclass(exc_type, BaseException):
         return
-    raise TypeError("catching classes that do not inherit from BaseException is not allowed")
+    raise TypeError(
+        "catching classes that do not inherit from BaseException is not allowed"
+    )
 
 
 def exception_matches(exc, exc_type):
@@ -1039,6 +974,7 @@ def exception_matches(exc, exc_type):
         return isinstance(exc, exc_type)
     _validate_exception_type(exc_type)
     return isinstance(exc, exc_type)
+
 
 def exceptiongroup_split(exc, exc_type):
     _validate_exception_type(exc_type)
@@ -1101,12 +1037,12 @@ def unpack(iterable, spec):
     return tuple(result)
 
 
-
 def make_cell(value=_MISSING):
     cell = _types.CellType()
     if value is not _MISSING:
         cell.cell_contents = value
     return cell
+
 
 def load_cell(cell):
     if not isinstance(cell, _types.CellType):
@@ -1115,6 +1051,7 @@ def load_cell(cell):
         return cell.cell_contents
     except ValueError as exc:
         raise UnboundLocalError("local variable referenced before assignment") from exc
+
 
 class LocalsProxy:
     def __init__(self, frame):
@@ -1126,6 +1063,7 @@ class LocalsProxy:
     def __setitem__(self, name, value):
         self.frame.f_locals[name] = value
 
+
 def _normalize_mapping(values):
     result = {}
     cell_overrides = {}
@@ -1134,7 +1072,7 @@ def _normalize_mapping(values):
             result[name] = value
             continue
         if name.startswith(_DP_CELL_PREFIX):
-            base = name[len(_DP_CELL_PREFIX):]
+            base = name[len(_DP_CELL_PREFIX) :]
             if isinstance(value, _types.CellType):
                 try:
                     cell_overrides[base] = value.cell_contents
@@ -1264,7 +1202,9 @@ class FrameLocalsProxy(_NormalizedMappingProxy):
         locals_map = self._mapping()
         if isinstance(name, str) and not name.startswith(_DP_CELL_PREFIX):
             cell_name = _DP_CELL_PREFIX + name
-            if cell_name in locals_map and isinstance(locals_map[cell_name], _types.CellType):
+            if cell_name in locals_map and isinstance(
+                locals_map[cell_name], _types.CellType
+            ):
                 locals_map[cell_name].cell_contents = value
                 return
         locals_map[name] = value
@@ -1333,6 +1273,7 @@ class FrameLocalsProxy(_NormalizedMappingProxy):
     def copy(self):
         return dict(self._snapshot())
 
+
 class GlobalsProxy(_NormalizedMappingProxy):
     def __init__(self, globals_dict):
         self._globals = globals_dict
@@ -1357,9 +1298,11 @@ class GlobalsProxy(_NormalizedMappingProxy):
     def __delitem__(self, name):
         del self._globals[name]
 
+
 def locals():
     frame = sys._getframe(1)
     return _normalize_mapping(frame.f_locals)
+
 
 def frame_locals(frame):
     if frame is not None:
@@ -1372,23 +1315,35 @@ def frame_locals(frame):
             class_ns = None
         if isinstance(class_ns, dict):
             return GlobalsProxy(class_ns)
-        if (
-            frame.f_back is not None
-            and frame.f_code.co_name in {"<listcomp>", "<setcomp>", "<dictcomp>", "<genexpr>"}
-        ):
+        if frame.f_back is not None and frame.f_code.co_name in {
+            "<listcomp>",
+            "<setcomp>",
+            "<dictcomp>",
+            "<genexpr>",
+        }:
             frame = frame.f_back
     return FrameLocalsProxy(frame)
+
 
 def globals():
     frame = sys._getframe(1)
     return frame.f_globals
+
+
+builtins.__dp_globals = globals
+
 
 def dir_(*args):
     if args:
         return builtins.dir(*args)
     frame = sys._getframe(1)
     names = _normalize_mapping(frame.f_locals).keys()
-    return sorted(name for name in names if not name.startswith("_dp_"))
+    filtered = []
+    for name in names:
+        if not name.startswith("_dp_"):
+            filtered.append(name)
+    return sorted(filtered)
+
 
 def eval_(source, globals=None, locals=None):
     if globals is None or locals is None:
@@ -1398,6 +1353,7 @@ def eval_(source, globals=None, locals=None):
         if locals is None:
             locals = _normalize_mapping(frame.f_locals)
     return builtins.eval(source, globals, locals)
+
 
 def _normalize_exec_closure(closure):
     mutated = []
@@ -1464,7 +1420,6 @@ def exec_(source, globals=None, locals=None, *, closure=None):
         return builtins.exec(source, globals, locals, closure=closure)
     finally:
         _restore_exec_closure(mutated)
-
 
 
 def store_cell(cell, value):
@@ -1545,12 +1500,11 @@ def match_class_attr_value(cls, subject, idx, total):
     return getattr(subject, name)
 
 
-
 def update_fn(func, qualname, name):
     try:
         func.__qualname__ = qualname
     except (AttributeError, TypeError):
-        pass        
+        pass
     try:
         func.__name__ = name
     except (AttributeError, TypeError):
@@ -1598,9 +1552,7 @@ def _build_bb_signature(params):
         kind, name = _bb_param_kind_and_name(raw_name)
         state_order.append(name)
         param_default = _inspect._empty if default is NO_DEFAULT else default
-        sig_params.append(
-            _inspect.Parameter(name, kind, default=param_default)
-        )
+        sig_params.append(_inspect.Parameter(name, kind, default=param_default))
 
     return (_inspect.Signature(sig_params), tuple(state_order))
 
@@ -1614,11 +1566,7 @@ def _bb_state_order(default_order, closure):
         if isinstance(item, str):
             state_order.append(item)
             continue
-        if (
-            isinstance(item, tuple)
-            and len(item) == 2
-            and isinstance(item[0], str)
-        ):
+        if isinstance(item, tuple) and len(item) == 2 and isinstance(item[0], str):
             state_order.append(item[0])
             closure_values[item[0]] = item[1]
             continue
@@ -1634,13 +1582,20 @@ def _bb_wrap_with_closure(entry, closure_values):
     if getattr(entry, "__closure__", None):
         return entry
     captured_names = tuple(closure_values.keys())
-    captured_values = tuple(closure_values[name] for name in captured_names)
+    captured_values_list = []
+    for name in captured_names:
+        captured_values_list.append(closure_values[name])
+    captured_values = tuple(captured_values_list)
 
-    assigns = "\n".join(
-        f"    {name} = __dp_values[{idx}]"
-        for idx, name in enumerate(captured_names)
-    )
-    refs = "\n".join(f"        {name}" for name in captured_names)
+    assign_lines = []
+    for idx, name in enumerate(captured_names):
+        assign_lines.append(f"    {name} = __dp_values[{idx}]")
+    assigns = "\n".join(assign_lines)
+
+    ref_lines = []
+    for name in captured_names:
+        ref_lines.append(f"        {name}")
+    refs = "\n".join(ref_lines)
     if not assigns:
         assigns = "    pass"
     if not refs:
@@ -1671,61 +1626,185 @@ def _bb_wrap_with_closure(entry, closure_values):
 
 
 def _bb_build_entry_args(bound_arguments, state_order, closure_values):
-    return tuple(
-        bound_arguments[name]
-        if name in bound_arguments
-        else closure_values.get(name, DELETED)
-        for name in state_order
+    values = []
+    for name in state_order:
+        if name in bound_arguments:
+            values.append(bound_arguments[name])
+        else:
+            values.append(closure_values.get(name, DELETED))
+    return tuple(values)
+
+
+def _bb_rebind_function_globals(func, module_globals):
+    if module_globals is None:
+        return func
+    if not isinstance(module_globals, dict):
+        raise TypeError("module_globals must be a dict")
+    if func.__globals__ is module_globals:
+        return func
+    rebound = _types.FunctionType(
+        func.__code__,
+        module_globals,
+        name=func.__name__,
+        argdefs=func.__defaults__,
+        closure=func.__closure__,
     )
+    # Preserve runtime metadata carried in keyword-only defaults.
+    rebound.__kwdefaults__ = func.__kwdefaults__
+    rebound.__dict__.update(func.__dict__)
+    return rebound
 
 
-def apply_fn_metadata(fn_obj, doc, annotate_fn):
-    if doc is not None:
-        fn_obj.__doc__ = doc
-    if annotate_fn is not None:
-        fn_obj.__annotate__ = annotate_fn
-    return fn_obj
+def _bb_set_plan_metadata(func, module_name, qualname):
+    if callable(func):
+        setattr(func, "__dp_plan_module", module_name)
+        setattr(func, "__dp_plan_qualname", qualname)
 
 
-def def_fn(entry_bb, name, qualname, closure, params, module_name=None):
+def _bb_resolve_entry_ref(entry_ref, module_globals, module_name, qualname):
+    if callable(entry_ref):
+        resolved = entry_ref
+    elif isinstance(entry_ref, str):
+        if not entry_ref.startswith("_dp_bb_"):
+            raise TypeError(
+                f"unexpected non-BB string entry reference: {entry_ref!r}"
+            )
+        # BB labels in JIT mode are resolved by (module, qualname) plan metadata;
+        # the callable object itself is only a metadata carrier.
+        resolved = lambda *a, **k: None
+    else:
+        raise TypeError(
+            f"basic-block entry reference must be callable or str, got {type(entry_ref)!r}"
+        )
+    if module_name is not None:
+        _bb_set_plan_metadata(resolved, module_name, qualname)
+    return resolved
+
+
+def run_bb_plan(plan_module, plan_qualname, globals_dict, args):
+    if _jit_run_bb_plan is None:
+        raise RuntimeError(
+            f"basic-block plan execution requires JIT: {plan_module}.{plan_qualname}"
+        )
+    return _jit_run_bb_plan(plan_module, plan_qualname, globals_dict, args)
+
+
+def jit_bb_plan_enabled():
+    return _jit_run_bb_plan is not None
+
+
+def def_fn(
+    entry_bb,
+    name,
+    qualname,
+    closure,
+    params,
+    module_globals=None,
+    module_name=None,
+    doc=None,
+    annotate_fn=None,
+):
     # BB mode passes a lowered entry block, and def_fn builds the callable
     # wrapper so we don't need an extra transformed outer function call layer.
     signature, default_state_order = _build_bb_signature(params)
     state_order, closure_values = _bb_state_order(default_state_order, closure)
+    resolved_entry_bb = _bb_resolve_entry_ref(
+        entry_bb, module_globals, module_name, qualname
+    )
+    use_jit_plan = (
+        jit_bb_plan_enabled()
+        and isinstance(module_name, str)
+        and isinstance(qualname, str)
+        and _jit_has_bb_plan is not None
+        and _jit_has_bb_plan(module_name, qualname)
+    )
+    if use_jit_plan:
 
-    def entry(
-        *args,
-        __dp_sig=signature,
-        __dp_state_order=state_order,
-        __dp_closure=closure_values,
-        __dp_entry_bb=entry_bb,
-        __dp_run_bb=run_bb,
-        __dp_build_entry_args=_bb_build_entry_args,
-        **kwargs,
-    ):
-        bound = __dp_sig.bind(*args, **kwargs)
-        bound.apply_defaults()
-        bb_args = __dp_build_entry_args(bound.arguments, __dp_state_order, __dp_closure)
-        return __dp_run_bb(__dp_entry_bb, bb_args)
+        def entry(
+            *args,
+            __dp_sig=signature,
+            __dp_state_order=state_order,
+            __dp_closure=closure_values,
+            __dp_plan_module=module_name,
+            __dp_plan_qualname=qualname,
+            __dp_plan_globals=module_globals,
+            __dp_run_bb_plan=run_bb_plan,
+            __dp_build_entry_args=_bb_build_entry_args,
+            **kwargs,
+        ):
+            bound = __dp_sig.bind(*args, **kwargs)
+            bound.apply_defaults()
+            bb_args = __dp_build_entry_args(
+                bound.arguments, __dp_state_order, __dp_closure
+            )
+            return __dp_run_bb_plan(
+                __dp_plan_module,
+                __dp_plan_qualname,
+                __dp_plan_globals,
+                bb_args,
+            )
 
-    entry = _bb_wrap_with_closure(entry, closure_values)
+    else:
+
+        def entry(
+            *args,
+            __dp_sig=signature,
+            __dp_state_order=state_order,
+            __dp_closure=closure_values,
+            __dp_fallback_entry=resolved_entry_bb,
+            __dp_run_bb_interpreted=_run_bb_interpreted,
+            __dp_build_entry_args=_bb_build_entry_args,
+            **kwargs,
+        ):
+            bound = __dp_sig.bind(*args, **kwargs)
+            bound.apply_defaults()
+            bb_args = __dp_build_entry_args(
+                bound.arguments, __dp_state_order, __dp_closure
+            )
+            return __dp_run_bb_interpreted(__dp_fallback_entry, bb_args)
+
+    if not use_jit_plan:
+        entry = _bb_wrap_with_closure(entry, closure_values)
+    entry = _bb_rebind_function_globals(entry, module_globals)
     entry.__signature__ = signature
     entry = update_fn(entry, qualname, name)
     if module_name is not None:
         entry.__module__ = module_name
+        _bb_set_plan_metadata(entry, module_name, qualname)
+    if doc is not None:
+        entry.__doc__ = doc
+    if annotate_fn is not None:
+        entry.__annotate__ = annotate_fn
+    # In CLIF mode, tag wrapper functions so eval-frame dispatch can bypass
+    # Python bytecode and jump directly into the JIT BB execution path.
+    if use_jit_plan and _register_clif_wrapper is not None:
+        _register_clif_wrapper(entry)
     return entry
 
 
-def def_coro(entry_bb, name, qualname, closure, params, module_name=None):
+def def_coro(
+    entry_bb,
+    name,
+    qualname,
+    closure,
+    params,
+    module_globals=None,
+    module_name=None,
+    doc=None,
+    annotate_fn=None,
+):
     signature, default_state_order = _build_bb_signature(params)
     state_order, closure_values = _bb_state_order(default_state_order, closure)
+    resolved_entry_bb = _bb_resolve_entry_ref(
+        entry_bb, module_globals, module_name, qualname
+    )
 
     async def entry(
         *args,
         __dp_sig=signature,
         __dp_state_order=state_order,
         __dp_closure=closure_values,
-        __dp_entry_bb=entry_bb,
+        __dp_fallback_entry=resolved_entry_bb,
         __dp_run_coro_bb=run_coro_bb,
         __dp_build_entry_args=_bb_build_entry_args,
         **kwargs,
@@ -1733,13 +1812,19 @@ def def_coro(entry_bb, name, qualname, closure, params, module_name=None):
         bound = __dp_sig.bind(*args, **kwargs)
         bound.apply_defaults()
         bb_args = __dp_build_entry_args(bound.arguments, __dp_state_order, __dp_closure)
-        return await __dp_run_coro_bb(__dp_entry_bb, bb_args)
+        return await __dp_run_coro_bb(__dp_fallback_entry, bb_args)
 
     entry = _bb_wrap_with_closure(entry, closure_values)
+    entry = _bb_rebind_function_globals(entry, module_globals)
     entry.__signature__ = signature
     entry = update_fn(entry, qualname, name)
     if module_name is not None:
         entry.__module__ = module_name
+        _bb_set_plan_metadata(entry, module_name, qualname)
+    if doc is not None:
+        entry.__doc__ = doc
+    if annotate_fn is not None:
+        entry.__annotate__ = annotate_fn
     return entry
 
 
@@ -1782,6 +1867,7 @@ def _dp_make_async_gen_code(name, qualname):
     code = _DP_ASYNC_GEN_CODE_TEMPLATE
     return code.replace(co_name=name, co_qualname=qualname)
 
+
 class DefGenConst(NamedTuple):
     name: str
     qualname: str
@@ -1797,36 +1883,45 @@ def def_gen(
     qualname,
     closure,
     params,
+    module_globals,
     module_name,
+    doc=None,
+    annotate_fn=None,
 ):
     signature, default_state_order = _build_bb_signature(params)
     state_order, closure_values = _bb_state_order(default_state_order, closure)
     gen_code = _dp_make_gen_code(name, qualname)
+    resolved_resume = _bb_resolve_entry_ref(
+        resume, module_globals, module_name, qualname
+    )
 
     def entry(
         *args,
         __dp_sig=signature,
         __dp_state_order=state_order,
         __dp_closure=closure_values,
-        __dp_resume=resume,
+        __dp_resume=resolved_resume,
         __dp_name=name,
         __dp_qualname=qualname,
         __dp_code=gen_code,
+        __dp_gen_type=_DpGenerator,
+        __dp_deleted=DELETED,
         **kwargs,
     ):
         bound = __dp_sig.bind(*args, **kwargs)
         bound.apply_defaults()
-        state_args = tuple(
-            bound.arguments[param]
-            if param in bound.arguments
-            else __dp_closure.get(param, DELETED)
-            for param in __dp_state_order
-        )
+        state_arg_items = []
+        for param in __dp_state_order:
+            if param in bound.arguments:
+                state_arg_items.append(bound.arguments[param])
+            else:
+                state_arg_items.append(__dp_closure.get(param, __dp_deleted))
+        state_args = tuple(state_arg_items)
         _dp_frame = dict(())
         for _dp_state_name, _dp_state_value in zip(__dp_state_order, state_args):
             _dp_frame[_dp_state_name] = _dp_state_value
 
-        _dp_gen = _DpGenerator(
+        _dp_gen = __dp_gen_type(
             resume=__dp_resume,
             pc=0,
             gi_frame=_dp_frame,
@@ -1837,10 +1932,16 @@ def def_gen(
         return _dp_gen
 
     entry = _bb_wrap_with_closure(entry, closure_values)
+    entry = _bb_rebind_function_globals(entry, module_globals)
     entry.__signature__ = signature
     entry = update_fn(entry, qualname, name)
     if module_name is not None:
         entry.__module__ = module_name
+        _bb_set_plan_metadata(entry, module_name, qualname)
+    if doc is not None:
+        entry.__doc__ = doc
+    if annotate_fn is not None:
+        entry.__annotate__ = annotate_fn
     return entry
 
 
@@ -1850,36 +1951,45 @@ def def_async_gen(
     qualname,
     closure,
     params,
+    module_globals,
     module_name,
+    doc=None,
+    annotate_fn=None,
 ):
     signature, default_state_order = _build_bb_signature(params)
     state_order, closure_values = _bb_state_order(default_state_order, closure)
     ag_code = _dp_make_async_gen_code(name, qualname)
+    resolved_resume = _bb_resolve_entry_ref(
+        resume, module_globals, module_name, qualname
+    )
 
     def entry(
         *args,
         __dp_sig=signature,
         __dp_state_order=state_order,
         __dp_closure=closure_values,
-        __dp_resume=resume,
+        __dp_resume=resolved_resume,
         __dp_name=name,
         __dp_qualname=qualname,
         __dp_code=ag_code,
+        __dp_async_gen_type=_DpAsyncGenerator,
+        __dp_deleted=DELETED,
         **kwargs,
     ):
         bound = __dp_sig.bind(*args, **kwargs)
         bound.apply_defaults()
-        state_args = tuple(
-            bound.arguments[param]
-            if param in bound.arguments
-            else __dp_closure.get(param, DELETED)
-            for param in __dp_state_order
-        )
+        state_arg_items = []
+        for param in __dp_state_order:
+            if param in bound.arguments:
+                state_arg_items.append(bound.arguments[param])
+            else:
+                state_arg_items.append(__dp_closure.get(param, __dp_deleted))
+        state_args = tuple(state_arg_items)
         _dp_frame = dict(())
         for _dp_state_name, _dp_state_value in zip(__dp_state_order, state_args):
             _dp_frame[_dp_state_name] = _dp_state_value
 
-        _dp_gen = _DpAsyncGenerator(
+        _dp_gen = __dp_async_gen_type(
             resume=__dp_resume,
             pc=0,
             gi_frame=_dp_frame,
@@ -1891,33 +2001,46 @@ def def_async_gen(
         return _dp_gen
 
     entry = _bb_wrap_with_closure(entry, closure_values)
+    entry = _bb_rebind_function_globals(entry, module_globals)
     entry.__signature__ = signature
     entry = update_fn(entry, qualname, name)
     if module_name is not None:
         entry.__module__ = module_name
+        _bb_set_plan_metadata(entry, module_name, qualname)
+    if doc is not None:
+        entry.__doc__ = doc
+    if annotate_fn is not None:
+        entry.__annotate__ = annotate_fn
     return entry
 
 
-async def _dp_run_async_gen_resume(
-    resume_block,
-    gen,
-    value=None,
-    resume_exc=None,
-    transport_sent=None,
-):
-    gen._dp_transport_sent = transport_sent
-    return await run_coro_bb(resume_block, (gen, value, resume_exc))
+
+def decode_literal_bytes(value):
+    return value.decode("utf-8", "surrogatepass")
 
 
-# TODO: gross
-def decode_surrogate_literal(src):
+# TODO: questionable
+def decode_literal_source_bytes(src_bytes):
     try:
         import ast
-        return ast.literal_eval(src)
+
+        src = src_bytes.decode("utf-8", "surrogatepass")
+        value = ast.literal_eval(src)
+        if isinstance(value, str):
+            return decode_literal_bytes(value.encode("utf-8", "surrogatepass"))
+        return value
     except Exception:
-        return src
+        return decode_literal_bytes(src_bytes)
 
 
+builtins.__dp_decode_literal_bytes = decode_literal_bytes
+builtins.__dp_decode_literal_source_bytes = decode_literal_source_bytes
+
+
+def exec_function_def_source(source, globals_dict, captures, name):
+    namespace = dict(captures)
+    builtins.exec(source, globals_dict, namespace)
+    return namespace[name]
 
 
 def create_class(
@@ -1958,6 +2081,7 @@ def create_class(
 
     return cls
 
+
 def exc_info():
     exc = current_exception()
     return exc_info_from_exception(exc)
@@ -1967,6 +2091,9 @@ def exc_info_from_exception(exc):
     if exc is None:
         return None
     return (type(exc), exc, exc.__traceback__)
+
+
+builtins.__dp_exc_info_from_exception = exc_info_from_exception
 
 
 def current_exception():
@@ -2010,27 +2137,25 @@ def _get_awaitable_iter(awaitable):
         awaitable_type = type(awaitable).__name__
         awaitable = None
         raise TypeError(
-            "'async for' received an invalid object from __anext__"
-            f": {awaitable_type}"
+            f"'async for' received an invalid object from __anext__: {awaitable_type}"
         ) from None
     except Exception as exc:
         awaitable_type = type(awaitable).__name__
         awaitable = None
         raise TypeError(
-            "'async for' received an invalid object from __anext__"
-            f": {awaitable_type}"
+            f"'async for' received an invalid object from __anext__: {awaitable_type}"
         ) from exc
     if not hasattr(iterator, "__next__"):
         awaitable_type = type(awaitable).__name__
         awaitable = None
         raise TypeError(
-            "'async for' received an invalid object from __anext__"
-            f": {awaitable_type}"
+            f"'async for' received an invalid object from __anext__: {awaitable_type}"
         ) from None
     return iterator
 
 
 ITER_COMPLETE = object()
+
 
 async def anext_or_sentinel(iterator):
     try:
@@ -2066,6 +2191,7 @@ def next_or_sentinel(iterator):
         ) from None
     except StopIteration:
         return ITER_COMPLETE
+
 
 def raise_from(exc, cause):
     CancelledError = None
@@ -2109,160 +2235,6 @@ def _call_exception_class(exc_type):
     return inst
 
 
-def _patch_annotationlib(module):
-    try:
-        stringifier_dict = module._StringifierDict
-    except AttributeError:
-        return
-    try:
-        stringifier_cls = module._Stringifier
-    except AttributeError:
-        stringifier_cls = None
-    try:
-        build_closure = module._build_closure
-    except AttributeError:
-        build_closure = None
-    if getattr(stringifier_dict, "_dp_patched", False):
-        return
-    original_init = stringifier_dict.__init__
-
-    def __init__(self, namespace, *, globals=None, owner=None, is_class=False, format):
-        original_init(
-            self,
-            namespace,
-            globals=globals,
-            owner=owner,
-            is_class=is_class,
-            format=format,
-        )
-        try:
-            self["__dp__"] = builtins.__dp__
-        except Exception:
-            pass
-
-    stringifier_dict.__init__ = __init__
-    stringifier_dict._dp_patched = True
-    if stringifier_cls is not None and not getattr(stringifier_cls, "_dp_patched", False):
-        original_stringifier_init = stringifier_cls.__init__
-
-        def __init__(
-            self,
-            node,
-            globals=None,
-            owner=None,
-            is_class=False,
-            cell=None,
-            *,
-            stringifier_dict,
-            extra_names=None,
-        ):
-            if isinstance(node, str) and node.startswith(_DP_CELL_PREFIX):
-                node = node[len(_DP_CELL_PREFIX):]
-            original_stringifier_init(
-                self,
-                node,
-                globals=globals,
-                owner=owner,
-                is_class=is_class,
-                cell=cell,
-                stringifier_dict=stringifier_dict,
-                extra_names=extra_names,
-            )
-
-        stringifier_cls.__init__ = __init__
-        stringifier_cls._dp_patched = True
-    if build_closure is not None and not getattr(build_closure, "_dp_patched", False):
-        def _build_closure_patched(annotate, owner, is_class, stringifier_dict, *, allow_evaluation):
-            new_closure, cell_dict = build_closure(
-                annotate,
-                owner,
-                is_class,
-                stringifier_dict,
-                allow_evaluation=allow_evaluation,
-            )
-            try:
-                stringifiers = list(stringifier_dict.stringifiers)
-            except Exception:
-                stringifiers = []
-            for obj in stringifiers:
-                cell = getattr(obj, "__cell__", None)
-                if isinstance(cell, _types.CellType):
-                    try:
-                        inner = cell.cell_contents
-                    except ValueError:
-                        inner = None
-                    if isinstance(inner, _types.CellType):
-                        obj.__cell__ = None
-            if not cell_dict:
-                return new_closure, cell_dict
-            normalized = {}
-            for name, cell in cell_dict.items():
-                base_name = name
-                if isinstance(name, str) and name.startswith(_DP_CELL_PREFIX):
-                    base_name = name[len(_DP_CELL_PREFIX):]
-                if isinstance(cell, _types.CellType):
-                    try:
-                        inner = cell.cell_contents
-                    except ValueError:
-                        inner = None
-                    else:
-                        if isinstance(inner, _types.CellType):
-                            cell = inner
-                normalized[base_name] = cell
-            return new_closure, normalized
-
-        _build_closure_patched._dp_patched = True
-        module._build_closure = _build_closure_patched
-
-
-def _annotationlib_patch_enabled():
-    # Annotation callables now run without annotationlib monkeypatching.
-    return False
-
-
-def _ensure_annotationlib_import_hook():
-    try:
-        import importlib.abc
-        import importlib.machinery
-    except Exception:
-        return
-
-    class _AnnotationlibFinder(importlib.abc.MetaPathFinder):
-        _dp_annotationlib_finder = True
-
-        def find_spec(self, fullname, path, target=None):
-            if fullname != "annotationlib":
-                return None
-            spec = importlib.machinery.PathFinder.find_spec(fullname, path)
-            if spec is None or spec.loader is None:
-                return spec
-            if getattr(spec.loader, "_dp_annotationlib_wrapped", False):
-                return spec
-            exec_module = getattr(spec.loader, "exec_module", None)
-            if exec_module is None:
-                return spec
-
-            def exec_module_wrapped(module):
-                exec_module(module)
-                _patch_annotationlib(module)
-
-            spec.loader.exec_module = exec_module_wrapped
-            spec.loader._dp_annotationlib_wrapped = True
-            return spec
-
-    for finder in sys.meta_path:
-        if getattr(finder, "_dp_annotationlib_finder", False):
-            return
-    sys.meta_path.insert(0, _AnnotationlibFinder())
-
-
-if _annotationlib_patch_enabled():
-    import annotationlib
-    if "annotationlib" in sys.modules:
-        _patch_annotationlib(sys.modules["annotationlib"])
-    else:
-        _ensure_annotationlib_import_hook()
-
 
 def import_(name, spec, fromlist=None, level=0):
     if fromlist is None:
@@ -2275,10 +2247,7 @@ def import_(name, spec, fromlist=None, level=0):
         globals_dict["__package__"] = package
         globals_dict["__name__"] = spec.name
     try:
-        module = builtins.__import__(name, globals_dict, {}, fromlist, level)
-        if name == "annotationlib" and _annotationlib_patch_enabled():
-            _patch_annotationlib(module)
-        return module
+        return builtins.__import__(name, globals_dict, {}, fromlist, level)
     except Exception as exc:
         raise exc from None
 
@@ -2349,6 +2318,7 @@ def _lookup_special_method(obj, name: str):
         return descr
     raise AttributeError(name)
 
+
 def _has_special_method(obj, name: str) -> bool:
     cls = type(obj)
     for base in cls.__mro__:
@@ -2362,7 +2332,9 @@ def contextmanager_enter(ctx):
         enter = _lookup_special_method(ctx, "__enter__")
     except AttributeError as exc:
         message = "object does not support the context manager protocol (missed __enter__ method)"
-        if _has_special_method(ctx, "__aenter__") or _has_special_method(ctx, "__aexit__"):
+        if _has_special_method(ctx, "__aenter__") or _has_special_method(
+            ctx, "__aexit__"
+        ):
             message += (
                 " but it supports the asynchronous context manager protocol. "
                 "Did you mean to use 'async with'?"
@@ -2370,12 +2342,15 @@ def contextmanager_enter(ctx):
         raise TypeError(message) from exc
     return enter()
 
+
 def contextmanager_get_exit(cm):
     try:
         return _lookup_special_method(cm, "__exit__")
     except AttributeError as exc:
         message = "object does not support the context manager protocol (missed __exit__ method)"
-        if _has_special_method(cm, "__aenter__") or _has_special_method(cm, "__aexit__"):
+        if _has_special_method(cm, "__aenter__") or _has_special_method(
+            cm, "__aexit__"
+        ):
             message += (
                 " but it supports the asynchronous context manager protocol. "
                 "Did you mean to use 'async with'?"
@@ -2402,9 +2377,7 @@ def contextmanager_exit(exit_fn, exc_info: tuple | None):
         exit_fn(None, None, None)
 
 
-def _ensure_awaitable(
-    awaitable, method_name: str, *, suppress_context: bool = True
-):
+def _ensure_awaitable(awaitable, method_name: str, *, suppress_context: bool = True):
     try:
         iterator = awaitable.__await__()
     except AttributeError as exc:
@@ -2443,18 +2416,23 @@ async def asynccontextmanager_aenter(ctx):
         aenter = _lookup_special_method(ctx, "__aenter__")
     except AttributeError as exc:
         message = "object does not support the asynchronous context manager protocol (missed __aenter__ method)"
-        if _has_special_method(ctx, "__enter__") or _has_special_method(ctx, "__exit__"):
+        if _has_special_method(ctx, "__enter__") or _has_special_method(
+            ctx, "__exit__"
+        ):
             message += " but it supports the context manager protocol. Did you mean to use 'with'?"
         raise TypeError(message) from exc
     await_iter = _ensure_awaitable(aenter(), "__aenter__")
     return await _AwaitIterWrapper(await_iter)
+
 
 def asynccontextmanager_get_aexit(acm):
     try:
         return _lookup_special_method(acm, "__aexit__")
     except AttributeError as exc:
         message = "object does not support the asynchronous context manager protocol (missed __aexit__ method)"
-        if _has_special_method(acm, "__enter__") or _has_special_method(acm, "__exit__"):
+        if _has_special_method(acm, "__enter__") or _has_special_method(
+            acm, "__exit__"
+        ):
             message += " but it supports the context manager protocol. Did you mean to use 'with'?"
         raise TypeError(message) from exc
 
@@ -2479,3 +2457,15 @@ async def asynccontextmanager_aexit(exit_fn, exc_info: tuple | None):
         await_iter = _ensure_awaitable(exit_fn(None, None, None), "__aexit__")
         await _AwaitIterWrapper(await_iter)
         return False
+
+
+def _inject_builtin_helper_aliases():
+    module_dict = globals()
+    for name, value in tuple(module_dict.items()):
+        if name.startswith("_"):
+            continue
+        if callable(value):
+            setattr(builtins, f"__dp_{name}", value)
+
+
+_inject_builtin_helper_aliases()

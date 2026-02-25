@@ -13,7 +13,7 @@ use crate::{py_expr, py_stmt};
 
 pub fn class_body_load_cell(name: &str, cell: &str) -> Expr {
     py_expr!(
-        "__dp__.class_lookup_cell(_dp_class_ns, {name:literal}, {cell:id})",
+        "__dp_class_lookup_cell(_dp_class_ns, {name:literal}, {cell:id})",
         name = name,
         cell = cell,
     )
@@ -21,7 +21,7 @@ pub fn class_body_load_cell(name: &str, cell: &str) -> Expr {
 
 pub fn class_body_load_global(name: &str) -> Expr {
     py_expr!(
-        "__dp__.class_lookup_global(_dp_class_ns, {name:literal}, globals())",
+        "__dp_class_lookup_global(_dp_class_ns, {name:literal}, globals())",
         name = name,
     )
 }
@@ -50,7 +50,7 @@ fn class_binding_stmt(scope: &Scope, name: &str, value: Expr) -> Stmt {
     match scope.kind() {
         ScopeKind::Class => match scope.binding_in_scope(name, BindingUse::Load) {
             BindingKind::Global => py_stmt!(
-                "__dp__.store_global(globals(), {name:literal}, {value:expr})",
+                "__dp_store_global(globals(), {name:literal}, {value:expr})",
                 name = name,
                 value = value
             ),
@@ -65,14 +65,14 @@ fn class_binding_stmt(scope: &Scope, name: &str, value: Expr) -> Stmt {
         },
         ScopeKind::Function => match scope.binding_in_scope(name, BindingUse::Load) {
             BindingKind::Global => py_stmt!(
-                "__dp__.store_global(globals(), {name:literal}, {value:expr})",
+                "__dp_store_global(globals(), {name:literal}, {value:expr})",
                 name = name,
                 value = value
             ),
             BindingKind::Nonlocal => {
                 let cell = cell_name(name);
                 py_stmt!(
-                    "__dp__.store_cell({cell:id}, {value:expr})",
+                    "__dp_store_cell({cell:id}, {value:expr})",
                     cell = cell.as_str(),
                     value = value
                 )
@@ -142,8 +142,9 @@ impl<'a> Transformer for ClassBodyScopeRewriter<'a> {
                 let decorated_class = rewrite_stmt::decorator::rewrite(
                     decorator_list,
                     py_expr!(
-                        r"{define_class_fn:id}()",
-                        define_class_fn = define_class_fn.name.id.as_str()
+                        r"{define_class_fn:id}({class_ns_fn:id})",
+                        define_class_fn = define_class_fn.name.id.as_str(),
+                        class_ns_fn = class_ns_def.name.id.as_str()
                     ),
                 );
 

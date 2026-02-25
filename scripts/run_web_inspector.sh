@@ -6,6 +6,7 @@ WEB_DIR="$ROOT_DIR/web"
 PORT="${PORT:-8000}"
 HOST="${HOST:-127.0.0.1}"
 URL="http://$HOST:$PORT"
+PYTHON_BIN="${PYTHON_BIN:-$ROOT_DIR/vendor/cpython/python}"
 
 WASM_PACK_MODE="${WASM_PACK_MODE:-no-install}"
 OUT_NAME="${OUT_NAME:-diet_python}"
@@ -60,8 +61,11 @@ wasm-pack build dp-transform \
   --mode "$WASM_PACK_MODE"
 
 echo "[2/3] Starting web server in $WEB_DIR on $URL ..."
-cd "$WEB_DIR"
-python3 -m http.server "$PORT" --bind "$HOST" >/tmp/diet_python_web_inspector.log 2>&1 &
+cd "$ROOT_DIR"
+if [ ! -x "$PYTHON_BIN" ]; then
+  PYTHON_BIN="$(command -v python3)"
+fi
+HOST="$HOST" PORT="$PORT" "$PYTHON_BIN" web/inspector_server.py >/tmp/diet_python_web_inspector.log 2>&1 &
 SERVER_PID=$!
 
 cleanup() {

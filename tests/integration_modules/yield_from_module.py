@@ -26,10 +26,12 @@ def delegator():
 from __future__ import annotations
 
 import pytest
+import builtins
 
 module = __import__("sys").modules[__name__]
 if __dp_integration_transformed__:
-    assert "__dp__" in module.__dict__
+    assert "__dp__" not in module.__dict__
+    assert hasattr(builtins, "__dp__")
 
 gen = module.delegator()
 

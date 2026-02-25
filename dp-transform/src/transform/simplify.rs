@@ -1,8 +1,9 @@
 use crate::{
     transform::context::Context,
-    transformer::{walk_body, Transformer},
+    transformer::{walk_body, walk_expr, Transformer},
 };
 use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
+use ruff_python_parser::parse_expression;
 
 pub(crate) struct Flattener;
 
@@ -119,9 +120,7 @@ impl Transformer for Flattener {
 
 fn is_dp_current_exception_call(expr: &Expr) -> bool {
     let Expr::Call(ast::ExprCall {
-        func,
-        arguments,
-        ..
+        func, arguments, ..
     }) = expr
     else {
         return false;
@@ -129,13 +128,22 @@ fn is_dp_current_exception_call(expr: &Expr) -> bool {
     if !arguments.args.is_empty() || !arguments.keywords.is_empty() {
         return false;
     }
-    let Expr::Attribute(ast::ExprAttribute { value, attr, .. }) = func.as_ref() else {
-        return false;
-    };
-    let Expr::Name(ast::ExprName { id, .. }) = value.as_ref() else {
-        return false;
-    };
-    id.as_str() == "__dp__" && attr.as_str() == "current_exception"
+    is_dp_helper_name(func.as_ref(), "current_exception")
+}
+
+fn is_dp_helper_name(func: &Expr, helper: &str) -> bool {
+    if matches!(
+        func,
+        Expr::Name(ast::ExprName { id, .. }) if id.as_str() == format!("__dp_{helper}")
+    ) {
+        return true;
+    }
+    matches!(
+        func,
+        Expr::Attribute(ast::ExprAttribute { value, attr, .. })
+            if matches!(value.as_ref(), Expr::Name(ast::ExprName { id, .. }) if id.as_str() == "__dp__")
+                && attr.as_str() == helper
+    )
 }
 
 fn is_nameerror_expr(expr: &Expr) -> bool {
@@ -157,9 +165,7 @@ fn extract_quiet_delitem_args(try_stmt: &ast::StmtTry) -> Option<(Expr, Expr)> {
         return None;
     };
     let Expr::Call(ast::ExprCall {
-        func,
-        arguments,
-        ..
+        func, arguments, ..
     }) = value.as_ref()
     else {
         return None;
@@ -167,13 +173,7 @@ fn extract_quiet_delitem_args(try_stmt: &ast::StmtTry) -> Option<(Expr, Expr)> {
     if arguments.args.len() != 2 || !arguments.keywords.is_empty() {
         return None;
     }
-    let Expr::Attribute(ast::ExprAttribute { value, attr, .. }) = func.as_ref() else {
-        return None;
-    };
-    let Expr::Name(ast::ExprName { id, .. }) = value.as_ref() else {
-        return None;
-    };
-    if id.as_str() != "__dp__" || attr.as_str() != "delitem" {
+    if !is_dp_helper_name(func.as_ref(), "delitem") {
         return None;
     }
     let del_obj = arguments.args[0].clone();
@@ -208,13 +208,7 @@ fn extract_quiet_delitem_args(try_stmt: &ast::StmtTry) -> Option<(Expr, Expr)> {
     if test_arguments.args.len() != 2 || !test_arguments.keywords.is_empty() {
         return None;
     }
-    let Expr::Attribute(ast::ExprAttribute { value, attr, .. }) = func.as_ref() else {
-        return None;
-    };
-    let Expr::Name(ast::ExprName { id, .. }) = value.as_ref() else {
-        return None;
-    };
-    if id.as_str() != "__dp__" || attr.as_str() != "exception_matches" {
+    if !is_dp_helper_name(func.as_ref(), "exception_matches") {
         return None;
     }
     if !is_dp_current_exception_call(&test_arguments.args[0])
@@ -261,7 +255,7 @@ impl Transformer for &mut StripGeneratedPasses {
                 Stmt::Try(try_stmt) => {
                     if let Some((obj, key)) = extract_quiet_delitem_args(&try_stmt) {
                         updated.push(crate::py_stmt!(
-                            "__dp__.delitem_quietly({obj:expr}, {key:expr})",
+                            "__dp_delitem_quietly({obj:expr}, {key:expr})",
                             obj = obj,
                             key = key,
                         ));
@@ -295,7 +289,7 @@ impl Transformer for &mut StripGeneratedPasses {
                         && if_stmt.elif_else_clauses.is_empty();
                     if is_empty_if {
                         updated.push(crate::py_stmt!(
-                            "__dp__.truth({expr:expr})",
+                            "__dp_truth({expr:expr})",
                             expr = if_stmt.test
                         ));
                         continue;
@@ -342,4 +336,76 @@ pub fn strip_generated_passes(_context: &Context, stmts: &mut StmtBody) {
 
     let mut stripper = StripGeneratedPasses;
     (&mut stripper).visit_body(stmts);
+}
+
+fn string_to_str_bytes_expr(value: &str) -> Expr {
+    let mut source = String::from("__dp_decode_literal_bytes(b\"");
+    source.push_str(&escape_bytes_for_double_quoted_literal(value.as_bytes()));
+    source.push_str("\")");
+    let parsed = parse_expression(&source).unwrap_or_else(|err| {
+        panic!("failed to build lowered string literal expression from {source:?}: {err}")
+    });
+    *parsed.into_syntax().body
+}
+
+fn escape_bytes_for_double_quoted_literal(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 4);
+    for &byte in bytes {
+        match byte {
+            b'\\' => out.push_str("\\\\"),
+            b'"' => out.push_str("\\\""),
+            b'\n' => out.push_str("\\n"),
+            b'\r' => out.push_str("\\r"),
+            b'\t' => out.push_str("\\t"),
+            0x20..=0x7e => out.push(byte as char),
+            _ => out.push_str(&format!("\\x{:02x}", byte)),
+        }
+    }
+    out
+}
+
+fn is_docstring_stmt(stmt: &Stmt) -> bool {
+    matches!(
+        stmt,
+        Stmt::Expr(ast::StmtExpr { value, .. }) if matches!(value.as_ref(), Expr::StringLiteral(_))
+    )
+}
+
+struct StringBytesLowerer;
+
+impl Transformer for &mut StringBytesLowerer {
+    fn visit_body(&mut self, body: &mut StmtBody) {
+        for (index, stmt) in body.body.iter_mut().enumerate() {
+            if index == 0 && is_docstring_stmt(stmt) {
+                continue;
+            }
+            self.visit_stmt(stmt);
+        }
+    }
+
+    fn visit_expr(&mut self, expr: &mut Expr) {
+        if let Expr::Call(call) = expr {
+            let is_dp_getattr = call.arguments.keywords.is_empty()
+                && call.arguments.args.len() == 2
+                && matches!(
+                    call.func.as_ref(),
+                    Expr::Name(name) if name.id.as_str() == "__dp_getattr"
+                )
+                && matches!(&call.arguments.args[1], Expr::StringLiteral(_));
+            if is_dp_getattr {
+                self.visit_expr(call.func.as_mut());
+                self.visit_expr(&mut call.arguments.args[0]);
+                return;
+            }
+        }
+        walk_expr(self, expr);
+        if let Expr::StringLiteral(ast::ExprStringLiteral { value, .. }) = expr {
+            *expr = string_to_str_bytes_expr(value.to_string().as_str());
+        }
+    }
+}
+
+pub fn lower_string_literals_to_bytes(stmts: &mut StmtBody) {
+    let mut lowerer = StringBytesLowerer;
+    (&mut lowerer).visit_body(stmts);
 }

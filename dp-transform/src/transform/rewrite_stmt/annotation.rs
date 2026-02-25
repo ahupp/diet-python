@@ -109,7 +109,7 @@ pub(crate) fn build_annotate_fn(entries: Vec<(String, Expr, String)>, name: &str
         })
         .collect::<Vec<_>>();
     let value_dict = py_expr!(
-        "__dp__.dict({items:expr})",
+        "_dp.dict({items:expr})",
         items = make_tuple(
             value_pairs
                 .iter()
@@ -118,7 +118,7 @@ pub(crate) fn build_annotate_fn(entries: Vec<(String, Expr, String)>, name: &str
         )
     );
     let string_dict = py_expr!(
-        "__dp__.dict({items:expr})",
+        "_dp.dict({items:expr})",
         items = make_tuple(
             value_pairs
                 .iter()

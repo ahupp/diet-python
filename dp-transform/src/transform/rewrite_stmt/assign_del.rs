@@ -30,7 +30,7 @@ pub(crate) fn rewrite_target(context: &Context, target: Expr, rhs: Expr, out: &m
         }
         Expr::Subscript(ast::ExprSubscript { value, slice, .. }) => {
             let stmt = py_stmt!(
-                "__dp__.setitem({value:expr}, {slice:expr}, {rhs:expr})",
+                "__dp_setitem({value:expr}, {slice:expr}, {rhs:expr})",
                 value = value,
                 slice = slice,
                 rhs = rhs,
@@ -39,7 +39,7 @@ pub(crate) fn rewrite_target(context: &Context, target: Expr, rhs: Expr, out: &m
         }
         Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
             let stmt = py_stmt!(
-                "__dp__.setattr({value:expr}, {name:literal}, {rhs:expr})",
+                "__dp_setattr({value:expr}, {name:literal}, {rhs:expr})",
                 value = value,
                 name = attr.as_str(),
                 rhs = rhs
@@ -103,7 +103,7 @@ fn rewrite_unpack_target(
         }
         let spec_expr = make_tuple(spec_elts);
         body_stmts.push(py_stmt!(
-            "{tmp:id} = __dp__.unpack({value:expr}, {spec:expr})",
+            "{tmp:id} = __dp_unpack({value:expr}, {spec:expr})",
             tmp = unpacked_name.as_str(),
             value = tmp_expr.clone(),
             spec = spec_expr,
@@ -120,20 +120,20 @@ fn rewrite_unpack_target(
         match elt {
             Expr::Starred(ast::ExprStarred { value, .. }) => {
                 let star_value = py_expr!(
-                    "__dp__.getitem({tmp:expr}, {idx:literal})",
+                    "__dp_getitem({tmp:expr}, {idx:literal})",
                     tmp = unpacked_tmp.clone(),
                     idx = i,
                 );
                 let collection_expr = match kind {
                     UnpackTargetKind::Tuple | UnpackTargetKind::List => {
-                        py_expr!("__dp__.list({value:expr})", value = star_value)
+                        py_expr!("__dp_list({value:expr})", value = star_value)
                     }
                 };
                 rewrite_target(context, *value, collection_expr, &mut body_stmts);
             }
             _ => {
                 let value = py_expr!(
-                    "__dp__.getitem({tmp:expr}, {idx:literal})",
+                    "__dp_getitem({tmp:expr}, {idx:literal})",
                     tmp = unpacked_tmp.clone(),
                     idx = i,
                 );
@@ -220,13 +220,13 @@ pub(crate) fn rewrite_delete(delete: ast::StmtDelete) -> Rewrite {
         .into_iter()
         .map(|target| match target {
             Expr::Subscript(sub) => py_stmt!(
-                "__dp__.delitem({obj:expr}, {key:expr})",
+                "__dp_delitem({obj:expr}, {key:expr})",
                 obj = sub.value,
                 key = sub.slice
             ),
             Expr::Attribute(attr) => {
                 py_stmt!(
-                    "__dp__.delattr({obj:expr}, {name:literal})",
+                    "__dp_delattr({obj:expr}, {name:literal})",
                     obj = attr.value,
                     name = attr.attr.as_str(),
                 )

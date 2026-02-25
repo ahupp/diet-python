@@ -47,6 +47,6 @@ echo "starting tests"
   if [ "$#" -eq 0 ]; then
     "$VENV_DIR/bin/python" -m pytest --help
   else
-    "$VENV_DIR/bin/python" -m pytest "$@"
+    "$VENV_DIR/bin/python" -m pytest --tb=native "$@"
   fi
 )

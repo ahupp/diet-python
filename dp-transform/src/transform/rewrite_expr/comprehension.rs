@@ -338,7 +338,7 @@ fn lower_function(
             let mut body = vec![lowered_key.stmt];
             body.push(lowered_value.stmt);
             body.push(py_stmt!(
-                "__dp__.setitem({result:id}, {key:expr}, {value:expr})",
+                "__dp_setitem({result:id}, {key:expr}, {value:expr})",
                 result = result_name.as_str(),
                 key = lowered_key.expr,
                 value = lowered_value.expr,

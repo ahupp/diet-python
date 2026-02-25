@@ -24,10 +24,10 @@ pub fn rewrite_for(
     Rewrite::Walk(if is_async && has_orelse {
         py_stmt!(
             r#"
-{iter_name:id} = __dp__.aiter({iter:expr})
+{iter_name:id} = __dp_aiter({iter:expr})
 {completed_flag:id} = False
 while not {completed_flag:id}:
-    {target_tmp:id} = await __dp__.anext_or_sentinel({iter_name:id})
+    {target_tmp:id} = await __dp_anext_or_sentinel({iter_name:id})
     if {target_tmp:id} is __dp__.ITER_COMPLETE:
         {completed_flag:id} = True
     else:
@@ -48,9 +48,9 @@ else:
     } else if is_async {
         py_stmt!(
             r#"
-{iter_name:id} = __dp__.aiter({iter:expr})
+{iter_name:id} = __dp_aiter({iter:expr})
 while True:
-    {target_tmp:id} = await __dp__.anext_or_sentinel({iter_name:id})
+    {target_tmp:id} = await __dp_anext_or_sentinel({iter_name:id})
     if {target_tmp:id} is __dp__.ITER_COMPLETE:
         break
     else:
@@ -67,10 +67,10 @@ while True:
     } else if has_orelse {
         py_stmt!(
             r#"
-{iter_name:id} = __dp__.iter({iter:expr})
+{iter_name:id} = __dp_iter({iter:expr})
 {completed_flag:id} = False
 while not {completed_flag:id}:
-    {target_tmp:id} = __dp__.next_or_sentinel({iter_name:id})
+    {target_tmp:id} = __dp_next_or_sentinel({iter_name:id})
     if {target_tmp:id} is __dp__.ITER_COMPLETE:
         {completed_flag:id} = True
     else:
@@ -91,9 +91,9 @@ else:
     } else {
         py_stmt!(
             r#"
-{iter_name:id} = __dp__.iter({iter:expr})
+{iter_name:id} = __dp_iter({iter:expr})
 while True:
-    {target_tmp:id} = __dp__.next_or_sentinel({iter_name:id})
+    {target_tmp:id} = __dp_next_or_sentinel({iter_name:id})
     if {target_tmp:id} is __dp__.ITER_COMPLETE:
         break
     else:

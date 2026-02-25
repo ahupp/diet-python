@@ -36,5 +36,5 @@ echo "starting tests"
 (
   cd "$REPO_ROOT" &&
   DIET_PYTHON_INTEGRATION_ONLY=1 \
-  "$VENV_DIR/bin/python" -m pytest tests/test_eval_source_simple_integration.py
+  "$VENV_DIR/bin/python" -m pytest --tb=native tests/test_eval_source_simple_integration.py
 )

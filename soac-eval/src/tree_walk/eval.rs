@@ -1,7 +1,12 @@
-use super::eval_genawait::stmt_has_yield;
 use super::*;
+use crate::code_extra::{
+    SOAC_CODE_EXTRA_KIND_CLIF_WRAPPER, SOAC_CODE_EXTRA_KIND_FUNCTION_DATA, code_extra_index,
+    get_code_extra, set_code_extra,
+};
+use crate::jit::{self, EntryBlockPlan};
+use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyCode, PyDict, PyString, PyTuple};
 
 type TypeParamScope = HashMap<String, *mut ffi::PyObject>;
 
@@ -9,17 +14,6 @@ unsafe extern "C" {
     fn PyUnstable_InterpreterFrame_GetCode(
         frame: *mut ffi::_PyInterpreterFrame,
     ) -> *mut ffi::PyObject;
-    fn PyUnstable_Eval_RequestCodeExtraIndex(f: ffi::freefunc) -> ffi::Py_ssize_t;
-    fn PyUnstable_Code_GetExtra(
-        code: *mut ffi::PyObject,
-        index: ffi::Py_ssize_t,
-        extra: *mut *mut c_void,
-    ) -> c_int;
-    fn PyUnstable_Code_SetExtra(
-        code: *mut ffi::PyObject,
-        index: ffi::Py_ssize_t,
-        extra: *mut c_void,
-    ) -> c_int;
     fn _PyInterpreterState_SetEvalFrameFunc(
         interp: *mut ffi::PyInterpreterState,
         eval_frame: extern "C" fn(
@@ -44,24 +38,6 @@ unsafe extern "C" {
 }
 
 static INIT_EVAL_FRAME_HOOK: Once = Once::new();
-static mut SOAC_CODE_EXTRA_INDEX: ffi::Py_ssize_t = -1;
-const SOAC_CODE_EXTRA_MAGIC: u64 = 0x44505f534f41435f;
-#[repr(C)]
-struct SoacCodeExtra {
-    magic: u64,
-    data: *mut FunctionData,
-}
-
-impl Drop for SoacCodeExtra {
-    fn drop(&mut self) {
-        unsafe {
-            if !self.data.is_null() {
-                drop(Box::from_raw(self.data));
-                self.data = ptr::null_mut();
-            }
-        }
-    }
-}
 
 pub(crate) struct ClosureScope {
     pub(crate) _layout: Box<ScopeLayout>,
@@ -98,7 +74,6 @@ pub(crate) struct FunctionData {
     pub(crate) cellvars: HashSet<String>,
     pub(crate) closure: Option<ClosureScope>,
     pub(crate) type_params: Option<TypeParamState>,
-    pub(crate) has_yield: bool,
     pub(crate) globals_scope: *mut ScopeInstance,
     pub(crate) globals_dict: *mut ffi::PyObject,
     pub(crate) builtins: *mut ffi::PyObject,
@@ -240,40 +215,670 @@ unsafe fn initialize_cellvars_for_function(
     Ok(())
 }
 
-unsafe extern "C" fn soac_code_extra_free(ptr: *mut c_void) {
-    let _ = ptr;
-}
-
-unsafe fn soac_code_extra_index() -> Result<ffi::Py_ssize_t, ()> {
-    if SOAC_CODE_EXTRA_INDEX >= 0 {
-        return Ok(SOAC_CODE_EXTRA_INDEX);
-    }
-    let index = PyUnstable_Eval_RequestCodeExtraIndex(soac_code_extra_free);
-    if index < 0 {
-        return Err(());
-    }
-    SOAC_CODE_EXTRA_INDEX = index as ffi::Py_ssize_t;
-    Ok(SOAC_CODE_EXTRA_INDEX)
-}
-
 unsafe fn get_frame_data_for_code(code: *mut ffi::PyObject) -> Option<*const FunctionData> {
-    if ffi::PyObject_TypeCheck(code, std::ptr::addr_of_mut!(ffi::PyCode_Type)) == 0 {
-        return None;
-    }
-    let index = match soac_code_extra_index() {
-        Ok(index) => index,
-        Err(()) => return None,
+    let code_extra = match unsafe { get_code_extra(code) } {
+        Some(view) => view,
+        None => return None,
     };
-    let mut extra: *mut c_void = ptr::null_mut();
-    let status = PyUnstable_Code_GetExtra(code, index, &mut extra as *mut *mut c_void);
-    if status != 0 || extra.is_null() {
+    if code_extra.kind != SOAC_CODE_EXTRA_KIND_FUNCTION_DATA || code_extra.data.is_null() {
         return None;
     }
-    let tagged = extra as *const SoacCodeExtra;
-    if tagged.is_null() || (*tagged).magic != SOAC_CODE_EXTRA_MAGIC || (*tagged).data.is_null() {
-        return None;
+    Some(code_extra.data as *const FunctionData)
+}
+
+unsafe extern "C" fn free_function_data(ptr: *mut c_void) {
+    if ptr.is_null() {
+        return;
     }
-    Some((*tagged).data as *const FunctionData)
+    drop(unsafe { Box::from_raw(ptr as *mut FunctionData) });
+}
+
+struct ClifWrapperData {
+    plan: EntryBlockPlan,
+    true_obj: *mut ffi::PyObject,
+    false_obj: *mut ffi::PyObject,
+}
+
+unsafe extern "C" fn free_clif_wrapper_data(ptr: *mut c_void) {
+    if ptr.is_null() {
+        return;
+    }
+    let data = unsafe { Box::from_raw(ptr as *mut ClifWrapperData) };
+    if !data.true_obj.is_null() {
+        unsafe { ffi::Py_DECREF(data.true_obj) };
+    }
+    if !data.false_obj.is_null() {
+        unsafe { ffi::Py_DECREF(data.false_obj) };
+    }
+}
+
+unsafe fn frame_var_get_required(
+    frame_obj: *mut ffi::PyFrameObject,
+    name: &str,
+) -> Result<*mut ffi::PyObject, ()> {
+    let value = frame_var_get_optional(frame_obj, name)?;
+    if value.is_null() {
+        return set_runtime_error(&format!("missing frame variable {name}"));
+    }
+    Ok(value)
+}
+
+unsafe fn owned_ptr_to_bound<'py>(
+    py: Python<'py>,
+    ptr: *mut ffi::PyObject,
+) -> PyResult<Bound<'py, PyAny>> {
+    Bound::from_owned_ptr_or_opt(py, ptr).ok_or_else(|| PyErr::fetch(py))
+}
+
+unsafe fn frame_var_get_required_bound<'py>(
+    py: Python<'py>,
+    frame_obj: *mut ffi::PyFrameObject,
+    name: &str,
+) -> PyResult<Bound<'py, PyAny>> {
+    let value = frame_var_get_required(frame_obj, name).map_err(|_| PyErr::fetch(py))?;
+    Ok(Bound::from_owned_ptr(py, value))
+}
+
+unsafe fn frame_var_get_optional_bound<'py>(
+    py: Python<'py>,
+    frame_obj: *mut ffi::PyFrameObject,
+    name: &str,
+) -> PyResult<Option<Bound<'py, PyAny>>> {
+    let value = frame_var_get_optional(frame_obj, name).map_err(|_| PyErr::fetch(py))?;
+    Ok(Bound::from_owned_ptr_or_opt(py, value))
+}
+
+unsafe fn eval_clif_wrapper_frame(frame_obj: *mut ffi::PyFrameObject) -> *mut ffi::PyObject {
+    unsafe extern "C" fn jit_incref(obj: *mut c_void) {
+        if !obj.is_null() {
+            ffi::Py_INCREF(obj as *mut ffi::PyObject);
+        }
+    }
+
+    unsafe extern "C" fn jit_decref(obj: *mut c_void) {
+        if !obj.is_null() {
+            ffi::Py_DECREF(obj as *mut ffi::PyObject);
+        }
+    }
+
+    unsafe extern "C" fn py_call_three_hook(
+        callable: *mut c_void,
+        arg1: *mut c_void,
+        arg2: *mut c_void,
+        arg3: *mut c_void,
+    ) -> *mut c_void {
+        ffi::PyObject_CallFunctionObjArgs(
+            callable as *mut ffi::PyObject,
+            arg1 as *mut ffi::PyObject,
+            arg2 as *mut ffi::PyObject,
+            arg3 as *mut ffi::PyObject,
+            ptr::null_mut::<ffi::PyObject>(),
+        ) as *mut c_void
+    }
+
+    unsafe extern "C" fn py_call_object_hook(
+        callable: *mut c_void,
+        args: *mut c_void,
+    ) -> *mut c_void {
+        ffi::PyObject_CallObject(callable as *mut ffi::PyObject, args as *mut ffi::PyObject)
+            as *mut c_void
+    }
+
+    unsafe extern "C" fn py_call_with_kw_hook(
+        callable: *mut c_void,
+        args: *mut c_void,
+        kwargs: *mut c_void,
+    ) -> *mut c_void {
+        ffi::PyObject_Call(
+            callable as *mut ffi::PyObject,
+            args as *mut ffi::PyObject,
+            kwargs as *mut ffi::PyObject,
+        ) as *mut c_void
+    }
+
+    unsafe extern "C" fn py_get_raised_exception_hook() -> *mut c_void {
+        ffi::PyErr_GetRaisedException() as *mut c_void
+    }
+
+    unsafe extern "C" fn get_arg_item_hook(args: *mut c_void, index: i64) -> *mut c_void {
+        if args.is_null() {
+            return ptr::null_mut();
+        }
+        ffi::PySequence_GetItem(args as *mut ffi::PyObject, index as ffi::Py_ssize_t) as *mut c_void
+    }
+
+    unsafe extern "C" fn make_int_hook(value: i64) -> *mut c_void {
+        ffi::PyLong_FromLongLong(value as std::ffi::c_longlong) as *mut c_void
+    }
+
+    unsafe extern "C" fn make_float_hook(value: f64) -> *mut c_void {
+        ffi::PyFloat_FromDouble(value) as *mut c_void
+    }
+
+    unsafe extern "C" fn make_bytes_hook(data_ptr: *const u8, data_len: i64) -> *mut c_void {
+        if data_ptr.is_null() || data_len < 0 {
+            ffi::PyErr_SetString(
+                ffi::PyExc_RuntimeError,
+                b"invalid arguments to dp_jit_make_bytes\0".as_ptr() as *const i8,
+            );
+            return ptr::null_mut();
+        }
+        ffi::PyBytes_FromStringAndSize(data_ptr as *const i8, data_len as ffi::Py_ssize_t)
+            as *mut c_void
+    }
+
+    unsafe extern "C" fn load_name_hook(
+        globals_obj: *mut c_void,
+        name_ptr: *const u8,
+        name_len: i64,
+    ) -> *mut c_void {
+        if globals_obj.is_null() || name_ptr.is_null() || name_len < 0 {
+            ffi::PyErr_SetString(
+                ffi::PyExc_RuntimeError,
+                b"invalid arguments to dp_jit_load_name\0".as_ptr() as *const i8,
+            );
+            return ptr::null_mut();
+        }
+        let name_obj = ffi::PyUnicode_DecodeUTF8(
+            name_ptr as *const i8,
+            name_len as ffi::Py_ssize_t,
+            b"strict\0".as_ptr() as *const i8,
+        );
+        if name_obj.is_null() {
+            return ptr::null_mut();
+        }
+        ffi::Py_INCREF(globals_obj as *mut ffi::PyObject);
+        let builtins_dict = ffi::PyEval_GetBuiltins();
+        if builtins_dict.is_null() {
+            ffi::Py_DECREF(globals_obj as *mut ffi::PyObject);
+            ffi::Py_DECREF(name_obj);
+            ffi::PyErr_SetString(
+                ffi::PyExc_RuntimeError,
+                b"PyEval_GetBuiltins returned null\0".as_ptr() as *const i8,
+            );
+            return ptr::null_mut();
+        }
+        let load_global = ffi::PyDict_GetItemString(
+            builtins_dict as *mut ffi::PyObject,
+            b"__dp_load_global\0".as_ptr() as *const i8,
+        );
+        if load_global.is_null() {
+            ffi::Py_DECREF(globals_obj as *mut ffi::PyObject);
+            ffi::Py_DECREF(name_obj);
+            ffi::PyErr_SetString(
+                ffi::PyExc_RuntimeError,
+                b"missing builtins.__dp_load_global\0".as_ptr() as *const i8,
+            );
+            return ptr::null_mut();
+        }
+        ffi::Py_INCREF(load_global);
+        let result = ffi::PyObject_CallFunctionObjArgs(
+            load_global,
+            globals_obj as *mut ffi::PyObject,
+            name_obj,
+            ptr::null_mut::<ffi::PyObject>(),
+        );
+        ffi::Py_DECREF(load_global);
+        ffi::Py_DECREF(globals_obj as *mut ffi::PyObject);
+        ffi::Py_DECREF(name_obj);
+        result as *mut c_void
+    }
+
+    unsafe extern "C" fn load_local_raw_by_name_hook(
+        owner: *mut c_void,
+        name_ptr: *const u8,
+        name_len: i64,
+    ) -> *mut c_void {
+        if owner.is_null() || name_ptr.is_null() || name_len < 0 {
+            ffi::PyErr_SetString(
+                ffi::PyExc_RuntimeError,
+                b"invalid arguments to dp_jit_load_local_raw_by_name\0".as_ptr() as *const i8,
+            );
+            return ptr::null_mut();
+        }
+        let name_obj = ffi::PyUnicode_DecodeUTF8(
+            name_ptr as *const i8,
+            name_len as ffi::Py_ssize_t,
+            b"strict\0".as_ptr() as *const i8,
+        );
+        if name_obj.is_null() {
+            return ptr::null_mut();
+        }
+        let builtins_dict = ffi::PyEval_GetBuiltins();
+        if builtins_dict.is_null() {
+            ffi::Py_DECREF(name_obj);
+            ffi::PyErr_SetString(
+                ffi::PyExc_RuntimeError,
+                b"PyEval_GetBuiltins returned null\0".as_ptr() as *const i8,
+            );
+            return ptr::null_mut();
+        }
+        let load_local_raw = ffi::PyDict_GetItemString(
+            builtins_dict as *mut ffi::PyObject,
+            b"__dp_load_local_raw\0".as_ptr() as *const i8,
+        );
+        if load_local_raw.is_null() {
+            ffi::Py_DECREF(name_obj);
+            ffi::PyErr_SetString(
+                ffi::PyExc_RuntimeError,
+                b"missing builtins.__dp_load_local_raw\0".as_ptr() as *const i8,
+            );
+            return ptr::null_mut();
+        }
+        ffi::Py_INCREF(load_local_raw);
+        let result = ffi::PyObject_CallFunctionObjArgs(
+            load_local_raw,
+            owner as *mut ffi::PyObject,
+            name_obj,
+            ptr::null_mut::<ffi::PyObject>(),
+        );
+        ffi::Py_DECREF(load_local_raw);
+        ffi::Py_DECREF(name_obj);
+        result as *mut c_void
+    }
+
+    unsafe extern "C" fn pyobject_getattr_hook(obj: *mut c_void, attr: *mut c_void) -> *mut c_void {
+        if obj.is_null() || attr.is_null() {
+            ffi::PyErr_SetString(
+                ffi::PyExc_RuntimeError,
+                b"invalid arguments to dp_jit_pyobject_getattr\0".as_ptr() as *const i8,
+            );
+            return ptr::null_mut();
+        }
+        ffi::PyObject_GetAttr(obj as *mut ffi::PyObject, attr as *mut ffi::PyObject) as *mut c_void
+    }
+
+    unsafe extern "C" fn pyobject_setattr_hook(
+        obj: *mut c_void,
+        attr: *mut c_void,
+        value: *mut c_void,
+    ) -> *mut c_void {
+        if obj.is_null() || attr.is_null() || value.is_null() {
+            ffi::PyErr_SetString(
+                ffi::PyExc_RuntimeError,
+                b"invalid arguments to dp_jit_pyobject_setattr\0".as_ptr() as *const i8,
+            );
+            return ptr::null_mut();
+        }
+        let rc = ffi::PyObject_SetAttr(
+            obj as *mut ffi::PyObject,
+            attr as *mut ffi::PyObject,
+            value as *mut ffi::PyObject,
+        );
+        if rc == 0 {
+            let none = ffi::Py_None();
+            ffi::Py_INCREF(none);
+            none as *mut c_void
+        } else {
+            ptr::null_mut()
+        }
+    }
+
+    unsafe extern "C" fn pyobject_getitem_hook(obj: *mut c_void, key: *mut c_void) -> *mut c_void {
+        if obj.is_null() || key.is_null() {
+            ffi::PyErr_SetString(
+                ffi::PyExc_RuntimeError,
+                b"invalid arguments to dp_jit_pyobject_getitem\0".as_ptr() as *const i8,
+            );
+            return ptr::null_mut();
+        }
+        ffi::PyObject_GetItem(obj as *mut ffi::PyObject, key as *mut ffi::PyObject) as *mut c_void
+    }
+
+    unsafe extern "C" fn pyobject_setitem_hook(
+        obj: *mut c_void,
+        key: *mut c_void,
+        value: *mut c_void,
+    ) -> *mut c_void {
+        if obj.is_null() || key.is_null() || value.is_null() {
+            ffi::PyErr_SetString(
+                ffi::PyExc_RuntimeError,
+                b"invalid arguments to dp_jit_pyobject_setitem\0".as_ptr() as *const i8,
+            );
+            return ptr::null_mut();
+        }
+        let rc = ffi::PyObject_SetItem(
+            obj as *mut ffi::PyObject,
+            key as *mut ffi::PyObject,
+            value as *mut ffi::PyObject,
+        );
+        if rc == 0 {
+            let none = ffi::Py_None();
+            ffi::Py_INCREF(none);
+            none as *mut c_void
+        } else {
+            ptr::null_mut()
+        }
+    }
+
+    unsafe extern "C" fn pyobject_to_i64_hook(value: *mut c_void) -> i64 {
+        if value.is_null() {
+            ffi::PyErr_SetString(
+                ffi::PyExc_RuntimeError,
+                b"invalid null value for dp_jit_pyobject_to_i64\0".as_ptr() as *const i8,
+            );
+            return i64::MIN;
+        }
+        let idx_obj = ffi::PyNumber_Index(value as *mut ffi::PyObject);
+        if idx_obj.is_null() {
+            return i64::MIN;
+        }
+        let out = ffi::PyLong_AsLongLong(idx_obj);
+        ffi::Py_DECREF(idx_obj);
+        if out == -1 && !ffi::PyErr_Occurred().is_null() {
+            i64::MIN
+        } else {
+            out as i64
+        }
+    }
+
+    unsafe extern "C" fn decode_literal_bytes_hook(
+        data_ptr: *const u8,
+        data_len: i64,
+    ) -> *mut c_void {
+        if data_ptr.is_null() || data_len < 0 {
+            ffi::PyErr_SetString(
+                ffi::PyExc_RuntimeError,
+                b"invalid arguments to dp_jit_decode_literal_bytes\0".as_ptr() as *const i8,
+            );
+            return ptr::null_mut();
+        }
+        ffi::PyUnicode_DecodeUTF8(
+            data_ptr as *const i8,
+            data_len as ffi::Py_ssize_t,
+            b"surrogatepass\0".as_ptr() as *const i8,
+        ) as *mut c_void
+    }
+
+    unsafe extern "C" fn tuple_new_hook(size: i64) -> *mut c_void {
+        if size < 0 {
+            ffi::PyErr_SetString(
+                ffi::PyExc_RuntimeError,
+                b"invalid tuple size in JIT\0".as_ptr() as *const i8,
+            );
+            return ptr::null_mut();
+        }
+        ffi::PyTuple_New(size as ffi::Py_ssize_t) as *mut c_void
+    }
+
+    unsafe extern "C" fn tuple_set_item_hook(
+        tuple_obj: *mut c_void,
+        index: i64,
+        value: *mut c_void,
+    ) -> i32 {
+        if tuple_obj.is_null() || value.is_null() || index < 0 {
+            ffi::PyErr_SetString(
+                ffi::PyExc_RuntimeError,
+                b"invalid tuple_set_item arguments in JIT\0".as_ptr() as *const i8,
+            );
+            return -1;
+        }
+        ffi::PyTuple_SetItem(
+            tuple_obj as *mut ffi::PyObject,
+            index as ffi::Py_ssize_t,
+            value as *mut ffi::PyObject,
+        )
+    }
+
+    unsafe extern "C" fn is_true_hook(value: *mut c_void) -> i32 {
+        if value.is_null() {
+            return -1;
+        }
+        ffi::PyObject_IsTrue(value as *mut ffi::PyObject)
+    }
+
+    unsafe extern "C" fn compare_eq_obj_hook(lhs: *mut c_void, rhs: *mut c_void) -> *mut c_void {
+        if lhs.is_null() || rhs.is_null() {
+            ffi::PyErr_SetString(
+                ffi::PyExc_RuntimeError,
+                b"invalid arguments to dp_jit_compare_eq_obj\0".as_ptr() as *const i8,
+            );
+            return ptr::null_mut();
+        }
+        ffi::PyObject_RichCompare(
+            lhs as *mut ffi::PyObject,
+            rhs as *mut ffi::PyObject,
+            ffi::Py_EQ,
+        ) as *mut c_void
+    }
+
+    unsafe extern "C" fn compare_lt_obj_hook(lhs: *mut c_void, rhs: *mut c_void) -> *mut c_void {
+        if lhs.is_null() || rhs.is_null() {
+            ffi::PyErr_SetString(
+                ffi::PyExc_RuntimeError,
+                b"invalid arguments to dp_jit_compare_lt_obj\0".as_ptr() as *const i8,
+            );
+            return ptr::null_mut();
+        }
+        ffi::PyObject_RichCompare(
+            lhs as *mut ffi::PyObject,
+            rhs as *mut ffi::PyObject,
+            ffi::Py_LT,
+        ) as *mut c_void
+    }
+
+    unsafe extern "C" fn raise_from_exc_hook(exc: *mut c_void) -> i32 {
+        if exc.is_null() {
+            ffi::PyErr_SetString(
+                ffi::PyExc_RuntimeError,
+                b"invalid null exception instance in JIT raise\0".as_ptr() as *const i8,
+            );
+            return -1;
+        }
+        let exc_obj = exc as *mut ffi::PyObject;
+        let typ = ffi::PyExceptionInstance_Class(exc_obj);
+        if typ.is_null() {
+            return -1;
+        }
+        ffi::PyErr_SetObject(typ, exc_obj);
+        ffi::Py_DECREF(typ);
+        0
+    }
+
+    unsafe extern "C" fn term_kind_hook(term: *mut c_void) -> i64 {
+        let term_obj = term as *mut ffi::PyObject;
+        if term_obj.is_null() {
+            return -1;
+        }
+        let has_target = ffi::PyObject_HasAttrString(term_obj, b"target\0".as_ptr() as *const i8);
+        if has_target > 0 {
+            return 0;
+        }
+        if has_target < 0 {
+            ffi::PyErr_Clear();
+        }
+        let has_value = ffi::PyObject_HasAttrString(term_obj, b"value\0".as_ptr() as *const i8);
+        if has_value > 0 {
+            return 1;
+        }
+        if has_value < 0 {
+            ffi::PyErr_Clear();
+        }
+        let has_exc = ffi::PyObject_HasAttrString(term_obj, b"exc\0".as_ptr() as *const i8);
+        if has_exc > 0 {
+            return 2;
+        }
+        if has_exc < 0 {
+            ffi::PyErr_Clear();
+        }
+        -1
+    }
+
+    unsafe extern "C" fn term_jump_target_hook(term: *mut c_void) -> *mut c_void {
+        if term.is_null() {
+            return ptr::null_mut();
+        }
+        ffi::PyObject_GetAttrString(
+            term as *mut ffi::PyObject,
+            b"target\0".as_ptr() as *const i8,
+        ) as *mut c_void
+    }
+
+    unsafe extern "C" fn term_jump_args_hook(term: *mut c_void) -> *mut c_void {
+        if term.is_null() {
+            return ptr::null_mut();
+        }
+        ffi::PyObject_GetAttrString(term as *mut ffi::PyObject, b"args\0".as_ptr() as *const i8)
+            as *mut c_void
+    }
+
+    unsafe extern "C" fn term_ret_value_hook(term: *mut c_void) -> *mut c_void {
+        if term.is_null() {
+            return ptr::null_mut();
+        }
+        ffi::PyObject_GetAttrString(term as *mut ffi::PyObject, b"value\0".as_ptr() as *const i8)
+            as *mut c_void
+    }
+
+    unsafe extern "C" fn term_raise_exc_hook(term: *mut c_void) -> *mut c_void {
+        if term.is_null() {
+            return ptr::null_mut();
+        }
+        ffi::PyObject_GetAttrString(term as *mut ffi::PyObject, b"exc\0".as_ptr() as *const i8)
+            as *mut c_void
+    }
+
+    unsafe extern "C" fn term_invalid_hook(term: *mut c_void) -> i32 {
+        let msg_ptr = if term.is_null() {
+            b"invalid null basic-block terminator\0".as_ptr() as *const i8
+        } else {
+            b"invalid basic-block terminator\0".as_ptr() as *const i8
+        };
+        ffi::PyErr_SetString(ffi::PyExc_RuntimeError, msg_ptr);
+        -1
+    }
+
+    let py = Python::assume_attached();
+    let result: PyResult<Py<PyAny>> = (|| -> PyResult<Py<PyAny>> {
+        let code_obj = unsafe { ffi::PyFrame_GetCode(frame_obj) };
+        if code_obj.is_null() {
+            return Err(PyErr::fetch(py));
+        }
+        let code_extra = unsafe { get_code_extra(code_obj as *mut ffi::PyObject) }
+            .ok_or_else(|| PyRuntimeError::new_err("missing CLIF code extra in wrapper frame"))?;
+        unsafe { ffi::Py_DECREF(code_obj as *mut ffi::PyObject) };
+        if code_extra.kind != SOAC_CODE_EXTRA_KIND_CLIF_WRAPPER || code_extra.data.is_null() {
+            return Err(PyRuntimeError::new_err(
+                "invalid CLIF wrapper code extra payload",
+            ));
+        }
+        let clif_data = unsafe { &*(code_extra.data as *const ClifWrapperData) };
+        let args_obj = unsafe { frame_var_get_required_bound(py, frame_obj, "args") }?;
+        let kwargs_obj = unsafe { frame_var_get_optional_bound(py, frame_obj, "kwargs") }?;
+        let sig_obj = unsafe { frame_var_get_required_bound(py, frame_obj, "__dp_sig") }?;
+        let state_order_obj =
+            unsafe { frame_var_get_required_bound(py, frame_obj, "__dp_state_order") }?;
+        let closure_obj = unsafe { frame_var_get_required_bound(py, frame_obj, "__dp_closure") }?;
+        let build_entry_args_obj =
+            unsafe { frame_var_get_required_bound(py, frame_obj, "__dp_build_entry_args") }?;
+
+        let bind_method = sig_obj.getattr("bind")?;
+        let bound = unsafe {
+            owned_ptr_to_bound(
+                py,
+                ffi::PyObject_Call(
+                    bind_method.as_ptr(),
+                    args_obj.as_ptr(),
+                    kwargs_obj
+                        .as_ref()
+                        .map_or(ptr::null_mut(), |kwargs| kwargs.as_ptr()),
+                ),
+            )
+        }?;
+
+        let _ = bound.call_method0("apply_defaults")?;
+        let bound_arguments = bound.getattr("arguments")?;
+
+        let bb_args = unsafe {
+            owned_ptr_to_bound(
+                py,
+                ffi::PyObject_CallFunctionObjArgs(
+                    build_entry_args_obj.as_ptr(),
+                    bound_arguments.as_ptr(),
+                    state_order_obj.as_ptr(),
+                    closure_obj.as_ptr(),
+                    ptr::null_mut::<ffi::PyObject>(),
+                ),
+            )
+        }?;
+
+        let empty_tuple_obj = PyTuple::empty(py);
+        let globals_obj = unsafe { ffi::PyFrame_GetGlobals(frame_obj) };
+        if globals_obj.is_null() {
+            return Err(PyErr::fetch(py));
+        }
+        let block_ptrs = vec![ptr::null_mut::<c_void>(); clif_data.plan.block_labels.len()];
+        let result_ptr = match unsafe {
+            jit::run_cranelift_run_bb_specialized(
+                block_ptrs.as_slice(),
+                &clif_data.plan,
+                globals_obj as *mut c_void,
+                clif_data.true_obj as *mut c_void,
+                clif_data.false_obj as *mut c_void,
+                bb_args.as_ptr() as *mut c_void,
+                jit_incref,
+                jit_decref,
+                py_call_three_hook,
+                py_call_object_hook,
+                py_call_with_kw_hook,
+                py_get_raised_exception_hook,
+                get_arg_item_hook,
+                make_int_hook,
+                make_float_hook,
+                make_bytes_hook,
+                load_name_hook,
+                load_local_raw_by_name_hook,
+                pyobject_getattr_hook,
+                pyobject_setattr_hook,
+                pyobject_getitem_hook,
+                pyobject_setitem_hook,
+                pyobject_to_i64_hook,
+                decode_literal_bytes_hook,
+                tuple_new_hook,
+                tuple_set_item_hook,
+                is_true_hook,
+                compare_eq_obj_hook,
+                compare_lt_obj_hook,
+                term_kind_hook,
+                term_jump_target_hook,
+                term_jump_args_hook,
+                term_ret_value_hook,
+                term_raise_exc_hook,
+                raise_from_exc_hook,
+                term_invalid_hook,
+                py.None().as_ptr() as *mut c_void,
+                empty_tuple_obj.as_ptr() as *mut c_void,
+            )
+        } {
+            Ok(ptr) => ptr,
+            Err(err) => {
+                unsafe { ffi::Py_DECREF(globals_obj) };
+                return Err(PyRuntimeError::new_err(err));
+            }
+        };
+        unsafe { ffi::Py_DECREF(globals_obj) };
+        if result_ptr.is_null() {
+            if unsafe { ffi::PyErr_Occurred() }.is_null() {
+                return Err(PyRuntimeError::new_err(
+                    "Cranelift JIT run_bb returned null result without exception",
+                ));
+            }
+            return Err(PyErr::fetch(py));
+        }
+        let result = unsafe {
+            Bound::<PyAny>::from_owned_ptr_or_opt(py, result_ptr as *mut ffi::PyObject)
+                .ok_or_else(|| PyErr::fetch(py))?
+        };
+        Ok(result.unbind())
+    })();
+
+    match result {
+        Ok(value) => value.into_ptr(),
+        Err(err) => {
+            err.restore(py);
+            ptr::null_mut()
+        }
+    }
 }
 
 unsafe fn frame_var_get_optional(
@@ -509,38 +1114,56 @@ extern "C" fn soac_eval_frame(
         if code.is_null() {
             return _PyEval_EvalFrameDefault(tstate, frame, throwflag);
         }
-        let data = get_frame_data_for_code(code);
+        let extra = get_code_extra(code);
         ffi::Py_DECREF(code);
-        let Some(data_ptr) = data else {
+        let Some(extra) = extra else {
             return _PyEval_EvalFrameDefault(tstate, frame, throwflag);
         };
-        if throwflag != 0 || (*data_ptr).has_yield || (*data_ptr).def.is_async {
-            return _PyEval_EvalFrameDefault(tstate, frame, throwflag);
-        }
-        if (*data_ptr).params.is_empty() {
-            let result = eval_frame_with_data_no_frame(&*data_ptr);
+        if extra.kind == SOAC_CODE_EXTRA_KIND_FUNCTION_DATA {
+            let data_ptr = extra.data as *const FunctionData;
+            if data_ptr.is_null() || throwflag != 0 || (*data_ptr).def.is_async {
+                return _PyEval_EvalFrameDefault(tstate, frame, throwflag);
+            }
+            if (*data_ptr).params.is_empty() {
+                let result = eval_frame_with_data_no_frame(&*data_ptr);
+                finalize_soac_frame(tstate, frame);
+                return result;
+            }
+            let mut frame_obj = find_matching_soac_frame(tstate, data_ptr);
+            if frame_obj.is_null() {
+                frame_obj = _PyFrame_MakeAndSetFrameObject(frame);
+                if frame_obj.is_null() {
+                    return ptr::null_mut();
+                }
+                ffi::Py_INCREF(frame_obj as *mut ffi::PyObject);
+            }
+            let result = eval_frame_with_data(&*data_ptr, frame_obj as *mut ffi::PyObject);
+            ffi::Py_DECREF(frame_obj as *mut ffi::PyObject);
             finalize_soac_frame(tstate, frame);
             return result;
         }
-        let mut frame_obj = find_matching_soac_frame(tstate, data_ptr);
-        if frame_obj.is_null() {
-            frame_obj = _PyFrame_MakeAndSetFrameObject(frame);
+        if extra.kind == SOAC_CODE_EXTRA_KIND_CLIF_WRAPPER {
+            if throwflag != 0 {
+                return _PyEval_EvalFrameDefault(tstate, frame, throwflag);
+            }
+            let frame_obj = _PyFrame_MakeAndSetFrameObject(frame);
             if frame_obj.is_null() {
                 return ptr::null_mut();
             }
             ffi::Py_INCREF(frame_obj as *mut ffi::PyObject);
+            let result = eval_clif_wrapper_frame(frame_obj);
+            ffi::Py_DECREF(frame_obj as *mut ffi::PyObject);
+            finalize_soac_frame(tstate, frame);
+            return result;
         }
-        let result = eval_frame_with_data(&*data_ptr, frame_obj as *mut ffi::PyObject);
-        ffi::Py_DECREF(frame_obj as *mut ffi::PyObject);
-        finalize_soac_frame(tstate, frame);
-        result
+        _PyEval_EvalFrameDefault(tstate, frame, throwflag)
     }
 }
 
 pub unsafe fn install_eval_frame_hook() -> Result<(), ()> {
     let mut ok = true;
     INIT_EVAL_FRAME_HOOK.call_once(|| {
-        if soac_code_extra_index().is_err() {
+        if code_extra_index().is_err() {
             ok = false;
             return;
         }
@@ -552,6 +1175,122 @@ pub unsafe fn install_eval_frame_hook() -> Result<(), ()> {
         _PyInterpreterState_SetEvalFrameFunc(interp, soac_eval_frame);
     });
     if ok { Ok(()) } else { Err(()) }
+}
+
+pub unsafe fn register_clif_wrapper_code_extra(function: *mut ffi::PyObject) -> Result<(), ()> {
+    if install_eval_frame_hook().is_err() {
+        return Err(());
+    }
+    if ffi::PyFunction_Check(function) == 0 {
+        ffi::PyErr_SetString(
+            ffi::PyExc_TypeError,
+            b"register_clif_wrapper_code_extra expects a Python function\0".as_ptr()
+                as *const c_char,
+        );
+        return Err(());
+    }
+    let py = Python::assume_attached();
+    let function_bound = Bound::<PyAny>::from_borrowed_ptr(py, function);
+    let code_obj = match function_bound.getattr("__code__") {
+        Ok(obj) => obj,
+        Err(err) => {
+            err.restore(py);
+            return Err(());
+        }
+    };
+    let cloned_code = match code_obj.call_method0("replace") {
+        Ok(obj) => obj,
+        Err(err) => {
+            err.restore(py);
+            return Err(());
+        }
+    };
+    if let Err(err) = function_bound.setattr("__code__", cloned_code.clone()) {
+        err.restore(py);
+        return Err(());
+    }
+    let code = cloned_code.as_ptr();
+    if matches!(get_code_extra(code), Some(extra) if extra.kind == SOAC_CODE_EXTRA_KIND_CLIF_WRAPPER)
+    {
+        return Ok(());
+    }
+    let module_name = function_bound
+        .getattr("__dp_plan_module")
+        .ok()
+        .and_then(|obj| obj.extract::<String>().ok())
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            function_bound
+                .getattr("__module__")
+                .ok()
+                .and_then(|obj| obj.extract::<String>().ok())
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or_default();
+    let qualname = function_bound
+        .getattr("__dp_plan_qualname")
+        .ok()
+        .and_then(|obj| obj.extract::<String>().ok())
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            function_bound
+                .getattr("__qualname__")
+                .ok()
+                .and_then(|obj| obj.extract::<String>().ok())
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or_default();
+    let plan = jit::lookup_bb_plan(module_name.as_str(), qualname.as_str());
+    let Some(plan) = plan else {
+        let msg = format!(
+            "no specialized JIT plan found for CLIF wrapper: module={module_name:?} qualname={qualname:?}"
+        );
+        if let Ok(c_msg) = CString::new(msg) {
+            ffi::PyErr_SetString(ffi::PyExc_RuntimeError, c_msg.as_ptr());
+        } else {
+            ffi::PyErr_SetString(
+                ffi::PyExc_RuntimeError,
+                b"no specialized JIT plan found for CLIF wrapper\0".as_ptr() as *const c_char,
+            );
+        }
+        return Err(());
+    };
+    if plan
+        .block_fast_paths
+        .iter()
+        .any(|path| matches!(path, jit::BlockFastPath::None))
+    {
+        // Wrapper shape is unsupported for specialized CLIF execution.
+        // Leave this wrapper on default Python execution path.
+        return Ok(());
+    }
+    let true_obj = ffi::PyBool_FromLong(1);
+    if true_obj.is_null() {
+        return Err(());
+    }
+    let false_obj = ffi::PyBool_FromLong(0);
+    if false_obj.is_null() {
+        ffi::Py_DECREF(true_obj);
+        return Err(());
+    }
+    let clif_data = Box::new(ClifWrapperData {
+        plan,
+        true_obj,
+        false_obj,
+    });
+    let clif_data_ptr = Box::into_raw(clif_data) as *mut c_void;
+    if set_code_extra(
+        code,
+        SOAC_CODE_EXTRA_KIND_CLIF_WRAPPER,
+        clif_data_ptr,
+        Some(free_clif_wrapper_data),
+    )
+    .is_err()
+    {
+        free_clif_wrapper_data(clif_data_ptr);
+        return Err(());
+    }
+    Ok(())
 }
 
 fn context_with_type_params<'a>(
@@ -921,13 +1660,6 @@ impl FunctionData {
         args: *mut ffi::PyObject,
         kwargs: *mut ffi::PyObject,
     ) -> *mut ffi::PyObject {
-        if self.has_yield {
-            ffi::PyErr_SetString(
-                ffi::PyExc_NotImplementedError,
-                b"yield not supported\0".as_ptr() as *const c_char,
-            );
-            return ptr::null_mut();
-        }
         if self.def.is_async {
             ffi::PyErr_SetString(
                 ffi::PyExc_NotImplementedError,
@@ -1214,72 +1946,37 @@ unsafe fn function_closure_object(
 unsafe fn function_code_object(data: &FunctionData) -> Result<Py<PyAny>, ()> {
     let py = Python::assume_attached();
     if !data.function_codes.is_null() {
-        let code = ffi::PyDict_GetItemString(
-            data.function_codes,
-            CString::new(data.def.name.as_str()).unwrap().as_ptr(),
-        );
-        if !code.is_null() {
-            if ffi::PyObject_TypeCheck(code, std::ptr::addr_of_mut!(ffi::PyCode_Type)) == 0 {
-                ffi::PyErr_SetString(
-                    ffi::PyExc_TypeError,
-                    b"function code map value is not a code object\0".as_ptr() as *const c_char,
-                );
-                return Err(());
-            }
-            ffi::Py_INCREF(code);
-            let kwargs = ffi::PyDict_New();
-            let co_name_obj = ffi::PyUnicode_FromString(
-                CString::new(data.def.display_name.as_str())
-                    .unwrap()
-                    .as_ptr(),
-            );
-            let qualname_obj = ffi::PyUnicode_FromString(
-                CString::new(data.def.qualname.as_str()).unwrap().as_ptr(),
-            );
-            if kwargs.is_null() || co_name_obj.is_null() || qualname_obj.is_null() {
-                ffi::Py_XDECREF(kwargs);
-                ffi::Py_XDECREF(co_name_obj);
-                ffi::Py_XDECREF(qualname_obj);
-                ffi::Py_DECREF(code);
-                return Err(());
-            }
-            let ok = ffi::PyDict_SetItemString(
-                kwargs,
-                b"co_name\0".as_ptr() as *const c_char,
-                co_name_obj,
-            ) == 0
-                && ffi::PyDict_SetItemString(
-                    kwargs,
-                    b"co_qualname\0".as_ptr() as *const c_char,
-                    qualname_obj,
-                ) == 0;
-            ffi::Py_DECREF(co_name_obj);
-            ffi::Py_DECREF(qualname_obj);
-            if !ok {
-                ffi::Py_DECREF(kwargs);
-                ffi::Py_DECREF(code);
-                return Err(());
-            }
-            let replace = ffi::PyObject_GetAttrString(code, b"replace\0".as_ptr() as *const c_char);
-            let args = ffi::PyTuple_New(0);
-            if replace.is_null() || args.is_null() {
-                ffi::Py_XDECREF(replace);
-                ffi::Py_XDECREF(args);
-                ffi::Py_DECREF(kwargs);
-                ffi::Py_DECREF(code);
-                return Err(());
-            }
-            let replaced = ffi::PyObject_Call(replace, args, kwargs);
-            ffi::Py_DECREF(replace);
-            ffi::Py_DECREF(args);
-            ffi::Py_DECREF(kwargs);
-            if replaced.is_null() {
-                // Keep compiled code if replace fails.
-                ffi::PyErr_Clear();
-                return Ok(Bound::<PyAny>::from_owned_ptr(py, code).unbind());
-            }
-            ffi::Py_DECREF(code);
-            return Ok(Bound::<PyAny>::from_owned_ptr(py, replaced).unbind());
+        let code_map = Bound::<PyAny>::from_borrowed_ptr(py, data.function_codes)
+            .cast_into::<PyDict>()
+            .map_err(|_| ())?;
+        if let Some(code_obj) = code_map.get_item(data.def.name.as_str()).map_err(|_| ())? {
+            let code_obj = match code_obj.cast_into::<PyCode>() {
+                Ok(code_obj) => code_obj,
+                Err(_) => {
+                    ffi::PyErr_SetString(
+                        ffi::PyExc_TypeError,
+                        b"function code map value is not a code object\0".as_ptr() as *const c_char,
+                    );
+                    return Err(());
+                }
+            };
+            let kwargs = PyDict::new(py);
+            kwargs
+                .set_item("co_name", data.def.display_name.as_str())
+                .map_err(|_| ())?;
+            kwargs
+                .set_item("co_qualname", data.def.qualname.as_str())
+                .map_err(|_| ())?;
+            let replaced = code_obj.call_method("replace", (), Some(&kwargs));
+            return match replaced {
+                Ok(replaced) => Ok(replaced.unbind()),
+                Err(err) => {
+                    // Keep compiled code if replace fails.
+                    err.restore(py);
+                    ffi::PyErr_Clear();
+                    Ok(code_obj.into_any().unbind())
+                }
+            };
         }
     }
 
@@ -1305,47 +2002,17 @@ unsafe fn function_code_object(data: &FunctionData) -> Result<Py<PyAny>, ()> {
         varnames.push(name.clone());
     }
 
-    let filename_obj = {
-        let file =
-            ffi::PyDict_GetItemString(data.globals_dict, b"__file__\0".as_ptr() as *const c_char);
-        if !file.is_null() {
-            ffi::Py_INCREF(file);
-        }
-        if file.is_null() || ffi::PyUnicode_Check(file) == 0 {
-            ffi::Py_XDECREF(file);
-            ffi::PyUnicode_FromString(b"<eval>\0".as_ptr() as *const c_char)
-        } else {
-            file
-        }
+    let globals_dict = Bound::<PyAny>::from_borrowed_ptr(py, data.globals_dict)
+        .cast_into::<PyDict>()
+        .map_err(|_| ())?;
+    let filename_obj: Py<PyAny> = match globals_dict.get_item("__file__").map_err(|_| ())? {
+        Some(file_obj) if file_obj.is_instance_of::<PyString>() => file_obj.unbind(),
+        _ => PyString::new(py, "<eval>").into_any().unbind(),
     };
-    if filename_obj.is_null() {
-        return Err(());
-    }
-    let co_name_obj = ffi::PyUnicode_FromString(
-        CString::new(data.def.display_name.as_str())
-            .unwrap()
-            .as_ptr(),
-    );
-    let qualname_obj =
-        ffi::PyUnicode_FromString(CString::new(data.def.qualname.as_str()).unwrap().as_ptr());
-    let firstlineno_obj = ffi::PyLong_FromLong(1);
-    if co_name_obj.is_null() || qualname_obj.is_null() || firstlineno_obj.is_null() {
-        ffi::Py_XDECREF(co_name_obj);
-        ffi::Py_XDECREF(qualname_obj);
-        ffi::Py_XDECREF(firstlineno_obj);
-        ffi::Py_DECREF(filename_obj);
-        return Err(());
-    }
 
-    let argcount_obj = ffi::PyLong_FromLong(positional.len() as c_long);
-    let posonly_obj = ffi::PyLong_FromLong(0);
-    let kwonly_obj = ffi::PyLong_FromLong(kwonly.len() as c_long);
-    let nlocals_obj = ffi::PyLong_FromLong(varnames.len() as c_long);
     const CO_VARARGS: c_long = 0x04;
     const CO_VARKEYWORDS: c_long = 0x08;
-    const CO_GENERATOR: c_long = 0x20;
     const CO_COROUTINE: c_long = 0x80;
-    const CO_ASYNC_GENERATOR: c_long = 0x200;
     let mut flags = 0 as c_long;
     if vararg.is_some() {
         flags |= CO_VARARGS;
@@ -1354,133 +2021,23 @@ unsafe fn function_code_object(data: &FunctionData) -> Result<Py<PyAny>, ()> {
         flags |= CO_VARKEYWORDS;
     }
     if data.def.is_async {
-        if data.has_yield {
-            flags |= CO_ASYNC_GENERATOR;
-        } else {
-            flags |= CO_COROUTINE;
-        }
-    } else if data.has_yield {
-        flags |= CO_GENERATOR;
-    }
-    let flags_obj = ffi::PyLong_FromLong(flags);
-    if argcount_obj.is_null()
-        || posonly_obj.is_null()
-        || kwonly_obj.is_null()
-        || nlocals_obj.is_null()
-        || flags_obj.is_null()
-    {
-        ffi::Py_XDECREF(argcount_obj);
-        ffi::Py_XDECREF(posonly_obj);
-        ffi::Py_XDECREF(kwonly_obj);
-        ffi::Py_XDECREF(nlocals_obj);
-        ffi::Py_XDECREF(flags_obj);
-        ffi::Py_DECREF(co_name_obj);
-        ffi::Py_DECREF(qualname_obj);
-        ffi::Py_DECREF(firstlineno_obj);
-        ffi::Py_DECREF(filename_obj);
-        return Err(());
+        flags |= CO_COROUTINE;
     }
 
-    let varnames_tuple = ffi::PyTuple_New(varnames.len() as ffi::Py_ssize_t);
-    if varnames_tuple.is_null() {
-        ffi::Py_DECREF(argcount_obj);
-        ffi::Py_DECREF(posonly_obj);
-        ffi::Py_DECREF(kwonly_obj);
-        ffi::Py_DECREF(nlocals_obj);
-        ffi::Py_DECREF(flags_obj);
-        ffi::Py_DECREF(co_name_obj);
-        ffi::Py_DECREF(qualname_obj);
-        ffi::Py_DECREF(firstlineno_obj);
-        ffi::Py_DECREF(filename_obj);
-        return Err(());
-    }
-    for (idx, name) in varnames.iter().enumerate() {
-        let name_obj = ffi::PyUnicode_FromString(CString::new(name.as_str()).unwrap().as_ptr());
-        if name_obj.is_null()
-            || ffi::PyTuple_SetItem(varnames_tuple, idx as ffi::Py_ssize_t, name_obj) != 0
-        {
-            ffi::Py_XDECREF(name_obj);
-            ffi::Py_DECREF(varnames_tuple);
-            ffi::Py_DECREF(argcount_obj);
-            ffi::Py_DECREF(posonly_obj);
-            ffi::Py_DECREF(kwonly_obj);
-            ffi::Py_DECREF(nlocals_obj);
-            ffi::Py_DECREF(flags_obj);
-            ffi::Py_DECREF(co_name_obj);
-            ffi::Py_DECREF(qualname_obj);
-            ffi::Py_DECREF(firstlineno_obj);
-            ffi::Py_DECREF(filename_obj);
-            return Err(());
-        }
-    }
+    let varnames_tuple = PyTuple::new(py, varnames).map_err(|_| ())?;
+    let freevar_names = if let Some(closure) = data.closure.as_ref() {
+        closure
+            ._layout
+            .names
+            .iter()
+            .map(|name| normalize_freevar_name(name.as_str()))
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let freevars_tuple = PyTuple::new(py, freevar_names).map_err(|_| ())?;
+    let cellvars_tuple = PyTuple::new(py, &data.def.cellvars).map_err(|_| ())?;
 
-    let freevars_len = data
-        .closure
-        .as_ref()
-        .map(|closure| closure._layout.names.len())
-        .unwrap_or(0);
-    let freevars_tuple = ffi::PyTuple_New(freevars_len as ffi::Py_ssize_t);
-    let cellvars_tuple = ffi::PyTuple_New(data.def.cellvars.len() as ffi::Py_ssize_t);
-    if freevars_tuple.is_null() || cellvars_tuple.is_null() {
-        ffi::Py_XDECREF(freevars_tuple);
-        ffi::Py_XDECREF(cellvars_tuple);
-        ffi::Py_DECREF(varnames_tuple);
-        ffi::Py_DECREF(argcount_obj);
-        ffi::Py_DECREF(posonly_obj);
-        ffi::Py_DECREF(kwonly_obj);
-        ffi::Py_DECREF(nlocals_obj);
-        ffi::Py_DECREF(flags_obj);
-        ffi::Py_DECREF(co_name_obj);
-        ffi::Py_DECREF(qualname_obj);
-        ffi::Py_DECREF(firstlineno_obj);
-        ffi::Py_DECREF(filename_obj);
-        return Err(());
-    }
-    if let Some(closure) = data.closure.as_ref() {
-        for (idx, name) in closure._layout.names.iter().enumerate() {
-            let public_name = normalize_freevar_name(name.as_str());
-            let name_obj = ffi::PyUnicode_FromString(CString::new(public_name).unwrap().as_ptr());
-            if name_obj.is_null()
-                || ffi::PyTuple_SetItem(freevars_tuple, idx as ffi::Py_ssize_t, name_obj) != 0
-            {
-                ffi::Py_XDECREF(name_obj);
-                ffi::Py_DECREF(freevars_tuple);
-                ffi::Py_DECREF(cellvars_tuple);
-                ffi::Py_DECREF(varnames_tuple);
-                ffi::Py_DECREF(argcount_obj);
-                ffi::Py_DECREF(posonly_obj);
-                ffi::Py_DECREF(kwonly_obj);
-                ffi::Py_DECREF(nlocals_obj);
-                ffi::Py_DECREF(flags_obj);
-                ffi::Py_DECREF(co_name_obj);
-                ffi::Py_DECREF(qualname_obj);
-                ffi::Py_DECREF(firstlineno_obj);
-                ffi::Py_DECREF(filename_obj);
-                return Err(());
-            }
-        }
-    }
-    for (idx, name) in data.def.cellvars.iter().enumerate() {
-        let name_obj = ffi::PyUnicode_FromString(CString::new(name.as_str()).unwrap().as_ptr());
-        if name_obj.is_null()
-            || ffi::PyTuple_SetItem(cellvars_tuple, idx as ffi::Py_ssize_t, name_obj) != 0
-        {
-            ffi::Py_XDECREF(name_obj);
-            ffi::Py_DECREF(freevars_tuple);
-            ffi::Py_DECREF(cellvars_tuple);
-            ffi::Py_DECREF(varnames_tuple);
-            ffi::Py_DECREF(argcount_obj);
-            ffi::Py_DECREF(posonly_obj);
-            ffi::Py_DECREF(kwonly_obj);
-            ffi::Py_DECREF(nlocals_obj);
-            ffi::Py_DECREF(flags_obj);
-            ffi::Py_DECREF(co_name_obj);
-            ffi::Py_DECREF(qualname_obj);
-            ffi::Py_DECREF(firstlineno_obj);
-            ffi::Py_DECREF(filename_obj);
-            return Err(());
-        }
-    }
     let code = ffi::PyCode_NewEmpty(
         b"<eval>\0".as_ptr() as *const c_char,
         CString::new(data.def.display_name.as_str())
@@ -1488,115 +2045,45 @@ unsafe fn function_code_object(data: &FunctionData) -> Result<Py<PyAny>, ()> {
             .as_ptr(),
         1,
     ) as *mut ffi::PyObject;
-    if code.is_null() {
-        ffi::Py_DECREF(freevars_tuple);
-        ffi::Py_DECREF(cellvars_tuple);
-        ffi::Py_DECREF(varnames_tuple);
-        ffi::Py_DECREF(argcount_obj);
-        ffi::Py_DECREF(posonly_obj);
-        ffi::Py_DECREF(kwonly_obj);
-        ffi::Py_DECREF(nlocals_obj);
-        ffi::Py_DECREF(flags_obj);
-        ffi::Py_DECREF(co_name_obj);
-        ffi::Py_DECREF(qualname_obj);
-        ffi::Py_DECREF(firstlineno_obj);
-        ffi::Py_DECREF(filename_obj);
-        return Err(());
-    }
+    let code_obj = Bound::<PyAny>::from_owned_ptr_or_opt(py, code).ok_or(())?;
+    let code_obj = code_obj.cast_into::<PyCode>().map_err(|_| ())?;
 
-    let kwargs = ffi::PyDict_New();
-    if kwargs.is_null() {
-        ffi::Py_DECREF(code);
-        ffi::Py_DECREF(freevars_tuple);
-        ffi::Py_DECREF(cellvars_tuple);
-        ffi::Py_DECREF(varnames_tuple);
-        ffi::Py_DECREF(argcount_obj);
-        ffi::Py_DECREF(posonly_obj);
-        ffi::Py_DECREF(kwonly_obj);
-        ffi::Py_DECREF(nlocals_obj);
-        ffi::Py_DECREF(flags_obj);
-        ffi::Py_DECREF(co_name_obj);
-        ffi::Py_DECREF(qualname_obj);
-        ffi::Py_DECREF(firstlineno_obj);
-        ffi::Py_DECREF(filename_obj);
-        return Err(());
-    }
-    let set_item = |key: &[u8], obj: *mut ffi::PyObject| {
-        ffi::PyDict_SetItemString(kwargs, key.as_ptr() as *const c_char, obj)
-    };
-    if set_item(b"co_argcount\0", argcount_obj) != 0
-        || set_item(b"co_posonlyargcount\0", posonly_obj) != 0
-        || set_item(b"co_kwonlyargcount\0", kwonly_obj) != 0
-        || set_item(b"co_nlocals\0", nlocals_obj) != 0
-        || set_item(b"co_flags\0", flags_obj) != 0
-        || set_item(b"co_varnames\0", varnames_tuple) != 0
-        || set_item(b"co_freevars\0", freevars_tuple) != 0
-        || set_item(b"co_cellvars\0", cellvars_tuple) != 0
-        || set_item(b"co_filename\0", filename_obj) != 0
-        || set_item(b"co_name\0", co_name_obj) != 0
-        || set_item(b"co_qualname\0", qualname_obj) != 0
-        || set_item(b"co_firstlineno\0", firstlineno_obj) != 0
-    {
-        ffi::Py_DECREF(kwargs);
-        ffi::Py_DECREF(code);
-        ffi::Py_DECREF(freevars_tuple);
-        ffi::Py_DECREF(cellvars_tuple);
-        ffi::Py_DECREF(varnames_tuple);
-        ffi::Py_DECREF(argcount_obj);
-        ffi::Py_DECREF(posonly_obj);
-        ffi::Py_DECREF(kwonly_obj);
-        ffi::Py_DECREF(nlocals_obj);
-        ffi::Py_DECREF(flags_obj);
-        ffi::Py_DECREF(co_name_obj);
-        ffi::Py_DECREF(qualname_obj);
-        ffi::Py_DECREF(firstlineno_obj);
-        ffi::Py_DECREF(filename_obj);
-        return Err(());
-    }
+    let kwargs = PyDict::new(py);
+    kwargs
+        .set_item("co_argcount", positional.len() as c_long)
+        .map_err(|_| ())?;
+    kwargs.set_item("co_posonlyargcount", 0).map_err(|_| ())?;
+    kwargs
+        .set_item("co_kwonlyargcount", kwonly.len() as c_long)
+        .map_err(|_| ())?;
+    kwargs
+        .set_item("co_nlocals", varnames_tuple.len())
+        .map_err(|_| ())?;
+    kwargs.set_item("co_flags", flags).map_err(|_| ())?;
+    kwargs
+        .set_item("co_varnames", &varnames_tuple)
+        .map_err(|_| ())?;
+    kwargs
+        .set_item("co_freevars", &freevars_tuple)
+        .map_err(|_| ())?;
+    kwargs
+        .set_item("co_cellvars", &cellvars_tuple)
+        .map_err(|_| ())?;
+    kwargs
+        .set_item("co_filename", filename_obj.bind(py))
+        .map_err(|_| ())?;
+    kwargs
+        .set_item("co_name", data.def.display_name.as_str())
+        .map_err(|_| ())?;
+    kwargs
+        .set_item("co_qualname", data.def.qualname.as_str())
+        .map_err(|_| ())?;
+    kwargs.set_item("co_firstlineno", 1).map_err(|_| ())?;
 
-    let replace = ffi::PyObject_GetAttrString(code, b"replace\0".as_ptr() as *const c_char);
-    let args = ffi::PyTuple_New(0);
-    if replace.is_null() || args.is_null() {
-        ffi::Py_XDECREF(replace);
-        ffi::Py_XDECREF(args);
-        ffi::Py_DECREF(kwargs);
-        ffi::Py_DECREF(code);
-        ffi::Py_DECREF(freevars_tuple);
-        ffi::Py_DECREF(cellvars_tuple);
-        ffi::Py_DECREF(varnames_tuple);
-        ffi::Py_DECREF(argcount_obj);
-        ffi::Py_DECREF(posonly_obj);
-        ffi::Py_DECREF(kwonly_obj);
-        ffi::Py_DECREF(nlocals_obj);
-        ffi::Py_DECREF(flags_obj);
-        ffi::Py_DECREF(co_name_obj);
-        ffi::Py_DECREF(qualname_obj);
-        ffi::Py_DECREF(firstlineno_obj);
-        ffi::Py_DECREF(filename_obj);
-        return Err(());
-    }
-
-    let replaced = ffi::PyObject_Call(replace, args, kwargs);
-    ffi::Py_DECREF(replace);
-    ffi::Py_DECREF(args);
-    ffi::Py_DECREF(kwargs);
-    ffi::Py_DECREF(code);
-    ffi::Py_DECREF(freevars_tuple);
-    ffi::Py_DECREF(cellvars_tuple);
-    ffi::Py_DECREF(varnames_tuple);
-    ffi::Py_DECREF(argcount_obj);
-    ffi::Py_DECREF(posonly_obj);
-    ffi::Py_DECREF(kwonly_obj);
-    ffi::Py_DECREF(nlocals_obj);
-    ffi::Py_DECREF(flags_obj);
-    ffi::Py_DECREF(co_name_obj);
-    ffi::Py_DECREF(qualname_obj);
-    ffi::Py_DECREF(firstlineno_obj);
-    ffi::Py_DECREF(filename_obj);
-    if replaced.is_null() {
-        return Err(());
-    }
-    Ok(Bound::<PyAny>::from_owned_ptr(py, replaced).unbind())
+    let replaced = code_obj
+        .call_method("replace", (), Some(&kwargs))
+        .map_err(|_| ())?;
+    Ok(replaced.unbind())
 }
 
 static mut SOAC_FUNCTION_ANNOTATE_PYFUNC_DEF: ffi::PyMethodDef = ffi::PyMethodDef {
@@ -1654,7 +2141,6 @@ pub unsafe fn build_function(
     ctx: &ExecContext<'_>,
     module_name: *mut ffi::PyObject,
 ) -> Result<*mut ffi::PyObject, ()> {
-    let has_yield = def.body.iter().any(stmt_has_yield);
     let local_names = collect_local_names(&def);
     let cellvars = def.cellvars.iter().cloned().collect::<HashSet<_>>();
     let closure = capture_closure(&def.freevars, ctx)?;
@@ -1801,7 +2287,6 @@ pub unsafe fn build_function(
         cellvars,
         closure,
         type_params,
-        has_yield,
         globals_scope,
         globals_dict,
         builtins,
@@ -1821,29 +2306,14 @@ pub unsafe fn build_function(
     };
 
     let data_ptr = Box::into_raw(data);
-    let code_extra = Box::new(SoacCodeExtra {
-        magic: SOAC_CODE_EXTRA_MAGIC,
-        data: data_ptr,
-    });
-    let code_extra_ptr = Box::into_raw(code_extra);
-    let extra_index = match soac_code_extra_index() {
-        Ok(index) => index,
-        Err(()) => {
-            drop(Box::from_raw(code_extra_ptr));
-            ffi::Py_DECREF(name_obj);
-            ffi::Py_DECREF(qualname_obj);
-            ffi::Py_DECREF(doc);
-            ffi::Py_DECREF(module_obj);
-            return Err(());
-        }
-    };
-    if PyUnstable_Code_SetExtra(
+    if set_code_extra(
         code.bind(py).as_ptr(),
-        extra_index,
-        code_extra_ptr as *mut c_void,
-    ) != 0
+        SOAC_CODE_EXTRA_KIND_FUNCTION_DATA,
+        data_ptr as *mut c_void,
+        Some(free_function_data),
+    )
+    .is_err()
     {
-        drop(Box::from_raw(code_extra_ptr));
         ffi::Py_DECREF(name_obj);
         ffi::Py_DECREF(qualname_obj);
         ffi::Py_DECREF(doc);
@@ -2646,19 +3116,6 @@ pub(crate) fn eval_expr(
 ) -> Result<*mut ffi::PyObject, ()> {
     match expr {
         min_ast::ExprNode::Name { id, .. } => lookup_name(id.as_str(), ctx),
-        min_ast::ExprNode::Attribute { value, attr, .. } => {
-            let base = eval_expr(value, ctx)?;
-            let name = CString::new(attr.as_str()).unwrap();
-            let result = unsafe { ffi::PyObject_GetAttrString(base, name.as_ptr()) };
-            unsafe {
-                ffi::Py_DECREF(base);
-            }
-            if result.is_null() {
-                Err(())
-            } else {
-                Ok(result)
-            }
-        }
         min_ast::ExprNode::Number { value, .. } => match value {
             min_ast::Number::Int(text) => unsafe {
                 let cstr = CString::new(text.as_str()).unwrap();
@@ -3189,14 +3646,8 @@ fn eval_call(
     Ok(result)
 }
 
-fn try_dp_helper_name(func: &min_ast::ExprNode) -> Option<&str> {
-    let min_ast::ExprNode::Attribute { value, attr, .. } = func else {
-        return None;
-    };
-    if !matches!(value.as_ref(), min_ast::ExprNode::Name { id, .. } if id == "__dp__") {
-        return None;
-    }
-    Some(attr.as_str())
+fn try_dp_helper_name(func: &min_ast::ExprNode) -> Option<String> {
+    dp_helper_lookup_name(func, "__dp__")
 }
 
 fn try_eval_dp_bb_helper_call(
@@ -3207,7 +3658,7 @@ fn try_eval_dp_bb_helper_call(
     let Some(helper) = try_dp_helper_name(func) else {
         return Ok(None);
     };
-    match helper {
+    match helper.as_str() {
         "run_bb" => eval_dp_run_bb(args, ctx),
         "jump" => eval_dp_jump(args, ctx),
         "brif" => eval_dp_brif(args, ctx),
@@ -3567,14 +4018,8 @@ fn type_param_lookup_target(
     ctx: &ExecContext<'_>,
 ) -> Option<*mut ffi::PyObject> {
     let type_params = ctx.type_params?;
-    let (module, attr) = match func {
-        min_ast::ExprNode::Attribute { value, attr, .. } => (value.as_ref(), attr.as_str()),
-        _ => return None,
-    };
-    if !matches!(module, min_ast::ExprNode::Name { id, .. } if id == "__dp__") {
-        return None;
-    }
-    let name_arg_index = match attr {
+    let attr = dp_helper_lookup_name(func, "__dp__")?;
+    let name_arg_index = match attr.as_str() {
         "class_lookup_global" | "load_global" => 1,
         _ => return None,
     };
@@ -3583,6 +4028,52 @@ fn type_param_lookup_target(
         _ => return None,
     };
     type_params.get(name).copied()
+}
+
+fn dp_helper_lookup_name(func: &min_ast::ExprNode, module_name: &str) -> Option<String> {
+    let min_ast::ExprNode::Call {
+        func: getter, args, ..
+    } = func
+    else {
+        return None;
+    };
+    if !matches!(getter.as_ref(), min_ast::ExprNode::Name { id, .. } if id == "__dp_getattr") {
+        return None;
+    }
+    if args.len() != 2 {
+        return None;
+    }
+    let module = match &args[0] {
+        min_ast::Arg::Positional(min_ast::ExprNode::Name { id, .. }) => id.as_str(),
+        _ => return None,
+    };
+    if module != module_name {
+        return None;
+    }
+    match &args[1] {
+        min_ast::Arg::Positional(min_ast::ExprNode::String { value, .. }) => Some(value.clone()),
+        min_ast::Arg::Positional(min_ast::ExprNode::Call {
+            func: decoder,
+            args,
+            ..
+        }) if matches!(
+            decoder.as_ref(),
+            min_ast::ExprNode::Name { id, .. }
+                if matches!(
+                    id.as_str(),
+                    "__dp_decode_literal_bytes" | "__dp_decode_literal_source_bytes"
+                )
+        ) && args.len() == 1 =>
+        {
+            match &args[0] {
+                min_ast::Arg::Positional(min_ast::ExprNode::Bytes { value, .. }) => {
+                    String::from_utf8(value.clone()).ok()
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
 }
 
 fn cleanup_call_args(

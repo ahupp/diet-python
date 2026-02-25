@@ -1133,6 +1133,7 @@ dependencies = [
  "dp-transform",
  "log",
  "pyo3",
+ "ruff_python_ast",
 ]
 
 [[package]]
