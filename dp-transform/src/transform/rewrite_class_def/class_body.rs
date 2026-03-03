@@ -132,11 +132,12 @@ impl<'a> Transformer for ClassBodyScopeRewriter<'a> {
                 hoisted.push(class_ns_def.clone().into());
 
                 let mut children = Vec::new();
-                if matches!(self.scope.kind(), ScopeKind::Class) {
-                    self.hoisted_class_defs.append(&mut hoisted);
-                } else {
-                    children.append(&mut hoisted);
-                }
+                // Keep nested class namespace helpers in lexical scope with the
+                // matching `_dp_define_class_*` call site. Hoisting these out
+                // of class bodies makes helper resolution depend on module
+                // globals, which breaks once top-level code is wrapped in
+                // `_dp_module_init`.
+                children.append(&mut hoisted);
                 children.push(define_class_fn.clone().into());
 
                 let decorated_class = rewrite_stmt::decorator::rewrite(

@@ -7,6 +7,7 @@ import sys
 import tempfile
 import traceback
 import uuid
+import types
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -19,8 +20,8 @@ WEB_DIR = ROOT / "web"
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-# CLIF rendering must use the eval/JIT path from soac-pyo3.
-os.environ.setdefault("DIET_PYTHON_MODE", "eval")
+# CLIF rendering must use JIT-enabled transformed execution.
+os.environ.setdefault("DIET_PYTHON_MODE", "transform")
 os.environ.setdefault("DIET_PYTHON_JIT", "1")
 
 import diet_import_hook  # noqa: E402
@@ -39,10 +40,19 @@ def _load_module_from_source(source: str):
         ) as tmp:
             tmp.write(source)
             tmp_path = tmp.name
-        module = DIET_PYTHON.eval_source_with_name(tmp_path, module_name, None)
+        transformed_source = DIET_PYTHON.transform_source(source, True)
+        module = types.ModuleType(module_name)
+        module.__file__ = tmp_path
+        module.__name__ = module_name
+        module.__package__ = None
+        exec(compile(transformed_source, tmp_path, "exec"), module.__dict__)
         init = getattr(module, "_dp_module_init", None)
         if callable(init):
             init()
+            try:
+                delattr(module, "_dp_module_init")
+            except Exception:
+                pass
         return module
     finally:
         if tmp_path is not None:

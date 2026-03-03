@@ -1,6 +1,5 @@
 # diet-python: disabled
 import collections.abc as _abc
-from dataclasses import dataclass
 import inspect as _inspect
 import os
 import operator as _operator
@@ -29,6 +28,15 @@ repr = builtins.repr
 str = builtins.str
 format = builtins.format
 AssertionError = builtins.AssertionError
+
+
+def _dp_tuple_helper(*values):
+    # __dp_tuple is strict variadic tuple construction for transformed code.
+    return builtins.tuple(values)
+
+
+def _dp_tuple_from_iter_helper(value):
+    return builtins.tuple(value)
 
 
 def __deepcopy__(memo):
@@ -289,82 +297,6 @@ def truth(value):
     return bool(value)
 
 
-class _JumpTerm(NamedTuple):
-    target: object
-    args: tuple
-
-
-class _RetTerm(NamedTuple):
-    value: object = None
-
-
-class _RaiseTerm(NamedTuple):
-    exc: BaseException
-
-
-@dataclass(slots=True)
-class BlockParam:
-    args: list
-    index: int
-
-    def take(self):
-        value = self.args[self.index]
-        self.args[self.index] = None
-        return value
-
-
-builtins.__dp_BlockParam = BlockParam
-
-
-def jump(target, args):
-    return _JumpTerm(target=target, args=args)
-
-
-def ret(value=None):
-    return _RetTerm(value=value)
-
-
-def raise_(exc):
-    return _RaiseTerm(exc=exc)
-
-
-def brif(cond, then_target, then_args, else_target, else_args):
-    if truth(cond):
-        return jump(then_target, then_args)
-    return jump(else_target, else_args)
-
-
-_BR_TABLE_NO_ARGS = object()
-
-
-def br_table(index, targets, default_target, args=_BR_TABLE_NO_ARGS):
-    if not isinstance(index, int):
-        target = default_target
-    elif index < 0 or index >= len(targets):
-        target = default_target
-    else:
-        target = targets[index]
-    if args is _BR_TABLE_NO_ARGS:
-        return target
-    return jump(target, args)
-
-
-def _block_params(args, *, copy_args=True):
-    if args is None:
-        return ()
-    # Most blocks do not need entry-arg preservation for exception-edge
-    # dispatch; let BlockParam.take() clear the live list so values are not
-    # retained across in-block operations like gc.collect().
-    if copy_args:
-        args = list(args)
-    elif not isinstance(args, list):
-        args = list(args)
-    params = []
-    for idx in range(len(args)):
-        params.append(BlockParam(args, idx))
-    return tuple(params)
-
-
 def _resolve_local_frame(owner):
     frame = getattr(owner, "gi_frame", None)
     if frame is not None:
@@ -377,6 +309,14 @@ def __dp_load_local(gen, name):
     try:
         value = frame[name]
     except KeyError as exc:
+        if name.startswith("_dp_yield_from_iter_"):
+            # Yield-from lowering tracks the active delegated iterator in
+            # `gi_yieldfrom`. If temp names differ across transformed resume
+            # blocks, fall back to the canonical generator slot.
+            return load_deleted_name(
+                name,
+                getattr(gen, "gi_yieldfrom", DELETED),
+            )
         raise UnboundLocalError(
             f"cannot access local variable {name!r} where it is not associated with a value"
         ) from exc
@@ -385,6 +325,8 @@ def __dp_load_local(gen, name):
 
 def __dp_load_local_raw(gen, name):
     frame = _resolve_local_frame(gen)
+    if name.startswith("_dp_yield_from_iter_") and name not in frame:
+        return getattr(gen, "gi_yieldfrom", DELETED)
     return frame.get(name, DELETED)
 
 
@@ -439,79 +381,57 @@ def _attach_throw_context_from_state(state, exc):
         pass
 
 
-def _bb_raw_args(args):
-    if args is None:
-        return []
-    if isinstance(args, list):
-        return args
-    if isinstance(args, tuple):
-        return list(args)
-    return list(args)
+def _resume_block_param_names(resume_block):
+    names = _block_param_names(resume_block)
+    if names:
+        return names
+    if _jit_block_param_names is None:
+        return names
+    plan_module = getattr(resume_block, "__dp_plan_module", None)
+    plan_qualname = getattr(resume_block, "__dp_plan_qualname", None)
+    entry_ref = getattr(resume_block, "__dp_entry_ref", None)
+    if not (
+        isinstance(plan_module, str)
+        and isinstance(plan_qualname, str)
+        and isinstance(entry_ref, str)
+    ):
+        return names
+    try:
+        resolved = _jit_block_param_names(plan_module, plan_qualname, entry_ref)
+    except Exception:
+        return names
+    if isinstance(resolved, (tuple, list)):
+        return tuple(resolved)
+    return names
 
 
-def _dispatch_block_exception(block, raw_args, exc):
-    # Exception edges are attached per block by the BB lowering pass.
-    # Dispatch uses name-based argument reconstruction so control flow is
-    # encoded in block metadata rather than a runtime try-handler stack.
-    target = getattr(block, "_dp_exc_target", None)
-    if target is None:
-        return None
-    if not callable(target):
-        raise RuntimeError(f"invalid exception target on block {block!r}: {target!r}")
-    source_names = _block_param_names(block)
-    if len(source_names) != len(raw_args):
-        raise RuntimeError(
-            f"basic-block exception dispatch arity mismatch in {block!r}: "
-            f"params={source_names!r}, args={raw_args!r}"
-        )
-    values = dict(zip(source_names, raw_args))
-    exc_name = getattr(block, "_dp_exc_name", None)
-    if exc_name is not None:
-        values[exc_name] = exc
-    # Exception-edge dispatch consumes injected resume exceptions. Once routed
-    # onto a block-local exception edge, the exception should travel only via
-    # the explicit exception slot (exc_name), not via _dp_resume_exc.
-    if "_dp_resume_exc" in values:
-        values["_dp_resume_exc"] = None
-    frame_owner = values.get("_dp_self", values.get("_dp_state"))
-
-    target_names = _block_param_names(target)
-    target_args = []
-    for name in target_names:
-        if name in values:
-            target_args.append(values[name])
-            continue
-        if frame_owner is not None:
-            target_args.append(__dp_load_local_raw(frame_owner, name))
-            continue
-        raise RuntimeError(
-            f"missing exception-edge argument {name!r} when dispatching from "
-            f"{block!r} to {target!r}"
-        )
-    return jump(target, target_args)
-
-
-def _route_region_jump(target, next_args, region_targets):
-    if region_targets is None or target in region_targets:
-        return target, _bb_raw_args(next_args)
-    return None
+def _bb_build_resume_args(resume_block, gen, send_value, resume_exc, transport_sent=None):
+    # Generator/async-generator BB lowering still emits resume blocks that may
+    # carry additional frame locals as block parameters. Reconstruct arguments
+    # by declared parameter names so JIT and interpreted BB execution agree.
+    frame = getattr(gen, "gi_frame", None)
+    args = []
+    for name in _resume_block_param_names(resume_block):
+        if name in ("_dp_self", "_dp_state"):
+            args.append(gen)
+        elif name == "_dp_send_value":
+            args.append(send_value)
+        elif name == "_dp_resume_exc":
+            args.append(resume_exc)
+        elif name == "_dp_transport_sent":
+            args.append(transport_sent)
+        elif isinstance(frame, dict):
+            args.append(frame.get(name, DELETED))
+        else:
+            args.append(DELETED)
+    return tuple(args)
 
 
 _jit_run_bb_plan = None
 _jit_render_bb_plan = None
 _jit_has_bb_plan = None
+_jit_block_param_names = None
 _register_clif_wrapper = None
-
-
-def _run_bb_interpreted(entry, args):
-    term_obj = run_bb_term(entry, args, None)
-    if isinstance(term_obj, _RetTerm):
-        return term_obj.value
-    if isinstance(term_obj, _RaiseTerm):
-        raise term_obj.exc
-    if isinstance(term_obj, _JumpTerm):
-        raise RuntimeError(f"unexpected out-of-region jump in run_bb: {term_obj!r}")
-    raise RuntimeError(f"invalid basic-block terminator: {term_obj!r}")
 
 
 def _run_bb_plan_from_entry(entry, args):
@@ -524,15 +444,18 @@ def _run_bb_plan_from_entry(entry, args):
             f"JIT basic-block execution requires plan metadata on entry: {entry!r}"
         )
     if _jit_has_bb_plan is not None and not _jit_has_bb_plan(plan_module, plan_qualname):
-        return _run_bb_interpreted(entry, args)
-    globals_dict = getattr(entry, "__globals__", None)
+        raise RuntimeError(
+            "JIT basic-block execution requires a registered plan, "
+            f"but none is available for {plan_module}.{plan_qualname}"
+        )
+    globals_dict = getattr(entry, "__dp_plan_globals", None)
+    if not isinstance(globals_dict, dict):
+        globals_dict = getattr(entry, "__globals__", None)
     return _jit_run_bb_plan(plan_module, plan_qualname, globals_dict, args)
 
 
 def run_bb(entry, args):
-    if _jit_run_bb_plan is not None:
-        return _run_bb_plan_from_entry(entry, args)
-    return _run_bb_interpreted(entry, args)
+    return _run_bb_plan_from_entry(entry, args)
 
 
 def render_jit_bb(entry):
@@ -545,100 +468,19 @@ def render_jit_bb(entry):
     return _jit_render_bb_plan(plan_module, plan_qualname)
 
 
-async def run_coro_bb(entry, args):
-    term_obj = await run_coro_bb_term(entry, args, None)
-    if isinstance(term_obj, _RetTerm):
-        return term_obj.value
-    if isinstance(term_obj, _RaiseTerm):
-        raise term_obj.exc
-    if isinstance(term_obj, _JumpTerm):
-        raise RuntimeError(
-            f"unexpected out-of-region jump in run_coro_bb: {term_obj!r}"
-        )
-    raise RuntimeError(f"invalid basic-block terminator: {term_obj!r}")
+def _dp_resume_generator(gen, value, resume_exc):
+    bb_args = _bb_build_resume_args(gen._dp_resume, gen, value, resume_exc)
+    return run_bb(gen._dp_resume, bb_args)
 
 
-async def run_coro_bb_term(entry, args, region_targets):
-    block = entry
-    raw_args = _bb_raw_args(args)
-
-    while True:
-        assert callable(block), f"invalid basic-block target: {block!r}"
-
-        term_obj = None
-        try:
-            preserve_entry_args = getattr(block, "_dp_exc_target", None) is not None
-            block_params = _block_params(raw_args, copy_args=preserve_entry_args)
-            term_obj = await block(*block_params)
-        except BaseException as exc:
-            # BB regions execute as independent async coroutine functions.
-            # If a block leaks StopIteration/StopAsyncIteration across that
-            # async boundary, CPython converts it to RuntimeError with the
-            # original stop exception in __cause__. Recover the original
-            # exception so region-level try/except matching sees the same
-            # semantics as in-function execution.
-            if isinstance(exc, RuntimeError) and isinstance(
-                exc.__cause__, (StopIteration, StopAsyncIteration)
-            ):
-                term_obj = raise_(exc.__cause__)
-            else:
-                term_obj = _dispatch_block_exception(block, raw_args, exc)
-                if term_obj is None:
-                    term_obj = raise_(exc)
-        while True:
-            if isinstance(term_obj, _JumpTerm):
-                routed = _route_region_jump(
-                    term_obj.target, term_obj.args, region_targets
-                )
-                if routed is not None:
-                    block, raw_args = routed
-                    break
-                return term_obj
-            if isinstance(term_obj, _RaiseTerm):
-                raise_term = term_obj
-                term_obj = _dispatch_block_exception(block, raw_args, raise_term.exc)
-                if term_obj is not None:
-                    continue
-                return raise_term
-            if isinstance(term_obj, _RetTerm):
-                return term_obj
-            raise RuntimeError(f"invalid basic-block terminator: {term_obj!r}")
-
-
-def run_bb_term(entry, args, region_targets):
-    block = entry
-    raw_args = _bb_raw_args(args)
-
-    while True:
-        assert callable(block), f"invalid basic-block target: {block!r}"
-
-        term_obj = None
-        try:
-            preserve_entry_args = getattr(block, "_dp_exc_target", None) is not None
-            block_params = _block_params(raw_args, copy_args=preserve_entry_args)
-            term_obj = block(*block_params)
-        except BaseException as exc:
-            term_obj = _dispatch_block_exception(block, raw_args, exc)
-            if term_obj is None:
-                return raise_(exc)
-        while True:
-            if isinstance(term_obj, _JumpTerm):
-                routed = _route_region_jump(
-                    term_obj.target, term_obj.args, region_targets
-                )
-                if routed is not None:
-                    block, raw_args = routed
-                    break
-                return term_obj
-            if isinstance(term_obj, _RaiseTerm):
-                raise_term = term_obj
-                term_obj = _dispatch_block_exception(block, raw_args, raise_term.exc)
-                if term_obj is not None:
-                    continue
-                return raise_term
-            if isinstance(term_obj, _RetTerm):
-                return term_obj
-            raise RuntimeError(f"invalid basic-block terminator: {term_obj!r}")
+async def _dp_resume_async_generator(gen, value, resume_exc, transport_sent):
+    gen._dp_resume._dp_transport_sent = transport_sent
+    bb_args = _bb_build_resume_args(
+        gen._dp_resume, gen, value, resume_exc, transport_sent
+    )
+    # Async-generator BB lowering is generator-style; resume through the same
+    # BB entry executor used by sync generators.
+    return run_bb(gen._dp_resume, bb_args)
 
 
 class _DpGenerator:
@@ -676,11 +518,8 @@ class _DpGenerator:
     def __next__(self):
         return self.send(None)
 
-    def _resume(self, value, resume_exc):
-        return run_bb(self._dp_resume, (self, value, resume_exc))
-
     def send(self, value):
-        return self._resume(value, None)
+        return _dp_resume_generator(self, value, None)
 
     def throw(self, typ=None, val=None, tb=None):
         if val is not None or tb is not None:
@@ -689,7 +528,7 @@ class _DpGenerator:
             )
         exc = raise_from(typ, None)
         _attach_throw_context_from_state(self, exc)
-        return self._resume(None, exc)
+        return _dp_resume_generator(self, None, exc)
 
     def close(self):
         try:
@@ -697,6 +536,51 @@ class _DpGenerator:
         except (GeneratorExit, StopIteration):
             return None
         raise RuntimeError("generator ignored GeneratorExit")
+
+
+class _DpCoroutine(_abc.Coroutine):
+    __slots__ = ("_dp_gen",)
+
+    def __init__(self, gen):
+        self._dp_gen = gen
+
+    def __await__(self):
+        return self
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return self.send(None)
+
+    def send(self, value):
+        return self._dp_gen.send(value)
+
+    def throw(self, typ, val=None, tb=None):
+        if val is not None or tb is not None:
+            raise TypeError(
+                "DpCoroutine.throw() does not support value/traceback in this mode"
+            )
+        return self._dp_gen.throw(typ)
+
+    def close(self):
+        return self._dp_gen.close()
+
+    @property
+    def cr_frame(self):
+        return self._dp_gen.gi_frame
+
+    @property
+    def cr_running(self):
+        return False
+
+    @property
+    def cr_code(self):
+        return self._dp_gen.gi_code
+
+    @property
+    def cr_await(self):
+        return self._dp_gen.gi_yieldfrom
 
 
 class _DpAsyncGenerator:
@@ -745,10 +629,6 @@ class _DpAsyncGenerator:
             return None
         raise AttributeError(name)
 
-    async def _resume(self, value, resume_exc, transport_sent):
-        self._dp_resume._dp_transport_sent = transport_sent
-        return await run_coro_bb(self._dp_resume, (self, value, resume_exc))
-
     def asend(self, value):
         return _DpAsyncGenSend(self, value)
 
@@ -759,7 +639,7 @@ class _DpAsyncGenerator:
             )
         exc = raise_from(typ, None)
         _attach_throw_context_from_state(self, exc)
-        return await self._resume(None, exc, None)
+        return await _dp_resume_async_generator(self, None, exc, None)
 
     async def aclose(self):
         try:
@@ -795,7 +675,8 @@ class _DpAsyncGenSend:
                 and getattr(self._dp_gen, "_pc", 0) == 0
             ):
                 initial_send = value
-            self._dp_coro = self._dp_gen._resume(
+            self._dp_coro = _dp_resume_async_generator(
+                self._dp_gen,
                 initial_send,
                 None,
                 value,
@@ -805,7 +686,9 @@ class _DpAsyncGenSend:
 
     def throw(self, typ, val=None, tb=None):
         if self._dp_coro is None:
-            self._dp_coro = self._dp_gen._resume(self._dp_value, None, None)
+            self._dp_coro = _dp_resume_async_generator(
+                self._dp_gen, self._dp_value, None, None
+            )
         return self._dp_coro.throw(typ, val, tb)
 
     def close(self):
@@ -1510,11 +1393,6 @@ def update_fn(func, qualname, name):
     except (AttributeError, TypeError):
         pass
     if isinstance(func, _types.FunctionType):
-        # In eval mode, soac-created functions carry execution metadata in
-        # code extras; code.replace(...) drops those extras and can make calls
-        # fall back to the stub bytecode object.
-        if os.environ.get("DIET_PYTHON_MODE") == "eval":
-            return func
         try:
             func.__code__ = func.__code__.replace(
                 co_name=name,
@@ -1655,10 +1533,20 @@ def _bb_rebind_function_globals(func, module_globals):
     return rebound
 
 
-def _bb_set_plan_metadata(func, module_name, qualname):
+def _bb_set_plan_metadata(
+    func,
+    module_name,
+    qualname,
+    module_globals=None,
+    entry_ref=None,
+):
     if callable(func):
         setattr(func, "__dp_plan_module", module_name)
         setattr(func, "__dp_plan_qualname", qualname)
+        if isinstance(entry_ref, str):
+            setattr(func, "__dp_entry_ref", entry_ref)
+        if isinstance(module_globals, dict):
+            setattr(func, "__dp_plan_globals", module_globals)
 
 
 def _bb_resolve_entry_ref(entry_ref, module_globals, module_name, qualname):
@@ -1669,15 +1557,29 @@ def _bb_resolve_entry_ref(entry_ref, module_globals, module_name, qualname):
             raise TypeError(
                 f"unexpected non-BB string entry reference: {entry_ref!r}"
             )
-        # BB labels in JIT mode are resolved by (module, qualname) plan metadata;
-        # the callable object itself is only a metadata carrier.
-        resolved = lambda *a, **k: None
+        # BB labels in this runtime are JIT-plan-only. If execution reaches this
+        # callable it means no JIT plan was registered for this function/module.
+        # Raise a clear error rather than returning a non-terminator value.
+        def _bb_entry_unavailable(*_args, __dp_entry_ref=entry_ref, **_kwargs):
+            raise RuntimeError(
+                "basic-block string entry requires a registered JIT plan, "
+                f"but no plan is available for {module_name}.{qualname} "
+                f"(entry={__dp_entry_ref!r})"
+            )
+
+        resolved = _bb_entry_unavailable
     else:
         raise TypeError(
             f"basic-block entry reference must be callable or str, got {type(entry_ref)!r}"
         )
     if module_name is not None:
-        _bb_set_plan_metadata(resolved, module_name, qualname)
+        _bb_set_plan_metadata(
+            resolved,
+            module_name,
+            qualname,
+            module_globals,
+            entry_ref=entry_ref if isinstance(entry_ref, str) else None,
+        )
     return resolved
 
 
@@ -1708,76 +1610,54 @@ def def_fn(
     # wrapper so we don't need an extra transformed outer function call layer.
     signature, default_state_order = _build_bb_signature(params)
     state_order, closure_values = _bb_state_order(default_state_order, closure)
-    resolved_entry_bb = _bb_resolve_entry_ref(
-        entry_bb, module_globals, module_name, qualname
-    )
-    use_jit_plan = (
+    _bb_resolve_entry_ref(entry_bb, module_globals, module_name, qualname)
+    if not (
         jit_bb_plan_enabled()
         and isinstance(module_name, str)
         and isinstance(qualname, str)
         and _jit_has_bb_plan is not None
         and _jit_has_bb_plan(module_name, qualname)
-    )
-    if use_jit_plan:
+    ):
+        raise RuntimeError(
+            "JIT basic-block function definition requires a registered plan, "
+            f"but none is available for {module_name}.{qualname}"
+        )
 
-        def entry(
-            *args,
-            __dp_sig=signature,
-            __dp_state_order=state_order,
-            __dp_closure=closure_values,
-            __dp_plan_module=module_name,
-            __dp_plan_qualname=qualname,
-            __dp_plan_globals=module_globals,
-            __dp_run_bb_plan=run_bb_plan,
-            __dp_build_entry_args=_bb_build_entry_args,
-            **kwargs,
-        ):
-            bound = __dp_sig.bind(*args, **kwargs)
-            bound.apply_defaults()
-            bb_args = __dp_build_entry_args(
-                bound.arguments, __dp_state_order, __dp_closure
-            )
-            return __dp_run_bb_plan(
-                __dp_plan_module,
-                __dp_plan_qualname,
-                __dp_plan_globals,
-                bb_args,
-            )
+    def entry(
+        *args,
+        __dp_sig=signature,
+        __dp_state_order=state_order,
+        __dp_closure=closure_values,
+        __dp_plan_module=module_name,
+        __dp_plan_qualname=qualname,
+        __dp_plan_globals=module_globals,
+        __dp_run_bb_plan=run_bb_plan,
+        __dp_build_entry_args=_bb_build_entry_args,
+        **kwargs,
+    ):
+        bound = __dp_sig.bind(*args, **kwargs)
+        bound.apply_defaults()
+        bb_args = __dp_build_entry_args(bound.arguments, __dp_state_order, __dp_closure)
+        return __dp_run_bb_plan(
+            __dp_plan_module,
+            __dp_plan_qualname,
+            __dp_plan_globals,
+            bb_args,
+        )
 
-    else:
-
-        def entry(
-            *args,
-            __dp_sig=signature,
-            __dp_state_order=state_order,
-            __dp_closure=closure_values,
-            __dp_fallback_entry=resolved_entry_bb,
-            __dp_run_bb_interpreted=_run_bb_interpreted,
-            __dp_build_entry_args=_bb_build_entry_args,
-            **kwargs,
-        ):
-            bound = __dp_sig.bind(*args, **kwargs)
-            bound.apply_defaults()
-            bb_args = __dp_build_entry_args(
-                bound.arguments, __dp_state_order, __dp_closure
-            )
-            return __dp_run_bb_interpreted(__dp_fallback_entry, bb_args)
-
-    if not use_jit_plan:
-        entry = _bb_wrap_with_closure(entry, closure_values)
     entry = _bb_rebind_function_globals(entry, module_globals)
     entry.__signature__ = signature
     entry = update_fn(entry, qualname, name)
     if module_name is not None:
         entry.__module__ = module_name
-        _bb_set_plan_metadata(entry, module_name, qualname)
+        _bb_set_plan_metadata(entry, module_name, qualname, module_globals)
     if doc is not None:
         entry.__doc__ = doc
     if annotate_fn is not None:
         entry.__annotate__ = annotate_fn
     # In CLIF mode, tag wrapper functions so eval-frame dispatch can bypass
     # Python bytecode and jump directly into the JIT BB execution path.
-    if use_jit_plan and _register_clif_wrapper is not None:
+    if _register_clif_wrapper is not None:
         _register_clif_wrapper(entry)
     return entry
 
@@ -1795,37 +1675,113 @@ def def_coro(
 ):
     signature, default_state_order = _build_bb_signature(params)
     state_order, closure_values = _bb_state_order(default_state_order, closure)
-    resolved_entry_bb = _bb_resolve_entry_ref(
-        entry_bb, module_globals, module_name, qualname
-    )
+    _bb_resolve_entry_ref(entry_bb, module_globals, module_name, qualname)
+    if not (
+        jit_bb_plan_enabled()
+        and isinstance(module_name, str)
+        and isinstance(qualname, str)
+        and _jit_has_bb_plan is not None
+        and _jit_has_bb_plan(module_name, qualname)
+    ):
+        raise RuntimeError(
+            "JIT basic-block coroutine definition requires a registered plan, "
+            f"but none is available for {module_name}.{qualname}"
+        )
 
     async def entry(
         *args,
         __dp_sig=signature,
         __dp_state_order=state_order,
         __dp_closure=closure_values,
-        __dp_fallback_entry=resolved_entry_bb,
-        __dp_run_coro_bb=run_coro_bb,
+        __dp_plan_module=module_name,
+        __dp_plan_qualname=qualname,
+        __dp_plan_globals=module_globals,
+        __dp_run_bb_plan=run_bb_plan,
         __dp_build_entry_args=_bb_build_entry_args,
         **kwargs,
     ):
         bound = __dp_sig.bind(*args, **kwargs)
         bound.apply_defaults()
         bb_args = __dp_build_entry_args(bound.arguments, __dp_state_order, __dp_closure)
-        return await __dp_run_coro_bb(__dp_fallback_entry, bb_args)
+        return __dp_run_bb_plan(
+            __dp_plan_module,
+            __dp_plan_qualname,
+            __dp_plan_globals,
+            bb_args,
+        )
 
-    entry = _bb_wrap_with_closure(entry, closure_values)
     entry = _bb_rebind_function_globals(entry, module_globals)
     entry.__signature__ = signature
     entry = update_fn(entry, qualname, name)
     if module_name is not None:
         entry.__module__ = module_name
-        _bb_set_plan_metadata(entry, module_name, qualname)
+        _bb_set_plan_metadata(entry, module_name, qualname, module_globals)
     if doc is not None:
         entry.__doc__ = doc
     if annotate_fn is not None:
         entry.__annotate__ = annotate_fn
     return entry
+
+
+def _dp_mark_coroutine_function(func):
+    module = sys.modules.get("asyncio.coroutines")
+    if module is None:
+        try:
+            import asyncio.coroutines as module
+        except Exception:
+            module = None
+    marker = getattr(module, "_is_coroutine", None) if module is not None else None
+    if marker is not None:
+        try:
+            func._is_coroutine = marker
+        except Exception:
+            pass
+    return func
+
+
+def def_coro_from_gen(
+    resume,
+    name,
+    qualname,
+    closure,
+    params,
+    module_globals,
+    module_name,
+    doc=None,
+    annotate_fn=None,
+):
+    gen_entry = def_gen(
+        resume,
+        name,
+        qualname,
+        closure,
+        params,
+        module_globals,
+        module_name,
+        doc,
+        annotate_fn,
+    )
+
+    def entry(
+        *args,
+        __dp_gen_entry=gen_entry,
+        __dp_coro_type=_DpCoroutine,
+        **kwargs,
+    ):
+        return __dp_coro_type(__dp_gen_entry(*args, **kwargs))
+
+    entry = _bb_rebind_function_globals(entry, module_globals)
+    if hasattr(gen_entry, "__signature__"):
+        entry.__signature__ = gen_entry.__signature__
+    entry = update_fn(entry, qualname, name)
+    if module_name is not None:
+        entry.__module__ = module_name
+        _bb_set_plan_metadata(entry, module_name, qualname, module_globals)
+    if doc is not None:
+        entry.__doc__ = doc
+    if annotate_fn is not None:
+        entry.__annotate__ = annotate_fn
+    return _dp_mark_coroutine_function(entry)
 
 
 _DP_GEN_CODE_TEMPLATE = None
@@ -1937,7 +1893,7 @@ def def_gen(
     entry = update_fn(entry, qualname, name)
     if module_name is not None:
         entry.__module__ = module_name
-        _bb_set_plan_metadata(entry, module_name, qualname)
+        _bb_set_plan_metadata(entry, module_name, qualname, module_globals)
     if doc is not None:
         entry.__doc__ = doc
     if annotate_fn is not None:
@@ -2006,7 +1962,7 @@ def def_async_gen(
     entry = update_fn(entry, qualname, name)
     if module_name is not None:
         entry.__module__ = module_name
-        _bb_set_plan_metadata(entry, module_name, qualname)
+        _bb_set_plan_metadata(entry, module_name, qualname, module_globals)
     if doc is not None:
         entry.__doc__ = doc
     if annotate_fn is not None:
@@ -2150,6 +2106,30 @@ def _get_awaitable_iter(awaitable):
         awaitable = None
         raise TypeError(
             f"'async for' received an invalid object from __anext__: {awaitable_type}"
+        ) from None
+    return iterator
+
+
+def await_iter(awaitable):
+    try:
+        iterator = awaitable.__await__()
+    except AttributeError:
+        awaitable_type = type(awaitable).__name__
+        awaitable = None
+        raise TypeError(
+            f"object {awaitable_type!r} can't be used in 'await' expression"
+        ) from None
+    except Exception as exc:
+        awaitable_type = type(awaitable).__name__
+        awaitable = None
+        raise TypeError(
+            f"object {awaitable_type!r} can't be used in 'await' expression"
+        ) from exc
+    if not hasattr(iterator, "__next__"):
+        awaitable_type = type(awaitable).__name__
+        awaitable = None
+        raise TypeError(
+            f"object {awaitable_type!r} can't be used in 'await' expression"
         ) from None
     return iterator
 
@@ -2463,6 +2443,10 @@ def _inject_builtin_helper_aliases():
     module_dict = globals()
     for name, value in tuple(module_dict.items()):
         if name.startswith("_"):
+            continue
+        if name == "tuple":
+            setattr(builtins, "__dp_tuple", _dp_tuple_helper)
+            setattr(builtins, "__dp_tuple_from_iter", _dp_tuple_from_iter_helper)
             continue
         if callable(value):
             setattr(builtins, f"__dp_{name}", value)

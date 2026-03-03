@@ -6,7 +6,7 @@ use cranelift_codegen::settings::Configurable;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module};
-use dp_transform::basic_block::bb_ir::{BbExpr, BbModule, BbOp, BbTerm};
+use dp_transform::basic_block::bb_ir::{BbBlock, BbExpr, BbModule, BbOp, BbTerm};
 use ruff_python_ast::Number;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -42,12 +42,6 @@ type TupleSetItemFn = unsafe extern "C" fn(ObjPtr, i64, ObjPtr) -> i32;
 type IsTrueFn = unsafe extern "C" fn(ObjPtr) -> i32;
 type CompareEqFn = unsafe extern "C" fn(ObjPtr, ObjPtr) -> i32;
 type CompareObjFn = unsafe extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr;
-type TermKindFn = unsafe extern "C" fn(ObjPtr) -> i64;
-type TermJumpTargetFn = unsafe extern "C" fn(ObjPtr) -> ObjPtr;
-type TermJumpArgsFn = unsafe extern "C" fn(ObjPtr) -> ObjPtr;
-type TermRetValueFn = unsafe extern "C" fn(ObjPtr) -> ObjPtr;
-type TermRaiseExcFn = unsafe extern "C" fn(ObjPtr) -> ObjPtr;
-type TermInvalidFn = unsafe extern "C" fn(ObjPtr) -> i32;
 type RaiseFromExcFn = unsafe extern "C" fn(ObjPtr) -> i32;
 
 static mut DP_JIT_INCREF_FN: Option<IncrefFn> = None;
@@ -75,12 +69,6 @@ static mut DP_JIT_TUPLE_SET_ITEM_FN: Option<TupleSetItemFn> = None;
 static mut DP_JIT_IS_TRUE_FN: Option<IsTrueFn> = None;
 static mut DP_JIT_COMPARE_EQ_OBJ_FN: Option<CompareObjFn> = None;
 static mut DP_JIT_COMPARE_LT_OBJ_FN: Option<CompareObjFn> = None;
-static mut DP_JIT_TERM_KIND_FN: Option<TermKindFn> = None;
-static mut DP_JIT_TERM_JUMP_TARGET_FN: Option<TermJumpTargetFn> = None;
-static mut DP_JIT_TERM_JUMP_ARGS_FN: Option<TermJumpArgsFn> = None;
-static mut DP_JIT_TERM_RET_VALUE_FN: Option<TermRetValueFn> = None;
-static mut DP_JIT_TERM_RAISE_EXC_FN: Option<TermRaiseExcFn> = None;
-static mut DP_JIT_TERM_INVALID_FN: Option<TermInvalidFn> = None;
 static mut DP_JIT_RAISE_FROM_EXC_FN: Option<RaiseFromExcFn> = None;
 
 #[derive(Clone, Debug)]
@@ -209,6 +197,10 @@ pub enum DirectSimpleTermPlan {
     Ret {
         value: Option<DirectSimpleExprPlan>,
     },
+    Raise {
+        exc: Option<DirectSimpleExprPlan>,
+        cause: Option<DirectSimpleExprPlan>,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -242,6 +234,12 @@ pub struct RenderedSpecializedClif {
     pub cfg_dot: String,
 }
 
+struct CompiledSpecializedRunner {
+    _jit_module: JITModule,
+    _literal_pool: Vec<Box<[u8]>>,
+    entry: Option<extern "C" fn(ObjPtr) -> ObjPtr>,
+}
+
 static BB_PLAN_REGISTRY: OnceLock<Mutex<PlanRegistry>> = OnceLock::new();
 
 fn bb_plan_registry() -> &'static Mutex<PlanRegistry> {
@@ -249,65 +247,26 @@ fn bb_plan_registry() -> &'static Mutex<PlanRegistry> {
 }
 
 fn direct_simple_expr_from(expr: &BbExpr) -> Option<DirectSimpleExprPlan> {
-    fn helper_name_expr(name: &str) -> DirectSimpleExprPlan {
-        DirectSimpleExprPlan::Name(name.to_string())
-    }
-
-    fn call_helper_with_tuple_arg(
-        helper_name: &str,
-        items: Vec<DirectSimpleExprPlan>,
-    ) -> DirectSimpleExprPlan {
-        DirectSimpleExprPlan::Call {
-            func: Box::new(helper_name_expr(helper_name)),
-            args: vec![DirectSimpleExprPlan::Tuple(items)],
-            keywords: Vec::new(),
-        }
-    }
-
     match expr {
         BbExpr::Await(_) => None,
         BbExpr::Name(name) => Some(DirectSimpleExprPlan::Name(name.id.to_string())),
-        BbExpr::NumberLiteral(number) => match &number.value {
-            Number::Int(value) => value.as_i64().map(DirectSimpleExprPlan::Int),
-            Number::Float(value) => Some(DirectSimpleExprPlan::Float(*value)),
-            Number::Complex { .. } => None,
-        },
+        BbExpr::IntLiteral(number) => {
+            let Number::Int(value) = &number.value else {
+                panic!("BbExpr::IntLiteral contained a non-int value");
+            };
+            value.as_i64().map(DirectSimpleExprPlan::Int)
+        }
+        BbExpr::FloatLiteral(number) => {
+            let Number::Float(value) = &number.value else {
+                panic!("BbExpr::FloatLiteral contained a non-float value");
+            };
+            Some(DirectSimpleExprPlan::Float(*value))
+        }
         BbExpr::BytesLiteral(bytes) => {
             let value: Cow<[u8]> = (&bytes.value).into();
             Some(DirectSimpleExprPlan::Bytes(value.into_owned()))
         }
         BbExpr::Starred(_) => None,
-        BbExpr::TupleLiteral(tuple) => {
-            let mut items = Vec::with_capacity(tuple.elts.len());
-            for elt in &tuple.elts {
-                items.push(direct_simple_expr_from(&BbExpr::from_expr(elt.clone()))?);
-            }
-            Some(DirectSimpleExprPlan::Tuple(items))
-        }
-        BbExpr::ListLiteral(list) => {
-            let mut items = Vec::with_capacity(list.elts.len());
-            for elt in &list.elts {
-                items.push(direct_simple_expr_from(&BbExpr::from_expr(elt.clone()))?);
-            }
-            Some(call_helper_with_tuple_arg("__dp_list", items))
-        }
-        BbExpr::SetLiteral(set) => {
-            let mut items = Vec::with_capacity(set.elts.len());
-            for elt in &set.elts {
-                items.push(direct_simple_expr_from(&BbExpr::from_expr(elt.clone()))?);
-            }
-            Some(call_helper_with_tuple_arg("__dp_set", items))
-        }
-        BbExpr::DictLiteral(dict) => {
-            let mut kv_items = Vec::with_capacity(dict.items.len());
-            for item in &dict.items {
-                let key = item.key.as_ref()?;
-                let key_expr = direct_simple_expr_from(&BbExpr::from_expr(key.clone()))?;
-                let value_expr = direct_simple_expr_from(&BbExpr::from_expr(item.value.clone()))?;
-                kv_items.push(DirectSimpleExprPlan::Tuple(vec![key_expr, value_expr]));
-            }
-            Some(call_helper_with_tuple_arg("__dp_dict", kv_items))
-        }
         BbExpr::Call(call) => {
             let func = direct_simple_expr_from(call.func.as_ref())?;
             let mut args = Vec::with_capacity(call.args.len());
@@ -432,17 +391,8 @@ fn direct_simple_expr_ret_none_plan_from_block(
 fn target_params_from_index(
     function: &dp_transform::basic_block::bb_ir::BbFunction,
     target_index: usize,
-    known_names: &[String],
 ) -> Option<Vec<String>> {
-    let params = function.blocks[target_index].params.clone();
-    if params
-        .iter()
-        .all(|name| known_names.iter().any(|known| known == name))
-    {
-        Some(params)
-    } else {
-        None
-    }
+    Some(function.blocks.get(target_index)?.params.clone())
 }
 
 fn direct_simple_delete_plan_from_targets(
@@ -494,6 +444,53 @@ fn direct_simple_op_from_bb_op(
     }
 }
 
+fn bb_op_kind(op: &BbOp) -> &'static str {
+    match op {
+        BbOp::Assign(_) => "Assign",
+        BbOp::Expr(_) => "Expr",
+        BbOp::Delete(_) => "Delete",
+    }
+}
+
+fn bb_term_kind(term: &BbTerm) -> &'static str {
+    match term {
+        BbTerm::Jump(_) => "Jump",
+        BbTerm::BrIf { .. } => "BrIf",
+        BbTerm::BrTable { .. } => "BrTable",
+        BbTerm::TryJump { .. } => "TryJump",
+        BbTerm::Raise { .. } => "Raise",
+        BbTerm::Ret(_) => "Ret",
+    }
+}
+
+fn unsupported_fastpath_block_message(
+    function: &dp_transform::basic_block::bb_ir::BbFunction,
+    block: &BbBlock,
+) -> String {
+    let op_kinds = block
+        .ops
+        .iter()
+        .map(bb_op_kind)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let op_debug = block
+        .ops
+        .iter()
+        .map(|op| format!("{op:?}"))
+        .collect::<Vec<_>>()
+        .join("; ");
+    format!(
+        "unsupported JIT block shape in {}:{}: term={}, ops=[{}], params={:?}, exc_target={:?}; op_debug=[{}]; expected direct-simple lowered block",
+        function.qualname,
+        block.label,
+        bb_term_kind(&block.term),
+        op_kinds,
+        block.params,
+        block.exc_target_label,
+        op_debug,
+    )
+}
+
 fn direct_simple_block_plan_from_block(
     function: &dp_transform::basic_block::bb_ir::BbFunction,
     block: &dp_transform::basic_block::bb_ir::BbBlock,
@@ -508,7 +505,7 @@ fn direct_simple_block_plan_from_block(
     let term = match &block.term {
         BbTerm::Jump(target_label) => {
             let target_index = *label_to_index.get(target_label.as_str())?;
-            let target_params = target_params_from_index(function, target_index, &known_names)?;
+            let target_params = target_params_from_index(function, target_index)?;
             DirectSimpleTermPlan::Jump {
                 target_index,
                 target_params,
@@ -521,9 +518,9 @@ fn direct_simple_block_plan_from_block(
         } => {
             let test_expr = direct_simple_expr_from(test)?;
             let then_index = *label_to_index.get(then_label.as_str())?;
-            let then_params = target_params_from_index(function, then_index, &known_names)?;
+            let then_params = target_params_from_index(function, then_index)?;
             let else_index = *label_to_index.get(else_label.as_str())?;
-            let else_params = target_params_from_index(function, else_index, &known_names)?;
+            let else_params = target_params_from_index(function, else_index)?;
             DirectSimpleTermPlan::BrIf {
                 test: test_expr,
                 then_index,
@@ -541,11 +538,11 @@ fn direct_simple_block_plan_from_block(
             let mut target_plans = Vec::with_capacity(targets.len());
             for target_label in targets {
                 let target_index = *label_to_index.get(target_label.as_str())?;
-                let target_params = target_params_from_index(function, target_index, &known_names)?;
+                let target_params = target_params_from_index(function, target_index)?;
                 target_plans.push((target_index, target_params));
             }
             let default_index = *label_to_index.get(default_label.as_str())?;
-            let default_params = target_params_from_index(function, default_index, &known_names)?;
+            let default_params = target_params_from_index(function, default_index)?;
             DirectSimpleTermPlan::BrTable {
                 index: index_expr,
                 targets: target_plans,
@@ -560,6 +557,19 @@ fn direct_simple_block_plan_from_block(
                 None
             };
             DirectSimpleTermPlan::Ret { value }
+        }
+        BbTerm::Raise { exc, cause } => {
+            let exc = if let Some(expr) = exc.as_ref() {
+                Some(direct_simple_expr_from(expr)?)
+            } else {
+                None
+            };
+            let cause = if let Some(expr) = cause.as_ref() {
+                Some(direct_simple_expr_from(expr)?)
+            } else {
+                None
+            };
+            DirectSimpleTermPlan::Raise { exc, cause }
         }
         _ => return None,
     };
@@ -606,6 +616,7 @@ struct DirectSimpleEmitCtx {
     empty_tuple_const: ir::Value,
     block_const: ir::Value,
     load_name_ref: ir::FuncRef,
+    load_local_raw_by_name_ref: ir::FuncRef,
     pyobject_getattr_ref: ir::FuncRef,
     pyobject_setattr_ref: ir::FuncRef,
     pyobject_getitem_ref: ir::FuncRef,
@@ -1295,6 +1306,7 @@ fn emit_pack_target_args(
     local_names: &[String],
     local_values: &[ir::Value],
     ctx: &DirectSimpleEmitCtx,
+    literal_pool: &mut Vec<Box<[u8]>>,
 ) -> Option<ir::Value> {
     if target_params.is_empty() {
         fb.ins().call(ctx.incref_ref, &[ctx.empty_tuple_const]);
@@ -1320,10 +1332,41 @@ fn emit_pack_target_args(
     );
     fb.switch_to_block(tuple_ok_block);
     let tuple_obj = fb.block_params(tuple_ok_block)[0];
+    let owner_value = local_names
+        .iter()
+        .position(|candidate| candidate == "_dp_self" || candidate == "_dp_state")
+        .map(|index| local_values[index]);
     for (index, name) in target_params.iter().enumerate() {
-        let value_index = local_names.iter().position(|candidate| candidate == name)?;
-        let value = local_values[value_index];
-        // PyTuple_SetItem steals a reference; increment first when using local slot values.
+        let value =
+            if let Some(value_index) = local_names.iter().position(|candidate| candidate == name) {
+                local_values[value_index]
+            } else if let Some(owner) = owner_value {
+                let (name_ptr, name_len) = intern_bytes_literal(literal_pool, name.as_bytes());
+                let name_ptr_val = fb.ins().iconst(ptr_ty, name_ptr as i64);
+                let name_len_val = fb.ins().iconst(i64_ty, name_len);
+                let load_inst = fb.ins().call(
+                    ctx.load_local_raw_by_name_ref,
+                    &[owner, name_ptr_val, name_len_val],
+                );
+                let load_value = fb.inst_results(load_inst)[0];
+                let load_is_null = fb
+                    .ins()
+                    .icmp(ir::condcodes::IntCC::Equal, load_value, null_ptr);
+                let load_ok_block = fb.create_block();
+                fb.append_block_param(load_ok_block, ptr_ty);
+                fb.ins().brif(
+                    load_is_null,
+                    ctx.step_null_block,
+                    &[ir::BlockArg::Value(ctx.exec_args)],
+                    load_ok_block,
+                    &[ir::BlockArg::Value(load_value)],
+                );
+                fb.switch_to_block(load_ok_block);
+                fb.block_params(load_ok_block)[0]
+            } else {
+                ctx.none_const
+            };
+        // PyTuple_SetItem steals a reference; pass owned values.
         fb.ins().call(ctx.incref_ref, &[value]);
         let item_index = fb.ins().iconst(i64_ty, index as i64);
         let set_inst = fb
@@ -1452,13 +1495,17 @@ fn emit_direct_simple_ops(
 fn build_entry_plan(
     function: &dp_transform::basic_block::bb_ir::BbFunction,
 ) -> Result<EntryBlockPlan, String> {
-    // Generator/async-generator block wrappers currently inject additional
-    // resume/send checks during Python rendering that are not yet represented
-    // in BbOp/BbTerm. Restrict direct JIT fast-path elision to plain functions.
-    let allow_fast_path = matches!(
+    if !matches!(
         function.kind,
         dp_transform::basic_block::bb_ir::BbFunctionKind::Function
-    );
+            | dp_transform::basic_block::bb_ir::BbFunctionKind::Generator { .. }
+            | dp_transform::basic_block::bb_ir::BbFunctionKind::AsyncGenerator { .. }
+    ) {
+        return Err(format!(
+            "unsupported JIT function kind in {}: {:?}; only plain/generator/async-generator functions are currently supported",
+            function.qualname, function.kind
+        ));
+    }
     let mut label_to_index = HashMap::new();
     for (index, block) in function.blocks.iter().enumerate() {
         label_to_index.insert(block.label.clone(), index);
@@ -1521,9 +1568,16 @@ fn build_entry_plan(
                     arg_sources.push(BlockExcArgSource::NoneValue);
                     continue;
                 }
-                arg_sources.push(BlockExcArgSource::FrameLocal {
-                    name: target_param.clone(),
-                });
+                if owner_param_index.is_none() {
+                    // Plain function blocks do not carry a frame owner parameter.
+                    // For missing edge locals, seed a neutral value on exception
+                    // edges instead of requiring frame-local recovery.
+                    arg_sources.push(BlockExcArgSource::NoneValue);
+                } else {
+                    arg_sources.push(BlockExcArgSource::FrameLocal {
+                        name: target_param.clone(),
+                    });
+                }
             }
             if owner_param_index.is_none()
                 && arg_sources
@@ -1627,7 +1681,7 @@ fn build_entry_plan(
                 ));
             }
         };
-        let fast_path = if allow_fast_path && exc_target.is_none() {
+        let fast_path = {
             if block.ops.is_empty() {
                 match &block.term {
                     BbTerm::Jump(target_label) => {
@@ -1691,9 +1745,10 @@ fn build_entry_plan(
             } else {
                 BlockFastPath::None
             }
-        } else {
-            BlockFastPath::None
         };
+        if matches!(fast_path, BlockFastPath::None) {
+            return Err(unsupported_fastpath_block_message(function, block));
+        }
         block_terms.push(term);
         block_exc_targets.push(exc_target);
         block_exc_dispatches.push(exc_dispatch);
@@ -1717,6 +1772,7 @@ fn build_entry_plan(
 
 pub fn register_bb_module_plans(module_name: &str, module: &BbModule) -> Result<(), String> {
     let lowered = lower_try_jump_exception_flow(module)?;
+    let debug_skips = std::env::var_os("DIET_PYTHON_DEBUG_JIT_PLAN_SKIPS").is_some();
     let mut plans = HashMap::new();
     let mut skipped_errors: HashMap<String, String> = HashMap::new();
     for function in &lowered.functions {
@@ -1731,20 +1787,33 @@ pub fn register_bb_module_plans(module_name: &str, module: &BbModule) -> Result<
                 );
             }
             Err(err) => {
+                if debug_skips {
+                    eprintln!(
+                        "[diet-python:jitskip] module={} qualname={} reason={}",
+                        module_name, function.qualname, err
+                    );
+                }
                 skipped_errors.insert(function.qualname.clone(), err);
             }
         }
     }
 
-    if let Some(module_init_qualname) = lowered.module_init.as_ref() {
-        if !plans.keys().any(|k| &k.qualname == module_init_qualname) {
-            let detail = skipped_errors
-                .remove(module_init_qualname)
-                .unwrap_or_else(|| "unknown planning error".to_string());
-            return Err(format!(
-                "failed to build JIT plan for module init {module_name}.{module_init_qualname}: {detail}"
-            ));
+    if !skipped_errors.is_empty() {
+        let mut skipped = skipped_errors.into_iter().collect::<Vec<_>>();
+        skipped.sort_by(|(left, _), (right, _)| left.cmp(right));
+        let mut details = String::new();
+        for (idx, (qualname, reason)) in skipped.iter().enumerate() {
+            if idx > 0 {
+                details.push_str("; ");
+            }
+            details.push_str(qualname.as_str());
+            details.push_str(": ");
+            details.push_str(reason.as_str());
         }
+        return Err(format!(
+            "module {module_name} has unsupported JIT plans ({count}): {details}",
+            count = skipped.len()
+        ));
     }
 
     let mut registry = bb_plan_registry()
@@ -1793,48 +1862,6 @@ unsafe extern "C" fn dp_jit_call_two_args(callable: ObjPtr, arg1: ObjPtr, arg2: 
         return func(callable, arg1, arg2);
     }
     ptr::null_mut()
-}
-
-unsafe extern "C" fn dp_jit_term_kind(term: ObjPtr) -> i64 {
-    if let Some(func) = DP_JIT_TERM_KIND_FN {
-        return func(term);
-    }
-    -1
-}
-
-unsafe extern "C" fn dp_jit_term_jump_target(term: ObjPtr) -> ObjPtr {
-    if let Some(func) = DP_JIT_TERM_JUMP_TARGET_FN {
-        return func(term);
-    }
-    ptr::null_mut()
-}
-
-unsafe extern "C" fn dp_jit_term_jump_args(term: ObjPtr) -> ObjPtr {
-    if let Some(func) = DP_JIT_TERM_JUMP_ARGS_FN {
-        return func(term);
-    }
-    ptr::null_mut()
-}
-
-unsafe extern "C" fn dp_jit_term_ret_value(term: ObjPtr) -> ObjPtr {
-    if let Some(func) = DP_JIT_TERM_RET_VALUE_FN {
-        return func(term);
-    }
-    ptr::null_mut()
-}
-
-unsafe extern "C" fn dp_jit_term_raise_exc(term: ObjPtr) -> ObjPtr {
-    if let Some(func) = DP_JIT_TERM_RAISE_EXC_FN {
-        return func(term);
-    }
-    ptr::null_mut()
-}
-
-unsafe extern "C" fn dp_jit_term_invalid(term: ObjPtr) -> i32 {
-    if let Some(func) = DP_JIT_TERM_INVALID_FN {
-        return func(term);
-    }
-    -1
 }
 
 unsafe extern "C" fn dp_jit_raise_from_exc(exc: ObjPtr) -> i32 {
@@ -2528,33 +2555,9 @@ fn build_cranelift_run_bb_specialized_function(
     compare_obj_sig.params.push(ir::AbiParam::new(ptr_ty));
     compare_obj_sig.returns.push(ir::AbiParam::new(ptr_ty));
 
-    let mut term_kind_sig = jit_module.make_signature();
-    term_kind_sig.params.push(ir::AbiParam::new(ptr_ty));
-    term_kind_sig.returns.push(ir::AbiParam::new(i64_ty));
-
-    let mut term_jump_target_sig = jit_module.make_signature();
-    term_jump_target_sig.params.push(ir::AbiParam::new(ptr_ty));
-    term_jump_target_sig.returns.push(ir::AbiParam::new(ptr_ty));
-
-    let mut term_jump_args_sig = jit_module.make_signature();
-    term_jump_args_sig.params.push(ir::AbiParam::new(ptr_ty));
-    term_jump_args_sig.returns.push(ir::AbiParam::new(ptr_ty));
-
-    let mut term_ret_value_sig = jit_module.make_signature();
-    term_ret_value_sig.params.push(ir::AbiParam::new(ptr_ty));
-    term_ret_value_sig.returns.push(ir::AbiParam::new(ptr_ty));
-
-    let mut term_raise_exc_sig = jit_module.make_signature();
-    term_raise_exc_sig.params.push(ir::AbiParam::new(ptr_ty));
-    term_raise_exc_sig.returns.push(ir::AbiParam::new(ptr_ty));
-
     let mut raise_exc_sig = jit_module.make_signature();
     raise_exc_sig.params.push(ir::AbiParam::new(ptr_ty));
     raise_exc_sig.returns.push(ir::AbiParam::new(i32_ty));
-
-    let mut term_invalid_sig = jit_module.make_signature();
-    term_invalid_sig.params.push(ir::AbiParam::new(ptr_ty));
-    term_invalid_sig.returns.push(ir::AbiParam::new(i32_ty));
 
     let mut main_sig = jit_module.make_signature();
     main_sig.params.push(ir::AbiParam::new(ptr_ty));
@@ -2605,17 +2608,7 @@ fn build_cranelift_run_bb_specialized_function(
         declare_import_fn(jit_module, "dp_jit_compare_eq_obj", &compare_obj_sig)?;
     let compare_lt_obj_id =
         declare_import_fn(jit_module, "dp_jit_compare_lt_obj", &compare_obj_sig)?;
-    let term_kind_id = declare_import_fn(jit_module, "dp_jit_term_kind", &term_kind_sig)?;
-    let term_jump_target_id =
-        declare_import_fn(jit_module, "dp_jit_term_jump_target", &term_jump_target_sig)?;
-    let term_jump_args_id =
-        declare_import_fn(jit_module, "dp_jit_term_jump_args", &term_jump_args_sig)?;
-    let term_ret_value_id =
-        declare_import_fn(jit_module, "dp_jit_term_ret_value", &term_ret_value_sig)?;
-    let term_raise_exc_id =
-        declare_import_fn(jit_module, "dp_jit_term_raise_exc", &term_raise_exc_sig)?;
     let raise_exc_id = declare_import_fn(jit_module, "dp_jit_raise_from_exc", &raise_exc_sig)?;
-    let term_invalid_id = declare_import_fn(jit_module, "dp_jit_term_invalid", &term_invalid_sig)?;
     let main_id = declare_local_fn(jit_module, "dp_jit_run_bb_specialized", &main_sig)?;
     let mut import_id_to_symbol: HashMap<u32, &'static str> = HashMap::new();
     import_id_to_symbol.insert(incref_id.as_u32(), "dp_jit_incref");
@@ -2647,13 +2640,7 @@ fn build_cranelift_run_bb_specialized_function(
     import_id_to_symbol.insert(is_true_id.as_u32(), "dp_jit_is_true");
     import_id_to_symbol.insert(compare_eq_obj_id.as_u32(), "dp_jit_compare_eq_obj");
     import_id_to_symbol.insert(compare_lt_obj_id.as_u32(), "dp_jit_compare_lt_obj");
-    import_id_to_symbol.insert(term_kind_id.as_u32(), "dp_jit_term_kind");
-    import_id_to_symbol.insert(term_jump_target_id.as_u32(), "dp_jit_term_jump_target");
-    import_id_to_symbol.insert(term_jump_args_id.as_u32(), "dp_jit_term_jump_args");
-    import_id_to_symbol.insert(term_ret_value_id.as_u32(), "dp_jit_term_ret_value");
-    import_id_to_symbol.insert(term_raise_exc_id.as_u32(), "dp_jit_term_raise_exc");
     import_id_to_symbol.insert(raise_exc_id.as_u32(), "dp_jit_raise_from_exc");
-    import_id_to_symbol.insert(term_invalid_id.as_u32(), "dp_jit_term_invalid");
 
     let mut ctx = jit_module.make_context();
     let mut literal_pool: Vec<Box<[u8]>> = Vec::new();
@@ -2667,32 +2654,15 @@ fn build_cranelift_run_bb_specialized_function(
             exec_blocks.push(fb.create_block());
         }
         let step_null_block = fb.create_block();
-        let ret_block = fb.create_block();
-        let raise_block = fb.create_block();
         let raise_exc_direct_block = fb.create_block();
-        let invalid_term_block = fb.create_block();
-        let invalid_jump_null_block = fb.create_block();
-        let jump_invalid_target_block = fb.create_block();
 
         fb.append_block_params_for_function_params(entry_block);
         for block in &exec_blocks {
             fb.append_block_param(*block, ptr_ty); // args
         }
         fb.append_block_param(step_null_block, ptr_ty); // args
-        fb.append_block_param(ret_block, ptr_ty); // args
-        fb.append_block_param(ret_block, ptr_ty); // term
-        fb.append_block_param(raise_block, ptr_ty); // args
-        fb.append_block_param(raise_block, ptr_ty); // term
         fb.append_block_param(raise_exc_direct_block, ptr_ty); // args
         fb.append_block_param(raise_exc_direct_block, ptr_ty); // exc
-        fb.append_block_param(invalid_term_block, ptr_ty); // args
-        fb.append_block_param(invalid_term_block, ptr_ty); // term
-        fb.append_block_param(invalid_jump_null_block, ptr_ty); // args
-        fb.append_block_param(invalid_jump_null_block, ptr_ty); // term
-        fb.append_block_param(invalid_jump_null_block, ptr_ty); // target
-        fb.append_block_param(jump_invalid_target_block, ptr_ty); // args
-        fb.append_block_param(jump_invalid_target_block, ptr_ty); // term
-        fb.append_block_param(jump_invalid_target_block, ptr_ty); // next_args
 
         fb.switch_to_block(entry_block);
         let entry_args = fb.block_params(entry_block)[0];
@@ -2706,14 +2676,7 @@ fn build_cranelift_run_bb_specialized_function(
         let get_arg_item_ref = jit_module.declare_func_in_func(get_arg_item_id, &mut fb.func);
         let make_int_ref = jit_module.declare_func_in_func(make_int_id, &mut fb.func);
         let is_true_ref = jit_module.declare_func_in_func(is_true_id, &mut fb.func);
-        let term_kind_ref = jit_module.declare_func_in_func(term_kind_id, &mut fb.func);
-        let term_jump_target_ref =
-            jit_module.declare_func_in_func(term_jump_target_id, &mut fb.func);
-        let term_jump_args_ref = jit_module.declare_func_in_func(term_jump_args_id, &mut fb.func);
-        let term_ret_value_ref = jit_module.declare_func_in_func(term_ret_value_id, &mut fb.func);
-        let term_raise_exc_ref = jit_module.declare_func_in_func(term_raise_exc_id, &mut fb.func);
         let raise_exc_ref = jit_module.declare_func_in_func(raise_exc_id, &mut fb.func);
-        let term_invalid_ref = jit_module.declare_func_in_func(term_invalid_id, &mut fb.func);
         let make_float_ref = jit_module.declare_func_in_func(make_float_id, &mut fb.func);
         let load_name_ref = jit_module.declare_func_in_func(load_name_id, &mut fb.func);
         let load_local_raw_by_name_ref =
@@ -2740,6 +2703,15 @@ fn build_cranelift_run_bb_specialized_function(
         fb.ins()
             .jump(exec_blocks[plan.entry_index], &entry_jump_args);
 
+        let mut exception_dispatch_blocks: Vec<Option<ir::Block>> = vec![None; exec_blocks.len()];
+        for (index, exc_dispatch_plan) in plan.block_exc_dispatches.iter().enumerate() {
+            if exc_dispatch_plan.is_some() {
+                let dispatch_block = fb.create_block();
+                fb.append_block_param(dispatch_block, ptr_ty); // args
+                exception_dispatch_blocks[index] = Some(dispatch_block);
+            }
+        }
+
         for (index, block) in exec_blocks.iter().enumerate() {
             fb.switch_to_block(*block);
             let exec_args = fb.block_params(*block)[0];
@@ -2748,12 +2720,13 @@ fn build_cranelift_run_bb_specialized_function(
             let true_const = fb.ins().iconst(ptr_ty, true_obj as i64);
             let false_const = fb.ins().iconst(ptr_ty, false_obj as i64);
             let empty_tuple_const = fb.ins().iconst(ptr_ty, empty_tuple_obj as i64);
+            let fast_step_null_block = exception_dispatch_blocks[index].unwrap_or(step_null_block);
             let emit_ctx = DirectSimpleEmitCtx {
                 incref_ref,
                 decref_ref,
                 py_call_ref,
                 make_int_ref,
-                step_null_block,
+                step_null_block: fast_step_null_block,
                 exec_args,
                 ptr_ty,
                 i64_ty,
@@ -2763,6 +2736,7 @@ fn build_cranelift_run_bb_specialized_function(
                 empty_tuple_const,
                 block_const,
                 load_name_ref,
+                load_local_raw_by_name_ref,
                 pyobject_getattr_ref,
                 pyobject_setattr_ref,
                 pyobject_getitem_ref,
@@ -3019,6 +2993,7 @@ fn build_cranelift_run_bb_specialized_function(
                                 &local_names,
                                 &local_values,
                                 &emit_ctx,
+                                &mut literal_pool,
                             )
                             .ok_or_else(|| {
                                 format!(
@@ -3072,6 +3047,7 @@ fn build_cranelift_run_bb_specialized_function(
                                 &local_names,
                                 &local_values,
                                 &emit_ctx,
+                                &mut literal_pool,
                             )
                             .ok_or_else(|| {
                                 format!(
@@ -3093,6 +3069,7 @@ fn build_cranelift_run_bb_specialized_function(
                                 &local_names,
                                 &local_values,
                                 &emit_ctx,
+                                &mut literal_pool,
                             )
                             .ok_or_else(|| {
                                 format!(
@@ -3162,6 +3139,7 @@ fn build_cranelift_run_bb_specialized_function(
                                     &local_names,
                                     &local_values,
                                     &emit_ctx,
+                                    &mut literal_pool,
                                 )
                                 .ok_or_else(|| {
                                     format!(
@@ -3186,6 +3164,7 @@ fn build_cranelift_run_bb_specialized_function(
                                 &local_names,
                                 &local_values,
                                 &emit_ctx,
+                                &mut literal_pool,
                             )
                             .ok_or_else(|| {
                                 format!(
@@ -3223,1291 +3202,348 @@ fn build_cranelift_run_bb_specialized_function(
                             fb.ins().call(decref_ref, &[exec_args]);
                             fb.ins().return_(&[ret_value]);
                         }
+                        DirectSimpleTermPlan::Raise { exc, cause } => {
+                            let (raise_name_ptr, raise_name_len) =
+                                intern_bytes_literal(&mut literal_pool, b"__dp_raise_from");
+                            let raise_name_ptr_val = fb.ins().iconst(ptr_ty, raise_name_ptr as i64);
+                            let raise_name_len_val = fb.ins().iconst(i64_ty, raise_name_len);
+                            let raise_fn_inst = fb.ins().call(
+                                load_name_ref,
+                                &[block_const, raise_name_ptr_val, raise_name_len_val],
+                            );
+                            let raise_fn = fb.inst_results(raise_fn_inst)[0];
+                            let raise_fn_null =
+                                fb.ins()
+                                    .icmp(ir::condcodes::IntCC::Equal, raise_fn, null_ptr);
+                            let raise_fn_fail = fb.create_block();
+                            let raise_fn_ok = fb.create_block();
+                            fb.append_block_param(raise_fn_fail, ptr_ty);
+                            fb.append_block_param(raise_fn_ok, ptr_ty);
+                            fb.append_block_param(raise_fn_ok, ptr_ty);
+                            fb.ins().brif(
+                                raise_fn_null,
+                                raise_fn_fail,
+                                &[ir::BlockArg::Value(exec_args)],
+                                raise_fn_ok,
+                                &[
+                                    ir::BlockArg::Value(exec_args),
+                                    ir::BlockArg::Value(raise_fn),
+                                ],
+                            );
+
+                            fb.switch_to_block(raise_fn_fail);
+                            let rff_args = fb.block_params(raise_fn_fail)[0];
+                            fb.ins()
+                                .jump(emit_ctx.step_null_block, &[ir::BlockArg::Value(rff_args)]);
+
+                            fb.switch_to_block(raise_fn_ok);
+                            let rfo_args = fb.block_params(raise_fn_ok)[0];
+                            let rfo_raise_fn = fb.block_params(raise_fn_ok)[1];
+                            let exc_value = if let Some(exc_expr) = exc.as_ref() {
+                                emit_direct_simple_expr(
+                                    &mut fb,
+                                    exc_expr,
+                                    &local_names,
+                                    &local_values,
+                                    &emit_ctx,
+                                    &mut literal_pool,
+                                    false,
+                                )
+                            } else {
+                                fb.ins().call(incref_ref, &[none_const]);
+                                none_const
+                            };
+                            let cause_value = if let Some(cause_expr) = cause.as_ref() {
+                                emit_direct_simple_expr(
+                                    &mut fb,
+                                    cause_expr,
+                                    &local_names,
+                                    &local_values,
+                                    &emit_ctx,
+                                    &mut literal_pool,
+                                    false,
+                                )
+                            } else {
+                                fb.ins().call(incref_ref, &[none_const]);
+                                none_const
+                            };
+                            let raise_call_inst = fb.ins().call(
+                                py_call_ref,
+                                &[rfo_raise_fn, exc_value, cause_value, null_ptr, null_ptr],
+                            );
+                            let raise_exc_obj = fb.inst_results(raise_call_inst)[0];
+                            fb.ins().call(decref_ref, &[cause_value]);
+                            fb.ins().call(decref_ref, &[exc_value]);
+                            fb.ins().call(decref_ref, &[rfo_raise_fn]);
+                            let raise_exc_null =
+                                fb.ins()
+                                    .icmp(ir::condcodes::IntCC::Equal, raise_exc_obj, null_ptr);
+                            let raise_exc_fail = fb.create_block();
+                            let raise_exc_ok = fb.create_block();
+                            fb.append_block_param(raise_exc_fail, ptr_ty);
+                            fb.append_block_param(raise_exc_ok, ptr_ty);
+                            fb.append_block_param(raise_exc_ok, ptr_ty);
+                            fb.ins().brif(
+                                raise_exc_null,
+                                raise_exc_fail,
+                                &[ir::BlockArg::Value(rfo_args)],
+                                raise_exc_ok,
+                                &[
+                                    ir::BlockArg::Value(rfo_args),
+                                    ir::BlockArg::Value(raise_exc_obj),
+                                ],
+                            );
+
+                            fb.switch_to_block(raise_exc_fail);
+                            let ref_args = fb.block_params(raise_exc_fail)[0];
+                            fb.ins()
+                                .jump(emit_ctx.step_null_block, &[ir::BlockArg::Value(ref_args)]);
+
+                            fb.switch_to_block(raise_exc_ok);
+                            let reo_args = fb.block_params(raise_exc_ok)[0];
+                            let reo_exc_obj = fb.block_params(raise_exc_ok)[1];
+                            let raise_inst = fb.ins().call(raise_exc_ref, &[reo_exc_obj]);
+                            let raise_rc = fb.inst_results(raise_inst)[0];
+                            fb.ins().call(decref_ref, &[reo_exc_obj]);
+                            let raise_rc_fail = fb.create_block();
+                            let raise_rc_ok = fb.create_block();
+                            fb.append_block_param(raise_rc_fail, ptr_ty);
+                            fb.append_block_param(raise_rc_ok, ptr_ty);
+                            let raise_ok =
+                                fb.ins().icmp_imm(ir::condcodes::IntCC::Equal, raise_rc, 0);
+                            fb.ins().brif(
+                                raise_ok,
+                                raise_rc_ok,
+                                &[ir::BlockArg::Value(reo_args)],
+                                raise_rc_fail,
+                                &[ir::BlockArg::Value(reo_args)],
+                            );
+
+                            fb.switch_to_block(raise_rc_fail);
+                            let rcf_args = fb.block_params(raise_rc_fail)[0];
+                            fb.ins()
+                                .jump(emit_ctx.step_null_block, &[ir::BlockArg::Value(rcf_args)]);
+
+                            fb.switch_to_block(raise_rc_ok);
+                            let rco_args = fb.block_params(raise_rc_ok)[0];
+                            for value in &local_values {
+                                fb.ins().call(decref_ref, &[*value]);
+                            }
+                            fb.ins()
+                                .jump(emit_ctx.step_null_block, &[ir::BlockArg::Value(rco_args)]);
+                        }
                     }
                     continue;
                 }
-                BlockFastPath::None => {}
-            }
-            let null_ptr = fb.ins().iconst(ptr_ty, 0);
-            let exc_dispatch_plan = plan.block_exc_dispatches[index].as_ref();
-            let exc_target_index = exc_dispatch_plan.map(|dispatch| dispatch.target_index);
-            let kind_dispatch_start = fb.create_block();
-            fb.append_block_param(kind_dispatch_start, ptr_ty);
-            fb.append_block_param(kind_dispatch_start, ptr_ty);
-            let block_params_ready_block = fb.create_block();
-            fb.append_block_param(block_params_ready_block, ptr_ty);
-            let param_names = &plan.block_param_names[index];
-            if param_names.is_empty() {
-                fb.ins().call(incref_ref, &[empty_tuple_const]);
-                fb.ins().jump(
-                    block_params_ready_block,
-                    &[ir::BlockArg::Value(empty_tuple_const)],
-                );
-            } else {
-                let (list_name_ptr, list_name_len) =
-                    intern_bytes_literal(&mut literal_pool, b"list");
-                let list_name_ptr_val = fb.ins().iconst(ptr_ty, list_name_ptr as i64);
-                let list_name_len_val = fb.ins().iconst(i64_ty, list_name_len);
-                let list_callable_inst = fb.ins().call(
-                    load_name_ref,
-                    &[block_const, list_name_ptr_val, list_name_len_val],
-                );
-                let list_callable = fb.inst_results(list_callable_inst)[0];
-                let list_callable_null =
-                    fb.ins()
-                        .icmp(ir::condcodes::IntCC::Equal, list_callable, null_ptr);
-                let list_callable_fail = fb.create_block();
-                fb.append_block_param(list_callable_fail, ptr_ty);
-                let list_callable_ok = fb.create_block();
-                fb.append_block_param(list_callable_ok, ptr_ty);
-                fb.append_block_param(list_callable_ok, ptr_ty);
-                fb.ins().brif(
-                    list_callable_null,
-                    list_callable_fail,
-                    &[ir::BlockArg::Value(exec_args)],
-                    list_callable_ok,
-                    &[
-                        ir::BlockArg::Value(exec_args),
-                        ir::BlockArg::Value(list_callable),
-                    ],
-                );
-
-                fb.switch_to_block(list_callable_fail);
-                let lcf_args = fb.block_params(list_callable_fail)[0];
-                fb.ins()
-                    .jump(step_null_block, &[ir::BlockArg::Value(lcf_args)]);
-
-                fb.switch_to_block(list_callable_ok);
-                let lco_args = fb.block_params(list_callable_ok)[0];
-                let lco_list_callable = fb.block_params(list_callable_ok)[1];
-                let args_list_inst = fb.ins().call(
-                    py_call_ref,
-                    &[lco_list_callable, lco_args, null_ptr, null_ptr, null_ptr],
-                );
-                fb.ins().call(decref_ref, &[lco_list_callable]);
-                let args_list = fb.inst_results(args_list_inst)[0];
-                let args_list_null =
-                    fb.ins()
-                        .icmp(ir::condcodes::IntCC::Equal, args_list, null_ptr);
-                let args_list_fail = fb.create_block();
-                fb.append_block_param(args_list_fail, ptr_ty);
-                let args_list_ok = fb.create_block();
-                fb.append_block_param(args_list_ok, ptr_ty);
-                fb.append_block_param(args_list_ok, ptr_ty);
-                fb.ins().brif(
-                    args_list_null,
-                    args_list_fail,
-                    &[ir::BlockArg::Value(lco_args)],
-                    args_list_ok,
-                    &[
-                        ir::BlockArg::Value(lco_args),
-                        ir::BlockArg::Value(args_list),
-                    ],
-                );
-
-                fb.switch_to_block(args_list_fail);
-                let alf_args = fb.block_params(args_list_fail)[0];
-                fb.ins()
-                    .jump(step_null_block, &[ir::BlockArg::Value(alf_args)]);
-
-                fb.switch_to_block(args_list_ok);
-                let alo_args = fb.block_params(args_list_ok)[0];
-                let alo_args_list = fb.block_params(args_list_ok)[1];
-                let (block_param_name_ptr, block_param_name_len) =
-                    intern_bytes_literal(&mut literal_pool, b"__dp_BlockParam");
-                let block_param_name_ptr_val = fb.ins().iconst(ptr_ty, block_param_name_ptr as i64);
-                let block_param_name_len_val = fb.ins().iconst(i64_ty, block_param_name_len);
-                let block_param_callable_inst = fb.ins().call(
-                    load_name_ref,
-                    &[
-                        block_const,
-                        block_param_name_ptr_val,
-                        block_param_name_len_val,
-                    ],
-                );
-                let block_param_callable = fb.inst_results(block_param_callable_inst)[0];
-                let block_param_callable_null =
-                    fb.ins()
-                        .icmp(ir::condcodes::IntCC::Equal, block_param_callable, null_ptr);
-                let block_param_callable_fail = fb.create_block();
-                fb.append_block_param(block_param_callable_fail, ptr_ty);
-                fb.append_block_param(block_param_callable_fail, ptr_ty);
-                let block_param_callable_ok = fb.create_block();
-                fb.append_block_param(block_param_callable_ok, ptr_ty);
-                fb.append_block_param(block_param_callable_ok, ptr_ty);
-                fb.append_block_param(block_param_callable_ok, ptr_ty);
-                fb.ins().brif(
-                    block_param_callable_null,
-                    block_param_callable_fail,
-                    &[
-                        ir::BlockArg::Value(alo_args),
-                        ir::BlockArg::Value(alo_args_list),
-                    ],
-                    block_param_callable_ok,
-                    &[
-                        ir::BlockArg::Value(alo_args),
-                        ir::BlockArg::Value(alo_args_list),
-                        ir::BlockArg::Value(block_param_callable),
-                    ],
-                );
-
-                fb.switch_to_block(block_param_callable_fail);
-                let bpcf_args = fb.block_params(block_param_callable_fail)[0];
-                let bpcf_args_list = fb.block_params(block_param_callable_fail)[1];
-                fb.ins().call(decref_ref, &[bpcf_args_list]);
-                fb.ins()
-                    .jump(step_null_block, &[ir::BlockArg::Value(bpcf_args)]);
-
-                fb.switch_to_block(block_param_callable_ok);
-                let bpco_args = fb.block_params(block_param_callable_ok)[0];
-                let bpco_args_list = fb.block_params(block_param_callable_ok)[1];
-                let bpco_callable = fb.block_params(block_param_callable_ok)[2];
-                let block_params_arity = fb.ins().iconst(i64_ty, param_names.len() as i64);
-                let block_params_inst = fb.ins().call(tuple_new_ref, &[block_params_arity]);
-                let block_params = fb.inst_results(block_params_inst)[0];
-                let block_params_null =
-                    fb.ins()
-                        .icmp(ir::condcodes::IntCC::Equal, block_params, null_ptr);
-                let block_params_fail = fb.create_block();
-                fb.append_block_param(block_params_fail, ptr_ty);
-                fb.append_block_param(block_params_fail, ptr_ty);
-                fb.append_block_param(block_params_fail, ptr_ty);
-                let block_params_build_start = fb.create_block();
-                fb.append_block_param(block_params_build_start, ptr_ty);
-                fb.append_block_param(block_params_build_start, ptr_ty);
-                fb.append_block_param(block_params_build_start, ptr_ty);
-                fb.append_block_param(block_params_build_start, ptr_ty);
-                fb.ins().brif(
-                    block_params_null,
-                    block_params_fail,
-                    &[
-                        ir::BlockArg::Value(bpco_args),
-                        ir::BlockArg::Value(bpco_args_list),
-                        ir::BlockArg::Value(bpco_callable),
-                    ],
-                    block_params_build_start,
-                    &[
-                        ir::BlockArg::Value(bpco_args),
-                        ir::BlockArg::Value(bpco_args_list),
-                        ir::BlockArg::Value(bpco_callable),
-                        ir::BlockArg::Value(block_params),
-                    ],
-                );
-
-                fb.switch_to_block(block_params_fail);
-                let bpf_args = fb.block_params(block_params_fail)[0];
-                let bpf_args_list = fb.block_params(block_params_fail)[1];
-                let bpf_callable = fb.block_params(block_params_fail)[2];
-                fb.ins().call(decref_ref, &[bpf_callable]);
-                fb.ins().call(decref_ref, &[bpf_args_list]);
-                fb.ins()
-                    .jump(step_null_block, &[ir::BlockArg::Value(bpf_args)]);
-
-                let mut build_block = block_params_build_start;
-                for slot in 0..param_names.len() {
-                    fb.switch_to_block(build_block);
-                    let b_args = fb.block_params(build_block)[0];
-                    let b_args_list = fb.block_params(build_block)[1];
-                    let b_callable = fb.block_params(build_block)[2];
-                    let b_block_params = fb.block_params(build_block)[3];
-                    let idx_const = fb.ins().iconst(i64_ty, slot as i64);
-                    let idx_obj_inst = fb.ins().call(make_int_ref, &[idx_const]);
-                    let idx_obj = fb.inst_results(idx_obj_inst)[0];
-                    let idx_obj_null =
-                        fb.ins()
-                            .icmp(ir::condcodes::IntCC::Equal, idx_obj, null_ptr);
-                    let idx_obj_fail = fb.create_block();
-                    fb.append_block_param(idx_obj_fail, ptr_ty);
-                    fb.append_block_param(idx_obj_fail, ptr_ty);
-                    fb.append_block_param(idx_obj_fail, ptr_ty);
-                    fb.append_block_param(idx_obj_fail, ptr_ty);
-                    let idx_obj_ok = fb.create_block();
-                    fb.append_block_param(idx_obj_ok, ptr_ty);
-                    fb.append_block_param(idx_obj_ok, ptr_ty);
-                    fb.append_block_param(idx_obj_ok, ptr_ty);
-                    fb.append_block_param(idx_obj_ok, ptr_ty);
-                    fb.append_block_param(idx_obj_ok, ptr_ty);
-                    fb.ins().brif(
-                        idx_obj_null,
-                        idx_obj_fail,
-                        &[
-                            ir::BlockArg::Value(b_args),
-                            ir::BlockArg::Value(b_args_list),
-                            ir::BlockArg::Value(b_callable),
-                            ir::BlockArg::Value(b_block_params),
-                        ],
-                        idx_obj_ok,
-                        &[
-                            ir::BlockArg::Value(b_args),
-                            ir::BlockArg::Value(b_args_list),
-                            ir::BlockArg::Value(b_callable),
-                            ir::BlockArg::Value(b_block_params),
-                            ir::BlockArg::Value(idx_obj),
-                        ],
-                    );
-
-                    fb.switch_to_block(idx_obj_fail);
-                    let iof_args = fb.block_params(idx_obj_fail)[0];
-                    let iof_args_list = fb.block_params(idx_obj_fail)[1];
-                    let iof_callable = fb.block_params(idx_obj_fail)[2];
-                    let iof_block_params = fb.block_params(idx_obj_fail)[3];
-                    fb.ins().call(decref_ref, &[iof_block_params]);
-                    fb.ins().call(decref_ref, &[iof_callable]);
-                    fb.ins().call(decref_ref, &[iof_args_list]);
-                    fb.ins()
-                        .jump(step_null_block, &[ir::BlockArg::Value(iof_args)]);
-
-                    fb.switch_to_block(idx_obj_ok);
-                    let ioo_args = fb.block_params(idx_obj_ok)[0];
-                    let ioo_args_list = fb.block_params(idx_obj_ok)[1];
-                    let ioo_callable = fb.block_params(idx_obj_ok)[2];
-                    let ioo_block_params = fb.block_params(idx_obj_ok)[3];
-                    let ioo_idx_obj = fb.block_params(idx_obj_ok)[4];
-                    let param_obj_inst = fb.ins().call(
-                        py_call_ref,
-                        &[ioo_callable, ioo_args_list, ioo_idx_obj, null_ptr, null_ptr],
-                    );
-                    fb.ins().call(decref_ref, &[ioo_idx_obj]);
-                    let param_obj = fb.inst_results(param_obj_inst)[0];
-                    let param_obj_null =
-                        fb.ins()
-                            .icmp(ir::condcodes::IntCC::Equal, param_obj, null_ptr);
-                    let param_obj_fail = fb.create_block();
-                    fb.append_block_param(param_obj_fail, ptr_ty);
-                    fb.append_block_param(param_obj_fail, ptr_ty);
-                    fb.append_block_param(param_obj_fail, ptr_ty);
-                    fb.append_block_param(param_obj_fail, ptr_ty);
-                    let param_obj_ok = fb.create_block();
-                    fb.append_block_param(param_obj_ok, ptr_ty);
-                    fb.append_block_param(param_obj_ok, ptr_ty);
-                    fb.append_block_param(param_obj_ok, ptr_ty);
-                    fb.append_block_param(param_obj_ok, ptr_ty);
-                    fb.append_block_param(param_obj_ok, ptr_ty);
-                    fb.ins().brif(
-                        param_obj_null,
-                        param_obj_fail,
-                        &[
-                            ir::BlockArg::Value(ioo_args),
-                            ir::BlockArg::Value(ioo_args_list),
-                            ir::BlockArg::Value(ioo_callable),
-                            ir::BlockArg::Value(ioo_block_params),
-                        ],
-                        param_obj_ok,
-                        &[
-                            ir::BlockArg::Value(ioo_args),
-                            ir::BlockArg::Value(ioo_args_list),
-                            ir::BlockArg::Value(ioo_callable),
-                            ir::BlockArg::Value(ioo_block_params),
-                            ir::BlockArg::Value(param_obj),
-                        ],
-                    );
-
-                    fb.switch_to_block(param_obj_fail);
-                    let pof_args = fb.block_params(param_obj_fail)[0];
-                    let pof_args_list = fb.block_params(param_obj_fail)[1];
-                    let pof_callable = fb.block_params(param_obj_fail)[2];
-                    let pof_block_params = fb.block_params(param_obj_fail)[3];
-                    fb.ins().call(decref_ref, &[pof_block_params]);
-                    fb.ins().call(decref_ref, &[pof_callable]);
-                    fb.ins().call(decref_ref, &[pof_args_list]);
-                    fb.ins()
-                        .jump(step_null_block, &[ir::BlockArg::Value(pof_args)]);
-
-                    fb.switch_to_block(param_obj_ok);
-                    let poo_args = fb.block_params(param_obj_ok)[0];
-                    let poo_args_list = fb.block_params(param_obj_ok)[1];
-                    let poo_callable = fb.block_params(param_obj_ok)[2];
-                    let poo_block_params = fb.block_params(param_obj_ok)[3];
-                    let poo_param_obj = fb.block_params(param_obj_ok)[4];
-                    let slot_const = fb.ins().iconst(i64_ty, slot as i64);
-                    let set_item_inst = fb.ins().call(
-                        tuple_set_item_ref,
-                        &[poo_block_params, slot_const, poo_param_obj],
-                    );
-                    let set_item_status = fb.inst_results(set_item_inst)[0];
-                    let set_item_failed =
-                        fb.ins()
-                            .icmp_imm(ir::condcodes::IntCC::NotEqual, set_item_status, 0);
-                    let set_item_fail = fb.create_block();
-                    fb.append_block_param(set_item_fail, ptr_ty);
-                    fb.append_block_param(set_item_fail, ptr_ty);
-                    fb.append_block_param(set_item_fail, ptr_ty);
-                    fb.append_block_param(set_item_fail, ptr_ty);
-                    let next_build_block = fb.create_block();
-                    fb.append_block_param(next_build_block, ptr_ty);
-                    fb.append_block_param(next_build_block, ptr_ty);
-                    fb.append_block_param(next_build_block, ptr_ty);
-                    fb.append_block_param(next_build_block, ptr_ty);
-                    fb.ins().brif(
-                        set_item_failed,
-                        set_item_fail,
-                        &[
-                            ir::BlockArg::Value(poo_args),
-                            ir::BlockArg::Value(poo_args_list),
-                            ir::BlockArg::Value(poo_callable),
-                            ir::BlockArg::Value(poo_block_params),
-                        ],
-                        next_build_block,
-                        &[
-                            ir::BlockArg::Value(poo_args),
-                            ir::BlockArg::Value(poo_args_list),
-                            ir::BlockArg::Value(poo_callable),
-                            ir::BlockArg::Value(poo_block_params),
-                        ],
-                    );
-
-                    fb.switch_to_block(set_item_fail);
-                    let sif_args = fb.block_params(set_item_fail)[0];
-                    let sif_args_list = fb.block_params(set_item_fail)[1];
-                    let sif_callable = fb.block_params(set_item_fail)[2];
-                    let sif_block_params = fb.block_params(set_item_fail)[3];
-                    fb.ins().call(decref_ref, &[sif_block_params]);
-                    fb.ins().call(decref_ref, &[sif_callable]);
-                    fb.ins().call(decref_ref, &[sif_args_list]);
-                    fb.ins()
-                        .jump(step_null_block, &[ir::BlockArg::Value(sif_args)]);
-
-                    build_block = next_build_block;
+                BlockFastPath::None => {
+                    return Err(format!(
+                        "specialized JIT encountered unexpected slow-path block {}",
+                        plan.block_labels[index]
+                    ));
                 }
-
-                fb.switch_to_block(build_block);
-                let _bpd_args = fb.block_params(build_block)[0];
-                let bpd_args_list = fb.block_params(build_block)[1];
-                let bpd_callable = fb.block_params(build_block)[2];
-                let bpd_block_params = fb.block_params(build_block)[3];
-                fb.ins().call(decref_ref, &[bpd_callable]);
-                fb.ins().call(decref_ref, &[bpd_args_list]);
-                fb.ins().jump(
-                    block_params_ready_block,
-                    &[ir::BlockArg::Value(bpd_block_params)],
-                );
             }
+        }
 
-            fb.switch_to_block(block_params_ready_block);
-            let bpo_block_params = fb.block_params(block_params_ready_block)[0];
-            let term_inst = fb
-                .ins()
-                .call(py_call_object_ref, &[block_const, bpo_block_params]);
-            let term = fb.inst_results(term_inst)[0];
-            fb.ins().call(decref_ref, &[bpo_block_params]);
-            let term_null = fb.ins().icmp(ir::condcodes::IntCC::Equal, term, null_ptr);
-            let term_ok_block = fb.create_block();
-            fb.append_block_param(term_ok_block, ptr_ty);
-            fb.append_block_param(term_ok_block, ptr_ty);
-            let term_ok_args = [ir::BlockArg::Value(exec_args), ir::BlockArg::Value(term)];
-            let term_null_args = [ir::BlockArg::Value(exec_args)];
-            let term_null_block = fb.create_block();
-            fb.append_block_param(term_null_block, ptr_ty);
-            fb.ins().brif(
-                term_null,
-                term_null_block,
-                &term_null_args,
-                term_ok_block,
-                &term_ok_args,
-            );
+        for (index, maybe_dispatch_block) in exception_dispatch_blocks.iter().enumerate() {
+            let Some(dispatch_block) = *maybe_dispatch_block else {
+                continue;
+            };
+            let Some(dispatch_plan) = plan.block_exc_dispatches[index].as_ref() else {
+                continue;
+            };
 
-            fb.switch_to_block(term_null_block);
-            let tn_args = fb.block_params(term_null_block)[0];
+            fb.switch_to_block(dispatch_block);
+            let d_args = fb.block_params(dispatch_block)[0];
+            let null_ptr = fb.ins().iconst(ptr_ty, 0);
+            let none_const = fb.ins().iconst(ptr_ty, none_obj as i64);
             let raised_exc_inst = fb.ins().call(py_get_raised_exc_ref, &[]);
             let raised_exc = fb.inst_results(raised_exc_inst)[0];
             let raised_exc_null = fb
                 .ins()
                 .icmp(ir::condcodes::IntCC::Equal, raised_exc, null_ptr);
-            let raised_exc_ok_block = fb.create_block();
-            fb.append_block_param(raised_exc_ok_block, ptr_ty);
-            fb.append_block_param(raised_exc_ok_block, ptr_ty);
-            let raised_exc_err_block = fb.create_block();
-            fb.append_block_param(raised_exc_err_block, ptr_ty);
+            let raised_exc_ok = fb.create_block();
+            fb.append_block_param(raised_exc_ok, ptr_ty);
+            fb.append_block_param(raised_exc_ok, ptr_ty);
             fb.ins().brif(
                 raised_exc_null,
-                raised_exc_err_block,
-                &[ir::BlockArg::Value(tn_args)],
-                raised_exc_ok_block,
+                step_null_block,
+                &[ir::BlockArg::Value(d_args)],
+                raised_exc_ok,
+                &[ir::BlockArg::Value(d_args), ir::BlockArg::Value(raised_exc)],
+            );
+
+            fb.switch_to_block(raised_exc_ok);
+            let reo_args = fb.block_params(raised_exc_ok)[0];
+            let reo_exc = fb.block_params(raised_exc_ok)[1];
+            let target_arity = fb
+                .ins()
+                .iconst(i64_ty, dispatch_plan.arg_sources.len() as i64);
+            let target_args_inst = fb.ins().call(tuple_new_ref, &[target_arity]);
+            let target_args = fb.inst_results(target_args_inst)[0];
+            let target_args_null =
+                fb.ins()
+                    .icmp(ir::condcodes::IntCC::Equal, target_args, null_ptr);
+            let dispatch_alloc_fail = fb.create_block();
+            fb.append_block_param(dispatch_alloc_fail, ptr_ty);
+            fb.append_block_param(dispatch_alloc_fail, ptr_ty);
+            let dispatch_build_start = fb.create_block();
+            fb.append_block_param(dispatch_build_start, ptr_ty);
+            fb.append_block_param(dispatch_build_start, ptr_ty);
+            fb.append_block_param(dispatch_build_start, ptr_ty);
+            fb.ins().brif(
+                target_args_null,
+                dispatch_alloc_fail,
+                &[ir::BlockArg::Value(reo_args), ir::BlockArg::Value(reo_exc)],
+                dispatch_build_start,
                 &[
-                    ir::BlockArg::Value(tn_args),
-                    ir::BlockArg::Value(raised_exc),
+                    ir::BlockArg::Value(reo_args),
+                    ir::BlockArg::Value(reo_exc),
+                    ir::BlockArg::Value(target_args),
                 ],
             );
 
-            fb.switch_to_block(raised_exc_err_block);
-            let ree_args = fb.block_params(raised_exc_err_block)[0];
+            fb.switch_to_block(dispatch_alloc_fail);
+            let daf_args = fb.block_params(dispatch_alloc_fail)[0];
+            let daf_exc = fb.block_params(dispatch_alloc_fail)[1];
+            fb.ins().call(decref_ref, &[daf_exc]);
             fb.ins()
-                .jump(step_null_block, &[ir::BlockArg::Value(ree_args)]);
+                .jump(step_null_block, &[ir::BlockArg::Value(daf_args)]);
 
-            fb.switch_to_block(raised_exc_ok_block);
-            let reo_args = fb.block_params(raised_exc_ok_block)[0];
-            let reo_exc = fb.block_params(raised_exc_ok_block)[1];
-            if let Some(dispatch_plan) = exc_dispatch_plan {
-                let target_arity = fb
-                    .ins()
-                    .iconst(i64_ty, dispatch_plan.arg_sources.len() as i64);
-                let target_args_inst = fb.ins().call(tuple_new_ref, &[target_arity]);
-                let target_args = fb.inst_results(target_args_inst)[0];
-                let target_args_null =
-                    fb.ins()
-                        .icmp(ir::condcodes::IntCC::Equal, target_args, null_ptr);
-                let dispatch_alloc_fail = fb.create_block();
-                fb.append_block_param(dispatch_alloc_fail, ptr_ty);
-                fb.append_block_param(dispatch_alloc_fail, ptr_ty);
-                let dispatch_build_start = fb.create_block();
-                fb.append_block_param(dispatch_build_start, ptr_ty);
-                fb.append_block_param(dispatch_build_start, ptr_ty);
-                fb.append_block_param(dispatch_build_start, ptr_ty);
-                fb.ins().brif(
-                    target_args_null,
-                    dispatch_alloc_fail,
-                    &[ir::BlockArg::Value(reo_args), ir::BlockArg::Value(reo_exc)],
-                    dispatch_build_start,
-                    &[
-                        ir::BlockArg::Value(reo_args),
-                        ir::BlockArg::Value(reo_exc),
-                        ir::BlockArg::Value(target_args),
-                    ],
-                );
-
-                fb.switch_to_block(dispatch_alloc_fail);
-                let daf_args = fb.block_params(dispatch_alloc_fail)[0];
-                let daf_exc = fb.block_params(dispatch_alloc_fail)[1];
-                fb.ins().call(decref_ref, &[daf_exc]);
-                fb.ins()
-                    .jump(step_null_block, &[ir::BlockArg::Value(daf_args)]);
-
-                let mut build_block = dispatch_build_start;
-                for (slot, source) in dispatch_plan.arg_sources.iter().enumerate() {
-                    fb.switch_to_block(build_block);
-                    let b_args = fb.block_params(build_block)[0];
-                    let b_exc = fb.block_params(build_block)[1];
-                    let b_target_args = fb.block_params(build_block)[2];
-                    let value = match source {
-                        BlockExcArgSource::SourceParam { index } => {
-                            let idx_const = fb.ins().iconst(i64_ty, *index as i64);
-                            let value_inst = fb.ins().call(get_arg_item_ref, &[b_args, idx_const]);
-                            fb.inst_results(value_inst)[0]
-                        }
-                        BlockExcArgSource::Exception => {
-                            fb.ins().call(incref_ref, &[b_exc]);
-                            b_exc
-                        }
-                        BlockExcArgSource::NoneValue => {
-                            fb.ins().call(incref_ref, &[none_const]);
-                            none_const
-                        }
-                        BlockExcArgSource::FrameLocal { name } => {
-                            let owner_index = dispatch_plan.owner_param_index.expect(
-                                "missing owner param index for frame-local exception dispatch",
-                            );
-                            let owner_idx_const = fb.ins().iconst(i64_ty, owner_index as i64);
-                            let owner_inst =
-                                fb.ins().call(get_arg_item_ref, &[b_args, owner_idx_const]);
-                            let owner = fb.inst_results(owner_inst)[0];
-                            let (name_ptr, name_len) =
-                                intern_bytes_literal(&mut literal_pool, name.as_bytes());
-                            let name_ptr_val = fb.ins().iconst(ptr_ty, name_ptr as i64);
-                            let name_len_val = fb.ins().iconst(i64_ty, name_len);
-                            let local_inst = fb.ins().call(
-                                load_local_raw_by_name_ref,
-                                &[owner, name_ptr_val, name_len_val],
-                            );
-                            fb.ins().call(decref_ref, &[owner]);
-                            fb.inst_results(local_inst)[0]
-                        }
-                    };
-                    let value_null = fb.ins().icmp(ir::condcodes::IntCC::Equal, value, null_ptr);
-                    let value_fail = fb.create_block();
-                    fb.append_block_param(value_fail, ptr_ty);
-                    fb.append_block_param(value_fail, ptr_ty);
-                    fb.append_block_param(value_fail, ptr_ty);
-                    let value_ok = fb.create_block();
-                    fb.append_block_param(value_ok, ptr_ty);
-                    fb.append_block_param(value_ok, ptr_ty);
-                    fb.append_block_param(value_ok, ptr_ty);
-                    fb.append_block_param(value_ok, ptr_ty);
-                    fb.ins().brif(
-                        value_null,
-                        value_fail,
-                        &[
-                            ir::BlockArg::Value(b_args),
-                            ir::BlockArg::Value(b_exc),
-                            ir::BlockArg::Value(b_target_args),
-                        ],
-                        value_ok,
-                        &[
-                            ir::BlockArg::Value(b_args),
-                            ir::BlockArg::Value(b_exc),
-                            ir::BlockArg::Value(b_target_args),
-                            ir::BlockArg::Value(value),
-                        ],
-                    );
-
-                    fb.switch_to_block(value_fail);
-                    let vf_args = fb.block_params(value_fail)[0];
-                    let vf_exc = fb.block_params(value_fail)[1];
-                    let vf_target_args = fb.block_params(value_fail)[2];
-                    fb.ins().call(decref_ref, &[vf_target_args]);
-                    fb.ins().call(decref_ref, &[vf_exc]);
-                    fb.ins()
-                        .jump(step_null_block, &[ir::BlockArg::Value(vf_args)]);
-
-                    fb.switch_to_block(value_ok);
-                    let vo_args = fb.block_params(value_ok)[0];
-                    let vo_exc = fb.block_params(value_ok)[1];
-                    let vo_target_args = fb.block_params(value_ok)[2];
-                    let vo_value = fb.block_params(value_ok)[3];
-                    let slot_const = fb.ins().iconst(i64_ty, slot as i64);
-                    let set_item_inst = fb
-                        .ins()
-                        .call(tuple_set_item_ref, &[vo_target_args, slot_const, vo_value]);
-                    let set_item_status = fb.inst_results(set_item_inst)[0];
-                    let set_item_failed =
-                        fb.ins()
-                            .icmp_imm(ir::condcodes::IntCC::NotEqual, set_item_status, 0);
-                    let set_item_fail = fb.create_block();
-                    fb.append_block_param(set_item_fail, ptr_ty);
-                    fb.append_block_param(set_item_fail, ptr_ty);
-                    fb.append_block_param(set_item_fail, ptr_ty);
-                    let next_build_block = fb.create_block();
-                    fb.append_block_param(next_build_block, ptr_ty);
-                    fb.append_block_param(next_build_block, ptr_ty);
-                    fb.append_block_param(next_build_block, ptr_ty);
-                    fb.ins().brif(
-                        set_item_failed,
-                        set_item_fail,
-                        &[
-                            ir::BlockArg::Value(vo_args),
-                            ir::BlockArg::Value(vo_exc),
-                            ir::BlockArg::Value(vo_target_args),
-                        ],
-                        next_build_block,
-                        &[
-                            ir::BlockArg::Value(vo_args),
-                            ir::BlockArg::Value(vo_exc),
-                            ir::BlockArg::Value(vo_target_args),
-                        ],
-                    );
-
-                    fb.switch_to_block(set_item_fail);
-                    let sf_args = fb.block_params(set_item_fail)[0];
-                    let sf_exc = fb.block_params(set_item_fail)[1];
-                    let sf_target_args = fb.block_params(set_item_fail)[2];
-                    fb.ins().call(decref_ref, &[sf_target_args]);
-                    fb.ins().call(decref_ref, &[sf_exc]);
-                    fb.ins()
-                        .jump(step_null_block, &[ir::BlockArg::Value(sf_args)]);
-
-                    build_block = next_build_block;
-                }
-
+            let mut build_block = dispatch_build_start;
+            for (slot, source) in dispatch_plan.arg_sources.iter().enumerate() {
                 fb.switch_to_block(build_block);
-                let bd_args = fb.block_params(build_block)[0];
-                let bd_exc = fb.block_params(build_block)[1];
-                let bd_target_args = fb.block_params(build_block)[2];
-                fb.ins().call(decref_ref, &[bd_exc]);
-                fb.ins().call(decref_ref, &[bd_args]);
-                let dispatch_jump_args = [ir::BlockArg::Value(bd_target_args)];
+                let b_args = fb.block_params(build_block)[0];
+                let b_exc = fb.block_params(build_block)[1];
+                let b_target_args = fb.block_params(build_block)[2];
+                let value = match source {
+                    BlockExcArgSource::SourceParam { index } => {
+                        let idx_const = fb.ins().iconst(i64_ty, *index as i64);
+                        let value_inst = fb.ins().call(get_arg_item_ref, &[b_args, idx_const]);
+                        fb.inst_results(value_inst)[0]
+                    }
+                    BlockExcArgSource::Exception => {
+                        fb.ins().call(incref_ref, &[b_exc]);
+                        b_exc
+                    }
+                    BlockExcArgSource::NoneValue => {
+                        fb.ins().call(incref_ref, &[none_const]);
+                        none_const
+                    }
+                    BlockExcArgSource::FrameLocal { name } => {
+                        let owner_index = dispatch_plan
+                            .owner_param_index
+                            .expect("missing owner param index for frame-local exception dispatch");
+                        let owner_idx_const = fb.ins().iconst(i64_ty, owner_index as i64);
+                        let owner_inst =
+                            fb.ins().call(get_arg_item_ref, &[b_args, owner_idx_const]);
+                        let owner = fb.inst_results(owner_inst)[0];
+                        let (name_ptr, name_len) =
+                            intern_bytes_literal(&mut literal_pool, name.as_bytes());
+                        let name_ptr_val = fb.ins().iconst(ptr_ty, name_ptr as i64);
+                        let name_len_val = fb.ins().iconst(i64_ty, name_len);
+                        let local_inst = fb.ins().call(
+                            load_local_raw_by_name_ref,
+                            &[owner, name_ptr_val, name_len_val],
+                        );
+                        fb.ins().call(decref_ref, &[owner]);
+                        fb.inst_results(local_inst)[0]
+                    }
+                };
+                let value_null = fb.ins().icmp(ir::condcodes::IntCC::Equal, value, null_ptr);
+                let value_fail = fb.create_block();
+                fb.append_block_param(value_fail, ptr_ty);
+                fb.append_block_param(value_fail, ptr_ty);
+                fb.append_block_param(value_fail, ptr_ty);
+                let value_ok = fb.create_block();
+                fb.append_block_param(value_ok, ptr_ty);
+                fb.append_block_param(value_ok, ptr_ty);
+                fb.append_block_param(value_ok, ptr_ty);
+                fb.append_block_param(value_ok, ptr_ty);
+                fb.ins().brif(
+                    value_null,
+                    value_fail,
+                    &[
+                        ir::BlockArg::Value(b_args),
+                        ir::BlockArg::Value(b_exc),
+                        ir::BlockArg::Value(b_target_args),
+                    ],
+                    value_ok,
+                    &[
+                        ir::BlockArg::Value(b_args),
+                        ir::BlockArg::Value(b_exc),
+                        ir::BlockArg::Value(b_target_args),
+                        ir::BlockArg::Value(value),
+                    ],
+                );
+
+                fb.switch_to_block(value_fail);
+                let vf_args = fb.block_params(value_fail)[0];
+                let vf_exc = fb.block_params(value_fail)[1];
+                let vf_target_args = fb.block_params(value_fail)[2];
+                fb.ins().call(decref_ref, &[vf_target_args]);
+                fb.ins().call(decref_ref, &[vf_exc]);
                 fb.ins()
-                    .jump(exec_blocks[dispatch_plan.target_index], &dispatch_jump_args);
-            } else {
-                fb.ins().jump(
-                    raise_exc_direct_block,
-                    &[ir::BlockArg::Value(reo_args), ir::BlockArg::Value(reo_exc)],
-                );
-            }
+                    .jump(step_null_block, &[ir::BlockArg::Value(vf_args)]);
 
-            fb.switch_to_block(term_ok_block);
-            let tk_args = fb.block_params(term_ok_block)[0];
-            let tk_term = fb.block_params(term_ok_block)[1];
-            let kind_dispatch_args = [ir::BlockArg::Value(tk_args), ir::BlockArg::Value(tk_term)];
-            fb.ins().jump(kind_dispatch_start, &kind_dispatch_args);
-
-            fb.switch_to_block(kind_dispatch_start);
-            let kd_args = fb.block_params(kind_dispatch_start)[0];
-            let kd_term = fb.block_params(kind_dispatch_start)[1];
-            let kind_inst = fb.ins().call(term_kind_ref, &[kd_term]);
-            let kind_val = fb.inst_results(kind_inst)[0];
-            let jump_kind = fb.ins().iconst(i64_ty, 0);
-            let ret_kind = fb.ins().iconst(i64_ty, 1);
-            let raise_kind = fb.ins().iconst(i64_ty, 2);
-
-            let jump_case = fb.create_block();
-            let after_jump_check = fb.create_block();
-            fb.append_block_param(jump_case, ptr_ty);
-            fb.append_block_param(jump_case, ptr_ty);
-            fb.append_block_param(after_jump_check, ptr_ty);
-            fb.append_block_param(after_jump_check, ptr_ty);
-            let kd_pair = [ir::BlockArg::Value(kd_args), ir::BlockArg::Value(kd_term)];
-            let is_jump = fb
-                .ins()
-                .icmp(ir::condcodes::IntCC::Equal, kind_val, jump_kind);
-            fb.ins()
-                .brif(is_jump, jump_case, &kd_pair, after_jump_check, &kd_pair);
-
-            fb.switch_to_block(after_jump_check);
-            let aj_args = fb.block_params(after_jump_check)[0];
-            let aj_term = fb.block_params(after_jump_check)[1];
-            let after_ret_check = fb.create_block();
-            fb.append_block_param(after_ret_check, ptr_ty);
-            fb.append_block_param(after_ret_check, ptr_ty);
-            let aj_pair = [ir::BlockArg::Value(aj_args), ir::BlockArg::Value(aj_term)];
-            let is_ret = fb
-                .ins()
-                .icmp(ir::condcodes::IntCC::Equal, kind_val, ret_kind);
-            fb.ins()
-                .brif(is_ret, ret_block, &aj_pair, after_ret_check, &aj_pair);
-
-            fb.switch_to_block(after_ret_check);
-            let ar_args = fb.block_params(after_ret_check)[0];
-            let ar_term = fb.block_params(after_ret_check)[1];
-            let ar_pair = [ir::BlockArg::Value(ar_args), ir::BlockArg::Value(ar_term)];
-            let is_raise = fb
-                .ins()
-                .icmp(ir::condcodes::IntCC::Equal, kind_val, raise_kind);
-            if let Some(dispatch_plan) = exc_dispatch_plan {
-                let raise_dispatch_block = fb.create_block();
-                fb.append_block_param(raise_dispatch_block, ptr_ty);
-                fb.append_block_param(raise_dispatch_block, ptr_ty);
-                fb.ins().brif(
-                    is_raise,
-                    raise_dispatch_block,
-                    &ar_pair,
-                    invalid_term_block,
-                    &ar_pair,
-                );
-
-                fb.switch_to_block(raise_dispatch_block);
-                let rd_args = fb.block_params(raise_dispatch_block)[0];
-                let rd_term = fb.block_params(raise_dispatch_block)[1];
-                let rd_exc_inst = fb.ins().call(term_raise_exc_ref, &[rd_term]);
-                let rd_exc = fb.inst_results(rd_exc_inst)[0];
-                let rd_exc_null = fb.ins().icmp(ir::condcodes::IntCC::Equal, rd_exc, null_ptr);
-                let raise_dispatch_have_exc = fb.create_block();
-                fb.append_block_param(raise_dispatch_have_exc, ptr_ty);
-                fb.append_block_param(raise_dispatch_have_exc, ptr_ty);
-                fb.append_block_param(raise_dispatch_have_exc, ptr_ty);
-                let raise_dispatch_attr_fail = fb.create_block();
-                fb.append_block_param(raise_dispatch_attr_fail, ptr_ty);
-                fb.append_block_param(raise_dispatch_attr_fail, ptr_ty);
-                let rd_pair = [ir::BlockArg::Value(rd_args), ir::BlockArg::Value(rd_term)];
-                let rd_triplet = [
-                    ir::BlockArg::Value(rd_args),
-                    ir::BlockArg::Value(rd_term),
-                    ir::BlockArg::Value(rd_exc),
-                ];
-                fb.ins().brif(
-                    rd_exc_null,
-                    raise_dispatch_attr_fail,
-                    &rd_pair,
-                    raise_dispatch_have_exc,
-                    &rd_triplet,
-                );
-
-                fb.switch_to_block(raise_dispatch_attr_fail);
-                let raf_args = fb.block_params(raise_dispatch_attr_fail)[0];
-                let raf_term = fb.block_params(raise_dispatch_attr_fail)[1];
-                let raf_pair = [ir::BlockArg::Value(raf_args), ir::BlockArg::Value(raf_term)];
-                fb.ins().jump(raise_block, &raf_pair);
-
-                fb.switch_to_block(raise_dispatch_have_exc);
-                let rhe_args = fb.block_params(raise_dispatch_have_exc)[0];
-                let rhe_term = fb.block_params(raise_dispatch_have_exc)[1];
-                let rhe_exc = fb.block_params(raise_dispatch_have_exc)[2];
-                let target_arity = fb
+                fb.switch_to_block(value_ok);
+                let vo_args = fb.block_params(value_ok)[0];
+                let vo_exc = fb.block_params(value_ok)[1];
+                let vo_target_args = fb.block_params(value_ok)[2];
+                let vo_value = fb.block_params(value_ok)[3];
+                let slot_const = fb.ins().iconst(i64_ty, slot as i64);
+                let set_item_inst = fb
                     .ins()
-                    .iconst(i64_ty, dispatch_plan.arg_sources.len() as i64);
-                let target_args_inst = fb.ins().call(tuple_new_ref, &[target_arity]);
-                let target_args = fb.inst_results(target_args_inst)[0];
-                let target_args_null =
+                    .call(tuple_set_item_ref, &[vo_target_args, slot_const, vo_value]);
+                let set_item_status = fb.inst_results(set_item_inst)[0];
+                let set_item_failed =
                     fb.ins()
-                        .icmp(ir::condcodes::IntCC::Equal, target_args, null_ptr);
-                let dispatch_alloc_fail = fb.create_block();
-                fb.append_block_param(dispatch_alloc_fail, ptr_ty);
-                fb.append_block_param(dispatch_alloc_fail, ptr_ty);
-                fb.append_block_param(dispatch_alloc_fail, ptr_ty);
-                let dispatch_build_start = fb.create_block();
-                fb.append_block_param(dispatch_build_start, ptr_ty);
-                fb.append_block_param(dispatch_build_start, ptr_ty);
-                fb.append_block_param(dispatch_build_start, ptr_ty);
-                fb.append_block_param(dispatch_build_start, ptr_ty);
+                        .icmp_imm(ir::condcodes::IntCC::NotEqual, set_item_status, 0);
+                let set_item_fail = fb.create_block();
+                fb.append_block_param(set_item_fail, ptr_ty);
+                fb.append_block_param(set_item_fail, ptr_ty);
+                fb.append_block_param(set_item_fail, ptr_ty);
+                let next_build_block = fb.create_block();
+                fb.append_block_param(next_build_block, ptr_ty);
+                fb.append_block_param(next_build_block, ptr_ty);
+                fb.append_block_param(next_build_block, ptr_ty);
                 fb.ins().brif(
-                    target_args_null,
-                    dispatch_alloc_fail,
+                    set_item_failed,
+                    set_item_fail,
                     &[
-                        ir::BlockArg::Value(rhe_args),
-                        ir::BlockArg::Value(rhe_term),
-                        ir::BlockArg::Value(rhe_exc),
+                        ir::BlockArg::Value(vo_args),
+                        ir::BlockArg::Value(vo_exc),
+                        ir::BlockArg::Value(vo_target_args),
                     ],
-                    dispatch_build_start,
+                    next_build_block,
                     &[
-                        ir::BlockArg::Value(rhe_args),
-                        ir::BlockArg::Value(rhe_term),
-                        ir::BlockArg::Value(rhe_exc),
-                        ir::BlockArg::Value(target_args),
+                        ir::BlockArg::Value(vo_args),
+                        ir::BlockArg::Value(vo_exc),
+                        ir::BlockArg::Value(vo_target_args),
                     ],
                 );
 
-                fb.switch_to_block(dispatch_alloc_fail);
-                let daf_args = fb.block_params(dispatch_alloc_fail)[0];
-                let daf_term = fb.block_params(dispatch_alloc_fail)[1];
-                let daf_exc = fb.block_params(dispatch_alloc_fail)[2];
-                fb.ins().call(decref_ref, &[daf_exc]);
-                fb.ins().call(decref_ref, &[daf_term]);
+                fb.switch_to_block(set_item_fail);
+                let sf_args = fb.block_params(set_item_fail)[0];
+                let sf_exc = fb.block_params(set_item_fail)[1];
+                let sf_target_args = fb.block_params(set_item_fail)[2];
+                fb.ins().call(decref_ref, &[sf_target_args]);
+                fb.ins().call(decref_ref, &[sf_exc]);
                 fb.ins()
-                    .jump(step_null_block, &[ir::BlockArg::Value(daf_args)]);
+                    .jump(step_null_block, &[ir::BlockArg::Value(sf_args)]);
 
-                let mut build_block = dispatch_build_start;
-                for (slot, source) in dispatch_plan.arg_sources.iter().enumerate() {
-                    fb.switch_to_block(build_block);
-                    let b_args = fb.block_params(build_block)[0];
-                    let b_term = fb.block_params(build_block)[1];
-                    let b_exc = fb.block_params(build_block)[2];
-                    let b_target_args = fb.block_params(build_block)[3];
-                    let value = match source {
-                        BlockExcArgSource::SourceParam { index } => {
-                            let idx_const = fb.ins().iconst(i64_ty, *index as i64);
-                            let value_inst = fb.ins().call(get_arg_item_ref, &[b_args, idx_const]);
-                            fb.inst_results(value_inst)[0]
-                        }
-                        BlockExcArgSource::Exception => {
-                            fb.ins().call(incref_ref, &[b_exc]);
-                            b_exc
-                        }
-                        BlockExcArgSource::NoneValue => {
-                            fb.ins().call(incref_ref, &[none_const]);
-                            none_const
-                        }
-                        BlockExcArgSource::FrameLocal { name } => {
-                            let owner_index = dispatch_plan.owner_param_index.expect(
-                                "missing owner param index for frame-local exception dispatch",
-                            );
-                            let owner_idx_const = fb.ins().iconst(i64_ty, owner_index as i64);
-                            let owner_inst =
-                                fb.ins().call(get_arg_item_ref, &[b_args, owner_idx_const]);
-                            let owner = fb.inst_results(owner_inst)[0];
-                            let (name_ptr, name_len) =
-                                intern_bytes_literal(&mut literal_pool, name.as_bytes());
-                            let name_ptr_val = fb.ins().iconst(ptr_ty, name_ptr as i64);
-                            let name_len_val = fb.ins().iconst(i64_ty, name_len);
-                            let local_inst = fb.ins().call(
-                                load_local_raw_by_name_ref,
-                                &[owner, name_ptr_val, name_len_val],
-                            );
-                            fb.ins().call(decref_ref, &[owner]);
-                            fb.inst_results(local_inst)[0]
-                        }
-                    };
-                    let value_null = fb.ins().icmp(ir::condcodes::IntCC::Equal, value, null_ptr);
-                    let value_fail = fb.create_block();
-                    fb.append_block_param(value_fail, ptr_ty);
-                    fb.append_block_param(value_fail, ptr_ty);
-                    fb.append_block_param(value_fail, ptr_ty);
-                    fb.append_block_param(value_fail, ptr_ty);
-                    let value_ok = fb.create_block();
-                    fb.append_block_param(value_ok, ptr_ty);
-                    fb.append_block_param(value_ok, ptr_ty);
-                    fb.append_block_param(value_ok, ptr_ty);
-                    fb.append_block_param(value_ok, ptr_ty);
-                    fb.append_block_param(value_ok, ptr_ty);
-                    fb.ins().brif(
-                        value_null,
-                        value_fail,
-                        &[
-                            ir::BlockArg::Value(b_args),
-                            ir::BlockArg::Value(b_term),
-                            ir::BlockArg::Value(b_exc),
-                            ir::BlockArg::Value(b_target_args),
-                        ],
-                        value_ok,
-                        &[
-                            ir::BlockArg::Value(b_args),
-                            ir::BlockArg::Value(b_term),
-                            ir::BlockArg::Value(b_exc),
-                            ir::BlockArg::Value(b_target_args),
-                            ir::BlockArg::Value(value),
-                        ],
-                    );
-
-                    fb.switch_to_block(value_fail);
-                    let vf_args = fb.block_params(value_fail)[0];
-                    let vf_term = fb.block_params(value_fail)[1];
-                    let vf_exc = fb.block_params(value_fail)[2];
-                    let vf_target_args = fb.block_params(value_fail)[3];
-                    fb.ins().call(decref_ref, &[vf_target_args]);
-                    fb.ins().call(decref_ref, &[vf_exc]);
-                    fb.ins().call(decref_ref, &[vf_term]);
-                    fb.ins()
-                        .jump(step_null_block, &[ir::BlockArg::Value(vf_args)]);
-
-                    fb.switch_to_block(value_ok);
-                    let vo_args = fb.block_params(value_ok)[0];
-                    let vo_term = fb.block_params(value_ok)[1];
-                    let vo_exc = fb.block_params(value_ok)[2];
-                    let vo_target_args = fb.block_params(value_ok)[3];
-                    let vo_value = fb.block_params(value_ok)[4];
-                    let slot_const = fb.ins().iconst(i64_ty, slot as i64);
-                    let set_item_inst = fb
-                        .ins()
-                        .call(tuple_set_item_ref, &[vo_target_args, slot_const, vo_value]);
-                    let set_item_status = fb.inst_results(set_item_inst)[0];
-                    let set_item_failed =
-                        fb.ins()
-                            .icmp_imm(ir::condcodes::IntCC::NotEqual, set_item_status, 0);
-                    let set_item_fail = fb.create_block();
-                    fb.append_block_param(set_item_fail, ptr_ty);
-                    fb.append_block_param(set_item_fail, ptr_ty);
-                    fb.append_block_param(set_item_fail, ptr_ty);
-                    fb.append_block_param(set_item_fail, ptr_ty);
-                    let next_build_block = fb.create_block();
-                    fb.append_block_param(next_build_block, ptr_ty);
-                    fb.append_block_param(next_build_block, ptr_ty);
-                    fb.append_block_param(next_build_block, ptr_ty);
-                    fb.append_block_param(next_build_block, ptr_ty);
-                    fb.ins().brif(
-                        set_item_failed,
-                        set_item_fail,
-                        &[
-                            ir::BlockArg::Value(vo_args),
-                            ir::BlockArg::Value(vo_term),
-                            ir::BlockArg::Value(vo_exc),
-                            ir::BlockArg::Value(vo_target_args),
-                        ],
-                        next_build_block,
-                        &[
-                            ir::BlockArg::Value(vo_args),
-                            ir::BlockArg::Value(vo_term),
-                            ir::BlockArg::Value(vo_exc),
-                            ir::BlockArg::Value(vo_target_args),
-                        ],
-                    );
-
-                    fb.switch_to_block(set_item_fail);
-                    let sf_args = fb.block_params(set_item_fail)[0];
-                    let sf_term = fb.block_params(set_item_fail)[1];
-                    let sf_exc = fb.block_params(set_item_fail)[2];
-                    let sf_target_args = fb.block_params(set_item_fail)[3];
-                    fb.ins().call(decref_ref, &[sf_target_args]);
-                    fb.ins().call(decref_ref, &[sf_exc]);
-                    fb.ins().call(decref_ref, &[sf_term]);
-                    fb.ins()
-                        .jump(step_null_block, &[ir::BlockArg::Value(sf_args)]);
-
-                    build_block = next_build_block;
-                }
-
-                fb.switch_to_block(build_block);
-                let bd_args = fb.block_params(build_block)[0];
-                let bd_term = fb.block_params(build_block)[1];
-                let bd_exc = fb.block_params(build_block)[2];
-                let bd_target_args = fb.block_params(build_block)[3];
-                fb.ins().call(decref_ref, &[bd_exc]);
-                fb.ins().call(decref_ref, &[bd_term]);
-                fb.ins().call(decref_ref, &[bd_args]);
-                let dispatch_jump_args = [ir::BlockArg::Value(bd_target_args)];
-                fb.ins()
-                    .jump(exec_blocks[dispatch_plan.target_index], &dispatch_jump_args);
-            } else {
-                fb.ins().brif(
-                    is_raise,
-                    raise_block,
-                    &ar_pair,
-                    invalid_term_block,
-                    &ar_pair,
-                );
+                build_block = next_build_block;
             }
 
-            fb.switch_to_block(jump_case);
-            let jump_args = fb.block_params(jump_case)[0];
-            let jump_term = fb.block_params(jump_case)[1];
-            let target_inst = fb.ins().call(term_jump_target_ref, &[jump_term]);
-            let target_val = fb.inst_results(target_inst)[0];
-            let null_ptr = fb.ins().iconst(ptr_ty, 0);
-            let target_null = fb
-                .ins()
-                .icmp(ir::condcodes::IntCC::Equal, target_val, null_ptr);
-            let target_ok_block = fb.create_block();
-            fb.append_block_param(target_ok_block, ptr_ty);
-            fb.append_block_param(target_ok_block, ptr_ty);
-            fb.append_block_param(target_ok_block, ptr_ty);
-            let target_ok_args = [
-                ir::BlockArg::Value(jump_args),
-                ir::BlockArg::Value(jump_term),
-                ir::BlockArg::Value(target_val),
-            ];
-            let term_error_args = [
-                ir::BlockArg::Value(jump_args),
-                ir::BlockArg::Value(jump_term),
-            ];
-            fb.ins().brif(
-                target_null,
-                invalid_term_block,
-                &term_error_args,
-                target_ok_block,
-                &target_ok_args,
+            fb.switch_to_block(build_block);
+            let bd_args = fb.block_params(build_block)[0];
+            let bd_exc = fb.block_params(build_block)[1];
+            let bd_target_args = fb.block_params(build_block)[2];
+            fb.ins().call(decref_ref, &[bd_exc]);
+            fb.ins().call(decref_ref, &[bd_args]);
+            fb.ins().jump(
+                exec_blocks[dispatch_plan.target_index],
+                &[ir::BlockArg::Value(bd_target_args)],
             );
-
-            fb.switch_to_block(target_ok_block);
-            let jto_args = fb.block_params(target_ok_block)[0];
-            let jto_term = fb.block_params(target_ok_block)[1];
-            let jto_target = fb.block_params(target_ok_block)[2];
-            let next_args_inst = fb.ins().call(term_jump_args_ref, &[jto_term]);
-            let next_args_val = fb.inst_results(next_args_inst)[0];
-            let next_args_null =
-                fb.ins()
-                    .icmp(ir::condcodes::IntCC::Equal, next_args_val, null_ptr);
-            let jump_invalid_null_args = [
-                ir::BlockArg::Value(jto_args),
-                ir::BlockArg::Value(jto_term),
-                ir::BlockArg::Value(jto_target),
-            ];
-            let jump_valid_args = [
-                ir::BlockArg::Value(jto_args),
-                ir::BlockArg::Value(jto_term),
-                ir::BlockArg::Value(next_args_val),
-                ir::BlockArg::Value(jto_target),
-            ];
-            let jump_valid_dispatch = fb.create_block();
-            fb.append_block_param(jump_valid_dispatch, ptr_ty);
-            fb.append_block_param(jump_valid_dispatch, ptr_ty);
-            fb.append_block_param(jump_valid_dispatch, ptr_ty);
-            fb.append_block_param(jump_valid_dispatch, ptr_ty);
-            fb.ins().brif(
-                next_args_null,
-                invalid_jump_null_block,
-                &jump_invalid_null_args,
-                jump_valid_dispatch,
-                &jump_valid_args,
-            );
-
-            fb.switch_to_block(jump_valid_dispatch);
-            let jv_args = fb.block_params(jump_valid_dispatch)[0];
-            let jv_term = fb.block_params(jump_valid_dispatch)[1];
-            let jv_next_args = fb.block_params(jump_valid_dispatch)[2];
-            let jv_target = fb.block_params(jump_valid_dispatch)[3];
-            // term_jump_target helper returns a new reference. We only need pointer
-            // identity for dispatch comparisons, so release ownership before branching.
-            fb.ins().call(decref_ref, &[jv_target]);
-            match &plan.block_terms[index] {
-                BlockTermPlan::Jump { target_index } => {
-                    let target_const = fb.ins().iconst(ptr_ty, blocks[*target_index] as i64);
-                    let target_match =
-                        fb.ins()
-                            .icmp(ir::condcodes::IntCC::Equal, jv_target, target_const);
-                    let target_block = fb.create_block();
-                    let fallback_block = fb.create_block();
-                    fb.append_block_param(target_block, ptr_ty);
-                    fb.append_block_param(target_block, ptr_ty);
-                    fb.append_block_param(target_block, ptr_ty);
-                    fb.append_block_param(fallback_block, ptr_ty);
-                    fb.append_block_param(fallback_block, ptr_ty);
-                    fb.append_block_param(fallback_block, ptr_ty);
-                    let block_args = [
-                        ir::BlockArg::Value(jv_args),
-                        ir::BlockArg::Value(jv_term),
-                        ir::BlockArg::Value(jv_next_args),
-                    ];
-                    fb.ins().brif(
-                        target_match,
-                        target_block,
-                        &block_args,
-                        fallback_block,
-                        &block_args,
-                    );
-
-                    fb.switch_to_block(target_block);
-                    let ok_args = fb.block_params(target_block)[0];
-                    let ok_term = fb.block_params(target_block)[1];
-                    let ok_next_args = fb.block_params(target_block)[2];
-                    fb.ins().call(decref_ref, &[ok_term]);
-                    fb.ins().call(decref_ref, &[ok_args]);
-                    let next = [ir::BlockArg::Value(ok_next_args)];
-                    fb.ins().jump(exec_blocks[*target_index], &next);
-
-                    fb.switch_to_block(fallback_block);
-                    let fb_args = fb.block_params(fallback_block)[0];
-                    let fb_term = fb.block_params(fallback_block)[1];
-                    let fb_next_args = fb.block_params(fallback_block)[2];
-                    if let Some(exc_index) = exc_target_index {
-                        let exc_const = fb.ins().iconst(ptr_ty, blocks[exc_index] as i64);
-                        let exc_match =
-                            fb.ins()
-                                .icmp(ir::condcodes::IntCC::Equal, jv_target, exc_const);
-                        let exc_block = fb.create_block();
-                        fb.append_block_param(exc_block, ptr_ty);
-                        fb.append_block_param(exc_block, ptr_ty);
-                        fb.append_block_param(exc_block, ptr_ty);
-                        let fallback_args = [
-                            ir::BlockArg::Value(fb_args),
-                            ir::BlockArg::Value(fb_term),
-                            ir::BlockArg::Value(fb_next_args),
-                        ];
-                        fb.ins().brif(
-                            exc_match,
-                            exc_block,
-                            &fallback_args,
-                            jump_invalid_target_block,
-                            &fallback_args,
-                        );
-                        fb.switch_to_block(exc_block);
-                        let ex_args = fb.block_params(exc_block)[0];
-                        let ex_term = fb.block_params(exc_block)[1];
-                        let ex_next_args = fb.block_params(exc_block)[2];
-                        fb.ins().call(decref_ref, &[ex_term]);
-                        fb.ins().call(decref_ref, &[ex_args]);
-                        let next = [ir::BlockArg::Value(ex_next_args)];
-                        fb.ins().jump(exec_blocks[exc_index], &next);
-                    } else {
-                        let invalid_args = [
-                            ir::BlockArg::Value(fb_args),
-                            ir::BlockArg::Value(fb_term),
-                            ir::BlockArg::Value(fb_next_args),
-                        ];
-                        fb.ins().jump(jump_invalid_target_block, &invalid_args);
-                    }
-                }
-                BlockTermPlan::BrIf {
-                    then_index,
-                    else_index,
-                } => {
-                    let then_const = fb.ins().iconst(ptr_ty, blocks[*then_index] as i64);
-                    let else_const = fb.ins().iconst(ptr_ty, blocks[*else_index] as i64);
-                    let then_match =
-                        fb.ins()
-                            .icmp(ir::condcodes::IntCC::Equal, jv_target, then_const);
-                    let then_block = fb.create_block();
-                    let else_check = fb.create_block();
-                    fb.append_block_param(then_block, ptr_ty);
-                    fb.append_block_param(then_block, ptr_ty);
-                    fb.append_block_param(then_block, ptr_ty);
-                    fb.append_block_param(else_check, ptr_ty);
-                    fb.append_block_param(else_check, ptr_ty);
-                    fb.append_block_param(else_check, ptr_ty);
-                    let branch_args = [
-                        ir::BlockArg::Value(jv_args),
-                        ir::BlockArg::Value(jv_term),
-                        ir::BlockArg::Value(jv_next_args),
-                    ];
-                    fb.ins().brif(
-                        then_match,
-                        then_block,
-                        &branch_args,
-                        else_check,
-                        &branch_args,
-                    );
-
-                    fb.switch_to_block(then_block);
-                    let tb_args = fb.block_params(then_block)[0];
-                    let tb_term = fb.block_params(then_block)[1];
-                    let tb_next_args = fb.block_params(then_block)[2];
-                    fb.ins().call(decref_ref, &[tb_term]);
-                    fb.ins().call(decref_ref, &[tb_args]);
-                    let then_jump = [ir::BlockArg::Value(tb_next_args)];
-                    fb.ins().jump(exec_blocks[*then_index], &then_jump);
-
-                    fb.switch_to_block(else_check);
-                    let ec_args = fb.block_params(else_check)[0];
-                    let ec_term = fb.block_params(else_check)[1];
-                    let ec_next_args = fb.block_params(else_check)[2];
-                    let else_match =
-                        fb.ins()
-                            .icmp(ir::condcodes::IntCC::Equal, jv_target, else_const);
-                    let else_block = fb.create_block();
-                    fb.append_block_param(else_block, ptr_ty);
-                    fb.append_block_param(else_block, ptr_ty);
-                    fb.append_block_param(else_block, ptr_ty);
-                    let else_args = [
-                        ir::BlockArg::Value(ec_args),
-                        ir::BlockArg::Value(ec_term),
-                        ir::BlockArg::Value(ec_next_args),
-                    ];
-                    if let Some(exc_index) = exc_target_index {
-                        let exc_check = fb.create_block();
-                        fb.append_block_param(exc_check, ptr_ty);
-                        fb.append_block_param(exc_check, ptr_ty);
-                        fb.append_block_param(exc_check, ptr_ty);
-                        fb.ins()
-                            .brif(else_match, else_block, &else_args, exc_check, &else_args);
-
-                        fb.switch_to_block(exc_check);
-                        let xc_args = fb.block_params(exc_check)[0];
-                        let xc_term = fb.block_params(exc_check)[1];
-                        let xc_next_args = fb.block_params(exc_check)[2];
-                        let exc_const = fb.ins().iconst(ptr_ty, blocks[exc_index] as i64);
-                        let exc_match =
-                            fb.ins()
-                                .icmp(ir::condcodes::IntCC::Equal, jv_target, exc_const);
-                        let exc_block = fb.create_block();
-                        fb.append_block_param(exc_block, ptr_ty);
-                        fb.append_block_param(exc_block, ptr_ty);
-                        fb.append_block_param(exc_block, ptr_ty);
-                        let exc_args = [
-                            ir::BlockArg::Value(xc_args),
-                            ir::BlockArg::Value(xc_term),
-                            ir::BlockArg::Value(xc_next_args),
-                        ];
-                        fb.ins().brif(
-                            exc_match,
-                            exc_block,
-                            &exc_args,
-                            jump_invalid_target_block,
-                            &exc_args,
-                        );
-
-                        fb.switch_to_block(exc_block);
-                        let xb_args = fb.block_params(exc_block)[0];
-                        let xb_term = fb.block_params(exc_block)[1];
-                        let xb_next_args = fb.block_params(exc_block)[2];
-                        fb.ins().call(decref_ref, &[xb_term]);
-                        fb.ins().call(decref_ref, &[xb_args]);
-                        let exc_jump = [ir::BlockArg::Value(xb_next_args)];
-                        fb.ins().jump(exec_blocks[exc_index], &exc_jump);
-                    } else {
-                        fb.ins().brif(
-                            else_match,
-                            else_block,
-                            &else_args,
-                            jump_invalid_target_block,
-                            &else_args,
-                        );
-                    }
-
-                    fb.switch_to_block(else_block);
-                    let eb_args = fb.block_params(else_block)[0];
-                    let eb_term = fb.block_params(else_block)[1];
-                    let eb_next_args = fb.block_params(else_block)[2];
-                    fb.ins().call(decref_ref, &[eb_term]);
-                    fb.ins().call(decref_ref, &[eb_args]);
-                    let else_jump = [ir::BlockArg::Value(eb_next_args)];
-                    fb.ins().jump(exec_blocks[*else_index], &else_jump);
-                }
-                BlockTermPlan::BrTable {
-                    targets,
-                    default_index,
-                } => {
-                    let mut all_targets = targets.clone();
-                    all_targets.push(*default_index);
-                    if let Some(exc_index) = exc_target_index {
-                        if !all_targets.contains(&exc_index) {
-                            all_targets.push(exc_index);
-                        }
-                    }
-                    let mut check_blocks = Vec::with_capacity(all_targets.len());
-                    for _ in 0..all_targets.len() {
-                        let check = fb.create_block();
-                        fb.append_block_param(check, ptr_ty); // args
-                        fb.append_block_param(check, ptr_ty); // term
-                        fb.append_block_param(check, ptr_ty); // next_args
-                        fb.append_block_param(check, ptr_ty); // target
-                        check_blocks.push(check);
-                    }
-                    let first_check_args = [
-                        ir::BlockArg::Value(jv_args),
-                        ir::BlockArg::Value(jv_term),
-                        ir::BlockArg::Value(jv_next_args),
-                        ir::BlockArg::Value(jv_target),
-                    ];
-                    fb.ins().jump(check_blocks[0], &first_check_args);
-
-                    for (pos, target_index) in all_targets.iter().enumerate() {
-                        let check = check_blocks[pos];
-                        fb.switch_to_block(check);
-                        let cb_args = fb.block_params(check)[0];
-                        let cb_term = fb.block_params(check)[1];
-                        let cb_next_args = fb.block_params(check)[2];
-                        let cb_target = fb.block_params(check)[3];
-                        let target_const = fb.ins().iconst(ptr_ty, blocks[*target_index] as i64);
-                        let matches =
-                            fb.ins()
-                                .icmp(ir::condcodes::IntCC::Equal, cb_target, target_const);
-                        let match_block = fb.create_block();
-                        fb.append_block_param(match_block, ptr_ty);
-                        fb.append_block_param(match_block, ptr_ty);
-                        fb.append_block_param(match_block, ptr_ty);
-                        let branch_args = [
-                            ir::BlockArg::Value(cb_args),
-                            ir::BlockArg::Value(cb_term),
-                            ir::BlockArg::Value(cb_next_args),
-                        ];
-                        if pos + 1 < check_blocks.len() {
-                            let miss_check = check_blocks[pos + 1];
-                            let miss_args = [
-                                ir::BlockArg::Value(cb_args),
-                                ir::BlockArg::Value(cb_term),
-                                ir::BlockArg::Value(cb_next_args),
-                                ir::BlockArg::Value(cb_target),
-                            ];
-                            fb.ins().brif(
-                                matches,
-                                match_block,
-                                &branch_args,
-                                miss_check,
-                                &miss_args,
-                            );
-                        } else {
-                            fb.ins().brif(
-                                matches,
-                                match_block,
-                                &branch_args,
-                                jump_invalid_target_block,
-                                &branch_args,
-                            );
-                        }
-
-                        fb.switch_to_block(match_block);
-                        let mb_args = fb.block_params(match_block)[0];
-                        let mb_term = fb.block_params(match_block)[1];
-                        let mb_next_args = fb.block_params(match_block)[2];
-                        fb.ins().call(decref_ref, &[mb_term]);
-                        fb.ins().call(decref_ref, &[mb_args]);
-                        let jump_args = [ir::BlockArg::Value(mb_next_args)];
-                        fb.ins().jump(exec_blocks[*target_index], &jump_args);
-                    }
-                }
-                BlockTermPlan::Raise | BlockTermPlan::Ret => {
-                    if let Some(exc_index) = exc_target_index {
-                        let exc_const = fb.ins().iconst(ptr_ty, blocks[exc_index] as i64);
-                        let exc_match =
-                            fb.ins()
-                                .icmp(ir::condcodes::IntCC::Equal, jv_target, exc_const);
-                        let exc_block = fb.create_block();
-                        fb.append_block_param(exc_block, ptr_ty);
-                        fb.append_block_param(exc_block, ptr_ty);
-                        fb.append_block_param(exc_block, ptr_ty);
-                        let branch_args = [
-                            ir::BlockArg::Value(jv_args),
-                            ir::BlockArg::Value(jv_term),
-                            ir::BlockArg::Value(jv_next_args),
-                        ];
-                        fb.ins().brif(
-                            exc_match,
-                            exc_block,
-                            &branch_args,
-                            jump_invalid_target_block,
-                            &branch_args,
-                        );
-                        fb.switch_to_block(exc_block);
-                        let ex_args = fb.block_params(exc_block)[0];
-                        let ex_term = fb.block_params(exc_block)[1];
-                        let ex_next_args = fb.block_params(exc_block)[2];
-                        fb.ins().call(decref_ref, &[ex_term]);
-                        fb.ins().call(decref_ref, &[ex_args]);
-                        let next = [ir::BlockArg::Value(ex_next_args)];
-                        fb.ins().jump(exec_blocks[exc_index], &next);
-                    } else {
-                        let invalid_args =
-                            [ir::BlockArg::Value(jv_args), ir::BlockArg::Value(jv_term)];
-                        fb.ins().jump(invalid_term_block, &invalid_args);
-                    }
-                }
-            }
-        }
-
-        if !has_generic_blocks {
-            fb.switch_to_block(step_null_block);
-            let step_null_args = fb.block_params(step_null_block)[0];
-            fb.ins().call(decref_ref, &[step_null_args]);
-            let null_ptr = fb.ins().iconst(ptr_ty, 0);
-            fb.ins().return_(&[null_ptr]);
-            fb.seal_all_blocks();
-            fb.finalize();
-            return Ok((ctx, main_id, literal_pool, import_id_to_symbol));
         }
 
         fb.switch_to_block(step_null_block);
@@ -4515,66 +3551,6 @@ fn build_cranelift_run_bb_specialized_function(
         fb.ins().call(decref_ref, &[step_null_args]);
         let null_ptr = fb.ins().iconst(ptr_ty, 0);
         fb.ins().return_(&[null_ptr]);
-
-        fb.switch_to_block(jump_invalid_target_block);
-        let jit_args = fb.block_params(jump_invalid_target_block)[0];
-        let jit_term = fb.block_params(jump_invalid_target_block)[1];
-        let jit_next_args = fb.block_params(jump_invalid_target_block)[2];
-        let _ = fb.ins().call(term_invalid_ref, &[jit_term]);
-        fb.ins().call(decref_ref, &[jit_next_args]);
-        fb.ins().call(decref_ref, &[jit_term]);
-        fb.ins().call(decref_ref, &[jit_args]);
-        let null_ptr = fb.ins().iconst(ptr_ty, 0);
-        fb.ins().return_(&[null_ptr]);
-
-        fb.switch_to_block(invalid_jump_null_block);
-        let jn_args = fb.block_params(invalid_jump_null_block)[0];
-        let jn_term = fb.block_params(invalid_jump_null_block)[1];
-        let jn_target = fb.block_params(invalid_jump_null_block)[2];
-        let _ = fb.ins().call(term_invalid_ref, &[jn_term]);
-        fb.ins().call(decref_ref, &[jn_target]);
-        fb.ins().call(decref_ref, &[jn_term]);
-        fb.ins().call(decref_ref, &[jn_args]);
-        let null_ptr = fb.ins().iconst(ptr_ty, 0);
-        fb.ins().return_(&[null_ptr]);
-
-        fb.switch_to_block(ret_block);
-        let ret_args = fb.block_params(ret_block)[0];
-        let ret_term = fb.block_params(ret_block)[1];
-        let ret_val_inst = fb.ins().call(term_ret_value_ref, &[ret_term]);
-        let ret_value = fb.inst_results(ret_val_inst)[0];
-        fb.ins().call(decref_ref, &[ret_term]);
-        fb.ins().call(decref_ref, &[ret_args]);
-        fb.ins().return_(&[ret_value]);
-
-        fb.switch_to_block(raise_block);
-        let raise_args = fb.block_params(raise_block)[0];
-        let raise_term = fb.block_params(raise_block)[1];
-        let raise_null = fb.ins().iconst(ptr_ty, 0);
-        let exc_inst = fb.ins().call(term_raise_exc_ref, &[raise_term]);
-        let exc_value = fb.inst_results(exc_inst)[0];
-        let exc_null = fb
-            .ins()
-            .icmp(ir::condcodes::IntCC::Equal, exc_value, raise_null);
-        let raise_set_block = fb.create_block();
-        fb.append_block_param(raise_set_block, ptr_ty);
-        let raise_exc_error_block = fb.create_block();
-        fb.ins().brif(
-            exc_null,
-            raise_exc_error_block,
-            &[],
-            raise_set_block,
-            &[ir::BlockArg::Value(exc_value)],
-        );
-        fb.switch_to_block(raise_set_block);
-        let raise_exc = fb.block_params(raise_set_block)[0];
-        let _ = fb.ins().call(raise_exc_ref, &[raise_exc]);
-        fb.ins().call(decref_ref, &[raise_exc]);
-        fb.ins().jump(raise_exc_error_block, &[]);
-        fb.switch_to_block(raise_exc_error_block);
-        fb.ins().call(decref_ref, &[raise_term]);
-        fb.ins().call(decref_ref, &[raise_args]);
-        fb.ins().return_(&[raise_null]);
 
         fb.switch_to_block(raise_exc_direct_block);
         let red_args = fb.block_params(raise_exc_direct_block)[0];
@@ -4602,15 +3578,6 @@ fn build_cranelift_run_bb_specialized_function(
         fb.ins().call(decref_ref, &[red_args]);
         fb.ins().return_(&[red_null]);
 
-        fb.switch_to_block(invalid_term_block);
-        let invalid_term_args = fb.block_params(invalid_term_block)[0];
-        let invalid_term = fb.block_params(invalid_term_block)[1];
-        let _ = fb.ins().call(term_invalid_ref, &[invalid_term]);
-        fb.ins().call(decref_ref, &[invalid_term]);
-        fb.ins().call(decref_ref, &[invalid_term_args]);
-        let null_ptr = fb.ins().iconst(ptr_ty, 0);
-        fb.ins().return_(&[null_ptr]);
-
         fb.seal_all_blocks();
         fb.finalize();
     }
@@ -4618,29 +3585,7 @@ fn build_cranelift_run_bb_specialized_function(
     Ok((ctx, main_id, literal_pool, import_id_to_symbol))
 }
 
-pub unsafe fn render_cranelift_run_bb_specialized(
-    blocks: &[ObjPtr],
-    plan: &EntryBlockPlan,
-    true_obj: ObjPtr,
-    false_obj: ObjPtr,
-    empty_tuple_obj: ObjPtr,
-) -> Result<String, String> {
-    render_cranelift_run_bb_specialized_with_cfg(blocks, plan, true_obj, false_obj, empty_tuple_obj)
-        .map(|rendered| rendered.clif)
-}
-
-pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
-    blocks: &[ObjPtr],
-    plan: &EntryBlockPlan,
-    true_obj: ObjPtr,
-    false_obj: ObjPtr,
-    empty_tuple_obj: ObjPtr,
-) -> Result<RenderedSpecializedClif, String> {
-    if blocks.is_empty() {
-        return Err("specialized JIT run_bb requires at least one block".to_string());
-    }
-
-    let mut builder = new_jit_builder()?;
+fn register_specialized_jit_symbols(builder: &mut JITBuilder) {
     builder.symbol("dp_jit_incref", dp_jit_incref as *const u8);
     builder.symbol("dp_jit_decref", dp_jit_decref as *const u8);
     builder.symbol(
@@ -4694,16 +3639,33 @@ pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
     builder.symbol("dp_jit_is_true", dp_jit_is_true as *const u8);
     builder.symbol("dp_jit_compare_eq_obj", dp_jit_compare_eq_obj as *const u8);
     builder.symbol("dp_jit_compare_lt_obj", dp_jit_compare_lt_obj as *const u8);
-    builder.symbol("dp_jit_term_kind", dp_jit_term_kind as *const u8);
-    builder.symbol(
-        "dp_jit_term_jump_target",
-        dp_jit_term_jump_target as *const u8,
-    );
-    builder.symbol("dp_jit_term_jump_args", dp_jit_term_jump_args as *const u8);
-    builder.symbol("dp_jit_term_ret_value", dp_jit_term_ret_value as *const u8);
-    builder.symbol("dp_jit_term_raise_exc", dp_jit_term_raise_exc as *const u8);
     builder.symbol("dp_jit_raise_from_exc", dp_jit_raise_from_exc as *const u8);
-    builder.symbol("dp_jit_term_invalid", dp_jit_term_invalid as *const u8);
+}
+
+pub unsafe fn render_cranelift_run_bb_specialized(
+    blocks: &[ObjPtr],
+    plan: &EntryBlockPlan,
+    true_obj: ObjPtr,
+    false_obj: ObjPtr,
+    empty_tuple_obj: ObjPtr,
+) -> Result<String, String> {
+    render_cranelift_run_bb_specialized_with_cfg(blocks, plan, true_obj, false_obj, empty_tuple_obj)
+        .map(|rendered| rendered.clif)
+}
+
+pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
+    blocks: &[ObjPtr],
+    plan: &EntryBlockPlan,
+    true_obj: ObjPtr,
+    false_obj: ObjPtr,
+    empty_tuple_obj: ObjPtr,
+) -> Result<RenderedSpecializedClif, String> {
+    if blocks.is_empty() {
+        return Err("specialized JIT run_bb requires at least one block".to_string());
+    }
+
+    let mut builder = new_jit_builder()?;
+    register_specialized_jit_symbols(&mut builder);
     let mut jit_module = JITModule::new(builder);
     let (ctx, _, _literal_pool, import_id_to_symbol) = build_cranelift_run_bb_specialized_function(
         &mut jit_module,
@@ -4740,13 +3702,7 @@ pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
     out.push_str("; dp_jit_is_true\n");
     out.push_str("; dp_jit_compare_eq_obj\n");
     out.push_str("; dp_jit_compare_lt_obj\n");
-    out.push_str("; dp_jit_term_kind\n");
-    out.push_str("; dp_jit_term_jump_target\n");
-    out.push_str("; dp_jit_term_jump_args\n");
-    out.push_str("; dp_jit_term_ret_value\n");
-    out.push_str("; dp_jit_term_raise_exc\n");
     out.push_str("; dp_jit_raise_from_exc\n");
-    out.push_str("; dp_jit_term_invalid\n");
     out.push('\n');
     let rendered_clif = ctx.func.display().to_string();
     out.push_str(&rewrite_import_fn_aliases(
@@ -4755,6 +3711,177 @@ pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
     ));
     let cfg_dot = CFGPrinter::new(&ctx.func).to_string();
     Ok(RenderedSpecializedClif { clif: out, cfg_dot })
+}
+
+unsafe fn configure_specialized_jit_hooks(
+    incref_fn: IncrefFn,
+    decref_fn: DecrefFn,
+    py_call_three_fn: CallVarArgsFn,
+    py_call_object_fn: CallObjectFn,
+    py_call_with_kw_fn: CallWithKwFn,
+    py_get_raised_exception_fn: GetRaisedExceptionFn,
+    get_arg_item_fn: GetArgItemFn,
+    make_int_fn: MakeIntFn,
+    make_float_fn: MakeFloatFn,
+    make_bytes_fn: MakeBytesFn,
+    load_name_fn: LoadNameFn,
+    load_local_raw_by_name_fn: LoadLocalRawByNameFn,
+    pyobject_getattr_fn: PyObjectGetAttrFn,
+    pyobject_setattr_fn: PyObjectSetAttrFn,
+    pyobject_getitem_fn: PyObjectGetItemFn,
+    pyobject_setitem_fn: PyObjectSetItemFn,
+    pyobject_to_i64_fn: PyObjectToI64Fn,
+    decode_literal_bytes_fn: DecodeLiteralBytesFn,
+    tuple_new_fn: TupleNewFn,
+    tuple_set_item_fn: TupleSetItemFn,
+    is_true_fn: IsTrueFn,
+    compare_eq_obj_fn: CompareObjFn,
+    compare_lt_obj_fn: CompareObjFn,
+    raise_from_exc_fn: RaiseFromExcFn,
+) {
+    DP_JIT_INCREF_FN = Some(incref_fn);
+    DP_JIT_DECREF_FN = Some(decref_fn);
+    DP_JIT_CALL_VAR_ARGS_FN = Some(py_call_three_fn);
+    DP_JIT_CALL_OBJECT_FN = Some(py_call_object_fn);
+    DP_JIT_CALL_WITH_KW_FN = Some(py_call_with_kw_fn);
+    DP_JIT_GET_RAISED_EXCEPTION_FN = Some(py_get_raised_exception_fn);
+    DP_JIT_GET_ARG_ITEM_FN = Some(get_arg_item_fn);
+    DP_JIT_MAKE_INT_FN = Some(make_int_fn);
+    DP_JIT_MAKE_FLOAT_FN = Some(make_float_fn);
+    DP_JIT_MAKE_BYTES_FN = Some(make_bytes_fn);
+    DP_JIT_LOAD_NAME_FN = Some(load_name_fn);
+    DP_JIT_LOAD_LOCAL_RAW_BY_NAME_FN = Some(load_local_raw_by_name_fn);
+    DP_JIT_PYOBJECT_GETATTR_FN = Some(pyobject_getattr_fn);
+    DP_JIT_PYOBJECT_SETATTR_FN = Some(pyobject_setattr_fn);
+    DP_JIT_PYOBJECT_GETITEM_FN = Some(pyobject_getitem_fn);
+    DP_JIT_PYOBJECT_SETITEM_FN = Some(pyobject_setitem_fn);
+    DP_JIT_PYOBJECT_TO_I64_FN = Some(pyobject_to_i64_fn);
+    DP_JIT_DECODE_LITERAL_BYTES_FN = Some(decode_literal_bytes_fn);
+    DP_JIT_TUPLE_NEW_FN = Some(tuple_new_fn);
+    DP_JIT_TUPLE_SET_ITEM_FN = Some(tuple_set_item_fn);
+    DP_JIT_IS_TRUE_FN = Some(is_true_fn);
+    DP_JIT_COMPARE_EQ_OBJ_FN = Some(compare_eq_obj_fn);
+    DP_JIT_COMPARE_LT_OBJ_FN = Some(compare_lt_obj_fn);
+    DP_JIT_RAISE_FROM_EXC_FN = Some(raise_from_exc_fn);
+}
+
+pub unsafe fn compile_cranelift_run_bb_specialized_cached(
+    blocks: &[ObjPtr],
+    plan: &EntryBlockPlan,
+    globals_obj: ObjPtr,
+    true_obj: ObjPtr,
+    false_obj: ObjPtr,
+    none_obj: ObjPtr,
+    empty_tuple_obj: ObjPtr,
+) -> Result<ObjPtr, String> {
+    if globals_obj.is_null() {
+        return Err("invalid null globals object passed to specialized JIT run_bb".to_string());
+    }
+    let mut builder = new_jit_builder()?;
+    register_specialized_jit_symbols(&mut builder);
+    let mut compiled = Box::new(CompiledSpecializedRunner {
+        _jit_module: JITModule::new(builder),
+        _literal_pool: Vec::new(),
+        entry: None,
+    });
+    let (mut ctx, main_id, literal_pool, _import_id_to_symbol) =
+        build_cranelift_run_bb_specialized_function(
+            &mut compiled._jit_module,
+            blocks,
+            plan,
+            globals_obj,
+            true_obj,
+            false_obj,
+            none_obj,
+            empty_tuple_obj,
+        )?;
+    compiled
+        ._jit_module
+        .define_function(main_id, &mut ctx)
+        .map_err(|err| format!("failed to define specialized jit run_bb function: {err}"))?;
+    compiled._jit_module.clear_context(&mut ctx);
+    compiled
+        ._jit_module
+        .finalize_definitions()
+        .map_err(|err| format!("failed to finalize specialized jit run_bb function: {err}"))?;
+    let code_ptr = compiled._jit_module.get_finalized_function(main_id);
+    compiled.entry = Some(std::mem::transmute(code_ptr));
+    compiled._literal_pool = literal_pool;
+    Ok(Box::into_raw(compiled) as ObjPtr)
+}
+
+pub unsafe fn run_cranelift_run_bb_specialized_cached(
+    compiled_handle: ObjPtr,
+    args: ObjPtr,
+    incref_fn: IncrefFn,
+    decref_fn: DecrefFn,
+    py_call_three_fn: CallVarArgsFn,
+    py_call_object_fn: CallObjectFn,
+    py_call_with_kw_fn: CallWithKwFn,
+    py_get_raised_exception_fn: GetRaisedExceptionFn,
+    get_arg_item_fn: GetArgItemFn,
+    make_int_fn: MakeIntFn,
+    make_float_fn: MakeFloatFn,
+    make_bytes_fn: MakeBytesFn,
+    load_name_fn: LoadNameFn,
+    load_local_raw_by_name_fn: LoadLocalRawByNameFn,
+    pyobject_getattr_fn: PyObjectGetAttrFn,
+    pyobject_setattr_fn: PyObjectSetAttrFn,
+    pyobject_getitem_fn: PyObjectGetItemFn,
+    pyobject_setitem_fn: PyObjectSetItemFn,
+    pyobject_to_i64_fn: PyObjectToI64Fn,
+    decode_literal_bytes_fn: DecodeLiteralBytesFn,
+    tuple_new_fn: TupleNewFn,
+    tuple_set_item_fn: TupleSetItemFn,
+    is_true_fn: IsTrueFn,
+    compare_eq_obj_fn: CompareObjFn,
+    compare_lt_obj_fn: CompareObjFn,
+    raise_from_exc_fn: RaiseFromExcFn,
+) -> Result<ObjPtr, String> {
+    if compiled_handle.is_null() {
+        return Err("invalid null compiled handle passed to specialized JIT run_bb".to_string());
+    }
+    if args.is_null() {
+        return Err("invalid null args passed to specialized JIT run_bb".to_string());
+    }
+    configure_specialized_jit_hooks(
+        incref_fn,
+        decref_fn,
+        py_call_three_fn,
+        py_call_object_fn,
+        py_call_with_kw_fn,
+        py_get_raised_exception_fn,
+        get_arg_item_fn,
+        make_int_fn,
+        make_float_fn,
+        make_bytes_fn,
+        load_name_fn,
+        load_local_raw_by_name_fn,
+        pyobject_getattr_fn,
+        pyobject_setattr_fn,
+        pyobject_getitem_fn,
+        pyobject_setitem_fn,
+        pyobject_to_i64_fn,
+        decode_literal_bytes_fn,
+        tuple_new_fn,
+        tuple_set_item_fn,
+        is_true_fn,
+        compare_eq_obj_fn,
+        compare_lt_obj_fn,
+        raise_from_exc_fn,
+    );
+    let compiled = &*(compiled_handle as *const CompiledSpecializedRunner);
+    let Some(entry) = compiled.entry else {
+        return Err("invalid compiled handle without entrypoint".to_string());
+    };
+    Ok(entry(args))
+}
+
+pub unsafe fn free_cranelift_run_bb_specialized_cached(compiled_handle: ObjPtr) {
+    if compiled_handle.is_null() {
+        return;
+    }
+    let _ = Box::from_raw(compiled_handle as *mut CompiledSpecializedRunner);
 }
 
 pub unsafe fn run_cranelift_run_bb_specialized(
@@ -4787,13 +3914,7 @@ pub unsafe fn run_cranelift_run_bb_specialized(
     is_true_fn: IsTrueFn,
     compare_eq_obj_fn: CompareObjFn,
     compare_lt_obj_fn: CompareObjFn,
-    term_kind_fn: TermKindFn,
-    term_jump_target_fn: TermJumpTargetFn,
-    term_jump_args_fn: TermJumpArgsFn,
-    term_ret_value_fn: TermRetValueFn,
-    term_raise_exc_fn: TermRaiseExcFn,
     raise_from_exc_fn: RaiseFromExcFn,
-    term_invalid_fn: TermInvalidFn,
     none_obj: ObjPtr,
     empty_tuple_obj: ObjPtr,
 ) -> Result<ObjPtr, String> {
@@ -4803,102 +3924,34 @@ pub unsafe fn run_cranelift_run_bb_specialized(
     if globals_obj.is_null() {
         return Err("invalid null globals object passed to specialized JIT run_bb".to_string());
     }
-
-    DP_JIT_INCREF_FN = Some(incref_fn);
-    DP_JIT_DECREF_FN = Some(decref_fn);
-    DP_JIT_CALL_VAR_ARGS_FN = Some(py_call_three_fn);
-    DP_JIT_CALL_OBJECT_FN = Some(py_call_object_fn);
-    DP_JIT_CALL_WITH_KW_FN = Some(py_call_with_kw_fn);
-    DP_JIT_GET_RAISED_EXCEPTION_FN = Some(py_get_raised_exception_fn);
-    DP_JIT_GET_ARG_ITEM_FN = Some(get_arg_item_fn);
-    DP_JIT_MAKE_INT_FN = Some(make_int_fn);
-    DP_JIT_MAKE_FLOAT_FN = Some(make_float_fn);
-    DP_JIT_MAKE_BYTES_FN = Some(make_bytes_fn);
-    DP_JIT_LOAD_NAME_FN = Some(load_name_fn);
-    DP_JIT_LOAD_LOCAL_RAW_BY_NAME_FN = Some(load_local_raw_by_name_fn);
-    DP_JIT_PYOBJECT_GETATTR_FN = Some(pyobject_getattr_fn);
-    DP_JIT_PYOBJECT_SETATTR_FN = Some(pyobject_setattr_fn);
-    DP_JIT_PYOBJECT_GETITEM_FN = Some(pyobject_getitem_fn);
-    DP_JIT_PYOBJECT_SETITEM_FN = Some(pyobject_setitem_fn);
-    DP_JIT_PYOBJECT_TO_I64_FN = Some(pyobject_to_i64_fn);
-    DP_JIT_DECODE_LITERAL_BYTES_FN = Some(decode_literal_bytes_fn);
-    DP_JIT_TUPLE_NEW_FN = Some(tuple_new_fn);
-    DP_JIT_TUPLE_SET_ITEM_FN = Some(tuple_set_item_fn);
-    DP_JIT_IS_TRUE_FN = Some(is_true_fn);
-    DP_JIT_COMPARE_EQ_OBJ_FN = Some(compare_eq_obj_fn);
-    DP_JIT_COMPARE_LT_OBJ_FN = Some(compare_lt_obj_fn);
-    DP_JIT_TERM_KIND_FN = Some(term_kind_fn);
-    DP_JIT_TERM_JUMP_TARGET_FN = Some(term_jump_target_fn);
-    DP_JIT_TERM_JUMP_ARGS_FN = Some(term_jump_args_fn);
-    DP_JIT_TERM_RET_VALUE_FN = Some(term_ret_value_fn);
-    DP_JIT_TERM_RAISE_EXC_FN = Some(term_raise_exc_fn);
-    DP_JIT_RAISE_FROM_EXC_FN = Some(raise_from_exc_fn);
-    DP_JIT_TERM_INVALID_FN = Some(term_invalid_fn);
-
+    configure_specialized_jit_hooks(
+        incref_fn,
+        decref_fn,
+        py_call_three_fn,
+        py_call_object_fn,
+        py_call_with_kw_fn,
+        py_get_raised_exception_fn,
+        get_arg_item_fn,
+        make_int_fn,
+        make_float_fn,
+        make_bytes_fn,
+        load_name_fn,
+        load_local_raw_by_name_fn,
+        pyobject_getattr_fn,
+        pyobject_setattr_fn,
+        pyobject_getitem_fn,
+        pyobject_setitem_fn,
+        pyobject_to_i64_fn,
+        decode_literal_bytes_fn,
+        tuple_new_fn,
+        tuple_set_item_fn,
+        is_true_fn,
+        compare_eq_obj_fn,
+        compare_lt_obj_fn,
+        raise_from_exc_fn,
+    );
     let mut builder = new_jit_builder()?;
-    builder.symbol("dp_jit_incref", dp_jit_incref as *const u8);
-    builder.symbol("dp_jit_decref", dp_jit_decref as *const u8);
-    builder.symbol(
-        "PyObject_CallFunctionObjArgs",
-        dp_jit_py_call_three as *const u8,
-    );
-    builder.symbol("PyObject_CallObject", dp_jit_py_call_object as *const u8);
-    builder.symbol(
-        "dp_jit_py_call_with_kw",
-        dp_jit_py_call_with_kw as *const u8,
-    );
-    builder.symbol(
-        "PyErr_GetRaisedException",
-        dp_jit_get_raised_exception as *const u8,
-    );
-    builder.symbol("dp_jit_get_arg_item", dp_jit_get_arg_item as *const u8);
-    builder.symbol("dp_jit_make_int", dp_jit_make_int as *const u8);
-    builder.symbol("dp_jit_make_float", dp_jit_make_float as *const u8);
-    builder.symbol("dp_jit_make_bytes", dp_jit_make_bytes as *const u8);
-    builder.symbol("dp_jit_load_name", dp_jit_load_name as *const u8);
-    builder.symbol(
-        "dp_jit_load_local_raw_by_name",
-        dp_jit_load_local_raw_by_name as *const u8,
-    );
-    builder.symbol(
-        "dp_jit_pyobject_getattr",
-        dp_jit_pyobject_getattr as *const u8,
-    );
-    builder.symbol(
-        "dp_jit_pyobject_setattr",
-        dp_jit_pyobject_setattr as *const u8,
-    );
-    builder.symbol(
-        "dp_jit_pyobject_getitem",
-        dp_jit_pyobject_getitem as *const u8,
-    );
-    builder.symbol(
-        "dp_jit_pyobject_setitem",
-        dp_jit_pyobject_setitem as *const u8,
-    );
-    builder.symbol(
-        "dp_jit_pyobject_to_i64",
-        dp_jit_pyobject_to_i64 as *const u8,
-    );
-    builder.symbol(
-        "dp_jit_decode_literal_bytes",
-        dp_jit_decode_literal_bytes as *const u8,
-    );
-    builder.symbol("dp_jit_tuple_new", dp_jit_tuple_new as *const u8);
-    builder.symbol("dp_jit_tuple_set_item", dp_jit_tuple_set_item as *const u8);
-    builder.symbol("dp_jit_is_true", dp_jit_is_true as *const u8);
-    builder.symbol("dp_jit_compare_eq_obj", dp_jit_compare_eq_obj as *const u8);
-    builder.symbol("dp_jit_compare_lt_obj", dp_jit_compare_lt_obj as *const u8);
-    builder.symbol("dp_jit_term_kind", dp_jit_term_kind as *const u8);
-    builder.symbol(
-        "dp_jit_term_jump_target",
-        dp_jit_term_jump_target as *const u8,
-    );
-    builder.symbol("dp_jit_term_jump_args", dp_jit_term_jump_args as *const u8);
-    builder.symbol("dp_jit_term_ret_value", dp_jit_term_ret_value as *const u8);
-    builder.symbol("dp_jit_term_raise_exc", dp_jit_term_raise_exc as *const u8);
-    builder.symbol("dp_jit_raise_from_exc", dp_jit_raise_from_exc as *const u8);
-    builder.symbol("dp_jit_term_invalid", dp_jit_term_invalid as *const u8);
+    register_specialized_jit_symbols(&mut builder);
     let mut jit_module = JITModule::new(builder);
     let (mut ctx, main_id, _literal_pool, _import_id_to_symbol) =
         build_cranelift_run_bb_specialized_function(
@@ -4919,7 +3972,6 @@ pub unsafe fn run_cranelift_run_bb_specialized(
     jit_module
         .finalize_definitions()
         .map_err(|err| format!("failed to finalize specialized jit run_bb function: {err}"))?;
-
     let code_ptr = jit_module.get_finalized_function(main_id);
     let compiled: extern "C" fn(ObjPtr) -> ObjPtr = std::mem::transmute(code_ptr);
     Ok(compiled(args))

@@ -60,10 +60,10 @@ def _transform_env_for_mode(mode: str | None) -> Iterator[None]:
     try:
         if mode == "transform":
             os.environ["DIET_PYTHON_MODE"] = "transform"
-        elif mode == "eval":
-            os.environ["DIET_PYTHON_MODE"] = "eval"
         elif mode == "stock":
             os.environ.pop("DIET_PYTHON_MODE", None)
+        else:
+            raise ValueError(f"unsupported integration mode: {mode!r}")
         yield
     finally:
         if prior_mode is None:
@@ -130,36 +130,27 @@ def _load_module(
     prior_allow_temp = os.environ.get("DIET_PYTHON_ALLOW_TEMP")
     os.environ["DIET_PYTHON_ALLOW_TEMP"] = "1"
     prior_mode = os.environ.get("DIET_PYTHON_MODE")
+    prior_integration_only = os.environ.get("DIET_PYTHON_INTEGRATION_ONLY")
 
     full_name = f"{package_name}.{module_name}"
 
     try:
         if mode == "transform":
             os.environ["DIET_PYTHON_MODE"] = "transform"
+            if prior_integration_only is None:
+                os.environ["DIET_PYTHON_INTEGRATION_ONLY"] = "1"
             diet_import_hook.install()
             sys.modules.pop(full_name, None)
             sys.modules.pop(package_name, None)
             module = importlib.import_module(full_name)
-        elif mode == "eval":
-            os.environ["DIET_PYTHON_MODE"] = "eval"
-            diet_import_hook.install()
-            sys.modules.pop(full_name, None)
-            sys.modules.pop(package_name, None)
-            module = importlib.import_module(full_name)
-        else:
+        elif mode == "stock":
             os.environ.pop("DIET_PYTHON_MODE", None)
             with _disable_import_hook():
                 sys.modules.pop(full_name, None)
                 sys.modules.pop(package_name, None)
                 module = importlib.import_module(full_name)
-        if prior_allow_temp is None:
-            os.environ.pop("DIET_PYTHON_ALLOW_TEMP", None)
         else:
-            os.environ["DIET_PYTHON_ALLOW_TEMP"] = prior_allow_temp
-        if prior_mode is None:
-            os.environ.pop("DIET_PYTHON_MODE", None)
-        else:
-            os.environ["DIET_PYTHON_MODE"] = prior_mode
+            raise ValueError(f"unsupported integration mode: {mode!r}")
         yield module
     except Exception:
         _print_integration_failure_context(module_path, mode=mode)
@@ -182,6 +173,10 @@ def _load_module(
             os.environ.pop("DIET_PYTHON_MODE", None)
         else:
             os.environ["DIET_PYTHON_MODE"] = prior_mode
+        if prior_integration_only is None:
+            os.environ.pop("DIET_PYTHON_INTEGRATION_ONLY", None)
+        else:
+            os.environ["DIET_PYTHON_INTEGRATION_ONLY"] = prior_integration_only
 
 
 @contextmanager

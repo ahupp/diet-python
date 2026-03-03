@@ -3,7 +3,7 @@ import pytest
 from tests._integration import integration_module
 
 
-@pytest.mark.parametrize("mode", ["transform", "eval"])
+@pytest.mark.parametrize("mode", ["transform"])
 def test_bound_methods_compare_like_cpython(tmp_path, mode):
     source = """
 

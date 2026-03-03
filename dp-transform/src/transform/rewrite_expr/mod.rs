@@ -1054,7 +1054,10 @@ fn make_tuple_splat(elts: Vec<Expr>) -> Expr {
                 if !values.is_empty() {
                     segments.push(make_tuple(std::mem::take(&mut values)));
                 }
-                segments.push(py_expr!("__dp_tuple({value:expr})", value = *value));
+                segments.push(py_expr!(
+                    "__dp_tuple_from_iter({value:expr})",
+                    value = *value
+                ));
             }
             other => values.push(other),
         }
@@ -1071,13 +1074,11 @@ fn make_tuple_splat(elts: Vec<Expr>) -> Expr {
 }
 
 pub(crate) fn make_tuple(elts: Vec<Expr>) -> Expr {
-    Expr::Tuple(ast::ExprTuple {
-        node_index: ast::AtomicNodeIndex::default(),
-        range: TextRange::default(),
-        elts,
-        ctx: ast::ExprContext::Load,
-        parenthesized: false,
-    })
+    let Expr::Call(mut call) = py_expr!("__dp_tuple()") else {
+        panic!("expected __dp_tuple() template to parse as a call");
+    };
+    call.arguments.args = elts.into();
+    Expr::Call(call)
 }
 
 pub(crate) fn make_binop(func_name: &'static str, left: Expr, right: Expr) -> Expr {

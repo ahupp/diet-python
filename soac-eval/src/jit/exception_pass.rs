@@ -35,7 +35,108 @@ fn lower_function_try_jump_exception_flow(function: &mut BbFunction) -> Result<(
         }
     }
 
+    // Canonicalize exception-edge blocks so each potentially-raising expression
+    // step sits in its own block. This keeps per-expression exception checks
+    // explicit in CFG shape (op-block -> jump -> ... -> term-block), which
+    // allows the JIT fast path to dispatch exceptions directly from each step.
+    split_exception_blocks_for_expr_checks(function);
+
     Ok(())
+}
+
+fn split_exception_blocks_for_expr_checks(function: &mut BbFunction) {
+    let mut used_labels: HashSet<String> = function
+        .blocks
+        .iter()
+        .map(|block| block.label.clone())
+        .collect();
+    let mut fresh_index: usize = 0;
+    let mut out = Vec::with_capacity(function.blocks.len());
+
+    for block in std::mem::take(&mut function.blocks) {
+        if block.exc_target_label.is_none() || block.ops.is_empty() {
+            out.push(block);
+            continue;
+        }
+
+        let mut known_names = block.params.clone();
+        let mut first_local_defs = block.local_defs.clone();
+        let mut current_label = block.label.clone();
+        let edge_target = block.exc_target_label.clone();
+        let edge_exc_name = block.exc_name.clone();
+        let mut ops = block.ops.into_iter().peekable();
+
+        while let Some(op) = ops.next() {
+            let next_label =
+                unique_exc_split_label(&mut used_labels, current_label.as_str(), fresh_index);
+            fresh_index += 1;
+
+            out.push(dp_transform::basic_block::bb_ir::BbBlock {
+                label: current_label.clone(),
+                params: known_names.clone(),
+                local_defs: std::mem::take(&mut first_local_defs),
+                ops: vec![op.clone()],
+                exc_target_label: edge_target.clone(),
+                exc_name: edge_exc_name.clone(),
+                term: BbTerm::Jump(next_label.clone()),
+            });
+
+            apply_op_effect_to_known_names(&op, &mut known_names);
+            current_label = next_label;
+
+            if ops.peek().is_none() {
+                out.push(dp_transform::basic_block::bb_ir::BbBlock {
+                    label: current_label.clone(),
+                    params: known_names.clone(),
+                    local_defs: Vec::new(),
+                    ops: Vec::new(),
+                    exc_target_label: edge_target.clone(),
+                    exc_name: edge_exc_name.clone(),
+                    term: block.term.clone(),
+                });
+            }
+        }
+    }
+
+    function.blocks = out;
+}
+
+fn unique_exc_split_label(
+    used_labels: &mut HashSet<String>,
+    base_label: &str,
+    index_seed: usize,
+) -> String {
+    let mut index = index_seed;
+    loop {
+        let candidate = format!("{base_label}__excchk_{index}");
+        if used_labels.insert(candidate.clone()) {
+            return candidate;
+        }
+        index += 1;
+    }
+}
+
+fn apply_op_effect_to_known_names(
+    op: &dp_transform::basic_block::bb_ir::BbOp,
+    known_names: &mut Vec<String>,
+) {
+    match op {
+        dp_transform::basic_block::bb_ir::BbOp::Assign(assign) => {
+            let target = assign.target.id.to_string();
+            if !known_names.iter().any(|name| name == &target) {
+                known_names.push(target);
+            }
+        }
+        dp_transform::basic_block::bb_ir::BbOp::Expr(_) => {}
+        dp_transform::basic_block::bb_ir::BbOp::Delete(delete) => {
+            for target in &delete.targets {
+                if let dp_transform::basic_block::bb_ir::BbExpr::Name(name) = target {
+                    let target_name = name.id.to_string();
+                    known_names.retain(|existing| existing != &target_name);
+                }
+            }
+        }
+    }
 }
 
 fn validate_function_labels(function: &BbFunction, labels: &HashSet<&str>) -> Result<(), String> {
@@ -286,7 +387,7 @@ fn merge_exception_edge(
 mod tests {
     use super::lower_try_jump_exception_flow;
     use dp_transform::Options;
-    use dp_transform::basic_block::bb_ir::BbTerm;
+    use dp_transform::basic_block::bb_ir::{BbBlock, BbTerm};
     use dp_transform::transform_str_to_bb_ir_with_options;
 
     #[test]
@@ -423,6 +524,75 @@ def f():
         assert!(
             err.contains("unknown try body target") || err.contains("unknown try except target"),
             "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn splits_exception_edge_block_into_one_op_segments() {
+        let source = r#"
+def f():
+    a = 1
+    b = 2
+    return b
+"#;
+        let mut module = transform_str_to_bb_ir_with_options(source, Options::for_test())
+            .expect("lowering must succeed")
+            .expect("bb module must exist");
+        let function = module
+            .functions
+            .iter_mut()
+            .find(|function| function.qualname == "f")
+            .expect("must contain f");
+        let block_index = function
+            .blocks
+            .iter()
+            .position(|block| block.ops.len() >= 2)
+            .expect("must contain multi-op block");
+        let original_label = function.blocks[block_index].label.clone();
+        let except_label = "_dp_manual_except_split".to_string();
+        function.blocks.push(BbBlock {
+            label: except_label.clone(),
+            params: vec![],
+            local_defs: vec![],
+            ops: vec![],
+            exc_target_label: None,
+            exc_name: None,
+            term: BbTerm::Ret(None),
+        });
+        function.blocks[block_index].exc_target_label = Some(except_label.clone());
+        function.blocks[block_index].exc_name = Some("_dp_try_exc_split".to_string());
+
+        let lowered = lower_try_jump_exception_flow(&module).expect("pass should succeed");
+        let lowered_function = lowered
+            .functions
+            .iter()
+            .find(|candidate| candidate.qualname == "f")
+            .expect("must contain lowered f");
+
+        let first = lowered_function
+            .blocks
+            .iter()
+            .find(|block| block.label == original_label)
+            .expect("split must keep original block label");
+        assert_eq!(first.ops.len(), 1, "first split block must contain one op");
+        assert!(
+            matches!(first.term, BbTerm::Jump(_)),
+            "split op block must jump to next split block"
+        );
+        assert_eq!(
+            first.exc_target_label.as_deref(),
+            Some(except_label.as_str()),
+            "split block must preserve exception edge target"
+        );
+
+        let split_tail = lowered_function
+            .blocks
+            .iter()
+            .find(|block| block.label.contains("__excchk_"))
+            .expect("must contain split tail block");
+        assert!(
+            split_tail.ops.len() <= 1,
+            "split tail block should not aggregate ops"
         );
     }
 }

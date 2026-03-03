@@ -8,7 +8,7 @@ import pytest
 from tests._integration import integration_module
 
 
-@pytest.mark.parametrize("mode", ["eval"], ids=["eval"])
+@pytest.mark.parametrize("mode", ["transform"], ids=["transform"])
 def test_asyncio_iscoroutinefunction(tmp_path: Path, mode: str) -> None:
     source = """
 async def coro():

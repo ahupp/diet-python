@@ -17,7 +17,8 @@ pub struct BbFunction {
     pub bind_name: String,
     pub display_name: String,
     pub qualname: String,
-    pub binding_target: BbBindingTarget,
+    pub binding_target: BindingTarget,
+    pub is_coroutine: bool,
     pub kind: BbFunctionKind,
     pub entry: String,
     pub param_names: Vec<String>,
@@ -28,7 +29,7 @@ pub struct BbFunction {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum BbBindingTarget {
+pub enum BindingTarget {
     Local,
     ModuleGlobal,
     ClassNamespace,
@@ -72,14 +73,11 @@ pub enum BbOp {
 pub enum BbExpr {
     Await(ast::ExprAwait),
     Call(BbCallExpr),
-    DictLiteral(ast::ExprDict),
-    ListLiteral(ast::ExprList),
+    FloatLiteral(ast::ExprNumberLiteral),
+    IntLiteral(ast::ExprNumberLiteral),
     Name(ast::ExprName),
     BytesLiteral(ast::ExprBytesLiteral),
-    NumberLiteral(ast::ExprNumberLiteral),
-    SetLiteral(ast::ExprSet),
     Starred(ast::ExprStarred),
-    TupleLiteral(ast::ExprTuple),
 }
 
 #[derive(Debug, Clone)]
@@ -137,10 +135,13 @@ impl BbExpr {
                     idx = *slice,
                 ));
             }
-            Expr::Tuple(value) => Self::TupleLiteral(value),
-            Expr::List(value) => Self::ListLiteral(value),
-            Expr::Set(value) => Self::SetLiteral(value),
-            Expr::Dict(value) => Self::DictLiteral(value),
+            Expr::Tuple(value) if matches!(value.ctx, ExprContext::Load) => {
+                return Self::from_expr(make_dp_helper_call_expr("__dp_tuple", value.elts, vec![]));
+            }
+            Expr::List(_) | Expr::Set(_) | Expr::Dict(_) => panic!(
+                "list/set/dict literals reached BbExpr::from_expr; these should be lowered before BB conversion: {}",
+                source
+            ),
             Expr::Starred(value) => Self::Starred(value),
             Expr::Call(value) => {
                 let func = Box::new(Self::from_expr(*value.func.clone()));
@@ -166,7 +167,14 @@ impl BbExpr {
             }
             Expr::Name(value) => Self::Name(value),
             Expr::BytesLiteral(value) => Self::BytesLiteral(value),
-            Expr::NumberLiteral(value) => Self::NumberLiteral(value),
+            Expr::NumberLiteral(value) => match value.value {
+                ast::Number::Int(_) => Self::IntLiteral(value),
+                ast::Number::Float(_) => Self::FloatLiteral(value),
+                ast::Number::Complex { .. } => panic!(
+                    "complex literal reached BbExpr::from_expr; this should be lowered earlier: {}",
+                    source
+                ),
+            },
             Expr::BooleanLiteral(ast::ExprBooleanLiteral { value, .. }) => {
                 if value {
                     return Self::from_expr(py_expr!("__dp_TRUE"));
@@ -190,16 +198,26 @@ impl BbExpr {
         match self {
             Self::Await(value) => Expr::Await(value.clone()),
             Self::Call(value) => Expr::Call(value.to_expr_call()),
-            Self::DictLiteral(value) => Expr::Dict(value.clone()),
-            Self::ListLiteral(value) => Expr::List(value.clone()),
+            Self::FloatLiteral(value) => Expr::NumberLiteral(value.clone()),
+            Self::IntLiteral(value) => Expr::NumberLiteral(value.clone()),
             Self::Name(value) => Expr::Name(value.clone()),
             Self::BytesLiteral(value) => Expr::BytesLiteral(value.clone()),
-            Self::NumberLiteral(value) => Expr::NumberLiteral(value.clone()),
-            Self::SetLiteral(value) => Expr::Set(value.clone()),
             Self::Starred(value) => Expr::Starred(value.clone()),
-            Self::TupleLiteral(value) => Expr::Tuple(value.clone()),
         }
     }
+}
+
+fn make_dp_helper_call_expr(
+    helper_name: &str,
+    args: Vec<Expr>,
+    keywords: Vec<ast::Keyword>,
+) -> Expr {
+    let Expr::Call(mut call) = py_expr!("{helper:id}()", helper = helper_name) else {
+        panic!("expected helper call expression for {helper_name}");
+    };
+    call.arguments.args = args.into();
+    call.arguments.keywords = keywords.into();
+    Expr::Call(call)
 }
 
 fn string_literal_to_decode_literal_bytes_expr(value: &str) -> Expr {

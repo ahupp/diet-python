@@ -180,11 +180,11 @@ fn bb_module_to_json(module: &bb_ir::BbModule) -> Value {
     })
 }
 
-fn bb_binding_target_name(target: bb_ir::BbBindingTarget) -> &'static str {
+fn bb_binding_target_name(target: bb_ir::BindingTarget) -> &'static str {
     match target {
-        bb_ir::BbBindingTarget::Local => "local",
-        bb_ir::BbBindingTarget::ModuleGlobal => "module_global",
-        bb_ir::BbBindingTarget::ClassNamespace => "class_namespace",
+        bb_ir::BindingTarget::Local => "local",
+        bb_ir::BindingTarget::ModuleGlobal => "module_global",
+        bb_ir::BindingTarget::ClassNamespace => "class_namespace",
     }
 }
 

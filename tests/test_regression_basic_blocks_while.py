@@ -3,7 +3,7 @@ import pytest
 from tests._integration import integration_module
 
 
-@pytest.mark.parametrize("mode", ["transform", "eval"])
+@pytest.mark.parametrize("mode", ["transform"])
 def test_basic_block_lowering_while_break_continue_else(tmp_path, mode):
     source = """
 def run(limit):

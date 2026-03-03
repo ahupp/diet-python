@@ -29,23 +29,15 @@ def _case_paths() -> list[Path]:
 @pytest.mark.parametrize("case_path", _case_paths(), ids=lambda path: path.stem)
 @pytest.mark.parametrize(
     "mode",
-    ["stock", "transform", "eval"],
-    ids=["stock", "transformed", "eval"],
+    ["stock", "transform"],
+    ids=["stock", "transformed"],
 )
 def test_integration_case(tmp_path: Path, case_path: Path, mode: str) -> None:
     if case_path.stem == "yield_from_stack_names" and mode == "transform":
         # BB-lowered generators do not preserve CPython frame-name identity for
         # sys._getframe() observations yet.
         pytest.xfail("BB generator frame-name observability not yet CPython-compatible")
-    if mode == "eval" and case_path.stem in {"locals_cell_contents", "scope_locals"}:
-        pytest.xfail("eval-mode locals() normalization for closure/cell vars is not yet aligned")
-    if mode == "eval" and case_path.stem in {
-        "async_contextmanager_stopiter",
-        "generator_exception_context",
-        "yield_from_module",
-    }:
-        pytest.xfail("eval-mode generator/with exception flow is currently unstable")
-    if mode in {"transform", "eval"} and case_path.stem in {
+    if mode == "transform" and case_path.stem in {
         "exception_refcycle_after_except",
         "exception_refcycle_args_tuple",
         "taskgroup_propagate_cancellation_refcycle",

@@ -7,6 +7,7 @@ use crate::jit::{self, EntryBlockPlan};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyCode, PyDict, PyString, PyTuple};
+use std::any::Any;
 
 type TypeParamScope = HashMap<String, *mut ffi::PyObject>;
 
@@ -35,6 +36,16 @@ unsafe extern "C" {
         frame: *mut ffi::_PyInterpreterFrame,
     ) -> *mut ffi::PyFrameObject;
     fn PyCell_New(obj: *mut ffi::PyObject) -> *mut ffi::PyObject;
+}
+
+fn panic_payload_to_string(payload: Box<dyn Any + Send>) -> String {
+    if let Some(message) = payload.downcast_ref::<&'static str>() {
+        (*message).to_string()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "unknown panic payload".to_string()
+    }
 }
 
 static INIT_EVAL_FRAME_HOOK: Once = Once::new();
@@ -237,6 +248,7 @@ struct ClifWrapperData {
     plan: EntryBlockPlan,
     true_obj: *mut ffi::PyObject,
     false_obj: *mut ffi::PyObject,
+    compiled_handle: *mut c_void,
 }
 
 unsafe extern "C" fn free_clif_wrapper_data(ptr: *mut c_void) {
@@ -250,6 +262,7 @@ unsafe extern "C" fn free_clif_wrapper_data(ptr: *mut c_void) {
     if !data.false_obj.is_null() {
         unsafe { ffi::Py_DECREF(data.false_obj) };
     }
+    unsafe { jit::free_cranelift_run_bb_specialized_cached(data.compiled_handle) };
 }
 
 unsafe fn frame_var_get_required(
@@ -675,79 +688,6 @@ unsafe fn eval_clif_wrapper_frame(frame_obj: *mut ffi::PyFrameObject) -> *mut ff
         0
     }
 
-    unsafe extern "C" fn term_kind_hook(term: *mut c_void) -> i64 {
-        let term_obj = term as *mut ffi::PyObject;
-        if term_obj.is_null() {
-            return -1;
-        }
-        let has_target = ffi::PyObject_HasAttrString(term_obj, b"target\0".as_ptr() as *const i8);
-        if has_target > 0 {
-            return 0;
-        }
-        if has_target < 0 {
-            ffi::PyErr_Clear();
-        }
-        let has_value = ffi::PyObject_HasAttrString(term_obj, b"value\0".as_ptr() as *const i8);
-        if has_value > 0 {
-            return 1;
-        }
-        if has_value < 0 {
-            ffi::PyErr_Clear();
-        }
-        let has_exc = ffi::PyObject_HasAttrString(term_obj, b"exc\0".as_ptr() as *const i8);
-        if has_exc > 0 {
-            return 2;
-        }
-        if has_exc < 0 {
-            ffi::PyErr_Clear();
-        }
-        -1
-    }
-
-    unsafe extern "C" fn term_jump_target_hook(term: *mut c_void) -> *mut c_void {
-        if term.is_null() {
-            return ptr::null_mut();
-        }
-        ffi::PyObject_GetAttrString(
-            term as *mut ffi::PyObject,
-            b"target\0".as_ptr() as *const i8,
-        ) as *mut c_void
-    }
-
-    unsafe extern "C" fn term_jump_args_hook(term: *mut c_void) -> *mut c_void {
-        if term.is_null() {
-            return ptr::null_mut();
-        }
-        ffi::PyObject_GetAttrString(term as *mut ffi::PyObject, b"args\0".as_ptr() as *const i8)
-            as *mut c_void
-    }
-
-    unsafe extern "C" fn term_ret_value_hook(term: *mut c_void) -> *mut c_void {
-        if term.is_null() {
-            return ptr::null_mut();
-        }
-        ffi::PyObject_GetAttrString(term as *mut ffi::PyObject, b"value\0".as_ptr() as *const i8)
-            as *mut c_void
-    }
-
-    unsafe extern "C" fn term_raise_exc_hook(term: *mut c_void) -> *mut c_void {
-        if term.is_null() {
-            return ptr::null_mut();
-        }
-        ffi::PyObject_GetAttrString(term as *mut ffi::PyObject, b"exc\0".as_ptr() as *const i8)
-            as *mut c_void
-    }
-
-    unsafe extern "C" fn term_invalid_hook(term: *mut c_void) -> i32 {
-        let msg_ptr = if term.is_null() {
-            b"invalid null basic-block terminator\0".as_ptr() as *const i8
-        } else {
-            b"invalid basic-block terminator\0".as_ptr() as *const i8
-        };
-        ffi::PyErr_SetString(ffi::PyExc_RuntimeError, msg_ptr);
-        -1
-    }
-
     let py = Python::assume_attached();
     let result: PyResult<Py<PyAny>> = (|| -> PyResult<Py<PyAny>> {
         let code_obj = unsafe { ffi::PyFrame_GetCode(frame_obj) };
@@ -762,7 +702,7 @@ unsafe fn eval_clif_wrapper_frame(frame_obj: *mut ffi::PyFrameObject) -> *mut ff
                 "invalid CLIF wrapper code extra payload",
             ));
         }
-        let clif_data = unsafe { &*(code_extra.data as *const ClifWrapperData) };
+        let clif_data = unsafe { &mut *(code_extra.data as *mut ClifWrapperData) };
         let args_obj = unsafe { frame_var_get_required_bound(py, frame_obj, "args") }?;
         let kwargs_obj = unsafe { frame_var_get_optional_bound(py, frame_obj, "kwargs") }?;
         let sig_obj = unsafe { frame_var_get_required_bound(py, frame_obj, "__dp_sig") }?;
@@ -807,48 +747,98 @@ unsafe fn eval_clif_wrapper_frame(frame_obj: *mut ffi::PyFrameObject) -> *mut ff
         if globals_obj.is_null() {
             return Err(PyErr::fetch(py));
         }
-        let block_ptrs = vec![ptr::null_mut::<c_void>(); clif_data.plan.block_labels.len()];
+        let is_module_init_entry = clif_data
+            .plan
+            .block_labels
+            .get(clif_data.plan.entry_index)
+            .is_some_and(|label| label.contains("_dp_module_init"));
+        if !is_module_init_entry && clif_data.compiled_handle.is_null() {
+            let block_ptrs = vec![ptr::null_mut::<c_void>(); clif_data.plan.block_labels.len()];
+            clif_data.compiled_handle = match unsafe {
+                jit::compile_cranelift_run_bb_specialized_cached(
+                    block_ptrs.as_slice(),
+                    &clif_data.plan,
+                    globals_obj as *mut c_void,
+                    clif_data.true_obj as *mut c_void,
+                    clif_data.false_obj as *mut c_void,
+                    py.None().as_ptr() as *mut c_void,
+                    empty_tuple_obj.as_ptr() as *mut c_void,
+                )
+            } {
+                Ok(handle) => handle,
+                Err(err) => {
+                    unsafe { ffi::Py_DECREF(globals_obj) };
+                    return Err(PyRuntimeError::new_err(err));
+                }
+            };
+        }
         let result_ptr = match unsafe {
-            jit::run_cranelift_run_bb_specialized(
-                block_ptrs.as_slice(),
-                &clif_data.plan,
-                globals_obj as *mut c_void,
-                clif_data.true_obj as *mut c_void,
-                clif_data.false_obj as *mut c_void,
-                bb_args.as_ptr() as *mut c_void,
-                jit_incref,
-                jit_decref,
-                py_call_three_hook,
-                py_call_object_hook,
-                py_call_with_kw_hook,
-                py_get_raised_exception_hook,
-                get_arg_item_hook,
-                make_int_hook,
-                make_float_hook,
-                make_bytes_hook,
-                load_name_hook,
-                load_local_raw_by_name_hook,
-                pyobject_getattr_hook,
-                pyobject_setattr_hook,
-                pyobject_getitem_hook,
-                pyobject_setitem_hook,
-                pyobject_to_i64_hook,
-                decode_literal_bytes_hook,
-                tuple_new_hook,
-                tuple_set_item_hook,
-                is_true_hook,
-                compare_eq_obj_hook,
-                compare_lt_obj_hook,
-                term_kind_hook,
-                term_jump_target_hook,
-                term_jump_args_hook,
-                term_ret_value_hook,
-                term_raise_exc_hook,
-                raise_from_exc_hook,
-                term_invalid_hook,
-                py.None().as_ptr() as *mut c_void,
-                empty_tuple_obj.as_ptr() as *mut c_void,
-            )
+            if is_module_init_entry {
+                let block_ptrs = vec![ptr::null_mut::<c_void>(); clif_data.plan.block_labels.len()];
+                jit::run_cranelift_run_bb_specialized(
+                    block_ptrs.as_slice(),
+                    &clif_data.plan,
+                    globals_obj as *mut c_void,
+                    clif_data.true_obj as *mut c_void,
+                    clif_data.false_obj as *mut c_void,
+                    bb_args.as_ptr() as *mut c_void,
+                    jit_incref,
+                    jit_decref,
+                    py_call_three_hook,
+                    py_call_object_hook,
+                    py_call_with_kw_hook,
+                    py_get_raised_exception_hook,
+                    get_arg_item_hook,
+                    make_int_hook,
+                    make_float_hook,
+                    make_bytes_hook,
+                    load_name_hook,
+                    load_local_raw_by_name_hook,
+                    pyobject_getattr_hook,
+                    pyobject_setattr_hook,
+                    pyobject_getitem_hook,
+                    pyobject_setitem_hook,
+                    pyobject_to_i64_hook,
+                    decode_literal_bytes_hook,
+                    tuple_new_hook,
+                    tuple_set_item_hook,
+                    is_true_hook,
+                    compare_eq_obj_hook,
+                    compare_lt_obj_hook,
+                    raise_from_exc_hook,
+                    py.None().as_ptr() as *mut c_void,
+                    empty_tuple_obj.as_ptr() as *mut c_void,
+                )
+            } else {
+                jit::run_cranelift_run_bb_specialized_cached(
+                    clif_data.compiled_handle,
+                    bb_args.as_ptr() as *mut c_void,
+                    jit_incref,
+                    jit_decref,
+                    py_call_three_hook,
+                    py_call_object_hook,
+                    py_call_with_kw_hook,
+                    py_get_raised_exception_hook,
+                    get_arg_item_hook,
+                    make_int_hook,
+                    make_float_hook,
+                    make_bytes_hook,
+                    load_name_hook,
+                    load_local_raw_by_name_hook,
+                    pyobject_getattr_hook,
+                    pyobject_setattr_hook,
+                    pyobject_getitem_hook,
+                    pyobject_setitem_hook,
+                    pyobject_to_i64_hook,
+                    decode_literal_bytes_hook,
+                    tuple_new_hook,
+                    tuple_set_item_hook,
+                    is_true_hook,
+                    compare_eq_obj_hook,
+                    compare_lt_obj_hook,
+                    raise_from_exc_hook,
+                )
+            }
         } {
             Ok(ptr) => ptr,
             Err(err) => {
@@ -1109,7 +1099,7 @@ extern "C" fn soac_eval_frame(
     frame: *mut ffi::_PyInterpreterFrame,
     throwflag: c_int,
 ) -> *mut ffi::PyObject {
-    unsafe {
+    let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
         let code = PyUnstable_InterpreterFrame_GetCode(frame);
         if code.is_null() {
             return _PyEval_EvalFrameDefault(tstate, frame, throwflag);
@@ -1157,6 +1147,20 @@ extern "C" fn soac_eval_frame(
             return result;
         }
         _PyEval_EvalFrameDefault(tstate, frame, throwflag)
+    }));
+    match run {
+        Ok(result) => result,
+        Err(payload) => unsafe {
+            let message = panic_payload_to_string(payload);
+            if let Ok(c_message) = CString::new(format!("soac_eval_frame panic: {message}")) {
+                ffi::PyErr_SetString(ffi::PyExc_RuntimeError, c_message.as_ptr());
+            } else {
+                let fallback = CString::new("soac_eval_frame panic")
+                    .expect("static panic fallback contains no null bytes");
+                ffi::PyErr_SetString(ffi::PyExc_RuntimeError, fallback.as_ptr());
+            }
+            ptr::null_mut()
+        },
     }
 }
 
@@ -1277,6 +1281,7 @@ pub unsafe fn register_clif_wrapper_code_extra(function: *mut ffi::PyObject) -> 
         plan,
         true_obj,
         false_obj,
+        compiled_handle: ptr::null_mut(),
     });
     let clif_data_ptr = Box::into_raw(clif_data) as *mut c_void;
     if set_code_extra(

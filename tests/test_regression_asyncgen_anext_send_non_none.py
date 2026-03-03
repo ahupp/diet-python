@@ -7,7 +7,7 @@ import pytest
 from tests._integration import integration_module
 
 
-@pytest.mark.parametrize("mode", ["eval"], ids=["eval"])
+@pytest.mark.parametrize("mode", ["transform"], ids=["transform"])
 def test_asyncgen_anext_send_non_none_raises_type_error(tmp_path: Path, mode: str) -> None:
     source = """
 def make_anext():

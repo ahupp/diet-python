@@ -3,14 +3,14 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SET_GLOB="${CPYTHON_TEST_SETS_GLOB:-$REPO_ROOT/test_sets/*.txt}"
-MODE="${DIET_PYTHON_MODE:-eval}"
+MODE="${DIET_PYTHON_MODE:-transform}"
 TIMEOUT_SECS="${CPYTHON_TEST_TIMEOUT_SECS:-180}"
 TEMPDIR_PATH="${CPYTHON_TEST_TEMPDIR:-/tmp/diet-python-cpython-tests}"
 LOG_DIR="${CPYTHON_TEST_LOG_DIR:-$REPO_ROOT/logs}"
 
 usage() {
   cat <<'USAGE'
-Usage: ./scripts/run_cpython_test_sets.sh [--mode eval|transform] [--timeout <seconds>] [--tempdir <path>]
+Usage: ./scripts/run_cpython_test_sets.sh [--mode transform] [--timeout <seconds>] [--tempdir <path>]
 
 Runs each test set file in test_sets/ sequentially (part_01 -> part_10).
 The wrapper forces single-process regrtest execution via DIET_PYTHON_TEST_JOBS=1.
@@ -56,8 +56,8 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
-if [[ "$MODE" != "eval" && "$MODE" != "transform" ]]; then
-  echo "invalid mode '$MODE' (expected eval|transform)" >&2
+if [[ "$MODE" != "transform" ]]; then
+  echo "invalid mode '$MODE' (expected transform)" >&2
   exit 2
 fi
 if ! [[ "$TIMEOUT_SECS" =~ ^[0-9]+$ ]]; then

@@ -1,7 +1,6 @@
 use super::bb_ir::{
-    BbBindingTarget, BbBlock, BbExpr, BbFunction, BbFunctionKind, BbModule, BbOp, BbTerm,
+    BbBlock, BbExpr, BbFunction, BbFunctionKind, BbModule, BbOp, BbTerm, BindingTarget,
 };
-use super::render_py;
 use crate::template::{empty_body, into_body};
 use crate::transform::context::Context;
 use crate::transform::driver::SimplifyExprPass;
@@ -12,7 +11,6 @@ use crate::transform::scope::{
 use crate::transform::util::strip_synthetic_module_init_qualname;
 use crate::transform::{
     ast_rewrite::{rewrite_with_pass, ExprRewritePass, Rewrite, StmtRewritePass},
-    rewrite_expr::make_tuple,
     rewrite_stmt,
 };
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
@@ -25,9 +23,11 @@ use ruff_text_size::TextRange;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+mod await_lower;
 mod pre_lower;
 mod support;
 
+use await_lower::{coroutine_generator_marker_stmt, lower_coroutine_awaits_to_yield_from};
 use pre_lower::{is_simple_index_target, AnnotationHelperForLoweringPass};
 pub use pre_lower::{BBSimplifyStmtPass, FunctionIdentityByNode};
 use support::{
@@ -306,7 +306,7 @@ impl BasicBlockRewriter<'_> {
                     spec_elts.push(py_expr!("True"));
                 }
             }
-            let spec_expr = make_tuple(spec_elts);
+            let spec_expr = make_dp_tuple(spec_elts);
             out.push(py_stmt!(
                 "{tmp:id} = __dp_unpack({value:expr}, {spec:expr})",
                 tmp = unpacked_name.as_str(),
@@ -371,7 +371,23 @@ impl BasicBlockRewriter<'_> {
                 lowered_input_body
             };
         let param_names = collect_parameter_names(&func.parameters);
-        let runtime_input_body = prune_dead_stmt_suffixes(&lowered_input_body);
+        let has_yield_original = has_yield_exprs_in_stmts(&lowered_input_body);
+        let mut runtime_input_body = prune_dead_stmt_suffixes(&lowered_input_body);
+        let original_runtime_input_body = runtime_input_body.clone();
+        // Keep await->yield-from lowering in the dedicated async pass for
+        // coroutine functions. Async generators keep native await semantics.
+        if func.is_async && !has_yield_original {
+            lower_coroutine_awaits_to_yield_from(&mut runtime_input_body);
+        }
+        let mut coroutine_via_generator = func.is_async && !has_yield_original;
+        if coroutine_via_generator {
+            if has_await_in_stmts(&runtime_input_body) {
+                coroutine_via_generator = false;
+                runtime_input_body = original_runtime_input_body;
+            } else if !has_yield_exprs_in_stmts(&runtime_input_body) {
+                runtime_input_body.insert(0, coroutine_generator_marker_stmt());
+            }
+        }
         let mut outer_scope_names = collect_bound_names(&runtime_input_body);
         outer_scope_names.extend(param_names.iter().cloned());
         let runtime_input_body =
@@ -385,8 +401,8 @@ impl BasicBlockRewriter<'_> {
         };
         let deleted_names = collect_deleted_names(&runtime_input_body);
         let cell_slots = collect_cell_slots(&runtime_input_body);
-        let has_yield = has_yield_exprs_in_stmts(&lowered_input_body);
-        let has_await = has_await_in_stmts(&lowered_input_body);
+        let has_yield = has_yield_exprs_in_stmts(&runtime_input_body);
+        let has_await = has_await_in_stmts(&runtime_input_body);
         if has_yield && has_await && !func.is_async {
             return None;
         }
@@ -444,12 +460,13 @@ impl BasicBlockRewriter<'_> {
         let mut generator_resume_order: Vec<String> = Vec::new();
         let mut generator_dispatch_only_labels: HashSet<String> = HashSet::new();
         let mut generator_throw_passthrough_labels: HashSet<String> = HashSet::new();
+        let is_async_generator_runtime = func.is_async && !coroutine_via_generator;
         if has_yield {
             let done_label = format!("{label_prefix}_done");
             let invalid_label = format!("{label_prefix}_invalid");
             let uncaught_label = format!("{label_prefix}_uncaught");
             let uncaught_exc_name = self.next_temp("uncaught_exc");
-            let invalid_msg = if func.is_async {
+            let invalid_msg = if is_async_generator_runtime {
                 "invalid async generator pc: {}"
             } else {
                 "invalid generator pc: {}"
@@ -478,7 +495,7 @@ impl BasicBlockRewriter<'_> {
                 },
             );
             let uncaught_raise_stmt = raise_stmt_from_name(uncaught_exc_name.as_str());
-            let uncaught_helper_name = if func.is_async {
+            let uncaught_helper_name = if is_async_generator_runtime {
                 "raise_uncaught_async_generator_exception"
             } else {
                 "raise_uncaught_generator_exception"
@@ -635,6 +652,11 @@ impl BasicBlockRewriter<'_> {
                 let throw_target = if pc == 0 {
                     resume_throw_unstarted_label.clone()
                 } else {
+                    // Route throw() back through the canonical resume entry for
+                    // this pc and let the lowered block graph branch on
+                    // `_dp_resume_exc` internally. This keeps send/throw
+                    // dispatch semantics aligned and avoids mismatched throw
+                    // pre-dispatch tables for yield-from paths.
                     resume_target.clone()
                 };
                 blocks.push(Block {
@@ -850,10 +872,10 @@ impl BasicBlockRewriter<'_> {
                 &mut blocks,
                 &block_params,
                 &resume_pcs,
-                func.is_async,
+                is_async_generator_runtime,
             );
         }
-        let lowered_is_async = func.is_async;
+        let lowered_is_async = is_async_generator_runtime;
         let mut state_order = entry_params.clone();
         for name in extra_state_vars {
             if !state_order.iter().any(|existing| existing == &name) {
@@ -927,6 +949,7 @@ impl BasicBlockRewriter<'_> {
             local_cell_slots: cell_slots.clone(),
             param_specs: BbExpr::from_expr(make_param_specs_expr(func.parameters.as_ref())),
             param_names,
+            coroutine_wrapper: coroutine_via_generator,
             kind: if has_yield {
                 if lowered_is_async {
                     LoweredKind::AsyncGenerator {
@@ -969,7 +992,6 @@ impl BasicBlockRewriter<'_> {
             match stmts[index].as_ref() {
                 Stmt::Expr(ast::StmtExpr { value, .. }) => {
                     if let Expr::Yield(yield_expr) = value.as_ref() {
-                        let label = self.next_label(fn_name);
                         let resume_label = self.lower_stmt_sequence(
                             fn_name,
                             &stmts[index + 1..],
@@ -979,12 +1001,29 @@ impl BasicBlockRewriter<'_> {
                             cell_slots,
                             outer_scope_names,
                         );
+                        let resume_raise_label = self.next_label(fn_name);
+                        let resume_dispatch_label = self.next_label(fn_name);
+                        blocks.push(Block {
+                            label: resume_raise_label.clone(),
+                            body: Vec::new(),
+                            terminator: Terminator::Raise(raise_stmt_from_name("_dp_resume_exc")),
+                        });
+                        blocks.push(Block {
+                            label: resume_dispatch_label.clone(),
+                            body: Vec::new(),
+                            terminator: Terminator::BrIf {
+                                test: py_expr!("__dp_is_not(_dp_resume_exc, None)"),
+                                then_label: resume_raise_label,
+                                else_label: resume_label,
+                            },
+                        });
+                        let label = self.next_label(fn_name);
                         blocks.push(Block {
                             label: label.clone(),
                             body: linear,
                             terminator: Terminator::Yield {
                                 value: yield_expr.value.as_ref().map(|expr| *expr.clone()),
-                                resume_label,
+                                resume_label: resume_dispatch_label,
                             },
                         });
                         return label;
@@ -1044,6 +1083,8 @@ impl BasicBlockRewriter<'_> {
                             cell_slots,
                             outer_scope_names,
                         );
+                        let resume_assign_label = self.next_label(fn_name);
+                        let resume_raise_label = self.next_label(fn_name);
                         let resume_label = self.next_label(fn_name);
                         let mut resume_assign = assign_stmt.clone();
                         resume_assign.value =
@@ -1053,9 +1094,23 @@ impl BasicBlockRewriter<'_> {
                             resume_body.extend(sync_target_cells_stmts(target, cell_slots));
                         }
                         blocks.push(Block {
-                            label: resume_label.clone(),
+                            label: resume_assign_label.clone(),
                             body: resume_body,
                             terminator: Terminator::Jump(rest_entry),
+                        });
+                        blocks.push(Block {
+                            label: resume_raise_label.clone(),
+                            body: Vec::new(),
+                            terminator: Terminator::Raise(raise_stmt_from_name("_dp_resume_exc")),
+                        });
+                        blocks.push(Block {
+                            label: resume_label.clone(),
+                            body: Vec::new(),
+                            terminator: Terminator::BrIf {
+                                test: py_expr!("__dp_is_not(_dp_resume_exc, None)"),
+                                then_label: resume_raise_label,
+                                else_label: resume_assign_label,
+                            },
                         });
 
                         let label = self.next_label(fn_name);
@@ -1303,15 +1358,43 @@ impl BasicBlockRewriter<'_> {
                     };
 
                     let loop_check_label = self.next_label(fn_name);
+                    let loop_continue_label = if for_stmt.is_async {
+                        let await_value = py_expr!(
+                            "__dp_await_iter(__dp_anext_or_sentinel({iter:expr}))",
+                            iter = iter_expr.clone(),
+                        );
+                        let fetch_done_label = self.next_label(fn_name);
+                        let (fetch_entry_label, fetch_result_name) = self.lower_yield_from_direct(
+                            fn_name,
+                            await_value,
+                            fetch_done_label.clone(),
+                            true,
+                            blocks,
+                        );
+                        let fetch_result_name = fetch_result_name
+                            .expect("async-for fetch lowering requires yielded result");
+                        blocks.push(Block {
+                            label: fetch_done_label,
+                            body: vec![py_stmt!(
+                                "{tmp:id} = {value:id}",
+                                tmp = tmp_name.as_str(),
+                                value = fetch_result_name.as_str(),
+                            )],
+                            terminator: Terminator::Jump(loop_check_label.clone()),
+                        });
+                        fetch_entry_label
+                    } else {
+                        loop_check_label.clone()
+                    };
                     let body = flatten_stmt_boxes(&for_stmt.body.body);
                     let loop_ctx = LoopContext {
-                        continue_label: loop_check_label.clone(),
+                        continue_label: loop_continue_label.clone(),
                         break_label: rest_entry,
                     };
                     let body_entry = self.lower_stmt_sequence(
                         fn_name,
                         &body,
-                        loop_check_label.clone(),
+                        loop_continue_label.clone(),
                         blocks,
                         Some(&loop_ctx),
                         cell_slots,
@@ -1360,22 +1443,18 @@ impl BasicBlockRewriter<'_> {
                         "__dp_is_({value:expr}, __dp__.ITER_COMPLETE)",
                         value = tmp_expr.clone(),
                     );
-                    let next_stmt = if for_stmt.is_async {
-                        py_stmt!(
-                            "{tmp:id} = await __dp_anext_or_sentinel({iter:expr})",
-                            tmp = tmp_name.as_str(),
-                            iter = iter_expr.clone(),
-                        )
+                    let check_body = if for_stmt.is_async {
+                        Vec::new()
                     } else {
-                        py_stmt!(
+                        vec![py_stmt!(
                             "{tmp:id} = __dp_next_or_sentinel({iter:expr})",
                             tmp = tmp_name.as_str(),
                             iter = iter_expr.clone(),
-                        )
+                        )]
                     };
                     blocks.push(Block {
                         label: loop_check_label.clone(),
-                        body: vec![next_stmt],
+                        body: check_body,
                         terminator: Terminator::BrIf {
                             test: exhausted_test,
                             then_label: exhausted_entry,
@@ -1401,7 +1480,7 @@ impl BasicBlockRewriter<'_> {
                     blocks.push(Block {
                         label: setup_label.clone(),
                         body: setup_body,
-                        terminator: Terminator::Jump(loop_check_label),
+                        terminator: Terminator::Jump(loop_continue_label),
                     });
                     return setup_label;
                 }
@@ -1736,7 +1815,7 @@ impl BasicBlockRewriter<'_> {
         let capture_names = collect_capture_names(&source_fn, Some(outer_scope_names));
         ensure_capture_default_params(&mut source_fn, &capture_names);
         let source = render_stmt_source(&Stmt::FunctionDef(source_fn));
-        let captures = make_tuple(
+        let captures = make_dp_tuple(
             capture_names
                 .iter()
                 .map(|name| {
@@ -1841,9 +1920,8 @@ impl BasicBlockRewriter<'_> {
         blocks.push(Block {
             label: next_body_label.clone(),
             body: vec![py_stmt!(
-                "{yielded:id} = next({iter:id})",
+                "{yielded:id} = next(__dp_getattr(_dp_self, \"gi_yieldfrom\"))",
                 yielded = yielded_name.as_str(),
-                iter = iter_name.as_str(),
             )],
             terminator: Terminator::Jump(yield_label.clone()),
         });
@@ -1930,9 +2008,8 @@ impl BasicBlockRewriter<'_> {
         blocks.push(Block {
             label: genexit_close_lookup_label,
             body: vec![py_stmt!(
-                "{close:id} = getattr({iter:id}, \"close\", None)",
+                "{close:id} = getattr(__dp_getattr(_dp_self, \"gi_yieldfrom\"), \"close\", None)",
                 close = close_name.as_str(),
-                iter = iter_name.as_str(),
             )],
             terminator: Terminator::BrIf {
                 test: py_expr!("__dp_is_not({close:id}, None)", close = close_name.as_str()),
@@ -1962,9 +2039,8 @@ impl BasicBlockRewriter<'_> {
         blocks.push(Block {
             label: lookup_throw_label,
             body: vec![py_stmt!(
-                "{throw:id} = getattr({iter:id}, \"throw\", None)",
+                "{throw:id} = getattr(__dp_getattr(_dp_self, \"gi_yieldfrom\"), \"throw\", None)",
                 throw = throw_name.as_str(),
-                iter = iter_name.as_str(),
             )],
             terminator: Terminator::BrIf {
                 test: py_expr!("__dp_is_({throw:id}, None)", throw = throw_name.as_str()),
@@ -2036,9 +2112,8 @@ impl BasicBlockRewriter<'_> {
         blocks.push(Block {
             label: send_call_body_label,
             body: vec![py_stmt!(
-                "{yielded:id} = {iter:id}.send({sent:id})",
+                "{yielded:id} = __dp_getattr(_dp_self, \"gi_yieldfrom\").send({sent:id})",
                 yielded = yielded_name.as_str(),
-                iter = iter_name.as_str(),
                 sent = sent_name.as_str(),
             )],
             terminator: Terminator::Jump(yield_label),
@@ -2094,7 +2169,7 @@ impl BasicBlockRewriter<'_> {
         annotate_fn_expr: Option<Expr>,
     ) -> Option<Expr> {
         let entry_label = bb_function.entry.as_str();
-        let entry_ref_expr = name_expr(entry_label)?;
+        let entry_ref_expr = py_expr!("{entry:literal}", entry = entry_label);
         let param_names: HashSet<&str> =
             bb_function.param_names.iter().map(String::as_str).collect();
         let mut closure_items = Vec::new();
@@ -2109,7 +2184,7 @@ impl BasicBlockRewriter<'_> {
                         .any(|slot| slot == entry_name))
             {
                 let value = name_expr(entry_name.as_str())?;
-                closure_items.push(make_tuple(vec![
+                closure_items.push(make_dp_tuple(vec![
                     py_expr!("{value:literal}", value = entry_name.as_str()),
                     value,
                 ]));
@@ -2117,7 +2192,7 @@ impl BasicBlockRewriter<'_> {
                 closure_items.push(py_expr!("{value:literal}", value = entry_name.as_str(),));
             }
         }
-        let closure = make_tuple(closure_items);
+        let closure = make_dp_tuple(closure_items);
         let doc = doc_expr.unwrap_or_else(|| py_expr!("None"));
         let annotate_fn = annotate_fn_expr.unwrap_or_else(|| py_expr!("None"));
         match &bb_function.kind {
@@ -2162,8 +2237,14 @@ impl BasicBlockRewriter<'_> {
             BbFunctionKind::Generator {
                 ..
             } => {
+                let helper_name = if bb_function.is_coroutine {
+                    "__dp_def_coro_from_gen"
+                } else {
+                    "__dp_def_gen"
+                };
                 Some(py_expr!(
-                    "__dp_def_gen({resume:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __dp_globals(), __name__, {doc:expr}, {annotate_fn:expr})",
+                    "{helper:id}({resume:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __dp_globals(), __name__, {doc:expr}, {annotate_fn:expr})",
+                    helper = helper_name,
                     resume = entry_ref_expr,
                     name = bb_function.display_name.as_str(),
                     qualname = bb_function.qualname.as_str(),
@@ -2436,7 +2517,7 @@ fn annotation_helper_exec_binding_stmt(
     let capture_names = collect_capture_names(&helper_fn, outer_scope_names);
     ensure_capture_default_params(&mut helper_fn, &capture_names);
     let source = render_stmt_source(&Stmt::FunctionDef(helper_fn));
-    let captures = make_tuple(
+    let captures = make_dp_tuple(
         capture_names
             .iter()
             .map(|name| {
@@ -2620,6 +2701,7 @@ struct LoweredFunction {
     local_cell_slots: HashSet<String>,
     param_specs: BbExpr,
     param_names: Vec<String>,
+    coroutine_wrapper: bool,
     kind: LoweredKind,
 }
 
@@ -2712,7 +2794,27 @@ fn bb_term_from_terminator(terminator: &Terminator) -> BbTerm {
             exc: exc.as_ref().map(|expr| BbExpr::from_expr(*expr.clone())),
             cause: cause.as_ref().map(|expr| BbExpr::from_expr(*expr.clone())),
         },
-        Terminator::TryJump { body_label, .. } => BbTerm::Jump(body_label.clone()),
+        Terminator::TryJump {
+            body_label,
+            except_label,
+            except_exc_name,
+            body_region_labels,
+            except_region_labels,
+            finally_label,
+            finally_exc_name,
+            finally_region_labels,
+            finally_fallthrough_label,
+        } => BbTerm::TryJump {
+            body_label: body_label.clone(),
+            except_label: except_label.clone(),
+            except_exc_name: except_exc_name.clone(),
+            body_region_labels: body_region_labels.clone(),
+            except_region_labels: except_region_labels.clone(),
+            finally_label: finally_label.clone(),
+            finally_exc_name: finally_exc_name.clone(),
+            finally_region_labels: finally_region_labels.clone(),
+            finally_fallthrough_label: finally_fallthrough_label.clone(),
+        },
         Terminator::Yield { .. } => {
             panic!("internal error: Terminator::Yield must be lowered before BB IR export")
         }
@@ -2799,14 +2901,6 @@ fn lower_generator_yield_terms_to_explicit_return(
     }
 }
 
-fn bb_binding_target_from(target: BindingTarget) -> BbBindingTarget {
-    match target {
-        BindingTarget::Local => BbBindingTarget::Local,
-        BindingTarget::ModuleGlobal => BbBindingTarget::ModuleGlobal,
-        BindingTarget::ClassNamespace => BbBindingTarget::ClassNamespace,
-    }
-}
-
 fn bb_function_kind_from(kind: &LoweredKind) -> BbFunctionKind {
     match kind {
         LoweredKind::Function => BbFunctionKind::Function,
@@ -2838,13 +2932,6 @@ struct FunctionIdentity {
     display_name: String,
     qualname: String,
     binding_target: BindingTarget,
-}
-
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub enum BindingTarget {
-    Local,
-    ModuleGlobal,
-    ClassNamespace,
 }
 
 fn display_name_for_function(raw_name: &str) -> &str {
@@ -3006,7 +3093,8 @@ impl Transformer for BasicBlockRewriter<'_> {
                         bind_name: identity.bind_name.clone(),
                         display_name: identity.display_name.clone(),
                         qualname: identity.qualname.clone(),
-                        binding_target: bb_binding_target_from(resolved_target),
+                        binding_target: resolved_target,
+                        is_coroutine: lowered.coroutine_wrapper,
                         kind: bb_function_kind_from(&lowered.kind),
                         entry: lowered.entry_label.clone(),
                         param_names: lowered.param_names.clone(),
@@ -3021,9 +3109,6 @@ impl Transformer for BasicBlockRewriter<'_> {
                     {
                         self.module_init_function = Some(identity.bind_name.clone());
                     }
-                    let block_defs = render_py::render_block_defs_from_bb(&bb_function)
-                        .expect("failed to render BB function blocks");
-                    let lowered_entry_label = bb_function.entry.clone();
                     let binding_stmt = self
                         .build_lowered_binding_stmt(func, &bb_function)
                         .expect("failed to build BB function binding");
@@ -3033,27 +3118,19 @@ impl Transformer for BasicBlockRewriter<'_> {
                             || identity.bind_name.starts_with("_dp_define_class_"));
                     if entering_module_init {
                         let mut lowered_defs = function_hoisted;
-                        lowered_defs.extend(block_defs);
                         lowered_defs.push(binding_stmt);
-                        lowered_defs.push(py_stmt!(
-                            "del {entry:id}",
-                            entry = lowered_entry_label.as_str(),
-                        ));
                         *stmt = into_body(lowered_defs);
                     } else if keep_local_blocks {
                         let mut body = function_hoisted;
-                        body.extend(block_defs);
                         body.push(binding_stmt);
                         *stmt = into_body(body);
                     } else if !self.module_init_hoisted_blocks.is_empty() {
                         if let Some(hoisted) = self.module_init_hoisted_blocks.last_mut() {
                             hoisted.append(&mut function_hoisted);
-                            hoisted.extend(block_defs);
                         }
                         *stmt = binding_stmt;
                     } else {
                         let mut body = function_hoisted;
-                        body.extend(block_defs);
                         body.push(binding_stmt);
                         *stmt = into_body(body);
                     }
@@ -4038,6 +4115,46 @@ fn compute_throw_dispatch_by_label(blocks: &[Block], entry_label: &str) -> HashM
         .collect()
 }
 
+fn compute_resume_throw_dispatch_by_label(blocks: &[Block]) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    for block in blocks {
+        let Terminator::BrIf {
+            test,
+            then_label,
+            else_label,
+        } = &block.terminator
+        else {
+            continue;
+        };
+        let Expr::Call(call) = test else {
+            continue;
+        };
+        if !call.arguments.keywords.is_empty() || call.arguments.args.len() != 2 {
+            continue;
+        }
+        let Expr::Name(func_name) = call.func.as_ref() else {
+            continue;
+        };
+        let Expr::Name(first_arg) = &call.arguments.args[0] else {
+            continue;
+        };
+        if first_arg.id.as_str() != "_dp_resume_exc" {
+            continue;
+        }
+        let Expr::NoneLiteral(_) = &call.arguments.args[1] else {
+            continue;
+        };
+
+        let target = match func_name.id.as_str() {
+            "__dp_is_" => else_label.clone(),
+            "__dp_is_not" => then_label.clone(),
+            _ => continue,
+        };
+        out.insert(block.label.clone(), target);
+    }
+    out
+}
+
 fn rewrite_deleted_name_loads(
     blocks: &mut [Block],
     deleted_names: &HashSet<String>,
@@ -4356,7 +4473,7 @@ fn push_param_specs(
     let default_expr = default
         .cloned()
         .unwrap_or_else(|| py_expr!("__dp__.NO_DEFAULT"));
-    specs.push(make_tuple(vec![
+    specs.push(make_dp_tuple(vec![
         py_expr!("{value:literal}", value = label.as_str()),
         annotation_expr,
         default_expr,
@@ -4410,7 +4527,15 @@ fn make_param_specs_expr(parameters: &ast::Parameters) -> Expr {
             None,
         );
     }
-    make_tuple(specs)
+    make_dp_tuple(specs)
+}
+
+fn make_dp_tuple(items: Vec<Expr>) -> Expr {
+    let Expr::Call(mut call) = py_expr!("__dp_tuple()") else {
+        panic!("expected call expression for __dp_tuple");
+    };
+    call.arguments.args = items.into();
+    Expr::Call(call)
 }
 
 fn raise_stmt_from_name(name: &str) -> ast::StmtRaise {
@@ -4819,6 +4944,7 @@ fn name_expr(name: &str) -> Option<Expr> {
 
 #[cfg(test)]
 mod tests {
+    use super::{BbExpr, BbFunction, BbOp, BbTerm};
     use crate::{
         py_expr, transform::Options, transform_str_to_bb_ir_with_options,
         transform_str_to_ruff_with_options,
@@ -4830,6 +4956,43 @@ mod tests {
             || lowered.contains(&format!(
                 "__dp_getattr(__dp__, __dp_decode_literal_bytes(b\"{name}\"))("
             ))
+    }
+
+    fn function_by_name<'a>(bb_module: &'a super::BbModule, bind_name: &str) -> &'a BbFunction {
+        bb_module
+            .functions
+            .iter()
+            .find(|func| func.bind_name == bind_name)
+            .unwrap_or_else(|| panic!("missing lowered function {bind_name}; got {:?}", bb_module))
+    }
+
+    fn expr_text(expr: &BbExpr) -> String {
+        crate::ruff_ast_to_string(&expr.to_expr())
+    }
+
+    fn block_uses_text(block: &super::BbBlock, needle: &str) -> bool {
+        block.ops.iter().any(|op| match op {
+            BbOp::Assign(assign) => expr_text(&assign.value).contains(needle),
+            BbOp::Expr(expr) => expr_text(&expr.value).contains(needle),
+            BbOp::Delete(delete) => delete
+                .targets
+                .iter()
+                .any(|expr| expr_text(expr).contains(needle)),
+        }) || match &block.term {
+            BbTerm::BrIf { test, .. } => expr_text(test).contains(needle),
+            BbTerm::BrTable { index, .. } => expr_text(index).contains(needle),
+            BbTerm::Raise { exc, cause } => {
+                exc.as_ref()
+                    .is_some_and(|value| expr_text(value).contains(needle))
+                    || cause
+                        .as_ref()
+                        .is_some_and(|value| expr_text(value).contains(needle))
+            }
+            BbTerm::Ret(value) => value
+                .as_ref()
+                .is_some_and(|ret| expr_text(ret).contains(needle)),
+            _ => false,
+        }
     }
 
     #[test]
@@ -4848,13 +5011,17 @@ def foo(a, b):
             inject_import: false,
             ..Options::for_test()
         };
-        let lowered = transform_str_to_ruff_with_options(source, options)
+        let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
-            .to_string();
-
-        assert!(contains_dp_call(&lowered, "def_fn"), "{lowered}");
-        assert!(contains_dp_call(&lowered, "brif"), "{lowered}");
-        assert!(lowered.contains("def _dp_bb_"), "{lowered}");
+            .expect("bb module should be available");
+        let foo = function_by_name(&bb_module, "foo");
+        assert!(foo.blocks.len() >= 3, "{foo:?}");
+        assert!(
+            foo.blocks
+                .iter()
+                .any(|block| matches!(block.term, BbTerm::BrIf { .. })),
+            "{foo:?}"
+        );
     }
 
     #[test]
@@ -4904,13 +5071,22 @@ def run(limit):
             inject_import: false,
             ..Options::for_test()
         };
-        let lowered = transform_str_to_ruff_with_options(source, options)
+        let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
-            .to_string();
-
-        assert!(contains_dp_call(&lowered, "def_fn"), "{lowered}");
-        assert!(contains_dp_call(&lowered, "brif"), "{lowered}");
-        assert!(contains_dp_call(&lowered, "jump"), "{lowered}");
+            .expect("bb module should be available");
+        let run = function_by_name(&bb_module, "run");
+        assert!(
+            run.blocks
+                .iter()
+                .any(|block| matches!(block.term, BbTerm::BrIf { .. })),
+            "{run:?}"
+        );
+        assert!(
+            run.blocks
+                .iter()
+                .any(|block| matches!(block.term, BbTerm::Jump(_))),
+            "{run:?}"
+        );
     }
 
     #[test]
@@ -4931,13 +5107,28 @@ def run(items):
             inject_import: false,
             ..Options::for_test()
         };
-        let lowered = transform_str_to_ruff_with_options(source, options)
+        let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
-            .to_string();
-
-        assert!(contains_dp_call(&lowered, "next_or_sentinel"), "{lowered}");
-        assert!(contains_dp_call(&lowered, "iter"), "{lowered}");
-        assert!(contains_dp_call(&lowered, "brif"), "{lowered}");
+            .expect("bb module should be available");
+        let run = function_by_name(&bb_module, "run");
+        assert!(
+            run.blocks
+                .iter()
+                .any(|block| block_uses_text(block, "__dp_next_or_sentinel")),
+            "{run:?}"
+        );
+        assert!(
+            run.blocks
+                .iter()
+                .any(|block| block_uses_text(block, "__dp_iter")),
+            "{run:?}"
+        );
+        assert!(
+            run.blocks
+                .iter()
+                .any(|block| matches!(block.term, BbTerm::BrIf { .. })),
+            "{run:?}"
+        );
     }
 
     #[test]
@@ -4954,13 +5145,24 @@ async def run():
             inject_import: false,
             ..Options::for_test()
         };
-        let lowered = transform_str_to_ruff_with_options(source, options)
+        let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
-            .to_string();
-
-        assert!(contains_dp_call(&lowered, "anext_or_sentinel"), "{lowered}");
-        assert!(contains_dp_call(&lowered, "aiter"), "{lowered}");
-        assert!(!lowered.contains("_dp_completed_"), "{lowered}");
+            .expect("bb module should be available");
+        let run = function_by_name(&bb_module, "run");
+        let debug = format!("{run:?}");
+        assert!(
+            run.blocks
+                .iter()
+                .any(|block| block_uses_text(block, "__dp_anext_or_sentinel")),
+            "{run:?}"
+        );
+        assert!(
+            run.blocks
+                .iter()
+                .any(|block| block_uses_text(block, "__dp_aiter")),
+            "{run:?}"
+        );
+        assert!(!debug.contains("_dp_completed_"), "{debug}");
     }
 
     #[test]
@@ -4974,13 +5176,15 @@ def f():
             inject_import: false,
             ..Options::for_test()
         };
-        let lowered = transform_str_to_ruff_with_options(source, options)
+        let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
-            .to_string();
-
-        assert!(contains_dp_call(&lowered, "def_fn"), "{lowered}");
-        assert!(lowered.contains("def _dp_bb_f_start"), "{lowered}");
-        assert!(!lowered.contains("def _dp_bb_f_0"), "{lowered}");
+            .expect("bb module should be available");
+        let f = function_by_name(&bb_module, "f");
+        assert!(f.entry == "_dp_bb_f_start", "{f:?}");
+        assert!(
+            !f.blocks.iter().any(|block| block.label == "_dp_bb_f_0"),
+            "{f:?}"
+        );
     }
 
     #[test]
@@ -4994,13 +5198,22 @@ def f():
             inject_import: false,
             ..Options::for_test()
         };
-        let lowered = transform_str_to_ruff_with_options(source, options)
+        let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
-            .to_string();
-
-        assert!(contains_dp_call(&lowered, "ret"), "{lowered}");
-        assert!(lowered.contains("None"), "{lowered}");
-        assert!(!contains_dp_call(&lowered, "jump"), "{lowered}");
+            .expect("bb module should be available");
+        let f = function_by_name(&bb_module, "f");
+        assert!(
+            f.blocks
+                .iter()
+                .any(|block| matches!(block.term, BbTerm::Ret(None))),
+            "{f:?}"
+        );
+        assert!(
+            !f.blocks
+                .iter()
+                .any(|block| matches!(block.term, BbTerm::Jump(_))),
+            "{f:?}"
+        );
     }
 
     #[test]
@@ -5019,15 +5232,19 @@ def outer():
             inject_import: false,
             ..Options::for_test()
         };
-        let lowered = transform_str_to_ruff_with_options(source, options)
+        let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
-            .to_string();
-
-        assert!(lowered.contains("_dp_bb_outer_start"), "{lowered}");
-        assert!(lowered.contains("def _dp_bb_inner_start"), "{lowered}");
+            .expect("bb module should be available");
+        let outer = function_by_name(&bb_module, "outer");
+        let inner = function_by_name(&bb_module, "inner");
+        assert!(outer.entry == "_dp_bb_outer_start", "{outer:?}");
+        assert!(inner.entry == "_dp_bb_inner_start", "{inner:?}");
         assert!(
-            lowered.contains("(\"_dp_cell_x\", _dp_cell_x)"),
-            "{lowered}"
+            outer
+                .blocks
+                .iter()
+                .any(|block| block_uses_text(block, "_dp_cell_x")),
+            "{outer:?}"
         );
     }
 
@@ -5047,12 +5264,18 @@ def f(x):
             inject_import: false,
             ..Options::for_test()
         };
-        let lowered = transform_str_to_ruff_with_options(source, options)
+        let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
-            .to_string();
-
-        assert!(lowered.contains("\"_dp_exc_target\""), "{lowered}");
-        assert!(!lowered.contains("finally:"), "{lowered}");
+            .expect("bb module should be available");
+        let f = function_by_name(&bb_module, "f");
+        assert!(
+            f.blocks
+                .iter()
+                .any(|block| block.exc_target_label.is_some()),
+            "{f:?}"
+        );
+        let debug = format!("{f:?}");
+        assert!(!debug.contains("finally:"), "{debug}");
     }
 
     #[test]
@@ -5068,11 +5291,21 @@ except Exception:
             inject_import: false,
             ..Options::for_test()
         };
-        let lowered = transform_str_to_ruff_with_options(source, options)
+        let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
-            .to_string();
-
-        assert!(lowered.contains("\"_dp_exc_target\""), "{lowered}");
+            .expect("bb module should be available");
+        let module_init = bb_module
+            .module_init
+            .as_ref()
+            .expect("module init should be present");
+        let init_fn = function_by_name(&bb_module, module_init);
+        assert!(
+            init_fn
+                .blocks
+                .iter()
+                .any(|block| block.exc_target_label.is_some()),
+            "{init_fn:?}"
+        );
     }
 
     #[test]
@@ -5089,15 +5322,22 @@ def f():
             inject_import: false,
             ..Options::for_test()
         };
-        let lowered = transform_str_to_ruff_with_options(source, options)
+        let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
-            .to_string();
-
+            .expect("bb module should be available");
+        let f = function_by_name(&bb_module, "f");
         assert!(
-            contains_dp_call(&lowered, "exceptiongroup_split"),
-            "{lowered}"
+            f.blocks
+                .iter()
+                .any(|block| block_uses_text(block, "__dp_exceptiongroup_split")),
+            "{f:?}"
         );
-        assert!(lowered.contains("\"_dp_exc_target\""), "{lowered}");
+        assert!(
+            f.blocks
+                .iter()
+                .any(|block| block.exc_target_label.is_some()),
+            "{f:?}"
+        );
     }
 
     #[test]
@@ -5113,13 +5353,14 @@ def f():
             inject_import: false,
             ..Options::for_test()
         };
-        let lowered = transform_str_to_ruff_with_options(source, options)
+        let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
-            .to_string();
-
-        assert!(lowered.contains("load_deleted_name"), "{lowered}");
-        assert!(lowered.contains("DELETED"), "{lowered}");
-        assert!(!lowered.contains("x = 1"), "{lowered}");
+            .expect("bb module should be available");
+        let f = function_by_name(&bb_module, "f");
+        let debug = format!("{f:?}");
+        assert!(debug.contains("load_deleted_name"), "{debug}");
+        assert!(debug.contains("DELETED"), "{debug}");
+        assert!(!debug.contains("x = 1"), "{debug}");
     }
 
     #[test]

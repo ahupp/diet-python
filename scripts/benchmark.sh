@@ -8,7 +8,7 @@ echo "date: $(date +%F)"
 
 cargo build --release
 
-echo "tree-walking eval"
+echo "transformed interpreter"
 ./vendor/cpython/python -m diet_import_hook.exec pystone
 
 echo "stock cpython"

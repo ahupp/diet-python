@@ -16,7 +16,7 @@
 - **NOTE**: For `./scripts/run_cpython_tests.sh -f <file>`, pass an absolute path for `<file>` since the script runs from `vendor/cpython`.
 - **NOTE**: In sandboxed environments, set `--tempdir /tmp/<dir>` when running CPython tests; default worker temp dirs under `/home/adam/project/cpython/build/...` can fail with permission errors.
 - **NOTE**: After interrupting CPython test runs, clean stale workers before retrying (`pkill -f test.libregrtest.worker`).
-- **NOTE**: For sequential eval-mode shard runs, use `./scripts/run_cpython_test_sets.sh --mode eval`; it enforces single-process regrtest (`DIET_PYTHON_TEST_JOBS=1`), absolute set paths, and a safe tempdir.
+- **NOTE**: For sequential shard runs, use `./scripts/run_cpython_test_sets.sh --mode transform`; it enforces single-process regrtest (`DIET_PYTHON_TEST_JOBS=1`), absolute set paths, and a safe tempdir.
 - **MUST FOLLOW**: In any test failure summary, list expected failures separately from unexpected failures.
 - When running tests, put the output in logs/
 - **MUST FOLLOW**: If a new PR is requested, open a new jj change first with `jj new`, then immediately update its description so the head (`@`) is up to date using `jj describe -m <message> @`, including both the change summary and the rationale.

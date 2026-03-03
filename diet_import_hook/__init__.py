@@ -9,18 +9,12 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 _PYO3_TRANSFORM = None
-INTEGRATION_ONLY = os.environ.get("DIET_PYTHON_INTEGRATION_ONLY") == "1"
+def _integration_only_enabled() -> bool:
+    # Read dynamically so tests can toggle this per import context.
+    return os.environ.get("DIET_PYTHON_INTEGRATION_ONLY") == "1"
 
 
-def _diet_python_mode() -> str:
-    mode = os.environ.get("DIET_PYTHON_MODE", "transform").strip().lower()
-    if mode == "eval":
-        return "eval"
-    return "transform"
-
-
-
-def _transform_source(path: str) -> str:
+def _transform_source(path: str, module_name: str | None = None) -> str:
     try:
         with open(path, "r", encoding="utf-8") as file:
             original_source = file.read()
@@ -28,7 +22,12 @@ def _transform_source(path: str) -> str:
         raise ImportError(f"diet-python could not read source for {path}: {err}") from err
     transformer = _get_pyo3_transform()
     try:
-        compiled_source = transformer.transform_source(original_source, True)
+        if module_name and hasattr(transformer, "transform_source_with_name"):
+            compiled_source = transformer.transform_source_with_name(
+                original_source, module_name, True
+            )
+        else:
+            compiled_source = transformer.transform_source(original_source, True)
     except SyntaxError as err:
         if err.filename is None:
             err.filename = path
@@ -123,14 +122,6 @@ def _is_integration_module(resolved: Path) -> bool:
     return False
 
 
-def _is_typing_module(resolved: Path) -> bool:
-    if resolved.name == "typing.py":
-        return True
-    if resolved.name == "__init__.py" and resolved.parent.name == "typing":
-        return True
-    return False
-
-
 def _should_transform(path: str) -> bool:
     """Return ``True`` if ``path`` should be passed through the transform."""
     if path.endswith(os.path.join("encodings", "__init__.py")):
@@ -143,11 +134,7 @@ def _should_transform(path: str) -> bool:
         return False
     if resolved.name == "templatelib.py" and resolved.parent.name == "string":
         return False
-    if resolved.name == "site.py" and _diet_python_mode() == "eval":
-        return False
-    if resolved.name == "annotationlib.py" and _diet_python_mode() == "eval":
-        return False
-    if INTEGRATION_ONLY and not _is_integration_module(resolved):
+    if _integration_only_enabled() and not _is_integration_module(resolved):
         return False
     if os.environ.get("DIET_PYTHON_ALLOW_TEMP") != "1":
         try:
@@ -167,44 +154,12 @@ class DietPythonLoader(importlib.machinery.SourceFileLoader):
     """Loader that applies the diet-python transform before executing a module."""
 
     def create_module(self, spec):
-        if _diet_python_mode() != "eval":
-            return None
-        if not self.path:
-            return None
-        try:
-            resolved = Path(self.path).resolve()
-        except OSError:
-            resolved = None
-        if resolved is not None and _is_typing_module(resolved):
-            # Keep typing under DietPythonLoader for import-hook invariants, but
-            # execute it through CPython's regular source path in eval mode.
-            return None
-        fullname = getattr(spec, "name", None)
-        if not fullname:
-            return None
-        package = fullname if self.path.endswith("__init__.py") else fullname.rpartition(".")[0]
-        package = package or None
-        transform = _get_pyo3_transform()
-        eval_with_spec = getattr(transform, "eval_source_with_spec", None)
-        if eval_with_spec is not None:
-            return eval_with_spec(self.path, fullname, package, spec)
-        return transform.eval_source_with_name(self.path, fullname, package)
+        return None
 
     def exec_module(self, module):
-        if _diet_python_mode() != "eval":
-            result = super().exec_module(module)
-            _run_module_init(module)
-            return result
-        if self.path:
-            try:
-                resolved = Path(self.path).resolve()
-            except OSError:
-                resolved = None
-            if resolved is not None and _is_typing_module(resolved):
-                result = super().exec_module(module)
-                _run_module_init(module)
-                return result
-        return None
+        result = super().exec_module(module)
+        _run_module_init(module)
+        return result
 
     def get_code(self, fullname):
         if self.path and (
@@ -216,14 +171,7 @@ class DietPythonLoader(importlib.machinery.SourceFileLoader):
         return self.source_to_code(source_bytes, self.path)
 
     def source_to_code(self, data, path, *, _optimize=-1):
-        if _diet_python_mode() == "eval":
-            try:
-                resolved = Path(path).resolve()
-            except OSError:
-                resolved = None
-            if resolved is not None and _is_typing_module(resolved):
-                return super().source_to_code(data, path, _optimize=_optimize)
-        source = _transform_source(path)
+        source = _transform_source(path, getattr(self, "name", None))
         return super().source_to_code(source.encode("utf-8"), path, _optimize=_optimize)
 
 
@@ -254,6 +202,14 @@ def install():
         hook_fn = getattr(_dp_module, "_ensure_annotationlib_import_hook", None)
         if hook_fn is not None:
             hook_fn()
+        transform = _get_pyo3_transform()
+        _dp_module._jit_run_bb_plan = getattr(transform, "jit_run_bb_plan", None)
+        _dp_module._jit_render_bb_plan = getattr(transform, "jit_render_bb_plan", None)
+        _dp_module._jit_has_bb_plan = getattr(transform, "jit_has_bb_plan", None)
+        _dp_module._jit_block_param_names = getattr(
+            transform, "jit_block_param_names", None
+        )
+        _dp_module._register_clif_wrapper = getattr(transform, "register_clif_wrapper", None)
     except Exception:
         pass
 

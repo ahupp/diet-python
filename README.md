@@ -4,27 +4,20 @@
 Python is a surprisingly complicated language, and to run it fast it first needs
 to be made into a smaller language.  There are a few phases here:
 
-python -> simpler python:  
+python -> python:  
   * Strip annotated assignments ("x : int = 1"), and emit as `__annotate__` / `__annotate_func__`.
   * Rewrite "private" names in classes like `__foo` -> `_{classname}_foo`.
   * `assert` -> `if __debug__`
   * `if..elif` into a chain of `if..else`
   * type aliases and parameters into calls to `TypeVar` / `TypeParam` etc.
+  * multi-target assign and delete to single target + temporaries
+  * f-strings to explicit string formatting
+  * augassign and operators -> explicit function calls
+
+python -> bb python
+  * flow control: for/while/with
 
 
-dp-transform lowers python to a subset of python with a much
-smaller featureset: 
-
- - functions
- - variables
- - while loops without "else" blocks
- - if stmt without elif/else blocks
- - try/except, async and yield.
-
-In particular, this removes class definitions, lambda, generators, set/dict/list literals, unpacking, 
-with / async with, operators, and f/t-strings.
-
-For codegen, we want to expose as much 
 
 # diet-python
 
@@ -136,9 +129,9 @@ Result: FAILURE
 # Perf
 
 
-2026-02-04: First run of interpreter
+2026-02-04: First run of transformed interpreter path
 
-tree-walking eval
+transformed interpreter
 15880011868 3148 loops/s
 stock cpython
 967408991 1033688 loops/s
