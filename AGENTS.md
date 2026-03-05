@@ -21,3 +21,4 @@
 - When running tests, put the output in logs/
 - **MUST FOLLOW**: If a new PR is requested, open a new jj change first with `jj new`, then immediately update its description so the head (`@`) is up to date using `jj describe -m <message> @`, including both the change summary and the rationale.
 - **MUST FOLLOW**: If a new PR is requested, first make a concrete implementation plan for the requested change, include that plan in the jj head (`@`) description, and unless the user explicitly requests no confirmation, share the plan and get confirmation before implementing.
+- **MUST FOLLOW**: For each logical change, update the top commit description with `jj describe -m "<message>" @`, then create a new commit with `jj new` before starting the next logical change.
