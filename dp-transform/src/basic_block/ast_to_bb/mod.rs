@@ -31,6 +31,7 @@ mod exception_flow;
 mod metadata;
 mod naming;
 mod pre_lower;
+mod state_vars;
 mod symbol_analysis;
 mod support;
 
@@ -42,8 +43,7 @@ use annotation_helpers::{
 };
 use bound_names::{collect_bound_names, collect_explicit_global_or_nonlocal_names};
 use dataflow::{
-    analyze_block_use_def, build_extra_successors, compute_block_params,
-    ensure_try_exception_params,
+    build_extra_successors, compute_block_params, ensure_try_exception_params,
 };
 use deleted_names::{collect_deleted_names, rewrite_delete_to_deleted_sentinel, rewrite_deleted_name_loads};
 use exception_flow::{
@@ -51,13 +51,16 @@ use exception_flow::{
     contains_return_stmt_in_handlers,
     rewrite_region_returns_to_finally,
 };
-use symbol_analysis::{assigned_names_in_stmt, collect_assigned_names, load_names_in_expr, load_names_in_stmt};
+use symbol_analysis::{load_names_in_expr, load_names_in_stmt};
 use metadata::{collect_function_identity_private, display_name_for_function, FunctionIdentity};
 use naming::{
     apply_label_rename, fold_constant_brif, fold_jumps_to_trivial_none_return,
     original_function_name, prune_unreachable_blocks, relabel_blocks, sanitize_ident,
 };
 use pre_lower::{is_simple_index_target, AnnotationHelperForLoweringPass};
+use state_vars::{
+    collect_cell_slots, collect_parameter_names, collect_state_vars, sync_target_cells_stmts,
+};
 pub use pre_lower::{BBSimplifyStmtPass, FunctionIdentityByNode};
 use support::{
     has_await_in_stmts, has_dead_stmt_suffixes, has_yield_exprs_in_stmts, is_module_init_temp_name,
@@ -3038,119 +3041,6 @@ fn extract_else_body(if_stmt: &ast::StmtIf) -> Vec<Box<Stmt>> {
         .first()
         .map(|clause| clause.body.body.clone())
         .unwrap_or_default()
-}
-
-fn collect_parameter_names(parameters: &ast::Parameters) -> Vec<String> {
-    let mut names = Vec::new();
-    for param in &parameters.posonlyargs {
-        names.push(param.parameter.name.id.to_string());
-    }
-    for param in &parameters.args {
-        names.push(param.parameter.name.id.to_string());
-    }
-    if let Some(vararg) = &parameters.vararg {
-        names.push(vararg.name.id.to_string());
-    }
-    for param in &parameters.kwonlyargs {
-        names.push(param.parameter.name.id.to_string());
-    }
-    if let Some(kwarg) = &parameters.kwarg {
-        names.push(kwarg.name.id.to_string());
-    }
-    names
-}
-
-fn collect_state_vars(
-    param_names: &[String],
-    blocks: &[Block],
-    module_init_mode: bool,
-) -> Vec<String> {
-    let mut defs_anywhere = HashSet::new();
-    let mut injected_exception_names = HashSet::new();
-    for block in blocks {
-        for stmt in &block.body {
-            defs_anywhere.extend(assigned_names_in_stmt(stmt));
-        }
-        if let Terminator::TryJump {
-            except_exc_name,
-            finally_exc_name,
-            ..
-        } = &block.terminator
-        {
-            if let Some(name) = except_exc_name.as_ref() {
-                injected_exception_names.insert(name.clone());
-            }
-            if let Some(name) = finally_exc_name.as_ref() {
-                injected_exception_names.insert(name.clone());
-            }
-        }
-    }
-
-    let mut state = param_names.to_vec();
-    for block in blocks {
-        let (uses, defs) = analyze_block_use_def(block);
-        let mut names = defs.into_iter().collect::<Vec<_>>();
-        for name in uses {
-            let is_special_runtime_state = name == "_dp_self"
-                || name.starts_with("_dp_cell_")
-                || name.starts_with("_dp_try_exc_")
-                || name == "_dp_classcell";
-            let is_known_local = defs_anywhere.contains(name.as_str())
-                || injected_exception_names.contains(name.as_str())
-                || param_names.iter().any(|param| param == &name);
-            let include = if module_init_mode {
-                is_special_runtime_state || is_known_local
-            } else {
-                is_special_runtime_state || is_known_local
-            };
-            if include {
-                names.push(name);
-            }
-        }
-        names.sort();
-        names.dedup();
-        for name in names {
-            if !state.iter().any(|existing| existing == &name) {
-                state.push(name);
-            }
-        }
-    }
-    state
-}
-
-fn collect_cell_slots(stmts: &[Box<Stmt>]) -> HashSet<String> {
-    let mut slots = HashSet::new();
-    for stmt in stmts {
-        let mut names = assigned_names_in_stmt(stmt.as_ref());
-        for name in names.drain() {
-            if name.starts_with("_dp_cell_") {
-                slots.insert(name);
-            }
-        }
-    }
-    slots
-}
-
-fn sync_target_cells_stmts(target: &Expr, cell_slots: &HashSet<String>) -> Vec<Stmt> {
-    let mut names = HashSet::new();
-    collect_assigned_names(target, &mut names);
-    let mut names = names.into_iter().collect::<Vec<_>>();
-    names.sort();
-
-    names
-        .into_iter()
-        .filter_map(|name| {
-            let cell = cell_name(name.as_str());
-            if !cell_slots.contains(cell.as_str()) {
-                return None;
-            }
-            Some(py_stmt!(
-                "__dp_store_cell({cell:id}, {value:id})",
-                cell = cell.as_str(),
-                value = name.as_str(),
-            ))
-        })
-        .collect()
 }
 
 fn block_starts_with_resume_value_assign(block: &Block) -> bool {
