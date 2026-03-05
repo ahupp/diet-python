@@ -1,4 +1,6 @@
-use super::{collect_bound_names, collect_parameter_names, make_dp_tuple};
+use super::bound_names::collect_bound_names;
+use super::lowering_helpers::make_dp_tuple;
+use super::state_vars::collect_parameter_names;
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
