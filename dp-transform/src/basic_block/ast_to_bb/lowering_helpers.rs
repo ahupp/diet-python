@@ -68,7 +68,10 @@ pub(super) fn raise_stmt_from_name(name: &str) -> ast::StmtRaise {
     }
 }
 
-pub(super) fn rewrite_exception_accesses(mut body: Vec<Box<Stmt>>, exc_name: &str) -> Vec<Box<Stmt>> {
+pub(super) fn rewrite_exception_accesses(
+    mut body: Vec<Box<Stmt>>,
+    exc_name: &str,
+) -> Vec<Box<Stmt>> {
     let mut rewriter = ExceptExceptionRewriter {
         exception_name: exc_name.to_string(),
     };

@@ -18,8 +18,7 @@ unsafe extern "C" {
     ) -> c_int;
 }
 
-pub(crate) const SOAC_CODE_EXTRA_KIND_FUNCTION_DATA: u64 = 1;
-pub(crate) const SOAC_CODE_EXTRA_KIND_CLIF_WRAPPER: u64 = 2;
+pub(crate) const SOAC_CODE_EXTRA_KIND_CLIF_WRAPPER: u64 = 1;
 
 const SOAC_CODE_EXTRA_MAGIC: u64 = 0x4450_5f53_4f41_435f;
 

@@ -164,7 +164,9 @@ pub(super) fn function_docstring_expr(func: &ast::StmtFunctionDef) -> Option<Exp
     Some(*expr_stmt.value)
 }
 
-pub(super) fn function_annotation_entries(func: &ast::StmtFunctionDef) -> Vec<(String, Expr, String)> {
+pub(super) fn function_annotation_entries(
+    func: &ast::StmtFunctionDef,
+) -> Vec<(String, Expr, String)> {
     let mut entries = Vec::new();
     let parameters = func.parameters.as_ref();
 

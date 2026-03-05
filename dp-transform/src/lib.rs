@@ -83,6 +83,17 @@ impl LoweringResult {
         ruff_ast_to_string(&self.module.body)
     }
 
+    pub fn module_docstring(&self) -> Option<String> {
+        let stmt = self.module.body.body.first()?.as_ref();
+        let Stmt::Expr(ast::StmtExpr { value, .. }) = stmt else {
+            return None;
+        };
+        let Expr::StringLiteral(ast::ExprStringLiteral { value, .. }) = value.as_ref() else {
+            return None;
+        };
+        Some(value.to_string())
+    }
+
     pub fn into_min_ast(self) -> min_ast::Module {
         min_ast::Module::from_with_function_name_map(self.module, &self.function_name_map)
     }

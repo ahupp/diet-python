@@ -104,7 +104,10 @@ pub(super) fn annotation_helper_exec_binding_stmt(
     )
 }
 
-pub(super) fn ensure_capture_default_params(func: &mut ast::StmtFunctionDef, capture_names: &[String]) {
+pub(super) fn ensure_capture_default_params(
+    func: &mut ast::StmtFunctionDef,
+    capture_names: &[String],
+) {
     let mut existing = collect_parameter_names(func.parameters.as_ref())
         .into_iter()
         .collect::<HashSet<_>>();

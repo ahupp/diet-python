@@ -1,6 +1,6 @@
 use super::{
-    BbExpr, BbFunctionKind, BbTerm, Block, Context, Expr, LoweredKind, SimplifyExprPass, Stmt,
-    Terminator, flatten_stmt,
+    flatten_stmt, BbExpr, BbFunctionKind, BbTerm, Block, Context, Expr, LoweredKind,
+    SimplifyExprPass, Stmt, Terminator,
 };
 use crate::py_stmt;
 use crate::transform::ast_rewrite::ExprRewritePass;

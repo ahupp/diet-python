@@ -1,8 +1,8 @@
 use super::dataflow::analyze_block_use_def;
 use super::symbol_analysis::{assigned_names_in_stmt, collect_assigned_names};
 use super::{Block, Terminator};
-use crate::transform::scope::cell_name;
 use crate::py_stmt;
+use crate::transform::scope::cell_name;
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use std::collections::HashSet;
 

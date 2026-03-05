@@ -19,8 +19,8 @@ use ruff_text_size::TextRange;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
-mod await_lower;
 mod annotation_helpers;
+mod await_lower;
 mod bound_names;
 mod dataflow;
 mod deleted_names;
@@ -31,25 +31,24 @@ mod naming;
 mod pre_lower;
 mod state_vars;
 mod stmt_shape;
-mod symbol_analysis;
 mod support;
+mod symbol_analysis;
 mod terminator_lowering;
 
-use await_lower::{coroutine_generator_marker_stmt, lower_coroutine_awaits_to_yield_from};
 use annotation_helpers::{
     annotation_helper_exec_binding_stmt, collect_capture_names, ensure_capture_default_params,
     ensure_dp_default_param, is_annotation_helper_name, render_stmt_source,
     rewrite_annotation_helper_defs_as_exec_calls, should_keep_non_lowered_for_annotationlib,
 };
+use await_lower::{coroutine_generator_marker_stmt, lower_coroutine_awaits_to_yield_from};
 use bound_names::{collect_bound_names, collect_explicit_global_or_nonlocal_names};
-use dataflow::{
-    build_extra_successors, compute_block_params, ensure_try_exception_params,
+use dataflow::{build_extra_successors, compute_block_params, ensure_try_exception_params};
+use deleted_names::{
+    collect_deleted_names, rewrite_delete_to_deleted_sentinel, rewrite_deleted_name_loads,
 };
-use deleted_names::{collect_deleted_names, rewrite_delete_to_deleted_sentinel, rewrite_deleted_name_loads};
 use exception_flow::{
     compute_exception_edge_by_label, contains_return_stmt_in_body,
-    contains_return_stmt_in_handlers,
-    rewrite_region_returns_to_finally,
+    contains_return_stmt_in_handlers, rewrite_region_returns_to_finally,
 };
 use lowering_helpers::{
     make_dp_tuple, make_param_specs_expr, name_expr, raise_stmt_from_name,
@@ -64,6 +63,7 @@ use naming::{
     original_function_name, prune_unreachable_blocks, relabel_blocks, sanitize_ident,
 };
 use pre_lower::{is_simple_index_target, AnnotationHelperForLoweringPass};
+pub use pre_lower::{BBSimplifyStmtPass, FunctionIdentityByNode};
 use state_vars::{
     collect_cell_slots, collect_parameter_names, collect_state_vars, sync_target_cells_stmts,
 };
@@ -71,14 +71,13 @@ use stmt_shape::{
     extract_else_body, flatten_stmt, flatten_stmt_boxes, should_strip_nonlocal_for_bb,
     strip_nonlocal_directives,
 };
-use terminator_lowering::{
-    bb_function_kind_from, bb_term_from_terminator, lower_generator_yield_terms_to_explicit_return,
-    simplify_terminator_exprs,
-};
-pub use pre_lower::{BBSimplifyStmtPass, FunctionIdentityByNode};
 use support::{
     has_await_in_stmts, has_dead_stmt_suffixes, has_yield_exprs_in_stmts, is_module_init_temp_name,
     prune_dead_stmt_suffixes, BasicBlockSupportChecker,
+};
+use terminator_lowering::{
+    bb_function_kind_from, bb_term_from_terminator, lower_generator_yield_terms_to_explicit_return,
+    simplify_terminator_exprs,
 };
 
 pub fn collect_function_identity_by_node(

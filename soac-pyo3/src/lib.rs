@@ -39,7 +39,7 @@ fn transform_source_with_name(
     let output = lower_source(source, ensure)?;
     if let Some(bb_module) = output.bb_module.as_ref() {
         let normalized = normalize_bb_module_for_codegen(bb_module);
-        soac_eval::jit::register_bb_module_plans(module_name, &normalized).map_err(|err| {
+        soac_eval::jit::register_clif_module_plans(module_name, &normalized).map_err(|err| {
             pyo3::exceptions::PyRuntimeError::new_err(format!(
                 "failed to register BB plans for {module_name}: {err}"
             ))
@@ -49,7 +49,7 @@ fn transform_source_with_name(
         // BB function wrappers pass `__name__` into __dp_def_fn/__dp_def_coro,
         // so register an alias under "__main__" to keep plan lookup consistent.
         if module_name.ends_with(".__main__") && module_name != "__main__" {
-            soac_eval::jit::register_bb_module_plans("__main__", &normalized).map_err(|err| {
+            soac_eval::jit::register_clif_module_plans("__main__", &normalized).map_err(|err| {
                 pyo3::exceptions::PyRuntimeError::new_err(format!(
                     "failed to register BB plans alias for __main__ from {module_name}: {err}"
                 ))

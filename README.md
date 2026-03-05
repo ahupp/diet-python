@@ -140,6 +140,13 @@ transform-only
 
 = 328x slower
 
+2026-03-05: Full JIT
+
+- Warmed in-process comparison:
+  - JIT: logs/benchmark_jit_warm.log -> 5238 loops/s
+  - Stock: logs/benchmark_stock_warm.log -> 824962 loops/s
+
+
 
 # Design
 

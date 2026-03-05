@@ -1,46 +1,40 @@
 use dp_transform::{
     Options,
     basic_block::{bb_ir, normalize_bb_module_for_codegen},
-    min_ast, transform_str_to_ruff_with_options,
+    transform_str_to_ruff_with_options,
 };
 use pyo3::exceptions::{PyRuntimeError, PySyntaxError};
 use pyo3::ffi;
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyList, PyTuple};
 use std::any::Any;
-use std::collections::HashSet;
 use std::ffi::CString;
 use std::ffi::c_void;
 
 #[derive(Debug)]
-pub(crate) enum TransformToMinAstError {
+pub(crate) enum TransformError {
     Parse(String),
     Lowering(String),
-    MinAstConversion(String),
 }
 
-pub(crate) struct EvalLoweringResult {
-    pub(crate) min_ast_module: min_ast::Module,
+pub(crate) struct ExecLoweringResult {
     pub(crate) bb_module: Option<bb_ir::BbModule>,
-    pub(crate) transformed_source: String,
+    pub(crate) module_docstring: Option<String>,
 }
 
 struct ResolvedSpecializedJitBlocks {
-    plan: soac_eval::jit::EntryBlockPlan,
+    plan: soac_eval::jit::ClifPlan,
     block_ptrs: Vec<*mut c_void>,
     true_obj: *mut c_void,
     false_obj: *mut c_void,
 }
 
-impl TransformToMinAstError {
+impl TransformError {
     pub(crate) fn to_py_err(self) -> PyErr {
         match self {
-            TransformToMinAstError::Parse(msg) => PySyntaxError::new_err(msg),
-            TransformToMinAstError::Lowering(msg) => {
+            TransformError::Parse(msg) => PySyntaxError::new_err(msg),
+            TransformError::Lowering(msg) => {
                 PyRuntimeError::new_err(format!("AST lowering failed: {msg}"))
-            }
-            TransformToMinAstError::MinAstConversion(msg) => {
-                PyRuntimeError::new_err(format!("min_ast conversion failed: {msg}"))
             }
         }
     }
@@ -56,7 +50,7 @@ fn panic_payload_to_string(payload: Box<dyn Any + Send>) -> String {
     }
 }
 
-fn parse_and_lower(source: &str) -> Result<dp_transform::LoweringResult, TransformToMinAstError> {
+fn parse_and_lower(source: &str) -> Result<dp_transform::LoweringResult, TransformError> {
     let options = Options {
         inject_import: true,
         eval_mode: true,
@@ -68,29 +62,18 @@ fn parse_and_lower(source: &str) -> Result<dp_transform::LoweringResult, Transfo
 
     match std::panic::catch_unwind(|| transform_str_to_ruff_with_options(source, options)) {
         Ok(Ok(result)) => Ok(result),
-        Ok(Err(err)) => Err(TransformToMinAstError::Parse(err.to_string())),
-        Err(payload) => Err(TransformToMinAstError::Lowering(panic_payload_to_string(
-            payload,
-        ))),
+        Ok(Err(err)) => Err(TransformError::Parse(err.to_string())),
+        Err(payload) => Err(TransformError::Lowering(panic_payload_to_string(payload))),
     }
 }
 
-pub(crate) fn transform_to_min_ast(
-    source: &str,
-) -> Result<EvalLoweringResult, TransformToMinAstError> {
+fn lower_for_execution(source: &str) -> Result<ExecLoweringResult, TransformError> {
     let lowered = parse_and_lower(source)?;
-    let bb_module = lowered.bb_module.clone();
-    let transformed_source = lowered.to_string();
-    match std::panic::catch_unwind(|| lowered.into_min_ast()) {
-        Ok(module) => Ok(EvalLoweringResult {
-            min_ast_module: module,
-            bb_module,
-            transformed_source,
-        }),
-        Err(payload) => Err(TransformToMinAstError::MinAstConversion(
-            panic_payload_to_string(payload),
-        )),
-    }
+    let module_docstring = lowered.module_docstring();
+    Ok(ExecLoweringResult {
+        bb_module: lowered.bb_module,
+        module_docstring,
+    })
 }
 
 fn build_module_spec(
@@ -123,109 +106,8 @@ fn set_spec_initializing(spec: &Bound<'_, PyAny>, value: bool) {
     }
 }
 
-fn collect_function_codes_from_code(
-    code_obj: &Bound<'_, PyAny>,
-    code_map: &Bound<'_, PyDict>,
-    expected_names: &HashSet<String>,
-) -> PyResult<()> {
-    unsafe {
-        if ffi::PyObject_TypeCheck(code_obj.as_ptr(), std::ptr::addr_of_mut!(ffi::PyCode_Type)) == 0
-        {
-            return Ok(());
-        }
-    }
-
-    let name_obj = code_obj.getattr("co_name")?;
-    if let Ok(name) = name_obj.extract::<String>() {
-        if expected_names.contains(name.as_str()) {
-            code_map.set_item(name_obj, code_obj)?;
-        }
-    }
-
-    let consts = code_obj.getattr("co_consts")?;
-    for item in consts.try_iter()? {
-        collect_function_codes_from_code(&item?, code_map, expected_names)?;
-    }
-    Ok(())
-}
-
-fn collect_min_ast_function_names(stmts: &[min_ast::StmtNode], out: &mut HashSet<String>) {
-    for stmt in stmts {
-        match stmt {
-            min_ast::StmtNode::FunctionDef(def) => {
-                out.insert(def.name.clone());
-                collect_min_ast_function_names(&def.body, out);
-            }
-            min_ast::StmtNode::While { body, orelse, .. }
-            | min_ast::StmtNode::If { body, orelse, .. } => {
-                collect_min_ast_function_names(body, out);
-                collect_min_ast_function_names(orelse, out);
-            }
-            min_ast::StmtNode::Try {
-                body,
-                handler,
-                orelse,
-                finalbody,
-                ..
-            } => {
-                collect_min_ast_function_names(body, out);
-                if let Some(handler) = handler {
-                    collect_min_ast_function_names(handler, out);
-                }
-                collect_min_ast_function_names(orelse, out);
-                collect_min_ast_function_names(finalbody, out);
-            }
-            _ => {}
-        }
-    }
-}
-
-fn collect_bb_function_names(bb_module: &bb_ir::BbModule, out: &mut HashSet<String>) {
-    for function in &bb_module.functions {
-        out.insert(function.bind_name.clone());
-        out.insert(function.entry.clone());
-        for block in &function.blocks {
-            out.insert(block.label.clone());
-        }
-    }
-    if let Some(module_init) = bb_module.module_init.as_ref() {
-        out.insert(module_init.clone());
-    }
-}
-
-fn expected_function_code_names(
-    module_ast: &min_ast::Module,
-    bb_module: Option<&bb_ir::BbModule>,
-) -> HashSet<String> {
-    let mut names = HashSet::new();
-    collect_min_ast_function_names(&module_ast.body, &mut names);
-    if let Some(bb_module) = bb_module {
-        collect_bb_function_names(bb_module, &mut names);
-    }
-    names
-}
-
-fn compile_transformed_function_code_map(
-    py: Python<'_>,
-    path: &str,
-    transformed_source: &str,
-    expected_names: &HashSet<String>,
-) -> PyResult<Py<PyDict>> {
-    let builtins = py.import("builtins")?;
-    let module_code = builtins
-        .getattr("compile")?
-        .call1((transformed_source, path, "exec"))?;
-    let code_map = PyDict::new(py);
-    collect_function_codes_from_code(&module_code, &code_map, expected_names)?;
-    Ok(code_map.unbind())
-}
-
 pub(crate) fn eval_source_impl(py: Python<'_>, path: &str, source: &str) -> PyResult<Py<PyAny>> {
     eval_source_impl_with_name(py, path, source, "eval_source", None)
-}
-
-fn jit_mode_enabled() -> bool {
-    true
 }
 
 fn validate_bb_module_for_jit(bb_module: Option<&bb_ir::BbModule>) -> Result<(), String> {
@@ -722,6 +604,33 @@ fn run_specialized_jit(
         }
     }
 
+    let hooks = soac_eval::jit::SpecializedJitHooks {
+        incref: preflight_incref,
+        decref: preflight_decref,
+        py_call_three: py_call_three_hook,
+        py_call_object: py_call_object_hook,
+        py_call_with_kw: py_call_with_kw_hook,
+        py_get_raised_exception: py_get_raised_exception_hook,
+        get_arg_item: get_arg_item_hook,
+        make_int: make_int_hook,
+        make_float: make_float_hook,
+        make_bytes: make_bytes_hook,
+        load_name: load_name_hook,
+        load_local_raw_by_name: load_local_raw_by_name_hook,
+        pyobject_getattr: pyobject_getattr_hook,
+        pyobject_setattr: pyobject_setattr_hook,
+        pyobject_getitem: pyobject_getitem_hook,
+        pyobject_setitem: pyobject_setitem_hook,
+        pyobject_to_i64: pyobject_to_i64_hook,
+        decode_literal_bytes: decode_literal_bytes_hook,
+        tuple_new: tuple_new_hook,
+        tuple_set_item: tuple_set_item_hook,
+        is_true: is_true_hook,
+        compare_eq_obj: compare_eq_obj_hook,
+        compare_lt_obj: compare_lt_obj_hook,
+        raise_from_exc: raise_from_exc_hook,
+    };
+
     let none_obj = py.None();
     let empty_tuple_obj = PyTuple::empty(py);
     let result_ptr = unsafe {
@@ -732,30 +641,7 @@ fn run_specialized_jit(
             resolved.true_obj,
             resolved.false_obj,
             args.as_ptr() as *mut c_void,
-            preflight_incref,
-            preflight_decref,
-            py_call_three_hook,
-            py_call_object_hook,
-            py_call_with_kw_hook,
-            py_get_raised_exception_hook,
-            get_arg_item_hook,
-            make_int_hook,
-            make_float_hook,
-            make_bytes_hook,
-            load_name_hook,
-            load_local_raw_by_name_hook,
-            pyobject_getattr_hook,
-            pyobject_setattr_hook,
-            pyobject_getitem_hook,
-            pyobject_setitem_hook,
-            pyobject_to_i64_hook,
-            decode_literal_bytes_hook,
-            tuple_new_hook,
-            tuple_set_item_hook,
-            is_true_hook,
-            compare_eq_obj_hook,
-            compare_lt_obj_hook,
-            raise_from_exc_hook,
+            &hooks,
             none_obj.as_ptr() as *mut c_void,
             empty_tuple_obj.as_ptr() as *mut c_void,
         )
@@ -786,7 +672,7 @@ pub(crate) fn jit_run_bb_plan_impl(
 }
 
 pub(crate) fn jit_has_bb_plan_impl(module_name: &str, qualname: &str) -> bool {
-    let Some(plan) = soac_eval::jit::lookup_bb_plan(module_name, qualname) else {
+    let Some(plan) = soac_eval::jit::lookup_clif_plan(module_name, qualname) else {
         return false;
     };
     let has_none = plan
@@ -815,7 +701,7 @@ pub(crate) fn jit_block_param_names_impl(
     qualname: &str,
     entry_label: &str,
 ) -> PyResult<Vec<String>> {
-    let Some(plan) = soac_eval::jit::lookup_bb_plan(module_name, qualname) else {
+    let Some(plan) = soac_eval::jit::lookup_clif_plan(module_name, qualname) else {
         return Err(PyRuntimeError::new_err(format!(
             "no specialized JIT plan for {module_name}.{qualname}"
         )));
@@ -834,7 +720,7 @@ pub(crate) fn jit_block_param_names_impl(
 }
 
 pub(crate) fn jit_debug_plan_impl(module_name: &str, qualname: &str) -> PyResult<String> {
-    let Some(plan) = soac_eval::jit::lookup_bb_plan(module_name, qualname) else {
+    let Some(plan) = soac_eval::jit::lookup_clif_plan(module_name, qualname) else {
         return Err(PyRuntimeError::new_err(format!(
             "no specialized JIT plan for {module_name}.{qualname}"
         )));
@@ -847,7 +733,7 @@ fn resolve_specialized_jit_blocks_by_key(
     module_name: &str,
     qualname: &str,
 ) -> PyResult<ResolvedSpecializedJitBlocks> {
-    let plan = soac_eval::jit::lookup_bb_plan(module_name, qualname);
+    let plan = soac_eval::jit::lookup_clif_plan(module_name, qualname);
     let Some(plan) = plan else {
         return Err(PyRuntimeError::new_err(format!(
             "no specialized JIT plan for {module_name}.{qualname}"
@@ -929,25 +815,21 @@ fn eval_source_impl_with_name_and_spec(
     package: Option<&str>,
     spec_opt: Option<Py<PyAny>>,
 ) -> PyResult<Py<PyAny>> {
-    let lowering = transform_to_min_ast(source).map_err(TransformToMinAstError::to_py_err)?;
-    let module_ast = lowering.min_ast_module;
+    let lowering = lower_for_execution(source).map_err(TransformError::to_py_err)?;
     let bb_module = lowering.bb_module;
-    let jit_mode = jit_mode_enabled();
-    if jit_mode {
-        validate_bb_module_for_jit(bb_module.as_ref()).map_err(PyRuntimeError::new_err)?;
-        if let Some(bb_module) = bb_module.as_ref() {
-            let normalized = normalize_bb_module_for_codegen(bb_module);
-            soac_eval::jit::register_bb_module_plans(name, &normalized).map_err(|err| {
-                PyRuntimeError::new_err(format!("Cranelift JIT plan registration failed: {err}"))
-            })?;
-        }
-        run_cranelift_jit_preflight(bb_module.as_ref()).map_err(|err| {
-            PyRuntimeError::new_err(format!("Cranelift JIT preflight failed: {err}"))
-        })?;
-        run_cranelift_python_call_preflight(py).map_err(|err| {
-            PyRuntimeError::new_err(format!("Cranelift JIT Python-call preflight failed: {err}"))
+    validate_bb_module_for_jit(bb_module.as_ref()).map_err(PyRuntimeError::new_err)?;
+    if let Some(bb_module) = bb_module.as_ref() {
+        let normalized = normalize_bb_module_for_codegen(bb_module);
+        soac_eval::jit::register_clif_module_plans(name, &normalized).map_err(|err| {
+            PyRuntimeError::new_err(format!("Cranelift JIT plan registration failed: {err}"))
         })?;
     }
+    run_cranelift_jit_preflight(bb_module.as_ref()).map_err(|err| {
+        PyRuntimeError::new_err(format!("Cranelift JIT preflight failed: {err}"))
+    })?;
+    run_cranelift_python_call_preflight(py).map_err(|err| {
+        PyRuntimeError::new_err(format!("Cranelift JIT Python-call preflight failed: {err}"))
+    })?;
 
     unsafe {
         let module = PyModule::new(py, name)?;
@@ -960,12 +842,8 @@ fn eval_source_impl_with_name_and_spec(
 
         module.setattr("__file__", path)?;
 
-        if let Some(min_ast::StmtNode::Expr { value, .. }) = module_ast.body.first() {
-            if let min_ast::ExprNode::String { value, .. } = value {
-                module.setattr("__doc__", value)?;
-            } else {
-                module.setattr("__doc__", py.None())?;
-            }
+        if let Some(docstring) = lowering.module_docstring.as_deref() {
+            module.setattr("__doc__", docstring)?;
         } else {
             module.setattr("__doc__", py.None())?;
         }
@@ -1087,10 +965,7 @@ pub(crate) fn eval_source_impl_with_spec(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        parse_and_lower, run_cranelift_jit_preflight, transform_to_min_ast,
-        validate_bb_module_for_jit,
-    };
+    use super::{parse_and_lower, run_cranelift_jit_preflight, validate_bb_module_for_jit};
     use dp_transform::basic_block::bb_ir;
 
     #[test]
@@ -1114,7 +989,7 @@ class C:
 async def run():
     return 1
 "#;
-        let bb_module = transform_to_min_ast(source)
+        let bb_module = parse_and_lower(source)
             .expect("lowering should succeed")
             .bb_module;
         validate_bb_module_for_jit(bb_module.as_ref())
@@ -1140,7 +1015,7 @@ async def run():
 def f():
     return 1
 "#;
-        let mut bb_module = transform_to_min_ast(source)
+        let mut bb_module = parse_and_lower(source)
             .expect("lowering should succeed")
             .bb_module
             .expect("bb module should be present");
@@ -1172,7 +1047,7 @@ def f():
 def f(x):
     return x
 "#;
-        let bb_module = transform_to_min_ast(source)
+        let bb_module = parse_and_lower(source)
             .expect("lowering should succeed")
             .bb_module;
         validate_bb_module_for_jit(bb_module.as_ref()).expect("validator should allow module");

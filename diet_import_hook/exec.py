@@ -7,7 +7,7 @@ import sys
 import types
 from pathlib import Path
 
-from . import _get_pyo3_transform
+from . import _get_pyo3_transform, install
 
 
 def _resolve_target(target: str) -> tuple[str, Path]:
@@ -43,10 +43,14 @@ def main(argv: list[str] | None = None) -> int:
         package = module_name.rpartition(".")[0]
     package = package or None
 
+    install()
     transform = _get_pyo3_transform()
     sys.argv = [str(path), *args.args]
     source = path.read_text(encoding="utf-8")
-    transformed_source = transform.transform_source(source, True)
+    if hasattr(transform, "transform_source_with_name"):
+        transformed_source = transform.transform_source_with_name(source, run_name, True)
+    else:
+        transformed_source = transform.transform_source(source, True)
     module = types.ModuleType(run_name)
     module.__file__ = str(path)
     module.__name__ = run_name

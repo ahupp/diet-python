@@ -4,15 +4,15 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+LOOPS="${1:-1000000}"
+
 echo "date: $(date +%F)"
+echo "loops: ${LOOPS}"
 
 cargo build --release
 
-echo "transformed interpreter"
-./vendor/cpython/python -m diet_import_hook.exec pystone
+echo "jit transformed"
+./vendor/cpython/python -m diet_import_hook.exec pystone "${LOOPS}"
 
 echo "stock cpython"
-./vendor/cpython/python -S pystone.py 1000000
-
-echo "transform-only"
-./scripts/python.sh pystone.py 1000000 2> /dev/null
+./vendor/cpython/python -S pystone.py "${LOOPS}"

@@ -8,70 +8,31 @@ use cranelift_control::ControlPlane;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, ModuleReloc};
-use dp_transform::basic_block::bb_ir::{BbBlock, BbExpr, BbModule, BbOp, BbTerm};
-use ruff_python_ast::Number;
+use dp_transform::basic_block::bb_ir::BbModule;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
-use std::ffi::c_void;
 use std::ptr;
 use std::sync::{Mutex, OnceLock};
 
 mod exception_pass;
+mod planning;
+mod specialized_helpers;
 
-type ObjPtr = *mut c_void;
-type IncrefFn = unsafe extern "C" fn(ObjPtr);
-type DecrefFn = unsafe extern "C" fn(ObjPtr);
-type CallOneArgFn = unsafe extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr;
-type CallTwoArgsFn = unsafe extern "C" fn(ObjPtr, ObjPtr, ObjPtr) -> ObjPtr;
-type CallVarArgsFn = unsafe extern "C" fn(ObjPtr, ObjPtr, ObjPtr, ObjPtr) -> ObjPtr;
-type CallObjectFn = unsafe extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr;
-type CallWithKwFn = unsafe extern "C" fn(ObjPtr, ObjPtr, ObjPtr) -> ObjPtr;
-type GetRaisedExceptionFn = unsafe extern "C" fn() -> ObjPtr;
-type GetArgItemFn = unsafe extern "C" fn(ObjPtr, i64) -> ObjPtr;
-type MakeIntFn = unsafe extern "C" fn(i64) -> ObjPtr;
-type MakeFloatFn = unsafe extern "C" fn(f64) -> ObjPtr;
-type MakeBytesFn = unsafe extern "C" fn(*const u8, i64) -> ObjPtr;
-type LoadNameFn = unsafe extern "C" fn(ObjPtr, *const u8, i64) -> ObjPtr;
-type LoadLocalRawByNameFn = unsafe extern "C" fn(ObjPtr, *const u8, i64) -> ObjPtr;
-type PyObjectGetAttrFn = unsafe extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr;
-type PyObjectSetAttrFn = unsafe extern "C" fn(ObjPtr, ObjPtr, ObjPtr) -> ObjPtr;
-type PyObjectGetItemFn = unsafe extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr;
-type PyObjectSetItemFn = unsafe extern "C" fn(ObjPtr, ObjPtr, ObjPtr) -> ObjPtr;
-type PyObjectToI64Fn = unsafe extern "C" fn(ObjPtr) -> i64;
-type DecodeLiteralBytesFn = unsafe extern "C" fn(*const u8, i64) -> ObjPtr;
-type TupleNewFn = unsafe extern "C" fn(i64) -> ObjPtr;
-type TupleSetItemFn = unsafe extern "C" fn(ObjPtr, i64, ObjPtr) -> i32;
-type IsTrueFn = unsafe extern "C" fn(ObjPtr) -> i32;
-type CompareEqFn = unsafe extern "C" fn(ObjPtr, ObjPtr) -> i32;
-type CompareObjFn = unsafe extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr;
-type RaiseFromExcFn = unsafe extern "C" fn(ObjPtr) -> i32;
-
-static mut DP_JIT_INCREF_FN: Option<IncrefFn> = None;
-static mut DP_JIT_DECREF_FN: Option<DecrefFn> = None;
-static mut DP_JIT_CALL_ONE_ARG_FN: Option<CallOneArgFn> = None;
-static mut DP_JIT_CALL_TWO_ARGS_FN: Option<CallTwoArgsFn> = None;
-static mut DP_JIT_CALL_VAR_ARGS_FN: Option<CallVarArgsFn> = None;
-static mut DP_JIT_CALL_OBJECT_FN: Option<CallObjectFn> = None;
-static mut DP_JIT_CALL_WITH_KW_FN: Option<CallWithKwFn> = None;
-static mut DP_JIT_GET_RAISED_EXCEPTION_FN: Option<GetRaisedExceptionFn> = None;
-static mut DP_JIT_GET_ARG_ITEM_FN: Option<GetArgItemFn> = None;
-static mut DP_JIT_MAKE_INT_FN: Option<MakeIntFn> = None;
-static mut DP_JIT_MAKE_FLOAT_FN: Option<MakeFloatFn> = None;
-static mut DP_JIT_MAKE_BYTES_FN: Option<MakeBytesFn> = None;
-static mut DP_JIT_LOAD_NAME_FN: Option<LoadNameFn> = None;
-static mut DP_JIT_LOAD_LOCAL_RAW_BY_NAME_FN: Option<LoadLocalRawByNameFn> = None;
-static mut DP_JIT_PYOBJECT_GETATTR_FN: Option<PyObjectGetAttrFn> = None;
-static mut DP_JIT_PYOBJECT_SETATTR_FN: Option<PyObjectSetAttrFn> = None;
-static mut DP_JIT_PYOBJECT_GETITEM_FN: Option<PyObjectGetItemFn> = None;
-static mut DP_JIT_PYOBJECT_SETITEM_FN: Option<PyObjectSetItemFn> = None;
-static mut DP_JIT_PYOBJECT_TO_I64_FN: Option<PyObjectToI64Fn> = None;
-static mut DP_JIT_DECODE_LITERAL_BYTES_FN: Option<DecodeLiteralBytesFn> = None;
-static mut DP_JIT_TUPLE_NEW_FN: Option<TupleNewFn> = None;
-static mut DP_JIT_TUPLE_SET_ITEM_FN: Option<TupleSetItemFn> = None;
-static mut DP_JIT_IS_TRUE_FN: Option<IsTrueFn> = None;
-static mut DP_JIT_COMPARE_EQ_OBJ_FN: Option<CompareObjFn> = None;
-static mut DP_JIT_COMPARE_LT_OBJ_FN: Option<CompareObjFn> = None;
-static mut DP_JIT_RAISE_FROM_EXC_FN: Option<RaiseFromExcFn> = None;
+pub use planning::{
+    BlockExcArgSource, BlockExcDispatchPlan, BlockFastPath, BlockTermPlan, ClifPlan,
+    DirectSimpleAssignPlan, DirectSimpleBlockPlan, DirectSimpleBrIfPlan, DirectSimpleCallPart,
+    DirectSimpleDeletePlan, DirectSimpleDeleteTargetPlan, DirectSimpleExprPlan,
+    DirectSimpleExprRetNonePlan, DirectSimpleOpPlan, DirectSimpleRetPlan, DirectSimpleTermPlan,
+    lookup_clif_plan, lower_try_jump_exception_flow, register_clif_module_plans,
+};
+pub use specialized_helpers::ObjPtr;
+pub use specialized_helpers::SpecializedJitHooks;
+use specialized_helpers::{
+    CallOneArgFn, CallTwoArgsFn, CompareEqFn, DecrefFn, IncrefFn, install_specialized_hooks,
+    register_smoke_call_one_symbols, register_smoke_call_two_symbols,
+    register_specialized_jit_symbols, set_smoke_call_one_hook, set_smoke_call_two_hook,
+    set_smoke_refcount_hooks,
+};
 
 static INCREMENTAL_CLIF_CACHE: OnceLock<Mutex<HashMap<Vec<u8>, Vec<u8>>>> = OnceLock::new();
 
@@ -96,173 +57,6 @@ impl CacheKvStore for GlobalIncrementalCacheStore<'_> {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct EntryBlockPlan {
-    pub entry_index: usize,
-    pub block_labels: Vec<String>,
-    pub block_param_names: Vec<Vec<String>>,
-    pub block_terms: Vec<BlockTermPlan>,
-    pub block_exc_targets: Vec<Option<usize>>,
-    pub block_exc_dispatches: Vec<Option<BlockExcDispatchPlan>>,
-    pub block_fast_paths: Vec<BlockFastPath>,
-}
-
-#[derive(Clone, Debug)]
-pub struct BlockExcDispatchPlan {
-    pub target_index: usize,
-    pub owner_param_index: Option<usize>,
-    pub arg_sources: Vec<BlockExcArgSource>,
-}
-
-#[derive(Clone, Debug)]
-pub enum BlockExcArgSource {
-    SourceParam { index: usize },
-    Exception,
-    NoneValue,
-    FrameLocal { name: String },
-}
-
-#[derive(Clone, Debug)]
-pub enum BlockTermPlan {
-    Jump {
-        target_index: usize,
-    },
-    BrIf {
-        then_index: usize,
-        else_index: usize,
-    },
-    BrTable {
-        targets: Vec<usize>,
-        default_index: usize,
-    },
-    Raise,
-    Ret,
-}
-
-#[derive(Clone, Debug)]
-pub enum BlockFastPath {
-    None,
-    JumpPassThrough { target_index: usize },
-    ReturnNone,
-    DirectSimpleExprRetNone { plan: DirectSimpleExprRetNonePlan },
-    DirectSimpleBrIf { plan: DirectSimpleBrIfPlan },
-    DirectSimpleRet { plan: DirectSimpleRetPlan },
-    DirectSimpleBlock { plan: DirectSimpleBlockPlan },
-}
-
-#[derive(Clone, Debug)]
-pub enum DirectSimpleExprPlan {
-    Name(String),
-    Int(i64),
-    Float(f64),
-    Bool(bool),
-    None,
-    Bytes(Vec<u8>),
-    Tuple(Vec<DirectSimpleExprPlan>),
-    Call {
-        func: Box<DirectSimpleExprPlan>,
-        parts: Vec<DirectSimpleCallPart>,
-    },
-}
-
-#[derive(Clone, Debug)]
-pub enum DirectSimpleCallPart {
-    Pos(DirectSimpleExprPlan),
-    Star(DirectSimpleExprPlan),
-    Kw {
-        name: String,
-        value: DirectSimpleExprPlan,
-    },
-    KwStar(DirectSimpleExprPlan),
-}
-
-#[derive(Clone, Debug)]
-pub struct DirectSimpleAssignPlan {
-    pub target: String,
-    pub value: DirectSimpleExprPlan,
-}
-
-#[derive(Clone, Debug)]
-pub struct DirectSimpleRetPlan {
-    pub params: Vec<String>,
-    pub assigns: Vec<DirectSimpleAssignPlan>,
-    pub ret: DirectSimpleExprPlan,
-}
-
-#[derive(Clone, Debug)]
-pub struct DirectSimpleBrIfPlan {
-    pub params: Vec<String>,
-    pub test: DirectSimpleExprPlan,
-    pub then_index: usize,
-    pub else_index: usize,
-}
-
-#[derive(Clone, Debug)]
-pub struct DirectSimpleExprRetNonePlan {
-    pub params: Vec<String>,
-    pub exprs: Vec<DirectSimpleExprPlan>,
-}
-
-#[derive(Clone, Debug)]
-pub enum DirectSimpleOpPlan {
-    Assign(DirectSimpleAssignPlan),
-    Expr(DirectSimpleExprPlan),
-    Delete(DirectSimpleDeletePlan),
-}
-
-#[derive(Clone, Debug)]
-pub enum DirectSimpleTermPlan {
-    Jump {
-        target_index: usize,
-        target_params: Vec<String>,
-    },
-    BrIf {
-        test: DirectSimpleExprPlan,
-        then_index: usize,
-        then_params: Vec<String>,
-        else_index: usize,
-        else_params: Vec<String>,
-    },
-    BrTable {
-        index: DirectSimpleExprPlan,
-        targets: Vec<(usize, Vec<String>)>,
-        default_index: usize,
-        default_params: Vec<String>,
-    },
-    Ret {
-        value: Option<DirectSimpleExprPlan>,
-    },
-    Raise {
-        exc: Option<DirectSimpleExprPlan>,
-        cause: Option<DirectSimpleExprPlan>,
-    },
-}
-
-#[derive(Clone, Debug)]
-pub struct DirectSimpleDeletePlan {
-    pub targets: Vec<DirectSimpleDeleteTargetPlan>,
-}
-
-#[derive(Clone, Debug)]
-pub enum DirectSimpleDeleteTargetPlan {
-    LocalName(String),
-}
-
-#[derive(Clone, Debug)]
-pub struct DirectSimpleBlockPlan {
-    pub params: Vec<String>,
-    pub ops: Vec<DirectSimpleOpPlan>,
-    pub term: DirectSimpleTermPlan,
-}
-
-type PlanRegistry = HashMap<PlanKey, EntryBlockPlan>;
-
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct PlanKey {
-    pub module: String,
-    pub qualname: String,
-}
-
 #[derive(Debug, Clone)]
 pub struct RenderedSpecializedClif {
     pub clif: String,
@@ -273,361 +67,6 @@ struct CompiledSpecializedRunner {
     _jit_module: JITModule,
     _literal_pool: Vec<Box<[u8]>>,
     entry: Option<extern "C" fn(ObjPtr) -> ObjPtr>,
-}
-
-static BB_PLAN_REGISTRY: OnceLock<Mutex<PlanRegistry>> = OnceLock::new();
-
-fn bb_plan_registry() -> &'static Mutex<PlanRegistry> {
-    BB_PLAN_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn direct_simple_expr_from(expr: &BbExpr) -> Option<DirectSimpleExprPlan> {
-    match expr {
-        BbExpr::Await(_) => None,
-        BbExpr::Name(name) => Some(DirectSimpleExprPlan::Name(name.id.to_string())),
-        BbExpr::IntLiteral(number) => {
-            let Number::Int(value) = &number.value else {
-                panic!("BbExpr::IntLiteral contained a non-int value");
-            };
-            value.as_i64().map(DirectSimpleExprPlan::Int)
-        }
-        BbExpr::FloatLiteral(number) => {
-            let Number::Float(value) = &number.value else {
-                panic!("BbExpr::FloatLiteral contained a non-float value");
-            };
-            Some(DirectSimpleExprPlan::Float(*value))
-        }
-        BbExpr::BytesLiteral(bytes) => {
-            let value: Cow<[u8]> = (&bytes.value).into();
-            Some(DirectSimpleExprPlan::Bytes(value.into_owned()))
-        }
-        BbExpr::Starred(_) => None,
-        BbExpr::Call(call) => {
-            let func = direct_simple_expr_from(call.func.as_ref())?;
-            let mut parts = Vec::with_capacity(call.args.len() + call.keywords.len());
-            for arg in &call.args {
-                match arg {
-                    BbExpr::Starred(starred_expr) => {
-                        let starred_value = BbExpr::from_expr(*starred_expr.value.clone());
-                        parts.push(DirectSimpleCallPart::Star(direct_simple_expr_from(
-                            &starred_value,
-                        )?));
-                    }
-                    _ => {
-                        parts.push(DirectSimpleCallPart::Pos(direct_simple_expr_from(arg)?));
-                    }
-                }
-            }
-            if call.template.arguments.keywords.len() != call.keywords.len() {
-                return None;
-            }
-            for (keyword, value) in call
-                .template
-                .arguments
-                .keywords
-                .iter()
-                .zip(call.keywords.iter())
-            {
-                let value = direct_simple_expr_from(value)?;
-                if let Some(name) = keyword.arg.as_ref() {
-                    parts.push(DirectSimpleCallPart::Kw {
-                        name: name.to_string(),
-                        value,
-                    });
-                } else {
-                    parts.push(DirectSimpleCallPart::KwStar(value));
-                }
-            }
-            Some(DirectSimpleExprPlan::Call {
-                func: Box::new(func),
-                parts,
-            })
-        }
-    }
-}
-
-fn direct_simple_plan_from_block(
-    block: &dp_transform::basic_block::bb_ir::BbBlock,
-) -> Option<DirectSimpleRetPlan> {
-    let mut known_names: Vec<String> = block.params.clone();
-    let mut assigns = Vec::new();
-    for op in &block.ops {
-        let BbOp::Assign(assign) = op else {
-            return None;
-        };
-        let value = direct_simple_expr_from(&assign.value)?;
-        if !known_names
-            .iter()
-            .any(|candidate| candidate == assign.target.id.as_str())
-        {
-            known_names.push(assign.target.id.to_string());
-        }
-        assigns.push(DirectSimpleAssignPlan {
-            target: assign.target.id.to_string(),
-            value,
-        });
-    }
-    let BbTerm::Ret(ret_value) = &block.term else {
-        return None;
-    };
-    let ret = if let Some(value) = ret_value.as_ref() {
-        direct_simple_expr_from(value)?
-    } else {
-        DirectSimpleExprPlan::None
-    };
-    Some(DirectSimpleRetPlan {
-        params: block.params.clone(),
-        assigns,
-        ret,
-    })
-}
-
-fn direct_simple_brif_plan_from_block(
-    function: &dp_transform::basic_block::bb_ir::BbFunction,
-    block: &dp_transform::basic_block::bb_ir::BbBlock,
-    label_to_index: &HashMap<String, usize>,
-) -> Option<DirectSimpleBrIfPlan> {
-    if !block.ops.is_empty() {
-        return None;
-    }
-    let BbTerm::BrIf {
-        test,
-        then_label,
-        else_label,
-    } = &block.term
-    else {
-        return None;
-    };
-    let then_index = *label_to_index.get(then_label.as_str())?;
-    let else_index = *label_to_index.get(else_label.as_str())?;
-    let source_params = block.params.as_slice();
-    if function.blocks[then_index].params.as_slice() != source_params
-        || function.blocks[else_index].params.as_slice() != source_params
-    {
-        return None;
-    }
-    let test = direct_simple_expr_from(test)?;
-    Some(DirectSimpleBrIfPlan {
-        params: block.params.clone(),
-        test,
-        then_index,
-        else_index,
-    })
-}
-
-fn direct_simple_expr_ret_none_plan_from_block(
-    block: &dp_transform::basic_block::bb_ir::BbBlock,
-) -> Option<DirectSimpleExprRetNonePlan> {
-    let mut exprs = Vec::new();
-    for op in &block.ops {
-        let BbOp::Expr(expr_op) = op else {
-            return None;
-        };
-        let expr = direct_simple_expr_from(&expr_op.value)?;
-        exprs.push(expr);
-    }
-    let BbTerm::Ret(ret_value) = &block.term else {
-        return None;
-    };
-    if ret_value.is_some() {
-        return None;
-    }
-    Some(DirectSimpleExprRetNonePlan {
-        params: block.params.clone(),
-        exprs,
-    })
-}
-
-fn target_params_from_index(
-    function: &dp_transform::basic_block::bb_ir::BbFunction,
-    target_index: usize,
-) -> Option<Vec<String>> {
-    Some(function.blocks.get(target_index)?.params.clone())
-}
-
-fn direct_simple_delete_plan_from_targets(
-    targets: &[BbExpr],
-    known_names: &mut Vec<String>,
-) -> Option<DirectSimpleDeletePlan> {
-    let mut plan_targets = Vec::with_capacity(targets.len());
-    for target in targets {
-        let BbExpr::Name(name) = target else {
-            return None;
-        };
-        let target_name = name.id.to_string();
-        if !known_names.iter().any(|known| known == &target_name) {
-            return None;
-        }
-        plan_targets.push(DirectSimpleDeleteTargetPlan::LocalName(target_name.clone()));
-        known_names.retain(|known| known != &target_name);
-    }
-    Some(DirectSimpleDeletePlan {
-        targets: plan_targets,
-    })
-}
-
-fn direct_simple_op_from_bb_op(
-    op: &BbOp,
-    known_names: &mut Vec<String>,
-) -> Option<DirectSimpleOpPlan> {
-    match op {
-        BbOp::Expr(expr_stmt) => {
-            let value = direct_simple_expr_from(&expr_stmt.value)?;
-            Some(DirectSimpleOpPlan::Expr(value))
-        }
-        BbOp::Assign(assign) => {
-            let value = direct_simple_expr_from(&assign.value)?;
-            let target_name = assign.target.id.to_string();
-            if !known_names.iter().any(|known| known == &target_name) {
-                known_names.push(target_name.clone());
-            }
-            Some(DirectSimpleOpPlan::Assign(DirectSimpleAssignPlan {
-                target: target_name,
-                value,
-            }))
-        }
-        BbOp::Delete(delete_stmt) => {
-            let delete_plan =
-                direct_simple_delete_plan_from_targets(&delete_stmt.targets, known_names)?;
-            Some(DirectSimpleOpPlan::Delete(delete_plan))
-        }
-    }
-}
-
-fn bb_op_kind(op: &BbOp) -> &'static str {
-    match op {
-        BbOp::Assign(_) => "Assign",
-        BbOp::Expr(_) => "Expr",
-        BbOp::Delete(_) => "Delete",
-    }
-}
-
-fn bb_term_kind(term: &BbTerm) -> &'static str {
-    match term {
-        BbTerm::Jump(_) => "Jump",
-        BbTerm::BrIf { .. } => "BrIf",
-        BbTerm::BrTable { .. } => "BrTable",
-        BbTerm::TryJump { .. } => "TryJump",
-        BbTerm::Raise { .. } => "Raise",
-        BbTerm::Ret(_) => "Ret",
-    }
-}
-
-fn unsupported_fastpath_block_message(
-    function: &dp_transform::basic_block::bb_ir::BbFunction,
-    block: &BbBlock,
-) -> String {
-    let op_kinds = block
-        .ops
-        .iter()
-        .map(bb_op_kind)
-        .collect::<Vec<_>>()
-        .join(", ");
-    let op_debug = block
-        .ops
-        .iter()
-        .map(|op| format!("{op:?}"))
-        .collect::<Vec<_>>()
-        .join("; ");
-    format!(
-        "unsupported JIT block shape in {}:{}: term={}, ops=[{}], params={:?}, exc_target={:?}; op_debug=[{}]; expected direct-simple lowered block",
-        function.qualname,
-        block.label,
-        bb_term_kind(&block.term),
-        op_kinds,
-        block.params,
-        block.exc_target_label,
-        op_debug,
-    )
-}
-
-fn direct_simple_block_plan_from_block(
-    function: &dp_transform::basic_block::bb_ir::BbFunction,
-    block: &dp_transform::basic_block::bb_ir::BbBlock,
-    label_to_index: &HashMap<String, usize>,
-) -> Option<DirectSimpleBlockPlan> {
-    let mut known_names: Vec<String> = block.params.clone();
-    let mut ops = Vec::new();
-    for op in &block.ops {
-        let stmt_op = direct_simple_op_from_bb_op(op, &mut known_names)?;
-        ops.push(stmt_op);
-    }
-    let term = match &block.term {
-        BbTerm::Jump(target_label) => {
-            let target_index = *label_to_index.get(target_label.as_str())?;
-            let target_params = target_params_from_index(function, target_index)?;
-            DirectSimpleTermPlan::Jump {
-                target_index,
-                target_params,
-            }
-        }
-        BbTerm::BrIf {
-            test,
-            then_label,
-            else_label,
-        } => {
-            let test_expr = direct_simple_expr_from(test)?;
-            let then_index = *label_to_index.get(then_label.as_str())?;
-            let then_params = target_params_from_index(function, then_index)?;
-            let else_index = *label_to_index.get(else_label.as_str())?;
-            let else_params = target_params_from_index(function, else_index)?;
-            DirectSimpleTermPlan::BrIf {
-                test: test_expr,
-                then_index,
-                then_params,
-                else_index,
-                else_params,
-            }
-        }
-        BbTerm::BrTable {
-            index,
-            targets,
-            default_label,
-        } => {
-            let index_expr = direct_simple_expr_from(index)?;
-            let mut target_plans = Vec::with_capacity(targets.len());
-            for target_label in targets {
-                let target_index = *label_to_index.get(target_label.as_str())?;
-                let target_params = target_params_from_index(function, target_index)?;
-                target_plans.push((target_index, target_params));
-            }
-            let default_index = *label_to_index.get(default_label.as_str())?;
-            let default_params = target_params_from_index(function, default_index)?;
-            DirectSimpleTermPlan::BrTable {
-                index: index_expr,
-                targets: target_plans,
-                default_index,
-                default_params,
-            }
-        }
-        BbTerm::Ret(ret_value) => {
-            let value = if let Some(expr) = ret_value.as_ref() {
-                Some(direct_simple_expr_from(expr)?)
-            } else {
-                None
-            };
-            DirectSimpleTermPlan::Ret { value }
-        }
-        BbTerm::Raise { exc, cause } => {
-            let exc = if let Some(expr) = exc.as_ref() {
-                Some(direct_simple_expr_from(expr)?)
-            } else {
-                None
-            };
-            let cause = if let Some(expr) = cause.as_ref() {
-                Some(direct_simple_expr_from(expr)?)
-            } else {
-                None
-            };
-            DirectSimpleTermPlan::Raise { exc, cause }
-        }
-        _ => return None,
-    };
-    Some(DirectSimpleBlockPlan {
-        params: block.params.clone(),
-        ops,
-        term,
-    })
 }
 
 fn direct_simple_expr_is_borrowable(expr: &DirectSimpleExprPlan, local_names: &[String]) -> bool {
@@ -727,11 +166,7 @@ fn intern_bytes_literal(literal_pool: &mut Vec<Box<[u8]>>, bytes: &[u8]) -> (*co
 }
 
 #[derive(Clone, Copy)]
-struct DirectSimpleEmitCtx {
-    incref_ref: ir::FuncRef,
-    decref_ref: ir::FuncRef,
-    py_call_ref: ir::FuncRef,
-    make_int_ref: ir::FuncRef,
+struct DirectSimpleEmitConsts {
     step_null_block: ir::Block,
     exec_args: ir::Value,
     ptr_ty: ir::Type,
@@ -741,13 +176,21 @@ struct DirectSimpleEmitCtx {
     false_const: ir::Value,
     empty_tuple_const: ir::Value,
     block_const: ir::Value,
+}
+
+#[derive(Clone, Copy)]
+struct DirectSimpleEmitCtx {
+    incref_ref: ir::FuncRef,
+    decref_ref: ir::FuncRef,
+    py_call_ref: ir::FuncRef,
+    make_int_ref: ir::FuncRef,
+    consts: DirectSimpleEmitConsts,
     load_name_ref: ir::FuncRef,
     load_local_raw_by_name_ref: ir::FuncRef,
     pyobject_getattr_ref: ir::FuncRef,
     pyobject_setattr_ref: ir::FuncRef,
     pyobject_getitem_ref: ir::FuncRef,
     pyobject_setitem_ref: ir::FuncRef,
-    pyobject_to_i64_ref: ir::FuncRef,
     decode_literal_bytes_ref: ir::FuncRef,
     make_bytes_ref: ir::FuncRef,
     make_float_ref: ir::FuncRef,
@@ -772,15 +215,15 @@ fn emit_direct_simple_expr(
     let decref_ref = ctx.decref_ref;
     let py_call_ref = ctx.py_call_ref;
     let make_int_ref = ctx.make_int_ref;
-    let step_null_block = ctx.step_null_block;
-    let exec_args = ctx.exec_args;
-    let ptr_ty = ctx.ptr_ty;
-    let i64_ty = ctx.i64_ty;
-    let none_const = ctx.none_const;
-    let true_const = ctx.true_const;
-    let false_const = ctx.false_const;
-    let empty_tuple_const = ctx.empty_tuple_const;
-    let block_const = ctx.block_const;
+    let step_null_block = ctx.consts.step_null_block;
+    let exec_args = ctx.consts.exec_args;
+    let ptr_ty = ctx.consts.ptr_ty;
+    let i64_ty = ctx.consts.i64_ty;
+    let none_const = ctx.consts.none_const;
+    let true_const = ctx.consts.true_const;
+    let false_const = ctx.consts.false_const;
+    let empty_tuple_const = ctx.consts.empty_tuple_const;
+    let block_const = ctx.consts.block_const;
     let load_name_ref = ctx.load_name_ref;
     let pyobject_getattr_ref = ctx.pyobject_getattr_ref;
     let pyobject_setattr_ref = ctx.pyobject_setattr_ref;
@@ -2139,11 +1582,12 @@ fn emit_pack_target_args(
     literal_pool: &mut Vec<Box<[u8]>>,
 ) -> Option<ir::Value> {
     if target_params.is_empty() {
-        fb.ins().call(ctx.incref_ref, &[ctx.empty_tuple_const]);
-        return Some(ctx.empty_tuple_const);
+        fb.ins()
+            .call(ctx.incref_ref, &[ctx.consts.empty_tuple_const]);
+        return Some(ctx.consts.empty_tuple_const);
     }
-    let ptr_ty = ctx.ptr_ty;
-    let i64_ty = ctx.i64_ty;
+    let ptr_ty = ctx.consts.ptr_ty;
+    let i64_ty = ctx.consts.i64_ty;
     let null_ptr = fb.ins().iconst(ptr_ty, 0);
     let tuple_len = fb.ins().iconst(i64_ty, target_params.len() as i64);
     let tuple_inst = fb.ins().call(ctx.tuple_new_ref, &[tuple_len]);
@@ -2155,8 +1599,8 @@ fn emit_pack_target_args(
     fb.append_block_param(tuple_ok_block, ptr_ty);
     fb.ins().brif(
         tuple_is_null,
-        ctx.step_null_block,
-        &[ir::BlockArg::Value(ctx.exec_args)],
+        ctx.consts.step_null_block,
+        &[ir::BlockArg::Value(ctx.consts.exec_args)],
         tuple_ok_block,
         &[ir::BlockArg::Value(tuple_obj)],
     );
@@ -2186,15 +1630,15 @@ fn emit_pack_target_args(
                 fb.append_block_param(load_ok_block, ptr_ty);
                 fb.ins().brif(
                     load_is_null,
-                    ctx.step_null_block,
-                    &[ir::BlockArg::Value(ctx.exec_args)],
+                    ctx.consts.step_null_block,
+                    &[ir::BlockArg::Value(ctx.consts.exec_args)],
                     load_ok_block,
                     &[ir::BlockArg::Value(load_value)],
                 );
                 fb.switch_to_block(load_ok_block);
                 fb.block_params(load_ok_block)[0]
             } else {
-                ctx.none_const
+                ctx.consts.none_const
             };
         // PyTuple_SetItem steals a reference; pass owned values.
         fb.ins().call(ctx.incref_ref, &[value]);
@@ -2219,8 +1663,10 @@ fn emit_pack_target_args(
         fb.switch_to_block(set_fail_block);
         let failed_tuple = fb.block_params(set_fail_block)[0];
         fb.ins().call(ctx.decref_ref, &[failed_tuple]);
-        fb.ins()
-            .jump(ctx.step_null_block, &[ir::BlockArg::Value(ctx.exec_args)]);
+        fb.ins().jump(
+            ctx.consts.step_null_block,
+            &[ir::BlockArg::Value(ctx.consts.exec_args)],
+        );
         fb.switch_to_block(set_ok_block);
     }
     Some(tuple_obj)
@@ -2308,7 +1754,7 @@ fn emit_direct_simple_ops(
                 if let Some((obj_expr, key_expr, value_expr, key_name)) =
                     direct_simple_expr_as_frame_locals_setitem(expr, &frame_locals_aliases)
                 {
-                    let null_ptr = fb.ins().iconst(emit_ctx.ptr_ty, 0);
+                    let null_ptr = fb.ins().iconst(emit_ctx.consts.ptr_ty, 0);
                     let obj_borrowed = direct_simple_expr_is_borrowable(obj_expr, local_names);
                     let key_borrowed = direct_simple_expr_is_borrowable(key_expr, local_names);
                     let value_borrowed = direct_simple_expr_is_borrowable(value_expr, local_names);
@@ -2348,11 +1794,11 @@ fn emit_direct_simple_ops(
                         fb.ins()
                             .icmp(ir::condcodes::IntCC::Equal, set_item_value, null_ptr);
                     let set_item_ok = fb.create_block();
-                    fb.append_block_param(set_item_ok, emit_ctx.ptr_ty);
+                    fb.append_block_param(set_item_ok, emit_ctx.consts.ptr_ty);
                     fb.ins().brif(
                         set_item_failed,
-                        emit_ctx.step_null_block,
-                        &[ir::BlockArg::Value(emit_ctx.exec_args)],
+                        emit_ctx.consts.step_null_block,
+                        &[ir::BlockArg::Value(emit_ctx.consts.exec_args)],
                         set_item_ok,
                         &[ir::BlockArg::Value(set_item_value)],
                     );
@@ -2367,11 +1813,11 @@ fn emit_direct_simple_ops(
                         fb.ins()
                             .icmp(ir::condcodes::IntCC::Equal, synced_value, null_ptr);
                     let synced_ok = fb.create_block();
-                    fb.append_block_param(synced_ok, emit_ctx.ptr_ty);
+                    fb.append_block_param(synced_ok, emit_ctx.consts.ptr_ty);
                     fb.ins().brif(
                         synced_failed,
-                        emit_ctx.step_null_block,
-                        &[ir::BlockArg::Value(emit_ctx.exec_args)],
+                        emit_ctx.consts.step_null_block,
+                        &[ir::BlockArg::Value(emit_ctx.consts.exec_args)],
                         synced_ok,
                         &[ir::BlockArg::Value(synced_value)],
                     );
@@ -2426,547 +1872,6 @@ fn emit_direct_simple_ops(
         }
     }
     Ok(())
-}
-
-fn build_entry_plan(
-    function: &dp_transform::basic_block::bb_ir::BbFunction,
-) -> Result<EntryBlockPlan, String> {
-    if !matches!(
-        function.kind,
-        dp_transform::basic_block::bb_ir::BbFunctionKind::Function
-            | dp_transform::basic_block::bb_ir::BbFunctionKind::Generator { .. }
-            | dp_transform::basic_block::bb_ir::BbFunctionKind::AsyncGenerator { .. }
-    ) {
-        return Err(format!(
-            "unsupported JIT function kind in {}: {:?}; only plain/generator/async-generator functions are currently supported",
-            function.qualname, function.kind
-        ));
-    }
-    let mut label_to_index = HashMap::new();
-    for (index, block) in function.blocks.iter().enumerate() {
-        label_to_index.insert(block.label.clone(), index);
-    }
-    let Some(entry_index) = label_to_index.get(function.entry.as_str()).copied() else {
-        return Err(format!(
-            "missing entry label {} in function {}",
-            function.entry, function.qualname
-        ));
-    };
-    let mut block_terms = Vec::with_capacity(function.blocks.len());
-    let mut block_exc_targets = Vec::with_capacity(function.blocks.len());
-    let mut block_exc_dispatches = Vec::with_capacity(function.blocks.len());
-    let mut block_param_names = Vec::with_capacity(function.blocks.len());
-    let mut block_fast_paths = Vec::with_capacity(function.blocks.len());
-    for block in &function.blocks {
-        let exc_target = match block.exc_target_label.as_ref() {
-            Some(label) => Some(label_to_index.get(label.as_str()).copied().ok_or_else(|| {
-                format!(
-                    "unknown exception target {label} in {}:{}",
-                    function.qualname, block.label
-                )
-            })?),
-            None => None,
-        };
-        let exc_dispatch = if let Some(target_index) = exc_target {
-            let target_block = &function.blocks[target_index];
-            let owner_param_index = block
-                .params
-                .iter()
-                .position(|name| name == "_dp_self")
-                .or_else(|| block.params.iter().position(|name| name == "_dp_state"));
-            let mut arg_sources = Vec::with_capacity(target_block.params.len());
-            for target_param in &target_block.params {
-                if block.exc_name.as_deref() == Some(target_param.as_str()) {
-                    arg_sources.push(BlockExcArgSource::Exception);
-                    continue;
-                }
-                if target_param == "_dp_resume_exc" {
-                    arg_sources.push(BlockExcArgSource::NoneValue);
-                    continue;
-                }
-                if let Some(source_index) = block
-                    .params
-                    .iter()
-                    .position(|source_name| source_name == target_param)
-                {
-                    arg_sources.push(BlockExcArgSource::SourceParam {
-                        index: source_index,
-                    });
-                    continue;
-                }
-                if target_param.starts_with("_dp_try_exc_")
-                    || target_param.starts_with("_dp_try_reason_")
-                    || target_param.starts_with("_dp_try_value_")
-                {
-                    // Exception-edge temporary slots are control-flow bookkeeping;
-                    // when they are not in source params for this edge, seed with
-                    // a neutral value instead of requiring frame-local fallback.
-                    arg_sources.push(BlockExcArgSource::NoneValue);
-                    continue;
-                }
-                if owner_param_index.is_none() {
-                    // Plain function blocks do not carry a frame owner parameter.
-                    // For missing edge locals, seed a neutral value on exception
-                    // edges instead of requiring frame-local recovery.
-                    arg_sources.push(BlockExcArgSource::NoneValue);
-                } else {
-                    arg_sources.push(BlockExcArgSource::FrameLocal {
-                        name: target_param.clone(),
-                    });
-                }
-            }
-            if owner_param_index.is_none()
-                && arg_sources
-                    .iter()
-                    .any(|src| matches!(src, BlockExcArgSource::FrameLocal { .. }))
-            {
-                return Err(format!(
-                    "exception dispatch from {}:{} requires frame-local fallback but has no _dp_self/_dp_state parameter",
-                    function.qualname, block.label
-                ));
-            }
-            Some(BlockExcDispatchPlan {
-                target_index,
-                owner_param_index,
-                arg_sources,
-            })
-        } else {
-            None
-        };
-        let term = match &block.term {
-            BbTerm::Jump(target) => {
-                let target_index =
-                    label_to_index
-                        .get(target.as_str())
-                        .copied()
-                        .ok_or_else(|| {
-                            format!(
-                                "unknown jump target {target} in {}:{}",
-                                function.qualname, block.label
-                            )
-                        })?;
-                BlockTermPlan::Jump { target_index }
-            }
-            BbTerm::BrIf {
-                then_label,
-                else_label,
-                ..
-            } => {
-                let then_index = label_to_index
-                    .get(then_label.as_str())
-                    .copied()
-                    .ok_or_else(|| {
-                        format!(
-                            "unknown then target {then_label} in {}:{}",
-                            function.qualname, block.label
-                        )
-                    })?;
-                let else_index = label_to_index
-                    .get(else_label.as_str())
-                    .copied()
-                    .ok_or_else(|| {
-                        format!(
-                            "unknown else target {else_label} in {}:{}",
-                            function.qualname, block.label
-                        )
-                    })?;
-                BlockTermPlan::BrIf {
-                    then_index,
-                    else_index,
-                }
-            }
-            BbTerm::BrTable {
-                targets,
-                default_label,
-                ..
-            } => {
-                let default_index = label_to_index
-                    .get(default_label.as_str())
-                    .copied()
-                    .ok_or_else(|| {
-                        format!(
-                            "unknown br_table default target {default_label} in {}:{}",
-                            function.qualname, block.label
-                        )
-                    })?;
-                let mut target_indices = Vec::with_capacity(targets.len());
-                for target in targets {
-                    let target_index =
-                        label_to_index
-                            .get(target.as_str())
-                            .copied()
-                            .ok_or_else(|| {
-                                format!(
-                                    "unknown br_table target {target} in {}:{}",
-                                    function.qualname, block.label
-                                )
-                            })?;
-                    target_indices.push(target_index);
-                }
-                BlockTermPlan::BrTable {
-                    targets: target_indices,
-                    default_index,
-                }
-            }
-            BbTerm::Raise { .. } => BlockTermPlan::Raise,
-            BbTerm::Ret(_) => BlockTermPlan::Ret,
-            BbTerm::TryJump { .. } => {
-                return Err(format!(
-                    "unsupported try_jump in JIT entry plan for {}:{}",
-                    function.qualname, block.label
-                ));
-            }
-        };
-        let fast_path = {
-            if block.ops.is_empty() {
-                match &block.term {
-                    BbTerm::Jump(target_label) => {
-                        let target_index = label_to_index
-                            .get(target_label.as_str())
-                            .copied()
-                            .ok_or_else(|| {
-                                format!(
-                                    "unknown jump target {target_label} in {}:{}",
-                                    function.qualname, block.label
-                                )
-                            })?;
-                        let source_params = block.params.as_slice();
-                        let target_params = function.blocks[target_index].params.as_slice();
-                        if source_params == target_params {
-                            BlockFastPath::JumpPassThrough { target_index }
-                        } else if let Some(plan) = direct_simple_plan_from_block(block) {
-                            BlockFastPath::DirectSimpleRet { plan }
-                        } else if let Some(plan) =
-                            direct_simple_block_plan_from_block(function, block, &label_to_index)
-                        {
-                            BlockFastPath::DirectSimpleBlock { plan }
-                        } else {
-                            BlockFastPath::None
-                        }
-                    }
-                    BbTerm::Ret(None) => BlockFastPath::ReturnNone,
-                    BbTerm::BrIf { .. } => {
-                        if let Some(plan) =
-                            direct_simple_brif_plan_from_block(function, block, &label_to_index)
-                        {
-                            BlockFastPath::DirectSimpleBrIf { plan }
-                        } else if let Some(plan) =
-                            direct_simple_block_plan_from_block(function, block, &label_to_index)
-                        {
-                            BlockFastPath::DirectSimpleBlock { plan }
-                        } else {
-                            BlockFastPath::None
-                        }
-                    }
-                    _ => {
-                        if let Some(plan) = direct_simple_plan_from_block(block) {
-                            BlockFastPath::DirectSimpleRet { plan }
-                        } else if let Some(plan) =
-                            direct_simple_block_plan_from_block(function, block, &label_to_index)
-                        {
-                            BlockFastPath::DirectSimpleBlock { plan }
-                        } else {
-                            BlockFastPath::None
-                        }
-                    }
-                }
-            } else if let Some(plan) = direct_simple_plan_from_block(block) {
-                BlockFastPath::DirectSimpleRet { plan }
-            } else if let Some(plan) = direct_simple_expr_ret_none_plan_from_block(block) {
-                BlockFastPath::DirectSimpleExprRetNone { plan }
-            } else if let Some(plan) =
-                direct_simple_block_plan_from_block(function, block, &label_to_index)
-            {
-                BlockFastPath::DirectSimpleBlock { plan }
-            } else {
-                BlockFastPath::None
-            }
-        };
-        if matches!(fast_path, BlockFastPath::None) {
-            return Err(unsupported_fastpath_block_message(function, block));
-        }
-        block_terms.push(term);
-        block_exc_targets.push(exc_target);
-        block_exc_dispatches.push(exc_dispatch);
-        block_param_names.push(block.params.clone());
-        block_fast_paths.push(fast_path);
-    }
-    Ok(EntryBlockPlan {
-        entry_index,
-        block_labels: function
-            .blocks
-            .iter()
-            .map(|block| block.label.clone())
-            .collect(),
-        block_param_names,
-        block_terms,
-        block_exc_targets,
-        block_exc_dispatches,
-        block_fast_paths,
-    })
-}
-
-pub fn register_bb_module_plans(module_name: &str, module: &BbModule) -> Result<(), String> {
-    let lowered = lower_try_jump_exception_flow(module)?;
-    let debug_skips = std::env::var_os("DIET_PYTHON_DEBUG_JIT_PLAN_SKIPS").is_some();
-    let mut plans = HashMap::new();
-    let mut skipped_errors: HashMap<String, String> = HashMap::new();
-    for function in &lowered.functions {
-        let plan_qualname = format!("{}::{}", function.qualname, function.entry);
-        match build_entry_plan(function) {
-            Ok(plan) => {
-                plans.insert(
-                    PlanKey {
-                        module: module_name.to_string(),
-                        qualname: plan_qualname.clone(),
-                    },
-                    plan,
-                );
-            }
-            Err(err) => {
-                if debug_skips {
-                    eprintln!(
-                        "[diet-python:jitskip] module={} qualname={} entry={} reason={}",
-                        module_name, function.qualname, function.entry, err
-                    );
-                }
-                skipped_errors.insert(plan_qualname, err);
-            }
-        }
-    }
-
-    if !skipped_errors.is_empty() {
-        let mut skipped = skipped_errors.into_iter().collect::<Vec<_>>();
-        skipped.sort_by(|(left, _), (right, _)| left.cmp(right));
-        let mut details = String::new();
-        for (idx, (qualname, reason)) in skipped.iter().enumerate() {
-            if idx > 0 {
-                details.push_str("; ");
-            }
-            details.push_str(qualname.as_str());
-            details.push_str(": ");
-            details.push_str(reason.as_str());
-        }
-        return Err(format!(
-            "module {module_name} has unsupported JIT plans ({count}): {details}",
-            count = skipped.len()
-        ));
-    }
-
-    let mut registry = bb_plan_registry()
-        .lock()
-        .map_err(|_| "failed to lock bb plan registry".to_string())?;
-    registry.retain(|key, _| key.module != module_name);
-    registry.extend(plans);
-    Ok(())
-}
-
-pub fn lower_try_jump_exception_flow(module: &BbModule) -> Result<BbModule, String> {
-    exception_pass::lower_try_jump_exception_flow(module)
-}
-
-pub fn lookup_bb_plan(module_name: &str, qualname: &str) -> Option<EntryBlockPlan> {
-    let registry = bb_plan_registry().lock().ok()?;
-    registry
-        .get(&PlanKey {
-            module: module_name.to_string(),
-            qualname: qualname.to_string(),
-        })
-        .cloned()
-}
-
-unsafe extern "C" fn dp_jit_incref(obj: ObjPtr) {
-    if let Some(func) = DP_JIT_INCREF_FN {
-        func(obj);
-    }
-}
-
-unsafe extern "C" fn dp_jit_decref(obj: ObjPtr) {
-    if let Some(func) = DP_JIT_DECREF_FN {
-        func(obj);
-    }
-}
-
-unsafe extern "C" fn dp_jit_call_one_arg(callable: ObjPtr, arg: ObjPtr) -> ObjPtr {
-    if let Some(func) = DP_JIT_CALL_ONE_ARG_FN {
-        return func(callable, arg);
-    }
-    ptr::null_mut()
-}
-
-unsafe extern "C" fn dp_jit_call_two_args(callable: ObjPtr, arg1: ObjPtr, arg2: ObjPtr) -> ObjPtr {
-    if let Some(func) = DP_JIT_CALL_TWO_ARGS_FN {
-        return func(callable, arg1, arg2);
-    }
-    ptr::null_mut()
-}
-
-unsafe extern "C" fn dp_jit_raise_from_exc(exc: ObjPtr) -> i32 {
-    if let Some(func) = DP_JIT_RAISE_FROM_EXC_FN {
-        return func(exc);
-    }
-    -1
-}
-
-unsafe extern "C" fn dp_jit_py_call_three(
-    callable: ObjPtr,
-    arg1: ObjPtr,
-    arg2: ObjPtr,
-    arg3: ObjPtr,
-    _sentinel: ObjPtr,
-) -> ObjPtr {
-    if let Some(func) = DP_JIT_CALL_VAR_ARGS_FN {
-        return func(callable, arg1, arg2, arg3);
-    }
-    ptr::null_mut()
-}
-
-unsafe extern "C" fn dp_jit_py_call_object(callable: ObjPtr, args: ObjPtr) -> ObjPtr {
-    if let Some(func) = DP_JIT_CALL_OBJECT_FN {
-        return func(callable, args);
-    }
-    ptr::null_mut()
-}
-
-unsafe extern "C" fn dp_jit_py_call_with_kw(
-    callable: ObjPtr,
-    args: ObjPtr,
-    kwargs: ObjPtr,
-) -> ObjPtr {
-    if let Some(func) = DP_JIT_CALL_WITH_KW_FN {
-        return func(callable, args, kwargs);
-    }
-    ptr::null_mut()
-}
-
-unsafe extern "C" fn dp_jit_get_raised_exception() -> ObjPtr {
-    if let Some(func) = DP_JIT_GET_RAISED_EXCEPTION_FN {
-        return func();
-    }
-    ptr::null_mut()
-}
-
-unsafe extern "C" fn dp_jit_get_arg_item(args: ObjPtr, index: i64) -> ObjPtr {
-    if let Some(func) = DP_JIT_GET_ARG_ITEM_FN {
-        return func(args, index);
-    }
-    ptr::null_mut()
-}
-
-unsafe extern "C" fn dp_jit_make_int(value: i64) -> ObjPtr {
-    if let Some(func) = DP_JIT_MAKE_INT_FN {
-        return func(value);
-    }
-    ptr::null_mut()
-}
-
-unsafe extern "C" fn dp_jit_make_float(value: f64) -> ObjPtr {
-    if let Some(func) = DP_JIT_MAKE_FLOAT_FN {
-        return func(value);
-    }
-    ptr::null_mut()
-}
-
-unsafe extern "C" fn dp_jit_make_bytes(data_ptr: *const u8, data_len: i64) -> ObjPtr {
-    if let Some(func) = DP_JIT_MAKE_BYTES_FN {
-        return func(data_ptr, data_len);
-    }
-    ptr::null_mut()
-}
-
-unsafe extern "C" fn dp_jit_load_name(block: ObjPtr, name_ptr: *const u8, name_len: i64) -> ObjPtr {
-    if let Some(func) = DP_JIT_LOAD_NAME_FN {
-        return func(block, name_ptr, name_len);
-    }
-    ptr::null_mut()
-}
-
-unsafe extern "C" fn dp_jit_load_local_raw_by_name(
-    owner: ObjPtr,
-    name_ptr: *const u8,
-    name_len: i64,
-) -> ObjPtr {
-    if let Some(func) = DP_JIT_LOAD_LOCAL_RAW_BY_NAME_FN {
-        return func(owner, name_ptr, name_len);
-    }
-    ptr::null_mut()
-}
-
-unsafe extern "C" fn dp_jit_pyobject_getattr(obj: ObjPtr, attr: ObjPtr) -> ObjPtr {
-    if let Some(func) = DP_JIT_PYOBJECT_GETATTR_FN {
-        return func(obj, attr);
-    }
-    ptr::null_mut()
-}
-
-unsafe extern "C" fn dp_jit_pyobject_setattr(obj: ObjPtr, attr: ObjPtr, value: ObjPtr) -> ObjPtr {
-    if let Some(func) = DP_JIT_PYOBJECT_SETATTR_FN {
-        return func(obj, attr, value);
-    }
-    ptr::null_mut()
-}
-
-unsafe extern "C" fn dp_jit_pyobject_getitem(obj: ObjPtr, key: ObjPtr) -> ObjPtr {
-    if let Some(func) = DP_JIT_PYOBJECT_GETITEM_FN {
-        return func(obj, key);
-    }
-    ptr::null_mut()
-}
-
-unsafe extern "C" fn dp_jit_pyobject_setitem(obj: ObjPtr, key: ObjPtr, value: ObjPtr) -> ObjPtr {
-    if let Some(func) = DP_JIT_PYOBJECT_SETITEM_FN {
-        return func(obj, key, value);
-    }
-    ptr::null_mut()
-}
-
-unsafe extern "C" fn dp_jit_pyobject_to_i64(value: ObjPtr) -> i64 {
-    if let Some(func) = DP_JIT_PYOBJECT_TO_I64_FN {
-        return func(value);
-    }
-    i64::MIN
-}
-
-unsafe extern "C" fn dp_jit_decode_literal_bytes(data_ptr: *const u8, data_len: i64) -> ObjPtr {
-    if let Some(func) = DP_JIT_DECODE_LITERAL_BYTES_FN {
-        return func(data_ptr, data_len);
-    }
-    ptr::null_mut()
-}
-
-unsafe extern "C" fn dp_jit_tuple_new(size: i64) -> ObjPtr {
-    if let Some(func) = DP_JIT_TUPLE_NEW_FN {
-        return func(size);
-    }
-    ptr::null_mut()
-}
-
-unsafe extern "C" fn dp_jit_tuple_set_item(tuple_obj: ObjPtr, index: i64, item: ObjPtr) -> i32 {
-    if let Some(func) = DP_JIT_TUPLE_SET_ITEM_FN {
-        return func(tuple_obj, index, item);
-    }
-    -1
-}
-
-unsafe extern "C" fn dp_jit_is_true(value: ObjPtr) -> i32 {
-    if let Some(func) = DP_JIT_IS_TRUE_FN {
-        return func(value);
-    }
-    -1
-}
-
-unsafe extern "C" fn dp_jit_compare_eq_obj(lhs: ObjPtr, rhs: ObjPtr) -> ObjPtr {
-    if let Some(func) = DP_JIT_COMPARE_EQ_OBJ_FN {
-        return func(lhs, rhs);
-    }
-    ptr::null_mut()
-}
-
-unsafe extern "C" fn dp_jit_compare_lt_obj(lhs: ObjPtr, rhs: ObjPtr) -> ObjPtr {
-    if let Some(func) = DP_JIT_COMPARE_LT_OBJ_FN {
-        return func(lhs, rhs);
-    }
-    ptr::null_mut()
 }
 
 fn new_jit_builder() -> Result<JITBuilder, String> {
@@ -3167,14 +2072,11 @@ pub unsafe fn run_cranelift_python_call_smoke(
         return Err("invalid null Python object pointer passed to JIT smoke call".to_string());
     }
 
-    DP_JIT_INCREF_FN = Some(incref_fn);
-    DP_JIT_DECREF_FN = Some(decref_fn);
-    DP_JIT_CALL_ONE_ARG_FN = Some(call_one_arg_fn);
+    set_smoke_refcount_hooks(incref_fn, decref_fn);
+    set_smoke_call_one_hook(call_one_arg_fn);
 
     let mut builder = new_jit_builder()?;
-    builder.symbol("dp_jit_incref", dp_jit_incref as *const u8);
-    builder.symbol("dp_jit_decref", dp_jit_decref as *const u8);
-    builder.symbol("dp_jit_call_one_arg", dp_jit_call_one_arg as *const u8);
+    register_smoke_call_one_symbols(&mut builder);
     let mut jit_module = JITModule::new(builder);
     let ptr_ty = jit_module.target_config().pointer_type();
 
@@ -3264,14 +2166,11 @@ pub unsafe fn run_cranelift_python_call_two_args(
         return Err("invalid null Python object pointer passed to JIT two-arg call".to_string());
     }
 
-    DP_JIT_INCREF_FN = Some(incref_fn);
-    DP_JIT_DECREF_FN = Some(decref_fn);
-    DP_JIT_CALL_TWO_ARGS_FN = Some(call_two_args_fn);
+    set_smoke_refcount_hooks(incref_fn, decref_fn);
+    set_smoke_call_two_hook(call_two_args_fn);
 
     let mut builder = new_jit_builder()?;
-    builder.symbol("dp_jit_incref", dp_jit_incref as *const u8);
-    builder.symbol("dp_jit_decref", dp_jit_decref as *const u8);
-    builder.symbol("dp_jit_call_two_args", dp_jit_call_two_args as *const u8);
+    register_smoke_call_two_symbols(&mut builder);
     let mut jit_module = JITModule::new(builder);
     let ptr_ty = jit_module.target_config().pointer_type();
 
@@ -3346,7 +2245,7 @@ pub unsafe fn run_cranelift_python_call_two_args(
 fn build_cranelift_run_bb_specialized_function(
     jit_module: &mut JITModule,
     blocks: &[ObjPtr],
-    plan: &EntryBlockPlan,
+    plan: &ClifPlan,
     globals_obj: ObjPtr,
     true_obj: ObjPtr,
     false_obj: ObjPtr,
@@ -3702,22 +2601,23 @@ fn build_cranelift_run_bb_specialized_function(
                 decref_ref,
                 py_call_ref,
                 make_int_ref,
-                step_null_block: fast_step_null_block,
-                exec_args,
-                ptr_ty,
-                i64_ty,
-                none_const,
-                true_const,
-                false_const,
-                empty_tuple_const,
-                block_const,
+                consts: DirectSimpleEmitConsts {
+                    step_null_block: fast_step_null_block,
+                    exec_args,
+                    ptr_ty,
+                    i64_ty,
+                    none_const,
+                    true_const,
+                    false_const,
+                    empty_tuple_const,
+                    block_const,
+                },
                 load_name_ref,
                 load_local_raw_by_name_ref,
                 pyobject_getattr_ref,
                 pyobject_setattr_ref,
                 pyobject_getitem_ref,
                 pyobject_setitem_ref,
-                pyobject_to_i64_ref,
                 decode_literal_bytes_ref,
                 make_bytes_ref,
                 make_float_ref,
@@ -4320,8 +3220,10 @@ fn build_cranelift_run_bb_specialized_function(
 
                             fb.switch_to_block(raise_fn_fail);
                             let rff_args = fb.block_params(raise_fn_fail)[0];
-                            fb.ins()
-                                .jump(emit_ctx.step_null_block, &[ir::BlockArg::Value(rff_args)]);
+                            fb.ins().jump(
+                                emit_ctx.consts.step_null_block,
+                                &[ir::BlockArg::Value(rff_args)],
+                            );
 
                             fb.switch_to_block(raise_fn_ok);
                             let rfo_args = fb.block_params(raise_fn_ok)[0];
@@ -4383,8 +3285,10 @@ fn build_cranelift_run_bb_specialized_function(
 
                             fb.switch_to_block(raise_exc_fail);
                             let ref_args = fb.block_params(raise_exc_fail)[0];
-                            fb.ins()
-                                .jump(emit_ctx.step_null_block, &[ir::BlockArg::Value(ref_args)]);
+                            fb.ins().jump(
+                                emit_ctx.consts.step_null_block,
+                                &[ir::BlockArg::Value(ref_args)],
+                            );
 
                             fb.switch_to_block(raise_exc_ok);
                             let reo_args = fb.block_params(raise_exc_ok)[0];
@@ -4408,16 +3312,20 @@ fn build_cranelift_run_bb_specialized_function(
 
                             fb.switch_to_block(raise_rc_fail);
                             let rcf_args = fb.block_params(raise_rc_fail)[0];
-                            fb.ins()
-                                .jump(emit_ctx.step_null_block, &[ir::BlockArg::Value(rcf_args)]);
+                            fb.ins().jump(
+                                emit_ctx.consts.step_null_block,
+                                &[ir::BlockArg::Value(rcf_args)],
+                            );
 
                             fb.switch_to_block(raise_rc_ok);
                             let rco_args = fb.block_params(raise_rc_ok)[0];
                             for value in &local_values {
                                 fb.ins().call(decref_ref, &[*value]);
                             }
-                            fb.ins()
-                                .jump(emit_ctx.step_null_block, &[ir::BlockArg::Value(rco_args)]);
+                            fb.ins().jump(
+                                emit_ctx.consts.step_null_block,
+                                &[ir::BlockArg::Value(rco_args)],
+                            );
                         }
                     }
                     continue;
@@ -4672,66 +3580,9 @@ fn build_cranelift_run_bb_specialized_function(
     Ok((ctx, main_id, literal_pool, import_id_to_symbol))
 }
 
-fn register_specialized_jit_symbols(builder: &mut JITBuilder) {
-    builder.symbol("dp_jit_incref", dp_jit_incref as *const u8);
-    builder.symbol("dp_jit_decref", dp_jit_decref as *const u8);
-    builder.symbol(
-        "PyObject_CallFunctionObjArgs",
-        dp_jit_py_call_three as *const u8,
-    );
-    builder.symbol("PyObject_CallObject", dp_jit_py_call_object as *const u8);
-    builder.symbol(
-        "dp_jit_py_call_with_kw",
-        dp_jit_py_call_with_kw as *const u8,
-    );
-    builder.symbol(
-        "PyErr_GetRaisedException",
-        dp_jit_get_raised_exception as *const u8,
-    );
-    builder.symbol("dp_jit_get_arg_item", dp_jit_get_arg_item as *const u8);
-    builder.symbol("dp_jit_make_int", dp_jit_make_int as *const u8);
-    builder.symbol("dp_jit_make_float", dp_jit_make_float as *const u8);
-    builder.symbol("dp_jit_make_bytes", dp_jit_make_bytes as *const u8);
-    builder.symbol("dp_jit_load_name", dp_jit_load_name as *const u8);
-    builder.symbol(
-        "dp_jit_load_local_raw_by_name",
-        dp_jit_load_local_raw_by_name as *const u8,
-    );
-    builder.symbol(
-        "dp_jit_pyobject_getattr",
-        dp_jit_pyobject_getattr as *const u8,
-    );
-    builder.symbol(
-        "dp_jit_pyobject_setattr",
-        dp_jit_pyobject_setattr as *const u8,
-    );
-    builder.symbol(
-        "dp_jit_pyobject_getitem",
-        dp_jit_pyobject_getitem as *const u8,
-    );
-    builder.symbol(
-        "dp_jit_pyobject_setitem",
-        dp_jit_pyobject_setitem as *const u8,
-    );
-    builder.symbol(
-        "dp_jit_pyobject_to_i64",
-        dp_jit_pyobject_to_i64 as *const u8,
-    );
-    builder.symbol(
-        "dp_jit_decode_literal_bytes",
-        dp_jit_decode_literal_bytes as *const u8,
-    );
-    builder.symbol("dp_jit_tuple_new", dp_jit_tuple_new as *const u8);
-    builder.symbol("dp_jit_tuple_set_item", dp_jit_tuple_set_item as *const u8);
-    builder.symbol("dp_jit_is_true", dp_jit_is_true as *const u8);
-    builder.symbol("dp_jit_compare_eq_obj", dp_jit_compare_eq_obj as *const u8);
-    builder.symbol("dp_jit_compare_lt_obj", dp_jit_compare_lt_obj as *const u8);
-    builder.symbol("dp_jit_raise_from_exc", dp_jit_raise_from_exc as *const u8);
-}
-
 pub unsafe fn render_cranelift_run_bb_specialized(
     blocks: &[ObjPtr],
-    plan: &EntryBlockPlan,
+    plan: &ClifPlan,
     true_obj: ObjPtr,
     false_obj: ObjPtr,
     empty_tuple_obj: ObjPtr,
@@ -4742,7 +3593,7 @@ pub unsafe fn render_cranelift_run_bb_specialized(
 
 pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
     blocks: &[ObjPtr],
-    plan: &EntryBlockPlan,
+    plan: &ClifPlan,
     true_obj: ObjPtr,
     false_obj: ObjPtr,
     empty_tuple_obj: ObjPtr,
@@ -4800,61 +3651,9 @@ pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
     Ok(RenderedSpecializedClif { clif: out, cfg_dot })
 }
 
-unsafe fn configure_specialized_jit_hooks(
-    incref_fn: IncrefFn,
-    decref_fn: DecrefFn,
-    py_call_three_fn: CallVarArgsFn,
-    py_call_object_fn: CallObjectFn,
-    py_call_with_kw_fn: CallWithKwFn,
-    py_get_raised_exception_fn: GetRaisedExceptionFn,
-    get_arg_item_fn: GetArgItemFn,
-    make_int_fn: MakeIntFn,
-    make_float_fn: MakeFloatFn,
-    make_bytes_fn: MakeBytesFn,
-    load_name_fn: LoadNameFn,
-    load_local_raw_by_name_fn: LoadLocalRawByNameFn,
-    pyobject_getattr_fn: PyObjectGetAttrFn,
-    pyobject_setattr_fn: PyObjectSetAttrFn,
-    pyobject_getitem_fn: PyObjectGetItemFn,
-    pyobject_setitem_fn: PyObjectSetItemFn,
-    pyobject_to_i64_fn: PyObjectToI64Fn,
-    decode_literal_bytes_fn: DecodeLiteralBytesFn,
-    tuple_new_fn: TupleNewFn,
-    tuple_set_item_fn: TupleSetItemFn,
-    is_true_fn: IsTrueFn,
-    compare_eq_obj_fn: CompareObjFn,
-    compare_lt_obj_fn: CompareObjFn,
-    raise_from_exc_fn: RaiseFromExcFn,
-) {
-    DP_JIT_INCREF_FN = Some(incref_fn);
-    DP_JIT_DECREF_FN = Some(decref_fn);
-    DP_JIT_CALL_VAR_ARGS_FN = Some(py_call_three_fn);
-    DP_JIT_CALL_OBJECT_FN = Some(py_call_object_fn);
-    DP_JIT_CALL_WITH_KW_FN = Some(py_call_with_kw_fn);
-    DP_JIT_GET_RAISED_EXCEPTION_FN = Some(py_get_raised_exception_fn);
-    DP_JIT_GET_ARG_ITEM_FN = Some(get_arg_item_fn);
-    DP_JIT_MAKE_INT_FN = Some(make_int_fn);
-    DP_JIT_MAKE_FLOAT_FN = Some(make_float_fn);
-    DP_JIT_MAKE_BYTES_FN = Some(make_bytes_fn);
-    DP_JIT_LOAD_NAME_FN = Some(load_name_fn);
-    DP_JIT_LOAD_LOCAL_RAW_BY_NAME_FN = Some(load_local_raw_by_name_fn);
-    DP_JIT_PYOBJECT_GETATTR_FN = Some(pyobject_getattr_fn);
-    DP_JIT_PYOBJECT_SETATTR_FN = Some(pyobject_setattr_fn);
-    DP_JIT_PYOBJECT_GETITEM_FN = Some(pyobject_getitem_fn);
-    DP_JIT_PYOBJECT_SETITEM_FN = Some(pyobject_setitem_fn);
-    DP_JIT_PYOBJECT_TO_I64_FN = Some(pyobject_to_i64_fn);
-    DP_JIT_DECODE_LITERAL_BYTES_FN = Some(decode_literal_bytes_fn);
-    DP_JIT_TUPLE_NEW_FN = Some(tuple_new_fn);
-    DP_JIT_TUPLE_SET_ITEM_FN = Some(tuple_set_item_fn);
-    DP_JIT_IS_TRUE_FN = Some(is_true_fn);
-    DP_JIT_COMPARE_EQ_OBJ_FN = Some(compare_eq_obj_fn);
-    DP_JIT_COMPARE_LT_OBJ_FN = Some(compare_lt_obj_fn);
-    DP_JIT_RAISE_FROM_EXC_FN = Some(raise_from_exc_fn);
-}
-
 pub unsafe fn compile_cranelift_run_bb_specialized_cached(
     blocks: &[ObjPtr],
-    plan: &EntryBlockPlan,
+    plan: &ClifPlan,
     globals_obj: ObjPtr,
     true_obj: ObjPtr,
     false_obj: ObjPtr,
@@ -4902,30 +3701,7 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
 pub unsafe fn run_cranelift_run_bb_specialized_cached(
     compiled_handle: ObjPtr,
     args: ObjPtr,
-    incref_fn: IncrefFn,
-    decref_fn: DecrefFn,
-    py_call_three_fn: CallVarArgsFn,
-    py_call_object_fn: CallObjectFn,
-    py_call_with_kw_fn: CallWithKwFn,
-    py_get_raised_exception_fn: GetRaisedExceptionFn,
-    get_arg_item_fn: GetArgItemFn,
-    make_int_fn: MakeIntFn,
-    make_float_fn: MakeFloatFn,
-    make_bytes_fn: MakeBytesFn,
-    load_name_fn: LoadNameFn,
-    load_local_raw_by_name_fn: LoadLocalRawByNameFn,
-    pyobject_getattr_fn: PyObjectGetAttrFn,
-    pyobject_setattr_fn: PyObjectSetAttrFn,
-    pyobject_getitem_fn: PyObjectGetItemFn,
-    pyobject_setitem_fn: PyObjectSetItemFn,
-    pyobject_to_i64_fn: PyObjectToI64Fn,
-    decode_literal_bytes_fn: DecodeLiteralBytesFn,
-    tuple_new_fn: TupleNewFn,
-    tuple_set_item_fn: TupleSetItemFn,
-    is_true_fn: IsTrueFn,
-    compare_eq_obj_fn: CompareObjFn,
-    compare_lt_obj_fn: CompareObjFn,
-    raise_from_exc_fn: RaiseFromExcFn,
+    hooks: &SpecializedJitHooks,
 ) -> Result<ObjPtr, String> {
     if compiled_handle.is_null() {
         return Err("invalid null compiled handle passed to specialized JIT run_bb".to_string());
@@ -4933,32 +3709,7 @@ pub unsafe fn run_cranelift_run_bb_specialized_cached(
     if args.is_null() {
         return Err("invalid null args passed to specialized JIT run_bb".to_string());
     }
-    configure_specialized_jit_hooks(
-        incref_fn,
-        decref_fn,
-        py_call_three_fn,
-        py_call_object_fn,
-        py_call_with_kw_fn,
-        py_get_raised_exception_fn,
-        get_arg_item_fn,
-        make_int_fn,
-        make_float_fn,
-        make_bytes_fn,
-        load_name_fn,
-        load_local_raw_by_name_fn,
-        pyobject_getattr_fn,
-        pyobject_setattr_fn,
-        pyobject_getitem_fn,
-        pyobject_setitem_fn,
-        pyobject_to_i64_fn,
-        decode_literal_bytes_fn,
-        tuple_new_fn,
-        tuple_set_item_fn,
-        is_true_fn,
-        compare_eq_obj_fn,
-        compare_lt_obj_fn,
-        raise_from_exc_fn,
-    );
+    install_specialized_hooks(hooks);
     let compiled = &*(compiled_handle as *const CompiledSpecializedRunner);
     let Some(entry) = compiled.entry else {
         return Err("invalid compiled handle without entrypoint".to_string());
@@ -4975,35 +3726,12 @@ pub unsafe fn free_cranelift_run_bb_specialized_cached(compiled_handle: ObjPtr) 
 
 pub unsafe fn run_cranelift_run_bb_specialized(
     blocks: &[ObjPtr],
-    plan: &EntryBlockPlan,
+    plan: &ClifPlan,
     globals_obj: ObjPtr,
     true_obj: ObjPtr,
     false_obj: ObjPtr,
     args: ObjPtr,
-    incref_fn: IncrefFn,
-    decref_fn: DecrefFn,
-    py_call_three_fn: CallVarArgsFn,
-    py_call_object_fn: CallObjectFn,
-    py_call_with_kw_fn: CallWithKwFn,
-    py_get_raised_exception_fn: GetRaisedExceptionFn,
-    get_arg_item_fn: GetArgItemFn,
-    make_int_fn: MakeIntFn,
-    make_float_fn: MakeFloatFn,
-    make_bytes_fn: MakeBytesFn,
-    load_name_fn: LoadNameFn,
-    load_local_raw_by_name_fn: LoadLocalRawByNameFn,
-    pyobject_getattr_fn: PyObjectGetAttrFn,
-    pyobject_setattr_fn: PyObjectSetAttrFn,
-    pyobject_getitem_fn: PyObjectGetItemFn,
-    pyobject_setitem_fn: PyObjectSetItemFn,
-    pyobject_to_i64_fn: PyObjectToI64Fn,
-    decode_literal_bytes_fn: DecodeLiteralBytesFn,
-    tuple_new_fn: TupleNewFn,
-    tuple_set_item_fn: TupleSetItemFn,
-    is_true_fn: IsTrueFn,
-    compare_eq_obj_fn: CompareObjFn,
-    compare_lt_obj_fn: CompareObjFn,
-    raise_from_exc_fn: RaiseFromExcFn,
+    hooks: &SpecializedJitHooks,
     none_obj: ObjPtr,
     empty_tuple_obj: ObjPtr,
 ) -> Result<ObjPtr, String> {
@@ -5013,32 +3741,7 @@ pub unsafe fn run_cranelift_run_bb_specialized(
     if globals_obj.is_null() {
         return Err("invalid null globals object passed to specialized JIT run_bb".to_string());
     }
-    configure_specialized_jit_hooks(
-        incref_fn,
-        decref_fn,
-        py_call_three_fn,
-        py_call_object_fn,
-        py_call_with_kw_fn,
-        py_get_raised_exception_fn,
-        get_arg_item_fn,
-        make_int_fn,
-        make_float_fn,
-        make_bytes_fn,
-        load_name_fn,
-        load_local_raw_by_name_fn,
-        pyobject_getattr_fn,
-        pyobject_setattr_fn,
-        pyobject_getitem_fn,
-        pyobject_setitem_fn,
-        pyobject_to_i64_fn,
-        decode_literal_bytes_fn,
-        tuple_new_fn,
-        tuple_set_item_fn,
-        is_true_fn,
-        compare_eq_obj_fn,
-        compare_lt_obj_fn,
-        raise_from_exc_fn,
-    );
+    install_specialized_hooks(hooks);
     let mut builder = new_jit_builder()?;
     register_specialized_jit_symbols(&mut builder);
     let mut jit_module = JITModule::new(builder);
@@ -5076,7 +3779,7 @@ mod tests {
     #[test]
     fn render_specialized_jit_clif_smoke() {
         let blocks = [1usize as ObjPtr, 2usize as ObjPtr, 3usize as ObjPtr];
-        let plan = EntryBlockPlan {
+        let plan = ClifPlan {
             entry_index: 1,
             block_labels: vec!["b0".into(), "b1".into(), "b2".into()],
             block_param_names: vec![vec![], vec![], vec![]],
@@ -5115,7 +3818,7 @@ mod tests {
     #[test]
     fn render_specialized_jit_fastpath_ret_none_avoids_block_call() {
         let blocks = [1usize as ObjPtr];
-        let plan = EntryBlockPlan {
+        let plan = ClifPlan {
             entry_index: 0,
             block_labels: vec!["b0".into()],
             block_param_names: vec![vec![]],
