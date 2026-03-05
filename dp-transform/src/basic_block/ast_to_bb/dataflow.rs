@@ -1,6 +1,5 @@
-use super::{
-    assigned_names_in_stmt, load_names_in_stmt, load_names_in_terminator, Block, Terminator,
-};
+use super::{Block, Terminator};
+use super::symbol_analysis::{assigned_names_in_stmt, load_names_in_stmt, load_names_in_terminator};
 use std::collections::{HashMap, HashSet};
 
 pub(super) fn build_extra_successors(blocks: &[Block]) -> HashMap<String, Vec<String>> {

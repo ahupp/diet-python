@@ -1,4 +1,4 @@
-use super::collect_assigned_names;
+use super::symbol_analysis::collect_assigned_names;
 use ruff_python_ast::{self as ast, Stmt};
 use std::collections::HashSet;
 
