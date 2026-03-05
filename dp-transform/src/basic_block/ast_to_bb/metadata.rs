@@ -1,5 +1,7 @@
 use super::*;
 use crate::transform::util::strip_synthetic_module_init_qualname;
+use ruff_python_codegen::{Generator, Indentation};
+use ruff_source_file::LineEnding;
 
 #[derive(Clone)]
 pub(super) struct FunctionIdentity {
@@ -137,4 +139,91 @@ pub(super) fn collect_function_identity_private(
     };
     collector.visit_body(&mut module);
     collector.out
+}
+
+pub(super) fn split_docstring(body: &StmtBody) -> (Option<Stmt>, Vec<Box<Stmt>>) {
+    let mut rest = body.body.clone();
+    let Some(first) = rest.first() else {
+        return (None, rest);
+    };
+    if matches!(
+        first.as_ref(),
+        Stmt::Expr(ast::StmtExpr { value, .. }) if matches!(value.as_ref(), Expr::StringLiteral(_))
+    ) {
+        let first_stmt = *rest.remove(0);
+        return (Some(first_stmt), rest);
+    }
+    (None, rest)
+}
+
+pub(super) fn function_docstring_expr(func: &ast::StmtFunctionDef) -> Option<Expr> {
+    let (docstring, _) = split_docstring(&func.body);
+    let Some(Stmt::Expr(expr_stmt)) = docstring else {
+        return None;
+    };
+    Some(*expr_stmt.value)
+}
+
+pub(super) fn function_annotation_entries(func: &ast::StmtFunctionDef) -> Vec<(String, Expr, String)> {
+    let mut entries = Vec::new();
+    let parameters = func.parameters.as_ref();
+
+    for param in &parameters.posonlyargs {
+        if let Some(annotation) = param.parameter.annotation.as_ref() {
+            entries.push((
+                param.parameter.name.id.to_string(),
+                *annotation.clone(),
+                annotation_expr_string(annotation),
+            ));
+        }
+    }
+    for param in &parameters.args {
+        if let Some(annotation) = param.parameter.annotation.as_ref() {
+            entries.push((
+                param.parameter.name.id.to_string(),
+                *annotation.clone(),
+                annotation_expr_string(annotation),
+            ));
+        }
+    }
+    if let Some(vararg) = &parameters.vararg {
+        if let Some(annotation) = vararg.annotation.as_ref() {
+            entries.push((
+                vararg.name.id.to_string(),
+                *annotation.clone(),
+                annotation_expr_string(annotation),
+            ));
+        }
+    }
+    for param in &parameters.kwonlyargs {
+        if let Some(annotation) = param.parameter.annotation.as_ref() {
+            entries.push((
+                param.parameter.name.id.to_string(),
+                *annotation.clone(),
+                annotation_expr_string(annotation),
+            ));
+        }
+    }
+    if let Some(kwarg) = &parameters.kwarg {
+        if let Some(annotation) = kwarg.annotation.as_ref() {
+            entries.push((
+                kwarg.name.id.to_string(),
+                *annotation.clone(),
+                annotation_expr_string(annotation),
+            ));
+        }
+    }
+    if let Some(returns) = func.returns.as_ref() {
+        entries.push((
+            "return".to_string(),
+            *returns.clone(),
+            annotation_expr_string(returns),
+        ));
+    }
+
+    entries
+}
+
+fn annotation_expr_string(expr: &Expr) -> String {
+    Generator::new(&Indentation::new("    ".to_string()), LineEnding::default()).expr(expr)
 }

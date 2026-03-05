@@ -15,9 +15,7 @@ use crate::transform::{
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, name::Name, Expr, NodeIndex, Stmt, StmtBody};
-use ruff_python_codegen::{Generator, Indentation};
 use ruff_python_parser::parse_expression;
-use ruff_source_file::LineEnding;
 use ruff_text_size::TextRange;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -52,7 +50,10 @@ use exception_flow::{
     rewrite_region_returns_to_finally,
 };
 use symbol_analysis::{load_names_in_expr, load_names_in_stmt};
-use metadata::{collect_function_identity_private, display_name_for_function, FunctionIdentity};
+use metadata::{
+    collect_function_identity_private, display_name_for_function, function_annotation_entries,
+    function_docstring_expr, split_docstring, FunctionIdentity,
+};
 use naming::{
     apply_label_rename, fold_constant_brif, fold_jumps_to_trivial_none_return,
     original_function_name, prune_unreachable_blocks, relabel_blocks, sanitize_ident,
@@ -2911,93 +2912,6 @@ fn walk_stmt_body<V: Transformer + ?Sized>(visitor: &mut V, body: &mut StmtBody)
     for stmt in body.body.iter_mut() {
         visitor.visit_stmt(stmt.as_mut());
     }
-}
-
-fn split_docstring(body: &StmtBody) -> (Option<Stmt>, Vec<Box<Stmt>>) {
-    let mut rest = body.body.clone();
-    let Some(first) = rest.first() else {
-        return (None, rest);
-    };
-    if matches!(
-        first.as_ref(),
-        Stmt::Expr(ast::StmtExpr { value, .. }) if matches!(value.as_ref(), Expr::StringLiteral(_))
-    ) {
-        let first_stmt = *rest.remove(0);
-        return (Some(first_stmt), rest);
-    }
-    (None, rest)
-}
-
-fn function_docstring_expr(func: &ast::StmtFunctionDef) -> Option<Expr> {
-    let (docstring, _) = split_docstring(&func.body);
-    let Some(Stmt::Expr(expr_stmt)) = docstring else {
-        return None;
-    };
-    Some(*expr_stmt.value)
-}
-
-fn function_annotation_entries(func: &ast::StmtFunctionDef) -> Vec<(String, Expr, String)> {
-    let mut entries = Vec::new();
-    let parameters = func.parameters.as_ref();
-
-    for param in &parameters.posonlyargs {
-        if let Some(annotation) = param.parameter.annotation.as_ref() {
-            entries.push((
-                param.parameter.name.id.to_string(),
-                *annotation.clone(),
-                annotation_expr_string(annotation),
-            ));
-        }
-    }
-    for param in &parameters.args {
-        if let Some(annotation) = param.parameter.annotation.as_ref() {
-            entries.push((
-                param.parameter.name.id.to_string(),
-                *annotation.clone(),
-                annotation_expr_string(annotation),
-            ));
-        }
-    }
-    if let Some(vararg) = &parameters.vararg {
-        if let Some(annotation) = vararg.annotation.as_ref() {
-            entries.push((
-                vararg.name.id.to_string(),
-                *annotation.clone(),
-                annotation_expr_string(annotation),
-            ));
-        }
-    }
-    for param in &parameters.kwonlyargs {
-        if let Some(annotation) = param.parameter.annotation.as_ref() {
-            entries.push((
-                param.parameter.name.id.to_string(),
-                *annotation.clone(),
-                annotation_expr_string(annotation),
-            ));
-        }
-    }
-    if let Some(kwarg) = &parameters.kwarg {
-        if let Some(annotation) = kwarg.annotation.as_ref() {
-            entries.push((
-                kwarg.name.id.to_string(),
-                *annotation.clone(),
-                annotation_expr_string(annotation),
-            ));
-        }
-    }
-    if let Some(returns) = func.returns.as_ref() {
-        entries.push((
-            "return".to_string(),
-            *returns.clone(),
-            annotation_expr_string(returns),
-        ));
-    }
-
-    entries
-}
-
-fn annotation_expr_string(expr: &Expr) -> String {
-    Generator::new(&Indentation::new("    ".to_string()), LineEnding::default()).expr(expr)
 }
 
 fn flatten_stmt_boxes(stmts: &[Box<Stmt>]) -> Vec<Box<Stmt>> {
