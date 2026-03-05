@@ -1,4 +1,3 @@
-use super::symbol_analysis::load_names_in_stmt;
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Stmt};
@@ -77,11 +76,6 @@ pub(super) fn rewrite_exception_accesses(mut body: Vec<Box<Stmt>>, exc_name: &st
         rewriter.visit_stmt(stmt.as_mut());
     }
     body
-}
-
-pub(super) fn body_uses_name(body: &[Box<Stmt>], name: &str) -> bool {
-    body.iter()
-        .any(|stmt| load_names_in_stmt(stmt.as_ref()).contains(name))
 }
 
 pub(super) fn name_expr(name: &str) -> Option<Expr> {
