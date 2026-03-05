@@ -4,10 +4,12 @@ use crate::code_extra::{
     get_code_extra, set_code_extra,
 };
 use crate::jit::{self, EntryBlockPlan};
+use log::info;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyCode, PyDict, PyString, PyTuple};
 use std::any::Any;
+use std::time::Instant;
 
 type TypeParamScope = HashMap<String, *mut ffi::PyObject>;
 
@@ -246,9 +248,59 @@ unsafe extern "C" fn free_function_data(ptr: *mut c_void) {
 
 struct ClifWrapperData {
     plan: EntryBlockPlan,
+    module_name: String,
+    qualname: String,
     true_obj: *mut ffi::PyObject,
     false_obj: *mut ffi::PyObject,
+    sig_obj: *mut ffi::PyObject,
+    state_order_obj: *mut ffi::PyObject,
+    closure_obj: *mut ffi::PyObject,
+    build_entry_args_obj: *mut ffi::PyObject,
     compiled_handle: *mut c_void,
+}
+
+unsafe fn is_module_init_entry(plan: &EntryBlockPlan) -> bool {
+    plan.block_labels
+        .get(plan.entry_index)
+        .is_some_and(|label| label.contains("_dp_module_init"))
+}
+
+unsafe fn ensure_clif_wrapper_compiled(
+    py: Python<'_>,
+    clif_data: &mut ClifWrapperData,
+    globals_obj: *mut ffi::PyObject,
+) -> PyResult<()> {
+    if globals_obj.is_null() {
+        return Err(PyRuntimeError::new_err(
+            "invalid null globals while compiling CLIF wrapper",
+        ));
+    }
+    if is_module_init_entry(&clif_data.plan) || !clif_data.compiled_handle.is_null() {
+        return Ok(());
+    }
+    let compile_start = Instant::now();
+    let empty_tuple_obj = PyTuple::empty(py);
+    let block_ptrs = vec![ptr::null_mut::<c_void>(); clif_data.plan.block_labels.len()];
+    clif_data.compiled_handle = unsafe {
+        jit::compile_cranelift_run_bb_specialized_cached(
+            block_ptrs.as_slice(),
+            &clif_data.plan,
+            globals_obj as *mut c_void,
+            clif_data.true_obj as *mut c_void,
+            clif_data.false_obj as *mut c_void,
+            py.None().as_ptr() as *mut c_void,
+            empty_tuple_obj.as_ptr() as *mut c_void,
+        )
+    }
+    .map_err(PyRuntimeError::new_err)?;
+    let elapsed_ms = compile_start.elapsed().as_secs_f64() * 1000.0;
+    info!(
+        "soac_jit_precompile module={} qualname={} blocks={} elapsed_ms={elapsed_ms:.3}",
+        clif_data.module_name,
+        clif_data.qualname,
+        clif_data.plan.block_labels.len(),
+    );
+    Ok(())
 }
 
 unsafe extern "C" fn free_clif_wrapper_data(ptr: *mut c_void) {
@@ -261,6 +313,18 @@ unsafe extern "C" fn free_clif_wrapper_data(ptr: *mut c_void) {
     }
     if !data.false_obj.is_null() {
         unsafe { ffi::Py_DECREF(data.false_obj) };
+    }
+    if !data.sig_obj.is_null() {
+        unsafe { ffi::Py_DECREF(data.sig_obj) };
+    }
+    if !data.state_order_obj.is_null() {
+        unsafe { ffi::Py_DECREF(data.state_order_obj) };
+    }
+    if !data.closure_obj.is_null() {
+        unsafe { ffi::Py_DECREF(data.closure_obj) };
+    }
+    if !data.build_entry_args_obj.is_null() {
+        unsafe { ffi::Py_DECREF(data.build_entry_args_obj) };
     }
     unsafe { jit::free_cranelift_run_bb_specialized_cached(data.compiled_handle) };
 }
@@ -703,14 +767,24 @@ unsafe fn eval_clif_wrapper_frame(frame_obj: *mut ffi::PyFrameObject) -> *mut ff
             ));
         }
         let clif_data = unsafe { &mut *(code_extra.data as *mut ClifWrapperData) };
+        if clif_data.sig_obj.is_null()
+            || clif_data.state_order_obj.is_null()
+            || clif_data.closure_obj.is_null()
+            || clif_data.build_entry_args_obj.is_null()
+        {
+            return Err(PyRuntimeError::new_err(
+                "invalid CLIF wrapper data: missing wrapper metadata",
+            ));
+        }
+
         let args_obj = unsafe { frame_var_get_required_bound(py, frame_obj, "args") }?;
         let kwargs_obj = unsafe { frame_var_get_optional_bound(py, frame_obj, "kwargs") }?;
-        let sig_obj = unsafe { frame_var_get_required_bound(py, frame_obj, "__dp_sig") }?;
+        let sig_obj = unsafe { Bound::<PyAny>::from_borrowed_ptr(py, clif_data.sig_obj) };
         let state_order_obj =
-            unsafe { frame_var_get_required_bound(py, frame_obj, "__dp_state_order") }?;
-        let closure_obj = unsafe { frame_var_get_required_bound(py, frame_obj, "__dp_closure") }?;
+            unsafe { Bound::<PyAny>::from_borrowed_ptr(py, clif_data.state_order_obj) };
+        let closure_obj = unsafe { Bound::<PyAny>::from_borrowed_ptr(py, clif_data.closure_obj) };
         let build_entry_args_obj =
-            unsafe { frame_var_get_required_bound(py, frame_obj, "__dp_build_entry_args") }?;
+            unsafe { Bound::<PyAny>::from_borrowed_ptr(py, clif_data.build_entry_args_obj) };
 
         let bind_method = sig_obj.getattr("bind")?;
         let bound = unsafe {
@@ -742,37 +816,17 @@ unsafe fn eval_clif_wrapper_frame(frame_obj: *mut ffi::PyFrameObject) -> *mut ff
             )
         }?;
 
-        let empty_tuple_obj = PyTuple::empty(py);
         let globals_obj = unsafe { ffi::PyFrame_GetGlobals(frame_obj) };
         if globals_obj.is_null() {
             return Err(PyErr::fetch(py));
         }
-        let is_module_init_entry = clif_data
-            .plan
-            .block_labels
-            .get(clif_data.plan.entry_index)
-            .is_some_and(|label| label.contains("_dp_module_init"));
-        if !is_module_init_entry && clif_data.compiled_handle.is_null() {
-            let block_ptrs = vec![ptr::null_mut::<c_void>(); clif_data.plan.block_labels.len()];
-            clif_data.compiled_handle = match unsafe {
-                jit::compile_cranelift_run_bb_specialized_cached(
-                    block_ptrs.as_slice(),
-                    &clif_data.plan,
-                    globals_obj as *mut c_void,
-                    clif_data.true_obj as *mut c_void,
-                    clif_data.false_obj as *mut c_void,
-                    py.None().as_ptr() as *mut c_void,
-                    empty_tuple_obj.as_ptr() as *mut c_void,
-                )
-            } {
-                Ok(handle) => handle,
-                Err(err) => {
-                    unsafe { ffi::Py_DECREF(globals_obj) };
-                    return Err(PyRuntimeError::new_err(err));
-                }
-            };
+        let is_module_init_entry = unsafe { is_module_init_entry(&clif_data.plan) };
+        if let Err(err) = unsafe { ensure_clif_wrapper_compiled(py, clif_data, globals_obj) } {
+            unsafe { ffi::Py_DECREF(globals_obj) };
+            return Err(err);
         }
-        let result_ptr = match unsafe {
+        let empty_tuple_obj = PyTuple::empty(py);
+        let run_result = unsafe {
             if is_module_init_entry {
                 let block_ptrs = vec![ptr::null_mut::<c_void>(); clif_data.plan.block_labels.len()];
                 jit::run_cranelift_run_bb_specialized(
@@ -839,7 +893,8 @@ unsafe fn eval_clif_wrapper_frame(frame_obj: *mut ffi::PyFrameObject) -> *mut ff
                     raise_from_exc_hook,
                 )
             }
-        } {
+        };
+        let result_ptr = match run_result {
             Ok(ptr) => ptr,
             Err(err) => {
                 unsafe { ffi::Py_DECREF(globals_obj) };
@@ -1094,6 +1149,24 @@ unsafe fn finalize_soac_frame(
     _PyEval_FrameClearAndPop(tstate, frame);
 }
 
+struct SoacRecursionGuard;
+
+impl Drop for SoacRecursionGuard {
+    fn drop(&mut self) {
+        unsafe { ffi::Py_LeaveRecursiveCall() };
+    }
+}
+
+unsafe fn enter_soac_recursion_guard() -> Option<SoacRecursionGuard> {
+    if unsafe {
+        ffi::Py_EnterRecursiveCall(b" while calling a Python object\0".as_ptr() as *const i8)
+    } != 0
+    {
+        return None;
+    }
+    Some(SoacRecursionGuard)
+}
+
 extern "C" fn soac_eval_frame(
     tstate: *mut ffi::PyThreadState,
     frame: *mut ffi::_PyInterpreterFrame,
@@ -1114,6 +1187,9 @@ extern "C" fn soac_eval_frame(
             if data_ptr.is_null() || throwflag != 0 || (*data_ptr).def.is_async {
                 return _PyEval_EvalFrameDefault(tstate, frame, throwflag);
             }
+            let Some(_recursion_guard) = enter_soac_recursion_guard() else {
+                return ptr::null_mut();
+            };
             if (*data_ptr).params.is_empty() {
                 let result = eval_frame_with_data_no_frame(&*data_ptr);
                 finalize_soac_frame(tstate, frame);
@@ -1136,6 +1212,9 @@ extern "C" fn soac_eval_frame(
             if throwflag != 0 {
                 return _PyEval_EvalFrameDefault(tstate, frame, throwflag);
             }
+            let Some(_recursion_guard) = enter_soac_recursion_guard() else {
+                return ptr::null_mut();
+            };
             let frame_obj = _PyFrame_MakeAndSetFrameObject(frame);
             if frame_obj.is_null() {
                 return ptr::null_mut();
@@ -1181,7 +1260,15 @@ pub unsafe fn install_eval_frame_hook() -> Result<(), ()> {
     if ok { Ok(()) } else { Err(()) }
 }
 
-pub unsafe fn register_clif_wrapper_code_extra(function: *mut ffi::PyObject) -> Result<(), ()> {
+pub unsafe fn register_clif_wrapper_code_extra(
+    function: *mut ffi::PyObject,
+    module_name: &str,
+    qualname: &str,
+    sig_obj: *mut ffi::PyObject,
+    state_order_obj: *mut ffi::PyObject,
+    closure_obj: *mut ffi::PyObject,
+    build_entry_args_obj: *mut ffi::PyObject,
+) -> Result<(), ()> {
     if install_eval_frame_hook().is_err() {
         return Err(());
     }
@@ -1189,6 +1276,18 @@ pub unsafe fn register_clif_wrapper_code_extra(function: *mut ffi::PyObject) -> 
         ffi::PyErr_SetString(
             ffi::PyExc_TypeError,
             b"register_clif_wrapper_code_extra expects a Python function\0".as_ptr()
+                as *const c_char,
+        );
+        return Err(());
+    }
+    if sig_obj.is_null()
+        || state_order_obj.is_null()
+        || closure_obj.is_null()
+        || build_entry_args_obj.is_null()
+    {
+        ffi::PyErr_SetString(
+            ffi::PyExc_TypeError,
+            b"register_clif_wrapper_code_extra expects non-null metadata objects\0".as_ptr()
                 as *const c_char,
         );
         return Err(());
@@ -1218,33 +1317,7 @@ pub unsafe fn register_clif_wrapper_code_extra(function: *mut ffi::PyObject) -> 
     {
         return Ok(());
     }
-    let module_name = function_bound
-        .getattr("__dp_plan_module")
-        .ok()
-        .and_then(|obj| obj.extract::<String>().ok())
-        .filter(|value| !value.is_empty())
-        .or_else(|| {
-            function_bound
-                .getattr("__module__")
-                .ok()
-                .and_then(|obj| obj.extract::<String>().ok())
-                .filter(|value| !value.is_empty())
-        })
-        .unwrap_or_default();
-    let qualname = function_bound
-        .getattr("__dp_plan_qualname")
-        .ok()
-        .and_then(|obj| obj.extract::<String>().ok())
-        .filter(|value| !value.is_empty())
-        .or_else(|| {
-            function_bound
-                .getattr("__qualname__")
-                .ok()
-                .and_then(|obj| obj.extract::<String>().ok())
-                .filter(|value| !value.is_empty())
-        })
-        .unwrap_or_default();
-    let plan = jit::lookup_bb_plan(module_name.as_str(), qualname.as_str());
+    let plan = jit::lookup_bb_plan(module_name, qualname);
     let Some(plan) = plan else {
         let msg = format!(
             "no specialized JIT plan found for CLIF wrapper: module={module_name:?} qualname={qualname:?}"
@@ -1259,14 +1332,29 @@ pub unsafe fn register_clif_wrapper_code_extra(function: *mut ffi::PyObject) -> 
         }
         return Err(());
     };
-    if plan
+    if let Some((index, _)) = plan
         .block_fast_paths
         .iter()
-        .any(|path| matches!(path, jit::BlockFastPath::None))
+        .enumerate()
+        .find(|(_, path)| matches!(path, jit::BlockFastPath::None))
     {
-        // Wrapper shape is unsupported for specialized CLIF execution.
-        // Leave this wrapper on default Python execution path.
-        return Ok(());
+        let label = plan
+            .block_labels
+            .get(index)
+            .map(String::as_str)
+            .unwrap_or("<unknown>");
+        let msg = format!(
+            "CLIF wrapper requires full fast-path plan; unsupported block at index {index} label {label:?} for module={module_name:?} qualname={qualname:?}"
+        );
+        if let Ok(c_msg) = CString::new(msg) {
+            ffi::PyErr_SetString(ffi::PyExc_RuntimeError, c_msg.as_ptr());
+        } else {
+            ffi::PyErr_SetString(
+                ffi::PyExc_RuntimeError,
+                b"CLIF wrapper requires full fast-path plan\0".as_ptr() as *const c_char,
+            );
+        }
+        return Err(());
     }
     let true_obj = ffi::PyBool_FromLong(1);
     if true_obj.is_null() {
@@ -1279,8 +1367,30 @@ pub unsafe fn register_clif_wrapper_code_extra(function: *mut ffi::PyObject) -> 
     }
     let clif_data = Box::new(ClifWrapperData {
         plan,
+        module_name: module_name.to_string(),
+        qualname: qualname.to_string(),
         true_obj,
         false_obj,
+        sig_obj: {
+            let ptr = sig_obj;
+            ffi::Py_INCREF(ptr);
+            ptr
+        },
+        state_order_obj: {
+            let ptr = state_order_obj;
+            ffi::Py_INCREF(ptr);
+            ptr
+        },
+        closure_obj: {
+            let ptr = closure_obj;
+            ffi::Py_INCREF(ptr);
+            ptr
+        },
+        build_entry_args_obj: {
+            let ptr = build_entry_args_obj;
+            ffi::Py_INCREF(ptr);
+            ptr
+        },
         compiled_handle: ptr::null_mut(),
     });
     let clif_data_ptr = Box::into_raw(clif_data) as *mut c_void;
@@ -1293,6 +1403,57 @@ pub unsafe fn register_clif_wrapper_code_extra(function: *mut ffi::PyObject) -> 
     .is_err()
     {
         free_clif_wrapper_data(clif_data_ptr);
+        return Err(());
+    }
+    Ok(())
+}
+
+pub unsafe fn compile_clif_wrapper_code_extra(function: *mut ffi::PyObject) -> Result<(), ()> {
+    if install_eval_frame_hook().is_err() {
+        return Err(());
+    }
+    if ffi::PyFunction_Check(function) == 0 {
+        ffi::PyErr_SetString(
+            ffi::PyExc_TypeError,
+            b"compile_clif_wrapper_code_extra expects a Python function\0".as_ptr()
+                as *const c_char,
+        );
+        return Err(());
+    }
+    let py = Python::assume_attached();
+    let function_bound = Bound::<PyAny>::from_borrowed_ptr(py, function);
+    let code_obj = match function_bound.getattr("__code__") {
+        Ok(obj) => obj,
+        Err(err) => {
+            err.restore(py);
+            return Err(());
+        }
+    };
+    let code_ptr = code_obj.as_ptr();
+    let Some(code_extra) = get_code_extra(code_ptr) else {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"missing CLIF wrapper code extra\0".as_ptr() as *const c_char,
+        );
+        return Err(());
+    };
+    if code_extra.kind != SOAC_CODE_EXTRA_KIND_CLIF_WRAPPER || code_extra.data.is_null() {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"invalid CLIF wrapper code extra payload\0".as_ptr() as *const c_char,
+        );
+        return Err(());
+    }
+    let clif_data = &mut *(code_extra.data as *mut ClifWrapperData);
+    let globals_obj = match function_bound.getattr("__globals__") {
+        Ok(obj) => obj,
+        Err(err) => {
+            err.restore(py);
+            return Err(());
+        }
+    };
+    if let Err(err) = ensure_clif_wrapper_compiled(py, clif_data, globals_obj.as_ptr()) {
+        err.restore(py);
         return Err(());
     }
     Ok(())

@@ -15,7 +15,9 @@ mod runtime;
 mod scope;
 
 pub use eval::{build_module_layout, eval_module};
-pub use eval::{install_eval_frame_hook, register_clif_wrapper_code_extra};
+pub use eval::{
+    compile_clif_wrapper_code_extra, install_eval_frame_hook, register_clif_wrapper_code_extra,
+};
 pub use runtime::RuntimeFns;
 pub use scope::{
     ScopeInstance, ScopeLayout, scope_assign_name, scope_clear_objects, scope_delete_name,

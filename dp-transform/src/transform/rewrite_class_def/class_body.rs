@@ -140,12 +140,19 @@ impl<'a> Transformer for ClassBodyScopeRewriter<'a> {
                 children.append(&mut hoisted);
                 children.push(define_class_fn.clone().into());
 
+                let class_ns_outer = if matches!(self.scope.kind(), ScopeKind::Class) {
+                    py_expr!("_dp_class_ns")
+                } else {
+                    py_expr!("globals()")
+                };
+
                 let decorated_class = rewrite_stmt::decorator::rewrite(
                     decorator_list,
                     py_expr!(
-                        r"{define_class_fn:id}({class_ns_fn:id})",
+                        r"{define_class_fn:id}({class_ns_fn:id}, {class_ns_outer:expr})",
                         define_class_fn = define_class_fn.name.id.as_str(),
-                        class_ns_fn = class_ns_def.name.id.as_str()
+                        class_ns_fn = class_ns_def.name.id.as_str(),
+                        class_ns_outer = class_ns_outer,
                     ),
                 );
 

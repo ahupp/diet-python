@@ -29,18 +29,36 @@ pub(crate) fn rewrite_target(context: &Context, target: Expr, rhs: Expr, out: &m
             rewrite_unpack_target(context, list.elts, rhs, out, UnpackTargetKind::List);
         }
         Expr::Subscript(ast::ExprSubscript { value, slice, .. }) => {
+            let object_expr = if let Expr::Name(name) = value.as_ref() {
+                py_expr!(
+                    "__dp_load_deleted_name({name:literal}, {value:expr})",
+                    name = name.id.as_str(),
+                    value = *value.clone(),
+                )
+            } else {
+                *value.clone()
+            };
             let stmt = py_stmt!(
                 "__dp_setitem({value:expr}, {slice:expr}, {rhs:expr})",
-                value = value,
+                value = object_expr,
                 slice = slice,
                 rhs = rhs,
             );
             out.push(stmt);
         }
         Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
+            let object_expr = if let Expr::Name(name) = value.as_ref() {
+                py_expr!(
+                    "__dp_load_deleted_name({name:literal}, {value:expr})",
+                    name = name.id.as_str(),
+                    value = *value.clone(),
+                )
+            } else {
+                *value.clone()
+            };
             let stmt = py_stmt!(
                 "__dp_setattr({value:expr}, {name:literal}, {rhs:expr})",
-                value = value,
+                value = object_expr,
                 name = attr.as_str(),
                 rhs = rhs
             );

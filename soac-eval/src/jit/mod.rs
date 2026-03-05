@@ -1,15 +1,17 @@
 use cranelift_codegen::cfg_printer::CFGPrinter;
+use cranelift_codegen::incremental_cache::CacheKvStore;
 use cranelift_codegen::ir;
 use cranelift_codegen::ir::InstBuilder;
 use cranelift_codegen::settings;
 use cranelift_codegen::settings::Configurable;
+use cranelift_control::ControlPlane;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch};
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{FuncId, Linkage, Module};
+use cranelift_module::{FuncId, Linkage, Module, ModuleReloc};
 use dp_transform::basic_block::bb_ir::{BbBlock, BbExpr, BbModule, BbOp, BbTerm};
 use ruff_python_ast::Number;
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
 use std::ptr;
 use std::sync::{Mutex, OnceLock};
@@ -70,6 +72,29 @@ static mut DP_JIT_IS_TRUE_FN: Option<IsTrueFn> = None;
 static mut DP_JIT_COMPARE_EQ_OBJ_FN: Option<CompareObjFn> = None;
 static mut DP_JIT_COMPARE_LT_OBJ_FN: Option<CompareObjFn> = None;
 static mut DP_JIT_RAISE_FROM_EXC_FN: Option<RaiseFromExcFn> = None;
+
+static INCREMENTAL_CLIF_CACHE: OnceLock<Mutex<HashMap<Vec<u8>, Vec<u8>>>> = OnceLock::new();
+
+fn incremental_clif_cache() -> &'static Mutex<HashMap<Vec<u8>, Vec<u8>>> {
+    INCREMENTAL_CLIF_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+struct GlobalIncrementalCacheStore<'a> {
+    map: &'a Mutex<HashMap<Vec<u8>, Vec<u8>>>,
+}
+
+impl CacheKvStore for GlobalIncrementalCacheStore<'_> {
+    fn get(&self, key: &[u8]) -> Option<Cow<'_, [u8]>> {
+        let map = self.map.lock().ok()?;
+        map.get(key).map(|value| Cow::Owned(value.clone()))
+    }
+
+    fn insert(&mut self, key: &[u8], val: Vec<u8>) {
+        if let Ok(mut map) = self.map.lock() {
+            map.insert(key.to_vec(), val);
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct EntryBlockPlan {
@@ -136,9 +161,19 @@ pub enum DirectSimpleExprPlan {
     Tuple(Vec<DirectSimpleExprPlan>),
     Call {
         func: Box<DirectSimpleExprPlan>,
-        args: Vec<DirectSimpleExprPlan>,
-        keywords: Vec<(String, DirectSimpleExprPlan)>,
+        parts: Vec<DirectSimpleCallPart>,
     },
+}
+
+#[derive(Clone, Debug)]
+pub enum DirectSimpleCallPart {
+    Pos(DirectSimpleExprPlan),
+    Star(DirectSimpleExprPlan),
+    Kw {
+        name: String,
+        value: DirectSimpleExprPlan,
+    },
+    KwStar(DirectSimpleExprPlan),
 }
 
 #[derive(Clone, Debug)]
@@ -269,11 +304,20 @@ fn direct_simple_expr_from(expr: &BbExpr) -> Option<DirectSimpleExprPlan> {
         BbExpr::Starred(_) => None,
         BbExpr::Call(call) => {
             let func = direct_simple_expr_from(call.func.as_ref())?;
-            let mut args = Vec::with_capacity(call.args.len());
+            let mut parts = Vec::with_capacity(call.args.len() + call.keywords.len());
             for arg in &call.args {
-                args.push(direct_simple_expr_from(arg)?);
+                match arg {
+                    BbExpr::Starred(starred_expr) => {
+                        let starred_value = BbExpr::from_expr(*starred_expr.value.clone());
+                        parts.push(DirectSimpleCallPart::Star(direct_simple_expr_from(
+                            &starred_value,
+                        )?));
+                    }
+                    _ => {
+                        parts.push(DirectSimpleCallPart::Pos(direct_simple_expr_from(arg)?));
+                    }
+                }
             }
-            let mut keywords = Vec::with_capacity(call.keywords.len());
             if call.template.arguments.keywords.len() != call.keywords.len() {
                 return None;
             }
@@ -284,13 +328,19 @@ fn direct_simple_expr_from(expr: &BbExpr) -> Option<DirectSimpleExprPlan> {
                 .iter()
                 .zip(call.keywords.iter())
             {
-                let name = keyword.arg.as_ref()?.to_string();
-                keywords.push((name, direct_simple_expr_from(value)?));
+                let value = direct_simple_expr_from(value)?;
+                if let Some(name) = keyword.arg.as_ref() {
+                    parts.push(DirectSimpleCallPart::Kw {
+                        name: name.to_string(),
+                        value,
+                    });
+                } else {
+                    parts.push(DirectSimpleCallPart::KwStar(value));
+                }
             }
             Some(DirectSimpleExprPlan::Call {
                 func: Box::new(func),
-                args,
-                keywords,
+                parts,
             })
         }
     }
@@ -592,6 +642,82 @@ fn direct_simple_expr_is_borrowable(expr: &DirectSimpleExprPlan, local_names: &[
     }
 }
 
+fn direct_simple_call_positional_args<'a>(
+    expr: &'a DirectSimpleExprPlan,
+) -> Option<(&'a str, Vec<&'a DirectSimpleExprPlan>)> {
+    let DirectSimpleExprPlan::Call { func, parts } = expr else {
+        return None;
+    };
+    let DirectSimpleExprPlan::Name(func_name) = func.as_ref() else {
+        return None;
+    };
+    let mut args = Vec::with_capacity(parts.len());
+    for part in parts {
+        let DirectSimpleCallPart::Pos(value) = part else {
+            return None;
+        };
+        args.push(value);
+    }
+    Some((func_name.as_str(), args))
+}
+
+fn direct_simple_expr_const_string(expr: &DirectSimpleExprPlan) -> Option<String> {
+    match expr {
+        DirectSimpleExprPlan::Bytes(bytes) => String::from_utf8(bytes.clone()).ok(),
+        DirectSimpleExprPlan::Call { .. } => {
+            let (func_name, args) = direct_simple_call_positional_args(expr)?;
+            if args.len() != 1 {
+                return None;
+            }
+            if func_name != "__dp_decode_literal_bytes" && func_name != "str" {
+                return None;
+            }
+            let DirectSimpleExprPlan::Bytes(bytes) = args[0] else {
+                return None;
+            };
+            String::from_utf8(bytes.clone()).ok()
+        }
+        _ => None,
+    }
+}
+
+fn direct_simple_expr_is_frame_locals_fetch(expr: &DirectSimpleExprPlan) -> bool {
+    let Some((func_name, args)) = direct_simple_call_positional_args(expr) else {
+        return false;
+    };
+    if func_name == "__dp_frame_locals" && args.len() == 1 {
+        return true;
+    }
+    if (func_name == "PyObject_GetAttr" || func_name == "__dp_getattr") && args.len() == 2 {
+        return direct_simple_expr_const_string(args[1]).as_deref() == Some("f_locals");
+    }
+    false
+}
+
+fn direct_simple_expr_as_frame_locals_setitem<'a>(
+    expr: &'a DirectSimpleExprPlan,
+    aliases: &HashSet<String>,
+) -> Option<(
+    &'a DirectSimpleExprPlan,
+    &'a DirectSimpleExprPlan,
+    &'a DirectSimpleExprPlan,
+    String,
+)> {
+    let (func_name, args) = direct_simple_call_positional_args(expr)?;
+    if (func_name != "PyObject_SetItem" && func_name != "__dp_setitem") || args.len() != 3 {
+        return None;
+    }
+    if let DirectSimpleExprPlan::Name(alias_name) = args[0] {
+        if !aliases.contains(alias_name) && !direct_simple_expr_is_frame_locals_fetch(args[0]) {
+            return None;
+        }
+    } else if !direct_simple_expr_is_frame_locals_fetch(args[0]) {
+        return None;
+    }
+    let key_name = direct_simple_expr_const_string(args[1])?;
+    Some((args[0], args[1], args[2], key_name))
+}
+
 fn intern_bytes_literal(literal_pool: &mut Vec<Box<[u8]>>, bytes: &[u8]) -> (*const u8, i64) {
     let boxed = bytes.to_vec().into_boxed_slice();
     let ptr = boxed.as_ptr();
@@ -653,6 +779,7 @@ fn emit_direct_simple_expr(
     let none_const = ctx.none_const;
     let true_const = ctx.true_const;
     let false_const = ctx.false_const;
+    let empty_tuple_const = ctx.empty_tuple_const;
     let block_const = ctx.block_const;
     let load_name_ref = ctx.load_name_ref;
     let pyobject_getattr_ref = ctx.pyobject_getattr_ref;
@@ -846,16 +973,719 @@ fn emit_direct_simple_expr(
             }
             tuple_obj
         }
-        DirectSimpleExprPlan::Call {
-            func,
-            args,
-            keywords,
-        } => {
+        DirectSimpleExprPlan::Call { func, parts } => {
             assert!(
                 !borrowed,
                 "direct simple plan must not use borrowed call expression"
             );
             let null_ptr = fb.ins().iconst(ptr_ty, 0);
+            let mut simple_args: Vec<&DirectSimpleExprPlan> = Vec::new();
+            let mut simple_keywords: Vec<(&str, &DirectSimpleExprPlan)> = Vec::new();
+            let mut has_unpack = false;
+            for part in parts {
+                match part {
+                    DirectSimpleCallPart::Pos(value) => simple_args.push(value),
+                    DirectSimpleCallPart::Kw { name, value } => {
+                        simple_keywords.push((name.as_str(), value))
+                    }
+                    DirectSimpleCallPart::Star(_) | DirectSimpleCallPart::KwStar(_) => {
+                        has_unpack = true;
+                    }
+                }
+            }
+            let args: Vec<&DirectSimpleExprPlan> = simple_args.clone();
+            let keywords: Vec<(&str, &DirectSimpleExprPlan)> = simple_keywords.clone();
+            if let DirectSimpleExprPlan::Name(func_name) = func.as_ref() {
+                if !has_unpack
+                    && simple_keywords.is_empty()
+                    && func_name == "__dp_decode_literal_bytes"
+                    && simple_args.len() == 1
+                {
+                    if let DirectSimpleExprPlan::Bytes(bytes) = simple_args[0] {
+                        let (data_ptr, data_len) =
+                            intern_bytes_literal(literal_pool, bytes.as_slice());
+                        let data_ptr_val = fb.ins().iconst(ptr_ty, data_ptr as i64);
+                        let data_len_val = fb.ins().iconst(i64_ty, data_len);
+                        let value_inst = fb
+                            .ins()
+                            .call(decode_literal_bytes_ref, &[data_ptr_val, data_len_val]);
+                        let value = fb.inst_results(value_inst)[0];
+                        let value_is_null =
+                            fb.ins().icmp(ir::condcodes::IntCC::Equal, value, null_ptr);
+                        let value_ok_block = fb.create_block();
+                        fb.append_block_param(value_ok_block, ptr_ty);
+                        fb.ins().brif(
+                            value_is_null,
+                            step_null_block,
+                            &[ir::BlockArg::Value(exec_args)],
+                            value_ok_block,
+                            &[ir::BlockArg::Value(value)],
+                        );
+                        fb.switch_to_block(value_ok_block);
+                        return fb.block_params(value_ok_block)[0];
+                    }
+                }
+                if !has_unpack
+                    && simple_keywords.is_empty()
+                    && func_name == "str"
+                    && simple_args.len() == 1
+                {
+                    if let DirectSimpleExprPlan::Bytes(bytes) = simple_args[0] {
+                        let (data_ptr, data_len) =
+                            intern_bytes_literal(literal_pool, bytes.as_slice());
+                        let data_ptr_val = fb.ins().iconst(ptr_ty, data_ptr as i64);
+                        let data_len_val = fb.ins().iconst(i64_ty, data_len);
+                        let value_inst = fb
+                            .ins()
+                            .call(decode_literal_bytes_ref, &[data_ptr_val, data_len_val]);
+                        let value = fb.inst_results(value_inst)[0];
+                        let value_is_null =
+                            fb.ins().icmp(ir::condcodes::IntCC::Equal, value, null_ptr);
+                        let value_ok_block = fb.create_block();
+                        fb.append_block_param(value_ok_block, ptr_ty);
+                        fb.ins().brif(
+                            value_is_null,
+                            step_null_block,
+                            &[ir::BlockArg::Value(exec_args)],
+                            value_ok_block,
+                            &[ir::BlockArg::Value(value)],
+                        );
+                        fb.switch_to_block(value_ok_block);
+                        return fb.block_params(value_ok_block)[0];
+                    }
+                }
+                if !has_unpack
+                    && simple_keywords.is_empty()
+                    && simple_args.is_empty()
+                    && (func_name == "globals" || func_name == "__dp_globals")
+                {
+                    fb.ins().call(incref_ref, &[block_const]);
+                    return block_const;
+                }
+                if !has_unpack
+                    && simple_keywords.is_empty()
+                    && simple_args.is_empty()
+                    && (func_name == "__dp_locals" || func_name == "__dp_dir_")
+                {
+                    if let Some(frame_index) = local_names
+                        .iter()
+                        .position(|candidate| candidate == "_dp_frame")
+                    {
+                        let frame_obj = local_values[frame_index];
+                        let normalize_name_bytes: &[u8] = if func_name == "__dp_locals" {
+                            b"__dp_normalize_mapping"
+                        } else {
+                            b"__dp_dir_from_locals_mapping"
+                        };
+                        let normalize_name_ptr = fb
+                            .ins()
+                            .iconst(ptr_ty, normalize_name_bytes.as_ptr() as i64);
+                        let normalize_name_len =
+                            fb.ins().iconst(i64_ty, normalize_name_bytes.len() as i64);
+                        let normalize_callable_inst = fb.ins().call(
+                            load_name_ref,
+                            &[block_const, normalize_name_ptr, normalize_name_len],
+                        );
+                        let normalize_callable = fb.inst_results(normalize_callable_inst)[0];
+                        let normalize_callable_is_null = fb.ins().icmp(
+                            ir::condcodes::IntCC::Equal,
+                            normalize_callable,
+                            null_ptr,
+                        );
+                        let normalize_callable_ok = fb.create_block();
+                        fb.append_block_param(normalize_callable_ok, ptr_ty);
+                        fb.ins().brif(
+                            normalize_callable_is_null,
+                            step_null_block,
+                            &[ir::BlockArg::Value(exec_args)],
+                            normalize_callable_ok,
+                            &[ir::BlockArg::Value(normalize_callable)],
+                        );
+                        fb.switch_to_block(normalize_callable_ok);
+                        let normalize_callable = fb.block_params(normalize_callable_ok)[0];
+                        let normalized_inst = fb.ins().call(
+                            py_call_ref,
+                            &[normalize_callable, frame_obj, null_ptr, null_ptr, null_ptr],
+                        );
+                        fb.ins().call(decref_ref, &[normalize_callable]);
+                        let normalized_obj = fb.inst_results(normalized_inst)[0];
+                        let normalized_is_null =
+                            fb.ins()
+                                .icmp(ir::condcodes::IntCC::Equal, normalized_obj, null_ptr);
+                        let normalized_ok = fb.create_block();
+                        fb.append_block_param(normalized_ok, ptr_ty);
+                        fb.ins().brif(
+                            normalized_is_null,
+                            step_null_block,
+                            &[ir::BlockArg::Value(exec_args)],
+                            normalized_ok,
+                            &[ir::BlockArg::Value(normalized_obj)],
+                        );
+                        fb.switch_to_block(normalized_ok);
+                        return fb.block_params(normalized_ok)[0];
+                    }
+                    let dict_name_bytes = b"__dp_dict";
+                    let dict_name_ptr = fb.ins().iconst(ptr_ty, dict_name_bytes.as_ptr() as i64);
+                    let dict_name_len = fb.ins().iconst(i64_ty, dict_name_bytes.len() as i64);
+                    let dict_callable_inst = fb
+                        .ins()
+                        .call(load_name_ref, &[block_const, dict_name_ptr, dict_name_len]);
+                    let dict_callable = fb.inst_results(dict_callable_inst)[0];
+                    let dict_callable_is_null =
+                        fb.ins()
+                            .icmp(ir::condcodes::IntCC::Equal, dict_callable, null_ptr);
+                    let dict_callable_ok = fb.create_block();
+                    fb.append_block_param(dict_callable_ok, ptr_ty);
+                    fb.ins().brif(
+                        dict_callable_is_null,
+                        step_null_block,
+                        &[ir::BlockArg::Value(exec_args)],
+                        dict_callable_ok,
+                        &[ir::BlockArg::Value(dict_callable)],
+                    );
+                    fb.switch_to_block(dict_callable_ok);
+                    let dict_callable = fb.block_params(dict_callable_ok)[0];
+                    let dict_obj_inst = fb
+                        .ins()
+                        .call(py_call_object_ref, &[dict_callable, empty_tuple_const]);
+                    fb.ins().call(decref_ref, &[dict_callable]);
+                    let dict_obj = fb.inst_results(dict_obj_inst)[0];
+                    let dict_obj_is_null =
+                        fb.ins()
+                            .icmp(ir::condcodes::IntCC::Equal, dict_obj, null_ptr);
+                    let dict_obj_ok = fb.create_block();
+                    fb.append_block_param(dict_obj_ok, ptr_ty);
+                    fb.ins().brif(
+                        dict_obj_is_null,
+                        step_null_block,
+                        &[ir::BlockArg::Value(exec_args)],
+                        dict_obj_ok,
+                        &[ir::BlockArg::Value(dict_obj)],
+                    );
+                    fb.switch_to_block(dict_obj_ok);
+                    let dict_obj = fb.block_params(dict_obj_ok)[0];
+
+                    for (idx, local_name) in local_names.iter().enumerate() {
+                        if local_name.starts_with("_dp_") && !local_name.starts_with("_dp_cell_") {
+                            continue;
+                        }
+                        let export_name = local_name.clone();
+                        let value_obj = local_values[idx];
+
+                        let (name_ptr, name_len) =
+                            intern_bytes_literal(literal_pool, export_name.as_bytes());
+                        let name_ptr_val = fb.ins().iconst(ptr_ty, name_ptr as i64);
+                        let name_len_val = fb.ins().iconst(i64_ty, name_len);
+                        let key_inst = fb
+                            .ins()
+                            .call(decode_literal_bytes_ref, &[name_ptr_val, name_len_val]);
+                        let key_obj = fb.inst_results(key_inst)[0];
+                        let key_is_null =
+                            fb.ins()
+                                .icmp(ir::condcodes::IntCC::Equal, key_obj, null_ptr);
+                        let key_ok = fb.create_block();
+                        fb.append_block_param(key_ok, ptr_ty);
+                        fb.ins().brif(
+                            key_is_null,
+                            step_null_block,
+                            &[ir::BlockArg::Value(exec_args)],
+                            key_ok,
+                            &[ir::BlockArg::Value(key_obj)],
+                        );
+                        fb.switch_to_block(key_ok);
+                        let key_obj = fb.block_params(key_ok)[0];
+                        let set_item_inst = fb
+                            .ins()
+                            .call(pyobject_setitem_ref, &[dict_obj, key_obj, value_obj]);
+                        let set_item_value = fb.inst_results(set_item_inst)[0];
+                        fb.ins().call(decref_ref, &[key_obj]);
+                        let set_item_failed =
+                            fb.ins()
+                                .icmp(ir::condcodes::IntCC::Equal, set_item_value, null_ptr);
+                        let set_item_ok = fb.create_block();
+                        fb.ins().brif(
+                            set_item_failed,
+                            step_null_block,
+                            &[ir::BlockArg::Value(exec_args)],
+                            set_item_ok,
+                            &[],
+                        );
+                        fb.switch_to_block(set_item_ok);
+                        fb.ins().call(decref_ref, &[set_item_value]);
+                    }
+                    let normalize_name_bytes: &[u8] = if func_name == "__dp_locals" {
+                        b"__dp_normalize_mapping"
+                    } else {
+                        b"__dp_dir_from_locals_mapping"
+                    };
+                    let normalize_name_ptr = fb
+                        .ins()
+                        .iconst(ptr_ty, normalize_name_bytes.as_ptr() as i64);
+                    let normalize_name_len =
+                        fb.ins().iconst(i64_ty, normalize_name_bytes.len() as i64);
+                    let normalize_callable_inst = fb.ins().call(
+                        load_name_ref,
+                        &[block_const, normalize_name_ptr, normalize_name_len],
+                    );
+                    let normalize_callable = fb.inst_results(normalize_callable_inst)[0];
+                    let normalize_callable_is_null =
+                        fb.ins()
+                            .icmp(ir::condcodes::IntCC::Equal, normalize_callable, null_ptr);
+                    let normalize_callable_ok = fb.create_block();
+                    fb.append_block_param(normalize_callable_ok, ptr_ty);
+                    fb.ins().brif(
+                        normalize_callable_is_null,
+                        step_null_block,
+                        &[ir::BlockArg::Value(exec_args)],
+                        normalize_callable_ok,
+                        &[ir::BlockArg::Value(normalize_callable)],
+                    );
+                    fb.switch_to_block(normalize_callable_ok);
+                    let normalize_callable = fb.block_params(normalize_callable_ok)[0];
+                    let normalized_inst = fb.ins().call(
+                        py_call_ref,
+                        &[normalize_callable, dict_obj, null_ptr, null_ptr, null_ptr],
+                    );
+                    fb.ins().call(decref_ref, &[normalize_callable]);
+                    let normalized_obj = fb.inst_results(normalized_inst)[0];
+                    let normalized_is_null =
+                        fb.ins()
+                            .icmp(ir::condcodes::IntCC::Equal, normalized_obj, null_ptr);
+                    let normalized_ok = fb.create_block();
+                    fb.append_block_param(normalized_ok, ptr_ty);
+                    fb.ins().brif(
+                        normalized_is_null,
+                        step_null_block,
+                        &[ir::BlockArg::Value(exec_args)],
+                        normalized_ok,
+                        &[ir::BlockArg::Value(normalized_obj)],
+                    );
+                    fb.switch_to_block(normalized_ok);
+                    fb.ins().call(decref_ref, &[dict_obj]);
+                    return fb.block_params(normalized_ok)[0];
+                }
+            }
+            if has_unpack {
+                let callable_is_borrowed =
+                    direct_simple_expr_is_borrowable(func.as_ref(), local_names);
+                let callable = emit_direct_simple_expr(
+                    fb,
+                    func.as_ref(),
+                    local_names,
+                    local_values,
+                    ctx,
+                    literal_pool,
+                    callable_is_borrowed,
+                );
+
+                let list_name_bytes = b"__dp_list";
+                let list_name_ptr = fb.ins().iconst(ptr_ty, list_name_bytes.as_ptr() as i64);
+                let list_name_len = fb.ins().iconst(i64_ty, list_name_bytes.len() as i64);
+                let list_callable_inst = fb
+                    .ins()
+                    .call(load_name_ref, &[block_const, list_name_ptr, list_name_len]);
+                let list_callable = fb.inst_results(list_callable_inst)[0];
+                let list_callable_is_null =
+                    fb.ins()
+                        .icmp(ir::condcodes::IntCC::Equal, list_callable, null_ptr);
+                let list_callable_ok = fb.create_block();
+                fb.append_block_param(list_callable_ok, ptr_ty);
+                fb.ins().brif(
+                    list_callable_is_null,
+                    step_null_block,
+                    &[ir::BlockArg::Value(exec_args)],
+                    list_callable_ok,
+                    &[ir::BlockArg::Value(list_callable)],
+                );
+                fb.switch_to_block(list_callable_ok);
+                let list_callable = fb.block_params(list_callable_ok)[0];
+                let args_list_inst = fb
+                    .ins()
+                    .call(py_call_object_ref, &[list_callable, empty_tuple_const]);
+                fb.ins().call(decref_ref, &[list_callable]);
+                let args_list = fb.inst_results(args_list_inst)[0];
+                let args_list_is_null =
+                    fb.ins()
+                        .icmp(ir::condcodes::IntCC::Equal, args_list, null_ptr);
+                let args_list_ok = fb.create_block();
+                fb.append_block_param(args_list_ok, ptr_ty);
+                fb.ins().brif(
+                    args_list_is_null,
+                    step_null_block,
+                    &[ir::BlockArg::Value(exec_args)],
+                    args_list_ok,
+                    &[ir::BlockArg::Value(args_list)],
+                );
+                fb.switch_to_block(args_list_ok);
+                let args_list = fb.block_params(args_list_ok)[0];
+
+                let needs_kwargs = parts.iter().any(|part| {
+                    matches!(
+                        part,
+                        DirectSimpleCallPart::Kw { .. } | DirectSimpleCallPart::KwStar(_)
+                    )
+                });
+                let kwargs_obj = if needs_kwargs {
+                    let dict_name_bytes = b"__dp_dict";
+                    let dict_name_ptr = fb.ins().iconst(ptr_ty, dict_name_bytes.as_ptr() as i64);
+                    let dict_name_len = fb.ins().iconst(i64_ty, dict_name_bytes.len() as i64);
+                    let dict_callable_inst = fb
+                        .ins()
+                        .call(load_name_ref, &[block_const, dict_name_ptr, dict_name_len]);
+                    let dict_callable = fb.inst_results(dict_callable_inst)[0];
+                    let dict_callable_is_null =
+                        fb.ins()
+                            .icmp(ir::condcodes::IntCC::Equal, dict_callable, null_ptr);
+                    let dict_callable_ok = fb.create_block();
+                    fb.append_block_param(dict_callable_ok, ptr_ty);
+                    fb.ins().brif(
+                        dict_callable_is_null,
+                        step_null_block,
+                        &[ir::BlockArg::Value(exec_args)],
+                        dict_callable_ok,
+                        &[ir::BlockArg::Value(dict_callable)],
+                    );
+                    fb.switch_to_block(dict_callable_ok);
+                    let dict_callable = fb.block_params(dict_callable_ok)[0];
+                    let kwargs_inst = fb
+                        .ins()
+                        .call(py_call_object_ref, &[dict_callable, empty_tuple_const]);
+                    fb.ins().call(decref_ref, &[dict_callable]);
+                    let kwargs_obj = fb.inst_results(kwargs_inst)[0];
+                    let kwargs_is_null =
+                        fb.ins()
+                            .icmp(ir::condcodes::IntCC::Equal, kwargs_obj, null_ptr);
+                    let kwargs_ok = fb.create_block();
+                    fb.append_block_param(kwargs_ok, ptr_ty);
+                    fb.ins().brif(
+                        kwargs_is_null,
+                        step_null_block,
+                        &[ir::BlockArg::Value(exec_args)],
+                        kwargs_ok,
+                        &[ir::BlockArg::Value(kwargs_obj)],
+                    );
+                    fb.switch_to_block(kwargs_ok);
+                    Some(fb.block_params(kwargs_ok)[0])
+                } else {
+                    None
+                };
+
+                for part in parts {
+                    match part {
+                        DirectSimpleCallPart::Pos(value_expr)
+                        | DirectSimpleCallPart::Star(value_expr) => {
+                            let method_name = match part {
+                                DirectSimpleCallPart::Pos(_) => b"append".as_slice(),
+                                _ => b"extend".as_slice(),
+                            };
+                            let (method_ptr, method_len) =
+                                intern_bytes_literal(literal_pool, method_name);
+                            let method_ptr_val = fb.ins().iconst(ptr_ty, method_ptr as i64);
+                            let method_len_val = fb.ins().iconst(i64_ty, method_len);
+                            let method_name_inst = fb
+                                .ins()
+                                .call(decode_literal_bytes_ref, &[method_ptr_val, method_len_val]);
+                            let method_name_obj = fb.inst_results(method_name_inst)[0];
+                            let method_name_is_null = fb.ins().icmp(
+                                ir::condcodes::IntCC::Equal,
+                                method_name_obj,
+                                null_ptr,
+                            );
+                            let method_name_ok = fb.create_block();
+                            fb.append_block_param(method_name_ok, ptr_ty);
+                            fb.ins().brif(
+                                method_name_is_null,
+                                step_null_block,
+                                &[ir::BlockArg::Value(exec_args)],
+                                method_name_ok,
+                                &[ir::BlockArg::Value(method_name_obj)],
+                            );
+                            fb.switch_to_block(method_name_ok);
+                            let method_name_obj = fb.block_params(method_name_ok)[0];
+                            let method_inst = fb
+                                .ins()
+                                .call(pyobject_getattr_ref, &[args_list, method_name_obj]);
+                            fb.ins().call(decref_ref, &[method_name_obj]);
+                            let method_obj = fb.inst_results(method_inst)[0];
+                            let method_is_null =
+                                fb.ins()
+                                    .icmp(ir::condcodes::IntCC::Equal, method_obj, null_ptr);
+                            let method_ok = fb.create_block();
+                            fb.append_block_param(method_ok, ptr_ty);
+                            fb.ins().brif(
+                                method_is_null,
+                                step_null_block,
+                                &[ir::BlockArg::Value(exec_args)],
+                                method_ok,
+                                &[ir::BlockArg::Value(method_obj)],
+                            );
+                            fb.switch_to_block(method_ok);
+                            let method_obj = fb.block_params(method_ok)[0];
+                            let value_borrowed =
+                                direct_simple_expr_is_borrowable(value_expr, local_names);
+                            let value_obj = emit_direct_simple_expr(
+                                fb,
+                                value_expr,
+                                local_names,
+                                local_values,
+                                ctx,
+                                literal_pool,
+                                value_borrowed,
+                            );
+                            let call_inst = fb.ins().call(
+                                py_call_ref,
+                                &[method_obj, value_obj, null_ptr, null_ptr, null_ptr],
+                            );
+                            if !value_borrowed {
+                                fb.ins().call(decref_ref, &[value_obj]);
+                            }
+                            fb.ins().call(decref_ref, &[method_obj]);
+                            let call_value = fb.inst_results(call_inst)[0];
+                            let call_is_null =
+                                fb.ins()
+                                    .icmp(ir::condcodes::IntCC::Equal, call_value, null_ptr);
+                            let call_ok = fb.create_block();
+                            fb.append_block_param(call_ok, ptr_ty);
+                            fb.ins().brif(
+                                call_is_null,
+                                step_null_block,
+                                &[ir::BlockArg::Value(exec_args)],
+                                call_ok,
+                                &[ir::BlockArg::Value(call_value)],
+                            );
+                            fb.switch_to_block(call_ok);
+                            let call_value = fb.block_params(call_ok)[0];
+                            fb.ins().call(decref_ref, &[call_value]);
+                        }
+                        DirectSimpleCallPart::Kw { name, value } => {
+                            let kwargs_obj =
+                                kwargs_obj.expect("kwargs object must exist for kw part");
+                            let (key_ptr, key_len) =
+                                intern_bytes_literal(literal_pool, name.as_bytes());
+                            let key_ptr_val = fb.ins().iconst(ptr_ty, key_ptr as i64);
+                            let key_len_val = fb.ins().iconst(i64_ty, key_len);
+                            let key_inst = fb
+                                .ins()
+                                .call(decode_literal_bytes_ref, &[key_ptr_val, key_len_val]);
+                            let key_obj = fb.inst_results(key_inst)[0];
+                            let key_is_null =
+                                fb.ins()
+                                    .icmp(ir::condcodes::IntCC::Equal, key_obj, null_ptr);
+                            let key_ok = fb.create_block();
+                            fb.append_block_param(key_ok, ptr_ty);
+                            fb.ins().brif(
+                                key_is_null,
+                                step_null_block,
+                                &[ir::BlockArg::Value(exec_args)],
+                                key_ok,
+                                &[ir::BlockArg::Value(key_obj)],
+                            );
+                            fb.switch_to_block(key_ok);
+                            let key_obj = fb.block_params(key_ok)[0];
+                            let value_borrowed =
+                                direct_simple_expr_is_borrowable(value, local_names);
+                            let value_obj = emit_direct_simple_expr(
+                                fb,
+                                value,
+                                local_names,
+                                local_values,
+                                ctx,
+                                literal_pool,
+                                value_borrowed,
+                            );
+                            let set_inst = fb
+                                .ins()
+                                .call(pyobject_setitem_ref, &[kwargs_obj, key_obj, value_obj]);
+                            fb.ins().call(decref_ref, &[key_obj]);
+                            if !value_borrowed {
+                                fb.ins().call(decref_ref, &[value_obj]);
+                            }
+                            let set_value = fb.inst_results(set_inst)[0];
+                            let set_failed =
+                                fb.ins()
+                                    .icmp(ir::condcodes::IntCC::Equal, set_value, null_ptr);
+                            let set_ok = fb.create_block();
+                            let set_fail = fb.create_block();
+                            fb.append_block_param(set_fail, ptr_ty);
+                            fb.ins().brif(
+                                set_failed,
+                                set_fail,
+                                &[ir::BlockArg::Value(kwargs_obj)],
+                                set_ok,
+                                &[],
+                            );
+                            fb.switch_to_block(set_fail);
+                            let failed_kwargs = fb.block_params(set_fail)[0];
+                            fb.ins().call(decref_ref, &[failed_kwargs]);
+                            fb.ins().call(decref_ref, &[args_list]);
+                            if !callable_is_borrowed {
+                                fb.ins().call(decref_ref, &[callable]);
+                            }
+                            fb.ins()
+                                .jump(step_null_block, &[ir::BlockArg::Value(exec_args)]);
+                            fb.switch_to_block(set_ok);
+                            fb.ins().call(decref_ref, &[set_value]);
+                        }
+                        DirectSimpleCallPart::KwStar(value_expr) => {
+                            let kwargs_obj =
+                                kwargs_obj.expect("kwargs object must exist for kwstar part");
+                            let (update_ptr, update_len) =
+                                intern_bytes_literal(literal_pool, b"update");
+                            let update_ptr_val = fb.ins().iconst(ptr_ty, update_ptr as i64);
+                            let update_len_val = fb.ins().iconst(i64_ty, update_len);
+                            let update_name_inst = fb
+                                .ins()
+                                .call(decode_literal_bytes_ref, &[update_ptr_val, update_len_val]);
+                            let update_name_obj = fb.inst_results(update_name_inst)[0];
+                            let update_name_is_null = fb.ins().icmp(
+                                ir::condcodes::IntCC::Equal,
+                                update_name_obj,
+                                null_ptr,
+                            );
+                            let update_name_ok = fb.create_block();
+                            fb.append_block_param(update_name_ok, ptr_ty);
+                            fb.ins().brif(
+                                update_name_is_null,
+                                step_null_block,
+                                &[ir::BlockArg::Value(exec_args)],
+                                update_name_ok,
+                                &[ir::BlockArg::Value(update_name_obj)],
+                            );
+                            fb.switch_to_block(update_name_ok);
+                            let update_name_obj = fb.block_params(update_name_ok)[0];
+                            let update_inst = fb
+                                .ins()
+                                .call(pyobject_getattr_ref, &[kwargs_obj, update_name_obj]);
+                            fb.ins().call(decref_ref, &[update_name_obj]);
+                            let update_obj = fb.inst_results(update_inst)[0];
+                            let update_is_null =
+                                fb.ins()
+                                    .icmp(ir::condcodes::IntCC::Equal, update_obj, null_ptr);
+                            let update_ok = fb.create_block();
+                            fb.append_block_param(update_ok, ptr_ty);
+                            fb.ins().brif(
+                                update_is_null,
+                                step_null_block,
+                                &[ir::BlockArg::Value(exec_args)],
+                                update_ok,
+                                &[ir::BlockArg::Value(update_obj)],
+                            );
+                            fb.switch_to_block(update_ok);
+                            let update_obj = fb.block_params(update_ok)[0];
+                            let value_borrowed =
+                                direct_simple_expr_is_borrowable(value_expr, local_names);
+                            let value_obj = emit_direct_simple_expr(
+                                fb,
+                                value_expr,
+                                local_names,
+                                local_values,
+                                ctx,
+                                literal_pool,
+                                value_borrowed,
+                            );
+                            let call_inst = fb.ins().call(
+                                py_call_ref,
+                                &[update_obj, value_obj, null_ptr, null_ptr, null_ptr],
+                            );
+                            if !value_borrowed {
+                                fb.ins().call(decref_ref, &[value_obj]);
+                            }
+                            fb.ins().call(decref_ref, &[update_obj]);
+                            let call_value = fb.inst_results(call_inst)[0];
+                            let call_is_null =
+                                fb.ins()
+                                    .icmp(ir::condcodes::IntCC::Equal, call_value, null_ptr);
+                            let call_ok = fb.create_block();
+                            fb.append_block_param(call_ok, ptr_ty);
+                            fb.ins().brif(
+                                call_is_null,
+                                step_null_block,
+                                &[ir::BlockArg::Value(exec_args)],
+                                call_ok,
+                                &[ir::BlockArg::Value(call_value)],
+                            );
+                            fb.switch_to_block(call_ok);
+                            let call_value = fb.block_params(call_ok)[0];
+                            fb.ins().call(decref_ref, &[call_value]);
+                        }
+                    }
+                }
+
+                let tuple_name_bytes = b"__dp_tuple_from_iter";
+                let tuple_name_ptr = fb.ins().iconst(ptr_ty, tuple_name_bytes.as_ptr() as i64);
+                let tuple_name_len = fb.ins().iconst(i64_ty, tuple_name_bytes.len() as i64);
+                let tuple_callable_inst = fb.ins().call(
+                    load_name_ref,
+                    &[block_const, tuple_name_ptr, tuple_name_len],
+                );
+                let tuple_callable = fb.inst_results(tuple_callable_inst)[0];
+                let tuple_callable_is_null =
+                    fb.ins()
+                        .icmp(ir::condcodes::IntCC::Equal, tuple_callable, null_ptr);
+                let tuple_callable_ok = fb.create_block();
+                fb.append_block_param(tuple_callable_ok, ptr_ty);
+                fb.ins().brif(
+                    tuple_callable_is_null,
+                    step_null_block,
+                    &[ir::BlockArg::Value(exec_args)],
+                    tuple_callable_ok,
+                    &[ir::BlockArg::Value(tuple_callable)],
+                );
+                fb.switch_to_block(tuple_callable_ok);
+                let tuple_callable = fb.block_params(tuple_callable_ok)[0];
+                let tuple_call_inst = fb.ins().call(
+                    py_call_ref,
+                    &[tuple_callable, args_list, null_ptr, null_ptr, null_ptr],
+                );
+                fb.ins().call(decref_ref, &[tuple_callable]);
+                fb.ins().call(decref_ref, &[args_list]);
+                let call_args_tuple = fb.inst_results(tuple_call_inst)[0];
+                let call_args_tuple_is_null =
+                    fb.ins()
+                        .icmp(ir::condcodes::IntCC::Equal, call_args_tuple, null_ptr);
+                let call_args_tuple_ok = fb.create_block();
+                fb.append_block_param(call_args_tuple_ok, ptr_ty);
+                fb.ins().brif(
+                    call_args_tuple_is_null,
+                    step_null_block,
+                    &[ir::BlockArg::Value(exec_args)],
+                    call_args_tuple_ok,
+                    &[ir::BlockArg::Value(call_args_tuple)],
+                );
+                fb.switch_to_block(call_args_tuple_ok);
+                let call_args_tuple = fb.block_params(call_args_tuple_ok)[0];
+
+                let call_inst = if let Some(kwargs_obj) = kwargs_obj {
+                    let call_inst = fb.ins().call(
+                        py_call_with_kw_ref,
+                        &[callable, call_args_tuple, kwargs_obj],
+                    );
+                    fb.ins().call(decref_ref, &[kwargs_obj]);
+                    call_inst
+                } else {
+                    fb.ins()
+                        .call(py_call_object_ref, &[callable, call_args_tuple])
+                };
+                fb.ins().call(decref_ref, &[call_args_tuple]);
+                if !callable_is_borrowed {
+                    fb.ins().call(decref_ref, &[callable]);
+                }
+                let call_value = fb.inst_results(call_inst)[0];
+                let call_is_null = fb
+                    .ins()
+                    .icmp(ir::condcodes::IntCC::Equal, call_value, null_ptr);
+                let call_ok_block = fb.create_block();
+                fb.append_block_param(call_ok_block, ptr_ty);
+                fb.ins().brif(
+                    call_is_null,
+                    step_null_block,
+                    &[ir::BlockArg::Value(exec_args)],
+                    call_ok_block,
+                    &[ir::BlockArg::Value(call_value)],
+                );
+                fb.switch_to_block(call_ok_block);
+                return fb.block_params(call_ok_block)[0];
+            }
             if let DirectSimpleExprPlan::Name(func_name) = func.as_ref() {
                 if keywords.is_empty()
                     && func_name == "__dp_decode_literal_bytes"
@@ -1439,9 +2269,15 @@ fn emit_direct_simple_ops(
     emit_ctx: &DirectSimpleEmitCtx,
     literal_pool: &mut Vec<Box<[u8]>>,
 ) -> Result<(), String> {
+    let mut frame_locals_aliases: HashSet<String> = HashSet::new();
     for op in ops {
         match op {
             DirectSimpleOpPlan::Assign(assign) => {
+                let value_is_frame_locals = direct_simple_expr_is_frame_locals_fetch(&assign.value)
+                    || matches!(
+                        &assign.value,
+                        DirectSimpleExprPlan::Name(name) if frame_locals_aliases.contains(name)
+                    );
                 let value = emit_direct_simple_expr(
                     fb,
                     &assign.value,
@@ -1462,8 +2298,107 @@ fn emit_direct_simple_ops(
                     local_names.push(assign.target.clone());
                     local_values.push(value);
                 }
+                if value_is_frame_locals {
+                    frame_locals_aliases.insert(assign.target.clone());
+                } else {
+                    frame_locals_aliases.remove(assign.target.as_str());
+                }
             }
             DirectSimpleOpPlan::Expr(expr) => {
+                if let Some((obj_expr, key_expr, value_expr, key_name)) =
+                    direct_simple_expr_as_frame_locals_setitem(expr, &frame_locals_aliases)
+                {
+                    let null_ptr = fb.ins().iconst(emit_ctx.ptr_ty, 0);
+                    let obj_borrowed = direct_simple_expr_is_borrowable(obj_expr, local_names);
+                    let key_borrowed = direct_simple_expr_is_borrowable(key_expr, local_names);
+                    let value_borrowed = direct_simple_expr_is_borrowable(value_expr, local_names);
+                    let obj_value = emit_direct_simple_expr(
+                        fb,
+                        obj_expr,
+                        local_names,
+                        local_values,
+                        emit_ctx,
+                        literal_pool,
+                        obj_borrowed,
+                    );
+                    let key_value = emit_direct_simple_expr(
+                        fb,
+                        key_expr,
+                        local_names,
+                        local_values,
+                        emit_ctx,
+                        literal_pool,
+                        key_borrowed,
+                    );
+                    let value_value = emit_direct_simple_expr(
+                        fb,
+                        value_expr,
+                        local_names,
+                        local_values,
+                        emit_ctx,
+                        literal_pool,
+                        value_borrowed,
+                    );
+                    let set_item_inst = fb.ins().call(
+                        emit_ctx.pyobject_setitem_ref,
+                        &[obj_value, key_value, value_value],
+                    );
+                    let set_item_value = fb.inst_results(set_item_inst)[0];
+                    let set_item_failed =
+                        fb.ins()
+                            .icmp(ir::condcodes::IntCC::Equal, set_item_value, null_ptr);
+                    let set_item_ok = fb.create_block();
+                    fb.append_block_param(set_item_ok, emit_ctx.ptr_ty);
+                    fb.ins().brif(
+                        set_item_failed,
+                        emit_ctx.step_null_block,
+                        &[ir::BlockArg::Value(emit_ctx.exec_args)],
+                        set_item_ok,
+                        &[ir::BlockArg::Value(set_item_value)],
+                    );
+                    fb.switch_to_block(set_item_ok);
+                    let set_item_value = fb.block_params(set_item_ok)[0];
+                    fb.ins().call(emit_ctx.decref_ref, &[set_item_value]);
+                    let synced_inst = fb
+                        .ins()
+                        .call(emit_ctx.pyobject_getitem_ref, &[obj_value, key_value]);
+                    let synced_value = fb.inst_results(synced_inst)[0];
+                    let synced_failed =
+                        fb.ins()
+                            .icmp(ir::condcodes::IntCC::Equal, synced_value, null_ptr);
+                    let synced_ok = fb.create_block();
+                    fb.append_block_param(synced_ok, emit_ctx.ptr_ty);
+                    fb.ins().brif(
+                        synced_failed,
+                        emit_ctx.step_null_block,
+                        &[ir::BlockArg::Value(emit_ctx.exec_args)],
+                        synced_ok,
+                        &[ir::BlockArg::Value(synced_value)],
+                    );
+                    fb.switch_to_block(synced_ok);
+                    let synced_value = fb.block_params(synced_ok)[0];
+                    if let Some(existing_index) = local_names
+                        .iter()
+                        .position(|candidate| candidate == &key_name)
+                    {
+                        let previous = local_values[existing_index];
+                        fb.ins().call(emit_ctx.decref_ref, &[previous]);
+                        local_values[existing_index] = synced_value;
+                    } else {
+                        local_names.push(key_name);
+                        local_values.push(synced_value);
+                    }
+                    if !obj_borrowed {
+                        fb.ins().call(emit_ctx.decref_ref, &[obj_value]);
+                    }
+                    if !key_borrowed {
+                        fb.ins().call(emit_ctx.decref_ref, &[key_value]);
+                    }
+                    if !value_borrowed {
+                        fb.ins().call(emit_ctx.decref_ref, &[value_value]);
+                    }
+                    continue;
+                }
                 let value = emit_direct_simple_expr(
                     fb,
                     expr,
@@ -1484,6 +2419,7 @@ fn emit_direct_simple_ops(
                     };
                     let previous = local_values.remove(index);
                     local_names.remove(index);
+                    frame_locals_aliases.remove(name.as_str());
                     fb.ins().call(emit_ctx.decref_ref, &[previous]);
                 }
             }
@@ -1776,12 +2712,13 @@ pub fn register_bb_module_plans(module_name: &str, module: &BbModule) -> Result<
     let mut plans = HashMap::new();
     let mut skipped_errors: HashMap<String, String> = HashMap::new();
     for function in &lowered.functions {
+        let plan_qualname = format!("{}::{}", function.qualname, function.entry);
         match build_entry_plan(function) {
             Ok(plan) => {
                 plans.insert(
                     PlanKey {
                         module: module_name.to_string(),
-                        qualname: function.qualname.clone(),
+                        qualname: plan_qualname.clone(),
                     },
                     plan,
                 );
@@ -1789,11 +2726,11 @@ pub fn register_bb_module_plans(module_name: &str, module: &BbModule) -> Result<
             Err(err) => {
                 if debug_skips {
                     eprintln!(
-                        "[diet-python:jitskip] module={} qualname={} reason={}",
-                        module_name, function.qualname, err
+                        "[diet-python:jitskip] module={} qualname={} entry={} reason={}",
+                        module_name, function.qualname, function.entry, err
                     );
                 }
-                skipped_errors.insert(function.qualname.clone(), err);
+                skipped_errors.insert(plan_qualname, err);
             }
         }
     }
@@ -2037,6 +2974,9 @@ fn new_jit_builder() -> Result<JITBuilder, String> {
     flag_builder
         .set("is_pic", "false")
         .map_err(|err| format!("failed to configure Cranelift flags: {err}"))?;
+    flag_builder
+        .set("preserve_frame_pointers", "true")
+        .map_err(|err| format!("failed to configure Cranelift flags: {err}"))?;
     let isa_builder =
         cranelift_codegen::isa::lookup_by_name("x86_64").map_err(|err| format!("{err}"))?;
     let isa = isa_builder
@@ -2050,6 +2990,33 @@ fn new_jit_builder() -> Result<JITBuilder, String> {
 
 fn new_jit_module() -> Result<JITModule, String> {
     Ok(JITModule::new(new_jit_builder()?))
+}
+
+fn define_function_with_incremental_cache(
+    jit_module: &mut JITModule,
+    func_id: FuncId,
+    ctx: &mut cranelift_codegen::Context,
+    err_prefix: &str,
+) -> Result<(), String> {
+    let func_for_relocs = ctx.func.clone();
+    let mut ctrl_plane = ControlPlane::default();
+    let mut cache_store = GlobalIncrementalCacheStore {
+        map: incremental_clif_cache(),
+    };
+    let (compiled, _cache_hit) = ctx
+        .compile_with_cache(jit_module.isa(), &mut cache_store, &mut ctrl_plane)
+        .map_err(|err| format!("{err_prefix}: {err:?}"))?;
+    let alignment = compiled.buffer.alignment as u64;
+    let relocs = compiled
+        .buffer
+        .relocs()
+        .iter()
+        .map(|reloc| ModuleReloc::from_mach_reloc(reloc, &func_for_relocs, func_id))
+        .collect::<Vec<_>>();
+    jit_module
+        .define_function_bytes(func_id, alignment, compiled.code_buffer(), &relocs)
+        .map_err(|err| format!("{err_prefix}: {err}"))?;
+    Ok(())
 }
 
 fn declare_import_fn(
@@ -2165,9 +3132,12 @@ pub fn run_cranelift_smoke(module: &BbModule) -> Result<(), String> {
     }
 
     let function_id = declare_local_fn(&mut jit_module, "dp_jit_smoke", &ctx.func.signature)?;
-    jit_module
-        .define_function(function_id, &mut ctx)
-        .map_err(|err| format!("failed to define Cranelift function: {err}"))?;
+    define_function_with_incremental_cache(
+        &mut jit_module,
+        function_id,
+        &mut ctx,
+        "failed to define Cranelift function",
+    )?;
     jit_module.clear_context(&mut ctx);
     jit_module
         .finalize_definitions()
@@ -2254,9 +3224,12 @@ pub unsafe fn run_cranelift_python_call_smoke(
         fb.finalize();
     }
 
-    jit_module
-        .define_function(main_id, &mut ctx)
-        .map_err(|err| format!("failed to define jit call smoke function: {err}"))?;
+    define_function_with_incremental_cache(
+        &mut jit_module,
+        main_id,
+        &mut ctx,
+        "failed to define jit call smoke function",
+    )?;
     jit_module.clear_context(&mut ctx);
     jit_module
         .finalize_definitions()
@@ -2353,9 +3326,12 @@ pub unsafe fn run_cranelift_python_call_two_args(
         fb.finalize();
     }
 
-    jit_module
-        .define_function(main_id, &mut ctx)
-        .map_err(|err| format!("failed to define jit two-arg call function: {err}"))?;
+    define_function_with_incremental_cache(
+        &mut jit_module,
+        main_id,
+        &mut ctx,
+        "failed to define jit two-arg call function",
+    )?;
     jit_module.clear_context(&mut ctx);
     jit_module
         .finalize_definitions()
@@ -2885,6 +3861,7 @@ fn build_cranelift_run_bb_specialized_function(
                     let mut local_names = plan.params.clone();
                     let mut local_values =
                         Vec::with_capacity(local_names.len() + plan.assigns.len());
+                    let mut frame_locals_aliases: HashSet<String> = HashSet::new();
 
                     for (param_index, _) in local_names.iter().enumerate() {
                         let index_val = fb.ins().iconst(i64_ty, param_index as i64);
@@ -2908,15 +3885,120 @@ fn build_cranelift_run_bb_specialized_function(
                     }
 
                     for assign in &plan.assigns {
-                        let value = emit_direct_simple_expr(
-                            &mut fb,
-                            &assign.value,
-                            &local_names,
-                            &local_values,
-                            &emit_ctx,
-                            &mut literal_pool,
-                            false,
-                        );
+                        let value_is_frame_locals =
+                            direct_simple_expr_is_frame_locals_fetch(&assign.value)
+                                || matches!(
+                                    &assign.value,
+                                    DirectSimpleExprPlan::Name(name)
+                                        if frame_locals_aliases.contains(name)
+                                );
+                        let value = if let Some((obj_expr, key_expr, value_expr, key_name)) =
+                            direct_simple_expr_as_frame_locals_setitem(
+                                &assign.value,
+                                &frame_locals_aliases,
+                            ) {
+                            let obj_borrowed =
+                                direct_simple_expr_is_borrowable(obj_expr, &local_names);
+                            let key_borrowed =
+                                direct_simple_expr_is_borrowable(key_expr, &local_names);
+                            let value_borrowed =
+                                direct_simple_expr_is_borrowable(value_expr, &local_names);
+                            let obj_value = emit_direct_simple_expr(
+                                &mut fb,
+                                obj_expr,
+                                &local_names,
+                                &local_values,
+                                &emit_ctx,
+                                &mut literal_pool,
+                                obj_borrowed,
+                            );
+                            let key_value = emit_direct_simple_expr(
+                                &mut fb,
+                                key_expr,
+                                &local_names,
+                                &local_values,
+                                &emit_ctx,
+                                &mut literal_pool,
+                                key_borrowed,
+                            );
+                            let value_value = emit_direct_simple_expr(
+                                &mut fb,
+                                value_expr,
+                                &local_names,
+                                &local_values,
+                                &emit_ctx,
+                                &mut literal_pool,
+                                value_borrowed,
+                            );
+                            let set_item_inst = fb
+                                .ins()
+                                .call(pyobject_setitem_ref, &[obj_value, key_value, value_value]);
+                            let set_item_value = fb.inst_results(set_item_inst)[0];
+                            let set_item_failed = fb.ins().icmp(
+                                ir::condcodes::IntCC::Equal,
+                                set_item_value,
+                                null_ptr,
+                            );
+                            let set_item_ok = fb.create_block();
+                            fb.append_block_param(set_item_ok, ptr_ty);
+                            fb.ins().brif(
+                                set_item_failed,
+                                step_null_block,
+                                &[ir::BlockArg::Value(exec_args)],
+                                set_item_ok,
+                                &[ir::BlockArg::Value(set_item_value)],
+                            );
+                            fb.switch_to_block(set_item_ok);
+                            let set_item_value = fb.block_params(set_item_ok)[0];
+                            let synced_inst =
+                                fb.ins().call(pyobject_getitem_ref, &[obj_value, key_value]);
+                            let synced_value = fb.inst_results(synced_inst)[0];
+                            let synced_failed =
+                                fb.ins()
+                                    .icmp(ir::condcodes::IntCC::Equal, synced_value, null_ptr);
+                            let synced_ok = fb.create_block();
+                            fb.append_block_param(synced_ok, ptr_ty);
+                            fb.ins().brif(
+                                synced_failed,
+                                step_null_block,
+                                &[ir::BlockArg::Value(exec_args)],
+                                synced_ok,
+                                &[ir::BlockArg::Value(synced_value)],
+                            );
+                            fb.switch_to_block(synced_ok);
+                            let synced_value = fb.block_params(synced_ok)[0];
+                            if let Some(existing_index) = local_names
+                                .iter()
+                                .position(|candidate| candidate == &key_name)
+                            {
+                                let previous = local_values[existing_index];
+                                fb.ins().call(decref_ref, &[previous]);
+                                local_values[existing_index] = synced_value;
+                            } else {
+                                local_names.push(key_name);
+                                local_values.push(synced_value);
+                            }
+                            if !obj_borrowed {
+                                fb.ins().call(decref_ref, &[obj_value]);
+                            }
+                            if !key_borrowed {
+                                fb.ins().call(decref_ref, &[key_value]);
+                            }
+                            if !value_borrowed {
+                                fb.ins().call(decref_ref, &[value_value]);
+                            }
+                            set_item_value
+                        } else {
+                            emit_direct_simple_expr(
+                                &mut fb,
+                                &assign.value,
+                                &local_names,
+                                &local_values,
+                                &emit_ctx,
+                                &mut literal_pool,
+                                false,
+                            )
+                        };
 
                         if let Some(existing_index) = local_names
                             .iter()
@@ -2928,6 +4010,11 @@ fn build_cranelift_run_bb_specialized_function(
                         } else {
                             local_names.push(assign.target.clone());
                             local_values.push(value);
+                        }
+                        if value_is_frame_locals {
+                            frame_locals_aliases.insert(assign.target.clone());
+                        } else {
+                            frame_locals_aliases.remove(assign.target.as_str());
                         }
                     }
 
@@ -3795,10 +4882,12 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
             none_obj,
             empty_tuple_obj,
         )?;
-    compiled
-        ._jit_module
-        .define_function(main_id, &mut ctx)
-        .map_err(|err| format!("failed to define specialized jit run_bb function: {err}"))?;
+    define_function_with_incremental_cache(
+        &mut compiled._jit_module,
+        main_id,
+        &mut ctx,
+        "failed to define specialized jit run_bb function",
+    )?;
     compiled._jit_module.clear_context(&mut ctx);
     compiled
         ._jit_module
@@ -3965,9 +5054,12 @@ pub unsafe fn run_cranelift_run_bb_specialized(
             empty_tuple_obj,
         )?;
 
-    jit_module
-        .define_function(main_id, &mut ctx)
-        .map_err(|err| format!("failed to define specialized jit run_bb function: {err}"))?;
+    define_function_with_incremental_cache(
+        &mut jit_module,
+        main_id,
+        &mut ctx,
+        "failed to define specialized jit run_bb function",
+    )?;
     jit_module.clear_context(&mut ctx);
     jit_module
         .finalize_definitions()

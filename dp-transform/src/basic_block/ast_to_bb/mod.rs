@@ -20,7 +20,7 @@ use ruff_python_codegen::{Generator, Indentation};
 use ruff_python_parser::parse_expression;
 use ruff_source_file::LineEnding;
 use ruff_text_size::TextRange;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 mod await_lower;
@@ -257,7 +257,15 @@ impl BasicBlockRewriter<'_> {
                 value: obj, slice, ..
             }) => out.push(py_stmt!(
                 "__dp_setitem({obj:expr}, {slice:expr}, {value:expr})",
-                obj = *obj.clone(),
+                obj = if let Expr::Name(name) = obj.as_ref() {
+                    py_expr!(
+                        "__dp_load_deleted_name({name:literal}, {value:expr})",
+                        name = name.id.as_str(),
+                        value = *obj.clone(),
+                    )
+                } else {
+                    *obj.clone()
+                },
                 slice = *slice.clone(),
                 value = value,
             )),
@@ -265,7 +273,15 @@ impl BasicBlockRewriter<'_> {
                 value: obj, attr, ..
             }) => out.push(py_stmt!(
                 "__dp_setattr({obj:expr}, {name:literal}, {value:expr})",
-                obj = *obj.clone(),
+                obj = if let Expr::Name(name) = obj.as_ref() {
+                    py_expr!(
+                        "__dp_load_deleted_name({name:literal}, {value:expr})",
+                        name = name.id.as_str(),
+                        value = *obj.clone(),
+                    )
+                } else {
+                    *obj.clone()
+                },
                 name = attr.as_str(),
                 value = value,
             )),
@@ -374,9 +390,9 @@ impl BasicBlockRewriter<'_> {
         let has_yield_original = has_yield_exprs_in_stmts(&lowered_input_body);
         let mut runtime_input_body = prune_dead_stmt_suffixes(&lowered_input_body);
         let original_runtime_input_body = runtime_input_body.clone();
-        // Keep await->yield-from lowering in the dedicated async pass for
-        // coroutine functions. Async generators keep native await semantics.
-        if func.is_async && !has_yield_original {
+        // Keep await->yield-from lowering in the dedicated async pass for all
+        // async functions so no `await` reaches BB IR/JIT planning.
+        if func.is_async {
             lower_coroutine_awaits_to_yield_from(&mut runtime_input_body);
         }
         let mut coroutine_via_generator = func.is_async && !has_yield_original;
@@ -403,6 +419,9 @@ impl BasicBlockRewriter<'_> {
         let cell_slots = collect_cell_slots(&runtime_input_body);
         let has_yield = has_yield_exprs_in_stmts(&runtime_input_body);
         let has_await = has_await_in_stmts(&runtime_input_body);
+        if func.is_async && has_await {
+            return None;
+        }
         if has_yield && has_await && !func.is_async {
             return None;
         }
@@ -910,12 +929,29 @@ impl BasicBlockRewriter<'_> {
                     .unwrap_or((None, None));
                 let mut local_defs = Vec::new();
                 let mut ops = Vec::new();
-                for stmt in normalized_body {
+                let mut pending = VecDeque::from(normalized_body);
+                while let Some(stmt) = pending.pop_front() {
                     match stmt {
                         Stmt::FunctionDef(func_def)
                             if func_def.name.id.as_str().starts_with("_dp_bb_") =>
                         {
                             local_defs.push(func_def);
+                        }
+                        Stmt::Assign(assign)
+                            if rewrite_stmt::assign_del::should_rewrite_targets(
+                                &assign.targets,
+                            ) =>
+                        {
+                            let rewritten =
+                                rewrite_stmt::assign_del::rewrite_assign(self.context, assign);
+                            let rewritten_stmt = match rewritten {
+                                Rewrite::Unmodified(stmt) | Rewrite::Walk(stmt) => stmt,
+                            };
+                            let mut lowered = Vec::new();
+                            flatten_stmt(&rewritten_stmt, &mut lowered);
+                            for lowered_stmt in lowered.into_iter().rev() {
+                                pending.push_front(*lowered_stmt);
+                            }
                         }
                         other => {
                             if let Some(op) = BbOp::from_stmt(other) {
@@ -1182,6 +1218,47 @@ impl BasicBlockRewriter<'_> {
                 }
                 Stmt::Return(ret) => {
                     if let Some(value) = ret.value.as_ref() {
+                        if let Expr::Yield(yield_expr) = value.as_ref() {
+                            let resume_raise_label = self.next_label(fn_name);
+                            let resume_return_label = self.next_label(fn_name);
+                            let resume_dispatch_label = self.next_label(fn_name);
+
+                            blocks.push(Block {
+                                label: resume_raise_label.clone(),
+                                body: Vec::new(),
+                                terminator: Terminator::Raise(raise_stmt_from_name(
+                                    "_dp_resume_exc",
+                                )),
+                            });
+                            blocks.push(Block {
+                                label: resume_return_label.clone(),
+                                body: Vec::new(),
+                                terminator: Terminator::Ret(Some(py_expr!(
+                                    "{sent:id}",
+                                    sent = "_dp_send_value"
+                                ))),
+                            });
+                            blocks.push(Block {
+                                label: resume_dispatch_label.clone(),
+                                body: Vec::new(),
+                                terminator: Terminator::BrIf {
+                                    test: py_expr!("__dp_is_not(_dp_resume_exc, None)"),
+                                    then_label: resume_raise_label,
+                                    else_label: resume_return_label,
+                                },
+                            });
+
+                            let label = self.next_label(fn_name);
+                            blocks.push(Block {
+                                label: label.clone(),
+                                body: linear,
+                                terminator: Terminator::Yield {
+                                    value: yield_expr.value.as_ref().map(|expr| *expr.clone()),
+                                    resume_label: resume_dispatch_label,
+                                },
+                            });
+                            return label;
+                        }
                         if let Expr::YieldFrom(yield_from_expr) = value.as_ref() {
                             let return_label = self.next_label(fn_name);
                             let (yield_from_entry, result_name) = self.lower_yield_from_direct(
@@ -2172,6 +2249,15 @@ impl BasicBlockRewriter<'_> {
         let entry_ref_expr = py_expr!("{entry:literal}", entry = entry_label);
         let param_names: HashSet<&str> =
             bb_function.param_names.iter().map(String::as_str).collect();
+        let locally_assigned: HashSet<&str> = bb_function
+            .blocks
+            .iter()
+            .flat_map(|block| block.ops.iter())
+            .filter_map(|op| match op {
+                BbOp::Assign(assign) => Some(assign.target.id.as_str()),
+                _ => None,
+            })
+            .collect();
         let mut closure_items = Vec::new();
         for entry_name in &bb_function.entry_params {
             if param_names.contains(entry_name.as_str()) {
@@ -2182,6 +2268,14 @@ impl BasicBlockRewriter<'_> {
                         .local_cell_slots
                         .iter()
                         .any(|slot| slot == entry_name))
+            {
+                let value = name_expr(entry_name.as_str())?;
+                closure_items.push(make_dp_tuple(vec![
+                    py_expr!("{value:literal}", value = entry_name.as_str()),
+                    value,
+                ]));
+            } else if !entry_name.starts_with("_dp_")
+                && !locally_assigned.contains(entry_name.as_str())
             {
                 let value = name_expr(entry_name.as_str())?;
                 closure_items.push(make_dp_tuple(vec![
@@ -4201,8 +4295,6 @@ impl Transformer for DeletedNameLoadRewriter<'_> {
             Stmt::FunctionDef(_) | Stmt::ClassDef(_) | Stmt::Delete(_) => {}
             Stmt::Expr(expr_stmt) => self.visit_expr(expr_stmt.value.as_mut()),
             Stmt::Assign(assign) => {
-                // Only loads are rewritten; assignment targets are intentionally
-                // excluded, even if their AST context is unexpectedly Load.
                 self.visit_expr(assign.value.as_mut());
             }
             Stmt::AugAssign(aug_assign) => {

@@ -49,3 +49,34 @@
 - Suggested validation:
   - Add a regression that imports a transformed module with empty source and forces an exception from transformed code.
   - Verify `pytest` default traceback mode reports normal failure (no `INTERNALERROR`), and source lines render correctly.
+
+## Follow-up: JIT interception granularity via vectorcall
+
+- Goal:
+  - Use `PyFunction_SetVectorCall` to intercept only functions that should run through JIT.
+  - Remove reliance on blanket interception of every function call path.
+- Why this is important:
+  - Reduces global behavior changes and narrows JIT integration surface.
+  - Makes non-JIT functions continue on default CPython call path with less risk of regressions.
+- Suggested implementation direction:
+  - Register vectorcall override only for transformed/JIT-planned functions at function creation time.
+  - Keep per-function metadata lookup in the vectorcall target to dispatch only when a JIT plan exists.
+  - Preserve stock vectorcall for all other functions.
+- Suggested validation:
+  - Add regression coverage showing transformed planned functions enter JIT vectorcall path.
+  - Add regression coverage showing unplanned/untransformed functions still use normal CPython vectorcall behavior.
+
+## Follow-up: bytecode fallback for non-JITted functions
+
+- Goal:
+  - Ensure functions without a JIT plan execute through normal CPython bytecode evaluation.
+- Why this is important:
+  - Keeps unsupported or intentionally non-JITted shapes correct without forcing import-time failures.
+  - Allows incremental JIT rollout while preserving behavior coverage.
+- Suggested implementation direction:
+  - At dispatch time, detect whether a function/code object has a compiled JIT plan.
+  - If not present, immediately route to standard bytecode execution path for that function.
+  - Keep this fallback explicit and per-function (no module-wide downgrade unless explicitly requested).
+- Suggested validation:
+  - Add tests where mixed modules contain both JITted and non-JITted functions and verify both paths execute correctly.
+  - Add regression confirming unsupported JIT shapes run via bytecode fallback and preserve semantics.

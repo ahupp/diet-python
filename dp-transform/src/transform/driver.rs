@@ -53,7 +53,6 @@ pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> RewriteModule
     rewrite_names::rewrite_explicit_bindings(scope.clone(), module);
 
     rewrite_class_def::class_body::rewrite_class_body_scopes(context, scope, module);
-
     // Re-run simplification to lower any constructs introduced by later passes.
     rewrite_with_pass(
         context,

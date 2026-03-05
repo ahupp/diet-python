@@ -296,9 +296,20 @@ impl BbOp {
                     Expr::Subscript(target) => Some(Self::Expr(BbExprOp {
                         node_index: assign.node_index,
                         range: assign.range,
+                        // Assignment targets like `l[0] = ...` still evaluate `l`
+                        // as a load first; preserve UnboundLocalError semantics
+                        // when `l` is a deleted/unbound local sentinel.
                         value: BbExpr::from_expr(py_expr!(
                             "__dp_setitem({obj:expr}, {idx:expr}, {value:expr})",
-                            obj = *target.value.clone(),
+                            obj = if let Expr::Name(name) = target.value.as_ref() {
+                                py_expr!(
+                                    "__dp_load_deleted_name({name:literal}, {value:expr})",
+                                    name = name.id.as_str(),
+                                    value = *target.value.clone(),
+                                )
+                            } else {
+                                *target.value.clone()
+                            },
                             idx = *target.slice.clone(),
                             value = value,
                         )),

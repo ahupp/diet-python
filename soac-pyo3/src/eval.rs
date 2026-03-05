@@ -321,6 +321,21 @@ fn run_specialized_jit(
     args: &Bound<'_, PyAny>,
     resolved: ResolvedSpecializedJitBlocks,
 ) -> PyResult<Py<PyAny>> {
+    struct RecursionGuard;
+    impl Drop for RecursionGuard {
+        fn drop(&mut self) {
+            unsafe { ffi::Py_LeaveRecursiveCall() };
+        }
+    }
+
+    if unsafe {
+        ffi::Py_EnterRecursiveCall(b" while calling a Python object\0".as_ptr() as *const i8)
+    } != 0
+    {
+        return Err(PyErr::fetch(py));
+    }
+    let _recursion_guard = RecursionGuard;
+
     unsafe extern "C" fn preflight_incref(obj: *mut c_void) {
         if !obj.is_null() {
             ffi::Py_INCREF(obj as *mut ffi::PyObject);

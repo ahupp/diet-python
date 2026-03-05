@@ -6,6 +6,7 @@ import operator as _operator
 import reprlib
 import sys
 import builtins
+import threading as _threading
 import types as _types
 from typing import NamedTuple
 import warnings
@@ -432,6 +433,9 @@ _jit_render_bb_plan = None
 _jit_has_bb_plan = None
 _jit_block_param_names = None
 _register_clif_wrapper = None
+_jit_implicit_locals_stack = []
+_jit_run_bb_depth = _threading.local()
+_JIT_RECURSION_SOFT_LIMIT = 200
 
 
 def _run_bb_plan_from_entry(entry, args):
@@ -474,13 +478,39 @@ def _dp_resume_generator(gen, value, resume_exc):
 
 
 async def _dp_resume_async_generator(gen, value, resume_exc, transport_sent):
-    gen._dp_resume._dp_transport_sent = transport_sent
-    bb_args = _bb_build_resume_args(
-        gen._dp_resume, gen, value, resume_exc, transport_sent
-    )
-    # Async-generator BB lowering is generator-style; resume through the same
-    # BB entry executor used by sync generators.
-    return run_bb(gen._dp_resume, bb_args)
+    send_value = value
+    pending_exc = resume_exc
+    pending_transport = transport_sent
+    while True:
+        # When delegating through `gi_yieldfrom` (for lowered `await` paths in
+        # async generators), resume values/exceptions come from the awaiter
+        # transport channel rather than user-level `asend(...)`.
+        step_send_value = (
+            pending_transport if getattr(gen, "gi_yieldfrom", None) is not None else send_value
+        )
+        bb_args = _bb_build_resume_args(
+            gen._dp_resume, gen, step_send_value, pending_exc, pending_transport
+        )
+        result = run_bb(gen._dp_resume, bb_args)
+        if getattr(gen, "gi_yieldfrom", None) is None:
+            return result
+        try:
+            pending_transport = await _AsyncGenTransportStep(result)
+            pending_exc = None
+        except BaseException as exc:
+            pending_transport = None
+            pending_exc = exc
+
+
+class _AsyncGenTransportStep:
+    __slots__ = ("_value",)
+
+    def __init__(self, value):
+        self._value = value
+
+    def __await__(self):
+        sent = yield self._value
+        return sent
 
 
 class _DpGenerator:
@@ -674,7 +704,9 @@ class _DpAsyncGenSend:
                 and value is not None
                 and getattr(self._dp_gen, "_pc", 0) == 0
             ):
-                initial_send = value
+                raise TypeError(
+                    "can't send non-None value to a just-started async generator"
+                )
             self._dp_coro = _dp_resume_async_generator(
                 self._dp_gen,
                 initial_send,
@@ -976,6 +1008,19 @@ def _normalize_mapping(values):
     return result
 
 
+def normalize_mapping(values):
+    return _normalize_mapping(values)
+
+
+def dir_from_locals_mapping(values):
+    names = _normalize_mapping(values).keys()
+    filtered = []
+    for name in names:
+        if not name.startswith("_dp_"):
+            filtered.append(name)
+    return sorted(filtered)
+
+
 def _lookup_normalized_name(mapping, name, *, hide_internal=False):
     if hide_internal and isinstance(name, str) and name.startswith("_dp_"):
         raise KeyError(name)
@@ -1235,6 +1280,28 @@ def eval_(source, globals=None, locals=None):
             globals = frame.f_globals
         if locals is None:
             locals = _normalize_mapping(frame.f_locals)
+            closure_values = None
+            if _jit_implicit_locals_stack:
+                closure_values = _jit_implicit_locals_stack[-1]
+            if closure_values is None:
+                probe = frame
+                while probe is not None and closure_values is None:
+                    closure_values = probe.f_locals.get("__dp_closure")
+                    probe = probe.f_back
+            if isinstance(closure_values, dict) and closure_values:
+                # JIT BB wrappers execute through synthetic `entry(...)` frames.
+                # Merge captured lexical bindings so implicit eval() resolves
+                # closure names the same way as regular Python frames.
+                merged = {}
+                for name, value in closure_values.items():
+                    merged[name] = value
+                    if isinstance(name, str) and name.startswith("_dp_cell_"):
+                        try:
+                            merged[name[len("_dp_cell_"):]] = load_cell(value)
+                        except UnboundLocalError:
+                            pass
+                merged.update(locals)
+                locals = merged
     return builtins.eval(source, globals, locals)
 
 
@@ -1503,6 +1570,62 @@ def _bb_wrap_with_closure(entry, closure_values):
     return ns["__dp_make"](entry, captured_values)
 
 
+_DP_ENTRY_TEMPLATE_CODE = None
+_DP_ASYNC_ENTRY_TEMPLATE_CODE = None
+
+
+def _bb_entry_template_code(async_entry):
+    global _DP_ENTRY_TEMPLATE_CODE
+    global _DP_ASYNC_ENTRY_TEMPLATE_CODE
+    if async_entry:
+        if _DP_ASYNC_ENTRY_TEMPLATE_CODE is None:
+            ns = {}
+            exec(
+                "async def _dp_entry_template(\n"
+                "    *args,\n"
+                "    **kwargs,\n"
+                "):\n"
+                "    raise RuntimeError(\n"
+                "        \"CLIF wrapper coroutine entry executed without eval-frame interception\"\n"
+                "    )\n",
+                {},
+                ns,
+            )
+            _DP_ASYNC_ENTRY_TEMPLATE_CODE = ns["_dp_entry_template"].__code__
+        return _DP_ASYNC_ENTRY_TEMPLATE_CODE
+    if _DP_ENTRY_TEMPLATE_CODE is None:
+        ns = {}
+        exec(
+            "def _dp_entry_template(\n"
+            "    *args,\n"
+            "    **kwargs,\n"
+            "):\n"
+            "    raise RuntimeError(\n"
+            "        \"CLIF wrapper entry executed without eval-frame interception\"\n"
+            "    )\n",
+            {},
+            ns,
+        )
+        _DP_ENTRY_TEMPLATE_CODE = ns["_dp_entry_template"].__code__
+    return _DP_ENTRY_TEMPLATE_CODE
+
+
+
+
+def _bb_make_lazy_clif_entry(
+    *,
+    async_entry,
+    function_name,
+    module_globals,
+):
+    entry = _types.FunctionType(
+        _bb_entry_template_code(async_entry),
+        module_globals,
+        name=function_name,
+    )
+    return entry
+
+
 def _bb_build_entry_args(bound_arguments, state_order, closure_values):
     values = []
     for name in state_order:
@@ -1549,6 +1672,46 @@ def _bb_set_plan_metadata(
             setattr(func, "__dp_plan_globals", module_globals)
 
 
+def _bb_enable_lazy_clif_wrapper(
+    entry,
+    module_name,
+    plan_qualname,
+    signature,
+    state_order,
+    closure_values,
+    build_entry_args,
+):
+    # Python functions already use vectorcall by default. Registering CLIF
+    # wrapper code-extra keeps that call convention and routes frame execution
+    # through the PyUnstable eval-frame hook.
+    if _register_clif_wrapper is None:
+        raise RuntimeError(
+            "JIT basic-block wrapper registration helper is unavailable for "
+            f"{module_name}.{plan_qualname}"
+        )
+    try:
+        _register_clif_wrapper(
+            entry,
+            module_name,
+            plan_qualname,
+            signature,
+            state_order,
+            closure_values,
+            build_entry_args,
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            "failed to register lazy CLIF wrapper for "
+            f"{module_name}.{plan_qualname}: {exc}"
+        ) from exc
+
+
+def _bb_plan_lookup_qualname(qualname, entry_ref):
+    if isinstance(entry_ref, str):
+        return f"{qualname}::{entry_ref}"
+    return qualname
+
+
 def _bb_resolve_entry_ref(entry_ref, module_globals, module_name, qualname):
     if callable(entry_ref):
         resolved = entry_ref
@@ -1573,22 +1736,41 @@ def _bb_resolve_entry_ref(entry_ref, module_globals, module_name, qualname):
             f"basic-block entry reference must be callable or str, got {type(entry_ref)!r}"
         )
     if module_name is not None:
+        lookup_qualname = _bb_plan_lookup_qualname(
+            qualname, entry_ref if isinstance(entry_ref, str) else None
+        )
         _bb_set_plan_metadata(
             resolved,
             module_name,
-            qualname,
+            lookup_qualname,
             module_globals,
             entry_ref=entry_ref if isinstance(entry_ref, str) else None,
         )
     return resolved
 
 
-def run_bb_plan(plan_module, plan_qualname, globals_dict, args):
+def run_bb_plan(plan_module, plan_qualname, globals_dict, args, implicit_locals=None):
     if _jit_run_bb_plan is None:
         raise RuntimeError(
             f"basic-block plan execution requires JIT: {plan_module}.{plan_qualname}"
         )
-    return _jit_run_bb_plan(plan_module, plan_qualname, globals_dict, args)
+    depth = getattr(_jit_run_bb_depth, "value", 0) + 1
+    _jit_run_bb_depth.value = depth
+    effective_limit = min(sys.getrecursionlimit(), _JIT_RECURSION_SOFT_LIMIT)
+    if depth > effective_limit:
+        _jit_run_bb_depth.value = depth - 1
+        raise RecursionError("maximum recursion depth exceeded")
+    if implicit_locals is None:
+        try:
+            return _jit_run_bb_plan(plan_module, plan_qualname, globals_dict, args)
+        finally:
+            _jit_run_bb_depth.value = depth - 1
+    _jit_implicit_locals_stack.append(implicit_locals)
+    try:
+        return _jit_run_bb_plan(plan_module, plan_qualname, globals_dict, args)
+    finally:
+        _jit_implicit_locals_stack.pop()
+        _jit_run_bb_depth.value = depth - 1
 
 
 def jit_bb_plan_enabled():
@@ -1610,55 +1792,43 @@ def def_fn(
     # wrapper so we don't need an extra transformed outer function call layer.
     signature, default_state_order = _build_bb_signature(params)
     state_order, closure_values = _bb_state_order(default_state_order, closure)
+    entry_ref = entry_bb if isinstance(entry_bb, str) else None
+    plan_qualname = _bb_plan_lookup_qualname(qualname, entry_ref)
     _bb_resolve_entry_ref(entry_bb, module_globals, module_name, qualname)
     if not (
         jit_bb_plan_enabled()
         and isinstance(module_name, str)
-        and isinstance(qualname, str)
+        and isinstance(plan_qualname, str)
         and _jit_has_bb_plan is not None
-        and _jit_has_bb_plan(module_name, qualname)
+        and _jit_has_bb_plan(module_name, plan_qualname)
     ):
         raise RuntimeError(
             "JIT basic-block function definition requires a registered plan, "
-            f"but none is available for {module_name}.{qualname}"
+            f"but none is available for {module_name}.{plan_qualname}"
         )
 
-    def entry(
-        *args,
-        __dp_sig=signature,
-        __dp_state_order=state_order,
-        __dp_closure=closure_values,
-        __dp_plan_module=module_name,
-        __dp_plan_qualname=qualname,
-        __dp_plan_globals=module_globals,
-        __dp_run_bb_plan=run_bb_plan,
-        __dp_build_entry_args=_bb_build_entry_args,
-        **kwargs,
-    ):
-        bound = __dp_sig.bind(*args, **kwargs)
-        bound.apply_defaults()
-        bb_args = __dp_build_entry_args(bound.arguments, __dp_state_order, __dp_closure)
-        return __dp_run_bb_plan(
-            __dp_plan_module,
-            __dp_plan_qualname,
-            __dp_plan_globals,
-            bb_args,
-        )
-
-    entry = _bb_rebind_function_globals(entry, module_globals)
+    entry = _bb_make_lazy_clif_entry(
+        async_entry=False,
+        function_name=name,
+        module_globals=module_globals,
+    )
     entry.__signature__ = signature
     entry = update_fn(entry, qualname, name)
     if module_name is not None:
         entry.__module__ = module_name
-        _bb_set_plan_metadata(entry, module_name, qualname, module_globals)
     if doc is not None:
         entry.__doc__ = doc
     if annotate_fn is not None:
         entry.__annotate__ = annotate_fn
-    # In CLIF mode, tag wrapper functions so eval-frame dispatch can bypass
-    # Python bytecode and jump directly into the JIT BB execution path.
-    if _register_clif_wrapper is not None:
-        _register_clif_wrapper(entry)
+    _bb_enable_lazy_clif_wrapper(
+        entry,
+        module_name,
+        plan_qualname,
+        signature,
+        state_order,
+        closure_values,
+        _bb_build_entry_args,
+    )
     return entry
 
 
@@ -1675,51 +1845,43 @@ def def_coro(
 ):
     signature, default_state_order = _build_bb_signature(params)
     state_order, closure_values = _bb_state_order(default_state_order, closure)
+    entry_ref = entry_bb if isinstance(entry_bb, str) else None
+    plan_qualname = _bb_plan_lookup_qualname(qualname, entry_ref)
     _bb_resolve_entry_ref(entry_bb, module_globals, module_name, qualname)
     if not (
         jit_bb_plan_enabled()
         and isinstance(module_name, str)
-        and isinstance(qualname, str)
+        and isinstance(plan_qualname, str)
         and _jit_has_bb_plan is not None
-        and _jit_has_bb_plan(module_name, qualname)
+        and _jit_has_bb_plan(module_name, plan_qualname)
     ):
         raise RuntimeError(
             "JIT basic-block coroutine definition requires a registered plan, "
-            f"but none is available for {module_name}.{qualname}"
+            f"but none is available for {module_name}.{plan_qualname}"
         )
 
-    async def entry(
-        *args,
-        __dp_sig=signature,
-        __dp_state_order=state_order,
-        __dp_closure=closure_values,
-        __dp_plan_module=module_name,
-        __dp_plan_qualname=qualname,
-        __dp_plan_globals=module_globals,
-        __dp_run_bb_plan=run_bb_plan,
-        __dp_build_entry_args=_bb_build_entry_args,
-        **kwargs,
-    ):
-        bound = __dp_sig.bind(*args, **kwargs)
-        bound.apply_defaults()
-        bb_args = __dp_build_entry_args(bound.arguments, __dp_state_order, __dp_closure)
-        return __dp_run_bb_plan(
-            __dp_plan_module,
-            __dp_plan_qualname,
-            __dp_plan_globals,
-            bb_args,
-        )
-
-    entry = _bb_rebind_function_globals(entry, module_globals)
+    entry = _bb_make_lazy_clif_entry(
+        async_entry=True,
+        function_name=name,
+        module_globals=module_globals,
+    )
     entry.__signature__ = signature
     entry = update_fn(entry, qualname, name)
     if module_name is not None:
         entry.__module__ = module_name
-        _bb_set_plan_metadata(entry, module_name, qualname, module_globals)
     if doc is not None:
         entry.__doc__ = doc
     if annotate_fn is not None:
         entry.__annotate__ = annotate_fn
+    _bb_enable_lazy_clif_wrapper(
+        entry,
+        module_name,
+        plan_qualname,
+        signature,
+        state_order,
+        closure_values,
+        _bb_build_entry_args,
+    )
     return entry
 
 
@@ -1847,43 +2009,33 @@ def def_gen(
     signature, default_state_order = _build_bb_signature(params)
     state_order, closure_values = _bb_state_order(default_state_order, closure)
     gen_code = _dp_make_gen_code(name, qualname)
+    _dp_deleted = DELETED
+    _dp_gen_type = _DpGenerator
     resolved_resume = _bb_resolve_entry_ref(
         resume, module_globals, module_name, qualname
     )
 
-    def entry(
-        *args,
-        __dp_sig=signature,
-        __dp_state_order=state_order,
-        __dp_closure=closure_values,
-        __dp_resume=resolved_resume,
-        __dp_name=name,
-        __dp_qualname=qualname,
-        __dp_code=gen_code,
-        __dp_gen_type=_DpGenerator,
-        __dp_deleted=DELETED,
-        **kwargs,
-    ):
-        bound = __dp_sig.bind(*args, **kwargs)
+    def entry(*args, **kwargs):
+        bound = signature.bind(*args, **kwargs)
         bound.apply_defaults()
         state_arg_items = []
-        for param in __dp_state_order:
+        for param in state_order:
             if param in bound.arguments:
                 state_arg_items.append(bound.arguments[param])
             else:
-                state_arg_items.append(__dp_closure.get(param, __dp_deleted))
+                state_arg_items.append(closure_values.get(param, _dp_deleted))
         state_args = tuple(state_arg_items)
         _dp_frame = dict(())
-        for _dp_state_name, _dp_state_value in zip(__dp_state_order, state_args):
+        for _dp_state_name, _dp_state_value in zip(state_order, state_args):
             _dp_frame[_dp_state_name] = _dp_state_value
 
-        _dp_gen = __dp_gen_type(
-            resume=__dp_resume,
+        _dp_gen = _dp_gen_type(
+            resume=resolved_resume,
             pc=0,
             gi_frame=_dp_frame,
-            name=__dp_name,
-            qualname=__dp_qualname,
-            code=__dp_code,
+            name=name,
+            qualname=qualname,
+            code=gen_code,
         )
         return _dp_gen
 
@@ -1915,43 +2067,33 @@ def def_async_gen(
     signature, default_state_order = _build_bb_signature(params)
     state_order, closure_values = _bb_state_order(default_state_order, closure)
     ag_code = _dp_make_async_gen_code(name, qualname)
+    _dp_deleted = DELETED
+    _dp_async_gen_type = _DpAsyncGenerator
     resolved_resume = _bb_resolve_entry_ref(
         resume, module_globals, module_name, qualname
     )
 
-    def entry(
-        *args,
-        __dp_sig=signature,
-        __dp_state_order=state_order,
-        __dp_closure=closure_values,
-        __dp_resume=resolved_resume,
-        __dp_name=name,
-        __dp_qualname=qualname,
-        __dp_code=ag_code,
-        __dp_async_gen_type=_DpAsyncGenerator,
-        __dp_deleted=DELETED,
-        **kwargs,
-    ):
-        bound = __dp_sig.bind(*args, **kwargs)
+    def entry(*args, **kwargs):
+        bound = signature.bind(*args, **kwargs)
         bound.apply_defaults()
         state_arg_items = []
-        for param in __dp_state_order:
+        for param in state_order:
             if param in bound.arguments:
                 state_arg_items.append(bound.arguments[param])
             else:
-                state_arg_items.append(__dp_closure.get(param, __dp_deleted))
+                state_arg_items.append(closure_values.get(param, _dp_deleted))
         state_args = tuple(state_arg_items)
         _dp_frame = dict(())
-        for _dp_state_name, _dp_state_value in zip(__dp_state_order, state_args):
+        for _dp_state_name, _dp_state_value in zip(state_order, state_args):
             _dp_frame[_dp_state_name] = _dp_state_value
 
-        _dp_gen = __dp_async_gen_type(
-            resume=__dp_resume,
+        _dp_gen = _dp_async_gen_type(
+            resume=resolved_resume,
             pc=0,
             gi_frame=_dp_frame,
-            name=__dp_name,
-            qualname=__dp_qualname,
-            code=__dp_code,
+            name=name,
+            qualname=qualname,
+            code=ag_code,
         )
         _dp_gen._dp_transport_sent = None
         return _dp_gen

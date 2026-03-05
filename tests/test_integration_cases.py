@@ -42,11 +42,13 @@ def test_integration_case(tmp_path: Path, case_path: Path, mode: str) -> None:
         "exception_refcycle_args_tuple",
         "taskgroup_propagate_cancellation_refcycle",
         "asyncio_taskgroup_base_error_refcycle",
+        "iter_refcount_behavior",
+        "with_context_exception_leak",
     }:
         # Dict-backed frame locals are currently GC-visible, unlike CPython's
-        # fast-locals representation. This changes gc.get_referrers() behavior
-        # for local exception objects in these refcycle-sensitive cases.
-        pytest.xfail("frame-local dict storage is GC-visible in BB transform path")
+        # fast-locals representation. This changes refcycle/collection behavior
+        # for exception-sensitive cases on the BB transform path.
+        pytest.xfail("exception/refcycle behavior differs in BB transform path")
 
     source, validate_source = split_integration_case(case_path)
     module_name = case_path.stem

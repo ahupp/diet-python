@@ -47,6 +47,36 @@ echo "starting tests"
   if [ "$#" -eq 0 ]; then
     "$VENV_DIR/bin/python" -m pytest --help
   else
-    "$VENV_DIR/bin/python" -m pytest --tb=native "$@"
+    export RUST_LOG="${RUST_LOG:-soac_eval::tree_walk::eval=info}"
+    TMP_PYTEST_OUTPUT="$(mktemp -t diet-python-pytest.XXXXXX.log)"
+    TEST_START_NS="$(date +%s%N)"
+    set +e
+    "$VENV_DIR/bin/python" -m pytest --tb=native "$@" 2>&1 | tee "$TMP_PYTEST_OUTPUT"
+    TEST_STATUS=${PIPESTATUS[0]}
+    set -e
+    TEST_END_NS="$(date +%s%N)"
+    "$VENV_DIR/bin/python" - "$TMP_PYTEST_OUTPUT" "$TEST_START_NS" "$TEST_END_NS" <<'PY'
+import re
+import sys
+
+path, start_ns, end_ns = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+pattern = re.compile(r"soac_jit_precompile .* elapsed_ms=([0-9]+(?:\.[0-9]+)?)")
+compile_ms = 0.0
+with open(path, "r", encoding="utf-8", errors="replace") as f:
+    for line in f:
+        match = pattern.search(line)
+        if match:
+            compile_ms += float(match.group(1))
+
+total_s = (end_ns - start_ns) / 1_000_000_000.0
+compile_s = compile_ms / 1000.0
+non_compile_s = total_s - compile_s
+print(
+    f"[diet-python timing] total_test_s={total_s:.3f} "
+    f"compile_s={compile_s:.3f} non_compile_s={non_compile_s:.3f}"
+)
+PY
+    rm -f "$TMP_PYTEST_OUTPUT"
+    exit "$TEST_STATUS"
   fi
 )
