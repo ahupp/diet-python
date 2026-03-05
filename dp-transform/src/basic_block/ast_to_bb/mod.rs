@@ -30,6 +30,7 @@ mod metadata;
 mod naming;
 mod pre_lower;
 mod state_vars;
+mod stmt_shape;
 mod symbol_analysis;
 mod support;
 
@@ -61,6 +62,10 @@ use naming::{
 use pre_lower::{is_simple_index_target, AnnotationHelperForLoweringPass};
 use state_vars::{
     collect_cell_slots, collect_parameter_names, collect_state_vars, sync_target_cells_stmts,
+};
+use stmt_shape::{
+    extract_else_body, flatten_stmt, flatten_stmt_boxes, should_strip_nonlocal_for_bb,
+    strip_nonlocal_directives,
 };
 pub use pre_lower::{BBSimplifyStmtPass, FunctionIdentityByNode};
 use support::{
@@ -2912,127 +2917,6 @@ fn walk_stmt_body<V: Transformer + ?Sized>(visitor: &mut V, body: &mut StmtBody)
     for stmt in body.body.iter_mut() {
         visitor.visit_stmt(stmt.as_mut());
     }
-}
-
-fn flatten_stmt_boxes(stmts: &[Box<Stmt>]) -> Vec<Box<Stmt>> {
-    let mut out = Vec::new();
-    for stmt in stmts {
-        flatten_stmt(stmt.as_ref(), &mut out);
-    }
-    out
-}
-
-fn strip_nonlocal_directives(stmts: Vec<Box<Stmt>>) -> Vec<Box<Stmt>> {
-    stmts
-        .into_iter()
-        .filter(|stmt| !matches!(stmt.as_ref(), Stmt::Nonlocal(_)))
-        .collect()
-}
-
-fn should_strip_nonlocal_for_bb(fn_name: &str) -> bool {
-    // Generated helper functions (comprehensions/lambdas/etc.) are prefixed
-    // `_dp_fn__dp_...` and currently rely on their existing non-BB lowering
-    // behavior for closure propagation. Keep nonlocal directives there.
-    !fn_name.starts_with("_dp_fn__dp_")
-}
-
-fn flatten_stmt(stmt: &Stmt, out: &mut Vec<Box<Stmt>>) {
-    if let Stmt::BodyStmt(body) = stmt {
-        for child in &body.body {
-            flatten_stmt(child.as_ref(), out);
-        }
-        return;
-    }
-    out.push(Box::new(stmt.clone()));
-}
-
-fn extract_else_body(if_stmt: &ast::StmtIf) -> Vec<Box<Stmt>> {
-    if if_stmt.elif_else_clauses.is_empty() {
-        return Vec::new();
-    }
-    if_stmt
-        .elif_else_clauses
-        .first()
-        .map(|clause| clause.body.body.clone())
-        .unwrap_or_default()
-}
-
-fn block_starts_with_resume_value_assign(block: &Block) -> bool {
-    let Some(Stmt::Assign(assign)) = block.body.first() else {
-        return false;
-    };
-    matches!(
-        assign.value.as_ref(),
-        Expr::Name(name) if matches!(name.id.as_str(), "_dp_send_value" | "_dp_resume_exc")
-    )
-}
-
-fn compute_throw_dispatch_by_label(blocks: &[Block], entry_label: &str) -> HashMap<String, String> {
-    let mut best: HashMap<String, (usize, String)> = HashMap::new();
-    for block in blocks {
-        if block.label.as_str() == entry_label {
-            continue;
-        }
-        let Terminator::TryJump {
-            body_region_labels, ..
-        } = &block.terminator
-        else {
-            continue;
-        };
-        let rank = body_region_labels.len();
-        for label in body_region_labels {
-            let update = match best.get(label.as_str()) {
-                Some((best_rank, _)) => rank < *best_rank,
-                None => true,
-            };
-            if update {
-                best.insert(label.clone(), (rank, block.label.clone()));
-            }
-        }
-    }
-    best.into_iter()
-        .map(|(label, (_, dispatch))| (label, dispatch))
-        .collect()
-}
-
-fn compute_resume_throw_dispatch_by_label(blocks: &[Block]) -> HashMap<String, String> {
-    let mut out = HashMap::new();
-    for block in blocks {
-        let Terminator::BrIf {
-            test,
-            then_label,
-            else_label,
-        } = &block.terminator
-        else {
-            continue;
-        };
-        let Expr::Call(call) = test else {
-            continue;
-        };
-        if !call.arguments.keywords.is_empty() || call.arguments.args.len() != 2 {
-            continue;
-        }
-        let Expr::Name(func_name) = call.func.as_ref() else {
-            continue;
-        };
-        let Expr::Name(first_arg) = &call.arguments.args[0] else {
-            continue;
-        };
-        if first_arg.id.as_str() != "_dp_resume_exc" {
-            continue;
-        }
-        let Expr::NoneLiteral(_) = &call.arguments.args[1] else {
-            continue;
-        };
-
-        let target = match func_name.id.as_str() {
-            "__dp_is_" => else_label.clone(),
-            "__dp_is_not" => then_label.clone(),
-            _ => continue,
-        };
-        out.insert(block.label.clone(), target);
-    }
-    out
 }
 
 fn stmt_body_from_stmts(stmts: Vec<Stmt>) -> StmtBody {
