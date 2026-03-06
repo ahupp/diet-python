@@ -1,10 +1,9 @@
 use dp_transform::basic_block::bb_ir::{BbBlock, BbExpr, BbModule, BbOp, BbTerm};
+use dp_transform::basic_block::lower_try_jump_exception_flow;
 use ruff_python_ast::Number;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
-
-use super::exception_pass;
 
 #[derive(Clone, Debug)]
 pub struct ClifPlan {
@@ -505,7 +504,10 @@ fn direct_simple_block_plan_from_block(
             let exc = if let Some(expr) = exc.as_ref() {
                 Some(direct_simple_expr_from(expr)?)
             } else {
-                None
+                block
+                    .exc_name
+                    .as_ref()
+                    .map(|name| DirectSimpleExprPlan::Name(name.clone()))
             };
             let cause = if let Some(expr) = cause.as_ref() {
                 Some(direct_simple_expr_from(expr)?)
@@ -589,8 +591,11 @@ fn build_clif_plan(
                     });
                     continue;
                 }
-                if target_param.starts_with("_dp_try_exc_")
-                    || target_param.starts_with("_dp_try_reason_")
+                if target_param.starts_with("_dp_try_exc_") {
+                    arg_sources.push(BlockExcArgSource::Exception);
+                    continue;
+                }
+                if target_param.starts_with("_dp_try_reason_")
                     || target_param.starts_with("_dp_try_value_")
                 {
                     arg_sources.push(BlockExcArgSource::NoneValue);
@@ -848,10 +853,6 @@ pub fn register_clif_module_plans(module_name: &str, module: &BbModule) -> Resul
     registry.retain(|key, _| key.module != module_name);
     registry.extend(plans);
     Ok(())
-}
-
-pub fn lower_try_jump_exception_flow(module: &BbModule) -> Result<BbModule, String> {
-    exception_pass::lower_try_jump_exception_flow(module)
 }
 
 pub fn lookup_clif_plan(module_name: &str, qualname: &str) -> Option<ClifPlan> {

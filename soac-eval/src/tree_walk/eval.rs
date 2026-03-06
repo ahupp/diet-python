@@ -4,9 +4,7 @@ use crate::jit::{self, ClifPlan};
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 use std::any::Any;
-use std::ffi::CStr;
 use std::panic::{self, AssertUnwindSafe};
-use std::path::PathBuf;
 use std::time::Instant;
 
 unsafe extern "C" {
@@ -432,36 +430,6 @@ unsafe extern "C" fn is_true_hook(value: *mut c_void) -> i32 {
     ffi::PyObject_IsTrue(value as *mut ffi::PyObject)
 }
 
-unsafe extern "C" fn compare_eq_obj_hook(lhs: *mut c_void, rhs: *mut c_void) -> *mut c_void {
-    if lhs.is_null() || rhs.is_null() {
-        ffi::PyErr_SetString(
-            ffi::PyExc_RuntimeError,
-            b"invalid compare_eq args\0".as_ptr() as *const i8,
-        );
-        return ptr::null_mut();
-    }
-    ffi::PyObject_RichCompare(
-        lhs as *mut ffi::PyObject,
-        rhs as *mut ffi::PyObject,
-        ffi::Py_EQ,
-    ) as *mut c_void
-}
-
-unsafe extern "C" fn compare_lt_obj_hook(lhs: *mut c_void, rhs: *mut c_void) -> *mut c_void {
-    if lhs.is_null() || rhs.is_null() {
-        ffi::PyErr_SetString(
-            ffi::PyExc_RuntimeError,
-            b"invalid compare_lt args\0".as_ptr() as *const i8,
-        );
-        return ptr::null_mut();
-    }
-    ffi::PyObject_RichCompare(
-        lhs as *mut ffi::PyObject,
-        rhs as *mut ffi::PyObject,
-        ffi::Py_LT,
-    ) as *mut c_void
-}
-
 unsafe extern "C" fn raise_from_exc_hook(exc: *mut c_void) -> i32 {
     if exc.is_null() {
         ffi::PyErr_SetString(
@@ -503,8 +471,6 @@ fn default_specialized_hooks() -> jit::SpecializedJitHooks {
         tuple_new: tuple_new_hook,
         tuple_set_item: tuple_set_item_hook,
         is_true: is_true_hook,
-        compare_eq_obj: compare_eq_obj_hook,
-        compare_lt_obj: compare_lt_obj_hook,
         raise_from_exc: raise_from_exc_hook,
     }
 }
@@ -623,38 +589,6 @@ unsafe fn clif_vectorcall_data(function: *mut ffi::PyObject) -> Result<&'static 
         return Err(());
     }
     Ok(&mut *(ptr as *mut ClifFunctionData))
-}
-
-unsafe fn clif_vectorcall_supported(function: *mut ffi::PyObject) -> Result<bool, ()> {
-    let globals_obj = ffi::PyFunction_GetGlobals(function);
-    if globals_obj.is_null() || ffi::PyDict_Check(globals_obj) == 0 {
-        return Ok(false);
-    }
-    let module_file =
-        ffi::PyDict_GetItemString(globals_obj, b"__file__\0".as_ptr() as *const c_char);
-    if module_file.is_null() {
-        return Ok(false);
-    }
-    let module_file_utf8 = ffi::PyUnicode_AsUTF8(module_file);
-    if module_file_utf8.is_null() {
-        return Err(());
-    }
-    let module_file = CStr::from_ptr(module_file_utf8).to_string_lossy();
-    if module_file.contains("/vendor/cpython/Lib/")
-        || module_file.contains("/site-packages/")
-        || module_file.contains("/.venv-cpython/")
-    {
-        return Ok(false);
-    }
-    let cwd = match std::env::current_dir() {
-        Ok(path) => path,
-        Err(_) => return Ok(false),
-    };
-    let module_path = PathBuf::from(module_file.as_ref());
-    if module_path.starts_with(&cwd) || module_file.starts_with("/tmp/") {
-        return Ok(true);
-    }
-    Ok(false)
 }
 
 unsafe fn ensure_clif_vectorcall_compiled(
@@ -1012,14 +946,6 @@ pub unsafe fn register_clif_vectorcall(
         ffi::PyErr_SetString(
             ffi::PyExc_TypeError,
             b"register_clif_vectorcall expects a Python function\0".as_ptr() as *const c_char,
-        );
-        return Err(());
-    }
-    if !clif_vectorcall_supported(function)? {
-        ffi::PyErr_SetString(
-            ffi::PyExc_NotImplementedError,
-            b"CLIF vectorcall registration is limited to repo-local test modules\0".as_ptr()
-                as *const c_char,
         );
         return Err(());
     }

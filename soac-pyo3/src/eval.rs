@@ -436,36 +436,6 @@ fn run_specialized_jit(
         ffi::PyObject_IsTrue(value as *mut ffi::PyObject)
     }
 
-    unsafe extern "C" fn compare_eq_obj_hook(lhs: *mut c_void, rhs: *mut c_void) -> *mut c_void {
-        if lhs.is_null() || rhs.is_null() {
-            ffi::PyErr_SetString(
-                ffi::PyExc_RuntimeError,
-                b"invalid arguments to dp_jit_compare_eq_obj\0".as_ptr() as *const i8,
-            );
-            return std::ptr::null_mut();
-        }
-        ffi::PyObject_RichCompare(
-            lhs as *mut ffi::PyObject,
-            rhs as *mut ffi::PyObject,
-            ffi::Py_EQ,
-        ) as *mut c_void
-    }
-
-    unsafe extern "C" fn compare_lt_obj_hook(lhs: *mut c_void, rhs: *mut c_void) -> *mut c_void {
-        if lhs.is_null() || rhs.is_null() {
-            ffi::PyErr_SetString(
-                ffi::PyExc_RuntimeError,
-                b"invalid arguments to dp_jit_compare_lt_obj\0".as_ptr() as *const i8,
-            );
-            return std::ptr::null_mut();
-        }
-        ffi::PyObject_RichCompare(
-            lhs as *mut ffi::PyObject,
-            rhs as *mut ffi::PyObject,
-            ffi::Py_LT,
-        ) as *mut c_void
-    }
-
     unsafe extern "C" fn raise_from_exc_hook(exc: *mut c_void) -> i32 {
         if exc.is_null() {
             ffi::PyErr_SetString(
@@ -527,8 +497,6 @@ fn run_specialized_jit(
         tuple_new: tuple_new_hook,
         tuple_set_item: tuple_set_item_hook,
         is_true: is_true_hook,
-        compare_eq_obj: compare_eq_obj_hook,
-        compare_lt_obj: compare_lt_obj_hook,
         raise_from_exc: raise_from_exc_hook,
     };
 

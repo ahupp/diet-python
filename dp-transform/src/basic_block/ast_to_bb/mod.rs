@@ -24,6 +24,7 @@ mod await_lower;
 mod bound_names;
 mod dataflow;
 mod deleted_names;
+mod exception_pass;
 mod exception_flow;
 mod lowering_helpers;
 mod metadata;
@@ -64,6 +65,7 @@ use naming::{
 };
 use pre_lower::{is_simple_index_target, AnnotationHelperForLoweringPass};
 pub use pre_lower::{BBSimplifyStmtPass, FunctionIdentityByNode};
+pub use exception_pass::lower_try_jump_exception_flow;
 use state_vars::{
     collect_cell_slots, collect_parameter_names, collect_state_vars, sync_target_cells_stmts,
 };

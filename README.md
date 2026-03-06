@@ -154,7 +154,12 @@ Vectorcall entry:
   - Stock is 95.71x faster than current JIT path
   - JIT is 1.045% of stock throughput
 
-  
+Use C API for operators:
+
+  Relative:
+
+  - JIT is 1.940% of stock throughput
+  - Stock is 51.54x faster on this pystone run
 
 
 # Design

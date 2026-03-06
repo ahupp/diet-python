@@ -1,6 +1,9 @@
 use cranelift_jit::JITBuilder;
+use libc;
+use pyo3::ffi;
 use std::ffi::c_void;
 use std::ptr;
+use std::sync::OnceLock;
 
 pub type ObjPtr = *mut c_void;
 pub type IncrefFn = unsafe extern "C" fn(ObjPtr);
@@ -26,8 +29,6 @@ pub type DecodeLiteralBytesFn = unsafe extern "C" fn(*const u8, i64) -> ObjPtr;
 pub type TupleNewFn = unsafe extern "C" fn(i64) -> ObjPtr;
 pub type TupleSetItemFn = unsafe extern "C" fn(ObjPtr, i64, ObjPtr) -> i32;
 pub type IsTrueFn = unsafe extern "C" fn(ObjPtr) -> i32;
-pub type CompareEqFn = unsafe extern "C" fn(ObjPtr, ObjPtr) -> i32;
-pub type CompareObjFn = unsafe extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr;
 pub type RaiseFromExcFn = unsafe extern "C" fn(ObjPtr) -> i32;
 
 #[derive(Clone, Copy)]
@@ -53,8 +54,6 @@ pub struct SpecializedJitHooks {
     pub tuple_new: TupleNewFn,
     pub tuple_set_item: TupleSetItemFn,
     pub is_true: IsTrueFn,
-    pub compare_eq_obj: CompareObjFn,
-    pub compare_lt_obj: CompareObjFn,
     pub raise_from_exc: RaiseFromExcFn,
 }
 
@@ -81,8 +80,6 @@ static mut DP_JIT_DECODE_LITERAL_BYTES_FN: Option<DecodeLiteralBytesFn> = None;
 static mut DP_JIT_TUPLE_NEW_FN: Option<TupleNewFn> = None;
 static mut DP_JIT_TUPLE_SET_ITEM_FN: Option<TupleSetItemFn> = None;
 static mut DP_JIT_IS_TRUE_FN: Option<IsTrueFn> = None;
-static mut DP_JIT_COMPARE_EQ_OBJ_FN: Option<CompareObjFn> = None;
-static mut DP_JIT_COMPARE_LT_OBJ_FN: Option<CompareObjFn> = None;
 static mut DP_JIT_RAISE_FROM_EXC_FN: Option<RaiseFromExcFn> = None;
 
 pub unsafe fn set_smoke_call_one_hook(call_one_arg_fn: CallOneArgFn) {
@@ -120,8 +117,6 @@ pub unsafe fn install_specialized_hooks(hooks: &SpecializedJitHooks) {
     DP_JIT_TUPLE_NEW_FN = Some(hooks.tuple_new);
     DP_JIT_TUPLE_SET_ITEM_FN = Some(hooks.tuple_set_item);
     DP_JIT_IS_TRUE_FN = Some(hooks.is_true);
-    DP_JIT_COMPARE_EQ_OBJ_FN = Some(hooks.compare_eq_obj);
-    DP_JIT_COMPARE_LT_OBJ_FN = Some(hooks.compare_lt_obj);
     DP_JIT_RAISE_FROM_EXC_FN = Some(hooks.raise_from_exc);
 }
 
@@ -321,19 +316,179 @@ pub unsafe extern "C" fn dp_jit_is_true(value: ObjPtr) -> i32 {
     -1
 }
 
-pub unsafe extern "C" fn dp_jit_compare_eq_obj(lhs: ObjPtr, rhs: ObjPtr) -> ObjPtr {
-    if let Some(func) = DP_JIT_COMPARE_EQ_OBJ_FN {
-        return func(lhs, rhs);
+unsafe extern "C" fn pyobject_richcompare_wrapper(lhs: ObjPtr, rhs: ObjPtr, op: i32) -> ObjPtr {
+    if lhs.is_null() || rhs.is_null() {
+        return ptr::null_mut();
     }
-    ptr::null_mut()
+    type Func = unsafe extern "C" fn(*mut ffi::PyObject, *mut ffi::PyObject, i32) -> *mut ffi::PyObject;
+    static SYMBOL: OnceLock<usize> = OnceLock::new();
+    let symbol = *SYMBOL.get_or_init(|| unsafe {
+        load_python_capi_symbol(b"PyObject_RichCompare\0")
+    });
+    if symbol == 0 {
+        return ptr::null_mut();
+    }
+    let func: Func = unsafe { std::mem::transmute(symbol) };
+    func(lhs as *mut ffi::PyObject, rhs as *mut ffi::PyObject, op) as ObjPtr
 }
 
-pub unsafe extern "C" fn dp_jit_compare_lt_obj(lhs: ObjPtr, rhs: ObjPtr) -> ObjPtr {
-    if let Some(func) = DP_JIT_COMPARE_LT_OBJ_FN {
-        return func(lhs, rhs);
-    }
-    ptr::null_mut()
+unsafe fn load_python_capi_symbol(name: &'static [u8]) -> usize {
+    libc::dlsym(libc::RTLD_DEFAULT, name.as_ptr() as *const i8) as usize
 }
+
+macro_rules! define_unary_obj_wrapper {
+    ($fn_name:ident, $symbol:literal) => {
+        unsafe extern "C" fn $fn_name(value: ObjPtr) -> ObjPtr {
+            if value.is_null() {
+                return ptr::null_mut();
+            }
+            type Func = unsafe extern "C" fn(*mut ffi::PyObject) -> *mut ffi::PyObject;
+            static SYMBOL: OnceLock<usize> = OnceLock::new();
+            let symbol = *SYMBOL.get_or_init(|| unsafe {
+                load_python_capi_symbol(concat!($symbol, "\0").as_bytes())
+            });
+            if symbol == 0 {
+                return ptr::null_mut();
+            }
+            let func: Func = unsafe { std::mem::transmute(symbol) };
+            func(value as *mut ffi::PyObject) as ObjPtr
+        }
+    };
+}
+
+macro_rules! define_unary_i32_wrapper {
+    ($fn_name:ident, $symbol:literal) => {
+        unsafe extern "C" fn $fn_name(value: ObjPtr) -> i32 {
+            if value.is_null() {
+                return -1;
+            }
+            type Func = unsafe extern "C" fn(*mut ffi::PyObject) -> i32;
+            static SYMBOL: OnceLock<usize> = OnceLock::new();
+            let symbol = *SYMBOL.get_or_init(|| unsafe {
+                load_python_capi_symbol(concat!($symbol, "\0").as_bytes())
+            });
+            if symbol == 0 {
+                return -1;
+            }
+            let func: Func = unsafe { std::mem::transmute(symbol) };
+            func(value as *mut ffi::PyObject)
+        }
+    };
+}
+
+macro_rules! define_binary_obj_wrapper {
+    ($fn_name:ident, $symbol:literal) => {
+        unsafe extern "C" fn $fn_name(lhs: ObjPtr, rhs: ObjPtr) -> ObjPtr {
+            if lhs.is_null() || rhs.is_null() {
+                return ptr::null_mut();
+            }
+            type Func =
+                unsafe extern "C" fn(*mut ffi::PyObject, *mut ffi::PyObject) -> *mut ffi::PyObject;
+            static SYMBOL: OnceLock<usize> = OnceLock::new();
+            let symbol = *SYMBOL.get_or_init(|| unsafe {
+                load_python_capi_symbol(concat!($symbol, "\0").as_bytes())
+            });
+            if symbol == 0 {
+                return ptr::null_mut();
+            }
+            let func: Func = unsafe { std::mem::transmute(symbol) };
+            func(lhs as *mut ffi::PyObject, rhs as *mut ffi::PyObject) as ObjPtr
+        }
+    };
+}
+
+macro_rules! define_binary_i32_wrapper {
+    ($fn_name:ident, $symbol:literal) => {
+        unsafe extern "C" fn $fn_name(lhs: ObjPtr, rhs: ObjPtr) -> i32 {
+            if lhs.is_null() || rhs.is_null() {
+                return -1;
+            }
+            type Func = unsafe extern "C" fn(*mut ffi::PyObject, *mut ffi::PyObject) -> i32;
+            static SYMBOL: OnceLock<usize> = OnceLock::new();
+            let symbol = *SYMBOL.get_or_init(|| unsafe {
+                load_python_capi_symbol(concat!($symbol, "\0").as_bytes())
+            });
+            if symbol == 0 {
+                return -1;
+            }
+            let func: Func = unsafe { std::mem::transmute(symbol) };
+            func(lhs as *mut ffi::PyObject, rhs as *mut ffi::PyObject)
+        }
+    };
+}
+
+macro_rules! define_ternary_obj_wrapper {
+    ($fn_name:ident, $symbol:literal) => {
+        unsafe extern "C" fn $fn_name(lhs: ObjPtr, rhs: ObjPtr, third: ObjPtr) -> ObjPtr {
+            if lhs.is_null() || rhs.is_null() || third.is_null() {
+                return ptr::null_mut();
+            }
+            type Func = unsafe extern "C" fn(
+                *mut ffi::PyObject,
+                *mut ffi::PyObject,
+                *mut ffi::PyObject,
+            ) -> *mut ffi::PyObject;
+            static SYMBOL: OnceLock<usize> = OnceLock::new();
+            let symbol = *SYMBOL.get_or_init(|| unsafe {
+                load_python_capi_symbol(concat!($symbol, "\0").as_bytes())
+            });
+            if symbol == 0 {
+                return ptr::null_mut();
+            }
+            let func: Func = unsafe { std::mem::transmute(symbol) };
+            func(
+                lhs as *mut ffi::PyObject,
+                rhs as *mut ffi::PyObject,
+                third as *mut ffi::PyObject,
+            ) as ObjPtr
+        }
+    };
+}
+
+define_binary_i32_wrapper!(pysequence_contains_wrapper, "PySequence_Contains");
+define_unary_i32_wrapper!(pyobject_not_wrapper, "PyObject_Not");
+define_unary_i32_wrapper!(pyobject_is_true_wrapper, "PyObject_IsTrue");
+define_binary_obj_wrapper!(pynumber_add_wrapper, "PyNumber_Add");
+define_binary_obj_wrapper!(pynumber_subtract_wrapper, "PyNumber_Subtract");
+define_binary_obj_wrapper!(pynumber_multiply_wrapper, "PyNumber_Multiply");
+define_binary_obj_wrapper!(pynumber_matrix_multiply_wrapper, "PyNumber_MatrixMultiply");
+define_binary_obj_wrapper!(pynumber_true_divide_wrapper, "PyNumber_TrueDivide");
+define_binary_obj_wrapper!(pynumber_floor_divide_wrapper, "PyNumber_FloorDivide");
+define_binary_obj_wrapper!(pynumber_remainder_wrapper, "PyNumber_Remainder");
+define_ternary_obj_wrapper!(pynumber_power_wrapper, "PyNumber_Power");
+define_binary_obj_wrapper!(pynumber_lshift_wrapper, "PyNumber_Lshift");
+define_binary_obj_wrapper!(pynumber_rshift_wrapper, "PyNumber_Rshift");
+define_binary_obj_wrapper!(pynumber_or_wrapper, "PyNumber_Or");
+define_binary_obj_wrapper!(pynumber_xor_wrapper, "PyNumber_Xor");
+define_binary_obj_wrapper!(pynumber_and_wrapper, "PyNumber_And");
+define_binary_obj_wrapper!(pynumber_inplace_add_wrapper, "PyNumber_InPlaceAdd");
+define_binary_obj_wrapper!(pynumber_inplace_subtract_wrapper, "PyNumber_InPlaceSubtract");
+define_binary_obj_wrapper!(pynumber_inplace_multiply_wrapper, "PyNumber_InPlaceMultiply");
+define_binary_obj_wrapper!(
+    pynumber_inplace_matrix_multiply_wrapper,
+    "PyNumber_InPlaceMatrixMultiply"
+);
+define_binary_obj_wrapper!(
+    pynumber_inplace_true_divide_wrapper,
+    "PyNumber_InPlaceTrueDivide"
+);
+define_binary_obj_wrapper!(
+    pynumber_inplace_floor_divide_wrapper,
+    "PyNumber_InPlaceFloorDivide"
+);
+define_binary_obj_wrapper!(
+    pynumber_inplace_remainder_wrapper,
+    "PyNumber_InPlaceRemainder"
+);
+define_ternary_obj_wrapper!(pynumber_inplace_power_wrapper, "PyNumber_InPlacePower");
+define_binary_obj_wrapper!(pynumber_inplace_lshift_wrapper, "PyNumber_InPlaceLshift");
+define_binary_obj_wrapper!(pynumber_inplace_rshift_wrapper, "PyNumber_InPlaceRshift");
+define_binary_obj_wrapper!(pynumber_inplace_or_wrapper, "PyNumber_InPlaceOr");
+define_binary_obj_wrapper!(pynumber_inplace_xor_wrapper, "PyNumber_InPlaceXor");
+define_binary_obj_wrapper!(pynumber_inplace_and_wrapper, "PyNumber_InPlaceAnd");
+define_unary_obj_wrapper!(pynumber_positive_wrapper, "PyNumber_Positive");
+define_unary_obj_wrapper!(pynumber_negative_wrapper, "PyNumber_Negative");
+define_unary_obj_wrapper!(pynumber_invert_wrapper, "PyNumber_Invert");
 
 pub fn register_specialized_jit_symbols(builder: &mut JITBuilder) {
     builder.symbol("dp_jit_incref", dp_jit_incref as *const u8);
@@ -387,9 +542,64 @@ pub fn register_specialized_jit_symbols(builder: &mut JITBuilder) {
     builder.symbol("dp_jit_tuple_new", dp_jit_tuple_new as *const u8);
     builder.symbol("dp_jit_tuple_set_item", dp_jit_tuple_set_item as *const u8);
     builder.symbol("dp_jit_is_true", dp_jit_is_true as *const u8);
-    builder.symbol("dp_jit_compare_eq_obj", dp_jit_compare_eq_obj as *const u8);
-    builder.symbol("dp_jit_compare_lt_obj", dp_jit_compare_lt_obj as *const u8);
     builder.symbol("dp_jit_raise_from_exc", dp_jit_raise_from_exc as *const u8);
+    builder.symbol("PyObject_RichCompare", pyobject_richcompare_wrapper as *const u8);
+    builder.symbol("PySequence_Contains", pysequence_contains_wrapper as *const u8);
+    builder.symbol("PyObject_Not", pyobject_not_wrapper as *const u8);
+    builder.symbol("PyObject_IsTrue", pyobject_is_true_wrapper as *const u8);
+    builder.symbol("PyNumber_Add", pynumber_add_wrapper as *const u8);
+    builder.symbol("PyNumber_Subtract", pynumber_subtract_wrapper as *const u8);
+    builder.symbol("PyNumber_Multiply", pynumber_multiply_wrapper as *const u8);
+    builder.symbol("PyNumber_MatrixMultiply", pynumber_matrix_multiply_wrapper as *const u8);
+    builder.symbol("PyNumber_TrueDivide", pynumber_true_divide_wrapper as *const u8);
+    builder.symbol("PyNumber_FloorDivide", pynumber_floor_divide_wrapper as *const u8);
+    builder.symbol("PyNumber_Remainder", pynumber_remainder_wrapper as *const u8);
+    builder.symbol("PyNumber_Power", pynumber_power_wrapper as *const u8);
+    builder.symbol("PyNumber_Lshift", pynumber_lshift_wrapper as *const u8);
+    builder.symbol("PyNumber_Rshift", pynumber_rshift_wrapper as *const u8);
+    builder.symbol("PyNumber_Or", pynumber_or_wrapper as *const u8);
+    builder.symbol("PyNumber_Xor", pynumber_xor_wrapper as *const u8);
+    builder.symbol("PyNumber_And", pynumber_and_wrapper as *const u8);
+    builder.symbol("PyNumber_InPlaceAdd", pynumber_inplace_add_wrapper as *const u8);
+    builder.symbol(
+        "PyNumber_InPlaceSubtract",
+        pynumber_inplace_subtract_wrapper as *const u8,
+    );
+    builder.symbol(
+        "PyNumber_InPlaceMultiply",
+        pynumber_inplace_multiply_wrapper as *const u8,
+    );
+    builder.symbol(
+        "PyNumber_InPlaceMatrixMultiply",
+        pynumber_inplace_matrix_multiply_wrapper as *const u8,
+    );
+    builder.symbol(
+        "PyNumber_InPlaceTrueDivide",
+        pynumber_inplace_true_divide_wrapper as *const u8,
+    );
+    builder.symbol(
+        "PyNumber_InPlaceFloorDivide",
+        pynumber_inplace_floor_divide_wrapper as *const u8,
+    );
+    builder.symbol(
+        "PyNumber_InPlaceRemainder",
+        pynumber_inplace_remainder_wrapper as *const u8,
+    );
+    builder.symbol("PyNumber_InPlacePower", pynumber_inplace_power_wrapper as *const u8);
+    builder.symbol(
+        "PyNumber_InPlaceLshift",
+        pynumber_inplace_lshift_wrapper as *const u8,
+    );
+    builder.symbol(
+        "PyNumber_InPlaceRshift",
+        pynumber_inplace_rshift_wrapper as *const u8,
+    );
+    builder.symbol("PyNumber_InPlaceOr", pynumber_inplace_or_wrapper as *const u8);
+    builder.symbol("PyNumber_InPlaceXor", pynumber_inplace_xor_wrapper as *const u8);
+    builder.symbol("PyNumber_InPlaceAnd", pynumber_inplace_and_wrapper as *const u8);
+    builder.symbol("PyNumber_Positive", pynumber_positive_wrapper as *const u8);
+    builder.symbol("PyNumber_Negative", pynumber_negative_wrapper as *const u8);
+    builder.symbol("PyNumber_Invert", pynumber_invert_wrapper as *const u8);
 }
 
 pub fn register_smoke_call_one_symbols(builder: &mut JITBuilder) {

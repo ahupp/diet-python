@@ -1,4 +1,4 @@
-use dp_transform::basic_block::bb_ir::{BbFunction, BbModule, BbTerm};
+use crate::basic_block::bb_ir::{BbBlock, BbFunction, BbModule, BbOp, BbTerm};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
@@ -71,7 +71,7 @@ fn split_exception_blocks_for_expr_checks(function: &mut BbFunction) {
                 unique_exc_split_label(&mut used_labels, current_label.as_str(), fresh_index);
             fresh_index += 1;
 
-            out.push(dp_transform::basic_block::bb_ir::BbBlock {
+            out.push(BbBlock {
                 label: current_label.clone(),
                 params: known_names.clone(),
                 local_defs: std::mem::take(&mut first_local_defs),
@@ -85,7 +85,7 @@ fn split_exception_blocks_for_expr_checks(function: &mut BbFunction) {
             current_label = next_label;
 
             if ops.peek().is_none() {
-                out.push(dp_transform::basic_block::bb_ir::BbBlock {
+                out.push(BbBlock {
                     label: current_label.clone(),
                     params: known_names.clone(),
                     local_defs: Vec::new(),
@@ -116,21 +116,18 @@ fn unique_exc_split_label(
     }
 }
 
-fn apply_op_effect_to_known_names(
-    op: &dp_transform::basic_block::bb_ir::BbOp,
-    known_names: &mut Vec<String>,
-) {
+fn apply_op_effect_to_known_names(op: &BbOp, known_names: &mut Vec<String>) {
     match op {
-        dp_transform::basic_block::bb_ir::BbOp::Assign(assign) => {
+        BbOp::Assign(assign) => {
             let target = assign.target.id.to_string();
             if !known_names.iter().any(|name| name == &target) {
                 known_names.push(target);
             }
         }
-        dp_transform::basic_block::bb_ir::BbOp::Expr(_) => {}
-        dp_transform::basic_block::bb_ir::BbOp::Delete(delete) => {
+        BbOp::Expr(_) => {}
+        BbOp::Delete(delete) => {
             for target in &delete.targets {
-                if let dp_transform::basic_block::bb_ir::BbExpr::Name(name) = target {
+                if let crate::basic_block::bb_ir::BbExpr::Name(name) = target {
                     let target_name = name.id.to_string();
                     known_names.retain(|existing| existing != &target_name);
                 }
@@ -349,7 +346,7 @@ fn update_edge_if_better(
 }
 
 fn merge_exception_edge(
-    block: &mut dp_transform::basic_block::bb_ir::BbBlock,
+    block: &mut BbBlock,
     computed_target_label: Option<&String>,
     computed_exc_name: Option<&String>,
     qualname: &str,
@@ -386,9 +383,8 @@ fn merge_exception_edge(
 #[cfg(test)]
 mod tests {
     use super::lower_try_jump_exception_flow;
-    use dp_transform::Options;
-    use dp_transform::basic_block::bb_ir::{BbBlock, BbTerm};
-    use dp_transform::transform_str_to_bb_ir_with_options;
+    use crate::basic_block::bb_ir::{BbBlock, BbTerm};
+    use crate::{transform_str_to_bb_ir_with_options, Options};
 
     #[test]
     fn lowers_try_jump_and_assigns_exception_edges() {
@@ -418,7 +414,7 @@ def f(x):
 
             function
                 .blocks
-                .push(dp_transform::basic_block::bb_ir::BbBlock {
+                .push(BbBlock {
                     label: body_label.clone(),
                     params: vec![],
                     local_defs: vec![],
@@ -429,7 +425,7 @@ def f(x):
                 });
             function
                 .blocks
-                .push(dp_transform::basic_block::bb_ir::BbBlock {
+                .push(BbBlock {
                     label: except_label.clone(),
                     params: vec![],
                     local_defs: vec![],
@@ -439,7 +435,7 @@ def f(x):
                     term: BbTerm::Ret(None),
                 });
 
-            function.blocks[start_index] = dp_transform::basic_block::bb_ir::BbBlock {
+            function.blocks[start_index] = BbBlock {
                 label: template.label.clone(),
                 params: template.params,
                 local_defs: vec![],

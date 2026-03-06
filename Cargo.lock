@@ -1238,6 +1238,7 @@ dependencies = [
  "cranelift-jit",
  "cranelift-module",
  "dp-transform",
+ "libc",
  "log",
  "pyo3",
  "ruff_python_ast",

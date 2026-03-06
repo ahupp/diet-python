@@ -17,14 +17,14 @@ Constraints:
 
 ## Executive Summary
 
-The repository has converged on a basic-block-centric architecture, but it still carries a second execution architecture (`min_ast` + tree-walk evaluator) and a large amount of bridge code between:
+The repository has converged on a basic-block-centric architecture, but it still carries a large amount of bridge code between:
 
 - Ruff AST rewriting
 - BB IR generation
 - BB normalization for codegen
 - CLIF planning/codegen
 - Python runtime helper construction in `__dp__.py`
-- eval-frame/code-extra plumbing in `soac-eval`
+- vectorcall/Python-bridge plumbing in `soac-eval`
 
 The main simplification opportunity is to make the BB IR the single authoritative semantic boundary for execution, then make every other layer smaller and more explicit around that boundary.
 
@@ -49,11 +49,9 @@ The second major opportunity is to replace stringly-typed and late-normalized in
   - Main files: `soac-pyo3/src/lib.rs`, `soac-pyo3/src/eval.rs`.
 
 - `soac-eval/`
-  - Python eval-frame hook integration.
-  - Code-extra registration and lookup.
+  - Python vectorcall bridge integration.
   - CLIF planning and JIT execution.
-  - Still contains the tree-walk `min_ast` runtime.
-  - Main files: `soac-eval/src/code_extra.rs`, `soac-eval/src/tree_walk/eval.rs`, `soac-eval/src/jit/mod.rs`, `soac-eval/src/jit/planning.rs`, `soac-eval/src/jit/exception_pass.rs`.
+  - Main files: `soac-eval/src/tree_walk/eval.rs`, `soac-eval/src/jit/mod.rs`, `soac-eval/src/jit/planning.rs`, `soac-eval/src/jit/exception_pass.rs`.
 
 - `__dp__.py`
   - Runtime helper surface exposed to transformed Python.
@@ -95,22 +93,20 @@ These are the primary files to break up further.
 5. The import hook compiles the transformed Python source and executes it.
 6. The import hook runs `_dp_module_init()`.
 7. Generated module-init code calls `__dp_def_fn`, `__dp_def_gen`, `__dp_def_async_gen`, etc., to create Python callables.
-8. Those helpers in `__dp__.py` create placeholder Python functions/generator wrappers and register lazy CLIF wrapper metadata.
-9. On first function execution, the eval-frame hook in `soac-eval/src/tree_walk/eval.rs` looks up code-extra metadata, compiles the CLIF wrapper if needed, and dispatches into the JIT path.
+8. Those helpers in `__dp__.py` create placeholder Python functions/generator wrappers and register lazy CLIF vectorcall metadata.
+9. On first function call, the vectorcall bridge in `soac-eval/src/tree_walk/eval.rs` compiles the CLIF entry if needed and dispatches directly into the JIT path.
 10. `soac-eval/src/jit/*` executes the CLIF-backed plan.
 
-### Secondary / legacy execution path
+### Removed legacy execution path
 
-There is still a parallel path through `min_ast` and the tree-walk interpreter:
+The old `min_ast` + Rust tree-walk interpreter path has been removed from normal execution.
 
-1. `soac-pyo3/src/eval.rs:transform_to_min_ast(...)` lowers source to Ruff AST and then converts to `min_ast`.
-2. `soac-eval/src/tree_walk/eval.rs` builds function data, code objects, scopes, and interprets `min_ast`.
+The remaining architectural issue is no longer “two live execution engines”. It is:
 
-Even when the CLIF path is primary, this second architecture still shapes the codebase heavily:
-
-- `min_ast` remains public API inside the workspace.
-- `soac-pyo3` still converts to `min_ast`.
-- `soac-eval/src/tree_walk/eval.rs` still contains both wrapper-hook logic and a large interpreter/runtime.
+- some stale `min_ast`-related surfaces still exist in the repository shape
+- BB pipeline stages are still implicit
+- exception lowering is still structurally split across transform and JIT-facing code
+- Python callable materialization remains spread across transformed source, `__dp__.py`, and the Rust bridge
 
 ### BB IR / planning path today
 
@@ -120,18 +116,21 @@ Even when the CLIF path is primary, this second architecture still shapes the co
 4. `soac-eval/src/jit/exception_pass.rs` rewrites `TryJump` into explicit exception edges before planning.
 5. `soac-eval/src/jit/mod.rs` turns `ClifPlan` into Cranelift IR and executable code.
 
-This is directionally correct, but the plan/codegen boundary is still not the only execution boundary in the repository.
+This is directionally correct, but the BB stage boundaries are still not explicit enough in the type/module structure.
 
 ## Architectural Problems
 
-## P1. Two execution architectures are still peers
+## P1. BB stage boundaries are still implicit
 
-The repository currently has:
+The repository now has one live execution architecture, but the stages inside it are still blurrier than they should be:
 
-- BB IR + CLIF path
-- `min_ast` + tree-walk path
+- semantic lowering to BB
+- BB normalization
+- structured exception lowering
+- backend-ready BB preparation
+- CLIF planning / codegen
 
-That makes control flow, callable creation, locals/closure handling, and annotation handling harder to reason about than they need to be. It also causes design work to get split between the two worlds.
+That makes it harder than necessary to answer where a new feature belongs.
 
 ## P2. BB IR is not yet the fully canonical backend-facing representation
 
@@ -149,15 +148,15 @@ This creates representational drift between:
 - `jit/planning`
 - debug/web rendering
 
-## P3. Exception lowering responsibility is split
+## P3. Exception lowering responsibility is split, but should remain two-phase
 
 Today:
 
-- AST-to-BB lowering emits structured try control flow (`TryJump`)
-- JIT-side `exception_pass` lowers it further
-- runtime/JIT execution still has to care about exception-flow shape
+- AST-to-BB lowering emits structured try control flow (`TryJump`) intended to model CLIF-like `try_call` / `try_jump` semantics
+- `exception_pass` lowers that further into explicit exception edges and plain control flow
+- planning/codegen consume the lowered form
 
-This is the right direction, but the ownership boundary is not yet crisp enough. Exception structure should be lowered in one place with one clearly documented contract.
+The split itself is correct. The problem is that the boundary is not explicit enough in the IR model or module ownership.
 
 ## P4. Callable materialization is spread across Python and Rust
 
@@ -166,7 +165,7 @@ Function creation today touches:
 - transformed Python source
 - `_dp_module_init`
 - `__dp__.py` helper constructors
-- code-extra registration
+- vectorcall registration
 - `soac-pyo3`
 - `soac-eval/tree_walk/eval.rs`
 
@@ -191,7 +190,7 @@ This makes it hard to know which helpers are core semantics versus temporary boo
 Examples:
 
 - `ast_to_bb/mod.rs` is simultaneously pre-lowering, CFG building, generator lowering, exception lowering, liveness, naming, metadata, and orchestration.
-- `tree_walk/eval.rs` combines eval-frame interception, CLIF-wrapper setup, code-object handling, closure capture, scope runtime, and the legacy tree-walk interpreter.
+- `tree_walk/eval.rs` combines vectorcall interception, lazy compilation, callable materialization, and Python bridge/runtime glue.
 - `jit/mod.rs` still mixes CLIF assembly, execution, caching, debug rendering, and specialized helper management.
 
 ## P7. Top-level repository structure still contains ambiguous or legacy surfaces
@@ -213,18 +212,18 @@ The target architecture should be:
 2. `BbModule` is the single semantic execution boundary.
 
 3. Any backend-specific preparation is explicit:
-   - `BbModule -> PreparedBbModule` if needed
-   - `PreparedBbModule -> ClifPlan`
+   - `SemanticBbModule -> LoweredBbModule`
+   - `LoweredBbModule -> ClifPlan`
    - `ClifPlan -> CLIF`
    - `ClifPlan -> compiled machine code`
 
 4. Python callable materialization is driven by a small structured descriptor, not by source re-exec or broad helper pattern matching.
 
 5. `soac-eval/tree_walk` is reduced to Python-interpreter integration glue:
-   - eval-frame hook
-   - code-extra
-   - wrapper compilation/caching
-   - possibly code-object construction
+   - vectorcall bridge
+   - lazy compilation/caching
+   - callable materialization
+   - Python runtime glue
    - not a second execution engine
 
 6. `__dp__.py` contains semantic helpers that transformed Python genuinely needs, plus a very small amount of bootstrap glue.
@@ -261,29 +260,24 @@ Success condition:
 
 ## Phase 2. Make BB IR the only semantic execution boundary
 
-This is the most important structural change.
+Status: mostly complete.
 
 Concrete steps:
 
-- Stop treating `min_ast` as a peer execution IR.
-- Reduce `soac-pyo3/src/eval.rs` so it no longer depends on `min_ast` for the main execution path.
-- Move the remaining tree-walk interpreter code behind an explicit legacy/testing boundary, then delete it once parity is reached.
-- Make transformed module execution depend on BB IR registration and wrapper metadata only.
+- Keep `min_ast` out of the live execution path.
+- Remove or isolate any remaining `min_ast`-shaped public/workspace surfaces that still imply it is part of the runtime architecture.
+- Keep transformed module execution dependent on BB IR registration and callable metadata only.
 
-Short-term shape:
+Current shape:
 
 - `LoweringResult` returns transformed Ruff AST string + canonical `BbModule`.
 - `soac-pyo3` registers plans directly from `BbModule`.
-- `tree_walk` keeps eval-frame/code-extra/wrapper plumbing only.
-
-Why second:
-
-- As long as `min_ast` remains a first-class runtime, every architectural decision has to be made twice.
+- `tree_walk` keeps vectorcall bridge/runtime plumbing only.
 
 Success condition:
 
 - All normal transformed execution goes through `BbModule`.
-- `min_ast` is either deleted or isolated as a legacy/internal-only compatibility layer.
+- `min_ast` no longer shapes runtime-facing design decisions.
 
 ## Phase 3. Narrow and validate the BB IR
 
@@ -341,32 +335,31 @@ Success condition:
 
 - No consumer needs a private “one more normalize” step to understand the IR.
 
-## Phase 5. Give exceptions one owner and one contract
+## Phase 5. Make the two exception-lowering phases explicit and typed
 
 Exception handling should be represented in two explicit forms only:
 
-1. structured exception regions in early BB
-2. explicit exception edges/handlers in backend-ready BB
+1. structured exception regions in semantic BB (`TryJump`)
+2. explicit exception edges/handlers in lowered backend-ready BB
 
 Concrete steps:
 
-- Keep early AST-to-BB lowering focused on semantic control-flow structure.
-- Move the full “structured exception -> explicit exception edges” rewrite into one pass.
-- Decide whether that pass belongs in:
-  - `dp-transform/basic_block/passes/exception_lower.rs`, or
-  - `soac-eval/jit/exception_pass.rs`
+- Introduce an explicit semantic/lowered BB distinction in naming and validation.
+- Keep AST-to-BB lowering focused on semantic control-flow structure and CLIF-like `TryJump`.
+- Keep the second phase as a separate pass that lowers `TryJump` into explicit exception edges and plain `brif`/`jump` structure.
+- Move or rename that second-phase pass so it is clearly a BB-lowering phase, not an accidental JIT-only detail.
+- The JIT should consume lowered backend-ready exception edges, not own semantic exception lowering.
 
-Recommended answer:
-
-- Move it into `dp-transform/basic_block/passes/exception_lower.rs`.
-- The JIT should consume backend-ready exception edges, not own semantic exception lowering.
-
-Specific representation improvement:
+Specific representation improvements:
 
 - Represent exception edges as typed metadata on blocks/terminators rather than stringly `exc_target_label` / `exc_name` pairs.
+- Add separate validators for:
+  - semantic BB that may contain `TryJump`
+  - lowered BB that may not contain `TryJump`
 
 Success condition:
 
+- The two exception phases are obvious in the pipeline and type/module structure.
 - The JIT codegen layer never has to interpret structured try/finally semantics directly.
 
 ## Phase 6. Split `ast_to_bb` by phase, not syntax category alone
@@ -396,29 +389,26 @@ Success condition:
 
 - `ast_to_bb/mod.rs` reads like a driver, not like the implementation itself.
 
-## Phase 7. Split `soac-eval/tree_walk` into “Python bridge” and “legacy evaluator”
+## Phase 7. Split `soac-eval/tree_walk` into “Python bridge” pieces
 
-The current name `tree_walk` is misleading because a large part of it is now Python runtime integration rather than tree walking.
+The current name `tree_walk` is misleading because it now primarily holds Python runtime/vectorcall bridge logic rather than tree walking.
 
 Target structure:
 
-- `soac-eval/src/py_bridge/code_extra.rs`
-- `soac-eval/src/py_bridge/eval_frame.rs`
-- `soac-eval/src/py_bridge/function_data.rs`
-- `soac-eval/src/py_bridge/code_object.rs`
-- `soac-eval/src/py_bridge/wrapper_compile.rs`
-- `soac-eval/src/py_bridge/scope_runtime.rs`
-- `soac-eval/src/legacy_eval/` only if the legacy interpreter still exists temporarily
+- `soac-eval/src/py_bridge/vectorcall.rs`
+- `soac-eval/src/py_bridge/materialize.rs`
+- `soac-eval/src/py_bridge/compile_cache.rs`
+- `soac-eval/src/py_bridge/function_metadata.rs`
+- `soac-eval/src/py_bridge/runtime_glue.rs`
 
 Concrete steps:
 
-- Move code-extra and eval-frame interception concerns under a “Python bridge” name.
-- Move any remaining `min_ast` interpreter logic into an explicit legacy module.
-- Delete the legacy module once Phase 2 is complete.
+- Move vectorcall interception and lazy compilation concerns under a “Python bridge” name.
+- Move callable materialization and metadata handling out of the same file as low-level runtime glue.
 
 Success condition:
 
-- `tree_walk/eval.rs` no longer exists as a 4000-line mixed-responsibility file.
+- `tree_walk/eval.rs` no longer exists as a large mixed-responsibility file.
 
 ## Phase 8. Continue splitting `soac-eval/jit` around durable boundaries
 
@@ -453,13 +443,13 @@ Success condition:
 
 ## Phase 9. Simplify callable construction and wrapper metadata flow
 
-Current function creation touches transformed source, `__dp__.py`, code-extra, and Rust bridge code.
+Current function creation touches transformed source, `__dp__.py`, vectorcall registration, and Rust bridge code.
 
 Target model:
 
 - transformed code emits a small structured function descriptor
 - Rust/Python bridge materializes the final callable
-- code-extra registration consumes that descriptor directly
+- vectorcall registration consumes that descriptor directly
 
 Concrete steps:
 
@@ -542,12 +532,12 @@ Success condition:
 ## Recommended Implementation Order
 
 1. Add pipeline and BB validation infrastructure.
-2. Move backend normalization into explicit BB passes.
-3. Narrow BB IR and reduce round-tripping.
-4. Move exception lowering to one owner.
-5. Split `ast_to_bb` into true subphases.
-6. Split `tree_walk` into Python-bridge vs legacy evaluator.
-7. Remove `min_ast` from the main execution path.
+2. Make semantic BB vs lowered BB explicit.
+3. Move backend normalization into explicit BB passes.
+4. Narrow BB IR and reduce round-tripping.
+5. Make the second exception-lowering phase an explicit BB pass contract.
+6. Split `ast_to_bb` into true subphases.
+7. Split `tree_walk` into Python-bridge pieces.
 8. Continue splitting JIT emit/execute/validate/cache/render.
 9. Unify callable descriptor/materialization flow.
 10. Shrink `__dp__.py`.
@@ -579,9 +569,9 @@ If a new feature touches more than one of those categories, the interfaces are s
 These are the best next restructuring tasks to start with:
 
 1. Add `transform/pipeline.rs` and `basic_block/validate.rs`.
-2. Move `codegen_normalize.rs` into explicit BB passes and make plan registration require validated canonical BB.
-3. Move exception lowering fully behind a single pass contract.
-4. Split `tree_walk/eval.rs` into Python-bridge pieces before touching more execution behavior.
-5. Remove `min_ast` from `soac-pyo3`’s primary execution path.
+2. Make semantic BB vs lowered BB an explicit contract.
+3. Move `codegen_normalize.rs` into explicit BB passes and make plan registration require validated canonical BB.
+4. Make the second exception-lowering phase an explicit BB pass with clear input/output invariants.
+5. Split `tree_walk/eval.rs` into Python-bridge pieces before touching more execution behavior.
 
 Those five changes will give the largest improvement in simplicity per unit of churn.
