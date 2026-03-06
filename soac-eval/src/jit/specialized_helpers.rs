@@ -1,15 +1,13 @@
 use cranelift_jit::JITBuilder;
 use libc;
 use pyo3::ffi;
-use std::ffi::{c_void, CString};
+use std::ffi::c_void;
 use std::ptr;
 use std::sync::OnceLock;
 
 pub type ObjPtr = *mut c_void;
 pub type IncrefFn = unsafe extern "C" fn(ObjPtr);
 pub type DecrefFn = unsafe extern "C" fn(ObjPtr);
-pub type CallOneArgFn = unsafe extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr;
-pub type CallTwoArgsFn = unsafe extern "C" fn(ObjPtr, ObjPtr, ObjPtr) -> ObjPtr;
 pub type CallVarArgsFn = unsafe extern "C" fn(ObjPtr, ObjPtr, ObjPtr, ObjPtr) -> ObjPtr;
 pub type CallObjectFn = unsafe extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr;
 pub type CallWithKwFn = unsafe extern "C" fn(ObjPtr, ObjPtr, ObjPtr) -> ObjPtr;
@@ -59,8 +57,6 @@ pub struct SpecializedJitHooks {
 
 static mut DP_JIT_INCREF_FN: Option<IncrefFn> = None;
 static mut DP_JIT_DECREF_FN: Option<DecrefFn> = None;
-static mut DP_JIT_CALL_ONE_ARG_FN: Option<CallOneArgFn> = None;
-static mut DP_JIT_CALL_TWO_ARGS_FN: Option<CallTwoArgsFn> = None;
 static mut DP_JIT_CALL_VAR_ARGS_FN: Option<CallVarArgsFn> = None;
 static mut DP_JIT_CALL_OBJECT_FN: Option<CallObjectFn> = None;
 static mut DP_JIT_CALL_WITH_KW_FN: Option<CallWithKwFn> = None;
@@ -81,19 +77,6 @@ static mut DP_JIT_TUPLE_NEW_FN: Option<TupleNewFn> = None;
 static mut DP_JIT_TUPLE_SET_ITEM_FN: Option<TupleSetItemFn> = None;
 static mut DP_JIT_IS_TRUE_FN: Option<IsTrueFn> = None;
 static mut DP_JIT_RAISE_FROM_EXC_FN: Option<RaiseFromExcFn> = None;
-
-pub unsafe fn set_smoke_call_one_hook(call_one_arg_fn: CallOneArgFn) {
-    DP_JIT_CALL_ONE_ARG_FN = Some(call_one_arg_fn);
-}
-
-pub unsafe fn set_smoke_call_two_hook(call_two_args_fn: CallTwoArgsFn) {
-    DP_JIT_CALL_TWO_ARGS_FN = Some(call_two_args_fn);
-}
-
-pub unsafe fn set_smoke_refcount_hooks(incref_fn: IncrefFn, decref_fn: DecrefFn) {
-    DP_JIT_INCREF_FN = Some(incref_fn);
-    DP_JIT_DECREF_FN = Some(decref_fn);
-}
 
 pub unsafe fn install_specialized_hooks(hooks: &SpecializedJitHooks) {
     DP_JIT_INCREF_FN = Some(hooks.incref);
@@ -489,24 +472,6 @@ pub unsafe extern "C" fn dp_jit_decref(obj: ObjPtr) {
     if let Some(func) = DP_JIT_DECREF_FN {
         func(obj);
     }
-}
-
-pub unsafe extern "C" fn dp_jit_call_one_arg(callable: ObjPtr, arg: ObjPtr) -> ObjPtr {
-    if let Some(func) = DP_JIT_CALL_ONE_ARG_FN {
-        return func(callable, arg);
-    }
-    ptr::null_mut()
-}
-
-pub unsafe extern "C" fn dp_jit_call_two_args(
-    callable: ObjPtr,
-    arg1: ObjPtr,
-    arg2: ObjPtr,
-) -> ObjPtr {
-    if let Some(func) = DP_JIT_CALL_TWO_ARGS_FN {
-        return func(callable, arg1, arg2);
-    }
-    ptr::null_mut()
 }
 
 pub unsafe extern "C" fn dp_jit_raise_from_exc(exc: ObjPtr) -> i32 {
@@ -959,16 +924,4 @@ pub fn register_specialized_jit_symbols(builder: &mut JITBuilder) {
     builder.symbol("PyNumber_Positive", pynumber_positive_wrapper as *const u8);
     builder.symbol("PyNumber_Negative", pynumber_negative_wrapper as *const u8);
     builder.symbol("PyNumber_Invert", pynumber_invert_wrapper as *const u8);
-}
-
-pub fn register_smoke_call_one_symbols(builder: &mut JITBuilder) {
-    builder.symbol("dp_jit_incref", dp_jit_incref as *const u8);
-    builder.symbol("dp_jit_decref", dp_jit_decref as *const u8);
-    builder.symbol("dp_jit_call_one_arg", dp_jit_call_one_arg as *const u8);
-}
-
-pub fn register_smoke_call_two_symbols(builder: &mut JITBuilder) {
-    builder.symbol("dp_jit_incref", dp_jit_incref as *const u8);
-    builder.symbol("dp_jit_decref", dp_jit_decref as *const u8);
-    builder.symbol("dp_jit_call_two_args", dp_jit_call_two_args as *const u8);
 }
