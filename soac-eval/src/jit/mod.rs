@@ -25,6 +25,7 @@ pub use planning::{
     DirectSimpleExprRetNonePlan, DirectSimpleOpPlan, DirectSimpleRetPlan, DirectSimpleTermPlan,
     lookup_clif_plan, register_clif_module_plans,
 };
+pub use specialized_helpers::default_specialized_hooks;
 pub use specialized_helpers::ObjPtr;
 pub use specialized_helpers::SpecializedJitHooks;
 use specialized_helpers::{

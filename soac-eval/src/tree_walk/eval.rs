@@ -1,10 +1,12 @@
 use log::info;
-use super::*;
 use crate::jit::{self, ClifPlan};
+use pyo3::ffi;
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 use std::any::Any;
+use std::ffi::{c_char, c_void, CString};
 use std::panic::{self, AssertUnwindSafe};
+use std::ptr;
 use std::time::Instant;
 
 unsafe extern "C" {

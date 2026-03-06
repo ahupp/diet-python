@@ -1,7 +1,7 @@
 use cranelift_jit::JITBuilder;
 use libc;
 use pyo3::ffi;
-use std::ffi::c_void;
+use std::ffi::{c_void, CString};
 use std::ptr;
 use std::sync::OnceLock;
 
@@ -118,6 +118,365 @@ pub unsafe fn install_specialized_hooks(hooks: &SpecializedJitHooks) {
     DP_JIT_TUPLE_SET_ITEM_FN = Some(hooks.tuple_set_item);
     DP_JIT_IS_TRUE_FN = Some(hooks.is_true);
     DP_JIT_RAISE_FROM_EXC_FN = Some(hooks.raise_from_exc);
+}
+
+unsafe extern "C" fn jit_incref_hook(obj: ObjPtr) {
+    if !obj.is_null() {
+        ffi::Py_INCREF(obj as *mut ffi::PyObject);
+    }
+}
+
+unsafe extern "C" fn jit_decref_hook(obj: ObjPtr) {
+    if !obj.is_null() {
+        ffi::Py_DECREF(obj as *mut ffi::PyObject);
+    }
+}
+
+unsafe extern "C" fn py_call_three_hook(
+    callable: ObjPtr,
+    arg1: ObjPtr,
+    arg2: ObjPtr,
+    arg3: ObjPtr,
+) -> ObjPtr {
+    ffi::PyObject_CallFunctionObjArgs(
+        callable as *mut ffi::PyObject,
+        arg1 as *mut ffi::PyObject,
+        arg2 as *mut ffi::PyObject,
+        arg3 as *mut ffi::PyObject,
+        ptr::null_mut::<ffi::PyObject>(),
+    ) as ObjPtr
+}
+
+unsafe extern "C" fn py_call_object_hook(callable: ObjPtr, args: ObjPtr) -> ObjPtr {
+    ffi::PyObject_CallObject(callable as *mut ffi::PyObject, args as *mut ffi::PyObject) as ObjPtr
+}
+
+unsafe extern "C" fn py_call_with_kw_hook(callable: ObjPtr, args: ObjPtr, kwargs: ObjPtr) -> ObjPtr {
+    ffi::PyObject_Call(
+        callable as *mut ffi::PyObject,
+        args as *mut ffi::PyObject,
+        kwargs as *mut ffi::PyObject,
+    ) as ObjPtr
+}
+
+unsafe extern "C" fn py_get_raised_exception_hook() -> ObjPtr {
+    ffi::PyErr_GetRaisedException() as ObjPtr
+}
+
+unsafe extern "C" fn get_arg_item_hook(args: ObjPtr, index: i64) -> ObjPtr {
+    if args.is_null() {
+        return ptr::null_mut();
+    }
+    ffi::PySequence_GetItem(args as *mut ffi::PyObject, index as ffi::Py_ssize_t) as ObjPtr
+}
+
+unsafe extern "C" fn make_int_hook(value: i64) -> ObjPtr {
+    ffi::PyLong_FromLongLong(value as std::ffi::c_longlong) as ObjPtr
+}
+
+unsafe extern "C" fn make_float_hook(value: f64) -> ObjPtr {
+    ffi::PyFloat_FromDouble(value) as ObjPtr
+}
+
+unsafe extern "C" fn make_bytes_hook(data_ptr: *const u8, data_len: i64) -> ObjPtr {
+    if data_ptr.is_null() || data_len < 0 {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"invalid arguments to dp_jit_make_bytes\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    ffi::PyBytes_FromStringAndSize(data_ptr as *const i8, data_len as ffi::Py_ssize_t) as ObjPtr
+}
+
+unsafe extern "C" fn load_name_hook(
+    globals_obj: ObjPtr,
+    name_ptr: *const u8,
+    name_len: i64,
+) -> ObjPtr {
+    if globals_obj.is_null() || name_ptr.is_null() || name_len < 0 {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"invalid arguments to dp_jit_load_name\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    let name_obj = ffi::PyUnicode_DecodeUTF8(
+        name_ptr as *const i8,
+        name_len as ffi::Py_ssize_t,
+        b"strict\0".as_ptr() as *const i8,
+    );
+    if name_obj.is_null() {
+        return ptr::null_mut();
+    }
+    ffi::Py_INCREF(globals_obj as *mut ffi::PyObject);
+    let builtins_dict = ffi::PyEval_GetBuiltins();
+    if builtins_dict.is_null() {
+        ffi::Py_DECREF(globals_obj as *mut ffi::PyObject);
+        ffi::Py_DECREF(name_obj);
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"PyEval_GetBuiltins returned null\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    let load_global = ffi::PyDict_GetItemString(
+        builtins_dict as *mut ffi::PyObject,
+        b"__dp_load_global\0".as_ptr() as *const i8,
+    );
+    if load_global.is_null() {
+        ffi::Py_DECREF(globals_obj as *mut ffi::PyObject);
+        ffi::Py_DECREF(name_obj);
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"missing builtins.__dp_load_global\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    ffi::Py_INCREF(load_global);
+    let result = ffi::PyObject_CallFunctionObjArgs(
+        load_global,
+        globals_obj as *mut ffi::PyObject,
+        name_obj,
+        ptr::null_mut::<ffi::PyObject>(),
+    );
+    ffi::Py_DECREF(load_global);
+    ffi::Py_DECREF(globals_obj as *mut ffi::PyObject);
+    ffi::Py_DECREF(name_obj);
+    result as ObjPtr
+}
+
+unsafe extern "C" fn load_local_raw_by_name_hook(
+    owner: ObjPtr,
+    name_ptr: *const u8,
+    name_len: i64,
+) -> ObjPtr {
+    if owner.is_null() || name_ptr.is_null() || name_len < 0 {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"invalid arguments to dp_jit_load_local_raw_by_name\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    let name_obj = ffi::PyUnicode_DecodeUTF8(
+        name_ptr as *const i8,
+        name_len as ffi::Py_ssize_t,
+        b"strict\0".as_ptr() as *const i8,
+    );
+    if name_obj.is_null() {
+        return ptr::null_mut();
+    }
+    let builtins_dict = ffi::PyEval_GetBuiltins();
+    if builtins_dict.is_null() {
+        ffi::Py_DECREF(name_obj);
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"PyEval_GetBuiltins returned null\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    let load_local_raw = ffi::PyDict_GetItemString(
+        builtins_dict as *mut ffi::PyObject,
+        b"__dp_load_local_raw\0".as_ptr() as *const i8,
+    );
+    if load_local_raw.is_null() {
+        ffi::Py_DECREF(name_obj);
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"missing builtins.__dp_load_local_raw\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    ffi::Py_INCREF(load_local_raw);
+    let result = ffi::PyObject_CallFunctionObjArgs(
+        load_local_raw,
+        owner as *mut ffi::PyObject,
+        name_obj,
+        ptr::null_mut::<ffi::PyObject>(),
+    );
+    ffi::Py_DECREF(load_local_raw);
+    ffi::Py_DECREF(name_obj);
+    result as ObjPtr
+}
+
+unsafe extern "C" fn pyobject_getattr_hook(obj: ObjPtr, attr: ObjPtr) -> ObjPtr {
+    if obj.is_null() || attr.is_null() {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"invalid arguments to dp_jit_pyobject_getattr\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    ffi::PyObject_GetAttr(obj as *mut ffi::PyObject, attr as *mut ffi::PyObject) as ObjPtr
+}
+
+unsafe extern "C" fn pyobject_setattr_hook(obj: ObjPtr, attr: ObjPtr, value: ObjPtr) -> ObjPtr {
+    if obj.is_null() || attr.is_null() || value.is_null() {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"invalid arguments to dp_jit_pyobject_setattr\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    let rc = ffi::PyObject_SetAttr(
+        obj as *mut ffi::PyObject,
+        attr as *mut ffi::PyObject,
+        value as *mut ffi::PyObject,
+    );
+    if rc == 0 {
+        let none = ffi::Py_None();
+        ffi::Py_INCREF(none);
+        none as ObjPtr
+    } else {
+        ptr::null_mut()
+    }
+}
+
+unsafe extern "C" fn pyobject_getitem_hook(obj: ObjPtr, key: ObjPtr) -> ObjPtr {
+    if obj.is_null() || key.is_null() {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"invalid arguments to dp_jit_pyobject_getitem\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    ffi::PyObject_GetItem(obj as *mut ffi::PyObject, key as *mut ffi::PyObject) as ObjPtr
+}
+
+unsafe extern "C" fn pyobject_setitem_hook(obj: ObjPtr, key: ObjPtr, value: ObjPtr) -> ObjPtr {
+    if obj.is_null() || key.is_null() || value.is_null() {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"invalid arguments to dp_jit_pyobject_setitem\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    let rc = ffi::PyObject_SetItem(
+        obj as *mut ffi::PyObject,
+        key as *mut ffi::PyObject,
+        value as *mut ffi::PyObject,
+    );
+    if rc == 0 {
+        let none = ffi::Py_None();
+        ffi::Py_INCREF(none);
+        none as ObjPtr
+    } else {
+        ptr::null_mut()
+    }
+}
+
+unsafe extern "C" fn pyobject_to_i64_hook(value: ObjPtr) -> i64 {
+    if value.is_null() {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"invalid null value for dp_jit_pyobject_to_i64\0".as_ptr() as *const i8,
+        );
+        return i64::MIN;
+    }
+    let idx_obj = ffi::PyNumber_Index(value as *mut ffi::PyObject);
+    if idx_obj.is_null() {
+        return i64::MIN;
+    }
+    let out = ffi::PyLong_AsLongLong(idx_obj);
+    ffi::Py_DECREF(idx_obj);
+    if out == -1 && !ffi::PyErr_Occurred().is_null() {
+        i64::MIN
+    } else {
+        out as i64
+    }
+}
+
+unsafe extern "C" fn decode_literal_bytes_hook(data_ptr: *const u8, data_len: i64) -> ObjPtr {
+    if data_ptr.is_null() || data_len < 0 {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"invalid arguments to dp_jit_decode_literal_bytes\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    ffi::PyUnicode_DecodeUTF8(
+        data_ptr as *const i8,
+        data_len as ffi::Py_ssize_t,
+        b"surrogatepass\0".as_ptr() as *const i8,
+    ) as ObjPtr
+}
+
+unsafe extern "C" fn tuple_new_hook(size: i64) -> ObjPtr {
+    if size < 0 {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"invalid tuple size in JIT\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    ffi::PyTuple_New(size as ffi::Py_ssize_t) as ObjPtr
+}
+
+unsafe extern "C" fn tuple_set_item_hook(tuple_obj: ObjPtr, index: i64, value: ObjPtr) -> i32 {
+    if tuple_obj.is_null() || value.is_null() || index < 0 {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"invalid tuple_set_item arguments in JIT\0".as_ptr() as *const i8,
+        );
+        return -1;
+    }
+    ffi::PyTuple_SetItem(
+        tuple_obj as *mut ffi::PyObject,
+        index as ffi::Py_ssize_t,
+        value as *mut ffi::PyObject,
+    )
+}
+
+unsafe extern "C" fn is_true_hook(value: ObjPtr) -> i32 {
+    if value.is_null() {
+        return -1;
+    }
+    ffi::PyObject_IsTrue(value as *mut ffi::PyObject)
+}
+
+unsafe extern "C" fn raise_from_exc_hook(exc: ObjPtr) -> i32 {
+    if exc.is_null() {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"missing exception for dp_jit_raise_from_exc\0".as_ptr() as *const i8,
+        );
+        return -1;
+    }
+    let exc_obj = exc as *mut ffi::PyObject;
+    let typ = ffi::PyExceptionInstance_Class(exc_obj);
+    if typ.is_null() {
+        return -1;
+    }
+    ffi::PyErr_SetObject(typ, exc_obj);
+    ffi::Py_DECREF(typ);
+    0
+}
+
+pub fn default_specialized_hooks() -> SpecializedJitHooks {
+    SpecializedJitHooks {
+        incref: jit_incref_hook,
+        decref: jit_decref_hook,
+        py_call_three: py_call_three_hook,
+        py_call_object: py_call_object_hook,
+        py_call_with_kw: py_call_with_kw_hook,
+        py_get_raised_exception: py_get_raised_exception_hook,
+        get_arg_item: get_arg_item_hook,
+        make_int: make_int_hook,
+        make_float: make_float_hook,
+        make_bytes: make_bytes_hook,
+        load_name: load_name_hook,
+        load_local_raw_by_name: load_local_raw_by_name_hook,
+        pyobject_getattr: pyobject_getattr_hook,
+        pyobject_setattr: pyobject_setattr_hook,
+        pyobject_getitem: pyobject_getitem_hook,
+        pyobject_setitem: pyobject_setitem_hook,
+        pyobject_to_i64: pyobject_to_i64_hook,
+        decode_literal_bytes: decode_literal_bytes_hook,
+        tuple_new: tuple_new_hook,
+        tuple_set_item: tuple_set_item_hook,
+        is_true: is_true_hook,
+        raise_from_exc: raise_from_exc_hook,
+    }
 }
 
 pub unsafe extern "C" fn dp_jit_incref(obj: ObjPtr) {
