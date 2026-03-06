@@ -108,29 +108,25 @@ fn jit_render_bb_with_cfg_plan(
 }
 
 #[pyfunction]
-fn register_clif_wrapper(
+fn register_clif_vectorcall(
     py: Python<'_>,
     func: &Bound<'_, PyAny>,
     module_name: &str,
     qualname: &str,
-    sig_obj: &Bound<'_, PyAny>,
-    state_order_obj: &Bound<'_, PyAny>,
-    closure_obj: &Bound<'_, PyAny>,
     build_entry_args_obj: &Bound<'_, PyAny>,
+    materialize_entry_obj: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<()> {
     unsafe {
-        soac_eval::tree_walk::register_clif_wrapper_code_extra(
+        soac_eval::tree_walk::register_clif_vectorcall(
             func.as_ptr(),
             module_name,
             qualname,
-            sig_obj.as_ptr(),
-            state_order_obj.as_ptr(),
-            closure_obj.as_ptr(),
             build_entry_args_obj.as_ptr(),
+            materialize_entry_obj.map_or(std::ptr::null_mut(), |obj| obj.as_ptr()),
         )
         .map_err(|_| {
             if ffi::PyErr_Occurred().is_null() {
-                PyRuntimeError::new_err("failed to register CLIF wrapper code extra")
+                PyRuntimeError::new_err("failed to register CLIF vectorcall")
             } else {
                 PyErr::fetch(py)
             }
@@ -152,9 +148,9 @@ fn jit_compile_clif_wrapper(py: Python<'_>, func: &Bound<'_, PyAny>) -> PyResult
         .unwrap_or_else(|| "<unknown-qualname>".to_string());
     let start = Instant::now();
     unsafe {
-        soac_eval::tree_walk::compile_clif_wrapper_code_extra(func.as_ptr()).map_err(|_| {
+        soac_eval::tree_walk::compile_clif_vectorcall(func.as_ptr()).map_err(|_| {
             if ffi::PyErr_Occurred().is_null() {
-                PyRuntimeError::new_err("failed to eagerly compile CLIF wrapper")
+                PyRuntimeError::new_err("failed to eagerly compile CLIF entry")
             } else {
                 PyErr::fetch(py)
             }
@@ -179,7 +175,7 @@ fn diet_python(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(jit_debug_plan, module)?)?;
     module.add_function(wrap_pyfunction!(jit_render_bb_plan, module)?)?;
     module.add_function(wrap_pyfunction!(jit_render_bb_with_cfg_plan, module)?)?;
-    module.add_function(wrap_pyfunction!(register_clif_wrapper, module)?)?;
+    module.add_function(wrap_pyfunction!(register_clif_vectorcall, module)?)?;
     module.add_function(wrap_pyfunction!(jit_compile_clif_wrapper, module)?)?;
     Ok(())
 }

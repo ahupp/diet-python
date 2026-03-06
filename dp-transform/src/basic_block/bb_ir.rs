@@ -38,7 +38,6 @@ pub enum BindingTarget {
 #[derive(Debug, Clone)]
 pub enum BbFunctionKind {
     Function,
-    Coroutine,
     Generator {
         resume_label: String,
         target_labels: Vec<String>,

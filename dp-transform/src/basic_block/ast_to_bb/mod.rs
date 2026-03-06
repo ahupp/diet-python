@@ -9,7 +9,7 @@ use crate::transform::scope::{
     analyze_module_scope, cell_name, is_internal_symbol, BindingKind, BindingUse, Scope, ScopeKind,
 };
 use crate::transform::{
-    ast_rewrite::{rewrite_with_pass, ExprRewritePass, Rewrite, StmtRewritePass},
+    ast_rewrite::{rewrite_with_pass, Rewrite, StmtRewritePass},
     rewrite_stmt,
 };
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
@@ -1045,8 +1045,6 @@ impl BasicBlockRewriter<'_> {
                         resume_pcs,
                     }
                 }
-            } else if lowered_is_async {
-                LoweredKind::Coroutine
             } else {
                 LoweredKind::Function
             },
@@ -2347,18 +2345,6 @@ impl BasicBlockRewriter<'_> {
                 doc = doc.clone(),
                 annotate_fn = annotate_fn.clone(),
             )),
-            BbFunctionKind::Coroutine => Some(py_expr!(
-                "__dp_def_coro({entry:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, {module_globals:expr}, {module_name:expr}, {doc:expr}, {annotate_fn:expr})",
-                entry = entry_ref_expr.clone(),
-                name = bb_function.display_name.as_str(),
-                qualname = bb_function.qualname.as_str(),
-                closure = closure,
-                params = bb_function.param_specs.to_expr(),
-                module_globals = py_expr!("__dp_globals()"),
-                module_name = py_expr!("__name__"),
-                doc = doc.clone(),
-                annotate_fn = annotate_fn.clone(),
-            )),
             BbFunctionKind::AsyncGenerator {
                 ..
             } => {
@@ -2598,7 +2584,6 @@ struct LoweredFunction {
 #[derive(Clone)]
 enum LoweredKind {
     Function,
-    Coroutine,
     AsyncGenerator {
         resume_label: String,
         target_labels: Vec<String>,
@@ -2715,12 +2700,6 @@ impl Transformer for BasicBlockRewriter<'_> {
     }
 }
 
-fn walk_stmt_body<V: Transformer + ?Sized>(visitor: &mut V, body: &mut StmtBody) {
-    for stmt in body.body.iter_mut() {
-        visitor.visit_stmt(stmt.as_mut());
-    }
-}
-
 fn stmt_body_from_stmts(stmts: Vec<Stmt>) -> StmtBody {
     StmtBody {
         body: stmts.into_iter().map(Box::new).collect(),
@@ -2732,18 +2711,7 @@ fn stmt_body_from_stmts(stmts: Vec<Stmt>) -> StmtBody {
 #[cfg(test)]
 mod tests {
     use super::{BbExpr, BbFunction, BbOp, BbTerm};
-    use crate::{
-        py_expr, transform::Options, transform_str_to_bb_ir_with_options,
-        transform_str_to_ruff_with_options,
-    };
-
-    fn contains_dp_call(lowered: &str, name: &str) -> bool {
-        lowered.contains(&format!("__dp_{name}("))
-            || lowered.contains(&format!("__dp_getattr(__dp__, \"{name}\")("))
-            || lowered.contains(&format!(
-                "__dp_getattr(__dp__, __dp_decode_literal_bytes(b\"{name}\"))("
-            ))
-    }
+    use crate::{py_expr, transform::Options, transform_str_to_bb_ir_with_options};
 
     fn function_by_name<'a>(bb_module: &'a super::BbModule, bind_name: &str) -> &'a BbFunction {
         bb_module

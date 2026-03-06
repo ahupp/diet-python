@@ -1,26 +1,10 @@
-use dp_transform::{
-    Options,
-    basic_block::{bb_ir, normalize_bb_module_for_codegen},
-    transform_str_to_ruff_with_options,
-};
-use pyo3::exceptions::{PyRuntimeError, PySyntaxError};
+use pyo3::exceptions::PyRuntimeError;
 use pyo3::ffi;
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyDict, PyList, PyTuple};
-use std::any::Any;
-use std::ffi::CString;
+use pyo3::types::{PyBool, PyTuple};
+use std::collections::HashMap;
 use std::ffi::c_void;
-
-#[derive(Debug)]
-pub(crate) enum TransformError {
-    Parse(String),
-    Lowering(String),
-}
-
-pub(crate) struct ExecLoweringResult {
-    pub(crate) bb_module: Option<bb_ir::BbModule>,
-    pub(crate) module_docstring: Option<String>,
-}
+use std::sync::{Mutex, OnceLock};
 
 struct ResolvedSpecializedJitBlocks {
     plan: soac_eval::jit::ClifPlan,
@@ -29,176 +13,93 @@ struct ResolvedSpecializedJitBlocks {
     false_obj: *mut c_void,
 }
 
-impl TransformError {
-    pub(crate) fn to_py_err(self) -> PyErr {
-        match self {
-            TransformError::Parse(msg) => PySyntaxError::new_err(msg),
-            TransformError::Lowering(msg) => {
-                PyRuntimeError::new_err(format!("AST lowering failed: {msg}"))
-            }
-        }
-    }
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+struct CachedSpecializedRunnerKey {
+    module_name: String,
+    qualname: String,
+    globals_ptr: usize,
 }
 
-fn panic_payload_to_string(payload: Box<dyn Any + Send>) -> String {
-    if let Some(s) = payload.downcast_ref::<&str>() {
-        (*s).to_string()
-    } else if let Some(s) = payload.downcast_ref::<String>() {
-        s.clone()
-    } else {
-        "unknown panic payload".to_string()
-    }
+#[derive(Debug, Clone, Copy)]
+struct CachedSpecializedRunner {
+    compiled_handle: usize,
 }
 
-fn parse_and_lower(source: &str) -> Result<dp_transform::LoweringResult, TransformError> {
-    let options = Options {
-        inject_import: true,
-        eval_mode: true,
-        lower_attributes: true,
-        truthy: false,
-        force_import_rewrite: true,
-        ..Options::default()
-    };
+static SPECIALIZED_RUNNER_CACHE: OnceLock<
+    Mutex<HashMap<CachedSpecializedRunnerKey, CachedSpecializedRunner>>,
+> = OnceLock::new();
 
-    match std::panic::catch_unwind(|| transform_str_to_ruff_with_options(source, options)) {
-        Ok(Ok(result)) => Ok(result),
-        Ok(Err(err)) => Err(TransformError::Parse(err.to_string())),
-        Err(payload) => Err(TransformError::Lowering(panic_payload_to_string(payload))),
-    }
+fn specialized_runner_cache(
+) -> &'static Mutex<HashMap<CachedSpecializedRunnerKey, CachedSpecializedRunner>> {
+    SPECIALIZED_RUNNER_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn lower_for_execution(source: &str) -> Result<ExecLoweringResult, TransformError> {
-    let lowered = parse_and_lower(source)?;
-    let module_docstring = lowered.module_docstring();
-    Ok(ExecLoweringResult {
-        bb_module: lowered.bb_module,
-        module_docstring,
-    })
-}
-
-fn build_module_spec(
+fn get_or_compile_specialized_runner(
     py: Python<'_>,
-    name: &str,
-    path: &str,
-    is_package: bool,
-) -> PyResult<Py<PyAny>> {
-    let importlib_util = py.import("importlib.util")?;
-    let spec_from = importlib_util.getattr("spec_from_file_location")?;
-    let spec = if is_package {
-        let kwargs = PyDict::new(py);
-        let dir = std::path::Path::new(path)
-            .parent()
-            .and_then(|p| p.to_str())
-            .unwrap_or("");
-        kwargs.set_item("submodule_search_locations", vec![dir])?;
-        spec_from.call((name, path), Some(&kwargs))?
-    } else {
-        spec_from.call1((name, path))?
+    module_name: &str,
+    qualname: &str,
+    globals_obj: &Bound<'_, PyAny>,
+    resolved: &ResolvedSpecializedJitBlocks,
+) -> PyResult<*mut c_void> {
+    let key = CachedSpecializedRunnerKey {
+        module_name: module_name.to_string(),
+        qualname: qualname.to_string(),
+        globals_ptr: globals_obj.as_ptr() as usize,
     };
-    Ok(spec.unbind())
-}
-
-fn set_spec_initializing(spec: &Bound<'_, PyAny>, value: bool) {
-    if spec.setattr("_initializing", value).is_err() {
-        unsafe {
-            ffi::PyErr_Clear();
-        }
-    }
-}
-
-pub(crate) fn eval_source_impl(py: Python<'_>, path: &str, source: &str) -> PyResult<Py<PyAny>> {
-    eval_source_impl_with_name(py, path, source, "eval_source", None)
-}
-
-fn validate_bb_module_for_jit(bb_module: Option<&bb_ir::BbModule>) -> Result<(), String> {
-    let bb_module = bb_module.ok_or_else(|| {
-        "JIT mode requires emitted basic-block IR, but none was produced".to_string()
-    })?;
-    for function in &bb_module.functions {
-        match &function.kind {
-            bb_ir::BbFunctionKind::Function
-            | bb_ir::BbFunctionKind::Generator { .. }
-            | bb_ir::BbFunctionKind::AsyncGenerator { .. } => {}
-            bb_ir::BbFunctionKind::Coroutine => {
-                return Err(format!(
-                    "JIT mode does not support coroutine functions yet: {}",
-                    function.qualname
-                ));
-            }
-        }
-    }
-    Ok(())
-}
-
-fn run_cranelift_jit_preflight(bb_module: Option<&bb_ir::BbModule>) -> Result<(), String> {
-    let bb_module = bb_module.ok_or_else(|| {
-        "JIT mode requires emitted basic-block IR, but none was produced".to_string()
-    })?;
-    let normalized = normalize_bb_module_for_codegen(bb_module);
-    soac_eval::jit::run_cranelift_smoke(&normalized)
-}
-
-fn run_cranelift_python_call_preflight(py: Python<'_>) -> Result<(), String> {
-    unsafe extern "C" fn preflight_incref(obj: *mut c_void) {
-        if !obj.is_null() {
-            ffi::Py_INCREF(obj as *mut ffi::PyObject);
-        }
+    if let Some(existing) = specialized_runner_cache()
+        .lock()
+        .map_err(|_| PyRuntimeError::new_err("failed to lock specialized JIT runner cache"))?
+        .get(&key)
+        .copied()
+    {
+        return Ok(existing.compiled_handle as *mut c_void);
     }
 
-    unsafe extern "C" fn preflight_decref(obj: *mut c_void) {
-        if !obj.is_null() {
-            ffi::Py_DECREF(obj as *mut ffi::PyObject);
-        }
-    }
-
-    unsafe extern "C" fn preflight_call_one_arg(
-        callable: *mut c_void,
-        arg: *mut c_void,
-    ) -> *mut c_void {
-        ffi::PyObject_CallFunctionObjArgs(
-            callable as *mut ffi::PyObject,
-            arg as *mut ffi::PyObject,
-            std::ptr::null_mut::<ffi::PyObject>(),
-        ) as *mut c_void
-    }
-
-    unsafe extern "C" fn preflight_compare_eq(lhs: *mut c_void, rhs: *mut c_void) -> i32 {
-        ffi::PyObject_RichCompareBool(
-            lhs as *mut ffi::PyObject,
-            rhs as *mut ffi::PyObject,
-            ffi::Py_EQ,
+    let none_obj = py.None();
+    let empty_tuple_obj = PyTuple::empty(py);
+    let compiled_handle = unsafe {
+        soac_eval::jit::compile_cranelift_run_bb_specialized_cached(
+            resolved.block_ptrs.as_slice(),
+            &resolved.plan,
+            globals_obj.as_ptr() as *mut c_void,
+            resolved.true_obj,
+            resolved.false_obj,
+            none_obj.as_ptr() as *mut c_void,
+            empty_tuple_obj.as_ptr() as *mut c_void,
         )
     }
+    .map_err(PyRuntimeError::new_err)?;
 
-    // Execute one real Python call through JITed machine code, including
-    // imported INCREF/DECREF and Python-call helper symbols.
-    let builtins = py
-        .import("builtins")
-        .map_err(|err| format!("failed to import builtins for JIT preflight: {err}"))?;
-    let len_fn = builtins
-        .getattr("len")
-        .map_err(|err| format!("failed to resolve builtins.len for JIT preflight: {err}"))?;
-    let arg = PyList::new(py, [1_i64, 2, 3])
-        .map_err(|err| format!("failed to build list arg for JIT preflight: {err}"))?;
-    let expected = 3_i64.into_pyobject(py).map_err(|err| {
-        format!("failed to build expected result object for JIT preflight: {err}")
-    })?;
+    // Compiled CLIF embeds the module globals pointer as a constant. Hold one
+    // strong reference for the lifetime of the process-level cache so repeated
+    // nested helper functions can reuse the same machine code safely.
     unsafe {
-        soac_eval::jit::run_cranelift_python_call_smoke(
-            len_fn.as_ptr() as *mut c_void,
-            arg.as_ptr() as *mut c_void,
-            expected.as_ptr() as *mut c_void,
-            preflight_incref,
-            preflight_decref,
-            preflight_call_one_arg,
-            preflight_compare_eq,
-        )?;
+        ffi::Py_INCREF(globals_obj.as_ptr());
     }
-    Ok(())
+
+    let mut cache = specialized_runner_cache()
+        .lock()
+        .map_err(|_| PyRuntimeError::new_err("failed to lock specialized JIT runner cache"))?;
+    if let Some(existing) = cache.get(&key).copied() {
+        unsafe {
+            soac_eval::jit::free_cranelift_run_bb_specialized_cached(compiled_handle);
+            ffi::Py_DECREF(globals_obj.as_ptr());
+        }
+        return Ok(existing.compiled_handle as *mut c_void);
+    }
+    cache.insert(
+        key,
+        CachedSpecializedRunner {
+            compiled_handle: compiled_handle as usize,
+        },
+    );
+    Ok(compiled_handle)
 }
 
 fn run_specialized_jit(
     py: Python<'_>,
+    module_name: &str,
+    qualname: &str,
     globals_obj: &Bound<'_, PyAny>,
     args: &Bound<'_, PyAny>,
     resolved: ResolvedSpecializedJitBlocks,
@@ -631,19 +532,13 @@ fn run_specialized_jit(
         raise_from_exc: raise_from_exc_hook,
     };
 
-    let none_obj = py.None();
-    let empty_tuple_obj = PyTuple::empty(py);
+    let compiled_handle =
+        get_or_compile_specialized_runner(py, module_name, qualname, globals_obj, &resolved)?;
     let result_ptr = unsafe {
-        soac_eval::jit::run_cranelift_run_bb_specialized(
-            resolved.block_ptrs.as_slice(),
-            &resolved.plan,
-            globals_obj.as_ptr() as *mut c_void,
-            resolved.true_obj,
-            resolved.false_obj,
+        soac_eval::jit::run_cranelift_run_bb_specialized_cached(
+            compiled_handle,
             args.as_ptr() as *mut c_void,
             &hooks,
-            none_obj.as_ptr() as *mut c_void,
-            empty_tuple_obj.as_ptr() as *mut c_void,
         )
         .map_err(PyRuntimeError::new_err)?
     };
@@ -668,7 +563,7 @@ pub(crate) fn jit_run_bb_plan_impl(
     args: &Bound<'_, PyAny>,
 ) -> PyResult<Py<PyAny>> {
     let resolved = resolve_specialized_jit_blocks_by_key(py, module_name, qualname)?;
-    run_specialized_jit(py, globals_obj, args, resolved)
+    run_specialized_jit(py, module_name, qualname, globals_obj, args, resolved)
 }
 
 pub(crate) fn jit_has_bb_plan_impl(module_name: &str, qualname: &str) -> bool {
@@ -807,166 +702,61 @@ pub(crate) fn jit_render_bb_with_cfg_plan_impl(
     }
 }
 
-fn eval_source_impl_with_name_and_spec(
-    py: Python<'_>,
-    path: &str,
-    source: &str,
-    name: &str,
-    package: Option<&str>,
-    spec_opt: Option<Py<PyAny>>,
-) -> PyResult<Py<PyAny>> {
-    let lowering = lower_for_execution(source).map_err(TransformError::to_py_err)?;
-    let bb_module = lowering.bb_module;
-    validate_bb_module_for_jit(bb_module.as_ref()).map_err(PyRuntimeError::new_err)?;
-    if let Some(bb_module) = bb_module.as_ref() {
-        let normalized = normalize_bb_module_for_codegen(bb_module);
-        soac_eval::jit::register_clif_module_plans(name, &normalized).map_err(|err| {
-            PyRuntimeError::new_err(format!("Cranelift JIT plan registration failed: {err}"))
-        })?;
-    }
-    run_cranelift_jit_preflight(bb_module.as_ref()).map_err(|err| {
-        PyRuntimeError::new_err(format!("Cranelift JIT preflight failed: {err}"))
-    })?;
-    run_cranelift_python_call_preflight(py).map_err(|err| {
-        PyRuntimeError::new_err(format!("Cranelift JIT Python-call preflight failed: {err}"))
-    })?;
-
-    unsafe {
-        let module = PyModule::new(py, name)?;
-
-        module.setattr("__name__", name)?;
-
-        if let Some(package) = package {
-            module.setattr("__package__", package)?;
-        }
-
-        module.setattr("__file__", path)?;
-
-        if let Some(docstring) = lowering.module_docstring.as_deref() {
-            module.setattr("__doc__", docstring)?;
-        } else {
-            module.setattr("__doc__", py.None())?;
-        }
-
-        let spec = if let Some(spec) = spec_opt {
-            spec
-        } else {
-            let is_package = path.ends_with("__init__.py");
-            build_module_spec(py, name, path, is_package)?
-        };
-
-        set_spec_initializing(spec.bind(py), true);
-        let eval_result = (|| -> PyResult<()> {
-            module.setattr("__spec__", spec.bind(py))?;
-            match spec.bind(py).getattr("submodule_search_locations") {
-                Ok(submodules) => {
-                    if !submodules.is_none() {
-                        module.setattr("__path__", submodules)?;
-                    }
-                }
-                Err(_) => {
-                    ffi::PyErr_Clear();
-                }
-            }
-
-            let builtins = ffi::PyEval_GetBuiltins();
-            if builtins.is_null() {
-                return Err(PyErr::fetch(py));
-            }
-            let builtins_dict =
-                Bound::<PyAny>::from_borrowed_ptr(py, builtins).cast_into::<PyDict>()?;
-            module.setattr("__builtins__", &builtins_dict)?;
-
-            let dp_module = py.import("__dp__")?;
-            let runtime_module = py.import("diet_python")?;
-            let jit_run_bb_plan = runtime_module.getattr("jit_run_bb_plan")?;
-            let jit_render_bb_plan = runtime_module.getattr("jit_render_bb_plan")?;
-            let jit_has_bb_plan = runtime_module.getattr("jit_has_bb_plan")?;
-            let jit_block_param_names = runtime_module.getattr("jit_block_param_names")?;
-            let register_clif_wrapper = runtime_module.getattr("register_clif_wrapper")?;
-            dp_module.setattr("_jit_run_bb_plan", jit_run_bb_plan)?;
-            dp_module.setattr("_jit_render_bb_plan", jit_render_bb_plan)?;
-            dp_module.setattr("_jit_has_bb_plan", jit_has_bb_plan)?;
-            dp_module.setattr("_jit_block_param_names", jit_block_param_names)?;
-            dp_module.setattr("_register_clif_wrapper", register_clif_wrapper)?;
-
-            let module_dict = module.dict();
-            let name_cstr =
-                CString::new(name).map_err(|_| PyRuntimeError::new_err("invalid __name__"))?;
-            let modules = ffi::PyImport_GetModuleDict();
-            if modules.is_null()
-                || ffi::PyDict_SetItemString(modules, name_cstr.as_ptr(), module.as_any().as_ptr())
-                    != 0
-            {
-                return Err(PyErr::fetch(py));
-            }
-
-            let bb_module_ref = bb_module.as_ref().ok_or_else(|| {
-                PyRuntimeError::new_err(
-                    "JIT mode requires emitted basic-block IR, but none was produced",
-                )
-            })?;
-            // JIT-mode module init executes BB plans directly, so rendered
-            // `_dp_bb_*` Python functions do not exist. Seed block labels as
-            // string placeholders so name loads in transformed DefFn/DefGen
-            // calls resolve to labels consumed by `__dp_def_*`.
-            for function in &bb_module_ref.functions {
-                for block in &function.blocks {
-                    module_dict.set_item(block.label.as_str(), block.label.as_str())?;
-                }
-            }
-            let run_result = if let Some(module_init) = bb_module_ref.module_init.as_deref() {
-                let init_args = PyTuple::empty(py);
-                jit_run_bb_plan_impl(
-                    py,
-                    name,
-                    module_init,
-                    module_dict.as_any(),
-                    init_args.as_any(),
-                )
-                .map(|_| ())
-            } else {
-                Ok(())
-            };
-            if let Err(err) = run_result {
-                ffi::PyDict_DelItemString(modules, name_cstr.as_ptr());
-                return Err(err);
-            }
-
-            Ok(())
-        })();
-
-        set_spec_initializing(spec.bind(py), false);
-        eval_result?;
-        Ok(module.unbind().into_any())
-    }
-}
-
-pub(crate) fn eval_source_impl_with_name(
-    py: Python<'_>,
-    path: &str,
-    source: &str,
-    name: &str,
-    package: Option<&str>,
-) -> PyResult<Py<PyAny>> {
-    eval_source_impl_with_name_and_spec(py, path, source, name, package, None)
-}
-
-pub(crate) fn eval_source_impl_with_spec(
-    py: Python<'_>,
-    path: &str,
-    source: &str,
-    name: &str,
-    package: Option<&str>,
-    spec: Py<PyAny>,
-) -> PyResult<Py<PyAny>> {
-    eval_source_impl_with_name_and_spec(py, path, source, name, package, Some(spec))
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{parse_and_lower, run_cranelift_jit_preflight, validate_bb_module_for_jit};
     use dp_transform::basic_block::bb_ir;
+    use std::any::Any;
+
+    fn panic_payload_to_string(payload: Box<dyn Any + Send>) -> String {
+        if let Some(s) = payload.downcast_ref::<&str>() {
+            (*s).to_string()
+        } else if let Some(s) = payload.downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "unknown panic payload".to_string()
+        }
+    }
+
+    fn parse_and_lower(source: &str) -> Result<dp_transform::LoweringResult, String> {
+        let options = dp_transform::Options {
+            inject_import: true,
+            eval_mode: true,
+            lower_attributes: true,
+            truthy: false,
+            force_import_rewrite: true,
+            ..dp_transform::Options::default()
+        };
+
+        match std::panic::catch_unwind(|| {
+            dp_transform::transform_str_to_ruff_with_options(source, options)
+        }) {
+            Ok(Ok(result)) => Ok(result),
+            Ok(Err(err)) => Err(err.to_string()),
+            Err(payload) => Err(panic_payload_to_string(payload)),
+        }
+    }
+
+    fn validate_bb_module_for_jit(bb_module: Option<&bb_ir::BbModule>) -> Result<(), String> {
+        let bb_module = bb_module.ok_or_else(|| {
+            "JIT mode requires emitted basic-block IR, but none was produced".to_string()
+        })?;
+        for function in &bb_module.functions {
+            match &function.kind {
+                bb_ir::BbFunctionKind::Function
+                | bb_ir::BbFunctionKind::Generator { .. }
+                | bb_ir::BbFunctionKind::AsyncGenerator { .. } => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn run_cranelift_jit_preflight(bb_module: Option<&bb_ir::BbModule>) -> Result<(), String> {
+        let bb_module = bb_module.ok_or_else(|| {
+            "JIT mode requires emitted basic-block IR, but none was produced".to_string()
+        })?;
+        let normalized = dp_transform::basic_block::normalize_bb_module_for_codegen(bb_module);
+        soac_eval::jit::run_cranelift_smoke(&normalized)
+    }
 
     #[test]
     fn jit_validator_accepts_class_defs_without_def_fn_ops() {

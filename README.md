@@ -145,7 +145,16 @@ transform-only
 - Warmed in-process comparison:
   - JIT: logs/benchmark_jit_warm.log -> 5238 loops/s
   - Stock: logs/benchmark_stock_warm.log -> 824962 loops/s
+= 157x slower
 
+Vectorcall entry:
+
+  Relative performance:
+
+  - Stock is 95.71x faster than current JIT path
+  - JIT is 1.045% of stock throughput
+
+  
 
 
 # Design

@@ -209,6 +209,9 @@ def install():
         _dp_module._jit_block_param_names = getattr(
             transform, "jit_block_param_names", None
         )
+        _dp_module._register_clif_vectorcall = getattr(
+            transform, "register_clif_vectorcall", None
+        )
         _dp_module._register_clif_wrapper = getattr(transform, "register_clif_wrapper", None)
     except Exception:
         pass

@@ -191,7 +191,6 @@ fn bb_binding_target_name(target: bb_ir::BindingTarget) -> &'static str {
 fn bb_function_kind_to_json(kind: &bb_ir::BbFunctionKind) -> Value {
     match kind {
         bb_ir::BbFunctionKind::Function => json!({"kind": "function"}),
-        bb_ir::BbFunctionKind::Coroutine => json!({"kind": "coroutine"}),
         bb_ir::BbFunctionKind::Generator {
             resume_label,
             target_labels,

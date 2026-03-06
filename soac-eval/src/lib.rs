@@ -1,7 +1,6 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 #![allow(unused_unsafe)]
 
-pub(crate) mod code_extra;
 pub mod jit;
 pub mod tree_walk;
 

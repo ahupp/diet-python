@@ -854,10 +854,6 @@ impl QualNamer {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::transform::ast_rewrite::rewrite_with_pass;
-    use crate::transform::context::Context;
-    use crate::transform::driver::SimplifyExprPass;
-    use crate::transform::Options;
     use ruff_python_parser::parse_module;
 
     fn parse_module_body(source: &str) -> StmtBody {

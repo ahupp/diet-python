@@ -48,6 +48,10 @@ echo "starting tests"
     "$VENV_DIR/bin/python" -m pytest --help
   else
     export RUST_LOG="${RUST_LOG:-soac_eval::tree_walk::eval=info}"
+    # Repo tests are written around transforming integration modules and the
+    # modules they explicitly opt into. Rewriting pytest/stdlib imports here
+    # adds noise and teardown-only failures without improving coverage.
+    export DIET_PYTHON_INTEGRATION_ONLY="${DIET_PYTHON_INTEGRATION_ONLY:-1}"
     TMP_PYTEST_OUTPUT="$(mktemp -t diet-python-pytest.XXXXXX.log)"
     TEST_START_NS="$(date +%s%N)"
     set +e

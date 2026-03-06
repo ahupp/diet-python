@@ -1,7 +1,6 @@
 # diet-python: disabled
 import collections.abc as _abc
 import inspect as _inspect
-import os
 import operator as _operator
 import reprlib
 import sys
@@ -432,7 +431,7 @@ _jit_run_bb_plan = None
 _jit_render_bb_plan = None
 _jit_has_bb_plan = None
 _jit_block_param_names = None
-_register_clif_wrapper = None
+_register_clif_vectorcall = None
 _jit_implicit_locals_stack = []
 _jit_run_bb_depth = _threading.local()
 _JIT_RECURSION_SOFT_LIMIT = 200
@@ -1502,6 +1501,99 @@ def _build_bb_signature(params):
     return (_inspect.Signature(sig_params), tuple(state_order))
 
 
+def _bb_make_bound_arguments_builder(params, function_name):
+    ns = {}
+    param_tokens = []
+    dict_items = []
+    inserted_kw_marker = False
+    pending_posonly = False
+
+    for index, param in enumerate(params):
+        if len(param) >= 3:
+            raw_name, _, default = param[:3]
+        elif len(param) == 2:
+            raw_name, _ = param
+            default = NO_DEFAULT
+        else:
+            raise RuntimeError(f"invalid bb param spec: {param!r}")
+
+        kind, name = _bb_param_kind_and_name(raw_name)
+        if kind != _inspect.Parameter.POSITIONAL_ONLY and pending_posonly:
+            param_tokens.append("/")
+            pending_posonly = False
+        if kind == _inspect.Parameter.POSITIONAL_ONLY:
+            pending_posonly = True
+
+        default_ref = None
+        if (
+            default is not NO_DEFAULT
+            and kind is not _inspect.Parameter.VAR_POSITIONAL
+            and kind is not _inspect.Parameter.VAR_KEYWORD
+        ):
+            default_ref = f"__dp_default_{index}"
+            ns[default_ref] = default
+
+        if kind == _inspect.Parameter.VAR_POSITIONAL:
+            param_tokens.append(f"*{name}")
+            inserted_kw_marker = True
+        elif kind == _inspect.Parameter.VAR_KEYWORD:
+            param_tokens.append(f"**{name}")
+        else:
+            if kind == _inspect.Parameter.KEYWORD_ONLY and not inserted_kw_marker:
+                param_tokens.append("*")
+                inserted_kw_marker = True
+            token = name if default_ref is None else f"{name}={default_ref}"
+            param_tokens.append(token)
+
+        dict_items.append(f"        {name!r}: {name},")
+
+    if pending_posonly:
+        param_tokens.append("/")
+
+    builder_name = (
+        function_name
+        if isinstance(function_name, str) and function_name.isidentifier()
+        else "_dp_bind"
+    )
+    params_src = ", ".join(param_tokens)
+    dict_items_src = "\n".join(dict_items) if dict_items else ""
+    src = (
+        f"def {builder_name}({params_src}):\n"
+        "    return {\n"
+        f"{dict_items_src}\n"
+        "    }\n"
+    )
+    exec(src, ns, ns)
+    return ns[builder_name]
+
+
+def _bb_make_entry_args_builder(params, state_order, closure_values, function_name):
+    bind_arguments = _bb_make_bound_arguments_builder(params, function_name)
+    _dp_deleted = DELETED
+
+    def build(
+        args,
+        kwargs,
+        __dp_bind_arguments=bind_arguments,
+        __dp_state_order=state_order,
+        __dp_closure_values=closure_values,
+        __dp_deleted=_dp_deleted,
+    ):
+        if kwargs is None:
+            bound_arguments = __dp_bind_arguments(*args)
+        else:
+            bound_arguments = __dp_bind_arguments(*args, **kwargs)
+        values = []
+        for _dp_name in __dp_state_order:
+            if _dp_name in bound_arguments:
+                values.append(bound_arguments[_dp_name])
+            else:
+                values.append(__dp_closure_values.get(_dp_name, __dp_deleted))
+        return tuple(values)
+
+    return build
+
+
 def _bb_state_order(default_order, closure):
     if not isinstance(closure, tuple):
         return (default_order, {})
@@ -1626,15 +1718,11 @@ def _bb_make_lazy_clif_entry(
     return entry
 
 
-def _bb_build_entry_args(bound_arguments, state_order, closure_values):
-    values = []
-    for name in state_order:
-        if name in bound_arguments:
-            values.append(bound_arguments[name])
-        else:
-            values.append(closure_values.get(name, DELETED))
-    return tuple(values)
-
+def _bb_make_state_frame(state_order, state_args):
+    _dp_frame = dict(())
+    for _dp_state_name, _dp_state_value in zip(state_order, state_args):
+        _dp_frame[_dp_state_name] = _dp_state_value
+    return _dp_frame
 
 def _bb_rebind_function_globals(func, module_globals):
     if module_globals is None:
@@ -1672,39 +1760,33 @@ def _bb_set_plan_metadata(
             setattr(func, "__dp_plan_globals", module_globals)
 
 
-def _bb_enable_lazy_clif_wrapper(
+def _bb_enable_lazy_clif_vectorcall(
     entry,
     module_name,
     plan_qualname,
-    signature,
-    state_order,
-    closure_values,
     build_entry_args,
+    materialize_result=None,
 ):
-    # Python functions already use vectorcall by default. Registering CLIF
-    # wrapper code-extra keeps that call convention and routes frame execution
-    # through the PyUnstable eval-frame hook.
-    if _register_clif_wrapper is None:
+    if _register_clif_vectorcall is None:
         raise RuntimeError(
-            "JIT basic-block wrapper registration helper is unavailable for "
+            "JIT basic-block vectorcall registration helper is unavailable for "
             f"{module_name}.{plan_qualname}"
         )
     try:
-        _register_clif_wrapper(
+        _register_clif_vectorcall(
             entry,
             module_name,
             plan_qualname,
-            signature,
-            state_order,
-            closure_values,
             build_entry_args,
+            materialize_result,
         )
+    except NotImplementedError:
+        raise
     except Exception as exc:
         raise RuntimeError(
-            "failed to register lazy CLIF wrapper for "
+            "failed to register lazy CLIF vectorcall for "
             f"{module_name}.{plan_qualname}: {exc}"
         ) from exc
-
 
 def _bb_plan_lookup_qualname(qualname, entry_ref):
     if isinstance(entry_ref, str):
@@ -1792,6 +1874,9 @@ def def_fn(
     # wrapper so we don't need an extra transformed outer function call layer.
     signature, default_state_order = _build_bb_signature(params)
     state_order, closure_values = _bb_state_order(default_state_order, closure)
+    build_entry_args = _bb_make_entry_args_builder(
+        params, state_order, closure_values, name
+    )
     entry_ref = entry_bb if isinstance(entry_bb, str) else None
     plan_qualname = _bb_plan_lookup_qualname(qualname, entry_ref)
     _bb_resolve_entry_ref(entry_bb, module_globals, module_name, qualname)
@@ -1812,6 +1897,8 @@ def def_fn(
         function_name=name,
         module_globals=module_globals,
     )
+    entry = _bb_wrap_with_closure(entry, closure_values)
+    entry = _bb_rebind_function_globals(entry, module_globals)
     entry.__signature__ = signature
     entry = update_fn(entry, qualname, name)
     if module_name is not None:
@@ -1820,67 +1907,11 @@ def def_fn(
         entry.__doc__ = doc
     if annotate_fn is not None:
         entry.__annotate__ = annotate_fn
-    _bb_enable_lazy_clif_wrapper(
+    _bb_enable_lazy_clif_vectorcall(
         entry,
         module_name,
         plan_qualname,
-        signature,
-        state_order,
-        closure_values,
-        _bb_build_entry_args,
-    )
-    return entry
-
-
-def def_coro(
-    entry_bb,
-    name,
-    qualname,
-    closure,
-    params,
-    module_globals=None,
-    module_name=None,
-    doc=None,
-    annotate_fn=None,
-):
-    signature, default_state_order = _build_bb_signature(params)
-    state_order, closure_values = _bb_state_order(default_state_order, closure)
-    entry_ref = entry_bb if isinstance(entry_bb, str) else None
-    plan_qualname = _bb_plan_lookup_qualname(qualname, entry_ref)
-    _bb_resolve_entry_ref(entry_bb, module_globals, module_name, qualname)
-    if not (
-        jit_bb_plan_enabled()
-        and isinstance(module_name, str)
-        and isinstance(plan_qualname, str)
-        and _jit_has_bb_plan is not None
-        and _jit_has_bb_plan(module_name, plan_qualname)
-    ):
-        raise RuntimeError(
-            "JIT basic-block coroutine definition requires a registered plan, "
-            f"but none is available for {module_name}.{plan_qualname}"
-        )
-
-    entry = _bb_make_lazy_clif_entry(
-        async_entry=True,
-        function_name=name,
-        module_globals=module_globals,
-    )
-    entry.__signature__ = signature
-    entry = update_fn(entry, qualname, name)
-    if module_name is not None:
-        entry.__module__ = module_name
-    if doc is not None:
-        entry.__doc__ = doc
-    if annotate_fn is not None:
-        entry.__annotate__ = annotate_fn
-    _bb_enable_lazy_clif_wrapper(
-        entry,
-        module_name,
-        plan_qualname,
-        signature,
-        state_order,
-        closure_values,
-        _bb_build_entry_args,
+        build_entry_args,
     )
     return entry
 
@@ -1912,37 +1943,76 @@ def def_coro_from_gen(
     doc=None,
     annotate_fn=None,
 ):
-    gen_entry = def_gen(
-        resume,
-        name,
-        qualname,
-        closure,
-        params,
-        module_globals,
-        module_name,
-        doc,
-        annotate_fn,
+    signature, default_state_order = _build_bb_signature(params)
+    state_order, closure_values = _bb_state_order(default_state_order, closure)
+    build_entry_args = _bb_make_entry_args_builder(
+        params, state_order, closure_values, name
     )
-
-    def entry(
-        *args,
-        __dp_gen_entry=gen_entry,
-        __dp_coro_type=_DpCoroutine,
-        **kwargs,
+    gen_code = _dp_make_gen_code(name, qualname)
+    entry_ref = resume if isinstance(resume, str) else None
+    plan_qualname = _bb_plan_lookup_qualname(qualname, entry_ref)
+    resolved_resume = _bb_resolve_entry_ref(
+        resume, module_globals, module_name, qualname
+    )
+    if not (
+        jit_bb_plan_enabled()
+        and isinstance(module_name, str)
+        and isinstance(plan_qualname, str)
+        and _jit_has_bb_plan is not None
+        and _jit_has_bb_plan(module_name, plan_qualname)
     ):
-        return __dp_coro_type(__dp_gen_entry(*args, **kwargs))
+        raise RuntimeError(
+            "JIT basic-block coroutine definition requires a registered plan, "
+            f"but none is available for {module_name}.{plan_qualname}"
+        )
 
+    def materialize(
+        state_args,
+        __dp_state_order=state_order,
+        __dp_resume=resolved_resume,
+        __dp_gen_type=_DpGenerator,
+        __dp_coro_type=_DpCoroutine,
+        __dp_name=name,
+        __dp_qualname=qualname,
+        __dp_code=gen_code,
+        __dp_make_state_frame=_bb_make_state_frame,
+    ):
+        return __dp_coro_type(
+            __dp_gen_type(
+                resume=__dp_resume,
+                pc=0,
+                gi_frame=__dp_make_state_frame(__dp_state_order, state_args),
+                name=__dp_name,
+                qualname=__dp_qualname,
+                code=__dp_code,
+            )
+        )
+
+    entry = _bb_make_lazy_clif_entry(
+        async_entry=False,
+        function_name=name,
+        module_globals=module_globals,
+    )
+    entry = _bb_wrap_with_closure(entry, closure_values)
     entry = _bb_rebind_function_globals(entry, module_globals)
-    if hasattr(gen_entry, "__signature__"):
-        entry.__signature__ = gen_entry.__signature__
+    entry.__signature__ = signature
     entry = update_fn(entry, qualname, name)
     if module_name is not None:
         entry.__module__ = module_name
-        _bb_set_plan_metadata(entry, module_name, qualname, module_globals)
+        _bb_set_plan_metadata(
+            entry, module_name, plan_qualname, module_globals, entry_ref=entry_ref
+        )
     if doc is not None:
         entry.__doc__ = doc
     if annotate_fn is not None:
         entry.__annotate__ = annotate_fn
+    _bb_enable_lazy_clif_vectorcall(
+        entry,
+        module_name,
+        plan_qualname,
+        build_entry_args,
+        materialize,
+    )
     return _dp_mark_coroutine_function(entry)
 
 
@@ -2008,48 +2078,71 @@ def def_gen(
 ):
     signature, default_state_order = _build_bb_signature(params)
     state_order, closure_values = _bb_state_order(default_state_order, closure)
+    build_entry_args = _bb_make_entry_args_builder(
+        params, state_order, closure_values, name
+    )
     gen_code = _dp_make_gen_code(name, qualname)
-    _dp_deleted = DELETED
-    _dp_gen_type = _DpGenerator
+    entry_ref = resume if isinstance(resume, str) else None
+    plan_qualname = _bb_plan_lookup_qualname(qualname, entry_ref)
     resolved_resume = _bb_resolve_entry_ref(
         resume, module_globals, module_name, qualname
     )
-
-    def entry(*args, **kwargs):
-        bound = signature.bind(*args, **kwargs)
-        bound.apply_defaults()
-        state_arg_items = []
-        for param in state_order:
-            if param in bound.arguments:
-                state_arg_items.append(bound.arguments[param])
-            else:
-                state_arg_items.append(closure_values.get(param, _dp_deleted))
-        state_args = tuple(state_arg_items)
-        _dp_frame = dict(())
-        for _dp_state_name, _dp_state_value in zip(state_order, state_args):
-            _dp_frame[_dp_state_name] = _dp_state_value
-
-        _dp_gen = _dp_gen_type(
-            resume=resolved_resume,
-            pc=0,
-            gi_frame=_dp_frame,
-            name=name,
-            qualname=qualname,
-            code=gen_code,
+    if not (
+        jit_bb_plan_enabled()
+        and isinstance(module_name, str)
+        and isinstance(plan_qualname, str)
+        and _jit_has_bb_plan is not None
+        and _jit_has_bb_plan(module_name, plan_qualname)
+    ):
+        raise RuntimeError(
+            "JIT basic-block generator definition requires a registered plan, "
+            f"but none is available for {module_name}.{plan_qualname}"
         )
-        return _dp_gen
 
+    def materialize(
+        state_args,
+        __dp_state_order=state_order,
+        __dp_resume=resolved_resume,
+        __dp_gen_type=_DpGenerator,
+        __dp_name=name,
+        __dp_qualname=qualname,
+        __dp_code=gen_code,
+        __dp_make_state_frame=_bb_make_state_frame,
+    ):
+        return __dp_gen_type(
+            resume=__dp_resume,
+            pc=0,
+            gi_frame=__dp_make_state_frame(__dp_state_order, state_args),
+            name=__dp_name,
+            qualname=__dp_qualname,
+            code=__dp_code,
+        )
+
+    entry = _bb_make_lazy_clif_entry(
+        async_entry=False,
+        function_name=name,
+        module_globals=module_globals,
+    )
     entry = _bb_wrap_with_closure(entry, closure_values)
     entry = _bb_rebind_function_globals(entry, module_globals)
     entry.__signature__ = signature
     entry = update_fn(entry, qualname, name)
     if module_name is not None:
         entry.__module__ = module_name
-        _bb_set_plan_metadata(entry, module_name, qualname, module_globals)
+        _bb_set_plan_metadata(
+            entry, module_name, plan_qualname, module_globals, entry_ref=entry_ref
+        )
     if doc is not None:
         entry.__doc__ = doc
     if annotate_fn is not None:
         entry.__annotate__ = annotate_fn
+    _bb_enable_lazy_clif_vectorcall(
+        entry,
+        module_name,
+        plan_qualname,
+        build_entry_args,
+        materialize,
+    )
     return entry
 
 
@@ -2066,49 +2159,73 @@ def def_async_gen(
 ):
     signature, default_state_order = _build_bb_signature(params)
     state_order, closure_values = _bb_state_order(default_state_order, closure)
+    build_entry_args = _bb_make_entry_args_builder(
+        params, state_order, closure_values, name
+    )
     ag_code = _dp_make_async_gen_code(name, qualname)
-    _dp_deleted = DELETED
-    _dp_async_gen_type = _DpAsyncGenerator
+    entry_ref = resume if isinstance(resume, str) else None
+    plan_qualname = _bb_plan_lookup_qualname(qualname, entry_ref)
     resolved_resume = _bb_resolve_entry_ref(
         resume, module_globals, module_name, qualname
     )
+    if not (
+        jit_bb_plan_enabled()
+        and isinstance(module_name, str)
+        and isinstance(plan_qualname, str)
+        and _jit_has_bb_plan is not None
+        and _jit_has_bb_plan(module_name, plan_qualname)
+    ):
+        raise RuntimeError(
+            "JIT basic-block async generator definition requires a registered plan, "
+            f"but none is available for {module_name}.{plan_qualname}"
+        )
 
-    def entry(*args, **kwargs):
-        bound = signature.bind(*args, **kwargs)
-        bound.apply_defaults()
-        state_arg_items = []
-        for param in state_order:
-            if param in bound.arguments:
-                state_arg_items.append(bound.arguments[param])
-            else:
-                state_arg_items.append(closure_values.get(param, _dp_deleted))
-        state_args = tuple(state_arg_items)
-        _dp_frame = dict(())
-        for _dp_state_name, _dp_state_value in zip(state_order, state_args):
-            _dp_frame[_dp_state_name] = _dp_state_value
-
-        _dp_gen = _dp_async_gen_type(
-            resume=resolved_resume,
+    def materialize(
+        state_args,
+        __dp_state_order=state_order,
+        __dp_resume=resolved_resume,
+        __dp_async_gen_type=_DpAsyncGenerator,
+        __dp_name=name,
+        __dp_qualname=qualname,
+        __dp_code=ag_code,
+        __dp_make_state_frame=_bb_make_state_frame,
+    ):
+        _dp_gen = __dp_async_gen_type(
+            resume=__dp_resume,
             pc=0,
-            gi_frame=_dp_frame,
-            name=name,
-            qualname=qualname,
-            code=ag_code,
+            gi_frame=__dp_make_state_frame(__dp_state_order, state_args),
+            name=__dp_name,
+            qualname=__dp_qualname,
+            code=__dp_code,
         )
         _dp_gen._dp_transport_sent = None
         return _dp_gen
 
+    entry = _bb_make_lazy_clif_entry(
+        async_entry=False,
+        function_name=name,
+        module_globals=module_globals,
+    )
     entry = _bb_wrap_with_closure(entry, closure_values)
     entry = _bb_rebind_function_globals(entry, module_globals)
     entry.__signature__ = signature
     entry = update_fn(entry, qualname, name)
     if module_name is not None:
         entry.__module__ = module_name
-        _bb_set_plan_metadata(entry, module_name, qualname, module_globals)
+        _bb_set_plan_metadata(
+            entry, module_name, plan_qualname, module_globals, entry_ref=entry_ref
+        )
     if doc is not None:
         entry.__doc__ = doc
     if annotate_fn is not None:
         entry.__annotate__ = annotate_fn
+    _bb_enable_lazy_clif_vectorcall(
+        entry,
+        module_name,
+        plan_qualname,
+        build_entry_args,
+        materialize,
+    )
     return entry
 
 

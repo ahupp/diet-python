@@ -196,7 +196,6 @@ pub(super) fn lower_generator_yield_terms_to_explicit_return(
 pub(super) fn bb_function_kind_from(kind: &LoweredKind) -> BbFunctionKind {
     match kind {
         LoweredKind::Function => BbFunctionKind::Function,
-        LoweredKind::Coroutine => BbFunctionKind::Coroutine,
         LoweredKind::Generator {
             resume_label,
             target_labels,

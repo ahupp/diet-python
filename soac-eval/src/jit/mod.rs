@@ -69,6 +69,12 @@ struct CompiledSpecializedRunner {
     entry: Option<extern "C" fn(ObjPtr) -> ObjPtr>,
 }
 
+pub type VectorcallEntryFn = unsafe extern "C" fn(ObjPtr, *const ObjPtr, usize, ObjPtr) -> ObjPtr;
+
+struct CompiledVectorcallRunner {
+    _jit_module: JITModule,
+}
+
 fn direct_simple_expr_is_borrowable(expr: &DirectSimpleExprPlan, local_names: &[String]) -> bool {
     match expr {
         DirectSimpleExprPlan::Name(name) => local_names.iter().any(|candidate| candidate == name),
@@ -200,6 +206,215 @@ struct DirectSimpleEmitCtx {
     tuple_set_item_ref: ir::FuncRef,
     compare_eq_obj_ref: ir::FuncRef,
     compare_lt_obj_ref: ir::FuncRef,
+}
+
+fn emit_current_locals_view(
+    fb: &mut FunctionBuilder<'_>,
+    local_names: &[String],
+    local_values: &[ir::Value],
+    ctx: &DirectSimpleEmitCtx,
+    literal_pool: &mut Vec<Box<[u8]>>,
+    normalize_name_bytes: &[u8],
+) -> ir::Value {
+    let decref_ref = ctx.decref_ref;
+    let py_call_ref = ctx.py_call_ref;
+    let py_call_object_ref = ctx.py_call_object_ref;
+    let load_name_ref = ctx.load_name_ref;
+    let pyobject_setitem_ref = ctx.pyobject_setitem_ref;
+    let decode_literal_bytes_ref = ctx.decode_literal_bytes_ref;
+    let DirectSimpleEmitConsts {
+        step_null_block,
+        exec_args,
+        ptr_ty,
+        i64_ty,
+        empty_tuple_const,
+        block_const,
+        ..
+    } = ctx.consts;
+    let null_ptr = fb.ins().iconst(ptr_ty, 0);
+    if let Some(frame_index) = local_names
+        .iter()
+        .position(|candidate| candidate == "_dp_frame")
+    {
+        let frame_obj = local_values[frame_index];
+        let normalize_name_ptr = fb
+            .ins()
+            .iconst(ptr_ty, normalize_name_bytes.as_ptr() as i64);
+        let normalize_name_len = fb.ins().iconst(i64_ty, normalize_name_bytes.len() as i64);
+        let normalize_callable_inst = fb.ins().call(
+            load_name_ref,
+            &[block_const, normalize_name_ptr, normalize_name_len],
+        );
+        let normalize_callable = fb.inst_results(normalize_callable_inst)[0];
+        let normalize_callable_is_null = fb.ins().icmp(
+            ir::condcodes::IntCC::Equal,
+            normalize_callable,
+            null_ptr,
+        );
+        let normalize_callable_ok = fb.create_block();
+        fb.append_block_param(normalize_callable_ok, ptr_ty);
+        fb.ins().brif(
+            normalize_callable_is_null,
+            step_null_block,
+            &[ir::BlockArg::Value(exec_args)],
+            normalize_callable_ok,
+            &[ir::BlockArg::Value(normalize_callable)],
+        );
+        fb.switch_to_block(normalize_callable_ok);
+        let normalize_callable = fb.block_params(normalize_callable_ok)[0];
+        let normalized_inst = fb.ins().call(
+            py_call_ref,
+            &[normalize_callable, frame_obj, null_ptr, null_ptr, null_ptr],
+        );
+        fb.ins().call(decref_ref, &[normalize_callable]);
+        let normalized_obj = fb.inst_results(normalized_inst)[0];
+        let normalized_is_null =
+            fb.ins()
+                .icmp(ir::condcodes::IntCC::Equal, normalized_obj, null_ptr);
+        let normalized_ok = fb.create_block();
+        fb.append_block_param(normalized_ok, ptr_ty);
+        fb.ins().brif(
+            normalized_is_null,
+            step_null_block,
+            &[ir::BlockArg::Value(exec_args)],
+            normalized_ok,
+            &[ir::BlockArg::Value(normalized_obj)],
+        );
+        fb.switch_to_block(normalized_ok);
+        return fb.block_params(normalized_ok)[0];
+    }
+    let dict_name_bytes = b"__dp_dict";
+    let dict_name_ptr = fb.ins().iconst(ptr_ty, dict_name_bytes.as_ptr() as i64);
+    let dict_name_len = fb.ins().iconst(i64_ty, dict_name_bytes.len() as i64);
+    let dict_callable_inst = fb
+        .ins()
+        .call(load_name_ref, &[block_const, dict_name_ptr, dict_name_len]);
+    let dict_callable = fb.inst_results(dict_callable_inst)[0];
+    let dict_callable_is_null = fb
+        .ins()
+        .icmp(ir::condcodes::IntCC::Equal, dict_callable, null_ptr);
+    let dict_callable_ok = fb.create_block();
+    fb.append_block_param(dict_callable_ok, ptr_ty);
+    fb.ins().brif(
+        dict_callable_is_null,
+        step_null_block,
+        &[ir::BlockArg::Value(exec_args)],
+        dict_callable_ok,
+        &[ir::BlockArg::Value(dict_callable)],
+    );
+    fb.switch_to_block(dict_callable_ok);
+    let dict_callable = fb.block_params(dict_callable_ok)[0];
+    let dict_obj_inst = fb
+        .ins()
+        .call(py_call_object_ref, &[dict_callable, empty_tuple_const]);
+    fb.ins().call(decref_ref, &[dict_callable]);
+    let dict_obj = fb.inst_results(dict_obj_inst)[0];
+    let dict_obj_is_null = fb
+        .ins()
+        .icmp(ir::condcodes::IntCC::Equal, dict_obj, null_ptr);
+    let dict_obj_ok = fb.create_block();
+    fb.append_block_param(dict_obj_ok, ptr_ty);
+    fb.ins().brif(
+        dict_obj_is_null,
+        step_null_block,
+        &[ir::BlockArg::Value(exec_args)],
+        dict_obj_ok,
+        &[ir::BlockArg::Value(dict_obj)],
+    );
+    fb.switch_to_block(dict_obj_ok);
+    let dict_obj = fb.block_params(dict_obj_ok)[0];
+
+    for (idx, local_name) in local_names.iter().enumerate() {
+        if local_name.starts_with("_dp_") && !local_name.starts_with("_dp_cell_") {
+            continue;
+        }
+        let export_name = local_name.clone();
+        let value_obj = local_values[idx];
+
+        let (name_ptr, name_len) = intern_bytes_literal(literal_pool, export_name.as_bytes());
+        let name_ptr_val = fb.ins().iconst(ptr_ty, name_ptr as i64);
+        let name_len_val = fb.ins().iconst(i64_ty, name_len);
+        let key_inst = fb
+            .ins()
+            .call(decode_literal_bytes_ref, &[name_ptr_val, name_len_val]);
+        let key_obj = fb.inst_results(key_inst)[0];
+        let key_is_null = fb
+            .ins()
+            .icmp(ir::condcodes::IntCC::Equal, key_obj, null_ptr);
+        let key_ok = fb.create_block();
+        fb.append_block_param(key_ok, ptr_ty);
+        fb.ins().brif(
+            key_is_null,
+            step_null_block,
+            &[ir::BlockArg::Value(exec_args)],
+            key_ok,
+            &[ir::BlockArg::Value(key_obj)],
+        );
+        fb.switch_to_block(key_ok);
+        let key_obj = fb.block_params(key_ok)[0];
+        let set_item_inst = fb
+            .ins()
+            .call(pyobject_setitem_ref, &[dict_obj, key_obj, value_obj]);
+        let set_item_value = fb.inst_results(set_item_inst)[0];
+        fb.ins().call(decref_ref, &[key_obj]);
+        let set_item_failed = fb
+            .ins()
+            .icmp(ir::condcodes::IntCC::Equal, set_item_value, null_ptr);
+        let set_item_ok = fb.create_block();
+        fb.ins().brif(
+            set_item_failed,
+            step_null_block,
+            &[ir::BlockArg::Value(exec_args)],
+            set_item_ok,
+            &[],
+        );
+        fb.switch_to_block(set_item_ok);
+        fb.ins().call(decref_ref, &[set_item_value]);
+    }
+    let normalize_name_ptr = fb
+        .ins()
+        .iconst(ptr_ty, normalize_name_bytes.as_ptr() as i64);
+    let normalize_name_len = fb.ins().iconst(i64_ty, normalize_name_bytes.len() as i64);
+    let normalize_callable_inst = fb.ins().call(
+        load_name_ref,
+        &[block_const, normalize_name_ptr, normalize_name_len],
+    );
+    let normalize_callable = fb.inst_results(normalize_callable_inst)[0];
+    let normalize_callable_is_null = fb
+        .ins()
+        .icmp(ir::condcodes::IntCC::Equal, normalize_callable, null_ptr);
+    let normalize_callable_ok = fb.create_block();
+    fb.append_block_param(normalize_callable_ok, ptr_ty);
+    fb.ins().brif(
+        normalize_callable_is_null,
+        step_null_block,
+        &[ir::BlockArg::Value(exec_args)],
+        normalize_callable_ok,
+        &[ir::BlockArg::Value(normalize_callable)],
+    );
+    fb.switch_to_block(normalize_callable_ok);
+    let normalize_callable = fb.block_params(normalize_callable_ok)[0];
+    let normalized_inst = fb.ins().call(
+        py_call_ref,
+        &[normalize_callable, dict_obj, null_ptr, null_ptr, null_ptr],
+    );
+    fb.ins().call(decref_ref, &[normalize_callable]);
+    let normalized_obj = fb.inst_results(normalized_inst)[0];
+    let normalized_is_null = fb
+        .ins()
+        .icmp(ir::condcodes::IntCC::Equal, normalized_obj, null_ptr);
+    let normalized_ok = fb.create_block();
+    fb.append_block_param(normalized_ok, ptr_ty);
+    fb.ins().brif(
+        normalized_is_null,
+        step_null_block,
+        &[ir::BlockArg::Value(exec_args)],
+        normalized_ok,
+        &[ir::BlockArg::Value(normalized_obj)],
+    );
+    fb.switch_to_block(normalized_ok);
+    fb.ins().call(decref_ref, &[dict_obj]);
+    fb.block_params(normalized_ok)[0]
 }
 
 fn emit_direct_simple_expr(
@@ -510,202 +725,104 @@ fn emit_direct_simple_expr(
                     && simple_args.is_empty()
                     && (func_name == "__dp_locals" || func_name == "__dp_dir_")
                 {
-                    if let Some(frame_index) = local_names
-                        .iter()
-                        .position(|candidate| candidate == "_dp_frame")
-                    {
-                        let frame_obj = local_values[frame_index];
-                        let normalize_name_bytes: &[u8] = if func_name == "__dp_locals" {
-                            b"__dp_normalize_mapping"
-                        } else {
-                            b"__dp_dir_from_locals_mapping"
-                        };
-                        let normalize_name_ptr = fb
-                            .ins()
-                            .iconst(ptr_ty, normalize_name_bytes.as_ptr() as i64);
-                        let normalize_name_len =
-                            fb.ins().iconst(i64_ty, normalize_name_bytes.len() as i64);
-                        let normalize_callable_inst = fb.ins().call(
-                            load_name_ref,
-                            &[block_const, normalize_name_ptr, normalize_name_len],
-                        );
-                        let normalize_callable = fb.inst_results(normalize_callable_inst)[0];
-                        let normalize_callable_is_null = fb.ins().icmp(
-                            ir::condcodes::IntCC::Equal,
-                            normalize_callable,
-                            null_ptr,
-                        );
-                        let normalize_callable_ok = fb.create_block();
-                        fb.append_block_param(normalize_callable_ok, ptr_ty);
-                        fb.ins().brif(
-                            normalize_callable_is_null,
-                            step_null_block,
-                            &[ir::BlockArg::Value(exec_args)],
-                            normalize_callable_ok,
-                            &[ir::BlockArg::Value(normalize_callable)],
-                        );
-                        fb.switch_to_block(normalize_callable_ok);
-                        let normalize_callable = fb.block_params(normalize_callable_ok)[0];
-                        let normalized_inst = fb.ins().call(
-                            py_call_ref,
-                            &[normalize_callable, frame_obj, null_ptr, null_ptr, null_ptr],
-                        );
-                        fb.ins().call(decref_ref, &[normalize_callable]);
-                        let normalized_obj = fb.inst_results(normalized_inst)[0];
-                        let normalized_is_null =
-                            fb.ins()
-                                .icmp(ir::condcodes::IntCC::Equal, normalized_obj, null_ptr);
-                        let normalized_ok = fb.create_block();
-                        fb.append_block_param(normalized_ok, ptr_ty);
-                        fb.ins().brif(
-                            normalized_is_null,
-                            step_null_block,
-                            &[ir::BlockArg::Value(exec_args)],
-                            normalized_ok,
-                            &[ir::BlockArg::Value(normalized_obj)],
-                        );
-                        fb.switch_to_block(normalized_ok);
-                        return fb.block_params(normalized_ok)[0];
-                    }
-                    let dict_name_bytes = b"__dp_dict";
-                    let dict_name_ptr = fb.ins().iconst(ptr_ty, dict_name_bytes.as_ptr() as i64);
-                    let dict_name_len = fb.ins().iconst(i64_ty, dict_name_bytes.len() as i64);
-                    let dict_callable_inst = fb
-                        .ins()
-                        .call(load_name_ref, &[block_const, dict_name_ptr, dict_name_len]);
-                    let dict_callable = fb.inst_results(dict_callable_inst)[0];
-                    let dict_callable_is_null =
-                        fb.ins()
-                            .icmp(ir::condcodes::IntCC::Equal, dict_callable, null_ptr);
-                    let dict_callable_ok = fb.create_block();
-                    fb.append_block_param(dict_callable_ok, ptr_ty);
-                    fb.ins().brif(
-                        dict_callable_is_null,
-                        step_null_block,
-                        &[ir::BlockArg::Value(exec_args)],
-                        dict_callable_ok,
-                        &[ir::BlockArg::Value(dict_callable)],
-                    );
-                    fb.switch_to_block(dict_callable_ok);
-                    let dict_callable = fb.block_params(dict_callable_ok)[0];
-                    let dict_obj_inst = fb
-                        .ins()
-                        .call(py_call_object_ref, &[dict_callable, empty_tuple_const]);
-                    fb.ins().call(decref_ref, &[dict_callable]);
-                    let dict_obj = fb.inst_results(dict_obj_inst)[0];
-                    let dict_obj_is_null =
-                        fb.ins()
-                            .icmp(ir::condcodes::IntCC::Equal, dict_obj, null_ptr);
-                    let dict_obj_ok = fb.create_block();
-                    fb.append_block_param(dict_obj_ok, ptr_ty);
-                    fb.ins().brif(
-                        dict_obj_is_null,
-                        step_null_block,
-                        &[ir::BlockArg::Value(exec_args)],
-                        dict_obj_ok,
-                        &[ir::BlockArg::Value(dict_obj)],
-                    );
-                    fb.switch_to_block(dict_obj_ok);
-                    let dict_obj = fb.block_params(dict_obj_ok)[0];
-
-                    for (idx, local_name) in local_names.iter().enumerate() {
-                        if local_name.starts_with("_dp_") && !local_name.starts_with("_dp_cell_") {
-                            continue;
-                        }
-                        let export_name = local_name.clone();
-                        let value_obj = local_values[idx];
-
-                        let (name_ptr, name_len) =
-                            intern_bytes_literal(literal_pool, export_name.as_bytes());
-                        let name_ptr_val = fb.ins().iconst(ptr_ty, name_ptr as i64);
-                        let name_len_val = fb.ins().iconst(i64_ty, name_len);
-                        let key_inst = fb
-                            .ins()
-                            .call(decode_literal_bytes_ref, &[name_ptr_val, name_len_val]);
-                        let key_obj = fb.inst_results(key_inst)[0];
-                        let key_is_null =
-                            fb.ins()
-                                .icmp(ir::condcodes::IntCC::Equal, key_obj, null_ptr);
-                        let key_ok = fb.create_block();
-                        fb.append_block_param(key_ok, ptr_ty);
-                        fb.ins().brif(
-                            key_is_null,
-                            step_null_block,
-                            &[ir::BlockArg::Value(exec_args)],
-                            key_ok,
-                            &[ir::BlockArg::Value(key_obj)],
-                        );
-                        fb.switch_to_block(key_ok);
-                        let key_obj = fb.block_params(key_ok)[0];
-                        let set_item_inst = fb
-                            .ins()
-                            .call(pyobject_setitem_ref, &[dict_obj, key_obj, value_obj]);
-                        let set_item_value = fb.inst_results(set_item_inst)[0];
-                        fb.ins().call(decref_ref, &[key_obj]);
-                        let set_item_failed =
-                            fb.ins()
-                                .icmp(ir::condcodes::IntCC::Equal, set_item_value, null_ptr);
-                        let set_item_ok = fb.create_block();
-                        fb.ins().brif(
-                            set_item_failed,
-                            step_null_block,
-                            &[ir::BlockArg::Value(exec_args)],
-                            set_item_ok,
-                            &[],
-                        );
-                        fb.switch_to_block(set_item_ok);
-                        fb.ins().call(decref_ref, &[set_item_value]);
-                    }
                     let normalize_name_bytes: &[u8] = if func_name == "__dp_locals" {
                         b"__dp_normalize_mapping"
                     } else {
                         b"__dp_dir_from_locals_mapping"
                     };
-                    let normalize_name_ptr = fb
-                        .ins()
-                        .iconst(ptr_ty, normalize_name_bytes.as_ptr() as i64);
-                    let normalize_name_len =
-                        fb.ins().iconst(i64_ty, normalize_name_bytes.len() as i64);
-                    let normalize_callable_inst = fb.ins().call(
-                        load_name_ref,
-                        &[block_const, normalize_name_ptr, normalize_name_len],
+                    return emit_current_locals_view(
+                        fb,
+                        local_names,
+                        local_values,
+                        ctx,
+                        literal_pool,
+                        normalize_name_bytes,
                     );
-                    let normalize_callable = fb.inst_results(normalize_callable_inst)[0];
-                    let normalize_callable_is_null =
-                        fb.ins()
-                            .icmp(ir::condcodes::IntCC::Equal, normalize_callable, null_ptr);
-                    let normalize_callable_ok = fb.create_block();
-                    fb.append_block_param(normalize_callable_ok, ptr_ty);
-                    fb.ins().brif(
-                        normalize_callable_is_null,
-                        step_null_block,
-                        &[ir::BlockArg::Value(exec_args)],
-                        normalize_callable_ok,
-                        &[ir::BlockArg::Value(normalize_callable)],
+                }
+                if !has_unpack
+                    && simple_keywords.is_empty()
+                    && ((func_name == "__dp_eval_" && (simple_args.len() == 1 || simple_args.len() == 2))
+                        || (func_name == "__dp_exec_" && simple_args.len() == 1))
+                {
+                    let callable_is_borrowed =
+                        direct_simple_expr_is_borrowable(func.as_ref(), local_names);
+                    let callable = emit_direct_simple_expr(
+                        fb,
+                        func.as_ref(),
+                        local_names,
+                        local_values,
+                        ctx,
+                        literal_pool,
+                        callable_is_borrowed,
                     );
-                    fb.switch_to_block(normalize_callable_ok);
-                    let normalize_callable = fb.block_params(normalize_callable_ok)[0];
-                    let normalized_inst = fb.ins().call(
+                    let source_is_borrowed =
+                        direct_simple_expr_is_borrowable(simple_args[0], local_names);
+                    let source_obj = emit_direct_simple_expr(
+                        fb,
+                        simple_args[0],
+                        local_names,
+                        local_values,
+                        ctx,
+                        literal_pool,
+                        source_is_borrowed,
+                    );
+                    if source_is_borrowed {
+                        fb.ins().call(incref_ref, &[source_obj]);
+                    }
+                    let globals_obj = if simple_args.len() == 2 {
+                        let globals_is_borrowed =
+                            direct_simple_expr_is_borrowable(simple_args[1], local_names);
+                        let globals_obj = emit_direct_simple_expr(
+                            fb,
+                            simple_args[1],
+                            local_names,
+                            local_values,
+                            ctx,
+                            literal_pool,
+                            globals_is_borrowed,
+                        );
+                        if globals_is_borrowed {
+                            fb.ins().call(incref_ref, &[globals_obj]);
+                        }
+                        globals_obj
+                    } else {
+                        block_const
+                    };
+                    let locals_obj = emit_current_locals_view(
+                        fb,
+                        local_names,
+                        local_values,
+                        ctx,
+                        literal_pool,
+                        b"__dp_normalize_mapping",
+                    );
+                    let call_inst = fb.ins().call(
                         py_call_ref,
-                        &[normalize_callable, dict_obj, null_ptr, null_ptr, null_ptr],
+                        &[callable, source_obj, globals_obj, locals_obj, null_ptr],
                     );
-                    fb.ins().call(decref_ref, &[normalize_callable]);
-                    let normalized_obj = fb.inst_results(normalized_inst)[0];
-                    let normalized_is_null =
-                        fb.ins()
-                            .icmp(ir::condcodes::IntCC::Equal, normalized_obj, null_ptr);
-                    let normalized_ok = fb.create_block();
-                    fb.append_block_param(normalized_ok, ptr_ty);
+                    fb.ins().call(decref_ref, &[locals_obj]);
+                    fb.ins().call(decref_ref, &[source_obj]);
+                    if simple_args.len() == 2 {
+                        fb.ins().call(decref_ref, &[globals_obj]);
+                    }
+                    if !callable_is_borrowed {
+                        fb.ins().call(decref_ref, &[callable]);
+                    }
+                    let call_value = fb.inst_results(call_inst)[0];
+                    let call_is_null = fb
+                        .ins()
+                        .icmp(ir::condcodes::IntCC::Equal, call_value, null_ptr);
+                    let call_ok_block = fb.create_block();
+                    fb.append_block_param(call_ok_block, ptr_ty);
                     fb.ins().brif(
-                        normalized_is_null,
+                        call_is_null,
                         step_null_block,
                         &[ir::BlockArg::Value(exec_args)],
-                        normalized_ok,
-                        &[ir::BlockArg::Value(normalized_obj)],
+                        call_ok_block,
+                        &[ir::BlockArg::Value(call_value)],
                     );
-                    fb.switch_to_block(normalized_ok);
-                    fb.ins().call(decref_ref, &[dict_obj]);
-                    return fb.block_params(normalized_ok)[0];
+                    fb.switch_to_block(call_ok_block);
+                    return fb.block_params(call_ok_block)[0];
                 }
             }
             if has_unpack {
@@ -3698,6 +3815,140 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
     Ok(Box::into_raw(compiled) as ObjPtr)
 }
 
+pub unsafe fn compile_cranelift_vectorcall_trampoline(
+    build_bb_args_fn: unsafe extern "C" fn(ObjPtr, *const ObjPtr, usize, ObjPtr, ObjPtr) -> ObjPtr,
+    run_compiled_fn: unsafe extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr,
+    data_ptr: ObjPtr,
+    compiled_handle: ObjPtr,
+) -> Result<(ObjPtr, VectorcallEntryFn), String> {
+    if data_ptr.is_null() {
+        return Err("invalid null vectorcall data pointer".to_string());
+    }
+    if compiled_handle.is_null() {
+        return Err("invalid null compiled handle for vectorcall trampoline".to_string());
+    }
+
+    let mut builder = new_jit_builder()?;
+    builder.symbol(
+        "dp_jit_vectorcall_build_bb_args",
+        build_bb_args_fn as *const u8,
+    );
+    builder.symbol(
+        "dp_jit_vectorcall_run_compiled",
+        run_compiled_fn as *const u8,
+    );
+    let mut jit_module = JITModule::new(builder);
+    let ptr_ty = jit_module.target_config().pointer_type();
+
+    let mut build_sig = jit_module.make_signature();
+    build_sig.params.push(ir::AbiParam::new(ptr_ty));
+    build_sig.params.push(ir::AbiParam::new(ptr_ty));
+    build_sig.params.push(ir::AbiParam::new(ptr_ty));
+    build_sig.params.push(ir::AbiParam::new(ptr_ty));
+    build_sig.params.push(ir::AbiParam::new(ptr_ty));
+    build_sig.returns.push(ir::AbiParam::new(ptr_ty));
+
+    let mut run_sig = jit_module.make_signature();
+    run_sig.params.push(ir::AbiParam::new(ptr_ty));
+    run_sig.params.push(ir::AbiParam::new(ptr_ty));
+    run_sig.returns.push(ir::AbiParam::new(ptr_ty));
+
+    let mut main_sig = jit_module.make_signature();
+    main_sig.params.push(ir::AbiParam::new(ptr_ty));
+    main_sig.params.push(ir::AbiParam::new(ptr_ty));
+    main_sig.params.push(ir::AbiParam::new(ptr_ty));
+    main_sig.params.push(ir::AbiParam::new(ptr_ty));
+    main_sig.returns.push(ir::AbiParam::new(ptr_ty));
+
+    let build_id = declare_import_fn(
+        &mut jit_module,
+        "dp_jit_vectorcall_build_bb_args",
+        &build_sig,
+    )?;
+    let run_id = declare_import_fn(
+        &mut jit_module,
+        "dp_jit_vectorcall_run_compiled",
+        &run_sig,
+    )?;
+    let main_id = declare_local_fn(
+        &mut jit_module,
+        "dp_jit_vectorcall_trampoline",
+        &main_sig,
+    )?;
+
+    let mut ctx = jit_module.make_context();
+    ctx.func.signature = main_sig;
+    let mut builder_ctx = FunctionBuilderContext::new();
+    {
+        let mut fb = FunctionBuilder::new(&mut ctx.func, &mut builder_ctx);
+        let entry = fb.create_block();
+        fb.append_block_params_for_function_params(entry);
+        fb.switch_to_block(entry);
+        fb.seal_block(entry);
+
+        let callable_val = fb.block_params(entry)[0];
+        let args_val = fb.block_params(entry)[1];
+        let nargsf_val = fb.block_params(entry)[2];
+        let kwnames_val = fb.block_params(entry)[3];
+
+        let build_ref = jit_module.declare_func_in_func(build_id, &mut fb.func);
+        let run_ref = jit_module.declare_func_in_func(run_id, &mut fb.func);
+
+        let data_const = fb.ins().iconst(ptr_ty, data_ptr as i64);
+        let compiled_const = fb.ins().iconst(ptr_ty, compiled_handle as i64);
+        let build_inst = fb.ins().call(
+            build_ref,
+            &[callable_val, args_val, nargsf_val, kwnames_val, data_const],
+        );
+        let bb_args = fb.inst_results(build_inst)[0];
+        let null_ptr = fb.ins().iconst(ptr_ty, 0);
+        let args_missing = fb
+            .ins()
+            .icmp(ir::condcodes::IntCC::Equal, bb_args, null_ptr);
+        let build_failed = fb.create_block();
+        let build_ok = fb.create_block();
+        fb.append_block_param(build_ok, ptr_ty);
+        fb.ins().brif(
+            args_missing,
+            build_failed,
+            &[],
+            build_ok,
+            &[ir::BlockArg::Value(bb_args)],
+        );
+        fb.seal_block(build_failed);
+        fb.seal_block(build_ok);
+
+        fb.switch_to_block(build_failed);
+        fb.ins().return_(&[null_ptr]);
+
+        fb.switch_to_block(build_ok);
+        let built_args = fb.block_params(build_ok)[0];
+        let run_inst = fb.ins().call(run_ref, &[compiled_const, built_args]);
+        let result = fb.inst_results(run_inst)[0];
+        fb.ins().return_(&[result]);
+        fb.seal_all_blocks();
+        fb.finalize();
+    }
+
+    define_function_with_incremental_cache(
+        &mut jit_module,
+        main_id,
+        &mut ctx,
+        "failed to define vectorcall trampoline",
+    )?;
+    jit_module.clear_context(&mut ctx);
+    jit_module
+        .finalize_definitions()
+        .map_err(|err| format!("failed to finalize vectorcall trampoline: {err}"))?;
+
+    let code_ptr = jit_module.get_finalized_function(main_id);
+    let entry: VectorcallEntryFn = std::mem::transmute(code_ptr);
+    let compiled = Box::new(CompiledVectorcallRunner {
+        _jit_module: jit_module,
+    });
+    Ok((Box::into_raw(compiled) as ObjPtr, entry))
+}
+
 pub unsafe fn run_cranelift_run_bb_specialized_cached(
     compiled_handle: ObjPtr,
     args: ObjPtr,
@@ -3715,6 +3966,13 @@ pub unsafe fn run_cranelift_run_bb_specialized_cached(
         return Err("invalid compiled handle without entrypoint".to_string());
     };
     Ok(entry(args))
+}
+
+pub unsafe fn free_cranelift_vectorcall_trampoline(compiled_handle: ObjPtr) {
+    if compiled_handle.is_null() {
+        return;
+    }
+    let _ = Box::from_raw(compiled_handle as *mut CompiledVectorcallRunner);
 }
 
 pub unsafe fn free_cranelift_run_bb_specialized_cached(compiled_handle: ObjPtr) {
