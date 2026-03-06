@@ -2,3 +2,7 @@
 	path = vendor/ruff
 	url = https://github.com/ahupp/ruff.git
 	branch = diet-python
+[submodule "vendor/cpython"]
+	path = vendor/cpython
+	url = https://github.com/ahupp/cpython.git
+	branch = soac
