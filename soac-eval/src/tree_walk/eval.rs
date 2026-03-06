@@ -4,6 +4,7 @@ use pyo3::ffi;
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 use std::any::Any;
+use std::collections::HashMap;
 use std::ffi::{c_char, c_void, CString};
 use std::panic::{self, AssertUnwindSafe};
 use std::ptr;
@@ -36,17 +37,77 @@ fn set_runtime_error<T>(msg: &str) -> Result<T, ()> {
 const CLIF_VECTORCALL_CAPSULE_NAME: &[u8] = b"soac.clif_vectorcall_data\0";
 const CLIF_VECTORCALL_ATTR: &[u8] = b"__dp_clif_vectorcall_data\0";
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BindingKind {
+    Function,
+    GeneratorResume,
+    AsyncGeneratorResume,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BindingParamKind {
+    PositionalOnly,
+    PositionalOrKeyword,
+    VarArgs,
+    KeywordOnly,
+    VarKeyword,
+}
+
+#[derive(Debug)]
+struct BindingParam {
+    name: String,
+    kind: BindingParamKind,
+    state_index: Option<usize>,
+    default_value: *mut ffi::PyObject,
+}
+
+#[derive(Debug)]
+struct BindingMetadata {
+    kind: BindingKind,
+    state_order: Vec<String>,
+    params: Vec<BindingParam>,
+    positional_param_indices: Vec<usize>,
+    param_lookup: HashMap<String, usize>,
+    varargs_param: Option<usize>,
+    varkw_param: Option<usize>,
+    closure_state_values: Vec<*mut ffi::PyObject>,
+    deleted_obj: *mut ffi::PyObject,
+}
+
 struct ClifFunctionData {
     plan: ClifPlan,
     module_name: String,
     qualname: String,
     true_obj: *mut ffi::PyObject,
     false_obj: *mut ffi::PyObject,
-    build_entry_args_obj: *mut ffi::PyObject,
+    binding: BindingMetadata,
     materialize_entry_obj: *mut ffi::PyObject,
     compiled_handle: *mut c_void,
     compiled_vectorcall_handle: *mut c_void,
     compiled_vectorcall_entry: Option<jit::VectorcallEntryFn>,
+}
+
+fn set_type_error<T>(msg: &str) -> Result<T, ()> {
+    unsafe {
+        ffi::PyErr_SetString(ffi::PyExc_TypeError, CString::new(msg).unwrap().as_ptr());
+    }
+    Err(())
+}
+
+unsafe fn decref_if_non_null(obj: *mut ffi::PyObject) {
+    if !obj.is_null() {
+        ffi::Py_DECREF(obj);
+    }
+}
+
+unsafe fn free_binding_metadata(binding: BindingMetadata) {
+    for param in binding.params {
+        decref_if_non_null(param.default_value);
+    }
+    for value in binding.closure_state_values {
+        decref_if_non_null(value);
+    }
+    decref_if_non_null(binding.deleted_obj);
 }
 
 unsafe fn free_clif_function_data(ptr: *mut c_void) {
@@ -60,9 +121,7 @@ unsafe fn free_clif_function_data(ptr: *mut c_void) {
     if !data.false_obj.is_null() {
         unsafe { ffi::Py_DECREF(data.false_obj) };
     }
-    if !data.build_entry_args_obj.is_null() {
-        unsafe { ffi::Py_DECREF(data.build_entry_args_obj) };
-    }
+    unsafe { free_binding_metadata(data.binding) };
     if !data.materialize_entry_obj.is_null() {
         unsafe { ffi::Py_DECREF(data.materialize_entry_obj) };
     }
@@ -87,27 +146,170 @@ unsafe extern "C" fn free_clif_vectorcall_capsule(capsule: *mut ffi::PyObject) {
     }
 }
 
-unsafe fn owned_ptr_to_bound<'py>(
-    py: Python<'py>,
-    ptr: *mut ffi::PyObject,
-) -> PyResult<Bound<'py, PyAny>> {
-    Bound::from_owned_ptr_or_opt(py, ptr).ok_or_else(|| PyErr::fetch(py))
+unsafe fn py_string(obj: *mut ffi::PyObject) -> Result<String, ()> {
+    if ffi::PyUnicode_Check(obj) == 0 {
+        return set_type_error("expected string metadata while registering CLIF vectorcall");
+    }
+    let mut len = 0;
+    let ptr = ffi::PyUnicode_AsUTF8AndSize(obj, &mut len);
+    if ptr.is_null() {
+        return Err(());
+    }
+    let bytes = std::slice::from_raw_parts(ptr as *const u8, len as usize);
+    Ok(String::from_utf8_lossy(bytes).into_owned())
+}
+
+fn parse_param_kind(raw_name: &str) -> (BindingParamKind, &str) {
+    if let Some(name) = raw_name.strip_prefix("**") {
+        return (BindingParamKind::VarKeyword, name);
+    }
+    if let Some(name) = raw_name.strip_prefix('*') {
+        return (BindingParamKind::VarArgs, name);
+    }
+    if let Some(name) = raw_name.strip_prefix("kw:") {
+        return (BindingParamKind::KeywordOnly, name);
+    }
+    if let Some(name) = raw_name.strip_prefix('/') {
+        return (BindingParamKind::PositionalOnly, name);
+    }
+    (BindingParamKind::PositionalOrKeyword, raw_name)
+}
+
+unsafe fn parse_binding_metadata(
+    state_order_obj: *mut ffi::PyObject,
+    params_obj: *mut ffi::PyObject,
+    closure_values_obj: *mut ffi::PyObject,
+    deleted_obj: *mut ffi::PyObject,
+    no_default_obj: *mut ffi::PyObject,
+    bind_kind: i32,
+) -> Result<BindingMetadata, ()> {
+    let kind = match bind_kind {
+        0 => BindingKind::Function,
+        1 => BindingKind::GeneratorResume,
+        2 => BindingKind::AsyncGeneratorResume,
+        _ => {
+            return set_type_error("invalid CLIF vectorcall bind kind");
+        }
+    };
+    if !ffi::PyTuple_Check(state_order_obj).is_positive() {
+        return set_type_error("CLIF vectorcall state_order must be a tuple");
+    }
+    if deleted_obj.is_null() {
+        return set_type_error("CLIF vectorcall requires a deleted sentinel");
+    }
+
+    let state_len = ffi::PyTuple_GET_SIZE(state_order_obj) as usize;
+    let mut state_order = Vec::with_capacity(state_len);
+    let mut state_index_by_name = HashMap::with_capacity(state_len);
+    for index in 0..state_len {
+        let name_obj = ffi::PyTuple_GET_ITEM(state_order_obj, index as ffi::Py_ssize_t);
+        let name = py_string(name_obj)?;
+        if state_index_by_name.insert(name.clone(), index).is_some() {
+            return set_type_error("duplicate state_order entry in CLIF vectorcall metadata");
+        }
+        state_order.push(name);
+    }
+
+    ffi::Py_INCREF(deleted_obj);
+    let mut closure_state_values = vec![ptr::null_mut(); state_len];
+    if !closure_values_obj.is_null() {
+        if ffi::PyDict_Check(closure_values_obj) == 0 {
+            return set_type_error("CLIF vectorcall closure_values must be a dict");
+        }
+        for (index, name) in state_order.iter().enumerate() {
+            let c_name = CString::new(name.as_str()).map_err(|_| ())?;
+            let value =
+                ffi::PyDict_GetItemString(closure_values_obj, c_name.as_ptr() as *const c_char);
+            if !value.is_null() {
+                ffi::Py_INCREF(value);
+                closure_state_values[index] = value;
+            }
+        }
+    }
+
+    let mut params = Vec::new();
+    let mut positional_param_indices = Vec::new();
+    let mut param_lookup = HashMap::new();
+    let mut varargs_param = None;
+    let mut varkw_param = None;
+
+    if matches!(kind, BindingKind::Function) {
+        if params_obj.is_null() || ffi::PyTuple_Check(params_obj) == 0 {
+            return set_type_error("CLIF function binding params must be a tuple");
+        }
+        let param_count = ffi::PyTuple_GET_SIZE(params_obj) as usize;
+        params.reserve(param_count);
+        for index in 0..param_count {
+            let param_obj = ffi::PyTuple_GET_ITEM(params_obj, index as ffi::Py_ssize_t);
+            if ffi::PyTuple_Check(param_obj) == 0 {
+                return set_type_error("CLIF function binding param entry must be a tuple");
+            }
+            let entry_len = ffi::PyTuple_GET_SIZE(param_obj);
+            if entry_len < 2 {
+                return set_type_error("invalid CLIF function binding param entry");
+            }
+            let raw_name_obj = ffi::PyTuple_GET_ITEM(param_obj, 0);
+            let raw_name = py_string(raw_name_obj)?;
+            let (param_kind, name) = parse_param_kind(&raw_name);
+            let state_index = state_index_by_name.get(name).copied();
+            let mut default_value = ptr::null_mut();
+            if entry_len >= 3 {
+                let candidate = ffi::PyTuple_GET_ITEM(param_obj, 2);
+                if candidate != no_default_obj {
+                    ffi::Py_INCREF(candidate);
+                    default_value = candidate;
+                }
+            }
+            let name_string = name.to_string();
+            if param_lookup.insert(name_string.clone(), params.len()).is_some() {
+                decref_if_non_null(default_value);
+                return set_type_error("duplicate parameter name in CLIF function binding metadata");
+            }
+            match param_kind {
+                BindingParamKind::PositionalOnly | BindingParamKind::PositionalOrKeyword => {
+                    positional_param_indices.push(params.len());
+                }
+                BindingParamKind::VarArgs => {
+                    varargs_param = Some(params.len());
+                }
+                BindingParamKind::VarKeyword => {
+                    varkw_param = Some(params.len());
+                }
+                BindingParamKind::KeywordOnly => {}
+            }
+            params.push(BindingParam {
+                name: name_string,
+                kind: param_kind,
+                state_index,
+                default_value,
+            });
+        }
+    }
+
+    Ok(BindingMetadata {
+        kind,
+        state_order,
+        params,
+        positional_param_indices,
+        param_lookup,
+        varargs_param,
+        varkw_param,
+        closure_state_values,
+        deleted_obj,
+    })
 }
 
 unsafe fn make_clif_function_data(
     module_name: &str,
     qualname: &str,
-    build_entry_args_obj: *mut ffi::PyObject,
+    state_order_obj: *mut ffi::PyObject,
+    params_obj: *mut ffi::PyObject,
+    closure_values_obj: *mut ffi::PyObject,
+    deleted_obj: *mut ffi::PyObject,
+    no_default_obj: *mut ffi::PyObject,
+    bind_kind: i32,
     materialize_entry_obj: *mut ffi::PyObject,
 ) -> Result<*mut c_void, ()> {
-    if build_entry_args_obj.is_null() {
-        ffi::PyErr_SetString(
-            ffi::PyExc_TypeError,
-            b"CLIF function registration expects a non-null build-entry-args helper\0".as_ptr()
-                as *const c_char,
-        );
-        return Err(());
-    }
     let plan = jit::lookup_clif_plan(module_name, qualname);
     let Some(plan) = plan else {
         let msg = format!(
@@ -157,6 +359,21 @@ unsafe fn make_clif_function_data(
         ffi::Py_DECREF(true_obj);
         return Err(());
     }
+    let binding = match parse_binding_metadata(
+        state_order_obj,
+        params_obj,
+        closure_values_obj,
+        deleted_obj,
+        no_default_obj,
+        bind_kind,
+    ) {
+        Ok(value) => value,
+        Err(()) => {
+            ffi::Py_DECREF(true_obj);
+            ffi::Py_DECREF(false_obj);
+            return Err(());
+        }
+    };
 
     let clif_data = Box::new(ClifFunctionData {
         plan,
@@ -164,11 +381,7 @@ unsafe fn make_clif_function_data(
         qualname: qualname.to_string(),
         true_obj,
         false_obj,
-        build_entry_args_obj: {
-            let ptr = build_entry_args_obj;
-            ffi::Py_INCREF(ptr);
-            ptr
-        },
+        binding,
         materialize_entry_obj: {
             let ptr = materialize_entry_obj;
             if !ptr.is_null() {
@@ -285,71 +498,423 @@ unsafe fn ensure_clif_vectorcall_compiled(
     Ok(())
 }
 
-unsafe fn vectorcall_args_tuple(
-    args: *const *mut ffi::PyObject,
-    count: ffi::Py_ssize_t,
+unsafe fn cleanup_state_values(state_values: &mut [*mut ffi::PyObject]) {
+    for value in state_values.iter_mut() {
+        if !value.is_null() {
+            ffi::Py_DECREF(*value);
+            *value = ptr::null_mut();
+        }
+    }
+}
+
+unsafe fn state_value_from_borrowed(
+    state_values: &mut [*mut ffi::PyObject],
+    state_index: usize,
+    value: *mut ffi::PyObject,
+) {
+    ffi::Py_INCREF(value);
+    state_values[state_index] = value;
+}
+
+unsafe fn state_value_from_owned(
+    state_values: &mut [*mut ffi::PyObject],
+    state_index: usize,
+    value: *mut ffi::PyObject,
+) {
+    state_values[state_index] = value;
+}
+
+unsafe fn fill_state_tuple_from_values(
+    binding: &BindingMetadata,
+    mut state_values: Vec<*mut ffi::PyObject>,
 ) -> *mut ffi::PyObject {
-    let tuple = ffi::PyTuple_New(count);
-    if tuple.is_null() {
+    let result = ffi::PyTuple_New(binding.state_order.len() as ffi::Py_ssize_t);
+    if result.is_null() {
+        cleanup_state_values(&mut state_values);
         return ptr::null_mut();
     }
-    for index in 0..count {
-        let item = if count == 0 {
-            ptr::null_mut()
+    for index in 0..binding.state_order.len() {
+        let item = if !state_values[index].is_null() {
+            let owned = state_values[index];
+            state_values[index] = ptr::null_mut();
+            owned
+        } else if !binding.closure_state_values[index].is_null() {
+            let borrowed = binding.closure_state_values[index];
+            ffi::Py_INCREF(borrowed);
+            borrowed
         } else {
-            *args.add(index as usize)
+            ffi::Py_INCREF(binding.deleted_obj);
+            binding.deleted_obj
         };
-        if item.is_null() {
-            ffi::Py_DECREF(tuple);
+        if ffi::PyTuple_SetItem(result, index as ffi::Py_ssize_t, item) != 0 {
+            ffi::Py_DECREF(item);
+            ffi::Py_DECREF(result);
+            cleanup_state_values(&mut state_values);
+            return ptr::null_mut();
+        }
+    }
+    cleanup_state_values(&mut state_values);
+    result
+}
+
+unsafe fn build_function_state_tuple(
+    args: *const *mut ffi::PyObject,
+    nargsf: usize,
+    kwnames: *mut ffi::PyObject,
+    binding: &BindingMetadata,
+) -> *mut ffi::PyObject {
+    let nargs = ffi::PyVectorcall_NARGS(nargsf) as usize;
+    let nkw = if kwnames.is_null() {
+        0
+    } else {
+        ffi::PyTuple_GET_SIZE(kwnames) as usize
+    };
+    let mut state_values = vec![ptr::null_mut(); binding.state_order.len()];
+    let mut assigned = vec![false; binding.params.len()];
+
+    let positional_capacity = binding.positional_param_indices.len();
+    if binding.varargs_param.is_none() && nargs > positional_capacity {
+        cleanup_state_values(&mut state_values);
+        let msg = format!(
+            "{}() takes {} positional argument{} but {} {} given",
+            binding
+                .state_order
+                .first()
+                .map(String::as_str)
+                .unwrap_or("<function>"),
+            positional_capacity,
+            if positional_capacity == 1 { "" } else { "s" },
+            nargs,
+            if nargs == 1 { "was" } else { "were" }
+        );
+        return set_type_error::<*mut ffi::PyObject>(&msg).err().map_or(ptr::null_mut(), |_| ptr::null_mut());
+    }
+
+    let positional_bound = nargs.min(positional_capacity);
+    for position in 0..positional_bound {
+        let param_index = binding.positional_param_indices[position];
+        let value = *args.add(position);
+        if value.is_null() {
+            cleanup_state_values(&mut state_values);
             ffi::PyErr_SetString(
                 ffi::PyExc_RuntimeError,
                 b"null vectorcall positional argument\0".as_ptr() as *const i8,
             );
             return ptr::null_mut();
         }
-        ffi::Py_INCREF(item);
-        if ffi::PyTuple_SetItem(tuple, index, item) != 0 {
-            ffi::Py_DECREF(tuple);
-            return ptr::null_mut();
+        if let Some(state_index) = binding.params[param_index].state_index {
+            state_value_from_borrowed(&mut state_values, state_index, value);
         }
+        assigned[param_index] = true;
     }
-    tuple
-}
 
-unsafe fn vectorcall_kwargs_dict(
-    args: *const *mut ffi::PyObject,
-    positional_count: ffi::Py_ssize_t,
-    keyword_count: ffi::Py_ssize_t,
-    kwnames: *mut ffi::PyObject,
-) -> *mut ffi::PyObject {
-    if keyword_count == 0 {
-        return ptr::null_mut();
+    if let Some(varargs_param) = binding.varargs_param {
+        if let Some(state_index) = binding.params[varargs_param].state_index {
+            let extras = nargs.saturating_sub(positional_capacity);
+            let extra_tuple = ffi::PyTuple_New(extras as ffi::Py_ssize_t);
+            if extra_tuple.is_null() {
+                cleanup_state_values(&mut state_values);
+                return ptr::null_mut();
+            }
+            for offset in 0..extras {
+                let value = *args.add(positional_capacity + offset);
+                if value.is_null() {
+                    ffi::Py_DECREF(extra_tuple);
+                    cleanup_state_values(&mut state_values);
+                    ffi::PyErr_SetString(
+                        ffi::PyExc_RuntimeError,
+                        b"null vectorcall positional vararg\0".as_ptr() as *const i8,
+                    );
+                    return ptr::null_mut();
+                }
+                ffi::Py_INCREF(value);
+                if ffi::PyTuple_SetItem(extra_tuple, offset as ffi::Py_ssize_t, value) != 0 {
+                    ffi::Py_DECREF(value);
+                    ffi::Py_DECREF(extra_tuple);
+                    cleanup_state_values(&mut state_values);
+                    return ptr::null_mut();
+                }
+            }
+            state_value_from_owned(&mut state_values, state_index, extra_tuple);
+        }
+        assigned[varargs_param] = true;
     }
-    let kwargs = ffi::PyDict_New();
-    if kwargs.is_null() {
-        return ptr::null_mut();
+
+    let has_varkw = binding.varkw_param.is_some();
+    let mut varkw_dict = ptr::null_mut();
+    if let Some(varkw_param) = binding.varkw_param {
+        if let Some(state_index) = binding.params[varkw_param].state_index {
+            varkw_dict = ffi::PyDict_New();
+            if varkw_dict.is_null() {
+                cleanup_state_values(&mut state_values);
+                return ptr::null_mut();
+            }
+            state_value_from_owned(&mut state_values, state_index, varkw_dict);
+        }
+        assigned[varkw_param] = true;
     }
-    for index in 0..keyword_count {
-        let key = ffi::PyTuple_GetItem(kwnames, index);
+
+    for kw_index in 0..nkw {
+        let key = ffi::PyTuple_GetItem(kwnames, kw_index as ffi::Py_ssize_t);
         if key.is_null() {
-            ffi::Py_DECREF(kwargs);
+            cleanup_state_values(&mut state_values);
             return ptr::null_mut();
         }
-        let value = *args.add((positional_count + index) as usize);
+        let value = *args.add(nargs + kw_index);
         if value.is_null() {
-            ffi::Py_DECREF(kwargs);
+            cleanup_state_values(&mut state_values);
             ffi::PyErr_SetString(
                 ffi::PyExc_RuntimeError,
                 b"null vectorcall keyword argument\0".as_ptr() as *const i8,
             );
             return ptr::null_mut();
         }
-        if ffi::PyDict_SetItem(kwargs, key, value) != 0 {
-            ffi::Py_DECREF(kwargs);
-            return ptr::null_mut();
+        let key_name = match py_string(key) {
+            Ok(name) => name,
+            Err(()) => {
+                cleanup_state_values(&mut state_values);
+                return ptr::null_mut();
+            }
+        };
+        if let Some(&param_index) = binding.param_lookup.get(key_name.as_str()) {
+            let param = &binding.params[param_index];
+            match param.kind {
+                BindingParamKind::PositionalOnly | BindingParamKind::VarArgs => {
+                    if !has_varkw {
+                        cleanup_state_values(&mut state_values);
+                        let msg = format!(
+                            "{}() got an unexpected keyword argument '{}'",
+                            binding
+                                .state_order
+                                .first()
+                                .map(String::as_str)
+                                .unwrap_or("<function>"),
+                            key_name
+                        );
+                        return set_type_error::<*mut ffi::PyObject>(&msg)
+                            .err()
+                            .map_or(ptr::null_mut(), |_| ptr::null_mut());
+                    }
+                    if !varkw_dict.is_null() {
+                        if ffi::PyDict_SetItem(varkw_dict, key, value) != 0 {
+                            cleanup_state_values(&mut state_values);
+                            return ptr::null_mut();
+                        }
+                    }
+                }
+                BindingParamKind::PositionalOrKeyword
+                | BindingParamKind::KeywordOnly => {
+                    if assigned[param_index] {
+                        cleanup_state_values(&mut state_values);
+                        let msg = format!(
+                            "{}() got multiple values for argument '{}'",
+                            binding
+                                .state_order
+                                .first()
+                                .map(String::as_str)
+                                .unwrap_or("<function>"),
+                            key_name
+                        );
+                        return set_type_error::<*mut ffi::PyObject>(&msg)
+                            .err()
+                            .map_or(ptr::null_mut(), |_| ptr::null_mut());
+                    }
+                    if param.kind == BindingParamKind::VarKeyword {
+                        if ffi::PyDict_SetItem(varkw_dict, key, value) != 0 {
+                            cleanup_state_values(&mut state_values);
+                            return ptr::null_mut();
+                        }
+                    } else {
+                        if let Some(state_index) = param.state_index {
+                            state_value_from_borrowed(&mut state_values, state_index, value);
+                        }
+                        assigned[param_index] = true;
+                    }
+                }
+                BindingParamKind::VarKeyword => {
+                    if !varkw_dict.is_null() && ffi::PyDict_SetItem(varkw_dict, key, value) != 0 {
+                        cleanup_state_values(&mut state_values);
+                        return ptr::null_mut();
+                    }
+                }
+            }
+        } else if has_varkw {
+            if !varkw_dict.is_null() && ffi::PyDict_SetItem(varkw_dict, key, value) != 0 {
+                cleanup_state_values(&mut state_values);
+                return ptr::null_mut();
+            }
+        } else {
+            cleanup_state_values(&mut state_values);
+            let msg = format!(
+                "{}() got an unexpected keyword argument '{}'",
+                binding
+                    .state_order
+                    .first()
+                    .map(String::as_str)
+                    .unwrap_or("<function>"),
+                key_name
+            );
+            return set_type_error::<*mut ffi::PyObject>(&msg)
+                .err()
+                .map_or(ptr::null_mut(), |_| ptr::null_mut());
         }
     }
-    kwargs
+
+    for (param_index, param) in binding.params.iter().enumerate() {
+        if assigned[param_index] {
+            continue;
+        }
+        match param.kind {
+            BindingParamKind::VarArgs | BindingParamKind::VarKeyword => {}
+            _ if !param.default_value.is_null() => {
+                if let Some(state_index) = param.state_index {
+                    state_value_from_borrowed(
+                        &mut state_values,
+                        state_index,
+                        param.default_value,
+                    );
+                }
+                assigned[param_index] = true;
+            }
+            _ => {
+                cleanup_state_values(&mut state_values);
+                let msg = format!(
+                    "{}() missing required argument '{}'",
+                    binding
+                        .state_order
+                        .first()
+                        .map(String::as_str)
+                        .unwrap_or("<function>"),
+                    param.name
+                );
+                return set_type_error::<*mut ffi::PyObject>(&msg)
+                    .err()
+                    .map_or(ptr::null_mut(), |_| ptr::null_mut());
+            }
+        }
+    }
+
+    fill_state_tuple_from_values(binding, state_values)
+}
+
+unsafe fn build_resume_state_tuple(
+    args: *const *mut ffi::PyObject,
+    nargsf: usize,
+    kwnames: *mut ffi::PyObject,
+    binding: &BindingMetadata,
+) -> *mut ffi::PyObject {
+    let expected = match binding.kind {
+        BindingKind::GeneratorResume => 3usize,
+        BindingKind::AsyncGeneratorResume => 4usize,
+        BindingKind::Function => unreachable!(),
+    };
+    let nargs = ffi::PyVectorcall_NARGS(nargsf) as usize;
+    let nkw = if kwnames.is_null() {
+        0usize
+    } else {
+        ffi::PyTuple_GET_SIZE(kwnames) as usize
+    };
+    if nkw != 0 {
+        let kind = if matches!(binding.kind, BindingKind::AsyncGeneratorResume) {
+            "async generator"
+        } else {
+            "generator"
+        };
+        return set_type_error::<*mut ffi::PyObject>(&format!(
+            "hidden {kind} resume entry does not accept keyword arguments"
+        ))
+        .err()
+        .map_or(ptr::null_mut(), |_| ptr::null_mut());
+    }
+    if nargs != expected {
+        let kind = if matches!(binding.kind, BindingKind::AsyncGeneratorResume) {
+            "async generator"
+        } else {
+            "generator"
+        };
+        return set_type_error::<*mut ffi::PyObject>(&format!(
+            "hidden {kind} resume entry expected {expected} arguments, got {nargs}"
+        ))
+        .err()
+        .map_or(ptr::null_mut(), |_| ptr::null_mut());
+    }
+    let gen_obj = *args.add(0);
+    let send_value = *args.add(1);
+    let resume_exc = *args.add(2);
+    let transport_sent = if expected == 4 {
+        *args.add(3)
+    } else {
+        ptr::null_mut()
+    };
+    if gen_obj.is_null()
+        || send_value.is_null()
+        || resume_exc.is_null()
+        || (expected == 4 && transport_sent.is_null())
+    {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"null vectorcall argument in generator resume entry\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+
+    let mut state_values = vec![ptr::null_mut(); binding.state_order.len()];
+    let frame_obj =
+        ffi::PyObject_GetAttrString(gen_obj, b"gi_frame\0".as_ptr() as *const c_char);
+    let frame_dict = if frame_obj.is_null() {
+        if !ffi::PyErr_Occurred().is_null() {
+            return ptr::null_mut();
+        }
+        ptr::null_mut()
+    } else if ffi::PyDict_Check(frame_obj) != 0 {
+        frame_obj
+    } else {
+        ffi::Py_DECREF(frame_obj);
+        ptr::null_mut()
+    };
+
+    for (index, name) in binding.state_order.iter().enumerate() {
+        match name.as_str() {
+            "_dp_self" | "_dp_state" => {
+                state_value_from_borrowed(&mut state_values, index, gen_obj);
+            }
+            "_dp_send_value" => {
+                state_value_from_borrowed(&mut state_values, index, send_value);
+            }
+            "_dp_resume_exc" => {
+                state_value_from_borrowed(&mut state_values, index, resume_exc);
+            }
+            "_dp_transport_sent" => {
+                if expected == 4 {
+                    state_value_from_borrowed(&mut state_values, index, transport_sent);
+                }
+            }
+            _ => {
+                if !frame_dict.is_null() {
+                    let c_name = match CString::new(name.as_str()) {
+                        Ok(value) => value,
+                        Err(_) => {
+                            ffi::Py_DECREF(frame_dict);
+                            cleanup_state_values(&mut state_values);
+                            return set_type_error::<*mut ffi::PyObject>(
+                                "invalid generator frame local name",
+                            )
+                            .err()
+                            .map_or(ptr::null_mut(), |_| ptr::null_mut());
+                        }
+                    };
+                    let value = ffi::PyDict_GetItemString(frame_dict, c_name.as_ptr());
+                    if !value.is_null() {
+                        state_value_from_borrowed(&mut state_values, index, value);
+                    }
+                }
+            }
+        }
+    }
+    if !frame_dict.is_null() {
+        ffi::Py_DECREF(frame_dict);
+    }
+    fill_state_tuple_from_values(binding, state_values)
 }
 
 unsafe extern "C" fn build_bb_args_from_vectorcall(
@@ -367,59 +932,23 @@ unsafe extern "C" fn build_bb_args_from_vectorcall(
             );
             return ptr::null_mut();
         }
-        let py = Python::assume_attached();
         let data = &mut *(data_ptr as *mut ClifFunctionData);
-        let nargs = ffi::PyVectorcall_NARGS(nargsf) as ffi::Py_ssize_t;
-        let kwcount = if kwnames.is_null() {
-            0
-        } else {
-            ffi::PyTuple_GET_SIZE(kwnames as *mut ffi::PyObject)
-        };
-        let poscount = nargs;
-        let args_tuple = vectorcall_args_tuple(args as *const *mut ffi::PyObject, poscount);
-        if args_tuple.is_null() {
-            return ptr::null_mut();
-        }
-        let kwargs_dict = vectorcall_kwargs_dict(
-            args as *const *mut ffi::PyObject,
-            poscount,
-            kwcount,
-            kwnames as *mut ffi::PyObject,
-        );
-        if kwcount > 0 && kwargs_dict.is_null() {
-            ffi::Py_DECREF(args_tuple);
-            return ptr::null_mut();
-        }
-
-        let kwargs_arg = if kwargs_dict.is_null() {
-            py.None().as_ptr()
-        } else {
-            kwargs_dict
-        };
-        let bb_args = match owned_ptr_to_bound(
-            py,
-            ffi::PyObject_CallFunctionObjArgs(
-                data.build_entry_args_obj,
-                args_tuple,
-                kwargs_arg,
-                ptr::null_mut::<ffi::PyObject>(),
-            ),
-        ) {
-            Ok(value) => value,
-            Err(err) => {
-                err.restore(py);
-                ffi::Py_DECREF(args_tuple);
-                if !kwargs_dict.is_null() {
-                    ffi::Py_DECREF(kwargs_dict);
-                }
-                return ptr::null_mut();
+        match data.binding.kind {
+            BindingKind::Function => build_function_state_tuple(
+                args as *const *mut ffi::PyObject,
+                nargsf,
+                kwnames as *mut ffi::PyObject,
+                &data.binding,
+            ) as *mut c_void,
+            BindingKind::GeneratorResume | BindingKind::AsyncGeneratorResume => {
+                build_resume_state_tuple(
+                    args as *const *mut ffi::PyObject,
+                    nargsf,
+                    kwnames as *mut ffi::PyObject,
+                    &data.binding,
+                ) as *mut c_void
             }
-        };
-        ffi::Py_DECREF(args_tuple);
-        if !kwargs_dict.is_null() {
-            ffi::Py_DECREF(kwargs_dict);
         }
-        bb_args.into_ptr() as *mut c_void
     })) {
         Ok(value) => value,
         Err(payload) => {
@@ -558,7 +1087,12 @@ pub unsafe fn register_clif_vectorcall(
     function: *mut ffi::PyObject,
     module_name: &str,
     qualname: &str,
-    build_entry_args_obj: *mut ffi::PyObject,
+    state_order_obj: *mut ffi::PyObject,
+    params_obj: *mut ffi::PyObject,
+    closure_values_obj: *mut ffi::PyObject,
+    deleted_obj: *mut ffi::PyObject,
+    no_default_obj: *mut ffi::PyObject,
+    bind_kind: i32,
     materialize_entry_obj: *mut ffi::PyObject,
 ) -> Result<(), ()> {
     if ffi::PyFunction_Check(function) == 0 {
@@ -583,7 +1117,12 @@ pub unsafe fn register_clif_vectorcall(
     let data_ptr = make_clif_function_data(
         module_name,
         qualname,
-        build_entry_args_obj,
+        state_order_obj,
+        params_obj,
+        closure_values_obj,
+        deleted_obj,
+        no_default_obj,
+        bind_kind,
         materialize_entry_obj,
     )?;
     let capsule = ffi::PyCapsule_New(

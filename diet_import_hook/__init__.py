@@ -203,7 +203,6 @@ def install():
         if hook_fn is not None:
             hook_fn()
         transform = _get_pyo3_transform()
-        _dp_module._jit_run_bb_plan = getattr(transform, "jit_run_bb_plan", None)
         _dp_module._jit_has_bb_plan = getattr(transform, "jit_has_bb_plan", None)
         _dp_module._jit_block_param_names = getattr(
             transform, "jit_block_param_names", None
@@ -211,7 +210,6 @@ def install():
         _dp_module._register_clif_vectorcall = getattr(
             transform, "register_clif_vectorcall", None
         )
-        _dp_module._register_clif_wrapper = getattr(transform, "register_clif_wrapper", None)
     except Exception:
         pass
 

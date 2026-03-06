@@ -60,17 +60,6 @@ fn transform_source_with_name(
 }
 
 #[pyfunction]
-fn jit_run_bb_plan(
-    py: Python<'_>,
-    module_name: &str,
-    qualname: &str,
-    globals_obj: &Bound<'_, PyAny>,
-    args: &Bound<'_, PyAny>,
-) -> PyResult<Py<PyAny>> {
-    eval::jit_run_bb_plan_impl(py, module_name, qualname, globals_obj, args)
-}
-
-#[pyfunction]
 fn jit_has_bb_plan(module_name: &str, qualname: &str) -> bool {
     eval::jit_has_bb_plan_impl(module_name, qualname)
 }
@@ -108,7 +97,12 @@ fn register_clif_vectorcall(
     func: &Bound<'_, PyAny>,
     module_name: &str,
     qualname: &str,
-    build_entry_args_obj: &Bound<'_, PyAny>,
+    state_order_obj: &Bound<'_, PyAny>,
+    params_obj: Option<&Bound<'_, PyAny>>,
+    closure_values_obj: Option<&Bound<'_, PyAny>>,
+    deleted_obj: &Bound<'_, PyAny>,
+    no_default_obj: &Bound<'_, PyAny>,
+    bind_kind: i32,
     materialize_entry_obj: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<()> {
     unsafe {
@@ -116,7 +110,12 @@ fn register_clif_vectorcall(
             func.as_ptr(),
             module_name,
             qualname,
-            build_entry_args_obj.as_ptr(),
+            state_order_obj.as_ptr(),
+            params_obj.map_or(std::ptr::null_mut(), |obj| obj.as_ptr()),
+            closure_values_obj.map_or(std::ptr::null_mut(), |obj| obj.as_ptr()),
+            deleted_obj.as_ptr(),
+            no_default_obj.as_ptr(),
+            bind_kind,
             materialize_entry_obj.map_or(std::ptr::null_mut(), |obj| obj.as_ptr()),
         )
         .map_err(|_| {
@@ -164,7 +163,6 @@ fn diet_python(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     dp_transform::init_logging();
     module.add_function(wrap_pyfunction!(transform_source, module)?)?;
     module.add_function(wrap_pyfunction!(transform_source_with_name, module)?)?;
-    module.add_function(wrap_pyfunction!(jit_run_bb_plan, module)?)?;
     module.add_function(wrap_pyfunction!(jit_has_bb_plan, module)?)?;
     module.add_function(wrap_pyfunction!(jit_block_param_names, module)?)?;
     module.add_function(wrap_pyfunction!(jit_debug_plan, module)?)?;

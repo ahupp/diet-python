@@ -348,11 +348,6 @@ builtins.__dp_store_local = __dp_store_local
 builtins.__dp_del_local = __dp_del_local
 
 
-def _block_param_names(block):
-    code = block.__code__
-    return code.co_varnames[: code.co_argcount]
-
-
 def raise_uncaught_generator_exception(exc):
     if isinstance(exc, StopIteration):
         raise RuntimeError("generator raised StopIteration") from exc
@@ -381,88 +376,13 @@ def _attach_throw_context_from_state(state, exc):
         pass
 
 
-def _resume_block_param_names(resume_block):
-    names = _block_param_names(resume_block)
-    if names:
-        return names
-    if _jit_block_param_names is None:
-        return names
-    plan_module = getattr(resume_block, "__dp_plan_module", None)
-    plan_qualname = getattr(resume_block, "__dp_plan_qualname", None)
-    entry_ref = getattr(resume_block, "__dp_entry_ref", None)
-    if not (
-        isinstance(plan_module, str)
-        and isinstance(plan_qualname, str)
-        and isinstance(entry_ref, str)
-    ):
-        return names
-    try:
-        resolved = _jit_block_param_names(plan_module, plan_qualname, entry_ref)
-    except Exception:
-        return names
-    if isinstance(resolved, (tuple, list)):
-        return tuple(resolved)
-    return names
-
-
-def _bb_build_resume_args(resume_block, gen, send_value, resume_exc, transport_sent=None):
-    # Generator/async-generator BB lowering still emits resume blocks that may
-    # carry additional frame locals as block parameters. Reconstruct arguments
-    # by declared parameter names so JIT and interpreted BB execution agree.
-    frame = getattr(gen, "gi_frame", None)
-    args = []
-    for name in _resume_block_param_names(resume_block):
-        if name in ("_dp_self", "_dp_state"):
-            args.append(gen)
-        elif name == "_dp_send_value":
-            args.append(send_value)
-        elif name == "_dp_resume_exc":
-            args.append(resume_exc)
-        elif name == "_dp_transport_sent":
-            args.append(transport_sent)
-        elif isinstance(frame, dict):
-            args.append(frame.get(name, DELETED))
-        else:
-            args.append(DELETED)
-    return tuple(args)
-
-
-_jit_run_bb_plan = None
 _jit_has_bb_plan = None
 _jit_block_param_names = None
 _register_clif_vectorcall = None
-_jit_implicit_locals_stack = []
-_jit_run_bb_depth = _threading.local()
-_JIT_RECURSION_SOFT_LIMIT = 200
 
-
-def _run_bb_plan_from_entry(entry, args):
-    if _jit_run_bb_plan is None:
-        raise RuntimeError("JIT basic-block plan runner is unavailable")
-    plan_module = getattr(entry, "__dp_plan_module", None)
-    plan_qualname = getattr(entry, "__dp_plan_qualname", None)
-    if not isinstance(plan_module, str) or not isinstance(plan_qualname, str):
-        raise RuntimeError(
-            f"JIT basic-block execution requires plan metadata on entry: {entry!r}"
-        )
-    if _jit_has_bb_plan is not None and not _jit_has_bb_plan(plan_module, plan_qualname):
-        raise RuntimeError(
-            "JIT basic-block execution requires a registered plan, "
-            f"but none is available for {plan_module}.{plan_qualname}"
-        )
-    globals_dict = getattr(entry, "__dp_plan_globals", None)
-    if not isinstance(globals_dict, dict):
-        globals_dict = getattr(entry, "__globals__", None)
-    return _jit_run_bb_plan(plan_module, plan_qualname, globals_dict, args)
-
-
-def run_bb(entry, args):
-    return _run_bb_plan_from_entry(entry, args)
-
-
-def _dp_resume_generator(gen, value, resume_exc):
-    bb_args = _bb_build_resume_args(gen._dp_resume, gen, value, resume_exc)
-    return run_bb(gen._dp_resume, bb_args)
+_BIND_KIND_FUNCTION = 0
+_BIND_KIND_GENERATOR_RESUME = 1
+_BIND_KIND_ASYNC_GENERATOR_RESUME = 2
 
 
 async def _dp_resume_async_generator(gen, value, resume_exc, transport_sent):
@@ -476,10 +396,9 @@ async def _dp_resume_async_generator(gen, value, resume_exc, transport_sent):
         step_send_value = (
             pending_transport if getattr(gen, "gi_yieldfrom", None) is not None else send_value
         )
-        bb_args = _bb_build_resume_args(
-            gen._dp_resume, gen, step_send_value, pending_exc, pending_transport
+        result = gen._dp_resume(
+            gen, step_send_value, pending_exc, pending_transport
         )
-        result = run_bb(gen._dp_resume, bb_args)
         if getattr(gen, "gi_yieldfrom", None) is None:
             return result
         try:
@@ -537,7 +456,7 @@ class _DpGenerator:
         return self.send(None)
 
     def send(self, value):
-        return _dp_resume_generator(self, value, None)
+        return self._dp_resume(self, value, None)
 
     def throw(self, typ=None, val=None, tb=None):
         if val is not None or tb is not None:
@@ -546,7 +465,7 @@ class _DpGenerator:
             )
         exc = raise_from(typ, None)
         _attach_throw_context_from_state(self, exc)
-        return _dp_resume_generator(self, None, exc)
+        return self._dp_resume(self, None, exc)
 
     def close(self):
         try:
@@ -1269,13 +1188,10 @@ def eval_(source, globals=None, locals=None):
         if locals is None:
             locals = _normalize_mapping(frame.f_locals)
             closure_values = None
-            if _jit_implicit_locals_stack:
-                closure_values = _jit_implicit_locals_stack[-1]
-            if closure_values is None:
-                probe = frame
-                while probe is not None and closure_values is None:
-                    closure_values = probe.f_locals.get("__dp_closure")
-                    probe = probe.f_back
+            probe = frame
+            while probe is not None and closure_values is None:
+                closure_values = probe.f_locals.get("__dp_closure")
+                probe = probe.f_back
             if isinstance(closure_values, dict) and closure_values:
                 # JIT BB wrappers execute through synthetic `entry(...)` frames.
                 # Merge captured lexical bindings so implicit eval() resolves
@@ -1490,99 +1406,6 @@ def _build_bb_signature(params):
     return (_inspect.Signature(sig_params), tuple(state_order))
 
 
-def _bb_make_bound_arguments_builder(params, function_name):
-    ns = {}
-    param_tokens = []
-    dict_items = []
-    inserted_kw_marker = False
-    pending_posonly = False
-
-    for index, param in enumerate(params):
-        if len(param) >= 3:
-            raw_name, _, default = param[:3]
-        elif len(param) == 2:
-            raw_name, _ = param
-            default = NO_DEFAULT
-        else:
-            raise RuntimeError(f"invalid bb param spec: {param!r}")
-
-        kind, name = _bb_param_kind_and_name(raw_name)
-        if kind != _inspect.Parameter.POSITIONAL_ONLY and pending_posonly:
-            param_tokens.append("/")
-            pending_posonly = False
-        if kind == _inspect.Parameter.POSITIONAL_ONLY:
-            pending_posonly = True
-
-        default_ref = None
-        if (
-            default is not NO_DEFAULT
-            and kind is not _inspect.Parameter.VAR_POSITIONAL
-            and kind is not _inspect.Parameter.VAR_KEYWORD
-        ):
-            default_ref = f"__dp_default_{index}"
-            ns[default_ref] = default
-
-        if kind == _inspect.Parameter.VAR_POSITIONAL:
-            param_tokens.append(f"*{name}")
-            inserted_kw_marker = True
-        elif kind == _inspect.Parameter.VAR_KEYWORD:
-            param_tokens.append(f"**{name}")
-        else:
-            if kind == _inspect.Parameter.KEYWORD_ONLY and not inserted_kw_marker:
-                param_tokens.append("*")
-                inserted_kw_marker = True
-            token = name if default_ref is None else f"{name}={default_ref}"
-            param_tokens.append(token)
-
-        dict_items.append(f"        {name!r}: {name},")
-
-    if pending_posonly:
-        param_tokens.append("/")
-
-    builder_name = (
-        function_name
-        if isinstance(function_name, str) and function_name.isidentifier()
-        else "_dp_bind"
-    )
-    params_src = ", ".join(param_tokens)
-    dict_items_src = "\n".join(dict_items) if dict_items else ""
-    src = (
-        f"def {builder_name}({params_src}):\n"
-        "    return {\n"
-        f"{dict_items_src}\n"
-        "    }\n"
-    )
-    exec(src, ns, ns)
-    return ns[builder_name]
-
-
-def _bb_make_entry_args_builder(params, state_order, closure_values, function_name):
-    bind_arguments = _bb_make_bound_arguments_builder(params, function_name)
-    _dp_deleted = DELETED
-
-    def build(
-        args,
-        kwargs,
-        __dp_bind_arguments=bind_arguments,
-        __dp_state_order=state_order,
-        __dp_closure_values=closure_values,
-        __dp_deleted=_dp_deleted,
-    ):
-        if kwargs is None:
-            bound_arguments = __dp_bind_arguments(*args)
-        else:
-            bound_arguments = __dp_bind_arguments(*args, **kwargs)
-        values = []
-        for _dp_name in __dp_state_order:
-            if _dp_name in bound_arguments:
-                values.append(bound_arguments[_dp_name])
-            else:
-                values.append(__dp_closure_values.get(_dp_name, __dp_deleted))
-        return tuple(values)
-
-    return build
-
-
 def _bb_state_order(default_order, closure):
     if not isinstance(closure, tuple):
         return (default_order, {})
@@ -1667,7 +1490,7 @@ def _bb_entry_template_code(async_entry):
                 "    **kwargs,\n"
                 "):\n"
                 "    raise RuntimeError(\n"
-                "        \"CLIF wrapper coroutine entry executed without eval-frame interception\"\n"
+                "        \"CLIF coroutine entry executed without vectorcall interception\"\n"
                 "    )\n",
                 {},
                 ns,
@@ -1682,7 +1505,7 @@ def _bb_entry_template_code(async_entry):
             "    **kwargs,\n"
             "):\n"
             "    raise RuntimeError(\n"
-            "        \"CLIF wrapper entry executed without eval-frame interception\"\n"
+            "        \"CLIF entry executed without vectorcall interception\"\n"
             "    )\n",
             {},
             ns,
@@ -1753,7 +1576,12 @@ def _bb_enable_lazy_clif_vectorcall(
     entry,
     module_name,
     plan_qualname,
-    build_entry_args,
+    state_order,
+    params,
+    closure_values,
+    deleted_value,
+    no_default_value,
+    bind_kind,
     materialize_result=None,
 ):
     if _register_clif_vectorcall is None:
@@ -1766,7 +1594,12 @@ def _bb_enable_lazy_clif_vectorcall(
             entry,
             module_name,
             plan_qualname,
-            build_entry_args,
+            state_order,
+            params,
+            closure_values,
+            deleted_value,
+            no_default_value,
+            bind_kind,
             materialize_result,
         )
     except NotImplementedError:
@@ -1783,69 +1616,92 @@ def _bb_plan_lookup_qualname(qualname, entry_ref):
     return qualname
 
 
-def _bb_resolve_entry_ref(entry_ref, module_globals, module_name, qualname):
+def _bb_validate_entry_ref(entry_ref):
     if callable(entry_ref):
-        resolved = entry_ref
-    elif isinstance(entry_ref, str):
-        if not entry_ref.startswith("_dp_bb_"):
-            raise TypeError(
-                f"unexpected non-BB string entry reference: {entry_ref!r}"
-            )
-        # BB labels in this runtime are JIT-plan-only. If execution reaches this
-        # callable it means no JIT plan was registered for this function/module.
-        # Raise a clear error rather than returning a non-terminator value.
-        def _bb_entry_unavailable(*_args, __dp_entry_ref=entry_ref, **_kwargs):
-            raise RuntimeError(
-                "basic-block string entry requires a registered JIT plan, "
-                f"but no plan is available for {module_name}.{qualname} "
-                f"(entry={__dp_entry_ref!r})"
-            )
-
-        resolved = _bb_entry_unavailable
-    else:
+        return
+    if isinstance(entry_ref, str) and entry_ref.startswith("_dp_bb_"):
+        return
+    if isinstance(entry_ref, str):
         raise TypeError(
-            f"basic-block entry reference must be callable or str, got {type(entry_ref)!r}"
+            f"unexpected non-BB string entry reference: {entry_ref!r}"
         )
-    if module_name is not None:
-        lookup_qualname = _bb_plan_lookup_qualname(
-            qualname, entry_ref if isinstance(entry_ref, str) else None
-        )
-        _bb_set_plan_metadata(
-            resolved,
-            module_name,
-            lookup_qualname,
-            module_globals,
-            entry_ref=entry_ref if isinstance(entry_ref, str) else None,
-        )
-    return resolved
-
-
-def run_bb_plan(plan_module, plan_qualname, globals_dict, args, implicit_locals=None):
-    if _jit_run_bb_plan is None:
-        raise RuntimeError(
-            f"basic-block plan execution requires JIT: {plan_module}.{plan_qualname}"
-        )
-    depth = getattr(_jit_run_bb_depth, "value", 0) + 1
-    _jit_run_bb_depth.value = depth
-    effective_limit = min(sys.getrecursionlimit(), _JIT_RECURSION_SOFT_LIMIT)
-    if depth > effective_limit:
-        _jit_run_bb_depth.value = depth - 1
-        raise RecursionError("maximum recursion depth exceeded")
-    if implicit_locals is None:
-        try:
-            return _jit_run_bb_plan(plan_module, plan_qualname, globals_dict, args)
-        finally:
-            _jit_run_bb_depth.value = depth - 1
-    _jit_implicit_locals_stack.append(implicit_locals)
-    try:
-        return _jit_run_bb_plan(plan_module, plan_qualname, globals_dict, args)
-    finally:
-        _jit_implicit_locals_stack.pop()
-        _jit_run_bb_depth.value = depth - 1
+    raise TypeError(
+        f"basic-block entry reference must be callable or str, got {type(entry_ref)!r}"
+    )
 
 
 def jit_bb_plan_enabled():
-    return _jit_run_bb_plan is not None
+    return _register_clif_vectorcall is not None
+
+
+def _bb_make_resume_entry(
+    resume,
+    name,
+    qualname,
+    module_globals,
+    module_name,
+    *,
+    async_gen,
+):
+    _bb_validate_entry_ref(resume)
+    if not isinstance(resume, str):
+        raise TypeError(
+            f"generator resume entry must be a BB string reference, got {type(resume)!r}"
+        )
+    entry_ref = resume
+    plan_qualname = _bb_plan_lookup_qualname(qualname, entry_ref)
+    if not (
+        jit_bb_plan_enabled()
+        and isinstance(module_name, str)
+        and isinstance(plan_qualname, str)
+        and _jit_has_bb_plan is not None
+        and _jit_has_bb_plan(module_name, plan_qualname)
+    ):
+        kind = "async generator" if async_gen else "generator"
+        raise RuntimeError(
+            f"JIT basic-block {kind} resume requires a registered plan, "
+            f"but none is available for {module_name}.{plan_qualname}"
+        )
+    hidden_name = (
+        f"_dp_resume_{name}" if isinstance(name, str) and name.isidentifier() else "_dp_resume"
+    )
+    if _jit_block_param_names is None:
+        raise RuntimeError(
+            "JIT basic-block resume requires block parameter metadata, "
+            f"but it is unavailable for {module_name}.{plan_qualname}"
+        )
+    resolved = _jit_block_param_names(module_name, plan_qualname, entry_ref)
+    if not isinstance(resolved, (tuple, list)):
+        raise RuntimeError(
+            "JIT basic-block resume expected block parameter metadata as a "
+            f"sequence for {module_name}.{plan_qualname}::{entry_ref}, "
+            f"got {type(resolved)!r}"
+        )
+    resume_state_order = tuple(resolved)
+    entry = _bb_make_lazy_clif_entry(
+        async_entry=False,
+        function_name=hidden_name,
+        module_globals=module_globals,
+    )
+    if module_name is not None:
+        entry.__module__ = module_name
+        _bb_set_plan_metadata(
+            entry, module_name, plan_qualname, module_globals, entry_ref=entry_ref
+        )
+    _bb_enable_lazy_clif_vectorcall(
+        entry,
+        module_name,
+        plan_qualname,
+        resume_state_order,
+        None,
+        None,
+        DELETED,
+        NO_DEFAULT,
+        _BIND_KIND_ASYNC_GENERATOR_RESUME
+        if async_gen
+        else _BIND_KIND_GENERATOR_RESUME,
+    )
+    return entry
 
 
 def def_fn(
@@ -1863,12 +1719,9 @@ def def_fn(
     # wrapper so we don't need an extra transformed outer function call layer.
     signature, default_state_order = _build_bb_signature(params)
     state_order, closure_values = _bb_state_order(default_state_order, closure)
-    build_entry_args = _bb_make_entry_args_builder(
-        params, state_order, closure_values, name
-    )
+    _bb_validate_entry_ref(entry_bb)
     entry_ref = entry_bb if isinstance(entry_bb, str) else None
     plan_qualname = _bb_plan_lookup_qualname(qualname, entry_ref)
-    _bb_resolve_entry_ref(entry_bb, module_globals, module_name, qualname)
     if not (
         jit_bb_plan_enabled()
         and isinstance(module_name, str)
@@ -1900,7 +1753,12 @@ def def_fn(
         entry,
         module_name,
         plan_qualname,
-        build_entry_args,
+        state_order,
+        tuple(params),
+        closure_values,
+        DELETED,
+        NO_DEFAULT,
+        _BIND_KIND_FUNCTION,
     )
     return entry
 
@@ -1934,14 +1792,16 @@ def def_coro_from_gen(
 ):
     signature, default_state_order = _build_bb_signature(params)
     state_order, closure_values = _bb_state_order(default_state_order, closure)
-    build_entry_args = _bb_make_entry_args_builder(
-        params, state_order, closure_values, name
-    )
     gen_code = _dp_make_gen_code(name, qualname)
     entry_ref = resume if isinstance(resume, str) else None
     plan_qualname = _bb_plan_lookup_qualname(qualname, entry_ref)
-    resolved_resume = _bb_resolve_entry_ref(
-        resume, module_globals, module_name, qualname
+    resume_entry = _bb_make_resume_entry(
+        resume,
+        name,
+        qualname,
+        module_globals,
+        module_name,
+        async_gen=False,
     )
     if not (
         jit_bb_plan_enabled()
@@ -1958,7 +1818,7 @@ def def_coro_from_gen(
     def materialize(
         state_args,
         __dp_state_order=state_order,
-        __dp_resume=resolved_resume,
+        __dp_resume=resume_entry,
         __dp_gen_type=_DpGenerator,
         __dp_coro_type=_DpCoroutine,
         __dp_name=name,
@@ -1999,7 +1859,12 @@ def def_coro_from_gen(
         entry,
         module_name,
         plan_qualname,
-        build_entry_args,
+        state_order,
+        tuple(params),
+        closure_values,
+        DELETED,
+        NO_DEFAULT,
+        _BIND_KIND_FUNCTION,
         materialize,
     )
     return _dp_mark_coroutine_function(entry)
@@ -2067,14 +1932,16 @@ def def_gen(
 ):
     signature, default_state_order = _build_bb_signature(params)
     state_order, closure_values = _bb_state_order(default_state_order, closure)
-    build_entry_args = _bb_make_entry_args_builder(
-        params, state_order, closure_values, name
-    )
     gen_code = _dp_make_gen_code(name, qualname)
     entry_ref = resume if isinstance(resume, str) else None
     plan_qualname = _bb_plan_lookup_qualname(qualname, entry_ref)
-    resolved_resume = _bb_resolve_entry_ref(
-        resume, module_globals, module_name, qualname
+    resume_entry = _bb_make_resume_entry(
+        resume,
+        name,
+        qualname,
+        module_globals,
+        module_name,
+        async_gen=False,
     )
     if not (
         jit_bb_plan_enabled()
@@ -2091,7 +1958,7 @@ def def_gen(
     def materialize(
         state_args,
         __dp_state_order=state_order,
-        __dp_resume=resolved_resume,
+        __dp_resume=resume_entry,
         __dp_gen_type=_DpGenerator,
         __dp_name=name,
         __dp_qualname=qualname,
@@ -2129,7 +1996,12 @@ def def_gen(
         entry,
         module_name,
         plan_qualname,
-        build_entry_args,
+        state_order,
+        tuple(params),
+        closure_values,
+        DELETED,
+        NO_DEFAULT,
+        _BIND_KIND_FUNCTION,
         materialize,
     )
     return entry
@@ -2148,14 +2020,16 @@ def def_async_gen(
 ):
     signature, default_state_order = _build_bb_signature(params)
     state_order, closure_values = _bb_state_order(default_state_order, closure)
-    build_entry_args = _bb_make_entry_args_builder(
-        params, state_order, closure_values, name
-    )
     ag_code = _dp_make_async_gen_code(name, qualname)
     entry_ref = resume if isinstance(resume, str) else None
     plan_qualname = _bb_plan_lookup_qualname(qualname, entry_ref)
-    resolved_resume = _bb_resolve_entry_ref(
-        resume, module_globals, module_name, qualname
+    resume_entry = _bb_make_resume_entry(
+        resume,
+        name,
+        qualname,
+        module_globals,
+        module_name,
+        async_gen=True,
     )
     if not (
         jit_bb_plan_enabled()
@@ -2172,7 +2046,7 @@ def def_async_gen(
     def materialize(
         state_args,
         __dp_state_order=state_order,
-        __dp_resume=resolved_resume,
+        __dp_resume=resume_entry,
         __dp_async_gen_type=_DpAsyncGenerator,
         __dp_name=name,
         __dp_qualname=qualname,
@@ -2212,7 +2086,12 @@ def def_async_gen(
         entry,
         module_name,
         plan_qualname,
-        build_entry_args,
+        state_order,
+        tuple(params),
+        closure_values,
+        DELETED,
+        NO_DEFAULT,
+        _BIND_KIND_FUNCTION,
         materialize,
     )
     return entry
