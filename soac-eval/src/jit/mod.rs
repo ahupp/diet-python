@@ -4017,17 +4017,6 @@ fn build_cranelift_run_bb_specialized_function(
     Ok((ctx, main_id, literal_pool, import_id_to_symbol))
 }
 
-pub unsafe fn render_cranelift_run_bb_specialized(
-    blocks: &[ObjPtr],
-    plan: &ClifPlan,
-    true_obj: ObjPtr,
-    false_obj: ObjPtr,
-    empty_tuple_obj: ObjPtr,
-) -> Result<String, String> {
-    render_cranelift_run_bb_specialized_with_cfg(blocks, plan, true_obj, false_obj, empty_tuple_obj)
-        .map(|rendered| rendered.clif)
-}
-
 pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
     blocks: &[ObjPtr],
     plan: &ClifPlan,
@@ -4362,7 +4351,7 @@ mod tests {
             ],
         };
         let err = unsafe {
-            render_cranelift_run_bb_specialized(
+            render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
                 &plan,
                 11usize as ObjPtr,
@@ -4390,7 +4379,7 @@ mod tests {
             block_fast_paths: vec![BlockFastPath::ReturnNone],
         };
         let clif = unsafe {
-            render_cranelift_run_bb_specialized(
+            render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
                 &plan,
                 11usize as ObjPtr,
@@ -4398,7 +4387,8 @@ mod tests {
                 13usize as ObjPtr,
             )
         }
-        .expect("specialized JIT CLIF render should succeed");
+        .expect("specialized JIT CLIF render should succeed")
+        .clif;
         assert!(
             !clif.contains("call PyObject_CallObject"),
             "fast-path ret-none should avoid block function calls:\n{clif}"
@@ -4434,7 +4424,7 @@ mod tests {
             }],
         };
         let rendered = unsafe {
-            render_cranelift_run_bb_specialized(
+            render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
                 &plan,
                 11usize as ObjPtr,
@@ -4442,7 +4432,8 @@ mod tests {
                 13usize as ObjPtr,
             )
         }
-        .expect("specialized JIT CLIF render should succeed");
+        .expect("specialized JIT CLIF render should succeed")
+        .clif;
         assert!(
             rendered.contains("call PyNumber_Add"),
             "operator lowering should use PyNumber_Add in rendered CLIF:\n{rendered}"
@@ -4478,7 +4469,7 @@ mod tests {
             }],
         };
         let rendered = unsafe {
-            render_cranelift_run_bb_specialized(
+            render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
                 &plan,
                 11usize as ObjPtr,
@@ -4486,7 +4477,8 @@ mod tests {
                 13usize as ObjPtr,
             )
         }
-        .expect("specialized JIT CLIF render should succeed");
+        .expect("specialized JIT CLIF render should succeed")
+        .clif;
         assert!(
             rendered.contains("call PyObject_RichCompare"),
             "comparison lowering should use PyObject_RichCompare in rendered CLIF:\n{rendered}"

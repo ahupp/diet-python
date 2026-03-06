@@ -204,7 +204,6 @@ def install():
             hook_fn()
         transform = _get_pyo3_transform()
         _dp_module._jit_run_bb_plan = getattr(transform, "jit_run_bb_plan", None)
-        _dp_module._jit_render_bb_plan = getattr(transform, "jit_render_bb_plan", None)
         _dp_module._jit_has_bb_plan = getattr(transform, "jit_has_bb_plan", None)
         _dp_module._jit_block_param_names = getattr(
             transform, "jit_block_param_names", None

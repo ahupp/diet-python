@@ -102,15 +102,11 @@ def _render_clif(source: str, entry_label: str | None):
             "no callable _dp_module_init found"
         )
     plan_module, plan_qualname = _plan_key_from_callable(entry_callable)
-    cfg_dot = None
-    if hasattr(DIET_PYTHON, "jit_render_bb_with_cfg_plan"):
-        rendered = DIET_PYTHON.jit_render_bb_with_cfg_plan(plan_module, plan_qualname)
-        if not isinstance(rendered, dict):
-            raise RuntimeError("jit_render_bb_with_cfg_plan() returned non-dict payload")
-        clif = rendered.get("clif", "")
-        cfg_dot = rendered.get("cfg_dot")
-    else:
-        clif = __dp__.render_jit_bb(entry_callable)
+    rendered = DIET_PYTHON.jit_render_bb_with_cfg_plan(plan_module, plan_qualname)
+    if not isinstance(rendered, dict):
+        raise RuntimeError("jit_render_bb_with_cfg_plan() returned non-dict payload")
+    clif = rendered.get("clif", "")
+    cfg_dot = rendered.get("cfg_dot")
     return {"clif": clif, "cfgDot": cfg_dot, "resolved_entry": resolved}
 
 

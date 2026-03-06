@@ -90,11 +90,6 @@ fn jit_debug_plan(module_name: &str, qualname: &str) -> PyResult<String> {
 }
 
 #[pyfunction]
-fn jit_render_bb_plan(py: Python<'_>, module_name: &str, qualname: &str) -> PyResult<String> {
-    eval::jit_render_bb_plan_impl(py, module_name, qualname)
-}
-
-#[pyfunction]
 fn jit_render_bb_with_cfg_plan(
     py: Python<'_>,
     module_name: &str,
@@ -173,7 +168,6 @@ fn diet_python(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(jit_has_bb_plan, module)?)?;
     module.add_function(wrap_pyfunction!(jit_block_param_names, module)?)?;
     module.add_function(wrap_pyfunction!(jit_debug_plan, module)?)?;
-    module.add_function(wrap_pyfunction!(jit_render_bb_plan, module)?)?;
     module.add_function(wrap_pyfunction!(jit_render_bb_with_cfg_plan, module)?)?;
     module.add_function(wrap_pyfunction!(register_clif_vectorcall, module)?)?;
     module.add_function(wrap_pyfunction!(jit_compile_clif_wrapper, module)?)?;

@@ -251,25 +251,6 @@ fn resolve_specialized_jit_blocks_by_key(
     })
 }
 
-pub(crate) fn jit_render_bb_plan_impl(
-    py: Python<'_>,
-    module_name: &str,
-    qualname: &str,
-) -> PyResult<String> {
-    let resolved = resolve_specialized_jit_blocks_by_key(py, module_name, qualname)?;
-    let empty_tuple_obj = PyTuple::empty(py);
-    unsafe {
-        soac_eval::jit::render_cranelift_run_bb_specialized(
-            resolved.block_ptrs.as_slice(),
-            &resolved.plan,
-            resolved.true_obj,
-            resolved.false_obj,
-            empty_tuple_obj.as_ptr() as *mut c_void,
-        )
-        .map_err(PyRuntimeError::new_err)
-    }
-}
-
 pub(crate) fn jit_render_bb_with_cfg_plan_impl(
     py: Python<'_>,
     module_name: &str,

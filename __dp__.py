@@ -428,7 +428,6 @@ def _bb_build_resume_args(resume_block, gen, send_value, resume_exc, transport_s
 
 
 _jit_run_bb_plan = None
-_jit_render_bb_plan = None
 _jit_has_bb_plan = None
 _jit_block_param_names = None
 _register_clif_vectorcall = None
@@ -459,16 +458,6 @@ def _run_bb_plan_from_entry(entry, args):
 
 def run_bb(entry, args):
     return _run_bb_plan_from_entry(entry, args)
-
-
-def render_jit_bb(entry):
-    if _jit_render_bb_plan is None:
-        raise RuntimeError("JIT CLIF renderer is unavailable")
-    plan_module = getattr(entry, "__dp_plan_module", None)
-    plan_qualname = getattr(entry, "__dp_plan_qualname", None)
-    if not isinstance(plan_module, str) or not isinstance(plan_qualname, str):
-        raise RuntimeError("entry is missing JIT plan metadata")
-    return _jit_render_bb_plan(plan_module, plan_qualname)
 
 
 def _dp_resume_generator(gen, value, resume_exc):
