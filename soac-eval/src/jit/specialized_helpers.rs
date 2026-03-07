@@ -134,7 +134,11 @@ unsafe extern "C" fn py_call_object_hook(callable: ObjPtr, args: ObjPtr) -> ObjP
     ffi::PyObject_CallObject(callable as *mut ffi::PyObject, args as *mut ffi::PyObject) as ObjPtr
 }
 
-unsafe extern "C" fn py_call_with_kw_hook(callable: ObjPtr, args: ObjPtr, kwargs: ObjPtr) -> ObjPtr {
+unsafe extern "C" fn py_call_with_kw_hook(
+    callable: ObjPtr,
+    args: ObjPtr,
+    kwargs: ObjPtr,
+) -> ObjPtr {
     ffi::PyObject_Call(
         callable as *mut ffi::PyObject,
         args as *mut ffi::PyObject,
@@ -644,11 +648,11 @@ unsafe extern "C" fn pyobject_richcompare_wrapper(lhs: ObjPtr, rhs: ObjPtr, op: 
     if lhs.is_null() || rhs.is_null() {
         return ptr::null_mut();
     }
-    type Func = unsafe extern "C" fn(*mut ffi::PyObject, *mut ffi::PyObject, i32) -> *mut ffi::PyObject;
+    type Func =
+        unsafe extern "C" fn(*mut ffi::PyObject, *mut ffi::PyObject, i32) -> *mut ffi::PyObject;
     static SYMBOL: OnceLock<usize> = OnceLock::new();
-    let symbol = *SYMBOL.get_or_init(|| unsafe {
-        load_python_capi_symbol(b"PyObject_RichCompare\0")
-    });
+    let symbol =
+        *SYMBOL.get_or_init(|| unsafe { load_python_capi_symbol(b"PyObject_RichCompare\0") });
     if symbol == 0 {
         return ptr::null_mut();
     }
@@ -786,8 +790,14 @@ define_binary_obj_wrapper!(pynumber_or_wrapper, "PyNumber_Or");
 define_binary_obj_wrapper!(pynumber_xor_wrapper, "PyNumber_Xor");
 define_binary_obj_wrapper!(pynumber_and_wrapper, "PyNumber_And");
 define_binary_obj_wrapper!(pynumber_inplace_add_wrapper, "PyNumber_InPlaceAdd");
-define_binary_obj_wrapper!(pynumber_inplace_subtract_wrapper, "PyNumber_InPlaceSubtract");
-define_binary_obj_wrapper!(pynumber_inplace_multiply_wrapper, "PyNumber_InPlaceMultiply");
+define_binary_obj_wrapper!(
+    pynumber_inplace_subtract_wrapper,
+    "PyNumber_InPlaceSubtract"
+);
+define_binary_obj_wrapper!(
+    pynumber_inplace_multiply_wrapper,
+    "PyNumber_InPlaceMultiply"
+);
 define_binary_obj_wrapper!(
     pynumber_inplace_matrix_multiply_wrapper,
     "PyNumber_InPlaceMatrixMultiply"
@@ -867,24 +877,45 @@ pub fn register_specialized_jit_symbols(builder: &mut JITBuilder) {
     builder.symbol("dp_jit_tuple_set_item", dp_jit_tuple_set_item as *const u8);
     builder.symbol("dp_jit_is_true", dp_jit_is_true as *const u8);
     builder.symbol("dp_jit_raise_from_exc", dp_jit_raise_from_exc as *const u8);
-    builder.symbol("PyObject_RichCompare", pyobject_richcompare_wrapper as *const u8);
-    builder.symbol("PySequence_Contains", pysequence_contains_wrapper as *const u8);
+    builder.symbol(
+        "PyObject_RichCompare",
+        pyobject_richcompare_wrapper as *const u8,
+    );
+    builder.symbol(
+        "PySequence_Contains",
+        pysequence_contains_wrapper as *const u8,
+    );
     builder.symbol("PyObject_Not", pyobject_not_wrapper as *const u8);
     builder.symbol("PyObject_IsTrue", pyobject_is_true_wrapper as *const u8);
     builder.symbol("PyNumber_Add", pynumber_add_wrapper as *const u8);
     builder.symbol("PyNumber_Subtract", pynumber_subtract_wrapper as *const u8);
     builder.symbol("PyNumber_Multiply", pynumber_multiply_wrapper as *const u8);
-    builder.symbol("PyNumber_MatrixMultiply", pynumber_matrix_multiply_wrapper as *const u8);
-    builder.symbol("PyNumber_TrueDivide", pynumber_true_divide_wrapper as *const u8);
-    builder.symbol("PyNumber_FloorDivide", pynumber_floor_divide_wrapper as *const u8);
-    builder.symbol("PyNumber_Remainder", pynumber_remainder_wrapper as *const u8);
+    builder.symbol(
+        "PyNumber_MatrixMultiply",
+        pynumber_matrix_multiply_wrapper as *const u8,
+    );
+    builder.symbol(
+        "PyNumber_TrueDivide",
+        pynumber_true_divide_wrapper as *const u8,
+    );
+    builder.symbol(
+        "PyNumber_FloorDivide",
+        pynumber_floor_divide_wrapper as *const u8,
+    );
+    builder.symbol(
+        "PyNumber_Remainder",
+        pynumber_remainder_wrapper as *const u8,
+    );
     builder.symbol("PyNumber_Power", pynumber_power_wrapper as *const u8);
     builder.symbol("PyNumber_Lshift", pynumber_lshift_wrapper as *const u8);
     builder.symbol("PyNumber_Rshift", pynumber_rshift_wrapper as *const u8);
     builder.symbol("PyNumber_Or", pynumber_or_wrapper as *const u8);
     builder.symbol("PyNumber_Xor", pynumber_xor_wrapper as *const u8);
     builder.symbol("PyNumber_And", pynumber_and_wrapper as *const u8);
-    builder.symbol("PyNumber_InPlaceAdd", pynumber_inplace_add_wrapper as *const u8);
+    builder.symbol(
+        "PyNumber_InPlaceAdd",
+        pynumber_inplace_add_wrapper as *const u8,
+    );
     builder.symbol(
         "PyNumber_InPlaceSubtract",
         pynumber_inplace_subtract_wrapper as *const u8,
@@ -909,7 +940,10 @@ pub fn register_specialized_jit_symbols(builder: &mut JITBuilder) {
         "PyNumber_InPlaceRemainder",
         pynumber_inplace_remainder_wrapper as *const u8,
     );
-    builder.symbol("PyNumber_InPlacePower", pynumber_inplace_power_wrapper as *const u8);
+    builder.symbol(
+        "PyNumber_InPlacePower",
+        pynumber_inplace_power_wrapper as *const u8,
+    );
     builder.symbol(
         "PyNumber_InPlaceLshift",
         pynumber_inplace_lshift_wrapper as *const u8,
@@ -918,9 +952,18 @@ pub fn register_specialized_jit_symbols(builder: &mut JITBuilder) {
         "PyNumber_InPlaceRshift",
         pynumber_inplace_rshift_wrapper as *const u8,
     );
-    builder.symbol("PyNumber_InPlaceOr", pynumber_inplace_or_wrapper as *const u8);
-    builder.symbol("PyNumber_InPlaceXor", pynumber_inplace_xor_wrapper as *const u8);
-    builder.symbol("PyNumber_InPlaceAnd", pynumber_inplace_and_wrapper as *const u8);
+    builder.symbol(
+        "PyNumber_InPlaceOr",
+        pynumber_inplace_or_wrapper as *const u8,
+    );
+    builder.symbol(
+        "PyNumber_InPlaceXor",
+        pynumber_inplace_xor_wrapper as *const u8,
+    );
+    builder.symbol(
+        "PyNumber_InPlaceAnd",
+        pynumber_inplace_and_wrapper as *const u8,
+    );
     builder.symbol("PyNumber_Positive", pynumber_positive_wrapper as *const u8);
     builder.symbol("PyNumber_Negative", pynumber_negative_wrapper as *const u8);
     builder.symbol("PyNumber_Invert", pynumber_invert_wrapper as *const u8);

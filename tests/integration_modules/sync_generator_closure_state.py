@@ -63,6 +63,10 @@ def exercise_yield_from():
 module = __import__("sys").modules[__name__]
 
 counter = module.make_counter(3)
+if type(counter).__name__ == "_DpClosureGenerator":
+    assert not hasattr(counter, "gi_frame")
+else:
+    assert hasattr(counter, "gi_frame")
 assert next(counter) == 4
 assert counter.send(5) == 9
 with pytest.raises(StopIteration):

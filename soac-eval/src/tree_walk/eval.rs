@@ -1,20 +1,17 @@
-use log::info;
 use crate::jit::{self, ClifPlan};
+use log::info;
 use pyo3::ffi;
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 use std::any::Any;
 use std::collections::HashMap;
-use std::ffi::{c_char, c_void, CString};
+use std::ffi::{CString, c_char, c_void};
 use std::panic::{self, AssertUnwindSafe};
 use std::ptr;
 use std::time::Instant;
 
 unsafe extern "C" {
-    fn PyFunction_SetVectorcall(
-        func: *mut ffi::PyFunctionObject,
-        vectorcall: ffi::vectorcallfunc,
-    );
+    fn PyFunction_SetVectorcall(func: *mut ffi::PyFunctionObject, vectorcall: ffi::vectorcallfunc);
 }
 
 fn panic_payload_to_string(payload: Box<dyn Any + Send>) -> String {
@@ -261,9 +258,14 @@ unsafe fn parse_binding_metadata(
                 }
             }
             let name_string = name.to_string();
-            if param_lookup.insert(name_string.clone(), params.len()).is_some() {
+            if param_lookup
+                .insert(name_string.clone(), params.len())
+                .is_some()
+            {
                 decref_if_non_null(default_value);
-                return set_type_error("duplicate parameter name in CLIF function binding metadata");
+                return set_type_error(
+                    "duplicate parameter name in CLIF function binding metadata",
+                );
             }
             match param_kind {
                 BindingParamKind::PositionalOnly | BindingParamKind::PositionalOrKeyword => {
@@ -312,9 +314,8 @@ unsafe fn make_clif_function_data(
 ) -> Result<*mut c_void, ()> {
     let plan = jit::lookup_clif_plan(module_name, qualname);
     let Some(plan) = plan else {
-        let msg = format!(
-            "no specialized JIT plan found: module={module_name:?} qualname={qualname:?}"
-        );
+        let msg =
+            format!("no specialized JIT plan found: module={module_name:?} qualname={qualname:?}");
         if let Ok(c_msg) = CString::new(msg) {
             ffi::PyErr_SetString(ffi::PyExc_RuntimeError, c_msg.as_ptr());
         } else {
@@ -396,7 +397,9 @@ unsafe fn make_clif_function_data(
     Ok(Box::into_raw(clif_data) as *mut c_void)
 }
 
-unsafe fn clif_vectorcall_data(function: *mut ffi::PyObject) -> Result<&'static mut ClifFunctionData, ()> {
+unsafe fn clif_vectorcall_data(
+    function: *mut ffi::PyObject,
+) -> Result<&'static mut ClifFunctionData, ()> {
     if ffi::PyFunction_Check(function) == 0 {
         ffi::PyErr_SetString(
             ffi::PyExc_TypeError,
@@ -408,8 +411,7 @@ unsafe fn clif_vectorcall_data(function: *mut ffi::PyObject) -> Result<&'static 
     if dict.is_null() {
         return set_runtime_error("missing CLIF vectorcall metadata dictionary");
     }
-    let capsule =
-        ffi::PyDict_GetItemString(dict, CLIF_VECTORCALL_ATTR.as_ptr() as *const c_char);
+    let capsule = ffi::PyDict_GetItemString(dict, CLIF_VECTORCALL_ATTR.as_ptr() as *const c_char);
     if capsule.is_null() {
         return set_runtime_error("missing CLIF vectorcall metadata capsule");
     }
@@ -483,8 +485,7 @@ unsafe fn ensure_clif_vectorcall_compiled(
                 } else {
                     ffi::PyErr_SetString(
                         ffi::PyExc_RuntimeError,
-                        b"failed to compile CLIF vectorcall trampoline\0".as_ptr()
-                            as *const i8,
+                        b"failed to compile CLIF vectorcall trampoline\0".as_ptr() as *const i8,
                     );
                 }
                 return Err(());
@@ -587,7 +588,9 @@ unsafe fn build_function_state_tuple(
             nargs,
             if nargs == 1 { "was" } else { "were" }
         );
-        return set_type_error::<*mut ffi::PyObject>(&msg).err().map_or(ptr::null_mut(), |_| ptr::null_mut());
+        return set_type_error::<*mut ffi::PyObject>(&msg)
+            .err()
+            .map_or(ptr::null_mut(), |_| ptr::null_mut());
     }
 
     let positional_bound = nargs.min(positional_capacity);
@@ -702,8 +705,7 @@ unsafe fn build_function_state_tuple(
                         }
                     }
                 }
-                BindingParamKind::PositionalOrKeyword
-                | BindingParamKind::KeywordOnly => {
+                BindingParamKind::PositionalOrKeyword | BindingParamKind::KeywordOnly => {
                     if assigned[param_index] {
                         cleanup_state_values(&mut state_values);
                         let msg = format!(
@@ -768,11 +770,7 @@ unsafe fn build_function_state_tuple(
             BindingParamKind::VarArgs | BindingParamKind::VarKeyword => {}
             _ if !param.default_value.is_null() => {
                 if let Some(state_index) = param.state_index {
-                    state_value_from_borrowed(
-                        &mut state_values,
-                        state_index,
-                        param.default_value,
-                    );
+                    state_value_from_borrowed(&mut state_values, state_index, param.default_value);
                 }
                 assigned[param_index] = true;
             }
@@ -859,8 +857,7 @@ unsafe fn build_resume_state_tuple(
     }
 
     let mut state_values = vec![ptr::null_mut(); binding.state_order.len()];
-    let frame_obj =
-        ffi::PyObject_GetAttrString(gen_obj, b"gi_frame\0".as_ptr() as *const c_char);
+    let frame_obj = ffi::PyObject_GetAttrString(gen_obj, b"gi_frame\0".as_ptr() as *const c_char);
     let frame_dict = if frame_obj.is_null() {
         if !ffi::PyErr_Occurred().is_null() {
             return ptr::null_mut();

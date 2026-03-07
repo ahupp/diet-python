@@ -39,6 +39,7 @@ pub enum BindingTarget {
 pub enum BbFunctionKind {
     Function,
     Generator {
+        closure_state: bool,
         resume_label: String,
         target_labels: Vec<String>,
         resume_pcs: Vec<(String, usize)>,

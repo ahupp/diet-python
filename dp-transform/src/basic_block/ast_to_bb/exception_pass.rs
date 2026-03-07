@@ -412,28 +412,24 @@ def f(x):
             let except_label = "_dp_manual_except".to_string();
             let template = function.blocks[start_index].clone();
 
-            function
-                .blocks
-                .push(BbBlock {
-                    label: body_label.clone(),
-                    params: vec![],
-                    local_defs: vec![],
-                    ops: vec![],
-                    exc_target_label: None,
-                    exc_name: None,
-                    term: BbTerm::Ret(None),
-                });
-            function
-                .blocks
-                .push(BbBlock {
-                    label: except_label.clone(),
-                    params: vec![],
-                    local_defs: vec![],
-                    ops: vec![],
-                    exc_target_label: None,
-                    exc_name: None,
-                    term: BbTerm::Ret(None),
-                });
+            function.blocks.push(BbBlock {
+                label: body_label.clone(),
+                params: vec![],
+                local_defs: vec![],
+                ops: vec![],
+                exc_target_label: None,
+                exc_name: None,
+                term: BbTerm::Ret(None),
+            });
+            function.blocks.push(BbBlock {
+                label: except_label.clone(),
+                params: vec![],
+                local_defs: vec![],
+                ops: vec![],
+                exc_target_label: None,
+                exc_name: None,
+                term: BbTerm::Ret(None),
+            });
 
             function.blocks[start_index] = BbBlock {
                 label: template.label.clone(),

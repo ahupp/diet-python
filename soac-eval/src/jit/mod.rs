@@ -25,12 +25,10 @@ pub use planning::{
     DirectSimpleExprRetNonePlan, DirectSimpleOpPlan, DirectSimpleRetPlan, DirectSimpleTermPlan,
     lookup_clif_plan, register_clif_module_plans,
 };
-pub use specialized_helpers::default_specialized_hooks;
 pub use specialized_helpers::ObjPtr;
 pub use specialized_helpers::SpecializedJitHooks;
-use specialized_helpers::{
-    install_specialized_hooks, register_specialized_jit_symbols,
-};
+pub use specialized_helpers::default_specialized_hooks;
+use specialized_helpers::{install_specialized_hooks, register_specialized_jit_symbols};
 
 static INCREMENTAL_CLIF_CACHE: OnceLock<Mutex<HashMap<Vec<u8>, Vec<u8>>>> = OnceLock::new();
 
@@ -311,11 +309,9 @@ fn emit_current_locals_view(
             &[block_const, normalize_name_ptr, normalize_name_len],
         );
         let normalize_callable = fb.inst_results(normalize_callable_inst)[0];
-        let normalize_callable_is_null = fb.ins().icmp(
-            ir::condcodes::IntCC::Equal,
-            normalize_callable,
-            null_ptr,
-        );
+        let normalize_callable_is_null =
+            fb.ins()
+                .icmp(ir::condcodes::IntCC::Equal, normalize_callable, null_ptr);
         let normalize_callable_ok = fb.create_block();
         fb.append_block_param(normalize_callable_ok, ptr_ty);
         fb.ins().brif(
@@ -445,9 +441,9 @@ fn emit_current_locals_view(
         &[block_const, normalize_name_ptr, normalize_name_len],
     );
     let normalize_callable = fb.inst_results(normalize_callable_inst)[0];
-    let normalize_callable_is_null = fb
-        .ins()
-        .icmp(ir::condcodes::IntCC::Equal, normalize_callable, null_ptr);
+    let normalize_callable_is_null =
+        fb.ins()
+            .icmp(ir::condcodes::IntCC::Equal, normalize_callable, null_ptr);
     let normalize_callable_ok = fb.create_block();
     fb.append_block_param(normalize_callable_ok, ptr_ty);
     fb.ins().brif(
@@ -806,7 +802,8 @@ fn emit_direct_simple_expr(
                 }
                 if !has_unpack
                     && simple_keywords.is_empty()
-                    && ((func_name == "__dp_eval_" && (simple_args.len() == 1 || simple_args.len() == 2))
+                    && ((func_name == "__dp_eval_"
+                        && (simple_args.len() == 1 || simple_args.len() == 2))
                         || (func_name == "__dp_exec_" && simple_args.len() == 1))
                 {
                     let callable_is_borrowed =
@@ -874,9 +871,9 @@ fn emit_direct_simple_expr(
                         fb.ins().call(decref_ref, &[callable]);
                     }
                     let call_value = fb.inst_results(call_inst)[0];
-                    let call_is_null = fb
-                        .ins()
-                        .icmp(ir::condcodes::IntCC::Equal, call_value, null_ptr);
+                    let call_is_null =
+                        fb.ins()
+                            .icmp(ir::condcodes::IntCC::Equal, call_value, null_ptr);
                     let call_ok_block = fb.create_block();
                     fb.append_block_param(call_ok_block, ptr_ty);
                     fb.ins().brif(
@@ -1483,13 +1480,9 @@ fn emit_direct_simple_expr(
                                     ("__dp_add", 2) => operator_refs.number_add_ref,
                                     ("__dp_sub", 2) => operator_refs.number_subtract_ref,
                                     ("__dp_mul", 2) => operator_refs.number_multiply_ref,
-                                    ("__dp_matmul", 2) => {
-                                        operator_refs.number_matrix_multiply_ref
-                                    }
+                                    ("__dp_matmul", 2) => operator_refs.number_matrix_multiply_ref,
                                     ("__dp_truediv", 2) => operator_refs.number_true_divide_ref,
-                                    ("__dp_floordiv", 2) => {
-                                        operator_refs.number_floor_divide_ref
-                                    }
+                                    ("__dp_floordiv", 2) => operator_refs.number_floor_divide_ref,
                                     ("__dp_mod", 2) => operator_refs.number_remainder_ref,
                                     ("__dp_pow", 2 | 3) => operator_refs.number_power_ref,
                                     ("__dp_lshift", 2) => operator_refs.number_lshift_ref,
@@ -1498,12 +1491,8 @@ fn emit_direct_simple_expr(
                                     ("__dp_xor", 2) => operator_refs.number_xor_ref,
                                     ("__dp_and_", 2) => operator_refs.number_and_ref,
                                     ("__dp_iadd", 2) => operator_refs.number_inplace_add_ref,
-                                    ("__dp_isub", 2) => {
-                                        operator_refs.number_inplace_subtract_ref
-                                    }
-                                    ("__dp_imul", 2) => {
-                                        operator_refs.number_inplace_multiply_ref
-                                    }
+                                    ("__dp_isub", 2) => operator_refs.number_inplace_subtract_ref,
+                                    ("__dp_imul", 2) => operator_refs.number_inplace_multiply_ref,
                                     ("__dp_imatmul", 2) => {
                                         operator_refs.number_inplace_matrix_multiply_ref
                                     }
@@ -1513,18 +1502,10 @@ fn emit_direct_simple_expr(
                                     ("__dp_ifloordiv", 2) => {
                                         operator_refs.number_inplace_floor_divide_ref
                                     }
-                                    ("__dp_imod", 2) => {
-                                        operator_refs.number_inplace_remainder_ref
-                                    }
-                                    ("__dp_ipow", 2 | 3) => {
-                                        operator_refs.number_inplace_power_ref
-                                    }
-                                    ("__dp_ilshift", 2) => {
-                                        operator_refs.number_inplace_lshift_ref
-                                    }
-                                    ("__dp_irshift", 2) => {
-                                        operator_refs.number_inplace_rshift_ref
-                                    }
+                                    ("__dp_imod", 2) => operator_refs.number_inplace_remainder_ref,
+                                    ("__dp_ipow", 2 | 3) => operator_refs.number_inplace_power_ref,
+                                    ("__dp_ilshift", 2) => operator_refs.number_inplace_lshift_ref,
+                                    ("__dp_irshift", 2) => operator_refs.number_inplace_rshift_ref,
                                     ("__dp_ior", 2) => operator_refs.number_inplace_or_ref,
                                     ("__dp_ixor", 2) => operator_refs.number_inplace_xor_ref,
                                     ("__dp_iand", 2) => operator_refs.number_inplace_and_ref,
@@ -1549,48 +1530,42 @@ fn emit_direct_simple_expr(
                                         &[arg_values[0].0, arg_values[1].0, arg_values[2].0],
                                     ),
                                     ("__dp_eq", 2) => {
-                                        let compare_op =
-                                            fb.ins().iconst(i32_ty, ffi::Py_EQ as i64);
+                                        let compare_op = fb.ins().iconst(i32_ty, ffi::Py_EQ as i64);
                                         fb.ins().call(
                                             intrinsic_ref,
                                             &[arg_values[0].0, arg_values[1].0, compare_op],
                                         )
                                     }
                                     ("__dp_ne", 2) => {
-                                        let compare_op =
-                                            fb.ins().iconst(i32_ty, ffi::Py_NE as i64);
+                                        let compare_op = fb.ins().iconst(i32_ty, ffi::Py_NE as i64);
                                         fb.ins().call(
                                             intrinsic_ref,
                                             &[arg_values[0].0, arg_values[1].0, compare_op],
                                         )
                                     }
                                     ("__dp_lt", 2) => {
-                                        let compare_op =
-                                            fb.ins().iconst(i32_ty, ffi::Py_LT as i64);
+                                        let compare_op = fb.ins().iconst(i32_ty, ffi::Py_LT as i64);
                                         fb.ins().call(
                                             intrinsic_ref,
                                             &[arg_values[0].0, arg_values[1].0, compare_op],
                                         )
                                     }
                                     ("__dp_le", 2) => {
-                                        let compare_op =
-                                            fb.ins().iconst(i32_ty, ffi::Py_LE as i64);
+                                        let compare_op = fb.ins().iconst(i32_ty, ffi::Py_LE as i64);
                                         fb.ins().call(
                                             intrinsic_ref,
                                             &[arg_values[0].0, arg_values[1].0, compare_op],
                                         )
                                     }
                                     ("__dp_gt", 2) => {
-                                        let compare_op =
-                                            fb.ins().iconst(i32_ty, ffi::Py_GT as i64);
+                                        let compare_op = fb.ins().iconst(i32_ty, ffi::Py_GT as i64);
                                         fb.ins().call(
                                             intrinsic_ref,
                                             &[arg_values[0].0, arg_values[1].0, compare_op],
                                         )
                                     }
                                     ("__dp_ge", 2) => {
-                                        let compare_op =
-                                            fb.ins().iconst(i32_ty, ffi::Py_GE as i64);
+                                        let compare_op = fb.ins().iconst(i32_ty, ffi::Py_GE as i64);
                                         fb.ins().call(
                                             intrinsic_ref,
                                             &[arg_values[0].0, arg_values[1].0, compare_op],
@@ -1612,8 +1587,11 @@ fn emit_direct_simple_expr(
                                     }
                                 }
                                 let call_value = fb.inst_results(call_inst)[0];
-                                let call_is_null =
-                                    fb.ins().icmp(ir::condcodes::IntCC::Equal, call_value, null_ptr);
+                                let call_is_null = fb.ins().icmp(
+                                    ir::condcodes::IntCC::Equal,
+                                    call_value,
+                                    null_ptr,
+                                );
                                 let call_ok_block = fb.create_block();
                                 fb.append_block_param(call_ok_block, ptr_ty);
                                 fb.ins().brif(
@@ -2712,13 +2690,10 @@ fn build_cranelift_run_bb_specialized_function(
     let pysequence_contains_id =
         declare_import_fn(jit_module, "PySequence_Contains", &binary_i32_sig)?;
     let pyobject_not_id = declare_import_fn(jit_module, "PyObject_Not", &unary_i32_sig)?;
-    let pyobject_is_true_id =
-        declare_import_fn(jit_module, "PyObject_IsTrue", &unary_i32_sig)?;
+    let pyobject_is_true_id = declare_import_fn(jit_module, "PyObject_IsTrue", &unary_i32_sig)?;
     let pynumber_add_id = declare_import_fn(jit_module, "PyNumber_Add", &binary_obj_sig)?;
-    let pynumber_subtract_id =
-        declare_import_fn(jit_module, "PyNumber_Subtract", &binary_obj_sig)?;
-    let pynumber_multiply_id =
-        declare_import_fn(jit_module, "PyNumber_Multiply", &binary_obj_sig)?;
+    let pynumber_subtract_id = declare_import_fn(jit_module, "PyNumber_Subtract", &binary_obj_sig)?;
+    let pynumber_multiply_id = declare_import_fn(jit_module, "PyNumber_Multiply", &binary_obj_sig)?;
     let pynumber_matrix_multiply_id =
         declare_import_fn(jit_module, "PyNumber_MatrixMultiply", &binary_obj_sig)?;
     let pynumber_true_divide_id =
@@ -2762,12 +2737,9 @@ fn build_cranelift_run_bb_specialized_function(
         declare_import_fn(jit_module, "PyNumber_InPlaceXor", &binary_obj_sig)?;
     let pynumber_inplace_and_id =
         declare_import_fn(jit_module, "PyNumber_InPlaceAnd", &binary_obj_sig)?;
-    let pynumber_positive_id =
-        declare_import_fn(jit_module, "PyNumber_Positive", &unary_obj_sig)?;
-    let pynumber_negative_id =
-        declare_import_fn(jit_module, "PyNumber_Negative", &unary_obj_sig)?;
-    let pynumber_invert_id =
-        declare_import_fn(jit_module, "PyNumber_Invert", &unary_obj_sig)?;
+    let pynumber_positive_id = declare_import_fn(jit_module, "PyNumber_Positive", &unary_obj_sig)?;
+    let pynumber_negative_id = declare_import_fn(jit_module, "PyNumber_Negative", &unary_obj_sig)?;
+    let pynumber_invert_id = declare_import_fn(jit_module, "PyNumber_Invert", &unary_obj_sig)?;
     let raise_exc_id = declare_import_fn(jit_module, "dp_jit_raise_from_exc", &raise_exc_sig)?;
     let main_id = declare_local_fn(jit_module, "dp_jit_run_bb_specialized", &main_sig)?;
     let mut import_id_to_symbol: HashMap<u32, &'static str> = HashMap::new();
@@ -2843,10 +2815,7 @@ fn build_cranelift_run_bb_specialized_function(
         pynumber_inplace_remainder_id.as_u32(),
         "PyNumber_InPlaceRemainder",
     );
-    import_id_to_symbol.insert(
-        pynumber_inplace_power_id.as_u32(),
-        "PyNumber_InPlacePower",
-    );
+    import_id_to_symbol.insert(pynumber_inplace_power_id.as_u32(), "PyNumber_InPlacePower");
     import_id_to_symbol.insert(
         pynumber_inplace_lshift_id.as_u32(),
         "PyNumber_InPlaceLshift",
@@ -2937,10 +2906,8 @@ fn build_cranelift_run_bb_specialized_function(
         let pynumber_remainder_ref =
             jit_module.declare_func_in_func(pynumber_remainder_id, &mut fb.func);
         let pynumber_power_ref = jit_module.declare_func_in_func(pynumber_power_id, &mut fb.func);
-        let pynumber_lshift_ref =
-            jit_module.declare_func_in_func(pynumber_lshift_id, &mut fb.func);
-        let pynumber_rshift_ref =
-            jit_module.declare_func_in_func(pynumber_rshift_id, &mut fb.func);
+        let pynumber_lshift_ref = jit_module.declare_func_in_func(pynumber_lshift_id, &mut fb.func);
+        let pynumber_rshift_ref = jit_module.declare_func_in_func(pynumber_rshift_id, &mut fb.func);
         let pynumber_or_ref = jit_module.declare_func_in_func(pynumber_or_id, &mut fb.func);
         let pynumber_xor_ref = jit_module.declare_func_in_func(pynumber_xor_id, &mut fb.func);
         let pynumber_and_ref = jit_module.declare_func_in_func(pynumber_and_id, &mut fb.func);
@@ -2950,8 +2917,8 @@ fn build_cranelift_run_bb_specialized_function(
             jit_module.declare_func_in_func(pynumber_inplace_subtract_id, &mut fb.func);
         let pynumber_inplace_multiply_ref =
             jit_module.declare_func_in_func(pynumber_inplace_multiply_id, &mut fb.func);
-        let pynumber_inplace_matrix_multiply_ref = jit_module
-            .declare_func_in_func(pynumber_inplace_matrix_multiply_id, &mut fb.func);
+        let pynumber_inplace_matrix_multiply_ref =
+            jit_module.declare_func_in_func(pynumber_inplace_matrix_multiply_id, &mut fb.func);
         let pynumber_inplace_true_divide_ref =
             jit_module.declare_func_in_func(pynumber_inplace_true_divide_id, &mut fb.func);
         let pynumber_inplace_floor_divide_ref =
@@ -2974,8 +2941,7 @@ fn build_cranelift_run_bb_specialized_function(
             jit_module.declare_func_in_func(pynumber_positive_id, &mut fb.func);
         let pynumber_negative_ref =
             jit_module.declare_func_in_func(pynumber_negative_id, &mut fb.func);
-        let pynumber_invert_ref =
-            jit_module.declare_func_in_func(pynumber_invert_id, &mut fb.func);
+        let pynumber_invert_ref = jit_module.declare_func_in_func(pynumber_invert_id, &mut fb.func);
 
         fb.ins().call(incref_ref, &[entry_args]);
         let entry_jump_args = [ir::BlockArg::Value(entry_args)];
@@ -4158,16 +4124,8 @@ pub unsafe fn compile_cranelift_vectorcall_trampoline(
         "dp_jit_vectorcall_build_bb_args",
         &build_sig,
     )?;
-    let run_id = declare_import_fn(
-        &mut jit_module,
-        "dp_jit_vectorcall_run_compiled",
-        &run_sig,
-    )?;
-    let main_id = declare_local_fn(
-        &mut jit_module,
-        "dp_jit_vectorcall_trampoline",
-        &main_sig,
-    )?;
+    let run_id = declare_import_fn(&mut jit_module, "dp_jit_vectorcall_run_compiled", &run_sig)?;
+    let main_id = declare_local_fn(&mut jit_module, "dp_jit_vectorcall_trampoline", &main_sig)?;
 
     let mut ctx = jit_module.make_context();
     ctx.func.signature = main_sig;

@@ -24,8 +24,8 @@ mod await_lower;
 mod bound_names;
 mod dataflow;
 mod deleted_names;
-mod exception_pass;
 mod exception_flow;
+mod exception_pass;
 mod lowering_helpers;
 mod metadata;
 mod naming;
@@ -51,6 +51,7 @@ use exception_flow::{
     compute_exception_edge_by_label, contains_return_stmt_in_body,
     contains_return_stmt_in_handlers, rewrite_region_returns_to_finally,
 };
+pub use exception_pass::lower_try_jump_exception_flow;
 use lowering_helpers::{
     make_dp_tuple, make_param_specs_expr, name_expr, raise_stmt_from_name,
     rewrite_exception_accesses,
@@ -65,9 +66,10 @@ use naming::{
 };
 use pre_lower::{is_simple_index_target, AnnotationHelperForLoweringPass};
 pub use pre_lower::{BBSimplifyStmtPass, FunctionIdentityByNode};
-pub use exception_pass::lower_try_jump_exception_flow;
 use state_vars::{
-    collect_cell_slots, collect_parameter_names, collect_state_vars, sync_target_cells_stmts,
+    collect_cell_slots, collect_injected_exception_names, collect_parameter_names,
+    collect_state_vars, rewrite_sync_generator_blocks_to_closure_cells, sync_generator_state_order,
+    sync_target_cells_stmts,
 };
 use stmt_shape::{
     extract_else_body, flatten_stmt, flatten_stmt_boxes, should_strip_nonlocal_for_bb,
@@ -419,6 +421,10 @@ impl BasicBlockRewriter<'_> {
             return None;
         }
         let is_generated_genexpr = func.name.id.as_str().contains("_dp_genexpr_");
+        let is_generated_comprehension_helper = is_generated_genexpr
+            || func.name.id.as_str().contains("_dp_listcomp_")
+            || func.name.id.as_str().contains("_dp_setcomp_")
+            || func.name.id.as_str().contains("_dp_dictcomp_");
         // Keep generated annotation helpers in their lexical scope. BB-lowering
         // and hoisting them out of class/module init can break name resolution
         // for class-local symbols (for example, `T` in `value: T`).
@@ -463,7 +469,7 @@ impl BasicBlockRewriter<'_> {
             HashSet::new()
         };
         let deleted_names = collect_deleted_names(&runtime_input_body);
-        let cell_slots = collect_cell_slots(&runtime_input_body);
+        let mut cell_slots = collect_cell_slots(&runtime_input_body);
         let has_yield = has_yield_exprs_in_stmts(&runtime_input_body);
         let has_await = has_await_in_stmts(&runtime_input_body);
         if func.is_async && has_await {
@@ -527,7 +533,14 @@ impl BasicBlockRewriter<'_> {
         let mut generator_dispatch_only_labels: HashSet<String> = HashSet::new();
         let mut generator_throw_passthrough_labels: HashSet<String> = HashSet::new();
         let is_async_generator_runtime = func.is_async && !coroutine_via_generator;
+        let is_sync_generator_runtime =
+            has_yield && !func.is_async && !is_generated_comprehension_helper;
         if has_yield {
+            let generator_pc_expr = if is_sync_generator_runtime {
+                py_expr!("__dp_load_cell(_dp_cell__dp_pc)")
+            } else {
+                py_expr!("__dp_getattr(_dp_self, \"_pc\")")
+            };
             let done_label = format!("{label_prefix}_done");
             let invalid_label = format!("{label_prefix}_invalid");
             let uncaught_label = format!("{label_prefix}_uncaught");
@@ -538,8 +551,9 @@ impl BasicBlockRewriter<'_> {
                 "invalid generator pc: {}"
             };
             let invalid_raise_stmt = match py_stmt!(
-                "raise RuntimeError({msg:literal}.format(__dp_getattr(_dp_self, \"_pc\")))",
+                "raise RuntimeError({msg:literal}.format({pc:expr}))",
                 msg = invalid_msg,
+                pc = generator_pc_expr.clone(),
             ) {
                 Stmt::Raise(stmt) => stmt,
                 _ => unreachable!("expected raise statement"),
@@ -583,7 +597,13 @@ impl BasicBlockRewriter<'_> {
                 Block {
                     label: uncaught_set_done_label.clone(),
                     body: vec![
-                        py_stmt!("__dp_setattr(_dp_self, \"_pc\", __dp__._GEN_PC_DONE)"),
+                        if is_sync_generator_runtime {
+                            py_stmt!(
+                                "__dp_store_cell(_dp_cell__dp_pc, __dp__._GEN_PC_DONE)"
+                            )
+                        } else {
+                            py_stmt!("__dp_setattr(_dp_self, \"_pc\", __dp__._GEN_PC_DONE)")
+                        },
                         py_stmt!(
                             "__dp_{helper:id}({exc:id})",
                             helper = uncaught_helper_name,
@@ -599,9 +619,7 @@ impl BasicBlockRewriter<'_> {
                     label: uncaught_label.clone(),
                     body: Vec::new(),
                     terminator: Terminator::BrIf {
-                        test: py_expr!(
-                            "__dp_ne(__dp_getattr(_dp_self, \"_pc\"), __dp__._GEN_PC_DONE)"
-                        ),
+                        test: py_expr!("__dp_ne({pc:expr}, __dp__._GEN_PC_DONE)", pc = generator_pc_expr.clone()),
                         then_label: uncaught_set_done_label.clone(),
                         else_label: uncaught_raise_label.clone(),
                     },
@@ -742,7 +760,7 @@ impl BasicBlockRewriter<'_> {
                 label: resume_send_table_label.clone(),
                 body: Vec::new(),
                 terminator: Terminator::BrTable {
-                    index: py_expr!("__dp_getattr(_dp_self, \"_pc\")"),
+                    index: generator_pc_expr.clone(),
                     targets: send_table_targets,
                     default_label: resume_invalid_table_label.clone(),
                 },
@@ -751,7 +769,7 @@ impl BasicBlockRewriter<'_> {
                 label: resume_throw_table_label.clone(),
                 body: Vec::new(),
                 terminator: Terminator::BrTable {
-                    index: py_expr!("__dp_getattr(_dp_self, \"_pc\")"),
+                    index: generator_pc_expr.clone(),
                     targets: throw_table_targets,
                     default_label: resume_invalid_table_label,
                 },
@@ -760,7 +778,7 @@ impl BasicBlockRewriter<'_> {
                 label: resume_send_label.clone(),
                 body: Vec::new(),
                 terminator: Terminator::BrIf {
-                    test: py_expr!("__dp_eq(__dp_getattr(_dp_self, \"_pc\"), __dp__._GEN_PC_DONE)"),
+                    test: py_expr!("__dp_eq({pc:expr}, __dp__._GEN_PC_DONE)", pc = generator_pc_expr.clone()),
                     then_label: done_label,
                     else_label: resume_send_table_label,
                 },
@@ -769,7 +787,7 @@ impl BasicBlockRewriter<'_> {
                 label: resume_throw_label.clone(),
                 body: Vec::new(),
                 terminator: Terminator::BrIf {
-                    test: py_expr!("__dp_eq(__dp_getattr(_dp_self, \"_pc\"), __dp__._GEN_PC_DONE)"),
+                    test: py_expr!("__dp_eq({pc:expr}, __dp__._GEN_PC_DONE)", pc = generator_pc_expr),
                     then_label: resume_throw_done_label,
                     else_label: resume_throw_table_label,
                 },
@@ -815,11 +833,21 @@ impl BasicBlockRewriter<'_> {
                 }
             }
         }
-        let state_vars = collect_state_vars(
+        let mut state_vars = collect_state_vars(
             &param_names,
             &blocks,
             is_module_init_temp_name(func.name.id.as_str()),
         );
+        if is_sync_generator_runtime {
+            for capture_name in collect_capture_names(func, Some(&outer_scope_names)) {
+                if !state_vars.iter().any(|existing| existing == &capture_name) {
+                    state_vars.push(capture_name);
+                }
+            }
+            if !state_vars.iter().any(|existing| existing == "_dp_pc") {
+                state_vars.push("_dp_pc".to_string());
+            }
+        }
         let mut extra_successors = build_extra_successors(&blocks);
         for (source, (target, _)) in &exception_edges {
             let Some(target) = target.as_ref() else {
@@ -881,6 +909,14 @@ impl BasicBlockRewriter<'_> {
             }
         }
         ensure_try_exception_params(&blocks, &mut block_params);
+        if is_sync_generator_runtime {
+            rewrite_sync_generator_blocks_to_closure_cells(
+                &mut blocks,
+                &mut block_params,
+                &state_vars,
+                &mut cell_slots,
+            );
+        }
         if let (Some(uncaught_label), Some(uncaught_exc_name)) = (
             generator_uncaught_label.as_ref(),
             generator_uncaught_exc_name.as_ref(),
@@ -906,20 +942,29 @@ impl BasicBlockRewriter<'_> {
         let state_entry_label = generator_resume_entry_label
             .as_deref()
             .unwrap_or(entry_label.as_str());
-        let entry_params = block_params
-            .get(state_entry_label)
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|name| {
-                name != "_dp_self" && name != "_dp_send_value" && name != "_dp_resume_exc"
-            })
-            .collect::<Vec<_>>();
-        let extra_state_vars: Vec<String> = entry_params
-            .iter()
-            .filter(|name| !param_names.iter().any(|param| param == *name))
-            .cloned()
-            .collect();
+        let injected_exception_names = collect_injected_exception_names(&blocks);
+        let entry_params = if is_sync_generator_runtime {
+            sync_generator_state_order(&state_vars, &injected_exception_names)
+        } else {
+            block_params
+                .get(state_entry_label)
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|name| {
+                    name != "_dp_self" && name != "_dp_send_value" && name != "_dp_resume_exc"
+                })
+                .collect::<Vec<_>>()
+        };
+        let extra_state_vars: Vec<String> = if is_sync_generator_runtime {
+            Vec::new()
+        } else {
+            entry_params
+                .iter()
+                .filter(|name| !param_names.iter().any(|param| param == *name))
+                .cloned()
+                .collect()
+        };
         let target_labels = blocks
             .iter()
             .map(|block| block.label.clone())
@@ -939,6 +984,7 @@ impl BasicBlockRewriter<'_> {
                 &block_params,
                 &resume_pcs,
                 is_async_generator_runtime,
+                is_sync_generator_runtime,
             );
         }
         let lowered_is_async = is_async_generator_runtime;
@@ -1042,6 +1088,7 @@ impl BasicBlockRewriter<'_> {
                     }
                 } else {
                     LoweredKind::Generator {
+                        closure_state: is_sync_generator_runtime,
                         resume_label: resume_entry_label.clone(),
                         target_labels,
                         resume_pcs,
@@ -2362,6 +2409,7 @@ impl BasicBlockRewriter<'_> {
                 ))
             }
             BbFunctionKind::Generator {
+                closure_state,
                 ..
             } => {
                 let helper_name = if bb_function.is_coroutine {
@@ -2369,8 +2417,13 @@ impl BasicBlockRewriter<'_> {
                 } else {
                     "__dp_def_gen"
                 };
+                let closure_state_expr = if *closure_state {
+                    py_expr!("True")
+                } else {
+                    py_expr!("False")
+                };
                 Some(py_expr!(
-                    "{helper:id}({resume:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __dp_globals(), __name__, {doc:expr}, {annotate_fn:expr})",
+                    "{helper:id}({resume:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __dp_globals(), __name__, {doc:expr}, {annotate_fn:expr}, {closure_state:expr})",
                     helper = helper_name,
                     resume = entry_ref_expr,
                     name = bb_function.display_name.as_str(),
@@ -2379,6 +2432,7 @@ impl BasicBlockRewriter<'_> {
                     params = bb_function.param_specs.to_expr(),
                     doc = doc,
                     annotate_fn = annotate_fn,
+                    closure_state = closure_state_expr,
                 ))
             }
         }
@@ -2592,6 +2646,7 @@ enum LoweredKind {
         resume_pcs: Vec<(String, usize)>,
     },
     Generator {
+        closure_state: bool,
         resume_label: String,
         target_labels: Vec<String>,
         resume_pcs: Vec<(String, usize)>,

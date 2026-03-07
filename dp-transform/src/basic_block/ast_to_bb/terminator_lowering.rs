@@ -138,6 +138,7 @@ pub(super) fn lower_generator_yield_terms_to_explicit_return(
     block_params: &HashMap<String, Vec<String>>,
     resume_pcs: &[(String, usize)],
     is_async: bool,
+    closure_state: bool,
 ) {
     let resume_pc_by_label = resume_pcs
         .iter()
@@ -149,9 +150,15 @@ pub(super) fn lower_generator_yield_terms_to_explicit_return(
     // suspension value returns uniformly.
     for block in blocks.iter_mut() {
         if let Terminator::Ret(value) = &block.terminator {
-            block.body.push(py_stmt!(
-                "__dp_setattr(_dp_self, \"_pc\", __dp__._GEN_PC_DONE)"
-            ));
+            if closure_state && !is_async {
+                block.body.push(py_stmt!(
+                    "__dp_store_cell(_dp_cell__dp_pc, __dp__._GEN_PC_DONE)"
+                ));
+            } else {
+                block.body.push(py_stmt!(
+                    "__dp_setattr(_dp_self, \"_pc\", __dp__._GEN_PC_DONE)"
+                ));
+            }
             block.terminator = Terminator::Raise(raise_done_stmt(is_async, value.clone()));
         }
     }
@@ -168,26 +175,35 @@ pub(super) fn lower_generator_yield_terms_to_explicit_return(
         let next_pc = *resume_pc_by_label
             .get(resume_label.as_str())
             .unwrap_or_else(|| panic!("missing resume pc for label: {resume_label}"));
-        block.body.push(py_stmt!(
-            "__dp_setattr(_dp_self, \"_pc\", {next_pc:literal})",
-            next_pc = next_pc as i64,
-        ));
-        let next_state_names = block_params
-            .get(resume_label.as_str())
-            .cloned()
-            .unwrap_or_default();
-        for name in next_state_names {
-            if matches!(
-                name.as_str(),
-                "_dp_self" | "_dp_send_value" | "_dp_resume_exc"
-            ) {
-                continue;
-            }
+        if closure_state && !is_async {
             block.body.push(py_stmt!(
-                "__dp_store_local(_dp_self, {name:literal}, {value:id})",
-                name = name.as_str(),
-                value = name.as_str(),
+                "__dp_store_cell(_dp_cell__dp_pc, {next_pc:literal})",
+                next_pc = next_pc as i64,
             ));
+        } else {
+            block.body.push(py_stmt!(
+                "__dp_setattr(_dp_self, \"_pc\", {next_pc:literal})",
+                next_pc = next_pc as i64,
+            ));
+        }
+        if is_async || !closure_state {
+            let next_state_names = block_params
+                .get(resume_label.as_str())
+                .cloned()
+                .unwrap_or_default();
+            for name in next_state_names {
+                if matches!(
+                    name.as_str(),
+                    "_dp_self" | "_dp_send_value" | "_dp_resume_exc"
+                ) {
+                    continue;
+                }
+                block.body.push(py_stmt!(
+                    "__dp_store_local(_dp_self, {name:literal}, {value:id})",
+                    name = name.as_str(),
+                    value = name.as_str(),
+                ));
+            }
         }
         block.terminator = Terminator::Ret(yield_value);
     }
@@ -197,10 +213,12 @@ pub(super) fn bb_function_kind_from(kind: &LoweredKind) -> BbFunctionKind {
     match kind {
         LoweredKind::Function => BbFunctionKind::Function,
         LoweredKind::Generator {
+            closure_state,
             resume_label,
             target_labels,
             resume_pcs,
         } => BbFunctionKind::Generator {
+            closure_state: *closure_state,
             resume_label: resume_label.clone(),
             target_labels: target_labels.clone(),
             resume_pcs: resume_pcs.clone(),

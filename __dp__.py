@@ -301,44 +301,131 @@ def _resolve_local_frame(owner):
     frame = getattr(owner, "gi_frame", None)
     if frame is not None:
         return frame
-    return owner
+    return None
+
+
+def _resume_closure_value(owner, name):
+    resume = getattr(owner, "_dp_resume", None)
+    closure = getattr(resume, "__closure__", None)
+    code = getattr(resume, "__code__", None)
+    if closure is None or code is None:
+        return _MISSING
+    target_name = (
+        name
+        if name == "_dp_classcell" or name.startswith("_dp_cell_")
+        else f"_dp_cell_{name}"
+    )
+    for freevar, cell in zip(code.co_freevars, closure):
+        if freevar != target_name:
+            continue
+        try:
+            value = cell.cell_contents
+        except ValueError:
+            return DELETED
+        if target_name == name:
+            return value
+        if isinstance(value, _types.CellType):
+            try:
+                return value.cell_contents
+            except ValueError:
+                return DELETED
+        return value
+    return _MISSING
+
+
+def _resume_closure_contents(cell):
+    try:
+        value = cell.cell_contents
+    except ValueError:
+        return _MISSING
+    if isinstance(value, _types.CellType):
+        try:
+            return value.cell_contents
+        except ValueError:
+            return DELETED
+    return value
 
 
 def __dp_load_local(gen, name):
     frame = _resolve_local_frame(gen)
-    try:
-        value = frame[name]
-    except KeyError as exc:
+    if isinstance(frame, dict):
+        try:
+            value = frame[name]
+        except KeyError as exc:
+            if name.startswith("_dp_yield_from_iter_"):
+                # Yield-from lowering tracks the active delegated iterator in
+                # `gi_yieldfrom`. If temp names differ across transformed resume
+                # blocks, fall back to the canonical generator slot.
+                return load_deleted_name(
+                    name,
+                    getattr(gen, "gi_yieldfrom", DELETED),
+                )
+            raise UnboundLocalError(
+                f"cannot access local variable {name!r} where it is not associated with a value"
+            ) from exc
+        return load_deleted_name(name, value)
+    value = _resume_closure_value(gen, name)
+    if value is _MISSING:
         if name.startswith("_dp_yield_from_iter_"):
-            # Yield-from lowering tracks the active delegated iterator in
-            # `gi_yieldfrom`. If temp names differ across transformed resume
-            # blocks, fall back to the canonical generator slot.
-            return load_deleted_name(
-                name,
-                getattr(gen, "gi_yieldfrom", DELETED),
-            )
+            return load_deleted_name(name, getattr(gen, "gi_yieldfrom", DELETED))
         raise UnboundLocalError(
             f"cannot access local variable {name!r} where it is not associated with a value"
-        ) from exc
+        )
     return load_deleted_name(name, value)
 
 
 def __dp_load_local_raw(gen, name):
     frame = _resolve_local_frame(gen)
-    if name.startswith("_dp_yield_from_iter_") and name not in frame:
+    if isinstance(frame, dict):
+        if name.startswith("_dp_yield_from_iter_") and name not in frame:
+            return getattr(gen, "gi_yieldfrom", DELETED)
+        return frame.get(name, DELETED)
+    value = _resume_closure_value(gen, name)
+    if value is _MISSING and name.startswith("_dp_yield_from_iter_"):
         return getattr(gen, "gi_yieldfrom", DELETED)
-    return frame.get(name, DELETED)
+    if value is _MISSING:
+        return DELETED
+    return value
 
 
 def __dp_store_local(gen, name, value):
     frame = _resolve_local_frame(gen)
-    frame[name] = value
+    if isinstance(frame, dict):
+        frame[name] = value
+        return value
+    target_name = (
+        name
+        if name == "_dp_classcell" or name.startswith("_dp_cell_")
+        else f"_dp_cell_{name}"
+    )
+    resume = getattr(gen, "_dp_resume", None)
+    closure = getattr(resume, "__closure__", None)
+    code = getattr(resume, "__code__", None)
+    if closure is None or code is None:
+        raise UnboundLocalError(
+            f"cannot access local variable {name!r} where it is not associated with a value"
+        )
+    for freevar, cell in zip(code.co_freevars, closure):
+        if freevar != target_name:
+            continue
+        stored = cell.cell_contents
+        if isinstance(stored, _types.CellType) and target_name != name:
+            stored.cell_contents = value
+            return value
+        cell.cell_contents = value
+        return value
+    raise UnboundLocalError(
+        f"cannot access local variable {name!r} where it is not associated with a value"
+    )
     return value
 
 
 def __dp_del_local(gen, name):
     frame = _resolve_local_frame(gen)
-    frame[name] = DELETED
+    if isinstance(frame, dict):
+        frame[name] = DELETED
+        return DELETED
+    __dp_store_local(gen, name, DELETED)
     return DELETED
 
 
@@ -372,6 +459,17 @@ def _attach_throw_context_from_state(state, exc):
                 if isinstance(candidate, BaseException):
                     exc.__context__ = candidate
                     break
+        if exc.__context__ is None:
+            resume = getattr(state, "_dp_resume", None)
+            closure = getattr(resume, "__closure__", None)
+            if closure is not None:
+                for cell in reversed(tuple(closure)):
+                    candidate = _resume_closure_contents(cell)
+                    if candidate is _MISSING or candidate is DELETED:
+                        continue
+                    if isinstance(candidate, BaseException):
+                        exc.__context__ = candidate
+                        break
     except Exception:
         pass
 
@@ -444,6 +542,55 @@ class _DpGenerator:
         self._dp_resume = resume
         self._pc = pc
         self.gi_frame = gi_frame
+        self.gi_yieldfrom = None
+        self.__name__ = name
+        self.__qualname__ = qualname
+        self.gi_code = code
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return self.send(None)
+
+    def send(self, value):
+        return self._dp_resume(self, value, None)
+
+    def throw(self, typ=None, val=None, tb=None):
+        if val is not None or tb is not None:
+            raise TypeError(
+                "DpGen.throw() does not support value/traceback in this mode"
+            )
+        exc = raise_from(typ, None)
+        _attach_throw_context_from_state(self, exc)
+        return self._dp_resume(self, None, exc)
+
+    def close(self):
+        try:
+            self.throw(GeneratorExit)
+        except (GeneratorExit, StopIteration):
+            return None
+        raise RuntimeError("generator ignored GeneratorExit")
+
+
+class _DpClosureGenerator:
+    __slots__ = (
+        "_dp_resume",
+        "__name__",
+        "__qualname__",
+        "gi_yieldfrom",
+        "gi_code",
+    )
+
+    def __init__(
+        self,
+        *,
+        resume,
+        name,
+        qualname,
+        code,
+    ):
+        self._dp_resume = resume
         self.gi_yieldfrom = None
         self.__name__ = name
         self.__qualname__ = qualname
@@ -1281,6 +1428,12 @@ def store_cell(cell, value):
     return value
 
 
+def store_cell_if_not_deleted(cell, value):
+    if value is not DELETED:
+        cell.cell_contents = value
+    return value
+
+
 def load_global(globals_dict, name):
     try:
         return globals_dict[name]
@@ -1642,6 +1795,8 @@ def _bb_make_resume_entry(
     module_name,
     *,
     async_gen,
+    closure_values=None,
+    use_function_binding=False,
 ):
     _bb_validate_entry_ref(resume)
     if not isinstance(resume, str):
@@ -1678,11 +1833,26 @@ def _bb_make_resume_entry(
             f"got {type(resolved)!r}"
         )
     resume_state_order = tuple(resolved)
+    if use_function_binding and closure_values is not None:
+        missing_cells = tuple(
+            name
+            for name in resume_state_order
+            if isinstance(name, str)
+            and (name == "_dp_classcell" or name.startswith("_dp_cell_"))
+            and name not in closure_values
+        )
+        if missing_cells:
+            raise RuntimeError(
+                "closure-backed sync generator resume is missing lifted cells "
+                f"{missing_cells!r} for state order {resume_state_order!r}"
+            )
     entry = _bb_make_lazy_clif_entry(
         async_entry=False,
         function_name=hidden_name,
         module_globals=module_globals,
     )
+    entry = _bb_wrap_with_closure(entry, closure_values or {})
+    entry = _bb_rebind_function_globals(entry, module_globals)
     if module_name is not None:
         entry.__module__ = module_name
         _bb_set_plan_metadata(
@@ -1693,13 +1863,27 @@ def _bb_make_resume_entry(
         module_name,
         plan_qualname,
         resume_state_order,
-        None,
-        None,
+        (
+            (
+                ("/_dp_self", None, NO_DEFAULT),
+                ("/_dp_send_value", None, NO_DEFAULT),
+                ("/_dp_resume_exc", None, NO_DEFAULT),
+            )
+            if use_function_binding
+            else None
+        ),
+        closure_values,
         DELETED,
         NO_DEFAULT,
-        _BIND_KIND_ASYNC_GENERATOR_RESUME
-        if async_gen
-        else _BIND_KIND_GENERATOR_RESUME,
+        (
+            _BIND_KIND_FUNCTION
+            if use_function_binding
+            else (
+                _BIND_KIND_ASYNC_GENERATOR_RESUME
+                if async_gen
+                else _BIND_KIND_GENERATOR_RESUME
+            )
+        ),
     )
     return entry
 
@@ -1789,6 +1973,7 @@ def def_coro_from_gen(
     module_name,
     doc=None,
     annotate_fn=None,
+    closure_state=False,
 ):
     signature, default_state_order = _build_bb_signature(params)
     state_order, closure_values = _bb_state_order(default_state_order, closure)
@@ -1803,6 +1988,8 @@ def def_coro_from_gen(
         module_name,
         async_gen=False,
     )
+    if closure_state:
+        raise RuntimeError("closure-backed coroutine state is not implemented")
     if not (
         jit_bb_plan_enabled()
         and isinstance(module_name, str)
@@ -1929,20 +2116,13 @@ def def_gen(
     module_name,
     doc=None,
     annotate_fn=None,
+    closure_state=False,
 ):
     signature, default_state_order = _build_bb_signature(params)
     state_order, closure_values = _bb_state_order(default_state_order, closure)
     gen_code = _dp_make_gen_code(name, qualname)
     entry_ref = resume if isinstance(resume, str) else None
     plan_qualname = _bb_plan_lookup_qualname(qualname, entry_ref)
-    resume_entry = _bb_make_resume_entry(
-        resume,
-        name,
-        qualname,
-        module_globals,
-        module_name,
-        async_gen=False,
-    )
     if not (
         jit_bb_plan_enabled()
         and isinstance(module_name, str)
@@ -1955,24 +2135,81 @@ def def_gen(
             f"but none is available for {module_name}.{plan_qualname}"
         )
 
-    def materialize(
-        state_args,
-        __dp_state_order=state_order,
-        __dp_resume=resume_entry,
-        __dp_gen_type=_DpGenerator,
-        __dp_name=name,
-        __dp_qualname=qualname,
-        __dp_code=gen_code,
-        __dp_make_state_frame=_bb_make_state_frame,
-    ):
-        return __dp_gen_type(
-            resume=__dp_resume,
-            pc=0,
-            gi_frame=__dp_make_state_frame(__dp_state_order, state_args),
-            name=__dp_name,
-            qualname=__dp_qualname,
-            code=__dp_code,
+    if closure_state:
+        def materialize(
+            state_args,
+            __dp_state_order=state_order,
+            __dp_resume_label=resume,
+            __dp_module_globals=module_globals,
+            __dp_module_name=module_name,
+            __dp_gen_type=_DpClosureGenerator,
+            __dp_name=name,
+            __dp_qualname=qualname,
+            __dp_code=gen_code,
+            __dp_make_resume_entry=_bb_make_resume_entry,
+            __dp_make_cell=make_cell,
+            __dp_store_cell=store_cell,
+        ):
+            __dp_resume_closure = {}
+            for __dp_state_name, __dp_state_value in zip(__dp_state_order, state_args):
+                if __dp_state_name == "_dp_classcell" or __dp_state_name.startswith("_dp_cell_"):
+                    __dp_resume_closure[__dp_state_name] = __dp_state_value
+                else:
+                    __dp_resume_closure[f"_dp_cell_{__dp_state_name}"] = __dp_make_cell(
+                        __dp_state_value
+                    )
+            __dp_pc_cell = __dp_resume_closure.get("_dp_cell__dp_pc")
+            if __dp_pc_cell is None:
+                __dp_resume_closure["_dp_cell__dp_pc"] = __dp_make_cell(0)
+            else:
+                __dp_store_cell(__dp_pc_cell, 0)
+            __dp_resume = __dp_make_resume_entry(
+                __dp_resume_label,
+                __dp_name,
+                __dp_qualname,
+                __dp_module_globals,
+                __dp_module_name,
+                async_gen=False,
+                closure_values=__dp_resume_closure,
+                # Closure-backed sync generators already carry all persistent
+                # state in captured cells, so resume can bind like a normal
+                # hidden function instead of rebuilding locals from gi_frame.
+                use_function_binding=True,
+            )
+            return __dp_gen_type(
+                resume=__dp_resume,
+                name=__dp_name,
+                qualname=__dp_qualname,
+                code=__dp_code,
+            )
+    else:
+        resume_entry = _bb_make_resume_entry(
+            resume,
+            name,
+            qualname,
+            module_globals,
+            module_name,
+            async_gen=False,
         )
+
+        def materialize(
+            state_args,
+            __dp_state_order=state_order,
+            __dp_resume=resume_entry,
+            __dp_gen_type=_DpGenerator,
+            __dp_name=name,
+            __dp_qualname=qualname,
+            __dp_code=gen_code,
+            __dp_make_state_frame=_bb_make_state_frame,
+        ):
+            return __dp_gen_type(
+                resume=__dp_resume,
+                pc=0,
+                gi_frame=__dp_make_state_frame(__dp_state_order, state_args),
+                name=__dp_name,
+                qualname=__dp_qualname,
+                code=__dp_code,
+            )
 
     entry = _bb_make_lazy_clif_entry(
         async_entry=False,
