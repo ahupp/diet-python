@@ -43,8 +43,6 @@ pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> RewriteModule
     );
 
     let scope = analyze_module_scope(module);
-    let bb_function_identity =
-        basic_block::collect_function_identity_by_node(module, scope.clone());
 
     // Replace global / nonlocal and class-body scoping with explicit loads/stores.
     //  - globals: __dp__.load/store_global(globals(), name)
@@ -62,6 +60,10 @@ pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> RewriteModule
     );
 
     strip_generated_passes(context, module);
+
+    let bb_scope = analyze_module_scope(module);
+    let bb_function_identity =
+        basic_block::collect_function_identity_by_node(module, bb_scope.clone());
 
     if context.options.truthy {
         rewrite_expr::truthy::rewrite(module);

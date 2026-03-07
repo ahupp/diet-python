@@ -441,9 +441,7 @@ impl Transformer for NameScopeRewriter {
                     }
                 }
             }
-            Stmt::Global(_) => {
-                *stmt = py_stmt!("pass");
-            }
+            Stmt::Global(_) => return,
             Stmt::Nonlocal(ast::StmtNonlocal { names, .. }) => {
                 for name in names {
                     if name.id.as_str() == "__class__" {

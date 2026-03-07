@@ -13,10 +13,15 @@
 - To inspect the transformed output of some code, run `cargo run --bin diet-python file_with_code.py`, which prints output to stdout.
 - *MUST FOLLOW* when fixing a bug that fails a cpython test case *always* add a minimal reproducing integration test to reproduce it first.
 - CPython source for tests is vendored at `vendor/cpython` (the scripts use `vendor/cpython/python`).
+- **NOTE**: When an explicit CPython interpreter path is needed, use `vendor/cpython/python`.
 - **NOTE**: For `./scripts/run_cpython_tests.sh -f <file>`, pass an absolute path for `<file>` since the script runs from `vendor/cpython`.
 - **NOTE**: In sandboxed environments, set `--tempdir /tmp/<dir>` when running CPython tests; default worker temp dirs under `/home/adam/project/cpython/build/...` can fail with permission errors.
 - **NOTE**: After interrupting CPython test runs, clean stale workers before retrying (`pkill -f test.libregrtest.worker`).
 - **NOTE**: For sequential shard runs, use `./scripts/run_cpython_test_sets.sh --mode transform`; it enforces single-process regrtest (`DIET_PYTHON_TEST_JOBS=1`), absolute set paths, and a safe tempdir.
+- **NOTE**: For hangs under the transformed runtime, use `vendor/cpython/python` (or `.venv-cpython/bin/python`) with `faulthandler.dump_traceback_later(..., exit=True)` to capture a Python stack before terminating.
+- **NOTE**: For isolated transformed-runtime repros, prefer `tests._integration.transformed_module(...)` with a small inline source module instead of debugging through the full test harness.
+- **NOTE**: For BB/JIT inspection, use `diet_import_hook._get_pyo3_transform().jit_has_bb_plan(...)` / `jit_render_bb_with_cfg_plan(...)`; closure-backed outer factories are typically registered under `qualname::_dp_bb_<name>_factory`.
+- **NOTE**: To trace BB execution, set `DIET_PYTHON_BB_TRACE`. Accepted forms are `all`, `all:params`, `<exact-qualname>`, or `<exact-qualname>:params`. Prefer an exact qualname (for example `make_runner.<locals>.run:params`) to keep trace output manageable.
 - **MUST FOLLOW**: In any test failure summary, list expected failures separately from unexpected failures.
 - When running tests, put the output in logs/
 - **MUST FOLLOW**: If a new PR is requested, open a new jj change first with `jj new`, then immediately update its description so the head (`@`) is up to date using `jj describe -m <message> @`, including both the change summary and the rationale.

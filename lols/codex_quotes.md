@@ -1,0 +1,1 @@
+• I’ve confirmed load_name_hook is doing the slowest possible thing today:

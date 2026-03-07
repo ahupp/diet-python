@@ -24,3 +24,28 @@ pub(crate) fn strip_synthetic_module_init_qualname(raw: &str) -> String {
     }
     raw.to_string()
 }
+
+pub(crate) fn strip_synthetic_class_namespace_qualname(raw: &str) -> String {
+    let mut out = String::new();
+    let mut remaining = raw;
+    while let Some(pos) = remaining.find("_dp_class_ns_") {
+        out.push_str(&remaining[..pos]);
+        let rest = &remaining[pos + "_dp_class_ns_".len()..];
+        let Some((class_name, tail)) = rest.split_once(".<locals>.") else {
+            out.push_str("_dp_class_ns_");
+            out.push_str(rest);
+            return out;
+        };
+        out.push_str(class_name);
+        if !tail.is_empty() {
+            out.push('.');
+        }
+        remaining = tail;
+    }
+    if out.is_empty() {
+        raw.to_string()
+    } else {
+        out.push_str(remaining);
+        out
+    }
+}

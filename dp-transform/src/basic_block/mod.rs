@@ -1,5 +1,6 @@
 mod ast_to_bb;
 pub mod bb_ir;
+mod codegen_trace;
 mod codegen_normalize;
 
 pub use ast_to_bb::{

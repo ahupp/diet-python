@@ -11,7 +11,7 @@ pub(super) fn flatten_stmt_boxes(stmts: &[Box<Stmt>]) -> Vec<Box<Stmt>> {
 pub(super) fn strip_nonlocal_directives(stmts: Vec<Box<Stmt>>) -> Vec<Box<Stmt>> {
     stmts
         .into_iter()
-        .filter(|stmt| !matches!(stmt.as_ref(), Stmt::Nonlocal(_)))
+        .filter(|stmt| !matches!(stmt.as_ref(), Stmt::Global(_) | Stmt::Nonlocal(_)))
         .collect()
 }
 

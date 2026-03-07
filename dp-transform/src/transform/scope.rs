@@ -373,6 +373,21 @@ impl ScopeCollector {
         self.local_defs.insert(name.to_string());
     }
 
+    fn add_def_binding(&mut self, name: &str) {
+        if self.explicit_globals.contains(name) {
+            set_binding(&mut self.bindings, name, BindingKind::Global);
+            self.local_defs.remove(name);
+            return;
+        }
+        if self.explicit_nonlocals.contains(name) {
+            set_binding(&mut self.bindings, name, BindingKind::Nonlocal);
+            self.local_defs.remove(name);
+            return;
+        }
+        set_binding(&mut self.bindings, name, BindingKind::Local);
+        self.add_local_def(name);
+    }
+
     fn add_import_binding(&mut self, alias: &ast::Alias) {
         let name = if let Some(asname) = &alias.asname {
             asname.id.as_str()
@@ -394,13 +409,11 @@ impl Transformer for ScopeCollector {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
             Stmt::FunctionDef(ast::StmtFunctionDef { name, .. }) => {
-                set_binding(&mut self.bindings, name.id.as_str(), BindingKind::Local);
-                self.add_local_def(name.id.as_str());
+                self.add_def_binding(name.id.as_str());
                 return;
             }
             Stmt::ClassDef(ast::StmtClassDef { name, .. }) => {
-                set_binding(&mut self.bindings, name.id.as_str(), BindingKind::Local);
-                self.add_local_def(name.id.as_str());
+                self.add_def_binding(name.id.as_str());
                 return;
             }
             Stmt::Assign(ast::StmtAssign { targets, .. }) => {
@@ -916,6 +929,45 @@ mod test {
         assert!(func_scope.is_local("kwargs"));
         assert!(func_scope.is_global("x"));
         assert!(func_scope.is_local("y"));
+    }
+
+    #[test]
+    fn nested_global_function_def_binds_global_and_qualifies_globally() {
+        let mut body = parse_module_body(concat!(
+            "def build_qualnames():\n",
+            "    def global_function():\n",
+            "        def inner_function():\n",
+            "            global inner_global_function\n",
+            "            def inner_global_function():\n",
+            "                pass\n",
+            "            return inner_global_function\n",
+            "        return inner_function()\n",
+            "    return global_function()\n",
+        ));
+        let module_scope = analyze_module_scope(&mut body);
+        let build_qualnames = find_function(&body.body, "build_qualnames");
+        let build_scope = module_scope
+            .lookup_child_scope(build_qualnames)
+            .expect("missing build_qualnames scope");
+        let global_function = find_function(&build_qualnames.body.body, "global_function");
+        let global_scope = build_scope
+            .lookup_child_scope(global_function)
+            .expect("missing global_function scope");
+        let inner_function = find_function(&global_function.body.body, "inner_function");
+        let inner_scope = global_scope
+            .lookup_child_scope(inner_function)
+            .expect("missing inner_function scope");
+        let inner_global_function =
+            find_function(&inner_function.body.body, "inner_global_function");
+        let inner_global_scope = inner_scope
+            .lookup_child_scope(inner_global_function)
+            .expect("missing inner_global_function scope");
+
+        assert!(inner_scope.is_global("inner_global_function"));
+        assert_eq!(
+            inner_global_scope.qualnamer.qualname,
+            "inner_global_function"
+        );
     }
 
     #[test]

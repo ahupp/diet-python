@@ -23,6 +23,7 @@ pub struct BbFunction {
     pub entry: String,
     pub param_names: Vec<String>,
     pub entry_params: Vec<String>,
+    pub generator_closure_layout: Option<BbGeneratorClosureLayout>,
     pub param_specs: BbExpr,
     pub local_cell_slots: Vec<String>,
     pub blocks: Vec<BbBlock>,
@@ -45,10 +46,34 @@ pub enum BbFunctionKind {
         resume_pcs: Vec<(String, usize)>,
     },
     AsyncGenerator {
+        closure_state: bool,
         resume_label: String,
         target_labels: Vec<String>,
         resume_pcs: Vec<(String, usize)>,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BbGeneratorClosureLayout {
+    pub inherited_captures: Vec<BbGeneratorClosureSlot>,
+    pub lifted_locals: Vec<BbGeneratorClosureSlot>,
+    pub runtime_cells: Vec<BbGeneratorClosureSlot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BbGeneratorClosureSlot {
+    pub logical_name: String,
+    pub storage_name: String,
+    pub init: BbGeneratorClosureInit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BbGeneratorClosureInit {
+    InheritedCapture,
+    Parameter,
+    DeletedSentinel,
+    RuntimePcZero,
+    Deferred,
 }
 
 #[derive(Debug, Clone)]

@@ -120,7 +120,10 @@ pub(super) fn sync_target_cells_stmts(target: &Expr, cell_slots: &HashSet<String
 }
 
 fn is_generator_dispatch_param(name: &str) -> bool {
-    matches!(name, "_dp_self" | "_dp_send_value" | "_dp_resume_exc")
+    matches!(
+        name,
+        "_dp_self" | "_dp_send_value" | "_dp_resume_exc" | "_dp_transport_sent"
+    )
 }
 
 fn sync_generator_storage_name(name: &str) -> String {
@@ -128,6 +131,19 @@ fn sync_generator_storage_name(name: &str) -> String {
         return name.to_string();
     }
     cell_name(name)
+}
+
+pub(super) fn sync_generator_cleanup_cells(
+    state_vars: &[String],
+    injected_exception_names: &HashSet<String>,
+) -> Vec<String> {
+    sync_generator_state_order(state_vars, injected_exception_names)
+        .into_iter()
+        .filter(|name| {
+            name != "_dp_pc" && name != "_dp_classcell" && !name.starts_with("_dp_cell_")
+        })
+        .map(|name| sync_generator_storage_name(name.as_str()))
+        .collect()
 }
 
 pub(super) fn collect_injected_exception_names(blocks: &[Block]) -> HashSet<String> {
@@ -241,6 +257,7 @@ pub(super) fn rewrite_sync_generator_blocks_to_closure_cells(
         let has_self = params.iter().any(|name| name == "_dp_self");
         let has_send = params.iter().any(|name| name == "_dp_send_value");
         let has_exc = params.iter().any(|name| name == "_dp_resume_exc");
+        let has_transport = params.iter().any(|name| name == "_dp_transport_sent");
         let mut rewritten = Vec::new();
         if has_self {
             rewritten.push("_dp_self".to_string());
@@ -251,14 +268,12 @@ pub(super) fn rewrite_sync_generator_blocks_to_closure_cells(
         if has_exc {
             rewritten.push("_dp_resume_exc".to_string());
         }
+        if has_transport {
+            rewritten.push("_dp_transport_sent".to_string());
+        }
         for cell in &lifted_cells {
             if !rewritten.iter().any(|name| name == cell) {
                 rewritten.push(cell.clone());
-            }
-        }
-        for exc_name in &passthrough_exception_names {
-            if !rewritten.iter().any(|name| name == exc_name) {
-                rewritten.push(exc_name.clone());
             }
         }
         for name in params.iter() {
@@ -280,11 +295,7 @@ pub(super) fn rewrite_sync_generator_blocks_to_closure_cells(
     }
 }
 
-fn params_contain(
-    block_params: &HashMap<String, Vec<String>>,
-    label: &str,
-    name: &str,
-) -> bool {
+fn params_contain(block_params: &HashMap<String, Vec<String>>, label: &str, name: &str) -> bool {
     block_params
         .get(label)
         .map(|params| params.iter().any(|param| param == name))

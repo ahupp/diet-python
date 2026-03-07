@@ -52,6 +52,7 @@ DELETED = object()
 NO_DEFAULT = object()
 _GEN_PC_DONE = -1
 builtins.__dp_DELETED = DELETED
+builtins.__dp_NO_DEFAULT = NO_DEFAULT
 builtins.__dp_Ellipsis = Ellipsis
 builtins.__dp_TRUE = True
 builtins.__dp_FALSE = False
@@ -64,6 +65,21 @@ def load_deleted_name(name, value):
             f"cannot access local variable {name!r} where it is not associated with a value"
         )
     return value
+
+
+def bb_trace_enter(function_qualname, block_label, params=None):
+    if params:
+        pieces = []
+        for name, value in params:
+            try:
+                rendered = reprlib.repr(value)
+            except Exception as err:
+                rendered = f"<repr failed: {type(err).__name__}>"
+            pieces.append(f"{name}={rendered}")
+        message = f"[bb] {function_qualname}::{block_label} " + ", ".join(pieces)
+    else:
+        message = f"[bb] {function_qualname}::{block_label}"
+    print(message, file=sys.stderr, flush=True)
 
 
 def _mro_getattr(cls, name: str):
@@ -652,7 +668,7 @@ class _DpCoroutine(_abc.Coroutine):
 
     @property
     def cr_frame(self):
-        return self._dp_gen.gi_frame
+        return getattr(self._dp_gen, "gi_frame", None)
 
     @property
     def cr_running(self):
@@ -733,6 +749,66 @@ class _DpAsyncGenerator:
         raise RuntimeError("async generator ignored GeneratorExit")
 
 
+class _DpClosureAsyncGenerator:
+    __slots__ = (
+        "_dp_resume",
+        "_dp_transport_sent",
+        "__name__",
+        "__qualname__",
+        "gi_yieldfrom",
+        "ag_code",
+    )
+
+    def __init__(
+        self,
+        *,
+        resume,
+        name,
+        qualname,
+        code,
+    ):
+        self._dp_resume = resume
+        self._dp_transport_sent = None
+        self.__name__ = name
+        self.__qualname__ = qualname
+        self.gi_yieldfrom = None
+        self.ag_code = code
+
+    def __aiter__(self):
+        return self
+
+    def __anext__(self):
+        return self.asend(None)
+
+    def __getattr__(self, name):
+        if name == "ag_running":
+            return False
+        if name == "ag_frame":
+            return None
+        if name == "ag_await":
+            return None
+        raise AttributeError(name)
+
+    def asend(self, value):
+        return _DpAsyncGenSend(self, value)
+
+    async def athrow(self, typ=None, val=None, tb=None):
+        if val is not None or tb is not None:
+            raise TypeError(
+                "DpAsyncGen.athrow() does not support value/traceback in this mode"
+            )
+        exc = raise_from(typ, None)
+        _attach_throw_context_from_state(self, exc)
+        return await _dp_resume_async_generator(self, None, exc, None)
+
+    async def aclose(self):
+        try:
+            await self.athrow(GeneratorExit)
+        except (GeneratorExit, StopAsyncIteration):
+            return None
+        raise RuntimeError("async generator ignored GeneratorExit")
+
+
 class _DpAsyncGenSend:
     __slots__ = ("_dp_gen", "_dp_value", "_dp_coro")
 
@@ -753,14 +829,6 @@ class _DpAsyncGenSend:
     def send(self, value):
         if self._dp_coro is None:
             initial_send = self._dp_value
-            if (
-                initial_send is None
-                and value is not None
-                and getattr(self._dp_gen, "_pc", 0) == 0
-            ):
-                raise TypeError(
-                    "can't send non-None value to a just-started async generator"
-                )
             self._dp_coro = _dp_resume_async_generator(
                 self._dp_gen,
                 initial_send,
@@ -1732,6 +1800,7 @@ def _bb_enable_lazy_clif_vectorcall(
     state_order,
     params,
     closure_values,
+    closure_layout,
     deleted_value,
     no_default_value,
     bind_kind,
@@ -1750,6 +1819,7 @@ def _bb_enable_lazy_clif_vectorcall(
             state_order,
             params,
             closure_values,
+            closure_layout,
             deleted_value,
             no_default_value,
             bind_kind,
@@ -1868,11 +1938,13 @@ def _bb_make_resume_entry(
                 ("/_dp_self", None, NO_DEFAULT),
                 ("/_dp_send_value", None, NO_DEFAULT),
                 ("/_dp_resume_exc", None, NO_DEFAULT),
+                *((("/_dp_transport_sent", None, NO_DEFAULT),) if async_gen else ()),
             )
             if use_function_binding
             else None
         ),
         closure_values,
+        None,
         DELETED,
         NO_DEFAULT,
         (
@@ -1940,6 +2012,7 @@ def def_fn(
         state_order,
         tuple(params),
         closure_values,
+        None,
         DELETED,
         NO_DEFAULT,
         _BIND_KIND_FUNCTION,
@@ -1947,7 +2020,7 @@ def def_fn(
     return entry
 
 
-def _dp_mark_coroutine_function(func):
+def mark_coroutine_function(func):
     module = sys.modules.get("asyncio.coroutines")
     if module is None:
         try:
@@ -1973,23 +2046,12 @@ def def_coro_from_gen(
     module_name,
     doc=None,
     annotate_fn=None,
-    closure_state=False,
 ):
     signature, default_state_order = _build_bb_signature(params)
     state_order, closure_values = _bb_state_order(default_state_order, closure)
     gen_code = _dp_make_gen_code(name, qualname)
     entry_ref = resume if isinstance(resume, str) else None
     plan_qualname = _bb_plan_lookup_qualname(qualname, entry_ref)
-    resume_entry = _bb_make_resume_entry(
-        resume,
-        name,
-        qualname,
-        module_globals,
-        module_name,
-        async_gen=False,
-    )
-    if closure_state:
-        raise RuntimeError("closure-backed coroutine state is not implemented")
     if not (
         jit_bb_plan_enabled()
         and isinstance(module_name, str)
@@ -2001,6 +2063,15 @@ def def_coro_from_gen(
             "JIT basic-block coroutine definition requires a registered plan, "
             f"but none is available for {module_name}.{plan_qualname}"
         )
+
+    resume_entry = _bb_make_resume_entry(
+        resume,
+        name,
+        qualname,
+        module_globals,
+        module_name,
+        async_gen=False,
+    )
 
     def materialize(
         state_args,
@@ -2049,12 +2120,13 @@ def def_coro_from_gen(
         state_order,
         tuple(params),
         closure_values,
+        None,
         DELETED,
         NO_DEFAULT,
         _BIND_KIND_FUNCTION,
         materialize,
     )
-    return _dp_mark_coroutine_function(entry)
+    return mark_coroutine_function(entry)
 
 
 _DP_GEN_CODE_TEMPLATE = None
@@ -2096,6 +2168,27 @@ def _dp_make_async_gen_code(name, qualname):
     code = _DP_ASYNC_GEN_CODE_TEMPLATE
     return code.replace(co_name=name, co_qualname=qualname)
 
+def make_closure_generator(resume, name, qualname):
+    return _DpClosureGenerator(
+        resume=resume,
+        name=name,
+        qualname=qualname,
+        code=_dp_make_gen_code(name, qualname),
+    )
+
+
+def make_coroutine_from_generator(gen):
+    return _DpCoroutine(gen)
+
+
+def make_closure_async_generator(resume, name, qualname):
+    return _DpClosureAsyncGenerator(
+        resume=resume,
+        name=name,
+        qualname=qualname,
+        code=_dp_make_async_gen_code(name, qualname),
+    )
+
 
 class DefGenConst(NamedTuple):
     name: str
@@ -2116,7 +2209,6 @@ def def_gen(
     module_name,
     doc=None,
     annotate_fn=None,
-    closure_state=False,
 ):
     signature, default_state_order = _build_bb_signature(params)
     state_order, closure_values = _bb_state_order(default_state_order, closure)
@@ -2135,81 +2227,33 @@ def def_gen(
             f"but none is available for {module_name}.{plan_qualname}"
         )
 
-    if closure_state:
-        def materialize(
-            state_args,
-            __dp_state_order=state_order,
-            __dp_resume_label=resume,
-            __dp_module_globals=module_globals,
-            __dp_module_name=module_name,
-            __dp_gen_type=_DpClosureGenerator,
-            __dp_name=name,
-            __dp_qualname=qualname,
-            __dp_code=gen_code,
-            __dp_make_resume_entry=_bb_make_resume_entry,
-            __dp_make_cell=make_cell,
-            __dp_store_cell=store_cell,
-        ):
-            __dp_resume_closure = {}
-            for __dp_state_name, __dp_state_value in zip(__dp_state_order, state_args):
-                if __dp_state_name == "_dp_classcell" or __dp_state_name.startswith("_dp_cell_"):
-                    __dp_resume_closure[__dp_state_name] = __dp_state_value
-                else:
-                    __dp_resume_closure[f"_dp_cell_{__dp_state_name}"] = __dp_make_cell(
-                        __dp_state_value
-                    )
-            __dp_pc_cell = __dp_resume_closure.get("_dp_cell__dp_pc")
-            if __dp_pc_cell is None:
-                __dp_resume_closure["_dp_cell__dp_pc"] = __dp_make_cell(0)
-            else:
-                __dp_store_cell(__dp_pc_cell, 0)
-            __dp_resume = __dp_make_resume_entry(
-                __dp_resume_label,
-                __dp_name,
-                __dp_qualname,
-                __dp_module_globals,
-                __dp_module_name,
-                async_gen=False,
-                closure_values=__dp_resume_closure,
-                # Closure-backed sync generators already carry all persistent
-                # state in captured cells, so resume can bind like a normal
-                # hidden function instead of rebuilding locals from gi_frame.
-                use_function_binding=True,
-            )
-            return __dp_gen_type(
-                resume=__dp_resume,
-                name=__dp_name,
-                qualname=__dp_qualname,
-                code=__dp_code,
-            )
-    else:
-        resume_entry = _bb_make_resume_entry(
-            resume,
-            name,
-            qualname,
-            module_globals,
-            module_name,
-            async_gen=False,
-        )
+    resume_entry = _bb_make_resume_entry(
+        resume,
+        name,
+        qualname,
+        module_globals,
+        module_name,
+        async_gen=False,
+    )
 
-        def materialize(
-            state_args,
-            __dp_state_order=state_order,
-            __dp_resume=resume_entry,
-            __dp_gen_type=_DpGenerator,
-            __dp_name=name,
-            __dp_qualname=qualname,
-            __dp_code=gen_code,
-            __dp_make_state_frame=_bb_make_state_frame,
-        ):
-            return __dp_gen_type(
-                resume=__dp_resume,
-                pc=0,
-                gi_frame=__dp_make_state_frame(__dp_state_order, state_args),
-                name=__dp_name,
-                qualname=__dp_qualname,
-                code=__dp_code,
-            )
+    def materialize(
+        state_args,
+        __dp_state_order=state_order,
+        __dp_resume=resume_entry,
+        __dp_gen_type=_DpGenerator,
+        __dp_name=name,
+        __dp_qualname=qualname,
+        __dp_code=gen_code,
+        __dp_make_state_frame=_bb_make_state_frame,
+    ):
+        return __dp_gen_type(
+            resume=__dp_resume,
+            pc=0,
+            gi_frame=__dp_make_state_frame(__dp_state_order, state_args),
+            name=__dp_name,
+            qualname=__dp_qualname,
+            code=__dp_code,
+        )
 
     entry = _bb_make_lazy_clif_entry(
         async_entry=False,
@@ -2236,6 +2280,7 @@ def def_gen(
         state_order,
         tuple(params),
         closure_values,
+        None,
         DELETED,
         NO_DEFAULT,
         _BIND_KIND_FUNCTION,
@@ -2260,14 +2305,6 @@ def def_async_gen(
     ag_code = _dp_make_async_gen_code(name, qualname)
     entry_ref = resume if isinstance(resume, str) else None
     plan_qualname = _bb_plan_lookup_qualname(qualname, entry_ref)
-    resume_entry = _bb_make_resume_entry(
-        resume,
-        name,
-        qualname,
-        module_globals,
-        module_name,
-        async_gen=True,
-    )
     if not (
         jit_bb_plan_enabled()
         and isinstance(module_name, str)
@@ -2279,6 +2316,15 @@ def def_async_gen(
             "JIT basic-block async generator definition requires a registered plan, "
             f"but none is available for {module_name}.{plan_qualname}"
         )
+
+    resume_entry = _bb_make_resume_entry(
+        resume,
+        name,
+        qualname,
+        module_globals,
+        module_name,
+        async_gen=True,
+    )
 
     def materialize(
         state_args,
@@ -2326,6 +2372,7 @@ def def_async_gen(
         state_order,
         tuple(params),
         closure_values,
+        None,
         DELETED,
         NO_DEFAULT,
         _BIND_KIND_FUNCTION,
@@ -2671,18 +2718,38 @@ def _has_special_method(obj, name: str) -> bool:
     return False
 
 
+def _missing_context_protocol_message(
+    obj, protocol: str, missing_method: str, alt_method_names: tuple[str, str], hint: str
+):
+    cls = type(obj)
+    module = getattr(cls, "__module__", None)
+    qualname = getattr(cls, "__qualname__", cls.__name__)
+    if module and module != "builtins":
+        type_name = f"{module}.{qualname}"
+    else:
+        type_name = qualname
+    message = (
+        f"{type_name!r} object does not support the {protocol} protocol "
+        f"(missed {missing_method} method)"
+    )
+    if _has_special_method(obj, alt_method_names[0]) or _has_special_method(
+        obj, alt_method_names[1]
+    ):
+        message += hint
+    return message
+
+
 def contextmanager_enter(ctx):
     try:
         enter = _lookup_special_method(ctx, "__enter__")
     except AttributeError as exc:
-        message = "object does not support the context manager protocol (missed __enter__ method)"
-        if _has_special_method(ctx, "__aenter__") or _has_special_method(
-            ctx, "__aexit__"
-        ):
-            message += (
-                " but it supports the asynchronous context manager protocol. "
-                "Did you mean to use 'async with'?"
-            )
+        message = _missing_context_protocol_message(
+            ctx,
+            "context manager",
+            "__enter__",
+            ("__aenter__", "__aexit__"),
+            " but it supports the asynchronous context manager protocol. Did you mean to use 'async with'?",
+        )
         raise TypeError(message) from exc
     return enter()
 
@@ -2691,14 +2758,13 @@ def contextmanager_get_exit(cm):
     try:
         return _lookup_special_method(cm, "__exit__")
     except AttributeError as exc:
-        message = "object does not support the context manager protocol (missed __exit__ method)"
-        if _has_special_method(cm, "__aenter__") or _has_special_method(
-            cm, "__aexit__"
-        ):
-            message += (
-                " but it supports the asynchronous context manager protocol. "
-                "Did you mean to use 'async with'?"
-            )
+        message = _missing_context_protocol_message(
+            cm,
+            "context manager",
+            "__exit__",
+            ("__aenter__", "__aexit__"),
+            " but it supports the asynchronous context manager protocol. Did you mean to use 'async with'?",
+        )
         raise TypeError(message) from exc
 
 
@@ -2759,11 +2825,13 @@ async def asynccontextmanager_aenter(ctx):
     try:
         aenter = _lookup_special_method(ctx, "__aenter__")
     except AttributeError as exc:
-        message = "object does not support the asynchronous context manager protocol (missed __aenter__ method)"
-        if _has_special_method(ctx, "__enter__") or _has_special_method(
-            ctx, "__exit__"
-        ):
-            message += " but it supports the context manager protocol. Did you mean to use 'with'?"
+        message = _missing_context_protocol_message(
+            ctx,
+            "asynchronous context manager",
+            "__aenter__",
+            ("__enter__", "__exit__"),
+            " but it supports the context manager protocol. Did you mean to use 'with'?",
+        )
         raise TypeError(message) from exc
     await_iter = _ensure_awaitable(aenter(), "__aenter__")
     return await _AwaitIterWrapper(await_iter)
@@ -2773,11 +2841,13 @@ def asynccontextmanager_get_aexit(acm):
     try:
         return _lookup_special_method(acm, "__aexit__")
     except AttributeError as exc:
-        message = "object does not support the asynchronous context manager protocol (missed __aexit__ method)"
-        if _has_special_method(acm, "__enter__") or _has_special_method(
-            acm, "__exit__"
-        ):
-            message += " but it supports the context manager protocol. Did you mean to use 'with'?"
+        message = _missing_context_protocol_message(
+            acm,
+            "asynchronous context manager",
+            "__aexit__",
+            ("__enter__", "__exit__"),
+            " but it supports the context manager protocol. Did you mean to use 'with'?",
+        )
         raise TypeError(message) from exc
 
 

@@ -816,6 +816,41 @@ pub fn register_clif_module_plans(module_name: &str, module: &BbModule) -> Resul
                     },
                     plan,
                 );
+                match &function.kind {
+                    dp_transform::basic_block::bb_ir::BbFunctionKind::Generator {
+                        resume_label, ..
+                    }
+                    | dp_transform::basic_block::bb_ir::BbFunctionKind::AsyncGenerator {
+                        resume_label, ..
+                    } if resume_label != &function.entry => {
+                        let Some(resume_index) = function
+                            .blocks
+                            .iter()
+                            .position(|block| block.label == *resume_label)
+                        else {
+                            return Err(format!(
+                                "missing resume entry {resume_label:?} in lowered function {}",
+                                function.qualname
+                            ));
+                        };
+                        let mut resume_plan = plans
+                            .get(&PlanKey {
+                                module: module_name.to_string(),
+                                qualname: plan_qualname.clone(),
+                            })
+                            .cloned()
+                            .expect("primary CLIF plan missing after insertion");
+                        resume_plan.entry_index = resume_index;
+                        plans.insert(
+                            PlanKey {
+                                module: module_name.to_string(),
+                                qualname: format!("{}::{}", function.qualname, resume_label),
+                            },
+                            resume_plan,
+                        );
+                    }
+                    _ => {}
+                }
             }
             Err(err) => {
                 if debug_skips {

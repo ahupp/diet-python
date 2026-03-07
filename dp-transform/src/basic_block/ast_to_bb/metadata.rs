@@ -1,5 +1,7 @@
 use super::*;
-use crate::transform::util::strip_synthetic_module_init_qualname;
+use crate::transform::util::{
+    strip_synthetic_class_namespace_qualname, strip_synthetic_module_init_qualname,
+};
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_source_file::LineEnding;
 
@@ -29,6 +31,7 @@ pub(super) fn display_name_for_function(raw_name: &str) -> &str {
 
 fn normalize_qualname(raw_qualname: &str, raw_name: &str, display_name: &str) -> String {
     let raw_qualname = strip_synthetic_module_init_qualname(raw_qualname);
+    let raw_qualname = strip_synthetic_class_namespace_qualname(&raw_qualname);
     let should_replace_tail = matches!(display_name, "<lambda>" | "<genexpr>");
     if raw_name == display_name || !should_replace_tail {
         return raw_qualname;

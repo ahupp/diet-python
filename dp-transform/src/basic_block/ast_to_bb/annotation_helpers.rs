@@ -1,6 +1,7 @@
 use super::bound_names::collect_bound_names;
 use super::lowering_helpers::make_dp_tuple;
 use super::state_vars::collect_parameter_names;
+use crate::transform::scope::cell_name;
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
@@ -165,11 +166,12 @@ pub(super) fn collect_capture_names(
         .filter(|name| !looks_like_generated_dp_temp(name.as_str()))
         .collect::<Vec<_>>();
     if let Some(outer_scope) = outer_scope_names {
-        names.retain(|name| outer_scope.contains(name.as_str()));
+        names.retain(|name| {
+            outer_scope.contains(name.as_str()) || outer_scope.contains(cell_name(name).as_str())
+        });
     } else {
         names.retain(|name| is_internal_capture_name(name.as_str()));
     }
-    names.sort();
     names
 }
 

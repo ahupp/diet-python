@@ -40,11 +40,13 @@ def run_async():
     return asyncio.run(inner())
 """
     with transformed_module(tmp_path, "with_error_messages", source) as module:
+        async_only_name = f"{module.AsyncOnly.__module__}.{module.AsyncOnly.__qualname__}"
+        sync_only_name = f"{module.SyncOnly.__module__}.{module.SyncOnly.__qualname__}"
         assert (
             module.run_sync()
-            == "object does not support the context manager protocol (missed __exit__ method) but it supports the asynchronous context manager protocol. Did you mean to use 'async with'?"
+            == f"{async_only_name!r} object does not support the context manager protocol (missed __exit__ method) but it supports the asynchronous context manager protocol. Did you mean to use 'async with'?"
         )
         assert (
             module.run_async()
-            == "object does not support the asynchronous context manager protocol (missed __aexit__ method) but it supports the context manager protocol. Did you mean to use 'with'?"
+            == f"{sync_only_name!r} object does not support the asynchronous context manager protocol (missed __aexit__ method) but it supports the context manager protocol. Did you mean to use 'with'?"
         )

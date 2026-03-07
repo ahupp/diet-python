@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 build = "build.rs"
 
+[lib]
+doctest = false
+
 [dependencies]
 dp-transform = { path = "../dp-transform" }
 ruff_python_ast = { path = "../vendor/ruff/crates/ruff_python_ast" }

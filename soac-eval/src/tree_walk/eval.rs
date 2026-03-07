@@ -12,6 +12,7 @@ use std::time::Instant;
 
 unsafe extern "C" {
     fn PyFunction_SetVectorcall(func: *mut ffi::PyFunctionObject, vectorcall: ffi::vectorcallfunc);
+    fn PyCell_New(obj: *mut ffi::PyObject) -> *mut ffi::PyObject;
 }
 
 fn panic_payload_to_string(payload: Box<dyn Any + Send>) -> String {
@@ -50,6 +51,27 @@ enum BindingParamKind {
     VarKeyword,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GeneratorClosureInit {
+    InheritedCapture,
+    Parameter,
+    DeletedSentinel,
+    RuntimePcZero,
+    Deferred,
+}
+
+#[derive(Debug)]
+struct GeneratorClosureSlot {
+    logical_name: String,
+    storage_name: String,
+    init: GeneratorClosureInit,
+}
+
+#[derive(Debug)]
+struct GeneratorClosureLayout {
+    slots: Vec<GeneratorClosureSlot>,
+}
+
 #[derive(Debug)]
 struct BindingParam {
     name: String,
@@ -62,6 +84,7 @@ struct BindingParam {
 struct BindingMetadata {
     kind: BindingKind,
     state_order: Vec<String>,
+    state_index_by_name: HashMap<String, usize>,
     params: Vec<BindingParam>,
     positional_param_indices: Vec<usize>,
     param_lookup: HashMap<String, usize>,
@@ -78,6 +101,7 @@ struct ClifFunctionData {
     true_obj: *mut ffi::PyObject,
     false_obj: *mut ffi::PyObject,
     binding: BindingMetadata,
+    closure_layout: Option<GeneratorClosureLayout>,
     materialize_entry_obj: *mut ffi::PyObject,
     compiled_handle: *mut c_void,
     compiled_vectorcall_handle: *mut c_void,
@@ -291,6 +315,7 @@ unsafe fn parse_binding_metadata(
     Ok(BindingMetadata {
         kind,
         state_order,
+        state_index_by_name,
         params,
         positional_param_indices,
         param_lookup,
@@ -301,12 +326,60 @@ unsafe fn parse_binding_metadata(
     })
 }
 
+unsafe fn parse_generator_closure_layout(
+    closure_layout_obj: *mut ffi::PyObject,
+) -> Result<Option<GeneratorClosureLayout>, ()> {
+    if closure_layout_obj.is_null() {
+        return Ok(None);
+    }
+    if ffi::PyTuple_Check(closure_layout_obj) == 0 || ffi::PyTuple_GET_SIZE(closure_layout_obj) != 3
+    {
+        return set_type_error("CLIF vectorcall closure_layout must be a 3-tuple");
+    }
+    let mut slots = Vec::new();
+    for section_index in 0..3 {
+        let section = ffi::PyTuple_GET_ITEM(closure_layout_obj, section_index);
+        if ffi::PyTuple_Check(section) == 0 {
+            return set_type_error("CLIF vectorcall closure_layout sections must be tuples");
+        }
+        let slot_count = ffi::PyTuple_GET_SIZE(section) as usize;
+        for slot_index in 0..slot_count {
+            let slot_obj = ffi::PyTuple_GET_ITEM(section, slot_index as ffi::Py_ssize_t);
+            if ffi::PyTuple_Check(slot_obj) == 0 || ffi::PyTuple_GET_SIZE(slot_obj) != 3 {
+                return set_type_error(
+                    "CLIF vectorcall closure_layout slots must be 3-tuples",
+                );
+            }
+            let logical_name = py_string(ffi::PyTuple_GET_ITEM(slot_obj, 0))?;
+            let storage_name = py_string(ffi::PyTuple_GET_ITEM(slot_obj, 1))?;
+            let init_name = py_string(ffi::PyTuple_GET_ITEM(slot_obj, 2))?;
+            let init = match init_name.as_str() {
+                "InheritedCapture" => GeneratorClosureInit::InheritedCapture,
+                "Parameter" => GeneratorClosureInit::Parameter,
+                "DeletedSentinel" => GeneratorClosureInit::DeletedSentinel,
+                "RuntimePcZero" => GeneratorClosureInit::RuntimePcZero,
+                "Deferred" => GeneratorClosureInit::Deferred,
+                _ => {
+                    return set_type_error("invalid generator closure init kind");
+                }
+            };
+            slots.push(GeneratorClosureSlot {
+                logical_name,
+                storage_name,
+                init,
+            });
+        }
+    }
+    Ok(Some(GeneratorClosureLayout { slots }))
+}
+
 unsafe fn make_clif_function_data(
     module_name: &str,
     qualname: &str,
     state_order_obj: *mut ffi::PyObject,
     params_obj: *mut ffi::PyObject,
     closure_values_obj: *mut ffi::PyObject,
+    closure_layout_obj: *mut ffi::PyObject,
     deleted_obj: *mut ffi::PyObject,
     no_default_obj: *mut ffi::PyObject,
     bind_kind: i32,
@@ -375,6 +448,15 @@ unsafe fn make_clif_function_data(
             return Err(());
         }
     };
+    let closure_layout = match parse_generator_closure_layout(closure_layout_obj) {
+        Ok(value) => value,
+        Err(()) => {
+            ffi::Py_DECREF(true_obj);
+            ffi::Py_DECREF(false_obj);
+            unsafe { free_binding_metadata(binding) };
+            return Err(());
+        }
+    };
 
     let clif_data = Box::new(ClifFunctionData {
         plan,
@@ -383,6 +465,7 @@ unsafe fn make_clif_function_data(
         true_obj,
         false_obj,
         binding,
+        closure_layout,
         materialize_entry_obj: {
             let ptr = materialize_entry_obj;
             if !ptr.is_null() {
@@ -914,6 +997,128 @@ unsafe fn build_resume_state_tuple(
     fill_state_tuple_from_values(binding, state_values)
 }
 
+unsafe fn state_tuple_item_by_name(
+    state_tuple: *mut ffi::PyObject,
+    binding: &BindingMetadata,
+    name: &str,
+) -> *mut ffi::PyObject {
+    let Some(index) = binding.state_index_by_name.get(name).copied() else {
+        return ptr::null_mut();
+    };
+    ffi::PyTuple_GET_ITEM(state_tuple, index as ffi::Py_ssize_t)
+}
+
+unsafe fn build_resume_closure_from_state_tuple(
+    state_tuple: *mut ffi::PyObject,
+    binding: &BindingMetadata,
+    closure_layout: &GeneratorClosureLayout,
+) -> *mut ffi::PyObject {
+    if ffi::PyTuple_Check(state_tuple) == 0 {
+        return set_type_error::<*mut ffi::PyObject>(
+            "generator materialization expected a state tuple",
+        )
+        .err()
+        .map_or(ptr::null_mut(), |_| ptr::null_mut());
+    }
+    let resume_closure = ffi::PyDict_New();
+    if resume_closure.is_null() {
+        return ptr::null_mut();
+    }
+    for slot in &closure_layout.slots {
+        let mut decref_value = false;
+        let value = match slot.init {
+            GeneratorClosureInit::InheritedCapture => {
+                let inherited = state_tuple_item_by_name(
+                    state_tuple,
+                    binding,
+                    slot.storage_name.as_str(),
+                );
+                if !inherited.is_null() {
+                    inherited
+                } else {
+                    let fallback = state_tuple_item_by_name(
+                        state_tuple,
+                        binding,
+                        slot.logical_name.as_str(),
+                    );
+                    if fallback.is_null() {
+                        ffi::Py_DECREF(resume_closure);
+                        return set_runtime_error::<*mut ffi::PyObject>(&format!(
+                            "missing inherited generator closure state for {:?}",
+                            slot.storage_name
+                        ))
+                        .err()
+                        .map_or(ptr::null_mut(), |_| ptr::null_mut());
+                    }
+                    fallback
+                }
+            }
+            GeneratorClosureInit::RuntimePcZero => {
+                let zero = ffi::PyLong_FromLong(0);
+                if zero.is_null() {
+                    ffi::Py_DECREF(resume_closure);
+                    return ptr::null_mut();
+                }
+                let cell = PyCell_New(zero);
+                ffi::Py_DECREF(zero);
+                if cell.is_null() {
+                    ffi::Py_DECREF(resume_closure);
+                    return ptr::null_mut();
+                }
+                decref_value = true;
+                cell
+            }
+            GeneratorClosureInit::Parameter
+            | GeneratorClosureInit::DeletedSentinel
+            | GeneratorClosureInit::Deferred => {
+                let state_value =
+                    state_tuple_item_by_name(state_tuple, binding, slot.logical_name.as_str());
+                if state_value.is_null() {
+                    ffi::Py_DECREF(resume_closure);
+                    return set_runtime_error::<*mut ffi::PyObject>(&format!(
+                        "missing generator state value for {:?} -> {:?}",
+                        slot.logical_name, slot.storage_name
+                    ))
+                    .err()
+                    .map_or(ptr::null_mut(), |_| ptr::null_mut());
+                }
+                let cell = PyCell_New(state_value);
+                if cell.is_null() {
+                    ffi::Py_DECREF(resume_closure);
+                    return ptr::null_mut();
+                }
+                decref_value = true;
+                cell
+            }
+        };
+        let storage_name = match CString::new(slot.storage_name.as_str()) {
+            Ok(value) => value,
+            Err(_) => {
+                if decref_value {
+                    ffi::Py_DECREF(value);
+                }
+                ffi::Py_DECREF(resume_closure);
+                return set_type_error::<*mut ffi::PyObject>(
+                    "invalid generator closure storage name",
+                )
+                .err()
+                .map_or(ptr::null_mut(), |_| ptr::null_mut());
+            }
+        };
+        if ffi::PyDict_SetItemString(resume_closure, storage_name.as_ptr(), value) != 0 {
+            if decref_value {
+                ffi::Py_DECREF(value);
+            }
+            ffi::Py_DECREF(resume_closure);
+            return ptr::null_mut();
+        }
+        if decref_value {
+            ffi::Py_DECREF(value);
+        }
+    }
+    resume_closure
+}
+
 unsafe extern "C" fn build_bb_args_from_vectorcall(
     callable: *mut c_void,
     args: *const *mut c_void,
@@ -1036,11 +1241,31 @@ unsafe extern "C" fn lazy_clif_vectorcall(
             if bb_args.is_null() {
                 return ptr::null_mut();
             }
-            let result = ffi::PyObject_CallFunctionObjArgs(
-                data.materialize_entry_obj,
-                bb_args as *mut ffi::PyObject,
-                ptr::null_mut::<ffi::PyObject>(),
-            );
+            let result = if let Some(closure_layout) = data.closure_layout.as_ref() {
+                let resume_closure = build_resume_closure_from_state_tuple(
+                    bb_args as *mut ffi::PyObject,
+                    &data.binding,
+                    closure_layout,
+                );
+                if resume_closure.is_null() {
+                    ffi::Py_DECREF(bb_args as *mut ffi::PyObject);
+                    return ptr::null_mut();
+                }
+                let result = ffi::PyObject_CallFunctionObjArgs(
+                    data.materialize_entry_obj,
+                    bb_args as *mut ffi::PyObject,
+                    resume_closure,
+                    ptr::null_mut::<ffi::PyObject>(),
+                );
+                ffi::Py_DECREF(resume_closure);
+                result
+            } else {
+                ffi::PyObject_CallFunctionObjArgs(
+                    data.materialize_entry_obj,
+                    bb_args as *mut ffi::PyObject,
+                    ptr::null_mut::<ffi::PyObject>(),
+                )
+            };
             ffi::Py_DECREF(bb_args as *mut ffi::PyObject);
             return result;
         }
@@ -1087,6 +1312,7 @@ pub unsafe fn register_clif_vectorcall(
     state_order_obj: *mut ffi::PyObject,
     params_obj: *mut ffi::PyObject,
     closure_values_obj: *mut ffi::PyObject,
+    closure_layout_obj: *mut ffi::PyObject,
     deleted_obj: *mut ffi::PyObject,
     no_default_obj: *mut ffi::PyObject,
     bind_kind: i32,
@@ -1117,6 +1343,7 @@ pub unsafe fn register_clif_vectorcall(
         state_order_obj,
         params_obj,
         closure_values_obj,
+        closure_layout_obj,
         deleted_obj,
         no_default_obj,
         bind_kind,

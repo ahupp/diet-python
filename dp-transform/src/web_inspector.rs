@@ -202,11 +202,13 @@ fn bb_function_kind_to_json(kind: &bb_ir::BbFunctionKind) -> Value {
             "resumePcs": resume_pcs,
         }),
         bb_ir::BbFunctionKind::AsyncGenerator {
+            closure_state,
             resume_label,
             target_labels,
             resume_pcs,
         } => json!({
             "kind": "async_generator",
+            "closureState": closure_state,
             "resumeLabel": resume_label,
             "targetLabels": target_labels,
             "resumePcs": resume_pcs,
