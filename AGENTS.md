@@ -22,6 +22,7 @@
 - **NOTE**: For isolated transformed-runtime repros, prefer `tests._integration.transformed_module(...)` with a small inline source module instead of debugging through the full test harness.
 - **NOTE**: For BB/JIT inspection, use `diet_import_hook._get_pyo3_transform().jit_has_bb_plan(...)` / `jit_render_bb_with_cfg_plan(...)`; closure-backed outer factories are typically registered under `qualname::_dp_bb_<name>_factory`.
 - **NOTE**: To trace BB execution, set `DIET_PYTHON_BB_TRACE`. Accepted forms are `all`, `all:params`, `<exact-qualname>`, or `<exact-qualname>:params`. Prefer an exact qualname (for example `make_runner.<locals>.run:params`) to keep trace output manageable.
+- **NOTE**: For reliable debug/release extension test runs, follow `docs/reliable_extension_test_runs.md` exactly. In particular, stage the built `diet_python.so` into a fresh temp directory, prepend that directory to `PYTHONPATH`, and verify `diet_python.__file__` before trusting the run.
 - **MUST FOLLOW**: In any test failure summary, list expected failures separately from unexpected failures.
 - When running tests, put the output in logs/
 - **MUST FOLLOW**: If a new PR is requested, open a new jj change first with `jj new`, then immediately update its description so the head (`@`) is up to date using `jj describe -m <message> @`, including both the change summary and the rationale.

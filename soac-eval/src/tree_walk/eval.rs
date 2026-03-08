@@ -181,6 +181,32 @@ unsafe fn py_string(obj: *mut ffi::PyObject) -> Result<String, ()> {
     Ok(String::from_utf8_lossy(bytes).into_owned())
 }
 
+unsafe fn tuple_size(obj: *mut ffi::PyObject, context: &str) -> Result<usize, ()> {
+    let size = ffi::PyTuple_Size(obj);
+    if size < 0 {
+        if ffi::PyErr_Occurred().is_null() {
+            return set_type_error(context);
+        }
+        return Err(());
+    }
+    Ok(size as usize)
+}
+
+unsafe fn tuple_get_item(
+    obj: *mut ffi::PyObject,
+    index: usize,
+    context: &str,
+) -> Result<*mut ffi::PyObject, ()> {
+    let item = ffi::PyTuple_GetItem(obj, index as ffi::Py_ssize_t);
+    if item.is_null() {
+        if ffi::PyErr_Occurred().is_null() {
+            return set_type_error(context);
+        }
+        return Err(());
+    }
+    Ok(item)
+}
+
 fn parse_param_kind(raw_name: &str) -> (BindingParamKind, &str) {
     if let Some(name) = raw_name.strip_prefix("**") {
         return (BindingParamKind::VarKeyword, name);
@@ -220,11 +246,15 @@ unsafe fn parse_binding_metadata(
         return set_type_error("CLIF vectorcall requires a deleted sentinel");
     }
 
-    let state_len = ffi::PyTuple_GET_SIZE(state_order_obj) as usize;
+    let state_len = tuple_size(state_order_obj, "failed to read CLIF vectorcall state_order")?;
     let mut state_order = Vec::with_capacity(state_len);
     let mut state_index_by_name = HashMap::with_capacity(state_len);
     for index in 0..state_len {
-        let name_obj = ffi::PyTuple_GET_ITEM(state_order_obj, index as ffi::Py_ssize_t);
+        let name_obj = tuple_get_item(
+            state_order_obj,
+            index,
+            "failed to read CLIF vectorcall state_order entry",
+        )?;
         let name = py_string(name_obj)?;
         if state_index_by_name.insert(name.clone(), index).is_some() {
             return set_type_error("duplicate state_order entry in CLIF vectorcall metadata");
@@ -259,24 +289,37 @@ unsafe fn parse_binding_metadata(
         if params_obj.is_null() || ffi::PyTuple_Check(params_obj) == 0 {
             return set_type_error("CLIF function binding params must be a tuple");
         }
-        let param_count = ffi::PyTuple_GET_SIZE(params_obj) as usize;
+        let param_count = tuple_size(params_obj, "failed to read CLIF function binding params")?;
         params.reserve(param_count);
         for index in 0..param_count {
-            let param_obj = ffi::PyTuple_GET_ITEM(params_obj, index as ffi::Py_ssize_t);
+            let param_obj = tuple_get_item(
+                params_obj,
+                index,
+                "failed to read CLIF function binding param entry",
+            )?;
             if ffi::PyTuple_Check(param_obj) == 0 {
                 return set_type_error("CLIF function binding param entry must be a tuple");
             }
-            let entry_len = ffi::PyTuple_GET_SIZE(param_obj);
+            let entry_len = tuple_size(param_obj, "failed to read CLIF function binding param")?
+                as ffi::Py_ssize_t;
             if entry_len < 2 {
                 return set_type_error("invalid CLIF function binding param entry");
             }
-            let raw_name_obj = ffi::PyTuple_GET_ITEM(param_obj, 0);
+            let raw_name_obj = tuple_get_item(
+                param_obj,
+                0,
+                "failed to read CLIF function binding param name",
+            )?;
             let raw_name = py_string(raw_name_obj)?;
             let (param_kind, name) = parse_param_kind(&raw_name);
             let state_index = state_index_by_name.get(name).copied();
             let mut default_value = ptr::null_mut();
             if entry_len >= 3 {
-                let candidate = ffi::PyTuple_GET_ITEM(param_obj, 2);
+                let candidate = tuple_get_item(
+                    param_obj,
+                    2,
+                    "failed to read CLIF function binding param default",
+                )?;
                 if candidate != no_default_obj {
                     ffi::Py_INCREF(candidate);
                     default_value = candidate;
@@ -333,27 +376,58 @@ unsafe fn parse_generator_closure_layout(
     if closure_layout_obj.is_null() {
         return Ok(None);
     }
-    if ffi::PyTuple_Check(closure_layout_obj) == 0 || ffi::PyTuple_GET_SIZE(closure_layout_obj) != 3
-    {
+    if ffi::PyTuple_Check(closure_layout_obj) == 0 {
+        return set_type_error("CLIF vectorcall closure_layout must be a 3-tuple");
+    }
+    if tuple_size(closure_layout_obj, "failed to read CLIF vectorcall closure_layout")? != 3 {
         return set_type_error("CLIF vectorcall closure_layout must be a 3-tuple");
     }
     let mut slots = Vec::new();
     for section_index in 0..3 {
-        let section = ffi::PyTuple_GET_ITEM(closure_layout_obj, section_index);
+        let section = tuple_get_item(
+            closure_layout_obj,
+            section_index,
+            "failed to read CLIF vectorcall closure_layout section",
+        )?;
         if ffi::PyTuple_Check(section) == 0 {
             return set_type_error("CLIF vectorcall closure_layout sections must be tuples");
         }
-        let slot_count = ffi::PyTuple_GET_SIZE(section) as usize;
+        let slot_count = tuple_size(
+            section,
+            "failed to read CLIF vectorcall closure_layout section size",
+        )?;
         for slot_index in 0..slot_count {
-            let slot_obj = ffi::PyTuple_GET_ITEM(section, slot_index as ffi::Py_ssize_t);
-            if ffi::PyTuple_Check(slot_obj) == 0 || ffi::PyTuple_GET_SIZE(slot_obj) != 3 {
+            let slot_obj = tuple_get_item(
+                section,
+                slot_index,
+                "failed to read CLIF vectorcall closure_layout slot",
+            )?;
+            if ffi::PyTuple_Check(slot_obj) == 0 {
                 return set_type_error(
                     "CLIF vectorcall closure_layout slots must be 3-tuples",
                 );
             }
-            let logical_name = py_string(ffi::PyTuple_GET_ITEM(slot_obj, 0))?;
-            let storage_name = py_string(ffi::PyTuple_GET_ITEM(slot_obj, 1))?;
-            let init_name = py_string(ffi::PyTuple_GET_ITEM(slot_obj, 2))?;
+            if tuple_size(slot_obj, "failed to read CLIF vectorcall closure_layout slot size")? != 3
+            {
+                return set_type_error(
+                    "CLIF vectorcall closure_layout slots must be 3-tuples",
+                );
+            }
+            let logical_name = py_string(tuple_get_item(
+                slot_obj,
+                0,
+                "failed to read CLIF vectorcall closure logical name",
+            )?)?;
+            let storage_name = py_string(tuple_get_item(
+                slot_obj,
+                1,
+                "failed to read CLIF vectorcall closure storage name",
+            )?)?;
+            let init_name = py_string(tuple_get_item(
+                slot_obj,
+                2,
+                "failed to read CLIF vectorcall closure init kind",
+            )?)?;
             let init = match init_name.as_str() {
                 "InheritedCapture" => GeneratorClosureInit::InheritedCapture,
                 "Parameter" => GeneratorClosureInit::Parameter,
