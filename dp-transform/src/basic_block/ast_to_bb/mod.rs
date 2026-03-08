@@ -2659,15 +2659,15 @@ impl BasicBlockRewriter<'_> {
                 closure_state,
                 ..
             } => {
-                    if *closure_state {
-                        if bb_function.is_coroutine {
-                            return Some(py_expr!(
-                                "__dp_mark_coroutine_function({func:expr})",
-                                func = function_entry_expr,
-                            ));
-                        }
-                        return Some(function_entry_expr);
+                if *closure_state {
+                    if bb_function.is_coroutine {
+                        return Some(py_expr!(
+                            "__dp_mark_coroutine_function({func:expr})",
+                            func = function_entry_expr,
+                        ));
                     }
+                    return Some(function_entry_expr);
+                }
                 if bb_function.is_coroutine {
                     Some(py_expr!(
                         "__dp_def_coro_from_gen({resume:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __dp_globals(), __name__, {doc:expr}, {annotate_fn:expr})",
@@ -2680,16 +2680,10 @@ impl BasicBlockRewriter<'_> {
                         annotate_fn = annotate_fn,
                     ))
                 } else {
-                    Some(py_expr!(
-                        "__dp_def_gen({resume:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __dp_globals(), __name__, {doc:expr}, {annotate_fn:expr})",
-                        resume = entry_ref_expr,
-                        name = bb_function.display_name.as_str(),
-                        qualname = bb_function.qualname.as_str(),
-                        closure = closure,
-                        params = bb_function.param_specs.to_expr(),
-                        doc = doc,
-                        annotate_fn = annotate_fn,
-                    ))
+                    panic!(
+                        "non-closure-backed sync generator lowering is unreachable; \
+                         generated comprehension helpers are async-only"
+                    )
                 }
             }
         }

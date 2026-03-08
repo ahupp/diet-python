@@ -1807,14 +1807,16 @@ def _bb_enable_lazy_clif_vectorcall(
             entry,
             module_name,
             plan_qualname,
-            state_order,
-            params,
-            closure_values,
-            closure_layout,
-            deleted_value,
-            no_default_value,
-            bind_kind,
-            materialize_result,
+            (
+                state_order,
+                params,
+                closure_values,
+                closure_layout,
+                deleted_value,
+                no_default_value,
+                bind_kind,
+                materialize_result,
+            ),
         )
     except NotImplementedError:
         raise
@@ -2179,105 +2181,6 @@ def make_closure_async_generator(resume, name, qualname):
         qualname=qualname,
         code=_dp_make_async_gen_code(name, qualname),
     )
-
-
-class DefGenConst(NamedTuple):
-    name: str
-    qualname: str
-    code: _types.CodeType
-    module_name: str
-    targets: tuple
-    resume: object
-
-
-def def_gen(
-    resume,
-    name,
-    qualname,
-    closure,
-    params,
-    module_globals,
-    module_name,
-    doc=None,
-    annotate_fn=None,
-):
-    signature, default_state_order = _build_bb_signature(params)
-    state_order, closure_values = _bb_state_order(default_state_order, closure)
-    gen_code = _dp_make_gen_code(name, qualname)
-    entry_ref = resume if isinstance(resume, str) else None
-    plan_qualname = _bb_plan_lookup_qualname(qualname, entry_ref)
-    if not (
-        jit_bb_plan_enabled()
-        and isinstance(module_name, str)
-        and isinstance(plan_qualname, str)
-        and _jit_has_bb_plan is not None
-        and _jit_has_bb_plan(module_name, plan_qualname)
-    ):
-        raise RuntimeError(
-            "JIT basic-block generator definition requires a registered plan, "
-            f"but none is available for {module_name}.{plan_qualname}"
-        )
-
-    resume_entry = _bb_make_resume_entry(
-        resume,
-        name,
-        qualname,
-        module_globals,
-        module_name,
-        async_gen=False,
-    )
-
-    def materialize(
-        state_args,
-        __dp_state_order=state_order,
-        __dp_resume=resume_entry,
-        __dp_gen_type=_DpGenerator,
-        __dp_name=name,
-        __dp_qualname=qualname,
-        __dp_code=gen_code,
-        __dp_make_state_frame=_bb_make_state_frame,
-    ):
-        return __dp_gen_type(
-            resume=__dp_resume,
-            pc=0,
-            gi_frame=__dp_make_state_frame(__dp_state_order, state_args),
-            name=__dp_name,
-            qualname=__dp_qualname,
-            code=__dp_code,
-        )
-
-    entry = _bb_make_lazy_clif_entry(
-        async_entry=False,
-        function_name=name,
-        module_globals=module_globals,
-    )
-    entry = _bb_wrap_with_closure(entry, closure_values)
-    entry = _bb_rebind_function_globals(entry, module_globals)
-    entry.__signature__ = signature
-    entry = update_fn(entry, qualname, name)
-    if module_name is not None:
-        entry.__module__ = module_name
-        _bb_set_plan_metadata(
-            entry, module_name, plan_qualname, module_globals, entry_ref=entry_ref
-        )
-    if doc is not None:
-        entry.__doc__ = doc
-    if annotate_fn is not None:
-        entry.__annotate__ = annotate_fn
-    _bb_enable_lazy_clif_vectorcall(
-        entry,
-        module_name,
-        plan_qualname,
-        state_order,
-        tuple(params),
-        closure_values,
-        None,
-        DELETED,
-        NO_DEFAULT,
-        _BIND_KIND_FUNCTION,
-        materialize,
-    )
-    return entry
 
 
 def def_async_gen(

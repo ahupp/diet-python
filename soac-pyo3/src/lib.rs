@@ -6,7 +6,7 @@ use log::{info, trace};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::ffi;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PyTuple};
 use std::time::Instant;
 
 mod eval;
@@ -91,34 +91,62 @@ fn jit_render_bb_with_cfg_plan(
     Ok(payload.unbind())
 }
 
-#[pyfunction]
-fn register_clif_vectorcall(
+fn register_clif_vectorcall_impl(
     py: Python<'_>,
     func: &Bound<'_, PyAny>,
     module_name: &str,
     qualname: &str,
-    state_order_obj: &Bound<'_, PyAny>,
-    params_obj: Option<&Bound<'_, PyAny>>,
-    closure_values_obj: Option<&Bound<'_, PyAny>>,
-    closure_layout_obj: Option<&Bound<'_, PyAny>>,
-    deleted_obj: &Bound<'_, PyAny>,
-    no_default_obj: &Bound<'_, PyAny>,
-    bind_kind: i32,
-    materialize_entry_obj: Option<&Bound<'_, PyAny>>,
+    metadata: &Bound<'_, PyTuple>,
 ) -> PyResult<()> {
+    if metadata.len() != 8 {
+        return Err(PyRuntimeError::new_err(
+            "register_clif_vectorcall metadata must be an 8-tuple",
+        ));
+    }
+    let state_order_obj = metadata.get_item(0)?.unbind();
+    let params_obj = metadata.get_item(1)?.unbind();
+    let closure_values_obj = metadata.get_item(2)?.unbind();
+    let closure_layout_obj = metadata.get_item(3)?.unbind();
+    let deleted_obj = metadata.get_item(4)?.unbind();
+    let no_default_obj = metadata.get_item(5)?.unbind();
+    let bind_kind = metadata.get_item(6)?.extract::<i32>()?;
+    let materialize_entry_obj = metadata.get_item(7)?.unbind();
+    let state_order_bound = state_order_obj.bind(py);
+    let params_bound = params_obj.bind(py);
+    let closure_values_bound = closure_values_obj.bind(py);
+    let closure_layout_bound = closure_layout_obj.bind(py);
+    let deleted_bound = deleted_obj.bind(py);
+    let no_default_bound = no_default_obj.bind(py);
+    let materialize_entry_bound = materialize_entry_obj.bind(py);
     unsafe {
         soac_eval::tree_walk::register_clif_vectorcall(
             func.as_ptr(),
             module_name,
             qualname,
-            state_order_obj.as_ptr(),
-            params_obj.map_or(std::ptr::null_mut(), |obj| obj.as_ptr()),
-            closure_values_obj.map_or(std::ptr::null_mut(), |obj| obj.as_ptr()),
-            closure_layout_obj.map_or(std::ptr::null_mut(), |obj| obj.as_ptr()),
-            deleted_obj.as_ptr(),
-            no_default_obj.as_ptr(),
+            state_order_bound.as_ptr(),
+            if params_bound.is_none() {
+                std::ptr::null_mut()
+            } else {
+                params_bound.as_ptr()
+            },
+            if closure_values_bound.is_none() {
+                std::ptr::null_mut()
+            } else {
+                closure_values_bound.as_ptr()
+            },
+            if closure_layout_bound.is_none() {
+                std::ptr::null_mut()
+            } else {
+                closure_layout_bound.as_ptr()
+            },
+            deleted_bound.as_ptr(),
+            no_default_bound.as_ptr(),
             bind_kind,
-            materialize_entry_obj.map_or(std::ptr::null_mut(), |obj| obj.as_ptr()),
+            if materialize_entry_bound.is_none() {
+                std::ptr::null_mut()
+            } else {
+                materialize_entry_bound.as_ptr()
+            },
         )
         .map_err(|_| {
             if ffi::PyErr_Occurred().is_null() {
@@ -128,6 +156,19 @@ fn register_clif_vectorcall(
             }
         })
     }
+}
+
+#[pyfunction]
+fn register_clif_vectorcall(
+    py: Python<'_>,
+    func: Py<PyAny>,
+    module_name: String,
+    qualname: String,
+    metadata: Py<PyTuple>,
+) -> PyResult<()> {
+    let func = func.bind(py);
+    let metadata = metadata.bind(py);
+    register_clif_vectorcall_impl(py, &func, &module_name, &qualname, &metadata)
 }
 
 #[pyfunction]
