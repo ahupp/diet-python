@@ -25,6 +25,7 @@ os.environ.setdefault("DIET_PYTHON_MODE", "transform")
 os.environ.setdefault("DIET_PYTHON_JIT", "1")
 
 import diet_import_hook  # noqa: E402
+diet_import_hook.install()
 import __dp__  # noqa: E402
 
 
@@ -51,10 +52,6 @@ def _load_module_from_source(source: str):
         init = getattr(module, "_dp_module_init", None)
         if callable(init):
             init()
-            try:
-                delattr(module, "_dp_module_init")
-            except Exception:
-                pass
         return module
     finally:
         if tmp_path is not None:
@@ -74,6 +71,11 @@ def _resolve_entry_callable(module, entry_label: str | None):
         for name, value in module.__dict__.items():
             if not callable(value):
                 continue
+            plan_qualname = getattr(value, "__dp_plan_qualname", None)
+            if isinstance(plan_qualname, str) and plan_qualname.endswith(
+                f"::{entry_label}"
+            ):
+                return value, f"{name} (plan={plan_qualname})"
             if getattr(value, "__name__", None) == entry_label:
                 return value, f"{name} (name={entry_label})"
 
