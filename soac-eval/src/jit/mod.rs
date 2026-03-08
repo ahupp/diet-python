@@ -167,9 +167,9 @@ fn intern_bytes_literal(literal_pool: &mut Vec<Box<[u8]>>, bytes: &[u8]) -> (*co
     (ptr, len)
 }
 
-#[derive(Clone, Copy)]
 struct DirectSimpleEmitConsts {
     step_null_block: ir::Block,
+    step_null_args: Vec<ir::Value>,
     exec_args: ir::Value,
     ptr_ty: ir::Type,
     i64_ty: ir::Type,
@@ -180,7 +180,6 @@ struct DirectSimpleEmitConsts {
     block_const: ir::Value,
 }
 
-#[derive(Clone, Copy)]
 struct DirectSimpleEmitCtx {
     incref_ref: ir::FuncRef,
     decref_ref: ir::FuncRef,
@@ -201,6 +200,14 @@ struct DirectSimpleEmitCtx {
     tuple_new_ref: ir::FuncRef,
     tuple_set_item_ref: ir::FuncRef,
     operator_refs: DirectSimpleOperatorRefs,
+}
+
+fn block_arg_values(values: &[ir::Value]) -> Vec<ir::BlockArg> {
+    values.iter().copied().map(ir::BlockArg::Value).collect()
+}
+
+fn step_null_block_args(ctx: &DirectSimpleEmitCtx) -> Vec<ir::BlockArg> {
+    block_arg_values(&ctx.consts.step_null_args)
 }
 
 #[derive(Clone, Copy)]
@@ -285,15 +292,12 @@ fn emit_current_locals_view(
     let load_name_ref = ctx.load_name_ref;
     let pyobject_setitem_ref = ctx.pyobject_setitem_ref;
     let decode_literal_bytes_ref = ctx.decode_literal_bytes_ref;
-    let DirectSimpleEmitConsts {
-        step_null_block,
-        exec_args,
-        ptr_ty,
-        i64_ty,
-        empty_tuple_const,
-        block_const,
-        ..
-    } = ctx.consts;
+    let step_null_block = ctx.consts.step_null_block;
+    let exec_args = ctx.consts.exec_args;
+    let ptr_ty = ctx.consts.ptr_ty;
+    let i64_ty = ctx.consts.i64_ty;
+    let empty_tuple_const = ctx.consts.empty_tuple_const;
+    let block_const = ctx.consts.block_const;
     let null_ptr = fb.ins().iconst(ptr_ty, 0);
     if let Some(frame_index) = local_names
         .iter()
@@ -2036,6 +2040,60 @@ fn emit_pack_target_args(
     Some(tuple_obj)
 }
 
+fn emit_prepare_target_args(
+    fb: &mut FunctionBuilder<'_>,
+    target_params: &[String],
+    local_names: &[String],
+    local_values: &[ir::Value],
+    ctx: &DirectSimpleEmitCtx,
+    literal_pool: &mut Vec<Box<[u8]>>,
+) -> Option<Vec<ir::BlockArg>> {
+    let mut args = Vec::with_capacity(target_params.len());
+    let owner_value = local_names
+        .iter()
+        .position(|candidate| candidate == "_dp_self" || candidate == "_dp_state")
+        .map(|index| local_values[index]);
+    for name in target_params {
+        if let Some(value_index) = local_names.iter().position(|candidate| candidate == name) {
+            let value = local_values[value_index];
+            fb.ins().call(ctx.incref_ref, &[value]);
+            args.push(ir::BlockArg::Value(value));
+            continue;
+        }
+        if let Some(owner) = owner_value {
+            let ptr_ty = ctx.consts.ptr_ty;
+            let i64_ty = ctx.consts.i64_ty;
+            let null_ptr = fb.ins().iconst(ptr_ty, 0);
+            let (name_ptr, name_len) = intern_bytes_literal(literal_pool, name.as_bytes());
+            let name_ptr_val = fb.ins().iconst(ptr_ty, name_ptr as i64);
+            let name_len_val = fb.ins().iconst(i64_ty, name_len);
+            let load_inst = fb.ins().call(
+                ctx.load_local_raw_by_name_ref,
+                &[owner, name_ptr_val, name_len_val],
+            );
+            let load_value = fb.inst_results(load_inst)[0];
+            let load_is_null = fb
+                .ins()
+                .icmp(ir::condcodes::IntCC::Equal, load_value, null_ptr);
+            let load_ok_block = fb.create_block();
+            fb.append_block_param(load_ok_block, ptr_ty);
+            fb.ins().brif(
+                load_is_null,
+                ctx.consts.step_null_block,
+                &step_null_block_args(ctx),
+                load_ok_block,
+                &[ir::BlockArg::Value(load_value)],
+            );
+            fb.switch_to_block(load_ok_block);
+            args.push(ir::BlockArg::Value(fb.block_params(load_ok_block)[0]));
+            continue;
+        }
+        fb.ins().call(ctx.incref_ref, &[ctx.consts.none_const]);
+        args.push(ir::BlockArg::Value(ctx.consts.none_const));
+    }
+    Some(args)
+}
+
 fn emit_truthy_from_owned(
     fb: &mut FunctionBuilder<'_>,
     owned_value: ir::Value,
@@ -2847,8 +2905,11 @@ fn build_cranelift_run_bb_specialized_function(
         let raise_exc_direct_block = fb.create_block();
 
         fb.append_block_params_for_function_params(entry_block);
-        for block in &exec_blocks {
-            fb.append_block_param(*block, ptr_ty); // args
+        for (index, block) in exec_blocks.iter().enumerate() {
+            fb.append_block_param(*block, ptr_ty); // args tuple for exception/cleanup paths
+            for _ in &plan.block_param_names[index] {
+                fb.append_block_param(*block, ptr_ty);
+            }
         }
         fb.append_block_param(step_null_block, ptr_ty); // args
         fb.append_block_param(raise_exc_direct_block, ptr_ty); // args
@@ -2944,7 +3005,28 @@ fn build_cranelift_run_bb_specialized_function(
         let pynumber_invert_ref = jit_module.declare_func_in_func(pynumber_invert_id, &mut fb.func);
 
         fb.ins().call(incref_ref, &[entry_args]);
-        let entry_jump_args = [ir::BlockArg::Value(entry_args)];
+        let mut entry_jump_args = Vec::with_capacity(plan.block_param_names[plan.entry_index].len() + 1);
+        entry_jump_args.push(ir::BlockArg::Value(entry_args));
+        let null_ptr = fb.ins().iconst(ptr_ty, 0);
+        for (param_index, _) in plan.block_param_names[plan.entry_index].iter().enumerate() {
+            let index_val = fb.ins().iconst(i64_ty, param_index as i64);
+            let item_inst = fb.ins().call(get_arg_item_ref, &[entry_args, index_val]);
+            let item_val = fb.inst_results(item_inst)[0];
+            let is_null = fb
+                .ins()
+                .icmp(ir::condcodes::IntCC::Equal, item_val, null_ptr);
+            let ok_block = fb.create_block();
+            fb.append_block_param(ok_block, ptr_ty);
+            fb.ins().brif(
+                is_null,
+                step_null_block,
+                &[ir::BlockArg::Value(entry_args)],
+                ok_block,
+                &[ir::BlockArg::Value(item_val)],
+            );
+            fb.switch_to_block(ok_block);
+            entry_jump_args.push(ir::BlockArg::Value(fb.block_params(ok_block)[0]));
+        }
         fb.ins()
             .jump(exec_blocks[plan.entry_index], &entry_jump_args);
 
@@ -2960,6 +3042,7 @@ fn build_cranelift_run_bb_specialized_function(
         for (index, block) in exec_blocks.iter().enumerate() {
             fb.switch_to_block(*block);
             let exec_args = fb.block_params(*block)[0];
+            let block_param_values = fb.block_params(*block)[1..].to_vec();
             let block_const = fb.ins().iconst(ptr_ty, globals_obj as i64);
             let none_const = fb.ins().iconst(ptr_ty, none_obj as i64);
             let true_const = fb.ins().iconst(ptr_ty, true_obj as i64);
@@ -2973,6 +3056,7 @@ fn build_cranelift_run_bb_specialized_function(
                 make_int_ref,
                 consts: DirectSimpleEmitConsts {
                     step_null_block: fast_step_null_block,
+                    step_null_args: vec![exec_args],
                     exec_args,
                     ptr_ty,
                     i64_ty,
@@ -3033,7 +3117,9 @@ fn build_cranelift_run_bb_specialized_function(
             };
             match &plan.block_fast_paths[index] {
                 BlockFastPath::JumpPassThrough { target_index } => {
-                    let jump_args = [ir::BlockArg::Value(exec_args)];
+                    let mut jump_args = Vec::with_capacity(block_param_values.len() + 1);
+                    jump_args.push(ir::BlockArg::Value(exec_args));
+                    jump_args.extend(block_param_values.iter().copied().map(ir::BlockArg::Value));
                     fb.ins().jump(exec_blocks[*target_index], &jump_args);
                     continue;
                 }
@@ -3044,29 +3130,8 @@ fn build_cranelift_run_bb_specialized_function(
                     continue;
                 }
                 BlockFastPath::DirectSimpleExprRetNone { plan } => {
-                    let null_ptr = fb.ins().iconst(ptr_ty, 0);
                     let local_names = plan.params.clone();
-                    let mut local_values = Vec::with_capacity(local_names.len());
-
-                    for (param_index, _) in local_names.iter().enumerate() {
-                        let index_val = fb.ins().iconst(i64_ty, param_index as i64);
-                        let item_inst = fb.ins().call(get_arg_item_ref, &[exec_args, index_val]);
-                        let item_val = fb.inst_results(item_inst)[0];
-                        let is_null =
-                            fb.ins()
-                                .icmp(ir::condcodes::IntCC::Equal, item_val, null_ptr);
-                        let ok_block = fb.create_block();
-                        fb.append_block_param(ok_block, ptr_ty);
-                        fb.ins().brif(
-                            is_null,
-                            step_null_block,
-                            &[ir::BlockArg::Value(exec_args)],
-                            ok_block,
-                            &[ir::BlockArg::Value(item_val)],
-                        );
-                        fb.switch_to_block(ok_block);
-                        local_values.push(fb.block_params(ok_block)[0]);
-                    }
+                    let local_values = block_param_values.clone();
 
                     for expr in &plan.exprs {
                         let value = emit_direct_simple_expr(
@@ -3089,29 +3154,8 @@ fn build_cranelift_run_bb_specialized_function(
                     continue;
                 }
                 BlockFastPath::DirectSimpleBrIf { plan } => {
-                    let null_ptr = fb.ins().iconst(ptr_ty, 0);
                     let local_names = plan.params.clone();
-                    let mut local_values = Vec::with_capacity(local_names.len());
-
-                    for (param_index, _) in local_names.iter().enumerate() {
-                        let index_val = fb.ins().iconst(i64_ty, param_index as i64);
-                        let item_inst = fb.ins().call(get_arg_item_ref, &[exec_args, index_val]);
-                        let item_val = fb.inst_results(item_inst)[0];
-                        let is_null =
-                            fb.ins()
-                                .icmp(ir::condcodes::IntCC::Equal, item_val, null_ptr);
-                        let ok_block = fb.create_block();
-                        fb.append_block_param(ok_block, ptr_ty);
-                        fb.ins().brif(
-                            is_null,
-                            step_null_block,
-                            &[ir::BlockArg::Value(exec_args)],
-                            ok_block,
-                            &[ir::BlockArg::Value(item_val)],
-                        );
-                        fb.switch_to_block(ok_block);
-                        local_values.push(fb.block_params(ok_block)[0]);
-                    }
+                    let local_values = block_param_values.clone();
 
                     let test_value = emit_direct_simple_expr(
                         &mut fb,
@@ -3125,9 +3169,6 @@ fn build_cranelift_run_bb_specialized_function(
                     let truth_inst = fb.ins().call(is_true_ref, &[test_value]);
                     let truth_value = fb.inst_results(truth_inst)[0];
                     fb.ins().call(decref_ref, &[test_value]);
-                    for value in local_values {
-                        fb.ins().call(decref_ref, &[value]);
-                    }
                     let truth_error = fb.ins().iconst(i32_ty, -1);
                     let is_error =
                         fb.ins()
@@ -3149,7 +3190,9 @@ fn build_cranelift_run_bb_specialized_function(
                         truth_ok_value,
                         zero_i32,
                     );
-                    let pass_args = [ir::BlockArg::Value(exec_args)];
+                    let mut pass_args = Vec::with_capacity(block_param_values.len() + 1);
+                    pass_args.push(ir::BlockArg::Value(exec_args));
+                    pass_args.extend(block_param_values.iter().copied().map(ir::BlockArg::Value));
                     fb.ins().brif(
                         is_true,
                         exec_blocks[plan.then_index],
@@ -3160,32 +3203,10 @@ fn build_cranelift_run_bb_specialized_function(
                     continue;
                 }
                 BlockFastPath::DirectSimpleRet { plan } => {
-                    let null_ptr = fb.ins().iconst(ptr_ty, 0);
                     let mut local_names = plan.params.clone();
-                    let mut local_values =
-                        Vec::with_capacity(local_names.len() + plan.assigns.len());
+                    let mut local_values = block_param_values.clone();
                     let mut frame_locals_aliases: HashSet<String> = HashSet::new();
-
-                    for (param_index, _) in local_names.iter().enumerate() {
-                        let index_val = fb.ins().iconst(i64_ty, param_index as i64);
-                        let item_inst = fb.ins().call(get_arg_item_ref, &[exec_args, index_val]);
-                        let item_val = fb.inst_results(item_inst)[0];
-                        let is_null =
-                            fb.ins()
-                                .icmp(ir::condcodes::IntCC::Equal, item_val, null_ptr);
-                        let ok_block = fb.create_block();
-                        fb.append_block_param(ok_block, ptr_ty);
-                        fb.ins().brif(
-                            is_null,
-                            step_null_block,
-                            &[ir::BlockArg::Value(exec_args)],
-                            ok_block,
-                            &[ir::BlockArg::Value(item_val)],
-                        );
-                        fb.switch_to_block(ok_block);
-                        let ok_value = fb.block_params(ok_block)[0];
-                        local_values.push(ok_value);
-                    }
+                    let null_ptr = fb.ins().iconst(ptr_ty, 0);
 
                     for assign in &plan.assigns {
                         let value_is_frame_locals =
@@ -3339,29 +3360,8 @@ fn build_cranelift_run_bb_specialized_function(
                     continue;
                 }
                 BlockFastPath::DirectSimpleBlock { plan: block_plan } => {
-                    let null_ptr = fb.ins().iconst(ptr_ty, 0);
                     let mut local_names = block_plan.params.clone();
-                    let mut local_values =
-                        Vec::with_capacity(local_names.len() + block_plan.ops.len());
-                    for (param_index, _) in local_names.iter().enumerate() {
-                        let index_val = fb.ins().iconst(i64_ty, param_index as i64);
-                        let item_inst = fb.ins().call(get_arg_item_ref, &[exec_args, index_val]);
-                        let item_val = fb.inst_results(item_inst)[0];
-                        let is_null =
-                            fb.ins()
-                                .icmp(ir::condcodes::IntCC::Equal, item_val, null_ptr);
-                        let ok_block = fb.create_block();
-                        fb.append_block_param(ok_block, ptr_ty);
-                        fb.ins().brif(
-                            is_null,
-                            step_null_block,
-                            &[ir::BlockArg::Value(exec_args)],
-                            ok_block,
-                            &[ir::BlockArg::Value(item_val)],
-                        );
-                        fb.switch_to_block(ok_block);
-                        local_values.push(fb.block_params(ok_block)[0]);
-                    }
+                    let mut local_values = block_param_values.clone();
 
                     emit_direct_simple_ops(
                         &mut fb,
@@ -3391,14 +3391,28 @@ fn build_cranelift_run_bb_specialized_function(
                                     plan.block_labels[index]
                                 )
                             })?;
+                            let mut jump_args = vec![ir::BlockArg::Value(next_args)];
+                            jump_args.extend(
+                                emit_prepare_target_args(
+                                    &mut fb,
+                                    target_params,
+                                    &local_names,
+                                    &local_values,
+                                    &emit_ctx,
+                                    &mut literal_pool,
+                                )
+                                .ok_or_else(|| {
+                                    format!(
+                                        "missing local mapping for jump block params in block {}",
+                                        plan.block_labels[index]
+                                    )
+                                })?,
+                            );
                             for value in &local_values {
                                 fb.ins().call(decref_ref, &[*value]);
                             }
                             fb.ins().call(decref_ref, &[exec_args]);
-                            fb.ins().jump(
-                                exec_blocks[*target_index],
-                                &[ir::BlockArg::Value(next_args)],
-                            );
+                            fb.ins().jump(exec_blocks[*target_index], &jump_args);
                         }
                         DirectSimpleTermPlan::BrIf {
                             test,
@@ -3445,12 +3459,28 @@ fn build_cranelift_run_bb_specialized_function(
                                     plan.block_labels[index]
                                 )
                             })?;
+                            let mut then_jump_args = vec![ir::BlockArg::Value(then_args)];
+                            then_jump_args.extend(
+                                emit_prepare_target_args(
+                                    &mut fb,
+                                    then_params,
+                                    &local_names,
+                                    &local_values,
+                                    &emit_ctx,
+                                    &mut literal_pool,
+                                )
+                                .ok_or_else(|| {
+                                    format!(
+                                        "missing local mapping for then-branch block params in block {}",
+                                        plan.block_labels[index]
+                                    )
+                                })?,
+                            );
                             for value in &local_values {
                                 fb.ins().call(decref_ref, &[*value]);
                             }
                             fb.ins().call(decref_ref, &[exec_args]);
-                            fb.ins()
-                                .jump(exec_blocks[*then_index], &[ir::BlockArg::Value(then_args)]);
+                            fb.ins().jump(exec_blocks[*then_index], &then_jump_args);
 
                             fb.switch_to_block(else_branch);
                             let else_args = emit_pack_target_args(
@@ -3467,12 +3497,28 @@ fn build_cranelift_run_bb_specialized_function(
                                     plan.block_labels[index]
                                 )
                             })?;
+                            let mut else_jump_args = vec![ir::BlockArg::Value(else_args)];
+                            else_jump_args.extend(
+                                emit_prepare_target_args(
+                                    &mut fb,
+                                    else_params,
+                                    &local_names,
+                                    &local_values,
+                                    &emit_ctx,
+                                    &mut literal_pool,
+                                )
+                                .ok_or_else(|| {
+                                    format!(
+                                        "missing local mapping for else-branch block params in block {}",
+                                        plan.block_labels[index]
+                                    )
+                                })?,
+                            );
                             for value in &local_values {
                                 fb.ins().call(decref_ref, &[*value]);
                             }
                             fb.ins().call(decref_ref, &[exec_args]);
-                            fb.ins()
-                                .jump(exec_blocks[*else_index], &[ir::BlockArg::Value(else_args)]);
+                            fb.ins().jump(exec_blocks[*else_index], &else_jump_args);
                         }
                         DirectSimpleTermPlan::BrTable {
                             index: table_index_expr,
@@ -3537,14 +3583,28 @@ fn build_cranelift_run_bb_specialized_function(
                                         plan.block_labels[index]
                                     )
                                 })?;
+                                let mut case_jump_args = vec![ir::BlockArg::Value(next_args)];
+                                case_jump_args.extend(
+                                    emit_prepare_target_args(
+                                        &mut fb,
+                                        target_params,
+                                        &local_names,
+                                        &local_values,
+                                        &emit_ctx,
+                                        &mut literal_pool,
+                                    )
+                                    .ok_or_else(|| {
+                                        format!(
+                                            "missing local mapping for br_table case block params in block {}",
+                                            plan.block_labels[index]
+                                        )
+                                    })?,
+                                );
                                 for value in &local_values {
                                     fb.ins().call(decref_ref, &[*value]);
                                 }
                                 fb.ins().call(decref_ref, &[exec_args]);
-                                fb.ins().jump(
-                                    exec_blocks[*target_index],
-                                    &[ir::BlockArg::Value(next_args)],
-                                );
+                                fb.ins().jump(exec_blocks[*target_index], &case_jump_args);
                             }
 
                             fb.switch_to_block(default_block);
@@ -3562,14 +3622,28 @@ fn build_cranelift_run_bb_specialized_function(
                                     plan.block_labels[index]
                                 )
                             })?;
+                            let mut default_jump_args = vec![ir::BlockArg::Value(default_args)];
+                            default_jump_args.extend(
+                                emit_prepare_target_args(
+                                    &mut fb,
+                                    default_params,
+                                    &local_names,
+                                    &local_values,
+                                    &emit_ctx,
+                                    &mut literal_pool,
+                                )
+                                .ok_or_else(|| {
+                                    format!(
+                                        "missing local mapping for br_table default block params in block {}",
+                                        plan.block_labels[index]
+                                    )
+                                })?,
+                            );
                             for value in &local_values {
                                 fb.ins().call(decref_ref, &[*value]);
                             }
                             fb.ins().call(decref_ref, &[exec_args]);
-                            fb.ins().jump(
-                                exec_blocks[*default_index],
-                                &[ir::BlockArg::Value(default_args)],
-                            );
+                            fb.ins().jump(exec_blocks[*default_index], &default_jump_args);
                         }
                         DirectSimpleTermPlan::Ret { value } => {
                             let ret_value = if let Some(ret_expr) = value.as_ref() {
@@ -3808,11 +3882,14 @@ fn build_cranelift_run_bb_specialized_function(
                 .jump(step_null_block, &[ir::BlockArg::Value(daf_args)]);
 
             let mut build_block = dispatch_build_start;
+            let mut carried_value_count = 0usize;
             for (slot, source) in dispatch_plan.arg_sources.iter().enumerate() {
                 fb.switch_to_block(build_block);
-                let b_args = fb.block_params(build_block)[0];
-                let b_exc = fb.block_params(build_block)[1];
-                let b_target_args = fb.block_params(build_block)[2];
+                let build_params = fb.block_params(build_block).to_vec();
+                let b_args = build_params[0];
+                let b_exc = build_params[1];
+                let b_target_args = build_params[2];
+                let carried_values = build_params[3..].to_vec();
                 let value = match source {
                     BlockExcArgSource::SourceParam { index } => {
                         let idx_const = fb.ins().iconst(i64_ty, *index as i64);
@@ -3852,19 +3929,24 @@ fn build_cranelift_run_bb_specialized_function(
                 fb.append_block_param(value_fail, ptr_ty);
                 fb.append_block_param(value_fail, ptr_ty);
                 fb.append_block_param(value_fail, ptr_ty);
+                for _ in 0..carried_value_count {
+                    fb.append_block_param(value_fail, ptr_ty);
+                }
                 let value_ok = fb.create_block();
                 fb.append_block_param(value_ok, ptr_ty);
                 fb.append_block_param(value_ok, ptr_ty);
                 fb.append_block_param(value_ok, ptr_ty);
                 fb.append_block_param(value_ok, ptr_ty);
+                let mut value_fail_args = vec![
+                    ir::BlockArg::Value(b_args),
+                    ir::BlockArg::Value(b_exc),
+                    ir::BlockArg::Value(b_target_args),
+                ];
+                value_fail_args.extend(carried_values.iter().copied().map(ir::BlockArg::Value));
                 fb.ins().brif(
                     value_null,
                     value_fail,
-                    &[
-                        ir::BlockArg::Value(b_args),
-                        ir::BlockArg::Value(b_exc),
-                        ir::BlockArg::Value(b_target_args),
-                    ],
+                    &value_fail_args,
                     value_ok,
                     &[
                         ir::BlockArg::Value(b_args),
@@ -3878,6 +3960,10 @@ fn build_cranelift_run_bb_specialized_function(
                 let vf_args = fb.block_params(value_fail)[0];
                 let vf_exc = fb.block_params(value_fail)[1];
                 let vf_target_args = fb.block_params(value_fail)[2];
+                let vf_carried_values = fb.block_params(value_fail)[3..].to_vec();
+                for carried_value in vf_carried_values {
+                    fb.ins().call(decref_ref, &[carried_value]);
+                }
                 fb.ins().call(decref_ref, &[vf_target_args]);
                 fb.ins().call(decref_ref, &[vf_exc]);
                 fb.ins()
@@ -3900,48 +3986,70 @@ fn build_cranelift_run_bb_specialized_function(
                 fb.append_block_param(set_item_fail, ptr_ty);
                 fb.append_block_param(set_item_fail, ptr_ty);
                 fb.append_block_param(set_item_fail, ptr_ty);
+                for _ in 0..carried_value_count {
+                    fb.append_block_param(set_item_fail, ptr_ty);
+                }
                 let next_build_block = fb.create_block();
                 fb.append_block_param(next_build_block, ptr_ty);
                 fb.append_block_param(next_build_block, ptr_ty);
                 fb.append_block_param(next_build_block, ptr_ty);
+                for _ in 0..=carried_value_count {
+                    fb.append_block_param(next_build_block, ptr_ty);
+                }
+                let mut set_item_fail_args = vec![
+                    ir::BlockArg::Value(vo_args),
+                    ir::BlockArg::Value(vo_exc),
+                    ir::BlockArg::Value(vo_target_args),
+                ];
+                set_item_fail_args
+                    .extend(carried_values.iter().copied().map(ir::BlockArg::Value));
+                fb.ins().call(incref_ref, &[vo_value]);
+                let mut next_build_args = vec![
+                    ir::BlockArg::Value(vo_args),
+                    ir::BlockArg::Value(vo_exc),
+                    ir::BlockArg::Value(vo_target_args),
+                ];
+                next_build_args.extend(carried_values.iter().copied().map(ir::BlockArg::Value));
+                next_build_args.push(ir::BlockArg::Value(vo_value));
                 fb.ins().brif(
                     set_item_failed,
                     set_item_fail,
-                    &[
-                        ir::BlockArg::Value(vo_args),
-                        ir::BlockArg::Value(vo_exc),
-                        ir::BlockArg::Value(vo_target_args),
-                    ],
+                    &set_item_fail_args,
                     next_build_block,
-                    &[
-                        ir::BlockArg::Value(vo_args),
-                        ir::BlockArg::Value(vo_exc),
-                        ir::BlockArg::Value(vo_target_args),
-                    ],
+                    &next_build_args,
                 );
 
                 fb.switch_to_block(set_item_fail);
                 let sf_args = fb.block_params(set_item_fail)[0];
                 let sf_exc = fb.block_params(set_item_fail)[1];
                 let sf_target_args = fb.block_params(set_item_fail)[2];
+                let sf_carried_values = fb.block_params(set_item_fail)[3..].to_vec();
+                for carried_value in sf_carried_values {
+                    fb.ins().call(decref_ref, &[carried_value]);
+                }
                 fb.ins().call(decref_ref, &[sf_target_args]);
                 fb.ins().call(decref_ref, &[sf_exc]);
                 fb.ins()
                     .jump(step_null_block, &[ir::BlockArg::Value(sf_args)]);
 
                 build_block = next_build_block;
+                carried_value_count += 1;
             }
 
             fb.switch_to_block(build_block);
-            let bd_args = fb.block_params(build_block)[0];
-            let bd_exc = fb.block_params(build_block)[1];
-            let bd_target_args = fb.block_params(build_block)[2];
+            let build_params = fb.block_params(build_block).to_vec();
+            let bd_args = build_params[0];
+            let bd_exc = build_params[1];
+            let bd_target_args = build_params[2];
+            let carried_values = build_params[3..].to_vec();
             fb.ins().call(decref_ref, &[bd_exc]);
+            let mut target_jump_args =
+                Vec::with_capacity(plan.block_param_names[dispatch_plan.target_index].len() + 1);
+            target_jump_args.push(ir::BlockArg::Value(bd_target_args));
+            target_jump_args.extend(carried_values.iter().copied().map(ir::BlockArg::Value));
             fb.ins().call(decref_ref, &[bd_args]);
-            fb.ins().jump(
-                exec_blocks[dispatch_plan.target_index],
-                &[ir::BlockArg::Value(bd_target_args)],
-            );
+            fb.ins()
+                .jump(exec_blocks[dispatch_plan.target_index], &target_jump_args);
         }
 
         fb.switch_to_block(step_null_block);
