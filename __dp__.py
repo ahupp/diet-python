@@ -506,41 +506,6 @@ _BIND_KIND_GENERATOR_RESUME = 1
 _BIND_KIND_ASYNC_GENERATOR_RESUME = 2
 
 
-async def _dp_resume_async_generator(gen, value, resume_exc, transport_sent):
-    send_value = value
-    pending_exc = resume_exc
-    pending_transport = transport_sent
-    while True:
-        # When delegating through `gi_yieldfrom` (for lowered `await` paths in
-        # async generators), resume values/exceptions come from the awaiter
-        # transport channel rather than user-level `asend(...)`.
-        step_send_value = (
-            pending_transport if _current_yieldfrom(gen) is not None else send_value
-        )
-        result = gen._dp_resume(
-            gen, step_send_value, pending_exc, pending_transport
-        )
-        if _current_yieldfrom(gen) is None:
-            return result
-        try:
-            pending_transport = await _AsyncGenTransportStep(result)
-            pending_exc = None
-        except BaseException as exc:
-            pending_transport = None
-            pending_exc = exc
-
-
-class _AsyncGenTransportStep:
-    __slots__ = ("_value",)
-
-    def __init__(self, value):
-        self._value = value
-
-    def __await__(self):
-        sent = yield self._value
-        return sent
-
-
 class _DpGenerator:
     __slots__ = (
         "_dp_resume",
@@ -698,7 +663,6 @@ class _DpAsyncGenerator:
     __slots__ = (
         "_dp_resume",
         "_pc",
-        "_dp_transport_sent",
         "__name__",
         "__qualname__",
         "gi_frame",
@@ -717,7 +681,6 @@ class _DpAsyncGenerator:
     ):
         self._dp_resume = resume
         self._pc = pc
-        self._dp_transport_sent = None
         self.__name__ = name
         self.__qualname__ = qualname
         self.gi_frame = gi_frame
@@ -743,16 +706,16 @@ class _DpAsyncGenerator:
         return _current_yieldfrom(self)
 
     def asend(self, value):
-        return _DpAsyncGenSend(self, value)
+        return _DpAsyncGenSend(self, value, None)
 
-    async def athrow(self, typ=None, val=None, tb=None):
+    def athrow(self, typ=None, val=None, tb=None):
         if val is not None or tb is not None:
             raise TypeError(
                 "DpAsyncGen.athrow() does not support value/traceback in this mode"
             )
         exc = raise_from(typ, None)
         _attach_throw_context_from_state(self, exc)
-        return await _dp_resume_async_generator(self, None, exc, None)
+        return _DpAsyncGenSend(self, None, exc)
 
     async def aclose(self):
         try:
@@ -765,7 +728,6 @@ class _DpAsyncGenerator:
 class _DpClosureAsyncGenerator:
     __slots__ = (
         "_dp_resume",
-        "_dp_transport_sent",
         "__name__",
         "__qualname__",
         "ag_code",
@@ -780,7 +742,6 @@ class _DpClosureAsyncGenerator:
         code,
     ):
         self._dp_resume = resume
-        self._dp_transport_sent = None
         self.__name__ = name
         self.__qualname__ = qualname
         self.ag_code = code
@@ -805,16 +766,16 @@ class _DpClosureAsyncGenerator:
         return _current_yieldfrom(self)
 
     def asend(self, value):
-        return _DpAsyncGenSend(self, value)
+        return _DpAsyncGenSend(self, value, None)
 
-    async def athrow(self, typ=None, val=None, tb=None):
+    def athrow(self, typ=None, val=None, tb=None):
         if val is not None or tb is not None:
             raise TypeError(
                 "DpAsyncGen.athrow() does not support value/traceback in this mode"
             )
         exc = raise_from(typ, None)
         _attach_throw_context_from_state(self, exc)
-        return await _dp_resume_async_generator(self, None, exc, None)
+        return _DpAsyncGenSend(self, None, exc)
 
     async def aclose(self):
         try:
@@ -824,13 +785,22 @@ class _DpClosureAsyncGenerator:
         raise RuntimeError("async generator ignored GeneratorExit")
 
 
-class _DpAsyncGenSend:
-    __slots__ = ("_dp_gen", "_dp_value", "_dp_coro")
+def _normalize_throw_args(typ, val=None, tb=None):
+    if val is not None or tb is not None:
+        raise TypeError(
+            "DpAsyncGenSend.throw() does not support value/traceback in this mode"
+        )
+    return raise_from(typ, None)
 
-    def __init__(self, gen, value):
+
+class _DpAsyncGenSend:
+    __slots__ = ("_dp_gen", "_dp_value", "_dp_resume_exc", "_dp_done")
+
+    def __init__(self, gen, value, resume_exc):
         self._dp_gen = gen
         self._dp_value = value
-        self._dp_coro = None
+        self._dp_resume_exc = resume_exc
+        self._dp_done = False
 
     def __iter__(self):
         return self
@@ -841,28 +811,34 @@ class _DpAsyncGenSend:
     def __next__(self):
         return self.send(None)
 
+    def _dp_step(self, transport_sent):
+        step_send_value = (
+            transport_sent if _current_yieldfrom(self._dp_gen) is not None else self._dp_value
+        )
+        result = self._dp_gen._dp_resume(
+            self._dp_gen,
+            step_send_value,
+            self._dp_resume_exc,
+            transport_sent,
+        )
+        self._dp_resume_exc = None
+        if _current_yieldfrom(self._dp_gen) is None:
+            self._dp_done = True
+            raise StopIteration(result)
+        return result
+
     def send(self, value):
-        if self._dp_coro is None:
-            initial_send = self._dp_value
-            self._dp_coro = _dp_resume_async_generator(
-                self._dp_gen,
-                initial_send,
-                None,
-                value,
-            )
-            return self._dp_coro.send(None)
-        return self._dp_coro.send(value)
+        if self._dp_done:
+            raise StopIteration
+        return self._dp_step(value)
 
     def throw(self, typ, val=None, tb=None):
-        if self._dp_coro is None:
-            self._dp_coro = _dp_resume_async_generator(
-                self._dp_gen, self._dp_value, None, None
-            )
-        return self._dp_coro.throw(typ, val, tb)
+        if self._dp_done:
+            raise _normalize_throw_args(typ, val, tb)
+        self._dp_resume_exc = _normalize_throw_args(typ, val, tb)
+        return self._dp_step(None)
 
     def close(self):
-        if self._dp_coro is not None:
-            return self._dp_coro.close()
         return None
 
 
@@ -2351,7 +2327,7 @@ def def_async_gen(
         __dp_code=ag_code,
         __dp_make_state_frame=_bb_make_state_frame,
     ):
-        _dp_gen = __dp_async_gen_type(
+        return __dp_async_gen_type(
             resume=__dp_resume,
             pc=0,
             gi_frame=__dp_make_state_frame(__dp_state_order, state_args),
@@ -2359,8 +2335,6 @@ def def_async_gen(
             qualname=__dp_qualname,
             code=__dp_code,
         )
-        _dp_gen._dp_transport_sent = None
-        return _dp_gen
 
     entry = _bb_make_lazy_clif_entry(
         async_entry=False,
