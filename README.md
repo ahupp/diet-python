@@ -161,6 +161,16 @@ Use C API for operators:
   - JIT is 1.940% of stock throughput
   - Stock is 51.54x faster on this pystone run
 
+2026-03-08: Remove tuple state passing between blocks:
+
+  - JIT transformed: 23684 loops/s
+  - Stock CPython: 913322 loops/s
+
+  Relative:
+
+  - stock is 38.56x faster
+  - JIT is 2.59% of stock throughput
+
 
 # Design
 
