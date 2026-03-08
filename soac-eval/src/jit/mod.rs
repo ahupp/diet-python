@@ -1941,7 +1941,7 @@ fn emit_direct_simple_expr(
     }
 }
 
-fn emit_pack_target_args(
+fn emit_pack_target_args_slow(
     fb: &mut FunctionBuilder<'_>,
     target_params: &[String],
     local_names: &[String],
@@ -2092,6 +2092,139 @@ fn emit_prepare_target_args(
         args.push(ir::BlockArg::Value(ctx.consts.none_const));
     }
     Some(args)
+}
+
+fn emit_pack_target_args(
+    fb: &mut FunctionBuilder<'_>,
+    target_params: &[String],
+    local_names: &[String],
+    local_values: &[ir::Value],
+    ctx: &DirectSimpleEmitCtx,
+    literal_pool: &mut Vec<Box<[u8]>>,
+) -> Option<ir::Value> {
+    if target_params.is_empty() {
+        fb.ins()
+            .call(ctx.incref_ref, &[ctx.consts.empty_tuple_const]);
+        return Some(ctx.consts.empty_tuple_const);
+    }
+    let owner_value = local_names
+        .iter()
+        .position(|candidate| candidate == "_dp_self" || candidate == "_dp_state");
+    if owner_value.is_some()
+        && target_params
+            .iter()
+            .any(|name| !local_names.iter().any(|candidate| candidate == name))
+    {
+        return emit_pack_target_args_slow(
+            fb,
+            target_params,
+            local_names,
+            local_values,
+            ctx,
+            literal_pool,
+        );
+    }
+
+    let ptr_ty = ctx.consts.ptr_ty;
+    let i64_ty = ctx.consts.i64_ty;
+    let null_ptr = fb.ins().iconst(ptr_ty, 0);
+    let tuple_len = fb.ins().iconst(i64_ty, target_params.len() as i64);
+    let tuple_inst = fb.ins().call(ctx.tuple_new_ref, &[tuple_len]);
+    let tuple_obj = fb.inst_results(tuple_inst)[0];
+    let tuple_is_null = fb
+        .ins()
+        .icmp(ir::condcodes::IntCC::Equal, tuple_obj, null_ptr);
+    let tuple_ok_block = fb.create_block();
+    fb.append_block_param(tuple_ok_block, ptr_ty);
+    fb.ins().brif(
+        tuple_is_null,
+        ctx.consts.step_null_block,
+        &step_null_block_args(ctx),
+        tuple_ok_block,
+        &[ir::BlockArg::Value(tuple_obj)],
+    );
+    fb.switch_to_block(tuple_ok_block);
+    let tuple_obj = fb.block_params(tuple_ok_block)[0];
+
+    let slot_size = (target_params.len() * std::mem::size_of::<u64>()) as u32;
+    let stack_slot = fb.create_sized_stack_slot(ir::StackSlotData::new(
+        ir::StackSlotKind::ExplicitSlot,
+        slot_size,
+        0,
+    ));
+
+    for (index, name) in target_params.iter().enumerate() {
+        let value = if let Some(value_index) = local_names.iter().position(|candidate| candidate == name) {
+            local_values[value_index]
+        } else {
+            ctx.consts.none_const
+        };
+        fb.ins()
+            .stack_store(value, stack_slot, (index * std::mem::size_of::<u64>()) as i32);
+    }
+
+    let values_base = fb.ins().stack_addr(ptr_ty, stack_slot, 0);
+    let loop_block = fb.create_block();
+    fb.append_block_param(loop_block, i64_ty);
+    fb.append_block_param(loop_block, ptr_ty);
+    let set_fail_block = fb.create_block();
+    fb.append_block_param(set_fail_block, ptr_ty);
+    let done_block = fb.create_block();
+    fb.append_block_param(done_block, ptr_ty);
+    let body_block = fb.create_block();
+    fb.append_block_param(body_block, i64_ty);
+    fb.append_block_param(body_block, ptr_ty);
+
+    let zero_i64 = fb.ins().iconst(i64_ty, 0);
+    fb.ins().jump(
+        loop_block,
+        &[ir::BlockArg::Value(zero_i64), ir::BlockArg::Value(tuple_obj)],
+    );
+
+    fb.switch_to_block(loop_block);
+    let loop_index = fb.block_params(loop_block)[0];
+    let loop_tuple = fb.block_params(loop_block)[1];
+    let at_end = fb
+        .ins()
+        .icmp(ir::condcodes::IntCC::Equal, loop_index, tuple_len);
+    fb.ins().brif(
+        at_end,
+        done_block,
+        &[ir::BlockArg::Value(loop_tuple)],
+        body_block,
+        &[ir::BlockArg::Value(loop_index), ir::BlockArg::Value(loop_tuple)],
+    );
+
+    fb.switch_to_block(body_block);
+    let body_index = fb.block_params(body_block)[0];
+    let body_tuple = fb.block_params(body_block)[1];
+    let value_offset = fb.ins().ishl_imm(body_index, 3);
+    let value_addr = fb.ins().iadd(values_base, value_offset);
+    let value = fb.ins().load(ptr_ty, ir::MemFlags::new(), value_addr, 0);
+    fb.ins().call(ctx.incref_ref, &[value]);
+    let set_inst = fb
+        .ins()
+        .call(ctx.tuple_set_item_ref, &[body_tuple, body_index, value]);
+    let set_result = fb.inst_results(set_inst)[0];
+    let set_failed = fb
+        .ins()
+        .icmp_imm(ir::condcodes::IntCC::NotEqual, set_result, 0);
+    let next_index = fb.ins().iadd_imm(body_index, 1);
+    fb.ins().brif(
+        set_failed,
+        set_fail_block,
+        &[ir::BlockArg::Value(body_tuple)],
+        loop_block,
+        &[ir::BlockArg::Value(next_index), ir::BlockArg::Value(body_tuple)],
+    );
+
+    fb.switch_to_block(set_fail_block);
+    let failed_tuple = fb.block_params(set_fail_block)[0];
+    fb.ins().call(ctx.decref_ref, &[failed_tuple]);
+    fb.ins().jump(ctx.consts.step_null_block, &step_null_block_args(ctx));
+
+    fb.switch_to_block(done_block);
+    Some(fb.block_params(done_block)[0])
 }
 
 fn emit_truthy_from_owned(

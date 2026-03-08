@@ -1,10 +1,9 @@
 use cranelift_jit::JITBuilder;
 use libc;
 use pyo3::ffi;
-use std::collections::HashMap;
 use std::ffi::c_void;
 use std::ptr;
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 
 pub type ObjPtr = *mut c_void;
 pub type IncrefFn = unsafe extern "C" fn(ObjPtr);
@@ -79,16 +78,6 @@ static mut DP_JIT_TUPLE_SET_ITEM_FN: Option<TupleSetItemFn> = None;
 static mut DP_JIT_IS_TRUE_FN: Option<IsTrueFn> = None;
 static mut DP_JIT_RAISE_FROM_EXC_FN: Option<RaiseFromExcFn> = None;
 
-fn track_load_name_temps_enabled() -> bool {
-    static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(|| std::env::var_os("DIET_PYTHON_TRACK_LOAD_NAME_TEMPS").is_some())
-}
-
-fn tracked_load_name_temps() -> &'static Mutex<HashMap<usize, String>> {
-    static TRACKED: OnceLock<Mutex<HashMap<usize, String>>> = OnceLock::new();
-    TRACKED.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
 pub unsafe fn install_specialized_hooks(hooks: &SpecializedJitHooks) {
     DP_JIT_INCREF_FN = Some(hooks.incref);
     DP_JIT_DECREF_FN = Some(hooks.decref);
@@ -122,16 +111,6 @@ unsafe extern "C" fn jit_incref_hook(obj: ObjPtr) {
 
 unsafe extern "C" fn jit_decref_hook(obj: ObjPtr) {
     if !obj.is_null() {
-        if track_load_name_temps_enabled() {
-            if let Ok(guard) = tracked_load_name_temps().lock() {
-                if let Some(name) = guard.get(&(obj as usize)) {
-                    eprintln!(
-                        "dp_jit_decref on tracked load_name temp ptr={:#x} name={}",
-                        obj as usize, name
-                    );
-                }
-            }
-        }
         ffi::Py_DECREF(obj as *mut ffi::PyObject);
     }
 }
@@ -217,16 +196,6 @@ unsafe extern "C" fn load_name_hook(
     if name_obj.is_null() {
         return ptr::null_mut();
     }
-    let tracked_name = if track_load_name_temps_enabled() {
-        let name_bytes = std::slice::from_raw_parts(name_ptr, name_len as usize);
-        let name = String::from_utf8_lossy(name_bytes).into_owned();
-        if let Ok(mut guard) = tracked_load_name_temps().lock() {
-            guard.insert(name_obj as usize, name.clone());
-        }
-        Some(name)
-    } else {
-        None
-    };
     ffi::Py_INCREF(globals_obj as *mut ffi::PyObject);
     let builtins_dict = ffi::PyEval_GetBuiltins();
     if builtins_dict.is_null() {
@@ -258,21 +227,6 @@ unsafe extern "C" fn load_name_hook(
         name_obj,
         ptr::null_mut::<ffi::PyObject>(),
     );
-    if let Some(name) = tracked_name.as_ref() {
-        eprintln!(
-            "dp_jit_load_name temp ptr={:#x} name={} result={:#x}",
-            name_obj as usize,
-            name,
-            result as usize
-        );
-        if result == name_obj {
-            eprintln!(
-                "dp_jit_load_name returned tracked temp directly ptr={:#x} name={}",
-                name_obj as usize,
-                name
-            );
-        }
-    }
     ffi::Py_DECREF(load_global);
     ffi::Py_DECREF(globals_obj as *mut ffi::PyObject);
     ffi::Py_DECREF(name_obj);
