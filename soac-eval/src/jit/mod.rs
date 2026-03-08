@@ -57,6 +57,7 @@ impl CacheKvStore for GlobalIncrementalCacheStore<'_> {
 pub struct RenderedSpecializedClif {
     pub clif: String,
     pub cfg_dot: String,
+    pub vcode_disasm: String,
 }
 
 struct CompiledSpecializedRunner {
@@ -4700,13 +4701,47 @@ pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
         out.push('\n');
     }
     out.push('\n');
-    let rendered_clif = ctx.func.display().to_string();
-    out.push_str(&rewrite_import_fn_aliases(
-        rendered_clif.as_str(),
-        &import_id_to_symbol,
-    ));
+    let (compiled_clif, cfg_dot, vcode_disasm) =
+        render_compiled_clif_and_vcode_disasm(&mut jit_module, ctx, &import_id_to_symbol)?;
+    out.push_str(&compiled_clif);
+    Ok(RenderedSpecializedClif {
+        clif: out,
+        cfg_dot,
+        vcode_disasm,
+    })
+}
+
+fn render_compiled_clif_and_vcode_disasm(
+    jit_module: &mut JITModule,
+    mut ctx: cranelift_codegen::Context,
+    import_id_to_symbol: &HashMap<u32, &'static str>,
+) -> Result<(String, String, String), String> {
+    let mut ctrl_plane = ControlPlane::default();
+    ctx.optimize(jit_module.isa(), &mut ctrl_plane)
+        .map_err(|err| format!("failed to optimize specialized jit run_bb function: {err:?}"))?;
+
     let cfg_dot = CFGPrinter::new(&ctx.func).to_string();
-    Ok(RenderedSpecializedClif { clif: out, cfg_dot })
+
+    let mut clif = String::new();
+    clif.push_str("; ---- post-opt CLIF fed to Cranelift backend ----\n");
+    clif.push_str(&rewrite_import_fn_aliases(
+        ctx.func.display().to_string().as_str(),
+        import_id_to_symbol,
+    ));
+
+    let compiled = jit_module
+        .isa()
+        .compile_function(&ctx.func, &ctx.domtree, true, &mut ctrl_plane)
+        .map_err(|err| format!("failed to compile specialized jit run_bb function: {err:?}"))?;
+
+    let mut vcode_disasm = String::new();
+    vcode_disasm.push_str("; ---- emitted VCode disassembly ----\n");
+    match compiled.vcode {
+        Some(disasm) if !disasm.trim().is_empty() => vcode_disasm.push_str(&disasm),
+        _ => vcode_disasm.push_str("; emitted disassembly unavailable for this backend\n"),
+    }
+
+    Ok((clif, cfg_dot, vcode_disasm))
 }
 
 pub unsafe fn compile_cranelift_run_bb_specialized_cached(
@@ -5036,7 +5071,7 @@ mod tests {
             block_exc_dispatches: vec![None],
             block_fast_paths: vec![BlockFastPath::ReturnNone],
         };
-        let clif = unsafe {
+        let rendered = unsafe {
             render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
                 &plan,
@@ -5046,8 +5081,8 @@ mod tests {
                 14usize as ObjPtr,
             )
         }
-        .expect("specialized JIT CLIF render should succeed")
-        .clif;
+        .expect("specialized JIT CLIF render should succeed");
+        let clif = rendered.clif.as_str();
         assert!(
             !clif.contains("call PyObject_CallObject"),
             "fast-path ret-none should avoid block function calls:\n{clif}"
@@ -5055,6 +5090,10 @@ mod tests {
         assert!(
             !clif.contains("call PyObject_CallFunctionObjArgs"),
             "fast-path ret-none should avoid helper Python calls:\n{clif}"
+        );
+        assert!(
+            !rendered.vcode_disasm.trim().is_empty(),
+            "rendered JIT disassembly should not be empty"
         );
     }
 

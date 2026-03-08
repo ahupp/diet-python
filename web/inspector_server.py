@@ -40,7 +40,9 @@ def _load_module_from_source(source: str):
         ) as tmp:
             tmp.write(source)
             tmp_path = tmp.name
-        transformed_source = DIET_PYTHON.transform_source(source, True)
+        transformed_source = DIET_PYTHON.transform_source_with_name(
+            source, module_name, True
+        )
         module = types.ModuleType(module_name)
         module.__file__ = tmp_path
         module.__name__ = module_name
@@ -107,7 +109,13 @@ def _render_clif(source: str, entry_label: str | None):
         raise RuntimeError("jit_render_bb_with_cfg_plan() returned non-dict payload")
     clif = rendered.get("clif", "")
     cfg_dot = rendered.get("cfg_dot")
-    return {"clif": clif, "cfgDot": cfg_dot, "resolved_entry": resolved}
+    vcode_disasm = rendered.get("vcode_disasm", "")
+    return {
+        "clif": clif,
+        "cfgDot": cfg_dot,
+        "vcodeDisasm": vcode_disasm,
+        "resolved_entry": resolved,
+    }
 
 
 class InspectorHandler(SimpleHTTPRequestHandler):

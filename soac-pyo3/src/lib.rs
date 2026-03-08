@@ -84,10 +84,12 @@ fn jit_render_bb_with_cfg_plan(
     module_name: &str,
     qualname: &str,
 ) -> PyResult<Py<PyDict>> {
-    let (clif, cfg_dot) = eval::jit_render_bb_with_cfg_plan_impl(py, module_name, qualname)?;
+    let (clif, cfg_dot, vcode_disasm) =
+        eval::jit_render_bb_with_cfg_plan_impl(py, module_name, qualname)?;
     let payload = PyDict::new(py);
     payload.set_item("clif", clif)?;
     payload.set_item("cfg_dot", cfg_dot)?;
+    payload.set_item("vcode_disasm", vcode_disasm)?;
     Ok(payload.unbind())
 }
 

@@ -192,11 +192,13 @@ fn bb_function_kind_to_json(kind: &bb_ir::BbFunctionKind) -> Value {
     match kind {
         bb_ir::BbFunctionKind::Function => json!({"kind": "function"}),
         bb_ir::BbFunctionKind::Generator {
+            closure_state,
             resume_label,
             target_labels,
             resume_pcs,
         } => json!({
             "kind": "generator",
+            "closureState": closure_state,
             "resumeLabel": resume_label,
             "targetLabels": target_labels,
             "resumePcs": resume_pcs,

@@ -111,7 +111,7 @@ pub(crate) fn jit_render_bb_with_cfg_plan_impl(
     py: Python<'_>,
     module_name: &str,
     qualname: &str,
-) -> PyResult<(String, String)> {
+) -> PyResult<(String, String, String)> {
     let resolved = resolve_specialized_jit_blocks_by_key(py, module_name, qualname)?;
     let empty_tuple_obj = PyTuple::empty(py);
     PyModule::import(py, "__dp__")?;
@@ -126,7 +126,7 @@ pub(crate) fn jit_render_bb_with_cfg_plan_impl(
             deleted_obj.as_ptr() as *mut c_void,
             empty_tuple_obj.as_ptr() as *mut c_void,
         )
-        .map(|rendered| (rendered.clif, rendered.cfg_dot))
+        .map(|rendered| (rendered.clif, rendered.cfg_dot, rendered.vcode_disasm))
         .map_err(PyRuntimeError::new_err)
     }
 }

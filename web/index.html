@@ -297,9 +297,16 @@ select {
 
     <section class="panel">
       <div class="panel-head">
-        <div class="panel-title">Generated CLIF</div>
+        <div class="panel-title">Compiled CLIF (post-opt)</div>
       </div>
       <pre id="clifRaw"></pre>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-title">Emitted VCode Disasm</div>
+      </div>
+      <pre id="vcodeRaw"></pre>
     </section>
 
     <section class="panel graphviz-panel">
@@ -334,6 +341,7 @@ import { instance as createVizInstance } from "https://cdn.jsdelivr.net/npm/@viz
 const sourceEl = document.getElementById("source");
 const phase1El = document.getElementById("phase1");
 const clifRawEl = document.getElementById("clifRaw");
+const vcodeRawEl = document.getElementById("vcodeRaw");
 const pickerEl = document.getElementById("functionPicker");
 const statusEl = document.getElementById("status");
 const treeEl = document.getElementById("tree");
@@ -837,6 +845,7 @@ async function refreshClifPanel(source, fallbackClif) {
     }
     const clifText = payload.clif || fallbackClif || "";
     clifRawEl.textContent = clifText;
+    vcodeRawEl.textContent = payload.vcodeDisasm || "";
     const rawCfgDot = typeof payload.cfgDot === "string" ? payload.cfgDot : "";
     state.clifCfgByEntry[entryLabel] =
       rawCfgDot ? mergeCfgDotWithBlockBodies(rawCfgDot, clifText) : "";
@@ -846,6 +855,7 @@ async function refreshClifPanel(source, fallbackClif) {
       return;
     }
     clifRawEl.textContent = fallbackClif || "";
+    vcodeRawEl.textContent = "";
     state.clifCfgByEntry[entryLabel] = "";
     renderGraphviz(selectedFunctionRecord());
   }
@@ -871,6 +881,7 @@ function inspectNow() {
     state.clifCfgByEntry = {};
     phase1El.textContent = "";
     clifRawEl.textContent = "";
+    vcodeRawEl.textContent = "";
     pickerEl.innerHTML = "";
     treeEl.innerHTML = `<div class="placeholder">Enter Python source to inspect the BB pipeline.</div>`;
     linksEl.innerHTML = "";
@@ -887,6 +898,7 @@ function inspectNow() {
 
     phase1El.textContent = payload.phase1 || "";
     clifRawEl.textContent = payload.clif || "";
+    vcodeRawEl.textContent = "";
 
     const functions = payload.bbModule?.functions || [];
     refreshFunctionPicker(functions);
@@ -900,6 +912,7 @@ function inspectNow() {
     state.clifCfgByEntry = {};
     phase1El.textContent = "";
     clifRawEl.textContent = "";
+    vcodeRawEl.textContent = "";
     pickerEl.innerHTML = "";
     treeEl.innerHTML = `<div class="placeholder">${String(error)}</div>`;
     linksEl.innerHTML = "";

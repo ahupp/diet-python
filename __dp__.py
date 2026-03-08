@@ -1644,10 +1644,15 @@ def _bb_wrap_with_closure(entry, closure_values):
     if getattr(entry, "__closure__", None):
         return entry
     captured_names = tuple(closure_values.keys())
-    captured_values_list = []
-    for name in captured_names:
-        captured_values_list.append(closure_values[name])
-    captured_values = tuple(captured_values_list)
+    captured_values = tuple(closure_values[name] for name in captured_names)
+    return _bb_wrap_with_named_closure(entry, captured_names, captured_values)
+
+
+def _bb_wrap_with_named_closure(entry, captured_names, captured_values):
+    if not captured_names:
+        return entry
+    if getattr(entry, "__closure__", None):
+        return entry
 
     assign_lines = []
     for idx, name in enumerate(captured_names):
@@ -1950,6 +1955,93 @@ def _bb_make_resume_entry(
                 else _BIND_KIND_GENERATOR_RESUME
             )
         ),
+    )
+    return entry
+
+
+def def_hidden_resume_fn(
+    entry_bb,
+    name,
+    qualname,
+    state_order,
+    closure_names,
+    closure_values,
+    module_globals=None,
+    module_name=None,
+    *,
+    async_gen=False,
+):
+    _bb_validate_entry_ref(entry_bb)
+    if not isinstance(entry_bb, str):
+        raise TypeError(
+            f"generator resume entry must be a BB string reference, got {type(entry_bb)!r}"
+        )
+    if not isinstance(state_order, tuple):
+        raise TypeError(
+            f"generator resume state_order must be a tuple, got {type(state_order)!r}"
+        )
+    if not isinstance(closure_names, tuple):
+        raise TypeError(
+            f"generator resume closure_names must be a tuple, got {type(closure_names)!r}"
+        )
+    if not isinstance(closure_values, tuple):
+        raise TypeError(
+            f"generator resume closure_values must be a tuple, got {type(closure_values)!r}"
+        )
+    if len(closure_names) != len(closure_values):
+        raise RuntimeError(
+            "generator resume closure metadata length mismatch: "
+            f"{len(closure_names)} names vs {len(closure_values)} values"
+        )
+
+    plan_qualname = _bb_plan_lookup_qualname(qualname, entry_bb)
+    if not (
+        jit_bb_plan_enabled()
+        and isinstance(module_name, str)
+        and isinstance(plan_qualname, str)
+        and _jit_has_bb_plan is not None
+        and _jit_has_bb_plan(module_name, plan_qualname)
+    ):
+        kind = "async generator" if async_gen else "generator"
+        raise RuntimeError(
+            f"JIT basic-block {kind} resume requires a registered plan, "
+            f"but none is available for {module_name}.{plan_qualname}"
+        )
+
+    hidden_name = (
+        f"_dp_resume_{name}" if isinstance(name, str) and name.isidentifier() else "_dp_resume"
+    )
+    closure_map = dict(zip(closure_names, closure_values))
+    entry = _bb_make_lazy_clif_entry(
+        async_entry=False,
+        function_name=hidden_name,
+        module_globals=module_globals,
+    )
+    entry = _bb_wrap_with_named_closure(entry, closure_names, closure_values)
+    entry = _bb_rebind_function_globals(entry, module_globals)
+    if module_name is not None:
+        entry.__module__ = module_name
+        _bb_set_plan_metadata(
+            entry, module_name, plan_qualname, module_globals, entry_ref=entry_bb
+        )
+    _bb_enable_lazy_clif_vectorcall(
+        entry,
+        module_name,
+        plan_qualname,
+        state_order,
+        (
+            (
+                ("/_dp_self", None, NO_DEFAULT),
+                ("/_dp_send_value", None, NO_DEFAULT),
+                ("/_dp_resume_exc", None, NO_DEFAULT),
+                *((("/_dp_transport_sent", None, NO_DEFAULT),) if async_gen else ()),
+            )
+        ),
+        closure_map,
+        None,
+        DELETED,
+        NO_DEFAULT,
+        _BIND_KIND_FUNCTION,
     )
     return entry
 

@@ -3247,7 +3247,6 @@ fn closure_backed_generator_factory_block(
     is_coroutine: bool,
     is_async_generator: bool,
 ) -> BbBlock {
-    let resume_closure_name = "_dp_resume_closure";
     let hidden_name = "_dp_resume".to_string();
     let hidden_qualname = qualname.to_string();
     let mut ops = Vec::new();
@@ -3268,48 +3267,52 @@ fn closure_backed_generator_factory_block(
         );
     }
 
-    ops.push(
-        BbOp::from_stmt(py_stmt!(
-            "{name:id} = {items:expr}",
-            name = resume_closure_name,
-            items = make_dp_tuple(
-                resume_state_order
-                    .iter()
-                    .map(|state_name| {
-                        if matches!(
-                            state_name.as_str(),
-                            "_dp_self"
-                                | "_dp_send_value"
-                                | "_dp_resume_exc"
-                                | "_dp_transport_sent"
-                        ) {
-                            py_expr!("{value:literal}", value = state_name.as_str())
-                        } else {
-                            let value = name_expr(state_name.as_str()).unwrap_or_else(|| {
-                                panic!(
-                                    "missing closure-backed generator factory binding for {state_name}"
-                                )
-                            });
-                            make_dp_tuple(vec![
-                                py_expr!("{value:literal}", value = state_name.as_str()),
-                                value,
-                            ])
-                        }
-                    })
-                    .collect(),
-            ),
-        ))
-        .expect("failed to lower generator factory closure tuple init"),
+    let closure_names: Vec<String> = resume_state_order
+        .iter()
+        .filter(|state_name| {
+            !matches!(
+                state_name.as_str(),
+                "_dp_self" | "_dp_send_value" | "_dp_resume_exc" | "_dp_transport_sent"
+            )
+        })
+        .cloned()
+        .collect();
+    let closure_values = make_dp_tuple(
+        closure_names
+            .iter()
+            .map(|state_name| {
+                name_expr(state_name.as_str()).unwrap_or_else(|| {
+                    panic!(
+                        "missing closure-backed generator factory binding for {state_name}"
+                    )
+                })
+            })
+            .collect(),
     );
 
     let resume_entry = py_expr!(
-        "__dp_def_fn({resume:literal}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __dp_globals(), __name__, None, None)",
+        "__dp_def_hidden_resume_fn({resume:literal}, {name:literal}, {qualname:literal}, {state_order:expr}, {closure_names:expr}, {closure_values:expr}, __dp_globals(), __name__, async_gen={async_gen:expr})",
         resume = resume_label,
         name = hidden_name.as_str(),
         qualname = hidden_qualname.as_str(),
-        closure = name_expr(resume_closure_name)
-            .unwrap_or_else(|| panic!("missing resume closure tuple binding")),
-        params = closure_backed_generator_resume_param_specs_expr(is_async_generator),
+        state_order = make_dp_tuple(
+            resume_state_order
+                .iter()
+                .map(|state_name| py_expr!("{value:literal}", value = state_name.as_str()))
+                .collect(),
+        ),
+        closure_names = make_dp_tuple(
+            closure_names
+                .iter()
+                .map(|state_name| py_expr!("{value:literal}", value = state_name.as_str()))
+                .collect(),
+        ),
+        closure_values = closure_values,
+        async_gen = if is_async_generator {
+            py_expr!("True")
+        } else {
+            py_expr!("False")
+        },
     );
 
     let generator_expr = if is_async_generator {
