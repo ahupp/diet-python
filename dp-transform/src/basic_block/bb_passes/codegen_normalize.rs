@@ -1,9 +1,10 @@
 use crate::basic_block::bb_ir;
-use crate::basic_block::codegen_trace::{instrument_bb_module_for_trace, parse_bb_trace_env};
 use crate::py_expr;
 use crate::transformer::{walk_expr, Transformer};
 use ruff_python_ast::{self as ast, Expr, ExprContext};
 use ruff_python_parser::parse_expression;
+
+use super::codegen_trace::{instrument_bb_module_for_trace, parse_bb_trace_env};
 
 pub fn normalize_bb_module_for_codegen(module: &bb_ir::BbModule) -> bb_ir::BbModule {
     let mut normalized = module.clone();

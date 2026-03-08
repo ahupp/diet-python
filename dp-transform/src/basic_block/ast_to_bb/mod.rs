@@ -25,7 +25,6 @@ mod bound_names;
 mod dataflow;
 mod deleted_names;
 mod exception_flow;
-mod exception_pass;
 mod generator_closure;
 mod lowering_helpers;
 mod metadata;
@@ -52,7 +51,6 @@ use exception_flow::{
     compute_exception_edge_by_label, contains_return_stmt_in_body,
     contains_return_stmt_in_handlers, rewrite_region_returns_to_finally,
 };
-pub use exception_pass::lower_try_jump_exception_flow;
 use generator_closure::{
     build_generator_closure_layout, closure_backed_generator_resume_state_order,
 };

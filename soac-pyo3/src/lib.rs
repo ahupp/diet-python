@@ -1,6 +1,5 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use dp_transform::basic_block::normalize_bb_module_for_codegen;
 use dp_transform::{Options, transform_str_to_ruff_with_options};
 use log::{info, trace};
 use pyo3::exceptions::PyRuntimeError;
@@ -38,7 +37,7 @@ fn transform_source_with_name(
     trace!("transform_source_with_name({module_name}): {}", preview);
     let output = lower_source(source, ensure)?;
     if let Some(bb_module) = output.bb_module.as_ref() {
-        let normalized = normalize_bb_module_for_codegen(bb_module);
+        let normalized = dp_transform::basic_block::prepare_bb_module_for_codegen(bb_module);
         soac_eval::jit::register_clif_module_plans(module_name, &normalized).map_err(|err| {
             pyo3::exceptions::PyRuntimeError::new_err(format!(
                 "failed to register BB plans for {module_name}: {err}"

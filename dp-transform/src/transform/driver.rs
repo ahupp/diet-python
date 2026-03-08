@@ -79,7 +79,7 @@ pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> RewriteModule
     lower_string_literals_to_bytes(module);
 
     let bb_module = if context.options.emit_basic_blocks {
-        let bb_module = basic_block::rewrite_with_function_identity_and_collect_ir(
+        let bb_module = basic_block::rewrite_ast_to_bb_module(
             context,
             module,
             bb_function_identity,
