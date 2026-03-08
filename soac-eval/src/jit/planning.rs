@@ -1,5 +1,4 @@
 use dp_transform::basic_block::bb_ir::{BbBlock, BbExpr, BbModule, BbOp, BbTerm};
-use dp_transform::basic_block::lower_try_jump_exception_flow;
 use ruff_python_ast::Number;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -816,7 +815,7 @@ fn build_clif_plan(
 }
 
 pub fn register_clif_module_plans(module_name: &str, module: &BbModule) -> Result<(), String> {
-    let lowered = lower_try_jump_exception_flow(module)?;
+    let lowered = dp_transform::basic_block::prepare_bb_module_for_jit(module)?;
     let debug_skips = std::env::var_os("DIET_PYTHON_DEBUG_JIT_PLAN_SKIPS").is_some();
     let mut plans = HashMap::new();
     let mut skipped_errors: HashMap<String, String> = HashMap::new();
