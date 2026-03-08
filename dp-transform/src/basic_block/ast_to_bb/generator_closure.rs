@@ -26,6 +26,7 @@ fn logical_name_for_generator_state(name: &str) -> String {
 fn runtime_init(name: &str) -> Option<BbGeneratorClosureInit> {
     match name {
         "_dp_pc" => Some(BbGeneratorClosureInit::RuntimePcZero),
+        "_dp_yieldfrom" => Some(BbGeneratorClosureInit::RuntimeNone),
         _ => None,
     }
 }

@@ -974,6 +974,9 @@ impl BasicBlockRewriter<'_> {
             if !state_vars.iter().any(|existing| existing == "_dp_pc") {
                 state_vars.push("_dp_pc".to_string());
             }
+            if !state_vars.iter().any(|existing| existing == "_dp_yieldfrom") {
+                state_vars.push("_dp_yieldfrom".to_string());
+            }
         }
         let mut extra_successors = build_extra_successors(&blocks);
         for (source, (target, _)) in &exception_edges {
@@ -2266,7 +2269,7 @@ impl BasicBlockRewriter<'_> {
                     iter_expr = value,
                 ),
                 py_stmt!(
-                    "__dp_setattr(_dp_self, \"gi_yieldfrom\", {iter_name:id})",
+                    "__dp_store_local(_dp_self, \"_dp_yieldfrom\", {iter_name:id})",
                     iter_name = iter_name.as_str(),
                 ),
             ],
@@ -2289,7 +2292,7 @@ impl BasicBlockRewriter<'_> {
         blocks.push(Block {
             label: next_body_label.clone(),
             body: vec![py_stmt!(
-                "{yielded:id} = next(__dp_getattr(_dp_self, \"gi_yieldfrom\"))",
+                "{yielded:id} = next(__dp_load_local(_dp_self, \"_dp_yieldfrom\"))",
                 yielded = yielded_name.as_str(),
             )],
             terminator: Terminator::Jump(yield_label.clone()),
@@ -2321,7 +2324,7 @@ impl BasicBlockRewriter<'_> {
         });
         blocks.push(Block {
             label: clear_done_label,
-            body: vec![py_stmt!("__dp_setattr(_dp_self, \"gi_yieldfrom\", None)")],
+            body: vec![py_stmt!("__dp_store_local(_dp_self, \"_dp_yieldfrom\", None)")],
             terminator: Terminator::Jump(after_label),
         });
         blocks.push(Block {
@@ -2377,7 +2380,7 @@ impl BasicBlockRewriter<'_> {
         blocks.push(Block {
             label: genexit_close_lookup_label,
             body: vec![py_stmt!(
-                "{close:id} = getattr(__dp_getattr(_dp_self, \"gi_yieldfrom\"), \"close\", None)",
+                "{close:id} = getattr(__dp_load_local_raw(_dp_self, \"_dp_yieldfrom\"), \"close\", None)",
                 close = close_name.as_str(),
             )],
             terminator: Terminator::BrIf {
@@ -2402,13 +2405,13 @@ impl BasicBlockRewriter<'_> {
         });
         blocks.push(Block {
             label: clear_raise_label,
-            body: vec![py_stmt!("__dp_setattr(_dp_self, \"gi_yieldfrom\", None)")],
+            body: vec![py_stmt!("__dp_store_local(_dp_self, \"_dp_yieldfrom\", None)")],
             terminator: Terminator::Raise(raise_stmt_from_name(raise_name.as_str())),
         });
         blocks.push(Block {
             label: lookup_throw_label,
             body: vec![py_stmt!(
-                "{throw:id} = getattr(__dp_getattr(_dp_self, \"gi_yieldfrom\"), \"throw\", None)",
+                "{throw:id} = getattr(__dp_load_local_raw(_dp_self, \"_dp_yieldfrom\"), \"throw\", None)",
                 throw = throw_name.as_str(),
             )],
             terminator: Terminator::BrIf {
@@ -2481,7 +2484,7 @@ impl BasicBlockRewriter<'_> {
         blocks.push(Block {
             label: send_call_body_label,
             body: vec![py_stmt!(
-                "{yielded:id} = __dp_getattr(_dp_self, \"gi_yieldfrom\").send({sent:id})",
+                "{yielded:id} = __dp_load_local(_dp_self, \"_dp_yieldfrom\").send({sent:id})",
                 yielded = yielded_name.as_str(),
                 sent = sent_name.as_str(),
             )],
@@ -3062,6 +3065,7 @@ fn closure_backed_generator_init_expr(
         }
         crate::basic_block::bb_ir::BbGeneratorClosureInit::DeletedSentinel => py_expr!("__dp_DELETED"),
         crate::basic_block::bb_ir::BbGeneratorClosureInit::RuntimePcZero => py_expr!("0"),
+        crate::basic_block::bb_ir::BbGeneratorClosureInit::RuntimeNone => py_expr!("None"),
         crate::basic_block::bb_ir::BbGeneratorClosureInit::Deferred => py_expr!("None"),
     }
 }

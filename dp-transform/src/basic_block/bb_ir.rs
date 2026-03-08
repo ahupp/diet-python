@@ -73,6 +73,7 @@ pub enum BbGeneratorClosureInit {
     Parameter,
     DeletedSentinel,
     RuntimePcZero,
+    RuntimeNone,
     Deferred,
 }
 

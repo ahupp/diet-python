@@ -57,6 +57,7 @@ enum GeneratorClosureInit {
     Parameter,
     DeletedSentinel,
     RuntimePcZero,
+    RuntimeNone,
     Deferred,
 }
 
@@ -358,6 +359,7 @@ unsafe fn parse_generator_closure_layout(
                 "Parameter" => GeneratorClosureInit::Parameter,
                 "DeletedSentinel" => GeneratorClosureInit::DeletedSentinel,
                 "RuntimePcZero" => GeneratorClosureInit::RuntimePcZero,
+                "RuntimeNone" => GeneratorClosureInit::RuntimeNone,
                 "Deferred" => GeneratorClosureInit::Deferred,
                 _ => {
                     return set_type_error("invalid generator closure init kind");
@@ -1061,6 +1063,18 @@ unsafe fn build_resume_closure_from_state_tuple(
                 }
                 let cell = PyCell_New(zero);
                 ffi::Py_DECREF(zero);
+                if cell.is_null() {
+                    ffi::Py_DECREF(resume_closure);
+                    return ptr::null_mut();
+                }
+                decref_value = true;
+                cell
+            }
+            GeneratorClosureInit::RuntimeNone => {
+                let none = ffi::Py_None();
+                ffi::Py_INCREF(none);
+                let cell = PyCell_New(none);
+                ffi::Py_DECREF(none);
                 if cell.is_null() {
                     ffi::Py_DECREF(resume_closure);
                     return ptr::null_mut();

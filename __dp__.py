@@ -362,6 +362,13 @@ def _resume_closure_contents(cell):
     return value
 
 
+def _current_yieldfrom(owner):
+    value = __dp_load_local_raw(owner, "_dp_yieldfrom")
+    if value is DELETED:
+        return None
+    return value
+
+
 def __dp_load_local(gen, name):
     frame = _resolve_local_frame(gen)
     if isinstance(frame, dict):
@@ -508,12 +515,12 @@ async def _dp_resume_async_generator(gen, value, resume_exc, transport_sent):
         # async generators), resume values/exceptions come from the awaiter
         # transport channel rather than user-level `asend(...)`.
         step_send_value = (
-            pending_transport if getattr(gen, "gi_yieldfrom", None) is not None else send_value
+            pending_transport if _current_yieldfrom(gen) is not None else send_value
         )
         result = gen._dp_resume(
             gen, step_send_value, pending_exc, pending_transport
         )
-        if getattr(gen, "gi_yieldfrom", None) is None:
+        if _current_yieldfrom(gen) is None:
             return result
         try:
             pending_transport = await _AsyncGenTransportStep(result)
@@ -541,7 +548,6 @@ class _DpGenerator:
         "__name__",
         "__qualname__",
         "gi_frame",
-        "gi_yieldfrom",
         "gi_code",
     )
 
@@ -558,7 +564,6 @@ class _DpGenerator:
         self._dp_resume = resume
         self._pc = pc
         self.gi_frame = gi_frame
-        self.gi_yieldfrom = None
         self.__name__ = name
         self.__qualname__ = qualname
         self.gi_code = code
@@ -588,13 +593,16 @@ class _DpGenerator:
             return None
         raise RuntimeError("generator ignored GeneratorExit")
 
+    @property
+    def gi_yieldfrom(self):
+        return _current_yieldfrom(self)
+
 
 class _DpClosureGenerator:
     __slots__ = (
         "_dp_resume",
         "__name__",
         "__qualname__",
-        "gi_yieldfrom",
         "gi_code",
     )
 
@@ -607,7 +615,6 @@ class _DpClosureGenerator:
         code,
     ):
         self._dp_resume = resume
-        self.gi_yieldfrom = None
         self.__name__ = name
         self.__qualname__ = qualname
         self.gi_code = code
@@ -636,6 +643,10 @@ class _DpClosureGenerator:
         except (GeneratorExit, StopIteration):
             return None
         raise RuntimeError("generator ignored GeneratorExit")
+
+    @property
+    def gi_yieldfrom(self):
+        return _current_yieldfrom(self)
 
 
 class _DpCoroutine(_abc.Coroutine):
@@ -691,7 +702,6 @@ class _DpAsyncGenerator:
         "__name__",
         "__qualname__",
         "gi_frame",
-        "gi_yieldfrom",
         "ag_code",
     )
 
@@ -711,7 +721,6 @@ class _DpAsyncGenerator:
         self.__name__ = name
         self.__qualname__ = qualname
         self.gi_frame = gi_frame
-        self.gi_yieldfrom = None
         self.ag_code = code
 
     def __aiter__(self):
@@ -726,8 +735,12 @@ class _DpAsyncGenerator:
         if name == "ag_frame":
             return self.gi_frame
         if name == "ag_await":
-            return None
+            return self.gi_yieldfrom
         raise AttributeError(name)
+
+    @property
+    def gi_yieldfrom(self):
+        return _current_yieldfrom(self)
 
     def asend(self, value):
         return _DpAsyncGenSend(self, value)
@@ -755,7 +768,6 @@ class _DpClosureAsyncGenerator:
         "_dp_transport_sent",
         "__name__",
         "__qualname__",
-        "gi_yieldfrom",
         "ag_code",
     )
 
@@ -771,7 +783,6 @@ class _DpClosureAsyncGenerator:
         self._dp_transport_sent = None
         self.__name__ = name
         self.__qualname__ = qualname
-        self.gi_yieldfrom = None
         self.ag_code = code
 
     def __aiter__(self):
@@ -786,8 +797,12 @@ class _DpClosureAsyncGenerator:
         if name == "ag_frame":
             return None
         if name == "ag_await":
-            return None
+            return self.gi_yieldfrom
         raise AttributeError(name)
+
+    @property
+    def gi_yieldfrom(self):
+        return _current_yieldfrom(self)
 
     def asend(self, value):
         return _DpAsyncGenSend(self, value)
