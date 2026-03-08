@@ -1,6 +1,6 @@
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyTuple};
+use pyo3::types::{PyBool, PyModule, PyTuple};
 use std::ffi::c_void;
 
 struct ResolvedSpecializedJitBlocks {
@@ -114,12 +114,16 @@ pub(crate) fn jit_render_bb_with_cfg_plan_impl(
 ) -> PyResult<(String, String)> {
     let resolved = resolve_specialized_jit_blocks_by_key(py, module_name, qualname)?;
     let empty_tuple_obj = PyTuple::empty(py);
+    PyModule::import(py, "__dp__")?;
+    let builtins = PyModule::import(py, "builtins")?;
+    let deleted_obj = builtins.getattr("__dp_DELETED")?;
     unsafe {
         soac_eval::jit::render_cranelift_run_bb_specialized_with_cfg(
             resolved.block_ptrs.as_slice(),
             &resolved.plan,
             resolved.true_obj,
             resolved.false_obj,
+            deleted_obj.as_ptr() as *mut c_void,
             empty_tuple_obj.as_ptr() as *mut c_void,
         )
         .map(|rendered| (rendered.clif, rendered.cfg_dot))

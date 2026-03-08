@@ -104,6 +104,7 @@ struct ClifFunctionData {
     binding: BindingMetadata,
     closure_layout: Option<GeneratorClosureLayout>,
     materialize_entry_obj: *mut ffi::PyObject,
+    ambient_args_obj: *mut ffi::PyObject,
     compiled_handle: *mut c_void,
     compiled_vectorcall_handle: *mut c_void,
     compiled_vectorcall_entry: Option<jit::VectorcallEntryFn>,
@@ -146,6 +147,9 @@ unsafe fn free_clif_function_data(ptr: *mut c_void) {
     unsafe { free_binding_metadata(data.binding) };
     if !data.materialize_entry_obj.is_null() {
         unsafe { ffi::Py_DECREF(data.materialize_entry_obj) };
+    }
+    if !data.ambient_args_obj.is_null() {
+        unsafe { ffi::Py_DECREF(data.ambient_args_obj) };
     }
     unsafe { jit::free_cranelift_run_bb_specialized_cached(data.compiled_handle) };
     unsafe { jit::free_cranelift_vectorcall_trampoline(data.compiled_vectorcall_handle) };
@@ -449,6 +453,42 @@ unsafe fn parse_generator_closure_layout(
     Ok(Some(GeneratorClosureLayout { slots }))
 }
 
+unsafe fn build_ambient_args_tuple(
+    plan: &ClifPlan,
+    binding: &BindingMetadata,
+) -> Result<*mut ffi::PyObject, ()> {
+    let result = ffi::PyTuple_New(plan.ambient_param_names.len() as ffi::Py_ssize_t);
+    if result.is_null() {
+        return Err(());
+    }
+    for (index, name) in plan.ambient_param_names.iter().enumerate() {
+        let Some(state_index) = binding.state_index_by_name.get(name).copied() else {
+            ffi::Py_DECREF(result);
+            let msg = format!(
+                "missing ambient closure state {name:?} while registering CLIF vectorcall"
+            );
+            let _ = set_runtime_error::<*mut ffi::PyObject>(&msg);
+            return Err(());
+        };
+        let value = binding.closure_state_values[state_index];
+        if value.is_null() {
+            ffi::Py_DECREF(result);
+            let msg = format!(
+                "ambient closure state {name:?} is unavailable while registering CLIF vectorcall"
+            );
+            let _ = set_runtime_error::<*mut ffi::PyObject>(&msg);
+            return Err(());
+        }
+        ffi::Py_INCREF(value);
+        if ffi::PyTuple_SetItem(result, index as ffi::Py_ssize_t, value) != 0 {
+            ffi::Py_DECREF(value);
+            ffi::Py_DECREF(result);
+            return Err(());
+        }
+    }
+    Ok(result)
+}
+
 unsafe fn make_clif_function_data(
     module_name: &str,
     qualname: &str,
@@ -533,6 +573,15 @@ unsafe fn make_clif_function_data(
             return Err(());
         }
     };
+    let ambient_args_obj = match build_ambient_args_tuple(&plan, &binding) {
+        Ok(value) => value,
+        Err(()) => {
+            ffi::Py_DECREF(true_obj);
+            ffi::Py_DECREF(false_obj);
+            unsafe { free_binding_metadata(binding) };
+            return Err(());
+        }
+    };
 
     let clif_data = Box::new(ClifFunctionData {
         plan,
@@ -549,6 +598,7 @@ unsafe fn make_clif_function_data(
             }
             ptr
         },
+        ambient_args_obj,
         compiled_handle: ptr::null_mut(),
         compiled_vectorcall_handle: ptr::null_mut(),
         compiled_vectorcall_entry: None,
@@ -607,6 +657,7 @@ unsafe fn ensure_clif_vectorcall_compiled(
             data.true_obj as *mut c_void,
             data.false_obj as *mut c_void,
             py.None().as_ptr() as *mut c_void,
+            data.binding.deleted_obj as *mut c_void,
             empty_tuple_obj.as_ptr() as *mut c_void,
         ) {
             Ok(handle) => handle,
@@ -1262,17 +1313,35 @@ unsafe extern "C" fn build_bb_args_from_vectorcall(
 unsafe extern "C" fn run_clif_vectorcall_compiled(
     compiled_handle: *mut c_void,
     bb_args: *mut c_void,
+    data_ptr: *mut c_void,
 ) -> *mut c_void {
+    if ffi::Py_EnterRecursiveCall(b" while calling a Python object\0".as_ptr() as *const i8) != 0
+    {
+        return ptr::null_mut();
+    }
+    struct RecursiveCallGuard;
+    impl Drop for RecursiveCallGuard {
+        fn drop(&mut self) {
+            unsafe { ffi::Py_LeaveRecursiveCall() };
+        }
+    }
+    let _recursive_call_guard = RecursiveCallGuard;
     match panic::catch_unwind(AssertUnwindSafe(|| {
-        if compiled_handle.is_null() || bb_args.is_null() {
+        if compiled_handle.is_null() || bb_args.is_null() || data_ptr.is_null() {
             ffi::PyErr_SetString(
                 ffi::PyExc_RuntimeError,
                 b"invalid CLIF vectorcall compiled input\0".as_ptr() as *const i8,
             );
             return ptr::null_mut();
         }
+        let data = &mut *(data_ptr as *mut ClifFunctionData);
         let hooks = jit::default_specialized_hooks();
-        match jit::run_cranelift_run_bb_specialized_cached(compiled_handle, bb_args, &hooks) {
+        match jit::run_cranelift_run_bb_specialized_cached(
+            compiled_handle,
+            bb_args,
+            data.ambient_args_obj as *mut c_void,
+            &hooks,
+        ) {
             Ok(value) => value,
             Err(err) => {
                 if let Ok(c_msg) = CString::new(err) {

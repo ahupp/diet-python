@@ -39,6 +39,7 @@ pub(super) fn build_generator_closure_layout(
 ) -> BbGeneratorClosureLayout {
     let ordered_state = sync_generator_state_order(state_vars, injected_exception_names);
     let capture_names = capture_names.iter().cloned().collect::<HashSet<_>>();
+    let mut seen_storage_names = HashSet::new();
 
     let mut inherited_captures = Vec::new();
     let mut lifted_locals = Vec::new();
@@ -50,6 +51,9 @@ pub(super) fn build_generator_closure_layout(
         }
         let logical_name = logical_name_for_generator_state(name.as_str());
         let storage_name = generator_storage_name(name.as_str());
+        if !seen_storage_names.insert(storage_name.clone()) {
+            continue;
+        }
         if let Some(init) = runtime_init(logical_name.as_str()) {
             runtime_cells.push(BbGeneratorClosureSlot {
                 logical_name,
@@ -88,4 +92,29 @@ pub(super) fn build_generator_closure_layout(
         lifted_locals,
         runtime_cells,
     }
+}
+
+pub(super) fn closure_backed_generator_resume_state_order(
+    layout: &BbGeneratorClosureLayout,
+    is_async_generator: bool,
+) -> Vec<String> {
+    let mut state_order = vec![
+        "_dp_self".to_string(),
+        "_dp_send_value".to_string(),
+        "_dp_resume_exc".to_string(),
+    ];
+    if is_async_generator {
+        state_order.push("_dp_transport_sent".to_string());
+    }
+    for slot in layout
+        .inherited_captures
+        .iter()
+        .chain(layout.lifted_locals.iter())
+        .chain(layout.runtime_cells.iter())
+    {
+        if !state_order.iter().any(|name| name == &slot.storage_name) {
+            state_order.push(slot.storage_name.clone());
+        }
+    }
+    state_order
 }

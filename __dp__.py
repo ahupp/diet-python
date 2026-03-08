@@ -53,6 +53,7 @@ NO_DEFAULT = object()
 _GEN_PC_DONE = -1
 builtins.__dp_DELETED = DELETED
 builtins.__dp_NO_DEFAULT = NO_DEFAULT
+builtins.__dp_GEN_PC_DONE = _GEN_PC_DONE
 builtins.__dp_Ellipsis = Ellipsis
 builtins.__dp_TRUE = True
 builtins.__dp_FALSE = False

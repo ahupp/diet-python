@@ -62,7 +62,7 @@ pub struct RenderedSpecializedClif {
 struct CompiledSpecializedRunner {
     _jit_module: JITModule,
     _literal_pool: Vec<Box<[u8]>>,
-    entry: Option<extern "C" fn(ObjPtr) -> ObjPtr>,
+    entry: Option<extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr>,
 }
 
 pub type VectorcallEntryFn = unsafe extern "C" fn(ObjPtr, *const ObjPtr, usize, ObjPtr) -> ObjPtr;
@@ -176,6 +176,7 @@ struct DirectSimpleEmitConsts {
     none_const: ir::Value,
     true_const: ir::Value,
     false_const: ir::Value,
+    deleted_const: ir::Value,
     empty_tuple_const: ir::Value,
     block_const: ir::Value,
 }
@@ -193,6 +194,11 @@ struct DirectSimpleEmitCtx {
     pyobject_getitem_ref: ir::FuncRef,
     pyobject_setitem_ref: ir::FuncRef,
     decode_literal_bytes_ref: ir::FuncRef,
+    load_deleted_name_ref: ir::FuncRef,
+    make_cell_ref: ir::FuncRef,
+    load_cell_ref: ir::FuncRef,
+    store_cell_ref: ir::FuncRef,
+    store_cell_if_not_deleted_ref: ir::FuncRef,
     make_bytes_ref: ir::FuncRef,
     make_float_ref: ir::FuncRef,
     py_call_object_ref: ir::FuncRef,
@@ -200,6 +206,40 @@ struct DirectSimpleEmitCtx {
     tuple_new_ref: ir::FuncRef,
     tuple_set_item_ref: ir::FuncRef,
     operator_refs: DirectSimpleOperatorRefs,
+    ambient_names: Vec<String>,
+    ambient_values: Vec<ir::Value>,
+}
+
+fn lookup_ambient_value(ctx: &DirectSimpleEmitCtx, name: &str) -> Option<ir::Value> {
+    ctx.ambient_names
+        .iter()
+        .position(|candidate| candidate == name)
+        .map(|index| ctx.ambient_values[index])
+}
+
+fn emit_decref_ambient_values(fb: &mut FunctionBuilder<'_>, ctx: &DirectSimpleEmitCtx) {
+    for value in &ctx.ambient_values {
+        fb.ins().call(ctx.decref_ref, &[*value]);
+    }
+}
+
+fn resolve_named_value(
+    name: &str,
+    runtime_names: &[String],
+    runtime_values: &[ir::Value],
+    ambient_names: &[String],
+    ambient_values: &[ir::Value],
+) -> Option<ir::Value> {
+    runtime_names
+        .iter()
+        .position(|candidate| candidate == name)
+        .map(|index| runtime_values[index])
+        .or_else(|| {
+            ambient_names
+                .iter()
+                .position(|candidate| candidate == name)
+                .map(|index| ambient_values[index])
+        })
 }
 
 fn block_arg_values(values: &[ir::Value]) -> Vec<ir::BlockArg> {
@@ -610,6 +650,7 @@ fn emit_direct_simple_expr(
     let none_const = ctx.consts.none_const;
     let true_const = ctx.consts.true_const;
     let false_const = ctx.consts.false_const;
+    let deleted_const = ctx.consts.deleted_const;
     let empty_tuple_const = ctx.consts.empty_tuple_const;
     let block_const = ctx.consts.block_const;
     let load_name_ref = ctx.load_name_ref;
@@ -618,6 +659,11 @@ fn emit_direct_simple_expr(
     let pyobject_getitem_ref = ctx.pyobject_getitem_ref;
     let pyobject_setitem_ref = ctx.pyobject_setitem_ref;
     let decode_literal_bytes_ref = ctx.decode_literal_bytes_ref;
+    let load_deleted_name_ref = ctx.load_deleted_name_ref;
+    let make_cell_ref = ctx.make_cell_ref;
+    let load_cell_ref = ctx.load_cell_ref;
+    let store_cell_ref = ctx.store_cell_ref;
+    let store_cell_if_not_deleted_ref = ctx.store_cell_if_not_deleted_ref;
     let make_bytes_ref = ctx.make_bytes_ref;
     let make_float_ref = ctx.make_float_ref;
     let py_call_object_ref = ctx.py_call_object_ref;
@@ -630,6 +676,12 @@ fn emit_direct_simple_expr(
         DirectSimpleExprPlan::Name(name) => {
             if let Some(slot_index) = local_names.iter().position(|candidate| candidate == name) {
                 let slot_value = local_values[slot_index];
+                if !borrowed {
+                    fb.ins().call(incref_ref, &[slot_value]);
+                }
+                return slot_value;
+            }
+            if let Some(slot_value) = lookup_ambient_value(ctx, name) {
                 if !borrowed {
                     fb.ins().call(incref_ref, &[slot_value]);
                 }
@@ -1481,6 +1533,139 @@ fn emit_direct_simple_expr(
                     return block_const;
                 }
                 if keywords.is_empty() {
+                    if func_name == "__dp_tuple" {
+                        let mut arg_values: Vec<ir::Value> = Vec::with_capacity(args.len());
+                        let mut borrowed_args: Vec<bool> = Vec::with_capacity(args.len());
+                        for arg in &args {
+                            let borrowed_arg = direct_simple_expr_is_borrowable(arg, local_names);
+                            let value = emit_direct_simple_expr(
+                                fb,
+                                arg,
+                                local_names,
+                                local_values,
+                                ctx,
+                                literal_pool,
+                                borrowed_arg,
+                            );
+                            arg_values.push(value);
+                            borrowed_args.push(borrowed_arg);
+                        }
+                        let tuple_value =
+                            emit_pack_current_values_tuple(fb, arg_values.as_slice(), ctx);
+                        for (value, borrowed_arg) in
+                            arg_values.into_iter().zip(borrowed_args.into_iter())
+                        {
+                            if !borrowed_arg {
+                                fb.ins().call(decref_ref, &[value]);
+                            }
+                        }
+                        return tuple_value;
+                    }
+                    if func_name == "__dp_load_deleted_name" && args.len() == 2 {
+                        if let Some(name) = direct_simple_expr_const_string(args[0]) {
+                            let (name_ptr, name_len) =
+                                intern_bytes_literal(literal_pool, name.as_bytes());
+                            let value_borrowed =
+                                direct_simple_expr_is_borrowable(args[1], local_names);
+                            let value_obj = emit_direct_simple_expr(
+                                fb,
+                                args[1],
+                                local_names,
+                                local_values,
+                                ctx,
+                                literal_pool,
+                                value_borrowed,
+                            );
+                            let name_ptr_val = fb.ins().iconst(ptr_ty, name_ptr as i64);
+                            let name_len_val = fb.ins().iconst(i64_ty, name_len);
+                            let call_inst = fb.ins().call(
+                                load_deleted_name_ref,
+                                &[name_ptr_val, name_len_val, value_obj, deleted_const],
+                            );
+                            if !value_borrowed {
+                                fb.ins().call(decref_ref, &[value_obj]);
+                            }
+                            let call_value = fb.inst_results(call_inst)[0];
+                            let call_is_null = fb.ins().icmp(
+                                ir::condcodes::IntCC::Equal,
+                                call_value,
+                                null_ptr,
+                            );
+                            let call_ok_block = fb.create_block();
+                            fb.append_block_param(call_ok_block, ptr_ty);
+                            fb.ins().brif(
+                                call_is_null,
+                                step_null_block,
+                                &step_null_block_args(ctx),
+                                call_ok_block,
+                                &[ir::BlockArg::Value(call_value)],
+                            );
+                            fb.switch_to_block(call_ok_block);
+                            return fb.block_params(call_ok_block)[0];
+                        }
+                    }
+                    let is_direct_cell_call = matches!(
+                        (func_name.as_str(), args.len()),
+                        ("__dp_make_cell", 0 | 1)
+                            | ("__dp_load_cell", 1)
+                            | ("__dp_store_cell", 2)
+                            | ("__dp_store_cell_if_not_deleted", 2)
+                    );
+                    if is_direct_cell_call {
+                        let mut arg_values: Vec<(ir::Value, bool)> = Vec::with_capacity(args.len());
+                        for arg in &args {
+                            let borrowed_arg = direct_simple_expr_is_borrowable(arg, local_names);
+                            let value = emit_direct_simple_expr(
+                                fb,
+                                arg,
+                                local_names,
+                                local_values,
+                                ctx,
+                                literal_pool,
+                                borrowed_arg,
+                            );
+                            arg_values.push((value, borrowed_arg));
+                        }
+                        let call_inst = match (func_name.as_str(), args.len()) {
+                            ("__dp_make_cell", 0) => fb.ins().call(make_cell_ref, &[null_ptr]),
+                            ("__dp_make_cell", 1) => {
+                                fb.ins().call(make_cell_ref, &[arg_values[0].0])
+                            }
+                            ("__dp_load_cell", 1) => {
+                                fb.ins().call(load_cell_ref, &[arg_values[0].0])
+                            }
+                            ("__dp_store_cell", 2) => {
+                                fb.ins().call(store_cell_ref, &[arg_values[0].0, arg_values[1].0])
+                            }
+                            ("__dp_store_cell_if_not_deleted", 2) => fb.ins().call(
+                                store_cell_if_not_deleted_ref,
+                                &[arg_values[0].0, arg_values[1].0, deleted_const],
+                            ),
+                            _ => unreachable!("unexpected direct cell call"),
+                        };
+                        for (value, borrowed_arg) in arg_values {
+                            if !borrowed_arg {
+                                fb.ins().call(decref_ref, &[value]);
+                            }
+                        }
+                        let call_value = fb.inst_results(call_inst)[0];
+                        let call_is_null = fb.ins().icmp(
+                            ir::condcodes::IntCC::Equal,
+                            call_value,
+                            null_ptr,
+                        );
+                        let call_ok_block = fb.create_block();
+                        fb.append_block_param(call_ok_block, ptr_ty);
+                        fb.ins().brif(
+                            call_is_null,
+                            step_null_block,
+                            &step_null_block_args(ctx),
+                            call_ok_block,
+                            &[ir::BlockArg::Value(call_value)],
+                        );
+                        fb.switch_to_block(call_ok_block);
+                        return fb.block_params(call_ok_block)[0];
+                    }
                     let is_direct_operator_call = matches!(
                         (func_name.as_str(), args.len()),
                         ("PyObject_GetAttr", 2)
@@ -2086,35 +2271,36 @@ fn emit_pack_target_args_slow(
         .position(|candidate| candidate == "_dp_self" || candidate == "_dp_state")
         .map(|index| local_values[index]);
     for (index, name) in target_params.iter().enumerate() {
-        let value =
-            if let Some(value_index) = local_names.iter().position(|candidate| candidate == name) {
-                local_values[value_index]
-            } else if let Some(owner) = owner_value {
-                let (name_ptr, name_len) = intern_bytes_literal(literal_pool, name.as_bytes());
-                let name_ptr_val = fb.ins().iconst(ptr_ty, name_ptr as i64);
-                let name_len_val = fb.ins().iconst(i64_ty, name_len);
-                let load_inst = fb.ins().call(
-                    ctx.load_local_raw_by_name_ref,
-                    &[owner, name_ptr_val, name_len_val],
-                );
-                let load_value = fb.inst_results(load_inst)[0];
-                let load_is_null = fb
-                    .ins()
-                    .icmp(ir::condcodes::IntCC::Equal, load_value, null_ptr);
-                let load_ok_block = fb.create_block();
-                fb.append_block_param(load_ok_block, ptr_ty);
-                fb.ins().brif(
-                    load_is_null,
-                    ctx.consts.step_null_block,
-                    &step_null_block_args(ctx),
-                    load_ok_block,
-                    &[ir::BlockArg::Value(load_value)],
-                );
-                fb.switch_to_block(load_ok_block);
-                fb.block_params(load_ok_block)[0]
-            } else {
-                ctx.consts.none_const
-            };
+        let value = if let Some(value_index) = local_names.iter().position(|candidate| candidate == name) {
+            local_values[value_index]
+        } else if let Some(value) = lookup_ambient_value(ctx, name) {
+            value
+        } else if let Some(owner) = owner_value {
+            let (name_ptr, name_len) = intern_bytes_literal(literal_pool, name.as_bytes());
+            let name_ptr_val = fb.ins().iconst(ptr_ty, name_ptr as i64);
+            let name_len_val = fb.ins().iconst(i64_ty, name_len);
+            let load_inst = fb.ins().call(
+                ctx.load_local_raw_by_name_ref,
+                &[owner, name_ptr_val, name_len_val],
+            );
+            let load_value = fb.inst_results(load_inst)[0];
+            let load_is_null = fb
+                .ins()
+                .icmp(ir::condcodes::IntCC::Equal, load_value, null_ptr);
+            let load_ok_block = fb.create_block();
+            fb.append_block_param(load_ok_block, ptr_ty);
+            fb.ins().brif(
+                load_is_null,
+                ctx.consts.step_null_block,
+                &step_null_block_args(ctx),
+                load_ok_block,
+                &[ir::BlockArg::Value(load_value)],
+            );
+            fb.switch_to_block(load_ok_block);
+            fb.block_params(load_ok_block)[0]
+        } else {
+            ctx.consts.none_const
+        };
         // PyTuple_SetItem steals a reference; pass owned values.
         fb.ins().call(ctx.incref_ref, &[value]);
         let item_index = fb.ins().iconst(i64_ty, index as i64);
@@ -2156,6 +2342,7 @@ fn emit_prepare_target_args(
     literal_pool: &mut Vec<Box<[u8]>>,
 ) -> Option<Vec<ir::BlockArg>> {
     let mut args = Vec::with_capacity(target_params.len());
+    let mut forwarded_local_indices = HashMap::new();
     let owner_value = local_names
         .iter()
         .position(|candidate| candidate == "_dp_self" || candidate == "_dp_state")
@@ -2163,7 +2350,15 @@ fn emit_prepare_target_args(
     for name in target_params {
         if let Some(value_index) = local_names.iter().position(|candidate| candidate == name) {
             let value = local_values[value_index];
-            fb.ins().call(ctx.incref_ref, &[value]);
+            let forwarded_count = forwarded_local_indices.entry(value_index).or_insert(0usize);
+            if *forwarded_count > 0 {
+                fb.ins().call(ctx.incref_ref, &[value]);
+            }
+            *forwarded_count += 1;
+            args.push(ir::BlockArg::Value(value));
+            continue;
+        }
+        if let Some(value) = lookup_ambient_value(ctx, name) {
             args.push(ir::BlockArg::Value(value));
             continue;
         }
@@ -2199,6 +2394,27 @@ fn emit_prepare_target_args(
         args.push(ir::BlockArg::Value(ctx.consts.none_const));
     }
     Some(args)
+}
+
+fn emit_decref_unforwarded_locals(
+    fb: &mut FunctionBuilder<'_>,
+    local_values: &[ir::Value],
+    local_names: &[String],
+    target_params: &[String],
+    decref_ref: ir::FuncRef,
+) {
+    let mut forwarded_local_indices = HashMap::new();
+    for name in target_params {
+        if let Some(index) = local_names.iter().position(|candidate| candidate == name) {
+            *forwarded_local_indices.entry(index).or_insert(0usize) += 1;
+        }
+    }
+    for (index, value) in local_values.iter().enumerate() {
+        if forwarded_local_indices.contains_key(&index) {
+            continue;
+        }
+        fb.ins().call(decref_ref, &[*value]);
+    }
 }
 
 fn emit_pack_target_args(
@@ -2743,6 +2959,7 @@ fn build_cranelift_run_bb_specialized_function(
     true_obj: ObjPtr,
     false_obj: ObjPtr,
     none_obj: ObjPtr,
+    deleted_obj: ObjPtr,
     empty_tuple_obj: ObjPtr,
 ) -> Result<
     (
@@ -2904,6 +3121,42 @@ fn build_cranelift_run_bb_specialized_function(
         .returns
         .push(ir::AbiParam::new(ptr_ty));
 
+    let mut load_deleted_name_sig = jit_module.make_signature();
+    load_deleted_name_sig.params.push(ir::AbiParam::new(ptr_ty));
+    load_deleted_name_sig.params.push(ir::AbiParam::new(i64_ty));
+    load_deleted_name_sig.params.push(ir::AbiParam::new(ptr_ty));
+    load_deleted_name_sig.params.push(ir::AbiParam::new(ptr_ty));
+    load_deleted_name_sig
+        .returns
+        .push(ir::AbiParam::new(ptr_ty));
+
+    let mut make_cell_sig = jit_module.make_signature();
+    make_cell_sig.params.push(ir::AbiParam::new(ptr_ty));
+    make_cell_sig.returns.push(ir::AbiParam::new(ptr_ty));
+
+    let mut load_cell_sig = jit_module.make_signature();
+    load_cell_sig.params.push(ir::AbiParam::new(ptr_ty));
+    load_cell_sig.returns.push(ir::AbiParam::new(ptr_ty));
+
+    let mut store_cell_sig = jit_module.make_signature();
+    store_cell_sig.params.push(ir::AbiParam::new(ptr_ty));
+    store_cell_sig.params.push(ir::AbiParam::new(ptr_ty));
+    store_cell_sig.returns.push(ir::AbiParam::new(ptr_ty));
+
+    let mut store_cell_if_not_deleted_sig = jit_module.make_signature();
+    store_cell_if_not_deleted_sig
+        .params
+        .push(ir::AbiParam::new(ptr_ty));
+    store_cell_if_not_deleted_sig
+        .params
+        .push(ir::AbiParam::new(ptr_ty));
+    store_cell_if_not_deleted_sig
+        .params
+        .push(ir::AbiParam::new(ptr_ty));
+    store_cell_if_not_deleted_sig
+        .returns
+        .push(ir::AbiParam::new(ptr_ty));
+
     let mut tuple_new_sig = jit_module.make_signature();
     tuple_new_sig.params.push(ir::AbiParam::new(i64_ty));
     tuple_new_sig.returns.push(ir::AbiParam::new(ptr_ty));
@@ -2954,6 +3207,7 @@ fn build_cranelift_run_bb_specialized_function(
 
     let mut main_sig = jit_module.make_signature();
     main_sig.params.push(ir::AbiParam::new(ptr_ty));
+    main_sig.params.push(ir::AbiParam::new(ptr_ty));
     main_sig.returns.push(ir::AbiParam::new(ptr_ty));
 
     let incref_id = declare_import_fn(jit_module, "dp_jit_incref", &incref_sig)?;
@@ -2992,6 +3246,19 @@ fn build_cranelift_run_bb_specialized_function(
         jit_module,
         "dp_jit_decode_literal_bytes",
         &decode_literal_bytes_sig,
+    )?;
+    let load_deleted_name_id = declare_import_fn(
+        jit_module,
+        "dp_jit_load_deleted_name",
+        &load_deleted_name_sig,
+    )?;
+    let make_cell_id = declare_import_fn(jit_module, "dp_jit_make_cell", &make_cell_sig)?;
+    let load_cell_id = declare_import_fn(jit_module, "dp_jit_load_cell", &load_cell_sig)?;
+    let store_cell_id = declare_import_fn(jit_module, "dp_jit_store_cell", &store_cell_sig)?;
+    let store_cell_if_not_deleted_id = declare_import_fn(
+        jit_module,
+        "dp_jit_store_cell_if_not_deleted",
+        &store_cell_if_not_deleted_sig,
     )?;
     let tuple_new_id = declare_import_fn(jit_module, "dp_jit_tuple_new", &tuple_new_sig)?;
     let tuple_set_item_id =
@@ -3079,6 +3346,17 @@ fn build_cranelift_run_bb_specialized_function(
         decode_literal_bytes_id.as_u32(),
         "dp_jit_decode_literal_bytes",
     );
+    import_id_to_symbol.insert(
+        load_deleted_name_id.as_u32(),
+        "dp_jit_load_deleted_name",
+    );
+    import_id_to_symbol.insert(make_cell_id.as_u32(), "dp_jit_make_cell");
+    import_id_to_symbol.insert(load_cell_id.as_u32(), "dp_jit_load_cell");
+    import_id_to_symbol.insert(store_cell_id.as_u32(), "dp_jit_store_cell");
+    import_id_to_symbol.insert(
+        store_cell_if_not_deleted_id.as_u32(),
+        "dp_jit_store_cell_if_not_deleted",
+    );
     import_id_to_symbol.insert(tuple_new_id.as_u32(), "dp_jit_tuple_new");
     import_id_to_symbol.insert(tuple_set_item_id.as_u32(), "dp_jit_tuple_set_item");
     import_id_to_symbol.insert(is_true_id.as_u32(), "dp_jit_is_true");
@@ -3152,6 +3430,18 @@ fn build_cranelift_run_bb_specialized_function(
         let mut fb = FunctionBuilder::new(&mut ctx.func, &mut builder_ctx);
         let entry_block = fb.create_block();
         let mut exec_blocks = Vec::with_capacity(block_count);
+        let runtime_block_param_names = plan
+            .block_param_names
+            .iter()
+            .map(|params| {
+                params
+                    .iter()
+                    .filter(|name| !plan.ambient_param_names.iter().any(|ambient| ambient == *name))
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+
         let mut cleanup_null_blocks = Vec::with_capacity(block_count);
         for _ in 0..block_count {
             exec_blocks.push(fb.create_block());
@@ -3162,10 +3452,10 @@ fn build_cranelift_run_bb_specialized_function(
 
         fb.append_block_params_for_function_params(entry_block);
         for (index, block) in exec_blocks.iter().enumerate() {
-            for _ in &plan.block_param_names[index] {
+            for _ in &runtime_block_param_names[index] {
                 fb.append_block_param(*block, ptr_ty);
             }
-            for _ in &plan.block_param_names[index] {
+            for _ in &runtime_block_param_names[index] {
                 fb.append_block_param(cleanup_null_blocks[index], ptr_ty);
             }
         }
@@ -3175,6 +3465,7 @@ fn build_cranelift_run_bb_specialized_function(
 
         fb.switch_to_block(entry_block);
         let entry_args = fb.block_params(entry_block)[0];
+        let ambient_args = fb.block_params(entry_block)[1];
         let incref_ref = jit_module.declare_func_in_func(incref_id, &mut fb.func);
         let decref_ref = jit_module.declare_func_in_func(decref_id, &mut fb.func);
         let py_call_ref = jit_module.declare_func_in_func(py_call_id, &mut fb.func);
@@ -3201,6 +3492,13 @@ fn build_cranelift_run_bb_specialized_function(
         let pyobject_to_i64_ref = jit_module.declare_func_in_func(pyobject_to_i64_id, &mut fb.func);
         let decode_literal_bytes_ref =
             jit_module.declare_func_in_func(decode_literal_bytes_id, &mut fb.func);
+        let load_deleted_name_ref =
+            jit_module.declare_func_in_func(load_deleted_name_id, &mut fb.func);
+        let make_cell_ref = jit_module.declare_func_in_func(make_cell_id, &mut fb.func);
+        let load_cell_ref = jit_module.declare_func_in_func(load_cell_id, &mut fb.func);
+        let store_cell_ref = jit_module.declare_func_in_func(store_cell_id, &mut fb.func);
+        let store_cell_if_not_deleted_ref =
+            jit_module.declare_func_in_func(store_cell_if_not_deleted_id, &mut fb.func);
         let make_bytes_ref = jit_module.declare_func_in_func(make_bytes_id, &mut fb.func);
         let tuple_new_ref = jit_module.declare_func_in_func(tuple_new_id, &mut fb.func);
         let tuple_set_item_ref = jit_module.declare_func_in_func(tuple_set_item_id, &mut fb.func);
@@ -3263,9 +3561,38 @@ fn build_cranelift_run_bb_specialized_function(
         let pynumber_invert_ref = jit_module.declare_func_in_func(pynumber_invert_id, &mut fb.func);
 
         fb.ins().call(incref_ref, &[entry_args]);
-        let mut entry_jump_args = Vec::with_capacity(plan.block_param_names[plan.entry_index].len());
+        let mut ambient_names = Vec::new();
+        let mut ambient_values = Vec::new();
+        let mut entry_jump_args = Vec::with_capacity(runtime_block_param_names[plan.entry_index].len());
         let null_ptr = fb.ins().iconst(ptr_ty, 0);
-        for (param_index, _) in plan.block_param_names[plan.entry_index].iter().enumerate() {
+        for (param_index, param_name) in plan.ambient_param_names.iter().enumerate() {
+            let index_val = fb.ins().iconst(i64_ty, param_index as i64);
+            let item_inst = fb.ins().call(get_arg_item_ref, &[ambient_args, index_val]);
+            let item_val = fb.inst_results(item_inst)[0];
+            let is_null = fb
+                .ins()
+                .icmp(ir::condcodes::IntCC::Equal, item_val, null_ptr);
+            let ok_block = fb.create_block();
+            fb.append_block_param(ok_block, ptr_ty);
+            fb.ins().brif(
+                is_null,
+                step_null_block,
+                &[ir::BlockArg::Value(entry_args)],
+                ok_block,
+                &[ir::BlockArg::Value(item_val)],
+            );
+            fb.switch_to_block(ok_block);
+            ambient_names.push(param_name.clone());
+            ambient_values.push(fb.block_params(ok_block)[0]);
+        }
+        for (param_index, param_name) in plan.block_param_names[plan.entry_index].iter().enumerate() {
+            if plan
+                .ambient_param_names
+                .iter()
+                .any(|ambient| ambient == param_name)
+            {
+                continue;
+            }
             let index_val = fb.ins().iconst(i64_ty, param_index as i64);
             let item_inst = fb.ins().call(get_arg_item_ref, &[entry_args, index_val]);
             let item_val = fb.inst_results(item_inst)[0];
@@ -3282,7 +3609,8 @@ fn build_cranelift_run_bb_specialized_function(
                 &[ir::BlockArg::Value(item_val)],
             );
             fb.switch_to_block(ok_block);
-            entry_jump_args.push(ir::BlockArg::Value(fb.block_params(ok_block)[0]));
+            let value = fb.block_params(ok_block)[0];
+            entry_jump_args.push(ir::BlockArg::Value(value));
         }
         fb.ins()
             .jump(exec_blocks[plan.entry_index], &entry_jump_args);
@@ -3291,7 +3619,7 @@ fn build_cranelift_run_bb_specialized_function(
         for (index, exc_dispatch_plan) in plan.block_exc_dispatches.iter().enumerate() {
             if exc_dispatch_plan.is_some() {
                 let dispatch_block = fb.create_block();
-                for _ in &plan.block_param_names[index] {
+                for _ in &runtime_block_param_names[index] {
                     fb.append_block_param(dispatch_block, ptr_ty);
                 }
                 exception_dispatch_blocks[index] = Some(dispatch_block);
@@ -3305,6 +3633,7 @@ fn build_cranelift_run_bb_specialized_function(
             let none_const = fb.ins().iconst(ptr_ty, none_obj as i64);
             let true_const = fb.ins().iconst(ptr_ty, true_obj as i64);
             let false_const = fb.ins().iconst(ptr_ty, false_obj as i64);
+            let deleted_const = fb.ins().iconst(ptr_ty, deleted_obj as i64);
             let empty_tuple_const = fb.ins().iconst(ptr_ty, empty_tuple_obj as i64);
             let pack_fail_block = cleanup_null_blocks[index];
             let pack_emit_ctx = DirectSimpleEmitCtx {
@@ -3321,6 +3650,7 @@ fn build_cranelift_run_bb_specialized_function(
                     none_const,
                     true_const,
                     false_const,
+                    deleted_const,
                     empty_tuple_const,
                     block_const,
                 },
@@ -3331,6 +3661,11 @@ fn build_cranelift_run_bb_specialized_function(
                 pyobject_getitem_ref,
                 pyobject_setitem_ref,
                 decode_literal_bytes_ref,
+                load_deleted_name_ref,
+                make_cell_ref,
+                load_cell_ref,
+                store_cell_ref,
+                store_cell_if_not_deleted_ref,
                 make_bytes_ref,
                 make_float_ref,
                 py_call_object_ref,
@@ -3372,15 +3707,12 @@ fn build_cranelift_run_bb_specialized_function(
                     number_negative_ref: pynumber_negative_ref,
                     number_invert_ref: pynumber_invert_ref,
                 },
+                ambient_names: ambient_names.clone(),
+                ambient_values: ambient_values.clone(),
             };
-            let exec_args =
-                emit_pack_current_values_tuple(&mut fb, &block_param_values, &pack_emit_ctx);
-            let fast_step_null_block = exception_dispatch_blocks[index].unwrap_or(step_null_block);
-            let fast_step_null_args = if exception_dispatch_blocks[index].is_some() {
-                block_param_values.clone()
-            } else {
-                vec![exec_args]
-            };
+            let fast_step_null_block =
+                exception_dispatch_blocks[index].unwrap_or(cleanup_null_blocks[index]);
+            let fast_step_null_args = block_param_values.clone();
             let emit_ctx = DirectSimpleEmitCtx {
                 incref_ref,
                 decref_ref,
@@ -3389,12 +3721,13 @@ fn build_cranelift_run_bb_specialized_function(
                 consts: DirectSimpleEmitConsts {
                     step_null_block: fast_step_null_block,
                     step_null_args: fast_step_null_args,
-                    exec_args,
+                    exec_args: none_const,
                     ptr_ty,
                     i64_ty,
                     none_const,
                     true_const,
                     false_const,
+                    deleted_const,
                     empty_tuple_const,
                     block_const,
                 },
@@ -3405,6 +3738,11 @@ fn build_cranelift_run_bb_specialized_function(
                 pyobject_getitem_ref,
                 pyobject_setitem_ref,
                 decode_literal_bytes_ref,
+                load_deleted_name_ref,
+                make_cell_ref,
+                load_cell_ref,
+                store_cell_ref,
+                store_cell_if_not_deleted_ref,
                 make_bytes_ref,
                 make_float_ref,
                 py_call_object_ref,
@@ -3446,6 +3784,8 @@ fn build_cranelift_run_bb_specialized_function(
                     number_negative_ref: pynumber_negative_ref,
                     number_invert_ref: pynumber_invert_ref,
                 },
+                ambient_names: ambient_names.clone(),
+                ambient_values: ambient_values.clone(),
             };
             match &plan.block_fast_paths[index] {
                 BlockFastPath::JumpPassThrough { target_index } => {
@@ -3454,18 +3794,17 @@ fn build_cranelift_run_bb_specialized_function(
                         .copied()
                         .map(ir::BlockArg::Value)
                         .collect::<Vec<_>>();
-                    fb.ins().call(decref_ref, &[exec_args]);
                     fb.ins().jump(exec_blocks[*target_index], &jump_args);
                     continue;
                 }
                 BlockFastPath::ReturnNone => {
+                    emit_decref_ambient_values(&mut fb, &emit_ctx);
                     fb.ins().call(incref_ref, &[none_const]);
-                    fb.ins().call(decref_ref, &[exec_args]);
                     fb.ins().return_(&[none_const]);
                     continue;
                 }
                 BlockFastPath::DirectSimpleExprRetNone { plan } => {
-                    let local_names = plan.params.clone();
+                    let local_names = runtime_block_param_names[index].clone();
                     let local_values = block_param_values.clone();
 
                     for expr in &plan.exprs {
@@ -3480,16 +3819,16 @@ fn build_cranelift_run_bb_specialized_function(
                         );
                         fb.ins().call(decref_ref, &[value]);
                     }
+                    emit_decref_ambient_values(&mut fb, &emit_ctx);
                     for value in local_values {
                         fb.ins().call(decref_ref, &[value]);
                     }
                     fb.ins().call(incref_ref, &[none_const]);
-                    fb.ins().call(decref_ref, &[exec_args]);
                     fb.ins().return_(&[none_const]);
                     continue;
                 }
                 BlockFastPath::DirectSimpleBrIf { plan } => {
-                    let local_names = plan.params.clone();
+                    let local_names = runtime_block_param_names[index].clone();
                     let local_values = block_param_values.clone();
 
                     let test_value = emit_direct_simple_expr(
@@ -3512,7 +3851,7 @@ fn build_cranelift_run_bb_specialized_function(
                     fb.append_block_param(truth_ok_block, i32_ty);
                     fb.ins().brif(
                         is_error,
-                        step_null_block,
+                        emit_ctx.consts.step_null_block,
                         &block_arg_values(&emit_ctx.consts.step_null_args),
                         truth_ok_block,
                         &[ir::BlockArg::Value(truth_value)],
@@ -3525,7 +3864,6 @@ fn build_cranelift_run_bb_specialized_function(
                         truth_ok_value,
                         zero_i32,
                     );
-                    fb.ins().call(decref_ref, &[exec_args]);
                     let pass_args = block_param_values
                         .iter()
                         .copied()
@@ -3541,7 +3879,7 @@ fn build_cranelift_run_bb_specialized_function(
                     continue;
                 }
                 BlockFastPath::DirectSimpleRet { plan } => {
-                    let mut local_names = plan.params.clone();
+                    let mut local_names = runtime_block_param_names[index].clone();
                     let mut local_values = block_param_values.clone();
                     let mut frame_locals_aliases: HashSet<String> = HashSet::new();
                     let null_ptr = fb.ins().iconst(ptr_ty, 0);
@@ -3616,7 +3954,7 @@ fn build_cranelift_run_bb_specialized_function(
                             let failed_set_item_value = fb.block_params(set_item_fail)[0];
                             fb.ins().call(decref_ref, &[failed_set_item_value]);
                             fb.ins()
-                                .jump(step_null_block, &block_arg_values(&emit_ctx.consts.step_null_args));
+                                .jump(emit_ctx.consts.step_null_block, &step_null_block_args(&emit_ctx));
                             fb.switch_to_block(set_item_ok);
                             let set_item_value = fb.block_params(set_item_ok)[0];
                             let synced_inst =
@@ -3640,7 +3978,7 @@ fn build_cranelift_run_bb_specialized_function(
                             let failed_synced_value = fb.block_params(synced_fail)[0];
                             fb.ins().call(decref_ref, &[failed_synced_value]);
                             fb.ins()
-                                .jump(step_null_block, &block_arg_values(&emit_ctx.consts.step_null_args));
+                                .jump(emit_ctx.consts.step_null_block, &step_null_block_args(&emit_ctx));
                             fb.switch_to_block(synced_ok);
                             let synced_value = fb.block_params(synced_ok)[0];
                             if let Some(existing_index) = local_names
@@ -3704,15 +4042,15 @@ fn build_cranelift_run_bb_specialized_function(
                         false,
                     );
 
+                    emit_decref_ambient_values(&mut fb, &emit_ctx);
                     for value in local_values {
                         fb.ins().call(decref_ref, &[value]);
                     }
-                    fb.ins().call(decref_ref, &[exec_args]);
                     fb.ins().return_(&[ret_value]);
                     continue;
                 }
                 BlockFastPath::DirectSimpleBlock { plan: block_plan } => {
-                    let mut local_names = block_plan.params.clone();
+                    let mut local_names = runtime_block_param_names[index].clone();
                     let mut local_values = block_param_values.clone();
 
                     emit_direct_simple_ops(
@@ -3727,8 +4065,9 @@ fn build_cranelift_run_bb_specialized_function(
                     match &block_plan.term {
                         DirectSimpleTermPlan::Jump {
                             target_index,
-                            target_params,
+                            target_params: _target_params,
                         } => {
+                            let target_params = &runtime_block_param_names[*target_index];
                             let mut jump_args = Vec::with_capacity(target_params.len());
                             jump_args.extend(
                                 emit_prepare_target_args(
@@ -3746,10 +4085,13 @@ fn build_cranelift_run_bb_specialized_function(
                                     )
                                 })?,
                             );
-                            for value in &local_values {
-                                fb.ins().call(decref_ref, &[*value]);
-                            }
-                            fb.ins().call(decref_ref, &[exec_args]);
+                            emit_decref_unforwarded_locals(
+                                &mut fb,
+                                &local_values,
+                                &local_names,
+                                target_params,
+                                decref_ref,
+                            );
                             fb.ins().jump(exec_blocks[*target_index], &jump_args);
                         }
                         DirectSimpleTermPlan::BrIf {
@@ -3773,7 +4115,7 @@ fn build_cranelift_run_bb_specialized_function(
                                 test_value,
                                 is_true_ref,
                                 decref_ref,
-                                step_null_block,
+                                emit_ctx.consts.step_null_block,
                                 &emit_ctx.consts.step_null_args,
                                 i32_ty,
                             );
@@ -3783,6 +4125,7 @@ fn build_cranelift_run_bb_specialized_function(
                             fb.ins().brif(is_true, then_branch, &[], else_branch, &[]);
 
                             fb.switch_to_block(then_branch);
+                            let then_params = &runtime_block_param_names[*then_index];
                             let mut then_jump_args = Vec::with_capacity(then_params.len());
                             then_jump_args.extend(
                                 emit_prepare_target_args(
@@ -3800,13 +4143,17 @@ fn build_cranelift_run_bb_specialized_function(
                                     )
                                 })?,
                             );
-                            for value in &local_values {
-                                fb.ins().call(decref_ref, &[*value]);
-                            }
-                            fb.ins().call(decref_ref, &[exec_args]);
+                            emit_decref_unforwarded_locals(
+                                &mut fb,
+                                &local_values,
+                                &local_names,
+                                then_params,
+                                decref_ref,
+                            );
                             fb.ins().jump(exec_blocks[*then_index], &then_jump_args);
 
                             fb.switch_to_block(else_branch);
+                            let else_params = &runtime_block_param_names[*else_index];
                             let mut else_jump_args = Vec::with_capacity(else_params.len());
                             else_jump_args.extend(
                                 emit_prepare_target_args(
@@ -3824,10 +4171,13 @@ fn build_cranelift_run_bb_specialized_function(
                                     )
                                 })?,
                             );
-                            for value in &local_values {
-                                fb.ins().call(decref_ref, &[*value]);
-                            }
-                            fb.ins().call(decref_ref, &[exec_args]);
+                            emit_decref_unforwarded_locals(
+                                &mut fb,
+                                &local_values,
+                                &local_names,
+                                else_params,
+                                decref_ref,
+                            );
                             fb.ins().jump(exec_blocks[*else_index], &else_jump_args);
                         }
                         DirectSimpleTermPlan::BrTable {
@@ -3856,7 +4206,7 @@ fn build_cranelift_run_bb_specialized_function(
                             fb.append_block_param(dispatch_block, i64_ty);
                             fb.ins().brif(
                                 is_error,
-                                step_null_block,
+                                emit_ctx.consts.step_null_block,
                                 &block_arg_values(&emit_ctx.consts.step_null_args),
                                 dispatch_block,
                                 &[ir::BlockArg::Value(index_i64)],
@@ -3879,6 +4229,7 @@ fn build_cranelift_run_bb_specialized_function(
                                 targets.iter().zip(case_blocks.iter())
                             {
                                 fb.switch_to_block(*case_block);
+                                let target_params = &runtime_block_param_names[*target_index];
                                 let mut case_jump_args = Vec::with_capacity(target_params.len());
                                 case_jump_args.extend(
                                     emit_prepare_target_args(
@@ -3896,14 +4247,18 @@ fn build_cranelift_run_bb_specialized_function(
                                         )
                                     })?,
                                 );
-                                for value in &local_values {
-                                    fb.ins().call(decref_ref, &[*value]);
-                                }
-                                fb.ins().call(decref_ref, &[exec_args]);
+                                emit_decref_unforwarded_locals(
+                                    &mut fb,
+                                    &local_values,
+                                    &local_names,
+                                    target_params,
+                                    decref_ref,
+                                );
                                 fb.ins().jump(exec_blocks[*target_index], &case_jump_args);
                             }
 
                             fb.switch_to_block(default_block);
+                            let default_params = &runtime_block_param_names[*default_index];
                             let mut default_jump_args =
                                 Vec::with_capacity(default_params.len());
                             default_jump_args.extend(
@@ -3922,10 +4277,13 @@ fn build_cranelift_run_bb_specialized_function(
                                     )
                                 })?,
                             );
-                            for value in &local_values {
-                                fb.ins().call(decref_ref, &[*value]);
-                            }
-                            fb.ins().call(decref_ref, &[exec_args]);
+                            emit_decref_unforwarded_locals(
+                                &mut fb,
+                                &local_values,
+                                &local_names,
+                                default_params,
+                                decref_ref,
+                            );
                             fb.ins().jump(exec_blocks[*default_index], &default_jump_args);
                         }
                         DirectSimpleTermPlan::Ret { value } => {
@@ -3943,10 +4301,10 @@ fn build_cranelift_run_bb_specialized_function(
                                 fb.ins().call(incref_ref, &[none_const]);
                                 none_const
                             };
+                            emit_decref_ambient_values(&mut fb, &emit_ctx);
                             for value in &local_values {
                                 fb.ins().call(decref_ref, &[*value]);
                             }
-                            fb.ins().call(decref_ref, &[exec_args]);
                             fb.ins().return_(&[ret_value]);
                         }
                         DirectSimpleTermPlan::Raise { exc, cause } => {
@@ -4045,11 +4403,29 @@ fn build_cranelift_run_bb_specialized_function(
                                 .jump(emit_ctx.consts.step_null_block, &step_null_block_args(&emit_ctx));
 
                             fb.switch_to_block(raise_rc_ok);
-                            for value in &local_values {
-                                fb.ins().call(decref_ref, &[*value]);
-                            }
-                            fb.ins()
-                                .jump(emit_ctx.consts.step_null_block, &step_null_block_args(&emit_ctx));
+                            let current_params = &runtime_block_param_names[index];
+                            let current_step_null_args = emit_prepare_target_args(
+                                &mut fb,
+                                current_params,
+                                &local_names,
+                                &local_values,
+                                &emit_ctx,
+                                &mut literal_pool,
+                            )
+                            .ok_or_else(|| {
+                                format!(
+                                    "missing local mapping for raise terminator cleanup args in block {}",
+                                    plan.block_labels[index]
+                                )
+                            })?;
+                            emit_decref_unforwarded_locals(
+                                &mut fb,
+                                &local_values,
+                                &local_names,
+                                current_params,
+                                decref_ref,
+                            );
+                            fb.ins().jump(emit_ctx.consts.step_null_block, &current_step_null_args);
                         }
                     }
                     continue;
@@ -4073,76 +4449,12 @@ fn build_cranelift_run_bb_specialized_function(
 
             fb.switch_to_block(dispatch_block);
             let dispatch_values = fb.block_params(dispatch_block).to_vec();
+            let dispatch_runtime_names = &runtime_block_param_names[index];
+            let dispatch_original_names = &plan.block_param_names[index];
             let null_ptr = fb.ins().iconst(ptr_ty, 0);
             let none_const = fb.ins().iconst(ptr_ty, none_obj as i64);
-            let dispatch_pack_ctx = DirectSimpleEmitCtx {
-                incref_ref,
-                decref_ref,
-                py_call_ref,
-                make_int_ref,
-                consts: DirectSimpleEmitConsts {
-                    step_null_block: cleanup_null_blocks[index],
-                    step_null_args: dispatch_values.clone(),
-                    exec_args: none_const,
-                    ptr_ty,
-                    i64_ty,
-                    none_const,
-                    true_const: fb.ins().iconst(ptr_ty, true_obj as i64),
-                    false_const: fb.ins().iconst(ptr_ty, false_obj as i64),
-                    empty_tuple_const: fb.ins().iconst(ptr_ty, empty_tuple_obj as i64),
-                    block_const: fb.ins().iconst(ptr_ty, globals_obj as i64),
-                },
-                load_name_ref,
-                load_local_raw_by_name_ref,
-                pyobject_getattr_ref,
-                pyobject_setattr_ref,
-                pyobject_getitem_ref,
-                pyobject_setitem_ref,
-                decode_literal_bytes_ref,
-                make_bytes_ref,
-                make_float_ref,
-                py_call_object_ref,
-                py_call_with_kw_ref,
-                tuple_new_ref,
-                tuple_set_item_ref,
-                operator_refs: DirectSimpleOperatorRefs {
-                    richcompare_ref: pyobject_richcompare_ref,
-                    sequence_contains_ref: pysequence_contains_ref,
-                    object_not_ref: pyobject_not_ref,
-                    object_is_true_ref: pyobject_is_true_ref,
-                    number_add_ref: pynumber_add_ref,
-                    number_subtract_ref: pynumber_subtract_ref,
-                    number_multiply_ref: pynumber_multiply_ref,
-                    number_matrix_multiply_ref: pynumber_matrix_multiply_ref,
-                    number_true_divide_ref: pynumber_true_divide_ref,
-                    number_floor_divide_ref: pynumber_floor_divide_ref,
-                    number_remainder_ref: pynumber_remainder_ref,
-                    number_power_ref: pynumber_power_ref,
-                    number_lshift_ref: pynumber_lshift_ref,
-                    number_rshift_ref: pynumber_rshift_ref,
-                    number_or_ref: pynumber_or_ref,
-                    number_xor_ref: pynumber_xor_ref,
-                    number_and_ref: pynumber_and_ref,
-                    number_inplace_add_ref: pynumber_inplace_add_ref,
-                    number_inplace_subtract_ref: pynumber_inplace_subtract_ref,
-                    number_inplace_multiply_ref: pynumber_inplace_multiply_ref,
-                    number_inplace_matrix_multiply_ref: pynumber_inplace_matrix_multiply_ref,
-                    number_inplace_true_divide_ref: pynumber_inplace_true_divide_ref,
-                    number_inplace_floor_divide_ref: pynumber_inplace_floor_divide_ref,
-                    number_inplace_remainder_ref: pynumber_inplace_remainder_ref,
-                    number_inplace_power_ref: pynumber_inplace_power_ref,
-                    number_inplace_lshift_ref: pynumber_inplace_lshift_ref,
-                    number_inplace_rshift_ref: pynumber_inplace_rshift_ref,
-                    number_inplace_or_ref: pynumber_inplace_or_ref,
-                    number_inplace_xor_ref: pynumber_inplace_xor_ref,
-                    number_inplace_and_ref: pynumber_inplace_and_ref,
-                    number_positive_ref: pynumber_positive_ref,
-                    number_negative_ref: pynumber_negative_ref,
-                    number_invert_ref: pynumber_invert_ref,
-                },
-            };
-            let dispatch_args =
-                emit_pack_current_values_tuple(&mut fb, &dispatch_values, &dispatch_pack_ctx);
+            let dispatch_step_null_args =
+                dispatch_values.iter().copied().map(ir::BlockArg::Value).collect::<Vec<_>>();
 
             let raised_exc_inst = fb.ins().call(py_get_raised_exc_ref, &[]);
             let raised_exc = fb.inst_results(raised_exc_inst)[0];
@@ -4153,8 +4465,8 @@ fn build_cranelift_run_bb_specialized_function(
             fb.append_block_param(raised_exc_ok, ptr_ty);
             fb.ins().brif(
                 raised_exc_null,
-                step_null_block,
-                &[ir::BlockArg::Value(dispatch_args)],
+                cleanup_null_blocks[index],
+                &dispatch_step_null_args,
                 raised_exc_ok,
                 &[ir::BlockArg::Value(raised_exc)],
             );
@@ -4174,8 +4486,25 @@ fn build_cranelift_run_bb_specialized_function(
                 let b_exc = build_params[0];
                 let carried_values = build_params[1..].to_vec();
                 let value = match source {
-                    BlockExcArgSource::SourceParam { index } => {
-                        let value = dispatch_values[*index];
+                    BlockExcArgSource::SourceParam { index: source_index } => {
+                        let name = &dispatch_original_names[*source_index];
+                        let value = resolve_named_value(
+                            name,
+                            dispatch_runtime_names,
+                            &dispatch_values,
+                            &ambient_names,
+                            &ambient_values,
+                        )
+                        .ok_or_else(|| {
+                            format!(
+                                "missing exception dispatch source param {name} in block {}; runtime={:?}; original={:?}; ambient={:?}; target={:?}",
+                                plan.block_labels[index],
+                                dispatch_runtime_names,
+                                dispatch_original_names,
+                                ambient_names,
+                                runtime_block_param_names[dispatch_plan.target_index]
+                            )
+                        })?;
                         fb.ins().call(incref_ref, &[value]);
                         value
                     }
@@ -4191,7 +4520,20 @@ fn build_cranelift_run_bb_specialized_function(
                         let owner_index = dispatch_plan
                             .owner_param_index
                             .expect("missing owner param index for frame-local exception dispatch");
-                        let owner = dispatch_values[owner_index];
+                        let owner_name = &dispatch_original_names[owner_index];
+                        let owner = resolve_named_value(
+                            owner_name,
+                            dispatch_runtime_names,
+                            &dispatch_values,
+                            &ambient_names,
+                            &ambient_values,
+                        )
+                        .ok_or_else(|| {
+                            format!(
+                                "missing exception dispatch owner {owner_name} in block {}",
+                                plan.block_labels[index]
+                            )
+                        })?;
                         let (name_ptr, name_len) =
                             intern_bytes_literal(&mut literal_pool, name.as_bytes());
                         let name_ptr_val = fb.ins().iconst(ptr_ty, name_ptr as i64);
@@ -4232,8 +4574,7 @@ fn build_cranelift_run_bb_specialized_function(
                     fb.ins().call(decref_ref, &[carried_value]);
                 }
                 fb.ins().call(decref_ref, &[vf_exc]);
-                fb.ins()
-                    .jump(step_null_block, &[ir::BlockArg::Value(dispatch_args)]);
+                fb.ins().jump(cleanup_null_blocks[index], &dispatch_step_null_args);
 
                 fb.switch_to_block(value_ok);
                 let vo_exc = fb.block_params(value_ok)[0];
@@ -4258,7 +4599,7 @@ fn build_cranelift_run_bb_specialized_function(
             let carried_values = build_params[1..].to_vec();
             fb.ins().call(decref_ref, &[bd_exc]);
             let mut target_jump_args =
-                Vec::with_capacity(plan.block_param_names[dispatch_plan.target_index].len());
+                Vec::with_capacity(runtime_block_param_names[dispatch_plan.target_index].len());
             target_jump_args.extend(carried_values.iter().copied().map(ir::BlockArg::Value));
             for value in &dispatch_values {
                 fb.ins().call(decref_ref, &[*value]);
@@ -4272,6 +4613,9 @@ fn build_cranelift_run_bb_specialized_function(
             let cleanup_args = fb.block_params(*block).to_vec();
             for value in cleanup_args {
                 fb.ins().call(decref_ref, &[value]);
+            }
+            for value in &ambient_values {
+                fb.ins().call(decref_ref, &[*value]);
             }
             let null_ptr = fb.ins().iconst(ptr_ty, 0);
             fb.ins().return_(&[null_ptr]);
@@ -4307,6 +4651,9 @@ fn build_cranelift_run_bb_specialized_function(
         fb.ins().jump(red_done_block, &[]);
         fb.switch_to_block(red_done_block);
         fb.ins().call(decref_ref, &[red_args]);
+        for value in &ambient_values {
+            fb.ins().call(decref_ref, &[*value]);
+        }
         fb.ins().return_(&[red_null]);
 
         fb.seal_all_blocks();
@@ -4321,6 +4668,7 @@ pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
     plan: &ClifPlan,
     true_obj: ObjPtr,
     false_obj: ObjPtr,
+    deleted_obj: ObjPtr,
     empty_tuple_obj: ObjPtr,
 ) -> Result<RenderedSpecializedClif, String> {
     if blocks.is_empty() {
@@ -4338,6 +4686,7 @@ pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
         true_obj,
         false_obj,
         ptr::null_mut(),
+        deleted_obj,
         empty_tuple_obj,
     )?;
     let mut out = String::new();
@@ -4367,6 +4716,7 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
     true_obj: ObjPtr,
     false_obj: ObjPtr,
     none_obj: ObjPtr,
+    deleted_obj: ObjPtr,
     empty_tuple_obj: ObjPtr,
 ) -> Result<ObjPtr, String> {
     if globals_obj.is_null() {
@@ -4388,6 +4738,7 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
             true_obj,
             false_obj,
             none_obj,
+            deleted_obj,
             empty_tuple_obj,
         )?;
     define_function_with_incremental_cache(
@@ -4409,7 +4760,7 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
 
 pub unsafe fn compile_cranelift_vectorcall_trampoline(
     build_bb_args_fn: unsafe extern "C" fn(ObjPtr, *const ObjPtr, usize, ObjPtr, ObjPtr) -> ObjPtr,
-    run_compiled_fn: unsafe extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr,
+    run_compiled_fn: unsafe extern "C" fn(ObjPtr, ObjPtr, ObjPtr) -> ObjPtr,
     data_ptr: ObjPtr,
     compiled_handle: ObjPtr,
 ) -> Result<(ObjPtr, VectorcallEntryFn), String> {
@@ -4441,6 +4792,7 @@ pub unsafe fn compile_cranelift_vectorcall_trampoline(
     build_sig.returns.push(ir::AbiParam::new(ptr_ty));
 
     let mut run_sig = jit_module.make_signature();
+    run_sig.params.push(ir::AbiParam::new(ptr_ty));
     run_sig.params.push(ir::AbiParam::new(ptr_ty));
     run_sig.params.push(ir::AbiParam::new(ptr_ty));
     run_sig.returns.push(ir::AbiParam::new(ptr_ty));
@@ -4507,7 +4859,9 @@ pub unsafe fn compile_cranelift_vectorcall_trampoline(
 
         fb.switch_to_block(build_ok);
         let built_args = fb.block_params(build_ok)[0];
-        let run_inst = fb.ins().call(run_ref, &[compiled_const, built_args]);
+        let run_inst = fb
+            .ins()
+            .call(run_ref, &[compiled_const, built_args, data_const]);
         let result = fb.inst_results(run_inst)[0];
         fb.ins().return_(&[result]);
         fb.seal_all_blocks();
@@ -4536,6 +4890,7 @@ pub unsafe fn compile_cranelift_vectorcall_trampoline(
 pub unsafe fn run_cranelift_run_bb_specialized_cached(
     compiled_handle: ObjPtr,
     args: ObjPtr,
+    ambient_args: ObjPtr,
     hooks: &SpecializedJitHooks,
 ) -> Result<ObjPtr, String> {
     if compiled_handle.is_null() {
@@ -4544,12 +4899,15 @@ pub unsafe fn run_cranelift_run_bb_specialized_cached(
     if args.is_null() {
         return Err("invalid null args passed to specialized JIT run_bb".to_string());
     }
+    if ambient_args.is_null() {
+        return Err("invalid null ambient args passed to specialized JIT run_bb".to_string());
+    }
     install_specialized_hooks(hooks);
     let compiled = &*(compiled_handle as *const CompiledSpecializedRunner);
     let Some(entry) = compiled.entry else {
         return Err("invalid compiled handle without entrypoint".to_string());
     };
-    Ok(entry(args))
+    Ok(entry(args, ambient_args))
 }
 
 pub unsafe fn free_cranelift_vectorcall_trampoline(compiled_handle: ObjPtr) {
@@ -4573,8 +4931,10 @@ pub unsafe fn run_cranelift_run_bb_specialized(
     true_obj: ObjPtr,
     false_obj: ObjPtr,
     args: ObjPtr,
+    ambient_args: ObjPtr,
     hooks: &SpecializedJitHooks,
     none_obj: ObjPtr,
+    deleted_obj: ObjPtr,
     empty_tuple_obj: ObjPtr,
 ) -> Result<ObjPtr, String> {
     if args.is_null() {
@@ -4582,6 +4942,9 @@ pub unsafe fn run_cranelift_run_bb_specialized(
     }
     if globals_obj.is_null() {
         return Err("invalid null globals object passed to specialized JIT run_bb".to_string());
+    }
+    if ambient_args.is_null() {
+        return Err("invalid null ambient args passed to specialized JIT run_bb".to_string());
     }
     install_specialized_hooks(hooks);
     let mut builder = new_jit_builder()?;
@@ -4596,6 +4959,7 @@ pub unsafe fn run_cranelift_run_bb_specialized(
             true_obj,
             false_obj,
             none_obj,
+            deleted_obj,
             empty_tuple_obj,
         )?;
 
@@ -4610,8 +4974,8 @@ pub unsafe fn run_cranelift_run_bb_specialized(
         .finalize_definitions()
         .map_err(|err| format!("failed to finalize specialized jit run_bb function: {err}"))?;
     let code_ptr = jit_module.get_finalized_function(main_id);
-    let compiled: extern "C" fn(ObjPtr) -> ObjPtr = std::mem::transmute(code_ptr);
-    Ok(compiled(args))
+    let compiled: extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr = std::mem::transmute(code_ptr);
+    Ok(compiled(args, ambient_args))
 }
 
 #[cfg(test)]
@@ -4624,6 +4988,7 @@ mod tests {
         let plan = ClifPlan {
             entry_index: 1,
             block_labels: vec!["b0".into(), "b1".into(), "b2".into()],
+            ambient_param_names: vec![],
             block_param_names: vec![vec![], vec![], vec![]],
             block_terms: vec![
                 BlockTermPlan::Ret,
@@ -4648,6 +5013,7 @@ mod tests {
                 11usize as ObjPtr,
                 12usize as ObjPtr,
                 13usize as ObjPtr,
+                14usize as ObjPtr,
             )
         }
         .expect_err("specialized JIT CLIF render should reject slow-path blocks");
@@ -4663,6 +5029,7 @@ mod tests {
         let plan = ClifPlan {
             entry_index: 0,
             block_labels: vec!["b0".into()],
+            ambient_param_names: vec![],
             block_param_names: vec![vec![]],
             block_terms: vec![BlockTermPlan::Ret],
             block_exc_targets: vec![None],
@@ -4676,6 +5043,7 @@ mod tests {
                 11usize as ObjPtr,
                 12usize as ObjPtr,
                 13usize as ObjPtr,
+                14usize as ObjPtr,
             )
         }
         .expect("specialized JIT CLIF render should succeed")
@@ -4696,6 +5064,7 @@ mod tests {
         let plan = ClifPlan {
             entry_index: 0,
             block_labels: vec!["b0".into()],
+            ambient_param_names: vec![],
             block_param_names: vec![vec![]],
             block_terms: vec![BlockTermPlan::Ret],
             block_exc_targets: vec![None],
@@ -4721,6 +5090,7 @@ mod tests {
                 11usize as ObjPtr,
                 12usize as ObjPtr,
                 13usize as ObjPtr,
+                14usize as ObjPtr,
             )
         }
         .expect("specialized JIT CLIF render should succeed")
@@ -4741,6 +5111,7 @@ mod tests {
         let plan = ClifPlan {
             entry_index: 0,
             block_labels: vec!["b0".into()],
+            ambient_param_names: vec![],
             block_param_names: vec![vec![]],
             block_terms: vec![BlockTermPlan::Ret],
             block_exc_targets: vec![None],
@@ -4766,6 +5137,7 @@ mod tests {
                 11usize as ObjPtr,
                 12usize as ObjPtr,
                 13usize as ObjPtr,
+                14usize as ObjPtr,
             )
         }
         .expect("specialized JIT CLIF render should succeed")

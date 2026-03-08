@@ -5,6 +5,12 @@ use std::ffi::c_void;
 use std::ptr;
 use std::sync::OnceLock;
 
+unsafe extern "C" {
+    fn PyCell_New(obj: *mut ffi::PyObject) -> *mut ffi::PyObject;
+    fn PyCell_Get(cell: *mut ffi::PyObject) -> *mut ffi::PyObject;
+    fn PyCell_Set(cell: *mut ffi::PyObject, value: *mut ffi::PyObject) -> libc::c_int;
+}
+
 pub type ObjPtr = *mut c_void;
 pub type IncrefFn = unsafe extern "C" fn(ObjPtr);
 pub type DecrefFn = unsafe extern "C" fn(ObjPtr);
@@ -24,6 +30,11 @@ pub type PyObjectGetItemFn = unsafe extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr;
 pub type PyObjectSetItemFn = unsafe extern "C" fn(ObjPtr, ObjPtr, ObjPtr) -> ObjPtr;
 pub type PyObjectToI64Fn = unsafe extern "C" fn(ObjPtr) -> i64;
 pub type DecodeLiteralBytesFn = unsafe extern "C" fn(*const u8, i64) -> ObjPtr;
+pub type LoadDeletedNameFn = unsafe extern "C" fn(*const u8, i64, ObjPtr, ObjPtr) -> ObjPtr;
+pub type MakeCellFn = unsafe extern "C" fn(ObjPtr) -> ObjPtr;
+pub type LoadCellFn = unsafe extern "C" fn(ObjPtr) -> ObjPtr;
+pub type StoreCellFn = unsafe extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr;
+pub type StoreCellIfNotDeletedFn = unsafe extern "C" fn(ObjPtr, ObjPtr, ObjPtr) -> ObjPtr;
 pub type TupleNewFn = unsafe extern "C" fn(i64) -> ObjPtr;
 pub type TupleSetItemFn = unsafe extern "C" fn(ObjPtr, i64, ObjPtr) -> i32;
 pub type IsTrueFn = unsafe extern "C" fn(ObjPtr) -> i32;
@@ -49,6 +60,11 @@ pub struct SpecializedJitHooks {
     pub pyobject_setitem: PyObjectSetItemFn,
     pub pyobject_to_i64: PyObjectToI64Fn,
     pub decode_literal_bytes: DecodeLiteralBytesFn,
+    pub load_deleted_name: LoadDeletedNameFn,
+    pub make_cell: MakeCellFn,
+    pub load_cell: LoadCellFn,
+    pub store_cell: StoreCellFn,
+    pub store_cell_if_not_deleted: StoreCellIfNotDeletedFn,
     pub tuple_new: TupleNewFn,
     pub tuple_set_item: TupleSetItemFn,
     pub is_true: IsTrueFn,
@@ -73,6 +89,11 @@ static mut DP_JIT_PYOBJECT_GETITEM_FN: Option<PyObjectGetItemFn> = None;
 static mut DP_JIT_PYOBJECT_SETITEM_FN: Option<PyObjectSetItemFn> = None;
 static mut DP_JIT_PYOBJECT_TO_I64_FN: Option<PyObjectToI64Fn> = None;
 static mut DP_JIT_DECODE_LITERAL_BYTES_FN: Option<DecodeLiteralBytesFn> = None;
+static mut DP_JIT_LOAD_DELETED_NAME_FN: Option<LoadDeletedNameFn> = None;
+static mut DP_JIT_MAKE_CELL_FN: Option<MakeCellFn> = None;
+static mut DP_JIT_LOAD_CELL_FN: Option<LoadCellFn> = None;
+static mut DP_JIT_STORE_CELL_FN: Option<StoreCellFn> = None;
+static mut DP_JIT_STORE_CELL_IF_NOT_DELETED_FN: Option<StoreCellIfNotDeletedFn> = None;
 static mut DP_JIT_TUPLE_NEW_FN: Option<TupleNewFn> = None;
 static mut DP_JIT_TUPLE_SET_ITEM_FN: Option<TupleSetItemFn> = None;
 static mut DP_JIT_IS_TRUE_FN: Option<IsTrueFn> = None;
@@ -97,6 +118,11 @@ pub unsafe fn install_specialized_hooks(hooks: &SpecializedJitHooks) {
     DP_JIT_PYOBJECT_SETITEM_FN = Some(hooks.pyobject_setitem);
     DP_JIT_PYOBJECT_TO_I64_FN = Some(hooks.pyobject_to_i64);
     DP_JIT_DECODE_LITERAL_BYTES_FN = Some(hooks.decode_literal_bytes);
+    DP_JIT_LOAD_DELETED_NAME_FN = Some(hooks.load_deleted_name);
+    DP_JIT_MAKE_CELL_FN = Some(hooks.make_cell);
+    DP_JIT_LOAD_CELL_FN = Some(hooks.load_cell);
+    DP_JIT_STORE_CELL_FN = Some(hooks.store_cell);
+    DP_JIT_STORE_CELL_IF_NOT_DELETED_FN = Some(hooks.store_cell_if_not_deleted);
     DP_JIT_TUPLE_NEW_FN = Some(hooks.tuple_new);
     DP_JIT_TUPLE_SET_ITEM_FN = Some(hooks.tuple_set_item);
     DP_JIT_IS_TRUE_FN = Some(hooks.is_true);
@@ -388,6 +414,78 @@ unsafe extern "C" fn decode_literal_bytes_hook(data_ptr: *const u8, data_len: i6
     ) as ObjPtr
 }
 
+unsafe extern "C" fn load_deleted_name_hook(
+    name_ptr: *const u8,
+    name_len: i64,
+    value: ObjPtr,
+    deleted: ObjPtr,
+) -> ObjPtr {
+    if value.is_null() || deleted.is_null() || name_ptr.is_null() || name_len < 0 {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"invalid arguments to dp_jit_load_deleted_name\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    if value == deleted {
+        let name = String::from_utf8_lossy(std::slice::from_raw_parts(
+            name_ptr,
+            name_len as usize,
+        ));
+        let message = format!(
+            "cannot access local variable {name:?} where it is not associated with a value"
+        );
+        if let Ok(c_msg) = std::ffi::CString::new(message) {
+            ffi::PyErr_SetString(ffi::PyExc_UnboundLocalError, c_msg.as_ptr());
+        } else {
+            ffi::PyErr_SetString(
+                ffi::PyExc_UnboundLocalError,
+                b"cannot access local variable before assignment\0".as_ptr() as *const i8,
+            );
+        }
+        return ptr::null_mut();
+    }
+    ffi::Py_INCREF(value as *mut ffi::PyObject);
+    value
+}
+
+unsafe extern "C" fn make_cell_hook(value: ObjPtr) -> ObjPtr {
+    PyCell_New(value as *mut ffi::PyObject) as ObjPtr
+}
+
+unsafe extern "C" fn load_cell_hook(cell: ObjPtr) -> ObjPtr {
+    let value = PyCell_Get(cell as *mut ffi::PyObject);
+    if value.is_null() && ffi::PyErr_ExceptionMatches(ffi::PyExc_ValueError) != 0 {
+        ffi::PyErr_Clear();
+        ffi::PyErr_SetString(
+            ffi::PyExc_UnboundLocalError,
+            b"local variable referenced before assignment\0".as_ptr() as *const i8,
+        );
+    }
+    value as ObjPtr
+}
+
+unsafe extern "C" fn store_cell_hook(cell: ObjPtr, value: ObjPtr) -> ObjPtr {
+    if PyCell_Set(cell as *mut ffi::PyObject, value as *mut ffi::PyObject) < 0 {
+        return ptr::null_mut();
+    }
+    ffi::Py_INCREF(value as *mut ffi::PyObject);
+    value
+}
+
+unsafe extern "C" fn store_cell_if_not_deleted_hook(
+    cell: ObjPtr,
+    value: ObjPtr,
+    deleted: ObjPtr,
+) -> ObjPtr {
+    if value != deleted && PyCell_Set(cell as *mut ffi::PyObject, value as *mut ffi::PyObject) < 0
+    {
+        return ptr::null_mut();
+    }
+    ffi::Py_INCREF(value as *mut ffi::PyObject);
+    value
+}
+
 unsafe extern "C" fn tuple_new_hook(size: i64) -> ObjPtr {
     if size < 0 {
         ffi::PyErr_SetString(
@@ -459,6 +557,11 @@ pub fn default_specialized_hooks() -> SpecializedJitHooks {
         pyobject_setitem: pyobject_setitem_hook,
         pyobject_to_i64: pyobject_to_i64_hook,
         decode_literal_bytes: decode_literal_bytes_hook,
+        load_deleted_name: load_deleted_name_hook,
+        make_cell: make_cell_hook,
+        load_cell: load_cell_hook,
+        store_cell: store_cell_hook,
+        store_cell_if_not_deleted: store_cell_if_not_deleted_hook,
         tuple_new: tuple_new_hook,
         tuple_set_item: tuple_set_item_hook,
         is_true: is_true_hook,
@@ -619,6 +722,50 @@ pub unsafe extern "C" fn dp_jit_pyobject_to_i64(value: ObjPtr) -> i64 {
 pub unsafe extern "C" fn dp_jit_decode_literal_bytes(data_ptr: *const u8, data_len: i64) -> ObjPtr {
     if let Some(func) = DP_JIT_DECODE_LITERAL_BYTES_FN {
         return func(data_ptr, data_len);
+    }
+    ptr::null_mut()
+}
+
+pub unsafe extern "C" fn dp_jit_make_cell(value: ObjPtr) -> ObjPtr {
+    if let Some(func) = DP_JIT_MAKE_CELL_FN {
+        return func(value);
+    }
+    ptr::null_mut()
+}
+
+pub unsafe extern "C" fn dp_jit_load_deleted_name(
+    name_ptr: *const u8,
+    name_len: i64,
+    value: ObjPtr,
+    deleted: ObjPtr,
+) -> ObjPtr {
+    if let Some(func) = DP_JIT_LOAD_DELETED_NAME_FN {
+        return func(name_ptr, name_len, value, deleted);
+    }
+    ptr::null_mut()
+}
+
+pub unsafe extern "C" fn dp_jit_load_cell(cell: ObjPtr) -> ObjPtr {
+    if let Some(func) = DP_JIT_LOAD_CELL_FN {
+        return func(cell);
+    }
+    ptr::null_mut()
+}
+
+pub unsafe extern "C" fn dp_jit_store_cell(cell: ObjPtr, value: ObjPtr) -> ObjPtr {
+    if let Some(func) = DP_JIT_STORE_CELL_FN {
+        return func(cell, value);
+    }
+    ptr::null_mut()
+}
+
+pub unsafe extern "C" fn dp_jit_store_cell_if_not_deleted(
+    cell: ObjPtr,
+    value: ObjPtr,
+    deleted: ObjPtr,
+) -> ObjPtr {
+    if let Some(func) = DP_JIT_STORE_CELL_IF_NOT_DELETED_FN {
+        return func(cell, value, deleted);
     }
     ptr::null_mut()
 }
@@ -872,6 +1019,17 @@ pub fn register_specialized_jit_symbols(builder: &mut JITBuilder) {
     builder.symbol(
         "dp_jit_decode_literal_bytes",
         dp_jit_decode_literal_bytes as *const u8,
+    );
+    builder.symbol(
+        "dp_jit_load_deleted_name",
+        dp_jit_load_deleted_name as *const u8,
+    );
+    builder.symbol("dp_jit_make_cell", dp_jit_make_cell as *const u8);
+    builder.symbol("dp_jit_load_cell", dp_jit_load_cell as *const u8);
+    builder.symbol("dp_jit_store_cell", dp_jit_store_cell as *const u8);
+    builder.symbol(
+        "dp_jit_store_cell_if_not_deleted",
+        dp_jit_store_cell_if_not_deleted as *const u8,
     );
     builder.symbol("dp_jit_tuple_new", dp_jit_tuple_new as *const u8);
     builder.symbol("dp_jit_tuple_set_item", dp_jit_tuple_set_item as *const u8);

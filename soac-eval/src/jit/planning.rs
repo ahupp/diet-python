@@ -9,6 +9,7 @@ use std::sync::{Mutex, OnceLock};
 pub struct ClifPlan {
     pub entry_index: usize,
     pub block_labels: Vec<String>,
+    pub ambient_param_names: Vec<String>,
     pub block_param_names: Vec<Vec<String>>,
     pub block_terms: Vec<BlockTermPlan>,
     pub block_exc_targets: Vec<Option<usize>>,
@@ -539,6 +540,19 @@ fn build_clif_plan(
             function.qualname, function.kind
         ));
     }
+    let ambient_param_names = function
+        .generator_closure_layout
+        .as_ref()
+        .map(|layout| {
+            layout
+                .inherited_captures
+                .iter()
+                .chain(layout.lifted_locals.iter())
+                .chain(layout.runtime_cells.iter())
+                .map(|slot| slot.storage_name.clone())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
     let mut label_to_index = HashMap::new();
     for (index, block) in function.blocks.iter().enumerate() {
         label_to_index.insert(block.label.clone(), index);
@@ -792,6 +806,7 @@ fn build_clif_plan(
             .iter()
             .map(|block| block.label.clone())
             .collect(),
+        ambient_param_names,
         block_param_names,
         block_terms,
         block_exc_targets,

@@ -152,9 +152,8 @@ pub(super) fn lower_generator_yield_terms_to_explicit_return(
     for block in blocks.iter_mut() {
         if let Terminator::Ret(value) = &block.terminator {
             if closure_state {
-                block.body.push(py_stmt!(
-                    "__dp_store_cell(_dp_cell__dp_pc, __dp__._GEN_PC_DONE)"
-                ));
+                block.body
+                    .push(py_stmt!("__dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)"));
                 for cell in cleanup_cells {
                     block.body.push(py_stmt!(
                         "__dp_store_cell({cell:id}, __dp_DELETED)",
@@ -162,9 +161,8 @@ pub(super) fn lower_generator_yield_terms_to_explicit_return(
                     ));
                 }
             } else {
-                block.body.push(py_stmt!(
-                    "__dp_setattr(_dp_self, \"_pc\", __dp__._GEN_PC_DONE)"
-                ));
+                block.body
+                    .push(py_stmt!("__dp_setattr(_dp_self, \"_pc\", __dp_GEN_PC_DONE)"));
             }
             block.terminator = Terminator::Raise(raise_done_stmt(is_async, value.clone()));
         }

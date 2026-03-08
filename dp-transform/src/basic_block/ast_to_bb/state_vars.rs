@@ -184,6 +184,7 @@ pub(super) fn rewrite_sync_generator_blocks_to_closure_cells(
     block_params: &mut HashMap<String, Vec<String>>,
     state_vars: &[String],
     cell_slots: &mut HashSet<String>,
+    _entry_label: &str,
 ) {
     let injected_exception_names = collect_injected_exception_names(blocks);
     let lifted_state = sync_generator_state_order(state_vars, &injected_exception_names);
@@ -196,6 +197,7 @@ pub(super) fn rewrite_sync_generator_blocks_to_closure_cells(
         .iter()
         .map(|name| sync_generator_storage_name(name))
         .collect::<Vec<_>>();
+    let lifted_storage_names = lifted_cells.iter().cloned().collect::<HashSet<_>>();
     for (name, cell) in lifted_state.iter().zip(lifted_cells.iter()) {
         if name == "_dp_classcell" || name.starts_with("_dp_cell_") {
             continue;
@@ -271,22 +273,21 @@ pub(super) fn rewrite_sync_generator_blocks_to_closure_cells(
         if has_transport {
             rewritten.push("_dp_transport_sent".to_string());
         }
-        for cell in &lifted_cells {
-            if !rewritten.iter().any(|name| name == cell) {
-                rewritten.push(cell.clone());
-            }
-        }
         for name in params.iter() {
             if is_generator_dispatch_param(name.as_str()) {
                 continue;
             }
-            if name.starts_with("_dp_try_exc_") {
+            if name.starts_with("_dp_try_exc_") || injected_exception_names.contains(name.as_str())
+            {
                 if !rewritten.iter().any(|existing| existing == name) {
                     rewritten.push(name.clone());
                 }
                 continue;
             }
             let rewritten_name = sync_generator_storage_name(name);
+            if lifted_storage_names.contains(rewritten_name.as_str()) {
+                continue;
+            }
             if !rewritten.iter().any(|existing| existing == &rewritten_name) {
                 rewritten.push(rewritten_name);
             }
