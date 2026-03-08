@@ -550,7 +550,13 @@ impl BasicBlockRewriter<'_> {
         let mut generator_dispatch_only_labels: HashSet<String> = HashSet::new();
         let mut generator_throw_passthrough_labels: HashSet<String> = HashSet::new();
         let is_async_generator_runtime = func.is_async && !coroutine_via_generator;
-        let is_closure_backed_generator_runtime = has_yield && !is_generated_comprehension_helper;
+        // Generated async comprehension helpers still stay on the legacy
+        // frame-backed resume path for now: forcing them onto the
+        // closure-backed factory/resume path can blow up the helper plan size.
+        // Sync generated genexpr helpers can use the normal closure-backed
+        // generator runtime and should not keep the legacy binder path alive.
+        let is_closure_backed_generator_runtime =
+            has_yield && !(is_generated_comprehension_helper && func.is_async);
         if has_yield {
             let generator_pc_expr = if is_closure_backed_generator_runtime {
                 py_expr!("__dp_load_cell(_dp_cell__dp_pc)")
