@@ -4,10 +4,8 @@ from __future__ import annotations
 import json
 import os
 import sys
-import tempfile
 import traceback
 import uuid
-import types
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -32,80 +30,19 @@ import __dp__  # noqa: E402
 DIET_PYTHON = diet_import_hook._get_pyo3_transform()
 
 
-def _load_module_from_source(source: str):
+def _register_plans_from_source(source: str) -> str:
     module_name = f"_dp_web_{uuid.uuid4().hex}"
-    tmp_path: str | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".py", delete=False, encoding="utf-8"
-        ) as tmp:
-            tmp.write(source)
-            tmp_path = tmp.name
-        transformed_source = DIET_PYTHON.transform_source_with_name(
-            source, module_name, True
-        )
-        module = types.ModuleType(module_name)
-        module.__file__ = tmp_path
-        module.__name__ = module_name
-        module.__package__ = None
-        exec(compile(transformed_source, tmp_path, "exec"), module.__dict__)
-        init = getattr(module, "_dp_module_init", None)
-        if callable(init):
-            init()
-        return module
-    finally:
-        if tmp_path is not None:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-        sys.modules.pop(module_name, None)
+    DIET_PYTHON.transform_source_with_name(source, module_name, True)
+    return module_name
 
 
-def _resolve_entry_callable(module, entry_label: str | None):
-    if entry_label:
-        direct = getattr(module, entry_label, None)
-        if callable(direct):
-            return direct, f"module.{entry_label}"
-
-        for name, value in module.__dict__.items():
-            if not callable(value):
-                continue
-            plan_qualname = getattr(value, "__dp_plan_qualname", None)
-            if isinstance(plan_qualname, str) and plan_qualname.endswith(
-                f"::{entry_label}"
-            ):
-                return value, f"{name} (plan={plan_qualname})"
-            if getattr(value, "__name__", None) == entry_label:
-                return value, f"{name} (name={entry_label})"
-
-    init = getattr(module, "_dp_module_init", None)
-    if callable(init):
-        return init, "_dp_module_init"
-    return None, None
-
-
-def _plan_key_from_callable(entry_callable):
-    plan_module = getattr(entry_callable, "__dp_plan_module", None)
-    plan_qualname = getattr(entry_callable, "__dp_plan_qualname", None)
-    if isinstance(plan_module, str) and isinstance(plan_qualname, str):
-        return plan_module, plan_qualname
-    module_name = getattr(entry_callable, "__module__", None)
-    qualname = getattr(entry_callable, "__qualname__", None)
-    if isinstance(module_name, str) and isinstance(qualname, str):
-        return module_name, qualname
-    raise RuntimeError("entry callable is missing JIT plan metadata")
-
-
-def _render_clif(source: str, entry_label: str | None):
-    module = _load_module_from_source(source)
-    entry_callable, resolved = _resolve_entry_callable(module, entry_label)
-    if entry_callable is None:
-        raise RuntimeError(
-            f"could not resolve callable for entry_label={entry_label!r}; "
-            "no callable _dp_module_init found"
-        )
-    plan_module, plan_qualname = _plan_key_from_callable(entry_callable)
+def _render_clif(source: str, qualname: str | None, entry_label: str | None):
+    plan_module = _register_plans_from_source(source)
+    if qualname is None:
+        qualname = "_dp_module_init"
+    if entry_label is None:
+        entry_label = "_dp_bb__dp_module_init_start"
+    plan_qualname = f"{qualname}::{entry_label}"
     rendered = DIET_PYTHON.jit_render_bb_with_cfg_plan(plan_module, plan_qualname)
     if not isinstance(rendered, dict):
         raise RuntimeError("jit_render_bb_with_cfg_plan() returned non-dict payload")
@@ -116,7 +53,7 @@ def _render_clif(source: str, entry_label: str | None):
         "clif": clif,
         "cfgDot": cfg_dot,
         "vcodeDisasm": vcode_disasm,
-        "resolved_entry": resolved,
+        "resolved_entry": plan_qualname,
     }
 
 
@@ -139,12 +76,15 @@ class InspectorHandler(SimpleHTTPRequestHandler):
             body = self.rfile.read(length)
             payload = json.loads(body.decode("utf-8"))
             source = payload.get("source", "")
+            qualname = payload.get("qualname")
             entry_label = payload.get("entryLabel")
             if not isinstance(source, str):
                 raise TypeError("source must be a string")
+            if qualname is not None and not isinstance(qualname, str):
+                raise TypeError("qualname must be a string when provided")
             if entry_label is not None and not isinstance(entry_label, str):
                 raise TypeError("entryLabel must be a string when provided")
-            result = _render_clif(source, entry_label)
+            result = _render_clif(source, qualname, entry_label)
             self._send_json(HTTPStatus.OK, result)
         except Exception as exc:  # noqa: BLE001
             self._send_json(

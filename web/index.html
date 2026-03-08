@@ -810,12 +810,17 @@ function selectedEntryLabel() {
 }
 
 async function fetchSoacClif(source, entryLabel) {
+  const selected = selectedFunctionRecord();
   const response = await fetch("/api/jit_clif", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ source, entryLabel }),
+    body: JSON.stringify({
+      source,
+      qualname: selected?.qualname || null,
+      entryLabel,
+    }),
   });
   const bodyText = await response.text();
   let payload = null;
