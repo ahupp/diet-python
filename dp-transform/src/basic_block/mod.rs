@@ -1,12 +1,19 @@
 mod ast_to_bb;
-mod bb_passes;
+mod await_lower;
 pub mod bb_ir;
+mod bb_passes;
+pub mod block_py;
+mod blockpy_pretty;
+mod blockpy_to_bb;
+mod ruff_to_blockpy;
 
 // Ruff AST -> BbModule
 pub use ast_to_bb::{
     collect_function_identity_by_node, rewrite_with_function_identity_and_collect_ir,
     BBSimplifyStmtPass,
 };
+pub use blockpy_pretty::blockpy_module_to_string;
+pub use ruff_to_blockpy::rewrite_ast_to_blockpy_module;
 // BbModule -> BbModule
 pub use bb_passes::{lower_try_jump_exception_flow, normalize_bb_module_for_codegen};
 

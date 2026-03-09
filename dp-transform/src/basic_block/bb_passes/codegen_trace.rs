@@ -68,8 +68,7 @@ pub(crate) fn instrument_bb_module_for_trace(module: &mut BbModule, config: &BbT
             };
             block.ops.insert(
                 0,
-                BbOp::from_stmt(trace_stmt)
-                    .expect("failed to lower BB trace statement into BbOp"),
+                BbOp::from_stmt(trace_stmt).expect("failed to lower BB trace statement into BbOp"),
             );
         }
     }
@@ -114,7 +113,9 @@ fn param_pairs_expr_source(params: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::{instrument_bb_module_for_trace, parse_bb_trace_config, BbTraceConfig};
-    use crate::{basic_block::normalize_bb_module_for_codegen, transform_str_to_bb_ir_with_options, Options};
+    use crate::{
+        basic_block::normalize_bb_module_for_codegen, transform_str_to_bb_ir_with_options, Options,
+    };
 
     #[test]
     fn parses_all_and_params_variants() {
@@ -145,10 +146,7 @@ mod tests {
     #[test]
     fn instruments_matching_function_blocks() {
         let source = "def f(x):\n    return x + 1\n\ndef g(y):\n    return y + 2\n";
-        let options = Options {
-            inject_import: false,
-            ..Options::for_test()
-        };
+        let options = Options::for_test();
         let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
             .expect("bb module should be available");

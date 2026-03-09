@@ -1,4 +1,6 @@
-use super::{Block, Terminator};
+use crate::basic_block::block_py::{
+    BlockPyBlock, BlockPyBranchTable, BlockPyIf, BlockPyRaise, BlockPyStmt, BlockPyTry,
+};
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Stmt};
@@ -121,7 +123,7 @@ fn rewrite_delete_target_to_deleted_sentinel(target: &Expr, out: &mut Vec<Stmt>)
 }
 
 pub(super) fn rewrite_deleted_name_loads(
-    blocks: &mut [Block],
+    blocks: &mut [BlockPyBlock],
     deleted_names: &HashSet<String>,
     always_unbound_names: &HashSet<String>,
 ) {
@@ -131,26 +133,77 @@ pub(super) fn rewrite_deleted_name_loads(
     };
     for block in blocks {
         for stmt in block.body.iter_mut() {
-            rewriter.visit_stmt(stmt);
+            rewrite_blockpy_stmt_deleted_name_loads(stmt, &mut rewriter);
         }
-        match &mut block.terminator {
-            Terminator::BrIf { test, .. } => rewriter.visit_expr(test),
-            Terminator::BrTable { index, .. } => rewriter.visit_expr(index),
-            Terminator::Raise(raise_stmt) => {
-                if let Some(exc) = raise_stmt.exc.as_mut() {
-                    rewriter.visit_expr(exc.as_mut());
-                }
-                if let Some(cause) = raise_stmt.cause.as_mut() {
-                    rewriter.visit_expr(cause.as_mut());
+    }
+}
+
+fn rewrite_blockpy_stmt_deleted_name_loads(
+    stmt: &mut BlockPyStmt,
+    rewriter: &mut DeletedNameLoadRewriter<'_>,
+) {
+    match stmt {
+        BlockPyStmt::Pass
+        | BlockPyStmt::Delete(_)
+        | BlockPyStmt::FunctionDef(_)
+        | BlockPyStmt::Jump(_)
+        | BlockPyStmt::LegacyTryJump(_) => {}
+        BlockPyStmt::Expr(expr) => expr.rewrite_mut(|inner| rewriter.visit_expr(inner)),
+        BlockPyStmt::Assign(assign) => assign.value.rewrite_mut(|expr| rewriter.visit_expr(expr)),
+        BlockPyStmt::If(BlockPyIf { test, body, orelse }) => {
+            test.rewrite_mut(|expr| rewriter.visit_expr(expr));
+            for block in body {
+                for stmt in &mut block.body {
+                    rewrite_blockpy_stmt_deleted_name_loads(stmt, rewriter);
                 }
             }
-            Terminator::Yield { value, .. } => {
-                if let Some(value) = value {
-                    rewriter.visit_expr(value);
+            for block in orelse {
+                for stmt in &mut block.body {
+                    rewrite_blockpy_stmt_deleted_name_loads(stmt, rewriter);
                 }
             }
-            Terminator::Ret(Some(value)) => rewriter.visit_expr(value),
-            Terminator::Jump(_) | Terminator::TryJump { .. } | Terminator::Ret(None) => {}
+        }
+        BlockPyStmt::BranchTable(BlockPyBranchTable { index, .. }) => {
+            index.rewrite_mut(|expr| rewriter.visit_expr(expr))
+        }
+        BlockPyStmt::Return(Some(value)) => value.rewrite_mut(|expr| rewriter.visit_expr(expr)),
+        BlockPyStmt::Return(None) => {}
+        BlockPyStmt::Raise(BlockPyRaise { exc }) => {
+            if let Some(exc) = exc {
+                exc.rewrite_mut(|expr| rewriter.visit_expr(expr));
+            }
+        }
+        BlockPyStmt::Try(BlockPyTry {
+            body,
+            handlers,
+            orelse,
+            finalbody,
+        }) => {
+            for block in body {
+                for stmt in &mut block.body {
+                    rewrite_blockpy_stmt_deleted_name_loads(stmt, rewriter);
+                }
+            }
+            for handler in handlers {
+                if let Some(type_) = handler.type_.as_mut() {
+                    type_.rewrite_mut(|expr| rewriter.visit_expr(expr));
+                }
+                for block in &mut handler.body {
+                    for stmt in &mut block.body {
+                        rewrite_blockpy_stmt_deleted_name_loads(stmt, rewriter);
+                    }
+                }
+            }
+            for block in orelse {
+                for stmt in &mut block.body {
+                    rewrite_blockpy_stmt_deleted_name_loads(stmt, rewriter);
+                }
+            }
+            for block in finalbody {
+                for stmt in &mut block.body {
+                    rewrite_blockpy_stmt_deleted_name_loads(stmt, rewriter);
+                }
+            }
         }
     }
 }

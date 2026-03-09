@@ -9,15 +9,20 @@
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <style>
 :root {
-  --bg-0: #f5efe2;
-  --bg-1: #f9f4ea;
-  --ink-0: #1f2a36;
-  --ink-1: #4b5563;
-  --accent: #007f6b;
-  --accent-soft: #d8f0e9;
-  --card: rgba(255, 255, 255, 0.8);
-  --line: rgba(31, 42, 54, 0.16);
-  --jump: rgba(199, 49, 90, 0.95);
+  color-scheme: dark;
+  --bg-0: #08111b;
+  --bg-1: #101b28;
+  --bg-2: #172537;
+  --ink-0: #e8f0fb;
+  --ink-1: #9db0c7;
+  --ink-2: #6f8198;
+  --accent: #4fd1bd;
+  --accent-soft: rgba(79, 209, 189, 0.16);
+  --card: rgba(13, 21, 32, 0.82);
+  --card-strong: rgba(18, 28, 41, 0.94);
+  --line: rgba(173, 201, 228, 0.12);
+  --line-strong: rgba(173, 201, 228, 0.24);
+  --jump: rgba(255, 138, 101, 0.95);
   --panel-min-width: 120ch;
 }
 
@@ -31,9 +36,9 @@ body {
   font-family: "Manrope", "Segoe UI", sans-serif;
   color: var(--ink-0);
   background:
-    radial-gradient(circle at 12% 8%, #fff7d9 0%, transparent 36%),
-    radial-gradient(circle at 88% 92%, #d6f4ec 0%, transparent 34%),
-    linear-gradient(135deg, var(--bg-0), var(--bg-1));
+    radial-gradient(circle at 12% 8%, rgba(31, 118, 110, 0.34) 0%, transparent 32%),
+    radial-gradient(circle at 88% 92%, rgba(35, 78, 140, 0.32) 0%, transparent 34%),
+    linear-gradient(160deg, var(--bg-0), var(--bg-1) 48%, var(--bg-2));
 }
 
 .app {
@@ -52,8 +57,9 @@ body {
   padding: 12px 16px;
   border-radius: 16px;
   background: var(--card);
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   backdrop-filter: blur(10px);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.34);
 }
 
 .title {
@@ -91,7 +97,7 @@ body {
   flex-direction: column;
   min-width: 0;
   min-height: 280px;
-  box-shadow: 0 8px 30px rgba(31, 42, 54, 0.06);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
 }
 
 .dominator-panel {
@@ -110,7 +116,11 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  background: linear-gradient(to right, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.5));
+  background: linear-gradient(
+    to right,
+    rgba(29, 43, 61, 0.96),
+    rgba(17, 27, 40, 0.82)
+  );
 }
 
 .panel-title {
@@ -136,8 +146,12 @@ textarea {
   padding: 14px;
   font-size: 0.83rem;
   line-height: 1.4;
-  background: transparent;
+  background: rgba(8, 14, 22, 0.34);
   color: var(--ink-0);
+}
+
+textarea::placeholder {
+  color: var(--ink-2);
 }
 
 pre {
@@ -148,7 +162,8 @@ pre {
   min-height: 0;
   font-size: 0.78rem;
   line-height: 1.44;
-  color: #1a2430;
+  color: var(--ink-0);
+  background: rgba(8, 14, 22, 0.28);
   white-space: pre;
 }
 
@@ -168,7 +183,7 @@ select {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 4px 8px;
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(18, 29, 44, 0.95);
   color: var(--ink-0);
 }
 
@@ -194,6 +209,25 @@ select {
   min-width: max-content;
 }
 
+.graphviz-root svg text,
+.graphviz-root svg tspan {
+  fill: var(--ink-0) !important;
+}
+
+.graphviz-root svg .node polygon,
+.graphviz-root svg .node ellipse,
+.graphviz-root svg .node path {
+  fill: rgba(18, 29, 44, 0.96) !important;
+  stroke: var(--line-strong) !important;
+}
+
+.graphviz-root svg .edge path,
+.graphviz-root svg .edge polygon,
+.graphviz-root svg .edge polyline {
+  stroke: rgba(157, 176, 199, 0.82) !important;
+  fill: rgba(157, 176, 199, 0.82) !important;
+}
+
 .tree-layer {
   position: relative;
   z-index: 2;
@@ -212,7 +246,7 @@ select {
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 8px 10px;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--card-strong);
   margin-bottom: 8px;
   min-width: 340px;
 }
@@ -228,14 +262,14 @@ select {
   font-family: "IBM Plex Mono", ui-monospace, monospace;
   font-size: 0.78rem;
   font-weight: 500;
-  color: #0f3e5f;
+  color: #8ad7ff;
 }
 
 .node-term {
   font-family: "IBM Plex Mono", ui-monospace, monospace;
   font-size: 0.72rem;
-  color: #43566b;
-  background: #f2f7fb;
+  color: #c7d6e8;
+  background: rgba(39, 56, 76, 0.9);
   border-radius: 8px;
   padding: 3px 6px;
 }
@@ -243,18 +277,18 @@ select {
 .node-ops {
   margin-top: 6px;
   border-radius: 8px;
-  border: 1px solid rgba(31, 42, 54, 0.1);
-  background: #fbfdff;
+  border: 1px solid var(--line);
+  background: rgba(9, 16, 24, 0.78);
   padding: 6px;
   white-space: pre-wrap;
   font-size: 0.72rem;
-  color: #394b60;
+  color: #d8e4f1;
 }
 
 .node-children {
   margin-left: 24px;
   padding-left: 12px;
-  border-left: 2px solid rgba(0, 127, 107, 0.2);
+  border-left: 2px solid rgba(79, 209, 189, 0.22);
 }
 
 .placeholder {
@@ -275,7 +309,7 @@ select {
   <div class="header">
       <div>
         <div class="title">diet-python transform pipeline inspector</div>
-      <div class="subtitle">Phase 1 output, generated CLIF, Graphviz CFG rendering, and dominator graph</div>
+      <div class="subtitle">Phase 1 output, BlockPy, generated CLIF, Graphviz CFG rendering, and dominator graph</div>
     </div>
     <div class="status" id="status">ready</div>
   </div>
@@ -293,6 +327,13 @@ select {
         <div class="panel-title">Phase 1 (pre-BB)</div>
       </div>
       <pre id="phase1"></pre>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-title">BlockPy</div>
+      </div>
+      <pre id="blockPy"></pre>
     </section>
 
     <section class="panel">
@@ -340,6 +381,7 @@ import { instance as createVizInstance } from "https://cdn.jsdelivr.net/npm/@viz
 
 const sourceEl = document.getElementById("source");
 const phase1El = document.getElementById("phase1");
+const blockPyEl = document.getElementById("blockPy");
 const clifRawEl = document.getElementById("clifRaw");
 const vcodeRawEl = document.getElementById("vcodeRaw");
 const pickerEl = document.getElementById("functionPicker");
@@ -885,6 +927,7 @@ function inspectNow() {
     state.payload = null;
     state.clifCfgByEntry = {};
     phase1El.textContent = "";
+    blockPyEl.textContent = "";
     clifRawEl.textContent = "";
     vcodeRawEl.textContent = "";
     pickerEl.innerHTML = "";
@@ -902,6 +945,7 @@ function inspectNow() {
     state.clifCfgByEntry = {};
 
     phase1El.textContent = payload.phase1 || "";
+    blockPyEl.textContent = payload.blockpy || "";
     clifRawEl.textContent = payload.clif || "";
     vcodeRawEl.textContent = "";
 
@@ -916,6 +960,7 @@ function inspectNow() {
     state.payload = null;
     state.clifCfgByEntry = {};
     phase1El.textContent = "";
+    blockPyEl.textContent = "";
     clifRawEl.textContent = "";
     vcodeRawEl.textContent = "";
     pickerEl.innerHTML = "";

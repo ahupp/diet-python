@@ -7,11 +7,7 @@ use ruff_text_size::TextRange;
 use std::sync::Once;
 use std::time::{Duration, Instant};
 
-#[cfg(target_arch = "wasm32")]
-mod web_inspector;
-
 pub mod basic_block;
-pub mod ensure_import;
 pub mod fixture;
 pub mod min_ast;
 mod namegen;
@@ -22,11 +18,15 @@ mod template;
 mod test_util;
 mod transform;
 pub(crate) mod transformer;
+#[cfg(target_arch = "wasm32")]
+mod web_inspector;
 
 use crate::basic_block::bb_ir;
+use crate::basic_block::block_py::BlockPyModule;
 use crate::transform::driver::rewrite_module;
 pub use crate::transform::scope::{analyze_module_scope, Scope};
 use transform::context::Context;
+use transform::simplify::lower_string_literals_to_bytes;
 pub use transform::Options;
 
 #[derive(Debug, Clone, Copy)]
@@ -74,6 +74,7 @@ fn should_skip(source: &str) -> bool {
 pub struct LoweringResult {
     pub timings: TransformTimings,
     pub module: ruff_python_ast::ModModule,
+    pub blockpy_module: Option<BlockPyModule>,
     pub bb_module: Option<bb_ir::BbModule>,
     function_name_map: std::collections::HashMap<String, (String, String)>,
 }
@@ -122,6 +123,7 @@ pub fn transform_str_to_ruff_with_options(
                 total_time: Duration::from_nanos(0),
             },
             module,
+            blockpy_module: None,
             bb_module: None,
             function_name_map: std::collections::HashMap::new(),
         });
@@ -131,7 +133,16 @@ pub fn transform_str_to_ruff_with_options(
 
     let rewrite_start = timing_start();
 
+    transform::simplify::lower_surrogate_string_literals(&ctx, &mut module.body);
     let rewrite_result = rewrite_module(&ctx, &mut module.body);
+    let bb_scope = analyze_module_scope(&mut module.body);
+    let bb_identity = basic_block::collect_function_identity_by_node(&mut module.body, bb_scope);
+    let bb_module = Some(basic_block::rewrite_ast_to_bb_module(
+        &ctx,
+        &mut module.body,
+        bb_identity,
+    ));
+    lower_string_literals_to_bytes(&mut module.body);
     let rewrite_time = timing_elapsed(rewrite_start);
 
     let timings = TransformTimings {
@@ -143,7 +154,8 @@ pub fn transform_str_to_ruff_with_options(
     Ok(LoweringResult {
         timings,
         module,
-        bb_module: rewrite_result.bb_module,
+        blockpy_module: Some(rewrite_result.blockpy_module),
+        bb_module,
         function_name_map: rewrite_result.function_name_map,
     })
 }
@@ -153,9 +165,7 @@ pub fn transform_str_to_bb_ir_with_options(
     options: Options,
 ) -> Result<Option<bb_ir::BbModule>, ParseError> {
     let mut options = options;
-    if options.emit_basic_blocks {
-        options.lower_attributes = true;
-    }
+    options.lower_attributes = true;
     Ok(transform_str_to_ruff_with_options(source, options)?.bb_module)
 }
 

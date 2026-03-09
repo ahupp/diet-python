@@ -6,4 +6,3 @@ pub mod exception;
 pub mod loop_cond;
 pub mod match_case;
 pub mod type_alias;
-pub mod with;

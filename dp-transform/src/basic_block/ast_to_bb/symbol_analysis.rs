@@ -1,4 +1,3 @@
-use super::Terminator;
 use crate::transformer::{walk_expr, Transformer};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use std::collections::HashSet;
@@ -151,29 +150,6 @@ pub(super) fn load_names_in_stmt(stmt: &Stmt) -> HashSet<String> {
     }
 }
 
-pub(super) fn load_names_in_terminator(terminator: &Terminator) -> HashSet<String> {
-    match terminator {
-        Terminator::BrIf { test, .. } => load_names_in_expr(test),
-        Terminator::BrTable { index, .. } => load_names_in_expr(index),
-        Terminator::Raise(raise_stmt) => {
-            let mut names = HashSet::new();
-            if let Some(exc) = raise_stmt.exc.as_ref() {
-                names.extend(load_names_in_expr(exc.as_ref()));
-            }
-            if let Some(cause) = raise_stmt.cause.as_ref() {
-                names.extend(load_names_in_expr(cause.as_ref()));
-            }
-            names
-        }
-        Terminator::TryJump { .. } => HashSet::new(),
-        Terminator::Yield { value, .. } => {
-            value.as_ref().map(load_names_in_expr).unwrap_or_default()
-        }
-        Terminator::Ret(Some(value)) => load_names_in_expr(value),
-        Terminator::Jump(_) | Terminator::Ret(None) => HashSet::new(),
-    }
-}
-
 pub(super) fn assigned_names_in_stmt(stmt: &Stmt) -> HashSet<String> {
     let mut names = HashSet::new();
     match stmt {
@@ -181,21 +157,27 @@ pub(super) fn assigned_names_in_stmt(stmt: &Stmt) -> HashSet<String> {
         // tracking defs. Without kills, deleted locals can be threaded across
         // block boundaries and incorrectly remain live.
         Stmt::Assign(assign) => {
+            collect_named_expr_target_names_in_expr(assign.value.as_ref(), &mut names);
             for target in &assign.targets {
                 collect_assigned_names(target, &mut names);
             }
         }
         Stmt::If(if_stmt) => {
+            collect_named_expr_target_names_in_expr(if_stmt.test.as_ref(), &mut names);
             for stmt in &if_stmt.body.body {
                 names.extend(assigned_names_in_stmt(stmt.as_ref()));
             }
             for clause in &if_stmt.elif_else_clauses {
+                if let Some(test) = clause.test.as_ref() {
+                    collect_named_expr_target_names_in_expr(test, &mut names);
+                }
                 for stmt in &clause.body.body {
                     names.extend(assigned_names_in_stmt(stmt.as_ref()));
                 }
             }
         }
         Stmt::While(while_stmt) => {
+            collect_named_expr_target_names_in_expr(while_stmt.test.as_ref(), &mut names);
             for stmt in &while_stmt.body.body {
                 names.extend(assigned_names_in_stmt(stmt.as_ref()));
             }
@@ -204,6 +186,7 @@ pub(super) fn assigned_names_in_stmt(stmt: &Stmt) -> HashSet<String> {
             }
         }
         Stmt::For(for_stmt) => {
+            collect_named_expr_target_names_in_expr(for_stmt.iter.as_ref(), &mut names);
             collect_assigned_names(for_stmt.target.as_ref(), &mut names);
             for stmt in &for_stmt.body.body {
                 names.extend(assigned_names_in_stmt(stmt.as_ref()));
@@ -218,6 +201,9 @@ pub(super) fn assigned_names_in_stmt(stmt: &Stmt) -> HashSet<String> {
             }
             for handler in &try_stmt.handlers {
                 let ast::ExceptHandler::ExceptHandler(handler) = handler;
+                if let Some(type_) = handler.type_.as_ref() {
+                    collect_named_expr_target_names_in_expr(type_.as_ref(), &mut names);
+                }
                 for stmt in &handler.body.body {
                     names.extend(assigned_names_in_stmt(stmt.as_ref()));
                 }
@@ -229,12 +215,51 @@ pub(super) fn assigned_names_in_stmt(stmt: &Stmt) -> HashSet<String> {
                 names.extend(assigned_names_in_stmt(stmt.as_ref()));
             }
         }
+        Stmt::Expr(expr_stmt) => {
+            collect_named_expr_target_names_in_expr(expr_stmt.value.as_ref(), &mut names);
+        }
         Stmt::FunctionDef(func_def) => {
             names.insert(func_def.name.id.to_string());
+        }
+        Stmt::Return(ret) => {
+            if let Some(value) = ret.value.as_ref() {
+                collect_named_expr_target_names_in_expr(value.as_ref(), &mut names);
+            }
+        }
+        Stmt::Raise(raise_stmt) => {
+            if let Some(exc) = raise_stmt.exc.as_ref() {
+                collect_named_expr_target_names_in_expr(exc.as_ref(), &mut names);
+            }
+            if let Some(cause) = raise_stmt.cause.as_ref() {
+                collect_named_expr_target_names_in_expr(cause.as_ref(), &mut names);
+            }
         }
         _ => {}
     }
     names
+}
+
+#[derive(Default)]
+struct NamedExprTargetCollector {
+    names: HashSet<String>,
+}
+
+impl Transformer for NamedExprTargetCollector {
+    fn visit_expr(&mut self, expr: &mut Expr) {
+        if let Expr::Named(ast::ExprNamed { target, value, .. }) = expr {
+            collect_assigned_names(target.as_ref(), &mut self.names);
+            self.visit_expr(value.as_mut());
+            return;
+        }
+        walk_expr(self, expr);
+    }
+}
+
+fn collect_named_expr_target_names_in_expr(expr: &Expr, names: &mut HashSet<String>) {
+    let mut expr = expr.clone();
+    let mut collector = NamedExprTargetCollector::default();
+    collector.visit_expr(&mut expr);
+    names.extend(collector.names);
 }
 
 pub(super) fn collect_assigned_names(target: &Expr, names: &mut HashSet<String>) {

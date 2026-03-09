@@ -67,14 +67,15 @@ cargo run --bin regen_snapshots
 
 ## CPython test suite
 
-To run the official CPython test suite with a Python installed via `uv`, use:
+To run the official CPython test suite, use:
 
 ```
-scripts/run_cpython_tests.sh
+just run-cpython-tests
 ```
 
-The script clones the `cpython` repository if necessary, creates a virtual
-environment using `uv`, and executes the test suite with that interpreter.
+The recipe refreshes the repo venv with `vendor/cpython/python`, builds the
+debug extension, and then runs regrtest with `vendor/cpython/python` plus the
+repo's explicit `PYTHONPATH` overlay.
 
 # CLIF
 
@@ -172,6 +173,8 @@ Use C API for operators:
   - JIT is 2.59% of stock throughput
 
 
+
+
 # Design
 
 Dropping to basic block format:
@@ -187,3 +190,34 @@ Dropping to basic block format:
     local, class-body) in one place, rather than spreading them across many
     different transforms.
   * 
+
+
+# Optimizations
+
+ * Inlining
+   * Is there only one caller?
+   * Is it below < size?
+   * Does it unlock other optimizations?
+ * Specialization
+    * Known cell address
+    * Call fastpath knowing exact sig of target
+    * Unboxing
+
+
+ * Minimize refcounting
+ * Code size/locality
+ * Maximize register use
+ * Avoid constant exception checking
+ * Flow control exceptions to jumps
+ * Compile-time computation
+ * Known subclasses
+   * No overrides to function
+ * Type hints enforcement
+ * Escape analysis, stack allocate
+   * Inline closure cells
+ * Green threads for async
+
+## Facts
+ * Constant
+ * ReadOnly
+ * ExactTypes(...)

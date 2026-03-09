@@ -3,14 +3,12 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SET_GLOB="${CPYTHON_TEST_SETS_GLOB:-$REPO_ROOT/test_sets/*.txt}"
-MODE="${DIET_PYTHON_MODE:-transform}"
-TIMEOUT_SECS="${CPYTHON_TEST_TIMEOUT_SECS:-180}"
 TEMPDIR_PATH="${CPYTHON_TEST_TEMPDIR:-/tmp/diet-python-cpython-tests}"
 LOG_DIR="${CPYTHON_TEST_LOG_DIR:-$REPO_ROOT/logs}"
 
 usage() {
   cat <<'USAGE'
-Usage: ./scripts/run_cpython_test_sets.sh [--mode transform] [--timeout <seconds>] [--tempdir <path>]
+Usage: ./scripts/run_cpython_test_sets.sh [--tempdir <path>]
 
 Runs each test set file in test_sets/ sequentially (part_01 -> part_10).
 The wrapper forces single-process regrtest execution via DIET_PYTHON_TEST_JOBS=1.
@@ -19,22 +17,6 @@ USAGE
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --mode)
-      shift
-      [ "$#" -gt 0 ] || { echo "--mode requires a value" >&2; exit 2; }
-      MODE="$1"
-      ;;
-    --mode=*)
-      MODE="${1#*=}"
-      ;;
-    --timeout)
-      shift
-      [ "$#" -gt 0 ] || { echo "--timeout requires a value" >&2; exit 2; }
-      TIMEOUT_SECS="$1"
-      ;;
-    --timeout=*)
-      TIMEOUT_SECS="${1#*=}"
-      ;;
     --tempdir)
       shift
       [ "$#" -gt 0 ] || { echo "--tempdir requires a value" >&2; exit 2; }
@@ -56,23 +38,14 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
-if [[ "$MODE" != "transform" ]]; then
-  echo "invalid mode '$MODE' (expected transform)" >&2
-  exit 2
-fi
-if ! [[ "$TIMEOUT_SECS" =~ ^[0-9]+$ ]]; then
-  echo "invalid timeout '$TIMEOUT_SECS' (expected integer seconds)" >&2
-  exit 2
-fi
-
 mkdir -p "$LOG_DIR" "$TEMPDIR_PATH"
 
 # Interrupted runs can leave stale workers behind.
 pkill -f "test.libregrtest.worker" >/dev/null 2>&1 || true
 
-SUMMARY_LOG="$LOG_DIR/cpython_${MODE}_test_sets_summary.log"
+SUMMARY_LOG="$LOG_DIR/cpython_jit_test_sets_summary.log"
 : > "$SUMMARY_LOG"
-echo "mode=$MODE timeout=$TIMEOUT_SECS tempdir=$TEMPDIR_PATH jobs=1" | tee -a "$SUMMARY_LOG"
+echo "jit=1 tempdir=$TEMPDIR_PATH jobs=1" | tee -a "$SUMMARY_LOG"
 
 failed=0
 shopt -s nullglob
@@ -87,15 +60,12 @@ fi
 for set_file in "${set_files[@]}"; do
   abs_set="$(realpath "$set_file")"
   set_name="$(basename "$set_file" .txt)"
-  set_log="$LOG_DIR/cpython_${MODE}_${set_name}.log"
+  set_log="$LOG_DIR/cpython_jit_${set_name}.log"
 
   echo "=== RUN $abs_set ===" | tee -a "$SUMMARY_LOG"
   set +e
-  DIET_PYTHON_MODE="$MODE" \
-  DIET_PYTHON_TEST_JOBS=1 \
-  ./scripts/run_cpython_tests.sh \
+  just run-cpython-tests 1 \
     -x slow \
-    --timeout "$TIMEOUT_SECS" \
     --tempdir "$TEMPDIR_PATH" \
     -f "$abs_set" \
     2>&1 | tee "$set_log"

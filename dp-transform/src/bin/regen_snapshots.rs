@@ -42,35 +42,20 @@ fn regenerate_fixture(path: &Path) -> Result<(), String> {
         trace!("regenerate_fixture: parsed {} blocks", blocks.len());
     }
 
-    let mut pre_bb_options = Options::for_test();
-    pre_bb_options.emit_basic_blocks = false;
-    let bb_options = Options::for_test();
-    let mut bb_outputs = Vec::with_capacity(blocks.len());
+    let options = Options::for_test();
+    let mut outputs = Vec::with_capacity(blocks.len());
     for block in &blocks {
         if log_enabled!(Level::Trace) {
-            trace!("regenerate_fixture: transforming bb {}", block.name);
+            trace!("regenerate_fixture: transforming {}", block.name);
         }
-        let bb = transform_str_to_ruff_with_options(&block.input, bb_options)
+        let transformed = transform_str_to_ruff_with_options(&block.input, options)
             .map_err(|err| format!("{}: {}", path.display(), err))?;
-        bb_outputs.push(bb.to_string());
-    }
-
-    let mut pre_bb_outputs = Vec::with_capacity(blocks.len());
-    for block in &blocks {
-        if log_enabled!(Level::Trace) {
-            trace!("regenerate_fixture: transforming pre-bb {}", block.name);
-        }
-        let pre_bb = transform_str_to_ruff_with_options(&block.input, pre_bb_options)
-            .map_err(|err| format!("{}: {}", path.display(), err))?;
-        pre_bb_outputs.push(pre_bb.to_string());
+        outputs.push(transformed.to_string());
     }
 
     for (index, block) in blocks.iter_mut().enumerate() {
-        block.output = format!(
-            "# -- pre-bb --\n{pre}\n\n# -- bb --\n{bb}\n",
-            pre = pre_bb_outputs[index].trim_end(),
-            bb = bb_outputs[index].trim_end()
-        );
+        block.output = outputs[index].trim_end().to_string();
+        block.output.push('\n');
     }
 
     let rendered = render_fixture(&blocks);

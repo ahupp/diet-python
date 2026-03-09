@@ -519,6 +519,17 @@ impl Transformer for ScopeCollector {
                 self.add_local_def(id.as_str());
                 return;
             }
+            Expr::Named(ast::ExprNamed { target, value, .. }) => {
+                bind_target_names(
+                    &mut self.bindings,
+                    &mut self.local_defs,
+                    &self.explicit_globals,
+                    &self.explicit_nonlocals,
+                    target,
+                );
+                self.visit_expr(value);
+                return;
+            }
             Expr::Lambda(_) | Expr::Generator(_) => {
                 return;
             }
@@ -929,6 +940,24 @@ mod test {
         assert!(func_scope.is_local("kwargs"));
         assert!(func_scope.is_global("x"));
         assert!(func_scope.is_local("y"));
+    }
+
+    #[test]
+    fn named_expr_in_while_test_binds_local() {
+        let mut body = parse_module_body(concat!(
+            "def f(values):\n",
+            "    while not (value := values[0]):\n",
+            "        break\n",
+            "    return value\n",
+        ));
+        let module_scope = analyze_module_scope(&mut body);
+        let func_def = find_function(&body.body, "f");
+        let func_scope = module_scope
+            .child_scope_for_function(func_def)
+            .expect("missing function scope");
+
+        assert!(func_scope.is_local("value"));
+        assert!(func_scope.is_local_definition("value"));
     }
 
     #[test]

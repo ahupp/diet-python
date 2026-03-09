@@ -94,6 +94,19 @@ impl Transformer for BasicBlockSupportChecker {
                 self.loop_depth -= 1;
                 self.visit_body(&mut for_stmt.orelse);
             }
+            Stmt::With(with_stmt) => {
+                if with_stmt.is_async && !self.allow_await {
+                    self.mark_unsupported();
+                    return;
+                }
+                for item in with_stmt.items.iter_mut() {
+                    self.visit_expr(&mut item.context_expr);
+                    if let Some(optional_vars) = item.optional_vars.as_mut() {
+                        self.visit_expr(optional_vars.as_mut());
+                    }
+                }
+                self.visit_body(&mut with_stmt.body);
+            }
             Stmt::Try(try_stmt) => {
                 self.visit_body(&mut try_stmt.body);
                 for handler in try_stmt.handlers.iter_mut() {

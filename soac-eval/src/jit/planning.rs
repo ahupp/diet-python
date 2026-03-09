@@ -832,10 +832,12 @@ pub fn register_clif_module_plans(module_name: &str, module: &BbModule) -> Resul
                 );
                 match &function.kind {
                     dp_transform::basic_block::bb_ir::BbFunctionKind::Generator {
-                        resume_label, ..
+                        resume_label,
+                        ..
                     }
                     | dp_transform::basic_block::bb_ir::BbFunctionKind::AsyncGenerator {
-                        resume_label, ..
+                        resume_label,
+                        ..
                     } if resume_label != &function.entry => {
                         let Some(resume_index) = function
                             .blocks

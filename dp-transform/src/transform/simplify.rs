@@ -1,5 +1,6 @@
 use crate::{
     transform::context::Context,
+    transform::rewrite_expr::string,
     transformer::{walk_body, walk_expr, Transformer},
 };
 use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
@@ -373,6 +374,10 @@ fn is_docstring_stmt(stmt: &Stmt) -> bool {
 
 struct StringBytesLowerer;
 
+struct SurrogateStringLiteralLowerer<'a> {
+    context: &'a Context,
+}
+
 impl Transformer for &mut StringBytesLowerer {
     fn visit_body(&mut self, body: &mut StmtBody) {
         for (index, stmt) in body.body.iter_mut().enumerate() {
@@ -403,6 +408,36 @@ impl Transformer for &mut StringBytesLowerer {
             *expr = string_to_str_bytes_expr(value.to_string().as_str());
         }
     }
+}
+
+impl Transformer for &mut SurrogateStringLiteralLowerer<'_> {
+    fn visit_body(&mut self, body: &mut StmtBody) {
+        for (index, stmt) in body.body.iter_mut().enumerate() {
+            if index == 0 && is_docstring_stmt(stmt) {
+                continue;
+            }
+            self.visit_stmt(stmt);
+        }
+    }
+
+    fn visit_expr(&mut self, expr: &mut Expr) {
+        walk_expr(self, expr);
+        let Expr::StringLiteral(ast::ExprStringLiteral { range, .. }) = expr else {
+            return;
+        };
+        let Some(src) = self.context.source_slice(*range) else {
+            return;
+        };
+        if string::has_surrogate_escape(src) {
+            let wrapped = format!("({src})");
+            *expr = string::decode_literal_source_bytes_expr(wrapped.as_str());
+        }
+    }
+}
+
+pub fn lower_surrogate_string_literals(context: &Context, stmts: &mut StmtBody) {
+    let mut lowerer = SurrogateStringLiteralLowerer { context };
+    (&mut lowerer).visit_body(stmts);
 }
 
 pub fn lower_string_literals_to_bytes(stmts: &mut StmtBody) {

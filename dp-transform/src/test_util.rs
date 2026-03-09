@@ -14,14 +14,11 @@ fn expected_output_for_mode(expected: &str) -> &str {
     expected
 }
 
-pub(crate) fn assert_transform_eq_ex(actual: &str, expected: &str, truthy: bool) {
+pub(crate) fn assert_transform_eq_ex(actual: &str, expected: &str) {
     let expected_for_mode = expected_output_for_mode(expected);
     let mut expected_normalized = expected_for_mode.trim_matches('\n').to_string();
     expected_normalized.push('\n');
-    let options = Options {
-        truthy,
-        ..Options::for_test()
-    };
+    let options = Options::for_test();
     let module = transform_str_to_ruff_with_options(actual, options).unwrap();
     let actual_str = ruff_ast_to_string(&module.module.body);
     let actual_body = &module.module.body.body;
@@ -106,7 +103,7 @@ fn format_first_difference(actual: &[Box<Stmt>], rerun: &[Box<Stmt>]) -> String 
 }
 
 pub(crate) fn assert_transform_eq_basic_blocks(actual: &str, expected: &str) {
-    assert_transform_eq_ex(actual, expected, false);
+    assert_transform_eq_ex(actual, expected);
 }
 
 pub(crate) fn run_transform_fixture_tests(fixture: &str) {

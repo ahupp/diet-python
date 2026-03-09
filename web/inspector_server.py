@@ -18,9 +18,11 @@ WEB_DIR = ROOT / "web"
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-# CLIF rendering must use JIT-enabled transformed execution.
+# CLIF rendering uses transformed execution and always renders JIT plans.
 os.environ.setdefault("DIET_PYTHON_MODE", "transform")
-os.environ.setdefault("DIET_PYTHON_JIT", "1")
+# The web server should only transform the ad hoc source being inspected.
+# Transforming stdlib imports during server startup can crash before bind().
+os.environ.setdefault("DIET_PYTHON_INTEGRATION_ONLY", "1")
 
 import diet_import_hook  # noqa: E402
 diet_import_hook.install()

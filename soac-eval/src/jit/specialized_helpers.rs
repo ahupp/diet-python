@@ -428,10 +428,7 @@ unsafe extern "C" fn load_deleted_name_hook(
         return ptr::null_mut();
     }
     if value == deleted {
-        let name = String::from_utf8_lossy(std::slice::from_raw_parts(
-            name_ptr,
-            name_len as usize,
-        ));
+        let name = String::from_utf8_lossy(std::slice::from_raw_parts(name_ptr, name_len as usize));
         let message = format!(
             "cannot access local variable {name:?} where it is not associated with a value"
         );
@@ -478,8 +475,7 @@ unsafe extern "C" fn store_cell_if_not_deleted_hook(
     value: ObjPtr,
     deleted: ObjPtr,
 ) -> ObjPtr {
-    if value != deleted && PyCell_Set(cell as *mut ffi::PyObject, value as *mut ffi::PyObject) < 0
-    {
+    if value != deleted && PyCell_Set(cell as *mut ffi::PyObject, value as *mut ffi::PyObject) < 0 {
         return ptr::null_mut();
     }
     ffi::Py_INCREF(value as *mut ffi::PyObject);

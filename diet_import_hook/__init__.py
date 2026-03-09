@@ -210,6 +210,9 @@ def install():
         _dp_module._register_clif_vectorcall = getattr(
             transform, "register_clif_vectorcall", None
         )
+        _dp_module._jit_compile_clif_wrapper = getattr(
+            transform, "jit_compile_clif_wrapper", None
+        )
     except Exception:
         pass
 

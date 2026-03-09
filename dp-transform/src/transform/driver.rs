@@ -1,21 +1,18 @@
 use super::context::Context;
 use crate::basic_block;
-use crate::basic_block::bb_ir::BbModule;
-use crate::ensure_import;
+use crate::basic_block::block_py::BlockPyModule;
 use crate::transform::ast_rewrite::rewrite_with_pass;
 use crate::transform::rewrite_class_def;
 use crate::transform::scope::{analyze_module_scope, BindingKind};
-use crate::transform::simplify::{lower_string_literals_to_bytes, strip_generated_passes};
-use crate::transform::{
-    ast_rewrite::ExprRewritePass, rewrite_expr, rewrite_future_annotations, rewrite_names,
-};
+use crate::transform::simplify::strip_generated_passes;
+use crate::transform::{ast_rewrite::ExprRewritePass, rewrite_future_annotations, rewrite_names};
 use crate::transform::{ast_rewrite::LoweredExpr, rewrite_expr::lower_expr, rewrite_stmt};
 use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
 use std::collections::HashMap;
 
 pub struct RewriteModuleResult {
     pub function_name_map: HashMap<String, (String, String)>,
-    pub bb_module: Option<BbModule>,
+    pub blockpy_module: BlockPyModule,
 }
 
 pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> RewriteModuleResult {
@@ -65,43 +62,12 @@ pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> RewriteModule
     let bb_function_identity =
         basic_block::collect_function_identity_by_node(module, bb_scope.clone());
 
-    if context.options.truthy {
-        rewrite_expr::truthy::rewrite(module);
-    }
-
-    if context.options.inject_import {
-        ensure_import::ensure_imports(context, module);
-    }
-
-    // Lower string literals into byte-literal decode form in the normal transform
-    // pipeline so downstream representations (including BB IR) see one
-    // consistent pure-Python shape.
-    lower_string_literals_to_bytes(module);
-
-    let bb_module = if context.options.emit_basic_blocks {
-        let bb_module = basic_block::rewrite_ast_to_bb_module(
-            context,
-            module,
-            bb_function_identity,
-        );
-        // BB lowering directly emits index-based destructuring for simple targets
-        // (e.g. `a, b = _dp_tmp`). Complex targets still flow through the standard
-        // assignment rewrite to preserve Python semantics.
-        rewrite_with_pass(
-            context,
-            Some(&basic_block::BBSimplifyStmtPass),
-            Some(&SimplifyExprPass),
-            module,
-        );
-        strip_generated_passes(context, module);
-        Some(bb_module)
-    } else {
-        None
-    };
+    let blockpy_module = basic_block::rewrite_ast_to_blockpy_module(module, &bb_function_identity)
+        .expect("Ruff AST -> BlockPy conversion should succeed after simplification");
 
     RewriteModuleResult {
         function_name_map: HashMap::new(),
-        bb_module,
+        blockpy_module,
     }
 }
 

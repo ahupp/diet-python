@@ -231,6 +231,14 @@ impl<'a> RewriteLoop<'a> {
                 self.visit_body(&mut class_def.body);
                 self.context.pop_scope();
             }
+            Stmt::While(while_stmt) => {
+                // In BB mode, `while` is lowered structurally in Ruff AST -> BlockPy.
+                // Keep the raw test expression intact until that phase so any
+                // expression lowering needed for the test is emitted in the loop's
+                // dedicated test block and therefore re-evaluates on each iteration.
+                self.visit_body(&mut while_stmt.body);
+                self.visit_body(&mut while_stmt.orelse);
+            }
             _ => walk_stmt(self, &mut stmt),
         }
 

@@ -1,32 +1,39 @@
-use super::symbol_analysis::{
-    assigned_names_in_stmt, load_names_in_stmt, load_names_in_terminator,
+use super::symbol_analysis::{assigned_names_in_stmt, load_names_in_expr, load_names_in_stmt};
+use crate::basic_block::block_py::{
+    BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyDelete, BlockPyIf, BlockPyLabel,
+    BlockPyLegacyTryJump, BlockPyRaise, BlockPyStmt, BlockPyTry,
 };
-use super::{Block, Terminator};
+use ruff_python_ast::{self as ast, Expr, Stmt};
+use ruff_text_size::TextRange;
 use std::collections::{HashMap, HashSet};
 
-pub(super) fn build_extra_successors(blocks: &[Block]) -> HashMap<String, Vec<String>> {
+pub(super) fn build_extra_successors_blockpy(
+    blocks: &[BlockPyBlock],
+) -> HashMap<String, Vec<String>> {
     let mut extra = HashMap::new();
     for block in blocks {
-        if let Terminator::TryJump {
+        let Some(BlockPyStmt::LegacyTryJump(BlockPyLegacyTryJump {
             body_region_labels,
             except_region_labels,
             finally_label: Some(finally_label),
             ..
-        } = &block.terminator
-        {
-            for label in body_region_labels.iter().chain(except_region_labels.iter()) {
-                extra
-                    .entry(label.clone())
-                    .or_insert_with(Vec::new)
-                    .push(finally_label.clone());
-            }
+        })) = block.body.last()
+        else {
+            continue;
+        };
+
+        for label in body_region_labels.iter().chain(except_region_labels.iter()) {
+            extra
+                .entry(label.as_str().to_string())
+                .or_insert_with(Vec::new)
+                .push(finally_label.as_str().to_string());
         }
     }
     extra
 }
 
-pub(super) fn compute_block_params(
-    blocks: &[Block],
+pub(super) fn compute_block_params_blockpy(
+    blocks: &[BlockPyBlock],
     state_order: &[String],
     extra_successors: &HashMap<String, Vec<String>>,
 ) -> HashMap<String, Vec<String>> {
@@ -36,7 +43,7 @@ pub(super) fn compute_block_params(
         .map(|(idx, block)| (block.label.as_str(), idx))
         .collect();
     let analyses: Vec<(HashSet<String>, HashSet<String>)> =
-        blocks.iter().map(analyze_block_use_def).collect();
+        blocks.iter().map(analyze_blockpy_use_def).collect();
     let mut live_in: Vec<HashSet<String>> = vec![HashSet::new(); blocks.len()];
     let mut live_out: Vec<HashSet<String>> = vec![HashSet::new(); blocks.len()];
 
@@ -45,7 +52,7 @@ pub(super) fn compute_block_params(
         changed = false;
         for (idx, block) in blocks.iter().enumerate().rev() {
             let mut out = HashSet::new();
-            for succ in block.successors() {
+            for succ in blockpy_successors(block) {
                 if let Some(succ_idx) = label_to_index.get(succ.as_str()) {
                     out.extend(live_in[*succ_idx].iter().cloned());
                 }
@@ -79,81 +86,261 @@ pub(super) fn compute_block_params(
             .filter(|name| live_in[idx].contains(name.as_str()))
             .cloned()
             .collect::<Vec<_>>();
-        params.insert(block.label.clone(), ordered);
+        params.insert(block.label.as_str().to_string(), ordered);
     }
     params
 }
 
-pub(super) fn ensure_try_exception_params(
-    blocks: &[Block],
+pub(super) fn ensure_try_exception_params_blockpy(
+    blocks: &[BlockPyBlock],
     block_params: &mut HashMap<String, Vec<String>>,
 ) {
     for block in blocks {
-        let Terminator::TryJump {
+        let Some(BlockPyStmt::LegacyTryJump(BlockPyLegacyTryJump {
             except_label,
             except_exc_name,
             finally_label,
             finally_exc_name,
             ..
-        } = &block.terminator
+        })) = block.body.last()
         else {
             continue;
         };
 
         if let Some(exc_name) = except_exc_name {
-            let params = block_params.entry(except_label.clone()).or_default();
+            let params = block_params
+                .entry(except_label.as_str().to_string())
+                .or_default();
             params.retain(|name| name != exc_name);
             params.push(exc_name.clone());
         }
         if let (Some(finally_label), Some(exc_name)) = (finally_label, finally_exc_name) {
-            let params = block_params.entry(finally_label.clone()).or_default();
+            let params = block_params
+                .entry(finally_label.as_str().to_string())
+                .or_default();
             params.retain(|name| name != exc_name);
             params.push(exc_name.clone());
         }
     }
 }
 
-pub(super) fn analyze_block_use_def(block: &Block) -> (HashSet<String>, HashSet<String>) {
+pub(super) fn analyze_blockpy_use_def(block: &BlockPyBlock) -> (HashSet<String>, HashSet<String>) {
     let mut uses = HashSet::new();
     let mut defs = HashSet::new();
 
     for stmt in &block.body {
-        for name in load_names_in_stmt(stmt) {
+        for name in load_names_in_blockpy_stmt(stmt) {
             if !defs.contains(name.as_str()) {
                 uses.insert(name);
             }
         }
-        for name in assigned_names_in_stmt(stmt) {
+        for name in assigned_names_in_blockpy_stmt(stmt) {
             defs.insert(name);
-        }
-    }
-
-    for name in assigned_names_in_terminator(&block.terminator) {
-        defs.insert(name);
-    }
-
-    for name in load_names_in_terminator(&block.terminator) {
-        if !defs.contains(name.as_str()) {
-            uses.insert(name);
         }
     }
 
     (uses, defs)
 }
 
-fn assigned_names_in_terminator(terminator: &Terminator) -> HashSet<String> {
-    match terminator {
-        Terminator::Jump(_)
-        | Terminator::BrIf { .. }
-        | Terminator::BrTable { .. }
-        | Terminator::Raise(_)
-        | Terminator::Yield { .. }
-        | Terminator::Ret(_) => HashSet::new(),
-        Terminator::TryJump {
+fn blockpy_successors(block: &BlockPyBlock) -> Vec<String> {
+    match block.body.last() {
+        Some(BlockPyStmt::Jump(target)) => vec![target.as_str().to_string()],
+        Some(BlockPyStmt::If(if_stmt)) => terminal_if_jump_labels(if_stmt)
+            .map(|(_, then_label, else_label)| {
+                vec![
+                    then_label.as_str().to_string(),
+                    else_label.as_str().to_string(),
+                ]
+            })
+            .unwrap_or_default(),
+        Some(BlockPyStmt::BranchTable(BlockPyBranchTable {
+            targets,
+            default_label,
+            ..
+        })) => {
+            let mut out = targets
+                .iter()
+                .map(|label| label.as_str().to_string())
+                .collect::<Vec<_>>();
+            out.push(default_label.as_str().to_string());
+            out
+        }
+        Some(BlockPyStmt::LegacyTryJump(BlockPyLegacyTryJump {
+            body_label,
+            except_label,
+            finally_label,
+            finally_fallthrough_label,
+            ..
+        })) => {
+            let mut out = vec![
+                body_label.as_str().to_string(),
+                except_label.as_str().to_string(),
+            ];
+            if let Some(finally_label) = finally_label {
+                out.push(finally_label.as_str().to_string());
+            }
+            if let Some(finally_fallthrough_label) = finally_fallthrough_label {
+                out.push(finally_fallthrough_label.as_str().to_string());
+            }
+            out
+        }
+        Some(BlockPyStmt::Raise(_)) | Some(BlockPyStmt::Return(_)) => Vec::new(),
+        _ => Vec::new(),
+    }
+}
+
+fn load_names_in_blockpy_stmt(stmt: &BlockPyStmt) -> HashSet<String> {
+    match stmt {
+        BlockPyStmt::Pass => HashSet::new(),
+        BlockPyStmt::Assign(BlockPyAssign { value, .. }) => load_names_in_expr(&value.to_expr()),
+        BlockPyStmt::Expr(expr) => load_names_in_expr(&expr.to_expr()),
+        BlockPyStmt::Delete(BlockPyDelete { target }) => {
+            load_names_in_expr(&Expr::Name(target.clone()))
+        }
+        BlockPyStmt::FunctionDef(func) => load_names_in_stmt(&Stmt::FunctionDef(func.clone())),
+        BlockPyStmt::If(BlockPyIf { test, body, orelse }) => {
+            load_names_in_stmt(&Stmt::If(ast::StmtIf {
+                node_index: compat_node_index(),
+                range: compat_range(),
+                test: Box::new(test.to_expr()),
+                body: stmt_body_from_blockpy_blocks(body),
+                elif_else_clauses: if orelse.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![ast::ElifElseClause {
+                        node_index: compat_node_index(),
+                        range: compat_range(),
+                        test: None,
+                        body: stmt_body_from_blockpy_blocks(orelse),
+                    }]
+                },
+            }))
+        }
+        BlockPyStmt::BranchTable(BlockPyBranchTable { index, .. }) => {
+            load_names_in_expr(&index.to_expr())
+        }
+        BlockPyStmt::Jump(_) => HashSet::new(),
+        BlockPyStmt::Return(value) => value
+            .as_ref()
+            .map(|expr| load_names_in_expr(&expr.to_expr()))
+            .unwrap_or_default(),
+        BlockPyStmt::Raise(BlockPyRaise { exc }) => exc
+            .as_ref()
+            .map(|expr| load_names_in_expr(&expr.to_expr()))
+            .unwrap_or_default(),
+        BlockPyStmt::Try(BlockPyTry {
+            body,
+            handlers,
+            orelse,
+            finalbody,
+        }) => {
+            let try_stmt = Stmt::Try(ast::StmtTry {
+                node_index: compat_node_index(),
+                range: compat_range(),
+                is_star: handlers
+                    .first()
+                    .map(|handler| {
+                        matches!(
+                            handler.kind,
+                            crate::basic_block::block_py::BlockPyExceptHandlerKind::ExceptStar
+                        )
+                    })
+                    .unwrap_or(false),
+                body: stmt_body_from_blockpy_blocks(body),
+                handlers: handlers
+                    .iter()
+                    .map(|handler| {
+                        ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
+                            node_index: compat_node_index(),
+                            range: compat_range(),
+                            type_: handler.type_.as_ref().map(|expr| Box::new(expr.to_expr())),
+                            name: handler
+                                .name
+                                .as_ref()
+                                .map(|name| ast::Identifier::new(name, compat_range())),
+                            body: stmt_body_from_blockpy_blocks(&handler.body),
+                        })
+                    })
+                    .collect(),
+                orelse: stmt_body_from_blockpy_blocks(orelse),
+                finalbody: stmt_body_from_blockpy_blocks(finalbody),
+            });
+            load_names_in_stmt(&try_stmt)
+        }
+        BlockPyStmt::LegacyTryJump(_) => HashSet::new(),
+    }
+}
+
+fn assigned_names_in_blockpy_stmt(stmt: &BlockPyStmt) -> HashSet<String> {
+    match stmt {
+        BlockPyStmt::Pass => HashSet::new(),
+        BlockPyStmt::Assign(BlockPyAssign { target, .. }) => HashSet::from([target.id.to_string()]),
+        BlockPyStmt::Expr(_) => HashSet::new(),
+        BlockPyStmt::Delete(_) => HashSet::new(),
+        BlockPyStmt::FunctionDef(func) => HashSet::from([func.name.id.to_string()]),
+        BlockPyStmt::If(BlockPyIf { test, body, orelse }) => {
+            assigned_names_in_stmt(&Stmt::If(ast::StmtIf {
+                node_index: compat_node_index(),
+                range: compat_range(),
+                test: Box::new(test.to_expr()),
+                body: stmt_body_from_blockpy_blocks(body),
+                elif_else_clauses: if orelse.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![ast::ElifElseClause {
+                        node_index: compat_node_index(),
+                        range: compat_range(),
+                        test: None,
+                        body: stmt_body_from_blockpy_blocks(orelse),
+                    }]
+                },
+            }))
+        }
+        BlockPyStmt::BranchTable(_)
+        | BlockPyStmt::Jump(_)
+        | BlockPyStmt::Return(_)
+        | BlockPyStmt::Raise(_) => HashSet::new(),
+        BlockPyStmt::Try(BlockPyTry {
+            body,
+            handlers,
+            orelse,
+            finalbody,
+        }) => assigned_names_in_stmt(&Stmt::Try(ast::StmtTry {
+            node_index: compat_node_index(),
+            range: compat_range(),
+            is_star: handlers
+                .first()
+                .map(|handler| {
+                    matches!(
+                        handler.kind,
+                        crate::basic_block::block_py::BlockPyExceptHandlerKind::ExceptStar
+                    )
+                })
+                .unwrap_or(false),
+            body: stmt_body_from_blockpy_blocks(body),
+            handlers: handlers
+                .iter()
+                .map(|handler| {
+                    ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
+                        node_index: compat_node_index(),
+                        range: compat_range(),
+                        type_: handler.type_.as_ref().map(|expr| Box::new(expr.to_expr())),
+                        name: handler
+                            .name
+                            .as_ref()
+                            .map(|name| ast::Identifier::new(name, compat_range())),
+                        body: stmt_body_from_blockpy_blocks(&handler.body),
+                    })
+                })
+                .collect(),
+            orelse: stmt_body_from_blockpy_blocks(orelse),
+            finalbody: stmt_body_from_blockpy_blocks(finalbody),
+        })),
+        BlockPyStmt::LegacyTryJump(BlockPyLegacyTryJump {
             except_exc_name,
             finally_exc_name,
             ..
-        } => {
+        }) => {
             let mut names = HashSet::new();
             if let Some(name) = except_exc_name.as_ref() {
                 names.insert(name.clone());
@@ -164,4 +351,138 @@ fn assigned_names_in_terminator(terminator: &Terminator) -> HashSet<String> {
             names
         }
     }
+}
+
+fn compat_node_index() -> ast::AtomicNodeIndex {
+    ast::AtomicNodeIndex::default()
+}
+
+fn compat_range() -> TextRange {
+    TextRange::default()
+}
+
+fn stmt_body_from_blockpy_blocks(blocks: &[BlockPyBlock]) -> ast::StmtBody {
+    ast::StmtBody {
+        node_index: compat_node_index(),
+        range: compat_range(),
+        body: blocks
+            .iter()
+            .flat_map(|block| block.body.iter())
+            .filter_map(stmt_from_blockpy_stmt_for_analysis)
+            .map(Box::new)
+            .collect(),
+    }
+}
+
+fn stmt_from_blockpy_stmt_for_analysis(stmt: &BlockPyStmt) -> Option<Stmt> {
+    match stmt {
+        BlockPyStmt::Pass => Some(Stmt::Pass(ast::StmtPass {
+            node_index: compat_node_index(),
+            range: compat_range(),
+        })),
+        BlockPyStmt::Assign(BlockPyAssign { target, value }) => {
+            Some(Stmt::Assign(ast::StmtAssign {
+                node_index: compat_node_index(),
+                range: compat_range(),
+                targets: vec![Expr::Name(target.clone())],
+                value: Box::new(value.to_expr()),
+            }))
+        }
+        BlockPyStmt::Expr(expr) => Some(Stmt::Expr(ast::StmtExpr {
+            node_index: compat_node_index(),
+            range: compat_range(),
+            value: Box::new(expr.to_expr()),
+        })),
+        BlockPyStmt::Delete(BlockPyDelete { target }) => Some(Stmt::Delete(ast::StmtDelete {
+            node_index: compat_node_index(),
+            range: compat_range(),
+            targets: vec![Expr::Name(target.clone())],
+        })),
+        BlockPyStmt::FunctionDef(func) => Some(Stmt::FunctionDef(func.clone())),
+        BlockPyStmt::If(BlockPyIf { test, body, orelse }) => Some(Stmt::If(ast::StmtIf {
+            node_index: compat_node_index(),
+            range: compat_range(),
+            test: Box::new(test.to_expr()),
+            body: stmt_body_from_blockpy_blocks(body),
+            elif_else_clauses: if orelse.is_empty() {
+                Vec::new()
+            } else {
+                vec![ast::ElifElseClause {
+                    node_index: compat_node_index(),
+                    range: compat_range(),
+                    test: None,
+                    body: stmt_body_from_blockpy_blocks(orelse),
+                }]
+            },
+        })),
+        BlockPyStmt::Try(BlockPyTry {
+            body,
+            handlers,
+            orelse,
+            finalbody,
+        }) => Some(Stmt::Try(ast::StmtTry {
+            node_index: compat_node_index(),
+            range: compat_range(),
+            is_star: handlers
+                .first()
+                .map(|handler| {
+                    matches!(
+                        handler.kind,
+                        crate::basic_block::block_py::BlockPyExceptHandlerKind::ExceptStar
+                    )
+                })
+                .unwrap_or(false),
+            body: stmt_body_from_blockpy_blocks(body),
+            handlers: handlers
+                .iter()
+                .map(|handler| {
+                    ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
+                        node_index: compat_node_index(),
+                        range: compat_range(),
+                        type_: handler.type_.as_ref().map(|expr| Box::new(expr.to_expr())),
+                        name: handler
+                            .name
+                            .as_ref()
+                            .map(|name| ast::Identifier::new(name, compat_range())),
+                        body: stmt_body_from_blockpy_blocks(&handler.body),
+                    })
+                })
+                .collect(),
+            orelse: stmt_body_from_blockpy_blocks(orelse),
+            finalbody: stmt_body_from_blockpy_blocks(finalbody),
+        })),
+        BlockPyStmt::BranchTable(_)
+        | BlockPyStmt::Jump(_)
+        | BlockPyStmt::Return(_)
+        | BlockPyStmt::Raise(_)
+        | BlockPyStmt::LegacyTryJump(_) => None,
+    }
+}
+
+fn terminal_if_jump_labels(
+    if_stmt: &BlockPyIf,
+) -> Option<(
+    &crate::basic_block::block_py::BlockPyExpr,
+    &BlockPyLabel,
+    &BlockPyLabel,
+)> {
+    let [BlockPyBlock {
+        body: then_body, ..
+    }] = if_stmt.body.as_slice()
+    else {
+        return None;
+    };
+    let [BlockPyStmt::Jump(then_label)] = then_body.as_slice() else {
+        return None;
+    };
+    let [BlockPyBlock {
+        body: else_body, ..
+    }] = if_stmt.orelse.as_slice()
+    else {
+        return None;
+    };
+    let [BlockPyStmt::Jump(else_label)] = else_body.as_slice() else {
+        return None;
+    };
+    Some((&if_stmt.test, then_label, else_label))
 }

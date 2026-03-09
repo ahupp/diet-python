@@ -120,7 +120,6 @@ fn rewrite_elements(
 }
 
 fn rewrite_tstring_interpolation(interp: &ast::InterpolatedElement, ctx: &Context) -> Expr {
-    ctx.require_templatelib_import();
     let value = (*interp.expression).clone();
     let expr_text = ctx
         .source_slice(interp.expression.range())
@@ -143,7 +142,7 @@ fn rewrite_tstring_interpolation(interp: &ast::InterpolatedElement, ctx: &Contex
         py_expr!("{literal:literal}", literal = "")
     };
     py_expr!(
-        "_dp_templatelib.Interpolation({value:expr}, {expr_text:literal}, {conversion:expr}, {format_spec:expr})",
+        "__dp_templatelib_Interpolation({value:expr}, {expr_text:literal}, {conversion:expr}, {format_spec:expr})",
         value = value,
         expr_text = expr_text.as_str(),
         conversion = conversion_expr,
@@ -171,7 +170,6 @@ pub fn rewrite_fstring(expr: ast::ExprFString, ctx: &Context) -> Expr {
 }
 
 pub fn rewrite_tstring(expr: ast::ExprTString, _ctx: &Context) -> Expr {
-    _ctx.require_templatelib_import();
     let mut parts = Vec::new();
     for t in expr.value.iter() {
         for element in t.elements.iter() {
@@ -186,7 +184,7 @@ pub fn rewrite_tstring(expr: ast::ExprTString, _ctx: &Context) -> Expr {
         }
     }
     let tuple = make_tuple(parts);
-    py_expr!("_dp_templatelib.Template(*{parts:expr})", parts = tuple)
+    py_expr!("__dp_templatelib_Template(*{parts:expr})", parts = tuple)
 }
 
 fn rewrite_string_literal(lit: &ast::StringLiteral, ctx: &Context) -> Expr {
@@ -276,7 +274,7 @@ fn quote_fstring_literal(raw: &str) -> String {
     out
 }
 
-fn has_surrogate_escape(content: &str) -> bool {
+pub(crate) fn has_surrogate_escape(content: &str) -> bool {
     let bytes = content.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
@@ -334,7 +332,7 @@ fn parse_hex(bytes: &[u8]) -> Option<u32> {
     Some(value)
 }
 
-fn decode_literal_source_bytes_expr(src: &str) -> Expr {
+pub(crate) fn decode_literal_source_bytes_expr(src: &str) -> Expr {
     let mut source = String::from("__dp_decode_literal_source_bytes(b\"");
     source.push_str(&escape_bytes_for_double_quoted_literal(src.as_bytes()));
     source.push_str("\")");

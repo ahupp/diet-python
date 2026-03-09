@@ -1,10 +1,8 @@
 use std::collections::HashSet;
 use std::mem::take;
 
-use ruff_python_ast::str_prefix::StringLiteralPrefix;
 use ruff_python_ast::{self as ast, Expr, ExprContext, Operator, Stmt, UnaryOp};
 use ruff_python_codegen::{Generator, Indentation};
-use ruff_python_parser::parse_expression;
 use ruff_source_file::LineEnding;
 use ruff_text_size::TextRange;
 
@@ -22,7 +20,6 @@ use ruff_python_ast::Identifier;
 pub mod compare_boolop;
 pub mod comprehension;
 pub mod string;
-pub mod truthy;
 
 pub fn lower_expr(context: &Context, expr: Expr) -> LoweredExpr {
     match expr {
@@ -55,28 +52,6 @@ pub fn lower_expr(context: &Context, expr: Expr) -> LoweredExpr {
                 attr = attr.id.as_str(),
             );
             return LoweredExpr::modified(expr, body_builder.into_stmt());
-        }
-        Expr::StringLiteral(ast::ExprStringLiteral {
-            value,
-            range,
-            node_index,
-        }) => {
-            if string_literal_needs_surrogate_decode(context, &value) {
-                if let Some(src) = context.source_slice(range) {
-                    let literal_src = if value.is_implicit_concatenated() {
-                        format!("({src})")
-                    } else {
-                        src.to_string()
-                    };
-                    let expr = decode_literal_source_bytes_expr(literal_src.as_str());
-                    return LoweredExpr::modified(expr, empty_body());
-                }
-            }
-            LoweredExpr::unmodified(Expr::StringLiteral(ast::ExprStringLiteral {
-                value,
-                range,
-                node_index,
-            }))
         }
         Expr::Named(named_expr) => {
             let ast::ExprNamed { target, value, .. } = named_expr;
@@ -941,107 +916,6 @@ impl Transformer for NamedExprRewriter<'_> {
         }
         walk_expr(self, expr);
     }
-}
-
-fn string_literal_needs_surrogate_decode(
-    context: &Context,
-    value: &ast::StringLiteralValue,
-) -> bool {
-    for literal in value.iter() {
-        if matches!(literal.flags.prefix(), StringLiteralPrefix::Raw { .. }) {
-            continue;
-        }
-        if let Some(content) = context.source_slice(literal.content_range()) {
-            if has_surrogate_escape(content) {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-fn has_surrogate_escape(content: &str) -> bool {
-    let bytes = content.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] != b'\\' {
-            i += 1;
-            continue;
-        }
-        if i + 1 >= bytes.len() {
-            break;
-        }
-        match bytes[i + 1] {
-            b'u' => {
-                if i + 5 < bytes.len() {
-                    if let Some(value) = parse_hex(&bytes[i + 2..i + 6]) {
-                        if (0xD800..=0xDFFF).contains(&value) {
-                            return true;
-                        }
-                    }
-                    i += 6;
-                    continue;
-                }
-                i += 2;
-            }
-            b'U' => {
-                if i + 9 < bytes.len() {
-                    if let Some(value) = parse_hex(&bytes[i + 2..i + 10]) {
-                        if (0xD800..=0xDFFF).contains(&value) {
-                            return true;
-                        }
-                    }
-                    i += 10;
-                    continue;
-                }
-                i += 2;
-            }
-            _ => {
-                i += 2;
-            }
-        }
-    }
-    false
-}
-
-fn parse_hex(bytes: &[u8]) -> Option<u32> {
-    let mut value: u32 = 0;
-    for &b in bytes {
-        value <<= 4;
-        value |= match b {
-            b'0'..=b'9' => (b - b'0') as u32,
-            b'a'..=b'f' => (b - b'a' + 10) as u32,
-            b'A'..=b'F' => (b - b'A' + 10) as u32,
-            _ => return None,
-        };
-    }
-    Some(value)
-}
-
-fn decode_literal_source_bytes_expr(src: &str) -> Expr {
-    let mut source = String::from("__dp_decode_literal_source_bytes(b\"");
-    source.push_str(&escape_bytes_for_double_quoted_literal(src.as_bytes()));
-    source.push_str("\")");
-    let parsed = parse_expression(&source).unwrap_or_else(|err| {
-        panic!("failed to build surrogate decode expression from {source:?}: {err}")
-    });
-    *parsed.into_syntax().body
-}
-
-fn escape_bytes_for_double_quoted_literal(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 4);
-    for &byte in bytes {
-        match byte {
-            b'\\' => out.push_str("\\\\"),
-            b'"' => out.push_str("\\\""),
-            b'\n' => out.push_str("\\n"),
-            b'\r' => out.push_str("\\r"),
-            b'\t' => out.push_str("\\t"),
-            0x20..=0x7e => out.push(byte as char),
-            _ => out.push_str(&format!("\\x{:02x}", byte)),
-        }
-    }
-    out
 }
 
 fn make_tuple_splat(elts: Vec<Expr>) -> Expr {

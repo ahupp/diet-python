@@ -91,10 +91,10 @@ When invoking the vendored interpreter directly, use:
 vendor/cpython/python -m pytest ...
 ```
 
-or the repo script:
+or the `just` recipe:
 
 ```bash
-./scripts/pytest_cpython.sh tests/
+just pytest-cpython tests/
 ```
 
 If a CPython worker run was interrupted, clear stale workers before retrying:

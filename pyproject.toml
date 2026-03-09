@@ -5,4 +5,4 @@ requires-python = ">=3.12"
 dependencies = []
 
 [dependency-groups]
-dev = ["pytest", "pystone"]
+dev = ["pytest>=8,<9"]

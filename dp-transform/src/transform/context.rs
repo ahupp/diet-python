@@ -1,5 +1,5 @@
 use ruff_python_ast::Expr;
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::collections::HashSet;
 
 use super::Options;
@@ -41,8 +41,6 @@ impl ScopeFrame {
 pub struct Context {
     pub options: Options,
     pub source: String,
-    needs_typing_import: Cell<bool>,
-    needs_templatelib_import: Cell<bool>,
     scope_stack: RefCell<Vec<ScopeFrame>>,
 }
 
@@ -51,8 +49,6 @@ impl Context {
         Self {
             options,
             source: source.to_string(),
-            needs_typing_import: Cell::new(false),
-            needs_templatelib_import: Cell::new(false),
             scope_stack: RefCell::new(vec![ScopeFrame::module()]),
         }
     }
@@ -107,21 +103,5 @@ impl Context {
             .last()
             .cloned()
             .unwrap_or_else(ScopeFrame::module)
-    }
-
-    pub fn require_typing_import(&self) {
-        self.needs_typing_import.set(true);
-    }
-
-    pub fn require_templatelib_import(&self) {
-        self.needs_templatelib_import.set(true);
-    }
-
-    pub fn needs_typing_import(&self) -> bool {
-        self.needs_typing_import.get()
-    }
-
-    pub fn needs_templatelib_import(&self) -> bool {
-        self.needs_templatelib_import.get()
     }
 }

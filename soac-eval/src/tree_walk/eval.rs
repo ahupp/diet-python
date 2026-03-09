@@ -250,7 +250,10 @@ unsafe fn parse_binding_metadata(
         return set_type_error("CLIF vectorcall requires a deleted sentinel");
     }
 
-    let state_len = tuple_size(state_order_obj, "failed to read CLIF vectorcall state_order")?;
+    let state_len = tuple_size(
+        state_order_obj,
+        "failed to read CLIF vectorcall state_order",
+    )?;
     let mut state_order = Vec::with_capacity(state_len);
     let mut state_index_by_name = HashMap::with_capacity(state_len);
     for index in 0..state_len {
@@ -383,7 +386,11 @@ unsafe fn parse_generator_closure_layout(
     if ffi::PyTuple_Check(closure_layout_obj) == 0 {
         return set_type_error("CLIF vectorcall closure_layout must be a 3-tuple");
     }
-    if tuple_size(closure_layout_obj, "failed to read CLIF vectorcall closure_layout")? != 3 {
+    if tuple_size(
+        closure_layout_obj,
+        "failed to read CLIF vectorcall closure_layout",
+    )? != 3
+    {
         return set_type_error("CLIF vectorcall closure_layout must be a 3-tuple");
     }
     let mut slots = Vec::new();
@@ -407,15 +414,14 @@ unsafe fn parse_generator_closure_layout(
                 "failed to read CLIF vectorcall closure_layout slot",
             )?;
             if ffi::PyTuple_Check(slot_obj) == 0 {
-                return set_type_error(
-                    "CLIF vectorcall closure_layout slots must be 3-tuples",
-                );
+                return set_type_error("CLIF vectorcall closure_layout slots must be 3-tuples");
             }
-            if tuple_size(slot_obj, "failed to read CLIF vectorcall closure_layout slot size")? != 3
+            if tuple_size(
+                slot_obj,
+                "failed to read CLIF vectorcall closure_layout slot size",
+            )? != 3
             {
-                return set_type_error(
-                    "CLIF vectorcall closure_layout slots must be 3-tuples",
-                );
+                return set_type_error("CLIF vectorcall closure_layout slots must be 3-tuples");
             }
             let logical_name = py_string(tuple_get_item(
                 slot_obj,
@@ -464,9 +470,8 @@ unsafe fn build_ambient_args_tuple(
     for (index, name) in plan.ambient_param_names.iter().enumerate() {
         let Some(state_index) = binding.state_index_by_name.get(name).copied() else {
             ffi::Py_DECREF(result);
-            let msg = format!(
-                "missing ambient closure state {name:?} while registering CLIF vectorcall"
-            );
+            let msg =
+                format!("missing ambient closure state {name:?} while registering CLIF vectorcall");
             let _ = set_runtime_error::<*mut ffi::PyObject>(&msg);
             return Err(());
         };
@@ -1155,19 +1160,13 @@ unsafe fn build_resume_closure_from_state_tuple(
         let mut decref_value = false;
         let value = match slot.init {
             GeneratorClosureInit::InheritedCapture => {
-                let inherited = state_tuple_item_by_name(
-                    state_tuple,
-                    binding,
-                    slot.storage_name.as_str(),
-                );
+                let inherited =
+                    state_tuple_item_by_name(state_tuple, binding, slot.storage_name.as_str());
                 if !inherited.is_null() {
                     inherited
                 } else {
-                    let fallback = state_tuple_item_by_name(
-                        state_tuple,
-                        binding,
-                        slot.logical_name.as_str(),
-                    );
+                    let fallback =
+                        state_tuple_item_by_name(state_tuple, binding, slot.logical_name.as_str());
                     if fallback.is_null() {
                         ffi::Py_DECREF(resume_closure);
                         return set_runtime_error::<*mut ffi::PyObject>(&format!(
@@ -1315,8 +1314,7 @@ unsafe extern "C" fn run_clif_vectorcall_compiled(
     bb_args: *mut c_void,
     data_ptr: *mut c_void,
 ) -> *mut c_void {
-    if ffi::Py_EnterRecursiveCall(b" while calling a Python object\0".as_ptr() as *const i8) != 0
-    {
+    if ffi::Py_EnterRecursiveCall(b" while calling a Python object\0".as_ptr() as *const i8) != 0 {
         return ptr::null_mut();
     }
     struct RecursiveCallGuard;

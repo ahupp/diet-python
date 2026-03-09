@@ -1,5 +1,5 @@
+use crate::py_expr;
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
-use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_python_parser::parse_expression;
 
@@ -61,14 +61,7 @@ pub(super) fn make_dp_tuple(items: Vec<Expr>) -> Expr {
     Expr::Call(call)
 }
 
-pub(super) fn raise_stmt_from_name(name: &str) -> ast::StmtRaise {
-    match py_stmt!("raise {exc:id}", exc = name) {
-        Stmt::Raise(raise_stmt) => raise_stmt,
-        _ => unreachable!("expected raise statement"),
-    }
-}
-
-pub(super) fn rewrite_exception_accesses(
+pub(crate) fn rewrite_exception_accesses(
     mut body: Vec<Box<Stmt>>,
     exc_name: &str,
 ) -> Vec<Box<Stmt>> {

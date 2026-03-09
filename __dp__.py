@@ -2,6 +2,7 @@
 import collections.abc as _abc
 import inspect as _inspect
 import operator as _operator
+import os
 import reprlib
 import sys
 import builtins
@@ -46,6 +47,18 @@ def __deepcopy__(memo):
 
 builtins.__dp__ = sys.modules[__name__]
 builtins.__dp_getattr = builtins.getattr
+_dp_typing = builtins.__import__("typing")
+_dp_templatelib = builtins.__import__(
+    "string.templatelib", globals(), {}, ("Template", "Interpolation"), 0
+)
+builtins.__dp_typing_Generic = _dp_typing.Generic
+builtins.__dp_typing_TypeVar = _dp_typing.TypeVar
+builtins.__dp_typing_TypeVarTuple = _dp_typing.TypeVarTuple
+builtins.__dp_typing_ParamSpec = _dp_typing.ParamSpec
+builtins.__dp_typing_TypeAliasType = _dp_typing.TypeAliasType
+builtins.__dp_typing_Unpack = _dp_typing.Unpack
+builtins.__dp_templatelib_Template = _dp_templatelib.Template
+builtins.__dp_templatelib_Interpolation = _dp_templatelib.Interpolation
 
 _MISSING = object()
 DELETED = object()
@@ -501,6 +514,7 @@ def _attach_throw_context_from_state(state, exc):
 _jit_has_bb_plan = None
 _jit_block_param_names = None
 _register_clif_vectorcall = None
+_jit_compile_clif_wrapper = None
 
 _BIND_KIND_FUNCTION = 0
 _BIND_KIND_GENERATOR_RESUME = 1
@@ -1567,7 +1581,7 @@ def match_class_attr_value(cls, subject, idx, total):
     return getattr(subject, name)
 
 
-def update_fn(func, qualname, name):
+def update_fn(func, qualname, name, doc=None, annotate_fn=None):
     try:
         func.__qualname__ = qualname
     except (AttributeError, TypeError):
@@ -1583,6 +1597,16 @@ def update_fn(func, qualname, name):
                 co_qualname=qualname,
             )
         except (AttributeError, ValueError):
+            pass
+    if doc is not None:
+        try:
+            func.__doc__ = doc
+        except (AttributeError, TypeError):
+            pass
+    if annotate_fn is not None:
+        try:
+            func.__annotate__ = annotate_fn
+        except (AttributeError, TypeError):
             pass
     return func
 
@@ -1829,6 +1853,39 @@ def _bb_enable_lazy_clif_vectorcall(
     except Exception as exc:
         raise RuntimeError(
             "failed to register lazy CLIF vectorcall for "
+            f"{module_name}.{plan_qualname}: {exc}"
+        ) from exc
+    if _bb_should_eager_compile_clif_entry():
+        _bb_eager_compile_clif_entry(entry, module_name, plan_qualname)
+
+
+def _bb_jit_compile_mode():
+    mode = os.environ.get("DIET_PYTHON_JIT_COMPILE_MODE", "lazy")
+    normalized = mode.strip().lower()
+    if normalized in {"", "lazy", "on-demand", "ondemand"}:
+        return "lazy"
+    if normalized == "eager":
+        return "eager"
+    return "lazy"
+
+
+def _bb_should_eager_compile_clif_entry():
+    return _bb_jit_compile_mode() == "eager"
+
+
+def _bb_eager_compile_clif_entry(entry, module_name, plan_qualname):
+    if _jit_compile_clif_wrapper is None:
+        raise RuntimeError(
+            "JIT eager CLIF compile helper is unavailable for "
+            f"{module_name}.{plan_qualname}"
+        )
+    try:
+        _jit_compile_clif_wrapper(entry)
+    except NotImplementedError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(
+            "failed to eagerly compile CLIF entry for "
             f"{module_name}.{plan_qualname}: {exc}"
         ) from exc
 

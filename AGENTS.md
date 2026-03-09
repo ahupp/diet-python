@@ -1,6 +1,8 @@
 # AGENTS
 - **MUST FOLLOW**: Never add new variants to the minimal AST unless explicitly asked.
-- **MUST FOLLOW**: Always run `cargo test` and `./scripts/pytest_cpython.sh tests/` before submitting changes.
+- **MUST FOLLOW**: Always run `cargo test` and `just pytest-cpython tests/` before submitting changes.
+- **MUST FOLLOW**: As post-change verification, build the web inspector wasm package (compile only; do not run the server). Use 
+  `just build-web-inspector`.
 - **MUST FOLLOW**: Always preserve behavior in the transformed code, particularly evaluation order.
 - **MUST FOLLOW**: When traversing the AST, always use an impl of `crate::transformer::Transformer`.
 - **NOTE**: Prefer adding behavior at transform time rather than runtime in `__dp__.py` whenever possible.
@@ -13,11 +15,12 @@
 - To inspect the transformed output of some code, run `cargo run --bin diet-python file_with_code.py`, which prints output to stdout.
 - *MUST FOLLOW* when fixing a bug that fails a cpython test case *always* add a minimal reproducing integration test to reproduce it first.
 - CPython source for tests is vendored at `vendor/cpython` (the scripts use `vendor/cpython/python`).
+- **MUST FOLLOW**: When running Python directly in this repo, always use `vendor/cpython/python` unless the user explicitly requests a different interpreter.
 - **NOTE**: When an explicit CPython interpreter path is needed, use `vendor/cpython/python`.
-- **NOTE**: For `./scripts/run_cpython_tests.sh -f <file>`, pass an absolute path for `<file>` since the script runs from `vendor/cpython`.
+- **NOTE**: For `just run-cpython-tests 0 -f <file>`, pass an absolute path for `<file>` since regrtest runs from `vendor/cpython`.
 - **NOTE**: In sandboxed environments, set `--tempdir /tmp/<dir>` when running CPython tests; default worker temp dirs under `/home/adam/project/cpython/build/...` can fail with permission errors.
 - **NOTE**: After interrupting CPython test runs, clean stale workers before retrying (`pkill -f test.libregrtest.worker`).
-- **NOTE**: For sequential shard runs, use `./scripts/run_cpython_test_sets.sh --mode transform`; it enforces single-process regrtest (`DIET_PYTHON_TEST_JOBS=1`), absolute set paths, and a safe tempdir.
+- **NOTE**: For sequential shard runs, use `./scripts/run_cpython_test_sets.sh`; it enforces single-process regrtest via `just run-cpython-tests 1`, JIT execution, absolute set paths, and a safe tempdir.
 - **NOTE**: For hangs under the transformed runtime, use `vendor/cpython/python` (or `.venv-cpython/bin/python`) with `faulthandler.dump_traceback_later(..., exit=True)` to capture a Python stack before terminating.
 - **NOTE**: For isolated transformed-runtime repros, prefer `tests._integration.transformed_module(...)` with a small inline source module instead of debugging through the full test harness.
 - **NOTE**: For BB/JIT inspection, use `diet_import_hook._get_pyo3_transform().jit_has_bb_plan(...)` / `jit_render_bb_with_cfg_plan(...)`; closure-backed outer factories are typically registered under `qualname::_dp_bb_<name>_factory`.

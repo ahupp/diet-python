@@ -1,7 +1,19 @@
-use super::bb_ir::{
-    BbBlock, BbExpr, BbFunction, BbFunctionKind, BbModule, BbOp, BbTerm, BindingTarget,
+use super::await_lower::{coroutine_generator_marker_stmt, lower_coroutine_awaits_to_yield_from};
+use super::bb_ir::{BbExpr, BbFunction, BbFunctionKind, BbModule, BbOp, BindingTarget};
+use super::block_py::{BlockPyBlock, BlockPyIf, BlockPyLabel, BlockPyStmt};
+use super::ruff_to_blockpy::{
+    blockpy_kind_for_lowered_runtime, build_closure_backed_generator_factory_block,
+    build_for_target_assign_body,
+    build_finalized_blockpy_function, compute_blockpy_exception_edges,
+    drive_stmt_sequence_until_control, emit_sequence_jump_block, lower_common_stmt_sequence_head,
+    lower_for_loop_continue_entry_with_state, lower_for_stmt_sequence_head,
+    lower_generator_stmt_sequence_head,
+    lower_generator_yield_terms_to_explicit_return_blockpy, lower_stmts_to_blockpy_stmts,
+    lower_try_stmt_sequence_head, BlockPySequenceGeneratorState,
+    GeneratorStmtSequenceLoweringState, GeneratorYieldSite, PendingBlockPyGeneratorInfo,
+    StmtSequenceDriveResult, StmtSequenceHeadPlan,
 };
-use crate::template::{empty_body, into_body};
+use crate::template::into_body;
 use crate::transform::context::Context;
 use crate::transform::driver::SimplifyExprPass;
 use crate::transform::rewrite_import;
@@ -16,11 +28,11 @@ use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, name::Name, Expr, NodeIndex, Stmt, StmtBody};
 use ruff_text_size::TextRange;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::cell::Cell;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 mod annotation_helpers;
-mod await_lower;
 mod bound_names;
 mod dataflow;
 mod deleted_names;
@@ -41,50 +53,46 @@ use annotation_helpers::{
     ensure_dp_default_param, is_annotation_helper_name, render_stmt_source,
     rewrite_annotation_helper_defs_as_exec_calls, should_keep_non_lowered_for_annotationlib,
 };
-use await_lower::{coroutine_generator_marker_stmt, lower_coroutine_awaits_to_yield_from};
 use bound_names::{collect_bound_names, collect_explicit_global_or_nonlocal_names};
-use dataflow::{build_extra_successors, compute_block_params, ensure_try_exception_params};
+use dataflow::{
+    build_extra_successors_blockpy, compute_block_params_blockpy,
+    ensure_try_exception_params_blockpy,
+};
 use deleted_names::{
     collect_deleted_names, rewrite_delete_to_deleted_sentinel, rewrite_deleted_name_loads,
 };
-use exception_flow::{
-    compute_exception_edge_by_label, contains_return_stmt_in_body,
-    contains_return_stmt_in_handlers, rewrite_region_returns_to_finally,
-};
+pub(crate) use exception_flow::compute_exception_edge_by_label_blockpy;
+pub(crate) use exception_flow::rewrite_region_returns_to_finally_blockpy as rewrite_region_returns_to_finally_blockpy_shared;
+pub(crate) use exception_flow::{contains_return_stmt_in_body, contains_return_stmt_in_handlers};
 use generator_closure::{
     build_generator_closure_layout, closure_backed_generator_resume_state_order,
 };
-use lowering_helpers::{
-    make_dp_tuple, make_param_specs_expr, name_expr, raise_stmt_from_name,
-    rewrite_exception_accesses,
-};
+pub(crate) use lowering_helpers::rewrite_exception_accesses as rewrite_exception_accesses_shared;
+use lowering_helpers::{make_dp_tuple, make_param_specs_expr, name_expr};
 use metadata::{
     collect_function_identity_private, display_name_for_function, function_annotation_entries,
     function_docstring_expr, split_docstring, FunctionIdentity,
 };
-use naming::{
-    apply_label_rename, fold_constant_brif, fold_jumps_to_trivial_none_return,
-    original_function_name, prune_unreachable_blocks, relabel_blocks, sanitize_ident,
+pub(crate) use naming::{
+    fold_constant_brif_blockpy, fold_jumps_to_trivial_none_return_blockpy,
+    prune_unreachable_blockpy_blocks, relabel_blockpy_blocks,
 };
-use pre_lower::{is_simple_index_target, AnnotationHelperForLoweringPass};
+use naming::{original_function_name, sanitize_ident};
+use pre_lower::AnnotationHelperForLoweringPass;
 pub use pre_lower::{BBSimplifyStmtPass, FunctionIdentityByNode};
+pub(crate) use state_vars::sync_target_cells_stmts as sync_target_cells_stmts_shared;
 use state_vars::{
-    collect_cell_slots, collect_injected_exception_names, collect_parameter_names,
-    collect_state_vars, rewrite_sync_generator_blocks_to_closure_cells,
+    collect_cell_slots, collect_injected_exception_names_blockpy, collect_parameter_names,
+    collect_state_vars, rewrite_sync_generator_blockpy_blocks_to_closure_cells,
     sync_generator_cleanup_cells, sync_generator_state_order, sync_target_cells_stmts,
 };
-use stmt_shape::{
-    extract_else_body, flatten_stmt, flatten_stmt_boxes, should_strip_nonlocal_for_bb,
-    strip_nonlocal_directives,
-};
+use stmt_shape::{should_strip_nonlocal_for_bb, strip_nonlocal_directives};
+pub(crate) use stmt_shape::{flatten_stmt, flatten_stmt_boxes};
 use support::{
     has_await_in_stmts, has_dead_stmt_suffixes, has_yield_exprs_in_stmts, is_module_init_temp_name,
     prune_dead_stmt_suffixes, BasicBlockSupportChecker,
 };
-use terminator_lowering::{
-    bb_function_kind_from, bb_term_from_terminator, lower_generator_yield_terms_to_explicit_return,
-    simplify_terminator_exprs,
-};
+use terminator_lowering::bb_function_kind_from;
 
 pub fn collect_function_identity_by_node(
     module: &mut StmtBody,
@@ -150,7 +158,7 @@ fn rewrite_internal(
         used_label_prefixes: HashMap::new(),
         function_stack: Vec::new(),
         function_cell_bindings_stack: Vec::new(),
-        generator_closure_state_stack: Vec::new(),
+        lower_stmt_sequence_cache: HashMap::new(),
         module_init_hoisted_blocks: Vec::new(),
         lowered_functions_ir: Vec::new(),
         module_init_function: Some("_dp_module_init".to_string()),
@@ -165,119 +173,6 @@ fn rewrite_internal(
     }
 }
 
-#[derive(Clone)]
-enum Terminator {
-    Jump(String),
-    BrIf {
-        test: Expr,
-        then_label: String,
-        else_label: String,
-    },
-    BrTable {
-        index: Expr,
-        targets: Vec<String>,
-        default_label: String,
-    },
-    Raise(ast::StmtRaise),
-    TryJump {
-        body_label: String,
-        except_label: String,
-        except_exc_name: Option<String>,
-        body_region_labels: Vec<String>,
-        except_region_labels: Vec<String>,
-        finally_label: Option<String>,
-        finally_exc_name: Option<String>,
-        finally_region_labels: Vec<String>,
-        finally_fallthrough_label: Option<String>,
-    },
-    Yield {
-        value: Option<Expr>,
-        resume_label: String,
-    },
-    Ret(Option<Expr>),
-}
-
-impl Terminator {
-    fn references_label(&self, label: &str) -> bool {
-        match self {
-            Terminator::Jump(target) => target == label,
-            Terminator::BrIf {
-                then_label,
-                else_label,
-                ..
-            } => then_label == label || else_label == label,
-            Terminator::BrTable {
-                targets,
-                default_label,
-                ..
-            } => default_label == label || targets.iter().any(|target| target == label),
-            Terminator::Raise(_) => false,
-            Terminator::TryJump {
-                body_label,
-                except_label,
-                finally_label,
-                finally_fallthrough_label,
-                ..
-            } => {
-                body_label == label
-                    || except_label == label
-                    || finally_label.as_deref() == Some(label)
-                    || finally_fallthrough_label.as_deref() == Some(label)
-            }
-            Terminator::Yield { resume_label, .. } => resume_label == label,
-            Terminator::Ret(_) => false,
-        }
-    }
-}
-
-#[derive(Clone)]
-struct Block {
-    label: String,
-    body: Vec<Stmt>,
-    terminator: Terminator,
-}
-
-impl Block {
-    fn successors(&self) -> Vec<String> {
-        match &self.terminator {
-            Terminator::Jump(target) => vec![target.clone()],
-            Terminator::BrIf {
-                then_label,
-                else_label,
-                ..
-            } => vec![then_label.clone(), else_label.clone()],
-            Terminator::BrTable {
-                targets,
-                default_label,
-                ..
-            } => {
-                let mut out = targets.clone();
-                out.push(default_label.clone());
-                out
-            }
-            Terminator::Raise(_) => Vec::new(),
-            Terminator::TryJump {
-                body_label,
-                except_label,
-                finally_label,
-                finally_fallthrough_label,
-                ..
-            } => {
-                let mut out = vec![body_label.clone(), except_label.clone()];
-                if let Some(finally_label) = finally_label {
-                    out.push(finally_label.clone());
-                }
-                if let Some(finally_fallthrough_label) = finally_fallthrough_label {
-                    out.push(finally_fallthrough_label.clone());
-                }
-                out
-            }
-            Terminator::Yield { resume_label, .. } => vec![resume_label.clone()],
-            Terminator::Ret(_) => Vec::new(),
-        }
-    }
-}
-
 struct BasicBlockRewriter<'a> {
     context: &'a Context,
     module_scope: Arc<Scope>,
@@ -286,7 +181,7 @@ struct BasicBlockRewriter<'a> {
     used_label_prefixes: HashMap<String, usize>,
     function_stack: Vec<String>,
     function_cell_bindings_stack: Vec<HashSet<String>>,
-    generator_closure_state_stack: Vec<bool>,
+    lower_stmt_sequence_cache: HashMap<StmtSequenceCacheKey, String>,
     module_init_hoisted_blocks: Vec<Vec<Stmt>>,
     lowered_functions_ir: Vec<BbFunction>,
     module_init_function: Option<String>,
@@ -297,126 +192,41 @@ struct LoopContext {
     break_label: String,
 }
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct StmtSequenceCacheKey {
+    fn_name: String,
+    stmts_ptr: usize,
+    stmts_len: usize,
+    cont_label: String,
+    loop_continue_label: Option<String>,
+    loop_break_label: Option<String>,
+}
+
 impl BasicBlockRewriter<'_> {
+    fn stmt_sequence_cache_key(
+        fn_name: &str,
+        stmts: &[Box<Stmt>],
+        cont_label: &str,
+        loop_ctx: Option<&LoopContext>,
+    ) -> StmtSequenceCacheKey {
+        StmtSequenceCacheKey {
+            fn_name: fn_name.to_string(),
+            stmts_ptr: stmts.as_ptr() as usize,
+            stmts_len: stmts.len(),
+            cont_label: cont_label.to_string(),
+            loop_continue_label: loop_ctx.map(|ctx| ctx.continue_label.clone()),
+            loop_break_label: loop_ctx.map(|ctx| ctx.break_label.clone()),
+        }
+    }
+
+    fn cache_stmt_sequence_result(&mut self, key: &StmtSequenceCacheKey, label: &str) {
+        let _ = (key, label);
+    }
+
     fn next_temp(&mut self, prefix: &str) -> String {
         let current = self.next_block_id;
         self.next_block_id += 1;
         format!("_dp_{prefix}_{current}")
-    }
-
-    fn emit_target_assignments(&mut self, target: &Expr, value: Expr, out: &mut Vec<Stmt>) {
-        match target {
-            Expr::Tuple(tuple) => self.emit_sequence_target_assignments(&tuple.elts, value, out),
-            Expr::List(list) => self.emit_sequence_target_assignments(&list.elts, value, out),
-            Expr::Subscript(ast::ExprSubscript {
-                value: obj, slice, ..
-            }) => out.push(py_stmt!(
-                "__dp_setitem({obj:expr}, {slice:expr}, {value:expr})",
-                obj = if let Expr::Name(name) = obj.as_ref() {
-                    py_expr!(
-                        "__dp_load_deleted_name({name:literal}, {value:expr})",
-                        name = name.id.as_str(),
-                        value = *obj.clone(),
-                    )
-                } else {
-                    *obj.clone()
-                },
-                slice = *slice.clone(),
-                value = value,
-            )),
-            Expr::Attribute(ast::ExprAttribute {
-                value: obj, attr, ..
-            }) => out.push(py_stmt!(
-                "__dp_setattr({obj:expr}, {name:literal}, {value:expr})",
-                obj = if let Expr::Name(name) = obj.as_ref() {
-                    py_expr!(
-                        "__dp_load_deleted_name({name:literal}, {value:expr})",
-                        name = name.id.as_str(),
-                        value = *obj.clone(),
-                    )
-                } else {
-                    *obj.clone()
-                },
-                name = attr.as_str(),
-                value = value,
-            )),
-            Expr::Name(_) => out.push(py_stmt!(
-                "{target:expr} = {value:expr}",
-                target = target.clone(),
-                value = value,
-            )),
-            other => {
-                panic!("unsupported assignment target in BB direct emit: {other:?}");
-            }
-        }
-    }
-
-    fn emit_sequence_target_assignments(
-        &mut self,
-        elts: &[Expr],
-        value: Expr,
-        out: &mut Vec<Stmt>,
-    ) {
-        let mut starred_index = None;
-        for (idx, elt) in elts.iter().enumerate() {
-            if matches!(elt, Expr::Starred(_)) {
-                if starred_index.is_some() {
-                    panic!("unsupported starred assignment target");
-                }
-                starred_index = Some(idx);
-            }
-        }
-
-        if let Some(starred_index) = starred_index {
-            let unpacked_name = self.next_temp("tmp");
-            let mut spec_elts = Vec::new();
-            for elt in elts {
-                if matches!(elt, Expr::Starred(_)) {
-                    spec_elts.push(py_expr!("False"));
-                } else {
-                    spec_elts.push(py_expr!("True"));
-                }
-            }
-            let spec_expr = make_dp_tuple(spec_elts);
-            out.push(py_stmt!(
-                "{tmp:id} = __dp_unpack({value:expr}, {spec:expr})",
-                tmp = unpacked_name.as_str(),
-                value = value,
-                spec = spec_expr,
-            ));
-            let unpacked_expr = py_expr!("{tmp:id}", tmp = unpacked_name.as_str());
-            for (idx, elt) in elts.iter().enumerate() {
-                match elt {
-                    Expr::Starred(starred) if idx == starred_index => {
-                        let starred_value = py_expr!(
-                            "__dp_list(__dp_getitem({tmp:expr}, {idx:literal}))",
-                            tmp = unpacked_expr.clone(),
-                            idx = idx as i64,
-                        );
-                        self.emit_target_assignments(starred.value.as_ref(), starred_value, out);
-                    }
-                    _ => {
-                        let element_value = py_expr!(
-                            "__dp_getitem({tmp:expr}, {idx:literal})",
-                            tmp = unpacked_expr.clone(),
-                            idx = idx as i64,
-                        );
-                        self.emit_target_assignments(elt, element_value, out);
-                    }
-                }
-            }
-            out.push(py_stmt!("{tmp:id} = None", tmp = unpacked_name.as_str()));
-            return;
-        }
-
-        for (idx, elt) in elts.iter().enumerate() {
-            let element_value = py_expr!(
-                "{value:expr}[{idx:literal}]",
-                value = value.clone(),
-                idx = idx as i64,
-            );
-            self.emit_target_assignments(elt, element_value, out);
-        }
     }
 
     fn try_lower_function(&mut self, func: &ast::StmtFunctionDef) -> Option<LoweredFunction> {
@@ -522,11 +332,21 @@ impl BasicBlockRewriter<'_> {
         let is_closure_backed_generator_runtime =
             has_yield && !(is_generated_comprehension_helper && func.is_async);
 
+        self.lower_stmt_sequence_cache.clear();
         let end_label = self.next_label(func.name.id.as_str());
-        let mut blocks = Vec::new();
-        self.generator_closure_state_stack
-            .push(is_closure_backed_generator_runtime);
-        let mut entry_label = self.lower_stmt_sequence(
+        let identity = self.function_identity_for(func);
+        let blockpy_kind = blockpy_kind_for_lowered_runtime(
+            is_async_generator_runtime,
+            coroutine_via_generator,
+            has_yield,
+        );
+        let mut blocks: Vec<BlockPyBlock> = Vec::new();
+        let mut generator_state = BlockPySequenceGeneratorState {
+            closure_state: is_closure_backed_generator_runtime,
+            resume_order: Vec::new(),
+            yield_sites: Vec::new(),
+        };
+        let entry_label = self.lower_stmt_sequence(
             func.name.id.as_str(),
             &runtime_input_body,
             end_label.clone(),
@@ -534,400 +354,54 @@ impl BasicBlockRewriter<'_> {
             None,
             &cell_slots,
             &outer_scope_names,
+            &mut generator_state,
         );
-        self.generator_closure_state_stack.pop();
-        let needs_end_block = entry_label == end_label
-            || blocks
-                .iter()
-                .any(|block| block.terminator.references_label(end_label.as_str()));
-        if needs_end_block {
-            blocks.push(Block {
-                label: end_label,
-                body: Vec::new(),
-                terminator: Terminator::Ret(None),
-            });
-        }
-        fold_jumps_to_trivial_none_return(&mut blocks);
-        fold_constant_brif(&mut blocks);
-        prune_unreachable_blocks(entry_label.as_str(), &mut blocks);
         let label_prefix = self.next_label_prefix(func.name.id.as_str());
-        entry_label = relabel_blocks(label_prefix.as_str(), entry_label.as_str(), &mut blocks);
-        let mut done_block_label: Option<String> = None;
-        let mut invalid_block_label: Option<String> = None;
-        let mut generator_uncaught_label: Option<String> = None;
-        let mut generator_uncaught_exc_name: Option<String> = None;
-        let mut generator_uncaught_set_done_label: Option<String> = None;
-        let mut generator_uncaught_raise_label: Option<String> = None;
-        let mut generator_resume_entry_label: Option<String> = None;
-        let mut generator_resume_order: Vec<String> = Vec::new();
-        let mut generator_dispatch_only_labels: HashSet<String> = HashSet::new();
-        let mut generator_throw_passthrough_labels: HashSet<String> = HashSet::new();
-        if has_yield {
-            let generator_pc_expr = if is_closure_backed_generator_runtime {
-                py_expr!("__dp_load_cell(_dp_cell__dp_pc)")
+        let (mut blockpy_function, entry_label) = build_finalized_blockpy_function(
+            identity.bind_name.clone(),
+            identity.qualname.clone(),
+            identity.binding_target,
+            blockpy_kind,
+            (*func.parameters).clone(),
+            blocks,
+            entry_label,
+            end_label,
+            label_prefix.as_str(),
+            if has_yield {
+                Some(PendingBlockPyGeneratorInfo {
+                    closure_state: generator_state.closure_state,
+                    resume_order: generator_state.resume_order,
+                    yield_sites: generator_state.yield_sites,
+                })
             } else {
-                py_expr!("__dp_getattr(_dp_self, \"_pc\")")
-            };
-            let done_label = format!("{label_prefix}_done");
-            let invalid_label = format!("{label_prefix}_invalid");
-            let uncaught_label = format!("{label_prefix}_uncaught");
-            let uncaught_exc_name = self.next_temp("uncaught_exc");
-            let invalid_msg = if is_async_generator_runtime {
-                "invalid async generator pc: {}"
-            } else {
-                "invalid generator pc: {}"
-            };
-            let invalid_raise_stmt = match py_stmt!(
-                "raise RuntimeError({msg:literal}.format({pc:expr}))",
-                msg = invalid_msg,
-                pc = generator_pc_expr.clone(),
-            ) {
-                Stmt::Raise(stmt) => stmt,
-                _ => unreachable!("expected raise statement"),
-            };
-            blocks.insert(
-                0,
-                Block {
-                    label: done_label.clone(),
-                    body: Vec::new(),
-                    terminator: Terminator::Ret(None),
-                },
-            );
-            blocks.insert(
-                1,
-                Block {
-                    label: invalid_label.clone(),
-                    body: Vec::new(),
-                    terminator: Terminator::Raise(invalid_raise_stmt),
-                },
-            );
-            let uncaught_raise_stmt = raise_stmt_from_name(uncaught_exc_name.as_str());
-            let uncaught_helper_name = if is_async_generator_runtime {
-                "raise_uncaught_async_generator_exception"
-            } else {
-                "raise_uncaught_generator_exception"
-            };
-            let uncaught_set_done_label = format!("{label_prefix}_uncaught_set_done");
-            let uncaught_raise_label = format!("{label_prefix}_uncaught_raise");
-            generator_uncaught_set_done_label = Some(uncaught_set_done_label.clone());
-            generator_uncaught_raise_label = Some(uncaught_raise_label.clone());
-            blocks.insert(
-                2,
-                Block {
-                    label: uncaught_raise_label.clone(),
-                    body: Vec::new(),
-                    terminator: Terminator::Raise(uncaught_raise_stmt),
-                },
-            );
-            blocks.insert(
-                2,
-                Block {
-                    label: uncaught_set_done_label.clone(),
-                    body: vec![
-                        if is_closure_backed_generator_runtime {
-                            py_stmt!("__dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)")
-                        } else {
-                            py_stmt!("__dp_setattr(_dp_self, \"_pc\", __dp_GEN_PC_DONE)")
-                        },
-                        py_stmt!(
-                            "__dp_{helper:id}({exc:id})",
-                            helper = uncaught_helper_name,
-                            exc = uncaught_exc_name.as_str(),
-                        ),
-                    ],
-                    terminator: Terminator::Jump(uncaught_raise_label.clone()),
-                },
-            );
-            blocks.insert(
-                2,
-                Block {
-                    label: uncaught_label.clone(),
-                    body: Vec::new(),
-                    terminator: Terminator::BrIf {
-                        test: py_expr!(
-                            "__dp_ne({pc:expr}, __dp_GEN_PC_DONE)",
-                            pc = generator_pc_expr.clone()
-                        ),
-                        then_label: uncaught_set_done_label.clone(),
-                        else_label: uncaught_raise_label.clone(),
-                    },
-                },
-            );
-            generator_throw_passthrough_labels.insert(uncaught_set_done_label);
-            generator_throw_passthrough_labels.insert(uncaught_raise_label);
-            done_block_label = Some(done_label);
-            invalid_block_label = Some(invalid_label);
-            generator_uncaught_label = Some(uncaught_label);
-            generator_uncaught_exc_name = Some(uncaught_exc_name.clone());
+                None
+            },
+            is_async_generator_runtime,
+            is_closure_backed_generator_runtime,
+            self.next_temp("uncaught_exc"),
+        );
 
-            let mut resume_labels: HashSet<String> = HashSet::new();
-            resume_labels.insert(entry_label.clone());
-            for block in &blocks {
-                if let Terminator::Yield { resume_label, .. } = &block.terminator {
-                    resume_labels.insert(resume_label.clone());
-                }
-            }
+        let exception_edges = compute_blockpy_exception_edges(&blockpy_function);
 
-            let mut rename: HashMap<String, String> = HashMap::new();
-            let mut next_resume = 0usize;
-            let mut next_internal = 0usize;
-            for block in &blocks {
-                if done_block_label.as_deref() == Some(block.label.as_str())
-                    || invalid_block_label.as_deref() == Some(block.label.as_str())
-                    || generator_uncaught_label.as_deref() == Some(block.label.as_str())
-                    || generator_uncaught_set_done_label.as_deref() == Some(block.label.as_str())
-                    || generator_uncaught_raise_label.as_deref() == Some(block.label.as_str())
-                {
-                    continue;
-                }
-                let new_name = if resume_labels.contains(block.label.as_str()) {
-                    let name = format!("{label_prefix}_resume_{next_resume}");
-                    next_resume += 1;
-                    name
-                } else {
-                    let name = format!("{label_prefix}_internal_{next_internal}");
-                    next_internal += 1;
-                    name
-                };
-                rename.insert(block.label.clone(), new_name);
-            }
-            entry_label = apply_label_rename(entry_label.as_str(), &rename, &mut blocks);
-            generator_resume_entry_label = Some(entry_label.clone());
-
-            let mut resume_order = vec![entry_label.clone()];
-            for block in &blocks {
-                if let Terminator::Yield { resume_label, .. } = &block.terminator {
-                    if !resume_order.iter().any(|label| label == resume_label) {
-                        resume_order.push(resume_label.clone());
-                    }
-                }
-            }
-            generator_resume_order = resume_order.clone();
-
-            let done_label = done_block_label
-                .clone()
-                .expect("generator lowering requires done block label");
-            let invalid_label = invalid_block_label
-                .clone()
-                .expect("generator lowering requires invalid block label");
-
-            let resume_throw_done_label = format!("{label_prefix}_dispatch_throw_done");
-            let resume_throw_unstarted_label = format!("{label_prefix}_dispatch_throw_unstarted");
-            generator_dispatch_only_labels.insert(resume_throw_done_label.clone());
-            generator_dispatch_only_labels.insert(resume_throw_unstarted_label.clone());
-            generator_throw_passthrough_labels.insert(resume_throw_done_label.clone());
-            generator_throw_passthrough_labels.insert(resume_throw_unstarted_label.clone());
-            let throw_resume_exc_stmt = match py_stmt!("raise _dp_resume_exc") {
-                Stmt::Raise(stmt) => stmt,
-                _ => unreachable!("expected raise statement"),
-            };
-            blocks.push(Block {
-                label: resume_throw_done_label.clone(),
-                body: Vec::new(),
-                terminator: Terminator::Raise(throw_resume_exc_stmt.clone()),
-            });
-            blocks.push(Block {
-                label: resume_throw_unstarted_label.clone(),
-                body: Vec::new(),
-                terminator: Terminator::Raise(throw_resume_exc_stmt),
-            });
-
-            let resume_send_label = format!("{label_prefix}_dispatch_send");
-            let resume_throw_label = format!("{label_prefix}_dispatch_throw");
-            let resume_dispatch_label = format!("{label_prefix}_dispatch");
-            let resume_send_table_label = format!("{label_prefix}_dispatch_send_table");
-            let resume_throw_table_label = format!("{label_prefix}_dispatch_throw_table");
-            let resume_invalid_table_label = format!("{label_prefix}_dispatch_invalid");
-            let resume_send_precheck_pc0_label =
-                format!("{label_prefix}_dispatch_send_precheck_pc0");
-            let resume_send_precheck_value_label =
-                format!("{label_prefix}_dispatch_send_precheck_value");
-            let resume_send_precheck_transport_label =
-                format!("{label_prefix}_dispatch_send_precheck_transport");
-            let resume_send_transport_error_label =
-                format!("{label_prefix}_dispatch_send_transport_error");
-            generator_dispatch_only_labels.insert(resume_send_label.clone());
-            generator_dispatch_only_labels.insert(resume_throw_label.clone());
-            generator_dispatch_only_labels.insert(resume_dispatch_label.clone());
-            generator_dispatch_only_labels.insert(resume_send_table_label.clone());
-            generator_dispatch_only_labels.insert(resume_throw_table_label.clone());
-            generator_dispatch_only_labels.insert(resume_invalid_table_label.clone());
-            if is_async_generator_runtime {
-                generator_dispatch_only_labels.insert(resume_send_precheck_pc0_label.clone());
-                generator_dispatch_only_labels.insert(resume_send_precheck_value_label.clone());
-                generator_dispatch_only_labels.insert(resume_send_precheck_transport_label.clone());
-                generator_dispatch_only_labels.insert(resume_send_transport_error_label.clone());
-            }
-
-            let mut send_table_targets = Vec::with_capacity(resume_order.len());
-            let mut throw_table_targets = Vec::with_capacity(resume_order.len());
-            for (pc, resume_target) in resume_order.iter().enumerate() {
-                let send_dispatch_target_label =
-                    format!("{label_prefix}_dispatch_send_target_{pc}");
-                generator_dispatch_only_labels.insert(send_dispatch_target_label.clone());
-                blocks.push(Block {
-                    label: send_dispatch_target_label.clone(),
-                    body: Vec::new(),
-                    terminator: Terminator::Jump(resume_target.clone()),
-                });
-                send_table_targets.push(send_dispatch_target_label);
-
-                let throw_dispatch_target_label =
-                    format!("{label_prefix}_dispatch_throw_target_{pc}");
-                generator_dispatch_only_labels.insert(throw_dispatch_target_label.clone());
-                let throw_target = if pc == 0 {
-                    resume_throw_unstarted_label.clone()
-                } else {
-                    // Route throw() back through the canonical resume entry for
-                    // this pc and let the lowered block graph branch on
-                    // `_dp_resume_exc` internally. This keeps send/throw
-                    // dispatch semantics aligned and avoids mismatched throw
-                    // pre-dispatch tables for yield-from paths.
-                    resume_target.clone()
-                };
-                blocks.push(Block {
-                    label: throw_dispatch_target_label.clone(),
-                    body: Vec::new(),
-                    terminator: Terminator::Jump(throw_target),
-                });
-                throw_table_targets.push(throw_dispatch_target_label);
-            }
-            blocks.push(Block {
-                label: resume_invalid_table_label.clone(),
-                body: Vec::new(),
-                terminator: Terminator::Jump(invalid_label.clone()),
-            });
-
-            blocks.push(Block {
-                label: resume_send_table_label.clone(),
-                body: Vec::new(),
-                terminator: Terminator::BrTable {
-                    index: generator_pc_expr.clone(),
-                    targets: send_table_targets,
-                    default_label: resume_invalid_table_label.clone(),
-                },
-            });
-            blocks.push(Block {
-                label: resume_throw_table_label.clone(),
-                body: Vec::new(),
-                terminator: Terminator::BrTable {
-                    index: generator_pc_expr.clone(),
-                    targets: throw_table_targets,
-                    default_label: resume_invalid_table_label,
-                },
-            });
-            if is_async_generator_runtime {
-                let transport_error_raise_stmt = match py_stmt!(
-                    "raise TypeError(\"can't send non-None value to a just-started async generator\")"
-                ) {
-                    Stmt::Raise(stmt) => stmt,
-                    _ => unreachable!("expected raise statement"),
-                };
-                blocks.push(Block {
-                    label: resume_send_transport_error_label.clone(),
-                    body: Vec::new(),
-                    terminator: Terminator::Raise(transport_error_raise_stmt),
-                });
-                blocks.push(Block {
-                    label: resume_send_precheck_transport_label.clone(),
-                    body: Vec::new(),
-                    terminator: Terminator::BrIf {
-                        test: py_expr!("__dp_is_not(_dp_transport_sent, None)"),
-                        then_label: resume_send_transport_error_label.clone(),
-                        else_label: resume_send_table_label.clone(),
-                    },
-                });
-                blocks.push(Block {
-                    label: resume_send_precheck_value_label.clone(),
-                    body: Vec::new(),
-                    terminator: Terminator::BrIf {
-                        test: py_expr!("__dp_is_(_dp_send_value, None)"),
-                        then_label: resume_send_precheck_transport_label.clone(),
-                        else_label: resume_send_table_label.clone(),
-                    },
-                });
-                blocks.push(Block {
-                    label: resume_send_precheck_pc0_label.clone(),
-                    body: Vec::new(),
-                    terminator: Terminator::BrIf {
-                        test: py_expr!("__dp_eq({pc:expr}, 0)", pc = generator_pc_expr.clone()),
-                        then_label: resume_send_precheck_value_label.clone(),
-                        else_label: resume_send_table_label.clone(),
-                    },
-                });
-            }
-            blocks.push(Block {
-                label: resume_send_label.clone(),
-                body: Vec::new(),
-                terminator: Terminator::BrIf {
-                    test: py_expr!(
-                        "__dp_eq({pc:expr}, __dp_GEN_PC_DONE)",
-                        pc = generator_pc_expr.clone()
-                    ),
-                    then_label: done_label,
-                    else_label: if is_async_generator_runtime {
-                        resume_send_precheck_pc0_label
-                    } else {
-                        resume_send_table_label
-                    },
-                },
-            });
-            blocks.push(Block {
-                label: resume_throw_label.clone(),
-                body: Vec::new(),
-                terminator: Terminator::BrIf {
-                    test: py_expr!(
-                        "__dp_eq({pc:expr}, __dp_GEN_PC_DONE)",
-                        pc = generator_pc_expr
-                    ),
-                    then_label: resume_throw_done_label,
-                    else_label: resume_throw_table_label,
-                },
-            });
-            blocks.push(Block {
-                label: resume_dispatch_label.clone(),
-                body: Vec::new(),
-                terminator: Terminator::BrIf {
-                    test: py_expr!("__dp_is_(_dp_resume_exc, None)"),
-                    then_label: resume_send_label,
-                    else_label: resume_throw_label,
-                },
-            });
-            entry_label = resume_dispatch_label;
-        }
+        let mut extra_successors = build_extra_successors_blockpy(&blockpy_function.blocks);
+        let mut blocks_for_dataflow = std::mem::take(&mut blockpy_function.blocks);
 
         if !deleted_names.is_empty() {
-            rewrite_deleted_name_loads(&mut blocks, &deleted_names, &unbound_local_names);
+            rewrite_deleted_name_loads(
+                &mut blocks_for_dataflow,
+                &deleted_names,
+                &unbound_local_names,
+            );
         } else if !unbound_local_names.is_empty() {
-            rewrite_deleted_name_loads(&mut blocks, &HashSet::new(), &unbound_local_names);
-        }
-
-        let exception_edges = compute_exception_edge_by_label(&blocks);
-        let mut exception_edges = exception_edges;
-        if has_yield {
-            if let (Some(uncaught_label), Some(uncaught_exc_name)) = (
-                generator_uncaught_label.as_ref(),
-                generator_uncaught_exc_name.as_ref(),
-            ) {
-                for block in &blocks {
-                    let label = block.label.as_str();
-                    if done_block_label.as_deref() == Some(label)
-                        || invalid_block_label.as_deref() == Some(label)
-                        || Some(label) == generator_uncaught_label.as_deref()
-                        || generator_throw_passthrough_labels.contains(label)
-                    {
-                        continue;
-                    }
-                    exception_edges.entry(block.label.clone()).or_insert((
-                        Some(uncaught_label.clone()),
-                        Some(uncaught_exc_name.clone()),
-                    ));
-                }
-            }
+            rewrite_deleted_name_loads(
+                &mut blocks_for_dataflow,
+                &HashSet::new(),
+                &unbound_local_names,
+            );
         }
         let mut state_vars = collect_state_vars(
             &param_names,
-            &blocks,
+            &blocks_for_dataflow,
             is_module_init_temp_name(func.name.id.as_str()),
         );
         let mut generator_capture_names = Vec::new();
@@ -975,7 +449,7 @@ impl BasicBlockRewriter<'_> {
                     state_vars.push(capture_name.clone());
                 }
             }
-            for exc_name in collect_injected_exception_names(&blocks) {
+            for exc_name in collect_injected_exception_names_blockpy(&blocks_for_dataflow) {
                 if !state_vars.iter().any(|existing| existing == &exc_name) {
                     state_vars.push(exc_name);
                 }
@@ -985,7 +459,10 @@ impl BasicBlockRewriter<'_> {
             if !state_vars.iter().any(|existing| existing == "_dp_pc") {
                 state_vars.push("_dp_pc".to_string());
             }
-            if !state_vars.iter().any(|existing| existing == "_dp_yieldfrom") {
+            if !state_vars
+                .iter()
+                .any(|existing| existing == "_dp_yieldfrom")
+            {
                 state_vars.push("_dp_yieldfrom".to_string());
             }
             for dispatch_name in ["_dp_self", "_dp_send_value", "_dp_resume_exc"] {
@@ -1001,7 +478,6 @@ impl BasicBlockRewriter<'_> {
                 state_vars.push("_dp_transport_sent".to_string());
             }
         }
-        let mut extra_successors = build_extra_successors(&blocks);
         for (source, (target, _)) in &exception_edges {
             let Some(target) = target.as_ref() else {
                 continue;
@@ -1011,7 +487,26 @@ impl BasicBlockRewriter<'_> {
                 successors.push(target.clone());
             }
         }
-        let mut block_params = compute_block_params(&blocks, &state_vars, &extra_successors);
+        if has_yield && !is_closure_backed_generator_runtime {
+            for site in blockpy_function
+                .generator
+                .as_ref()
+                .map(|info| info.yield_sites.as_slice())
+                .unwrap_or(&[])
+            {
+                let successors = extra_successors
+                    .entry(site.yield_label.as_str().to_string())
+                    .or_default();
+                if !successors
+                    .iter()
+                    .any(|existing| existing == site.resume_label.as_str())
+                {
+                    successors.push(site.resume_label.as_str().to_string());
+                }
+            }
+        }
+        let mut block_params =
+            compute_block_params_blockpy(&blocks_for_dataflow, &state_vars, &extra_successors);
         if has_yield {
             // Generator/async-generator runtime dispatch passes state through
             // block args; keep `_dp_self` threaded even when local liveness
@@ -1021,15 +516,27 @@ impl BasicBlockRewriter<'_> {
             // available across resumed generator blocks even when it is only
             // referenced on exceptional control-flow paths. Treat all injected
             // exception names uniformly here instead of only `_dp_try_exc_*`.
-            let injected_exc_names = collect_injected_exception_names(&blocks)
-                .into_iter()
-                .collect::<Vec<_>>();
+            let injected_exc_names: Vec<String> =
+                collect_injected_exception_names_blockpy(&blocks_for_dataflow)
+                    .into_iter()
+                    .collect();
             if is_closure_backed_generator_runtime {
-                for block in &blocks {
-                    if !generator_dispatch_only_labels.contains(block.label.as_str()) {
+                for block in &blocks_for_dataflow {
+                    if !blockpy_function
+                        .generator
+                        .as_ref()
+                        .map(|info| {
+                            info.dispatch_only_labels
+                                .iter()
+                                .any(|label| label.as_str() == block.label.as_str())
+                        })
+                        .unwrap_or(false)
+                    {
                         continue;
                     }
-                    let params = block_params.entry(block.label.clone()).or_default();
+                    let params = block_params
+                        .entry(block.label.as_str().to_string())
+                        .or_default();
                     let mut dispatch_params = vec![
                         "_dp_self".to_string(),
                         "_dp_send_value".to_string(),
@@ -1046,8 +553,10 @@ impl BasicBlockRewriter<'_> {
                     *params = dispatch_params;
                 }
             } else {
-                for block in &blocks {
-                    let params = block_params.entry(block.label.clone()).or_default();
+                for block in &blocks_for_dataflow {
+                    let params = block_params
+                        .entry(block.label.as_str().to_string())
+                        .or_default();
                     params.retain(|name| {
                         name != "_dp_self"
                             && name != "_dp_send_value"
@@ -1060,11 +569,20 @@ impl BasicBlockRewriter<'_> {
                     if is_async_generator_runtime {
                         params.insert(3, "_dp_transport_sent".to_string());
                     }
-                    if generator_dispatch_only_labels.contains(block.label.as_str()) {
+                    if blockpy_function
+                        .generator
+                        .as_ref()
+                        .map(|info| {
+                            info.dispatch_only_labels
+                                .iter()
+                                .any(|label| label.as_str() == block.label.as_str())
+                        })
+                        .unwrap_or(false)
+                    {
                         params.truncate(if is_async_generator_runtime { 4 } else { 3 });
                         continue;
                     }
-                    if block.label != entry_label {
+                    if block.label.as_str() != entry_label.as_str() {
                         for exc_name in &injected_exc_names {
                             if !params.iter().any(|name| name == exc_name) {
                                 params.push(exc_name.clone());
@@ -1074,36 +592,50 @@ impl BasicBlockRewriter<'_> {
                 }
             }
             if !injected_exc_names.is_empty() {
-                if let Some(entry_block) = blocks.iter_mut().find(|block| {
+                if let Some(entry_block) = blocks_for_dataflow.iter_mut().find(|block| {
                     block.label.as_str()
-                        == generator_resume_entry_label
-                            .as_deref()
+                        == blockpy_function
+                            .generator
+                            .as_ref()
+                            .and_then(|info| info.dispatch_entry_label.as_ref())
+                            .map(BlockPyLabel::as_str)
                             .unwrap_or(entry_label.as_str())
                 }) {
                     for exc_name in injected_exc_names.iter().rev() {
-                        entry_block.body.insert(
-                            0,
-                            py_stmt!("{name:id} = __dp_DELETED", name = exc_name.as_str(),),
+                        let mut injected = lower_stmts_to_blockpy_stmts(&[py_stmt!(
+                            "{name:id} = __dp_DELETED",
+                            name = exc_name.as_str(),
+                        )])
+                        .unwrap_or_else(|err| {
+                            panic!("failed to convert injected exception init to BlockPy: {err}")
+                        });
+                        let stmt = injected.pop().expect(
+                            "generated deleted-sentinel init should yield one BlockPy stmt",
                         );
+                        entry_block.body.insert(0, stmt);
                     }
                 }
             }
         }
-        let state_entry_label = generator_resume_entry_label
-            .as_deref()
+        let state_entry_label = blockpy_function
+            .generator
+            .as_ref()
+            .and_then(|info| info.dispatch_entry_label.as_ref())
+            .map(BlockPyLabel::as_str)
             .unwrap_or(entry_label.as_str())
             .to_string();
-        ensure_try_exception_params(&blocks, &mut block_params);
+        ensure_try_exception_params_blockpy(&blocks_for_dataflow, &mut block_params);
         if is_closure_backed_generator_runtime {
-            rewrite_sync_generator_blocks_to_closure_cells(
-                &mut blocks,
+            rewrite_sync_generator_blockpy_blocks_to_closure_cells(
+                &mut blocks_for_dataflow,
                 &mut block_params,
                 &state_vars,
                 &mut cell_slots,
                 state_entry_label.as_str(),
             );
         }
-        let injected_exception_names = collect_injected_exception_names(&blocks);
+        let injected_exception_names =
+            collect_injected_exception_names_blockpy(&blocks_for_dataflow);
         let generator_closure_layout = if is_closure_backed_generator_runtime {
             Some(build_generator_closure_layout(
                 &param_names,
@@ -1120,44 +652,71 @@ impl BasicBlockRewriter<'_> {
             Vec::new()
         };
         if let (Some(uncaught_label), Some(uncaught_exc_name)) = (
-            generator_uncaught_label.as_ref(),
-            generator_uncaught_exc_name.as_ref(),
+            blockpy_function
+                .generator
+                .as_ref()
+                .and_then(|info| info.uncaught_block_label.as_ref()),
+            blockpy_function
+                .generator
+                .as_ref()
+                .and_then(|info| info.uncaught_exc_name.as_ref()),
         ) {
-            let params = block_params.entry(uncaught_label.clone()).or_default();
+            let params = block_params
+                .entry(uncaught_label.as_str().to_string())
+                .or_default();
             params.retain(|name| name != uncaught_exc_name);
             params.push(uncaught_exc_name.clone());
-            if let Some(uncaught_set_done_label) = generator_uncaught_set_done_label.as_ref() {
+            if let Some(uncaught_set_done_label) = blockpy_function
+                .generator
+                .as_ref()
+                .and_then(|info| info.uncaught_set_done_label.as_ref())
+            {
                 let params = block_params
-                    .entry(uncaught_set_done_label.clone())
+                    .entry(uncaught_set_done_label.as_str().to_string())
                     .or_default();
                 params.retain(|name| name != uncaught_exc_name);
                 params.push(uncaught_exc_name.clone());
             }
-            if let Some(uncaught_raise_label) = generator_uncaught_raise_label.as_ref() {
+            if let Some(uncaught_raise_label) = blockpy_function
+                .generator
+                .as_ref()
+                .and_then(|info| info.uncaught_raise_label.as_ref())
+            {
                 let params = block_params
-                    .entry(uncaught_raise_label.clone())
+                    .entry(uncaught_raise_label.as_str().to_string())
                     .or_default();
                 params.retain(|name| name != uncaught_exc_name);
                 params.push(uncaught_exc_name.clone());
             }
         }
         if is_closure_backed_generator_runtime {
-            if let Some(uncaught_set_done_label) = generator_uncaught_set_done_label.as_ref() {
-                if let Some(uncaught_set_done_block) = blocks
+            if let Some(uncaught_set_done_label) = blockpy_function
+                .generator
+                .as_ref()
+                .and_then(|info| info.uncaught_set_done_label.as_ref())
+            {
+                if let Some(uncaught_set_done_block) = blocks_for_dataflow
                     .iter_mut()
-                    .find(|block| block.label == *uncaught_set_done_label)
+                    .find(|block| block.label.as_str() == uncaught_set_done_label.as_str())
                 {
                     let mut new_body = Vec::with_capacity(
                         uncaught_set_done_block.body.len() + cleanup_cells.len(),
                     );
                     for stmt in std::mem::take(&mut uncaught_set_done_block.body) {
                         new_body.push(stmt);
-                        if matches!(new_body.last(), Some(Stmt::Expr(_))) && new_body.len() == 1 {
+                        if matches!(new_body.last(), Some(BlockPyStmt::Expr(_)))
+                            && new_body.len() == 1
+                        {
                             for cell in &cleanup_cells {
-                                new_body.push(py_stmt!(
-                                    "__dp_store_cell({cell:id}, __dp_DELETED)",
-                                    cell = cell.as_str(),
-                                ));
+                                new_body.extend(
+                                    lower_stmts_to_blockpy_stmts(&[py_stmt!(
+                                        "__dp_store_cell({cell:id}, __dp_DELETED)",
+                                        cell = cell.as_str(),
+                                    )])
+                                    .unwrap_or_else(|err| {
+                                        panic!("failed to convert cleanup stmt to BlockPy: {err}")
+                                    }),
+                                );
                             }
                         }
                     }
@@ -1187,24 +746,42 @@ impl BasicBlockRewriter<'_> {
                 .cloned()
                 .collect()
         };
-        let target_labels = blocks
+        let target_labels = blocks_for_dataflow
             .iter()
-            .map(|block| block.label.clone())
+            .map(|block| block.label.as_str().to_string())
             .collect::<Vec<_>>();
         let resume_pcs = if has_yield {
-            generator_resume_order
+            blockpy_function
+                .generator
+                .as_ref()
+                .map(|info| info.resume_order.as_slice())
+                .unwrap_or(&[])
                 .iter()
                 .enumerate()
-                .map(|(idx, label)| (label.clone(), idx))
+                .map(|(idx, label)| (label.as_str().to_string(), idx))
                 .collect::<Vec<_>>()
         } else {
             Vec::new()
         };
+        let generator_yield_sites_for_lowering = blockpy_function
+            .generator
+            .as_ref()
+            .map(|info| {
+                info.yield_sites
+                    .iter()
+                    .map(|site| GeneratorYieldSite {
+                        yield_label: site.yield_label.as_str().to_string(),
+                        resume_label: site.resume_label.as_str().to_string(),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         if has_yield {
-            lower_generator_yield_terms_to_explicit_return(
-                &mut blocks,
+            lower_generator_yield_terms_to_explicit_return_blockpy(
+                &mut blocks_for_dataflow,
                 &block_params,
                 &resume_pcs,
+                &generator_yield_sites_for_lowering,
                 &cleanup_cells,
                 is_async_generator_runtime,
                 is_closure_backed_generator_runtime,
@@ -1217,86 +794,13 @@ impl BasicBlockRewriter<'_> {
                 state_order.push(name);
             }
         }
-        let simplify_expr_pass = SimplifyExprPass;
-        let ir_blocks = blocks
-            .iter()
-            .map(|block| {
-                let mut normalized_body_stmt = stmt_body_from_stmts(block.body.clone());
-                rewrite_with_pass(
-                    self.context,
-                    None,
-                    Some(&simplify_expr_pass),
-                    &mut normalized_body_stmt,
-                );
-                let mut normalized_body = flatten_stmt_boxes(&normalized_body_stmt.body)
-                    .into_iter()
-                    .map(|stmt| *stmt)
-                    .collect::<Vec<_>>();
-                let mut normalized_term = block.terminator.clone();
-                simplify_terminator_exprs(
-                    self.context,
-                    &simplify_expr_pass,
-                    &mut normalized_term,
-                    &mut normalized_body,
-                );
-                let (exc_target_label, exc_name) = exception_edges
-                    .get(block.label.as_str())
-                    .cloned()
-                    .unwrap_or((None, None));
-                let mut local_defs = Vec::new();
-                let mut ops = Vec::new();
-                let mut pending = VecDeque::from(normalized_body);
-                while let Some(stmt) = pending.pop_front() {
-                    match stmt {
-                        Stmt::FunctionDef(func_def)
-                            if func_def.name.id.as_str().starts_with("_dp_bb_") =>
-                        {
-                            local_defs.push(func_def);
-                        }
-                        Stmt::Assign(assign)
-                            if rewrite_stmt::assign_del::should_rewrite_targets(
-                                &assign.targets,
-                            ) =>
-                        {
-                            let rewritten =
-                                rewrite_stmt::assign_del::rewrite_assign(self.context, assign);
-                            let rewritten_stmt = match rewritten {
-                                Rewrite::Unmodified(stmt) | Rewrite::Walk(stmt) => stmt,
-                            };
-                            let mut lowered = Vec::new();
-                            flatten_stmt(&rewritten_stmt, &mut lowered);
-                            for lowered_stmt in lowered.into_iter().rev() {
-                                pending.push_front(*lowered_stmt);
-                            }
-                        }
-                        other => {
-                            if let Some(op) = BbOp::from_stmt(other) {
-                                ops.push(op);
-                            }
-                        }
-                    }
-                }
-                BbBlock {
-                    label: block.label.clone(),
-                    params: block_params
-                        .get(block.label.as_str())
-                        .cloned()
-                        .unwrap_or_default(),
-                    local_defs,
-                    ops,
-                    exc_target_label,
-                    exc_name,
-                    term: bb_term_from_terminator(&normalized_term),
-                }
-            })
-            .collect::<Vec<_>>();
-
         let mut exported_entry_label = entry_label.clone();
         let mut exported_entry_params = state_order.clone();
-        let mut exported_blocks = ir_blocks;
+        let mut exported_blocks = blocks_for_dataflow;
+        let mut exported_block_params = block_params.clone();
+        let mut exported_exception_edges = exception_edges.clone();
         let mut helper_functions = Vec::new();
         if is_closure_backed_generator_runtime {
-            let identity = self.function_identity_for(func);
             let layout = generator_closure_layout
                 .as_ref()
                 .expect("closure-backed generator lowering requires closure layout");
@@ -1305,6 +809,16 @@ impl BasicBlockRewriter<'_> {
                 closure_backed_generator_factory_entry_params(&param_names, layout);
             let resume_state_order =
                 closure_backed_generator_resume_state_order(layout, lowered_is_async);
+            let factory_block = build_closure_backed_generator_factory_block(
+                factory_label.as_str(),
+                entry_label.as_str(),
+                &resume_state_order,
+                identity.display_name.as_str(),
+                identity.qualname.as_str(),
+                layout,
+                coroutine_via_generator,
+                lowered_is_async,
+            );
             let mut resume_local_cell_slots = cell_slots.iter().cloned().collect::<Vec<_>>();
             resume_local_cell_slots.sort();
             let resume_kind = if lowered_is_async {
@@ -1333,30 +847,30 @@ impl BasicBlockRewriter<'_> {
                 param_names: param_names.clone(),
                 entry_params: resume_state_order.clone(),
                 generator_closure_layout: generator_closure_layout.clone(),
-                param_specs: BbExpr::from_expr(
-                    closure_backed_generator_resume_param_specs_expr(lowered_is_async),
-                ),
+                param_specs: BbExpr::from_expr(closure_backed_generator_resume_param_specs_expr(
+                    lowered_is_async,
+                )),
                 local_cell_slots: resume_local_cell_slots,
-                blocks: exported_blocks,
+                blocks: super::blockpy_to_bb::lower_blockpy_blocks_to_bb_blocks(
+                    self.context,
+                    &exported_blocks,
+                    &exported_block_params,
+                    &exported_exception_edges,
+                ),
             });
-            exported_blocks = vec![closure_backed_generator_factory_block(
-                factory_label.as_str(),
-                &factory_entry_params,
-                entry_label.as_str(),
-                &resume_state_order,
-                identity.display_name.as_str(),
-                identity.qualname.as_str(),
-                layout,
-                coroutine_via_generator,
-                lowered_is_async,
-            )];
+            exported_blocks = vec![factory_block];
             exported_entry_label = factory_label;
             exported_entry_params = factory_entry_params;
+            exported_block_params =
+                HashMap::from([(exported_entry_label.clone(), exported_entry_params.clone())]);
+            exported_exception_edges = HashMap::new();
         }
         Some(LoweredFunction {
             blocks: exported_blocks,
             entry_label: exported_entry_label,
             entry_params: exported_entry_params,
+            block_params: exported_block_params,
+            exception_edges: exported_exception_edges,
             generator_closure_layout: if is_closure_backed_generator_runtime {
                 None
             } else {
@@ -1394,870 +908,298 @@ impl BasicBlockRewriter<'_> {
         fn_name: &str,
         stmts: &[Box<Stmt>],
         cont_label: String,
-        blocks: &mut Vec<Block>,
+        blocks: &mut Vec<BlockPyBlock>,
         loop_ctx: Option<&LoopContext>,
         cell_slots: &HashSet<String>,
         outer_scope_names: &HashSet<String>,
+        generator_state: &mut BlockPySequenceGeneratorState,
     ) -> String {
         if stmts.is_empty() {
             return cont_label;
         }
 
+        let cache_key = Self::stmt_sequence_cache_key(fn_name, stmts, &cont_label, loop_ctx);
+
         let mut linear = Vec::new();
         let mut index = 0;
         while index < stmts.len() {
-            match stmts[index].as_ref() {
-                Stmt::Expr(ast::StmtExpr { value, .. }) => {
-                    if let Expr::Yield(yield_expr) = value.as_ref() {
-                        let resume_label = self.lower_stmt_sequence(
-                            fn_name,
-                            &stmts[index + 1..],
-                            cont_label.clone(),
-                            blocks,
-                            loop_ctx,
-                            cell_slots,
-                            outer_scope_names,
-                        );
-                        let resume_raise_label = self.next_label(fn_name);
-                        let resume_dispatch_label = self.next_label(fn_name);
-                        blocks.push(Block {
-                            label: resume_raise_label.clone(),
-                            body: Vec::new(),
-                            terminator: Terminator::Raise(raise_stmt_from_name("_dp_resume_exc")),
-                        });
-                        blocks.push(Block {
-                            label: resume_dispatch_label.clone(),
-                            body: Vec::new(),
-                            terminator: Terminator::BrIf {
-                                test: py_expr!("__dp_is_not(_dp_resume_exc, None)"),
-                                then_label: resume_raise_label,
-                                else_label: resume_label,
-                            },
-                        });
-                        let label = self.next_label(fn_name);
-                        blocks.push(Block {
-                            label: label.clone(),
-                            body: linear,
-                            terminator: Terminator::Yield {
-                                value: yield_expr.value.as_ref().map(|expr| *expr.clone()),
-                                resume_label: resume_dispatch_label,
-                            },
-                        });
-                        return label;
-                    }
-                    if let Expr::YieldFrom(yield_from_expr) = value.as_ref() {
-                        let rest_entry = self.lower_stmt_sequence(
-                            fn_name,
-                            &stmts[index + 1..],
-                            cont_label.clone(),
-                            blocks,
-                            loop_ctx,
-                            cell_slots,
-                            outer_scope_names,
-                        );
-                        let (yield_from_entry, _result_name) = self.lower_yield_from_direct(
-                            fn_name,
-                            *yield_from_expr.value.clone(),
-                            rest_entry,
-                            false,
-                            blocks,
-                        );
-                        let label = self.next_label(fn_name);
-                        blocks.push(Block {
-                            label: label.clone(),
-                            body: linear,
-                            terminator: Terminator::Jump(yield_from_entry),
-                        });
-                        return label;
-                    }
-                    linear.push(stmts[index].as_ref().clone());
-                    index += 1;
-                }
-                Stmt::Pass(_) => {
-                    linear.push(stmts[index].as_ref().clone());
-                    index += 1;
-                }
-                Stmt::FunctionDef(func_def) => {
-                    if func_def.name.id.as_str().starts_with("_dp_bb_") {
-                        linear.push(stmts[index].as_ref().clone());
-                    } else {
-                        linear.extend(self.lower_non_bb_def_stmt_to_exec_binding(
-                            func_def,
-                            cell_slots,
-                            outer_scope_names,
-                        ));
-                    }
-                    index += 1;
-                }
-                Stmt::Assign(assign_stmt) => {
-                    if let Expr::Yield(yield_expr) = assign_stmt.value.as_ref() {
-                        let rest_entry = self.lower_stmt_sequence(
-                            fn_name,
-                            &stmts[index + 1..],
-                            cont_label.clone(),
-                            blocks,
-                            loop_ctx,
-                            cell_slots,
-                            outer_scope_names,
-                        );
-                        let resume_assign_label = self.next_label(fn_name);
-                        let resume_raise_label = self.next_label(fn_name);
-                        let resume_label = self.next_label(fn_name);
-                        let mut resume_assign = assign_stmt.clone();
-                        resume_assign.value =
-                            Box::new(py_expr!("{sent:id}", sent = "_dp_send_value"));
-                        let mut resume_body = vec![Stmt::Assign(resume_assign.clone())];
-                        for target in &resume_assign.targets {
-                            resume_body.extend(sync_target_cells_stmts(target, cell_slots));
-                        }
-                        blocks.push(Block {
-                            label: resume_assign_label.clone(),
-                            body: resume_body,
-                            terminator: Terminator::Jump(rest_entry),
-                        });
-                        blocks.push(Block {
-                            label: resume_raise_label.clone(),
-                            body: Vec::new(),
-                            terminator: Terminator::Raise(raise_stmt_from_name("_dp_resume_exc")),
-                        });
-                        blocks.push(Block {
-                            label: resume_label.clone(),
-                            body: Vec::new(),
-                            terminator: Terminator::BrIf {
-                                test: py_expr!("__dp_is_not(_dp_resume_exc, None)"),
-                                then_label: resume_raise_label,
-                                else_label: resume_assign_label,
-                            },
-                        });
-
-                        let label = self.next_label(fn_name);
-                        blocks.push(Block {
-                            label: label.clone(),
-                            body: linear,
-                            terminator: Terminator::Yield {
-                                value: yield_expr.value.as_ref().map(|expr| *expr.clone()),
-                                resume_label,
-                            },
-                        });
-                        return label;
-                    }
-                    if let Expr::YieldFrom(yield_from_expr) = assign_stmt.value.as_ref() {
-                        let rest_entry = self.lower_stmt_sequence(
-                            fn_name,
-                            &stmts[index + 1..],
-                            cont_label.clone(),
-                            blocks,
-                            loop_ctx,
-                            cell_slots,
-                            outer_scope_names,
-                        );
-                        let assign_result_label = self.next_label(fn_name);
-                        let (yield_from_entry, result_name) = self.lower_yield_from_direct(
-                            fn_name,
-                            *yield_from_expr.value.clone(),
-                            assign_result_label.clone(),
-                            true,
-                            blocks,
-                        );
-                        let result_name = result_name
-                            .expect("yield-from assignment lowering requires yielded result");
-                        let result_expr = py_expr!("{value:id}", value = result_name.as_str());
-                        let mut final_assign = assign_stmt.clone();
-                        final_assign.value = Box::new(result_expr);
-                        let mut assign_body = vec![Stmt::Assign(final_assign.clone())];
-                        for target in &final_assign.targets {
-                            assign_body.extend(sync_target_cells_stmts(target, cell_slots));
-                        }
-                        blocks.push(Block {
-                            label: assign_result_label,
-                            body: assign_body,
-                            terminator: Terminator::Jump(rest_entry),
-                        });
-                        let label = self.next_label(fn_name);
-                        blocks.push(Block {
-                            label: label.clone(),
-                            body: linear,
-                            terminator: Terminator::Jump(yield_from_entry),
-                        });
-                        return label;
-                    }
-                    linear.push(stmts[index].as_ref().clone());
-                    index += 1;
-                }
-                Stmt::Raise(raise_stmt) => {
+            let plan;
+            (linear, index, plan) = match drive_stmt_sequence_until_control(
+                &stmts[index..],
+                linear,
+                &mut |func_def| {
+                    self.lower_non_bb_def_stmt_to_exec_binding(
+                        func_def,
+                        cell_slots,
+                        outer_scope_names,
+                    )
+                },
+                &mut |delete_stmt| rewrite_delete_to_deleted_sentinel(delete_stmt),
+            ) {
+                StmtSequenceDriveResult::Exhausted { linear } => {
                     let label = self.next_label(fn_name);
-                    blocks.push(Block {
-                        label: label.clone(),
-                        body: linear,
-                        terminator: Terminator::Raise(raise_stmt.clone()),
-                    });
+                    let label = emit_sequence_jump_block(blocks, label, linear, cont_label);
+                    self.cache_stmt_sequence_result(&cache_key, &label);
                     return label;
                 }
-                Stmt::Delete(delete_stmt) => {
-                    linear.extend(rewrite_delete_to_deleted_sentinel(delete_stmt));
-                    index += 1;
-                }
-                Stmt::Return(ret) => {
-                    if let Some(value) = ret.value.as_ref() {
-                        if let Expr::Yield(yield_expr) = value.as_ref() {
-                            let resume_raise_label = self.next_label(fn_name);
-                            let resume_return_label = self.next_label(fn_name);
-                            let resume_dispatch_label = self.next_label(fn_name);
+                StmtSequenceDriveResult::Break {
+                    linear,
+                    index: break_index,
+                    plan,
+                } => (linear, index + break_index, plan),
+            };
 
-                            blocks.push(Block {
-                                label: resume_raise_label.clone(),
-                                body: Vec::new(),
-                                terminator: Terminator::Raise(raise_stmt_from_name(
-                                    "_dp_resume_exc",
-                                )),
-                            });
-                            blocks.push(Block {
-                                label: resume_return_label.clone(),
-                                body: Vec::new(),
-                                terminator: Terminator::Ret(Some(py_expr!(
-                                    "{sent:id}",
-                                    sent = "_dp_send_value"
-                                ))),
-                            });
-                            blocks.push(Block {
-                                label: resume_dispatch_label.clone(),
-                                body: Vec::new(),
-                                terminator: Terminator::BrIf {
-                                    test: py_expr!("__dp_is_not(_dp_resume_exc, None)"),
-                                    then_label: resume_raise_label,
-                                    else_label: resume_return_label,
-                                },
-                            });
-
-                            let label = self.next_label(fn_name);
-                            blocks.push(Block {
-                                label: label.clone(),
-                                body: linear,
-                                terminator: Terminator::Yield {
-                                    value: yield_expr.value.as_ref().map(|expr| *expr.clone()),
-                                    resume_label: resume_dispatch_label,
-                                },
-                            });
-                            return label;
-                        }
-                        if let Expr::YieldFrom(yield_from_expr) = value.as_ref() {
-                            let return_label = self.next_label(fn_name);
-                            let (yield_from_entry, result_name) = self.lower_yield_from_direct(
+            match plan {
+                StmtSequenceHeadPlan::Generator {
+                    plan,
+                    sync_target_cells,
+                } => {
+                    let initial_state = GeneratorStmtSequenceLoweringState {
+                        closure_state: generator_state.closure_state,
+                        resume_order: std::mem::take(&mut generator_state.resume_order),
+                        yield_sites: std::mem::take(&mut generator_state.yield_sites),
+                        next_block_id: self.next_block_id,
+                    };
+                    let (label, updated_state) = lower_generator_stmt_sequence_head(
+                        fn_name,
+                        plan,
+                        &stmts[index + 1..],
+                        cont_label.clone(),
+                        linear.clone(),
+                        blocks,
+                        initial_state,
+                        sync_target_cells.then_some(cell_slots),
+                        &mut |stmts, cont_label, blocks, state| {
+                            let mut local_generator_state = BlockPySequenceGeneratorState {
+                                closure_state: state.closure_state,
+                                resume_order: state.resume_order,
+                                yield_sites: state.yield_sites,
+                            };
+                            self.next_block_id = state.next_block_id;
+                            let label = self.lower_stmt_sequence(
                                 fn_name,
-                                *yield_from_expr.value.clone(),
-                                return_label.clone(),
-                                true,
-                                blocks,
-                            );
-                            let result_name = result_name
-                                .expect("yield-from return lowering requires yielded result");
-                            let result_expr = py_expr!("{value:id}", value = result_name.as_str());
-                            blocks.push(Block {
-                                label: return_label,
-                                body: Vec::new(),
-                                terminator: Terminator::Ret(Some(result_expr)),
-                            });
-                            let label = self.next_label(fn_name);
-                            blocks.push(Block {
-                                label: label.clone(),
-                                body: linear,
-                                terminator: Terminator::Jump(yield_from_entry),
-                            });
-                            return label;
-                        }
-                    }
-                    let label = self.next_label(fn_name);
-                    blocks.push(Block {
-                        label: label.clone(),
-                        body: linear,
-                        terminator: Terminator::Ret(ret.value.as_ref().map(|expr| *expr.clone())),
-                    });
-                    return label;
-                }
-                Stmt::If(if_stmt) => {
-                    let then_body = flatten_stmt_boxes(&if_stmt.body.body);
-                    let else_body = flatten_stmt_boxes(&extract_else_body(if_stmt));
-                    let rest_entry = self.lower_stmt_sequence(
-                        fn_name,
-                        &stmts[index + 1..],
-                        cont_label.clone(),
-                        blocks,
-                        loop_ctx,
-                        cell_slots,
-                        outer_scope_names,
-                    );
-                    let then_entry = self.lower_stmt_sequence(
-                        fn_name,
-                        &then_body,
-                        rest_entry.clone(),
-                        blocks,
-                        loop_ctx,
-                        cell_slots,
-                        outer_scope_names,
-                    );
-                    let else_entry = self.lower_stmt_sequence(
-                        fn_name,
-                        &else_body,
-                        rest_entry,
-                        blocks,
-                        loop_ctx,
-                        cell_slots,
-                        outer_scope_names,
-                    );
-                    let label = self.next_label(fn_name);
-                    blocks.push(Block {
-                        label: label.clone(),
-                        body: linear,
-                        terminator: Terminator::BrIf {
-                            test: *if_stmt.test.clone(),
-                            then_label: then_entry,
-                            else_label: else_entry,
-                        },
-                    });
-                    return label;
-                }
-                Stmt::While(while_stmt) => {
-                    let rest_entry = self.lower_stmt_sequence(
-                        fn_name,
-                        &stmts[index + 1..],
-                        cont_label.clone(),
-                        blocks,
-                        loop_ctx,
-                        cell_slots,
-                        outer_scope_names,
-                    );
-
-                    let test_label = self.next_label(fn_name);
-
-                    let else_body = flatten_stmt_boxes(&while_stmt.orelse.body);
-                    let cond_false_entry = if else_body.is_empty() {
-                        rest_entry.clone()
-                    } else {
-                        self.lower_stmt_sequence(
-                            fn_name,
-                            &else_body,
-                            rest_entry.clone(),
-                            blocks,
-                            loop_ctx,
-                            cell_slots,
-                            outer_scope_names,
-                        )
-                    };
-
-                    let body = flatten_stmt_boxes(&while_stmt.body.body);
-                    let loop_ctx = LoopContext {
-                        continue_label: test_label.clone(),
-                        break_label: rest_entry,
-                    };
-                    let body_entry = self.lower_stmt_sequence(
-                        fn_name,
-                        &body,
-                        test_label.clone(),
-                        blocks,
-                        Some(&loop_ctx),
-                        cell_slots,
-                        outer_scope_names,
-                    );
-
-                    blocks.push(Block {
-                        label: test_label.clone(),
-                        body: Vec::new(),
-                        terminator: Terminator::BrIf {
-                            test: *while_stmt.test.clone(),
-                            then_label: body_entry,
-                            else_label: cond_false_entry,
-                        },
-                    });
-
-                    if linear.is_empty() {
-                        return test_label;
-                    }
-                    let linear_label = self.next_label(fn_name);
-                    blocks.push(Block {
-                        label: linear_label.clone(),
-                        body: linear,
-                        terminator: Terminator::Jump(test_label),
-                    });
-                    return linear_label;
-                }
-                Stmt::For(for_stmt) => {
-                    let rest_entry = self.lower_stmt_sequence(
-                        fn_name,
-                        &stmts[index + 1..],
-                        cont_label.clone(),
-                        blocks,
-                        loop_ctx,
-                        cell_slots,
-                        outer_scope_names,
-                    );
-
-                    let else_body = flatten_stmt_boxes(&for_stmt.orelse.body);
-                    let exhausted_entry = if else_body.is_empty() {
-                        rest_entry.clone()
-                    } else {
-                        self.lower_stmt_sequence(
-                            fn_name,
-                            &else_body,
-                            rest_entry.clone(),
-                            blocks,
-                            loop_ctx,
-                            cell_slots,
-                            outer_scope_names,
-                        )
-                    };
-
-                    let iter_name = self.next_temp("iter");
-                    let Some(iter_expr) = name_expr(iter_name.as_str()) else {
-                        return cont_label;
-                    };
-                    let tmp_name = self.next_temp("tmp");
-                    let Some(tmp_expr) = name_expr(tmp_name.as_str()) else {
-                        return cont_label;
-                    };
-
-                    let loop_check_label = self.next_label(fn_name);
-                    let loop_continue_label = if for_stmt.is_async {
-                        let await_value = py_expr!(
-                            "__dp_await_iter(__dp_anext_or_sentinel({iter:expr}))",
-                            iter = iter_expr.clone(),
-                        );
-                        let fetch_done_label = self.next_label(fn_name);
-                        let (fetch_entry_label, fetch_result_name) = self.lower_yield_from_direct(
-                            fn_name,
-                            await_value,
-                            fetch_done_label.clone(),
-                            true,
-                            blocks,
-                        );
-                        let fetch_result_name = fetch_result_name
-                            .expect("async-for fetch lowering requires yielded result");
-                        blocks.push(Block {
-                            label: fetch_done_label,
-                            body: vec![py_stmt!(
-                                "{tmp:id} = {value:id}",
-                                tmp = tmp_name.as_str(),
-                                value = fetch_result_name.as_str(),
-                            )],
-                            terminator: Terminator::Jump(loop_check_label.clone()),
-                        });
-                        fetch_entry_label
-                    } else {
-                        loop_check_label.clone()
-                    };
-                    let body = flatten_stmt_boxes(&for_stmt.body.body);
-                    let loop_ctx = LoopContext {
-                        continue_label: loop_continue_label.clone(),
-                        break_label: rest_entry,
-                    };
-                    let body_entry = self.lower_stmt_sequence(
-                        fn_name,
-                        &body,
-                        loop_continue_label.clone(),
-                        blocks,
-                        Some(&loop_ctx),
-                        cell_slots,
-                        outer_scope_names,
-                    );
-
-                    let assign_label = self.next_label(fn_name);
-                    let mut assign_body = Vec::new();
-                    if is_simple_index_target(for_stmt.target.as_ref()) {
-                        self.emit_target_assignments(
-                            for_stmt.target.as_ref(),
-                            tmp_expr.clone(),
-                            &mut assign_body,
-                        );
-                    } else {
-                        // Normalize complex assignment targets at the lowering site so
-                        // BbOp::Assign only ever sees name targets.
-                        let rewritten = rewrite_stmt::assign_del::rewrite_assign(
-                            self.context,
-                            ast::StmtAssign {
-                                range: TextRange::default(),
-                                node_index: ast::AtomicNodeIndex::default(),
-                                targets: vec![*for_stmt.target.clone()],
-                                value: Box::new(tmp_expr.clone()),
-                            },
-                        );
-                        let rewritten_stmt = match rewritten {
-                            Rewrite::Unmodified(stmt) | Rewrite::Walk(stmt) => stmt,
-                        };
-                        let mut lowered = Vec::new();
-                        flatten_stmt(&rewritten_stmt, &mut lowered);
-                        assign_body.extend(lowered.into_iter().map(|stmt| *stmt));
-                    }
-                    assign_body.extend(sync_target_cells_stmts(
-                        for_stmt.target.as_ref(),
-                        cell_slots,
-                    ));
-                    assign_body.push(py_stmt!("{tmp:id} = None", tmp = tmp_name.as_str()));
-                    blocks.push(Block {
-                        label: assign_label.clone(),
-                        body: assign_body,
-                        terminator: Terminator::Jump(body_entry),
-                    });
-
-                    let exhausted_test = py_expr!(
-                        "__dp_is_({value:expr}, __dp__.ITER_COMPLETE)",
-                        value = tmp_expr.clone(),
-                    );
-                    let check_body = if for_stmt.is_async {
-                        Vec::new()
-                    } else {
-                        vec![py_stmt!(
-                            "{tmp:id} = __dp_next_or_sentinel({iter:expr})",
-                            tmp = tmp_name.as_str(),
-                            iter = iter_expr.clone(),
-                        )]
-                    };
-                    blocks.push(Block {
-                        label: loop_check_label.clone(),
-                        body: check_body,
-                        terminator: Terminator::BrIf {
-                            test: exhausted_test,
-                            then_label: exhausted_entry,
-                            else_label: assign_label,
-                        },
-                    });
-
-                    let mut setup_body = linear;
-                    if for_stmt.is_async {
-                        setup_body.push(py_stmt!(
-                            "{iter:id} = __dp_aiter({iterable:expr})",
-                            iter = iter_name.as_str(),
-                            iterable = *for_stmt.iter.clone(),
-                        ));
-                    } else {
-                        setup_body.push(py_stmt!(
-                            "{iter:id} = __dp_iter({iterable:expr})",
-                            iter = iter_name.as_str(),
-                            iterable = *for_stmt.iter.clone(),
-                        ));
-                    }
-                    let setup_label = self.next_label(fn_name);
-                    blocks.push(Block {
-                        label: setup_label.clone(),
-                        body: setup_body,
-                        terminator: Terminator::Jump(loop_continue_label),
-                    });
-                    return setup_label;
-                }
-                Stmt::Try(try_stmt) => {
-                    if try_stmt.is_star {
-                        let rewritten_try =
-                            match rewrite_stmt::exception::rewrite_try(try_stmt.clone()) {
-                                Rewrite::Walk(stmt) | Rewrite::Unmodified(stmt) => stmt,
-                            };
-                        let mut expanded = match rewritten_try {
-                            Stmt::BodyStmt(body) => body.body,
-                            stmt => vec![Box::new(stmt)],
-                        };
-                        expanded.extend(stmts[index + 1..].iter().cloned());
-                        let expanded_entry = self.lower_stmt_sequence(
-                            fn_name,
-                            &expanded,
-                            cont_label.clone(),
-                            blocks,
-                            loop_ctx,
-                            cell_slots,
-                            outer_scope_names,
-                        );
-                        let label = self.next_label(fn_name);
-                        blocks.push(Block {
-                            label: label.clone(),
-                            body: linear,
-                            terminator: Terminator::Jump(expanded_entry),
-                        });
-                        return label;
-                    }
-
-                    let rest_entry = self.lower_stmt_sequence(
-                        fn_name,
-                        &stmts[index + 1..],
-                        cont_label.clone(),
-                        blocks,
-                        loop_ctx,
-                        cell_slots,
-                        outer_scope_names,
-                    );
-
-                    let has_finally = !try_stmt.finalbody.body.is_empty();
-                    let needs_finally_return_flow = has_finally
-                        && (contains_return_stmt_in_body(&try_stmt.body.body)
-                            || contains_return_stmt_in_handlers(&try_stmt.handlers)
-                            || contains_return_stmt_in_body(&try_stmt.orelse.body));
-                    let mut finally_exc_name: Option<String> = None;
-                    let mut finally_reason_name: Option<String> = None;
-                    let mut finally_return_value_name: Option<String> = None;
-                    let (finally_label, finally_region_labels, finally_fallthrough_label) =
-                        if has_finally {
-                            let reason_name = if needs_finally_return_flow {
-                                let name = self.next_temp("try_reason");
-                                finally_reason_name = Some(name.clone());
-                                Some(name)
-                            } else {
-                                None
-                            };
-                            let return_name = if needs_finally_return_flow {
-                                let name = self.next_temp("try_value");
-                                finally_return_value_name = Some(name.clone());
-                                Some(name)
-                            } else {
-                                None
-                            };
-                            let finally_dispatch_label = if needs_finally_return_flow {
-                                Some(self.next_label(fn_name))
-                            } else {
-                                None
-                            };
-                            let finally_return_label = if needs_finally_return_flow {
-                                Some(self.next_label(fn_name))
-                            } else {
-                                None
-                            };
-                            let finally_cont_label = finally_dispatch_label
-                                .clone()
-                                .unwrap_or_else(|| rest_entry.clone());
-
-                            let finally_region_start = blocks.len();
-                            let mut finally_body = flatten_stmt_boxes(&try_stmt.finalbody.body);
-                            let finally_exc_candidate = self.next_temp("try_exc");
-                            finally_body = rewrite_exception_accesses(
-                                finally_body,
-                                finally_exc_candidate.as_str(),
-                            );
-                            finally_body.push(Box::new(py_stmt!(
-                                "if __dp_is_not({exc:id}, None):\n    raise {exc:id}",
-                                exc = finally_exc_candidate.as_str(),
-                            )));
-                            finally_exc_name = Some(finally_exc_candidate);
-                            let finally_label = self.lower_stmt_sequence(
-                                fn_name,
-                                &finally_body,
-                                finally_cont_label,
+                                stmts,
+                                cont_label,
                                 blocks,
                                 loop_ctx,
                                 cell_slots,
                                 outer_scope_names,
+                                &mut local_generator_state,
                             );
-                            let finally_region_labels = blocks[finally_region_start..]
-                                .iter()
-                                .map(|block| block.label.clone())
-                                .collect::<Vec<_>>();
-                            if let (
-                                Some(finally_return_label),
-                                Some(finally_dispatch_label),
-                                Some(return_name),
-                                Some(reason_name),
-                            ) = (
-                                finally_return_label,
-                                finally_dispatch_label.clone(),
-                                return_name,
-                                reason_name,
-                            ) {
-                                blocks.push(Block {
-                                    label: finally_return_label.clone(),
-                                    body: Vec::new(),
-                                    terminator: Terminator::Ret(Some(py_expr!(
-                                        "{name:id}",
-                                        name = return_name.as_str(),
-                                    ))),
-                                });
-                                blocks.push(Block {
-                                    label: finally_dispatch_label.clone(),
-                                    body: Vec::new(),
-                                    terminator: Terminator::BrIf {
-                                        test: py_expr!(
-                                            "__dp_eq({reason:id}, 'return')",
-                                            reason = reason_name.as_str(),
-                                        ),
-                                        then_label: finally_return_label,
-                                        else_label: rest_entry.clone(),
-                                    },
-                                });
-                            }
                             (
-                                Some(finally_label),
-                                finally_region_labels,
-                                Some(finally_dispatch_label.unwrap_or_else(|| rest_entry.clone())),
+                                label,
+                                GeneratorStmtSequenceLoweringState {
+                                    closure_state: local_generator_state.closure_state,
+                                    resume_order: local_generator_state.resume_order,
+                                    yield_sites: local_generator_state.yield_sites,
+                                    next_block_id: self.next_block_id,
+                                },
                             )
-                        } else {
-                            (None, Vec::new(), None)
-                        };
-                    let pass_target = finally_label.clone().unwrap_or_else(|| rest_entry.clone());
-
-                    let body_region_start = blocks.len();
-                    let body_pass_label = self.next_label(fn_name);
-                    let mut body_pass_stmts = Vec::new();
-                    if let Some(reason_name) = finally_reason_name.as_ref() {
-                        body_pass_stmts.push(py_stmt!(
-                            "{reason:id} = None",
-                            reason = reason_name.as_str(),
-                        ));
-                    }
-                    if let Some(exc_name) = finally_exc_name.as_ref() {
-                        body_pass_stmts.push(py_stmt!("{exc:id} = None", exc = exc_name.as_str(),));
-                    }
-                    blocks.push(Block {
-                        label: body_pass_label.clone(),
-                        body: body_pass_stmts,
-                        terminator: Terminator::Jump(pass_target.clone()),
-                    });
-
-                    let else_body = flatten_stmt_boxes(&try_stmt.orelse.body);
-                    let else_entry = self.lower_stmt_sequence(
-                        fn_name,
-                        &else_body,
-                        body_pass_label,
-                        blocks,
-                        loop_ctx,
-                        cell_slots,
-                        outer_scope_names,
-                    );
-
-                    let try_body = flatten_stmt_boxes(&try_stmt.body.body);
-                    let body_label = self.lower_stmt_sequence(
-                        fn_name,
-                        &try_body,
-                        else_entry,
-                        blocks,
-                        loop_ctx,
-                        cell_slots,
-                        outer_scope_names,
-                    );
-                    let body_region_labels = blocks[body_region_start..]
-                        .iter()
-                        .map(|block| block.label.clone())
-                        .collect::<Vec<_>>();
-
-                    let except_region_start = blocks.len();
-                    let except_pass_label = self.next_label(fn_name);
-                    let except_exc_name = self.next_temp("try_exc");
-                    let mut except_pass_stmts = Vec::new();
-                    if let Some(reason_name) = finally_reason_name.as_ref() {
-                        except_pass_stmts.push(py_stmt!(
-                            "{reason:id} = None",
-                            reason = reason_name.as_str(),
-                        ));
-                    }
-                    if let Some(exc_name) = finally_exc_name.as_ref() {
-                        except_pass_stmts
-                            .push(py_stmt!("{exc:id} = None", exc = exc_name.as_str(),));
-                    }
-                    except_pass_stmts.push(py_stmt!(
-                        "{exc:id} = __dp_DELETED",
-                        exc = except_exc_name.as_str(),
-                    ));
-                    blocks.push(Block {
-                        label: except_pass_label.clone(),
-                        body: except_pass_stmts,
-                        terminator: Terminator::Jump(pass_target),
-                    });
-                    let except_body = try_stmt
-                        .handlers
-                        .first()
-                        .map(|handler| {
-                            let ast::ExceptHandler::ExceptHandler(handler) = handler;
-                            flatten_stmt_boxes(&handler.body.body)
-                        })
-                        .unwrap_or_else(|| {
-                            vec![Box::new(py_stmt!(
-                                "raise {exc:id}",
-                                exc = except_exc_name.as_str(),
-                            ))]
-                        });
-                    let except_body =
-                        rewrite_exception_accesses(except_body, except_exc_name.as_str());
-                    let except_label = self.lower_stmt_sequence(
-                        fn_name,
-                        &except_body,
-                        except_pass_label,
-                        blocks,
-                        loop_ctx,
-                        cell_slots,
-                        outer_scope_names,
-                    );
-                    let except_region_labels = blocks[except_region_start..]
-                        .iter()
-                        .map(|block| block.label.clone())
-                        .collect::<Vec<_>>();
-
-                    if let (Some(reason_name), Some(return_name), Some(finally_target)) = (
-                        finally_reason_name.as_ref(),
-                        finally_return_value_name.as_ref(),
-                        finally_label.as_ref(),
-                    ) {
-                        let finally_exc_name = finally_exc_name.as_deref();
-                        rewrite_region_returns_to_finally(
-                            blocks,
-                            &body_region_labels,
-                            reason_name.as_str(),
-                            return_name.as_str(),
-                            finally_target.as_str(),
-                            finally_exc_name,
-                        );
-                        rewrite_region_returns_to_finally(
-                            blocks,
-                            &except_region_labels,
-                            reason_name.as_str(),
-                            return_name.as_str(),
-                            finally_target.as_str(),
-                            finally_exc_name,
-                        );
-                    }
-
-                    let label = self.next_label(fn_name);
-                    blocks.push(Block {
-                        label: label.clone(),
-                        body: linear,
-                        terminator: Terminator::TryJump {
-                            body_label,
-                            except_label,
-                            except_exc_name: Some(except_exc_name),
-                            body_region_labels,
-                            except_region_labels,
-                            finally_label,
-                            finally_exc_name,
-                            finally_region_labels,
-                            finally_fallthrough_label,
                         },
-                    });
-                    return label;
+                    );
+                    self.next_block_id = updated_state.next_block_id;
+                    generator_state.resume_order = updated_state.resume_order;
+                    generator_state.yield_sites = updated_state.yield_sites;
+                    if let Some(label) = label {
+                        self.cache_stmt_sequence_result(&cache_key, &label);
+                        return label;
+                    }
+                    linear.push(stmts[index].as_ref().clone());
+                    index += 1;
+                    continue;
                 }
-                Stmt::Break(_) => {
-                    let Some(loop_ctx) = loop_ctx else {
+                plan @ (StmtSequenceHeadPlan::Raise(_)
+                | StmtSequenceHeadPlan::Return(_)
+                | StmtSequenceHeadPlan::If(_)
+                | StmtSequenceHeadPlan::While(_)
+                | StmtSequenceHeadPlan::With(_)
+                | StmtSequenceHeadPlan::Break
+                | StmtSequenceHeadPlan::Continue) => {
+                    let sanitized_fn_name = sanitize_ident(fn_name);
+                    let next_block_id = Cell::new(self.next_block_id);
+                    let label = lower_common_stmt_sequence_head(
+                        plan,
+                        &stmts[index + 1..],
+                        cont_label.clone(),
+                        linear,
+                        blocks,
+                        &mut || {
+                            let current = next_block_id.get();
+                            next_block_id.set(current + 1);
+                            format!("_dp_bb_{}_{}", sanitized_fn_name, current)
+                        },
+                        loop_ctx.map(|loop_ctx| loop_ctx.break_label.clone()),
+                        loop_ctx.map(|loop_ctx| loop_ctx.continue_label.clone()),
+                        &mut |stmts, cont_label, break_label, blocks| {
+                            self.next_block_id = next_block_id.get();
+                            if let Some(break_label) = break_label {
+                                let loop_ctx = LoopContext {
+                                    continue_label: cont_label.clone(),
+                                    break_label,
+                                };
+                                let label = self.lower_stmt_sequence(
+                                    fn_name,
+                                    stmts,
+                                    cont_label,
+                                    blocks,
+                                    Some(&loop_ctx),
+                                    cell_slots,
+                                    outer_scope_names,
+                                    generator_state,
+                                );
+                                next_block_id.set(self.next_block_id);
+                                label
+                            } else {
+                                let label = self.lower_stmt_sequence(
+                                    fn_name,
+                                    stmts,
+                                    cont_label,
+                                    blocks,
+                                    loop_ctx,
+                                    cell_slots,
+                                    outer_scope_names,
+                                    generator_state,
+                                );
+                                next_block_id.set(self.next_block_id);
+                                label
+                            }
+                        },
+                    );
+                    self.next_block_id = next_block_id.get();
+                    if let Some(label) = label {
+                        self.cache_stmt_sequence_result(&cache_key, &label);
+                        return label;
+                    }
+                    unreachable!("common head helper must lower supported head");
+                }
+                StmtSequenceHeadPlan::For(for_stmt) => {
+                    let iter_name = self.next_temp("iter");
+                    let tmp_name = self.next_temp("tmp");
+                    let Some(tmp_expr) = name_expr(tmp_name.as_str()) else {
                         return cont_label;
                     };
-                    let label = self.next_label(fn_name);
-                    blocks.push(Block {
-                        label: label.clone(),
-                        body: linear,
-                        terminator: Terminator::Jump(loop_ctx.break_label.clone()),
-                    });
-                    return label;
-                }
-                Stmt::Continue(_) => {
-                    let Some(loop_ctx) = loop_ctx else {
-                        return cont_label;
+                    let loop_check_label = self.next_label(fn_name);
+                    let continue_state = GeneratorStmtSequenceLoweringState {
+                        closure_state: generator_state.closure_state,
+                        resume_order: std::mem::take(&mut generator_state.resume_order),
+                        yield_sites: std::mem::take(&mut generator_state.yield_sites),
+                        next_block_id: self.next_block_id,
                     };
-                    let label = self.next_label(fn_name);
-                    blocks.push(Block {
-                        label: label.clone(),
-                        body: linear,
-                        terminator: Terminator::Jump(loop_ctx.continue_label.clone()),
-                    });
+                    let (loop_continue_label, continue_state) = lower_for_loop_continue_entry_with_state(
+                        blocks,
+                        fn_name,
+                        iter_name.as_str(),
+                        tmp_name.as_str(),
+                        loop_check_label.clone(),
+                        for_stmt.is_async,
+                        continue_state,
+                    );
+                    self.next_block_id = continue_state.next_block_id;
+                    generator_state.resume_order = continue_state.resume_order;
+                    generator_state.yield_sites = continue_state.yield_sites;
+                    let mut next_temp = |prefix: &str| self.next_temp(prefix);
+                    let assign_body = build_for_target_assign_body(
+                        for_stmt.target.as_ref(),
+                        tmp_expr.clone(),
+                        tmp_name.as_str(),
+                        cell_slots,
+                        &mut next_temp,
+                    );
+                    let next_block_id = Cell::new(self.next_block_id);
+                    let label = lower_for_stmt_sequence_head(
+                        fn_name,
+                        for_stmt,
+                        &stmts[index + 1..],
+                        cont_label.clone(),
+                        linear,
+                        blocks,
+                        iter_name.as_str(),
+                        tmp_name.as_str(),
+                        loop_check_label,
+                        loop_continue_label,
+                        assign_body,
+                        &next_block_id,
+                        &mut |stmts, cont_label, break_label, blocks| {
+                            self.next_block_id = next_block_id.get();
+                            if let Some(break_label) = break_label {
+                                let loop_ctx = LoopContext {
+                                    continue_label: cont_label.clone(),
+                                    break_label,
+                                };
+                                let label = self.lower_stmt_sequence(
+                                    fn_name,
+                                    stmts,
+                                    cont_label,
+                                    blocks,
+                                    Some(&loop_ctx),
+                                    cell_slots,
+                                    outer_scope_names,
+                                    generator_state,
+                                );
+                                next_block_id.set(self.next_block_id);
+                                label
+                            } else {
+                                let label = self.lower_stmt_sequence(
+                                    fn_name,
+                                    stmts,
+                                    cont_label,
+                                    blocks,
+                                    loop_ctx,
+                                    cell_slots,
+                                    outer_scope_names,
+                                    generator_state,
+                                );
+                                next_block_id.set(self.next_block_id);
+                                label
+                            }
+                        },
+                    );
+                    self.next_block_id = next_block_id.get();
+                    self.cache_stmt_sequence_result(&cache_key, &label);
                     return label;
                 }
-                _ => return cont_label,
+                StmtSequenceHeadPlan::Try(try_stmt) => {
+                    let next_block_id = Cell::new(self.next_block_id);
+                    let label = lower_try_stmt_sequence_head(
+                        fn_name,
+                        try_stmt,
+                        &stmts[index + 1..],
+                        cont_label.clone(),
+                        linear,
+                        blocks,
+                        &next_block_id,
+                        &mut |stmts, cont_label, blocks| {
+                            self.next_block_id = next_block_id.get();
+                            let label = self.lower_stmt_sequence(
+                                fn_name,
+                                stmts,
+                                cont_label,
+                                blocks,
+                                loop_ctx,
+                                cell_slots,
+                                outer_scope_names,
+                                generator_state,
+                            );
+                            next_block_id.set(self.next_block_id);
+                            label
+                        },
+                    );
+                    self.next_block_id = next_block_id.get();
+                    self.cache_stmt_sequence_result(&cache_key, &label);
+                    return label;
+                }
+                StmtSequenceHeadPlan::Linear(_)
+                | StmtSequenceHeadPlan::FunctionDef(_)
+                | StmtSequenceHeadPlan::Delete(_) => {
+                    unreachable!("sequence driver should consume linear/functiondef/delete heads")
+                }
+                StmtSequenceHeadPlan::Unsupported => return cont_label,
             }
         }
 
         let label = self.next_label(fn_name);
-        blocks.push(Block {
-            label: label.clone(),
-            body: linear,
-            terminator: Terminator::Jump(cont_label),
-        });
+        let label = emit_sequence_jump_block(blocks, label, linear, cont_label);
+        self.cache_stmt_sequence_result(&cache_key, &label);
         label
     }
 
@@ -2299,327 +1241,6 @@ impl BasicBlockRewriter<'_> {
         let target_expr = py_expr!("{name:id}", name = bind_name.as_str());
         out.extend(sync_target_cells_stmts(&target_expr, cell_slots));
         out
-    }
-
-    fn lower_yield_from_direct(
-        &mut self,
-        fn_name: &str,
-        value: Expr,
-        after_label: String,
-        capture_result: bool,
-        blocks: &mut Vec<Block>,
-    ) -> (String, Option<String>) {
-        let closure_state = self
-            .generator_closure_state_stack
-            .last()
-            .copied()
-            .unwrap_or(false);
-        let iter_name = self.next_temp("yield_from_iter");
-        let yielded_name = self.next_temp("yield_from_y");
-        let sent_name = self.next_temp("yield_from_sent");
-        let result_name = if capture_result {
-            Some(self.next_temp("yield_from_result"))
-        } else {
-            None
-        };
-        let stop_name = self.next_temp("try_exc");
-        let exc_name = self.next_temp("yield_from_exc");
-        let raise_name = self.next_temp("yield_from_raise");
-        let close_name = self.next_temp("yield_from_close");
-        let throw_name = self.next_temp("yield_from_throw");
-
-        let init_try_label = self.next_label(fn_name);
-        let next_body_label = self.next_label(fn_name);
-        let stop_except_label = self.next_label(fn_name);
-
-        let stop_done_label = self.next_label(fn_name);
-        let raise_stop_label = self.next_label(fn_name);
-        let clear_done_label = self.next_label(fn_name);
-        let clear_raise_label = self.next_label(fn_name);
-
-        let yield_label = self.next_label(fn_name);
-        let resume_label = self.next_label(fn_name);
-        let exc_dispatch_label = self.next_label(fn_name);
-        let genexit_close_lookup_label = self.next_label(fn_name);
-        let genexit_call_close_label = self.next_label(fn_name);
-        let raise_exc_label = self.next_label(fn_name);
-        let lookup_throw_label = self.next_label(fn_name);
-        let throw_try_label = self.next_label(fn_name);
-        let throw_body_label = self.next_label(fn_name);
-
-        let send_try_label = self.next_label(fn_name);
-        let send_dispatch_label = self.next_label(fn_name);
-        let send_call_body_label = self.next_label(fn_name);
-        let yieldfrom_cell_name = cell_name("_dp_yieldfrom");
-        let yieldfrom_load_expr = if closure_state {
-            py_expr!(
-                "__dp_load_cell({cell:id})",
-                cell = yieldfrom_cell_name.as_str(),
-            )
-        } else {
-            py_expr!("__dp_load_local(_dp_self, \"_dp_yieldfrom\")")
-        };
-        let yieldfrom_load_raw_expr = if closure_state {
-            py_expr!(
-                "__dp_load_cell({cell:id})",
-                cell = yieldfrom_cell_name.as_str(),
-            )
-        } else {
-            py_expr!("__dp_load_local_raw(_dp_self, \"_dp_yieldfrom\")")
-        };
-        let yieldfrom_store_iter_stmt = if closure_state {
-            py_stmt!(
-                "__dp_store_cell({cell:id}, {iter_name:id})",
-                cell = yieldfrom_cell_name.as_str(),
-                iter_name = iter_name.as_str(),
-            )
-        } else {
-            py_stmt!(
-                "__dp_store_local(_dp_self, \"_dp_yieldfrom\", {iter_name:id})",
-                iter_name = iter_name.as_str(),
-            )
-        };
-        let yieldfrom_clear_stmt = if closure_state {
-            py_stmt!(
-                "__dp_store_cell({cell:id}, None)",
-                cell = yieldfrom_cell_name.as_str(),
-            )
-        } else {
-            py_stmt!("__dp_store_local(_dp_self, \"_dp_yieldfrom\", None)")
-        };
-
-        blocks.push(Block {
-            label: init_try_label.clone(),
-            body: vec![
-                py_stmt!(
-                    "{iter_name:id} = iter({iter_expr:expr})",
-                    iter_name = iter_name.as_str(),
-                    iter_expr = value,
-                ),
-                yieldfrom_store_iter_stmt,
-            ],
-            terminator: Terminator::TryJump {
-                body_label: next_body_label.clone(),
-                except_label: stop_except_label.clone(),
-                except_exc_name: Some(stop_name.clone()),
-                body_region_labels: vec![next_body_label.clone()],
-                except_region_labels: vec![
-                    stop_except_label.clone(),
-                    stop_done_label.clone(),
-                    raise_stop_label.clone(),
-                ],
-                finally_label: None,
-                finally_exc_name: None,
-                finally_region_labels: Vec::new(),
-                finally_fallthrough_label: None,
-            },
-        });
-        blocks.push(Block {
-            label: next_body_label.clone(),
-            body: vec![py_stmt!(
-                "{yielded:id} = next({iter_expr:expr})",
-                yielded = yielded_name.as_str(),
-                iter_expr = yieldfrom_load_expr.clone(),
-            )],
-            terminator: Terminator::Jump(yield_label.clone()),
-        });
-        blocks.push(Block {
-            label: stop_except_label.clone(),
-            body: Vec::new(),
-            terminator: Terminator::BrIf {
-                test: py_expr!(
-                    "__dp_exception_matches({stop:id}, StopIteration)",
-                    stop = stop_name.as_str(),
-                ),
-                then_label: stop_done_label.clone(),
-                else_label: raise_stop_label.clone(),
-            },
-        });
-        blocks.push(Block {
-            label: stop_done_label.clone(),
-            body: if let Some(result_name) = result_name.as_ref() {
-                vec![py_stmt!(
-                    "{result:id} = {stop:id}.value",
-                    result = result_name.as_str(),
-                    stop = stop_name.as_str(),
-                )]
-            } else {
-                Vec::new()
-            },
-            terminator: Terminator::Jump(clear_done_label.clone()),
-        });
-        blocks.push(Block {
-            label: clear_done_label,
-            body: vec![yieldfrom_clear_stmt.clone()],
-            terminator: Terminator::Jump(after_label),
-        });
-        blocks.push(Block {
-            label: raise_stop_label.clone(),
-            body: vec![py_stmt!(
-                "{raise:id} = {stop:id}",
-                raise = raise_name.as_str(),
-                stop = stop_name.as_str(),
-            )],
-            terminator: Terminator::Jump(clear_raise_label.clone()),
-        });
-        blocks.push(Block {
-            label: yield_label.clone(),
-            body: Vec::new(),
-            terminator: Terminator::Yield {
-                value: Some(py_expr!("{yielded:id}", yielded = yielded_name.as_str(),)),
-                resume_label: resume_label.clone(),
-            },
-        });
-        blocks.push(Block {
-            label: resume_label,
-            body: vec![
-                py_stmt!(
-                    "{sent:id} = {resume:id}",
-                    sent = sent_name.as_str(),
-                    resume = "_dp_send_value",
-                ),
-                py_stmt!(
-                    "{exc:id} = {resume:id}",
-                    exc = exc_name.as_str(),
-                    resume = "_dp_resume_exc",
-                ),
-                py_stmt!("{resume:id} = None", resume = "_dp_resume_exc",),
-            ],
-            terminator: Terminator::BrIf {
-                test: py_expr!("__dp_is_not({exc:id}, None)", exc = exc_name.as_str()),
-                then_label: exc_dispatch_label.clone(),
-                else_label: send_try_label.clone(),
-            },
-        });
-        blocks.push(Block {
-            label: exc_dispatch_label,
-            body: Vec::new(),
-            terminator: Terminator::BrIf {
-                test: py_expr!(
-                    "__dp_exception_matches({exc:id}, GeneratorExit)",
-                    exc = exc_name.as_str(),
-                ),
-                then_label: genexit_close_lookup_label.clone(),
-                else_label: lookup_throw_label.clone(),
-            },
-        });
-        blocks.push(Block {
-            label: genexit_close_lookup_label,
-            body: vec![py_stmt!(
-                "{close:id} = getattr({iter_expr:expr}, \"close\", None)",
-                close = close_name.as_str(),
-                iter_expr = yieldfrom_load_raw_expr.clone(),
-            )],
-            terminator: Terminator::BrIf {
-                test: py_expr!("__dp_is_not({close:id}, None)", close = close_name.as_str()),
-                then_label: genexit_call_close_label.clone(),
-                else_label: raise_exc_label.clone(),
-            },
-        });
-        blocks.push(Block {
-            label: genexit_call_close_label,
-            body: vec![py_stmt!("{close:id}()", close = close_name.as_str())],
-            terminator: Terminator::Jump(raise_exc_label.clone()),
-        });
-        blocks.push(Block {
-            label: raise_exc_label.clone(),
-            body: vec![py_stmt!(
-                "{raise:id} = {exc:id}",
-                raise = raise_name.as_str(),
-                exc = exc_name.as_str(),
-            )],
-            terminator: Terminator::Jump(clear_raise_label.clone()),
-        });
-        blocks.push(Block {
-            label: clear_raise_label,
-            body: vec![yieldfrom_clear_stmt],
-            terminator: Terminator::Raise(raise_stmt_from_name(raise_name.as_str())),
-        });
-        blocks.push(Block {
-            label: lookup_throw_label,
-            body: vec![py_stmt!(
-                "{throw:id} = getattr({iter_expr:expr}, \"throw\", None)",
-                throw = throw_name.as_str(),
-                iter_expr = yieldfrom_load_raw_expr,
-            )],
-            terminator: Terminator::BrIf {
-                test: py_expr!("__dp_is_({throw:id}, None)", throw = throw_name.as_str()),
-                then_label: raise_exc_label,
-                else_label: throw_try_label.clone(),
-            },
-        });
-        blocks.push(Block {
-            label: throw_try_label,
-            body: Vec::new(),
-            terminator: Terminator::TryJump {
-                body_label: throw_body_label.clone(),
-                except_label: stop_except_label.clone(),
-                except_exc_name: Some(stop_name.clone()),
-                body_region_labels: vec![throw_body_label.clone()],
-                except_region_labels: vec![
-                    stop_except_label.clone(),
-                    stop_done_label.clone(),
-                    raise_stop_label.clone(),
-                ],
-                finally_label: None,
-                finally_exc_name: None,
-                finally_region_labels: Vec::new(),
-                finally_fallthrough_label: None,
-            },
-        });
-        blocks.push(Block {
-            label: throw_body_label,
-            body: vec![py_stmt!(
-                "{yielded:id} = {throw:id}({exc:id})",
-                yielded = yielded_name.as_str(),
-                throw = throw_name.as_str(),
-                exc = exc_name.as_str(),
-            )],
-            terminator: Terminator::Jump(yield_label.clone()),
-        });
-        blocks.push(Block {
-            label: send_try_label,
-            body: Vec::new(),
-            terminator: Terminator::TryJump {
-                body_label: send_dispatch_label.clone(),
-                except_label: stop_except_label.clone(),
-                except_exc_name: Some(stop_name.clone()),
-                body_region_labels: vec![
-                    send_dispatch_label.clone(),
-                    next_body_label.clone(),
-                    send_call_body_label.clone(),
-                ],
-                except_region_labels: vec![
-                    stop_except_label.clone(),
-                    stop_done_label.clone(),
-                    raise_stop_label.clone(),
-                ],
-                finally_label: None,
-                finally_exc_name: None,
-                finally_region_labels: Vec::new(),
-                finally_fallthrough_label: None,
-            },
-        });
-        blocks.push(Block {
-            label: send_dispatch_label,
-            body: Vec::new(),
-            terminator: Terminator::BrIf {
-                test: py_expr!("__dp_is_({sent:id}, None)", sent = sent_name.as_str()),
-                then_label: next_body_label,
-                else_label: send_call_body_label.clone(),
-            },
-        });
-        blocks.push(Block {
-            label: send_call_body_label,
-            body: vec![py_stmt!(
-                "{yielded:id} = {iter_expr:expr}.send({sent:id})",
-                yielded = yielded_name.as_str(),
-                iter_expr = yieldfrom_load_expr,
-                sent = sent_name.as_str(),
-            )],
-            terminator: Terminator::Jump(yield_label),
-        });
-        (init_try_label, result_name)
     }
 
     fn next_label(&mut self, fn_name: &str) -> String {
@@ -2798,10 +1419,7 @@ impl BasicBlockRewriter<'_> {
                     Some(function_entry_expr)
                 }
             }
-            BbFunctionKind::AsyncGenerator {
-                closure_state,
-                ..
-            } => {
+            BbFunctionKind::AsyncGenerator { closure_state, .. } => {
                 if *closure_state {
                     return Some(function_entry_expr);
                 }
@@ -2816,10 +1434,7 @@ impl BasicBlockRewriter<'_> {
                     annotate_fn = annotate_fn.clone(),
                 ))
             }
-            BbFunctionKind::Generator {
-                closure_state,
-                ..
-            } => {
+            BbFunctionKind::Generator { closure_state, .. } => {
                 if *closure_state {
                     if bb_function.is_coroutine {
                         return Some(py_expr!(
@@ -2997,11 +1612,13 @@ impl BasicBlockRewriter<'_> {
         }
 
         let decorators = std::mem::take(&mut func.decorator_list);
+        let doc = function_docstring_expr(func).unwrap_or_else(|| py_expr!("None"));
         let updated = py_expr!(
-            "__dp_update_fn({name:id}, {qualname:literal}, {display_name:literal})",
+            "__dp_update_fn({name:id}, {qualname:literal}, {display_name:literal}, {doc:expr})",
             name = local_name.as_str(),
             qualname = identity.qualname.as_str(),
             display_name = identity.display_name.as_str(),
+            doc = doc,
         );
         let value = rewrite_stmt::decorator::rewrite(decorators, updated);
         Some(self.make_binding_stmt(target, bind_name.as_str(), value))
@@ -3039,9 +1656,11 @@ impl BasicBlockRewriter<'_> {
 }
 
 struct LoweredFunction {
-    blocks: Vec<BbBlock>,
+    blocks: Vec<BlockPyBlock>,
     entry_label: String,
     entry_params: Vec<String>,
+    block_params: HashMap<String, Vec<String>>,
+    exception_edges: HashMap<String, (Option<String>, Option<String>)>,
     generator_closure_layout: Option<crate::basic_block::bb_ir::BbGeneratorClosureLayout>,
     local_cell_slots: HashSet<String>,
     param_specs: BbExpr,
@@ -3108,7 +1727,12 @@ impl Transformer for BasicBlockRewriter<'_> {
                         generator_closure_layout: lowered.generator_closure_layout.clone(),
                         param_specs: lowered.param_specs.clone(),
                         local_cell_slots,
-                        blocks: lowered.blocks.clone(),
+                        blocks: super::blockpy_to_bb::lower_blockpy_blocks_to_bb_blocks(
+                            self.context,
+                            &lowered.blocks,
+                            &lowered.block_params,
+                            &lowered.exception_edges,
+                        ),
                     };
                     self.lowered_functions_ir.push(bb_function.clone());
                     if self.module_init_function.is_none()
@@ -3216,140 +1840,7 @@ fn closure_backed_generator_resume_param_specs_expr(is_async_generator: bool) ->
     make_dp_tuple(params)
 }
 
-fn closure_backed_generator_init_expr(
-    slot: &crate::basic_block::bb_ir::BbGeneratorClosureSlot,
-) -> Expr {
-    match slot.init {
-        crate::basic_block::bb_ir::BbGeneratorClosureInit::InheritedCapture => {
-            panic!("inherited captures do not allocate new cells in outer factories")
-        }
-        crate::basic_block::bb_ir::BbGeneratorClosureInit::Parameter => {
-            name_expr(slot.logical_name.as_str())
-                .unwrap_or_else(|| panic!("missing generator parameter name {}", slot.logical_name))
-        }
-        crate::basic_block::bb_ir::BbGeneratorClosureInit::DeletedSentinel => py_expr!("__dp_DELETED"),
-        crate::basic_block::bb_ir::BbGeneratorClosureInit::RuntimePcZero => py_expr!("0"),
-        crate::basic_block::bb_ir::BbGeneratorClosureInit::RuntimeNone => py_expr!("None"),
-        crate::basic_block::bb_ir::BbGeneratorClosureInit::Deferred => py_expr!("None"),
-    }
-}
-
-fn closure_backed_generator_factory_block(
-    factory_label: &str,
-    factory_entry_params: &[String],
-    resume_label: &str,
-    resume_state_order: &[String],
-    function_name: &str,
-    qualname: &str,
-    layout: &crate::basic_block::bb_ir::BbGeneratorClosureLayout,
-    is_coroutine: bool,
-    is_async_generator: bool,
-) -> BbBlock {
-    let hidden_name = "_dp_resume".to_string();
-    let hidden_qualname = qualname.to_string();
-    let mut ops = Vec::new();
-
-    for slot in layout
-        .lifted_locals
-        .iter()
-        .chain(layout.runtime_cells.iter())
-    {
-        let stmt = py_stmt!(
-            "{cell:id} = __dp_make_cell({init:expr})",
-            cell = slot.storage_name.as_str(),
-            init = closure_backed_generator_init_expr(slot),
-        );
-        ops.push(
-            BbOp::from_stmt(stmt)
-                .unwrap_or_else(|| panic!("failed to lower generator factory cell init: {slot:?}")),
-        );
-    }
-
-    let closure_names: Vec<String> = resume_state_order
-        .iter()
-        .filter(|state_name| {
-            !matches!(
-                state_name.as_str(),
-                "_dp_self" | "_dp_send_value" | "_dp_resume_exc" | "_dp_transport_sent"
-            )
-        })
-        .cloned()
-        .collect();
-    let closure_values = make_dp_tuple(
-        closure_names
-            .iter()
-            .map(|state_name| {
-                name_expr(state_name.as_str()).unwrap_or_else(|| {
-                    panic!(
-                        "missing closure-backed generator factory binding for {state_name}"
-                    )
-                })
-            })
-            .collect(),
-    );
-
-    let resume_entry = py_expr!(
-        "__dp_def_hidden_resume_fn({resume:literal}, {name:literal}, {qualname:literal}, {state_order:expr}, {closure_names:expr}, {closure_values:expr}, __dp_globals(), __name__, async_gen={async_gen:expr})",
-        resume = resume_label,
-        name = hidden_name.as_str(),
-        qualname = hidden_qualname.as_str(),
-        state_order = make_dp_tuple(
-            resume_state_order
-                .iter()
-                .map(|state_name| py_expr!("{value:literal}", value = state_name.as_str()))
-                .collect(),
-        ),
-        closure_names = make_dp_tuple(
-            closure_names
-                .iter()
-                .map(|state_name| py_expr!("{value:literal}", value = state_name.as_str()))
-                .collect(),
-        ),
-        closure_values = closure_values,
-        async_gen = if is_async_generator {
-            py_expr!("True")
-        } else {
-            py_expr!("False")
-        },
-    );
-
-    let generator_expr = if is_async_generator {
-        py_expr!(
-            "__dp_make_closure_async_generator({resume:expr}, {name:literal}, {qualname:literal})",
-            resume = resume_entry,
-            name = function_name,
-            qualname = qualname,
-        )
-    } else {
-        py_expr!(
-            "__dp_make_closure_generator({resume:expr}, {name:literal}, {qualname:literal})",
-            resume = resume_entry,
-            name = function_name,
-            qualname = qualname,
-        )
-    };
-
-    let return_value = if is_coroutine {
-        BbExpr::from_expr(py_expr!(
-            "__dp_make_coroutine_from_generator({gen:expr})",
-            gen = generator_expr
-        ))
-    } else {
-        BbExpr::from_expr(generator_expr)
-    };
-
-    BbBlock {
-        label: factory_label.to_string(),
-        params: factory_entry_params.to_vec(),
-        local_defs: Vec::new(),
-        ops,
-        exc_target_label: None,
-        exc_name: None,
-        term: BbTerm::Ret(Some(return_value)),
-    }
-}
-
-fn stmt_body_from_stmts(stmts: Vec<Stmt>) -> StmtBody {
+pub(crate) fn stmt_body_from_stmts(stmts: Vec<Stmt>) -> StmtBody {
     StmtBody {
         body: stmts.into_iter().map(Box::new).collect(),
         range: TextRange::default(),
@@ -3359,9 +1850,13 @@ fn stmt_body_from_stmts(stmts: Vec<Stmt>) -> StmtBody {
 
 #[cfg(test)]
 mod tests {
-    use super::{BbExpr, BbFunction, BbOp, BbTerm, BindingTarget};
-    use crate::basic_block::bb_ir::{BbGeneratorClosureInit, BbGeneratorClosureSlot};
-    use crate::{py_expr, transform::Options, transform_str_to_bb_ir_with_options};
+    use super::{BbExpr, BbFunction, BbOp, BindingTarget};
+    use crate::basic_block::bb_ir::BbBlock;
+    use crate::basic_block::bb_ir::{BbGeneratorClosureInit, BbGeneratorClosureSlot, BbTerm};
+    use crate::{
+        py_expr, transform::Options, transform_str_to_bb_ir_with_options,
+        transform_str_to_ruff_with_options,
+    };
 
     fn function_by_name<'a>(bb_module: &'a super::BbModule, bind_name: &str) -> &'a BbFunction {
         let direct = bb_module
@@ -3393,7 +1888,7 @@ mod tests {
         crate::ruff_ast_to_string(&expr.to_expr())
     }
 
-    fn block_uses_text(block: &super::BbBlock, needle: &str) -> bool {
+    fn block_uses_text(block: &BbBlock, needle: &str) -> bool {
         block.ops.iter().any(|op| match op {
             BbOp::Assign(assign) => expr_text(&assign.value).contains(needle),
             BbOp::Expr(expr) => expr_text(&expr.value).contains(needle),
@@ -3402,8 +1897,8 @@ mod tests {
                 .iter()
                 .any(|expr| expr_text(expr).contains(needle)),
         }) || match &block.term {
-            BbTerm::BrIf { test, .. } => expr_text(test).contains(needle),
-            BbTerm::BrTable { index, .. } => expr_text(index).contains(needle),
+            BbTerm::BrIf { test, .. } => expr_text(&test).contains(needle),
+            BbTerm::BrTable { index, .. } => expr_text(&index).contains(needle),
             BbTerm::Raise { exc, cause } => {
                 exc.as_ref()
                     .is_some_and(|value| expr_text(value).contains(needle))
@@ -3430,10 +1925,7 @@ def foo(a, b):
         print(d)
 "#;
 
-        let options = Options {
-            inject_import: false,
-            ..Options::for_test()
-        };
+        let options = Options::for_test();
         let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
             .expect("bb module should be available");
@@ -3456,10 +1948,7 @@ def foo(a, b):
     return a
 "#;
 
-        let options = Options {
-            inject_import: false,
-            ..Options::for_test()
-        };
+        let options = Options::for_test();
         let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
             .expect("bb module should be available");
@@ -3486,10 +1975,7 @@ def build_qualnames():
     return global_function()
 "#;
 
-        let options = Options {
-            inject_import: false,
-            ..Options::for_test()
-        };
+        let options = Options::for_test();
         let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
             .expect("bb module should be available");
@@ -3513,10 +1999,7 @@ def delegator():
     return ("done", result)
 "#;
 
-        let options = Options {
-            inject_import: false,
-            ..Options::for_test()
-        };
+        let options = Options::for_test();
         let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
             .expect("bb module should be available");
@@ -3551,10 +2034,7 @@ def outer(scale):
     return gen
 "#;
 
-        let options = Options {
-            inject_import: false,
-            ..Options::for_test()
-        };
+        let options = Options::for_test();
         let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
             .expect("bb module should be available");
@@ -3591,10 +2071,7 @@ def gen():
         return 2
 "#;
 
-        let options = Options {
-            inject_import: false,
-            ..Options::for_test()
-        };
+        let options = Options::for_test();
         let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
             .expect("bb module should be available");
@@ -3631,10 +2108,7 @@ def outer(scale):
     return run
 "#;
 
-        let options = Options {
-            inject_import: false,
-            ..Options::for_test()
-        };
+        let options = Options::for_test();
         let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
             .expect("bb module should be available");
@@ -3669,10 +2143,7 @@ def outer(scale):
     return agen
 "#;
 
-        let options = Options {
-            inject_import: false,
-            ..Options::for_test()
-        };
+        let options = Options::for_test();
         let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
             .expect("bb module should be available");
@@ -3712,10 +2183,7 @@ def run(limit):
     return out, i
 "#;
 
-        let options = Options {
-            inject_import: false,
-            ..Options::for_test()
-        };
+        let options = Options::for_test();
         let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
             .expect("bb module should be available");
@@ -3748,10 +2216,7 @@ def run(items):
     return out
 "#;
 
-        let options = Options {
-            inject_import: false,
-            ..Options::for_test()
-        };
+        let options = Options::for_test();
         let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
             .expect("bb module should be available");
@@ -3786,10 +2251,7 @@ async def run():
         done()
 "#;
 
-        let options = Options {
-            inject_import: false,
-            ..Options::for_test()
-        };
+        let options = Options::for_test();
         let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
             .expect("bb module should be available");
@@ -3817,10 +2279,7 @@ def f():
     return 1
 "#;
 
-        let options = Options {
-            inject_import: false,
-            ..Options::for_test()
-        };
+        let options = Options::for_test();
         let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
             .expect("bb module should be available");
@@ -3839,10 +2298,7 @@ def f():
     x = 1
 "#;
 
-        let options = Options {
-            inject_import: false,
-            ..Options::for_test()
-        };
+        let options = Options::for_test();
         let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
             .expect("bb module should be available");
@@ -3862,6 +2318,131 @@ def f():
     }
 
     #[test]
+    fn debug_generator_filter_source_order_ir() {
+        let pass_source = r#"
+class Field:
+    def __init__(self, name, *, init, kw_only=False):
+        self.name = name
+        self.init = init
+        self.kw_only = kw_only
+
+def fields_in_init_order(fields):
+    return tuple(
+        field.name
+        for field in fields
+        if field.init and not field.kw_only
+    )
+"#;
+        let fail_source = r#"
+def fields_in_init_order(fields):
+    return tuple(
+        field.name
+        for field in fields
+        if field.init and not field.kw_only
+    )
+
+class Field:
+    def __init__(self, name, *, init, kw_only=False):
+        self.name = name
+        self.init = init
+        self.kw_only = kw_only
+"#;
+
+        for (name, source) in [("pass", pass_source), ("fail", fail_source)] {
+            let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
+                .expect("transform should succeed");
+            let blockpy = lowered.blockpy_module.expect("expected BlockPy module");
+            let blockpy_rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
+            eprintln!("==== {name} BLOCKPY ====\n{blockpy_rendered}");
+
+            let bb_module = transform_str_to_bb_ir_with_options(source, Options::for_test())
+                .expect("transform should succeed")
+                .expect("bb module should be available");
+            let function_names = bb_module
+                .functions
+                .iter()
+                .map(|func| format!("{} :: {}", func.bind_name, func.qualname))
+                .collect::<Vec<_>>();
+            eprintln!(
+                "==== {name} BB FUNCTIONS ====\n{}",
+                function_names.join("\n")
+            );
+            let gen = bb_module
+                .functions
+                .iter()
+                .find(|func| func.bind_name.contains("_dp_genexpr"))
+                .unwrap_or_else(|| panic!("missing genexpr helper in {name}"));
+            eprintln!("==== {name} BB {:?} ====\n{gen:#?}", gen.qualname);
+
+            let prepared = crate::basic_block::prepare_bb_module_for_jit(&bb_module)
+                .expect("jit prep should succeed");
+            let prepared_gen = prepared
+                .functions
+                .iter()
+                .find(|func| func.bind_name.contains("_dp_genexpr"))
+                .unwrap_or_else(|| panic!("missing prepared genexpr helper in {name}"));
+            for label in ["_dp_bb__dp_genexpr_1_44", "_dp_bb__dp_genexpr_1_45"] {
+                if let Some(block) = prepared_gen
+                    .blocks
+                    .iter()
+                    .find(|block| block.label == label)
+                {
+                    eprintln!("==== {name} PREPARED {label} ====\n{block:#?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn closure_backed_simple_generator_records_one_resume_per_yield() {
+        let source = r#"
+def make_counter(delta):
+    outer_capture = delta
+    def gen():
+        total = 1
+        total += outer_capture
+        sent = yield total
+        total += sent
+        yield total
+    return gen()
+"#;
+
+        let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
+            .expect("transform should succeed");
+        let blockpy = lowered.blockpy_module.expect("expected BlockPy module");
+        let blockpy_gen = blockpy
+            .functions
+            .iter()
+            .find(|func| func.bind_name == "gen")
+            .expect("expected lowered gen function");
+        let generator_info = blockpy_gen
+            .generator
+            .as_ref()
+            .expect("generator function should record generator metadata");
+        assert_eq!(
+            generator_info.yield_sites.len(),
+            2,
+            "{:?}",
+            generator_info.yield_sites
+        );
+        assert_eq!(
+            generator_info.resume_order.len(),
+            3,
+            "{:?}",
+            generator_info.resume_order
+        );
+
+        let bb_module = transform_str_to_bb_ir_with_options(source, Options::for_test())
+            .expect("transform should succeed")
+            .expect("bb module should be available");
+        let gen = function_by_name(&bb_module, "gen");
+        let super::BbFunctionKind::Generator { resume_pcs, .. } = &gen.kind else {
+            panic!("expected generator kind, got {:?}", gen.kind);
+        };
+        assert_eq!(resume_pcs.len(), 3, "{resume_pcs:?}");
+    }
+
+    #[test]
     fn lowers_outer_with_nested_nonlocal_inner() {
         let source = r#"
 def outer():
@@ -3873,10 +2454,7 @@ def outer():
     return inner()
 "#;
 
-        let options = Options {
-            inject_import: false,
-            ..Options::for_test()
-        };
+        let options = Options::for_test();
         let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
             .expect("bb module should be available");
@@ -3905,10 +2483,7 @@ def f(x):
     return 2
 "#;
 
-        let options = Options {
-            inject_import: false,
-            ..Options::for_test()
-        };
+        let options = Options::for_test();
         let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
             .expect("bb module should be available");
@@ -3924,6 +2499,34 @@ def f(x):
     }
 
     #[test]
+    fn lowers_nested_with_cleanup_and_inner_return_without_hanging() {
+        let source = r#"
+from pathlib import Path
+import tempfile
+
+def run():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        path = Path(temp_dir) / "example.txt"
+        with open(path, "w", encoding="utf8") as handle:
+            handle.write("payload")
+        with open(path, "r", encoding="utf8") as handle:
+            return "ok"
+"#;
+
+        let options = Options::for_test();
+        let bb_module = transform_str_to_bb_ir_with_options(source, options)
+            .expect("transform should succeed")
+            .expect("bb module should be available");
+        let run = function_by_name(&bb_module, "run");
+        assert!(
+            run.blocks
+                .iter()
+                .any(|block| block.exc_target_label.is_some()),
+            "{run:?}"
+        );
+    }
+
+    #[test]
     fn lowers_plain_try_except_with_try_jump_dispatch() {
         let source = r#"
 try:
@@ -3932,10 +2535,7 @@ except Exception:
     print(2)
 "#;
 
-        let options = Options {
-            inject_import: false,
-            ..Options::for_test()
-        };
+        let options = Options::for_test();
         let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
             .expect("bb module should be available");
@@ -3963,10 +2563,7 @@ def f():
         return exc
 "#;
 
-        let options = Options {
-            inject_import: false,
-            ..Options::for_test()
-        };
+        let options = Options::for_test();
         let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
             .expect("bb module should be available");
@@ -3994,10 +2591,7 @@ def f():
     x = 1
 "#;
 
-        let options = Options {
-            inject_import: false,
-            ..Options::for_test()
-        };
+        let options = Options::for_test();
         let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
             .expect("bb module should be available");

@@ -11,8 +11,8 @@ use std::time::Instant;
 mod eval;
 
 fn lower_source(source: &str, ensure: Option<bool>) -> PyResult<dp_transform::LoweringResult> {
+    let _ = ensure;
     let options = Options {
-        inject_import: ensure.unwrap_or(true),
         lower_attributes: false,
         ..Options::default()
     };

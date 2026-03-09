@@ -222,10 +222,7 @@ def f():
     x = __dp_store_global(globals(), "classify", __dp_ret("ok"))
     return x
 "#;
-        let options = Options {
-            inject_import: false,
-            ..Options::for_test()
-        };
+        let options = Options::for_test();
         let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
             .expect("bb module should be available");
@@ -294,10 +291,7 @@ def f(obj, mapping, key, value):
     __dp_setitem(mapping, key, value)
     return a, b
 "#;
-        let options = Options {
-            inject_import: false,
-            ..Options::for_test()
-        };
+        let options = Options::for_test();
         let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
             .expect("bb module should be available");

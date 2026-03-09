@@ -1,5 +1,8 @@
 use crate::basic_block::bb_ir;
-use crate::{ruff_ast_to_string, transform_str_to_ruff_with_options, Options};
+use crate::transform::context::Context;
+use crate::{
+    analyze_module_scope, ruff_ast_to_string, transform_str_to_ruff_with_options, Options,
+};
 use cranelift_codegen::ir::{self, condcodes::IntCC, types, AbiParam, InstBuilder, UserFuncName};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use js_sys::{Array, Object, Reflect};
@@ -9,9 +12,7 @@ use wasm_bindgen::JsValue;
 
 #[derive(Clone, Copy)]
 enum TransformKind {
-    InjectImport,
     LowerAttributes,
-    Truthy,
 }
 
 struct TransformToggle {
@@ -21,26 +22,12 @@ struct TransformToggle {
     kind: TransformKind,
 }
 
-const TRANSFORM_TOGGLES: &[TransformToggle] = &[
-    TransformToggle {
-        id: "inject_import",
-        label: "Inject __dp__ import",
-        default_enabled: true,
-        kind: TransformKind::InjectImport,
-    },
-    TransformToggle {
-        id: "lower_attributes",
-        label: "Rewrite attribute access",
-        default_enabled: true,
-        kind: TransformKind::LowerAttributes,
-    },
-    TransformToggle {
-        id: "truthiness",
-        label: "Rewrite truthiness checks",
-        default_enabled: false,
-        kind: TransformKind::Truthy,
-    },
-];
+const TRANSFORM_TOGGLES: &[TransformToggle] = &[TransformToggle {
+    id: "lower_attributes",
+    label: "Rewrite attribute access",
+    default_enabled: true,
+    kind: TransformKind::LowerAttributes,
+}];
 pub fn transform(source: &str) -> Result<String, JsValue> {
     let options = Options::default();
     let result = transform_str_to_ruff_with_options(source, options)
@@ -56,28 +43,30 @@ pub fn transform_selected(source: &str, transforms: Array) -> Result<String, JsV
 }
 
 pub fn inspect_pipeline(source: &str) -> Result<String, JsValue> {
-    let mut phase_one_options = Options::default();
-    phase_one_options.emit_basic_blocks = false;
-
-    let phase_one = transform_str_to_ruff_with_options(source, phase_one_options)
+    let transformed = transform_str_to_ruff_with_options(source, Options::default())
         .map_err(|e| JsValue::from_str(e.to_string().as_str()))?;
-    let bb = transform_str_to_ruff_with_options(source, Options::default())
-        .map_err(|e| JsValue::from_str(e.to_string().as_str()))?;
-    let bb_module_json = bb
-        .bb_module
+    let blockpy = transformed
+        .blockpy_module
         .as_ref()
-        .map(bb_module_to_json)
-        .unwrap_or(Value::Null);
-    let clif = bb
-        .bb_module
-        .as_ref()
+        .map(crate::basic_block::blockpy_module_to_string)
+        .unwrap_or_else(|| "; no BlockPy module emitted".to_string());
+    let mut bb_body = transformed.module.body.clone();
+    let bb_scope = analyze_module_scope(&mut bb_body);
+    let bb_identity = crate::basic_block::collect_function_identity_by_node(&mut bb_body, bb_scope);
+    let bb_module = crate::basic_block::rewrite_ast_to_bb_module(
+        &Context::new(Options::default(), source),
+        &mut bb_body,
+        bb_identity,
+    );
+    let bb_module_json = bb_module_to_json(&bb_module);
+    let clif = Some(&bb_module)
         .map(crate::basic_block::normalize_bb_module_for_codegen)
-        .map(|module| bb_module_to_clif(&module))
-        .unwrap_or_else(|| "; no basic-block module emitted".to_string());
+        .map(|module| bb_module_to_clif(&module));
 
     let payload = json!({
-        "phase1": phase_one.to_string(),
-        "bbRaw": bb.to_string(),
+        "phase1": transformed.to_string(),
+        "blockpy": blockpy,
+        "bbRaw": transformed.to_string(),
         "bbModule": bb_module_json,
         "clif": clif,
     });
@@ -120,9 +109,7 @@ fn wasm_options_from_selected(transforms: &Array) -> Options {
     for transform in TRANSFORM_TOGGLES {
         let enabled = selected.iter().any(|name| name == transform.id);
         match transform.kind {
-            TransformKind::InjectImport => options.inject_import = enabled,
             TransformKind::LowerAttributes => options.lower_attributes = enabled,
-            TransformKind::Truthy => options.truthy = enabled,
         }
     }
     options
