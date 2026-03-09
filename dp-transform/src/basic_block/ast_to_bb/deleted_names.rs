@@ -89,7 +89,7 @@ fn collect_deleted_names_in_target(target: &Expr, names: &mut HashSet<String>) {
     }
 }
 
-pub(super) fn rewrite_delete_to_deleted_sentinel(delete_stmt: &ast::StmtDelete) -> Vec<Stmt> {
+pub(crate) fn rewrite_delete_to_deleted_sentinel(delete_stmt: &ast::StmtDelete) -> Vec<Stmt> {
     let mut out = Vec::new();
     for target in &delete_stmt.targets {
         rewrite_delete_target_to_deleted_sentinel(target, &mut out);

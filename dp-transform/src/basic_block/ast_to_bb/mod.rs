@@ -2,16 +2,9 @@ use super::await_lower::{coroutine_generator_marker_stmt, lower_coroutine_awaits
 use super::bb_ir::{BbExpr, BbFunction, BbFunctionKind, BbModule, BbOp, BindingTarget};
 use super::block_py::{BlockPyBlock, BlockPyIf, BlockPyLabel, BlockPyStmt};
 use super::ruff_to_blockpy::{
-    blockpy_kind_for_lowered_runtime, build_closure_backed_generator_factory_block,
-    build_for_target_assign_body,
-    build_finalized_blockpy_function, compute_blockpy_exception_edges,
-    drive_stmt_sequence_until_control, emit_sequence_jump_block, lower_common_stmt_sequence_head,
-    lower_for_loop_continue_entry_with_state, lower_for_stmt_sequence_head,
-    lower_generator_stmt_sequence_head,
-    lower_generator_yield_terms_to_explicit_return_blockpy, lower_stmts_to_blockpy_stmts,
-    lower_try_stmt_sequence_head, BlockPySequenceGeneratorState,
-    GeneratorStmtSequenceLoweringState, GeneratorYieldSite, PendingBlockPyGeneratorInfo,
-    StmtSequenceDriveResult, StmtSequenceHeadPlan,
+    build_closure_backed_generator_factory_block, compute_blockpy_exception_edges,
+    lower_function_body_to_blockpy_function, lower_generator_yield_terms_to_explicit_return_blockpy,
+    lower_stmts_to_blockpy_stmts, GeneratorYieldSite,
 };
 use crate::template::into_body;
 use crate::transform::context::Context;
@@ -28,7 +21,6 @@ use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, name::Name, Expr, NodeIndex, Stmt, StmtBody};
 use ruff_text_size::TextRange;
-use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -58,9 +50,8 @@ use dataflow::{
     build_extra_successors_blockpy, compute_block_params_blockpy,
     ensure_try_exception_params_blockpy,
 };
-use deleted_names::{
-    collect_deleted_names, rewrite_delete_to_deleted_sentinel, rewrite_deleted_name_loads,
-};
+use deleted_names::{collect_deleted_names, rewrite_deleted_name_loads};
+pub(crate) use deleted_names::rewrite_delete_to_deleted_sentinel;
 pub(crate) use exception_flow::compute_exception_edge_by_label_blockpy;
 pub(crate) use exception_flow::rewrite_region_returns_to_finally_blockpy as rewrite_region_returns_to_finally_blockpy_shared;
 pub(crate) use exception_flow::{contains_return_stmt_in_body, contains_return_stmt_in_handlers};
@@ -155,10 +146,10 @@ fn rewrite_internal(
         module_scope,
         function_identity_by_node,
         next_block_id: 0,
+        reserved_temp_names_stack: Vec::new(),
         used_label_prefixes: HashMap::new(),
         function_stack: Vec::new(),
         function_cell_bindings_stack: Vec::new(),
-        lower_stmt_sequence_cache: HashMap::new(),
         module_init_hoisted_blocks: Vec::new(),
         lowered_functions_ir: Vec::new(),
         module_init_function: Some("_dp_module_init".to_string()),
@@ -178,55 +169,54 @@ struct BasicBlockRewriter<'a> {
     module_scope: Arc<Scope>,
     function_identity_by_node: HashMap<NodeIndex, FunctionIdentity>,
     next_block_id: usize,
+    reserved_temp_names_stack: Vec<HashSet<String>>,
     used_label_prefixes: HashMap<String, usize>,
     function_stack: Vec<String>,
     function_cell_bindings_stack: Vec<HashSet<String>>,
-    lower_stmt_sequence_cache: HashMap<StmtSequenceCacheKey, String>,
     module_init_hoisted_blocks: Vec<Vec<Stmt>>,
     lowered_functions_ir: Vec<BbFunction>,
     module_init_function: Option<String>,
 }
 
-struct LoopContext {
-    continue_label: String,
-    break_label: String,
+struct ReservedTempNamesGuard {
+    stack: *mut Vec<HashSet<String>>,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct StmtSequenceCacheKey {
-    fn_name: String,
-    stmts_ptr: usize,
-    stmts_len: usize,
-    cont_label: String,
-    loop_continue_label: Option<String>,
-    loop_break_label: Option<String>,
+impl Drop for ReservedTempNamesGuard {
+    fn drop(&mut self) {
+        // The guard only exists while `try_lower_function` is active and the
+        // stack itself lives in `BasicBlockRewriter`, so popping here is safe.
+        unsafe {
+            (*self.stack).pop();
+        }
+    }
 }
 
 impl BasicBlockRewriter<'_> {
-    fn stmt_sequence_cache_key(
-        fn_name: &str,
-        stmts: &[Box<Stmt>],
-        cont_label: &str,
-        loop_ctx: Option<&LoopContext>,
-    ) -> StmtSequenceCacheKey {
-        StmtSequenceCacheKey {
-            fn_name: fn_name.to_string(),
-            stmts_ptr: stmts.as_ptr() as usize,
-            stmts_len: stmts.len(),
-            cont_label: cont_label.to_string(),
-            loop_continue_label: loop_ctx.map(|ctx| ctx.continue_label.clone()),
-            loop_break_label: loop_ctx.map(|ctx| ctx.break_label.clone()),
-        }
-    }
-
-    fn cache_stmt_sequence_result(&mut self, key: &StmtSequenceCacheKey, label: &str) {
-        let _ = (key, label);
-    }
-
     fn next_temp(&mut self, prefix: &str) -> String {
-        let current = self.next_block_id;
-        self.next_block_id += 1;
-        format!("_dp_{prefix}_{current}")
+        Self::next_temp_from_counter(&mut self.reserved_temp_names_stack, prefix, &mut self.next_block_id)
+    }
+
+    fn next_temp_from_counter(
+        reserved_temp_names_stack: &mut Vec<HashSet<String>>,
+        prefix: &str,
+        next_id: &mut usize,
+    ) -> String {
+        loop {
+            let current = *next_id;
+            *next_id += 1;
+            let candidate = format!("_dp_{prefix}_{current}");
+            let collides = reserved_temp_names_stack
+                .last()
+                .is_some_and(|names| names.contains(candidate.as_str()));
+            if collides {
+                continue;
+            }
+            if let Some(names) = reserved_temp_names_stack.last_mut() {
+                names.insert(candidate.clone());
+            }
+            return candidate;
+        }
     }
 
     fn try_lower_function(&mut self, func: &ast::StmtFunctionDef) -> Option<LoweredFunction> {
@@ -292,6 +282,10 @@ impl BasicBlockRewriter<'_> {
             rewrite_annotation_helper_defs_as_exec_calls(runtime_input_body, &outer_scope_names);
         let mut outer_scope_names = collect_bound_names(&runtime_input_body);
         outer_scope_names.extend(param_names.iter().cloned());
+        self.reserved_temp_names_stack.push(outer_scope_names.clone());
+        let _reserved_temp_names_guard = ReservedTempNamesGuard {
+            stack: &mut self.reserved_temp_names_stack,
+        };
         let unbound_local_names = if has_dead_stmt_suffixes(&lowered_input_body) {
             self.always_unbound_local_names(&lowered_input_body, &runtime_input_body, &param_names)
         } else {
@@ -332,54 +326,34 @@ impl BasicBlockRewriter<'_> {
         let is_closure_backed_generator_runtime =
             has_yield && !(is_generated_comprehension_helper && func.is_async);
 
-        self.lower_stmt_sequence_cache.clear();
         let end_label = self.next_label(func.name.id.as_str());
         let identity = self.function_identity_for(func);
-        let blockpy_kind = blockpy_kind_for_lowered_runtime(
-            is_async_generator_runtime,
-            coroutine_via_generator,
-            has_yield,
-        );
-        let mut blocks: Vec<BlockPyBlock> = Vec::new();
-        let mut generator_state = BlockPySequenceGeneratorState {
-            closure_state: is_closure_backed_generator_runtime,
-            resume_order: Vec::new(),
-            yield_sites: Vec::new(),
-        };
-        let entry_label = self.lower_stmt_sequence(
+        let label_prefix = self.next_label_prefix(func.name.id.as_str());
+        let mut next_block_id = self.next_block_id;
+        let reserved_temp_names_stack = &mut self.reserved_temp_names_stack;
+        let (mut blockpy_function, entry_label) = lower_function_body_to_blockpy_function(
             func.name.id.as_str(),
             &runtime_input_body,
-            end_label.clone(),
-            &mut blocks,
-            None,
-            &cell_slots,
-            &outer_scope_names,
-            &mut generator_state,
-        );
-        let label_prefix = self.next_label_prefix(func.name.id.as_str());
-        let (mut blockpy_function, entry_label) = build_finalized_blockpy_function(
             identity.bind_name.clone(),
             identity.qualname.clone(),
             identity.binding_target,
-            blockpy_kind,
             (*func.parameters).clone(),
-            blocks,
-            entry_label,
             end_label,
             label_prefix.as_str(),
-            if has_yield {
-                Some(PendingBlockPyGeneratorInfo {
-                    closure_state: generator_state.closure_state,
-                    resume_order: generator_state.resume_order,
-                    yield_sites: generator_state.yield_sites,
-                })
-            } else {
-                None
-            },
+            has_yield,
+            coroutine_via_generator,
             is_async_generator_runtime,
             is_closure_backed_generator_runtime,
-            self.next_temp("uncaught_exc"),
+            &cell_slots,
+            &mut next_block_id,
+            &mut |func_def| {
+                Self::lower_non_bb_def_stmt_to_exec_binding(func_def, &cell_slots, &outer_scope_names)
+            },
+            &mut |prefix, next_block_id| {
+                Self::next_temp_from_counter(reserved_temp_names_stack, prefix, next_block_id)
+            },
         );
+        self.next_block_id = next_block_id;
 
         let exception_edges = compute_blockpy_exception_edges(&blockpy_function);
 
@@ -903,308 +877,7 @@ impl BasicBlockRewriter<'_> {
         })
     }
 
-    fn lower_stmt_sequence(
-        &mut self,
-        fn_name: &str,
-        stmts: &[Box<Stmt>],
-        cont_label: String,
-        blocks: &mut Vec<BlockPyBlock>,
-        loop_ctx: Option<&LoopContext>,
-        cell_slots: &HashSet<String>,
-        outer_scope_names: &HashSet<String>,
-        generator_state: &mut BlockPySequenceGeneratorState,
-    ) -> String {
-        if stmts.is_empty() {
-            return cont_label;
-        }
-
-        let cache_key = Self::stmt_sequence_cache_key(fn_name, stmts, &cont_label, loop_ctx);
-
-        let mut linear = Vec::new();
-        let mut index = 0;
-        while index < stmts.len() {
-            let plan;
-            (linear, index, plan) = match drive_stmt_sequence_until_control(
-                &stmts[index..],
-                linear,
-                &mut |func_def| {
-                    self.lower_non_bb_def_stmt_to_exec_binding(
-                        func_def,
-                        cell_slots,
-                        outer_scope_names,
-                    )
-                },
-                &mut |delete_stmt| rewrite_delete_to_deleted_sentinel(delete_stmt),
-            ) {
-                StmtSequenceDriveResult::Exhausted { linear } => {
-                    let label = self.next_label(fn_name);
-                    let label = emit_sequence_jump_block(blocks, label, linear, cont_label);
-                    self.cache_stmt_sequence_result(&cache_key, &label);
-                    return label;
-                }
-                StmtSequenceDriveResult::Break {
-                    linear,
-                    index: break_index,
-                    plan,
-                } => (linear, index + break_index, plan),
-            };
-
-            match plan {
-                StmtSequenceHeadPlan::Generator {
-                    plan,
-                    sync_target_cells,
-                } => {
-                    let initial_state = GeneratorStmtSequenceLoweringState {
-                        closure_state: generator_state.closure_state,
-                        resume_order: std::mem::take(&mut generator_state.resume_order),
-                        yield_sites: std::mem::take(&mut generator_state.yield_sites),
-                        next_block_id: self.next_block_id,
-                    };
-                    let (label, updated_state) = lower_generator_stmt_sequence_head(
-                        fn_name,
-                        plan,
-                        &stmts[index + 1..],
-                        cont_label.clone(),
-                        linear.clone(),
-                        blocks,
-                        initial_state,
-                        sync_target_cells.then_some(cell_slots),
-                        &mut |stmts, cont_label, blocks, state| {
-                            let mut local_generator_state = BlockPySequenceGeneratorState {
-                                closure_state: state.closure_state,
-                                resume_order: state.resume_order,
-                                yield_sites: state.yield_sites,
-                            };
-                            self.next_block_id = state.next_block_id;
-                            let label = self.lower_stmt_sequence(
-                                fn_name,
-                                stmts,
-                                cont_label,
-                                blocks,
-                                loop_ctx,
-                                cell_slots,
-                                outer_scope_names,
-                                &mut local_generator_state,
-                            );
-                            (
-                                label,
-                                GeneratorStmtSequenceLoweringState {
-                                    closure_state: local_generator_state.closure_state,
-                                    resume_order: local_generator_state.resume_order,
-                                    yield_sites: local_generator_state.yield_sites,
-                                    next_block_id: self.next_block_id,
-                                },
-                            )
-                        },
-                    );
-                    self.next_block_id = updated_state.next_block_id;
-                    generator_state.resume_order = updated_state.resume_order;
-                    generator_state.yield_sites = updated_state.yield_sites;
-                    if let Some(label) = label {
-                        self.cache_stmt_sequence_result(&cache_key, &label);
-                        return label;
-                    }
-                    linear.push(stmts[index].as_ref().clone());
-                    index += 1;
-                    continue;
-                }
-                plan @ (StmtSequenceHeadPlan::Raise(_)
-                | StmtSequenceHeadPlan::Return(_)
-                | StmtSequenceHeadPlan::If(_)
-                | StmtSequenceHeadPlan::While(_)
-                | StmtSequenceHeadPlan::With(_)
-                | StmtSequenceHeadPlan::Break
-                | StmtSequenceHeadPlan::Continue) => {
-                    let sanitized_fn_name = sanitize_ident(fn_name);
-                    let next_block_id = Cell::new(self.next_block_id);
-                    let label = lower_common_stmt_sequence_head(
-                        plan,
-                        &stmts[index + 1..],
-                        cont_label.clone(),
-                        linear,
-                        blocks,
-                        &mut || {
-                            let current = next_block_id.get();
-                            next_block_id.set(current + 1);
-                            format!("_dp_bb_{}_{}", sanitized_fn_name, current)
-                        },
-                        loop_ctx.map(|loop_ctx| loop_ctx.break_label.clone()),
-                        loop_ctx.map(|loop_ctx| loop_ctx.continue_label.clone()),
-                        &mut |stmts, cont_label, break_label, blocks| {
-                            self.next_block_id = next_block_id.get();
-                            if let Some(break_label) = break_label {
-                                let loop_ctx = LoopContext {
-                                    continue_label: cont_label.clone(),
-                                    break_label,
-                                };
-                                let label = self.lower_stmt_sequence(
-                                    fn_name,
-                                    stmts,
-                                    cont_label,
-                                    blocks,
-                                    Some(&loop_ctx),
-                                    cell_slots,
-                                    outer_scope_names,
-                                    generator_state,
-                                );
-                                next_block_id.set(self.next_block_id);
-                                label
-                            } else {
-                                let label = self.lower_stmt_sequence(
-                                    fn_name,
-                                    stmts,
-                                    cont_label,
-                                    blocks,
-                                    loop_ctx,
-                                    cell_slots,
-                                    outer_scope_names,
-                                    generator_state,
-                                );
-                                next_block_id.set(self.next_block_id);
-                                label
-                            }
-                        },
-                    );
-                    self.next_block_id = next_block_id.get();
-                    if let Some(label) = label {
-                        self.cache_stmt_sequence_result(&cache_key, &label);
-                        return label;
-                    }
-                    unreachable!("common head helper must lower supported head");
-                }
-                StmtSequenceHeadPlan::For(for_stmt) => {
-                    let iter_name = self.next_temp("iter");
-                    let tmp_name = self.next_temp("tmp");
-                    let Some(tmp_expr) = name_expr(tmp_name.as_str()) else {
-                        return cont_label;
-                    };
-                    let loop_check_label = self.next_label(fn_name);
-                    let continue_state = GeneratorStmtSequenceLoweringState {
-                        closure_state: generator_state.closure_state,
-                        resume_order: std::mem::take(&mut generator_state.resume_order),
-                        yield_sites: std::mem::take(&mut generator_state.yield_sites),
-                        next_block_id: self.next_block_id,
-                    };
-                    let (loop_continue_label, continue_state) = lower_for_loop_continue_entry_with_state(
-                        blocks,
-                        fn_name,
-                        iter_name.as_str(),
-                        tmp_name.as_str(),
-                        loop_check_label.clone(),
-                        for_stmt.is_async,
-                        continue_state,
-                    );
-                    self.next_block_id = continue_state.next_block_id;
-                    generator_state.resume_order = continue_state.resume_order;
-                    generator_state.yield_sites = continue_state.yield_sites;
-                    let mut next_temp = |prefix: &str| self.next_temp(prefix);
-                    let assign_body = build_for_target_assign_body(
-                        for_stmt.target.as_ref(),
-                        tmp_expr.clone(),
-                        tmp_name.as_str(),
-                        cell_slots,
-                        &mut next_temp,
-                    );
-                    let next_block_id = Cell::new(self.next_block_id);
-                    let label = lower_for_stmt_sequence_head(
-                        fn_name,
-                        for_stmt,
-                        &stmts[index + 1..],
-                        cont_label.clone(),
-                        linear,
-                        blocks,
-                        iter_name.as_str(),
-                        tmp_name.as_str(),
-                        loop_check_label,
-                        loop_continue_label,
-                        assign_body,
-                        &next_block_id,
-                        &mut |stmts, cont_label, break_label, blocks| {
-                            self.next_block_id = next_block_id.get();
-                            if let Some(break_label) = break_label {
-                                let loop_ctx = LoopContext {
-                                    continue_label: cont_label.clone(),
-                                    break_label,
-                                };
-                                let label = self.lower_stmt_sequence(
-                                    fn_name,
-                                    stmts,
-                                    cont_label,
-                                    blocks,
-                                    Some(&loop_ctx),
-                                    cell_slots,
-                                    outer_scope_names,
-                                    generator_state,
-                                );
-                                next_block_id.set(self.next_block_id);
-                                label
-                            } else {
-                                let label = self.lower_stmt_sequence(
-                                    fn_name,
-                                    stmts,
-                                    cont_label,
-                                    blocks,
-                                    loop_ctx,
-                                    cell_slots,
-                                    outer_scope_names,
-                                    generator_state,
-                                );
-                                next_block_id.set(self.next_block_id);
-                                label
-                            }
-                        },
-                    );
-                    self.next_block_id = next_block_id.get();
-                    self.cache_stmt_sequence_result(&cache_key, &label);
-                    return label;
-                }
-                StmtSequenceHeadPlan::Try(try_stmt) => {
-                    let next_block_id = Cell::new(self.next_block_id);
-                    let label = lower_try_stmt_sequence_head(
-                        fn_name,
-                        try_stmt,
-                        &stmts[index + 1..],
-                        cont_label.clone(),
-                        linear,
-                        blocks,
-                        &next_block_id,
-                        &mut |stmts, cont_label, blocks| {
-                            self.next_block_id = next_block_id.get();
-                            let label = self.lower_stmt_sequence(
-                                fn_name,
-                                stmts,
-                                cont_label,
-                                blocks,
-                                loop_ctx,
-                                cell_slots,
-                                outer_scope_names,
-                                generator_state,
-                            );
-                            next_block_id.set(self.next_block_id);
-                            label
-                        },
-                    );
-                    self.next_block_id = next_block_id.get();
-                    self.cache_stmt_sequence_result(&cache_key, &label);
-                    return label;
-                }
-                StmtSequenceHeadPlan::Linear(_)
-                | StmtSequenceHeadPlan::FunctionDef(_)
-                | StmtSequenceHeadPlan::Delete(_) => {
-                    unreachable!("sequence driver should consume linear/functiondef/delete heads")
-                }
-                StmtSequenceHeadPlan::Unsupported => return cont_label,
-            }
-        }
-
-        let label = self.next_label(fn_name);
-        let label = emit_sequence_jump_block(blocks, label, linear, cont_label);
-        self.cache_stmt_sequence_result(&cache_key, &label);
-        label
-    }
-
     fn lower_non_bb_def_stmt_to_exec_binding(
-        &self,
         func_def: &ast::StmtFunctionDef,
         cell_slots: &HashSet<String>,
         outer_scope_names: &HashSet<String>,

@@ -277,13 +277,13 @@ impl BlockPyFormatter {
             if !generator.dispatch_only_labels.is_empty() {
                 this.line(format!(
                     "dispatch_only_labels: [{}]",
-                    join_labels(&generator.dispatch_only_labels)
+                    join_sorted_labels(&generator.dispatch_only_labels)
                 ));
             }
             if !generator.throw_passthrough_labels.is_empty() {
                 this.line(format!(
                     "throw_passthrough_labels: [{}]",
-                    join_labels(&generator.throw_passthrough_labels)
+                    join_sorted_labels(&generator.throw_passthrough_labels)
                 ));
             }
         });
@@ -430,6 +430,12 @@ fn join_labels(labels: &[BlockPyLabel]) -> String {
         .map(|label| label.as_str())
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+fn join_sorted_labels(labels: &[BlockPyLabel]) -> String {
+    let mut labels = labels.iter().map(|label| label.as_str()).collect::<Vec<_>>();
+    labels.sort_unstable();
+    labels.join(", ")
 }
 
 fn collect_referenced_labels_from_blocks(blocks: &[BlockPyBlock]) -> HashSet<BlockPyLabel> {

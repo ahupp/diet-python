@@ -10,21 +10,6 @@ class C:
 
 # ==
 
-__dp_store_global(
-    globals(),
-    __dp_decode_literal_bytes(b"_dp_module_init"),
-    __dp_def_fn(
-        __dp_decode_literal_bytes(b"_dp_bb__dp_module_init_start"),
-        __dp_decode_literal_bytes(b"_dp_module_init"),
-        __dp_decode_literal_bytes(b"_dp_module_init"),
-        __dp_tuple(),
-        __dp_tuple(),
-        __dp_globals(),
-        __name__,
-        None,
-        None,
-    ),
-)
 
 # class_method_named_open_calls_builtin
 
@@ -36,21 +21,6 @@ class Wrapper:
 
 # ==
 
-__dp_store_global(
-    globals(),
-    __dp_decode_literal_bytes(b"_dp_module_init"),
-    __dp_def_fn(
-        __dp_decode_literal_bytes(b"_dp_bb__dp_module_init_start"),
-        __dp_decode_literal_bytes(b"_dp_module_init"),
-        __dp_decode_literal_bytes(b"_dp_module_init"),
-        __dp_tuple(),
-        __dp_tuple(),
-        __dp_globals(),
-        __name__,
-        None,
-        None,
-    ),
-)
 
 # class_with_base
 
@@ -61,21 +31,6 @@ class D(Base):
 
 # ==
 
-__dp_store_global(
-    globals(),
-    __dp_decode_literal_bytes(b"_dp_module_init"),
-    __dp_def_fn(
-        __dp_decode_literal_bytes(b"_dp_bb__dp_module_init_start"),
-        __dp_decode_literal_bytes(b"_dp_module_init"),
-        __dp_decode_literal_bytes(b"_dp_module_init"),
-        __dp_tuple(),
-        __dp_tuple(),
-        __dp_globals(),
-        __name__,
-        None,
-        None,
-    ),
-)
 
 # class_scope_inner_capture
 
@@ -91,21 +46,6 @@ def outer():
 
 # ==
 
-__dp_store_global(
-    globals(),
-    __dp_decode_literal_bytes(b"_dp_module_init"),
-    __dp_def_fn(
-        __dp_decode_literal_bytes(b"_dp_bb__dp_module_init_start"),
-        __dp_decode_literal_bytes(b"_dp_module_init"),
-        __dp_decode_literal_bytes(b"_dp_module_init"),
-        __dp_tuple(),
-        __dp_tuple(),
-        __dp_globals(),
-        __name__,
-        None,
-        None,
-    ),
-)
 
 # class_super_empty_classcell
 
@@ -119,21 +59,6 @@ class X:
 
 # ==
 
-__dp_store_global(
-    globals(),
-    __dp_decode_literal_bytes(b"_dp_module_init"),
-    __dp_def_fn(
-        __dp_decode_literal_bytes(b"_dp_bb__dp_module_init_start"),
-        __dp_decode_literal_bytes(b"_dp_module_init"),
-        __dp_decode_literal_bytes(b"_dp_module_init"),
-        __dp_tuple(),
-        __dp_tuple(),
-        __dp_globals(),
-        __name__,
-        None,
-        None,
-    ),
-)
 
 # nested classes
 
@@ -145,21 +70,6 @@ class A:
 
 # ==
 
-__dp_store_global(
-    globals(),
-    __dp_decode_literal_bytes(b"_dp_module_init"),
-    __dp_def_fn(
-        __dp_decode_literal_bytes(b"_dp_bb__dp_module_init_start"),
-        __dp_decode_literal_bytes(b"_dp_module_init"),
-        __dp_decode_literal_bytes(b"_dp_module_init"),
-        __dp_tuple(),
-        __dp_tuple(),
-        __dp_globals(),
-        __name__,
-        None,
-        None,
-    ),
-)
 
 # nested classes with weird scoping
 
@@ -173,19 +83,3 @@ def foo():
 
 
 # ==
-
-__dp_store_global(
-    globals(),
-    __dp_decode_literal_bytes(b"_dp_module_init"),
-    __dp_def_fn(
-        __dp_decode_literal_bytes(b"_dp_bb__dp_module_init_start"),
-        __dp_decode_literal_bytes(b"_dp_module_init"),
-        __dp_decode_literal_bytes(b"_dp_module_init"),
-        __dp_tuple(),
-        __dp_tuple(),
-        __dp_globals(),
-        __name__,
-        None,
-        None,
-    ),
-)

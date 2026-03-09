@@ -65,18 +65,6 @@ outputs with:
 cargo run --bin regen_snapshots
 ```
 
-## CPython test suite
-
-To run the official CPython test suite, use:
-
-```
-just run-cpython-tests
-```
-
-The recipe refreshes the repo venv with `vendor/cpython/python`, builds the
-debug extension, and then runs regrtest with `vendor/cpython/python` plus the
-repo's explicit `PYTHONPATH` overlay.
-
 # CLIF
 
 ```
@@ -188,7 +176,10 @@ Dropping to basic block format:
   * Locality: for any specific concept, it's better to handle it in one place.
     e.g, prefer to handle different kinds of load/store (global, nonlocal,
     local, class-body) in one place, rather than spreading them across many
-    different transforms.
+    different transforms.  For example, things we prefer not to do:
+      - have many different layers of the system aware of annotations and annotationlib
+      - special cases that match on specific internal variable names
+      - many different sites aware of scoping rules
   * 
 
 

@@ -667,4 +667,53 @@ def f():
             "ops after the assignment should start a new segment"
         );
     }
+
+    #[test]
+    fn preserves_value_return_after_plain_try_except() {
+        let source = r#"
+def f():
+    try:
+        pass
+    except Exception:
+        pass
+    return 1
+"#;
+        let module = transform_str_to_bb_ir_with_options(source, Options::for_test())
+            .expect("lowering must succeed")
+            .expect("bb module must exist");
+        let raw_function = module
+            .functions
+            .iter()
+            .find(|candidate| candidate.qualname == "f")
+            .expect("must contain raw f");
+        assert!(
+            raw_function.blocks.iter().any(|block| {
+                matches!(
+                    block.term,
+                    crate::basic_block::bb_ir::BbTerm::Ret(Some(
+                        crate::basic_block::bb_ir::BbExpr::IntLiteral(_)
+                    ))
+                )
+            }),
+            "{raw_function:#?}"
+        );
+        let lowered = lower_try_jump_exception_flow(&module).expect("pass should succeed");
+        let lowered_function = lowered
+            .functions
+            .iter()
+            .find(|candidate| candidate.qualname == "f")
+            .expect("must contain lowered f");
+
+        assert!(
+            lowered_function.blocks.iter().any(|block| {
+                matches!(
+                    block.term,
+                    crate::basic_block::bb_ir::BbTerm::Ret(Some(
+                        crate::basic_block::bb_ir::BbExpr::IntLiteral(_)
+                    ))
+                )
+            }),
+            "{lowered_function:#?}"
+        );
+    }
 }

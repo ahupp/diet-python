@@ -9,6 +9,7 @@ out_name := env_var_or_default("OUT_NAME", "diet_python")
 wasm_pack_mode := env_var_or_default("WASM_PACK_MODE", "no-install")
 pyo3_python := cpython_bin
 web_dir := repo_root + "/web"
+web_cargo_target_dir := env_var_or_default("WEB_CARGO_TARGET_DIR", repo_root + "/tmp/target-web-inspector")
 port := env_var_or_default("PORT", "8000")
 host := env_var_or_default("HOST", "127.0.0.1")
 log_file := env_var_or_default("LOG_FILE", "/tmp/diet_python_web_inspector.log")
@@ -26,6 +27,7 @@ export CARGO_HOME := cargo_home
 export OUT_NAME := out_name
 export WASM_PACK_MODE := wasm_pack_mode
 export WEB_DIR := web_dir
+export WEB_CARGO_TARGET_DIR := web_cargo_target_dir
 export PORT := port
 export HOST := host
 export LOG_FILE := log_file
@@ -44,7 +46,16 @@ ensure-cpython:
     exit 1
   fi
 
-update-venv build="debug": ensure-cpython
+[private]
+ensure-venv:
+  #!/usr/bin/env bash
+  if [[ ! -x "$VENV_DIR/bin/python" ]]; then
+    echo "venv not found at $VENV_DIR; run 'just update-venv' first" >&2
+      exit 1
+  fi
+
+[private]
+install-extension build="debug": ensure-venv ensure-cpython
   #!/usr/bin/env bash
   BUILD="{{build}}"
 
@@ -53,6 +64,29 @@ update-venv build="debug": ensure-cpython
     exit 2
   fi
 
+  if [[ "$BUILD" == "release" ]]; then
+    ARTIFACT_DIR="$REPO_ROOT/target/release"
+  else
+    ARTIFACT_DIR="$REPO_ROOT/target/debug"
+  fi
+
+  SOURCE_EXT="$ARTIFACT_DIR/libdiet_python.so"
+  if [[ ! -f "$SOURCE_EXT" ]]; then
+    echo "extension not found at $SOURCE_EXT" >&2
+    exit 1
+  fi
+
+  SITE_PACKAGES="$("$VENV_DIR/bin/python" -c 'import sysconfig; print(sysconfig.get_path("platlib"))')"
+  EXT_SUFFIX="$("$VENV_DIR/bin/python" -c 'import importlib.machinery; print(importlib.machinery.EXTENSION_SUFFIXES[0])')"
+  TARGET_EXT="$SITE_PACKAGES/diet_python$EXT_SUFFIX"
+
+  mkdir -p "$SITE_PACKAGES"
+  find "$SITE_PACKAGES" -maxdepth 1 -type f -name 'diet_python*.so' -delete
+  find "$SITE_PACKAGES" -maxdepth 1 -type l -name 'diet_python*.so' -delete
+  ln -sf "$SOURCE_EXT" "$TARGET_EXT"
+
+update-venv: ensure-cpython
+  #!/usr/bin/env bash
   rm -rf "$VENV_DIR"
   uv venv --python "$CPYTHON_BIN" "$VENV_DIR"
 
@@ -61,6 +95,15 @@ update-venv build="debug": ensure-cpython
     VIRTUAL_ENV="$VENV_DIR" PATH="$VENV_DIR/bin:$PATH" \
       uv sync --group dev --frozen --active
   )
+
+build-extension build="debug": ensure-cpython
+  #!/usr/bin/env bash
+  BUILD="{{build}}"
+
+  if [[ "$BUILD" != "debug" && "$BUILD" != "release" ]]; then
+    echo "build must be 'debug' or 'release'" >&2
+    exit 2
+  fi
 
   if [[ "$BUILD" == "release" ]]; then
     BUILD_ARGS=(--release)
@@ -72,8 +115,44 @@ update-venv build="debug": ensure-cpython
     cd "$REPO_ROOT"
     cargo build --quiet "${BUILD_ARGS[@]}" -p soac-pyo3
   )
+  just install-extension "$BUILD"
 
-run-cpython-tests jobs="0" *args='': (update-venv "debug")
+build-all: (update-venv) ensure-cpython
+  #!/usr/bin/env bash
+  print_elapsed() {
+    local label="$1"
+    local start_ns="$2"
+    local end_ns="$3"
+    awk -v label="$label" -v start="$start_ns" -v end="$end_ns" 'BEGIN { printf("[diet-python timing] %s_s=%.3f\n", label, (end - start) / 1000000000.0) }'
+  }
+  START_NS="$(date +%s%N)"
+  (
+    cd "$REPO_ROOT"
+    cargo build --quiet --workspace --tests
+  )
+  just install-extension debug
+  END_NS="$(date +%s%N)"
+  print_elapsed "build_all" "$START_NS" "$END_NS"
+
+[private]
+_cargo-test-run *args='':
+  #!/usr/bin/env bash
+  print_elapsed() {
+    local label="$1"
+    local start_ns="$2"
+    local end_ns="$3"
+    awk -v label="$label" -v start="$start_ns" -v end="$end_ns" 'BEGIN { printf("[diet-python timing] %s_s=%.3f\n", label, (end - start) / 1000000000.0) }'
+  }
+  cd "$REPO_ROOT"
+  START_NS="$(date +%s%N)"
+  cargo test {{args}}
+  END_NS="$(date +%s%N)"
+  print_elapsed "cargo_test" "$START_NS" "$END_NS"
+
+cargo-test *args='': build-all
+  just _cargo-test-run {{args}}
+
+run-cpython-tests jobs="0" *args='': build-all ensure-cpython ensure-venv
   #!/usr/bin/env bash
   cd "$REPO_ROOT"
 
@@ -86,12 +165,13 @@ run-cpython-tests jobs="0" *args='': (update-venv "debug")
   set -- {{args}}
 
   export SOURCE_DATE_EPOCH="$(date +%s)"
+  VENV_SITE_PACKAGES="$("$VENV_DIR/bin/python" -c 'import sysconfig; print(sysconfig.get_path("platlib"))')"
 
   # Regrtest must run the vendored CPython interpreter from the source tree so
-  # stdlib modules resolve from vendor/cpython/Lib. The venv is only used for
-  # bootstrap consistency and to ensure the debug extension build already exists.
+  # stdlib modules resolve from vendor/cpython/Lib. The extension itself is
+  # explicitly installed into the repo venv and added to PYTHONPATH below.
   PYTHON_BIN="$CPYTHON_BIN"
-  PYTHONPATH_PREFIX="$REPO_ROOT/vendor/cpython/Lib:$REPO_ROOT:$REPO_ROOT/target/debug"
+  PYTHONPATH_PREFIX="$REPO_ROOT/vendor/cpython/Lib:$VENV_SITE_PACKAGES:$REPO_ROOT"
   SKIP_ARGS=()
   while IFS= read -r skip_id; do
     [ -n "$skip_id" ] && SKIP_ARGS+=(-x "$skip_id")
@@ -125,6 +205,13 @@ run-cpython-tests jobs="0" *args='': (update-venv "debug")
 
 build-web-inspector:
   #!/usr/bin/env bash
+  print_elapsed() {
+    local label="$1"
+    local start_ns="$2"
+    local end_ns="$3"
+    awk -v label="$label" -v start="$start_ns" -v end="$end_ns" 'BEGIN { printf("[diet-python timing] %s_s=%.3f\n", label, (end - start) / 1000000000.0) }'
+  }
+  START_NS="$(date +%s%N)"
   echo "[1/3] Building wasm package..."
 
   required_wasm_bindgen_version() {
@@ -168,11 +255,13 @@ build-web-inspector:
 
   cd "$REPO_ROOT"
   ensure_wasm_bindgen
-  wasm-pack build dp-transform \
+  CARGO_TARGET_DIR="$WEB_CARGO_TARGET_DIR" wasm-pack build dp-transform \
     --target web \
     --out-dir ../web/pkg \
     --out-name "$OUT_NAME" \
     --mode "$WASM_PACK_MODE"
+  END_NS="$(date +%s%N)"
+  print_elapsed "build_web_inspector" "$START_NS" "$END_NS"
 
 run-web-inspector: build-web-inspector ensure-cpython
   #!/usr/bin/env bash
@@ -220,6 +309,7 @@ run-web-inspector: build-web-inspector ensure-cpython
 perf-pystone-jit-warm loops="500000" output_prefix="logs/pystone_jit_perf_warm": ensure-cpython
   #!/usr/bin/env bash
   mkdir -p logs
+  mkdir -p "$REPO_ROOT/tmp"
 
   LOOPS="{{loops}}"
   OUTPUT_PREFIX="{{output_prefix}}"
@@ -228,7 +318,8 @@ perf-pystone-jit-warm loops="500000" output_prefix="logs/pystone_jit_perf_warm":
   PERF_CALL_GRAPH="${PERF_CALL_GRAPH:-dwarf,16384}"
   PERF_PERCENT_LIMIT="${PERF_PERCENT_LIMIT:-0.5}"
 
-  PERF_DATA="${OUTPUT_PREFIX}.data"
+  PERF_DATA_BASENAME="$(basename "${OUTPUT_PREFIX}").data"
+  PERF_DATA="$REPO_ROOT/tmp/${PERF_DATA_BASENAME}"
   RUN_LOG="${OUTPUT_PREFIX}.log"
   REPORT_SYMBOLS="${OUTPUT_PREFIX}_report.txt"
   REPORT_DSO="${OUTPUT_PREFIX}_by_dso.txt"
@@ -313,8 +404,15 @@ perf-pystone-jit-warm loops="500000" output_prefix="logs/pystone_jit_perf_warm":
 
   echo "finished"
 
-pytest-cpython *args='': (update-venv "debug")
+[private]
+_pytest-run *args='': ensure-venv
   #!/usr/bin/env bash
+  print_elapsed() {
+    local label="$1"
+    local start_ns="$2"
+    local end_ns="$3"
+    awk -v label="$label" -v start="$start_ns" -v end="$end_ns" 'BEGIN { printf("[diet-python timing] %s_s=%.3f\n", label, (end - start) / 1000000000.0) }'
+  }
   cd "$REPO_ROOT"
 
   set -- {{args}}
@@ -328,28 +426,63 @@ pytest-cpython *args='': (update-venv "debug")
   # modules they explicitly opt into. Rewriting pytest/stdlib imports here
   # adds noise and teardown-only failures without improving coverage.
   export DIET_PYTHON_INTEGRATION_ONLY="${DIET_PYTHON_INTEGRATION_ONLY:-1}"
+  PYTEST_TB=native
 
   TMP_PYTEST_OUTPUT="$(mktemp -t diet-python-pytest.XXXXXX.log)"
   TEST_START_NS="$(date +%s%N)"
+  PYTEST_NUMPROCS="${PYTEST_NUMPROCS:-auto}"
   TEST_CMD=(
     "$LIMIT_WRAPPER"
     "$VENV_DIR/bin/python"
-    -m pytest --tb=native
+    -m pytest -n "$PYTEST_NUMPROCS" -vv --durations=0 --tb="$PYTEST_TB"
     "$@"
   )
 
   set +e
-  DIET_PYTHON_TIMEOUT_SECS="${DIET_PYTHON_TIMEOUT_SECS:-30}" \
+  DIET_PYTHON_TIMEOUT_SECS="${DIET_PYTHON_TIMEOUT_SECS:-45}" \
   "${TEST_CMD[@]}" 2>&1 | tee "$TMP_PYTEST_OUTPUT"
   TEST_STATUS=${PIPESTATUS[0]}
   set -e
 
   TEST_END_NS="$(date +%s%N)"
+  print_elapsed "pytest" "$TEST_START_NS" "$TEST_END_NS"
   "$VENV_DIR/bin/python" -c 'import re, sys; path, start_ns, end_ns = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]); pattern = re.compile(r"soac_jit_precompile .* elapsed_ms=([0-9]+(?:\\.[0-9]+)?)"); compile_ms = sum(float(match.group(1)) for line in open(path, "r", encoding="utf-8", errors="replace") if (match := pattern.search(line))); total_s = (end_ns - start_ns) / 1_000_000_000.0; compile_s = compile_ms / 1000.0; non_compile_s = total_s - compile_s; print(f"[diet-python timing] total_test_s={total_s:.3f} compile_s={compile_s:.3f} non_compile_s={non_compile_s:.3f}")' "$TMP_PYTEST_OUTPUT" "$TEST_START_NS" "$TEST_END_NS"
   rm -f "$TMP_PYTEST_OUTPUT"
   exit "$TEST_STATUS"
 
-benchmark loops="1000000": (update-venv "release")
+pytest *args='': build-all
+  just _pytest-run {{args}}
+
+test-all:
+  #!/usr/bin/env bash
+  cd "$REPO_ROOT"
+  just build-all
+
+  overall_status=0
+  failed_steps=()
+
+  run_step() {
+    local name="$1"
+    shift
+    if "$@"; then
+      return 0
+    fi
+    local status=$?
+    overall_status=1
+    failed_steps+=("$name:$status")
+    echo "[diet-python test-all] step failed: $name (exit $status)" >&2
+    return 0
+  }
+
+  run_step "cargo-test" just _cargo-test-run
+  run_step "pytest" just _pytest-run tests/
+
+  if [[ ${#failed_steps[@]} -gt 0 ]]; then
+    printf '[diet-python test-all] failed steps: %s\n' "${failed_steps[*]}" >&2
+  fi
+  exit "$overall_status"
+
+benchmark loops="1000000": (update-venv) (build-extension "release")
   #!/usr/bin/env bash
   echo "date: $(date +%F)"
   echo "loops: {{loops}}"

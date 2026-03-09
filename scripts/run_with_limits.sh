@@ -3,7 +3,7 @@ set -euo pipefail
 
 MEMORY_LIMIT_MB="${DIET_PYTHON_MEMORY_LIMIT_MB:-8192}"
 TIMEOUT_SECS="${DIET_PYTHON_TIMEOUT_SECS:-180}"
-CPUSET="${DIET_PYTHON_CPUSET:-0-3}"
+CPUSET="${DIET_PYTHON_CPUSET:-0-7}"
 
 if ! [[ "$MEMORY_LIMIT_MB" =~ ^[0-9]+$ ]]; then
   echo "invalid memory limit '$MEMORY_LIMIT_MB' (expected integer MiB)" >&2

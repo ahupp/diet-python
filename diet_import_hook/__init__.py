@@ -56,57 +56,12 @@ def _get_pyo3_transform():
         try:
             import diet_python as transform
         except Exception as err:
-            transform = _load_pyo3_extension()
-            if transform is None:
-                raise ImportError("diet-python pyo3 module is required but could not be imported") from err
+            raise ImportError(
+                "diet-python extension is required but could not be imported; "
+                "run 'just build-all' or 'just build-extension <debug|release>'"
+            ) from err
         _PYO3_TRANSFORM = transform
     return _PYO3_TRANSFORM
-
-
-def _load_pyo3_extension():
-    removed_indexes = []
-    for index in range(len(sys.meta_path) - 1, -1, -1):
-        if sys.meta_path[index] is DietPythonFinder:
-            removed_indexes.append(index)
-            sys.meta_path.pop(index)
-    try:
-        import importlib.machinery
-        import importlib.util
-
-        suffixes = set(importlib.machinery.EXTENSION_SUFFIXES)
-        suffixes.update({".so", ".dylib", ".dll"})
-        candidates = []
-        for build in ("debug", "release"):
-            base = REPO_ROOT / "target" / build
-            for suffix in sorted(suffixes):
-                candidates.append(base / f"libdiet_python{suffix}")
-                candidates.append(base / f"diet_python{suffix}")
-            if base.is_dir():
-                for path in base.glob("libdiet_python*"):
-                    candidates.append(path)
-                for path in base.glob("diet_python*"):
-                    candidates.append(path)
-        for path in candidates:
-            if not path.exists():
-                continue
-            try:
-                spec = importlib.util.spec_from_file_location(
-                    "diet_python",
-                    path,
-                    loader=importlib.machinery.ExtensionFileLoader("diet_python", str(path)),
-                )
-                if spec is None or spec.loader is None:
-                    continue
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
-                sys.modules["diet_python"] = module
-                return module
-            except Exception:
-                continue
-        return None
-    finally:
-        for index in reversed(removed_indexes):
-            sys.meta_path.insert(index, DietPythonFinder)
 
 
 

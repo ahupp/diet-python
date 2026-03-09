@@ -118,6 +118,58 @@ pub(crate) fn run_transform_fixture_tests(fixture: &str) {
     }
 }
 
+fn blockpy_output_for_snapshot(actual: &str) -> String {
+    let lowered = transform_str_to_ruff_with_options(actual, Options::for_test()).unwrap();
+    let mut output = lowered
+        .blockpy_module
+        .as_ref()
+        .map(crate::basic_block::blockpy_module_to_string)
+        .unwrap_or_else(|| "; no BlockPy module emitted".to_string())
+        .trim_matches('\n')
+        .to_string();
+    output.push('\n');
+    output
+}
+
+pub(crate) fn assert_blockpy_snapshot_eq(actual: &str, expected: &str) {
+    let actual_output = blockpy_output_for_snapshot(actual);
+    let mut expected_output = expected.trim_matches('\n').to_string();
+    expected_output.push('\n');
+    if actual_output != expected_output {
+        let diff = TextDiff::from_lines(expected_output.as_str(), &actual_output)
+            .unified_diff()
+            .header("expected", "actual")
+            .to_string();
+        panic!("expected BlockPy snapshot to match fixture:\n{diff}");
+    }
+}
+
+pub(crate) fn run_blockpy_snapshot_fixture_tests(fixture: &str, snapshot: &str) {
+    let fixture_blocks = match parse_fixture(fixture) {
+        Ok(blocks) => blocks,
+        Err(err) => panic!("{err}"),
+    };
+    let snapshot_blocks = match parse_fixture(snapshot) {
+        Ok(blocks) => blocks,
+        Err(err) => panic!("{err}"),
+    };
+
+    assert_eq!(
+        fixture_blocks.len(),
+        snapshot_blocks.len(),
+        "fixture block count does not match snapshot block count"
+    );
+
+    for (fixture_block, snapshot_block) in fixture_blocks.iter().zip(snapshot_blocks.iter()) {
+        assert_eq!(
+            fixture_block.name, snapshot_block.name,
+            "fixture block names do not match snapshot block names"
+        );
+        eprintln!("blockpy_snapshot_fixture: {}", fixture_block.name);
+        assert_blockpy_snapshot_eq(fixture_block.input.as_str(), snapshot_block.output.as_str());
+    }
+}
+
 pub(crate) fn assert_ast_eq(actual: Stmt, expected: Stmt) {
     let actual_stmt: ComparableStmt = ComparableStmt::from(&actual);
     let expected_stmt: ComparableStmt = ComparableStmt::from(&expected);
@@ -136,6 +188,15 @@ macro_rules! transform_fixture_test {
         #[test]
         fn $name() {
             $crate::test_util::run_transform_fixture_tests(include_str!($path));
+        }
+    };
+    ($name:ident, $fixture_path:literal, $snapshot_path:literal) => {
+        #[test]
+        fn $name() {
+            $crate::test_util::run_blockpy_snapshot_fixture_tests(
+                include_str!($fixture_path),
+                include_str!($snapshot_path),
+            );
         }
     };
 }

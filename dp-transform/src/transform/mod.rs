@@ -43,7 +43,19 @@ impl Options {
 
 #[cfg(test)]
 mod tests {
-    crate::transform_fixture_test!(snapshot_expr_fixture, "snapshot_expr.py");
-    crate::transform_fixture_test!(snapshot_stmt_fixture, "snapshot_stmt.py");
-    crate::transform_fixture_test!(snapshot_class_fixture, "snapshot_class.py");
+    crate::transform_fixture_test!(
+        snapshot_expr_fixture,
+        "snapshot_expr.py",
+        "../../../snapshot/snapshot_expr.txt"
+    );
+    crate::transform_fixture_test!(
+        snapshot_stmt_fixture,
+        "snapshot_stmt.py",
+        "../../../snapshot/snapshot_stmt.txt"
+    );
+    crate::transform_fixture_test!(
+        snapshot_class_fixture,
+        "snapshot_class.py",
+        "../../../snapshot/snapshot_class.txt"
+    );
 }
