@@ -64,7 +64,7 @@ macro_rules! py_stmt_typed {
 }
 
 use crate::transformer::{walk_expr, walk_keyword, walk_parameter, walk_stmt, Transformer};
-use crate::{namegen::fresh_name, transform::simplify::flatten};
+use crate::{basic_block::ast_to_ast::simplify::flatten, namegen::fresh_name};
 use regex::Regex;
 use ruff_python_ast::{self as ast, DictItem, Expr, Stmt, StmtBody};
 use ruff_python_parser::parse_expression;
@@ -833,7 +833,7 @@ fn parse_dynamic_expr(src: &str, name: &str) -> Expr {
 
 #[cfg(test)]
 mod tests {
-    use crate::{test_util::assert_ast_eq, transform::simplify::flatten};
+    use crate::{basic_block::ast_to_ast::simplify::flatten, test_util::assert_ast_eq};
     use ruff_python_ast::{
         self as ast,
         comparable::{ComparableExpr, ComparableStmt},

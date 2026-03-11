@@ -1,5 +1,5 @@
+use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::bb_ir;
-use crate::transform::context::Context;
 use crate::{
     analyze_module_scope, ruff_ast_to_string, transform_str_to_ruff_with_options, Options,
 };
@@ -211,7 +211,6 @@ fn bb_term_kind(term: &bb_ir::BbTerm) -> &'static str {
         bb_ir::BbTerm::BrIf { .. } => "br_if",
         bb_ir::BbTerm::BrTable { .. } => "br_table",
         bb_ir::BbTerm::Raise { .. } => "raise",
-        bb_ir::BbTerm::TryJump { .. } => "try_jump",
         bb_ir::BbTerm::Ret(_) => "return",
     }
 }
@@ -249,17 +248,6 @@ fn bb_term_text(term: &bb_ir::BbTerm) -> String {
                 .unwrap_or_else(|| "None".to_string());
             format!("raise exc={exc} cause={cause}")
         }
-        bb_ir::BbTerm::TryJump {
-            body_label,
-            except_label,
-            finally_label,
-            finally_fallthrough_label,
-            ..
-        } => format!(
-            "try body={body_label} except={except_label} finally={} finally_fallthrough={}",
-            finally_label.as_deref().unwrap_or("-"),
-            finally_fallthrough_label.as_deref().unwrap_or("-"),
-        ),
         bb_ir::BbTerm::Ret(value) => {
             let value = value
                 .as_ref()
@@ -294,25 +282,6 @@ fn bb_term_successors(term: &bb_ir::BbTerm) -> Vec<(&str, &'static str)> {
             out
         }
         bb_ir::BbTerm::Raise { .. } => Vec::new(),
-        bb_ir::BbTerm::TryJump {
-            body_label,
-            except_label,
-            finally_label,
-            finally_fallthrough_label,
-            ..
-        } => {
-            let mut out = vec![
-                (body_label.as_str(), "try_body"),
-                (except_label.as_str(), "try_except"),
-            ];
-            if let Some(label) = finally_label {
-                out.push((label.as_str(), "try_finally"));
-            }
-            if let Some(label) = finally_fallthrough_label {
-                out.push((label.as_str(), "try_fallthrough"));
-            }
-            out
-        }
         bb_ir::BbTerm::Ret(_) => Vec::new(),
     }
 }
@@ -414,25 +383,6 @@ fn clif_term_comment(
                 .unwrap_or_else(|| "None".to_string());
             format!("raise exc={exc} cause={cause}")
         }
-        bb_ir::BbTerm::TryJump {
-            body_label,
-            except_label,
-            finally_label,
-            finally_fallthrough_label,
-            ..
-        } => format!(
-            "try_jump body={} except={} finally={} fallthrough={}",
-            clif_target_comment(body_label.as_str(), label_to_index, label_to_params),
-            clif_target_comment(except_label.as_str(), label_to_index, label_to_params),
-            finally_label
-                .as_ref()
-                .map(|label| clif_target_comment(label.as_str(), label_to_index, label_to_params))
-                .unwrap_or_else(|| "-".to_string()),
-            finally_fallthrough_label
-                .as_ref()
-                .map(|label| clif_target_comment(label.as_str(), label_to_index, label_to_params))
-                .unwrap_or_else(|| "-".to_string()),
-        ),
         bb_ir::BbTerm::Ret(value) => {
             let value = value
                 .as_ref()
@@ -585,18 +535,6 @@ fn render_cranelift_function_from_bb(function: &bb_ir::BbFunction) -> Result<Str
             bb_ir::BbTerm::Raise { .. } | bb_ir::BbTerm::Ret(_) => {
                 let ret_value = builder.ins().iconst(types::I64, 0);
                 builder.ins().return_(&[ret_value]);
-            }
-            bb_ir::BbTerm::TryJump { body_label, .. } => {
-                let body_block = *label_to_block
-                    .get(body_label.as_str())
-                    .ok_or_else(|| format!("missing try_jump body target: {body_label}"))?;
-                let args = clif_target_args_for_block(
-                    &mut builder,
-                    body_label.as_str(),
-                    &current_values,
-                    &label_to_params,
-                );
-                builder.ins().jump(body_block, &args);
             }
         }
     }

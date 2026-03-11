@@ -227,35 +227,19 @@ async def run():
     }
 
     #[test]
-    fn jit_validator_allows_try_jump_terminators() {
+    fn jit_validator_accepts_lowered_try_blocks() {
         let source = r#"
 def f():
-    return 1
+    try:
+        return 1
+    except Exception:
+        return 2
 "#;
-        let mut bb_module = parse_and_lower(source)
+        let bb_module = parse_and_lower(source)
             .expect("lowering should succeed")
-            .bb_module
-            .expect("bb module should be present");
-        let function = bb_module
-            .functions
-            .first_mut()
-            .expect("must contain at least one function");
-        let block = function
-            .blocks
-            .first_mut()
-            .expect("function must contain at least one block");
-        block.term = bb_ir::BbTerm::TryJump {
-            body_label: "body".to_string(),
-            except_label: "except".to_string(),
-            except_exc_name: None,
-            body_region_labels: vec![],
-            except_region_labels: vec![],
-            finally_label: None,
-            finally_exc_name: None,
-            finally_region_labels: vec![],
-            finally_fallthrough_label: None,
-        };
-        validate_bb_module_for_jit(Some(&bb_module)).expect("validator should allow try_jump");
+            .bb_module;
+        validate_bb_module_for_jit(bb_module.as_ref())
+            .expect("validator should accept lowered try blocks");
     }
 
     #[test]

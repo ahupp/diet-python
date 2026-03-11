@@ -52,7 +52,7 @@ enum BindingParamKind {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum GeneratorClosureInit {
+enum ClosureInit {
     InheritedCapture,
     Parameter,
     DeletedSentinel,
@@ -62,15 +62,15 @@ enum GeneratorClosureInit {
 }
 
 #[derive(Debug)]
-struct GeneratorClosureSlot {
+struct ClosureSlot {
     logical_name: String,
     storage_name: String,
-    init: GeneratorClosureInit,
+    init: ClosureInit,
 }
 
 #[derive(Debug)]
-struct GeneratorClosureLayout {
-    slots: Vec<GeneratorClosureSlot>,
+struct ClosureLayout {
+    slots: Vec<ClosureSlot>,
 }
 
 #[derive(Debug)]
@@ -102,7 +102,7 @@ struct ClifFunctionData {
     true_obj: *mut ffi::PyObject,
     false_obj: *mut ffi::PyObject,
     binding: BindingMetadata,
-    closure_layout: Option<GeneratorClosureLayout>,
+    closure_layout: Option<ClosureLayout>,
     materialize_entry_obj: *mut ffi::PyObject,
     ambient_args_obj: *mut ffi::PyObject,
     compiled_handle: *mut c_void,
@@ -377,9 +377,9 @@ unsafe fn parse_binding_metadata(
     })
 }
 
-unsafe fn parse_generator_closure_layout(
+unsafe fn parse_closure_layout(
     closure_layout_obj: *mut ffi::PyObject,
-) -> Result<Option<GeneratorClosureLayout>, ()> {
+) -> Result<Option<ClosureLayout>, ()> {
     if closure_layout_obj.is_null() {
         return Ok(None);
     }
@@ -439,24 +439,24 @@ unsafe fn parse_generator_closure_layout(
                 "failed to read CLIF vectorcall closure init kind",
             )?)?;
             let init = match init_name.as_str() {
-                "InheritedCapture" => GeneratorClosureInit::InheritedCapture,
-                "Parameter" => GeneratorClosureInit::Parameter,
-                "DeletedSentinel" => GeneratorClosureInit::DeletedSentinel,
-                "RuntimePcZero" => GeneratorClosureInit::RuntimePcZero,
-                "RuntimeNone" => GeneratorClosureInit::RuntimeNone,
-                "Deferred" => GeneratorClosureInit::Deferred,
+                "InheritedCapture" => ClosureInit::InheritedCapture,
+                "Parameter" => ClosureInit::Parameter,
+                "DeletedSentinel" => ClosureInit::DeletedSentinel,
+                "RuntimePcZero" => ClosureInit::RuntimePcZero,
+                "RuntimeNone" => ClosureInit::RuntimeNone,
+                "Deferred" => ClosureInit::Deferred,
                 _ => {
                     return set_type_error("invalid generator closure init kind");
                 }
             };
-            slots.push(GeneratorClosureSlot {
+            slots.push(ClosureSlot {
                 logical_name,
                 storage_name,
                 init,
             });
         }
     }
-    Ok(Some(GeneratorClosureLayout { slots }))
+    Ok(Some(ClosureLayout { slots }))
 }
 
 unsafe fn build_ambient_args_tuple(
@@ -569,7 +569,7 @@ unsafe fn make_clif_function_data(
             return Err(());
         }
     };
-    let closure_layout = match parse_generator_closure_layout(closure_layout_obj) {
+    let closure_layout = match parse_closure_layout(closure_layout_obj) {
         Ok(value) => value,
         Err(()) => {
             ffi::Py_DECREF(true_obj);
@@ -1143,7 +1143,7 @@ unsafe fn state_tuple_item_by_name(
 unsafe fn build_resume_closure_from_state_tuple(
     state_tuple: *mut ffi::PyObject,
     binding: &BindingMetadata,
-    closure_layout: &GeneratorClosureLayout,
+    closure_layout: &ClosureLayout,
 ) -> *mut ffi::PyObject {
     if ffi::PyTuple_Check(state_tuple) == 0 {
         return set_type_error::<*mut ffi::PyObject>(
@@ -1159,7 +1159,7 @@ unsafe fn build_resume_closure_from_state_tuple(
     for slot in &closure_layout.slots {
         let mut decref_value = false;
         let value = match slot.init {
-            GeneratorClosureInit::InheritedCapture => {
+            ClosureInit::InheritedCapture => {
                 let inherited =
                     state_tuple_item_by_name(state_tuple, binding, slot.storage_name.as_str());
                 if !inherited.is_null() {
@@ -1179,7 +1179,7 @@ unsafe fn build_resume_closure_from_state_tuple(
                     fallback
                 }
             }
-            GeneratorClosureInit::RuntimePcZero => {
+            ClosureInit::RuntimePcZero => {
                 let zero = ffi::PyLong_FromLong(0);
                 if zero.is_null() {
                     ffi::Py_DECREF(resume_closure);
@@ -1194,7 +1194,7 @@ unsafe fn build_resume_closure_from_state_tuple(
                 decref_value = true;
                 cell
             }
-            GeneratorClosureInit::RuntimeNone => {
+            ClosureInit::RuntimeNone => {
                 let none = ffi::Py_None();
                 ffi::Py_INCREF(none);
                 let cell = PyCell_New(none);
@@ -1206,9 +1206,7 @@ unsafe fn build_resume_closure_from_state_tuple(
                 decref_value = true;
                 cell
             }
-            GeneratorClosureInit::Parameter
-            | GeneratorClosureInit::DeletedSentinel
-            | GeneratorClosureInit::Deferred => {
+            ClosureInit::Parameter | ClosureInit::DeletedSentinel | ClosureInit::Deferred => {
                 let state_value =
                     state_tuple_item_by_name(state_tuple, binding, slot.logical_name.as_str());
                 if state_value.is_null() {

@@ -1,0 +1,936 @@
+use super::annotation_export::{
+    build_exec_function_def_binding_stmts, collect_capture_names, is_annotation_helper_name,
+    rewrite_annotation_helper_defs_as_exec_calls, should_keep_non_lowered_for_annotationlib,
+};
+use super::await_lower::{coroutine_generator_marker_stmt, lower_coroutine_awaits_to_yield_from};
+use super::bb_ir::BbExpr;
+use super::block_py::export::{make_dp_tuple, rewrite_function_def_stmt_via_blockpy};
+use super::block_py::state::{collect_cell_slots, collect_parameter_names};
+use super::blockpy_to_bb::LoweredBlockPyModuleBundle;
+use super::bound_names::{collect_bound_names, collect_explicit_global_or_nonlocal_names};
+use super::deleted_names::{collect_deleted_names, rewrite_deleted_name_loads};
+use super::function_identity::{
+    is_module_init_temp_name, resolve_runtime_function_identity, FunctionIdentity,
+    FunctionIdentityByNode,
+};
+use super::ruff_to_blockpy::{
+    build_lowered_blockpy_function_bundle, lower_function_body_to_blockpy_function,
+    LoweredBlockPyFunctionBundle,
+};
+use super::stmt_utils::{
+    flatten_stmt_boxes, should_strip_nonlocal_for_bb, stmt_body_from_stmts,
+    strip_nonlocal_directives,
+};
+use crate::basic_block::ast_to_ast::ast_rewrite::{rewrite_with_pass, Rewrite, StmtRewritePass};
+use crate::basic_block::ast_to_ast::context::Context;
+use crate::basic_block::ast_to_ast::rewrite_import;
+use crate::basic_block::ast_to_ast::rewrite_stmt;
+use crate::basic_block::ast_to_ast::scope::{
+    analyze_module_scope, is_internal_symbol, Scope, ScopeKind,
+};
+use crate::driver::SimplifyExprPass;
+use crate::py_expr;
+use crate::transformer::{walk_expr, walk_stmt, Transformer};
+use ruff_python_ast::{self as ast, Expr, NodeIndex, Stmt, StmtBody};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+
+pub struct BBSimplifyStmtPass;
+
+struct ReservedTempNamesGuard {
+    stack: *mut Vec<HashSet<String>>,
+}
+
+impl Drop for ReservedTempNamesGuard {
+    fn drop(&mut self) {
+        // The guard only exists while function lowering is active and the
+        // stack itself lives in the caller, so popping here is safe.
+        unsafe {
+            (*self.stack).pop();
+        }
+    }
+}
+
+struct FunctionScopeFrame {
+    name: String,
+    parent_name: Option<String>,
+    entering_module_init: bool,
+    has_parent_hoisted_scope: bool,
+    needs_cell_sync: bool,
+    hoisted_to_parent: Vec<Stmt>,
+}
+
+struct BlockPyModuleRewriter<'a> {
+    context: &'a Context,
+    module_scope: Arc<Scope>,
+    function_identity_by_node: HashMap<NodeIndex, FunctionIdentity>,
+    next_block_id: usize,
+    reserved_temp_names_stack: Vec<HashSet<String>>,
+    used_label_prefixes: HashMap<String, usize>,
+    function_scope_stack: Vec<FunctionScopeFrame>,
+    lowered_blockpy_module: LoweredBlockPyModuleBundle,
+}
+
+pub(crate) fn rewrite_ast_to_lowered_blockpy_module(
+    context: &Context,
+    module: &mut StmtBody,
+    function_identity_by_node: FunctionIdentityByNode,
+) -> LoweredBlockPyModuleBundle {
+    let module_scope = analyze_module_scope(module);
+    let function_identity_by_node = function_identity_by_node
+        .into_iter()
+        .map(
+            |(node, (bind_name, display_name, qualname, binding_target))| {
+                (
+                    node,
+                    FunctionIdentity {
+                        bind_name,
+                        display_name,
+                        qualname,
+                        binding_target,
+                    },
+                )
+            },
+        )
+        .collect();
+    let mut rewriter = BlockPyModuleRewriter {
+        context,
+        module_scope,
+        function_identity_by_node,
+        next_block_id: 0,
+        reserved_temp_names_stack: Vec::new(),
+        used_label_prefixes: HashMap::new(),
+        function_scope_stack: Vec::new(),
+        lowered_blockpy_module: LoweredBlockPyModuleBundle {
+            functions: Vec::new(),
+            module_init: Some("_dp_module_init".to_string()),
+        },
+    };
+    rewriter.visit_body(module);
+    crate::basic_block::ast_to_ast::simplify::strip_generated_passes(context, module);
+    rewriter.lowered_blockpy_module
+}
+
+impl BlockPyModuleRewriter<'_> {
+    fn walk_function_def_with_scope(&mut self, stmt: &mut Stmt) -> Option<FunctionScopeFrame> {
+        let Stmt::FunctionDef(func) = stmt else {
+            return None;
+        };
+        let fn_name = func.name.id.to_string();
+        let bind_name = func.name.id.to_string();
+        let parent_name = self
+            .function_scope_stack
+            .last()
+            .map(|frame| frame.name.clone());
+        let entering_module_init = is_module_init_temp_name(fn_name.as_str());
+        let has_parent_hoisted_scope = !self.function_scope_stack.is_empty();
+        let function_cell_bindings = collect_cell_slots(&func.body.body)
+            .into_iter()
+            .filter_map(|slot| slot.strip_prefix("_dp_cell_").map(str::to_string))
+            .collect::<HashSet<_>>();
+        let needs_cell_sync = function_cell_bindings.contains(bind_name.as_str());
+        self.function_scope_stack.push(FunctionScopeFrame {
+            name: fn_name,
+            parent_name,
+            entering_module_init,
+            has_parent_hoisted_scope,
+            needs_cell_sync,
+            hoisted_to_parent: Vec::new(),
+        });
+        walk_stmt(self, stmt);
+        self.function_scope_stack.pop()
+    }
+
+    fn visit_function_def_stmt(&mut self, stmt: &mut Stmt) {
+        let Some(state) = self.walk_function_def_with_scope(stmt) else {
+            return;
+        };
+        if let Stmt::FunctionDef(func) = stmt {
+            if let Some(replacement) = self.rewrite_visited_function_def(func, state) {
+                *stmt = replacement;
+            }
+        }
+    }
+
+    fn rewrite_visited_function_def(
+        &mut self,
+        func: &mut ast::StmtFunctionDef,
+        state: FunctionScopeFrame,
+    ) -> Option<Stmt> {
+        rewrite_function_def_stmt_via_blockpy(
+            self.context,
+            &self.module_scope,
+            &mut self.lowered_blockpy_module,
+            self.function_scope_stack
+                .last_mut()
+                .map(|frame| &mut frame.hoisted_to_parent),
+            &self.function_identity_by_node,
+            func,
+            state.parent_name.as_deref(),
+            state.needs_cell_sync,
+            state.entering_module_init,
+            state.has_parent_hoisted_scope,
+            state.hoisted_to_parent,
+            &mut self.reserved_temp_names_stack,
+            &mut self.used_label_prefixes,
+            &mut self.next_block_id,
+        )
+    }
+}
+
+impl Transformer for BlockPyModuleRewriter<'_> {
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
+        if matches!(stmt, Stmt::FunctionDef(_)) {
+            self.visit_function_def_stmt(stmt);
+            return;
+        }
+
+        walk_stmt(self, stmt);
+    }
+}
+
+pub(crate) fn try_lower_function_to_blockpy_bundle(
+    context: &Context,
+    module_scope: &Arc<Scope>,
+    function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
+    func: &ast::StmtFunctionDef,
+    parent_name: Option<&str>,
+    reserved_temp_names_stack: &mut Vec<HashSet<String>>,
+    used_label_prefixes: &mut HashMap<String, usize>,
+    next_block_id: &mut usize,
+) -> Option<LoweredBlockPyFunctionBundle> {
+    if should_keep_non_lowered_for_annotationlib(func) {
+        return None;
+    }
+    if func.name.id.as_str().starts_with("_dp_bb_") {
+        return None;
+    }
+    let is_generated_genexpr = func.name.id.as_str().contains("_dp_genexpr_");
+    let is_generated_comprehension_helper = is_generated_genexpr
+        || func.name.id.as_str().contains("_dp_listcomp_")
+        || func.name.id.as_str().contains("_dp_setcomp_")
+        || func.name.id.as_str().contains("_dp_dictcomp_");
+    // Keep generated annotation helpers in their lexical scope. BB-lowering
+    // and hoisting them out of class/module init can break name resolution
+    // for class-local symbols (for example, `T` in `value: T`).
+    if is_annotation_helper_name(func.name.id.as_str()) {
+        return None;
+    }
+    let (_, lowered_input_body) = split_docstring(&func.body);
+    let lowered_input_body = flatten_stmt_boxes(&lowered_input_body);
+    let lowered_input_body =
+        if should_strip_nonlocal_for_bb(func.name.id.as_str()) || is_generated_genexpr {
+            strip_nonlocal_directives(lowered_input_body)
+        } else {
+            lowered_input_body
+        };
+    let param_names = collect_parameter_names(&func.parameters);
+    let has_yield_original = has_yield_exprs_in_stmts(&lowered_input_body);
+    let mut runtime_input_body = prune_dead_stmt_suffixes(&lowered_input_body);
+    let original_runtime_input_body = runtime_input_body.clone();
+    // Keep await->yield-from lowering in the dedicated async pass for all
+    // async functions so no `await` reaches BB IR/JIT planning.
+    if func.is_async {
+        lower_coroutine_awaits_to_yield_from(&mut runtime_input_body);
+        let mut simplified_body = stmt_body_from_stmts(
+            runtime_input_body
+                .iter()
+                .map(|stmt| stmt.as_ref().clone())
+                .collect(),
+        );
+        rewrite_with_pass(
+            context,
+            Some(&BBSimplifyStmtPass),
+            Some(&SimplifyExprPass),
+            &mut simplified_body,
+        );
+        runtime_input_body = flatten_stmt_boxes(&simplified_body.body);
+    }
+    let mut coroutine_via_generator = func.is_async && !has_yield_original;
+    if coroutine_via_generator {
+        if has_await_in_stmts(&runtime_input_body) {
+            coroutine_via_generator = false;
+            runtime_input_body = original_runtime_input_body;
+        } else if !has_yield_exprs_in_stmts(&runtime_input_body) {
+            runtime_input_body.insert(0, coroutine_generator_marker_stmt());
+        }
+    }
+    let mut outer_scope_names = collect_bound_names(&runtime_input_body);
+    outer_scope_names.extend(param_names.iter().cloned());
+    let runtime_input_body =
+        rewrite_annotation_helper_defs_as_exec_calls(runtime_input_body, &outer_scope_names);
+    let mut outer_scope_names = collect_bound_names(&runtime_input_body);
+    outer_scope_names.extend(param_names.iter().cloned());
+    reserved_temp_names_stack.push(outer_scope_names.clone());
+    let _reserved_temp_names_guard = ReservedTempNamesGuard {
+        stack: reserved_temp_names_stack,
+    };
+    let unbound_local_names = if has_dead_stmt_suffixes(&lowered_input_body) {
+        always_unbound_local_names(&lowered_input_body, &runtime_input_body, &param_names)
+    } else {
+        HashSet::new()
+    };
+    let deleted_names = collect_deleted_names(&runtime_input_body);
+    let cell_slots = collect_cell_slots(&runtime_input_body);
+    let has_yield = has_yield_exprs_in_stmts(&runtime_input_body);
+    let has_await = has_await_in_stmts(&runtime_input_body);
+    if func.is_async && has_await {
+        return None;
+    }
+    if has_yield && has_await && !func.is_async {
+        return None;
+    }
+    if !has_yield {
+        let mut checker = BasicBlockSupportChecker {
+            allow_await: func.is_async,
+            ..Default::default()
+        };
+        let mut body_for_check = stmt_body_from_stmts(
+            runtime_input_body
+                .iter()
+                .map(|stmt| stmt.as_ref().clone())
+                .collect(),
+        );
+        checker.visit_body(&mut body_for_check);
+        if !checker.supported {
+            return None;
+        }
+    }
+    let is_async_generator_runtime = func.is_async && !coroutine_via_generator;
+    // Generated async comprehension helpers still stay on the legacy
+    // frame-backed resume path for now: forcing them onto the
+    // closure-backed factory/resume path can blow up the helper plan size.
+    // Sync generated genexpr helpers can use the normal closure-backed
+    // generator runtime and should not keep the legacy binder path alive.
+    let is_closure_backed_generator_runtime =
+        has_yield && !(is_generated_comprehension_helper && func.is_async);
+
+    let end_label = next_label(func.name.id.as_str(), next_block_id);
+    let identity = resolve_runtime_function_identity(func, function_identity_by_node, parent_name);
+    let label_prefix = next_label_prefix(func.name.id.as_str(), used_label_prefixes);
+    let mut local_next_block_id = *next_block_id;
+    let mut prepared_function = lower_function_body_to_blockpy_function(
+        func.name.id.as_str(),
+        &runtime_input_body,
+        identity.bind_name.clone(),
+        identity.qualname.clone(),
+        identity.binding_target,
+        (*func.parameters).clone(),
+        end_label,
+        label_prefix.as_str(),
+        has_yield,
+        coroutine_via_generator,
+        is_async_generator_runtime,
+        is_closure_backed_generator_runtime,
+        &cell_slots,
+        &mut local_next_block_id,
+        &mut |func_def| {
+            build_exec_function_def_binding_stmts(func_def, &cell_slots, &outer_scope_names)
+        },
+        &mut |prefix, next_block_id| {
+            next_temp_from_counter(reserved_temp_names_stack, prefix, next_block_id)
+        },
+    );
+    *next_block_id = local_next_block_id;
+
+    let mut blocks_for_dataflow = std::mem::take(&mut prepared_function.function.blocks);
+
+    if !deleted_names.is_empty() {
+        rewrite_deleted_name_loads(
+            &mut blocks_for_dataflow,
+            &deleted_names,
+            &unbound_local_names,
+        );
+    } else if !unbound_local_names.is_empty() {
+        rewrite_deleted_name_loads(
+            &mut blocks_for_dataflow,
+            &HashSet::new(),
+            &unbound_local_names,
+        );
+    }
+    let mut generator_capture_names = Vec::new();
+    let mut extra_closure_state_names = Vec::new();
+    if is_closure_backed_generator_runtime {
+        let mut bound_names = collect_bound_names(&runtime_input_body)
+            .into_iter()
+            .collect::<Vec<_>>();
+        bound_names.sort();
+        extra_closure_state_names.extend(bound_names);
+        let enclosing_scope = module_scope
+            .child_scope_for_function(func)
+            .ok()
+            .and_then(|scope| scope.parent_scope());
+        let enclosing_function_scope_names = enclosing_scope.and_then(|parent| {
+            if matches!(parent.kind(), ScopeKind::Module)
+                || is_module_init_temp_name(parent.qualnamer.qualname.as_str())
+            {
+                None
+            } else {
+                Some(
+                    parent
+                        .scope_bindings()
+                        .keys()
+                        .cloned()
+                        .collect::<HashSet<_>>(),
+                )
+            }
+        });
+        generator_capture_names =
+            collect_capture_names(func, enclosing_function_scope_names.as_ref());
+        generator_capture_names.sort();
+        generator_capture_names.dedup();
+        extra_closure_state_names.extend(generator_capture_names.iter().cloned());
+        extra_closure_state_names.sort();
+        extra_closure_state_names.dedup();
+    }
+    prepared_function.function.blocks = blocks_for_dataflow;
+    Some(build_lowered_blockpy_function_bundle(
+        prepared_function,
+        identity.display_name.clone(),
+        has_yield,
+        coroutine_via_generator,
+        is_async_generator_runtime,
+        is_closure_backed_generator_runtime,
+        &param_names,
+        &extra_closure_state_names,
+        &generator_capture_names,
+        label_prefix.as_str(),
+        cell_slots.clone(),
+        is_module_init_temp_name(func.name.id.as_str()),
+        BbExpr::from_expr(make_param_specs_expr(func.parameters.as_ref())),
+    ))
+}
+
+pub(crate) fn function_docstring_expr(func: &ast::StmtFunctionDef) -> Option<Expr> {
+    let (docstring, _) = split_docstring(&func.body);
+    let Some(Stmt::Expr(expr_stmt)) = docstring else {
+        return None;
+    };
+    Some(*expr_stmt.value)
+}
+
+pub(crate) fn lower_stmt_default(context: &Context, stmt: Stmt) -> Rewrite {
+    match stmt {
+        Stmt::Try(try_stmt) => rewrite_stmt::exception::rewrite_try(try_stmt),
+        Stmt::If(if_stmt) => rewrite_stmt::loop_cond::expand_if_chain(if_stmt),
+        Stmt::Assert(assert) => rewrite_stmt::assert::rewrite(assert),
+        Stmt::Match(match_stmt) => rewrite_stmt::match_case::rewrite(context, match_stmt),
+        Stmt::Import(import) => rewrite_import::rewrite(import),
+        Stmt::ImportFrom(import_from) => rewrite_import::rewrite_from(context, import_from),
+        Stmt::Assign(assign) => rewrite_stmt::assign_del::rewrite_assign(context, assign),
+        Stmt::AugAssign(aug) => rewrite_stmt::assign_del::rewrite_aug_assign(context, aug),
+        Stmt::Delete(del) => rewrite_stmt::assign_del::rewrite_delete(del),
+        Stmt::Raise(raise) => rewrite_stmt::exception::rewrite_raise(raise),
+        Stmt::TypeAlias(type_alias) => {
+            rewrite_stmt::type_alias::rewrite_type_alias(context, type_alias)
+        }
+        Stmt::AnnAssign(_) => {
+            panic!("should be removed by rewrite_ann_assign_to_dunder_annotate")
+        }
+        other => Rewrite::Unmodified(other),
+    }
+}
+
+pub(crate) fn lower_stmt_bb(context: &Context, stmt: Stmt) -> Rewrite {
+    match stmt {
+        Stmt::Try(try_stmt) => lower_stmt_default(context, Stmt::Try(try_stmt)),
+        other => lower_stmt_default(context, other),
+    }
+}
+
+impl StmtRewritePass for BBSimplifyStmtPass {
+    fn lower_stmt(&self, context: &Context, stmt: Stmt) -> Rewrite {
+        lower_stmt_bb(context, stmt)
+    }
+}
+
+struct BasicBlockSupportChecker {
+    supported: bool,
+    loop_depth: usize,
+    allow_await: bool,
+}
+
+impl Default for BasicBlockSupportChecker {
+    fn default() -> Self {
+        Self {
+            supported: true,
+            loop_depth: 0,
+            allow_await: false,
+        }
+    }
+}
+
+impl BasicBlockSupportChecker {
+    fn mark_unsupported(&mut self) {
+        self.supported = false;
+    }
+
+    fn panic_stmt(&self, message: &str, stmt: &Stmt) -> ! {
+        let rendered = crate::ruff_ast_to_string(stmt);
+        panic!(
+            "BB lowering invariant violated: {message}\nstmt:\n{}",
+            rendered.trim_end()
+        );
+    }
+}
+
+impl Transformer for BasicBlockSupportChecker {
+    fn visit_body(&mut self, body: &mut StmtBody) {
+        if !self.supported {
+            return;
+        }
+        if has_dead_stmt_after_terminator(body) {
+            self.mark_unsupported();
+            return;
+        }
+        walk_stmt_body(self, body);
+    }
+
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
+        if !self.supported {
+            return;
+        }
+        match stmt {
+            Stmt::Expr(_)
+            | Stmt::Pass(_)
+            | Stmt::Assign(_)
+            | Stmt::Delete(_)
+            | Stmt::Return(_)
+            | Stmt::Raise(_) => {
+                walk_stmt(self, stmt);
+            }
+            Stmt::FunctionDef(_) => {}
+            Stmt::BodyStmt(_) => walk_stmt(self, stmt),
+            Stmt::If(if_stmt) => {
+                if if_stmt
+                    .elif_else_clauses
+                    .iter()
+                    .any(|clause| clause.test.is_some())
+                {
+                    self.panic_stmt("`elif` chain reached support checker", stmt);
+                }
+                walk_stmt(self, stmt);
+            }
+            Stmt::While(while_stmt) => {
+                self.visit_expr(while_stmt.test.as_mut());
+                self.loop_depth += 1;
+                self.visit_body(&mut while_stmt.body);
+                self.loop_depth -= 1;
+                self.visit_body(&mut while_stmt.orelse);
+            }
+            Stmt::For(for_stmt) => {
+                if for_stmt.is_async && !self.allow_await {
+                    self.mark_unsupported();
+                    return;
+                }
+                self.visit_expr(for_stmt.iter.as_mut());
+                self.loop_depth += 1;
+                self.visit_body(&mut for_stmt.body);
+                self.loop_depth -= 1;
+                self.visit_body(&mut for_stmt.orelse);
+            }
+            Stmt::With(with_stmt) => {
+                if with_stmt.is_async && !self.allow_await {
+                    self.mark_unsupported();
+                    return;
+                }
+                for item in with_stmt.items.iter_mut() {
+                    self.visit_expr(&mut item.context_expr);
+                    if let Some(optional_vars) = item.optional_vars.as_mut() {
+                        self.visit_expr(optional_vars.as_mut());
+                    }
+                }
+                self.visit_body(&mut with_stmt.body);
+            }
+            Stmt::Try(try_stmt) => {
+                self.visit_body(&mut try_stmt.body);
+                for handler in try_stmt.handlers.iter_mut() {
+                    let ast::ExceptHandler::ExceptHandler(handler) = handler;
+                    if let Some(type_) = handler.type_.as_mut() {
+                        self.visit_expr(type_.as_mut());
+                    }
+                    self.visit_body(&mut handler.body);
+                }
+                self.visit_body(&mut try_stmt.orelse);
+                self.visit_body(&mut try_stmt.finalbody);
+            }
+            Stmt::Break(_) | Stmt::Continue(_) => {
+                if self.loop_depth == 0 {
+                    self.panic_stmt(
+                        "`break`/`continue` outside loop reached support checker",
+                        stmt,
+                    );
+                }
+            }
+            _ => self.panic_stmt("unsupported statement kind reached support checker", stmt),
+        }
+    }
+
+    fn visit_expr(&mut self, expr: &mut Expr) {
+        if !self.supported {
+            return;
+        }
+        match expr {
+            Expr::Await(_) => {
+                if !self.allow_await {
+                    self.mark_unsupported();
+                    return;
+                }
+            }
+            Expr::Yield(_) | Expr::YieldFrom(_) => {
+                self.mark_unsupported();
+                return;
+            }
+            _ => {}
+        }
+        walk_expr(self, expr);
+    }
+}
+
+#[derive(Default)]
+struct YieldLikeProbe {
+    has_yield: bool,
+    has_yield_from: bool,
+    has_await: bool,
+}
+
+impl Transformer for YieldLikeProbe {
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
+        if matches!(stmt, Stmt::FunctionDef(_) | Stmt::ClassDef(_)) {
+            return;
+        }
+        walk_stmt(self, stmt);
+    }
+
+    fn visit_expr(&mut self, expr: &mut Expr) {
+        match expr {
+            Expr::Yield(_) => self.has_yield = true,
+            Expr::YieldFrom(_) => self.has_yield_from = true,
+            Expr::Await(_) => self.has_await = true,
+            _ => {}
+        }
+        walk_expr(self, expr);
+    }
+}
+
+pub(crate) fn has_yield_exprs_in_stmts(stmts: &[Box<Stmt>]) -> bool {
+    let mut probe = YieldLikeProbe::default();
+    for stmt in stmts {
+        let mut stmt = stmt.as_ref().clone();
+        probe.visit_stmt(&mut stmt);
+        if probe.has_yield || probe.has_yield_from {
+            return true;
+        }
+    }
+    false
+}
+
+pub(crate) fn has_await_in_stmts(stmts: &[Box<Stmt>]) -> bool {
+    let mut probe = YieldLikeProbe::default();
+    for stmt in stmts {
+        let mut stmt = stmt.as_ref().clone();
+        probe.visit_stmt(&mut stmt);
+        if probe.has_await {
+            return true;
+        }
+    }
+    false
+}
+
+fn make_param_specs_expr(parameters: &ast::Parameters) -> Expr {
+    let mut specs = Vec::new();
+    for param in &parameters.posonlyargs {
+        push_param_specs(
+            &mut specs,
+            param.parameter.name.id.as_str(),
+            "/",
+            param.parameter.annotation.as_deref(),
+            param.default.as_deref(),
+        );
+    }
+    for param in &parameters.args {
+        push_param_specs(
+            &mut specs,
+            param.parameter.name.id.as_str(),
+            "",
+            param.parameter.annotation.as_deref(),
+            param.default.as_deref(),
+        );
+    }
+    if let Some(param) = &parameters.vararg {
+        push_param_specs(
+            &mut specs,
+            param.name.id.as_str(),
+            "*",
+            param.annotation.as_deref(),
+            None,
+        );
+    }
+    for param in &parameters.kwonlyargs {
+        push_param_specs(
+            &mut specs,
+            param.parameter.name.id.as_str(),
+            "kw:",
+            param.parameter.annotation.as_deref(),
+            param.default.as_deref(),
+        );
+    }
+    if let Some(param) = &parameters.kwarg {
+        push_param_specs(
+            &mut specs,
+            param.name.id.as_str(),
+            "**",
+            param.annotation.as_deref(),
+            None,
+        );
+    }
+    make_dp_tuple(specs)
+}
+
+fn push_param_specs(
+    specs: &mut Vec<Expr>,
+    name: &str,
+    prefix: &str,
+    _annotation: Option<&Expr>,
+    default: Option<&Expr>,
+) {
+    let label = format!("{prefix}{name}");
+    let annotation_expr = py_expr!("None");
+    let default_expr = default
+        .cloned()
+        .unwrap_or_else(|| py_expr!("__dp__.NO_DEFAULT"));
+    specs.push(make_dp_tuple(vec![
+        py_expr!("{value:literal}", value = label.as_str()),
+        annotation_expr,
+        default_expr,
+    ]));
+}
+
+fn split_docstring(body: &StmtBody) -> (Option<Stmt>, Vec<Box<Stmt>>) {
+    let mut rest = body.body.clone();
+    let Some(first) = rest.first() else {
+        return (None, rest);
+    };
+    if matches!(
+        first.as_ref(),
+        Stmt::Expr(ast::StmtExpr { value, .. }) if matches!(value.as_ref(), Expr::StringLiteral(_))
+    ) {
+        let first_stmt = *rest.remove(0);
+        return (Some(first_stmt), rest);
+    }
+    (None, rest)
+}
+
+fn walk_stmt_body<V: Transformer + ?Sized>(visitor: &mut V, body: &mut StmtBody) {
+    for stmt in body.body.iter_mut() {
+        visitor.visit_stmt(stmt.as_mut());
+    }
+}
+
+fn has_dead_stmt_after_terminator(body: &StmtBody) -> bool {
+    let mut terminated = false;
+    for stmt in &body.body {
+        if terminated {
+            return true;
+        }
+        terminated = matches!(
+            stmt.as_ref(),
+            Stmt::Return(_) | Stmt::Raise(_) | Stmt::Break(_) | Stmt::Continue(_)
+        );
+    }
+    false
+}
+
+fn has_dead_stmt_suffixes(stmts: &[Box<Stmt>]) -> bool {
+    let mut terminated = false;
+    for stmt in stmts {
+        let stmt = stmt.as_ref();
+        if terminated {
+            return true;
+        }
+        if has_dead_stmt_suffixes_in_stmt(stmt) {
+            return true;
+        }
+        if matches!(
+            stmt,
+            Stmt::Return(_) | Stmt::Raise(_) | Stmt::Break(_) | Stmt::Continue(_)
+        ) {
+            terminated = true;
+        }
+    }
+    false
+}
+
+fn has_dead_stmt_suffixes_in_stmt(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::BodyStmt(body) => has_dead_stmt_suffixes(&body.body),
+        Stmt::If(if_stmt) => {
+            has_dead_stmt_suffixes(&if_stmt.body.body)
+                || if_stmt
+                    .elif_else_clauses
+                    .iter()
+                    .any(|clause| has_dead_stmt_suffixes(&clause.body.body))
+        }
+        Stmt::While(while_stmt) => {
+            has_dead_stmt_suffixes(&while_stmt.body.body)
+                || has_dead_stmt_suffixes(&while_stmt.orelse.body)
+        }
+        Stmt::For(for_stmt) => {
+            has_dead_stmt_suffixes(&for_stmt.body.body)
+                || has_dead_stmt_suffixes(&for_stmt.orelse.body)
+        }
+        Stmt::Try(try_stmt) => {
+            has_dead_stmt_suffixes(&try_stmt.body.body)
+                || try_stmt.handlers.iter().any(|handler| {
+                    let ast::ExceptHandler::ExceptHandler(handler) = handler;
+                    has_dead_stmt_suffixes(&handler.body.body)
+                })
+                || has_dead_stmt_suffixes(&try_stmt.orelse.body)
+                || has_dead_stmt_suffixes(&try_stmt.finalbody.body)
+        }
+        _ => false,
+    }
+}
+
+fn prune_dead_stmt_suffixes(stmts: &[Box<Stmt>]) -> Vec<Box<Stmt>> {
+    let mut out = Vec::new();
+    for stmt in stmts {
+        let mut stmt = stmt.as_ref().clone();
+        prune_dead_stmt_suffixes_in_stmt(&mut stmt);
+        let terminates = matches!(
+            stmt,
+            Stmt::Return(_) | Stmt::Raise(_) | Stmt::Break(_) | Stmt::Continue(_)
+        );
+        out.push(Box::new(stmt));
+        if terminates {
+            break;
+        }
+    }
+    out
+}
+
+fn prune_dead_stmt_suffixes_in_stmt(stmt: &mut Stmt) {
+    match stmt {
+        Stmt::BodyStmt(body) => {
+            body.body = prune_dead_stmt_suffixes(&body.body);
+        }
+        Stmt::If(if_stmt) => {
+            if_stmt.body.body = prune_dead_stmt_suffixes(&if_stmt.body.body);
+            for clause in &mut if_stmt.elif_else_clauses {
+                clause.body.body = prune_dead_stmt_suffixes(&clause.body.body);
+            }
+        }
+        Stmt::While(while_stmt) => {
+            while_stmt.body.body = prune_dead_stmt_suffixes(&while_stmt.body.body);
+            while_stmt.orelse.body = prune_dead_stmt_suffixes(&while_stmt.orelse.body);
+        }
+        Stmt::For(for_stmt) => {
+            for_stmt.body.body = prune_dead_stmt_suffixes(&for_stmt.body.body);
+            for_stmt.orelse.body = prune_dead_stmt_suffixes(&for_stmt.orelse.body);
+        }
+        Stmt::Try(try_stmt) => {
+            try_stmt.body.body = prune_dead_stmt_suffixes(&try_stmt.body.body);
+            for handler in &mut try_stmt.handlers {
+                let ast::ExceptHandler::ExceptHandler(handler) = handler;
+                handler.body.body = prune_dead_stmt_suffixes(&handler.body.body);
+            }
+            try_stmt.orelse.body = prune_dead_stmt_suffixes(&try_stmt.orelse.body);
+            try_stmt.finalbody.body = prune_dead_stmt_suffixes(&try_stmt.finalbody.body);
+        }
+        _ => {}
+    }
+}
+
+fn next_temp_from_counter(
+    reserved_temp_names_stack: &mut Vec<HashSet<String>>,
+    prefix: &str,
+    next_id: &mut usize,
+) -> String {
+    loop {
+        let current = *next_id;
+        *next_id += 1;
+        let candidate = format!("_dp_{prefix}_{current}");
+        let collides = reserved_temp_names_stack
+            .last()
+            .is_some_and(|names| names.contains(candidate.as_str()));
+        if collides {
+            continue;
+        }
+        if let Some(names) = reserved_temp_names_stack.last_mut() {
+            names.insert(candidate.clone());
+        }
+        return candidate;
+    }
+}
+
+fn next_label(fn_name: &str, next_id: &mut usize) -> String {
+    let current = *next_id;
+    *next_id += 1;
+    format!("_dp_bb_{}_{}", sanitize_ident(fn_name), current)
+}
+
+fn next_label_prefix(fn_name: &str, used_label_prefixes: &mut HashMap<String, usize>) -> String {
+    let base = sanitize_ident(original_function_name(fn_name).as_str());
+    let count = used_label_prefixes.entry(base.clone()).or_insert(0);
+    let suffix = if *count == 0 {
+        String::new()
+    } else {
+        format!("_{}", *count)
+    };
+    *count += 1;
+    format!("_dp_bb_{base}{suffix}")
+}
+
+fn sanitize_ident(raw: &str) -> String {
+    raw.chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '_' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn original_function_name(fn_name: &str) -> String {
+    let Some(rest) = fn_name.strip_prefix("_dp_fn_") else {
+        return fn_name.to_string();
+    };
+    let Some((prefix, trailing)) = rest.rsplit_once('_') else {
+        return rest.to_string();
+    };
+    if !trailing.is_empty() && trailing.chars().all(|ch| ch.is_ascii_digit()) {
+        prefix.to_string()
+    } else {
+        rest.to_string()
+    }
+}
+
+fn always_unbound_local_names(
+    lowered_input_body: &[Box<Stmt>],
+    runtime_body: &[Box<Stmt>],
+    param_names: &[String],
+) -> HashSet<String> {
+    let original_bound_names = collect_bound_names(lowered_input_body);
+    let runtime_bound_names = collect_bound_names(runtime_body);
+    let explicit_global_or_nonlocal = collect_explicit_global_or_nonlocal_names(lowered_input_body);
+    original_bound_names
+        .into_iter()
+        .filter_map(|name| {
+            if param_names.iter().any(|param| param == &name) {
+                return None;
+            }
+            if is_internal_symbol(name.as_str()) {
+                return None;
+            }
+            if runtime_bound_names.contains(name.as_str()) {
+                return None;
+            }
+            if explicit_global_or_nonlocal.contains(name.as_str()) {
+                return None;
+            }
+            Some(name)
+        })
+        .collect()
+}

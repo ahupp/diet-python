@@ -399,7 +399,6 @@ fn bb_term_kind(term: &BbTerm) -> &'static str {
         BbTerm::Jump(_) => "Jump",
         BbTerm::BrIf { .. } => "BrIf",
         BbTerm::BrTable { .. } => "BrTable",
-        BbTerm::TryJump { .. } => "TryJump",
         BbTerm::Raise { .. } => "Raise",
         BbTerm::Ret(_) => "Ret",
     }
@@ -516,7 +515,6 @@ fn direct_simple_block_plan_from_block(
             };
             DirectSimpleTermPlan::Raise { exc, cause }
         }
-        _ => return None,
     };
     Some(DirectSimpleBlockPlan {
         params: block.params.clone(),
@@ -540,7 +538,7 @@ fn build_clif_plan(
         ));
     }
     let ambient_param_names = function
-        .generator_closure_layout
+        .closure_layout
         .as_ref()
         .map(|layout| {
             layout
@@ -717,12 +715,6 @@ fn build_clif_plan(
             }
             BbTerm::Raise { .. } => BlockTermPlan::Raise,
             BbTerm::Ret(_) => BlockTermPlan::Ret,
-            BbTerm::TryJump { .. } => {
-                return Err(format!(
-                    "unsupported try_jump in JIT entry plan for {}:{}",
-                    function.qualname, block.label
-                ));
-            }
         };
         let fast_path = {
             if block.ops.is_empty() {

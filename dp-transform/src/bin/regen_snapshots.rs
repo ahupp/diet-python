@@ -1,6 +1,6 @@
+use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -56,7 +56,7 @@ fn snapshot_output_path_for_fixture(path: &Path) -> Result<PathBuf, String> {
         .file_stem()
         .and_then(|stem| stem.to_str())
         .ok_or_else(|| format!("invalid fixture filename: {}", path.display()))?;
-    Ok(snapshot_dir()?.join(format!("{file_stem}.txt")))
+    Ok(snapshot_dir()?.join(format!("{file_stem}.py")))
 }
 
 fn qualified_case_name(path: &Path, block: &FixtureBlock) -> Result<String, String> {
@@ -67,9 +67,7 @@ fn qualified_case_name(path: &Path, block: &FixtureBlock) -> Result<String, Stri
     Ok(format!("{fixture_name}::{}", block.name))
 }
 
-fn render_blockpy_snapshot(
-    result: &dp_transform::LoweringResult,
-) -> (String, usize, usize) {
+fn render_blockpy_snapshot(result: &dp_transform::LoweringResult) -> (String, usize, usize) {
     let blockpy = result
         .blockpy_module
         .as_ref()
@@ -111,16 +109,6 @@ fn count_blockpy_blocks_in_stmts(stmts: &[BlockPyStmt]) -> usize {
                 count_blockpy_blocks_in_list(&if_stmt.body)
                     + count_blockpy_blocks_in_list(&if_stmt.orelse)
             }
-            BlockPyStmt::Try(try_stmt) => {
-                count_blockpy_blocks_in_list(&try_stmt.body)
-                    + try_stmt
-                        .handlers
-                        .iter()
-                        .map(|handler| count_blockpy_blocks_in_list(&handler.body))
-                        .sum::<usize>()
-                    + count_blockpy_blocks_in_list(&try_stmt.orelse)
-                    + count_blockpy_blocks_in_list(&try_stmt.finalbody)
-            }
             _ => 0,
         })
         .sum()
@@ -145,6 +133,38 @@ fn write_if_changed(path: &Path, contents: &str) -> Result<(), String> {
         fs::write(path, contents).map_err(|err| format!("{}: {}", path.display(), err))?;
     }
     Ok(())
+}
+
+fn render_snapshot_python_fixture(blocks: &[FixtureBlock]) -> String {
+    let mut output = String::new();
+    for (index, block) in blocks.iter().enumerate() {
+        if index > 0 {
+            output.push('\n');
+        }
+        output.push_str("# ");
+        output.push_str(&block.name);
+        output.push_str("\n\n");
+        let input = block.input.trim_matches('\n');
+        if !input.is_empty() {
+            output.push_str(input);
+            output.push('\n');
+        }
+        output.push('\n');
+        output.push_str("# ==\n\n");
+        let output_block = block.output.trim_matches('\n');
+        if !output_block.is_empty() {
+            for line in output_block.lines() {
+                if line.is_empty() {
+                    output.push('\n');
+                } else {
+                    output.push_str("# ");
+                    output.push_str(line);
+                    output.push('\n');
+                }
+            }
+        }
+    }
+    output
 }
 
 fn regenerate_fixture(path: &Path, summary: &mut Vec<SnapshotSummaryRow>) -> Result<(), String> {
@@ -186,13 +206,13 @@ fn regenerate_fixture(path: &Path, summary: &mut Vec<SnapshotSummaryRow>) -> Res
     let rendered_fixture = render_fixture(&blocks);
     write_if_changed(path, &rendered_fixture)?;
     let snapshot_path = snapshot_output_path_for_fixture(path)?;
-    let rendered_snapshot = render_fixture(&snapshot_blocks);
+    let rendered_snapshot = render_snapshot_python_fixture(&snapshot_blocks);
     write_if_changed(&snapshot_path, &rendered_snapshot)?;
 
     Ok(())
 }
 
-fn format_fixtures(paths: &[PathBuf]) -> Result<(), String> {
+fn format_python_files(paths: &[PathBuf]) -> Result<(), String> {
     if paths.is_empty() {
         return Ok(());
     }
@@ -213,6 +233,11 @@ fn format_fixtures(paths: &[PathBuf]) -> Result<(), String> {
 }
 
 fn write_summary(summary: &[SnapshotSummaryRow]) -> Result<(), String> {
+    if summary.is_empty() {
+        return Ok(());
+    }
+
+    let summary_path = snapshot_dir()?.join("snapshot_summary.txt");
     let mut total_by_name = HashMap::new();
     for row in summary {
         *total_by_name.entry(row.case_name.clone()).or_insert(0usize) += 1;
@@ -233,12 +258,13 @@ fn write_summary(summary: &[SnapshotSummaryRow]) -> Result<(), String> {
             case_name, row.blockpy_blocks, row.clif_blocks
         ));
     }
-    let summary_path = snapshot_dir()?.join("snapshot_summary.txt");
     write_if_changed(&summary_path, &contents)
 }
 
 fn main() -> Result<(), String> {
     init_logging();
+    fs::create_dir_all(snapshot_dir()?)
+        .map_err(|err| format!("failed to create snapshot dir: {}", err))?;
     let args: Vec<String> = env::args().skip(1).collect();
     let mut fixtures = Vec::new();
 
@@ -256,7 +282,11 @@ fn main() -> Result<(), String> {
     for path in &fixtures {
         regenerate_fixture(path, &mut summary)?;
     }
-    format_fixtures(&fixtures)?;
+    let mut python_files = fixtures.clone();
+    for fixture in &fixtures {
+        python_files.push(snapshot_output_path_for_fixture(fixture)?);
+    }
+    format_python_files(&python_files)?;
     write_summary(&summary)?;
 
     Ok(())

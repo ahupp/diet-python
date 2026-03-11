@@ -119,35 +119,29 @@ build-extension build="debug": ensure-cpython
 
 build-all: (update-venv) ensure-cpython
   #!/usr/bin/env bash
-  print_elapsed() {
-    local label="$1"
-    local start_ns="$2"
-    local end_ns="$3"
-    awk -v label="$label" -v start="$start_ns" -v end="$end_ns" 'BEGIN { printf("[diet-python timing] %s_s=%.3f\n", label, (end - start) / 1000000000.0) }'
+  TIMEFORMAT='[diet-python timing] build_all_s=%3R'
+  set +e
+  time {
+    (
+      cd "$REPO_ROOT"
+      cargo build --quiet --workspace --tests
+    )
+    just install-extension debug
   }
-  START_NS="$(date +%s%N)"
-  (
-    cd "$REPO_ROOT"
-    cargo build --quiet --workspace --tests
-  )
-  just install-extension debug
-  END_NS="$(date +%s%N)"
-  print_elapsed "build_all" "$START_NS" "$END_NS"
+  STATUS=$?
+  set -e
+  exit "$STATUS"
 
 [private]
 _cargo-test-run *args='':
   #!/usr/bin/env bash
-  print_elapsed() {
-    local label="$1"
-    local start_ns="$2"
-    local end_ns="$3"
-    awk -v label="$label" -v start="$start_ns" -v end="$end_ns" 'BEGIN { printf("[diet-python timing] %s_s=%.3f\n", label, (end - start) / 1000000000.0) }'
-  }
   cd "$REPO_ROOT"
-  START_NS="$(date +%s%N)"
-  cargo test {{args}}
-  END_NS="$(date +%s%N)"
-  print_elapsed "cargo_test" "$START_NS" "$END_NS"
+  TIMEFORMAT='[diet-python timing] cargo_test_s=%3R'
+  set +e
+  time cargo test {{args}}
+  STATUS=$?
+  set -e
+  exit "$STATUS"
 
 cargo-test *args='': build-all
   just _cargo-test-run {{args}}
@@ -205,13 +199,6 @@ run-cpython-tests jobs="0" *args='': build-all ensure-cpython ensure-venv
 
 build-web-inspector:
   #!/usr/bin/env bash
-  print_elapsed() {
-    local label="$1"
-    local start_ns="$2"
-    local end_ns="$3"
-    awk -v label="$label" -v start="$start_ns" -v end="$end_ns" 'BEGIN { printf("[diet-python timing] %s_s=%.3f\n", label, (end - start) / 1000000000.0) }'
-  }
-  START_NS="$(date +%s%N)"
   echo "[1/3] Building wasm package..."
 
   required_wasm_bindgen_version() {
@@ -253,15 +240,20 @@ build-web-inspector:
     export PATH="$root/bin:$PATH"
   }
 
-  cd "$REPO_ROOT"
-  ensure_wasm_bindgen
-  CARGO_TARGET_DIR="$WEB_CARGO_TARGET_DIR" wasm-pack build dp-transform \
-    --target web \
-    --out-dir ../web/pkg \
-    --out-name "$OUT_NAME" \
-    --mode "$WASM_PACK_MODE"
-  END_NS="$(date +%s%N)"
-  print_elapsed "build_web_inspector" "$START_NS" "$END_NS"
+  TIMEFORMAT='[diet-python timing] build_web_inspector_s=%3R'
+  set +e
+  time {
+    cd "$REPO_ROOT"
+    ensure_wasm_bindgen
+    CARGO_TARGET_DIR="$WEB_CARGO_TARGET_DIR" wasm-pack build dp-transform \
+      --target web \
+      --out-dir ../web/pkg \
+      --out-name "$OUT_NAME" \
+      --mode "$WASM_PACK_MODE"
+  }
+  STATUS=$?
+  set -e
+  exit "$STATUS"
 
 run-web-inspector: build-web-inspector ensure-cpython
   #!/usr/bin/env bash
@@ -407,12 +399,6 @@ perf-pystone-jit-warm loops="500000" output_prefix="logs/pystone_jit_perf_warm":
 [private]
 _pytest-run *args='': ensure-venv
   #!/usr/bin/env bash
-  print_elapsed() {
-    local label="$1"
-    local start_ns="$2"
-    local end_ns="$3"
-    awk -v label="$label" -v start="$start_ns" -v end="$end_ns" 'BEGIN { printf("[diet-python timing] %s_s=%.3f\n", label, (end - start) / 1000000000.0) }'
-  }
   cd "$REPO_ROOT"
 
   set -- {{args}}
@@ -429,7 +415,6 @@ _pytest-run *args='': ensure-venv
   PYTEST_TB=native
 
   TMP_PYTEST_OUTPUT="$(mktemp -t diet-python-pytest.XXXXXX.log)"
-  TEST_START_NS="$(date +%s%N)"
   PYTEST_NUMPROCS="${PYTEST_NUMPROCS:-auto}"
   TEST_CMD=(
     "$LIMIT_WRAPPER"
@@ -439,24 +424,49 @@ _pytest-run *args='': ensure-venv
   )
 
   set +e
+  TIMEFORMAT='[diet-python timing] pytest_s=%3R'
   DIET_PYTHON_TIMEOUT_SECS="${DIET_PYTHON_TIMEOUT_SECS:-45}" \
-  "${TEST_CMD[@]}" 2>&1 | tee "$TMP_PYTEST_OUTPUT"
+  time "${TEST_CMD[@]}" 2>&1 | tee "$TMP_PYTEST_OUTPUT"
   TEST_STATUS=${PIPESTATUS[0]}
   set -e
 
-  TEST_END_NS="$(date +%s%N)"
-  print_elapsed "pytest" "$TEST_START_NS" "$TEST_END_NS"
-  "$VENV_DIR/bin/python" -c 'import re, sys; path, start_ns, end_ns = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]); pattern = re.compile(r"soac_jit_precompile .* elapsed_ms=([0-9]+(?:\\.[0-9]+)?)"); compile_ms = sum(float(match.group(1)) for line in open(path, "r", encoding="utf-8", errors="replace") if (match := pattern.search(line))); total_s = (end_ns - start_ns) / 1_000_000_000.0; compile_s = compile_ms / 1000.0; non_compile_s = total_s - compile_s; print(f"[diet-python timing] total_test_s={total_s:.3f} compile_s={compile_s:.3f} non_compile_s={non_compile_s:.3f}")' "$TMP_PYTEST_OUTPUT" "$TEST_START_NS" "$TEST_END_NS"
   rm -f "$TMP_PYTEST_OUTPUT"
   exit "$TEST_STATUS"
 
 pytest *args='': build-all
   just _pytest-run {{args}}
 
+[private]
+_fmt-check-run:
+  #!/usr/bin/env bash
+  cd "$REPO_ROOT"
+  TIMEFORMAT='[diet-python timing] fmt_check_s=%3R'
+  set +e
+  time {
+    cargo fmt
+    cargo fmt --check
+  }
+  STATUS=$?
+  set -e
+  exit "$STATUS"
+
+[private]
+_regen-snapshots-run:
+  #!/usr/bin/env bash
+  cd "$REPO_ROOT"
+  TIMEFORMAT='[diet-python timing] regen_snapshots_s=%3R'
+  set +e
+  time cargo run --quiet --bin regen_snapshots
+  STATUS=$?
+  set -e
+  exit "$STATUS"
+
 test-all:
   #!/usr/bin/env bash
   cd "$REPO_ROOT"
+  just _fmt-check-run
   just build-all
+  just _regen-snapshots-run
 
   overall_status=0
   failed_steps=()
@@ -466,12 +476,13 @@ test-all:
     shift
     if "$@"; then
       return 0
+    else
+      local status=$?
+      overall_status=1
+      failed_steps+=("$name:$status")
+      echo "[diet-python test-all] step failed: $name (exit $status)" >&2
+      return 0
     fi
-    local status=$?
-    overall_status=1
-    failed_steps+=("$name:$status")
-    echo "[diet-python test-all] step failed: $name (exit $status)" >&2
-    return 0
   }
 
   run_step "cargo-test" just _cargo-test-run

@@ -1,19 +1,16 @@
 use super::{
     compat_block_from_blockpy, compat_if_jump_block, compat_jump_block_from_blockpy,
     compat_raise_block_from_blockpy_raise, compat_return_block_from_expr,
-    lower_stmts_to_blockpy_stmts,
+    lower_stmts_to_blockpy_stmts, TryRegionPlan,
 };
-use crate::basic_block::ast_to_bb::sync_target_cells_stmts_shared as sync_target_cells_stmts;
-use crate::basic_block::bb_ir::{
-    BbGeneratorClosureInit, BbGeneratorClosureLayout, BbGeneratorClosureSlot,
-};
+use crate::basic_block::ast_to_ast::scope::cell_name;
+use crate::basic_block::bb_ir::{BbClosureInit, BbClosureLayout, BbClosureSlot};
+use crate::basic_block::block_py::state::{sync_generator_state_order, sync_target_cells_stmts};
 use crate::basic_block::block_py::{
-    BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyExpr, BlockPyGeneratorInfo,
-    BlockPyGeneratorYieldSite, BlockPyIf, BlockPyLabel, BlockPyLegacyTryJump, BlockPyRaise,
-    BlockPyStmt,
+    BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyExpr, BlockPyIf, BlockPyLabel,
+    BlockPyRaise, BlockPyStmt, BlockPyTryJump,
 };
 use crate::basic_block::blockpy_to_bb::blockpy_stmt_to_stmt_for_analysis;
-use crate::transform::scope::cell_name;
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use std::collections::{HashMap, HashSet};
@@ -58,9 +55,35 @@ pub(crate) struct GeneratorYieldSite {
     pub resume_label: String,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct GeneratorMetadata {
+    pub dispatch_entry_label: Option<String>,
+    pub resume_order: Vec<String>,
+    pub yield_sites: Vec<GeneratorYieldSite>,
+    pub done_block_label: Option<String>,
+    pub invalid_block_label: Option<String>,
+    pub uncaught_block_label: Option<String>,
+    pub uncaught_set_done_label: Option<String>,
+    pub uncaught_raise_label: Option<String>,
+    pub uncaught_exc_name: Option<String>,
+    pub dispatch_only_labels: Vec<String>,
+    pub throw_passthrough_labels: Vec<String>,
+}
+
 pub(crate) struct BlockPyGeneratorLoweringResult {
     pub blocks: Vec<BlockPyBlock>,
-    pub info: Option<BlockPyGeneratorInfo>,
+    pub info: Option<GeneratorMetadata>,
+}
+
+pub(crate) struct ClosureBackedGeneratorExportPlan {
+    pub factory_label: String,
+    pub factory_entry_params: Vec<String>,
+    pub resume_bind_name: String,
+    pub resume_display_name: String,
+    pub resume_qualname: String,
+    pub resume_entry_params: Vec<String>,
+    pub factory_block: BlockPyBlock,
+    pub resume_param_specs: Expr,
 }
 
 pub(crate) fn lower_generator_blockpy_blocks_initial(
@@ -68,6 +91,7 @@ pub(crate) fn lower_generator_blockpy_blocks_initial(
     mut blocks: Vec<BlockPyBlock>,
     closure_state: bool,
     cell_slots: &HashSet<String>,
+    try_regions: &mut Vec<TryRegionPlan>,
     next_block_id: &mut usize,
 ) -> BlockPyGeneratorLoweringResult {
     let mut resume_order = Vec::new();
@@ -77,6 +101,7 @@ pub(crate) fn lower_generator_blockpy_blocks_initial(
         &mut blocks,
         closure_state,
         cell_slots,
+        try_regions,
         next_block_id,
         &mut resume_order,
         &mut yield_sites,
@@ -86,12 +111,7 @@ pub(crate) fn lower_generator_blockpy_blocks_initial(
             .first()
             .map(|block| block.label.as_str().to_string())
             .unwrap_or_else(|| format!("_dp_bb_{}_start", sanitize_ident(fn_name)));
-        build_initial_generator_metadata(
-            entry_label.as_str(),
-            closure_state,
-            &resume_order,
-            &yield_sites,
-        )
+        build_initial_generator_metadata(entry_label.as_str(), &resume_order, &yield_sites)
     });
     BlockPyGeneratorLoweringResult { blocks, info }
 }
@@ -103,6 +123,7 @@ pub(crate) fn build_async_for_continue_entry(
     tmp_name: &str,
     loop_check_label: &str,
     closure_state: bool,
+    try_regions: &mut Vec<TryRegionPlan>,
     resume_order: &mut Vec<String>,
     yield_sites: &mut Vec<GeneratorYieldSite>,
     next_block_id: &mut usize,
@@ -134,6 +155,7 @@ pub(crate) fn build_async_for_continue_entry(
         await_value,
         fetch_done_label.clone(),
         closure_state,
+        try_regions,
         resume_order,
         yield_sites,
         &mut next_item,
@@ -152,18 +174,212 @@ pub(crate) fn build_async_for_continue_entry(
     fetch_entry_label
 }
 
-fn closure_backed_generator_init_expr(slot: &BbGeneratorClosureSlot) -> Expr {
+fn closure_backed_generator_init_expr(slot: &BbClosureSlot) -> Expr {
     match slot.init {
-        BbGeneratorClosureInit::InheritedCapture => {
+        BbClosureInit::InheritedCapture => {
             panic!("inherited captures do not allocate new cells in outer factories")
         }
-        BbGeneratorClosureInit::Parameter => {
+        BbClosureInit::Parameter => {
             py_expr!("{name:id}", name = slot.logical_name.as_str())
         }
-        BbGeneratorClosureInit::DeletedSentinel => py_expr!("__dp_DELETED"),
-        BbGeneratorClosureInit::RuntimePcZero => py_expr!("0"),
-        BbGeneratorClosureInit::RuntimeNone => py_expr!("None"),
-        BbGeneratorClosureInit::Deferred => py_expr!("None"),
+        BbClosureInit::DeletedSentinel => py_expr!("__dp_DELETED"),
+        BbClosureInit::RuntimePcZero => py_expr!("0"),
+        BbClosureInit::RuntimeNone => py_expr!("None"),
+        BbClosureInit::Deferred => py_expr!("None"),
+    }
+}
+
+fn is_generator_dispatch_param(name: &str) -> bool {
+    matches!(
+        name,
+        "_dp_self" | "_dp_send_value" | "_dp_resume_exc" | "_dp_transport_sent"
+    )
+}
+
+fn generator_storage_name(name: &str) -> String {
+    if name == "_dp_classcell" || name.starts_with("_dp_cell_") {
+        return name.to_string();
+    }
+    cell_name(name)
+}
+
+fn logical_name_for_generator_state(name: &str) -> String {
+    name.strip_prefix("_dp_cell_").unwrap_or(name).to_string()
+}
+
+fn runtime_init(name: &str) -> Option<BbClosureInit> {
+    match name {
+        "_dp_pc" => Some(BbClosureInit::RuntimePcZero),
+        "_dp_yieldfrom" => Some(BbClosureInit::RuntimeNone),
+        _ => None,
+    }
+}
+
+pub(crate) fn build_resume_closure_layout(
+    param_names: &[String],
+    state_vars: &[String],
+    capture_names: &[String],
+    injected_exception_names: &HashSet<String>,
+) -> BbClosureLayout {
+    let ordered_state = sync_generator_state_order(state_vars, injected_exception_names);
+    let capture_names = capture_names.iter().cloned().collect::<HashSet<_>>();
+    let mut seen_storage_names = HashSet::new();
+
+    let mut inherited_captures = Vec::new();
+    let mut lifted_locals = Vec::new();
+    let mut runtime_cells = Vec::new();
+
+    for name in ordered_state {
+        if is_generator_dispatch_param(name.as_str()) {
+            continue;
+        }
+        let logical_name = logical_name_for_generator_state(name.as_str());
+        let storage_name = generator_storage_name(name.as_str());
+        if !seen_storage_names.insert(storage_name.clone()) {
+            continue;
+        }
+        if let Some(init) = runtime_init(logical_name.as_str()) {
+            runtime_cells.push(BbClosureSlot {
+                logical_name,
+                storage_name,
+                init,
+            });
+            continue;
+        }
+        if name == "_dp_classcell"
+            || capture_names.contains(name.as_str())
+            || capture_names.contains(logical_name.as_str())
+        {
+            inherited_captures.push(BbClosureSlot {
+                logical_name,
+                storage_name,
+                init: BbClosureInit::InheritedCapture,
+            });
+            continue;
+        }
+        let init = if injected_exception_names.contains(logical_name.as_str()) {
+            BbClosureInit::DeletedSentinel
+        } else if param_names.iter().any(|param| param == &logical_name) {
+            BbClosureInit::Parameter
+        } else {
+            BbClosureInit::Deferred
+        };
+        lifted_locals.push(BbClosureSlot {
+            logical_name,
+            storage_name,
+            init,
+        });
+    }
+
+    BbClosureLayout {
+        inherited_captures,
+        lifted_locals,
+        runtime_cells,
+    }
+}
+
+pub(crate) fn closure_backed_generator_resume_state_order(
+    layout: &BbClosureLayout,
+    is_async_generator: bool,
+) -> Vec<String> {
+    let mut state_order = vec![
+        "_dp_self".to_string(),
+        "_dp_send_value".to_string(),
+        "_dp_resume_exc".to_string(),
+    ];
+    if is_async_generator {
+        state_order.push("_dp_transport_sent".to_string());
+    }
+    for slot in layout
+        .inherited_captures
+        .iter()
+        .chain(layout.lifted_locals.iter())
+        .chain(layout.runtime_cells.iter())
+    {
+        if !state_order.iter().any(|name| name == &slot.storage_name) {
+            state_order.push(slot.storage_name.clone());
+        }
+    }
+    state_order
+}
+
+fn closure_backed_generator_factory_entry_params(
+    param_names: &[String],
+    layout: &BbClosureLayout,
+) -> Vec<String> {
+    let mut params = param_names.to_vec();
+    for slot in &layout.inherited_captures {
+        if !params.iter().any(|name| name == &slot.storage_name) {
+            params.push(slot.storage_name.clone());
+        }
+    }
+    params
+}
+
+fn closure_backed_generator_resume_param_specs_expr(is_async_generator: bool) -> Expr {
+    let mut params = vec![
+        blockpy_make_dp_tuple(vec![
+            py_expr!("{name:literal}", name = "/_dp_self"),
+            py_expr!("None"),
+            py_expr!("__dp_NO_DEFAULT"),
+        ]),
+        blockpy_make_dp_tuple(vec![
+            py_expr!("{name:literal}", name = "/_dp_send_value"),
+            py_expr!("None"),
+            py_expr!("__dp_NO_DEFAULT"),
+        ]),
+        blockpy_make_dp_tuple(vec![
+            py_expr!("{name:literal}", name = "/_dp_resume_exc"),
+            py_expr!("None"),
+            py_expr!("__dp_NO_DEFAULT"),
+        ]),
+    ];
+    if is_async_generator {
+        params.push(blockpy_make_dp_tuple(vec![
+            py_expr!("{name:literal}", name = "/_dp_transport_sent"),
+            py_expr!("None"),
+            py_expr!("__dp_NO_DEFAULT"),
+        ]));
+    }
+    blockpy_make_dp_tuple(params)
+}
+
+pub(crate) fn build_closure_backed_generator_export_plan(
+    factory_label: &str,
+    resume_label: &str,
+    bind_name: &str,
+    function_name: &str,
+    qualname: &str,
+    param_names: &[String],
+    layout: &BbClosureLayout,
+    is_coroutine: bool,
+    is_async_generator: bool,
+    _target_labels: &[String],
+    _resume_pcs: &[(String, usize)],
+) -> ClosureBackedGeneratorExportPlan {
+    let factory_entry_params = closure_backed_generator_factory_entry_params(param_names, layout);
+    let resume_entry_params =
+        closure_backed_generator_resume_state_order(layout, is_async_generator);
+    let factory_block = build_closure_backed_generator_factory_block(
+        factory_label,
+        resume_label,
+        &resume_entry_params,
+        function_name,
+        qualname,
+        layout,
+        is_coroutine,
+        is_async_generator,
+    );
+    let resume_param_specs = closure_backed_generator_resume_param_specs_expr(is_async_generator);
+    ClosureBackedGeneratorExportPlan {
+        factory_label: factory_label.to_string(),
+        factory_entry_params,
+        resume_bind_name: format!("{bind_name}_resume"),
+        resume_display_name: "_dp_resume".to_string(),
+        resume_qualname: qualname.to_string(),
+        resume_entry_params,
+        factory_block,
+        resume_param_specs,
     }
 }
 
@@ -173,7 +389,7 @@ pub(crate) fn build_closure_backed_generator_factory_block(
     resume_state_order: &[String],
     function_name: &str,
     qualname: &str,
-    layout: &BbGeneratorClosureLayout,
+    layout: &BbClosureLayout,
     is_coroutine: bool,
     is_async_generator: bool,
 ) -> BlockPyBlock {
@@ -273,32 +489,20 @@ pub(crate) fn build_closure_backed_generator_factory_block(
 
 pub(crate) fn build_initial_generator_metadata(
     dispatch_entry_label: &str,
-    closure_state: bool,
     resume_order: &[String],
     yield_sites: &[GeneratorYieldSite],
-) -> BlockPyGeneratorInfo {
-    let mut resume_order = resume_order
-        .iter()
-        .cloned()
-        .map(BlockPyLabel::from)
-        .collect::<Vec<_>>();
+) -> GeneratorMetadata {
+    let mut resume_order = resume_order.iter().cloned().collect::<Vec<_>>();
     if !resume_order
         .iter()
-        .any(|label| label.as_str() == dispatch_entry_label)
+        .any(|label| label == dispatch_entry_label)
     {
-        resume_order.insert(0, BlockPyLabel::from(dispatch_entry_label.to_string()));
+        resume_order.insert(0, dispatch_entry_label.to_string());
     }
-    BlockPyGeneratorInfo {
-        closure_state,
-        dispatch_entry_label: Some(BlockPyLabel::from(dispatch_entry_label.to_string())),
+    GeneratorMetadata {
+        dispatch_entry_label: Some(dispatch_entry_label.to_string()),
         resume_order,
-        yield_sites: yield_sites
-            .iter()
-            .map(|site| BlockPyGeneratorYieldSite {
-                yield_label: BlockPyLabel::from(site.yield_label.clone()),
-                resume_label: BlockPyLabel::from(site.resume_label.clone()),
-            })
-            .collect(),
+        yield_sites: yield_sites.to_vec(),
         done_block_label: None,
         invalid_block_label: None,
         uncaught_block_label: None,
@@ -317,13 +521,9 @@ pub(crate) fn synthesize_generator_dispatch_metadata(
     is_async_generator_runtime: bool,
     is_closure_backed_generator_runtime: bool,
     uncaught_exc_name: String,
-    resume_order: &[BlockPyLabel],
-    yield_sites: &[BlockPyGeneratorYieldSite],
-) -> BlockPyGeneratorInfo {
-    let resume_order_raw = resume_order
-        .iter()
-        .map(|label| label.as_str().to_string())
-        .collect::<Vec<_>>();
+    resume_order: &[String],
+    yield_sites: &[GeneratorYieldSite],
+) -> GeneratorMetadata {
     let dispatch_info = synthesize_generator_dispatch(
         blocks,
         entry_label,
@@ -331,53 +531,27 @@ pub(crate) fn synthesize_generator_dispatch_metadata(
         is_async_generator_runtime,
         is_closure_backed_generator_runtime,
         uncaught_exc_name,
-        &resume_order_raw,
+        resume_order,
     );
-    BlockPyGeneratorInfo {
-        closure_state: is_closure_backed_generator_runtime,
-        dispatch_entry_label: dispatch_info
-            .generator_resume_entry_label
-            .as_ref()
-            .map(|label| BlockPyLabel::from(label.clone())),
-        resume_order: dispatch_info
-            .generator_resume_order
-            .iter()
-            .cloned()
-            .map(BlockPyLabel::from)
-            .collect(),
+    GeneratorMetadata {
+        dispatch_entry_label: dispatch_info.generator_resume_entry_label.clone(),
+        resume_order: dispatch_info.generator_resume_order.clone(),
         yield_sites: yield_sites.to_vec(),
-        done_block_label: dispatch_info
-            .done_block_label
-            .as_ref()
-            .map(|label| BlockPyLabel::from(label.clone())),
-        invalid_block_label: dispatch_info
-            .invalid_block_label
-            .as_ref()
-            .map(|label| BlockPyLabel::from(label.clone())),
-        uncaught_block_label: dispatch_info
-            .generator_uncaught_label
-            .as_ref()
-            .map(|label| BlockPyLabel::from(label.clone())),
-        uncaught_set_done_label: dispatch_info
-            .generator_uncaught_set_done_label
-            .as_ref()
-            .map(|label| BlockPyLabel::from(label.clone())),
-        uncaught_raise_label: dispatch_info
-            .generator_uncaught_raise_label
-            .as_ref()
-            .map(|label| BlockPyLabel::from(label.clone())),
+        done_block_label: dispatch_info.done_block_label.clone(),
+        invalid_block_label: dispatch_info.invalid_block_label.clone(),
+        uncaught_block_label: dispatch_info.generator_uncaught_label.clone(),
+        uncaught_set_done_label: dispatch_info.generator_uncaught_set_done_label.clone(),
+        uncaught_raise_label: dispatch_info.generator_uncaught_raise_label.clone(),
         uncaught_exc_name: dispatch_info.generator_uncaught_exc_name.clone(),
         dispatch_only_labels: dispatch_info
             .generator_dispatch_only_labels
             .iter()
             .cloned()
-            .map(BlockPyLabel::from)
             .collect(),
         throw_passthrough_labels: dispatch_info
             .generator_throw_passthrough_labels
             .iter()
             .cloned()
-            .map(BlockPyLabel::from)
             .collect(),
     }
 }
@@ -421,6 +595,7 @@ pub(crate) fn lower_generator_blockpy_blocks(
     next_block_id: &mut usize,
 ) -> BlockPyGeneratorLoweringResult {
     let empty_cell_slots = HashSet::new();
+    let mut try_regions = Vec::new();
     let BlockPyGeneratorLoweringResult {
         mut blocks,
         info: initial_info,
@@ -429,6 +604,7 @@ pub(crate) fn lower_generator_blockpy_blocks(
         blocks,
         closure_state,
         &empty_cell_slots,
+        &mut try_regions,
         next_block_id,
     );
     let mut info = None;
@@ -436,7 +612,7 @@ pub(crate) fn lower_generator_blockpy_blocks(
         let mut entry_label = initial_generator_info
             .dispatch_entry_label
             .as_ref()
-            .map(BlockPyLabel::as_str)
+            .map(String::as_str)
             .unwrap_or_else(|| {
                 blocks
                     .first()
@@ -487,6 +663,7 @@ fn lower_generator_block_list(
     blocks: &mut Vec<BlockPyBlock>,
     closure_state: bool,
     cell_slots: &HashSet<String>,
+    try_regions: &mut Vec<TryRegionPlan>,
     next_block_id: &mut usize,
     resume_order: &mut Vec<String>,
     yield_sites: &mut Vec<GeneratorYieldSite>,
@@ -501,6 +678,7 @@ fn lower_generator_block_list(
             &mut block.body,
             closure_state,
             cell_slots,
+            try_regions,
             next_block_id,
             resume_order,
             yield_sites,
@@ -516,6 +694,7 @@ fn lower_generator_block_list(
             blocks,
             closure_state,
             cell_slots,
+            try_regions,
             next_block_id,
             resume_order,
             yield_sites,
@@ -532,6 +711,7 @@ fn lower_nested_generator_stmt_regions(
     stmts: &mut [BlockPyStmt],
     closure_state: bool,
     cell_slots: &HashSet<String>,
+    try_regions: &mut Vec<TryRegionPlan>,
     next_block_id: &mut usize,
     resume_order: &mut Vec<String>,
     yield_sites: &mut Vec<GeneratorYieldSite>,
@@ -544,6 +724,7 @@ fn lower_nested_generator_stmt_regions(
                     &mut if_stmt.body,
                     closure_state,
                     cell_slots,
+                    try_regions,
                     next_block_id,
                     resume_order,
                     yield_sites,
@@ -553,46 +734,7 @@ fn lower_nested_generator_stmt_regions(
                     &mut if_stmt.orelse,
                     closure_state,
                     cell_slots,
-                    next_block_id,
-                    resume_order,
-                    yield_sites,
-                );
-            }
-            BlockPyStmt::Try(try_stmt) => {
-                lower_generator_block_list(
-                    fn_name,
-                    &mut try_stmt.body,
-                    closure_state,
-                    cell_slots,
-                    next_block_id,
-                    resume_order,
-                    yield_sites,
-                );
-                for handler in &mut try_stmt.handlers {
-                    lower_generator_block_list(
-                        fn_name,
-                        &mut handler.body,
-                        closure_state,
-                        cell_slots,
-                        next_block_id,
-                        resume_order,
-                        yield_sites,
-                    );
-                }
-                lower_generator_block_list(
-                    fn_name,
-                    &mut try_stmt.orelse,
-                    closure_state,
-                    cell_slots,
-                    next_block_id,
-                    resume_order,
-                    yield_sites,
-                );
-                lower_generator_block_list(
-                    fn_name,
-                    &mut try_stmt.finalbody,
-                    closure_state,
-                    cell_slots,
+                    try_regions,
                     next_block_id,
                     resume_order,
                     yield_sites,
@@ -610,6 +752,7 @@ fn lower_generator_block_body(
     out: &mut Vec<BlockPyBlock>,
     closure_state: bool,
     cell_slots: &HashSet<String>,
+    try_regions: &mut Vec<TryRegionPlan>,
     next_block_id: &mut usize,
     resume_order: &mut Vec<String>,
     yield_sites: &mut Vec<GeneratorYieldSite>,
@@ -637,6 +780,7 @@ fn lower_generator_block_body(
                     out,
                     closure_state,
                     cell_slots,
+                    try_regions,
                     next_block_id,
                     resume_order,
                     yield_sites,
@@ -654,6 +798,7 @@ fn lower_generator_block_body(
             rest_entry,
             &mut lowered,
             closure_state,
+            try_regions,
             resume_order,
             yield_sites,
             next_block_id,
@@ -678,7 +823,7 @@ fn lower_generator_block_body(
                 | BlockPyStmt::If(_)
                 | BlockPyStmt::BranchTable(_)
                 | BlockPyStmt::Raise(_)
-                | BlockPyStmt::LegacyTryJump(_)
+                | BlockPyStmt::TryJump(_)
                 | BlockPyStmt::Return(_)
         )
     }) {
@@ -725,6 +870,7 @@ pub(crate) fn lower_generator_blockpy_stmt_in_sequence(
     rest_entry: Option<String>,
     blocks: &mut Vec<BlockPyBlock>,
     closure_state: bool,
+    try_regions: &mut Vec<TryRegionPlan>,
     resume_order: &mut Vec<String>,
     yield_sites: &mut Vec<GeneratorYieldSite>,
     next_block_id: &mut usize,
@@ -747,6 +893,7 @@ pub(crate) fn lower_generator_blockpy_stmt_in_sequence(
     let ctx = GeneratorLoweringCtx {
         blocks,
         closure_state,
+        try_regions,
         resume_order,
         yield_sites,
         next_item: &mut next_item,
@@ -779,6 +926,7 @@ pub(crate) fn lower_generator_blockpy_stmt_in_sequence(
                 *yield_from_expr.value.clone(),
                 rest_entry,
                 ctx.closure_state,
+                ctx.try_regions,
                 ctx.resume_order,
                 ctx.yield_sites,
                 plan,
@@ -836,6 +984,7 @@ pub(crate) fn lower_generator_blockpy_stmt_in_sequence(
                 cell_slots.expect("generator assign lowering requires cell slots"),
                 rest_entry,
                 ctx.closure_state,
+                ctx.try_regions,
                 ctx.resume_order,
                 ctx.yield_sites,
                 plan,
@@ -869,6 +1018,7 @@ pub(crate) fn lower_generator_blockpy_stmt_in_sequence(
                 linear,
                 *yield_from_expr.value.clone(),
                 ctx.closure_state,
+                ctx.try_regions,
                 ctx.resume_order,
                 ctx.yield_sites,
                 plan,
@@ -1469,6 +1619,7 @@ pub(crate) fn emit_yield_from_blocks(
     after_label: String,
     blocks: &mut Vec<BlockPyBlock>,
     closure_state: bool,
+    try_regions: &mut Vec<TryRegionPlan>,
     resume_order: &mut Vec<String>,
     yield_sites: &mut Vec<GeneratorYieldSite>,
     plan: GeneratorYieldFromPlan,
@@ -1511,6 +1662,12 @@ pub(crate) fn emit_yield_from_blocks(
         py_stmt!("__dp_store_local(_dp_self, \"_dp_yieldfrom\", None)")
     };
 
+    try_regions.push(TryRegionPlan {
+        body_region_labels: vec![plan.next_body_label.clone()],
+        body_exception_target: plan.stop_except_label.clone(),
+        cleanup_region_labels: Vec::new(),
+        cleanup_exception_target: None,
+    });
     blocks.push(compat_block_from_blockpy(
         plan.init_try_label.clone(),
         vec![
@@ -1521,20 +1678,9 @@ pub(crate) fn emit_yield_from_blocks(
             ),
             yieldfrom_store_iter_stmt,
         ],
-        BlockPyStmt::LegacyTryJump(BlockPyLegacyTryJump {
+        BlockPyStmt::TryJump(BlockPyTryJump {
             body_label: BlockPyLabel::from(plan.next_body_label.clone()),
             except_label: BlockPyLabel::from(plan.stop_except_label.clone()),
-            except_exc_name: Some(plan.stop_name.clone()),
-            body_region_labels: vec![BlockPyLabel::from(plan.next_body_label.clone())],
-            except_region_labels: vec![
-                BlockPyLabel::from(plan.stop_except_label.clone()),
-                BlockPyLabel::from(plan.stop_done_label.clone()),
-                BlockPyLabel::from(plan.raise_stop_label.clone()),
-            ],
-            finally_label: None,
-            finally_exc_name: None,
-            finally_region_labels: Vec::new(),
-            finally_fallthrough_label: None,
         }),
     ));
     blocks.push(compat_block_from_blockpy(
@@ -1548,7 +1694,10 @@ pub(crate) fn emit_yield_from_blocks(
     ));
     blocks.push(compat_if_jump_block(
         plan.stop_except_label.clone(),
-        Vec::new(),
+        vec![py_stmt!(
+            "{stop:id} = __dp_current_exception()",
+            stop = plan.stop_name.as_str(),
+        )],
         py_expr!(
             "__dp_exception_matches({stop:id}, StopIteration)",
             stop = plan.stop_name.as_str(),
@@ -1704,22 +1853,17 @@ pub(crate) fn emit_yield_from_blocks(
     blocks.push(compat_block_from_blockpy(
         plan.throw_try_label,
         Vec::new(),
-        BlockPyStmt::LegacyTryJump(BlockPyLegacyTryJump {
+        BlockPyStmt::TryJump(BlockPyTryJump {
             body_label: BlockPyLabel::from(plan.throw_body_label.clone()),
             except_label: BlockPyLabel::from(plan.stop_except_label.clone()),
-            except_exc_name: Some(plan.stop_name.clone()),
-            body_region_labels: vec![BlockPyLabel::from(plan.throw_body_label.clone())],
-            except_region_labels: vec![
-                BlockPyLabel::from(plan.stop_except_label.clone()),
-                BlockPyLabel::from(plan.stop_done_label.clone()),
-                BlockPyLabel::from(plan.raise_stop_label.clone()),
-            ],
-            finally_label: None,
-            finally_exc_name: None,
-            finally_region_labels: Vec::new(),
-            finally_fallthrough_label: None,
         }),
     ));
+    try_regions.push(TryRegionPlan {
+        body_region_labels: vec![plan.throw_body_label.clone()],
+        body_exception_target: plan.stop_except_label.clone(),
+        cleanup_region_labels: Vec::new(),
+        cleanup_exception_target: None,
+    });
     blocks.push(compat_block_from_blockpy(
         plan.throw_body_label,
         vec![py_stmt!(
@@ -1733,26 +1877,21 @@ pub(crate) fn emit_yield_from_blocks(
     blocks.push(compat_block_from_blockpy(
         plan.send_try_label,
         Vec::new(),
-        BlockPyStmt::LegacyTryJump(BlockPyLegacyTryJump {
+        BlockPyStmt::TryJump(BlockPyTryJump {
             body_label: BlockPyLabel::from(plan.send_dispatch_label.clone()),
             except_label: BlockPyLabel::from(plan.stop_except_label.clone()),
-            except_exc_name: Some(plan.stop_name.clone()),
-            body_region_labels: vec![
-                BlockPyLabel::from(plan.send_dispatch_label.clone()),
-                BlockPyLabel::from(plan.next_body_label.clone()),
-                BlockPyLabel::from(plan.send_call_body_label.clone()),
-            ],
-            except_region_labels: vec![
-                BlockPyLabel::from(plan.stop_except_label.clone()),
-                BlockPyLabel::from(plan.stop_done_label.clone()),
-                BlockPyLabel::from(plan.raise_stop_label.clone()),
-            ],
-            finally_label: None,
-            finally_exc_name: None,
-            finally_region_labels: Vec::new(),
-            finally_fallthrough_label: None,
         }),
     ));
+    try_regions.push(TryRegionPlan {
+        body_region_labels: vec![
+            plan.send_dispatch_label.clone(),
+            plan.next_body_label.clone(),
+            plan.send_call_body_label.clone(),
+        ],
+        body_exception_target: plan.stop_except_label.clone(),
+        cleanup_region_labels: Vec::new(),
+        cleanup_exception_target: None,
+    });
     blocks.push(compat_if_jump_block(
         plan.send_dispatch_label,
         Vec::new(),
@@ -1779,6 +1918,7 @@ pub(crate) fn emit_generator_yield_from_expr_blocks(
     value: Expr,
     after_label: String,
     closure_state: bool,
+    try_regions: &mut Vec<TryRegionPlan>,
     resume_order: &mut Vec<String>,
     yield_sites: &mut Vec<GeneratorYieldSite>,
     plan: GeneratorYieldFromPlan,
@@ -1789,6 +1929,7 @@ pub(crate) fn emit_generator_yield_from_expr_blocks(
         after_label,
         blocks,
         closure_state,
+        try_regions,
         resume_order,
         yield_sites,
         plan,
@@ -1807,6 +1948,7 @@ pub(crate) fn lower_generator_yield_from_value(
     value: Expr,
     after_label: String,
     closure_state: bool,
+    try_regions: &mut Vec<TryRegionPlan>,
     resume_order: &mut Vec<String>,
     yield_sites: &mut Vec<GeneratorYieldSite>,
     next_item: &mut dyn FnMut(GeneratorYieldFromPlanItem<'_>) -> String,
@@ -1820,6 +1962,7 @@ pub(crate) fn lower_generator_yield_from_value(
         value,
         after_label,
         closure_state,
+        try_regions,
         resume_order,
         yield_sites,
         plan,
@@ -1836,6 +1979,7 @@ pub(crate) fn emit_generator_yield_from_assign_blocks(
     cell_slots: &HashSet<String>,
     rest_entry: String,
     closure_state: bool,
+    try_regions: &mut Vec<TryRegionPlan>,
     resume_order: &mut Vec<String>,
     yield_sites: &mut Vec<GeneratorYieldSite>,
     plan: GeneratorYieldFromPlan,
@@ -1847,6 +1991,7 @@ pub(crate) fn emit_generator_yield_from_assign_blocks(
         assign_result_label.clone(),
         blocks,
         closure_state,
+        try_regions,
         resume_order,
         yield_sites,
         plan,
@@ -1877,6 +2022,7 @@ pub(crate) fn emit_generator_yield_from_return_blocks(
     linear: Vec<Stmt>,
     value: Expr,
     closure_state: bool,
+    try_regions: &mut Vec<TryRegionPlan>,
     resume_order: &mut Vec<String>,
     yield_sites: &mut Vec<GeneratorYieldSite>,
     plan: GeneratorYieldFromPlan,
@@ -1888,6 +2034,7 @@ pub(crate) fn emit_generator_yield_from_return_blocks(
         return_label.clone(),
         blocks,
         closure_state,
+        try_regions,
         resume_order,
         yield_sites,
         plan,
@@ -1910,6 +2057,7 @@ pub(crate) fn emit_generator_yield_from_return_blocks(
 pub(crate) struct GeneratorLoweringCtx<'a> {
     pub blocks: &'a mut Vec<BlockPyBlock>,
     pub closure_state: bool,
+    pub try_regions: &'a mut Vec<TryRegionPlan>,
     pub resume_order: &'a mut Vec<String>,
     pub yield_sites: &'a mut Vec<GeneratorYieldSite>,
     pub next_item: &'a mut dyn FnMut(GeneratorYieldFromPlanItem<'_>) -> String,
@@ -1917,13 +2065,16 @@ pub(crate) struct GeneratorLoweringCtx<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_initial_generator_metadata, GeneratorYieldSite};
+    use super::{
+        build_closure_backed_generator_export_plan, build_initial_generator_metadata,
+        GeneratorYieldSite,
+    };
+    use crate::basic_block::bb_ir::{BbClosureInit, BbClosureLayout, BbClosureSlot};
 
     #[test]
     fn initial_generator_metadata_includes_entry_label_in_resume_order() {
         let info = build_initial_generator_metadata(
             "entry",
-            true,
             &["resume".to_string()],
             &[GeneratorYieldSite {
                 yield_label: "yield_1".to_string(),
@@ -1945,11 +2096,66 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![("yield_1", "resume")]
         );
-        assert_eq!(
-            info.dispatch_entry_label
-                .as_ref()
-                .map(|label| label.as_str()),
-            Some("entry")
+        assert_eq!(info.dispatch_entry_label.as_deref(), Some("entry"));
+    }
+
+    #[test]
+    fn closure_backed_export_plan_includes_capture_params_and_resume_state() {
+        let layout = BbClosureLayout {
+            inherited_captures: vec![BbClosureSlot {
+                logical_name: "factor".to_string(),
+                storage_name: "_dp_cell_factor".to_string(),
+                init: BbClosureInit::InheritedCapture,
+            }],
+            lifted_locals: vec![BbClosureSlot {
+                logical_name: "total".to_string(),
+                storage_name: "_dp_cell_total".to_string(),
+                init: BbClosureInit::Deferred,
+            }],
+            runtime_cells: vec![BbClosureSlot {
+                logical_name: "_dp_pc".to_string(),
+                storage_name: "_dp_cell__dp_pc".to_string(),
+                init: BbClosureInit::RuntimePcZero,
+            }],
+        };
+
+        let plan = build_closure_backed_generator_export_plan(
+            "_dp_bb_agen_factory",
+            "_dp_bb_agen_start",
+            "agen",
+            "agen",
+            "outer.<locals>.agen",
+            &["scale".to_string()],
+            &layout,
+            false,
+            true,
+            &[
+                "_dp_bb_agen_start".to_string(),
+                "_dp_bb_agen_resume".to_string(),
+            ],
+            &[
+                ("_dp_bb_agen_start".to_string(), 0),
+                ("_dp_bb_agen_resume".to_string(), 1),
+            ],
         );
+
+        assert_eq!(plan.factory_label, "_dp_bb_agen_factory");
+        assert_eq!(plan.factory_entry_params, vec!["scale", "_dp_cell_factor"]);
+        assert_eq!(plan.resume_bind_name, "agen_resume");
+        assert_eq!(plan.resume_display_name, "_dp_resume");
+        assert_eq!(plan.resume_qualname, "outer.<locals>.agen");
+        assert_eq!(
+            plan.resume_entry_params,
+            vec![
+                "_dp_self",
+                "_dp_send_value",
+                "_dp_resume_exc",
+                "_dp_transport_sent",
+                "_dp_cell_factor",
+                "_dp_cell_total",
+                "_dp_cell__dp_pc",
+            ]
+        );
+        assert_eq!(plan.factory_block.label.as_str(), "_dp_bb_agen_factory");
     }
 }

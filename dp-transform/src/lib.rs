@@ -8,26 +8,23 @@ use std::sync::Once;
 use std::time::{Duration, Instant};
 
 pub mod basic_block;
+mod driver;
 pub mod fixture;
-pub mod min_ast;
 mod namegen;
-pub mod scope_aware_transformer;
-pub mod side_by_side;
 mod template;
 #[cfg(test)]
 mod test_util;
-mod transform;
 pub(crate) mod transformer;
 #[cfg(target_arch = "wasm32")]
 mod web_inspector;
 
+use crate::basic_block::ast_to_ast::context::Context;
+pub use crate::basic_block::ast_to_ast::scope::{analyze_module_scope, Scope};
+use crate::basic_block::ast_to_ast::simplify::lower_string_literals_to_bytes;
+pub use crate::basic_block::ast_to_ast::Options;
 use crate::basic_block::bb_ir;
 use crate::basic_block::block_py::BlockPyModule;
-use crate::transform::driver::rewrite_module;
-pub use crate::transform::scope::{analyze_module_scope, Scope};
-use transform::context::Context;
-use transform::simplify::lower_string_literals_to_bytes;
-pub use transform::Options;
+use crate::driver::rewrite_module;
 
 #[derive(Debug, Clone, Copy)]
 pub struct TransformTimings {
@@ -76,7 +73,6 @@ pub struct LoweringResult {
     pub module: ruff_python_ast::ModModule,
     pub blockpy_module: Option<BlockPyModule>,
     pub bb_module: Option<bb_ir::BbModule>,
-    function_name_map: std::collections::HashMap<String, (String, String)>,
 }
 
 impl LoweringResult {
@@ -93,10 +89,6 @@ impl LoweringResult {
             return None;
         };
         Some(value.to_string())
-    }
-
-    pub fn into_min_ast(self) -> min_ast::Module {
-        min_ast::Module::from_with_function_name_map(self.module, &self.function_name_map)
     }
 }
 
@@ -125,7 +117,6 @@ pub fn transform_str_to_ruff_with_options(
             module,
             blockpy_module: None,
             bb_module: None,
-            function_name_map: std::collections::HashMap::new(),
         });
     }
 
@@ -133,7 +124,7 @@ pub fn transform_str_to_ruff_with_options(
 
     let rewrite_start = timing_start();
 
-    transform::simplify::lower_surrogate_string_literals(&ctx, &mut module.body);
+    basic_block::ast_to_ast::simplify::lower_surrogate_string_literals(&ctx, &mut module.body);
     let rewrite_result = rewrite_module(&ctx, &mut module.body);
     let bb_scope = analyze_module_scope(&mut module.body);
     let bb_identity = basic_block::collect_function_identity_by_node(&mut module.body, bb_scope);
@@ -156,7 +147,6 @@ pub fn transform_str_to_ruff_with_options(
         module,
         blockpy_module: Some(rewrite_result.blockpy_module),
         bb_module,
-        function_name_map: rewrite_result.function_name_map,
     })
 }
 

@@ -1,14 +1,117 @@
-use super::ast_to_bb::{flatten_stmt, flatten_stmt_boxes, stmt_body_from_stmts};
-use super::bb_ir::{BbBlock, BbExpr, BbOp, BbTerm};
+mod codegen_normalize;
+mod codegen_trace;
+mod exception_pass;
+
+use super::bb_ir::{BbBlock, BbExpr, BbFunction, BbModule, BbOp, BbTerm, BindingTarget};
+use super::block_py::state::collect_parameter_names;
 use super::block_py::{BlockPyBlock, BlockPyExpr, BlockPyIf, BlockPyLabel, BlockPyStmt};
-use crate::transform::ast_rewrite::rewrite_with_pass;
-use crate::transform::ast_rewrite::ExprRewritePass;
-use crate::transform::context::Context;
-use crate::transform::driver::SimplifyExprPass;
-use crate::transform::rewrite_stmt;
+use super::ruff_to_blockpy::{LoweredBlockPyFunction, LoweredBlockPyFunctionBundle};
+use super::stmt_utils::{flatten_stmt, flatten_stmt_boxes, stmt_body_from_stmts};
+use crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass;
+use crate::basic_block::ast_to_ast::ast_rewrite::ExprRewritePass;
+use crate::basic_block::ast_to_ast::context::Context;
+use crate::basic_block::ast_to_ast::rewrite_stmt;
+use crate::driver::SimplifyExprPass;
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::TextRange;
 use std::collections::{HashMap, VecDeque};
+
+pub(crate) use codegen_normalize::normalize_bb_module_for_codegen;
+pub(crate) use exception_pass::lower_try_jump_exception_flow;
+
+pub(crate) struct LoweredBbFunctionBundle {
+    pub main_function: BbFunction,
+    pub helper_functions: Vec<BbFunction>,
+}
+
+pub(crate) struct LoweredBlockPyModuleFunction {
+    pub bundle: LoweredBlockPyFunctionBundle,
+    pub main_binding_target: BindingTarget,
+}
+
+pub(crate) struct LoweredBlockPyModuleBundle {
+    pub functions: Vec<LoweredBlockPyModuleFunction>,
+    pub module_init: Option<String>,
+}
+
+pub(crate) fn push_lowered_blockpy_function_bundle(
+    out: &mut LoweredBlockPyModuleBundle,
+    bundle: LoweredBlockPyFunctionBundle,
+    main_binding_target: BindingTarget,
+) {
+    out.functions.push(LoweredBlockPyModuleFunction {
+        bundle,
+        main_binding_target,
+    });
+}
+
+pub(crate) fn lower_blockpy_module_bundle_to_bb_module(
+    context: &Context,
+    module: &LoweredBlockPyModuleBundle,
+) -> BbModule {
+    let mut out = Vec::new();
+    for lowered_function in &module.functions {
+        let lowered = lower_blockpy_function_bundle_to_bb_functions(
+            context,
+            &lowered_function.bundle,
+            lowered_function.main_binding_target,
+        );
+        out.extend(lowered.helper_functions);
+        out.push(lowered.main_function);
+    }
+    BbModule {
+        functions: out,
+        module_init: module.module_init.clone(),
+    }
+}
+
+pub(crate) fn lower_blockpy_function_bundle_to_bb_functions(
+    context: &Context,
+    bundle: &LoweredBlockPyFunctionBundle,
+    main_binding_target: BindingTarget,
+) -> LoweredBbFunctionBundle {
+    LoweredBbFunctionBundle {
+        main_function: lower_blockpy_function_to_bb_function(
+            context,
+            &bundle.main_function,
+            Some(main_binding_target),
+        ),
+        helper_functions: bundle
+            .helper_functions
+            .iter()
+            .map(|helper| lower_blockpy_function_to_bb_function(context, helper, None))
+            .collect(),
+    }
+}
+
+pub(crate) fn lower_blockpy_function_to_bb_function(
+    context: &Context,
+    lowered: &LoweredBlockPyFunction,
+    binding_target_override: Option<BindingTarget>,
+) -> BbFunction {
+    let mut local_cell_slots = lowered.local_cell_slots.iter().cloned().collect::<Vec<_>>();
+    local_cell_slots.sort();
+    BbFunction {
+        bind_name: lowered.function.bind_name.clone(),
+        display_name: lowered.display_name.clone(),
+        qualname: lowered.function.qualname.clone(),
+        binding_target: binding_target_override.unwrap_or(lowered.function.binding_target),
+        is_coroutine: lowered.is_coroutine,
+        kind: lowered.bb_kind.clone(),
+        entry: lowered.entry_label.clone(),
+        param_names: collect_parameter_names(&lowered.function.params),
+        entry_params: lowered.entry_params.clone(),
+        closure_layout: lowered.closure_layout.clone(),
+        param_specs: lowered.param_specs.clone(),
+        local_cell_slots,
+        blocks: lower_blockpy_blocks_to_bb_blocks(
+            context,
+            &lowered.function.blocks,
+            &lowered.block_params,
+            &lowered.exception_edges,
+        ),
+    }
+}
 
 pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
     context: &Context,
@@ -66,8 +169,12 @@ pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
                     {
                         let rewritten = rewrite_stmt::assign_del::rewrite_assign(context, assign);
                         let rewritten_stmt = match rewritten {
-                            crate::transform::ast_rewrite::Rewrite::Unmodified(stmt)
-                            | crate::transform::ast_rewrite::Rewrite::Walk(stmt) => stmt,
+                            crate::basic_block::ast_to_ast::ast_rewrite::Rewrite::Unmodified(
+                                stmt,
+                            )
+                            | crate::basic_block::ast_to_ast::ast_rewrite::Rewrite::Walk(stmt) => {
+                                stmt
+                            }
                         };
                         let mut lowered = Vec::new();
                         flatten_stmt(&rewritten_stmt, &mut lowered);
@@ -105,7 +212,7 @@ fn is_terminal_blockpy_stmt(stmt: &BlockPyStmt) -> bool {
             | BlockPyStmt::If(_)
             | BlockPyStmt::BranchTable(_)
             | BlockPyStmt::Raise(_)
-            | BlockPyStmt::LegacyTryJump(_)
+            | BlockPyStmt::TryJump(_)
             | BlockPyStmt::Return(_)
     )
 }
@@ -148,7 +255,7 @@ fn simplify_blockpy_terminal_exprs(
                 value.rewrite_mut(|expr| simplify_expr_for_bb_term(context, pass, expr, body));
             }
         }
-        BlockPyStmt::Jump(_) | BlockPyStmt::LegacyTryJump(_) => {}
+        BlockPyStmt::Jump(_) | BlockPyStmt::TryJump(_) => {}
         other => panic!("unsupported terminal BlockPyStmt for simplification: {other:?}"),
     }
 }
@@ -200,72 +307,11 @@ pub(crate) fn blockpy_stmt_to_stmt_for_analysis(stmt: &BlockPyStmt) -> Option<St
                 }]
             },
         })),
-        BlockPyStmt::Try(try_stmt) => Some(Stmt::Try(ast::StmtTry {
-            node_index: compat_node_index(),
-            range: compat_range(),
-            is_star: try_stmt
-                .handlers
-                .first()
-                .map(|handler| {
-                    matches!(
-                        handler.kind,
-                        super::block_py::BlockPyExceptHandlerKind::ExceptStar
-                    )
-                })
-                .unwrap_or(false),
-            body: stmt_body_from_stmts(
-                try_stmt
-                    .body
-                    .iter()
-                    .flat_map(|block| block.body.iter())
-                    .filter_map(blockpy_stmt_to_stmt_for_analysis)
-                    .collect::<Vec<_>>(),
-            ),
-            handlers: try_stmt
-                .handlers
-                .iter()
-                .map(|handler| {
-                    ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
-                        node_index: compat_node_index(),
-                        range: compat_range(),
-                        type_: handler.type_.as_ref().map(|expr| Box::new(expr.to_expr())),
-                        name: handler
-                            .name
-                            .as_ref()
-                            .map(|name| ast::Identifier::new(name, compat_range())),
-                        body: stmt_body_from_stmts(
-                            handler
-                                .body
-                                .iter()
-                                .flat_map(|block| block.body.iter())
-                                .filter_map(blockpy_stmt_to_stmt_for_analysis)
-                                .collect::<Vec<_>>(),
-                        ),
-                    })
-                })
-                .collect(),
-            orelse: stmt_body_from_stmts(
-                try_stmt
-                    .orelse
-                    .iter()
-                    .flat_map(|block| block.body.iter())
-                    .filter_map(blockpy_stmt_to_stmt_for_analysis)
-                    .collect::<Vec<_>>(),
-            ),
-            finalbody: stmt_body_from_stmts(
-                try_stmt
-                    .finalbody
-                    .iter()
-                    .flat_map(|block| block.body.iter())
-                    .filter_map(blockpy_stmt_to_stmt_for_analysis)
-                    .collect::<Vec<_>>(),
-            ),
-        })),
         BlockPyStmt::Jump(_)
         | BlockPyStmt::Return(_)
         | BlockPyStmt::Raise(_)
         | BlockPyStmt::BranchTable(_)
-        | BlockPyStmt::LegacyTryJump(_) => None,
+        | BlockPyStmt::TryJump(_) => None,
     }
 }
 
@@ -276,7 +322,7 @@ fn terminal_stmt_from_blockpy_block(block: &BlockPyBlock) -> BlockPyStmt {
             | BlockPyStmt::If(_)
             | BlockPyStmt::BranchTable(_)
             | BlockPyStmt::Raise(_)
-            | BlockPyStmt::LegacyTryJump(_)
+            | BlockPyStmt::TryJump(_)
             | BlockPyStmt::Return(_)),
         ) => stmt.clone(),
         Some(other) => panic!("unsupported terminal BlockPyStmt for direct BB lowering: {other:?}"),
@@ -313,35 +359,7 @@ fn bb_term_from_blockpy_terminal_stmt(terminal: &BlockPyStmt) -> BbTerm {
                 .map(|exc| BbExpr::from_expr(exc.clone().into())),
             cause: None,
         },
-        BlockPyStmt::LegacyTryJump(try_jump) => BbTerm::TryJump {
-            body_label: try_jump.body_label.as_str().to_string(),
-            except_label: try_jump.except_label.as_str().to_string(),
-            except_exc_name: try_jump.except_exc_name.clone(),
-            body_region_labels: try_jump
-                .body_region_labels
-                .iter()
-                .map(|label| label.as_str().to_string())
-                .collect(),
-            except_region_labels: try_jump
-                .except_region_labels
-                .iter()
-                .map(|label| label.as_str().to_string())
-                .collect(),
-            finally_label: try_jump
-                .finally_label
-                .as_ref()
-                .map(|label| label.as_str().to_string()),
-            finally_exc_name: try_jump.finally_exc_name.clone(),
-            finally_region_labels: try_jump
-                .finally_region_labels
-                .iter()
-                .map(|label| label.as_str().to_string())
-                .collect(),
-            finally_fallthrough_label: try_jump
-                .finally_fallthrough_label
-                .as_ref()
-                .map(|label| label.as_str().to_string()),
-        },
+        BlockPyStmt::TryJump(try_jump) => BbTerm::Jump(try_jump.body_label.as_str().to_string()),
         BlockPyStmt::Return(value) => {
             BbTerm::Ret(value.clone().map(|expr| BbExpr::from_expr(expr.into())))
         }

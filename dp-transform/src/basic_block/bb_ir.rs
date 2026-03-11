@@ -23,7 +23,7 @@ pub struct BbFunction {
     pub entry: String,
     pub param_names: Vec<String>,
     pub entry_params: Vec<String>,
-    pub generator_closure_layout: Option<BbGeneratorClosureLayout>,
+    pub closure_layout: Option<BbClosureLayout>,
     pub param_specs: BbExpr,
     pub local_cell_slots: Vec<String>,
     pub blocks: Vec<BbBlock>,
@@ -54,21 +54,21 @@ pub enum BbFunctionKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BbGeneratorClosureLayout {
-    pub inherited_captures: Vec<BbGeneratorClosureSlot>,
-    pub lifted_locals: Vec<BbGeneratorClosureSlot>,
-    pub runtime_cells: Vec<BbGeneratorClosureSlot>,
+pub struct BbClosureLayout {
+    pub inherited_captures: Vec<BbClosureSlot>,
+    pub lifted_locals: Vec<BbClosureSlot>,
+    pub runtime_cells: Vec<BbClosureSlot>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BbGeneratorClosureSlot {
+pub struct BbClosureSlot {
     pub logical_name: String,
     pub storage_name: String,
-    pub init: BbGeneratorClosureInit,
+    pub init: BbClosureInit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BbGeneratorClosureInit {
+pub enum BbClosureInit {
     InheritedCapture,
     Parameter,
     DeletedSentinel,
@@ -403,17 +403,6 @@ pub enum BbTerm {
     Raise {
         exc: Option<BbExpr>,
         cause: Option<BbExpr>,
-    },
-    TryJump {
-        body_label: String,
-        except_label: String,
-        except_exc_name: Option<String>,
-        body_region_labels: Vec<String>,
-        except_region_labels: Vec<String>,
-        finally_label: Option<String>,
-        finally_exc_name: Option<String>,
-        finally_region_labels: Vec<String>,
-        finally_fallthrough_label: Option<String>,
     },
     Ret(Option<BbExpr>),
 }

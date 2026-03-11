@@ -1,27 +1,35 @@
-use super::ast_to_bb::{
-    compute_exception_edge_by_label_blockpy, contains_return_stmt_in_body,
-    contains_return_stmt_in_handlers, flatten_stmt_boxes, fold_constant_brif_blockpy,
-    fold_jumps_to_trivial_none_return_blockpy, prune_unreachable_blockpy_blocks,
-    relabel_blockpy_blocks, rewrite_exception_accesses_shared, sync_target_cells_stmts_shared,
-    rewrite_delete_to_deleted_sentinel, rewrite_region_returns_to_finally_blockpy_shared,
-    FunctionIdentityByNode,
-};
 use super::await_lower::{
     coroutine_generator_marker_stmt, lower_coroutine_awaits_in_stmt,
     lower_coroutine_awaits_in_stmts, lower_coroutine_awaits_to_yield_from,
 };
-use super::bb_ir::BindingTarget;
-use super::block_py::{
-    BlockPyAssign, BlockPyBlock, BlockPyDelete, BlockPyExceptHandler, BlockPyExceptHandlerKind,
-    BlockPyExpr, BlockPyFunction, BlockPyFunctionKind, BlockPyIf, BlockPyLabel,
-    BlockPyLegacyTryJump, BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyTry,
+use super::bb_ir::{BbClosureLayout, BbExpr, BbFunctionKind, BindingTarget};
+use super::block_py::cfg::{
+    fold_constant_brif_blockpy, fold_jumps_to_trivial_none_return_blockpy,
+    prune_unreachable_blockpy_blocks, relabel_blockpy_blocks,
 };
+use super::block_py::dataflow::compute_block_params_blockpy;
+use super::block_py::exception::{
+    contains_return_stmt_in_body, contains_return_stmt_in_handlers,
+    rewrite_region_returns_to_finally_blockpy,
+};
+use super::block_py::state::{
+    collect_cell_slots, collect_state_vars, rewrite_sync_generator_blockpy_blocks_to_closure_cells,
+    sync_generator_cleanup_cells, sync_generator_state_order,
+    sync_target_cells_stmts as sync_target_cells_stmts_shared,
+};
+use super::block_py::{
+    BlockPyAssign, BlockPyBlock, BlockPyDelete, BlockPyExpr, BlockPyFunction, BlockPyFunctionKind,
+    BlockPyIf, BlockPyLabel, BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyTryJump,
+};
+use super::deleted_names::rewrite_delete_to_deleted_sentinel;
+use super::function_identity::FunctionIdentityByNode;
+use super::stmt_utils::flatten_stmt_boxes;
+use crate::basic_block::ast_to_ast::ast_rewrite::Rewrite;
+use crate::basic_block::ast_to_ast::rewrite_expr::make_tuple;
+use crate::basic_block::ast_to_ast::rewrite_stmt;
 use crate::namegen::fresh_name;
 use crate::ruff_ast_to_string;
 use crate::template::{empty_body, into_body, is_simple};
-use crate::transform::ast_rewrite::Rewrite;
-use crate::transform::rewrite_expr::make_tuple;
-use crate::transform::rewrite_stmt;
 use crate::transformer::walk_stmt;
 use crate::transformer::{walk_expr, Transformer};
 use crate::{py_expr, py_stmt};
@@ -33,10 +41,10 @@ mod generator_lowering;
 
 pub(crate) use generator_lowering::{
     blockpy_stmt_requires_generator_rest_entry, build_async_for_continue_entry,
-    build_closure_backed_generator_factory_block, build_initial_generator_metadata,
-    lower_generator_blockpy_blocks, lower_generator_blockpy_stmt_in_sequence,
+    build_closure_backed_generator_export_plan, build_initial_generator_metadata,
+    build_resume_closure_layout, lower_generator_blockpy_stmt_in_sequence,
     lower_generator_yield_terms_to_explicit_return_blockpy, synthesize_generator_dispatch_metadata,
-    BlockPyGeneratorLoweringResult, GeneratorYieldSite,
+    GeneratorMetadata, GeneratorYieldSite,
 };
 
 pub(crate) struct BlockPySequenceGeneratorState {
@@ -52,6 +60,40 @@ pub(crate) struct GeneratorStmtSequenceLoweringState {
     pub resume_order: Vec<String>,
     pub yield_sites: Vec<GeneratorYieldSite>,
     pub next_block_id: usize,
+}
+
+pub(crate) struct LoweredBlockPyFunction {
+    pub function: BlockPyFunction,
+    pub display_name: String,
+    pub is_coroutine: bool,
+    pub bb_kind: BbFunctionKind,
+    pub entry_label: String,
+    pub entry_params: Vec<String>,
+    pub block_params: HashMap<String, Vec<String>>,
+    pub exception_edges: HashMap<String, (Option<String>, Option<String>)>,
+    pub closure_layout: Option<BbClosureLayout>,
+    pub param_specs: BbExpr,
+    pub local_cell_slots: HashSet<String>,
+}
+
+pub(crate) struct LoweredBlockPyFunctionBundle {
+    pub main_function: LoweredBlockPyFunction,
+    pub helper_functions: Vec<LoweredBlockPyFunction>,
+}
+
+pub(crate) struct PreparedBlockPyFunction {
+    pub function: BlockPyFunction,
+    pub entry_label: String,
+    pub generator_metadata: Option<GeneratorMetadata>,
+    pub try_regions: Vec<TryRegionPlan>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct TryRegionPlan {
+    pub body_region_labels: Vec<String>,
+    pub body_exception_target: String,
+    pub cleanup_region_labels: Vec<String>,
+    pub cleanup_exception_target: Option<String>,
 }
 
 #[derive(Clone)]
@@ -102,6 +144,30 @@ pub(crate) fn blockpy_kind_for_lowered_runtime(
     }
 }
 
+pub(crate) fn bb_kind_for_blockpy_kind(
+    kind: BlockPyFunctionKind,
+    closure_state: bool,
+    resume_label: &str,
+    target_labels: &[String],
+    resume_pcs: &[(String, usize)],
+) -> BbFunctionKind {
+    match kind {
+        BlockPyFunctionKind::Function | BlockPyFunctionKind::Coroutine => BbFunctionKind::Function,
+        BlockPyFunctionKind::Generator => BbFunctionKind::Generator {
+            closure_state,
+            resume_label: resume_label.to_string(),
+            target_labels: target_labels.to_vec(),
+            resume_pcs: resume_pcs.to_vec(),
+        },
+        BlockPyFunctionKind::AsyncGenerator => BbFunctionKind::AsyncGenerator {
+            closure_state,
+            resume_label: resume_label.to_string(),
+            target_labels: target_labels.to_vec(),
+            resume_pcs: resume_pcs.to_vec(),
+        },
+    }
+}
+
 pub(crate) fn build_blockpy_function(
     bind_name: String,
     qualname: String,
@@ -109,23 +175,496 @@ pub(crate) fn build_blockpy_function(
     kind: BlockPyFunctionKind,
     params: ast::Parameters,
     blocks: Vec<BlockPyBlock>,
-    generator: Option<super::block_py::BlockPyGeneratorInfo>,
 ) -> BlockPyFunction {
     BlockPyFunction {
         bind_name,
         qualname,
         binding_target,
         kind,
-        generator,
         params,
         blocks,
     }
 }
 
-pub(crate) struct PendingBlockPyGeneratorInfo {
-    pub closure_state: bool,
-    pub resume_order: Vec<String>,
-    pub yield_sites: Vec<GeneratorYieldSite>,
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn build_lowered_blockpy_function(
+    function: BlockPyFunction,
+    display_name: String,
+    is_coroutine: bool,
+    bb_kind: BbFunctionKind,
+    entry_label: String,
+    entry_params: Vec<String>,
+    block_params: HashMap<String, Vec<String>>,
+    exception_edges: HashMap<String, (Option<String>, Option<String>)>,
+    closure_layout: Option<BbClosureLayout>,
+    param_specs: BbExpr,
+    local_cell_slots: HashSet<String>,
+) -> LoweredBlockPyFunction {
+    LoweredBlockPyFunction {
+        function,
+        display_name,
+        is_coroutine,
+        bb_kind,
+        entry_label,
+        entry_params,
+        block_params,
+        exception_edges,
+        closure_layout,
+        param_specs,
+        local_cell_slots,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn build_lowered_blockpy_function_bundle(
+    prepared_function: PreparedBlockPyFunction,
+    display_name: String,
+    has_yield: bool,
+    is_coroutine: bool,
+    is_async_generator_runtime: bool,
+    is_closure_backed_generator_runtime: bool,
+    param_names: &[String],
+    extra_closure_state_names: &[String],
+    generator_capture_names: &[String],
+    label_prefix: &str,
+    mut cell_slots: HashSet<String>,
+    module_init_mode: bool,
+    main_param_specs: BbExpr,
+) -> LoweredBlockPyFunctionBundle {
+    let PreparedBlockPyFunction {
+        function: mut blockpy_function,
+        entry_label,
+        generator_metadata,
+        try_regions,
+    } = prepared_function;
+    let exception_edges = compute_blockpy_exception_edges(
+        &blockpy_function.blocks,
+        &try_regions,
+        generator_metadata.as_ref(),
+    );
+    let mut extra_successors = build_try_extra_successors(&try_regions);
+    let mut blocks_for_dataflow = std::mem::take(&mut blockpy_function.blocks);
+
+    let mut state_vars = collect_state_vars(param_names, &blocks_for_dataflow, module_init_mode);
+    if is_closure_backed_generator_runtime {
+        for name in extra_closure_state_names {
+            if !state_vars.iter().any(|existing| existing == name) {
+                state_vars.push(name.clone());
+            }
+        }
+    }
+    if is_closure_backed_generator_runtime {
+        for runtime_name in ["_dp_pc", "_dp_yieldfrom"] {
+            if !state_vars.iter().any(|existing| existing == runtime_name) {
+                state_vars.push(runtime_name.to_string());
+            }
+        }
+        for dispatch_name in ["_dp_self", "_dp_send_value", "_dp_resume_exc"] {
+            if !state_vars.iter().any(|existing| existing == dispatch_name) {
+                state_vars.push(dispatch_name.to_string());
+            }
+        }
+        if is_async_generator_runtime
+            && !state_vars
+                .iter()
+                .any(|existing| existing == "_dp_transport_sent")
+        {
+            state_vars.push("_dp_transport_sent".to_string());
+        }
+    }
+
+    for (source, (target, _)) in &exception_edges {
+        let Some(target) = target.as_ref() else {
+            continue;
+        };
+        let successors = extra_successors.entry(source.clone()).or_default();
+        if !successors.iter().any(|existing| existing == target) {
+            successors.push(target.clone());
+        }
+    }
+    if has_yield && !is_closure_backed_generator_runtime {
+        for site in generator_metadata
+            .as_ref()
+            .map(|info| info.yield_sites.as_slice())
+            .unwrap_or(&[])
+        {
+            let successors = extra_successors
+                .entry(site.yield_label.as_str().to_string())
+                .or_default();
+            if !successors
+                .iter()
+                .any(|existing| existing == site.resume_label.as_str())
+            {
+                successors.push(site.resume_label.as_str().to_string());
+            }
+        }
+    }
+
+    let mut block_params =
+        compute_block_params_blockpy(&blocks_for_dataflow, &state_vars, &extra_successors);
+    if has_yield {
+        let injected_exc_names: Vec<String> = Vec::new();
+        if is_closure_backed_generator_runtime {
+            for block in &blocks_for_dataflow {
+                if !generator_metadata
+                    .as_ref()
+                    .map(|info| {
+                        info.dispatch_only_labels
+                            .iter()
+                            .any(|label| label.as_str() == block.label.as_str())
+                    })
+                    .unwrap_or(false)
+                {
+                    continue;
+                }
+                let params = block_params
+                    .entry(block.label.as_str().to_string())
+                    .or_default();
+                let mut dispatch_params = vec![
+                    "_dp_self".to_string(),
+                    "_dp_send_value".to_string(),
+                    "_dp_resume_exc".to_string(),
+                ];
+                if is_async_generator_runtime {
+                    dispatch_params.push("_dp_transport_sent".to_string());
+                }
+                for exc_name in &injected_exc_names {
+                    if params.iter().any(|name| name == exc_name) {
+                        dispatch_params.push(exc_name.clone());
+                    }
+                }
+                *params = dispatch_params;
+            }
+        } else {
+            for block in &blocks_for_dataflow {
+                let params = block_params
+                    .entry(block.label.as_str().to_string())
+                    .or_default();
+                params.retain(|name| {
+                    name != "_dp_self"
+                        && name != "_dp_send_value"
+                        && name != "_dp_resume_exc"
+                        && name != "_dp_transport_sent"
+                });
+                params.insert(0, "_dp_self".to_string());
+                params.insert(1, "_dp_send_value".to_string());
+                params.insert(2, "_dp_resume_exc".to_string());
+                if is_async_generator_runtime {
+                    params.insert(3, "_dp_transport_sent".to_string());
+                }
+                if generator_metadata
+                    .as_ref()
+                    .map(|info| {
+                        info.dispatch_only_labels
+                            .iter()
+                            .any(|label| label.as_str() == block.label.as_str())
+                    })
+                    .unwrap_or(false)
+                {
+                    params.truncate(if is_async_generator_runtime { 4 } else { 3 });
+                    continue;
+                }
+                if block.label.as_str() != entry_label.as_str() {
+                    for exc_name in &injected_exc_names {
+                        if !params.iter().any(|name| name == exc_name) {
+                            params.push(exc_name.clone());
+                        }
+                    }
+                }
+            }
+        }
+        if !injected_exc_names.is_empty() {
+            if let Some(entry_block) = blocks_for_dataflow.iter_mut().find(|block| {
+                block.label.as_str()
+                    == generator_metadata
+                        .as_ref()
+                        .and_then(|info| info.dispatch_entry_label.as_deref())
+                        .unwrap_or(entry_label.as_str())
+            }) {
+                for exc_name in injected_exc_names.iter().rev() {
+                    let mut injected = lower_stmts_to_blockpy_stmts(&[py_stmt!(
+                        "{name:id} = __dp_DELETED",
+                        name = exc_name.as_str(),
+                    )])
+                    .unwrap_or_else(|err| {
+                        panic!("failed to convert injected exception init to BlockPy: {err}")
+                    });
+                    let stmt = injected
+                        .pop()
+                        .expect("generated deleted-sentinel init should yield one BlockPy stmt");
+                    entry_block.body.insert(0, stmt);
+                }
+            }
+        }
+    }
+
+    let state_entry_label = generator_metadata
+        .as_ref()
+        .and_then(|info| info.dispatch_entry_label.as_deref())
+        .unwrap_or(entry_label.as_str())
+        .to_string();
+    if is_closure_backed_generator_runtime {
+        rewrite_sync_generator_blockpy_blocks_to_closure_cells(
+            &mut blocks_for_dataflow,
+            &mut block_params,
+            &state_vars,
+            &mut cell_slots,
+            state_entry_label.as_str(),
+        );
+    }
+
+    let injected_exception_names = HashSet::new();
+    let closure_layout = if is_closure_backed_generator_runtime {
+        Some(build_resume_closure_layout(
+            param_names,
+            &state_vars,
+            generator_capture_names,
+            &injected_exception_names,
+        ))
+    } else {
+        None
+    };
+    let cleanup_cells = if is_closure_backed_generator_runtime {
+        sync_generator_cleanup_cells(&state_vars, &injected_exception_names)
+    } else {
+        Vec::new()
+    };
+
+    if let (Some(uncaught_label), Some(uncaught_exc_name)) = (
+        generator_metadata
+            .as_ref()
+            .and_then(|info| info.uncaught_block_label.as_deref()),
+        generator_metadata
+            .as_ref()
+            .and_then(|info| info.uncaught_exc_name.as_ref()),
+    ) {
+        let params = block_params.entry(uncaught_label.to_string()).or_default();
+        params.retain(|name| name != uncaught_exc_name);
+        params.push(uncaught_exc_name.clone());
+        if let Some(uncaught_set_done_label) = generator_metadata
+            .as_ref()
+            .and_then(|info| info.uncaught_set_done_label.as_deref())
+        {
+            let params = block_params
+                .entry(uncaught_set_done_label.to_string())
+                .or_default();
+            params.retain(|name| name != uncaught_exc_name);
+            params.push(uncaught_exc_name.clone());
+        }
+        if let Some(uncaught_raise_label) = generator_metadata
+            .as_ref()
+            .and_then(|info| info.uncaught_raise_label.as_deref())
+        {
+            let params = block_params
+                .entry(uncaught_raise_label.to_string())
+                .or_default();
+            params.retain(|name| name != uncaught_exc_name);
+            params.push(uncaught_exc_name.clone());
+        }
+    }
+    if is_closure_backed_generator_runtime {
+        if let Some(uncaught_set_done_label) = generator_metadata
+            .as_ref()
+            .and_then(|info| info.uncaught_set_done_label.as_deref())
+        {
+            if let Some(uncaught_set_done_block) = blocks_for_dataflow
+                .iter_mut()
+                .find(|block| block.label.as_str() == uncaught_set_done_label)
+            {
+                let mut new_body =
+                    Vec::with_capacity(uncaught_set_done_block.body.len() + cleanup_cells.len());
+                for stmt in std::mem::take(&mut uncaught_set_done_block.body) {
+                    new_body.push(stmt);
+                    if matches!(new_body.last(), Some(BlockPyStmt::Expr(_))) && new_body.len() == 1
+                    {
+                        for cell in &cleanup_cells {
+                            new_body.extend(
+                                lower_stmts_to_blockpy_stmts(&[py_stmt!(
+                                    "__dp_store_cell({cell:id}, __dp_DELETED)",
+                                    cell = cell.as_str(),
+                                )])
+                                .unwrap_or_else(|err| {
+                                    panic!("failed to convert cleanup stmt to BlockPy: {err}")
+                                }),
+                            );
+                        }
+                    }
+                }
+                uncaught_set_done_block.body = new_body;
+            }
+        }
+    }
+
+    let entry_params = if is_closure_backed_generator_runtime {
+        sync_generator_state_order(&state_vars, &injected_exception_names)
+    } else {
+        block_params
+            .get(&state_entry_label)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|name| {
+                name != "_dp_self" && name != "_dp_send_value" && name != "_dp_resume_exc"
+            })
+            .collect::<Vec<_>>()
+    };
+    let extra_state_vars = if is_closure_backed_generator_runtime {
+        Vec::new()
+    } else {
+        entry_params
+            .iter()
+            .filter(|name| !param_names.iter().any(|param| param == *name))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let target_labels = blocks_for_dataflow
+        .iter()
+        .map(|block| block.label.as_str().to_string())
+        .collect::<Vec<_>>();
+    let resume_pcs = if has_yield {
+        generator_metadata
+            .as_ref()
+            .map(|info| info.resume_order.as_slice())
+            .unwrap_or(&[])
+            .iter()
+            .enumerate()
+            .map(|(idx, label)| (label.as_str().to_string(), idx))
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let generator_yield_sites_for_lowering = generator_metadata
+        .as_ref()
+        .map(|info| info.yield_sites.clone())
+        .unwrap_or_default();
+    if has_yield {
+        lower_generator_yield_terms_to_explicit_return_blockpy(
+            &mut blocks_for_dataflow,
+            &block_params,
+            &resume_pcs,
+            &generator_yield_sites_for_lowering,
+            &cleanup_cells,
+            is_async_generator_runtime,
+            is_closure_backed_generator_runtime,
+        );
+    }
+
+    let mut state_order = entry_params.clone();
+    for name in extra_state_vars {
+        if !state_order.iter().any(|existing| existing == &name) {
+            state_order.push(name);
+        }
+    }
+
+    let mut exported_entry_label = entry_label.clone();
+    let mut exported_entry_params = state_order.clone();
+    let mut exported_blocks = blocks_for_dataflow;
+    let mut exported_block_params = block_params.clone();
+    let mut exported_exception_edges = exception_edges.clone();
+    let mut helper_functions = Vec::new();
+    if is_closure_backed_generator_runtime {
+        let layout = closure_layout
+            .as_ref()
+            .expect("closure-backed generator lowering requires closure layout");
+        let factory_label = format!("{label_prefix}_factory");
+        let export_plan = build_closure_backed_generator_export_plan(
+            factory_label.as_str(),
+            entry_label.as_str(),
+            blockpy_function.bind_name.as_str(),
+            display_name.as_str(),
+            blockpy_function.qualname.as_str(),
+            param_names,
+            layout,
+            is_coroutine,
+            is_async_generator_runtime,
+            &target_labels,
+            &resume_pcs,
+        );
+        let mut resume_local_cell_slots = cell_slots.iter().cloned().collect::<Vec<_>>();
+        resume_local_cell_slots.sort();
+        let resume_function = build_blockpy_function(
+            export_plan.resume_bind_name.clone(),
+            export_plan.resume_qualname.clone(),
+            BindingTarget::Local,
+            if is_async_generator_runtime {
+                BlockPyFunctionKind::AsyncGenerator
+            } else {
+                BlockPyFunctionKind::Generator
+            },
+            blockpy_function.params.clone(),
+            exported_blocks.clone(),
+        );
+        let resume_blockpy_kind = resume_function.kind;
+        helper_functions.push(build_lowered_blockpy_function(
+            resume_function,
+            export_plan.resume_display_name,
+            false,
+            bb_kind_for_blockpy_kind(
+                resume_blockpy_kind,
+                true,
+                entry_label.as_str(),
+                &target_labels,
+                &resume_pcs,
+            ),
+            entry_label.clone(),
+            export_plan.resume_entry_params,
+            exported_block_params.clone(),
+            exported_exception_edges.clone(),
+            closure_layout.clone(),
+            BbExpr::from_expr(export_plan.resume_param_specs.clone()),
+            resume_local_cell_slots.into_iter().collect(),
+        ));
+        exported_blocks = vec![export_plan.factory_block];
+        exported_entry_label = export_plan.factory_label;
+        exported_entry_params = export_plan.factory_entry_params;
+        exported_block_params =
+            HashMap::from([(exported_entry_label.clone(), exported_entry_params.clone())]);
+        exported_exception_edges = HashMap::new();
+    }
+
+    let main_blockpy_kind = if has_yield && !is_closure_backed_generator_runtime {
+        if is_async_generator_runtime {
+            BlockPyFunctionKind::AsyncGenerator
+        } else {
+            BlockPyFunctionKind::Generator
+        }
+    } else {
+        BlockPyFunctionKind::Function
+    };
+    let main_function = build_blockpy_function(
+        blockpy_function.bind_name.clone(),
+        blockpy_function.qualname.clone(),
+        blockpy_function.binding_target,
+        main_blockpy_kind,
+        blockpy_function.params.clone(),
+        exported_blocks,
+    );
+    LoweredBlockPyFunctionBundle {
+        main_function: build_lowered_blockpy_function(
+            main_function,
+            display_name,
+            is_coroutine,
+            bb_kind_for_blockpy_kind(
+                main_blockpy_kind,
+                is_closure_backed_generator_runtime,
+                entry_label.as_str(),
+                &target_labels,
+                &resume_pcs,
+            ),
+            exported_entry_label,
+            exported_entry_params,
+            exported_block_params,
+            exported_exception_edges,
+            if is_closure_backed_generator_runtime {
+                None
+            } else {
+                closure_layout
+            },
+            main_param_specs,
+            cell_slots,
+        ),
+        helper_functions,
+    }
 }
 
 pub(crate) fn build_finalized_blockpy_function(
@@ -135,35 +674,24 @@ pub(crate) fn build_finalized_blockpy_function(
     kind: BlockPyFunctionKind,
     params: ast::Parameters,
     blocks: Vec<BlockPyBlock>,
+    try_regions: Vec<TryRegionPlan>,
     entry_label: String,
     end_label: String,
     label_prefix: &str,
-    generator: Option<PendingBlockPyGeneratorInfo>,
+    generator_metadata: Option<GeneratorMetadata>,
     is_async_generator_runtime: bool,
     is_closure_backed_generator_runtime: bool,
     uncaught_exc_name: String,
-) -> (BlockPyFunction, String) {
-    let function = build_blockpy_function(
-        bind_name,
-        qualname,
-        binding_target,
-        kind,
-        params,
-        blocks,
-        generator.map(|generator| {
-            build_initial_generator_metadata(
-                entry_label.as_str(),
-                generator.closure_state,
-                &generator.resume_order,
-                &generator.yield_sites,
-            )
-        }),
-    );
+) -> PreparedBlockPyFunction {
+    let function =
+        build_blockpy_function(bind_name, qualname, binding_target, kind, params, blocks);
     finalize_blockpy_function(
         function,
+        try_regions,
         entry_label,
         end_label,
         label_prefix,
+        generator_metadata,
         is_async_generator_runtime,
         is_closure_backed_generator_runtime,
         uncaught_exc_name,
@@ -188,7 +716,7 @@ pub(crate) fn lower_function_body_to_blockpy_function<FDef, FTemp>(
     next_block_id: &mut usize,
     lower_non_bb_def: &mut FDef,
     next_temp: &mut FTemp,
-) -> (BlockPyFunction, String)
+) -> PreparedBlockPyFunction
 where
     FDef: FnMut(&ast::StmtFunctionDef) -> Vec<Stmt>,
     FTemp: FnMut(&str, &mut usize) -> String,
@@ -199,6 +727,7 @@ where
         has_yield,
     );
     let mut blocks = Vec::new();
+    let mut try_regions = Vec::new();
     let mut generator_state = BlockPySequenceGeneratorState {
         enabled: has_yield,
         closure_state: is_closure_backed_generator_runtime,
@@ -214,10 +743,18 @@ where
         &mut blocks,
         cell_slots,
         &mut generator_state,
+        &mut try_regions,
         next_block_id,
         lower_non_bb_def,
         next_temp,
     );
+    let generator_metadata = has_yield.then(|| {
+        build_initial_generator_metadata(
+            entry_label.as_str(),
+            &generator_state.resume_order,
+            &generator_state.yield_sites,
+        )
+    });
     build_finalized_blockpy_function(
         bind_name,
         qualname,
@@ -225,30 +762,76 @@ where
         blockpy_kind,
         params,
         blocks,
+        try_regions,
         entry_label,
         end_label,
         label_prefix,
-        has_yield.then_some(PendingBlockPyGeneratorInfo {
-            closure_state: generator_state.closure_state,
-            resume_order: generator_state.resume_order,
-            yield_sites: generator_state.yield_sites,
-        }),
+        generator_metadata,
         is_async_generator_runtime,
         is_closure_backed_generator_runtime,
         next_temp("uncaught_exc", next_block_id),
     )
 }
 
+fn build_try_extra_successors(try_regions: &[TryRegionPlan]) -> HashMap<String, Vec<String>> {
+    let mut extra = HashMap::new();
+    for region in try_regions {
+        for label in &region.body_region_labels {
+            extra
+                .entry(label.clone())
+                .or_insert_with(Vec::new)
+                .push(region.body_exception_target.clone());
+        }
+        if let Some(cleanup_target) = region.cleanup_exception_target.as_ref() {
+            for label in &region.cleanup_region_labels {
+                extra
+                    .entry(label.clone())
+                    .or_insert_with(Vec::new)
+                    .push(cleanup_target.clone());
+            }
+        }
+    }
+    extra
+}
+
 pub(crate) fn compute_blockpy_exception_edges(
-    function: &BlockPyFunction,
+    blocks: &[BlockPyBlock],
+    try_regions: &[TryRegionPlan],
+    generator_info: Option<&GeneratorMetadata>,
 ) -> HashMap<String, (Option<String>, Option<String>)> {
-    let mut exception_edges = compute_exception_edge_by_label_blockpy(&function.blocks);
-    if let Some(generator_info) = function.generator.as_ref() {
+    let mut exception_edges = HashMap::new();
+    for region in try_regions {
+        let body_rank = region.body_region_labels.len();
+        for label in &region.body_region_labels {
+            update_try_edge_if_better(
+                &mut exception_edges,
+                label.clone(),
+                body_rank,
+                Some(region.body_exception_target.clone()),
+            );
+        }
+        if let Some(cleanup_target) = region.cleanup_exception_target.as_ref() {
+            let cleanup_rank = region.cleanup_region_labels.len();
+            for label in &region.cleanup_region_labels {
+                update_try_edge_if_better(
+                    &mut exception_edges,
+                    label.clone(),
+                    cleanup_rank,
+                    Some(cleanup_target.clone()),
+                );
+            }
+        }
+    }
+    let mut exception_edges = exception_edges
+        .into_iter()
+        .map(|(label, (_rank, target))| (label, (target, None)))
+        .collect::<HashMap<_, _>>();
+    if let Some(generator_info) = generator_info {
         if let (Some(uncaught_label), Some(uncaught_exc_name)) = (
-            generator_info.uncaught_block_label.as_ref(),
+            generator_info.uncaught_block_label.as_deref(),
             generator_info.uncaught_exc_name.as_ref(),
         ) {
-            for block in &function.blocks {
+            for block in blocks {
                 let label = block.label.as_str();
                 if generator_info
                     .done_block_label
@@ -260,11 +843,7 @@ pub(crate) fn compute_blockpy_exception_edges(
                         .as_ref()
                         .map(|invalid| invalid.as_str() == label)
                         .unwrap_or(false)
-                    || Some(label)
-                        == generator_info
-                            .uncaught_block_label
-                            .as_ref()
-                            .map(BlockPyLabel::as_str)
+                    || Some(label) == generator_info.uncaught_block_label.as_deref()
                     || generator_info
                         .throw_passthrough_labels
                         .iter()
@@ -273,13 +852,51 @@ pub(crate) fn compute_blockpy_exception_edges(
                     continue;
                 }
                 exception_edges.entry(label.to_string()).or_insert((
-                    Some(uncaught_label.as_str().to_string()),
+                    Some(uncaught_label.to_string()),
                     Some(uncaught_exc_name.clone()),
                 ));
             }
         }
     }
     exception_edges
+}
+
+fn update_try_edge_if_better(
+    edges: &mut HashMap<String, (usize, Option<String>)>,
+    label: String,
+    rank: usize,
+    target: Option<String>,
+) {
+    let should_update = match edges.get(label.as_str()) {
+        Some((existing_rank, _)) => rank < *existing_rank,
+        None => true,
+    };
+    if should_update {
+        edges.insert(label, (rank, target));
+    }
+}
+
+fn relabel_try_regions(try_regions: &mut [TryRegionPlan], rename: &HashMap<String, String>) {
+    for region in try_regions {
+        for label in &mut region.body_region_labels {
+            if let Some(rewritten) = rename.get(label.as_str()) {
+                *label = rewritten.clone();
+            }
+        }
+        if let Some(rewritten) = rename.get(region.body_exception_target.as_str()) {
+            region.body_exception_target = rewritten.clone();
+        }
+        for label in &mut region.cleanup_region_labels {
+            if let Some(rewritten) = rename.get(label.as_str()) {
+                *label = rewritten.clone();
+            }
+        }
+        if let Some(target) = region.cleanup_exception_target.as_mut() {
+            if let Some(rewritten) = rename.get(target.as_str()) {
+                *target = rewritten.clone();
+            }
+        }
+    }
 }
 
 pub(crate) fn compat_block_from_blockpy(
@@ -507,6 +1124,7 @@ pub(crate) fn lower_for_loop_continue_entry_with_state(
     tmp_name: &str,
     loop_check_label: String,
     is_async: bool,
+    try_regions: &mut Vec<TryRegionPlan>,
     mut state: GeneratorStmtSequenceLoweringState,
 ) -> (String, GeneratorStmtSequenceLoweringState) {
     let entry = if is_async {
@@ -517,6 +1135,7 @@ pub(crate) fn lower_for_loop_continue_entry_with_state(
             tmp_name,
             loop_check_label.as_str(),
             state.closure_state,
+            try_regions,
             &mut state.resume_order,
             &mut state.yield_sites,
             &mut state.next_block_id,
@@ -552,23 +1171,20 @@ fn compat_next_label(fn_name: &str, next_id: &mut usize) -> String {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct LegacyTryPlan {
+pub(crate) struct TryPlan {
     pub finally_reason_name: Option<String>,
     pub finally_return_value_name: Option<String>,
     pub finally_dispatch_label: Option<String>,
     pub finally_return_label: Option<String>,
     pub finally_exc_name: Option<String>,
-    pub body_pass_label: String,
-    pub except_pass_label: String,
-    pub except_exc_name: String,
 }
 
-pub(crate) fn build_legacy_try_plan(
+pub(crate) fn build_try_plan(
     fn_name: &str,
     has_finally: bool,
     needs_finally_return_flow: bool,
     next_id: &mut usize,
-) -> LegacyTryPlan {
+) -> TryPlan {
     let finally_reason_name = if has_finally && needs_finally_return_flow {
         Some(compat_next_temp("try_reason", next_id))
     } else {
@@ -595,239 +1211,210 @@ pub(crate) fn build_legacy_try_plan(
         None
     };
 
-    LegacyTryPlan {
+    TryPlan {
         finally_reason_name,
         finally_return_value_name,
         finally_dispatch_label,
         finally_return_label,
         finally_exc_name,
-        body_pass_label: compat_next_label(fn_name, next_id),
-        except_pass_label: compat_next_label(fn_name, next_id),
-        except_exc_name: compat_next_temp("try_exc", next_id),
     }
 }
 
-impl LegacyTryPlan {
+impl TryPlan {
     pub(crate) fn finally_cont_label(&self, rest_entry: &str) -> String {
         self.finally_dispatch_label
             .clone()
-            .unwrap_or_else(|| rest_entry.to_string())
-    }
-
-    pub(crate) fn finally_fallthrough_label(&self, rest_entry: &str) -> Option<String> {
-        self.finally_dispatch_label
-            .clone()
-            .or_else(|| Some(rest_entry.to_string()))
-    }
-
-    pub(crate) fn pass_target(&self, finally_label: Option<&str>, rest_entry: &str) -> String {
-        finally_label
-            .map(ToOwned::to_owned)
             .unwrap_or_else(|| rest_entry.to_string())
     }
 }
 
 pub(crate) fn prepare_finally_body(
     finalbody: &ast::StmtBody,
-    finally_exc_name: &str,
+    finally_exc_name: Option<&str>,
 ) -> Vec<Box<Stmt>> {
     let mut finally_body = flatten_stmt_boxes(&finalbody.body);
-    finally_body = rewrite_exception_accesses_shared(finally_body, finally_exc_name);
-    finally_body.push(Box::new(py_stmt!(
-        "if __dp_is_not({exc:id}, None):\n    raise {exc:id}",
-        exc = finally_exc_name,
-    )));
+    if let Some(finally_exc_name) = finally_exc_name {
+        finally_body.insert(
+            0,
+            Box::new(py_stmt!(
+                "{exc:id} = __dp_current_exception()",
+                exc = finally_exc_name,
+            )),
+        );
+        finally_body.push(Box::new(py_stmt!(
+            "if __dp_is_not({exc:id}, None):\n    raise {exc:id}",
+            exc = finally_exc_name,
+        )));
+    }
     finally_body
 }
 
-pub(crate) fn prepare_except_body(
-    handlers: &[ast::ExceptHandler],
-    except_exc_name: &str,
-) -> Vec<Box<Stmt>> {
-    let except_body = handlers
+pub(crate) fn prepare_except_body(handlers: &[ast::ExceptHandler]) -> Vec<Box<Stmt>> {
+    handlers
         .first()
         .map(|handler| {
             let ast::ExceptHandler::ExceptHandler(handler) = handler;
             flatten_stmt_boxes(&handler.body.body)
         })
-        .unwrap_or_else(|| vec![Box::new(py_stmt!("raise {exc:id}", exc = except_exc_name,))]);
-    rewrite_exception_accesses_shared(except_body, except_exc_name)
+        .unwrap_or_else(|| vec![Box::new(py_stmt!("raise"))])
 }
 
-pub(crate) struct LoweredLegacyTryRegions {
+pub(crate) struct LoweredTryRegions {
     pub body_label: String,
     pub except_label: String,
     pub body_region_range: std::ops::Range<usize>,
-    pub except_region_range: std::ops::Range<usize>,
+    pub else_region_range: std::ops::Range<usize>,
+    pub except_region_range: Option<std::ops::Range<usize>>,
     pub finally_label: Option<String>,
-    pub finally_region_labels: Vec<BlockPyLabel>,
-    pub finally_fallthrough_label: Option<String>,
 }
 
-pub(crate) fn lower_legacy_try_regions<F>(
+pub(crate) fn lower_try_regions<F>(
     blocks: &mut Vec<BlockPyBlock>,
-    try_plan: &LegacyTryPlan,
+    try_plan: &TryPlan,
     rest_entry: &str,
     finally_body: Option<Vec<Box<Stmt>>>,
     else_body: Vec<Box<Stmt>>,
     try_body: Vec<Box<Stmt>>,
-    except_body: Vec<Box<Stmt>>,
+    except_body: Option<Vec<Box<Stmt>>>,
     lower_region: &mut F,
-) -> LoweredLegacyTryRegions
+) -> LoweredTryRegions
 where
     F: FnMut(&[Box<Stmt>], String, &mut Vec<BlockPyBlock>) -> String,
 {
-    let (finally_label, finally_region_labels, finally_fallthrough_label) =
-        if let Some(finally_body) = finally_body {
-            let finally_region_start = blocks.len();
-            let finally_label = lower_region(
-                &finally_body,
-                try_plan.finally_cont_label(rest_entry),
+    let finally_label = if let Some(finally_body) = finally_body {
+        let finally_label = lower_region(
+            &finally_body,
+            try_plan.finally_cont_label(rest_entry),
+            blocks,
+        );
+        if let (
+            Some(finally_return_label),
+            Some(finally_dispatch_label),
+            Some(return_name),
+            Some(reason_name),
+        ) = (
+            try_plan.finally_return_label.clone(),
+            try_plan.finally_dispatch_label.clone(),
+            try_plan.finally_return_value_name.as_ref(),
+            try_plan.finally_reason_name.as_ref(),
+        ) {
+            emit_finally_return_dispatch_blocks(
                 blocks,
+                finally_return_label,
+                finally_dispatch_label,
+                return_name,
+                reason_name,
+                rest_entry.to_string(),
             );
-            let finally_region_labels = collect_region_labels(&blocks[finally_region_start..]);
-            if let (
-                Some(finally_return_label),
-                Some(finally_dispatch_label),
-                Some(return_name),
-                Some(reason_name),
-            ) = (
-                try_plan.finally_return_label.clone(),
-                try_plan.finally_dispatch_label.clone(),
-                try_plan.finally_return_value_name.as_ref(),
-                try_plan.finally_reason_name.as_ref(),
-            ) {
-                emit_finally_return_dispatch_blocks(
-                    blocks,
-                    finally_return_label,
-                    finally_dispatch_label,
-                    return_name,
-                    reason_name,
-                    rest_entry.to_string(),
-                );
-            }
-            (
-                Some(finally_label),
-                finally_region_labels,
-                try_plan.finally_fallthrough_label(rest_entry),
-            )
-        } else {
-            (None, Vec::new(), None)
-        };
+        }
+        Some(finally_label)
+    } else {
+        None
+    };
 
-    let pass_target = try_plan.pass_target(finally_label.as_deref(), rest_entry);
+    let cleanup_target = finally_label
+        .clone()
+        .unwrap_or_else(|| rest_entry.to_string());
+
+    let else_region_start = blocks.len();
+    let else_entry = if else_body.is_empty() {
+        cleanup_target.clone()
+    } else {
+        lower_region(&else_body, cleanup_target.clone(), blocks)
+    };
+    let else_region_end = blocks.len();
+
+    let except_region_range;
+    let except_label = if let Some(except_body) = except_body {
+        let except_region_start = blocks.len();
+        let except_label = lower_region(&except_body, cleanup_target, blocks);
+        let except_region_end = blocks.len();
+        except_region_range = Some(except_region_start..except_region_end);
+        except_label
+    } else if let Some(finally_label) = finally_label.clone() {
+        except_region_range = None;
+        finally_label
+    } else {
+        panic!("expected except body or finally body when lowering try");
+    };
 
     let body_region_start = blocks.len();
-    emit_try_pass_block(
-        blocks,
-        try_plan.body_pass_label.clone(),
-        try_plan.finally_reason_name.as_deref(),
-        try_plan.finally_exc_name.as_deref(),
-        None,
-        pass_target.clone(),
-    );
-    let else_entry = lower_region(&else_body, try_plan.body_pass_label.clone(), blocks);
     let body_label = lower_region(&try_body, else_entry, blocks);
     let body_region_end = blocks.len();
 
-    let except_region_start = blocks.len();
-    emit_try_pass_block(
-        blocks,
-        try_plan.except_pass_label.clone(),
-        try_plan.finally_reason_name.as_deref(),
-        try_plan.finally_exc_name.as_deref(),
-        Some(try_plan.except_exc_name.as_str()),
-        pass_target,
-    );
-    let except_label = lower_region(&except_body, try_plan.except_pass_label.clone(), blocks);
-    let except_region_end = blocks.len();
-
-    LoweredLegacyTryRegions {
+    LoweredTryRegions {
         body_label,
         except_label,
         body_region_range: body_region_start..body_region_end,
-        except_region_range: except_region_start..except_region_end,
+        else_region_range: else_region_start..else_region_end,
+        except_region_range,
         finally_label,
-        finally_region_labels,
-        finally_fallthrough_label,
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn finalize_legacy_try_regions(
+pub(crate) fn finalize_try_regions(
     blocks: &mut Vec<BlockPyBlock>,
     label: String,
     linear: Vec<Stmt>,
     body_label: String,
     except_label: String,
-    try_plan: LegacyTryPlan,
+    try_plan: TryPlan,
     body_region_range: std::ops::Range<usize>,
-    except_region_range: std::ops::Range<usize>,
+    else_region_range: std::ops::Range<usize>,
+    except_region_range: Option<std::ops::Range<usize>>,
     finally_label: Option<String>,
-    finally_region_labels: Vec<BlockPyLabel>,
-    finally_fallthrough_label: Option<String>,
-) -> String {
+) -> (String, TryRegionPlan) {
     if let (Some(reason_name), Some(return_name), Some(finally_target)) = (
         try_plan.finally_reason_name.as_ref(),
         try_plan.finally_return_value_name.as_ref(),
         finally_label.as_ref(),
     ) {
-        let finally_exc_name = try_plan.finally_exc_name.as_deref();
-        rewrite_region_returns_to_finally_blockpy_shared(
+        rewrite_region_returns_to_finally_blockpy(
             &mut blocks[body_region_range.clone()],
             reason_name.as_str(),
             return_name.as_str(),
             finally_target.as_str(),
-            finally_exc_name,
+            None,
         );
-        rewrite_region_returns_to_finally_blockpy_shared(
-            &mut blocks[except_region_range.clone()],
+        rewrite_region_returns_to_finally_blockpy(
+            &mut blocks[else_region_range.clone()],
             reason_name.as_str(),
             return_name.as_str(),
             finally_target.as_str(),
-            finally_exc_name,
+            None,
         );
+        if let Some(except_region_range) = except_region_range.as_ref() {
+            rewrite_region_returns_to_finally_blockpy(
+                &mut blocks[except_region_range.clone()],
+                reason_name.as_str(),
+                return_name.as_str(),
+                finally_target.as_str(),
+                None,
+            );
+        }
     }
 
-    emit_legacy_try_jump_entry(
-        blocks,
-        label,
-        linear,
-        body_label,
-        except_label,
-        try_plan.except_exc_name,
-        collect_region_labels(&blocks[body_region_range]),
-        collect_region_labels(&blocks[except_region_range]),
-        finally_label,
-        try_plan.finally_exc_name,
-        finally_region_labels,
-        finally_fallthrough_label,
-    )
-}
+    let cleanup_region_labels = if finally_label.is_some() {
+        let mut labels = collect_region_label_names(&blocks[else_region_range.clone()]);
+        if let Some(except_region_range) = except_region_range.as_ref() {
+            labels.extend(collect_region_label_names(
+                &blocks[except_region_range.clone()],
+            ));
+        }
+        labels
+    } else {
+        Vec::new()
+    };
+    let try_region = TryRegionPlan {
+        body_region_labels: collect_region_label_names(&blocks[body_region_range]),
+        body_exception_target: except_label.clone(),
+        cleanup_region_labels,
+        cleanup_exception_target: finally_label.clone(),
+    };
 
-pub(crate) fn emit_try_pass_block(
-    blocks: &mut Vec<BlockPyBlock>,
-    pass_label: String,
-    reason_name: Option<&str>,
-    exc_name: Option<&str>,
-    deleted_exc_name: Option<&str>,
-    target_label: String,
-) {
-    let mut pass_stmts = Vec::new();
-    if let Some(reason_name) = reason_name {
-        pass_stmts.push(py_stmt!("{reason:id} = None", reason = reason_name,));
-    }
-    if let Some(exc_name) = exc_name {
-        pass_stmts.push(py_stmt!("{exc:id} = None", exc = exc_name));
-    }
-    if let Some(deleted_exc_name) = deleted_exc_name {
-        pass_stmts.push(py_stmt!("{exc:id} = __dp_DELETED", exc = deleted_exc_name,));
-    }
-    blocks.push(compat_block_from_blockpy(
-        pass_label,
-        pass_stmts,
-        BlockPyStmt::Jump(BlockPyLabel::from(target_label)),
-    ));
+    let label = emit_try_jump_entry(blocks, label, linear, body_label, except_label);
+    (label, try_region)
 }
 
 pub(crate) fn emit_finally_return_dispatch_blocks(
@@ -860,38 +1447,26 @@ pub(crate) fn emit_finally_return_dispatch_blocks(
     ));
 }
 
-pub(crate) fn collect_region_labels(blocks: &[BlockPyBlock]) -> Vec<BlockPyLabel> {
-    blocks.iter().map(|block| block.label.clone()).collect()
+pub(crate) fn collect_region_label_names(blocks: &[BlockPyBlock]) -> Vec<String> {
+    blocks
+        .iter()
+        .map(|block| block.label.as_str().to_string())
+        .collect()
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn emit_legacy_try_jump_entry(
+pub(crate) fn emit_try_jump_entry(
     blocks: &mut Vec<BlockPyBlock>,
     label: String,
     linear: Vec<Stmt>,
     body_label: String,
     except_label: String,
-    except_exc_name: String,
-    body_region_labels: Vec<BlockPyLabel>,
-    except_region_labels: Vec<BlockPyLabel>,
-    finally_label: Option<String>,
-    finally_exc_name: Option<String>,
-    finally_region_labels: Vec<BlockPyLabel>,
-    finally_fallthrough_label: Option<String>,
 ) -> String {
     blocks.push(compat_block_from_blockpy(
         label.clone(),
         linear,
-        BlockPyStmt::LegacyTryJump(BlockPyLegacyTryJump {
+        BlockPyStmt::TryJump(BlockPyTryJump {
             body_label: BlockPyLabel::from(body_label),
             except_label: BlockPyLabel::from(except_label),
-            except_exc_name: Some(except_exc_name),
-            body_region_labels,
-            except_region_labels,
-            finally_label: finally_label.map(BlockPyLabel::from),
-            finally_exc_name,
-            finally_region_labels,
-            finally_fallthrough_label: finally_fallthrough_label.map(BlockPyLabel::from),
         }),
     ));
     label
@@ -922,36 +1497,8 @@ fn block_references_label(block: &BlockPyBlock, label: &str) -> bool {
                 branch.default_label.as_str() == label
                     || branch.targets.iter().any(|target| target.as_str() == label)
             }
-            BlockPyStmt::Try(try_stmt) => try_stmt
-                .body
-                .iter()
-                .chain(
-                    try_stmt
-                        .handlers
-                        .iter()
-                        .flat_map(|handler| handler.body.iter()),
-                )
-                .chain(try_stmt.orelse.iter())
-                .chain(try_stmt.finalbody.iter())
-                .any(|block| {
-                    block
-                        .body
-                        .iter()
-                        .any(|stmt| stmt_references_label(stmt, label))
-                }),
-            BlockPyStmt::LegacyTryJump(try_jump) => {
-                try_jump.body_label.as_str() == label
-                    || try_jump.except_label.as_str() == label
-                    || try_jump
-                        .finally_label
-                        .as_ref()
-                        .map(|target| target.as_str() == label)
-                        .unwrap_or(false)
-                    || try_jump
-                        .finally_fallthrough_label
-                        .as_ref()
-                        .map(|target| target.as_str() == label)
-                        .unwrap_or(false)
+            BlockPyStmt::TryJump(try_jump) => {
+                try_jump.body_label.as_str() == label || try_jump.except_label.as_str() == label
             }
             _ => false,
         }
@@ -986,38 +1533,40 @@ fn terminal_if_targets(if_stmt: &BlockPyIf) -> Option<(&BlockPyLabel, &BlockPyLa
 }
 
 fn relabel_generator_info(
-    generator: &mut super::block_py::BlockPyGeneratorInfo,
+    generator: &mut GeneratorMetadata,
     label_rename: &std::collections::HashMap<String, String>,
 ) {
     if let Some(dispatch_entry_label) = generator.dispatch_entry_label.as_mut() {
         if let Some(rewritten) = label_rename.get(dispatch_entry_label.as_str()) {
-            *dispatch_entry_label = BlockPyLabel::from(rewritten.clone());
+            *dispatch_entry_label = rewritten.clone();
         }
     }
     for label in &mut generator.resume_order {
         if let Some(rewritten) = label_rename.get(label.as_str()) {
-            *label = BlockPyLabel::from(rewritten.clone());
+            *label = rewritten.clone();
         }
     }
     for site in &mut generator.yield_sites {
         if let Some(rewritten) = label_rename.get(site.yield_label.as_str()) {
-            site.yield_label = BlockPyLabel::from(rewritten.clone());
+            site.yield_label = rewritten.clone();
         }
         if let Some(rewritten) = label_rename.get(site.resume_label.as_str()) {
-            site.resume_label = BlockPyLabel::from(rewritten.clone());
+            site.resume_label = rewritten.clone();
         }
     }
 }
 
 pub(crate) fn finalize_blockpy_function(
     mut function: BlockPyFunction,
+    mut try_regions: Vec<TryRegionPlan>,
     mut entry_label: String,
     end_label: String,
     label_prefix: &str,
+    mut generator_metadata: Option<GeneratorMetadata>,
     is_async_generator_runtime: bool,
     is_closure_backed_generator_runtime: bool,
     uncaught_exc_name: String,
-) -> (BlockPyFunction, String) {
+) -> PreparedBlockPyFunction {
     let needs_end_block = entry_label == end_label
         || function
             .blocks
@@ -1031,22 +1580,19 @@ pub(crate) fn finalize_blockpy_function(
     }
     fold_jumps_to_trivial_none_return_blockpy(&mut function.blocks);
     fold_constant_brif_blockpy(&mut function.blocks);
-    let prune_roots = function
-        .generator
+    let prune_roots = generator_metadata
         .as_ref()
-        .map(|info| {
-            info.resume_order
-                .iter()
-                .map(|label| label.as_str().to_string())
-                .collect::<Vec<_>>()
-        })
+        .map(|info| info.resume_order.clone())
         .unwrap_or_default();
     prune_unreachable_blockpy_blocks(entry_label.as_str(), &prune_roots, &mut function.blocks);
     let (relabelled_entry_label, label_rename) =
         relabel_blockpy_blocks(label_prefix, entry_label.as_str(), &mut function.blocks);
     entry_label = relabelled_entry_label;
-    if let Some(generator) = function.generator.as_mut() {
+    relabel_try_regions(&mut try_regions, &label_rename);
+    if let Some(generator) = generator_metadata.as_mut() {
         relabel_generator_info(generator, &label_rename);
+        let resume_order = generator.resume_order.clone();
+        let yield_sites = generator.yield_sites.clone();
         *generator = synthesize_generator_dispatch_metadata(
             &mut function.blocks,
             &mut entry_label,
@@ -1054,11 +1600,16 @@ pub(crate) fn finalize_blockpy_function(
             is_async_generator_runtime,
             is_closure_backed_generator_runtime,
             uncaught_exc_name,
-            &generator.resume_order,
-            &generator.yield_sites,
+            &resume_order,
+            &yield_sites,
         );
     }
-    (function, entry_label)
+    PreparedBlockPyFunction {
+        function,
+        entry_label,
+        generator_metadata,
+        try_regions,
+    }
 }
 
 #[derive(Clone)]
@@ -1164,38 +1715,11 @@ fn validate_no_live_yield_in_stmt(stmt: &BlockPyStmt) {
                 validate_no_live_yield_in_expr(exc);
             }
         }
-        BlockPyStmt::Try(try_stmt) => {
-            for block in &try_stmt.body {
-                for stmt in &block.body {
-                    validate_no_live_yield_in_stmt(stmt);
-                }
-            }
-            for handler in &try_stmt.handlers {
-                if let Some(type_) = &handler.type_ {
-                    validate_no_live_yield_in_expr(type_);
-                }
-                for block in &handler.body {
-                    for stmt in &block.body {
-                        validate_no_live_yield_in_stmt(stmt);
-                    }
-                }
-            }
-            for block in &try_stmt.orelse {
-                for stmt in &block.body {
-                    validate_no_live_yield_in_stmt(stmt);
-                }
-            }
-            for block in &try_stmt.finalbody {
-                for stmt in &block.body {
-                    validate_no_live_yield_in_stmt(stmt);
-                }
-            }
-        }
         BlockPyStmt::Pass
         | BlockPyStmt::Delete(_)
         | BlockPyStmt::FunctionDef(_)
         | BlockPyStmt::Jump(_)
-        | BlockPyStmt::LegacyTryJump(_) => {}
+        | BlockPyStmt::TryJump(_) => {}
     }
 }
 
@@ -1296,34 +1820,6 @@ fn collect_nested_functions_from_stmts(
                     module_init,
                 )?;
             }
-            BlockPyStmt::Try(try_stmt) => {
-                collect_nested_functions_from_blocks(
-                    &try_stmt.body,
-                    function_identity_by_node,
-                    out,
-                    module_init,
-                )?;
-                for handler in &try_stmt.handlers {
-                    collect_nested_functions_from_blocks(
-                        &handler.body,
-                        function_identity_by_node,
-                        out,
-                        module_init,
-                    )?;
-                }
-                collect_nested_functions_from_blocks(
-                    &try_stmt.orelse,
-                    function_identity_by_node,
-                    out,
-                    module_init,
-                )?;
-                collect_nested_functions_from_blocks(
-                    &try_stmt.finalbody,
-                    function_identity_by_node,
-                    out,
-                    module_init,
-                )?;
-            }
             _ => {}
         }
     }
@@ -1407,7 +1903,9 @@ pub(crate) fn plan_stmt_sequence_head(
     }
 
     match stmt {
-        Stmt::Expr(_) | Stmt::Pass(_) | Stmt::Assign(_) => StmtSequenceHeadPlan::Linear(stmt.clone()),
+        Stmt::Expr(_) | Stmt::Pass(_) | Stmt::Assign(_) => {
+            StmtSequenceHeadPlan::Linear(stmt.clone())
+        }
         Stmt::FunctionDef(func_def) => StmtSequenceHeadPlan::FunctionDef(func_def.clone()),
         Stmt::Raise(raise_stmt) => StmtSequenceHeadPlan::Raise(raise_stmt.clone()),
         Stmt::Delete(delete_stmt) => StmtSequenceHeadPlan::Delete(delete_stmt.clone()),
@@ -1455,7 +1953,13 @@ where
                 linear.extend(rewrite_delete(&delete_stmt));
                 index += 1;
             }
-            plan => return StmtSequenceDriveResult::Break { linear, index, plan },
+            plan => {
+                return StmtSequenceDriveResult::Break {
+                    linear,
+                    index,
+                    plan,
+                }
+            }
         }
     }
     StmtSequenceDriveResult::Exhausted { linear }
@@ -1464,7 +1968,7 @@ where
 fn compat_blockpy_raise_from_stmt(raise_stmt: ast::StmtRaise) -> BlockPyRaise {
     assert!(
         raise_stmt.cause.is_none(),
-        "raise-from should be lowered before BlockPy construction"
+        "raise-from should be lowered before Ruff AST -> BlockPy conversion"
     );
     BlockPyRaise {
         exc: raise_stmt.exc.map(|expr| (*expr).into()),
@@ -1563,59 +2067,6 @@ where
     }
 }
 
-pub(crate) fn lower_try_stmt_sequence_head<F>(
-    fn_name: &str,
-    try_stmt: ast::StmtTry,
-    remaining_stmts: &[Box<Stmt>],
-    cont_label: String,
-    linear: Vec<Stmt>,
-    blocks: &mut Vec<BlockPyBlock>,
-    next_block_id: &Cell<usize>,
-    lower_sequence: &mut F,
-) -> String
-where
-    F: FnMut(&[Box<Stmt>], String, &mut Vec<BlockPyBlock>) -> String,
-{
-    let mut next_id = next_block_id.get();
-    if try_stmt.is_star {
-        let jump_label = (!linear.is_empty()).then(|| compat_next_label(fn_name, &mut next_id));
-        next_block_id.set(next_id);
-        return lower_star_try_stmt_sequence(
-            try_stmt,
-            remaining_stmts,
-            cont_label,
-            linear,
-            blocks,
-            jump_label,
-            lower_sequence,
-        );
-    }
-
-    let has_finally = !try_stmt.finalbody.body.is_empty();
-    let needs_finally_return_flow = has_finally
-        && (contains_return_stmt_in_body(&try_stmt.body.body)
-            || contains_return_stmt_in_handlers(&try_stmt.handlers)
-            || contains_return_stmt_in_body(&try_stmt.orelse.body));
-    let try_plan = build_legacy_try_plan(
-        fn_name,
-        has_finally,
-        needs_finally_return_flow,
-        &mut next_id,
-    );
-    let label = compat_next_label(fn_name, &mut next_id);
-    next_block_id.set(next_id);
-    lower_legacy_try_stmt_sequence(
-        try_stmt,
-        remaining_stmts,
-        cont_label,
-        linear,
-        blocks,
-        label,
-        try_plan,
-        lower_sequence,
-    )
-}
-
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_for_stmt_sequence_head<F>(
     fn_name: &str,
@@ -1662,6 +2113,7 @@ pub(crate) fn lower_generator_stmt_sequence_plan(
     rest_entry: Option<String>,
     blocks: &mut Vec<BlockPyBlock>,
     closure_state: bool,
+    try_regions: &mut Vec<TryRegionPlan>,
     resume_order: &mut Vec<String>,
     yield_sites: &mut Vec<GeneratorYieldSite>,
     next_block_id: &mut usize,
@@ -1674,6 +2126,7 @@ pub(crate) fn lower_generator_stmt_sequence_plan(
         rest_entry,
         blocks,
         closure_state,
+        try_regions,
         resume_order,
         yield_sites,
         next_block_id,
@@ -1690,6 +2143,7 @@ pub(crate) fn lower_generator_stmt_sequence_head<F>(
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
     mut state: GeneratorStmtSequenceLoweringState,
+    try_regions: &mut Vec<TryRegionPlan>,
     cell_slots: Option<&std::collections::HashSet<String>>,
     lower_rest: &mut F,
 ) -> (Option<String>, GeneratorStmtSequenceLoweringState)
@@ -1714,6 +2168,7 @@ where
         rest_entry,
         blocks,
         state.closure_state,
+        try_regions,
         &mut state.resume_order,
         &mut state.yield_sites,
         &mut state.next_block_id,
@@ -1732,6 +2187,7 @@ pub(crate) fn lower_stmt_sequence_with_state<FDef, FTemp>(
     blocks: &mut Vec<BlockPyBlock>,
     cell_slots: &HashSet<String>,
     generator_state: &mut BlockPySequenceGeneratorState,
+    try_regions: &mut Vec<TryRegionPlan>,
     next_block_id: &mut usize,
     lower_non_bb_def: &mut FDef,
     next_temp: &mut FTemp,
@@ -1778,6 +2234,7 @@ where
                     yield_sites: std::mem::take(&mut generator_state.yield_sites),
                     next_block_id: *next_block_id,
                 };
+                let mut local_try_regions = Vec::new();
                 let (label, updated_state) = lower_generator_stmt_sequence_head(
                     fn_name,
                     plan,
@@ -1786,6 +2243,7 @@ where
                     linear.clone(),
                     blocks,
                     initial_state,
+                    &mut local_try_regions,
                     sync_target_cells.then_some(cell_slots),
                     &mut |stmts, cont_label, blocks, state| {
                         let mut local_generator_state = BlockPySequenceGeneratorState {
@@ -1804,6 +2262,7 @@ where
                             blocks,
                             cell_slots,
                             &mut local_generator_state,
+                            try_regions,
                             &mut local_next_block_id,
                             lower_non_bb_def,
                             next_temp,
@@ -1820,6 +2279,7 @@ where
                         )
                     },
                 );
+                try_regions.extend(local_try_regions);
                 *next_block_id = updated_state.next_block_id;
                 generator_state.resume_order = updated_state.resume_order;
                 generator_state.yield_sites = updated_state.yield_sites;
@@ -1864,6 +2324,7 @@ where
                                 blocks,
                                 cell_slots,
                                 generator_state,
+                                try_regions,
                                 &mut local_next_id,
                                 lower_non_bb_def,
                                 next_temp,
@@ -1881,6 +2342,7 @@ where
                                 blocks,
                                 cell_slots,
                                 generator_state,
+                                try_regions,
                                 &mut local_next_id,
                                 lower_non_bb_def,
                                 next_temp,
@@ -1916,6 +2378,7 @@ where
                         tmp_name.as_str(),
                         loop_check_label.clone(),
                         for_stmt.is_async,
+                        try_regions,
                         continue_state,
                     );
                 *next_block_id = continue_state.next_block_id;
@@ -1954,6 +2417,7 @@ where
                                 blocks,
                                 cell_slots,
                                 generator_state,
+                                try_regions,
                                 &mut local_next_id,
                                 lower_non_bb_def,
                                 next_temp,
@@ -1971,6 +2435,7 @@ where
                                 blocks,
                                 cell_slots,
                                 generator_state,
+                                try_regions,
                                 &mut local_next_id,
                                 lower_non_bb_def,
                                 next_temp,
@@ -1985,33 +2450,84 @@ where
             }
             StmtSequenceHeadPlan::Try(try_stmt) => {
                 let next_id = Cell::new(*next_block_id);
-                let label = lower_try_stmt_sequence_head(
-                    fn_name,
-                    try_stmt,
-                    &stmts[index + 1..],
-                    cont_label.clone(),
-                    linear,
-                    blocks,
-                    &next_id,
-                    &mut |stmts, cont_label, blocks| {
-                        let mut local_next_id = next_id.get();
-                        let label = lower_stmt_sequence_with_state(
-                            fn_name,
-                            stmts,
-                            cont_label,
-                            break_label.clone(),
-                            continue_label.clone(),
-                            blocks,
-                            cell_slots,
-                            generator_state,
-                            &mut local_next_id,
-                            lower_non_bb_def,
-                            next_temp,
-                        );
-                        next_id.set(local_next_id);
-                        label
-                    },
-                );
+                let label = if try_stmt.is_star {
+                    let mut local_next_id = next_id.get();
+                    let jump_label = (!linear.is_empty())
+                        .then(|| compat_next_label(fn_name, &mut local_next_id));
+                    next_id.set(local_next_id);
+                    lower_star_try_stmt_sequence(
+                        try_stmt,
+                        &stmts[index + 1..],
+                        cont_label.clone(),
+                        linear,
+                        blocks,
+                        jump_label,
+                        &mut |stmts, cont_label, blocks| {
+                            let mut local_next_id = next_id.get();
+                            let label = lower_stmt_sequence_with_state(
+                                fn_name,
+                                stmts,
+                                cont_label,
+                                break_label.clone(),
+                                continue_label.clone(),
+                                blocks,
+                                cell_slots,
+                                generator_state,
+                                try_regions,
+                                &mut local_next_id,
+                                lower_non_bb_def,
+                                next_temp,
+                            );
+                            next_id.set(local_next_id);
+                            label
+                        },
+                    )
+                } else {
+                    let mut local_next_id = next_id.get();
+                    let has_finally = !try_stmt.finalbody.body.is_empty();
+                    let needs_finally_return_flow = has_finally
+                        && (contains_return_stmt_in_body(&try_stmt.body.body)
+                            || contains_return_stmt_in_handlers(&try_stmt.handlers)
+                            || contains_return_stmt_in_body(&try_stmt.orelse.body));
+                    let try_plan = build_try_plan(
+                        fn_name,
+                        has_finally,
+                        needs_finally_return_flow,
+                        &mut local_next_id,
+                    );
+                    let label = compat_next_label(fn_name, &mut local_next_id);
+                    next_id.set(local_next_id);
+                    let (entry, try_region) = lower_try_stmt_sequence(
+                        try_stmt,
+                        &stmts[index + 1..],
+                        cont_label.clone(),
+                        linear,
+                        blocks,
+                        label.clone(),
+                        try_plan,
+                        &mut |stmts, cont_label, blocks| {
+                            let mut local_next_id = next_id.get();
+                            let label = lower_stmt_sequence_with_state(
+                                fn_name,
+                                stmts,
+                                cont_label,
+                                break_label.clone(),
+                                continue_label.clone(),
+                                blocks,
+                                cell_slots,
+                                generator_state,
+                                try_regions,
+                                &mut local_next_id,
+                                lower_non_bb_def,
+                                next_temp,
+                            );
+                            next_id.set(local_next_id);
+                            label
+                        },
+                    );
+                    try_regions.push(try_region);
+                    entry
+                };
                 *next_block_id = next_id.into_inner();
                 return label;
             }
@@ -2281,46 +2797,38 @@ fn lower_top_level_function(
                 .insert(0, coroutine_generator_marker_stmt());
         }
     }
-    let mut blocks = lower_body_to_blocks_with_entry(
-        &runtime_body,
-        BlockPyLabel::from("start"),
-        None,
-        &mut next_label_id,
-    )?;
-    let has_generator_runtime = matches!(
+    let has_yield = matches!(
         kind,
         BlockPyFunctionKind::Generator | BlockPyFunctionKind::AsyncGenerator
     ) || coroutine_via_generator;
-    let mut generator = None;
-    if has_generator_runtime {
-        let is_generated_genexpr = func.name.id.as_str().contains("_dp_genexpr_");
-        let is_generated_comprehension_helper = is_generated_genexpr
-            || func.name.id.as_str().contains("_dp_listcomp_")
-            || func.name.id.as_str().contains("_dp_setcomp_")
-            || func.name.id.as_str().contains("_dp_dictcomp_");
-        let closure_state = !(is_generated_comprehension_helper && func.is_async);
-        let BlockPyGeneratorLoweringResult {
-            blocks: lowered_blocks,
-            info,
-        } = lower_generator_blockpy_blocks(
-            func.name.id.as_str(),
-            blocks,
-            closure_state,
-            matches!(kind, BlockPyFunctionKind::AsyncGenerator),
-            &mut next_label_id,
-        );
-        blocks = lowered_blocks;
-        generator = info;
-    }
-    Ok(build_blockpy_function(
+    let is_generated_genexpr = func.name.id.as_str().contains("_dp_genexpr_");
+    let is_generated_comprehension_helper = is_generated_genexpr
+        || func.name.id.as_str().contains("_dp_listcomp_")
+        || func.name.id.as_str().contains("_dp_setcomp_")
+        || func.name.id.as_str().contains("_dp_dictcomp_");
+    let is_async_generator_runtime = matches!(kind, BlockPyFunctionKind::AsyncGenerator);
+    let is_closure_backed_generator_runtime =
+        has_yield && !(is_generated_comprehension_helper && func.is_async);
+    let end_label = compat_next_label(func.name.id.as_str(), &mut next_label_id);
+    let prepared = lower_function_body_to_blockpy_function(
+        func.name.id.as_str(),
+        &runtime_body.body,
         bind_name,
         qualname,
         binding_target,
-        kind,
         (*func.parameters).clone(),
-        blocks,
-        generator,
-    ))
+        end_label,
+        compat_sanitize_ident(func.name.id.as_str()).as_str(),
+        has_yield,
+        coroutine_via_generator,
+        is_async_generator_runtime,
+        is_closure_backed_generator_runtime,
+        &collect_cell_slots(&runtime_body.body),
+        &mut next_label_id,
+        &mut |func_def| vec![Stmt::FunctionDef(func_def.clone())],
+        &mut compat_next_temp,
+    );
+    Ok(prepared.function)
 }
 
 fn body_has_yieldlike(body: &StmtBody) -> bool {
@@ -2471,52 +2979,8 @@ fn lower_stmt_into(
                 exc: raise_stmt.exc.as_ref().map(|exc| (**exc).clone().into()),
             }));
         }
-        Stmt::Try(try_stmt) => {
-            let handler_kind = if try_stmt.is_star {
-                BlockPyExceptHandlerKind::ExceptStar
-            } else {
-                BlockPyExceptHandlerKind::Except
-            };
-            let handlers = try_stmt
-                .handlers
-                .iter()
-                .enumerate()
-                .map(|(index, handler)| {
-                    let ast::ExceptHandler::ExceptHandler(handler) = handler;
-                    Ok(BlockPyExceptHandler {
-                        kind: handler_kind,
-                        type_: handler.type_.as_ref().map(|expr| (**expr).clone().into()),
-                        name: handler.name.as_ref().map(|name| name.id.to_string()),
-                        body: lower_nested_body_to_blocks(
-                            &handler.body,
-                            loop_ctx,
-                            next_label_id,
-                            &format!("except_{index}"),
-                        )?,
-                    })
-                })
-                .collect::<Result<Vec<_>, String>>()?;
-            out.push(BlockPyStmt::Try(BlockPyTry {
-                body: lower_nested_body_to_blocks(
-                    &try_stmt.body,
-                    loop_ctx,
-                    next_label_id,
-                    "try_body",
-                )?,
-                handlers,
-                orelse: lower_nested_body_to_blocks(
-                    &try_stmt.orelse,
-                    loop_ctx,
-                    next_label_id,
-                    "try_else",
-                )?,
-                finalbody: lower_nested_body_to_blocks(
-                    &try_stmt.finalbody,
-                    loop_ctx,
-                    next_label_id,
-                    "try_finally",
-                )?,
-            }));
+        Stmt::Try(_) => {
+            panic!("Try should be lowered through stmt-sequence BlockPy conversion");
         }
         other => {
             return Err(format!(
@@ -2600,16 +3064,16 @@ where
     )
 }
 
-pub(crate) fn lower_legacy_try_stmt_sequence<F>(
+pub(crate) fn lower_try_stmt_sequence<F>(
     try_stmt: ast::StmtTry,
     remaining_stmts: &[Box<Stmt>],
     cont_label: String,
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
     label: String,
-    try_plan: LegacyTryPlan,
+    try_plan: TryPlan,
     lower_sequence: &mut F,
-) -> String
+) -> (String, TryRegionPlan)
 where
     F: FnMut(&[Box<Stmt>], String, &mut Vec<BlockPyBlock>) -> String,
 {
@@ -2617,21 +3081,18 @@ where
 
     let else_body = flatten_stmt_boxes(&try_stmt.orelse.body);
     let try_body = flatten_stmt_boxes(&try_stmt.body.body);
-    let except_body = prepare_except_body(&try_stmt.handlers, try_plan.except_exc_name.as_str());
+    let except_body =
+        (!try_stmt.handlers.is_empty()).then(|| prepare_except_body(&try_stmt.handlers));
     let finally_body = if !try_stmt.finalbody.body.is_empty() {
-        let finally_exc_candidate = try_plan
-            .finally_exc_name
-            .as_ref()
-            .expect("try/finally planning should allocate exception temp");
         Some(prepare_finally_body(
             &try_stmt.finalbody,
-            finally_exc_candidate.as_str(),
+            try_plan.finally_exc_name.as_deref(),
         ))
     } else {
         None
     };
 
-    let lowered_try = lower_legacy_try_regions(
+    let lowered_try = lower_try_regions(
         blocks,
         &try_plan,
         rest_entry.as_str(),
@@ -2642,7 +3103,7 @@ where
         lower_sequence,
     );
 
-    finalize_legacy_try_regions(
+    finalize_try_regions(
         blocks,
         label,
         linear,
@@ -2650,10 +3111,9 @@ where
         lowered_try.except_label,
         try_plan,
         lowered_try.body_region_range,
+        lowered_try.else_region_range,
         lowered_try.except_region_range,
         lowered_try.finally_label,
-        lowered_try.finally_region_labels,
-        lowered_try.finally_fallthrough_label,
     )
 }
 
@@ -3145,7 +3605,7 @@ fn is_terminal_stmt(stmt: &BlockPyStmt) -> bool {
             | BlockPyStmt::If(_)
             | BlockPyStmt::BranchTable(_)
             | BlockPyStmt::Raise(_)
-            | BlockPyStmt::LegacyTryJump(_)
+            | BlockPyStmt::TryJump(_)
             | BlockPyStmt::Return(_)
     )
 }
@@ -3235,6 +3695,7 @@ fn assign_delete_error(message: &str, stmt: &Stmt) -> String {
 mod tests {
     use super::*;
     use crate::basic_block::bb_ir::BindingTarget;
+    use crate::basic_block::ruff_to_blockpy::generator_lowering::build_closure_backed_generator_factory_block;
 
     fn function_identity(stmt: &ast::StmtFunctionDef) -> FunctionIdentityByNode {
         FunctionIdentityByNode::from([(
@@ -3246,6 +3707,12 @@ mod tests {
                 BindingTarget::Local,
             ),
         )])
+    }
+
+    fn lower_stmt_for_panic_test(stmt: &Stmt) {
+        let mut out = Vec::new();
+        let mut next_label_id = 0usize;
+        let _ = lower_stmt_into(stmt, &mut out, None, &mut next_label_id);
     }
 
     #[test]
@@ -3273,19 +3740,12 @@ def f(x, ys):
         let blockpy = rewrite_ast_to_blockpy_module(&module, &function_identity(&func)).unwrap();
         assert_eq!(blockpy.functions.len(), 1);
         let blocks = &blockpy.functions[0].blocks;
+        let rendered = crate::basic_block::block_py::pretty::blockpy_module_to_string(&blockpy);
         assert!(blocks
             .iter()
             .any(|block| matches!(block.body.first(), Some(BlockPyStmt::If(_)))));
-        assert!(blocks.iter().any(|block| {
-            matches!(
-                block.body.first(),
-                Some(BlockPyStmt::Assign(_)) if block.label.as_str().starts_with("for_setup_")
-            )
-        }));
-        assert!(matches!(
-            blocks.last().unwrap().body.first(),
-            Some(BlockPyStmt::Try(_))
-        ));
+        assert!(rendered.contains("try_jump"), "{rendered}");
+        assert!(rendered.contains("return x"), "{rendered}");
     }
 
     #[test]
@@ -3304,16 +3764,9 @@ async def f(xs):
             panic!("expected function def");
         };
         let blockpy = rewrite_ast_to_blockpy_module(&module, &function_identity(&func)).unwrap();
-        let blocks = &blockpy.functions[0].blocks;
-        assert!(blocks.iter().any(|block| {
-            matches!(
-                block.body.first(),
-                Some(BlockPyStmt::Assign(_)) if block.label.as_str().starts_with("for_setup_")
-            )
-        }));
-        assert!(blocks
-            .iter()
-            .any(|block| block.label.as_str().starts_with("for_fetch_")));
+        let rendered = crate::basic_block::block_py::pretty::blockpy_module_to_string(&blockpy);
+        assert!(rendered.contains("__dp_await_iter"), "{rendered}");
+        assert!(rendered.contains("__dp_anext_or_sentinel"), "{rendered}");
     }
 
     #[test]
@@ -3359,6 +3812,7 @@ def gen(n):
             .clone();
 
         let mut blocks = Vec::new();
+        let mut try_regions = Vec::new();
         let mut resume_order = Vec::new();
         let mut yield_sites = Vec::new();
         let mut next_block_id = 0usize;
@@ -3371,6 +3825,7 @@ def gen(n):
             Some("cont".to_string()),
             &mut blocks,
             false,
+            &mut try_regions,
             &mut resume_order,
             &mut yield_sites,
             &mut next_block_id,
@@ -3449,9 +3904,9 @@ def gen():
     yield x
 "#,
         )
-            .unwrap()
-            .into_syntax()
-            .body;
+        .unwrap()
+        .into_syntax()
+        .body;
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
@@ -3474,9 +3929,9 @@ def gen():
     x = (yield y)
 "#,
         )
-            .unwrap()
-            .into_syntax()
-            .body;
+        .unwrap()
+        .into_syntax()
+        .body;
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
@@ -3499,9 +3954,9 @@ def f():
     return x
 "#,
         )
-            .unwrap()
-            .into_syntax()
-            .body;
+        .unwrap()
+        .into_syntax()
+        .body;
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
@@ -3556,6 +4011,7 @@ def gen(n):
         let remaining = vec![func.body.body[1].clone()];
 
         let mut blocks = Vec::new();
+        let mut try_regions = Vec::new();
         let mut rest_calls = Vec::new();
 
         let generator_plan =
@@ -3574,6 +4030,7 @@ def gen(n):
                 yield_sites: Vec::new(),
                 next_block_id: 0,
             },
+            &mut try_regions,
             None,
             &mut |stmts, cont_label, _blocks, state| {
                 rest_calls.push((stmts.len(), cont_label.clone()));
@@ -3603,6 +4060,7 @@ def gen(n):
         let stmt = func.body.body[0].as_ref();
 
         let mut blocks = Vec::new();
+        let mut try_regions = Vec::new();
         let mut rest_called = false;
 
         let generator_plan =
@@ -3621,6 +4079,7 @@ def gen(n):
                 yield_sites: Vec::new(),
                 next_block_id: 0,
             },
+            &mut try_regions,
             None,
             &mut |_stmts, _cont_label, _blocks, state| {
                 rest_called = true;
@@ -3636,6 +4095,7 @@ def gen(n):
     #[test]
     fn lower_for_loop_continue_entry_with_state_returns_loop_check_for_sync_for() {
         let mut blocks = Vec::new();
+        let mut try_regions = Vec::new();
         let (entry, state) = lower_for_loop_continue_entry_with_state(
             &mut blocks,
             "demo",
@@ -3643,6 +4103,7 @@ def gen(n):
             "_dp_tmp_0",
             "_dp_bb_demo_0".to_string(),
             false,
+            &mut try_regions,
             GeneratorStmtSequenceLoweringState {
                 enabled: true,
                 closure_state: false,
@@ -3662,6 +4123,7 @@ def gen(n):
     #[test]
     fn lower_for_loop_continue_entry_with_state_updates_async_generator_state() {
         let mut blocks = Vec::new();
+        let mut try_regions = Vec::new();
         let (entry, state) = lower_for_loop_continue_entry_with_state(
             &mut blocks,
             "demo",
@@ -3669,6 +4131,7 @@ def gen(n):
             "_dp_tmp_0",
             "_dp_bb_demo_0".to_string(),
             true,
+            &mut try_regions,
             GeneratorStmtSequenceLoweringState {
                 enabled: true,
                 closure_state: false,
@@ -3732,21 +4195,21 @@ def f(xs):
 
     #[test]
     fn builds_closure_backed_generator_factory_block() {
-        let layout = crate::basic_block::bb_ir::BbGeneratorClosureLayout {
-            inherited_captures: vec![crate::basic_block::bb_ir::BbGeneratorClosureSlot {
+        let layout = crate::basic_block::bb_ir::BbClosureLayout {
+            inherited_captures: vec![crate::basic_block::bb_ir::BbClosureSlot {
                 logical_name: "captured".to_string(),
                 storage_name: "_dp_cell_captured".to_string(),
-                init: crate::basic_block::bb_ir::BbGeneratorClosureInit::InheritedCapture,
+                init: crate::basic_block::bb_ir::BbClosureInit::InheritedCapture,
             }],
-            lifted_locals: vec![crate::basic_block::bb_ir::BbGeneratorClosureSlot {
+            lifted_locals: vec![crate::basic_block::bb_ir::BbClosureSlot {
                 logical_name: "x".to_string(),
                 storage_name: "_dp_cell_x".to_string(),
-                init: crate::basic_block::bb_ir::BbGeneratorClosureInit::Parameter,
+                init: crate::basic_block::bb_ir::BbClosureInit::Parameter,
             }],
-            runtime_cells: vec![crate::basic_block::bb_ir::BbGeneratorClosureSlot {
+            runtime_cells: vec![crate::basic_block::bb_ir::BbClosureSlot {
                 logical_name: "_dp_pc".to_string(),
                 storage_name: "_dp_cell__dp_pc".to_string(),
-                init: crate::basic_block::bb_ir::BbGeneratorClosureInit::RuntimePcZero,
+                init: crate::basic_block::bb_ir::BbClosureInit::RuntimePcZero,
             }],
         };
 
@@ -3818,7 +4281,7 @@ def f(ctx):
     }
 
     #[test]
-    fn lower_try_stmt_sequence_emits_legacy_try_jump() {
+    fn lower_try_stmt_sequence_emits_try_jump() {
         let module = ruff_python_parser::parse_module(
             r#"
 def f():
@@ -3840,8 +4303,8 @@ def f():
 
         let mut blocks = Vec::new();
         let mut next_label_id = 0usize;
-        let try_plan = build_legacy_try_plan("demo", false, false, &mut next_label_id);
-        let entry = lower_legacy_try_stmt_sequence(
+        let try_plan = build_try_plan("demo", false, false, &mut next_label_id);
+        let (entry, try_region) = lower_try_stmt_sequence(
             try_stmt.clone(),
             &[],
             "cont".to_string(),
@@ -3853,9 +4316,10 @@ def f():
         );
 
         assert!(!entry.is_empty());
+        assert_eq!(try_region.body_exception_target, "cont");
         assert!(blocks
             .iter()
-            .any(|block| matches!(block.body.last(), Some(BlockPyStmt::LegacyTryJump(_)))));
+            .any(|block| matches!(block.body.last(), Some(BlockPyStmt::TryJump(_)))));
     }
 
     #[test]
@@ -4142,11 +4606,7 @@ y = 3
         );
         assert_eq!(
             loop_calls,
-            vec![(
-                1,
-                "_dp_bb_loop_fn_0".to_string(),
-                "seq_1".to_string()
-            )]
+            vec![(1, "_dp_bb_loop_fn_0".to_string(), "seq_1".to_string())]
         );
         assert_eq!(blocks.len(), 2);
         assert_eq!(blocks[0].label.as_str(), "_dp_bb_loop_fn_0");
@@ -4229,7 +4689,7 @@ def f(x):
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
-        let _ = rewrite_ast_to_blockpy_module(&module, &function_identity(&func)).unwrap();
+        lower_stmt_for_panic_test(func.body.body[0].as_ref());
     }
 
     #[test]
@@ -4248,7 +4708,7 @@ def f():
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
-        let _ = rewrite_ast_to_blockpy_module(&module, &function_identity(&func)).unwrap();
+        lower_stmt_for_panic_test(func.body.body[0].as_ref());
     }
 
     #[test]
@@ -4266,7 +4726,7 @@ def f(x):
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
-        let _ = rewrite_ast_to_blockpy_module(&module, &function_identity(&func)).unwrap();
+        lower_stmt_for_panic_test(func.body.body[0].as_ref());
     }
 
     #[test]
@@ -4284,7 +4744,7 @@ def f(x):
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
-        let _ = rewrite_ast_to_blockpy_module(&module, &function_identity(&func)).unwrap();
+        lower_stmt_for_panic_test(func.body.body[0].as_ref());
     }
 
     #[test]
@@ -4301,10 +4761,7 @@ def f():
         .unwrap()
         .into_syntax()
         .body;
-        let ast::Stmt::FunctionDef(func) = module.body[1].as_ref() else {
-            panic!("expected function def");
-        };
-        let _ = rewrite_ast_to_blockpy_module(&module, &function_identity(&func)).unwrap();
+        lower_stmt_for_panic_test(module.body[0].as_ref());
     }
 
     #[test]
@@ -4324,7 +4781,7 @@ def f(x):
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
-        let _ = rewrite_ast_to_blockpy_module(&module, &function_identity(&func)).unwrap();
+        lower_stmt_for_panic_test(func.body.body[0].as_ref());
     }
 
     #[test]
@@ -4342,7 +4799,7 @@ def f():
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
-        let _ = rewrite_ast_to_blockpy_module(&module, &function_identity(&func)).unwrap();
+        lower_stmt_for_panic_test(func.body.body[0].as_ref());
     }
 
     #[test]
@@ -4360,7 +4817,7 @@ def f():
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
-        let _ = rewrite_ast_to_blockpy_module(&module, &function_identity(&func)).unwrap();
+        lower_stmt_for_panic_test(func.body.body[0].as_ref());
     }
 
     #[test]
@@ -4400,7 +4857,7 @@ def f():
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
-        let _ = rewrite_ast_to_blockpy_module(&module, &function_identity(&func)).unwrap();
+        lower_stmt_for_panic_test(func.body.body[0].as_ref());
     }
 
     #[test]

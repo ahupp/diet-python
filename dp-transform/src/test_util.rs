@@ -1,8 +1,8 @@
 use ruff_python_ast::{comparable::ComparableStmt, Stmt};
 use ruff_python_parser::parse_module;
 
+use crate::basic_block::ast_to_ast::Options;
 use crate::fixture::parse_fixture;
-use crate::transform::Options;
 use crate::{ruff_ast_to_string, transform_str_to_ruff_with_options};
 use similar::TextDiff;
 
