@@ -1,6 +1,6 @@
 use super::{
-    BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyDelete, BlockPyIf, BlockPyLabel,
-    BlockPyRaise, BlockPyStmt,
+    BlockPyAssign, BlockPyBlock, BlockPyBrIf, BlockPyBranchTable, BlockPyDelete, BlockPyIf,
+    BlockPyRaise, BlockPyStmt, BlockPyTerm,
 };
 use crate::basic_block::ast_symbol_analysis::{
     assigned_names_in_stmt, load_names_in_expr, load_names_in_stmt,
@@ -82,26 +82,33 @@ pub(crate) fn analyze_blockpy_use_def(block: &BlockPyBlock) -> (HashSet<String>,
             defs.insert(name);
         }
     }
+    for name in load_names_in_blockpy_term(&block.term) {
+        if !defs.contains(name.as_str()) {
+            uses.insert(name);
+        }
+    }
 
     (uses, defs)
 }
 
 fn blockpy_successors(block: &BlockPyBlock) -> Vec<String> {
-    match block.body.last() {
-        Some(BlockPyStmt::Jump(target)) => vec![target.as_str().to_string()],
-        Some(BlockPyStmt::If(if_stmt)) => terminal_if_jump_labels(if_stmt)
-            .map(|(_, then_label, else_label)| {
-                vec![
-                    then_label.as_str().to_string(),
-                    else_label.as_str().to_string(),
-                ]
-            })
-            .unwrap_or_default(),
-        Some(BlockPyStmt::BranchTable(BlockPyBranchTable {
+    match &block.term {
+        BlockPyTerm::Jump(target) => vec![target.as_str().to_string()],
+        BlockPyTerm::BrIf(BlockPyBrIf {
+            then_label,
+            else_label,
+            ..
+        }) => {
+            vec![
+                then_label.as_str().to_string(),
+                else_label.as_str().to_string(),
+            ]
+        }
+        BlockPyTerm::BranchTable(BlockPyBranchTable {
             targets,
             default_label,
             ..
-        })) => {
+        }) => {
             let mut out = targets
                 .iter()
                 .map(|label| label.as_str().to_string())
@@ -109,12 +116,11 @@ fn blockpy_successors(block: &BlockPyBlock) -> Vec<String> {
             out.push(default_label.as_str().to_string());
             out
         }
-        Some(BlockPyStmt::TryJump(try_jump)) => vec![
+        BlockPyTerm::TryJump(try_jump) => vec![
             try_jump.body_label.as_str().to_string(),
             try_jump.except_label.as_str().to_string(),
         ],
-        Some(BlockPyStmt::Raise(_)) | Some(BlockPyStmt::Return(_)) => Vec::new(),
-        _ => Vec::new(),
+        BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => Vec::new(),
     }
 }
 
@@ -158,6 +164,24 @@ fn load_names_in_blockpy_stmt(stmt: &BlockPyStmt) -> HashSet<String> {
             .map(|expr| load_names_in_expr(&expr.to_expr()))
             .unwrap_or_default(),
         BlockPyStmt::TryJump(_) => HashSet::new(),
+    }
+}
+
+fn load_names_in_blockpy_term(term: &BlockPyTerm) -> HashSet<String> {
+    match term {
+        BlockPyTerm::Jump(_) | BlockPyTerm::TryJump(_) => HashSet::new(),
+        BlockPyTerm::BrIf(BlockPyBrIf { test, .. }) => load_names_in_expr(&test.to_expr()),
+        BlockPyTerm::BranchTable(BlockPyBranchTable { index, .. }) => {
+            load_names_in_expr(&index.to_expr())
+        }
+        BlockPyTerm::Return(value) => value
+            .as_ref()
+            .map(|expr| load_names_in_expr(&expr.to_expr()))
+            .unwrap_or_default(),
+        BlockPyTerm::Raise(BlockPyRaise { exc }) => exc
+            .as_ref()
+            .map(|expr| load_names_in_expr(&expr.to_expr()))
+            .unwrap_or_default(),
     }
 }
 
@@ -208,8 +232,13 @@ fn stmt_body_from_blockpy_blocks(blocks: &[BlockPyBlock]) -> ast::StmtBody {
         range: compat_range(),
         body: blocks
             .iter()
-            .flat_map(|block| block.body.iter())
-            .filter_map(stmt_from_blockpy_stmt_for_analysis)
+            .flat_map(|block| {
+                block
+                    .body
+                    .iter()
+                    .filter_map(stmt_from_blockpy_stmt_for_analysis)
+                    .chain(stmt_from_blockpy_term_for_analysis(&block.term).into_iter())
+            })
             .map(Box::new)
             .collect(),
     }
@@ -264,30 +293,22 @@ fn stmt_from_blockpy_stmt_for_analysis(stmt: &BlockPyStmt) -> Option<Stmt> {
     }
 }
 
-fn terminal_if_jump_labels(
-    if_stmt: &BlockPyIf,
-) -> Option<(
-    &crate::basic_block::block_py::BlockPyExpr,
-    &BlockPyLabel,
-    &BlockPyLabel,
-)> {
-    let [BlockPyBlock {
-        body: then_body, ..
-    }] = if_stmt.body.as_slice()
-    else {
-        return None;
-    };
-    let [BlockPyStmt::Jump(then_label)] = then_body.as_slice() else {
-        return None;
-    };
-    let [BlockPyBlock {
-        body: else_body, ..
-    }] = if_stmt.orelse.as_slice()
-    else {
-        return None;
-    };
-    let [BlockPyStmt::Jump(else_label)] = else_body.as_slice() else {
-        return None;
-    };
-    Some((&if_stmt.test, then_label, else_label))
+fn stmt_from_blockpy_term_for_analysis(term: &BlockPyTerm) -> Option<Stmt> {
+    match term {
+        BlockPyTerm::Return(value) => Some(Stmt::Return(ast::StmtReturn {
+            node_index: compat_node_index(),
+            range: compat_range(),
+            value: value.clone().map(|value| Box::new(value.to_expr())),
+        })),
+        BlockPyTerm::Raise(BlockPyRaise { exc }) => Some(Stmt::Raise(ast::StmtRaise {
+            node_index: compat_node_index(),
+            range: compat_range(),
+            exc: exc.clone().map(|exc| Box::new(exc.to_expr())),
+            cause: None,
+        })),
+        BlockPyTerm::Jump(_)
+        | BlockPyTerm::BrIf(_)
+        | BlockPyTerm::BranchTable(_)
+        | BlockPyTerm::TryJump(_) => None,
+    }
 }

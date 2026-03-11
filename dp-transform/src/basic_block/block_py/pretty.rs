@@ -1,7 +1,7 @@
 use super::super::bb_ir::BindingTarget;
 use super::{
-    BlockPyBlock, BlockPyExpr, BlockPyFunction, BlockPyFunctionKind, BlockPyLabel, BlockPyModule,
-    BlockPyRaise, BlockPyStmt, BlockPyTryJump,
+    BlockPyBlock, BlockPyBrIf, BlockPyExpr, BlockPyFunction, BlockPyFunctionKind, BlockPyLabel,
+    BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyTerm, BlockPyTryJump,
 };
 use crate::ruff_ast_to_string;
 use ruff_python_ast::{self as ast, Expr};
@@ -71,10 +71,23 @@ impl BlockPyFormatter {
     fn write_block(&mut self, block: &BlockPyBlock, referenced_labels: &HashSet<BlockPyLabel>) {
         if referenced_labels.contains(&block.label) {
             self.line(format!("block {}:", block.label.as_str()));
-            self.with_indent(|this| this.write_stmt_list(&block.body, referenced_labels));
+            self.with_indent(|this| this.write_block_contents(block, referenced_labels));
         } else {
-            self.write_stmt_list(&block.body, referenced_labels);
+            self.write_block_contents(block, referenced_labels);
         }
+    }
+
+    fn write_block_contents(
+        &mut self,
+        block: &BlockPyBlock,
+        referenced_labels: &HashSet<BlockPyLabel>,
+    ) {
+        if block.body.is_empty() {
+            self.write_term(&block.term);
+            return;
+        }
+        self.write_stmt_list(&block.body, referenced_labels);
+        self.write_term(&block.term);
     }
 
     fn write_stmt_list(
@@ -82,10 +95,6 @@ impl BlockPyFormatter {
         stmts: &[BlockPyStmt],
         referenced_labels: &HashSet<BlockPyLabel>,
     ) {
-        if stmts.is_empty() {
-            self.line("pass");
-            return;
-        }
         for stmt in stmts {
             self.write_stmt(stmt, referenced_labels);
         }
@@ -129,19 +138,41 @@ impl BlockPyFormatter {
                     });
                 }
             }
-            BlockPyStmt::BranchTable(branch) => self.line(format!(
+            BlockPyStmt::BranchTable(_)
+            | BlockPyStmt::Jump(_)
+            | BlockPyStmt::Return(_)
+            | BlockPyStmt::Raise(_)
+            | BlockPyStmt::TryJump(_) => {
+                panic!("terminal BlockPyStmt leaked into block body: {stmt:?}")
+            }
+        }
+    }
+
+    fn write_term(&mut self, term: &BlockPyTerm) {
+        match term {
+            BlockPyTerm::Jump(label) => self.line(format!("jump {}", label.as_str())),
+            BlockPyTerm::BrIf(BlockPyBrIf {
+                test,
+                then_label,
+                else_label,
+            }) => self.line(format!(
+                "br_if {} ? {} : {}",
+                render_inline_expr(test),
+                then_label.as_str(),
+                else_label.as_str(),
+            )),
+            BlockPyTerm::BranchTable(branch) => self.line(format!(
                 "branch_table {} -> [{}] default {}",
                 render_inline_expr(&branch.index),
                 join_labels(&branch.targets),
                 branch.default_label.as_str(),
             )),
-            BlockPyStmt::Jump(label) => self.line(format!("jump {}", label.as_str())),
-            BlockPyStmt::Return(value) => match value {
+            BlockPyTerm::Raise(raise_stmt) => self.write_raise(raise_stmt),
+            BlockPyTerm::TryJump(try_jump) => self.write_try_jump(try_jump),
+            BlockPyTerm::Return(value) => match value {
                 Some(value) => self.line(format!("return {}", render_inline_expr(value))),
                 None => self.line("return"),
             },
-            BlockPyStmt::Raise(raise_stmt) => self.write_raise(raise_stmt),
-            BlockPyStmt::TryJump(try_jump) => self.write_try_jump(try_jump),
         }
     }
 
@@ -289,6 +320,7 @@ fn collect_referenced_labels_from_blocks(blocks: &[BlockPyBlock]) -> HashSet<Blo
     let mut referenced = HashSet::new();
     for block in blocks {
         collect_referenced_labels_from_stmts(&block.body, &mut referenced);
+        collect_referenced_labels_from_term(&block.term, &mut referenced);
     }
     referenced
 }
@@ -316,6 +348,27 @@ fn collect_referenced_labels_from_stmts(
             }
             _ => {}
         }
+    }
+}
+
+fn collect_referenced_labels_from_term(term: &BlockPyTerm, referenced: &mut HashSet<BlockPyLabel>) {
+    match term {
+        BlockPyTerm::Jump(label) => {
+            referenced.insert(label.clone());
+        }
+        BlockPyTerm::BrIf(br_if) => {
+            referenced.insert(br_if.then_label.clone());
+            referenced.insert(br_if.else_label.clone());
+        }
+        BlockPyTerm::BranchTable(branch) => {
+            referenced.extend(branch.targets.iter().cloned());
+            referenced.insert(branch.default_label.clone());
+        }
+        BlockPyTerm::TryJump(try_jump) => {
+            referenced.insert(try_jump.body_label.clone());
+            referenced.insert(try_jump.except_label.clone());
+        }
+        BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => {}
     }
 }
 
@@ -373,7 +426,7 @@ def classify(a, /, b: int = 1, *args, c=2, **kwargs):
             "function classify(a, /, b: int = 1, *args, c = 2, **kwargs) [kind=function, bind=classify, target=module_global, qualname=classify]"
         ));
         assert!(!rendered.contains("block start:"));
-        assert!(rendered.contains("if a:"));
+        assert!(rendered.contains("br_if a ?"));
         assert!(rendered.contains("return \"yes\""));
     }
 

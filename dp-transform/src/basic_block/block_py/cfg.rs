@@ -1,4 +1,4 @@
-use super::{BlockPyBlock, BlockPyExpr, BlockPyIf, BlockPyLabel, BlockPyStmt};
+use super::{BlockPyBlock, BlockPyBrIf, BlockPyExpr, BlockPyLabel, BlockPyStmt, BlockPyTerm};
 use crate::transformer::{walk_expr, Transformer};
 use ruff_python_ast::{Expr, Stmt};
 use std::collections::{HashMap, HashSet};
@@ -70,24 +70,15 @@ fn rename_blockpy_stmt(
             for target in &mut branch.targets {
                 if let Some(rewritten) = rename.get(target.as_str()) {
                     *target = BlockPyLabel::from(rewritten.clone());
-                } else if !known_labels.contains(target.as_str()) {
-                    panic!("missing renamed br_table target: {}", target.as_str());
                 }
             }
             if let Some(rewritten) = rename.get(branch.default_label.as_str()) {
                 branch.default_label = BlockPyLabel::from(rewritten.clone());
-            } else if !known_labels.contains(branch.default_label.as_str()) {
-                panic!(
-                    "missing renamed br_table default target: {}",
-                    branch.default_label.as_str()
-                );
             }
         }
         BlockPyStmt::Jump(target) => {
             if let Some(rewritten) = rename.get(target.as_str()) {
                 *target = BlockPyLabel::from(rewritten.clone());
-            } else if !known_labels.contains(target.as_str()) {
-                panic!("missing renamed jump target: {}", target.as_str());
             }
         }
         BlockPyStmt::Return(value) => {
@@ -104,9 +95,66 @@ fn rename_blockpy_stmt(
             for label in [&mut try_jump.body_label, &mut try_jump.except_label] {
                 if let Some(rewritten) = rename.get(label.as_str()) {
                     *label = BlockPyLabel::from(rewritten.clone());
-                } else if !known_labels.contains(label.as_str()) {
-                    panic!("missing renamed try target: {}", label.as_str());
                 }
+            }
+        }
+    }
+}
+
+fn rename_blockpy_term(
+    term: &mut BlockPyTerm,
+    body_renamer: &mut LabelNameRenamer<'_>,
+    rename: &HashMap<String, String>,
+    known_labels: &HashSet<String>,
+) {
+    fn rename_target_label(
+        label: &mut BlockPyLabel,
+        rename: &HashMap<String, String>,
+        _known_labels: &HashSet<String>,
+        _kind: &str,
+    ) {
+        if let Some(rewritten) = rename.get(label.as_str()) {
+            *label = BlockPyLabel::from(rewritten.clone());
+        }
+    }
+
+    match term {
+        BlockPyTerm::Jump(target) => rename_target_label(target, rename, known_labels, "jump"),
+        BlockPyTerm::BrIf(BlockPyBrIf {
+            test,
+            then_label,
+            else_label,
+        }) => {
+            test.rewrite_mut(|expr| body_renamer.visit_expr(expr));
+            rename_target_label(then_label, rename, known_labels, "br_if");
+            rename_target_label(else_label, rename, known_labels, "br_if");
+        }
+        BlockPyTerm::BranchTable(branch) => {
+            branch
+                .index
+                .rewrite_mut(|expr| body_renamer.visit_expr(expr));
+            for target in &mut branch.targets {
+                rename_target_label(target, rename, known_labels, "br_table");
+            }
+            rename_target_label(
+                &mut branch.default_label,
+                rename,
+                known_labels,
+                "br_table default",
+            );
+        }
+        BlockPyTerm::Raise(raise_stmt) => {
+            if let Some(exc) = raise_stmt.exc.as_mut() {
+                exc.rewrite_mut(|expr| body_renamer.visit_expr(expr));
+            }
+        }
+        BlockPyTerm::TryJump(try_jump) => {
+            rename_target_label(&mut try_jump.body_label, rename, known_labels, "try");
+            rename_target_label(&mut try_jump.except_label, rename, known_labels, "try");
+        }
+        BlockPyTerm::Return(value) => {
+            if let Some(value) = value {
+                value.rewrite_mut(|expr| body_renamer.visit_expr(expr));
             }
         }
     }
@@ -126,45 +174,31 @@ fn rename_blockpy_block(
     for stmt in &mut block.body {
         rename_blockpy_stmt(stmt, body_renamer, rename, known_labels);
     }
+    rename_blockpy_term(&mut block.term, body_renamer, rename, known_labels);
 }
 
 fn blockpy_successors(block: &BlockPyBlock) -> Vec<String> {
-    fn collect_stmt_successors(stmt: &BlockPyStmt, out: &mut Vec<String>) {
-        match stmt {
-            BlockPyStmt::Jump(target) => out.push(target.as_str().to_string()),
-            BlockPyStmt::If(if_stmt) => {
-                if let Some((_, then_label, else_label)) = terminal_if_jump_labels(if_stmt) {
-                    out.push(then_label.as_str().to_string());
-                    out.push(else_label.as_str().to_string());
-                }
-                for block in if_stmt.body.iter().chain(if_stmt.orelse.iter()) {
-                    for stmt in &block.body {
-                        collect_stmt_successors(stmt, out);
-                    }
-                }
-            }
-            BlockPyStmt::BranchTable(branch) => {
-                out.extend(
-                    branch
-                        .targets
-                        .iter()
-                        .map(|label| label.as_str().to_string()),
-                );
-                out.push(branch.default_label.as_str().to_string());
-            }
-            BlockPyStmt::TryJump(try_jump) => {
-                out.push(try_jump.body_label.as_str().to_string());
-                out.push(try_jump.except_label.as_str().to_string());
-            }
-            _ => {}
+    match &block.term {
+        BlockPyTerm::Jump(target) => vec![target.as_str().to_string()],
+        BlockPyTerm::BrIf(br_if) => vec![
+            br_if.then_label.as_str().to_string(),
+            br_if.else_label.as_str().to_string(),
+        ],
+        BlockPyTerm::BranchTable(branch) => {
+            let mut out = branch
+                .targets
+                .iter()
+                .map(|label| label.as_str().to_string())
+                .collect::<Vec<_>>();
+            out.push(branch.default_label.as_str().to_string());
+            out
         }
+        BlockPyTerm::TryJump(try_jump) => vec![
+            try_jump.body_label.as_str().to_string(),
+            try_jump.except_label.as_str().to_string(),
+        ],
+        BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => Vec::new(),
     }
-
-    let mut out = Vec::new();
-    for stmt in &block.body {
-        collect_stmt_successors(stmt, &mut out);
-    }
-    out
 }
 
 fn apply_label_rename_blockpy(
@@ -226,22 +260,18 @@ pub(crate) fn relabel_blockpy_blocks(
 pub(crate) fn fold_jumps_to_trivial_none_return_blockpy(blocks: &mut [BlockPyBlock]) {
     let trivial_ret_none_labels: HashSet<String> = blocks
         .iter()
-        .filter(|block| {
-            block.body.len() == 1 && matches!(block.body.last(), Some(BlockPyStmt::Return(None)))
-        })
+        .filter(|block| block.body.is_empty() && matches!(block.term, BlockPyTerm::Return(None)))
         .map(|block| block.label.as_str().to_string())
         .collect();
 
     for block in blocks.iter_mut() {
-        let jump_target = match block.body.last() {
-            Some(BlockPyStmt::Jump(target)) => Some(target.as_str().to_string()),
+        let jump_target = match &block.term {
+            BlockPyTerm::Jump(target) => Some(target.as_str().to_string()),
             _ => None,
         };
         if let Some(target) = jump_target {
             if trivial_ret_none_labels.contains(target.as_str()) {
-                if let Some(last) = block.body.last_mut() {
-                    *last = BlockPyStmt::Return(None);
-                }
+                block.term = BlockPyTerm::Return(None);
             }
         }
     }
@@ -249,49 +279,24 @@ pub(crate) fn fold_jumps_to_trivial_none_return_blockpy(blocks: &mut [BlockPyBlo
 
 pub(crate) fn fold_constant_brif_blockpy(blocks: &mut [BlockPyBlock]) {
     for block in blocks.iter_mut() {
-        let jump_target = match block.body.last() {
-            Some(BlockPyStmt::If(if_stmt)) => match terminal_if_jump_labels(if_stmt) {
-                Some((BlockPyExpr::BooleanLiteral(boolean), then_label, else_label)) => {
-                    if boolean.value {
-                        Some(then_label.as_str().to_string())
-                    } else {
-                        Some(else_label.as_str().to_string())
-                    }
+        let jump_target = match &block.term {
+            BlockPyTerm::BrIf(BlockPyBrIf {
+                test: BlockPyExpr::BooleanLiteral(boolean),
+                then_label,
+                else_label,
+            }) => {
+                if boolean.value {
+                    Some(then_label.as_str().to_string())
+                } else {
+                    Some(else_label.as_str().to_string())
                 }
-                _ => None,
-            },
+            }
             _ => None,
         };
         if let Some(target) = jump_target {
-            if let Some(last) = block.body.last_mut() {
-                *last = BlockPyStmt::Jump(BlockPyLabel::from(target));
-            }
+            block.term = BlockPyTerm::Jump(BlockPyLabel::from(target));
         }
     }
-}
-
-fn terminal_if_jump_labels(
-    if_stmt: &BlockPyIf,
-) -> Option<(&BlockPyExpr, &BlockPyLabel, &BlockPyLabel)> {
-    let [BlockPyBlock {
-        body: then_body, ..
-    }] = if_stmt.body.as_slice()
-    else {
-        return None;
-    };
-    let [BlockPyStmt::Jump(then_label)] = then_body.as_slice() else {
-        return None;
-    };
-    let [BlockPyBlock {
-        body: else_body, ..
-    }] = if_stmt.orelse.as_slice()
-    else {
-        return None;
-    };
-    let [BlockPyStmt::Jump(else_label)] = else_body.as_slice() else {
-        return None;
-    };
-    Some((&if_stmt.test, then_label, else_label))
 }
 
 pub(crate) fn prune_unreachable_blockpy_blocks(

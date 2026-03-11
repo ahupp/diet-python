@@ -1,4 +1,4 @@
-use super::{BlockPyAssign, BlockPyBlock, BlockPyLabel, BlockPyStmt};
+use super::{BlockPyAssign, BlockPyBlock, BlockPyLabel, BlockPyStmt, BlockPyTerm};
 use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr, Stmt};
 
@@ -10,13 +10,12 @@ pub(crate) fn rewrite_region_returns_to_finally_blockpy(
     finally_exc_name: Option<&str>,
 ) {
     for block in blocks.iter_mut() {
-        let ret_value = match block.body.pop() {
-            Some(BlockPyStmt::Return(value)) => value,
-            Some(stmt) => {
-                block.body.push(stmt);
+        let ret_value = match std::mem::replace(&mut block.term, BlockPyTerm::Return(None)) {
+            BlockPyTerm::Return(value) => value,
+            other => {
+                block.term = other;
                 continue;
             }
-            None => continue,
         };
         let ret_expr = ret_value.unwrap_or_else(|| py_expr!("None").into());
         block.body.push(BlockPyStmt::Assign(BlockPyAssign {
@@ -48,9 +47,7 @@ pub(crate) fn rewrite_region_returns_to_finally_blockpy(
                 value: py_expr!("None").into(),
             }));
         }
-        block.body.push(BlockPyStmt::Jump(BlockPyLabel::from(
-            finally_target.to_string(),
-        )));
+        block.term = BlockPyTerm::Jump(BlockPyLabel::from(finally_target.to_string()));
     }
 }
 

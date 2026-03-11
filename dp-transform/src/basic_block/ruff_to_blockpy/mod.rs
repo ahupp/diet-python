@@ -18,8 +18,9 @@ use super::block_py::state::{
     sync_target_cells_stmts as sync_target_cells_stmts_shared,
 };
 use super::block_py::{
-    BlockPyAssign, BlockPyBlock, BlockPyDelete, BlockPyExpr, BlockPyFunction, BlockPyFunctionKind,
-    BlockPyIf, BlockPyLabel, BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyTryJump,
+    BlockPyAssign, BlockPyBlock, BlockPyBrIf, BlockPyDelete, BlockPyExpr, BlockPyFunction,
+    BlockPyFunctionKind, BlockPyIf, BlockPyLabel, BlockPyModule, BlockPyRaise, BlockPyStmt,
+    BlockPyTerm, BlockPyTryJump,
 };
 use super::deleted_names::rewrite_delete_to_deleted_sentinel;
 use super::function_identity::FunctionIdentityByNode;
@@ -902,15 +903,15 @@ fn relabel_try_regions(try_regions: &mut [TryRegionPlan], rename: &HashMap<Strin
 pub(crate) fn compat_block_from_blockpy(
     label: String,
     body: Vec<Stmt>,
-    terminal: BlockPyStmt,
+    term: BlockPyTerm,
 ) -> BlockPyBlock {
-    let mut body = lower_stmts_to_blockpy_stmts(&body).unwrap_or_else(|err| {
+    let body = lower_stmts_to_blockpy_stmts(&body).unwrap_or_else(|err| {
         panic!("failed to convert compatibility block body to BlockPy: {err}")
     });
-    body.push(terminal);
     BlockPyBlock {
         label: BlockPyLabel::from(label),
         body,
+        term,
     }
 }
 
@@ -924,16 +925,10 @@ pub(crate) fn compat_if_jump_block(
     compat_block_from_blockpy(
         label.clone(),
         body,
-        BlockPyStmt::If(BlockPyIf {
+        BlockPyTerm::BrIf(BlockPyBrIf {
             test: test.into(),
-            body: vec![BlockPyBlock {
-                label: BlockPyLabel::from(format!("{label}_if_true")),
-                body: vec![BlockPyStmt::Jump(BlockPyLabel::from(then_label))],
-            }],
-            orelse: vec![BlockPyBlock {
-                label: BlockPyLabel::from(format!("{label}_if_false")),
-                body: vec![BlockPyStmt::Jump(BlockPyLabel::from(else_label))],
-            }],
+            then_label: BlockPyLabel::from(then_label),
+            else_label: BlockPyLabel::from(else_label),
         }),
     )
 }
@@ -946,7 +941,7 @@ pub(crate) fn compat_jump_block_from_blockpy(
     compat_block_from_blockpy(
         label,
         body,
-        BlockPyStmt::Jump(BlockPyLabel::from(target_label)),
+        BlockPyTerm::Jump(BlockPyLabel::from(target_label)),
     )
 }
 
@@ -955,7 +950,7 @@ pub(crate) fn compat_return_block_from_expr(
     body: Vec<Stmt>,
     value: Option<Expr>,
 ) -> BlockPyBlock {
-    compat_block_from_blockpy(label, body, BlockPyStmt::Return(value.map(Into::into)))
+    compat_block_from_blockpy(label, body, BlockPyTerm::Return(value.map(Into::into)))
 }
 
 pub(crate) fn compat_raise_block_from_blockpy_raise(
@@ -963,7 +958,27 @@ pub(crate) fn compat_raise_block_from_blockpy_raise(
     body: Vec<Stmt>,
     exc: BlockPyRaise,
 ) -> BlockPyBlock {
-    compat_block_from_blockpy(label, body, BlockPyStmt::Raise(exc))
+    compat_block_from_blockpy(label, body, BlockPyTerm::Raise(exc))
+}
+
+fn term_from_legacy_stmt(stmt: &BlockPyStmt) -> Option<BlockPyTerm> {
+    BlockPyTerm::from_stmt(stmt)
+}
+
+pub(crate) fn finalize_blockpy_block(
+    label: BlockPyLabel,
+    mut body: Vec<BlockPyStmt>,
+    fallthrough_target: Option<BlockPyLabel>,
+) -> BlockPyBlock {
+    let explicit_term = body.last().and_then(term_from_legacy_stmt);
+    if explicit_term.is_some() {
+        body.pop();
+    }
+    let term = explicit_term.unwrap_or_else(|| match fallthrough_target {
+        Some(target) => BlockPyTerm::Jump(target),
+        None => BlockPyTerm::Return(None),
+    });
+    BlockPyBlock { label, body, term }
 }
 
 pub(crate) fn emit_sequence_jump_block(
@@ -1071,7 +1086,7 @@ pub(crate) fn emit_for_loop_blocks(
     blocks.push(compat_block_from_blockpy(
         assign_label.clone(),
         assign_body,
-        BlockPyStmt::Jump(BlockPyLabel::from(body_entry)),
+        BlockPyTerm::Jump(BlockPyLabel::from(body_entry)),
     ));
 
     let exhausted_test = py_expr!(
@@ -1112,7 +1127,7 @@ pub(crate) fn emit_for_loop_blocks(
     blocks.push(compat_block_from_blockpy(
         setup_label.clone(),
         setup_body,
-        BlockPyStmt::Jump(BlockPyLabel::from(loop_continue_label)),
+        BlockPyTerm::Jump(BlockPyLabel::from(loop_continue_label)),
     ));
     setup_label
 }
@@ -1428,21 +1443,15 @@ pub(crate) fn emit_finally_return_dispatch_blocks(
     blocks.push(compat_block_from_blockpy(
         finally_return_label.clone(),
         Vec::new(),
-        BlockPyStmt::Return(Some(py_expr!("{name:id}", name = return_name).into())),
+        BlockPyTerm::Return(Some(py_expr!("{name:id}", name = return_name).into())),
     ));
     blocks.push(compat_block_from_blockpy(
         finally_dispatch_label.clone(),
         Vec::new(),
-        BlockPyStmt::If(BlockPyIf {
+        BlockPyTerm::BrIf(BlockPyBrIf {
             test: py_expr!("__dp_eq({reason:id}, 'return')", reason = reason_name,).into(),
-            body: vec![BlockPyBlock {
-                label: BlockPyLabel::from(format!("{finally_dispatch_label}_true")),
-                body: vec![BlockPyStmt::Jump(BlockPyLabel::from(finally_return_label))],
-            }],
-            orelse: vec![BlockPyBlock {
-                label: BlockPyLabel::from(format!("{finally_dispatch_label}_false")),
-                body: vec![BlockPyStmt::Jump(BlockPyLabel::from(rest_entry))],
-            }],
+            then_label: BlockPyLabel::from(finally_return_label),
+            else_label: BlockPyLabel::from(rest_entry),
         }),
     ));
 }
@@ -1464,7 +1473,7 @@ pub(crate) fn emit_try_jump_entry(
     blocks.push(compat_block_from_blockpy(
         label.clone(),
         linear,
-        BlockPyStmt::TryJump(BlockPyTryJump {
+        BlockPyTerm::TryJump(BlockPyTryJump {
             body_label: BlockPyLabel::from(body_label),
             except_label: BlockPyLabel::from(except_label),
         }),
@@ -1475,7 +1484,6 @@ pub(crate) fn emit_try_jump_entry(
 fn block_references_label(block: &BlockPyBlock, label: &str) -> bool {
     fn stmt_references_label(stmt: &BlockPyStmt, label: &str) -> bool {
         match stmt {
-            BlockPyStmt::Jump(target) => target.as_str() == label,
             BlockPyStmt::If(if_stmt) => {
                 terminal_if_targets(if_stmt)
                     .map(|(then_label, else_label)| {
@@ -1486,19 +1494,7 @@ fn block_references_label(block: &BlockPyBlock, label: &str) -> bool {
                         .body
                         .iter()
                         .chain(if_stmt.orelse.iter())
-                        .any(|block| {
-                            block
-                                .body
-                                .iter()
-                                .any(|stmt| stmt_references_label(stmt, label))
-                        })
-            }
-            BlockPyStmt::BranchTable(branch) => {
-                branch.default_label.as_str() == label
-                    || branch.targets.iter().any(|target| target.as_str() == label)
-            }
-            BlockPyStmt::TryJump(try_jump) => {
-                try_jump.body_label.as_str() == label || try_jump.except_label.as_str() == label
+                        .any(|block| block_references_label(block, label))
             }
             _ => false,
         }
@@ -1508,27 +1504,47 @@ fn block_references_label(block: &BlockPyBlock, label: &str) -> bool {
         .body
         .iter()
         .any(|stmt| stmt_references_label(stmt, label))
+        || match &block.term {
+            BlockPyTerm::Jump(target) => target.as_str() == label,
+            BlockPyTerm::BrIf(BlockPyBrIf {
+                then_label,
+                else_label,
+                ..
+            }) => then_label.as_str() == label || else_label.as_str() == label,
+            BlockPyTerm::BranchTable(branch) => {
+                branch.default_label.as_str() == label
+                    || branch.targets.iter().any(|target| target.as_str() == label)
+            }
+            BlockPyTerm::TryJump(try_jump) => {
+                try_jump.body_label.as_str() == label || try_jump.except_label.as_str() == label
+            }
+            BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => false,
+        }
 }
 
 fn terminal_if_targets(if_stmt: &BlockPyIf) -> Option<(&BlockPyLabel, &BlockPyLabel)> {
     let [BlockPyBlock {
-        body: then_body, ..
+        body: then_body,
+        term: BlockPyTerm::Jump(then_label),
+        ..
     }] = if_stmt.body.as_slice()
     else {
         return None;
     };
-    let [BlockPyStmt::Jump(then_label)] = then_body.as_slice() else {
+    if !then_body.is_empty() {
         return None;
-    };
+    }
     let [BlockPyBlock {
-        body: else_body, ..
+        body: else_body,
+        term: BlockPyTerm::Jump(else_label),
+        ..
     }] = if_stmt.orelse.as_slice()
     else {
         return None;
     };
-    let [BlockPyStmt::Jump(else_label)] = else_body.as_slice() else {
+    if !else_body.is_empty() {
         return None;
-    };
+    }
     Some((then_label, else_label))
 }
 
@@ -1575,7 +1591,8 @@ pub(crate) fn finalize_blockpy_function(
     if needs_end_block {
         function.blocks.push(BlockPyBlock {
             label: BlockPyLabel::from(end_label),
-            body: vec![BlockPyStmt::Return(None)],
+            body: Vec::new(),
+            term: BlockPyTerm::Return(None),
         });
     }
     fold_jumps_to_trivial_none_return_blockpy(&mut function.blocks);
@@ -2569,7 +2586,7 @@ where
     blocks.push(compat_block_from_blockpy(
         jump_label.clone(),
         linear,
-        BlockPyStmt::Jump(BlockPyLabel::from(expanded_entry)),
+        BlockPyTerm::Jump(BlockPyLabel::from(expanded_entry)),
     ));
     jump_label
 }
@@ -2854,6 +2871,7 @@ fn lower_nested_body_to_blocks(
         fresh_blockpy_label(label_prefix, next_label_id),
         loop_ctx,
         next_label_id,
+        None,
     )
 }
 
@@ -3392,6 +3410,7 @@ fn lower_body_to_blocks_with_entry(
     entry_label: BlockPyLabel,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
+    fallthrough_target: Option<BlockPyLabel>,
 ) -> Result<Vec<BlockPyBlock>, String> {
     let mut blocks = Vec::new();
     let mut current_label = entry_label;
@@ -3400,11 +3419,6 @@ fn lower_body_to_blocks_with_entry(
     for stmt in &body.body {
         match stmt.as_ref() {
             Stmt::While(while_stmt) => {
-                blocks.push(BlockPyBlock {
-                    label: current_label.clone(),
-                    body: current_body,
-                });
-
                 let test_label = fresh_blockpy_label("while_test", next_label_id);
                 let body_label = fresh_blockpy_label("while_body", next_label_id);
                 let after_label = fresh_blockpy_label("while_after", next_label_id);
@@ -3414,34 +3428,33 @@ fn lower_body_to_blocks_with_entry(
                     Some(fresh_blockpy_label("while_else", next_label_id))
                 };
 
+                blocks.push(finalize_blockpy_block(
+                    current_label.clone(),
+                    current_body,
+                    Some(test_label.clone()),
+                ));
+
                 blocks.push(BlockPyBlock {
                     label: test_label.clone(),
-                    body: vec![BlockPyStmt::If(BlockPyIf {
+                    body: Vec::new(),
+                    term: BlockPyTerm::BrIf(BlockPyBrIf {
                         test: (*while_stmt.test).clone().into(),
-                        body: vec![BlockPyBlock {
-                            label: fresh_blockpy_label("while_if_true", next_label_id),
-                            body: vec![BlockPyStmt::Jump(body_label.clone())],
-                        }],
-                        orelse: vec![BlockPyBlock {
-                            label: fresh_blockpy_label("while_if_false", next_label_id),
-                            body: vec![BlockPyStmt::Jump(
-                                else_label.clone().unwrap_or_else(|| after_label.clone()),
-                            )],
-                        }],
-                    })],
+                        then_label: body_label.clone(),
+                        else_label: else_label.clone().unwrap_or_else(|| after_label.clone()),
+                    }),
                 });
 
                 let inner_loop_ctx = LoopContext {
                     continue_label: test_label.clone(),
                     break_label: after_label.clone(),
                 };
-                let mut loop_body = lower_body_to_blocks_with_entry(
+                let loop_body = lower_body_to_blocks_with_entry(
                     &while_stmt.body,
                     body_label.clone(),
                     Some(&inner_loop_ctx),
                     next_label_id,
+                    Some(test_label.clone()),
                 )?;
-                ensure_terminal_jump(&mut loop_body, test_label.clone());
                 blocks.extend(loop_body);
 
                 if let Some(else_label) = else_label {
@@ -3450,6 +3463,7 @@ fn lower_body_to_blocks_with_entry(
                         else_label,
                         loop_ctx,
                         next_label_id,
+                        Some(after_label.clone()),
                     )?);
                 }
 
@@ -3457,13 +3471,9 @@ fn lower_body_to_blocks_with_entry(
                 current_body = Vec::new();
             }
             Stmt::For(for_stmt) => {
-                blocks.push(BlockPyBlock {
-                    label: current_label.clone(),
-                    body: current_body,
-                });
-
                 let setup_label = fresh_blockpy_label("for_setup", next_label_id);
                 let fetch_label = fresh_blockpy_label("for_fetch", next_label_id);
+                let assign_label = fresh_blockpy_label("for_assign", next_label_id);
                 let body_label = fresh_blockpy_label("for_body", next_label_id);
                 let after_label = fresh_blockpy_label("for_after", next_label_id);
                 let else_label = if for_stmt.orelse.body.is_empty() {
@@ -3473,6 +3483,12 @@ fn lower_body_to_blocks_with_entry(
                 };
                 let iter_name = fresh_name("iter");
                 let target_tmp = fresh_name("tmp");
+
+                blocks.push(finalize_blockpy_block(
+                    current_label.clone(),
+                    current_body,
+                    Some(setup_label.clone()),
+                ));
 
                 let iter_expr = if for_stmt.is_async {
                     py_expr!("__dp_aiter({iter:expr})", iter = *for_stmt.iter.clone())
@@ -3488,6 +3504,7 @@ fn lower_body_to_blocks_with_entry(
                             .clone(),
                         value: iter_expr.into(),
                     })],
+                    term: BlockPyTerm::Jump(fetch_label.clone()),
                 });
 
                 let fetch_value = if for_stmt.is_async {
@@ -3515,49 +3532,44 @@ fn lower_body_to_blocks_with_entry(
                         .clone(),
                     value: py_expr!("None").into(),
                 }));
-                false_body.push(BlockPyStmt::Jump(body_label.clone()));
 
                 blocks.push(BlockPyBlock {
                     label: fetch_label.clone(),
-                    body: vec![
-                        BlockPyStmt::Assign(BlockPyAssign {
-                            target: py_expr!("{tmp:id}", tmp = target_tmp.as_str())
-                                .as_name_expr()
-                                .expect("fresh target temp should be a name")
-                                .clone(),
-                            value: fetch_value.into(),
-                        }),
-                        BlockPyStmt::If(BlockPyIf {
-                            test: py_expr!(
-                                "__dp_is_({value:expr}, __dp__.ITER_COMPLETE)",
-                                value = py_expr!("{tmp:id}", tmp = target_tmp.as_str())
-                            )
-                            .into(),
-                            body: vec![BlockPyBlock {
-                                label: fresh_blockpy_label("for_done", next_label_id),
-                                body: vec![BlockPyStmt::Jump(
-                                    else_label.clone().unwrap_or_else(|| after_label.clone()),
-                                )],
-                            }],
-                            orelse: vec![BlockPyBlock {
-                                label: fresh_blockpy_label("for_next", next_label_id),
-                                body: false_body,
-                            }],
-                        }),
-                    ],
+                    body: vec![BlockPyStmt::Assign(BlockPyAssign {
+                        target: py_expr!("{tmp:id}", tmp = target_tmp.as_str())
+                            .as_name_expr()
+                            .expect("fresh target temp should be a name")
+                            .clone(),
+                        value: fetch_value.into(),
+                    })],
+                    term: BlockPyTerm::BrIf(BlockPyBrIf {
+                        test: py_expr!(
+                            "__dp_is_({value:expr}, __dp__.ITER_COMPLETE)",
+                            value = py_expr!("{tmp:id}", tmp = target_tmp.as_str())
+                        )
+                        .into(),
+                        then_label: else_label.clone().unwrap_or_else(|| after_label.clone()),
+                        else_label: assign_label.clone(),
+                    }),
                 });
+
+                blocks.push(finalize_blockpy_block(
+                    assign_label,
+                    false_body,
+                    Some(body_label.clone()),
+                ));
 
                 let inner_loop_ctx = LoopContext {
                     continue_label: fetch_label.clone(),
                     break_label: after_label.clone(),
                 };
-                let mut loop_body = lower_body_to_blocks_with_entry(
+                let loop_body = lower_body_to_blocks_with_entry(
                     &for_stmt.body,
                     body_label.clone(),
                     Some(&inner_loop_ctx),
                     next_label_id,
+                    Some(fetch_label.clone()),
                 )?;
-                ensure_terminal_jump(&mut loop_body, fetch_label.clone());
                 blocks.extend(loop_body);
 
                 if let Some(else_label) = else_label {
@@ -3566,6 +3578,7 @@ fn lower_body_to_blocks_with_entry(
                         else_label,
                         loop_ctx,
                         next_label_id,
+                        Some(after_label.clone()),
                     )?);
                 }
 
@@ -3576,10 +3589,11 @@ fn lower_body_to_blocks_with_entry(
         }
     }
 
-    blocks.push(BlockPyBlock {
-        label: current_label,
-        body: current_body,
-    });
+    blocks.push(finalize_blockpy_block(
+        current_label,
+        current_body,
+        fallthrough_target,
+    ));
     Ok(blocks)
 }
 
@@ -3587,27 +3601,6 @@ fn fresh_blockpy_label(prefix: &str, next_label_id: &mut usize) -> BlockPyLabel 
     let label = BlockPyLabel::from(format!("{prefix}_{next_label_id}"));
     *next_label_id += 1;
     label
-}
-
-fn ensure_terminal_jump(blocks: &mut [BlockPyBlock], target: BlockPyLabel) {
-    let Some(last) = blocks.last_mut() else {
-        return;
-    };
-    if !last.body.last().is_some_and(is_terminal_stmt) {
-        last.body.push(BlockPyStmt::Jump(target));
-    }
-}
-
-fn is_terminal_stmt(stmt: &BlockPyStmt) -> bool {
-    matches!(
-        stmt,
-        BlockPyStmt::Jump(_)
-            | BlockPyStmt::If(_)
-            | BlockPyStmt::BranchTable(_)
-            | BlockPyStmt::Raise(_)
-            | BlockPyStmt::TryJump(_)
-            | BlockPyStmt::Return(_)
-    )
 }
 
 fn lower_orelse_to_blocks(
@@ -3743,7 +3736,7 @@ def f(x, ys):
         let rendered = crate::basic_block::block_py::pretty::blockpy_module_to_string(&blockpy);
         assert!(blocks
             .iter()
-            .any(|block| matches!(block.body.first(), Some(BlockPyStmt::If(_)))));
+            .any(|block| matches!(block.term, BlockPyTerm::BrIf(_))));
         assert!(rendered.contains("try_jump"), "{rendered}");
         assert!(rendered.contains("return x"), "{rendered}");
     }
@@ -4232,10 +4225,7 @@ def f(xs):
         );
 
         assert_eq!(block.label.as_str(), "_dp_bb_demo_factory");
-        assert!(matches!(
-            block.body.last(),
-            Some(BlockPyStmt::Return(Some(_)))
-        ));
+        assert!(matches!(block.term, BlockPyTerm::Return(Some(_))));
     }
 
     #[test]
@@ -4319,7 +4309,7 @@ def f():
         assert_eq!(try_region.body_exception_target, "cont");
         assert!(blocks
             .iter()
-            .any(|block| matches!(block.body.last(), Some(BlockPyStmt::TryJump(_)))));
+            .any(|block| matches!(block.term, BlockPyTerm::TryJump(_))));
     }
 
     #[test]
@@ -4363,8 +4353,8 @@ def f():
         assert_eq!(blocks.len(), 1);
         assert_eq!(blocks[0].label.as_str(), "prefix");
         assert!(matches!(
-            blocks[0].body.last(),
-            Some(BlockPyStmt::Jump(label)) if label.as_str() == "expanded_entry"
+            &blocks[0].term,
+            BlockPyTerm::Jump(label) if label.as_str() == "expanded_entry"
         ));
     }
 
@@ -4398,7 +4388,7 @@ def f():
             ]
         );
         assert_eq!(blocks.len(), 1);
-        assert!(matches!(blocks[0].body.last(), Some(BlockPyStmt::If(_))));
+        assert!(matches!(blocks[0].term, BlockPyTerm::BrIf(_)));
     }
 
     #[test]
@@ -4414,8 +4404,8 @@ def f():
         assert_eq!(entry, "jump_label");
         assert_eq!(blocks.len(), 1);
         assert!(matches!(
-            blocks[0].body.last(),
-            Some(BlockPyStmt::Jump(label)) if label.as_str() == "target"
+            &blocks[0].term,
+            BlockPyTerm::Jump(label) if label.as_str() == "target"
         ));
     }
 
@@ -4431,10 +4421,7 @@ def f():
 
         assert_eq!(entry, "ret_label");
         assert_eq!(blocks.len(), 1);
-        assert!(matches!(
-            blocks[0].body.last(),
-            Some(BlockPyStmt::Return(Some(_)))
-        ));
+        assert!(matches!(blocks[0].term, BlockPyTerm::Return(Some(_))));
     }
 
     #[test]
@@ -4452,8 +4439,8 @@ def f():
         assert_eq!(entry, "raise_label");
         assert_eq!(blocks.len(), 1);
         assert!(matches!(
-            blocks[0].body.last(),
-            Some(BlockPyStmt::Raise(BlockPyRaise { exc: Some(_) }))
+            blocks[0].term,
+            BlockPyTerm::Raise(BlockPyRaise { exc: Some(_) })
         ));
     }
 
@@ -4501,7 +4488,7 @@ y = 3
             ]
         );
         assert_eq!(blocks.len(), 1);
-        assert!(matches!(blocks[0].body.last(), Some(BlockPyStmt::If(_))));
+        assert!(matches!(blocks[0].term, BlockPyTerm::BrIf(_)));
     }
 
     #[test]
@@ -4835,9 +4822,9 @@ def f():
             panic!("expected function def");
         };
         let blockpy = rewrite_ast_to_blockpy_module(&module, &function_identity(&func)).unwrap();
-        let raise_stmt = match &blockpy.functions[0].blocks[0].body[0] {
-            BlockPyStmt::Raise(raise_stmt) => raise_stmt,
-            other => panic!("expected BlockPy raise, got {other:?}"),
+        let raise_stmt = match &blockpy.functions[0].blocks[0].term {
+            BlockPyTerm::Raise(raise_stmt) => raise_stmt,
+            other => panic!("expected BlockPy raise term, got {other:?}"),
         };
         assert!(raise_stmt.exc.is_none());
     }

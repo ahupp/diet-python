@@ -1,7 +1,7 @@
 use super::super::blockpy_to_bb;
 use super::super::ruff_to_blockpy::lower_stmts_to_blockpy_stmts;
 use super::dataflow::analyze_blockpy_use_def;
-use super::{BlockPyBlock, BlockPyIf, BlockPyStmt};
+use super::{BlockPyBlock, BlockPyIf, BlockPyStmt, BlockPyTerm};
 use crate::basic_block::ast_symbol_analysis::{assigned_names_in_stmt, collect_assigned_names};
 use crate::basic_block::ast_to_ast::scope::cell_name;
 use crate::py_stmt;
@@ -330,6 +330,36 @@ fn rewrite_sync_generator_blockpy_block(
             _ => {}
         }
     }
+
+    rewrite_sync_generator_blockpy_term(
+        &mut block.term,
+        block_params,
+        passthrough_exception_names,
+        lifted_state,
+        lifted_storage_names,
+        injected_exception_names,
+        cell_slots,
+    );
+}
+
+fn rewrite_sync_generator_blockpy_term(
+    term: &mut BlockPyTerm,
+    block_params: &mut HashMap<String, Vec<String>>,
+    passthrough_exception_names: &HashSet<String>,
+    lifted_state: &[String],
+    lifted_storage_names: &HashSet<String>,
+    injected_exception_names: &HashSet<String>,
+    cell_slots: &HashSet<String>,
+) {
+    let _ = (
+        term,
+        block_params,
+        passthrough_exception_names,
+        lifted_state,
+        lifted_storage_names,
+        injected_exception_names,
+        cell_slots,
+    );
 }
 
 fn params_contain(block_params: &HashMap<String, Vec<String>>, label: &str, name: &str) -> bool {

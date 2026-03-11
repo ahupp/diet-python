@@ -40,6 +40,7 @@ pub enum BlockPyFunctionKind {
 pub struct BlockPyBlock {
     pub label: BlockPyLabel,
     pub body: Vec<BlockPyStmt>,
+    pub term: BlockPyTerm,
 }
 
 #[derive(Debug, Clone)]
@@ -94,6 +95,16 @@ pub enum BlockPyStmt {
 }
 
 #[derive(Debug, Clone)]
+pub enum BlockPyTerm {
+    Jump(BlockPyLabel),
+    BrIf(BlockPyBrIf),
+    BranchTable(BlockPyBranchTable),
+    Raise(BlockPyRaise),
+    TryJump(BlockPyTryJump),
+    Return(Option<BlockPyExpr>),
+}
+
+#[derive(Debug, Clone)]
 pub struct BlockPyAssign {
     pub target: ExprName,
     pub value: BlockPyExpr,
@@ -112,6 +123,13 @@ pub struct BlockPyIf {
 }
 
 #[derive(Debug, Clone)]
+pub struct BlockPyBrIf {
+    pub test: BlockPyExpr,
+    pub then_label: BlockPyLabel,
+    pub else_label: BlockPyLabel,
+}
+
+#[derive(Debug, Clone)]
 pub struct BlockPyBranchTable {
     pub index: BlockPyExpr,
     pub targets: Vec<BlockPyLabel>,
@@ -127,6 +145,41 @@ pub struct BlockPyRaise {
 pub struct BlockPyTryJump {
     pub body_label: BlockPyLabel,
     pub except_label: BlockPyLabel,
+}
+
+impl BlockPyTerm {
+    pub fn from_stmt(stmt: &BlockPyStmt) -> Option<Self> {
+        match stmt {
+            BlockPyStmt::Jump(target) => Some(Self::Jump(target.clone())),
+            BlockPyStmt::If(if_stmt) => Some(Self::BrIf(BlockPyBrIf {
+                test: if_stmt.test.clone(),
+                then_label: single_jump_term_target(&if_stmt.body)?.clone(),
+                else_label: single_jump_term_target(&if_stmt.orelse)?.clone(),
+            })),
+            BlockPyStmt::BranchTable(branch) => Some(Self::BranchTable(branch.clone())),
+            BlockPyStmt::Return(value) => Some(Self::Return(value.clone())),
+            BlockPyStmt::Raise(raise_stmt) => Some(Self::Raise(raise_stmt.clone())),
+            BlockPyStmt::TryJump(try_jump) => Some(Self::TryJump(try_jump.clone())),
+            BlockPyStmt::Pass
+            | BlockPyStmt::Assign(_)
+            | BlockPyStmt::Expr(_)
+            | BlockPyStmt::Delete(_)
+            | BlockPyStmt::FunctionDef(_) => None,
+        }
+    }
+}
+
+fn single_jump_term_target(blocks: &[BlockPyBlock]) -> Option<&BlockPyLabel> {
+    let [block] = blocks else {
+        return None;
+    };
+    if !block.body.is_empty() {
+        return None;
+    }
+    match &block.term {
+        BlockPyTerm::Jump(label) => Some(label),
+        _ => None,
+    }
 }
 
 impl From<Expr> for BlockPyExpr {

@@ -1,5 +1,6 @@
 use crate::basic_block::block_py::{
-    BlockPyBlock, BlockPyBranchTable, BlockPyIf, BlockPyRaise, BlockPyStmt,
+    BlockPyBlock, BlockPyBrIf, BlockPyBranchTable, BlockPyIf, BlockPyRaise, BlockPyStmt,
+    BlockPyTerm,
 };
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
@@ -135,6 +136,7 @@ pub(crate) fn rewrite_deleted_name_loads(
         for stmt in block.body.iter_mut() {
             rewrite_blockpy_stmt_deleted_name_loads(stmt, &mut rewriter);
         }
+        rewrite_blockpy_term_deleted_name_loads(&mut block.term, &mut rewriter);
     }
 }
 
@@ -169,6 +171,28 @@ fn rewrite_blockpy_stmt_deleted_name_loads(
         BlockPyStmt::Return(Some(value)) => value.rewrite_mut(|expr| rewriter.visit_expr(expr)),
         BlockPyStmt::Return(None) => {}
         BlockPyStmt::Raise(BlockPyRaise { exc }) => {
+            if let Some(exc) = exc {
+                exc.rewrite_mut(|expr| rewriter.visit_expr(expr));
+            }
+        }
+    }
+}
+
+fn rewrite_blockpy_term_deleted_name_loads(
+    term: &mut BlockPyTerm,
+    rewriter: &mut DeletedNameLoadRewriter<'_>,
+) {
+    match term {
+        BlockPyTerm::Jump(_) | BlockPyTerm::TryJump(_) => {}
+        BlockPyTerm::BrIf(BlockPyBrIf { test, .. }) => {
+            test.rewrite_mut(|expr| rewriter.visit_expr(expr))
+        }
+        BlockPyTerm::BranchTable(BlockPyBranchTable { index, .. }) => {
+            index.rewrite_mut(|expr| rewriter.visit_expr(expr))
+        }
+        BlockPyTerm::Return(Some(value)) => value.rewrite_mut(|expr| rewriter.visit_expr(expr)),
+        BlockPyTerm::Return(None) => {}
+        BlockPyTerm::Raise(BlockPyRaise { exc }) => {
             if let Some(exc) = exc {
                 exc.rewrite_mut(|expr| rewriter.visit_expr(expr));
             }

@@ -4,7 +4,7 @@ mod exception_pass;
 
 use super::bb_ir::{BbBlock, BbExpr, BbFunction, BbModule, BbOp, BbTerm, BindingTarget};
 use super::block_py::state::collect_parameter_names;
-use super::block_py::{BlockPyBlock, BlockPyExpr, BlockPyIf, BlockPyLabel, BlockPyStmt};
+use super::block_py::{BlockPyBlock, BlockPyBrIf, BlockPyStmt, BlockPyTerm};
 use super::ruff_to_blockpy::{LoweredBlockPyFunction, LoweredBlockPyFunctionBundle};
 use super::stmt_utils::{flatten_stmt, flatten_stmt_boxes, stmt_body_from_stmts};
 use crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass;
@@ -123,12 +123,9 @@ pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
     blocks
         .iter()
         .map(|block| {
-            let body_stmts = match block.body.split_last() {
-                Some((last, rest)) if is_terminal_blockpy_stmt(last) => rest,
-                _ => block.body.as_slice(),
-            };
             let mut normalized_body_stmt = stmt_body_from_stmts(
-                body_stmts
+                block
+                    .body
                     .iter()
                     .filter_map(blockpy_stmt_to_stmt_for_analysis)
                     .collect::<Vec<_>>(),
@@ -143,7 +140,7 @@ pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
                 .into_iter()
                 .map(|stmt| *stmt)
                 .collect::<Vec<_>>();
-            let mut normalized_term = terminal_stmt_from_blockpy_block(block);
+            let mut normalized_term = block.term.clone();
             simplify_blockpy_terminal_exprs(
                 context,
                 &simplify_expr_pass,
@@ -199,22 +196,10 @@ pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
                 ops,
                 exc_target_label,
                 exc_name,
-                term: bb_term_from_blockpy_terminal_stmt(&normalized_term),
+                term: bb_term_from_blockpy_term(&normalized_term),
             }
         })
         .collect()
-}
-
-fn is_terminal_blockpy_stmt(stmt: &BlockPyStmt) -> bool {
-    matches!(
-        stmt,
-        BlockPyStmt::Jump(_)
-            | BlockPyStmt::If(_)
-            | BlockPyStmt::BranchTable(_)
-            | BlockPyStmt::Raise(_)
-            | BlockPyStmt::TryJump(_)
-            | BlockPyStmt::Return(_)
-    )
 }
 
 fn simplify_expr_for_bb_term(
@@ -235,28 +220,27 @@ fn simplify_expr_for_bb_term(
 fn simplify_blockpy_terminal_exprs(
     context: &Context,
     pass: &SimplifyExprPass,
-    terminal: &mut BlockPyStmt,
+    terminal: &mut BlockPyTerm,
     body: &mut Vec<Stmt>,
 ) {
     match terminal {
-        BlockPyStmt::If(if_stmt) => if_stmt
-            .test
-            .rewrite_mut(|expr| simplify_expr_for_bb_term(context, pass, expr, body)),
-        BlockPyStmt::BranchTable(branch) => branch
+        BlockPyTerm::BrIf(BlockPyBrIf { test, .. }) => {
+            test.rewrite_mut(|expr| simplify_expr_for_bb_term(context, pass, expr, body))
+        }
+        BlockPyTerm::BranchTable(branch) => branch
             .index
             .rewrite_mut(|expr| simplify_expr_for_bb_term(context, pass, expr, body)),
-        BlockPyStmt::Raise(raise_stmt) => {
+        BlockPyTerm::Raise(raise_stmt) => {
             if let Some(exc) = raise_stmt.exc.as_mut() {
                 exc.rewrite_mut(|expr| simplify_expr_for_bb_term(context, pass, expr, body));
             }
         }
-        BlockPyStmt::Return(value) => {
+        BlockPyTerm::Return(value) => {
             if let Some(value) = value.as_mut() {
                 value.rewrite_mut(|expr| simplify_expr_for_bb_term(context, pass, expr, body));
             }
         }
-        BlockPyStmt::Jump(_) | BlockPyStmt::TryJump(_) => {}
-        other => panic!("unsupported terminal BlockPyStmt for simplification: {other:?}"),
+        BlockPyTerm::Jump(_) | BlockPyTerm::TryJump(_) => {}
     }
 }
 
@@ -315,35 +299,19 @@ pub(crate) fn blockpy_stmt_to_stmt_for_analysis(stmt: &BlockPyStmt) -> Option<St
     }
 }
 
-fn terminal_stmt_from_blockpy_block(block: &BlockPyBlock) -> BlockPyStmt {
-    match block.body.last() {
-        Some(
-            stmt @ (BlockPyStmt::Jump(_)
-            | BlockPyStmt::If(_)
-            | BlockPyStmt::BranchTable(_)
-            | BlockPyStmt::Raise(_)
-            | BlockPyStmt::TryJump(_)
-            | BlockPyStmt::Return(_)),
-        ) => stmt.clone(),
-        Some(other) => panic!("unsupported terminal BlockPyStmt for direct BB lowering: {other:?}"),
-        None => BlockPyStmt::Return(None),
-    }
-}
-
-fn bb_term_from_blockpy_terminal_stmt(terminal: &BlockPyStmt) -> BbTerm {
+fn bb_term_from_blockpy_term(terminal: &BlockPyTerm) -> BbTerm {
     match terminal {
-        BlockPyStmt::Jump(target) => BbTerm::Jump(target.as_str().to_string()),
-        BlockPyStmt::If(if_stmt) => {
-            let Some((test, then_label, else_label)) = terminal_if_jump_labels(if_stmt) else {
-                panic!("terminal BlockPy If must be `if ...: jump ... else: jump ...`");
-            };
-            BbTerm::BrIf {
-                test: BbExpr::from_expr(test.clone().into()),
-                then_label: then_label.as_str().to_string(),
-                else_label: else_label.as_str().to_string(),
-            }
-        }
-        BlockPyStmt::BranchTable(branch) => BbTerm::BrTable {
+        BlockPyTerm::Jump(target) => BbTerm::Jump(target.as_str().to_string()),
+        BlockPyTerm::BrIf(BlockPyBrIf {
+            test,
+            then_label,
+            else_label,
+        }) => BbTerm::BrIf {
+            test: BbExpr::from_expr(test.clone().into()),
+            then_label: then_label.as_str().to_string(),
+            else_label: else_label.as_str().to_string(),
+        },
+        BlockPyTerm::BranchTable(branch) => BbTerm::BrTable {
             index: BbExpr::from_expr(branch.index.clone().into()),
             targets: branch
                 .targets
@@ -352,51 +320,51 @@ fn bb_term_from_blockpy_terminal_stmt(terminal: &BlockPyStmt) -> BbTerm {
                 .collect(),
             default_label: branch.default_label.as_str().to_string(),
         },
-        BlockPyStmt::Raise(raise_stmt) => BbTerm::Raise {
+        BlockPyTerm::Raise(raise_stmt) => BbTerm::Raise {
             exc: raise_stmt
                 .exc
                 .as_ref()
                 .map(|exc| BbExpr::from_expr(exc.clone().into())),
             cause: None,
         },
-        BlockPyStmt::TryJump(try_jump) => BbTerm::Jump(try_jump.body_label.as_str().to_string()),
-        BlockPyStmt::Return(value) => {
+        BlockPyTerm::TryJump(try_jump) => BbTerm::Jump(try_jump.body_label.as_str().to_string()),
+        BlockPyTerm::Return(value) => {
             BbTerm::Ret(value.clone().map(|expr| BbExpr::from_expr(expr.into())))
         }
-        other => panic!("unsupported terminal BlockPyStmt for direct BbTerm lowering: {other:?}"),
     }
-}
-
-fn terminal_if_jump_labels(
-    if_stmt: &BlockPyIf,
-) -> Option<(&BlockPyExpr, &BlockPyLabel, &BlockPyLabel)> {
-    let [BlockPyBlock {
-        body: then_body, ..
-    }] = if_stmt.body.as_slice()
-    else {
-        return None;
-    };
-    let [BlockPyStmt::Jump(then_label)] = then_body.as_slice() else {
-        return None;
-    };
-    let [BlockPyBlock {
-        body: else_body, ..
-    }] = if_stmt.orelse.as_slice()
-    else {
-        return None;
-    };
-    let [BlockPyStmt::Jump(else_label)] = else_body.as_slice() else {
-        return None;
-    };
-    Some((&if_stmt.test, then_label, else_label))
 }
 
 fn stmt_body_from_blockpy_blocks(blocks: &[BlockPyBlock]) -> ast::StmtBody {
     stmt_body_from_stmts(
         blocks
             .iter()
-            .flat_map(|block| block.body.iter())
-            .filter_map(blockpy_stmt_to_stmt_for_analysis)
+            .flat_map(|block| {
+                block
+                    .body
+                    .iter()
+                    .filter_map(blockpy_stmt_to_stmt_for_analysis)
+                    .chain(blockpy_term_to_stmt_for_analysis(&block.term).into_iter())
+            })
             .collect::<Vec<_>>(),
     )
+}
+
+fn blockpy_term_to_stmt_for_analysis(term: &BlockPyTerm) -> Option<Stmt> {
+    match term {
+        BlockPyTerm::Return(value) => Some(Stmt::Return(ast::StmtReturn {
+            node_index: compat_node_index(),
+            range: compat_range(),
+            value: value.clone().map(|value| Box::new(value.to_expr())),
+        })),
+        BlockPyTerm::Raise(raise_stmt) => Some(Stmt::Raise(ast::StmtRaise {
+            node_index: compat_node_index(),
+            range: compat_range(),
+            exc: raise_stmt.exc.clone().map(|exc| Box::new(exc.to_expr())),
+            cause: None,
+        })),
+        BlockPyTerm::Jump(_)
+        | BlockPyTerm::BrIf(_)
+        | BlockPyTerm::BranchTable(_)
+        | BlockPyTerm::TryJump(_) => None,
+    }
 }

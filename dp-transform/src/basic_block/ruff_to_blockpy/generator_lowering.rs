@@ -1,14 +1,14 @@
 use super::{
-    compat_block_from_blockpy, compat_if_jump_block, compat_jump_block_from_blockpy,
-    compat_raise_block_from_blockpy_raise, compat_return_block_from_expr,
-    lower_stmts_to_blockpy_stmts, TryRegionPlan,
+    compat_block_from_blockpy as compat_block_with_term, compat_if_jump_block,
+    compat_jump_block_from_blockpy, compat_raise_block_from_blockpy_raise,
+    compat_return_block_from_expr, lower_stmts_to_blockpy_stmts, TryRegionPlan,
 };
 use crate::basic_block::ast_to_ast::scope::cell_name;
 use crate::basic_block::bb_ir::{BbClosureInit, BbClosureLayout, BbClosureSlot};
 use crate::basic_block::block_py::state::{sync_generator_state_order, sync_target_cells_stmts};
 use crate::basic_block::block_py::{
-    BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyExpr, BlockPyIf, BlockPyLabel,
-    BlockPyRaise, BlockPyStmt, BlockPyTryJump,
+    BlockPyAssign, BlockPyBlock, BlockPyBrIf, BlockPyBranchTable, BlockPyExpr, BlockPyIf,
+    BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm, BlockPyTryJump,
 };
 use crate::basic_block::blockpy_to_bb::blockpy_stmt_to_stmt_for_analysis;
 use crate::{py_expr, py_stmt};
@@ -21,6 +21,43 @@ fn blockpy_make_dp_tuple(items: Vec<Expr>) -> Expr {
     };
     call.arguments.args = items.into();
     Expr::Call(call)
+}
+
+fn compat_block_from_blockpy(label: String, body: Vec<Stmt>, term: BlockPyStmt) -> BlockPyBlock {
+    compat_block_with_term(
+        label,
+        body,
+        BlockPyTerm::from_stmt(&term).unwrap_or_else(|| {
+            panic!("expected terminal BlockPyStmt in generator lowering: {term:?}")
+        }),
+    )
+}
+
+fn legacy_stmt_from_term(term: &BlockPyTerm, label_prefix: &str) -> BlockPyStmt {
+    match term {
+        BlockPyTerm::Jump(target) => BlockPyStmt::Jump(target.clone()),
+        BlockPyTerm::BrIf(BlockPyBrIf {
+            test,
+            then_label,
+            else_label,
+        }) => BlockPyStmt::If(BlockPyIf {
+            test: test.clone(),
+            body: vec![BlockPyBlock {
+                label: BlockPyLabel::from(format!("{label_prefix}_true")),
+                body: Vec::new(),
+                term: BlockPyTerm::Jump(then_label.clone()),
+            }],
+            orelse: vec![BlockPyBlock {
+                label: BlockPyLabel::from(format!("{label_prefix}_false")),
+                body: Vec::new(),
+                term: BlockPyTerm::Jump(else_label.clone()),
+            }],
+        }),
+        BlockPyTerm::BranchTable(branch) => BlockPyStmt::BranchTable(branch.clone()),
+        BlockPyTerm::Raise(raise_stmt) => BlockPyStmt::Raise(raise_stmt.clone()),
+        BlockPyTerm::TryJump(try_jump) => BlockPyStmt::TryJump(try_jump.clone()),
+        BlockPyTerm::Return(value) => BlockPyStmt::Return(value.clone()),
+    }
 }
 
 fn sanitize_ident(raw: &str) -> String {
@@ -479,11 +516,10 @@ pub(crate) fn build_closure_backed_generator_factory_block(
         generator_expr
     };
 
-    body.push(BlockPyStmt::Return(Some(return_value.into())));
-
     BlockPyBlock {
         label: factory_label.into(),
         body,
+        term: BlockPyTerm::Return(Some(return_value.into())),
     }
 }
 
@@ -658,6 +694,22 @@ pub(crate) fn lower_generator_blockpy_blocks(
     BlockPyGeneratorLoweringResult { blocks, info }
 }
 
+fn finalize_generator_block(
+    label: BlockPyLabel,
+    mut body: Vec<BlockPyStmt>,
+    cont_label: Option<String>,
+) -> BlockPyBlock {
+    let explicit_term = body.last().and_then(BlockPyTerm::from_stmt);
+    if explicit_term.is_some() {
+        body.pop();
+    }
+    let term = explicit_term.unwrap_or_else(|| match cont_label {
+        Some(label) => BlockPyTerm::Jump(BlockPyLabel::from(label)),
+        None => BlockPyTerm::Return(None),
+    });
+    BlockPyBlock { label, body, term }
+}
+
 fn lower_generator_block_list(
     fn_name: &str,
     blocks: &mut Vec<BlockPyBlock>,
@@ -702,7 +754,8 @@ fn lower_generator_block_list(
     }
     blocks.push(BlockPyBlock {
         label: BlockPyLabel::from(end_label),
-        body: vec![BlockPyStmt::Return(None)],
+        body: Vec::new(),
+        term: BlockPyTerm::Return(None),
     });
 }
 
@@ -758,7 +811,8 @@ fn lower_generator_block_body(
     yield_sites: &mut Vec<GeneratorYieldSite>,
 ) {
     let current_label = block.label.as_str().to_string();
-    let stmts = block.body;
+    let mut stmts = block.body;
+    stmts.push(legacy_stmt_from_term(&block.term, current_label.as_str()));
     let mut linear_blockpy = Vec::new();
     for (idx, stmt) in stmts.iter().enumerate() {
         let linear = linear_blockpy
@@ -772,10 +826,11 @@ fn lower_generator_block_body(
                 *next_block_id += 1;
                 lower_generator_block_body(
                     fn_name,
-                    BlockPyBlock {
-                        label: BlockPyLabel::from(rest_label.clone()),
-                        body: stmts[idx + 1..].to_vec(),
-                    },
+                    finalize_generator_block(
+                        BlockPyLabel::from(rest_label.clone()),
+                        stmts[idx + 1..].to_vec(),
+                        cont_label.clone(),
+                    ),
                     cont_label.clone(),
                     out,
                     closure_state,
@@ -807,7 +862,8 @@ fn lower_generator_block_body(
         ) {
             out.push(BlockPyBlock {
                 label: BlockPyLabel::from(current_label),
-                body: vec![BlockPyStmt::Jump(BlockPyLabel::from(entry))],
+                body: Vec::new(),
+                term: BlockPyTerm::Jump(BlockPyLabel::from(entry)),
             });
             out.extend(lowered);
             return;
@@ -815,27 +871,11 @@ fn lower_generator_block_body(
         linear_blockpy.push(stmt.clone());
     }
 
-    let mut body = linear_blockpy;
-    if !body.last().is_some_and(|stmt| {
-        matches!(
-            stmt,
-            BlockPyStmt::Jump(_)
-                | BlockPyStmt::If(_)
-                | BlockPyStmt::BranchTable(_)
-                | BlockPyStmt::Raise(_)
-                | BlockPyStmt::TryJump(_)
-                | BlockPyStmt::Return(_)
-        )
-    }) {
-        match cont_label {
-            Some(label) => body.push(BlockPyStmt::Jump(BlockPyLabel::from(label))),
-            None => body.push(BlockPyStmt::Return(None)),
-        }
-    }
-    out.push(BlockPyBlock {
-        label: BlockPyLabel::from(current_label),
-        body,
-    });
+    out.push(finalize_generator_block(
+        BlockPyLabel::from(current_label),
+        linear_blockpy,
+        cont_label,
+    ));
 }
 
 pub(crate) fn blockpy_stmt_requires_generator_rest_entry(stmt: &BlockPyStmt) -> bool {
@@ -1400,11 +1440,8 @@ pub(crate) fn lower_generator_yield_terms_to_explicit_return_blockpy(
         .collect::<HashMap<String, String>>();
 
     for block in blocks.iter_mut() {
-        let Some(last_stmt) = block.body.last().cloned() else {
-            continue;
-        };
-        match last_stmt {
-            BlockPyStmt::Return(yielded_value)
+        match &mut block.term {
+            BlockPyTerm::Return(yielded_value)
                 if yield_resume_by_label.contains_key(block.label.as_str()) =>
             {
                 let resume_label = yield_resume_by_label
@@ -1445,11 +1482,9 @@ pub(crate) fn lower_generator_yield_terms_to_explicit_return_blockpy(
                         )]));
                     }
                 }
-                block.body.pop();
                 block.body.extend(injected);
-                block.body.push(BlockPyStmt::Return(yielded_value));
             }
-            BlockPyStmt::Return(value) => {
+            BlockPyTerm::Return(value) => {
                 let mut injected = if closure_state {
                     lower_generated_stmts_to_blockpy(vec![py_stmt!(
                         "__dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)"
@@ -1467,7 +1502,6 @@ pub(crate) fn lower_generator_yield_terms_to_explicit_return_blockpy(
                         )]));
                     }
                 }
-                block.body.pop();
                 block.body.extend(injected);
                 let raise_stmt = if is_async {
                     match py_stmt!("raise StopAsyncIteration()") {
@@ -1485,9 +1519,7 @@ pub(crate) fn lower_generator_yield_terms_to_explicit_return_blockpy(
                         _ => unreachable!("expected raise statement"),
                     }
                 };
-                block
-                    .body
-                    .push(BlockPyStmt::Raise(blockpy_raise_from_stmt(raise_stmt)));
+                block.term = BlockPyTerm::Raise(blockpy_raise_from_stmt(raise_stmt));
             }
             _ => {}
         }
@@ -1519,11 +1551,13 @@ pub(crate) fn emit_generator_yield_suspend_blocks(
             test: py_expr!("__dp_is_not(_dp_resume_exc, None)").into(),
             body: vec![BlockPyBlock {
                 label: BlockPyLabel::from(format!("{resume_dispatch_label}_true")),
-                body: vec![BlockPyStmt::Jump(BlockPyLabel::from(resume_raise_label))],
+                body: Vec::new(),
+                term: BlockPyTerm::Jump(BlockPyLabel::from(resume_raise_label)),
             }],
             orelse: vec![BlockPyBlock {
                 label: BlockPyLabel::from(format!("{resume_dispatch_label}_false")),
-                body: vec![BlockPyStmt::Jump(BlockPyLabel::from(resume_success_label))],
+                body: Vec::new(),
+                term: BlockPyTerm::Jump(BlockPyLabel::from(resume_success_label)),
             }],
         }),
     ));
@@ -1792,15 +1826,13 @@ pub(crate) fn emit_yield_from_blocks(
             .into(),
             body: vec![BlockPyBlock {
                 label: BlockPyLabel::from(format!("{}_true", plan.genexit_close_lookup_label)),
-                body: vec![BlockPyStmt::Jump(BlockPyLabel::from(
-                    plan.genexit_call_close_label.clone(),
-                ))],
+                body: Vec::new(),
+                term: BlockPyTerm::Jump(BlockPyLabel::from(plan.genexit_call_close_label.clone())),
             }],
             orelse: vec![BlockPyBlock {
                 label: BlockPyLabel::from(format!("{}_false", plan.genexit_close_lookup_label)),
-                body: vec![BlockPyStmt::Jump(BlockPyLabel::from(
-                    plan.raise_exc_label.clone(),
-                ))],
+                body: Vec::new(),
+                term: BlockPyTerm::Jump(BlockPyLabel::from(plan.raise_exc_label.clone())),
             }],
         }),
     ));
@@ -1840,13 +1872,13 @@ pub(crate) fn emit_yield_from_blocks(
             .into(),
             body: vec![BlockPyBlock {
                 label: BlockPyLabel::from(format!("{}_true", plan.lookup_throw_label)),
-                body: vec![BlockPyStmt::Jump(BlockPyLabel::from(plan.raise_exc_label))],
+                body: Vec::new(),
+                term: BlockPyTerm::Jump(BlockPyLabel::from(plan.raise_exc_label)),
             }],
             orelse: vec![BlockPyBlock {
                 label: BlockPyLabel::from(format!("{}_false", plan.lookup_throw_label)),
-                body: vec![BlockPyStmt::Jump(BlockPyLabel::from(
-                    plan.throw_try_label.clone(),
-                ))],
+                body: Vec::new(),
+                term: BlockPyTerm::Jump(BlockPyLabel::from(plan.throw_try_label.clone())),
             }],
         }),
     ));
