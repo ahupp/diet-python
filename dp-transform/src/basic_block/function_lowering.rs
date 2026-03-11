@@ -57,6 +57,7 @@ struct FunctionScopeFrame {
     entering_module_init: bool,
     has_parent_hoisted_scope: bool,
     needs_cell_sync: bool,
+    cell_bindings: HashSet<String>,
     hoisted_to_parent: Vec<Stmt>,
 }
 
@@ -124,17 +125,22 @@ impl BlockPyModuleRewriter<'_> {
             .map(|frame| frame.name.clone());
         let entering_module_init = is_module_init_temp_name(fn_name.as_str());
         let has_parent_hoisted_scope = !self.function_scope_stack.is_empty();
-        let function_cell_bindings = collect_cell_slots(&func.body.body)
+        let cell_bindings = collect_cell_slots(&func.body.body)
             .into_iter()
             .filter_map(|slot| slot.strip_prefix("_dp_cell_").map(str::to_string))
             .collect::<HashSet<_>>();
-        let needs_cell_sync = function_cell_bindings.contains(bind_name.as_str());
+        let needs_cell_sync = self
+            .function_scope_stack
+            .last()
+            .map(|frame| frame.cell_bindings.contains(bind_name.as_str()))
+            .unwrap_or(false);
         self.function_scope_stack.push(FunctionScopeFrame {
             name: fn_name,
             parent_name,
             entering_module_init,
             has_parent_hoisted_scope,
             needs_cell_sync,
+            cell_bindings,
             hoisted_to_parent: Vec::new(),
         });
         walk_stmt(self, stmt);

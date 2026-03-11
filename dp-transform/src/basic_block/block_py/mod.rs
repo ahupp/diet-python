@@ -38,6 +38,7 @@ pub enum BlockPyFunctionKind {
 #[derive(Debug, Clone)]
 pub struct BlockPyBlock {
     pub label: BlockPyLabel,
+    pub exc_param: Option<String>,
     pub body: Vec<BlockPyStmt>,
     pub term: BlockPyTerm,
 }

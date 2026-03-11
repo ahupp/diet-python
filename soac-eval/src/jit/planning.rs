@@ -504,8 +504,13 @@ fn direct_simple_block_plan_from_block(
                 Some(direct_simple_expr_from(expr)?)
             } else {
                 block
-                    .exc_name
-                    .as_ref()
+                    .params
+                    .iter()
+                    .find(|name| {
+                        name.as_str() == "_dp_resume_exc"
+                            || name.starts_with("_dp_try_exc_")
+                            || name.starts_with("_dp_uncaught_exc_")
+                    })
                     .map(|name| DirectSimpleExprPlan::Name(name.clone()))
             };
             let cause = if let Some(expr) = cause.as_ref() {
@@ -588,10 +593,6 @@ fn build_clif_plan(
                     arg_sources.push(BlockExcArgSource::Exception);
                     continue;
                 }
-                if target_param == "_dp_resume_exc" {
-                    arg_sources.push(BlockExcArgSource::NoneValue);
-                    continue;
-                }
                 if let Some(source_index) = block
                     .params
                     .iter()
@@ -602,8 +603,14 @@ fn build_clif_plan(
                     });
                     continue;
                 }
-                if target_param.starts_with("_dp_try_exc_") {
+                if target_param.starts_with("_dp_try_exc_")
+                    || target_param.starts_with("_dp_uncaught_exc_")
+                {
                     arg_sources.push(BlockExcArgSource::Exception);
+                    continue;
+                }
+                if target_param == "_dp_resume_exc" {
+                    arg_sources.push(BlockExcArgSource::NoneValue);
                     continue;
                 }
                 if target_param.starts_with("_dp_try_reason_")

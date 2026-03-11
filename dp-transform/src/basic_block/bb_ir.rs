@@ -72,7 +72,7 @@ pub enum BbClosureInit {
     InheritedCapture,
     Parameter,
     DeletedSentinel,
-    RuntimePcZero,
+    RuntimePcUnstarted,
     RuntimeNone,
     Deferred,
 }

@@ -1,7 +1,10 @@
 use super::super::blockpy_to_bb;
 use super::super::ruff_to_blockpy::lower_stmts_to_blockpy_stmts;
 use super::dataflow::analyze_blockpy_use_def;
-use super::{BlockPyBlock, BlockPyIf, BlockPyIfTerm, BlockPyStmt, BlockPyTerm};
+use super::{
+    BlockPyBlock, BlockPyBranchTable, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt,
+    BlockPyTerm,
+};
 use crate::basic_block::ast_symbol_analysis::{assigned_names_in_stmt, collect_assigned_names};
 use crate::basic_block::ast_to_ast::scope::cell_name;
 use crate::py_stmt;
@@ -39,6 +42,7 @@ pub(crate) fn collect_state_vars(
         for stmt in &block.body {
             defs_anywhere.extend(assigned_names_in_blockpy_stmt(stmt));
         }
+        defs_anywhere.extend(assigned_names_in_blockpy_term(&block.term));
     }
 
     let mut state = param_names.to_vec();
@@ -73,8 +77,21 @@ pub(crate) fn collect_state_vars(
 }
 
 pub(crate) fn collect_injected_exception_names_blockpy(blocks: &[BlockPyBlock]) -> HashSet<String> {
-    let _ = blocks;
-    HashSet::new()
+    fn collect_from_block(block: &BlockPyBlock, out: &mut HashSet<String>) {
+        if let Some(exc_param) = block.exc_param.as_ref() {
+            out.insert(exc_param.clone());
+        }
+        if let BlockPyTerm::IfTerm(BlockPyIfTerm { body, orelse, .. }) = &block.term {
+            collect_from_block(body, out);
+            collect_from_block(orelse, out);
+        }
+    }
+
+    let mut names = HashSet::new();
+    for block in blocks {
+        collect_from_block(block, &mut names);
+    }
+    names
 }
 
 pub(crate) fn collect_cell_slots(stmts: &[Box<Stmt>]) -> HashSet<String> {
@@ -141,7 +158,11 @@ pub(crate) fn sync_generator_cleanup_cells(
 
 fn assigned_names_in_blockpy_stmt(stmt: &BlockPyStmt) -> HashSet<String> {
     match stmt {
-        BlockPyStmt::Assign(assign) => HashSet::from([assign.target.id.to_string()]),
+        BlockPyStmt::Assign(assign) => {
+            let mut names = HashSet::from([assign.target.id.to_string()]);
+            collect_named_expr_target_names_in_blockpy_expr(&assign.value, &mut names);
+            names
+        }
         BlockPyStmt::FunctionDef(func_def) => HashSet::from([func_def.name.id.to_string()]),
         BlockPyStmt::If(BlockPyIf { test, body, orelse }) => {
             let mut names = HashSet::new();
@@ -155,11 +176,65 @@ fn assigned_names_in_blockpy_stmt(stmt: &BlockPyStmt) -> HashSet<String> {
             }
             names
         }
+        BlockPyStmt::Expr(expr) => {
+            let mut names = HashSet::new();
+            collect_named_expr_target_names_in_blockpy_expr(expr, &mut names);
+            names
+        }
+        BlockPyStmt::BranchTable(BlockPyBranchTable { index, .. }) => {
+            let mut names = HashSet::new();
+            collect_named_expr_target_names_in_blockpy_expr(index, &mut names);
+            names
+        }
+        BlockPyStmt::Return(value) => {
+            let mut names = HashSet::new();
+            if let Some(value) = value {
+                collect_named_expr_target_names_in_blockpy_expr(value, &mut names);
+            }
+            names
+        }
+        BlockPyStmt::Raise(BlockPyRaise { exc }) => {
+            let mut names = HashSet::new();
+            if let Some(exc) = exc {
+                collect_named_expr_target_names_in_blockpy_expr(exc, &mut names);
+            }
+            names
+        }
         other => {
             let Some(stmt) = blockpy_to_bb::blockpy_stmt_to_stmt_for_analysis(other) else {
                 return HashSet::new();
             };
             assigned_names_in_stmt(&stmt)
+        }
+    }
+}
+
+fn assigned_names_in_blockpy_term(term: &BlockPyTerm) -> HashSet<String> {
+    match term {
+        BlockPyTerm::Jump(_) | BlockPyTerm::TryJump(_) => HashSet::new(),
+        BlockPyTerm::IfTerm(BlockPyIfTerm { test, .. }) => {
+            let mut names = HashSet::new();
+            collect_named_expr_target_names_in_blockpy_expr(test, &mut names);
+            names
+        }
+        BlockPyTerm::BranchTable(BlockPyBranchTable { index, .. }) => {
+            let mut names = HashSet::new();
+            collect_named_expr_target_names_in_blockpy_expr(index, &mut names);
+            names
+        }
+        BlockPyTerm::Return(value) => {
+            let mut names = HashSet::new();
+            if let Some(value) = value {
+                collect_named_expr_target_names_in_blockpy_expr(value, &mut names);
+            }
+            names
+        }
+        BlockPyTerm::Raise(BlockPyRaise { exc }) => {
+            let mut names = HashSet::new();
+            if let Some(exc) = exc {
+                collect_named_expr_target_names_in_blockpy_expr(exc, &mut names);
+            }
+            names
         }
     }
 }
@@ -185,6 +260,13 @@ fn collect_named_expr_targets(expr: &Expr, names: &mut HashSet<String>) {
     let mut collector = NamedExprTargetCollector::default();
     collector.visit_expr(&mut expr);
     names.extend(collector.names);
+}
+
+fn collect_named_expr_target_names_in_blockpy_expr(
+    expr: &super::BlockPyExpr,
+    names: &mut HashSet<String>,
+) {
+    collect_named_expr_targets(&expr.to_expr(), names);
 }
 
 pub(crate) fn sync_generator_state_order(

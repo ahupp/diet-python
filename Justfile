@@ -121,7 +121,7 @@ build-all: (update-venv) ensure-cpython
   #!/usr/bin/env bash
   cd "$REPO_ROOT"
   cargo build --quiet --workspace --tests
-  just install-extension debug
+  just build-extension debug
 
 
 

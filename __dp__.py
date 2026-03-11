@@ -63,7 +63,7 @@ builtins.__dp_templatelib_Interpolation = _dp_templatelib.Interpolation
 _MISSING = object()
 DELETED = object()
 NO_DEFAULT = object()
-_GEN_PC_DONE = -1
+_GEN_PC_DONE = 0
 builtins.__dp_DELETED = DELETED
 builtins.__dp_NO_DEFAULT = NO_DEFAULT
 builtins.__dp_GEN_PC_DONE = _GEN_PC_DONE
@@ -2230,7 +2230,7 @@ def def_coro_from_gen(
         return __dp_coro_type(
             __dp_gen_type(
                 resume=__dp_resume,
-                pc=0,
+                pc=1,
                 gi_frame=__dp_make_state_frame(__dp_state_order, state_args),
                 name=__dp_name,
                 qualname=__dp_qualname,
@@ -2382,7 +2382,7 @@ def def_async_gen(
     ):
         return __dp_async_gen_type(
             resume=__dp_resume,
-            pc=0,
+            pc=1,
             gi_frame=__dp_make_state_frame(__dp_state_order, state_args),
             name=__dp_name,
             qualname=__dp_qualname,

@@ -13,9 +13,9 @@ use super::block_py::exception::{
     rewrite_region_returns_to_finally_blockpy,
 };
 use super::block_py::state::{
-    collect_cell_slots, collect_state_vars, rewrite_sync_generator_blockpy_blocks_to_closure_cells,
-    sync_generator_cleanup_cells, sync_generator_state_order,
-    sync_target_cells_stmts as sync_target_cells_stmts_shared,
+    collect_cell_slots, collect_injected_exception_names_blockpy, collect_state_vars,
+    rewrite_sync_generator_blockpy_blocks_to_closure_cells, sync_generator_cleanup_cells,
+    sync_generator_state_order, sync_target_cells_stmts as sync_target_cells_stmts_shared,
 };
 use super::block_py::{
     BlockPyAssign, BlockPyBlock, BlockPyDelete, BlockPyExpr, BlockPyFunction, BlockPyFunctionKind,
@@ -44,7 +44,8 @@ pub(crate) use generator_lowering::{
     blockpy_stmt_requires_generator_rest_entry, build_async_for_continue_entry,
     build_closure_backed_generator_export_plan, build_initial_generator_metadata,
     build_resume_closure_layout, lower_generator_blockpy_stmt_in_sequence,
-    lower_generator_yield_terms_to_explicit_return_blockpy, synthesize_generator_dispatch_metadata,
+    lower_generator_yield_terms_to_explicit_return_blockpy,
+    split_generator_return_terms_to_escape_blocks, synthesize_generator_dispatch_metadata,
     GeneratorMetadata, GeneratorYieldSite,
 };
 
@@ -71,7 +72,7 @@ pub(crate) struct LoweredBlockPyFunction {
     pub entry_label: String,
     pub entry_params: Vec<String>,
     pub block_params: HashMap<String, Vec<String>>,
-    pub exception_edges: HashMap<String, (Option<String>, Option<String>)>,
+    pub exception_edges: HashMap<String, Option<String>>,
     pub closure_layout: Option<BbClosureLayout>,
     pub param_specs: BbExpr,
     pub local_cell_slots: HashSet<String>,
@@ -196,7 +197,7 @@ pub(crate) fn build_lowered_blockpy_function(
     entry_label: String,
     entry_params: Vec<String>,
     block_params: HashMap<String, Vec<String>>,
-    exception_edges: HashMap<String, (Option<String>, Option<String>)>,
+    exception_edges: HashMap<String, Option<String>>,
     closure_layout: Option<BbClosureLayout>,
     param_specs: BbExpr,
     local_cell_slots: HashSet<String>,
@@ -245,8 +246,40 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
     );
     let mut extra_successors = build_try_extra_successors(&try_regions);
     let mut blocks_for_dataflow = std::mem::take(&mut blockpy_function.blocks);
+    let generator_yield_sites_for_lowering = generator_metadata
+        .as_ref()
+        .map(|info| info.yield_sites.clone())
+        .unwrap_or_default();
+    let resume_pcs = if has_yield {
+        generator_metadata
+            .as_ref()
+            .map(|info| info.resume_order.as_slice())
+            .unwrap_or(&[])
+            .iter()
+            .enumerate()
+            .map(|(idx, label)| (label.as_str().to_string(), idx + 1))
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    if has_yield {
+        split_generator_return_terms_to_escape_blocks(
+            &mut blocks_for_dataflow,
+            &generator_yield_sites_for_lowering,
+            is_async_generator_runtime,
+            is_closure_backed_generator_runtime,
+        );
+    }
 
     let mut state_vars = collect_state_vars(param_names, &blocks_for_dataflow, module_init_mode);
+    for block in &blocks_for_dataflow {
+        let Some(exc_param) = block.exc_param.as_ref() else {
+            continue;
+        };
+        if !state_vars.iter().any(|existing| existing == exc_param) {
+            state_vars.push(exc_param.clone());
+        }
+    }
     if is_closure_backed_generator_runtime {
         for name in extra_closure_state_names {
             if !state_vars.iter().any(|existing| existing == name) {
@@ -274,7 +307,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         }
     }
 
-    for (source, (target, _)) in &exception_edges {
+    for (source, target) in &exception_edges {
         let Some(target) = target.as_ref() else {
             continue;
         };
@@ -303,6 +336,17 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
 
     let mut block_params =
         compute_block_params_blockpy(&blocks_for_dataflow, &state_vars, &extra_successors);
+    for block in &blocks_for_dataflow {
+        let Some(exc_param) = block.exc_param.as_ref() else {
+            continue;
+        };
+        let params = block_params
+            .entry(block.label.as_str().to_string())
+            .or_default();
+        if !params.iter().any(|existing| existing == exc_param) {
+            params.push(exc_param.clone());
+        }
+    }
     if has_yield {
         let injected_exc_names: Vec<String> = Vec::new();
         if is_closure_backed_generator_runtime {
@@ -414,7 +458,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         );
     }
 
-    let injected_exception_names = HashSet::new();
+    let injected_exception_names = collect_injected_exception_names_blockpy(&blocks_for_dataflow);
     let closure_layout = if is_closure_backed_generator_runtime {
         Some(build_resume_closure_layout(
             param_names,
@@ -425,12 +469,6 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
     } else {
         None
     };
-    let cleanup_cells = if is_closure_backed_generator_runtime {
-        sync_generator_cleanup_cells(&state_vars, &injected_exception_names)
-    } else {
-        Vec::new()
-    };
-
     if let (Some(uncaught_label), Some(uncaught_exc_name)) = (
         generator_metadata
             .as_ref()
@@ -463,6 +501,12 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
             params.push(uncaught_exc_name.clone());
         }
     }
+    let cleanup_cells = if is_closure_backed_generator_runtime {
+        sync_generator_cleanup_cells(&state_vars, &injected_exception_names)
+    } else {
+        Vec::new()
+    };
+
     if is_closure_backed_generator_runtime {
         if let Some(uncaught_set_done_label) = generator_metadata
             .as_ref()
@@ -522,30 +566,12 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         .iter()
         .map(|block| block.label.as_str().to_string())
         .collect::<Vec<_>>();
-    let resume_pcs = if has_yield {
-        generator_metadata
-            .as_ref()
-            .map(|info| info.resume_order.as_slice())
-            .unwrap_or(&[])
-            .iter()
-            .enumerate()
-            .map(|(idx, label)| (label.as_str().to_string(), idx))
-            .collect::<Vec<_>>()
-    } else {
-        Vec::new()
-    };
-    let generator_yield_sites_for_lowering = generator_metadata
-        .as_ref()
-        .map(|info| info.yield_sites.clone())
-        .unwrap_or_default();
     if has_yield {
         lower_generator_yield_terms_to_explicit_return_blockpy(
             &mut blocks_for_dataflow,
             &block_params,
             &resume_pcs,
             &generator_yield_sites_for_lowering,
-            &cleanup_cells,
-            is_async_generator_runtime,
             is_closure_backed_generator_runtime,
         );
     }
@@ -799,7 +825,7 @@ pub(crate) fn compute_blockpy_exception_edges(
     blocks: &[BlockPyBlock],
     try_regions: &[TryRegionPlan],
     generator_info: Option<&GeneratorMetadata>,
-) -> HashMap<String, (Option<String>, Option<String>)> {
+) -> HashMap<String, Option<String>> {
     let mut exception_edges = HashMap::new();
     for region in try_regions {
         let body_rank = region.body_region_labels.len();
@@ -825,13 +851,10 @@ pub(crate) fn compute_blockpy_exception_edges(
     }
     let mut exception_edges = exception_edges
         .into_iter()
-        .map(|(label, (_rank, target))| (label, (target, None)))
+        .map(|(label, (_rank, target))| (label, target))
         .collect::<HashMap<_, _>>();
     if let Some(generator_info) = generator_info {
-        if let (Some(uncaught_label), Some(uncaught_exc_name)) = (
-            generator_info.uncaught_block_label.as_deref(),
-            generator_info.uncaught_exc_name.as_ref(),
-        ) {
+        if let Some(uncaught_label) = generator_info.uncaught_block_label.as_deref() {
             for block in blocks {
                 let label = block.label.as_str();
                 if generator_info
@@ -852,10 +875,9 @@ pub(crate) fn compute_blockpy_exception_edges(
                 {
                     continue;
                 }
-                exception_edges.entry(label.to_string()).or_insert((
-                    Some(uncaught_label.to_string()),
-                    Some(uncaught_exc_name.clone()),
-                ));
+                exception_edges
+                    .entry(label.to_string())
+                    .or_insert(Some(uncaught_label.to_string()));
             }
         }
     }
@@ -910,6 +932,7 @@ pub(crate) fn compat_block_from_blockpy(
     });
     BlockPyBlock {
         label: BlockPyLabel::from(label),
+        exc_param: None,
         body,
         term,
     }
@@ -929,11 +952,13 @@ pub(crate) fn compat_if_jump_block(
             test: test.into(),
             body: Box::new(BlockPyBlock {
                 label: BlockPyLabel::from(format!("{label}_then")),
+                exc_param: None,
                 body: Vec::new(),
                 term: BlockPyTerm::Jump(BlockPyLabel::from(then_label)),
             }),
             orelse: Box::new(BlockPyBlock {
                 label: BlockPyLabel::from(format!("{label}_else")),
+                exc_param: None,
                 body: Vec::new(),
                 term: BlockPyTerm::Jump(BlockPyLabel::from(else_label)),
             }),
@@ -986,7 +1011,34 @@ pub(crate) fn finalize_blockpy_block(
         Some(target) => BlockPyTerm::Jump(target),
         None => BlockPyTerm::Return(None),
     });
-    BlockPyBlock { label, body, term }
+    BlockPyBlock {
+        label,
+        exc_param: None,
+        body,
+        term,
+    }
+}
+
+fn set_block_exc_param(blocks: &mut [BlockPyBlock], label: &str, exc_param: &str) {
+    let block = blocks
+        .iter_mut()
+        .find(|block| block.label.as_str() == label)
+        .unwrap_or_else(|| panic!("missing BlockPy block {label} for exception param"));
+    if block.exc_param.is_none() {
+        block.exc_param = Some(exc_param.to_string());
+    }
+}
+
+fn set_region_exc_param(
+    blocks: &mut [BlockPyBlock],
+    region: &std::ops::Range<usize>,
+    exc_param: &str,
+) {
+    for block in &mut blocks[region.clone()] {
+        if block.exc_param.is_none() {
+            block.exc_param = Some(exc_param.to_string());
+        }
+    }
 }
 
 pub(crate) fn emit_sequence_jump_block(
@@ -1195,6 +1247,7 @@ fn compat_next_label(fn_name: &str, next_id: &mut usize) -> String {
 
 #[derive(Debug, Clone)]
 pub(crate) struct TryPlan {
+    pub except_exc_name: String,
     pub finally_reason_name: Option<String>,
     pub finally_return_value_name: Option<String>,
     pub finally_dispatch_label: Option<String>,
@@ -1208,6 +1261,7 @@ pub(crate) fn build_try_plan(
     needs_finally_return_flow: bool,
     next_id: &mut usize,
 ) -> TryPlan {
+    let except_exc_name = compat_next_temp("try_exc", next_id);
     let finally_reason_name = if has_finally && needs_finally_return_flow {
         Some(compat_next_temp("try_reason", next_id))
     } else {
@@ -1235,6 +1289,7 @@ pub(crate) fn build_try_plan(
     };
 
     TryPlan {
+        except_exc_name,
         finally_reason_name,
         finally_return_value_name,
         finally_dispatch_label,
@@ -1288,7 +1343,9 @@ pub(crate) struct LoweredTryRegions {
     pub body_region_range: std::ops::Range<usize>,
     pub else_region_range: std::ops::Range<usize>,
     pub except_region_range: Option<std::ops::Range<usize>>,
+    pub finally_region_range: Option<std::ops::Range<usize>>,
     pub finally_label: Option<String>,
+    pub finally_normal_entry: Option<String>,
 }
 
 pub(crate) fn lower_try_regions<F>(
@@ -1305,11 +1362,22 @@ where
     F: FnMut(&[Box<Stmt>], String, &mut Vec<BlockPyBlock>) -> String,
 {
     let finally_label = if let Some(finally_body) = finally_body {
+        let finally_region_start = blocks.len();
         let finally_label = lower_region(
             &finally_body,
             try_plan.finally_cont_label(rest_entry),
             blocks,
         );
+        let finally_region_end = blocks.len();
+        let finally_normal_entry = try_plan.finally_exc_name.as_ref().map(|finally_exc_name| {
+            let normal_label = format!("{finally_label}__normal");
+            blocks.push(compat_block_from_blockpy(
+                normal_label.clone(),
+                vec![py_stmt!("{exc:id} = None", exc = finally_exc_name.as_str(),)],
+                BlockPyTerm::Jump(BlockPyLabel::from(finally_label.clone())),
+            ));
+            normal_label
+        });
         if let (
             Some(finally_return_label),
             Some(finally_dispatch_label),
@@ -1330,13 +1398,18 @@ where
                 rest_entry.to_string(),
             );
         }
-        Some(finally_label)
+        Some((
+            finally_label,
+            finally_region_start..finally_region_end,
+            finally_normal_entry,
+        ))
     } else {
         None
     };
 
     let cleanup_target = finally_label
-        .clone()
+        .as_ref()
+        .map(|(label, _, normal_entry)| normal_entry.clone().unwrap_or_else(|| label.clone()))
         .unwrap_or_else(|| rest_entry.to_string());
 
     let else_region_start = blocks.len();
@@ -1354,7 +1427,7 @@ where
         let except_region_end = blocks.len();
         except_region_range = Some(except_region_start..except_region_end);
         except_label
-    } else if let Some(finally_label) = finally_label.clone() {
+    } else if let Some((finally_label, _, _)) = finally_label.clone() {
         except_region_range = None;
         finally_label
     } else {
@@ -1371,7 +1444,11 @@ where
         body_region_range: body_region_start..body_region_end,
         else_region_range: else_region_start..else_region_end,
         except_region_range,
-        finally_label,
+        finally_region_range: finally_label.as_ref().map(|(_, range, _)| range.clone()),
+        finally_normal_entry: finally_label
+            .as_ref()
+            .and_then(|(_, _, normal_entry)| normal_entry.clone()),
+        finally_label: finally_label.map(|(label, _, _)| label),
     }
 }
 
@@ -1386,12 +1463,14 @@ pub(crate) fn finalize_try_regions(
     body_region_range: std::ops::Range<usize>,
     else_region_range: std::ops::Range<usize>,
     except_region_range: Option<std::ops::Range<usize>>,
+    finally_region_range: Option<std::ops::Range<usize>>,
     finally_label: Option<String>,
+    finally_normal_entry: Option<String>,
 ) -> (String, TryRegionPlan) {
     if let (Some(reason_name), Some(return_name), Some(finally_target)) = (
         try_plan.finally_reason_name.as_ref(),
         try_plan.finally_return_value_name.as_ref(),
-        finally_label.as_ref(),
+        finally_normal_entry.as_ref().or(finally_label.as_ref()),
     ) {
         rewrite_region_returns_to_finally_blockpy(
             &mut blocks[body_region_range.clone()],
@@ -1416,6 +1495,20 @@ pub(crate) fn finalize_try_regions(
                 None,
             );
         }
+    }
+
+    if let Some(except_region_range) = except_region_range.as_ref() {
+        set_region_exc_param(
+            blocks,
+            except_region_range,
+            try_plan.except_exc_name.as_str(),
+        );
+    }
+    if let (Some(finally_region_range), Some(finally_exc_name)) = (
+        finally_region_range.as_ref(),
+        try_plan.finally_exc_name.as_ref(),
+    ) {
+        set_region_exc_param(blocks, finally_region_range, finally_exc_name.as_str());
     }
 
     let cleanup_region_labels = if finally_label.is_some() {
@@ -1460,11 +1553,13 @@ pub(crate) fn emit_finally_return_dispatch_blocks(
             test: py_expr!("__dp_eq({reason:id}, 'return')", reason = reason_name,).into(),
             body: Box::new(BlockPyBlock {
                 label: BlockPyLabel::from(format!("{finally_dispatch_label}_then")),
+                exc_param: None,
                 body: Vec::new(),
                 term: BlockPyTerm::Jump(BlockPyLabel::from(finally_return_label)),
             }),
             orelse: Box::new(BlockPyBlock {
                 label: BlockPyLabel::from(format!("{finally_dispatch_label}_else")),
+                exc_param: None,
                 body: Vec::new(),
                 term: BlockPyTerm::Jump(BlockPyLabel::from(rest_entry)),
             }),
@@ -1586,6 +1681,7 @@ pub(crate) fn finalize_blockpy_function(
     if needs_end_block {
         function.blocks.push(BlockPyBlock {
             label: BlockPyLabel::from(end_label),
+            exc_param: None,
             body: Vec::new(),
             term: BlockPyTerm::Return(None),
         });
@@ -2138,6 +2234,7 @@ pub(crate) fn lower_generator_stmt_sequence_plan(
         linear,
         rest_entry,
         blocks,
+        None,
         closure_state,
         try_regions,
         resume_order,
@@ -3123,7 +3220,9 @@ where
         lowered_try.body_region_range,
         lowered_try.else_region_range,
         lowered_try.except_region_range,
+        lowered_try.finally_region_range,
         lowered_try.finally_label,
+        lowered_try.finally_normal_entry,
     )
 }
 
@@ -3428,16 +3527,19 @@ fn lower_body_to_blocks_with_entry(
 
                 blocks.push(BlockPyBlock {
                     label: test_label.clone(),
+                    exc_param: None,
                     body: Vec::new(),
                     term: BlockPyTerm::IfTerm(BlockPyIfTerm {
                         test: (*while_stmt.test).clone().into(),
                         body: Box::new(BlockPyBlock {
                             label: BlockPyLabel::from(format!("{}_then", test_label.as_str())),
+                            exc_param: None,
                             body: Vec::new(),
                             term: BlockPyTerm::Jump(body_label.clone()),
                         }),
                         orelse: Box::new(BlockPyBlock {
                             label: BlockPyLabel::from(format!("{}_else", test_label.as_str())),
+                            exc_param: None,
                             body: Vec::new(),
                             term: BlockPyTerm::Jump(
                                 else_label.clone().unwrap_or_else(|| after_label.clone()),
@@ -3499,6 +3601,7 @@ fn lower_body_to_blocks_with_entry(
                 };
                 blocks.push(BlockPyBlock {
                     label: setup_label.clone(),
+                    exc_param: None,
                     body: vec![BlockPyStmt::Assign(BlockPyAssign {
                         target: py_expr!("{name:id}", name = iter_name.as_str())
                             .as_name_expr()
@@ -3537,6 +3640,7 @@ fn lower_body_to_blocks_with_entry(
 
                 blocks.push(BlockPyBlock {
                     label: fetch_label.clone(),
+                    exc_param: None,
                     body: vec![BlockPyStmt::Assign(BlockPyAssign {
                         target: py_expr!("{tmp:id}", tmp = target_tmp.as_str())
                             .as_name_expr()
@@ -3552,6 +3656,7 @@ fn lower_body_to_blocks_with_entry(
                         .into(),
                         body: Box::new(BlockPyBlock {
                             label: BlockPyLabel::from(format!("{}_then", fetch_label.as_str())),
+                            exc_param: None,
                             body: Vec::new(),
                             term: BlockPyTerm::Jump(
                                 else_label.clone().unwrap_or_else(|| after_label.clone()),
@@ -3559,6 +3664,7 @@ fn lower_body_to_blocks_with_entry(
                         }),
                         orelse: Box::new(BlockPyBlock {
                             label: BlockPyLabel::from(format!("{}_else", fetch_label.as_str())),
+                            exc_param: None,
                             body: Vec::new(),
                             term: BlockPyTerm::Jump(assign_label.clone()),
                         }),
@@ -4208,7 +4314,7 @@ def f(xs):
             runtime_cells: vec![crate::basic_block::bb_ir::BbClosureSlot {
                 logical_name: "_dp_pc".to_string(),
                 storage_name: "_dp_cell__dp_pc".to_string(),
-                init: crate::basic_block::bb_ir::BbClosureInit::RuntimePcZero,
+                init: crate::basic_block::bb_ir::BbClosureInit::RuntimePcUnstarted,
             }],
         };
 

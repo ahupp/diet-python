@@ -5,7 +5,7 @@ use super::{
 };
 use crate::ruff_ast_to_string;
 use ruff_python_ast::{self as ast, Expr};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 pub fn blockpy_module_to_string(module: &BlockPyModule) -> String {
     let mut formatter = BlockPyFormatter::default();
@@ -43,6 +43,7 @@ impl BlockPyFormatter {
     fn write_function(&mut self, function: &BlockPyFunction) {
         let params = format_parameters(&function.params);
         let referenced_labels = collect_referenced_labels_from_blocks(&function.blocks);
+        let render_layout = BlockRenderLayout::new(function);
         self.line(format!(
             "function {}({params}) [kind={}, bind={}, target={}, qualname={}]",
             function.bind_name,
@@ -55,9 +56,31 @@ impl BlockPyFormatter {
             if function.blocks.is_empty() {
                 this.line("pass");
             } else {
-                for block in &function.blocks {
-                    this.write_block(block, &referenced_labels);
+                for root_block in &render_layout.root_blocks {
+                    this.write_function_block(
+                        function,
+                        &render_layout,
+                        *root_block,
+                        &referenced_labels,
+                    );
                 }
+            }
+        });
+    }
+
+    fn write_function_block(
+        &mut self,
+        function: &BlockPyFunction,
+        render_layout: &BlockRenderLayout,
+        block_index: usize,
+        referenced_labels: &HashSet<BlockPyLabel>,
+    ) {
+        let block = &function.blocks[block_index];
+        self.line(format!("block {}:", block.label.as_str()));
+        self.with_indent(|this| {
+            this.write_block_contents(block, referenced_labels);
+            for child_block in &render_layout.child_blocks[block_index] {
+                this.write_function_block(function, render_layout, *child_block, referenced_labels);
             }
         });
     }
@@ -349,6 +372,323 @@ fn join_labels(labels: &[BlockPyLabel]) -> String {
         .join(", ")
 }
 
+#[derive(Debug)]
+struct BlockRenderLayout {
+    root_blocks: Vec<usize>,
+    child_blocks: Vec<Vec<usize>>,
+}
+
+impl BlockRenderLayout {
+    fn new(function: &BlockPyFunction) -> Self {
+        let block_count = function.blocks.len();
+        if block_count == 0 {
+            return Self {
+                root_blocks: Vec::new(),
+                child_blocks: Vec::new(),
+            };
+        }
+
+        let label_to_index = function
+            .blocks
+            .iter()
+            .enumerate()
+            .map(|(index, block)| (block.label.as_str().to_string(), index))
+            .collect::<HashMap<_, _>>();
+
+        let successors = function
+            .blocks
+            .iter()
+            .map(|block| collect_top_level_successors_from_block(block, &label_to_index))
+            .collect::<Vec<_>>();
+        let predecessors = collect_predecessors(&successors);
+        let entry_index = choose_entry_block_index(&function.blocks, &predecessors);
+        let discovery_order = collect_discovery_order(entry_index, &successors);
+        let discovery_rank = discovery_order
+            .iter()
+            .enumerate()
+            .map(|(rank, index)| (*index, rank))
+            .collect::<HashMap<_, _>>();
+        let reachable = discovery_order.iter().copied().collect::<HashSet<_>>();
+        let dominators =
+            compute_dominators(entry_index, &discovery_order, &predecessors, &reachable);
+        let immediate_dominators =
+            compute_immediate_dominators(entry_index, &discovery_order, &dominators, &reachable);
+
+        let mut child_blocks = vec![Vec::new(); block_count];
+        for (block_index, immediate_dominator) in immediate_dominators.iter().enumerate() {
+            if let Some(parent_index) = immediate_dominator {
+                child_blocks[*parent_index].push(block_index);
+            }
+        }
+        for children in &mut child_blocks {
+            children.sort_by_key(|child_index| {
+                discovery_rank
+                    .get(child_index)
+                    .copied()
+                    .unwrap_or(usize::MAX)
+            });
+        }
+
+        let mut root_blocks = vec![entry_index];
+        let reachable_roots = discovery_order
+            .iter()
+            .copied()
+            .filter(|index| *index != entry_index && immediate_dominators[*index].is_none())
+            .collect::<Vec<_>>();
+        root_blocks.extend(reachable_roots);
+        root_blocks.extend((0..block_count).filter(|index| !reachable.contains(index)));
+
+        Self {
+            root_blocks,
+            child_blocks,
+        }
+    }
+}
+
+fn choose_entry_block_index(blocks: &[BlockPyBlock], predecessors: &[Vec<usize>]) -> usize {
+    let root_candidates = (0..blocks.len())
+        .filter(|index| predecessors[*index].iter().all(|pred| pred == index))
+        .collect::<Vec<_>>();
+    if root_candidates.is_empty() {
+        return 0;
+    }
+    root_candidates
+        .iter()
+        .copied()
+        .find(|index| {
+            let label = blocks[*index].label.as_str();
+            label == "start" || label.ends_with("_start")
+        })
+        .or_else(|| {
+            root_candidates.iter().copied().find(|index| {
+                let label = blocks[*index].label.as_str();
+                label.contains("dispatch")
+            })
+        })
+        .unwrap_or(root_candidates[0])
+}
+
+fn collect_top_level_successors_from_block(
+    block: &BlockPyBlock,
+    label_to_index: &HashMap<String, usize>,
+) -> Vec<usize> {
+    let mut successors = Vec::new();
+    let mut seen = HashSet::new();
+    collect_top_level_successors_from_stmts(
+        &block.body,
+        label_to_index,
+        &mut seen,
+        &mut successors,
+    );
+    collect_top_level_successors_from_term(&block.term, label_to_index, &mut seen, &mut successors);
+    successors
+}
+
+fn collect_top_level_successors_from_block_into(
+    block: &BlockPyBlock,
+    label_to_index: &HashMap<String, usize>,
+    seen: &mut HashSet<usize>,
+    out: &mut Vec<usize>,
+) {
+    collect_top_level_successors_from_stmts(&block.body, label_to_index, seen, out);
+    collect_top_level_successors_from_term(&block.term, label_to_index, seen, out);
+}
+
+fn collect_top_level_successors_from_stmts(
+    stmts: &[BlockPyStmt],
+    label_to_index: &HashMap<String, usize>,
+    seen: &mut HashSet<usize>,
+    out: &mut Vec<usize>,
+) {
+    for stmt in stmts {
+        match stmt {
+            BlockPyStmt::If(if_stmt) => {
+                collect_top_level_successors_from_stmts(&if_stmt.body, label_to_index, seen, out);
+                collect_top_level_successors_from_stmts(&if_stmt.orelse, label_to_index, seen, out);
+            }
+            BlockPyStmt::BranchTable(branch) => {
+                for label in &branch.targets {
+                    push_top_level_successor(label, label_to_index, seen, out);
+                }
+                push_top_level_successor(&branch.default_label, label_to_index, seen, out);
+            }
+            BlockPyStmt::Jump(label) => {
+                push_top_level_successor(label, label_to_index, seen, out);
+            }
+            BlockPyStmt::TryJump(try_jump) => {
+                push_top_level_successor(&try_jump.body_label, label_to_index, seen, out);
+                push_top_level_successor(&try_jump.except_label, label_to_index, seen, out);
+            }
+            BlockPyStmt::Pass
+            | BlockPyStmt::Assign(_)
+            | BlockPyStmt::Expr(_)
+            | BlockPyStmt::Delete(_)
+            | BlockPyStmt::FunctionDef(_)
+            | BlockPyStmt::Return(_)
+            | BlockPyStmt::Raise(_) => {}
+        }
+    }
+}
+
+fn collect_top_level_successors_from_term(
+    term: &BlockPyTerm,
+    label_to_index: &HashMap<String, usize>,
+    seen: &mut HashSet<usize>,
+    out: &mut Vec<usize>,
+) {
+    match term {
+        BlockPyTerm::Jump(label) => {
+            push_top_level_successor(label, label_to_index, seen, out);
+        }
+        BlockPyTerm::IfTerm(BlockPyIfTerm { body, orelse, .. }) => {
+            collect_top_level_successors_from_block_into(body, label_to_index, seen, out);
+            collect_top_level_successors_from_block_into(orelse, label_to_index, seen, out);
+        }
+        BlockPyTerm::BranchTable(branch) => {
+            for label in &branch.targets {
+                push_top_level_successor(label, label_to_index, seen, out);
+            }
+            push_top_level_successor(&branch.default_label, label_to_index, seen, out);
+        }
+        BlockPyTerm::TryJump(try_jump) => {
+            push_top_level_successor(&try_jump.body_label, label_to_index, seen, out);
+            push_top_level_successor(&try_jump.except_label, label_to_index, seen, out);
+        }
+        BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => {}
+    }
+}
+
+fn push_top_level_successor(
+    label: &BlockPyLabel,
+    label_to_index: &HashMap<String, usize>,
+    seen: &mut HashSet<usize>,
+    out: &mut Vec<usize>,
+) {
+    let Some(successor_index) = label_to_index.get(label.as_str()) else {
+        return;
+    };
+    if seen.insert(*successor_index) {
+        out.push(*successor_index);
+    }
+}
+
+fn collect_predecessors(successors: &[Vec<usize>]) -> Vec<Vec<usize>> {
+    let mut predecessors = vec![Vec::new(); successors.len()];
+    for (source_index, targets) in successors.iter().enumerate() {
+        for target_index in targets {
+            predecessors[*target_index].push(source_index);
+        }
+    }
+    predecessors
+}
+
+fn collect_discovery_order(entry_index: usize, successors: &[Vec<usize>]) -> Vec<usize> {
+    fn visit(
+        block_index: usize,
+        successors: &[Vec<usize>],
+        visited: &mut HashSet<usize>,
+        order: &mut Vec<usize>,
+    ) {
+        if !visited.insert(block_index) {
+            return;
+        }
+        order.push(block_index);
+        for successor_index in &successors[block_index] {
+            visit(*successor_index, successors, visited, order);
+        }
+    }
+
+    let mut visited = HashSet::new();
+    let mut order = Vec::new();
+    visit(entry_index, successors, &mut visited, &mut order);
+    order
+}
+
+fn compute_dominators(
+    entry_index: usize,
+    discovery_order: &[usize],
+    predecessors: &[Vec<usize>],
+    reachable: &HashSet<usize>,
+) -> Vec<HashSet<usize>> {
+    let mut dominators = vec![HashSet::new(); predecessors.len()];
+    let all_reachable = reachable.iter().copied().collect::<HashSet<_>>();
+    for block_index in discovery_order {
+        if *block_index == entry_index {
+            dominators[*block_index].insert(*block_index);
+        } else {
+            dominators[*block_index] = all_reachable.clone();
+        }
+    }
+
+    loop {
+        let mut changed = false;
+        for block_index in discovery_order
+            .iter()
+            .copied()
+            .filter(|block_index| *block_index != entry_index)
+        {
+            let mut reachable_predecessors = predecessors[block_index]
+                .iter()
+                .copied()
+                .filter(|predecessor| reachable.contains(predecessor));
+            let Some(first_predecessor) = reachable_predecessors.next() else {
+                let mut singleton = HashSet::new();
+                singleton.insert(block_index);
+                if dominators[block_index] != singleton {
+                    dominators[block_index] = singleton;
+                    changed = true;
+                }
+                continue;
+            };
+
+            let mut new_dominators = dominators[first_predecessor].clone();
+            for predecessor in reachable_predecessors {
+                new_dominators = new_dominators
+                    .intersection(&dominators[predecessor])
+                    .copied()
+                    .collect();
+            }
+            new_dominators.insert(block_index);
+
+            if dominators[block_index] != new_dominators {
+                dominators[block_index] = new_dominators;
+                changed = true;
+            }
+        }
+
+        if !changed {
+            return dominators;
+        }
+    }
+}
+
+fn compute_immediate_dominators(
+    entry_index: usize,
+    discovery_order: &[usize],
+    dominators: &[HashSet<usize>],
+    reachable: &HashSet<usize>,
+) -> Vec<Option<usize>> {
+    let mut immediate_dominators = vec![None; dominators.len()];
+    for block_index in discovery_order
+        .iter()
+        .copied()
+        .filter(|block_index| *block_index != entry_index)
+    {
+        let strict_dominators = dominators[block_index]
+            .iter()
+            .copied()
+            .filter(|dominator| *dominator != block_index && reachable.contains(dominator))
+            .collect::<Vec<_>>();
+        let immediate_dominator = strict_dominators.iter().copied().find(|candidate| {
+            strict_dominators
+                .iter()
+                .all(|other| *other == *candidate || dominators[*candidate].contains(other))
+        });
+        immediate_dominators[block_index] = immediate_dominator;
+    }
+    immediate_dominators
+}
+
 fn collect_referenced_labels_from_blocks(blocks: &[BlockPyBlock]) -> HashSet<BlockPyLabel> {
     let mut referenced = HashSet::new();
     for block in blocks {
@@ -428,6 +768,7 @@ mod tests {
     use super::*;
     use crate::basic_block::collect_function_identity_by_node;
     use crate::basic_block::ruff_to_blockpy::rewrite_ast_to_blockpy_module;
+    use ruff_python_parser::{parse_expression, parse_module};
 
     fn wrapped_blockpy(source: &str) -> BlockPyModule {
         let mut module = ruff_python_parser::parse_module(source)
@@ -438,6 +779,26 @@ mod tests {
         let scope = crate::analyze_module_scope(&mut module);
         let identities = collect_function_identity_by_node(&mut module, scope);
         rewrite_ast_to_blockpy_module(&module, &identities).unwrap()
+    }
+
+    fn parse_blockpy_expr(source: &str) -> BlockPyExpr {
+        (*parse_expression(source).unwrap().into_syntax().body).into()
+    }
+
+    fn empty_parameters() -> ast::Parameters {
+        let body = parse_module(
+            r#"
+def f():
+    pass
+"#,
+        )
+        .unwrap()
+        .into_syntax()
+        .body;
+        let ast::Stmt::FunctionDef(function_def) = &**body.body.iter().next().unwrap() else {
+            unreachable!("expected parsed helper function")
+        };
+        *function_def.parameters.clone()
     }
 
     #[test]
@@ -504,5 +865,54 @@ def gen():
 
         assert!(rendered.contains("function gen() [kind=generator"));
         assert!(!rendered.contains("generator_state:"));
+    }
+
+    #[test]
+    fn renders_followup_blocks_under_their_owning_entry_block() {
+        let function = BlockPyFunction {
+            bind_name: "f".to_string(),
+            qualname: "f".to_string(),
+            binding_target: BindingTarget::ModuleGlobal,
+            kind: BlockPyFunctionKind::Function,
+            params: empty_parameters(),
+            blocks: vec![
+                BlockPyBlock {
+                    label: "start".into(),
+                    exc_param: None,
+                    body: vec![],
+                    term: BlockPyTerm::IfTerm(BlockPyIfTerm {
+                        test: parse_blockpy_expr("cond"),
+                        body: Box::new(BlockPyBlock {
+                            label: "then".into(),
+                            exc_param: None,
+                            body: vec![BlockPyStmt::Expr(parse_blockpy_expr("then_side_effect()"))],
+                            term: BlockPyTerm::Jump("after".into()),
+                        }),
+                        orelse: Box::new(BlockPyBlock {
+                            label: "else".into(),
+                            exc_param: None,
+                            body: vec![BlockPyStmt::Expr(parse_blockpy_expr("else_side_effect()"))],
+                            term: BlockPyTerm::Jump("after".into()),
+                        }),
+                    }),
+                },
+                BlockPyBlock {
+                    label: "after".into(),
+                    exc_param: None,
+                    body: vec![BlockPyStmt::Expr(parse_blockpy_expr("finish()"))],
+                    term: BlockPyTerm::Return(None),
+                },
+            ],
+        };
+        let rendered = blockpy_module_to_string(&BlockPyModule {
+            functions: vec![function],
+            module_init: None,
+        });
+
+        assert!(rendered.contains("    block start:\n"));
+        assert!(rendered.contains("        block after:\n"));
+        assert!(rendered.contains(
+            "        if_term cond:\n            then:\n                block then:\n                    then_side_effect()\n                    jump after\n            else:\n                block else:\n                    else_side_effect()\n                    jump after\n        block after:\n            finish()\n            return\n"
+        ));
     }
 }

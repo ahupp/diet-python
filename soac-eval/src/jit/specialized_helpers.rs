@@ -9,6 +9,7 @@ unsafe extern "C" {
     fn PyCell_New(obj: *mut ffi::PyObject) -> *mut ffi::PyObject;
     fn PyCell_Get(cell: *mut ffi::PyObject) -> *mut ffi::PyObject;
     fn PyCell_Set(cell: *mut ffi::PyObject, value: *mut ffi::PyObject) -> libc::c_int;
+    fn PyErr_SetRaisedException(exc: *mut ffi::PyObject);
 }
 
 pub type ObjPtr = *mut c_void;
@@ -524,12 +525,8 @@ unsafe extern "C" fn raise_from_exc_hook(exc: ObjPtr) -> i32 {
         return -1;
     }
     let exc_obj = exc as *mut ffi::PyObject;
-    let typ = ffi::PyExceptionInstance_Class(exc_obj);
-    if typ.is_null() {
-        return -1;
-    }
-    ffi::PyErr_SetObject(typ, exc_obj);
-    ffi::Py_DECREF(typ);
+    ffi::Py_INCREF(exc_obj);
+    PyErr_SetRaisedException(exc_obj);
     0
 }
 

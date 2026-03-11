@@ -214,7 +214,7 @@ fn closure_backed_generator_init_expr(slot: &BbClosureSlot) -> Expr {
             py_expr!("{name:id}", name = slot.logical_name.as_str())
         }
         BbClosureInit::DeletedSentinel => py_expr!("__dp_DELETED"),
-        BbClosureInit::RuntimePcZero => py_expr!("0"),
+        BbClosureInit::RuntimePcUnstarted => py_expr!("1"),
         BbClosureInit::RuntimeNone => py_expr!("None"),
         BbClosureInit::Deferred => py_expr!("None"),
     }
@@ -240,7 +240,7 @@ fn logical_name_for_generator_state(name: &str) -> String {
 
 fn runtime_init(name: &str) -> Option<BbClosureInit> {
     match name {
-        "_dp_pc" => Some(BbClosureInit::RuntimePcZero),
+        "_dp_pc" => Some(BbClosureInit::RuntimePcUnstarted),
         "_dp_yieldfrom" => Some(BbClosureInit::RuntimeNone),
         _ => None,
     }
@@ -512,6 +512,7 @@ pub(crate) fn build_closure_backed_generator_factory_block(
 
     BlockPyBlock {
         label: factory_label.into(),
+        exc_param: None,
         body,
         term: BlockPyTerm::Return(Some(return_value.into())),
     }
@@ -674,13 +675,17 @@ pub(crate) fn lower_generator_blockpy_blocks(
                 resume_label: site.resume_label.as_str().to_string(),
             })
             .collect::<Vec<_>>();
+        split_generator_return_terms_to_escape_blocks(
+            &mut blocks,
+            &yield_sites,
+            is_async,
+            closure_state,
+        );
         lower_generator_yield_terms_to_explicit_return_blockpy(
             &mut blocks,
             &HashMap::new(),
             &resume_pcs,
             &yield_sites,
-            &[],
-            is_async,
             closure_state,
         );
         info = Some(generator_info);
@@ -690,6 +695,7 @@ pub(crate) fn lower_generator_blockpy_blocks(
 
 fn finalize_generator_block(
     label: BlockPyLabel,
+    exc_param: Option<String>,
     mut body: Vec<BlockPyStmt>,
     cont_label: Option<String>,
 ) -> BlockPyBlock {
@@ -701,7 +707,12 @@ fn finalize_generator_block(
         Some(label) => BlockPyTerm::Jump(BlockPyLabel::from(label)),
         None => BlockPyTerm::Return(None),
     });
-    BlockPyBlock { label, body, term }
+    BlockPyBlock {
+        label,
+        exc_param,
+        body,
+        term,
+    }
 }
 
 fn lower_generator_block_list(
@@ -748,6 +759,7 @@ fn lower_generator_block_list(
     }
     blocks.push(BlockPyBlock {
         label: BlockPyLabel::from(end_label),
+        exc_param: None,
         body: Vec::new(),
         term: BlockPyTerm::Return(None),
     });
@@ -805,6 +817,7 @@ fn lower_generator_block_body(
     yield_sites: &mut Vec<GeneratorYieldSite>,
 ) {
     let current_label = block.label.as_str().to_string();
+    let ambient_exc_param = block.exc_param.clone();
     let mut stmts = block.body;
     stmts.push(legacy_stmt_from_term(&block.term, current_label.as_str()));
     let mut linear_blockpy = Vec::new();
@@ -822,6 +835,7 @@ fn lower_generator_block_body(
                     fn_name,
                     finalize_generator_block(
                         BlockPyLabel::from(rest_label.clone()),
+                        ambient_exc_param.clone(),
                         stmts[idx + 1..].to_vec(),
                         cont_label.clone(),
                     ),
@@ -846,6 +860,7 @@ fn lower_generator_block_body(
             linear,
             rest_entry,
             &mut lowered,
+            ambient_exc_param.as_deref(),
             closure_state,
             try_regions,
             resume_order,
@@ -856,6 +871,7 @@ fn lower_generator_block_body(
         ) {
             out.push(BlockPyBlock {
                 label: BlockPyLabel::from(current_label),
+                exc_param: ambient_exc_param,
                 body: Vec::new(),
                 term: BlockPyTerm::Jump(BlockPyLabel::from(entry)),
             });
@@ -867,6 +883,7 @@ fn lower_generator_block_body(
 
     out.push(finalize_generator_block(
         BlockPyLabel::from(current_label),
+        ambient_exc_param,
         linear_blockpy,
         cont_label,
     ));
@@ -903,6 +920,7 @@ pub(crate) fn lower_generator_blockpy_stmt_in_sequence(
     linear: Vec<Stmt>,
     rest_entry: Option<String>,
     blocks: &mut Vec<BlockPyBlock>,
+    ambient_exc_param: Option<&str>,
     closure_state: bool,
     try_regions: &mut Vec<TryRegionPlan>,
     resume_order: &mut Vec<String>,
@@ -932,7 +950,8 @@ pub(crate) fn lower_generator_blockpy_stmt_in_sequence(
         yield_sites,
         next_item: &mut next_item,
     };
-    match stmt {
+    let generated_start = ctx.blocks.len();
+    let entry = match stmt {
         BlockPyStmt::Expr(BlockPyExpr::Yield(yield_expr)) => {
             let rest_entry =
                 rest_entry.expect("generator expr lowering in stmt sequence requires a rest entry");
@@ -1062,7 +1081,15 @@ pub(crate) fn lower_generator_blockpy_stmt_in_sequence(
             Some(lowered)
         }
         _ => None,
+    };
+    if let Some(exc_param) = ambient_exc_param {
+        for block in &mut ctx.blocks[generated_start..] {
+            if block.exc_param.is_none() {
+                block.exc_param = Some(exc_param.to_string());
+            }
+        }
     }
+    entry
 }
 
 pub(crate) enum GeneratorYieldFromPlanItem<'a> {
@@ -1254,37 +1281,32 @@ pub(crate) fn synthesize_generator_dispatch(
         blockpy_raise_from_stmt(throw_resume_exc_stmt),
     ));
 
-    let resume_send_label = format!("{label_prefix}_dispatch_send");
-    let resume_throw_label = format!("{label_prefix}_dispatch_throw");
     let resume_dispatch_label = format!("{label_prefix}_dispatch");
     let resume_send_table_label = format!("{label_prefix}_dispatch_send_table");
     let resume_throw_table_label = format!("{label_prefix}_dispatch_throw_table");
-    let resume_invalid_table_label = format!("{label_prefix}_dispatch_invalid");
-    let resume_send_precheck_pc0_label = format!("{label_prefix}_dispatch_send_precheck_pc0");
+    let resume_send_label = format!("{label_prefix}_dispatch_send");
     let resume_send_precheck_value_label = format!("{label_prefix}_dispatch_send_precheck_value");
     let resume_send_precheck_transport_label =
         format!("{label_prefix}_dispatch_send_precheck_transport");
     let resume_send_transport_error_label = format!("{label_prefix}_dispatch_send_transport_error");
     info.generator_dispatch_only_labels.extend([
-        resume_send_label.clone(),
-        resume_throw_label.clone(),
         resume_dispatch_label.clone(),
         resume_send_table_label.clone(),
         resume_throw_table_label.clone(),
-        resume_invalid_table_label.clone(),
     ]);
     if is_async_generator_runtime {
         info.generator_dispatch_only_labels.extend([
-            resume_send_precheck_pc0_label.clone(),
+            resume_send_label.clone(),
             resume_send_precheck_value_label.clone(),
             resume_send_precheck_transport_label.clone(),
             resume_send_transport_error_label.clone(),
         ]);
     }
 
-    let mut send_table_targets = Vec::with_capacity(resume_order.len());
-    let mut throw_table_targets = Vec::with_capacity(resume_order.len());
-    for (pc, resume_target) in resume_order.iter().enumerate() {
+    let mut send_table_targets = vec![BlockPyLabel::from(done_label.clone())];
+    let mut throw_table_targets = vec![BlockPyLabel::from(resume_throw_done_label.clone())];
+    for (resume_index, resume_target) in resume_order.iter().enumerate() {
+        let pc = resume_index + 1;
         let send_dispatch_target_label = format!("{label_prefix}_dispatch_send_target_{pc}");
         info.generator_dispatch_only_labels
             .insert(send_dispatch_target_label.clone());
@@ -1293,12 +1315,12 @@ pub(crate) fn synthesize_generator_dispatch(
             Vec::new(),
             BlockPyStmt::Jump(BlockPyLabel::from(resume_target.clone())),
         ));
-        send_table_targets.push(send_dispatch_target_label);
+        send_table_targets.push(BlockPyLabel::from(send_dispatch_target_label));
 
         let throw_dispatch_target_label = format!("{label_prefix}_dispatch_throw_target_{pc}");
         info.generator_dispatch_only_labels
             .insert(throw_dispatch_target_label.clone());
-        let throw_target = if pc == 0 {
+        let throw_target = if pc == 1 {
             resume_throw_unstarted_label.clone()
         } else {
             resume_target.clone()
@@ -1308,24 +1330,16 @@ pub(crate) fn synthesize_generator_dispatch(
             Vec::new(),
             BlockPyStmt::Jump(BlockPyLabel::from(throw_target)),
         ));
-        throw_table_targets.push(throw_dispatch_target_label);
+        throw_table_targets.push(BlockPyLabel::from(throw_dispatch_target_label));
     }
-    blocks.push(compat_block_from_blockpy(
-        resume_invalid_table_label.clone(),
-        Vec::new(),
-        BlockPyStmt::Jump(BlockPyLabel::from(invalid_label)),
-    ));
 
     blocks.push(compat_block_from_blockpy(
         resume_send_table_label.clone(),
         Vec::new(),
         BlockPyStmt::BranchTable(BlockPyBranchTable {
             index: generator_pc_expr.clone().into(),
-            targets: send_table_targets
-                .into_iter()
-                .map(BlockPyLabel::from)
-                .collect(),
-            default_label: BlockPyLabel::from(resume_invalid_table_label.clone()),
+            targets: send_table_targets,
+            default_label: BlockPyLabel::from(invalid_label.clone()),
         }),
     ));
     blocks.push(compat_block_from_blockpy(
@@ -1333,11 +1347,8 @@ pub(crate) fn synthesize_generator_dispatch(
         Vec::new(),
         BlockPyStmt::BranchTable(BlockPyBranchTable {
             index: generator_pc_expr.clone().into(),
-            targets: throw_table_targets
-                .into_iter()
-                .map(BlockPyLabel::from)
-                .collect(),
-            default_label: BlockPyLabel::from(resume_invalid_table_label),
+            targets: throw_table_targets,
+            default_label: BlockPyLabel::from(invalid_label),
         }),
     ));
     if is_async_generator_runtime {
@@ -1367,43 +1378,24 @@ pub(crate) fn synthesize_generator_dispatch(
             resume_send_table_label.clone(),
         ));
         blocks.push(compat_if_jump_block(
-            resume_send_precheck_pc0_label.clone(),
+            resume_send_label.clone(),
             Vec::new(),
-            py_expr!("__dp_eq({pc:expr}, 0)", pc = generator_pc_expr.clone()),
+            py_expr!("__dp_eq({pc:expr}, 1)", pc = generator_pc_expr.clone()),
             resume_send_precheck_value_label,
             resume_send_table_label.clone(),
         ));
     }
-    blocks.push(compat_if_jump_block(
-        resume_send_label.clone(),
-        Vec::new(),
-        py_expr!(
-            "__dp_eq({pc:expr}, __dp_GEN_PC_DONE)",
-            pc = generator_pc_expr.clone()
-        ),
-        done_label,
-        if is_async_generator_runtime {
-            resume_send_precheck_pc0_label
-        } else {
-            resume_send_table_label
-        },
-    ));
-    blocks.push(compat_if_jump_block(
-        resume_throw_label.clone(),
-        Vec::new(),
-        py_expr!(
-            "__dp_eq({pc:expr}, __dp_GEN_PC_DONE)",
-            pc = generator_pc_expr
-        ),
-        resume_throw_done_label,
-        resume_throw_table_label,
-    ));
+    let send_dispatch_entry_label = if is_async_generator_runtime {
+        resume_send_label
+    } else {
+        resume_send_table_label.clone()
+    };
     blocks.push(compat_if_jump_block(
         resume_dispatch_label.clone(),
         Vec::new(),
         py_expr!("__dp_is_(_dp_resume_exc, None)"),
-        resume_send_label,
-        resume_throw_label,
+        send_dispatch_entry_label,
+        resume_throw_table_label,
     ));
     *entry_label = resume_dispatch_label;
 
@@ -1420,8 +1412,6 @@ pub(crate) fn lower_generator_yield_terms_to_explicit_return_blockpy(
     block_params: &HashMap<String, Vec<String>>,
     resume_pcs: &[(String, usize)],
     yield_sites: &[GeneratorYieldSite],
-    cleanup_cells: &[String],
-    is_async: bool,
     closure_state: bool,
 ) {
     let resume_pc_by_label = resume_pcs
@@ -1478,44 +1468,109 @@ pub(crate) fn lower_generator_yield_terms_to_explicit_return_blockpy(
                 }
                 block.body.extend(injected);
             }
-            BlockPyTerm::Return(value) => {
-                let mut injected = if closure_state {
-                    lower_generated_stmts_to_blockpy(vec![py_stmt!(
-                        "__dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)"
-                    )])
-                } else {
-                    lower_generated_stmts_to_blockpy(vec![py_stmt!(
-                        "__dp_setattr(_dp_self, \"_pc\", __dp_GEN_PC_DONE)"
-                    )])
-                };
-                if closure_state {
-                    for cell in cleanup_cells {
-                        injected.extend(lower_generated_stmts_to_blockpy(vec![py_stmt!(
-                            "__dp_store_cell({cell:id}, __dp_DELETED)",
-                            cell = cell.as_str(),
-                        )]));
-                    }
-                }
-                block.body.extend(injected);
-                let raise_stmt = if is_async {
-                    match py_stmt!("raise StopAsyncIteration()") {
-                        Stmt::Raise(stmt) => stmt,
-                        _ => unreachable!("expected raise statement"),
-                    }
-                } else if let Some(value) = value.clone() {
-                    match py_stmt!("raise StopIteration({value:expr})", value = value.to_expr()) {
-                        Stmt::Raise(stmt) => stmt,
-                        _ => unreachable!("expected raise statement"),
-                    }
-                } else {
-                    match py_stmt!("raise StopIteration()") {
-                        Stmt::Raise(stmt) => stmt,
-                        _ => unreachable!("expected raise statement"),
-                    }
-                };
-                block.term = BlockPyTerm::Raise(blockpy_raise_from_stmt(raise_stmt));
-            }
+            BlockPyTerm::Return(_) => {}
             _ => {}
+        }
+    }
+}
+
+pub(crate) fn split_generator_return_terms_to_escape_blocks(
+    blocks: &mut Vec<BlockPyBlock>,
+    yield_sites: &[GeneratorYieldSite],
+    is_async: bool,
+    closure_state: bool,
+) -> HashSet<String> {
+    let yield_labels = yield_sites
+        .iter()
+        .map(|site| site.yield_label.as_str().to_string())
+        .collect::<HashSet<_>>();
+    let mut known_labels = blocks
+        .iter()
+        .map(|block| block.label.as_str().to_string())
+        .collect::<HashSet<_>>();
+    let mut escape_labels = HashSet::new();
+    let mut extra_blocks = Vec::new();
+
+    for block in blocks.iter_mut() {
+        let BlockPyTerm::Return(value) = &block.term else {
+            continue;
+        };
+        if yield_labels.contains(block.label.as_str()) {
+            continue;
+        }
+
+        let base_label = format!("{}_return_done", block.label.as_str());
+        let mut return_label = base_label.clone();
+        let mut suffix = 0usize;
+        while known_labels.contains(return_label.as_str()) {
+            suffix += 1;
+            return_label = format!("{base_label}_{suffix}");
+        }
+        known_labels.insert(return_label.clone());
+        escape_labels.insert(return_label.clone());
+
+        let mut injected = if closure_state {
+            lower_generated_stmts_to_blockpy(vec![py_stmt!(
+                "__dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)"
+            )])
+        } else {
+            lower_generated_stmts_to_blockpy(vec![py_stmt!(
+                "__dp_setattr(_dp_self, \"_pc\", __dp_GEN_PC_DONE)"
+            )])
+        };
+        block.body.append(&mut injected);
+
+        let raise_stmt = if is_async {
+            match py_stmt!("raise StopAsyncIteration()") {
+                Stmt::Raise(stmt) => stmt,
+                _ => unreachable!("expected raise statement"),
+            }
+        } else if let Some(value) = value.clone() {
+            match py_stmt!("raise StopIteration({value:expr})", value = value.to_expr()) {
+                Stmt::Raise(stmt) => stmt,
+                _ => unreachable!("expected raise statement"),
+            }
+        } else {
+            match py_stmt!("raise StopIteration()") {
+                Stmt::Raise(stmt) => stmt,
+                _ => unreachable!("expected raise statement"),
+            }
+        };
+        block.term = BlockPyTerm::Jump(BlockPyLabel::from(return_label.clone()));
+        extra_blocks.push(compat_raise_block_from_blockpy_raise(
+            return_label,
+            Vec::new(),
+            blockpy_raise_from_stmt(raise_stmt),
+        ));
+    }
+
+    blocks.extend(extra_blocks);
+    escape_labels
+}
+
+pub(crate) fn inject_cleanup_cells_for_generator_return_escapes(
+    blocks: &mut [BlockPyBlock],
+    escape_labels: &HashSet<String>,
+    cleanup_cells: &[String],
+) {
+    if escape_labels.is_empty() || cleanup_cells.is_empty() {
+        return;
+    }
+
+    for block in blocks.iter_mut() {
+        let BlockPyTerm::Jump(target) = &block.term else {
+            continue;
+        };
+        if !escape_labels.contains(target.as_str()) {
+            continue;
+        }
+        for cell in cleanup_cells {
+            block
+                .body
+                .extend(lower_generated_stmts_to_blockpy(vec![py_stmt!(
+                    "__dp_store_cell({cell:id}, __dp_DELETED)",
+                    cell = cell.as_str(),
+                )]));
         }
     }
 }
@@ -1545,11 +1600,13 @@ pub(crate) fn emit_generator_yield_suspend_blocks(
             test: py_expr!("__dp_is_not(_dp_resume_exc, None)").into(),
             body: Box::new(BlockPyBlock {
                 label: BlockPyLabel::from(format!("{resume_dispatch_label}_true")),
+                exc_param: None,
                 body: Vec::new(),
                 term: BlockPyTerm::Jump(BlockPyLabel::from(resume_raise_label)),
             }),
             orelse: Box::new(BlockPyBlock {
                 label: BlockPyLabel::from(format!("{resume_dispatch_label}_false")),
+                exc_param: None,
                 body: Vec::new(),
                 term: BlockPyTerm::Jump(BlockPyLabel::from(resume_success_label)),
             }),
@@ -1720,7 +1777,7 @@ pub(crate) fn emit_yield_from_blocks(
         )],
         BlockPyStmt::Jump(BlockPyLabel::from(plan.yield_label.clone())),
     ));
-    blocks.push(compat_if_jump_block(
+    let mut stop_except_block = compat_if_jump_block(
         plan.stop_except_label.clone(),
         vec![py_stmt!(
             "{stop:id} = __dp_current_exception()",
@@ -1732,7 +1789,9 @@ pub(crate) fn emit_yield_from_blocks(
         ),
         plan.stop_done_label.clone(),
         plan.raise_stop_label.clone(),
-    ));
+    );
+    stop_except_block.exc_param = Some(plan.stop_name.clone());
+    blocks.push(stop_except_block);
     blocks.push(compat_block_from_blockpy(
         plan.stop_done_label.clone(),
         if let Some(result_name) = plan.result_name.as_ref() {
@@ -1820,11 +1879,13 @@ pub(crate) fn emit_yield_from_blocks(
             .into(),
             body: Box::new(BlockPyBlock {
                 label: BlockPyLabel::from(format!("{}_true", plan.genexit_close_lookup_label)),
+                exc_param: None,
                 body: Vec::new(),
                 term: BlockPyTerm::Jump(BlockPyLabel::from(plan.genexit_call_close_label.clone())),
             }),
             orelse: Box::new(BlockPyBlock {
                 label: BlockPyLabel::from(format!("{}_false", plan.genexit_close_lookup_label)),
+                exc_param: None,
                 body: Vec::new(),
                 term: BlockPyTerm::Jump(BlockPyLabel::from(plan.raise_exc_label.clone())),
             }),
@@ -1866,11 +1927,13 @@ pub(crate) fn emit_yield_from_blocks(
             .into(),
             body: Box::new(BlockPyBlock {
                 label: BlockPyLabel::from(format!("{}_true", plan.lookup_throw_label)),
+                exc_param: None,
                 body: Vec::new(),
                 term: BlockPyTerm::Jump(BlockPyLabel::from(plan.raise_exc_label)),
             }),
             orelse: Box::new(BlockPyBlock {
                 label: BlockPyLabel::from(format!("{}_false", plan.lookup_throw_label)),
+                exc_param: None,
                 body: Vec::new(),
                 term: BlockPyTerm::Jump(BlockPyLabel::from(plan.throw_try_label.clone())),
             }),
@@ -2141,7 +2204,7 @@ mod tests {
             runtime_cells: vec![BbClosureSlot {
                 logical_name: "_dp_pc".to_string(),
                 storage_name: "_dp_cell__dp_pc".to_string(),
-                init: BbClosureInit::RuntimePcZero,
+                init: BbClosureInit::RuntimePcUnstarted,
             }],
         };
 

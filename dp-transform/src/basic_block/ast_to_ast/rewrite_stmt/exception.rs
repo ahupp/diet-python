@@ -6,6 +6,18 @@ fn body_to_vec(body: ast::StmtBody) -> Vec<Stmt> {
     body.body.into_iter().map(|stmt| *stmt).collect()
 }
 
+fn exception_name_cleanup_stmt(target: &str) -> Stmt {
+    py_stmt!(
+        r#"
+try:
+    del {target:id}
+except NameError:
+    pass
+"#,
+        target = target,
+    )
+}
+
 pub fn rewrite_try(stmt: ast::StmtTry) -> Rewrite {
     if stmt.is_star {
         let ast::StmtTry {
@@ -40,18 +52,20 @@ pub fn rewrite_try(stmt: ast::StmtTry) -> Rewrite {
             let (exc_target, body) = if let Some(ast::Identifier { id, .. }) = &name {
                 let target = id.as_str();
                 let exc_target = py_stmt!("{target:id} = _dp_match", target = target);
+                let cleanup_on_error = exception_name_cleanup_stmt(target);
+                let cleanup_after = exception_name_cleanup_stmt(target);
                 let body = py_stmt!(
                     r#"
 try:
     {body:stmt}
-finally:
-    try:
-        del {target:id}
-    except NameError:
-        pass
+except:
+    {cleanup_on_error:stmt}
+    raise
+{cleanup_after:stmt}
 "#,
                     body = h_body,
-                    target = target,
+                    cleanup_on_error = cleanup_on_error,
+                    cleanup_after = cleanup_after,
                 );
                 (exc_target, body)
             } else {
@@ -147,18 +161,20 @@ finally:
         let (exc_target, body) = if let Some(ast::Identifier { id, .. }) = &name {
             let target = id.as_str();
             let exc_target = py_stmt!("{target:id} = __dp_current_exception()", target = target,);
+            let cleanup_on_error = exception_name_cleanup_stmt(target);
+            let cleanup_after = exception_name_cleanup_stmt(target);
             let body = py_stmt!(
                 r#"
 try:
     {body:stmt}
-finally:
-    try:
-        del {target:id}
-    except NameError:
-        pass
+except:
+    {cleanup_on_error:stmt}
+    raise
+{cleanup_after:stmt}
 "#,
                 body = body,
-                target = target,
+                cleanup_on_error = cleanup_on_error,
+                cleanup_after = cleanup_after,
             );
             (exc_target, body)
         } else {

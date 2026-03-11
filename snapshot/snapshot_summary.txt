@@ -17,7 +17,7 @@ snapshot_expr::compare_not_in: blockpy=1, clif=1
 snapshot_expr::if_expr: blockpy=6, clif=4
 snapshot_expr::named_expr: blockpy=1, clif=1
 snapshot_expr::lambda_simple: blockpy=2, clif=2
-snapshot_expr::generator_expr: blockpy=37, clif=26
+snapshot_expr::generator_expr: blockpy=30, clif=25
 snapshot_expr::list_literal: blockpy=1, clif=1
 snapshot_expr::list_literal_splat: blockpy=1, clif=1
 snapshot_expr::tuple_splat: blockpy=1, clif=1
@@ -48,24 +48,23 @@ snapshot_stmt::delete_mixed: blockpy=1, clif=1
 snapshot_stmt::assert_no_msg: blockpy=8, clif=4
 snapshot_stmt::assert_with_msg: blockpy=8, clif=4
 snapshot_stmt::raise_from: blockpy=1, clif=1
-snapshot_stmt::try_except_typed: blockpy=13, clif=9
+snapshot_stmt::try_except_typed: blockpy=10, clif=8
 snapshot_stmt::for_else: blockpy=7, clif=5
 snapshot_stmt::while_else: blockpy=5, clif=3
-snapshot_stmt::with_as: blockpy=13, clif=8
+snapshot_stmt::with_as: blockpy=14, clif=9
 snapshot_stmt::function_local_ann_assign: blockpy=2, clif=2
 snapshot_stmt::comprehension_global: blockpy=22, clif=16
 snapshot_stmt::comprehension_in_function: blockpy=12, clif=8
 snapshot_stmt::comprehension_in_class_body: blockpy=10, clif=8
-snapshot_stmt::with_multi: blockpy=23, clif=14
-snapshot_stmt::async_for: blockpy=73, clif=50
-snapshot_stmt::async_with: blockpy=149, clif=98
+snapshot_stmt::with_multi: blockpy=25, clif=16
+snapshot_stmt::async_for: blockpy=66, clif=49
+snapshot_stmt::async_with: blockpy=143, clif=98
 snapshot_stmt::match_simple: blockpy=5, clif=3
-snapshot_stmt::generator_yield: blockpy=32, clif=23
-snapshot_stmt::yield_from: blockpy=58, clif=39
-snapshot_stmt::with_exit_suppresses_exception: blockpy=12, clif=8
+snapshot_stmt::generator_yield: blockpy=25, clif=22
+snapshot_stmt::yield_from: blockpy=51, clif=38
+snapshot_stmt::with_exit_suppresses_exception: blockpy=13, clif=9
 snapshot_stmt::closure_cell_simple: blockpy=3, clif=3
 snapshot_stmt::bb_if_else_function: blockpy=6, clif=4
 snapshot_stmt::closure_cell_nonlocal: blockpy=3, clif=3
 snapshot_stmt::plain try / catch: blockpy=7, clif=5
-snapshot_stmt::complicated generator [1]: blockpy=43, clif=30
-snapshot_stmt::complicated generator [2]: blockpy=43, clif=30
+snapshot_stmt::complicated generator: blockpy=36, clif=29

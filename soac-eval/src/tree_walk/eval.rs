@@ -56,7 +56,7 @@ enum ClosureInit {
     InheritedCapture,
     Parameter,
     DeletedSentinel,
-    RuntimePcZero,
+    RuntimePcUnstarted,
     RuntimeNone,
     Deferred,
 }
@@ -442,7 +442,7 @@ unsafe fn parse_closure_layout(
                 "InheritedCapture" => ClosureInit::InheritedCapture,
                 "Parameter" => ClosureInit::Parameter,
                 "DeletedSentinel" => ClosureInit::DeletedSentinel,
-                "RuntimePcZero" => ClosureInit::RuntimePcZero,
+                "RuntimePcUnstarted" => ClosureInit::RuntimePcUnstarted,
                 "RuntimeNone" => ClosureInit::RuntimeNone,
                 "Deferred" => ClosureInit::Deferred,
                 _ => {
@@ -1179,14 +1179,14 @@ unsafe fn build_resume_closure_from_state_tuple(
                     fallback
                 }
             }
-            ClosureInit::RuntimePcZero => {
-                let zero = ffi::PyLong_FromLong(0);
-                if zero.is_null() {
+            ClosureInit::RuntimePcUnstarted => {
+                let unstarted = ffi::PyLong_FromLong(1);
+                if unstarted.is_null() {
                     ffi::Py_DECREF(resume_closure);
                     return ptr::null_mut();
                 }
-                let cell = PyCell_New(zero);
-                ffi::Py_DECREF(zero);
+                let cell = PyCell_New(unstarted);
+                ffi::Py_DECREF(unstarted);
                 if cell.is_null() {
                     ffi::Py_DECREF(resume_closure);
                     return ptr::null_mut();

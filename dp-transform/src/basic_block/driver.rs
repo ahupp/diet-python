@@ -273,11 +273,11 @@ def outer(scale):
 
         let pc = slot_by_name(&layout.runtime_cells, "_dp_pc");
         assert_eq!(pc.storage_name, "_dp_cell__dp_pc");
-        assert_eq!(pc.init, BbClosureInit::RuntimePcZero);
+        assert_eq!(pc.init, BbClosureInit::RuntimePcUnstarted);
     }
 
     #[test]
-    fn closure_backed_generator_layout_omits_try_exception_slots() {
+    fn closure_backed_generator_layout_preserves_try_exception_slots() {
         let source = r#"
 def gen():
     try:
@@ -296,13 +296,13 @@ def gen():
             .as_ref()
             .expect("sync generator should record closure layout");
 
-        assert!(
-            layout
-                .lifted_locals
-                .iter()
-                .all(|slot| !slot.logical_name.starts_with("_dp_try_exc_")),
-            "{layout:?}"
-        );
+        let try_exc = layout
+            .lifted_locals
+            .iter()
+            .find(|slot| slot.logical_name.starts_with("_dp_try_exc_"))
+            .unwrap_or_else(|| panic!("missing try-exception slot in {layout:?}"));
+        assert_eq!(try_exc.storage_name, "_dp_cell__dp_try_exc_1");
+        assert_eq!(try_exc.init, BbClosureInit::DeletedSentinel);
         assert!(
             layout
                 .runtime_cells
@@ -349,7 +349,7 @@ def outer(scale):
 
         let pc = slot_by_name(&layout.runtime_cells, "_dp_pc");
         assert_eq!(pc.storage_name, "_dp_cell__dp_pc");
-        assert_eq!(pc.init, BbClosureInit::RuntimePcZero);
+        assert_eq!(pc.init, BbClosureInit::RuntimePcUnstarted);
     }
 
     #[test]
@@ -384,7 +384,7 @@ def outer(scale):
 
         let pc = slot_by_name(&layout.runtime_cells, "_dp_pc");
         assert_eq!(pc.storage_name, "_dp_cell__dp_pc");
-        assert_eq!(pc.init, BbClosureInit::RuntimePcZero);
+        assert_eq!(pc.init, BbClosureInit::RuntimePcUnstarted);
     }
 
     #[test]
@@ -638,6 +638,11 @@ def make_counter(delta):
             panic!("expected generator kind, got {:?}", gen.kind);
         };
         assert_eq!(resume_pcs.len(), 3, "{resume_pcs:?}");
+        assert_eq!(
+            resume_pcs.iter().map(|(_, pc)| *pc).collect::<Vec<_>>(),
+            vec![1, 2, 3],
+            "{resume_pcs:?}"
+        );
     }
 
     #[test]

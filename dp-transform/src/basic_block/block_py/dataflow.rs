@@ -72,6 +72,10 @@ pub(crate) fn analyze_blockpy_use_def(block: &BlockPyBlock) -> (HashSet<String>,
     let mut uses = HashSet::new();
     let mut defs = HashSet::new();
 
+    if let Some(exc_param) = block.exc_param.as_ref() {
+        uses.insert(exc_param.clone());
+    }
+
     for stmt in &block.body {
         for name in load_names_in_blockpy_stmt(stmt) {
             if !defs.contains(name.as_str()) {
@@ -86,6 +90,9 @@ pub(crate) fn analyze_blockpy_use_def(block: &BlockPyBlock) -> (HashSet<String>,
         if !defs.contains(name.as_str()) {
             uses.insert(name);
         }
+    }
+    for name in assigned_names_in_blockpy_term(&block.term) {
+        defs.insert(name);
     }
 
     (uses, defs)
@@ -188,8 +195,16 @@ fn load_names_in_blockpy_term(term: &BlockPyTerm) -> HashSet<String> {
 fn assigned_names_in_blockpy_stmt(stmt: &BlockPyStmt) -> HashSet<String> {
     match stmt {
         BlockPyStmt::Pass => HashSet::new(),
-        BlockPyStmt::Assign(BlockPyAssign { target, .. }) => HashSet::from([target.id.to_string()]),
-        BlockPyStmt::Expr(_) => HashSet::new(),
+        BlockPyStmt::Assign(BlockPyAssign { target, value }) => {
+            let mut names = HashSet::from([target.id.to_string()]);
+            collect_named_expr_target_names_in_blockpy_expr(value, &mut names);
+            names
+        }
+        BlockPyStmt::Expr(expr) => {
+            let mut names = HashSet::new();
+            collect_named_expr_target_names_in_blockpy_expr(expr, &mut names);
+            names
+        }
         BlockPyStmt::Delete(_) => HashSet::new(),
         BlockPyStmt::FunctionDef(func) => HashSet::from([func.name.id.to_string()]),
         BlockPyStmt::If(BlockPyIf { test, body, orelse }) => {
@@ -203,11 +218,56 @@ fn assigned_names_in_blockpy_stmt(stmt: &BlockPyStmt) -> HashSet<String> {
             }
             names
         }
-        BlockPyStmt::BranchTable(_)
-        | BlockPyStmt::Jump(_)
-        | BlockPyStmt::Return(_)
-        | BlockPyStmt::Raise(_)
-        | BlockPyStmt::TryJump(_) => HashSet::new(),
+        BlockPyStmt::BranchTable(BlockPyBranchTable { index, .. }) => {
+            let mut names = HashSet::new();
+            collect_named_expr_target_names_in_blockpy_expr(index, &mut names);
+            names
+        }
+        BlockPyStmt::Jump(_) | BlockPyStmt::TryJump(_) => HashSet::new(),
+        BlockPyStmt::Return(value) => {
+            let mut names = HashSet::new();
+            if let Some(value) = value {
+                collect_named_expr_target_names_in_blockpy_expr(value, &mut names);
+            }
+            names
+        }
+        BlockPyStmt::Raise(BlockPyRaise { exc }) => {
+            let mut names = HashSet::new();
+            if let Some(exc) = exc {
+                collect_named_expr_target_names_in_blockpy_expr(exc, &mut names);
+            }
+            names
+        }
+    }
+}
+
+fn assigned_names_in_blockpy_term(term: &BlockPyTerm) -> HashSet<String> {
+    match term {
+        BlockPyTerm::Jump(_) | BlockPyTerm::TryJump(_) => HashSet::new(),
+        BlockPyTerm::IfTerm(BlockPyIfTerm { test, .. }) => {
+            let mut names = HashSet::new();
+            collect_named_expr_target_names_in_blockpy_expr(test, &mut names);
+            names
+        }
+        BlockPyTerm::BranchTable(BlockPyBranchTable { index, .. }) => {
+            let mut names = HashSet::new();
+            collect_named_expr_target_names_in_blockpy_expr(index, &mut names);
+            names
+        }
+        BlockPyTerm::Return(value) => {
+            let mut names = HashSet::new();
+            if let Some(value) = value {
+                collect_named_expr_target_names_in_blockpy_expr(value, &mut names);
+            }
+            names
+        }
+        BlockPyTerm::Raise(BlockPyRaise { exc }) => {
+            let mut names = HashSet::new();
+            if let Some(exc) = exc {
+                collect_named_expr_target_names_in_blockpy_expr(exc, &mut names);
+            }
+            names
+        }
     }
 }
 

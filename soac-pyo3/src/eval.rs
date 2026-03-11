@@ -134,6 +134,7 @@ pub(crate) fn jit_render_bb_with_cfg_plan_impl(
 #[cfg(test)]
 mod tests {
     use dp_transform::basic_block::bb_ir;
+    use soac_eval::jit::{self, BlockExcArgSource};
     use std::any::Any;
 
     fn panic_payload_to_string(payload: Box<dyn Any + Send>) -> String {
@@ -156,6 +157,22 @@ mod tests {
 
         match std::panic::catch_unwind(|| {
             dp_transform::transform_str_to_ruff_with_options(source, options)
+        }) {
+            Ok(Ok(result)) => Ok(result),
+            Ok(Err(err)) => Err(err.to_string()),
+            Err(payload) => Err(panic_payload_to_string(payload)),
+        }
+    }
+
+    fn parse_and_lower_runtime_style(source: &str) -> Result<dp_transform::LoweringResult, String> {
+        match std::panic::catch_unwind(|| {
+            dp_transform::transform_str_to_ruff_with_options(
+                source,
+                dp_transform::Options {
+                    lower_attributes: false,
+                    ..dp_transform::Options::default()
+                },
+            )
         }) {
             Ok(Ok(result)) => Ok(result),
             Ok(Err(err)) => Err(err.to_string()),
@@ -253,5 +270,85 @@ def f(x):
             .bb_module;
         validate_bb_module_for_jit(bb_module.as_ref()).expect("validator should allow module");
         run_cranelift_jit_preflight(bb_module.as_ref()).expect("cranelift preflight should run");
+    }
+
+    #[test]
+    fn generator_throw_handler_plan_keeps_try_exception_param() {
+        let source = r#"
+def exercise():
+    outer_capture = 2
+    def gen():
+        total = 1
+        try:
+            total += outer_capture
+            yield total
+        except ValueError as exc:
+            total += len(str(exc))
+        yield total
+    return gen
+"#;
+        let bb_module = parse_and_lower_runtime_style(source)
+            .expect("lowering should succeed")
+            .bb_module
+            .expect("bb module should exist");
+        let normalized = dp_transform::basic_block::prepare_bb_module_for_codegen(&bb_module);
+        let module_name = "jit_plan_generator_throw_handler_param_test";
+        jit::register_clif_module_plans(module_name, &normalized)
+            .expect("plan registration should succeed");
+        let plan = jit::lookup_clif_plan(module_name, "exercise.<locals>.gen::_dp_bb_gen_dispatch")
+            .expect("registered plan should exist");
+
+        let handler_entry_targets = plan
+            .block_param_names
+            .iter()
+            .enumerate()
+            .filter(|(_, params)| params.iter().any(|name| name.starts_with("_dp_try_exc_")))
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+
+        assert!(
+            !handler_entry_targets.is_empty(),
+            "expected at least one except handler block with an explicit try-exception carrier: {:?}",
+            plan.block_param_names
+        );
+        assert!(
+            plan.block_exc_dispatches.iter().flatten().any(|dispatch| {
+                handler_entry_targets.contains(&dispatch.target_index)
+                    && dispatch
+                        .arg_sources
+                        .iter()
+                        .any(|source| matches!(source, BlockExcArgSource::Exception))
+            }),
+            "expected a dispatch into an except handler target to pass the active exception: {:?}",
+            plan.block_exc_dispatches
+                .iter()
+                .enumerate()
+                .filter_map(|(index, dispatch)| {
+                    dispatch.as_ref().map(|dispatch| {
+                        (
+                            &plan.block_labels[index],
+                            &plan.block_labels[dispatch.target_index],
+                            &dispatch.arg_sources,
+                        )
+                    })
+                })
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            plan.block_param_names
+                .iter()
+                .enumerate()
+                .any(|(_, params)| {
+                    params.iter().any(|name| name.starts_with("_dp_try_exc_"))
+                        && params.iter().any(|name| name == "exc")
+                }),
+            "expected some lowered handler block to preserve the user-visible exception binding: {:?}",
+            plan.block_param_names
+                .iter()
+                .enumerate()
+                .filter(|(_, params)| params.iter().any(|name| name.starts_with("_dp_try_exc_")))
+                .map(|(index, params)| (&plan.block_labels[index], params))
+                .collect::<Vec<_>>()
+        );
     }
 }
