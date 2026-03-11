@@ -4,7 +4,7 @@ mod exception_pass;
 
 use super::bb_ir::{BbBlock, BbExpr, BbFunction, BbModule, BbOp, BbTerm, BindingTarget};
 use super::block_py::state::collect_parameter_names;
-use super::block_py::{BlockPyBlock, BlockPyBrIf, BlockPyStmt, BlockPyTerm};
+use super::block_py::{BlockPyBlock, BlockPyIfTerm, BlockPyStmt, BlockPyTerm};
 use super::ruff_to_blockpy::{LoweredBlockPyFunction, LoweredBlockPyFunctionBundle};
 use super::stmt_utils::{flatten_stmt, flatten_stmt_boxes, stmt_body_from_stmts};
 use crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass;
@@ -224,7 +224,7 @@ fn simplify_blockpy_terminal_exprs(
     body: &mut Vec<Stmt>,
 ) {
     match terminal {
-        BlockPyTerm::BrIf(BlockPyBrIf { test, .. }) => {
+        BlockPyTerm::IfTerm(BlockPyIfTerm { test, .. }) => {
             test.rewrite_mut(|expr| simplify_expr_for_bb_term(context, pass, expr, body))
         }
         BlockPyTerm::BranchTable(branch) => branch
@@ -279,7 +279,7 @@ pub(crate) fn blockpy_stmt_to_stmt_for_analysis(stmt: &BlockPyStmt) -> Option<St
             node_index: compat_node_index(),
             range: compat_range(),
             test: Box::new(if_stmt.test.to_expr()),
-            body: stmt_body_from_blockpy_blocks(&if_stmt.body),
+            body: stmt_body_from_blockpy_stmts(&if_stmt.body),
             elif_else_clauses: if if_stmt.orelse.is_empty() {
                 Vec::new()
             } else {
@@ -287,7 +287,7 @@ pub(crate) fn blockpy_stmt_to_stmt_for_analysis(stmt: &BlockPyStmt) -> Option<St
                     node_index: compat_node_index(),
                     range: compat_range(),
                     test: None,
-                    body: stmt_body_from_blockpy_blocks(&if_stmt.orelse),
+                    body: stmt_body_from_blockpy_stmts(&if_stmt.orelse),
                 }]
             },
         })),
@@ -302,14 +302,10 @@ pub(crate) fn blockpy_stmt_to_stmt_for_analysis(stmt: &BlockPyStmt) -> Option<St
 fn bb_term_from_blockpy_term(terminal: &BlockPyTerm) -> BbTerm {
     match terminal {
         BlockPyTerm::Jump(target) => BbTerm::Jump(target.as_str().to_string()),
-        BlockPyTerm::BrIf(BlockPyBrIf {
-            test,
-            then_label,
-            else_label,
-        }) => BbTerm::BrIf {
+        BlockPyTerm::IfTerm(BlockPyIfTerm { test, body, orelse }) => BbTerm::BrIf {
             test: BbExpr::from_expr(test.clone().into()),
-            then_label: then_label.as_str().to_string(),
-            else_label: else_label.as_str().to_string(),
+            then_label: branch_jump_target(body, "then"),
+            else_label: branch_jump_target(orelse, "else"),
         },
         BlockPyTerm::BranchTable(branch) => BbTerm::BrTable {
             index: BbExpr::from_expr(branch.index.clone().into()),
@@ -349,6 +345,28 @@ fn stmt_body_from_blockpy_blocks(blocks: &[BlockPyBlock]) -> ast::StmtBody {
     )
 }
 
+fn stmt_body_from_blockpy_stmts(stmts: &[BlockPyStmt]) -> ast::StmtBody {
+    stmt_body_from_stmts(
+        stmts
+            .iter()
+            .filter_map(blockpy_stmt_to_stmt_for_analysis)
+            .collect::<Vec<_>>(),
+    )
+}
+
+fn branch_jump_target(block: &BlockPyBlock, branch_name: &str) -> String {
+    assert!(
+        block.body.is_empty(),
+        "IfTerm {branch_name} branch must lower to an empty jump block before BB conversion: {block:?}"
+    );
+    match &block.term {
+        BlockPyTerm::Jump(target) => target.as_str().to_string(),
+        other => panic!(
+            "IfTerm {branch_name} branch must terminate in Jump before BB conversion: {other:?}"
+        ),
+    }
+}
+
 fn blockpy_term_to_stmt_for_analysis(term: &BlockPyTerm) -> Option<Stmt> {
     match term {
         BlockPyTerm::Return(value) => Some(Stmt::Return(ast::StmtReturn {
@@ -363,7 +381,7 @@ fn blockpy_term_to_stmt_for_analysis(term: &BlockPyTerm) -> Option<Stmt> {
             cause: None,
         })),
         BlockPyTerm::Jump(_)
-        | BlockPyTerm::BrIf(_)
+        | BlockPyTerm::IfTerm(_)
         | BlockPyTerm::BranchTable(_)
         | BlockPyTerm::TryJump(_) => None,
     }

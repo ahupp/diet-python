@@ -119,32 +119,11 @@ build-extension build="debug": ensure-cpython
 
 build-all: (update-venv) ensure-cpython
   #!/usr/bin/env bash
-  TIMEFORMAT='[diet-python timing] build_all_s=%3R'
-  set +e
-  time {
-    (
-      cd "$REPO_ROOT"
-      cargo build --quiet --workspace --tests
-    )
-    just install-extension debug
-  }
-  STATUS=$?
-  set -e
-  exit "$STATUS"
-
-[private]
-_cargo-test-run *args='':
-  #!/usr/bin/env bash
   cd "$REPO_ROOT"
-  TIMEFORMAT='[diet-python timing] cargo_test_s=%3R'
-  set +e
-  time cargo test {{args}}
-  STATUS=$?
-  set -e
-  exit "$STATUS"
+  cargo build --quiet --workspace --tests
+  just install-extension debug
 
-cargo-test *args='': build-all
-  just _cargo-test-run {{args}}
+
 
 run-cpython-tests jobs="0" *args='': build-all ensure-cpython ensure-venv
   #!/usr/bin/env bash
@@ -436,37 +415,21 @@ _pytest-run *args='': ensure-venv
 pytest *args='': build-all
   just _pytest-run {{args}}
 
-[private]
-_fmt-check-run:
-  #!/usr/bin/env bash
-  cd "$REPO_ROOT"
-  TIMEFORMAT='[diet-python timing] fmt_check_s=%3R'
-  set +e
-  time {
-    cargo fmt
-    cargo fmt --check
-  }
-  STATUS=$?
-  set -e
-  exit "$STATUS"
 
-[private]
-_regen-snapshots-run:
+regen-snapshots:
   #!/usr/bin/env bash
   cd "$REPO_ROOT"
-  TIMEFORMAT='[diet-python timing] regen_snapshots_s=%3R'
-  set +e
-  time cargo run --quiet --bin regen_snapshots
-  STATUS=$?
-  set -e
-  exit "$STATUS"
+  cargo run --quiet --bin regen_snapshots
 
 test-all:
   #!/usr/bin/env bash
   cd "$REPO_ROOT"
-  just _fmt-check-run
-  just build-all
-  just _regen-snapshots-run
+  TIMEFORMAT='[diet-python timing] fmt_check_s=%3R'
+  time cargo fmt
+  TIMEFORMAT='[diet-python timing] build_all_s=%3R'
+  time just build-all
+  TIMEFORMAT='[diet-python timing] regen_snapshots_s=%3R'
+  time just regen-snapshots
 
   overall_status=0
   failed_steps=()
@@ -485,7 +448,7 @@ test-all:
     fi
   }
 
-  run_step "cargo-test" just _cargo-test-run
+  run_step "cargo-test" cargo test
   run_step "pytest" just _pytest-run tests/
 
   if [[ ${#failed_steps[@]} -gt 0 ]]; then

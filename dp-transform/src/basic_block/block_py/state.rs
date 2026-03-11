@@ -1,10 +1,11 @@
 use super::super::blockpy_to_bb;
 use super::super::ruff_to_blockpy::lower_stmts_to_blockpy_stmts;
 use super::dataflow::analyze_blockpy_use_def;
-use super::{BlockPyBlock, BlockPyIf, BlockPyStmt, BlockPyTerm};
+use super::{BlockPyBlock, BlockPyIf, BlockPyIfTerm, BlockPyStmt, BlockPyTerm};
 use crate::basic_block::ast_symbol_analysis::{assigned_names_in_stmt, collect_assigned_names};
 use crate::basic_block::ast_to_ast::scope::cell_name;
 use crate::py_stmt;
+use crate::transformer::Transformer;
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use std::collections::{HashMap, HashSet};
 
@@ -142,6 +143,18 @@ fn assigned_names_in_blockpy_stmt(stmt: &BlockPyStmt) -> HashSet<String> {
     match stmt {
         BlockPyStmt::Assign(assign) => HashSet::from([assign.target.id.to_string()]),
         BlockPyStmt::FunctionDef(func_def) => HashSet::from([func_def.name.id.to_string()]),
+        BlockPyStmt::If(BlockPyIf { test, body, orelse }) => {
+            let mut names = HashSet::new();
+            let expr = test.to_expr();
+            collect_named_expr_targets(&expr, &mut names);
+            for stmt in body {
+                names.extend(assigned_names_in_blockpy_stmt(stmt));
+            }
+            for stmt in orelse {
+                names.extend(assigned_names_in_blockpy_stmt(stmt));
+            }
+            names
+        }
         other => {
             let Some(stmt) = blockpy_to_bb::blockpy_stmt_to_stmt_for_analysis(other) else {
                 return HashSet::new();
@@ -149,6 +162,29 @@ fn assigned_names_in_blockpy_stmt(stmt: &BlockPyStmt) -> HashSet<String> {
             assigned_names_in_stmt(&stmt)
         }
     }
+}
+
+fn collect_named_expr_targets(expr: &Expr, names: &mut HashSet<String>) {
+    #[derive(Default)]
+    struct NamedExprTargetCollector {
+        names: HashSet<String>,
+    }
+
+    impl crate::transformer::Transformer for NamedExprTargetCollector {
+        fn visit_expr(&mut self, expr: &mut Expr) {
+            if let Expr::Named(ast::ExprNamed { target, value, .. }) = expr {
+                collect_assigned_names(target.as_ref(), &mut self.names);
+                self.visit_expr(value.as_mut());
+                return;
+            }
+            crate::transformer::walk_expr(self, expr);
+        }
+    }
+
+    let mut expr = expr.clone();
+    let mut collector = NamedExprTargetCollector::default();
+    collector.visit_expr(&mut expr);
+    names.extend(collector.names);
 }
 
 pub(crate) fn sync_generator_state_order(
@@ -305,7 +341,7 @@ fn rewrite_sync_generator_blockpy_block(
         match stmt {
             BlockPyStmt::If(BlockPyIf { body, orelse, .. }) => {
                 for nested in body {
-                    rewrite_sync_generator_blockpy_block(
+                    rewrite_sync_generator_blockpy_stmt(
                         nested,
                         block_params,
                         passthrough_exception_names,
@@ -316,7 +352,7 @@ fn rewrite_sync_generator_blockpy_block(
                     );
                 }
                 for nested in orelse {
-                    rewrite_sync_generator_blockpy_block(
+                    rewrite_sync_generator_blockpy_stmt(
                         nested,
                         block_params,
                         passthrough_exception_names,
@@ -342,6 +378,41 @@ fn rewrite_sync_generator_blockpy_block(
     );
 }
 
+fn rewrite_sync_generator_blockpy_stmt(
+    stmt: &mut BlockPyStmt,
+    block_params: &mut HashMap<String, Vec<String>>,
+    passthrough_exception_names: &HashSet<String>,
+    lifted_state: &[String],
+    lifted_storage_names: &HashSet<String>,
+    injected_exception_names: &HashSet<String>,
+    cell_slots: &HashSet<String>,
+) {
+    if let BlockPyStmt::If(BlockPyIf { body, orelse, .. }) = stmt {
+        for nested in body {
+            rewrite_sync_generator_blockpy_stmt(
+                nested,
+                block_params,
+                passthrough_exception_names,
+                lifted_state,
+                lifted_storage_names,
+                injected_exception_names,
+                cell_slots,
+            );
+        }
+        for nested in orelse {
+            rewrite_sync_generator_blockpy_stmt(
+                nested,
+                block_params,
+                passthrough_exception_names,
+                lifted_state,
+                lifted_storage_names,
+                injected_exception_names,
+                cell_slots,
+            );
+        }
+    }
+}
+
 fn rewrite_sync_generator_blockpy_term(
     term: &mut BlockPyTerm,
     block_params: &mut HashMap<String, Vec<String>>,
@@ -351,15 +422,26 @@ fn rewrite_sync_generator_blockpy_term(
     injected_exception_names: &HashSet<String>,
     cell_slots: &HashSet<String>,
 ) {
-    let _ = (
-        term,
-        block_params,
-        passthrough_exception_names,
-        lifted_state,
-        lifted_storage_names,
-        injected_exception_names,
-        cell_slots,
-    );
+    if let BlockPyTerm::IfTerm(BlockPyIfTerm { body, orelse, .. }) = term {
+        rewrite_sync_generator_blockpy_block(
+            body,
+            block_params,
+            passthrough_exception_names,
+            lifted_state,
+            lifted_storage_names,
+            injected_exception_names,
+            cell_slots,
+        );
+        rewrite_sync_generator_blockpy_block(
+            orelse,
+            block_params,
+            passthrough_exception_names,
+            lifted_state,
+            lifted_storage_names,
+            injected_exception_names,
+            cell_slots,
+        );
+    }
 }
 
 fn params_contain(block_params: &HashMap<String, Vec<String>>, label: &str, name: &str) -> bool {

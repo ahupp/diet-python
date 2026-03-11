@@ -13,7 +13,6 @@ pub struct BlockPyLabel(pub String);
 
 #[derive(Debug, Clone)]
 pub struct BlockPyModule {
-    pub prelude: Vec<BlockPyStmt>,
     pub functions: Vec<BlockPyFunction>,
     pub module_init: Option<String>,
 }
@@ -97,7 +96,7 @@ pub enum BlockPyStmt {
 #[derive(Debug, Clone)]
 pub enum BlockPyTerm {
     Jump(BlockPyLabel),
-    BrIf(BlockPyBrIf),
+    IfTerm(BlockPyIfTerm),
     BranchTable(BlockPyBranchTable),
     Raise(BlockPyRaise),
     TryJump(BlockPyTryJump),
@@ -118,15 +117,15 @@ pub struct BlockPyDelete {
 #[derive(Debug, Clone)]
 pub struct BlockPyIf {
     pub test: BlockPyExpr,
-    pub body: Vec<BlockPyBlock>,
-    pub orelse: Vec<BlockPyBlock>,
+    pub body: Vec<BlockPyStmt>,
+    pub orelse: Vec<BlockPyStmt>,
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockPyBrIf {
+pub struct BlockPyIfTerm {
     pub test: BlockPyExpr,
-    pub then_label: BlockPyLabel,
-    pub else_label: BlockPyLabel,
+    pub body: Box<BlockPyBlock>,
+    pub orelse: Box<BlockPyBlock>,
 }
 
 #[derive(Debug, Clone)]
@@ -151,11 +150,6 @@ impl BlockPyTerm {
     pub fn from_stmt(stmt: &BlockPyStmt) -> Option<Self> {
         match stmt {
             BlockPyStmt::Jump(target) => Some(Self::Jump(target.clone())),
-            BlockPyStmt::If(if_stmt) => Some(Self::BrIf(BlockPyBrIf {
-                test: if_stmt.test.clone(),
-                then_label: single_jump_term_target(&if_stmt.body)?.clone(),
-                else_label: single_jump_term_target(&if_stmt.orelse)?.clone(),
-            })),
             BlockPyStmt::BranchTable(branch) => Some(Self::BranchTable(branch.clone())),
             BlockPyStmt::Return(value) => Some(Self::Return(value.clone())),
             BlockPyStmt::Raise(raise_stmt) => Some(Self::Raise(raise_stmt.clone())),
@@ -164,21 +158,9 @@ impl BlockPyTerm {
             | BlockPyStmt::Assign(_)
             | BlockPyStmt::Expr(_)
             | BlockPyStmt::Delete(_)
+            | BlockPyStmt::If(_)
             | BlockPyStmt::FunctionDef(_) => None,
         }
-    }
-}
-
-fn single_jump_term_target(blocks: &[BlockPyBlock]) -> Option<&BlockPyLabel> {
-    let [block] = blocks else {
-        return None;
-    };
-    if !block.body.is_empty() {
-        return None;
-    }
-    match &block.term {
-        BlockPyTerm::Jump(label) => Some(label),
-        _ => None,
     }
 }
 

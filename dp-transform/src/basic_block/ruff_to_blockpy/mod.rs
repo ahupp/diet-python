@@ -18,9 +18,9 @@ use super::block_py::state::{
     sync_target_cells_stmts as sync_target_cells_stmts_shared,
 };
 use super::block_py::{
-    BlockPyAssign, BlockPyBlock, BlockPyBrIf, BlockPyDelete, BlockPyExpr, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyIf, BlockPyLabel, BlockPyModule, BlockPyRaise, BlockPyStmt,
-    BlockPyTerm, BlockPyTryJump,
+    BlockPyAssign, BlockPyBlock, BlockPyDelete, BlockPyExpr, BlockPyFunction, BlockPyFunctionKind,
+    BlockPyIf, BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyTerm,
+    BlockPyTryJump,
 };
 use super::deleted_names::rewrite_delete_to_deleted_sentinel;
 use super::function_identity::FunctionIdentityByNode;
@@ -925,10 +925,18 @@ pub(crate) fn compat_if_jump_block(
     compat_block_from_blockpy(
         label.clone(),
         body,
-        BlockPyTerm::BrIf(BlockPyBrIf {
+        BlockPyTerm::IfTerm(BlockPyIfTerm {
             test: test.into(),
-            then_label: BlockPyLabel::from(then_label),
-            else_label: BlockPyLabel::from(else_label),
+            body: Box::new(BlockPyBlock {
+                label: BlockPyLabel::from(format!("{label}_then")),
+                body: Vec::new(),
+                term: BlockPyTerm::Jump(BlockPyLabel::from(then_label)),
+            }),
+            orelse: Box::new(BlockPyBlock {
+                label: BlockPyLabel::from(format!("{label}_else")),
+                body: Vec::new(),
+                term: BlockPyTerm::Jump(BlockPyLabel::from(else_label)),
+            }),
         }),
     )
 }
@@ -1448,10 +1456,18 @@ pub(crate) fn emit_finally_return_dispatch_blocks(
     blocks.push(compat_block_from_blockpy(
         finally_dispatch_label.clone(),
         Vec::new(),
-        BlockPyTerm::BrIf(BlockPyBrIf {
+        BlockPyTerm::IfTerm(BlockPyIfTerm {
             test: py_expr!("__dp_eq({reason:id}, 'return')", reason = reason_name,).into(),
-            then_label: BlockPyLabel::from(finally_return_label),
-            else_label: BlockPyLabel::from(rest_entry),
+            body: Box::new(BlockPyBlock {
+                label: BlockPyLabel::from(format!("{finally_dispatch_label}_then")),
+                body: Vec::new(),
+                term: BlockPyTerm::Jump(BlockPyLabel::from(finally_return_label)),
+            }),
+            orelse: Box::new(BlockPyBlock {
+                label: BlockPyLabel::from(format!("{finally_dispatch_label}_else")),
+                body: Vec::new(),
+                term: BlockPyTerm::Jump(BlockPyLabel::from(rest_entry)),
+            }),
         }),
     ));
 }
@@ -1485,19 +1501,23 @@ fn block_references_label(block: &BlockPyBlock, label: &str) -> bool {
     fn stmt_references_label(stmt: &BlockPyStmt, label: &str) -> bool {
         match stmt {
             BlockPyStmt::If(if_stmt) => {
-                terminal_if_targets(if_stmt)
-                    .map(|(then_label, else_label)| {
-                        then_label.as_str() == label || else_label.as_str() == label
-                    })
-                    .unwrap_or(false)
-                    || if_stmt
-                        .body
-                        .iter()
-                        .chain(if_stmt.orelse.iter())
-                        .any(|block| block_references_label(block, label))
+                stmt_list_references_label(&if_stmt.body, label)
+                    || stmt_list_references_label(&if_stmt.orelse, label)
+            }
+            BlockPyStmt::Jump(target) => target.as_str() == label,
+            BlockPyStmt::BranchTable(branch) => {
+                branch.default_label.as_str() == label
+                    || branch.targets.iter().any(|target| target.as_str() == label)
+            }
+            BlockPyStmt::TryJump(try_jump) => {
+                try_jump.body_label.as_str() == label || try_jump.except_label.as_str() == label
             }
             _ => false,
         }
+    }
+
+    fn stmt_list_references_label(stmts: &[BlockPyStmt], label: &str) -> bool {
+        stmts.iter().any(|stmt| stmt_references_label(stmt, label))
     }
 
     block
@@ -1506,11 +1526,12 @@ fn block_references_label(block: &BlockPyBlock, label: &str) -> bool {
         .any(|stmt| stmt_references_label(stmt, label))
         || match &block.term {
             BlockPyTerm::Jump(target) => target.as_str() == label,
-            BlockPyTerm::BrIf(BlockPyBrIf {
-                then_label,
-                else_label,
-                ..
-            }) => then_label.as_str() == label || else_label.as_str() == label,
+            BlockPyTerm::IfTerm(if_term) => {
+                block_references_label(&if_term.body, label)
+                    || block_references_label(&if_term.orelse, label)
+                    || if_term.body.label.as_str() == label
+                    || if_term.orelse.label.as_str() == label
+            }
             BlockPyTerm::BranchTable(branch) => {
                 branch.default_label.as_str() == label
                     || branch.targets.iter().any(|target| target.as_str() == label)
@@ -1520,32 +1541,6 @@ fn block_references_label(block: &BlockPyBlock, label: &str) -> bool {
             }
             BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => false,
         }
-}
-
-fn terminal_if_targets(if_stmt: &BlockPyIf) -> Option<(&BlockPyLabel, &BlockPyLabel)> {
-    let [BlockPyBlock {
-        body: then_body,
-        term: BlockPyTerm::Jump(then_label),
-        ..
-    }] = if_stmt.body.as_slice()
-    else {
-        return None;
-    };
-    if !then_body.is_empty() {
-        return None;
-    }
-    let [BlockPyBlock {
-        body: else_body,
-        term: BlockPyTerm::Jump(else_label),
-        ..
-    }] = if_stmt.orelse.as_slice()
-    else {
-        return None;
-    };
-    if !else_body.is_empty() {
-        return None;
-    }
-    Some((then_label, else_label))
 }
 
 fn relabel_generator_info(
@@ -1663,11 +1658,9 @@ pub fn rewrite_ast_to_blockpy_module(
     function_identity_by_node: &FunctionIdentityByNode,
 ) -> Result<BlockPyModule, String> {
     let mut module_out = BlockPyModule {
-        prelude: Vec::new(),
         functions: Vec::new(),
         module_init: None,
     };
-    let mut next_label_id = 0usize;
 
     for stmt in &module.body {
         match stmt.as_ref() {
@@ -1681,9 +1674,19 @@ pub fn rewrite_ast_to_blockpy_module(
             }
             stmt if is_ignorable_module_stmt(stmt) => {}
             other => {
-                lower_stmt_into(other, &mut module_out.prelude, None, &mut next_label_id)?;
+                return Err(format!(
+                    "rewrite_ast_to_blockpy_module expects module-init-wrapped input; found top-level {}:\n{}",
+                    stmt_kind_name(other),
+                    ruff_ast_to_string(other).trim_end()
+                ));
             }
         }
+    }
+    if module_out.module_init.is_none() {
+        return Err(
+            "rewrite_ast_to_blockpy_module expects wrapped-module input with `_dp_module_init`"
+                .to_string(),
+        );
     }
 
     validate_final_blockpy_module(&module_out);
@@ -1692,9 +1695,6 @@ pub fn rewrite_ast_to_blockpy_module(
 }
 
 fn validate_final_blockpy_module(module: &BlockPyModule) {
-    for stmt in &module.prelude {
-        validate_no_live_yield_in_stmt(stmt);
-    }
     for function in &module.functions {
         for block in &function.blocks {
             for stmt in &block.body {
@@ -1710,15 +1710,11 @@ fn validate_no_live_yield_in_stmt(stmt: &BlockPyStmt) {
         BlockPyStmt::Expr(expr) => validate_no_live_yield_in_expr(expr),
         BlockPyStmt::If(if_stmt) => {
             validate_no_live_yield_in_expr(&if_stmt.test);
-            for block in &if_stmt.body {
-                for stmt in &block.body {
-                    validate_no_live_yield_in_stmt(stmt);
-                }
+            for stmt in &if_stmt.body {
+                validate_no_live_yield_in_stmt(stmt);
             }
-            for block in &if_stmt.orelse {
-                for stmt in &block.body {
-                    validate_no_live_yield_in_stmt(stmt);
-                }
+            for stmt in &if_stmt.orelse {
+                validate_no_live_yield_in_stmt(stmt);
             }
         }
         BlockPyStmt::BranchTable(branch) => validate_no_live_yield_in_expr(&branch.index),
@@ -1824,13 +1820,13 @@ fn collect_nested_functions_from_stmts(
                 lower_function_recursive(func, function_identity_by_node, out, module_init)?;
             }
             BlockPyStmt::If(if_stmt) => {
-                collect_nested_functions_from_blocks(
+                collect_nested_functions_from_stmts(
                     &if_stmt.body,
                     function_identity_by_node,
                     out,
                     module_init,
                 )?;
-                collect_nested_functions_from_blocks(
+                collect_nested_functions_from_stmts(
                     &if_stmt.orelse,
                     function_identity_by_node,
                     out,
@@ -1920,7 +1916,7 @@ pub(crate) fn plan_stmt_sequence_head(
     }
 
     match stmt {
-        Stmt::Expr(_) | Stmt::Pass(_) | Stmt::Assign(_) => {
+        Stmt::Expr(_) | Stmt::Pass(_) | Stmt::Assign(_) | Stmt::Global(_) | Stmt::Nonlocal(_) => {
             StmtSequenceHeadPlan::Linear(stmt.clone())
         }
         Stmt::FunctionDef(func_def) => StmtSequenceHeadPlan::FunctionDef(func_def.clone()),
@@ -2860,19 +2856,16 @@ fn body_has_yieldlike(body: &StmtBody) -> bool {
     false
 }
 
-fn lower_nested_body_to_blocks(
+fn lower_nested_body_to_stmts(
     body: &StmtBody,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
-    label_prefix: &str,
-) -> Result<Vec<BlockPyBlock>, String> {
-    lower_body_to_blocks_with_entry(
-        body,
-        fresh_blockpy_label(label_prefix, next_label_id),
-        loop_ctx,
-        next_label_id,
-        None,
-    )
+) -> Result<Vec<BlockPyStmt>, String> {
+    let mut out = Vec::new();
+    for stmt in &body.body {
+        lower_stmt_into(stmt.as_ref(), &mut out, loop_ctx, next_label_id)?;
+    }
+    Ok(out)
 }
 
 fn lower_stmt_into(
@@ -2939,10 +2932,9 @@ fn lower_stmt_into(
             panic!("AnnAssign should be lowered before Ruff AST -> BlockPy conversion");
         }
         Stmt::If(if_stmt) => {
-            let body =
-                lower_nested_body_to_blocks(&if_stmt.body, loop_ctx, next_label_id, "if_body")?;
+            let body = lower_nested_body_to_stmts(&if_stmt.body, loop_ctx, next_label_id)?;
             let orelse =
-                lower_orelse_to_blocks(&if_stmt.elif_else_clauses, stmt, loop_ctx, next_label_id)?;
+                lower_orelse_to_stmts(&if_stmt.elif_else_clauses, stmt, loop_ctx, next_label_id)?;
             out.push(BlockPyStmt::If(BlockPyIf {
                 test: (*if_stmt.test).clone().into(),
                 body,
@@ -3437,10 +3429,20 @@ fn lower_body_to_blocks_with_entry(
                 blocks.push(BlockPyBlock {
                     label: test_label.clone(),
                     body: Vec::new(),
-                    term: BlockPyTerm::BrIf(BlockPyBrIf {
+                    term: BlockPyTerm::IfTerm(BlockPyIfTerm {
                         test: (*while_stmt.test).clone().into(),
-                        then_label: body_label.clone(),
-                        else_label: else_label.clone().unwrap_or_else(|| after_label.clone()),
+                        body: Box::new(BlockPyBlock {
+                            label: BlockPyLabel::from(format!("{}_then", test_label.as_str())),
+                            body: Vec::new(),
+                            term: BlockPyTerm::Jump(body_label.clone()),
+                        }),
+                        orelse: Box::new(BlockPyBlock {
+                            label: BlockPyLabel::from(format!("{}_else", test_label.as_str())),
+                            body: Vec::new(),
+                            term: BlockPyTerm::Jump(
+                                else_label.clone().unwrap_or_else(|| after_label.clone()),
+                            ),
+                        }),
                     }),
                 });
 
@@ -3542,14 +3544,24 @@ fn lower_body_to_blocks_with_entry(
                             .clone(),
                         value: fetch_value.into(),
                     })],
-                    term: BlockPyTerm::BrIf(BlockPyBrIf {
+                    term: BlockPyTerm::IfTerm(BlockPyIfTerm {
                         test: py_expr!(
                             "__dp_is_({value:expr}, __dp__.ITER_COMPLETE)",
                             value = py_expr!("{tmp:id}", tmp = target_tmp.as_str())
                         )
                         .into(),
-                        then_label: else_label.clone().unwrap_or_else(|| after_label.clone()),
-                        else_label: assign_label.clone(),
+                        body: Box::new(BlockPyBlock {
+                            label: BlockPyLabel::from(format!("{}_then", fetch_label.as_str())),
+                            body: Vec::new(),
+                            term: BlockPyTerm::Jump(
+                                else_label.clone().unwrap_or_else(|| after_label.clone()),
+                            ),
+                        }),
+                        orelse: Box::new(BlockPyBlock {
+                            label: BlockPyLabel::from(format!("{}_else", fetch_label.as_str())),
+                            body: Vec::new(),
+                            term: BlockPyTerm::Jump(assign_label.clone()),
+                        }),
                     }),
                 });
 
@@ -3603,16 +3615,16 @@ fn fresh_blockpy_label(prefix: &str, next_label_id: &mut usize) -> BlockPyLabel 
     label
 }
 
-fn lower_orelse_to_blocks(
+fn lower_orelse_to_stmts(
     clauses: &[ast::ElifElseClause],
     stmt: &Stmt,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
-) -> Result<Vec<BlockPyBlock>, String> {
+) -> Result<Vec<BlockPyStmt>, String> {
     match clauses {
         [] => Ok(Vec::new()),
         [clause] if clause.test.is_none() => {
-            lower_nested_body_to_blocks(&clause.body, loop_ctx, next_label_id, "if_else")
+            lower_nested_body_to_stmts(&clause.body, loop_ctx, next_label_id)
         }
         _ => Err(format!(
             "`elif` chain reached Ruff AST -> BlockPy conversion\nstmt:\n{}",
@@ -3687,19 +3699,31 @@ fn assign_delete_error(message: &str, stmt: &Stmt) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::basic_block::bb_ir::BindingTarget;
+    use crate::basic_block::collect_function_identity_by_node;
     use crate::basic_block::ruff_to_blockpy::generator_lowering::build_closure_backed_generator_factory_block;
 
-    fn function_identity(stmt: &ast::StmtFunctionDef) -> FunctionIdentityByNode {
-        FunctionIdentityByNode::from([(
-            stmt.node_index.load(),
-            (
-                stmt.name.id.to_string(),
-                stmt.name.id.to_string(),
-                stmt.name.id.to_string(),
-                BindingTarget::Local,
-            ),
-        )])
+    fn wrapped_module(source: &str) -> (StmtBody, FunctionIdentityByNode) {
+        let mut module = ruff_python_parser::parse_module(source)
+            .unwrap()
+            .into_syntax()
+            .body;
+        crate::driver::wrap_module_init(&mut module);
+        let scope = crate::analyze_module_scope(&mut module);
+        let identities = collect_function_identity_by_node(&mut module, scope);
+        (module, identities)
+    }
+
+    fn wrapped_blockpy(source: &str) -> BlockPyModule {
+        let (module, identities) = wrapped_module(source);
+        rewrite_ast_to_blockpy_module(&module, &identities).unwrap()
+    }
+
+    fn function_by_name<'a>(blockpy: &'a BlockPyModule, bind_name: &str) -> &'a BlockPyFunction {
+        blockpy
+            .functions
+            .iter()
+            .find(|func| func.bind_name == bind_name)
+            .unwrap_or_else(|| panic!("missing BlockPy function {bind_name}; got {blockpy:?}"))
     }
 
     fn lower_stmt_for_panic_test(stmt: &Stmt) {
@@ -3710,7 +3734,7 @@ mod tests {
 
     #[test]
     fn lowers_post_simplification_control_flow() {
-        let module = ruff_python_parser::parse_module(
+        let blockpy = wrapped_blockpy(
             r#"
 def f(x, ys):
     while x:
@@ -3723,40 +3747,25 @@ def f(x, ys):
     except ValueError as err:
         return err
 "#,
-        )
-        .unwrap()
-        .into_syntax()
-        .body;
-        let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
-            panic!("expected function def");
-        };
-        let blockpy = rewrite_ast_to_blockpy_module(&module, &function_identity(&func)).unwrap();
-        assert_eq!(blockpy.functions.len(), 1);
-        let blocks = &blockpy.functions[0].blocks;
+        );
+        let blocks = &function_by_name(&blockpy, "f").blocks;
         let rendered = crate::basic_block::block_py::pretty::blockpy_module_to_string(&blockpy);
         assert!(blocks
             .iter()
-            .any(|block| matches!(block.term, BlockPyTerm::BrIf(_))));
+            .any(|block| matches!(block.term, BlockPyTerm::IfTerm(_))));
         assert!(rendered.contains("try_jump"), "{rendered}");
         assert!(rendered.contains("return x"), "{rendered}");
     }
 
     #[test]
     fn lowers_async_for_structurally() {
-        let module = ruff_python_parser::parse_module(
+        let blockpy = wrapped_blockpy(
             r#"
 async def f(xs):
     async for x in xs:
         body(x)
 "#,
-        )
-        .unwrap()
-        .into_syntax()
-        .body;
-        let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
-            panic!("expected function def");
-        };
-        let blockpy = rewrite_ast_to_blockpy_module(&module, &function_identity(&func)).unwrap();
+        );
         let rendered = crate::basic_block::block_py::pretty::blockpy_module_to_string(&blockpy);
         assert!(rendered.contains("__dp_await_iter"), "{rendered}");
         assert!(rendered.contains("__dp_anext_or_sentinel"), "{rendered}");
@@ -3764,20 +3773,17 @@ async def f(xs):
 
     #[test]
     fn lowers_generator_yield_to_explicit_blockpy_dispatch() {
-        let module = ruff_python_parser::parse_module(
+        let blockpy = wrapped_blockpy(
             r#"
 def gen(n):
     yield n
 "#,
-        )
-        .unwrap()
-        .into_syntax()
-        .body;
-        let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
-            panic!("expected function def");
-        };
-        let blockpy = rewrite_ast_to_blockpy_module(&module, &function_identity(&func)).unwrap();
+        );
         let rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
+        assert!(
+            rendered.contains("function gen(n) [kind=generator"),
+            "{rendered}"
+        );
         assert!(rendered.contains("branch_table"));
         assert!(!rendered.contains("yield n"));
     }
@@ -4388,7 +4394,7 @@ def f():
             ]
         );
         assert_eq!(blocks.len(), 1);
-        assert!(matches!(blocks[0].term, BlockPyTerm::BrIf(_)));
+        assert!(matches!(blocks[0].term, BlockPyTerm::IfTerm(_)));
     }
 
     #[test]
@@ -4488,7 +4494,7 @@ y = 3
             ]
         );
         assert_eq!(blocks.len(), 1);
-        assert!(matches!(blocks[0].term, BlockPyTerm::BrIf(_)));
+        assert!(matches!(blocks[0].term, BlockPyTerm::IfTerm(_)));
     }
 
     #[test]
@@ -4602,19 +4608,12 @@ y = 3
 
     #[test]
     fn lowers_generator_yield_from_to_explicit_blockpy_dispatch() {
-        let module = ruff_python_parser::parse_module(
+        let blockpy = wrapped_blockpy(
             r#"
 def gen(it):
     yield from it
 "#,
-        )
-        .unwrap()
-        .into_syntax()
-        .body;
-        let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
-            panic!("expected function def");
-        };
-        let blockpy = rewrite_ast_to_blockpy_module(&module, &function_identity(&func)).unwrap();
+        );
         let rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
         assert!(rendered.contains("branch_table"));
         assert!(!rendered.contains("yield from it"));
@@ -4622,26 +4621,19 @@ def gen(it):
 
     #[test]
     fn lowers_async_generator_yield_to_explicit_blockpy_dispatch() {
-        let module = ruff_python_parser::parse_module(
+        let blockpy = wrapped_blockpy(
             r#"
 async def agen(n):
     yield n
 "#,
-        )
-        .unwrap()
-        .into_syntax()
-        .body;
-        let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
-            panic!("expected function def");
-        };
-        let blockpy = rewrite_ast_to_blockpy_module(&module, &function_identity(&func)).unwrap();
+        );
         let rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
         assert!(rendered.contains("branch_table"));
         assert!(!rendered.contains("yield n"));
     }
 
     #[test]
-    fn lowers_module_prelude_statements() {
+    fn requires_wrapped_module_input() {
         let module = ruff_python_parser::parse_module(
             r#"
 x = 1
@@ -4653,12 +4645,9 @@ def f():
         .unwrap()
         .into_syntax()
         .body;
-        let ast::Stmt::FunctionDef(func) = module.body[1].as_ref() else {
-            panic!("expected function def");
-        };
-        let blockpy = rewrite_ast_to_blockpy_module(&module, &function_identity(&func)).unwrap();
-        assert_eq!(blockpy.prelude.len(), 1);
-        assert!(matches!(blockpy.prelude[0], BlockPyStmt::Assign(_)));
+        let err = rewrite_ast_to_blockpy_module(&module, &FunctionIdentityByNode::default())
+            .expect_err("raw modules should be rejected");
+        assert!(err.contains("module-init-wrapped input"), "{err}");
     }
 
     #[test]
@@ -4809,20 +4798,13 @@ def f():
 
     #[test]
     fn lowers_bare_raise_to_optional_blockpy_raise() {
-        let module = ruff_python_parser::parse_module(
+        let blockpy = wrapped_blockpy(
             r#"
 def f():
     raise
 "#,
-        )
-        .unwrap()
-        .into_syntax()
-        .body;
-        let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
-            panic!("expected function def");
-        };
-        let blockpy = rewrite_ast_to_blockpy_module(&module, &function_identity(&func)).unwrap();
-        let raise_stmt = match &blockpy.functions[0].blocks[0].term {
+        );
+        let raise_stmt = match &function_by_name(&blockpy, "f").blocks[0].term {
             BlockPyTerm::Raise(raise_stmt) => raise_stmt,
             other => panic!("expected BlockPy raise term, got {other:?}"),
         };

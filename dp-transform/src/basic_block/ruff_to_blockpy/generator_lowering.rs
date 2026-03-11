@@ -7,7 +7,7 @@ use crate::basic_block::ast_to_ast::scope::cell_name;
 use crate::basic_block::bb_ir::{BbClosureInit, BbClosureLayout, BbClosureSlot};
 use crate::basic_block::block_py::state::{sync_generator_state_order, sync_target_cells_stmts};
 use crate::basic_block::block_py::{
-    BlockPyAssign, BlockPyBlock, BlockPyBrIf, BlockPyBranchTable, BlockPyExpr, BlockPyIf,
+    BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyExpr, BlockPyIf, BlockPyIfTerm,
     BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm, BlockPyTryJump,
 };
 use crate::basic_block::blockpy_to_bb::blockpy_stmt_to_stmt_for_analysis;
@@ -36,28 +36,22 @@ fn compat_block_from_blockpy(label: String, body: Vec<Stmt>, term: BlockPyStmt) 
 fn legacy_stmt_from_term(term: &BlockPyTerm, label_prefix: &str) -> BlockPyStmt {
     match term {
         BlockPyTerm::Jump(target) => BlockPyStmt::Jump(target.clone()),
-        BlockPyTerm::BrIf(BlockPyBrIf {
-            test,
-            then_label,
-            else_label,
-        }) => BlockPyStmt::If(BlockPyIf {
+        BlockPyTerm::IfTerm(BlockPyIfTerm { test, body, orelse }) => BlockPyStmt::If(BlockPyIf {
             test: test.clone(),
-            body: vec![BlockPyBlock {
-                label: BlockPyLabel::from(format!("{label_prefix}_true")),
-                body: Vec::new(),
-                term: BlockPyTerm::Jump(then_label.clone()),
-            }],
-            orelse: vec![BlockPyBlock {
-                label: BlockPyLabel::from(format!("{label_prefix}_false")),
-                body: Vec::new(),
-                term: BlockPyTerm::Jump(else_label.clone()),
-            }],
+            body: legacy_stmts_from_block(body, &format!("{label_prefix}_true")),
+            orelse: legacy_stmts_from_block(orelse, &format!("{label_prefix}_false")),
         }),
         BlockPyTerm::BranchTable(branch) => BlockPyStmt::BranchTable(branch.clone()),
         BlockPyTerm::Raise(raise_stmt) => BlockPyStmt::Raise(raise_stmt.clone()),
         BlockPyTerm::TryJump(try_jump) => BlockPyStmt::TryJump(try_jump.clone()),
         BlockPyTerm::Return(value) => BlockPyStmt::Return(value.clone()),
     }
+}
+
+fn legacy_stmts_from_block(block: &BlockPyBlock, label_prefix: &str) -> Vec<BlockPyStmt> {
+    let mut out = block.body.clone();
+    out.push(legacy_stmt_from_term(&block.term, label_prefix));
+    out
 }
 
 fn sanitize_ident(raw: &str) -> String {
@@ -772,7 +766,7 @@ fn lower_nested_generator_stmt_regions(
     for stmt in stmts {
         match stmt {
             BlockPyStmt::If(if_stmt) => {
-                lower_generator_block_list(
+                lower_nested_generator_stmt_regions(
                     fn_name,
                     &mut if_stmt.body,
                     closure_state,
@@ -782,7 +776,7 @@ fn lower_nested_generator_stmt_regions(
                     resume_order,
                     yield_sites,
                 );
-                lower_generator_block_list(
+                lower_nested_generator_stmt_regions(
                     fn_name,
                     &mut if_stmt.orelse,
                     closure_state,
@@ -1544,21 +1538,21 @@ pub(crate) fn emit_generator_yield_suspend_blocks(
             exc: Some(py_expr!("{name:id}", name = "_dp_resume_exc").into()),
         }),
     ));
-    blocks.push(compat_block_from_blockpy(
+    blocks.push(compat_block_with_term(
         resume_dispatch_label.clone(),
         Vec::new(),
-        BlockPyStmt::If(BlockPyIf {
+        BlockPyTerm::IfTerm(BlockPyIfTerm {
             test: py_expr!("__dp_is_not(_dp_resume_exc, None)").into(),
-            body: vec![BlockPyBlock {
+            body: Box::new(BlockPyBlock {
                 label: BlockPyLabel::from(format!("{resume_dispatch_label}_true")),
                 body: Vec::new(),
                 term: BlockPyTerm::Jump(BlockPyLabel::from(resume_raise_label)),
-            }],
-            orelse: vec![BlockPyBlock {
+            }),
+            orelse: Box::new(BlockPyBlock {
                 label: BlockPyLabel::from(format!("{resume_dispatch_label}_false")),
                 body: Vec::new(),
                 term: BlockPyTerm::Jump(BlockPyLabel::from(resume_success_label)),
-            }],
+            }),
         }),
     ));
     if !resume_order
@@ -1811,29 +1805,29 @@ pub(crate) fn emit_yield_from_blocks(
         plan.genexit_close_lookup_label.clone(),
         plan.lookup_throw_label.clone(),
     ));
-    blocks.push(compat_block_from_blockpy(
+    blocks.push(compat_block_with_term(
         plan.genexit_close_lookup_label.clone(),
         vec![py_stmt!(
             "{close:id} = getattr({iter_expr:expr}, \"close\", None)",
             close = plan.close_name.as_str(),
             iter_expr = yieldfrom_load_raw_expr.clone(),
         )],
-        BlockPyStmt::If(BlockPyIf {
+        BlockPyTerm::IfTerm(BlockPyIfTerm {
             test: py_expr!(
                 "__dp_is_not({close:id}, None)",
                 close = plan.close_name.as_str()
             )
             .into(),
-            body: vec![BlockPyBlock {
+            body: Box::new(BlockPyBlock {
                 label: BlockPyLabel::from(format!("{}_true", plan.genexit_close_lookup_label)),
                 body: Vec::new(),
                 term: BlockPyTerm::Jump(BlockPyLabel::from(plan.genexit_call_close_label.clone())),
-            }],
-            orelse: vec![BlockPyBlock {
+            }),
+            orelse: Box::new(BlockPyBlock {
                 label: BlockPyLabel::from(format!("{}_false", plan.genexit_close_lookup_label)),
                 body: Vec::new(),
                 term: BlockPyTerm::Jump(BlockPyLabel::from(plan.raise_exc_label.clone())),
-            }],
+            }),
         }),
     ));
     blocks.push(compat_block_from_blockpy(
@@ -1857,29 +1851,29 @@ pub(crate) fn emit_yield_from_blocks(
             exc: Some(py_expr!("{name:id}", name = plan.raise_name.as_str()).into()),
         }),
     ));
-    blocks.push(compat_block_from_blockpy(
+    blocks.push(compat_block_with_term(
         plan.lookup_throw_label.clone(),
         vec![py_stmt!(
             "{throw:id} = getattr({iter_expr:expr}, \"throw\", None)",
             throw = plan.throw_name.as_str(),
             iter_expr = yieldfrom_load_raw_expr,
         )],
-        BlockPyStmt::If(BlockPyIf {
+        BlockPyTerm::IfTerm(BlockPyIfTerm {
             test: py_expr!(
                 "__dp_is_({throw:id}, None)",
                 throw = plan.throw_name.as_str()
             )
             .into(),
-            body: vec![BlockPyBlock {
+            body: Box::new(BlockPyBlock {
                 label: BlockPyLabel::from(format!("{}_true", plan.lookup_throw_label)),
                 body: Vec::new(),
                 term: BlockPyTerm::Jump(BlockPyLabel::from(plan.raise_exc_label)),
-            }],
-            orelse: vec![BlockPyBlock {
+            }),
+            orelse: Box::new(BlockPyBlock {
                 label: BlockPyLabel::from(format!("{}_false", plan.lookup_throw_label)),
                 body: Vec::new(),
                 term: BlockPyTerm::Jump(BlockPyLabel::from(plan.throw_try_label.clone())),
-            }],
+            }),
         }),
     ));
     blocks.push(compat_block_from_blockpy(

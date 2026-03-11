@@ -1,5 +1,5 @@
 use crate::basic_block::block_py::{
-    BlockPyBlock, BlockPyBrIf, BlockPyBranchTable, BlockPyIf, BlockPyRaise, BlockPyStmt,
+    BlockPyBlock, BlockPyBranchTable, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt,
     BlockPyTerm,
 };
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
@@ -154,15 +154,11 @@ fn rewrite_blockpy_stmt_deleted_name_loads(
         BlockPyStmt::Assign(assign) => assign.value.rewrite_mut(|expr| rewriter.visit_expr(expr)),
         BlockPyStmt::If(BlockPyIf { test, body, orelse }) => {
             test.rewrite_mut(|expr| rewriter.visit_expr(expr));
-            for block in body {
-                for stmt in &mut block.body {
-                    rewrite_blockpy_stmt_deleted_name_loads(stmt, rewriter);
-                }
+            for stmt in body {
+                rewrite_blockpy_stmt_deleted_name_loads(stmt, rewriter);
             }
-            for block in orelse {
-                for stmt in &mut block.body {
-                    rewrite_blockpy_stmt_deleted_name_loads(stmt, rewriter);
-                }
+            for stmt in orelse {
+                rewrite_blockpy_stmt_deleted_name_loads(stmt, rewriter);
             }
         }
         BlockPyStmt::BranchTable(BlockPyBranchTable { index, .. }) => {
@@ -184,8 +180,16 @@ fn rewrite_blockpy_term_deleted_name_loads(
 ) {
     match term {
         BlockPyTerm::Jump(_) | BlockPyTerm::TryJump(_) => {}
-        BlockPyTerm::BrIf(BlockPyBrIf { test, .. }) => {
-            test.rewrite_mut(|expr| rewriter.visit_expr(expr))
+        BlockPyTerm::IfTerm(BlockPyIfTerm { test, body, orelse }) => {
+            test.rewrite_mut(|expr| rewriter.visit_expr(expr));
+            for stmt in &mut body.body {
+                rewrite_blockpy_stmt_deleted_name_loads(stmt, rewriter);
+            }
+            rewrite_blockpy_term_deleted_name_loads(&mut body.term, rewriter);
+            for stmt in &mut orelse.body {
+                rewrite_blockpy_stmt_deleted_name_loads(stmt, rewriter);
+            }
+            rewrite_blockpy_term_deleted_name_loads(&mut orelse.term, rewriter);
         }
         BlockPyTerm::BranchTable(BlockPyBranchTable { index, .. }) => {
             index.rewrite_mut(|expr| rewriter.visit_expr(expr))

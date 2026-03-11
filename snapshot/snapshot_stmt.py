@@ -8,6 +8,7 @@ import a
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     __dp_store_global(globals(), "a", __dp_import_("a", __spec__))
+#     return
 
 # import_dotted_alias
 
@@ -19,6 +20,7 @@ import a.b as c
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     __dp_store_global(globals(), "c", __dp_import_attr(__dp_import_("a.b", __spec__), "b"))
+#     return
 
 # import_from_alias
 
@@ -31,6 +33,7 @@ from pkg.mod import name as alias
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     _dp_import_1 = __dp_import_("pkg.mod", __spec__, __dp_list(__dp_tuple("name")))
 #     __dp_store_global(globals(), "alias", __dp_import_attr(_dp_import_1, "name"))
+#     return
 
 # decorator_function
 
@@ -46,9 +49,11 @@ def f():
 
 # function f() [kind=function, bind=f, target=module_global, qualname=f]
 #     pass
+#     return
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     def f(): ...
+#     return
 
 # assign_attr
 
@@ -60,6 +65,7 @@ obj.x = 1
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     __dp_setattr(__dp_load_deleted_name("obj", obj), "x", 1)
+#     return
 
 # assign_subscript
 
@@ -71,6 +77,7 @@ obj[i] = v
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     __dp_setitem(__dp_load_deleted_name("obj", obj), i, v)
+#     return
 
 # assign_tuple_unpack
 
@@ -84,7 +91,8 @@ a, b = it
 #     _dp_tmp_1 = __dp_unpack(it, __dp_tuple(True, True))
 #     __dp_store_global(globals(), "a", __dp_getitem(_dp_tmp_1, 0))
 #     __dp_store_global(globals(), "b", __dp_getitem(_dp_tmp_1, 1))
-#     del _dp_tmp_1
+#     _dp_tmp_1 = __dp_DELETED
+#     return
 
 # assign_star_unpack
 
@@ -98,7 +106,8 @@ a, *b = it
 #     _dp_tmp_1 = __dp_unpack(it, __dp_tuple(True, False))
 #     __dp_store_global(globals(), "a", __dp_getitem(_dp_tmp_1, 0))
 #     __dp_store_global(globals(), "b", __dp_list(__dp_getitem(_dp_tmp_1, 1)))
-#     del _dp_tmp_1
+#     _dp_tmp_1 = __dp_DELETED
+#     return
 
 # assign_multi_targets
 
@@ -112,6 +121,7 @@ a = b = f()
 #     _dp_tmp_1 = f()
 #     __dp_store_global(globals(), "a", _dp_tmp_1)
 #     __dp_store_global(globals(), "b", _dp_tmp_1)
+#     return
 
 # ann_assign_simple
 
@@ -122,15 +132,32 @@ x: int = 1
 # module_init: _dp_module_init
 
 # function __annotate__(_dp_format, _dp = __dp__) [kind=function, bind=__annotate__, target=module_global, qualname=__annotate__]
-#     if _dp.eq(_dp_format, 4):
-#         return _dp.dict(__dp_tuple(("x", "int")))
-#     if _dp.gt(_dp_format, 2):
+#     block __annotate___0:
+#         return _dp.dict(__dp_tuple(("x", int)))
+#     block __annotate___1:
 #         raise _dp.builtins.NotImplementedError
-#     return _dp.dict(__dp_tuple(("x", int)))
+#     block __annotate___2:
+#         if_term _dp.gt(_dp_format, 2):
+#             then:
+#                 block _dp_bb___annotate___2_then:
+#                     jump __annotate___1
+#             else:
+#                 block _dp_bb___annotate___2_else:
+#                     jump __annotate___0
+#     block __annotate___3:
+#         return _dp.dict(__dp_tuple(("x", "int")))
+#     if_term _dp.eq(_dp_format, 4):
+#         then:
+#             block _dp_bb___annotate___1_then:
+#                 jump __annotate___3
+#         else:
+#             block _dp_bb___annotate___1_else:
+#                 jump __annotate___2
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     __dp_store_global(globals(), "x", 1)
 #     def __annotate__(_dp_format, _dp = __dp__): ...
+#     return
 
 # ann_assign_attr
 
@@ -142,6 +169,7 @@ obj.x: int = 1
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     __dp_setattr(__dp_load_deleted_name("obj", obj), "x", 1)
+#     return
 
 # aug_assign_attr
 
@@ -153,6 +181,7 @@ obj.x += 1
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     __dp_setattr(__dp_load_deleted_name("obj", obj), "x", __dp_iadd(obj.x, 1))
+#     return
 
 # delete_mixed
 
@@ -166,6 +195,7 @@ del obj.x, obj[i], x
 #     __dp_delattr(obj, "x")
 #     __dp_delitem(obj, i)
 #     __dp_delitem(globals(), "x")
+#     return
 
 # assert_no_msg
 
@@ -176,9 +206,25 @@ assert cond
 # module_init: _dp_module_init
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
-#     if __debug__:
-#         if __dp_not_(cond):
-#             raise __dp_AssertionError
+#     block _dp_module_init_0:
+#         raise __dp_AssertionError
+#     block _dp_module_init_1:
+#         if_term __dp_not_(cond):
+#             then:
+#                 block _dp_bb__dp_module_init_2_then:
+#                     jump _dp_module_init_0
+#             else:
+#                 block _dp_bb__dp_module_init_2_else:
+#                     jump _dp_module_init_2
+#     if_term __debug__:
+#         then:
+#             block _dp_bb__dp_module_init_1_then:
+#                 jump _dp_module_init_1
+#         else:
+#             block _dp_bb__dp_module_init_1_else:
+#                 jump _dp_module_init_2
+#     block _dp_module_init_2:
+#         return
 
 # assert_with_msg
 
@@ -189,9 +235,25 @@ assert cond, "oops"
 # module_init: _dp_module_init
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
-#     if __debug__:
-#         if __dp_not_(cond):
-#             raise __dp_AssertionError("oops")
+#     block _dp_module_init_0:
+#         raise __dp_AssertionError("oops")
+#     block _dp_module_init_1:
+#         if_term __dp_not_(cond):
+#             then:
+#                 block _dp_bb__dp_module_init_2_then:
+#                     jump _dp_module_init_0
+#             else:
+#                 block _dp_bb__dp_module_init_2_else:
+#                     jump _dp_module_init_2
+#     if_term __debug__:
+#         then:
+#             block _dp_bb__dp_module_init_1_then:
+#                 jump _dp_module_init_1
+#         else:
+#             block _dp_bb__dp_module_init_1_else:
+#                 jump _dp_module_init_2
+#     block _dp_module_init_2:
+#         return
 
 # raise_from
 
@@ -218,23 +280,45 @@ except:
 # module_init: _dp_module_init
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
-#     try:
-#         f()
-#     except:
-#         if __dp_exception_matches(__dp_current_exception(), E):
-#             __dp_store_global(globals(), "e", __dp_current_exception())
-#             try:
-#                 g(__dp_load_global(globals(), "e"))
+#     block _dp_module_init_0:
+#         raise _dp_try_exc_3
+#     block _dp_module_init_1:
+#         _dp_try_exc_3 = __dp_current_exception()
+#         __dp_delitem_quietly(globals(), "e")
+#         if_term __dp_is_not(_dp_try_exc_3, None):
+#             then:
+#                 block _dp_bb__dp_module_init_5_then:
+#                     jump _dp_module_init_0
 #             else:
-#                 pass
-#             finally:
-#                 __dp_delitem_quietly(globals(), "e")
-#         else:
-#             h()
-#     else:
-#         pass
-#     finally:
-#         pass
+#                 block _dp_bb__dp_module_init_5_else:
+#                     jump _dp_module_init_7
+#     block _dp_module_init_2:
+#         g(__dp_load_global(globals(), "e"))
+#         jump _dp_module_init_1
+#     block _dp_module_init_3:
+#         __dp_store_global(globals(), "e", __dp_current_exception())
+#         try_jump:
+#             body_label: _dp_module_init_2
+#             except_label: _dp_module_init_1
+#     block _dp_module_init_4:
+#         h()
+#         return
+#     block _dp_module_init_5:
+#         if_term __dp_exception_matches(__dp_current_exception(), E):
+#             then:
+#                 block _dp_bb__dp_module_init_2_then:
+#                     jump _dp_module_init_3
+#             else:
+#                 block _dp_bb__dp_module_init_2_else:
+#                     jump _dp_module_init_4
+#     block _dp_module_init_6:
+#         f()
+#         return
+#     try_jump:
+#         body_label: _dp_module_init_6
+#         except_label: _dp_module_init_5
+#     block _dp_module_init_7:
+#         return
 
 # for_else
 
@@ -248,23 +332,28 @@ else:
 # module_init: _dp_module_init
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
-#     pass
-#     _dp_iter_1 = __dp_iter(it)
-#     block for_fetch_1:
-#         _dp_tmp_2 = __dp_next_or_sentinel(_dp_iter_1)
-#         if __dp_is_(_dp_tmp_2, __dp__.ITER_COMPLETE):
-#             jump for_else_4
-#         else:
-#             x = _dp_tmp_2
-#             _dp_tmp_2 = None
-#             jump for_body_2
-#     block for_body_2:
+#     block _dp_module_init_0:
+#         done()
+#         return
+#     block _dp_module_init_1:
 #         __dp_store_global(globals(), "x", x)
 #         body()
-#         jump for_fetch_1
-#     block for_else_4:
-#         done()
-#     pass
+#         jump _dp_module_init_3
+#     block _dp_module_init_2:
+#         x = _dp_tmp_2
+#         _dp_tmp_2 = None
+#         jump _dp_module_init_1
+#     block _dp_module_init_3:
+#         _dp_tmp_2 = __dp_next_or_sentinel(_dp_iter_1)
+#         if_term __dp_is_(_dp_tmp_2, __dp__.ITER_COMPLETE):
+#             then:
+#                 block _dp_bb__dp_module_init_3_then:
+#                     jump _dp_module_init_0
+#             else:
+#                 block _dp_bb__dp_module_init_3_else:
+#                     jump _dp_module_init_2
+#     _dp_iter_1 = __dp_iter(it)
+#     jump _dp_module_init_3
 
 # while_else
 
@@ -278,18 +367,20 @@ else:
 # module_init: _dp_module_init
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
-#     pass
-#     block while_test_0:
-#         if cond:
-#             jump while_body_1
-#         else:
-#             jump while_else_3
-#     block while_body_1:
-#         body()
-#         jump while_test_0
-#     block while_else_3:
+#     block _dp_module_init_0:
 #         done()
-#     pass
+#         return
+#     block _dp_module_init_1:
+#         body()
+#         jump _dp_module_init_start
+#     block _dp_module_init_start:
+#         if_term cond:
+#             then:
+#                 block _dp_bb__dp_module_init_1_then:
+#                     jump _dp_module_init_1
+#             else:
+#                 block _dp_bb__dp_module_init_1_else:
+#                     jump _dp_module_init_0
 
 # with_as
 
@@ -301,20 +392,46 @@ with cm as x:
 # module_init: _dp_module_init
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
-#     _dp_with_exit_1 = __dp_contextmanager_get_exit(cm)
-#     x = __dp_contextmanager_enter(cm)
-#     _dp_with_ok_2 = True
-#     try:
-#         body()
-#     except BaseException:
+#     block _dp_module_init_0:
+#         raise _dp_try_exc_2
+#     block _dp_module_init_1:
+#         _dp_with_exit_1 = None
+#         if_term __dp_is_not(_dp_try_exc_2, None):
+#             then:
+#                 block _dp_bb__dp_module_init_5_then:
+#                     jump _dp_module_init_0
+#             else:
+#                 block _dp_bb__dp_module_init_5_else:
+#                     jump _dp_module_init_7
+#     block _dp_module_init_2:
+#         __dp_contextmanager_exit(_dp_with_exit_1, None)
+#         jump _dp_module_init_1
+#     block _dp_module_init_3:
+#         _dp_try_exc_2 = __dp_current_exception()
+#         if_term _dp_with_ok_2:
+#             then:
+#                 block _dp_bb__dp_module_init_4_then:
+#                     jump _dp_module_init_2
+#             else:
+#                 block _dp_bb__dp_module_init_4_else:
+#                     jump _dp_module_init_1
+#     block _dp_module_init_4:
 #         _dp_with_ok_2 = False
 #         __dp_contextmanager_exit(_dp_with_exit_1, __dp_exc_info())
-#     else:
-#         pass
-#     finally:
-#         if _dp_with_ok_2:
-#             __dp_contextmanager_exit(_dp_with_exit_1, None)
-#         _dp_with_exit_1 = None
+#         jump _dp_module_init_3
+#     block _dp_module_init_5:
+#         body()
+#         jump _dp_module_init_3
+#     block _dp_module_init_6:
+#         _dp_with_exit_1 = __dp_contextmanager_get_exit(cm)
+#         x = __dp_contextmanager_enter(cm)
+#         _dp_with_ok_2 = True
+#         try_jump:
+#             body_label: _dp_module_init_5
+#             except_label: _dp_module_init_4
+#     jump _dp_module_init_6
+#     block _dp_module_init_7:
+#         return
 
 # function_local_ann_assign
 
@@ -334,6 +451,7 @@ def inner():
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     def inner(): ...
+#     return
 
 # comprehension_global
 
@@ -346,58 +464,76 @@ zs = {k: v for k, v in items}
 # module_init: _dp_module_init
 
 # function _dp_listcomp_3(_dp_iter_2) [kind=function, bind=_dp_listcomp_3, target=local, qualname=_dp_listcomp_3]
-#     _dp_tmp_1 = __dp_list(__dp_tuple())
-#     _dp_iter_10 = __dp_iter(_dp_iter_2)
-#     block for_fetch_1:
-#         _dp_tmp_11 = __dp_next_or_sentinel(_dp_iter_10)
-#         if __dp_is_(_dp_tmp_11, __dp__.ITER_COMPLETE):
-#             jump for_after_3
-#         else:
-#             x = _dp_tmp_11
-#             _dp_tmp_11 = None
-#             jump for_body_2
-#     block for_body_2:
-#         _dp_tmp_1.append(x)
-#         jump for_fetch_1
-#     block for_after_3:
+#     block _dp_listcomp_3_0:
 #         return _dp_tmp_1
+#     block _dp_listcomp_3_1:
+#         _dp_tmp_1.append(x)
+#         jump _dp_listcomp_3_3
+#     block _dp_listcomp_3_2:
+#         x = _dp_tmp_2
+#         _dp_tmp_2 = None
+#         jump _dp_listcomp_3_1
+#     block _dp_listcomp_3_3:
+#         _dp_tmp_2 = __dp_next_or_sentinel(_dp_iter_1)
+#         if_term __dp_is_(_dp_tmp_2, __dp__.ITER_COMPLETE):
+#             then:
+#                 block _dp_bb__dp_listcomp_3_3_then:
+#                     jump _dp_listcomp_3_0
+#             else:
+#                 block _dp_bb__dp_listcomp_3_3_else:
+#                     jump _dp_listcomp_3_2
+#     _dp_tmp_1 = __dp_list(__dp_tuple())
+#     _dp_iter_1 = __dp_iter(_dp_iter_2)
+#     jump _dp_listcomp_3_3
 
 # function _dp_setcomp_6(_dp_iter_5) [kind=function, bind=_dp_setcomp_6, target=local, qualname=_dp_setcomp_6]
-#     _dp_tmp_4 = set()
-#     _dp_iter_12 = __dp_iter(_dp_iter_5)
-#     block for_fetch_1:
-#         _dp_tmp_13 = __dp_next_or_sentinel(_dp_iter_12)
-#         if __dp_is_(_dp_tmp_13, __dp__.ITER_COMPLETE):
-#             jump for_after_3
-#         else:
-#             x = _dp_tmp_13
-#             _dp_tmp_13 = None
-#             jump for_body_2
-#     block for_body_2:
-#         _dp_tmp_4.add(x)
-#         jump for_fetch_1
-#     block for_after_3:
+#     block _dp_setcomp_6_0:
 #         return _dp_tmp_4
+#     block _dp_setcomp_6_1:
+#         _dp_tmp_4.add(x)
+#         jump _dp_setcomp_6_3
+#     block _dp_setcomp_6_2:
+#         x = _dp_tmp_2
+#         _dp_tmp_2 = None
+#         jump _dp_setcomp_6_1
+#     block _dp_setcomp_6_3:
+#         _dp_tmp_2 = __dp_next_or_sentinel(_dp_iter_1)
+#         if_term __dp_is_(_dp_tmp_2, __dp__.ITER_COMPLETE):
+#             then:
+#                 block _dp_bb__dp_setcomp_6_3_then:
+#                     jump _dp_setcomp_6_0
+#             else:
+#                 block _dp_bb__dp_setcomp_6_3_else:
+#                     jump _dp_setcomp_6_2
+#     _dp_tmp_4 = set()
+#     _dp_iter_1 = __dp_iter(_dp_iter_5)
+#     jump _dp_setcomp_6_3
 
 # function _dp_dictcomp_9(_dp_iter_8) [kind=function, bind=_dp_dictcomp_9, target=local, qualname=_dp_dictcomp_9]
-#     _dp_tmp_7 = __dp_dict()
-#     _dp_iter_14 = __dp_iter(_dp_iter_8)
-#     block for_fetch_1:
-#         _dp_tmp_15 = __dp_next_or_sentinel(_dp_iter_14)
-#         if __dp_is_(_dp_tmp_15, __dp__.ITER_COMPLETE):
-#             jump for_after_3
-#         else:
-#             _dp_tmp_16 = __dp_unpack(_dp_tmp_15, __dp_tuple(True, True))
-#             k = __dp_getitem(_dp_tmp_16, 0)
-#             v = __dp_getitem(_dp_tmp_16, 1)
-#             del _dp_tmp_16
-#             _dp_tmp_15 = None
-#             jump for_body_2
-#     block for_body_2:
-#         __dp_setitem(_dp_tmp_7, k, v)
-#         jump for_fetch_1
-#     block for_after_3:
+#     block _dp_dictcomp_9_0:
 #         return _dp_tmp_7
+#     block _dp_dictcomp_9_1:
+#         __dp_setitem(_dp_tmp_7, k, v)
+#         jump _dp_dictcomp_9_3
+#     block _dp_dictcomp_9_2:
+#         _dp_tmp_4 = __dp_unpack(_dp_tmp_2, __dp_tuple(True, True))
+#         k = __dp_getitem(_dp_tmp_4, 0)
+#         v = __dp_getitem(_dp_tmp_4, 1)
+#         del _dp_tmp_4
+#         _dp_tmp_2 = None
+#         jump _dp_dictcomp_9_1
+#     block _dp_dictcomp_9_3:
+#         _dp_tmp_2 = __dp_next_or_sentinel(_dp_iter_1)
+#         if_term __dp_is_(_dp_tmp_2, __dp__.ITER_COMPLETE):
+#             then:
+#                 block _dp_bb__dp_dictcomp_9_3_then:
+#                     jump _dp_dictcomp_9_0
+#             else:
+#                 block _dp_bb__dp_dictcomp_9_3_else:
+#                     jump _dp_dictcomp_9_2
+#     _dp_tmp_7 = __dp_dict()
+#     _dp_iter_1 = __dp_iter(_dp_iter_8)
+#     jump _dp_dictcomp_9_3
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     def _dp_listcomp_3(_dp_iter_2): ...
@@ -406,6 +542,7 @@ zs = {k: v for k, v in items}
 #     __dp_store_global(globals(), "ys", _dp_setcomp_6(it))
 #     def _dp_dictcomp_9(_dp_iter_8): ...
 #     __dp_store_global(globals(), "zs", _dp_dictcomp_9(items))
+#     return
 
 # comprehension_in_function
 
@@ -419,20 +556,35 @@ def f():
 # module_init: _dp_module_init
 
 # function _dp_listcomp_3(_dp_iter_2) [kind=function, bind=_dp_listcomp_3, target=local, qualname=f.<locals>._dp_listcomp_3]
-#     _dp_tmp_1 = __dp_list(__dp_tuple())
-#     _dp_iter_4 = __dp_iter(_dp_iter_2)
-#     _dp_tmp_5 = __dp_next_or_sentinel(_dp_iter_4)
-#     if __dp_is_(_dp_tmp_5, __dp__.ITER_COMPLETE):
-#         jump for_after_3
-#     else:
-#         x = _dp_tmp_5
-#         _dp_tmp_5 = None
-#         jump for_body_2
-#     block for_body_2:
-#         if __dp_gt(x, 0):
-#             _dp_tmp_1.append(x)
-#     block for_after_3:
+#     block _dp_listcomp_3_0:
 #         return _dp_tmp_1
+#     block _dp_listcomp_3_1:
+#         _dp_tmp_1.append(x)
+#         jump _dp_listcomp_3_4
+#     block _dp_listcomp_3_2:
+#         if_term __dp_gt(x, 0):
+#             then:
+#                 block _dp_bb__dp_listcomp_3_7_then:
+#                     jump _dp_listcomp_3_1
+#             else:
+#                 block _dp_bb__dp_listcomp_3_7_else:
+#                     jump _dp_listcomp_3_4
+#     block _dp_listcomp_3_3:
+#         x = _dp_tmp_2
+#         _dp_tmp_2 = None
+#         jump _dp_listcomp_3_2
+#     block _dp_listcomp_3_4:
+#         _dp_tmp_2 = __dp_next_or_sentinel(_dp_iter_1)
+#         if_term __dp_is_(_dp_tmp_2, __dp__.ITER_COMPLETE):
+#             then:
+#                 block _dp_bb__dp_listcomp_3_3_then:
+#                     jump _dp_listcomp_3_0
+#             else:
+#                 block _dp_bb__dp_listcomp_3_3_else:
+#                     jump _dp_listcomp_3_3
+#     _dp_tmp_1 = __dp_list(__dp_tuple())
+#     _dp_iter_1 = __dp_iter(_dp_iter_2)
+#     jump _dp_listcomp_3_4
 
 # function f() [kind=function, bind=f, target=module_global, qualname=f]
 #     def _dp_listcomp_3(_dp_iter_2): ...
@@ -440,6 +592,7 @@ def f():
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     def f(): ...
+#     return
 
 # comprehension_in_class_body
 
@@ -453,21 +606,27 @@ class C:
 # module_init: _dp_module_init
 
 # function _dp_listcomp_3(_dp_iter_2) [kind=function, bind=_dp_listcomp_3, target=local, qualname=C._dp_listcomp_3]
-#     _dp_tmp_1 = __dp_list(__dp_tuple())
-#     _dp_iter_4 = __dp_iter(_dp_iter_2)
-#     block for_fetch_1:
-#         _dp_tmp_5 = __dp_next_or_sentinel(_dp_iter_4)
-#         if __dp_is_(_dp_tmp_5, __dp__.ITER_COMPLETE):
-#             jump for_after_3
-#         else:
-#             x = _dp_tmp_5
-#             _dp_tmp_5 = None
-#             jump for_body_2
-#     block for_body_2:
-#         _dp_tmp_1.append(x)
-#         jump for_fetch_1
-#     block for_after_3:
+#     block _dp_listcomp_3_0:
 #         return _dp_tmp_1
+#     block _dp_listcomp_3_1:
+#         _dp_tmp_1.append(x)
+#         jump _dp_listcomp_3_3
+#     block _dp_listcomp_3_2:
+#         x = _dp_tmp_2
+#         _dp_tmp_2 = None
+#         jump _dp_listcomp_3_1
+#     block _dp_listcomp_3_3:
+#         _dp_tmp_2 = __dp_next_or_sentinel(_dp_iter_1)
+#         if_term __dp_is_(_dp_tmp_2, __dp__.ITER_COMPLETE):
+#             then:
+#                 block _dp_bb__dp_listcomp_3_3_then:
+#                     jump _dp_listcomp_3_0
+#             else:
+#                 block _dp_bb__dp_listcomp_3_3_else:
+#                     jump _dp_listcomp_3_2
+#     _dp_tmp_1 = __dp_list(__dp_tuple())
+#     _dp_iter_1 = __dp_iter(_dp_iter_2)
+#     jump _dp_listcomp_3_3
 
 # function _dp_class_ns_C(_dp_class_ns, _dp_classcell_arg) [kind=function, bind=_dp_class_ns_C, target=local, qualname=_dp_class_ns_C]
 #     _dp_classcell = _dp_classcell_arg
@@ -475,6 +634,7 @@ class C:
 #     __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "C")
 #     def _dp_listcomp_3(_dp_iter_2): ...
 #     __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "xs", _dp_listcomp_3(__dp_class_lookup_global(_dp_class_ns, "it", globals())))
+#     return
 
 # function _dp_define_class_C(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict = None) [kind=function, bind=_dp_define_class_C, target=local, qualname=_dp_define_class_C]
 #     _dp_class_ns = _dp_class_ns_outer
@@ -484,6 +644,7 @@ class C:
 #     def _dp_class_ns_C(_dp_class_ns, _dp_classcell_arg): ...
 #     def _dp_define_class_C(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict = None): ...
 #     __dp_store_global(globals(), "C", _dp_define_class_C(_dp_class_ns_C, globals()))
+#     return
 
 # with_multi
 
@@ -495,33 +656,80 @@ with a as x, b as y:
 # module_init: _dp_module_init
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
-#     _dp_with_exit_4 = __dp_contextmanager_get_exit(a)
-#     x = __dp_contextmanager_enter(a)
-#     _dp_with_ok_5 = True
-#     try:
+#     block _dp_module_init_0:
+#         raise _dp_try_exc_2
+#     block _dp_module_init_1:
+#         _dp_with_exit_4 = None
+#         if_term __dp_is_not(_dp_try_exc_2, None):
+#             then:
+#                 block _dp_bb__dp_module_init_5_then:
+#                     jump _dp_module_init_0
+#             else:
+#                 block _dp_bb__dp_module_init_5_else:
+#                     jump _dp_module_init_13
+#     block _dp_module_init_2:
+#         __dp_contextmanager_exit(_dp_with_exit_4, None)
+#         jump _dp_module_init_1
+#     block _dp_module_init_3:
+#         _dp_try_exc_2 = __dp_current_exception()
+#         if_term _dp_with_ok_5:
+#             then:
+#                 block _dp_bb__dp_module_init_4_then:
+#                     jump _dp_module_init_2
+#             else:
+#                 block _dp_bb__dp_module_init_4_else:
+#                     jump _dp_module_init_1
+#     block _dp_module_init_4:
+#         _dp_with_ok_5 = False
+#         __dp_contextmanager_exit(_dp_with_exit_4, __dp_exc_info())
+#         jump _dp_module_init_3
+#     block _dp_module_init_5:
+#         raise _dp_try_exc_9
+#     block _dp_module_init_6:
+#         _dp_with_exit_1 = None
+#         if_term __dp_is_not(_dp_try_exc_9, None):
+#             then:
+#                 block _dp_bb__dp_module_init_12_then:
+#                     jump _dp_module_init_5
+#             else:
+#                 block _dp_bb__dp_module_init_12_else:
+#                     jump _dp_module_init_3
+#     block _dp_module_init_7:
+#         __dp_contextmanager_exit(_dp_with_exit_1, None)
+#         jump _dp_module_init_6
+#     block _dp_module_init_8:
+#         _dp_try_exc_9 = __dp_current_exception()
+#         if_term _dp_with_ok_2:
+#             then:
+#                 block _dp_bb__dp_module_init_11_then:
+#                     jump _dp_module_init_7
+#             else:
+#                 block _dp_bb__dp_module_init_11_else:
+#                     jump _dp_module_init_6
+#     block _dp_module_init_9:
+#         _dp_with_ok_2 = False
+#         __dp_contextmanager_exit(_dp_with_exit_1, __dp_exc_info())
+#         jump _dp_module_init_8
+#     block _dp_module_init_10:
+#         body()
+#         jump _dp_module_init_8
+#     block _dp_module_init_11:
 #         _dp_with_exit_1 = __dp_contextmanager_get_exit(b)
 #         y = __dp_contextmanager_enter(b)
 #         _dp_with_ok_2 = True
-#         try:
-#             body()
-#         except BaseException:
-#             _dp_with_ok_2 = False
-#             __dp_contextmanager_exit(_dp_with_exit_1, __dp_exc_info())
-#         else:
-#             pass
-#         finally:
-#             if _dp_with_ok_2:
-#                 __dp_contextmanager_exit(_dp_with_exit_1, None)
-#             _dp_with_exit_1 = None
-#     except BaseException:
-#         _dp_with_ok_5 = False
-#         __dp_contextmanager_exit(_dp_with_exit_4, __dp_exc_info())
-#     else:
-#         pass
-#     finally:
-#         if _dp_with_ok_5:
-#             __dp_contextmanager_exit(_dp_with_exit_4, None)
-#         _dp_with_exit_4 = None
+#         try_jump:
+#             body_label: _dp_module_init_10
+#             except_label: _dp_module_init_9
+#     block _dp_module_init_12:
+#         _dp_with_exit_4 = __dp_contextmanager_get_exit(a)
+#         x = __dp_contextmanager_enter(a)
+#         _dp_with_ok_5 = True
+#         try_jump:
+#             body_label: _dp_module_init_11
+#             except_label: _dp_module_init_4
+#     jump _dp_module_init_12
+#     block _dp_module_init_13:
+#         return
 
 # async_for
 
@@ -535,107 +743,207 @@ async def run():
 
 # module_init: _dp_module_init
 
-# function run() [kind=coroutine, bind=run, target=module_global, qualname=run]
-#     generator_state:
-#         closure_state: true
-#         dispatch_entry_label: start
-#         resume_order: [start, _dp_bb_run_11]
-#         yield_sites:
-#             _dp_bb_run_9 -> _dp_bb_run_11
-#         done_block_label: run_done
-#         invalid_block_label: run_invalid
-#         uncaught_block_label: run_uncaught
-#         uncaught_set_done_label: run_uncaught_set_done
-#         uncaught_raise_label: run_uncaught_raise
-#         uncaught_exc_name: _dp_uncaught_exc_15
-#         dispatch_only_labels: [run_dispatch, run_dispatch_invalid, run_dispatch_send, run_dispatch_send_table, run_dispatch_send_target_0, run_dispatch_send_target_1, run_dispatch_throw, run_dispatch_throw_done, run_dispatch_throw_table, run_dispatch_throw_target_0, run_dispatch_throw_target_1, run_dispatch_throw_unstarted]
-#         throw_passthrough_labels: [run_dispatch_throw_done, run_dispatch_throw_unstarted, run_uncaught_raise, run_uncaught_set_done]
+# function run() [kind=generator, bind=run, target=module_global, qualname=run]
 #     block run_done:
-#         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
-#         raise StopIteration()
+#         return
 #     block run_invalid:
 #         raise RuntimeError("invalid generator pc: {}".format(__dp_load_cell(_dp_cell__dp_pc)))
-#     if __dp_ne(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
-#         jump run_uncaught_set_done
-#     else:
-#         jump run_uncaught_raise
+#     if_term __dp_ne(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
+#         then:
+#             block run_uncaught_then:
+#                 jump run_uncaught_set_done
+#         else:
+#             block run_uncaught_else:
+#                 jump run_uncaught_raise
 #     block run_uncaught_set_done:
 #         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
-#         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_15)
+#         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_41)
 #         jump run_uncaught_raise
 #     block run_uncaught_raise:
-#         raise _dp_uncaught_exc_15
-#     block start:
-#         if False:
-#             jump _dp_bb_run_9
-#             block _dp_bb_run_10:
-#                 raise _dp_resume_exc
-#             block _dp_bb_run_11:
-#                 if __dp_is_not(_dp_resume_exc, None):
-#                     jump _dp_bb_run_10
-#                 else:
-#                     jump _dp_bb_run_end_8
-#             block _dp_bb_run_9:
-#                 return __dp_NONE
-#             block _dp_bb_run_end_8:
-#                 return
-#         else:
-#             return
-#     _dp_iter_1 = __dp_aiter(ait)
-#     jump for_fetch_2
-#     block for_fetch_2:
-#         _dp_tmp_2 = await __dp_anext_or_sentinel(_dp_iter_1)
-#         if __dp_is_(_dp_tmp_2, __dp__.ITER_COMPLETE):
-#             jump for_after_4
-#             return
-#         else:
-#             x = _dp_tmp_2
-#             _dp_tmp_2 = None
-#             jump for_body_3
-#             return
-#     block for_body_3:
+#         raise _dp_uncaught_exc_41
+#     block run_0:
+#         _dp_yield_from_iter_7 = iter(__dp_await_iter(__dp_anext_or_sentinel(_dp_iter_2)))
+#         __dp_store_cell(_dp_cell__dp_yieldfrom, _dp_yield_from_iter_7)
+#         try_jump:
+#             body_label: run_1
+#             except_label: run_2
+#     block run_1:
+#         _dp_yield_from_y_8 = next(__dp_load_cell(_dp_cell__dp_yieldfrom))
+#         jump run_6
+#     block run_2:
+#         _dp_try_exc_11 = __dp_current_exception()
+#         if_term __dp_exception_matches(_dp_try_exc_11, StopIteration):
+#             then:
+#                 block _dp_bb_run_18_then:
+#                     jump run_3
+#             else:
+#                 block _dp_bb_run_18_else:
+#                     jump run_5
+#     block run_3:
+#         _dp_yield_from_result_10 = _dp_try_exc_11.value
+#         jump run_4
+#     block run_4:
+#         __dp_store_cell(_dp_cell__dp_yieldfrom, None)
+#         jump run_20
+#     block run_5:
+#         _dp_yield_from_raise_13 = _dp_try_exc_11
+#         jump run_12
+#     block run_6:
+#         return _dp_yield_from_y_8
+#     block run_7:
+#         _dp_yield_from_sent_9 = _dp_send_value
+#         _dp_yield_from_exc_12 = _dp_resume_exc
+#         _dp_resume_exc = None
+#         if_term __dp_is_not(_dp_yield_from_exc_12, None):
+#             then:
+#                 block _dp_bb_run_23_then:
+#                     jump run_8
+#             else:
+#                 block _dp_bb_run_23_else:
+#                     jump run_16
+#     block run_8:
+#         if_term __dp_exception_matches(_dp_yield_from_exc_12, GeneratorExit):
+#             then:
+#                 block _dp_bb_run_24_then:
+#                     jump run_9
+#             else:
+#                 block _dp_bb_run_24_else:
+#                     jump run_13
+#     block run_9:
+#         _dp_yield_from_close_14 = getattr(__dp_load_cell(_dp_cell__dp_yieldfrom), "close", None)
+#         if_term __dp_is_not(_dp_yield_from_close_14, None):
+#             then:
+#                 block _dp_bb_run_25_true:
+#                     jump run_10
+#             else:
+#                 block _dp_bb_run_25_false:
+#                     jump run_11
+#     block run_10:
+#         _dp_yield_from_close_14()
+#         jump run_11
+#     block run_11:
+#         _dp_yield_from_raise_13 = _dp_yield_from_exc_12
+#         jump run_12
+#     block run_12:
+#         __dp_store_cell(_dp_cell__dp_yieldfrom, None)
+#         raise _dp_yield_from_raise_13
+#     block run_13:
+#         _dp_yield_from_throw_15 = getattr(__dp_load_cell(_dp_cell__dp_yieldfrom), "throw", None)
+#         if_term __dp_is_(_dp_yield_from_throw_15, None):
+#             then:
+#                 block _dp_bb_run_28_true:
+#                     jump run_11
+#             else:
+#                 block _dp_bb_run_28_false:
+#                     jump run_14
+#     block run_14:
+#         try_jump:
+#             body_label: run_15
+#             except_label: run_2
+#     block run_15:
+#         _dp_yield_from_y_8 = _dp_yield_from_throw_15(_dp_yield_from_exc_12)
+#         jump run_6
+#     block run_16:
+#         try_jump:
+#             body_label: run_17
+#             except_label: run_2
+#     block run_17:
+#         if_term __dp_is_(_dp_yield_from_sent_9, None):
+#             then:
+#                 block _dp_bb_run_32_then:
+#                     jump run_1
+#             else:
+#                 block _dp_bb_run_32_else:
+#                     jump run_18
+#     block run_18:
+#         _dp_yield_from_y_8 = __dp_load_cell(_dp_cell__dp_yieldfrom).send(_dp_yield_from_sent_9)
+#         jump run_6
+#     block run_19:
+#         jump run_0
+#     block run_20:
+#         _dp_tmp_3 = _dp_yield_from_result_10
+#         jump run_23
+#     block run_21:
 #         body()
-#         jump for_fetch_2
-#     block for_after_4:
-#         jump _dp_bb_run_end_7
-#     block _dp_bb_run_end_7:
-#         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
-#         raise StopIteration()
+#         jump run_19
+#     block run_22:
+#         x = _dp_tmp_3
+#         _dp_tmp_3 = None
+#         jump run_21
+#     block run_23:
+#         if_term __dp_is_(_dp_tmp_3, __dp__.ITER_COMPLETE):
+#             then:
+#                 block _dp_bb_run_4_then:
+#                     jump run_27
+#             else:
+#                 block _dp_bb_run_4_else:
+#                     jump run_22
+#     block run_24:
+#         _dp_iter_2 = __dp_aiter(ait)
+#         jump run_19
+#     block run_25:
+#         raise _dp_resume_exc
+#     block run_26:
+#         if_term __dp_is_not(_dp_resume_exc, None):
+#             then:
+#                 block _dp_bb_run_40_true:
+#                     jump run_25
+#             else:
+#                 block _dp_bb_run_40_false:
+#                     jump run_24
+#     block run_start:
+#         jump run_24
+#     block run_27:
+#         return
 #     block run_dispatch_throw_done:
 #         raise _dp_resume_exc
 #     block run_dispatch_throw_unstarted:
 #         raise _dp_resume_exc
 #     block run_dispatch_send_target_0:
-#         jump start
+#         jump run_start
 #     block run_dispatch_throw_target_0:
 #         jump run_dispatch_throw_unstarted
 #     block run_dispatch_send_target_1:
-#         jump _dp_bb_run_11
+#         jump run_7
 #     block run_dispatch_throw_target_1:
-#         jump _dp_bb_run_11
+#         jump run_7
+#     block run_dispatch_send_target_2:
+#         jump run_26
+#     block run_dispatch_throw_target_2:
+#         jump run_26
 #     block run_dispatch_invalid:
 #         jump run_invalid
 #     block run_dispatch_send_table:
-#         branch_table __dp_load_cell(_dp_cell__dp_pc) -> [run_dispatch_send_target_0, run_dispatch_send_target_1] default run_dispatch_invalid
+#         branch_table __dp_load_cell(_dp_cell__dp_pc) -> [run_dispatch_send_target_0, run_dispatch_send_target_1, run_dispatch_send_target_2] default run_dispatch_invalid
 #     block run_dispatch_throw_table:
-#         branch_table __dp_load_cell(_dp_cell__dp_pc) -> [run_dispatch_throw_target_0, run_dispatch_throw_target_1] default run_dispatch_invalid
+#         branch_table __dp_load_cell(_dp_cell__dp_pc) -> [run_dispatch_throw_target_0, run_dispatch_throw_target_1, run_dispatch_throw_target_2] default run_dispatch_invalid
 #     block run_dispatch_send:
-#         if __dp_eq(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
-#             jump run_done
-#         else:
-#             jump run_dispatch_send_table
+#         if_term __dp_eq(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
+#             then:
+#                 block run_dispatch_send_then:
+#                     jump run_done
+#             else:
+#                 block run_dispatch_send_else:
+#                     jump run_dispatch_send_table
 #     block run_dispatch_throw:
-#         if __dp_eq(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
-#             jump run_dispatch_throw_done
+#         if_term __dp_eq(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
+#             then:
+#                 block run_dispatch_throw_then:
+#                     jump run_dispatch_throw_done
+#             else:
+#                 block run_dispatch_throw_else:
+#                     jump run_dispatch_throw_table
+#     if_term __dp_is_(_dp_resume_exc, None):
+#         then:
+#             block run_dispatch_then:
+#                 jump run_dispatch_send
 #         else:
-#             jump run_dispatch_throw_table
-#     if __dp_is_(_dp_resume_exc, None):
-#         jump run_dispatch_send
-#     else:
-#         jump run_dispatch_throw
+#             block run_dispatch_else:
+#                 jump run_dispatch_throw
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     def run(): ...
+#     return
 
 # async_with
 
@@ -649,379 +957,404 @@ async def run():
 
 # module_init: _dp_module_init
 
-# function run() [kind=coroutine, bind=run, target=module_global, qualname=run]
-#     generator_state:
-#         closure_state: true
-#         dispatch_entry_label: _dp_bb_run_80
-#         resume_order: [_dp_bb_run_80, _dp_bb_run_11, _dp_bb_run_36, _dp_bb_run_67, _dp_bb_run_99]
-#         yield_sites:
-#             _dp_bb_run_9 -> _dp_bb_run_11
-#             _dp_bb_run_47 -> _dp_bb_run_36
-#             _dp_bb_run_78 -> _dp_bb_run_67
-#             _dp_bb_run_110 -> _dp_bb_run_99
-#         done_block_label: run_done
-#         invalid_block_label: run_invalid
-#         uncaught_block_label: run_uncaught
-#         uncaught_set_done_label: run_uncaught_set_done
-#         uncaught_raise_label: run_uncaught_raise
-#         uncaught_exc_name: _dp_uncaught_exc_111
-#         dispatch_only_labels: [run_dispatch, run_dispatch_invalid, run_dispatch_send, run_dispatch_send_table, run_dispatch_send_target_0, run_dispatch_send_target_1, run_dispatch_send_target_2, run_dispatch_send_target_3, run_dispatch_send_target_4, run_dispatch_throw, run_dispatch_throw_done, run_dispatch_throw_table, run_dispatch_throw_target_0, run_dispatch_throw_target_1, run_dispatch_throw_target_2, run_dispatch_throw_target_3, run_dispatch_throw_target_4, run_dispatch_throw_unstarted]
-#         throw_passthrough_labels: [run_dispatch_throw_done, run_dispatch_throw_unstarted, run_uncaught_raise, run_uncaught_set_done]
+# function run() [kind=generator, bind=run, target=module_global, qualname=run]
 #     block run_done:
-#         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
-#         raise StopIteration()
+#         return
 #     block run_invalid:
 #         raise RuntimeError("invalid generator pc: {}".format(__dp_load_cell(_dp_cell__dp_pc)))
-#     if __dp_ne(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
-#         jump run_uncaught_set_done
-#     else:
-#         jump run_uncaught_raise
+#     if_term __dp_ne(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
+#         then:
+#             block run_uncaught_then:
+#                 jump run_uncaught_set_done
+#         else:
+#             block run_uncaught_else:
+#                 jump run_uncaught_raise
 #     block run_uncaught_set_done:
 #         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
-#         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_111)
+#         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_101)
 #         jump run_uncaught_raise
 #     block run_uncaught_raise:
-#         raise _dp_uncaught_exc_111
-#     block _dp_bb_run_80:
-#         _dp_with_ok_2 = True
-#         try:
-#             body()
-#             jump _dp_bb_run_end_13
-#             block _dp_bb_run_end_13:
-#                 return
-#         except BaseException:
-#             block _dp_bb_run_17:
-#                 if not _dp_with_suppress_3:
-#                     raise
-#                     return
-#                 else:
-#                     return
-#             jump _dp_bb_run_19
-#             block _dp_bb_run_29:
-#                 _dp_yield_from_iter_20 = iter(__dp_await_iter(__dp_asynccontextmanager_aexit(_dp_with_exit_1, __dp_exc_info())))
-#                 __dp_store_cell(_dp_cell__dp_yieldfrom, _dp_yield_from_iter_20)
-#                 legacy_try_jump:
-#                     body_label: _dp_bb_run_30
-#                     except_label: _dp_bb_run_31
-#                     except_exc_name: _dp_try_exc_24
-#                     body_region_labels: [_dp_bb_run_30]
-#                     except_region_labels: [_dp_bb_run_31, _dp_bb_run_32, _dp_bb_run_33]
-#             block _dp_bb_run_30:
-#                 _dp_yield_from_y_21 = next(__dp_load_cell(_dp_cell__dp_yieldfrom))
-#                 jump _dp_bb_run_47
-#             block _dp_bb_run_31:
-#                 if __dp_exception_matches(_dp_try_exc_24, StopIteration):
-#                     jump _dp_bb_run_32
-#                 else:
-#                     jump _dp_bb_run_33
-#             block _dp_bb_run_32:
-#                 _dp_yield_from_result_23 = _dp_try_exc_24.value
-#                 jump _dp_bb_run_34
-#             block _dp_bb_run_34:
-#                 __dp_store_cell(_dp_cell__dp_yieldfrom, None)
-#                 jump _dp_bb_run_18
-#             block _dp_bb_run_33:
-#                 _dp_yield_from_raise_26 = _dp_try_exc_24
-#                 jump _dp_bb_run_35
-#             block _dp_bb_run_47:
-#                 return _dp_yield_from_y_21
-#             _dp_yield_from_sent_22 = _dp_send_value
-#             _dp_yield_from_exc_25 = _dp_resume_exc
-#             _dp_resume_exc = None
-#             if __dp_is_not(_dp_yield_from_exc_25, None):
-#                 jump _dp_bb_run_37
+#         raise _dp_uncaught_exc_101
+#     block run_0:
+#         raise _dp_try_exc_2
+#     block run_1:
+#         _dp_with_exit_1 = None
+#         if_term __dp_is_not(_dp_try_exc_2, None):
+#             then:
+#                 block _dp_bb_run_5_then:
+#                     jump run_0
 #             else:
-#                 jump _dp_bb_run_44
-#             block _dp_bb_run_37:
-#                 if __dp_exception_matches(_dp_yield_from_exc_25, GeneratorExit):
-#                     jump _dp_bb_run_38
-#                 else:
-#                     jump _dp_bb_run_41
-#             block _dp_bb_run_38:
-#                 _dp_yield_from_close_27 = getattr(__dp_load_cell(_dp_cell__dp_yieldfrom), "close", None)
-#                 if __dp_is_not(_dp_yield_from_close_27, None):
-#                     jump _dp_bb_run_39
-#                 else:
-#                     jump _dp_bb_run_40
-#             block _dp_bb_run_39:
-#                 _dp_yield_from_close_27()
-#                 jump _dp_bb_run_40
-#             block _dp_bb_run_40:
-#                 _dp_yield_from_raise_26 = _dp_yield_from_exc_25
-#                 jump _dp_bb_run_35
-#             block _dp_bb_run_35:
-#                 __dp_store_cell(_dp_cell__dp_yieldfrom, None)
-#                 raise _dp_yield_from_raise_26
-#             block _dp_bb_run_41:
-#                 _dp_yield_from_throw_28 = getattr(__dp_load_cell(_dp_cell__dp_yieldfrom), "throw", None)
-#                 if __dp_is_(_dp_yield_from_throw_28, None):
-#                     jump _dp_bb_run_40
-#                 else:
-#                     jump _dp_bb_run_42
-#             block _dp_bb_run_42:
-#                 legacy_try_jump:
-#                     body_label: _dp_bb_run_43
-#                     except_label: _dp_bb_run_31
-#                     except_exc_name: _dp_try_exc_24
-#                     body_region_labels: [_dp_bb_run_43]
-#                     except_region_labels: [_dp_bb_run_31, _dp_bb_run_32, _dp_bb_run_33]
-#             block _dp_bb_run_43:
-#                 _dp_yield_from_y_21 = _dp_yield_from_throw_28(_dp_yield_from_exc_25)
-#                 jump _dp_bb_run_47
-#             block _dp_bb_run_44:
-#                 legacy_try_jump:
-#                     body_label: _dp_bb_run_45
-#                     except_label: _dp_bb_run_31
-#                     except_exc_name: _dp_try_exc_24
-#                     body_region_labels: [_dp_bb_run_45, _dp_bb_run_30, _dp_bb_run_46]
-#                     except_region_labels: [_dp_bb_run_31, _dp_bb_run_32, _dp_bb_run_33]
-#             block _dp_bb_run_45:
-#                 if __dp_is_(_dp_yield_from_sent_22, None):
-#                     jump _dp_bb_run_30
-#                 else:
-#                     jump _dp_bb_run_46
-#             block _dp_bb_run_46:
-#                 _dp_yield_from_y_21 = __dp_load_cell(_dp_cell__dp_yieldfrom).send(_dp_yield_from_sent_22)
-#                 jump _dp_bb_run_47
-#             block _dp_bb_run_18:
-#                 _dp_with_suppress_3 = _dp_yield_from_result_23
-#                 jump _dp_bb_run_17
-#             block _dp_bb_run_19:
-#                 _dp_with_ok_2 = False
-#                 jump _dp_bb_run_29
-#             return
-#         else:
-#             jump _dp_bb_run_end_48
-#             block _dp_bb_run_end_48:
-#                 return
-#         finally:
-#             if _dp_with_ok_2:
-#                 jump _dp_bb_run_51
-#                 block _dp_bb_run_60:
-#                     _dp_yield_from_iter_52 = iter(__dp_await_iter(__dp_asynccontextmanager_aexit(_dp_with_exit_1, None)))
-#                     __dp_store_cell(_dp_cell__dp_yieldfrom, _dp_yield_from_iter_52)
-#                     legacy_try_jump:
-#                         body_label: _dp_bb_run_61
-#                         except_label: _dp_bb_run_62
-#                         except_exc_name: _dp_try_exc_55
-#                         body_region_labels: [_dp_bb_run_61]
-#                         except_region_labels: [_dp_bb_run_62, _dp_bb_run_63, _dp_bb_run_64]
-#                 block _dp_bb_run_61:
-#                     _dp_yield_from_y_53 = next(__dp_load_cell(_dp_cell__dp_yieldfrom))
-#                     jump _dp_bb_run_78
-#                 block _dp_bb_run_62:
-#                     if __dp_exception_matches(_dp_try_exc_55, StopIteration):
-#                         jump _dp_bb_run_63
-#                     else:
-#                         jump _dp_bb_run_64
-#                 block _dp_bb_run_63:
-#                     jump _dp_bb_run_65
-#                 block _dp_bb_run_65:
-#                     __dp_store_cell(_dp_cell__dp_yieldfrom, None)
-#                     jump _dp_bb_run_end_50
-#                 block _dp_bb_run_64:
-#                     _dp_yield_from_raise_57 = _dp_try_exc_55
-#                     jump _dp_bb_run_66
-#                 block _dp_bb_run_78:
-#                     return _dp_yield_from_y_53
-#                 _dp_yield_from_sent_54 = _dp_send_value
-#                 _dp_yield_from_exc_56 = _dp_resume_exc
-#                 _dp_resume_exc = None
-#                 if __dp_is_not(_dp_yield_from_exc_56, None):
-#                     jump _dp_bb_run_68
-#                 else:
-#                     jump _dp_bb_run_75
-#                 block _dp_bb_run_68:
-#                     if __dp_exception_matches(_dp_yield_from_exc_56, GeneratorExit):
-#                         jump _dp_bb_run_69
-#                     else:
-#                         jump _dp_bb_run_72
-#                 block _dp_bb_run_69:
-#                     _dp_yield_from_close_58 = getattr(__dp_load_cell(_dp_cell__dp_yieldfrom), "close", None)
-#                     if __dp_is_not(_dp_yield_from_close_58, None):
-#                         jump _dp_bb_run_70
-#                     else:
-#                         jump _dp_bb_run_71
-#                 block _dp_bb_run_70:
-#                     _dp_yield_from_close_58()
-#                     jump _dp_bb_run_71
-#                 block _dp_bb_run_71:
-#                     _dp_yield_from_raise_57 = _dp_yield_from_exc_56
-#                     jump _dp_bb_run_66
-#                 block _dp_bb_run_66:
-#                     __dp_store_cell(_dp_cell__dp_yieldfrom, None)
-#                     raise _dp_yield_from_raise_57
-#                 block _dp_bb_run_72:
-#                     _dp_yield_from_throw_59 = getattr(__dp_load_cell(_dp_cell__dp_yieldfrom), "throw", None)
-#                     if __dp_is_(_dp_yield_from_throw_59, None):
-#                         jump _dp_bb_run_71
-#                     else:
-#                         jump _dp_bb_run_73
-#                 block _dp_bb_run_73:
-#                     legacy_try_jump:
-#                         body_label: _dp_bb_run_74
-#                         except_label: _dp_bb_run_62
-#                         except_exc_name: _dp_try_exc_55
-#                         body_region_labels: [_dp_bb_run_74]
-#                         except_region_labels: [_dp_bb_run_62, _dp_bb_run_63, _dp_bb_run_64]
-#                 block _dp_bb_run_74:
-#                     _dp_yield_from_y_53 = _dp_yield_from_throw_59(_dp_yield_from_exc_56)
-#                     jump _dp_bb_run_78
-#                 block _dp_bb_run_75:
-#                     legacy_try_jump:
-#                         body_label: _dp_bb_run_76
-#                         except_label: _dp_bb_run_62
-#                         except_exc_name: _dp_try_exc_55
-#                         body_region_labels: [_dp_bb_run_76, _dp_bb_run_61, _dp_bb_run_77]
-#                         except_region_labels: [_dp_bb_run_62, _dp_bb_run_63, _dp_bb_run_64]
-#                 block _dp_bb_run_76:
-#                     if __dp_is_(_dp_yield_from_sent_54, None):
-#                         jump _dp_bb_run_61
-#                     else:
-#                         jump _dp_bb_run_77
-#                 block _dp_bb_run_77:
-#                     _dp_yield_from_y_53 = __dp_load_cell(_dp_cell__dp_yieldfrom).send(_dp_yield_from_sent_54)
-#                     jump _dp_bb_run_78
-#                 block _dp_bb_run_51:
-#                     jump _dp_bb_run_60
-#                 block _dp_bb_run_end_50:
-#                     return
+#                 block _dp_bb_run_5_else:
+#                     jump run_71
+#     block run_2:
+#         _dp_yield_from_iter_8 = iter(__dp_await_iter(__dp_asynccontextmanager_aexit(_dp_with_exit_1, None)))
+#         __dp_store_cell(_dp_cell__dp_yieldfrom, _dp_yield_from_iter_8)
+#         try_jump:
+#             body_label: run_3
+#             except_label: run_4
+#     block run_3:
+#         _dp_yield_from_y_9 = next(__dp_load_cell(_dp_cell__dp_yieldfrom))
+#         jump run_8
+#     block run_4:
+#         _dp_try_exc_11 = __dp_current_exception()
+#         if_term __dp_exception_matches(_dp_try_exc_11, StopIteration):
+#             then:
+#                 block _dp_bb_run_18_then:
+#                     jump run_5
 #             else:
-#                 return
-#             _dp_with_exit_1 = None
-#             jump _dp_bb_run_end_49
-#             block _dp_bb_run_end_49:
-#                 return
-#         jump _dp_bb_run_end_7
-#     jump _dp_bb_run_82
-#     block _dp_bb_run_92:
-#         _dp_yield_from_iter_83 = iter(__dp_await_iter(__dp_asynccontextmanager_aenter(cm)))
-#         __dp_store_cell(_dp_cell__dp_yieldfrom, _dp_yield_from_iter_83)
-#         legacy_try_jump:
-#             body_label: _dp_bb_run_93
-#             except_label: _dp_bb_run_94
-#             except_exc_name: _dp_try_exc_87
-#             body_region_labels: [_dp_bb_run_93]
-#             except_region_labels: [_dp_bb_run_94, _dp_bb_run_95, _dp_bb_run_96]
-#     block _dp_bb_run_93:
-#         _dp_yield_from_y_84 = next(__dp_load_cell(_dp_cell__dp_yieldfrom))
-#         jump _dp_bb_run_110
-#     block _dp_bb_run_94:
-#         if __dp_exception_matches(_dp_try_exc_87, StopIteration):
-#             jump _dp_bb_run_95
-#         else:
-#             jump _dp_bb_run_96
-#     block _dp_bb_run_95:
-#         _dp_yield_from_result_86 = _dp_try_exc_87.value
-#         jump _dp_bb_run_97
-#     block _dp_bb_run_97:
+#                 block _dp_bb_run_18_else:
+#                     jump run_7
+#     block run_5:
+#         jump run_6
+#     block run_6:
 #         __dp_store_cell(_dp_cell__dp_yieldfrom, None)
-#         jump _dp_bb_run_81
-#     block _dp_bb_run_96:
-#         _dp_yield_from_raise_89 = _dp_try_exc_87
-#         jump _dp_bb_run_98
-#     block _dp_bb_run_110:
-#         __dp_store_cell(_dp_cell__dp_pc, 4)
-#         return _dp_yield_from_y_84
-#     block _dp_bb_run_99:
-#         _dp_yield_from_sent_85 = _dp_send_value
-#         _dp_yield_from_exc_88 = _dp_resume_exc
+#         jump run_1
+#     block run_7:
+#         _dp_yield_from_raise_13 = _dp_try_exc_11
+#         jump run_14
+#     block run_8:
+#         return _dp_yield_from_y_9
+#     block run_9:
+#         _dp_yield_from_sent_10 = _dp_send_value
+#         _dp_yield_from_exc_12 = _dp_resume_exc
 #         _dp_resume_exc = None
-#         if __dp_is_not(_dp_yield_from_exc_88, None):
-#             jump _dp_bb_run_100
-#         else:
-#             jump _dp_bb_run_107
-#     block _dp_bb_run_100:
-#         if __dp_exception_matches(_dp_yield_from_exc_88, GeneratorExit):
-#             jump _dp_bb_run_101
-#         else:
-#             jump _dp_bb_run_104
-#     block _dp_bb_run_101:
-#         _dp_yield_from_close_90 = getattr(__dp_load_cell(_dp_cell__dp_yieldfrom), "close", None)
-#         if __dp_is_not(_dp_yield_from_close_90, None):
-#             jump _dp_bb_run_102
-#         else:
-#             jump _dp_bb_run_103
-#     block _dp_bb_run_102:
-#         _dp_yield_from_close_90()
-#         jump _dp_bb_run_103
-#     block _dp_bb_run_103:
-#         _dp_yield_from_raise_89 = _dp_yield_from_exc_88
-#         jump _dp_bb_run_98
-#     block _dp_bb_run_98:
-#         __dp_store_cell(_dp_cell__dp_yieldfrom, None)
-#         raise _dp_yield_from_raise_89
-#     block _dp_bb_run_104:
-#         _dp_yield_from_throw_91 = getattr(__dp_load_cell(_dp_cell__dp_yieldfrom), "throw", None)
-#         if __dp_is_(_dp_yield_from_throw_91, None):
-#             jump _dp_bb_run_103
-#         else:
-#             jump _dp_bb_run_105
-#     block _dp_bb_run_105:
-#         legacy_try_jump:
-#             body_label: _dp_bb_run_106
-#             except_label: _dp_bb_run_94
-#             except_exc_name: _dp_try_exc_87
-#             body_region_labels: [_dp_bb_run_106]
-#             except_region_labels: [_dp_bb_run_94, _dp_bb_run_95, _dp_bb_run_96]
-#     block _dp_bb_run_106:
-#         _dp_yield_from_y_84 = _dp_yield_from_throw_91(_dp_yield_from_exc_88)
-#         jump _dp_bb_run_110
-#     block _dp_bb_run_107:
-#         legacy_try_jump:
-#             body_label: _dp_bb_run_108
-#             except_label: _dp_bb_run_94
-#             except_exc_name: _dp_try_exc_87
-#             body_region_labels: [_dp_bb_run_108, _dp_bb_run_93, _dp_bb_run_109]
-#             except_region_labels: [_dp_bb_run_94, _dp_bb_run_95, _dp_bb_run_96]
-#     block _dp_bb_run_108:
-#         if __dp_is_(_dp_yield_from_sent_85, None):
-#             jump _dp_bb_run_93
-#         else:
-#             jump _dp_bb_run_109
-#     block _dp_bb_run_109:
-#         _dp_yield_from_y_84 = __dp_load_cell(_dp_cell__dp_yieldfrom).send(_dp_yield_from_sent_85)
-#         jump _dp_bb_run_110
-#     block _dp_bb_run_81:
-#         x = _dp_yield_from_result_86
-#         jump _dp_bb_run_80
-#     block _dp_bb_run_82:
-#         if False:
-#             if __dp_is_not(_dp_resume_exc, None):
-#                 pass
+#         if_term __dp_is_not(_dp_yield_from_exc_12, None):
+#             then:
+#                 block _dp_bb_run_23_then:
+#                     jump run_10
 #             else:
-#                 pass
-#         else:
-#             pass
+#                 block _dp_bb_run_23_else:
+#                     jump run_18
+#     block run_10:
+#         if_term __dp_exception_matches(_dp_yield_from_exc_12, GeneratorExit):
+#             then:
+#                 block _dp_bb_run_24_then:
+#                     jump run_11
+#             else:
+#                 block _dp_bb_run_24_else:
+#                     jump run_15
+#     block run_11:
+#         _dp_yield_from_close_14 = getattr(__dp_load_cell(_dp_cell__dp_yieldfrom), "close", None)
+#         if_term __dp_is_not(_dp_yield_from_close_14, None):
+#             then:
+#                 block _dp_bb_run_25_true:
+#                     jump run_12
+#             else:
+#                 block _dp_bb_run_25_false:
+#                     jump run_13
+#     block run_12:
+#         _dp_yield_from_close_14()
+#         jump run_13
+#     block run_13:
+#         _dp_yield_from_raise_13 = _dp_yield_from_exc_12
+#         jump run_14
+#     block run_14:
+#         __dp_store_cell(_dp_cell__dp_yieldfrom, None)
+#         raise _dp_yield_from_raise_13
+#     block run_15:
+#         _dp_yield_from_throw_15 = getattr(__dp_load_cell(_dp_cell__dp_yieldfrom), "throw", None)
+#         if_term __dp_is_(_dp_yield_from_throw_15, None):
+#             then:
+#                 block _dp_bb_run_28_true:
+#                     jump run_13
+#             else:
+#                 block _dp_bb_run_28_false:
+#                     jump run_16
+#     block run_16:
+#         try_jump:
+#             body_label: run_17
+#             except_label: run_4
+#     block run_17:
+#         _dp_yield_from_y_9 = _dp_yield_from_throw_15(_dp_yield_from_exc_12)
+#         jump run_8
+#     block run_18:
+#         try_jump:
+#             body_label: run_19
+#             except_label: run_4
+#     block run_19:
+#         if_term __dp_is_(_dp_yield_from_sent_10, None):
+#             then:
+#                 block _dp_bb_run_32_then:
+#                     jump run_3
+#             else:
+#                 block _dp_bb_run_32_else:
+#                     jump run_20
+#     block run_20:
+#         _dp_yield_from_y_9 = __dp_load_cell(_dp_cell__dp_yieldfrom).send(_dp_yield_from_sent_10)
+#         jump run_8
+#     block run_21:
+#         jump run_2
+#     block run_22:
+#         _dp_try_exc_2 = __dp_current_exception()
+#         if_term _dp_with_ok_2:
+#             then:
+#                 block _dp_bb_run_4_then:
+#                     jump run_21
+#             else:
+#                 block _dp_bb_run_4_else:
+#                     jump run_1
+#     block run_23:
+#         raise
+#     block run_24:
+#         if_term not _dp_with_suppress_3:
+#             then:
+#                 block _dp_bb_run_35_then:
+#                     jump run_23
+#             else:
+#                 block _dp_bb_run_35_else:
+#                     jump run_22
+#     block run_25:
+#         _dp_yield_from_iter_39 = iter(__dp_await_iter(__dp_asynccontextmanager_aexit(_dp_with_exit_1, __dp_exc_info())))
+#         __dp_store_cell(_dp_cell__dp_yieldfrom, _dp_yield_from_iter_39)
+#         try_jump:
+#             body_label: run_26
+#             except_label: run_27
+#     block run_26:
+#         _dp_yield_from_y_40 = next(__dp_load_cell(_dp_cell__dp_yieldfrom))
+#         jump run_31
+#     block run_27:
+#         _dp_try_exc_43 = __dp_current_exception()
+#         if_term __dp_exception_matches(_dp_try_exc_43, StopIteration):
+#             then:
+#                 block _dp_bb_run_50_then:
+#                     jump run_28
+#             else:
+#                 block _dp_bb_run_50_else:
+#                     jump run_30
+#     block run_28:
+#         _dp_yield_from_result_42 = _dp_try_exc_43.value
+#         jump run_29
+#     block run_29:
+#         __dp_store_cell(_dp_cell__dp_yieldfrom, None)
+#         jump run_44
+#     block run_30:
+#         _dp_yield_from_raise_45 = _dp_try_exc_43
+#         jump run_37
+#     block run_31:
+#         return _dp_yield_from_y_40
+#     block run_32:
+#         _dp_yield_from_sent_41 = _dp_send_value
+#         _dp_yield_from_exc_44 = _dp_resume_exc
+#         _dp_resume_exc = None
+#         if_term __dp_is_not(_dp_yield_from_exc_44, None):
+#             then:
+#                 block _dp_bb_run_55_then:
+#                     jump run_33
+#             else:
+#                 block _dp_bb_run_55_else:
+#                     jump run_41
+#     block run_33:
+#         if_term __dp_exception_matches(_dp_yield_from_exc_44, GeneratorExit):
+#             then:
+#                 block _dp_bb_run_56_then:
+#                     jump run_34
+#             else:
+#                 block _dp_bb_run_56_else:
+#                     jump run_38
+#     block run_34:
+#         _dp_yield_from_close_46 = getattr(__dp_load_cell(_dp_cell__dp_yieldfrom), "close", None)
+#         if_term __dp_is_not(_dp_yield_from_close_46, None):
+#             then:
+#                 block _dp_bb_run_57_true:
+#                     jump run_35
+#             else:
+#                 block _dp_bb_run_57_false:
+#                     jump run_36
+#     block run_35:
+#         _dp_yield_from_close_46()
+#         jump run_36
+#     block run_36:
+#         _dp_yield_from_raise_45 = _dp_yield_from_exc_44
+#         jump run_37
+#     block run_37:
+#         __dp_store_cell(_dp_cell__dp_yieldfrom, None)
+#         raise _dp_yield_from_raise_45
+#     block run_38:
+#         _dp_yield_from_throw_47 = getattr(__dp_load_cell(_dp_cell__dp_yieldfrom), "throw", None)
+#         if_term __dp_is_(_dp_yield_from_throw_47, None):
+#             then:
+#                 block _dp_bb_run_60_true:
+#                     jump run_36
+#             else:
+#                 block _dp_bb_run_60_false:
+#                     jump run_39
+#     block run_39:
+#         try_jump:
+#             body_label: run_40
+#             except_label: run_27
+#     block run_40:
+#         _dp_yield_from_y_40 = _dp_yield_from_throw_47(_dp_yield_from_exc_44)
+#         jump run_31
+#     block run_41:
+#         try_jump:
+#             body_label: run_42
+#             except_label: run_27
+#     block run_42:
+#         if_term __dp_is_(_dp_yield_from_sent_41, None):
+#             then:
+#                 block _dp_bb_run_64_then:
+#                     jump run_26
+#             else:
+#                 block _dp_bb_run_64_else:
+#                     jump run_43
+#     block run_43:
+#         _dp_yield_from_y_40 = __dp_load_cell(_dp_cell__dp_yieldfrom).send(_dp_yield_from_sent_41)
+#         jump run_31
+#     block run_44:
+#         _dp_with_suppress_3 = _dp_yield_from_result_42
+#         jump run_24
+#     block run_45:
+#         _dp_with_ok_2 = False
+#         jump run_25
+#     block run_46:
+#         body()
+#         jump run_22
+#     block run_47:
+#         _dp_with_ok_2 = True
+#         try_jump:
+#             body_label: run_46
+#             except_label: run_45
+#     block run_48:
+#         _dp_yield_from_iter_70 = iter(__dp_await_iter(__dp_asynccontextmanager_aenter(cm)))
+#         __dp_store_cell(_dp_cell__dp_yieldfrom, _dp_yield_from_iter_70)
+#         try_jump:
+#             body_label: run_49
+#             except_label: run_50
+#     block run_49:
+#         _dp_yield_from_y_71 = next(__dp_load_cell(_dp_cell__dp_yieldfrom))
+#         jump run_54
+#     block run_50:
+#         _dp_try_exc_74 = __dp_current_exception()
+#         if_term __dp_exception_matches(_dp_try_exc_74, StopIteration):
+#             then:
+#                 block _dp_bb_run_81_then:
+#                     jump run_51
+#             else:
+#                 block _dp_bb_run_81_else:
+#                     jump run_53
+#     block run_51:
+#         _dp_yield_from_result_73 = _dp_try_exc_74.value
+#         jump run_52
+#     block run_52:
+#         __dp_store_cell(_dp_cell__dp_yieldfrom, None)
+#         jump run_67
+#     block run_53:
+#         _dp_yield_from_raise_76 = _dp_try_exc_74
+#         jump run_60
+#     block run_54:
+#         return _dp_yield_from_y_71
+#     block run_55:
+#         _dp_yield_from_sent_72 = _dp_send_value
+#         _dp_yield_from_exc_75 = _dp_resume_exc
+#         _dp_resume_exc = None
+#         if_term __dp_is_not(_dp_yield_from_exc_75, None):
+#             then:
+#                 block _dp_bb_run_86_then:
+#                     jump run_56
+#             else:
+#                 block _dp_bb_run_86_else:
+#                     jump run_64
+#     block run_56:
+#         if_term __dp_exception_matches(_dp_yield_from_exc_75, GeneratorExit):
+#             then:
+#                 block _dp_bb_run_87_then:
+#                     jump run_57
+#             else:
+#                 block _dp_bb_run_87_else:
+#                     jump run_61
+#     block run_57:
+#         _dp_yield_from_close_77 = getattr(__dp_load_cell(_dp_cell__dp_yieldfrom), "close", None)
+#         if_term __dp_is_not(_dp_yield_from_close_77, None):
+#             then:
+#                 block _dp_bb_run_88_true:
+#                     jump run_58
+#             else:
+#                 block _dp_bb_run_88_false:
+#                     jump run_59
+#     block run_58:
+#         _dp_yield_from_close_77()
+#         jump run_59
+#     block run_59:
+#         _dp_yield_from_raise_76 = _dp_yield_from_exc_75
+#         jump run_60
+#     block run_60:
+#         __dp_store_cell(_dp_cell__dp_yieldfrom, None)
+#         raise _dp_yield_from_raise_76
+#     block run_61:
+#         _dp_yield_from_throw_78 = getattr(__dp_load_cell(_dp_cell__dp_yieldfrom), "throw", None)
+#         if_term __dp_is_(_dp_yield_from_throw_78, None):
+#             then:
+#                 block _dp_bb_run_91_true:
+#                     jump run_59
+#             else:
+#                 block _dp_bb_run_91_false:
+#                     jump run_62
+#     block run_62:
+#         try_jump:
+#             body_label: run_63
+#             except_label: run_50
+#     block run_63:
+#         _dp_yield_from_y_71 = _dp_yield_from_throw_78(_dp_yield_from_exc_75)
+#         jump run_54
+#     block run_64:
+#         try_jump:
+#             body_label: run_65
+#             except_label: run_50
+#     block run_65:
+#         if_term __dp_is_(_dp_yield_from_sent_72, None):
+#             then:
+#                 block _dp_bb_run_95_then:
+#                     jump run_49
+#             else:
+#                 block _dp_bb_run_95_else:
+#                     jump run_66
+#     block run_66:
+#         _dp_yield_from_y_71 = __dp_load_cell(_dp_cell__dp_yieldfrom).send(_dp_yield_from_sent_72)
+#         jump run_54
+#     block run_67:
+#         x = _dp_yield_from_result_73
+#         jump run_47
+#     block run_68:
 #         _dp_with_exit_1 = __dp_asynccontextmanager_get_aexit(cm)
-#         jump _dp_bb_run_92
-#     block _dp_bb_run_end_7:
-#         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
-#         raise StopIteration()
+#         jump run_48
+#     block run_69:
+#         raise _dp_resume_exc
+#     block run_70:
+#         if_term __dp_is_not(_dp_resume_exc, None):
+#             then:
+#                 block _dp_bb_run_100_true:
+#                     jump run_69
+#             else:
+#                 block _dp_bb_run_100_false:
+#                     jump run_68
+#     block run_start:
+#         jump run_68
+#     block run_71:
+#         return
 #     block run_dispatch_throw_done:
 #         raise _dp_resume_exc
 #     block run_dispatch_throw_unstarted:
 #         raise _dp_resume_exc
 #     block run_dispatch_send_target_0:
-#         jump _dp_bb_run_80
+#         jump run_start
 #     block run_dispatch_throw_target_0:
 #         jump run_dispatch_throw_unstarted
 #     block run_dispatch_send_target_1:
-#         jump _dp_bb_run_11
+#         jump run_9
 #     block run_dispatch_throw_target_1:
-#         jump _dp_bb_run_11
+#         jump run_9
 #     block run_dispatch_send_target_2:
-#         jump _dp_bb_run_36
+#         jump run_32
 #     block run_dispatch_throw_target_2:
-#         jump _dp_bb_run_36
+#         jump run_32
 #     block run_dispatch_send_target_3:
-#         jump _dp_bb_run_67
+#         jump run_55
 #     block run_dispatch_throw_target_3:
-#         jump _dp_bb_run_67
+#         jump run_55
 #     block run_dispatch_send_target_4:
-#         jump _dp_bb_run_99
+#         jump run_70
 #     block run_dispatch_throw_target_4:
-#         jump _dp_bb_run_99
+#         jump run_70
 #     block run_dispatch_invalid:
 #         jump run_invalid
 #     block run_dispatch_send_table:
@@ -1029,22 +1362,32 @@ async def run():
 #     block run_dispatch_throw_table:
 #         branch_table __dp_load_cell(_dp_cell__dp_pc) -> [run_dispatch_throw_target_0, run_dispatch_throw_target_1, run_dispatch_throw_target_2, run_dispatch_throw_target_3, run_dispatch_throw_target_4] default run_dispatch_invalid
 #     block run_dispatch_send:
-#         if __dp_eq(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
-#             jump run_done
-#         else:
-#             jump run_dispatch_send_table
+#         if_term __dp_eq(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
+#             then:
+#                 block run_dispatch_send_then:
+#                     jump run_done
+#             else:
+#                 block run_dispatch_send_else:
+#                     jump run_dispatch_send_table
 #     block run_dispatch_throw:
-#         if __dp_eq(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
-#             jump run_dispatch_throw_done
+#         if_term __dp_eq(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
+#             then:
+#                 block run_dispatch_throw_then:
+#                     jump run_dispatch_throw_done
+#             else:
+#                 block run_dispatch_throw_else:
+#                     jump run_dispatch_throw_table
+#     if_term __dp_is_(_dp_resume_exc, None):
+#         then:
+#             block run_dispatch_then:
+#                 jump run_dispatch_send
 #         else:
-#             jump run_dispatch_throw_table
-#     if __dp_is_(_dp_resume_exc, None):
-#         jump run_dispatch_send
-#     else:
-#         jump run_dispatch_throw
+#             block run_dispatch_else:
+#                 jump run_dispatch_throw
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     def run(): ...
+#     return
 
 # match_simple
 
@@ -1059,11 +1402,20 @@ match value:
 # module_init: _dp_module_init
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
-#     _dp_match_1 = value
-#     if __dp_eq(_dp_match_1, 1):
+#     block _dp_module_init_0:
 #         one()
-#     else:
+#         return
+#     block _dp_module_init_1:
 #         other()
+#         return
+#     _dp_match_1 = value
+#     if_term __dp_eq(_dp_match_1, 1):
+#         then:
+#             block _dp_bb__dp_module_init_1_then:
+#                 jump _dp_module_init_0
+#         else:
+#             block _dp_bb__dp_module_init_1_else:
+#                 jump _dp_module_init_1
 
 # generator_yield
 
@@ -1077,62 +1429,49 @@ def gen():
 # module_init: _dp_module_init
 
 # function gen() [kind=generator, bind=gen, target=module_global, qualname=gen]
-#     generator_state:
-#         closure_state: true
-#         dispatch_entry_label: start
-#         resume_order: [start, _dp_bb_gen_3]
-#         yield_sites:
-#             _dp_bb_gen_1 -> _dp_bb_gen_3
-#         done_block_label: gen_done
-#         invalid_block_label: gen_invalid
-#         uncaught_block_label: gen_uncaught
-#         uncaught_set_done_label: gen_uncaught_set_done
-#         uncaught_raise_label: gen_uncaught_raise
-#         uncaught_exc_name: _dp_uncaught_exc_4
-#         dispatch_only_labels: [gen_dispatch, gen_dispatch_invalid, gen_dispatch_send, gen_dispatch_send_table, gen_dispatch_send_target_0, gen_dispatch_send_target_1, gen_dispatch_throw, gen_dispatch_throw_done, gen_dispatch_throw_table, gen_dispatch_throw_target_0, gen_dispatch_throw_target_1, gen_dispatch_throw_unstarted]
-#         throw_passthrough_labels: [gen_dispatch_throw_done, gen_dispatch_throw_unstarted, gen_uncaught_raise, gen_uncaught_set_done]
 #     block gen_done:
-#         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
-#         raise StopIteration()
+#         return
 #     block gen_invalid:
 #         raise RuntimeError("invalid generator pc: {}".format(__dp_load_cell(_dp_cell__dp_pc)))
-#     if __dp_ne(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
-#         jump gen_uncaught_set_done
-#     else:
-#         jump gen_uncaught_raise
+#     if_term __dp_ne(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
+#         then:
+#             block gen_uncaught_then:
+#                 jump gen_uncaught_set_done
+#         else:
+#             block gen_uncaught_else:
+#                 jump gen_uncaught_raise
 #     block gen_uncaught_set_done:
 #         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
 #         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_4)
 #         jump gen_uncaught_raise
 #     block gen_uncaught_raise:
 #         raise _dp_uncaught_exc_4
-#     block start:
-#         jump _dp_bb_gen_1
-#     block _dp_bb_gen_2:
+#     block gen_0:
 #         raise _dp_resume_exc
-#     block _dp_bb_gen_3:
-#         if __dp_is_not(_dp_resume_exc, None):
-#             jump _dp_bb_gen_2
-#         else:
-#             jump _dp_bb_gen_end_0
-#     block _dp_bb_gen_1:
-#         __dp_store_cell(_dp_cell__dp_pc, 1)
+#     block gen_1:
+#         if_term __dp_is_not(_dp_resume_exc, None):
+#             then:
+#                 block _dp_bb_gen_3_true:
+#                     jump gen_0
+#             else:
+#                 block _dp_bb_gen_3_false:
+#                     jump gen_2
+#     block gen_start:
 #         return 1
-#     block _dp_bb_gen_end_0:
-#         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
-#         raise StopIteration()
+#     block gen_2:
+#         return
 #     block gen_dispatch_throw_done:
 #         raise _dp_resume_exc
 #     block gen_dispatch_throw_unstarted:
 #         raise _dp_resume_exc
 #     block gen_dispatch_send_target_0:
-#         jump start
+#         jump gen_start
 #     block gen_dispatch_throw_target_0:
 #         jump gen_dispatch_throw_unstarted
 #     block gen_dispatch_send_target_1:
-#         jump _dp_bb_gen_3
+#         jump gen_1
 #     block gen_dispatch_throw_target_1:
-#         jump _dp_bb_gen_3
+#         jump gen_1
 #     block gen_dispatch_invalid:
 #         jump gen_invalid
 #     block gen_dispatch_send_table:
@@ -1140,22 +1479,32 @@ def gen():
 #     block gen_dispatch_throw_table:
 #         branch_table __dp_load_cell(_dp_cell__dp_pc) -> [gen_dispatch_throw_target_0, gen_dispatch_throw_target_1] default gen_dispatch_invalid
 #     block gen_dispatch_send:
-#         if __dp_eq(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
-#             jump gen_done
-#         else:
-#             jump gen_dispatch_send_table
+#         if_term __dp_eq(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
+#             then:
+#                 block gen_dispatch_send_then:
+#                     jump gen_done
+#             else:
+#                 block gen_dispatch_send_else:
+#                     jump gen_dispatch_send_table
 #     block gen_dispatch_throw:
-#         if __dp_eq(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
-#             jump gen_dispatch_throw_done
+#         if_term __dp_eq(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
+#             then:
+#                 block gen_dispatch_throw_then:
+#                     jump gen_dispatch_throw_done
+#             else:
+#                 block gen_dispatch_throw_else:
+#                     jump gen_dispatch_throw_table
+#     if_term __dp_is_(_dp_resume_exc, None):
+#         then:
+#             block gen_dispatch_then:
+#                 jump gen_dispatch_send
 #         else:
-#             jump gen_dispatch_throw_table
-#     if __dp_is_(_dp_resume_exc, None):
-#         jump gen_dispatch_send
-#     else:
-#         jump gen_dispatch_throw
+#             block gen_dispatch_else:
+#                 jump gen_dispatch_throw
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     def gen(): ...
+#     return
 
 # yield_from
 
@@ -1169,141 +1518,133 @@ def gen():
 # module_init: _dp_module_init
 
 # function gen() [kind=generator, bind=gen, target=module_global, qualname=gen]
-#     generator_state:
-#         closure_state: true
-#         dispatch_entry_label: start
-#         resume_order: [start, _dp_bb_gen_17]
-#         yield_sites:
-#             _dp_bb_gen_28 -> _dp_bb_gen_17
-#         done_block_label: gen_done
-#         invalid_block_label: gen_invalid
-#         uncaught_block_label: gen_uncaught
-#         uncaught_set_done_label: gen_uncaught_set_done
-#         uncaught_raise_label: gen_uncaught_raise
-#         uncaught_exc_name: _dp_uncaught_exc_29
-#         dispatch_only_labels: [gen_dispatch, gen_dispatch_invalid, gen_dispatch_send, gen_dispatch_send_table, gen_dispatch_send_target_0, gen_dispatch_send_target_1, gen_dispatch_throw, gen_dispatch_throw_done, gen_dispatch_throw_table, gen_dispatch_throw_target_0, gen_dispatch_throw_target_1, gen_dispatch_throw_unstarted]
-#         throw_passthrough_labels: [gen_dispatch_throw_done, gen_dispatch_throw_unstarted, gen_uncaught_raise, gen_uncaught_set_done]
 #     block gen_done:
-#         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
-#         raise StopIteration()
+#         return
 #     block gen_invalid:
 #         raise RuntimeError("invalid generator pc: {}".format(__dp_load_cell(_dp_cell__dp_pc)))
-#     if __dp_ne(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
-#         jump gen_uncaught_set_done
-#     else:
-#         jump gen_uncaught_raise
+#     if_term __dp_ne(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
+#         then:
+#             block gen_uncaught_then:
+#                 jump gen_uncaught_set_done
+#         else:
+#             block gen_uncaught_else:
+#                 jump gen_uncaught_raise
 #     block gen_uncaught_set_done:
 #         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
 #         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_29)
 #         jump gen_uncaught_raise
 #     block gen_uncaught_raise:
 #         raise _dp_uncaught_exc_29
-#     block start:
-#         jump _dp_bb_gen_1
-#     block _dp_bb_gen_10:
+#     block gen_0:
 #         _dp_yield_from_iter_2 = iter(it)
 #         __dp_store_cell(_dp_cell__dp_yieldfrom, _dp_yield_from_iter_2)
-#         legacy_try_jump:
-#             body_label: _dp_bb_gen_11
-#             except_label: _dp_bb_gen_12
-#             except_exc_name: _dp_try_exc_5
-#             body_region_labels: [_dp_bb_gen_11]
-#             except_region_labels: [_dp_bb_gen_12, _dp_bb_gen_13, _dp_bb_gen_14]
-#     block _dp_bb_gen_11:
+#         try_jump:
+#             body_label: gen_1
+#             except_label: gen_2
+#     block gen_1:
 #         _dp_yield_from_y_3 = next(__dp_load_cell(_dp_cell__dp_yieldfrom))
-#         jump _dp_bb_gen_28
-#     block _dp_bb_gen_12:
-#         if __dp_exception_matches(_dp_try_exc_5, StopIteration):
-#             jump _dp_bb_gen_13
-#         else:
-#             jump _dp_bb_gen_14
-#     block _dp_bb_gen_13:
-#         jump _dp_bb_gen_15
-#     block _dp_bb_gen_15:
+#         jump gen_6
+#     block gen_2:
+#         _dp_try_exc_5 = __dp_current_exception()
+#         if_term __dp_exception_matches(_dp_try_exc_5, StopIteration):
+#             then:
+#                 block _dp_bb_gen_12_then:
+#                     jump gen_3
+#             else:
+#                 block _dp_bb_gen_12_else:
+#                     jump gen_5
+#     block gen_3:
+#         jump gen_4
+#     block gen_4:
 #         __dp_store_cell(_dp_cell__dp_yieldfrom, None)
-#         jump _dp_bb_gen_end_0
-#     block _dp_bb_gen_14:
+#         return
+#     block gen_5:
 #         _dp_yield_from_raise_7 = _dp_try_exc_5
-#         jump _dp_bb_gen_16
-#     block _dp_bb_gen_28:
-#         __dp_store_cell(_dp_cell__dp_pc, 1)
+#         jump gen_12
+#     block gen_6:
 #         return _dp_yield_from_y_3
-#     block _dp_bb_gen_17:
+#     block gen_7:
 #         _dp_yield_from_sent_4 = _dp_send_value
 #         _dp_yield_from_exc_6 = _dp_resume_exc
 #         _dp_resume_exc = None
-#         if __dp_is_not(_dp_yield_from_exc_6, None):
-#             jump _dp_bb_gen_18
-#         else:
-#             jump _dp_bb_gen_25
-#     block _dp_bb_gen_18:
-#         if __dp_exception_matches(_dp_yield_from_exc_6, GeneratorExit):
-#             jump _dp_bb_gen_19
-#         else:
-#             jump _dp_bb_gen_22
-#     block _dp_bb_gen_19:
+#         if_term __dp_is_not(_dp_yield_from_exc_6, None):
+#             then:
+#                 block _dp_bb_gen_17_then:
+#                     jump gen_8
+#             else:
+#                 block _dp_bb_gen_17_else:
+#                     jump gen_16
+#     block gen_8:
+#         if_term __dp_exception_matches(_dp_yield_from_exc_6, GeneratorExit):
+#             then:
+#                 block _dp_bb_gen_18_then:
+#                     jump gen_9
+#             else:
+#                 block _dp_bb_gen_18_else:
+#                     jump gen_13
+#     block gen_9:
 #         _dp_yield_from_close_8 = getattr(__dp_load_cell(_dp_cell__dp_yieldfrom), "close", None)
-#         if __dp_is_not(_dp_yield_from_close_8, None):
-#             jump _dp_bb_gen_20
-#         else:
-#             jump _dp_bb_gen_21
-#     block _dp_bb_gen_20:
+#         if_term __dp_is_not(_dp_yield_from_close_8, None):
+#             then:
+#                 block _dp_bb_gen_19_true:
+#                     jump gen_10
+#             else:
+#                 block _dp_bb_gen_19_false:
+#                     jump gen_11
+#     block gen_10:
 #         _dp_yield_from_close_8()
-#         jump _dp_bb_gen_21
-#     block _dp_bb_gen_21:
+#         jump gen_11
+#     block gen_11:
 #         _dp_yield_from_raise_7 = _dp_yield_from_exc_6
-#         jump _dp_bb_gen_16
-#     block _dp_bb_gen_16:
+#         jump gen_12
+#     block gen_12:
 #         __dp_store_cell(_dp_cell__dp_yieldfrom, None)
 #         raise _dp_yield_from_raise_7
-#     block _dp_bb_gen_22:
+#     block gen_13:
 #         _dp_yield_from_throw_9 = getattr(__dp_load_cell(_dp_cell__dp_yieldfrom), "throw", None)
-#         if __dp_is_(_dp_yield_from_throw_9, None):
-#             jump _dp_bb_gen_21
-#         else:
-#             jump _dp_bb_gen_23
-#     block _dp_bb_gen_23:
-#         legacy_try_jump:
-#             body_label: _dp_bb_gen_24
-#             except_label: _dp_bb_gen_12
-#             except_exc_name: _dp_try_exc_5
-#             body_region_labels: [_dp_bb_gen_24]
-#             except_region_labels: [_dp_bb_gen_12, _dp_bb_gen_13, _dp_bb_gen_14]
-#     block _dp_bb_gen_24:
+#         if_term __dp_is_(_dp_yield_from_throw_9, None):
+#             then:
+#                 block _dp_bb_gen_22_true:
+#                     jump gen_11
+#             else:
+#                 block _dp_bb_gen_22_false:
+#                     jump gen_14
+#     block gen_14:
+#         try_jump:
+#             body_label: gen_15
+#             except_label: gen_2
+#     block gen_15:
 #         _dp_yield_from_y_3 = _dp_yield_from_throw_9(_dp_yield_from_exc_6)
-#         jump _dp_bb_gen_28
-#     block _dp_bb_gen_25:
-#         legacy_try_jump:
-#             body_label: _dp_bb_gen_26
-#             except_label: _dp_bb_gen_12
-#             except_exc_name: _dp_try_exc_5
-#             body_region_labels: [_dp_bb_gen_26, _dp_bb_gen_11, _dp_bb_gen_27]
-#             except_region_labels: [_dp_bb_gen_12, _dp_bb_gen_13, _dp_bb_gen_14]
-#     block _dp_bb_gen_26:
-#         if __dp_is_(_dp_yield_from_sent_4, None):
-#             jump _dp_bb_gen_11
-#         else:
-#             jump _dp_bb_gen_27
-#     block _dp_bb_gen_27:
+#         jump gen_6
+#     block gen_16:
+#         try_jump:
+#             body_label: gen_17
+#             except_label: gen_2
+#     block gen_17:
+#         if_term __dp_is_(_dp_yield_from_sent_4, None):
+#             then:
+#                 block _dp_bb_gen_26_then:
+#                     jump gen_1
+#             else:
+#                 block _dp_bb_gen_26_else:
+#                     jump gen_18
+#     block gen_18:
 #         _dp_yield_from_y_3 = __dp_load_cell(_dp_cell__dp_yieldfrom).send(_dp_yield_from_sent_4)
-#         jump _dp_bb_gen_28
-#     block _dp_bb_gen_1:
-#         jump _dp_bb_gen_10
-#     block _dp_bb_gen_end_0:
-#         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
-#         raise StopIteration()
+#         jump gen_6
+#     block gen_start:
+#         jump gen_0
 #     block gen_dispatch_throw_done:
 #         raise _dp_resume_exc
 #     block gen_dispatch_throw_unstarted:
 #         raise _dp_resume_exc
 #     block gen_dispatch_send_target_0:
-#         jump start
+#         jump gen_start
 #     block gen_dispatch_throw_target_0:
 #         jump gen_dispatch_throw_unstarted
 #     block gen_dispatch_send_target_1:
-#         jump _dp_bb_gen_17
+#         jump gen_7
 #     block gen_dispatch_throw_target_1:
-#         jump _dp_bb_gen_17
+#         jump gen_7
 #     block gen_dispatch_invalid:
 #         jump gen_invalid
 #     block gen_dispatch_send_table:
@@ -1311,22 +1652,32 @@ def gen():
 #     block gen_dispatch_throw_table:
 #         branch_table __dp_load_cell(_dp_cell__dp_pc) -> [gen_dispatch_throw_target_0, gen_dispatch_throw_target_1] default gen_dispatch_invalid
 #     block gen_dispatch_send:
-#         if __dp_eq(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
-#             jump gen_done
-#         else:
-#             jump gen_dispatch_send_table
+#         if_term __dp_eq(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
+#             then:
+#                 block gen_dispatch_send_then:
+#                     jump gen_done
+#             else:
+#                 block gen_dispatch_send_else:
+#                     jump gen_dispatch_send_table
 #     block gen_dispatch_throw:
-#         if __dp_eq(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
-#             jump gen_dispatch_throw_done
+#         if_term __dp_eq(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
+#             then:
+#                 block gen_dispatch_throw_then:
+#                     jump gen_dispatch_throw_done
+#             else:
+#                 block gen_dispatch_throw_else:
+#                     jump gen_dispatch_throw_table
+#     if_term __dp_is_(_dp_resume_exc, None):
+#         then:
+#             block gen_dispatch_then:
+#                 jump gen_dispatch_send
 #         else:
-#             jump gen_dispatch_throw_table
-#     if __dp_is_(_dp_resume_exc, None):
-#         jump gen_dispatch_send
-#     else:
-#         jump gen_dispatch_throw
+#             block gen_dispatch_else:
+#                 jump gen_dispatch_throw
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     def gen(): ...
+#     return
 
 # with_exit_suppresses_exception
 
@@ -1338,22 +1689,45 @@ with Suppress():
 # module_init: _dp_module_init
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
+#     block _dp_module_init_0:
+#         raise _dp_try_exc_1
+#     block _dp_module_init_1:
+#         _dp_with_exit_1 = None
+#         _dp_tmp_4 = None
+#         if_term __dp_is_not(_dp_try_exc_1, None):
+#             then:
+#                 block _dp_bb__dp_module_init_4_then:
+#                     jump _dp_module_init_0
+#             else:
+#                 block _dp_bb__dp_module_init_4_else:
+#                     jump _dp_module_init_6
+#     block _dp_module_init_2:
+#         __dp_contextmanager_exit(_dp_with_exit_1, None)
+#         jump _dp_module_init_1
+#     block _dp_module_init_3:
+#         _dp_try_exc_1 = __dp_current_exception()
+#         if_term _dp_with_ok_2:
+#             then:
+#                 block _dp_bb__dp_module_init_3_then:
+#                     jump _dp_module_init_2
+#             else:
+#                 block _dp_bb__dp_module_init_3_else:
+#                     jump _dp_module_init_1
+#     block _dp_module_init_4:
+#         _dp_with_ok_2 = False
+#         __dp_contextmanager_exit(_dp_with_exit_1, __dp_exc_info())
+#         jump _dp_module_init_3
+#     block _dp_module_init_5:
+#         raise RuntimeError("boom")
 #     _dp_tmp_4 = Suppress()
 #     _dp_with_exit_1 = __dp_contextmanager_get_exit(_dp_tmp_4)
 #     __dp_contextmanager_enter(_dp_tmp_4)
 #     _dp_with_ok_2 = True
-#     try:
-#         raise RuntimeError("boom")
-#     except BaseException:
-#         _dp_with_ok_2 = False
-#         __dp_contextmanager_exit(_dp_with_exit_1, __dp_exc_info())
-#     else:
-#         pass
-#     finally:
-#         if _dp_with_ok_2:
-#             __dp_contextmanager_exit(_dp_with_exit_1, None)
-#         _dp_with_exit_1 = None
-#         _dp_tmp_4 = None
+#     try_jump:
+#         body_label: _dp_module_init_5
+#         except_label: _dp_module_init_4
+#     block _dp_module_init_6:
+#         return
 
 # closure_cell_simple
 
@@ -1382,6 +1756,7 @@ def outer():
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     def outer(): ...
+#     return
 
 # bb_if_else_function
 
@@ -1399,14 +1774,22 @@ def choose(a, b):
 # module_init: _dp_module_init
 
 # function choose(a, b) [kind=function, bind=choose, target=module_global, qualname=choose]
-#     total = __dp_add(a, b)
-#     if __dp_gt(total, 5):
+#     block choose_0:
 #         return a
-#     else:
+#     block choose_1:
 #         return b
+#     total = __dp_add(a, b)
+#     if_term __dp_gt(total, 5):
+#         then:
+#             block _dp_bb_choose_1_then:
+#                 jump choose_0
+#         else:
+#             block _dp_bb_choose_1_else:
+#                 jump choose_1
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     def choose(a, b): ...
+#     return
 
 # closure_cell_nonlocal
 
@@ -1438,6 +1821,7 @@ def outer():
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     def outer(): ...
+#     return
 
 # plain try / catch
 
@@ -1451,17 +1835,25 @@ except Exception:
 # module_init: _dp_module_init
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
-#     try:
+#     block _dp_module_init_0:
+#         print(2)
+#         return
+#     block _dp_module_init_1:
+#         raise
+#     block _dp_module_init_2:
+#         if_term __dp_exception_matches(__dp_current_exception(), Exception):
+#             then:
+#                 block _dp_bb__dp_module_init_2_then:
+#                     jump _dp_module_init_0
+#             else:
+#                 block _dp_bb__dp_module_init_2_else:
+#                     jump _dp_module_init_1
+#     block _dp_module_init_3:
 #         print(1)
-#     except:
-#         if __dp_exception_matches(__dp_current_exception(), Exception):
-#             print(2)
-#         else:
-#             raise
-#     else:
-#         pass
-#     finally:
-#         pass
+#         return
+#     try_jump:
+#         body_label: _dp_module_init_3
+#         except_label: _dp_module_init_2
 
 # complicated generator
 
@@ -1482,103 +1874,84 @@ def complicated(a):
 # module_init: _dp_module_init
 
 # function complicated(a) [kind=generator, bind=complicated, target=module_global, qualname=complicated]
-#     generator_state:
-#         closure_state: true
-#         dispatch_entry_label: start
-#         resume_order: [start, _dp_bb_complicated_19]
-#         yield_sites:
-#             _dp_bb_complicated_17 -> _dp_bb_complicated_19
-#         done_block_label: complicated_done
-#         invalid_block_label: complicated_invalid
-#         uncaught_block_label: complicated_uncaught
-#         uncaught_set_done_label: complicated_uncaught_set_done
-#         uncaught_raise_label: complicated_uncaught_raise
-#         uncaught_exc_name: _dp_uncaught_exc_25
-#         dispatch_only_labels: [complicated_dispatch, complicated_dispatch_invalid, complicated_dispatch_send, complicated_dispatch_send_table, complicated_dispatch_send_target_0, complicated_dispatch_send_target_1, complicated_dispatch_throw, complicated_dispatch_throw_done, complicated_dispatch_throw_table, complicated_dispatch_throw_target_0, complicated_dispatch_throw_target_1, complicated_dispatch_throw_unstarted]
-#         throw_passthrough_labels: [complicated_dispatch_throw_done, complicated_dispatch_throw_unstarted, complicated_uncaught_raise, complicated_uncaught_set_done]
 #     block complicated_done:
-#         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
-#         raise StopIteration()
+#         return
 #     block complicated_invalid:
 #         raise RuntimeError("invalid generator pc: {}".format(__dp_load_cell(_dp_cell__dp_pc)))
-#     if __dp_ne(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
-#         jump complicated_uncaught_set_done
-#     else:
-#         jump complicated_uncaught_raise
+#     if_term __dp_ne(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
+#         then:
+#             block complicated_uncaught_then:
+#                 jump complicated_uncaught_set_done
+#         else:
+#             block complicated_uncaught_else:
+#                 jump complicated_uncaught_raise
 #     block complicated_uncaught_set_done:
 #         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
-#         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_25)
+#         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_14)
 #         jump complicated_uncaught_raise
 #     block complicated_uncaught_raise:
-#         raise _dp_uncaught_exc_25
-#     block start:
-#         jump for_setup_0
-#     block for_setup_0:
-#         _dp_iter_1 = __dp_iter(a)
-#         jump for_fetch_1
-#     block for_fetch_1:
-#         _dp_tmp_2 = __dp_next_or_sentinel(_dp_iter_1)
-#         if __dp_is_(_dp_tmp_2, __dp__.ITER_COMPLETE):
-#             jump for_else_4
-#             return
-#         else:
-#             i = _dp_tmp_2
-#             _dp_tmp_2 = None
-#             jump for_body_2
-#             return
-#     block for_body_2:
-#         try:
-#             jump _dp_bb_complicated_17
-#             block _dp_bb_complicated_18:
-#                 raise _dp_resume_exc
-#             if __dp_is_not(_dp_resume_exc, None):
-#                 jump _dp_bb_complicated_18
-#             else:
-#                 jump _dp_bb_complicated_end_16
-#             block _dp_bb_complicated_17:
-#                 j = __dp_add(i, 1)
-#                 return j
-#             block _dp_bb_complicated_end_16:
-#                 return
-#         except:
-#             if __dp_exception_matches(__dp_current_exception(), Exception):
-#                 print("oops")
-#                 jump _dp_bb_complicated_end_21
-#                 block _dp_bb_complicated_end_21:
-#                     return
-#             else:
-#                 raise
-#                 return
-#             return
-#         else:
-#             jump _dp_bb_complicated_end_23
-#             block _dp_bb_complicated_end_23:
-#                 return
-#         finally:
-#             jump _dp_bb_complicated_end_24
-#             block _dp_bb_complicated_end_24:
-#                 return
-#         jump for_fetch_1
-#     block for_else_4:
+#         raise _dp_uncaught_exc_14
+#     block complicated_0:
 #         print("finsihed")
-#         jump for_after_3
-#     block for_after_3:
-#         jump _dp_bb_complicated_end_13
-#     block _dp_bb_complicated_end_13:
-#         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
-#         raise StopIteration()
+#         return
+#     block complicated_1:
+#         print("oops")
+#         jump complicated_9
+#     block complicated_2:
+#         raise
+#     block complicated_3:
+#         if_term __dp_exception_matches(__dp_current_exception(), Exception):
+#             then:
+#                 block _dp_bb_complicated_8_then:
+#                     jump complicated_1
+#             else:
+#                 block _dp_bb_complicated_8_else:
+#                     jump complicated_2
+#     block complicated_4:
+#         raise _dp_resume_exc
+#     block complicated_5:
+#         if_term __dp_is_not(_dp_resume_exc, None):
+#             then:
+#                 block _dp_bb_complicated_13_true:
+#                     jump complicated_4
+#             else:
+#                 block _dp_bb_complicated_13_false:
+#                     jump complicated_9
+#     block complicated_6:
+#         j = __dp_add(i, 1)
+#         return j
+#     block complicated_7:
+#         try_jump:
+#             body_label: complicated_6
+#             except_label: complicated_3
+#     block complicated_8:
+#         i = _dp_tmp_2
+#         _dp_tmp_2 = None
+#         jump complicated_7
+#     block complicated_9:
+#         _dp_tmp_2 = __dp_next_or_sentinel(_dp_iter_1)
+#         if_term __dp_is_(_dp_tmp_2, __dp__.ITER_COMPLETE):
+#             then:
+#                 block _dp_bb_complicated_3_then:
+#                     jump complicated_0
+#             else:
+#                 block _dp_bb_complicated_3_else:
+#                     jump complicated_8
+#     block complicated_start:
+#         _dp_iter_1 = __dp_iter(a)
+#         jump complicated_9
 #     block complicated_dispatch_throw_done:
 #         raise _dp_resume_exc
 #     block complicated_dispatch_throw_unstarted:
 #         raise _dp_resume_exc
 #     block complicated_dispatch_send_target_0:
-#         jump start
+#         jump complicated_start
 #     block complicated_dispatch_throw_target_0:
 #         jump complicated_dispatch_throw_unstarted
 #     block complicated_dispatch_send_target_1:
-#         jump _dp_bb_complicated_19
+#         jump complicated_5
 #     block complicated_dispatch_throw_target_1:
-#         jump _dp_bb_complicated_19
+#         jump complicated_5
 #     block complicated_dispatch_invalid:
 #         jump complicated_invalid
 #     block complicated_dispatch_send_table:
@@ -1586,22 +1959,32 @@ def complicated(a):
 #     block complicated_dispatch_throw_table:
 #         branch_table __dp_load_cell(_dp_cell__dp_pc) -> [complicated_dispatch_throw_target_0, complicated_dispatch_throw_target_1] default complicated_dispatch_invalid
 #     block complicated_dispatch_send:
-#         if __dp_eq(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
-#             jump complicated_done
-#         else:
-#             jump complicated_dispatch_send_table
+#         if_term __dp_eq(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
+#             then:
+#                 block complicated_dispatch_send_then:
+#                     jump complicated_done
+#             else:
+#                 block complicated_dispatch_send_else:
+#                     jump complicated_dispatch_send_table
 #     block complicated_dispatch_throw:
-#         if __dp_eq(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
-#             jump complicated_dispatch_throw_done
+#         if_term __dp_eq(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
+#             then:
+#                 block complicated_dispatch_throw_then:
+#                     jump complicated_dispatch_throw_done
+#             else:
+#                 block complicated_dispatch_throw_else:
+#                     jump complicated_dispatch_throw_table
+#     if_term __dp_is_(_dp_resume_exc, None):
+#         then:
+#             block complicated_dispatch_then:
+#                 jump complicated_dispatch_send
 #         else:
-#             jump complicated_dispatch_throw_table
-#     if __dp_is_(_dp_resume_exc, None):
-#         jump complicated_dispatch_send
-#     else:
-#         jump complicated_dispatch_throw
+#             block complicated_dispatch_else:
+#                 jump complicated_dispatch_throw
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     def complicated(a): ...
+#     return
 
 # complicated generator
 
@@ -1620,100 +2003,83 @@ def complicated(a):
 # module_init: _dp_module_init
 
 # function complicated(a) [kind=generator, bind=complicated, target=module_global, qualname=complicated]
-#     generator_state:
-#         closure_state: true
-#         dispatch_entry_label: start
-#         resume_order: [start, _dp_bb_complicated_18]
-#         yield_sites:
-#             _dp_bb_complicated_16 -> _dp_bb_complicated_18
-#         done_block_label: complicated_done
-#         invalid_block_label: complicated_invalid
-#         uncaught_block_label: complicated_uncaught
-#         uncaught_set_done_label: complicated_uncaught_set_done
-#         uncaught_raise_label: complicated_uncaught_raise
-#         uncaught_exc_name: _dp_uncaught_exc_24
-#         dispatch_only_labels: [complicated_dispatch, complicated_dispatch_invalid, complicated_dispatch_send, complicated_dispatch_send_table, complicated_dispatch_send_target_0, complicated_dispatch_send_target_1, complicated_dispatch_throw, complicated_dispatch_throw_done, complicated_dispatch_throw_table, complicated_dispatch_throw_target_0, complicated_dispatch_throw_target_1, complicated_dispatch_throw_unstarted]
-#         throw_passthrough_labels: [complicated_dispatch_throw_done, complicated_dispatch_throw_unstarted, complicated_uncaught_raise, complicated_uncaught_set_done]
 #     block complicated_done:
-#         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
-#         raise StopIteration()
+#         return
 #     block complicated_invalid:
 #         raise RuntimeError("invalid generator pc: {}".format(__dp_load_cell(_dp_cell__dp_pc)))
-#     if __dp_ne(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
-#         jump complicated_uncaught_set_done
-#     else:
-#         jump complicated_uncaught_raise
+#     if_term __dp_ne(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
+#         then:
+#             block complicated_uncaught_then:
+#                 jump complicated_uncaught_set_done
+#         else:
+#             block complicated_uncaught_else:
+#                 jump complicated_uncaught_raise
 #     block complicated_uncaught_set_done:
 #         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
-#         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_24)
+#         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_13)
 #         jump complicated_uncaught_raise
 #     block complicated_uncaught_raise:
-#         raise _dp_uncaught_exc_24
-#     block start:
-#         jump for_setup_0
-#     block for_setup_0:
-#         _dp_iter_1 = __dp_iter(a)
-#         jump for_fetch_1
-#     block for_fetch_1:
+#         raise _dp_uncaught_exc_13
+#     block complicated_0:
+#         print("oops")
+#         jump complicated_8
+#     block complicated_1:
+#         raise
+#     block complicated_2:
+#         if_term __dp_exception_matches(__dp_current_exception(), Exception):
+#             then:
+#                 block _dp_bb_complicated_7_then:
+#                     jump complicated_0
+#             else:
+#                 block _dp_bb_complicated_7_else:
+#                     jump complicated_1
+#     block complicated_3:
+#         raise _dp_resume_exc
+#     block complicated_4:
+#         if_term __dp_is_not(_dp_resume_exc, None):
+#             then:
+#                 block _dp_bb_complicated_12_true:
+#                     jump complicated_3
+#             else:
+#                 block _dp_bb_complicated_12_false:
+#                     jump complicated_8
+#     block complicated_5:
+#         j = __dp_add(i, 1)
+#         return j
+#     block complicated_6:
+#         try_jump:
+#             body_label: complicated_5
+#             except_label: complicated_2
+#     block complicated_7:
+#         i = _dp_tmp_2
+#         _dp_tmp_2 = None
+#         jump complicated_6
+#     block complicated_8:
 #         _dp_tmp_2 = __dp_next_or_sentinel(_dp_iter_1)
-#         if __dp_is_(_dp_tmp_2, __dp__.ITER_COMPLETE):
-#             jump for_after_3
-#             return
-#         else:
-#             i = _dp_tmp_2
-#             _dp_tmp_2 = None
-#             jump for_body_2
-#             return
-#     block for_body_2:
-#         try:
-#             jump _dp_bb_complicated_16
-#             block _dp_bb_complicated_17:
-#                 raise _dp_resume_exc
-#             if __dp_is_not(_dp_resume_exc, None):
-#                 jump _dp_bb_complicated_17
+#         if_term __dp_is_(_dp_tmp_2, __dp__.ITER_COMPLETE):
+#             then:
+#                 block _dp_bb_complicated_3_then:
+#                     jump complicated_9
 #             else:
-#                 jump _dp_bb_complicated_end_15
-#             block _dp_bb_complicated_16:
-#                 j = __dp_add(i, 1)
-#                 return j
-#             block _dp_bb_complicated_end_15:
-#                 return
-#         except:
-#             if __dp_exception_matches(__dp_current_exception(), Exception):
-#                 print("oops")
-#                 jump _dp_bb_complicated_end_20
-#                 block _dp_bb_complicated_end_20:
-#                     return
-#             else:
-#                 raise
-#                 return
-#             return
-#         else:
-#             jump _dp_bb_complicated_end_22
-#             block _dp_bb_complicated_end_22:
-#                 return
-#         finally:
-#             jump _dp_bb_complicated_end_23
-#             block _dp_bb_complicated_end_23:
-#                 return
-#         jump for_fetch_1
-#     block for_after_3:
-#         jump _dp_bb_complicated_end_12
-#     block _dp_bb_complicated_end_12:
-#         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
-#         raise StopIteration()
+#                 block _dp_bb_complicated_3_else:
+#                     jump complicated_7
+#     block complicated_start:
+#         _dp_iter_1 = __dp_iter(a)
+#         jump complicated_8
+#     block complicated_9:
+#         return
 #     block complicated_dispatch_throw_done:
 #         raise _dp_resume_exc
 #     block complicated_dispatch_throw_unstarted:
 #         raise _dp_resume_exc
 #     block complicated_dispatch_send_target_0:
-#         jump start
+#         jump complicated_start
 #     block complicated_dispatch_throw_target_0:
 #         jump complicated_dispatch_throw_unstarted
 #     block complicated_dispatch_send_target_1:
-#         jump _dp_bb_complicated_18
+#         jump complicated_4
 #     block complicated_dispatch_throw_target_1:
-#         jump _dp_bb_complicated_18
+#         jump complicated_4
 #     block complicated_dispatch_invalid:
 #         jump complicated_invalid
 #     block complicated_dispatch_send_table:
@@ -1721,19 +2087,29 @@ def complicated(a):
 #     block complicated_dispatch_throw_table:
 #         branch_table __dp_load_cell(_dp_cell__dp_pc) -> [complicated_dispatch_throw_target_0, complicated_dispatch_throw_target_1] default complicated_dispatch_invalid
 #     block complicated_dispatch_send:
-#         if __dp_eq(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
-#             jump complicated_done
-#         else:
-#             jump complicated_dispatch_send_table
+#         if_term __dp_eq(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
+#             then:
+#                 block complicated_dispatch_send_then:
+#                     jump complicated_done
+#             else:
+#                 block complicated_dispatch_send_else:
+#                     jump complicated_dispatch_send_table
 #     block complicated_dispatch_throw:
-#         if __dp_eq(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
-#             jump complicated_dispatch_throw_done
+#         if_term __dp_eq(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
+#             then:
+#                 block complicated_dispatch_throw_then:
+#                     jump complicated_dispatch_throw_done
+#             else:
+#                 block complicated_dispatch_throw_else:
+#                     jump complicated_dispatch_throw_table
+#     if_term __dp_is_(_dp_resume_exc, None):
+#         then:
+#             block complicated_dispatch_then:
+#                 jump complicated_dispatch_send
 #         else:
-#             jump complicated_dispatch_throw_table
-#     if __dp_is_(_dp_resume_exc, None):
-#         jump complicated_dispatch_send
-#     else:
-#         jump complicated_dispatch_throw
+#             block complicated_dispatch_else:
+#                 jump complicated_dispatch_throw
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     def complicated(a): ...
+#     return

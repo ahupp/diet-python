@@ -8,6 +8,7 @@ x = a[b]
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     __dp_store_global(globals(), "x", __dp_getitem(a, b))
+#     return
 
 # subscript_slice
 
@@ -19,6 +20,7 @@ x = a[1:2:3]
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     __dp_store_global(globals(), "x", __dp_getitem(a, __dp_slice(1, 2, 3)))
+#     return
 
 # binary_add
 
@@ -30,6 +32,7 @@ x = a + b
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     __dp_store_global(globals(), "x", __dp_add(a, b))
+#     return
 
 # binary_bitwise_or
 
@@ -41,6 +44,7 @@ x = a | b
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     __dp_store_global(globals(), "x", __dp_or_(a, b))
+#     return
 
 # unary_neg
 
@@ -52,6 +56,7 @@ x = -a
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     __dp_store_global(globals(), "x", __dp_neg(a))
+#     return
 
 # boolop_chain
 
@@ -62,12 +67,31 @@ x = a and b or c
 # module_init: _dp_module_init
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
-#     _dp_target_1 = a
-#     if _dp_target_1:
-#         _dp_target_1 = b
-#     if __dp_not_(_dp_target_1):
+#     block _dp_module_init_0:
+#         __dp_store_global(globals(), "x", _dp_target_1)
+#         return
+#     block _dp_module_init_1:
 #         _dp_target_1 = c
-#     __dp_store_global(globals(), "x", _dp_target_1)
+#         jump _dp_module_init_0
+#     block _dp_module_init_2:
+#         if_term __dp_not_(_dp_target_1):
+#             then:
+#                 block _dp_bb__dp_module_init_2_then:
+#                     jump _dp_module_init_1
+#             else:
+#                 block _dp_bb__dp_module_init_2_else:
+#                     jump _dp_module_init_0
+#     block _dp_module_init_3:
+#         _dp_target_1 = b
+#         jump _dp_module_init_2
+#     _dp_target_1 = a
+#     if_term _dp_target_1:
+#         then:
+#             block _dp_bb__dp_module_init_1_then:
+#                 jump _dp_module_init_3
+#         else:
+#             block _dp_bb__dp_module_init_1_else:
+#                 jump _dp_module_init_2
 
 # compare_lt
 
@@ -79,6 +103,7 @@ x = a < b
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     __dp_store_global(globals(), "x", __dp_lt(a, b))
+#     return
 
 # compare_chain
 
@@ -89,12 +114,22 @@ x = a < b < c
 # module_init: _dp_module_init
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
+#     block _dp_module_init_0:
+#         __dp_store_global(globals(), "x", _dp_target_1)
+#         return
+#     block _dp_module_init_1:
+#         _dp_target_1 = __dp_lt(_dp_compare_3, c)
+#         jump _dp_module_init_0
 #     _dp_compare_2 = a
 #     _dp_compare_3 = b
 #     _dp_target_1 = __dp_lt(_dp_compare_2, _dp_compare_3)
-#     if _dp_target_1:
-#         _dp_target_1 = __dp_lt(_dp_compare_3, c)
-#     __dp_store_global(globals(), "x", _dp_target_1)
+#     if_term _dp_target_1:
+#         then:
+#             block _dp_bb__dp_module_init_1_then:
+#                 jump _dp_module_init_1
+#         else:
+#             block _dp_bb__dp_module_init_1_else:
+#                 jump _dp_module_init_0
 
 # compare_not_in
 
@@ -106,6 +141,7 @@ x = a not in b
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     __dp_store_global(globals(), "x", __dp_not_(__dp_contains(b, a)))
+#     return
 
 # if_expr
 
@@ -116,11 +152,22 @@ x = a if cond else b
 # module_init: _dp_module_init
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
-#     if cond:
+#     block _dp_module_init_0:
+#         __dp_store_global(globals(), "x", _dp_tmp_1)
+#         return
+#     block _dp_module_init_1:
 #         _dp_tmp_1 = a
-#     else:
+#         jump _dp_module_init_0
+#     block _dp_module_init_2:
 #         _dp_tmp_1 = b
-#     __dp_store_global(globals(), "x", _dp_tmp_1)
+#         jump _dp_module_init_0
+#     if_term cond:
+#         then:
+#             block _dp_bb__dp_module_init_1_then:
+#                 jump _dp_module_init_1
+#         else:
+#             block _dp_bb__dp_module_init_1_else:
+#                 jump _dp_module_init_2
 
 # named_expr
 
@@ -133,6 +180,7 @@ x = (y := f())
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     __dp_store_global(globals(), "y", f())
 #     __dp_store_global(globals(), "x", __dp_load_global(globals(), "y"))
+#     return
 
 # lambda_simple
 
@@ -148,6 +196,7 @@ x = lambda y: y + 1
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     def _dp_lambda_1(y): ...
 #     __dp_store_global(globals(), "x", _dp_lambda_1)
+#     return
 
 # generator_expr
 
@@ -158,81 +207,64 @@ x = (i for i in it)
 # module_init: _dp_module_init
 
 # function _dp_genexpr_1(_dp_iter_2) [kind=generator, bind=_dp_genexpr_1, target=local, qualname=<genexpr>]
-#     generator_state:
-#         closure_state: true
-#         dispatch_entry_label: start
-#         resume_order: [start, _dp_bb__dp_genexpr_1_14]
-#         yield_sites:
-#             _dp_bb__dp_genexpr_1_12 -> _dp_bb__dp_genexpr_1_14
-#         done_block_label: _dp_genexpr_1_done
-#         invalid_block_label: _dp_genexpr_1_invalid
-#         uncaught_block_label: _dp_genexpr_1_uncaught
-#         uncaught_set_done_label: _dp_genexpr_1_uncaught_set_done
-#         uncaught_raise_label: _dp_genexpr_1_uncaught_raise
-#         uncaught_exc_name: _dp_uncaught_exc_15
-#         dispatch_only_labels: [_dp_genexpr_1_dispatch, _dp_genexpr_1_dispatch_invalid, _dp_genexpr_1_dispatch_send, _dp_genexpr_1_dispatch_send_table, _dp_genexpr_1_dispatch_send_target_0, _dp_genexpr_1_dispatch_send_target_1, _dp_genexpr_1_dispatch_throw, _dp_genexpr_1_dispatch_throw_done, _dp_genexpr_1_dispatch_throw_table, _dp_genexpr_1_dispatch_throw_target_0, _dp_genexpr_1_dispatch_throw_target_1, _dp_genexpr_1_dispatch_throw_unstarted]
-#         throw_passthrough_labels: [_dp_genexpr_1_dispatch_throw_done, _dp_genexpr_1_dispatch_throw_unstarted, _dp_genexpr_1_uncaught_raise, _dp_genexpr_1_uncaught_set_done]
 #     block _dp_genexpr_1_done:
-#         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
-#         raise StopIteration()
+#         return
 #     block _dp_genexpr_1_invalid:
 #         raise RuntimeError("invalid generator pc: {}".format(__dp_load_cell(_dp_cell__dp_pc)))
-#     if __dp_ne(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
-#         jump _dp_genexpr_1_uncaught_set_done
-#     else:
-#         jump _dp_genexpr_1_uncaught_raise
+#     if_term __dp_ne(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
+#         then:
+#             block _dp_genexpr_1_uncaught_then:
+#                 jump _dp_genexpr_1_uncaught_set_done
+#         else:
+#             block _dp_genexpr_1_uncaught_else:
+#                 jump _dp_genexpr_1_uncaught_raise
 #     block _dp_genexpr_1_uncaught_set_done:
 #         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
-#         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_15)
+#         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_8)
 #         jump _dp_genexpr_1_uncaught_raise
 #     block _dp_genexpr_1_uncaught_raise:
-#         raise _dp_uncaught_exc_15
-#     block start:
-#         _dp_iter_3 = _dp_iter_2
-#         jump while_test_0
-#     block while_test_0:
-#         if True:
-#             jump while_body_1
-#             return
-#         else:
-#             jump while_after_2
-#             return
-#     block while_body_1:
+#         raise _dp_uncaught_exc_8
+#     block _dp_genexpr_1_0:
+#         return
+#     block _dp_genexpr_1_1:
+#         raise _dp_resume_exc
+#     block _dp_genexpr_1_2:
+#         if_term __dp_is_not(_dp_resume_exc, None):
+#             then:
+#                 block _dp_bb__dp_genexpr_1_7_true:
+#                     jump _dp_genexpr_1_1
+#             else:
+#                 block _dp_bb__dp_genexpr_1_7_false:
+#                     jump _dp_genexpr_1_5
+#     block _dp_genexpr_1_3:
+#         i = _dp_tmp_4
+#         return i
+#     block _dp_genexpr_1_4:
 #         _dp_tmp_4 = __dp_next_or_sentinel(_dp_iter_3)
-#         if __dp_is_(_dp_tmp_4, __dp__.ITER_COMPLETE):
-#             jump while_after_2
-#             return
-#         else:
-#             jump _dp_bb__dp_genexpr_1_12
-#             block _dp_bb__dp_genexpr_1_13:
-#                 raise _dp_resume_exc
-#             block _dp_bb__dp_genexpr_1_14:
-#                 if __dp_is_not(_dp_resume_exc, None):
-#                     jump _dp_bb__dp_genexpr_1_13
-#                 else:
-#                     jump _dp_bb__dp_genexpr_1_end_11
-#             block _dp_bb__dp_genexpr_1_12:
-#                 i = _dp_tmp_4
-#                 return i
-#             block _dp_bb__dp_genexpr_1_end_11:
-#                 return
-#     block while_after_2:
-#         jump _dp_bb__dp_genexpr_1_end_7
-#     block _dp_bb__dp_genexpr_1_end_7:
-#         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
-#         raise StopIteration()
+#         if_term __dp_is_(_dp_tmp_4, __dp__.ITER_COMPLETE):
+#             then:
+#                 block _dp_bb__dp_genexpr_1_3_then:
+#                     jump _dp_genexpr_1_0
+#             else:
+#                 block _dp_bb__dp_genexpr_1_3_else:
+#                     jump _dp_genexpr_1_3
+#     block _dp_genexpr_1_5:
+#         jump _dp_genexpr_1_4
+#     block _dp_genexpr_1_start:
+#         _dp_iter_3 = _dp_iter_2
+#         jump _dp_genexpr_1_5
 #     block _dp_genexpr_1_dispatch_throw_done:
 #         raise _dp_resume_exc
 #     block _dp_genexpr_1_dispatch_throw_unstarted:
 #         raise _dp_resume_exc
 #     block _dp_genexpr_1_dispatch_send_target_0:
-#         jump start
+#         jump _dp_genexpr_1_start
 #     block _dp_genexpr_1_dispatch_throw_target_0:
 #         jump _dp_genexpr_1_dispatch_throw_unstarted
 #     block _dp_genexpr_1_dispatch_send_target_1:
-#         jump _dp_bb__dp_genexpr_1_14
+#         jump _dp_genexpr_1_2
 #     block _dp_genexpr_1_dispatch_throw_target_1:
-#         jump _dp_bb__dp_genexpr_1_14
+#         jump _dp_genexpr_1_2
 #     block _dp_genexpr_1_dispatch_invalid:
 #         jump _dp_genexpr_1_invalid
 #     block _dp_genexpr_1_dispatch_send_table:
@@ -240,23 +272,33 @@ x = (i for i in it)
 #     block _dp_genexpr_1_dispatch_throw_table:
 #         branch_table __dp_load_cell(_dp_cell__dp_pc) -> [_dp_genexpr_1_dispatch_throw_target_0, _dp_genexpr_1_dispatch_throw_target_1] default _dp_genexpr_1_dispatch_invalid
 #     block _dp_genexpr_1_dispatch_send:
-#         if __dp_eq(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
-#             jump _dp_genexpr_1_done
-#         else:
-#             jump _dp_genexpr_1_dispatch_send_table
+#         if_term __dp_eq(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
+#             then:
+#                 block _dp_genexpr_1_dispatch_send_then:
+#                     jump _dp_genexpr_1_done
+#             else:
+#                 block _dp_genexpr_1_dispatch_send_else:
+#                     jump _dp_genexpr_1_dispatch_send_table
 #     block _dp_genexpr_1_dispatch_throw:
-#         if __dp_eq(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
-#             jump _dp_genexpr_1_dispatch_throw_done
+#         if_term __dp_eq(__dp_load_cell(_dp_cell__dp_pc), __dp_GEN_PC_DONE):
+#             then:
+#                 block _dp_genexpr_1_dispatch_throw_then:
+#                     jump _dp_genexpr_1_dispatch_throw_done
+#             else:
+#                 block _dp_genexpr_1_dispatch_throw_else:
+#                     jump _dp_genexpr_1_dispatch_throw_table
+#     if_term __dp_is_(_dp_resume_exc, None):
+#         then:
+#             block _dp_genexpr_1_dispatch_then:
+#                 jump _dp_genexpr_1_dispatch_send
 #         else:
-#             jump _dp_genexpr_1_dispatch_throw_table
-#     if __dp_is_(_dp_resume_exc, None):
-#         jump _dp_genexpr_1_dispatch_send
-#     else:
-#         jump _dp_genexpr_1_dispatch_throw
+#             block _dp_genexpr_1_dispatch_else:
+#                 jump _dp_genexpr_1_dispatch_throw
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     def _dp_genexpr_1(_dp_iter_2): ...
 #     __dp_store_global(globals(), "x", _dp_genexpr_1(__dp_iter(it)))
+#     return
 
 # list_literal
 
@@ -268,6 +310,7 @@ x = [a, b]
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     __dp_store_global(globals(), "x", __dp_list(__dp_tuple(a, b)))
+#     return
 
 # list_literal_splat
 
@@ -279,6 +322,7 @@ x = [a, *b]
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     __dp_store_global(globals(), "x", __dp_list(__dp_add(__dp_tuple(a), __dp_tuple_from_iter(b))))
+#     return
 
 # tuple_splat
 
@@ -290,6 +334,7 @@ x = (a, *b)
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     __dp_store_global(globals(), "x", __dp_add(__dp_tuple(a), __dp_tuple_from_iter(b)))
+#     return
 
 # set_literal
 
@@ -301,6 +346,7 @@ x = {a, b}
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     __dp_store_global(globals(), "x", __dp_set(__dp_tuple(a, b)))
+#     return
 
 # dict_literal
 
@@ -312,6 +358,7 @@ x = {"a": 1, "b": 2}
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     __dp_store_global(globals(), "x", __dp_dict(__dp_tuple(("a", 1), ("b", 2))))
+#     return
 
 # dict_literal_unpack
 
@@ -323,6 +370,7 @@ x = {"a": 1, **m, "b": 2}
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     __dp_store_global(globals(), "x", __dp_or_(__dp_or_(__dp_dict(__dp_tuple(("a", 1))), __dp_dict(m)), __dp_dict(__dp_tuple(("b", 2)))))
+#     return
 
 # list_comp
 
@@ -333,25 +381,32 @@ x = [i for i in it]
 # module_init: _dp_module_init
 
 # function _dp_listcomp_3(_dp_iter_2) [kind=function, bind=_dp_listcomp_3, target=local, qualname=_dp_listcomp_3]
-#     _dp_tmp_1 = __dp_list(__dp_tuple())
-#     _dp_iter_4 = __dp_iter(_dp_iter_2)
-#     block for_fetch_1:
-#         _dp_tmp_5 = __dp_next_or_sentinel(_dp_iter_4)
-#         if __dp_is_(_dp_tmp_5, __dp__.ITER_COMPLETE):
-#             jump for_after_3
-#         else:
-#             i = _dp_tmp_5
-#             _dp_tmp_5 = None
-#             jump for_body_2
-#     block for_body_2:
-#         _dp_tmp_1.append(i)
-#         jump for_fetch_1
-#     block for_after_3:
+#     block _dp_listcomp_3_0:
 #         return _dp_tmp_1
+#     block _dp_listcomp_3_1:
+#         _dp_tmp_1.append(i)
+#         jump _dp_listcomp_3_3
+#     block _dp_listcomp_3_2:
+#         i = _dp_tmp_2
+#         _dp_tmp_2 = None
+#         jump _dp_listcomp_3_1
+#     block _dp_listcomp_3_3:
+#         _dp_tmp_2 = __dp_next_or_sentinel(_dp_iter_1)
+#         if_term __dp_is_(_dp_tmp_2, __dp__.ITER_COMPLETE):
+#             then:
+#                 block _dp_bb__dp_listcomp_3_3_then:
+#                     jump _dp_listcomp_3_0
+#             else:
+#                 block _dp_bb__dp_listcomp_3_3_else:
+#                     jump _dp_listcomp_3_2
+#     _dp_tmp_1 = __dp_list(__dp_tuple())
+#     _dp_iter_1 = __dp_iter(_dp_iter_2)
+#     jump _dp_listcomp_3_3
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     def _dp_listcomp_3(_dp_iter_2): ...
 #     __dp_store_global(globals(), "x", _dp_listcomp_3(it))
+#     return
 
 # set_comp
 
@@ -362,25 +417,32 @@ x = {i for i in it}
 # module_init: _dp_module_init
 
 # function _dp_setcomp_3(_dp_iter_2) [kind=function, bind=_dp_setcomp_3, target=local, qualname=_dp_setcomp_3]
-#     _dp_tmp_1 = set()
-#     _dp_iter_4 = __dp_iter(_dp_iter_2)
-#     block for_fetch_1:
-#         _dp_tmp_5 = __dp_next_or_sentinel(_dp_iter_4)
-#         if __dp_is_(_dp_tmp_5, __dp__.ITER_COMPLETE):
-#             jump for_after_3
-#         else:
-#             i = _dp_tmp_5
-#             _dp_tmp_5 = None
-#             jump for_body_2
-#     block for_body_2:
-#         _dp_tmp_1.add(i)
-#         jump for_fetch_1
-#     block for_after_3:
+#     block _dp_setcomp_3_0:
 #         return _dp_tmp_1
+#     block _dp_setcomp_3_1:
+#         _dp_tmp_1.add(i)
+#         jump _dp_setcomp_3_3
+#     block _dp_setcomp_3_2:
+#         i = _dp_tmp_2
+#         _dp_tmp_2 = None
+#         jump _dp_setcomp_3_1
+#     block _dp_setcomp_3_3:
+#         _dp_tmp_2 = __dp_next_or_sentinel(_dp_iter_1)
+#         if_term __dp_is_(_dp_tmp_2, __dp__.ITER_COMPLETE):
+#             then:
+#                 block _dp_bb__dp_setcomp_3_3_then:
+#                     jump _dp_setcomp_3_0
+#             else:
+#                 block _dp_bb__dp_setcomp_3_3_else:
+#                     jump _dp_setcomp_3_2
+#     _dp_tmp_1 = set()
+#     _dp_iter_1 = __dp_iter(_dp_iter_2)
+#     jump _dp_setcomp_3_3
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     def _dp_setcomp_3(_dp_iter_2): ...
 #     __dp_store_global(globals(), "x", _dp_setcomp_3(it))
+#     return
 
 # dict_comp
 
@@ -391,28 +453,35 @@ x = {k: v for k, v in it}
 # module_init: _dp_module_init
 
 # function _dp_dictcomp_3(_dp_iter_2) [kind=function, bind=_dp_dictcomp_3, target=local, qualname=_dp_dictcomp_3]
-#     _dp_tmp_1 = __dp_dict()
-#     _dp_iter_4 = __dp_iter(_dp_iter_2)
-#     block for_fetch_1:
-#         _dp_tmp_5 = __dp_next_or_sentinel(_dp_iter_4)
-#         if __dp_is_(_dp_tmp_5, __dp__.ITER_COMPLETE):
-#             jump for_after_3
-#         else:
-#             _dp_tmp_6 = __dp_unpack(_dp_tmp_5, __dp_tuple(True, True))
-#             k = __dp_getitem(_dp_tmp_6, 0)
-#             v = __dp_getitem(_dp_tmp_6, 1)
-#             del _dp_tmp_6
-#             _dp_tmp_5 = None
-#             jump for_body_2
-#     block for_body_2:
-#         __dp_setitem(_dp_tmp_1, k, v)
-#         jump for_fetch_1
-#     block for_after_3:
+#     block _dp_dictcomp_3_0:
 #         return _dp_tmp_1
+#     block _dp_dictcomp_3_1:
+#         __dp_setitem(_dp_tmp_1, k, v)
+#         jump _dp_dictcomp_3_3
+#     block _dp_dictcomp_3_2:
+#         _dp_tmp_4 = __dp_unpack(_dp_tmp_2, __dp_tuple(True, True))
+#         k = __dp_getitem(_dp_tmp_4, 0)
+#         v = __dp_getitem(_dp_tmp_4, 1)
+#         del _dp_tmp_4
+#         _dp_tmp_2 = None
+#         jump _dp_dictcomp_3_1
+#     block _dp_dictcomp_3_3:
+#         _dp_tmp_2 = __dp_next_or_sentinel(_dp_iter_1)
+#         if_term __dp_is_(_dp_tmp_2, __dp__.ITER_COMPLETE):
+#             then:
+#                 block _dp_bb__dp_dictcomp_3_3_then:
+#                     jump _dp_dictcomp_3_0
+#             else:
+#                 block _dp_bb__dp_dictcomp_3_3_else:
+#                     jump _dp_dictcomp_3_2
+#     _dp_tmp_1 = __dp_dict()
+#     _dp_iter_1 = __dp_iter(_dp_iter_2)
+#     jump _dp_dictcomp_3_3
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     def _dp_dictcomp_3(_dp_iter_2): ...
 #     __dp_store_global(globals(), "x", _dp_dictcomp_3(it))
+#     return
 
 # attribute_non_chain
 
@@ -424,6 +493,7 @@ x = f().y
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     __dp_store_global(globals(), "x", f().y)
+#     return
 
 # fstring_simple
 
@@ -435,6 +505,7 @@ x = f"{a}"
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     __dp_store_global(globals(), "x", __dp_format(a))
+#     return
 
 # tstring_simple
 
@@ -446,6 +517,7 @@ x = t"{a}"
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     __dp_store_global(globals(), "x", __dp_templatelib_Template(*__dp_tuple(__dp_templatelib_Interpolation(a, "a", None, ""))))
+#     return
 
 # complex_literal
 
@@ -457,6 +529,7 @@ x = 1j
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     __dp_store_global(globals(), "x", complex(0.0, 1.0))
+#     return
 
 # float_literal_long
 
@@ -468,3 +541,4 @@ x = 1.234567890123456789
 
 # function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
 #     __dp_store_global(globals(), "x", __dp_float_from_literal("1.234567890123456789"))
+#     return

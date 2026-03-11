@@ -51,6 +51,10 @@ fn snapshot_dir() -> Result<PathBuf, String> {
     Ok(repo_root()?.join("snapshot"))
 }
 
+fn fixture_root() -> Result<PathBuf, String> {
+    snapshot_dir()
+}
+
 fn snapshot_output_path_for_fixture(path: &Path) -> Result<PathBuf, String> {
     let file_stem = path
         .file_stem()
@@ -97,7 +101,10 @@ fn count_blockpy_blocks(module: &BlockPyModule) -> usize {
 fn count_blockpy_blocks_in_list(blocks: &[BlockPyBlock]) -> usize {
     blocks
         .iter()
-        .map(|block| 1 + count_blockpy_blocks_in_stmts(&block.body))
+        .map(|block| {
+            1 + count_blockpy_blocks_in_stmts(&block.body)
+                + count_blockpy_blocks_in_term(&block.term)
+        })
         .sum()
 }
 
@@ -106,12 +113,22 @@ fn count_blockpy_blocks_in_stmts(stmts: &[BlockPyStmt]) -> usize {
         .iter()
         .map(|stmt| match stmt {
             BlockPyStmt::If(if_stmt) => {
-                count_blockpy_blocks_in_list(&if_stmt.body)
-                    + count_blockpy_blocks_in_list(&if_stmt.orelse)
+                count_blockpy_blocks_in_stmts(&if_stmt.body)
+                    + count_blockpy_blocks_in_stmts(&if_stmt.orelse)
             }
             _ => 0,
         })
         .sum()
+}
+
+fn count_blockpy_blocks_in_term(term: &dp_transform::basic_block::block_py::BlockPyTerm) -> usize {
+    match term {
+        dp_transform::basic_block::block_py::BlockPyTerm::IfTerm(if_term) => {
+            count_blockpy_blocks_in_list(std::slice::from_ref(if_term.body.as_ref()))
+                + count_blockpy_blocks_in_list(std::slice::from_ref(if_term.orelse.as_ref()))
+        }
+        _ => 0,
+    }
 }
 
 fn count_clif_blocks(module: &dp_transform::basic_block::bb_ir::BbModule) -> usize {
@@ -167,13 +184,106 @@ fn render_snapshot_python_fixture(blocks: &[FixtureBlock]) -> String {
     output
 }
 
+fn is_fixture_header_line(line: &str) -> bool {
+    line.starts_with("# ") && line != "# ==" && line != "# -- pre-bb --" && line != "# -- bb --"
+}
+
+fn next_nonempty_line<'a>(lines: &'a [String], start: usize) -> Option<&'a str> {
+    lines[start..]
+        .iter()
+        .map(String::as_str)
+        .find(|line| !line.trim().is_empty())
+}
+
+fn is_snapshot_block_header(lines: &[String], index: usize) -> bool {
+    let Some(line) = lines.get(index) else {
+        return false;
+    };
+    if !is_fixture_header_line(line) {
+        return false;
+    }
+    next_nonempty_line(lines, index + 1).is_some_and(|line| !line.starts_with('#'))
+}
+
+fn parse_snapshot_fixture(contents: &str) -> Result<Vec<FixtureBlock>, String> {
+    let lines = contents.lines().map(str::to_string).collect::<Vec<_>>();
+    let mut blocks = Vec::new();
+    let mut index = 0usize;
+
+    while index < lines.len() {
+        while index < lines.len() && lines[index].trim().is_empty() {
+            index += 1;
+        }
+        if index >= lines.len() {
+            break;
+        }
+        if !is_snapshot_block_header(&lines, index) {
+            return Err(format!(
+                "unexpected content outside of snapshot fixture blocks: `{}`",
+                lines[index]
+            ));
+        }
+
+        let name = lines[index][2..].trim().to_string();
+        index += 1;
+
+        let mut input_lines = Vec::new();
+        let mut saw_separator = false;
+        while index < lines.len() {
+            let line = &lines[index];
+            if line.trim() == "# ==" {
+                saw_separator = true;
+                index += 1;
+                break;
+            }
+            input_lines.push(line.clone());
+            index += 1;
+        }
+
+        if !saw_separator {
+            return Err(format!(
+                "missing `# ==` separator in snapshot fixture `{name}`"
+            ));
+        }
+
+        while index < lines.len() && !is_snapshot_block_header(&lines, index) {
+            index += 1;
+        }
+
+        let input = if input_lines.is_empty() {
+            String::new()
+        } else {
+            let mut text = input_lines.join("\n");
+            text.push('\n');
+            text
+        };
+
+        blocks.push(FixtureBlock {
+            name,
+            input,
+            output: String::new(),
+            seen_separator: true,
+        });
+    }
+
+    Ok(blocks)
+}
+
+fn load_fixture_blocks(path: &Path, contents: &str) -> Result<Vec<FixtureBlock>, String> {
+    if path.starts_with(snapshot_dir()?) {
+        parse_snapshot_fixture(contents)
+    } else {
+        parse_fixture(contents)
+    }
+}
+
 fn regenerate_fixture(path: &Path, summary: &mut Vec<SnapshotSummaryRow>) -> Result<(), String> {
     if log_enabled!(Level::Trace) {
         trace!("regenerate_fixture: start {}", path.display());
     }
     let contents =
         fs::read_to_string(path).map_err(|err| format!("{}: {}", path.display(), err))?;
-    let mut blocks = parse_fixture(&contents)?;
+    let mut blocks = load_fixture_blocks(path, &contents)?;
     if log_enabled!(Level::Trace) {
         trace!("regenerate_fixture: parsed {} blocks", blocks.len());
     }
@@ -269,7 +379,7 @@ fn main() -> Result<(), String> {
     let mut fixtures = Vec::new();
 
     if args.is_empty() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/transform");
+        let root = fixture_root()?;
         collect_fixtures(&root, &mut fixtures)?;
     } else {
         for arg in args {
@@ -290,4 +400,48 @@ fn main() -> Result<(), String> {
     write_summary(&summary)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{fixture_root, parse_snapshot_fixture};
+
+    #[test]
+    fn default_fixture_root_is_snapshot_dir() {
+        let root = fixture_root().expect("fixture root");
+        assert!(root.ends_with("snapshot"), "{root:?}");
+        assert!(root.exists(), "{root:?}");
+    }
+
+    #[test]
+    fn parses_rendered_snapshot_fixture_blocks() {
+        let contents = r#"# sample case
+
+x = 1
+
+# ==
+
+# module_init: _dp_module_init
+#
+# function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
+#     __dp_store_global(globals(), "x", 1)
+
+# another case
+
+if flag:
+    y = 2
+
+# ==
+
+# module_init: _dp_module_init
+# function _dp_module_init() [kind=function, bind=_dp_module_init, target=local, qualname=_dp_module_init]
+#     if_term flag:
+"#;
+        let blocks = parse_snapshot_fixture(contents).expect("parse snapshot fixture");
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0].name, "sample case");
+        assert_eq!(blocks[0].input, "\nx = 1\n\n");
+        assert_eq!(blocks[1].name, "another case");
+        assert_eq!(blocks[1].input, "\nif flag:\n    y = 2\n\n");
+    }
 }

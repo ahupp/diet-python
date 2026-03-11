@@ -1,12 +1,12 @@
 use super::{
-    BlockPyAssign, BlockPyBlock, BlockPyBrIf, BlockPyBranchTable, BlockPyDelete, BlockPyIf,
-    BlockPyRaise, BlockPyStmt, BlockPyTerm,
+    BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyDelete, BlockPyExpr, BlockPyIf,
+    BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyTerm,
 };
 use crate::basic_block::ast_symbol_analysis::{
-    assigned_names_in_stmt, load_names_in_expr, load_names_in_stmt,
+    collect_assigned_names, load_names_in_expr, load_names_in_stmt,
 };
-use ruff_python_ast::{self as ast, Expr, Stmt};
-use ruff_text_size::TextRange;
+use crate::transformer::{walk_expr, Transformer};
+use ruff_python_ast::{Expr, Stmt};
 use std::collections::{HashMap, HashSet};
 
 pub(crate) fn compute_block_params_blockpy(
@@ -94,14 +94,10 @@ pub(crate) fn analyze_blockpy_use_def(block: &BlockPyBlock) -> (HashSet<String>,
 fn blockpy_successors(block: &BlockPyBlock) -> Vec<String> {
     match &block.term {
         BlockPyTerm::Jump(target) => vec![target.as_str().to_string()],
-        BlockPyTerm::BrIf(BlockPyBrIf {
-            then_label,
-            else_label,
-            ..
-        }) => {
+        BlockPyTerm::IfTerm(BlockPyIfTerm { body, orelse, .. }) => {
             vec![
-                then_label.as_str().to_string(),
-                else_label.as_str().to_string(),
+                if_term_branch_successor(body),
+                if_term_branch_successor(orelse),
             ]
         }
         BlockPyTerm::BranchTable(BlockPyBranchTable {
@@ -124,6 +120,15 @@ fn blockpy_successors(block: &BlockPyBlock) -> Vec<String> {
     }
 }
 
+fn if_term_branch_successor(block: &BlockPyBlock) -> String {
+    if block.body.is_empty() {
+        if let BlockPyTerm::Jump(target) = &block.term {
+            return target.as_str().to_string();
+        }
+    }
+    block.label.as_str().to_string()
+}
+
 fn load_names_in_blockpy_stmt(stmt: &BlockPyStmt) -> HashSet<String> {
     match stmt {
         BlockPyStmt::Pass => HashSet::new(),
@@ -134,22 +139,10 @@ fn load_names_in_blockpy_stmt(stmt: &BlockPyStmt) -> HashSet<String> {
         }
         BlockPyStmt::FunctionDef(func) => load_names_in_stmt(&Stmt::FunctionDef(func.clone())),
         BlockPyStmt::If(BlockPyIf { test, body, orelse }) => {
-            load_names_in_stmt(&Stmt::If(ast::StmtIf {
-                node_index: compat_node_index(),
-                range: compat_range(),
-                test: Box::new(test.to_expr()),
-                body: stmt_body_from_blockpy_blocks(body),
-                elif_else_clauses: if orelse.is_empty() {
-                    Vec::new()
-                } else {
-                    vec![ast::ElifElseClause {
-                        node_index: compat_node_index(),
-                        range: compat_range(),
-                        test: None,
-                        body: stmt_body_from_blockpy_blocks(orelse),
-                    }]
-                },
-            }))
+            let mut names = load_names_in_expr(&test.to_expr());
+            names.extend(load_names_in_blockpy_stmt_list(body));
+            names.extend(load_names_in_blockpy_stmt_list(orelse));
+            names
         }
         BlockPyStmt::BranchTable(BlockPyBranchTable { index, .. }) => {
             load_names_in_expr(&index.to_expr())
@@ -170,7 +163,14 @@ fn load_names_in_blockpy_stmt(stmt: &BlockPyStmt) -> HashSet<String> {
 fn load_names_in_blockpy_term(term: &BlockPyTerm) -> HashSet<String> {
     match term {
         BlockPyTerm::Jump(_) | BlockPyTerm::TryJump(_) => HashSet::new(),
-        BlockPyTerm::BrIf(BlockPyBrIf { test, .. }) => load_names_in_expr(&test.to_expr()),
+        BlockPyTerm::IfTerm(BlockPyIfTerm { test, body, orelse }) => {
+            let mut out = load_names_in_expr(&test.to_expr());
+            out.extend(load_names_in_blockpy_stmt_list(&body.body));
+            out.extend(load_names_in_blockpy_term(&body.term));
+            out.extend(load_names_in_blockpy_stmt_list(&orelse.body));
+            out.extend(load_names_in_blockpy_term(&orelse.term));
+            out
+        }
         BlockPyTerm::BranchTable(BlockPyBranchTable { index, .. }) => {
             load_names_in_expr(&index.to_expr())
         }
@@ -193,22 +193,15 @@ fn assigned_names_in_blockpy_stmt(stmt: &BlockPyStmt) -> HashSet<String> {
         BlockPyStmt::Delete(_) => HashSet::new(),
         BlockPyStmt::FunctionDef(func) => HashSet::from([func.name.id.to_string()]),
         BlockPyStmt::If(BlockPyIf { test, body, orelse }) => {
-            assigned_names_in_stmt(&Stmt::If(ast::StmtIf {
-                node_index: compat_node_index(),
-                range: compat_range(),
-                test: Box::new(test.to_expr()),
-                body: stmt_body_from_blockpy_blocks(body),
-                elif_else_clauses: if orelse.is_empty() {
-                    Vec::new()
-                } else {
-                    vec![ast::ElifElseClause {
-                        node_index: compat_node_index(),
-                        range: compat_range(),
-                        test: None,
-                        body: stmt_body_from_blockpy_blocks(orelse),
-                    }]
-                },
-            }))
+            let mut names = HashSet::new();
+            collect_named_expr_target_names_in_blockpy_expr(test, &mut names);
+            for stmt in body {
+                names.extend(assigned_names_in_blockpy_stmt(stmt));
+            }
+            for stmt in orelse {
+                names.extend(assigned_names_in_blockpy_stmt(stmt));
+            }
+            names
         }
         BlockPyStmt::BranchTable(_)
         | BlockPyStmt::Jump(_)
@@ -218,97 +211,40 @@ fn assigned_names_in_blockpy_stmt(stmt: &BlockPyStmt) -> HashSet<String> {
     }
 }
 
-fn compat_node_index() -> ast::AtomicNodeIndex {
-    ast::AtomicNodeIndex::default()
-}
-
-fn compat_range() -> TextRange {
-    TextRange::default()
-}
-
-fn stmt_body_from_blockpy_blocks(blocks: &[BlockPyBlock]) -> ast::StmtBody {
-    ast::StmtBody {
-        node_index: compat_node_index(),
-        range: compat_range(),
-        body: blocks
-            .iter()
-            .flat_map(|block| {
-                block
-                    .body
-                    .iter()
-                    .filter_map(stmt_from_blockpy_stmt_for_analysis)
-                    .chain(stmt_from_blockpy_term_for_analysis(&block.term).into_iter())
-            })
-            .map(Box::new)
-            .collect(),
+fn load_names_in_blockpy_stmt_list(stmts: &[BlockPyStmt]) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for stmt in stmts {
+        out.extend(load_names_in_blockpy_stmt(stmt));
     }
+    out
 }
 
-fn stmt_from_blockpy_stmt_for_analysis(stmt: &BlockPyStmt) -> Option<Stmt> {
-    match stmt {
-        BlockPyStmt::Pass => Some(Stmt::Pass(ast::StmtPass {
-            node_index: compat_node_index(),
-            range: compat_range(),
-        })),
-        BlockPyStmt::Assign(BlockPyAssign { target, value }) => {
-            Some(Stmt::Assign(ast::StmtAssign {
-                node_index: compat_node_index(),
-                range: compat_range(),
-                targets: vec![Expr::Name(target.clone())],
-                value: Box::new(value.to_expr()),
-            }))
+fn collect_named_expr_target_names_in_blockpy_expr(
+    expr: &BlockPyExpr,
+    names: &mut HashSet<String>,
+) {
+    collect_named_expr_target_names_in_expr(&expr.to_expr(), names);
+}
+
+fn collect_named_expr_target_names_in_expr(expr: &Expr, names: &mut HashSet<String>) {
+    #[derive(Default)]
+    struct NamedExprTargetCollector {
+        names: HashSet<String>,
+    }
+
+    impl Transformer for NamedExprTargetCollector {
+        fn visit_expr(&mut self, expr: &mut Expr) {
+            if let Expr::Named(named) = expr {
+                collect_assigned_names(named.target.as_ref(), &mut self.names);
+                self.visit_expr(named.value.as_mut());
+                return;
+            }
+            walk_expr(self, expr);
         }
-        BlockPyStmt::Expr(expr) => Some(Stmt::Expr(ast::StmtExpr {
-            node_index: compat_node_index(),
-            range: compat_range(),
-            value: Box::new(expr.to_expr()),
-        })),
-        BlockPyStmt::Delete(BlockPyDelete { target }) => Some(Stmt::Delete(ast::StmtDelete {
-            node_index: compat_node_index(),
-            range: compat_range(),
-            targets: vec![Expr::Name(target.clone())],
-        })),
-        BlockPyStmt::FunctionDef(func) => Some(Stmt::FunctionDef(func.clone())),
-        BlockPyStmt::If(BlockPyIf { test, body, orelse }) => Some(Stmt::If(ast::StmtIf {
-            node_index: compat_node_index(),
-            range: compat_range(),
-            test: Box::new(test.to_expr()),
-            body: stmt_body_from_blockpy_blocks(body),
-            elif_else_clauses: if orelse.is_empty() {
-                Vec::new()
-            } else {
-                vec![ast::ElifElseClause {
-                    node_index: compat_node_index(),
-                    range: compat_range(),
-                    test: None,
-                    body: stmt_body_from_blockpy_blocks(orelse),
-                }]
-            },
-        })),
-        BlockPyStmt::BranchTable(_)
-        | BlockPyStmt::Jump(_)
-        | BlockPyStmt::Return(_)
-        | BlockPyStmt::Raise(_)
-        | BlockPyStmt::TryJump(_) => None,
     }
-}
 
-fn stmt_from_blockpy_term_for_analysis(term: &BlockPyTerm) -> Option<Stmt> {
-    match term {
-        BlockPyTerm::Return(value) => Some(Stmt::Return(ast::StmtReturn {
-            node_index: compat_node_index(),
-            range: compat_range(),
-            value: value.clone().map(|value| Box::new(value.to_expr())),
-        })),
-        BlockPyTerm::Raise(BlockPyRaise { exc }) => Some(Stmt::Raise(ast::StmtRaise {
-            node_index: compat_node_index(),
-            range: compat_range(),
-            exc: exc.clone().map(|exc| Box::new(exc.to_expr())),
-            cause: None,
-        })),
-        BlockPyTerm::Jump(_)
-        | BlockPyTerm::BrIf(_)
-        | BlockPyTerm::BranchTable(_)
-        | BlockPyTerm::TryJump(_) => None,
-    }
+    let mut expr = expr.clone();
+    let mut collector = NamedExprTargetCollector::default();
+    collector.visit_expr(&mut expr);
+    names.extend(collector.names);
 }

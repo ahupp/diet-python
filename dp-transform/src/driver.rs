@@ -82,7 +82,7 @@ fn is_future_import(stmt: &Stmt) -> bool {
     )
 }
 
-fn wrap_module_init(module: &mut StmtBody) {
+pub(crate) fn wrap_module_init(module: &mut StmtBody) {
     let mut global_names = {
         let scope = analyze_module_scope(module);
         let bindings = scope.scope_bindings();
