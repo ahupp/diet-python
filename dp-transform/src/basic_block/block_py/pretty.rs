@@ -151,7 +151,7 @@ impl BlockPyFormatter {
             );
             return;
         }
-        self.write_stmt_list(&block.body, referenced_labels, false);
+        self.write_stmt_list(&block.body, referenced_labels);
         self.write_term(
             function,
             render_layout,
@@ -165,10 +165,9 @@ impl BlockPyFormatter {
         &mut self,
         stmts: &[BlockPyStmt],
         referenced_labels: &HashSet<BlockPyLabel>,
-        allow_terminals: bool,
     ) {
         for stmt in stmts {
-            self.write_stmt(stmt, referenced_labels, allow_terminals);
+            self.write_stmt(stmt, referenced_labels);
         }
     }
 
@@ -181,18 +180,13 @@ impl BlockPyFormatter {
             self.line("pass");
             return;
         }
-        self.write_stmt_list(&fragment.body, referenced_labels, true);
+        self.write_stmt_list(&fragment.body, referenced_labels);
         if let Some(term) = &fragment.term {
             self.write_term_inline(term);
         }
     }
 
-    fn write_stmt(
-        &mut self,
-        stmt: &BlockPyStmt,
-        referenced_labels: &HashSet<BlockPyLabel>,
-        allow_terminals: bool,
-    ) {
+    fn write_stmt(&mut self, stmt: &BlockPyStmt, referenced_labels: &HashSet<BlockPyLabel>) {
         match stmt {
             BlockPyStmt::Pass => self.line("pass"),
             BlockPyStmt::Assign(assign) => self.line(format!(
@@ -210,49 +204,6 @@ impl BlockPyFormatter {
                     self.with_indent(|this| {
                         this.write_stmt_fragment(&if_stmt.orelse, referenced_labels)
                     });
-                }
-            }
-            BlockPyStmt::Jump(label) => {
-                if allow_terminals {
-                    self.line(format!("jump {}", label.as_str()));
-                } else {
-                    panic!("terminal BlockPyStmt leaked into block body: {stmt:?}");
-                }
-            }
-            BlockPyStmt::BranchTable(branch) => {
-                if allow_terminals {
-                    self.line(format!(
-                        "branch_table {} -> [{}] default {}",
-                        render_inline_expr(&branch.index),
-                        join_labels(&branch.targets),
-                        branch.default_label.as_str(),
-                    ));
-                } else {
-                    panic!("terminal BlockPyStmt leaked into block body: {stmt:?}");
-                }
-            }
-            BlockPyStmt::Return(value) => {
-                if allow_terminals {
-                    match value {
-                        Some(value) => self.line(format!("return {}", render_inline_expr(value))),
-                        None => self.line("return"),
-                    }
-                } else {
-                    panic!("terminal BlockPyStmt leaked into block body: {stmt:?}");
-                }
-            }
-            BlockPyStmt::Raise(raise_stmt) => {
-                if allow_terminals {
-                    self.write_raise(raise_stmt);
-                } else {
-                    panic!("terminal BlockPyStmt leaked into block body: {stmt:?}");
-                }
-            }
-            BlockPyStmt::TryJump(try_jump) => {
-                if allow_terminals {
-                    self.write_try_jump(try_jump);
-                } else {
-                    panic!("terminal BlockPyStmt leaked into block body: {stmt:?}");
                 }
             }
         }
@@ -711,25 +662,10 @@ fn collect_top_level_successors_from_stmts(
                     collect_top_level_successors_from_term(term, label_to_index, seen, out);
                 }
             }
-            BlockPyStmt::BranchTable(branch) => {
-                for label in &branch.targets {
-                    push_top_level_successor(label, label_to_index, seen, out);
-                }
-                push_top_level_successor(&branch.default_label, label_to_index, seen, out);
-            }
-            BlockPyStmt::Jump(label) => {
-                push_top_level_successor(label, label_to_index, seen, out);
-            }
-            BlockPyStmt::TryJump(try_jump) => {
-                push_top_level_successor(&try_jump.body_label, label_to_index, seen, out);
-                push_top_level_successor(&try_jump.except_label, label_to_index, seen, out);
-            }
             BlockPyStmt::Pass
             | BlockPyStmt::Assign(_)
             | BlockPyStmt::Expr(_)
-            | BlockPyStmt::Delete(_)
-            | BlockPyStmt::Return(_)
-            | BlockPyStmt::Raise(_) => {}
+            | BlockPyStmt::Delete(_) => {}
         }
     }
 }
@@ -921,17 +857,6 @@ fn collect_referenced_labels_from_stmts(
                 if let Some(term) = &if_stmt.orelse.term {
                     collect_referenced_labels_from_term(term, referenced);
                 }
-            }
-            BlockPyStmt::BranchTable(branch) => {
-                referenced.extend(branch.targets.iter().cloned());
-                referenced.insert(branch.default_label.clone());
-            }
-            BlockPyStmt::Jump(label) => {
-                referenced.insert(label.clone());
-            }
-            BlockPyStmt::TryJump(try_jump) => {
-                referenced.insert(try_jump.body_label.clone());
-                referenced.insert(try_jump.except_label.clone());
             }
             _ => {}
         }

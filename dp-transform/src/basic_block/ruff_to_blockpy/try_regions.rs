@@ -345,14 +345,6 @@ pub(crate) fn block_references_label(block: &BlockPyBlock, label: &str) -> bool 
                 stmt_fragment_references_label(&if_stmt.body, label)
                     || stmt_fragment_references_label(&if_stmt.orelse, label)
             }
-            BlockPyStmt::Jump(target) => target.as_str() == label,
-            BlockPyStmt::BranchTable(branch) => {
-                branch.default_label.as_str() == label
-                    || branch.targets.iter().any(|target| target.as_str() == label)
-            }
-            BlockPyStmt::TryJump(try_jump) => {
-                try_jump.body_label.as_str() == label || try_jump.except_label.as_str() == label
-            }
             _ => false,
         }
     }

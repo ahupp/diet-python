@@ -260,10 +260,7 @@ fn exception_param_from_block_params(params: &[String]) -> Option<String> {
 
 fn rewrite_current_exception_in_blockpy_stmt(stmt: &mut BlockPyStmt, exc_name: &str) {
     match stmt {
-        BlockPyStmt::Pass
-        | BlockPyStmt::Delete(_)
-        | BlockPyStmt::Jump(_)
-        | BlockPyStmt::TryJump(_) => {}
+        BlockPyStmt::Pass | BlockPyStmt::Delete(_) => {}
         BlockPyStmt::Assign(assign) => {
             rewrite_current_exception_in_blockpy_expr(&mut assign.value, exc_name);
         }
@@ -274,21 +271,6 @@ fn rewrite_current_exception_in_blockpy_stmt(stmt: &mut BlockPyStmt, exc_name: &
             rewrite_current_exception_in_blockpy_expr(&mut if_stmt.test, exc_name);
             rewrite_current_exception_in_blockpy_stmt_fragment(&mut if_stmt.body, exc_name);
             rewrite_current_exception_in_blockpy_stmt_fragment(&mut if_stmt.orelse, exc_name);
-        }
-        BlockPyStmt::Return(value) => {
-            if let Some(value) = value.as_mut() {
-                rewrite_current_exception_in_blockpy_expr(value, exc_name);
-            }
-        }
-        BlockPyStmt::Raise(raise_stmt) => {
-            if let Some(exc) = raise_stmt.exc.as_mut() {
-                rewrite_current_exception_in_blockpy_expr(exc, exc_name);
-            } else {
-                raise_stmt.exc = Some(current_exception_name_expr(exc_name).into());
-            }
-        }
-        BlockPyStmt::BranchTable(branch) => {
-            rewrite_current_exception_in_blockpy_expr(&mut branch.index, exc_name);
         }
     }
 }
@@ -481,11 +463,6 @@ pub(crate) fn blockpy_stmt_to_stmt_for_analysis(stmt: &BlockPyStmt) -> Option<St
                 }]
             },
         })),
-        BlockPyStmt::Jump(_)
-        | BlockPyStmt::Return(_)
-        | BlockPyStmt::Raise(_)
-        | BlockPyStmt::BranchTable(_)
-        | BlockPyStmt::TryJump(_) => None,
     }
 }
 

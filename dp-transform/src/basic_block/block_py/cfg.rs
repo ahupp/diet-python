@@ -50,41 +50,6 @@ fn rename_blockpy_stmt(
             rename_blockpy_stmt_fragment(&mut if_stmt.body, body_renamer, rename, known_labels);
             rename_blockpy_stmt_fragment(&mut if_stmt.orelse, body_renamer, rename, known_labels);
         }
-        BlockPyStmt::BranchTable(branch) => {
-            branch
-                .index
-                .rewrite_mut(|expr| body_renamer.visit_expr(expr));
-            for target in &mut branch.targets {
-                if let Some(rewritten) = rename.get(target.as_str()) {
-                    *target = BlockPyLabel::from(rewritten.clone());
-                }
-            }
-            if let Some(rewritten) = rename.get(branch.default_label.as_str()) {
-                branch.default_label = BlockPyLabel::from(rewritten.clone());
-            }
-        }
-        BlockPyStmt::Jump(target) => {
-            if let Some(rewritten) = rename.get(target.as_str()) {
-                *target = BlockPyLabel::from(rewritten.clone());
-            }
-        }
-        BlockPyStmt::Return(value) => {
-            if let Some(value) = value {
-                value.rewrite_mut(|expr| body_renamer.visit_expr(expr));
-            }
-        }
-        BlockPyStmt::Raise(raise_stmt) => {
-            if let Some(exc) = raise_stmt.exc.as_mut() {
-                exc.rewrite_mut(|expr| body_renamer.visit_expr(expr));
-            }
-        }
-        BlockPyStmt::TryJump(try_jump) => {
-            for label in [&mut try_jump.body_label, &mut try_jump.except_label] {
-                if let Some(rewritten) = rename.get(label.as_str()) {
-                    *label = BlockPyLabel::from(rewritten.clone());
-                }
-            }
-        }
     }
 }
 

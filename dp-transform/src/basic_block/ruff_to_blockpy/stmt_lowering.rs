@@ -1,20 +1,20 @@
 use super::*;
 
-pub(crate) fn lower_nested_body_to_stmts(
+fn lower_nested_body_to_stmts(
     body: &StmtBody,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
-) -> Result<Vec<BlockPyStmt>, String> {
-    let mut out = Vec::new();
+) -> Result<BlockPyStmtFragment, String> {
+    let mut out = BlockPyStmtFragmentBuilder::new();
     for stmt in &body.body {
         lower_stmt_into(stmt.as_ref(), &mut out, loop_ctx, next_label_id)?;
     }
-    Ok(out)
+    Ok(out.finish())
 }
 
 pub(crate) fn lower_stmt_into(
     stmt: &Stmt,
-    out: &mut Vec<BlockPyStmt>,
+    out: &mut BlockPyStmtFragmentBuilder,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
 ) -> Result<(), String> {
@@ -25,8 +25,10 @@ pub(crate) fn lower_stmt_into(
             }
         }
         Stmt::Global(_) | Stmt::Nonlocal(_) => {}
-        Stmt::Pass(_) => out.push(BlockPyStmt::Pass),
-        Stmt::Expr(expr_stmt) => out.push(BlockPyStmt::Expr((*expr_stmt.value).clone().into())),
+        Stmt::Pass(_) => out.push_stmt(BlockPyStmt::Pass),
+        Stmt::Expr(expr_stmt) => {
+            out.push_stmt(BlockPyStmt::Expr((*expr_stmt.value).clone().into()))
+        }
         Stmt::Assign(assign) => {
             if assign.targets.len() != 1 {
                 return Err(assign_delete_error(
@@ -40,7 +42,7 @@ pub(crate) fn lower_stmt_into(
                     stmt,
                 ));
             };
-            out.push(BlockPyStmt::Assign(BlockPyAssign {
+            out.push_stmt(BlockPyStmt::Assign(BlockPyAssign {
                 target,
                 value: (*assign.value).clone().into(),
             }));
@@ -58,7 +60,7 @@ pub(crate) fn lower_stmt_into(
                     stmt,
                 ));
             };
-            out.push(BlockPyStmt::Delete(BlockPyDelete { target }));
+            out.push_stmt(BlockPyStmt::Delete(BlockPyDelete { target }));
         }
         Stmt::FunctionDef(_) => {
             panic!("FunctionDef should be extracted before Ruff AST -> BlockPy conversion");
@@ -79,10 +81,10 @@ pub(crate) fn lower_stmt_into(
             let body = lower_nested_body_to_stmts(&if_stmt.body, loop_ctx, next_label_id)?;
             let orelse =
                 lower_orelse_to_stmts(&if_stmt.elif_else_clauses, stmt, loop_ctx, next_label_id)?;
-            out.push(BlockPyStmt::If(BlockPyIf {
+            out.push_stmt(BlockPyStmt::If(BlockPyIf {
                 test: (*if_stmt.test).clone().into(),
-                body: BlockPyStmtFragment::from_stmts(body),
-                orelse: BlockPyStmtFragment::from_stmts(orelse),
+                body,
+                orelse,
             }));
         }
         Stmt::While(_) => {
@@ -108,20 +110,20 @@ pub(crate) fn lower_stmt_into(
         }
         Stmt::Break(_) => {
             if let Some(loop_ctx) = loop_ctx {
-                out.push(BlockPyStmt::Jump(loop_ctx.break_label.clone()));
+                out.set_term(BlockPyTerm::Jump(loop_ctx.break_label.clone()));
             } else {
                 panic!("Break should be lowered before Ruff AST -> BlockPy conversion");
             }
         }
         Stmt::Continue(_) => {
             if let Some(loop_ctx) = loop_ctx {
-                out.push(BlockPyStmt::Jump(loop_ctx.continue_label.clone()));
+                out.set_term(BlockPyTerm::Jump(loop_ctx.continue_label.clone()));
             } else {
                 panic!("Continue should be lowered before Ruff AST -> BlockPy conversion");
             }
         }
         Stmt::Return(return_stmt) => {
-            out.push(BlockPyStmt::Return(
+            out.set_term(BlockPyTerm::Return(
                 return_stmt.value.as_ref().map(|v| (**v).clone().into()),
             ));
         }
@@ -129,7 +131,7 @@ pub(crate) fn lower_stmt_into(
             if raise_stmt.cause.is_some() {
                 panic!("raise-from should be lowered before Ruff AST -> BlockPy conversion");
             }
-            out.push(BlockPyStmt::Raise(BlockPyRaise {
+            out.set_term(BlockPyTerm::Raise(BlockPyRaise {
                 exc: raise_stmt.exc.as_ref().map(|exc| (**exc).clone().into()),
             }));
         }
@@ -349,7 +351,7 @@ where
     }
     try_body.extend(flatten_stmt_boxes(&body.body));
 
-    let mut finally_body = build_with_finally_body(
+    let finally_body = build_with_finally_body(
         exit_name.as_str(),
         exit_call_name.as_str(),
         enter_name.as_deref(),
@@ -562,9 +564,9 @@ where
     out.push(py_stmt!("del {tmp:id}", tmp = unpacked_name.as_str()));
 }
 
-pub(crate) fn lower_generated_stmts_into_blockpy(
+fn lower_generated_stmts_into_blockpy(
     stmts: Vec<Stmt>,
-    out: &mut Vec<BlockPyStmt>,
+    out: &mut BlockPyStmtFragmentBuilder,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
 ) -> Result<(), String> {
@@ -583,9 +585,14 @@ fn assignment_target_body(
     let mut stmts = Vec::new();
     let mut next_temp = |prefix: &str| fresh_name(prefix);
     rewrite_assignment_target(target, rhs, &mut stmts, &mut next_temp);
-    let mut out = Vec::new();
+    let mut out = BlockPyStmtFragmentBuilder::new();
     lower_generated_stmts_into_blockpy(stmts, &mut out, loop_ctx, next_label_id)?;
-    Ok(out)
+    let out = out.finish();
+    assert!(
+        out.term.is_none(),
+        "assignment target lowering should not produce a terminator"
+    );
+    Ok(out.body)
 }
 
 pub(crate) fn build_for_target_assign_body<F>(
@@ -813,7 +820,7 @@ fn build_with_finally_body(
 
 fn lower_with_into(
     with_stmt: ast::StmtWith,
-    out: &mut Vec<BlockPyStmt>,
+    out: &mut BlockPyStmtFragmentBuilder,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
 ) -> Result<(), String> {
@@ -821,7 +828,7 @@ fn lower_with_into(
     lower_stmt_into(&lowered_body, out, loop_ctx, next_label_id)
 }
 
-pub(crate) fn lower_body_to_blocks_with_entry(
+fn lower_body_to_blocks_with_entry(
     body: &StmtBody,
     entry_label: BlockPyLabel,
     loop_ctx: Option<&LoopContext>,
@@ -830,7 +837,7 @@ pub(crate) fn lower_body_to_blocks_with_entry(
 ) -> Result<Vec<BlockPyBlock>, String> {
     let mut blocks = Vec::new();
     let mut current_label = entry_label;
-    let mut current_body = Vec::new();
+    let mut current_body = BlockPyStmtFragmentBuilder::new();
 
     for stmt in &body.body {
         match stmt.as_ref() {
@@ -846,7 +853,7 @@ pub(crate) fn lower_body_to_blocks_with_entry(
 
                 blocks.push(finalize_blockpy_block(
                     current_label.clone(),
-                    current_body,
+                    current_body.finish(),
                     Some(test_label.clone()),
                 ));
 
@@ -885,7 +892,7 @@ pub(crate) fn lower_body_to_blocks_with_entry(
                 }
 
                 current_label = after_label;
-                current_body = Vec::new();
+                current_body = BlockPyStmtFragmentBuilder::new();
             }
             Stmt::For(for_stmt) => {
                 let setup_label = fresh_blockpy_label("for_setup", next_label_id);
@@ -903,7 +910,7 @@ pub(crate) fn lower_body_to_blocks_with_entry(
 
                 blocks.push(finalize_blockpy_block(
                     current_label.clone(),
-                    current_body,
+                    current_body.finish(),
                     Some(setup_label.clone()),
                 ));
 
@@ -974,7 +981,7 @@ pub(crate) fn lower_body_to_blocks_with_entry(
 
                 blocks.push(finalize_blockpy_block(
                     assign_label,
-                    false_body,
+                    BlockPyStmtFragment::from_stmts(false_body),
                     Some(body_label.clone()),
                 ));
 
@@ -1002,7 +1009,7 @@ pub(crate) fn lower_body_to_blocks_with_entry(
                 }
 
                 current_label = after_label;
-                current_body = Vec::new();
+                current_body = BlockPyStmtFragmentBuilder::new();
             }
             _ => lower_stmt_into(stmt.as_ref(), &mut current_body, loop_ctx, next_label_id)?,
         }
@@ -1010,7 +1017,7 @@ pub(crate) fn lower_body_to_blocks_with_entry(
 
     blocks.push(finalize_blockpy_block(
         current_label,
-        current_body,
+        current_body.finish(),
         fallthrough_target,
     ));
     Ok(blocks)
@@ -1022,14 +1029,14 @@ fn fresh_blockpy_label(prefix: &str, next_label_id: &mut usize) -> BlockPyLabel 
     label
 }
 
-pub(crate) fn lower_orelse_to_stmts(
+fn lower_orelse_to_stmts(
     clauses: &[ast::ElifElseClause],
     stmt: &Stmt,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
-) -> Result<Vec<BlockPyStmt>, String> {
+) -> Result<BlockPyStmtFragment, String> {
     match clauses {
-        [] => Ok(Vec::new()),
+        [] => Ok(BlockPyStmtFragment::from_stmts(Vec::new())),
         [clause] if clause.test.is_none() => {
             lower_nested_body_to_stmts(&clause.body, loop_ctx, next_label_id)
         }

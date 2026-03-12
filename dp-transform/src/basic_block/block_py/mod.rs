@@ -107,11 +107,8 @@ pub struct BlockPyBlock<E = BlockPyExpr> {
 
 impl<E: std::fmt::Debug> BlockPyBlock<E> {
     pub fn assert_normalized(&self) {
-        if let Some(stmt) = self.body.iter().find(|stmt| stmt.is_terminal()) {
-            panic!(
-                "terminal BlockPyStmt leaked into finalized block {} body: {stmt:?}",
-                self.label.as_str()
-            );
+        for stmt in &self.body {
+            stmt.assert_normalized();
         }
     }
 }
@@ -124,17 +121,28 @@ pub struct BlockPyStmtFragment<E = BlockPyExpr> {
 
 impl<E: std::fmt::Debug> BlockPyStmtFragment<E> {
     pub fn assert_normalized(&self) {
-        if let Some(stmt) = self.body.iter().find(|stmt| stmt.is_terminal()) {
-            panic!("terminal BlockPyStmt leaked into finalized stmt fragment body: {stmt:?}");
+        for stmt in &self.body {
+            stmt.assert_normalized();
         }
     }
 }
 
 impl<E: Clone + std::fmt::Debug> BlockPyStmtFragment<E> {
     pub fn from_stmts(stmts: Vec<BlockPyStmt<E>>) -> Self {
-        let mut fragment = BlockPyStmtFragmentBuilder::new();
-        fragment.extend(stmts);
-        fragment.finish()
+        Self::with_term(stmts, None)
+    }
+
+    pub fn with_term(body: Vec<BlockPyStmt<E>>, term: impl Into<Option<BlockPyTerm<E>>>) -> Self {
+        let fragment = BlockPyStmtFragment {
+            body,
+            term: term.into(),
+        };
+        fragment.assert_normalized();
+        fragment
+    }
+
+    pub fn jump(target: BlockPyLabel) -> Self {
+        Self::with_term(Vec::new(), Some(BlockPyTerm::Jump(target)))
     }
 }
 
@@ -157,11 +165,8 @@ impl<E: Clone + std::fmt::Debug> BlockPyStmtFragmentBuilder<E> {
             self.term.is_none(),
             "cannot append BlockPyStmt after stmt-fragment terminator"
         );
-        if let Some(term) = BlockPyTerm::from_stmt(&stmt) {
-            self.term = Some(term);
-        } else {
-            self.body.push(stmt);
-        }
+        stmt.assert_normalized();
+        self.body.push(stmt);
     }
 
     pub fn extend<I>(&mut self, stmts: I)
@@ -250,23 +255,14 @@ pub enum BlockPyStmt<E = BlockPyExpr> {
     Expr(E),
     Delete(BlockPyDelete),
     If(BlockPyIf<E>),
-    BranchTable(BlockPyBranchTable<E>),
-    Jump(BlockPyLabel),
-    Return(Option<E>),
-    Raise(BlockPyRaise<E>),
-    TryJump(BlockPyTryJump),
 }
 
-impl<E> BlockPyStmt<E> {
-    pub fn is_terminal(&self) -> bool {
-        matches!(
-            self,
-            Self::BranchTable(_)
-                | Self::Jump(_)
-                | Self::Return(_)
-                | Self::Raise(_)
-                | Self::TryJump(_)
-        )
+impl<E: std::fmt::Debug> BlockPyStmt<E> {
+    pub fn assert_normalized(&self) {
+        if let Self::If(if_stmt) = self {
+            if_stmt.body.assert_normalized();
+            if_stmt.orelse.assert_normalized();
+        }
     }
 }
 
@@ -323,23 +319,6 @@ pub struct BlockPyTryJump {
     pub except_label: BlockPyLabel,
 }
 
-impl<E: Clone> BlockPyTerm<E> {
-    pub fn from_stmt(stmt: &BlockPyStmt<E>) -> Option<Self> {
-        match stmt {
-            BlockPyStmt::Jump(target) => Some(Self::Jump(target.clone())),
-            BlockPyStmt::BranchTable(branch) => Some(Self::BranchTable(branch.clone())),
-            BlockPyStmt::Return(value) => Some(Self::Return(value.clone())),
-            BlockPyStmt::Raise(raise_stmt) => Some(Self::Raise(raise_stmt.clone())),
-            BlockPyStmt::TryJump(try_jump) => Some(Self::TryJump(try_jump.clone())),
-            BlockPyStmt::Pass
-            | BlockPyStmt::Assign(_)
-            | BlockPyStmt::Expr(_)
-            | BlockPyStmt::Delete(_)
-            | BlockPyStmt::If(_) => None,
-        }
-    }
-}
-
 impl From<Expr> for BlockPyExpr {
     fn from(value: Expr) -> Self {
         match value {
@@ -385,11 +364,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn block_builder_moves_terminal_stmt_into_term() {
+    fn block_builder_sets_explicit_term() {
         let mut block: BlockPyBlockBuilder<BlockPyExpr> =
             BlockPyBlockBuilder::new(BlockPyLabel::from("start"));
         block.push_stmt(BlockPyStmt::Pass);
-        block.push_stmt(BlockPyStmt::Jump(BlockPyLabel::from("after")));
+        block.set_term(BlockPyTerm::Jump(BlockPyLabel::from("after")));
         let block = block.finish(None);
 
         assert_eq!(block.body.len(), 1);
@@ -398,25 +377,15 @@ mod tests {
     }
 
     #[test]
-    fn stmt_fragment_moves_terminal_stmt_into_optional_term() {
-        let fragment: BlockPyStmtFragment<BlockPyExpr> =
-            BlockPyStmtFragment::from_stmts(vec![BlockPyStmt::Pass, BlockPyStmt::Return(None)]);
+    fn stmt_fragment_can_carry_optional_term() {
+        let fragment: BlockPyStmtFragment<BlockPyExpr> = BlockPyStmtFragment::with_term(
+            vec![BlockPyStmt::Pass],
+            Some(BlockPyTerm::Return(None)),
+        );
 
         assert_eq!(fragment.body.len(), 1);
         assert!(matches!(fragment.body[0], BlockPyStmt::Pass));
         assert!(matches!(fragment.term, Some(BlockPyTerm::Return(None))));
-    }
-
-    #[test]
-    #[should_panic(expected = "terminal BlockPyStmt leaked into finalized block")]
-    fn block_assert_normalized_rejects_terminal_stmt_in_body() {
-        BlockPyBlock {
-            label: BlockPyLabel::from("start"),
-            exc_param: None,
-            body: vec![BlockPyStmt::<BlockPyExpr>::Return(None)],
-            term: BlockPyTerm::Return(None),
-        }
-        .assert_normalized();
     }
 }
 

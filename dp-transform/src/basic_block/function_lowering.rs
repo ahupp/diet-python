@@ -141,26 +141,13 @@ fn rewrite_blockpy_stmt_deleted_name_loads(
     rewriter: &mut DeletedNameLoadRewriter<'_>,
 ) {
     match stmt {
-        BlockPyStmt::Pass
-        | BlockPyStmt::Delete(_)
-        | BlockPyStmt::Jump(_)
-        | BlockPyStmt::TryJump(_) => {}
+        BlockPyStmt::Pass | BlockPyStmt::Delete(_) => {}
         BlockPyStmt::Expr(expr) => expr.rewrite_mut(|inner| rewriter.visit_expr(inner)),
         BlockPyStmt::Assign(assign) => assign.value.rewrite_mut(|expr| rewriter.visit_expr(expr)),
         BlockPyStmt::If(BlockPyIf { test, body, orelse }) => {
             test.rewrite_mut(|expr| rewriter.visit_expr(expr));
             rewrite_blockpy_stmt_fragment_deleted_name_loads(body, rewriter);
             rewrite_blockpy_stmt_fragment_deleted_name_loads(orelse, rewriter);
-        }
-        BlockPyStmt::BranchTable(BlockPyBranchTable { index, .. }) => {
-            index.rewrite_mut(|expr| rewriter.visit_expr(expr))
-        }
-        BlockPyStmt::Return(Some(value)) => value.rewrite_mut(|expr| rewriter.visit_expr(expr)),
-        BlockPyStmt::Return(None) => {}
-        BlockPyStmt::Raise(BlockPyRaise { exc }) => {
-            if let Some(exc) = exc {
-                exc.rewrite_mut(|expr| rewriter.visit_expr(expr));
-            }
         }
     }
 }

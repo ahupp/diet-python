@@ -9,8 +9,12 @@ pub(crate) fn compat_block_from_blockpy(
     let body = lower_stmts_to_blockpy_stmts(&body).unwrap_or_else(|err| {
         panic!("failed to convert compatibility block body to BlockPy: {err}")
     });
+    assert!(
+        body.term.is_none(),
+        "compatibility block body should not contain its own terminator"
+    );
     let mut block = BlockPyBlockBuilder::new(BlockPyLabel::from(label));
-    block.extend(body);
+    block.extend(body.body);
     block.set_term(term);
     block.finish(None)
 }
@@ -63,11 +67,14 @@ pub(crate) fn compat_raise_block_from_blockpy_raise(
 
 pub(crate) fn finalize_blockpy_block(
     label: BlockPyLabel,
-    body: Vec<BlockPyStmt>,
+    body: BlockPyStmtFragment,
     fallthrough_target: Option<BlockPyLabel>,
 ) -> BlockPyBlock {
     let mut block = BlockPyBlockBuilder::new(label);
-    block.extend(body);
+    block.extend(body.body);
+    if let Some(term) = body.term {
+        block.set_term(term);
+    }
     block.finish(fallthrough_target)
 }
 

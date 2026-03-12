@@ -1,4 +1,3 @@
-use super::super::blockpy_to_bb;
 use super::super::ruff_to_blockpy::lower_stmts_to_blockpy_stmts;
 use super::dataflow::analyze_blockpy_use_def;
 use super::{
@@ -154,6 +153,7 @@ pub(crate) fn sync_generator_cleanup_cells(
 
 fn assigned_names_in_blockpy_stmt(stmt: &BlockPyStmt) -> HashSet<String> {
     match stmt {
+        BlockPyStmt::Pass | BlockPyStmt::Delete(_) => HashSet::new(),
         BlockPyStmt::Assign(assign) => {
             let mut names = HashSet::from([assign.target.id.to_string()]);
             collect_named_expr_target_names_in_blockpy_expr(&assign.value, &mut names);
@@ -171,31 +171,6 @@ fn assigned_names_in_blockpy_stmt(stmt: &BlockPyStmt) -> HashSet<String> {
             let mut names = HashSet::new();
             collect_named_expr_target_names_in_blockpy_expr(expr, &mut names);
             names
-        }
-        BlockPyStmt::BranchTable(BlockPyBranchTable { index, .. }) => {
-            let mut names = HashSet::new();
-            collect_named_expr_target_names_in_blockpy_expr(index, &mut names);
-            names
-        }
-        BlockPyStmt::Return(value) => {
-            let mut names = HashSet::new();
-            if let Some(value) = value {
-                collect_named_expr_target_names_in_blockpy_expr(value, &mut names);
-            }
-            names
-        }
-        BlockPyStmt::Raise(BlockPyRaise { exc }) => {
-            let mut names = HashSet::new();
-            if let Some(exc) = exc {
-                collect_named_expr_target_names_in_blockpy_expr(exc, &mut names);
-            }
-            names
-        }
-        other => {
-            let Some(stmt) = blockpy_to_bb::blockpy_stmt_to_stmt_for_analysis(other) else {
-                return HashSet::new();
-            };
-            assigned_names_in_stmt(&stmt)
         }
     }
 }
@@ -569,6 +544,8 @@ fn params_contain(block_params: &HashMap<String, Vec<String>>, label: &str, name
 }
 
 fn lower_generated_stmts_to_blockpy(stmts: Vec<Stmt>) -> Vec<BlockPyStmt> {
-    lower_stmts_to_blockpy_stmts(&stmts)
-        .unwrap_or_else(|err| panic!("failed to convert generated stmt to BlockPy: {err}"))
+    let lowered = lower_stmts_to_blockpy_stmts(&stmts)
+        .unwrap_or_else(|err| panic!("failed to convert generated stmt to BlockPy: {err}"));
+    assert!(lowered.term.is_none());
+    lowered.body
 }

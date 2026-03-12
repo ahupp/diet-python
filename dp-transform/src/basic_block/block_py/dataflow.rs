@@ -141,19 +141,6 @@ fn load_names_in_blockpy_stmt(stmt: &BlockPyStmt) -> HashSet<String> {
             names.extend(load_names_in_blockpy_stmt_fragment(orelse));
             names
         }
-        BlockPyStmt::BranchTable(BlockPyBranchTable { index, .. }) => {
-            load_names_in_expr(&index.to_expr())
-        }
-        BlockPyStmt::Jump(_) => HashSet::new(),
-        BlockPyStmt::Return(value) => value
-            .as_ref()
-            .map(|expr| load_names_in_expr(&expr.to_expr()))
-            .unwrap_or_default(),
-        BlockPyStmt::Raise(BlockPyRaise { exc }) => exc
-            .as_ref()
-            .map(|expr| load_names_in_expr(&expr.to_expr()))
-            .unwrap_or_default(),
-        BlockPyStmt::TryJump(_) => HashSet::new(),
     }
 }
 
@@ -194,26 +181,6 @@ fn assigned_names_in_blockpy_stmt(stmt: &BlockPyStmt) -> HashSet<String> {
             collect_named_expr_target_names_in_blockpy_expr(test, &mut names);
             names.extend(assigned_names_in_blockpy_stmt_fragment(body));
             names.extend(assigned_names_in_blockpy_stmt_fragment(orelse));
-            names
-        }
-        BlockPyStmt::BranchTable(BlockPyBranchTable { index, .. }) => {
-            let mut names = HashSet::new();
-            collect_named_expr_target_names_in_blockpy_expr(index, &mut names);
-            names
-        }
-        BlockPyStmt::Jump(_) | BlockPyStmt::TryJump(_) => HashSet::new(),
-        BlockPyStmt::Return(value) => {
-            let mut names = HashSet::new();
-            if let Some(value) = value {
-                collect_named_expr_target_names_in_blockpy_expr(value, &mut names);
-            }
-            names
-        }
-        BlockPyStmt::Raise(BlockPyRaise { exc }) => {
-            let mut names = HashSet::new();
-            if let Some(exc) = exc {
-                collect_named_expr_target_names_in_blockpy_expr(exc, &mut names);
-            }
             names
         }
     }

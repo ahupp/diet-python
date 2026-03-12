@@ -20,7 +20,8 @@ use super::block_py::state::{
 use super::block_py::{
     BlockPyAssign, BlockPyBlock, BlockPyCallableDef, BlockPyDelete, BlockPyExpr,
     BlockPyFunctionKind, BlockPyIf, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt,
-    BlockPyStmtFragment, BlockPyTerm, BlockPyTryJump, ENTRY_BLOCK_LABEL,
+    BlockPyStmtFragment, BlockPyStmtFragmentBuilder, BlockPyTerm, BlockPyTryJump,
+    ENTRY_BLOCK_LABEL,
 };
 use super::stmt_utils::flatten_stmt_boxes;
 use crate::basic_block::ast_to_ast::ast_rewrite::Rewrite;
@@ -46,6 +47,7 @@ pub(crate) use generator_lowering::{
     blockpy_stmt_requires_generator_rest_entry, build_async_for_continue_entry,
     build_blockpy_closure_layout, build_closure_backed_generator_export_plan,
     build_initial_generator_metadata, lower_generator_blockpy_stmt_in_sequence,
+    lower_generator_blockpy_term_in_sequence,
     lower_generator_yield_terms_to_explicit_return_blockpy,
     split_generator_return_terms_to_escape_blocks, synthesize_generator_dispatch_metadata,
     GeneratorMetadata, GeneratorYieldSite,
@@ -61,9 +63,8 @@ pub(crate) use compat::{
 };
 pub(crate) use stmt_lowering::{
     build_for_target_assign_body, desugar_structured_with_stmt_for_blockpy,
-    lower_body_to_blocks_with_entry, lower_generated_stmts_into_blockpy,
-    lower_nested_body_to_stmts, lower_orelse_to_stmts, lower_star_try_stmt_sequence,
-    lower_stmt_into, lower_try_stmt_sequence, lower_with_stmt_sequence,
+    lower_star_try_stmt_sequence, lower_stmt_into, lower_try_stmt_sequence,
+    lower_with_stmt_sequence,
 };
 pub(crate) use stmt_sequences::{
     drive_stmt_sequence_until_control, lower_common_stmt_sequence_head,
@@ -648,16 +649,18 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
                         .unwrap_or(entry_label.as_str())
             }) {
                 for exc_name in injected_exc_names.iter().rev() {
-                    let mut injected = lower_stmts_to_blockpy_stmts(&[py_stmt!(
+                    let injected = lower_stmts_to_blockpy_stmts(&[py_stmt!(
                         "{name:id} = __dp_DELETED",
                         name = exc_name.as_str(),
                     )])
                     .unwrap_or_else(|err| {
                         panic!("failed to convert injected exception init to BlockPy: {err}")
                     });
-                    let stmt = injected
-                        .pop()
-                        .expect("generated deleted-sentinel init should yield one BlockPy stmt");
+                    assert!(injected.term.is_none());
+                    let stmt =
+                        injected.body.into_iter().next().expect(
+                            "generated deleted-sentinel init should yield one BlockPy stmt",
+                        );
                     entry_block.body.insert(0, stmt);
                 }
             }
@@ -751,7 +754,8 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
                                 )])
                                 .unwrap_or_else(|err| {
                                     panic!("failed to convert cleanup stmt to BlockPy: {err}")
-                                }),
+                                })
+                                .body,
                             );
                         }
                     }
@@ -1305,7 +1309,7 @@ pub(crate) fn finalize_blockpy_function(
 }
 
 #[derive(Clone)]
-struct LoopContext {
+pub(crate) struct LoopContext {
     continue_label: BlockPyLabel,
     break_label: BlockPyLabel,
 }
@@ -1407,7 +1411,7 @@ mod tests {
     }
 
     fn lower_stmt_for_panic_test(stmt: &Stmt) {
-        let mut out = Vec::new();
+        let mut out = BlockPyStmtFragmentBuilder::new();
         let mut next_label_id = 0usize;
         let _ = lower_stmt_into(stmt, &mut out, None, &mut next_label_id);
     }
@@ -2520,7 +2524,7 @@ def f():
         let ast::Stmt::While(while_stmt) = module.body[0].as_ref() else {
             panic!("expected while stmt");
         };
-        let mut out = Vec::new();
+        let mut out = BlockPyStmtFragmentBuilder::new();
         let mut next_label_id = 0usize;
         lower_stmt_into(
             &Stmt::While(while_stmt.clone()),
