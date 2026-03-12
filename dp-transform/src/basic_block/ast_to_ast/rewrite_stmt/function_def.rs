@@ -87,12 +87,18 @@ enum LoweredFunctionInstantiationKind {
     CoroutineFromGeneratorDefinition,
 }
 
+#[derive(Clone)]
+enum LoweredFunctionCaptureItem {
+    Symbol(String),
+    BoundValue { name: String, value_expr: Expr },
+}
+
 struct LoweredFunctionInstantiationData {
     entry_label: String,
     function_id: usize,
     name: String,
     qualname: String,
-    closure_expr: Expr,
+    captures: Vec<LoweredFunctionCaptureItem>,
     param_specs: Vec<FunctionParamSpec>,
     doc_expr: Expr,
     annotate_fn_expr: Expr,
@@ -127,6 +133,23 @@ struct NonLoweredFunctionInstantiationPlan {
 
 // Function-definition rewriting stays in one tree pass, but the instantiation
 // machinery is grouped here so the later binding split has one obvious home.
+fn capture_items_to_expr(captures: &[LoweredFunctionCaptureItem]) -> Expr {
+    make_dp_tuple(
+        captures
+            .iter()
+            .map(|capture| match capture {
+                LoweredFunctionCaptureItem::Symbol(name) => {
+                    py_expr!("{value:literal}", value = name.as_str())
+                }
+                LoweredFunctionCaptureItem::BoundValue { name, value_expr } => make_dp_tuple(vec![
+                    py_expr!("{value:literal}", value = name.as_str()),
+                    value_expr.clone(),
+                ]),
+            })
+            .collect(),
+    )
+}
+
 fn build_lowered_function_instantiation_data(
     lowered: &LoweredBlockPyFunction,
     annotate_fn_expr: Option<Expr>,
@@ -165,19 +188,18 @@ fn build_lowered_function_instantiation_data(
         .iter()
         .flat_map(|block| analyze_blockpy_use_def(block).1.into_iter())
         .collect();
-    let mut closure_items = Vec::new();
+    let mut captures = Vec::new();
     for entry_name in &lowered.callable_def.entry_liveins {
         if param_names.contains(entry_name) {
-            closure_items.push(py_expr!("{value:literal}", value = entry_name.as_str(),));
+            captures.push(LoweredFunctionCaptureItem::Symbol(entry_name.clone()));
         } else if entry_name == "_dp_classcell"
             || (entry_name.starts_with("_dp_cell_")
                 && !lowered.callable_def.local_cell_slots.contains(entry_name))
         {
-            let value = name_expr(entry_name.as_str())?;
-            closure_items.push(make_dp_tuple(vec![
-                py_expr!("{value:literal}", value = entry_name.as_str()),
-                value,
-            ]));
+            captures.push(LoweredFunctionCaptureItem::BoundValue {
+                name: entry_name.clone(),
+                value_expr: name_expr(entry_name.as_str())?,
+            });
         } else if matches!(
             &lowered.bb_kind,
             BbFunctionKind::Generator {
@@ -189,11 +211,10 @@ fn build_lowered_function_instantiation_data(
             }
         ) && generator_closure_storage_names.contains(entry_name.as_str())
         {
-            let value = name_expr(entry_name.as_str())?;
-            closure_items.push(make_dp_tuple(vec![
-                py_expr!("{value:literal}", value = entry_name.as_str()),
-                value,
-            ]));
+            captures.push(LoweredFunctionCaptureItem::BoundValue {
+                name: entry_name.clone(),
+                value_expr: name_expr(entry_name.as_str())?,
+            });
         } else if matches!(
             &lowered.bb_kind,
             BbFunctionKind::Generator {
@@ -205,18 +226,16 @@ fn build_lowered_function_instantiation_data(
             }
         ) && generator_lifted_state_names.contains(entry_name.as_str())
         {
-            closure_items.push(py_expr!("{value:literal}", value = entry_name.as_str(),));
+            captures.push(LoweredFunctionCaptureItem::Symbol(entry_name.clone()));
         } else if !entry_name.starts_with("_dp_") && !locally_assigned.contains(entry_name) {
-            let value = name_expr(entry_name.as_str())?;
-            closure_items.push(make_dp_tuple(vec![
-                py_expr!("{value:literal}", value = entry_name.as_str()),
-                value,
-            ]));
+            captures.push(LoweredFunctionCaptureItem::BoundValue {
+                name: entry_name.clone(),
+                value_expr: name_expr(entry_name.as_str())?,
+            });
         } else {
-            closure_items.push(py_expr!("{value:literal}", value = entry_name.as_str(),));
+            captures.push(LoweredFunctionCaptureItem::Symbol(entry_name.clone()));
         }
     }
-    let closure_expr = make_dp_tuple(closure_items);
     let doc_expr = lowered
         .callable_def
         .doc
@@ -261,7 +280,7 @@ fn build_lowered_function_instantiation_data(
         function_id: lowered.callable_def.function_id.0,
         name: lowered.callable_def.display_name.clone(),
         qualname: lowered.callable_def.qualname.clone(),
-        closure_expr,
+        captures,
         param_specs: collect_function_param_specs(&lowered.callable_def.params),
         doc_expr,
         annotate_fn_expr,
@@ -271,6 +290,7 @@ fn build_lowered_function_instantiation_data(
 
 fn build_lowered_function_instantiation_expr(data: &LoweredFunctionInstantiationData) -> Expr {
     let entry_ref_expr = py_expr!("{entry:literal}", entry = data.entry_label.as_str());
+    let capture_expr = capture_items_to_expr(&data.captures);
     let param_specs_expr = function_param_specs_to_expr(&data.param_specs);
     let function_entry_expr = py_expr!(
         "__dp_make_function({entry:expr}, {function_id:literal}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, {module_globals:expr}, {module_name:expr}, {doc:expr}, {annotate_fn:expr})",
@@ -278,7 +298,7 @@ fn build_lowered_function_instantiation_expr(data: &LoweredFunctionInstantiation
         function_id = data.function_id,
         name = data.name.as_str(),
         qualname = data.qualname.as_str(),
-        closure = data.closure_expr.clone(),
+        closure = capture_expr.clone(),
         params = param_specs_expr.clone(),
         module_globals = py_expr!("__dp_globals()"),
         module_name = py_expr!("__name__"),
@@ -297,7 +317,7 @@ fn build_lowered_function_instantiation_expr(data: &LoweredFunctionInstantiation
             function_id = data.function_id,
             name = data.name.as_str(),
             qualname = data.qualname.as_str(),
-            closure = data.closure_expr.clone(),
+            closure = capture_expr.clone(),
             params = param_specs_expr.clone(),
             doc = data.doc_expr.clone(),
             annotate_fn = data.annotate_fn_expr.clone(),
@@ -308,11 +328,31 @@ fn build_lowered_function_instantiation_expr(data: &LoweredFunctionInstantiation
             function_id = data.function_id,
             name = data.name.as_str(),
             qualname = data.qualname.as_str(),
-            closure = data.closure_expr.clone(),
+            closure = capture_expr.clone(),
             params = param_specs_expr.clone(),
             doc = data.doc_expr.clone(),
             annotate_fn = data.annotate_fn_expr.clone(),
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{capture_items_to_expr, LoweredFunctionCaptureItem};
+
+    #[test]
+    fn capture_items_render_as_symbol_or_name_value_pairs() {
+        let expr = capture_items_to_expr(&[
+            LoweredFunctionCaptureItem::Symbol("x".to_string()),
+            LoweredFunctionCaptureItem::BoundValue {
+                name: "y".to_string(),
+                value_expr: crate::py_expr!("z"),
+            },
+        ]);
+        assert_eq!(
+            crate::ruff_ast_to_string(&expr).trim(),
+            "__dp_tuple(\"x\", __dp_tuple(\"y\", z))"
+        );
     }
 }
 
