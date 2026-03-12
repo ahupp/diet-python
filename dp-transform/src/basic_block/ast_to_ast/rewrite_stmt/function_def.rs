@@ -71,7 +71,7 @@ struct LoweredFunctionBindingPlan {
     needs_cell_sync: bool,
 }
 
-struct LoweredFunctionExportPlan {
+struct LoweredFunctionInstantiationPlan {
     identity: FunctionIdentity,
     binding: LoweredFunctionBindingPlan,
 }
@@ -96,13 +96,15 @@ enum NonLoweredLocalNamePlan {
     UseFreshTemp,
 }
 
-struct NonLoweredFunctionExportPlan {
+struct NonLoweredFunctionInstantiationPlan {
     identity: FunctionIdentity,
     binding: NonLoweredFunctionBindingPlan,
     local_name_plan: Option<NonLoweredLocalNamePlan>,
 }
 
-fn build_make_function_expr_from_lowered(
+// Function-definition rewriting stays in one tree pass, but the instantiation
+// machinery is grouped here so the later binding split has one obvious home.
+fn build_lowered_function_instantiation_expr(
     lowered: &LoweredBlockPyFunction,
     doc_expr: Option<Expr>,
     annotate_fn_expr: Option<Expr>,
@@ -365,12 +367,12 @@ fn plan_lowered_function_binding(
     }
 }
 
-fn plan_lowered_function_export(
+fn plan_lowered_function_instantiation(
     func: &ast::StmtFunctionDef,
     function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
     current_parent: Option<&str>,
     needs_cell_sync: bool,
-) -> LoweredFunctionExportPlan {
+) -> LoweredFunctionInstantiationPlan {
     let identity =
         resolve_runtime_function_identity(func, function_identity_by_node, current_parent);
     let binding = plan_lowered_function_binding(
@@ -379,7 +381,7 @@ fn plan_lowered_function_export(
         identity.qualname.as_str(),
         needs_cell_sync,
     );
-    LoweredFunctionExportPlan { identity, binding }
+    LoweredFunctionInstantiationPlan { identity, binding }
 }
 
 fn plan_non_lowered_function_binding(
@@ -412,13 +414,13 @@ fn plan_non_lowered_local_name(
     }
 }
 
-fn plan_non_lowered_function_export(
+fn plan_non_lowered_function_instantiation(
     func: &ast::StmtFunctionDef,
     function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
     current_parent: Option<&str>,
     needs_cell_sync: bool,
     is_annotation_helper: bool,
-) -> NonLoweredFunctionExportPlan {
+) -> NonLoweredFunctionInstantiationPlan {
     let identity =
         resolve_runtime_function_identity(func, function_identity_by_node, current_parent);
     let binding = plan_non_lowered_function_binding(
@@ -436,7 +438,7 @@ fn plan_non_lowered_function_export(
     } else {
         None
     };
-    NonLoweredFunctionExportPlan {
+    NonLoweredFunctionInstantiationPlan {
         identity,
         binding,
         local_name_plan,
@@ -573,7 +575,7 @@ fn apply_non_lowered_function_placement(
     }
 }
 
-fn build_lowered_binding_stmt(
+fn build_lowered_function_instantiation_stmt(
     func: &ast::StmtFunctionDef,
     lowered: &LoweredBlockPyFunction,
     target: BindingTarget,
@@ -585,7 +587,7 @@ fn build_lowered_binding_stmt(
     let annotate_fn_expr = annotate_helper
         .as_ref()
         .map(|(_, annotate_fn_expr)| annotate_fn_expr.clone());
-    let base_expr = build_make_function_expr_from_lowered(lowered, doc_expr, annotate_fn_expr)?;
+    let base_expr = build_lowered_function_instantiation_expr(lowered, doc_expr, annotate_fn_expr)?;
     let decorated = rewrite_stmt::decorator::rewrite(func.decorator_list.clone(), base_expr);
     let binding_stmt = build_binding_stmt(target, bind_name, decorated);
     let mut stmts = Vec::new();
@@ -603,28 +605,28 @@ fn build_lowered_binding_stmt(
     }
 }
 
-fn rewrite_lowered_function_stmt(
+fn rewrite_lowered_function_instantiation_stmt(
     parent_hoisted: Option<&mut Vec<Stmt>>,
     func: &ast::StmtFunctionDef,
     lowered: &LoweredBlockPyFunction,
-    export_plan: &LoweredFunctionExportPlan,
+    instantiation_plan: &LoweredFunctionInstantiationPlan,
     entering_module_init: bool,
     has_parent_hoisted_scope: bool,
     function_hoisted: Vec<Stmt>,
     doc_expr: Option<Expr>,
 ) -> Option<LoweredFunctionRewriteResult> {
-    let binding_stmt = build_lowered_binding_stmt(
+    let binding_stmt = build_lowered_function_instantiation_stmt(
         func,
         lowered,
-        export_plan.binding.target,
-        export_plan.identity.bind_name.as_str(),
+        instantiation_plan.binding.target,
+        instantiation_plan.identity.bind_name.as_str(),
         doc_expr,
-        export_plan.binding.needs_cell_sync,
+        instantiation_plan.binding.needs_cell_sync,
     )?;
     let replacement = apply_lowered_function_placement(
         parent_hoisted,
         plan_lowered_function_placement(
-            export_plan.identity.bind_name.as_str(),
+            instantiation_plan.identity.bind_name.as_str(),
             entering_module_init,
             has_parent_hoisted_scope,
             function_hoisted,
@@ -634,7 +636,7 @@ fn rewrite_lowered_function_stmt(
     Some(LoweredFunctionRewriteResult { replacement })
 }
 
-fn plan_and_rewrite_lowered_function_stmt(
+fn plan_and_rewrite_lowered_function_instantiation(
     parent_hoisted: Option<&mut Vec<Stmt>>,
     func: &ast::StmtFunctionDef,
     lowered: &LoweredBlockPyFunction,
@@ -646,18 +648,18 @@ fn plan_and_rewrite_lowered_function_stmt(
     function_hoisted: Vec<Stmt>,
     doc_expr: Option<Expr>,
 ) -> Option<LoweredFunctionVisitPlan> {
-    let export_plan = plan_lowered_function_export(
+    let instantiation_plan = plan_lowered_function_instantiation(
         func,
         function_identity_by_node,
         current_parent,
         needs_cell_sync,
     );
-    let binding_target = export_plan.binding.target;
-    let rewrite = rewrite_lowered_function_stmt(
+    let binding_target = instantiation_plan.binding.target;
+    let rewrite = rewrite_lowered_function_instantiation_stmt(
         parent_hoisted,
         func,
         lowered,
-        &export_plan,
+        &instantiation_plan,
         entering_module_init,
         has_parent_hoisted_scope,
         function_hoisted,
@@ -669,23 +671,23 @@ fn plan_and_rewrite_lowered_function_stmt(
     })
 }
 
-fn rewrite_non_lowered_function_stmt(
+fn rewrite_non_lowered_function_instantiation(
     func: &mut ast::StmtFunctionDef,
-    export_plan: NonLoweredFunctionExportPlan,
+    instantiation_plan: NonLoweredFunctionInstantiationPlan,
     function_hoisted: Vec<Stmt>,
     doc: Expr,
     mut next_temp: impl FnMut() -> String,
 ) -> Option<Stmt> {
-    let fresh_local_name = match export_plan.local_name_plan {
+    let fresh_local_name = match instantiation_plan.local_name_plan {
         Some(NonLoweredLocalNamePlan::UseFreshTemp) => Some(next_temp()),
         Some(NonLoweredLocalNamePlan::KeepOriginal) | None => None,
     };
     let binding_stmt = build_non_lowered_binding_stmt(
         func,
-        export_plan.identity.bind_name.as_str(),
-        export_plan.identity.qualname.as_str(),
-        export_plan.identity.display_name.as_str(),
-        export_plan.binding,
+        instantiation_plan.identity.bind_name.as_str(),
+        instantiation_plan.identity.qualname.as_str(),
+        instantiation_plan.identity.display_name.as_str(),
+        instantiation_plan.binding,
         fresh_local_name,
         doc,
     );
@@ -699,7 +701,7 @@ fn rewrite_non_lowered_function_stmt(
     )
 }
 
-fn plan_and_rewrite_non_lowered_function_stmt(
+fn plan_and_rewrite_non_lowered_function_instantiation(
     context: &Context,
     func: &mut ast::StmtFunctionDef,
     function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
@@ -710,14 +712,20 @@ fn plan_and_rewrite_non_lowered_function_stmt(
     next_temp: impl FnMut() -> String,
 ) -> Option<Stmt> {
     prepare_non_lowered_annotationlib_function(context, func);
-    let export_plan = plan_non_lowered_function_export(
+    let instantiation_plan = plan_non_lowered_function_instantiation(
         func,
         function_identity_by_node,
         current_parent,
         needs_cell_sync,
         is_annotation_helper_name(func.name.id.as_str()),
     );
-    rewrite_non_lowered_function_stmt(func, export_plan, function_hoisted, doc, next_temp)
+    rewrite_non_lowered_function_instantiation(
+        func,
+        instantiation_plan,
+        function_hoisted,
+        doc,
+        next_temp,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -750,7 +758,7 @@ fn rewrite_function_def_stmt_via_blockpy(
         next_block_id,
         next_function_id,
     ) {
-        let rewrite_plan = plan_and_rewrite_lowered_function_stmt(
+        let rewrite_plan = plan_and_rewrite_lowered_function_instantiation(
             parent_hoisted,
             func,
             &lowered.main_function,
@@ -771,7 +779,7 @@ fn rewrite_function_def_stmt_via_blockpy(
         return Some(rewrite_plan.rewrite.replacement);
     }
 
-    plan_and_rewrite_non_lowered_function_stmt(
+    plan_and_rewrite_non_lowered_function_instantiation(
         context,
         func,
         function_identity_by_node,
