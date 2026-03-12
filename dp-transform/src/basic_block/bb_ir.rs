@@ -1,4 +1,4 @@
-use super::cfg_ir::{CfgBlock, CfgCallableDef};
+use super::cfg_ir::{CfgBlock, CfgCallableDef, CfgModuleShell};
 use crate::py_expr;
 use ruff_python_ast::{
     self as ast, AtomicNodeIndex, Expr, ExprContext, ExprName, Stmt, StmtAssign, StmtDelete,
@@ -10,8 +10,22 @@ use std::ops::{Deref, DerefMut};
 
 #[derive(Debug, Clone)]
 pub struct BbModule {
+    pub cfg: CfgModuleShell,
     pub functions: Vec<BbFunction>,
-    pub module_init: Option<String>,
+}
+
+impl Deref for BbModule {
+    type Target = CfgModuleShell;
+
+    fn deref(&self) -> &Self::Target {
+        &self.cfg
+    }
+}
+
+impl DerefMut for BbModule {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.cfg
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]

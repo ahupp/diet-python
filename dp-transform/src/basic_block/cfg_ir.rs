@@ -17,3 +17,8 @@ pub struct CfgCallableDef<I, K, P, B> {
     pub entry_liveins: Vec<String>,
     pub blocks: Vec<B>,
 }
+
+#[derive(Debug, Clone, Default)]
+pub struct CfgModuleShell {
+    pub module_init: Option<String>,
+}

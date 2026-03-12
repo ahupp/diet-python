@@ -1,5 +1,5 @@
 use super::bb_ir::{BbClosureLayout, FunctionId};
-use super::cfg_ir::{CfgBlock, CfgCallableDef};
+use super::cfg_ir::{CfgBlock, CfgCallableDef, CfgModuleShell};
 use ruff_python_ast::{self as ast, Expr, ExprName, Parameters};
 use std::ops::{Deref, DerefMut};
 
@@ -63,8 +63,22 @@ pub const ENTRY_BLOCK_LABEL: &str = "start";
 
 #[derive(Debug, Clone)]
 pub struct BlockPyModule<E = BlockPyExpr> {
+    pub cfg: CfgModuleShell,
     pub callable_defs: Vec<BlockPyCallableDef<E>>,
-    pub module_init: Option<String>,
+}
+
+impl<E> Deref for BlockPyModule<E> {
+    type Target = CfgModuleShell;
+
+    fn deref(&self) -> &Self::Target {
+        &self.cfg
+    }
+}
+
+impl<E> DerefMut for BlockPyModule<E> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.cfg
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -8,7 +8,7 @@ use super::bb_ir::{
 use super::block_py::exception::is_dp_lookup_call;
 use super::block_py::state::collect_parameter_names;
 use super::block_py::{BlockPyBlock, BlockPyIfTerm, BlockPyModule, BlockPyStmt, BlockPyTerm};
-use super::cfg_ir::CfgCallableDef;
+use super::cfg_ir::{CfgCallableDef, CfgModuleShell};
 use super::ruff_to_blockpy::{LoweredBlockPyFunction, LoweredBlockPyFunctionBundle};
 use super::stmt_utils::{flatten_stmt, flatten_stmt_boxes, stmt_body_from_stmts};
 use crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass;
@@ -66,8 +66,10 @@ pub(crate) fn lowered_blockpy_module_bundle_to_blockpy_module(
         );
     }
     BlockPyModule {
+        cfg: CfgModuleShell {
+            module_init: module.module_init.clone(),
+        },
         callable_defs,
-        module_init: module.module_init.clone(),
     }
 }
 
@@ -86,8 +88,10 @@ pub(crate) fn lower_blockpy_module_bundle_to_bb_module(
         out.push(lowered.main_function);
     }
     BbModule {
+        cfg: CfgModuleShell {
+            module_init: module.module_init.clone(),
+        },
         functions: out,
-        module_init: module.module_init.clone(),
     }
 }
 
