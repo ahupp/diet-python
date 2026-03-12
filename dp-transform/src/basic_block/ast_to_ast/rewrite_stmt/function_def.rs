@@ -99,6 +99,7 @@ struct LoweredFunctionInstantiationData {
     name: String,
     qualname: String,
     captures: Vec<LoweredFunctionCaptureItem>,
+    decorator_exprs: Vec<Expr>,
     param_specs: Vec<FunctionParamSpec>,
     doc_expr: Expr,
     annotate_fn_expr: Expr,
@@ -152,6 +153,7 @@ fn capture_items_to_expr(captures: &[LoweredFunctionCaptureItem]) -> Expr {
 
 fn build_lowered_function_instantiation_data(
     lowered: &LoweredBlockPyFunction,
+    decorator_exprs: Vec<Expr>,
     annotate_fn_expr: Option<Expr>,
 ) -> Option<LoweredFunctionInstantiationData> {
     let param_names: HashSet<String> = collect_parameter_names(&lowered.callable_def.params)
@@ -281,6 +283,7 @@ fn build_lowered_function_instantiation_data(
         name: lowered.callable_def.display_name.clone(),
         qualname: lowered.callable_def.qualname.clone(),
         captures,
+        decorator_exprs,
         param_specs: collect_function_param_specs(&lowered.callable_def.params),
         doc_expr,
         annotate_fn_expr,
@@ -305,7 +308,7 @@ fn build_lowered_function_instantiation_expr(data: &LoweredFunctionInstantiation
         doc = data.doc_expr.clone(),
         annotate_fn = data.annotate_fn_expr.clone(),
     );
-    match data.kind {
+    let base_function_expr = match data.kind {
         LoweredFunctionInstantiationKind::DirectFunction => function_entry_expr,
         LoweredFunctionInstantiationKind::MarkCoroutineFunction => py_expr!(
             "__dp_mark_coroutine_function({func:expr})",
@@ -333,7 +336,8 @@ fn build_lowered_function_instantiation_expr(data: &LoweredFunctionInstantiation
             doc = data.doc_expr.clone(),
             annotate_fn = data.annotate_fn_expr.clone(),
         ),
-    }
+    };
+    rewrite_stmt::decorator::rewrite_exprs(data.decorator_exprs.clone(), base_function_expr)
 }
 
 #[cfg(test)]
@@ -536,7 +540,7 @@ fn build_updated_function_binding_stmt(
     qualname: &str,
     display_name: &str,
     doc: Expr,
-    decorators: Vec<ast::Decorator>,
+    decorator_exprs: Vec<Expr>,
 ) -> Stmt {
     let updated = py_expr!(
         "__dp_update_fn({name:id}, {qualname:literal}, {display_name:literal}, {doc:expr})",
@@ -545,7 +549,7 @@ fn build_updated_function_binding_stmt(
         display_name = display_name,
         doc = doc,
     );
-    let value = rewrite_stmt::decorator::rewrite(decorators, updated);
+    let value = rewrite_stmt::decorator::rewrite_exprs(decorator_exprs, updated);
     build_binding_stmt(target, bind_name, value)
 }
 
@@ -568,7 +572,8 @@ fn build_non_lowered_binding_stmt(
             } else {
                 func.name.id.to_string()
             };
-            let decorators = std::mem::take(&mut func.decorator_list);
+            let decorator_exprs =
+                rewrite_stmt::decorator::into_exprs(std::mem::take(&mut func.decorator_list));
             Some(build_updated_function_binding_stmt(
                 target,
                 bind_name,
@@ -576,7 +581,7 @@ fn build_non_lowered_binding_stmt(
                 qualname,
                 display_name,
                 doc,
-                decorators,
+                decorator_exprs,
             ))
         }
     }
@@ -689,9 +694,12 @@ fn build_lowered_function_instantiation_stmt(
     let annotate_fn_expr = annotate_helper
         .as_ref()
         .map(|(_, annotate_fn_expr)| annotate_fn_expr.clone());
-    let instantiation_data = build_lowered_function_instantiation_data(lowered, annotate_fn_expr)?;
-    let base_expr = build_lowered_function_instantiation_expr(&instantiation_data);
-    let decorated = rewrite_stmt::decorator::rewrite(func.decorator_list.clone(), base_expr);
+    let instantiation_data = build_lowered_function_instantiation_data(
+        lowered,
+        rewrite_stmt::decorator::collect_exprs(&func.decorator_list),
+        annotate_fn_expr,
+    )?;
+    let decorated = build_lowered_function_instantiation_expr(&instantiation_data);
     let binding_stmt =
         build_lowered_function_binding_stmt(bind_name, decorated, instantiation_plan.binding);
     let mut stmts = Vec::new();
