@@ -10,8 +10,8 @@ struct ResolvedSpecializedJitBlocks {
     false_obj: *mut c_void,
 }
 
-pub(crate) fn jit_has_bb_plan_impl(module_name: &str, qualname: &str) -> bool {
-    let Some(plan) = soac_eval::jit::lookup_clif_plan(module_name, qualname) else {
+pub(crate) fn jit_has_bb_plan_impl(module_name: &str, function_id: usize) -> bool {
+    let Some(plan) = soac_eval::jit::lookup_clif_plan(module_name, function_id) else {
         return false;
     };
     let has_none = plan
@@ -19,7 +19,7 @@ pub(crate) fn jit_has_bb_plan_impl(module_name: &str, qualname: &str) -> bool {
         .iter()
         .any(|path| matches!(path, soac_eval::jit::BlockFastPath::None));
     if has_none && std::env::var("DIET_PYTHON_DEBUG_JIT_HAS").as_deref() == Ok("1") {
-        eprintln!("jit_has_bb_plan=false for {module_name}.{qualname}");
+        eprintln!("jit_has_bb_plan=false for {module_name}.fn#{function_id}");
         for (idx, (label, path)) in plan
             .block_labels
             .iter()
@@ -37,12 +37,12 @@ pub(crate) fn jit_has_bb_plan_impl(module_name: &str, qualname: &str) -> bool {
 
 pub(crate) fn jit_block_param_names_impl(
     module_name: &str,
-    qualname: &str,
+    function_id: usize,
     entry_label: &str,
 ) -> PyResult<Vec<String>> {
-    let Some(plan) = soac_eval::jit::lookup_clif_plan(module_name, qualname) else {
+    let Some(plan) = soac_eval::jit::lookup_clif_plan(module_name, function_id) else {
         return Err(PyRuntimeError::new_err(format!(
-            "no specialized JIT plan for {module_name}.{qualname}"
+            "no specialized JIT plan for {module_name}.fn#{function_id}"
         )));
     };
     let Some(index) = plan
@@ -51,17 +51,17 @@ pub(crate) fn jit_block_param_names_impl(
         .position(|label| label == entry_label)
     else {
         return Err(PyRuntimeError::new_err(format!(
-            "entry label {:?} not found in plan {module_name}.{qualname}",
-            entry_label
+            "entry label {:?} not found in plan {module_name}.fn#{}",
+            entry_label, function_id
         )));
     };
     Ok(plan.block_param_names[index].clone())
 }
 
-pub(crate) fn jit_debug_plan_impl(module_name: &str, qualname: &str) -> PyResult<String> {
-    let Some(plan) = soac_eval::jit::lookup_clif_plan(module_name, qualname) else {
+pub(crate) fn jit_debug_plan_impl(module_name: &str, function_id: usize) -> PyResult<String> {
+    let Some(plan) = soac_eval::jit::lookup_clif_plan(module_name, function_id) else {
         return Err(PyRuntimeError::new_err(format!(
-            "no specialized JIT plan for {module_name}.{qualname}"
+            "no specialized JIT plan for {module_name}.fn#{function_id}"
         )));
     };
     Ok(format!("{plan:#?}"))
@@ -70,12 +70,12 @@ pub(crate) fn jit_debug_plan_impl(module_name: &str, qualname: &str) -> PyResult
 fn resolve_specialized_jit_blocks_by_key(
     py: Python<'_>,
     module_name: &str,
-    qualname: &str,
+    function_id: usize,
 ) -> PyResult<ResolvedSpecializedJitBlocks> {
-    let plan = soac_eval::jit::lookup_clif_plan(module_name, qualname);
+    let plan = soac_eval::jit::lookup_clif_plan(module_name, function_id);
     let Some(plan) = plan else {
         return Err(PyRuntimeError::new_err(format!(
-            "no specialized JIT plan for {module_name}.{qualname}"
+            "no specialized JIT plan for {module_name}.fn#{function_id}"
         )));
     };
     if plan
@@ -84,7 +84,7 @@ fn resolve_specialized_jit_blocks_by_key(
         .any(|path| matches!(path, soac_eval::jit::BlockFastPath::None))
     {
         return Err(PyRuntimeError::new_err(format!(
-            "specialized JIT requires fully lowered fastpath blocks: {module_name}.{qualname}"
+            "specialized JIT requires fully lowered fastpath blocks: {module_name}.fn#{function_id}"
         )));
     }
     let block_ptrs = vec![std::ptr::null_mut::<c_void>(); plan.block_labels.len()];
@@ -110,9 +110,9 @@ fn resolve_specialized_jit_blocks_by_key(
 pub(crate) fn jit_render_bb_with_cfg_plan_impl(
     py: Python<'_>,
     module_name: &str,
-    qualname: &str,
+    function_id: usize,
 ) -> PyResult<(String, String, String)> {
-    let resolved = resolve_specialized_jit_blocks_by_key(py, module_name, qualname)?;
+    let resolved = resolve_specialized_jit_blocks_by_key(py, module_name, function_id)?;
     let empty_tuple_obj = PyTuple::empty(py);
     PyModule::import(py, "__dp__")?;
     let builtins = PyModule::import(py, "builtins")?;
@@ -295,7 +295,12 @@ def exercise():
         let module_name = "jit_plan_generator_throw_handler_param_test";
         jit::register_clif_module_plans(module_name, &normalized)
             .expect("plan registration should succeed");
-        let plan = jit::lookup_clif_plan(module_name, "exercise.<locals>.gen::_dp_bb_gen_dispatch")
+        let gen_function = normalized
+            .functions
+            .iter()
+            .find(|function| function.qualname == "exercise.<locals>.gen")
+            .expect("missing lowered generator function");
+        let plan = jit::lookup_clif_plan(module_name, gen_function.function_id.0)
             .expect("registered plan should exist");
 
         let handler_entry_targets = plan

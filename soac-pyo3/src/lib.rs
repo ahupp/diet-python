@@ -59,32 +59,32 @@ fn transform_source_with_name(
 }
 
 #[pyfunction]
-fn jit_has_bb_plan(module_name: &str, qualname: &str) -> bool {
-    eval::jit_has_bb_plan_impl(module_name, qualname)
+fn jit_has_bb_plan(module_name: &str, function_id: usize) -> bool {
+    eval::jit_has_bb_plan_impl(module_name, function_id)
 }
 
 #[pyfunction]
 fn jit_block_param_names(
     module_name: &str,
-    qualname: &str,
+    function_id: usize,
     entry_label: &str,
 ) -> PyResult<Vec<String>> {
-    eval::jit_block_param_names_impl(module_name, qualname, entry_label)
+    eval::jit_block_param_names_impl(module_name, function_id, entry_label)
 }
 
 #[pyfunction]
-fn jit_debug_plan(module_name: &str, qualname: &str) -> PyResult<String> {
-    eval::jit_debug_plan_impl(module_name, qualname)
+fn jit_debug_plan(module_name: &str, function_id: usize) -> PyResult<String> {
+    eval::jit_debug_plan_impl(module_name, function_id)
 }
 
 #[pyfunction]
 fn jit_render_bb_with_cfg_plan(
     py: Python<'_>,
     module_name: &str,
-    qualname: &str,
+    function_id: usize,
 ) -> PyResult<Py<PyDict>> {
     let (clif, cfg_dot, vcode_disasm) =
-        eval::jit_render_bb_with_cfg_plan_impl(py, module_name, qualname)?;
+        eval::jit_render_bb_with_cfg_plan_impl(py, module_name, function_id)?;
     let payload = PyDict::new(py);
     payload.set_item("clif", clif)?;
     payload.set_item("cfg_dot", cfg_dot)?;
@@ -96,7 +96,7 @@ fn register_clif_vectorcall_impl(
     py: Python<'_>,
     func: &Bound<'_, PyAny>,
     module_name: &str,
-    qualname: &str,
+    function_id: usize,
     metadata: &Bound<'_, PyTuple>,
 ) -> PyResult<()> {
     if metadata.len() != 8 {
@@ -123,7 +123,7 @@ fn register_clif_vectorcall_impl(
         soac_eval::tree_walk::register_clif_vectorcall(
             func.as_ptr(),
             module_name,
-            qualname,
+            function_id,
             state_order_bound.as_ptr(),
             if params_bound.is_none() {
                 std::ptr::null_mut()
@@ -164,12 +164,12 @@ fn register_clif_vectorcall(
     py: Python<'_>,
     func: Py<PyAny>,
     module_name: String,
-    qualname: String,
+    function_id: usize,
     metadata: Py<PyTuple>,
 ) -> PyResult<()> {
     let func = func.bind(py);
     let metadata = metadata.bind(py);
-    register_clif_vectorcall_impl(py, &func, &module_name, &qualname, &metadata)
+    register_clif_vectorcall_impl(py, &func, &module_name, function_id, &metadata)
 }
 
 #[pyfunction]

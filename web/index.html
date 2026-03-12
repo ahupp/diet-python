@@ -393,7 +393,7 @@ const graphvizRootEl = document.getElementById("graphvizRoot");
 
 const state = {
   payload: null,
-  selectedFunction: "",
+  selectedFunctionId: "",
   crossEdges: [],
   viz: null,
   vizError: null,
@@ -745,10 +745,11 @@ function renderStructure() {
     return;
   }
 
-  const fn = functions.find((item) => item.qualname === state.selectedFunction) || functions[0];
-  state.selectedFunction = fn.qualname;
-  if (pickerEl.value !== state.selectedFunction) {
-    pickerEl.value = state.selectedFunction;
+  const fn =
+    functions.find((item) => String(item.functionId) === state.selectedFunctionId) || functions[0];
+  state.selectedFunctionId = String(fn.functionId);
+  if (pickerEl.value !== state.selectedFunctionId) {
+    pickerEl.value = state.selectedFunctionId;
   }
 
   const dominance = buildDominance(fn);
@@ -828,22 +829,27 @@ function drawCrossEdges(edges) {
 }
 
 function refreshFunctionPicker(functions) {
-  const previous = state.selectedFunction;
+  const previous = state.selectedFunctionId;
   pickerEl.innerHTML = "";
   for (const fn of functions) {
     const option = document.createElement("option");
-    option.value = fn.qualname;
+    option.value = String(fn.functionId);
     option.textContent = `${fn.qualname} [${fn.blocks.length} blocks]`;
     pickerEl.appendChild(option);
   }
-  const next = functions.find((fn) => fn.qualname === previous) || functions[0] || null;
-  state.selectedFunction = next ? next.qualname : "";
-  pickerEl.value = state.selectedFunction;
+  const next =
+    functions.find((fn) => String(fn.functionId) === previous) || functions[0] || null;
+  state.selectedFunctionId = next ? String(next.functionId) : "";
+  pickerEl.value = state.selectedFunctionId;
 }
 
 function selectedFunctionRecord() {
   const functions = state.payload?.bbModule?.functions || [];
-  return functions.find((item) => item.qualname === state.selectedFunction) || functions[0] || null;
+  return (
+    functions.find((item) => String(item.functionId) === state.selectedFunctionId) ||
+    functions[0] ||
+    null
+  );
 }
 
 function selectedEntryLabel() {
@@ -860,6 +866,7 @@ async function fetchSoacClif(source, entryLabel) {
     },
     body: JSON.stringify({
       source,
+      functionId: selected?.functionId ?? null,
       qualname: selected?.qualname || null,
       entryLabel,
     }),
@@ -986,7 +993,7 @@ async function run() {
 
   sourceEl.addEventListener("input", debouncedInspect);
   pickerEl.addEventListener("change", () => {
-    state.selectedFunction = pickerEl.value;
+    state.selectedFunctionId = pickerEl.value;
     renderStructure();
     refreshClifPanel(sourceEl.value, state.payload?.clif || "");
   });

@@ -1801,13 +1801,15 @@ def _bb_rebind_function_globals(func, module_globals):
 def _bb_set_plan_metadata(
     func,
     module_name,
-    qualname,
+    function_id,
+    plan_name,
     module_globals=None,
     entry_ref=None,
 ):
     if callable(func):
         setattr(func, "__dp_plan_module", module_name)
-        setattr(func, "__dp_plan_qualname", qualname)
+        setattr(func, "__dp_function_id", function_id)
+        setattr(func, "__dp_plan_name", plan_name)
         if isinstance(entry_ref, str):
             setattr(func, "__dp_entry_ref", entry_ref)
         if isinstance(module_globals, dict):
@@ -1817,7 +1819,8 @@ def _bb_set_plan_metadata(
 def _bb_enable_lazy_clif_vectorcall(
     entry,
     module_name,
-    plan_qualname,
+    function_id,
+    plan_name,
     state_order,
     params,
     closure_values,
@@ -1830,13 +1833,13 @@ def _bb_enable_lazy_clif_vectorcall(
     if _register_clif_vectorcall is None:
         raise RuntimeError(
             "JIT basic-block vectorcall registration helper is unavailable for "
-            f"{module_name}.{plan_qualname}"
+            f"{module_name}.{plan_name}"
         )
     try:
         _register_clif_vectorcall(
             entry,
             module_name,
-            plan_qualname,
+            function_id,
             (
                 state_order,
                 params,
@@ -1853,10 +1856,10 @@ def _bb_enable_lazy_clif_vectorcall(
     except Exception as exc:
         raise RuntimeError(
             "failed to register lazy CLIF vectorcall for "
-            f"{module_name}.{plan_qualname}: {exc}"
+            f"{module_name}.{plan_name}: {exc}"
         ) from exc
     if _bb_should_eager_compile_clif_entry():
-        _bb_eager_compile_clif_entry(entry, module_name, plan_qualname)
+        _bb_eager_compile_clif_entry(entry, module_name, plan_name)
 
 
 def _bb_jit_compile_mode():
@@ -1889,10 +1892,18 @@ def _bb_eager_compile_clif_entry(entry, module_name, plan_qualname):
             f"{module_name}.{plan_qualname}: {exc}"
         ) from exc
 
-def _bb_plan_lookup_qualname(qualname, entry_ref):
-    if isinstance(entry_ref, str):
-        return f"{qualname}::{entry_ref}"
-    return qualname
+def _bb_validate_function_id(function_id):
+    if not isinstance(function_id, int) or isinstance(function_id, bool):
+        raise TypeError(
+            f"basic-block function id must be an int, got {type(function_id)!r}"
+        )
+    if function_id < 0:
+        raise ValueError(f"basic-block function id must be non-negative, got {function_id}")
+
+
+def _bb_plan_name(qualname, function_id):
+    _bb_validate_function_id(function_id)
+    return f"{qualname}::__dp_fn_{function_id}"
 
 
 def _bb_validate_entry_ref(entry_ref):
@@ -1915,6 +1926,7 @@ def jit_bb_plan_enabled():
 
 def _bb_make_resume_entry(
     resume,
+    function_id,
     name,
     qualname,
     module_globals,
@@ -1930,18 +1942,18 @@ def _bb_make_resume_entry(
             f"generator resume entry must be a BB string reference, got {type(resume)!r}"
         )
     entry_ref = resume
-    plan_qualname = _bb_plan_lookup_qualname(qualname, entry_ref)
+    plan_name = _bb_plan_name(qualname, function_id)
     if not (
         jit_bb_plan_enabled()
         and isinstance(module_name, str)
-        and isinstance(plan_qualname, str)
+        and isinstance(plan_name, str)
         and _jit_has_bb_plan is not None
-        and _jit_has_bb_plan(module_name, plan_qualname)
+        and _jit_has_bb_plan(module_name, function_id)
     ):
         kind = "async generator" if async_gen else "generator"
         raise RuntimeError(
             f"JIT basic-block {kind} resume requires a registered plan, "
-            f"but none is available for {module_name}.{plan_qualname}"
+            f"but none is available for {module_name}.{plan_name}"
         )
     hidden_name = (
         f"_dp_resume_{name}" if isinstance(name, str) and name.isidentifier() else "_dp_resume"
@@ -1949,13 +1961,13 @@ def _bb_make_resume_entry(
     if _jit_block_param_names is None:
         raise RuntimeError(
             "JIT basic-block resume requires block parameter metadata, "
-            f"but it is unavailable for {module_name}.{plan_qualname}"
+            f"but it is unavailable for {module_name}.{plan_name}"
         )
-    resolved = _jit_block_param_names(module_name, plan_qualname, entry_ref)
+    resolved = _jit_block_param_names(module_name, function_id, entry_ref)
     if not isinstance(resolved, (tuple, list)):
         raise RuntimeError(
             "JIT basic-block resume expected block parameter metadata as a "
-            f"sequence for {module_name}.{plan_qualname}::{entry_ref}, "
+            f"sequence for {module_name}.{plan_name}::{entry_ref}, "
             f"got {type(resolved)!r}"
         )
     resume_state_order = tuple(resolved)
@@ -1982,12 +1994,13 @@ def _bb_make_resume_entry(
     if module_name is not None:
         entry.__module__ = module_name
         _bb_set_plan_metadata(
-            entry, module_name, plan_qualname, module_globals, entry_ref=entry_ref
+            entry, module_name, function_id, plan_name, module_globals, entry_ref=entry_ref
         )
     _bb_enable_lazy_clif_vectorcall(
         entry,
         module_name,
-        plan_qualname,
+        function_id,
+        plan_name,
         resume_state_order,
         (
             (
@@ -2018,6 +2031,7 @@ def _bb_make_resume_entry(
 
 def def_hidden_resume_fn(
     entry_bb,
+    function_id,
     name,
     qualname,
     state_order,
@@ -2051,18 +2065,18 @@ def def_hidden_resume_fn(
             f"{len(closure_names)} names vs {len(closure_values)} values"
         )
 
-    plan_qualname = _bb_plan_lookup_qualname(qualname, entry_bb)
+    plan_name = _bb_plan_name(qualname, function_id)
     if not (
         jit_bb_plan_enabled()
         and isinstance(module_name, str)
-        and isinstance(plan_qualname, str)
+        and isinstance(plan_name, str)
         and _jit_has_bb_plan is not None
-        and _jit_has_bb_plan(module_name, plan_qualname)
+        and _jit_has_bb_plan(module_name, function_id)
     ):
         kind = "async generator" if async_gen else "generator"
         raise RuntimeError(
             f"JIT basic-block {kind} resume requires a registered plan, "
-            f"but none is available for {module_name}.{plan_qualname}"
+            f"but none is available for {module_name}.{plan_name}"
         )
 
     hidden_name = (
@@ -2079,12 +2093,13 @@ def def_hidden_resume_fn(
     if module_name is not None:
         entry.__module__ = module_name
         _bb_set_plan_metadata(
-            entry, module_name, plan_qualname, module_globals, entry_ref=entry_bb
+            entry, module_name, function_id, plan_name, module_globals, entry_ref=entry_bb
         )
     _bb_enable_lazy_clif_vectorcall(
         entry,
         module_name,
-        plan_qualname,
+        function_id,
+        plan_name,
         state_order,
         (
             (
@@ -2105,6 +2120,7 @@ def def_hidden_resume_fn(
 
 def make_function(
     entry_bb,
+    function_id,
     name,
     qualname,
     closure,
@@ -2121,17 +2137,17 @@ def make_function(
     state_order, closure_values = _bb_state_order(default_state_order, closure)
     _bb_validate_entry_ref(entry_bb)
     entry_ref = entry_bb if isinstance(entry_bb, str) else None
-    plan_qualname = _bb_plan_lookup_qualname(qualname, entry_ref)
+    plan_name = _bb_plan_name(qualname, function_id)
     if not (
         jit_bb_plan_enabled()
         and isinstance(module_name, str)
-        and isinstance(plan_qualname, str)
+        and isinstance(plan_name, str)
         and _jit_has_bb_plan is not None
-        and _jit_has_bb_plan(module_name, plan_qualname)
+        and _jit_has_bb_plan(module_name, function_id)
     ):
         raise RuntimeError(
             "JIT basic-block function instantiation requires a registered plan, "
-            f"but none is available for {module_name}.{plan_qualname}"
+            f"but none is available for {module_name}.{plan_name}"
         )
 
     entry = _bb_make_lazy_clif_entry(
@@ -2152,7 +2168,8 @@ def make_function(
     _bb_enable_lazy_clif_vectorcall(
         entry,
         module_name,
-        plan_qualname,
+        function_id,
+        plan_name,
         state_order,
         tuple(params),
         closure_values,
@@ -2182,6 +2199,7 @@ def mark_coroutine_function(func):
 
 def def_coro_from_gen(
     resume,
+    function_id,
     name,
     qualname,
     closure,
@@ -2195,21 +2213,22 @@ def def_coro_from_gen(
     state_order, closure_values = _bb_state_order(default_state_order, closure)
     gen_code = _dp_make_gen_code(name, qualname)
     entry_ref = resume if isinstance(resume, str) else None
-    plan_qualname = _bb_plan_lookup_qualname(qualname, entry_ref)
+    plan_name = _bb_plan_name(qualname, function_id)
     if not (
         jit_bb_plan_enabled()
         and isinstance(module_name, str)
-        and isinstance(plan_qualname, str)
+        and isinstance(plan_name, str)
         and _jit_has_bb_plan is not None
-        and _jit_has_bb_plan(module_name, plan_qualname)
+        and _jit_has_bb_plan(module_name, function_id)
     ):
         raise RuntimeError(
             "JIT basic-block coroutine definition requires a registered plan, "
-            f"but none is available for {module_name}.{plan_qualname}"
+            f"but none is available for {module_name}.{plan_name}"
         )
 
     resume_entry = _bb_make_resume_entry(
         resume,
+        function_id,
         name,
         qualname,
         module_globals,
@@ -2251,7 +2270,7 @@ def def_coro_from_gen(
     if module_name is not None:
         entry.__module__ = module_name
         _bb_set_plan_metadata(
-            entry, module_name, plan_qualname, module_globals, entry_ref=entry_ref
+            entry, module_name, function_id, plan_name, module_globals, entry_ref=entry_ref
         )
     if doc is not None:
         entry.__doc__ = doc
@@ -2260,7 +2279,8 @@ def def_coro_from_gen(
     _bb_enable_lazy_clif_vectorcall(
         entry,
         module_name,
-        plan_qualname,
+        function_id,
+        plan_name,
         state_order,
         tuple(params),
         closure_values,
@@ -2336,6 +2356,7 @@ def make_closure_async_generator(resume, name, qualname):
 
 def def_async_gen(
     resume,
+    function_id,
     name,
     qualname,
     closure,
@@ -2349,21 +2370,22 @@ def def_async_gen(
     state_order, closure_values = _bb_state_order(default_state_order, closure)
     ag_code = _dp_make_async_gen_code(name, qualname)
     entry_ref = resume if isinstance(resume, str) else None
-    plan_qualname = _bb_plan_lookup_qualname(qualname, entry_ref)
+    plan_name = _bb_plan_name(qualname, function_id)
     if not (
         jit_bb_plan_enabled()
         and isinstance(module_name, str)
-        and isinstance(plan_qualname, str)
+        and isinstance(plan_name, str)
         and _jit_has_bb_plan is not None
-        and _jit_has_bb_plan(module_name, plan_qualname)
+        and _jit_has_bb_plan(module_name, function_id)
     ):
         raise RuntimeError(
             "JIT basic-block async generator definition requires a registered plan, "
-            f"but none is available for {module_name}.{plan_qualname}"
+            f"but none is available for {module_name}.{plan_name}"
         )
 
     resume_entry = _bb_make_resume_entry(
         resume,
+        function_id,
         name,
         qualname,
         module_globals,
@@ -2402,7 +2424,7 @@ def def_async_gen(
     if module_name is not None:
         entry.__module__ = module_name
         _bb_set_plan_metadata(
-            entry, module_name, plan_qualname, module_globals, entry_ref=entry_ref
+            entry, module_name, function_id, plan_name, module_globals, entry_ref=entry_ref
         )
     if doc is not None:
         entry.__doc__ = doc
@@ -2411,7 +2433,8 @@ def def_async_gen(
     _bb_enable_lazy_clif_vectorcall(
         entry,
         module_name,
-        plan_qualname,
+        function_id,
+        plan_name,
         state_order,
         tuple(params),
         closure_values,

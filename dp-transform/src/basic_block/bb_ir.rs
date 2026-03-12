@@ -12,8 +12,18 @@ pub struct BbModule {
     pub module_init: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct FunctionId(pub usize);
+
+impl FunctionId {
+    pub fn plan_qualname(self, qualname: &str) -> String {
+        format!("{qualname}::__dp_fn_{}", self.0)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct BbFunction {
+    pub function_id: FunctionId,
     pub bind_name: String,
     pub display_name: String,
     pub qualname: String,

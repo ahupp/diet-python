@@ -4,7 +4,7 @@ use super::{
     compat_return_block_from_expr, lower_stmts_to_blockpy_stmts, TryRegionPlan,
 };
 use crate::basic_block::ast_to_ast::scope::cell_name;
-use crate::basic_block::bb_ir::{BbClosureInit, BbClosureLayout, BbClosureSlot};
+use crate::basic_block::bb_ir::{BbClosureInit, BbClosureLayout, BbClosureSlot, FunctionId};
 use crate::basic_block::block_py::state::{sync_generator_state_order, sync_target_cells_stmts};
 use crate::basic_block::block_py::{
     BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyExpr, BlockPyIf, BlockPyIfTerm,
@@ -113,6 +113,7 @@ pub(crate) struct BlockPyGeneratorLoweringResult {
 pub(crate) struct ClosureBackedGeneratorExportPlan {
     pub factory_label: String,
     pub factory_entry_liveins: Vec<String>,
+    pub resume_function_id: FunctionId,
     pub resume_bind_name: String,
     pub resume_display_name: String,
     pub resume_qualname: String,
@@ -382,6 +383,7 @@ fn closure_backed_generator_resume_param_specs_expr(is_async_generator: bool) ->
 pub(crate) fn build_closure_backed_generator_export_plan(
     factory_label: &str,
     resume_label: &str,
+    resume_function_id: FunctionId,
     bind_name: &str,
     function_name: &str,
     qualname: &str,
@@ -398,6 +400,7 @@ pub(crate) fn build_closure_backed_generator_export_plan(
     let factory_block = build_closure_backed_generator_factory_block(
         factory_label,
         resume_label,
+        resume_function_id,
         &resume_entry_liveins,
         function_name,
         qualname,
@@ -409,6 +412,7 @@ pub(crate) fn build_closure_backed_generator_export_plan(
     ClosureBackedGeneratorExportPlan {
         factory_label: factory_label.to_string(),
         factory_entry_liveins,
+        resume_function_id,
         resume_bind_name: format!("{bind_name}_resume"),
         resume_display_name: "_dp_resume".to_string(),
         resume_qualname: qualname.to_string(),
@@ -421,6 +425,7 @@ pub(crate) fn build_closure_backed_generator_export_plan(
 pub(crate) fn build_closure_backed_generator_factory_block(
     factory_label: &str,
     resume_label: &str,
+    resume_function_id: FunctionId,
     resume_state_order: &[String],
     function_name: &str,
     qualname: &str,
@@ -461,8 +466,9 @@ pub(crate) fn build_closure_backed_generator_factory_block(
     );
 
     let resume_entry = py_expr!(
-        "__dp_def_hidden_resume_fn({resume:literal}, {name:literal}, {qualname:literal}, {state_order:expr}, {closure_names:expr}, {closure_values:expr}, __dp_globals(), __name__, async_gen={async_gen:expr})",
+        "__dp_def_hidden_resume_fn({resume:literal}, {function_id:literal}, {name:literal}, {qualname:literal}, {state_order:expr}, {closure_names:expr}, {closure_values:expr}, __dp_globals(), __name__, async_gen={async_gen:expr})",
         resume = resume_label,
+        function_id = resume_function_id.0,
         name = hidden_name.as_str(),
         qualname = hidden_qualname.as_str(),
         state_order = blockpy_make_dp_tuple(
@@ -2164,6 +2170,7 @@ mod tests {
         let plan = build_closure_backed_generator_export_plan(
             "_dp_bb_agen_factory",
             "_dp_bb_agen_start",
+            crate::basic_block::bb_ir::FunctionId(7),
             "agen",
             "agen",
             "outer.<locals>.agen",

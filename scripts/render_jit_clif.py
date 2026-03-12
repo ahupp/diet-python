@@ -23,7 +23,7 @@ def parse_args() -> argparse.Namespace:
         )
     )
     parser.add_argument("source", help="Python source file to transform/register")
-    parser.add_argument("qualname", help="Registered BB plan qualname to render")
+    parser.add_argument("function_id", type=int, help="Registered BB function id to render")
     parser.add_argument(
         "--module-name",
         help="Module name to register plans under (default: source file stem)",
@@ -60,22 +60,28 @@ def main() -> int:
 
     if args.debug_plan:
         try:
-            print(diet_python.jit_debug_plan(module_name, args.qualname), file=sys.stderr)
+            print(diet_python.jit_debug_plan(module_name, args.function_id), file=sys.stderr)
         except Exception as exc:
-            print(f"failed to dump debug plan for {module_name}.{args.qualname}: {exc}", file=sys.stderr)
+            print(
+                f"failed to dump debug plan for {module_name}.fn#{args.function_id}: {exc}",
+                file=sys.stderr,
+            )
             return 1
 
     try:
-        rendered = diet_python.jit_render_bb_with_cfg_plan(module_name, args.qualname)
+        rendered = diet_python.jit_render_bb_with_cfg_plan(module_name, args.function_id)
     except Exception as exc:
-        print(f"failed to render CLIF for {module_name}.{args.qualname}: {exc}", file=sys.stderr)
+        print(
+            f"failed to render CLIF for {module_name}.fn#{args.function_id}: {exc}",
+            file=sys.stderr,
+        )
         return 1
 
     clif = rendered.get("clif")
     cfg_dot = rendered.get("cfg_dot")
     if not isinstance(clif, str) or not isinstance(cfg_dot, str):
         print(
-            f"unexpected render payload for {module_name}.{args.qualname}: {type(rendered)!r}",
+            f"unexpected render payload for {module_name}.fn#{args.function_id}: {type(rendered)!r}",
             file=sys.stderr,
         )
         return 1

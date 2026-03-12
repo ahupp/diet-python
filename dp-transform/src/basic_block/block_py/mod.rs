@@ -1,4 +1,4 @@
-use super::bb_ir::{BbClosureLayout, BindingTarget};
+use super::bb_ir::{BbClosureLayout, BindingTarget, FunctionId};
 use ruff_python_ast::{self as ast, Expr, ExprName, Parameters};
 
 pub(crate) mod cfg;
@@ -65,6 +65,7 @@ pub struct BlockPyModule<E = BlockPyExpr> {
 
 #[derive(Debug, Clone)]
 pub struct BlockPyFunction<E = BlockPyExpr> {
+    pub function_id: FunctionId,
     pub bind_name: String,
     pub display_name: String,
     pub qualname: String,

@@ -2,7 +2,7 @@ use super::await_lower::{
     coroutine_generator_marker_stmt, lower_coroutine_awaits_in_stmt,
     lower_coroutine_awaits_in_stmts, lower_coroutine_awaits_to_yield_from,
 };
-use super::bb_ir::{BbClosureLayout, BbExpr, BbFunctionKind, BindingTarget};
+use super::bb_ir::{BbClosureLayout, BbExpr, BbFunctionKind, BindingTarget, FunctionId};
 use super::block_py::cfg::{
     fold_constant_brif_blockpy, fold_jumps_to_trivial_none_return_blockpy,
     prune_unreachable_blockpy_blocks, relabel_blockpy_blocks,
@@ -198,6 +198,7 @@ pub(crate) fn bb_kind_for_blockpy_kind(
 }
 
 pub(crate) fn build_blockpy_function(
+    function_id: FunctionId,
     bind_name: String,
     display_name: String,
     qualname: String,
@@ -220,6 +221,7 @@ pub(crate) fn build_blockpy_function(
         }
     }
     BlockPyFunction {
+        function_id,
         bind_name,
         display_name,
         qualname,
@@ -231,6 +233,12 @@ pub(crate) fn build_blockpy_function(
         local_cell_slots,
         blocks,
     }
+}
+
+pub(crate) fn take_next_function_id(next_function_id: &mut usize) -> FunctionId {
+    let id = FunctionId(*next_function_id);
+    *next_function_id += 1;
+    id
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -299,6 +307,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
     mut cell_slots: HashSet<String>,
     module_init_mode: bool,
     main_param_specs: BbExpr,
+    next_function_id: &mut usize,
 ) -> LoweredBlockPyFunctionBundle {
     let PreparedBlockPyFunction {
         function: mut blockpy_function,
@@ -675,9 +684,11 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
             .as_ref()
             .expect("closure-backed generator lowering requires closure layout");
         let factory_label = format!("{label_prefix}_factory");
+        let resume_function_id = take_next_function_id(next_function_id);
         let export_plan = build_closure_backed_generator_export_plan(
             factory_label.as_str(),
             entry_label.as_str(),
+            resume_function_id,
             blockpy_function.bind_name.as_str(),
             display_name.as_str(),
             blockpy_function.qualname.as_str(),
@@ -691,6 +702,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         let mut resume_local_cell_slots = cell_slots.iter().cloned().collect::<Vec<_>>();
         resume_local_cell_slots.sort();
         let resume_function = build_blockpy_function(
+            export_plan.resume_function_id,
             export_plan.resume_bind_name.clone(),
             export_plan.resume_display_name.clone(),
             export_plan.resume_qualname.clone(),
@@ -741,6 +753,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         BlockPyFunctionKind::Function
     };
     let main_function = build_blockpy_function(
+        blockpy_function.function_id,
         blockpy_function.bind_name.clone(),
         display_name.clone(),
         blockpy_function.qualname.clone(),
@@ -778,6 +791,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
 }
 
 pub(crate) fn build_finalized_blockpy_function(
+    function_id: FunctionId,
     bind_name: String,
     qualname: String,
     binding_target: BindingTarget,
@@ -794,6 +808,7 @@ pub(crate) fn build_finalized_blockpy_function(
     uncaught_exc_name: String,
 ) -> PreparedBlockPyFunction {
     let function = build_blockpy_function(
+        function_id,
         bind_name.clone(),
         bind_name,
         qualname,
@@ -835,6 +850,7 @@ pub(crate) fn lower_function_body_to_blockpy_function<FDef, FTemp>(
     is_closure_backed_generator_runtime: bool,
     cell_slots: &HashSet<String>,
     next_block_id: &mut usize,
+    next_function_id: &mut usize,
     lower_non_bb_def: &mut FDef,
     next_temp: &mut FTemp,
 ) -> PreparedBlockPyFunction
@@ -877,6 +893,7 @@ where
         )
     });
     build_finalized_blockpy_function(
+        take_next_function_id(next_function_id),
         bind_name,
         qualname,
         binding_target,
@@ -1692,6 +1709,7 @@ def f(xs):
         let block = build_closure_backed_generator_factory_block(
             "_dp_bb_demo_factory",
             "_dp_bb_demo_0",
+            crate::basic_block::bb_ir::FunctionId(0),
             &[
                 "_dp_self".to_string(),
                 "_dp_send_value".to_string(),

@@ -45,6 +45,7 @@ struct BlockPyModuleRewriter<'a> {
     module_scope: Arc<Scope>,
     function_identity_by_node: HashMap<NodeIndex, FunctionIdentity>,
     next_block_id: usize,
+    next_function_id: usize,
     reserved_temp_names_stack: Vec<HashSet<String>>,
     used_label_prefixes: HashMap<String, usize>,
     function_scope_stack: Vec<FunctionScopeFrame>,
@@ -108,6 +109,7 @@ fn build_make_function_expr_from_lowered(
 ) -> Option<Expr> {
     let entry_label = lowered.function.entry_label();
     let entry_ref_expr = py_expr!("{entry:literal}", entry = entry_label);
+    let function_id = lowered.function.function_id.0;
     let param_names: HashSet<String> = collect_parameter_names(&lowered.function.params)
         .into_iter()
         .collect();
@@ -197,8 +199,9 @@ fn build_make_function_expr_from_lowered(
     let doc = doc_expr.unwrap_or_else(|| py_expr!("None"));
     let annotate_fn = annotate_fn_expr.unwrap_or_else(|| py_expr!("None"));
     let function_entry_expr = py_expr!(
-        "__dp_make_function({entry:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, {module_globals:expr}, {module_name:expr}, {doc:expr}, {annotate_fn:expr})",
+        "__dp_make_function({entry:expr}, {function_id:literal}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, {module_globals:expr}, {module_name:expr}, {doc:expr}, {annotate_fn:expr})",
         entry = entry_ref_expr.clone(),
+        function_id = function_id,
         name = lowered.function.display_name.as_str(),
         qualname = lowered.function.qualname.as_str(),
         closure = closure.clone(),
@@ -224,8 +227,9 @@ fn build_make_function_expr_from_lowered(
                 return Some(function_entry_expr);
             }
             Some(py_expr!(
-                "__dp_def_async_gen({resume:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __dp_globals(), __name__, {doc:expr}, {annotate_fn:expr})",
+                "__dp_def_async_gen({resume:expr}, {function_id:literal}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __dp_globals(), __name__, {doc:expr}, {annotate_fn:expr})",
                 resume = entry_ref_expr.clone(),
+                function_id = function_id,
                 name = lowered.function.display_name.as_str(),
                 qualname = lowered.function.qualname.as_str(),
                 closure = closure,
@@ -246,8 +250,9 @@ fn build_make_function_expr_from_lowered(
             }
             if lowered.is_coroutine {
                 Some(py_expr!(
-                    "__dp_def_coro_from_gen({resume:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __dp_globals(), __name__, {doc:expr}, {annotate_fn:expr})",
+                    "__dp_def_coro_from_gen({resume:expr}, {function_id:literal}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __dp_globals(), __name__, {doc:expr}, {annotate_fn:expr})",
                     resume = entry_ref_expr,
+                    function_id = function_id,
                     name = lowered.function.display_name.as_str(),
                     qualname = lowered.function.qualname.as_str(),
                     closure = closure,
@@ -292,6 +297,7 @@ pub(crate) fn rewrite_ast_to_lowered_blockpy_module(
         module_scope,
         function_identity_by_node,
         next_block_id: 0,
+        next_function_id: 0,
         reserved_temp_names_stack: Vec::new(),
         used_label_prefixes: HashMap::new(),
         function_scope_stack: Vec::new(),
@@ -730,6 +736,7 @@ fn rewrite_function_def_stmt_via_blockpy(
     reserved_temp_names_stack: &mut Vec<HashSet<String>>,
     used_label_prefixes: &mut HashMap<String, usize>,
     next_block_id: &mut usize,
+    next_function_id: &mut usize,
 ) -> Option<Stmt> {
     let doc_expr = function_docstring_expr(func);
     if let Some(lowered) = try_lower_function_to_blockpy_bundle(
@@ -741,6 +748,7 @@ fn rewrite_function_def_stmt_via_blockpy(
         reserved_temp_names_stack,
         used_label_prefixes,
         next_block_id,
+        next_function_id,
     ) {
         let rewrite_plan = plan_and_rewrite_lowered_function_stmt(
             parent_hoisted,
@@ -865,6 +873,7 @@ impl BlockPyModuleRewriter<'_> {
             &mut self.reserved_temp_names_stack,
             &mut self.used_label_prefixes,
             &mut self.next_block_id,
+            &mut self.next_function_id,
         )
     }
 }

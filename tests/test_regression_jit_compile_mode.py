@@ -18,8 +18,8 @@ def restore_dp_hooks(monkeypatch):
 def test_lazy_compile_mode_does_not_eager_compile(monkeypatch):
     calls = []
 
-    def register(entry, module_name, plan_qualname, metadata):
-        calls.append(("register", entry, module_name, plan_qualname, metadata))
+    def register(entry, module_name, function_id, metadata):
+        calls.append(("register", entry, module_name, function_id, metadata))
 
     def eager_compile(entry):
         calls.append(("compile", entry))
@@ -32,6 +32,7 @@ def test_lazy_compile_mode_does_not_eager_compile(monkeypatch):
     DP._bb_enable_lazy_clif_vectorcall(
         entry,
         "m",
+        0,
         "q",
         ("x",),
         None,
@@ -48,8 +49,8 @@ def test_lazy_compile_mode_does_not_eager_compile(monkeypatch):
 def test_eager_compile_mode_eager_compiles(monkeypatch):
     calls = []
 
-    def register(entry, module_name, plan_qualname, metadata):
-        calls.append(("register", entry, module_name, plan_qualname, metadata))
+    def register(entry, module_name, function_id, metadata):
+        calls.append(("register", entry, module_name, function_id, metadata))
 
     def eager_compile(entry):
         calls.append(("compile", entry))
@@ -62,6 +63,7 @@ def test_eager_compile_mode_eager_compiles(monkeypatch):
     DP._bb_enable_lazy_clif_vectorcall(
         entry,
         "m",
+        0,
         "q",
         ("x",),
         None,

@@ -169,7 +169,7 @@ type PlanRegistry = HashMap<PlanKey, ClifPlan>;
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct PlanKey {
     pub module: String,
-    pub qualname: String,
+    pub function_id: usize,
 }
 
 static CLIF_PLAN_REGISTRY: OnceLock<Mutex<PlanRegistry>> = OnceLock::new();
@@ -819,53 +819,18 @@ pub fn register_clif_module_plans(module_name: &str, module: &BbModule) -> Resul
     let mut plans = HashMap::new();
     let mut skipped_errors: HashMap<String, String> = HashMap::new();
     for function in &lowered.functions {
-        let plan_qualname = format!("{}::{}", function.qualname, function.entry);
+        let plan_name = function
+            .function_id
+            .plan_qualname(function.qualname.as_str());
         match build_clif_plan(function) {
             Ok(plan) => {
                 plans.insert(
                     PlanKey {
                         module: module_name.to_string(),
-                        qualname: plan_qualname.clone(),
+                        function_id: function.function_id.0,
                     },
                     plan,
                 );
-                match &function.kind {
-                    dp_transform::basic_block::bb_ir::BbFunctionKind::Generator {
-                        resume_label,
-                        ..
-                    }
-                    | dp_transform::basic_block::bb_ir::BbFunctionKind::AsyncGenerator {
-                        resume_label,
-                        ..
-                    } if resume_label != &function.entry => {
-                        let Some(resume_index) = function
-                            .blocks
-                            .iter()
-                            .position(|block| block.label == *resume_label)
-                        else {
-                            return Err(format!(
-                                "missing resume entry {resume_label:?} in lowered function {}",
-                                function.qualname
-                            ));
-                        };
-                        let mut resume_plan = plans
-                            .get(&PlanKey {
-                                module: module_name.to_string(),
-                                qualname: plan_qualname.clone(),
-                            })
-                            .cloned()
-                            .expect("primary CLIF plan missing after insertion");
-                        resume_plan.entry_index = resume_index;
-                        plans.insert(
-                            PlanKey {
-                                module: module_name.to_string(),
-                                qualname: format!("{}::{}", function.qualname, resume_label),
-                            },
-                            resume_plan,
-                        );
-                    }
-                    _ => {}
-                }
             }
             Err(err) => {
                 if debug_skips {
@@ -874,7 +839,7 @@ pub fn register_clif_module_plans(module_name: &str, module: &BbModule) -> Resul
                         module_name, function.qualname, function.entry, err
                     );
                 }
-                skipped_errors.insert(plan_qualname, err);
+                skipped_errors.insert(plan_name, err);
             }
         }
     }
@@ -905,12 +870,12 @@ pub fn register_clif_module_plans(module_name: &str, module: &BbModule) -> Resul
     Ok(())
 }
 
-pub fn lookup_clif_plan(module_name: &str, qualname: &str) -> Option<ClifPlan> {
+pub fn lookup_clif_plan(module_name: &str, function_id: usize) -> Option<ClifPlan> {
     let registry = clif_plan_registry().lock().ok()?;
     registry
         .get(&PlanKey {
             module: module_name.to_string(),
-            qualname: qualname.to_string(),
+            function_id,
         })
         .cloned()
 }

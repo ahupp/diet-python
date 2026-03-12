@@ -299,6 +299,7 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     reserved_temp_names_stack: &mut Vec<HashSet<String>>,
     used_label_prefixes: &mut HashMap<String, usize>,
     next_block_id: &mut usize,
+    next_function_id: &mut usize,
 ) -> Option<LoweredBlockPyFunctionBundle> {
     if should_keep_non_lowered_for_annotationlib(func) {
         return None;
@@ -425,6 +426,7 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         is_closure_backed_generator_runtime,
         &cell_slots,
         &mut local_next_block_id,
+        next_function_id,
         &mut |func_def| {
             build_exec_function_def_binding_stmts(func_def, &cell_slots, &outer_scope_names)
         },
@@ -497,6 +499,7 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         cell_slots.clone(),
         is_module_init_temp_name(func.name.id.as_str()),
         BbExpr::from_expr(make_param_specs_expr(func.parameters.as_ref())),
+        next_function_id,
     ))
 }
 

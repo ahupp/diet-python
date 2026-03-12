@@ -496,7 +496,7 @@ unsafe fn build_ambient_args_tuple(
 
 unsafe fn make_clif_function_data(
     module_name: &str,
-    qualname: &str,
+    function_id: usize,
     state_order_obj: *mut ffi::PyObject,
     params_obj: *mut ffi::PyObject,
     closure_values_obj: *mut ffi::PyObject,
@@ -506,10 +506,11 @@ unsafe fn make_clif_function_data(
     bind_kind: i32,
     materialize_entry_obj: *mut ffi::PyObject,
 ) -> Result<*mut c_void, ()> {
-    let plan = jit::lookup_clif_plan(module_name, qualname);
+    let plan = jit::lookup_clif_plan(module_name, function_id);
     let Some(plan) = plan else {
-        let msg =
-            format!("no specialized JIT plan found: module={module_name:?} qualname={qualname:?}");
+        let msg = format!(
+            "no specialized JIT plan found: module={module_name:?} function_id={function_id:?}"
+        );
         if let Ok(c_msg) = CString::new(msg) {
             ffi::PyErr_SetString(ffi::PyExc_RuntimeError, c_msg.as_ptr());
         } else {
@@ -532,7 +533,7 @@ unsafe fn make_clif_function_data(
             .map(String::as_str)
             .unwrap_or("<unknown>");
         let msg = format!(
-            "CLIF function requires full fast-path plan; unsupported block at index {index} label {label:?} for module={module_name:?} qualname={qualname:?}"
+            "CLIF function requires full fast-path plan; unsupported block at index {index} label {label:?} for module={module_name:?} function_id={function_id:?}"
         );
         if let Ok(c_msg) = CString::new(msg) {
             ffi::PyErr_SetString(ffi::PyExc_RuntimeError, c_msg.as_ptr());
@@ -591,7 +592,7 @@ unsafe fn make_clif_function_data(
     let clif_data = Box::new(ClifFunctionData {
         plan,
         module_name: module_name.to_string(),
-        qualname: qualname.to_string(),
+        qualname: format!("fn#{function_id}"),
         true_obj,
         false_obj,
         binding,
@@ -1461,7 +1462,7 @@ unsafe extern "C" fn lazy_clif_vectorcall(
 pub unsafe fn register_clif_vectorcall(
     function: *mut ffi::PyObject,
     module_name: &str,
-    qualname: &str,
+    function_id: usize,
     state_order_obj: *mut ffi::PyObject,
     params_obj: *mut ffi::PyObject,
     closure_values_obj: *mut ffi::PyObject,
@@ -1492,7 +1493,7 @@ pub unsafe fn register_clif_vectorcall(
 
     let data_ptr = make_clif_function_data(
         module_name,
-        qualname,
+        function_id,
         state_order_obj,
         params_obj,
         closure_values_obj,

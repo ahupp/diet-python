@@ -247,7 +247,7 @@ x = lambda y: y + 1
 #     target: module_global
 #     qualname: _dp_module_init
 #     block _dp_bb__dp_module_init_start:
-#         _dp_lambda_1 = __dp_make_function("_dp_bb__dp_lambda_1_start", "<lambda>", "<lambda>", __dp_tuple("y"), __dp_tuple(__dp_tuple(__dp_decode_literal_bytes(b"y"), __dp_NONE, __dp_getattr(__dp__, __dp_decode_literal_bytes(b"NO_DEFAULT")))), __dp_globals(), __name__, None, None)
+#         _dp_lambda_1 = __dp_make_function("_dp_bb__dp_lambda_1_start", 0, "<lambda>", "<lambda>", __dp_tuple("y"), __dp_tuple(__dp_tuple(__dp_decode_literal_bytes(b"y"), __dp_NONE, __dp_getattr(__dp__, __dp_decode_literal_bytes(b"NO_DEFAULT")))), __dp_globals(), __name__, None, None)
 #         __dp_store_global(globals(), "x", _dp_lambda_1)
 #         return
 
@@ -275,7 +275,7 @@ x = (i for i in it)
 #         _dp_cell_i = __dp_make_cell(None)
 #         _dp_cell__dp_pc = __dp_make_cell(1)
 #         _dp_cell__dp_yieldfrom = __dp_make_cell(None)
-#         return __dp_make_closure_generator(__dp_def_hidden_resume_fn("_dp_bb__dp_genexpr_1_dispatch", "_dp_resume", "<genexpr>", __dp_tuple("_dp_self", "_dp_send_value", "_dp_resume_exc", "_dp_cell__dp_iter_2", "_dp_cell__dp_iter_3", "_dp_cell__dp_tmp_4", "_dp_cell_i", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple("_dp_cell__dp_iter_2", "_dp_cell__dp_iter_3", "_dp_cell__dp_tmp_4", "_dp_cell_i", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple(_dp_cell__dp_iter_2, _dp_cell__dp_iter_3, _dp_cell__dp_tmp_4, _dp_cell_i, _dp_cell__dp_pc, _dp_cell__dp_yieldfrom), __dp_globals(), __name__, async_gen=False), "<genexpr>", "<genexpr>")
+#         return __dp_make_closure_generator(__dp_def_hidden_resume_fn("_dp_bb__dp_genexpr_1_dispatch", 1, "_dp_resume", "<genexpr>", __dp_tuple("_dp_self", "_dp_send_value", "_dp_resume_exc", "_dp_cell__dp_iter_2", "_dp_cell__dp_iter_3", "_dp_cell__dp_tmp_4", "_dp_cell_i", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple("_dp_cell__dp_iter_2", "_dp_cell__dp_iter_3", "_dp_cell__dp_tmp_4", "_dp_cell_i", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple(_dp_cell__dp_iter_2, _dp_cell__dp_iter_3, _dp_cell__dp_tmp_4, _dp_cell_i, _dp_cell__dp_pc, _dp_cell__dp_yieldfrom), __dp_globals(), __name__, async_gen=False), "<genexpr>", "<genexpr>")
 
 # function _dp_genexpr_1_resume(_dp_iter_2)
 #     kind: generator
@@ -365,7 +365,7 @@ x = (i for i in it)
 #     target: module_global
 #     qualname: _dp_module_init
 #     block _dp_bb__dp_module_init_start:
-#         _dp_genexpr_1 = __dp_make_function("_dp_bb__dp_genexpr_1_factory", "<genexpr>", "<genexpr>", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple(__dp_decode_literal_bytes(b"_dp_iter_2"), __dp_NONE, __dp_getattr(__dp__, __dp_decode_literal_bytes(b"NO_DEFAULT")))), __dp_globals(), __name__, None, None)
+#         _dp_genexpr_1 = __dp_make_function("_dp_bb__dp_genexpr_1_factory", 0, "<genexpr>", "<genexpr>", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple(__dp_decode_literal_bytes(b"_dp_iter_2"), __dp_NONE, __dp_getattr(__dp__, __dp_decode_literal_bytes(b"NO_DEFAULT")))), __dp_globals(), __name__, None, None)
 #         __dp_store_global(globals(), "x", _dp_genexpr_1(__dp_iter(it)))
 #         return
 
@@ -510,7 +510,7 @@ x = [i for i in it]
 #     target: module_global
 #     qualname: _dp_module_init
 #     block _dp_bb__dp_module_init_start:
-#         _dp_listcomp_3 = __dp_make_function("_dp_bb__dp_listcomp_3_start", "<listcomp>", "_dp_listcomp_3", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple(__dp_decode_literal_bytes(b"_dp_iter_2"), __dp_NONE, __dp_getattr(__dp__, __dp_decode_literal_bytes(b"NO_DEFAULT")))), __dp_globals(), __name__, None, None)
+#         _dp_listcomp_3 = __dp_make_function("_dp_bb__dp_listcomp_3_start", 0, "<listcomp>", "_dp_listcomp_3", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple(__dp_decode_literal_bytes(b"_dp_iter_2"), __dp_NONE, __dp_getattr(__dp__, __dp_decode_literal_bytes(b"NO_DEFAULT")))), __dp_globals(), __name__, None, None)
 #         __dp_store_global(globals(), "x", _dp_listcomp_3(it))
 #         return
 
@@ -553,7 +553,7 @@ x = {i for i in it}
 #     target: module_global
 #     qualname: _dp_module_init
 #     block _dp_bb__dp_module_init_start:
-#         _dp_setcomp_3 = __dp_make_function("_dp_bb__dp_setcomp_3_start", "<setcomp>", "_dp_setcomp_3", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple(__dp_decode_literal_bytes(b"_dp_iter_2"), __dp_NONE, __dp_getattr(__dp__, __dp_decode_literal_bytes(b"NO_DEFAULT")))), __dp_globals(), __name__, None, None)
+#         _dp_setcomp_3 = __dp_make_function("_dp_bb__dp_setcomp_3_start", 0, "<setcomp>", "_dp_setcomp_3", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple(__dp_decode_literal_bytes(b"_dp_iter_2"), __dp_NONE, __dp_getattr(__dp__, __dp_decode_literal_bytes(b"NO_DEFAULT")))), __dp_globals(), __name__, None, None)
 #         __dp_store_global(globals(), "x", _dp_setcomp_3(it))
 #         return
 
@@ -599,7 +599,7 @@ x = {k: v for k, v in it}
 #     target: module_global
 #     qualname: _dp_module_init
 #     block _dp_bb__dp_module_init_start:
-#         _dp_dictcomp_3 = __dp_make_function("_dp_bb__dp_dictcomp_3_start", "<dictcomp>", "_dp_dictcomp_3", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple(__dp_decode_literal_bytes(b"_dp_iter_2"), __dp_NONE, __dp_getattr(__dp__, __dp_decode_literal_bytes(b"NO_DEFAULT")))), __dp_globals(), __name__, None, None)
+#         _dp_dictcomp_3 = __dp_make_function("_dp_bb__dp_dictcomp_3_start", 0, "<dictcomp>", "_dp_dictcomp_3", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple(__dp_decode_literal_bytes(b"_dp_iter_2"), __dp_NONE, __dp_getattr(__dp__, __dp_decode_literal_bytes(b"NO_DEFAULT")))), __dp_globals(), __name__, None, None)
 #         __dp_store_global(globals(), "x", _dp_dictcomp_3(it))
 #         return
 

@@ -147,6 +147,7 @@ fn bb_module_to_json(module: &bb_ir::BbModule) -> Value {
                 })
                 .collect::<Vec<_>>();
             json!({
+                "functionId": function.function_id.0,
                 "bindName": function.bind_name,
                 "displayName": function.display_name,
                 "qualname": function.qualname,

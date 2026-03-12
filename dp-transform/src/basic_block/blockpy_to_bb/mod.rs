@@ -113,6 +113,7 @@ pub(crate) fn lower_blockpy_function_to_bb_function(
     binding_target_override: Option<BindingTarget>,
 ) -> BbFunction {
     BbFunction {
+        function_id: lowered.function.function_id,
         bind_name: lowered.function.bind_name.clone(),
         display_name: lowered.function.display_name.clone(),
         qualname: lowered.function.qualname.clone(),

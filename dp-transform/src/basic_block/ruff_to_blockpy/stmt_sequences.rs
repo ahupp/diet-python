@@ -1040,6 +1040,7 @@ pub(crate) fn lower_top_level_function(
     let is_closure_backed_generator_runtime =
         has_yield && !(is_generated_comprehension_helper && func.is_async);
     let end_label = compat_next_label(func.name.id.as_str(), &mut next_label_id);
+    let mut next_function_id = 0usize;
     let prepared = lower_function_body_to_blockpy_function(
         func.name.id.as_str(),
         &runtime_body.body,
@@ -1055,7 +1056,8 @@ pub(crate) fn lower_top_level_function(
         is_closure_backed_generator_runtime,
         &collect_cell_slots(&runtime_body.body),
         &mut next_label_id,
-        &mut |func_def| vec![Stmt::FunctionDef(func_def.clone())],
+        &mut next_function_id,
+        &mut |func_def: &ast::StmtFunctionDef| vec![Stmt::FunctionDef(func_def.clone())],
         &mut compat_next_temp,
     );
     Ok(prepared.function)

@@ -38,14 +38,18 @@ def _register_plans_from_source(source: str) -> str:
     return module_name
 
 
-def _render_clif(source: str, qualname: str | None, entry_label: str | None):
+def _render_clif(
+    source: str,
+    function_id: int | None,
+    qualname: str | None,
+    entry_label: str | None,
+):
     plan_module = _register_plans_from_source(source)
-    if qualname is None:
-        qualname = "_dp_module_init"
+    if function_id is None:
+        raise TypeError("functionId must be provided")
     if entry_label is None:
-        entry_label = "_dp_bb__dp_module_init_start"
-    plan_qualname = f"{qualname}::{entry_label}"
-    rendered = DIET_PYTHON.jit_render_bb_with_cfg_plan(plan_module, plan_qualname)
+        raise TypeError("entryLabel must be provided")
+    rendered = DIET_PYTHON.jit_render_bb_with_cfg_plan(plan_module, function_id)
     if not isinstance(rendered, dict):
         raise RuntimeError("jit_render_bb_with_cfg_plan() returned non-dict payload")
     clif = rendered.get("clif", "")
@@ -55,7 +59,7 @@ def _render_clif(source: str, qualname: str | None, entry_label: str | None):
         "clif": clif,
         "cfgDot": cfg_dot,
         "vcodeDisasm": vcode_disasm,
-        "resolved_entry": plan_qualname,
+        "resolved_entry": f"{qualname or '<unknown>'}::__dp_fn_{function_id}::{entry_label}",
     }
 
 
@@ -78,15 +82,18 @@ class InspectorHandler(SimpleHTTPRequestHandler):
             body = self.rfile.read(length)
             payload = json.loads(body.decode("utf-8"))
             source = payload.get("source", "")
+            function_id = payload.get("functionId")
             qualname = payload.get("qualname")
             entry_label = payload.get("entryLabel")
             if not isinstance(source, str):
                 raise TypeError("source must be a string")
+            if not isinstance(function_id, int) or isinstance(function_id, bool):
+                raise TypeError("functionId must be an integer")
             if qualname is not None and not isinstance(qualname, str):
                 raise TypeError("qualname must be a string when provided")
             if entry_label is not None and not isinstance(entry_label, str):
                 raise TypeError("entryLabel must be a string when provided")
-            result = _render_clif(source, qualname, entry_label)
+            result = _render_clif(source, function_id, qualname, entry_label)
             self._send_json(HTTPStatus.OK, result)
         except Exception as exc:  # noqa: BLE001
             self._send_json(

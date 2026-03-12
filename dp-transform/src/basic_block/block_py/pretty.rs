@@ -1029,6 +1029,7 @@ def gen():
     fn renders_public_closure_metadata_in_function_header() {
         let rendered = blockpy_module_to_string(&BlockPyModule {
             functions: vec![BlockPyFunction {
+                function_id: crate::basic_block::bb_ir::FunctionId(0),
                 bind_name: "gen".to_string(),
                 display_name: "gen".to_string(),
                 qualname: "gen".to_string(),
@@ -1073,6 +1074,7 @@ def gen():
     #[test]
     fn renders_followup_blocks_under_their_owning_entry_block() {
         let function = BlockPyFunction {
+            function_id: crate::basic_block::bb_ir::FunctionId(0),
             bind_name: "f".to_string(),
             display_name: "f".to_string(),
             qualname: "f".to_string(),
