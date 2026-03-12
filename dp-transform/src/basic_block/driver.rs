@@ -1,3 +1,4 @@
+use super::ast_to_ast::rewrite_stmt::function_def::rewrite_ast_to_lowered_blockpy_module;
 use super::bb_ir::BbModule;
 use super::block_py::BlockPyModule;
 use super::blockpy_to_bb::{
@@ -6,7 +7,6 @@ use super::blockpy_to_bb::{
 use super::function_identity::{
     collect_function_identity_private, FunctionIdentity, FunctionIdentityByNode,
 };
-use super::function_lowering::rewrite_ast_to_lowered_blockpy_module;
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::ast_to_ast::scope::Scope;
 use ruff_python_ast::StmtBody;
