@@ -1,6 +1,6 @@
 use super::{BlockPyBlock, BlockPyExpr, BlockPyIfTerm, BlockPyLabel, BlockPyStmt, BlockPyTerm};
 use crate::transformer::{walk_expr, Transformer};
-use ruff_python_ast::{Expr, Stmt};
+use ruff_python_ast::Expr;
 use std::collections::{HashMap, HashSet};
 
 struct LabelNameRenamer<'a> {
@@ -39,14 +39,6 @@ fn rename_blockpy_stmt(
             if let Some(rewritten) = rename.get(delete.target.id.as_str()) {
                 delete.target.id = rewritten.as_str().into();
             }
-        }
-        BlockPyStmt::FunctionDef(func) => {
-            let mut stmt = Stmt::FunctionDef(func.clone());
-            body_renamer.visit_stmt(&mut stmt);
-            let Stmt::FunctionDef(rewritten) = stmt else {
-                unreachable!("function def stayed a function def")
-            };
-            *func = rewritten;
         }
         BlockPyStmt::If(if_stmt) => {
             if_stmt

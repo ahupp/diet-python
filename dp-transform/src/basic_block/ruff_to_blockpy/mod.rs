@@ -22,7 +22,6 @@ use super::block_py::{
     BlockPyIf, BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyTerm,
     BlockPyTryJump,
 };
-use super::function_identity::FunctionIdentityByNode;
 use super::stmt_utils::flatten_stmt_boxes;
 use crate::basic_block::ast_to_ast::ast_rewrite::Rewrite;
 use crate::basic_block::ast_to_ast::rewrite_expr::make_tuple;
@@ -1128,203 +1127,6 @@ impl Transformer for YieldLikeProbe {
     }
 }
 
-pub fn rewrite_ast_to_blockpy_module(
-    module: &StmtBody,
-    function_identity_by_node: &FunctionIdentityByNode,
-) -> Result<BlockPyModule, String> {
-    let mut module_out = BlockPyModule {
-        functions: Vec::new(),
-        module_init: None,
-    };
-
-    for stmt in &module.body {
-        match stmt.as_ref() {
-            Stmt::FunctionDef(func) => {
-                lower_function_recursive(
-                    func,
-                    function_identity_by_node,
-                    &mut module_out.functions,
-                    &mut module_out.module_init,
-                )?;
-            }
-            stmt if is_ignorable_module_stmt(stmt) => {}
-            other => {
-                return Err(format!(
-                    "rewrite_ast_to_blockpy_module expects module-init-wrapped input; found top-level {}:\n{}",
-                    stmt_kind_name(other),
-                    ruff_ast_to_string(other).trim_end()
-                ));
-            }
-        }
-    }
-    if module_out.module_init.is_none() {
-        return Err(
-            "rewrite_ast_to_blockpy_module expects wrapped-module input with `_dp_module_init`"
-                .to_string(),
-        );
-    }
-
-    validate_final_blockpy_module(&module_out);
-
-    Ok(module_out)
-}
-
-fn validate_final_blockpy_module(module: &BlockPyModule) {
-    for function in &module.functions {
-        for block in &function.blocks {
-            for stmt in &block.body {
-                validate_no_live_yield_in_stmt(stmt);
-            }
-        }
-    }
-}
-
-fn validate_no_live_yield_in_stmt(stmt: &BlockPyStmt) {
-    match stmt {
-        BlockPyStmt::Assign(assign) => validate_no_live_yield_in_expr(&assign.value),
-        BlockPyStmt::Expr(expr) => validate_no_live_yield_in_expr(expr),
-        BlockPyStmt::If(if_stmt) => {
-            validate_no_live_yield_in_expr(&if_stmt.test);
-            for stmt in &if_stmt.body {
-                validate_no_live_yield_in_stmt(stmt);
-            }
-            for stmt in &if_stmt.orelse {
-                validate_no_live_yield_in_stmt(stmt);
-            }
-        }
-        BlockPyStmt::BranchTable(branch) => validate_no_live_yield_in_expr(&branch.index),
-        BlockPyStmt::Return(value) => {
-            if let Some(value) = value {
-                validate_no_live_yield_in_expr(value);
-            }
-        }
-        BlockPyStmt::Raise(raise_stmt) => {
-            if let Some(exc) = &raise_stmt.exc {
-                validate_no_live_yield_in_expr(exc);
-            }
-        }
-        BlockPyStmt::Pass
-        | BlockPyStmt::Delete(_)
-        | BlockPyStmt::FunctionDef(_)
-        | BlockPyStmt::Jump(_)
-        | BlockPyStmt::TryJump(_) => {}
-    }
-}
-
-fn validate_no_live_yield_in_expr(expr: &crate::basic_block::block_py::BlockPyExpr) {
-    #[derive(Default)]
-    struct YieldProbe {
-        has_yield: bool,
-    }
-
-    impl Transformer for YieldProbe {
-        fn visit_expr(&mut self, expr: &mut Expr) {
-            match expr {
-                Expr::Yield(_) | Expr::YieldFrom(_) => self.has_yield = true,
-                _ => walk_expr(self, expr),
-            }
-        }
-    }
-
-    let mut probe = YieldProbe::default();
-    let mut expr = expr.to_expr();
-    probe.visit_expr(&mut expr);
-    assert!(
-        !probe.has_yield,
-        "Yield/YieldFrom should be lowered before final BlockPy emission"
-    );
-}
-
-fn lower_function_recursive(
-    func: &ast::StmtFunctionDef,
-    function_identity_by_node: &FunctionIdentityByNode,
-    out: &mut Vec<BlockPyFunction>,
-    module_init: &mut Option<String>,
-) -> Result<(), String> {
-    let Some((bind_name, _display_name, qualname, binding_target)) = function_identity_by_node
-        .get(&func.node_index.load())
-        .cloned()
-    else {
-        return Err(format!(
-            "missing function identity for function {}\nstmt:\n{}",
-            func.name.id,
-            ruff_ast_to_string(&Stmt::FunctionDef(func.clone())).trim_end()
-        ));
-    };
-
-    let lowered = lower_top_level_function(func, bind_name, qualname, binding_target)?;
-    if lowered.bind_name == "_dp_module_init" {
-        *module_init = Some(lowered.qualname.clone());
-    }
-    collect_nested_functions_from_blocks(
-        &lowered.blocks,
-        function_identity_by_node,
-        out,
-        module_init,
-    )?;
-    out.push(lowered);
-    Ok(())
-}
-
-fn collect_nested_functions_from_blocks(
-    blocks: &[BlockPyBlock],
-    function_identity_by_node: &FunctionIdentityByNode,
-    out: &mut Vec<BlockPyFunction>,
-    module_init: &mut Option<String>,
-) -> Result<(), String> {
-    for block in blocks {
-        collect_nested_functions_from_stmts(
-            &block.body,
-            function_identity_by_node,
-            out,
-            module_init,
-        )?;
-    }
-    Ok(())
-}
-
-fn collect_nested_functions_from_stmts(
-    stmts: &[BlockPyStmt],
-    function_identity_by_node: &FunctionIdentityByNode,
-    out: &mut Vec<BlockPyFunction>,
-    module_init: &mut Option<String>,
-) -> Result<(), String> {
-    for stmt in stmts {
-        match stmt {
-            BlockPyStmt::FunctionDef(func) => {
-                lower_function_recursive(func, function_identity_by_node, out, module_init)?;
-            }
-            BlockPyStmt::If(if_stmt) => {
-                collect_nested_functions_from_stmts(
-                    &if_stmt.body,
-                    function_identity_by_node,
-                    out,
-                    module_init,
-                )?;
-                collect_nested_functions_from_stmts(
-                    &if_stmt.orelse,
-                    function_identity_by_node,
-                    out,
-                    module_init,
-                )?;
-            }
-            _ => {}
-        }
-    }
-    Ok(())
-}
-
-fn is_ignorable_module_stmt(stmt: &Stmt) -> bool {
-    matches!(
-        stmt,
-        Stmt::Expr(ast::StmtExpr { value, .. }) if matches!(value.as_ref(), Expr::StringLiteral(_))
-    ) || matches!(
-        stmt,
-        Stmt::ImportFrom(ast::StmtImportFrom { module, .. })
-            if module.as_ref().map(|name| name.id.as_str()) == Some("__future__")
-    ) || matches!(stmt, Stmt::Pass(_))
-}
-
 fn function_kind_from_def(func: &ast::StmtFunctionDef) -> BlockPyFunctionKind {
     let mut probe = YieldLikeProbe::default();
     for stmt in &func.body.body {
@@ -1380,23 +1182,13 @@ fn assign_delete_error(message: &str, stmt: &Stmt) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::basic_block::collect_function_identity_by_node;
     use crate::basic_block::ruff_to_blockpy::generator_lowering::build_closure_backed_generator_factory_block;
 
-    fn wrapped_module(source: &str) -> (StmtBody, FunctionIdentityByNode) {
-        let mut module = ruff_python_parser::parse_module(source)
-            .unwrap()
-            .into_syntax()
-            .body;
-        crate::driver::wrap_module_init(&mut module);
-        let scope = crate::analyze_module_scope(&mut module);
-        let identities = collect_function_identity_by_node(&mut module, scope);
-        (module, identities)
-    }
-
     fn wrapped_blockpy(source: &str) -> BlockPyModule {
-        let (module, identities) = wrapped_module(source);
-        rewrite_ast_to_blockpy_module(&module, &identities).unwrap()
+        crate::transform_str_to_ruff_with_options(source, crate::Options::for_test())
+            .unwrap()
+            .blockpy_module
+            .expect("expected BlockPy module")
     }
 
     fn function_by_name<'a>(blockpy: &'a BlockPyModule, bind_name: &str) -> &'a BlockPyFunction {
@@ -1462,7 +1254,11 @@ def gen(n):
         );
         let rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
         assert!(
-            rendered.contains("function gen(n)\n    kind: generator"),
+            rendered.contains("function gen_resume(n)\n    kind: generator"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("function gen(n)\n    kind: function"),
             "{rendered}"
         );
         assert!(rendered.contains("branch_table"));
@@ -2323,24 +2119,6 @@ async def agen(n):
         let rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
         assert!(rendered.contains("branch_table"));
         assert!(!rendered.contains("yield n"));
-    }
-
-    #[test]
-    fn requires_wrapped_module_input() {
-        let module = ruff_python_parser::parse_module(
-            r#"
-x = 1
-
-def f():
-    return 1
-"#,
-        )
-        .unwrap()
-        .into_syntax()
-        .body;
-        let err = rewrite_ast_to_blockpy_module(&module, &FunctionIdentityByNode::default())
-            .expect_err("raw modules should be rejected");
-        assert!(err.contains("module-init-wrapped input"), "{err}");
     }
 
     #[test]

@@ -22,7 +22,6 @@ pub use driver::{
 };
 pub use function_identity::FunctionIdentityByNode;
 pub use function_lowering::BBSimplifyStmtPass;
-pub use ruff_to_blockpy::rewrite_ast_to_blockpy_module;
 
 pub fn rewrite_ast_to_bb_module(
     context: &crate::basic_block::ast_to_ast::context::Context,

@@ -159,7 +159,6 @@ fn assigned_names_in_blockpy_stmt(stmt: &BlockPyStmt) -> HashSet<String> {
             collect_named_expr_target_names_in_blockpy_expr(&assign.value, &mut names);
             names
         }
-        BlockPyStmt::FunctionDef(func_def) => HashSet::from([func_def.name.id.to_string()]),
         BlockPyStmt::If(BlockPyIf { test, body, orelse }) => {
             let mut names = HashSet::new();
             let expr = test.to_expr();

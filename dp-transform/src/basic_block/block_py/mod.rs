@@ -108,7 +108,6 @@ pub enum BlockPyStmt<E = BlockPyExpr> {
     Assign(BlockPyAssign<E>),
     Expr(E),
     Delete(BlockPyDelete),
-    FunctionDef(ast::StmtFunctionDef),
     If(BlockPyIf<E>),
     BranchTable(BlockPyBranchTable<E>),
     Jump(BlockPyLabel),
@@ -182,8 +181,7 @@ impl<E: Clone> BlockPyTerm<E> {
             | BlockPyStmt::Assign(_)
             | BlockPyStmt::Expr(_)
             | BlockPyStmt::Delete(_)
-            | BlockPyStmt::If(_)
-            | BlockPyStmt::FunctionDef(_) => None,
+            | BlockPyStmt::If(_) => None,
         }
     }
 }

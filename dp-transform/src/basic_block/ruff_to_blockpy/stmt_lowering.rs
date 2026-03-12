@@ -60,8 +60,8 @@ pub(crate) fn lower_stmt_into(
             };
             out.push(BlockPyStmt::Delete(BlockPyDelete { target }));
         }
-        Stmt::FunctionDef(func) => {
-            out.push(BlockPyStmt::FunctionDef(func.clone()));
+        Stmt::FunctionDef(_) => {
+            panic!("FunctionDef should be extracted before Ruff AST -> BlockPy conversion");
         }
         Stmt::ClassDef(_) => {
             panic!("ClassDef should be lowered before Ruff AST -> BlockPy conversion");

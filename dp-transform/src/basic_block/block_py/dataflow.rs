@@ -2,11 +2,9 @@ use super::{
     BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyDelete, BlockPyExpr, BlockPyIf,
     BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyTerm,
 };
-use crate::basic_block::ast_symbol_analysis::{
-    collect_assigned_names, load_names_in_expr, load_names_in_stmt,
-};
+use crate::basic_block::ast_symbol_analysis::{collect_assigned_names, load_names_in_expr};
 use crate::transformer::{walk_expr, Transformer};
-use ruff_python_ast::{Expr, Stmt};
+use ruff_python_ast::Expr;
 use std::collections::{HashMap, HashSet};
 
 pub(crate) fn compute_block_params_blockpy(
@@ -137,7 +135,6 @@ fn load_names_in_blockpy_stmt(stmt: &BlockPyStmt) -> HashSet<String> {
         BlockPyStmt::Delete(BlockPyDelete { target }) => {
             load_names_in_expr(&Expr::Name(target.clone()))
         }
-        BlockPyStmt::FunctionDef(func) => load_names_in_stmt(&Stmt::FunctionDef(func.clone())),
         BlockPyStmt::If(BlockPyIf { test, body, orelse }) => {
             let mut names = load_names_in_expr(&test.to_expr());
             names.extend(load_names_in_blockpy_stmt_list(body));
@@ -163,10 +160,7 @@ fn load_names_in_blockpy_stmt(stmt: &BlockPyStmt) -> HashSet<String> {
 fn load_names_in_blockpy_term(term: &BlockPyTerm) -> HashSet<String> {
     match term {
         BlockPyTerm::Jump(_) | BlockPyTerm::TryJump(_) => HashSet::new(),
-        BlockPyTerm::IfTerm(BlockPyIfTerm { test, .. }) => {
-            let mut out = load_names_in_expr(&test.to_expr());
-            out
-        }
+        BlockPyTerm::IfTerm(BlockPyIfTerm { test, .. }) => load_names_in_expr(&test.to_expr()),
         BlockPyTerm::BranchTable(BlockPyBranchTable { index, .. }) => {
             load_names_in_expr(&index.to_expr())
         }
@@ -195,7 +189,6 @@ fn assigned_names_in_blockpy_stmt(stmt: &BlockPyStmt) -> HashSet<String> {
             names
         }
         BlockPyStmt::Delete(_) => HashSet::new(),
-        BlockPyStmt::FunctionDef(func) => HashSet::from([func.name.id.to_string()]),
         BlockPyStmt::If(BlockPyIf { test, body, orelse }) => {
             let mut names = HashSet::new();
             collect_named_expr_target_names_in_blockpy_expr(test, &mut names);

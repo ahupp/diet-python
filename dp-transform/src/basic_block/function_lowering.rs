@@ -13,7 +13,6 @@ use super::bound_names::{collect_bound_names, collect_explicit_global_or_nonloca
 use super::expr_utils::make_dp_tuple;
 use super::function_identity::{
     is_module_init_temp_name, resolve_runtime_function_identity, FunctionIdentity,
-    FunctionIdentityByNode,
 };
 use super::ruff_to_blockpy::{
     build_lowered_blockpy_function_bundle, lower_function_body_to_blockpy_function,
@@ -144,7 +143,6 @@ fn rewrite_blockpy_stmt_deleted_name_loads(
     match stmt {
         BlockPyStmt::Pass
         | BlockPyStmt::Delete(_)
-        | BlockPyStmt::FunctionDef(_)
         | BlockPyStmt::Jump(_)
         | BlockPyStmt::TryJump(_) => {}
         BlockPyStmt::Expr(expr) => expr.rewrite_mut(|inner| rewriter.visit_expr(inner)),

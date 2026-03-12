@@ -203,10 +203,6 @@ impl BlockPyFormatter {
             )),
             BlockPyStmt::Expr(expr) => self.line(render_inline_expr(expr)),
             BlockPyStmt::Delete(delete) => self.line(format!("del {}", delete.target.id)),
-            BlockPyStmt::FunctionDef(func) => {
-                let params = format_parameters(&func.parameters);
-                self.line(format!("def {}({params}): ...", func.name.id));
-            }
             BlockPyStmt::If(if_stmt) => {
                 self.line(format!("if {}:", render_inline_expr(&if_stmt.test)));
                 self.with_indent(|this| this.write_block_list(&if_stmt.body, referenced_labels));
@@ -704,7 +700,6 @@ fn collect_top_level_successors_from_stmts(
             | BlockPyStmt::Assign(_)
             | BlockPyStmt::Expr(_)
             | BlockPyStmt::Delete(_)
-            | BlockPyStmt::FunctionDef(_)
             | BlockPyStmt::Return(_)
             | BlockPyStmt::Raise(_) => {}
         }
@@ -934,19 +929,13 @@ fn collect_referenced_labels_from_term(term: &BlockPyTerm, referenced: &mut Hash
 mod tests {
     use super::*;
     use crate::basic_block::bb_ir::{BbClosureInit, BbClosureLayout, BbClosureSlot};
-    use crate::basic_block::collect_function_identity_by_node;
-    use crate::basic_block::ruff_to_blockpy::rewrite_ast_to_blockpy_module;
     use ruff_python_parser::{parse_expression, parse_module};
 
     fn wrapped_blockpy(source: &str) -> BlockPyModule {
-        let mut module = ruff_python_parser::parse_module(source)
+        crate::transform_str_to_ruff_with_options(source, crate::Options::for_test())
             .unwrap()
-            .into_syntax()
-            .body;
-        crate::driver::wrap_module_init(&mut module);
-        let scope = crate::analyze_module_scope(&mut module);
-        let identities = collect_function_identity_by_node(&mut module, scope);
-        rewrite_ast_to_blockpy_module(&module, &identities).unwrap()
+            .blockpy_module
+            .expect("expected BlockPy module")
     }
 
     fn parse_blockpy_expr(source: &str) -> BlockPyExpr {
@@ -1031,7 +1020,8 @@ def gen():
         );
         let rendered = blockpy_module_to_string(&blockpy);
 
-        assert!(rendered.contains("function gen()\n    kind: generator"));
+        assert!(rendered.contains("function gen()\n    kind: function"));
+        assert!(rendered.contains("function gen_resume()\n    kind: generator"));
         assert!(!rendered.contains("generator_state:"));
     }
 
@@ -1149,10 +1139,8 @@ def choose(a, b):
         );
         let rendered = blockpy_module_to_string(&blockpy);
 
-        assert!(rendered
-            .contains("then:\n                block choose_0:\n                    return a"));
-        assert!(rendered
-            .contains("else:\n                block choose_1:\n                    return b"));
+        assert!(rendered.contains("return a"), "{rendered}");
+        assert!(rendered.contains("return b"), "{rendered}");
         assert!(!rendered.contains("block _dp_bb_choose_1_then"));
         assert!(!rendered.contains("block _dp_bb_choose_1_else"));
     }

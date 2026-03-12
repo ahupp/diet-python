@@ -262,8 +262,7 @@ fn rewrite_current_exception_in_blockpy_stmt(stmt: &mut BlockPyStmt, exc_name: &
         BlockPyStmt::Pass
         | BlockPyStmt::Delete(_)
         | BlockPyStmt::Jump(_)
-        | BlockPyStmt::TryJump(_)
-        | BlockPyStmt::FunctionDef(_) => {}
+        | BlockPyStmt::TryJump(_) => {}
         BlockPyStmt::Assign(assign) => {
             rewrite_current_exception_in_blockpy_expr(&mut assign.value, exc_name);
         }
@@ -457,7 +456,6 @@ pub(crate) fn blockpy_stmt_to_stmt_for_analysis(stmt: &BlockPyStmt) -> Option<St
             range: compat_range(),
             targets: vec![Expr::Name(delete.target.clone())],
         })),
-        BlockPyStmt::FunctionDef(func) => Some(Stmt::FunctionDef(func.clone())),
         BlockPyStmt::If(if_stmt) => Some(Stmt::If(ast::StmtIf {
             node_index: compat_node_index(),
             range: compat_range(),
