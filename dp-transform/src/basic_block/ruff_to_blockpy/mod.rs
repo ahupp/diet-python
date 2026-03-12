@@ -20,7 +20,7 @@ use super::block_py::state::{
 use super::block_py::{
     BlockPyAssign, BlockPyBlock, BlockPyCallableDef, BlockPyDelete, BlockPyExpr,
     BlockPyFunctionKind, BlockPyIf, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt,
-    BlockPyTerm, BlockPyTryJump, ENTRY_BLOCK_LABEL,
+    BlockPyStmtFragment, BlockPyTerm, BlockPyTryJump, ENTRY_BLOCK_LABEL,
 };
 use super::stmt_utils::flatten_stmt_boxes;
 use crate::basic_block::ast_to_ast::ast_rewrite::Rewrite;

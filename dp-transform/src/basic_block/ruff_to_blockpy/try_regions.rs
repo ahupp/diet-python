@@ -342,8 +342,8 @@ pub(crate) fn block_references_label(block: &BlockPyBlock, label: &str) -> bool 
     fn stmt_references_label(stmt: &BlockPyStmt, label: &str) -> bool {
         match stmt {
             BlockPyStmt::If(if_stmt) => {
-                stmt_list_references_label(&if_stmt.body, label)
-                    || stmt_list_references_label(&if_stmt.orelse, label)
+                stmt_fragment_references_label(&if_stmt.body, label)
+                    || stmt_fragment_references_label(&if_stmt.orelse, label)
             }
             BlockPyStmt::Jump(target) => target.as_str() == label,
             BlockPyStmt::BranchTable(branch) => {
@@ -361,11 +361,19 @@ pub(crate) fn block_references_label(block: &BlockPyBlock, label: &str) -> bool 
         stmts.iter().any(|stmt| stmt_references_label(stmt, label))
     }
 
-    block
-        .body
-        .iter()
-        .any(|stmt| stmt_references_label(stmt, label))
-        || match &block.term {
+    fn stmt_fragment_references_label(
+        fragment: &crate::basic_block::block_py::BlockPyStmtFragment,
+        label: &str,
+    ) -> bool {
+        stmt_list_references_label(&fragment.body, label)
+            || fragment
+                .term
+                .as_ref()
+                .is_some_and(|term| term_references_label(term, label))
+    }
+
+    fn term_references_label(term: &BlockPyTerm, label: &str) -> bool {
+        match term {
             BlockPyTerm::Jump(target) => target.as_str() == label,
             BlockPyTerm::IfTerm(if_term) => {
                 if_term.then_label.as_str() == label || if_term.else_label.as_str() == label
@@ -379,4 +387,11 @@ pub(crate) fn block_references_label(block: &BlockPyBlock, label: &str) -> bool 
             }
             BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => false,
         }
+    }
+
+    block
+        .body
+        .iter()
+        .any(|stmt| stmt_references_label(stmt, label))
+        || term_references_label(&block.term, label)
 }

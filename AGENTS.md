@@ -18,6 +18,7 @@
 - **MUST FOLLOW**: If a fixture error occurs, regenerate all fixtures by running `cargo run --bin regen_snapshots` with no file arguments.
 - **NOTE**: Use `cargo run --bin regen_snapshots` to regenerate fixtures instead of manual edits.
 - **NOTE**: Check `snapshot/snapshot_summary.txt` after regenerating snapshots and flag any test case with a surprising BlockPy/CLIF block count, or any dramatic count change.
+- **MUST FOLLOW**: Keep `snapshot_*` updates in the current logical change instead of restoring them away; include real snapshot output changes in the same change so BlockPy/rendering regressions stay immediately visible.
 - **NOTE**: Set `DIET_PYTHON_INTEGRATION_ONLY=1` to only transform integration test modules (skip transforming all imports).
 - To inspect the transformed output of some code, run `cargo run --bin diet-python file_with_code.py`, which prints output to stdout.
 - *MUST FOLLOW* when fixing a bug that fails a cpython test case *always* add a minimal reproducing integration test to reproduce it first.

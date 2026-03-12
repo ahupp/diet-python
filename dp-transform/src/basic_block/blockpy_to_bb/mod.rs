@@ -272,12 +272,8 @@ fn rewrite_current_exception_in_blockpy_stmt(stmt: &mut BlockPyStmt, exc_name: &
         }
         BlockPyStmt::If(if_stmt) => {
             rewrite_current_exception_in_blockpy_expr(&mut if_stmt.test, exc_name);
-            for stmt in &mut if_stmt.body {
-                rewrite_current_exception_in_blockpy_stmt(stmt, exc_name);
-            }
-            for stmt in &mut if_stmt.orelse {
-                rewrite_current_exception_in_blockpy_stmt(stmt, exc_name);
-            }
+            rewrite_current_exception_in_blockpy_stmt_fragment(&mut if_stmt.body, exc_name);
+            rewrite_current_exception_in_blockpy_stmt_fragment(&mut if_stmt.orelse, exc_name);
         }
         BlockPyStmt::Return(value) => {
             if let Some(value) = value.as_mut() {
@@ -294,6 +290,18 @@ fn rewrite_current_exception_in_blockpy_stmt(stmt: &mut BlockPyStmt, exc_name: &
         BlockPyStmt::BranchTable(branch) => {
             rewrite_current_exception_in_blockpy_expr(&mut branch.index, exc_name);
         }
+    }
+}
+
+fn rewrite_current_exception_in_blockpy_stmt_fragment(
+    fragment: &mut super::block_py::BlockPyStmtFragment,
+    exc_name: &str,
+) {
+    for stmt in &mut fragment.body {
+        rewrite_current_exception_in_blockpy_stmt(stmt, exc_name);
+    }
+    if let Some(term) = &mut fragment.term {
+        rewrite_current_exception_in_blockpy_term(term, exc_name);
     }
 }
 
@@ -461,15 +469,15 @@ pub(crate) fn blockpy_stmt_to_stmt_for_analysis(stmt: &BlockPyStmt) -> Option<St
             node_index: compat_node_index(),
             range: compat_range(),
             test: Box::new(if_stmt.test.to_expr()),
-            body: stmt_body_from_blockpy_stmts(&if_stmt.body),
-            elif_else_clauses: if if_stmt.orelse.is_empty() {
+            body: stmt_body_from_blockpy_fragment(&if_stmt.body),
+            elif_else_clauses: if if_stmt.orelse.body.is_empty() && if_stmt.orelse.term.is_none() {
                 Vec::new()
             } else {
                 vec![ast::ElifElseClause {
                     node_index: compat_node_index(),
                     range: compat_range(),
                     test: None,
-                    body: stmt_body_from_blockpy_stmts(&if_stmt.orelse),
+                    body: stmt_body_from_blockpy_fragment(&if_stmt.orelse),
                 }]
             },
         })),
@@ -538,6 +546,22 @@ fn stmt_body_from_blockpy_stmts(stmts: &[BlockPyStmt]) -> ast::StmtBody {
             .filter_map(blockpy_stmt_to_stmt_for_analysis)
             .collect::<Vec<_>>(),
     )
+}
+
+fn stmt_body_from_blockpy_fragment(
+    fragment: &super::block_py::BlockPyStmtFragment,
+) -> ast::StmtBody {
+    let mut stmts = fragment
+        .body
+        .iter()
+        .filter_map(blockpy_stmt_to_stmt_for_analysis)
+        .collect::<Vec<_>>();
+    if let Some(term) = &fragment.term {
+        if let Some(stmt) = blockpy_term_to_stmt_for_analysis(term) {
+            stmts.push(stmt);
+        }
+    }
+    stmt_body_from_stmts(stmts)
 }
 
 fn blockpy_term_to_stmt_for_analysis(term: &BlockPyTerm) -> Option<Stmt> {

@@ -1,6 +1,6 @@
 use super::{
     BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyDelete, BlockPyExpr, BlockPyIf,
-    BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyTerm,
+    BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment, BlockPyTerm,
 };
 use crate::basic_block::ast_symbol_analysis::{collect_assigned_names, load_names_in_expr};
 use crate::transformer::{walk_expr, Transformer};
@@ -137,8 +137,8 @@ fn load_names_in_blockpy_stmt(stmt: &BlockPyStmt) -> HashSet<String> {
         }
         BlockPyStmt::If(BlockPyIf { test, body, orelse }) => {
             let mut names = load_names_in_expr(&test.to_expr());
-            names.extend(load_names_in_blockpy_stmt_list(body));
-            names.extend(load_names_in_blockpy_stmt_list(orelse));
+            names.extend(load_names_in_blockpy_stmt_fragment(body));
+            names.extend(load_names_in_blockpy_stmt_fragment(orelse));
             names
         }
         BlockPyStmt::BranchTable(BlockPyBranchTable { index, .. }) => {
@@ -192,12 +192,8 @@ fn assigned_names_in_blockpy_stmt(stmt: &BlockPyStmt) -> HashSet<String> {
         BlockPyStmt::If(BlockPyIf { test, body, orelse }) => {
             let mut names = HashSet::new();
             collect_named_expr_target_names_in_blockpy_expr(test, &mut names);
-            for stmt in body {
-                names.extend(assigned_names_in_blockpy_stmt(stmt));
-            }
-            for stmt in orelse {
-                names.extend(assigned_names_in_blockpy_stmt(stmt));
-            }
+            names.extend(assigned_names_in_blockpy_stmt_fragment(body));
+            names.extend(assigned_names_in_blockpy_stmt_fragment(orelse));
             names
         }
         BlockPyStmt::BranchTable(BlockPyBranchTable { index, .. }) => {
@@ -257,6 +253,25 @@ fn load_names_in_blockpy_stmt_list(stmts: &[BlockPyStmt]) -> HashSet<String> {
     let mut out = HashSet::new();
     for stmt in stmts {
         out.extend(load_names_in_blockpy_stmt(stmt));
+    }
+    out
+}
+
+fn load_names_in_blockpy_stmt_fragment(fragment: &BlockPyStmtFragment) -> HashSet<String> {
+    let mut out = load_names_in_blockpy_stmt_list(&fragment.body);
+    if let Some(term) = &fragment.term {
+        out.extend(load_names_in_blockpy_term(term));
+    }
+    out
+}
+
+fn assigned_names_in_blockpy_stmt_fragment(fragment: &BlockPyStmtFragment) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for stmt in &fragment.body {
+        out.extend(assigned_names_in_blockpy_stmt(stmt));
+    }
+    if let Some(term) = &fragment.term {
+        out.extend(assigned_names_in_blockpy_term(term));
     }
     out
 }

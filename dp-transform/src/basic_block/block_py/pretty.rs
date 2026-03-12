@@ -1,7 +1,8 @@
 use super::state::collect_parameter_names;
 use super::{
     BlockPyBlock, BlockPyCallableDef, BlockPyExpr, BlockPyFunctionKind, BlockPyIfTerm,
-    BlockPyLabel, BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyTerm, BlockPyTryJump,
+    BlockPyLabel, BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment, BlockPyTerm,
+    BlockPyTryJump,
 };
 use crate::ruff_ast_to_string;
 use ruff_python_ast::{self as ast, Expr};
@@ -171,16 +172,19 @@ impl BlockPyFormatter {
         }
     }
 
-    fn write_block_list(
+    fn write_stmt_fragment(
         &mut self,
-        stmts: &[BlockPyStmt],
+        fragment: &BlockPyStmtFragment,
         referenced_labels: &HashSet<BlockPyLabel>,
     ) {
-        if stmts.is_empty() {
+        if fragment.body.is_empty() && fragment.term.is_none() {
             self.line("pass");
             return;
         }
-        self.write_stmt_list(stmts, referenced_labels, true);
+        self.write_stmt_list(&fragment.body, referenced_labels, true);
+        if let Some(term) = &fragment.term {
+            self.write_term_inline(term);
+        }
     }
 
     fn write_stmt(
@@ -200,11 +204,11 @@ impl BlockPyFormatter {
             BlockPyStmt::Delete(delete) => self.line(format!("del {}", delete.target.id)),
             BlockPyStmt::If(if_stmt) => {
                 self.line(format!("if {}:", render_inline_expr(&if_stmt.test)));
-                self.with_indent(|this| this.write_block_list(&if_stmt.body, referenced_labels));
-                if !if_stmt.orelse.is_empty() {
+                self.with_indent(|this| this.write_stmt_fragment(&if_stmt.body, referenced_labels));
+                if !if_stmt.orelse.body.is_empty() || if_stmt.orelse.term.is_some() {
                     self.line("else:");
                     self.with_indent(|this| {
-                        this.write_block_list(&if_stmt.orelse, referenced_labels)
+                        this.write_stmt_fragment(&if_stmt.orelse, referenced_labels)
                     });
                 }
             }
@@ -328,6 +332,27 @@ impl BlockPyFormatter {
         match &raise_stmt.exc {
             Some(exc) => self.line(format!("raise {}", render_inline_expr(exc))),
             None => self.line("raise"),
+        }
+    }
+
+    fn write_term_inline(&mut self, term: &BlockPyTerm) {
+        match term {
+            BlockPyTerm::Jump(label) => self.line(format!("jump {}", label.as_str())),
+            BlockPyTerm::BranchTable(branch) => self.line(format!(
+                "branch_table {} -> [{}] default {}",
+                render_inline_expr(&branch.index),
+                join_labels(&branch.targets),
+                branch.default_label.as_str(),
+            )),
+            BlockPyTerm::Raise(raise_stmt) => self.write_raise(raise_stmt),
+            BlockPyTerm::TryJump(try_jump) => self.write_try_jump(try_jump),
+            BlockPyTerm::Return(value) => match value {
+                Some(value) => self.line(format!("return {}", render_inline_expr(value))),
+                None => self.line("return"),
+            },
+            BlockPyTerm::IfTerm(_) => {
+                panic!("IfTerm is only valid as a top-level block terminator");
+            }
         }
     }
 
@@ -667,8 +692,24 @@ fn collect_top_level_successors_from_stmts(
     for stmt in stmts {
         match stmt {
             BlockPyStmt::If(if_stmt) => {
-                collect_top_level_successors_from_stmts(&if_stmt.body, label_to_index, seen, out);
-                collect_top_level_successors_from_stmts(&if_stmt.orelse, label_to_index, seen, out);
+                collect_top_level_successors_from_stmts(
+                    &if_stmt.body.body,
+                    label_to_index,
+                    seen,
+                    out,
+                );
+                if let Some(term) = &if_stmt.body.term {
+                    collect_top_level_successors_from_term(term, label_to_index, seen, out);
+                }
+                collect_top_level_successors_from_stmts(
+                    &if_stmt.orelse.body,
+                    label_to_index,
+                    seen,
+                    out,
+                );
+                if let Some(term) = &if_stmt.orelse.term {
+                    collect_top_level_successors_from_term(term, label_to_index, seen, out);
+                }
             }
             BlockPyStmt::BranchTable(branch) => {
                 for label in &branch.targets {
@@ -872,8 +913,14 @@ fn collect_referenced_labels_from_stmts(
     for stmt in stmts {
         match stmt {
             BlockPyStmt::If(if_stmt) => {
-                collect_referenced_labels_from_stmts(&if_stmt.body, referenced);
-                collect_referenced_labels_from_stmts(&if_stmt.orelse, referenced);
+                collect_referenced_labels_from_stmts(&if_stmt.body.body, referenced);
+                if let Some(term) = &if_stmt.body.term {
+                    collect_referenced_labels_from_term(term, referenced);
+                }
+                collect_referenced_labels_from_stmts(&if_stmt.orelse.body, referenced);
+                if let Some(term) = &if_stmt.orelse.term {
+                    collect_referenced_labels_from_term(term, referenced);
+                }
             }
             BlockPyStmt::BranchTable(branch) => {
                 referenced.extend(branch.targets.iter().cloned());

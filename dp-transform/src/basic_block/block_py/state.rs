@@ -3,7 +3,7 @@ use super::super::ruff_to_blockpy::lower_stmts_to_blockpy_stmts;
 use super::dataflow::analyze_blockpy_use_def;
 use super::{
     BlockPyBlock, BlockPyBranchTable, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt,
-    BlockPyTerm,
+    BlockPyStmtFragment, BlockPyTerm,
 };
 use crate::basic_block::ast_symbol_analysis::{assigned_names_in_stmt, collect_assigned_names};
 use crate::basic_block::ast_to_ast::scope::cell_name;
@@ -163,12 +163,8 @@ fn assigned_names_in_blockpy_stmt(stmt: &BlockPyStmt) -> HashSet<String> {
             let mut names = HashSet::new();
             let expr = test.to_expr();
             collect_named_expr_targets(&expr, &mut names);
-            for stmt in body {
-                names.extend(assigned_names_in_blockpy_stmt(stmt));
-            }
-            for stmt in orelse {
-                names.extend(assigned_names_in_blockpy_stmt(stmt));
-            }
+            names.extend(assigned_names_in_blockpy_stmt_fragment(body));
+            names.extend(assigned_names_in_blockpy_stmt_fragment(orelse));
             names
         }
         BlockPyStmt::Expr(expr) => {
@@ -232,6 +228,17 @@ fn assigned_names_in_blockpy_term(term: &BlockPyTerm) -> HashSet<String> {
             names
         }
     }
+}
+
+fn assigned_names_in_blockpy_stmt_fragment(fragment: &BlockPyStmtFragment) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for stmt in &fragment.body {
+        out.extend(assigned_names_in_blockpy_stmt(stmt));
+    }
+    if let Some(term) = &fragment.term {
+        out.extend(assigned_names_in_blockpy_term(term));
+    }
+    out
 }
 
 fn collect_named_expr_targets(expr: &Expr, names: &mut HashSet<String>) {
@@ -417,7 +424,7 @@ fn rewrite_sync_generator_blockpy_block(
     for stmt in &mut block.body {
         match stmt {
             BlockPyStmt::If(BlockPyIf { body, orelse, .. }) => {
-                for nested in body {
+                for nested in &mut body.body {
                     rewrite_sync_generator_blockpy_stmt(
                         nested,
                         block_params,
@@ -428,9 +435,31 @@ fn rewrite_sync_generator_blockpy_block(
                         cell_slots,
                     );
                 }
-                for nested in orelse {
+                if let Some(term) = &mut body.term {
+                    rewrite_sync_generator_blockpy_term(
+                        term,
+                        block_params,
+                        passthrough_exception_names,
+                        lifted_state,
+                        lifted_storage_names,
+                        injected_exception_names,
+                        cell_slots,
+                    );
+                }
+                for nested in &mut orelse.body {
                     rewrite_sync_generator_blockpy_stmt(
                         nested,
+                        block_params,
+                        passthrough_exception_names,
+                        lifted_state,
+                        lifted_storage_names,
+                        injected_exception_names,
+                        cell_slots,
+                    );
+                }
+                if let Some(term) = &mut orelse.term {
+                    rewrite_sync_generator_blockpy_term(
+                        term,
                         block_params,
                         passthrough_exception_names,
                         lifted_state,
@@ -465,7 +494,7 @@ fn rewrite_sync_generator_blockpy_stmt(
     cell_slots: &HashSet<String>,
 ) {
     if let BlockPyStmt::If(BlockPyIf { body, orelse, .. }) = stmt {
-        for nested in body {
+        for nested in &mut body.body {
             rewrite_sync_generator_blockpy_stmt(
                 nested,
                 block_params,
@@ -476,9 +505,31 @@ fn rewrite_sync_generator_blockpy_stmt(
                 cell_slots,
             );
         }
-        for nested in orelse {
+        if let Some(term) = &mut body.term {
+            rewrite_sync_generator_blockpy_term(
+                term,
+                block_params,
+                passthrough_exception_names,
+                lifted_state,
+                lifted_storage_names,
+                injected_exception_names,
+                cell_slots,
+            );
+        }
+        for nested in &mut orelse.body {
             rewrite_sync_generator_blockpy_stmt(
                 nested,
+                block_params,
+                passthrough_exception_names,
+                lifted_state,
+                lifted_storage_names,
+                injected_exception_names,
+                cell_slots,
+            );
+        }
+        if let Some(term) = &mut orelse.term {
+            rewrite_sync_generator_blockpy_term(
+                term,
                 block_params,
                 passthrough_exception_names,
                 lifted_state,

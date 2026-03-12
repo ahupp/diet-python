@@ -1,4 +1,7 @@
-use super::{BlockPyBlock, BlockPyExpr, BlockPyIfTerm, BlockPyLabel, BlockPyStmt, BlockPyTerm};
+use super::{
+    BlockPyBlock, BlockPyExpr, BlockPyIfTerm, BlockPyLabel, BlockPyStmt, BlockPyStmtFragment,
+    BlockPyTerm,
+};
 use crate::transformer::{walk_expr, Transformer};
 use ruff_python_ast::Expr;
 use std::collections::{HashMap, HashSet};
@@ -44,12 +47,8 @@ fn rename_blockpy_stmt(
             if_stmt
                 .test
                 .rewrite_mut(|expr| body_renamer.visit_expr(expr));
-            for stmt in &mut if_stmt.body {
-                rename_blockpy_stmt(stmt, body_renamer, rename, known_labels);
-            }
-            for stmt in &mut if_stmt.orelse {
-                rename_blockpy_stmt(stmt, body_renamer, rename, known_labels);
-            }
+            rename_blockpy_stmt_fragment(&mut if_stmt.body, body_renamer, rename, known_labels);
+            rename_blockpy_stmt_fragment(&mut if_stmt.orelse, body_renamer, rename, known_labels);
         }
         BlockPyStmt::BranchTable(branch) => {
             branch
@@ -86,6 +85,20 @@ fn rename_blockpy_stmt(
                 }
             }
         }
+    }
+}
+
+fn rename_blockpy_stmt_fragment(
+    fragment: &mut BlockPyStmtFragment,
+    body_renamer: &mut LabelNameRenamer<'_>,
+    rename: &HashMap<String, String>,
+    known_labels: &HashSet<String>,
+) {
+    for stmt in &mut fragment.body {
+        rename_blockpy_stmt(stmt, body_renamer, rename, known_labels);
+    }
+    if let Some(term) = &mut fragment.term {
+        rename_blockpy_term(term, body_renamer, rename, known_labels);
     }
 }
 
@@ -196,8 +209,8 @@ pub(crate) fn rename_blockpy_labels(rename: &HashMap<String, String>, blocks: &m
             for stmt in &block.body {
                 match stmt {
                     BlockPyStmt::If(if_stmt) => {
-                        collect_known_labels_in_stmt_list(&if_stmt.body, out);
-                        collect_known_labels_in_stmt_list(&if_stmt.orelse, out);
+                        collect_known_labels_in_stmt_fragment(&if_stmt.body, out);
+                        collect_known_labels_in_stmt_fragment(&if_stmt.orelse, out);
                     }
                     _ => {}
                 }
@@ -208,10 +221,17 @@ pub(crate) fn rename_blockpy_labels(rename: &HashMap<String, String>, blocks: &m
     fn collect_known_labels_in_stmt_list(stmts: &[BlockPyStmt], out: &mut HashSet<String>) {
         for stmt in stmts {
             if let BlockPyStmt::If(if_stmt) = stmt {
-                collect_known_labels_in_stmt_list(&if_stmt.body, out);
-                collect_known_labels_in_stmt_list(&if_stmt.orelse, out);
+                collect_known_labels_in_stmt_fragment(&if_stmt.body, out);
+                collect_known_labels_in_stmt_fragment(&if_stmt.orelse, out);
             }
         }
+    }
+
+    fn collect_known_labels_in_stmt_fragment(
+        fragment: &BlockPyStmtFragment,
+        out: &mut HashSet<String>,
+    ) {
+        collect_known_labels_in_stmt_list(&fragment.body, out);
     }
 
     let mut known_labels = HashSet::new();

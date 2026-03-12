@@ -4,7 +4,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use dp_transform::basic_block::block_py::{BlockPyBlock, BlockPyModule, BlockPyStmt};
+use dp_transform::basic_block::block_py::{
+    BlockPyBlock, BlockPyModule, BlockPyStmt, BlockPyStmtFragment,
+};
 use dp_transform::basic_block::prepare_bb_module_for_codegen;
 use dp_transform::fixture::{parse_fixture, render_fixture, FixtureBlock};
 use dp_transform::{init_logging, transform_str_to_ruff_with_options, Options};
@@ -113,12 +115,20 @@ fn count_blockpy_blocks_in_stmts(stmts: &[BlockPyStmt]) -> usize {
         .iter()
         .map(|stmt| match stmt {
             BlockPyStmt::If(if_stmt) => {
-                count_blockpy_blocks_in_stmts(&if_stmt.body)
-                    + count_blockpy_blocks_in_stmts(&if_stmt.orelse)
+                count_blockpy_blocks_in_stmt_fragment(&if_stmt.body)
+                    + count_blockpy_blocks_in_stmt_fragment(&if_stmt.orelse)
             }
             _ => 0,
         })
         .sum()
+}
+
+fn count_blockpy_blocks_in_stmt_fragment(fragment: &BlockPyStmtFragment) -> usize {
+    count_blockpy_blocks_in_stmts(&fragment.body)
+        + fragment
+            .term
+            .as_ref()
+            .map_or(0, count_blockpy_blocks_in_term)
 }
 
 fn count_blockpy_blocks_in_term(term: &dp_transform::basic_block::block_py::BlockPyTerm) -> usize {

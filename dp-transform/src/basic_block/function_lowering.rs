@@ -149,12 +149,8 @@ fn rewrite_blockpy_stmt_deleted_name_loads(
         BlockPyStmt::Assign(assign) => assign.value.rewrite_mut(|expr| rewriter.visit_expr(expr)),
         BlockPyStmt::If(BlockPyIf { test, body, orelse }) => {
             test.rewrite_mut(|expr| rewriter.visit_expr(expr));
-            for stmt in body {
-                rewrite_blockpy_stmt_deleted_name_loads(stmt, rewriter);
-            }
-            for stmt in orelse {
-                rewrite_blockpy_stmt_deleted_name_loads(stmt, rewriter);
-            }
+            rewrite_blockpy_stmt_fragment_deleted_name_loads(body, rewriter);
+            rewrite_blockpy_stmt_fragment_deleted_name_loads(orelse, rewriter);
         }
         BlockPyStmt::BranchTable(BlockPyBranchTable { index, .. }) => {
             index.rewrite_mut(|expr| rewriter.visit_expr(expr))
@@ -166,6 +162,18 @@ fn rewrite_blockpy_stmt_deleted_name_loads(
                 exc.rewrite_mut(|expr| rewriter.visit_expr(expr));
             }
         }
+    }
+}
+
+fn rewrite_blockpy_stmt_fragment_deleted_name_loads(
+    fragment: &mut crate::basic_block::block_py::BlockPyStmtFragment,
+    rewriter: &mut DeletedNameLoadRewriter<'_>,
+) {
+    for stmt in &mut fragment.body {
+        rewrite_blockpy_stmt_deleted_name_loads(stmt, rewriter);
+    }
+    if let Some(term) = &mut fragment.term {
+        rewrite_blockpy_term_deleted_name_loads(term, rewriter);
     }
 }
 

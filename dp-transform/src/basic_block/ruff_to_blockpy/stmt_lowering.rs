@@ -81,8 +81,8 @@ pub(crate) fn lower_stmt_into(
                 lower_orelse_to_stmts(&if_stmt.elif_else_clauses, stmt, loop_ctx, next_label_id)?;
             out.push(BlockPyStmt::If(BlockPyIf {
                 test: (*if_stmt.test).clone().into(),
-                body,
-                orelse,
+                body: BlockPyStmtFragment::from_stmts(body),
+                orelse: BlockPyStmtFragment::from_stmts(orelse),
             }));
         }
         Stmt::While(_) => {

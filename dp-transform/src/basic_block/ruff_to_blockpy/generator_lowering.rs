@@ -8,7 +8,8 @@ use crate::basic_block::bb_ir::{BbClosureInit, BbClosureLayout, BbClosureSlot, F
 use crate::basic_block::block_py::state::{sync_generator_state_order, sync_target_cells_stmts};
 use crate::basic_block::block_py::{
     BlockPyAssign, BlockPyBlock, BlockPyBlockBuilder, BlockPyBranchTable, BlockPyExpr, BlockPyIf,
-    BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm, BlockPyTryJump,
+    BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment, BlockPyTerm,
+    BlockPyTryJump,
 };
 use crate::basic_block::blockpy_to_bb::blockpy_stmt_to_stmt_for_analysis;
 use crate::{py_expr, py_stmt};
@@ -38,8 +39,8 @@ fn legacy_stmt_from_term(term: &BlockPyTerm, _label_prefix: &str) -> BlockPyStmt
             else_label,
         }) => BlockPyStmt::If(BlockPyIf {
             test: test.clone(),
-            body: vec![BlockPyStmt::Jump(then_label.clone())],
-            orelse: vec![BlockPyStmt::Jump(else_label.clone())],
+            body: BlockPyStmtFragment::from_stmts(vec![BlockPyStmt::Jump(then_label.clone())]),
+            orelse: BlockPyStmtFragment::from_stmts(vec![BlockPyStmt::Jump(else_label.clone())]),
         }),
         BlockPyTerm::BranchTable(branch) => BlockPyStmt::BranchTable(branch.clone()),
         BlockPyTerm::Raise(raise_stmt) => BlockPyStmt::Raise(raise_stmt.clone()),
@@ -771,7 +772,7 @@ fn lower_nested_generator_stmt_regions(
             BlockPyStmt::If(if_stmt) => {
                 lower_nested_generator_stmt_regions(
                     fn_name,
-                    &mut if_stmt.body,
+                    &mut if_stmt.body.body,
                     closure_state,
                     cell_slots,
                     try_regions,
@@ -781,7 +782,7 @@ fn lower_nested_generator_stmt_regions(
                 );
                 lower_nested_generator_stmt_regions(
                     fn_name,
-                    &mut if_stmt.orelse,
+                    &mut if_stmt.orelse.body,
                     closure_state,
                     cell_slots,
                     try_regions,
