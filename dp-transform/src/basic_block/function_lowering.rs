@@ -409,6 +409,7 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
 
     let end_label = next_label(func.name.id.as_str(), next_block_id);
     let identity = resolve_runtime_function_identity(func, function_identity_by_node, parent_name);
+    let doc_expr = function_docstring_expr(func).map(Into::into);
     let label_prefix = next_label_prefix(func.name.id.as_str(), used_label_prefixes);
     let mut local_next_block_id = *next_block_id;
     let mut prepared_function = lower_function_body_to_blockpy_function(
@@ -416,7 +417,7 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         &runtime_input_body,
         identity.bind_name.clone(),
         identity.qualname.clone(),
-        identity.binding_target,
+        doc_expr,
         (*func.parameters).clone(),
         end_label,
         label_prefix.as_str(),

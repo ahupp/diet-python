@@ -1,4 +1,4 @@
-use super::bb_ir::{BbClosureLayout, BindingTarget, FunctionId};
+use super::bb_ir::{BbClosureLayout, FunctionId};
 use ruff_python_ast::{self as ast, Expr, ExprName, Parameters};
 
 pub(crate) mod cfg;
@@ -48,7 +48,6 @@ pub enum BlockPyExpr {
 
 pub type RuffBlockPyModule = BlockPyModule<Expr>;
 pub type RuffBlockPyCallableDef = BlockPyCallableDef<Expr>;
-pub type RuffBlockPyFunction = BlockPyFunction<Expr>;
 pub type RuffBlockPyBlock = BlockPyBlock<Expr>;
 pub type RuffBlockPyStmt = BlockPyStmt<Expr>;
 pub type RuffBlockPyTerm = BlockPyTerm<Expr>;
@@ -65,15 +64,13 @@ pub struct BlockPyModule<E = BlockPyExpr> {
     pub module_init: Option<String>,
 }
 
-pub type BlockPyCallableDef<E = BlockPyExpr> = BlockPyFunction<E>;
-
 #[derive(Debug, Clone)]
-pub struct BlockPyFunction<E = BlockPyExpr> {
+pub struct BlockPyCallableDef<E = BlockPyExpr> {
     pub function_id: FunctionId,
     pub bind_name: String,
     pub display_name: String,
     pub qualname: String,
-    pub binding_target: BindingTarget,
+    pub doc: Option<E>,
     pub kind: BlockPyFunctionKind,
     pub params: Parameters,
     pub entry_liveins: Vec<String>,
@@ -82,12 +79,12 @@ pub struct BlockPyFunction<E = BlockPyExpr> {
     pub blocks: Vec<BlockPyBlock<E>>,
 }
 
-impl<E> BlockPyFunction<E> {
+impl<E> BlockPyCallableDef<E> {
     pub fn entry_label(&self) -> &str {
         self.blocks
             .first()
             .map(|block| block.label.as_str())
-            .expect("BlockPyFunction should have at least one block")
+            .expect("BlockPyCallableDef should have at least one block")
     }
 }
 

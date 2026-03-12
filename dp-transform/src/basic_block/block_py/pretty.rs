@@ -1,8 +1,7 @@
-use super::super::bb_ir::BindingTarget;
 use super::state::collect_parameter_names;
 use super::{
-    BlockPyBlock, BlockPyExpr, BlockPyFunction, BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel,
-    BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyTerm, BlockPyTryJump,
+    BlockPyBlock, BlockPyCallableDef, BlockPyExpr, BlockPyFunctionKind, BlockPyIfTerm,
+    BlockPyLabel, BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyTerm, BlockPyTryJump,
 };
 use crate::ruff_ast_to_string;
 use ruff_python_ast::{self as ast, Expr};
@@ -47,7 +46,7 @@ impl BlockPyFormatter {
         }
     }
 
-    fn write_function(&mut self, function: &BlockPyFunction) {
+    fn write_function(&mut self, function: &BlockPyCallableDef) {
         let params = format_parameters(&function.params);
         let parameter_names = collect_parameter_names(&function.params);
         let referenced_labels = collect_referenced_labels_from_blocks(&function.blocks);
@@ -56,10 +55,6 @@ impl BlockPyFormatter {
         self.with_indent(|this| {
             this.line(format!("kind: {}", function_kind_name(function.kind)));
             this.line(format!("bind: {}", function.bind_name));
-            this.line(format!(
-                "target: {}",
-                binding_target_name(function.binding_target)
-            ));
             this.line(format!("qualname: {}", function.qualname));
             if function.display_name != function.bind_name {
                 this.line(format!("display_name: {}", function.display_name));
@@ -113,7 +108,7 @@ impl BlockPyFormatter {
 
     fn write_function_block(
         &mut self,
-        function: &BlockPyFunction,
+        function: &BlockPyCallableDef,
         render_layout: &BlockRenderLayout,
         block_index: usize,
         referenced_labels: &HashSet<BlockPyLabel>,
@@ -139,7 +134,7 @@ impl BlockPyFormatter {
 
     fn write_block_contents(
         &mut self,
-        function: &BlockPyFunction,
+        function: &BlockPyCallableDef,
         render_layout: &BlockRenderLayout,
         current_block_index: Option<usize>,
         block: &BlockPyBlock,
@@ -261,7 +256,7 @@ impl BlockPyFormatter {
 
     fn write_term(
         &mut self,
-        function: &BlockPyFunction,
+        function: &BlockPyCallableDef,
         render_layout: &BlockRenderLayout,
         current_block_index: Option<usize>,
         term: &BlockPyTerm,
@@ -356,14 +351,6 @@ impl BlockPyFormatter {
         }
         self.out.push_str(line.as_ref());
         self.out.push('\n');
-    }
-}
-
-fn binding_target_name(target: BindingTarget) -> &'static str {
-    match target {
-        BindingTarget::Local => "local",
-        BindingTarget::ModuleGlobal => "module_global",
-        BindingTarget::ClassNamespace => "class_namespace",
     }
 }
 
@@ -504,7 +491,7 @@ struct BlockRenderLayout {
 }
 
 impl BlockRenderLayout {
-    fn new(function: &BlockPyFunction) -> Self {
+    fn new(function: &BlockPyCallableDef) -> Self {
         let block_count = function.blocks.len();
         if block_count == 0 {
             return Self {
@@ -582,7 +569,7 @@ impl BlockRenderLayout {
 }
 
 fn compute_inline_if_term_targets(
-    function: &BlockPyFunction,
+    function: &BlockPyCallableDef,
     label_to_index: &HashMap<String, usize>,
     predecessors: &[Vec<usize>],
     immediate_dominators: &[Option<usize>],
@@ -648,7 +635,7 @@ fn can_inline_if_term_target(
 }
 
 fn choose_entry_block_index(
-    _function: &BlockPyFunction,
+    _function: &BlockPyCallableDef,
     _label_to_index: &HashMap<String, usize>,
     _predecessors: &[Vec<usize>],
 ) -> usize {
@@ -974,7 +961,7 @@ def classify(a, /, b: int = 1, *args, c=2, **kwargs):
 
         assert!(rendered.contains("module_init: _dp_module_init"));
         assert!(rendered.contains(
-            "function classify(a, /, b: int = 1, *args, c = 2, **kwargs)\n    kind: function\n    bind: classify\n    target: module_global\n    qualname: classify"
+            "function classify(a, /, b: int = 1, *args, c = 2, **kwargs)\n    kind: function\n    bind: classify\n    qualname: classify"
         ));
         assert!(rendered.contains("function _dp_module_init()"));
         assert!(rendered.contains("block start:"));
@@ -1028,12 +1015,12 @@ def gen():
     #[test]
     fn renders_public_closure_metadata_in_function_header() {
         let rendered = blockpy_module_to_string(&BlockPyModule {
-            callable_defs: vec![BlockPyFunction {
+            callable_defs: vec![BlockPyCallableDef {
                 function_id: crate::basic_block::bb_ir::FunctionId(0),
                 bind_name: "gen".to_string(),
                 display_name: "gen".to_string(),
                 qualname: "gen".to_string(),
-                binding_target: BindingTarget::ModuleGlobal,
+                doc: None,
                 kind: BlockPyFunctionKind::Function,
                 params: empty_parameters(),
                 entry_liveins: vec!["_dp_self".to_string(), "_dp_resume_exc".to_string()],
@@ -1066,19 +1053,19 @@ def gen():
         });
 
         assert!(rendered.contains(
-            "function gen()\n    kind: function\n    bind: gen\n    target: module_global\n    qualname: gen\n    entry_liveins: [_dp_self, _dp_resume_exc]\n    local_cell_slots: [_dp_cell__dp_pc]\n    freevars: [factor->_dp_cell_factor@inherited]\n    cellvars: [total->_dp_cell_total@deferred]\n    runtime_cells: [_dp_pc->_dp_cell__dp_pc@pc_unstarted]"
+            "function gen()\n    kind: function\n    bind: gen\n    qualname: gen\n    entry_liveins: [_dp_self, _dp_resume_exc]\n    local_cell_slots: [_dp_cell__dp_pc]\n    freevars: [factor->_dp_cell_factor@inherited]\n    cellvars: [total->_dp_cell_total@deferred]\n    runtime_cells: [_dp_pc->_dp_cell__dp_pc@pc_unstarted]"
         ));
         assert!(!rendered.contains("entry:"));
     }
 
     #[test]
     fn renders_followup_blocks_under_their_owning_entry_block() {
-        let function = BlockPyFunction {
+        let function = BlockPyCallableDef {
             function_id: crate::basic_block::bb_ir::FunctionId(0),
             bind_name: "f".to_string(),
             display_name: "f".to_string(),
             qualname: "f".to_string(),
-            binding_target: BindingTarget::ModuleGlobal,
+            doc: None,
             kind: BlockPyFunctionKind::Function,
             params: empty_parameters(),
             entry_liveins: Vec::new(),

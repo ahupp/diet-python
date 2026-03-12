@@ -116,6 +116,19 @@ mod tests {
         crate::ruff_ast_to_string(&expr.to_expr())
     }
 
+    fn callable_def_by_name<'a>(
+        blockpy_module: &'a crate::basic_block::block_py::BlockPyModule,
+        bind_name: &str,
+    ) -> &'a crate::basic_block::block_py::BlockPyCallableDef {
+        blockpy_module
+            .callable_defs
+            .iter()
+            .find(|callable| callable.bind_name == bind_name)
+            .unwrap_or_else(|| {
+                panic!("missing callable definition {bind_name}; got {blockpy_module:?}")
+            })
+    }
+
     fn block_uses_text(block: &BbBlock, needle: &str) -> bool {
         block.ops.iter().any(|op| match op {
             BbOp::Assign(assign) => expr_text(&assign.value).contains(needle),
@@ -246,6 +259,29 @@ def delegator():
         assert!(
             !delegator.entry_liveins.iter().any(|name| name == "child"),
             "{delegator:?}"
+        );
+    }
+
+    #[test]
+    fn blockpy_callable_def_retains_docstring_metadata() {
+        let source = r#"
+def documented():
+    "hello doc"
+    return 1
+"#;
+
+        let options = Options::for_test();
+        let result =
+            transform_str_to_ruff_with_options(source, options).expect("transform should succeed");
+        let blockpy = result.blockpy_module.expect("expected BlockPy module");
+        let documented = callable_def_by_name(&blockpy, "documented");
+        let doc = documented
+            .doc
+            .as_ref()
+            .expect("callable definition should retain doc metadata");
+        assert_eq!(
+            crate::ruff_ast_to_string(&doc.to_expr()).trim(),
+            "\"hello doc\""
         );
     }
 

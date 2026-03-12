@@ -117,7 +117,7 @@ pub(crate) fn lower_blockpy_function_to_bb_function(
         bind_name: lowered.callable_def.bind_name.clone(),
         display_name: lowered.callable_def.display_name.clone(),
         qualname: lowered.callable_def.qualname.clone(),
-        binding_target: binding_target_override.unwrap_or(lowered.callable_def.binding_target),
+        binding_target: binding_target_override.unwrap_or(BindingTarget::Local),
         is_coroutine: lowered.is_coroutine,
         kind: lowered.bb_kind.clone(),
         entry: lowered.callable_def.entry_label().to_string(),

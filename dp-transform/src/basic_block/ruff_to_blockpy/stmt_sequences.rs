@@ -1013,8 +1013,7 @@ pub(crate) fn lower_top_level_function(
     func: &ast::StmtFunctionDef,
     bind_name: String,
     qualname: String,
-    binding_target: BindingTarget,
-) -> Result<BlockPyFunction, String> {
+) -> Result<BlockPyCallableDef, String> {
     let mut next_label_id = 0usize;
     let kind = function_kind_from_def(func);
     let mut runtime_body = func.body.clone();
@@ -1046,7 +1045,7 @@ pub(crate) fn lower_top_level_function(
         &runtime_body.body,
         bind_name,
         qualname,
-        binding_target,
+        crate::basic_block::function_lowering::function_docstring_expr(func).map(Into::into),
         (*func.parameters).clone(),
         end_label,
         compat_sanitize_ident(func.name.id.as_str()).as_str(),

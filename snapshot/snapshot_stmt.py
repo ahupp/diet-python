@@ -9,7 +9,6 @@ import a
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         __dp_store_global(globals(), "a", __dp_import_("a", __spec__))
@@ -26,7 +25,6 @@ import a.b as c
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         __dp_store_global(globals(), "c", __dp_import_attr(__dp_import_("a.b", __spec__), "b"))
@@ -43,7 +41,6 @@ from pkg.mod import name as alias
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         _dp_import_1 = __dp_import_("pkg.mod", __spec__, __dp_list(__dp_tuple("name")))
@@ -65,7 +62,6 @@ def f():
 # function f()
 #     kind: function
 #     bind: f
-#     target: module_global
 #     qualname: f
 #     block start:
 #         pass
@@ -74,7 +70,6 @@ def f():
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         __dp_store_global(globals(), "f", dec(__dp_make_function("start", 0, "f", "f", __dp_tuple(), __dp_tuple(), __dp_globals(), __name__, None, None)))
@@ -91,7 +86,6 @@ obj.x = 1
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         __dp_setattr(__dp_load_deleted_name("obj", obj), "x", 1)
@@ -108,7 +102,6 @@ obj[i] = v
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         __dp_setitem(__dp_load_deleted_name("obj", obj), i, v)
@@ -125,7 +118,6 @@ a, b = it
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         _dp_tmp_1 = __dp_unpack(it, __dp_tuple(True, True))
@@ -145,7 +137,6 @@ a, *b = it
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         _dp_tmp_1 = __dp_unpack(it, __dp_tuple(True, False))
@@ -165,7 +156,6 @@ a = b = f()
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         _dp_tmp_1 = f()
@@ -184,7 +174,6 @@ x: int = 1
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         __dp_store_global(globals(), "x", 1)
@@ -203,7 +192,6 @@ obj.x: int = 1
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         __dp_setattr(__dp_load_deleted_name("obj", obj), "x", 1)
@@ -220,7 +208,6 @@ obj.x += 1
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         __dp_setattr(__dp_load_deleted_name("obj", obj), "x", __dp_iadd(obj.x, 1))
@@ -237,7 +224,6 @@ del obj.x, obj[i], x
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         __dp_delattr(obj, "x")
@@ -256,7 +242,6 @@ assert cond
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         if_term __debug__:
@@ -284,7 +269,6 @@ assert cond, "oops"
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         if_term __debug__:
@@ -312,7 +296,6 @@ raise E from cause
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         raise __dp_raise_from(E, cause)
@@ -333,7 +316,6 @@ except:
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     entry_liveins: [_dp_try_exc_1, _dp_try_exc_4]
 #     cellvars: [_dp_try_exc_1->_dp_cell__dp_try_exc_1@deleted, _dp_try_exc_4->_dp_cell__dp_try_exc_4@deleted]
@@ -380,7 +362,6 @@ else:
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         _dp_iter_1 = __dp_iter(it)
@@ -416,7 +397,6 @@ else:
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         if_term cond:
@@ -441,7 +421,6 @@ with cm as x:
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     entry_liveins: [_dp_try_exc_2]
 #     cellvars: [_dp_try_exc_2->_dp_cell__dp_try_exc_2@deleted]
@@ -482,7 +461,6 @@ def inner():
 # function inner()
 #     kind: function
 #     bind: inner
-#     target: module_global
 #     qualname: inner
 #     block start:
 #         value = 1
@@ -491,7 +469,6 @@ def inner():
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         __dp_store_global(globals(), "inner", __dp_make_function("start", 0, "inner", "inner", __dp_tuple(), __dp_tuple(), __dp_globals(), __name__, None, None))
@@ -510,7 +487,6 @@ zs = {k: v for k, v in items}
 # function _dp_listcomp_3(_dp_iter_2)
 #     kind: function
 #     bind: _dp_listcomp_3
-#     target: local
 #     qualname: _dp_listcomp_3
 #     display_name: <listcomp>
 #     block start:
@@ -535,7 +511,6 @@ zs = {k: v for k, v in items}
 # function _dp_setcomp_6(_dp_iter_5)
 #     kind: function
 #     bind: _dp_setcomp_6
-#     target: local
 #     qualname: _dp_setcomp_6
 #     display_name: <setcomp>
 #     block start:
@@ -560,7 +535,6 @@ zs = {k: v for k, v in items}
 # function _dp_dictcomp_9(_dp_iter_8)
 #     kind: function
 #     bind: _dp_dictcomp_9
-#     target: local
 #     qualname: _dp_dictcomp_9
 #     display_name: <dictcomp>
 #     block start:
@@ -588,7 +562,6 @@ zs = {k: v for k, v in items}
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         _dp_listcomp_3 = __dp_make_function("start", 0, "<listcomp>", "_dp_listcomp_3", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple(__dp_decode_literal_bytes(b"_dp_iter_2"), __dp_NONE, __dp_getattr(__dp__, __dp_decode_literal_bytes(b"NO_DEFAULT")))), __dp_globals(), __name__, None, None)
@@ -613,7 +586,6 @@ def f():
 # function _dp_listcomp_3(_dp_iter_2)
 #     kind: function
 #     bind: _dp_listcomp_3
-#     target: local
 #     qualname: f.<locals>._dp_listcomp_3
 #     display_name: <listcomp>
 #     block start:
@@ -643,7 +615,6 @@ def f():
 # function f()
 #     kind: function
 #     bind: f
-#     target: module_global
 #     qualname: f
 #     block start:
 #         _dp_listcomp_3 = __dp_make_function("start", 0, "<listcomp>", "f.<locals>._dp_listcomp_3", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple(__dp_decode_literal_bytes(b"_dp_iter_2"), __dp_NONE, __dp_getattr(__dp__, __dp_decode_literal_bytes(b"NO_DEFAULT")))), __dp_globals(), __name__, None, None)
@@ -652,7 +623,6 @@ def f():
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         __dp_store_global(globals(), "f", __dp_make_function("start", 1, "f", "f", __dp_tuple(), __dp_tuple(), __dp_globals(), __name__, None, None))
@@ -672,7 +642,6 @@ class C:
 # function _dp_listcomp_3(_dp_iter_2)
 #     kind: function
 #     bind: _dp_listcomp_3
-#     target: local
 #     qualname: C._dp_listcomp_3
 #     display_name: <listcomp>
 #     block start:
@@ -697,7 +666,6 @@ class C:
 # function _dp_class_ns_C(_dp_class_ns, _dp_classcell_arg)
 #     kind: function
 #     bind: _dp_class_ns_C
-#     target: local
 #     qualname: _dp_class_ns_C
 #     block start:
 #         _dp_classcell = _dp_classcell_arg
@@ -710,7 +678,6 @@ class C:
 # function _dp_define_class_C(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict = None)
 #     kind: function
 #     bind: _dp_define_class_C
-#     target: local
 #     qualname: _dp_define_class_C
 #     block start:
 #         _dp_class_ns = _dp_class_ns_outer
@@ -719,7 +686,6 @@ class C:
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         _dp_class_ns_C = __dp_make_function("start", 1, "_dp_class_ns_C", "_dp_class_ns_C", __dp_tuple("_dp_class_ns", "_dp_classcell_arg"), __dp_tuple(__dp_tuple(__dp_decode_literal_bytes(b"_dp_class_ns"), __dp_NONE, __dp_getattr(__dp__, __dp_decode_literal_bytes(b"NO_DEFAULT"))), __dp_tuple(__dp_decode_literal_bytes(b"_dp_classcell_arg"), __dp_NONE, __dp_getattr(__dp__, __dp_decode_literal_bytes(b"NO_DEFAULT")))), __dp_globals(), __name__, None, None)
@@ -739,7 +705,6 @@ with a as x, b as y:
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     entry_liveins: [_dp_try_exc_2, _dp_try_exc_10]
 #     cellvars: [_dp_try_exc_2->_dp_cell__dp_try_exc_2@deleted, _dp_try_exc_10->_dp_cell__dp_try_exc_10@deleted]
@@ -802,7 +767,6 @@ async def run():
 # function run()
 #     kind: function
 #     bind: run
-#     target: module_global
 #     qualname: run
 #     local_cell_slots: [_dp_cell__dp_iter_2, _dp_cell__dp_pc, _dp_cell__dp_tmp_3, _dp_cell__dp_try_exc_11, _dp_cell__dp_yield_from_close_14, _dp_cell__dp_yield_from_exc_12, _dp_cell__dp_yield_from_iter_7, _dp_cell__dp_yield_from_raise_13, _dp_cell__dp_yield_from_result_10, _dp_cell__dp_yield_from_sent_9, _dp_cell__dp_yield_from_throw_15, _dp_cell__dp_yield_from_y_8, _dp_cell__dp_yieldfrom, _dp_cell_x]
 #     cellvars: [_dp_iter_2->_dp_cell__dp_iter_2@deferred, _dp_yield_from_iter_7->_dp_cell__dp_yield_from_iter_7@deferred, _dp_yield_from_y_8->_dp_cell__dp_yield_from_y_8@deferred, _dp_try_exc_11->_dp_cell__dp_try_exc_11@deleted, _dp_yield_from_result_10->_dp_cell__dp_yield_from_result_10@deferred, _dp_yield_from_raise_13->_dp_cell__dp_yield_from_raise_13@deferred, _dp_yield_from_exc_12->_dp_cell__dp_yield_from_exc_12@deferred, _dp_yield_from_sent_9->_dp_cell__dp_yield_from_sent_9@deferred, _dp_yield_from_close_14->_dp_cell__dp_yield_from_close_14@deferred, _dp_yield_from_throw_15->_dp_cell__dp_yield_from_throw_15@deferred, _dp_tmp_3->_dp_cell__dp_tmp_3@deferred, x->_dp_cell_x@deferred]
@@ -827,7 +791,6 @@ async def run():
 # function run_resume()
 #     kind: generator
 #     bind: run_resume
-#     target: local
 #     qualname: run
 #     display_name: _dp_resume
 #     entry_liveins: [_dp_self, _dp_send_value, _dp_resume_exc, _dp_cell__dp_iter_2, _dp_cell__dp_yield_from_iter_7, _dp_cell__dp_yield_from_y_8, _dp_cell__dp_try_exc_11, _dp_cell__dp_yield_from_result_10, _dp_cell__dp_yield_from_raise_13, _dp_cell__dp_yield_from_exc_12, _dp_cell__dp_yield_from_sent_9, _dp_cell__dp_yield_from_close_14, _dp_cell__dp_yield_from_throw_15, _dp_cell__dp_tmp_3, _dp_cell_x, _dp_cell__dp_pc, _dp_cell__dp_yieldfrom]
@@ -1062,7 +1025,6 @@ async def run():
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         __dp_store_global(globals(), "run", __dp_mark_coroutine_function(__dp_make_function("start", 0, "run", "run", __dp_tuple(), __dp_tuple(), __dp_globals(), __name__, None, None)))
@@ -1083,7 +1045,6 @@ async def run():
 # function run()
 #     kind: function
 #     bind: run
-#     target: module_global
 #     qualname: run
 #     local_cell_slots: [_dp_cell__dp_pc, _dp_cell__dp_try_exc_12, _dp_cell__dp_try_exc_2, _dp_cell__dp_try_exc_3, _dp_cell__dp_try_exc_44, _dp_cell__dp_try_exc_75, _dp_cell__dp_with_exit_1, _dp_cell__dp_with_ok_2, _dp_cell__dp_with_reraise_3, _dp_cell__dp_yield_from_close_15, _dp_cell__dp_yield_from_close_47, _dp_cell__dp_yield_from_close_78, _dp_cell__dp_yield_from_exc_13, _dp_cell__dp_yield_from_exc_45, _dp_cell__dp_yield_from_exc_76, _dp_cell__dp_yield_from_iter_40, _dp_cell__dp_yield_from_iter_71, _dp_cell__dp_yield_from_iter_9, _dp_cell__dp_yield_from_raise_14, _dp_cell__dp_yield_from_raise_46, _dp_cell__dp_yield_from_raise_77, _dp_cell__dp_yield_from_result_43, _dp_cell__dp_yield_from_result_74, _dp_cell__dp_yield_from_sent_11, _dp_cell__dp_yield_from_sent_42, _dp_cell__dp_yield_from_sent_73, _dp_cell__dp_yield_from_throw_16, _dp_cell__dp_yield_from_throw_48, _dp_cell__dp_yield_from_throw_79, _dp_cell__dp_yield_from_y_10, _dp_cell__dp_yield_from_y_41, _dp_cell__dp_yield_from_y_72, _dp_cell__dp_yieldfrom, _dp_cell_x]
 #     cellvars: [_dp_try_exc_3->_dp_cell__dp_try_exc_3@deleted, _dp_with_exit_1->_dp_cell__dp_with_exit_1@deferred, _dp_yield_from_iter_9->_dp_cell__dp_yield_from_iter_9@deferred, _dp_yield_from_y_10->_dp_cell__dp_yield_from_y_10@deferred, _dp_try_exc_12->_dp_cell__dp_try_exc_12@deleted, _dp_yield_from_raise_14->_dp_cell__dp_yield_from_raise_14@deferred, _dp_yield_from_exc_13->_dp_cell__dp_yield_from_exc_13@deferred, _dp_yield_from_sent_11->_dp_cell__dp_yield_from_sent_11@deferred, _dp_yield_from_close_15->_dp_cell__dp_yield_from_close_15@deferred, _dp_yield_from_throw_16->_dp_cell__dp_yield_from_throw_16@deferred, _dp_with_ok_2->_dp_cell__dp_with_ok_2@deferred, _dp_try_exc_2->_dp_cell__dp_try_exc_2@deleted, _dp_with_reraise_3->_dp_cell__dp_with_reraise_3@deferred, _dp_yield_from_iter_40->_dp_cell__dp_yield_from_iter_40@deferred, _dp_yield_from_y_41->_dp_cell__dp_yield_from_y_41@deferred, _dp_try_exc_44->_dp_cell__dp_try_exc_44@deleted, _dp_yield_from_result_43->_dp_cell__dp_yield_from_result_43@deferred, _dp_yield_from_raise_46->_dp_cell__dp_yield_from_raise_46@deferred, _dp_yield_from_exc_45->_dp_cell__dp_yield_from_exc_45@deferred, _dp_yield_from_sent_42->_dp_cell__dp_yield_from_sent_42@deferred, _dp_yield_from_close_47->_dp_cell__dp_yield_from_close_47@deferred, _dp_yield_from_throw_48->_dp_cell__dp_yield_from_throw_48@deferred, _dp_yield_from_iter_71->_dp_cell__dp_yield_from_iter_71@deferred, _dp_yield_from_y_72->_dp_cell__dp_yield_from_y_72@deferred, _dp_try_exc_75->_dp_cell__dp_try_exc_75@deleted, _dp_yield_from_result_74->_dp_cell__dp_yield_from_result_74@deferred, _dp_yield_from_raise_77->_dp_cell__dp_yield_from_raise_77@deferred, _dp_yield_from_exc_76->_dp_cell__dp_yield_from_exc_76@deferred, _dp_yield_from_sent_73->_dp_cell__dp_yield_from_sent_73@deferred, _dp_yield_from_close_78->_dp_cell__dp_yield_from_close_78@deferred, _dp_yield_from_throw_79->_dp_cell__dp_yield_from_throw_79@deferred, x->_dp_cell_x@deferred]
@@ -1128,7 +1089,6 @@ async def run():
 # function run_resume()
 #     kind: generator
 #     bind: run_resume
-#     target: local
 #     qualname: run
 #     display_name: _dp_resume
 #     entry_liveins: [_dp_self, _dp_send_value, _dp_resume_exc, _dp_cell__dp_try_exc_3, _dp_cell__dp_with_exit_1, _dp_cell__dp_yield_from_iter_9, _dp_cell__dp_yield_from_y_10, _dp_cell__dp_try_exc_12, _dp_cell__dp_yield_from_raise_14, _dp_cell__dp_yield_from_exc_13, _dp_cell__dp_yield_from_sent_11, _dp_cell__dp_yield_from_close_15, _dp_cell__dp_yield_from_throw_16, _dp_cell__dp_with_ok_2, _dp_cell__dp_try_exc_2, _dp_cell__dp_with_reraise_3, _dp_cell__dp_yield_from_iter_40, _dp_cell__dp_yield_from_y_41, _dp_cell__dp_try_exc_44, _dp_cell__dp_yield_from_result_43, _dp_cell__dp_yield_from_raise_46, _dp_cell__dp_yield_from_exc_45, _dp_cell__dp_yield_from_sent_42, _dp_cell__dp_yield_from_close_47, _dp_cell__dp_yield_from_throw_48, _dp_cell__dp_yield_from_iter_71, _dp_cell__dp_yield_from_y_72, _dp_cell__dp_try_exc_75, _dp_cell__dp_yield_from_result_74, _dp_cell__dp_yield_from_raise_77, _dp_cell__dp_yield_from_exc_76, _dp_cell__dp_yield_from_sent_73, _dp_cell__dp_yield_from_close_78, _dp_cell__dp_yield_from_throw_79, _dp_cell_x, _dp_cell__dp_pc, _dp_cell__dp_yieldfrom]
@@ -1147,10 +1107,10 @@ async def run():
 #                             raise StopIteration()
 #                     block _dp_bb_run_start:
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
 #                         jump _dp_bb_run_69
 #             else:
 #                 block _dp_bb_run_dispatch_throw_table:
@@ -1161,19 +1121,19 @@ async def run():
 #                         raise _dp_resume_exc
 #         block _dp_bb_run_69:
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
 #             _dp_with_exit_1 = __dp_asynccontextmanager_get_aexit(cm)
 #             __dp_store_cell(_dp_cell__dp_with_exit_1, _dp_with_exit_1)
 #             jump _dp_bb_run_49
 #             block _dp_bb_run_49:
 #                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
 #                 _dp_yield_from_iter_71 = iter(__dp_await_iter(__dp_asynccontextmanager_aenter(cm)))
 #                 __dp_store_cell(_dp_cell__dp_yield_from_iter_71, _dp_yield_from_iter_71)
 #                 __dp_store_cell(_dp_cell__dp_yieldfrom, _dp_yield_from_iter_71)
@@ -1182,10 +1142,10 @@ async def run():
 #                     except_label: _dp_bb_run_51
 #         block _dp_bb_run_50:
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
 #             _dp_yield_from_y_72 = next(__dp_load_cell(_dp_cell__dp_yieldfrom))
 #             __dp_store_cell(_dp_cell__dp_yield_from_y_72, _dp_yield_from_y_72)
 #             jump _dp_bb_run_55
@@ -1196,10 +1156,10 @@ async def run():
 #             return _dp_yield_from_y_72
 #         block _dp_bb_run_51:
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
 #             _dp_try_exc_75 = __dp_load_deleted_name("_dp_try_exc_75", __dp_load_cell(_dp_cell__dp_try_exc_75))
 #             __dp_store_cell(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
 #             _dp_try_exc_75 = __dp_current_exception()
@@ -1208,10 +1168,10 @@ async def run():
 #                 then:
 #                     block _dp_bb_run_52:
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
 #                         _dp_try_exc_75 = __dp_load_deleted_name("_dp_try_exc_75", __dp_load_cell(_dp_cell__dp_try_exc_75))
 #                         __dp_store_cell(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
 #                         _dp_yield_from_result_74 = _dp_try_exc_75.value
@@ -1219,16 +1179,16 @@ async def run():
 #                         jump _dp_bb_run_53
 #                         block _dp_bb_run_53:
 #                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
 #                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                             __dp_store_cell(_dp_cell__dp_yieldfrom, None)
 #                             jump _dp_bb_run_68
 #                             block _dp_bb_run_68:
 #                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
 #                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                                 _dp_yield_from_result_74 = __dp_load_deleted_name("_dp_yield_from_result_74", __dp_load_cell(_dp_cell__dp_yield_from_result_74))
 #                                 __dp_store_cell(_dp_cell__dp_yield_from_result_74, _dp_yield_from_result_74)
 #                                 x = _dp_yield_from_result_74
@@ -1236,9 +1196,9 @@ async def run():
 #                                 jump _dp_bb_run_48
 #                                 block _dp_bb_run_48:
 #                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
 #                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                                     _dp_with_ok_2 = True
 #                                     __dp_store_cell(_dp_cell__dp_with_ok_2, _dp_with_ok_2)
 #                                     try_jump:
@@ -1246,16 +1206,16 @@ async def run():
 #                                         except_label: _dp_bb_run_46
 #                                     block _dp_bb_run_47:
 #                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
 #                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                                         body()
 #                                         jump _dp_bb_run_23
 #                                     block _dp_bb_run_46:
 #                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
 #                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                                         _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
 #                                         __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #                                         _dp_with_ok_2 = False
@@ -1263,9 +1223,9 @@ async def run():
 #                                         jump _dp_bb_run_26
 #                                         block _dp_bb_run_26:
 #                                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
 #                                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                                             _dp_with_exit_1 = __dp_load_deleted_name("_dp_with_exit_1", __dp_load_cell(_dp_cell__dp_with_exit_1))
 #                                             __dp_store_cell(_dp_cell__dp_with_exit_1, _dp_with_exit_1)
 #                                             _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
@@ -1290,8 +1250,8 @@ async def run():
 #             __dp_store_cell(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #             jump _dp_bb_run_22
 #             block _dp_bb_run_22:
-#                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                 _dp_try_exc_3 = __dp_load_deleted_name("_dp_try_exc_3", __dp_load_cell(_dp_cell__dp_try_exc_3))
 #                 __dp_store_cell(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                 _dp_with_ok_2 = __dp_load_deleted_name("_dp_with_ok_2", __dp_load_cell(_dp_cell__dp_with_ok_2))
@@ -1301,14 +1261,14 @@ async def run():
 #                 if_term _dp_with_ok_2:
 #                     then:
 #                         block _dp_bb_run_21:
-#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                             _dp_try_exc_3 = __dp_load_deleted_name("_dp_try_exc_3", __dp_load_cell(_dp_cell__dp_try_exc_3))
 #                             __dp_store_cell(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                             jump _dp_bb_run_2
 #                             block _dp_bb_run_2:
-#                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                                 _dp_try_exc_3 = __dp_load_deleted_name("_dp_try_exc_3", __dp_load_cell(_dp_cell__dp_try_exc_3))
 #                                 __dp_store_cell(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                                 _dp_with_exit_1 = __dp_load_deleted_name("_dp_with_exit_1", __dp_load_cell(_dp_cell__dp_with_exit_1))
@@ -1322,8 +1282,8 @@ async def run():
 #                     else:
 #                         jump _dp_bb_run_1
 #         block _dp_bb_run_3:
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #             _dp_try_exc_3 = __dp_load_deleted_name("_dp_try_exc_3", __dp_load_cell(_dp_cell__dp_try_exc_3))
 #             __dp_store_cell(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #             _dp_yield_from_y_10 = next(__dp_load_cell(_dp_cell__dp_yieldfrom))
@@ -1338,8 +1298,8 @@ async def run():
 #             __dp_store_cell(_dp_cell__dp_pc, 2)
 #             return _dp_yield_from_y_10
 #         block _dp_bb_run_4:
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #             _dp_try_exc_12 = __dp_load_deleted_name("_dp_try_exc_12", __dp_load_cell(_dp_cell__dp_try_exc_12))
 #             __dp_store_cell(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #             _dp_try_exc_12 = __dp_current_exception()
@@ -1359,8 +1319,8 @@ async def run():
 #                             jump _dp_bb_run_1
 #                 else:
 #                     block _dp_bb_run_7:
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                         _dp_try_exc_3 = __dp_load_deleted_name("_dp_try_exc_3", __dp_load_cell(_dp_cell__dp_try_exc_3))
 #                         __dp_store_cell(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                         _dp_try_exc_12 = __dp_load_deleted_name("_dp_try_exc_12", __dp_load_cell(_dp_cell__dp_try_exc_12))
@@ -1397,9 +1357,9 @@ async def run():
 #             raise _dp_yield_from_raise_14
 #         block _dp_bb_run_27:
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #             _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
 #             __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #             _dp_yield_from_y_41 = next(__dp_load_cell(_dp_cell__dp_yieldfrom))
@@ -1407,8 +1367,8 @@ async def run():
 #             jump _dp_bb_run_32
 #         block _dp_bb_run_32:
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #             _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
 #             __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #             _dp_yield_from_y_41 = __dp_load_deleted_name("_dp_yield_from_y_41", __dp_load_cell(_dp_cell__dp_yield_from_y_41))
@@ -1417,9 +1377,9 @@ async def run():
 #             return _dp_yield_from_y_41
 #         block _dp_bb_run_28:
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #             _dp_try_exc_44 = __dp_load_deleted_name("_dp_try_exc_44", __dp_load_cell(_dp_cell__dp_try_exc_44))
 #             __dp_store_cell(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
 #             _dp_try_exc_44 = __dp_current_exception()
@@ -1428,9 +1388,9 @@ async def run():
 #                 then:
 #                     block _dp_bb_run_29:
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                         _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
 #                         __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #                         _dp_try_exc_44 = __dp_load_deleted_name("_dp_try_exc_44", __dp_load_cell(_dp_cell__dp_try_exc_44))
@@ -1440,16 +1400,16 @@ async def run():
 #                         jump _dp_bb_run_30
 #                         block _dp_bb_run_30:
 #                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                             _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
 #                             __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #                             __dp_store_cell(_dp_cell__dp_yieldfrom, None)
 #                             jump _dp_bb_run_45
 #                             block _dp_bb_run_45:
 #                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                                 _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
 #                                 __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #                                 _dp_yield_from_result_43 = __dp_load_deleted_name("_dp_yield_from_result_43", __dp_load_cell(_dp_cell__dp_yield_from_result_43))
@@ -1459,8 +1419,8 @@ async def run():
 #                                 jump _dp_bb_run_25
 #                                 block _dp_bb_run_25:
 #                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                                     _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
 #                                     __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #                                     _dp_with_reraise_3 = __dp_load_deleted_name("_dp_with_reraise_3", __dp_load_cell(_dp_cell__dp_with_reraise_3))
@@ -1469,8 +1429,8 @@ async def run():
 #                                         then:
 #                                             block _dp_bb_run_24:
 #                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                                                 _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
 #                                                 __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #                                                 _dp_with_reraise_3 = __dp_load_deleted_name("_dp_with_reraise_3", __dp_load_cell(_dp_cell__dp_with_reraise_3))
@@ -1481,9 +1441,9 @@ async def run():
 #                 else:
 #                     block _dp_bb_run_31:
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                         _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
 #                         __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #                         _dp_try_exc_44 = __dp_load_deleted_name("_dp_try_exc_44", __dp_load_cell(_dp_cell__dp_try_exc_44))
@@ -1493,8 +1453,8 @@ async def run():
 #                         jump _dp_bb_run_38
 #         block _dp_bb_run_38:
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #             _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
 #             __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #             _dp_yield_from_raise_46 = __dp_load_deleted_name("_dp_yield_from_raise_46", __dp_load_cell(_dp_cell__dp_yield_from_raise_46))
@@ -1507,8 +1467,8 @@ async def run():
 #             __dp_store_cell(_dp_cell__dp_yieldfrom, None)
 #             raise _dp_yield_from_raise_77
 #         block _dp_bb_run_9:
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #             _dp_try_exc_3 = __dp_load_deleted_name("_dp_try_exc_3", __dp_load_cell(_dp_cell__dp_try_exc_3))
 #             __dp_store_cell(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #             _dp_yield_from_sent_11 = _dp_send_value
@@ -1519,8 +1479,8 @@ async def run():
 #             if_term __dp_is_not(_dp_yield_from_exc_13, None):
 #                 then:
 #                     block _dp_bb_run_10:
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                         _dp_try_exc_3 = __dp_load_deleted_name("_dp_try_exc_3", __dp_load_cell(_dp_cell__dp_try_exc_3))
 #                         __dp_store_cell(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                         _dp_yield_from_exc_13 = __dp_load_deleted_name("_dp_yield_from_exc_13", __dp_load_cell(_dp_cell__dp_yield_from_exc_13))
@@ -1547,8 +1507,8 @@ async def run():
 #                                             jump _dp_bb_run_13
 #                             else:
 #                                 block _dp_bb_run_15:
-#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                                     _dp_try_exc_3 = __dp_load_deleted_name("_dp_try_exc_3", __dp_load_cell(_dp_cell__dp_try_exc_3))
 #                                     __dp_store_cell(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                                     _dp_yield_from_throw_16 = getattr(__dp_load_cell(_dp_cell__dp_yieldfrom), "throw", None)
@@ -1558,16 +1518,16 @@ async def run():
 #                                             jump _dp_bb_run_13
 #                                         else:
 #                                             block _dp_bb_run_16:
-#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                                                 _dp_try_exc_3 = __dp_load_deleted_name("_dp_try_exc_3", __dp_load_cell(_dp_cell__dp_try_exc_3))
 #                                                 __dp_store_cell(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                                                 try_jump:
 #                                                     body_label: _dp_bb_run_17
 #                                                     except_label: _dp_bb_run_4
 #                                                 block _dp_bb_run_17:
-#                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                                                     _dp_try_exc_3 = __dp_load_deleted_name("_dp_try_exc_3", __dp_load_cell(_dp_cell__dp_try_exc_3))
 #                                                     __dp_store_cell(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                                                     _dp_yield_from_exc_13 = __dp_load_deleted_name("_dp_yield_from_exc_13", __dp_load_cell(_dp_cell__dp_yield_from_exc_13))
@@ -1588,16 +1548,16 @@ async def run():
 #                             jump _dp_bb_run_14
 #                 else:
 #                     block _dp_bb_run_18:
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                         _dp_try_exc_3 = __dp_load_deleted_name("_dp_try_exc_3", __dp_load_cell(_dp_cell__dp_try_exc_3))
 #                         __dp_store_cell(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                         try_jump:
 #                             body_label: _dp_bb_run_19
 #                             except_label: _dp_bb_run_4
 #                         block _dp_bb_run_19:
-#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                             _dp_try_exc_3 = __dp_load_deleted_name("_dp_try_exc_3", __dp_load_cell(_dp_cell__dp_try_exc_3))
 #                             __dp_store_cell(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                             _dp_yield_from_sent_11 = __dp_load_deleted_name("_dp_yield_from_sent_11", __dp_load_cell(_dp_cell__dp_yield_from_sent_11))
@@ -1607,8 +1567,8 @@ async def run():
 #                                     jump _dp_bb_run_3
 #                                 else:
 #                                     block _dp_bb_run_20:
-#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                                         _dp_try_exc_3 = __dp_load_deleted_name("_dp_try_exc_3", __dp_load_cell(_dp_cell__dp_try_exc_3))
 #                                         __dp_store_cell(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                                         _dp_yield_from_sent_11 = __dp_load_deleted_name("_dp_yield_from_sent_11", __dp_load_cell(_dp_cell__dp_yield_from_sent_11))
@@ -1618,9 +1578,9 @@ async def run():
 #                                         jump _dp_bb_run_8
 #         block _dp_bb_run_33:
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #             _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
 #             __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #             _dp_yield_from_sent_42 = _dp_send_value
@@ -1632,9 +1592,9 @@ async def run():
 #                 then:
 #                     block _dp_bb_run_34:
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                         _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
 #                         __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #                         _dp_yield_from_exc_45 = __dp_load_deleted_name("_dp_yield_from_exc_45", __dp_load_cell(_dp_cell__dp_yield_from_exc_45))
@@ -1643,8 +1603,8 @@ async def run():
 #                             then:
 #                                 block _dp_bb_run_35:
 #                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                                     _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
 #                                     __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #                                     _dp_yield_from_close_47 = getattr(__dp_load_cell(_dp_cell__dp_yieldfrom), "close", None)
@@ -1653,8 +1613,8 @@ async def run():
 #                                         then:
 #                                             block _dp_bb_run_36:
 #                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                                                 _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
 #                                                 __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #                                                 _dp_yield_from_close_47 = __dp_load_deleted_name("_dp_yield_from_close_47", __dp_load_cell(_dp_cell__dp_yield_from_close_47))
@@ -1666,9 +1626,9 @@ async def run():
 #                             else:
 #                                 block _dp_bb_run_39:
 #                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
 #                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                                     _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
 #                                     __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #                                     _dp_yield_from_throw_48 = getattr(__dp_load_cell(_dp_cell__dp_yieldfrom), "throw", None)
@@ -1679,9 +1639,9 @@ async def run():
 #                                         else:
 #                                             block _dp_bb_run_40:
 #                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
 #                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                                                 _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
 #                                                 __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #                                                 try_jump:
@@ -1689,9 +1649,9 @@ async def run():
 #                                                     except_label: _dp_bb_run_28
 #                                                 block _dp_bb_run_41:
 #                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
 #                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                                                     _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
 #                                                     __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #                                                     _dp_yield_from_exc_45 = __dp_load_deleted_name("_dp_yield_from_exc_45", __dp_load_cell(_dp_cell__dp_yield_from_exc_45))
@@ -1703,8 +1663,8 @@ async def run():
 #                                                     jump _dp_bb_run_32
 #                         block _dp_bb_run_37:
 #                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                             _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
 #                             __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #                             _dp_yield_from_exc_45 = __dp_load_deleted_name("_dp_yield_from_exc_45", __dp_load_cell(_dp_cell__dp_yield_from_exc_45))
@@ -1715,9 +1675,9 @@ async def run():
 #                 else:
 #                     block _dp_bb_run_42:
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                         _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
 #                         __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #                         try_jump:
@@ -1725,9 +1685,9 @@ async def run():
 #                             except_label: _dp_bb_run_28
 #                         block _dp_bb_run_43:
 #                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
 #                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                             _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
 #                             __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #                             _dp_yield_from_sent_42 = __dp_load_deleted_name("_dp_yield_from_sent_42", __dp_load_cell(_dp_cell__dp_yield_from_sent_42))
@@ -1738,9 +1698,9 @@ async def run():
 #                                 else:
 #                                     block _dp_bb_run_44:
 #                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
 #                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #                                         _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
 #                                         __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #                                         _dp_yield_from_sent_42 = __dp_load_deleted_name("_dp_yield_from_sent_42", __dp_load_cell(_dp_cell__dp_yield_from_sent_42))
@@ -1750,10 +1710,10 @@ async def run():
 #                                         jump _dp_bb_run_32
 #         block _dp_bb_run_56:
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
 #             _dp_yield_from_sent_73 = _dp_send_value
 #             __dp_store_cell(_dp_cell__dp_yield_from_sent_73, _dp_yield_from_sent_73)
 #             _dp_yield_from_exc_76 = _dp_resume_exc
@@ -1763,10 +1723,10 @@ async def run():
 #                 then:
 #                     block _dp_bb_run_57:
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
 #                         _dp_yield_from_exc_76 = __dp_load_deleted_name("_dp_yield_from_exc_76", __dp_load_cell(_dp_cell__dp_yield_from_exc_76))
 #                         __dp_store_cell(_dp_cell__dp_yield_from_exc_76, _dp_yield_from_exc_76)
 #                         if_term __dp_exception_matches(_dp_yield_from_exc_76, GeneratorExit):
@@ -1786,10 +1746,10 @@ async def run():
 #                             else:
 #                                 block _dp_bb_run_62:
 #                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
 #                                     _dp_yield_from_throw_79 = getattr(__dp_load_cell(_dp_cell__dp_yieldfrom), "throw", None)
 #                                     __dp_store_cell(_dp_cell__dp_yield_from_throw_79, _dp_yield_from_throw_79)
 #                                     if_term __dp_is_(_dp_yield_from_throw_79, None):
@@ -1798,19 +1758,19 @@ async def run():
 #                                         else:
 #                                             block _dp_bb_run_63:
 #                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
 #                                                 try_jump:
 #                                                     body_label: _dp_bb_run_64
 #                                                     except_label: _dp_bb_run_51
 #                                                 block _dp_bb_run_64:
 #                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
 #                                                     _dp_yield_from_exc_76 = __dp_load_deleted_name("_dp_yield_from_exc_76", __dp_load_cell(_dp_cell__dp_yield_from_exc_76))
 #                                                     __dp_store_cell(_dp_cell__dp_yield_from_exc_76, _dp_yield_from_exc_76)
 #                                                     _dp_yield_from_throw_79 = __dp_load_deleted_name("_dp_yield_from_throw_79", __dp_load_cell(_dp_cell__dp_yield_from_throw_79))
@@ -1827,19 +1787,19 @@ async def run():
 #                 else:
 #                     block _dp_bb_run_65:
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
 #                         try_jump:
 #                             body_label: _dp_bb_run_66
 #                             except_label: _dp_bb_run_51
 #                         block _dp_bb_run_66:
 #                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
 #                             _dp_yield_from_sent_73 = __dp_load_deleted_name("_dp_yield_from_sent_73", __dp_load_cell(_dp_cell__dp_yield_from_sent_73))
 #                             __dp_store_cell(_dp_cell__dp_yield_from_sent_73, _dp_yield_from_sent_73)
 #                             if_term __dp_is_(_dp_yield_from_sent_73, None):
@@ -1848,10 +1808,10 @@ async def run():
 #                                 else:
 #                                     block _dp_bb_run_67:
 #                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
 #                                         _dp_yield_from_sent_73 = __dp_load_deleted_name("_dp_yield_from_sent_73", __dp_load_cell(_dp_cell__dp_yield_from_sent_73))
 #                                         __dp_store_cell(_dp_cell__dp_yield_from_sent_73, _dp_yield_from_sent_73)
 #                                         _dp_yield_from_y_72 = __dp_load_cell(_dp_cell__dp_yieldfrom).send(_dp_yield_from_sent_73)
@@ -1859,10 +1819,10 @@ async def run():
 #                                         jump _dp_bb_run_55
 #         block _dp_bb_run_71:
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
 #             if_term __dp_is_not(_dp_resume_exc, None):
 #                 then:
 #                     block _dp_bb_run_70:
@@ -1920,7 +1880,6 @@ async def run():
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         __dp_store_global(globals(), "run", __dp_mark_coroutine_function(__dp_make_function("start", 0, "run", "run", __dp_tuple(), __dp_tuple(), __dp_globals(), __name__, None, None)))
@@ -1941,7 +1900,6 @@ match value:
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         _dp_match_1 = value
@@ -1969,7 +1927,6 @@ def gen():
 # function gen()
 #     kind: function
 #     bind: gen
-#     target: module_global
 #     qualname: gen
 #     local_cell_slots: [_dp_cell__dp_pc, _dp_cell__dp_yieldfrom]
 #     runtime_cells: [_dp_pc->_dp_cell__dp_pc@pc_unstarted, _dp_yieldfrom->_dp_cell__dp_yieldfrom@none]
@@ -1981,7 +1938,6 @@ def gen():
 # function gen_resume()
 #     kind: generator
 #     bind: gen_resume
-#     target: local
 #     qualname: gen
 #     display_name: _dp_resume
 #     entry_liveins: [_dp_self, _dp_send_value, _dp_resume_exc, _dp_cell__dp_pc, _dp_cell__dp_yieldfrom]
@@ -2037,7 +1993,6 @@ def gen():
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         __dp_store_global(globals(), "gen", __dp_make_function("start", 0, "gen", "gen", __dp_tuple(), __dp_tuple(), __dp_globals(), __name__, None, None))
@@ -2057,7 +2012,6 @@ def gen():
 # function gen()
 #     kind: function
 #     bind: gen
-#     target: module_global
 #     qualname: gen
 #     local_cell_slots: [_dp_cell__dp_pc, _dp_cell__dp_try_exc_5, _dp_cell__dp_yield_from_close_8, _dp_cell__dp_yield_from_exc_6, _dp_cell__dp_yield_from_iter_2, _dp_cell__dp_yield_from_raise_7, _dp_cell__dp_yield_from_sent_4, _dp_cell__dp_yield_from_throw_9, _dp_cell__dp_yield_from_y_3, _dp_cell__dp_yieldfrom]
 #     cellvars: [_dp_yield_from_iter_2->_dp_cell__dp_yield_from_iter_2@deferred, _dp_yield_from_y_3->_dp_cell__dp_yield_from_y_3@deferred, _dp_try_exc_5->_dp_cell__dp_try_exc_5@deleted, _dp_yield_from_raise_7->_dp_cell__dp_yield_from_raise_7@deferred, _dp_yield_from_exc_6->_dp_cell__dp_yield_from_exc_6@deferred, _dp_yield_from_sent_4->_dp_cell__dp_yield_from_sent_4@deferred, _dp_yield_from_close_8->_dp_cell__dp_yield_from_close_8@deferred, _dp_yield_from_throw_9->_dp_cell__dp_yield_from_throw_9@deferred]
@@ -2078,7 +2032,6 @@ def gen():
 # function gen_resume()
 #     kind: generator
 #     bind: gen_resume
-#     target: local
 #     qualname: gen
 #     display_name: _dp_resume
 #     entry_liveins: [_dp_self, _dp_send_value, _dp_resume_exc, _dp_cell__dp_yield_from_iter_2, _dp_cell__dp_yield_from_y_3, _dp_cell__dp_try_exc_5, _dp_cell__dp_yield_from_raise_7, _dp_cell__dp_yield_from_exc_6, _dp_cell__dp_yield_from_sent_4, _dp_cell__dp_yield_from_close_8, _dp_cell__dp_yield_from_throw_9, _dp_cell__dp_pc, _dp_cell__dp_yieldfrom]
@@ -2256,7 +2209,6 @@ def gen():
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         __dp_store_global(globals(), "gen", __dp_make_function("start", 0, "gen", "gen", __dp_tuple(), __dp_tuple(), __dp_globals(), __name__, None, None))
@@ -2274,7 +2226,6 @@ with Suppress():
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     entry_liveins: [_dp_try_exc_2]
 #     cellvars: [_dp_try_exc_2->_dp_cell__dp_try_exc_2@deleted]
@@ -2314,7 +2265,6 @@ def outer():
 # function inner()
 #     kind: function
 #     bind: inner
-#     target: local
 #     qualname: outer.<locals>.inner
 #     entry_liveins: [_dp_cell_x]
 #     freevars: [x->_dp_cell_x@inherited]
@@ -2324,7 +2274,6 @@ def outer():
 # function outer()
 #     kind: function
 #     bind: outer
-#     target: module_global
 #     qualname: outer
 #     local_cell_slots: [_dp_cell_x]
 #     cellvars: [x->_dp_cell_x@deferred]
@@ -2337,7 +2286,6 @@ def outer():
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         __dp_store_global(globals(), "outer", __dp_make_function("start", 1, "outer", "outer", __dp_tuple(), __dp_tuple(), __dp_globals(), __name__, None, None))
@@ -2361,7 +2309,6 @@ def choose(a, b):
 # function choose(a, b)
 #     kind: function
 #     bind: choose
-#     target: module_global
 #     qualname: choose
 #     block start:
 #         total = __dp_add(a, b)
@@ -2376,7 +2323,6 @@ def choose(a, b):
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         __dp_store_global(globals(), "choose", __dp_make_function("start", 0, "choose", "choose", __dp_tuple("a", "b"), __dp_tuple(__dp_tuple(__dp_decode_literal_bytes(b"a"), __dp_NONE, __dp_getattr(__dp__, __dp_decode_literal_bytes(b"NO_DEFAULT"))), __dp_tuple(__dp_decode_literal_bytes(b"b"), __dp_NONE, __dp_getattr(__dp__, __dp_decode_literal_bytes(b"NO_DEFAULT")))), __dp_globals(), __name__, None, None))
@@ -2403,7 +2349,6 @@ def outer():
 # function inner()
 #     kind: function
 #     bind: inner
-#     target: local
 #     qualname: outer.<locals>.inner
 #     entry_liveins: [_dp_cell_x]
 #     freevars: [x->_dp_cell_x@inherited]
@@ -2414,7 +2359,6 @@ def outer():
 # function outer()
 #     kind: function
 #     bind: outer
-#     target: module_global
 #     qualname: outer
 #     local_cell_slots: [_dp_cell_x]
 #     cellvars: [x->_dp_cell_x@deferred]
@@ -2427,7 +2371,6 @@ def outer():
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         __dp_store_global(globals(), "outer", __dp_make_function("start", 1, "outer", "outer", __dp_tuple(), __dp_tuple(), __dp_globals(), __name__, None, None))
@@ -2447,7 +2390,6 @@ except Exception:
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     entry_liveins: [_dp_try_exc_1]
 #     cellvars: [_dp_try_exc_1->_dp_cell__dp_try_exc_1@deleted]
@@ -2489,7 +2431,6 @@ def complicated(a):
 # function complicated(a)
 #     kind: function
 #     bind: complicated
-#     target: module_global
 #     qualname: complicated
 #     local_cell_slots: [_dp_cell__dp_iter_1, _dp_cell__dp_pc, _dp_cell__dp_tmp_2, _dp_cell__dp_try_exc_7, _dp_cell__dp_yieldfrom, _dp_cell_a, _dp_cell_i, _dp_cell_j]
 #     cellvars: [a->_dp_cell_a@param, _dp_iter_1->_dp_cell__dp_iter_1@deferred, _dp_try_exc_7->_dp_cell__dp_try_exc_7@deleted, i->_dp_cell_i@deferred, j->_dp_cell_j@deferred, _dp_tmp_2->_dp_cell__dp_tmp_2@deferred]
@@ -2508,7 +2449,6 @@ def complicated(a):
 # function complicated_resume(a)
 #     kind: generator
 #     bind: complicated_resume
-#     target: local
 #     qualname: complicated
 #     display_name: _dp_resume
 #     entry_liveins: [_dp_self, _dp_send_value, _dp_resume_exc, _dp_cell_a, _dp_cell__dp_iter_1, _dp_cell__dp_try_exc_7, _dp_cell_i, _dp_cell_j, _dp_cell__dp_tmp_2, _dp_cell__dp_pc, _dp_cell__dp_yieldfrom]
@@ -2628,7 +2568,6 @@ def complicated(a):
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
-#     target: module_global
 #     qualname: _dp_module_init
 #     block start:
 #         __dp_store_global(globals(), "complicated", __dp_make_function("start", 0, "complicated", "complicated", __dp_tuple("a"), __dp_tuple(__dp_tuple(__dp_decode_literal_bytes(b"a"), __dp_NONE, __dp_getattr(__dp__, __dp_decode_literal_bytes(b"NO_DEFAULT")))), __dp_globals(), __name__, None, None))

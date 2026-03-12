@@ -108,7 +108,6 @@ struct NonLoweredFunctionInstantiationPlan {
 // machinery is grouped here so the later binding split has one obvious home.
 fn build_lowered_function_instantiation_expr(
     lowered: &LoweredBlockPyFunction,
-    doc_expr: Option<Expr>,
     annotate_fn_expr: Option<Expr>,
 ) -> Option<Expr> {
     let entry_label = lowered.callable_def.entry_label();
@@ -200,7 +199,12 @@ fn build_lowered_function_instantiation_expr(
         }
     }
     let closure = make_dp_tuple(closure_items);
-    let doc = doc_expr.unwrap_or_else(|| py_expr!("None"));
+    let doc = lowered
+        .callable_def
+        .doc
+        .clone()
+        .map(Into::into)
+        .unwrap_or_else(|| py_expr!("None"));
     let annotate_fn = annotate_fn_expr.unwrap_or_else(|| py_expr!("None"));
     let function_entry_expr = py_expr!(
         "__dp_make_function({entry:expr}, {function_id:literal}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, {module_globals:expr}, {module_name:expr}, {doc:expr}, {annotate_fn:expr})",
@@ -585,13 +589,12 @@ fn build_lowered_function_instantiation_stmt(
     func: &ast::StmtFunctionDef,
     lowered: &LoweredBlockPyFunction,
     bind_name: &str,
-    doc_expr: Option<Expr>,
 ) -> Option<Stmt> {
     let annotate_helper = build_lowered_annotation_helper_binding(func, bind_name);
     let annotate_fn_expr = annotate_helper
         .as_ref()
         .map(|(_, annotate_fn_expr)| annotate_fn_expr.clone());
-    let base_expr = build_lowered_function_instantiation_expr(lowered, doc_expr, annotate_fn_expr)?;
+    let base_expr = build_lowered_function_instantiation_expr(lowered, annotate_fn_expr)?;
     let decorated = rewrite_stmt::decorator::rewrite(func.decorator_list.clone(), base_expr);
     let assign_stmt = build_generated_instantiation_assign_stmt(bind_name, decorated);
     let mut stmts = Vec::new();
@@ -614,13 +617,11 @@ fn rewrite_lowered_function_instantiation_stmt(
     entering_module_init: bool,
     has_parent_hoisted_scope: bool,
     function_hoisted: Vec<Stmt>,
-    doc_expr: Option<Expr>,
 ) -> Option<LoweredFunctionRewriteResult> {
     let binding_stmt = build_lowered_function_instantiation_stmt(
         func,
         lowered,
         instantiation_plan.identity.bind_name.as_str(),
-        doc_expr,
     )?;
     let replacement = apply_lowered_function_placement(
         parent_hoisted,
@@ -645,7 +646,6 @@ fn plan_and_rewrite_lowered_function_instantiation(
     entering_module_init: bool,
     has_parent_hoisted_scope: bool,
     function_hoisted: Vec<Stmt>,
-    doc_expr: Option<Expr>,
 ) -> Option<LoweredFunctionVisitPlan> {
     let instantiation_plan = plan_lowered_function_instantiation(
         func,
@@ -661,7 +661,6 @@ fn plan_and_rewrite_lowered_function_instantiation(
         entering_module_init,
         has_parent_hoisted_scope,
         function_hoisted,
-        doc_expr,
     )?;
     Some(LoweredFunctionVisitPlan {
         binding: instantiation_plan.binding,
@@ -767,7 +766,6 @@ fn rewrite_function_def_stmt_via_blockpy(
             entering_module_init,
             has_parent_hoisted_scope,
             function_hoisted,
-            doc_expr,
         )
         .expect("failed to build BB function binding");
         if let Some(parent_lowered_function_bindings) = parent_lowered_function_bindings {

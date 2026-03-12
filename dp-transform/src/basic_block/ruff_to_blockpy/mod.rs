@@ -18,9 +18,9 @@ use super::block_py::state::{
     sync_generator_state_order, sync_target_cells_stmts as sync_target_cells_stmts_shared,
 };
 use super::block_py::{
-    BlockPyAssign, BlockPyBlock, BlockPyDelete, BlockPyExpr, BlockPyFunction, BlockPyFunctionKind,
-    BlockPyIf, BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyTerm,
-    BlockPyTryJump, ENTRY_BLOCK_LABEL,
+    BlockPyAssign, BlockPyBlock, BlockPyCallableDef, BlockPyDelete, BlockPyExpr,
+    BlockPyFunctionKind, BlockPyIf, BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyRaise,
+    BlockPyStmt, BlockPyTerm, BlockPyTryJump, ENTRY_BLOCK_LABEL,
 };
 use super::stmt_utils::flatten_stmt_boxes;
 use crate::basic_block::ast_to_ast::ast_rewrite::Rewrite;
@@ -96,7 +96,7 @@ pub(crate) struct GeneratorStmtSequenceLoweringState {
 }
 
 pub(crate) struct LoweredBlockPyFunction {
-    pub callable_def: BlockPyFunction,
+    pub callable_def: BlockPyCallableDef,
     pub is_coroutine: bool,
     pub bb_kind: BbFunctionKind,
     pub block_params: HashMap<String, Vec<String>>,
@@ -111,7 +111,7 @@ pub(crate) struct LoweredBlockPyFunctionBundle {
 }
 
 pub(crate) struct PreparedBlockPyFunction {
-    pub callable_def: BlockPyFunction,
+    pub callable_def: BlockPyCallableDef,
     pub entry_label: String,
     pub generator_metadata: Option<GeneratorMetadata>,
     pub try_regions: Vec<TryRegionPlan>,
@@ -202,7 +202,7 @@ pub(crate) fn build_blockpy_function(
     bind_name: String,
     display_name: String,
     qualname: String,
-    binding_target: BindingTarget,
+    doc: Option<BlockPyExpr>,
     kind: BlockPyFunctionKind,
     params: ast::Parameters,
     entry_label: String,
@@ -210,7 +210,7 @@ pub(crate) fn build_blockpy_function(
     closure_layout: Option<BbClosureLayout>,
     local_cell_slots: Vec<String>,
     mut blocks: Vec<BlockPyBlock>,
-) -> BlockPyFunction {
+) -> BlockPyCallableDef {
     if let Some(entry_index) = blocks
         .iter()
         .position(|block| block.label.as_str() == entry_label.as_str())
@@ -220,12 +220,12 @@ pub(crate) fn build_blockpy_function(
             blocks.insert(0, entry_block);
         }
     }
-    BlockPyFunction {
+    BlockPyCallableDef {
         function_id,
         bind_name,
         display_name,
         qualname,
-        binding_target,
+        doc,
         kind,
         params,
         entry_liveins,
@@ -243,7 +243,7 @@ pub(crate) fn take_next_function_id(next_function_id: &mut usize) -> FunctionId 
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_lowered_blockpy_function(
-    callable_def: BlockPyFunction,
+    callable_def: BlockPyCallableDef,
     is_coroutine: bool,
     bb_kind: BbFunctionKind,
     block_params: HashMap<String, Vec<String>>,
@@ -889,7 +889,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
             export_plan.resume_bind_name.clone(),
             export_plan.resume_display_name.clone(),
             export_plan.resume_qualname.clone(),
-            BindingTarget::Local,
+            None,
             resume_blockpy_kind,
             blockpy_function.params.clone(),
             normalized_resume_entry_label,
@@ -949,7 +949,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         blockpy_function.bind_name.clone(),
         display_name.clone(),
         blockpy_function.qualname.clone(),
-        blockpy_function.binding_target,
+        blockpy_function.doc.clone(),
         main_blockpy_kind,
         blockpy_function.params.clone(),
         normalized_main_entry_label,
@@ -980,7 +980,7 @@ pub(crate) fn build_finalized_blockpy_function(
     function_id: FunctionId,
     bind_name: String,
     qualname: String,
-    binding_target: BindingTarget,
+    doc: Option<BlockPyExpr>,
     kind: BlockPyFunctionKind,
     params: ast::Parameters,
     blocks: Vec<BlockPyBlock>,
@@ -998,7 +998,7 @@ pub(crate) fn build_finalized_blockpy_function(
         bind_name.clone(),
         bind_name,
         qualname,
-        binding_target,
+        doc,
         kind,
         params,
         entry_label.clone(),
@@ -1026,7 +1026,7 @@ pub(crate) fn lower_function_body_to_blockpy_function<FDef, FTemp>(
     runtime_input_body: &[Box<Stmt>],
     bind_name: String,
     qualname: String,
-    binding_target: BindingTarget,
+    doc: Option<BlockPyExpr>,
     params: ast::Parameters,
     end_label: String,
     label_prefix: &str,
@@ -1082,7 +1082,7 @@ where
         take_next_function_id(next_function_id),
         bind_name,
         qualname,
-        binding_target,
+        doc,
         blockpy_kind,
         params,
         blocks,
@@ -1244,7 +1244,7 @@ fn relabel_generator_info(
 }
 
 pub(crate) fn finalize_blockpy_function(
-    mut callable_def: BlockPyFunction,
+    mut callable_def: BlockPyCallableDef,
     mut try_regions: Vec<TryRegionPlan>,
     mut entry_label: String,
     end_label: String,
@@ -1394,7 +1394,7 @@ mod tests {
             .expect("expected BlockPy module")
     }
 
-    fn function_by_name<'a>(blockpy: &'a BlockPyModule, bind_name: &str) -> &'a BlockPyFunction {
+    fn function_by_name<'a>(blockpy: &'a BlockPyModule, bind_name: &str) -> &'a BlockPyCallableDef {
         blockpy
             .callable_defs
             .iter()
