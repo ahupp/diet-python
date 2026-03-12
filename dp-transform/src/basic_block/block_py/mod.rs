@@ -12,51 +12,6 @@ pub(crate) mod state;
 pub struct BlockPyLabel(pub String);
 
 #[derive(Debug, Clone)]
-pub struct BlockPyModule {
-    pub functions: Vec<BlockPyFunction>,
-    pub module_init: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct BlockPyFunction {
-    pub bind_name: String,
-    pub display_name: String,
-    pub qualname: String,
-    pub binding_target: BindingTarget,
-    pub kind: BlockPyFunctionKind,
-    pub params: Parameters,
-    pub entry_liveins: Vec<String>,
-    pub closure_layout: Option<BbClosureLayout>,
-    pub local_cell_slots: Vec<String>,
-    pub blocks: Vec<BlockPyBlock>,
-}
-
-impl BlockPyFunction {
-    pub fn entry_label(&self) -> &str {
-        self.blocks
-            .first()
-            .map(|block| block.label.as_str())
-            .expect("BlockPyFunction should have at least one block")
-    }
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum BlockPyFunctionKind {
-    Function,
-    Coroutine,
-    Generator,
-    AsyncGenerator,
-}
-
-#[derive(Debug, Clone)]
-pub struct BlockPyBlock {
-    pub label: BlockPyLabel,
-    pub exc_param: Option<String>,
-    pub body: Vec<BlockPyStmt>,
-    pub term: BlockPyTerm,
-}
-
-#[derive(Debug, Clone)]
 pub enum BlockPyExpr {
     BoolOp(ast::ExprBoolOp),
     Named(ast::ExprNamed),
@@ -92,35 +47,91 @@ pub enum BlockPyExpr {
     Slice(ast::ExprSlice),
 }
 
+pub type RuffBlockPyModule = BlockPyModule<Expr>;
+pub type RuffBlockPyFunction = BlockPyFunction<Expr>;
+pub type RuffBlockPyBlock = BlockPyBlock<Expr>;
+pub type RuffBlockPyStmt = BlockPyStmt<Expr>;
+pub type RuffBlockPyTerm = BlockPyTerm<Expr>;
+pub type RuffBlockPyAssign = BlockPyAssign<Expr>;
+pub type RuffBlockPyIf = BlockPyIf<Expr>;
+pub type RuffBlockPyIfTerm = BlockPyIfTerm<Expr>;
+pub type RuffBlockPyBranchTable = BlockPyBranchTable<Expr>;
+pub type RuffBlockPyRaise = BlockPyRaise<Expr>;
+
 #[derive(Debug, Clone)]
-pub enum BlockPyStmt {
+pub struct BlockPyModule<E = BlockPyExpr> {
+    pub functions: Vec<BlockPyFunction<E>>,
+    pub module_init: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BlockPyFunction<E = BlockPyExpr> {
+    pub bind_name: String,
+    pub display_name: String,
+    pub qualname: String,
+    pub binding_target: BindingTarget,
+    pub kind: BlockPyFunctionKind,
+    pub params: Parameters,
+    pub entry_liveins: Vec<String>,
+    pub closure_layout: Option<BbClosureLayout>,
+    pub local_cell_slots: Vec<String>,
+    pub blocks: Vec<BlockPyBlock<E>>,
+}
+
+impl<E> BlockPyFunction<E> {
+    pub fn entry_label(&self) -> &str {
+        self.blocks
+            .first()
+            .map(|block| block.label.as_str())
+            .expect("BlockPyFunction should have at least one block")
+    }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum BlockPyFunctionKind {
+    Function,
+    Coroutine,
+    Generator,
+    AsyncGenerator,
+}
+
+#[derive(Debug, Clone)]
+pub struct BlockPyBlock<E = BlockPyExpr> {
+    pub label: BlockPyLabel,
+    pub exc_param: Option<String>,
+    pub body: Vec<BlockPyStmt<E>>,
+    pub term: BlockPyTerm<E>,
+}
+
+#[derive(Debug, Clone)]
+pub enum BlockPyStmt<E = BlockPyExpr> {
     Pass,
-    Assign(BlockPyAssign),
-    Expr(BlockPyExpr),
+    Assign(BlockPyAssign<E>),
+    Expr(E),
     Delete(BlockPyDelete),
     FunctionDef(ast::StmtFunctionDef),
-    If(BlockPyIf),
-    BranchTable(BlockPyBranchTable),
+    If(BlockPyIf<E>),
+    BranchTable(BlockPyBranchTable<E>),
     Jump(BlockPyLabel),
-    Return(Option<BlockPyExpr>),
-    Raise(BlockPyRaise),
+    Return(Option<E>),
+    Raise(BlockPyRaise<E>),
     TryJump(BlockPyTryJump),
 }
 
 #[derive(Debug, Clone)]
-pub enum BlockPyTerm {
+pub enum BlockPyTerm<E = BlockPyExpr> {
     Jump(BlockPyLabel),
-    IfTerm(BlockPyIfTerm),
-    BranchTable(BlockPyBranchTable),
-    Raise(BlockPyRaise),
+    IfTerm(BlockPyIfTerm<E>),
+    BranchTable(BlockPyBranchTable<E>),
+    Raise(BlockPyRaise<E>),
     TryJump(BlockPyTryJump),
-    Return(Option<BlockPyExpr>),
+    Return(Option<E>),
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockPyAssign {
+pub struct BlockPyAssign<E = BlockPyExpr> {
     pub target: ExprName,
-    pub value: BlockPyExpr,
+    pub value: E,
 }
 
 #[derive(Debug, Clone)]
@@ -129,29 +140,29 @@ pub struct BlockPyDelete {
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockPyIf {
-    pub test: BlockPyExpr,
-    pub body: Vec<BlockPyStmt>,
-    pub orelse: Vec<BlockPyStmt>,
+pub struct BlockPyIf<E = BlockPyExpr> {
+    pub test: E,
+    pub body: Vec<BlockPyStmt<E>>,
+    pub orelse: Vec<BlockPyStmt<E>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockPyIfTerm {
-    pub test: BlockPyExpr,
+pub struct BlockPyIfTerm<E = BlockPyExpr> {
+    pub test: E,
     pub then_label: BlockPyLabel,
     pub else_label: BlockPyLabel,
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockPyBranchTable {
-    pub index: BlockPyExpr,
+pub struct BlockPyBranchTable<E = BlockPyExpr> {
+    pub index: E,
     pub targets: Vec<BlockPyLabel>,
     pub default_label: BlockPyLabel,
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockPyRaise {
-    pub exc: Option<BlockPyExpr>,
+pub struct BlockPyRaise<E = BlockPyExpr> {
+    pub exc: Option<E>,
 }
 
 #[derive(Debug, Clone)]
@@ -160,8 +171,8 @@ pub struct BlockPyTryJump {
     pub except_label: BlockPyLabel,
 }
 
-impl BlockPyTerm {
-    pub fn from_stmt(stmt: &BlockPyStmt) -> Option<Self> {
+impl<E: Clone> BlockPyTerm<E> {
+    pub fn from_stmt(stmt: &BlockPyStmt<E>) -> Option<Self> {
         match stmt {
             BlockPyStmt::Jump(target) => Some(Self::Jump(target.clone())),
             BlockPyStmt::BranchTable(branch) => Some(Self::BranchTable(branch.clone())),
