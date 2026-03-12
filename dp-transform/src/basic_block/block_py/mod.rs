@@ -4,7 +4,6 @@ use ruff_python_ast::{self as ast, Expr, ExprName, Parameters};
 pub(crate) mod cfg;
 pub(crate) mod dataflow;
 pub(crate) mod exception;
-pub(crate) mod export;
 pub(crate) mod pretty;
 pub(crate) mod state;
 

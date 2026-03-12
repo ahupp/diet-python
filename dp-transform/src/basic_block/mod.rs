@@ -7,6 +7,7 @@ pub mod block_py;
 mod blockpy_to_bb;
 mod bound_names;
 mod driver;
+mod expr_utils;
 mod function_identity;
 mod function_lowering;
 mod ruff_to_blockpy;

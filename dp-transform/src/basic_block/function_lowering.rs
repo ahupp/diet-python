@@ -4,13 +4,13 @@ use super::annotation_export::{
 };
 use super::await_lower::{coroutine_generator_marker_stmt, lower_coroutine_awaits_to_yield_from};
 use super::bb_ir::BbExpr;
-use super::block_py::export::make_dp_tuple;
 use super::block_py::state::{collect_cell_slots, collect_parameter_names};
 use super::block_py::{
     BlockPyBlock, BlockPyBranchTable, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt,
     BlockPyTerm,
 };
 use super::bound_names::{collect_bound_names, collect_explicit_global_or_nonlocal_names};
+use super::expr_utils::make_dp_tuple;
 use super::function_identity::{
     is_module_init_temp_name, resolve_runtime_function_identity, FunctionIdentity,
     FunctionIdentityByNode,
