@@ -41,12 +41,13 @@ pub(crate) fn instrument_bb_module_for_trace(module: &mut BbModule, config: &BbT
                 continue;
             }
         }
+        let qualname = function.qualname.clone();
         for block in &mut function.blocks {
             let trace_stmt = if config.include_params && !block.meta.params.is_empty() {
                 let params_expr = parse_expression(
                     format!(
                         "__dp_bb_trace_enter({}, {}, {})",
-                        quote_python_string(function.qualname.as_str()),
+                        quote_python_string(qualname.as_str()),
                         quote_python_string(block.label.as_str()),
                         param_pairs_expr_source(&block.meta.params),
                     )
@@ -55,14 +56,14 @@ pub(crate) fn instrument_bb_module_for_trace(module: &mut BbModule, config: &BbT
                 .unwrap_or_else(|err| {
                     panic!(
                         "failed to build BB trace expression for {}::{}: {err}",
-                        function.qualname, block.label
+                        qualname, block.label
                     )
                 });
                 py_stmt!("{value:expr}", value = *params_expr.into_syntax().body)
             } else {
                 py_stmt!(
                     "__dp_bb_trace_enter({qualname:literal}, {label:literal})",
-                    qualname = function.qualname.as_str(),
+                    qualname = qualname.as_str(),
                     label = block.label.as_str(),
                 )
             };

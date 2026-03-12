@@ -154,7 +154,7 @@ fn bb_module_to_json(module: &bb_ir::BbModule) -> Value {
                 "bindingTarget": bb_binding_target_name(function.binding_target),
                 "kind": bb_function_kind_to_json(&function.kind),
                 "entry": function.entry,
-                "paramNames": function.param_names,
+                "paramNames": function.params,
                 "entryLiveins": function.entry_liveins,
                 "localCellSlots": function.local_cell_slots,
                 "blocks": blocks,
@@ -572,7 +572,7 @@ fn bb_module_to_clif(module: &bb_ir::BbModule) -> String {
     out.push_str("; generated function declarations\n");
     for function in &module.functions {
         let params = function
-            .param_names
+            .params
             .iter()
             .map(|name| format!("%{name}: pyobj"))
             .collect::<Vec<_>>()

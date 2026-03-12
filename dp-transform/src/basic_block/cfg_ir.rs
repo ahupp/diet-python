@@ -5,3 +5,15 @@ pub struct CfgBlock<L, S, T, M = ()> {
     pub term: T,
     pub meta: M,
 }
+
+#[derive(Debug, Clone)]
+pub struct CfgCallableDef<I, K, P, B> {
+    pub function_id: I,
+    pub bind_name: String,
+    pub display_name: String,
+    pub qualname: String,
+    pub kind: K,
+    pub params: P,
+    pub entry_liveins: Vec<String>,
+    pub blocks: Vec<B>,
+}

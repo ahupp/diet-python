@@ -20,6 +20,7 @@ use super::block_py::{
     BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment, BlockPyStmtFragmentBuilder,
     BlockPyTerm, BlockPyTryJump, ENTRY_BLOCK_LABEL,
 };
+use super::cfg_ir::CfgCallableDef;
 use super::stmt_utils::flatten_stmt_boxes;
 use crate::basic_block::ast_to_ast::ast_rewrite::Rewrite;
 use crate::basic_block::ast_to_ast::rewrite_expr::make_tuple;
@@ -212,17 +213,19 @@ pub(crate) fn build_blockpy_function(
         assert_blockpy_block_normalized(block);
     }
     BlockPyCallableDef {
-        function_id,
-        bind_name,
-        display_name,
-        qualname,
+        cfg: CfgCallableDef {
+            function_id,
+            bind_name,
+            display_name,
+            qualname,
+            kind,
+            params,
+            entry_liveins,
+            blocks,
+        },
         doc,
-        kind,
-        params,
-        entry_liveins,
         closure_layout,
         local_cell_slots,
-        blocks,
     }
 }
 

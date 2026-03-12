@@ -989,14 +989,22 @@ def gen():
     fn renders_public_closure_metadata_in_function_header() {
         let rendered = blockpy_module_to_string(&BlockPyModule {
             callable_defs: vec![BlockPyCallableDef {
-                function_id: crate::basic_block::bb_ir::FunctionId(0),
-                bind_name: "gen".to_string(),
-                display_name: "gen".to_string(),
-                qualname: "gen".to_string(),
+                cfg: crate::basic_block::cfg_ir::CfgCallableDef {
+                    function_id: crate::basic_block::bb_ir::FunctionId(0),
+                    bind_name: "gen".to_string(),
+                    display_name: "gen".to_string(),
+                    qualname: "gen".to_string(),
+                    kind: BlockPyFunctionKind::Function,
+                    params: empty_parameters(),
+                    entry_liveins: vec!["_dp_self".to_string(), "_dp_resume_exc".to_string()],
+                    blocks: vec![BlockPyBlock {
+                        label: "gen_start".into(),
+                        body: vec![],
+                        term: BlockPyTerm::Return(None),
+                        meta: BlockPyBlockMeta::default(),
+                    }],
+                },
                 doc: None,
-                kind: BlockPyFunctionKind::Function,
-                params: empty_parameters(),
-                entry_liveins: vec!["_dp_self".to_string(), "_dp_resume_exc".to_string()],
                 closure_layout: Some(BbClosureLayout {
                     freevars: vec![BbClosureSlot {
                         logical_name: "factor".to_string(),
@@ -1015,12 +1023,6 @@ def gen():
                     }],
                 }),
                 local_cell_slots: vec!["_dp_cell__dp_pc".to_string()],
-                blocks: vec![BlockPyBlock {
-                    label: "gen_start".into(),
-                    body: vec![],
-                    term: BlockPyTerm::Return(None),
-                    meta: BlockPyBlockMeta::default(),
-                }],
             }],
             module_init: None,
         });
@@ -1034,46 +1036,48 @@ def gen():
     #[test]
     fn renders_followup_blocks_under_their_owning_entry_block() {
         let function = BlockPyCallableDef {
-            function_id: crate::basic_block::bb_ir::FunctionId(0),
-            bind_name: "f".to_string(),
-            display_name: "f".to_string(),
-            qualname: "f".to_string(),
+            cfg: crate::basic_block::cfg_ir::CfgCallableDef {
+                function_id: crate::basic_block::bb_ir::FunctionId(0),
+                bind_name: "f".to_string(),
+                display_name: "f".to_string(),
+                qualname: "f".to_string(),
+                kind: BlockPyFunctionKind::Function,
+                params: empty_parameters(),
+                entry_liveins: Vec::new(),
+                blocks: vec![
+                    BlockPyBlock {
+                        label: "start".into(),
+                        body: vec![],
+                        term: BlockPyTerm::IfTerm(BlockPyIfTerm {
+                            test: parse_blockpy_expr("cond"),
+                            then_label: "then".into(),
+                            else_label: "else".into(),
+                        }),
+                        meta: BlockPyBlockMeta::default(),
+                    },
+                    BlockPyBlock {
+                        label: "then".into(),
+                        body: vec![BlockPyStmt::Expr(parse_blockpy_expr("then_side_effect()"))],
+                        term: BlockPyTerm::Jump("after".into()),
+                        meta: BlockPyBlockMeta::default(),
+                    },
+                    BlockPyBlock {
+                        label: "else".into(),
+                        body: vec![BlockPyStmt::Expr(parse_blockpy_expr("else_side_effect()"))],
+                        term: BlockPyTerm::Jump("after".into()),
+                        meta: BlockPyBlockMeta::default(),
+                    },
+                    BlockPyBlock {
+                        label: "after".into(),
+                        body: vec![BlockPyStmt::Expr(parse_blockpy_expr("finish()"))],
+                        term: BlockPyTerm::Return(None),
+                        meta: BlockPyBlockMeta::default(),
+                    },
+                ],
+            },
             doc: None,
-            kind: BlockPyFunctionKind::Function,
-            params: empty_parameters(),
-            entry_liveins: Vec::new(),
             closure_layout: None,
             local_cell_slots: Vec::new(),
-            blocks: vec![
-                BlockPyBlock {
-                    label: "start".into(),
-                    body: vec![],
-                    term: BlockPyTerm::IfTerm(BlockPyIfTerm {
-                        test: parse_blockpy_expr("cond"),
-                        then_label: "then".into(),
-                        else_label: "else".into(),
-                    }),
-                    meta: BlockPyBlockMeta::default(),
-                },
-                BlockPyBlock {
-                    label: "then".into(),
-                    body: vec![BlockPyStmt::Expr(parse_blockpy_expr("then_side_effect()"))],
-                    term: BlockPyTerm::Jump("after".into()),
-                    meta: BlockPyBlockMeta::default(),
-                },
-                BlockPyBlock {
-                    label: "else".into(),
-                    body: vec![BlockPyStmt::Expr(parse_blockpy_expr("else_side_effect()"))],
-                    term: BlockPyTerm::Jump("after".into()),
-                    meta: BlockPyBlockMeta::default(),
-                },
-                BlockPyBlock {
-                    label: "after".into(),
-                    body: vec![BlockPyStmt::Expr(parse_blockpy_expr("finish()"))],
-                    term: BlockPyTerm::Return(None),
-                    meta: BlockPyBlockMeta::default(),
-                },
-            ],
         };
         let rendered = blockpy_module_to_string(&BlockPyModule {
             callable_defs: vec![function],

@@ -1,6 +1,7 @@
 use super::bb_ir::{BbClosureLayout, FunctionId};
-use super::cfg_ir::CfgBlock;
+use super::cfg_ir::{CfgBlock, CfgCallableDef};
 use ruff_python_ast::{self as ast, Expr, ExprName, Parameters};
+use std::ops::{Deref, DerefMut};
 
 pub(crate) mod cfg;
 pub(crate) mod dataflow;
@@ -68,17 +69,24 @@ pub struct BlockPyModule<E = BlockPyExpr> {
 
 #[derive(Debug, Clone)]
 pub struct BlockPyCallableDef<E = BlockPyExpr> {
-    pub function_id: FunctionId,
-    pub bind_name: String,
-    pub display_name: String,
-    pub qualname: String,
+    pub cfg: CfgCallableDef<FunctionId, BlockPyFunctionKind, Parameters, BlockPyBlock<E>>,
     pub doc: Option<E>,
-    pub kind: BlockPyFunctionKind,
-    pub params: Parameters,
-    pub entry_liveins: Vec<String>,
     pub closure_layout: Option<BbClosureLayout>,
     pub local_cell_slots: Vec<String>,
-    pub blocks: Vec<BlockPyBlock<E>>,
+}
+
+impl<E> Deref for BlockPyCallableDef<E> {
+    type Target = CfgCallableDef<FunctionId, BlockPyFunctionKind, Parameters, BlockPyBlock<E>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.cfg
+    }
+}
+
+impl<E> DerefMut for BlockPyCallableDef<E> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.cfg
+    }
 }
 
 impl<E> BlockPyCallableDef<E> {

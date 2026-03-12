@@ -229,7 +229,7 @@ def f():
 
         let mut probe = ExprShapeProbe::new();
         for function in normalized.functions {
-            for mut block in function.blocks {
+            for mut block in function.cfg.blocks {
                 for op in block.body {
                     let mut stmt = op.to_stmt();
                     probe_stmt_exprs(&mut probe, &mut stmt);
@@ -297,7 +297,7 @@ def f(obj, mapping, key, value):
 
         let mut text = String::new();
         for function in normalized.functions {
-            for block in function.blocks {
+            for block in function.cfg.blocks {
                 text.push_str(&crate::ruff_ast_to_string(&bb_ir::bb_ops_to_stmts(
                     &block.body,
                 )));

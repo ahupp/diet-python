@@ -1,4 +1,4 @@
-use super::cfg_ir::CfgBlock;
+use super::cfg_ir::{CfgBlock, CfgCallableDef};
 use crate::py_expr;
 use ruff_python_ast::{
     self as ast, AtomicNodeIndex, Expr, ExprContext, ExprName, Stmt, StmtAssign, StmtDelete,
@@ -6,6 +6,7 @@ use ruff_python_ast::{
 };
 use ruff_python_parser::parse_expression;
 use ruff_text_size::TextRange;
+use std::ops::{Deref, DerefMut};
 
 #[derive(Debug, Clone)]
 pub struct BbModule {
@@ -24,20 +25,27 @@ impl FunctionId {
 
 #[derive(Debug, Clone)]
 pub struct BbFunction {
-    pub function_id: FunctionId,
-    pub bind_name: String,
-    pub display_name: String,
-    pub qualname: String,
+    pub cfg: CfgCallableDef<FunctionId, BbFunctionKind, Vec<String>, BbBlock>,
     pub binding_target: BindingTarget,
     pub is_coroutine: bool,
-    pub kind: BbFunctionKind,
     pub entry: String,
-    pub param_names: Vec<String>,
-    pub entry_liveins: Vec<String>,
     pub closure_layout: Option<BbClosureLayout>,
     pub param_specs: BbExpr,
     pub local_cell_slots: Vec<String>,
-    pub blocks: Vec<BbBlock>,
+}
+
+impl Deref for BbFunction {
+    type Target = CfgCallableDef<FunctionId, BbFunctionKind, Vec<String>, BbBlock>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.cfg
+    }
+}
+
+impl DerefMut for BbFunction {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.cfg
+    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
