@@ -1060,7 +1060,7 @@ pub(crate) fn lower_top_level_function(
         &mut |func_def: &ast::StmtFunctionDef| vec![Stmt::FunctionDef(func_def.clone())],
         &mut compat_next_temp,
     );
-    Ok(prepared.function)
+    Ok(prepared.callable_def)
 }
 
 fn body_has_yieldlike(body: &StmtBody) -> bool {

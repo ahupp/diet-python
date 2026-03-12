@@ -96,7 +96,7 @@ pub(crate) struct GeneratorStmtSequenceLoweringState {
 }
 
 pub(crate) struct LoweredBlockPyFunction {
-    pub function: BlockPyFunction,
+    pub callable_def: BlockPyFunction,
     pub is_coroutine: bool,
     pub bb_kind: BbFunctionKind,
     pub block_params: HashMap<String, Vec<String>>,
@@ -111,7 +111,7 @@ pub(crate) struct LoweredBlockPyFunctionBundle {
 }
 
 pub(crate) struct PreparedBlockPyFunction {
-    pub function: BlockPyFunction,
+    pub callable_def: BlockPyFunction,
     pub entry_label: String,
     pub generator_metadata: Option<GeneratorMetadata>,
     pub try_regions: Vec<TryRegionPlan>,
@@ -243,7 +243,7 @@ pub(crate) fn take_next_function_id(next_function_id: &mut usize) -> FunctionId 
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_lowered_blockpy_function(
-    function: BlockPyFunction,
+    callable_def: BlockPyFunction,
     is_coroutine: bool,
     bb_kind: BbFunctionKind,
     block_params: HashMap<String, Vec<String>>,
@@ -252,7 +252,7 @@ pub(crate) fn build_lowered_blockpy_function(
     param_specs: BbExpr,
 ) -> LoweredBlockPyFunction {
     LoweredBlockPyFunction {
-        function,
+        callable_def,
         is_coroutine,
         bb_kind,
         block_params,
@@ -452,7 +452,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
     next_function_id: &mut usize,
 ) -> LoweredBlockPyFunctionBundle {
     let PreparedBlockPyFunction {
-        function: mut blockpy_function,
+        callable_def: mut blockpy_function,
         entry_label,
         generator_metadata,
         try_regions,
@@ -993,7 +993,7 @@ pub(crate) fn build_finalized_blockpy_function(
     is_closure_backed_generator_runtime: bool,
     uncaught_exc_name: String,
 ) -> PreparedBlockPyFunction {
-    let function = build_blockpy_function(
+    let callable_def = build_blockpy_function(
         function_id,
         bind_name.clone(),
         bind_name,
@@ -1008,7 +1008,7 @@ pub(crate) fn build_finalized_blockpy_function(
         blocks,
     );
     finalize_blockpy_function(
-        function,
+        callable_def,
         try_regions,
         entry_label,
         end_label,
@@ -1244,7 +1244,7 @@ fn relabel_generator_info(
 }
 
 pub(crate) fn finalize_blockpy_function(
-    mut function: BlockPyFunction,
+    mut callable_def: BlockPyFunction,
     mut try_regions: Vec<TryRegionPlan>,
     mut entry_label: String,
     end_label: String,
@@ -1255,27 +1255,27 @@ pub(crate) fn finalize_blockpy_function(
     uncaught_exc_name: String,
 ) -> PreparedBlockPyFunction {
     let needs_end_block = entry_label == end_label
-        || function
+        || callable_def
             .blocks
             .iter()
             .any(|block| block_references_label(block, end_label.as_str()));
     if needs_end_block {
-        function.blocks.push(BlockPyBlock {
+        callable_def.blocks.push(BlockPyBlock {
             label: BlockPyLabel::from(end_label),
             exc_param: None,
             body: Vec::new(),
             term: BlockPyTerm::Return(None),
         });
     }
-    fold_jumps_to_trivial_none_return_blockpy(&mut function.blocks);
-    fold_constant_brif_blockpy(&mut function.blocks);
+    fold_jumps_to_trivial_none_return_blockpy(&mut callable_def.blocks);
+    fold_constant_brif_blockpy(&mut callable_def.blocks);
     let prune_roots = generator_metadata
         .as_ref()
         .map(|info| info.resume_order.clone())
         .unwrap_or_default();
-    prune_unreachable_blockpy_blocks(entry_label.as_str(), &prune_roots, &mut function.blocks);
+    prune_unreachable_blockpy_blocks(entry_label.as_str(), &prune_roots, &mut callable_def.blocks);
     let (relabelled_entry_label, label_rename) =
-        relabel_blockpy_blocks(label_prefix, entry_label.as_str(), &mut function.blocks);
+        relabel_blockpy_blocks(label_prefix, entry_label.as_str(), &mut callable_def.blocks);
     entry_label = relabelled_entry_label;
     relabel_try_regions(&mut try_regions, &label_rename);
     if let Some(generator) = generator_metadata.as_mut() {
@@ -1283,7 +1283,7 @@ pub(crate) fn finalize_blockpy_function(
         let resume_order = generator.resume_order.clone();
         let yield_sites = generator.yield_sites.clone();
         *generator = synthesize_generator_dispatch_metadata(
-            &mut function.blocks,
+            &mut callable_def.blocks,
             &mut entry_label,
             label_prefix,
             is_async_generator_runtime,
@@ -1294,7 +1294,7 @@ pub(crate) fn finalize_blockpy_function(
         );
     }
     PreparedBlockPyFunction {
-        function,
+        callable_def,
         entry_label,
         generator_metadata,
         try_regions,

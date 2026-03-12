@@ -436,7 +436,7 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     );
     *next_block_id = local_next_block_id;
 
-    let mut blocks_for_dataflow = std::mem::take(&mut prepared_function.function.blocks);
+    let mut blocks_for_dataflow = std::mem::take(&mut prepared_function.callable_def.blocks);
 
     if !deleted_names.is_empty() {
         rewrite_deleted_name_loads(
@@ -484,7 +484,7 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         extra_closure_state_names.sort();
         extra_closure_state_names.dedup();
     }
-    prepared_function.function.blocks = blocks_for_dataflow;
+    prepared_function.callable_def.blocks = blocks_for_dataflow;
     Some(build_lowered_blockpy_function_bundle(
         prepared_function,
         identity.display_name.clone(),

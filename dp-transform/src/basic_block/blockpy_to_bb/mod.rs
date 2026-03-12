@@ -53,13 +53,13 @@ pub(crate) fn lowered_blockpy_module_bundle_to_blockpy_module(
 ) -> BlockPyModule {
     let mut callable_defs = Vec::new();
     for lowered_function in &module.callable_defs {
-        callable_defs.push(lowered_function.bundle.main_function.function.clone());
+        callable_defs.push(lowered_function.bundle.main_function.callable_def.clone());
         callable_defs.extend(
             lowered_function
                 .bundle
                 .helper_functions
                 .iter()
-                .map(|helper| helper.function.clone()),
+                .map(|helper| helper.callable_def.clone()),
         );
     }
     BlockPyModule {
@@ -113,22 +113,22 @@ pub(crate) fn lower_blockpy_function_to_bb_function(
     binding_target_override: Option<BindingTarget>,
 ) -> BbFunction {
     BbFunction {
-        function_id: lowered.function.function_id,
-        bind_name: lowered.function.bind_name.clone(),
-        display_name: lowered.function.display_name.clone(),
-        qualname: lowered.function.qualname.clone(),
-        binding_target: binding_target_override.unwrap_or(lowered.function.binding_target),
+        function_id: lowered.callable_def.function_id,
+        bind_name: lowered.callable_def.bind_name.clone(),
+        display_name: lowered.callable_def.display_name.clone(),
+        qualname: lowered.callable_def.qualname.clone(),
+        binding_target: binding_target_override.unwrap_or(lowered.callable_def.binding_target),
         is_coroutine: lowered.is_coroutine,
         kind: lowered.bb_kind.clone(),
-        entry: lowered.function.entry_label().to_string(),
-        param_names: collect_parameter_names(&lowered.function.params),
-        entry_liveins: lowered.function.entry_liveins.clone(),
+        entry: lowered.callable_def.entry_label().to_string(),
+        param_names: collect_parameter_names(&lowered.callable_def.params),
+        entry_liveins: lowered.callable_def.entry_liveins.clone(),
         closure_layout: lowered.closure_layout.clone(),
         param_specs: lowered.param_specs.clone(),
-        local_cell_slots: lowered.function.local_cell_slots.clone(),
+        local_cell_slots: lowered.callable_def.local_cell_slots.clone(),
         blocks: lower_blockpy_blocks_to_bb_blocks(
             context,
-            &lowered.function.blocks,
+            &lowered.callable_def.blocks,
             &lowered.block_params,
             &lowered.exception_edges,
         ),
