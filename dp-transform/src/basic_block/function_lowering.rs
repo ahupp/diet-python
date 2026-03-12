@@ -10,10 +10,10 @@ use super::block_py::{
     BlockPyTerm,
 };
 use super::bound_names::{collect_bound_names, collect_explicit_global_or_nonlocal_names};
-use super::expr_utils::make_dp_tuple;
 use super::function_identity::{
     is_module_init_temp_name, resolve_runtime_function_identity, FunctionIdentity,
 };
+use super::param_specs::function_param_specs_expr;
 use super::ruff_to_blockpy::{
     build_lowered_blockpy_function_bundle, lower_function_body_to_blockpy_function,
     LoweredBlockPyFunctionBundle,
@@ -499,7 +499,7 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         label_prefix.as_str(),
         cell_slots.clone(),
         is_module_init_temp_name(func.name.id.as_str()),
-        BbExpr::from_expr(make_param_specs_expr(func.parameters.as_ref())),
+        BbExpr::from_expr(function_param_specs_expr(func.parameters.as_ref())),
         next_function_id,
     ))
 }
@@ -738,75 +738,6 @@ pub(crate) fn has_await_in_stmts(stmts: &[Box<Stmt>]) -> bool {
         }
     }
     false
-}
-
-fn make_param_specs_expr(parameters: &ast::Parameters) -> Expr {
-    let mut specs = Vec::new();
-    for param in &parameters.posonlyargs {
-        push_param_specs(
-            &mut specs,
-            param.parameter.name.id.as_str(),
-            "/",
-            param.parameter.annotation.as_deref(),
-            param.default.as_deref(),
-        );
-    }
-    for param in &parameters.args {
-        push_param_specs(
-            &mut specs,
-            param.parameter.name.id.as_str(),
-            "",
-            param.parameter.annotation.as_deref(),
-            param.default.as_deref(),
-        );
-    }
-    if let Some(param) = &parameters.vararg {
-        push_param_specs(
-            &mut specs,
-            param.name.id.as_str(),
-            "*",
-            param.annotation.as_deref(),
-            None,
-        );
-    }
-    for param in &parameters.kwonlyargs {
-        push_param_specs(
-            &mut specs,
-            param.parameter.name.id.as_str(),
-            "kw:",
-            param.parameter.annotation.as_deref(),
-            param.default.as_deref(),
-        );
-    }
-    if let Some(param) = &parameters.kwarg {
-        push_param_specs(
-            &mut specs,
-            param.name.id.as_str(),
-            "**",
-            param.annotation.as_deref(),
-            None,
-        );
-    }
-    make_dp_tuple(specs)
-}
-
-fn push_param_specs(
-    specs: &mut Vec<Expr>,
-    name: &str,
-    prefix: &str,
-    _annotation: Option<&Expr>,
-    default: Option<&Expr>,
-) {
-    let label = format!("{prefix}{name}");
-    let annotation_expr = py_expr!("None");
-    let default_expr = default
-        .cloned()
-        .unwrap_or_else(|| py_expr!("__dp__.NO_DEFAULT"));
-    specs.push(make_dp_tuple(vec![
-        py_expr!("{value:literal}", value = label.as_str()),
-        annotation_expr,
-        default_expr,
-    ]));
 }
 
 fn split_docstring(body: &StmtBody) -> (Option<Stmt>, Vec<Box<Stmt>>) {

@@ -22,6 +22,9 @@ use crate::basic_block::function_identity::{
 use crate::basic_block::function_lowering::{
     function_docstring_expr, try_lower_function_to_blockpy_bundle,
 };
+use crate::basic_block::param_specs::{
+    collect_function_param_specs, function_param_specs_to_expr, FunctionParamSpec,
+};
 use crate::basic_block::ruff_to_blockpy::LoweredBlockPyFunction;
 use crate::template::into_body;
 use crate::transformer::{walk_stmt, Transformer};
@@ -90,7 +93,7 @@ struct LoweredFunctionInstantiationData {
     name: String,
     qualname: String,
     closure_expr: Expr,
-    param_specs_expr: Expr,
+    param_specs: Vec<FunctionParamSpec>,
     doc_expr: Expr,
     annotate_fn_expr: Expr,
     kind: LoweredFunctionInstantiationKind,
@@ -259,7 +262,7 @@ fn build_lowered_function_instantiation_data(
         name: lowered.callable_def.display_name.clone(),
         qualname: lowered.callable_def.qualname.clone(),
         closure_expr,
-        param_specs_expr: lowered.param_specs.to_expr(),
+        param_specs: collect_function_param_specs(&lowered.callable_def.params),
         doc_expr,
         annotate_fn_expr,
         kind,
@@ -268,6 +271,7 @@ fn build_lowered_function_instantiation_data(
 
 fn build_lowered_function_instantiation_expr(data: &LoweredFunctionInstantiationData) -> Expr {
     let entry_ref_expr = py_expr!("{entry:literal}", entry = data.entry_label.as_str());
+    let param_specs_expr = function_param_specs_to_expr(&data.param_specs);
     let function_entry_expr = py_expr!(
         "__dp_make_function({entry:expr}, {function_id:literal}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, {module_globals:expr}, {module_name:expr}, {doc:expr}, {annotate_fn:expr})",
         entry = entry_ref_expr.clone(),
@@ -275,7 +279,7 @@ fn build_lowered_function_instantiation_expr(data: &LoweredFunctionInstantiation
         name = data.name.as_str(),
         qualname = data.qualname.as_str(),
         closure = data.closure_expr.clone(),
-        params = data.param_specs_expr.clone(),
+        params = param_specs_expr.clone(),
         module_globals = py_expr!("__dp_globals()"),
         module_name = py_expr!("__name__"),
         doc = data.doc_expr.clone(),
@@ -294,7 +298,7 @@ fn build_lowered_function_instantiation_expr(data: &LoweredFunctionInstantiation
             name = data.name.as_str(),
             qualname = data.qualname.as_str(),
             closure = data.closure_expr.clone(),
-            params = data.param_specs_expr.clone(),
+            params = param_specs_expr.clone(),
             doc = data.doc_expr.clone(),
             annotate_fn = data.annotate_fn_expr.clone(),
         ),
@@ -305,7 +309,7 @@ fn build_lowered_function_instantiation_expr(data: &LoweredFunctionInstantiation
             name = data.name.as_str(),
             qualname = data.qualname.as_str(),
             closure = data.closure_expr.clone(),
-            params = data.param_specs_expr.clone(),
+            params = param_specs_expr.clone(),
             doc = data.doc_expr.clone(),
             annotate_fn = data.annotate_fn_expr.clone(),
         ),

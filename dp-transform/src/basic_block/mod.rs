@@ -10,6 +10,7 @@ mod driver;
 mod expr_utils;
 mod function_identity;
 mod function_lowering;
+mod param_specs;
 mod ruff_to_blockpy;
 mod stmt_utils;
 

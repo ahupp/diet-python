@@ -234,7 +234,7 @@ x = lambda y: y + 1
 #     bind: _dp_module_init
 #     qualname: _dp_module_init
 #     block start:
-#         _dp_lambda_1 = __dp_make_function("start", 0, "<lambda>", "<lambda>", __dp_tuple("y"), __dp_tuple(__dp_tuple(__dp_decode_literal_bytes(b"y"), __dp_NONE, __dp_getattr(__dp__, __dp_decode_literal_bytes(b"NO_DEFAULT")))), __dp_globals(), __name__, None, None)
+#         _dp_lambda_1 = __dp_make_function("start", 0, "<lambda>", "<lambda>", __dp_tuple("y"), __dp_tuple(__dp_tuple("y", None, __dp__.NO_DEFAULT)), __dp_globals(), __name__, None, None)
 #         __dp_store_global(globals(), "x", _dp_lambda_1)
 #         return
 
@@ -349,7 +349,7 @@ x = (i for i in it)
 #     bind: _dp_module_init
 #     qualname: _dp_module_init
 #     block start:
-#         _dp_genexpr_1 = __dp_make_function("start", 0, "<genexpr>", "<genexpr>", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple(__dp_decode_literal_bytes(b"_dp_iter_2"), __dp_NONE, __dp_getattr(__dp__, __dp_decode_literal_bytes(b"NO_DEFAULT")))), __dp_globals(), __name__, None, None)
+#         _dp_genexpr_1 = __dp_make_function("start", 0, "<genexpr>", "<genexpr>", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple("_dp_iter_2", None, __dp__.NO_DEFAULT)), __dp_globals(), __name__, None, None)
 #         __dp_store_global(globals(), "x", _dp_genexpr_1(__dp_iter(it)))
 #         return
 
@@ -486,7 +486,7 @@ x = [i for i in it]
 #     bind: _dp_module_init
 #     qualname: _dp_module_init
 #     block start:
-#         _dp_listcomp_3 = __dp_make_function("start", 0, "<listcomp>", "_dp_listcomp_3", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple(__dp_decode_literal_bytes(b"_dp_iter_2"), __dp_NONE, __dp_getattr(__dp__, __dp_decode_literal_bytes(b"NO_DEFAULT")))), __dp_globals(), __name__, None, None)
+#         _dp_listcomp_3 = __dp_make_function("start", 0, "<listcomp>", "_dp_listcomp_3", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple("_dp_iter_2", None, __dp__.NO_DEFAULT)), __dp_globals(), __name__, None, None)
 #         __dp_store_global(globals(), "x", _dp_listcomp_3(it))
 #         return
 
@@ -527,7 +527,7 @@ x = {i for i in it}
 #     bind: _dp_module_init
 #     qualname: _dp_module_init
 #     block start:
-#         _dp_setcomp_3 = __dp_make_function("start", 0, "<setcomp>", "_dp_setcomp_3", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple(__dp_decode_literal_bytes(b"_dp_iter_2"), __dp_NONE, __dp_getattr(__dp__, __dp_decode_literal_bytes(b"NO_DEFAULT")))), __dp_globals(), __name__, None, None)
+#         _dp_setcomp_3 = __dp_make_function("start", 0, "<setcomp>", "_dp_setcomp_3", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple("_dp_iter_2", None, __dp__.NO_DEFAULT)), __dp_globals(), __name__, None, None)
 #         __dp_store_global(globals(), "x", _dp_setcomp_3(it))
 #         return
 
@@ -571,7 +571,7 @@ x = {k: v for k, v in it}
 #     bind: _dp_module_init
 #     qualname: _dp_module_init
 #     block start:
-#         _dp_dictcomp_3 = __dp_make_function("start", 0, "<dictcomp>", "_dp_dictcomp_3", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple(__dp_decode_literal_bytes(b"_dp_iter_2"), __dp_NONE, __dp_getattr(__dp__, __dp_decode_literal_bytes(b"NO_DEFAULT")))), __dp_globals(), __name__, None, None)
+#         _dp_dictcomp_3 = __dp_make_function("start", 0, "<dictcomp>", "_dp_dictcomp_3", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple("_dp_iter_2", None, __dp__.NO_DEFAULT)), __dp_globals(), __name__, None, None)
 #         __dp_store_global(globals(), "x", _dp_dictcomp_3(it))
 #         return
 
