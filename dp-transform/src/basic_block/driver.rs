@@ -770,6 +770,32 @@ except Exception:
     }
 
     #[test]
+    fn module_init_rebinds_lowered_top_level_function_defs() {
+        let source = r#"
+def outer_read():
+    x = 5
+
+    def inner():
+        return x
+
+    return inner
+"#;
+
+        let options = Options::for_test();
+        let bb_module = transform_str_to_bb_ir_with_options(source, options)
+            .expect("transform should succeed")
+            .expect("bb module should be available");
+        let module_init = bb_module
+            .module_init
+            .as_ref()
+            .expect("module init should be present");
+        let init_fn = function_by_name(&bb_module, module_init);
+        let debug = format!("{init_fn:?}");
+        assert!(debug.contains("__dp_store_global"), "{debug}");
+        assert!(debug.contains("outer_read"), "{debug}");
+    }
+
+    #[test]
     fn lowers_try_star_except_star_via_exceptiongroup_split() {
         let source = r#"
 def f():
