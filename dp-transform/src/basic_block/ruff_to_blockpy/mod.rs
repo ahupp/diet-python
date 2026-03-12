@@ -5,7 +5,7 @@ use super::await_lower::{
 use super::bb_ir::{BbClosureLayout, BbExpr, BbFunctionKind, BindingTarget, FunctionId};
 use super::block_py::cfg::{
     fold_constant_brif_blockpy, fold_jumps_to_trivial_none_return_blockpy,
-    prune_unreachable_blockpy_blocks, relabel_blockpy_blocks,
+    prune_unreachable_blockpy_blocks, relabel_blockpy_blocks, rename_blockpy_labels,
 };
 use super::block_py::dataflow::compute_block_params_blockpy;
 use super::block_py::exception::{
@@ -20,7 +20,7 @@ use super::block_py::state::{
 use super::block_py::{
     BlockPyAssign, BlockPyBlock, BlockPyDelete, BlockPyExpr, BlockPyFunction, BlockPyFunctionKind,
     BlockPyIf, BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyTerm,
-    BlockPyTryJump,
+    BlockPyTryJump, ENTRY_BLOCK_LABEL,
 };
 use super::stmt_utils::flatten_stmt_boxes;
 use crate::basic_block::ast_to_ast::ast_rewrite::Rewrite;
@@ -260,6 +260,148 @@ pub(crate) fn build_lowered_blockpy_function(
         closure_layout,
         param_specs,
     }
+}
+
+fn fresh_normalized_entry_collision_label(
+    blocks: &[BlockPyBlock],
+    rename: &HashMap<String, String>,
+) -> String {
+    let existing = blocks
+        .iter()
+        .map(|block| block.label.as_str().to_string())
+        .collect::<HashSet<_>>();
+    let mut next_id = 0usize;
+    loop {
+        let candidate = format!("{ENTRY_BLOCK_LABEL}_{next_id}");
+        if !existing.contains(candidate.as_str())
+            && !rename.values().any(|value| value == &candidate)
+        {
+            return candidate;
+        }
+        next_id += 1;
+    }
+}
+
+fn rename_label_map_keys<T: Clone>(
+    map: &HashMap<String, T>,
+    rename: &HashMap<String, String>,
+) -> HashMap<String, T> {
+    map.iter()
+        .map(|(label, value)| {
+            (
+                rename
+                    .get(label.as_str())
+                    .cloned()
+                    .unwrap_or_else(|| label.clone()),
+                value.clone(),
+            )
+        })
+        .collect()
+}
+
+fn rename_exception_edges(
+    edges: &HashMap<String, Option<String>>,
+    rename: &HashMap<String, String>,
+) -> HashMap<String, Option<String>> {
+    edges
+        .iter()
+        .map(|(label, target)| {
+            let rewritten_label = rename
+                .get(label.as_str())
+                .cloned()
+                .unwrap_or_else(|| label.clone());
+            let rewritten_target = target.as_ref().map(|name| {
+                rename
+                    .get(name.as_str())
+                    .cloned()
+                    .unwrap_or_else(|| name.clone())
+            });
+            (rewritten_label, rewritten_target)
+        })
+        .collect()
+}
+
+fn rename_bb_kind(kind: &mut BbFunctionKind, rename: &HashMap<String, String>) {
+    match kind {
+        BbFunctionKind::Function => {}
+        BbFunctionKind::Generator {
+            resume_label,
+            target_labels,
+            resume_pcs,
+            ..
+        }
+        | BbFunctionKind::AsyncGenerator {
+            resume_label,
+            target_labels,
+            resume_pcs,
+            ..
+        } => {
+            if let Some(rewritten) = rename.get(resume_label.as_str()) {
+                *resume_label = rewritten.clone();
+            }
+            for label in target_labels.iter_mut() {
+                if let Some(rewritten) = rename.get(label.as_str()) {
+                    *label = rewritten.clone();
+                }
+            }
+            for (label, _) in resume_pcs.iter_mut() {
+                if let Some(rewritten) = rename.get(label.as_str()) {
+                    *label = rewritten.clone();
+                }
+            }
+        }
+    }
+}
+
+fn normalize_exported_entry_block(
+    entry_label: String,
+    mut blocks: Vec<BlockPyBlock>,
+    block_params: HashMap<String, Vec<String>>,
+    exception_edges: HashMap<String, Option<String>>,
+    mut bb_kind: BbFunctionKind,
+) -> (
+    String,
+    Vec<BlockPyBlock>,
+    HashMap<String, Vec<String>>,
+    HashMap<String, Option<String>>,
+    BbFunctionKind,
+) {
+    let mut rename = HashMap::new();
+    if entry_label != ENTRY_BLOCK_LABEL {
+        if blocks
+            .iter()
+            .any(|block| block.label.as_str() == ENTRY_BLOCK_LABEL)
+        {
+            rename.insert(
+                ENTRY_BLOCK_LABEL.to_string(),
+                fresh_normalized_entry_collision_label(&blocks, &rename),
+            );
+        }
+        rename.insert(entry_label.clone(), ENTRY_BLOCK_LABEL.to_string());
+    }
+
+    if !rename.is_empty() {
+        rename_blockpy_labels(&rename, &mut blocks);
+        rename_bb_kind(&mut bb_kind, &rename);
+    }
+
+    if let Some(entry_index) = blocks
+        .iter()
+        .position(|block| block.label.as_str() == ENTRY_BLOCK_LABEL)
+    {
+        if entry_index != 0 {
+            let entry_block = blocks.remove(entry_index);
+            blocks.insert(0, entry_block);
+        }
+    }
+
+    (
+        ENTRY_BLOCK_LABEL.to_string(),
+        blocks,
+        rename_label_map_keys(&block_params, &rename),
+        rename_exception_edges(&exception_edges, &rename),
+        bb_kind,
+    )
 }
 
 fn build_semantic_blockpy_closure_layout(
@@ -685,9 +827,50 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
             .expect("closure-backed generator lowering requires closure layout");
         let factory_label = format!("{label_prefix}_factory");
         let resume_function_id = take_next_function_id(next_function_id);
+        let resume_blockpy_kind = if is_async_generator_runtime {
+            BlockPyFunctionKind::AsyncGenerator
+        } else {
+            BlockPyFunctionKind::Generator
+        };
+        let resume_bb_kind = bb_kind_for_blockpy_kind(
+            resume_blockpy_kind,
+            true,
+            entry_label.as_str(),
+            &target_labels,
+            &resume_pcs,
+        );
+        let (
+            normalized_resume_entry_label,
+            normalized_resume_blocks,
+            normalized_resume_block_params,
+            normalized_resume_exception_edges,
+            normalized_resume_bb_kind,
+        ) = normalize_exported_entry_block(
+            entry_label.clone(),
+            exported_blocks.clone(),
+            exported_block_params.clone(),
+            exported_exception_edges.clone(),
+            resume_bb_kind,
+        );
+        let (normalized_resume_target_labels, normalized_resume_pcs) =
+            match &normalized_resume_bb_kind {
+                BbFunctionKind::Generator {
+                    target_labels,
+                    resume_pcs,
+                    ..
+                }
+                | BbFunctionKind::AsyncGenerator {
+                    target_labels,
+                    resume_pcs,
+                    ..
+                } => (target_labels.clone(), resume_pcs.clone()),
+                BbFunctionKind::Function => {
+                    panic!("closure-backed generator resume helper must lower as a generator")
+                }
+            };
         let export_plan = build_closure_backed_generator_export_plan(
             factory_label.as_str(),
-            entry_label.as_str(),
+            normalized_resume_entry_label.as_str(),
             resume_function_id,
             blockpy_function.bind_name.as_str(),
             display_name.as_str(),
@@ -696,8 +879,8 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
             layout,
             is_coroutine,
             is_async_generator_runtime,
-            &target_labels,
-            &resume_pcs,
+            &normalized_resume_target_labels,
+            &normalized_resume_pcs,
         );
         let mut resume_local_cell_slots = cell_slots.iter().cloned().collect::<Vec<_>>();
         resume_local_cell_slots.sort();
@@ -707,31 +890,20 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
             export_plan.resume_display_name.clone(),
             export_plan.resume_qualname.clone(),
             BindingTarget::Local,
-            if is_async_generator_runtime {
-                BlockPyFunctionKind::AsyncGenerator
-            } else {
-                BlockPyFunctionKind::Generator
-            },
+            resume_blockpy_kind,
             blockpy_function.params.clone(),
-            entry_label.clone(),
+            normalized_resume_entry_label,
             export_plan.resume_entry_liveins.clone(),
             closure_layout.clone(),
             resume_local_cell_slots.clone(),
-            exported_blocks.clone(),
+            normalized_resume_blocks,
         );
-        let resume_blockpy_kind = resume_function.kind;
         helper_functions.push(build_lowered_blockpy_function(
             resume_function,
             false,
-            bb_kind_for_blockpy_kind(
-                resume_blockpy_kind,
-                true,
-                entry_label.as_str(),
-                &target_labels,
-                &resume_pcs,
-            ),
-            exported_block_params.clone(),
-            exported_exception_edges.clone(),
+            normalized_resume_bb_kind,
+            normalized_resume_block_params,
+            normalized_resume_exception_edges,
             closure_layout.clone(),
             BbExpr::from_expr(export_plan.resume_param_specs.clone()),
         ));
@@ -752,6 +924,26 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
     } else {
         BlockPyFunctionKind::Function
     };
+    let main_bb_kind = bb_kind_for_blockpy_kind(
+        main_blockpy_kind,
+        is_closure_backed_generator_runtime,
+        entry_label.as_str(),
+        &target_labels,
+        &resume_pcs,
+    );
+    let (
+        normalized_main_entry_label,
+        normalized_main_blocks,
+        normalized_main_block_params,
+        normalized_main_exception_edges,
+        normalized_main_bb_kind,
+    ) = normalize_exported_entry_block(
+        exported_entry_label.clone(),
+        exported_blocks,
+        exported_block_params,
+        exported_exception_edges,
+        main_bb_kind,
+    );
     let main_function = build_blockpy_function(
         blockpy_function.function_id,
         blockpy_function.bind_name.clone(),
@@ -760,25 +952,19 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         blockpy_function.binding_target,
         main_blockpy_kind,
         blockpy_function.params.clone(),
-        exported_entry_label.clone(),
+        normalized_main_entry_label,
         exported_entry_liveins.clone(),
         semantic_closure_layout,
         sorted_local_cell_slots,
-        exported_blocks,
+        normalized_main_blocks,
     );
     LoweredBlockPyFunctionBundle {
         main_function: build_lowered_blockpy_function(
             main_function,
             is_coroutine,
-            bb_kind_for_blockpy_kind(
-                main_blockpy_kind,
-                is_closure_backed_generator_runtime,
-                entry_label.as_str(),
-                &target_labels,
-                &resume_pcs,
-            ),
-            exported_block_params,
-            exported_exception_edges,
+            normalized_main_bb_kind,
+            normalized_main_block_params,
+            normalized_main_exception_edges,
             if is_closure_backed_generator_runtime {
                 None
             } else {

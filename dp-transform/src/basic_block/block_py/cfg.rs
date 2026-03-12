@@ -189,11 +189,7 @@ fn blockpy_successors(block: &BlockPyBlock) -> Vec<String> {
     }
 }
 
-fn apply_label_rename_blockpy(
-    entry_label: &str,
-    rename: &HashMap<String, String>,
-    blocks: &mut [BlockPyBlock],
-) -> String {
+pub(crate) fn rename_blockpy_labels(rename: &HashMap<String, String>, blocks: &mut [BlockPyBlock]) {
     fn collect_known_labels(blocks: &[BlockPyBlock], out: &mut HashSet<String>) {
         for block in blocks {
             out.insert(block.label.as_str().to_string());
@@ -224,6 +220,14 @@ fn apply_label_rename_blockpy(
         let mut body_renamer = LabelNameRenamer { rename };
         rename_blockpy_block(block, &mut body_renamer, rename, &known_labels);
     }
+}
+
+fn apply_label_rename_blockpy(
+    entry_label: &str,
+    rename: &HashMap<String, String>,
+    blocks: &mut [BlockPyBlock],
+) -> String {
+    rename_blockpy_labels(rename, blocks);
     rename
         .get(entry_label)
         .cloned()

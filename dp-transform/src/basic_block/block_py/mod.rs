@@ -56,6 +56,7 @@ pub type RuffBlockPyIf = BlockPyIf<Expr>;
 pub type RuffBlockPyIfTerm = BlockPyIfTerm<Expr>;
 pub type RuffBlockPyBranchTable = BlockPyBranchTable<Expr>;
 pub type RuffBlockPyRaise = BlockPyRaise<Expr>;
+pub const ENTRY_BLOCK_LABEL: &str = "start";
 
 #[derive(Debug, Clone)]
 pub struct BlockPyModule<E = BlockPyExpr> {

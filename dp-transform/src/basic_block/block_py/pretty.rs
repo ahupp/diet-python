@@ -977,7 +977,7 @@ def classify(a, /, b: int = 1, *args, c=2, **kwargs):
             "function classify(a, /, b: int = 1, *args, c = 2, **kwargs)\n    kind: function\n    bind: classify\n    target: module_global\n    qualname: classify"
         ));
         assert!(rendered.contains("function _dp_module_init()"));
-        assert!(!rendered.contains("block start:"));
+        assert!(rendered.contains("block start:"));
         assert!(rendered.contains("if_term a:"));
         assert!(rendered.contains("return \"yes\""));
     }

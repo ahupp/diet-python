@@ -1909,12 +1909,10 @@ def _bb_plan_name(qualname, function_id):
 def _bb_validate_entry_ref(entry_ref):
     if callable(entry_ref):
         return
-    if isinstance(entry_ref, str) and entry_ref.startswith("_dp_bb_"):
+    if isinstance(entry_ref, str) and entry_ref:
         return
     if isinstance(entry_ref, str):
-        raise TypeError(
-            f"unexpected non-BB string entry reference: {entry_ref!r}"
-        )
+        raise TypeError("basic-block entry reference must not be empty")
     raise TypeError(
         f"basic-block entry reference must be callable or str, got {type(entry_ref)!r}"
     )
@@ -1939,7 +1937,7 @@ def _bb_make_resume_entry(
     _bb_validate_entry_ref(resume)
     if not isinstance(resume, str):
         raise TypeError(
-            f"generator resume entry must be a BB string reference, got {type(resume)!r}"
+            f"generator resume entry must be a block-label string reference, got {type(resume)!r}"
         )
     entry_ref = resume
     plan_name = _bb_plan_name(qualname, function_id)
@@ -2045,7 +2043,7 @@ def def_hidden_resume_fn(
     _bb_validate_entry_ref(entry_bb)
     if not isinstance(entry_bb, str):
         raise TypeError(
-            f"generator resume entry must be a BB string reference, got {type(entry_bb)!r}"
+            f"generator resume entry must be a block-label string reference, got {type(entry_bb)!r}"
         )
     if not isinstance(state_order, tuple):
         raise TypeError(
