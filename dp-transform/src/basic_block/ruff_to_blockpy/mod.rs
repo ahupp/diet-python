@@ -1396,7 +1396,7 @@ mod tests {
 
     fn function_by_name<'a>(blockpy: &'a BlockPyModule, bind_name: &str) -> &'a BlockPyFunction {
         blockpy
-            .functions
+            .callable_defs
             .iter()
             .find(|func| func.bind_name == bind_name)
             .unwrap_or_else(|| panic!("missing BlockPy function {bind_name}; got {blockpy:?}"))

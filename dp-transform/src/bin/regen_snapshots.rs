@@ -92,7 +92,7 @@ fn render_blockpy_snapshot(result: &dp_transform::LoweringResult) -> (String, us
 
 fn count_blockpy_blocks(module: &BlockPyModule) -> usize {
     module
-        .functions
+        .callable_defs
         .iter()
         .map(|function| count_blockpy_blocks_in_list(&function.blocks))
         .sum()

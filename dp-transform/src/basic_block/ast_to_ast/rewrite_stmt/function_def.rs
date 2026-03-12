@@ -12,7 +12,7 @@ use crate::basic_block::block_py::dataflow::analyze_blockpy_use_def;
 use crate::basic_block::block_py::state::collect_cell_slots;
 use crate::basic_block::block_py::state::collect_parameter_names;
 use crate::basic_block::blockpy_to_bb::{
-    push_lowered_blockpy_function_bundle, LoweredBlockPyModuleBundle,
+    push_lowered_blockpy_callable_def_bundle, LoweredBlockPyModuleBundle,
 };
 use crate::basic_block::expr_utils::{make_dp_tuple, name_expr};
 use crate::basic_block::function_identity::{
@@ -302,7 +302,7 @@ pub(crate) fn rewrite_ast_to_lowered_blockpy_module(
         used_label_prefixes: HashMap::new(),
         function_scope_stack: Vec::new(),
         lowered_blockpy_module: LoweredBlockPyModuleBundle {
-            functions: Vec::new(),
+            callable_defs: Vec::new(),
             module_init: Some("_dp_module_init".to_string()),
         },
     };
@@ -763,7 +763,7 @@ fn rewrite_function_def_stmt_via_blockpy(
             doc_expr,
         )
         .expect("failed to build BB function binding");
-        push_lowered_blockpy_function_bundle(
+        push_lowered_blockpy_callable_def_bundle(
             lowered_blockpy_module,
             lowered,
             rewrite_plan.binding_target,

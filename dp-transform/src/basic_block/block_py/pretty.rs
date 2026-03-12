@@ -39,7 +39,7 @@ impl BlockPyFormatter {
             self.line(format!("module_init: {module_init}"));
         }
 
-        for function in &module.functions {
+        for function in &module.callable_defs {
             if !self.out.is_empty() {
                 self.out.push('\n');
             }
@@ -985,7 +985,7 @@ def classify(a, /, b: int = 1, *args, c=2, **kwargs):
     #[test]
     fn renders_empty_module_marker() {
         let rendered = blockpy_module_to_string(&BlockPyModule {
-            functions: Vec::new(),
+            callable_defs: Vec::new(),
             module_init: None,
         });
         assert_eq!(rendered, "; empty BlockPy module\n");
@@ -1028,7 +1028,7 @@ def gen():
     #[test]
     fn renders_public_closure_metadata_in_function_header() {
         let rendered = blockpy_module_to_string(&BlockPyModule {
-            functions: vec![BlockPyFunction {
+            callable_defs: vec![BlockPyFunction {
                 function_id: crate::basic_block::bb_ir::FunctionId(0),
                 bind_name: "gen".to_string(),
                 display_name: "gen".to_string(),
@@ -1116,7 +1116,7 @@ def gen():
             ],
         };
         let rendered = blockpy_module_to_string(&BlockPyModule {
-            functions: vec![function],
+            callable_defs: vec![function],
             module_init: None,
         });
 

@@ -27,22 +27,22 @@ pub(crate) struct LoweredBbFunctionBundle {
     pub helper_functions: Vec<BbFunction>,
 }
 
-pub(crate) struct LoweredBlockPyModuleFunction {
+pub(crate) struct LoweredBlockPyModuleCallableDef {
     pub bundle: LoweredBlockPyFunctionBundle,
     pub main_binding_target: BindingTarget,
 }
 
 pub(crate) struct LoweredBlockPyModuleBundle {
-    pub functions: Vec<LoweredBlockPyModuleFunction>,
+    pub callable_defs: Vec<LoweredBlockPyModuleCallableDef>,
     pub module_init: Option<String>,
 }
 
-pub(crate) fn push_lowered_blockpy_function_bundle(
+pub(crate) fn push_lowered_blockpy_callable_def_bundle(
     out: &mut LoweredBlockPyModuleBundle,
     bundle: LoweredBlockPyFunctionBundle,
     main_binding_target: BindingTarget,
 ) {
-    out.functions.push(LoweredBlockPyModuleFunction {
+    out.callable_defs.push(LoweredBlockPyModuleCallableDef {
         bundle,
         main_binding_target,
     });
@@ -51,10 +51,10 @@ pub(crate) fn push_lowered_blockpy_function_bundle(
 pub(crate) fn lowered_blockpy_module_bundle_to_blockpy_module(
     module: &LoweredBlockPyModuleBundle,
 ) -> BlockPyModule {
-    let mut functions = Vec::new();
-    for lowered_function in &module.functions {
-        functions.push(lowered_function.bundle.main_function.function.clone());
-        functions.extend(
+    let mut callable_defs = Vec::new();
+    for lowered_function in &module.callable_defs {
+        callable_defs.push(lowered_function.bundle.main_function.function.clone());
+        callable_defs.extend(
             lowered_function
                 .bundle
                 .helper_functions
@@ -63,7 +63,7 @@ pub(crate) fn lowered_blockpy_module_bundle_to_blockpy_module(
         );
     }
     BlockPyModule {
-        functions,
+        callable_defs,
         module_init: module.module_init.clone(),
     }
 }
@@ -73,7 +73,7 @@ pub(crate) fn lower_blockpy_module_bundle_to_bb_module(
     module: &LoweredBlockPyModuleBundle,
 ) -> BbModule {
     let mut out = Vec::new();
-    for lowered_function in &module.functions {
+    for lowered_function in &module.callable_defs {
         let lowered = lower_blockpy_function_bundle_to_bb_functions(
             context,
             &lowered_function.bundle,

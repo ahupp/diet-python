@@ -47,6 +47,7 @@ pub enum BlockPyExpr {
 }
 
 pub type RuffBlockPyModule = BlockPyModule<Expr>;
+pub type RuffBlockPyCallableDef = BlockPyCallableDef<Expr>;
 pub type RuffBlockPyFunction = BlockPyFunction<Expr>;
 pub type RuffBlockPyBlock = BlockPyBlock<Expr>;
 pub type RuffBlockPyStmt = BlockPyStmt<Expr>;
@@ -60,9 +61,11 @@ pub const ENTRY_BLOCK_LABEL: &str = "start";
 
 #[derive(Debug, Clone)]
 pub struct BlockPyModule<E = BlockPyExpr> {
-    pub functions: Vec<BlockPyFunction<E>>,
+    pub callable_defs: Vec<BlockPyCallableDef<E>>,
     pub module_init: Option<String>,
 }
+
+pub type BlockPyCallableDef<E = BlockPyExpr> = BlockPyFunction<E>;
 
 #[derive(Debug, Clone)]
 pub struct BlockPyFunction<E = BlockPyExpr> {
