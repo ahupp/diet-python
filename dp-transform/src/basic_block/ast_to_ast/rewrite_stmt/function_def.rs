@@ -77,6 +77,25 @@ struct LoweredFunctionInstantiationPlan {
     binding: LoweredFunctionBindingPlan,
 }
 
+enum LoweredFunctionInstantiationKind {
+    DirectFunction,
+    MarkCoroutineFunction,
+    AsyncGeneratorDefinition,
+    CoroutineFromGeneratorDefinition,
+}
+
+struct LoweredFunctionInstantiationData {
+    entry_label: String,
+    function_id: usize,
+    name: String,
+    qualname: String,
+    closure_expr: Expr,
+    param_specs_expr: Expr,
+    doc_expr: Expr,
+    annotate_fn_expr: Expr,
+    kind: LoweredFunctionInstantiationKind,
+}
+
 struct LoweredFunctionRewriteResult {
     replacement: Stmt,
 }
@@ -105,13 +124,10 @@ struct NonLoweredFunctionInstantiationPlan {
 
 // Function-definition rewriting stays in one tree pass, but the instantiation
 // machinery is grouped here so the later binding split has one obvious home.
-fn build_lowered_function_instantiation_expr(
+fn build_lowered_function_instantiation_data(
     lowered: &LoweredBlockPyFunction,
     annotate_fn_expr: Option<Expr>,
-) -> Option<Expr> {
-    let entry_label = lowered.callable_def.entry_label();
-    let entry_ref_expr = py_expr!("{entry:literal}", entry = entry_label);
-    let function_id = lowered.callable_def.function_id.0;
+) -> Option<LoweredFunctionInstantiationData> {
     let param_names: HashSet<String> = collect_parameter_names(&lowered.callable_def.params)
         .into_iter()
         .collect();
@@ -197,76 +213,38 @@ fn build_lowered_function_instantiation_expr(
             closure_items.push(py_expr!("{value:literal}", value = entry_name.as_str(),));
         }
     }
-    let closure = make_dp_tuple(closure_items);
-    let doc = lowered
+    let closure_expr = make_dp_tuple(closure_items);
+    let doc_expr = lowered
         .callable_def
         .doc
         .clone()
         .map(Into::into)
         .unwrap_or_else(|| py_expr!("None"));
-    let annotate_fn = annotate_fn_expr.unwrap_or_else(|| py_expr!("None"));
-    let function_entry_expr = py_expr!(
-        "__dp_make_function({entry:expr}, {function_id:literal}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, {module_globals:expr}, {module_name:expr}, {doc:expr}, {annotate_fn:expr})",
-        entry = entry_ref_expr.clone(),
-        function_id = function_id,
-        name = lowered.callable_def.display_name.as_str(),
-        qualname = lowered.callable_def.qualname.as_str(),
-        closure = closure.clone(),
-        params = lowered.param_specs.to_expr(),
-        module_globals = py_expr!("__dp_globals()"),
-        module_name = py_expr!("__name__"),
-        doc = doc.clone(),
-        annotate_fn = annotate_fn.clone(),
-    );
-    match &lowered.bb_kind {
+    let annotate_fn_expr = annotate_fn_expr.unwrap_or_else(|| py_expr!("None"));
+    let kind = match &lowered.bb_kind {
         BbFunctionKind::Function => {
             if lowered.is_coroutine {
-                Some(py_expr!(
-                    "__dp_mark_coroutine_function({func:expr})",
-                    func = function_entry_expr,
-                ))
+                LoweredFunctionInstantiationKind::MarkCoroutineFunction
             } else {
-                Some(function_entry_expr)
+                LoweredFunctionInstantiationKind::DirectFunction
             }
         }
         BbFunctionKind::AsyncGenerator { closure_state, .. } => {
             if *closure_state {
-                return Some(function_entry_expr);
+                LoweredFunctionInstantiationKind::DirectFunction
+            } else {
+                LoweredFunctionInstantiationKind::AsyncGeneratorDefinition
             }
-            Some(py_expr!(
-                "__dp_def_async_gen({resume:expr}, {function_id:literal}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __dp_globals(), __name__, {doc:expr}, {annotate_fn:expr})",
-                resume = entry_ref_expr.clone(),
-                function_id = function_id,
-                name = lowered.callable_def.display_name.as_str(),
-                qualname = lowered.callable_def.qualname.as_str(),
-                closure = closure,
-                params = lowered.param_specs.to_expr(),
-                doc = doc.clone(),
-                annotate_fn = annotate_fn.clone(),
-            ))
         }
         BbFunctionKind::Generator { closure_state, .. } => {
             if *closure_state {
                 if lowered.is_coroutine {
-                    return Some(py_expr!(
-                        "__dp_mark_coroutine_function({func:expr})",
-                        func = function_entry_expr,
-                    ));
+                    LoweredFunctionInstantiationKind::MarkCoroutineFunction
+                } else {
+                    LoweredFunctionInstantiationKind::DirectFunction
                 }
-                return Some(function_entry_expr);
-            }
-            if lowered.is_coroutine {
-                Some(py_expr!(
-                    "__dp_def_coro_from_gen({resume:expr}, {function_id:literal}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __dp_globals(), __name__, {doc:expr}, {annotate_fn:expr})",
-                    resume = entry_ref_expr,
-                    function_id = function_id,
-                    name = lowered.callable_def.display_name.as_str(),
-                    qualname = lowered.callable_def.qualname.as_str(),
-                    closure = closure,
-                    params = lowered.param_specs.to_expr(),
-                    doc = doc,
-                    annotate_fn = annotate_fn,
-                ))
+            } else if lowered.is_coroutine {
+                LoweredFunctionInstantiationKind::CoroutineFromGeneratorDefinition
             } else {
                 panic!(
                     "non-closure-backed sync generator lowering is unreachable; \
@@ -274,6 +252,63 @@ fn build_lowered_function_instantiation_expr(
                 )
             }
         }
+    };
+    Some(LoweredFunctionInstantiationData {
+        entry_label: lowered.callable_def.entry_label().to_string(),
+        function_id: lowered.callable_def.function_id.0,
+        name: lowered.callable_def.display_name.clone(),
+        qualname: lowered.callable_def.qualname.clone(),
+        closure_expr,
+        param_specs_expr: lowered.param_specs.to_expr(),
+        doc_expr,
+        annotate_fn_expr,
+        kind,
+    })
+}
+
+fn build_lowered_function_instantiation_expr(data: &LoweredFunctionInstantiationData) -> Expr {
+    let entry_ref_expr = py_expr!("{entry:literal}", entry = data.entry_label.as_str());
+    let function_entry_expr = py_expr!(
+        "__dp_make_function({entry:expr}, {function_id:literal}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, {module_globals:expr}, {module_name:expr}, {doc:expr}, {annotate_fn:expr})",
+        entry = entry_ref_expr.clone(),
+        function_id = data.function_id,
+        name = data.name.as_str(),
+        qualname = data.qualname.as_str(),
+        closure = data.closure_expr.clone(),
+        params = data.param_specs_expr.clone(),
+        module_globals = py_expr!("__dp_globals()"),
+        module_name = py_expr!("__name__"),
+        doc = data.doc_expr.clone(),
+        annotate_fn = data.annotate_fn_expr.clone(),
+    );
+    match data.kind {
+        LoweredFunctionInstantiationKind::DirectFunction => function_entry_expr,
+        LoweredFunctionInstantiationKind::MarkCoroutineFunction => py_expr!(
+            "__dp_mark_coroutine_function({func:expr})",
+            func = function_entry_expr,
+        ),
+        LoweredFunctionInstantiationKind::AsyncGeneratorDefinition => py_expr!(
+            "__dp_def_async_gen({resume:expr}, {function_id:literal}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __dp_globals(), __name__, {doc:expr}, {annotate_fn:expr})",
+            resume = entry_ref_expr,
+            function_id = data.function_id,
+            name = data.name.as_str(),
+            qualname = data.qualname.as_str(),
+            closure = data.closure_expr.clone(),
+            params = data.param_specs_expr.clone(),
+            doc = data.doc_expr.clone(),
+            annotate_fn = data.annotate_fn_expr.clone(),
+        ),
+        LoweredFunctionInstantiationKind::CoroutineFromGeneratorDefinition => py_expr!(
+            "__dp_def_coro_from_gen({resume:expr}, {function_id:literal}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __dp_globals(), __name__, {doc:expr}, {annotate_fn:expr})",
+            resume = entry_ref_expr,
+            function_id = data.function_id,
+            name = data.name.as_str(),
+            qualname = data.qualname.as_str(),
+            closure = data.closure_expr.clone(),
+            params = data.param_specs_expr.clone(),
+            doc = data.doc_expr.clone(),
+            annotate_fn = data.annotate_fn_expr.clone(),
+        ),
     }
 }
 
@@ -610,7 +645,8 @@ fn build_lowered_function_instantiation_stmt(
     let annotate_fn_expr = annotate_helper
         .as_ref()
         .map(|(_, annotate_fn_expr)| annotate_fn_expr.clone());
-    let base_expr = build_lowered_function_instantiation_expr(lowered, annotate_fn_expr)?;
+    let instantiation_data = build_lowered_function_instantiation_data(lowered, annotate_fn_expr)?;
+    let base_expr = build_lowered_function_instantiation_expr(&instantiation_data);
     let decorated = rewrite_stmt::decorator::rewrite(func.decorator_list.clone(), base_expr);
     let binding_stmt =
         build_lowered_function_binding_stmt(bind_name, decorated, instantiation_plan.binding);

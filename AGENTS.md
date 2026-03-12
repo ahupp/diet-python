@@ -1,11 +1,20 @@
 # AGENTS
-- **MUST FOLLOW**: Always run `just test-all` before submitting changes.
-- **NOTE**: `just test-all` runs `cargo test`, `just pytest tests/`, and `just build-web-inspector` in sequence after `just build-all`.
+
+## Design Goals
+
+ * Prefer to make the codebase small.  This is not so much small in bytes on disk, but small in terms of what you need to know to navigate it.
+   Ideally each independent concept should live in one place, and conversely each place should do discrete thing.
+
+## Rules
+
+- **MUST FOLLOW**: Always run `just test-all` before submitting changes. `just test-all` runs `cargo test`, `just pytest tests/`, and `just build-web-inspector` in sequence after `just build-all`.
 - **MUST FOLLOW**: Always preserve behavior in the transformed code, particularly evaluation order.
 - **MUST FOLLOW**: When traversing the AST, always use an impl of `crate::transformer::Transformer`.
 - **NOTE**: Prefer adding behavior at transform time rather than runtime in `__dp__.py` whenever possible.
 - **MUST FOLLOW**: If a change requires adding a compatibility interface for a Python standard type/function, or patching one, stop and describe the reason before implementing.
 - **MUST FOLLOW**: When changing implementation details, do not keep compatibility stubs/interfaces around; assume transformed inputs are regenerated each time.
+
+## Tips
 - **MUST FOLLOW**: If a fixture error occurs, regenerate all fixtures by running `cargo run --bin regen_snapshots` with no file arguments.
 - **NOTE**: Use `cargo run --bin regen_snapshots` to regenerate fixtures instead of manual edits.
 - **NOTE**: Check `snapshot/snapshot_summary.txt` after regenerating snapshots and flag any test case with a surprising BlockPy/CLIF block count, or any dramatic count change.
