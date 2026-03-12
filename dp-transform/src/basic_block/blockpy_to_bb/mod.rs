@@ -258,35 +258,6 @@ fn exception_param_from_block_params(params: &[String]) -> Option<String> {
     })
 }
 
-fn rewrite_current_exception_in_blockpy_stmt(stmt: &mut BlockPyStmt, exc_name: &str) {
-    match stmt {
-        BlockPyStmt::Pass | BlockPyStmt::Delete(_) => {}
-        BlockPyStmt::Assign(assign) => {
-            rewrite_current_exception_in_blockpy_expr(&mut assign.value, exc_name);
-        }
-        BlockPyStmt::Expr(expr) => {
-            rewrite_current_exception_in_blockpy_expr(expr, exc_name);
-        }
-        BlockPyStmt::If(if_stmt) => {
-            rewrite_current_exception_in_blockpy_expr(&mut if_stmt.test, exc_name);
-            rewrite_current_exception_in_blockpy_stmt_fragment(&mut if_stmt.body, exc_name);
-            rewrite_current_exception_in_blockpy_stmt_fragment(&mut if_stmt.orelse, exc_name);
-        }
-    }
-}
-
-fn rewrite_current_exception_in_blockpy_stmt_fragment(
-    fragment: &mut super::block_py::BlockPyStmtFragment,
-    exc_name: &str,
-) {
-    for stmt in &mut fragment.body {
-        rewrite_current_exception_in_blockpy_stmt(stmt, exc_name);
-    }
-    if let Some(term) = &mut fragment.term {
-        rewrite_current_exception_in_blockpy_term(term, exc_name);
-    }
-}
-
 fn rewrite_current_exception_in_stmt_body(body: &mut ast::StmtBody, exc_name: &str) {
     CurrentExceptionTransformer { exc_name }.visit_body(body);
 }
@@ -499,30 +470,6 @@ fn bb_term_from_blockpy_term(terminal: &BlockPyTerm) -> BbTerm {
             BbTerm::Ret(value.clone().map(|expr| BbExpr::from_expr(expr.into())))
         }
     }
-}
-
-fn stmt_body_from_blockpy_blocks(blocks: &[BlockPyBlock]) -> ast::StmtBody {
-    stmt_body_from_stmts(
-        blocks
-            .iter()
-            .flat_map(|block| {
-                block
-                    .body
-                    .iter()
-                    .filter_map(blockpy_stmt_to_stmt_for_analysis)
-                    .chain(blockpy_term_to_stmt_for_analysis(&block.term).into_iter())
-            })
-            .collect::<Vec<_>>(),
-    )
-}
-
-fn stmt_body_from_blockpy_stmts(stmts: &[BlockPyStmt]) -> ast::StmtBody {
-    stmt_body_from_stmts(
-        stmts
-            .iter()
-            .filter_map(blockpy_stmt_to_stmt_for_analysis)
-            .collect::<Vec<_>>(),
-    )
 }
 
 fn stmt_body_from_blockpy_fragment(

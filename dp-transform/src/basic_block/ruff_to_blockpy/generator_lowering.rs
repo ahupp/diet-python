@@ -7,10 +7,9 @@ use crate::basic_block::ast_to_ast::scope::cell_name;
 use crate::basic_block::bb_ir::{BbClosureInit, BbClosureLayout, BbClosureSlot, FunctionId};
 use crate::basic_block::block_py::state::{sync_generator_state_order, sync_target_cells_stmts};
 use crate::basic_block::block_py::{
-    BlockPyAssign, BlockPyBlock, BlockPyBlockBuilder, BlockPyBranchTable, BlockPyExpr,
-    BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm, BlockPyTryJump,
+    BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyExpr, BlockPyIfTerm, BlockPyLabel,
+    BlockPyRaise, BlockPyStmt, BlockPyTerm, BlockPyTryJump,
 };
-use crate::basic_block::blockpy_to_bb::blockpy_stmt_to_stmt_for_analysis;
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use std::collections::{HashMap, HashSet};
@@ -25,12 +24,6 @@ fn blockpy_make_dp_tuple(items: Vec<Expr>) -> Expr {
 
 fn compat_block_from_blockpy(label: String, body: Vec<Stmt>, term: BlockPyTerm) -> BlockPyBlock {
     compat_block_with_term(label, body, term)
-}
-
-#[derive(Debug, Clone)]
-enum GeneratorSequenceLine {
-    Stmt(BlockPyStmt),
-    Term(BlockPyTerm),
 }
 
 fn sanitize_ident(raw: &str) -> String {
@@ -80,11 +73,6 @@ pub(crate) struct GeneratorMetadata {
     pub throw_passthrough_labels: Vec<String>,
 }
 
-pub(crate) struct BlockPyGeneratorLoweringResult {
-    pub blocks: Vec<BlockPyBlock>,
-    pub info: Option<GeneratorMetadata>,
-}
-
 pub(crate) struct ClosureBackedGeneratorExportPlan {
     pub factory_label: String,
     pub factory_entry_liveins: Vec<String>,
@@ -95,36 +83,6 @@ pub(crate) struct ClosureBackedGeneratorExportPlan {
     pub resume_entry_liveins: Vec<String>,
     pub factory_block: BlockPyBlock,
     pub resume_param_specs: Expr,
-}
-
-pub(crate) fn lower_generator_blockpy_blocks_initial(
-    fn_name: &str,
-    mut blocks: Vec<BlockPyBlock>,
-    closure_state: bool,
-    cell_slots: &HashSet<String>,
-    try_regions: &mut Vec<TryRegionPlan>,
-    next_block_id: &mut usize,
-) -> BlockPyGeneratorLoweringResult {
-    let mut resume_order = Vec::new();
-    let mut yield_sites = Vec::new();
-    lower_generator_block_list(
-        fn_name,
-        &mut blocks,
-        closure_state,
-        cell_slots,
-        try_regions,
-        next_block_id,
-        &mut resume_order,
-        &mut yield_sites,
-    );
-    let info = (!yield_sites.is_empty()).then(|| {
-        let entry_label = blocks
-            .first()
-            .map(|block| block.label.as_str().to_string())
-            .unwrap_or_else(|| format!("_dp_bb_{}_start", sanitize_ident(fn_name)));
-        build_initial_generator_metadata(entry_label.as_str(), &resume_order, &yield_sites)
-    });
-    BlockPyGeneratorLoweringResult { blocks, info }
 }
 
 pub(crate) fn build_async_for_continue_entry(
@@ -598,335 +556,6 @@ pub(crate) struct GeneratorYieldFromPlan {
     pub send_dispatch_label: String,
     pub send_call_body_label: String,
     pub yield_label: String,
-}
-
-pub(crate) fn lower_generator_blockpy_blocks(
-    fn_name: &str,
-    blocks: Vec<BlockPyBlock>,
-    closure_state: bool,
-    is_async: bool,
-    next_block_id: &mut usize,
-) -> BlockPyGeneratorLoweringResult {
-    let empty_cell_slots = HashSet::new();
-    let mut try_regions = Vec::new();
-    let BlockPyGeneratorLoweringResult {
-        mut blocks,
-        info: initial_info,
-    } = lower_generator_blockpy_blocks_initial(
-        fn_name,
-        blocks,
-        closure_state,
-        &empty_cell_slots,
-        &mut try_regions,
-        next_block_id,
-    );
-    let mut info = None;
-    if let Some(initial_generator_info) = initial_info {
-        let mut entry_label = initial_generator_info
-            .dispatch_entry_label
-            .as_ref()
-            .map(String::as_str)
-            .unwrap_or_else(|| {
-                blocks
-                    .first()
-                    .map(|block| block.label.as_str())
-                    .unwrap_or("_dp_bb_empty")
-            })
-            .to_string();
-        let generator_info = synthesize_generator_dispatch_metadata(
-            &mut blocks,
-            &mut entry_label,
-            sanitize_ident(fn_name).as_str(),
-            is_async,
-            closure_state,
-            format!("_dp_uncaught_exc_{}", *next_block_id),
-            &initial_generator_info.resume_order,
-            &initial_generator_info.yield_sites,
-        );
-        let resume_pcs = generator_info
-            .resume_order
-            .iter()
-            .enumerate()
-            .map(|(pc, label)| (label.as_str().to_string(), pc))
-            .collect::<Vec<_>>();
-        let yield_sites = initial_generator_info
-            .yield_sites
-            .iter()
-            .map(|site| GeneratorYieldSite {
-                yield_label: site.yield_label.as_str().to_string(),
-                resume_label: site.resume_label.as_str().to_string(),
-            })
-            .collect::<Vec<_>>();
-        split_generator_return_terms_to_escape_blocks(
-            &mut blocks,
-            &yield_sites,
-            is_async,
-            closure_state,
-        );
-        lower_generator_yield_terms_to_explicit_return_blockpy(
-            &mut blocks,
-            &HashMap::new(),
-            &resume_pcs,
-            &yield_sites,
-            closure_state,
-        );
-        info = Some(generator_info);
-    }
-    BlockPyGeneratorLoweringResult { blocks, info }
-}
-
-fn finalize_generator_block(
-    label: BlockPyLabel,
-    exc_param: Option<String>,
-    body: Vec<BlockPyStmt>,
-    cont_label: Option<String>,
-) -> BlockPyBlock {
-    let mut block = BlockPyBlockBuilder::new(label).with_exc_param(exc_param);
-    block.extend(body);
-    block.finish(cont_label.map(BlockPyLabel::from))
-}
-
-fn finalize_generator_block_with_term(
-    label: BlockPyLabel,
-    exc_param: Option<String>,
-    body: Vec<BlockPyStmt>,
-    term: Option<BlockPyTerm>,
-    cont_label: Option<String>,
-) -> BlockPyBlock {
-    let mut block = BlockPyBlockBuilder::new(label).with_exc_param(exc_param);
-    block.extend(body);
-    if let Some(term) = term {
-        block.set_term(term);
-    }
-    block.finish(cont_label.map(BlockPyLabel::from))
-}
-
-fn finalize_generator_lines(
-    label: BlockPyLabel,
-    exc_param: Option<String>,
-    lines: Vec<GeneratorSequenceLine>,
-    cont_label: Option<String>,
-) -> BlockPyBlock {
-    let mut body = Vec::new();
-    let mut term = None;
-    for line in lines {
-        match line {
-            GeneratorSequenceLine::Stmt(stmt) => body.push(stmt),
-            GeneratorSequenceLine::Term(next_term) => {
-                assert!(
-                    term.is_none(),
-                    "generator block suffix had multiple terminators"
-                );
-                term = Some(next_term);
-            }
-        }
-    }
-    finalize_generator_block_with_term(label, exc_param, body, term, cont_label)
-}
-
-fn lower_generator_block_list(
-    fn_name: &str,
-    blocks: &mut Vec<BlockPyBlock>,
-    closure_state: bool,
-    cell_slots: &HashSet<String>,
-    try_regions: &mut Vec<TryRegionPlan>,
-    next_block_id: &mut usize,
-    resume_order: &mut Vec<String>,
-    yield_sites: &mut Vec<GeneratorYieldSite>,
-) {
-    let original = std::mem::take(blocks);
-    let end_label = format!("_dp_bb_{}_end_{}", sanitize_ident(fn_name), *next_block_id);
-    *next_block_id += 1;
-    for idx in 0..original.len() {
-        let mut block = original[idx].clone();
-        lower_nested_generator_stmt_regions(
-            fn_name,
-            &mut block.body,
-            closure_state,
-            cell_slots,
-            try_regions,
-            next_block_id,
-            resume_order,
-            yield_sites,
-        );
-        let next_label = original
-            .get(idx + 1)
-            .map(|next| next.label.as_str().to_string())
-            .or_else(|| Some(end_label.clone()));
-        lower_generator_block_body(
-            fn_name,
-            block,
-            next_label,
-            blocks,
-            closure_state,
-            cell_slots,
-            try_regions,
-            next_block_id,
-            resume_order,
-            yield_sites,
-        );
-    }
-    blocks.push(BlockPyBlock {
-        label: BlockPyLabel::from(end_label),
-        exc_param: None,
-        body: Vec::new(),
-        term: BlockPyTerm::Return(None),
-    });
-}
-
-fn lower_nested_generator_stmt_regions(
-    fn_name: &str,
-    stmts: &mut [BlockPyStmt],
-    closure_state: bool,
-    cell_slots: &HashSet<String>,
-    try_regions: &mut Vec<TryRegionPlan>,
-    next_block_id: &mut usize,
-    resume_order: &mut Vec<String>,
-    yield_sites: &mut Vec<GeneratorYieldSite>,
-) {
-    for stmt in stmts {
-        match stmt {
-            BlockPyStmt::If(if_stmt) => {
-                lower_nested_generator_stmt_regions(
-                    fn_name,
-                    &mut if_stmt.body.body,
-                    closure_state,
-                    cell_slots,
-                    try_regions,
-                    next_block_id,
-                    resume_order,
-                    yield_sites,
-                );
-                lower_nested_generator_stmt_regions(
-                    fn_name,
-                    &mut if_stmt.orelse.body,
-                    closure_state,
-                    cell_slots,
-                    try_regions,
-                    next_block_id,
-                    resume_order,
-                    yield_sites,
-                );
-            }
-            _ => {}
-        }
-    }
-}
-
-fn lower_generator_block_body(
-    fn_name: &str,
-    block: BlockPyBlock,
-    cont_label: Option<String>,
-    out: &mut Vec<BlockPyBlock>,
-    closure_state: bool,
-    cell_slots: &HashSet<String>,
-    try_regions: &mut Vec<TryRegionPlan>,
-    next_block_id: &mut usize,
-    resume_order: &mut Vec<String>,
-    yield_sites: &mut Vec<GeneratorYieldSite>,
-) {
-    let current_label = block.label.as_str().to_string();
-    let ambient_exc_param = block.exc_param.clone();
-    let mut lines = block
-        .body
-        .into_iter()
-        .map(GeneratorSequenceLine::Stmt)
-        .collect::<Vec<_>>();
-    lines.push(GeneratorSequenceLine::Term(block.term));
-    let mut linear_blockpy = Vec::new();
-    let mut terminal = None;
-    for (idx, line) in lines.iter().enumerate() {
-        let linear = linear_blockpy
-            .iter()
-            .filter_map(blockpy_stmt_to_stmt_for_analysis)
-            .collect::<Vec<_>>();
-        let mut lowered = Vec::new();
-        let rest_entry = if blockpy_line_requires_generator_rest_entry(line) {
-            if idx + 1 < lines.len() {
-                let rest_label = format!("_dp_bb_{}_{}", sanitize_ident(fn_name), *next_block_id);
-                *next_block_id += 1;
-                lower_generator_block_body(
-                    fn_name,
-                    finalize_generator_lines(
-                        BlockPyLabel::from(rest_label.clone()),
-                        ambient_exc_param.clone(),
-                        lines[idx + 1..].to_vec(),
-                        cont_label.clone(),
-                    ),
-                    cont_label.clone(),
-                    out,
-                    closure_state,
-                    cell_slots,
-                    try_regions,
-                    next_block_id,
-                    resume_order,
-                    yield_sites,
-                );
-                Some(rest_label)
-            } else {
-                cont_label.clone()
-            }
-        } else {
-            None
-        };
-        let entry = match line {
-            GeneratorSequenceLine::Stmt(stmt) => lower_generator_blockpy_stmt_in_sequence(
-                stmt,
-                linear,
-                rest_entry,
-                &mut lowered,
-                ambient_exc_param.as_deref(),
-                closure_state,
-                try_regions,
-                resume_order,
-                yield_sites,
-                next_block_id,
-                fn_name,
-                Some(cell_slots),
-            ),
-            GeneratorSequenceLine::Term(term) => lower_generator_blockpy_term_in_sequence(
-                term,
-                linear,
-                &mut lowered,
-                ambient_exc_param.as_deref(),
-                closure_state,
-                try_regions,
-                resume_order,
-                yield_sites,
-                next_block_id,
-                fn_name,
-            ),
-        };
-        if let Some(entry) = entry {
-            out.push(BlockPyBlock {
-                label: BlockPyLabel::from(current_label),
-                exc_param: ambient_exc_param,
-                body: Vec::new(),
-                term: BlockPyTerm::Jump(BlockPyLabel::from(entry)),
-            });
-            out.extend(lowered);
-            return;
-        }
-        match line {
-            GeneratorSequenceLine::Stmt(stmt) => linear_blockpy.push(stmt.clone()),
-            GeneratorSequenceLine::Term(term) => terminal = Some(term.clone()),
-        }
-    }
-
-    out.push(finalize_generator_block_with_term(
-        BlockPyLabel::from(current_label),
-        ambient_exc_param,
-        linear_blockpy,
-        terminal,
-        cont_label,
-    ));
-}
-
-fn blockpy_line_requires_generator_rest_entry(line: &GeneratorSequenceLine) -> bool {
-    match line {
-        GeneratorSequenceLine::Stmt(stmt) => blockpy_stmt_requires_generator_rest_entry(stmt),
-        GeneratorSequenceLine::Term(_) => false,
-    }
 }
 
 pub(crate) fn blockpy_stmt_requires_generator_rest_entry(stmt: &BlockPyStmt) -> bool {
@@ -1618,33 +1247,6 @@ pub(crate) fn split_generator_return_terms_to_escape_blocks(
 
     blocks.extend(extra_blocks);
     escape_labels
-}
-
-pub(crate) fn inject_cleanup_cells_for_generator_return_escapes(
-    blocks: &mut [BlockPyBlock],
-    escape_labels: &HashSet<String>,
-    cleanup_cells: &[String],
-) {
-    if escape_labels.is_empty() || cleanup_cells.is_empty() {
-        return;
-    }
-
-    for block in blocks.iter_mut() {
-        let BlockPyTerm::Jump(target) = &block.term else {
-            continue;
-        };
-        if !escape_labels.contains(target.as_str()) {
-            continue;
-        }
-        for cell in cleanup_cells {
-            block
-                .body
-                .extend(lower_generated_stmts_to_blockpy(vec![py_stmt!(
-                    "__dp_store_cell({cell:id}, __dp_DELETED)",
-                    cell = cell.as_str(),
-                )]));
-        }
-    }
 }
 
 pub(crate) fn emit_generator_yield_suspend_blocks(

@@ -7,7 +7,6 @@ pub(crate) mod rewrite_import;
 pub(crate) mod rewrite_names;
 pub(crate) mod rewrite_stmt;
 pub(crate) mod scope;
-pub(crate) mod scope_aware_transformer;
 pub(crate) mod simplify;
 pub(crate) mod util;
 

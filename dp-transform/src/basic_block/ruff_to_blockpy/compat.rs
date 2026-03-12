@@ -65,29 +65,6 @@ pub(crate) fn compat_raise_block_from_blockpy_raise(
     compat_block_from_blockpy(label, body, BlockPyTerm::Raise(exc))
 }
 
-pub(crate) fn finalize_blockpy_block(
-    label: BlockPyLabel,
-    body: BlockPyStmtFragment,
-    fallthrough_target: Option<BlockPyLabel>,
-) -> BlockPyBlock {
-    let mut block = BlockPyBlockBuilder::new(label);
-    block.extend(body.body);
-    if let Some(term) = body.term {
-        block.set_term(term);
-    }
-    block.finish(fallthrough_target)
-}
-
-fn set_block_exc_param(blocks: &mut [BlockPyBlock], label: &str, exc_param: &str) {
-    let block = blocks
-        .iter_mut()
-        .find(|block| block.label.as_str() == label)
-        .unwrap_or_else(|| panic!("missing BlockPy block {label} for exception param"));
-    if block.exc_param.is_none() {
-        block.exc_param = Some(exc_param.to_string());
-    }
-}
-
 pub(crate) fn set_region_exc_param(
     blocks: &mut [BlockPyBlock],
     region: &std::ops::Range<usize>,

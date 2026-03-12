@@ -5,7 +5,6 @@ use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt, StmtBody};
 
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{
-    basic_block::ast_to_ast::scope_aware_transformer::ScopeAwareTransformer,
     basic_block::ast_to_ast::{
         rewrite_class_def::class_body::{
             class_body_load_cell, class_body_load_global, class_body_store_global,
@@ -31,16 +30,6 @@ fn is_annotation_function_name(name: &str) -> bool {
 
 struct NameScopeRewriter {
     scope: Arc<Scope>,
-}
-
-impl ScopeAwareTransformer for NameScopeRewriter {
-    fn scope(&self) -> &Arc<Scope> {
-        &self.scope
-    }
-
-    fn enter_scope(&self, scope: Arc<Scope>) -> Self {
-        Self { scope }
-    }
 }
 
 impl NameScopeRewriter {

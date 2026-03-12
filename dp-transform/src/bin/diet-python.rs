@@ -45,7 +45,7 @@ fn main() {
         }
     };
 
-    let mut result = match transform_str_to_ruff_with_options(&source, Options::default()) {
+    let result = match transform_str_to_ruff_with_options(&source, Options::default()) {
         Ok(result) => result,
         Err(err) => {
             eprintln!("failed to parse {}: {}", path, err);

@@ -1,7 +1,4 @@
-use super::await_lower::{
-    coroutine_generator_marker_stmt, lower_coroutine_awaits_in_stmt,
-    lower_coroutine_awaits_in_stmts, lower_coroutine_awaits_to_yield_from,
-};
+use super::await_lower::lower_coroutine_awaits_in_stmt;
 use super::bb_ir::{BbClosureLayout, BbExpr, BbFunctionKind, FunctionId};
 use super::block_py::cfg::{
     fold_constant_brif_blockpy, fold_jumps_to_trivial_none_return_blockpy,
@@ -13,7 +10,7 @@ use super::block_py::exception::{
     rewrite_region_returns_to_finally_blockpy,
 };
 use super::block_py::state::{
-    collect_cell_slots, collect_injected_exception_names_blockpy, collect_state_vars,
+    collect_injected_exception_names_blockpy, collect_state_vars,
     rewrite_sync_generator_blockpy_blocks_to_closure_cells, sync_generator_cleanup_cells,
     sync_generator_state_order, sync_target_cells_stmts as sync_target_cells_stmts_shared,
 };
@@ -30,8 +27,6 @@ use crate::basic_block::ast_to_ast::rewrite_stmt;
 use crate::namegen::fresh_name;
 use crate::ruff_ast_to_string;
 use crate::template::{empty_body, into_body, is_simple};
-use crate::transformer::walk_stmt;
-use crate::transformer::{walk_expr, Transformer};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
 use std::cell::Cell;
@@ -56,29 +51,21 @@ pub(crate) use generator_lowering::{
 pub(crate) use compat::{
     compat_block_from_blockpy, compat_if_jump_block, compat_jump_block_from_blockpy,
     compat_next_label, compat_next_temp, compat_raise_block_from_blockpy_raise,
-    compat_return_block_from_expr, compat_sanitize_ident, emit_for_loop_blocks,
-    emit_if_branch_block, emit_sequence_jump_block, emit_sequence_raise_block,
-    emit_sequence_return_block, emit_simple_while_blocks, finalize_blockpy_block,
-    lower_for_loop_continue_entry_with_state,
+    compat_return_block_from_expr, emit_for_loop_blocks, emit_if_branch_block,
+    emit_sequence_jump_block, emit_sequence_raise_block, emit_sequence_return_block,
+    emit_simple_while_blocks, lower_for_loop_continue_entry_with_state,
 };
 pub(crate) use stmt_lowering::{
-    build_for_target_assign_body, desugar_structured_with_stmt_for_blockpy,
-    lower_star_try_stmt_sequence, lower_stmt_into, lower_try_stmt_sequence,
-    lower_with_stmt_sequence,
+    build_for_target_assign_body, lower_star_try_stmt_sequence, lower_stmt_into,
+    lower_try_stmt_sequence, lower_with_stmt_sequence,
 };
 pub(crate) use stmt_sequences::{
-    drive_stmt_sequence_until_control, lower_common_stmt_sequence_head,
-    lower_expanded_stmt_sequence, lower_for_stmt_body_entry, lower_for_stmt_exit_entries,
-    lower_for_stmt_sequence, lower_for_stmt_sequence_head, lower_generator_stmt_sequence_head,
-    lower_generator_stmt_sequence_plan, lower_if_stmt_sequence, lower_if_stmt_sequence_from_stmt,
-    lower_stmt_sequence_with_state, lower_stmts_to_blockpy_stmts, lower_top_level_function,
-    lower_while_stmt_sequence, lower_while_stmt_sequence_from_stmt,
-    plan_generator_stmt_in_sequence, plan_stmt_sequence_head, GeneratorStmtSequencePlan,
+    lower_expanded_stmt_sequence, lower_stmt_sequence_with_state, lower_stmts_to_blockpy_stmts,
+    GeneratorStmtSequencePlan,
 };
 pub(crate) use try_regions::{
-    block_references_label, build_try_plan, collect_region_label_names,
-    emit_finally_return_dispatch_blocks, emit_try_jump_entry, finalize_try_regions,
-    lower_try_regions, prepare_except_body, prepare_finally_body, LoweredTryRegions, TryPlan,
+    block_references_label, build_try_plan, finalize_try_regions, lower_try_regions,
+    prepare_except_body, prepare_finally_body, TryPlan,
 };
 
 pub(crate) struct BlockPySequenceGeneratorState {
@@ -1314,46 +1301,6 @@ pub(crate) struct LoopContext {
     break_label: BlockPyLabel,
 }
 
-#[derive(Default)]
-struct YieldLikeProbe {
-    has_yield: bool,
-    has_yield_from: bool,
-}
-
-impl Transformer for YieldLikeProbe {
-    fn visit_stmt(&mut self, stmt: &mut Stmt) {
-        if matches!(stmt, Stmt::FunctionDef(_) | Stmt::ClassDef(_)) {
-            return;
-        }
-        walk_stmt(self, stmt);
-    }
-
-    fn visit_expr(&mut self, expr: &mut Expr) {
-        match expr {
-            Expr::Yield(_) => self.has_yield = true,
-            Expr::YieldFrom(_) => self.has_yield_from = true,
-            _ => walk_expr(self, expr),
-        }
-    }
-}
-
-fn function_kind_from_def(func: &ast::StmtFunctionDef) -> BlockPyFunctionKind {
-    let mut probe = YieldLikeProbe::default();
-    for stmt in &func.body.body {
-        let mut stmt = stmt.as_ref().clone();
-        probe.visit_stmt(&mut stmt);
-        if probe.has_yield || probe.has_yield_from {
-            break;
-        }
-    }
-    match (func.is_async, probe.has_yield || probe.has_yield_from) {
-        (true, true) => BlockPyFunctionKind::AsyncGenerator,
-        (true, false) => BlockPyFunctionKind::Coroutine,
-        (false, true) => BlockPyFunctionKind::Generator,
-        (false, false) => BlockPyFunctionKind::Function,
-    }
-}
-
 fn stmt_kind_name(stmt: &Stmt) -> &'static str {
     match stmt {
         Stmt::FunctionDef(_) => "FunctionDef",
@@ -1394,6 +1341,14 @@ mod tests {
     use super::*;
     use crate::basic_block::block_py::BlockPyModule;
     use crate::basic_block::ruff_to_blockpy::generator_lowering::build_closure_backed_generator_factory_block;
+    use crate::basic_block::ruff_to_blockpy::stmt_sequences::{
+        lower_for_stmt_sequence, lower_generator_stmt_sequence_head,
+        lower_generator_stmt_sequence_plan, lower_if_stmt_sequence,
+        lower_if_stmt_sequence_from_stmt, lower_while_stmt_sequence,
+        lower_while_stmt_sequence_from_stmt, plan_generator_stmt_in_sequence,
+        plan_stmt_sequence_head,
+    };
+    use crate::basic_block::ruff_to_blockpy::try_regions::build_try_plan;
 
     fn wrapped_blockpy(source: &str) -> BlockPyModule {
         crate::transform_str_to_ruff_with_options(source, crate::Options::for_test())

@@ -150,12 +150,6 @@ pub(crate) fn lower_coroutine_awaits_in_stmt(stmt: Stmt) -> Stmt {
     *stmts.pop().expect("one stmt should remain")
 }
 
-pub(crate) fn lower_coroutine_awaits_in_stmts(stmts: Vec<Stmt>) -> Vec<Stmt> {
-    let mut boxed: Vec<Box<Stmt>> = stmts.into_iter().map(Box::new).collect();
-    lower_coroutine_awaits_to_yield_from(&mut boxed);
-    boxed.into_iter().map(|stmt| *stmt).collect()
-}
-
 pub(crate) fn coroutine_generator_marker_stmt() -> Box<Stmt> {
     Box::new(py_stmt!("if False:\n    yield __dp_NONE"))
 }
