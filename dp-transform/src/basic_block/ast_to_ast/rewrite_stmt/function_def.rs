@@ -37,6 +37,7 @@ struct FunctionScopeFrame {
     has_parent_hoisted_scope: bool,
     needs_cell_sync: bool,
     cell_bindings: HashSet<String>,
+    lowered_function_bindings: HashMap<FunctionId, LoweredFunctionBindingPlan>,
     hoisted_to_parent: Vec<Stmt>,
 }
 
@@ -49,7 +50,6 @@ struct BlockPyModuleRewriter<'a> {
     reserved_temp_names_stack: Vec<HashSet<String>>,
     used_label_prefixes: HashMap<String, usize>,
     function_scope_stack: Vec<FunctionScopeFrame>,
-    lowered_function_binding_by_id: HashMap<FunctionId, LoweredFunctionBindingPlan>,
     lowered_blockpy_module: LoweredBlockPyModuleBundle,
 }
 
@@ -305,7 +305,6 @@ pub(crate) fn rewrite_ast_to_lowered_blockpy_module(
         reserved_temp_names_stack: Vec::new(),
         used_label_prefixes: HashMap::new(),
         function_scope_stack: Vec::new(),
-        lowered_function_binding_by_id: HashMap::new(),
         lowered_blockpy_module: LoweredBlockPyModuleBundle {
             callable_defs: Vec::new(),
             module_init: Some("_dp_module_init".to_string()),
@@ -732,7 +731,7 @@ fn rewrite_function_def_stmt_via_blockpy(
     context: &Context,
     module_scope: &Arc<Scope>,
     lowered_blockpy_module: &mut LoweredBlockPyModuleBundle,
-    lowered_function_binding_by_id: &mut HashMap<FunctionId, LoweredFunctionBindingPlan>,
+    parent_lowered_function_bindings: Option<&mut HashMap<FunctionId, LoweredFunctionBindingPlan>>,
     parent_hoisted: Option<&mut Vec<Stmt>>,
     function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
     func: &mut ast::StmtFunctionDef,
@@ -771,10 +770,12 @@ fn rewrite_function_def_stmt_via_blockpy(
             doc_expr,
         )
         .expect("failed to build BB function binding");
-        lowered_function_binding_by_id.insert(
-            lowered.main_function.callable_def.function_id,
-            rewrite_plan.binding,
-        );
+        if let Some(parent_lowered_function_bindings) = parent_lowered_function_bindings {
+            parent_lowered_function_bindings.insert(
+                lowered.main_function.callable_def.function_id,
+                rewrite_plan.binding,
+            );
+        }
         push_lowered_blockpy_callable_def_bundle(
             lowered_blockpy_module,
             lowered,
@@ -964,6 +965,7 @@ impl BlockPyModuleRewriter<'_> {
             has_parent_hoisted_scope,
             needs_cell_sync,
             cell_bindings,
+            lowered_function_bindings: HashMap::new(),
             hoisted_to_parent: Vec::new(),
         });
         walk_stmt(self, stmt);
@@ -991,20 +993,27 @@ impl BlockPyModuleRewriter<'_> {
         // enclosing function so its BlockPy/BB sees the final binding behavior.
         rewrite_generated_lowered_function_bindings_in_boxed_stmt_slice(
             &mut func.body.body,
-            &self.lowered_function_binding_by_id,
+            &state.lowered_function_bindings,
         );
         rewrite_generated_lowered_function_bindings_in_stmt_slice(
             &mut state.hoisted_to_parent,
-            &self.lowered_function_binding_by_id,
+            &state.lowered_function_bindings,
         );
+        let (parent_lowered_function_bindings, parent_hoisted) =
+            if let Some(parent_frame) = self.function_scope_stack.last_mut() {
+                (
+                    Some(&mut parent_frame.lowered_function_bindings),
+                    Some(&mut parent_frame.hoisted_to_parent),
+                )
+            } else {
+                (None, None)
+            };
         rewrite_function_def_stmt_via_blockpy(
             self.context,
             &self.module_scope,
             &mut self.lowered_blockpy_module,
-            &mut self.lowered_function_binding_by_id,
-            self.function_scope_stack
-                .last_mut()
-                .map(|frame| &mut frame.hoisted_to_parent),
+            parent_lowered_function_bindings,
+            parent_hoisted,
             &self.function_identity_by_node,
             func,
             state.parent_name.as_deref(),
