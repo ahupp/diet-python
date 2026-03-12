@@ -22,7 +22,6 @@ use super::block_py::{
     BlockPyIf, BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyTerm,
     BlockPyTryJump,
 };
-use super::deleted_names::rewrite_delete_to_deleted_sentinel;
 use super::function_identity::FunctionIdentityByNode;
 use super::stmt_utils::flatten_stmt_boxes;
 use crate::basic_block::ast_to_ast::ast_rewrite::Rewrite;

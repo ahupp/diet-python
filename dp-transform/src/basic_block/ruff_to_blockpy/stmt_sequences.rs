@@ -149,6 +149,39 @@ fn compat_blockpy_raise_from_stmt(raise_stmt: ast::StmtRaise) -> BlockPyRaise {
     }
 }
 
+fn rewrite_delete_to_deleted_sentinel(delete_stmt: &ast::StmtDelete) -> Vec<Stmt> {
+    let mut out = Vec::new();
+    for target in &delete_stmt.targets {
+        rewrite_delete_target_to_deleted_sentinel(target, &mut out);
+    }
+    out
+}
+
+fn rewrite_delete_target_to_deleted_sentinel(target: &Expr, out: &mut Vec<Stmt>) {
+    match target {
+        Expr::Name(name) => {
+            out.push(py_stmt!(
+                "{name:id} = __dp_DELETED",
+                name = name.id.as_str(),
+            ));
+        }
+        Expr::Tuple(tuple) => {
+            for elt in &tuple.elts {
+                rewrite_delete_target_to_deleted_sentinel(elt, out);
+            }
+        }
+        Expr::List(list) => {
+            for elt in &list.elts {
+                rewrite_delete_target_to_deleted_sentinel(elt, out);
+            }
+        }
+        Expr::Starred(starred) => {
+            rewrite_delete_target_to_deleted_sentinel(starred.value.as_ref(), out);
+        }
+        _ => out.push(py_stmt!("del {target:expr}", target = target.clone())),
+    }
+}
+
 pub(crate) fn lower_common_stmt_sequence_head<FSeq>(
     plan: StmtSequenceHeadPlan,
     remaining_stmts: &[Box<Stmt>],

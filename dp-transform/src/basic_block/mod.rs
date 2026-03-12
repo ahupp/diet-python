@@ -6,7 +6,6 @@ pub mod bb_ir;
 pub mod block_py;
 mod blockpy_to_bb;
 mod bound_names;
-mod deleted_names;
 mod driver;
 mod function_identity;
 mod function_lowering;
