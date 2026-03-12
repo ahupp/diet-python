@@ -7,7 +7,7 @@ use crate::basic_block::ast_to_ast::rewrite_stmt;
 use crate::basic_block::ast_to_ast::scope::{
     analyze_module_scope, cell_name, is_internal_symbol, Scope,
 };
-use crate::basic_block::bb_ir::{BbFunctionKind, BindingTarget, FunctionId};
+use crate::basic_block::bb_ir::{BbFunctionKind, BindingTarget};
 use crate::basic_block::block_py::dataflow::analyze_blockpy_use_def;
 use crate::basic_block::block_py::state::collect_cell_slots;
 use crate::basic_block::block_py::state::collect_parameter_names;
@@ -37,7 +37,6 @@ struct FunctionScopeFrame {
     has_parent_hoisted_scope: bool,
     needs_cell_sync: bool,
     cell_bindings: HashSet<String>,
-    lowered_function_bindings: HashMap<FunctionId, LoweredFunctionBindingPlan>,
     hoisted_to_parent: Vec<Stmt>,
 }
 
@@ -83,7 +82,7 @@ struct LoweredFunctionRewriteResult {
 }
 
 struct LoweredFunctionVisitPlan {
-    binding: LoweredFunctionBindingPlan,
+    main_binding_target: BindingTarget,
     rewrite: LoweredFunctionRewriteResult,
 }
 
@@ -337,10 +336,6 @@ fn build_binding_stmt(target: BindingTarget, bind_name: &str, value: Expr) -> St
     }
 }
 
-fn build_generated_instantiation_assign_stmt(bind_name: &str, value: Expr) -> Stmt {
-    py_stmt!("{name:id} = {value:expr}", name = bind_name, value = value)
-}
-
 fn build_cell_sync_stmt(bind_name: &str) -> Stmt {
     let cell = cell_name(bind_name);
     py_stmt!(
@@ -585,23 +580,45 @@ fn apply_non_lowered_function_placement(
     }
 }
 
+fn build_lowered_function_binding_stmt(
+    bind_name: &str,
+    value: Expr,
+    binding_plan: LoweredFunctionBindingPlan,
+) -> Stmt {
+    match binding_plan.target {
+        BindingTarget::Local => {
+            let assign_stmt = py_stmt!("{name:id} = {value:expr}", name = bind_name, value = value);
+            if binding_plan.needs_cell_sync {
+                into_body(vec![assign_stmt, build_cell_sync_stmt(bind_name)])
+            } else {
+                assign_stmt
+            }
+        }
+        BindingTarget::ModuleGlobal | BindingTarget::ClassNamespace => {
+            build_binding_stmt(binding_plan.target, bind_name, value)
+        }
+    }
+}
+
 fn build_lowered_function_instantiation_stmt(
     func: &ast::StmtFunctionDef,
     lowered: &LoweredBlockPyFunction,
-    bind_name: &str,
+    instantiation_plan: &LoweredFunctionInstantiationPlan,
 ) -> Option<Stmt> {
+    let bind_name = instantiation_plan.identity.bind_name.as_str();
     let annotate_helper = build_lowered_annotation_helper_binding(func, bind_name);
     let annotate_fn_expr = annotate_helper
         .as_ref()
         .map(|(_, annotate_fn_expr)| annotate_fn_expr.clone());
     let base_expr = build_lowered_function_instantiation_expr(lowered, annotate_fn_expr)?;
     let decorated = rewrite_stmt::decorator::rewrite(func.decorator_list.clone(), base_expr);
-    let assign_stmt = build_generated_instantiation_assign_stmt(bind_name, decorated);
+    let binding_stmt =
+        build_lowered_function_binding_stmt(bind_name, decorated, instantiation_plan.binding);
     let mut stmts = Vec::new();
     if let Some((helper_stmt, _)) = annotate_helper {
         stmts.push(helper_stmt);
     }
-    stmts.push(assign_stmt);
+    stmts.push(binding_stmt);
     if stmts.len() == 1 {
         stmts.into_iter().next()
     } else {
@@ -618,11 +635,8 @@ fn rewrite_lowered_function_instantiation_stmt(
     has_parent_hoisted_scope: bool,
     function_hoisted: Vec<Stmt>,
 ) -> Option<LoweredFunctionRewriteResult> {
-    let binding_stmt = build_lowered_function_instantiation_stmt(
-        func,
-        lowered,
-        instantiation_plan.identity.bind_name.as_str(),
-    )?;
+    let binding_stmt =
+        build_lowered_function_instantiation_stmt(func, lowered, instantiation_plan)?;
     let replacement = apply_lowered_function_placement(
         parent_hoisted,
         plan_lowered_function_placement(
@@ -663,7 +677,7 @@ fn plan_and_rewrite_lowered_function_instantiation(
         function_hoisted,
     )?;
     Some(LoweredFunctionVisitPlan {
-        binding: instantiation_plan.binding,
+        main_binding_target: instantiation_plan.binding.target,
         rewrite,
     })
 }
@@ -730,7 +744,6 @@ fn rewrite_function_def_stmt_via_blockpy(
     context: &Context,
     module_scope: &Arc<Scope>,
     lowered_blockpy_module: &mut LoweredBlockPyModuleBundle,
-    parent_lowered_function_bindings: Option<&mut HashMap<FunctionId, LoweredFunctionBindingPlan>>,
     parent_hoisted: Option<&mut Vec<Stmt>>,
     function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
     func: &mut ast::StmtFunctionDef,
@@ -768,16 +781,10 @@ fn rewrite_function_def_stmt_via_blockpy(
             function_hoisted,
         )
         .expect("failed to build BB function binding");
-        if let Some(parent_lowered_function_bindings) = parent_lowered_function_bindings {
-            parent_lowered_function_bindings.insert(
-                lowered.main_function.callable_def.function_id,
-                rewrite_plan.binding,
-            );
-        }
         push_lowered_blockpy_callable_def_bundle(
             lowered_blockpy_module,
             lowered,
-            rewrite_plan.binding.target,
+            rewrite_plan.main_binding_target,
         );
         return Some(rewrite_plan.rewrite.replacement);
     }
@@ -816,124 +823,6 @@ fn next_temp_from_counter(
     }
 }
 
-fn function_id_literal(expr: &Expr) -> Option<FunctionId> {
-    let Expr::NumberLiteral(number) = expr else {
-        return None;
-    };
-    let ast::Number::Int(value) = &number.value else {
-        return None;
-    };
-    value.as_usize().map(FunctionId)
-}
-
-fn generated_function_id_from_expr(expr: &Expr) -> Option<FunctionId> {
-    match expr {
-        Expr::Call(call) => {
-            if let Expr::Name(name) = call.func.as_ref() {
-                let helper_name = name.id.as_str();
-                if helper_name == "__dp_make_function"
-                    || helper_name == "__dp_def_async_gen"
-                    || helper_name == "__dp_def_coro_from_gen"
-                {
-                    return call.arguments.args.get(1).and_then(function_id_literal);
-                }
-                if helper_name == "__dp_mark_coroutine_function" {
-                    return call
-                        .arguments
-                        .args
-                        .first()
-                        .and_then(generated_function_id_from_expr);
-                }
-            }
-            call.arguments
-                .args
-                .iter()
-                .find_map(generated_function_id_from_expr)
-                .or_else(|| {
-                    call.arguments
-                        .keywords
-                        .iter()
-                        .find_map(|keyword| generated_function_id_from_expr(&keyword.value))
-                })
-        }
-        _ => None,
-    }
-}
-
-fn rewrite_generated_lowered_function_binding_assign(
-    assign: &ast::StmtAssign,
-    plan: &LoweredFunctionBindingPlan,
-) -> Option<Stmt> {
-    let [Expr::Name(target_name)] = assign.targets.as_slice() else {
-        panic!("generated function instantiation assignment should target one name");
-    };
-    let bind_name = target_name.id.as_str();
-    let value = assign.value.as_ref().clone();
-    match plan.target {
-        BindingTarget::Local => {
-            if plan.needs_cell_sync {
-                Some(into_body(vec![
-                    Stmt::Assign(assign.clone()),
-                    build_cell_sync_stmt(bind_name),
-                ]))
-            } else {
-                None
-            }
-        }
-        BindingTarget::ModuleGlobal | BindingTarget::ClassNamespace => {
-            Some(build_binding_stmt(plan.target, bind_name, value))
-        }
-    }
-}
-
-struct LoweredFunctionBindingRewriter<'a> {
-    binding_by_id: &'a HashMap<FunctionId, LoweredFunctionBindingPlan>,
-}
-
-impl Transformer for LoweredFunctionBindingRewriter<'_> {
-    fn visit_stmt(&mut self, stmt: &mut Stmt) {
-        if let Stmt::Assign(assign) = stmt {
-            if let Some(function_id) = generated_function_id_from_expr(assign.value.as_ref()) {
-                if let Some(plan) = self.binding_by_id.get(&function_id) {
-                    if let Some(rewritten) =
-                        rewrite_generated_lowered_function_binding_assign(assign, plan)
-                    {
-                        *stmt = rewritten;
-                        return;
-                    }
-                }
-            }
-        }
-        walk_stmt(self, stmt);
-    }
-}
-
-fn rewrite_generated_lowered_function_bindings_in_stmt_slice(
-    stmts: &mut [Stmt],
-    binding_by_id: &HashMap<FunctionId, LoweredFunctionBindingPlan>,
-) {
-    if binding_by_id.is_empty() {
-        return;
-    }
-    let mut rewriter = LoweredFunctionBindingRewriter { binding_by_id };
-    for stmt in stmts {
-        rewriter.visit_stmt(stmt);
-    }
-}
-
-fn rewrite_generated_lowered_function_bindings_in_boxed_stmt_slice(
-    stmts: &mut [Box<Stmt>],
-    binding_by_id: &HashMap<FunctionId, LoweredFunctionBindingPlan>,
-) {
-    if binding_by_id.is_empty() {
-        return;
-    }
-    let mut rewriter = LoweredFunctionBindingRewriter { binding_by_id };
-    for stmt in stmts {
-        rewriter.visit_stmt(stmt.as_mut());
-    }
-}
-
 impl BlockPyModuleRewriter<'_> {
     fn walk_function_def_with_scope(&mut self, stmt: &mut Stmt) -> Option<FunctionScopeFrame> {
         let Stmt::FunctionDef(func) = stmt else {
@@ -963,7 +852,6 @@ impl BlockPyModuleRewriter<'_> {
             has_parent_hoisted_scope,
             needs_cell_sync,
             cell_bindings,
-            lowered_function_bindings: HashMap::new(),
             hoisted_to_parent: Vec::new(),
         });
         walk_stmt(self, stmt);
@@ -984,33 +872,16 @@ impl BlockPyModuleRewriter<'_> {
     fn rewrite_visited_function_def(
         &mut self,
         func: &mut ast::StmtFunctionDef,
-        mut state: FunctionScopeFrame,
+        state: FunctionScopeFrame,
     ) -> Option<Stmt> {
-        // Nested lowered defs are rewritten into plain instantiation assignments as we walk
-        // the tree. Rewrite those assignments to their real binding form before lowering this
-        // enclosing function so its BlockPy/BB sees the final binding behavior.
-        rewrite_generated_lowered_function_bindings_in_boxed_stmt_slice(
-            &mut func.body.body,
-            &state.lowered_function_bindings,
-        );
-        rewrite_generated_lowered_function_bindings_in_stmt_slice(
-            &mut state.hoisted_to_parent,
-            &state.lowered_function_bindings,
-        );
-        let (parent_lowered_function_bindings, parent_hoisted) =
-            if let Some(parent_frame) = self.function_scope_stack.last_mut() {
-                (
-                    Some(&mut parent_frame.lowered_function_bindings),
-                    Some(&mut parent_frame.hoisted_to_parent),
-                )
-            } else {
-                (None, None)
-            };
+        let parent_hoisted = self
+            .function_scope_stack
+            .last_mut()
+            .map(|parent_frame| &mut parent_frame.hoisted_to_parent);
         rewrite_function_def_stmt_via_blockpy(
             self.context,
             &self.module_scope,
             &mut self.lowered_blockpy_module,
-            parent_lowered_function_bindings,
             parent_hoisted,
             &self.function_identity_by_node,
             func,
