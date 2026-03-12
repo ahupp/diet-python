@@ -1,4 +1,5 @@
 use super::super::bb_ir::BindingTarget;
+use super::state::collect_parameter_names;
 use super::{
     BlockPyBlock, BlockPyExpr, BlockPyFunction, BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel,
     BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyTerm, BlockPyTryJump,
@@ -48,55 +49,53 @@ impl BlockPyFormatter {
 
     fn write_function(&mut self, function: &BlockPyFunction) {
         let params = format_parameters(&function.params);
+        let parameter_names = collect_parameter_names(&function.params);
         let referenced_labels = collect_referenced_labels_from_blocks(&function.blocks);
         let render_layout = BlockRenderLayout::new(function);
-        let mut attrs = vec![
-            format!("kind={}", function_kind_name(function.kind)),
-            format!("bind={}", function.bind_name),
-            format!("target={}", binding_target_name(function.binding_target)),
-            format!("qualname={}", function.qualname),
-        ];
-        if function.display_name != function.bind_name {
-            attrs.push(format!("display_name={}", function.display_name));
-        }
-        if !function.entry_params.is_empty() {
-            attrs.push(format!(
-                "entry_params=[{}]",
-                function.entry_params.join(", ")
-            ));
-        }
-        if !function.local_cell_slots.is_empty() {
-            attrs.push(format!(
-                "local_cell_slots=[{}]",
-                function.local_cell_slots.join(", ")
-            ));
-        }
-        if let Some(layout) = &function.closure_layout {
-            if !layout.freevars.is_empty() {
-                attrs.push(format!(
-                    "freevars=[{}]",
-                    render_closure_slots(&layout.freevars)
-                ));
-            }
-            if !layout.cellvars.is_empty() {
-                attrs.push(format!(
-                    "cellvars=[{}]",
-                    render_closure_slots(&layout.cellvars)
-                ));
-            }
-            if !layout.runtime_cells.is_empty() {
-                attrs.push(format!(
-                    "runtime_cells=[{}]",
-                    render_closure_slots(&layout.runtime_cells)
-                ));
-            }
-        }
-        self.line(format!(
-            "function {}({params}) [{}]",
-            function.bind_name,
-            attrs.join(", "),
-        ));
+        self.line(format!("function {}({params})", function.bind_name));
         self.with_indent(|this| {
+            this.line(format!("kind: {}", function_kind_name(function.kind)));
+            this.line(format!("bind: {}", function.bind_name));
+            this.line(format!(
+                "target: {}",
+                binding_target_name(function.binding_target)
+            ));
+            this.line(format!("qualname: {}", function.qualname));
+            if function.display_name != function.bind_name {
+                this.line(format!("display_name: {}", function.display_name));
+            }
+            if !function.entry_liveins.is_empty() && function.entry_liveins != parameter_names {
+                this.line(format!(
+                    "entry_liveins: [{}]",
+                    function.entry_liveins.join(", ")
+                ));
+            }
+            if !function.local_cell_slots.is_empty() {
+                this.line(format!(
+                    "local_cell_slots: [{}]",
+                    function.local_cell_slots.join(", ")
+                ));
+            }
+            if let Some(layout) = &function.closure_layout {
+                if !layout.freevars.is_empty() {
+                    this.line(format!(
+                        "freevars: [{}]",
+                        render_closure_slots(&layout.freevars)
+                    ));
+                }
+                if !layout.cellvars.is_empty() {
+                    this.line(format!(
+                        "cellvars: [{}]",
+                        render_closure_slots(&layout.cellvars)
+                    ));
+                }
+                if !layout.runtime_cells.is_empty() {
+                    this.line(format!(
+                        "runtime_cells: [{}]",
+                        render_closure_slots(&layout.runtime_cells)
+                    ));
+                }
+            }
             if function.blocks.is_empty() {
                 this.line("pass");
             } else {
@@ -986,7 +985,7 @@ def classify(a, /, b: int = 1, *args, c=2, **kwargs):
 
         assert!(rendered.contains("module_init: _dp_module_init"));
         assert!(rendered.contains(
-            "function classify(a, /, b: int = 1, *args, c = 2, **kwargs) [kind=function, bind=classify, target=module_global, qualname=classify]"
+            "function classify(a, /, b: int = 1, *args, c = 2, **kwargs)\n    kind: function\n    bind: classify\n    target: module_global\n    qualname: classify"
         ));
         assert!(rendered.contains("function _dp_module_init()"));
         assert!(!rendered.contains("block start:"));
@@ -1032,7 +1031,7 @@ def gen():
         );
         let rendered = blockpy_module_to_string(&blockpy);
 
-        assert!(rendered.contains("function gen() [kind=generator"));
+        assert!(rendered.contains("function gen()\n    kind: generator"));
         assert!(!rendered.contains("generator_state:"));
     }
 
@@ -1046,7 +1045,7 @@ def gen():
                 binding_target: BindingTarget::ModuleGlobal,
                 kind: BlockPyFunctionKind::Function,
                 params: empty_parameters(),
-                entry_params: vec!["_dp_self".to_string(), "_dp_resume_exc".to_string()],
+                entry_liveins: vec!["_dp_self".to_string(), "_dp_resume_exc".to_string()],
                 closure_layout: Some(BbClosureLayout {
                     freevars: vec![BbClosureSlot {
                         logical_name: "factor".to_string(),
@@ -1076,7 +1075,7 @@ def gen():
         });
 
         assert!(rendered.contains(
-            "function gen() [kind=function, bind=gen, target=module_global, qualname=gen, entry_params=[_dp_self, _dp_resume_exc], local_cell_slots=[_dp_cell__dp_pc], freevars=[factor->_dp_cell_factor@inherited], cellvars=[total->_dp_cell_total@deferred], runtime_cells=[_dp_pc->_dp_cell__dp_pc@pc_unstarted]]"
+            "function gen()\n    kind: function\n    bind: gen\n    target: module_global\n    qualname: gen\n    entry_liveins: [_dp_self, _dp_resume_exc]\n    local_cell_slots: [_dp_cell__dp_pc]\n    freevars: [factor->_dp_cell_factor@inherited]\n    cellvars: [total->_dp_cell_total@deferred]\n    runtime_cells: [_dp_pc->_dp_cell__dp_pc@pc_unstarted]"
         ));
         assert!(!rendered.contains("entry:"));
     }
@@ -1090,7 +1089,7 @@ def gen():
             binding_target: BindingTarget::ModuleGlobal,
             kind: BlockPyFunctionKind::Function,
             params: empty_parameters(),
-            entry_params: Vec::new(),
+            entry_liveins: Vec::new(),
             closure_layout: None,
             local_cell_slots: Vec::new(),
             blocks: vec![

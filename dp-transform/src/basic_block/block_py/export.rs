@@ -116,7 +116,7 @@ pub(crate) fn build_def_expr_from_lowered(
         .flat_map(|block| analyze_blockpy_use_def(block).1.into_iter())
         .collect();
     let mut closure_items = Vec::new();
-    for entry_name in &lowered.function.entry_params {
+    for entry_name in &lowered.function.entry_liveins {
         if param_names.contains(entry_name) {
             closure_items.push(py_expr!("{value:literal}", value = entry_name.as_str(),));
         } else if entry_name == "_dp_classcell"

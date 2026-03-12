@@ -25,7 +25,7 @@ pub struct BlockPyFunction {
     pub binding_target: BindingTarget,
     pub kind: BlockPyFunctionKind,
     pub params: Parameters,
-    pub entry_params: Vec<String>,
+    pub entry_liveins: Vec<String>,
     pub closure_layout: Option<BbClosureLayout>,
     pub local_cell_slots: Vec<String>,
     pub blocks: Vec<BlockPyBlock>,

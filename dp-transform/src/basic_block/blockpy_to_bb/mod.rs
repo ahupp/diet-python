@@ -121,7 +121,7 @@ pub(crate) fn lower_blockpy_function_to_bb_function(
         kind: lowered.bb_kind.clone(),
         entry: lowered.function.entry_label().to_string(),
         param_names: collect_parameter_names(&lowered.function.params),
-        entry_params: lowered.function.entry_params.clone(),
+        entry_liveins: lowered.function.entry_liveins.clone(),
         closure_layout: lowered.closure_layout.clone(),
         param_specs: lowered.param_specs.clone(),
         local_cell_slots: lowered.function.local_cell_slots.clone(),

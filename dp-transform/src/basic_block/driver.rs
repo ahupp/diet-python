@@ -244,7 +244,7 @@ def delegator():
             "{layout:?}"
         );
         assert!(
-            !delegator.entry_params.iter().any(|name| name == "child"),
+            !delegator.entry_liveins.iter().any(|name| name == "child"),
             "{delegator:?}"
         );
     }

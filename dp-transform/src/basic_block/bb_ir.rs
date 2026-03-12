@@ -22,7 +22,7 @@ pub struct BbFunction {
     pub kind: BbFunctionKind,
     pub entry: String,
     pub param_names: Vec<String>,
-    pub entry_params: Vec<String>,
+    pub entry_liveins: Vec<String>,
     pub closure_layout: Option<BbClosureLayout>,
     pub param_specs: BbExpr,
     pub local_cell_slots: Vec<String>,

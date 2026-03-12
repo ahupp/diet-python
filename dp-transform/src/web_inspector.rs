@@ -154,7 +154,7 @@ fn bb_module_to_json(module: &bb_ir::BbModule) -> Value {
                 "kind": bb_function_kind_to_json(&function.kind),
                 "entry": function.entry,
                 "paramNames": function.param_names,
-                "entryParams": function.entry_params,
+                "entryLiveins": function.entry_liveins,
                 "localCellSlots": function.local_cell_slots,
                 "blocks": blocks,
             })

@@ -112,11 +112,11 @@ pub(crate) struct BlockPyGeneratorLoweringResult {
 
 pub(crate) struct ClosureBackedGeneratorExportPlan {
     pub factory_label: String,
-    pub factory_entry_params: Vec<String>,
+    pub factory_entry_liveins: Vec<String>,
     pub resume_bind_name: String,
     pub resume_display_name: String,
     pub resume_qualname: String,
-    pub resume_entry_params: Vec<String>,
+    pub resume_entry_liveins: Vec<String>,
     pub factory_block: BlockPyBlock,
     pub resume_param_specs: Expr,
 }
@@ -338,7 +338,7 @@ pub(crate) fn closure_backed_generator_resume_state_order(
     state_order
 }
 
-fn closure_backed_generator_factory_entry_params(
+fn closure_backed_generator_factory_entry_liveins(
     param_names: &[String],
     layout: &BbClosureLayout,
 ) -> Vec<String> {
@@ -392,13 +392,13 @@ pub(crate) fn build_closure_backed_generator_export_plan(
     _target_labels: &[String],
     _resume_pcs: &[(String, usize)],
 ) -> ClosureBackedGeneratorExportPlan {
-    let factory_entry_params = closure_backed_generator_factory_entry_params(param_names, layout);
-    let resume_entry_params =
+    let factory_entry_liveins = closure_backed_generator_factory_entry_liveins(param_names, layout);
+    let resume_entry_liveins =
         closure_backed_generator_resume_state_order(layout, is_async_generator);
     let factory_block = build_closure_backed_generator_factory_block(
         factory_label,
         resume_label,
-        &resume_entry_params,
+        &resume_entry_liveins,
         function_name,
         qualname,
         layout,
@@ -408,11 +408,11 @@ pub(crate) fn build_closure_backed_generator_export_plan(
     let resume_param_specs = closure_backed_generator_resume_param_specs_expr(is_async_generator);
     ClosureBackedGeneratorExportPlan {
         factory_label: factory_label.to_string(),
-        factory_entry_params,
+        factory_entry_liveins,
         resume_bind_name: format!("{bind_name}_resume"),
         resume_display_name: "_dp_resume".to_string(),
         resume_qualname: qualname.to_string(),
-        resume_entry_params,
+        resume_entry_liveins,
         factory_block,
         resume_param_specs,
     }
@@ -2182,12 +2182,12 @@ mod tests {
         );
 
         assert_eq!(plan.factory_label, "_dp_bb_agen_factory");
-        assert_eq!(plan.factory_entry_params, vec!["scale", "_dp_cell_factor"]);
+        assert_eq!(plan.factory_entry_liveins, vec!["scale", "_dp_cell_factor"]);
         assert_eq!(plan.resume_bind_name, "agen_resume");
         assert_eq!(plan.resume_display_name, "_dp_resume");
         assert_eq!(plan.resume_qualname, "outer.<locals>.agen");
         assert_eq!(
-            plan.resume_entry_params,
+            plan.resume_entry_liveins,
             vec![
                 "_dp_self",
                 "_dp_send_value",

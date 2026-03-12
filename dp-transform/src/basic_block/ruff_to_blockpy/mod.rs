@@ -174,7 +174,7 @@ pub(crate) fn build_blockpy_function(
     kind: BlockPyFunctionKind,
     params: ast::Parameters,
     entry_label: String,
-    entry_params: Vec<String>,
+    entry_liveins: Vec<String>,
     closure_layout: Option<BbClosureLayout>,
     local_cell_slots: Vec<String>,
     mut blocks: Vec<BlockPyBlock>,
@@ -195,7 +195,7 @@ pub(crate) fn build_blockpy_function(
         binding_target,
         kind,
         params,
-        entry_params,
+        entry_liveins,
         closure_layout,
         local_cell_slots,
         blocks,
@@ -225,7 +225,7 @@ pub(crate) fn build_lowered_blockpy_function(
 
 fn build_semantic_blockpy_closure_layout(
     param_names: &[String],
-    entry_params: &[String],
+    entry_liveins: &[String],
     capture_names: &[String],
     local_cell_slots: &[String],
     injected_exception_names: &HashSet<String>,
@@ -237,7 +237,7 @@ fn build_semantic_blockpy_closure_layout(
         return None;
     }
 
-    let mut state_vars = entry_params.to_vec();
+    let mut state_vars = entry_liveins.to_vec();
     for slot in local_cell_slots {
         let logical_name = slot.strip_prefix("_dp_cell_").unwrap_or(slot).to_string();
         if !state_vars.iter().any(|existing| existing == &logical_name) {
@@ -576,7 +576,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         }
     }
 
-    let entry_params = if is_closure_backed_generator_runtime {
+    let entry_liveins = if is_closure_backed_generator_runtime {
         sync_generator_state_order(&state_vars, &injected_exception_names)
     } else {
         block_params
@@ -592,7 +592,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
     let extra_state_vars = if is_closure_backed_generator_runtime {
         Vec::new()
     } else {
-        entry_params
+        entry_liveins
             .iter()
             .filter(|name| !param_names.iter().any(|param| param == *name))
             .cloned()
@@ -612,7 +612,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         );
     }
 
-    let mut state_order = entry_params.clone();
+    let mut state_order = entry_liveins.clone();
     for name in extra_state_vars {
         if !state_order.iter().any(|existing| existing == &name) {
             state_order.push(name);
@@ -634,7 +634,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
     };
 
     let mut exported_entry_label = entry_label.clone();
-    let mut exported_entry_params = state_order.clone();
+    let mut exported_entry_liveins = state_order.clone();
     let mut exported_blocks = blocks_for_dataflow;
     let mut exported_block_params = block_params.clone();
     let mut exported_exception_edges = exception_edges.clone();
@@ -671,7 +671,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
             },
             blockpy_function.params.clone(),
             entry_label.clone(),
-            export_plan.resume_entry_params.clone(),
+            export_plan.resume_entry_liveins.clone(),
             closure_layout.clone(),
             resume_local_cell_slots.clone(),
             exported_blocks.clone(),
@@ -694,9 +694,9 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         ));
         exported_blocks = vec![export_plan.factory_block];
         exported_entry_label = export_plan.factory_label;
-        exported_entry_params = export_plan.factory_entry_params;
+        exported_entry_liveins = export_plan.factory_entry_liveins;
         exported_block_params =
-            HashMap::from([(exported_entry_label.clone(), exported_entry_params.clone())]);
+            HashMap::from([(exported_entry_label.clone(), exported_entry_liveins.clone())]);
         exported_exception_edges = HashMap::new();
     }
 
@@ -717,7 +717,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         main_blockpy_kind,
         blockpy_function.params.clone(),
         exported_entry_label.clone(),
-        exported_entry_params.clone(),
+        exported_entry_liveins.clone(),
         semantic_closure_layout,
         sorted_local_cell_slots,
         exported_blocks,
@@ -4203,7 +4203,7 @@ def gen(n):
         );
         let rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
         assert!(
-            rendered.contains("function gen(n) [kind=generator"),
+            rendered.contains("function gen(n)\n    kind: generator"),
             "{rendered}"
         );
         assert!(rendered.contains("branch_table"));
