@@ -1,4 +1,5 @@
 use super::bb_ir::{BbClosureLayout, FunctionId};
+use super::cfg_ir::CfgBlock;
 use ruff_python_ast::{self as ast, Expr, ExprName, Parameters};
 
 pub(crate) mod cfg;
@@ -97,19 +98,17 @@ pub enum BlockPyFunctionKind {
     AsyncGenerator,
 }
 
-#[derive(Debug, Clone)]
-pub struct BlockPyBlock<E = BlockPyExpr> {
-    pub label: BlockPyLabel,
+#[derive(Debug, Clone, Default)]
+pub struct BlockPyBlockMeta {
     pub exc_param: Option<String>,
-    pub body: Vec<BlockPyStmt<E>>,
-    pub term: BlockPyTerm<E>,
 }
 
-impl<E: std::fmt::Debug> BlockPyBlock<E> {
-    pub fn assert_normalized(&self) {
-        for stmt in &self.body {
-            stmt.assert_normalized();
-        }
+pub type BlockPyBlock<E = BlockPyExpr> =
+    CfgBlock<BlockPyLabel, BlockPyStmt<E>, BlockPyTerm<E>, BlockPyBlockMeta>;
+
+pub fn assert_blockpy_block_normalized<E: std::fmt::Debug>(block: &BlockPyBlock<E>) {
+    for stmt in &block.body {
+        stmt.assert_normalized();
     }
 }
 
@@ -199,7 +198,7 @@ impl<E: Clone + std::fmt::Debug> BlockPyStmtFragmentBuilder<E> {
 #[derive(Debug, Clone)]
 pub struct BlockPyBlockBuilder<E = BlockPyExpr> {
     label: BlockPyLabel,
-    exc_param: Option<String>,
+    meta: BlockPyBlockMeta,
     fragment: BlockPyStmtFragmentBuilder<E>,
 }
 
@@ -207,13 +206,13 @@ impl<E: Clone + std::fmt::Debug> BlockPyBlockBuilder<E> {
     pub fn new(label: BlockPyLabel) -> Self {
         Self {
             label,
-            exc_param: None,
+            meta: BlockPyBlockMeta::default(),
             fragment: BlockPyStmtFragmentBuilder::new(),
         }
     }
 
     pub fn with_exc_param(mut self, exc_param: Option<String>) -> Self {
-        self.exc_param = exc_param;
+        self.meta.exc_param = exc_param;
         self
     }
 
@@ -236,14 +235,14 @@ impl<E: Clone + std::fmt::Debug> BlockPyBlockBuilder<E> {
         let fragment = self.fragment.finish();
         let block = BlockPyBlock {
             label: self.label,
-            exc_param: self.exc_param,
             body: fragment.body,
             term: fragment.term.unwrap_or_else(|| match fallthrough_target {
                 Some(target) => BlockPyTerm::Jump(target),
                 None => BlockPyTerm::Return(None),
             }),
+            meta: self.meta,
         };
-        block.assert_normalized();
+        assert_blockpy_block_normalized(&block);
         block
     }
 }

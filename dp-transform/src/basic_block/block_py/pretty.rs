@@ -888,6 +888,7 @@ fn collect_referenced_labels_from_term(term: &BlockPyTerm, referenced: &mut Hash
 mod tests {
     use super::*;
     use crate::basic_block::bb_ir::{BbClosureInit, BbClosureLayout, BbClosureSlot};
+    use crate::basic_block::block_py::BlockPyBlockMeta;
     use ruff_python_parser::{parse_expression, parse_module};
 
     fn wrapped_blockpy(source: &str) -> BlockPyModule {
@@ -1016,9 +1017,9 @@ def gen():
                 local_cell_slots: vec!["_dp_cell__dp_pc".to_string()],
                 blocks: vec![BlockPyBlock {
                     label: "gen_start".into(),
-                    exc_param: None,
                     body: vec![],
                     term: BlockPyTerm::Return(None),
+                    meta: BlockPyBlockMeta::default(),
                 }],
             }],
             module_init: None,
@@ -1046,31 +1047,31 @@ def gen():
             blocks: vec![
                 BlockPyBlock {
                     label: "start".into(),
-                    exc_param: None,
                     body: vec![],
                     term: BlockPyTerm::IfTerm(BlockPyIfTerm {
                         test: parse_blockpy_expr("cond"),
                         then_label: "then".into(),
                         else_label: "else".into(),
                     }),
+                    meta: BlockPyBlockMeta::default(),
                 },
                 BlockPyBlock {
                     label: "then".into(),
-                    exc_param: None,
                     body: vec![BlockPyStmt::Expr(parse_blockpy_expr("then_side_effect()"))],
                     term: BlockPyTerm::Jump("after".into()),
+                    meta: BlockPyBlockMeta::default(),
                 },
                 BlockPyBlock {
                     label: "else".into(),
-                    exc_param: None,
                     body: vec![BlockPyStmt::Expr(parse_blockpy_expr("else_side_effect()"))],
                     term: BlockPyTerm::Jump("after".into()),
+                    meta: BlockPyBlockMeta::default(),
                 },
                 BlockPyBlock {
                     label: "after".into(),
-                    exc_param: None,
                     body: vec![BlockPyStmt::Expr(parse_blockpy_expr("finish()"))],
                     term: BlockPyTerm::Return(None),
+                    meta: BlockPyBlockMeta::default(),
                 },
             ],
         };

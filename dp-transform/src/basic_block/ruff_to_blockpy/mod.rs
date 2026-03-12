@@ -15,10 +15,10 @@ use super::block_py::state::{
     sync_generator_state_order, sync_target_cells_stmts as sync_target_cells_stmts_shared,
 };
 use super::block_py::{
-    BlockPyAssign, BlockPyBlock, BlockPyCallableDef, BlockPyDelete, BlockPyExpr,
-    BlockPyFunctionKind, BlockPyIf, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt,
-    BlockPyStmtFragment, BlockPyStmtFragmentBuilder, BlockPyTerm, BlockPyTryJump,
-    ENTRY_BLOCK_LABEL,
+    assert_blockpy_block_normalized, BlockPyAssign, BlockPyBlock, BlockPyBlockMeta,
+    BlockPyCallableDef, BlockPyDelete, BlockPyExpr, BlockPyFunctionKind, BlockPyIf, BlockPyIfTerm,
+    BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment, BlockPyStmtFragmentBuilder,
+    BlockPyTerm, BlockPyTryJump, ENTRY_BLOCK_LABEL,
 };
 use super::stmt_utils::flatten_stmt_boxes;
 use crate::basic_block::ast_to_ast::ast_rewrite::Rewrite;
@@ -209,7 +209,7 @@ pub(crate) fn build_blockpy_function(
         }
     }
     for block in &blocks {
-        block.assert_normalized();
+        assert_blockpy_block_normalized(block);
     }
     BlockPyCallableDef {
         function_id,
@@ -482,7 +482,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
 
     let mut state_vars = collect_state_vars(param_names, &blocks_for_dataflow, module_init_mode);
     for block in &blocks_for_dataflow {
-        let Some(exc_param) = block.exc_param.as_ref() else {
+        let Some(exc_param) = block.meta.exc_param.as_ref() else {
             continue;
         };
         if !state_vars.iter().any(|existing| existing == exc_param) {
@@ -546,7 +546,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
     let mut block_params =
         compute_block_params_blockpy(&blocks_for_dataflow, &state_vars, &extra_successors);
     for block in &blocks_for_dataflow {
-        let Some(exc_param) = block.exc_param.as_ref() else {
+        let Some(exc_param) = block.meta.exc_param.as_ref() else {
             continue;
         };
         let params = block_params
@@ -1256,9 +1256,9 @@ pub(crate) fn finalize_blockpy_function(
     if needs_end_block {
         callable_def.blocks.push(BlockPyBlock {
             label: BlockPyLabel::from(end_label),
-            exc_param: None,
             body: Vec::new(),
             term: BlockPyTerm::Return(None),
+            meta: BlockPyBlockMeta::default(),
         });
     }
     fold_jumps_to_trivial_none_return_blockpy(&mut callable_def.blocks);

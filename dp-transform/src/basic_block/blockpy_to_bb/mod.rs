@@ -144,12 +144,17 @@ pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
     let simplify_expr_pass = SimplifyExprPass;
     let block_exc_params = blocks
         .iter()
-        .map(|block| (block.label.as_str().to_string(), block.exc_param.clone()))
+        .map(|block| {
+            (
+                block.label.as_str().to_string(),
+                block.meta.exc_param.clone(),
+            )
+        })
         .collect::<HashMap<_, _>>();
     blocks
         .iter()
         .map(|block| {
-            let current_exception_name = block.exc_param.as_deref();
+            let current_exception_name = block.meta.exc_param.as_deref();
             let mut normalized_body_stmt = stmt_body_from_stmts(
                 block
                     .body
@@ -234,7 +239,7 @@ pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
                         .get(block.label.as_str())
                         .cloned()
                         .unwrap_or_default();
-                    if let Some(exc_param) = block.exc_param.as_ref() {
+                    if let Some(exc_param) = block.meta.exc_param.as_ref() {
                         if !params.iter().any(|param| param == exc_param) {
                             params.push(exc_param.clone());
                         }

@@ -77,7 +77,7 @@ pub(crate) fn collect_state_vars(
 
 pub(crate) fn collect_injected_exception_names_blockpy(blocks: &[BlockPyBlock]) -> HashSet<String> {
     fn collect_from_block(block: &BlockPyBlock, out: &mut HashSet<String>) {
-        if let Some(exc_param) = block.exc_param.as_ref() {
+        if let Some(exc_param) = block.meta.exc_param.as_ref() {
             out.insert(exc_param.clone());
         }
     }

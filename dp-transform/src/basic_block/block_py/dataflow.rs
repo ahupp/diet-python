@@ -70,7 +70,7 @@ pub(crate) fn analyze_blockpy_use_def(block: &BlockPyBlock) -> (HashSet<String>,
     let mut uses = HashSet::new();
     let mut defs = HashSet::new();
 
-    if let Some(exc_param) = block.exc_param.as_ref() {
+    if let Some(exc_param) = block.meta.exc_param.as_ref() {
         uses.insert(exc_param.clone());
     }
 

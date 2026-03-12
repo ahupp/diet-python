@@ -71,8 +71,8 @@ pub(crate) fn set_region_exc_param(
     exc_param: &str,
 ) {
     for block in &mut blocks[region.clone()] {
-        if block.exc_param.is_none() {
-            block.exc_param = Some(exc_param.to_string());
+        if block.meta.exc_param.is_none() {
+            block.meta.exc_param = Some(exc_param.to_string());
         }
     }
 }

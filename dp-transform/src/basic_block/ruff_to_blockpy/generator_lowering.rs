@@ -7,8 +7,8 @@ use crate::basic_block::ast_to_ast::scope::cell_name;
 use crate::basic_block::bb_ir::{BbClosureInit, BbClosureLayout, BbClosureSlot, FunctionId};
 use crate::basic_block::block_py::state::{sync_generator_state_order, sync_target_cells_stmts};
 use crate::basic_block::block_py::{
-    BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyExpr, BlockPyIfTerm, BlockPyLabel,
-    BlockPyRaise, BlockPyStmt, BlockPyTerm, BlockPyTryJump,
+    BlockPyAssign, BlockPyBlock, BlockPyBlockMeta, BlockPyBranchTable, BlockPyExpr, BlockPyIfTerm,
+    BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm, BlockPyTryJump,
 };
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Stmt};
@@ -452,9 +452,9 @@ pub(crate) fn build_closure_backed_generator_factory_block(
 
     BlockPyBlock {
         label: factory_label.into(),
-        exc_param: None,
         body,
         term: BlockPyTerm::Return(Some(return_value.into())),
+        meta: BlockPyBlockMeta::default(),
     }
 }
 
@@ -719,8 +719,8 @@ pub(crate) fn lower_generator_blockpy_stmt_in_sequence(
     };
     if let Some(exc_param) = ambient_exc_param {
         for block in &mut ctx.blocks[generated_start..] {
-            if block.exc_param.is_none() {
-                block.exc_param = Some(exc_param.to_string());
+            if block.meta.exc_param.is_none() {
+                block.meta.exc_param = Some(exc_param.to_string());
             }
         }
     }
@@ -800,8 +800,8 @@ pub(crate) fn lower_generator_blockpy_term_in_sequence(
     };
     if let Some(exc_param) = ambient_exc_param {
         for block in &mut ctx.blocks[generated_start..] {
-            if block.exc_param.is_none() {
-                block.exc_param = Some(exc_param.to_string());
+            if block.meta.exc_param.is_none() {
+                block.meta.exc_param = Some(exc_param.to_string());
             }
         }
     }
@@ -1454,7 +1454,7 @@ pub(crate) fn emit_yield_from_blocks(
         plan.stop_done_label.clone(),
         plan.raise_stop_label.clone(),
     );
-    stop_except_block.exc_param = Some(plan.stop_name.clone());
+    stop_except_block.meta.exc_param = Some(plan.stop_name.clone());
     blocks.push(stop_except_block);
     blocks.push(compat_block_from_blockpy(
         plan.stop_done_label.clone(),
