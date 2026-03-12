@@ -14,7 +14,7 @@ pub fn normalize_bb_module_for_codegen(module: &bb_ir::BbModule) -> bb_ir::BbMod
     let mut rewriter = CodegenExprNormalizer;
     for function in &mut normalized.functions {
         for block in &mut function.blocks {
-            for op in &mut block.ops {
+            for op in &mut block.body {
                 match op {
                     bb_ir::BbOp::Assign(assign) => {
                         rewrite_bb_expr(&mut rewriter, &mut assign.value)
@@ -230,7 +230,7 @@ def f():
         let mut probe = ExprShapeProbe::new();
         for function in normalized.functions {
             for mut block in function.blocks {
-                for op in block.ops {
+                for op in block.body {
                     let mut stmt = op.to_stmt();
                     probe_stmt_exprs(&mut probe, &mut stmt);
                 }
@@ -299,7 +299,7 @@ def f(obj, mapping, key, value):
         for function in normalized.functions {
             for block in function.blocks {
                 text.push_str(&crate::ruff_ast_to_string(&bb_ir::bb_ops_to_stmts(
-                    &block.ops,
+                    &block.body,
                 )));
             }
         }

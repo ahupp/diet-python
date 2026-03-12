@@ -124,7 +124,7 @@ fn bb_module_to_json(module: &bb_ir::BbModule) -> Value {
                 .blocks
                 .iter()
                 .map(|block| {
-                    let ops_text = ruff_ast_to_string(&bb_ir::bb_ops_to_stmts(&block.ops))
+                    let ops_text = ruff_ast_to_string(&bb_ir::bb_ops_to_stmts(&block.body))
                         .trim()
                         .to_string();
                     let successors = bb_term_successors(&block.term)
@@ -138,7 +138,7 @@ fn bb_module_to_json(module: &bb_ir::BbModule) -> Value {
                         .collect::<Vec<_>>();
                     json!({
                         "label": block.label,
-                        "params": block.params,
+                        "params": block.meta.params,
                         "opsText": ops_text,
                         "termKind": bb_term_kind(&block.term),
                         "termText": bb_term_text(&block.term),
@@ -425,7 +425,7 @@ fn render_cranelift_function_from_bb(function: &bb_ir::BbFunction) -> Result<Str
 
     let mut func = ir::Function::new();
     func.name = UserFuncName::testcase(sanitize_clif_testcase_name(function.qualname.as_str()));
-    for _ in 0..entry_block.params.len() {
+    for _ in 0..entry_block.meta.params.len() {
         func.signature.params.push(AbiParam::new(types::I64));
     }
     func.signature.returns.push(AbiParam::new(types::I64));
@@ -437,7 +437,7 @@ fn render_cranelift_function_from_bb(function: &bb_ir::BbFunction) -> Result<Str
     let mut label_to_params = HashMap::new();
     for block in &function.blocks {
         label_to_block.insert(block.label.clone(), builder.create_block());
-        label_to_params.insert(block.label.clone(), block.params.clone());
+        label_to_params.insert(block.label.clone(), block.meta.params.clone());
     }
 
     for block in &function.blocks {
@@ -447,11 +447,11 @@ fn render_cranelift_function_from_bb(function: &bb_ir::BbFunction) -> Result<Str
         if block.label == function.entry {
             builder.append_block_params_for_function_params(clif_block);
             let existing = builder.block_params(clif_block).len();
-            for _ in existing..block.params.len() {
+            for _ in existing..block.meta.params.len() {
                 builder.append_block_param(clif_block, types::I64);
             }
         } else {
-            for _ in &block.params {
+            for _ in &block.meta.params {
                 builder.append_block_param(clif_block, types::I64);
             }
         }
@@ -465,6 +465,7 @@ fn render_cranelift_function_from_bb(function: &bb_ir::BbFunction) -> Result<Str
 
         let mut current_values = HashMap::new();
         for (name, value) in block
+            .meta
             .params
             .iter()
             .zip(builder.block_params(clif_block).iter().copied())
@@ -473,7 +474,7 @@ fn render_cranelift_function_from_bb(function: &bb_ir::BbFunction) -> Result<Str
         }
 
         // Preserve a stable one-op-per-source-op shape for web visualization.
-        for _ in &block.ops {
+        for _ in &block.body {
             let _ = builder.ins().iconst(types::I64, 0);
         }
 
@@ -592,7 +593,7 @@ fn bb_module_to_clif(module: &bb_ir::BbModule) -> String {
         let mut label_to_params = HashMap::new();
         for (index, block) in function.blocks.iter().enumerate() {
             label_to_index.insert(block.label.clone(), index);
-            label_to_params.insert(block.label.clone(), block.params.clone());
+            label_to_params.insert(block.label.clone(), block.meta.params.clone());
         }
 
         out.push_str(&format!(
@@ -608,22 +609,23 @@ fn bb_module_to_clif(module: &bb_ir::BbModule) -> String {
                 ";   {}({})\n",
                 block.label,
                 block
+                    .meta
                     .params
                     .iter()
                     .map(|name| format!("%{name}: pyobj"))
                     .collect::<Vec<_>>()
                     .join(", ")
             ));
-            if let Some(exc_target) = block.exc_target_label.as_ref() {
+            if let Some(exc_target) = block.meta.exc_target_label.as_ref() {
                 out.push_str(&format!(
                     ";     exc_target={}\n",
                     clif_target_comment(exc_target, &label_to_index, &label_to_params)
                 ));
             }
-            if let Some(exc_name) = block.exc_name.as_ref() {
+            if let Some(exc_name) = block.meta.exc_name.as_ref() {
                 out.push_str(&format!(";     exc_name=%{exc_name}\n"));
             }
-            let ops = ruff_ast_to_string(&bb_ir::bb_ops_to_stmts(&block.ops));
+            let ops = ruff_ast_to_string(&bb_ir::bb_ops_to_stmts(&block.body));
             for line in ops.lines().filter(|line| !line.trim().is_empty()) {
                 out.push_str(";     op: ");
                 out.push_str(line.trim_end());

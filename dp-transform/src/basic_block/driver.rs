@@ -130,7 +130,7 @@ mod tests {
     }
 
     fn block_uses_text(block: &BbBlock, needle: &str) -> bool {
-        block.ops.iter().any(|op| match op {
+        block.body.iter().any(|op| match op {
             BbOp::Assign(assign) => expr_text(&assign.value).contains(needle),
             BbOp::Expr(expr) => expr_text(&expr.value).contains(needle),
             BbOp::Delete(delete) => delete
@@ -743,7 +743,7 @@ def f(x):
         assert!(
             f.blocks
                 .iter()
-                .any(|block| block.exc_target_label.is_some()),
+                .any(|block| block.meta.exc_target_label.is_some()),
             "{f:?}"
         );
         let debug = format!("{f:?}");
@@ -773,7 +773,7 @@ def run():
         assert!(
             run.blocks
                 .iter()
-                .any(|block| block.exc_target_label.is_some()),
+                .any(|block| block.meta.exc_target_label.is_some()),
             "{run:?}"
         );
     }
@@ -800,7 +800,7 @@ except Exception:
             init_fn
                 .blocks
                 .iter()
-                .any(|block| block.exc_target_label.is_some()),
+                .any(|block| block.meta.exc_target_label.is_some()),
             "{init_fn:?}"
         );
     }
@@ -855,7 +855,7 @@ def f():
         assert!(
             f.blocks
                 .iter()
-                .any(|block| block.exc_target_label.is_some()),
+                .any(|block| block.meta.exc_target_label.is_some()),
             "{f:?}"
         );
     }

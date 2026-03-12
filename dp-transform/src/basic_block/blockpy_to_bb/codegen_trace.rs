@@ -42,13 +42,13 @@ pub(crate) fn instrument_bb_module_for_trace(module: &mut BbModule, config: &BbT
             }
         }
         for block in &mut function.blocks {
-            let trace_stmt = if config.include_params && !block.params.is_empty() {
+            let trace_stmt = if config.include_params && !block.meta.params.is_empty() {
                 let params_expr = parse_expression(
                     format!(
                         "__dp_bb_trace_enter({}, {}, {})",
                         quote_python_string(function.qualname.as_str()),
                         quote_python_string(block.label.as_str()),
-                        param_pairs_expr_source(&block.params),
+                        param_pairs_expr_source(&block.meta.params),
                     )
                     .as_str(),
                 )
@@ -66,7 +66,7 @@ pub(crate) fn instrument_bb_module_for_trace(module: &mut BbModule, config: &BbT
                     label = block.label.as_str(),
                 )
             };
-            block.ops.insert(
+            block.body.insert(
                 0,
                 BbOp::from_stmt(trace_stmt).expect("failed to lower BB trace statement into BbOp"),
             );
@@ -171,7 +171,7 @@ mod tests {
         let f_trace = f
             .blocks
             .iter()
-            .flat_map(|block| block.ops.iter())
+            .flat_map(|block| block.body.iter())
             .map(|op| crate::ruff_ast_to_string(&op.to_stmt()))
             .find(|stmt| stmt.contains("__dp_bb_trace_enter"))
             .expect("missing trace op in f");
@@ -180,7 +180,7 @@ mod tests {
         let g_has_trace = g
             .blocks
             .iter()
-            .flat_map(|block| block.ops.iter())
+            .flat_map(|block| block.body.iter())
             .map(|op| crate::ruff_ast_to_string(&op.to_stmt()))
             .any(|stmt| stmt.contains("__dp_bb_trace_enter"));
         assert!(!g_has_trace);

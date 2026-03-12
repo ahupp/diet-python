@@ -244,9 +244,9 @@ fn direct_simple_expr_from(expr: &BbExpr) -> Option<DirectSimpleExprPlan> {
 }
 
 fn direct_simple_plan_from_block(block: &BbBlock) -> Option<DirectSimpleRetPlan> {
-    let mut known_names: Vec<String> = block.params.clone();
+    let mut known_names: Vec<String> = block.meta.params.clone();
     let mut assigns = Vec::new();
-    for op in &block.ops {
+    for op in &block.body {
         let BbOp::Assign(assign) = op else {
             return None;
         };
@@ -271,7 +271,7 @@ fn direct_simple_plan_from_block(block: &BbBlock) -> Option<DirectSimpleRetPlan>
         DirectSimpleExprPlan::None
     };
     Some(DirectSimpleRetPlan {
-        params: block.params.clone(),
+        params: block.meta.params.clone(),
         assigns,
         ret,
     })
@@ -282,7 +282,7 @@ fn direct_simple_brif_plan_from_block(
     block: &BbBlock,
     label_to_index: &HashMap<String, usize>,
 ) -> Option<DirectSimpleBrIfPlan> {
-    if !block.ops.is_empty() {
+    if !block.body.is_empty() {
         return None;
     }
     let BbTerm::BrIf {
@@ -295,15 +295,15 @@ fn direct_simple_brif_plan_from_block(
     };
     let then_index = *label_to_index.get(then_label.as_str())?;
     let else_index = *label_to_index.get(else_label.as_str())?;
-    let source_params = block.params.as_slice();
-    if function.blocks[then_index].params.as_slice() != source_params
-        || function.blocks[else_index].params.as_slice() != source_params
+    let source_params = block.meta.params.as_slice();
+    if function.blocks[then_index].meta.params.as_slice() != source_params
+        || function.blocks[else_index].meta.params.as_slice() != source_params
     {
         return None;
     }
     let test = direct_simple_expr_from(test)?;
     Some(DirectSimpleBrIfPlan {
-        params: block.params.clone(),
+        params: block.meta.params.clone(),
         test,
         then_index,
         else_index,
@@ -316,8 +316,8 @@ fn direct_simple_expr_ret_none_plan_from_block(
     if !matches!(block.term, BbTerm::Ret(None)) {
         return None;
     }
-    let mut exprs = Vec::with_capacity(block.ops.len());
-    for op in &block.ops {
+    let mut exprs = Vec::with_capacity(block.body.len());
+    for op in &block.body {
         let BbOp::Expr(expr_op) = op else {
             return None;
         };
@@ -325,7 +325,7 @@ fn direct_simple_expr_ret_none_plan_from_block(
         exprs.push(expr);
     }
     Some(DirectSimpleExprRetNonePlan {
-        params: block.params.clone(),
+        params: block.meta.params.clone(),
         exprs,
     })
 }
@@ -334,7 +334,7 @@ fn target_params_from_index(
     function: &dp_transform::basic_block::bb_ir::BbFunction,
     target_index: usize,
 ) -> Option<Vec<String>> {
-    Some(function.blocks.get(target_index)?.params.clone())
+    Some(function.blocks.get(target_index)?.meta.params.clone())
 }
 
 fn direct_simple_delete_plan_from_targets(
@@ -409,13 +409,13 @@ fn unsupported_fastpath_block_message(
     block: &BbBlock,
 ) -> String {
     let op_kinds = block
-        .ops
+        .body
         .iter()
         .map(bb_op_kind)
         .collect::<Vec<_>>()
         .join(", ");
     let op_debug = block
-        .ops
+        .body
         .iter()
         .map(|op| format!("{op:?}"))
         .collect::<Vec<_>>()
@@ -426,8 +426,8 @@ fn unsupported_fastpath_block_message(
         block.label,
         bb_term_kind(&block.term),
         op_kinds,
-        block.params,
-        block.exc_target_label,
+        block.meta.params,
+        block.meta.exc_target_label,
         op_debug,
     )
 }
@@ -437,9 +437,9 @@ fn direct_simple_block_plan_from_block(
     block: &BbBlock,
     label_to_index: &HashMap<String, usize>,
 ) -> Option<DirectSimpleBlockPlan> {
-    let mut known_names: Vec<String> = block.params.clone();
+    let mut known_names: Vec<String> = block.meta.params.clone();
     let mut ops = Vec::new();
-    for op in &block.ops {
+    for op in &block.body {
         let stmt_op = direct_simple_op_from_bb_op(op, &mut known_names)?;
         ops.push(stmt_op);
     }
@@ -504,6 +504,7 @@ fn direct_simple_block_plan_from_block(
                 Some(direct_simple_expr_from(expr)?)
             } else {
                 block
+                    .meta
                     .params
                     .iter()
                     .find(|name| {
@@ -522,7 +523,7 @@ fn direct_simple_block_plan_from_block(
         }
     };
     Some(DirectSimpleBlockPlan {
-        params: block.params.clone(),
+        params: block.meta.params.clone(),
         ops,
         term,
     })
@@ -571,7 +572,7 @@ fn build_clif_plan(
     let mut block_param_names = Vec::with_capacity(function.blocks.len());
     let mut block_fast_paths = Vec::with_capacity(function.blocks.len());
     for block in &function.blocks {
-        let exc_target = match block.exc_target_label.as_ref() {
+        let exc_target = match block.meta.exc_target_label.as_ref() {
             Some(label) => Some(label_to_index.get(label.as_str()).copied().ok_or_else(|| {
                 format!(
                     "unknown exception target {label} in {}:{}",
@@ -583,17 +584,25 @@ fn build_clif_plan(
         let exc_dispatch = if let Some(target_index) = exc_target {
             let target_block = &function.blocks[target_index];
             let owner_param_index = block
+                .meta
                 .params
                 .iter()
                 .position(|name| name == "_dp_self")
-                .or_else(|| block.params.iter().position(|name| name == "_dp_state"));
-            let mut arg_sources = Vec::with_capacity(target_block.params.len());
-            for target_param in &target_block.params {
-                if block.exc_name.as_deref() == Some(target_param.as_str()) {
+                .or_else(|| {
+                    block
+                        .meta
+                        .params
+                        .iter()
+                        .position(|name| name == "_dp_state")
+                });
+            let mut arg_sources = Vec::with_capacity(target_block.meta.params.len());
+            for target_param in &target_block.meta.params {
+                if block.meta.exc_name.as_deref() == Some(target_param.as_str()) {
                     arg_sources.push(BlockExcArgSource::Exception);
                     continue;
                 }
                 if let Some(source_index) = block
+                    .meta
                     .params
                     .iter()
                     .position(|source_name| source_name == target_param)
@@ -724,7 +733,7 @@ fn build_clif_plan(
             BbTerm::Ret(_) => BlockTermPlan::Ret,
         };
         let fast_path = {
-            if block.ops.is_empty() {
+            if block.body.is_empty() {
                 match &block.term {
                     BbTerm::Jump(target_label) => {
                         let target_index = label_to_index
@@ -736,8 +745,8 @@ fn build_clif_plan(
                                     function.qualname, block.label
                                 )
                             })?;
-                        let source_params = block.params.as_slice();
-                        let target_params = function.blocks[target_index].params.as_slice();
+                        let source_params = block.meta.params.as_slice();
+                        let target_params = function.blocks[target_index].meta.params.as_slice();
                         if source_params == target_params {
                             BlockFastPath::JumpPassThrough { target_index }
                         } else if let Some(plan) = direct_simple_plan_from_block(block) {
@@ -794,7 +803,7 @@ fn build_clif_plan(
         block_terms.push(term);
         block_exc_targets.push(exc_target);
         block_exc_dispatches.push(exc_dispatch);
-        block_param_names.push(block.params.clone());
+        block_param_names.push(block.meta.params.clone());
         block_fast_paths.push(fast_path);
     }
     Ok(ClifPlan {

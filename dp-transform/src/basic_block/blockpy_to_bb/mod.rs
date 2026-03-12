@@ -2,7 +2,9 @@ mod codegen_normalize;
 mod codegen_trace;
 mod exception_pass;
 
-use super::bb_ir::{BbBlock, BbExpr, BbFunction, BbModule, BbOp, BbTerm, BindingTarget};
+use super::bb_ir::{
+    BbBlock, BbBlockMeta, BbExpr, BbFunction, BbModule, BbOp, BbTerm, BindingTarget,
+};
 use super::block_py::exception::is_dp_lookup_call;
 use super::block_py::state::collect_parameter_names;
 use super::block_py::{BlockPyBlock, BlockPyIfTerm, BlockPyModule, BlockPyStmt, BlockPyTerm};
@@ -232,25 +234,25 @@ pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
                     }
                 }
             }
+            let mut params = block_params
+                .get(block.label.as_str())
+                .cloned()
+                .unwrap_or_default();
+            if let Some(exc_param) = block.meta.exc_param.as_ref() {
+                if !params.iter().any(|param| param == exc_param) {
+                    params.push(exc_param.clone());
+                }
+            }
             BbBlock {
                 label: block.label.as_str().to_string(),
-                params: {
-                    let mut params = block_params
-                        .get(block.label.as_str())
-                        .cloned()
-                        .unwrap_or_default();
-                    if let Some(exc_param) = block.meta.exc_param.as_ref() {
-                        if !params.iter().any(|param| param == exc_param) {
-                            params.push(exc_param.clone());
-                        }
-                    }
-                    params
-                },
-                local_defs,
-                ops,
-                exc_target_label,
-                exc_name,
+                body: ops,
                 term: bb_term_from_blockpy_term(&normalized_term),
+                meta: BbBlockMeta {
+                    params,
+                    local_defs,
+                    exc_target_label,
+                    exc_name,
+                },
             }
         })
         .collect()

@@ -1,4 +1,4 @@
-use crate::basic_block::bb_ir::{BbBlock, BbFunction, BbModule, BbOp, BbTerm};
+use crate::basic_block::bb_ir::{BbBlock, BbBlockMeta, BbFunction, BbModule, BbOp, BbTerm};
 use std::collections::HashSet;
 
 pub fn lower_try_jump_exception_flow(module: &BbModule) -> Result<BbModule, String> {
@@ -36,17 +36,17 @@ fn split_exception_blocks_for_expr_checks(function: &mut BbFunction) {
     let mut out = Vec::with_capacity(function.blocks.len());
 
     for block in std::mem::take(&mut function.blocks) {
-        if block.exc_target_label.is_none() || block.ops.is_empty() {
+        if block.meta.exc_target_label.is_none() || block.body.is_empty() {
             out.push(block);
             continue;
         }
 
-        let mut known_names = block.params.clone();
-        let mut first_local_defs = block.local_defs.clone();
+        let mut known_names = block.meta.params.clone();
+        let mut first_local_defs = block.meta.local_defs.clone();
         let mut current_label = block.label.clone();
-        let edge_target = block.exc_target_label.clone();
-        let edge_exc_name = block.exc_name.clone();
-        let mut ops = block.ops.into_iter().peekable();
+        let edge_target = block.meta.exc_target_label.clone();
+        let edge_exc_name = block.meta.exc_name.clone();
+        let mut ops = block.body.into_iter().peekable();
         let mut segment_start_names = known_names.clone();
 
         let mut segment_ops: Vec<BbOp> = Vec::new();
@@ -61,12 +61,14 @@ fn split_exception_blocks_for_expr_checks(function: &mut BbFunction) {
                 fresh_index += 1;
                 out.push(BbBlock {
                     label: current_label.clone(),
-                    params: segment_start_names.clone(),
-                    local_defs: std::mem::take(&mut first_local_defs),
-                    ops: std::mem::take(&mut segment_ops),
-                    exc_target_label: edge_target.clone(),
-                    exc_name: edge_exc_name.clone(),
+                    body: std::mem::take(&mut segment_ops),
                     term: BbTerm::Jump(next_label.clone()),
+                    meta: BbBlockMeta {
+                        params: segment_start_names.clone(),
+                        local_defs: std::mem::take(&mut first_local_defs),
+                        exc_target_label: edge_target.clone(),
+                        exc_name: edge_exc_name.clone(),
+                    },
                 });
                 current_label = next_label;
                 segment_start_names = known_names.clone();
@@ -75,12 +77,14 @@ fn split_exception_blocks_for_expr_checks(function: &mut BbFunction) {
             if ops.peek().is_none() {
                 out.push(BbBlock {
                     label: current_label.clone(),
-                    params: segment_start_names.clone(),
-                    local_defs: std::mem::take(&mut first_local_defs),
-                    ops: std::mem::take(&mut segment_ops),
-                    exc_target_label: edge_target.clone(),
-                    exc_name: edge_exc_name.clone(),
+                    body: std::mem::take(&mut segment_ops),
                     term: block.term.clone(),
+                    meta: BbBlockMeta {
+                        params: segment_start_names.clone(),
+                        local_defs: std::mem::take(&mut first_local_defs),
+                        exc_target_label: edge_target.clone(),
+                        exc_name: edge_exc_name.clone(),
+                    },
                 });
             }
         }
@@ -136,7 +140,7 @@ fn validate_function_labels(function: &BbFunction, labels: &HashSet<&str>) -> Re
         ));
     }
     for block in &function.blocks {
-        if let Some(exc_target_label) = block.exc_target_label.as_ref() {
+        if let Some(exc_target_label) = block.meta.exc_target_label.as_ref() {
             if !labels.contains(exc_target_label.as_str()) {
                 return Err(format!(
                     "unknown exception target {exc_target_label} in {}:{}",
@@ -197,7 +201,7 @@ fn ensure_known_label(
 #[cfg(test)]
 mod tests {
     use super::lower_try_jump_exception_flow;
-    use crate::basic_block::bb_ir::{BbBlock, BbTerm};
+    use crate::basic_block::bb_ir::{BbBlock, BbBlockMeta, BbTerm};
     use crate::{transform_str_to_bb_ir_with_options, Options};
 
     #[test]
@@ -220,21 +224,20 @@ def f(x):
 
             function.blocks.push(BbBlock {
                 label: body_label.clone(),
-                params: vec![],
-                local_defs: vec![],
-                ops: vec![],
-                exc_target_label: Some(except_label.clone()),
-                exc_name: Some("_dp_try_exc_manual".to_string()),
+                body: vec![],
                 term: BbTerm::Ret(None),
+                meta: BbBlockMeta {
+                    params: vec![],
+                    local_defs: vec![],
+                    exc_target_label: Some(except_label.clone()),
+                    exc_name: Some("_dp_try_exc_manual".to_string()),
+                },
             });
             function.blocks.push(BbBlock {
                 label: except_label.clone(),
-                params: vec![],
-                local_defs: vec![],
-                ops: vec![],
-                exc_target_label: None,
-                exc_name: None,
+                body: vec![],
                 term: BbTerm::Ret(None),
+                meta: BbBlockMeta::default(),
             });
             (body_label, except_label)
         };
@@ -251,12 +254,12 @@ def f(x):
             .find(|block| block.label == body_label)
             .expect("body block must exist");
         assert_eq!(
-            body_block.exc_target_label.as_deref(),
+            body_block.meta.exc_target_label.as_deref(),
             Some(except_label.as_str()),
             "body region should dispatch to except block on exception"
         );
         assert_eq!(
-            body_block.exc_name.as_deref(),
+            body_block.meta.exc_name.as_deref(),
             Some("_dp_try_exc_manual"),
             "exception binding name should be attached to body region"
         );
@@ -272,7 +275,7 @@ def f():
             .expect("lowering must succeed")
             .expect("bb module must exist");
         let function = module.functions.first_mut().expect("must contain function");
-        function.blocks[0].exc_target_label = Some("missing_except".to_string());
+        function.blocks[0].meta.exc_target_label = Some("missing_except".to_string());
 
         let err = lower_try_jump_exception_flow(&module).expect_err("must reject unknown labels");
         assert!(
@@ -300,21 +303,18 @@ def f():
         let block_index = function
             .blocks
             .iter()
-            .position(|block| block.ops.len() >= 2)
+            .position(|block| block.body.len() >= 2)
             .expect("must contain multi-op block");
         let original_label = function.blocks[block_index].label.clone();
         let except_label = "_dp_manual_except_split".to_string();
         function.blocks.push(BbBlock {
             label: except_label.clone(),
-            params: vec![],
-            local_defs: vec![],
-            ops: vec![],
-            exc_target_label: None,
-            exc_name: None,
+            body: vec![],
             term: BbTerm::Ret(None),
+            meta: BbBlockMeta::default(),
         });
-        function.blocks[block_index].exc_target_label = Some(except_label.clone());
-        function.blocks[block_index].exc_name = Some("_dp_try_exc_split".to_string());
+        function.blocks[block_index].meta.exc_target_label = Some(except_label.clone());
+        function.blocks[block_index].meta.exc_name = Some("_dp_try_exc_split".to_string());
 
         let lowered = lower_try_jump_exception_flow(&module).expect("pass should succeed");
         let lowered_function = lowered
@@ -328,13 +328,13 @@ def f():
             .iter()
             .find(|block| block.label == original_label)
             .expect("split must keep original block label");
-        assert_eq!(first.ops.len(), 1, "first split block must contain one op");
+        assert_eq!(first.body.len(), 1, "first split block must contain one op");
         assert!(
             matches!(first.term, BbTerm::Jump(_)),
             "split op block must jump to next split block"
         );
         assert_eq!(
-            first.exc_target_label.as_deref(),
+            first.meta.exc_target_label.as_deref(),
             Some(except_label.as_str()),
             "split block must preserve exception edge target"
         );
@@ -345,7 +345,7 @@ def f():
             .find(|block| block.label.contains("__excchk_"))
             .expect("must contain split tail block");
         assert!(
-            split_tail.ops.len() <= 1,
+            split_tail.body.len() <= 1,
             "split tail block should not aggregate ops"
         );
     }
@@ -370,21 +370,18 @@ def f():
         let block_index = function
             .blocks
             .iter()
-            .position(|block| block.ops.len() >= 4)
+            .position(|block| block.body.len() >= 4)
             .expect("must contain multi-op block");
         let original_label = function.blocks[block_index].label.clone();
         let except_label = "_dp_manual_except_group".to_string();
         function.blocks.push(BbBlock {
             label: except_label.clone(),
-            params: vec![],
-            local_defs: vec![],
-            ops: vec![],
-            exc_target_label: None,
-            exc_name: None,
+            body: vec![],
             term: BbTerm::Ret(None),
+            meta: BbBlockMeta::default(),
         });
-        function.blocks[block_index].exc_target_label = Some(except_label.clone());
-        function.blocks[block_index].exc_name = Some("_dp_try_exc_group".to_string());
+        function.blocks[block_index].meta.exc_target_label = Some(except_label.clone());
+        function.blocks[block_index].meta.exc_name = Some("_dp_try_exc_group".to_string());
 
         let lowered = lower_try_jump_exception_flow(&module).expect("pass should succeed");
         let lowered_function = lowered
@@ -399,7 +396,7 @@ def f():
             .find(|block| block.label == original_label)
             .expect("lowered entry block must exist");
         assert_eq!(
-            first.ops.len(),
+            first.body.len(),
             3,
             "pure expr ops should remain grouped until the local assignment"
         );
@@ -414,7 +411,7 @@ def f():
             .find(|block| block.label.contains("__excchk_"))
             .expect("must contain split successor");
         assert_eq!(
-            next.ops.len(),
+            next.body.len(),
             1,
             "ops after the assignment should start a new segment"
         );

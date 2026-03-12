@@ -1,3 +1,4 @@
+use super::cfg_ir::CfgBlock;
 use crate::py_expr;
 use ruff_python_ast::{
     self as ast, AtomicNodeIndex, Expr, ExprContext, ExprName, Stmt, StmtAssign, StmtDelete,
@@ -87,16 +88,15 @@ pub enum BbClosureInit {
     Deferred,
 }
 
-#[derive(Debug, Clone)]
-pub struct BbBlock {
-    pub label: String,
+#[derive(Debug, Clone, Default)]
+pub struct BbBlockMeta {
     pub params: Vec<String>,
     pub local_defs: Vec<StmtFunctionDef>,
-    pub ops: Vec<BbOp>,
     pub exc_target_label: Option<String>,
     pub exc_name: Option<String>,
-    pub term: BbTerm,
 }
+
+pub type BbBlock = CfgBlock<String, BbOp, BbTerm, BbBlockMeta>;
 
 #[derive(Debug, Clone)]
 pub enum BbOp {
@@ -309,7 +309,7 @@ impl BbOp {
         match stmt {
             Stmt::Assign(assign) => {
                 let [target] = assign.targets.as_slice() else {
-                    panic!("unsupported assignment form in BbBlock.ops: {assign:?}");
+                    panic!("unsupported assignment form in BbBlock.body: {assign:?}");
                 };
                 let value = *assign.value;
                 match target {
@@ -350,7 +350,7 @@ impl BbOp {
                             value = value,
                         )),
                     })),
-                    _ => panic!("unsupported assignment target in BbBlock.ops"),
+                    _ => panic!("unsupported assignment target in BbBlock.body"),
                 }
             }
             Stmt::Expr(expr) => Some(Self::Expr(BbExprOp {
@@ -365,9 +365,9 @@ impl BbOp {
             })),
             Stmt::Pass(_) => None,
             Stmt::FunctionDef(_) => panic!(
-                "FunctionDef is not allowed in BbBlock.ops; lower to binding statements first"
+                "FunctionDef is not allowed in BbBlock.body; lower to binding statements first"
             ),
-            other => panic!("unsupported statement in BbBlock.ops: {other:?}"),
+            other => panic!("unsupported statement in BbBlock.body: {other:?}"),
         }
     }
 
