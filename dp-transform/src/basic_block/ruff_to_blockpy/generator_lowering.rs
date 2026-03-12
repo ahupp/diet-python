@@ -7,8 +7,8 @@ use crate::basic_block::ast_to_ast::scope::cell_name;
 use crate::basic_block::bb_ir::{BbClosureInit, BbClosureLayout, BbClosureSlot, FunctionId};
 use crate::basic_block::block_py::state::{sync_generator_state_order, sync_target_cells_stmts};
 use crate::basic_block::block_py::{
-    BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyExpr, BlockPyIf, BlockPyIfTerm,
-    BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm, BlockPyTryJump,
+    BlockPyAssign, BlockPyBlock, BlockPyBlockBuilder, BlockPyBranchTable, BlockPyExpr, BlockPyIf,
+    BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm, BlockPyTryJump,
 };
 use crate::basic_block::blockpy_to_bb::blockpy_stmt_to_stmt_for_analysis;
 use crate::{py_expr, py_stmt};
@@ -24,16 +24,12 @@ fn blockpy_make_dp_tuple(items: Vec<Expr>) -> Expr {
 }
 
 fn compat_block_from_blockpy(label: String, body: Vec<Stmt>, term: BlockPyStmt) -> BlockPyBlock {
-    compat_block_with_term(
-        label,
-        body,
-        BlockPyTerm::from_stmt(&term).unwrap_or_else(|| {
-            panic!("expected terminal BlockPyStmt in generator lowering: {term:?}")
-        }),
-    )
+    let term = BlockPyTerm::from_stmt(&term)
+        .unwrap_or_else(|| panic!("expected terminal BlockPyStmt in generator lowering: {term:?}"));
+    compat_block_with_term(label, body, term)
 }
 
-fn legacy_stmt_from_term(term: &BlockPyTerm, label_prefix: &str) -> BlockPyStmt {
+fn legacy_stmt_from_term(term: &BlockPyTerm, _label_prefix: &str) -> BlockPyStmt {
     match term {
         BlockPyTerm::Jump(target) => BlockPyStmt::Jump(target.clone()),
         BlockPyTerm::IfTerm(BlockPyIfTerm {
@@ -702,23 +698,12 @@ pub(crate) fn lower_generator_blockpy_blocks(
 fn finalize_generator_block(
     label: BlockPyLabel,
     exc_param: Option<String>,
-    mut body: Vec<BlockPyStmt>,
+    body: Vec<BlockPyStmt>,
     cont_label: Option<String>,
 ) -> BlockPyBlock {
-    let explicit_term = body.last().and_then(BlockPyTerm::from_stmt);
-    if explicit_term.is_some() {
-        body.pop();
-    }
-    let term = explicit_term.unwrap_or_else(|| match cont_label {
-        Some(label) => BlockPyTerm::Jump(BlockPyLabel::from(label)),
-        None => BlockPyTerm::Return(None),
-    });
-    BlockPyBlock {
-        label,
-        exc_param,
-        body,
-        term,
-    }
+    let mut block = BlockPyBlockBuilder::new(label).with_exc_param(exc_param);
+    block.extend(body);
+    block.finish(cont_label.map(BlockPyLabel::from))
 }
 
 fn lower_generator_block_list(

@@ -104,6 +104,86 @@ pub struct BlockPyBlock<E = BlockPyExpr> {
     pub term: BlockPyTerm<E>,
 }
 
+impl<E: std::fmt::Debug> BlockPyBlock<E> {
+    pub fn assert_normalized(&self) {
+        if let Some(stmt) = self.body.iter().find(|stmt| stmt.is_terminal()) {
+            panic!(
+                "terminal BlockPyStmt leaked into finalized block {} body: {stmt:?}",
+                self.label.as_str()
+            );
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BlockPyBlockBuilder<E = BlockPyExpr> {
+    label: BlockPyLabel,
+    exc_param: Option<String>,
+    body: Vec<BlockPyStmt<E>>,
+    term: Option<BlockPyTerm<E>>,
+}
+
+impl<E: Clone + std::fmt::Debug> BlockPyBlockBuilder<E> {
+    pub fn new(label: BlockPyLabel) -> Self {
+        Self {
+            label,
+            exc_param: None,
+            body: Vec::new(),
+            term: None,
+        }
+    }
+
+    pub fn with_exc_param(mut self, exc_param: Option<String>) -> Self {
+        self.exc_param = exc_param;
+        self
+    }
+
+    pub fn push_stmt(&mut self, stmt: BlockPyStmt<E>) {
+        assert!(
+            self.term.is_none(),
+            "cannot append BlockPyStmt after block terminator in {}",
+            self.label.as_str()
+        );
+        if let Some(term) = BlockPyTerm::from_stmt(&stmt) {
+            self.term = Some(term);
+        } else {
+            self.body.push(stmt);
+        }
+    }
+
+    pub fn extend<I>(&mut self, stmts: I)
+    where
+        I: IntoIterator<Item = BlockPyStmt<E>>,
+    {
+        for stmt in stmts {
+            self.push_stmt(stmt);
+        }
+    }
+
+    pub fn set_term(&mut self, term: BlockPyTerm<E>) {
+        assert!(
+            self.term.is_none(),
+            "cannot replace existing block terminator in {}",
+            self.label.as_str()
+        );
+        self.term = Some(term);
+    }
+
+    pub fn finish(self, fallthrough_target: Option<BlockPyLabel>) -> BlockPyBlock<E> {
+        let block = BlockPyBlock {
+            label: self.label,
+            exc_param: self.exc_param,
+            body: self.body,
+            term: self.term.unwrap_or_else(|| match fallthrough_target {
+                Some(target) => BlockPyTerm::Jump(target),
+                None => BlockPyTerm::Return(None),
+            }),
+        };
+        block.assert_normalized();
+        block
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum BlockPyStmt<E = BlockPyExpr> {
     Pass,
@@ -116,6 +196,19 @@ pub enum BlockPyStmt<E = BlockPyExpr> {
     Return(Option<E>),
     Raise(BlockPyRaise<E>),
     TryJump(BlockPyTryJump),
+}
+
+impl<E> BlockPyStmt<E> {
+    pub fn is_terminal(&self) -> bool {
+        matches!(
+            self,
+            Self::BranchTable(_)
+                | Self::Jump(_)
+                | Self::Return(_)
+                | Self::Raise(_)
+                | Self::TryJump(_)
+        )
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -225,6 +318,36 @@ impl From<Expr> for BlockPyExpr {
             Expr::Slice(node) => Self::Slice(node),
             Expr::IpyEscapeCommand(_) => panic!("IpyEscapeCommand should not reach BlockPy"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn block_builder_moves_terminal_stmt_into_term() {
+        let mut block: BlockPyBlockBuilder<BlockPyExpr> =
+            BlockPyBlockBuilder::new(BlockPyLabel::from("start"));
+        block.push_stmt(BlockPyStmt::Pass);
+        block.push_stmt(BlockPyStmt::Jump(BlockPyLabel::from("after")));
+        let block = block.finish(None);
+
+        assert_eq!(block.body.len(), 1);
+        assert!(matches!(block.body[0], BlockPyStmt::Pass));
+        assert!(matches!(block.term, BlockPyTerm::Jump(_)));
+    }
+
+    #[test]
+    #[should_panic(expected = "terminal BlockPyStmt leaked into finalized block")]
+    fn block_assert_normalized_rejects_terminal_stmt_in_body() {
+        BlockPyBlock {
+            label: BlockPyLabel::from("start"),
+            exc_param: None,
+            body: vec![BlockPyStmt::<BlockPyExpr>::Return(None)],
+            term: BlockPyTerm::Return(None),
+        }
+        .assert_normalized();
     }
 }
 

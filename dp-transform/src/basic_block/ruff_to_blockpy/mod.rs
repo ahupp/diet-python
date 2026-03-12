@@ -2,7 +2,7 @@ use super::await_lower::{
     coroutine_generator_marker_stmt, lower_coroutine_awaits_in_stmt,
     lower_coroutine_awaits_in_stmts, lower_coroutine_awaits_to_yield_from,
 };
-use super::bb_ir::{BbClosureLayout, BbExpr, BbFunctionKind, BindingTarget, FunctionId};
+use super::bb_ir::{BbClosureLayout, BbExpr, BbFunctionKind, FunctionId};
 use super::block_py::cfg::{
     fold_constant_brif_blockpy, fold_jumps_to_trivial_none_return_blockpy,
     prune_unreachable_blockpy_blocks, relabel_blockpy_blocks, rename_blockpy_labels,
@@ -19,8 +19,8 @@ use super::block_py::state::{
 };
 use super::block_py::{
     BlockPyAssign, BlockPyBlock, BlockPyCallableDef, BlockPyDelete, BlockPyExpr,
-    BlockPyFunctionKind, BlockPyIf, BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyRaise,
-    BlockPyStmt, BlockPyTerm, BlockPyTryJump, ENTRY_BLOCK_LABEL,
+    BlockPyFunctionKind, BlockPyIf, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt,
+    BlockPyTerm, BlockPyTryJump, ENTRY_BLOCK_LABEL,
 };
 use super::stmt_utils::flatten_stmt_boxes;
 use crate::basic_block::ast_to_ast::ast_rewrite::Rewrite;
@@ -219,6 +219,9 @@ pub(crate) fn build_blockpy_function(
             let entry_block = blocks.remove(entry_index);
             blocks.insert(0, entry_block);
         }
+    }
+    for block in &blocks {
+        block.assert_normalized();
     }
     BlockPyCallableDef {
         function_id,
@@ -1385,6 +1388,7 @@ fn assign_delete_error(message: &str, stmt: &Stmt) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::basic_block::block_py::BlockPyModule;
     use crate::basic_block::ruff_to_blockpy::generator_lowering::build_closure_backed_generator_factory_block;
 
     fn wrapped_blockpy(source: &str) -> BlockPyModule {

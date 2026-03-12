@@ -1,4 +1,5 @@
 use super::*;
+use crate::basic_block::block_py::BlockPyBlockBuilder;
 
 pub(crate) fn compat_block_from_blockpy(
     label: String,
@@ -8,12 +9,10 @@ pub(crate) fn compat_block_from_blockpy(
     let body = lower_stmts_to_blockpy_stmts(&body).unwrap_or_else(|err| {
         panic!("failed to convert compatibility block body to BlockPy: {err}")
     });
-    BlockPyBlock {
-        label: BlockPyLabel::from(label),
-        exc_param: None,
-        body,
-        term,
-    }
+    let mut block = BlockPyBlockBuilder::new(BlockPyLabel::from(label));
+    block.extend(body);
+    block.set_term(term);
+    block.finish(None)
 }
 
 pub(crate) fn compat_if_jump_block(
@@ -62,29 +61,14 @@ pub(crate) fn compat_raise_block_from_blockpy_raise(
     compat_block_from_blockpy(label, body, BlockPyTerm::Raise(exc))
 }
 
-fn term_from_legacy_stmt(stmt: &BlockPyStmt) -> Option<BlockPyTerm> {
-    BlockPyTerm::from_stmt(stmt)
-}
-
 pub(crate) fn finalize_blockpy_block(
     label: BlockPyLabel,
-    mut body: Vec<BlockPyStmt>,
+    body: Vec<BlockPyStmt>,
     fallthrough_target: Option<BlockPyLabel>,
 ) -> BlockPyBlock {
-    let explicit_term = body.last().and_then(term_from_legacy_stmt);
-    if explicit_term.is_some() {
-        body.pop();
-    }
-    let term = explicit_term.unwrap_or_else(|| match fallthrough_target {
-        Some(target) => BlockPyTerm::Jump(target),
-        None => BlockPyTerm::Return(None),
-    });
-    BlockPyBlock {
-        label,
-        exc_param: None,
-        body,
-        term,
-    }
+    let mut block = BlockPyBlockBuilder::new(label);
+    block.extend(body);
+    block.finish(fallthrough_target)
 }
 
 fn set_block_exc_param(blocks: &mut [BlockPyBlock], label: &str, exc_param: &str) {
