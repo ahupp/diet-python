@@ -2103,7 +2103,7 @@ def def_hidden_resume_fn(
     return entry
 
 
-def def_fn(
+def make_function(
     entry_bb,
     name,
     qualname,
@@ -2114,8 +2114,9 @@ def def_fn(
     doc=None,
     annotate_fn=None,
 ):
-    # BB mode passes a lowered entry block, and def_fn builds the callable
-    # wrapper so we don't need an extra transformed outer function call layer.
+    # BB mode passes a lowered entry block, and make_function builds the
+    # callable wrapper so we don't need an extra transformed outer function
+    # call layer.
     signature, default_state_order = _build_bb_signature(params)
     state_order, closure_values = _bb_state_order(default_state_order, closure)
     _bb_validate_entry_ref(entry_bb)
@@ -2129,7 +2130,7 @@ def def_fn(
         and _jit_has_bb_plan(module_name, plan_qualname)
     ):
         raise RuntimeError(
-            "JIT basic-block function definition requires a registered plan, "
+            "JIT basic-block function instantiation requires a registered plan, "
             f"but none is available for {module_name}.{plan_qualname}"
         )
 

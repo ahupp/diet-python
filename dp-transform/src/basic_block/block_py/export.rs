@@ -74,7 +74,7 @@ pub(crate) struct NonLoweredFunctionExportPlan {
     pub local_name_plan: Option<NonLoweredLocalNamePlan>,
 }
 
-pub(crate) fn build_def_expr_from_lowered(
+pub(crate) fn build_make_function_expr_from_lowered(
     lowered: &LoweredBlockPyFunction,
     doc_expr: Option<Expr>,
     annotate_fn_expr: Option<Expr>,
@@ -170,7 +170,7 @@ pub(crate) fn build_def_expr_from_lowered(
     let doc = doc_expr.unwrap_or_else(|| py_expr!("None"));
     let annotate_fn = annotate_fn_expr.unwrap_or_else(|| py_expr!("None"));
     let function_entry_expr = py_expr!(
-        "__dp_def_fn({entry:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, {module_globals:expr}, {module_name:expr}, {doc:expr}, {annotate_fn:expr})",
+        "__dp_make_function({entry:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, {module_globals:expr}, {module_name:expr}, {doc:expr}, {annotate_fn:expr})",
         entry = entry_ref_expr.clone(),
         name = lowered.function.display_name.as_str(),
         qualname = lowered.function.qualname.as_str(),
@@ -512,7 +512,7 @@ pub(crate) fn build_lowered_binding_stmt(
     let annotate_fn_expr = annotate_helper
         .as_ref()
         .map(|(_, annotate_fn_expr)| annotate_fn_expr.clone());
-    let base_expr = build_def_expr_from_lowered(lowered, doc_expr, annotate_fn_expr)?;
+    let base_expr = build_make_function_expr_from_lowered(lowered, doc_expr, annotate_fn_expr)?;
     let decorated = rewrite_stmt::decorator::rewrite(func.decorator_list.clone(), base_expr);
     let binding_stmt = build_binding_stmt(target, bind_name, decorated);
     let mut stmts = Vec::new();

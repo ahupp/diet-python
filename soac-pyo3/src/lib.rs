@@ -45,7 +45,7 @@ fn transform_source_with_name(
         })?;
         // Modules executed via `python -m pkg` are transformed under
         // loader fullname `pkg.__main__` but run with `__name__ == "__main__"`.
-        // BB function wrappers pass `__name__` into __dp_def_fn/__dp_def_coro,
+        // BB function wrappers pass `__name__` into __dp_make_function/__dp_def_coro,
         // so register an alias under "__main__" to keep plan lookup consistent.
         if module_name.ends_with(".__main__") && module_name != "__main__" {
             soac_eval::jit::register_clif_module_plans("__main__", &normalized).map_err(|err| {
