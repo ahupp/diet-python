@@ -18,6 +18,7 @@ pub use block_py::pretty::blockpy_module_to_string;
 pub(crate) use blockpy_to_bb::{lower_try_jump_exception_flow, normalize_bb_module_for_codegen};
 pub use driver::{
     collect_function_identity_by_node, rewrite_with_function_identity_and_collect_ir,
+    rewrite_with_function_identity_to_blockpy_module,
 };
 pub use function_identity::FunctionIdentityByNode;
 pub use function_lowering::BBSimplifyStmtPass;
@@ -29,6 +30,14 @@ pub fn rewrite_ast_to_bb_module(
     function_identity_by_node: FunctionIdentityByNode,
 ) -> bb_ir::BbModule {
     rewrite_with_function_identity_and_collect_ir(context, module, function_identity_by_node)
+}
+
+pub fn rewrite_ast_to_blockpy_module_with_context(
+    context: &crate::basic_block::ast_to_ast::context::Context,
+    module: &mut ruff_python_ast::StmtBody,
+    function_identity_by_node: FunctionIdentityByNode,
+) -> block_py::BlockPyModule {
+    rewrite_with_function_identity_to_blockpy_module(context, module, function_identity_by_node)
 }
 
 pub fn prepare_bb_module_for_jit(module: &bb_ir::BbModule) -> Result<bb_ir::BbModule, String> {

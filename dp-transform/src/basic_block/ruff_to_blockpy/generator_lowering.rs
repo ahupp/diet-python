@@ -36,10 +36,14 @@ fn compat_block_from_blockpy(label: String, body: Vec<Stmt>, term: BlockPyStmt) 
 fn legacy_stmt_from_term(term: &BlockPyTerm, label_prefix: &str) -> BlockPyStmt {
     match term {
         BlockPyTerm::Jump(target) => BlockPyStmt::Jump(target.clone()),
-        BlockPyTerm::IfTerm(BlockPyIfTerm { test, body, orelse }) => BlockPyStmt::If(BlockPyIf {
+        BlockPyTerm::IfTerm(BlockPyIfTerm {
+            test,
+            then_label,
+            else_label,
+        }) => BlockPyStmt::If(BlockPyIf {
             test: test.clone(),
-            body: legacy_stmts_from_block(body, &format!("{label_prefix}_true")),
-            orelse: legacy_stmts_from_block(orelse, &format!("{label_prefix}_false")),
+            body: vec![BlockPyStmt::Jump(then_label.clone())],
+            orelse: vec![BlockPyStmt::Jump(else_label.clone())],
         }),
         BlockPyTerm::BranchTable(branch) => BlockPyStmt::BranchTable(branch.clone()),
         BlockPyTerm::Raise(raise_stmt) => BlockPyStmt::Raise(raise_stmt.clone()),
@@ -246,7 +250,7 @@ fn runtime_init(name: &str) -> Option<BbClosureInit> {
     }
 }
 
-pub(crate) fn build_resume_closure_layout(
+pub(crate) fn build_blockpy_closure_layout(
     param_names: &[String],
     state_vars: &[String],
     capture_names: &[String],
@@ -256,8 +260,8 @@ pub(crate) fn build_resume_closure_layout(
     let capture_names = capture_names.iter().cloned().collect::<HashSet<_>>();
     let mut seen_storage_names = HashSet::new();
 
-    let mut inherited_captures = Vec::new();
-    let mut lifted_locals = Vec::new();
+    let mut freevars = Vec::new();
+    let mut cellvars = Vec::new();
     let mut runtime_cells = Vec::new();
 
     for name in ordered_state {
@@ -281,7 +285,7 @@ pub(crate) fn build_resume_closure_layout(
             || capture_names.contains(name.as_str())
             || capture_names.contains(logical_name.as_str())
         {
-            inherited_captures.push(BbClosureSlot {
+            freevars.push(BbClosureSlot {
                 logical_name,
                 storage_name,
                 init: BbClosureInit::InheritedCapture,
@@ -295,7 +299,7 @@ pub(crate) fn build_resume_closure_layout(
         } else {
             BbClosureInit::Deferred
         };
-        lifted_locals.push(BbClosureSlot {
+        cellvars.push(BbClosureSlot {
             logical_name,
             storage_name,
             init,
@@ -303,8 +307,8 @@ pub(crate) fn build_resume_closure_layout(
     }
 
     BbClosureLayout {
-        inherited_captures,
-        lifted_locals,
+        freevars,
+        cellvars,
         runtime_cells,
     }
 }
@@ -322,9 +326,9 @@ pub(crate) fn closure_backed_generator_resume_state_order(
         state_order.push("_dp_transport_sent".to_string());
     }
     for slot in layout
-        .inherited_captures
+        .freevars
         .iter()
-        .chain(layout.lifted_locals.iter())
+        .chain(layout.cellvars.iter())
         .chain(layout.runtime_cells.iter())
     {
         if !state_order.iter().any(|name| name == &slot.storage_name) {
@@ -339,7 +343,7 @@ fn closure_backed_generator_factory_entry_params(
     layout: &BbClosureLayout,
 ) -> Vec<String> {
     let mut params = param_names.to_vec();
-    for slot in &layout.inherited_captures {
+    for slot in &layout.freevars {
         if !params.iter().any(|name| name == &slot.storage_name) {
             params.push(slot.storage_name.clone());
         }
@@ -428,11 +432,7 @@ pub(crate) fn build_closure_backed_generator_factory_block(
     let hidden_qualname = qualname.to_string();
     let mut body = Vec::new();
 
-    for slot in layout
-        .lifted_locals
-        .iter()
-        .chain(layout.runtime_cells.iter())
-    {
+    for slot in layout.cellvars.iter().chain(layout.runtime_cells.iter()) {
         let stmt = py_stmt!(
             "{cell:id} = __dp_make_cell({init:expr})",
             cell = slot.storage_name.as_str(),
@@ -1307,30 +1307,13 @@ pub(crate) fn synthesize_generator_dispatch(
     let mut throw_table_targets = vec![BlockPyLabel::from(resume_throw_done_label.clone())];
     for (resume_index, resume_target) in resume_order.iter().enumerate() {
         let pc = resume_index + 1;
-        let send_dispatch_target_label = format!("{label_prefix}_dispatch_send_target_{pc}");
-        info.generator_dispatch_only_labels
-            .insert(send_dispatch_target_label.clone());
-        blocks.push(compat_block_from_blockpy(
-            send_dispatch_target_label.clone(),
-            Vec::new(),
-            BlockPyStmt::Jump(BlockPyLabel::from(resume_target.clone())),
-        ));
-        send_table_targets.push(BlockPyLabel::from(send_dispatch_target_label));
-
-        let throw_dispatch_target_label = format!("{label_prefix}_dispatch_throw_target_{pc}");
-        info.generator_dispatch_only_labels
-            .insert(throw_dispatch_target_label.clone());
         let throw_target = if pc == 1 {
             resume_throw_unstarted_label.clone()
         } else {
             resume_target.clone()
         };
-        blocks.push(compat_block_from_blockpy(
-            throw_dispatch_target_label.clone(),
-            Vec::new(),
-            BlockPyStmt::Jump(BlockPyLabel::from(throw_target)),
-        ));
-        throw_table_targets.push(BlockPyLabel::from(throw_dispatch_target_label));
+        send_table_targets.push(BlockPyLabel::from(resume_target.clone()));
+        throw_table_targets.push(BlockPyLabel::from(throw_target));
     }
 
     blocks.push(compat_block_from_blockpy(
@@ -1598,18 +1581,8 @@ pub(crate) fn emit_generator_yield_suspend_blocks(
         Vec::new(),
         BlockPyTerm::IfTerm(BlockPyIfTerm {
             test: py_expr!("__dp_is_not(_dp_resume_exc, None)").into(),
-            body: Box::new(BlockPyBlock {
-                label: BlockPyLabel::from(format!("{resume_dispatch_label}_true")),
-                exc_param: None,
-                body: Vec::new(),
-                term: BlockPyTerm::Jump(BlockPyLabel::from(resume_raise_label)),
-            }),
-            orelse: Box::new(BlockPyBlock {
-                label: BlockPyLabel::from(format!("{resume_dispatch_label}_false")),
-                exc_param: None,
-                body: Vec::new(),
-                term: BlockPyTerm::Jump(BlockPyLabel::from(resume_success_label)),
-            }),
+            then_label: BlockPyLabel::from(resume_raise_label),
+            else_label: BlockPyLabel::from(resume_success_label),
         }),
     ));
     if !resume_order
@@ -1877,18 +1850,8 @@ pub(crate) fn emit_yield_from_blocks(
                 close = plan.close_name.as_str()
             )
             .into(),
-            body: Box::new(BlockPyBlock {
-                label: BlockPyLabel::from(format!("{}_true", plan.genexit_close_lookup_label)),
-                exc_param: None,
-                body: Vec::new(),
-                term: BlockPyTerm::Jump(BlockPyLabel::from(plan.genexit_call_close_label.clone())),
-            }),
-            orelse: Box::new(BlockPyBlock {
-                label: BlockPyLabel::from(format!("{}_false", plan.genexit_close_lookup_label)),
-                exc_param: None,
-                body: Vec::new(),
-                term: BlockPyTerm::Jump(BlockPyLabel::from(plan.raise_exc_label.clone())),
-            }),
+            then_label: BlockPyLabel::from(plan.genexit_call_close_label.clone()),
+            else_label: BlockPyLabel::from(plan.raise_exc_label.clone()),
         }),
     ));
     blocks.push(compat_block_from_blockpy(
@@ -1925,18 +1888,8 @@ pub(crate) fn emit_yield_from_blocks(
                 throw = plan.throw_name.as_str()
             )
             .into(),
-            body: Box::new(BlockPyBlock {
-                label: BlockPyLabel::from(format!("{}_true", plan.lookup_throw_label)),
-                exc_param: None,
-                body: Vec::new(),
-                term: BlockPyTerm::Jump(BlockPyLabel::from(plan.raise_exc_label)),
-            }),
-            orelse: Box::new(BlockPyBlock {
-                label: BlockPyLabel::from(format!("{}_false", plan.lookup_throw_label)),
-                exc_param: None,
-                body: Vec::new(),
-                term: BlockPyTerm::Jump(BlockPyLabel::from(plan.throw_try_label.clone())),
-            }),
+            then_label: BlockPyLabel::from(plan.raise_exc_label),
+            else_label: BlockPyLabel::from(plan.throw_try_label.clone()),
         }),
     ));
     blocks.push(compat_block_from_blockpy(
@@ -2191,12 +2144,12 @@ mod tests {
     #[test]
     fn closure_backed_export_plan_includes_capture_params_and_resume_state() {
         let layout = BbClosureLayout {
-            inherited_captures: vec![BbClosureSlot {
+            freevars: vec![BbClosureSlot {
                 logical_name: "factor".to_string(),
                 storage_name: "_dp_cell_factor".to_string(),
                 init: BbClosureInit::InheritedCapture,
             }],
-            lifted_locals: vec![BbClosureSlot {
+            cellvars: vec![BbClosureSlot {
                 logical_name: "total".to_string(),
                 storage_name: "_dp_cell_total".to_string(),
                 init: BbClosureInit::Deferred,

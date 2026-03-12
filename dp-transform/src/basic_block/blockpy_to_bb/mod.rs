@@ -5,7 +5,7 @@ mod exception_pass;
 use super::bb_ir::{BbBlock, BbExpr, BbFunction, BbModule, BbOp, BbTerm, BindingTarget};
 use super::block_py::exception::is_dp_lookup_call;
 use super::block_py::state::collect_parameter_names;
-use super::block_py::{BlockPyBlock, BlockPyIfTerm, BlockPyStmt, BlockPyTerm};
+use super::block_py::{BlockPyBlock, BlockPyIfTerm, BlockPyModule, BlockPyStmt, BlockPyTerm};
 use super::ruff_to_blockpy::{LoweredBlockPyFunction, LoweredBlockPyFunctionBundle};
 use super::stmt_utils::{flatten_stmt, flatten_stmt_boxes, stmt_body_from_stmts};
 use crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass;
@@ -46,6 +46,26 @@ pub(crate) fn push_lowered_blockpy_function_bundle(
         bundle,
         main_binding_target,
     });
+}
+
+pub(crate) fn lowered_blockpy_module_bundle_to_blockpy_module(
+    module: &LoweredBlockPyModuleBundle,
+) -> BlockPyModule {
+    let mut functions = Vec::new();
+    for lowered_function in &module.functions {
+        functions.push(lowered_function.bundle.main_function.function.clone());
+        functions.extend(
+            lowered_function
+                .bundle
+                .helper_functions
+                .iter()
+                .map(|helper| helper.function.clone()),
+        );
+    }
+    BlockPyModule {
+        functions,
+        module_init: module.module_init.clone(),
+    }
 }
 
 pub(crate) fn lower_blockpy_module_bundle_to_bb_module(
@@ -92,21 +112,19 @@ pub(crate) fn lower_blockpy_function_to_bb_function(
     lowered: &LoweredBlockPyFunction,
     binding_target_override: Option<BindingTarget>,
 ) -> BbFunction {
-    let mut local_cell_slots = lowered.local_cell_slots.iter().cloned().collect::<Vec<_>>();
-    local_cell_slots.sort();
     BbFunction {
         bind_name: lowered.function.bind_name.clone(),
-        display_name: lowered.display_name.clone(),
+        display_name: lowered.function.display_name.clone(),
         qualname: lowered.function.qualname.clone(),
         binding_target: binding_target_override.unwrap_or(lowered.function.binding_target),
         is_coroutine: lowered.is_coroutine,
         kind: lowered.bb_kind.clone(),
-        entry: lowered.entry_label.clone(),
+        entry: lowered.function.entry_label().to_string(),
         param_names: collect_parameter_names(&lowered.function.params),
-        entry_params: lowered.entry_params.clone(),
+        entry_params: lowered.function.entry_params.clone(),
         closure_layout: lowered.closure_layout.clone(),
         param_specs: lowered.param_specs.clone(),
-        local_cell_slots,
+        local_cell_slots: lowered.function.local_cell_slots.clone(),
         blocks: lower_blockpy_blocks_to_bb_blocks(
             context,
             &lowered.function.blocks,
@@ -467,10 +485,14 @@ pub(crate) fn blockpy_stmt_to_stmt_for_analysis(stmt: &BlockPyStmt) -> Option<St
 fn bb_term_from_blockpy_term(terminal: &BlockPyTerm) -> BbTerm {
     match terminal {
         BlockPyTerm::Jump(target) => BbTerm::Jump(target.as_str().to_string()),
-        BlockPyTerm::IfTerm(BlockPyIfTerm { test, body, orelse }) => BbTerm::BrIf {
+        BlockPyTerm::IfTerm(BlockPyIfTerm {
+            test,
+            then_label,
+            else_label,
+        }) => BbTerm::BrIf {
             test: BbExpr::from_expr(test.clone().into()),
-            then_label: branch_jump_target(body, "then"),
-            else_label: branch_jump_target(orelse, "else"),
+            then_label: then_label.as_str().to_string(),
+            else_label: else_label.as_str().to_string(),
         },
         BlockPyTerm::BranchTable(branch) => BbTerm::BrTable {
             index: BbExpr::from_expr(branch.index.clone().into()),
@@ -517,19 +539,6 @@ fn stmt_body_from_blockpy_stmts(stmts: &[BlockPyStmt]) -> ast::StmtBody {
             .filter_map(blockpy_stmt_to_stmt_for_analysis)
             .collect::<Vec<_>>(),
     )
-}
-
-fn branch_jump_target(block: &BlockPyBlock, branch_name: &str) -> String {
-    assert!(
-        block.body.is_empty(),
-        "IfTerm {branch_name} branch must lower to an empty jump block before BB conversion: {block:?}"
-    );
-    match &block.term {
-        BlockPyTerm::Jump(target) => target.as_str().to_string(),
-        other => panic!(
-            "IfTerm {branch_name} branch must terminate in Jump before BB conversion: {other:?}"
-        ),
-    }
 }
 
 fn blockpy_term_to_stmt_for_analysis(term: &BlockPyTerm) -> Option<Stmt> {

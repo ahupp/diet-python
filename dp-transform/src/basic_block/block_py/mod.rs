@@ -1,4 +1,4 @@
-use super::bb_ir::BindingTarget;
+use super::bb_ir::{BbClosureLayout, BindingTarget};
 use ruff_python_ast::{self as ast, Expr, ExprName, Parameters};
 
 pub(crate) mod cfg;
@@ -20,11 +20,24 @@ pub struct BlockPyModule {
 #[derive(Debug, Clone)]
 pub struct BlockPyFunction {
     pub bind_name: String,
+    pub display_name: String,
     pub qualname: String,
     pub binding_target: BindingTarget,
     pub kind: BlockPyFunctionKind,
     pub params: Parameters,
+    pub entry_params: Vec<String>,
+    pub closure_layout: Option<BbClosureLayout>,
+    pub local_cell_slots: Vec<String>,
     pub blocks: Vec<BlockPyBlock>,
+}
+
+impl BlockPyFunction {
+    pub fn entry_label(&self) -> &str {
+        self.blocks
+            .first()
+            .map(|block| block.label.as_str())
+            .expect("BlockPyFunction should have at least one block")
+    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -125,8 +138,8 @@ pub struct BlockPyIf {
 #[derive(Debug, Clone)]
 pub struct BlockPyIfTerm {
     pub test: BlockPyExpr,
-    pub body: Box<BlockPyBlock>,
-    pub orelse: Box<BlockPyBlock>,
+    pub then_label: BlockPyLabel,
+    pub else_label: BlockPyLabel,
 }
 
 #[derive(Debug, Clone)]

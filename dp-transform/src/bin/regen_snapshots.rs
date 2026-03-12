@@ -123,10 +123,7 @@ fn count_blockpy_blocks_in_stmts(stmts: &[BlockPyStmt]) -> usize {
 
 fn count_blockpy_blocks_in_term(term: &dp_transform::basic_block::block_py::BlockPyTerm) -> usize {
     match term {
-        dp_transform::basic_block::block_py::BlockPyTerm::IfTerm(if_term) => {
-            count_blockpy_blocks_in_list(std::slice::from_ref(if_term.body.as_ref()))
-                + count_blockpy_blocks_in_list(std::slice::from_ref(if_term.orelse.as_ref()))
-        }
+        dp_transform::basic_block::block_py::BlockPyTerm::IfTerm(_) => 0,
         _ => 0,
     }
 }

@@ -55,8 +55,8 @@ pub enum BbFunctionKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BbClosureLayout {
-    pub inherited_captures: Vec<BbClosureSlot>,
-    pub lifted_locals: Vec<BbClosureSlot>,
+    pub freevars: Vec<BbClosureSlot>,
+    pub cellvars: Vec<BbClosureSlot>,
     pub runtime_cells: Vec<BbClosureSlot>,
 }
 

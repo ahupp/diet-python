@@ -180,16 +180,8 @@ fn rewrite_blockpy_term_deleted_name_loads(
 ) {
     match term {
         BlockPyTerm::Jump(_) | BlockPyTerm::TryJump(_) => {}
-        BlockPyTerm::IfTerm(BlockPyIfTerm { test, body, orelse }) => {
+        BlockPyTerm::IfTerm(BlockPyIfTerm { test, .. }) => {
             test.rewrite_mut(|expr| rewriter.visit_expr(expr));
-            for stmt in &mut body.body {
-                rewrite_blockpy_stmt_deleted_name_loads(stmt, rewriter);
-            }
-            rewrite_blockpy_term_deleted_name_loads(&mut body.term, rewriter);
-            for stmt in &mut orelse.body {
-                rewrite_blockpy_stmt_deleted_name_loads(stmt, rewriter);
-            }
-            rewrite_blockpy_term_deleted_name_loads(&mut orelse.term, rewriter);
         }
         BlockPyTerm::BranchTable(BlockPyBranchTable { index, .. }) => {
             index.rewrite_mut(|expr| rewriter.visit_expr(expr))

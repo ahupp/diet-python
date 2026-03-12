@@ -2893,7 +2893,7 @@ def asynccontextmanager_get_aexit(acm):
         raise TypeError(message) from exc
 
 
-async def asynccontextmanager_aexit(exit_fn, exc_info: tuple | None):
+async def asynccontextmanager_exit(exit_fn, exc_info: tuple | None):
     if exc_info is not None:
         exc_type, exc, tb = exc_info
         try:
@@ -2903,7 +2903,8 @@ async def asynccontextmanager_aexit(exit_fn, exc_info: tuple | None):
             suppress = await _AwaitIterWrapper(await_iter)
             if suppress:
                 exc.__traceback__ = None
-            return suppress
+                return None
+            return exc
         finally:
             exc_info = None
             exc_type = None
@@ -2912,7 +2913,7 @@ async def asynccontextmanager_aexit(exit_fn, exc_info: tuple | None):
     else:
         await_iter = _ensure_awaitable(exit_fn(None, None, None), "__aexit__")
         await _AwaitIterWrapper(await_iter)
-        return False
+        return None
 
 
 def _inject_builtin_helper_aliases():

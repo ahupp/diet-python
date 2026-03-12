@@ -547,9 +547,9 @@ fn build_clif_plan(
         .as_ref()
         .map(|layout| {
             layout
-                .inherited_captures
+                .freevars
                 .iter()
-                .chain(layout.lifted_locals.iter())
+                .chain(layout.cellvars.iter())
                 .chain(layout.runtime_cells.iter())
                 .map(|slot| slot.storage_name.clone())
                 .collect::<Vec<_>>()

@@ -7,6 +7,12 @@ use crate::ruff_ast_to_string;
 use ruff_python_ast::{self as ast, Expr};
 use std::collections::{HashMap, HashSet};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum IfBranchKind {
+    Then,
+    Else,
+}
+
 pub fn blockpy_module_to_string(module: &BlockPyModule) -> String {
     let mut formatter = BlockPyFormatter::default();
     formatter.write_module(module);
@@ -44,13 +50,51 @@ impl BlockPyFormatter {
         let params = format_parameters(&function.params);
         let referenced_labels = collect_referenced_labels_from_blocks(&function.blocks);
         let render_layout = BlockRenderLayout::new(function);
+        let mut attrs = vec![
+            format!("kind={}", function_kind_name(function.kind)),
+            format!("bind={}", function.bind_name),
+            format!("target={}", binding_target_name(function.binding_target)),
+            format!("qualname={}", function.qualname),
+        ];
+        if function.display_name != function.bind_name {
+            attrs.push(format!("display_name={}", function.display_name));
+        }
+        if !function.entry_params.is_empty() {
+            attrs.push(format!(
+                "entry_params=[{}]",
+                function.entry_params.join(", ")
+            ));
+        }
+        if !function.local_cell_slots.is_empty() {
+            attrs.push(format!(
+                "local_cell_slots=[{}]",
+                function.local_cell_slots.join(", ")
+            ));
+        }
+        if let Some(layout) = &function.closure_layout {
+            if !layout.freevars.is_empty() {
+                attrs.push(format!(
+                    "freevars=[{}]",
+                    render_closure_slots(&layout.freevars)
+                ));
+            }
+            if !layout.cellvars.is_empty() {
+                attrs.push(format!(
+                    "cellvars=[{}]",
+                    render_closure_slots(&layout.cellvars)
+                ));
+            }
+            if !layout.runtime_cells.is_empty() {
+                attrs.push(format!(
+                    "runtime_cells=[{}]",
+                    render_closure_slots(&layout.runtime_cells)
+                ));
+            }
+        }
         self.line(format!(
-            "function {}({params}) [kind={}, bind={}, target={}, qualname={}]",
+            "function {}({params}) [{}]",
             function.bind_name,
-            function_kind_name(function.kind),
-            function.bind_name,
-            binding_target_name(function.binding_target),
-            function.qualname,
+            attrs.join(", "),
         ));
         self.with_indent(|this| {
             if function.blocks.is_empty() {
@@ -78,33 +122,48 @@ impl BlockPyFormatter {
         let block = &function.blocks[block_index];
         self.line(format!("block {}:", block.label.as_str()));
         self.with_indent(|this| {
-            this.write_block_contents(block, referenced_labels);
+            this.write_block_contents(
+                function,
+                render_layout,
+                Some(block_index),
+                block,
+                referenced_labels,
+            );
             for child_block in &render_layout.child_blocks[block_index] {
+                if render_layout.inlined_blocks.contains(child_block) {
+                    continue;
+                }
                 this.write_function_block(function, render_layout, *child_block, referenced_labels);
             }
         });
     }
 
-    fn write_block(&mut self, block: &BlockPyBlock, referenced_labels: &HashSet<BlockPyLabel>) {
-        if referenced_labels.contains(&block.label) {
-            self.line(format!("block {}:", block.label.as_str()));
-            self.with_indent(|this| this.write_block_contents(block, referenced_labels));
-        } else {
-            self.write_block_contents(block, referenced_labels);
-        }
-    }
-
     fn write_block_contents(
         &mut self,
+        function: &BlockPyFunction,
+        render_layout: &BlockRenderLayout,
+        current_block_index: Option<usize>,
         block: &BlockPyBlock,
         referenced_labels: &HashSet<BlockPyLabel>,
     ) {
         if block.body.is_empty() {
-            self.write_term(&block.term, referenced_labels);
+            self.write_term(
+                function,
+                render_layout,
+                current_block_index,
+                &block.term,
+                referenced_labels,
+            );
             return;
         }
         self.write_stmt_list(&block.body, referenced_labels, false);
-        self.write_term(&block.term, referenced_labels);
+        self.write_term(
+            function,
+            render_layout,
+            current_block_index,
+            &block.term,
+            referenced_labels,
+        );
     }
 
     fn write_stmt_list(
@@ -205,16 +264,59 @@ impl BlockPyFormatter {
         }
     }
 
-    fn write_term(&mut self, term: &BlockPyTerm, referenced_labels: &HashSet<BlockPyLabel>) {
+    fn write_term(
+        &mut self,
+        function: &BlockPyFunction,
+        render_layout: &BlockRenderLayout,
+        current_block_index: Option<usize>,
+        term: &BlockPyTerm,
+        referenced_labels: &HashSet<BlockPyLabel>,
+    ) {
         match term {
             BlockPyTerm::Jump(label) => self.line(format!("jump {}", label.as_str())),
-            BlockPyTerm::IfTerm(BlockPyIfTerm { test, body, orelse }) => {
+            BlockPyTerm::IfTerm(BlockPyIfTerm {
+                test,
+                then_label,
+                else_label,
+            }) => {
                 self.line(format!("if_term {}:", render_inline_expr(test)));
                 self.with_indent(|this| {
                     this.line("then:");
-                    this.with_indent(|this| this.write_block(body, referenced_labels));
+                    this.with_indent(|this| {
+                        if let Some(target_index) = current_block_index.and_then(|block_index| {
+                            render_layout
+                                .inline_if_term_targets
+                                .get(&(block_index, IfBranchKind::Then))
+                                .copied()
+                        }) {
+                            this.write_function_block(
+                                function,
+                                render_layout,
+                                target_index,
+                                referenced_labels,
+                            );
+                        } else {
+                            this.line(format!("jump {}", then_label.as_str()));
+                        }
+                    });
                     this.line("else:");
-                    this.with_indent(|this| this.write_block(orelse, referenced_labels));
+                    this.with_indent(|this| {
+                        if let Some(target_index) = current_block_index.and_then(|block_index| {
+                            render_layout
+                                .inline_if_term_targets
+                                .get(&(block_index, IfBranchKind::Else))
+                                .copied()
+                        }) {
+                            this.write_function_block(
+                                function,
+                                render_layout,
+                                target_index,
+                                referenced_labels,
+                            );
+                        } else {
+                            this.line(format!("jump {}", else_label.as_str()));
+                        }
+                    });
                 });
             }
             BlockPyTerm::BranchTable(branch) => self.line(format!(
@@ -267,6 +369,32 @@ fn binding_target_name(target: BindingTarget) -> &'static str {
         BindingTarget::Local => "local",
         BindingTarget::ModuleGlobal => "module_global",
         BindingTarget::ClassNamespace => "class_namespace",
+    }
+}
+
+fn render_closure_slots(slots: &[crate::basic_block::bb_ir::BbClosureSlot]) -> String {
+    slots
+        .iter()
+        .map(|slot| {
+            format!(
+                "{}->{}@{}",
+                slot.logical_name,
+                slot.storage_name,
+                closure_init_name(&slot.init),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn closure_init_name(init: &crate::basic_block::bb_ir::BbClosureInit) -> &'static str {
+    match init {
+        crate::basic_block::bb_ir::BbClosureInit::InheritedCapture => "inherited",
+        crate::basic_block::bb_ir::BbClosureInit::Parameter => "param",
+        crate::basic_block::bb_ir::BbClosureInit::DeletedSentinel => "deleted",
+        crate::basic_block::bb_ir::BbClosureInit::RuntimePcUnstarted => "pc_unstarted",
+        crate::basic_block::bb_ir::BbClosureInit::RuntimeNone => "none",
+        crate::basic_block::bb_ir::BbClosureInit::Deferred => "deferred",
     }
 }
 
@@ -376,6 +504,8 @@ fn join_labels(labels: &[BlockPyLabel]) -> String {
 struct BlockRenderLayout {
     root_blocks: Vec<usize>,
     child_blocks: Vec<Vec<usize>>,
+    inline_if_term_targets: HashMap<(usize, IfBranchKind), usize>,
+    inlined_blocks: HashSet<usize>,
 }
 
 impl BlockRenderLayout {
@@ -385,6 +515,8 @@ impl BlockRenderLayout {
             return Self {
                 root_blocks: Vec::new(),
                 child_blocks: Vec::new(),
+                inline_if_term_targets: HashMap::new(),
+                inlined_blocks: HashSet::new(),
             };
         }
 
@@ -401,7 +533,7 @@ impl BlockRenderLayout {
             .map(|block| collect_top_level_successors_from_block(block, &label_to_index))
             .collect::<Vec<_>>();
         let predecessors = collect_predecessors(&successors);
-        let entry_index = choose_entry_block_index(&function.blocks, &predecessors);
+        let entry_index = choose_entry_block_index(function, &label_to_index, &predecessors);
         let discovery_order = collect_discovery_order(entry_index, &successors);
         let discovery_rank = discovery_order
             .iter()
@@ -429,6 +561,13 @@ impl BlockRenderLayout {
             });
         }
 
+        let (inline_if_term_targets, inlined_blocks) = compute_inline_if_term_targets(
+            function,
+            &label_to_index,
+            &predecessors,
+            &immediate_dominators,
+        );
+
         let mut root_blocks = vec![entry_index];
         let reachable_roots = discovery_order
             .iter()
@@ -441,31 +580,84 @@ impl BlockRenderLayout {
         Self {
             root_blocks,
             child_blocks,
+            inline_if_term_targets,
+            inlined_blocks,
         }
     }
 }
 
-fn choose_entry_block_index(blocks: &[BlockPyBlock], predecessors: &[Vec<usize>]) -> usize {
-    let root_candidates = (0..blocks.len())
-        .filter(|index| predecessors[*index].iter().all(|pred| pred == index))
-        .collect::<Vec<_>>();
-    if root_candidates.is_empty() {
-        return 0;
+fn compute_inline_if_term_targets(
+    function: &BlockPyFunction,
+    label_to_index: &HashMap<String, usize>,
+    predecessors: &[Vec<usize>],
+    immediate_dominators: &[Option<usize>],
+) -> (HashMap<(usize, IfBranchKind), usize>, HashSet<usize>) {
+    let mut targets = HashMap::new();
+    let mut inlined_blocks = HashSet::new();
+
+    for (block_index, block) in function.blocks.iter().enumerate() {
+        let BlockPyTerm::IfTerm(BlockPyIfTerm {
+            then_label,
+            else_label,
+            ..
+        }) = &block.term
+        else {
+            continue;
+        };
+
+        let then_target = label_to_index.get(then_label.as_str()).copied();
+        let else_target = label_to_index.get(else_label.as_str()).copied();
+
+        if let Some(target_index) = then_target {
+            if can_inline_if_term_target(
+                block_index,
+                target_index,
+                else_target,
+                predecessors,
+                immediate_dominators,
+            ) {
+                targets.insert((block_index, IfBranchKind::Then), target_index);
+                inlined_blocks.insert(target_index);
+            }
+        }
+
+        if let Some(target_index) = else_target {
+            if can_inline_if_term_target(
+                block_index,
+                target_index,
+                then_target,
+                predecessors,
+                immediate_dominators,
+            ) {
+                targets.insert((block_index, IfBranchKind::Else), target_index);
+                inlined_blocks.insert(target_index);
+            }
+        }
     }
-    root_candidates
-        .iter()
-        .copied()
-        .find(|index| {
-            let label = blocks[*index].label.as_str();
-            label == "start" || label.ends_with("_start")
-        })
-        .or_else(|| {
-            root_candidates.iter().copied().find(|index| {
-                let label = blocks[*index].label.as_str();
-                label.contains("dispatch")
-            })
-        })
-        .unwrap_or(root_candidates[0])
+
+    (targets, inlined_blocks)
+}
+fn can_inline_if_term_target(
+    parent_index: usize,
+    target_index: usize,
+    sibling_target: Option<usize>,
+    predecessors: &[Vec<usize>],
+    immediate_dominators: &[Option<usize>],
+) -> bool {
+    if sibling_target == Some(target_index) {
+        return false;
+    }
+    immediate_dominators[target_index] == Some(parent_index)
+        && predecessors[target_index].len() == 1
+        && predecessors[target_index][0] == parent_index
+}
+
+fn choose_entry_block_index(
+    _function: &BlockPyFunction,
+    _label_to_index: &HashMap<String, usize>,
+    _predecessors: &[Vec<usize>],
+) -> usize {
+    0
 }
 
 fn collect_top_level_successors_from_block(
@@ -482,16 +674,6 @@ fn collect_top_level_successors_from_block(
     );
     collect_top_level_successors_from_term(&block.term, label_to_index, &mut seen, &mut successors);
     successors
-}
-
-fn collect_top_level_successors_from_block_into(
-    block: &BlockPyBlock,
-    label_to_index: &HashMap<String, usize>,
-    seen: &mut HashSet<usize>,
-    out: &mut Vec<usize>,
-) {
-    collect_top_level_successors_from_stmts(&block.body, label_to_index, seen, out);
-    collect_top_level_successors_from_term(&block.term, label_to_index, seen, out);
 }
 
 fn collect_top_level_successors_from_stmts(
@@ -540,9 +722,13 @@ fn collect_top_level_successors_from_term(
         BlockPyTerm::Jump(label) => {
             push_top_level_successor(label, label_to_index, seen, out);
         }
-        BlockPyTerm::IfTerm(BlockPyIfTerm { body, orelse, .. }) => {
-            collect_top_level_successors_from_block_into(body, label_to_index, seen, out);
-            collect_top_level_successors_from_block_into(orelse, label_to_index, seen, out);
+        BlockPyTerm::IfTerm(BlockPyIfTerm {
+            then_label,
+            else_label,
+            ..
+        }) => {
+            push_top_level_successor(then_label, label_to_index, seen, out);
+            push_top_level_successor(else_label, label_to_index, seen, out);
         }
         BlockPyTerm::BranchTable(branch) => {
             for label in &branch.targets {
@@ -730,16 +916,8 @@ fn collect_referenced_labels_from_term(term: &BlockPyTerm, referenced: &mut Hash
             referenced.insert(label.clone());
         }
         BlockPyTerm::IfTerm(if_term) => {
-            referenced.insert(if_term.body.label.clone());
-            referenced.insert(if_term.orelse.label.clone());
-            collect_referenced_labels_from_blocks_into(
-                std::slice::from_ref(if_term.body.as_ref()),
-                referenced,
-            );
-            collect_referenced_labels_from_blocks_into(
-                std::slice::from_ref(if_term.orelse.as_ref()),
-                referenced,
-            );
+            referenced.insert(if_term.then_label.clone());
+            referenced.insert(if_term.else_label.clone());
         }
         BlockPyTerm::BranchTable(branch) => {
             referenced.extend(branch.targets.iter().cloned());
@@ -753,19 +931,10 @@ fn collect_referenced_labels_from_term(term: &BlockPyTerm, referenced: &mut Hash
     }
 }
 
-fn collect_referenced_labels_from_blocks_into(
-    blocks: &[BlockPyBlock],
-    referenced: &mut HashSet<BlockPyLabel>,
-) {
-    for block in blocks {
-        collect_referenced_labels_from_stmts(&block.body, referenced);
-        collect_referenced_labels_from_term(&block.term, referenced);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::basic_block::bb_ir::{BbClosureInit, BbClosureLayout, BbClosureSlot};
     use crate::basic_block::collect_function_identity_by_node;
     use crate::basic_block::ruff_to_blockpy::rewrite_ast_to_blockpy_module;
     use ruff_python_parser::{parse_expression, parse_module};
@@ -868,13 +1037,62 @@ def gen():
     }
 
     #[test]
+    fn renders_public_closure_metadata_in_function_header() {
+        let rendered = blockpy_module_to_string(&BlockPyModule {
+            functions: vec![BlockPyFunction {
+                bind_name: "gen".to_string(),
+                display_name: "gen".to_string(),
+                qualname: "gen".to_string(),
+                binding_target: BindingTarget::ModuleGlobal,
+                kind: BlockPyFunctionKind::Function,
+                params: empty_parameters(),
+                entry_params: vec!["_dp_self".to_string(), "_dp_resume_exc".to_string()],
+                closure_layout: Some(BbClosureLayout {
+                    freevars: vec![BbClosureSlot {
+                        logical_name: "factor".to_string(),
+                        storage_name: "_dp_cell_factor".to_string(),
+                        init: BbClosureInit::InheritedCapture,
+                    }],
+                    cellvars: vec![BbClosureSlot {
+                        logical_name: "total".to_string(),
+                        storage_name: "_dp_cell_total".to_string(),
+                        init: BbClosureInit::Deferred,
+                    }],
+                    runtime_cells: vec![BbClosureSlot {
+                        logical_name: "_dp_pc".to_string(),
+                        storage_name: "_dp_cell__dp_pc".to_string(),
+                        init: BbClosureInit::RuntimePcUnstarted,
+                    }],
+                }),
+                local_cell_slots: vec!["_dp_cell__dp_pc".to_string()],
+                blocks: vec![BlockPyBlock {
+                    label: "gen_start".into(),
+                    exc_param: None,
+                    body: vec![],
+                    term: BlockPyTerm::Return(None),
+                }],
+            }],
+            module_init: None,
+        });
+
+        assert!(rendered.contains(
+            "function gen() [kind=function, bind=gen, target=module_global, qualname=gen, entry_params=[_dp_self, _dp_resume_exc], local_cell_slots=[_dp_cell__dp_pc], freevars=[factor->_dp_cell_factor@inherited], cellvars=[total->_dp_cell_total@deferred], runtime_cells=[_dp_pc->_dp_cell__dp_pc@pc_unstarted]]"
+        ));
+        assert!(!rendered.contains("entry:"));
+    }
+
+    #[test]
     fn renders_followup_blocks_under_their_owning_entry_block() {
         let function = BlockPyFunction {
             bind_name: "f".to_string(),
+            display_name: "f".to_string(),
             qualname: "f".to_string(),
             binding_target: BindingTarget::ModuleGlobal,
             kind: BlockPyFunctionKind::Function,
             params: empty_parameters(),
+            entry_params: Vec::new(),
+            closure_layout: None,
+            local_cell_slots: Vec::new(),
             blocks: vec![
                 BlockPyBlock {
                     label: "start".into(),
@@ -882,19 +1100,21 @@ def gen():
                     body: vec![],
                     term: BlockPyTerm::IfTerm(BlockPyIfTerm {
                         test: parse_blockpy_expr("cond"),
-                        body: Box::new(BlockPyBlock {
-                            label: "then".into(),
-                            exc_param: None,
-                            body: vec![BlockPyStmt::Expr(parse_blockpy_expr("then_side_effect()"))],
-                            term: BlockPyTerm::Jump("after".into()),
-                        }),
-                        orelse: Box::new(BlockPyBlock {
-                            label: "else".into(),
-                            exc_param: None,
-                            body: vec![BlockPyStmt::Expr(parse_blockpy_expr("else_side_effect()"))],
-                            term: BlockPyTerm::Jump("after".into()),
-                        }),
+                        then_label: "then".into(),
+                        else_label: "else".into(),
                     }),
+                },
+                BlockPyBlock {
+                    label: "then".into(),
+                    exc_param: None,
+                    body: vec![BlockPyStmt::Expr(parse_blockpy_expr("then_side_effect()"))],
+                    term: BlockPyTerm::Jump("after".into()),
+                },
+                BlockPyBlock {
+                    label: "else".into(),
+                    exc_param: None,
+                    body: vec![BlockPyStmt::Expr(parse_blockpy_expr("else_side_effect()"))],
+                    term: BlockPyTerm::Jump("after".into()),
                 },
                 BlockPyBlock {
                     label: "after".into(),
@@ -914,5 +1134,27 @@ def gen():
         assert!(rendered.contains(
             "        if_term cond:\n            then:\n                block then:\n                    then_side_effect()\n                    jump after\n            else:\n                block else:\n                    else_side_effect()\n                    jump after\n        block after:\n            finish()\n            return\n"
         ));
+    }
+
+    #[test]
+    fn elides_trivial_if_term_jump_wrappers_when_rendering() {
+        let blockpy = wrapped_blockpy(
+            r#"
+def choose(a, b):
+    total = a + b
+    if total > 5:
+        return a
+    else:
+        return b
+"#,
+        );
+        let rendered = blockpy_module_to_string(&blockpy);
+
+        assert!(rendered
+            .contains("then:\n                block choose_0:\n                    return a"));
+        assert!(rendered
+            .contains("else:\n                block choose_1:\n                    return b"));
+        assert!(!rendered.contains("block _dp_bb_choose_1_then"));
+        assert!(!rendered.contains("block _dp_bb_choose_1_else"));
     }
 }

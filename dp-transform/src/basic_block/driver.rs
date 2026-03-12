@@ -1,5 +1,8 @@
 use super::bb_ir::BbModule;
-use super::blockpy_to_bb::lower_blockpy_module_bundle_to_bb_module;
+use super::block_py::BlockPyModule;
+use super::blockpy_to_bb::{
+    lower_blockpy_module_bundle_to_bb_module, lowered_blockpy_module_bundle_to_blockpy_module,
+};
 use super::function_identity::{
     collect_function_identity_private, FunctionIdentity, FunctionIdentityByNode,
 };
@@ -38,6 +41,16 @@ pub fn rewrite_with_function_identity_and_collect_ir(
     function_identity_by_node: FunctionIdentityByNode,
 ) -> BbModule {
     rewrite_internal(context, module, Some(function_identity_by_node))
+}
+
+pub fn rewrite_with_function_identity_to_blockpy_module(
+    context: &Context,
+    module: &mut StmtBody,
+    function_identity_by_node: FunctionIdentityByNode,
+) -> BlockPyModule {
+    let lowered_module =
+        rewrite_ast_to_lowered_blockpy_module(context, module, function_identity_by_node);
+    lowered_blockpy_module_bundle_to_blockpy_module(&lowered_module)
 }
 
 fn rewrite_internal(
@@ -225,7 +238,7 @@ def delegator():
             .expect("closure-backed generator should record closure layout");
         assert!(
             !layout
-                .lifted_locals
+                .cellvars
                 .iter()
                 .any(|slot| slot.logical_name == "child"),
             "{layout:?}"
@@ -259,15 +272,15 @@ def outer(scale):
             .as_ref()
             .expect("sync generator should record closure layout");
 
-        let factor = slot_by_name(&layout.inherited_captures, "factor");
+        let factor = slot_by_name(&layout.freevars, "factor");
         assert_eq!(factor.storage_name, "_dp_cell_factor");
         assert_eq!(factor.init, BbClosureInit::InheritedCapture);
 
-        let a = slot_by_name(&layout.lifted_locals, "a");
+        let a = slot_by_name(&layout.cellvars, "a");
         assert_eq!(a.storage_name, "_dp_cell_a");
         assert_eq!(a.init, BbClosureInit::Parameter);
 
-        let total = slot_by_name(&layout.lifted_locals, "total");
+        let total = slot_by_name(&layout.cellvars, "total");
         assert_eq!(total.storage_name, "_dp_cell_total");
         assert_eq!(total.init, BbClosureInit::Deferred);
 
@@ -297,7 +310,7 @@ def gen():
             .expect("sync generator should record closure layout");
 
         let try_exc = layout
-            .lifted_locals
+            .cellvars
             .iter()
             .find(|slot| slot.logical_name.starts_with("_dp_try_exc_"))
             .unwrap_or_else(|| panic!("missing try-exception slot in {layout:?}"));
@@ -340,11 +353,11 @@ def outer(scale):
             .as_ref()
             .expect("closure-backed coroutine should record closure layout");
 
-        let factor = slot_by_name(&layout.inherited_captures, "factor");
+        let factor = slot_by_name(&layout.freevars, "factor");
         assert_eq!(factor.storage_name, "_dp_cell_factor");
         assert_eq!(factor.init, BbClosureInit::InheritedCapture);
 
-        let total = slot_by_name(&layout.lifted_locals, "total");
+        let total = slot_by_name(&layout.cellvars, "total");
         assert_eq!(total.storage_name, "_dp_cell_total");
 
         let pc = slot_by_name(&layout.runtime_cells, "_dp_pc");
@@ -375,11 +388,11 @@ def outer(scale):
             .as_ref()
             .expect("closure-backed async generator should record closure layout");
 
-        let factor = slot_by_name(&layout.inherited_captures, "factor");
+        let factor = slot_by_name(&layout.freevars, "factor");
         assert_eq!(factor.storage_name, "_dp_cell_factor");
         assert_eq!(factor.init, BbClosureInit::InheritedCapture);
 
-        let total = slot_by_name(&layout.lifted_locals, "total");
+        let total = slot_by_name(&layout.cellvars, "total");
         assert_eq!(total.storage_name, "_dp_cell_total");
 
         let pc = slot_by_name(&layout.runtime_cells, "_dp_pc");

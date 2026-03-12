@@ -109,8 +109,8 @@
 - `test.test_asyncio.test_futures2.PyFutureTests.test_future_traceback`: diet-python rewrites async control flow, so traceback source lines differ and the expected "await future" source snippet is missing.
 - `test.test_asyncio.test_graph.TestCallStackC.test_stack_async_gen`: diet-python lowers `async for` to helper calls, so call-graph stacks include `anext_or_sentinel` frames that are not present in CPython.
 - `test.test_asyncio.test_graph.TestCallStackPy.test_stack_async_gen`: diet-python lowers `async for` to helper calls, so call-graph stacks include `anext_or_sentinel` frames that are not present in CPython.
-- `test.test_asyncio.test_graph.TestCallStackC.test_stack_tgroup`: diet-python lowers `async with` to helper calls, so call-graph stacks include `asynccontextmanager_aexit` frames instead of `_aexit`/`__aexit__`.
-- `test.test_asyncio.test_graph.TestCallStackPy.test_stack_tgroup`: diet-python lowers `async with` to helper calls, so call-graph stacks include `asynccontextmanager_aexit` frames instead of `_aexit`/`__aexit__`.
+- `test.test_asyncio.test_graph.TestCallStackC.test_stack_tgroup`: diet-python lowers `async with` to helper calls, so call-graph stacks include `asynccontextmanager_exit` frames instead of `_aexit`/`__aexit__`.
+- `test.test_asyncio.test_graph.TestCallStackPy.test_stack_tgroup`: diet-python lowers `async with` to helper calls, so call-graph stacks include `asynccontextmanager_exit` frames instead of `_aexit`/`__aexit__`.
 - `test.test_asyncio.test_futures.CFutureTests.test_copy_state`: diet-python rewrites the `raise concurrent.futures.InvalidStateError` statement, so traceback source lines differ and the expected string match fails.
 - `test.test_asyncio.test_futures.CSubFutureTests.test_copy_state`: diet-python rewrites the `raise concurrent.futures.InvalidStateError` statement, so traceback source lines differ and the expected string match fails.
 - `test.test_asyncio.test_futures.PyFutureTests.test_copy_state`: diet-python rewrites the `raise concurrent.futures.InvalidStateError` statement, so traceback source lines differ and the expected string match fails.

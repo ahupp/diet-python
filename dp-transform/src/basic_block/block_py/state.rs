@@ -81,10 +81,6 @@ pub(crate) fn collect_injected_exception_names_blockpy(blocks: &[BlockPyBlock]) 
         if let Some(exc_param) = block.exc_param.as_ref() {
             out.insert(exc_param.clone());
         }
-        if let BlockPyTerm::IfTerm(BlockPyIfTerm { body, orelse, .. }) = &block.term {
-            collect_from_block(body, out);
-            collect_from_block(orelse, out);
-        }
     }
 
     let mut names = HashSet::new();
@@ -504,26 +500,15 @@ fn rewrite_sync_generator_blockpy_term(
     injected_exception_names: &HashSet<String>,
     cell_slots: &HashSet<String>,
 ) {
-    if let BlockPyTerm::IfTerm(BlockPyIfTerm { body, orelse, .. }) = term {
-        rewrite_sync_generator_blockpy_block(
-            body,
-            block_params,
-            passthrough_exception_names,
-            lifted_state,
-            lifted_storage_names,
-            injected_exception_names,
-            cell_slots,
-        );
-        rewrite_sync_generator_blockpy_block(
-            orelse,
-            block_params,
-            passthrough_exception_names,
-            lifted_state,
-            lifted_storage_names,
-            injected_exception_names,
-            cell_slots,
-        );
-    }
+    let _ = (
+        term,
+        block_params,
+        passthrough_exception_names,
+        lifted_state,
+        lifted_storage_names,
+        injected_exception_names,
+        cell_slots,
+    );
 }
 
 fn params_contain(block_params: &HashMap<String, Vec<String>>, label: &str, name: &str) -> bool {

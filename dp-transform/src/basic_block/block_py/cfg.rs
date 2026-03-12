@@ -116,10 +116,14 @@ fn rename_blockpy_term(
 
     match term {
         BlockPyTerm::Jump(target) => rename_target_label(target, rename, known_labels, "jump"),
-        BlockPyTerm::IfTerm(BlockPyIfTerm { test, body, orelse }) => {
+        BlockPyTerm::IfTerm(BlockPyIfTerm {
+            test,
+            then_label,
+            else_label,
+        }) => {
             test.rewrite_mut(|expr| body_renamer.visit_expr(expr));
-            rename_blockpy_block(body, body_renamer, rename, known_labels);
-            rename_blockpy_block(orelse, body_renamer, rename, known_labels);
+            rename_target_label(then_label, rename, known_labels, "if_term then");
+            rename_target_label(else_label, rename, known_labels, "if_term else");
         }
         BlockPyTerm::BranchTable(branch) => {
             branch
@@ -173,8 +177,8 @@ fn blockpy_successors(block: &BlockPyBlock) -> Vec<String> {
     match &block.term {
         BlockPyTerm::Jump(target) => vec![target.as_str().to_string()],
         BlockPyTerm::IfTerm(if_term) => vec![
-            if_term_branch_successor(&if_term.body),
-            if_term_branch_successor(&if_term.orelse),
+            if_term.then_label.as_str().to_string(),
+            if_term.else_label.as_str().to_string(),
         ],
         BlockPyTerm::BranchTable(branch) => {
             let mut out = branch
@@ -191,15 +195,6 @@ fn blockpy_successors(block: &BlockPyBlock) -> Vec<String> {
         ],
         BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => Vec::new(),
     }
-}
-
-fn if_term_branch_successor(block: &BlockPyBlock) -> String {
-    if block.body.is_empty() {
-        if let BlockPyTerm::Jump(target) = &block.term {
-            return target.as_str().to_string();
-        }
-    }
-    block.label.as_str().to_string()
 }
 
 fn apply_label_rename_blockpy(
@@ -292,13 +287,13 @@ pub(crate) fn fold_constant_brif_blockpy(blocks: &mut [BlockPyBlock]) {
         let jump_target = match &block.term {
             BlockPyTerm::IfTerm(BlockPyIfTerm {
                 test: BlockPyExpr::BooleanLiteral(boolean),
-                body,
-                orelse,
+                then_label,
+                else_label,
             }) => {
                 if boolean.value {
-                    Some(if_term_branch_successor(body))
+                    Some(then_label.as_str().to_string())
                 } else {
-                    Some(if_term_branch_successor(orelse))
+                    Some(else_label.as_str().to_string())
                 }
             }
             _ => None,

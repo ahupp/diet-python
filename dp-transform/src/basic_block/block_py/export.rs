@@ -79,7 +79,7 @@ pub(crate) fn build_def_expr_from_lowered(
     doc_expr: Option<Expr>,
     annotate_fn_expr: Option<Expr>,
 ) -> Option<Expr> {
-    let entry_label = lowered.entry_label.as_str();
+    let entry_label = lowered.function.entry_label();
     let entry_ref_expr = py_expr!("{entry:literal}", entry = entry_label);
     let param_names: HashSet<String> = collect_parameter_names(&lowered.function.params)
         .into_iter()
@@ -89,7 +89,7 @@ pub(crate) fn build_def_expr_from_lowered(
         .as_ref()
         .map(|layout| {
             layout
-                .lifted_locals
+                .cellvars
                 .iter()
                 .chain(layout.runtime_cells.iter())
                 .map(|slot| slot.logical_name.as_str())
@@ -101,9 +101,9 @@ pub(crate) fn build_def_expr_from_lowered(
         .as_ref()
         .map(|layout| {
             layout
-                .inherited_captures
+                .freevars
                 .iter()
-                .chain(layout.lifted_locals.iter())
+                .chain(layout.cellvars.iter())
                 .chain(layout.runtime_cells.iter())
                 .map(|slot| slot.storage_name.as_str())
                 .collect()
@@ -116,12 +116,12 @@ pub(crate) fn build_def_expr_from_lowered(
         .flat_map(|block| analyze_blockpy_use_def(block).1.into_iter())
         .collect();
     let mut closure_items = Vec::new();
-    for entry_name in &lowered.entry_params {
+    for entry_name in &lowered.function.entry_params {
         if param_names.contains(entry_name) {
             closure_items.push(py_expr!("{value:literal}", value = entry_name.as_str(),));
         } else if entry_name == "_dp_classcell"
             || (entry_name.starts_with("_dp_cell_")
-                && !lowered.local_cell_slots.contains(entry_name))
+                && !lowered.function.local_cell_slots.contains(entry_name))
         {
             let value = name_expr(entry_name.as_str())?;
             closure_items.push(make_dp_tuple(vec![
@@ -172,7 +172,7 @@ pub(crate) fn build_def_expr_from_lowered(
     let function_entry_expr = py_expr!(
         "__dp_def_fn({entry:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, {module_globals:expr}, {module_name:expr}, {doc:expr}, {annotate_fn:expr})",
         entry = entry_ref_expr.clone(),
-        name = lowered.display_name.as_str(),
+        name = lowered.function.display_name.as_str(),
         qualname = lowered.function.qualname.as_str(),
         closure = closure.clone(),
         params = lowered.param_specs.to_expr(),
@@ -199,7 +199,7 @@ pub(crate) fn build_def_expr_from_lowered(
             Some(py_expr!(
                 "__dp_def_async_gen({resume:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __dp_globals(), __name__, {doc:expr}, {annotate_fn:expr})",
                 resume = entry_ref_expr.clone(),
-                name = lowered.display_name.as_str(),
+                name = lowered.function.display_name.as_str(),
                 qualname = lowered.function.qualname.as_str(),
                 closure = closure,
                 params = lowered.param_specs.to_expr(),
@@ -221,7 +221,7 @@ pub(crate) fn build_def_expr_from_lowered(
                 Some(py_expr!(
                     "__dp_def_coro_from_gen({resume:expr}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __dp_globals(), __name__, {doc:expr}, {annotate_fn:expr})",
                     resume = entry_ref_expr,
-                    name = lowered.display_name.as_str(),
+                    name = lowered.function.display_name.as_str(),
                     qualname = lowered.function.qualname.as_str(),
                     closure = closure,
                     params = lowered.param_specs.to_expr(),

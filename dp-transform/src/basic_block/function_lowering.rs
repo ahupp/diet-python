@@ -354,7 +354,28 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
             &unbound_local_names,
         );
     }
-    let mut generator_capture_names = Vec::new();
+    let enclosing_scope = module_scope
+        .child_scope_for_function(func)
+        .ok()
+        .and_then(|scope| scope.parent_scope());
+    let enclosing_function_scope_names = enclosing_scope.and_then(|parent| {
+        if matches!(parent.kind(), ScopeKind::Module)
+            || is_module_init_temp_name(parent.qualnamer.qualname.as_str())
+        {
+            None
+        } else {
+            Some(
+                parent
+                    .scope_bindings()
+                    .keys()
+                    .cloned()
+                    .collect::<HashSet<_>>(),
+            )
+        }
+    });
+    let mut capture_names = collect_capture_names(func, enclosing_function_scope_names.as_ref());
+    capture_names.sort();
+    capture_names.dedup();
     let mut extra_closure_state_names = Vec::new();
     if is_closure_backed_generator_runtime {
         let mut bound_names = collect_bound_names(&runtime_input_body)
@@ -362,30 +383,7 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
             .collect::<Vec<_>>();
         bound_names.sort();
         extra_closure_state_names.extend(bound_names);
-        let enclosing_scope = module_scope
-            .child_scope_for_function(func)
-            .ok()
-            .and_then(|scope| scope.parent_scope());
-        let enclosing_function_scope_names = enclosing_scope.and_then(|parent| {
-            if matches!(parent.kind(), ScopeKind::Module)
-                || is_module_init_temp_name(parent.qualnamer.qualname.as_str())
-            {
-                None
-            } else {
-                Some(
-                    parent
-                        .scope_bindings()
-                        .keys()
-                        .cloned()
-                        .collect::<HashSet<_>>(),
-                )
-            }
-        });
-        generator_capture_names =
-            collect_capture_names(func, enclosing_function_scope_names.as_ref());
-        generator_capture_names.sort();
-        generator_capture_names.dedup();
-        extra_closure_state_names.extend(generator_capture_names.iter().cloned());
+        extra_closure_state_names.extend(capture_names.iter().cloned());
         extra_closure_state_names.sort();
         extra_closure_state_names.dedup();
     }
@@ -399,7 +397,7 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         is_closure_backed_generator_runtime,
         &param_names,
         &extra_closure_state_names,
-        &generator_capture_names,
+        &capture_names,
         label_prefix.as_str(),
         cell_slots.clone(),
         is_module_init_temp_name(func.name.id.as_str()),

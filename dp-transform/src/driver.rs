@@ -57,12 +57,16 @@ pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> RewriteModule
 
     strip_generated_passes(context, module);
 
-    let bb_scope = analyze_module_scope(module);
-    let bb_function_identity =
-        basic_block::collect_function_identity_by_node(module, bb_scope.clone());
+    let mut blockpy_module_ast = module.clone();
+    let blockpy_scope = analyze_module_scope(&mut blockpy_module_ast);
+    let blockpy_function_identity =
+        basic_block::collect_function_identity_by_node(&mut blockpy_module_ast, blockpy_scope);
 
-    let blockpy_module = basic_block::rewrite_ast_to_blockpy_module(module, &bb_function_identity)
-        .expect("Ruff AST -> BlockPy conversion should succeed after simplification");
+    let blockpy_module = basic_block::rewrite_ast_to_blockpy_module_with_context(
+        context,
+        &mut blockpy_module_ast,
+        blockpy_function_identity,
+    );
 
     RewriteModuleResult { blockpy_module }
 }

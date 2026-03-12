@@ -101,12 +101,14 @@ pub(crate) fn analyze_blockpy_use_def(block: &BlockPyBlock) -> (HashSet<String>,
 fn blockpy_successors(block: &BlockPyBlock) -> Vec<String> {
     match &block.term {
         BlockPyTerm::Jump(target) => vec![target.as_str().to_string()],
-        BlockPyTerm::IfTerm(BlockPyIfTerm { body, orelse, .. }) => {
-            vec![
-                if_term_branch_successor(body),
-                if_term_branch_successor(orelse),
-            ]
-        }
+        BlockPyTerm::IfTerm(BlockPyIfTerm {
+            then_label,
+            else_label,
+            ..
+        }) => vec![
+            then_label.as_str().to_string(),
+            else_label.as_str().to_string(),
+        ],
         BlockPyTerm::BranchTable(BlockPyBranchTable {
             targets,
             default_label,
@@ -125,15 +127,6 @@ fn blockpy_successors(block: &BlockPyBlock) -> Vec<String> {
         ],
         BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => Vec::new(),
     }
-}
-
-fn if_term_branch_successor(block: &BlockPyBlock) -> String {
-    if block.body.is_empty() {
-        if let BlockPyTerm::Jump(target) = &block.term {
-            return target.as_str().to_string();
-        }
-    }
-    block.label.as_str().to_string()
 }
 
 fn load_names_in_blockpy_stmt(stmt: &BlockPyStmt) -> HashSet<String> {
@@ -170,12 +163,8 @@ fn load_names_in_blockpy_stmt(stmt: &BlockPyStmt) -> HashSet<String> {
 fn load_names_in_blockpy_term(term: &BlockPyTerm) -> HashSet<String> {
     match term {
         BlockPyTerm::Jump(_) | BlockPyTerm::TryJump(_) => HashSet::new(),
-        BlockPyTerm::IfTerm(BlockPyIfTerm { test, body, orelse }) => {
+        BlockPyTerm::IfTerm(BlockPyIfTerm { test, .. }) => {
             let mut out = load_names_in_expr(&test.to_expr());
-            out.extend(load_names_in_blockpy_stmt_list(&body.body));
-            out.extend(load_names_in_blockpy_term(&body.term));
-            out.extend(load_names_in_blockpy_stmt_list(&orelse.body));
-            out.extend(load_names_in_blockpy_term(&orelse.term));
             out
         }
         BlockPyTerm::BranchTable(BlockPyBranchTable { index, .. }) => {
