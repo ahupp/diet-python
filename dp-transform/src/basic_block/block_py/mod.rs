@@ -50,7 +50,16 @@ pub enum BlockPyExpr {
 }
 
 #[derive(Debug, Clone)]
-pub struct CoreBlockPyExpr(pub Expr);
+pub enum CoreBlockPyExpr {
+    Call(ast::ExprCall),
+    StringLiteral(ast::ExprStringLiteral),
+    BytesLiteral(ast::ExprBytesLiteral),
+    NumberLiteral(ast::ExprNumberLiteral),
+    BooleanLiteral(ast::ExprBooleanLiteral),
+    NoneLiteral(ast::ExprNoneLiteral),
+    Name(ast::ExprName),
+    Raw(Expr),
+}
 
 pub type RuffBlockPyModule = BlockPyModule<Expr>;
 pub type RuffBlockPyCallableDef = BlockPyCallableDef<Expr>;
@@ -463,6 +472,26 @@ mod tests {
         };
         assert_eq!(name.id.as_str(), "y");
     }
+
+    #[test]
+    fn core_blockpy_expr_uses_reduced_variants_for_simple_shapes() {
+        assert!(matches!(
+            CoreBlockPyExpr::from(py_expr!("x")),
+            CoreBlockPyExpr::Name(_)
+        ));
+        assert!(matches!(
+            CoreBlockPyExpr::from(py_expr!("1")),
+            CoreBlockPyExpr::NumberLiteral(_)
+        ));
+        assert!(matches!(
+            CoreBlockPyExpr::from(py_expr!("f(x)")),
+            CoreBlockPyExpr::Call(_)
+        ));
+        assert!(matches!(
+            CoreBlockPyExpr::from(py_expr!("x + 1")),
+            CoreBlockPyExpr::Raw(_)
+        ));
+    }
 }
 
 impl From<BlockPyExpr> for Expr {
@@ -506,19 +535,37 @@ impl From<BlockPyExpr> for Expr {
 
 impl From<Expr> for CoreBlockPyExpr {
     fn from(value: Expr) -> Self {
-        Self(value)
+        match value {
+            Expr::Call(node) => Self::Call(node),
+            Expr::StringLiteral(node) => Self::StringLiteral(node),
+            Expr::BytesLiteral(node) => Self::BytesLiteral(node),
+            Expr::NumberLiteral(node) => Self::NumberLiteral(node),
+            Expr::BooleanLiteral(node) => Self::BooleanLiteral(node),
+            Expr::NoneLiteral(node) => Self::NoneLiteral(node),
+            Expr::Name(node) => Self::Name(node),
+            other => Self::Raw(other),
+        }
     }
 }
 
 impl From<BlockPyExpr> for CoreBlockPyExpr {
     fn from(value: BlockPyExpr) -> Self {
-        Self(value.into())
+        Expr::from(value).into()
     }
 }
 
 impl From<CoreBlockPyExpr> for Expr {
     fn from(value: CoreBlockPyExpr) -> Self {
-        value.0
+        match value {
+            CoreBlockPyExpr::Call(node) => Expr::Call(node),
+            CoreBlockPyExpr::StringLiteral(node) => Expr::StringLiteral(node),
+            CoreBlockPyExpr::BytesLiteral(node) => Expr::BytesLiteral(node),
+            CoreBlockPyExpr::NumberLiteral(node) => Expr::NumberLiteral(node),
+            CoreBlockPyExpr::BooleanLiteral(node) => Expr::BooleanLiteral(node),
+            CoreBlockPyExpr::NoneLiteral(node) => Expr::NoneLiteral(node),
+            CoreBlockPyExpr::Name(node) => Expr::Name(node),
+            CoreBlockPyExpr::Raw(expr) => expr,
+        }
     }
 }
 
@@ -540,7 +587,9 @@ impl CoreBlockPyExpr {
     }
 
     pub fn rewrite_mut(&mut self, f: impl FnOnce(&mut Expr)) {
-        f(&mut self.0);
+        let mut expr = self.to_expr();
+        f(&mut expr);
+        *self = expr.into();
     }
 }
 

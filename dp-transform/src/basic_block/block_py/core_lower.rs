@@ -2,8 +2,8 @@ use super::{
     BlockPyBlockMeta, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete, BlockPyIf,
     BlockPyIfTerm, BlockPyRaise, BlockPyStructuredIf, BlockPyTerm, CoreBlockPyAssign,
     CoreBlockPyBlock, CoreBlockPyCallableDef, CoreBlockPyExpr, CoreBlockPyModule, CoreBlockPyStmt,
-    CoreBlockPyStmtFragment, CoreBlockPyTerm, SemanticBlockPyAssign, SemanticBlockPyBlock,
-    SemanticBlockPyCallableDef, SemanticBlockPyModule, SemanticBlockPyStmt,
+    CoreBlockPyStmtFragment, CoreBlockPyTerm, SemanticBlockPyBlock, SemanticBlockPyCallableDef,
+    SemanticBlockPyModule, SemanticBlockPyStmt,
 };
 use crate::basic_block::cfg_ir::CfgCallableDef;
 
