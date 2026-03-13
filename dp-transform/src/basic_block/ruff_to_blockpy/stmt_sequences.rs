@@ -115,7 +115,8 @@ pub(crate) fn plan_stmt_sequence_head(
         return StmtSequenceHeadPlan::With(with_stmt.clone());
     }
 
-    let simplified = super::stmt_lowering::simplify_stmt_ast_for_blockpy(context, stmt.clone());
+    let simplified =
+        super::stmt_lowering::simplify_stmt_head_ast_for_blockpy(context, stmt.clone());
 
     if allow_generator_head {
         match &simplified {

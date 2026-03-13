@@ -1364,10 +1364,11 @@ mod tests {
     use crate::basic_block::ruff_to_blockpy::try_regions::build_try_plan;
 
     fn wrapped_blockpy(source: &str) -> BlockPyModule {
-        crate::transform_str_to_ruff_with_options(source, crate::Options::for_test())
-            .unwrap()
-            .blockpy_module
-            .expect("expected BlockPy module")
+        let mut module = ruff_python_parser::parse_module(source)
+            .expect("parse should succeed")
+            .into_syntax();
+        let context = Context::new(Options::for_test(), source);
+        crate::driver::rewrite_module(&context, &mut module.body).blockpy_module
     }
 
     fn function_by_name<'a>(blockpy: &'a BlockPyModule, bind_name: &str) -> &'a BlockPyCallableDef {
@@ -1658,6 +1659,100 @@ def f():
             plan_stmt_sequence_head(&test_context(), stmt, false),
             StmtSequenceHeadPlan::If(_)
         ));
+    }
+
+    #[test]
+    fn stmt_sequence_head_plan_simplifies_match_to_expanded_if_chain() {
+        let module = ruff_python_parser::parse_module(
+            r#"
+def f():
+    match "aa":
+        case str(slot):
+            return slot
+"#,
+        )
+        .unwrap()
+        .into_syntax()
+        .body;
+        let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
+            panic!("expected function def");
+        };
+        let stmt = func.body.body[0].as_ref();
+
+        let StmtSequenceHeadPlan::Expanded(Stmt::BodyStmt(body)) =
+            plan_stmt_sequence_head(&test_context(), stmt, false)
+        else {
+            panic!("expected expanded match body");
+        };
+        assert!(matches!(body.body[0].as_ref(), Stmt::Assign(_)));
+        assert!(body
+            .body
+            .iter()
+            .any(|stmt| matches!(stmt.as_ref(), Stmt::If(_))));
+    }
+
+    #[test]
+    fn stmt_sequence_head_plan_re_expands_builtin_match_if_head() {
+        let module = ruff_python_parser::parse_module(
+            r#"
+def f():
+    match "aa":
+        case str(slot):
+            return slot
+        case _:
+            return None
+"#,
+        )
+        .unwrap()
+        .into_syntax()
+        .body;
+        let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
+            panic!("expected function def");
+        };
+        let stmt = func.body.body[0].as_ref();
+
+        let StmtSequenceHeadPlan::Expanded(Stmt::BodyStmt(body)) =
+            plan_stmt_sequence_head(&test_context(), stmt, false)
+        else {
+            panic!("expected expanded match body");
+        };
+        let match_if = body
+            .body
+            .iter()
+            .find(|stmt| matches!(stmt.as_ref(), Stmt::If(_)))
+            .expect("expected expanded match body to contain an if");
+
+        assert!(
+            matches!(
+                plan_stmt_sequence_head(&test_context(), match_if.as_ref(), false),
+                StmtSequenceHeadPlan::Expanded(_)
+            ),
+            "{}",
+            crate::ruff_ast_to_string(match_if.as_ref()).trim_end()
+        );
+    }
+
+    #[test]
+    fn blockpy_match_builtin_class_pattern_lowers_short_circuit_test_before_bb() {
+        let blockpy = wrapped_blockpy(
+            r#"
+def f():
+    match "aa":
+        case str(slot):
+            return slot
+        case _:
+            return None
+"#,
+        );
+        let rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
+        assert!(
+            !rendered.contains("and __dp_match_class_attr_exists"),
+            "{rendered}"
+        );
+        assert!(
+            !rendered.contains("and __dp_match_class_attr_value"),
+            "{rendered}"
+        );
     }
 
     #[test]

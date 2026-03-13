@@ -518,9 +518,6 @@ pub(crate) fn function_docstring_expr(func: &ast::StmtFunctionDef) -> Option<Exp
 pub(crate) fn lower_stmt_default(context: &Context, stmt: Stmt) -> Rewrite {
     match stmt {
         Stmt::Try(try_stmt) => rewrite_stmt::exception::rewrite_try(try_stmt),
-        Stmt::Match(match_stmt) => {
-            crate::basic_block::ruff_to_blockpy::rewrite_match_stmt(context, match_stmt)
-        }
         Stmt::Import(import) => rewrite_import::rewrite(import),
         Stmt::ImportFrom(import_from) => rewrite_import::rewrite_from(context, import_from),
         Stmt::Assign(assign) => {
@@ -530,7 +527,6 @@ pub(crate) fn lower_stmt_default(context: &Context, stmt: Stmt) -> Rewrite {
             crate::basic_block::ruff_to_blockpy::rewrite_augassign_stmt(context, aug)
         }
         Stmt::Delete(del) => crate::basic_block::ruff_to_blockpy::rewrite_delete_stmt(del),
-        Stmt::Raise(raise) => crate::basic_block::ruff_to_blockpy::rewrite_raise_stmt(raise),
         Stmt::TypeAlias(type_alias) => {
             crate::basic_block::ruff_to_blockpy::rewrite_type_alias_stmt(context, type_alias)
         }
@@ -542,10 +538,7 @@ pub(crate) fn lower_stmt_default(context: &Context, stmt: Stmt) -> Rewrite {
 }
 
 pub(crate) fn lower_stmt_bb(context: &Context, stmt: Stmt) -> Rewrite {
-    match stmt {
-        Stmt::Try(try_stmt) => lower_stmt_default(context, Stmt::Try(try_stmt)),
-        other => lower_stmt_default(context, other),
-    }
+    lower_stmt_default(context, stmt)
 }
 
 impl StmtRewritePass for BBSimplifyStmtPass {

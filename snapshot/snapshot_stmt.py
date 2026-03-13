@@ -247,7 +247,7 @@ assert cond
 #         if_term __debug__:
 #             then:
 #                 block _dp_bb__dp_module_init_1:
-#                     if_term not cond:
+#                     if_term __dp_not_(cond):
 #                         then:
 #                             block _dp_bb__dp_module_init_0:
 #                                 raise __dp_AssertionError
@@ -274,7 +274,7 @@ assert cond, "oops"
 #         if_term __debug__:
 #             then:
 #                 block _dp_bb__dp_module_init_1:
-#                     if_term not cond:
+#                     if_term __dp_not_(cond):
 #                         then:
 #                             block _dp_bb__dp_module_init_0:
 #                                 raise __dp_AssertionError("oops")

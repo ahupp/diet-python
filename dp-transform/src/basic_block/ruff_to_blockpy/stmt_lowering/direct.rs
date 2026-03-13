@@ -38,7 +38,7 @@ impl StmtLowerer for ast::StmtBody {
         E: From<Expr> + std::fmt::Debug,
     {
         for stmt in &self.body {
-            lower_stmt_into_with_expr(context, stmt.as_ref(), out, loop_ctx, next_label_id)?;
+            lower_nested_stmt_into_with_expr(context, stmt.as_ref(), out, loop_ctx, next_label_id)?;
         }
         Ok(())
     }

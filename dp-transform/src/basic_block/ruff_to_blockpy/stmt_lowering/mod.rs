@@ -1,9 +1,12 @@
 use super::*;
+use crate::basic_block::ast_to_ast::ast_rewrite::ExprRewritePass;
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::block_py::{
     BlockPyAssign, BlockPyDelete, BlockPyExpr, BlockPyIf, BlockPyRaise, BlockPyStmt, BlockPyTerm,
     SemanticBlockPyBlock as BlockPyBlock,
 };
+use crate::basic_block::stmt_utils::flatten_stmt_boxes;
+use crate::driver::SimplifyExprPass;
 
 pub(super) type BlockPyStmtFragmentBuilder<E> =
     crate::basic_block::block_py::BlockPyCfgFragmentBuilder<BlockPyStmt<E>, BlockPyTerm<E>>;
@@ -30,6 +33,38 @@ where
 {
     let simplified = stmt.clone().simplify_ast(context);
     lower_stmt_into_with_expr(context, &simplified, out, loop_ctx, next_label_id)
+}
+
+pub(super) fn lower_nested_stmt_into_with_expr<E>(
+    context: &Context,
+    stmt: &Stmt,
+    out: &mut BlockPyStmtFragmentBuilder<E>,
+    loop_ctx: Option<&LoopContext>,
+    next_label_id: &mut usize,
+) -> Result<(), String>
+where
+    E: From<Expr> + std::fmt::Debug,
+{
+    if should_simplify_nested_stmt_head(stmt) {
+        let simplified = simplify_stmt_head_ast_for_blockpy(context, stmt.clone());
+        lower_stmt_into_with_expr(context, &simplified, out, loop_ctx, next_label_id)
+    } else {
+        lower_stmt_into_with_expr(context, stmt, out, loop_ctx, next_label_id)
+    }
+}
+
+fn should_simplify_nested_stmt_head(stmt: &Stmt) -> bool {
+    matches!(
+        stmt,
+        Stmt::If(_)
+            | Stmt::Match(_)
+            | Stmt::Assert(_)
+            | Stmt::Expr(_)
+            | Stmt::Assign(_)
+            | Stmt::AugAssign(_)
+            | Stmt::Return(_)
+            | Stmt::Raise(_)
+    )
 }
 
 pub(super) trait StmtLowerer {
@@ -104,7 +139,7 @@ pub(crate) use try_stmt::{lower_star_try_stmt_sequence, lower_try_stmt_sequence}
 pub(crate) use type_alias_stmt::rewrite_type_alias_stmt;
 pub(crate) use with_stmt::lower_with_stmt_sequence;
 
-pub(super) fn simplify_stmt_ast_for_blockpy(context: &Context, stmt: Stmt) -> Stmt {
+fn simplify_stmt_ast_once_for_blockpy(context: &Context, stmt: Stmt) -> Stmt {
     match stmt {
         Stmt::BodyStmt(body) => body.simplify_ast(context),
         Stmt::Global(stmt) => stmt.simplify_ast(context),
@@ -132,6 +167,42 @@ pub(super) fn simplify_stmt_ast_for_blockpy(context: &Context, stmt: Stmt) -> St
         Stmt::Raise(stmt) => stmt.simplify_ast(context),
         Stmt::Try(stmt) => stmt.simplify_ast(context),
         Stmt::IpyEscapeCommand(stmt) => stmt.simplify_ast(context),
+    }
+}
+
+pub(super) fn simplify_stmt_ast_for_blockpy(context: &Context, stmt: Stmt) -> Stmt {
+    simplify_stmt_ast_once_for_blockpy(context, stmt)
+}
+
+pub(super) fn simplify_stmt_head_ast_for_blockpy(context: &Context, stmt: Stmt) -> Stmt {
+    let stmt = simplify_stmt_ast_once_for_blockpy(context, stmt);
+    match stmt {
+        Stmt::If(if_stmt) => simplify_if_test_for_blockpy(context, if_stmt),
+        other => other,
+    }
+}
+
+fn simplify_if_test_for_blockpy(context: &Context, mut if_stmt: ast::StmtIf) -> Stmt {
+    let lowered = SimplifyExprPass.lower_expr(context, *if_stmt.test);
+    if_stmt.test = Box::new(lowered.expr);
+    if !lowered.modified {
+        return Stmt::If(if_stmt);
+    }
+
+    let mut stmts = flatten_stmt_boxes(&[Box::new(lowered.stmt)]);
+    stmts.push(Box::new(Stmt::If(if_stmt)));
+    match stmts.len() {
+        0 => Stmt::BodyStmt(ast::StmtBody {
+            body: stmts,
+            range: ruff_text_size::TextRange::default(),
+            node_index: ast::AtomicNodeIndex::default(),
+        }),
+        1 => *stmts.into_iter().next().unwrap(),
+        _ => Stmt::BodyStmt(ast::StmtBody {
+            body: stmts,
+            range: ruff_text_size::TextRange::default(),
+            node_index: ast::AtomicNodeIndex::default(),
+        }),
     }
 }
 

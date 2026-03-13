@@ -358,6 +358,86 @@ def check(a, b):
     }
 
     #[test]
+    fn rewritten_ruff_ast_can_keep_match_while_stmt_sequence_still_lowers_it() {
+        let source = r#"
+def check(x):
+    match x:
+        case 1:
+            return 10
+        case _:
+            return 20
+"#;
+
+        let mut module = ruff_python_parser::parse_module(source)
+            .expect("parse should succeed")
+            .into_syntax();
+        let context =
+            crate::basic_block::ast_to_ast::context::Context::new(Options::for_test(), source);
+        crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass(
+            &context,
+            Some(&crate::basic_block::BBSimplifyStmtPass),
+            Some(&crate::driver::SimplifyExprPass),
+            &mut module.body,
+        );
+        let rendered = crate::ruff_ast_to_string(&module.body);
+        assert!(rendered.contains("match x"), "{rendered}");
+
+        let bb_module = transform_str_to_bb_ir_with_options(source, Options::for_test())
+            .expect("transform should succeed")
+            .expect("bb module should be available");
+        let check = function_by_name(&bb_module, "check");
+        assert!(
+            check
+                .blocks
+                .iter()
+                .any(|block| matches!(block.term, crate::basic_block::bb_ir::BbTerm::BrIf { .. })),
+            "{check:?}"
+        );
+    }
+
+    #[test]
+    fn rewritten_ruff_ast_can_keep_raise_from_while_stmt_sequence_still_lowers_it() {
+        let source = r#"
+def check():
+    raise ValueError() from None
+"#;
+
+        let mut module = ruff_python_parser::parse_module(source)
+            .expect("parse should succeed")
+            .into_syntax();
+        let context =
+            crate::basic_block::ast_to_ast::context::Context::new(Options::for_test(), source);
+        crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass(
+            &context,
+            Some(&crate::basic_block::BBSimplifyStmtPass),
+            Some(&crate::driver::SimplifyExprPass),
+            &mut module.body,
+        );
+        let rendered = crate::ruff_ast_to_string(&module.body);
+        assert!(
+            rendered.contains("raise ValueError() from None"),
+            "{rendered}"
+        );
+
+        let bb_module = transform_str_to_bb_ir_with_options(source, Options::for_test())
+            .expect("transform should succeed")
+            .expect("bb module should be available");
+        let check = function_by_name(&bb_module, "check");
+        assert!(
+            check
+                .blocks
+                .iter()
+                .any(|block| block_uses_text(block, "__dp_raise_from")),
+            "{check:?}"
+        );
+        assert!(
+            check.blocks.iter().any(|block| {
+                matches!(block.term, crate::basic_block::bb_ir::BbTerm::Raise { .. })
+            }),
+            "{check:?}"
+        );
+    }
+
     fn closure_backed_generator_records_explicit_closure_layout() {
         let source = r#"
 def outer(scale):

@@ -73,28 +73,45 @@ impl StmtLowerer for ast::StmtIf {
     where
         E: From<Expr> + std::fmt::Debug,
     {
-        let Stmt::If(simplified_if) = self.clone().simplify_ast(context) else {
-            panic!("if simplification should remain an if stmt");
-        };
-        let body = lower_nested_body_to_stmts_with_expr(
-            context,
-            &simplified_if.body,
-            loop_ctx,
-            next_label_id,
-        )?;
-        let orelse = lower_orelse_to_stmts_with_expr(
-            context,
-            &simplified_if.elif_else_clauses,
-            &Stmt::If(simplified_if.clone()),
-            loop_ctx,
-            next_label_id,
-        )?;
-        out.push_stmt(BlockPyStmt::If(BlockPyIf {
-            test: (*simplified_if.test).clone().into(),
-            body,
-            orelse,
-        }));
-        Ok(())
+        match simplify_stmt_head_ast_for_blockpy(context, Stmt::If(self.clone())) {
+            Stmt::If(simplified_if) => {
+                let body = lower_nested_body_to_stmts_with_expr(
+                    context,
+                    &simplified_if.body,
+                    loop_ctx,
+                    next_label_id,
+                )?;
+                let orelse = lower_orelse_to_stmts_with_expr(
+                    context,
+                    &simplified_if.elif_else_clauses,
+                    &Stmt::If(simplified_if.clone()),
+                    loop_ctx,
+                    next_label_id,
+                )?;
+                out.push_stmt(BlockPyStmt::If(BlockPyIf {
+                    test: (*simplified_if.test).clone().into(),
+                    body,
+                    orelse,
+                }));
+                Ok(())
+            }
+            Stmt::BodyStmt(body) => {
+                for stmt in &body.body {
+                    lower_nested_stmt_into_with_expr(
+                        context,
+                        stmt.as_ref(),
+                        out,
+                        loop_ctx,
+                        next_label_id,
+                    )?;
+                }
+                Ok(())
+            }
+            other => panic!(
+                "if simplification should remain an if or expand to a body stmt, got:\n{}",
+                ruff_ast_to_string(&other).trim_end()
+            ),
+        }
     }
 }
 
@@ -112,7 +129,13 @@ where
         BlockPyTerm<E>,
     >::new();
     for stmt in &body.body {
-        lower_stmt_into_with_expr(context, stmt.as_ref(), &mut out, loop_ctx, next_label_id)?;
+        lower_nested_stmt_into_with_expr(
+            context,
+            stmt.as_ref(),
+            &mut out,
+            loop_ctx,
+            next_label_id,
+        )?;
     }
     Ok(out.finish())
 }
