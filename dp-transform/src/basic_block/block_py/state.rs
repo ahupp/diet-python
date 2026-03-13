@@ -1,8 +1,8 @@
 use super::super::ruff_to_blockpy::lower_stmts_to_blockpy_stmts;
 use super::dataflow::analyze_blockpy_use_def;
 use super::{
-    BlockPyBlock, BlockPyBranchTable, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt,
-    BlockPyStmtFragment, BlockPyTerm,
+    BlockPyBlock, BlockPyBranchTable, BlockPyCfgFragment, BlockPyIf, BlockPyIfTerm, BlockPyRaise,
+    BlockPyStmt, BlockPyTerm,
 };
 use crate::basic_block::ast_symbol_analysis::{assigned_names_in_stmt, collect_assigned_names};
 use crate::basic_block::ast_to_ast::scope::cell_name;
@@ -205,7 +205,9 @@ fn assigned_names_in_blockpy_term(term: &BlockPyTerm) -> HashSet<String> {
     }
 }
 
-fn assigned_names_in_blockpy_stmt_fragment(fragment: &BlockPyStmtFragment) -> HashSet<String> {
+fn assigned_names_in_blockpy_stmt_fragment(
+    fragment: &BlockPyCfgFragment<BlockPyStmt, BlockPyTerm>,
+) -> HashSet<String> {
     let mut out = HashSet::new();
     for stmt in &fragment.body {
         out.extend(assigned_names_in_blockpy_stmt(stmt));

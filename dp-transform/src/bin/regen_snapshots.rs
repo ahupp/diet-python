@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use dp_transform::basic_block::block_py::{
-    BlockPyBlock, BlockPyModule, BlockPyStmt, BlockPyStmtFragment,
+    BlockPyBlock, BlockPyCfgFragment, BlockPyModule, BlockPyStmt,
 };
 use dp_transform::basic_block::prepare_bb_module_for_codegen;
 use dp_transform::fixture::{parse_fixture, render_fixture, FixtureBlock};
@@ -123,7 +123,9 @@ fn count_blockpy_blocks_in_stmts(stmts: &[BlockPyStmt]) -> usize {
         .sum()
 }
 
-fn count_blockpy_blocks_in_stmt_fragment(fragment: &BlockPyStmtFragment) -> usize {
+fn count_blockpy_blocks_in_stmt_fragment(
+    fragment: &BlockPyCfgFragment<BlockPyStmt, dp_transform::basic_block::block_py::BlockPyTerm>,
+) -> usize {
     count_blockpy_blocks_in_stmts(&fragment.body)
         + fragment
             .term

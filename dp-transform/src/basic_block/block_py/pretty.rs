@@ -1,7 +1,7 @@
 use super::state::collect_parameter_names;
 use super::{
-    BlockPyBlock, BlockPyCallableDef, BlockPyExpr, BlockPyFunctionKind, BlockPyIfTerm,
-    BlockPyLabel, BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment, BlockPyTerm,
+    BlockPyBlock, BlockPyCallableDef, BlockPyCfgFragment, BlockPyExpr, BlockPyFunctionKind,
+    BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyTerm,
     BlockPyTryJump,
 };
 use crate::ruff_ast_to_string;
@@ -173,7 +173,7 @@ impl BlockPyFormatter {
 
     fn write_stmt_fragment(
         &mut self,
-        fragment: &BlockPyStmtFragment,
+        fragment: &BlockPyCfgFragment<BlockPyStmt, BlockPyTerm>,
         referenced_labels: &HashSet<BlockPyLabel>,
     ) {
         if fragment.body.is_empty() && fragment.term.is_none() {

@@ -1,5 +1,5 @@
 use super::{
-    BlockPyBlock, BlockPyExpr, BlockPyIfTerm, BlockPyLabel, BlockPyStmt, BlockPyStmtFragment,
+    BlockPyBlock, BlockPyCfgFragment, BlockPyExpr, BlockPyIfTerm, BlockPyLabel, BlockPyStmt,
     BlockPyTerm,
 };
 use crate::transformer::{walk_expr, Transformer};
@@ -54,7 +54,7 @@ fn rename_blockpy_stmt(
 }
 
 fn rename_blockpy_stmt_fragment(
-    fragment: &mut BlockPyStmtFragment,
+    fragment: &mut BlockPyCfgFragment<BlockPyStmt, BlockPyTerm>,
     body_renamer: &mut LabelNameRenamer<'_>,
     rename: &HashMap<String, String>,
     known_labels: &HashSet<String>,
@@ -193,7 +193,7 @@ pub(crate) fn rename_blockpy_labels(rename: &HashMap<String, String>, blocks: &m
     }
 
     fn collect_known_labels_in_stmt_fragment(
-        fragment: &BlockPyStmtFragment,
+        fragment: &BlockPyCfgFragment<BlockPyStmt, BlockPyTerm>,
         out: &mut HashSet<String>,
     ) {
         collect_known_labels_in_stmt_list(&fragment.body, out);
