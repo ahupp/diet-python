@@ -7,6 +7,27 @@ use crate::basic_block::block_py::{
 type BlockPyStmtFragmentBuilder<E> =
     crate::basic_block::block_py::BlockPyCfgFragmentBuilder<BlockPyStmt<E>, BlockPyTerm<E>>;
 
+fn stmt_from_rewrite(rewrite: crate::basic_block::ast_to_ast::ast_rewrite::Rewrite) -> Stmt {
+    match rewrite {
+        crate::basic_block::ast_to_ast::ast_rewrite::Rewrite::Unmodified(stmt)
+        | crate::basic_block::ast_to_ast::ast_rewrite::Rewrite::Walk(stmt) => stmt,
+    }
+}
+
+fn lower_stmt_via_simplify<T, E>(
+    stmt: &T,
+    out: &mut BlockPyStmtFragmentBuilder<E>,
+    loop_ctx: Option<&LoopContext>,
+    next_label_id: &mut usize,
+) -> Result<(), String>
+where
+    T: StmtLowerer + Clone,
+    E: From<Expr> + std::fmt::Debug,
+{
+    let simplified = stmt.clone().simplify_ast();
+    lower_stmt_into_with_expr(&simplified, out, loop_ctx, next_label_id)
+}
+
 trait StmtLowerer {
     fn simplify_ast(self) -> Stmt
     where
@@ -309,10 +330,9 @@ impl StmtLowerer for ast::StmtDelete {
 
 impl StmtLowerer for ast::StmtIf {
     fn simplify_ast(self) -> Stmt {
-        match crate::basic_block::ast_to_ast::rewrite_stmt::loop_cond::expand_if_chain(self) {
-            crate::basic_block::ast_to_ast::ast_rewrite::Rewrite::Unmodified(stmt)
-            | crate::basic_block::ast_to_ast::ast_rewrite::Rewrite::Walk(stmt) => stmt,
-        }
+        stmt_from_rewrite(
+            crate::basic_block::ast_to_ast::rewrite_stmt::loop_cond::expand_if_chain(self),
+        )
     }
 
     fn to_blockpy<E>(
@@ -358,17 +378,13 @@ impl StmtLowerer for ast::StmtWith {
     where
         E: From<Expr> + std::fmt::Debug,
     {
-        let simplified = self.clone().simplify_ast();
-        lower_stmt_into_with_expr(&simplified, out, loop_ctx, next_label_id)
+        lower_stmt_via_simplify(self, out, loop_ctx, next_label_id)
     }
 }
 
 impl StmtLowerer for ast::StmtAssert {
     fn simplify_ast(self) -> Stmt {
-        match crate::basic_block::ast_to_ast::rewrite_stmt::assert::rewrite(self) {
-            crate::basic_block::ast_to_ast::ast_rewrite::Rewrite::Unmodified(stmt)
-            | crate::basic_block::ast_to_ast::ast_rewrite::Rewrite::Walk(stmt) => stmt,
-        }
+        stmt_from_rewrite(crate::basic_block::ast_to_ast::rewrite_stmt::assert::rewrite(self))
     }
 
     fn to_blockpy<E>(
@@ -380,17 +396,15 @@ impl StmtLowerer for ast::StmtAssert {
     where
         E: From<Expr> + std::fmt::Debug,
     {
-        let simplified = self.clone().simplify_ast();
-        lower_stmt_into_with_expr(&simplified, out, loop_ctx, next_label_id)
+        lower_stmt_via_simplify(self, out, loop_ctx, next_label_id)
     }
 }
 
 impl StmtLowerer for ast::StmtImport {
     fn simplify_ast(self) -> Stmt {
-        match crate::basic_block::ast_to_ast::rewrite_import::rewrite(self) {
-            crate::basic_block::ast_to_ast::ast_rewrite::Rewrite::Unmodified(stmt)
-            | crate::basic_block::ast_to_ast::ast_rewrite::Rewrite::Walk(stmt) => stmt,
-        }
+        stmt_from_rewrite(crate::basic_block::ast_to_ast::rewrite_import::rewrite(
+            self,
+        ))
     }
 
     fn to_blockpy<E>(
@@ -402,8 +416,7 @@ impl StmtLowerer for ast::StmtImport {
     where
         E: From<Expr> + std::fmt::Debug,
     {
-        let simplified = self.clone().simplify_ast();
-        lower_stmt_into_with_expr(&simplified, out, loop_ctx, next_label_id)
+        lower_stmt_via_simplify(self, out, loop_ctx, next_label_id)
     }
 }
 
