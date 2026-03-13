@@ -1,13 +1,10 @@
+use super::*;
 use log::{log_enabled, trace, Level};
 use ruff_python_ast::{self as ast, name::Name, Expr, Pattern, Stmt};
 use ruff_python_parser::parse_expression;
 use ruff_text_size::TextRange;
 
-use crate::{
-    basic_block::ast_to_ast::{ast_rewrite::Rewrite, context::Context},
-    py_expr, py_stmt, ruff_ast_to_string,
-    template::into_body,
-};
+use crate::{py_expr, py_stmt, ruff_ast_to_string, template::into_body};
 
 enum PatternTest {
     Test { expr: Expr, assigns: Vec<Stmt> },
@@ -178,7 +175,7 @@ else:
                             }
                         }
                     } else if index == star_index {
-                        if let Pattern::MatchStar(PatternMatchStar {
+                        if let Pattern::MatchStar(ast::PatternMatchStar {
                             name: Some(name), ..
                         }) = pattern
                         {
@@ -265,7 +262,7 @@ else:
                 assigns,
             }
         }
-        Pattern::MatchMapping(PatternMatchMapping {
+        Pattern::MatchMapping(ast::PatternMatchMapping {
             keys,
             patterns,
             rest,
@@ -329,7 +326,7 @@ else:
                 assigns,
             }
         }
-        Pattern::MatchStar(PatternMatchStar { name, .. }) => {
+        Pattern::MatchStar(ast::PatternMatchStar { name, .. }) => {
             let tests = vec![
                 py_expr!(
                     "hasattr({subject:expr}, '__len__')",
@@ -356,7 +353,7 @@ else:
             }
             Test { expr, assigns }
         }
-        Pattern::MatchClass(PatternMatchClass { cls, arguments, .. }) => {
+        Pattern::MatchClass(ast::PatternMatchClass { cls, arguments, .. }) => {
             let mut tests = vec![py_expr!(
                 "isinstance({subject:expr}, {cls:expr})",
                 subject = subject.clone(),
@@ -420,12 +417,12 @@ else:
                 assigns,
             }
         }
-        Pattern::MatchAs(PatternMatchAs {
+        Pattern::MatchAs(ast::PatternMatchAs {
             pattern: None,
             name: None,
             ..
         }) => Wildcard { assigns: vec![] },
-        Pattern::MatchAs(PatternMatchAs {
+        Pattern::MatchAs(ast::PatternMatchAs {
             pattern,
             name: Some(name),
             ..
@@ -451,7 +448,7 @@ else:
                 },
             }
         }
-        Pattern::MatchAs(PatternMatchAs {
+        Pattern::MatchAs(ast::PatternMatchAs {
             pattern: Some(p),
             name: None,
             ..
@@ -473,7 +470,7 @@ fn assigned_names(stmts: &[Stmt]) -> Vec<Name> {
     names
 }
 
-pub fn rewrite(context: &Context, match_stmt: ast::StmtMatch) -> Rewrite {
+pub(crate) fn rewrite_match_stmt(context: &Context, match_stmt: ast::StmtMatch) -> Rewrite {
     if match_stmt.cases.is_empty() {
         return Rewrite::Unmodified(match_stmt.into());
     }
@@ -588,4 +585,71 @@ else:
         assign = assign,
         chain = chain,
     ))
+}
+
+impl StmtLowerer for ast::StmtMatch {
+    fn simplify_ast(self, context: &Context) -> Stmt {
+        stmt_from_rewrite(rewrite_match_stmt(context, self))
+    }
+
+    fn to_blockpy<E>(
+        &self,
+        context: &Context,
+        out: &mut BlockPyStmtFragmentBuilder<E>,
+        loop_ctx: Option<&LoopContext>,
+        next_label_id: &mut usize,
+    ) -> Result<(), String>
+    where
+        E: From<Expr> + std::fmt::Debug,
+    {
+        lower_stmt_via_simplify(context, self, out, loop_ctx, next_label_id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{simplify_stmt_ast_for_blockpy, BlockPyStmtFragmentBuilder};
+    use super::*;
+    use crate::basic_block::ast_to_ast::{context::Context, Options};
+
+    #[test]
+    fn stmt_match_simplify_ast_desugars_before_blockpy_lowering() {
+        let stmt = py_stmt!(
+            "
+match x:
+    case 1:
+        pass"
+        );
+        let Stmt::Match(match_stmt) = stmt else {
+            panic!("expected match stmt");
+        };
+
+        let context = Context::new(Options::for_test(), "");
+        let simplified = simplify_stmt_ast_for_blockpy(&context, Stmt::Match(match_stmt));
+
+        assert!(!matches!(simplified, Stmt::Match(_)));
+    }
+
+    #[test]
+    fn stmt_match_to_blockpy_uses_trait_owned_simplification_path() {
+        let stmt = py_stmt!(
+            "
+match x:
+    case 1:
+        y = 1"
+        );
+        let Stmt::Match(match_stmt) = stmt else {
+            panic!("expected match stmt");
+        };
+        let context = Context::new(Options::for_test(), "");
+        let mut out = BlockPyStmtFragmentBuilder::<BlockPyExpr>::new();
+        let mut next_label_id = 0usize;
+
+        match_stmt
+            .to_blockpy(&context, &mut out, None, &mut next_label_id)
+            .expect("match lowering should succeed");
+
+        let fragment = out.finish();
+        assert!(!fragment.body.is_empty() || fragment.term.is_some());
+    }
 }

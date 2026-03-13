@@ -59,8 +59,8 @@ pub(crate) use compat::{
 pub(crate) use stmt_lowering::{
     build_for_target_assign_body, expand_if_chain, lower_star_try_stmt_sequence, lower_stmt_into,
     lower_try_stmt_sequence, lower_with_stmt_sequence, rewrite_assert_stmt, rewrite_assign_stmt,
-    rewrite_augassign_stmt, rewrite_delete_stmt, rewrite_raise_stmt, rewrite_type_alias_stmt,
-    should_rewrite_assignment_targets,
+    rewrite_augassign_stmt, rewrite_delete_stmt, rewrite_match_stmt, rewrite_raise_stmt,
+    rewrite_type_alias_stmt, should_rewrite_assignment_targets,
 };
 pub(crate) use stmt_sequences::{
     lower_expanded_stmt_sequence, lower_stmt_sequence_with_state, lower_stmts_to_blockpy_stmts,
@@ -2446,8 +2446,7 @@ def f():
     }
 
     #[test]
-    #[should_panic(expected = "Match should be lowered before Ruff AST -> BlockPy conversion")]
-    fn panics_if_match_reaches_blockpy() {
+    fn lowers_match_if_it_reaches_blockpy_stmt_lowering() {
         let module = ruff_python_parser::parse_module(
             r#"
 def f(x):
@@ -2462,7 +2461,22 @@ def f(x):
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
-        lower_stmt_for_panic_test(func.body.body[0].as_ref());
+        let context = test_context();
+        let mut out = crate::basic_block::block_py::BlockPyCfgFragmentBuilder::<
+            BlockPyStmt,
+            BlockPyTerm,
+        >::new();
+        let mut next_label_id = 0usize;
+        lower_stmt_into(
+            &context,
+            func.body.body[0].as_ref(),
+            &mut out,
+            None,
+            &mut next_label_id,
+        )
+        .expect("match lowering should succeed");
+        let fragment = out.finish();
+        assert!(!fragment.body.is_empty() || fragment.term.is_some());
     }
 
     #[test]

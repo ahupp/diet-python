@@ -536,7 +536,9 @@ pub(crate) fn lower_stmt_default(context: &Context, stmt: Stmt) -> Rewrite {
         Stmt::Try(try_stmt) => rewrite_stmt::exception::rewrite_try(try_stmt),
         Stmt::If(if_stmt) => crate::basic_block::ruff_to_blockpy::expand_if_chain(if_stmt),
         Stmt::Assert(assert) => crate::basic_block::ruff_to_blockpy::rewrite_assert_stmt(assert),
-        Stmt::Match(match_stmt) => rewrite_stmt::match_case::rewrite(context, match_stmt),
+        Stmt::Match(match_stmt) => {
+            crate::basic_block::ruff_to_blockpy::rewrite_match_stmt(context, match_stmt)
+        }
         Stmt::Import(import) => rewrite_import::rewrite(import),
         Stmt::ImportFrom(import_from) => rewrite_import::rewrite_from(context, import_from),
         Stmt::Assign(assign) => {

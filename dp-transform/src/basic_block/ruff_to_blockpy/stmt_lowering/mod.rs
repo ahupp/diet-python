@@ -85,6 +85,7 @@ mod direct;
 mod if_stmt;
 mod import_from_stmt;
 mod import_stmt;
+mod match_stmt;
 mod try_stmt;
 mod type_alias_stmt;
 mod unreduced;
@@ -98,6 +99,7 @@ pub(crate) use assign_stmt::{
 pub(crate) use delete_stmt::rewrite_delete_stmt;
 pub(crate) use direct::rewrite_raise_stmt;
 pub(crate) use if_stmt::expand_if_chain;
+pub(crate) use match_stmt::rewrite_match_stmt;
 pub(crate) use try_stmt::{lower_star_try_stmt_sequence, lower_try_stmt_sequence};
 pub(crate) use type_alias_stmt::rewrite_type_alias_stmt;
 pub(crate) use with_stmt::lower_with_stmt_sequence;
