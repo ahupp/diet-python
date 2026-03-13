@@ -52,6 +52,7 @@ pub enum BlockPyExpr {
 #[derive(Debug, Clone)]
 pub enum CoreBlockPyExpr {
     BoolOp(ast::ExprBoolOp),
+    Named(ast::ExprNamed),
     Call(ast::ExprCall),
     StringLiteral(ast::ExprStringLiteral),
     BytesLiteral(ast::ExprBytesLiteral),
@@ -62,8 +63,11 @@ pub enum CoreBlockPyExpr {
     Set(ast::ExprSet),
     List(ast::ExprList),
     Tuple(ast::ExprTuple),
+    Lambda(ast::ExprLambda),
     Attribute(ast::ExprAttribute),
     Subscript(ast::ExprSubscript),
+    Starred(ast::ExprStarred),
+    Slice(ast::ExprSlice),
     UnaryOp(ast::ExprUnaryOp),
     BinOp(ast::ExprBinOp),
     Compare(ast::ExprCompare),
@@ -563,6 +567,32 @@ mod tests {
             CoreBlockPyExpr::If(_)
         ));
     }
+
+    #[test]
+    fn core_blockpy_expr_uses_reduced_variants_for_residual_local_forms() {
+        assert!(matches!(
+            CoreBlockPyExpr::from(py_expr!("(x := y)")),
+            CoreBlockPyExpr::Named(_)
+        ));
+        assert!(matches!(
+            CoreBlockPyExpr::from(py_expr!("lambda x: x")),
+            CoreBlockPyExpr::Lambda(_)
+        ));
+        let Expr::List(starred_list) = py_expr!("[*args]") else {
+            panic!("expected list expr");
+        };
+        assert!(matches!(
+            CoreBlockPyExpr::from(starred_list.elts[0].clone()),
+            CoreBlockPyExpr::Starred(_)
+        ));
+        let Expr::Subscript(sliced_subscript) = py_expr!("a[b:c:d]") else {
+            panic!("expected subscript expr");
+        };
+        assert!(matches!(
+            CoreBlockPyExpr::from((*sliced_subscript.slice).clone()),
+            CoreBlockPyExpr::Slice(_)
+        ));
+    }
 }
 
 impl From<BlockPyExpr> for Expr {
@@ -608,6 +638,7 @@ impl From<Expr> for CoreBlockPyExpr {
     fn from(value: Expr) -> Self {
         match value {
             Expr::BoolOp(node) => Self::BoolOp(node),
+            Expr::Named(node) => Self::Named(node),
             Expr::Call(node) => Self::Call(node),
             Expr::StringLiteral(node) => Self::StringLiteral(node),
             Expr::BytesLiteral(node) => Self::BytesLiteral(node),
@@ -618,8 +649,11 @@ impl From<Expr> for CoreBlockPyExpr {
             Expr::Set(node) => Self::Set(node),
             Expr::List(node) => Self::List(node),
             Expr::Tuple(node) => Self::Tuple(node),
+            Expr::Lambda(node) => Self::Lambda(node),
             Expr::Attribute(node) => Self::Attribute(node),
             Expr::Subscript(node) => Self::Subscript(node),
+            Expr::Starred(node) => Self::Starred(node),
+            Expr::Slice(node) => Self::Slice(node),
             Expr::UnaryOp(node) => Self::UnaryOp(node),
             Expr::BinOp(node) => Self::BinOp(node),
             Expr::Compare(node) => Self::Compare(node),
@@ -640,6 +674,7 @@ impl From<CoreBlockPyExpr> for Expr {
     fn from(value: CoreBlockPyExpr) -> Self {
         match value {
             CoreBlockPyExpr::BoolOp(node) => Expr::BoolOp(node),
+            CoreBlockPyExpr::Named(node) => Expr::Named(node),
             CoreBlockPyExpr::Call(node) => Expr::Call(node),
             CoreBlockPyExpr::StringLiteral(node) => Expr::StringLiteral(node),
             CoreBlockPyExpr::BytesLiteral(node) => Expr::BytesLiteral(node),
@@ -650,8 +685,11 @@ impl From<CoreBlockPyExpr> for Expr {
             CoreBlockPyExpr::Set(node) => Expr::Set(node),
             CoreBlockPyExpr::List(node) => Expr::List(node),
             CoreBlockPyExpr::Tuple(node) => Expr::Tuple(node),
+            CoreBlockPyExpr::Lambda(node) => Expr::Lambda(node),
             CoreBlockPyExpr::Attribute(node) => Expr::Attribute(node),
             CoreBlockPyExpr::Subscript(node) => Expr::Subscript(node),
+            CoreBlockPyExpr::Starred(node) => Expr::Starred(node),
+            CoreBlockPyExpr::Slice(node) => Expr::Slice(node),
             CoreBlockPyExpr::UnaryOp(node) => Expr::UnaryOp(node),
             CoreBlockPyExpr::BinOp(node) => Expr::BinOp(node),
             CoreBlockPyExpr::Compare(node) => Expr::Compare(node),
