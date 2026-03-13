@@ -55,7 +55,7 @@ pub type RuffBlockPyStmt = BlockPyStmt<Expr>;
 pub type RuffBlockPyTerm = BlockPyTerm<Expr>;
 pub type RuffBlockPyStmtFragment = BlockPyStmtFragment<Expr>;
 pub type RuffBlockPyAssign = BlockPyAssign<Expr>;
-pub type RuffBlockPyIf = BlockPyIf<Expr>;
+pub type RuffBlockPyIf = BlockPyIf<Expr, RuffBlockPyStmt, RuffBlockPyTerm>;
 pub type RuffBlockPyIfTerm = BlockPyIfTerm<Expr>;
 pub type RuffBlockPyBranchTable = BlockPyBranchTable<Expr>;
 pub type RuffBlockPyRaise = BlockPyRaise<Expr>;
@@ -313,10 +313,10 @@ pub struct BlockPyDelete {
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockPyIf<E = BlockPyExpr> {
+pub struct BlockPyIf<E = BlockPyExpr, S = BlockPyStmt<E>, T = BlockPyTerm<E>> {
     pub test: E,
-    pub body: BlockPyStmtFragment<E>,
-    pub orelse: BlockPyStmtFragment<E>,
+    pub body: BlockPyCfgFragment<S, T>,
+    pub orelse: BlockPyCfgFragment<S, T>,
 }
 
 #[derive(Debug, Clone)]
