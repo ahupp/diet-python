@@ -102,52 +102,67 @@ pub type BlockPyModuleWith<S, T, E = BlockPyExpr> =
     CfgModule<BlockPyCallableDef<E, BlockPyCfgBlock<S, T>>>;
 pub type BlockPyModule<E = BlockPyExpr> = BlockPyModuleWith<BlockPyStmt<E>, BlockPyTerm<E>, E>;
 
+pub trait BlockPyNormalizedStmt {
+    fn assert_blockpy_normalized(&self);
+}
+
+pub trait BlockPyJumpTerm<L> {
+    fn jump_term(target: L) -> Self;
+}
+
 pub fn assert_blockpy_block_normalized<E: std::fmt::Debug>(block: &BlockPyBlock<E>) {
     for stmt in &block.body {
-        stmt.assert_normalized();
+        stmt.assert_blockpy_normalized();
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockPyStmtFragment<E = BlockPyExpr> {
-    pub body: Vec<BlockPyStmt<E>>,
-    pub term: Option<BlockPyTerm<E>>,
+pub struct BlockPyCfgFragment<S, T> {
+    pub body: Vec<S>,
+    pub term: Option<T>,
 }
 
-impl<E: std::fmt::Debug> BlockPyStmtFragment<E> {
+pub type BlockPyStmtFragment<E = BlockPyExpr> = BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>;
+
+impl<S: BlockPyNormalizedStmt, T> BlockPyCfgFragment<S, T> {
     pub fn assert_normalized(&self) {
         for stmt in &self.body {
-            stmt.assert_normalized();
+            stmt.assert_blockpy_normalized();
         }
     }
 }
 
-impl<E: Clone + std::fmt::Debug> BlockPyStmtFragment<E> {
-    pub fn from_stmts(stmts: Vec<BlockPyStmt<E>>) -> Self {
+impl<S: BlockPyNormalizedStmt, T> BlockPyCfgFragment<S, T> {
+    pub fn from_stmts(stmts: Vec<S>) -> Self {
         Self::with_term(stmts, None)
     }
 
-    pub fn with_term(body: Vec<BlockPyStmt<E>>, term: impl Into<Option<BlockPyTerm<E>>>) -> Self {
-        let fragment = BlockPyStmtFragment {
+    pub fn with_term(body: Vec<S>, term: impl Into<Option<T>>) -> Self {
+        let fragment = BlockPyCfgFragment {
             body,
             term: term.into(),
         };
         fragment.assert_normalized();
         fragment
     }
+}
 
+impl<S: BlockPyNormalizedStmt, T: BlockPyJumpTerm<BlockPyLabel>> BlockPyCfgFragment<S, T> {
     pub fn jump(target: BlockPyLabel) -> Self {
-        Self::with_term(Vec::new(), Some(BlockPyTerm::Jump(target)))
+        Self::with_term(Vec::new(), Some(T::jump_term(target)))
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockPyStmtFragmentBuilder<E = BlockPyExpr> {
-    body: Vec<BlockPyStmt<E>>,
-    term: Option<BlockPyTerm<E>>,
+pub struct BlockPyCfgFragmentBuilder<S, T> {
+    body: Vec<S>,
+    term: Option<T>,
 }
 
-impl<E: Clone + std::fmt::Debug> BlockPyStmtFragmentBuilder<E> {
+pub type BlockPyStmtFragmentBuilder<E = BlockPyExpr> =
+    BlockPyCfgFragmentBuilder<BlockPyStmt<E>, BlockPyTerm<E>>;
+
+impl<S: BlockPyNormalizedStmt, T> BlockPyCfgFragmentBuilder<S, T> {
     pub fn new() -> Self {
         Self {
             body: Vec::new(),
@@ -155,25 +170,25 @@ impl<E: Clone + std::fmt::Debug> BlockPyStmtFragmentBuilder<E> {
         }
     }
 
-    pub fn push_stmt(&mut self, stmt: BlockPyStmt<E>) {
+    pub fn push_stmt(&mut self, stmt: S) {
         assert!(
             self.term.is_none(),
             "cannot append BlockPyStmt after stmt-fragment terminator"
         );
-        stmt.assert_normalized();
+        stmt.assert_blockpy_normalized();
         self.body.push(stmt);
     }
 
     pub fn extend<I>(&mut self, stmts: I)
     where
-        I: IntoIterator<Item = BlockPyStmt<E>>,
+        I: IntoIterator<Item = S>,
     {
         for stmt in stmts {
             self.push_stmt(stmt);
         }
     }
 
-    pub fn set_term(&mut self, term: BlockPyTerm<E>) {
+    pub fn set_term(&mut self, term: T) {
         assert!(
             self.term.is_none(),
             "cannot replace existing stmt-fragment terminator"
@@ -181,8 +196,8 @@ impl<E: Clone + std::fmt::Debug> BlockPyStmtFragmentBuilder<E> {
         self.term = Some(term);
     }
 
-    pub fn finish(self) -> BlockPyStmtFragment<E> {
-        let fragment = BlockPyStmtFragment {
+    pub fn finish(self) -> BlockPyCfgFragment<S, T> {
+        let fragment = BlockPyCfgFragment {
             body: self.body,
             term: self.term,
         };
@@ -261,6 +276,12 @@ impl<E: std::fmt::Debug> BlockPyStmt<E> {
     }
 }
 
+impl<E: std::fmt::Debug> BlockPyNormalizedStmt for BlockPyStmt<E> {
+    fn assert_blockpy_normalized(&self) {
+        self.assert_normalized();
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum BlockPyTerm<E = BlockPyExpr> {
     Jump(BlockPyLabel),
@@ -312,6 +333,12 @@ pub struct BlockPyRaise<E = BlockPyExpr> {
 pub struct BlockPyTryJump {
     pub body_label: BlockPyLabel,
     pub except_label: BlockPyLabel,
+}
+
+impl<E> BlockPyJumpTerm<BlockPyLabel> for BlockPyTerm<E> {
+    fn jump_term(target: BlockPyLabel) -> Self {
+        Self::Jump(target)
+    }
 }
 
 impl From<Expr> for BlockPyExpr {
