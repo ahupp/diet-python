@@ -1,6 +1,6 @@
 use super::{
-    BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete,
-    BlockPyExpr, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyTerm,
+    BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete, BlockPyIf,
+    BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyTerm,
 };
 use crate::basic_block::ast_symbol_analysis::{collect_assigned_names, load_names_in_expr};
 use crate::transformer::{walk_expr, Transformer};

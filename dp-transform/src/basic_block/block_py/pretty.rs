@@ -14,7 +14,10 @@ enum IfBranchKind {
     Else,
 }
 
-pub fn blockpy_module_to_string(module: &BlockPyModule) -> String {
+pub fn blockpy_module_to_string<E>(module: &BlockPyModule<E>) -> String
+where
+    E: Clone + Into<Expr>,
+{
     let mut formatter = BlockPyFormatter::default();
     formatter.write_module(module);
     formatter.finish()
@@ -34,7 +37,10 @@ impl BlockPyFormatter {
         self.out
     }
 
-    fn write_module(&mut self, module: &BlockPyModule) {
+    fn write_module<E>(&mut self, module: &BlockPyModule<E>)
+    where
+        E: Clone + Into<Expr>,
+    {
         if let Some(module_init) = &module.module_init {
             self.line(format!("module_init: {module_init}"));
         }
@@ -47,7 +53,10 @@ impl BlockPyFormatter {
         }
     }
 
-    fn write_function(&mut self, function: &BlockPyCallableDef) {
+    fn write_function<E>(&mut self, function: &BlockPyCallableDef<E>)
+    where
+        E: Clone + Into<Expr>,
+    {
         let params = format_parameters(&function.params);
         let parameter_names = collect_parameter_names(&function.params);
         let referenced_labels = collect_referenced_labels_from_blocks(&function.blocks);
@@ -107,13 +116,15 @@ impl BlockPyFormatter {
         });
     }
 
-    fn write_function_block(
+    fn write_function_block<E>(
         &mut self,
-        function: &BlockPyCallableDef,
+        function: &BlockPyCallableDef<E>,
         render_layout: &BlockRenderLayout,
         block_index: usize,
         referenced_labels: &HashSet<BlockPyLabel>,
-    ) {
+    ) where
+        E: Clone + Into<Expr>,
+    {
         let block = &function.blocks[block_index];
         self.line(format!("block {}:", block.label.as_str()));
         self.with_indent(|this| {
@@ -133,14 +144,16 @@ impl BlockPyFormatter {
         });
     }
 
-    fn write_block_contents(
+    fn write_block_contents<E>(
         &mut self,
-        function: &BlockPyCallableDef,
+        function: &BlockPyCallableDef<E>,
         render_layout: &BlockRenderLayout,
         current_block_index: Option<usize>,
-        block: &BlockPyBlock,
+        block: &BlockPyBlock<E>,
         referenced_labels: &HashSet<BlockPyLabel>,
-    ) {
+    ) where
+        E: Clone + Into<Expr>,
+    {
         if block.body.is_empty() {
             self.write_term(
                 function,
@@ -161,21 +174,25 @@ impl BlockPyFormatter {
         );
     }
 
-    fn write_stmt_list(
+    fn write_stmt_list<E>(
         &mut self,
-        stmts: &[BlockPyStmt],
+        stmts: &[BlockPyStmt<E>],
         referenced_labels: &HashSet<BlockPyLabel>,
-    ) {
+    ) where
+        E: Clone + Into<Expr>,
+    {
         for stmt in stmts {
             self.write_stmt(stmt, referenced_labels);
         }
     }
 
-    fn write_stmt_fragment(
+    fn write_stmt_fragment<E>(
         &mut self,
-        fragment: &BlockPyCfgFragment<BlockPyStmt, BlockPyTerm>,
+        fragment: &BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>,
         referenced_labels: &HashSet<BlockPyLabel>,
-    ) {
+    ) where
+        E: Clone + Into<Expr>,
+    {
         if fragment.body.is_empty() && fragment.term.is_none() {
             self.line("pass");
             return;
@@ -186,7 +203,10 @@ impl BlockPyFormatter {
         }
     }
 
-    fn write_stmt(&mut self, stmt: &BlockPyStmt, referenced_labels: &HashSet<BlockPyLabel>) {
+    fn write_stmt<E>(&mut self, stmt: &BlockPyStmt<E>, referenced_labels: &HashSet<BlockPyLabel>)
+    where
+        E: Clone + Into<Expr>,
+    {
         match stmt {
             BlockPyStmt::Pass => self.line("pass"),
             BlockPyStmt::Assign(assign) => self.line(format!(
@@ -209,14 +229,16 @@ impl BlockPyFormatter {
         }
     }
 
-    fn write_term(
+    fn write_term<E>(
         &mut self,
-        function: &BlockPyCallableDef,
+        function: &BlockPyCallableDef<E>,
         render_layout: &BlockRenderLayout,
         current_block_index: Option<usize>,
-        term: &BlockPyTerm,
+        term: &BlockPyTerm<E>,
         referenced_labels: &HashSet<BlockPyLabel>,
-    ) {
+    ) where
+        E: Clone + Into<Expr>,
+    {
         match term {
             BlockPyTerm::Jump(label) => self.line(format!("jump {}", label.as_str())),
             BlockPyTerm::IfTerm(BlockPyIfTerm {
@@ -279,14 +301,20 @@ impl BlockPyFormatter {
         }
     }
 
-    fn write_raise(&mut self, raise_stmt: &BlockPyRaise) {
+    fn write_raise<E>(&mut self, raise_stmt: &BlockPyRaise<E>)
+    where
+        E: Clone + Into<Expr>,
+    {
         match &raise_stmt.exc {
             Some(exc) => self.line(format!("raise {}", render_inline_expr(exc))),
             None => self.line("raise"),
         }
     }
 
-    fn write_term_inline(&mut self, term: &BlockPyTerm) {
+    fn write_term_inline<E>(&mut self, term: &BlockPyTerm<E>)
+    where
+        E: Clone + Into<Expr>,
+    {
         match term {
             BlockPyTerm::Jump(label) => self.line(format!("jump {}", label.as_str())),
             BlockPyTerm::BranchTable(branch) => self.line(format!(
@@ -365,8 +393,11 @@ fn function_kind_name(kind: BlockPyFunctionKind) -> &'static str {
     }
 }
 
-fn render_inline_expr(expr: &BlockPyExpr) -> String {
-    ruff_ast_to_string(&expr.to_expr())
+fn render_inline_expr<E>(expr: &E) -> String
+where
+    E: Clone + Into<Expr>,
+{
+    ruff_ast_to_string(&expr.clone().into())
         .lines()
         .map(str::trim)
         .collect::<Vec<_>>()
@@ -467,7 +498,10 @@ struct BlockRenderLayout {
 }
 
 impl BlockRenderLayout {
-    fn new(function: &BlockPyCallableDef) -> Self {
+    fn new<E>(function: &BlockPyCallableDef<E>) -> Self
+    where
+        E: Clone + Into<Expr>,
+    {
         let block_count = function.blocks.len();
         if block_count == 0 {
             return Self {
@@ -545,7 +579,7 @@ impl BlockRenderLayout {
 }
 
 fn compute_inline_if_term_targets(
-    function: &BlockPyCallableDef,
+    function: &BlockPyCallableDef<impl Clone + Into<Expr>>,
     label_to_index: &HashMap<String, usize>,
     predecessors: &[Vec<usize>],
     immediate_dominators: &[Option<usize>],
@@ -611,7 +645,7 @@ fn can_inline_if_term_target(
 }
 
 fn choose_entry_block_index(
-    _function: &BlockPyCallableDef,
+    _function: &BlockPyCallableDef<impl Clone + Into<Expr>>,
     _label_to_index: &HashMap<String, usize>,
     _predecessors: &[Vec<usize>],
 ) -> usize {
@@ -619,7 +653,7 @@ fn choose_entry_block_index(
 }
 
 fn collect_top_level_successors_from_block(
-    block: &BlockPyBlock,
+    block: &BlockPyBlock<impl Clone + Into<Expr>>,
     label_to_index: &HashMap<String, usize>,
 ) -> Vec<usize> {
     let mut successors = Vec::new();
@@ -635,7 +669,7 @@ fn collect_top_level_successors_from_block(
 }
 
 fn collect_top_level_successors_from_stmts(
-    stmts: &[BlockPyStmt],
+    stmts: &[BlockPyStmt<impl Clone + Into<Expr>>],
     label_to_index: &HashMap<String, usize>,
     seen: &mut HashSet<usize>,
     out: &mut Vec<usize>,
@@ -671,7 +705,7 @@ fn collect_top_level_successors_from_stmts(
 }
 
 fn collect_top_level_successors_from_term(
-    term: &BlockPyTerm,
+    term: &BlockPyTerm<impl Clone + Into<Expr>>,
     label_to_index: &HashMap<String, usize>,
     seen: &mut HashSet<usize>,
     out: &mut Vec<usize>,
@@ -833,7 +867,9 @@ fn compute_immediate_dominators(
     immediate_dominators
 }
 
-fn collect_referenced_labels_from_blocks(blocks: &[BlockPyBlock]) -> HashSet<BlockPyLabel> {
+fn collect_referenced_labels_from_blocks(
+    blocks: &[BlockPyBlock<impl Clone + Into<Expr>>],
+) -> HashSet<BlockPyLabel> {
     let mut referenced = HashSet::new();
     for block in blocks {
         collect_referenced_labels_from_stmts(&block.body, &mut referenced);
@@ -843,7 +879,7 @@ fn collect_referenced_labels_from_blocks(blocks: &[BlockPyBlock]) -> HashSet<Blo
 }
 
 fn collect_referenced_labels_from_stmts(
-    stmts: &[BlockPyStmt],
+    stmts: &[BlockPyStmt<impl Clone + Into<Expr>>],
     referenced: &mut HashSet<BlockPyLabel>,
 ) {
     for stmt in stmts {
@@ -863,7 +899,10 @@ fn collect_referenced_labels_from_stmts(
     }
 }
 
-fn collect_referenced_labels_from_term(term: &BlockPyTerm, referenced: &mut HashSet<BlockPyLabel>) {
+fn collect_referenced_labels_from_term(
+    term: &BlockPyTerm<impl Clone + Into<Expr>>,
+    referenced: &mut HashSet<BlockPyLabel>,
+) {
     match term {
         BlockPyTerm::Jump(label) => {
             referenced.insert(label.clone());
@@ -944,7 +983,7 @@ def classify(a, /, b: int = 1, *args, c=2, **kwargs):
 
     #[test]
     fn renders_empty_module_marker() {
-        let rendered = blockpy_module_to_string(&BlockPyModule {
+        let rendered = blockpy_module_to_string(&BlockPyModule::<BlockPyExpr> {
             module_init: None,
             callable_defs: Vec::new(),
         });
@@ -987,7 +1026,7 @@ def gen():
 
     #[test]
     fn renders_public_closure_metadata_in_function_header() {
-        let rendered = blockpy_module_to_string(&BlockPyModule {
+        let rendered = blockpy_module_to_string(&BlockPyModule::<BlockPyExpr> {
             module_init: None,
             callable_defs: vec![BlockPyCallableDef {
                 cfg: crate::basic_block::cfg_ir::CfgCallableDef {
@@ -1001,7 +1040,7 @@ def gen():
                     blocks: vec![BlockPyBlock {
                         label: "gen_start".into(),
                         body: vec![],
-                        term: BlockPyTerm::Return(None),
+                        term: BlockPyTerm::<BlockPyExpr>::Return(None),
                         meta: BlockPyBlockMeta::default(),
                     }],
                 },
