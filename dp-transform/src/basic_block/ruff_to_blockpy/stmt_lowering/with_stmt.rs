@@ -6,6 +6,10 @@ impl StmtLowerer for ast::StmtWith {
         desugar_structured_with_stmt_for_blockpy(self)
     }
 
+    fn plan_head(self, _context: &Context, _allow_generator_head: bool) -> StmtSequenceHeadPlan {
+        StmtSequenceHeadPlan::With(self)
+    }
+
     fn to_blockpy<E>(
         &self,
         context: &Context,

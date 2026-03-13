@@ -111,52 +111,7 @@ pub(crate) fn plan_stmt_sequence_head(
     stmt: &Stmt,
     allow_generator_head: bool,
 ) -> StmtSequenceHeadPlan {
-    if let Stmt::With(with_stmt) = stmt {
-        return StmtSequenceHeadPlan::With(with_stmt.clone());
-    }
-
-    let simplified =
-        super::stmt_lowering::simplify_stmt_head_ast_for_blockpy(context, stmt.clone());
-
-    if allow_generator_head {
-        match &simplified {
-            Stmt::Expr(_) | Stmt::Assign(_) | Stmt::Return(_) => {
-                if let Some(plan) = plan_generator_stmt_in_sequence(context, &simplified) {
-                    return StmtSequenceHeadPlan::Generator {
-                        plan,
-                        sync_target_cells: matches!(simplified, Stmt::Assign(_)),
-                    };
-                }
-            }
-            _ => {}
-        }
-    }
-
-    match simplified {
-        Stmt::BodyStmt(body) => StmtSequenceHeadPlan::Expanded(Stmt::BodyStmt(body)),
-        Stmt::Expr(_)
-        | Stmt::Pass(_)
-        | Stmt::Assign(_)
-        | Stmt::Global(_)
-        | Stmt::Nonlocal(_)
-        | Stmt::AugAssign(_)
-        | Stmt::TypeAlias(_)
-        | Stmt::ImportFrom(_) => StmtSequenceHeadPlan::Linear(simplified),
-        Stmt::FunctionDef(func_def) => StmtSequenceHeadPlan::FunctionDef(func_def),
-        Stmt::Raise(raise_stmt) => StmtSequenceHeadPlan::Raise(raise_stmt),
-        Stmt::Delete(delete_stmt) => StmtSequenceHeadPlan::Delete(delete_stmt),
-        Stmt::Return(ret) => {
-            StmtSequenceHeadPlan::Return(ret.value.as_ref().map(|expr| *expr.clone()))
-        }
-        Stmt::If(if_stmt) => StmtSequenceHeadPlan::If(if_stmt),
-        Stmt::While(while_stmt) => StmtSequenceHeadPlan::While(while_stmt),
-        Stmt::For(for_stmt) => StmtSequenceHeadPlan::For(for_stmt),
-        Stmt::Try(try_stmt) => StmtSequenceHeadPlan::Try(try_stmt),
-        Stmt::With(with_stmt) => StmtSequenceHeadPlan::With(with_stmt),
-        Stmt::Break(_) => StmtSequenceHeadPlan::Break,
-        Stmt::Continue(_) => StmtSequenceHeadPlan::Continue,
-        _ => StmtSequenceHeadPlan::Unsupported,
-    }
+    super::stmt_lowering::plan_stmt_head_for_blockpy(context, stmt, allow_generator_head)
 }
 
 pub(crate) fn drive_stmt_sequence_until_control<FDef, FDelete>(

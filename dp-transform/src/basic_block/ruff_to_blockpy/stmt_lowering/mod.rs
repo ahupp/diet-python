@@ -72,6 +72,14 @@ pub(super) trait StmtLowerer {
     where
         Self: Sized;
 
+    fn plan_head(self, context: &Context, allow_generator_head: bool) -> StmtSequenceHeadPlan
+    where
+        Self: Sized,
+    {
+        let simplified = finish_stmt_head_ast_for_blockpy(context, self.simplify_ast(context));
+        plan_simplified_stmt_head_for_blockpy(context, simplified, allow_generator_head)
+    }
+
     fn to_blockpy<E>(
         &self,
         _context: &Context,
@@ -176,9 +184,96 @@ pub(super) fn simplify_stmt_ast_for_blockpy(context: &Context, stmt: Stmt) -> St
 
 pub(super) fn simplify_stmt_head_ast_for_blockpy(context: &Context, stmt: Stmt) -> Stmt {
     let stmt = simplify_stmt_ast_once_for_blockpy(context, stmt);
+    finish_stmt_head_ast_for_blockpy(context, stmt)
+}
+
+fn finish_stmt_head_ast_for_blockpy(context: &Context, stmt: Stmt) -> Stmt {
     match stmt {
         Stmt::If(if_stmt) => simplify_if_test_for_blockpy(context, if_stmt),
         other => other,
+    }
+}
+
+fn plan_simplified_stmt_head_for_blockpy(
+    context: &Context,
+    simplified: Stmt,
+    allow_generator_head: bool,
+) -> StmtSequenceHeadPlan {
+    if allow_generator_head {
+        match &simplified {
+            Stmt::Expr(_) | Stmt::Assign(_) | Stmt::Return(_) => {
+                if let Some(plan) =
+                    super::stmt_sequences::plan_generator_stmt_in_sequence(context, &simplified)
+                {
+                    return StmtSequenceHeadPlan::Generator {
+                        plan,
+                        sync_target_cells: matches!(simplified, Stmt::Assign(_)),
+                    };
+                }
+            }
+            _ => {}
+        }
+    }
+
+    match simplified {
+        Stmt::BodyStmt(body) => StmtSequenceHeadPlan::Expanded(Stmt::BodyStmt(body)),
+        Stmt::Expr(_)
+        | Stmt::Pass(_)
+        | Stmt::Assign(_)
+        | Stmt::Global(_)
+        | Stmt::Nonlocal(_)
+        | Stmt::AugAssign(_)
+        | Stmt::TypeAlias(_)
+        | Stmt::ImportFrom(_) => StmtSequenceHeadPlan::Linear(simplified),
+        Stmt::FunctionDef(func_def) => StmtSequenceHeadPlan::FunctionDef(func_def),
+        Stmt::Raise(raise_stmt) => StmtSequenceHeadPlan::Raise(raise_stmt),
+        Stmt::Delete(delete_stmt) => StmtSequenceHeadPlan::Delete(delete_stmt),
+        Stmt::Return(ret) => {
+            StmtSequenceHeadPlan::Return(ret.value.as_ref().map(|expr| *expr.clone()))
+        }
+        Stmt::If(if_stmt) => StmtSequenceHeadPlan::If(if_stmt),
+        Stmt::While(while_stmt) => StmtSequenceHeadPlan::While(while_stmt),
+        Stmt::For(for_stmt) => StmtSequenceHeadPlan::For(for_stmt),
+        Stmt::Try(try_stmt) => StmtSequenceHeadPlan::Try(try_stmt),
+        Stmt::With(with_stmt) => StmtSequenceHeadPlan::With(with_stmt),
+        Stmt::Break(_) => StmtSequenceHeadPlan::Break,
+        Stmt::Continue(_) => StmtSequenceHeadPlan::Continue,
+        _ => StmtSequenceHeadPlan::Unsupported,
+    }
+}
+
+pub(crate) fn plan_stmt_head_for_blockpy(
+    context: &Context,
+    stmt: &Stmt,
+    allow_generator_head: bool,
+) -> StmtSequenceHeadPlan {
+    match stmt {
+        Stmt::BodyStmt(stmt) => stmt.clone().plan_head(context, allow_generator_head),
+        Stmt::Global(stmt) => stmt.clone().plan_head(context, allow_generator_head),
+        Stmt::Nonlocal(stmt) => stmt.clone().plan_head(context, allow_generator_head),
+        Stmt::Pass(stmt) => stmt.clone().plan_head(context, allow_generator_head),
+        Stmt::Expr(stmt) => stmt.clone().plan_head(context, allow_generator_head),
+        Stmt::Assign(stmt) => stmt.clone().plan_head(context, allow_generator_head),
+        Stmt::Delete(stmt) => stmt.clone().plan_head(context, allow_generator_head),
+        Stmt::FunctionDef(stmt) => stmt.clone().plan_head(context, allow_generator_head),
+        Stmt::ClassDef(stmt) => stmt.clone().plan_head(context, allow_generator_head),
+        Stmt::TypeAlias(stmt) => stmt.clone().plan_head(context, allow_generator_head),
+        Stmt::AugAssign(stmt) => stmt.clone().plan_head(context, allow_generator_head),
+        Stmt::AnnAssign(stmt) => stmt.clone().plan_head(context, allow_generator_head),
+        Stmt::If(stmt) => stmt.clone().plan_head(context, allow_generator_head),
+        Stmt::While(stmt) => stmt.clone().plan_head(context, allow_generator_head),
+        Stmt::For(stmt) => stmt.clone().plan_head(context, allow_generator_head),
+        Stmt::With(stmt) => stmt.clone().plan_head(context, allow_generator_head),
+        Stmt::Match(stmt) => stmt.clone().plan_head(context, allow_generator_head),
+        Stmt::Assert(stmt) => stmt.clone().plan_head(context, allow_generator_head),
+        Stmt::Import(stmt) => stmt.clone().plan_head(context, allow_generator_head),
+        Stmt::ImportFrom(stmt) => stmt.clone().plan_head(context, allow_generator_head),
+        Stmt::Break(stmt) => stmt.clone().plan_head(context, allow_generator_head),
+        Stmt::Continue(stmt) => stmt.clone().plan_head(context, allow_generator_head),
+        Stmt::Return(stmt) => stmt.clone().plan_head(context, allow_generator_head),
+        Stmt::Raise(stmt) => stmt.clone().plan_head(context, allow_generator_head),
+        Stmt::Try(stmt) => stmt.clone().plan_head(context, allow_generator_head),
+        Stmt::IpyEscapeCommand(stmt) => stmt.clone().plan_head(context, allow_generator_head),
     }
 }
 
