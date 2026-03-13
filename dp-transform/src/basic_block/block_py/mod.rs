@@ -61,25 +61,23 @@ pub type RuffBlockPyBranchTable = BlockPyBranchTable<Expr>;
 pub type RuffBlockPyRaise = BlockPyRaise<Expr>;
 pub const ENTRY_BLOCK_LABEL: &str = "start";
 
-pub type BlockPyModule<E = BlockPyExpr> = CfgModule<BlockPyCallableDef<E>>;
-
 #[derive(Debug, Clone)]
-pub struct BlockPyCallableDef<E = BlockPyExpr> {
-    pub cfg: CfgCallableDef<FunctionId, BlockPyFunctionKind, Parameters, BlockPyBlock<E>>,
+pub struct BlockPyCallableDef<E = BlockPyExpr, B = BlockPyBlock<E>> {
+    pub cfg: CfgCallableDef<FunctionId, BlockPyFunctionKind, Parameters, B>,
     pub doc: Option<E>,
     pub closure_layout: Option<BbClosureLayout>,
     pub local_cell_slots: Vec<String>,
 }
 
-impl<E> Deref for BlockPyCallableDef<E> {
-    type Target = CfgCallableDef<FunctionId, BlockPyFunctionKind, Parameters, BlockPyBlock<E>>;
+impl<E, B> Deref for BlockPyCallableDef<E, B> {
+    type Target = CfgCallableDef<FunctionId, BlockPyFunctionKind, Parameters, B>;
 
     fn deref(&self) -> &Self::Target {
         &self.cfg
     }
 }
 
-impl<E> DerefMut for BlockPyCallableDef<E> {
+impl<E, B> DerefMut for BlockPyCallableDef<E, B> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.cfg
     }
@@ -98,8 +96,11 @@ pub struct BlockPyBlockMeta {
     pub exc_param: Option<String>,
 }
 
-pub type BlockPyBlock<E = BlockPyExpr> =
-    CfgBlock<BlockPyLabel, BlockPyStmt<E>, BlockPyTerm<E>, BlockPyBlockMeta>;
+pub type BlockPyCfgBlock<S, T> = CfgBlock<BlockPyLabel, S, T, BlockPyBlockMeta>;
+pub type BlockPyBlock<E = BlockPyExpr> = BlockPyCfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>;
+pub type BlockPyModuleWith<S, T, E = BlockPyExpr> =
+    CfgModule<BlockPyCallableDef<E, BlockPyCfgBlock<S, T>>>;
+pub type BlockPyModule<E = BlockPyExpr> = BlockPyModuleWith<BlockPyStmt<E>, BlockPyTerm<E>, E>;
 
 pub fn assert_blockpy_block_normalized<E: std::fmt::Debug>(block: &BlockPyBlock<E>) {
     for stmt in &block.body {
