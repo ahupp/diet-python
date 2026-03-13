@@ -524,9 +524,6 @@ pub(crate) fn lower_stmt_default(context: &Context, stmt: Stmt) -> Rewrite {
         }
         Stmt::Import(import) => rewrite_import::rewrite(import),
         Stmt::ImportFrom(import_from) => rewrite_import::rewrite_from(context, import_from),
-        Stmt::Assert(assert_stmt) => {
-            crate::basic_block::ruff_to_blockpy::rewrite_assert_stmt(assert_stmt)
-        }
         Stmt::Assign(assign) => {
             crate::basic_block::ruff_to_blockpy::rewrite_assign_stmt(context, assign)
         }

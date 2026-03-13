@@ -118,6 +118,7 @@ pub(crate) struct TryRegionPlan {
 #[derive(Clone)]
 pub(crate) enum StmtSequenceHeadPlan {
     Linear(Stmt),
+    Expanded(Stmt),
     FunctionDef(ast::StmtFunctionDef),
     Generator {
         plan: GeneratorStmtSequencePlan,
@@ -1634,6 +1635,28 @@ def f():
         assert!(matches!(
             plan_stmt_sequence_head(&test_context(), stmt, true),
             StmtSequenceHeadPlan::Return(_)
+        ));
+    }
+
+    #[test]
+    fn stmt_sequence_head_plan_simplifies_assert_to_if() {
+        let module = ruff_python_parser::parse_module(
+            r#"
+def f():
+    assert cond, msg
+"#,
+        )
+        .unwrap()
+        .into_syntax()
+        .body;
+        let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
+            panic!("expected function def");
+        };
+        let stmt = func.body.body[0].as_ref();
+
+        assert!(matches!(
+            plan_stmt_sequence_head(&test_context(), stmt, false),
+            StmtSequenceHeadPlan::If(_)
         ));
     }
 
