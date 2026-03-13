@@ -101,7 +101,6 @@ pub(crate) struct LoweredBlockPyFunctionBundle {
 
 pub(crate) struct PreparedBlockPyFunction {
     pub callable_def: BlockPyCallableDef,
-    pub entry_label: String,
     pub generator_metadata: Option<GeneratorMetadata>,
     pub try_regions: Vec<TryRegionPlan>,
 }
@@ -200,15 +199,7 @@ pub(crate) fn build_blockpy_function(
     local_cell_slots: Vec<String>,
     mut blocks: Vec<BlockPyBlock>,
 ) -> BlockPyCallableDef {
-    if let Some(entry_index) = blocks
-        .iter()
-        .position(|block| block.label.as_str() == entry_label.as_str())
-    {
-        if entry_index != 0 {
-            let entry_block = blocks.remove(entry_index);
-            blocks.insert(0, entry_block);
-        }
-    }
+    move_blockpy_entry_block_to_front(&mut blocks, entry_label.as_str());
     for block in &blocks {
         assert_blockpy_block_normalized(block);
     }
@@ -226,6 +217,18 @@ pub(crate) fn build_blockpy_function(
         doc,
         closure_layout,
         local_cell_slots,
+    }
+}
+
+fn move_blockpy_entry_block_to_front(blocks: &mut Vec<BlockPyBlock>, entry_label: &str) {
+    if let Some(entry_index) = blocks
+        .iter()
+        .position(|block| block.label.as_str() == entry_label)
+    {
+        if entry_index != 0 {
+            let entry_block = blocks.remove(entry_index);
+            blocks.insert(0, entry_block);
+        }
     }
 }
 
@@ -447,10 +450,10 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
 ) -> LoweredBlockPyFunctionBundle {
     let PreparedBlockPyFunction {
         callable_def: mut blockpy_function,
-        entry_label,
         generator_metadata,
         try_regions,
     } = prepared_function;
+    let entry_label = blockpy_function.entry_label().to_string();
     let exception_edges = compute_blockpy_exception_edges(
         &blockpy_function.blocks,
         &try_regions,
@@ -1290,9 +1293,9 @@ pub(crate) fn finalize_blockpy_function(
             &yield_sites,
         );
     }
+    move_blockpy_entry_block_to_front(&mut callable_def.blocks, entry_label.as_str());
     PreparedBlockPyFunction {
         callable_def,
-        entry_label,
         generator_metadata,
         try_regions,
     }
