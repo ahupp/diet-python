@@ -15,6 +15,7 @@ use super::block_py::{
 use super::cfg_ir::{CfgCallableDef, CfgModule};
 use super::ruff_to_blockpy::{LoweredBlockPyFunction, LoweredBlockPyFunctionBundle};
 use super::stmt_utils::{flatten_stmt, flatten_stmt_boxes, stmt_body_from_stmts};
+use crate::basic_block::ast_symbol_analysis::collect_assigned_names;
 use crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass;
 use crate::basic_block::ast_to_ast::ast_rewrite::ExprRewritePass;
 use crate::basic_block::ast_to_ast::context::Context;
@@ -23,7 +24,7 @@ use crate::py_expr;
 use crate::transformer::{walk_expr, Transformer};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::TextRange;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 pub(crate) use codegen_normalize::normalize_bb_module_for_codegen;
 pub(crate) use exception_pass::lower_try_jump_exception_flow;
@@ -155,7 +156,131 @@ fn fresh_linearized_if_label(
     label
 }
 
-fn linearize_blockpy_ifs_for_bb<E: Clone>(
+fn collect_named_expr_targets(expr: &Expr, names: &mut HashSet<String>) {
+    #[derive(Default)]
+    struct NamedExprTargetCollector {
+        names: HashSet<String>,
+    }
+
+    impl Transformer for NamedExprTargetCollector {
+        fn visit_expr(&mut self, expr: &mut Expr) {
+            if let Expr::Named(ast::ExprNamed { target, value, .. }) = expr {
+                collect_assigned_names(target.as_ref(), &mut self.names);
+                self.visit_expr(value.as_mut());
+                return;
+            }
+            walk_expr(self, expr);
+        }
+    }
+
+    let mut expr = expr.clone();
+    let mut collector = NamedExprTargetCollector::default();
+    collector.visit_expr(&mut expr);
+    names.extend(collector.names);
+}
+
+fn collect_assigned_names_in_blockpy_expr<E>(expr: &E, names: &mut HashSet<String>)
+where
+    E: Clone + Into<Expr>,
+{
+    collect_named_expr_targets(&expr.clone().into(), names);
+}
+
+fn collect_assigned_names_in_blockpy_stmt<E>(stmt: &BlockPyStmt<E>, names: &mut HashSet<String>)
+where
+    E: Clone + Into<Expr>,
+{
+    match stmt {
+        BlockPyStmt::Pass | BlockPyStmt::Delete(_) => {}
+        BlockPyStmt::Assign(assign) => {
+            names.insert(assign.target.id.to_string());
+            collect_assigned_names_in_blockpy_expr(&assign.value, names);
+        }
+        BlockPyStmt::Expr(expr) => collect_assigned_names_in_blockpy_expr(expr, names),
+        BlockPyStmt::If(if_stmt) => {
+            collect_assigned_names_in_blockpy_expr(&if_stmt.test, names);
+            collect_assigned_names_in_blockpy_fragment(&if_stmt.body, names);
+            collect_assigned_names_in_blockpy_fragment(&if_stmt.orelse, names);
+        }
+    }
+}
+
+fn collect_assigned_names_in_blockpy_fragment<E>(
+    fragment: &super::block_py::BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>,
+    names: &mut HashSet<String>,
+) where
+    E: Clone + Into<Expr>,
+{
+    for stmt in &fragment.body {
+        collect_assigned_names_in_blockpy_stmt(stmt, names);
+    }
+    if let Some(term) = &fragment.term {
+        collect_assigned_names_in_blockpy_term(term, names);
+    }
+}
+
+fn collect_assigned_names_in_blockpy_term<E>(term: &BlockPyTerm<E>, names: &mut HashSet<String>)
+where
+    E: Clone + Into<Expr>,
+{
+    match term {
+        BlockPyTerm::Jump(_) | BlockPyTerm::TryJump(_) => {}
+        BlockPyTerm::IfTerm(if_term) => {
+            collect_assigned_names_in_blockpy_expr(&if_term.test, names)
+        }
+        BlockPyTerm::BranchTable(branch_table) => {
+            collect_assigned_names_in_blockpy_expr(&branch_table.index, names);
+        }
+        BlockPyTerm::Raise(raise) => {
+            if let Some(exc) = &raise.exc {
+                collect_assigned_names_in_blockpy_expr(exc, names);
+            }
+        }
+        BlockPyTerm::Return(value) => {
+            if let Some(value) = value {
+                collect_assigned_names_in_blockpy_expr(value, names);
+            }
+        }
+    }
+}
+
+fn extend_ordered_state(base: &[String], assigned: HashSet<String>) -> Vec<String> {
+    let mut out = base.to_vec();
+    let mut assigned = assigned.into_iter().collect::<Vec<_>>();
+    assigned.sort();
+    for name in assigned {
+        if !out.iter().any(|existing| existing == &name) {
+            out.push(name);
+        }
+    }
+    out
+}
+
+fn conservative_state_after_prefix<E>(base: &[String], body: &[BlockPyStmt<E>]) -> Vec<String>
+where
+    E: Clone + Into<Expr>,
+{
+    let mut assigned = HashSet::new();
+    for stmt in body {
+        collect_assigned_names_in_blockpy_stmt(stmt, &mut assigned);
+    }
+    extend_ordered_state(base, assigned)
+}
+
+fn conservative_state_after_if_branches<E>(
+    base: &[String],
+    if_stmt: &super::block_py::BlockPyStructuredIf<E>,
+) -> Vec<String>
+where
+    E: Clone + Into<Expr>,
+{
+    let mut assigned = HashSet::new();
+    collect_assigned_names_in_blockpy_fragment(&if_stmt.body, &mut assigned);
+    collect_assigned_names_in_blockpy_fragment(&if_stmt.orelse, &mut assigned);
+    extend_ordered_state(base, assigned)
+}
+
+fn linearize_blockpy_ifs_for_bb<E: Clone + Into<Expr>>(
     blocks: &[BlockPyBlock<E>],
     block_params: &HashMap<String, Vec<String>>,
     exception_edges: &HashMap<String, Option<String>>,
@@ -193,7 +318,7 @@ fn linearize_blockpy_ifs_for_bb<E: Clone>(
     (out_blocks, out_block_params, out_exception_edges)
 }
 
-fn linearize_blockpy_if_sequence<E: Clone>(
+fn linearize_blockpy_if_sequence<E: Clone + Into<Expr>>(
     label: BlockPyLabel,
     body: Vec<BlockPyStmt<E>>,
     final_term: BlockPyTerm<E>,
@@ -226,6 +351,8 @@ fn linearize_blockpy_if_sequence<E: Clone>(
         Some(BlockPyStmt::If(if_stmt)) => if_stmt,
         _ => unreachable!("expected structured BlockPy if at split point"),
     };
+    let available_before_if = conservative_state_after_prefix(&block_params, &body);
+    let join_block_params = conservative_state_after_if_branches(&available_before_if, &if_stmt);
 
     let then_label = fresh_linearized_if_label(&label, next_label_id, "if_then");
     let else_label = fresh_linearized_if_label(&label, next_label_id, "if_else");
@@ -257,6 +384,7 @@ fn linearize_blockpy_if_sequence<E: Clone>(
         if_stmt.body,
         branch_fallthrough.clone(),
         meta.clone(),
+        available_before_if.clone(),
         exc_target.clone(),
         next_label_id,
         out_blocks,
@@ -268,6 +396,7 @@ fn linearize_blockpy_if_sequence<E: Clone>(
         if_stmt.orelse,
         branch_fallthrough,
         meta.clone(),
+        available_before_if.clone(),
         exc_target.clone(),
         next_label_id,
         out_blocks,
@@ -281,7 +410,7 @@ fn linearize_blockpy_if_sequence<E: Clone>(
             rest,
             final_term,
             meta,
-            Vec::new(),
+            join_block_params,
             exc_target,
             next_label_id,
             out_blocks,
@@ -291,11 +420,12 @@ fn linearize_blockpy_if_sequence<E: Clone>(
     }
 }
 
-fn linearize_blockpy_fragment<E: Clone>(
+fn linearize_blockpy_fragment<E: Clone + Into<Expr>>(
     label: BlockPyLabel,
     fragment: super::block_py::BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>,
     fallthrough_term: BlockPyTerm<E>,
     meta: BlockPyBlockMeta,
+    block_params: Vec<String>,
     exc_target: Option<String>,
     next_label_id: &mut usize,
     out_blocks: &mut Vec<BlockPyBlock<E>>,
@@ -307,7 +437,7 @@ fn linearize_blockpy_fragment<E: Clone>(
         fragment.body,
         fragment.term.unwrap_or(fallthrough_term),
         meta,
-        Vec::new(),
+        block_params,
         exc_target,
         next_label_id,
         out_blocks,

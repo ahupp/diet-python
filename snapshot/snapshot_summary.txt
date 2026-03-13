@@ -10,9 +10,9 @@ snapshot_expr::subscript_slice: blockpy=1, clif=1
 snapshot_expr::binary_add: blockpy=1, clif=1
 snapshot_expr::binary_bitwise_or: blockpy=1, clif=1
 snapshot_expr::unary_neg: blockpy=1, clif=1
-snapshot_expr::boolop_chain: blockpy=5, clif=5
+snapshot_expr::boolop_chain: blockpy=1, clif=7
 snapshot_expr::compare_lt: blockpy=1, clif=1
-snapshot_expr::compare_chain: blockpy=3, clif=3
+snapshot_expr::compare_chain: blockpy=1, clif=4
 snapshot_expr::compare_not_in: blockpy=1, clif=1
 snapshot_expr::if_expr: blockpy=4, clif=4
 snapshot_expr::named_expr: blockpy=1, clif=1

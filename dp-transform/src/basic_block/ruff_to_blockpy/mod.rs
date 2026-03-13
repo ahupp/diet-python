@@ -1725,7 +1725,7 @@ def f():
         assert!(
             matches!(
                 plan_stmt_sequence_head(&test_context(), match_if.as_ref(), false),
-                StmtSequenceHeadPlan::Expanded(_)
+                StmtSequenceHeadPlan::If(_)
             ),
             "{}",
             crate::ruff_ast_to_string(match_if.as_ref()).trim_end()

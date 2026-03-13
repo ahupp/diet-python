@@ -91,25 +91,14 @@ x = a and b or c
 #     bind: _dp_module_init
 #     qualname: _dp_module_init
 #     block start:
-#         _dp_target_1 = a
-#         if_term _dp_target_1:
-#             then:
-#                 block _dp_bb__dp_module_init_3:
-#                     _dp_target_1 = b
-#                     jump _dp_bb__dp_module_init_2
-#             else:
-#                 jump _dp_bb__dp_module_init_2
-#         block _dp_bb__dp_module_init_2:
-#             if_term __dp_not_(_dp_target_1):
-#                 then:
-#                     block _dp_bb__dp_module_init_1:
-#                         _dp_target_1 = c
-#                         jump _dp_bb__dp_module_init_0
-#                 else:
-#                     jump _dp_bb__dp_module_init_0
-#             block _dp_bb__dp_module_init_0:
-#                 __dp_store_global(globals(), "x", _dp_target_1)
-#                 return
+#         _dp_target_2 = a
+#         if _dp_target_2:
+#             _dp_target_2 = b
+#         _dp_target_1 = _dp_target_2
+#         if not _dp_target_1:
+#             _dp_target_1 = c
+#         __dp_store_global(globals(), "x", _dp_target_1)
+#         return
 
 # compare_lt
 
@@ -140,19 +129,13 @@ x = a < b < c
 #     bind: _dp_module_init
 #     qualname: _dp_module_init
 #     block start:
-#         _dp_compare_2 = a
+#         _dp_compare_1 = a
 #         _dp_compare_3 = b
-#         _dp_target_1 = __dp_lt(_dp_compare_2, _dp_compare_3)
-#         if_term _dp_target_1:
-#             then:
-#                 block _dp_bb__dp_module_init_1:
-#                     _dp_target_1 = __dp_lt(_dp_compare_3, c)
-#                     jump _dp_bb__dp_module_init_0
-#             else:
-#                 jump _dp_bb__dp_module_init_0
-#         block _dp_bb__dp_module_init_0:
-#             __dp_store_global(globals(), "x", _dp_target_1)
-#             return
+#         _dp_target_2 = __dp_lt(_dp_compare_1, _dp_compare_3)
+#         if _dp_target_2:
+#             _dp_target_2 = __dp_lt(_dp_compare_3, c)
+#         __dp_store_global(globals(), "x", _dp_target_2)
+#         return
 
 # compare_not_in
 

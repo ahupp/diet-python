@@ -2,7 +2,7 @@ use super::BlockPySetupExprLowerer;
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::block_py::BlockPyStmtFragmentBuilder;
 use crate::basic_block::ruff_to_blockpy::expr_lowering::boolop_compare::{
-    expr_boolop_to_stmts, expr_compare_to_stmts,
+    lower_boolop_into, lower_compare_into,
 };
 use crate::basic_block::ruff_to_blockpy::LoopContext;
 use ruff_python_ast::{self as ast, Expr};
@@ -20,20 +20,12 @@ where
     E: From<Expr> + std::fmt::Debug,
 {
     match expr {
-        Expr::BoolOp(bool_op) => lowerer.lower_setup_expr(
-            context,
-            expr_boolop_to_stmts(context, bool_op),
-            out,
-            loop_ctx,
-            next_label_id,
-        ),
-        Expr::Compare(compare) => lowerer.lower_setup_expr(
-            context,
-            expr_compare_to_stmts(context, compare),
-            out,
-            loop_ctx,
-            next_label_id,
-        ),
+        Expr::BoolOp(bool_op) => {
+            lower_boolop_into(lowerer, context, bool_op, out, loop_ctx, next_label_id)
+        }
+        Expr::Compare(compare) => {
+            lower_compare_into(lowerer, context, compare, out, loop_ctx, next_label_id)
+        }
         Expr::Attribute(ast::ExprAttribute {
             value,
             attr,

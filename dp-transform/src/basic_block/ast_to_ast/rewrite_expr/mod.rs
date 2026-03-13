@@ -17,7 +17,6 @@ use crate::{
 };
 use ruff_python_ast::Identifier;
 
-pub mod compare_boolop;
 pub mod comprehension;
 pub mod string;
 
@@ -92,8 +91,6 @@ else:
             );
             LoweredExpr::modified(py_expr!("{tmp:id}", tmp = tmp.as_str()), stmts)
         }
-        Expr::BoolOp(bool_op) => compare_boolop::expr_boolop_to_stmts(context, bool_op),
-        Expr::Compare(compare) => compare_boolop::expr_compare_to_stmts(context, compare),
         Expr::Call(ast::ExprCall {
             func,
             arguments,

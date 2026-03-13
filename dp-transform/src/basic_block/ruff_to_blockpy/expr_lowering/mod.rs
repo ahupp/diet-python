@@ -84,11 +84,7 @@ impl BlockPySetupExprLowerer for AstSetupExprLowerer {
 }
 
 pub(crate) fn lower_expr_head_ast_for_blockpy(context: &Context, expr: Expr) -> LoweredExpr {
-    match expr {
-        Expr::BoolOp(bool_op) => boolop_compare::expr_boolop_to_stmts(context, bool_op),
-        Expr::Compare(compare) => boolop_compare::expr_compare_to_stmts(context, compare),
-        other => AstSetupExprLowerer.simplify_expr_ast(context, other),
-    }
+    AstSetupExprLowerer.simplify_expr_ast(context, expr)
 }
 
 pub(crate) fn lower_expr_into_with_setup<E>(
