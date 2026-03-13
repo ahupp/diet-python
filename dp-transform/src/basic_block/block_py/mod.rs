@@ -55,7 +55,7 @@ pub type RuffBlockPyStmt = BlockPyStmt<Expr>;
 pub type RuffBlockPyTerm = BlockPyTerm<Expr>;
 pub type RuffBlockPyStmtFragment = BlockPyStmtFragment<Expr>;
 pub type RuffBlockPyAssign = BlockPyAssign<Expr>;
-pub type RuffBlockPyIf = BlockPyIf<Expr, RuffBlockPyStmt, RuffBlockPyTerm>;
+pub type RuffBlockPyIf = BlockPyStructuredIf<Expr>;
 pub type RuffBlockPyIfTerm = BlockPyIfTerm<Expr>;
 pub type RuffBlockPyBranchTable = BlockPyBranchTable<Expr>;
 pub type RuffBlockPyRaise = BlockPyRaise<Expr>;
@@ -101,6 +101,7 @@ pub type BlockPyBlock<E = BlockPyExpr> = BlockPyCfgBlock<BlockPyStmt<E>, BlockPy
 pub type BlockPyModuleWith<S, T, E = BlockPyExpr> =
     CfgModule<BlockPyCallableDef<E, BlockPyCfgBlock<S, T>>>;
 pub type BlockPyModule<E = BlockPyExpr> = BlockPyModuleWith<BlockPyStmt<E>, BlockPyTerm<E>, E>;
+pub type BlockPyStructuredIf<E = BlockPyExpr> = BlockPyIf<E, BlockPyStmt<E>, BlockPyTerm<E>>;
 
 pub trait BlockPyNormalizedStmt {
     fn assert_blockpy_normalized(&self);
@@ -273,7 +274,7 @@ pub enum BlockPyStmt<E = BlockPyExpr> {
     Assign(BlockPyAssign<E>),
     Expr(E),
     Delete(BlockPyDelete),
-    If(BlockPyIf<E>),
+    If(BlockPyStructuredIf<E>),
 }
 
 impl<E: std::fmt::Debug> BlockPyStmt<E> {
