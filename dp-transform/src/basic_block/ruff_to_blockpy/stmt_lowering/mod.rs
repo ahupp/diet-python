@@ -201,7 +201,7 @@ fn plan_simplified_stmt_head_for_blockpy(
         match &simplified {
             Stmt::Expr(_) | Stmt::Assign(_) | Stmt::Return(_) => {
                 if let Some(plan) =
-                    super::stmt_sequences::plan_generator_stmt_in_sequence(context, &simplified)
+                    super::stmt_sequences::plan_generator_stmt_head_block(context, &simplified)
                 {
                     return StmtSequenceHeadPlan::Generator {
                         plan,

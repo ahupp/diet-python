@@ -2,9 +2,9 @@ use super::stmt_lowering::lower_stmt_into_with_expr;
 use super::*;
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::block_py::{
-    BlockPyAssign, BlockPyExpr, BlockPyRaise, BlockPyStmt, BlockPyTerm,
-    SemanticBlockPyBlock as BlockPyBlock,
+    BlockPyExpr, BlockPyRaise, BlockPyStmt, BlockPyTerm, SemanticBlockPyBlock as BlockPyBlock,
 };
+use crate::basic_block::blockpy_generators::plan_generator_block_fragment;
 
 pub(crate) fn lower_stmts_to_blockpy_stmts_with_context<E>(
     context: &Context,
@@ -34,16 +34,10 @@ where
     lower_stmts_to_blockpy_stmts_with_context(&context, stmts)
 }
 
-#[derive(Clone)]
-pub(crate) enum GeneratorStmtSequenceHeadKind {
-    Stmt(BlockPyStmt),
-    Term(BlockPyTerm),
-}
-
-fn generator_stmt_sequence_head(
+pub(crate) fn plan_generator_stmt_head_block(
     context: &Context,
     stmt: &Stmt,
-) -> Option<(GeneratorStmtSequenceHeadKind, bool)> {
+) -> Option<GeneratorBlockPlan> {
     let generator_stmt = match lower_stmts_to_blockpy_stmts_with_context::<BlockPyExpr>(
         context,
         std::slice::from_ref(stmt),
@@ -58,52 +52,7 @@ fn generator_stmt_sequence_head(
             };
         }
     };
-    let generator_stmt = match (generator_stmt.body.as_slice(), generator_stmt.term.as_ref()) {
-        ([stmt], None) => GeneratorStmtSequenceHeadKind::Stmt(stmt.clone()),
-        ([], Some(term)) => GeneratorStmtSequenceHeadKind::Term(term.clone()),
-        _ => panic!("generator stmt conversion should yield one BlockPy stmt or one term"),
-    };
-    match &generator_stmt {
-        GeneratorStmtSequenceHeadKind::Stmt(BlockPyStmt::Expr(BlockPyExpr::Yield(_)))
-        | GeneratorStmtSequenceHeadKind::Stmt(BlockPyStmt::Expr(BlockPyExpr::YieldFrom(_)))
-        | GeneratorStmtSequenceHeadKind::Stmt(BlockPyStmt::Assign(BlockPyAssign {
-            value: BlockPyExpr::Yield(_),
-            ..
-        }))
-        | GeneratorStmtSequenceHeadKind::Stmt(BlockPyStmt::Assign(BlockPyAssign {
-            value: BlockPyExpr::YieldFrom(_),
-            ..
-        }))
-        | GeneratorStmtSequenceHeadKind::Term(BlockPyTerm::Return(Some(BlockPyExpr::Yield(_))))
-        | GeneratorStmtSequenceHeadKind::Term(BlockPyTerm::Return(Some(BlockPyExpr::YieldFrom(
-            _,
-        )))) => {}
-        _ => return None,
-    }
-    let needs_rest_entry = match &generator_stmt {
-        GeneratorStmtSequenceHeadKind::Stmt(stmt) => {
-            blockpy_stmt_requires_generator_rest_entry(stmt)
-        }
-        GeneratorStmtSequenceHeadKind::Term(_) => false,
-    };
-    Some((generator_stmt, needs_rest_entry))
-}
-
-#[derive(Clone)]
-pub(crate) struct GeneratorStmtSequencePlan {
-    generator_head: GeneratorStmtSequenceHeadKind,
-    pub needs_rest_entry: bool,
-}
-
-pub(crate) fn plan_generator_stmt_in_sequence(
-    context: &Context,
-    stmt: &Stmt,
-) -> Option<GeneratorStmtSequencePlan> {
-    let (generator_head, needs_rest_entry) = generator_stmt_sequence_head(context, stmt)?;
-    Some(GeneratorStmtSequencePlan {
-        generator_head,
-        needs_rest_entry,
-    })
+    plan_generator_block_fragment(generator_stmt)
 }
 
 pub(crate) fn plan_stmt_sequence_head(
@@ -338,52 +287,9 @@ where
     )
 }
 
-pub(crate) fn lower_generator_stmt_sequence_plan(
-    plan: &GeneratorStmtSequencePlan,
-    linear: Vec<Stmt>,
-    rest_entry: Option<String>,
-    blocks: &mut Vec<BlockPyBlock>,
-    closure_state: bool,
-    try_regions: &mut Vec<TryRegionPlan>,
-    resume_order: &mut Vec<String>,
-    yield_sites: &mut Vec<GeneratorYieldSite>,
-    next_block_id: &mut usize,
-    fn_name: &str,
-    cell_slots: Option<&std::collections::HashSet<String>>,
-) -> Option<String> {
-    match &plan.generator_head {
-        GeneratorStmtSequenceHeadKind::Stmt(stmt) => lower_generator_blockpy_stmt_in_sequence(
-            stmt,
-            linear,
-            rest_entry,
-            blocks,
-            None,
-            closure_state,
-            try_regions,
-            resume_order,
-            yield_sites,
-            next_block_id,
-            fn_name,
-            cell_slots,
-        ),
-        GeneratorStmtSequenceHeadKind::Term(term) => lower_generator_blockpy_term_in_sequence(
-            term,
-            linear,
-            blocks,
-            None,
-            closure_state,
-            try_regions,
-            resume_order,
-            yield_sites,
-            next_block_id,
-            fn_name,
-        ),
-    }
-}
-
 pub(crate) fn lower_generator_stmt_sequence_head<F>(
     fn_name: &str,
-    plan: GeneratorStmtSequencePlan,
+    plan: GeneratorBlockPlan,
     remaining_stmts: &[Box<Stmt>],
     cont_label: String,
     linear: Vec<Stmt>,
@@ -408,7 +314,7 @@ where
     } else {
         None
     };
-    let label = lower_generator_stmt_sequence_plan(
+    let label = lower_generator_block_plan(
         &plan,
         linear,
         rest_entry,

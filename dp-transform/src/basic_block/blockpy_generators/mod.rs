@@ -61,6 +61,14 @@ pub(crate) struct GeneratorYieldSite {
     pub resume_label: String,
 }
 
+const GENERATOR_REST_SENTINEL_LABEL: &str = "__dp_generator_rest";
+
+#[derive(Debug, Clone)]
+pub(crate) struct GeneratorBlockPlan {
+    pub block: BlockPyBlock,
+    pub needs_rest_entry: bool,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct GeneratorMetadata {
     pub dispatch_entry_label: Option<String>,
@@ -573,6 +581,134 @@ pub(crate) fn blockpy_stmt_requires_generator_rest_entry(stmt: &BlockPyStmt) -> 
             ..
         }) => true,
         _ => false,
+    }
+}
+
+pub(crate) fn plan_generator_block_fragment(
+    fragment: crate::basic_block::block_py::SemanticBlockPyStmtFragment,
+) -> Option<GeneratorBlockPlan> {
+    match (fragment.body.as_slice(), fragment.term.as_ref()) {
+        ([stmt], None) => {
+            let needs_rest_entry = blockpy_stmt_requires_generator_rest_entry(stmt);
+            let mut block = BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(
+                BlockPyLabel::from("_dp_generator_head".to_string()),
+            );
+            block.push_stmt(stmt.clone());
+            if needs_rest_entry {
+                block.set_term(BlockPyTerm::Jump(BlockPyLabel::from(
+                    GENERATOR_REST_SENTINEL_LABEL.to_string(),
+                )));
+            }
+            Some(GeneratorBlockPlan {
+                block: block.finish(None),
+                needs_rest_entry,
+            })
+        }
+        ([], Some(term)) => match term {
+            BlockPyTerm::Return(Some(BlockPyExpr::Yield(_)))
+            | BlockPyTerm::Return(Some(BlockPyExpr::YieldFrom(_))) => {
+                let mut block = BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(
+                    BlockPyLabel::from("_dp_generator_head".to_string()),
+                );
+                block.set_term(term.clone());
+                Some(GeneratorBlockPlan {
+                    block: block.finish(None),
+                    needs_rest_entry: false,
+                })
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+pub(crate) fn lower_generator_block_plan(
+    plan: &GeneratorBlockPlan,
+    linear: Vec<Stmt>,
+    rest_entry: Option<String>,
+    blocks: &mut Vec<BlockPyBlock>,
+    closure_state: bool,
+    try_regions: &mut Vec<TryRegionPlan>,
+    resume_order: &mut Vec<String>,
+    yield_sites: &mut Vec<GeneratorYieldSite>,
+    next_block_id: &mut usize,
+    fn_name: &str,
+    cell_slots: Option<&HashSet<String>>,
+) -> Option<String> {
+    let mut block = plan.block.clone();
+    if plan.needs_rest_entry {
+        let rest_entry =
+            rest_entry.expect("generator body stmt lowering requires a rest-entry label");
+        match &mut block.term {
+            BlockPyTerm::Jump(label) if label.as_str() == GENERATOR_REST_SENTINEL_LABEL => {
+                *label = BlockPyLabel::from(rest_entry);
+            }
+            _ => panic!("generator block plan expected a synthetic rest-entry jump"),
+        }
+    }
+    lower_generator_block_head(
+        &block,
+        linear,
+        blocks,
+        None,
+        closure_state,
+        try_regions,
+        resume_order,
+        yield_sites,
+        next_block_id,
+        fn_name,
+        cell_slots,
+    )
+}
+
+pub(crate) fn lower_generator_block_head(
+    block: &BlockPyBlock,
+    linear: Vec<Stmt>,
+    blocks: &mut Vec<BlockPyBlock>,
+    ambient_exc_param: Option<&str>,
+    closure_state: bool,
+    try_regions: &mut Vec<TryRegionPlan>,
+    resume_order: &mut Vec<String>,
+    yield_sites: &mut Vec<GeneratorYieldSite>,
+    next_block_id: &mut usize,
+    fn_name: &str,
+    cell_slots: Option<&HashSet<String>>,
+) -> Option<String> {
+    match (block.body.as_slice(), &block.term) {
+        ([stmt], BlockPyTerm::Jump(rest_label))
+            if blockpy_stmt_requires_generator_rest_entry(stmt) =>
+        {
+            lower_generator_blockpy_stmt_in_sequence(
+                stmt,
+                linear,
+                Some(rest_label.as_str().to_string()),
+                blocks,
+                ambient_exc_param,
+                closure_state,
+                try_regions,
+                resume_order,
+                yield_sites,
+                next_block_id,
+                fn_name,
+                cell_slots,
+            )
+        }
+        ([], term @ BlockPyTerm::Return(Some(BlockPyExpr::Yield(_))))
+        | ([], term @ BlockPyTerm::Return(Some(BlockPyExpr::YieldFrom(_)))) => {
+            lower_generator_blockpy_term_in_sequence(
+                term,
+                linear,
+                blocks,
+                ambient_exc_param,
+                closure_state,
+                try_regions,
+                resume_order,
+                yield_sites,
+                next_block_id,
+                fn_name,
+            )
+        }
+        _ => None,
     }
 }
 
@@ -1801,9 +1937,12 @@ pub(crate) struct GeneratorLoweringCtx<'a> {
 mod tests {
     use super::{
         build_closure_backed_generator_export_plan, build_initial_generator_metadata,
-        GeneratorYieldSite,
+        plan_generator_block_fragment, GeneratorYieldSite,
     };
     use crate::basic_block::bb_ir::{BbClosureInit, BbClosureLayout, BbClosureSlot};
+    use crate::basic_block::block_py::{BlockPyExpr, BlockPyTerm};
+    use crate::basic_block::ruff_to_blockpy::lower_stmts_to_blockpy_stmts;
+    use ruff_python_ast::Stmt;
 
     #[test]
     fn initial_generator_metadata_includes_entry_label_in_resume_order() {
@@ -1892,5 +2031,34 @@ mod tests {
             ]
         );
         assert_eq!(plan.factory_block.label.as_str(), "_dp_bb_agen_factory");
+    }
+
+    #[test]
+    fn generator_block_plan_wraps_yield_stmt_with_rest_placeholder() {
+        let module = ruff_python_parser::parse_module("def gen():\n    yield value\n")
+            .unwrap()
+            .into_syntax();
+        let Stmt::FunctionDef(func) = module.body.body[0].as_ref().clone() else {
+            panic!("expected function definition");
+        };
+        let Stmt::Expr(stmt) = func.body.body[0].as_ref().clone() else {
+            panic!("expected yield expression statement");
+        };
+        let fragment = lower_stmts_to_blockpy_stmts::<BlockPyExpr>(&[Stmt::Expr(stmt)])
+            .expect("yield stmt should lower to a semantic BlockPy fragment");
+        let plan = plan_generator_block_fragment(fragment)
+            .expect("yield stmt fragment should produce a generator plan");
+
+        assert!(plan.needs_rest_entry);
+        assert!(matches!(
+            plan.block.body.as_slice(),
+            [crate::basic_block::block_py::BlockPyStmt::Expr(
+                BlockPyExpr::Yield(_)
+            )]
+        ));
+        assert!(matches!(
+            &plan.block.term,
+            BlockPyTerm::Jump(label) if label.as_str() == "__dp_generator_rest"
+        ));
     }
 }

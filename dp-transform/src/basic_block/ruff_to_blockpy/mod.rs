@@ -39,13 +39,11 @@ mod stmt_sequences;
 mod try_regions;
 
 pub(crate) use super::blockpy_generators::{
-    blockpy_stmt_requires_generator_rest_entry, build_async_for_continue_entry,
-    build_blockpy_closure_layout, build_closure_backed_generator_export_plan,
-    build_initial_generator_metadata, lower_generator_blockpy_stmt_in_sequence,
-    lower_generator_blockpy_term_in_sequence,
-    lower_generator_yield_terms_to_explicit_return_blockpy,
+    build_async_for_continue_entry, build_blockpy_closure_layout,
+    build_closure_backed_generator_export_plan, build_initial_generator_metadata,
+    lower_generator_block_plan, lower_generator_yield_terms_to_explicit_return_blockpy,
     split_generator_return_terms_to_escape_blocks, synthesize_generator_dispatch_metadata,
-    GeneratorMetadata, GeneratorYieldSite,
+    GeneratorBlockPlan, GeneratorMetadata, GeneratorYieldSite,
 };
 
 pub(crate) use compat::{
@@ -63,7 +61,6 @@ pub(crate) use stmt_lowering::{
 };
 pub(crate) use stmt_sequences::{
     lower_expanded_stmt_sequence, lower_stmt_sequence_with_state, lower_stmts_to_blockpy_stmts,
-    GeneratorStmtSequencePlan,
 };
 pub(crate) use try_regions::{
     block_references_label, build_try_plan, finalize_try_regions, lower_try_regions,
@@ -120,7 +117,7 @@ pub(crate) enum StmtSequenceHeadPlan {
     Expanded(Stmt),
     FunctionDef(ast::StmtFunctionDef),
     Generator {
-        plan: GeneratorStmtSequencePlan,
+        plan: GeneratorBlockPlan,
         sync_target_cells: bool,
     },
     Raise(ast::StmtRaise),
@@ -1352,12 +1349,13 @@ mod tests {
         SemanticBlockPyRaise as BlockPyRaise, SemanticBlockPyStmt as BlockPyStmt,
         SemanticBlockPyTerm as BlockPyTerm,
     };
-    use crate::basic_block::blockpy_generators::build_closure_backed_generator_factory_block;
+    use crate::basic_block::blockpy_generators::{
+        build_closure_backed_generator_factory_block, lower_generator_block_plan,
+    };
     use crate::basic_block::ruff_to_blockpy::stmt_sequences::{
-        lower_for_stmt_sequence, lower_generator_stmt_sequence_head,
-        lower_generator_stmt_sequence_plan, lower_if_stmt_sequence,
+        lower_for_stmt_sequence, lower_generator_stmt_sequence_head, lower_if_stmt_sequence,
         lower_if_stmt_sequence_from_stmt, lower_while_stmt_sequence,
-        lower_while_stmt_sequence_from_stmt, plan_generator_stmt_in_sequence,
+        lower_while_stmt_sequence_from_stmt, plan_generator_stmt_head_block,
         plan_stmt_sequence_head,
     };
     use crate::basic_block::ruff_to_blockpy::try_regions::build_try_plan;
@@ -1480,10 +1478,10 @@ def gen(n):
         let mut yield_sites = Vec::new();
         let mut next_block_id = 0usize;
         let context = test_context();
-        let plan = plan_generator_stmt_in_sequence(&context, &stmt)
+        let plan = plan_generator_stmt_head_block(&context, &stmt)
             .expect("expected generator stmt sequence plan");
         assert!(plan.needs_rest_entry);
-        let label = lower_generator_stmt_sequence_plan(
+        let label = lower_generator_block_plan(
             &plan,
             Vec::new(),
             Some("cont".to_string()),
@@ -1525,7 +1523,7 @@ def gen(n):
             .clone();
 
         let context = test_context();
-        let needs_rest_entry = plan_generator_stmt_in_sequence(&context, &stmt)
+        let needs_rest_entry = plan_generator_stmt_head_block(&context, &stmt)
             .expect("expected generator sequence head")
             .needs_rest_entry;
 
@@ -1555,7 +1553,7 @@ def gen(n):
             .clone();
 
         let context = test_context();
-        let needs_rest_entry = plan_generator_stmt_in_sequence(&context, &stmt)
+        let needs_rest_entry = plan_generator_stmt_head_block(&context, &stmt)
             .expect("expected generator sequence head")
             .needs_rest_entry;
 
@@ -1771,7 +1769,7 @@ async def run():
         assert!(func.is_async);
         let stmt = func.body.body[0].as_ref();
 
-        assert!(plan_generator_stmt_in_sequence(&test_context(), stmt).is_none());
+        assert!(plan_generator_stmt_head_block(&test_context(), stmt).is_none());
     }
 
     #[test]
@@ -1797,7 +1795,7 @@ def gen(n):
         let mut rest_calls = Vec::new();
 
         let context = test_context();
-        let generator_plan = plan_generator_stmt_in_sequence(&context, stmt)
+        let generator_plan = plan_generator_stmt_head_block(&context, stmt)
             .expect("expected generator stmt sequence plan");
         let (label, state) = lower_generator_stmt_sequence_head(
             "gen",
@@ -1847,7 +1845,7 @@ def gen(n):
         let mut rest_called = false;
 
         let context = test_context();
-        let generator_plan = plan_generator_stmt_in_sequence(&context, stmt)
+        let generator_plan = plan_generator_stmt_head_block(&context, stmt)
             .expect("expected generator stmt sequence plan");
         let (label, state) = lower_generator_stmt_sequence_head(
             "gen",
