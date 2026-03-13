@@ -1,8 +1,32 @@
 use super::*;
+use crate::{basic_block::ast_to_ast::ast_rewrite::Rewrite, py_stmt};
+
+pub(crate) fn rewrite_assert_stmt(ast::StmtAssert { test, msg, .. }: ast::StmtAssert) -> Rewrite {
+    Rewrite::Walk(if let Some(msg_expr) = msg {
+        py_stmt!(
+            "
+if __debug__:
+    if not {test:expr}:
+        raise __dp_AssertionError({msg:expr})
+",
+            test = test,
+            msg = *msg_expr
+        )
+    } else {
+        py_stmt!(
+            "
+if __debug__:
+    if not {test:expr}:
+        raise __dp_AssertionError
+",
+            test = test
+        )
+    })
+}
 
 impl StmtLowerer for ast::StmtAssert {
     fn simplify_ast(self, _context: &Context) -> Stmt {
-        stmt_from_rewrite(crate::basic_block::ast_to_ast::rewrite_stmt::assert::rewrite(self))
+        stmt_from_rewrite(rewrite_assert_stmt(self))
     }
 
     fn to_blockpy<E>(

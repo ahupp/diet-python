@@ -57,8 +57,8 @@ pub(crate) use compat::{
     emit_simple_while_blocks, lower_for_loop_continue_entry_with_state,
 };
 pub(crate) use stmt_lowering::{
-    build_for_target_assign_body, lower_star_try_stmt_sequence, lower_stmt_into,
-    lower_try_stmt_sequence, lower_with_stmt_sequence,
+    build_for_target_assign_body, expand_if_chain, lower_star_try_stmt_sequence, lower_stmt_into,
+    lower_try_stmt_sequence, lower_with_stmt_sequence, rewrite_assert_stmt,
 };
 pub(crate) use stmt_sequences::{
     lower_expanded_stmt_sequence, lower_stmt_sequence_with_state, lower_stmts_to_blockpy_stmts,

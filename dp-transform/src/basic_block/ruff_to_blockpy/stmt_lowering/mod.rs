@@ -90,7 +90,9 @@ mod type_alias_stmt;
 mod unreduced;
 mod with_stmt;
 
+pub(crate) use assert_stmt::rewrite_assert_stmt;
 pub(crate) use assign_stmt::build_for_target_assign_body;
+pub(crate) use if_stmt::expand_if_chain;
 pub(crate) use try_stmt::{lower_star_try_stmt_sequence, lower_try_stmt_sequence};
 pub(crate) use with_stmt::lower_with_stmt_sequence;
 
