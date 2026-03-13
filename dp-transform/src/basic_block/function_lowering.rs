@@ -323,6 +323,10 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     if func.name.id.as_str().starts_with("_dp_bb_") {
         return None;
     }
+    // TODO: Stop classifying generated helpers from the raw AST function name.
+    // Some lowered helpers arrive here as internal `__dp_fn_*` wrappers, and
+    // follow-on phase routing should key off the canonical helper identity
+    // instead of string-matching partially lowered names.
     let is_generated_genexpr = func.name.id.as_str().contains("_dp_genexpr_");
     let is_generated_comprehension_helper = is_generated_genexpr
         || func.name.id.as_str().contains("_dp_listcomp_")
