@@ -59,6 +59,9 @@ pub enum CoreBlockPyExpr {
     NoneLiteral(ast::ExprNoneLiteral),
     Attribute(ast::ExprAttribute),
     Subscript(ast::ExprSubscript),
+    UnaryOp(ast::ExprUnaryOp),
+    BinOp(ast::ExprBinOp),
+    Compare(ast::ExprCompare),
     Name(ast::ExprName),
     Raw(Expr),
 }
@@ -491,7 +494,7 @@ mod tests {
         ));
         assert!(matches!(
             CoreBlockPyExpr::from(py_expr!("x + 1")),
-            CoreBlockPyExpr::Raw(_)
+            CoreBlockPyExpr::BinOp(_)
         ));
     }
 
@@ -504,6 +507,22 @@ mod tests {
         assert!(matches!(
             CoreBlockPyExpr::from(py_expr!("obj[idx]")),
             CoreBlockPyExpr::Subscript(_)
+        ));
+    }
+
+    #[test]
+    fn core_blockpy_expr_uses_reduced_variants_for_simple_operators() {
+        assert!(matches!(
+            CoreBlockPyExpr::from(py_expr!("-x")),
+            CoreBlockPyExpr::UnaryOp(_)
+        ));
+        assert!(matches!(
+            CoreBlockPyExpr::from(py_expr!("x + y")),
+            CoreBlockPyExpr::BinOp(_)
+        ));
+        assert!(matches!(
+            CoreBlockPyExpr::from(py_expr!("x < y")),
+            CoreBlockPyExpr::Compare(_)
         ));
     }
 }
@@ -558,6 +577,9 @@ impl From<Expr> for CoreBlockPyExpr {
             Expr::NoneLiteral(node) => Self::NoneLiteral(node),
             Expr::Attribute(node) => Self::Attribute(node),
             Expr::Subscript(node) => Self::Subscript(node),
+            Expr::UnaryOp(node) => Self::UnaryOp(node),
+            Expr::BinOp(node) => Self::BinOp(node),
+            Expr::Compare(node) => Self::Compare(node),
             Expr::Name(node) => Self::Name(node),
             other => Self::Raw(other),
         }
@@ -581,6 +603,9 @@ impl From<CoreBlockPyExpr> for Expr {
             CoreBlockPyExpr::NoneLiteral(node) => Expr::NoneLiteral(node),
             CoreBlockPyExpr::Attribute(node) => Expr::Attribute(node),
             CoreBlockPyExpr::Subscript(node) => Expr::Subscript(node),
+            CoreBlockPyExpr::UnaryOp(node) => Expr::UnaryOp(node),
+            CoreBlockPyExpr::BinOp(node) => Expr::BinOp(node),
+            CoreBlockPyExpr::Compare(node) => Expr::Compare(node),
             CoreBlockPyExpr::Name(node) => Expr::Name(node),
             CoreBlockPyExpr::Raw(expr) => expr,
         }
