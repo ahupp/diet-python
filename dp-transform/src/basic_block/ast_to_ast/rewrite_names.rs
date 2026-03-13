@@ -16,6 +16,7 @@ use crate::{
         scope::{cell_name, is_internal_symbol, BindingKind, BindingUse, Scope, ScopeKind},
         util::is_noarg_call,
     },
+    basic_block::ruff_to_blockpy,
     py_expr, py_stmt,
 };
 
@@ -395,6 +396,17 @@ impl Transformer for NameScopeRewriter<'_> {
                     import_from.clone(),
                 ));
                 if !matches!(rewritten, Stmt::ImportFrom(_)) {
+                    *stmt = rewritten;
+                    self.visit_stmt(stmt);
+                    return;
+                }
+            }
+            Stmt::TypeAlias(type_alias) => {
+                let rewritten = stmt_from_rewrite(ruff_to_blockpy::rewrite_type_alias_stmt(
+                    self.context,
+                    type_alias.clone(),
+                ));
+                if !matches!(rewritten, Stmt::TypeAlias(_)) {
                     *stmt = rewritten;
                     self.visit_stmt(stmt);
                     return;
