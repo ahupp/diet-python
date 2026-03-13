@@ -3,21 +3,24 @@ use std::{collections::HashSet, sync::Arc};
 use ruff_python_ast::name::Name;
 use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt, StmtBody};
 
+use super::context::Context;
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{
     basic_block::ast_to_ast::{
+        ast_rewrite::Rewrite,
         rewrite_class_def::class_body::{
             class_body_load_cell, class_body_load_global, class_body_store_global,
             class_body_store_target,
         },
+        rewrite_import,
         scope::{cell_name, is_internal_symbol, BindingKind, BindingUse, Scope, ScopeKind},
         util::is_noarg_call,
     },
     py_expr, py_stmt,
 };
 
-pub fn rewrite_explicit_bindings(scope: Arc<Scope>, body: &mut StmtBody) {
-    let mut rewriter = NameScopeRewriter::new(scope);
+pub fn rewrite_explicit_bindings(context: &Context, scope: Arc<Scope>, body: &mut StmtBody) {
+    let mut rewriter = NameScopeRewriter::new(context, scope);
     rewriter.visit_body(body);
 }
 
@@ -28,13 +31,14 @@ fn is_annotation_function_name(name: &str) -> bool {
         || name.starts_with("_dp_fn___annotate_func___")
 }
 
-struct NameScopeRewriter {
+struct NameScopeRewriter<'a> {
+    context: &'a Context,
     scope: Arc<Scope>,
 }
 
-impl NameScopeRewriter {
-    fn new(scope: Arc<Scope>) -> Self {
-        Self { scope }
+impl<'a> NameScopeRewriter<'a> {
+    fn new(context: &'a Context, scope: Arc<Scope>) -> Self {
+        Self { context, scope }
     }
 
     fn is_class_scope(&self) -> bool {
@@ -328,6 +332,12 @@ impl NameScopeRewriter {
     }
 }
 
+fn stmt_from_rewrite(rewrite: Rewrite) -> Stmt {
+    match rewrite {
+        Rewrite::Unmodified(stmt) | Rewrite::Walk(stmt) => stmt,
+    }
+}
+
 fn collect_parameter_names(parameters: &ast::Parameters) -> HashSet<String> {
     let mut names = HashSet::new();
     for param in parameters.posonlyargs.iter() {
@@ -368,9 +378,28 @@ fn collect_assigned_names(target: &Expr, names: &mut HashSet<String>) {
     }
 }
 
-impl Transformer for NameScopeRewriter {
+impl Transformer for NameScopeRewriter<'_> {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
+            Stmt::Import(import) => {
+                let rewritten = stmt_from_rewrite(rewrite_import::rewrite(import.clone()));
+                if !matches!(rewritten, Stmt::Import(_)) {
+                    *stmt = rewritten;
+                    self.visit_stmt(stmt);
+                    return;
+                }
+            }
+            Stmt::ImportFrom(import_from) => {
+                let rewritten = stmt_from_rewrite(rewrite_import::rewrite_from(
+                    self.context,
+                    import_from.clone(),
+                ));
+                if !matches!(rewritten, Stmt::ImportFrom(_)) {
+                    *stmt = rewritten;
+                    self.visit_stmt(stmt);
+                    return;
+                }
+            }
             Stmt::For(for_stmt) => {
                 let mut target_names = HashSet::new();
                 collect_assigned_names(for_stmt.target.as_ref(), &mut target_names);
@@ -606,7 +635,7 @@ finally:
                     .child_scope_for_function(func_def)
                     .expect("no child scope for function");
 
-                let mut child_rewriter = NameScopeRewriter::new(child_scope);
+                let mut child_rewriter = NameScopeRewriter::new(self.context, child_scope);
                 child_rewriter.visit_body(&mut func_def.body);
                 let param_names = collect_parameter_names(&func_def.parameters);
                 child_rewriter.insert_preamble(&mut func_def.body, &param_names);
@@ -627,7 +656,7 @@ finally:
                     .child_scope_for_class(class_def)
                     .expect("no child scope for class");
 
-                NameScopeRewriter::new(class_scope).visit_body(&mut class_def.body);
+                NameScopeRewriter::new(self.context, class_scope).visit_body(&mut class_def.body);
             }
             Stmt::AnnAssign(_) => {
                 panic!("AnnAssign should be gone now");

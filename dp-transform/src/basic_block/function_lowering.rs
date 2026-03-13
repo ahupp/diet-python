@@ -24,7 +24,6 @@ use super::stmt_utils::{
 };
 use crate::basic_block::ast_to_ast::ast_rewrite::{rewrite_with_pass, Rewrite, StmtRewritePass};
 use crate::basic_block::ast_to_ast::context::Context;
-use crate::basic_block::ast_to_ast::rewrite_import;
 use crate::basic_block::ast_to_ast::rewrite_stmt;
 use crate::basic_block::ast_to_ast::scope::{is_internal_symbol, Scope, ScopeKind};
 use crate::driver::SimplifyExprPass;
@@ -518,8 +517,6 @@ pub(crate) fn function_docstring_expr(func: &ast::StmtFunctionDef) -> Option<Exp
 pub(crate) fn lower_stmt_default(context: &Context, stmt: Stmt) -> Rewrite {
     match stmt {
         Stmt::Try(try_stmt) => rewrite_stmt::exception::rewrite_try(try_stmt),
-        Stmt::Import(import) => rewrite_import::rewrite(import),
-        Stmt::ImportFrom(import_from) => rewrite_import::rewrite_from(context, import_from),
         Stmt::Assign(assign) => {
             crate::basic_block::ruff_to_blockpy::rewrite_assign_stmt(context, assign)
         }

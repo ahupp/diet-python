@@ -44,7 +44,7 @@ pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> RewriteModule
     //  - globals: __dp__.load/store_global(globals(), name)
     //  - nonlocal: create a cell in the outermost scope, and access with __dp__.load/store_cell(cell, value)
     //  - class-body: class_body_load_cell/global(_dp_class_ns, name, cell / globals()) captures "try class, then outer"
-    rewrite_names::rewrite_explicit_bindings(scope.clone(), module);
+    rewrite_names::rewrite_explicit_bindings(context, scope.clone(), module);
 
     rewrite_class_def::class_body::rewrite_class_body_scopes(context, scope, module);
     // Re-run simplification to lower any constructs introduced by later passes.
