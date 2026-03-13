@@ -295,6 +295,13 @@ x = (i for i in it)
 #                         raise _dp_resume_exc
 #                     block _dp_bb__dp_genexpr_1_dispatch_throw_unstarted:
 #                         raise _dp_resume_exc
+#         block _dp_bb__dp_genexpr_1_2:
+#             if_term __dp_is_not(_dp_resume_exc, None):
+#                 then:
+#                     block _dp_bb__dp_genexpr_1_1:
+#                         raise _dp_resume_exc
+#                 else:
+#                     jump _dp_bb__dp_genexpr_1_5
 #         block _dp_bb__dp_genexpr_1_5:
 #             jump _dp_bb__dp_genexpr_1_4
 #             block _dp_bb__dp_genexpr_1_4:
@@ -317,13 +324,6 @@ x = (i for i in it)
 #                             __dp_store_cell(_dp_cell_i, i)
 #                             __dp_store_cell(_dp_cell__dp_pc, 2)
 #                             return i
-#         block _dp_bb__dp_genexpr_1_2:
-#             if_term __dp_is_not(_dp_resume_exc, None):
-#                 then:
-#                     block _dp_bb__dp_genexpr_1_1:
-#                         raise _dp_resume_exc
-#                 else:
-#                     jump _dp_bb__dp_genexpr_1_5
 #         block _dp_bb__dp_genexpr_1_invalid:
 #             raise RuntimeError("invalid generator pc: {}".format(__dp_load_cell(_dp_cell__dp_pc)))
 #     block _dp_bb__dp_genexpr_1_uncaught:
@@ -332,6 +332,8 @@ x = (i for i in it)
 #                 jump _dp_bb__dp_genexpr_1_uncaught_set_done
 #             else:
 #                 jump _dp_bb__dp_genexpr_1_uncaught_raise
+#     block _dp_bb__dp_genexpr_1_uncaught_raise:
+#         raise _dp_uncaught_exc_8
 #     block _dp_bb__dp_genexpr_1_uncaught_set_done:
 #         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
 #         __dp_store_cell(_dp_cell__dp_iter_2, __dp_DELETED)
@@ -341,8 +343,6 @@ x = (i for i in it)
 #         __dp_store_cell(_dp_cell__dp_yieldfrom, __dp_DELETED)
 #         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_8)
 #         jump _dp_bb__dp_genexpr_1_uncaught_raise
-#     block _dp_bb__dp_genexpr_1_uncaught_raise:
-#         raise _dp_uncaught_exc_8
 
 # function _dp_module_init()
 #     kind: function

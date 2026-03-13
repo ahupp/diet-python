@@ -329,7 +329,10 @@ fn rewrite_sync_generator_blockpy_block(
     {
         let (uses_before_def, _) = analyze_blockpy_use_def(block);
         let mut preload = Vec::new();
-        for name in passthrough_exception_names {
+        let mut sorted_passthrough_exception_names =
+            passthrough_exception_names.iter().collect::<Vec<_>>();
+        sorted_passthrough_exception_names.sort();
+        for name in sorted_passthrough_exception_names {
             if !params_contain(block_params, block.label.as_str(), name.as_str()) {
                 continue;
             }
@@ -568,4 +571,68 @@ fn lower_generated_stmts_to_blockpy(stmts: Vec<Stmt>) -> Vec<BlockPyStmt> {
         .unwrap_or_else(|err| panic!("failed to convert generated stmt to BlockPy: {err}"));
     assert!(lowered.term.is_none());
     lowered.body
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::basic_block::bb_ir::FunctionId;
+    use crate::basic_block::block_py::pretty::blockpy_module_to_string;
+    use crate::basic_block::block_py::{BlockPyBlockMeta, BlockPyCallableDef, BlockPyFunctionKind};
+    use crate::basic_block::cfg_ir::{CfgCallableDef, CfgModule};
+    use ruff_python_ast::Parameters;
+    use std::collections::{HashMap, HashSet};
+
+    #[test]
+    fn sync_generator_passthrough_preload_order_is_stable() {
+        let mut block = BlockPyBlock {
+            label: "start".into(),
+            body: vec![BlockPyStmt::Pass],
+            term: BlockPyTerm::Return(None),
+            meta: BlockPyBlockMeta::default(),
+        };
+        let mut block_params = HashMap::from([(
+            "start".to_string(),
+            vec!["_dp_try_exc_b".to_string(), "_dp_try_exc_a".to_string()],
+        )]);
+        let passthrough_exception_names =
+            HashSet::from(["_dp_try_exc_b".to_string(), "_dp_try_exc_a".to_string()]);
+
+        rewrite_sync_generator_blockpy_block(
+            &mut block,
+            &mut block_params,
+            &passthrough_exception_names,
+            &[],
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        );
+
+        let rendered = blockpy_module_to_string(&CfgModule {
+            module_init: None,
+            callable_defs: vec![BlockPyCallableDef {
+                cfg: CfgCallableDef {
+                    function_id: FunctionId(0),
+                    bind_name: "f".to_string(),
+                    display_name: "f".to_string(),
+                    qualname: "f".to_string(),
+                    kind: BlockPyFunctionKind::Function,
+                    params: Parameters::default(),
+                    entry_liveins: Vec::new(),
+                    blocks: vec![block],
+                },
+                doc: None,
+                closure_layout: None,
+                local_cell_slots: Vec::new(),
+            }],
+        });
+
+        let a_pos = rendered
+            .find("__dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_a, _dp_try_exc_a)")
+            .expect("a preload");
+        let b_pos = rendered
+            .find("__dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_b, _dp_try_exc_b)")
+            .expect("b preload");
+        assert!(a_pos < b_pos, "{rendered}");
+    }
 }

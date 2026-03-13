@@ -323,9 +323,6 @@ except:
 #         try_jump:
 #             body_label: _dp_bb__dp_module_init_6
 #             except_label: _dp_bb__dp_module_init_5
-#         block _dp_bb__dp_module_init_6:
-#             f()
-#             return
 #         block _dp_bb__dp_module_init_5:
 #             if_term __dp_exception_matches(__dp_current_exception(), E):
 #                 then:
@@ -334,19 +331,22 @@ except:
 #                         try_jump:
 #                             body_label: _dp_bb__dp_module_init_2
 #                             except_label: _dp_bb__dp_module_init_1
+#                         block _dp_bb__dp_module_init_1:
+#                             __dp_delitem_quietly(globals(), "e")
+#                             raise
 #                         block _dp_bb__dp_module_init_2:
 #                             g(__dp_load_global(globals(), "e"))
 #                             jump _dp_bb__dp_module_init_0
 #                             block _dp_bb__dp_module_init_0:
 #                                 __dp_delitem_quietly(globals(), "e")
 #                                 return
-#                         block _dp_bb__dp_module_init_1:
-#                             __dp_delitem_quietly(globals(), "e")
-#                             raise
 #                 else:
 #                     block _dp_bb__dp_module_init_4:
 #                         h()
 #                         return
+#         block _dp_bb__dp_module_init_6:
+#             f()
+#             return
 
 # for_else
 
@@ -430,6 +430,13 @@ with cm as x:
 #         try_jump:
 #             body_label: _dp_bb__dp_module_init_2
 #             except_label: _dp_bb__dp_module_init_0
+#         block _dp_bb__dp_module_init_0:
+#             _dp_with_exit_call_5 = _dp_with_exit_4
+#             _dp_with_exit_4 = None
+#             _dp_with_enter_6 = None
+#             __dp_contextmanager_exit(_dp_with_exit_call_5, __dp_exc_info())
+#             _dp_with_exit_call_5 = None
+#             return
 #         block _dp_bb__dp_module_init_2:
 #             x = _dp_with_enter_6
 #             _dp_with_enter_6 = None
@@ -438,13 +445,6 @@ with cm as x:
 #             block _dp_bb__dp_module_init_1:
 #                 _dp_try_exc_2 = None
 #                 jump _dp_bb__dp_module_init_0
-#         block _dp_bb__dp_module_init_0:
-#             _dp_with_exit_call_5 = _dp_with_exit_4
-#             _dp_with_exit_4 = None
-#             _dp_with_enter_6 = None
-#             __dp_contextmanager_exit(_dp_with_exit_call_5, __dp_exc_info())
-#             _dp_with_exit_call_5 = None
-#             return
 
 # function_local_ann_assign
 
@@ -714,6 +714,13 @@ with a as x, b as y:
 #         try_jump:
 #             body_label: _dp_bb__dp_module_init_7
 #             except_label: _dp_bb__dp_module_init_0
+#         block _dp_bb__dp_module_init_0:
+#             _dp_with_exit_call_5 = _dp_with_exit_4
+#             _dp_with_exit_4 = None
+#             _dp_with_enter_6 = None
+#             __dp_contextmanager_exit(_dp_with_exit_call_5, __dp_exc_info())
+#             _dp_with_exit_call_5 = None
+#             return
 #         block _dp_bb__dp_module_init_7:
 #             x = _dp_with_enter_6
 #             _dp_with_enter_6 = None
@@ -724,16 +731,6 @@ with a as x, b as y:
 #                 try_jump:
 #                     body_label: _dp_bb__dp_module_init_5
 #                     except_label: _dp_bb__dp_module_init_2
-#                 block _dp_bb__dp_module_init_5:
-#                     y = _dp_with_enter_14
-#                     _dp_with_enter_14 = None
-#                     jump _dp_bb__dp_module_init_4
-#                     block _dp_bb__dp_module_init_4:
-#                         body()
-#                         jump _dp_bb__dp_module_init_3
-#                         block _dp_bb__dp_module_init_3:
-#                             _dp_try_exc_10 = None
-#                             jump _dp_bb__dp_module_init_2
 #                 block _dp_bb__dp_module_init_2:
 #                     _dp_with_exit_call_13 = _dp_with_exit_12
 #                     _dp_with_exit_12 = None
@@ -744,13 +741,16 @@ with a as x, b as y:
 #                     block _dp_bb__dp_module_init_1:
 #                         _dp_try_exc_2 = None
 #                         jump _dp_bb__dp_module_init_0
-#         block _dp_bb__dp_module_init_0:
-#             _dp_with_exit_call_5 = _dp_with_exit_4
-#             _dp_with_exit_4 = None
-#             _dp_with_enter_6 = None
-#             __dp_contextmanager_exit(_dp_with_exit_call_5, __dp_exc_info())
-#             _dp_with_exit_call_5 = None
-#             return
+#                 block _dp_bb__dp_module_init_5:
+#                     y = _dp_with_enter_14
+#                     _dp_with_enter_14 = None
+#                     jump _dp_bb__dp_module_init_4
+#                     block _dp_bb__dp_module_init_4:
+#                         body()
+#                         jump _dp_bb__dp_module_init_3
+#                         block _dp_bb__dp_module_init_3:
+#                             _dp_try_exc_10 = None
+#                             jump _dp_bb__dp_module_init_2
 
 # async_for
 
@@ -817,11 +817,16 @@ async def run():
 #                         raise _dp_resume_exc
 #                     block _dp_bb_run_dispatch_throw_unstarted:
 #                         raise _dp_resume_exc
-#         block _dp_bb_run_24:
+#         block _dp_bb_run_1:
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_11, _dp_try_exc_11)
-#             _dp_iter_2 = __dp_aiter(ait)
-#             __dp_store_cell(_dp_cell__dp_iter_2, _dp_iter_2)
-#             jump _dp_bb_run_19
+#             _dp_yield_from_y_8 = next(__dp_load_cell(_dp_cell__dp_yieldfrom))
+#             __dp_store_cell(_dp_cell__dp_yield_from_y_8, _dp_yield_from_y_8)
+#             jump _dp_bb_run_6
+#         block _dp_bb_run_12:
+#             _dp_yield_from_raise_13 = __dp_load_deleted_name("_dp_yield_from_raise_13", __dp_load_cell(_dp_cell__dp_yield_from_raise_13))
+#             __dp_store_cell(_dp_cell__dp_yield_from_raise_13, _dp_yield_from_raise_13)
+#             __dp_store_cell(_dp_cell__dp_yieldfrom, None)
+#             raise _dp_yield_from_raise_13
 #         block _dp_bb_run_19:
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_11, _dp_try_exc_11)
 #             jump _dp_bb_run_0
@@ -835,16 +840,6 @@ async def run():
 #                 try_jump:
 #                     body_label: _dp_bb_run_1
 #                     except_label: _dp_bb_run_2
-#         block _dp_bb_run_1:
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_11, _dp_try_exc_11)
-#             _dp_yield_from_y_8 = next(__dp_load_cell(_dp_cell__dp_yieldfrom))
-#             __dp_store_cell(_dp_cell__dp_yield_from_y_8, _dp_yield_from_y_8)
-#             jump _dp_bb_run_6
-#         block _dp_bb_run_6:
-#             _dp_yield_from_y_8 = __dp_load_deleted_name("_dp_yield_from_y_8", __dp_load_cell(_dp_cell__dp_yield_from_y_8))
-#             __dp_store_cell(_dp_cell__dp_yield_from_y_8, _dp_yield_from_y_8)
-#             __dp_store_cell(_dp_cell__dp_pc, 2)
-#             return _dp_yield_from_y_8
 #         block _dp_bb_run_2:
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_11, _dp_try_exc_11)
 #             _dp_try_exc_11 = __dp_load_deleted_name("_dp_try_exc_11", __dp_load_cell(_dp_cell__dp_try_exc_11))
@@ -904,11 +899,24 @@ async def run():
 #                         _dp_yield_from_raise_13 = _dp_try_exc_11
 #                         __dp_store_cell(_dp_cell__dp_yield_from_raise_13, _dp_yield_from_raise_13)
 #                         jump _dp_bb_run_12
-#         block _dp_bb_run_12:
-#             _dp_yield_from_raise_13 = __dp_load_deleted_name("_dp_yield_from_raise_13", __dp_load_cell(_dp_cell__dp_yield_from_raise_13))
-#             __dp_store_cell(_dp_cell__dp_yield_from_raise_13, _dp_yield_from_raise_13)
-#             __dp_store_cell(_dp_cell__dp_yieldfrom, None)
-#             raise _dp_yield_from_raise_13
+#         block _dp_bb_run_24:
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_11, _dp_try_exc_11)
+#             _dp_iter_2 = __dp_aiter(ait)
+#             __dp_store_cell(_dp_cell__dp_iter_2, _dp_iter_2)
+#             jump _dp_bb_run_19
+#         block _dp_bb_run_26:
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_11, _dp_try_exc_11)
+#             if_term __dp_is_not(_dp_resume_exc, None):
+#                 then:
+#                     block _dp_bb_run_25:
+#                         raise _dp_resume_exc
+#                 else:
+#                     jump _dp_bb_run_24
+#         block _dp_bb_run_6:
+#             _dp_yield_from_y_8 = __dp_load_deleted_name("_dp_yield_from_y_8", __dp_load_cell(_dp_cell__dp_yield_from_y_8))
+#             __dp_store_cell(_dp_cell__dp_yield_from_y_8, _dp_yield_from_y_8)
+#             __dp_store_cell(_dp_cell__dp_pc, 2)
+#             return _dp_yield_from_y_8
 #         block _dp_bb_run_7:
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_11, _dp_try_exc_11)
 #             _dp_yield_from_sent_9 = _dp_send_value
@@ -986,14 +994,6 @@ async def run():
 #                                         _dp_yield_from_y_8 = __dp_load_cell(_dp_cell__dp_yieldfrom).send(_dp_yield_from_sent_9)
 #                                         __dp_store_cell(_dp_cell__dp_yield_from_y_8, _dp_yield_from_y_8)
 #                                         jump _dp_bb_run_6
-#         block _dp_bb_run_26:
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_11, _dp_try_exc_11)
-#             if_term __dp_is_not(_dp_resume_exc, None):
-#                 then:
-#                     block _dp_bb_run_25:
-#                         raise _dp_resume_exc
-#                 else:
-#                     jump _dp_bb_run_24
 #         block _dp_bb_run_invalid:
 #             raise RuntimeError("invalid generator pc: {}".format(__dp_load_cell(_dp_cell__dp_pc)))
 #     block _dp_bb_run_uncaught:
@@ -1002,6 +1002,8 @@ async def run():
 #                 jump _dp_bb_run_uncaught_set_done
 #             else:
 #                 jump _dp_bb_run_uncaught_raise
+#     block _dp_bb_run_uncaught_raise:
+#         raise _dp_uncaught_exc_41
 #     block _dp_bb_run_uncaught_set_done:
 #         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
 #         __dp_store_cell(_dp_cell__dp_iter_2, __dp_DELETED)
@@ -1019,8 +1021,6 @@ async def run():
 #         __dp_store_cell(_dp_cell__dp_yieldfrom, __dp_DELETED)
 #         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_41)
 #         jump _dp_bb_run_uncaught_raise
-#     block _dp_bb_run_uncaught_raise:
-#         raise _dp_uncaught_exc_41
 
 # function _dp_module_init()
 #     kind: function
@@ -1106,10 +1106,10 @@ async def run():
 #                         block _dp_bb_run_done_return_done:
 #                             raise StopIteration()
 #                     block _dp_bb_run_start:
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
 #                         jump _dp_bb_run_69
 #             else:
@@ -1119,131 +1119,33 @@ async def run():
 #                         raise _dp_resume_exc
 #                     block _dp_bb_run_dispatch_throw_unstarted:
 #                         raise _dp_resume_exc
-#         block _dp_bb_run_69:
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#         block _dp_bb_run_1:
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#             _dp_with_exit_1 = __dp_asynccontextmanager_get_aexit(cm)
+#             _dp_try_exc_3 = __dp_load_deleted_name("_dp_try_exc_3", __dp_load_cell(_dp_cell__dp_try_exc_3))
+#             __dp_store_cell(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#             _dp_with_exit_1 = None
 #             __dp_store_cell(_dp_cell__dp_with_exit_1, _dp_with_exit_1)
-#             jump _dp_bb_run_49
-#             block _dp_bb_run_49:
-#                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#                 _dp_yield_from_iter_71 = iter(__dp_await_iter(__dp_asynccontextmanager_aenter(cm)))
-#                 __dp_store_cell(_dp_cell__dp_yield_from_iter_71, _dp_yield_from_iter_71)
-#                 __dp_store_cell(_dp_cell__dp_yieldfrom, _dp_yield_from_iter_71)
-#                 try_jump:
-#                     body_label: _dp_bb_run_50
-#                     except_label: _dp_bb_run_51
-#         block _dp_bb_run_50:
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#             _dp_yield_from_y_72 = next(__dp_load_cell(_dp_cell__dp_yieldfrom))
-#             __dp_store_cell(_dp_cell__dp_yield_from_y_72, _dp_yield_from_y_72)
-#             jump _dp_bb_run_55
-#         block _dp_bb_run_55:
-#             _dp_yield_from_y_72 = __dp_load_deleted_name("_dp_yield_from_y_72", __dp_load_cell(_dp_cell__dp_yield_from_y_72))
-#             __dp_store_cell(_dp_cell__dp_yield_from_y_72, _dp_yield_from_y_72)
-#             __dp_store_cell(_dp_cell__dp_pc, 4)
-#             return _dp_yield_from_y_72
-#         block _dp_bb_run_51:
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#             _dp_try_exc_75 = __dp_load_deleted_name("_dp_try_exc_75", __dp_load_cell(_dp_cell__dp_try_exc_75))
-#             __dp_store_cell(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#             _dp_try_exc_75 = __dp_current_exception()
-#             __dp_store_cell(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#             if_term __dp_exception_matches(_dp_try_exc_75, StopIteration):
+#             if_term __dp_is_not(_dp_try_exc_3, None):
 #                 then:
-#                     block _dp_bb_run_52:
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                     block _dp_bb_run_0:
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#                         _dp_try_exc_75 = __dp_load_deleted_name("_dp_try_exc_75", __dp_load_cell(_dp_cell__dp_try_exc_75))
-#                         __dp_store_cell(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#                         _dp_yield_from_result_74 = _dp_try_exc_75.value
-#                         __dp_store_cell(_dp_cell__dp_yield_from_result_74, _dp_yield_from_result_74)
-#                         jump _dp_bb_run_53
-#                         block _dp_bb_run_53:
-#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                             __dp_store_cell(_dp_cell__dp_yieldfrom, None)
-#                             jump _dp_bb_run_68
-#                             block _dp_bb_run_68:
-#                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                                 _dp_yield_from_result_74 = __dp_load_deleted_name("_dp_yield_from_result_74", __dp_load_cell(_dp_cell__dp_yield_from_result_74))
-#                                 __dp_store_cell(_dp_cell__dp_yield_from_result_74, _dp_yield_from_result_74)
-#                                 x = _dp_yield_from_result_74
-#                                 __dp_store_cell(_dp_cell_x, x)
-#                                 jump _dp_bb_run_48
-#                                 block _dp_bb_run_48:
-#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                                     _dp_with_ok_2 = True
-#                                     __dp_store_cell(_dp_cell__dp_with_ok_2, _dp_with_ok_2)
-#                                     try_jump:
-#                                         body_label: _dp_bb_run_47
-#                                         except_label: _dp_bb_run_46
-#                                     block _dp_bb_run_47:
-#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                                         body()
-#                                         jump _dp_bb_run_23
-#                                     block _dp_bb_run_46:
-#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                                         _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
-#                                         __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                         _dp_with_ok_2 = False
-#                                         __dp_store_cell(_dp_cell__dp_with_ok_2, _dp_with_ok_2)
-#                                         jump _dp_bb_run_26
-#                                         block _dp_bb_run_26:
-#                                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                                             _dp_with_exit_1 = __dp_load_deleted_name("_dp_with_exit_1", __dp_load_cell(_dp_cell__dp_with_exit_1))
-#                                             __dp_store_cell(_dp_cell__dp_with_exit_1, _dp_with_exit_1)
-#                                             _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
-#                                             __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                             _dp_yield_from_iter_40 = iter(__dp_await_iter(__dp_asynccontextmanager_exit(_dp_with_exit_1, __dp_exc_info())))
-#                                             __dp_store_cell(_dp_cell__dp_yield_from_iter_40, _dp_yield_from_iter_40)
-#                                             __dp_store_cell(_dp_cell__dp_yieldfrom, _dp_yield_from_iter_40)
-#                                             try_jump:
-#                                                 body_label: _dp_bb_run_27
-#                                                 except_label: _dp_bb_run_28
+#                         _dp_try_exc_3 = __dp_load_deleted_name("_dp_try_exc_3", __dp_load_cell(_dp_cell__dp_try_exc_3))
+#                         __dp_store_cell(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                         raise _dp_try_exc_3
 #                 else:
-#                     block _dp_bb_run_54:
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#                         _dp_try_exc_75 = __dp_load_deleted_name("_dp_try_exc_75", __dp_load_cell(_dp_cell__dp_try_exc_75))
-#                         __dp_store_cell(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#                         _dp_yield_from_raise_77 = _dp_try_exc_75
-#                         __dp_store_cell(_dp_cell__dp_yield_from_raise_77, _dp_yield_from_raise_77)
-#                         jump _dp_bb_run_61
+#                     block _dp_bb_run_72:
+#                         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
+#                         jump _dp_bb_run_72_return_done
+#                         block _dp_bb_run_72_return_done:
+#                             raise StopIteration()
+#         block _dp_bb_run_14:
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#             _dp_try_exc_3 = __dp_load_deleted_name("_dp_try_exc_3", __dp_load_cell(_dp_cell__dp_try_exc_3))
+#             __dp_store_cell(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#             _dp_yield_from_raise_14 = __dp_load_deleted_name("_dp_yield_from_raise_14", __dp_load_cell(_dp_cell__dp_yield_from_raise_14))
+#             __dp_store_cell(_dp_cell__dp_yield_from_raise_14, _dp_yield_from_raise_14)
+#             __dp_store_cell(_dp_cell__dp_yieldfrom, None)
+#             raise _dp_yield_from_raise_14
 #         block _dp_bb_run_23:
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #             _dp_try_exc_3 = None
@@ -1281,6 +1183,92 @@ async def run():
 #                                     except_label: _dp_bb_run_4
 #                     else:
 #                         jump _dp_bb_run_1
+#         block _dp_bb_run_27:
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#             _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
+#             __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#             _dp_yield_from_y_41 = next(__dp_load_cell(_dp_cell__dp_yieldfrom))
+#             __dp_store_cell(_dp_cell__dp_yield_from_y_41, _dp_yield_from_y_41)
+#             jump _dp_bb_run_32
+#         block _dp_bb_run_28:
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#             _dp_try_exc_44 = __dp_load_deleted_name("_dp_try_exc_44", __dp_load_cell(_dp_cell__dp_try_exc_44))
+#             __dp_store_cell(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#             _dp_try_exc_44 = __dp_current_exception()
+#             __dp_store_cell(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#             if_term __dp_exception_matches(_dp_try_exc_44, StopIteration):
+#                 then:
+#                     block _dp_bb_run_29:
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                         _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
+#                         __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                         _dp_try_exc_44 = __dp_load_deleted_name("_dp_try_exc_44", __dp_load_cell(_dp_cell__dp_try_exc_44))
+#                         __dp_store_cell(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                         _dp_yield_from_result_43 = _dp_try_exc_44.value
+#                         __dp_store_cell(_dp_cell__dp_yield_from_result_43, _dp_yield_from_result_43)
+#                         jump _dp_bb_run_30
+#                         block _dp_bb_run_30:
+#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                             _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
+#                             __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                             __dp_store_cell(_dp_cell__dp_yieldfrom, None)
+#                             jump _dp_bb_run_45
+#                             block _dp_bb_run_45:
+#                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                 _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
+#                                 __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                 _dp_yield_from_result_43 = __dp_load_deleted_name("_dp_yield_from_result_43", __dp_load_cell(_dp_cell__dp_yield_from_result_43))
+#                                 __dp_store_cell(_dp_cell__dp_yield_from_result_43, _dp_yield_from_result_43)
+#                                 _dp_with_reraise_3 = _dp_yield_from_result_43
+#                                 __dp_store_cell(_dp_cell__dp_with_reraise_3, _dp_with_reraise_3)
+#                                 jump _dp_bb_run_25
+#                                 block _dp_bb_run_25:
+#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                     _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
+#                                     __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                     _dp_with_reraise_3 = __dp_load_deleted_name("_dp_with_reraise_3", __dp_load_cell(_dp_cell__dp_with_reraise_3))
+#                                     __dp_store_cell(_dp_cell__dp_with_reraise_3, _dp_with_reraise_3)
+#                                     if_term __dp_is_not(_dp_with_reraise_3, None):
+#                                         then:
+#                                             block _dp_bb_run_24:
+#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                                 _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
+#                                                 __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                                 _dp_with_reraise_3 = __dp_load_deleted_name("_dp_with_reraise_3", __dp_load_cell(_dp_cell__dp_with_reraise_3))
+#                                                 __dp_store_cell(_dp_cell__dp_with_reraise_3, _dp_with_reraise_3)
+#                                                 raise _dp_with_reraise_3
+#                                         else:
+#                                             jump _dp_bb_run_23
+#                 else:
+#                     block _dp_bb_run_31:
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                         _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
+#                         __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                         _dp_try_exc_44 = __dp_load_deleted_name("_dp_try_exc_44", __dp_load_cell(_dp_cell__dp_try_exc_44))
+#                         __dp_store_cell(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                         _dp_yield_from_raise_46 = _dp_try_exc_44
+#                         __dp_store_cell(_dp_cell__dp_yield_from_raise_46, _dp_yield_from_raise_46)
+#                         jump _dp_bb_run_38
 #         block _dp_bb_run_3:
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
@@ -1289,14 +1277,158 @@ async def run():
 #             _dp_yield_from_y_10 = next(__dp_load_cell(_dp_cell__dp_yieldfrom))
 #             __dp_store_cell(_dp_cell__dp_yield_from_y_10, _dp_yield_from_y_10)
 #             jump _dp_bb_run_8
-#         block _dp_bb_run_8:
+#         block _dp_bb_run_32:
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#             _dp_try_exc_3 = __dp_load_deleted_name("_dp_try_exc_3", __dp_load_cell(_dp_cell__dp_try_exc_3))
-#             __dp_store_cell(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#             _dp_yield_from_y_10 = __dp_load_deleted_name("_dp_yield_from_y_10", __dp_load_cell(_dp_cell__dp_yield_from_y_10))
-#             __dp_store_cell(_dp_cell__dp_yield_from_y_10, _dp_yield_from_y_10)
-#             __dp_store_cell(_dp_cell__dp_pc, 2)
-#             return _dp_yield_from_y_10
+#             _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
+#             __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#             _dp_yield_from_y_41 = __dp_load_deleted_name("_dp_yield_from_y_41", __dp_load_cell(_dp_cell__dp_yield_from_y_41))
+#             __dp_store_cell(_dp_cell__dp_yield_from_y_41, _dp_yield_from_y_41)
+#             __dp_store_cell(_dp_cell__dp_pc, 3)
+#             return _dp_yield_from_y_41
+#         block _dp_bb_run_33:
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#             _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
+#             __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#             _dp_yield_from_sent_42 = _dp_send_value
+#             __dp_store_cell(_dp_cell__dp_yield_from_sent_42, _dp_yield_from_sent_42)
+#             _dp_yield_from_exc_45 = _dp_resume_exc
+#             __dp_store_cell(_dp_cell__dp_yield_from_exc_45, _dp_yield_from_exc_45)
+#             _dp_resume_exc = None
+#             if_term __dp_is_not(_dp_yield_from_exc_45, None):
+#                 then:
+#                     block _dp_bb_run_34:
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                         _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
+#                         __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                         _dp_yield_from_exc_45 = __dp_load_deleted_name("_dp_yield_from_exc_45", __dp_load_cell(_dp_cell__dp_yield_from_exc_45))
+#                         __dp_store_cell(_dp_cell__dp_yield_from_exc_45, _dp_yield_from_exc_45)
+#                         if_term __dp_exception_matches(_dp_yield_from_exc_45, GeneratorExit):
+#                             then:
+#                                 block _dp_bb_run_35:
+#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                     _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
+#                                     __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                     _dp_yield_from_close_47 = getattr(__dp_load_cell(_dp_cell__dp_yieldfrom), "close", None)
+#                                     __dp_store_cell(_dp_cell__dp_yield_from_close_47, _dp_yield_from_close_47)
+#                                     if_term __dp_is_not(_dp_yield_from_close_47, None):
+#                                         then:
+#                                             block _dp_bb_run_36:
+#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                                 _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
+#                                                 __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                                 _dp_yield_from_close_47 = __dp_load_deleted_name("_dp_yield_from_close_47", __dp_load_cell(_dp_cell__dp_yield_from_close_47))
+#                                                 __dp_store_cell(_dp_cell__dp_yield_from_close_47, _dp_yield_from_close_47)
+#                                                 _dp_yield_from_close_47()
+#                                                 jump _dp_bb_run_37
+#                                         else:
+#                                             jump _dp_bb_run_37
+#                             else:
+#                                 block _dp_bb_run_39:
+#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                                     _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
+#                                     __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                     _dp_yield_from_throw_48 = getattr(__dp_load_cell(_dp_cell__dp_yieldfrom), "throw", None)
+#                                     __dp_store_cell(_dp_cell__dp_yield_from_throw_48, _dp_yield_from_throw_48)
+#                                     if_term __dp_is_(_dp_yield_from_throw_48, None):
+#                                         then:
+#                                             jump _dp_bb_run_37
+#                                         else:
+#                                             block _dp_bb_run_40:
+#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                                                 _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
+#                                                 __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                                 try_jump:
+#                                                     body_label: _dp_bb_run_41
+#                                                     except_label: _dp_bb_run_28
+#                                                 block _dp_bb_run_41:
+#                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                                                     _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
+#                                                     __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                                     _dp_yield_from_exc_45 = __dp_load_deleted_name("_dp_yield_from_exc_45", __dp_load_cell(_dp_cell__dp_yield_from_exc_45))
+#                                                     __dp_store_cell(_dp_cell__dp_yield_from_exc_45, _dp_yield_from_exc_45)
+#                                                     _dp_yield_from_throw_48 = __dp_load_deleted_name("_dp_yield_from_throw_48", __dp_load_cell(_dp_cell__dp_yield_from_throw_48))
+#                                                     __dp_store_cell(_dp_cell__dp_yield_from_throw_48, _dp_yield_from_throw_48)
+#                                                     _dp_yield_from_y_41 = _dp_yield_from_throw_48(_dp_yield_from_exc_45)
+#                                                     __dp_store_cell(_dp_cell__dp_yield_from_y_41, _dp_yield_from_y_41)
+#                                                     jump _dp_bb_run_32
+#                         block _dp_bb_run_37:
+#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                             _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
+#                             __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                             _dp_yield_from_exc_45 = __dp_load_deleted_name("_dp_yield_from_exc_45", __dp_load_cell(_dp_cell__dp_yield_from_exc_45))
+#                             __dp_store_cell(_dp_cell__dp_yield_from_exc_45, _dp_yield_from_exc_45)
+#                             _dp_yield_from_raise_46 = _dp_yield_from_exc_45
+#                             __dp_store_cell(_dp_cell__dp_yield_from_raise_46, _dp_yield_from_raise_46)
+#                             jump _dp_bb_run_38
+#                 else:
+#                     block _dp_bb_run_42:
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                         _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
+#                         __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                         try_jump:
+#                             body_label: _dp_bb_run_43
+#                             except_label: _dp_bb_run_28
+#                         block _dp_bb_run_43:
+#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                             _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
+#                             __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                             _dp_yield_from_sent_42 = __dp_load_deleted_name("_dp_yield_from_sent_42", __dp_load_cell(_dp_cell__dp_yield_from_sent_42))
+#                             __dp_store_cell(_dp_cell__dp_yield_from_sent_42, _dp_yield_from_sent_42)
+#                             if_term __dp_is_(_dp_yield_from_sent_42, None):
+#                                 then:
+#                                     jump _dp_bb_run_27
+#                                 else:
+#                                     block _dp_bb_run_44:
+#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                                         _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
+#                                         __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                         _dp_yield_from_sent_42 = __dp_load_deleted_name("_dp_yield_from_sent_42", __dp_load_cell(_dp_cell__dp_yield_from_sent_42))
+#                                         __dp_store_cell(_dp_cell__dp_yield_from_sent_42, _dp_yield_from_sent_42)
+#                                         _dp_yield_from_y_41 = __dp_load_cell(_dp_cell__dp_yieldfrom).send(_dp_yield_from_sent_42)
+#                                         __dp_store_cell(_dp_cell__dp_yield_from_y_41, _dp_yield_from_y_41)
+#                                         jump _dp_bb_run_32
+#         block _dp_bb_run_38:
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#             _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
+#             __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#             _dp_yield_from_raise_46 = __dp_load_deleted_name("_dp_yield_from_raise_46", __dp_load_cell(_dp_cell__dp_yield_from_raise_46))
+#             __dp_store_cell(_dp_cell__dp_yield_from_raise_46, _dp_yield_from_raise_46)
+#             __dp_store_cell(_dp_cell__dp_yieldfrom, None)
+#             raise _dp_yield_from_raise_46
 #         block _dp_bb_run_4:
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
@@ -1328,144 +1460,265 @@ async def run():
 #                         _dp_yield_from_raise_14 = _dp_try_exc_12
 #                         __dp_store_cell(_dp_cell__dp_yield_from_raise_14, _dp_yield_from_raise_14)
 #                         jump _dp_bb_run_14
-#         block _dp_bb_run_1:
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#             _dp_try_exc_3 = __dp_load_deleted_name("_dp_try_exc_3", __dp_load_cell(_dp_cell__dp_try_exc_3))
-#             __dp_store_cell(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#             _dp_with_exit_1 = None
-#             __dp_store_cell(_dp_cell__dp_with_exit_1, _dp_with_exit_1)
-#             if_term __dp_is_not(_dp_try_exc_3, None):
-#                 then:
-#                     block _dp_bb_run_0:
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                         _dp_try_exc_3 = __dp_load_deleted_name("_dp_try_exc_3", __dp_load_cell(_dp_cell__dp_try_exc_3))
-#                         __dp_store_cell(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                         raise _dp_try_exc_3
-#                 else:
-#                     block _dp_bb_run_72:
-#                         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
-#                         jump _dp_bb_run_72_return_done
-#                         block _dp_bb_run_72_return_done:
-#                             raise StopIteration()
-#         block _dp_bb_run_14:
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#             _dp_try_exc_3 = __dp_load_deleted_name("_dp_try_exc_3", __dp_load_cell(_dp_cell__dp_try_exc_3))
-#             __dp_store_cell(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#             _dp_yield_from_raise_14 = __dp_load_deleted_name("_dp_yield_from_raise_14", __dp_load_cell(_dp_cell__dp_yield_from_raise_14))
-#             __dp_store_cell(_dp_cell__dp_yield_from_raise_14, _dp_yield_from_raise_14)
-#             __dp_store_cell(_dp_cell__dp_yieldfrom, None)
-#             raise _dp_yield_from_raise_14
-#         block _dp_bb_run_27:
+#         block _dp_bb_run_50:
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
+#             _dp_yield_from_y_72 = next(__dp_load_cell(_dp_cell__dp_yieldfrom))
+#             __dp_store_cell(_dp_cell__dp_yield_from_y_72, _dp_yield_from_y_72)
+#             jump _dp_bb_run_55
+#         block _dp_bb_run_51:
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#             _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
-#             __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#             _dp_yield_from_y_41 = next(__dp_load_cell(_dp_cell__dp_yieldfrom))
-#             __dp_store_cell(_dp_cell__dp_yield_from_y_41, _dp_yield_from_y_41)
-#             jump _dp_bb_run_32
-#         block _dp_bb_run_32:
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#             _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
-#             __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#             _dp_yield_from_y_41 = __dp_load_deleted_name("_dp_yield_from_y_41", __dp_load_cell(_dp_cell__dp_yield_from_y_41))
-#             __dp_store_cell(_dp_cell__dp_yield_from_y_41, _dp_yield_from_y_41)
-#             __dp_store_cell(_dp_cell__dp_pc, 3)
-#             return _dp_yield_from_y_41
-#         block _dp_bb_run_28:
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#             _dp_try_exc_44 = __dp_load_deleted_name("_dp_try_exc_44", __dp_load_cell(_dp_cell__dp_try_exc_44))
-#             __dp_store_cell(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#             _dp_try_exc_44 = __dp_current_exception()
-#             __dp_store_cell(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#             if_term __dp_exception_matches(_dp_try_exc_44, StopIteration):
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
+#             _dp_try_exc_75 = __dp_load_deleted_name("_dp_try_exc_75", __dp_load_cell(_dp_cell__dp_try_exc_75))
+#             __dp_store_cell(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
+#             _dp_try_exc_75 = __dp_current_exception()
+#             __dp_store_cell(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
+#             if_term __dp_exception_matches(_dp_try_exc_75, StopIteration):
 #                 then:
-#                     block _dp_bb_run_29:
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                     block _dp_bb_run_52:
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                         _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
-#                         __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                         _dp_try_exc_44 = __dp_load_deleted_name("_dp_try_exc_44", __dp_load_cell(_dp_cell__dp_try_exc_44))
-#                         __dp_store_cell(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                         _dp_yield_from_result_43 = _dp_try_exc_44.value
-#                         __dp_store_cell(_dp_cell__dp_yield_from_result_43, _dp_yield_from_result_43)
-#                         jump _dp_bb_run_30
-#                         block _dp_bb_run_30:
-#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
+#                         _dp_try_exc_75 = __dp_load_deleted_name("_dp_try_exc_75", __dp_load_cell(_dp_cell__dp_try_exc_75))
+#                         __dp_store_cell(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
+#                         _dp_yield_from_result_74 = _dp_try_exc_75.value
+#                         __dp_store_cell(_dp_cell__dp_yield_from_result_74, _dp_yield_from_result_74)
+#                         jump _dp_bb_run_53
+#                         block _dp_bb_run_53:
 #                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                             _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
-#                             __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
 #                             __dp_store_cell(_dp_cell__dp_yieldfrom, None)
-#                             jump _dp_bb_run_45
-#                             block _dp_bb_run_45:
-#                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                             jump _dp_bb_run_68
+#                             block _dp_bb_run_68:
 #                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                                 _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
-#                                 __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                 _dp_yield_from_result_43 = __dp_load_deleted_name("_dp_yield_from_result_43", __dp_load_cell(_dp_cell__dp_yield_from_result_43))
-#                                 __dp_store_cell(_dp_cell__dp_yield_from_result_43, _dp_yield_from_result_43)
-#                                 _dp_with_reraise_3 = _dp_yield_from_result_43
-#                                 __dp_store_cell(_dp_cell__dp_with_reraise_3, _dp_with_reraise_3)
-#                                 jump _dp_bb_run_25
-#                                 block _dp_bb_run_25:
-#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                                 _dp_yield_from_result_74 = __dp_load_deleted_name("_dp_yield_from_result_74", __dp_load_cell(_dp_cell__dp_yield_from_result_74))
+#                                 __dp_store_cell(_dp_cell__dp_yield_from_result_74, _dp_yield_from_result_74)
+#                                 x = _dp_yield_from_result_74
+#                                 __dp_store_cell(_dp_cell_x, x)
+#                                 jump _dp_bb_run_48
+#                                 block _dp_bb_run_48:
 #                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                                     _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
-#                                     __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                     _dp_with_reraise_3 = __dp_load_deleted_name("_dp_with_reraise_3", __dp_load_cell(_dp_cell__dp_with_reraise_3))
-#                                     __dp_store_cell(_dp_cell__dp_with_reraise_3, _dp_with_reraise_3)
-#                                     if_term __dp_is_not(_dp_with_reraise_3, None):
-#                                         then:
-#                                             block _dp_bb_run_24:
-#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                                                 _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
-#                                                 __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                                 _dp_with_reraise_3 = __dp_load_deleted_name("_dp_with_reraise_3", __dp_load_cell(_dp_cell__dp_with_reraise_3))
-#                                                 __dp_store_cell(_dp_cell__dp_with_reraise_3, _dp_with_reraise_3)
-#                                                 raise _dp_with_reraise_3
-#                                         else:
-#                                             jump _dp_bb_run_23
+#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                                     _dp_with_ok_2 = True
+#                                     __dp_store_cell(_dp_cell__dp_with_ok_2, _dp_with_ok_2)
+#                                     try_jump:
+#                                         body_label: _dp_bb_run_47
+#                                         except_label: _dp_bb_run_46
+#                                     block _dp_bb_run_46:
+#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                                         _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
+#                                         __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                         _dp_with_ok_2 = False
+#                                         __dp_store_cell(_dp_cell__dp_with_ok_2, _dp_with_ok_2)
+#                                         jump _dp_bb_run_26
+#                                         block _dp_bb_run_26:
+#                                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                                             _dp_with_exit_1 = __dp_load_deleted_name("_dp_with_exit_1", __dp_load_cell(_dp_cell__dp_with_exit_1))
+#                                             __dp_store_cell(_dp_cell__dp_with_exit_1, _dp_with_exit_1)
+#                                             _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
+#                                             __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                             _dp_yield_from_iter_40 = iter(__dp_await_iter(__dp_asynccontextmanager_exit(_dp_with_exit_1, __dp_exc_info())))
+#                                             __dp_store_cell(_dp_cell__dp_yield_from_iter_40, _dp_yield_from_iter_40)
+#                                             __dp_store_cell(_dp_cell__dp_yieldfrom, _dp_yield_from_iter_40)
+#                                             try_jump:
+#                                                 body_label: _dp_bb_run_27
+#                                                 except_label: _dp_bb_run_28
+#                                     block _dp_bb_run_47:
+#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                                         body()
+#                                         jump _dp_bb_run_23
 #                 else:
-#                     block _dp_bb_run_31:
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                         _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
-#                         __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                         _dp_try_exc_44 = __dp_load_deleted_name("_dp_try_exc_44", __dp_load_cell(_dp_cell__dp_try_exc_44))
-#                         __dp_store_cell(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                         _dp_yield_from_raise_46 = _dp_try_exc_44
-#                         __dp_store_cell(_dp_cell__dp_yield_from_raise_46, _dp_yield_from_raise_46)
-#                         jump _dp_bb_run_38
-#         block _dp_bb_run_38:
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                     block _dp_bb_run_54:
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
+#                         _dp_try_exc_75 = __dp_load_deleted_name("_dp_try_exc_75", __dp_load_cell(_dp_cell__dp_try_exc_75))
+#                         __dp_store_cell(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
+#                         _dp_yield_from_raise_77 = _dp_try_exc_75
+#                         __dp_store_cell(_dp_cell__dp_yield_from_raise_77, _dp_yield_from_raise_77)
+#                         jump _dp_bb_run_61
+#         block _dp_bb_run_55:
+#             _dp_yield_from_y_72 = __dp_load_deleted_name("_dp_yield_from_y_72", __dp_load_cell(_dp_cell__dp_yield_from_y_72))
+#             __dp_store_cell(_dp_cell__dp_yield_from_y_72, _dp_yield_from_y_72)
+#             __dp_store_cell(_dp_cell__dp_pc, 4)
+#             return _dp_yield_from_y_72
+#         block _dp_bb_run_56:
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#             _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
-#             __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#             _dp_yield_from_raise_46 = __dp_load_deleted_name("_dp_yield_from_raise_46", __dp_load_cell(_dp_cell__dp_yield_from_raise_46))
-#             __dp_store_cell(_dp_cell__dp_yield_from_raise_46, _dp_yield_from_raise_46)
-#             __dp_store_cell(_dp_cell__dp_yieldfrom, None)
-#             raise _dp_yield_from_raise_46
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
+#             _dp_yield_from_sent_73 = _dp_send_value
+#             __dp_store_cell(_dp_cell__dp_yield_from_sent_73, _dp_yield_from_sent_73)
+#             _dp_yield_from_exc_76 = _dp_resume_exc
+#             __dp_store_cell(_dp_cell__dp_yield_from_exc_76, _dp_yield_from_exc_76)
+#             _dp_resume_exc = None
+#             if_term __dp_is_not(_dp_yield_from_exc_76, None):
+#                 then:
+#                     block _dp_bb_run_57:
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
+#                         _dp_yield_from_exc_76 = __dp_load_deleted_name("_dp_yield_from_exc_76", __dp_load_cell(_dp_cell__dp_yield_from_exc_76))
+#                         __dp_store_cell(_dp_cell__dp_yield_from_exc_76, _dp_yield_from_exc_76)
+#                         if_term __dp_exception_matches(_dp_yield_from_exc_76, GeneratorExit):
+#                             then:
+#                                 block _dp_bb_run_58:
+#                                     _dp_yield_from_close_78 = getattr(__dp_load_cell(_dp_cell__dp_yieldfrom), "close", None)
+#                                     __dp_store_cell(_dp_cell__dp_yield_from_close_78, _dp_yield_from_close_78)
+#                                     if_term __dp_is_not(_dp_yield_from_close_78, None):
+#                                         then:
+#                                             block _dp_bb_run_59:
+#                                                 _dp_yield_from_close_78 = __dp_load_deleted_name("_dp_yield_from_close_78", __dp_load_cell(_dp_cell__dp_yield_from_close_78))
+#                                                 __dp_store_cell(_dp_cell__dp_yield_from_close_78, _dp_yield_from_close_78)
+#                                                 _dp_yield_from_close_78()
+#                                                 jump _dp_bb_run_60
+#                                         else:
+#                                             jump _dp_bb_run_60
+#                             else:
+#                                 block _dp_bb_run_62:
+#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
+#                                     _dp_yield_from_throw_79 = getattr(__dp_load_cell(_dp_cell__dp_yieldfrom), "throw", None)
+#                                     __dp_store_cell(_dp_cell__dp_yield_from_throw_79, _dp_yield_from_throw_79)
+#                                     if_term __dp_is_(_dp_yield_from_throw_79, None):
+#                                         then:
+#                                             jump _dp_bb_run_60
+#                                         else:
+#                                             block _dp_bb_run_63:
+#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
+#                                                 try_jump:
+#                                                     body_label: _dp_bb_run_64
+#                                                     except_label: _dp_bb_run_51
+#                                                 block _dp_bb_run_64:
+#                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
+#                                                     _dp_yield_from_exc_76 = __dp_load_deleted_name("_dp_yield_from_exc_76", __dp_load_cell(_dp_cell__dp_yield_from_exc_76))
+#                                                     __dp_store_cell(_dp_cell__dp_yield_from_exc_76, _dp_yield_from_exc_76)
+#                                                     _dp_yield_from_throw_79 = __dp_load_deleted_name("_dp_yield_from_throw_79", __dp_load_cell(_dp_cell__dp_yield_from_throw_79))
+#                                                     __dp_store_cell(_dp_cell__dp_yield_from_throw_79, _dp_yield_from_throw_79)
+#                                                     _dp_yield_from_y_72 = _dp_yield_from_throw_79(_dp_yield_from_exc_76)
+#                                                     __dp_store_cell(_dp_cell__dp_yield_from_y_72, _dp_yield_from_y_72)
+#                                                     jump _dp_bb_run_55
+#                         block _dp_bb_run_60:
+#                             _dp_yield_from_exc_76 = __dp_load_deleted_name("_dp_yield_from_exc_76", __dp_load_cell(_dp_cell__dp_yield_from_exc_76))
+#                             __dp_store_cell(_dp_cell__dp_yield_from_exc_76, _dp_yield_from_exc_76)
+#                             _dp_yield_from_raise_77 = _dp_yield_from_exc_76
+#                             __dp_store_cell(_dp_cell__dp_yield_from_raise_77, _dp_yield_from_raise_77)
+#                             jump _dp_bb_run_61
+#                 else:
+#                     block _dp_bb_run_65:
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
+#                         try_jump:
+#                             body_label: _dp_bb_run_66
+#                             except_label: _dp_bb_run_51
+#                         block _dp_bb_run_66:
+#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
+#                             _dp_yield_from_sent_73 = __dp_load_deleted_name("_dp_yield_from_sent_73", __dp_load_cell(_dp_cell__dp_yield_from_sent_73))
+#                             __dp_store_cell(_dp_cell__dp_yield_from_sent_73, _dp_yield_from_sent_73)
+#                             if_term __dp_is_(_dp_yield_from_sent_73, None):
+#                                 then:
+#                                     jump _dp_bb_run_50
+#                                 else:
+#                                     block _dp_bb_run_67:
+#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
+#                                         _dp_yield_from_sent_73 = __dp_load_deleted_name("_dp_yield_from_sent_73", __dp_load_cell(_dp_cell__dp_yield_from_sent_73))
+#                                         __dp_store_cell(_dp_cell__dp_yield_from_sent_73, _dp_yield_from_sent_73)
+#                                         _dp_yield_from_y_72 = __dp_load_cell(_dp_cell__dp_yieldfrom).send(_dp_yield_from_sent_73)
+#                                         __dp_store_cell(_dp_cell__dp_yield_from_y_72, _dp_yield_from_y_72)
+#                                         jump _dp_bb_run_55
 #         block _dp_bb_run_61:
 #             _dp_yield_from_raise_77 = __dp_load_deleted_name("_dp_yield_from_raise_77", __dp_load_cell(_dp_cell__dp_yield_from_raise_77))
 #             __dp_store_cell(_dp_cell__dp_yield_from_raise_77, _dp_yield_from_raise_77)
 #             __dp_store_cell(_dp_cell__dp_yieldfrom, None)
 #             raise _dp_yield_from_raise_77
+#         block _dp_bb_run_69:
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
+#             _dp_with_exit_1 = __dp_asynccontextmanager_get_aexit(cm)
+#             __dp_store_cell(_dp_cell__dp_with_exit_1, _dp_with_exit_1)
+#             jump _dp_bb_run_49
+#             block _dp_bb_run_49:
+#                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
+#                 _dp_yield_from_iter_71 = iter(__dp_await_iter(__dp_asynccontextmanager_aenter(cm)))
+#                 __dp_store_cell(_dp_cell__dp_yield_from_iter_71, _dp_yield_from_iter_71)
+#                 __dp_store_cell(_dp_cell__dp_yieldfrom, _dp_yield_from_iter_71)
+#                 try_jump:
+#                     body_label: _dp_bb_run_50
+#                     except_label: _dp_bb_run_51
+#         block _dp_bb_run_71:
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
+#             if_term __dp_is_not(_dp_resume_exc, None):
+#                 then:
+#                     block _dp_bb_run_70:
+#                         raise _dp_resume_exc
+#                 else:
+#                     jump _dp_bb_run_69
+#         block _dp_bb_run_8:
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#             _dp_try_exc_3 = __dp_load_deleted_name("_dp_try_exc_3", __dp_load_cell(_dp_cell__dp_try_exc_3))
+#             __dp_store_cell(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
+#             _dp_yield_from_y_10 = __dp_load_deleted_name("_dp_yield_from_y_10", __dp_load_cell(_dp_cell__dp_yield_from_y_10))
+#             __dp_store_cell(_dp_cell__dp_yield_from_y_10, _dp_yield_from_y_10)
+#             __dp_store_cell(_dp_cell__dp_pc, 2)
+#             return _dp_yield_from_y_10
 #         block _dp_bb_run_9:
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
@@ -1576,259 +1829,6 @@ async def run():
 #                                         _dp_yield_from_y_10 = __dp_load_cell(_dp_cell__dp_yieldfrom).send(_dp_yield_from_sent_11)
 #                                         __dp_store_cell(_dp_cell__dp_yield_from_y_10, _dp_yield_from_y_10)
 #                                         jump _dp_bb_run_8
-#         block _dp_bb_run_33:
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#             _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
-#             __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#             _dp_yield_from_sent_42 = _dp_send_value
-#             __dp_store_cell(_dp_cell__dp_yield_from_sent_42, _dp_yield_from_sent_42)
-#             _dp_yield_from_exc_45 = _dp_resume_exc
-#             __dp_store_cell(_dp_cell__dp_yield_from_exc_45, _dp_yield_from_exc_45)
-#             _dp_resume_exc = None
-#             if_term __dp_is_not(_dp_yield_from_exc_45, None):
-#                 then:
-#                     block _dp_bb_run_34:
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                         _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
-#                         __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                         _dp_yield_from_exc_45 = __dp_load_deleted_name("_dp_yield_from_exc_45", __dp_load_cell(_dp_cell__dp_yield_from_exc_45))
-#                         __dp_store_cell(_dp_cell__dp_yield_from_exc_45, _dp_yield_from_exc_45)
-#                         if_term __dp_exception_matches(_dp_yield_from_exc_45, GeneratorExit):
-#                             then:
-#                                 block _dp_bb_run_35:
-#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                                     _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
-#                                     __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                     _dp_yield_from_close_47 = getattr(__dp_load_cell(_dp_cell__dp_yieldfrom), "close", None)
-#                                     __dp_store_cell(_dp_cell__dp_yield_from_close_47, _dp_yield_from_close_47)
-#                                     if_term __dp_is_not(_dp_yield_from_close_47, None):
-#                                         then:
-#                                             block _dp_bb_run_36:
-#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                                                 _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
-#                                                 __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                                 _dp_yield_from_close_47 = __dp_load_deleted_name("_dp_yield_from_close_47", __dp_load_cell(_dp_cell__dp_yield_from_close_47))
-#                                                 __dp_store_cell(_dp_cell__dp_yield_from_close_47, _dp_yield_from_close_47)
-#                                                 _dp_yield_from_close_47()
-#                                                 jump _dp_bb_run_37
-#                                         else:
-#                                             jump _dp_bb_run_37
-#                             else:
-#                                 block _dp_bb_run_39:
-#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                                     _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
-#                                     __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                     _dp_yield_from_throw_48 = getattr(__dp_load_cell(_dp_cell__dp_yieldfrom), "throw", None)
-#                                     __dp_store_cell(_dp_cell__dp_yield_from_throw_48, _dp_yield_from_throw_48)
-#                                     if_term __dp_is_(_dp_yield_from_throw_48, None):
-#                                         then:
-#                                             jump _dp_bb_run_37
-#                                         else:
-#                                             block _dp_bb_run_40:
-#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                                                 _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
-#                                                 __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                                 try_jump:
-#                                                     body_label: _dp_bb_run_41
-#                                                     except_label: _dp_bb_run_28
-#                                                 block _dp_bb_run_41:
-#                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                                                     _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
-#                                                     __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                                     _dp_yield_from_exc_45 = __dp_load_deleted_name("_dp_yield_from_exc_45", __dp_load_cell(_dp_cell__dp_yield_from_exc_45))
-#                                                     __dp_store_cell(_dp_cell__dp_yield_from_exc_45, _dp_yield_from_exc_45)
-#                                                     _dp_yield_from_throw_48 = __dp_load_deleted_name("_dp_yield_from_throw_48", __dp_load_cell(_dp_cell__dp_yield_from_throw_48))
-#                                                     __dp_store_cell(_dp_cell__dp_yield_from_throw_48, _dp_yield_from_throw_48)
-#                                                     _dp_yield_from_y_41 = _dp_yield_from_throw_48(_dp_yield_from_exc_45)
-#                                                     __dp_store_cell(_dp_cell__dp_yield_from_y_41, _dp_yield_from_y_41)
-#                                                     jump _dp_bb_run_32
-#                         block _dp_bb_run_37:
-#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                             _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
-#                             __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                             _dp_yield_from_exc_45 = __dp_load_deleted_name("_dp_yield_from_exc_45", __dp_load_cell(_dp_cell__dp_yield_from_exc_45))
-#                             __dp_store_cell(_dp_cell__dp_yield_from_exc_45, _dp_yield_from_exc_45)
-#                             _dp_yield_from_raise_46 = _dp_yield_from_exc_45
-#                             __dp_store_cell(_dp_cell__dp_yield_from_raise_46, _dp_yield_from_raise_46)
-#                             jump _dp_bb_run_38
-#                 else:
-#                     block _dp_bb_run_42:
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                         _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
-#                         __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                         try_jump:
-#                             body_label: _dp_bb_run_43
-#                             except_label: _dp_bb_run_28
-#                         block _dp_bb_run_43:
-#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                             _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
-#                             __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                             _dp_yield_from_sent_42 = __dp_load_deleted_name("_dp_yield_from_sent_42", __dp_load_cell(_dp_cell__dp_yield_from_sent_42))
-#                             __dp_store_cell(_dp_cell__dp_yield_from_sent_42, _dp_yield_from_sent_42)
-#                             if_term __dp_is_(_dp_yield_from_sent_42, None):
-#                                 then:
-#                                     jump _dp_bb_run_27
-#                                 else:
-#                                     block _dp_bb_run_44:
-#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                                         _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
-#                                         __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                         _dp_yield_from_sent_42 = __dp_load_deleted_name("_dp_yield_from_sent_42", __dp_load_cell(_dp_cell__dp_yield_from_sent_42))
-#                                         __dp_store_cell(_dp_cell__dp_yield_from_sent_42, _dp_yield_from_sent_42)
-#                                         _dp_yield_from_y_41 = __dp_load_cell(_dp_cell__dp_yieldfrom).send(_dp_yield_from_sent_42)
-#                                         __dp_store_cell(_dp_cell__dp_yield_from_y_41, _dp_yield_from_y_41)
-#                                         jump _dp_bb_run_32
-#         block _dp_bb_run_56:
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#             _dp_yield_from_sent_73 = _dp_send_value
-#             __dp_store_cell(_dp_cell__dp_yield_from_sent_73, _dp_yield_from_sent_73)
-#             _dp_yield_from_exc_76 = _dp_resume_exc
-#             __dp_store_cell(_dp_cell__dp_yield_from_exc_76, _dp_yield_from_exc_76)
-#             _dp_resume_exc = None
-#             if_term __dp_is_not(_dp_yield_from_exc_76, None):
-#                 then:
-#                     block _dp_bb_run_57:
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#                         _dp_yield_from_exc_76 = __dp_load_deleted_name("_dp_yield_from_exc_76", __dp_load_cell(_dp_cell__dp_yield_from_exc_76))
-#                         __dp_store_cell(_dp_cell__dp_yield_from_exc_76, _dp_yield_from_exc_76)
-#                         if_term __dp_exception_matches(_dp_yield_from_exc_76, GeneratorExit):
-#                             then:
-#                                 block _dp_bb_run_58:
-#                                     _dp_yield_from_close_78 = getattr(__dp_load_cell(_dp_cell__dp_yieldfrom), "close", None)
-#                                     __dp_store_cell(_dp_cell__dp_yield_from_close_78, _dp_yield_from_close_78)
-#                                     if_term __dp_is_not(_dp_yield_from_close_78, None):
-#                                         then:
-#                                             block _dp_bb_run_59:
-#                                                 _dp_yield_from_close_78 = __dp_load_deleted_name("_dp_yield_from_close_78", __dp_load_cell(_dp_cell__dp_yield_from_close_78))
-#                                                 __dp_store_cell(_dp_cell__dp_yield_from_close_78, _dp_yield_from_close_78)
-#                                                 _dp_yield_from_close_78()
-#                                                 jump _dp_bb_run_60
-#                                         else:
-#                                             jump _dp_bb_run_60
-#                             else:
-#                                 block _dp_bb_run_62:
-#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#                                     _dp_yield_from_throw_79 = getattr(__dp_load_cell(_dp_cell__dp_yieldfrom), "throw", None)
-#                                     __dp_store_cell(_dp_cell__dp_yield_from_throw_79, _dp_yield_from_throw_79)
-#                                     if_term __dp_is_(_dp_yield_from_throw_79, None):
-#                                         then:
-#                                             jump _dp_bb_run_60
-#                                         else:
-#                                             block _dp_bb_run_63:
-#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#                                                 try_jump:
-#                                                     body_label: _dp_bb_run_64
-#                                                     except_label: _dp_bb_run_51
-#                                                 block _dp_bb_run_64:
-#                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#                                                     _dp_yield_from_exc_76 = __dp_load_deleted_name("_dp_yield_from_exc_76", __dp_load_cell(_dp_cell__dp_yield_from_exc_76))
-#                                                     __dp_store_cell(_dp_cell__dp_yield_from_exc_76, _dp_yield_from_exc_76)
-#                                                     _dp_yield_from_throw_79 = __dp_load_deleted_name("_dp_yield_from_throw_79", __dp_load_cell(_dp_cell__dp_yield_from_throw_79))
-#                                                     __dp_store_cell(_dp_cell__dp_yield_from_throw_79, _dp_yield_from_throw_79)
-#                                                     _dp_yield_from_y_72 = _dp_yield_from_throw_79(_dp_yield_from_exc_76)
-#                                                     __dp_store_cell(_dp_cell__dp_yield_from_y_72, _dp_yield_from_y_72)
-#                                                     jump _dp_bb_run_55
-#                         block _dp_bb_run_60:
-#                             _dp_yield_from_exc_76 = __dp_load_deleted_name("_dp_yield_from_exc_76", __dp_load_cell(_dp_cell__dp_yield_from_exc_76))
-#                             __dp_store_cell(_dp_cell__dp_yield_from_exc_76, _dp_yield_from_exc_76)
-#                             _dp_yield_from_raise_77 = _dp_yield_from_exc_76
-#                             __dp_store_cell(_dp_cell__dp_yield_from_raise_77, _dp_yield_from_raise_77)
-#                             jump _dp_bb_run_61
-#                 else:
-#                     block _dp_bb_run_65:
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#                         try_jump:
-#                             body_label: _dp_bb_run_66
-#                             except_label: _dp_bb_run_51
-#                         block _dp_bb_run_66:
-#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#                             _dp_yield_from_sent_73 = __dp_load_deleted_name("_dp_yield_from_sent_73", __dp_load_cell(_dp_cell__dp_yield_from_sent_73))
-#                             __dp_store_cell(_dp_cell__dp_yield_from_sent_73, _dp_yield_from_sent_73)
-#                             if_term __dp_is_(_dp_yield_from_sent_73, None):
-#                                 then:
-#                                     jump _dp_bb_run_50
-#                                 else:
-#                                     block _dp_bb_run_67:
-#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#                                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#                                         _dp_yield_from_sent_73 = __dp_load_deleted_name("_dp_yield_from_sent_73", __dp_load_cell(_dp_cell__dp_yield_from_sent_73))
-#                                         __dp_store_cell(_dp_cell__dp_yield_from_sent_73, _dp_yield_from_sent_73)
-#                                         _dp_yield_from_y_72 = __dp_load_cell(_dp_cell__dp_yieldfrom).send(_dp_yield_from_sent_73)
-#                                         __dp_store_cell(_dp_cell__dp_yield_from_y_72, _dp_yield_from_y_72)
-#                                         jump _dp_bb_run_55
-#         block _dp_bb_run_71:
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_44, _dp_try_exc_44)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_12, _dp_try_exc_12)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_3, _dp_try_exc_3)
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_75, _dp_try_exc_75)
-#             if_term __dp_is_not(_dp_resume_exc, None):
-#                 then:
-#                     block _dp_bb_run_70:
-#                         raise _dp_resume_exc
-#                 else:
-#                     jump _dp_bb_run_69
 #         block _dp_bb_run_invalid:
 #             raise RuntimeError("invalid generator pc: {}".format(__dp_load_cell(_dp_cell__dp_pc)))
 #     block _dp_bb_run_uncaught:
@@ -1837,6 +1837,8 @@ async def run():
 #                 jump _dp_bb_run_uncaught_set_done
 #             else:
 #                 jump _dp_bb_run_uncaught_raise
+#     block _dp_bb_run_uncaught_raise:
+#         raise _dp_uncaught_exc_102
 #     block _dp_bb_run_uncaught_set_done:
 #         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
 #         __dp_store_cell(_dp_cell__dp_try_exc_3, __dp_DELETED)
@@ -1874,8 +1876,6 @@ async def run():
 #         __dp_store_cell(_dp_cell__dp_yieldfrom, __dp_DELETED)
 #         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_102)
 #         jump _dp_bb_run_uncaught_raise
-#     block _dp_bb_run_uncaught_raise:
-#         raise _dp_uncaught_exc_102
 
 # function _dp_module_init()
 #     kind: function
@@ -1982,13 +1982,13 @@ def gen():
 #                 jump _dp_bb_gen_uncaught_set_done
 #             else:
 #                 jump _dp_bb_gen_uncaught_raise
+#     block _dp_bb_gen_uncaught_raise:
+#         raise _dp_uncaught_exc_4
 #     block _dp_bb_gen_uncaught_set_done:
 #         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
 #         __dp_store_cell(_dp_cell__dp_yieldfrom, __dp_DELETED)
 #         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_4)
 #         jump _dp_bb_gen_uncaught_raise
-#     block _dp_bb_gen_uncaught_raise:
-#         raise _dp_uncaught_exc_4
 
 # function _dp_module_init()
 #     kind: function
@@ -2071,11 +2071,11 @@ def gen():
 #             _dp_yield_from_y_3 = next(__dp_load_cell(_dp_cell__dp_yieldfrom))
 #             __dp_store_cell(_dp_cell__dp_yield_from_y_3, _dp_yield_from_y_3)
 #             jump _dp_bb_gen_6
-#         block _dp_bb_gen_6:
-#             _dp_yield_from_y_3 = __dp_load_deleted_name("_dp_yield_from_y_3", __dp_load_cell(_dp_cell__dp_yield_from_y_3))
-#             __dp_store_cell(_dp_cell__dp_yield_from_y_3, _dp_yield_from_y_3)
-#             __dp_store_cell(_dp_cell__dp_pc, 2)
-#             return _dp_yield_from_y_3
+#         block _dp_bb_gen_12:
+#             _dp_yield_from_raise_7 = __dp_load_deleted_name("_dp_yield_from_raise_7", __dp_load_cell(_dp_cell__dp_yield_from_raise_7))
+#             __dp_store_cell(_dp_cell__dp_yield_from_raise_7, _dp_yield_from_raise_7)
+#             __dp_store_cell(_dp_cell__dp_yieldfrom, None)
+#             raise _dp_yield_from_raise_7
 #         block _dp_bb_gen_2:
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_5, _dp_try_exc_5)
 #             _dp_try_exc_5 = __dp_load_deleted_name("_dp_try_exc_5", __dp_load_cell(_dp_cell__dp_try_exc_5))
@@ -2100,11 +2100,11 @@ def gen():
 #                         _dp_yield_from_raise_7 = _dp_try_exc_5
 #                         __dp_store_cell(_dp_cell__dp_yield_from_raise_7, _dp_yield_from_raise_7)
 #                         jump _dp_bb_gen_12
-#         block _dp_bb_gen_12:
-#             _dp_yield_from_raise_7 = __dp_load_deleted_name("_dp_yield_from_raise_7", __dp_load_cell(_dp_cell__dp_yield_from_raise_7))
-#             __dp_store_cell(_dp_cell__dp_yield_from_raise_7, _dp_yield_from_raise_7)
-#             __dp_store_cell(_dp_cell__dp_yieldfrom, None)
-#             raise _dp_yield_from_raise_7
+#         block _dp_bb_gen_6:
+#             _dp_yield_from_y_3 = __dp_load_deleted_name("_dp_yield_from_y_3", __dp_load_cell(_dp_cell__dp_yield_from_y_3))
+#             __dp_store_cell(_dp_cell__dp_yield_from_y_3, _dp_yield_from_y_3)
+#             __dp_store_cell(_dp_cell__dp_pc, 2)
+#             return _dp_yield_from_y_3
 #         block _dp_bb_gen_7:
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_5, _dp_try_exc_5)
 #             _dp_yield_from_sent_4 = _dp_send_value
@@ -2190,6 +2190,8 @@ def gen():
 #                 jump _dp_bb_gen_uncaught_set_done
 #             else:
 #                 jump _dp_bb_gen_uncaught_raise
+#     block _dp_bb_gen_uncaught_raise:
+#         raise _dp_uncaught_exc_29
 #     block _dp_bb_gen_uncaught_set_done:
 #         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
 #         __dp_store_cell(_dp_cell__dp_yield_from_iter_2, __dp_DELETED)
@@ -2203,8 +2205,6 @@ def gen():
 #         __dp_store_cell(_dp_cell__dp_yieldfrom, __dp_DELETED)
 #         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_29)
 #         jump _dp_bb_gen_uncaught_raise
-#     block _dp_bb_gen_uncaught_raise:
-#         raise _dp_uncaught_exc_29
 
 # function _dp_module_init()
 #     kind: function
@@ -2236,8 +2236,6 @@ with Suppress():
 #         try_jump:
 #             body_label: _dp_bb__dp_module_init_1
 #             except_label: _dp_bb__dp_module_init_0
-#         block _dp_bb__dp_module_init_1:
-#             raise RuntimeError("boom")
 #         block _dp_bb__dp_module_init_0:
 #             _dp_with_exit_call_5 = _dp_with_exit_4
 #             _dp_with_exit_4 = None
@@ -2245,6 +2243,8 @@ with Suppress():
 #             __dp_contextmanager_exit(_dp_with_exit_call_5, __dp_exc_info())
 #             _dp_with_exit_call_5 = None
 #             return
+#         block _dp_bb__dp_module_init_1:
+#             raise RuntimeError("boom")
 
 # closure_cell_simple
 
@@ -2397,9 +2397,6 @@ except Exception:
 #         try_jump:
 #             body_label: _dp_bb__dp_module_init_3
 #             except_label: _dp_bb__dp_module_init_2
-#         block _dp_bb__dp_module_init_3:
-#             print(1)
-#             return
 #         block _dp_bb__dp_module_init_2:
 #             if_term __dp_exception_matches(__dp_current_exception(), Exception):
 #                 then:
@@ -2409,6 +2406,9 @@ except Exception:
 #                 else:
 #                     block _dp_bb__dp_module_init_1:
 #                         raise
+#         block _dp_bb__dp_module_init_3:
+#             print(1)
+#             return
 
 # complicated generator
 
@@ -2479,6 +2479,15 @@ def complicated(a):
 #                         raise _dp_resume_exc
 #                     block _dp_bb_complicated_dispatch_throw_unstarted:
 #                         raise _dp_resume_exc
+#         block _dp_bb_complicated_5:
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_7, _dp_try_exc_7)
+#             if_term __dp_is_not(_dp_resume_exc, None):
+#                 then:
+#                     block _dp_bb_complicated_4:
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_7, _dp_try_exc_7)
+#                         raise _dp_resume_exc
+#                 else:
+#                     jump _dp_bb_complicated_9
 #         block _dp_bb_complicated_9:
 #             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_7, _dp_try_exc_7)
 #             _dp_iter_1 = __dp_load_deleted_name("_dp_iter_1", __dp_load_cell(_dp_cell__dp_iter_1))
@@ -2508,14 +2517,6 @@ def complicated(a):
 #                             try_jump:
 #                                 body_label: _dp_bb_complicated_6
 #                                 except_label: _dp_bb_complicated_3
-#                             block _dp_bb_complicated_6:
-#                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_7, _dp_try_exc_7)
-#                                 i = __dp_load_deleted_name("i", __dp_load_cell(_dp_cell_i))
-#                                 __dp_store_cell(_dp_cell_i, i)
-#                                 j = __dp_add(i, 1)
-#                                 __dp_store_cell(_dp_cell_j, j)
-#                                 __dp_store_cell(_dp_cell__dp_pc, 2)
-#                                 return j
 #                             block _dp_bb_complicated_3:
 #                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_7, _dp_try_exc_7)
 #                                 _dp_try_exc_7 = __dp_load_deleted_name("_dp_try_exc_7", __dp_load_cell(_dp_cell__dp_try_exc_7))
@@ -2534,15 +2535,14 @@ def complicated(a):
 #                                             _dp_try_exc_7 = __dp_load_deleted_name("_dp_try_exc_7", __dp_load_cell(_dp_cell__dp_try_exc_7))
 #                                             __dp_store_cell(_dp_cell__dp_try_exc_7, _dp_try_exc_7)
 #                                             raise
-#         block _dp_bb_complicated_5:
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_7, _dp_try_exc_7)
-#             if_term __dp_is_not(_dp_resume_exc, None):
-#                 then:
-#                     block _dp_bb_complicated_4:
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_7, _dp_try_exc_7)
-#                         raise _dp_resume_exc
-#                 else:
-#                     jump _dp_bb_complicated_9
+#                             block _dp_bb_complicated_6:
+#                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_7, _dp_try_exc_7)
+#                                 i = __dp_load_deleted_name("i", __dp_load_cell(_dp_cell_i))
+#                                 __dp_store_cell(_dp_cell_i, i)
+#                                 j = __dp_add(i, 1)
+#                                 __dp_store_cell(_dp_cell_j, j)
+#                                 __dp_store_cell(_dp_cell__dp_pc, 2)
+#                                 return j
 #         block _dp_bb_complicated_invalid:
 #             raise RuntimeError("invalid generator pc: {}".format(__dp_load_cell(_dp_cell__dp_pc)))
 #     block _dp_bb_complicated_uncaught:
@@ -2551,6 +2551,8 @@ def complicated(a):
 #                 jump _dp_bb_complicated_uncaught_set_done
 #             else:
 #                 jump _dp_bb_complicated_uncaught_raise
+#     block _dp_bb_complicated_uncaught_raise:
+#         raise _dp_uncaught_exc_15
 #     block _dp_bb_complicated_uncaught_set_done:
 #         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
 #         __dp_store_cell(_dp_cell_a, __dp_DELETED)
@@ -2562,8 +2564,6 @@ def complicated(a):
 #         __dp_store_cell(_dp_cell__dp_yieldfrom, __dp_DELETED)
 #         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_15)
 #         jump _dp_bb_complicated_uncaught_raise
-#     block _dp_bb_complicated_uncaught_raise:
-#         raise _dp_uncaught_exc_15
 
 # function _dp_module_init()
 #     kind: function

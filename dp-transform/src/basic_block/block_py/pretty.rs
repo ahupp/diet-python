@@ -527,11 +527,6 @@ impl BlockRenderLayout {
         let predecessors = collect_predecessors(&successors);
         let entry_index = choose_entry_block_index(function, &label_to_index, &predecessors);
         let discovery_order = collect_discovery_order(entry_index, &successors);
-        let discovery_rank = discovery_order
-            .iter()
-            .enumerate()
-            .map(|(rank, index)| (*index, rank))
-            .collect::<HashMap<_, _>>();
         let reachable = discovery_order.iter().copied().collect::<HashSet<_>>();
         let dominators =
             compute_dominators(entry_index, &discovery_order, &predecessors, &reachable);
@@ -545,12 +540,7 @@ impl BlockRenderLayout {
             }
         }
         for children in &mut child_blocks {
-            children.sort_by_key(|child_index| {
-                discovery_rank
-                    .get(child_index)
-                    .copied()
-                    .unwrap_or(usize::MAX)
-            });
+            sort_block_indices_by_label(children, function);
         }
 
         let (inline_if_term_targets, inlined_blocks) = compute_inline_if_term_targets(
@@ -568,6 +558,7 @@ impl BlockRenderLayout {
             .collect::<Vec<_>>();
         root_blocks.extend(reachable_roots);
         root_blocks.extend((0..block_count).filter(|index| !reachable.contains(index)));
+        sort_block_indices_by_label(&mut root_blocks[1..], function);
 
         Self {
             root_blocks,
@@ -576,6 +567,18 @@ impl BlockRenderLayout {
             inlined_blocks,
         }
     }
+}
+
+fn sort_block_indices_by_label<E>(indices: &mut [usize], function: &BlockPyCallableDef<E>)
+where
+    E: Clone + Into<Expr>,
+{
+    indices.sort_by(|left, right| {
+        function.blocks[*left]
+            .label
+            .as_str()
+            .cmp(function.blocks[*right].label.as_str())
+    });
 }
 
 fn compute_inline_if_term_targets(
@@ -1148,5 +1151,70 @@ def choose(a, b):
         assert!(rendered.contains("return b"), "{rendered}");
         assert!(!rendered.contains("block _dp_bb_choose_1_then"));
         assert!(!rendered.contains("block _dp_bb_choose_1_else"));
+    }
+
+    #[test]
+    fn sorts_rendered_root_and_child_blocks_by_label() {
+        let function: BlockPyCallableDef<BlockPyExpr> = BlockPyCallableDef {
+            cfg: crate::basic_block::cfg_ir::CfgCallableDef {
+                function_id: crate::basic_block::bb_ir::FunctionId(0),
+                bind_name: "f".to_string(),
+                display_name: "f".to_string(),
+                qualname: "f".to_string(),
+                kind: BlockPyFunctionKind::Function,
+                params: empty_parameters(),
+                entry_liveins: Vec::new(),
+                blocks: vec![
+                    BlockPyBlock {
+                        label: "start".into(),
+                        body: vec![],
+                        term: BlockPyTerm::TryJump(BlockPyTryJump {
+                            body_label: "zeta".into(),
+                            except_label: "alpha".into(),
+                        }),
+                        meta: BlockPyBlockMeta::default(),
+                    },
+                    BlockPyBlock {
+                        label: "zeta".into(),
+                        body: vec![BlockPyStmt::Pass],
+                        term: BlockPyTerm::Return(None),
+                        meta: BlockPyBlockMeta::default(),
+                    },
+                    BlockPyBlock {
+                        label: "alpha".into(),
+                        body: vec![BlockPyStmt::Pass],
+                        term: BlockPyTerm::Return(None),
+                        meta: BlockPyBlockMeta::default(),
+                    },
+                    BlockPyBlock {
+                        label: "omega".into(),
+                        body: vec![BlockPyStmt::Pass],
+                        term: BlockPyTerm::Return(None),
+                        meta: BlockPyBlockMeta::default(),
+                    },
+                    BlockPyBlock {
+                        label: "beta".into(),
+                        body: vec![BlockPyStmt::Pass],
+                        term: BlockPyTerm::Return(None),
+                        meta: BlockPyBlockMeta::default(),
+                    },
+                ],
+            },
+            doc: None,
+            closure_layout: None,
+            local_cell_slots: Vec::new(),
+        };
+        let rendered = blockpy_module_to_string(&BlockPyModule {
+            module_init: None,
+            callable_defs: vec![function],
+        });
+
+        let alpha_pos = rendered.find("block alpha:").expect("alpha block");
+        let zeta_pos = rendered.find("block zeta:").expect("zeta block");
+        let beta_pos = rendered.find("block beta:").expect("beta block");
+        let omega_pos = rendered.find("block omega:").expect("omega block");
+
+        assert!(alpha_pos < zeta_pos, "{rendered}");
+        assert!(beta_pos < omega_pos, "{rendered}");
     }
 }
