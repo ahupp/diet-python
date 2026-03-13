@@ -4,6 +4,459 @@ use crate::basic_block::block_py::{
     SemanticBlockPyBlock as BlockPyBlock,
 };
 
+type BlockPyStmtFragmentBuilder<E> =
+    crate::basic_block::block_py::BlockPyCfgFragmentBuilder<BlockPyStmt<E>, BlockPyTerm<E>>;
+
+trait StmtLowerer {
+    fn simplify_ast(self) -> Stmt
+    where
+        Self: Sized;
+
+    fn to_blockpy<E>(
+        &self,
+        _out: &mut BlockPyStmtFragmentBuilder<E>,
+        _loop_ctx: Option<&LoopContext>,
+        _next_label_id: &mut usize,
+    ) -> Result<(), String>
+    where
+        E: From<Expr> + std::fmt::Debug,
+    {
+        panic!(
+            "{} should have already been reduced before BlockPy lowering",
+            std::any::type_name::<Self>()
+        );
+    }
+}
+
+macro_rules! impl_identity_stmt_lowerer {
+    ($ty:path, $variant:path) => {
+        impl StmtLowerer for $ty {
+            fn simplify_ast(self) -> Stmt {
+                $variant(self)
+            }
+        }
+    };
+}
+
+macro_rules! impl_unreduced_stmt_lowerer {
+    ($ty:path, $variant:path, $message:literal) => {
+        impl StmtLowerer for $ty {
+            fn simplify_ast(self) -> Stmt {
+                $variant(self)
+            }
+
+            fn to_blockpy<E>(
+                &self,
+                _out: &mut BlockPyStmtFragmentBuilder<E>,
+                _loop_ctx: Option<&LoopContext>,
+                _next_label_id: &mut usize,
+            ) -> Result<(), String>
+            where
+                E: From<Expr> + std::fmt::Debug,
+            {
+                panic!($message);
+            }
+        }
+    };
+}
+
+impl_unreduced_stmt_lowerer!(
+    ast::StmtFunctionDef,
+    Stmt::FunctionDef,
+    "FunctionDef should be extracted before Ruff AST -> BlockPy conversion"
+);
+impl_unreduced_stmt_lowerer!(
+    ast::StmtClassDef,
+    Stmt::ClassDef,
+    "ClassDef should be lowered before Ruff AST -> BlockPy conversion"
+);
+impl_unreduced_stmt_lowerer!(
+    ast::StmtTypeAlias,
+    Stmt::TypeAlias,
+    "TypeAlias should be lowered before Ruff AST -> BlockPy conversion"
+);
+impl_unreduced_stmt_lowerer!(
+    ast::StmtAugAssign,
+    Stmt::AugAssign,
+    "AugAssign should be lowered before Ruff AST -> BlockPy conversion"
+);
+impl_unreduced_stmt_lowerer!(
+    ast::StmtAnnAssign,
+    Stmt::AnnAssign,
+    "AnnAssign should be lowered before Ruff AST -> BlockPy conversion"
+);
+impl_unreduced_stmt_lowerer!(
+    ast::StmtWhile,
+    Stmt::While,
+    "While should be lowered before Ruff AST -> BlockPy stmt-list conversion"
+);
+impl_unreduced_stmt_lowerer!(
+    ast::StmtFor,
+    Stmt::For,
+    "For should be lowered before Ruff AST -> BlockPy stmt-list conversion"
+);
+impl_unreduced_stmt_lowerer!(
+    ast::StmtMatch,
+    Stmt::Match,
+    "Match should be lowered before Ruff AST -> BlockPy conversion"
+);
+impl_unreduced_stmt_lowerer!(
+    ast::StmtAssert,
+    Stmt::Assert,
+    "Assert should be lowered before Ruff AST -> BlockPy conversion"
+);
+impl_unreduced_stmt_lowerer!(
+    ast::StmtImport,
+    Stmt::Import,
+    "Import should be lowered before Ruff AST -> BlockPy conversion"
+);
+impl_unreduced_stmt_lowerer!(
+    ast::StmtImportFrom,
+    Stmt::ImportFrom,
+    "ImportFrom should be lowered before Ruff AST -> BlockPy conversion"
+);
+impl_unreduced_stmt_lowerer!(
+    ast::StmtTry,
+    Stmt::Try,
+    "Try should be lowered through stmt-sequence BlockPy conversion"
+);
+impl_unreduced_stmt_lowerer!(
+    ast::StmtIpyEscapeCommand,
+    Stmt::IpyEscapeCommand,
+    "IpyEscapeCommand should not reach BlockPy conversion"
+);
+
+fn simplify_stmt_ast_for_blockpy(stmt: Stmt) -> Stmt {
+    match stmt {
+        Stmt::BodyStmt(body) => body.simplify_ast(),
+        Stmt::Global(stmt) => stmt.simplify_ast(),
+        Stmt::Nonlocal(stmt) => stmt.simplify_ast(),
+        Stmt::Pass(stmt) => stmt.simplify_ast(),
+        Stmt::Expr(stmt) => stmt.simplify_ast(),
+        Stmt::Assign(stmt) => stmt.simplify_ast(),
+        Stmt::Delete(stmt) => stmt.simplify_ast(),
+        Stmt::FunctionDef(stmt) => stmt.simplify_ast(),
+        Stmt::ClassDef(stmt) => stmt.simplify_ast(),
+        Stmt::TypeAlias(stmt) => stmt.simplify_ast(),
+        Stmt::AugAssign(stmt) => stmt.simplify_ast(),
+        Stmt::AnnAssign(stmt) => stmt.simplify_ast(),
+        Stmt::If(stmt) => stmt.simplify_ast(),
+        Stmt::While(stmt) => stmt.simplify_ast(),
+        Stmt::For(stmt) => stmt.simplify_ast(),
+        Stmt::With(stmt) => stmt.simplify_ast(),
+        Stmt::Match(stmt) => stmt.simplify_ast(),
+        Stmt::Assert(stmt) => stmt.simplify_ast(),
+        Stmt::Import(stmt) => stmt.simplify_ast(),
+        Stmt::ImportFrom(stmt) => stmt.simplify_ast(),
+        Stmt::Break(stmt) => stmt.simplify_ast(),
+        Stmt::Continue(stmt) => stmt.simplify_ast(),
+        Stmt::Return(stmt) => stmt.simplify_ast(),
+        Stmt::Raise(stmt) => stmt.simplify_ast(),
+        Stmt::Try(stmt) => stmt.simplify_ast(),
+        Stmt::IpyEscapeCommand(stmt) => stmt.simplify_ast(),
+    }
+}
+
+impl StmtLowerer for ast::StmtBody {
+    fn simplify_ast(self) -> Stmt {
+        Stmt::BodyStmt(self)
+    }
+
+    fn to_blockpy<E>(
+        &self,
+        out: &mut BlockPyStmtFragmentBuilder<E>,
+        loop_ctx: Option<&LoopContext>,
+        next_label_id: &mut usize,
+    ) -> Result<(), String>
+    where
+        E: From<Expr> + std::fmt::Debug,
+    {
+        for stmt in &self.body {
+            lower_stmt_into_with_expr(stmt.as_ref(), out, loop_ctx, next_label_id)?;
+        }
+        Ok(())
+    }
+}
+
+impl StmtLowerer for ast::StmtGlobal {
+    fn simplify_ast(self) -> Stmt {
+        Stmt::Global(self)
+    }
+
+    fn to_blockpy<E>(
+        &self,
+        _out: &mut BlockPyStmtFragmentBuilder<E>,
+        _loop_ctx: Option<&LoopContext>,
+        _next_label_id: &mut usize,
+    ) -> Result<(), String>
+    where
+        E: From<Expr> + std::fmt::Debug,
+    {
+        Ok(())
+    }
+}
+
+impl StmtLowerer for ast::StmtNonlocal {
+    fn simplify_ast(self) -> Stmt {
+        Stmt::Nonlocal(self)
+    }
+
+    fn to_blockpy<E>(
+        &self,
+        _out: &mut BlockPyStmtFragmentBuilder<E>,
+        _loop_ctx: Option<&LoopContext>,
+        _next_label_id: &mut usize,
+    ) -> Result<(), String>
+    where
+        E: From<Expr> + std::fmt::Debug,
+    {
+        Ok(())
+    }
+}
+
+impl StmtLowerer for ast::StmtPass {
+    fn simplify_ast(self) -> Stmt {
+        Stmt::Pass(self)
+    }
+
+    fn to_blockpy<E>(
+        &self,
+        out: &mut BlockPyStmtFragmentBuilder<E>,
+        _loop_ctx: Option<&LoopContext>,
+        _next_label_id: &mut usize,
+    ) -> Result<(), String>
+    where
+        E: From<Expr> + std::fmt::Debug,
+    {
+        out.push_stmt(BlockPyStmt::Pass);
+        Ok(())
+    }
+}
+
+impl StmtLowerer for ast::StmtExpr {
+    fn simplify_ast(self) -> Stmt {
+        Stmt::Expr(self)
+    }
+
+    fn to_blockpy<E>(
+        &self,
+        out: &mut BlockPyStmtFragmentBuilder<E>,
+        _loop_ctx: Option<&LoopContext>,
+        _next_label_id: &mut usize,
+    ) -> Result<(), String>
+    where
+        E: From<Expr> + std::fmt::Debug,
+    {
+        out.push_stmt(BlockPyStmt::Expr((*self.value).clone().into()));
+        Ok(())
+    }
+}
+
+impl StmtLowerer for ast::StmtAssign {
+    fn simplify_ast(self) -> Stmt {
+        Stmt::Assign(self)
+    }
+
+    fn to_blockpy<E>(
+        &self,
+        out: &mut BlockPyStmtFragmentBuilder<E>,
+        _loop_ctx: Option<&LoopContext>,
+        _next_label_id: &mut usize,
+    ) -> Result<(), String>
+    where
+        E: From<Expr> + std::fmt::Debug,
+    {
+        if self.targets.len() != 1 {
+            return Err(assign_delete_error(
+                "multi-target assignment reached BlockPy conversion",
+                &Stmt::Assign(self.clone()),
+            ));
+        }
+        let Some(target) = self.targets[0].as_name_expr().cloned() else {
+            return Err(assign_delete_error(
+                "non-name assignment target reached BlockPy conversion",
+                &Stmt::Assign(self.clone()),
+            ));
+        };
+        out.push_stmt(BlockPyStmt::Assign(BlockPyAssign {
+            target,
+            value: (*self.value).clone().into(),
+        }));
+        Ok(())
+    }
+}
+
+impl StmtLowerer for ast::StmtDelete {
+    fn simplify_ast(self) -> Stmt {
+        Stmt::Delete(self)
+    }
+
+    fn to_blockpy<E>(
+        &self,
+        out: &mut BlockPyStmtFragmentBuilder<E>,
+        _loop_ctx: Option<&LoopContext>,
+        _next_label_id: &mut usize,
+    ) -> Result<(), String>
+    where
+        E: From<Expr> + std::fmt::Debug,
+    {
+        if self.targets.len() != 1 {
+            return Err(assign_delete_error(
+                "multi-target delete reached BlockPy conversion",
+                &Stmt::Delete(self.clone()),
+            ));
+        }
+        let Some(target) = self.targets[0].as_name_expr().cloned() else {
+            return Err(assign_delete_error(
+                "non-name delete target reached BlockPy conversion",
+                &Stmt::Delete(self.clone()),
+            ));
+        };
+        out.push_stmt(BlockPyStmt::Delete(BlockPyDelete { target }));
+        Ok(())
+    }
+}
+
+impl StmtLowerer for ast::StmtIf {
+    fn simplify_ast(self) -> Stmt {
+        Stmt::If(self)
+    }
+
+    fn to_blockpy<E>(
+        &self,
+        out: &mut BlockPyStmtFragmentBuilder<E>,
+        loop_ctx: Option<&LoopContext>,
+        next_label_id: &mut usize,
+    ) -> Result<(), String>
+    where
+        E: From<Expr> + std::fmt::Debug,
+    {
+        let body = lower_nested_body_to_stmts_with_expr(&self.body, loop_ctx, next_label_id)?;
+        let orelse = lower_orelse_to_stmts_with_expr(
+            &self.elif_else_clauses,
+            &Stmt::If(self.clone()),
+            loop_ctx,
+            next_label_id,
+        )?;
+        out.push_stmt(BlockPyStmt::If(BlockPyIf {
+            test: (*self.test).clone().into(),
+            body,
+            orelse,
+        }));
+        Ok(())
+    }
+}
+
+impl StmtLowerer for ast::StmtWith {
+    fn simplify_ast(self) -> Stmt {
+        desugar_structured_with_stmt_for_blockpy(self)
+    }
+
+    fn to_blockpy<E>(
+        &self,
+        out: &mut BlockPyStmtFragmentBuilder<E>,
+        loop_ctx: Option<&LoopContext>,
+        next_label_id: &mut usize,
+    ) -> Result<(), String>
+    where
+        E: From<Expr> + std::fmt::Debug,
+    {
+        let simplified = self.clone().simplify_ast();
+        lower_stmt_into_with_expr(&simplified, out, loop_ctx, next_label_id)
+    }
+}
+
+impl StmtLowerer for ast::StmtBreak {
+    fn simplify_ast(self) -> Stmt {
+        Stmt::Break(self)
+    }
+
+    fn to_blockpy<E>(
+        &self,
+        out: &mut BlockPyStmtFragmentBuilder<E>,
+        loop_ctx: Option<&LoopContext>,
+        _next_label_id: &mut usize,
+    ) -> Result<(), String>
+    where
+        E: From<Expr> + std::fmt::Debug,
+    {
+        if let Some(loop_ctx) = loop_ctx {
+            out.set_term(BlockPyTerm::Jump(loop_ctx.break_label.clone()));
+            Ok(())
+        } else {
+            panic!("Break should be lowered before Ruff AST -> BlockPy conversion");
+        }
+    }
+}
+
+impl StmtLowerer for ast::StmtContinue {
+    fn simplify_ast(self) -> Stmt {
+        Stmt::Continue(self)
+    }
+
+    fn to_blockpy<E>(
+        &self,
+        out: &mut BlockPyStmtFragmentBuilder<E>,
+        loop_ctx: Option<&LoopContext>,
+        _next_label_id: &mut usize,
+    ) -> Result<(), String>
+    where
+        E: From<Expr> + std::fmt::Debug,
+    {
+        if let Some(loop_ctx) = loop_ctx {
+            out.set_term(BlockPyTerm::Jump(loop_ctx.continue_label.clone()));
+            Ok(())
+        } else {
+            panic!("Continue should be lowered before Ruff AST -> BlockPy conversion");
+        }
+    }
+}
+
+impl StmtLowerer for ast::StmtReturn {
+    fn simplify_ast(self) -> Stmt {
+        Stmt::Return(self)
+    }
+
+    fn to_blockpy<E>(
+        &self,
+        out: &mut BlockPyStmtFragmentBuilder<E>,
+        _loop_ctx: Option<&LoopContext>,
+        _next_label_id: &mut usize,
+    ) -> Result<(), String>
+    where
+        E: From<Expr> + std::fmt::Debug,
+    {
+        out.set_term(BlockPyTerm::Return(
+            self.value.as_ref().map(|v| (**v).clone().into()),
+        ));
+        Ok(())
+    }
+}
+
+impl StmtLowerer for ast::StmtRaise {
+    fn simplify_ast(self) -> Stmt {
+        Stmt::Raise(self)
+    }
+
+    fn to_blockpy<E>(
+        &self,
+        out: &mut BlockPyStmtFragmentBuilder<E>,
+        _loop_ctx: Option<&LoopContext>,
+        _next_label_id: &mut usize,
+    ) -> Result<(), String>
+    where
+        E: From<Expr> + std::fmt::Debug,
+    {
+        if self.cause.is_some() {
+            panic!("raise-from should be lowered before Ruff AST -> BlockPy conversion");
+        }
+        out.set_term(BlockPyTerm::Raise(BlockPyRaise {
+            exc: self.exc.as_ref().map(|exc| (**exc).clone().into()),
+        }));
+        Ok(())
+    }
+}
+
 fn lower_nested_body_to_stmts(
     body: &StmtBody,
     loop_ctx: Option<&LoopContext>,
@@ -41,10 +494,7 @@ pub(crate) fn lower_stmt_into(
 
 pub(crate) fn lower_stmt_into_with_expr<E>(
     stmt: &Stmt,
-    out: &mut crate::basic_block::block_py::BlockPyCfgFragmentBuilder<
-        BlockPyStmt<E>,
-        BlockPyTerm<E>,
-    >,
+    out: &mut BlockPyStmtFragmentBuilder<E>,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
 ) -> Result<(), String>
@@ -52,130 +502,32 @@ where
     E: From<Expr> + std::fmt::Debug,
 {
     match stmt {
-        Stmt::BodyStmt(body) => {
-            for stmt in &body.body {
-                lower_stmt_into_with_expr(stmt.as_ref(), out, loop_ctx, next_label_id)?;
-            }
-        }
-        Stmt::Global(_) | Stmt::Nonlocal(_) => {}
-        Stmt::Pass(_) => out.push_stmt(BlockPyStmt::Pass),
-        Stmt::Expr(expr_stmt) => {
-            out.push_stmt(BlockPyStmt::Expr((*expr_stmt.value).clone().into()))
-        }
-        Stmt::Assign(assign) => {
-            if assign.targets.len() != 1 {
-                return Err(assign_delete_error(
-                    "multi-target assignment reached BlockPy conversion",
-                    stmt,
-                ));
-            }
-            let Some(target) = assign.targets[0].as_name_expr().cloned() else {
-                return Err(assign_delete_error(
-                    "non-name assignment target reached BlockPy conversion",
-                    stmt,
-                ));
-            };
-            out.push_stmt(BlockPyStmt::Assign(BlockPyAssign {
-                target,
-                value: (*assign.value).clone().into(),
-            }));
-        }
-        Stmt::Delete(delete) => {
-            if delete.targets.len() != 1 {
-                return Err(assign_delete_error(
-                    "multi-target delete reached BlockPy conversion",
-                    stmt,
-                ));
-            }
-            let Some(target) = delete.targets[0].as_name_expr().cloned() else {
-                return Err(assign_delete_error(
-                    "non-name delete target reached BlockPy conversion",
-                    stmt,
-                ));
-            };
-            out.push_stmt(BlockPyStmt::Delete(BlockPyDelete { target }));
-        }
-        Stmt::FunctionDef(_) => {
-            panic!("FunctionDef should be extracted before Ruff AST -> BlockPy conversion");
-        }
-        Stmt::ClassDef(_) => {
-            panic!("ClassDef should be lowered before Ruff AST -> BlockPy conversion");
-        }
-        Stmt::TypeAlias(_) => {
-            panic!("TypeAlias should be lowered before Ruff AST -> BlockPy conversion");
-        }
-        Stmt::AugAssign(_) => {
-            panic!("AugAssign should be lowered before Ruff AST -> BlockPy conversion");
-        }
-        Stmt::AnnAssign(_) => {
-            panic!("AnnAssign should be lowered before Ruff AST -> BlockPy conversion");
-        }
-        Stmt::If(if_stmt) => {
-            let body =
-                lower_nested_body_to_stmts_with_expr(&if_stmt.body, loop_ctx, next_label_id)?;
-            let orelse = lower_orelse_to_stmts_with_expr(
-                &if_stmt.elif_else_clauses,
-                stmt,
-                loop_ctx,
-                next_label_id,
-            )?;
-            out.push_stmt(BlockPyStmt::If(BlockPyIf {
-                test: (*if_stmt.test).clone().into(),
-                body,
-                orelse,
-            }));
-        }
-        Stmt::While(_) => {
-            panic!("While should be lowered before Ruff AST -> BlockPy stmt-list conversion");
-        }
-        Stmt::For(_) => {
-            panic!("For should be lowered before Ruff AST -> BlockPy stmt-list conversion");
-        }
-        Stmt::With(with_stmt) => {
-            lower_with_into_with_expr(with_stmt.clone(), out, loop_ctx, next_label_id)?;
-        }
-        Stmt::Match(_) => {
-            panic!("Match should be lowered before Ruff AST -> BlockPy conversion");
-        }
-        Stmt::Assert(_) => {
-            panic!("Assert should be lowered before Ruff AST -> BlockPy conversion");
-        }
-        Stmt::Import(_) => {
-            panic!("Import should be lowered before Ruff AST -> BlockPy conversion");
-        }
-        Stmt::ImportFrom(_) => {
-            panic!("ImportFrom should be lowered before Ruff AST -> BlockPy conversion");
-        }
-        Stmt::Break(_) => {
-            if let Some(loop_ctx) = loop_ctx {
-                out.set_term(BlockPyTerm::Jump(loop_ctx.break_label.clone()));
-            } else {
-                panic!("Break should be lowered before Ruff AST -> BlockPy conversion");
-            }
-        }
-        Stmt::Continue(_) => {
-            if let Some(loop_ctx) = loop_ctx {
-                out.set_term(BlockPyTerm::Jump(loop_ctx.continue_label.clone()));
-            } else {
-                panic!("Continue should be lowered before Ruff AST -> BlockPy conversion");
-            }
-        }
-        Stmt::Return(return_stmt) => {
-            out.set_term(BlockPyTerm::Return(
-                return_stmt.value.as_ref().map(|v| (**v).clone().into()),
-            ));
-        }
-        Stmt::Raise(raise_stmt) => {
-            if raise_stmt.cause.is_some() {
-                panic!("raise-from should be lowered before Ruff AST -> BlockPy conversion");
-            }
-            out.set_term(BlockPyTerm::Raise(BlockPyRaise {
-                exc: raise_stmt.exc.as_ref().map(|exc| (**exc).clone().into()),
-            }));
-        }
-        Stmt::Try(_) => {
-            panic!("Try should be lowered through stmt-sequence BlockPy conversion");
-        }
+        Stmt::BodyStmt(body) => body.to_blockpy(out, loop_ctx, next_label_id),
+        Stmt::Global(stmt) => stmt.to_blockpy(out, loop_ctx, next_label_id),
+        Stmt::Nonlocal(stmt) => stmt.to_blockpy(out, loop_ctx, next_label_id),
+        Stmt::Pass(stmt) => stmt.to_blockpy(out, loop_ctx, next_label_id),
+        Stmt::Expr(stmt) => stmt.to_blockpy(out, loop_ctx, next_label_id),
+        Stmt::Assign(stmt) => stmt.to_blockpy(out, loop_ctx, next_label_id),
+        Stmt::Delete(stmt) => stmt.to_blockpy(out, loop_ctx, next_label_id),
+        Stmt::FunctionDef(stmt) => stmt.to_blockpy(out, loop_ctx, next_label_id),
+        Stmt::ClassDef(stmt) => stmt.to_blockpy(out, loop_ctx, next_label_id),
+        Stmt::TypeAlias(stmt) => stmt.to_blockpy(out, loop_ctx, next_label_id),
+        Stmt::AugAssign(stmt) => stmt.to_blockpy(out, loop_ctx, next_label_id),
+        Stmt::AnnAssign(stmt) => stmt.to_blockpy(out, loop_ctx, next_label_id),
+        Stmt::If(stmt) => stmt.to_blockpy(out, loop_ctx, next_label_id),
+        Stmt::While(stmt) => stmt.to_blockpy(out, loop_ctx, next_label_id),
+        Stmt::For(stmt) => stmt.to_blockpy(out, loop_ctx, next_label_id),
+        Stmt::With(stmt) => stmt.to_blockpy(out, loop_ctx, next_label_id),
+        Stmt::Match(stmt) => stmt.to_blockpy(out, loop_ctx, next_label_id),
+        Stmt::Assert(stmt) => stmt.to_blockpy(out, loop_ctx, next_label_id),
+        Stmt::Import(stmt) => stmt.to_blockpy(out, loop_ctx, next_label_id),
+        Stmt::ImportFrom(stmt) => stmt.to_blockpy(out, loop_ctx, next_label_id),
+        Stmt::Break(stmt) => stmt.to_blockpy(out, loop_ctx, next_label_id),
+        Stmt::Continue(stmt) => stmt.to_blockpy(out, loop_ctx, next_label_id),
+        Stmt::Return(stmt) => stmt.to_blockpy(out, loop_ctx, next_label_id),
+        Stmt::Raise(stmt) => stmt.to_blockpy(out, loop_ctx, next_label_id),
+        Stmt::Try(stmt) => stmt.to_blockpy(out, loop_ctx, next_label_id),
+        Stmt::IpyEscapeCommand(stmt) => stmt.to_blockpy(out, loop_ctx, next_label_id),
         other => {
             return Err(format!(
                 "unsupported statement reached Ruff AST -> BlockPy conversion: {}\nstmt:\n{}",
@@ -183,7 +535,7 @@ where
                 ruff_ast_to_string(other).trim_end()
             ));
         }
-    }
+    }?;
     Ok(())
 }
 
@@ -836,17 +1188,14 @@ fn lower_with_into(
 
 fn lower_with_into_with_expr<E>(
     with_stmt: ast::StmtWith,
-    out: &mut crate::basic_block::block_py::BlockPyCfgFragmentBuilder<
-        BlockPyStmt<E>,
-        BlockPyTerm<E>,
-    >,
+    out: &mut BlockPyStmtFragmentBuilder<E>,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
 ) -> Result<(), String>
 where
     E: From<Expr> + std::fmt::Debug,
 {
-    let lowered_body = desugar_structured_with_stmt_for_blockpy(with_stmt);
+    let lowered_body = simplify_stmt_ast_for_blockpy(Stmt::With(with_stmt));
     lower_stmt_into_with_expr(&lowered_body, out, loop_ctx, next_label_id)
 }
 
@@ -880,5 +1229,22 @@ where
             "`elif` chain reached Ruff AST -> BlockPy conversion\nstmt:\n{}",
             ruff_ast_to_string(stmt).trim_end()
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stmt_with_simplify_ast_desugars_before_blockpy_lowering() {
+        let stmt = py_stmt!("with cm:\n    body()");
+        let Stmt::With(with_stmt) = stmt else {
+            panic!("expected with stmt");
+        };
+
+        let simplified = simplify_stmt_ast_for_blockpy(Stmt::With(with_stmt));
+
+        assert!(!matches!(simplified, Stmt::With(_)));
     }
 }
