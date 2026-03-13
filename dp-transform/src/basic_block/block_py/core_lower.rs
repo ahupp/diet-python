@@ -1,10 +1,10 @@
 use super::{
     BlockPyBlockMeta, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete, BlockPyIf,
-    BlockPyIfTerm, BlockPyRaise, BlockPyStmtFragmentBuilder, BlockPyStructuredIf, BlockPyTerm,
-    CoreBlockPyAssign, CoreBlockPyBlock, CoreBlockPyCallableDef, CoreBlockPyExpr,
-    CoreBlockPyModule, CoreBlockPyStmt, CoreBlockPyStmtFragment, CoreBlockPyTerm,
-    SemanticBlockPyBlock, SemanticBlockPyCallableDef, SemanticBlockPyModule, SemanticBlockPyStmt,
-    SemanticBlockPyTerm,
+    BlockPyIfTerm, BlockPyRaise, BlockPyStmtFragmentBuilder, BlockPyTerm, CoreBlockPyAssign,
+    CoreBlockPyBinOp, CoreBlockPyBlock, CoreBlockPyCallableDef, CoreBlockPyCompare,
+    CoreBlockPyExpr, CoreBlockPyModule, CoreBlockPyStmt, CoreBlockPyStmtFragment, CoreBlockPyTerm,
+    CoreBlockPyUnaryOp, SemanticBlockPyBlock, SemanticBlockPyCallableDef, SemanticBlockPyModule,
+    SemanticBlockPyStmt, SemanticBlockPyTerm,
 };
 use crate::basic_block::cfg_ir::CfgCallableDef;
 
@@ -21,8 +21,46 @@ fn finish_expr_setup(builder: CoreStmtBuilder) -> Vec<CoreBlockPyStmt> {
 }
 
 fn lower_semantic_expr_into(builder: &mut CoreStmtBuilder, expr: &SemanticExpr) -> CoreBlockPyExpr {
-    let _ = builder;
-    expr.clone().into()
+    match expr {
+        SemanticExpr::UnaryOp(node) => CoreBlockPyExpr::UnaryOp(CoreBlockPyUnaryOp {
+            node_index: node.node_index.clone(),
+            range: node.range,
+            op: node.op,
+            operand: Box::new(lower_semantic_expr_into(
+                builder,
+                &((*node.operand).clone().into()),
+            )),
+        }),
+        SemanticExpr::BinOp(node) => CoreBlockPyExpr::BinOp(CoreBlockPyBinOp {
+            node_index: node.node_index.clone(),
+            range: node.range,
+            left: Box::new(lower_semantic_expr_into(
+                builder,
+                &((*node.left).clone().into()),
+            )),
+            op: node.op,
+            right: Box::new(lower_semantic_expr_into(
+                builder,
+                &((*node.right).clone().into()),
+            )),
+        }),
+        SemanticExpr::Compare(node) => CoreBlockPyExpr::Compare(CoreBlockPyCompare {
+            node_index: node.node_index.clone(),
+            range: node.range,
+            left: Box::new(lower_semantic_expr_into(
+                builder,
+                &((*node.left).clone().into()),
+            )),
+            ops: node.ops.clone(),
+            comparators: node
+                .comparators
+                .iter()
+                .map(|expr| lower_semantic_expr_into(builder, &(expr.clone().into())))
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
+        }),
+        _ => expr.clone().into(),
+    }
 }
 
 fn lower_semantic_expr_without_setup(expr: &SemanticExpr) -> CoreBlockPyExpr {
@@ -200,6 +238,8 @@ pub(crate) fn lower_semantic_blockpy_module_to_core(
 mod tests {
     use super::lower_semantic_blockpy_module_to_core;
     use crate::basic_block::block_py::pretty::blockpy_module_to_string;
+    use crate::basic_block::block_py::{CoreBlockPyExpr, SemanticBlockPyExpr};
+    use crate::py_expr;
     use crate::{transform_str_to_ruff_with_options, Options};
 
     #[test]
@@ -222,5 +262,16 @@ def f(x):
             blockpy_module_to_string(&blockpy),
             blockpy_module_to_string(&core)
         );
+    }
+
+    #[test]
+    fn semantic_to_core_lowering_recurses_bottom_up_for_operator_family() {
+        let expr = SemanticBlockPyExpr::from(py_expr!("-(x + 1)"));
+        let lowered = super::lower_semantic_expr_without_setup(&expr);
+
+        let CoreBlockPyExpr::UnaryOp(unary) = lowered else {
+            panic!("expected unary core expr");
+        };
+        assert!(matches!(&*unary.operand, CoreBlockPyExpr::BinOp(_)));
     }
 }

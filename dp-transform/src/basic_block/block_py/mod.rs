@@ -68,12 +68,38 @@ pub enum CoreBlockPyExpr {
     Subscript(ast::ExprSubscript),
     Starred(ast::ExprStarred),
     Slice(ast::ExprSlice),
-    UnaryOp(ast::ExprUnaryOp),
-    BinOp(ast::ExprBinOp),
-    Compare(ast::ExprCompare),
+    UnaryOp(CoreBlockPyUnaryOp),
+    BinOp(CoreBlockPyBinOp),
+    Compare(CoreBlockPyCompare),
     If(ast::ExprIf),
     Name(ast::ExprName),
     Raw(Expr),
+}
+
+#[derive(Debug, Clone)]
+pub struct CoreBlockPyUnaryOp {
+    pub node_index: ast::AtomicNodeIndex,
+    pub range: ruff_text_size::TextRange,
+    pub op: ast::UnaryOp,
+    pub operand: Box<CoreBlockPyExpr>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CoreBlockPyBinOp {
+    pub node_index: ast::AtomicNodeIndex,
+    pub range: ruff_text_size::TextRange,
+    pub left: Box<CoreBlockPyExpr>,
+    pub op: ast::Operator,
+    pub right: Box<CoreBlockPyExpr>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CoreBlockPyCompare {
+    pub node_index: ast::AtomicNodeIndex,
+    pub range: ruff_text_size::TextRange,
+    pub left: Box<CoreBlockPyExpr>,
+    pub ops: Box<[ast::CmpOp]>,
+    pub comparators: Box<[CoreBlockPyExpr]>,
 }
 
 pub type RuffBlockPyModule = BlockPyModule<Expr>;
@@ -88,6 +114,7 @@ pub type RuffBlockPyIfTerm = BlockPyIfTerm<Expr>;
 pub type RuffBlockPyBranchTable = BlockPyBranchTable<Expr>;
 pub type RuffBlockPyRaise = BlockPyRaise<Expr>;
 pub type SemanticBlockPyModule = BlockPyModule<BlockPyExpr>;
+pub type SemanticBlockPyExpr = BlockPyExpr;
 pub type SemanticBlockPyCallableDef = BlockPyCallableDef<BlockPyExpr>;
 pub type SemanticBlockPyBlock = BlockPyBlock<BlockPyExpr>;
 pub type SemanticBlockPyStmt = BlockPyStmt<BlockPyExpr>;
@@ -537,6 +564,21 @@ mod tests {
     }
 
     #[test]
+    fn core_blockpy_expr_operator_variants_are_recursive() {
+        let unary = CoreBlockPyExpr::from(py_expr!("-(x + 1)"));
+        let CoreBlockPyExpr::UnaryOp(unary) = unary else {
+            panic!("expected unary core expr");
+        };
+        assert!(matches!(&*unary.operand, CoreBlockPyExpr::BinOp(_)));
+
+        let compare = CoreBlockPyExpr::from(py_expr!("x < (y + 1)"));
+        let CoreBlockPyExpr::Compare(compare) = compare else {
+            panic!("expected compare core expr");
+        };
+        assert!(matches!(compare.comparators[0], CoreBlockPyExpr::BinOp(_)));
+    }
+
+    #[test]
     fn core_blockpy_expr_uses_reduced_variants_for_container_displays() {
         assert!(matches!(
             CoreBlockPyExpr::from(py_expr!("[x, y]")),
@@ -654,9 +696,32 @@ impl From<Expr> for CoreBlockPyExpr {
             Expr::Subscript(node) => Self::Subscript(node),
             Expr::Starred(node) => Self::Starred(node),
             Expr::Slice(node) => Self::Slice(node),
-            Expr::UnaryOp(node) => Self::UnaryOp(node),
-            Expr::BinOp(node) => Self::BinOp(node),
-            Expr::Compare(node) => Self::Compare(node),
+            Expr::UnaryOp(node) => Self::UnaryOp(CoreBlockPyUnaryOp {
+                node_index: node.node_index,
+                range: node.range,
+                op: node.op,
+                operand: Box::new(Self::from(*node.operand)),
+            }),
+            Expr::BinOp(node) => Self::BinOp(CoreBlockPyBinOp {
+                node_index: node.node_index,
+                range: node.range,
+                left: Box::new(Self::from(*node.left)),
+                op: node.op,
+                right: Box::new(Self::from(*node.right)),
+            }),
+            Expr::Compare(node) => Self::Compare(CoreBlockPyCompare {
+                node_index: node.node_index,
+                range: node.range,
+                left: Box::new(Self::from(*node.left)),
+                ops: node.ops,
+                comparators: node
+                    .comparators
+                    .into_vec()
+                    .into_iter()
+                    .map(Self::from)
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            }),
             Expr::If(node) => Self::If(node),
             Expr::Name(node) => Self::Name(node),
             other => Self::Raw(other),
@@ -690,9 +755,32 @@ impl From<CoreBlockPyExpr> for Expr {
             CoreBlockPyExpr::Subscript(node) => Expr::Subscript(node),
             CoreBlockPyExpr::Starred(node) => Expr::Starred(node),
             CoreBlockPyExpr::Slice(node) => Expr::Slice(node),
-            CoreBlockPyExpr::UnaryOp(node) => Expr::UnaryOp(node),
-            CoreBlockPyExpr::BinOp(node) => Expr::BinOp(node),
-            CoreBlockPyExpr::Compare(node) => Expr::Compare(node),
+            CoreBlockPyExpr::UnaryOp(node) => Expr::UnaryOp(ast::ExprUnaryOp {
+                node_index: node.node_index,
+                range: node.range,
+                op: node.op,
+                operand: Box::new(Expr::from(*node.operand)),
+            }),
+            CoreBlockPyExpr::BinOp(node) => Expr::BinOp(ast::ExprBinOp {
+                node_index: node.node_index,
+                range: node.range,
+                left: Box::new(Expr::from(*node.left)),
+                op: node.op,
+                right: Box::new(Expr::from(*node.right)),
+            }),
+            CoreBlockPyExpr::Compare(node) => Expr::Compare(ast::ExprCompare {
+                node_index: node.node_index,
+                range: node.range,
+                left: Box::new(Expr::from(*node.left)),
+                ops: node.ops,
+                comparators: node
+                    .comparators
+                    .into_vec()
+                    .into_iter()
+                    .map(Expr::from)
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            }),
             CoreBlockPyExpr::If(node) => Expr::If(node),
             CoreBlockPyExpr::Name(node) => Expr::Name(node),
             CoreBlockPyExpr::Raw(expr) => expr,
