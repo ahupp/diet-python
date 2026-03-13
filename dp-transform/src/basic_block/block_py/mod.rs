@@ -57,6 +57,8 @@ pub enum CoreBlockPyExpr {
     NumberLiteral(ast::ExprNumberLiteral),
     BooleanLiteral(ast::ExprBooleanLiteral),
     NoneLiteral(ast::ExprNoneLiteral),
+    Attribute(ast::ExprAttribute),
+    Subscript(ast::ExprSubscript),
     Name(ast::ExprName),
     Raw(Expr),
 }
@@ -492,6 +494,18 @@ mod tests {
             CoreBlockPyExpr::Raw(_)
         ));
     }
+
+    #[test]
+    fn core_blockpy_expr_uses_reduced_variants_for_attribute_and_subscript() {
+        assert!(matches!(
+            CoreBlockPyExpr::from(py_expr!("obj.attr")),
+            CoreBlockPyExpr::Attribute(_)
+        ));
+        assert!(matches!(
+            CoreBlockPyExpr::from(py_expr!("obj[idx]")),
+            CoreBlockPyExpr::Subscript(_)
+        ));
+    }
 }
 
 impl From<BlockPyExpr> for Expr {
@@ -542,6 +556,8 @@ impl From<Expr> for CoreBlockPyExpr {
             Expr::NumberLiteral(node) => Self::NumberLiteral(node),
             Expr::BooleanLiteral(node) => Self::BooleanLiteral(node),
             Expr::NoneLiteral(node) => Self::NoneLiteral(node),
+            Expr::Attribute(node) => Self::Attribute(node),
+            Expr::Subscript(node) => Self::Subscript(node),
             Expr::Name(node) => Self::Name(node),
             other => Self::Raw(other),
         }
@@ -563,6 +579,8 @@ impl From<CoreBlockPyExpr> for Expr {
             CoreBlockPyExpr::NumberLiteral(node) => Expr::NumberLiteral(node),
             CoreBlockPyExpr::BooleanLiteral(node) => Expr::BooleanLiteral(node),
             CoreBlockPyExpr::NoneLiteral(node) => Expr::NoneLiteral(node),
+            CoreBlockPyExpr::Attribute(node) => Expr::Attribute(node),
+            CoreBlockPyExpr::Subscript(node) => Expr::Subscript(node),
             CoreBlockPyExpr::Name(node) => Expr::Name(node),
             CoreBlockPyExpr::Raw(expr) => expr,
         }
