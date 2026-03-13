@@ -542,7 +542,7 @@ pub(crate) fn lower_stmt_default(context: &Context, stmt: Stmt) -> Rewrite {
         Stmt::Assign(assign) => rewrite_stmt::assign_del::rewrite_assign(context, assign),
         Stmt::AugAssign(aug) => rewrite_stmt::assign_del::rewrite_aug_assign(context, aug),
         Stmt::Delete(del) => rewrite_stmt::assign_del::rewrite_delete(del),
-        Stmt::Raise(raise) => rewrite_stmt::exception::rewrite_raise(raise),
+        Stmt::Raise(raise) => crate::basic_block::ruff_to_blockpy::rewrite_raise_stmt(raise),
         Stmt::TypeAlias(type_alias) => {
             rewrite_stmt::type_alias::rewrite_type_alias(context, type_alias)
         }

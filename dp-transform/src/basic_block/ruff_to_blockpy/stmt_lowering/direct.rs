@@ -1,7 +1,26 @@
 use super::*;
+use crate::basic_block::ast_to_ast::ast_rewrite::Rewrite;
+use crate::py_stmt;
 
 // Direct stmt lowerers map one Ruff stmt to either a BlockPy stmt, a terminator,
 // or no output at all. They do not need their own AST rewrite helpers.
+
+pub(crate) fn rewrite_raise_stmt(mut raise: ast::StmtRaise) -> Rewrite {
+    match (raise.exc.take(), raise.cause.take()) {
+        (Some(exc), Some(cause)) => Rewrite::Walk(py_stmt!(
+            "raise __dp_raise_from({exc:expr}, {cause:expr})",
+            exc = exc,
+            cause = cause,
+        )),
+        (exc, None) => {
+            raise.exc = exc;
+            Rewrite::Unmodified(raise.into())
+        }
+        (None, Some(_)) => {
+            panic!("raise with a cause but without an exception should be impossible")
+        }
+    }
+}
 
 impl StmtLowerer for ast::StmtBody {
     fn simplify_ast(self, _context: &Context) -> Stmt {
@@ -175,9 +194,7 @@ impl StmtLowerer for ast::StmtReturn {
 
 impl StmtLowerer for ast::StmtRaise {
     fn simplify_ast(self, _context: &Context) -> Stmt {
-        stmt_from_rewrite(
-            crate::basic_block::ast_to_ast::rewrite_stmt::exception::rewrite_raise(self),
-        )
+        stmt_from_rewrite(rewrite_raise_stmt(self))
     }
 
     fn to_blockpy<E>(
@@ -197,5 +214,46 @@ impl StmtLowerer for ast::StmtRaise {
             exc: self.exc.as_ref().map(|exc| (**exc).clone().into()),
         }));
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{simplify_stmt_ast_for_blockpy, BlockPyStmtFragmentBuilder};
+    use super::*;
+    use crate::basic_block::ast_to_ast::{context::Context, Options};
+
+    #[test]
+    fn stmt_raise_simplify_ast_desugars_raise_from_before_blockpy_lowering() {
+        let stmt = py_stmt!("raise exc from cause");
+        let Stmt::Raise(raise_stmt) = stmt else {
+            panic!("expected raise stmt");
+        };
+
+        let context = Context::new(Options::for_test(), "");
+        let simplified = simplify_stmt_ast_for_blockpy(&context, Stmt::Raise(raise_stmt));
+
+        assert!(!matches!(
+            simplified,
+            Stmt::Raise(ast::StmtRaise { cause: Some(_), .. })
+        ));
+    }
+
+    #[test]
+    fn stmt_raise_to_blockpy_handles_bare_raise_directly() {
+        let stmt = py_stmt!("raise");
+        let Stmt::Raise(raise_stmt) = stmt else {
+            panic!("expected raise stmt");
+        };
+        let context = Context::new(Options::for_test(), "");
+        let mut out = BlockPyStmtFragmentBuilder::<BlockPyExpr>::new();
+        let mut next_label_id = 0usize;
+
+        raise_stmt
+            .to_blockpy(&context, &mut out, None, &mut next_label_id)
+            .expect("raise lowering should succeed");
+
+        let fragment = out.finish();
+        assert!(matches!(fragment.term, Some(BlockPyTerm::Raise(_))));
     }
 }

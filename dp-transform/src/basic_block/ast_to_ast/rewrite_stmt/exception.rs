@@ -214,23 +214,6 @@ finally:
     ))
 }
 
-pub fn rewrite_raise(mut raise: ast::StmtRaise) -> Rewrite {
-    match (raise.exc.take(), raise.cause.take()) {
-        (Some(exc), Some(cause)) => Rewrite::Walk(py_stmt!(
-            "raise __dp_raise_from({exc:expr}, {cause:expr})",
-            exc = exc,
-            cause = cause,
-        )),
-        (exc, None) => {
-            raise.exc = exc;
-            Rewrite::Unmodified(raise.into())
-        }
-        (None, Some(_)) => {
-            panic!("raise with a cause but without an exception should be impossible")
-        }
-    }
-}
-
 pub(crate) fn has_non_default_handler(stmt: &ast::StmtTry) -> bool {
     stmt.handlers.iter().any(|handler| {
         matches!(
