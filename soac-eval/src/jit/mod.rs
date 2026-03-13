@@ -2677,9 +2677,9 @@ fn rewrite_import_fn_aliases(
 }
 
 pub fn run_cranelift_smoke(module: &BbModule) -> Result<(), String> {
-    let function_count = module.functions().len() as i64;
+    let function_count = module.callable_defs.len() as i64;
     let block_count = module
-        .functions()
+        .callable_defs
         .iter()
         .map(|f| f.blocks.len() as i64)
         .sum::<i64>();

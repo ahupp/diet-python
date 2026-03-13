@@ -35,7 +35,7 @@ fn parse_bb_trace_config(raw: &str) -> Option<BbTraceConfig> {
 }
 
 pub(crate) fn instrument_bb_module_for_trace(module: &mut BbModule, config: &BbTraceConfig) {
-    for function in module.functions_mut() {
+    for function in &mut module.callable_defs {
         if let Some(filter) = config.qualname_filter.as_ref() {
             if function.qualname != *filter {
                 continue;
@@ -160,12 +160,12 @@ mod tests {
             },
         );
         let f = normalized
-            .functions()
+            .callable_defs
             .iter()
             .find(|function| function.qualname == "f")
             .expect("missing f");
         let g = normalized
-            .functions()
+            .callable_defs
             .iter()
             .find(|function| function.qualname == "g")
             .expect("missing g");

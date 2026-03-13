@@ -8,38 +8,7 @@ use ruff_python_parser::parse_expression;
 use ruff_text_size::TextRange;
 use std::ops::{Deref, DerefMut};
 
-#[derive(Debug, Clone)]
-pub struct BbModule {
-    pub cfg: CfgModule<BbFunction>,
-}
-
-impl Deref for BbModule {
-    type Target = CfgModule<BbFunction>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.cfg
-    }
-}
-
-impl DerefMut for BbModule {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.cfg
-    }
-}
-
-impl BbModule {
-    pub fn functions(&self) -> &Vec<BbFunction> {
-        &self.cfg.callable_defs
-    }
-
-    pub fn functions_mut(&mut self) -> &mut Vec<BbFunction> {
-        &mut self.cfg.callable_defs
-    }
-
-    pub fn into_functions(self) -> Vec<BbFunction> {
-        self.cfg.callable_defs
-    }
-}
+pub type BbModule = CfgModule<BbFunction>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FunctionId(pub usize);

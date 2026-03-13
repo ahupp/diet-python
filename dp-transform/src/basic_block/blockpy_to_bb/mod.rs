@@ -83,10 +83,8 @@ pub(crate) fn lower_blockpy_module_bundle_to_bb_module(
         out.push(lowered.main_function);
     }
     BbModule {
-        cfg: CfgModule {
-            module_init: module.module_init.clone(),
-            callable_defs: out,
-        },
+        module_init: module.module_init.clone(),
+        callable_defs: out,
     }
 }
 

@@ -117,7 +117,7 @@ fn wasm_options_from_selected(transforms: &Array) -> Options {
 
 fn bb_module_to_json(module: &bb_ir::BbModule) -> Value {
     let functions = module
-        .functions()
+        .callable_defs
         .iter()
         .map(|function| {
             let blocks = function
@@ -547,7 +547,7 @@ fn render_cranelift_function_from_bb(function: &bb_ir::BbFunction) -> Result<Str
 }
 
 fn bb_module_to_clif(module: &bb_ir::BbModule) -> String {
-    if module.functions().is_empty() {
+    if module.callable_defs.is_empty() {
         return "; no basic-block functions emitted".to_string();
     }
 
@@ -570,7 +570,7 @@ fn bb_module_to_clif(module: &bb_ir::BbModule) -> String {
     out.push_str("decl @dp_jit_term_invalid(pyobj) -> i32\n");
     out.push('\n');
     out.push_str("; generated function declarations\n");
-    for function in module.functions() {
+    for function in &module.callable_defs {
         let params = function
             .params
             .iter()
@@ -588,7 +588,7 @@ fn bb_module_to_clif(module: &bb_ir::BbModule) -> String {
     out.push('\n');
 
     out.push_str("; ---- rendered with Cranelift Function::display() ----\n");
-    for function in module.functions() {
+    for function in &module.callable_defs {
         let mut label_to_index = HashMap::new();
         let mut label_to_params = HashMap::new();
         for (index, block) in function.blocks.iter().enumerate() {

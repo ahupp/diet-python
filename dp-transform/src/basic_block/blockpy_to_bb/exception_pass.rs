@@ -3,7 +3,7 @@ use std::collections::HashSet;
 
 pub fn lower_try_jump_exception_flow(module: &BbModule) -> Result<BbModule, String> {
     let mut lowered = module.clone();
-    for function in lowered.functions_mut() {
+    for function in &mut lowered.callable_defs {
         lower_function_try_jump_exception_flow(function)?;
     }
     Ok(lowered)
@@ -215,7 +215,7 @@ def f(x):
             .expect("bb module must exist");
         let (body_label, except_label) = {
             let function = module
-                .functions_mut()
+                .callable_defs
                 .iter_mut()
                 .find(|function| function.qualname == "f")
                 .expect("must contain f");
@@ -244,7 +244,7 @@ def f(x):
 
         let lowered = lower_try_jump_exception_flow(&module).expect("pass should succeed");
         let lowered_function = lowered
-            .functions()
+            .callable_defs
             .iter()
             .find(|candidate| candidate.qualname == "f")
             .expect("must contain lowered f");
@@ -275,7 +275,7 @@ def f():
             .expect("lowering must succeed")
             .expect("bb module must exist");
         let function = module
-            .functions_mut()
+            .callable_defs
             .first_mut()
             .expect("must contain function");
         function.blocks[0].meta.exc_target_label = Some("missing_except".to_string());
@@ -299,7 +299,7 @@ def f():
             .expect("lowering must succeed")
             .expect("bb module must exist");
         let function = module
-            .functions_mut()
+            .callable_defs
             .iter_mut()
             .find(|function| function.qualname == "f")
             .expect("must contain f");
@@ -321,7 +321,7 @@ def f():
 
         let lowered = lower_try_jump_exception_flow(&module).expect("pass should succeed");
         let lowered_function = lowered
-            .functions()
+            .callable_defs
             .iter()
             .find(|candidate| candidate.qualname == "f")
             .expect("must contain lowered f");
@@ -366,7 +366,7 @@ def f():
             .expect("lowering must succeed")
             .expect("bb module must exist");
         let function = module
-            .functions_mut()
+            .callable_defs
             .iter_mut()
             .find(|function| function.qualname == "f")
             .expect("must contain f");
@@ -388,7 +388,7 @@ def f():
 
         let lowered = lower_try_jump_exception_flow(&module).expect("pass should succeed");
         let lowered_function = lowered
-            .functions()
+            .callable_defs
             .iter()
             .find(|candidate| candidate.qualname == "f")
             .expect("must contain lowered f");
@@ -434,7 +434,7 @@ def f():
             .expect("lowering must succeed")
             .expect("bb module must exist");
         let raw_function = module
-            .functions()
+            .callable_defs
             .iter()
             .find(|candidate| candidate.qualname == "f")
             .expect("must contain raw f");
@@ -451,7 +451,7 @@ def f():
         );
         let lowered = lower_try_jump_exception_flow(&module).expect("pass should succeed");
         let lowered_function = lowered
-            .functions()
+            .callable_defs
             .iter()
             .find(|candidate| candidate.qualname == "f")
             .expect("must contain lowered f");
