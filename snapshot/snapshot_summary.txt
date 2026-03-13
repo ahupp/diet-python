@@ -48,7 +48,7 @@ snapshot_stmt::delete_mixed: blockpy=1, clif=1
 snapshot_stmt::assert_no_msg: blockpy=4, clif=4
 snapshot_stmt::assert_with_msg: blockpy=4, clif=4
 snapshot_stmt::raise_from: blockpy=1, clif=1
-snapshot_stmt::try_except_typed: blockpy=8, clif=8
+snapshot_stmt::try_except_typed: blockpy=10, clif=10
 snapshot_stmt::for_else: blockpy=5, clif=5
 snapshot_stmt::while_else: blockpy=3, clif=3
 snapshot_stmt::with_as: blockpy=4, clif=4
@@ -58,7 +58,7 @@ snapshot_stmt::comprehension_in_function: blockpy=8, clif=8
 snapshot_stmt::comprehension_in_class_body: blockpy=8, clif=8
 snapshot_stmt::with_multi: blockpy=9, clif=9
 snapshot_stmt::async_for: blockpy=43, clif=43
-snapshot_stmt::async_with: blockpy=88, clif=88
+snapshot_stmt::async_with: blockpy=90, clif=90
 snapshot_stmt::match_simple: blockpy=3, clif=3
 snapshot_stmt::generator_yield: blockpy=18, clif=18
 snapshot_stmt::yield_from: blockpy=34, clif=34

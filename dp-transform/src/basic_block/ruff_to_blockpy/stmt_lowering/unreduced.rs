@@ -30,11 +30,6 @@ impl_unreduced_stmt_lowerer!(
     "For should be lowered before Ruff AST -> BlockPy stmt-list conversion"
 );
 impl_unreduced_stmt_lowerer!(
-    ast::StmtTry,
-    Stmt::Try,
-    "Try should be lowered through stmt-sequence BlockPy conversion"
-);
-impl_unreduced_stmt_lowerer!(
     ast::StmtIpyEscapeCommand,
     Stmt::IpyEscapeCommand,
     "IpyEscapeCommand should not reach BlockPy conversion"

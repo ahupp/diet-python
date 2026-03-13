@@ -439,6 +439,87 @@ def check():
     }
 
     #[test]
+    fn rewritten_ruff_ast_can_keep_typed_try_while_later_passes_still_lower_it() {
+        let source = r#"
+def check():
+    try:
+        work()
+    except ValueError as exc:
+        handle(exc)
+"#;
+
+        let mut module = ruff_python_parser::parse_module(source)
+            .expect("parse should succeed")
+            .into_syntax();
+        let context =
+            crate::basic_block::ast_to_ast::context::Context::new(Options::for_test(), source);
+        crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass(
+            &context,
+            Some(&crate::basic_block::BBSimplifyStmtPass),
+            Some(&crate::driver::SimplifyExprPass),
+            &mut module.body,
+        );
+        let rendered = crate::ruff_ast_to_string(&module.body);
+        assert!(rendered.contains("except ValueError as exc"), "{rendered}");
+
+        let bb_module = transform_str_to_bb_ir_with_options(source, Options::for_test())
+            .expect("transform should succeed")
+            .expect("bb module should be available");
+        let check = function_by_name(&bb_module, "check");
+        assert!(
+            check
+                .blocks
+                .iter()
+                .any(|block| block_uses_text(block, "__dp_exception_matches")),
+            "{check:?}"
+        );
+        assert!(
+            check
+                .blocks
+                .iter()
+                .any(|block| block.meta.exc_target_label.is_some()),
+            "{check:?}"
+        );
+    }
+
+    #[test]
+    fn rewritten_ruff_ast_can_keep_try_star_while_later_passes_still_lower_it() {
+        let source = r#"
+def check():
+    try:
+        work()
+    except* ValueError as exc:
+        handle(exc)
+"#;
+
+        let mut module = ruff_python_parser::parse_module(source)
+            .expect("parse should succeed")
+            .into_syntax();
+        let context =
+            crate::basic_block::ast_to_ast::context::Context::new(Options::for_test(), source);
+        crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass(
+            &context,
+            Some(&crate::basic_block::BBSimplifyStmtPass),
+            Some(&crate::driver::SimplifyExprPass),
+            &mut module.body,
+        );
+        let rendered = crate::ruff_ast_to_string(&module.body);
+        assert!(rendered.contains("except* ValueError as exc"), "{rendered}");
+
+        let bb_module = transform_str_to_bb_ir_with_options(source, Options::for_test())
+            .expect("transform should succeed")
+            .expect("bb module should be available");
+        let check = function_by_name(&bb_module, "check");
+        assert!(
+            check
+                .blocks
+                .iter()
+                .any(|block| block_uses_text(block, "__dp_exceptiongroup_split")),
+            "{check:?}"
+        );
+    }
+
+    #[test]
     fn rewritten_ruff_ast_can_keep_import_while_later_passes_still_lower_it() {
         let source = r#"
 import pkg.sub as alias

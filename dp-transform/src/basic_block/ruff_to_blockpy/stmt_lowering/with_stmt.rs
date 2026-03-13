@@ -471,7 +471,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Try should be lowered through stmt-sequence BlockPy conversion")]
+    #[should_panic(expected = "StmtTry should have already been reduced before BlockPy lowering")]
     fn stmt_with_to_blockpy_simplifies_before_hitting_sequence_only_try_lowering() {
         let stmt = py_stmt!("with cm:\n    body()");
         let Stmt::With(with_stmt) = stmt else {

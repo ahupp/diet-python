@@ -24,7 +24,6 @@ use super::stmt_utils::flatten_stmt_boxes;
 use crate::basic_block::ast_to_ast::ast_rewrite::Rewrite;
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::ast_to_ast::rewrite_expr::make_tuple;
-use crate::basic_block::ast_to_ast::rewrite_stmt;
 use crate::namegen::fresh_name;
 use crate::ruff_ast_to_string;
 use crate::template::{empty_body, into_body, is_simple};
@@ -57,10 +56,9 @@ pub(crate) use compat::{
     emit_simple_while_blocks, lower_for_loop_continue_entry_with_state,
 };
 pub(crate) use stmt_lowering::{
-    build_for_target_assign_body, expand_if_chain, lower_star_try_stmt_sequence, lower_stmt_into,
-    lower_try_stmt_sequence, lower_with_stmt_sequence, rewrite_assert_stmt, rewrite_assign_stmt,
-    rewrite_augassign_stmt, rewrite_delete_stmt, rewrite_match_stmt, rewrite_raise_stmt,
-    rewrite_type_alias_stmt, should_rewrite_assignment_targets,
+    build_for_target_assign_body, lower_star_try_stmt_sequence, lower_stmt_into,
+    lower_try_stmt_sequence, lower_with_stmt_sequence, rewrite_assign_stmt, rewrite_augassign_stmt,
+    rewrite_delete_stmt, rewrite_type_alias_stmt, should_rewrite_assignment_targets,
 };
 pub(crate) use stmt_sequences::{
     lower_expanded_stmt_sequence, lower_stmt_sequence_with_state, lower_stmts_to_blockpy_stmts,
