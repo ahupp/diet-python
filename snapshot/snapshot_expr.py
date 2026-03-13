@@ -316,7 +316,7 @@ x = (i for i in it)
 #             else:
 #                 jump _dp_bb__dp_genexpr_1_uncaught_raise
 #     block _dp_bb__dp_genexpr_1_uncaught_raise:
-#         raise _dp_uncaught_exc_8
+#         raise _dp_uncaught_exc_13
 #     block _dp_bb__dp_genexpr_1_uncaught_set_done:
 #         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
 #         __dp_store_cell(_dp_cell__dp_iter_2, __dp_DELETED)
@@ -324,7 +324,7 @@ x = (i for i in it)
 #         __dp_store_cell(_dp_cell__dp_tmp_4, __dp_DELETED)
 #         __dp_store_cell(_dp_cell_i, __dp_DELETED)
 #         __dp_store_cell(_dp_cell__dp_yieldfrom, __dp_DELETED)
-#         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_8)
+#         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_13)
 #         jump _dp_bb__dp_genexpr_1_uncaught_raise
 
 # function _dp_module_init()

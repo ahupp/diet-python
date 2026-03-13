@@ -768,7 +768,10 @@ def gen():
             .iter()
             .find(|slot| slot.logical_name.starts_with("_dp_try_exc_"))
             .unwrap_or_else(|| panic!("missing try-exception slot in {layout:?}"));
-        assert_eq!(try_exc.storage_name, "_dp_cell__dp_try_exc_1");
+        assert_eq!(
+            try_exc.storage_name,
+            format!("_dp_cell_{}", try_exc.logical_name)
+        );
         assert_eq!(try_exc.init, BbClosureInit::DeletedSentinel);
         assert!(
             layout

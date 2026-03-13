@@ -43,7 +43,8 @@ pub(crate) use super::blockpy_generators::{
     build_closure_backed_generator_export_plan, build_initial_generator_metadata,
     lower_generator_block_plan, lower_generator_yield_terms_to_explicit_return_blockpy,
     split_generator_return_terms_to_escape_blocks, synthesize_generator_dispatch_metadata,
-    GeneratorBlockPlan, GeneratorMetadata, GeneratorYieldSite,
+    try_lower_simple_generator_blocks_post_blockpy, GeneratorBlockPlan, GeneratorMetadata,
+    GeneratorYieldSite,
 };
 
 pub(crate) use compat::{
@@ -1046,6 +1047,65 @@ where
         coroutine_via_generator,
         has_yield,
     );
+    if has_yield {
+        let mut semantic_blocks = Vec::new();
+        let mut semantic_try_regions = Vec::new();
+        let mut semantic_state = BlockPySequenceGeneratorState {
+            enabled: false,
+            closure_state: is_closure_backed_generator_runtime,
+            resume_order: Vec::new(),
+            yield_sites: Vec::new(),
+        };
+        let semantic_entry_label = lower_stmt_sequence_with_state(
+            context,
+            fn_name,
+            runtime_input_body,
+            end_label.clone(),
+            None,
+            None,
+            &mut semantic_blocks,
+            cell_slots,
+            &mut semantic_state,
+            &mut semantic_try_regions,
+            next_block_id,
+            lower_non_bb_def,
+            next_temp,
+        );
+        if let Some((blocks, entry_label)) = try_lower_simple_generator_blocks_post_blockpy(
+            semantic_blocks,
+            semantic_entry_label.as_str(),
+            is_closure_backed_generator_runtime,
+            &mut semantic_try_regions,
+            &mut semantic_state.resume_order,
+            &mut semantic_state.yield_sites,
+            next_block_id,
+            fn_name,
+            Some(cell_slots),
+        ) {
+            let generator_metadata = Some(build_initial_generator_metadata(
+                entry_label.as_str(),
+                &semantic_state.resume_order,
+                &semantic_state.yield_sites,
+            ));
+            return build_finalized_blockpy_function(
+                take_next_function_id(next_function_id),
+                bind_name,
+                qualname,
+                doc,
+                blockpy_kind,
+                params,
+                blocks,
+                semantic_try_regions,
+                entry_label,
+                end_label,
+                label_prefix,
+                generator_metadata,
+                is_async_generator_runtime,
+                is_closure_backed_generator_runtime,
+                next_temp("uncaught_exc", next_block_id),
+            );
+        }
+    }
     let mut blocks = Vec::new();
     let mut try_regions = Vec::new();
     let mut generator_state = BlockPySequenceGeneratorState {
