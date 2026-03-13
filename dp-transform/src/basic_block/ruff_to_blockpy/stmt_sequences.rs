@@ -1,7 +1,8 @@
 use super::*;
 
 pub(crate) fn lower_stmts_to_blockpy_stmts(stmts: &[Stmt]) -> Result<BlockPyStmtFragment, String> {
-    let mut out = BlockPyStmtFragmentBuilder::new();
+    let mut out =
+        crate::basic_block::block_py::BlockPyCfgFragmentBuilder::<BlockPyStmt, BlockPyTerm>::new();
     let mut next_label_id = 0usize;
     for stmt in stmts {
         lower_stmt_into(stmt, &mut out, None, &mut next_label_id)?;

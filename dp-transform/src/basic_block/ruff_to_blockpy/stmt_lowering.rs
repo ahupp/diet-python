@@ -5,7 +5,8 @@ fn lower_nested_body_to_stmts(
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
 ) -> Result<BlockPyStmtFragment, String> {
-    let mut out = BlockPyStmtFragmentBuilder::new();
+    let mut out =
+        crate::basic_block::block_py::BlockPyCfgFragmentBuilder::<BlockPyStmt, BlockPyTerm>::new();
     for stmt in &body.body {
         lower_stmt_into(stmt.as_ref(), &mut out, loop_ctx, next_label_id)?;
     }
@@ -14,7 +15,7 @@ fn lower_nested_body_to_stmts(
 
 pub(crate) fn lower_stmt_into(
     stmt: &Stmt,
-    out: &mut BlockPyStmtFragmentBuilder,
+    out: &mut crate::basic_block::block_py::BlockPyCfgFragmentBuilder<BlockPyStmt, BlockPyTerm>,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
 ) -> Result<(), String> {
@@ -789,7 +790,7 @@ fn build_with_finally_body(
 
 fn lower_with_into(
     with_stmt: ast::StmtWith,
-    out: &mut BlockPyStmtFragmentBuilder,
+    out: &mut crate::basic_block::block_py::BlockPyCfgFragmentBuilder<BlockPyStmt, BlockPyTerm>,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
 ) -> Result<(), String> {
@@ -804,7 +805,10 @@ fn lower_orelse_to_stmts(
     next_label_id: &mut usize,
 ) -> Result<BlockPyStmtFragment, String> {
     match clauses {
-        [] => Ok(BlockPyStmtFragment::from_stmts(Vec::new())),
+        [] => Ok(crate::basic_block::block_py::BlockPyCfgFragment::<
+            BlockPyStmt,
+            BlockPyTerm,
+        >::from_stmts(Vec::new())),
         [clause] if clause.test.is_none() => {
             lower_nested_body_to_stmts(&clause.body, loop_ctx, next_label_id)
         }

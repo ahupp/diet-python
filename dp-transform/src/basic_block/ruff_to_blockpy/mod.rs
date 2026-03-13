@@ -17,8 +17,8 @@ use super::block_py::state::{
 use super::block_py::{
     assert_blockpy_block_normalized, BlockPyAssign, BlockPyBlock, BlockPyBlockMeta,
     BlockPyCallableDef, BlockPyDelete, BlockPyExpr, BlockPyFunctionKind, BlockPyIf, BlockPyIfTerm,
-    BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment, BlockPyStmtFragmentBuilder,
-    BlockPyTerm, BlockPyTryJump, ENTRY_BLOCK_LABEL,
+    BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment, BlockPyTerm, BlockPyTryJump,
+    ENTRY_BLOCK_LABEL,
 };
 use super::cfg_ir::CfgCallableDef;
 use super::stmt_utils::flatten_stmt_boxes;
@@ -1368,7 +1368,10 @@ mod tests {
     }
 
     fn lower_stmt_for_panic_test(stmt: &Stmt) {
-        let mut out = BlockPyStmtFragmentBuilder::new();
+        let mut out = crate::basic_block::block_py::BlockPyCfgFragmentBuilder::<
+            BlockPyStmt,
+            BlockPyTerm,
+        >::new();
         let mut next_label_id = 0usize;
         let _ = lower_stmt_into(stmt, &mut out, None, &mut next_label_id);
     }
@@ -2481,7 +2484,10 @@ def f():
         let ast::Stmt::While(while_stmt) = module.body[0].as_ref() else {
             panic!("expected while stmt");
         };
-        let mut out = BlockPyStmtFragmentBuilder::new();
+        let mut out = crate::basic_block::block_py::BlockPyCfgFragmentBuilder::<
+            BlockPyStmt,
+            BlockPyTerm,
+        >::new();
         let mut next_label_id = 0usize;
         lower_stmt_into(
             &Stmt::While(while_stmt.clone()),

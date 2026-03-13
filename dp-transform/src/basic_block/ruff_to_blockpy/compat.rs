@@ -1,5 +1,5 @@
 use super::*;
-use crate::basic_block::block_py::BlockPyBlockBuilder;
+use crate::basic_block::block_py::BlockPyCfgBlockBuilder;
 
 pub(crate) fn compat_block_from_blockpy(
     label: String,
@@ -13,7 +13,8 @@ pub(crate) fn compat_block_from_blockpy(
         body.term.is_none(),
         "compatibility block body should not contain its own terminator"
     );
-    let mut block = BlockPyBlockBuilder::new(BlockPyLabel::from(label));
+    let mut block =
+        BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(BlockPyLabel::from(label));
     block.extend(body.body);
     block.set_term(term);
     block.finish(None)
