@@ -8,7 +8,10 @@ use super::bb_ir::{
 use super::block_py::core_lower::lower_semantic_blockpy_callable_def_to_core;
 use super::block_py::exception::is_dp_lookup_call;
 use super::block_py::state::collect_parameter_names;
-use super::block_py::{BlockPyBlock, BlockPyIfTerm, BlockPyModule, BlockPyStmt, BlockPyTerm};
+use super::block_py::{
+    BlockPyBlock, BlockPyBlockMeta, BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyStmt,
+    BlockPyTerm,
+};
 use super::cfg_ir::{CfgCallableDef, CfgModule};
 use super::ruff_to_blockpy::{LoweredBlockPyFunction, LoweredBlockPyFunctionBundle};
 use super::stmt_utils::{flatten_stmt, flatten_stmt_boxes, stmt_body_from_stmts};
@@ -113,6 +116,11 @@ pub(crate) fn lower_blockpy_function_to_bb_function(
     binding_target_override: Option<BindingTarget>,
 ) -> BbFunction {
     let core_callable_def = lower_semantic_blockpy_callable_def_to_core(&lowered.callable_def);
+    let (linear_blocks, linear_block_params, linear_exception_edges) = linearize_blockpy_ifs_for_bb(
+        &core_callable_def.blocks,
+        &lowered.block_params,
+        &lowered.exception_edges,
+    );
     BbFunction {
         cfg: CfgCallableDef {
             function_id: core_callable_def.function_id,
@@ -124,9 +132,9 @@ pub(crate) fn lower_blockpy_function_to_bb_function(
             entry_liveins: core_callable_def.entry_liveins.clone(),
             blocks: lower_blockpy_blocks_to_bb_blocks(
                 context,
-                &core_callable_def.blocks,
-                &lowered.block_params,
-                &lowered.exception_edges,
+                &linear_blocks,
+                &linear_block_params,
+                &linear_exception_edges,
             ),
         },
         binding_target: binding_target_override.unwrap_or(BindingTarget::Local),
@@ -135,6 +143,177 @@ pub(crate) fn lower_blockpy_function_to_bb_function(
         param_specs: lowered.param_specs.clone(),
         local_cell_slots: core_callable_def.local_cell_slots.clone(),
     }
+}
+
+fn fresh_linearized_if_label(
+    base: &BlockPyLabel,
+    counter: &mut usize,
+    suffix: &str,
+) -> BlockPyLabel {
+    let label = BlockPyLabel::from(format!("{}_{}_{}", base.as_str(), suffix, *counter));
+    *counter += 1;
+    label
+}
+
+fn linearize_blockpy_ifs_for_bb<E: Clone>(
+    blocks: &[BlockPyBlock<E>],
+    block_params: &HashMap<String, Vec<String>>,
+    exception_edges: &HashMap<String, Option<String>>,
+) -> (
+    Vec<BlockPyBlock<E>>,
+    HashMap<String, Vec<String>>,
+    HashMap<String, Option<String>>,
+) {
+    let mut out_blocks = Vec::new();
+    let mut out_block_params = HashMap::new();
+    let mut out_exception_edges = HashMap::new();
+    let mut next_label_id = 0usize;
+    for block in blocks {
+        let params = block_params
+            .get(block.label.as_str())
+            .cloned()
+            .unwrap_or_default();
+        let exc_target = exception_edges
+            .get(block.label.as_str())
+            .cloned()
+            .unwrap_or(None);
+        linearize_blockpy_if_sequence(
+            block.label.clone(),
+            block.body.clone(),
+            block.term.clone(),
+            block.meta.clone(),
+            params,
+            exc_target,
+            &mut next_label_id,
+            &mut out_blocks,
+            &mut out_block_params,
+            &mut out_exception_edges,
+        );
+    }
+    (out_blocks, out_block_params, out_exception_edges)
+}
+
+fn linearize_blockpy_if_sequence<E: Clone>(
+    label: BlockPyLabel,
+    body: Vec<BlockPyStmt<E>>,
+    final_term: BlockPyTerm<E>,
+    meta: BlockPyBlockMeta,
+    block_params: Vec<String>,
+    exc_target: Option<String>,
+    next_label_id: &mut usize,
+    out_blocks: &mut Vec<BlockPyBlock<E>>,
+    out_block_params: &mut HashMap<String, Vec<String>>,
+    out_exception_edges: &mut HashMap<String, Option<String>>,
+) {
+    let Some(if_index) = body
+        .iter()
+        .position(|stmt| matches!(stmt, BlockPyStmt::If(_)))
+    else {
+        out_block_params.insert(label.as_str().to_string(), block_params);
+        out_exception_edges.insert(label.as_str().to_string(), exc_target);
+        out_blocks.push(BlockPyBlock {
+            label,
+            body,
+            term: final_term,
+            meta,
+        });
+        return;
+    };
+
+    let mut body = body;
+    let rest = body.split_off(if_index + 1);
+    let if_stmt = match body.pop() {
+        Some(BlockPyStmt::If(if_stmt)) => if_stmt,
+        _ => unreachable!("expected structured BlockPy if at split point"),
+    };
+
+    let then_label = fresh_linearized_if_label(&label, next_label_id, "if_then");
+    let else_label = fresh_linearized_if_label(&label, next_label_id, "if_else");
+    let join_label = if rest.is_empty() {
+        None
+    } else {
+        Some(fresh_linearized_if_label(&label, next_label_id, "if_join"))
+    };
+
+    out_block_params.insert(label.as_str().to_string(), block_params);
+    out_exception_edges.insert(label.as_str().to_string(), exc_target.clone());
+    out_blocks.push(BlockPyBlock {
+        label: label.clone(),
+        body,
+        term: BlockPyTerm::IfTerm(BlockPyIfTerm {
+            test: if_stmt.test.clone(),
+            then_label: then_label.clone(),
+            else_label: else_label.clone(),
+        }),
+        meta: meta.clone(),
+    });
+
+    let branch_fallthrough = join_label
+        .clone()
+        .map(BlockPyTerm::Jump)
+        .unwrap_or_else(|| final_term.clone());
+    linearize_blockpy_fragment(
+        then_label,
+        if_stmt.body,
+        branch_fallthrough.clone(),
+        meta.clone(),
+        exc_target.clone(),
+        next_label_id,
+        out_blocks,
+        out_block_params,
+        out_exception_edges,
+    );
+    linearize_blockpy_fragment(
+        else_label,
+        if_stmt.orelse,
+        branch_fallthrough,
+        meta.clone(),
+        exc_target.clone(),
+        next_label_id,
+        out_blocks,
+        out_block_params,
+        out_exception_edges,
+    );
+
+    if let Some(join_label) = join_label {
+        linearize_blockpy_if_sequence(
+            join_label,
+            rest,
+            final_term,
+            meta,
+            Vec::new(),
+            exc_target,
+            next_label_id,
+            out_blocks,
+            out_block_params,
+            out_exception_edges,
+        );
+    }
+}
+
+fn linearize_blockpy_fragment<E: Clone>(
+    label: BlockPyLabel,
+    fragment: super::block_py::BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>,
+    fallthrough_term: BlockPyTerm<E>,
+    meta: BlockPyBlockMeta,
+    exc_target: Option<String>,
+    next_label_id: &mut usize,
+    out_blocks: &mut Vec<BlockPyBlock<E>>,
+    out_block_params: &mut HashMap<String, Vec<String>>,
+    out_exception_edges: &mut HashMap<String, Option<String>>,
+) {
+    linearize_blockpy_if_sequence(
+        label,
+        fragment.body,
+        fragment.term.unwrap_or(fallthrough_term),
+        meta,
+        Vec::new(),
+        exc_target,
+        next_label_id,
+        out_blocks,
+        out_block_params,
+        out_exception_edges,
+    );
 }
 
 pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
@@ -543,5 +722,70 @@ where
         | BlockPyTerm::IfTerm(_)
         | BlockPyTerm::BranchTable(_)
         | BlockPyTerm::TryJump(_) => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::linearize_blockpy_ifs_for_bb;
+    use crate::basic_block::block_py::{
+        BlockPyAssign, BlockPyBlock, BlockPyExpr, BlockPyIf, BlockPyIfTerm, BlockPyLabel,
+        BlockPyStmt, BlockPyStmtFragment, BlockPyTerm,
+    };
+    use crate::py_expr;
+    use ruff_python_ast::Expr;
+    use std::collections::HashMap;
+
+    fn name_expr(name: &str) -> ruff_python_ast::ExprName {
+        let Expr::Name(name_expr) = py_expr!("{name:id}", name = name) else {
+            unreachable!();
+        };
+        name_expr
+    }
+
+    #[test]
+    fn linearizes_structured_if_stmt_into_explicit_blocks() {
+        let block: BlockPyBlock<BlockPyExpr> = BlockPyBlock {
+            label: BlockPyLabel::from("start"),
+            body: vec![
+                BlockPyStmt::Assign(BlockPyAssign {
+                    target: name_expr("x"),
+                    value: py_expr!("a").into(),
+                }),
+                BlockPyStmt::If(BlockPyIf {
+                    test: py_expr!("cond").into(),
+                    body: BlockPyStmtFragment::from_stmts(vec![BlockPyStmt::Assign(
+                        BlockPyAssign {
+                            target: name_expr("x"),
+                            value: py_expr!("b").into(),
+                        },
+                    )]),
+                    orelse: BlockPyStmtFragment::from_stmts(vec![BlockPyStmt::Assign(
+                        BlockPyAssign {
+                            target: name_expr("x"),
+                            value: py_expr!("c").into(),
+                        },
+                    )]),
+                }),
+                BlockPyStmt::Expr(py_expr!("sink(x)").into()),
+            ],
+            term: BlockPyTerm::Return(None),
+            meta: Default::default(),
+        };
+
+        let (blocks, _, _) =
+            linearize_blockpy_ifs_for_bb(&[block], &HashMap::new(), &HashMap::new());
+
+        assert_eq!(blocks.len(), 4, "{blocks:?}");
+        assert!(matches!(
+            blocks[0].term,
+            BlockPyTerm::IfTerm(BlockPyIfTerm { .. })
+        ));
+        assert!(!blocks.iter().any(|block| {
+            block
+                .body
+                .iter()
+                .any(|stmt| matches!(stmt, BlockPyStmt::If(_)))
+        }));
     }
 }

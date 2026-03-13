@@ -181,6 +181,7 @@ def foo(a, b):
     }
 
     #[test]
+    #[test]
     fn exposes_bb_ir_for_lowered_functions() {
         let source = r#"
 def foo(a, b):
