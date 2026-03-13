@@ -7,8 +7,11 @@ use crate::basic_block::ast_to_ast::scope::cell_name;
 use crate::basic_block::bb_ir::{BbClosureInit, BbClosureLayout, BbClosureSlot, FunctionId};
 use crate::basic_block::block_py::state::{sync_generator_state_order, sync_target_cells_stmts};
 use crate::basic_block::block_py::{
-    BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyCfgBlockBuilder, BlockPyExpr,
-    BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm, BlockPyTryJump,
+    BlockPyCfgBlockBuilder, BlockPyExpr, BlockPyLabel, BlockPyTryJump,
+    SemanticBlockPyAssign as BlockPyAssign, SemanticBlockPyBlock as BlockPyBlock,
+    SemanticBlockPyBranchTable as BlockPyBranchTable, SemanticBlockPyIfTerm as BlockPyIfTerm,
+    SemanticBlockPyRaise as BlockPyRaise, SemanticBlockPyStmt as BlockPyStmt,
+    SemanticBlockPyTerm as BlockPyTerm,
 };
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Stmt};

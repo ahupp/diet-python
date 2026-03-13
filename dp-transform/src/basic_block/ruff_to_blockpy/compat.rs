@@ -1,5 +1,9 @@
 use super::*;
-use crate::basic_block::block_py::BlockPyCfgBlockBuilder;
+use crate::basic_block::block_py::{
+    BlockPyCfgBlockBuilder, BlockPyExpr, BlockPyLabel, SemanticBlockPyBlock as BlockPyBlock,
+    SemanticBlockPyIfTerm as BlockPyIfTerm, SemanticBlockPyRaise as BlockPyRaise,
+    SemanticBlockPyStmt as BlockPyStmt, SemanticBlockPyTerm as BlockPyTerm,
+};
 
 pub(crate) fn compat_block_from_blockpy(
     label: String,

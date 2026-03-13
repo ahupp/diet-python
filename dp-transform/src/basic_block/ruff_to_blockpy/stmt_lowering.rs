@@ -1,4 +1,8 @@
 use super::*;
+use crate::basic_block::block_py::{
+    BlockPyAssign, BlockPyDelete, BlockPyIf, BlockPyRaise, BlockPyStmt, BlockPyTerm,
+    SemanticBlockPyBlock as BlockPyBlock,
+};
 
 fn lower_nested_body_to_stmts(
     body: &StmtBody,

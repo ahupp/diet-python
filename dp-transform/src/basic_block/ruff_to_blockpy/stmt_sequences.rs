@@ -1,5 +1,9 @@
 use super::stmt_lowering::lower_stmt_into_with_expr;
 use super::*;
+use crate::basic_block::block_py::{
+    BlockPyAssign, BlockPyExpr, BlockPyRaise, BlockPyStmt, BlockPyTerm,
+    SemanticBlockPyBlock as BlockPyBlock,
+};
 
 pub(crate) fn lower_stmts_to_blockpy_stmts<E>(
     stmts: &[Stmt],

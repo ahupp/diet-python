@@ -59,6 +59,17 @@ pub type RuffBlockPyIf = BlockPyStructuredIf<Expr>;
 pub type RuffBlockPyIfTerm = BlockPyIfTerm<Expr>;
 pub type RuffBlockPyBranchTable = BlockPyBranchTable<Expr>;
 pub type RuffBlockPyRaise = BlockPyRaise<Expr>;
+pub type SemanticBlockPyModule = BlockPyModule<BlockPyExpr>;
+pub type SemanticBlockPyCallableDef = BlockPyCallableDef<BlockPyExpr>;
+pub type SemanticBlockPyBlock = BlockPyBlock<BlockPyExpr>;
+pub type SemanticBlockPyStmt = BlockPyStmt<BlockPyExpr>;
+pub type SemanticBlockPyTerm = BlockPyTerm<BlockPyExpr>;
+pub type SemanticBlockPyStmtFragment = BlockPyStmtFragment<BlockPyExpr>;
+pub type SemanticBlockPyAssign = BlockPyAssign<BlockPyExpr>;
+pub type SemanticBlockPyIf = BlockPyStructuredIf<BlockPyExpr>;
+pub type SemanticBlockPyIfTerm = BlockPyIfTerm<BlockPyExpr>;
+pub type SemanticBlockPyBranchTable = BlockPyBranchTable<BlockPyExpr>;
+pub type SemanticBlockPyRaise = BlockPyRaise<BlockPyExpr>;
 pub const ENTRY_BLOCK_LABEL: &str = "start";
 
 #[derive(Debug, Clone)]

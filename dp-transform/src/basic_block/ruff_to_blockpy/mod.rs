@@ -15,9 +15,9 @@ use super::block_py::state::{
     sync_generator_state_order, sync_target_cells_stmts as sync_target_cells_stmts_shared,
 };
 use super::block_py::{
-    assert_blockpy_block_normalized, BlockPyAssign, BlockPyBlock, BlockPyBlockMeta,
-    BlockPyCallableDef, BlockPyDelete, BlockPyExpr, BlockPyFunctionKind, BlockPyIf, BlockPyIfTerm,
-    BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm, BlockPyTryJump, ENTRY_BLOCK_LABEL,
+    assert_blockpy_block_normalized, BlockPyBlockMeta, BlockPyExpr, BlockPyFunctionKind,
+    BlockPyLabel, BlockPyTryJump, SemanticBlockPyBlock, SemanticBlockPyCallableDef,
+    SemanticBlockPyStmt, SemanticBlockPyTerm, ENTRY_BLOCK_LABEL,
 };
 use super::cfg_ir::CfgCallableDef;
 use super::stmt_utils::flatten_stmt_boxes;
@@ -84,7 +84,7 @@ pub(crate) struct GeneratorStmtSequenceLoweringState {
 }
 
 pub(crate) struct LoweredBlockPyFunction {
-    pub callable_def: BlockPyCallableDef,
+    pub callable_def: SemanticBlockPyCallableDef,
     pub is_coroutine: bool,
     pub bb_kind: BbFunctionKind,
     pub block_params: HashMap<String, Vec<String>>,
@@ -99,7 +99,7 @@ pub(crate) struct LoweredBlockPyFunctionBundle {
 }
 
 pub(crate) struct PreparedBlockPyFunction {
-    pub callable_def: BlockPyCallableDef,
+    pub callable_def: SemanticBlockPyCallableDef,
     pub generator_metadata: Option<GeneratorMetadata>,
     pub try_regions: Vec<TryRegionPlan>,
 }
@@ -196,13 +196,13 @@ pub(crate) fn build_blockpy_function(
     entry_liveins: Vec<String>,
     closure_layout: Option<BbClosureLayout>,
     local_cell_slots: Vec<String>,
-    mut blocks: Vec<BlockPyBlock>,
-) -> BlockPyCallableDef {
+    mut blocks: Vec<SemanticBlockPyBlock>,
+) -> SemanticBlockPyCallableDef {
     move_blockpy_entry_block_to_front(&mut blocks, entry_label.as_str());
     for block in &blocks {
         assert_blockpy_block_normalized(block);
     }
-    BlockPyCallableDef {
+    SemanticBlockPyCallableDef {
         cfg: CfgCallableDef {
             function_id,
             bind_name,
@@ -219,7 +219,7 @@ pub(crate) fn build_blockpy_function(
     }
 }
 
-fn move_blockpy_entry_block_to_front(blocks: &mut Vec<BlockPyBlock>, entry_label: &str) {
+fn move_blockpy_entry_block_to_front(blocks: &mut Vec<SemanticBlockPyBlock>, entry_label: &str) {
     if let Some(entry_index) = blocks
         .iter()
         .position(|block| block.label.as_str() == entry_label)
@@ -239,7 +239,7 @@ pub(crate) fn take_next_function_id(next_function_id: &mut usize) -> FunctionId 
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_lowered_blockpy_function(
-    callable_def: BlockPyCallableDef,
+    callable_def: SemanticBlockPyCallableDef,
     is_coroutine: bool,
     bb_kind: BbFunctionKind,
     block_params: HashMap<String, Vec<String>>,
@@ -259,7 +259,7 @@ pub(crate) fn build_lowered_blockpy_function(
 }
 
 fn fresh_normalized_entry_collision_label(
-    blocks: &[BlockPyBlock],
+    blocks: &[SemanticBlockPyBlock],
     rename: &HashMap<String, String>,
 ) -> String {
     let existing = blocks
@@ -351,12 +351,12 @@ fn rename_bb_kind(kind: &mut BbFunctionKind, rename: &HashMap<String, String>) {
 
 fn normalize_exported_entry_block(
     entry_label: String,
-    mut blocks: Vec<BlockPyBlock>,
+    mut blocks: Vec<SemanticBlockPyBlock>,
     block_params: HashMap<String, Vec<String>>,
     exception_edges: HashMap<String, Option<String>>,
     mut bb_kind: BbFunctionKind,
 ) -> (
-    Vec<BlockPyBlock>,
+    Vec<SemanticBlockPyBlock>,
     HashMap<String, Vec<String>>,
     HashMap<String, Option<String>>,
     BbFunctionKind,
@@ -734,7 +734,8 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
                     Vec::with_capacity(uncaught_set_done_block.body.len() + cleanup_cells.len());
                 for stmt in std::mem::take(&mut uncaught_set_done_block.body) {
                     new_body.push(stmt);
-                    if matches!(new_body.last(), Some(BlockPyStmt::Expr(_))) && new_body.len() == 1
+                    if matches!(new_body.last(), Some(SemanticBlockPyStmt::Expr(_)))
+                        && new_body.len() == 1
                     {
                         for cell in &cleanup_cells {
                             new_body.extend(
@@ -978,7 +979,7 @@ pub(crate) fn build_finalized_blockpy_function(
     doc: Option<BlockPyExpr>,
     kind: BlockPyFunctionKind,
     params: ast::Parameters,
-    blocks: Vec<BlockPyBlock>,
+    blocks: Vec<SemanticBlockPyBlock>,
     try_regions: Vec<TryRegionPlan>,
     entry_label: String,
     end_label: String,
@@ -1114,7 +1115,7 @@ fn build_try_extra_successors(try_regions: &[TryRegionPlan]) -> HashMap<String, 
 }
 
 pub(crate) fn compute_blockpy_exception_edges(
-    blocks: &[BlockPyBlock],
+    blocks: &[SemanticBlockPyBlock],
     try_regions: &[TryRegionPlan],
     generator_info: Option<&GeneratorMetadata>,
 ) -> HashMap<String, Option<String>> {
@@ -1239,7 +1240,7 @@ fn relabel_generator_info(
 }
 
 pub(crate) fn finalize_blockpy_function(
-    mut callable_def: BlockPyCallableDef,
+    mut callable_def: SemanticBlockPyCallableDef,
     mut try_regions: Vec<TryRegionPlan>,
     mut entry_label: String,
     end_label: String,
@@ -1255,10 +1256,10 @@ pub(crate) fn finalize_blockpy_function(
             .iter()
             .any(|block| block_references_label(block, end_label.as_str()));
     if needs_end_block {
-        callable_def.blocks.push(BlockPyBlock {
+        callable_def.blocks.push(SemanticBlockPyBlock {
             label: BlockPyLabel::from(end_label),
             body: Vec::new(),
-            term: BlockPyTerm::Return(None),
+            term: SemanticBlockPyTerm::Return(None),
             meta: BlockPyBlockMeta::default(),
         });
     }
@@ -1340,7 +1341,11 @@ fn assign_delete_error(message: &str, stmt: &Stmt) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::basic_block::block_py::BlockPyModule;
+    use crate::basic_block::block_py::{
+        SemanticBlockPyCallableDef as BlockPyCallableDef, SemanticBlockPyModule as BlockPyModule,
+        SemanticBlockPyRaise as BlockPyRaise, SemanticBlockPyStmt as BlockPyStmt,
+        SemanticBlockPyTerm as BlockPyTerm,
+    };
     use crate::basic_block::ruff_to_blockpy::generator_lowering::build_closure_backed_generator_factory_block;
     use crate::basic_block::ruff_to_blockpy::stmt_sequences::{
         lower_for_stmt_sequence, lower_generator_stmt_sequence_head,
