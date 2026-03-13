@@ -57,6 +57,10 @@ pub enum CoreBlockPyExpr {
     NumberLiteral(ast::ExprNumberLiteral),
     BooleanLiteral(ast::ExprBooleanLiteral),
     NoneLiteral(ast::ExprNoneLiteral),
+    Dict(ast::ExprDict),
+    Set(ast::ExprSet),
+    List(ast::ExprList),
+    Tuple(ast::ExprTuple),
     Attribute(ast::ExprAttribute),
     Subscript(ast::ExprSubscript),
     UnaryOp(ast::ExprUnaryOp),
@@ -525,6 +529,26 @@ mod tests {
             CoreBlockPyExpr::Compare(_)
         ));
     }
+
+    #[test]
+    fn core_blockpy_expr_uses_reduced_variants_for_container_displays() {
+        assert!(matches!(
+            CoreBlockPyExpr::from(py_expr!("[x, y]")),
+            CoreBlockPyExpr::List(_)
+        ));
+        assert!(matches!(
+            CoreBlockPyExpr::from(py_expr!("(x, y)")),
+            CoreBlockPyExpr::Tuple(_)
+        ));
+        assert!(matches!(
+            CoreBlockPyExpr::from(py_expr!("{x: y}")),
+            CoreBlockPyExpr::Dict(_)
+        ));
+        assert!(matches!(
+            CoreBlockPyExpr::from(py_expr!("{x, y}")),
+            CoreBlockPyExpr::Set(_)
+        ));
+    }
 }
 
 impl From<BlockPyExpr> for Expr {
@@ -575,6 +599,10 @@ impl From<Expr> for CoreBlockPyExpr {
             Expr::NumberLiteral(node) => Self::NumberLiteral(node),
             Expr::BooleanLiteral(node) => Self::BooleanLiteral(node),
             Expr::NoneLiteral(node) => Self::NoneLiteral(node),
+            Expr::Dict(node) => Self::Dict(node),
+            Expr::Set(node) => Self::Set(node),
+            Expr::List(node) => Self::List(node),
+            Expr::Tuple(node) => Self::Tuple(node),
             Expr::Attribute(node) => Self::Attribute(node),
             Expr::Subscript(node) => Self::Subscript(node),
             Expr::UnaryOp(node) => Self::UnaryOp(node),
@@ -601,6 +629,10 @@ impl From<CoreBlockPyExpr> for Expr {
             CoreBlockPyExpr::NumberLiteral(node) => Expr::NumberLiteral(node),
             CoreBlockPyExpr::BooleanLiteral(node) => Expr::BooleanLiteral(node),
             CoreBlockPyExpr::NoneLiteral(node) => Expr::NoneLiteral(node),
+            CoreBlockPyExpr::Dict(node) => Expr::Dict(node),
+            CoreBlockPyExpr::Set(node) => Expr::Set(node),
+            CoreBlockPyExpr::List(node) => Expr::List(node),
+            CoreBlockPyExpr::Tuple(node) => Expr::Tuple(node),
             CoreBlockPyExpr::Attribute(node) => Expr::Attribute(node),
             CoreBlockPyExpr::Subscript(node) => Expr::Subscript(node),
             CoreBlockPyExpr::UnaryOp(node) => Expr::UnaryOp(node),
