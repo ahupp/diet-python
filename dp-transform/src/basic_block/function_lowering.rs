@@ -400,22 +400,6 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     if has_yield && has_await && !func.is_async {
         return None;
     }
-    if !has_yield {
-        let mut checker = BasicBlockSupportChecker {
-            allow_await: func.is_async,
-            ..Default::default()
-        };
-        let mut body_for_check = stmt_body_from_stmts(
-            runtime_input_body
-                .iter()
-                .map(|stmt| stmt.as_ref().clone())
-                .collect(),
-        );
-        checker.visit_body(&mut body_for_check);
-        if !checker.supported {
-            return None;
-        }
-    }
     let is_async_generator_runtime = func.is_async && !coroutine_via_generator;
     // Generated async comprehension helpers still stay on the legacy
     // frame-backed resume path for now: forcing them onto the
@@ -535,12 +519,14 @@ pub(crate) fn lower_stmt_default(context: &Context, stmt: Stmt) -> Rewrite {
     match stmt {
         Stmt::Try(try_stmt) => rewrite_stmt::exception::rewrite_try(try_stmt),
         Stmt::If(if_stmt) => crate::basic_block::ruff_to_blockpy::expand_if_chain(if_stmt),
-        Stmt::Assert(assert) => crate::basic_block::ruff_to_blockpy::rewrite_assert_stmt(assert),
         Stmt::Match(match_stmt) => {
             crate::basic_block::ruff_to_blockpy::rewrite_match_stmt(context, match_stmt)
         }
         Stmt::Import(import) => rewrite_import::rewrite(import),
         Stmt::ImportFrom(import_from) => rewrite_import::rewrite_from(context, import_from),
+        Stmt::Assert(assert_stmt) => {
+            crate::basic_block::ruff_to_blockpy::rewrite_assert_stmt(assert_stmt)
+        }
         Stmt::Assign(assign) => {
             crate::basic_block::ruff_to_blockpy::rewrite_assign_stmt(context, assign)
         }
@@ -569,149 +555,6 @@ pub(crate) fn lower_stmt_bb(context: &Context, stmt: Stmt) -> Rewrite {
 impl StmtRewritePass for BBSimplifyStmtPass {
     fn lower_stmt(&self, context: &Context, stmt: Stmt) -> Rewrite {
         lower_stmt_bb(context, stmt)
-    }
-}
-
-struct BasicBlockSupportChecker {
-    supported: bool,
-    loop_depth: usize,
-    allow_await: bool,
-}
-
-impl Default for BasicBlockSupportChecker {
-    fn default() -> Self {
-        Self {
-            supported: true,
-            loop_depth: 0,
-            allow_await: false,
-        }
-    }
-}
-
-impl BasicBlockSupportChecker {
-    fn mark_unsupported(&mut self) {
-        self.supported = false;
-    }
-
-    fn panic_stmt(&self, message: &str, stmt: &Stmt) -> ! {
-        let rendered = crate::ruff_ast_to_string(stmt);
-        panic!(
-            "BB lowering invariant violated: {message}\nstmt:\n{}",
-            rendered.trim_end()
-        );
-    }
-}
-
-impl Transformer for BasicBlockSupportChecker {
-    fn visit_body(&mut self, body: &mut StmtBody) {
-        if !self.supported {
-            return;
-        }
-        if has_dead_stmt_after_terminator(body) {
-            self.mark_unsupported();
-            return;
-        }
-        walk_stmt_body(self, body);
-    }
-
-    fn visit_stmt(&mut self, stmt: &mut Stmt) {
-        if !self.supported {
-            return;
-        }
-        match stmt {
-            Stmt::Expr(_)
-            | Stmt::Pass(_)
-            | Stmt::Assign(_)
-            | Stmt::Delete(_)
-            | Stmt::Return(_)
-            | Stmt::Raise(_) => {
-                walk_stmt(self, stmt);
-            }
-            Stmt::FunctionDef(_) => {}
-            Stmt::BodyStmt(_) => walk_stmt(self, stmt),
-            Stmt::If(if_stmt) => {
-                if if_stmt
-                    .elif_else_clauses
-                    .iter()
-                    .any(|clause| clause.test.is_some())
-                {
-                    self.panic_stmt("`elif` chain reached support checker", stmt);
-                }
-                walk_stmt(self, stmt);
-            }
-            Stmt::While(while_stmt) => {
-                self.visit_expr(while_stmt.test.as_mut());
-                self.loop_depth += 1;
-                self.visit_body(&mut while_stmt.body);
-                self.loop_depth -= 1;
-                self.visit_body(&mut while_stmt.orelse);
-            }
-            Stmt::For(for_stmt) => {
-                if for_stmt.is_async && !self.allow_await {
-                    self.mark_unsupported();
-                    return;
-                }
-                self.visit_expr(for_stmt.iter.as_mut());
-                self.loop_depth += 1;
-                self.visit_body(&mut for_stmt.body);
-                self.loop_depth -= 1;
-                self.visit_body(&mut for_stmt.orelse);
-            }
-            Stmt::With(with_stmt) => {
-                if with_stmt.is_async && !self.allow_await {
-                    self.mark_unsupported();
-                    return;
-                }
-                for item in with_stmt.items.iter_mut() {
-                    self.visit_expr(&mut item.context_expr);
-                    if let Some(optional_vars) = item.optional_vars.as_mut() {
-                        self.visit_expr(optional_vars.as_mut());
-                    }
-                }
-                self.visit_body(&mut with_stmt.body);
-            }
-            Stmt::Try(try_stmt) => {
-                self.visit_body(&mut try_stmt.body);
-                for handler in try_stmt.handlers.iter_mut() {
-                    let ast::ExceptHandler::ExceptHandler(handler) = handler;
-                    if let Some(type_) = handler.type_.as_mut() {
-                        self.visit_expr(type_.as_mut());
-                    }
-                    self.visit_body(&mut handler.body);
-                }
-                self.visit_body(&mut try_stmt.orelse);
-                self.visit_body(&mut try_stmt.finalbody);
-            }
-            Stmt::Break(_) | Stmt::Continue(_) => {
-                if self.loop_depth == 0 {
-                    self.panic_stmt(
-                        "`break`/`continue` outside loop reached support checker",
-                        stmt,
-                    );
-                }
-            }
-            _ => self.panic_stmt("unsupported statement kind reached support checker", stmt),
-        }
-    }
-
-    fn visit_expr(&mut self, expr: &mut Expr) {
-        if !self.supported {
-            return;
-        }
-        match expr {
-            Expr::Await(_) => {
-                if !self.allow_await {
-                    self.mark_unsupported();
-                    return;
-                }
-            }
-            Expr::Yield(_) | Expr::YieldFrom(_) => {
-                self.mark_unsupported();
-                return;
-            }
-            _ => {}
-        }
-        walk_expr(self, expr);
     }
 }
 
@@ -778,26 +621,6 @@ fn split_docstring(body: &StmtBody) -> (Option<Stmt>, Vec<Box<Stmt>>) {
         return (Some(first_stmt), rest);
     }
     (None, rest)
-}
-
-fn walk_stmt_body<V: Transformer + ?Sized>(visitor: &mut V, body: &mut StmtBody) {
-    for stmt in body.body.iter_mut() {
-        visitor.visit_stmt(stmt.as_mut());
-    }
-}
-
-fn has_dead_stmt_after_terminator(body: &StmtBody) -> bool {
-    let mut terminated = false;
-    for stmt in &body.body {
-        if terminated {
-            return true;
-        }
-        terminated = matches!(
-            stmt.as_ref(),
-            Stmt::Return(_) | Stmt::Raise(_) | Stmt::Break(_) | Stmt::Continue(_)
-        );
-    }
-    false
 }
 
 fn has_dead_stmt_suffixes(stmts: &[Box<Stmt>]) -> bool {
