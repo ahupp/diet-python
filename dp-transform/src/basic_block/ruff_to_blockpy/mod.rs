@@ -2,7 +2,8 @@ use super::await_lower::lower_coroutine_awaits_in_stmt;
 use super::bb_ir::{BbClosureLayout, BbExpr, BbFunctionKind, FunctionId};
 use super::block_py::cfg::{
     fold_constant_brif_blockpy, fold_jumps_to_trivial_none_return_blockpy,
-    prune_unreachable_blockpy_blocks, relabel_blockpy_blocks, rename_blockpy_labels,
+    linearize_structured_ifs, prune_unreachable_blockpy_blocks, relabel_blockpy_blocks,
+    rename_blockpy_labels,
 };
 use super::block_py::dataflow::compute_block_params_blockpy;
 use super::block_py::exception::{
@@ -16,8 +17,9 @@ use super::block_py::state::{
 };
 use super::block_py::{
     assert_blockpy_block_normalized, BlockPyBlockMeta, BlockPyExpr, BlockPyFunctionKind,
-    BlockPyLabel, BlockPyTryJump, SemanticBlockPyBlock, SemanticBlockPyCallableDef,
-    SemanticBlockPyStmt, SemanticBlockPyTerm, ENTRY_BLOCK_LABEL,
+    BlockPyLabel, BlockPyStmtFragmentBuilder, BlockPyTryJump, SemanticBlockPyBlock,
+    SemanticBlockPyCallableDef, SemanticBlockPyExpr, SemanticBlockPyIf, SemanticBlockPyStmt,
+    SemanticBlockPyTerm, ENTRY_BLOCK_LABEL,
 };
 use super::cfg_ir::CfgCallableDef;
 use super::stmt_utils::flatten_stmt_boxes;
@@ -1072,8 +1074,18 @@ where
             next_temp,
         );
         if !coroutine_via_generator && !is_async_generator_runtime {
+            let lowered_generator_expr_blocks =
+                lower_generator_payload_exprs_in_blocks(context, semantic_blocks, next_block_id)
+                    .expect(
+                    "generator payload expr lowering should succeed before post-BlockPy lowering",
+                );
+            let (linearized_blocks, _, _) = linearize_structured_ifs(
+                &lowered_generator_expr_blocks,
+                &HashMap::new(),
+                &HashMap::new(),
+            );
             if let Some((blocks, entry_label)) = try_lower_simple_generator_blocks_post_blockpy(
-                semantic_blocks,
+                linearized_blocks,
                 semantic_entry_label.as_str(),
                 is_closure_backed_generator_runtime,
                 &mut semantic_try_regions,
@@ -1155,6 +1167,200 @@ where
         is_closure_backed_generator_runtime,
         next_temp("uncaught_exc", next_block_id),
     )
+}
+
+fn lower_generator_payload_exprs_in_blocks(
+    context: &Context,
+    blocks: Vec<SemanticBlockPyBlock>,
+    next_label_id: &mut usize,
+) -> Result<Vec<SemanticBlockPyBlock>, String> {
+    blocks
+        .into_iter()
+        .map(|block| lower_generator_payload_exprs_in_block(context, block, next_label_id))
+        .collect()
+}
+
+fn lower_generator_payload_exprs_in_block(
+    context: &Context,
+    block: SemanticBlockPyBlock,
+    next_label_id: &mut usize,
+) -> Result<SemanticBlockPyBlock, String> {
+    let mut lowered_body = BlockPyStmtFragmentBuilder::<SemanticBlockPyExpr>::new();
+    for stmt in block.body {
+        lower_generator_payload_exprs_in_stmt_into(
+            context,
+            stmt,
+            &mut lowered_body,
+            next_label_id,
+        )?;
+    }
+    lower_generator_payload_exprs_in_term_into(
+        context,
+        block.term,
+        &mut lowered_body,
+        next_label_id,
+    )?;
+    let lowered_body = lowered_body.finish();
+    Ok(SemanticBlockPyBlock {
+        label: block.label,
+        body: lowered_body.body,
+        term: lowered_body
+            .term
+            .expect("generator payload expr lowering should preserve block terminator"),
+        meta: block.meta,
+    })
+}
+
+fn lower_generator_payload_exprs_in_fragment(
+    context: &Context,
+    fragment: crate::basic_block::block_py::SemanticBlockPyStmtFragment,
+    next_label_id: &mut usize,
+) -> Result<crate::basic_block::block_py::SemanticBlockPyStmtFragment, String> {
+    let mut lowered = BlockPyStmtFragmentBuilder::<SemanticBlockPyExpr>::new();
+    for stmt in fragment.body {
+        lower_generator_payload_exprs_in_stmt_into(context, stmt, &mut lowered, next_label_id)?;
+    }
+    if let Some(term) = fragment.term {
+        lower_generator_payload_exprs_in_term_into(context, term, &mut lowered, next_label_id)?;
+    }
+    Ok(lowered.finish())
+}
+
+fn lower_generator_payload_exprs_in_stmt_into(
+    context: &Context,
+    stmt: SemanticBlockPyStmt,
+    out: &mut BlockPyStmtFragmentBuilder<SemanticBlockPyExpr>,
+    next_label_id: &mut usize,
+) -> Result<(), String> {
+    match stmt {
+        SemanticBlockPyStmt::Expr(SemanticBlockPyExpr::Yield(mut yield_expr)) => {
+            if let Some(value) = yield_expr.value.take() {
+                let lowered = expr_lowering::lower_expr_into_with_setup(
+                    context,
+                    *value,
+                    out,
+                    None,
+                    next_label_id,
+                )?;
+                yield_expr.value = Some(Box::new(lowered.into()));
+            }
+            out.push_stmt(SemanticBlockPyStmt::Expr(SemanticBlockPyExpr::Yield(
+                yield_expr,
+            )));
+            Ok(())
+        }
+        SemanticBlockPyStmt::Expr(SemanticBlockPyExpr::YieldFrom(mut yield_from_expr)) => {
+            let lowered = expr_lowering::lower_expr_into_with_setup(
+                context,
+                *yield_from_expr.value,
+                out,
+                None,
+                next_label_id,
+            )?;
+            yield_from_expr.value = Box::new(lowered.into());
+            out.push_stmt(SemanticBlockPyStmt::Expr(SemanticBlockPyExpr::YieldFrom(
+                yield_from_expr,
+            )));
+            Ok(())
+        }
+        SemanticBlockPyStmt::Assign(mut assign) => {
+            match assign.value {
+                SemanticBlockPyExpr::Yield(mut yield_expr) => {
+                    if let Some(value) = yield_expr.value.take() {
+                        let lowered = expr_lowering::lower_expr_into_with_setup(
+                            context,
+                            *value,
+                            out,
+                            None,
+                            next_label_id,
+                        )?;
+                        yield_expr.value = Some(Box::new(lowered.into()));
+                    }
+                    assign.value = SemanticBlockPyExpr::Yield(yield_expr);
+                }
+                SemanticBlockPyExpr::YieldFrom(mut yield_from_expr) => {
+                    let lowered = expr_lowering::lower_expr_into_with_setup(
+                        context,
+                        *yield_from_expr.value,
+                        out,
+                        None,
+                        next_label_id,
+                    )?;
+                    yield_from_expr.value = Box::new(lowered.into());
+                    assign.value = SemanticBlockPyExpr::YieldFrom(yield_from_expr);
+                }
+                other => {
+                    assign.value = other;
+                }
+            }
+            out.push_stmt(SemanticBlockPyStmt::Assign(assign));
+            Ok(())
+        }
+        SemanticBlockPyStmt::If(if_stmt) => {
+            out.push_stmt(SemanticBlockPyStmt::If(SemanticBlockPyIf {
+                test: if_stmt.test,
+                body: lower_generator_payload_exprs_in_fragment(
+                    context,
+                    if_stmt.body,
+                    next_label_id,
+                )?,
+                orelse: lower_generator_payload_exprs_in_fragment(
+                    context,
+                    if_stmt.orelse,
+                    next_label_id,
+                )?,
+            }));
+            Ok(())
+        }
+        other => {
+            out.push_stmt(other);
+            Ok(())
+        }
+    }
+}
+
+fn lower_generator_payload_exprs_in_term_into(
+    context: &Context,
+    term: SemanticBlockPyTerm,
+    out: &mut BlockPyStmtFragmentBuilder<SemanticBlockPyExpr>,
+    next_label_id: &mut usize,
+) -> Result<(), String> {
+    match term {
+        SemanticBlockPyTerm::Return(Some(SemanticBlockPyExpr::Yield(mut yield_expr))) => {
+            if let Some(value) = yield_expr.value.take() {
+                let lowered = expr_lowering::lower_expr_into_with_setup(
+                    context,
+                    *value,
+                    out,
+                    None,
+                    next_label_id,
+                )?;
+                yield_expr.value = Some(Box::new(lowered.into()));
+            }
+            out.set_term(SemanticBlockPyTerm::Return(Some(
+                SemanticBlockPyExpr::Yield(yield_expr),
+            )));
+            Ok(())
+        }
+        SemanticBlockPyTerm::Return(Some(SemanticBlockPyExpr::YieldFrom(mut yield_from_expr))) => {
+            let lowered = expr_lowering::lower_expr_into_with_setup(
+                context,
+                *yield_from_expr.value,
+                out,
+                None,
+                next_label_id,
+            )?;
+            yield_from_expr.value = Box::new(lowered.into());
+            out.set_term(SemanticBlockPyTerm::Return(Some(
+                SemanticBlockPyExpr::YieldFrom(yield_from_expr),
+            )));
+            Ok(())
+        }
+        other => {
+            out.set_term(other);
+            Ok(())
+        }
+    }
 }
 
 fn build_try_extra_successors(try_regions: &[TryRegionPlan]) -> HashMap<String, Vec<String>> {
