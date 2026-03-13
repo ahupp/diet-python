@@ -88,11 +88,15 @@ impl StmtLowerer for ast::StmtIf {
                     loop_ctx,
                     next_label_id,
                 )?;
-                out.push_stmt(BlockPyStmt::If(BlockPyIf {
-                    test: (*simplified_if.test).clone().into(),
-                    body,
-                    orelse,
-                }));
+                let test =
+                    crate::basic_block::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
+                        context,
+                        (*simplified_if.test).clone(),
+                        out,
+                        loop_ctx,
+                        next_label_id,
+                    )?;
+                out.push_stmt(BlockPyStmt::If(BlockPyIf { test, body, orelse }));
                 Ok(())
             }
             Stmt::BodyStmt(body) => {

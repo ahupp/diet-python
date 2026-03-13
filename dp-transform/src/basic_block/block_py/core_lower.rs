@@ -11,6 +11,45 @@ use crate::basic_block::cfg_ir::CfgCallableDef;
 type CoreStmtBuilder = BlockPyStmtFragmentBuilder<CoreBlockPyExpr>;
 type SemanticExpr = super::BlockPyExpr;
 
+pub(crate) trait PureCoreExprReducer {
+    fn reduce_expr(&self, expr: &SemanticExpr) -> CoreBlockPyExpr;
+}
+
+struct DefaultCoreExprReducer;
+
+impl PureCoreExprReducer for DefaultCoreExprReducer {
+    fn reduce_expr(&self, expr: &SemanticExpr) -> CoreBlockPyExpr {
+        match expr {
+            SemanticExpr::UnaryOp(node) => CoreBlockPyExpr::UnaryOp(CoreBlockPyUnaryOp {
+                node_index: node.node_index.clone(),
+                range: node.range,
+                op: node.op,
+                operand: Box::new(self.reduce_expr(&((*node.operand).clone().into()))),
+            }),
+            SemanticExpr::BinOp(node) => CoreBlockPyExpr::BinOp(CoreBlockPyBinOp {
+                node_index: node.node_index.clone(),
+                range: node.range,
+                left: Box::new(self.reduce_expr(&((*node.left).clone().into()))),
+                op: node.op,
+                right: Box::new(self.reduce_expr(&((*node.right).clone().into()))),
+            }),
+            SemanticExpr::Compare(node) => CoreBlockPyExpr::Compare(CoreBlockPyCompare {
+                node_index: node.node_index.clone(),
+                range: node.range,
+                left: Box::new(self.reduce_expr(&((*node.left).clone().into()))),
+                ops: node.ops.clone(),
+                comparators: node
+                    .comparators
+                    .iter()
+                    .map(|expr| self.reduce_expr(&(expr.clone().into())))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            }),
+            _ => expr.clone().into(),
+        }
+    }
+}
+
 fn finish_expr_setup(builder: CoreStmtBuilder) -> Vec<CoreBlockPyStmt> {
     let fragment = builder.finish();
     assert!(
@@ -21,46 +60,8 @@ fn finish_expr_setup(builder: CoreStmtBuilder) -> Vec<CoreBlockPyStmt> {
 }
 
 fn lower_semantic_expr_into(builder: &mut CoreStmtBuilder, expr: &SemanticExpr) -> CoreBlockPyExpr {
-    match expr {
-        SemanticExpr::UnaryOp(node) => CoreBlockPyExpr::UnaryOp(CoreBlockPyUnaryOp {
-            node_index: node.node_index.clone(),
-            range: node.range,
-            op: node.op,
-            operand: Box::new(lower_semantic_expr_into(
-                builder,
-                &((*node.operand).clone().into()),
-            )),
-        }),
-        SemanticExpr::BinOp(node) => CoreBlockPyExpr::BinOp(CoreBlockPyBinOp {
-            node_index: node.node_index.clone(),
-            range: node.range,
-            left: Box::new(lower_semantic_expr_into(
-                builder,
-                &((*node.left).clone().into()),
-            )),
-            op: node.op,
-            right: Box::new(lower_semantic_expr_into(
-                builder,
-                &((*node.right).clone().into()),
-            )),
-        }),
-        SemanticExpr::Compare(node) => CoreBlockPyExpr::Compare(CoreBlockPyCompare {
-            node_index: node.node_index.clone(),
-            range: node.range,
-            left: Box::new(lower_semantic_expr_into(
-                builder,
-                &((*node.left).clone().into()),
-            )),
-            ops: node.ops.clone(),
-            comparators: node
-                .comparators
-                .iter()
-                .map(|expr| lower_semantic_expr_into(builder, &(expr.clone().into())))
-                .collect::<Vec<_>>()
-                .into_boxed_slice(),
-        }),
-        _ => expr.clone().into(),
-    }
+    let _ = builder;
+    DefaultCoreExprReducer.reduce_expr(expr)
 }
 
 fn lower_semantic_expr_without_setup(expr: &SemanticExpr) -> CoreBlockPyExpr {

@@ -109,15 +109,22 @@ impl StmtLowerer for ast::StmtExpr {
 
     fn to_blockpy<E>(
         &self,
-        _context: &Context,
+        context: &Context,
         out: &mut BlockPyStmtFragmentBuilder<E>,
-        _loop_ctx: Option<&LoopContext>,
-        _next_label_id: &mut usize,
+        loop_ctx: Option<&LoopContext>,
+        next_label_id: &mut usize,
     ) -> Result<(), String>
     where
         E: From<Expr> + std::fmt::Debug,
     {
-        out.push_stmt(BlockPyStmt::Expr((*self.value).clone().into()));
+        let value = crate::basic_block::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
+            context,
+            (*self.value).clone(),
+            out,
+            loop_ctx,
+            next_label_id,
+        )?;
+        out.push_stmt(BlockPyStmt::Expr(value));
         Ok(())
     }
 }
@@ -177,17 +184,27 @@ impl StmtLowerer for ast::StmtReturn {
 
     fn to_blockpy<E>(
         &self,
-        _context: &Context,
+        context: &Context,
         out: &mut BlockPyStmtFragmentBuilder<E>,
-        _loop_ctx: Option<&LoopContext>,
-        _next_label_id: &mut usize,
+        loop_ctx: Option<&LoopContext>,
+        next_label_id: &mut usize,
     ) -> Result<(), String>
     where
         E: From<Expr> + std::fmt::Debug,
     {
-        out.set_term(BlockPyTerm::Return(
-            self.value.as_ref().map(|v| (**v).clone().into()),
-        ));
+        let value = match self.value.as_ref() {
+            Some(value) => Some(
+                crate::basic_block::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
+                    context,
+                    (**value).clone(),
+                    out,
+                    loop_ctx,
+                    next_label_id,
+                )?,
+            ),
+            None => None,
+        };
+        out.set_term(BlockPyTerm::Return(value));
         Ok(())
     }
 }
@@ -199,10 +216,10 @@ impl StmtLowerer for ast::StmtRaise {
 
     fn to_blockpy<E>(
         &self,
-        _context: &Context,
+        context: &Context,
         out: &mut BlockPyStmtFragmentBuilder<E>,
-        _loop_ctx: Option<&LoopContext>,
-        _next_label_id: &mut usize,
+        loop_ctx: Option<&LoopContext>,
+        next_label_id: &mut usize,
     ) -> Result<(), String>
     where
         E: From<Expr> + std::fmt::Debug,
@@ -210,9 +227,19 @@ impl StmtLowerer for ast::StmtRaise {
         if self.cause.is_some() {
             panic!("raise-from should be lowered before Ruff AST -> BlockPy conversion");
         }
-        out.set_term(BlockPyTerm::Raise(BlockPyRaise {
-            exc: self.exc.as_ref().map(|exc| (**exc).clone().into()),
-        }));
+        let exc = match self.exc.as_ref() {
+            Some(exc) => Some(
+                crate::basic_block::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
+                    context,
+                    (**exc).clone(),
+                    out,
+                    loop_ctx,
+                    next_label_id,
+                )?,
+            ),
+            None => None,
+        };
+        out.set_term(BlockPyTerm::Raise(BlockPyRaise { exc }));
         Ok(())
     }
 }
@@ -255,5 +282,45 @@ mod tests {
 
         let fragment = out.finish();
         assert!(matches!(fragment.term, Some(BlockPyTerm::Raise(_))));
+    }
+
+    #[test]
+    fn stmt_expr_to_blockpy_emits_setup_for_named_exprs() {
+        let stmt = py_stmt!("(x := y)");
+        let Stmt::Expr(expr_stmt) = stmt else {
+            panic!("expected expr stmt");
+        };
+        let context = Context::new(Options::for_test(), "");
+        let mut out = BlockPyStmtFragmentBuilder::<BlockPyExpr>::new();
+        let mut next_label_id = 0usize;
+
+        expr_stmt
+            .to_blockpy(&context, &mut out, None, &mut next_label_id)
+            .expect("expr lowering should succeed");
+
+        let fragment = out.finish();
+        assert!(matches!(
+            fragment.body.as_slice(),
+            [BlockPyStmt::Assign(_), BlockPyStmt::Expr(_)]
+        ));
+    }
+
+    #[test]
+    fn stmt_return_to_blockpy_emits_setup_for_if_exprs() {
+        let stmt = py_stmt!("return x if cond else y");
+        let Stmt::Return(return_stmt) = stmt else {
+            panic!("expected return stmt");
+        };
+        let context = Context::new(Options::for_test(), "");
+        let mut out = BlockPyStmtFragmentBuilder::<BlockPyExpr>::new();
+        let mut next_label_id = 0usize;
+
+        return_stmt
+            .to_blockpy(&context, &mut out, None, &mut next_label_id)
+            .expect("return lowering should succeed");
+
+        let fragment = out.finish();
+        assert!(!fragment.body.is_empty());
+        assert!(matches!(fragment.term, Some(BlockPyTerm::Return(Some(_)))));
     }
 }

@@ -33,6 +33,7 @@ use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 
 mod compat;
+mod expr_lowering;
 mod generator_lowering;
 mod stmt_lowering;
 mod stmt_sequences;

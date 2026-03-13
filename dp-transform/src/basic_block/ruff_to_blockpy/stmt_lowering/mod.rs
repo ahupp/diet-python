@@ -1,12 +1,10 @@
 use super::*;
-use crate::basic_block::ast_to_ast::ast_rewrite::ExprRewritePass;
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::block_py::{
     BlockPyAssign, BlockPyDelete, BlockPyExpr, BlockPyIf, BlockPyRaise, BlockPyStmt, BlockPyTerm,
     SemanticBlockPyBlock as BlockPyBlock,
 };
 use crate::basic_block::stmt_utils::flatten_stmt_boxes;
-use crate::driver::SimplifyExprPass;
 
 pub(super) type BlockPyStmtFragmentBuilder<E> =
     crate::basic_block::block_py::BlockPyCfgFragmentBuilder<BlockPyStmt<E>, BlockPyTerm<E>>;
@@ -35,7 +33,7 @@ where
     lower_stmt_into_with_expr(context, &simplified, out, loop_ctx, next_label_id)
 }
 
-pub(super) fn lower_nested_stmt_into_with_expr<E>(
+pub(crate) fn lower_nested_stmt_into_with_expr<E>(
     context: &Context,
     stmt: &Stmt,
     out: &mut BlockPyStmtFragmentBuilder<E>,
@@ -278,7 +276,11 @@ pub(crate) fn plan_stmt_head_for_blockpy(
 }
 
 fn simplify_if_test_for_blockpy(context: &Context, mut if_stmt: ast::StmtIf) -> Stmt {
-    let lowered = SimplifyExprPass.lower_expr(context, *if_stmt.test);
+    let lowered =
+        crate::basic_block::ruff_to_blockpy::expr_lowering::lower_expr_head_ast_for_blockpy(
+            context,
+            *if_stmt.test,
+        );
     if_stmt.test = Box::new(lowered.expr);
     if !lowered.modified {
         return Stmt::If(if_stmt);

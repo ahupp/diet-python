@@ -210,10 +210,10 @@ impl StmtLowerer for ast::StmtAssign {
 
     fn to_blockpy<E>(
         &self,
-        _context: &Context,
+        context: &Context,
         out: &mut BlockPyStmtFragmentBuilder<E>,
-        _loop_ctx: Option<&LoopContext>,
-        _next_label_id: &mut usize,
+        loop_ctx: Option<&LoopContext>,
+        next_label_id: &mut usize,
     ) -> Result<(), String>
     where
         E: From<Expr> + std::fmt::Debug,
@@ -230,10 +230,14 @@ impl StmtLowerer for ast::StmtAssign {
                 &Stmt::Assign(self.clone()),
             ));
         };
-        out.push_stmt(BlockPyStmt::Assign(BlockPyAssign {
-            target,
-            value: (*self.value).clone().into(),
-        }));
+        let value = crate::basic_block::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
+            context,
+            (*self.value).clone(),
+            out,
+            loop_ctx,
+            next_label_id,
+        )?;
+        out.push_stmt(BlockPyStmt::Assign(BlockPyAssign { target, value }));
         Ok(())
     }
 }
@@ -367,4 +371,30 @@ where
     out.extend(sync_target_cells_stmts_shared(target, cell_slots));
     out.push(py_stmt!("{tmp:id} = None", tmp = tmp_name));
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::BlockPyStmtFragmentBuilder;
+    use super::*;
+    use crate::basic_block::ast_to_ast::{context::Context, Options};
+
+    #[test]
+    fn stmt_assign_to_blockpy_emits_setup_for_if_expr_rhs() {
+        let stmt = py_stmt!("result = x if cond else y");
+        let Stmt::Assign(assign_stmt) = stmt else {
+            panic!("expected assign stmt");
+        };
+        let context = Context::new(Options::for_test(), "");
+        let mut out = BlockPyStmtFragmentBuilder::<BlockPyExpr>::new();
+        let mut next_label_id = 0usize;
+
+        assign_stmt
+            .to_blockpy(&context, &mut out, None, &mut next_label_id)
+            .expect("assign lowering should succeed");
+
+        let fragment = out.finish();
+        assert!(fragment.body.len() >= 2, "{fragment:?}");
+        assert!(matches!(fragment.body.last(), Some(BlockPyStmt::Assign(_))));
+    }
 }
