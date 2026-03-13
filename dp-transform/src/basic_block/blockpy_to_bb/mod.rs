@@ -8,7 +8,7 @@ use super::bb_ir::{
 use super::block_py::exception::is_dp_lookup_call;
 use super::block_py::state::collect_parameter_names;
 use super::block_py::{BlockPyBlock, BlockPyIfTerm, BlockPyModule, BlockPyStmt, BlockPyTerm};
-use super::cfg_ir::{CfgCallableDef, CfgModuleShell};
+use super::cfg_ir::{CfgCallableDef, CfgModule};
 use super::ruff_to_blockpy::{LoweredBlockPyFunction, LoweredBlockPyFunctionBundle};
 use super::stmt_utils::{flatten_stmt, flatten_stmt_boxes, stmt_body_from_stmts};
 use crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass;
@@ -35,10 +35,7 @@ pub(crate) struct LoweredBlockPyModuleCallableDef {
     pub main_binding_target: BindingTarget,
 }
 
-pub(crate) struct LoweredBlockPyModuleBundle {
-    pub callable_defs: Vec<LoweredBlockPyModuleCallableDef>,
-    pub module_init: Option<String>,
-}
+pub(crate) type LoweredBlockPyModuleBundle = CfgModule<LoweredBlockPyModuleCallableDef>;
 
 pub(crate) fn push_lowered_blockpy_callable_def_bundle(
     out: &mut LoweredBlockPyModuleBundle,
@@ -66,9 +63,7 @@ pub(crate) fn lowered_blockpy_module_bundle_to_blockpy_module(
         );
     }
     BlockPyModule {
-        cfg: CfgModuleShell {
-            module_init: module.module_init.clone(),
-        },
+        module_init: module.module_init.clone(),
         callable_defs,
     }
 }
@@ -88,10 +83,10 @@ pub(crate) fn lower_blockpy_module_bundle_to_bb_module(
         out.push(lowered.main_function);
     }
     BbModule {
-        cfg: CfgModuleShell {
+        cfg: CfgModule {
             module_init: module.module_init.clone(),
+            callable_defs: out,
         },
-        functions: out,
     }
 }
 

@@ -945,7 +945,7 @@ def classify(a, /, b: int = 1, *args, c=2, **kwargs):
     #[test]
     fn renders_empty_module_marker() {
         let rendered = blockpy_module_to_string(&BlockPyModule {
-            cfg: crate::basic_block::cfg_ir::CfgModuleShell { module_init: None },
+            module_init: None,
             callable_defs: Vec::new(),
         });
         assert_eq!(rendered, "; empty BlockPy module\n");
@@ -988,7 +988,7 @@ def gen():
     #[test]
     fn renders_public_closure_metadata_in_function_header() {
         let rendered = blockpy_module_to_string(&BlockPyModule {
-            cfg: crate::basic_block::cfg_ir::CfgModuleShell { module_init: None },
+            module_init: None,
             callable_defs: vec![BlockPyCallableDef {
                 cfg: crate::basic_block::cfg_ir::CfgCallableDef {
                     function_id: crate::basic_block::bb_ir::FunctionId(0),
@@ -1080,7 +1080,7 @@ def gen():
             local_cell_slots: Vec::new(),
         };
         let rendered = blockpy_module_to_string(&BlockPyModule {
-            cfg: crate::basic_block::cfg_ir::CfgModuleShell { module_init: None },
+            module_init: None,
             callable_defs: vec![function],
         });
 

@@ -19,6 +19,7 @@ pub struct CfgCallableDef<I, K, P, B> {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct CfgModuleShell {
+pub struct CfgModule<F> {
     pub module_init: Option<String>,
+    pub callable_defs: Vec<F>,
 }

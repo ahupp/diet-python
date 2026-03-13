@@ -184,7 +184,7 @@ mod tests {
         let bb_module = bb_module.ok_or_else(|| {
             "JIT mode requires emitted basic-block IR, but none was produced".to_string()
         })?;
-        for function in &bb_module.functions {
+        for function in bb_module.functions() {
             match &function.kind {
                 bb_ir::BbFunctionKind::Function
                 | bb_ir::BbFunctionKind::Generator { .. }
@@ -296,7 +296,7 @@ def exercise():
         jit::register_clif_module_plans(module_name, &normalized)
             .expect("plan registration should succeed");
         let gen_function = normalized
-            .functions
+            .functions()
             .iter()
             .find(|function| function.qualname == "exercise.<locals>.gen")
             .expect("missing lowered generator function");

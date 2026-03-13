@@ -141,7 +141,7 @@ fn count_blockpy_blocks_in_term(term: &dp_transform::basic_block::block_py::Bloc
 fn count_clif_blocks(module: &dp_transform::basic_block::bb_ir::BbModule) -> usize {
     let normalized = prepare_bb_module_for_codegen(module);
     normalized
-        .functions
+        .functions()
         .iter()
         .map(|function| function.blocks.len())
         .sum()

@@ -91,7 +91,7 @@ mod tests {
 
     fn function_by_name<'a>(bb_module: &'a super::BbModule, bind_name: &str) -> &'a BbFunction {
         let direct = bb_module
-            .functions
+            .functions()
             .iter()
             .find(|func| func.bind_name == bind_name)
             .unwrap_or_else(|| panic!("missing lowered function {bind_name}; got {:?}", bb_module));
@@ -99,7 +99,7 @@ mod tests {
             return direct;
         }
         bb_module
-            .functions
+            .functions()
             .iter()
             .find(|func| func.bind_name == format!("{bind_name}_resume"))
             .unwrap_or(direct)
@@ -194,7 +194,7 @@ def foo(a, b):
             .expect("transform should succeed")
             .expect("bb module should be available");
         let foo = bb_module
-            .functions
+            .functions()
             .iter()
             .find(|func| func.bind_name == "foo")
             .expect("foo should be lowered");
@@ -630,7 +630,7 @@ class Field:
                 .expect("transform should succeed")
                 .expect("bb module should be available");
             let function_names = bb_module
-                .functions
+                .functions()
                 .iter()
                 .map(|func| format!("{} :: {}", func.bind_name, func.qualname))
                 .collect::<Vec<_>>();
@@ -639,7 +639,7 @@ class Field:
                 function_names.join("\n")
             );
             let gen = bb_module
-                .functions
+                .functions()
                 .iter()
                 .find(|func| func.bind_name.contains("_dp_genexpr"))
                 .unwrap_or_else(|| panic!("missing genexpr helper in {name}"));
@@ -648,7 +648,7 @@ class Field:
             let prepared = crate::basic_block::prepare_bb_module_for_jit(&bb_module)
                 .expect("jit prep should succeed");
             let prepared_gen = prepared
-                .functions
+                .functions()
                 .iter()
                 .find(|func| func.bind_name.contains("_dp_genexpr"))
                 .unwrap_or_else(|| panic!("missing prepared genexpr helper in {name}"));

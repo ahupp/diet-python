@@ -12,7 +12,7 @@ pub fn normalize_bb_module_for_codegen(module: &bb_ir::BbModule) -> bb_ir::BbMod
         instrument_bb_module_for_trace(&mut normalized, &config);
     }
     let mut rewriter = CodegenExprNormalizer;
-    for function in &mut normalized.functions {
+    for function in normalized.functions_mut() {
         for block in &mut function.blocks {
             for op in &mut block.body {
                 match op {
@@ -228,7 +228,7 @@ def f():
         let normalized = normalize_bb_module_for_codegen(&bb_module);
 
         let mut probe = ExprShapeProbe::new();
-        for function in normalized.functions {
+        for function in normalized.into_functions() {
             for mut block in function.cfg.blocks {
                 for op in block.body {
                     let mut stmt = op.to_stmt();
@@ -296,7 +296,7 @@ def f(obj, mapping, key, value):
         let normalized = normalize_bb_module_for_codegen(&bb_module);
 
         let mut text = String::new();
-        for function in normalized.functions {
+        for function in normalized.into_functions() {
             for block in function.cfg.blocks {
                 text.push_str(&crate::ruff_ast_to_string(&bb_ir::bb_ops_to_stmts(
                     &block.body,

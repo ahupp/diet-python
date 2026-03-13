@@ -827,7 +827,7 @@ pub fn register_clif_module_plans(module_name: &str, module: &BbModule) -> Resul
     let debug_skips = std::env::var_os("DIET_PYTHON_DEBUG_JIT_PLAN_SKIPS").is_some();
     let mut plans = HashMap::new();
     let mut skipped_errors: HashMap<String, String> = HashMap::new();
-    for function in &lowered.functions {
+    for function in lowered.functions() {
         let plan_name = function
             .function_id
             .plan_qualname(function.qualname.as_str());
