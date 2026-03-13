@@ -48,6 +48,9 @@ pub enum BlockPyExpr {
     Slice(ast::ExprSlice),
 }
 
+#[derive(Debug, Clone)]
+pub struct CoreBlockPyExpr(pub Expr);
+
 pub type RuffBlockPyModule = BlockPyModule<Expr>;
 pub type RuffBlockPyCallableDef = BlockPyCallableDef<Expr>;
 pub type RuffBlockPyBlock = BlockPyBlock<Expr>;
@@ -70,6 +73,17 @@ pub type SemanticBlockPyIf = BlockPyStructuredIf<BlockPyExpr>;
 pub type SemanticBlockPyIfTerm = BlockPyIfTerm<BlockPyExpr>;
 pub type SemanticBlockPyBranchTable = BlockPyBranchTable<BlockPyExpr>;
 pub type SemanticBlockPyRaise = BlockPyRaise<BlockPyExpr>;
+pub type CoreBlockPyModule = BlockPyModule<CoreBlockPyExpr>;
+pub type CoreBlockPyCallableDef = BlockPyCallableDef<CoreBlockPyExpr>;
+pub type CoreBlockPyBlock = BlockPyBlock<CoreBlockPyExpr>;
+pub type CoreBlockPyStmt = BlockPyStmt<CoreBlockPyExpr>;
+pub type CoreBlockPyTerm = BlockPyTerm<CoreBlockPyExpr>;
+pub type CoreBlockPyStmtFragment = BlockPyStmtFragment<CoreBlockPyExpr>;
+pub type CoreBlockPyAssign = BlockPyAssign<CoreBlockPyExpr>;
+pub type CoreBlockPyIf = BlockPyStructuredIf<CoreBlockPyExpr>;
+pub type CoreBlockPyIfTerm = BlockPyIfTerm<CoreBlockPyExpr>;
+pub type CoreBlockPyBranchTable = BlockPyBranchTable<CoreBlockPyExpr>;
+pub type CoreBlockPyRaise = BlockPyRaise<CoreBlockPyExpr>;
 pub const ENTRY_BLOCK_LABEL: &str = "start";
 
 #[derive(Debug, Clone)]
@@ -411,6 +425,7 @@ impl From<Expr> for BlockPyExpr {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::py_expr;
 
     #[test]
     fn block_builder_sets_explicit_term() {
@@ -435,6 +450,17 @@ mod tests {
         assert_eq!(fragment.body.len(), 1);
         assert!(matches!(fragment.body[0], BlockPyStmt::Pass));
         assert!(matches!(fragment.term, Some(BlockPyTerm::Return(None))));
+    }
+
+    #[test]
+    fn core_blockpy_expr_wraps_and_rewrites_expr() {
+        let mut expr = CoreBlockPyExpr::from(py_expr!("x"));
+        expr.rewrite_mut(|expr| *expr = py_expr!("y"));
+
+        let Expr::Name(name) = expr.to_expr() else {
+            panic!("expected name expr after rewrite");
+        };
+        assert_eq!(name.id.as_str(), "y");
     }
 }
 
@@ -477,6 +503,24 @@ impl From<BlockPyExpr> for Expr {
     }
 }
 
+impl From<Expr> for CoreBlockPyExpr {
+    fn from(value: Expr) -> Self {
+        Self(value)
+    }
+}
+
+impl From<BlockPyExpr> for CoreBlockPyExpr {
+    fn from(value: BlockPyExpr) -> Self {
+        Self(value.into())
+    }
+}
+
+impl From<CoreBlockPyExpr> for Expr {
+    fn from(value: CoreBlockPyExpr) -> Self {
+        value.0
+    }
+}
+
 impl BlockPyExpr {
     pub fn to_expr(&self) -> Expr {
         self.clone().into()
@@ -486,6 +530,16 @@ impl BlockPyExpr {
         let mut expr = self.to_expr();
         f(&mut expr);
         *self = expr.into();
+    }
+}
+
+impl CoreBlockPyExpr {
+    pub fn to_expr(&self) -> Expr {
+        self.clone().into()
+    }
+
+    pub fn rewrite_mut(&mut self, f: impl FnOnce(&mut Expr)) {
+        f(&mut self.0);
     }
 }
 
