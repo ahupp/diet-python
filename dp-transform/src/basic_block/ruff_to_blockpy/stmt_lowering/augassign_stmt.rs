@@ -2,11 +2,7 @@ use super::*;
 
 impl StmtLowerer for ast::StmtAugAssign {
     fn simplify_ast(self, context: &Context) -> Stmt {
-        stmt_from_rewrite(
-            crate::basic_block::ast_to_ast::rewrite_stmt::assign_del::rewrite_aug_assign(
-                context, self,
-            ),
-        )
+        stmt_from_rewrite(super::assign_stmt::rewrite_augassign_stmt(context, self))
     }
 
     fn to_blockpy<E>(

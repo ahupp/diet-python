@@ -1,10 +1,211 @@
 use super::*;
+use crate::basic_block::ast_to_ast::ast_rewrite::Rewrite;
+use crate::basic_block::ast_to_ast::rewrite_expr::make_binop;
+use ruff_python_ast::Operator;
+
+pub(crate) fn should_rewrite_assignment_targets(targets: &[Expr]) -> bool {
+    if targets.len() > 1 {
+        return true;
+    }
+
+    let Some(first) = targets.first() else {
+        return false;
+    };
+
+    !matches!(first, Expr::Name(_))
+}
+
+fn rewrite_stmt_target(context: &Context, target: Expr, rhs: Expr, out: &mut Vec<Stmt>) {
+    match target {
+        Expr::Tuple(tuple) => {
+            rewrite_unpack_target_stmt(context, tuple.elts, rhs, out, UnpackTargetKind::Tuple);
+        }
+        Expr::List(list) => {
+            rewrite_unpack_target_stmt(context, list.elts, rhs, out, UnpackTargetKind::List);
+        }
+        Expr::Subscript(ast::ExprSubscript { value, slice, .. }) => {
+            let object_expr = with_target_object_expr(*value);
+            out.push(py_stmt!(
+                "__dp_setitem({value:expr}, {slice:expr}, {rhs:expr})",
+                value = object_expr,
+                slice = slice,
+                rhs = rhs,
+            ));
+        }
+        Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
+            let object_expr = with_target_object_expr(*value);
+            out.push(py_stmt!(
+                "__dp_setattr({value:expr}, {name:literal}, {rhs:expr})",
+                value = object_expr,
+                name = attr.as_str(),
+                rhs = rhs
+            ));
+        }
+        Expr::Name(ast::ExprName { id, .. }) => {
+            out.push(py_stmt!(
+                "{name:id} = {rhs:expr}",
+                name = id.as_str(),
+                rhs = rhs
+            ));
+        }
+        other => {
+            panic!("unsupported assignment target: {other:?}");
+        }
+    }
+}
+
+enum UnpackTargetKind {
+    Tuple,
+    List,
+}
+
+fn rewrite_unpack_target_stmt(
+    context: &Context,
+    elts: Vec<Expr>,
+    value: Expr,
+    out: &mut Vec<Stmt>,
+    kind: UnpackTargetKind,
+) {
+    let tmp_expr = value;
+    let mut starred_seen = false;
+    for elt in &elts {
+        if let Expr::Starred(_) = elt {
+            if starred_seen {
+                panic!("unsupported starred assignment target");
+            }
+            starred_seen = true;
+        }
+    }
+
+    let unpacked_name = context.fresh("tmp");
+    let unpacked_tmp = py_expr!("{tmp:id}", tmp = unpacked_name.as_str());
+
+    let mut body_stmts = Vec::new();
+    let use_indexable_synthetic_tmp = !starred_seen
+        && matches!(
+            &tmp_expr,
+            Expr::Name(ast::ExprName { id, .. }) if id.as_str().starts_with("_dp_tmp_")
+        );
+
+    if starred_seen || !use_indexable_synthetic_tmp {
+        let mut spec_elts = Vec::new();
+        for elt in &elts {
+            if matches!(elt, Expr::Starred(_)) {
+                spec_elts.push(py_expr!("False"));
+            } else {
+                spec_elts.push(py_expr!("True"));
+            }
+        }
+        let spec_expr = make_tuple(spec_elts);
+        body_stmts.push(py_stmt!(
+            "{tmp:id} = __dp_unpack({value:expr}, {spec:expr})",
+            tmp = unpacked_name.as_str(),
+            value = tmp_expr.clone(),
+            spec = spec_expr,
+        ));
+    } else {
+        body_stmts.push(py_stmt!(
+            "{tmp:id} = {value:expr}",
+            tmp = unpacked_name.as_str(),
+            value = tmp_expr.clone(),
+        ));
+    }
+
+    for (i, elt) in elts.into_iter().enumerate() {
+        match elt {
+            Expr::Starred(ast::ExprStarred { value, .. }) => {
+                let star_value = py_expr!(
+                    "__dp_getitem({tmp:expr}, {idx:literal})",
+                    tmp = unpacked_tmp.clone(),
+                    idx = i,
+                );
+                let collection_expr = match kind {
+                    UnpackTargetKind::Tuple | UnpackTargetKind::List => {
+                        py_expr!("__dp_list({value:expr})", value = star_value)
+                    }
+                };
+                rewrite_stmt_target(context, *value, collection_expr, &mut body_stmts);
+            }
+            _ => {
+                let value = py_expr!(
+                    "__dp_getitem({tmp:expr}, {idx:literal})",
+                    tmp = unpacked_tmp.clone(),
+                    idx = i,
+                );
+                rewrite_stmt_target(context, elt, value, &mut body_stmts);
+            }
+        }
+    }
+
+    body_stmts.push(py_stmt!("del {tmp:id}", tmp = unpacked_name.as_str()));
+    out.extend(body_stmts);
+}
+
+pub(crate) fn rewrite_assign_stmt(context: &Context, assign: ast::StmtAssign) -> Rewrite {
+    if !should_rewrite_assignment_targets(&assign.targets) {
+        return Rewrite::Unmodified(assign.into());
+    }
+
+    let ast::StmtAssign { targets, value, .. } = assign;
+    let mut stmts = Vec::new();
+    if targets.len() > 1 {
+        let lowered = context.maybe_placeholder_lowered(*value);
+        stmts.push(lowered.stmt);
+        for target in targets {
+            stmts.push(py_stmt!(
+                "{target:expr} = {value:expr}",
+                target = target,
+                value = lowered.expr.clone()
+            ));
+        }
+    } else {
+        let target = targets.into_iter().next().unwrap();
+        rewrite_stmt_target(context, target, *value, &mut stmts);
+    }
+
+    Rewrite::Walk(into_body(stmts))
+}
+
+pub(crate) fn rewrite_augassign_stmt(context: &Context, aug_assign: ast::StmtAugAssign) -> Rewrite {
+    let ast::StmtAugAssign {
+        mut target,
+        op,
+        value,
+        ..
+    } = aug_assign;
+
+    let func_name = match op {
+        Operator::Add => "iadd",
+        Operator::Sub => "isub",
+        Operator::Mult => "imul",
+        Operator::MatMult => "imatmul",
+        Operator::Div => "itruediv",
+        Operator::Mod => "imod",
+        Operator::Pow => "ipow",
+        Operator::LShift => "ilshift",
+        Operator::RShift => "irshift",
+        Operator::BitOr => "ior",
+        Operator::BitXor => "ixor",
+        Operator::BitAnd => "iand",
+        Operator::FloorDiv => "ifloordiv",
+    };
+
+    match &mut *target {
+        Expr::Name(name) => name.ctx = ast::ExprContext::Load,
+        Expr::Attribute(attr) => attr.ctx = ast::ExprContext::Load,
+        Expr::Subscript(sub) => sub.ctx = ast::ExprContext::Load,
+        _ => {}
+    }
+
+    let call = make_binop(func_name, *target.clone(), *value);
+    let mut stmts = Vec::new();
+    rewrite_stmt_target(context, *target, call, &mut stmts);
+    Rewrite::Walk(into_body(stmts))
+}
 
 impl StmtLowerer for ast::StmtAssign {
     fn simplify_ast(self, context: &Context) -> Stmt {
-        stmt_from_rewrite(
-            crate::basic_block::ast_to_ast::rewrite_stmt::assign_del::rewrite_assign(context, self),
-        )
+        stmt_from_rewrite(rewrite_assign_stmt(context, self))
     }
 
     fn to_blockpy<E>(

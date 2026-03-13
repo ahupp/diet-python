@@ -91,7 +91,11 @@ mod unreduced;
 mod with_stmt;
 
 pub(crate) use assert_stmt::rewrite_assert_stmt;
-pub(crate) use assign_stmt::build_for_target_assign_body;
+pub(crate) use assign_stmt::{
+    build_for_target_assign_body, rewrite_assign_stmt, rewrite_augassign_stmt,
+    should_rewrite_assignment_targets,
+};
+pub(crate) use delete_stmt::rewrite_delete_stmt;
 pub(crate) use direct::rewrite_raise_stmt;
 pub(crate) use if_stmt::expand_if_chain;
 pub(crate) use try_stmt::{lower_star_try_stmt_sequence, lower_try_stmt_sequence};

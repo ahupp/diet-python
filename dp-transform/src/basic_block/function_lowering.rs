@@ -539,9 +539,13 @@ pub(crate) fn lower_stmt_default(context: &Context, stmt: Stmt) -> Rewrite {
         Stmt::Match(match_stmt) => rewrite_stmt::match_case::rewrite(context, match_stmt),
         Stmt::Import(import) => rewrite_import::rewrite(import),
         Stmt::ImportFrom(import_from) => rewrite_import::rewrite_from(context, import_from),
-        Stmt::Assign(assign) => rewrite_stmt::assign_del::rewrite_assign(context, assign),
-        Stmt::AugAssign(aug) => rewrite_stmt::assign_del::rewrite_aug_assign(context, aug),
-        Stmt::Delete(del) => rewrite_stmt::assign_del::rewrite_delete(del),
+        Stmt::Assign(assign) => {
+            crate::basic_block::ruff_to_blockpy::rewrite_assign_stmt(context, assign)
+        }
+        Stmt::AugAssign(aug) => {
+            crate::basic_block::ruff_to_blockpy::rewrite_augassign_stmt(context, aug)
+        }
+        Stmt::Delete(del) => crate::basic_block::ruff_to_blockpy::rewrite_delete_stmt(del),
         Stmt::Raise(raise) => crate::basic_block::ruff_to_blockpy::rewrite_raise_stmt(raise),
         Stmt::TypeAlias(type_alias) => {
             rewrite_stmt::type_alias::rewrite_type_alias(context, type_alias)

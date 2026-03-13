@@ -15,7 +15,6 @@ use super::stmt_utils::{flatten_stmt, flatten_stmt_boxes, stmt_body_from_stmts};
 use crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass;
 use crate::basic_block::ast_to_ast::ast_rewrite::ExprRewritePass;
 use crate::basic_block::ast_to_ast::context::Context;
-use crate::basic_block::ast_to_ast::rewrite_stmt;
 use crate::driver::SimplifyExprPass;
 use crate::py_expr;
 use crate::transformer::{walk_expr, Transformer};
@@ -211,9 +210,12 @@ pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
                         local_defs.push(func_def);
                     }
                     Stmt::Assign(assign)
-                        if rewrite_stmt::assign_del::should_rewrite_targets(&assign.targets) =>
+                        if crate::basic_block::ruff_to_blockpy::should_rewrite_assignment_targets(
+                            &assign.targets,
+                        ) =>
                     {
-                        let rewritten = rewrite_stmt::assign_del::rewrite_assign(context, assign);
+                        let rewritten =
+                            crate::basic_block::ruff_to_blockpy::rewrite_assign_stmt(context, assign);
                         let rewritten_stmt = match rewritten {
                             crate::basic_block::ast_to_ast::ast_rewrite::Rewrite::Unmodified(
                                 stmt,
