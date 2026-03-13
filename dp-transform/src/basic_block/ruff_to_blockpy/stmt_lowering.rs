@@ -314,7 +314,10 @@ impl StmtLowerer for ast::StmtDelete {
 
 impl StmtLowerer for ast::StmtIf {
     fn simplify_ast(self) -> Stmt {
-        Stmt::If(self)
+        match crate::basic_block::ast_to_ast::rewrite_stmt::loop_cond::expand_if_chain(self) {
+            crate::basic_block::ast_to_ast::ast_rewrite::Rewrite::Unmodified(stmt)
+            | crate::basic_block::ast_to_ast::ast_rewrite::Rewrite::Walk(stmt) => stmt,
+        }
     }
 
     fn to_blockpy<E>(
@@ -326,15 +329,19 @@ impl StmtLowerer for ast::StmtIf {
     where
         E: From<Expr> + std::fmt::Debug,
     {
-        let body = lower_nested_body_to_stmts_with_expr(&self.body, loop_ctx, next_label_id)?;
+        let Stmt::If(simplified_if) = self.clone().simplify_ast() else {
+            panic!("if simplification should remain an if stmt");
+        };
+        let body =
+            lower_nested_body_to_stmts_with_expr(&simplified_if.body, loop_ctx, next_label_id)?;
         let orelse = lower_orelse_to_stmts_with_expr(
-            &self.elif_else_clauses,
-            &Stmt::If(self.clone()),
+            &simplified_if.elif_else_clauses,
+            &Stmt::If(simplified_if.clone()),
             loop_ctx,
             next_label_id,
         )?;
         out.push_stmt(BlockPyStmt::If(BlockPyIf {
-            test: (*self.test).clone().into(),
+            test: (*simplified_if.test).clone().into(),
             body,
             orelse,
         }));
@@ -1283,5 +1290,45 @@ mod tests {
 
         let fragment = out.finish();
         assert!(matches!(fragment.body.as_slice(), [BlockPyStmt::If(_)]));
+    }
+
+    #[test]
+    fn stmt_if_simplify_ast_expands_elif_chain_before_blockpy_lowering() {
+        let stmt = py_stmt!("if x:\n    a()\nelif y:\n    b()\nelse:\n    c()");
+        let Stmt::If(if_stmt) = stmt else {
+            panic!("expected if stmt");
+        };
+
+        let Stmt::If(simplified_if) = simplify_stmt_ast_for_blockpy(Stmt::If(if_stmt)) else {
+            panic!("if simplification should remain an if stmt");
+        };
+
+        assert_eq!(simplified_if.elif_else_clauses.len(), 1);
+        let clause = &simplified_if.elif_else_clauses[0];
+        assert!(clause.test.is_none());
+        assert!(matches!(clause.body.body[0].as_ref(), Stmt::If(_)));
+    }
+
+    #[test]
+    fn stmt_if_to_blockpy_uses_trait_owned_simplification_path_for_elif() {
+        let stmt = py_stmt!("if x:\n    a()\nelif y:\n    b()\nelse:\n    c()");
+        let Stmt::If(if_stmt) = stmt else {
+            panic!("expected if stmt");
+        };
+        let mut out = BlockPyStmtFragmentBuilder::<BlockPyExpr>::new();
+        let mut next_label_id = 0usize;
+
+        if_stmt
+            .to_blockpy(&mut out, None, &mut next_label_id)
+            .expect("if lowering should succeed");
+
+        let fragment = out.finish();
+        let [BlockPyStmt::If(lowered_if)] = fragment.body.as_slice() else {
+            panic!("expected one lowered if stmt");
+        };
+        assert!(matches!(
+            lowered_if.orelse.body.as_slice(),
+            [BlockPyStmt::If(_)]
+        ));
     }
 }
