@@ -412,6 +412,17 @@ impl Transformer for NameScopeRewriter<'_> {
                     return;
                 }
             }
+            Stmt::AugAssign(augassign) => {
+                let rewritten = stmt_from_rewrite(ruff_to_blockpy::rewrite_augassign_stmt(
+                    self.context,
+                    augassign.clone(),
+                ));
+                if !matches!(rewritten, Stmt::AugAssign(_)) {
+                    *stmt = rewritten;
+                    self.visit_stmt(stmt);
+                    return;
+                }
+            }
             Stmt::For(for_stmt) => {
                 let mut target_names = HashSet::new();
                 collect_assigned_names(for_stmt.target.as_ref(), &mut target_names);

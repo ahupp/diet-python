@@ -635,6 +635,41 @@ type Alias[T] = list[T]
         );
     }
 
+    #[test]
+    fn rewritten_ruff_ast_can_keep_augassign_while_later_passes_still_lower_it() {
+        let source = r#"
+def bump(x):
+    x += 1
+    return x
+"#;
+
+        let mut module = ruff_python_parser::parse_module(source)
+            .expect("parse should succeed")
+            .into_syntax();
+        let context =
+            crate::basic_block::ast_to_ast::context::Context::new(Options::for_test(), source);
+        crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass(
+            &context,
+            Some(&crate::basic_block::BBSimplifyStmtPass),
+            Some(&crate::driver::SimplifyExprPass),
+            &mut module.body,
+        );
+        let rendered = crate::ruff_ast_to_string(&module.body);
+        assert!(rendered.contains("x += 1"), "{rendered}");
+
+        let bb_module = transform_str_to_bb_ir_with_options(source, Options::for_test())
+            .expect("transform should succeed")
+            .expect("bb module should be available");
+        let bump = function_by_name(&bb_module, "bump");
+        assert!(
+            bump.blocks.iter().any(|block| match block.body.as_slice() {
+                [BbOp::Assign(assign)] => expr_text(&assign.value).contains("__dp_iadd"),
+                _ => false,
+            }),
+            "{bump:?}"
+        );
+    }
+
     fn closure_backed_generator_records_explicit_closure_layout() {
         let source = r#"
 def outer(scale):
