@@ -89,7 +89,7 @@ fn lower_semantic_block(block: &SemanticBlockPyBlock) -> CoreBlockPyBlock {
     }
 }
 
-fn lower_semantic_callable_def(
+pub(crate) fn lower_semantic_blockpy_callable_def_to_core(
     callable_def: &SemanticBlockPyCallableDef,
 ) -> CoreBlockPyCallableDef {
     CoreBlockPyCallableDef {
@@ -121,7 +121,7 @@ pub(crate) fn lower_semantic_blockpy_module_to_core(
         callable_defs: module
             .callable_defs
             .iter()
-            .map(lower_semantic_callable_def)
+            .map(lower_semantic_blockpy_callable_def_to_core)
             .collect(),
     }
 }
