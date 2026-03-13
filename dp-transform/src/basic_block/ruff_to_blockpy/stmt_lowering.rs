@@ -5,10 +5,23 @@ fn lower_nested_body_to_stmts(
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
 ) -> Result<crate::basic_block::block_py::BlockPyCfgFragment<BlockPyStmt, BlockPyTerm>, String> {
-    let mut out =
-        crate::basic_block::block_py::BlockPyCfgFragmentBuilder::<BlockPyStmt, BlockPyTerm>::new();
+    lower_nested_body_to_stmts_with_expr(body, loop_ctx, next_label_id)
+}
+
+fn lower_nested_body_to_stmts_with_expr<E>(
+    body: &StmtBody,
+    loop_ctx: Option<&LoopContext>,
+    next_label_id: &mut usize,
+) -> Result<crate::basic_block::block_py::BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>, String>
+where
+    E: From<Expr> + std::fmt::Debug,
+{
+    let mut out = crate::basic_block::block_py::BlockPyCfgFragmentBuilder::<
+        BlockPyStmt<E>,
+        BlockPyTerm<E>,
+    >::new();
     for stmt in &body.body {
-        lower_stmt_into(stmt.as_ref(), &mut out, loop_ctx, next_label_id)?;
+        lower_stmt_into_with_expr(stmt.as_ref(), &mut out, loop_ctx, next_label_id)?;
     }
     Ok(out.finish())
 }
@@ -19,10 +32,25 @@ pub(crate) fn lower_stmt_into(
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
 ) -> Result<(), String> {
+    lower_stmt_into_with_expr(stmt, out, loop_ctx, next_label_id)
+}
+
+pub(crate) fn lower_stmt_into_with_expr<E>(
+    stmt: &Stmt,
+    out: &mut crate::basic_block::block_py::BlockPyCfgFragmentBuilder<
+        BlockPyStmt<E>,
+        BlockPyTerm<E>,
+    >,
+    loop_ctx: Option<&LoopContext>,
+    next_label_id: &mut usize,
+) -> Result<(), String>
+where
+    E: From<Expr> + std::fmt::Debug,
+{
     match stmt {
         Stmt::BodyStmt(body) => {
             for stmt in &body.body {
-                lower_stmt_into(stmt.as_ref(), out, loop_ctx, next_label_id)?;
+                lower_stmt_into_with_expr(stmt.as_ref(), out, loop_ctx, next_label_id)?;
             }
         }
         Stmt::Global(_) | Stmt::Nonlocal(_) => {}
@@ -79,9 +107,14 @@ pub(crate) fn lower_stmt_into(
             panic!("AnnAssign should be lowered before Ruff AST -> BlockPy conversion");
         }
         Stmt::If(if_stmt) => {
-            let body = lower_nested_body_to_stmts(&if_stmt.body, loop_ctx, next_label_id)?;
-            let orelse =
-                lower_orelse_to_stmts(&if_stmt.elif_else_clauses, stmt, loop_ctx, next_label_id)?;
+            let body =
+                lower_nested_body_to_stmts_with_expr(&if_stmt.body, loop_ctx, next_label_id)?;
+            let orelse = lower_orelse_to_stmts_with_expr(
+                &if_stmt.elif_else_clauses,
+                stmt,
+                loop_ctx,
+                next_label_id,
+            )?;
             out.push_stmt(BlockPyStmt::If(BlockPyIf {
                 test: (*if_stmt.test).clone().into(),
                 body,
@@ -95,7 +128,7 @@ pub(crate) fn lower_stmt_into(
             panic!("For should be lowered before Ruff AST -> BlockPy stmt-list conversion");
         }
         Stmt::With(with_stmt) => {
-            lower_with_into(with_stmt.clone(), out, loop_ctx, next_label_id)?;
+            lower_with_into_with_expr(with_stmt.clone(), out, loop_ctx, next_label_id)?;
         }
         Stmt::Match(_) => {
             panic!("Match should be lowered before Ruff AST -> BlockPy conversion");
@@ -794,8 +827,23 @@ fn lower_with_into(
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
 ) -> Result<(), String> {
+    lower_with_into_with_expr(with_stmt, out, loop_ctx, next_label_id)
+}
+
+fn lower_with_into_with_expr<E>(
+    with_stmt: ast::StmtWith,
+    out: &mut crate::basic_block::block_py::BlockPyCfgFragmentBuilder<
+        BlockPyStmt<E>,
+        BlockPyTerm<E>,
+    >,
+    loop_ctx: Option<&LoopContext>,
+    next_label_id: &mut usize,
+) -> Result<(), String>
+where
+    E: From<Expr> + std::fmt::Debug,
+{
     let lowered_body = desugar_structured_with_stmt_for_blockpy(with_stmt);
-    lower_stmt_into(&lowered_body, out, loop_ctx, next_label_id)
+    lower_stmt_into_with_expr(&lowered_body, out, loop_ctx, next_label_id)
 }
 
 fn lower_orelse_to_stmts(
@@ -804,13 +852,25 @@ fn lower_orelse_to_stmts(
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
 ) -> Result<crate::basic_block::block_py::BlockPyCfgFragment<BlockPyStmt, BlockPyTerm>, String> {
+    lower_orelse_to_stmts_with_expr(clauses, stmt, loop_ctx, next_label_id)
+}
+
+fn lower_orelse_to_stmts_with_expr<E>(
+    clauses: &[ast::ElifElseClause],
+    stmt: &Stmt,
+    loop_ctx: Option<&LoopContext>,
+    next_label_id: &mut usize,
+) -> Result<crate::basic_block::block_py::BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>, String>
+where
+    E: From<Expr> + std::fmt::Debug,
+{
     match clauses {
         [] => Ok(crate::basic_block::block_py::BlockPyCfgFragment::<
-            BlockPyStmt,
-            BlockPyTerm,
+            BlockPyStmt<E>,
+            BlockPyTerm<E>,
         >::from_stmts(Vec::new())),
         [clause] if clause.test.is_none() => {
-            lower_nested_body_to_stmts(&clause.body, loop_ctx, next_label_id)
+            lower_nested_body_to_stmts_with_expr(&clause.body, loop_ctx, next_label_id)
         }
         _ => Err(format!(
             "`elif` chain reached Ruff AST -> BlockPy conversion\nstmt:\n{}",

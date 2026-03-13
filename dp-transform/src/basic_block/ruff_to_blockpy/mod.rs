@@ -639,7 +639,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
                         .unwrap_or(entry_label.as_str())
             }) {
                 for exc_name in injected_exc_names.iter().rev() {
-                    let injected = lower_stmts_to_blockpy_stmts(&[py_stmt!(
+                    let injected = lower_stmts_to_blockpy_stmts::<BlockPyExpr>(&[py_stmt!(
                         "{name:id} = __dp_DELETED",
                         name = exc_name.as_str(),
                     )])
@@ -738,7 +738,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
                     {
                         for cell in &cleanup_cells {
                             new_body.extend(
-                                lower_stmts_to_blockpy_stmts(&[py_stmt!(
+                                lower_stmts_to_blockpy_stmts::<BlockPyExpr>(&[py_stmt!(
                                     "__dp_store_cell({cell:id}, __dp_DELETED)",
                                     cell = cell.as_str(),
                                 )])

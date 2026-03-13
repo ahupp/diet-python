@@ -1,13 +1,19 @@
+use super::stmt_lowering::lower_stmt_into_with_expr;
 use super::*;
 
-pub(crate) fn lower_stmts_to_blockpy_stmts(
+pub(crate) fn lower_stmts_to_blockpy_stmts<E>(
     stmts: &[Stmt],
-) -> Result<crate::basic_block::block_py::BlockPyCfgFragment<BlockPyStmt, BlockPyTerm>, String> {
-    let mut out =
-        crate::basic_block::block_py::BlockPyCfgFragmentBuilder::<BlockPyStmt, BlockPyTerm>::new();
+) -> Result<crate::basic_block::block_py::BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>, String>
+where
+    E: From<Expr> + std::fmt::Debug,
+{
+    let mut out = crate::basic_block::block_py::BlockPyCfgFragmentBuilder::<
+        BlockPyStmt<E>,
+        BlockPyTerm<E>,
+    >::new();
     let mut next_label_id = 0usize;
     for stmt in stmts {
-        lower_stmt_into(stmt, &mut out, None, &mut next_label_id)?;
+        lower_stmt_into_with_expr(stmt, &mut out, None, &mut next_label_id)?;
     }
     Ok(out.finish())
 }
@@ -19,17 +25,18 @@ pub(crate) enum GeneratorStmtSequenceHeadKind {
 }
 
 fn generator_stmt_sequence_head(stmt: &Stmt) -> Option<(GeneratorStmtSequenceHeadKind, bool)> {
-    let generator_stmt = match lower_stmts_to_blockpy_stmts(std::slice::from_ref(stmt)) {
-        Ok(generator_stmt) => generator_stmt,
-        Err(err) => {
-            return match stmt {
-                Stmt::Expr(_) | Stmt::Assign(_) | Stmt::Return(_) => {
-                    panic!("failed to convert generator stmt to BlockPy before lowering: {err}")
-                }
-                _ => None,
-            };
-        }
-    };
+    let generator_stmt =
+        match lower_stmts_to_blockpy_stmts::<BlockPyExpr>(std::slice::from_ref(stmt)) {
+            Ok(generator_stmt) => generator_stmt,
+            Err(err) => {
+                return match stmt {
+                    Stmt::Expr(_) | Stmt::Assign(_) | Stmt::Return(_) => {
+                        panic!("failed to convert generator stmt to BlockPy before lowering: {err}")
+                    }
+                    _ => None,
+                };
+            }
+        };
     let generator_stmt = match (generator_stmt.body.as_slice(), generator_stmt.term.as_ref()) {
         ([stmt], None) => GeneratorStmtSequenceHeadKind::Stmt(stmt.clone()),
         ([], Some(term)) => GeneratorStmtSequenceHeadKind::Term(term.clone()),

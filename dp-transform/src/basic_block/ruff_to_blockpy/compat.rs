@@ -6,7 +6,7 @@ pub(crate) fn compat_block_from_blockpy(
     body: Vec<Stmt>,
     term: BlockPyTerm,
 ) -> BlockPyBlock {
-    let body = lower_stmts_to_blockpy_stmts(&body).unwrap_or_else(|err| {
+    let body = lower_stmts_to_blockpy_stmts::<BlockPyExpr>(&body).unwrap_or_else(|err| {
         panic!("failed to convert compatibility block body to BlockPy: {err}")
     });
     assert!(

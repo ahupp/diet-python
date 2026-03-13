@@ -1,8 +1,8 @@
 use super::super::ruff_to_blockpy::lower_stmts_to_blockpy_stmts;
 use super::dataflow::analyze_blockpy_use_def;
 use super::{
-    BlockPyBlock, BlockPyBranchTable, BlockPyCfgFragment, BlockPyIf, BlockPyIfTerm, BlockPyRaise,
-    BlockPyStmt, BlockPyTerm,
+    BlockPyBlock, BlockPyBranchTable, BlockPyCfgFragment, BlockPyExpr, BlockPyIf, BlockPyIfTerm,
+    BlockPyRaise, BlockPyStmt, BlockPyTerm,
 };
 use crate::basic_block::ast_symbol_analysis::{assigned_names_in_stmt, collect_assigned_names};
 use crate::basic_block::ast_to_ast::scope::cell_name;
@@ -564,7 +564,7 @@ fn params_contain(block_params: &HashMap<String, Vec<String>>, label: &str, name
 }
 
 fn lower_generated_stmts_to_blockpy(stmts: Vec<Stmt>) -> Vec<BlockPyStmt> {
-    let lowered = lower_stmts_to_blockpy_stmts(&stmts)
+    let lowered = lower_stmts_to_blockpy_stmts::<BlockPyExpr>(&stmts)
         .unwrap_or_else(|err| panic!("failed to convert generated stmt to BlockPy: {err}"));
     assert!(lowered.term.is_none());
     lowered.body

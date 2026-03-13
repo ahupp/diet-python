@@ -376,7 +376,7 @@ pub(crate) fn build_closure_backed_generator_factory_block(
             cell = slot.storage_name.as_str(),
             init = closure_backed_generator_init_expr(slot),
         );
-        let lowered = lower_stmts_to_blockpy_stmts(&[stmt])
+        let lowered = lower_stmts_to_blockpy_stmts::<BlockPyExpr>(&[stmt])
             .unwrap_or_else(|err| panic!("failed to lower generator factory cell init: {err}"));
         assert!(lowered.term.is_none());
         body.extend(lowered.body);
@@ -1100,7 +1100,7 @@ pub(crate) fn synthesize_generator_dispatch(
 }
 
 fn lower_generated_stmts_to_blockpy(stmts: Vec<Stmt>) -> Vec<BlockPyStmt> {
-    let lowered = lower_stmts_to_blockpy_stmts(&stmts)
+    let lowered = lower_stmts_to_blockpy_stmts::<BlockPyExpr>(&stmts)
         .unwrap_or_else(|err| panic!("failed to convert generated stmt to BlockPy: {err}"));
     assert!(lowered.term.is_none());
     lowered.body
