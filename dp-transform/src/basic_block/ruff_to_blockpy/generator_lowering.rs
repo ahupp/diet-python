@@ -7,8 +7,8 @@ use crate::basic_block::ast_to_ast::scope::cell_name;
 use crate::basic_block::bb_ir::{BbClosureInit, BbClosureLayout, BbClosureSlot, FunctionId};
 use crate::basic_block::block_py::state::{sync_generator_state_order, sync_target_cells_stmts};
 use crate::basic_block::block_py::{
-    BlockPyAssign, BlockPyBlock, BlockPyBlockMeta, BlockPyBranchTable, BlockPyExpr, BlockPyIfTerm,
-    BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm, BlockPyTryJump,
+    BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyCfgBlockBuilder, BlockPyExpr,
+    BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm, BlockPyTryJump,
 };
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Stmt};
@@ -450,12 +450,10 @@ pub(crate) fn build_closure_backed_generator_factory_block(
         generator_expr
     };
 
-    BlockPyBlock {
-        label: factory_label.into(),
-        body,
-        term: BlockPyTerm::Return(Some(return_value.into())),
-        meta: BlockPyBlockMeta::default(),
-    }
+    let mut block = BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(factory_label.into());
+    block.extend(body);
+    block.set_term(BlockPyTerm::Return(Some(return_value.into())));
+    block.finish(None)
 }
 
 pub(crate) fn build_initial_generator_metadata(
