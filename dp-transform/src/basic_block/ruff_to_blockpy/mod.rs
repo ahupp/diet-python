@@ -52,9 +52,10 @@ pub(crate) use generator_lowering::{
 pub(crate) use compat::{
     compat_block_from_blockpy, compat_if_jump_block, compat_jump_block_from_blockpy,
     compat_next_label, compat_next_temp, compat_raise_block_from_blockpy_raise,
-    compat_return_block_from_expr, emit_for_loop_blocks, emit_if_branch_block,
-    emit_sequence_jump_block, emit_sequence_raise_block, emit_sequence_return_block,
-    emit_simple_while_blocks, lower_for_loop_continue_entry_with_state,
+    compat_return_block_from_expr, emit_for_loop_blocks, emit_if_branch_block_with_expr_setup,
+    emit_sequence_jump_block, emit_sequence_raise_block_with_expr_setup,
+    emit_sequence_return_block_with_expr_setup, emit_simple_while_blocks_with_expr_setup,
+    lower_for_loop_continue_entry_with_state,
 };
 pub(crate) use stmt_lowering::{
     build_for_target_assign_body, lower_star_try_stmt_sequence, lower_stmt_into,
@@ -2168,8 +2169,10 @@ def f():
         let then_body = vec![Box::new(py_stmt!("x = 1"))];
         let else_body = vec![Box::new(py_stmt!("x = 2"))];
         let mut calls = Vec::new();
+        let context = Context::new(crate::basic_block::ast_to_ast::Options::for_test(), "");
 
         let entry = lower_if_stmt_sequence(
+            &context,
             &mut blocks,
             "if_label".to_string(),
             vec![py_stmt!("prefix = 0")],
@@ -2216,12 +2219,15 @@ def f():
     #[test]
     fn sequence_return_helper_emits_return_block() {
         let mut blocks = Vec::new();
-        let entry = emit_sequence_return_block(
+        let context = Context::new(crate::basic_block::ast_to_ast::Options::for_test(), "");
+        let entry = emit_sequence_return_block_with_expr_setup(
+            &context,
             &mut blocks,
             "ret_label".to_string(),
             vec![py_stmt!("prefix = 0")],
             Some(py_expr!("value")),
-        );
+        )
+        .expect("sequence return helper should lower");
 
         assert_eq!(entry, "ret_label");
         assert_eq!(blocks.len(), 1);
@@ -2231,14 +2237,17 @@ def f():
     #[test]
     fn sequence_raise_helper_emits_raise_block() {
         let mut blocks = Vec::new();
-        let entry = emit_sequence_raise_block(
+        let context = Context::new(crate::basic_block::ast_to_ast::Options::for_test(), "");
+        let entry = emit_sequence_raise_block_with_expr_setup(
+            &context,
             &mut blocks,
             "raise_label".to_string(),
             vec![py_stmt!("prefix = 0")],
             BlockPyRaise {
                 exc: Some(py_expr!("exc").into()),
             },
-        );
+        )
+        .expect("sequence raise helper should lower");
 
         assert_eq!(entry, "raise_label");
         assert_eq!(blocks.len(), 1);
@@ -2268,8 +2277,10 @@ y = 3
         let remaining = vec![module.body[1].clone()];
         let mut blocks = Vec::new();
         let mut calls = Vec::new();
+        let context = Context::new(crate::basic_block::ast_to_ast::Options::for_test(), "");
 
         let entry = lower_if_stmt_sequence_from_stmt(
+            &context,
             if_stmt.clone(),
             &remaining,
             "cont".to_string(),
@@ -2303,8 +2314,10 @@ y = 3
         let remaining = vec![Box::new(py_stmt!("x = 3"))];
         let mut sequence_calls = Vec::new();
         let mut loop_calls = Vec::new();
+        let context = Context::new(crate::basic_block::ast_to_ast::Options::for_test(), "");
 
         let entry = lower_while_stmt_sequence(
+            &context,
             &mut blocks,
             "_dp_bb_loop_fn_0".to_string(),
             Some("_dp_bb_loop_fn_1".to_string()),
@@ -2367,8 +2380,10 @@ y = 3
         let mut blocks = Vec::new();
         let mut sequence_calls = Vec::new();
         let mut loop_calls = Vec::new();
+        let context = Context::new(crate::basic_block::ast_to_ast::Options::for_test(), "");
 
         let entry = lower_while_stmt_sequence_from_stmt(
+            &context,
             while_stmt.clone(),
             &remaining,
             "cont".to_string(),

@@ -208,6 +208,7 @@ fn rewrite_delete_target_to_deleted_sentinel(target: &Expr, out: &mut Vec<Stmt>)
 }
 
 pub(crate) fn lower_common_stmt_sequence_head<FSeq>(
+    context: &Context,
     plan: StmtSequenceHeadPlan,
     remaining_stmts: &[Box<Stmt>],
     cont_label: String,
@@ -222,19 +223,32 @@ where
     FSeq: FnMut(&[Box<Stmt>], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
     match plan {
-        StmtSequenceHeadPlan::Raise(raise_stmt) => Some(emit_sequence_raise_block(
-            blocks,
-            next_label(),
-            linear,
-            compat_blockpy_raise_from_stmt(raise_stmt),
-        )),
-        StmtSequenceHeadPlan::Return(value) => Some(emit_sequence_return_block(
-            blocks,
-            next_label(),
-            linear,
-            value,
-        )),
+        StmtSequenceHeadPlan::Raise(raise_stmt) => Some(
+            emit_sequence_raise_block_with_expr_setup(
+                context,
+                blocks,
+                next_label(),
+                linear,
+                compat_blockpy_raise_from_stmt(raise_stmt),
+            )
+            .unwrap_or_else(|err| {
+                panic!("failed to lower sequence raise head through expr seam: {err}")
+            }),
+        ),
+        StmtSequenceHeadPlan::Return(value) => Some(
+            emit_sequence_return_block_with_expr_setup(
+                context,
+                blocks,
+                next_label(),
+                linear,
+                value,
+            )
+            .unwrap_or_else(|err| {
+                panic!("failed to lower sequence return head through expr seam: {err}")
+            }),
+        ),
         StmtSequenceHeadPlan::If(if_stmt) => Some(lower_if_stmt_sequence_from_stmt(
+            context,
             if_stmt,
             remaining_stmts,
             cont_label,
@@ -251,6 +265,7 @@ where
                 Some(next_label())
             };
             Some(lower_while_stmt_sequence_from_stmt(
+                context,
                 while_stmt,
                 remaining_stmts,
                 cont_label,
@@ -532,6 +547,7 @@ where
             | StmtSequenceHeadPlan::Continue) => {
                 let next_id = Cell::new(*next_block_id);
                 let label = lower_common_stmt_sequence_head(
+                    context,
                     plan,
                     &stmts[index + 1..],
                     cont_label.clone(),
@@ -883,6 +899,7 @@ where
 }
 
 pub(crate) fn lower_if_stmt_sequence<F>(
+    context: &Context,
     blocks: &mut Vec<BlockPyBlock>,
     label: String,
     linear: Vec<Stmt>,
@@ -897,10 +914,14 @@ where
 {
     let then_entry = lower_region(then_body, rest_entry.clone(), blocks);
     let else_entry = lower_region(else_body, rest_entry, blocks);
-    emit_if_branch_block(blocks, label, linear, test, then_entry, else_entry)
+    emit_if_branch_block_with_expr_setup(
+        context, blocks, label, linear, test, then_entry, else_entry,
+    )
+    .unwrap_or_else(|err| panic!("failed to lower sequence if head through expr seam: {err}"))
 }
 
 pub(crate) fn lower_if_stmt_sequence_from_stmt<F>(
+    context: &Context,
     if_stmt: ast::StmtIf,
     remaining_stmts: &[Box<Stmt>],
     cont_label: String,
@@ -916,6 +937,7 @@ where
     let else_body = flatten_stmt_boxes(&extract_if_else_body(&if_stmt));
     let rest_entry = lower_region(remaining_stmts, cont_label, blocks);
     lower_if_stmt_sequence(
+        context,
         blocks,
         label,
         linear,
@@ -939,6 +961,7 @@ fn extract_if_else_body(if_stmt: &ast::StmtIf) -> Vec<Box<Stmt>> {
 }
 
 pub(crate) fn lower_while_stmt_sequence<F>(
+    context: &Context,
     blocks: &mut Vec<BlockPyBlock>,
     test_label: String,
     linear_label: Option<String>,
@@ -960,7 +983,8 @@ where
         lower_region(else_body, rest_entry.clone(), None, blocks)
     };
     let body_entry = lower_region(body, test_label.clone(), Some(rest_entry), blocks);
-    emit_simple_while_blocks(
+    emit_simple_while_blocks_with_expr_setup(
+        context,
         blocks,
         test_label,
         linear_label,
@@ -969,9 +993,11 @@ where
         body_entry,
         cond_false_entry,
     )
+    .unwrap_or_else(|err| panic!("failed to lower sequence while head through expr seam: {err}"))
 }
 
 pub(crate) fn lower_while_stmt_sequence_from_stmt<F>(
+    context: &Context,
     while_stmt: ast::StmtWhile,
     remaining_stmts: &[Box<Stmt>],
     cont_label: String,
@@ -987,6 +1013,7 @@ where
     let body = flatten_stmt_boxes(&while_stmt.body.body);
     let else_body = flatten_stmt_boxes(&while_stmt.orelse.body);
     lower_while_stmt_sequence(
+        context,
         blocks,
         test_label,
         linear_label,

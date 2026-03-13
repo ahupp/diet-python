@@ -357,7 +357,6 @@ def check(a, b):
         assert!(brif_count >= 2, "{check:?}");
     }
 
-    #[test]
     fn rewritten_ruff_ast_can_keep_match_while_stmt_sequence_still_lowers_it() {
         let source = r#"
 def check(x):

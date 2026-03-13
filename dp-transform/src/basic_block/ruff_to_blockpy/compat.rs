@@ -1,9 +1,12 @@
 use super::*;
+use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::block_py::{
-    BlockPyCfgBlockBuilder, BlockPyExpr, BlockPyLabel, SemanticBlockPyBlock as BlockPyBlock,
-    SemanticBlockPyIfTerm as BlockPyIfTerm, SemanticBlockPyRaise as BlockPyRaise,
-    SemanticBlockPyStmt as BlockPyStmt, SemanticBlockPyTerm as BlockPyTerm,
+    BlockPyCfgBlockBuilder, BlockPyExpr, BlockPyLabel, BlockPyStmtFragmentBuilder,
+    SemanticBlockPyBlock as BlockPyBlock, SemanticBlockPyIfTerm as BlockPyIfTerm,
+    SemanticBlockPyRaise as BlockPyRaise, SemanticBlockPyStmt as BlockPyStmt,
+    SemanticBlockPyTerm as BlockPyTerm,
 };
+use crate::basic_block::ruff_to_blockpy::stmt_lowering::lower_nested_stmt_into_with_expr;
 
 pub(crate) fn compat_block_from_blockpy(
     label: String,
@@ -40,6 +43,51 @@ pub(crate) fn compat_if_jump_block(
             else_label: BlockPyLabel::from(else_label),
         }),
     )
+}
+
+fn compat_block_builder_with_expr_setup(
+    context: &Context,
+    body: Vec<Stmt>,
+) -> Result<BlockPyStmtFragmentBuilder<BlockPyExpr>, String> {
+    let mut out = BlockPyStmtFragmentBuilder::<BlockPyExpr>::new();
+    let mut next_label_id = 0usize;
+    for stmt in &body {
+        lower_nested_stmt_into_with_expr(context, stmt, &mut out, None, &mut next_label_id)?;
+    }
+    Ok(out)
+}
+
+pub(crate) fn compat_if_jump_block_with_expr_setup(
+    context: &Context,
+    label: String,
+    body: Vec<Stmt>,
+    test: Expr,
+    then_label: String,
+    else_label: String,
+) -> Result<BlockPyBlock, String> {
+    let mut out = compat_block_builder_with_expr_setup(context, body)?;
+    let mut next_label_id = 0usize;
+    let test = crate::basic_block::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
+        context,
+        test,
+        &mut out,
+        None,
+        &mut next_label_id,
+    )?;
+    let fragment = out.finish();
+    assert!(
+        fragment.term.is_none(),
+        "compatibility block body should not contain its own terminator"
+    );
+    let mut block =
+        BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(BlockPyLabel::from(label));
+    block.extend(fragment.body);
+    block.set_term(BlockPyTerm::IfTerm(BlockPyIfTerm {
+        test,
+        then_label: BlockPyLabel::from(then_label),
+        else_label: BlockPyLabel::from(else_label),
+    }));
+    Ok(block.finish(None))
 }
 
 pub(crate) fn compat_jump_block_from_blockpy(
@@ -96,49 +144,97 @@ pub(crate) fn emit_sequence_jump_block(
     label
 }
 
-pub(crate) fn emit_sequence_return_block(
+pub(crate) fn emit_sequence_return_block_with_expr_setup(
+    context: &Context,
     blocks: &mut Vec<BlockPyBlock>,
     label: String,
     linear: Vec<Stmt>,
     value: Option<Expr>,
-) -> String {
-    blocks.push(compat_return_block_from_expr(label.clone(), linear, value));
-    label
+) -> Result<String, String> {
+    let mut out = compat_block_builder_with_expr_setup(context, linear)?;
+    let mut next_label_id = 0usize;
+    let value = value
+        .map(|expr| {
+            crate::basic_block::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
+                context,
+                expr,
+                &mut out,
+                None,
+                &mut next_label_id,
+            )
+        })
+        .transpose()?;
+    let fragment = out.finish();
+    assert!(
+        fragment.term.is_none(),
+        "compatibility block body should not contain its own terminator"
+    );
+    let mut block =
+        BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(BlockPyLabel::from(label.clone()));
+    block.extend(fragment.body);
+    block.set_term(BlockPyTerm::Return(value));
+    blocks.push(block.finish(None));
+    Ok(label)
 }
 
-pub(crate) fn emit_sequence_raise_block(
+pub(crate) fn emit_sequence_raise_block_with_expr_setup(
+    context: &Context,
     blocks: &mut Vec<BlockPyBlock>,
     label: String,
     linear: Vec<Stmt>,
     exc: BlockPyRaise,
-) -> String {
-    blocks.push(compat_raise_block_from_blockpy_raise(
-        label.clone(),
-        linear,
-        exc,
-    ));
-    label
+) -> Result<String, String> {
+    let mut out = compat_block_builder_with_expr_setup(context, linear)?;
+    let mut next_label_id = 0usize;
+    let exc = BlockPyRaise {
+        exc: exc
+            .exc
+            .map(|expr| {
+                crate::basic_block::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
+                    context,
+                    expr.to_expr(),
+                    &mut out,
+                    None,
+                    &mut next_label_id,
+                )
+            })
+            .transpose()?,
+    };
+    let fragment = out.finish();
+    assert!(
+        fragment.term.is_none(),
+        "compatibility block body should not contain its own terminator"
+    );
+    let mut block =
+        BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(BlockPyLabel::from(label.clone()));
+    block.extend(fragment.body);
+    block.set_term(BlockPyTerm::Raise(exc));
+    blocks.push(block.finish(None));
+    Ok(label)
 }
 
-pub(crate) fn emit_if_branch_block(
+pub(crate) fn emit_if_branch_block_with_expr_setup(
+    context: &Context,
     blocks: &mut Vec<BlockPyBlock>,
     label: String,
     body: Vec<Stmt>,
     test: Expr,
     then_label: String,
     else_label: String,
-) -> String {
-    blocks.push(compat_if_jump_block(
+) -> Result<String, String> {
+    blocks.push(compat_if_jump_block_with_expr_setup(
+        context,
         label.clone(),
         body,
         test,
         then_label,
         else_label,
-    ));
-    label
+    )?);
+    Ok(label)
 }
 
-pub(crate) fn emit_simple_while_blocks(
+pub(crate) fn emit_simple_while_blocks_with_expr_setup(
+    context: &Context,
     blocks: &mut Vec<BlockPyBlock>,
     test_label: String,
     linear_label: Option<String>,
@@ -146,23 +242,24 @@ pub(crate) fn emit_simple_while_blocks(
     test: Expr,
     body_entry: String,
     cond_false_entry: String,
-) -> String {
-    blocks.push(compat_if_jump_block(
+) -> Result<String, String> {
+    blocks.push(compat_if_jump_block_with_expr_setup(
+        context,
         test_label.clone(),
         Vec::new(),
         test,
         body_entry,
         cond_false_entry,
-    ));
+    )?);
     if let Some(linear_label) = linear_label {
         blocks.push(compat_jump_block_from_blockpy(
             linear_label.clone(),
             linear,
             test_label,
         ));
-        linear_label
+        Ok(linear_label)
     } else {
-        test_label
+        Ok(test_label)
     }
 }
 
