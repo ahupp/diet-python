@@ -101,11 +101,6 @@ impl_unreduced_stmt_lowerer!(
     "Match should be lowered before Ruff AST -> BlockPy conversion"
 );
 impl_unreduced_stmt_lowerer!(
-    ast::StmtAssert,
-    Stmt::Assert,
-    "Assert should be lowered before Ruff AST -> BlockPy conversion"
-);
-impl_unreduced_stmt_lowerer!(
     ast::StmtImport,
     Stmt::Import,
     "Import should be lowered before Ruff AST -> BlockPy conversion"
@@ -350,6 +345,28 @@ impl StmtLowerer for ast::StmtIf {
 impl StmtLowerer for ast::StmtWith {
     fn simplify_ast(self) -> Stmt {
         desugar_structured_with_stmt_for_blockpy(self)
+    }
+
+    fn to_blockpy<E>(
+        &self,
+        out: &mut BlockPyStmtFragmentBuilder<E>,
+        loop_ctx: Option<&LoopContext>,
+        next_label_id: &mut usize,
+    ) -> Result<(), String>
+    where
+        E: From<Expr> + std::fmt::Debug,
+    {
+        let simplified = self.clone().simplify_ast();
+        lower_stmt_into_with_expr(&simplified, out, loop_ctx, next_label_id)
+    }
+}
+
+impl StmtLowerer for ast::StmtAssert {
+    fn simplify_ast(self) -> Stmt {
+        match crate::basic_block::ast_to_ast::rewrite_stmt::assert::rewrite(self) {
+            crate::basic_block::ast_to_ast::ast_rewrite::Rewrite::Unmodified(stmt)
+            | crate::basic_block::ast_to_ast::ast_rewrite::Rewrite::Walk(stmt) => stmt,
+        }
     }
 
     fn to_blockpy<E>(
@@ -1237,5 +1254,34 @@ mod tests {
         let mut next_label_id = 0usize;
 
         let _ = with_stmt.to_blockpy(&mut out, None, &mut next_label_id);
+    }
+
+    #[test]
+    fn stmt_assert_simplify_ast_desugars_before_blockpy_lowering() {
+        let stmt = py_stmt!("assert cond, msg");
+        let Stmt::Assert(assert_stmt) = stmt else {
+            panic!("expected assert stmt");
+        };
+
+        let simplified = simplify_stmt_ast_for_blockpy(Stmt::Assert(assert_stmt));
+
+        assert!(!matches!(simplified, Stmt::Assert(_)));
+    }
+
+    #[test]
+    fn stmt_assert_to_blockpy_uses_trait_owned_simplification_path() {
+        let stmt = py_stmt!("assert cond, msg");
+        let Stmt::Assert(assert_stmt) = stmt else {
+            panic!("expected assert stmt");
+        };
+        let mut out = BlockPyStmtFragmentBuilder::<BlockPyExpr>::new();
+        let mut next_label_id = 0usize;
+
+        assert_stmt
+            .to_blockpy(&mut out, None, &mut next_label_id)
+            .expect("assert lowering should succeed");
+
+        let fragment = out.finish();
+        assert!(matches!(fragment.body.as_slice(), [BlockPyStmt::If(_)]));
     }
 }
