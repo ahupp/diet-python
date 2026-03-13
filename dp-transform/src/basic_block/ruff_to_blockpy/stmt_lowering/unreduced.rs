@@ -15,16 +15,6 @@ impl_unreduced_stmt_lowerer!(
     "ClassDef should be lowered before Ruff AST -> BlockPy conversion"
 );
 impl_unreduced_stmt_lowerer!(
-    ast::StmtTypeAlias,
-    Stmt::TypeAlias,
-    "TypeAlias should be lowered before Ruff AST -> BlockPy conversion"
-);
-impl_unreduced_stmt_lowerer!(
-    ast::StmtAugAssign,
-    Stmt::AugAssign,
-    "AugAssign should be lowered before Ruff AST -> BlockPy conversion"
-);
-impl_unreduced_stmt_lowerer!(
     ast::StmtAnnAssign,
     Stmt::AnnAssign,
     "AnnAssign should be lowered before Ruff AST -> BlockPy conversion"
@@ -43,11 +33,6 @@ impl_unreduced_stmt_lowerer!(
     ast::StmtMatch,
     Stmt::Match,
     "Match should be lowered before Ruff AST -> BlockPy conversion"
-);
-impl_unreduced_stmt_lowerer!(
-    ast::StmtImportFrom,
-    Stmt::ImportFrom,
-    "ImportFrom should be lowered before Ruff AST -> BlockPy conversion"
 );
 impl_unreduced_stmt_lowerer!(
     ast::StmtTry,

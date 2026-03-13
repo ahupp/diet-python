@@ -1,12 +1,15 @@
 use super::*;
 
 impl StmtLowerer for ast::StmtDelete {
-    fn simplify_ast(self) -> Stmt {
-        Stmt::Delete(self)
+    fn simplify_ast(self, _context: &Context) -> Stmt {
+        stmt_from_rewrite(
+            crate::basic_block::ast_to_ast::rewrite_stmt::assign_del::rewrite_delete(self),
+        )
     }
 
     fn to_blockpy<E>(
         &self,
+        _context: &Context,
         out: &mut BlockPyStmtFragmentBuilder<E>,
         _loop_ctx: Option<&LoopContext>,
         _next_label_id: &mut usize,

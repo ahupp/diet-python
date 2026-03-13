@@ -1,11 +1,13 @@
 use super::stmt_lowering::lower_stmt_into_with_expr;
 use super::*;
+use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::block_py::{
     BlockPyAssign, BlockPyExpr, BlockPyRaise, BlockPyStmt, BlockPyTerm,
     SemanticBlockPyBlock as BlockPyBlock,
 };
 
-pub(crate) fn lower_stmts_to_blockpy_stmts<E>(
+pub(crate) fn lower_stmts_to_blockpy_stmts_with_context<E>(
+    context: &Context,
     stmts: &[Stmt],
 ) -> Result<crate::basic_block::block_py::BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>, String>
 where
@@ -17,9 +19,19 @@ where
     >::new();
     let mut next_label_id = 0usize;
     for stmt in stmts {
-        lower_stmt_into_with_expr(stmt, &mut out, None, &mut next_label_id)?;
+        lower_stmt_into_with_expr(context, stmt, &mut out, None, &mut next_label_id)?;
     }
     Ok(out.finish())
+}
+
+pub(crate) fn lower_stmts_to_blockpy_stmts<E>(
+    stmts: &[Stmt],
+) -> Result<crate::basic_block::block_py::BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>, String>
+where
+    E: From<Expr> + std::fmt::Debug,
+{
+    let context = Context::new(crate::basic_block::ast_to_ast::Options::for_test(), "");
+    lower_stmts_to_blockpy_stmts_with_context(&context, stmts)
 }
 
 #[derive(Clone)]
@@ -28,19 +40,24 @@ pub(crate) enum GeneratorStmtSequenceHeadKind {
     Term(BlockPyTerm),
 }
 
-fn generator_stmt_sequence_head(stmt: &Stmt) -> Option<(GeneratorStmtSequenceHeadKind, bool)> {
-    let generator_stmt =
-        match lower_stmts_to_blockpy_stmts::<BlockPyExpr>(std::slice::from_ref(stmt)) {
-            Ok(generator_stmt) => generator_stmt,
-            Err(err) => {
-                return match stmt {
-                    Stmt::Expr(_) | Stmt::Assign(_) | Stmt::Return(_) => {
-                        panic!("failed to convert generator stmt to BlockPy before lowering: {err}")
-                    }
-                    _ => None,
-                };
-            }
-        };
+fn generator_stmt_sequence_head(
+    context: &Context,
+    stmt: &Stmt,
+) -> Option<(GeneratorStmtSequenceHeadKind, bool)> {
+    let generator_stmt = match lower_stmts_to_blockpy_stmts_with_context::<BlockPyExpr>(
+        context,
+        std::slice::from_ref(stmt),
+    ) {
+        Ok(generator_stmt) => generator_stmt,
+        Err(err) => {
+            return match stmt {
+                Stmt::Expr(_) | Stmt::Assign(_) | Stmt::Return(_) => {
+                    panic!("failed to convert generator stmt to BlockPy before lowering: {err}")
+                }
+                _ => None,
+            };
+        }
+    };
     let generator_stmt = match (generator_stmt.body.as_slice(), generator_stmt.term.as_ref()) {
         ([stmt], None) => GeneratorStmtSequenceHeadKind::Stmt(stmt.clone()),
         ([], Some(term)) => GeneratorStmtSequenceHeadKind::Term(term.clone()),
@@ -78,8 +95,11 @@ pub(crate) struct GeneratorStmtSequencePlan {
     pub needs_rest_entry: bool,
 }
 
-pub(crate) fn plan_generator_stmt_in_sequence(stmt: &Stmt) -> Option<GeneratorStmtSequencePlan> {
-    let (generator_head, needs_rest_entry) = generator_stmt_sequence_head(stmt)?;
+pub(crate) fn plan_generator_stmt_in_sequence(
+    context: &Context,
+    stmt: &Stmt,
+) -> Option<GeneratorStmtSequencePlan> {
+    let (generator_head, needs_rest_entry) = generator_stmt_sequence_head(context, stmt)?;
     Some(GeneratorStmtSequencePlan {
         generator_head,
         needs_rest_entry,
@@ -87,13 +107,14 @@ pub(crate) fn plan_generator_stmt_in_sequence(stmt: &Stmt) -> Option<GeneratorSt
 }
 
 pub(crate) fn plan_stmt_sequence_head(
+    context: &Context,
     stmt: &Stmt,
     allow_generator_head: bool,
 ) -> StmtSequenceHeadPlan {
     if allow_generator_head {
         match stmt {
             Stmt::Expr(_) | Stmt::Assign(_) | Stmt::Return(_) => {
-                if let Some(plan) = plan_generator_stmt_in_sequence(stmt) {
+                if let Some(plan) = plan_generator_stmt_in_sequence(context, stmt) {
                     return StmtSequenceHeadPlan::Generator {
                         plan,
                         sync_target_cells: matches!(stmt, Stmt::Assign(_)),
@@ -105,9 +126,14 @@ pub(crate) fn plan_stmt_sequence_head(
     }
 
     match stmt {
-        Stmt::Expr(_) | Stmt::Pass(_) | Stmt::Assign(_) | Stmt::Global(_) | Stmt::Nonlocal(_) => {
-            StmtSequenceHeadPlan::Linear(stmt.clone())
-        }
+        Stmt::Expr(_)
+        | Stmt::Pass(_)
+        | Stmt::Assign(_)
+        | Stmt::Global(_)
+        | Stmt::Nonlocal(_)
+        | Stmt::AugAssign(_)
+        | Stmt::TypeAlias(_)
+        | Stmt::ImportFrom(_) => StmtSequenceHeadPlan::Linear(stmt.clone()),
         Stmt::FunctionDef(func_def) => StmtSequenceHeadPlan::FunctionDef(func_def.clone()),
         Stmt::Raise(raise_stmt) => StmtSequenceHeadPlan::Raise(raise_stmt.clone()),
         Stmt::Delete(delete_stmt) => StmtSequenceHeadPlan::Delete(delete_stmt.clone()),
@@ -126,6 +152,7 @@ pub(crate) fn plan_stmt_sequence_head(
 }
 
 pub(crate) fn drive_stmt_sequence_until_control<FDef, FDelete>(
+    context: &Context,
     stmts: &[Box<Stmt>],
     mut linear: Vec<Stmt>,
     allow_generator_head: bool,
@@ -138,9 +165,11 @@ where
 {
     let mut index = 0;
     while index < stmts.len() {
-        match plan_stmt_sequence_head(stmts[index].as_ref(), allow_generator_head) {
+        match plan_stmt_sequence_head(context, stmts[index].as_ref(), allow_generator_head) {
             StmtSequenceHeadPlan::Linear(stmt) => {
-                linear.push(stmt);
+                linear.push(super::stmt_lowering::simplify_stmt_ast_for_blockpy(
+                    context, stmt,
+                ));
                 index += 1;
             }
             StmtSequenceHeadPlan::FunctionDef(func_def) => {
@@ -413,6 +442,7 @@ where
 }
 
 pub(crate) fn lower_stmt_sequence_with_state<FDef, FTemp>(
+    context: &Context,
     fn_name: &str,
     stmts: &[Box<Stmt>],
     cont_label: String,
@@ -439,6 +469,7 @@ where
     while index < stmts.len() {
         let plan;
         (linear, index, plan) = match drive_stmt_sequence_until_control(
+            context,
             &stmts[index..],
             linear,
             generator_state.enabled,
@@ -488,6 +519,7 @@ where
                         };
                         let mut local_next_block_id = state.next_block_id;
                         let label = lower_stmt_sequence_with_state(
+                            context,
                             fn_name,
                             stmts,
                             cont_label,
@@ -549,6 +581,7 @@ where
                         if let Some(loop_break_label) = loop_break_label {
                             let mut local_next_id = next_id.get();
                             let label = lower_stmt_sequence_with_state(
+                                context,
                                 fn_name,
                                 stmts,
                                 cont_label.clone(),
@@ -567,6 +600,7 @@ where
                         } else {
                             let mut local_next_id = next_id.get();
                             let label = lower_stmt_sequence_with_state(
+                                context,
                                 fn_name,
                                 stmts,
                                 cont_label,
@@ -607,6 +641,7 @@ where
                     &mut |stmts, cont_label, blocks| {
                         let mut local_next_id = next_id.get();
                         let label = lower_stmt_sequence_with_state(
+                            context,
                             fn_name,
                             stmts,
                             cont_label,
@@ -681,6 +716,7 @@ where
                         if let Some(loop_break_label) = loop_break_label {
                             let mut local_next_id = next_id.get();
                             let label = lower_stmt_sequence_with_state(
+                                context,
                                 fn_name,
                                 stmts,
                                 cont_label.clone(),
@@ -699,6 +735,7 @@ where
                         } else {
                             let mut local_next_id = next_id.get();
                             let label = lower_stmt_sequence_with_state(
+                                context,
                                 fn_name,
                                 stmts,
                                 cont_label,
@@ -737,6 +774,7 @@ where
                         &mut |stmts, cont_label, blocks| {
                             let mut local_next_id = next_id.get();
                             let label = lower_stmt_sequence_with_state(
+                                context,
                                 fn_name,
                                 stmts,
                                 cont_label,
@@ -780,6 +818,7 @@ where
                         &mut |stmts, cont_label, blocks| {
                             let mut local_next_id = next_id.get();
                             let label = lower_stmt_sequence_with_state(
+                                context,
                                 fn_name,
                                 stmts,
                                 cont_label,

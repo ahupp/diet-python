@@ -1,8 +1,10 @@
 use super::*;
 
-impl StmtLowerer for ast::StmtAssert {
-    fn simplify_ast(self, _context: &Context) -> Stmt {
-        stmt_from_rewrite(crate::basic_block::ast_to_ast::rewrite_stmt::assert::rewrite(self))
+impl StmtLowerer for ast::StmtImportFrom {
+    fn simplify_ast(self, context: &Context) -> Stmt {
+        stmt_from_rewrite(
+            crate::basic_block::ast_to_ast::rewrite_import::rewrite_from(context, self),
+        )
     }
 
     fn to_blockpy<E>(
@@ -26,33 +28,33 @@ mod tests {
     use crate::basic_block::ast_to_ast::{context::Context, Options};
 
     #[test]
-    fn stmt_assert_simplify_ast_desugars_before_blockpy_lowering() {
-        let stmt = py_stmt!("assert cond, msg");
-        let Stmt::Assert(assert_stmt) = stmt else {
-            panic!("expected assert stmt");
+    fn stmt_importfrom_simplify_ast_desugars_before_blockpy_lowering() {
+        let stmt = py_stmt!("from math import sqrt");
+        let Stmt::ImportFrom(import_stmt) = stmt else {
+            panic!("expected import-from stmt");
         };
 
         let context = Context::new(Options::for_test(), "");
-        let simplified = simplify_stmt_ast_for_blockpy(&context, Stmt::Assert(assert_stmt));
+        let simplified = simplify_stmt_ast_for_blockpy(&context, Stmt::ImportFrom(import_stmt));
 
-        assert!(!matches!(simplified, Stmt::Assert(_)));
+        assert!(!matches!(simplified, Stmt::ImportFrom(_)));
     }
 
     #[test]
-    fn stmt_assert_to_blockpy_uses_trait_owned_simplification_path() {
-        let stmt = py_stmt!("assert cond, msg");
-        let Stmt::Assert(assert_stmt) = stmt else {
-            panic!("expected assert stmt");
+    fn stmt_importfrom_to_blockpy_uses_trait_owned_simplification_path() {
+        let stmt = py_stmt!("from math import sqrt");
+        let Stmt::ImportFrom(import_stmt) = stmt else {
+            panic!("expected import-from stmt");
         };
         let context = Context::new(Options::for_test(), "");
         let mut out = BlockPyStmtFragmentBuilder::<BlockPyExpr>::new();
         let mut next_label_id = 0usize;
 
-        assert_stmt
+        import_stmt
             .to_blockpy(&context, &mut out, None, &mut next_label_id)
-            .expect("assert lowering should succeed");
+            .expect("import-from lowering should succeed");
 
         let fragment = out.finish();
-        assert!(matches!(fragment.body.as_slice(), [BlockPyStmt::If(_)]));
+        assert!(!fragment.body.is_empty());
     }
 }

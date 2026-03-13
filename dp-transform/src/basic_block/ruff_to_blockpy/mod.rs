@@ -22,6 +22,7 @@ use super::block_py::{
 use super::cfg_ir::CfgCallableDef;
 use super::stmt_utils::flatten_stmt_boxes;
 use crate::basic_block::ast_to_ast::ast_rewrite::Rewrite;
+use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::ast_to_ast::rewrite_expr::make_tuple;
 use crate::basic_block::ast_to_ast::rewrite_stmt;
 use crate::namegen::fresh_name;
@@ -1018,6 +1019,7 @@ pub(crate) fn build_finalized_blockpy_function(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_function_body_to_blockpy_function<FDef, FTemp>(
+    context: &Context,
     fn_name: &str,
     runtime_input_body: &[Box<Stmt>],
     bind_name: String,
@@ -1054,6 +1056,7 @@ where
         yield_sites: Vec::new(),
     };
     let entry_label = lower_stmt_sequence_with_state(
+        context,
         fn_name,
         runtime_input_body,
         end_label.clone(),
@@ -1341,6 +1344,7 @@ fn assign_delete_error(message: &str, stmt: &Stmt) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::basic_block::ast_to_ast::{context::Context, Options};
     use crate::basic_block::block_py::{
         SemanticBlockPyCallableDef as BlockPyCallableDef, SemanticBlockPyModule as BlockPyModule,
         SemanticBlockPyRaise as BlockPyRaise, SemanticBlockPyStmt as BlockPyStmt,
@@ -1372,12 +1376,17 @@ mod tests {
     }
 
     fn lower_stmt_for_panic_test(stmt: &Stmt) {
+        let context = Context::new(Options::for_test(), "");
         let mut out = crate::basic_block::block_py::BlockPyCfgFragmentBuilder::<
             BlockPyStmt,
             BlockPyTerm,
         >::new();
         let mut next_label_id = 0usize;
-        let _ = lower_stmt_into(stmt, &mut out, None, &mut next_label_id);
+        let _ = lower_stmt_into(&context, stmt, &mut out, None, &mut next_label_id);
+    }
+
+    fn test_context() -> Context {
+        Context::new(Options::for_test(), "")
     }
 
     #[test]
@@ -1467,8 +1476,9 @@ def gen(n):
         let mut resume_order = Vec::new();
         let mut yield_sites = Vec::new();
         let mut next_block_id = 0usize;
-        let plan =
-            plan_generator_stmt_in_sequence(&stmt).expect("expected generator stmt sequence plan");
+        let context = test_context();
+        let plan = plan_generator_stmt_in_sequence(&context, &stmt)
+            .expect("expected generator stmt sequence plan");
         assert!(plan.needs_rest_entry);
         let label = lower_generator_stmt_sequence_plan(
             &plan,
@@ -1511,7 +1521,8 @@ def gen(n):
             .as_ref()
             .clone();
 
-        let needs_rest_entry = plan_generator_stmt_in_sequence(&stmt)
+        let context = test_context();
+        let needs_rest_entry = plan_generator_stmt_in_sequence(&context, &stmt)
             .expect("expected generator sequence head")
             .needs_rest_entry;
 
@@ -1540,7 +1551,8 @@ def gen(n):
             .as_ref()
             .clone();
 
-        let needs_rest_entry = plan_generator_stmt_in_sequence(&stmt)
+        let context = test_context();
+        let needs_rest_entry = plan_generator_stmt_in_sequence(&context, &stmt)
             .expect("expected generator sequence head")
             .needs_rest_entry;
 
@@ -1564,7 +1576,7 @@ def gen():
         let stmt = func.body.body[0].as_ref();
 
         assert!(matches!(
-            plan_stmt_sequence_head(stmt, true),
+            plan_stmt_sequence_head(&test_context(), stmt, true),
             StmtSequenceHeadPlan::Generator {
                 sync_target_cells: false,
                 ..
@@ -1589,7 +1601,7 @@ def gen():
         let stmt = func.body.body[0].as_ref();
 
         assert!(matches!(
-            plan_stmt_sequence_head(stmt, true),
+            plan_stmt_sequence_head(&test_context(), stmt, true),
             StmtSequenceHeadPlan::Generator {
                 sync_target_cells: true,
                 ..
@@ -1614,11 +1626,11 @@ def f():
         let stmt = func.body.body[0].as_ref();
 
         assert!(matches!(
-            plan_stmt_sequence_head(stmt, false),
+            plan_stmt_sequence_head(&test_context(), stmt, false),
             StmtSequenceHeadPlan::Return(_)
         ));
         assert!(matches!(
-            plan_stmt_sequence_head(stmt, true),
+            plan_stmt_sequence_head(&test_context(), stmt, true),
             StmtSequenceHeadPlan::Return(_)
         ));
     }
@@ -1640,7 +1652,7 @@ async def run():
         assert!(func.is_async);
         let stmt = func.body.body[0].as_ref();
 
-        assert!(plan_generator_stmt_in_sequence(stmt).is_none());
+        assert!(plan_generator_stmt_in_sequence(&test_context(), stmt).is_none());
     }
 
     #[test]
@@ -1665,8 +1677,9 @@ def gen(n):
         let mut try_regions = Vec::new();
         let mut rest_calls = Vec::new();
 
-        let generator_plan =
-            plan_generator_stmt_in_sequence(stmt).expect("expected generator stmt sequence plan");
+        let context = test_context();
+        let generator_plan = plan_generator_stmt_in_sequence(&context, stmt)
+            .expect("expected generator stmt sequence plan");
         let (label, state) = lower_generator_stmt_sequence_head(
             "gen",
             generator_plan,
@@ -1714,8 +1727,9 @@ def gen(n):
         let mut try_regions = Vec::new();
         let mut rest_called = false;
 
-        let generator_plan =
-            plan_generator_stmt_in_sequence(stmt).expect("expected generator stmt sequence plan");
+        let context = test_context();
+        let generator_plan = plan_generator_stmt_in_sequence(&context, stmt)
+            .expect("expected generator stmt sequence plan");
         let (label, state) = lower_generator_stmt_sequence_head(
             "gen",
             generator_plan,
@@ -2311,12 +2325,14 @@ def f(x):
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
+        let context = test_context();
         let mut out = crate::basic_block::block_py::BlockPyCfgFragmentBuilder::<
             BlockPyStmt,
             BlockPyTerm,
         >::new();
         let mut next_label_id = 0usize;
         lower_stmt_into(
+            &context,
             func.body.body[0].as_ref(),
             &mut out,
             None,
@@ -2347,8 +2363,7 @@ def f():
     }
 
     #[test]
-    #[should_panic(expected = "AugAssign should be lowered before Ruff AST -> BlockPy conversion")]
-    fn panics_if_augassign_reaches_blockpy() {
+    fn lowers_augassign_if_it_reaches_blockpy_stmt_lowering() {
         let module = ruff_python_parser::parse_module(
             r#"
 def f(x):
@@ -2361,7 +2376,22 @@ def f(x):
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
-        lower_stmt_for_panic_test(func.body.body[0].as_ref());
+        let context = test_context();
+        let mut out = crate::basic_block::block_py::BlockPyCfgFragmentBuilder::<
+            BlockPyStmt,
+            BlockPyTerm,
+        >::new();
+        let mut next_label_id = 0usize;
+        lower_stmt_into(
+            &context,
+            func.body.body[0].as_ref(),
+            &mut out,
+            None,
+            &mut next_label_id,
+        )
+        .expect("augassign lowering should succeed");
+        let fragment = out.finish();
+        assert!(matches!(fragment.body.as_slice(), [BlockPyStmt::Assign(_)]));
     }
 
     #[test]
@@ -2383,8 +2413,7 @@ def f(x):
     }
 
     #[test]
-    #[should_panic(expected = "TypeAlias should be lowered before Ruff AST -> BlockPy conversion")]
-    fn panics_if_typealias_reaches_blockpy() {
+    fn lowers_typealias_if_it_reaches_blockpy_stmt_lowering() {
         let module = ruff_python_parser::parse_module(
             r#"
 type X = int
@@ -2396,7 +2425,22 @@ def f():
         .unwrap()
         .into_syntax()
         .body;
-        lower_stmt_for_panic_test(module.body[0].as_ref());
+        let context = test_context();
+        let mut out = crate::basic_block::block_py::BlockPyCfgFragmentBuilder::<
+            BlockPyStmt,
+            BlockPyTerm,
+        >::new();
+        let mut next_label_id = 0usize;
+        lower_stmt_into(
+            &context,
+            module.body[0].as_ref(),
+            &mut out,
+            None,
+            &mut next_label_id,
+        )
+        .expect("type alias lowering should succeed");
+        let fragment = out.finish();
+        assert!(!fragment.body.is_empty());
     }
 
     #[test]
@@ -2433,12 +2477,14 @@ def f():
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
+        let context = test_context();
         let mut out = crate::basic_block::block_py::BlockPyCfgFragmentBuilder::<
             BlockPyStmt,
             BlockPyTerm,
         >::new();
         let mut next_label_id = 0usize;
         lower_stmt_into(
+            &context,
             func.body.body[0].as_ref(),
             &mut out,
             None,
@@ -2450,8 +2496,7 @@ def f():
     }
 
     #[test]
-    #[should_panic(expected = "ImportFrom should be lowered before Ruff AST -> BlockPy conversion")]
-    fn panics_if_importfrom_reaches_blockpy() {
+    fn lowers_importfrom_if_it_reaches_blockpy_stmt_lowering() {
         let module = ruff_python_parser::parse_module(
             r#"
 def f():
@@ -2464,7 +2509,22 @@ def f():
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
-        lower_stmt_for_panic_test(func.body.body[0].as_ref());
+        let context = test_context();
+        let mut out = crate::basic_block::block_py::BlockPyCfgFragmentBuilder::<
+            BlockPyStmt,
+            BlockPyTerm,
+        >::new();
+        let mut next_label_id = 0usize;
+        lower_stmt_into(
+            &context,
+            func.body.body[0].as_ref(),
+            &mut out,
+            None,
+            &mut next_label_id,
+        )
+        .expect("import-from lowering should succeed");
+        let fragment = out.finish();
+        assert!(!fragment.body.is_empty());
     }
 
     #[test]
@@ -2512,12 +2572,14 @@ def f():
         let ast::Stmt::While(while_stmt) = module.body[0].as_ref() else {
             panic!("expected while stmt");
         };
+        let context = test_context();
         let mut out = crate::basic_block::block_py::BlockPyCfgFragmentBuilder::<
             BlockPyStmt,
             BlockPyTerm,
         >::new();
         let mut next_label_id = 0usize;
         lower_stmt_into(
+            &context,
             &Stmt::While(while_stmt.clone()),
             &mut out,
             None,

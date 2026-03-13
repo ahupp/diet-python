@@ -2,12 +2,13 @@ use super::assign_stmt::{build_for_target_assign_body, rewrite_assignment_target
 use super::*;
 
 impl StmtLowerer for ast::StmtWith {
-    fn simplify_ast(self) -> Stmt {
+    fn simplify_ast(self, _context: &Context) -> Stmt {
         desugar_structured_with_stmt_for_blockpy(self)
     }
 
     fn to_blockpy<E>(
         &self,
+        context: &Context,
         out: &mut BlockPyStmtFragmentBuilder<E>,
         loop_ctx: Option<&LoopContext>,
         next_label_id: &mut usize,
@@ -15,7 +16,7 @@ impl StmtLowerer for ast::StmtWith {
     where
         E: From<Expr> + std::fmt::Debug,
     {
-        lower_stmt_via_simplify(self, out, loop_ctx, next_label_id)
+        lower_stmt_via_simplify(context, self, out, loop_ctx, next_label_id)
     }
 }
 
@@ -450,6 +451,7 @@ where
 mod tests {
     use super::super::{simplify_stmt_ast_for_blockpy, BlockPyStmtFragmentBuilder};
     use super::*;
+    use crate::basic_block::ast_to_ast::{context::Context, Options};
 
     #[test]
     fn stmt_with_simplify_ast_desugars_before_blockpy_lowering() {
@@ -458,7 +460,8 @@ mod tests {
             panic!("expected with stmt");
         };
 
-        let simplified = simplify_stmt_ast_for_blockpy(Stmt::With(with_stmt));
+        let context = Context::new(Options::for_test(), "");
+        let simplified = simplify_stmt_ast_for_blockpy(&context, Stmt::With(with_stmt));
 
         assert!(!matches!(simplified, Stmt::With(_)));
     }
@@ -470,9 +473,10 @@ mod tests {
         let Stmt::With(with_stmt) = stmt else {
             panic!("expected with stmt");
         };
+        let context = Context::new(Options::for_test(), "");
         let mut out = BlockPyStmtFragmentBuilder::<BlockPyExpr>::new();
         let mut next_label_id = 0usize;
 
-        let _ = with_stmt.to_blockpy(&mut out, None, &mut next_label_id);
+        let _ = with_stmt.to_blockpy(&context, &mut out, None, &mut next_label_id);
     }
 }

@@ -1,10 +1,12 @@
 use super::*;
 
-impl StmtLowerer for ast::StmtImport {
-    fn simplify_ast(self, _context: &Context) -> Stmt {
-        stmt_from_rewrite(crate::basic_block::ast_to_ast::rewrite_import::rewrite(
-            self,
-        ))
+impl StmtLowerer for ast::StmtAugAssign {
+    fn simplify_ast(self, context: &Context) -> Stmt {
+        stmt_from_rewrite(
+            crate::basic_block::ast_to_ast::rewrite_stmt::assign_del::rewrite_aug_assign(
+                context, self,
+            ),
+        )
     }
 
     fn to_blockpy<E>(
@@ -28,31 +30,31 @@ mod tests {
     use crate::basic_block::ast_to_ast::{context::Context, Options};
 
     #[test]
-    fn stmt_import_simplify_ast_desugars_before_blockpy_lowering() {
-        let stmt = py_stmt!("import pkg.sub");
-        let Stmt::Import(import_stmt) = stmt else {
-            panic!("expected import stmt");
+    fn stmt_augassign_simplify_ast_desugars_before_blockpy_lowering() {
+        let stmt = py_stmt!("x += y");
+        let Stmt::AugAssign(aug_stmt) = stmt else {
+            panic!("expected augassign stmt");
         };
 
         let context = Context::new(Options::for_test(), "");
-        let simplified = simplify_stmt_ast_for_blockpy(&context, Stmt::Import(import_stmt));
+        let simplified = simplify_stmt_ast_for_blockpy(&context, Stmt::AugAssign(aug_stmt));
 
-        assert!(!matches!(simplified, Stmt::Import(_)));
+        assert!(!matches!(simplified, Stmt::AugAssign(_)));
     }
 
     #[test]
-    fn stmt_import_to_blockpy_uses_trait_owned_simplification_path() {
-        let stmt = py_stmt!("import pkg.sub");
-        let Stmt::Import(import_stmt) = stmt else {
-            panic!("expected import stmt");
+    fn stmt_augassign_to_blockpy_uses_trait_owned_simplification_path() {
+        let stmt = py_stmt!("x += y");
+        let Stmt::AugAssign(aug_stmt) = stmt else {
+            panic!("expected augassign stmt");
         };
         let context = Context::new(Options::for_test(), "");
         let mut out = BlockPyStmtFragmentBuilder::<BlockPyExpr>::new();
         let mut next_label_id = 0usize;
 
-        import_stmt
+        aug_stmt
             .to_blockpy(&context, &mut out, None, &mut next_label_id)
-            .expect("import lowering should succeed");
+            .expect("augassign lowering should succeed");
 
         let fragment = out.finish();
         assert!(matches!(fragment.body.as_slice(), [BlockPyStmt::Assign(_)]));

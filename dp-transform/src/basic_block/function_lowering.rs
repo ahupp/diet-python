@@ -431,6 +431,7 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     let label_prefix = next_label_prefix(func.name.id.as_str(), used_label_prefixes);
     let mut local_next_block_id = *next_block_id;
     let mut prepared_function = lower_function_body_to_blockpy_function(
+        context,
         func.name.id.as_str(),
         &runtime_input_body,
         identity.bind_name.clone(),

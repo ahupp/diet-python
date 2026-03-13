@@ -1,7 +1,7 @@
 use super::*;
 
 impl StmtLowerer for ast::StmtIf {
-    fn simplify_ast(self) -> Stmt {
+    fn simplify_ast(self, _context: &Context) -> Stmt {
         stmt_from_rewrite(
             crate::basic_block::ast_to_ast::rewrite_stmt::loop_cond::expand_if_chain(self),
         )
@@ -9,6 +9,7 @@ impl StmtLowerer for ast::StmtIf {
 
     fn to_blockpy<E>(
         &self,
+        context: &Context,
         out: &mut BlockPyStmtFragmentBuilder<E>,
         loop_ctx: Option<&LoopContext>,
         next_label_id: &mut usize,
@@ -16,12 +17,17 @@ impl StmtLowerer for ast::StmtIf {
     where
         E: From<Expr> + std::fmt::Debug,
     {
-        let Stmt::If(simplified_if) = self.clone().simplify_ast() else {
+        let Stmt::If(simplified_if) = self.clone().simplify_ast(context) else {
             panic!("if simplification should remain an if stmt");
         };
-        let body =
-            lower_nested_body_to_stmts_with_expr(&simplified_if.body, loop_ctx, next_label_id)?;
+        let body = lower_nested_body_to_stmts_with_expr(
+            context,
+            &simplified_if.body,
+            loop_ctx,
+            next_label_id,
+        )?;
         let orelse = lower_orelse_to_stmts_with_expr(
+            context,
             &simplified_if.elif_else_clauses,
             &Stmt::If(simplified_if.clone()),
             loop_ctx,
@@ -37,6 +43,7 @@ impl StmtLowerer for ast::StmtIf {
 }
 
 fn lower_nested_body_to_stmts_with_expr<E>(
+    context: &Context,
     body: &StmtBody,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
@@ -49,12 +56,13 @@ where
         BlockPyTerm<E>,
     >::new();
     for stmt in &body.body {
-        lower_stmt_into_with_expr(stmt.as_ref(), &mut out, loop_ctx, next_label_id)?;
+        lower_stmt_into_with_expr(context, stmt.as_ref(), &mut out, loop_ctx, next_label_id)?;
     }
     Ok(out.finish())
 }
 
 fn lower_orelse_to_stmts_with_expr<E>(
+    context: &Context,
     clauses: &[ast::ElifElseClause],
     stmt: &Stmt,
     loop_ctx: Option<&LoopContext>,
@@ -69,7 +77,7 @@ where
             BlockPyTerm<E>,
         >::from_stmts(Vec::new())),
         [clause] if clause.test.is_none() => {
-            lower_nested_body_to_stmts_with_expr(&clause.body, loop_ctx, next_label_id)
+            lower_nested_body_to_stmts_with_expr(context, &clause.body, loop_ctx, next_label_id)
         }
         _ => Err(format!(
             "`elif` chain reached Ruff AST -> BlockPy conversion\nstmt:\n{}",
@@ -82,6 +90,7 @@ where
 mod tests {
     use super::super::{simplify_stmt_ast_for_blockpy, BlockPyStmtFragmentBuilder};
     use super::*;
+    use crate::basic_block::ast_to_ast::{context::Context, Options};
 
     #[test]
     fn stmt_if_simplify_ast_expands_elif_chain_before_blockpy_lowering() {
@@ -90,7 +99,9 @@ mod tests {
             panic!("expected if stmt");
         };
 
-        let Stmt::If(simplified_if) = simplify_stmt_ast_for_blockpy(Stmt::If(if_stmt)) else {
+        let context = Context::new(Options::for_test(), "");
+        let Stmt::If(simplified_if) = simplify_stmt_ast_for_blockpy(&context, Stmt::If(if_stmt))
+        else {
             panic!("if simplification should remain an if stmt");
         };
 
@@ -106,11 +117,12 @@ mod tests {
         let Stmt::If(if_stmt) = stmt else {
             panic!("expected if stmt");
         };
+        let context = Context::new(Options::for_test(), "");
         let mut out = BlockPyStmtFragmentBuilder::<BlockPyExpr>::new();
         let mut next_label_id = 0usize;
 
         if_stmt
-            .to_blockpy(&mut out, None, &mut next_label_id)
+            .to_blockpy(&context, &mut out, None, &mut next_label_id)
             .expect("if lowering should succeed");
 
         let fragment = out.finish();

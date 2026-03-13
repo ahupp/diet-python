@@ -4,12 +4,13 @@ use super::*;
 // or no output at all. They do not need their own AST rewrite helpers.
 
 impl StmtLowerer for ast::StmtBody {
-    fn simplify_ast(self) -> Stmt {
+    fn simplify_ast(self, _context: &Context) -> Stmt {
         Stmt::BodyStmt(self)
     }
 
     fn to_blockpy<E>(
         &self,
+        context: &Context,
         out: &mut BlockPyStmtFragmentBuilder<E>,
         loop_ctx: Option<&LoopContext>,
         next_label_id: &mut usize,
@@ -18,19 +19,20 @@ impl StmtLowerer for ast::StmtBody {
         E: From<Expr> + std::fmt::Debug,
     {
         for stmt in &self.body {
-            lower_stmt_into_with_expr(stmt.as_ref(), out, loop_ctx, next_label_id)?;
+            lower_stmt_into_with_expr(context, stmt.as_ref(), out, loop_ctx, next_label_id)?;
         }
         Ok(())
     }
 }
 
 impl StmtLowerer for ast::StmtGlobal {
-    fn simplify_ast(self) -> Stmt {
+    fn simplify_ast(self, _context: &Context) -> Stmt {
         Stmt::Global(self)
     }
 
     fn to_blockpy<E>(
         &self,
+        _context: &Context,
         _out: &mut BlockPyStmtFragmentBuilder<E>,
         _loop_ctx: Option<&LoopContext>,
         _next_label_id: &mut usize,
@@ -43,12 +45,13 @@ impl StmtLowerer for ast::StmtGlobal {
 }
 
 impl StmtLowerer for ast::StmtNonlocal {
-    fn simplify_ast(self) -> Stmt {
+    fn simplify_ast(self, _context: &Context) -> Stmt {
         Stmt::Nonlocal(self)
     }
 
     fn to_blockpy<E>(
         &self,
+        _context: &Context,
         _out: &mut BlockPyStmtFragmentBuilder<E>,
         _loop_ctx: Option<&LoopContext>,
         _next_label_id: &mut usize,
@@ -61,12 +64,13 @@ impl StmtLowerer for ast::StmtNonlocal {
 }
 
 impl StmtLowerer for ast::StmtPass {
-    fn simplify_ast(self) -> Stmt {
+    fn simplify_ast(self, _context: &Context) -> Stmt {
         Stmt::Pass(self)
     }
 
     fn to_blockpy<E>(
         &self,
+        _context: &Context,
         out: &mut BlockPyStmtFragmentBuilder<E>,
         _loop_ctx: Option<&LoopContext>,
         _next_label_id: &mut usize,
@@ -80,12 +84,13 @@ impl StmtLowerer for ast::StmtPass {
 }
 
 impl StmtLowerer for ast::StmtExpr {
-    fn simplify_ast(self) -> Stmt {
+    fn simplify_ast(self, _context: &Context) -> Stmt {
         Stmt::Expr(self)
     }
 
     fn to_blockpy<E>(
         &self,
+        _context: &Context,
         out: &mut BlockPyStmtFragmentBuilder<E>,
         _loop_ctx: Option<&LoopContext>,
         _next_label_id: &mut usize,
@@ -99,12 +104,13 @@ impl StmtLowerer for ast::StmtExpr {
 }
 
 impl StmtLowerer for ast::StmtBreak {
-    fn simplify_ast(self) -> Stmt {
+    fn simplify_ast(self, _context: &Context) -> Stmt {
         Stmt::Break(self)
     }
 
     fn to_blockpy<E>(
         &self,
+        _context: &Context,
         out: &mut BlockPyStmtFragmentBuilder<E>,
         loop_ctx: Option<&LoopContext>,
         _next_label_id: &mut usize,
@@ -122,12 +128,13 @@ impl StmtLowerer for ast::StmtBreak {
 }
 
 impl StmtLowerer for ast::StmtContinue {
-    fn simplify_ast(self) -> Stmt {
+    fn simplify_ast(self, _context: &Context) -> Stmt {
         Stmt::Continue(self)
     }
 
     fn to_blockpy<E>(
         &self,
+        _context: &Context,
         out: &mut BlockPyStmtFragmentBuilder<E>,
         loop_ctx: Option<&LoopContext>,
         _next_label_id: &mut usize,
@@ -145,12 +152,13 @@ impl StmtLowerer for ast::StmtContinue {
 }
 
 impl StmtLowerer for ast::StmtReturn {
-    fn simplify_ast(self) -> Stmt {
+    fn simplify_ast(self, _context: &Context) -> Stmt {
         Stmt::Return(self)
     }
 
     fn to_blockpy<E>(
         &self,
+        _context: &Context,
         out: &mut BlockPyStmtFragmentBuilder<E>,
         _loop_ctx: Option<&LoopContext>,
         _next_label_id: &mut usize,
@@ -166,12 +174,15 @@ impl StmtLowerer for ast::StmtReturn {
 }
 
 impl StmtLowerer for ast::StmtRaise {
-    fn simplify_ast(self) -> Stmt {
-        Stmt::Raise(self)
+    fn simplify_ast(self, _context: &Context) -> Stmt {
+        stmt_from_rewrite(
+            crate::basic_block::ast_to_ast::rewrite_stmt::exception::rewrite_raise(self),
+        )
     }
 
     fn to_blockpy<E>(
         &self,
+        _context: &Context,
         out: &mut BlockPyStmtFragmentBuilder<E>,
         _loop_ctx: Option<&LoopContext>,
         _next_label_id: &mut usize,
