@@ -2420,8 +2420,7 @@ def f(x):
     }
 
     #[test]
-    #[should_panic(expected = "Import should be lowered before Ruff AST -> BlockPy conversion")]
-    fn panics_if_import_reaches_blockpy() {
+    fn lowers_plain_import_if_it_reaches_blockpy_stmt_lowering() {
         let module = ruff_python_parser::parse_module(
             r#"
 def f():
@@ -2434,7 +2433,20 @@ def f():
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
-        lower_stmt_for_panic_test(func.body.body[0].as_ref());
+        let mut out = crate::basic_block::block_py::BlockPyCfgFragmentBuilder::<
+            BlockPyStmt,
+            BlockPyTerm,
+        >::new();
+        let mut next_label_id = 0usize;
+        lower_stmt_into(
+            func.body.body[0].as_ref(),
+            &mut out,
+            None,
+            &mut next_label_id,
+        )
+        .expect("import lowering should succeed");
+        let fragment = out.finish();
+        assert!(matches!(fragment.body.as_slice(), [BlockPyStmt::Assign(_)]));
     }
 
     #[test]

@@ -101,11 +101,6 @@ impl_unreduced_stmt_lowerer!(
     "Match should be lowered before Ruff AST -> BlockPy conversion"
 );
 impl_unreduced_stmt_lowerer!(
-    ast::StmtImport,
-    Stmt::Import,
-    "Import should be lowered before Ruff AST -> BlockPy conversion"
-);
-impl_unreduced_stmt_lowerer!(
     ast::StmtImportFrom,
     Stmt::ImportFrom,
     "ImportFrom should be lowered before Ruff AST -> BlockPy conversion"
@@ -371,6 +366,28 @@ impl StmtLowerer for ast::StmtWith {
 impl StmtLowerer for ast::StmtAssert {
     fn simplify_ast(self) -> Stmt {
         match crate::basic_block::ast_to_ast::rewrite_stmt::assert::rewrite(self) {
+            crate::basic_block::ast_to_ast::ast_rewrite::Rewrite::Unmodified(stmt)
+            | crate::basic_block::ast_to_ast::ast_rewrite::Rewrite::Walk(stmt) => stmt,
+        }
+    }
+
+    fn to_blockpy<E>(
+        &self,
+        out: &mut BlockPyStmtFragmentBuilder<E>,
+        loop_ctx: Option<&LoopContext>,
+        next_label_id: &mut usize,
+    ) -> Result<(), String>
+    where
+        E: From<Expr> + std::fmt::Debug,
+    {
+        let simplified = self.clone().simplify_ast();
+        lower_stmt_into_with_expr(&simplified, out, loop_ctx, next_label_id)
+    }
+}
+
+impl StmtLowerer for ast::StmtImport {
+    fn simplify_ast(self) -> Stmt {
+        match crate::basic_block::ast_to_ast::rewrite_import::rewrite(self) {
             crate::basic_block::ast_to_ast::ast_rewrite::Rewrite::Unmodified(stmt)
             | crate::basic_block::ast_to_ast::ast_rewrite::Rewrite::Walk(stmt) => stmt,
         }
@@ -1290,6 +1307,35 @@ mod tests {
 
         let fragment = out.finish();
         assert!(matches!(fragment.body.as_slice(), [BlockPyStmt::If(_)]));
+    }
+
+    #[test]
+    fn stmt_import_simplify_ast_desugars_before_blockpy_lowering() {
+        let stmt = py_stmt!("import pkg.sub");
+        let Stmt::Import(import_stmt) = stmt else {
+            panic!("expected import stmt");
+        };
+
+        let simplified = simplify_stmt_ast_for_blockpy(Stmt::Import(import_stmt));
+
+        assert!(!matches!(simplified, Stmt::Import(_)));
+    }
+
+    #[test]
+    fn stmt_import_to_blockpy_uses_trait_owned_simplification_path() {
+        let stmt = py_stmt!("import pkg.sub");
+        let Stmt::Import(import_stmt) = stmt else {
+            panic!("expected import stmt");
+        };
+        let mut out = BlockPyStmtFragmentBuilder::<BlockPyExpr>::new();
+        let mut next_label_id = 0usize;
+
+        import_stmt
+            .to_blockpy(&mut out, None, &mut next_label_id)
+            .expect("import lowering should succeed");
+
+        let fragment = out.finish();
+        assert!(matches!(fragment.body.as_slice(), [BlockPyStmt::Assign(_)]));
     }
 
     #[test]
