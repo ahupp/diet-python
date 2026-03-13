@@ -85,15 +85,6 @@ impl<E> DerefMut for BlockPyCallableDef<E> {
     }
 }
 
-impl<E> BlockPyCallableDef<E> {
-    pub fn entry_label(&self) -> &str {
-        self.blocks
-            .first()
-            .map(|block| block.label.as_str())
-            .expect("BlockPyCallableDef should have at least one block")
-    }
-}
-
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum BlockPyFunctionKind {
     Function,
@@ -458,5 +449,11 @@ impl From<&str> for BlockPyLabel {
 impl BlockPyLabel {
     pub fn as_str(&self) -> &str {
         self.0.as_str()
+    }
+}
+
+impl AsRef<str> for BlockPyLabel {
+    fn as_ref(&self) -> &str {
+        self.as_str()
     }
 }

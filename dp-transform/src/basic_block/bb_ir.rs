@@ -43,15 +43,6 @@ impl DerefMut for BbFunction {
     }
 }
 
-impl BbFunction {
-    pub fn entry_label(&self) -> &str {
-        self.blocks
-            .first()
-            .map(|block| block.label.as_str())
-            .expect("BbFunction should have at least one block")
-    }
-}
-
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum BindingTarget {
     Local,

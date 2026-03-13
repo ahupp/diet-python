@@ -6,6 +6,12 @@ pub struct CfgBlock<L, S, T, M = ()> {
     pub meta: M,
 }
 
+impl<L: AsRef<str>, S, T, M> CfgBlock<L, S, T, M> {
+    pub fn label_str(&self) -> &str {
+        self.label.as_ref()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CfgCallableDef<I, K, P, B> {
     pub function_id: I,
@@ -16,6 +22,18 @@ pub struct CfgCallableDef<I, K, P, B> {
     pub params: P,
     pub entry_liveins: Vec<String>,
     pub blocks: Vec<B>,
+}
+
+impl<I, K, P, L: AsRef<str>, S, T, M> CfgCallableDef<I, K, P, CfgBlock<L, S, T, M>> {
+    pub fn entry_block(&self) -> &CfgBlock<L, S, T, M> {
+        self.blocks
+            .first()
+            .expect("CfgCallableDef should have at least one block")
+    }
+
+    pub fn entry_label(&self) -> &str {
+        self.entry_block().label_str()
+    }
 }
 
 #[derive(Debug, Clone, Default)]
