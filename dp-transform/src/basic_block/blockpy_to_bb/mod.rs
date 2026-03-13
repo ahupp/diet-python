@@ -130,7 +130,6 @@ pub(crate) fn lower_blockpy_function_to_bb_function(
         },
         binding_target: binding_target_override.unwrap_or(BindingTarget::Local),
         is_coroutine: lowered.is_coroutine,
-        entry: lowered.callable_def.entry_label().to_string(),
         closure_layout: lowered.closure_layout.clone(),
         param_specs: lowered.param_specs.clone(),
         local_cell_slots: lowered.callable_def.local_cell_slots.clone(),

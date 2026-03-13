@@ -24,7 +24,6 @@ pub struct BbFunction {
     pub cfg: CfgCallableDef<FunctionId, BbFunctionKind, Vec<String>, BbBlock>,
     pub binding_target: BindingTarget,
     pub is_coroutine: bool,
-    pub entry: String,
     pub closure_layout: Option<BbClosureLayout>,
     pub param_specs: BbExpr,
     pub local_cell_slots: Vec<String>,
@@ -41,6 +40,15 @@ impl Deref for BbFunction {
 impl DerefMut for BbFunction {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.cfg
+    }
+}
+
+impl BbFunction {
+    pub fn entry_label(&self) -> &str {
+        self.blocks
+            .first()
+            .map(|block| block.label.as_str())
+            .expect("BbFunction should have at least one block")
     }
 }
 

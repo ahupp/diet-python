@@ -198,7 +198,7 @@ def foo(a, b):
             .iter()
             .find(|func| func.bind_name == "foo")
             .expect("foo should be lowered");
-        assert_eq!(foo.entry, "start", "{:?}", foo.entry);
+        assert_eq!(foo.entry_label(), "start", "{:?}", foo.entry_label());
         assert!(!foo.blocks.is_empty());
     }
 
@@ -555,7 +555,7 @@ def f():
             .expect("transform should succeed")
             .expect("bb module should be available");
         let f = function_by_name(&bb_module, "f");
-        assert_eq!(f.entry, "start", "{f:?}");
+        assert_eq!(f.entry_label(), "start", "{f:?}");
         assert!(
             !f.blocks.iter().any(|block| block.label == "_dp_bb_f_0"),
             "{f:?}"
@@ -712,8 +712,8 @@ def outer():
             .expect("bb module should be available");
         let outer = function_by_name(&bb_module, "outer");
         let inner = function_by_name(&bb_module, "inner");
-        assert_eq!(outer.entry, "start", "{outer:?}");
-        assert_eq!(inner.entry, "start", "{inner:?}");
+        assert_eq!(outer.entry_label(), "start", "{outer:?}");
+        assert_eq!(inner.entry_label(), "start", "{inner:?}");
         assert!(
             outer
                 .blocks

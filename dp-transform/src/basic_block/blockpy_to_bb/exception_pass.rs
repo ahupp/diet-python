@@ -133,10 +133,11 @@ fn apply_op_effect_to_known_names(op: &BbOp, known_names: &mut Vec<String>) {
 }
 
 fn validate_function_labels(function: &BbFunction, labels: &HashSet<&str>) -> Result<(), String> {
-    if !labels.contains(function.entry.as_str()) {
+    let entry_label = function.entry_label();
+    if !labels.contains(entry_label) {
         return Err(format!(
             "missing entry label {} in {}",
-            function.entry, function.qualname
+            entry_label, function.qualname
         ));
     }
     for block in &function.blocks {

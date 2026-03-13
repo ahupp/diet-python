@@ -560,10 +560,11 @@ fn build_clif_plan(
     for (index, block) in function.blocks.iter().enumerate() {
         label_to_index.insert(block.label.clone(), index);
     }
-    let Some(entry_index) = label_to_index.get(function.entry.as_str()).copied() else {
+    let entry_label = function.entry_label();
+    let Some(entry_index) = label_to_index.get(entry_label).copied() else {
         return Err(format!(
             "missing entry label {} in function {}",
-            function.entry, function.qualname
+            entry_label, function.qualname
         ));
     };
     let mut block_terms = Vec::with_capacity(function.blocks.len());
@@ -845,7 +846,10 @@ pub fn register_clif_module_plans(module_name: &str, module: &BbModule) -> Resul
                 if debug_skips {
                     eprintln!(
                         "[diet-python:jitskip] module={} qualname={} entry={} reason={}",
-                        module_name, function.qualname, function.entry, err
+                        module_name,
+                        function.qualname,
+                        function.entry_label(),
+                        err
                     );
                 }
                 skipped_errors.insert(plan_name, err);

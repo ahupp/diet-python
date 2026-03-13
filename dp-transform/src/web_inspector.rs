@@ -153,7 +153,7 @@ fn bb_module_to_json(module: &bb_ir::BbModule) -> Value {
                 "qualname": function.qualname,
                 "bindingTarget": bb_binding_target_name(function.binding_target),
                 "kind": bb_function_kind_to_json(&function.kind),
-                "entry": function.entry,
+                "entry": function.entry_label(),
                 "paramNames": function.params,
                 "entryLiveins": function.entry_liveins,
                 "localCellSlots": function.local_cell_slots,
@@ -417,11 +417,12 @@ fn render_cranelift_function_from_bb(function: &bb_ir::BbFunction) -> Result<Str
     if function.blocks.is_empty() {
         return Err("function has no blocks".to_string());
     }
+    let entry_label = function.entry_label();
     let entry_block = function
         .blocks
         .iter()
-        .find(|block| block.label == function.entry)
-        .ok_or_else(|| format!("missing entry block: {}", function.entry))?;
+        .find(|block| block.label == entry_label)
+        .ok_or_else(|| format!("missing entry block: {entry_label}"))?;
 
     let mut func = ir::Function::new();
     func.name = UserFuncName::testcase(sanitize_clif_testcase_name(function.qualname.as_str()));
@@ -444,7 +445,7 @@ fn render_cranelift_function_from_bb(function: &bb_ir::BbFunction) -> Result<Str
         let clif_block = *label_to_block
             .get(block.label.as_str())
             .expect("block label must exist");
-        if block.label == function.entry {
+        if block.label == entry_label {
             builder.append_block_params_for_function_params(clif_block);
             let existing = builder.block_params(clif_block).len();
             for _ in existing..block.meta.params.len() {
@@ -602,7 +603,7 @@ fn bb_module_to_clif(module: &bb_ir::BbModule) -> String {
             function.kind,
             function.bind_name,
             function.binding_target,
-            function.entry
+            function.entry_label()
         ));
         for block in &function.blocks {
             out.push_str(&format!(
