@@ -1177,28 +1177,6 @@ fn build_with_finally_body(
     out
 }
 
-fn lower_with_into(
-    with_stmt: ast::StmtWith,
-    out: &mut crate::basic_block::block_py::BlockPyCfgFragmentBuilder<BlockPyStmt, BlockPyTerm>,
-    loop_ctx: Option<&LoopContext>,
-    next_label_id: &mut usize,
-) -> Result<(), String> {
-    lower_with_into_with_expr(with_stmt, out, loop_ctx, next_label_id)
-}
-
-fn lower_with_into_with_expr<E>(
-    with_stmt: ast::StmtWith,
-    out: &mut BlockPyStmtFragmentBuilder<E>,
-    loop_ctx: Option<&LoopContext>,
-    next_label_id: &mut usize,
-) -> Result<(), String>
-where
-    E: From<Expr> + std::fmt::Debug,
-{
-    let lowered_body = simplify_stmt_ast_for_blockpy(Stmt::With(with_stmt));
-    lower_stmt_into_with_expr(&lowered_body, out, loop_ctx, next_label_id)
-}
-
 fn lower_orelse_to_stmts(
     clauses: &[ast::ElifElseClause],
     stmt: &Stmt,
@@ -1246,5 +1224,18 @@ mod tests {
         let simplified = simplify_stmt_ast_for_blockpy(Stmt::With(with_stmt));
 
         assert!(!matches!(simplified, Stmt::With(_)));
+    }
+
+    #[test]
+    #[should_panic(expected = "Try should be lowered through stmt-sequence BlockPy conversion")]
+    fn stmt_with_to_blockpy_simplifies_before_hitting_sequence_only_try_lowering() {
+        let stmt = py_stmt!("with cm:\n    body()");
+        let Stmt::With(with_stmt) = stmt else {
+            panic!("expected with stmt");
+        };
+        let mut out = BlockPyStmtFragmentBuilder::<BlockPyExpr>::new();
+        let mut next_label_id = 0usize;
+
+        let _ = with_stmt.to_blockpy(&mut out, None, &mut next_label_id);
     }
 }
