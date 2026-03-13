@@ -1,5 +1,6 @@
 use crate::basic_block::ast_to_ast::scope::cell_name;
 use crate::basic_block::bb_ir::{BbClosureInit, BbClosureLayout, BbClosureSlot, FunctionId};
+use crate::basic_block::block_py::cfg::rename_blockpy_labels;
 use crate::basic_block::block_py::state::{sync_generator_state_order, sync_target_cells_stmts};
 use crate::basic_block::block_py::{
     BlockPyCfgBlockBuilder, BlockPyExpr, BlockPyLabel, BlockPyTryJump,
@@ -719,7 +720,7 @@ pub(crate) fn lower_generator_block_head(
 }
 
 pub(crate) fn try_lower_simple_generator_blocks_post_blockpy(
-    blocks: Vec<BlockPyBlock>,
+    mut blocks: Vec<BlockPyBlock>,
     entry_label: &str,
     closure_state: bool,
     try_regions: &mut Vec<TryRegionPlan>,
@@ -729,71 +730,92 @@ pub(crate) fn try_lower_simple_generator_blocks_post_blockpy(
     fn_name: &str,
     cell_slots: Option<&HashSet<String>>,
 ) -> Option<(Vec<BlockPyBlock>, String)> {
-    if blocks.len() != 1 || !try_regions.is_empty() {
-        return None;
-    }
-    let block = blocks
-        .into_iter()
-        .next()
-        .expect("single block already checked");
-    if block.label.as_str() != entry_label {
+    if !try_regions.is_empty() {
         return None;
     }
 
-    if block.body.len() == 1 && blockpy_stmt_requires_generator_rest_entry(&block.body[0]) {
+    let candidate_indices = blocks
+        .iter()
+        .enumerate()
+        .filter(|(_, block)| {
+            matches!(
+                (block.body.as_slice(), &block.term),
+                ([stmt], _) if blockpy_stmt_requires_generator_rest_entry(stmt)
+            ) || (block.body.is_empty()
+                && matches!(
+                    block.term,
+                    BlockPyTerm::Return(Some(BlockPyExpr::Yield(_)))
+                        | BlockPyTerm::Return(Some(BlockPyExpr::YieldFrom(_)))
+                ))
+        })
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    if candidate_indices.len() != 1 {
+        return None;
+    }
+    let target_index = candidate_indices[0];
+    let target_block = blocks[target_index].clone();
+    let target_label = target_block.label.as_str().to_string();
+    let ambient_exc_param = target_block.meta.exc_param.clone();
+
+    let lowered_block = if target_block.body.len() == 1
+        && blockpy_stmt_requires_generator_rest_entry(&target_block.body[0])
+    {
         let rest_label = next_generator_label(fn_name, next_block_id);
         let mut rest_block =
-            compat_block_with_term(rest_label.clone(), Vec::new(), block.term.clone());
-        rest_block.meta.exc_param = block.meta.exc_param.clone();
+            compat_block_with_term(rest_label.clone(), Vec::new(), target_block.term.clone());
+        rest_block.meta.exc_param = target_block.meta.exc_param.clone();
         let mut plan_block =
-            BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(block.label.clone())
-                .with_exc_param(block.meta.exc_param.clone());
-        plan_block.push_stmt(block.body[0].clone());
+            BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(target_block.label.clone())
+                .with_exc_param(target_block.meta.exc_param.clone());
+        plan_block.push_stmt(target_block.body[0].clone());
         plan_block.set_term(BlockPyTerm::Jump(BlockPyLabel::from(rest_label.clone())));
         let plan_block = plan_block.finish(None);
-        let mut generated = Vec::new();
-        let lowered_entry = lower_generator_block_head(
-            &plan_block,
-            Vec::new(),
-            &mut generated,
-            block.meta.exc_param.as_deref(),
-            closure_state,
-            try_regions,
-            resume_order,
-            yield_sites,
-            next_block_id,
-            fn_name,
-            cell_slots,
-        )?;
-        generated.push(rest_block);
-        return Some((generated, lowered_entry));
-    }
-
-    if block.body.is_empty()
+        Some((plan_block, Some(rest_block)))
+    } else if target_block.body.is_empty()
         && matches!(
-            block.term,
+            target_block.term,
             BlockPyTerm::Return(Some(BlockPyExpr::Yield(_)))
                 | BlockPyTerm::Return(Some(BlockPyExpr::YieldFrom(_)))
         )
     {
-        let mut generated = Vec::new();
-        let lowered_entry = lower_generator_block_head(
-            &block,
-            Vec::new(),
-            &mut generated,
-            block.meta.exc_param.as_deref(),
-            closure_state,
-            try_regions,
-            resume_order,
-            yield_sites,
-            next_block_id,
-            fn_name,
-            cell_slots,
-        )?;
-        return Some((generated, lowered_entry));
+        Some((target_block, None))
+    } else {
+        None
+    }?;
+
+    let (lowerable_block, rest_block) = lowered_block;
+    let mut generated = Vec::new();
+    let lowered_entry = lower_generator_block_head(
+        &lowerable_block,
+        Vec::new(),
+        &mut generated,
+        ambient_exc_param.as_deref(),
+        closure_state,
+        try_regions,
+        resume_order,
+        yield_sites,
+        next_block_id,
+        fn_name,
+        cell_slots,
+    )?;
+    if let Some(rest_block) = rest_block {
+        generated.push(rest_block);
+    }
+    blocks.splice(target_index..=target_index, generated);
+
+    if lowered_entry != target_label {
+        let mut rename = HashMap::new();
+        rename.insert(target_label.clone(), lowered_entry.clone());
+        rename_blockpy_labels(&rename, &mut blocks);
     }
 
-    None
+    let new_entry = if target_label == entry_label {
+        lowered_entry
+    } else {
+        entry_label.to_string()
+    };
+    Some((blocks, new_entry))
 }
 
 fn blockpy_assign_to_stmt(assign: &BlockPyAssign) -> ast::StmtAssign {
@@ -2025,8 +2047,9 @@ mod tests {
         GeneratorYieldSite,
     };
     use crate::basic_block::bb_ir::{BbClosureInit, BbClosureLayout, BbClosureSlot};
-    use crate::basic_block::block_py::{BlockPyExpr, BlockPyTerm};
+    use crate::basic_block::block_py::{BlockPyExpr, BlockPyIfTerm, BlockPyTerm};
     use crate::basic_block::ruff_to_blockpy::lower_stmts_to_blockpy_stmts;
+    use crate::py_expr;
     use ruff_python_ast::Stmt;
 
     #[test]
@@ -2191,6 +2214,63 @@ mod tests {
 
         assert_eq!(lowered_entry, yield_sites[0].yield_label);
         assert_eq!(yield_sites.len(), 1);
+        assert!(lowered_blocks
+            .iter()
+            .any(|block| block.label.as_str() == yield_sites[0].resume_label));
+    }
+
+    #[test]
+    fn simple_multi_block_generator_retains_outer_entry_and_retargets_edges() {
+        let start = crate::basic_block::block_py::BlockPyBlock {
+            label: "start".into(),
+            body: Vec::new(),
+            term: BlockPyTerm::IfTerm(BlockPyIfTerm {
+                test: BlockPyExpr::from(py_expr!("flag")),
+                then_label: "yield_block".into(),
+                else_label: "done".into(),
+            }),
+            meta: Default::default(),
+        };
+        let mut yield_block = crate::basic_block::block_py::BlockPyBlockBuilder::<BlockPyExpr>::new(
+            "yield_block".into(),
+        );
+        yield_block.push_stmt(crate::basic_block::block_py::BlockPyStmt::Expr(
+            BlockPyExpr::from(py_expr!("yield value")),
+        ));
+        yield_block.set_term(BlockPyTerm::Jump("done".into()));
+        let done = crate::basic_block::block_py::BlockPyBlock {
+            label: "done".into(),
+            body: Vec::new(),
+            term: BlockPyTerm::Return(None),
+            meta: Default::default(),
+        };
+        let mut try_regions = Vec::new();
+        let mut resume_order = Vec::new();
+        let mut yield_sites = Vec::new();
+        let mut next_block_id = 0usize;
+
+        let (lowered_blocks, lowered_entry) = try_lower_simple_generator_blocks_post_blockpy(
+            vec![start, yield_block.finish(None), done],
+            "start",
+            false,
+            &mut try_regions,
+            &mut resume_order,
+            &mut yield_sites,
+            &mut next_block_id,
+            "gen",
+            None,
+        )
+        .expect("simple multi-block generator should lower post-BlockPy");
+
+        assert_eq!(lowered_entry, "start");
+        let start_block = lowered_blocks
+            .iter()
+            .find(|block| block.label.as_str() == "start")
+            .expect("lowered blocks should keep the original entry block");
+        let BlockPyTerm::IfTerm(if_term) = &start_block.term else {
+            panic!("expected start block to keep an if terminator");
+        };
+        assert_eq!(if_term.then_label.as_str(), yield_sites[0].yield_label);
         assert!(lowered_blocks
             .iter()
             .any(|block| block.label.as_str() == yield_sites[0].resume_label));

@@ -1071,39 +1071,41 @@ where
             lower_non_bb_def,
             next_temp,
         );
-        if let Some((blocks, entry_label)) = try_lower_simple_generator_blocks_post_blockpy(
-            semantic_blocks,
-            semantic_entry_label.as_str(),
-            is_closure_backed_generator_runtime,
-            &mut semantic_try_regions,
-            &mut semantic_state.resume_order,
-            &mut semantic_state.yield_sites,
-            next_block_id,
-            fn_name,
-            Some(cell_slots),
-        ) {
-            let generator_metadata = Some(build_initial_generator_metadata(
-                entry_label.as_str(),
-                &semantic_state.resume_order,
-                &semantic_state.yield_sites,
-            ));
-            return build_finalized_blockpy_function(
-                take_next_function_id(next_function_id),
-                bind_name,
-                qualname,
-                doc,
-                blockpy_kind,
-                params,
-                blocks,
-                semantic_try_regions,
-                entry_label,
-                end_label,
-                label_prefix,
-                generator_metadata,
-                is_async_generator_runtime,
+        if !coroutine_via_generator && !is_async_generator_runtime {
+            if let Some((blocks, entry_label)) = try_lower_simple_generator_blocks_post_blockpy(
+                semantic_blocks,
+                semantic_entry_label.as_str(),
                 is_closure_backed_generator_runtime,
-                next_temp("uncaught_exc", next_block_id),
-            );
+                &mut semantic_try_regions,
+                &mut semantic_state.resume_order,
+                &mut semantic_state.yield_sites,
+                next_block_id,
+                fn_name,
+                Some(cell_slots),
+            ) {
+                let generator_metadata = Some(build_initial_generator_metadata(
+                    entry_label.as_str(),
+                    &semantic_state.resume_order,
+                    &semantic_state.yield_sites,
+                ));
+                return build_finalized_blockpy_function(
+                    take_next_function_id(next_function_id),
+                    bind_name,
+                    qualname,
+                    doc,
+                    blockpy_kind,
+                    params,
+                    blocks,
+                    semantic_try_regions,
+                    entry_label,
+                    end_label,
+                    label_prefix,
+                    generator_metadata,
+                    is_async_generator_runtime,
+                    is_closure_backed_generator_runtime,
+                    next_temp("uncaught_exc", next_block_id),
+                );
+            }
         }
     }
     let mut blocks = Vec::new();
