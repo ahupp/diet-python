@@ -51,6 +51,7 @@ pub enum BlockPyExpr {
 
 #[derive(Debug, Clone)]
 pub enum CoreBlockPyExpr {
+    BoolOp(ast::ExprBoolOp),
     Call(ast::ExprCall),
     StringLiteral(ast::ExprStringLiteral),
     BytesLiteral(ast::ExprBytesLiteral),
@@ -66,6 +67,7 @@ pub enum CoreBlockPyExpr {
     UnaryOp(ast::ExprUnaryOp),
     BinOp(ast::ExprBinOp),
     Compare(ast::ExprCompare),
+    If(ast::ExprIf),
     Name(ast::ExprName),
     Raw(Expr),
 }
@@ -549,6 +551,18 @@ mod tests {
             CoreBlockPyExpr::Set(_)
         ));
     }
+
+    #[test]
+    fn core_blockpy_expr_uses_reduced_variants_for_conditional_forms() {
+        assert!(matches!(
+            CoreBlockPyExpr::from(py_expr!("x and y")),
+            CoreBlockPyExpr::BoolOp(_)
+        ));
+        assert!(matches!(
+            CoreBlockPyExpr::from(py_expr!("x if cond else y")),
+            CoreBlockPyExpr::If(_)
+        ));
+    }
 }
 
 impl From<BlockPyExpr> for Expr {
@@ -593,6 +607,7 @@ impl From<BlockPyExpr> for Expr {
 impl From<Expr> for CoreBlockPyExpr {
     fn from(value: Expr) -> Self {
         match value {
+            Expr::BoolOp(node) => Self::BoolOp(node),
             Expr::Call(node) => Self::Call(node),
             Expr::StringLiteral(node) => Self::StringLiteral(node),
             Expr::BytesLiteral(node) => Self::BytesLiteral(node),
@@ -608,6 +623,7 @@ impl From<Expr> for CoreBlockPyExpr {
             Expr::UnaryOp(node) => Self::UnaryOp(node),
             Expr::BinOp(node) => Self::BinOp(node),
             Expr::Compare(node) => Self::Compare(node),
+            Expr::If(node) => Self::If(node),
             Expr::Name(node) => Self::Name(node),
             other => Self::Raw(other),
         }
@@ -623,6 +639,7 @@ impl From<BlockPyExpr> for CoreBlockPyExpr {
 impl From<CoreBlockPyExpr> for Expr {
     fn from(value: CoreBlockPyExpr) -> Self {
         match value {
+            CoreBlockPyExpr::BoolOp(node) => Expr::BoolOp(node),
             CoreBlockPyExpr::Call(node) => Expr::Call(node),
             CoreBlockPyExpr::StringLiteral(node) => Expr::StringLiteral(node),
             CoreBlockPyExpr::BytesLiteral(node) => Expr::BytesLiteral(node),
@@ -638,6 +655,7 @@ impl From<CoreBlockPyExpr> for Expr {
             CoreBlockPyExpr::UnaryOp(node) => Expr::UnaryOp(node),
             CoreBlockPyExpr::BinOp(node) => Expr::BinOp(node),
             CoreBlockPyExpr::Compare(node) => Expr::Compare(node),
+            CoreBlockPyExpr::If(node) => Expr::If(node),
             CoreBlockPyExpr::Name(node) => Expr::Name(node),
             CoreBlockPyExpr::Raw(expr) => expr,
         }
