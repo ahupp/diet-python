@@ -2,13 +2,15 @@ use super::{BlockPyAssign, BlockPyBlock, BlockPyLabel, BlockPyStmt, BlockPyTerm}
 use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr, Stmt};
 
-pub(crate) fn rewrite_region_returns_to_finally_blockpy(
-    blocks: &mut [BlockPyBlock],
+pub(crate) fn rewrite_region_returns_to_finally_blockpy<E>(
+    blocks: &mut [BlockPyBlock<E>],
     reason_name: &str,
     return_value_name: &str,
     finally_target: &str,
     finally_exc_name: Option<&str>,
-) {
+) where
+    E: From<Expr>,
+{
     for block in blocks.iter_mut() {
         let ret_value = match std::mem::replace(&mut block.term, BlockPyTerm::Return(None)) {
             BlockPyTerm::Return(value) => value,
