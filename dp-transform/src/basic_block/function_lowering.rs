@@ -153,7 +153,7 @@ fn rewrite_blockpy_stmt_deleted_name_loads(
 }
 
 fn rewrite_blockpy_stmt_fragment_deleted_name_loads(
-    fragment: &mut crate::basic_block::block_py::BlockPyStmtFragment,
+    fragment: &mut crate::basic_block::block_py::BlockPyCfgFragment<BlockPyStmt, BlockPyTerm>,
     rewriter: &mut DeletedNameLoadRewriter<'_>,
 ) {
     for stmt in &mut fragment.body {

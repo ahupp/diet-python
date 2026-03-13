@@ -4,7 +4,7 @@ fn lower_nested_body_to_stmts(
     body: &StmtBody,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
-) -> Result<BlockPyStmtFragment, String> {
+) -> Result<crate::basic_block::block_py::BlockPyCfgFragment<BlockPyStmt, BlockPyTerm>, String> {
     let mut out =
         crate::basic_block::block_py::BlockPyCfgFragmentBuilder::<BlockPyStmt, BlockPyTerm>::new();
     for stmt in &body.body {
@@ -803,7 +803,7 @@ fn lower_orelse_to_stmts(
     stmt: &Stmt,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
-) -> Result<BlockPyStmtFragment, String> {
+) -> Result<crate::basic_block::block_py::BlockPyCfgFragment<BlockPyStmt, BlockPyTerm>, String> {
     match clauses {
         [] => Ok(crate::basic_block::block_py::BlockPyCfgFragment::<
             BlockPyStmt,

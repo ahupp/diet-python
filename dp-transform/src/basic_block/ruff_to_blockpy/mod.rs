@@ -17,8 +17,7 @@ use super::block_py::state::{
 use super::block_py::{
     assert_blockpy_block_normalized, BlockPyAssign, BlockPyBlock, BlockPyBlockMeta,
     BlockPyCallableDef, BlockPyDelete, BlockPyExpr, BlockPyFunctionKind, BlockPyIf, BlockPyIfTerm,
-    BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment, BlockPyTerm, BlockPyTryJump,
-    ENTRY_BLOCK_LABEL,
+    BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm, BlockPyTryJump, ENTRY_BLOCK_LABEL,
 };
 use super::cfg_ir::CfgCallableDef;
 use super::stmt_utils::flatten_stmt_boxes;

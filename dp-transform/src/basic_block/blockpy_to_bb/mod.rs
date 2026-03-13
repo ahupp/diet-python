@@ -479,7 +479,10 @@ fn bb_term_from_blockpy_term(terminal: &BlockPyTerm) -> BbTerm {
 }
 
 fn stmt_body_from_blockpy_fragment(
-    fragment: &super::block_py::BlockPyStmtFragment,
+    fragment: &super::block_py::BlockPyCfgFragment<
+        super::block_py::BlockPyStmt,
+        super::block_py::BlockPyTerm,
+    >,
 ) -> ast::StmtBody {
     let mut stmts = fragment
         .body

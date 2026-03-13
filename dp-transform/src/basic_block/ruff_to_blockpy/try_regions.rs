@@ -354,7 +354,7 @@ pub(crate) fn block_references_label(block: &BlockPyBlock, label: &str) -> bool 
     }
 
     fn stmt_fragment_references_label(
-        fragment: &crate::basic_block::block_py::BlockPyStmtFragment,
+        fragment: &crate::basic_block::block_py::BlockPyCfgFragment<BlockPyStmt, BlockPyTerm>,
         label: &str,
     ) -> bool {
         stmt_list_references_label(&fragment.body, label)
