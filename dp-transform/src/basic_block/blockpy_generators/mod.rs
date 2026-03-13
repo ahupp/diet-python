@@ -1,8 +1,3 @@
-use super::{
-    compat_block_from_blockpy as compat_block_with_term, compat_if_jump_block,
-    compat_jump_block_from_blockpy, compat_raise_block_from_blockpy_raise,
-    compat_return_block_from_expr, lower_stmts_to_blockpy_stmts, TryRegionPlan,
-};
 use crate::basic_block::ast_to_ast::scope::cell_name;
 use crate::basic_block::bb_ir::{BbClosureInit, BbClosureLayout, BbClosureSlot, FunctionId};
 use crate::basic_block::block_py::state::{sync_generator_state_order, sync_target_cells_stmts};
@@ -12,6 +7,11 @@ use crate::basic_block::block_py::{
     SemanticBlockPyBranchTable as BlockPyBranchTable, SemanticBlockPyIfTerm as BlockPyIfTerm,
     SemanticBlockPyRaise as BlockPyRaise, SemanticBlockPyStmt as BlockPyStmt,
     SemanticBlockPyTerm as BlockPyTerm,
+};
+use crate::basic_block::ruff_to_blockpy::{
+    compat_block_from_blockpy as compat_block_with_term, compat_if_jump_block,
+    compat_jump_block_from_blockpy, compat_raise_block_from_blockpy_raise,
+    compat_return_block_from_expr, lower_stmts_to_blockpy_stmts, TryRegionPlan,
 };
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Stmt};

@@ -34,12 +34,11 @@ use std::collections::{HashMap, HashSet};
 
 mod compat;
 mod expr_lowering;
-mod generator_lowering;
 mod stmt_lowering;
 mod stmt_sequences;
 mod try_regions;
 
-pub(crate) use generator_lowering::{
+pub(crate) use super::blockpy_generators::{
     blockpy_stmt_requires_generator_rest_entry, build_async_for_continue_entry,
     build_blockpy_closure_layout, build_closure_backed_generator_export_plan,
     build_initial_generator_metadata, lower_generator_blockpy_stmt_in_sequence,
@@ -1353,7 +1352,7 @@ mod tests {
         SemanticBlockPyRaise as BlockPyRaise, SemanticBlockPyStmt as BlockPyStmt,
         SemanticBlockPyTerm as BlockPyTerm,
     };
-    use crate::basic_block::ruff_to_blockpy::generator_lowering::build_closure_backed_generator_factory_block;
+    use crate::basic_block::blockpy_generators::build_closure_backed_generator_factory_block;
     use crate::basic_block::ruff_to_blockpy::stmt_sequences::{
         lower_for_stmt_sequence, lower_generator_stmt_sequence_head,
         lower_generator_stmt_sequence_plan, lower_if_stmt_sequence,
