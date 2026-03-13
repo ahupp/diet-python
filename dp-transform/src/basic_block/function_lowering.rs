@@ -518,7 +518,6 @@ pub(crate) fn function_docstring_expr(func: &ast::StmtFunctionDef) -> Option<Exp
 pub(crate) fn lower_stmt_default(context: &Context, stmt: Stmt) -> Rewrite {
     match stmt {
         Stmt::Try(try_stmt) => rewrite_stmt::exception::rewrite_try(try_stmt),
-        Stmt::If(if_stmt) => crate::basic_block::ruff_to_blockpy::expand_if_chain(if_stmt),
         Stmt::Match(match_stmt) => {
             crate::basic_block::ruff_to_blockpy::rewrite_match_stmt(context, match_stmt)
         }
