@@ -119,11 +119,24 @@ fn collect_deleted_names_in_target(target: &Expr, names: &mut HashSet<String>) {
     }
 }
 
-fn rewrite_deleted_name_loads(
-    blocks: &mut [BlockPyBlock],
+fn rewrite_blockpy_expr_deleted_name_loads<E>(
+    expr: &mut E,
+    rewriter: &mut DeletedNameLoadRewriter<'_>,
+) where
+    E: Clone + Into<Expr> + From<Expr>,
+{
+    let mut raw: Expr = expr.clone().into();
+    rewriter.visit_expr(&mut raw);
+    *expr = raw.into();
+}
+
+fn rewrite_deleted_name_loads<E>(
+    blocks: &mut [BlockPyBlock<E>],
     deleted_names: &HashSet<String>,
     always_unbound_names: &HashSet<String>,
-) {
+) where
+    E: Clone + Into<Expr> + From<Expr>,
+{
     let mut rewriter = DeletedNameLoadRewriter {
         deleted_names,
         always_unbound_names,
@@ -136,26 +149,32 @@ fn rewrite_deleted_name_loads(
     }
 }
 
-fn rewrite_blockpy_stmt_deleted_name_loads(
-    stmt: &mut BlockPyStmt,
+fn rewrite_blockpy_stmt_deleted_name_loads<E>(
+    stmt: &mut BlockPyStmt<E>,
     rewriter: &mut DeletedNameLoadRewriter<'_>,
-) {
+) where
+    E: Clone + Into<Expr> + From<Expr>,
+{
     match stmt {
         BlockPyStmt::Pass | BlockPyStmt::Delete(_) => {}
-        BlockPyStmt::Expr(expr) => expr.rewrite_mut(|inner| rewriter.visit_expr(inner)),
-        BlockPyStmt::Assign(assign) => assign.value.rewrite_mut(|expr| rewriter.visit_expr(expr)),
+        BlockPyStmt::Expr(expr) => rewrite_blockpy_expr_deleted_name_loads(expr, rewriter),
+        BlockPyStmt::Assign(assign) => {
+            rewrite_blockpy_expr_deleted_name_loads(&mut assign.value, rewriter)
+        }
         BlockPyStmt::If(BlockPyIf { test, body, orelse }) => {
-            test.rewrite_mut(|expr| rewriter.visit_expr(expr));
+            rewrite_blockpy_expr_deleted_name_loads(test, rewriter);
             rewrite_blockpy_stmt_fragment_deleted_name_loads(body, rewriter);
             rewrite_blockpy_stmt_fragment_deleted_name_loads(orelse, rewriter);
         }
     }
 }
 
-fn rewrite_blockpy_stmt_fragment_deleted_name_loads(
-    fragment: &mut crate::basic_block::block_py::BlockPyCfgFragment<BlockPyStmt, BlockPyTerm>,
+fn rewrite_blockpy_stmt_fragment_deleted_name_loads<E>(
+    fragment: &mut crate::basic_block::block_py::BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>,
     rewriter: &mut DeletedNameLoadRewriter<'_>,
-) {
+) where
+    E: Clone + Into<Expr> + From<Expr>,
+{
     for stmt in &mut fragment.body {
         rewrite_blockpy_stmt_deleted_name_loads(stmt, rewriter);
     }
@@ -164,23 +183,27 @@ fn rewrite_blockpy_stmt_fragment_deleted_name_loads(
     }
 }
 
-fn rewrite_blockpy_term_deleted_name_loads(
-    term: &mut BlockPyTerm,
+fn rewrite_blockpy_term_deleted_name_loads<E>(
+    term: &mut BlockPyTerm<E>,
     rewriter: &mut DeletedNameLoadRewriter<'_>,
-) {
+) where
+    E: Clone + Into<Expr> + From<Expr>,
+{
     match term {
         BlockPyTerm::Jump(_) | BlockPyTerm::TryJump(_) => {}
         BlockPyTerm::IfTerm(BlockPyIfTerm { test, .. }) => {
-            test.rewrite_mut(|expr| rewriter.visit_expr(expr));
+            rewrite_blockpy_expr_deleted_name_loads(test, rewriter);
         }
         BlockPyTerm::BranchTable(BlockPyBranchTable { index, .. }) => {
-            index.rewrite_mut(|expr| rewriter.visit_expr(expr))
+            rewrite_blockpy_expr_deleted_name_loads(index, rewriter)
         }
-        BlockPyTerm::Return(Some(value)) => value.rewrite_mut(|expr| rewriter.visit_expr(expr)),
+        BlockPyTerm::Return(Some(value)) => {
+            rewrite_blockpy_expr_deleted_name_loads(value, rewriter)
+        }
         BlockPyTerm::Return(None) => {}
         BlockPyTerm::Raise(BlockPyRaise { exc }) => {
             if let Some(exc) = exc {
-                exc.rewrite_mut(|expr| rewriter.visit_expr(expr));
+                rewrite_blockpy_expr_deleted_name_loads(exc, rewriter);
             }
         }
     }
