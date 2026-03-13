@@ -357,7 +357,6 @@ fn normalize_exported_entry_block(
     exception_edges: HashMap<String, Option<String>>,
     mut bb_kind: BbFunctionKind,
 ) -> (
-    String,
     Vec<BlockPyBlock>,
     HashMap<String, Vec<String>>,
     HashMap<String, Option<String>>,
@@ -393,7 +392,6 @@ fn normalize_exported_entry_block(
     }
 
     (
-        ENTRY_BLOCK_LABEL.to_string(),
         blocks,
         rename_label_map_keys(&block_params, &rename),
         rename_exception_edges(&exception_edges, &rename),
@@ -840,7 +838,6 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
             &resume_pcs,
         );
         let (
-            normalized_resume_entry_label,
             normalized_resume_blocks,
             normalized_resume_block_params,
             normalized_resume_exception_edges,
@@ -870,7 +867,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
             };
         let export_plan = build_closure_backed_generator_export_plan(
             factory_label.as_str(),
-            normalized_resume_entry_label.as_str(),
+            ENTRY_BLOCK_LABEL,
             resume_function_id,
             blockpy_function.bind_name.as_str(),
             display_name.as_str(),
@@ -892,7 +889,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
             None,
             resume_blockpy_kind,
             blockpy_function.params.clone(),
-            normalized_resume_entry_label,
+            ENTRY_BLOCK_LABEL.to_string(),
             export_plan.resume_entry_liveins.clone(),
             closure_layout.clone(),
             resume_local_cell_slots.clone(),
@@ -932,7 +929,6 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         &resume_pcs,
     );
     let (
-        normalized_main_entry_label,
         normalized_main_blocks,
         normalized_main_block_params,
         normalized_main_exception_edges,
@@ -952,7 +948,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         blockpy_function.doc.clone(),
         main_blockpy_kind,
         blockpy_function.params.clone(),
-        normalized_main_entry_label,
+        ENTRY_BLOCK_LABEL.to_string(),
         exported_entry_liveins.clone(),
         semantic_closure_layout,
         sorted_local_cell_slots,
