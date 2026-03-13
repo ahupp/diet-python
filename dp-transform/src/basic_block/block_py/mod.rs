@@ -110,7 +110,11 @@ pub trait BlockPyJumpTerm<L> {
     fn jump_term(target: L) -> Self;
 }
 
-pub fn assert_blockpy_block_normalized<E: std::fmt::Debug>(block: &BlockPyBlock<E>) {
+pub trait BlockPyFallthroughTerm<L>: BlockPyJumpTerm<L> {
+    fn implicit_function_return() -> Self;
+}
+
+pub fn assert_blockpy_block_normalized<S: BlockPyNormalizedStmt, T>(block: &BlockPyCfgBlock<S, T>) {
     for stmt in &block.body {
         stmt.assert_blockpy_normalized();
     }
@@ -207,18 +211,23 @@ impl<S: BlockPyNormalizedStmt, T> BlockPyCfgFragmentBuilder<S, T> {
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockPyBlockBuilder<E = BlockPyExpr> {
+pub struct BlockPyCfgBlockBuilder<S, T> {
     label: BlockPyLabel,
     meta: BlockPyBlockMeta,
-    fragment: BlockPyStmtFragmentBuilder<E>,
+    fragment: BlockPyCfgFragmentBuilder<S, T>,
 }
 
-impl<E: Clone + std::fmt::Debug> BlockPyBlockBuilder<E> {
+pub type BlockPyBlockBuilder<E = BlockPyExpr> =
+    BlockPyCfgBlockBuilder<BlockPyStmt<E>, BlockPyTerm<E>>;
+
+impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>>
+    BlockPyCfgBlockBuilder<S, T>
+{
     pub fn new(label: BlockPyLabel) -> Self {
         Self {
             label,
             meta: BlockPyBlockMeta::default(),
-            fragment: BlockPyStmtFragmentBuilder::new(),
+            fragment: BlockPyCfgFragmentBuilder::new(),
         }
     }
 
@@ -227,29 +236,29 @@ impl<E: Clone + std::fmt::Debug> BlockPyBlockBuilder<E> {
         self
     }
 
-    pub fn push_stmt(&mut self, stmt: BlockPyStmt<E>) {
+    pub fn push_stmt(&mut self, stmt: S) {
         self.fragment.push_stmt(stmt);
     }
 
     pub fn extend<I>(&mut self, stmts: I)
     where
-        I: IntoIterator<Item = BlockPyStmt<E>>,
+        I: IntoIterator<Item = S>,
     {
         self.fragment.extend(stmts);
     }
 
-    pub fn set_term(&mut self, term: BlockPyTerm<E>) {
+    pub fn set_term(&mut self, term: T) {
         self.fragment.set_term(term);
     }
 
-    pub fn finish(self, fallthrough_target: Option<BlockPyLabel>) -> BlockPyBlock<E> {
+    pub fn finish(self, fallthrough_target: Option<BlockPyLabel>) -> BlockPyCfgBlock<S, T> {
         let fragment = self.fragment.finish();
-        let block = BlockPyBlock {
+        let block = BlockPyCfgBlock {
             label: self.label,
             body: fragment.body,
             term: fragment.term.unwrap_or_else(|| match fallthrough_target {
-                Some(target) => BlockPyTerm::Jump(target),
-                None => BlockPyTerm::Return(None),
+                Some(target) => T::jump_term(target),
+                None => T::implicit_function_return(),
             }),
             meta: self.meta,
         };
@@ -338,6 +347,12 @@ pub struct BlockPyTryJump {
 impl<E> BlockPyJumpTerm<BlockPyLabel> for BlockPyTerm<E> {
     fn jump_term(target: BlockPyLabel) -> Self {
         Self::Jump(target)
+    }
+}
+
+impl<E> BlockPyFallthroughTerm<BlockPyLabel> for BlockPyTerm<E> {
+    fn implicit_function_return() -> Self {
+        Self::Return(None)
     }
 }
 
