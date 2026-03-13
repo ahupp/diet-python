@@ -138,7 +138,7 @@ pub(crate) fn lower_blockpy_function_to_bb_function(
 
 pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
     context: &Context,
-    blocks: &[BlockPyBlock],
+    blocks: &[BlockPyBlock<impl Clone + Into<Expr> + From<Expr>>],
     block_params: &HashMap<String, Vec<String>>,
     exception_edges: &HashMap<String, Option<String>>,
 ) -> Vec<BbBlock> {
@@ -459,7 +459,10 @@ where
     }
 }
 
-fn bb_term_from_blockpy_term(terminal: &BlockPyTerm) -> BbTerm {
+fn bb_term_from_blockpy_term<E>(terminal: &BlockPyTerm<E>) -> BbTerm
+where
+    E: Clone + Into<Expr>,
+{
     match terminal {
         BlockPyTerm::Jump(target) => BbTerm::Jump(target.as_str().to_string()),
         BlockPyTerm::IfTerm(BlockPyIfTerm {
