@@ -62,6 +62,7 @@ pub(crate) use stmt_lowering::{
 };
 pub(crate) use stmt_sequences::{
     lower_expanded_stmt_sequence, lower_stmt_sequence_with_state, lower_stmts_to_blockpy_stmts,
+    lower_stmts_to_blockpy_stmts_with_context,
 };
 pub(crate) use try_regions::{
     block_references_label, build_try_plan, finalize_try_regions, lower_try_regions,
@@ -1009,6 +1010,7 @@ pub(crate) fn lower_function_body_to_blockpy_function<FDef, FTemp>(
     qualname: String,
     doc: Option<BlockPyExpr>,
     params: ast::Parameters,
+    legacy_async_runtime_input_body: Option<&[Box<Stmt>]>,
     end_label: String,
     label_prefix: &str,
     has_yield: bool,
@@ -1030,6 +1032,7 @@ where
         coroutine_via_generator,
         has_yield,
     );
+    let mut runtime_input_body = runtime_input_body;
     if has_yield {
         let SemanticGeneratorInput {
             blocks: semantic_blocks,
@@ -1089,6 +1092,9 @@ where
                 is_closure_backed_generator_runtime,
                 next_temp("uncaught_exc", next_block_id),
             );
+        }
+        if let Some(legacy_async_runtime_input_body) = legacy_async_runtime_input_body {
+            runtime_input_body = legacy_async_runtime_input_body;
         }
     }
     let mut blocks = Vec::new();

@@ -1,5 +1,8 @@
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::ast_to_ast::scope::cell_name;
+use crate::basic_block::await_lower::{
+    blockpy_blocks_contain_await_exprs, lower_coroutine_awaits_in_blockpy_blocks,
+};
 use crate::basic_block::bb_ir::{BbClosureInit, BbClosureLayout, BbClosureSlot, FunctionId};
 use crate::basic_block::block_py::cfg::{linearize_structured_ifs, rename_blockpy_labels};
 use crate::basic_block::block_py::state::{sync_generator_state_order, sync_target_cells_stmts};
@@ -563,8 +566,12 @@ fn try_lower_simple_generator_from_semantic_input(
         mut resume_order,
         mut yield_sites,
     } = input;
+    let await_lowered_blocks = lower_coroutine_awaits_in_blockpy_blocks(context, blocks)?;
+    if blockpy_blocks_contain_await_exprs(&await_lowered_blocks) {
+        return Ok(None);
+    }
     let lowered_generator_expr_blocks =
-        lower_generator_payload_exprs_in_blocks(context, blocks, next_block_id)?;
+        lower_generator_payload_exprs_in_blocks(context, await_lowered_blocks, next_block_id)?;
     let (linearized_blocks, _, _) = linearize_structured_ifs(
         &lowered_generator_expr_blocks,
         &HashMap::new(),
