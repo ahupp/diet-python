@@ -73,11 +73,7 @@ pub(crate) struct AstSetupExprLowerer;
 impl BlockPySetupExprLowerer for AstSetupExprLowerer {
     fn simplify_expr_ast(&self, context: &Context, expr: Expr) -> LoweredExpr {
         match expr {
-            Expr::Lambda(_)
-            | Expr::Generator(_)
-            | Expr::ListComp(_)
-            | Expr::SetComp(_)
-            | Expr::DictComp(_) => rewrite_expr::lower_expr(context, expr),
+            Expr::Lambda(_) => rewrite_expr::lower_expr(context, expr),
             other => LoweredExpr::unmodified(other),
         }
     }

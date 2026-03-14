@@ -25,7 +25,7 @@ use super::stmt_utils::{
 use crate::basic_block::ast_to_ast::ast_rewrite::{rewrite_with_pass, Rewrite, StmtRewritePass};
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::ast_to_ast::scope::{is_internal_symbol, Scope, ScopeKind};
-use crate::driver::SimplifyExprPass;
+use crate::driver::{ScopedHelperExprPass, SimplifyExprPass};
 use crate::py_expr;
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, Expr, NodeIndex, Stmt, StmtBody};
@@ -356,6 +356,12 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
                 .iter()
                 .map(|stmt| stmt.as_ref().clone())
                 .collect(),
+        );
+        rewrite_with_pass(
+            context,
+            Some(&BBSimplifyStmtPass),
+            Some(&ScopedHelperExprPass),
+            &mut simplified_body,
         );
         rewrite_with_pass(
             context,

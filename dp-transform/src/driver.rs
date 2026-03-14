@@ -28,9 +28,13 @@ pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> RewriteModule
 
     wrap_module_init(module);
 
+    // Lower helper-scoped expressions that synthesize nested defs for Python
+    // scoping semantics before the more direct BlockPy expr lowering boundary.
+    rewrite_with_pass(context, None, Some(&ScopedHelperExprPass), module);
+
     // Lower many kinds of statements and expressions into simpler forms. This removes:
     // for, with, augassign, annassign, get/set/del item, unpack, multi-target assignment,
-    // operators, comparisons, and comprehensions.
+    // operators, and comparisons.
     rewrite_with_pass(
         context,
         Some(&basic_block::BBSimplifyStmtPass),
@@ -47,6 +51,7 @@ pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> RewriteModule
     rewrite_names::rewrite_explicit_bindings(context, scope.clone(), module);
 
     rewrite_class_def::class_body::rewrite_class_body_scopes(context, scope, module);
+    rewrite_with_pass(context, None, Some(&ScopedHelperExprPass), module);
     // Re-run simplification to lower any constructs introduced by later passes.
     rewrite_with_pass(
         context,
@@ -150,6 +155,21 @@ def _dp_module_init():
 }
 
 pub struct SimplifyExprPass;
+
+pub struct ScopedHelperExprPass;
+
+impl ExprRewritePass for ScopedHelperExprPass {
+    fn lower_expr(&self, context: &Context, expr: Expr) -> LoweredExpr {
+        match expr {
+            Expr::Lambda(_)
+            | Expr::Generator(_)
+            | Expr::ListComp(_)
+            | Expr::SetComp(_)
+            | Expr::DictComp(_) => lower_expr(context, expr),
+            other => LoweredExpr::unmodified(other),
+        }
+    }
+}
 
 impl ExprRewritePass for SimplifyExprPass {
     fn lower_expr(&self, context: &Context, expr: Expr) -> LoweredExpr {
