@@ -87,7 +87,6 @@ pub(crate) struct PostBlockPyGeneratorLowering {
 
 pub(crate) struct GeneratorLoweringRoute<'a> {
     pub coroutine_via_generator: bool,
-    pub is_async_generator_runtime: bool,
     pub is_closure_backed_generator_runtime: bool,
     pub fn_name: &'a str,
     pub cell_slots: &'a HashSet<String>,
@@ -532,11 +531,13 @@ pub(crate) fn try_lower_generators_from_semantic_input(
     route: GeneratorLoweringRoute<'_>,
     next_block_id: &mut usize,
 ) -> Result<Option<PostBlockPyGeneratorLowering>, String> {
-    if route.coroutine_via_generator
-        || (route.is_async_generator_runtime && !route.is_closure_backed_generator_runtime)
-    {
+    if route.coroutine_via_generator {
         return Ok(None);
     }
+    debug_assert!(
+        route.is_closure_backed_generator_runtime,
+        "non-closure-backed generator routing should be unreachable",
+    );
     try_lower_simple_generator_from_semantic_input(
         context,
         input,
@@ -2940,7 +2941,6 @@ mod tests {
             simple_semantic_generator_input(),
             GeneratorLoweringRoute {
                 coroutine_via_generator: false,
-                is_async_generator_runtime: true,
                 is_closure_backed_generator_runtime: true,
                 fn_name: "agen",
                 cell_slots: &cell_slots,
@@ -3013,28 +3013,5 @@ mod tests {
         assert!(lowered_blocks.iter().any(|block| {
             block.label.as_str() == try_regions[0].body_exception_target.as_str()
         }));
-    }
-
-    #[test]
-    fn route_rejects_non_closure_backed_async_generator_helpers() {
-        let context = Context::new(Options::for_test(), "");
-        let cell_slots = HashSet::new();
-        let mut next_block_id = 0usize;
-
-        let lowered = try_lower_generators_from_semantic_input(
-            &context,
-            simple_semantic_generator_input(),
-            GeneratorLoweringRoute {
-                coroutine_via_generator: false,
-                is_async_generator_runtime: true,
-                is_closure_backed_generator_runtime: false,
-                fn_name: "_dp_genexpr_async_helper",
-                cell_slots: &cell_slots,
-            },
-            &mut next_block_id,
-        )
-        .expect("async helper route should not error");
-
-        assert!(lowered.is_none());
     }
 }

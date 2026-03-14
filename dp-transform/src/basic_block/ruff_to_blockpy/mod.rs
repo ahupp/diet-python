@@ -529,24 +529,6 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
             successors.push(target.clone());
         }
     }
-    if has_yield && !is_closure_backed_generator_runtime {
-        for site in generator_metadata
-            .as_ref()
-            .map(|info| info.yield_sites.as_slice())
-            .unwrap_or(&[])
-        {
-            let successors = extra_successors
-                .entry(site.yield_label.as_str().to_string())
-                .or_default();
-            if !successors
-                .iter()
-                .any(|existing| existing == site.resume_label.as_str())
-            {
-                successors.push(site.resume_label.as_str().to_string());
-            }
-        }
-    }
-
     let mut block_params =
         compute_block_params_blockpy(&blocks_for_dataflow, &state_vars, &extra_successors);
     for block in &blocks_for_dataflow {
@@ -561,75 +543,40 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         }
     }
     if has_yield {
+        debug_assert!(
+            is_closure_backed_generator_runtime,
+            "yielded functions should always use the closure-backed generator path",
+        );
         let injected_exc_names: Vec<String> = Vec::new();
-        if is_closure_backed_generator_runtime {
-            for block in &blocks_for_dataflow {
-                if !generator_metadata
-                    .as_ref()
-                    .map(|info| {
-                        info.dispatch_only_labels
-                            .iter()
-                            .any(|label| label.as_str() == block.label.as_str())
-                    })
-                    .unwrap_or(false)
-                {
-                    continue;
-                }
-                let params = block_params
-                    .entry(block.label.as_str().to_string())
-                    .or_default();
-                let mut dispatch_params = vec![
-                    "_dp_self".to_string(),
-                    "_dp_send_value".to_string(),
-                    "_dp_resume_exc".to_string(),
-                ];
-                if is_async_generator_runtime {
-                    dispatch_params.push("_dp_transport_sent".to_string());
-                }
-                for exc_name in &injected_exc_names {
-                    if params.iter().any(|name| name == exc_name) {
-                        dispatch_params.push(exc_name.clone());
-                    }
-                }
-                *params = dispatch_params;
+        for block in &blocks_for_dataflow {
+            if !generator_metadata
+                .as_ref()
+                .map(|info| {
+                    info.dispatch_only_labels
+                        .iter()
+                        .any(|label| label.as_str() == block.label.as_str())
+                })
+                .unwrap_or(false)
+            {
+                continue;
             }
-        } else {
-            for block in &blocks_for_dataflow {
-                let params = block_params
-                    .entry(block.label.as_str().to_string())
-                    .or_default();
-                params.retain(|name| {
-                    name != "_dp_self"
-                        && name != "_dp_send_value"
-                        && name != "_dp_resume_exc"
-                        && name != "_dp_transport_sent"
-                });
-                params.insert(0, "_dp_self".to_string());
-                params.insert(1, "_dp_send_value".to_string());
-                params.insert(2, "_dp_resume_exc".to_string());
-                if is_async_generator_runtime {
-                    params.insert(3, "_dp_transport_sent".to_string());
-                }
-                if generator_metadata
-                    .as_ref()
-                    .map(|info| {
-                        info.dispatch_only_labels
-                            .iter()
-                            .any(|label| label.as_str() == block.label.as_str())
-                    })
-                    .unwrap_or(false)
-                {
-                    params.truncate(if is_async_generator_runtime { 4 } else { 3 });
-                    continue;
-                }
-                if block.label.as_str() != entry_label.as_str() {
-                    for exc_name in &injected_exc_names {
-                        if !params.iter().any(|name| name == exc_name) {
-                            params.push(exc_name.clone());
-                        }
-                    }
+            let params = block_params
+                .entry(block.label.as_str().to_string())
+                .or_default();
+            let mut dispatch_params = vec![
+                "_dp_self".to_string(),
+                "_dp_send_value".to_string(),
+                "_dp_resume_exc".to_string(),
+            ];
+            if is_async_generator_runtime {
+                dispatch_params.push("_dp_transport_sent".to_string());
+            }
+            for exc_name in &injected_exc_names {
+                if params.iter().any(|name| name == exc_name) {
+                    dispatch_params.push(exc_name.clone());
                 }
             }
+            *params = dispatch_params;
         }
         if !injected_exc_names.is_empty() {
             if let Some(entry_block) = blocks_for_dataflow.iter_mut().find(|block| {
@@ -663,7 +610,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         .and_then(|info| info.dispatch_entry_label.as_deref())
         .unwrap_or(entry_label.as_str())
         .to_string();
-    if is_closure_backed_generator_runtime {
+    if has_yield {
         rewrite_sync_generator_blockpy_blocks_to_closure_cells(
             &mut blocks_for_dataflow,
             &mut block_params,
@@ -674,7 +621,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
     }
 
     let injected_exception_names = collect_injected_exception_names_blockpy(&blocks_for_dataflow);
-    let closure_layout = if is_closure_backed_generator_runtime {
+    let closure_layout = if has_yield {
         Some(build_blockpy_closure_layout(
             param_names,
             &state_vars,
@@ -716,13 +663,13 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
             params.push(uncaught_exc_name.clone());
         }
     }
-    let cleanup_cells = if is_closure_backed_generator_runtime {
+    let cleanup_cells = if has_yield {
         sync_generator_cleanup_cells(&state_vars, &injected_exception_names)
     } else {
         Vec::new()
     };
 
-    if is_closure_backed_generator_runtime {
+    if has_yield {
         if let Some(uncaught_set_done_label) = generator_metadata
             .as_ref()
             .and_then(|info| info.uncaught_set_done_label.as_deref())
@@ -757,7 +704,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         }
     }
 
-    let entry_liveins = if is_closure_backed_generator_runtime {
+    let entry_liveins = if has_yield {
         sync_generator_state_order(&state_vars, &injected_exception_names)
     } else {
         block_params
@@ -770,7 +717,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
             })
             .collect::<Vec<_>>()
     };
-    let extra_state_vars = if is_closure_backed_generator_runtime {
+    let extra_state_vars = if has_yield {
         Vec::new()
     } else {
         entry_liveins
@@ -802,7 +749,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
 
     let mut sorted_local_cell_slots = cell_slots.iter().cloned().collect::<Vec<_>>();
     sorted_local_cell_slots.sort();
-    let semantic_closure_layout = if is_closure_backed_generator_runtime {
+    let semantic_closure_layout = if has_yield {
         closure_layout.clone()
     } else {
         build_semantic_blockpy_closure_layout(
@@ -820,7 +767,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
     let mut exported_block_params = block_params.clone();
     let mut exported_exception_edges = exception_edges.clone();
     let mut helper_functions = Vec::new();
-    if is_closure_backed_generator_runtime {
+    if has_yield {
         let layout = closure_layout
             .as_ref()
             .expect("closure-backed generator lowering requires closure layout");
@@ -913,15 +860,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         exported_exception_edges = HashMap::new();
     }
 
-    let main_blockpy_kind = if has_yield && !is_closure_backed_generator_runtime {
-        if is_async_generator_runtime {
-            BlockPyFunctionKind::AsyncGenerator
-        } else {
-            BlockPyFunctionKind::Generator
-        }
-    } else {
-        BlockPyFunctionKind::Function
-    };
+    let main_blockpy_kind = BlockPyFunctionKind::Function;
     let main_bb_kind = bb_kind_for_blockpy_kind(
         main_blockpy_kind,
         is_closure_backed_generator_runtime,
@@ -962,11 +901,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
             normalized_main_bb_kind,
             normalized_main_block_params,
             normalized_main_exception_edges,
-            if is_closure_backed_generator_runtime {
-                None
-            } else {
-                closure_layout
-            },
+            if has_yield { None } else { closure_layout },
             main_param_specs,
         ),
         helper_functions,
@@ -1129,7 +1064,6 @@ where
             },
             GeneratorLoweringRoute {
                 coroutine_via_generator,
-                is_async_generator_runtime,
                 is_closure_backed_generator_runtime,
                 fn_name,
                 cell_slots,
