@@ -276,31 +276,13 @@ pub(crate) fn plan_stmt_head_for_blockpy(
 }
 
 fn simplify_if_test_for_blockpy(context: &Context, mut if_stmt: ast::StmtIf) -> Stmt {
-    let lowered =
+    if_stmt.test = Box::new(
         crate::basic_block::ruff_to_blockpy::expr_lowering::lower_expr_head_ast_for_blockpy(
             context,
             *if_stmt.test,
-        );
-    if_stmt.test = Box::new(lowered.expr);
-    if !lowered.modified {
-        return Stmt::If(if_stmt);
-    }
-
-    let mut stmts = flatten_stmt_boxes(&[Box::new(lowered.stmt)]);
-    stmts.push(Box::new(Stmt::If(if_stmt)));
-    match stmts.len() {
-        0 => Stmt::BodyStmt(ast::StmtBody {
-            body: stmts,
-            range: ruff_text_size::TextRange::default(),
-            node_index: ast::AtomicNodeIndex::default(),
-        }),
-        1 => *stmts.into_iter().next().unwrap(),
-        _ => Stmt::BodyStmt(ast::StmtBody {
-            body: stmts,
-            range: ruff_text_size::TextRange::default(),
-            node_index: ast::AtomicNodeIndex::default(),
-        }),
-    }
+        ),
+    );
+    Stmt::If(if_stmt)
 }
 
 pub(crate) fn lower_stmt_into(

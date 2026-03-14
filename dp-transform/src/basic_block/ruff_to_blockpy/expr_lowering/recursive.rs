@@ -384,17 +384,6 @@ where
             range,
             node_index,
         })),
-        Expr::Lambda(_)
-        | Expr::Generator(_)
-        | Expr::ListComp(_)
-        | Expr::SetComp(_)
-        | Expr::DictComp(_) => lowerer.lower_setup_expr(
-            context,
-            lowerer.simplify_expr_ast(context, expr),
-            out,
-            loop_ctx,
-            next_label_id,
-        ),
         other => Ok(other),
     }
 }
