@@ -532,10 +532,12 @@ pub(crate) fn try_lower_generators_from_semantic_input(
     route: GeneratorLoweringRoute<'_>,
     next_block_id: &mut usize,
 ) -> Result<Option<PostBlockPyGeneratorLowering>, String> {
-    if route.coroutine_via_generator || route.is_async_generator_runtime {
+    if route.coroutine_via_generator
+        || (route.is_async_generator_runtime && !route.is_closure_backed_generator_runtime)
+    {
         return Ok(None);
     }
-    try_lower_sync_generator_from_semantic_input(
+    try_lower_simple_generator_from_semantic_input(
         context,
         input,
         route.is_closure_backed_generator_runtime,
@@ -545,7 +547,7 @@ pub(crate) fn try_lower_generators_from_semantic_input(
     )
 }
 
-fn try_lower_sync_generator_from_semantic_input(
+fn try_lower_simple_generator_from_semantic_input(
     context: &Context,
     input: SemanticGeneratorInput,
     closure_state: bool,
@@ -2326,14 +2328,49 @@ pub(crate) struct GeneratorLoweringCtx<'a> {
 mod tests {
     use super::{
         build_closure_backed_generator_export_plan, build_initial_generator_metadata,
-        plan_generator_block_fragment, try_lower_simple_generator_blocks_post_blockpy,
-        GeneratorYieldSite,
+        plan_generator_block_fragment, try_lower_generators_from_semantic_input,
+        try_lower_simple_generator_blocks_post_blockpy, GeneratorLoweringRoute, GeneratorYieldSite,
+        SemanticGeneratorInput,
     };
+    use crate::basic_block::ast_to_ast::{context::Context, Options};
     use crate::basic_block::bb_ir::{BbClosureInit, BbClosureLayout, BbClosureSlot};
-    use crate::basic_block::block_py::{BlockPyExpr, BlockPyIfTerm, BlockPyTerm};
+    use crate::basic_block::block_py::{
+        BlockPyBlockBuilder, BlockPyExpr, BlockPyIfTerm, BlockPyTerm,
+    };
     use crate::basic_block::ruff_to_blockpy::lower_stmts_to_blockpy_stmts;
     use crate::py_expr;
     use ruff_python_ast::Stmt;
+    use std::collections::HashSet;
+
+    fn simple_semantic_generator_input() -> SemanticGeneratorInput {
+        let module = ruff_python_parser::parse_module("def gen():\n    yield value\n")
+            .unwrap()
+            .into_syntax();
+        let Stmt::FunctionDef(func) = module.body.body[0].as_ref().clone() else {
+            panic!("expected function definition");
+        };
+        let fragment = lower_stmts_to_blockpy_stmts::<BlockPyExpr>(
+            &func
+                .body
+                .body
+                .iter()
+                .map(|stmt| stmt.as_ref().clone())
+                .collect::<Vec<_>>(),
+        )
+        .expect("generator body should lower to a semantic BlockPy fragment");
+        let mut block = BlockPyBlockBuilder::<BlockPyExpr>::new("start".into());
+        block.extend(fragment.body);
+        if let Some(term) = fragment.term {
+            block.set_term(term);
+        }
+        SemanticGeneratorInput {
+            blocks: vec![block.finish(None)],
+            entry_label: "start".to_string(),
+            try_regions: Vec::new(),
+            resume_order: Vec::new(),
+            yield_sites: Vec::new(),
+        }
+    }
 
     #[test]
     fn initial_generator_metadata_includes_entry_label_in_resume_order() {
@@ -2557,5 +2594,51 @@ mod tests {
         assert!(lowered_blocks
             .iter()
             .any(|block| block.label.as_str() == yield_sites[0].resume_label));
+    }
+
+    #[test]
+    fn route_accepts_closure_backed_async_generators() {
+        let context = Context::new(Options::for_test(), "");
+        let cell_slots = HashSet::new();
+        let mut next_block_id = 0usize;
+
+        let lowered = try_lower_generators_from_semantic_input(
+            &context,
+            simple_semantic_generator_input(),
+            GeneratorLoweringRoute {
+                coroutine_via_generator: false,
+                is_async_generator_runtime: true,
+                is_closure_backed_generator_runtime: true,
+                fn_name: "agen",
+                cell_slots: &cell_slots,
+            },
+            &mut next_block_id,
+        )
+        .expect("closure-backed async generator route should not error");
+
+        assert!(lowered.is_some());
+    }
+
+    #[test]
+    fn route_rejects_non_closure_backed_async_generator_helpers() {
+        let context = Context::new(Options::for_test(), "");
+        let cell_slots = HashSet::new();
+        let mut next_block_id = 0usize;
+
+        let lowered = try_lower_generators_from_semantic_input(
+            &context,
+            simple_semantic_generator_input(),
+            GeneratorLoweringRoute {
+                coroutine_via_generator: false,
+                is_async_generator_runtime: true,
+                is_closure_backed_generator_runtime: false,
+                fn_name: "_dp_genexpr_async_helper",
+                cell_slots: &cell_slots,
+            },
+            &mut next_block_id,
+        )
+        .expect("async helper route should not error");
+
+        assert!(lowered.is_none());
     }
 }
