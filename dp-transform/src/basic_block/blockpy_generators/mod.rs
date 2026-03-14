@@ -1,14 +1,16 @@
+use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::ast_to_ast::scope::cell_name;
 use crate::basic_block::bb_ir::{BbClosureInit, BbClosureLayout, BbClosureSlot, FunctionId};
-use crate::basic_block::block_py::cfg::rename_blockpy_labels;
+use crate::basic_block::block_py::cfg::{linearize_structured_ifs, rename_blockpy_labels};
 use crate::basic_block::block_py::state::{sync_generator_state_order, sync_target_cells_stmts};
 use crate::basic_block::block_py::{
-    BlockPyCfgBlockBuilder, BlockPyExpr, BlockPyLabel, BlockPyTryJump,
+    BlockPyCfgBlockBuilder, BlockPyExpr, BlockPyLabel, BlockPyStmtFragmentBuilder, BlockPyTryJump,
     SemanticBlockPyAssign as BlockPyAssign, SemanticBlockPyBlock as BlockPyBlock,
-    SemanticBlockPyBranchTable as BlockPyBranchTable, SemanticBlockPyIfTerm as BlockPyIfTerm,
-    SemanticBlockPyRaise as BlockPyRaise, SemanticBlockPyStmt as BlockPyStmt,
-    SemanticBlockPyTerm as BlockPyTerm,
+    SemanticBlockPyBranchTable as BlockPyBranchTable, SemanticBlockPyExpr, SemanticBlockPyIf,
+    SemanticBlockPyIfTerm as BlockPyIfTerm, SemanticBlockPyRaise as BlockPyRaise,
+    SemanticBlockPyStmt as BlockPyStmt, SemanticBlockPyTerm as BlockPyTerm,
 };
+use crate::basic_block::ruff_to_blockpy::expr_lowering;
 use crate::basic_block::ruff_to_blockpy::{
     compat_block_from_blockpy as compat_block_with_term, compat_if_jump_block,
     compat_jump_block_from_blockpy, compat_raise_block_from_blockpy_raise,
@@ -66,6 +68,21 @@ pub(crate) struct GeneratorDispatchInfo {
 pub(crate) struct GeneratorYieldSite {
     pub yield_label: String,
     pub resume_label: String,
+}
+
+pub(crate) struct SemanticGeneratorInput {
+    pub blocks: Vec<BlockPyBlock>,
+    pub entry_label: String,
+    pub try_regions: Vec<TryRegionPlan>,
+    pub resume_order: Vec<String>,
+    pub yield_sites: Vec<GeneratorYieldSite>,
+}
+
+pub(crate) struct PostBlockPyGeneratorLowering {
+    pub blocks: Vec<BlockPyBlock>,
+    pub entry_label: String,
+    pub try_regions: Vec<TryRegionPlan>,
+    pub generator_metadata: GeneratorMetadata,
 }
 
 const GENERATOR_REST_SENTINEL_LABEL: &str = "__dp_generator_rest";
@@ -498,6 +515,245 @@ pub(crate) fn build_initial_generator_metadata(
         uncaught_exc_name: None,
         dispatch_only_labels: Vec::new(),
         throw_passthrough_labels: Vec::new(),
+    }
+}
+
+pub(crate) fn try_lower_sync_generator_from_semantic_input(
+    context: &Context,
+    input: SemanticGeneratorInput,
+    closure_state: bool,
+    next_block_id: &mut usize,
+    fn_name: &str,
+    cell_slots: &HashSet<String>,
+) -> Result<Option<PostBlockPyGeneratorLowering>, String> {
+    let SemanticGeneratorInput {
+        blocks,
+        entry_label,
+        mut try_regions,
+        mut resume_order,
+        mut yield_sites,
+    } = input;
+    let lowered_generator_expr_blocks =
+        lower_generator_payload_exprs_in_blocks(context, blocks, next_block_id)?;
+    let (linearized_blocks, _, _) = linearize_structured_ifs(
+        &lowered_generator_expr_blocks,
+        &HashMap::new(),
+        &HashMap::new(),
+    );
+    let Some((blocks, entry_label)) = try_lower_simple_generator_blocks_post_blockpy(
+        linearized_blocks,
+        entry_label.as_str(),
+        closure_state,
+        &mut try_regions,
+        &mut resume_order,
+        &mut yield_sites,
+        next_block_id,
+        fn_name,
+        Some(cell_slots),
+    ) else {
+        return Ok(None);
+    };
+    Ok(Some(PostBlockPyGeneratorLowering {
+        generator_metadata: build_initial_generator_metadata(
+            entry_label.as_str(),
+            &resume_order,
+            &yield_sites,
+        ),
+        blocks,
+        entry_label,
+        try_regions,
+    }))
+}
+
+fn lower_generator_payload_exprs_in_blocks(
+    context: &Context,
+    blocks: Vec<BlockPyBlock>,
+    next_label_id: &mut usize,
+) -> Result<Vec<BlockPyBlock>, String> {
+    blocks
+        .into_iter()
+        .map(|block| lower_generator_payload_exprs_in_block(context, block, next_label_id))
+        .collect()
+}
+
+fn lower_generator_payload_exprs_in_block(
+    context: &Context,
+    block: BlockPyBlock,
+    next_label_id: &mut usize,
+) -> Result<BlockPyBlock, String> {
+    let mut lowered_body = BlockPyStmtFragmentBuilder::<SemanticBlockPyExpr>::new();
+    for stmt in block.body {
+        lower_generator_payload_exprs_in_stmt_into(
+            context,
+            stmt,
+            &mut lowered_body,
+            next_label_id,
+        )?;
+    }
+    lower_generator_payload_exprs_in_term_into(
+        context,
+        block.term,
+        &mut lowered_body,
+        next_label_id,
+    )?;
+    let lowered_body = lowered_body.finish();
+    Ok(BlockPyBlock {
+        label: block.label,
+        body: lowered_body.body,
+        term: lowered_body
+            .term
+            .expect("generator payload expr lowering should preserve block terminator"),
+        meta: block.meta,
+    })
+}
+
+fn lower_generator_payload_exprs_in_fragment(
+    context: &Context,
+    fragment: crate::basic_block::block_py::SemanticBlockPyStmtFragment,
+    next_label_id: &mut usize,
+) -> Result<crate::basic_block::block_py::SemanticBlockPyStmtFragment, String> {
+    let mut lowered = BlockPyStmtFragmentBuilder::<SemanticBlockPyExpr>::new();
+    for stmt in fragment.body {
+        lower_generator_payload_exprs_in_stmt_into(context, stmt, &mut lowered, next_label_id)?;
+    }
+    if let Some(term) = fragment.term {
+        lower_generator_payload_exprs_in_term_into(context, term, &mut lowered, next_label_id)?;
+    }
+    Ok(lowered.finish())
+}
+
+fn lower_generator_payload_exprs_in_stmt_into(
+    context: &Context,
+    stmt: BlockPyStmt,
+    out: &mut BlockPyStmtFragmentBuilder<SemanticBlockPyExpr>,
+    next_label_id: &mut usize,
+) -> Result<(), String> {
+    match stmt {
+        BlockPyStmt::Expr(SemanticBlockPyExpr::Yield(mut yield_expr)) => {
+            if let Some(value) = yield_expr.value.take() {
+                let lowered = expr_lowering::lower_expr_into_with_setup(
+                    context,
+                    *value,
+                    out,
+                    None,
+                    next_label_id,
+                )?;
+                yield_expr.value = Some(Box::new(lowered.into()));
+            }
+            out.push_stmt(BlockPyStmt::Expr(SemanticBlockPyExpr::Yield(yield_expr)));
+            Ok(())
+        }
+        BlockPyStmt::Expr(SemanticBlockPyExpr::YieldFrom(mut yield_from_expr)) => {
+            let lowered = expr_lowering::lower_expr_into_with_setup(
+                context,
+                *yield_from_expr.value,
+                out,
+                None,
+                next_label_id,
+            )?;
+            yield_from_expr.value = Box::new(lowered.into());
+            out.push_stmt(BlockPyStmt::Expr(SemanticBlockPyExpr::YieldFrom(
+                yield_from_expr,
+            )));
+            Ok(())
+        }
+        BlockPyStmt::Assign(mut assign) => {
+            match assign.value {
+                SemanticBlockPyExpr::Yield(mut yield_expr) => {
+                    if let Some(value) = yield_expr.value.take() {
+                        let lowered = expr_lowering::lower_expr_into_with_setup(
+                            context,
+                            *value,
+                            out,
+                            None,
+                            next_label_id,
+                        )?;
+                        yield_expr.value = Some(Box::new(lowered.into()));
+                    }
+                    assign.value = SemanticBlockPyExpr::Yield(yield_expr);
+                }
+                SemanticBlockPyExpr::YieldFrom(mut yield_from_expr) => {
+                    let lowered = expr_lowering::lower_expr_into_with_setup(
+                        context,
+                        *yield_from_expr.value,
+                        out,
+                        None,
+                        next_label_id,
+                    )?;
+                    yield_from_expr.value = Box::new(lowered.into());
+                    assign.value = SemanticBlockPyExpr::YieldFrom(yield_from_expr);
+                }
+                other => {
+                    assign.value = other;
+                }
+            }
+            out.push_stmt(BlockPyStmt::Assign(assign));
+            Ok(())
+        }
+        BlockPyStmt::If(if_stmt) => {
+            out.push_stmt(BlockPyStmt::If(SemanticBlockPyIf {
+                test: if_stmt.test,
+                body: lower_generator_payload_exprs_in_fragment(
+                    context,
+                    if_stmt.body,
+                    next_label_id,
+                )?,
+                orelse: lower_generator_payload_exprs_in_fragment(
+                    context,
+                    if_stmt.orelse,
+                    next_label_id,
+                )?,
+            }));
+            Ok(())
+        }
+        other => {
+            out.push_stmt(other);
+            Ok(())
+        }
+    }
+}
+
+fn lower_generator_payload_exprs_in_term_into(
+    context: &Context,
+    term: BlockPyTerm,
+    out: &mut BlockPyStmtFragmentBuilder<SemanticBlockPyExpr>,
+    next_label_id: &mut usize,
+) -> Result<(), String> {
+    match term {
+        BlockPyTerm::Return(Some(SemanticBlockPyExpr::Yield(mut yield_expr))) => {
+            if let Some(value) = yield_expr.value.take() {
+                let lowered = expr_lowering::lower_expr_into_with_setup(
+                    context,
+                    *value,
+                    out,
+                    None,
+                    next_label_id,
+                )?;
+                yield_expr.value = Some(Box::new(lowered.into()));
+            }
+            out.set_term(BlockPyTerm::Return(Some(SemanticBlockPyExpr::Yield(
+                yield_expr,
+            ))));
+            Ok(())
+        }
+        BlockPyTerm::Return(Some(SemanticBlockPyExpr::YieldFrom(mut yield_from_expr))) => {
+            let lowered = expr_lowering::lower_expr_into_with_setup(
+                context,
+                *yield_from_expr.value,
+                out,
+                None,
+                next_label_id,
+            )?;
+            yield_from_expr.value = Box::new(lowered.into());
+            out.set_term(BlockPyTerm::Return(Some(SemanticBlockPyExpr::YieldFrom(
+                yield_from_expr,
+            ))));
+            Ok(())
+        }
+        other => {
+            out.set_term(other);
+            Ok(())
+        }
     }
 }
 
