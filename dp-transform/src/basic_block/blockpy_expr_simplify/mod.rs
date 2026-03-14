@@ -236,6 +236,20 @@ impl From<Expr> for CoreBlockPyExpr {
             )),
             Expr::Dict(node) => reduce_core_blockpy_dict(node.items.into()),
             Expr::Name(node) => Self::Name(node),
+            // These families are intentionally left for earlier phases:
+            // setup-emitting / control-shaping expr lowering in ast_to_blockpy,
+            // or Context-sensitive source rewrites that still live before
+            // BlockPy expr simplification.
+            expr @ (Expr::BoolOp(_)
+            | Expr::Named(_)
+            | Expr::Lambda(_)
+            | Expr::If(_)
+            | Expr::ListComp(_)
+            | Expr::SetComp(_)
+            | Expr::DictComp(_)
+            | Expr::Generator(_)
+            | Expr::FString(_)
+            | Expr::TString(_)) => Self::Raw(expr),
             other => Self::Raw(other),
         }
     }
@@ -594,6 +608,27 @@ def f(x):
             };
             let rendered = ruff_ast_to_string(&tupleish.to_expr());
             assert!(rendered.contains("__dp_tuple_from_iter(xs)"), "{rendered}");
+        }
+    }
+
+    #[test]
+    fn core_blockpy_expr_keeps_earlier_phase_families_raw() {
+        for expr in [
+            "x and y",
+            "(x := y)",
+            "(lambda x: x + 1)",
+            "(x if cond else y)",
+            "[x for x in xs]",
+            "{x for x in xs}",
+            "{x: y for x, y in pairs}",
+            "(x for x in xs)",
+            "f\"{x}\"",
+        ] {
+            let parsed = *parse_expression(expr).unwrap().into_syntax().body;
+            assert!(
+                matches!(CoreBlockPyExpr::from(parsed), CoreBlockPyExpr::Raw(_)),
+                "{expr} should stay raw at the late pure expr boundary",
+            );
         }
     }
 }
