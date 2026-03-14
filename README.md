@@ -69,10 +69,6 @@ cargo run --bin regen_snapshots
 
 ```
 $ rustup component add rustc-codegen-cranelift-preview --toolchain nightly
-$ CARGO_PROFILE_DEV_CODEGEN_BACKEND=cranelift \
-      cargo +nightly rustc -Zcodegen-backend -p soac-runtime --lib --   --emit=llvm-ir -Ccodegen-units=1
-
-# or
 $ ./rust-clif-dist/rustc-clif --out-dir=clif-out/ --crate-type=rlib fastadd.rs -Cdebuginfo=0 --emit link,llvm-ir
 ```
 
