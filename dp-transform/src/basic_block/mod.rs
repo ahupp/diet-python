@@ -19,7 +19,10 @@ mod stmt_utils;
 
 // Ruff AST -> BbModule
 pub use block_py::pretty::blockpy_module_to_string;
-pub(crate) use blockpy_to_bb::{lower_try_jump_exception_flow, normalize_bb_module_for_codegen};
+pub(crate) use blockpy_to_bb::{
+    lower_try_jump_exception_flow, lowered_blockpy_module_bundle_to_blockpy_module,
+    normalize_bb_module_for_codegen,
+};
 pub use driver::{
     collect_function_identity_by_node, rewrite_with_function_identity_and_collect_ir,
     rewrite_with_function_identity_to_blockpy_module,

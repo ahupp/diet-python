@@ -2,6 +2,7 @@ use crate::basic_block;
 use crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass;
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::ast_to_ast::rewrite_class_def;
+use crate::basic_block::ast_to_ast::rewrite_stmt::function_def::rewrite_ast_to_lowered_blockpy_module;
 use crate::basic_block::ast_to_ast::scope::{analyze_module_scope, BindingKind};
 use crate::basic_block::ast_to_ast::simplify::strip_generated_passes;
 use crate::basic_block::ast_to_ast::{
@@ -62,16 +63,18 @@ pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> RewriteModule
 
     strip_generated_passes(context, module);
 
+    // Build the semantic BlockPy module from the rewritten AST.
     let mut blockpy_module_ast = module.clone();
     let blockpy_scope = analyze_module_scope(&mut blockpy_module_ast);
     let blockpy_function_identity =
         basic_block::collect_function_identity_by_node(&mut blockpy_module_ast, blockpy_scope);
-
-    let blockpy_module = basic_block::rewrite_ast_to_blockpy_module_with_context(
+    let lowered_blockpy_module = rewrite_ast_to_lowered_blockpy_module(
         context,
         &mut blockpy_module_ast,
         blockpy_function_identity,
     );
+    let blockpy_module =
+        basic_block::lowered_blockpy_module_bundle_to_blockpy_module(&lowered_blockpy_module);
 
     RewriteModuleResult { blockpy_module }
 }
