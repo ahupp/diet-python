@@ -189,14 +189,7 @@ finally:
         };
     }
 
-    if is_async {
-        // TODO: Move async-with await normalization onto the semantic
-        // BlockPy-to-generator boundary like the rest of coroutine await
-        // lowering. This still uses the older AST-local await rewrite path.
-        lower_coroutine_awaits_in_stmt(lowered_body)
-    } else {
-        lowered_body
-    }
+    lowered_body
 }
 
 fn build_with_finally_body(
