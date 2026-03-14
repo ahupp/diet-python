@@ -89,7 +89,6 @@ pub(crate) struct PostBlockPyGeneratorLowering {
 }
 
 pub(crate) struct GeneratorLoweringRoute<'a> {
-    pub coroutine_via_generator: bool,
     pub is_closure_backed_generator_runtime: bool,
     pub fn_name: &'a str,
     pub cell_slots: &'a HashSet<String>,
@@ -534,9 +533,6 @@ pub(crate) fn try_lower_generators_from_semantic_input(
     route: GeneratorLoweringRoute<'_>,
     next_block_id: &mut usize,
 ) -> Result<Option<PostBlockPyGeneratorLowering>, String> {
-    if route.coroutine_via_generator {
-        return Ok(None);
-    }
     debug_assert!(
         route.is_closure_backed_generator_runtime,
         "non-closure-backed generator routing should be unreachable",
@@ -2947,7 +2943,6 @@ mod tests {
             &context,
             simple_semantic_generator_input(),
             GeneratorLoweringRoute {
-                coroutine_via_generator: false,
                 is_closure_backed_generator_runtime: true,
                 fn_name: "agen",
                 cell_slots: &cell_slots,
@@ -2955,6 +2950,27 @@ mod tests {
             &mut next_block_id,
         )
         .expect("closure-backed async generator route should not error");
+
+        assert!(lowered.is_some());
+    }
+
+    #[test]
+    fn route_accepts_closure_backed_coroutines() {
+        let context = Context::new(Options::for_test(), "");
+        let cell_slots = HashSet::new();
+        let mut next_block_id = 0usize;
+
+        let lowered = try_lower_generators_from_semantic_input(
+            &context,
+            simple_semantic_generator_input(),
+            GeneratorLoweringRoute {
+                is_closure_backed_generator_runtime: true,
+                fn_name: "coro",
+                cell_slots: &cell_slots,
+            },
+            &mut next_block_id,
+        )
+        .expect("closure-backed coroutine route should not error");
 
         assert!(lowered.is_some());
     }

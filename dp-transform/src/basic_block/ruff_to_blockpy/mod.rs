@@ -1066,7 +1066,6 @@ where
                 yield_sites,
             },
             GeneratorLoweringRoute {
-                coroutine_via_generator,
                 is_closure_backed_generator_runtime,
                 fn_name,
                 cell_slots,
