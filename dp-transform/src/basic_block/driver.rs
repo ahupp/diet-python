@@ -83,7 +83,7 @@ fn rewrite_internal(
 #[cfg(test)]
 mod tests {
     use super::{BbFunction, BindingTarget};
-    use crate::basic_block::bb_ir::{BbBlock, BbExpr};
+    use crate::basic_block::bb_ir::{BbBlock, BbExpr, BbFunctionKind};
     use crate::basic_block::bb_ir::{BbClosureInit, BbClosureSlot, BbOp, BbTerm};
     use crate::{
         py_expr, transform_str_to_bb_ir_with_options, transform_str_to_ruff_with_options, Options,
@@ -855,6 +855,58 @@ def outer(scale):
         let pc = slot_by_name(&layout.runtime_cells, "_dp_pc");
         assert_eq!(pc.storage_name, "_dp_cell__dp_pc");
         assert_eq!(pc.init, BbClosureInit::RuntimePcUnstarted);
+    }
+
+    #[test]
+    fn async_comprehension_lowering_emits_only_closure_backed_generator_callables() {
+        let source = r#"
+import asyncio
+
+async def agen():
+    for i in range(4):
+        await asyncio.sleep(0)
+        yield i
+
+async def outer(scale):
+    values = [x + scale async for x in agen()]
+    return (value * 2 async for value in agen() if value in values)
+"#;
+
+        let options = Options::for_test();
+        let bb_module = transform_str_to_bb_ir_with_options(source, options)
+            .expect("transform should succeed")
+            .expect("bb module should be available");
+        let generator_callables = bb_module
+            .callable_defs
+            .iter()
+            .filter(|func| {
+                matches!(
+                    func.kind,
+                    BbFunctionKind::Generator { .. } | BbFunctionKind::AsyncGenerator { .. }
+                )
+            })
+            .collect::<Vec<_>>();
+        let generator_names = generator_callables
+            .iter()
+            .map(|func| format!("{} :: {}", func.bind_name, func.qualname))
+            .collect::<Vec<_>>();
+        assert!(
+            !generator_callables.is_empty(),
+            "expected generator-like BB callables; got {}",
+            bb_module
+                .callable_defs
+                .iter()
+                .map(|func| format!("{} :: {}", func.bind_name, func.qualname))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        assert!(
+            generator_callables
+                .iter()
+                .all(|func| func.closure_layout.is_some()),
+            "expected only closure-backed generator callables; got {}",
+            generator_names.join(", ")
+        );
     }
 
     #[test]

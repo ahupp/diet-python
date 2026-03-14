@@ -328,10 +328,6 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     // follow-on phase routing should key off the canonical helper identity
     // instead of string-matching partially lowered names.
     let is_generated_genexpr = func.name.id.as_str().contains("_dp_genexpr_");
-    let is_generated_comprehension_helper = is_generated_genexpr
-        || func.name.id.as_str().contains("_dp_listcomp_")
-        || func.name.id.as_str().contains("_dp_setcomp_")
-        || func.name.id.as_str().contains("_dp_dictcomp_");
     // Keep generated annotation helpers in their lexical scope. BB-lowering
     // and hoisting them out of class/module init can break name resolution
     // for class-local symbols (for example, `T` in `value: T`).
@@ -403,13 +399,7 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         return None;
     }
     let is_async_generator_runtime = func.is_async && !coroutine_via_generator;
-    // Generated async comprehension helpers still stay on the legacy
-    // frame-backed resume path for now: forcing them onto the
-    // closure-backed factory/resume path can blow up the helper plan size.
-    // Sync generated genexpr helpers can use the normal closure-backed
-    // generator runtime and should not keep the legacy binder path alive.
-    let is_closure_backed_generator_runtime =
-        has_yield && !(is_generated_comprehension_helper && func.is_async);
+    let is_closure_backed_generator_runtime = has_yield;
 
     let end_label = next_label(func.name.id.as_str(), next_block_id);
     let identity = resolve_runtime_function_identity(func, function_identity_by_node, parent_name);
