@@ -1,10 +1,9 @@
 use super::{
     BlockPyBlockMeta, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete, BlockPyIf,
     BlockPyIfTerm, BlockPyRaise, BlockPyStmtFragmentBuilder, BlockPyTerm, CoreBlockPyAssign,
-    CoreBlockPyBinOp, CoreBlockPyBlock, CoreBlockPyCallableDef, CoreBlockPyCompare,
-    CoreBlockPyExpr, CoreBlockPyModule, CoreBlockPyStmt, CoreBlockPyStmtFragment, CoreBlockPyTerm,
-    CoreBlockPyUnaryOp, SemanticBlockPyBlock, SemanticBlockPyCallableDef, SemanticBlockPyModule,
-    SemanticBlockPyStmt, SemanticBlockPyTerm,
+    CoreBlockPyBlock, CoreBlockPyCallableDef, CoreBlockPyExpr, CoreBlockPyModule, CoreBlockPyStmt,
+    CoreBlockPyStmtFragment, CoreBlockPyTerm, SemanticBlockPyBlock, SemanticBlockPyCallableDef,
+    SemanticBlockPyModule, SemanticBlockPyStmt, SemanticBlockPyTerm,
 };
 use crate::basic_block::cfg_ir::CfgCallableDef;
 
@@ -19,34 +18,7 @@ struct DefaultCoreExprReducer;
 
 impl PureCoreExprReducer for DefaultCoreExprReducer {
     fn reduce_expr(&self, expr: &SemanticExpr) -> CoreBlockPyExpr {
-        match expr {
-            SemanticExpr::UnaryOp(node) => CoreBlockPyExpr::UnaryOp(CoreBlockPyUnaryOp {
-                node_index: node.node_index.clone(),
-                range: node.range,
-                op: node.op,
-                operand: Box::new(self.reduce_expr(&((*node.operand).clone().into()))),
-            }),
-            SemanticExpr::BinOp(node) => CoreBlockPyExpr::BinOp(CoreBlockPyBinOp {
-                node_index: node.node_index.clone(),
-                range: node.range,
-                left: Box::new(self.reduce_expr(&((*node.left).clone().into()))),
-                op: node.op,
-                right: Box::new(self.reduce_expr(&((*node.right).clone().into()))),
-            }),
-            SemanticExpr::Compare(node) => CoreBlockPyExpr::Compare(CoreBlockPyCompare {
-                node_index: node.node_index.clone(),
-                range: node.range,
-                left: Box::new(self.reduce_expr(&((*node.left).clone().into()))),
-                ops: node.ops.clone(),
-                comparators: node
-                    .comparators
-                    .iter()
-                    .map(|expr| self.reduce_expr(&(expr.clone().into())))
-                    .collect::<Vec<_>>()
-                    .into_boxed_slice(),
-            }),
-            _ => expr.clone().into(),
-        }
+        expr.clone().into()
     }
 }
 
@@ -239,12 +211,12 @@ pub(crate) fn lower_semantic_blockpy_module_to_core(
 mod tests {
     use super::lower_semantic_blockpy_module_to_core;
     use crate::basic_block::block_py::pretty::blockpy_module_to_string;
-    use crate::basic_block::block_py::{CoreBlockPyExpr, SemanticBlockPyExpr};
+    use crate::basic_block::block_py::{CoreBlockPyCallArg, CoreBlockPyExpr, SemanticBlockPyExpr};
     use crate::py_expr;
     use crate::{transform_str_to_ruff_with_options, Options};
 
     #[test]
-    fn lowering_semantic_blockpy_to_core_preserves_rendering() {
+    fn lowering_semantic_blockpy_to_core_preserves_control_flow_but_reduces_exprs() {
         let blockpy = transform_str_to_ruff_with_options(
             r#"
 def f(x):
@@ -258,11 +230,15 @@ def f(x):
         .blockpy_module
         .expect("expected BlockPy module");
         let core = lower_semantic_blockpy_module_to_core(&blockpy);
+        let semantic_rendered = blockpy_module_to_string(&blockpy);
+        let core_rendered = blockpy_module_to_string(&core);
 
-        assert_eq!(
-            blockpy_module_to_string(&blockpy),
-            blockpy_module_to_string(&core)
-        );
+        assert!(semantic_rendered.contains("__dp__.NO_DEFAULT"));
+        assert!(core_rendered.contains("__dp_getattr(__dp__, \"NO_DEFAULT\")"));
+        assert!(semantic_rendered.contains("function f(x)"));
+        assert!(core_rendered.contains("function f(x)"));
+        assert!(semantic_rendered.contains("return 1"));
+        assert!(core_rendered.contains("return 1"));
     }
 
     #[test]
@@ -270,9 +246,19 @@ def f(x):
         let expr = SemanticBlockPyExpr::from(py_expr!("-(x + 1)"));
         let lowered = super::lower_semantic_expr_without_setup(&expr);
 
-        let CoreBlockPyExpr::UnaryOp(unary) = lowered else {
-            panic!("expected unary core expr");
+        let CoreBlockPyExpr::Call(outer) = lowered else {
+            panic!("expected call-shaped core expr");
         };
-        assert!(matches!(&*unary.operand, CoreBlockPyExpr::BinOp(_)));
+        assert!(matches!(
+            &*outer.func,
+            CoreBlockPyExpr::Name(name) if name.id.as_str() == "__dp_neg"
+        ));
+        let [CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Call(inner))] = &outer.args[..] else {
+            panic!("expected __dp_neg to receive one lowered call arg");
+        };
+        assert!(matches!(
+            &*inner.func,
+            CoreBlockPyExpr::Name(name) if name.id.as_str() == "__dp_add"
+        ));
     }
 }
