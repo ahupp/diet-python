@@ -364,8 +364,7 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
             &mut simplified_body,
         );
         let lowered_async_body = flatten_stmt_boxes(&simplified_body.body);
-        use_post_blockpy_await_lowering =
-            has_yield_original && !has_await_in_stmts(&lowered_async_body);
+        use_post_blockpy_await_lowering = !has_await_in_stmts(&lowered_async_body);
         legacy_async_runtime_input_body = Some(lowered_async_body.clone());
         if !use_post_blockpy_await_lowering {
             runtime_input_body = lowered_async_body;
@@ -374,9 +373,12 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     let mut coroutine_via_generator = func.is_async && !has_yield_original;
     if coroutine_via_generator {
         if has_await_in_stmts(&runtime_input_body) {
-            coroutine_via_generator = false;
-            runtime_input_body = original_runtime_input_body;
-        } else if !has_yield_exprs_in_stmts(&runtime_input_body) {
+            if !use_post_blockpy_await_lowering {
+                coroutine_via_generator = false;
+                runtime_input_body = original_runtime_input_body;
+            }
+        }
+        if coroutine_via_generator && !has_yield_exprs_in_stmts(&runtime_input_body) {
             runtime_input_body.insert(0, coroutine_generator_marker_stmt());
         }
     }
