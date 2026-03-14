@@ -43,8 +43,8 @@ pub(crate) use super::blockpy_generators::{
     build_closure_backed_generator_export_plan, build_initial_generator_metadata,
     lower_generator_block_plan, lower_generator_yield_terms_to_explicit_return_blockpy,
     split_generator_return_terms_to_escape_blocks, synthesize_generator_dispatch_metadata,
-    try_lower_sync_generator_from_semantic_input, GeneratorBlockPlan, GeneratorMetadata,
-    GeneratorYieldSite, PostBlockPyGeneratorLowering, SemanticGeneratorInput,
+    try_lower_generators_from_semantic_input, GeneratorBlockPlan, GeneratorLoweringRoute,
+    GeneratorMetadata, GeneratorYieldSite, PostBlockPyGeneratorLowering, SemanticGeneratorInput,
 };
 
 pub(crate) use compat::{
@@ -1100,8 +1100,8 @@ where
             blocks: semantic_blocks,
             entry_label: semantic_entry_label,
             try_regions: semantic_try_regions,
-            mut resume_order,
-            mut yield_sites,
+            resume_order,
+            yield_sites,
         } = build_semantic_generator_input(
             context,
             fn_name,
@@ -1113,46 +1113,48 @@ where
             lower_non_bb_def,
             next_temp,
         );
-        if !coroutine_via_generator && !is_async_generator_runtime {
-            if let Some(PostBlockPyGeneratorLowering {
-                blocks,
-                entry_label,
-                try_regions,
-                generator_metadata,
-            }) = try_lower_sync_generator_from_semantic_input(
-                context,
-                SemanticGeneratorInput {
-                    blocks: semantic_blocks,
-                    entry_label: semantic_entry_label,
-                    try_regions: semantic_try_regions,
-                    resume_order,
-                    yield_sites,
-                },
+        if let Some(PostBlockPyGeneratorLowering {
+            blocks,
+            entry_label,
+            try_regions,
+            generator_metadata,
+        }) = try_lower_generators_from_semantic_input(
+            context,
+            SemanticGeneratorInput {
+                blocks: semantic_blocks,
+                entry_label: semantic_entry_label,
+                try_regions: semantic_try_regions,
+                resume_order,
+                yield_sites,
+            },
+            GeneratorLoweringRoute {
+                coroutine_via_generator,
+                is_async_generator_runtime,
                 is_closure_backed_generator_runtime,
-                next_block_id,
                 fn_name,
                 cell_slots,
-            )
-            .expect("sync generator post-BlockPy lowering should not fail")
-            {
-                return build_finalized_blockpy_function(
-                    take_next_function_id(next_function_id),
-                    bind_name,
-                    qualname,
-                    doc,
-                    blockpy_kind,
-                    params,
-                    blocks,
-                    try_regions,
-                    entry_label,
-                    end_label,
-                    label_prefix,
-                    Some(generator_metadata),
-                    is_async_generator_runtime,
-                    is_closure_backed_generator_runtime,
-                    next_temp("uncaught_exc", next_block_id),
-                );
-            }
+            },
+            next_block_id,
+        )
+        .expect("post-BlockPy generator lowering should not fail")
+        {
+            return build_finalized_blockpy_function(
+                take_next_function_id(next_function_id),
+                bind_name,
+                qualname,
+                doc,
+                blockpy_kind,
+                params,
+                blocks,
+                try_regions,
+                entry_label,
+                end_label,
+                label_prefix,
+                Some(generator_metadata),
+                is_async_generator_runtime,
+                is_closure_backed_generator_runtime,
+                next_temp("uncaught_exc", next_block_id),
+            );
         }
     }
     let mut blocks = Vec::new();

@@ -85,6 +85,14 @@ pub(crate) struct PostBlockPyGeneratorLowering {
     pub generator_metadata: GeneratorMetadata,
 }
 
+pub(crate) struct GeneratorLoweringRoute<'a> {
+    pub coroutine_via_generator: bool,
+    pub is_async_generator_runtime: bool,
+    pub is_closure_backed_generator_runtime: bool,
+    pub fn_name: &'a str,
+    pub cell_slots: &'a HashSet<String>,
+}
+
 const GENERATOR_REST_SENTINEL_LABEL: &str = "__dp_generator_rest";
 
 #[derive(Debug, Clone)]
@@ -518,7 +526,26 @@ pub(crate) fn build_initial_generator_metadata(
     }
 }
 
-pub(crate) fn try_lower_sync_generator_from_semantic_input(
+pub(crate) fn try_lower_generators_from_semantic_input(
+    context: &Context,
+    input: SemanticGeneratorInput,
+    route: GeneratorLoweringRoute<'_>,
+    next_block_id: &mut usize,
+) -> Result<Option<PostBlockPyGeneratorLowering>, String> {
+    if route.coroutine_via_generator || route.is_async_generator_runtime {
+        return Ok(None);
+    }
+    try_lower_sync_generator_from_semantic_input(
+        context,
+        input,
+        route.is_closure_backed_generator_runtime,
+        next_block_id,
+        route.fn_name,
+        route.cell_slots,
+    )
+}
+
+fn try_lower_sync_generator_from_semantic_input(
     context: &Context,
     input: SemanticGeneratorInput,
     closure_state: bool,
