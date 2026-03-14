@@ -2462,28 +2462,28 @@ def complicated(a):
 #     kind: function
 #     bind: complicated
 #     qualname: complicated
-#     local_cell_slots: [_dp_cell__dp_iter_13, _dp_cell__dp_pc, _dp_cell__dp_tmp_14, _dp_cell__dp_try_exc_19, _dp_cell__dp_yieldfrom, _dp_cell_a, _dp_cell_i, _dp_cell_j]
-#     cellvars: [a->_dp_cell_a@param, _dp_iter_13->_dp_cell__dp_iter_13@deferred, _dp_try_exc_19->_dp_cell__dp_try_exc_19@deleted, i->_dp_cell_i@deferred, j->_dp_cell_j@deferred, _dp_tmp_14->_dp_cell__dp_tmp_14@deferred]
+#     local_cell_slots: [_dp_cell__dp_iter_1, _dp_cell__dp_pc, _dp_cell__dp_tmp_2, _dp_cell__dp_try_exc_7, _dp_cell__dp_yieldfrom, _dp_cell_a, _dp_cell_i, _dp_cell_j]
+#     cellvars: [a->_dp_cell_a@param, _dp_iter_1->_dp_cell__dp_iter_1@deferred, _dp_try_exc_7->_dp_cell__dp_try_exc_7@deleted, i->_dp_cell_i@deferred, j->_dp_cell_j@deferred, _dp_tmp_2->_dp_cell__dp_tmp_2@deferred]
 #     runtime_cells: [_dp_pc->_dp_cell__dp_pc@pc_unstarted, _dp_yieldfrom->_dp_cell__dp_yieldfrom@none]
 #     block start:
 #         _dp_cell_a = __dp_make_cell(a)
-#         _dp_cell__dp_iter_13 = __dp_make_cell(None)
-#         _dp_cell__dp_try_exc_19 = __dp_make_cell(__dp_DELETED)
+#         _dp_cell__dp_iter_1 = __dp_make_cell(None)
+#         _dp_cell__dp_try_exc_7 = __dp_make_cell(__dp_DELETED)
 #         _dp_cell_i = __dp_make_cell(None)
 #         _dp_cell_j = __dp_make_cell(None)
-#         _dp_cell__dp_tmp_14 = __dp_make_cell(None)
+#         _dp_cell__dp_tmp_2 = __dp_make_cell(None)
 #         _dp_cell__dp_pc = __dp_make_cell(1)
 #         _dp_cell__dp_yieldfrom = __dp_make_cell(None)
-#         return __dp_make_closure_generator(__dp_def_hidden_resume_fn("start", 1, "_dp_resume", "complicated", __dp_tuple("_dp_self", "_dp_send_value", "_dp_resume_exc", "_dp_cell_a", "_dp_cell__dp_iter_13", "_dp_cell__dp_try_exc_19", "_dp_cell_i", "_dp_cell_j", "_dp_cell__dp_tmp_14", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple("_dp_cell_a", "_dp_cell__dp_iter_13", "_dp_cell__dp_try_exc_19", "_dp_cell_i", "_dp_cell_j", "_dp_cell__dp_tmp_14", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple(_dp_cell_a, _dp_cell__dp_iter_13, _dp_cell__dp_try_exc_19, _dp_cell_i, _dp_cell_j, _dp_cell__dp_tmp_14, _dp_cell__dp_pc, _dp_cell__dp_yieldfrom), __dp_globals(), __name__, async_gen=False), "complicated", "complicated")
+#         return __dp_make_closure_generator(__dp_def_hidden_resume_fn("start", 1, "_dp_resume", "complicated", __dp_tuple("_dp_self", "_dp_send_value", "_dp_resume_exc", "_dp_cell_a", "_dp_cell__dp_iter_1", "_dp_cell__dp_try_exc_7", "_dp_cell_i", "_dp_cell_j", "_dp_cell__dp_tmp_2", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple("_dp_cell_a", "_dp_cell__dp_iter_1", "_dp_cell__dp_try_exc_7", "_dp_cell_i", "_dp_cell_j", "_dp_cell__dp_tmp_2", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple(_dp_cell_a, _dp_cell__dp_iter_1, _dp_cell__dp_try_exc_7, _dp_cell_i, _dp_cell_j, _dp_cell__dp_tmp_2, _dp_cell__dp_pc, _dp_cell__dp_yieldfrom), __dp_globals(), __name__, async_gen=False), "complicated", "complicated")
 
 # function complicated_resume(a)
 #     kind: generator
 #     bind: complicated_resume
 #     qualname: complicated
 #     display_name: _dp_resume
-#     entry_liveins: [_dp_self, _dp_send_value, _dp_resume_exc, _dp_cell_a, _dp_cell__dp_iter_13, _dp_cell__dp_try_exc_19, _dp_cell_i, _dp_cell_j, _dp_cell__dp_tmp_14, _dp_cell__dp_pc, _dp_cell__dp_yieldfrom]
-#     local_cell_slots: [_dp_cell__dp_iter_13, _dp_cell__dp_pc, _dp_cell__dp_tmp_14, _dp_cell__dp_try_exc_19, _dp_cell__dp_yieldfrom, _dp_cell_a, _dp_cell_i, _dp_cell_j]
-#     cellvars: [a->_dp_cell_a@param, _dp_iter_13->_dp_cell__dp_iter_13@deferred, _dp_try_exc_19->_dp_cell__dp_try_exc_19@deleted, i->_dp_cell_i@deferred, j->_dp_cell_j@deferred, _dp_tmp_14->_dp_cell__dp_tmp_14@deferred]
+#     entry_liveins: [_dp_self, _dp_send_value, _dp_resume_exc, _dp_cell_a, _dp_cell__dp_iter_1, _dp_cell__dp_try_exc_7, _dp_cell_i, _dp_cell_j, _dp_cell__dp_tmp_2, _dp_cell__dp_pc, _dp_cell__dp_yieldfrom]
+#     local_cell_slots: [_dp_cell__dp_iter_1, _dp_cell__dp_pc, _dp_cell__dp_tmp_2, _dp_cell__dp_try_exc_7, _dp_cell__dp_yieldfrom, _dp_cell_a, _dp_cell_i, _dp_cell_j]
+#     cellvars: [a->_dp_cell_a@param, _dp_iter_1->_dp_cell__dp_iter_1@deferred, _dp_try_exc_7->_dp_cell__dp_try_exc_7@deleted, i->_dp_cell_i@deferred, j->_dp_cell_j@deferred, _dp_tmp_2->_dp_cell__dp_tmp_2@deferred]
 #     runtime_cells: [_dp_pc->_dp_cell__dp_pc@pc_unstarted, _dp_yieldfrom->_dp_cell__dp_yieldfrom@none]
 #     block start:
 #         if_term __dp_is_(_dp_resume_exc, None):
@@ -2496,12 +2496,12 @@ def complicated(a):
 #                         block _dp_bb_complicated_done_return_done:
 #                             raise StopIteration()
 #                     block _dp_bb_complicated_start:
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_19, _dp_try_exc_19)
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_7, _dp_try_exc_7)
 #                         a = __dp_load_deleted_name("a", __dp_load_cell(_dp_cell_a))
 #                         __dp_store_cell(_dp_cell_a, a)
-#                         _dp_iter_13 = __dp_iter(a)
-#                         __dp_store_cell(_dp_cell__dp_iter_13, _dp_iter_13)
-#                         jump _dp_bb_complicated_9
+#                         _dp_iter_1 = __dp_iter(a)
+#                         __dp_store_cell(_dp_cell__dp_iter_1, _dp_iter_1)
+#                         jump _dp_bb_complicated_10
 #             else:
 #                 block _dp_bb_complicated_dispatch_throw_table:
 #                     branch_table __dp_load_cell(_dp_cell__dp_pc) -> [_dp_bb_complicated_dispatch_throw_done, _dp_bb_complicated_dispatch_throw_unstarted, _dp_bb_complicated_5] default _dp_bb_complicated_invalid
@@ -2509,22 +2509,13 @@ def complicated(a):
 #                         raise _dp_resume_exc
 #                     block _dp_bb_complicated_dispatch_throw_unstarted:
 #                         raise _dp_resume_exc
-#         block _dp_bb_complicated_5:
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_19, _dp_try_exc_19)
-#             if_term __dp_is_not(_dp_resume_exc, None):
-#                 then:
-#                     block _dp_bb_complicated_4:
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_19, _dp_try_exc_19)
-#                         raise _dp_resume_exc
-#                 else:
-#                     jump _dp_bb_complicated_9
-#         block _dp_bb_complicated_9:
-#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_19, _dp_try_exc_19)
-#             _dp_iter_13 = __dp_load_deleted_name("_dp_iter_13", __dp_load_cell(_dp_cell__dp_iter_13))
-#             __dp_store_cell(_dp_cell__dp_iter_13, _dp_iter_13)
-#             _dp_tmp_14 = __dp_next_or_sentinel(_dp_iter_13)
-#             __dp_store_cell(_dp_cell__dp_tmp_14, _dp_tmp_14)
-#             if_term __dp_is_(_dp_tmp_14, __dp__.ITER_COMPLETE):
+#         block _dp_bb_complicated_10:
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_7, _dp_try_exc_7)
+#             _dp_iter_1 = __dp_load_deleted_name("_dp_iter_1", __dp_load_cell(_dp_cell__dp_iter_1))
+#             __dp_store_cell(_dp_cell__dp_iter_1, _dp_iter_1)
+#             _dp_tmp_2 = __dp_next_or_sentinel(_dp_iter_1)
+#             __dp_store_cell(_dp_cell__dp_tmp_2, _dp_tmp_2)
+#             if_term __dp_is_(_dp_tmp_2, __dp__.ITER_COMPLETE):
 #                 then:
 #                     block _dp_bb_complicated_0:
 #                         print("finsihed")
@@ -2533,47 +2524,58 @@ def complicated(a):
 #                         block _dp_bb_complicated_0_return_done:
 #                             raise StopIteration()
 #                 else:
-#                     block _dp_bb_complicated_8:
-#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_19, _dp_try_exc_19)
-#                         _dp_tmp_14 = __dp_load_deleted_name("_dp_tmp_14", __dp_load_cell(_dp_cell__dp_tmp_14))
-#                         __dp_store_cell(_dp_cell__dp_tmp_14, _dp_tmp_14)
-#                         i = _dp_tmp_14
+#                     block _dp_bb_complicated_9:
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_7, _dp_try_exc_7)
+#                         _dp_tmp_2 = __dp_load_deleted_name("_dp_tmp_2", __dp_load_cell(_dp_cell__dp_tmp_2))
+#                         __dp_store_cell(_dp_cell__dp_tmp_2, _dp_tmp_2)
+#                         i = _dp_tmp_2
 #                         __dp_store_cell(_dp_cell_i, i)
-#                         _dp_tmp_14 = None
-#                         __dp_store_cell(_dp_cell__dp_tmp_14, _dp_tmp_14)
-#                         jump _dp_bb_complicated_7
-#                         block _dp_bb_complicated_7:
-#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_19, _dp_try_exc_19)
+#                         _dp_tmp_2 = None
+#                         __dp_store_cell(_dp_cell__dp_tmp_2, _dp_tmp_2)
+#                         jump _dp_bb_complicated_8
+#                         block _dp_bb_complicated_8:
+#                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_7, _dp_try_exc_7)
 #                             try_jump:
 #                                 body_label: _dp_bb_complicated_6
 #                                 except_label: _dp_bb_complicated_3
 #                             block _dp_bb_complicated_3:
-#                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_19, _dp_try_exc_19)
-#                                 _dp_try_exc_19 = __dp_load_deleted_name("_dp_try_exc_19", __dp_load_cell(_dp_cell__dp_try_exc_19))
-#                                 __dp_store_cell(_dp_cell__dp_try_exc_19, _dp_try_exc_19)
+#                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_7, _dp_try_exc_7)
+#                                 _dp_try_exc_7 = __dp_load_deleted_name("_dp_try_exc_7", __dp_load_cell(_dp_cell__dp_try_exc_7))
+#                                 __dp_store_cell(_dp_cell__dp_try_exc_7, _dp_try_exc_7)
 #                                 if_term __dp_exception_matches(__dp_current_exception(), Exception):
 #                                     then:
 #                                         block _dp_bb_complicated_1:
-#                                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_19, _dp_try_exc_19)
-#                                             _dp_try_exc_19 = __dp_load_deleted_name("_dp_try_exc_19", __dp_load_cell(_dp_cell__dp_try_exc_19))
-#                                             __dp_store_cell(_dp_cell__dp_try_exc_19, _dp_try_exc_19)
+#                                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_7, _dp_try_exc_7)
+#                                             _dp_try_exc_7 = __dp_load_deleted_name("_dp_try_exc_7", __dp_load_cell(_dp_cell__dp_try_exc_7))
+#                                             __dp_store_cell(_dp_cell__dp_try_exc_7, _dp_try_exc_7)
 #                                             pass
 #                                             print("oops")
-#                                             jump _dp_bb_complicated_9
+#                                             jump _dp_bb_complicated_10
 #                                     else:
 #                                         block _dp_bb_complicated_2:
-#                                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_19, _dp_try_exc_19)
-#                                             _dp_try_exc_19 = __dp_load_deleted_name("_dp_try_exc_19", __dp_load_cell(_dp_cell__dp_try_exc_19))
-#                                             __dp_store_cell(_dp_cell__dp_try_exc_19, _dp_try_exc_19)
+#                                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_7, _dp_try_exc_7)
+#                                             _dp_try_exc_7 = __dp_load_deleted_name("_dp_try_exc_7", __dp_load_cell(_dp_cell__dp_try_exc_7))
+#                                             __dp_store_cell(_dp_cell__dp_try_exc_7, _dp_try_exc_7)
 #                                             raise
 #                             block _dp_bb_complicated_6:
-#                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_19, _dp_try_exc_19)
+#                                 __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_7, _dp_try_exc_7)
 #                                 i = __dp_load_deleted_name("i", __dp_load_cell(_dp_cell_i))
 #                                 __dp_store_cell(_dp_cell_i, i)
 #                                 j = __dp_add(i, 1)
 #                                 __dp_store_cell(_dp_cell_j, j)
 #                                 __dp_store_cell(_dp_cell__dp_pc, 2)
 #                                 return j
+#         block _dp_bb_complicated_5:
+#             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_7, _dp_try_exc_7)
+#             if_term __dp_is_not(_dp_resume_exc, None):
+#                 then:
+#                     block _dp_bb_complicated_4:
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_7, _dp_try_exc_7)
+#                         raise _dp_resume_exc
+#                 else:
+#                     block _dp_bb_complicated_7:
+#                         __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_7, _dp_try_exc_7)
+#                         jump _dp_bb_complicated_10
 #         block _dp_bb_complicated_invalid:
 #             raise RuntimeError("invalid generator pc: {}".format(__dp_load_cell(_dp_cell__dp_pc)))
 #     block _dp_bb_complicated_uncaught:
@@ -2583,17 +2585,17 @@ def complicated(a):
 #             else:
 #                 jump _dp_bb_complicated_uncaught_raise
 #     block _dp_bb_complicated_uncaught_raise:
-#         raise _dp_uncaught_exc_27
+#         raise _dp_uncaught_exc_17
 #     block _dp_bb_complicated_uncaught_set_done:
 #         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
 #         __dp_store_cell(_dp_cell_a, __dp_DELETED)
-#         __dp_store_cell(_dp_cell__dp_iter_13, __dp_DELETED)
-#         __dp_store_cell(_dp_cell__dp_try_exc_19, __dp_DELETED)
+#         __dp_store_cell(_dp_cell__dp_iter_1, __dp_DELETED)
+#         __dp_store_cell(_dp_cell__dp_try_exc_7, __dp_DELETED)
 #         __dp_store_cell(_dp_cell_i, __dp_DELETED)
 #         __dp_store_cell(_dp_cell_j, __dp_DELETED)
-#         __dp_store_cell(_dp_cell__dp_tmp_14, __dp_DELETED)
+#         __dp_store_cell(_dp_cell__dp_tmp_2, __dp_DELETED)
 #         __dp_store_cell(_dp_cell__dp_yieldfrom, __dp_DELETED)
-#         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_27)
+#         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_17)
 #         jump _dp_bb_complicated_uncaught_raise
 
 # function _dp_module_init()

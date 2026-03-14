@@ -1035,12 +1035,15 @@ pub(crate) fn try_lower_simple_generator_blocks_post_blockpy(
         }
         lowered_any = true;
         let ambient_exc_param = target_block.meta.exc_param.clone();
-        let (lowerable_block, rest_block) =
-            split_simple_generator_candidate_block(target_block, fn_name, next_block_id)?;
+        let SplitGeneratorCandidate {
+            linear_prefix,
+            lowerable_block,
+            rest_block,
+        } = split_simple_generator_candidate_block(target_block, fn_name, next_block_id)?;
         let mut generated = Vec::new();
         let lowered_entry = lower_generator_block_head(
             &lowerable_block,
-            Vec::new(),
+            linear_prefix,
             &mut generated,
             ambient_exc_param.as_deref(),
             closure_state,
@@ -1206,47 +1209,92 @@ fn enqueue_simple_generator_candidate_labels(
 }
 
 fn is_simple_generator_candidate_block(block: &BlockPyBlock) -> bool {
-    matches!(
-        (block.body.as_slice(), &block.term),
-        ([stmt], _) if blockpy_stmt_requires_generator_rest_entry(stmt)
-    ) || (block.body.is_empty()
-        && matches!(
-            block.term,
-            BlockPyTerm::Return(Some(BlockPyExpr::Yield(_)))
-                | BlockPyTerm::Return(Some(BlockPyExpr::YieldFrom(_)))
-        ))
+    split_simple_generator_candidate_block(block.clone(), "", &mut 0usize).is_some()
+}
+
+fn blockpy_stmt_to_linear_stmt(stmt: &BlockPyStmt) -> Option<Stmt> {
+    match stmt {
+        BlockPyStmt::Pass => Some(Stmt::Pass(ast::StmtPass {
+            range: Default::default(),
+            node_index: ast::AtomicNodeIndex::default(),
+        })),
+        BlockPyStmt::Assign(assign) => Some(Stmt::Assign(blockpy_assign_to_stmt(assign))),
+        BlockPyStmt::Expr(expr) => Some(Stmt::Expr(ast::StmtExpr {
+            range: Default::default(),
+            node_index: ast::AtomicNodeIndex::default(),
+            value: Box::new(expr.clone().into()),
+        })),
+        BlockPyStmt::Delete(delete) => Some(Stmt::Delete(ast::StmtDelete {
+            range: Default::default(),
+            node_index: ast::AtomicNodeIndex::default(),
+            targets: vec![Expr::Name(delete.target.clone())],
+        })),
+        BlockPyStmt::If(_) => None,
+    }
+}
+
+struct SplitGeneratorCandidate {
+    linear_prefix: Vec<Stmt>,
+    lowerable_block: BlockPyBlock,
+    rest_block: Option<BlockPyBlock>,
 }
 
 fn split_simple_generator_candidate_block(
     target_block: BlockPyBlock,
     fn_name: &str,
     next_block_id: &mut usize,
-) -> Option<(BlockPyBlock, Option<BlockPyBlock>)> {
-    if target_block.body.len() == 1
-        && blockpy_stmt_requires_generator_rest_entry(&target_block.body[0])
-    {
-        let rest_label = next_generator_label(fn_name, next_block_id);
-        let mut rest_block =
-            compat_block_with_term(rest_label.clone(), Vec::new(), target_block.term.clone());
-        rest_block.meta.exc_param = target_block.meta.exc_param.clone();
-        let mut plan_block =
-            BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(target_block.label.clone())
+) -> Option<SplitGeneratorCandidate> {
+    let mut linear_prefix = Vec::new();
+    for (index, stmt) in target_block.body.iter().enumerate() {
+        if blockpy_stmt_requires_generator_rest_entry(stmt) {
+            let suffix = target_block.body[index + 1..].to_vec();
+            let rest_block = if suffix.is_empty() {
+                let rest_label = next_generator_label(fn_name, next_block_id);
+                let mut rest_block = compat_block_with_term(
+                    rest_label.clone(),
+                    Vec::new(),
+                    target_block.term.clone(),
+                );
+                rest_block.meta.exc_param = target_block.meta.exc_param.clone();
+                Some(rest_block)
+            } else {
+                let rest_label = next_generator_label(fn_name, next_block_id);
+                let mut rest_block = BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(
+                    BlockPyLabel::from(rest_label),
+                )
                 .with_exc_param(target_block.meta.exc_param.clone());
-        plan_block.push_stmt(target_block.body[0].clone());
-        plan_block.set_term(BlockPyTerm::Jump(BlockPyLabel::from(rest_label.clone())));
-        let plan_block = plan_block.finish(None);
-        Some((plan_block, Some(rest_block)))
-    } else if target_block.body.is_empty()
-        && matches!(
-            target_block.term,
-            BlockPyTerm::Return(Some(BlockPyExpr::Yield(_)))
-                | BlockPyTerm::Return(Some(BlockPyExpr::YieldFrom(_)))
-        )
-    {
-        Some((target_block, None))
-    } else {
-        None
+                rest_block.extend(suffix);
+                rest_block.set_term(target_block.term.clone());
+                Some(rest_block.finish(None))
+            };
+            let rest_label = rest_block.as_ref().map(|block| block.label.clone())?;
+            let mut plan_block =
+                BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(target_block.label.clone())
+                    .with_exc_param(target_block.meta.exc_param.clone());
+            plan_block.push_stmt(stmt.clone());
+            plan_block.set_term(BlockPyTerm::Jump(rest_label));
+            return Some(SplitGeneratorCandidate {
+                linear_prefix,
+                lowerable_block: plan_block.finish(None),
+                rest_block,
+            });
+        }
+        linear_prefix.push(blockpy_stmt_to_linear_stmt(stmt)?);
     }
+
+    if matches!(
+        target_block.term,
+        BlockPyTerm::Return(Some(BlockPyExpr::Yield(_)))
+            | BlockPyTerm::Return(Some(BlockPyExpr::YieldFrom(_)))
+    ) {
+        return Some(SplitGeneratorCandidate {
+            linear_prefix,
+            lowerable_block: target_block,
+            rest_block: None,
+        });
+    }
+
+    None
 }
 
 fn blockpy_assign_to_stmt(assign: &BlockPyAssign) -> ast::StmtAssign {
@@ -2817,6 +2865,68 @@ mod tests {
                 .iter()
                 .any(|block| block.label.as_str() == site.resume_label));
         }
+    }
+
+    #[test]
+    fn simple_block_with_linear_prefix_before_yield_can_lower_post_blockpy() {
+        let mut block =
+            crate::basic_block::block_py::BlockPyBlockBuilder::<BlockPyExpr>::new("start".into());
+        block.push_stmt(crate::basic_block::block_py::BlockPyStmt::Assign(
+            crate::basic_block::block_py::BlockPyAssign {
+                target: ruff_python_ast::ExprName {
+                    id: "total".into(),
+                    ctx: ruff_python_ast::ExprContext::Store,
+                    range: Default::default(),
+                    node_index: ruff_python_ast::AtomicNodeIndex::default(),
+                },
+                value: BlockPyExpr::from(py_expr!("1")),
+            },
+        ));
+        block.push_stmt(crate::basic_block::block_py::BlockPyStmt::Expr(
+            BlockPyExpr::from(py_expr!("yield total")),
+        ));
+        block.push_stmt(crate::basic_block::block_py::BlockPyStmt::Assign(
+            crate::basic_block::block_py::BlockPyAssign {
+                target: ruff_python_ast::ExprName {
+                    id: "total".into(),
+                    ctx: ruff_python_ast::ExprContext::Store,
+                    range: Default::default(),
+                    node_index: ruff_python_ast::AtomicNodeIndex::default(),
+                },
+                value: BlockPyExpr::from(py_expr!("total + 1")),
+            },
+        ));
+        block.push_stmt(crate::basic_block::block_py::BlockPyStmt::Expr(
+            BlockPyExpr::from(py_expr!("yield total")),
+        ));
+        block.set_term(BlockPyTerm::Return(None));
+
+        let mut try_regions = Vec::new();
+        let mut resume_order = Vec::new();
+        let mut yield_sites = Vec::new();
+        let mut next_block_id = 0usize;
+
+        let (lowered_blocks, lowered_entry) = try_lower_simple_generator_blocks_post_blockpy(
+            vec![block.finish(None)],
+            "start",
+            false,
+            &mut try_regions,
+            &mut resume_order,
+            &mut yield_sites,
+            &mut next_block_id,
+            "gen",
+            None,
+        )
+        .expect("block with a linear prefix before yield should lower post-BlockPy");
+
+        assert_eq!(yield_sites.len(), 2);
+        assert_ne!(lowered_entry, "start");
+        assert!(lowered_blocks
+            .iter()
+            .any(|block| block.label.as_str() == yield_sites[0].resume_label));
+        assert!(lowered_blocks
+            .iter()
+            .any(|block| block.label.as_str() == yield_sites[1].resume_label));
     }
 
     #[test]

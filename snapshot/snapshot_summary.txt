@@ -17,7 +17,7 @@ snapshot_expr::compare_not_in: blockpy=1, clif=1
 snapshot_expr::if_expr: blockpy=4, clif=4
 snapshot_expr::named_expr: blockpy=1, clif=1
 snapshot_expr::lambda_simple: blockpy=2, clif=2
-snapshot_expr::generator_expr: blockpy=21, clif=21
+snapshot_expr::generator_expr: blockpy=22, clif=22
 snapshot_expr::list_literal: blockpy=1, clif=1
 snapshot_expr::list_literal_splat: blockpy=1, clif=1
 snapshot_expr::tuple_splat: blockpy=1, clif=1
@@ -67,4 +67,4 @@ snapshot_stmt::closure_cell_simple: blockpy=3, clif=3
 snapshot_stmt::bb_if_else_function: blockpy=4, clif=4
 snapshot_stmt::closure_cell_nonlocal: blockpy=3, clif=3
 snapshot_stmt::plain try / catch: blockpy=5, clif=5
-snapshot_stmt::complicated generator: blockpy=25, clif=25
+snapshot_stmt::complicated generator: blockpy=26, clif=26

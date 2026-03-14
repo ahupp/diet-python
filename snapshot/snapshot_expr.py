@@ -270,7 +270,7 @@ x = (i for i in it)
 #                         __dp_store_cell(_dp_cell__dp_iter_2, _dp_iter_2)
 #                         _dp_iter_3 = _dp_iter_2
 #                         __dp_store_cell(_dp_cell__dp_iter_3, _dp_iter_3)
-#                         jump _dp_bb__dp_genexpr_1_5
+#                         jump _dp_bb__dp_genexpr_1_6
 #             else:
 #                 block _dp_bb__dp_genexpr_1_dispatch_throw_table:
 #                     branch_table __dp_load_cell(_dp_cell__dp_pc) -> [_dp_bb__dp_genexpr_1_dispatch_throw_done, _dp_bb__dp_genexpr_1_dispatch_throw_unstarted, _dp_bb__dp_genexpr_1_2] default _dp_bb__dp_genexpr_1_invalid
@@ -284,10 +284,11 @@ x = (i for i in it)
 #                     block _dp_bb__dp_genexpr_1_1:
 #                         raise _dp_resume_exc
 #                 else:
-#                     jump _dp_bb__dp_genexpr_1_5
-#         block _dp_bb__dp_genexpr_1_5:
-#             jump _dp_bb__dp_genexpr_1_4
-#             block _dp_bb__dp_genexpr_1_4:
+#                     block _dp_bb__dp_genexpr_1_4:
+#                         jump _dp_bb__dp_genexpr_1_6
+#         block _dp_bb__dp_genexpr_1_6:
+#             jump _dp_bb__dp_genexpr_1_5
+#             block _dp_bb__dp_genexpr_1_5:
 #                 _dp_iter_3 = __dp_load_deleted_name("_dp_iter_3", __dp_load_cell(_dp_cell__dp_iter_3))
 #                 __dp_store_cell(_dp_cell__dp_iter_3, _dp_iter_3)
 #                 _dp_tmp_4 = __dp_next_or_sentinel(_dp_iter_3)
@@ -316,7 +317,7 @@ x = (i for i in it)
 #             else:
 #                 jump _dp_bb__dp_genexpr_1_uncaught_raise
 #     block _dp_bb__dp_genexpr_1_uncaught_raise:
-#         raise _dp_uncaught_exc_13
+#         raise _dp_uncaught_exc_10
 #     block _dp_bb__dp_genexpr_1_uncaught_set_done:
 #         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
 #         __dp_store_cell(_dp_cell__dp_iter_2, __dp_DELETED)
@@ -324,7 +325,7 @@ x = (i for i in it)
 #         __dp_store_cell(_dp_cell__dp_tmp_4, __dp_DELETED)
 #         __dp_store_cell(_dp_cell_i, __dp_DELETED)
 #         __dp_store_cell(_dp_cell__dp_yieldfrom, __dp_DELETED)
-#         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_13)
+#         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_10)
 #         jump _dp_bb__dp_genexpr_1_uncaught_raise
 
 # function _dp_module_init()
