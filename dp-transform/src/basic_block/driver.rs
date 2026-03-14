@@ -502,6 +502,27 @@ def choose(xs):
     }
 
     #[test]
+    fn scoped_helper_expr_pass_lowers_lambda_before_blockpy() {
+        let source = r#"
+def choose():
+    return f(lambda x: x + 1)
+"#;
+
+        let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
+            .expect("transform should succeed");
+        let blockpy = lowered.blockpy_module.expect("expected BlockPy module");
+        let blockpy_rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
+        assert!(
+            blockpy_rendered.contains("function _dp_lambda"),
+            "{blockpy_rendered}"
+        );
+        assert!(
+            blockpy_rendered.contains("return f(_dp_lambda"),
+            "{blockpy_rendered}"
+        );
+    }
+
+    #[test]
     fn rewritten_ruff_ast_can_keep_async_generator_await_while_blockpy_generator_lowering_handles_it(
     ) {
         let source = r#"
