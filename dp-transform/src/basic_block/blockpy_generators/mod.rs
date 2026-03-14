@@ -1019,10 +1019,9 @@ pub(crate) fn try_lower_simple_generator_blocks_post_blockpy(
         return None;
     }
 
-    let candidate_indices = blocks
+    let candidate_labels = blocks
         .iter()
-        .enumerate()
-        .filter(|(_, block)| {
+        .filter(|block| {
             matches!(
                 (block.body.as_slice(), &block.term),
                 ([stmt], _) if blockpy_stmt_requires_generator_rest_entry(stmt)
@@ -1033,74 +1032,81 @@ pub(crate) fn try_lower_simple_generator_blocks_post_blockpy(
                         | BlockPyTerm::Return(Some(BlockPyExpr::YieldFrom(_)))
                 ))
         })
-        .map(|(index, _)| index)
+        .map(|block| block.label.as_str().to_string())
         .collect::<Vec<_>>();
-    if candidate_indices.len() != 1 {
+    if candidate_labels.is_empty() {
         return None;
     }
-    let target_index = candidate_indices[0];
-    let target_block = blocks[target_index].clone();
-    let target_label = target_block.label.as_str().to_string();
-    let ambient_exc_param = target_block.meta.exc_param.clone();
+    let mut current_entry = entry_label.to_string();
 
-    let lowered_block = if target_block.body.len() == 1
-        && blockpy_stmt_requires_generator_rest_entry(&target_block.body[0])
-    {
-        let rest_label = next_generator_label(fn_name, next_block_id);
-        let mut rest_block =
-            compat_block_with_term(rest_label.clone(), Vec::new(), target_block.term.clone());
-        rest_block.meta.exc_param = target_block.meta.exc_param.clone();
-        let mut plan_block =
-            BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(target_block.label.clone())
-                .with_exc_param(target_block.meta.exc_param.clone());
-        plan_block.push_stmt(target_block.body[0].clone());
-        plan_block.set_term(BlockPyTerm::Jump(BlockPyLabel::from(rest_label.clone())));
-        let plan_block = plan_block.finish(None);
-        Some((plan_block, Some(rest_block)))
-    } else if target_block.body.is_empty()
-        && matches!(
-            target_block.term,
-            BlockPyTerm::Return(Some(BlockPyExpr::Yield(_)))
-                | BlockPyTerm::Return(Some(BlockPyExpr::YieldFrom(_)))
-        )
-    {
-        Some((target_block, None))
-    } else {
-        None
-    }?;
+    for target_label in candidate_labels {
+        let target_index = blocks
+            .iter()
+            .position(|block| block.label.as_str() == target_label)
+            .unwrap_or_else(|| {
+                panic!("missing target block {target_label} during post-BlockPy generator lowering")
+            });
+        let target_block = blocks[target_index].clone();
+        let ambient_exc_param = target_block.meta.exc_param.clone();
 
-    let (lowerable_block, rest_block) = lowered_block;
-    let mut generated = Vec::new();
-    let lowered_entry = lower_generator_block_head(
-        &lowerable_block,
-        Vec::new(),
-        &mut generated,
-        ambient_exc_param.as_deref(),
-        closure_state,
-        try_regions,
-        resume_order,
-        yield_sites,
-        next_block_id,
-        fn_name,
-        cell_slots,
-    )?;
-    if let Some(rest_block) = rest_block {
-        generated.push(rest_block);
+        let lowered_block = if target_block.body.len() == 1
+            && blockpy_stmt_requires_generator_rest_entry(&target_block.body[0])
+        {
+            let rest_label = next_generator_label(fn_name, next_block_id);
+            let mut rest_block =
+                compat_block_with_term(rest_label.clone(), Vec::new(), target_block.term.clone());
+            rest_block.meta.exc_param = target_block.meta.exc_param.clone();
+            let mut plan_block =
+                BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(target_block.label.clone())
+                    .with_exc_param(target_block.meta.exc_param.clone());
+            plan_block.push_stmt(target_block.body[0].clone());
+            plan_block.set_term(BlockPyTerm::Jump(BlockPyLabel::from(rest_label.clone())));
+            let plan_block = plan_block.finish(None);
+            Some((plan_block, Some(rest_block)))
+        } else if target_block.body.is_empty()
+            && matches!(
+                target_block.term,
+                BlockPyTerm::Return(Some(BlockPyExpr::Yield(_)))
+                    | BlockPyTerm::Return(Some(BlockPyExpr::YieldFrom(_)))
+            )
+        {
+            Some((target_block, None))
+        } else {
+            None
+        }?;
+
+        let (lowerable_block, rest_block) = lowered_block;
+        let mut generated = Vec::new();
+        let lowered_entry = lower_generator_block_head(
+            &lowerable_block,
+            Vec::new(),
+            &mut generated,
+            ambient_exc_param.as_deref(),
+            closure_state,
+            try_regions,
+            resume_order,
+            yield_sites,
+            next_block_id,
+            fn_name,
+            cell_slots,
+        )?;
+        if let Some(rest_block) = rest_block {
+            generated.push(rest_block);
+        }
+        blocks.splice(target_index..=target_index, generated);
+
+        if lowered_entry != target_label {
+            let mut rename = HashMap::new();
+            rename.insert(target_label.clone(), lowered_entry.clone());
+            rename_blockpy_labels(&rename, &mut blocks);
+        }
+
+        if target_label == current_entry {
+            current_entry = lowered_entry;
+        }
     }
-    blocks.splice(target_index..=target_index, generated);
 
-    if lowered_entry != target_label {
-        let mut rename = HashMap::new();
-        rename.insert(target_label.clone(), lowered_entry.clone());
-        rename_blockpy_labels(&rename, &mut blocks);
-    }
-
-    let new_entry = if target_label == entry_label {
-        lowered_entry
-    } else {
-        entry_label.to_string()
-    };
-    Some((blocks, new_entry))
+    Some((blocks, current_entry))
 }
 
 fn blockpy_assign_to_stmt(assign: &BlockPyAssign) -> ast::StmtAssign {
@@ -2594,6 +2600,83 @@ mod tests {
         assert!(lowered_blocks
             .iter()
             .any(|block| block.label.as_str() == yield_sites[0].resume_label));
+    }
+
+    #[test]
+    fn simple_multi_block_generator_can_lower_multiple_yield_blocks() {
+        let start = crate::basic_block::block_py::BlockPyBlock {
+            label: "start".into(),
+            body: Vec::new(),
+            term: BlockPyTerm::IfTerm(BlockPyIfTerm {
+                test: BlockPyExpr::from(py_expr!("flag")),
+                then_label: "yield_left".into(),
+                else_label: "yield_right".into(),
+            }),
+            meta: Default::default(),
+        };
+        let mut yield_left = crate::basic_block::block_py::BlockPyBlockBuilder::<BlockPyExpr>::new(
+            "yield_left".into(),
+        );
+        yield_left.push_stmt(crate::basic_block::block_py::BlockPyStmt::Expr(
+            BlockPyExpr::from(py_expr!("yield left_value")),
+        ));
+        yield_left.set_term(BlockPyTerm::Jump("done".into()));
+        let mut yield_right = crate::basic_block::block_py::BlockPyBlockBuilder::<BlockPyExpr>::new(
+            "yield_right".into(),
+        );
+        yield_right.push_stmt(crate::basic_block::block_py::BlockPyStmt::Expr(
+            BlockPyExpr::from(py_expr!("yield right_value")),
+        ));
+        yield_right.set_term(BlockPyTerm::Jump("done".into()));
+        let done = crate::basic_block::block_py::BlockPyBlock {
+            label: "done".into(),
+            body: Vec::new(),
+            term: BlockPyTerm::Return(None),
+            meta: Default::default(),
+        };
+        let mut try_regions = Vec::new();
+        let mut resume_order = Vec::new();
+        let mut yield_sites = Vec::new();
+        let mut next_block_id = 0usize;
+
+        let (lowered_blocks, lowered_entry) = try_lower_simple_generator_blocks_post_blockpy(
+            vec![
+                start,
+                yield_left.finish(None),
+                yield_right.finish(None),
+                done,
+            ],
+            "start",
+            false,
+            &mut try_regions,
+            &mut resume_order,
+            &mut yield_sites,
+            &mut next_block_id,
+            "gen",
+            None,
+        )
+        .expect("simple multi-yield block generator should lower post-BlockPy");
+
+        assert_eq!(lowered_entry, "start");
+        assert_eq!(yield_sites.len(), 2);
+        let start_block = lowered_blocks
+            .iter()
+            .find(|block| block.label.as_str() == "start")
+            .expect("lowered blocks should keep the original entry block");
+        let BlockPyTerm::IfTerm(if_term) = &start_block.term else {
+            panic!("expected start block to keep an if terminator");
+        };
+        let lowered_targets = yield_sites
+            .iter()
+            .map(|site| site.yield_label.as_str())
+            .collect::<Vec<_>>();
+        assert!(lowered_targets.contains(&if_term.then_label.as_str()));
+        assert!(lowered_targets.contains(&if_term.else_label.as_str()));
+        for site in &yield_sites {
+            assert!(lowered_blocks
+                .iter()
+                .any(|block| block.label.as_str() == site.resume_label));
+        }
     }
 
     #[test]
