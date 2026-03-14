@@ -915,7 +915,7 @@ impl Transformer for NamedExprRewriter<'_> {
     }
 }
 
-fn make_tuple_splat(elts: Vec<Expr>) -> Expr {
+pub(crate) fn make_tuple_splat(elts: Vec<Expr>) -> Expr {
     let mut segments: Vec<Expr> = Vec::new();
     let mut values: Vec<Expr> = Vec::new();
 

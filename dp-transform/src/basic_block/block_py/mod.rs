@@ -1,6 +1,8 @@
 use super::bb_ir::{BbClosureLayout, FunctionId};
 use super::cfg_ir::{CfgBlock, CfgCallableDef, CfgModule};
-use crate::basic_block::ast_to_ast::rewrite_expr::{make_binop, make_tuple, make_unaryop};
+use crate::basic_block::ast_to_ast::rewrite_expr::{
+    make_binop, make_tuple, make_tuple_splat, make_unaryop,
+};
 use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr, ExprName, Parameters};
 use std::ops::{Deref, DerefMut};
@@ -488,35 +490,6 @@ impl From<Expr> for BlockPyExpr {
     }
 }
 
-fn core_make_tuple_splat(elts: Vec<Expr>) -> Expr {
-    let mut segments = Vec::new();
-    let mut values: Vec<Expr> = Vec::new();
-
-    for elt in elts {
-        match elt {
-            Expr::Starred(ast::ExprStarred { value, .. }) => {
-                if !values.is_empty() {
-                    segments.push(make_tuple(std::mem::take(&mut values)));
-                }
-                segments.push(py_expr!(
-                    "__dp_tuple_from_iter({value:expr})",
-                    value = *value
-                ));
-            }
-            other => values.push(other),
-        }
-    }
-
-    if !values.is_empty() {
-        segments.push(make_tuple(values));
-    }
-
-    segments
-        .into_iter()
-        .reduce(|left, right| make_binop("add", left, right))
-        .unwrap_or_else(|| make_tuple(Vec::new()))
-}
-
 fn reduce_core_blockpy_dict(items: Box<[ast::DictItem]>) -> CoreBlockPyExpr {
     let mut segments: Vec<Expr> = Vec::new();
     let mut keyed_pairs = Vec::new();
@@ -562,6 +535,7 @@ fn reduce_core_blockpy_dict(items: Box<[ast::DictItem]>) -> CoreBlockPyExpr {
 mod tests {
     use super::*;
     use crate::py_expr;
+    use crate::ruff_ast_to_string;
     use ruff_python_parser::parse_expression;
 
     #[test]
@@ -670,6 +644,39 @@ mod tests {
                 matches!(&*call.func, CoreBlockPyExpr::Name(name) if name.id.as_str() == intrinsic),
                 "{call:?}",
             );
+        }
+    }
+
+    #[test]
+    fn core_blockpy_expr_reuses_shared_tuple_splat_intrinsic_shape() {
+        let parsed = *parse_expression("(x, *xs, y)").unwrap().into_syntax().body;
+        let CoreBlockPyExpr::Call(call) = CoreBlockPyExpr::from(parsed) else {
+            panic!("expected call-shaped reduced tuple expr");
+        };
+        assert!(matches!(
+            &*call.func,
+            CoreBlockPyExpr::Name(name) if name.id.as_str() == "__dp_add"
+        ));
+        let rendered = ruff_ast_to_string(&Expr::from(CoreBlockPyExpr::Call(call)));
+        assert!(rendered.contains("__dp_tuple_from_iter(xs)"), "{rendered}");
+    }
+
+    #[test]
+    fn core_blockpy_expr_reuses_shared_tuple_splat_for_list_and_set() {
+        for (expr, intrinsic) in [("[x, *xs, y]", "__dp_list"), ("{x, *xs, y}", "__dp_set")] {
+            let parsed = *parse_expression(expr).unwrap().into_syntax().body;
+            let CoreBlockPyExpr::Call(call) = CoreBlockPyExpr::from(parsed) else {
+                panic!("expected call-shaped reduced expr for {expr}");
+            };
+            assert!(matches!(
+                &*call.func,
+                CoreBlockPyExpr::Name(name) if name.id.as_str() == intrinsic
+            ));
+            let [CoreBlockPyCallArg::Positional(tupleish)] = &call.args[..] else {
+                panic!("expected one positional arg for {expr}");
+            };
+            let rendered = ruff_ast_to_string(&tupleish.to_expr());
+            assert!(rendered.contains("__dp_tuple_from_iter(xs)"), "{rendered}");
         }
     }
 }
@@ -839,7 +846,7 @@ impl From<Expr> for CoreBlockPyExpr {
             }
             Expr::Tuple(node) if matches!(node.ctx, ast::ExprContext::Load) => {
                 let tuple = if node.elts.iter().any(Expr::is_starred_expr) {
-                    core_make_tuple_splat(node.elts)
+                    make_tuple_splat(node.elts)
                 } else {
                     make_tuple(node.elts)
                 };
@@ -847,7 +854,7 @@ impl From<Expr> for CoreBlockPyExpr {
             }
             Expr::List(node) if matches!(node.ctx, ast::ExprContext::Load) => {
                 let tuple = if node.elts.iter().any(Expr::is_starred_expr) {
-                    core_make_tuple_splat(node.elts)
+                    make_tuple_splat(node.elts)
                 } else {
                     make_tuple(node.elts)
                 };
@@ -855,7 +862,7 @@ impl From<Expr> for CoreBlockPyExpr {
             }
             Expr::Set(node) => {
                 let tuple = if node.elts.iter().any(Expr::is_starred_expr) {
-                    core_make_tuple_splat(node.elts)
+                    make_tuple_splat(node.elts)
                 } else {
                     make_tuple(node.elts)
                 };
