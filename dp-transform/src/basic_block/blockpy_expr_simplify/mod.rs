@@ -1,14 +1,17 @@
 use super::{
-    BlockPyBlockMeta, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete, BlockPyIf,
-    BlockPyIfTerm, BlockPyRaise, BlockPyStmtFragmentBuilder, BlockPyTerm, CoreBlockPyAssign,
-    CoreBlockPyBlock, CoreBlockPyCallableDef, CoreBlockPyExpr, CoreBlockPyModule, CoreBlockPyStmt,
-    CoreBlockPyStmtFragment, CoreBlockPyTerm, SemanticBlockPyBlock, SemanticBlockPyCallableDef,
-    SemanticBlockPyModule, SemanticBlockPyStmt, SemanticBlockPyTerm,
+    block_py::{
+        BlockPyBlockMeta, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete, BlockPyIf,
+        BlockPyIfTerm, BlockPyRaise, BlockPyStmtFragmentBuilder, BlockPyTerm, CoreBlockPyAssign,
+        CoreBlockPyBlock, CoreBlockPyCallableDef, CoreBlockPyExpr, CoreBlockPyModule,
+        CoreBlockPyStmt, CoreBlockPyStmtFragment, CoreBlockPyTerm, SemanticBlockPyBlock,
+        SemanticBlockPyCallableDef, SemanticBlockPyExpr, SemanticBlockPyModule,
+        SemanticBlockPyStmt, SemanticBlockPyStmtFragment, SemanticBlockPyTerm,
+    },
+    cfg_ir::CfgCallableDef,
 };
-use crate::basic_block::cfg_ir::CfgCallableDef;
 
 type CoreStmtBuilder = BlockPyStmtFragmentBuilder<CoreBlockPyExpr>;
-type SemanticExpr = super::BlockPyExpr;
+type SemanticExpr = SemanticBlockPyExpr;
 
 pub(crate) trait PureCoreExprReducer {
     fn reduce_expr(&self, expr: &SemanticExpr) -> CoreBlockPyExpr;
@@ -57,7 +60,7 @@ fn lower_semantic_stmt_fragment(fragment: &CoreLikeStmtFragmentInput) -> CoreBlo
     builder.finish()
 }
 
-type CoreLikeStmtFragmentInput = super::SemanticBlockPyStmtFragment;
+type CoreLikeStmtFragmentInput = SemanticBlockPyStmtFragment;
 
 fn lower_semantic_stmt_into(builder: &mut CoreStmtBuilder, stmt: &SemanticBlockPyStmt) {
     match stmt {
@@ -167,7 +170,7 @@ fn lower_semantic_block(block: &SemanticBlockPyBlock) -> CoreBlockPyBlock {
     }
 }
 
-pub(crate) fn lower_semantic_blockpy_callable_def_to_core(
+pub(crate) fn simplify_blockpy_callable_def_exprs(
     callable_def: &SemanticBlockPyCallableDef,
 ) -> CoreBlockPyCallableDef {
     CoreBlockPyCallableDef {
@@ -194,29 +197,27 @@ pub(crate) fn lower_semantic_blockpy_callable_def_to_core(
     }
 }
 
-pub(crate) fn lower_semantic_blockpy_module_to_core(
-    module: &SemanticBlockPyModule,
-) -> CoreBlockPyModule {
+pub(crate) fn simplify_blockpy_module_exprs(module: &SemanticBlockPyModule) -> CoreBlockPyModule {
     CoreBlockPyModule {
         module_init: module.module_init.clone(),
         callable_defs: module
             .callable_defs
             .iter()
-            .map(lower_semantic_blockpy_callable_def_to_core)
+            .map(simplify_blockpy_callable_def_exprs)
             .collect(),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::lower_semantic_blockpy_module_to_core;
+    use super::simplify_blockpy_module_exprs;
     use crate::basic_block::block_py::pretty::blockpy_module_to_string;
     use crate::basic_block::block_py::{CoreBlockPyCallArg, CoreBlockPyExpr, SemanticBlockPyExpr};
     use crate::py_expr;
     use crate::{transform_str_to_ruff_with_options, Options};
 
     #[test]
-    fn lowering_semantic_blockpy_to_core_preserves_control_flow_but_reduces_exprs() {
+    fn expr_simplify_preserves_control_flow_but_reduces_exprs() {
         let blockpy = transform_str_to_ruff_with_options(
             r#"
 def f(x):
@@ -229,7 +230,7 @@ def f(x):
         .unwrap()
         .blockpy_module
         .expect("expected BlockPy module");
-        let core = lower_semantic_blockpy_module_to_core(&blockpy);
+        let core = simplify_blockpy_module_exprs(&blockpy);
         let semantic_rendered = blockpy_module_to_string(&blockpy);
         let core_rendered = blockpy_module_to_string(&core);
 
@@ -242,7 +243,7 @@ def f(x):
     }
 
     #[test]
-    fn semantic_to_core_lowering_recurses_bottom_up_for_operator_family() {
+    fn expr_simplify_recurses_bottom_up_for_operator_family() {
         let expr = SemanticBlockPyExpr::from(py_expr!("-(x + 1)"));
         let lowered = super::lower_semantic_expr_without_setup(&expr);
 

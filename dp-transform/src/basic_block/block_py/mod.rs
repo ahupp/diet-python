@@ -6,7 +6,6 @@ use ruff_python_ast::{self as ast, Expr, ExprName, Parameters};
 use std::ops::{Deref, DerefMut};
 
 pub(crate) mod cfg;
-pub(crate) mod core_lower;
 pub(crate) mod dataflow;
 pub(crate) mod exception;
 pub(crate) mod pretty;

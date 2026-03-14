@@ -4,6 +4,7 @@ pub(crate) mod ast_to_ast;
 mod await_lower;
 pub mod bb_ir;
 pub mod block_py;
+mod blockpy_expr_simplify;
 mod blockpy_generators;
 mod blockpy_to_bb;
 mod bound_names;

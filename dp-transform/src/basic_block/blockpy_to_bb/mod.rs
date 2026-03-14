@@ -6,13 +6,13 @@ use super::bb_ir::{
     BbBlock, BbBlockMeta, BbExpr, BbFunction, BbModule, BbOp, BbTerm, BindingTarget,
 };
 use super::block_py::cfg::linearize_structured_ifs;
-use super::block_py::core_lower::lower_semantic_blockpy_callable_def_to_core;
 use super::block_py::exception::is_dp_lookup_call;
 use super::block_py::state::collect_parameter_names;
 use super::block_py::{
     BlockPyBlock, BlockPyBlockMeta, BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyStmt,
     BlockPyTerm,
 };
+use super::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use super::cfg_ir::{CfgCallableDef, CfgModule};
 use super::ruff_to_blockpy::{LoweredBlockPyFunction, LoweredBlockPyFunctionBundle};
 use super::stmt_utils::{flatten_stmt, flatten_stmt_boxes, stmt_body_from_stmts};
@@ -116,7 +116,7 @@ pub(crate) fn lower_blockpy_function_to_bb_function(
     lowered: &LoweredBlockPyFunction,
     binding_target_override: Option<BindingTarget>,
 ) -> BbFunction {
-    let core_callable_def = lower_semantic_blockpy_callable_def_to_core(&lowered.callable_def);
+    let core_callable_def = simplify_blockpy_callable_def_exprs(&lowered.callable_def);
     let (linear_blocks, linear_block_params, linear_exception_edges) = linearize_structured_ifs(
         &core_callable_def.blocks,
         &lowered.block_params,
