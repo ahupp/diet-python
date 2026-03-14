@@ -153,6 +153,9 @@ pub struct SimplifyExprPass;
 
 impl ExprRewritePass for SimplifyExprPass {
     fn lower_expr(&self, context: &Context, expr: Expr) -> LoweredExpr {
-        lower_expr(context, expr)
+        match expr {
+            Expr::If(_) => LoweredExpr::unmodified(expr),
+            other => lower_expr(context, other),
+        }
     }
 }

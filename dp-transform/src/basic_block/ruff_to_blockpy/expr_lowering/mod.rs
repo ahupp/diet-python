@@ -7,6 +7,7 @@ use crate::basic_block::stmt_utils::flatten_stmt_boxes;
 use ruff_python_ast::Expr;
 
 mod boolop_compare;
+mod if_expr;
 mod recursive;
 
 pub(crate) trait BlockPySetupExprLowerer {
@@ -72,7 +73,6 @@ impl BlockPySetupExprLowerer for AstSetupExprLowerer {
     fn simplify_expr_ast(&self, context: &Context, expr: Expr) -> LoweredExpr {
         match expr {
             Expr::Named(_)
-            | Expr::If(_)
             | Expr::Lambda(_)
             | Expr::Generator(_)
             | Expr::ListComp(_)

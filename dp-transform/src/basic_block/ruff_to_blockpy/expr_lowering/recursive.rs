@@ -4,6 +4,7 @@ use crate::basic_block::block_py::BlockPyStmtFragmentBuilder;
 use crate::basic_block::ruff_to_blockpy::expr_lowering::boolop_compare::{
     lower_boolop_into, lower_compare_into,
 };
+use crate::basic_block::ruff_to_blockpy::expr_lowering::if_expr::lower_if_expr_into;
 use crate::basic_block::ruff_to_blockpy::LoopContext;
 use ruff_python_ast::{self as ast, Expr};
 
@@ -25,6 +26,9 @@ where
         }
         Expr::Compare(compare) => {
             lower_compare_into(lowerer, context, compare, out, loop_ctx, next_label_id)
+        }
+        Expr::If(if_expr) => {
+            lower_if_expr_into(lowerer, context, if_expr, out, loop_ctx, next_label_id)
         }
         Expr::Attribute(ast::ExprAttribute {
             value,
@@ -377,7 +381,6 @@ where
             node_index,
         })),
         Expr::Named(_)
-        | Expr::If(_)
         | Expr::Lambda(_)
         | Expr::Generator(_)
         | Expr::ListComp(_)

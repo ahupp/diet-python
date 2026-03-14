@@ -393,6 +393,40 @@ def choose(a, b, c):
     }
 
     #[test]
+    fn rewritten_ruff_ast_can_keep_if_expr_while_blockpy_expr_lowering_handles_it() {
+        let source = r#"
+def choose(cond, a, b):
+    return f(a if cond else b)
+"#;
+
+        let mut module = ruff_python_parser::parse_module(source)
+            .expect("parse should succeed")
+            .into_syntax();
+        let context =
+            crate::basic_block::ast_to_ast::context::Context::new(Options::for_test(), source);
+        crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass(
+            &context,
+            Some(&crate::basic_block::BBSimplifyStmtPass),
+            Some(&crate::driver::SimplifyExprPass),
+            &mut module.body,
+        );
+        let rendered = crate::ruff_ast_to_string(&module.body);
+        assert!(rendered.contains("a if cond else b"), "{rendered}");
+
+        let bb_module = transform_str_to_bb_ir_with_options(source, Options::for_test())
+            .expect("transform should succeed")
+            .expect("bb module should be available");
+        let choose = function_by_name(&bb_module, "choose");
+        assert!(
+            choose
+                .blocks
+                .iter()
+                .any(|block| matches!(block.term, crate::basic_block::bb_ir::BbTerm::BrIf { .. })),
+            "{choose:?}"
+        );
+    }
+
+    #[test]
     fn rewritten_ruff_ast_can_keep_async_generator_await_while_blockpy_generator_lowering_handles_it(
     ) {
         let source = r#"

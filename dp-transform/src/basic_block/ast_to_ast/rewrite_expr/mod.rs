@@ -73,25 +73,6 @@ pub fn lower_expr(context: &Context, expr: Expr) -> LoweredExpr {
                 ),
             )
         }
-        Expr::If(if_expr) => {
-            let tmp = context.fresh("tmp");
-            let ast::ExprIf {
-                test, body, orelse, ..
-            } = if_expr;
-            let stmts = py_stmt!(
-                r#"
-if {cond:expr}:
-    {tmp:id} = {body:expr}
-else:
-    {tmp:id} = {orelse:expr}
-"#,
-                cond = *test,
-                tmp = tmp.as_str(),
-                body = *body,
-                orelse = *orelse,
-            );
-            LoweredExpr::modified(py_expr!("{tmp:id}", tmp = tmp.as_str()), stmts)
-        }
         Expr::Call(ast::ExprCall {
             func,
             arguments,
