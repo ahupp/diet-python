@@ -1015,10 +1015,6 @@ pub(crate) fn try_lower_simple_generator_blocks_post_blockpy(
     fn_name: &str,
     cell_slots: Option<&HashSet<String>>,
 ) -> Option<(Vec<BlockPyBlock>, String)> {
-    if !try_regions.is_empty() {
-        return None;
-    }
-
     let mut current_entry = entry_label.to_string();
     let mut worklist = VecDeque::new();
     let mut queued = HashSet::new();
@@ -1058,12 +1054,21 @@ pub(crate) fn try_lower_simple_generator_blocks_post_blockpy(
         if let Some(rest_block) = rest_block {
             generated.push(rest_block);
         }
+        let generated_len = generated.len();
         blocks.splice(target_index..=target_index, generated);
 
+        let mut rename = HashMap::new();
         if lowered_entry != target_label {
-            let mut rename = HashMap::new();
             rename.insert(target_label.clone(), lowered_entry.clone());
             rename_blockpy_labels(&rename, &mut blocks);
+        }
+        let generated_labels = blocks[target_index..target_index + generated_len]
+            .iter()
+            .map(|block| block.label.as_str().to_string())
+            .collect::<Vec<_>>();
+        replace_try_region_label_membership(try_regions, target_label.as_str(), &generated_labels);
+        if !rename.is_empty() {
+            relabel_try_regions(try_regions, &rename);
         }
 
         if target_label == current_entry {
@@ -1073,11 +1078,115 @@ pub(crate) fn try_lower_simple_generator_blocks_post_blockpy(
         enqueue_simple_generator_candidate_labels(&blocks, &mut worklist, &mut queued);
     }
 
-    if !lowered_any {
+    if !lowered_any || blocks_contain_unlowered_generator_exprs(&blocks) {
         return None;
     }
 
     Some((blocks, current_entry))
+}
+
+fn blocks_contain_unlowered_generator_exprs(blocks: &[BlockPyBlock]) -> bool {
+    blocks.iter().any(block_contains_unlowered_generator_exprs)
+}
+
+fn block_contains_unlowered_generator_exprs(block: &BlockPyBlock) -> bool {
+    block
+        .body
+        .iter()
+        .any(stmt_contains_unlowered_generator_exprs)
+        || term_contains_unlowered_generator_exprs(&block.term)
+}
+
+fn stmt_contains_unlowered_generator_exprs(stmt: &BlockPyStmt) -> bool {
+    match stmt {
+        BlockPyStmt::Expr(expr) => expr_contains_unlowered_generator_exprs(expr),
+        BlockPyStmt::Assign(assign) => expr_contains_unlowered_generator_exprs(&assign.value),
+        BlockPyStmt::If(if_stmt) => {
+            fragment_contains_unlowered_generator_exprs(&if_stmt.body)
+                || fragment_contains_unlowered_generator_exprs(&if_stmt.orelse)
+        }
+        _ => false,
+    }
+}
+
+fn fragment_contains_unlowered_generator_exprs(
+    fragment: &crate::basic_block::block_py::SemanticBlockPyStmtFragment,
+) -> bool {
+    fragment
+        .body
+        .iter()
+        .any(stmt_contains_unlowered_generator_exprs)
+        || fragment
+            .term
+            .as_ref()
+            .is_some_and(term_contains_unlowered_generator_exprs)
+}
+
+fn term_contains_unlowered_generator_exprs(term: &BlockPyTerm) -> bool {
+    match term {
+        BlockPyTerm::Return(Some(expr)) => expr_contains_unlowered_generator_exprs(expr),
+        _ => false,
+    }
+}
+
+fn expr_contains_unlowered_generator_exprs(expr: &BlockPyExpr) -> bool {
+    matches!(expr, BlockPyExpr::Yield(_) | BlockPyExpr::YieldFrom(_))
+}
+
+fn replace_try_region_label_membership(
+    try_regions: &mut [TryRegionPlan],
+    old_label: &str,
+    new_labels: &[String],
+) {
+    for region in try_regions {
+        replace_label_membership(&mut region.body_region_labels, old_label, new_labels);
+        replace_label_membership(&mut region.cleanup_region_labels, old_label, new_labels);
+    }
+}
+
+fn replace_label_membership(labels: &mut Vec<String>, old_label: &str, new_labels: &[String]) {
+    let mut rewritten = Vec::with_capacity(labels.len() + new_labels.len());
+    let mut changed = false;
+    for label in labels.iter() {
+        if label == old_label {
+            rewritten.extend(new_labels.iter().cloned());
+            changed = true;
+        } else {
+            rewritten.push(label.clone());
+        }
+    }
+    if changed {
+        dedup_labels_preserve_order(&mut rewritten);
+        *labels = rewritten;
+    }
+}
+
+fn dedup_labels_preserve_order(labels: &mut Vec<String>) {
+    let mut seen = HashSet::new();
+    labels.retain(|label| seen.insert(label.clone()));
+}
+
+fn relabel_try_regions(try_regions: &mut [TryRegionPlan], rename: &HashMap<String, String>) {
+    for region in try_regions {
+        for label in &mut region.body_region_labels {
+            if let Some(rewritten) = rename.get(label.as_str()) {
+                *label = rewritten.clone();
+            }
+        }
+        if let Some(rewritten) = rename.get(region.body_exception_target.as_str()) {
+            region.body_exception_target = rewritten.clone();
+        }
+        for label in &mut region.cleanup_region_labels {
+            if let Some(rewritten) = rename.get(label.as_str()) {
+                *label = rewritten.clone();
+            }
+        }
+        if let Some(target) = region.cleanup_exception_target.as_mut() {
+            if let Some(rewritten) = rename.get(target.as_str()) {
+                *target = rewritten.clone();
+            }
+        }
+    }
 }
 
 fn enqueue_simple_generator_candidate_labels(
@@ -2374,7 +2483,7 @@ mod tests {
     use crate::basic_block::block_py::{
         BlockPyBlockBuilder, BlockPyExpr, BlockPyIfTerm, BlockPyTerm,
     };
-    use crate::basic_block::ruff_to_blockpy::lower_stmts_to_blockpy_stmts;
+    use crate::basic_block::ruff_to_blockpy::{lower_stmts_to_blockpy_stmts, TryRegionPlan};
     use crate::py_expr;
     use ruff_python_ast::Stmt;
     use std::collections::HashSet;
@@ -2731,6 +2840,69 @@ mod tests {
         .expect("closure-backed async generator route should not error");
 
         assert!(lowered.is_some());
+    }
+
+    #[test]
+    fn try_regions_follow_lowered_generator_blocks_and_targets() {
+        let mut body =
+            crate::basic_block::block_py::BlockPyBlockBuilder::<BlockPyExpr>::new("body".into());
+        body.push_stmt(crate::basic_block::block_py::BlockPyStmt::Expr(
+            BlockPyExpr::from(py_expr!("yield body_value")),
+        ));
+        body.set_term(BlockPyTerm::Jump("done".into()));
+        let mut except_entry =
+            crate::basic_block::block_py::BlockPyBlockBuilder::<BlockPyExpr>::new(
+                "except_entry".into(),
+            );
+        except_entry.push_stmt(crate::basic_block::block_py::BlockPyStmt::Expr(
+            BlockPyExpr::from(py_expr!("yield exc_value")),
+        ));
+        except_entry.set_term(BlockPyTerm::Jump("done".into()));
+        let done = crate::basic_block::block_py::BlockPyBlock {
+            label: "done".into(),
+            body: Vec::new(),
+            term: BlockPyTerm::Return(None),
+            meta: Default::default(),
+        };
+        let mut try_regions = vec![TryRegionPlan {
+            body_region_labels: vec!["body".to_string()],
+            body_exception_target: "except_entry".to_string(),
+            cleanup_region_labels: Vec::new(),
+            cleanup_exception_target: None,
+        }];
+        let mut resume_order = Vec::new();
+        let mut yield_sites = Vec::new();
+        let mut next_block_id = 0usize;
+
+        let (lowered_blocks, lowered_entry) = try_lower_simple_generator_blocks_post_blockpy(
+            vec![body.finish(None), except_entry.finish(None), done],
+            "body",
+            false,
+            &mut try_regions,
+            &mut resume_order,
+            &mut yield_sites,
+            &mut next_block_id,
+            "gen",
+            None,
+        )
+        .expect("generator blocks inside try regions should lower post-BlockPy");
+
+        assert_ne!(lowered_entry, "body");
+        assert_eq!(yield_sites.len(), 2);
+        assert!(!try_regions[0]
+            .body_region_labels
+            .iter()
+            .any(|label| label == "body"));
+        assert_ne!(try_regions[0].body_exception_target, "except_entry");
+        for label in &try_regions[0].body_region_labels {
+            let label = label.as_str();
+            assert!(lowered_blocks
+                .iter()
+                .any(|block| block.label.as_str() == label));
+        }
+        assert!(lowered_blocks.iter().any(|block| {
+            block.label.as_str() == try_regions[0].body_exception_target.as_str()
+        }));
     }
 
     #[test]
