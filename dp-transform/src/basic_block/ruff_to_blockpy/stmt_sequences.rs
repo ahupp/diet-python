@@ -106,7 +106,7 @@ where
                     linear,
                     index,
                     plan,
-                }
+                };
             }
         }
     }

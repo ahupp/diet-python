@@ -1,4 +1,4 @@
-use crate::{basic_block::ast_to_ast::rewrite_expr::make_tuple, py_expr};
+use crate::{basic_block::expr_utils::make_tuple, py_expr};
 use ruff_python_ast::str_prefix::StringLiteralPrefix;
 use ruff_python_ast::{self as ast, Expr};
 use ruff_python_parser::parse_expression;

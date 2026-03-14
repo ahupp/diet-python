@@ -1,6 +1,6 @@
 use super::*;
 use crate::basic_block::ast_to_ast::ast_rewrite::Rewrite;
-use crate::basic_block::ast_to_ast::rewrite_expr::make_binop;
+use crate::basic_block::expr_utils::make_binop;
 use ruff_python_ast::Operator;
 
 pub(crate) fn should_rewrite_assignment_targets(targets: &[Expr]) -> bool {

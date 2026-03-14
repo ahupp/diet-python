@@ -2,13 +2,18 @@ use super::{
     block_py::{
         BlockPyBlockMeta, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete, BlockPyIf,
         BlockPyIfTerm, BlockPyRaise, BlockPyStmtFragmentBuilder, BlockPyTerm, CoreBlockPyAssign,
-        CoreBlockPyBlock, CoreBlockPyCallableDef, CoreBlockPyExpr, CoreBlockPyModule,
-        CoreBlockPyStmt, CoreBlockPyStmtFragment, CoreBlockPyTerm, SemanticBlockPyBlock,
-        SemanticBlockPyCallableDef, SemanticBlockPyExpr, SemanticBlockPyModule,
-        SemanticBlockPyStmt, SemanticBlockPyStmtFragment, SemanticBlockPyTerm,
+        CoreBlockPyAwait, CoreBlockPyBlock, CoreBlockPyCall, CoreBlockPyCallArg,
+        CoreBlockPyCallableDef, CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
+        CoreBlockPyModule, CoreBlockPyStmt, CoreBlockPyStmtFragment, CoreBlockPyTerm,
+        CoreBlockPyYield, CoreBlockPyYieldFrom, SemanticBlockPyBlock, SemanticBlockPyCallableDef,
+        SemanticBlockPyExpr, SemanticBlockPyModule, SemanticBlockPyStmt,
+        SemanticBlockPyStmtFragment, SemanticBlockPyTerm,
     },
     cfg_ir::CfgCallableDef,
 };
+use crate::basic_block::expr_utils::{make_binop, make_tuple, make_tuple_splat, make_unaryop};
+use crate::py_expr;
+use ruff_python_ast::{self as ast, Expr};
 
 type CoreStmtBuilder = BlockPyStmtFragmentBuilder<CoreBlockPyExpr>;
 type SemanticExpr = SemanticBlockPyExpr;
@@ -22,6 +27,223 @@ struct DefaultCoreExprReducer;
 impl PureCoreExprReducer for DefaultCoreExprReducer {
     fn reduce_expr(&self, expr: &SemanticExpr) -> CoreBlockPyExpr {
         expr.clone().into()
+    }
+}
+
+fn reduce_core_blockpy_dict(items: Box<[ast::DictItem]>) -> CoreBlockPyExpr {
+    let mut segments: Vec<Expr> = Vec::new();
+    let mut keyed_pairs = Vec::new();
+
+    for item in items {
+        match item {
+            ast::DictItem {
+                key: Some(key),
+                value,
+            } => {
+                keyed_pairs.push(py_expr!(
+                    "({key:expr}, {value:expr})",
+                    key = key,
+                    value = value,
+                ));
+            }
+            ast::DictItem { key: None, value } => {
+                if !keyed_pairs.is_empty() {
+                    let tuple = make_tuple(std::mem::take(&mut keyed_pairs));
+                    segments.push(py_expr!("__dp_dict({tuple:expr})", tuple = tuple));
+                }
+                segments.push(py_expr!("__dp_dict({mapping:expr})", mapping = value));
+            }
+        }
+    }
+
+    if !keyed_pairs.is_empty() {
+        let tuple = make_tuple(keyed_pairs);
+        segments.push(py_expr!("__dp_dict({tuple:expr})", tuple = tuple));
+    }
+
+    let expr = match segments.len() {
+        0 => py_expr!("__dp_dict()"),
+        _ => segments
+            .into_iter()
+            .reduce(|left, right| make_binop("or_", left, right))
+            .expect("dict segments are non-empty"),
+    };
+    CoreBlockPyExpr::from(expr)
+}
+
+impl From<Expr> for CoreBlockPyExpr {
+    fn from(value: Expr) -> Self {
+        match value {
+            Expr::Call(node) => Self::Call(CoreBlockPyCall {
+                node_index: node.node_index,
+                range: node.range,
+                func: Box::new(Self::from(*node.func)),
+                args: node
+                    .arguments
+                    .args
+                    .into_vec()
+                    .into_iter()
+                    .map(|arg| match arg {
+                        Expr::Starred(starred) => {
+                            CoreBlockPyCallArg::Starred(Self::from(*starred.value))
+                        }
+                        other => CoreBlockPyCallArg::Positional(Self::from(other)),
+                    })
+                    .collect(),
+                keywords: node
+                    .arguments
+                    .keywords
+                    .into_vec()
+                    .into_iter()
+                    .map(|keyword| match keyword.arg {
+                        Some(arg) => CoreBlockPyKeywordArg::Named {
+                            arg,
+                            value: Self::from(keyword.value),
+                        },
+                        None => CoreBlockPyKeywordArg::Starred(Self::from(keyword.value)),
+                    })
+                    .collect(),
+            }),
+            Expr::Await(node) => Self::Await(CoreBlockPyAwait {
+                node_index: node.node_index,
+                range: node.range,
+                value: Box::new(Self::from(*node.value)),
+            }),
+            Expr::Yield(node) => Self::Yield(CoreBlockPyYield {
+                node_index: node.node_index,
+                range: node.range,
+                value: node.value.map(|value| Box::new(Self::from(*value))),
+            }),
+            Expr::YieldFrom(node) => Self::YieldFrom(CoreBlockPyYieldFrom {
+                node_index: node.node_index,
+                range: node.range,
+                value: Box::new(Self::from(*node.value)),
+            }),
+            Expr::StringLiteral(node) => Self::Literal(CoreBlockPyLiteral::StringLiteral(node)),
+            Expr::BytesLiteral(node) => Self::Literal(CoreBlockPyLiteral::BytesLiteral(node)),
+            Expr::NumberLiteral(node) => Self::Literal(CoreBlockPyLiteral::NumberLiteral(node)),
+            Expr::BooleanLiteral(node) => Self::Literal(CoreBlockPyLiteral::BooleanLiteral(node)),
+            Expr::NoneLiteral(node) => Self::Literal(CoreBlockPyLiteral::NoneLiteral(node)),
+            Expr::EllipsisLiteral(node) => Self::Literal(CoreBlockPyLiteral::EllipsisLiteral(node)),
+            Expr::Attribute(node) if matches!(node.ctx, ast::ExprContext::Load) => {
+                Self::from(py_expr!(
+                    "__dp_getattr({value:expr}, {attr:literal})",
+                    value = *node.value,
+                    attr = node.attr.id.as_str(),
+                ))
+            }
+            Expr::Subscript(node) if matches!(node.ctx, ast::ExprContext::Load) => {
+                Self::from(py_expr!(
+                    "__dp_getitem({value:expr}, {slice:expr})",
+                    value = *node.value,
+                    slice = *node.slice,
+                ))
+            }
+            Expr::UnaryOp(node) => {
+                let func_name = match node.op {
+                    ast::UnaryOp::Not => "not_",
+                    ast::UnaryOp::Invert => "invert",
+                    ast::UnaryOp::USub => "neg",
+                    ast::UnaryOp::UAdd => "pos",
+                };
+                Self::from(make_unaryop(func_name, *node.operand))
+            }
+            Expr::BinOp(node) => {
+                let func_name = match node.op {
+                    ast::Operator::Add => "add",
+                    ast::Operator::Sub => "sub",
+                    ast::Operator::Mult => "mul",
+                    ast::Operator::MatMult => "matmul",
+                    ast::Operator::Div => "truediv",
+                    ast::Operator::Mod => "mod",
+                    ast::Operator::Pow => "pow",
+                    ast::Operator::LShift => "lshift",
+                    ast::Operator::RShift => "rshift",
+                    ast::Operator::BitOr => "or_",
+                    ast::Operator::BitXor => "xor",
+                    ast::Operator::BitAnd => "and_",
+                    ast::Operator::FloorDiv => "floordiv",
+                };
+                Self::from(make_binop(func_name, *node.left, *node.right))
+            }
+            Expr::Compare(node) if node.ops.len() == 1 && node.comparators.len() == 1 => {
+                let left = *node.left;
+                let right = node
+                    .comparators
+                    .into_vec()
+                    .into_iter()
+                    .next()
+                    .expect("single compare comparator");
+                match node
+                    .ops
+                    .into_vec()
+                    .into_iter()
+                    .next()
+                    .expect("single compare op")
+                {
+                    ast::CmpOp::Eq => Self::from(make_binop("eq", left, right)),
+                    ast::CmpOp::NotEq => Self::from(make_binop("ne", left, right)),
+                    ast::CmpOp::Lt => Self::from(make_binop("lt", left, right)),
+                    ast::CmpOp::LtE => Self::from(make_binop("le", left, right)),
+                    ast::CmpOp::Gt => Self::from(make_binop("gt", left, right)),
+                    ast::CmpOp::GtE => Self::from(make_binop("ge", left, right)),
+                    ast::CmpOp::Is => Self::from(make_binop("is_", left, right)),
+                    ast::CmpOp::IsNot => Self::from(make_binop("is_not", left, right)),
+                    ast::CmpOp::In => Self::from(make_binop("contains", right, left)),
+                    ast::CmpOp::NotIn => {
+                        Self::from(make_unaryop("not_", make_binop("contains", right, left)))
+                    }
+                }
+            }
+            Expr::Tuple(node) if matches!(node.ctx, ast::ExprContext::Load) => {
+                let tuple = if node.elts.iter().any(Expr::is_starred_expr) {
+                    make_tuple_splat(node.elts)
+                } else {
+                    make_tuple(node.elts)
+                };
+                Self::from(tuple)
+            }
+            Expr::List(node) if matches!(node.ctx, ast::ExprContext::Load) => {
+                let tuple = if node.elts.iter().any(Expr::is_starred_expr) {
+                    make_tuple_splat(node.elts)
+                } else {
+                    make_tuple(node.elts)
+                };
+                Self::from(py_expr!("__dp_list({tuple:expr})", tuple = tuple))
+            }
+            Expr::Set(node) => {
+                let tuple = if node.elts.iter().any(Expr::is_starred_expr) {
+                    make_tuple_splat(node.elts)
+                } else {
+                    make_tuple(node.elts)
+                };
+                Self::from(py_expr!("__dp_set({tuple:expr})", tuple = tuple))
+            }
+            Expr::Slice(node) => Self::from(py_expr!(
+                "__dp_slice({lower:expr}, {upper:expr}, {step:expr})",
+                lower = node
+                    .lower
+                    .map(|expr| *expr)
+                    .unwrap_or_else(|| py_expr!("None")),
+                upper = node
+                    .upper
+                    .map(|expr| *expr)
+                    .unwrap_or_else(|| py_expr!("None")),
+                step = node
+                    .step
+                    .map(|expr| *expr)
+                    .unwrap_or_else(|| py_expr!("None")),
+            )),
+            Expr::Dict(node) => reduce_core_blockpy_dict(node.items.into()),
+            Expr::Name(node) => Self::Name(node),
+            other => Self::Raw(other),
+        }
+    }
+}
+
+impl From<super::block_py::BlockPyExpr> for CoreBlockPyExpr {
+    fn from(value: super::block_py::BlockPyExpr) -> Self {
+        Expr::from(value).into()
     }
 }
 
@@ -212,9 +434,15 @@ pub(crate) fn simplify_blockpy_module_exprs(module: &SemanticBlockPyModule) -> C
 mod tests {
     use super::simplify_blockpy_module_exprs;
     use crate::basic_block::block_py::pretty::blockpy_module_to_string;
-    use crate::basic_block::block_py::{CoreBlockPyCallArg, CoreBlockPyExpr, SemanticBlockPyExpr};
+    use crate::basic_block::block_py::{
+        CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
+        SemanticBlockPyExpr,
+    };
     use crate::py_expr;
+    use crate::ruff_ast_to_string;
     use crate::{transform_str_to_ruff_with_options, Options};
+    use ruff_python_ast::Expr;
+    use ruff_python_parser::parse_expression;
 
     #[test]
     fn expr_simplify_preserves_control_flow_but_reduces_exprs() {
@@ -261,5 +489,111 @@ def f(x):
             &*inner.func,
             CoreBlockPyExpr::Name(name) if name.id.as_str() == "__dp_add"
         ));
+    }
+
+    #[test]
+    fn core_blockpy_expr_uses_reduced_variants_for_simple_shapes() {
+        assert!(matches!(
+            CoreBlockPyExpr::from(py_expr!("x")),
+            CoreBlockPyExpr::Name(_)
+        ));
+        assert!(matches!(
+            CoreBlockPyExpr::from(py_expr!("1")),
+            CoreBlockPyExpr::Literal(CoreBlockPyLiteral::NumberLiteral(_))
+        ));
+        assert!(matches!(
+            CoreBlockPyExpr::from(py_expr!("f(x)")),
+            CoreBlockPyExpr::Call(_)
+        ));
+        assert!(matches!(
+            CoreBlockPyExpr::from(py_expr!("await f(x)")),
+            CoreBlockPyExpr::Await(_)
+        ));
+        assert!(matches!(
+            CoreBlockPyExpr::from(py_expr!("yield x")),
+            CoreBlockPyExpr::Yield(_)
+        ));
+        assert!(matches!(
+            CoreBlockPyExpr::from(py_expr!("yield from xs")),
+            CoreBlockPyExpr::YieldFrom(_)
+        ));
+    }
+
+    #[test]
+    fn core_blockpy_call_supports_star_args_and_kwargs() {
+        let CoreBlockPyExpr::Call(call) = CoreBlockPyExpr::from(py_expr!("f(x, *args, y=z, **kw)"))
+        else {
+            panic!("expected reduced call expr");
+        };
+        assert!(matches!(&*call.func, CoreBlockPyExpr::Name(name) if name.id.as_str() == "f"));
+        assert_eq!(call.args.len(), 2);
+        assert!(matches!(call.args[0], CoreBlockPyCallArg::Positional(_)));
+        assert!(matches!(call.args[1], CoreBlockPyCallArg::Starred(_)));
+        assert_eq!(call.keywords.len(), 2);
+        assert!(matches!(
+            &call.keywords[0],
+            CoreBlockPyKeywordArg::Named { arg, .. } if arg.as_str() == "y"
+        ));
+        assert!(matches!(
+            call.keywords[1],
+            CoreBlockPyKeywordArg::Starred(_)
+        ));
+    }
+
+    #[test]
+    fn core_blockpy_expr_reduces_local_expr_forms_to_intrinsic_calls() {
+        for (expr, intrinsic) in [
+            ("obj.attr", "__dp_getattr"),
+            ("obj[idx]", "__dp_getitem"),
+            ("-x", "__dp_neg"),
+            ("x + y", "__dp_add"),
+            ("x < y", "__dp_lt"),
+            ("(x, y)", "__dp_tuple"),
+            ("[x, y]", "__dp_list"),
+            ("{x, y}", "__dp_set"),
+            ("{x: y}", "__dp_dict"),
+        ] {
+            let parsed = *parse_expression(expr).unwrap().into_syntax().body;
+            let CoreBlockPyExpr::Call(call) = CoreBlockPyExpr::from(parsed) else {
+                panic!("expected call-shaped reduced expr for {expr}");
+            };
+            assert!(
+                matches!(&*call.func, CoreBlockPyExpr::Name(name) if name.id.as_str() == intrinsic),
+                "{call:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn core_blockpy_expr_reuses_shared_tuple_splat_intrinsic_shape() {
+        let parsed = *parse_expression("(x, *xs, y)").unwrap().into_syntax().body;
+        let CoreBlockPyExpr::Call(call) = CoreBlockPyExpr::from(parsed) else {
+            panic!("expected call-shaped reduced tuple expr");
+        };
+        assert!(matches!(
+            &*call.func,
+            CoreBlockPyExpr::Name(name) if name.id.as_str() == "__dp_add"
+        ));
+        let rendered = ruff_ast_to_string(&Expr::from(CoreBlockPyExpr::Call(call)));
+        assert!(rendered.contains("__dp_tuple_from_iter(xs)"), "{rendered}");
+    }
+
+    #[test]
+    fn core_blockpy_expr_reuses_shared_tuple_splat_for_list_and_set() {
+        for (expr, intrinsic) in [("[x, *xs, y]", "__dp_list"), ("{x, *xs, y}", "__dp_set")] {
+            let parsed = *parse_expression(expr).unwrap().into_syntax().body;
+            let CoreBlockPyExpr::Call(call) = CoreBlockPyExpr::from(parsed) else {
+                panic!("expected call-shaped reduced expr for {expr}");
+            };
+            assert!(matches!(
+                &*call.func,
+                CoreBlockPyExpr::Name(name) if name.id.as_str() == intrinsic
+            ));
+            let [CoreBlockPyCallArg::Positional(tupleish)] = &call.args[..] else {
+                panic!("expected one positional arg for {expr}");
+            };
+            let rendered = ruff_ast_to_string(&tupleish.to_expr());
+            assert!(rendered.contains("__dp_tuple_from_iter(xs)"), "{rendered}");
+        }
     }
 }

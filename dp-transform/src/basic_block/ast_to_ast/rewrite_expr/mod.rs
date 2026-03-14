@@ -8,6 +8,7 @@ use ruff_text_size::TextRange;
 
 use crate::basic_block::ast_to_ast::ast_rewrite::{push_stmt, BodyBuilder};
 use crate::basic_block::ast_to_ast::scope::ScopeKind;
+use crate::basic_block::expr_utils::{make_binop, make_tuple, make_tuple_splat, make_unaryop};
 use crate::template::empty_body;
 use crate::transformer::{walk_expr, Transformer};
 use crate::{
@@ -913,58 +914,4 @@ impl Transformer for NamedExprRewriter<'_> {
         }
         walk_expr(self, expr);
     }
-}
-
-pub(crate) fn make_tuple_splat(elts: Vec<Expr>) -> Expr {
-    let mut segments: Vec<Expr> = Vec::new();
-    let mut values: Vec<Expr> = Vec::new();
-
-    for elt in elts {
-        match elt {
-            Expr::Starred(ast::ExprStarred { value, .. }) => {
-                if !values.is_empty() {
-                    segments.push(make_tuple(std::mem::take(&mut values)));
-                }
-                segments.push(py_expr!(
-                    "__dp_tuple_from_iter({value:expr})",
-                    value = *value
-                ));
-            }
-            other => values.push(other),
-        }
-    }
-
-    if !values.is_empty() {
-        segments.push(make_tuple(values));
-    }
-
-    segments
-        .into_iter()
-        .reduce(|left, right| make_binop("add", left, right))
-        .unwrap_or_else(|| make_tuple(Vec::new()))
-}
-
-pub(crate) fn make_tuple(elts: Vec<Expr>) -> Expr {
-    let Expr::Call(mut call) = py_expr!("__dp_tuple()") else {
-        panic!("expected __dp_tuple() template to parse as a call");
-    };
-    call.arguments.args = elts.into();
-    Expr::Call(call)
-}
-
-pub(crate) fn make_binop(func_name: &'static str, left: Expr, right: Expr) -> Expr {
-    py_expr!(
-        "__dp_{func:id}({left:expr}, {right:expr})",
-        left = left,
-        right = right,
-        func = func_name
-    )
-}
-
-pub(crate) fn make_unaryop(func_name: &'static str, operand: Expr) -> Expr {
-    py_expr!(
-        "__dp_{func:id}({operand:expr})",
-        operand = operand,
-        func = func_name
-    )
 }

@@ -23,7 +23,7 @@ use super::cfg_ir::CfgCallableDef;
 use super::stmt_utils::flatten_stmt_boxes;
 use crate::basic_block::ast_to_ast::ast_rewrite::Rewrite;
 use crate::basic_block::ast_to_ast::context::Context;
-use crate::basic_block::ast_to_ast::rewrite_expr::make_tuple;
+use crate::basic_block::expr_utils::make_tuple;
 use crate::namegen::fresh_name;
 use crate::ruff_ast_to_string;
 use crate::template::{empty_body, into_body, is_simple};

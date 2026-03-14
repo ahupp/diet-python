@@ -1,10 +1,10 @@
 use super::BlockPySetupExprLowerer;
 use crate::basic_block::ast_to_ast::context::Context;
-use crate::basic_block::ast_to_ast::rewrite_expr::{make_binop, make_unaryop};
 use crate::basic_block::block_py::{
     BlockPyAssign, BlockPyCfgFragment, BlockPyIf, BlockPyStmt, BlockPyStmtFragmentBuilder,
     BlockPyTerm,
 };
+use crate::basic_block::expr_utils::{make_binop, make_unaryop};
 use crate::basic_block::ruff_to_blockpy::LoopContext;
 use crate::py_expr;
 use ruff_python_ast::{self as ast, CmpOp, Expr};

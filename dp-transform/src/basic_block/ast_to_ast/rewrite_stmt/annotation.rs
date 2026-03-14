@@ -4,7 +4,7 @@ use ruff_source_file::LineEnding;
 
 use crate::transformer::{walk_stmt, Transformer};
 use crate::{
-    basic_block::ast_to_ast::{context::Context, rewrite_expr::make_tuple},
+    basic_block::{ast_to_ast::context::Context, expr_utils::make_tuple},
     py_expr, py_stmt,
 };
 

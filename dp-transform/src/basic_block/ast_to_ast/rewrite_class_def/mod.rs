@@ -3,7 +3,7 @@ pub mod method;
 pub mod private;
 
 use crate::basic_block::ast_to_ast::context::Context;
-use crate::basic_block::ast_to_ast::rewrite_expr::make_tuple;
+use crate::basic_block::expr_utils::make_tuple;
 use crate::template::empty_body;
 use crate::{py_expr, py_stmt, py_stmt_typed};
 use ruff_python_ast::{
