@@ -166,18 +166,12 @@ x = a if cond else b
 #     bind: _dp_module_init
 #     qualname: _dp_module_init
 #     block start:
-#         if_term cond:
-#             then:
-#                 block _dp_bb__dp_module_init_1:
-#                     _dp_tmp_1 = a
-#                     jump _dp_bb__dp_module_init_0
-#             else:
-#                 block _dp_bb__dp_module_init_2:
-#                     _dp_tmp_1 = b
-#                     jump _dp_bb__dp_module_init_0
-#         block _dp_bb__dp_module_init_0:
-#             __dp_store_global(globals(), "x", _dp_tmp_1)
-#             return
+#         if cond:
+#             _dp_tmp_1 = a
+#         else:
+#             _dp_tmp_1 = b
+#         __dp_store_global(globals(), "x", _dp_tmp_1)
+#         return
 
 # named_expr
 
@@ -192,8 +186,7 @@ x = (y := f())
 #     bind: _dp_module_init
 #     qualname: _dp_module_init
 #     block start:
-#         __dp_store_global(globals(), "y", f())
-#         __dp_store_global(globals(), "x", __dp_load_global(globals(), "y"))
+#         __dp_store_global(globals(), "x", __dp_store_global(globals(), "y", f()))
 #         return
 
 # lambda_simple

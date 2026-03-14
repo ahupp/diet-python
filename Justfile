@@ -55,6 +55,15 @@ ensure-venv:
   fi
 
 [private]
+uninstall-extension: ensure-venv
+  #!/usr/bin/env bash
+  SITE_PACKAGES="$("$VENV_DIR/bin/python" -c 'import sysconfig; print(sysconfig.get_path("platlib"))')"
+  if [[ -d "$SITE_PACKAGES" ]]; then
+    find "$SITE_PACKAGES" -maxdepth 1 -type f -name 'diet_python*.so' -delete
+    find "$SITE_PACKAGES" -maxdepth 1 -type l -name 'diet_python*.so' -delete
+  fi
+
+[private]
 install-extension build="debug": ensure-venv ensure-cpython
   #!/usr/bin/env bash
   BUILD="{{build}}"
@@ -81,8 +90,7 @@ install-extension build="debug": ensure-venv ensure-cpython
   TARGET_EXT="$SITE_PACKAGES/diet_python$EXT_SUFFIX"
 
   mkdir -p "$SITE_PACKAGES"
-  find "$SITE_PACKAGES" -maxdepth 1 -type f -name 'diet_python*.so' -delete
-  find "$SITE_PACKAGES" -maxdepth 1 -type l -name 'diet_python*.so' -delete
+  just uninstall-extension
   ln -sf "$SOURCE_EXT" "$TARGET_EXT"
 
 update-venv: ensure-cpython
@@ -424,6 +432,7 @@ regen-snapshots:
 test-all:
   #!/usr/bin/env bash
   cd "$REPO_ROOT"
+  just uninstall-extension
   TIMEFORMAT='[diet-python timing] fmt_check_s=%3R'
   time cargo fmt
   TIMEFORMAT='[diet-python timing] build_all_s=%3R'
@@ -431,30 +440,16 @@ test-all:
   TIMEFORMAT='[diet-python timing] regen_snapshots_s=%3R'
   time just regen-snapshots
 
-  overall_status=0
-  failed_steps=()
-
-  run_step() {
-    local name="$1"
-    shift
-    if "$@"; then
-      return 0
-    else
-      local status=$?
-      overall_status=1
-      failed_steps+=("$name:$status")
-      echo "[diet-python test-all] step failed: $name (exit $status)" >&2
-      return 0
-    fi
-  }
-
-  run_step "cargo-test" cargo test
-  run_step "pytest" just _pytest-run tests/
-
-  if [[ ${#failed_steps[@]} -gt 0 ]]; then
-    printf '[diet-python test-all] failed steps: %s\n' "${failed_steps[*]}" >&2
+  if cargo test; then
+    :
+  else
+    status=$?
+    echo "[diet-python test-all] step failed: cargo-test (exit $status)" >&2
+    just uninstall-extension
+    exit "$status"
   fi
-  exit "$overall_status"
+
+  just _pytest-run tests/
 
 benchmark loops="1000000": (update-venv) (build-extension "release")
   #!/usr/bin/env bash
