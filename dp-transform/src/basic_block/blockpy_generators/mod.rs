@@ -18,7 +18,7 @@ use crate::basic_block::ruff_to_blockpy::{
 };
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Stmt};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 fn blockpy_make_dp_tuple(items: Vec<Expr>) -> Expr {
     let Expr::Call(mut call) = py_expr!("__dp_tuple()") else {
@@ -1019,63 +1019,28 @@ pub(crate) fn try_lower_simple_generator_blocks_post_blockpy(
         return None;
     }
 
-    let candidate_labels = blocks
-        .iter()
-        .filter(|block| {
-            matches!(
-                (block.body.as_slice(), &block.term),
-                ([stmt], _) if blockpy_stmt_requires_generator_rest_entry(stmt)
-            ) || (block.body.is_empty()
-                && matches!(
-                    block.term,
-                    BlockPyTerm::Return(Some(BlockPyExpr::Yield(_)))
-                        | BlockPyTerm::Return(Some(BlockPyExpr::YieldFrom(_)))
-                ))
-        })
-        .map(|block| block.label.as_str().to_string())
-        .collect::<Vec<_>>();
-    if candidate_labels.is_empty() {
-        return None;
-    }
     let mut current_entry = entry_label.to_string();
+    let mut worklist = VecDeque::new();
+    let mut queued = HashSet::new();
+    enqueue_simple_generator_candidate_labels(&blocks, &mut worklist, &mut queued);
+    let mut lowered_any = false;
 
-    for target_label in candidate_labels {
-        let target_index = blocks
+    while let Some(target_label) = worklist.pop_front() {
+        queued.remove(&target_label);
+        let Some(target_index) = blocks
             .iter()
             .position(|block| block.label.as_str() == target_label)
-            .unwrap_or_else(|| {
-                panic!("missing target block {target_label} during post-BlockPy generator lowering")
-            });
+        else {
+            continue;
+        };
         let target_block = blocks[target_index].clone();
+        if !is_simple_generator_candidate_block(&target_block) {
+            continue;
+        }
+        lowered_any = true;
         let ambient_exc_param = target_block.meta.exc_param.clone();
-
-        let lowered_block = if target_block.body.len() == 1
-            && blockpy_stmt_requires_generator_rest_entry(&target_block.body[0])
-        {
-            let rest_label = next_generator_label(fn_name, next_block_id);
-            let mut rest_block =
-                compat_block_with_term(rest_label.clone(), Vec::new(), target_block.term.clone());
-            rest_block.meta.exc_param = target_block.meta.exc_param.clone();
-            let mut plan_block =
-                BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(target_block.label.clone())
-                    .with_exc_param(target_block.meta.exc_param.clone());
-            plan_block.push_stmt(target_block.body[0].clone());
-            plan_block.set_term(BlockPyTerm::Jump(BlockPyLabel::from(rest_label.clone())));
-            let plan_block = plan_block.finish(None);
-            Some((plan_block, Some(rest_block)))
-        } else if target_block.body.is_empty()
-            && matches!(
-                target_block.term,
-                BlockPyTerm::Return(Some(BlockPyExpr::Yield(_)))
-                    | BlockPyTerm::Return(Some(BlockPyExpr::YieldFrom(_)))
-            )
-        {
-            Some((target_block, None))
-        } else {
-            None
-        }?;
-
-        let (lowerable_block, rest_block) = lowered_block;
+        let (lowerable_block, rest_block) =
+            split_simple_generator_candidate_block(target_block, fn_name, next_block_id)?;
         let mut generated = Vec::new();
         let lowered_entry = lower_generator_block_head(
             &lowerable_block,
@@ -1104,9 +1069,75 @@ pub(crate) fn try_lower_simple_generator_blocks_post_blockpy(
         if target_label == current_entry {
             current_entry = lowered_entry;
         }
+
+        enqueue_simple_generator_candidate_labels(&blocks, &mut worklist, &mut queued);
+    }
+
+    if !lowered_any {
+        return None;
     }
 
     Some((blocks, current_entry))
+}
+
+fn enqueue_simple_generator_candidate_labels(
+    blocks: &[BlockPyBlock],
+    worklist: &mut VecDeque<String>,
+    queued: &mut HashSet<String>,
+) {
+    for label in blocks
+        .iter()
+        .filter(|block| is_simple_generator_candidate_block(block))
+        .map(|block| block.label.as_str().to_string())
+    {
+        if queued.insert(label.clone()) {
+            worklist.push_back(label);
+        }
+    }
+}
+
+fn is_simple_generator_candidate_block(block: &BlockPyBlock) -> bool {
+    matches!(
+        (block.body.as_slice(), &block.term),
+        ([stmt], _) if blockpy_stmt_requires_generator_rest_entry(stmt)
+    ) || (block.body.is_empty()
+        && matches!(
+            block.term,
+            BlockPyTerm::Return(Some(BlockPyExpr::Yield(_)))
+                | BlockPyTerm::Return(Some(BlockPyExpr::YieldFrom(_)))
+        ))
+}
+
+fn split_simple_generator_candidate_block(
+    target_block: BlockPyBlock,
+    fn_name: &str,
+    next_block_id: &mut usize,
+) -> Option<(BlockPyBlock, Option<BlockPyBlock>)> {
+    if target_block.body.len() == 1
+        && blockpy_stmt_requires_generator_rest_entry(&target_block.body[0])
+    {
+        let rest_label = next_generator_label(fn_name, next_block_id);
+        let mut rest_block =
+            compat_block_with_term(rest_label.clone(), Vec::new(), target_block.term.clone());
+        rest_block.meta.exc_param = target_block.meta.exc_param.clone();
+        let mut plan_block =
+            BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(target_block.label.clone())
+                .with_exc_param(target_block.meta.exc_param.clone());
+        plan_block.push_stmt(target_block.body[0].clone());
+        plan_block.set_term(BlockPyTerm::Jump(BlockPyLabel::from(rest_label.clone())));
+        let plan_block = plan_block.finish(None);
+        Some((plan_block, Some(rest_block)))
+    } else if target_block.body.is_empty()
+        && matches!(
+            target_block.term,
+            BlockPyTerm::Return(Some(BlockPyExpr::Yield(_)))
+                | BlockPyTerm::Return(Some(BlockPyExpr::YieldFrom(_)))
+        )
+    {
+        Some((target_block, None))
+    } else {
+        None
+    }
 }
 
 fn blockpy_assign_to_stmt(assign: &BlockPyAssign) -> ast::StmtAssign {
