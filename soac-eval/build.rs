@@ -51,6 +51,17 @@ fn build_runtime(repo_root: &Path, target_dir: &Path) -> Result<(), Box<dyn Erro
         .current_dir(repo_root.join("soac-runtime"))
         .env("CARGO_PROFILE_DEV_CODEGEN_BACKEND", "cranelift")
         .env("CARGO_TARGET_DIR", target_dir)
+        // The outer workspace may be building on stable; don't leak those
+        // toolchain selections into the inner nightly-only runtime build.
+        .env_remove("RUSTC")
+        .env_remove("RUSTDOC")
+        .env_remove("RUSTUP_TOOLCHAIN")
+        .env_remove("RUSTFLAGS")
+        .env_remove("CARGO_ENCODED_RUSTFLAGS")
+        .env_remove("CARGO_BUILD_RUSTC")
+        .env_remove("CARGO_BUILD_RUSTDOC")
+        .env_remove("RUSTC_WRAPPER")
+        .env_remove("RUSTC_WORKSPACE_WRAPPER")
         .env_remove("PYO3_PYTHON")
         .env_remove("PYO3_CONFIG_FILE")
         .env_remove("PYO3_CROSS")
@@ -65,7 +76,9 @@ fn build_runtime(repo_root: &Path, target_dir: &Path) -> Result<(), Box<dyn Erro
         .arg(RUNTIME_CRATE)
         .arg("--lib")
         .arg("--")
-        .arg("--emit=llvm-ir")
+        // Current rustc+Cranelift still dumps `.clif` artifacts without
+        // `--emit=llvm-ir`, and requesting LLVM IR now makes rustc try to copy
+        // a nonexistent `.rcgu.ll` file.
         .arg("-Ccodegen-units=1");
 
     let status = command.status()?;
