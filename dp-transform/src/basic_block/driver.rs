@@ -427,6 +427,39 @@ def choose(cond, a, b):
     }
 
     #[test]
+    fn rewritten_ruff_ast_can_keep_named_expr_while_blockpy_expr_lowering_handles_it() {
+        let source = r#"
+def choose(y):
+    return f((x := y))
+"#;
+
+        let mut module = ruff_python_parser::parse_module(source)
+            .expect("parse should succeed")
+            .into_syntax();
+        let context =
+            crate::basic_block::ast_to_ast::context::Context::new(Options::for_test(), source);
+        crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass(
+            &context,
+            Some(&crate::basic_block::BBSimplifyStmtPass),
+            Some(&crate::driver::SimplifyExprPass),
+            &mut module.body,
+        );
+        let rendered = crate::ruff_ast_to_string(&module.body);
+        assert!(rendered.contains("(x := y)"), "{rendered}");
+
+        let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
+            .expect("transform should succeed");
+        let blockpy = lowered.blockpy_module.expect("expected BlockPy module");
+        let blockpy_rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
+        assert!(blockpy_rendered.contains("x = y"), "{blockpy_rendered}");
+        assert!(
+            blockpy_rendered.contains("return f(x)"),
+            "{blockpy_rendered}"
+        );
+        assert!(!blockpy_rendered.contains(":="), "{blockpy_rendered}");
+    }
+
+    #[test]
     fn rewritten_ruff_ast_can_keep_async_generator_await_while_blockpy_generator_lowering_handles_it(
     ) {
         let source = r#"

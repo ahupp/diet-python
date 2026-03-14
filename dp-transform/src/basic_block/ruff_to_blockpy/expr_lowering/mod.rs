@@ -8,6 +8,7 @@ use ruff_python_ast::Expr;
 
 mod boolop_compare;
 mod if_expr;
+mod named_expr;
 mod recursive;
 
 pub(crate) trait BlockPySetupExprLowerer {
@@ -72,8 +73,7 @@ pub(crate) struct AstSetupExprLowerer;
 impl BlockPySetupExprLowerer for AstSetupExprLowerer {
     fn simplify_expr_ast(&self, context: &Context, expr: Expr) -> LoweredExpr {
         match expr {
-            Expr::Named(_)
-            | Expr::Lambda(_)
+            Expr::Lambda(_)
             | Expr::Generator(_)
             | Expr::ListComp(_)
             | Expr::SetComp(_)

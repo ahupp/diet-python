@@ -5,6 +5,7 @@ use crate::basic_block::ruff_to_blockpy::expr_lowering::boolop_compare::{
     lower_boolop_into, lower_compare_into,
 };
 use crate::basic_block::ruff_to_blockpy::expr_lowering::if_expr::lower_if_expr_into;
+use crate::basic_block::ruff_to_blockpy::expr_lowering::named_expr::lower_named_expr_into;
 use crate::basic_block::ruff_to_blockpy::LoopContext;
 use ruff_python_ast::{self as ast, Expr};
 
@@ -29,6 +30,9 @@ where
         }
         Expr::If(if_expr) => {
             lower_if_expr_into(lowerer, context, if_expr, out, loop_ctx, next_label_id)
+        }
+        Expr::Named(named_expr) => {
+            lower_named_expr_into(lowerer, context, named_expr, out, loop_ctx, next_label_id)
         }
         Expr::Attribute(ast::ExprAttribute {
             value,
@@ -380,8 +384,7 @@ where
             range,
             node_index,
         })),
-        Expr::Named(_)
-        | Expr::Lambda(_)
+        Expr::Lambda(_)
         | Expr::Generator(_)
         | Expr::ListComp(_)
         | Expr::SetComp(_)

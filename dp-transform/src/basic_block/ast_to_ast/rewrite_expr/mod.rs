@@ -53,26 +53,6 @@ pub fn lower_expr(context: &Context, expr: Expr) -> LoweredExpr {
             );
             return LoweredExpr::modified(expr, body_builder.into_stmt());
         }
-        Expr::Named(named_expr) => {
-            let ast::ExprNamed { target, value, .. } = named_expr;
-            let mut target_expr = *target.clone();
-            match &mut target_expr {
-                Expr::Name(ast::ExprName { ctx, .. })
-                | Expr::Attribute(ast::ExprAttribute { ctx, .. })
-                | Expr::Subscript(ast::ExprSubscript { ctx, .. }) => {
-                    *ctx = ast::ExprContext::Load;
-                }
-                _ => {}
-            }
-            LoweredExpr::modified(
-                py_expr!("{target:expr}", target = target_expr),
-                py_stmt!(
-                    "{target:expr} = {value:expr}",
-                    target = *target,
-                    value = value
-                ),
-            )
-        }
         Expr::Call(ast::ExprCall {
             func,
             arguments,
