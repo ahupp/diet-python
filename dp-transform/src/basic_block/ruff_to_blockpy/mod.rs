@@ -106,6 +106,14 @@ pub(crate) struct PreparedBlockPyFunction {
     pub try_regions: Vec<TryRegionPlan>,
 }
 
+struct SemanticGeneratorInput {
+    blocks: Vec<SemanticBlockPyBlock>,
+    entry_label: String,
+    try_regions: Vec<TryRegionPlan>,
+    resume_order: Vec<String>,
+    yield_sites: Vec<GeneratorYieldSite>,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct TryRegionPlan {
     pub body_region_labels: Vec<String>,
@@ -1020,6 +1028,54 @@ pub(crate) fn build_finalized_blockpy_function(
 }
 
 #[allow(clippy::too_many_arguments)]
+fn build_semantic_generator_input<FDef, FTemp>(
+    context: &Context,
+    fn_name: &str,
+    runtime_input_body: &[Box<Stmt>],
+    end_label: &str,
+    is_closure_backed_generator_runtime: bool,
+    cell_slots: &HashSet<String>,
+    next_block_id: &mut usize,
+    lower_non_bb_def: &mut FDef,
+    next_temp: &mut FTemp,
+) -> SemanticGeneratorInput
+where
+    FDef: FnMut(&ast::StmtFunctionDef) -> Vec<Stmt>,
+    FTemp: FnMut(&str, &mut usize) -> String,
+{
+    let mut blocks = Vec::new();
+    let mut try_regions = Vec::new();
+    let mut state = BlockPySequenceGeneratorState {
+        enabled: false,
+        closure_state: is_closure_backed_generator_runtime,
+        resume_order: Vec::new(),
+        yield_sites: Vec::new(),
+    };
+    let entry_label = lower_stmt_sequence_with_state(
+        context,
+        fn_name,
+        runtime_input_body,
+        end_label.to_string(),
+        None,
+        None,
+        &mut blocks,
+        cell_slots,
+        &mut state,
+        &mut try_regions,
+        next_block_id,
+        lower_non_bb_def,
+        next_temp,
+    );
+    SemanticGeneratorInput {
+        blocks,
+        entry_label,
+        try_regions,
+        resume_order: state.resume_order,
+        yield_sites: state.yield_sites,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_function_body_to_blockpy_function<FDef, FTemp>(
     context: &Context,
     fn_name: &str,
@@ -1050,25 +1106,19 @@ where
         has_yield,
     );
     if has_yield {
-        let mut semantic_blocks = Vec::new();
-        let mut semantic_try_regions = Vec::new();
-        let mut semantic_state = BlockPySequenceGeneratorState {
-            enabled: false,
-            closure_state: is_closure_backed_generator_runtime,
-            resume_order: Vec::new(),
-            yield_sites: Vec::new(),
-        };
-        let semantic_entry_label = lower_stmt_sequence_with_state(
+        let SemanticGeneratorInput {
+            blocks: semantic_blocks,
+            entry_label: semantic_entry_label,
+            try_regions: mut semantic_try_regions,
+            resume_order: mut resume_order,
+            yield_sites: mut yield_sites,
+        } = build_semantic_generator_input(
             context,
             fn_name,
             runtime_input_body,
-            end_label.clone(),
-            None,
-            None,
-            &mut semantic_blocks,
+            end_label.as_str(),
+            is_closure_backed_generator_runtime,
             cell_slots,
-            &mut semantic_state,
-            &mut semantic_try_regions,
             next_block_id,
             lower_non_bb_def,
             next_temp,
@@ -1089,16 +1139,16 @@ where
                 semantic_entry_label.as_str(),
                 is_closure_backed_generator_runtime,
                 &mut semantic_try_regions,
-                &mut semantic_state.resume_order,
-                &mut semantic_state.yield_sites,
+                &mut resume_order,
+                &mut yield_sites,
                 next_block_id,
                 fn_name,
                 Some(cell_slots),
             ) {
                 let generator_metadata = Some(build_initial_generator_metadata(
                     entry_label.as_str(),
-                    &semantic_state.resume_order,
-                    &semantic_state.yield_sites,
+                    &resume_order,
+                    &yield_sites,
                 ));
                 return build_finalized_blockpy_function(
                     take_next_function_id(next_function_id),
