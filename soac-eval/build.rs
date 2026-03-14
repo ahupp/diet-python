@@ -42,10 +42,12 @@ fn emit_rerun_if_changed(runtime_dir: &Path) -> Result<(), Box<dyn Error>> {
 }
 
 fn build_runtime(repo_root: &Path, target_dir: &Path) -> Result<(), Box<dyn Error>> {
-    let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
-    let mut command = Command::new(cargo);
+    let mut command = Command::new("rustup");
 
     command
+        .arg("run")
+        .arg("nightly")
+        .arg("cargo")
         .current_dir(repo_root.join("soac-runtime"))
         .env("CARGO_PROFILE_DEV_CODEGEN_BACKEND", "cranelift")
         .env("CARGO_TARGET_DIR", target_dir)
