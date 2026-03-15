@@ -96,6 +96,10 @@ impl PassTracker {
         }
     }
 
+    pub(crate) fn is_enabled(&self) -> bool {
+        self.passes.is_some()
+    }
+
     pub(crate) fn rendered(&self, name: &str) -> Option<&str> {
         self.passes
             .as_ref()?

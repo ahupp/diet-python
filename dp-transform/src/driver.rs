@@ -85,22 +85,28 @@ pub(crate) fn rewrite_module_with_tracker(
         rewrite_ast_to_lowered_blockpy_module(context, module, lowered_function_identity);
     let blockpy_module =
         basic_block::lowered_blockpy_module_bundle_to_blockpy_module(&lowered_blockpy_module);
-    pass_tracker.add_pass(
-        "semantic_blockpy",
-        &basic_block::blockpy_module_to_string(&blockpy_module),
-    );
+    if pass_tracker.is_enabled() {
+        pass_tracker.add_pass(
+            "semantic_blockpy",
+            &basic_block::blockpy_module_to_string(&blockpy_module),
+        );
+    }
     let core_blockpy_bundle =
         basic_block::simplify_lowered_blockpy_module_bundle_exprs(&lowered_blockpy_module);
     let core_blockpy_module =
         basic_block::lowered_core_blockpy_module_bundle_to_blockpy_module(&core_blockpy_bundle);
-    pass_tracker.add_pass(
-        "core_blockpy",
-        &basic_block::blockpy_module_to_string(&core_blockpy_module),
-    );
+    if pass_tracker.is_enabled() {
+        pass_tracker.add_pass(
+            "core_blockpy",
+            &basic_block::blockpy_module_to_string(&core_blockpy_module),
+        );
+    }
     let bb_module =
         basic_block::lower_core_blockpy_module_bundle_to_bb_module(context, &core_blockpy_bundle);
     lower_string_literals_to_bytes(module);
-    pass_tracker.add_pass("rewritten_ast", &crate::ruff_ast_to_string(&*module));
+    if pass_tracker.is_enabled() {
+        pass_tracker.add_pass("rewritten_ast", &crate::ruff_ast_to_string(&*module));
+    }
 
     RewriteModuleResult {
         blockpy_module,
