@@ -222,23 +222,6 @@ x = (i for i in it)
 
 # module_init: _dp_module_init
 
-# function _dp_genexpr_1(_dp_iter_2)
-#     kind: function
-#     bind: _dp_genexpr_1
-#     qualname: <genexpr>
-#     display_name: <genexpr>
-#     local_cell_slots: [_dp_cell__dp_iter_2, _dp_cell__dp_iter_3, _dp_cell__dp_pc, _dp_cell__dp_tmp_4, _dp_cell__dp_yieldfrom, _dp_cell_i]
-#     cellvars: [_dp_iter_2->_dp_cell__dp_iter_2@param, _dp_iter_3->_dp_cell__dp_iter_3@deferred, _dp_tmp_4->_dp_cell__dp_tmp_4@deferred, i->_dp_cell_i@deferred]
-#     runtime_cells: [_dp_pc->_dp_cell__dp_pc@pc_unstarted, _dp_yieldfrom->_dp_cell__dp_yieldfrom@none]
-#     block start:
-#         _dp_cell__dp_iter_2 = __dp_make_cell(_dp_iter_2)
-#         _dp_cell__dp_iter_3 = __dp_make_cell(None)
-#         _dp_cell__dp_tmp_4 = __dp_make_cell(None)
-#         _dp_cell_i = __dp_make_cell(None)
-#         _dp_cell__dp_pc = __dp_make_cell(1)
-#         _dp_cell__dp_yieldfrom = __dp_make_cell(None)
-#         return __dp_make_closure_generator(__dp_def_hidden_resume_fn("start", 1, "_dp_resume", "<genexpr>", __dp_tuple("_dp_self", "_dp_send_value", "_dp_resume_exc", "_dp_cell__dp_iter_2", "_dp_cell__dp_iter_3", "_dp_cell__dp_tmp_4", "_dp_cell_i", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple("_dp_cell__dp_iter_2", "_dp_cell__dp_iter_3", "_dp_cell__dp_tmp_4", "_dp_cell_i", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple(_dp_cell__dp_iter_2, _dp_cell__dp_iter_3, _dp_cell__dp_tmp_4, _dp_cell_i, _dp_cell__dp_pc, _dp_cell__dp_yieldfrom), __dp_globals(), __name__, async_gen=False), "<genexpr>", "<genexpr>")
-
 # function _dp_genexpr_1_resume(_dp_iter_2)
 #     kind: generator
 #     bind: _dp_genexpr_1_resume
@@ -320,6 +303,23 @@ x = (i for i in it)
 #         __dp_store_cell(_dp_cell__dp_yieldfrom, __dp_DELETED)
 #         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_10)
 #         jump _dp_bb__dp_genexpr_1_uncaught_raise
+
+# function _dp_genexpr_1(_dp_iter_2)
+#     kind: function
+#     bind: _dp_genexpr_1
+#     qualname: <genexpr>
+#     display_name: <genexpr>
+#     local_cell_slots: [_dp_cell__dp_iter_2, _dp_cell__dp_iter_3, _dp_cell__dp_pc, _dp_cell__dp_tmp_4, _dp_cell__dp_yieldfrom, _dp_cell_i]
+#     cellvars: [_dp_iter_2->_dp_cell__dp_iter_2@param, _dp_iter_3->_dp_cell__dp_iter_3@deferred, _dp_tmp_4->_dp_cell__dp_tmp_4@deferred, i->_dp_cell_i@deferred]
+#     runtime_cells: [_dp_pc->_dp_cell__dp_pc@pc_unstarted, _dp_yieldfrom->_dp_cell__dp_yieldfrom@none]
+#     block start:
+#         _dp_cell__dp_iter_2 = __dp_make_cell(_dp_iter_2)
+#         _dp_cell__dp_iter_3 = __dp_make_cell(None)
+#         _dp_cell__dp_tmp_4 = __dp_make_cell(None)
+#         _dp_cell_i = __dp_make_cell(None)
+#         _dp_cell__dp_pc = __dp_make_cell(1)
+#         _dp_cell__dp_yieldfrom = __dp_make_cell(None)
+#         return __dp_make_closure_generator(__dp_def_hidden_resume_fn("start", 1, "_dp_resume", "<genexpr>", __dp_tuple("_dp_self", "_dp_send_value", "_dp_resume_exc", "_dp_cell__dp_iter_2", "_dp_cell__dp_iter_3", "_dp_cell__dp_tmp_4", "_dp_cell_i", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple("_dp_cell__dp_iter_2", "_dp_cell__dp_iter_3", "_dp_cell__dp_tmp_4", "_dp_cell_i", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple(_dp_cell__dp_iter_2, _dp_cell__dp_iter_3, _dp_cell__dp_tmp_4, _dp_cell_i, _dp_cell__dp_pc, _dp_cell__dp_yieldfrom), __dp_globals(), __name__, async_gen=False), "<genexpr>", "<genexpr>")
 
 # function _dp_module_init()
 #     kind: function

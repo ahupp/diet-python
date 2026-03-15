@@ -771,30 +771,6 @@ async def run():
 
 # module_init: _dp_module_init
 
-# function run()
-#     kind: function
-#     bind: run
-#     qualname: run
-#     local_cell_slots: [_dp_cell__dp_iter_2, _dp_cell__dp_pc, _dp_cell__dp_tmp_3, _dp_cell__dp_try_exc_11, _dp_cell__dp_yield_from_close_14, _dp_cell__dp_yield_from_exc_12, _dp_cell__dp_yield_from_iter_7, _dp_cell__dp_yield_from_raise_13, _dp_cell__dp_yield_from_result_10, _dp_cell__dp_yield_from_sent_9, _dp_cell__dp_yield_from_throw_15, _dp_cell__dp_yield_from_y_8, _dp_cell__dp_yieldfrom, _dp_cell_x]
-#     cellvars: [_dp_iter_2->_dp_cell__dp_iter_2@deferred, _dp_yield_from_iter_7->_dp_cell__dp_yield_from_iter_7@deferred, _dp_yield_from_y_8->_dp_cell__dp_yield_from_y_8@deferred, _dp_try_exc_11->_dp_cell__dp_try_exc_11@deleted, _dp_yield_from_result_10->_dp_cell__dp_yield_from_result_10@deferred, _dp_yield_from_raise_13->_dp_cell__dp_yield_from_raise_13@deferred, _dp_yield_from_exc_12->_dp_cell__dp_yield_from_exc_12@deferred, _dp_yield_from_sent_9->_dp_cell__dp_yield_from_sent_9@deferred, _dp_yield_from_close_14->_dp_cell__dp_yield_from_close_14@deferred, _dp_yield_from_throw_15->_dp_cell__dp_yield_from_throw_15@deferred, _dp_tmp_3->_dp_cell__dp_tmp_3@deferred, x->_dp_cell_x@deferred]
-#     runtime_cells: [_dp_pc->_dp_cell__dp_pc@pc_unstarted, _dp_yieldfrom->_dp_cell__dp_yieldfrom@none]
-#     block start:
-#         _dp_cell__dp_iter_2 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_iter_7 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_y_8 = __dp_make_cell(None)
-#         _dp_cell__dp_try_exc_11 = __dp_make_cell(__dp_DELETED)
-#         _dp_cell__dp_yield_from_result_10 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_raise_13 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_exc_12 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_sent_9 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_close_14 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_throw_15 = __dp_make_cell(None)
-#         _dp_cell__dp_tmp_3 = __dp_make_cell(None)
-#         _dp_cell_x = __dp_make_cell(None)
-#         _dp_cell__dp_pc = __dp_make_cell(1)
-#         _dp_cell__dp_yieldfrom = __dp_make_cell(None)
-#         return __dp_make_coroutine_from_generator(__dp_make_closure_generator(__dp_def_hidden_resume_fn("start", 1, "_dp_resume", "run", __dp_tuple("_dp_self", "_dp_send_value", "_dp_resume_exc", "_dp_cell__dp_iter_2", "_dp_cell__dp_yield_from_iter_7", "_dp_cell__dp_yield_from_y_8", "_dp_cell__dp_try_exc_11", "_dp_cell__dp_yield_from_result_10", "_dp_cell__dp_yield_from_raise_13", "_dp_cell__dp_yield_from_exc_12", "_dp_cell__dp_yield_from_sent_9", "_dp_cell__dp_yield_from_close_14", "_dp_cell__dp_yield_from_throw_15", "_dp_cell__dp_tmp_3", "_dp_cell_x", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple("_dp_cell__dp_iter_2", "_dp_cell__dp_yield_from_iter_7", "_dp_cell__dp_yield_from_y_8", "_dp_cell__dp_try_exc_11", "_dp_cell__dp_yield_from_result_10", "_dp_cell__dp_yield_from_raise_13", "_dp_cell__dp_yield_from_exc_12", "_dp_cell__dp_yield_from_sent_9", "_dp_cell__dp_yield_from_close_14", "_dp_cell__dp_yield_from_throw_15", "_dp_cell__dp_tmp_3", "_dp_cell_x", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple(_dp_cell__dp_iter_2, _dp_cell__dp_yield_from_iter_7, _dp_cell__dp_yield_from_y_8, _dp_cell__dp_try_exc_11, _dp_cell__dp_yield_from_result_10, _dp_cell__dp_yield_from_raise_13, _dp_cell__dp_yield_from_exc_12, _dp_cell__dp_yield_from_sent_9, _dp_cell__dp_yield_from_close_14, _dp_cell__dp_yield_from_throw_15, _dp_cell__dp_tmp_3, _dp_cell_x, _dp_cell__dp_pc, _dp_cell__dp_yieldfrom), __dp_globals(), __name__, async_gen=False), "run", "run"))
-
 # function run_resume()
 #     kind: generator
 #     bind: run_resume
@@ -1031,6 +1007,30 @@ async def run():
 #         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_43)
 #         jump _dp_bb_run_uncaught_raise
 
+# function run()
+#     kind: function
+#     bind: run
+#     qualname: run
+#     local_cell_slots: [_dp_cell__dp_iter_2, _dp_cell__dp_pc, _dp_cell__dp_tmp_3, _dp_cell__dp_try_exc_11, _dp_cell__dp_yield_from_close_14, _dp_cell__dp_yield_from_exc_12, _dp_cell__dp_yield_from_iter_7, _dp_cell__dp_yield_from_raise_13, _dp_cell__dp_yield_from_result_10, _dp_cell__dp_yield_from_sent_9, _dp_cell__dp_yield_from_throw_15, _dp_cell__dp_yield_from_y_8, _dp_cell__dp_yieldfrom, _dp_cell_x]
+#     cellvars: [_dp_iter_2->_dp_cell__dp_iter_2@deferred, _dp_yield_from_iter_7->_dp_cell__dp_yield_from_iter_7@deferred, _dp_yield_from_y_8->_dp_cell__dp_yield_from_y_8@deferred, _dp_try_exc_11->_dp_cell__dp_try_exc_11@deleted, _dp_yield_from_result_10->_dp_cell__dp_yield_from_result_10@deferred, _dp_yield_from_raise_13->_dp_cell__dp_yield_from_raise_13@deferred, _dp_yield_from_exc_12->_dp_cell__dp_yield_from_exc_12@deferred, _dp_yield_from_sent_9->_dp_cell__dp_yield_from_sent_9@deferred, _dp_yield_from_close_14->_dp_cell__dp_yield_from_close_14@deferred, _dp_yield_from_throw_15->_dp_cell__dp_yield_from_throw_15@deferred, _dp_tmp_3->_dp_cell__dp_tmp_3@deferred, x->_dp_cell_x@deferred]
+#     runtime_cells: [_dp_pc->_dp_cell__dp_pc@pc_unstarted, _dp_yieldfrom->_dp_cell__dp_yieldfrom@none]
+#     block start:
+#         _dp_cell__dp_iter_2 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_iter_7 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_y_8 = __dp_make_cell(None)
+#         _dp_cell__dp_try_exc_11 = __dp_make_cell(__dp_DELETED)
+#         _dp_cell__dp_yield_from_result_10 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_raise_13 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_exc_12 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_sent_9 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_close_14 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_throw_15 = __dp_make_cell(None)
+#         _dp_cell__dp_tmp_3 = __dp_make_cell(None)
+#         _dp_cell_x = __dp_make_cell(None)
+#         _dp_cell__dp_pc = __dp_make_cell(1)
+#         _dp_cell__dp_yieldfrom = __dp_make_cell(None)
+#         return __dp_make_coroutine_from_generator(__dp_make_closure_generator(__dp_def_hidden_resume_fn("start", 1, "_dp_resume", "run", __dp_tuple("_dp_self", "_dp_send_value", "_dp_resume_exc", "_dp_cell__dp_iter_2", "_dp_cell__dp_yield_from_iter_7", "_dp_cell__dp_yield_from_y_8", "_dp_cell__dp_try_exc_11", "_dp_cell__dp_yield_from_result_10", "_dp_cell__dp_yield_from_raise_13", "_dp_cell__dp_yield_from_exc_12", "_dp_cell__dp_yield_from_sent_9", "_dp_cell__dp_yield_from_close_14", "_dp_cell__dp_yield_from_throw_15", "_dp_cell__dp_tmp_3", "_dp_cell_x", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple("_dp_cell__dp_iter_2", "_dp_cell__dp_yield_from_iter_7", "_dp_cell__dp_yield_from_y_8", "_dp_cell__dp_try_exc_11", "_dp_cell__dp_yield_from_result_10", "_dp_cell__dp_yield_from_raise_13", "_dp_cell__dp_yield_from_exc_12", "_dp_cell__dp_yield_from_sent_9", "_dp_cell__dp_yield_from_close_14", "_dp_cell__dp_yield_from_throw_15", "_dp_cell__dp_tmp_3", "_dp_cell_x", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple(_dp_cell__dp_iter_2, _dp_cell__dp_yield_from_iter_7, _dp_cell__dp_yield_from_y_8, _dp_cell__dp_try_exc_11, _dp_cell__dp_yield_from_result_10, _dp_cell__dp_yield_from_raise_13, _dp_cell__dp_yield_from_exc_12, _dp_cell__dp_yield_from_sent_9, _dp_cell__dp_yield_from_close_14, _dp_cell__dp_yield_from_throw_15, _dp_cell__dp_tmp_3, _dp_cell_x, _dp_cell__dp_pc, _dp_cell__dp_yieldfrom), __dp_globals(), __name__, async_gen=False), "run", "run"))
+
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
@@ -1050,50 +1050,6 @@ async def run():
 # ==
 
 # module_init: _dp_module_init
-
-# function run()
-#     kind: function
-#     bind: run
-#     qualname: run
-#     local_cell_slots: [_dp_cell__dp_pc, _dp_cell__dp_try_exc_2, _dp_cell__dp_try_exc_20, _dp_cell__dp_try_exc_3, _dp_cell__dp_try_exc_51, _dp_cell__dp_try_exc_82, _dp_cell__dp_with_exit_1, _dp_cell__dp_with_ok_2, _dp_cell__dp_with_reraise_3, _dp_cell__dp_yield_from_close_23, _dp_cell__dp_yield_from_close_54, _dp_cell__dp_yield_from_close_85, _dp_cell__dp_yield_from_exc_21, _dp_cell__dp_yield_from_exc_52, _dp_cell__dp_yield_from_exc_83, _dp_cell__dp_yield_from_iter_17, _dp_cell__dp_yield_from_iter_47, _dp_cell__dp_yield_from_iter_78, _dp_cell__dp_yield_from_raise_22, _dp_cell__dp_yield_from_raise_53, _dp_cell__dp_yield_from_raise_84, _dp_cell__dp_yield_from_result_50, _dp_cell__dp_yield_from_result_81, _dp_cell__dp_yield_from_sent_19, _dp_cell__dp_yield_from_sent_49, _dp_cell__dp_yield_from_sent_80, _dp_cell__dp_yield_from_throw_24, _dp_cell__dp_yield_from_throw_55, _dp_cell__dp_yield_from_throw_86, _dp_cell__dp_yield_from_y_18, _dp_cell__dp_yield_from_y_48, _dp_cell__dp_yield_from_y_79, _dp_cell__dp_yieldfrom, _dp_cell_x]
-#     cellvars: [_dp_try_exc_3->_dp_cell__dp_try_exc_3@deleted, _dp_with_exit_1->_dp_cell__dp_with_exit_1@deferred, _dp_yield_from_iter_17->_dp_cell__dp_yield_from_iter_17@deferred, _dp_yield_from_y_18->_dp_cell__dp_yield_from_y_18@deferred, _dp_try_exc_20->_dp_cell__dp_try_exc_20@deleted, _dp_yield_from_raise_22->_dp_cell__dp_yield_from_raise_22@deferred, _dp_yield_from_exc_21->_dp_cell__dp_yield_from_exc_21@deferred, _dp_yield_from_sent_19->_dp_cell__dp_yield_from_sent_19@deferred, _dp_yield_from_close_23->_dp_cell__dp_yield_from_close_23@deferred, _dp_yield_from_throw_24->_dp_cell__dp_yield_from_throw_24@deferred, _dp_with_ok_2->_dp_cell__dp_with_ok_2@deferred, _dp_try_exc_2->_dp_cell__dp_try_exc_2@deleted, _dp_with_reraise_3->_dp_cell__dp_with_reraise_3@deferred, _dp_yield_from_iter_47->_dp_cell__dp_yield_from_iter_47@deferred, _dp_yield_from_y_48->_dp_cell__dp_yield_from_y_48@deferred, _dp_try_exc_51->_dp_cell__dp_try_exc_51@deleted, _dp_yield_from_result_50->_dp_cell__dp_yield_from_result_50@deferred, _dp_yield_from_raise_53->_dp_cell__dp_yield_from_raise_53@deferred, _dp_yield_from_exc_52->_dp_cell__dp_yield_from_exc_52@deferred, _dp_yield_from_sent_49->_dp_cell__dp_yield_from_sent_49@deferred, _dp_yield_from_close_54->_dp_cell__dp_yield_from_close_54@deferred, _dp_yield_from_throw_55->_dp_cell__dp_yield_from_throw_55@deferred, _dp_yield_from_iter_78->_dp_cell__dp_yield_from_iter_78@deferred, _dp_yield_from_y_79->_dp_cell__dp_yield_from_y_79@deferred, _dp_try_exc_82->_dp_cell__dp_try_exc_82@deleted, _dp_yield_from_result_81->_dp_cell__dp_yield_from_result_81@deferred, _dp_yield_from_raise_84->_dp_cell__dp_yield_from_raise_84@deferred, _dp_yield_from_exc_83->_dp_cell__dp_yield_from_exc_83@deferred, _dp_yield_from_sent_80->_dp_cell__dp_yield_from_sent_80@deferred, _dp_yield_from_close_85->_dp_cell__dp_yield_from_close_85@deferred, _dp_yield_from_throw_86->_dp_cell__dp_yield_from_throw_86@deferred, x->_dp_cell_x@deferred]
-#     runtime_cells: [_dp_pc->_dp_cell__dp_pc@pc_unstarted, _dp_yieldfrom->_dp_cell__dp_yieldfrom@none]
-#     block start:
-#         _dp_cell__dp_try_exc_3 = __dp_make_cell(__dp_DELETED)
-#         _dp_cell__dp_with_exit_1 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_iter_17 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_y_18 = __dp_make_cell(None)
-#         _dp_cell__dp_try_exc_20 = __dp_make_cell(__dp_DELETED)
-#         _dp_cell__dp_yield_from_raise_22 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_exc_21 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_sent_19 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_close_23 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_throw_24 = __dp_make_cell(None)
-#         _dp_cell__dp_with_ok_2 = __dp_make_cell(None)
-#         _dp_cell__dp_try_exc_2 = __dp_make_cell(__dp_DELETED)
-#         _dp_cell__dp_with_reraise_3 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_iter_47 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_y_48 = __dp_make_cell(None)
-#         _dp_cell__dp_try_exc_51 = __dp_make_cell(__dp_DELETED)
-#         _dp_cell__dp_yield_from_result_50 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_raise_53 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_exc_52 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_sent_49 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_close_54 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_throw_55 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_iter_78 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_y_79 = __dp_make_cell(None)
-#         _dp_cell__dp_try_exc_82 = __dp_make_cell(__dp_DELETED)
-#         _dp_cell__dp_yield_from_result_81 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_raise_84 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_exc_83 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_sent_80 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_close_85 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_throw_86 = __dp_make_cell(None)
-#         _dp_cell_x = __dp_make_cell(None)
-#         _dp_cell__dp_pc = __dp_make_cell(1)
-#         _dp_cell__dp_yieldfrom = __dp_make_cell(None)
-#         return __dp_make_coroutine_from_generator(__dp_make_closure_generator(__dp_def_hidden_resume_fn("start", 1, "_dp_resume", "run", __dp_tuple("_dp_self", "_dp_send_value", "_dp_resume_exc", "_dp_cell__dp_try_exc_3", "_dp_cell__dp_with_exit_1", "_dp_cell__dp_yield_from_iter_17", "_dp_cell__dp_yield_from_y_18", "_dp_cell__dp_try_exc_20", "_dp_cell__dp_yield_from_raise_22", "_dp_cell__dp_yield_from_exc_21", "_dp_cell__dp_yield_from_sent_19", "_dp_cell__dp_yield_from_close_23", "_dp_cell__dp_yield_from_throw_24", "_dp_cell__dp_with_ok_2", "_dp_cell__dp_try_exc_2", "_dp_cell__dp_with_reraise_3", "_dp_cell__dp_yield_from_iter_47", "_dp_cell__dp_yield_from_y_48", "_dp_cell__dp_try_exc_51", "_dp_cell__dp_yield_from_result_50", "_dp_cell__dp_yield_from_raise_53", "_dp_cell__dp_yield_from_exc_52", "_dp_cell__dp_yield_from_sent_49", "_dp_cell__dp_yield_from_close_54", "_dp_cell__dp_yield_from_throw_55", "_dp_cell__dp_yield_from_iter_78", "_dp_cell__dp_yield_from_y_79", "_dp_cell__dp_try_exc_82", "_dp_cell__dp_yield_from_result_81", "_dp_cell__dp_yield_from_raise_84", "_dp_cell__dp_yield_from_exc_83", "_dp_cell__dp_yield_from_sent_80", "_dp_cell__dp_yield_from_close_85", "_dp_cell__dp_yield_from_throw_86", "_dp_cell_x", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple("_dp_cell__dp_try_exc_3", "_dp_cell__dp_with_exit_1", "_dp_cell__dp_yield_from_iter_17", "_dp_cell__dp_yield_from_y_18", "_dp_cell__dp_try_exc_20", "_dp_cell__dp_yield_from_raise_22", "_dp_cell__dp_yield_from_exc_21", "_dp_cell__dp_yield_from_sent_19", "_dp_cell__dp_yield_from_close_23", "_dp_cell__dp_yield_from_throw_24", "_dp_cell__dp_with_ok_2", "_dp_cell__dp_try_exc_2", "_dp_cell__dp_with_reraise_3", "_dp_cell__dp_yield_from_iter_47", "_dp_cell__dp_yield_from_y_48", "_dp_cell__dp_try_exc_51", "_dp_cell__dp_yield_from_result_50", "_dp_cell__dp_yield_from_raise_53", "_dp_cell__dp_yield_from_exc_52", "_dp_cell__dp_yield_from_sent_49", "_dp_cell__dp_yield_from_close_54", "_dp_cell__dp_yield_from_throw_55", "_dp_cell__dp_yield_from_iter_78", "_dp_cell__dp_yield_from_y_79", "_dp_cell__dp_try_exc_82", "_dp_cell__dp_yield_from_result_81", "_dp_cell__dp_yield_from_raise_84", "_dp_cell__dp_yield_from_exc_83", "_dp_cell__dp_yield_from_sent_80", "_dp_cell__dp_yield_from_close_85", "_dp_cell__dp_yield_from_throw_86", "_dp_cell_x", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple(_dp_cell__dp_try_exc_3, _dp_cell__dp_with_exit_1, _dp_cell__dp_yield_from_iter_17, _dp_cell__dp_yield_from_y_18, _dp_cell__dp_try_exc_20, _dp_cell__dp_yield_from_raise_22, _dp_cell__dp_yield_from_exc_21, _dp_cell__dp_yield_from_sent_19, _dp_cell__dp_yield_from_close_23, _dp_cell__dp_yield_from_throw_24, _dp_cell__dp_with_ok_2, _dp_cell__dp_try_exc_2, _dp_cell__dp_with_reraise_3, _dp_cell__dp_yield_from_iter_47, _dp_cell__dp_yield_from_y_48, _dp_cell__dp_try_exc_51, _dp_cell__dp_yield_from_result_50, _dp_cell__dp_yield_from_raise_53, _dp_cell__dp_yield_from_exc_52, _dp_cell__dp_yield_from_sent_49, _dp_cell__dp_yield_from_close_54, _dp_cell__dp_yield_from_throw_55, _dp_cell__dp_yield_from_iter_78, _dp_cell__dp_yield_from_y_79, _dp_cell__dp_try_exc_82, _dp_cell__dp_yield_from_result_81, _dp_cell__dp_yield_from_raise_84, _dp_cell__dp_yield_from_exc_83, _dp_cell__dp_yield_from_sent_80, _dp_cell__dp_yield_from_close_85, _dp_cell__dp_yield_from_throw_86, _dp_cell_x, _dp_cell__dp_pc, _dp_cell__dp_yieldfrom), __dp_globals(), __name__, async_gen=False), "run", "run"))
 
 # function run_resume()
 #     kind: generator
@@ -1914,6 +1870,50 @@ async def run():
 #         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_110)
 #         jump _dp_bb_run_uncaught_raise
 
+# function run()
+#     kind: function
+#     bind: run
+#     qualname: run
+#     local_cell_slots: [_dp_cell__dp_pc, _dp_cell__dp_try_exc_2, _dp_cell__dp_try_exc_20, _dp_cell__dp_try_exc_3, _dp_cell__dp_try_exc_51, _dp_cell__dp_try_exc_82, _dp_cell__dp_with_exit_1, _dp_cell__dp_with_ok_2, _dp_cell__dp_with_reraise_3, _dp_cell__dp_yield_from_close_23, _dp_cell__dp_yield_from_close_54, _dp_cell__dp_yield_from_close_85, _dp_cell__dp_yield_from_exc_21, _dp_cell__dp_yield_from_exc_52, _dp_cell__dp_yield_from_exc_83, _dp_cell__dp_yield_from_iter_17, _dp_cell__dp_yield_from_iter_47, _dp_cell__dp_yield_from_iter_78, _dp_cell__dp_yield_from_raise_22, _dp_cell__dp_yield_from_raise_53, _dp_cell__dp_yield_from_raise_84, _dp_cell__dp_yield_from_result_50, _dp_cell__dp_yield_from_result_81, _dp_cell__dp_yield_from_sent_19, _dp_cell__dp_yield_from_sent_49, _dp_cell__dp_yield_from_sent_80, _dp_cell__dp_yield_from_throw_24, _dp_cell__dp_yield_from_throw_55, _dp_cell__dp_yield_from_throw_86, _dp_cell__dp_yield_from_y_18, _dp_cell__dp_yield_from_y_48, _dp_cell__dp_yield_from_y_79, _dp_cell__dp_yieldfrom, _dp_cell_x]
+#     cellvars: [_dp_try_exc_3->_dp_cell__dp_try_exc_3@deleted, _dp_with_exit_1->_dp_cell__dp_with_exit_1@deferred, _dp_yield_from_iter_17->_dp_cell__dp_yield_from_iter_17@deferred, _dp_yield_from_y_18->_dp_cell__dp_yield_from_y_18@deferred, _dp_try_exc_20->_dp_cell__dp_try_exc_20@deleted, _dp_yield_from_raise_22->_dp_cell__dp_yield_from_raise_22@deferred, _dp_yield_from_exc_21->_dp_cell__dp_yield_from_exc_21@deferred, _dp_yield_from_sent_19->_dp_cell__dp_yield_from_sent_19@deferred, _dp_yield_from_close_23->_dp_cell__dp_yield_from_close_23@deferred, _dp_yield_from_throw_24->_dp_cell__dp_yield_from_throw_24@deferred, _dp_with_ok_2->_dp_cell__dp_with_ok_2@deferred, _dp_try_exc_2->_dp_cell__dp_try_exc_2@deleted, _dp_with_reraise_3->_dp_cell__dp_with_reraise_3@deferred, _dp_yield_from_iter_47->_dp_cell__dp_yield_from_iter_47@deferred, _dp_yield_from_y_48->_dp_cell__dp_yield_from_y_48@deferred, _dp_try_exc_51->_dp_cell__dp_try_exc_51@deleted, _dp_yield_from_result_50->_dp_cell__dp_yield_from_result_50@deferred, _dp_yield_from_raise_53->_dp_cell__dp_yield_from_raise_53@deferred, _dp_yield_from_exc_52->_dp_cell__dp_yield_from_exc_52@deferred, _dp_yield_from_sent_49->_dp_cell__dp_yield_from_sent_49@deferred, _dp_yield_from_close_54->_dp_cell__dp_yield_from_close_54@deferred, _dp_yield_from_throw_55->_dp_cell__dp_yield_from_throw_55@deferred, _dp_yield_from_iter_78->_dp_cell__dp_yield_from_iter_78@deferred, _dp_yield_from_y_79->_dp_cell__dp_yield_from_y_79@deferred, _dp_try_exc_82->_dp_cell__dp_try_exc_82@deleted, _dp_yield_from_result_81->_dp_cell__dp_yield_from_result_81@deferred, _dp_yield_from_raise_84->_dp_cell__dp_yield_from_raise_84@deferred, _dp_yield_from_exc_83->_dp_cell__dp_yield_from_exc_83@deferred, _dp_yield_from_sent_80->_dp_cell__dp_yield_from_sent_80@deferred, _dp_yield_from_close_85->_dp_cell__dp_yield_from_close_85@deferred, _dp_yield_from_throw_86->_dp_cell__dp_yield_from_throw_86@deferred, x->_dp_cell_x@deferred]
+#     runtime_cells: [_dp_pc->_dp_cell__dp_pc@pc_unstarted, _dp_yieldfrom->_dp_cell__dp_yieldfrom@none]
+#     block start:
+#         _dp_cell__dp_try_exc_3 = __dp_make_cell(__dp_DELETED)
+#         _dp_cell__dp_with_exit_1 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_iter_17 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_y_18 = __dp_make_cell(None)
+#         _dp_cell__dp_try_exc_20 = __dp_make_cell(__dp_DELETED)
+#         _dp_cell__dp_yield_from_raise_22 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_exc_21 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_sent_19 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_close_23 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_throw_24 = __dp_make_cell(None)
+#         _dp_cell__dp_with_ok_2 = __dp_make_cell(None)
+#         _dp_cell__dp_try_exc_2 = __dp_make_cell(__dp_DELETED)
+#         _dp_cell__dp_with_reraise_3 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_iter_47 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_y_48 = __dp_make_cell(None)
+#         _dp_cell__dp_try_exc_51 = __dp_make_cell(__dp_DELETED)
+#         _dp_cell__dp_yield_from_result_50 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_raise_53 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_exc_52 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_sent_49 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_close_54 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_throw_55 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_iter_78 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_y_79 = __dp_make_cell(None)
+#         _dp_cell__dp_try_exc_82 = __dp_make_cell(__dp_DELETED)
+#         _dp_cell__dp_yield_from_result_81 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_raise_84 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_exc_83 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_sent_80 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_close_85 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_throw_86 = __dp_make_cell(None)
+#         _dp_cell_x = __dp_make_cell(None)
+#         _dp_cell__dp_pc = __dp_make_cell(1)
+#         _dp_cell__dp_yieldfrom = __dp_make_cell(None)
+#         return __dp_make_coroutine_from_generator(__dp_make_closure_generator(__dp_def_hidden_resume_fn("start", 1, "_dp_resume", "run", __dp_tuple("_dp_self", "_dp_send_value", "_dp_resume_exc", "_dp_cell__dp_try_exc_3", "_dp_cell__dp_with_exit_1", "_dp_cell__dp_yield_from_iter_17", "_dp_cell__dp_yield_from_y_18", "_dp_cell__dp_try_exc_20", "_dp_cell__dp_yield_from_raise_22", "_dp_cell__dp_yield_from_exc_21", "_dp_cell__dp_yield_from_sent_19", "_dp_cell__dp_yield_from_close_23", "_dp_cell__dp_yield_from_throw_24", "_dp_cell__dp_with_ok_2", "_dp_cell__dp_try_exc_2", "_dp_cell__dp_with_reraise_3", "_dp_cell__dp_yield_from_iter_47", "_dp_cell__dp_yield_from_y_48", "_dp_cell__dp_try_exc_51", "_dp_cell__dp_yield_from_result_50", "_dp_cell__dp_yield_from_raise_53", "_dp_cell__dp_yield_from_exc_52", "_dp_cell__dp_yield_from_sent_49", "_dp_cell__dp_yield_from_close_54", "_dp_cell__dp_yield_from_throw_55", "_dp_cell__dp_yield_from_iter_78", "_dp_cell__dp_yield_from_y_79", "_dp_cell__dp_try_exc_82", "_dp_cell__dp_yield_from_result_81", "_dp_cell__dp_yield_from_raise_84", "_dp_cell__dp_yield_from_exc_83", "_dp_cell__dp_yield_from_sent_80", "_dp_cell__dp_yield_from_close_85", "_dp_cell__dp_yield_from_throw_86", "_dp_cell_x", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple("_dp_cell__dp_try_exc_3", "_dp_cell__dp_with_exit_1", "_dp_cell__dp_yield_from_iter_17", "_dp_cell__dp_yield_from_y_18", "_dp_cell__dp_try_exc_20", "_dp_cell__dp_yield_from_raise_22", "_dp_cell__dp_yield_from_exc_21", "_dp_cell__dp_yield_from_sent_19", "_dp_cell__dp_yield_from_close_23", "_dp_cell__dp_yield_from_throw_24", "_dp_cell__dp_with_ok_2", "_dp_cell__dp_try_exc_2", "_dp_cell__dp_with_reraise_3", "_dp_cell__dp_yield_from_iter_47", "_dp_cell__dp_yield_from_y_48", "_dp_cell__dp_try_exc_51", "_dp_cell__dp_yield_from_result_50", "_dp_cell__dp_yield_from_raise_53", "_dp_cell__dp_yield_from_exc_52", "_dp_cell__dp_yield_from_sent_49", "_dp_cell__dp_yield_from_close_54", "_dp_cell__dp_yield_from_throw_55", "_dp_cell__dp_yield_from_iter_78", "_dp_cell__dp_yield_from_y_79", "_dp_cell__dp_try_exc_82", "_dp_cell__dp_yield_from_result_81", "_dp_cell__dp_yield_from_raise_84", "_dp_cell__dp_yield_from_exc_83", "_dp_cell__dp_yield_from_sent_80", "_dp_cell__dp_yield_from_close_85", "_dp_cell__dp_yield_from_throw_86", "_dp_cell_x", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple(_dp_cell__dp_try_exc_3, _dp_cell__dp_with_exit_1, _dp_cell__dp_yield_from_iter_17, _dp_cell__dp_yield_from_y_18, _dp_cell__dp_try_exc_20, _dp_cell__dp_yield_from_raise_22, _dp_cell__dp_yield_from_exc_21, _dp_cell__dp_yield_from_sent_19, _dp_cell__dp_yield_from_close_23, _dp_cell__dp_yield_from_throw_24, _dp_cell__dp_with_ok_2, _dp_cell__dp_try_exc_2, _dp_cell__dp_with_reraise_3, _dp_cell__dp_yield_from_iter_47, _dp_cell__dp_yield_from_y_48, _dp_cell__dp_try_exc_51, _dp_cell__dp_yield_from_result_50, _dp_cell__dp_yield_from_raise_53, _dp_cell__dp_yield_from_exc_52, _dp_cell__dp_yield_from_sent_49, _dp_cell__dp_yield_from_close_54, _dp_cell__dp_yield_from_throw_55, _dp_cell__dp_yield_from_iter_78, _dp_cell__dp_yield_from_y_79, _dp_cell__dp_try_exc_82, _dp_cell__dp_yield_from_result_81, _dp_cell__dp_yield_from_raise_84, _dp_cell__dp_yield_from_exc_83, _dp_cell__dp_yield_from_sent_80, _dp_cell__dp_yield_from_close_85, _dp_cell__dp_yield_from_throw_86, _dp_cell_x, _dp_cell__dp_pc, _dp_cell__dp_yieldfrom), __dp_globals(), __name__, async_gen=False), "run", "run"))
+
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
@@ -1960,17 +1960,6 @@ def gen():
 # ==
 
 # module_init: _dp_module_init
-
-# function gen()
-#     kind: function
-#     bind: gen
-#     qualname: gen
-#     local_cell_slots: [_dp_cell__dp_pc, _dp_cell__dp_yieldfrom]
-#     runtime_cells: [_dp_pc->_dp_cell__dp_pc@pc_unstarted, _dp_yieldfrom->_dp_cell__dp_yieldfrom@none]
-#     block start:
-#         _dp_cell__dp_pc = __dp_make_cell(1)
-#         _dp_cell__dp_yieldfrom = __dp_make_cell(None)
-#         return __dp_make_closure_generator(__dp_def_hidden_resume_fn("start", 1, "_dp_resume", "gen", __dp_tuple("_dp_self", "_dp_send_value", "_dp_resume_exc", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple("_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple(_dp_cell__dp_pc, _dp_cell__dp_yieldfrom), __dp_globals(), __name__, async_gen=False), "gen", "gen")
 
 # function gen_resume()
 #     kind: generator
@@ -2027,6 +2016,17 @@ def gen():
 #         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_6)
 #         jump _dp_bb_gen_uncaught_raise
 
+# function gen()
+#     kind: function
+#     bind: gen
+#     qualname: gen
+#     local_cell_slots: [_dp_cell__dp_pc, _dp_cell__dp_yieldfrom]
+#     runtime_cells: [_dp_pc->_dp_cell__dp_pc@pc_unstarted, _dp_yieldfrom->_dp_cell__dp_yieldfrom@none]
+#     block start:
+#         _dp_cell__dp_pc = __dp_make_cell(1)
+#         _dp_cell__dp_yieldfrom = __dp_make_cell(None)
+#         return __dp_make_closure_generator(__dp_def_hidden_resume_fn("start", 1, "_dp_resume", "gen", __dp_tuple("_dp_self", "_dp_send_value", "_dp_resume_exc", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple("_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple(_dp_cell__dp_pc, _dp_cell__dp_yieldfrom), __dp_globals(), __name__, async_gen=False), "gen", "gen")
+
 # function _dp_module_init()
 #     kind: function
 #     bind: _dp_module_init
@@ -2045,26 +2045,6 @@ def gen():
 # ==
 
 # module_init: _dp_module_init
-
-# function gen()
-#     kind: function
-#     bind: gen
-#     qualname: gen
-#     local_cell_slots: [_dp_cell__dp_pc, _dp_cell__dp_try_exc_7, _dp_cell__dp_yield_from_close_10, _dp_cell__dp_yield_from_exc_8, _dp_cell__dp_yield_from_iter_4, _dp_cell__dp_yield_from_raise_9, _dp_cell__dp_yield_from_sent_6, _dp_cell__dp_yield_from_throw_11, _dp_cell__dp_yield_from_y_5, _dp_cell__dp_yieldfrom]
-#     cellvars: [_dp_yield_from_iter_4->_dp_cell__dp_yield_from_iter_4@deferred, _dp_yield_from_y_5->_dp_cell__dp_yield_from_y_5@deferred, _dp_try_exc_7->_dp_cell__dp_try_exc_7@deleted, _dp_yield_from_raise_9->_dp_cell__dp_yield_from_raise_9@deferred, _dp_yield_from_exc_8->_dp_cell__dp_yield_from_exc_8@deferred, _dp_yield_from_sent_6->_dp_cell__dp_yield_from_sent_6@deferred, _dp_yield_from_close_10->_dp_cell__dp_yield_from_close_10@deferred, _dp_yield_from_throw_11->_dp_cell__dp_yield_from_throw_11@deferred]
-#     runtime_cells: [_dp_pc->_dp_cell__dp_pc@pc_unstarted, _dp_yieldfrom->_dp_cell__dp_yieldfrom@none]
-#     block start:
-#         _dp_cell__dp_yield_from_iter_4 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_y_5 = __dp_make_cell(None)
-#         _dp_cell__dp_try_exc_7 = __dp_make_cell(__dp_DELETED)
-#         _dp_cell__dp_yield_from_raise_9 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_exc_8 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_sent_6 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_close_10 = __dp_make_cell(None)
-#         _dp_cell__dp_yield_from_throw_11 = __dp_make_cell(None)
-#         _dp_cell__dp_pc = __dp_make_cell(1)
-#         _dp_cell__dp_yieldfrom = __dp_make_cell(None)
-#         return __dp_make_closure_generator(__dp_def_hidden_resume_fn("start", 1, "_dp_resume", "gen", __dp_tuple("_dp_self", "_dp_send_value", "_dp_resume_exc", "_dp_cell__dp_yield_from_iter_4", "_dp_cell__dp_yield_from_y_5", "_dp_cell__dp_try_exc_7", "_dp_cell__dp_yield_from_raise_9", "_dp_cell__dp_yield_from_exc_8", "_dp_cell__dp_yield_from_sent_6", "_dp_cell__dp_yield_from_close_10", "_dp_cell__dp_yield_from_throw_11", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple("_dp_cell__dp_yield_from_iter_4", "_dp_cell__dp_yield_from_y_5", "_dp_cell__dp_try_exc_7", "_dp_cell__dp_yield_from_raise_9", "_dp_cell__dp_yield_from_exc_8", "_dp_cell__dp_yield_from_sent_6", "_dp_cell__dp_yield_from_close_10", "_dp_cell__dp_yield_from_throw_11", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple(_dp_cell__dp_yield_from_iter_4, _dp_cell__dp_yield_from_y_5, _dp_cell__dp_try_exc_7, _dp_cell__dp_yield_from_raise_9, _dp_cell__dp_yield_from_exc_8, _dp_cell__dp_yield_from_sent_6, _dp_cell__dp_yield_from_close_10, _dp_cell__dp_yield_from_throw_11, _dp_cell__dp_pc, _dp_cell__dp_yieldfrom), __dp_globals(), __name__, async_gen=False), "gen", "gen")
 
 # function gen_resume()
 #     kind: generator
@@ -2244,6 +2224,26 @@ def gen():
 #         __dp_store_cell(_dp_cell__dp_yieldfrom, __dp_DELETED)
 #         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_31)
 #         jump _dp_bb_gen_uncaught_raise
+
+# function gen()
+#     kind: function
+#     bind: gen
+#     qualname: gen
+#     local_cell_slots: [_dp_cell__dp_pc, _dp_cell__dp_try_exc_7, _dp_cell__dp_yield_from_close_10, _dp_cell__dp_yield_from_exc_8, _dp_cell__dp_yield_from_iter_4, _dp_cell__dp_yield_from_raise_9, _dp_cell__dp_yield_from_sent_6, _dp_cell__dp_yield_from_throw_11, _dp_cell__dp_yield_from_y_5, _dp_cell__dp_yieldfrom]
+#     cellvars: [_dp_yield_from_iter_4->_dp_cell__dp_yield_from_iter_4@deferred, _dp_yield_from_y_5->_dp_cell__dp_yield_from_y_5@deferred, _dp_try_exc_7->_dp_cell__dp_try_exc_7@deleted, _dp_yield_from_raise_9->_dp_cell__dp_yield_from_raise_9@deferred, _dp_yield_from_exc_8->_dp_cell__dp_yield_from_exc_8@deferred, _dp_yield_from_sent_6->_dp_cell__dp_yield_from_sent_6@deferred, _dp_yield_from_close_10->_dp_cell__dp_yield_from_close_10@deferred, _dp_yield_from_throw_11->_dp_cell__dp_yield_from_throw_11@deferred]
+#     runtime_cells: [_dp_pc->_dp_cell__dp_pc@pc_unstarted, _dp_yieldfrom->_dp_cell__dp_yieldfrom@none]
+#     block start:
+#         _dp_cell__dp_yield_from_iter_4 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_y_5 = __dp_make_cell(None)
+#         _dp_cell__dp_try_exc_7 = __dp_make_cell(__dp_DELETED)
+#         _dp_cell__dp_yield_from_raise_9 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_exc_8 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_sent_6 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_close_10 = __dp_make_cell(None)
+#         _dp_cell__dp_yield_from_throw_11 = __dp_make_cell(None)
+#         _dp_cell__dp_pc = __dp_make_cell(1)
+#         _dp_cell__dp_yieldfrom = __dp_make_cell(None)
+#         return __dp_make_closure_generator(__dp_def_hidden_resume_fn("start", 1, "_dp_resume", "gen", __dp_tuple("_dp_self", "_dp_send_value", "_dp_resume_exc", "_dp_cell__dp_yield_from_iter_4", "_dp_cell__dp_yield_from_y_5", "_dp_cell__dp_try_exc_7", "_dp_cell__dp_yield_from_raise_9", "_dp_cell__dp_yield_from_exc_8", "_dp_cell__dp_yield_from_sent_6", "_dp_cell__dp_yield_from_close_10", "_dp_cell__dp_yield_from_throw_11", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple("_dp_cell__dp_yield_from_iter_4", "_dp_cell__dp_yield_from_y_5", "_dp_cell__dp_try_exc_7", "_dp_cell__dp_yield_from_raise_9", "_dp_cell__dp_yield_from_exc_8", "_dp_cell__dp_yield_from_sent_6", "_dp_cell__dp_yield_from_close_10", "_dp_cell__dp_yield_from_throw_11", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple(_dp_cell__dp_yield_from_iter_4, _dp_cell__dp_yield_from_y_5, _dp_cell__dp_try_exc_7, _dp_cell__dp_yield_from_raise_9, _dp_cell__dp_yield_from_exc_8, _dp_cell__dp_yield_from_sent_6, _dp_cell__dp_yield_from_close_10, _dp_cell__dp_yield_from_throw_11, _dp_cell__dp_pc, _dp_cell__dp_yieldfrom), __dp_globals(), __name__, async_gen=False), "gen", "gen")
 
 # function _dp_module_init()
 #     kind: function
@@ -2467,24 +2467,6 @@ def complicated(a):
 
 # module_init: _dp_module_init
 
-# function complicated(a)
-#     kind: function
-#     bind: complicated
-#     qualname: complicated
-#     local_cell_slots: [_dp_cell__dp_iter_1, _dp_cell__dp_pc, _dp_cell__dp_tmp_2, _dp_cell__dp_try_exc_7, _dp_cell__dp_yieldfrom, _dp_cell_a, _dp_cell_i, _dp_cell_j]
-#     cellvars: [a->_dp_cell_a@param, _dp_iter_1->_dp_cell__dp_iter_1@deferred, _dp_try_exc_7->_dp_cell__dp_try_exc_7@deleted, i->_dp_cell_i@deferred, j->_dp_cell_j@deferred, _dp_tmp_2->_dp_cell__dp_tmp_2@deferred]
-#     runtime_cells: [_dp_pc->_dp_cell__dp_pc@pc_unstarted, _dp_yieldfrom->_dp_cell__dp_yieldfrom@none]
-#     block start:
-#         _dp_cell_a = __dp_make_cell(a)
-#         _dp_cell__dp_iter_1 = __dp_make_cell(None)
-#         _dp_cell__dp_try_exc_7 = __dp_make_cell(__dp_DELETED)
-#         _dp_cell_i = __dp_make_cell(None)
-#         _dp_cell_j = __dp_make_cell(None)
-#         _dp_cell__dp_tmp_2 = __dp_make_cell(None)
-#         _dp_cell__dp_pc = __dp_make_cell(1)
-#         _dp_cell__dp_yieldfrom = __dp_make_cell(None)
-#         return __dp_make_closure_generator(__dp_def_hidden_resume_fn("start", 1, "_dp_resume", "complicated", __dp_tuple("_dp_self", "_dp_send_value", "_dp_resume_exc", "_dp_cell_a", "_dp_cell__dp_iter_1", "_dp_cell__dp_try_exc_7", "_dp_cell_i", "_dp_cell_j", "_dp_cell__dp_tmp_2", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple("_dp_cell_a", "_dp_cell__dp_iter_1", "_dp_cell__dp_try_exc_7", "_dp_cell_i", "_dp_cell_j", "_dp_cell__dp_tmp_2", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple(_dp_cell_a, _dp_cell__dp_iter_1, _dp_cell__dp_try_exc_7, _dp_cell_i, _dp_cell_j, _dp_cell__dp_tmp_2, _dp_cell__dp_pc, _dp_cell__dp_yieldfrom), __dp_globals(), __name__, async_gen=False), "complicated", "complicated")
-
 # function complicated_resume(a)
 #     kind: generator
 #     bind: complicated_resume
@@ -2605,6 +2587,24 @@ def complicated(a):
 #         __dp_store_cell(_dp_cell__dp_yieldfrom, __dp_DELETED)
 #         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_17)
 #         jump _dp_bb_complicated_uncaught_raise
+
+# function complicated(a)
+#     kind: function
+#     bind: complicated
+#     qualname: complicated
+#     local_cell_slots: [_dp_cell__dp_iter_1, _dp_cell__dp_pc, _dp_cell__dp_tmp_2, _dp_cell__dp_try_exc_7, _dp_cell__dp_yieldfrom, _dp_cell_a, _dp_cell_i, _dp_cell_j]
+#     cellvars: [a->_dp_cell_a@param, _dp_iter_1->_dp_cell__dp_iter_1@deferred, _dp_try_exc_7->_dp_cell__dp_try_exc_7@deleted, i->_dp_cell_i@deferred, j->_dp_cell_j@deferred, _dp_tmp_2->_dp_cell__dp_tmp_2@deferred]
+#     runtime_cells: [_dp_pc->_dp_cell__dp_pc@pc_unstarted, _dp_yieldfrom->_dp_cell__dp_yieldfrom@none]
+#     block start:
+#         _dp_cell_a = __dp_make_cell(a)
+#         _dp_cell__dp_iter_1 = __dp_make_cell(None)
+#         _dp_cell__dp_try_exc_7 = __dp_make_cell(__dp_DELETED)
+#         _dp_cell_i = __dp_make_cell(None)
+#         _dp_cell_j = __dp_make_cell(None)
+#         _dp_cell__dp_tmp_2 = __dp_make_cell(None)
+#         _dp_cell__dp_pc = __dp_make_cell(1)
+#         _dp_cell__dp_yieldfrom = __dp_make_cell(None)
+#         return __dp_make_closure_generator(__dp_def_hidden_resume_fn("start", 1, "_dp_resume", "complicated", __dp_tuple("_dp_self", "_dp_send_value", "_dp_resume_exc", "_dp_cell_a", "_dp_cell__dp_iter_1", "_dp_cell__dp_try_exc_7", "_dp_cell_i", "_dp_cell_j", "_dp_cell__dp_tmp_2", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple("_dp_cell_a", "_dp_cell__dp_iter_1", "_dp_cell__dp_try_exc_7", "_dp_cell_i", "_dp_cell_j", "_dp_cell__dp_tmp_2", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple(_dp_cell_a, _dp_cell__dp_iter_1, _dp_cell__dp_try_exc_7, _dp_cell_i, _dp_cell_j, _dp_cell__dp_tmp_2, _dp_cell__dp_pc, _dp_cell__dp_yieldfrom), __dp_globals(), __name__, async_gen=False), "complicated", "complicated")
 
 # function _dp_module_init()
 #     kind: function

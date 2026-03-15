@@ -28,17 +28,12 @@ use std::collections::{HashMap, VecDeque};
 pub use codegen_normalize::normalize_bb_module_for_codegen;
 pub use exception_pass::lower_try_jump_exception_flow;
 
-pub(crate) struct LoweredBbFunctionBundle {
-    pub main_function: BbFunction,
-    pub helper_functions: Vec<BbFunction>,
+pub(crate) struct LoweredCallableDef<T> {
+    pub callable_def: T,
+    pub binding_target: BindingTarget,
 }
 
-pub(crate) struct LoweredBlockPyModuleCallableDef {
-    pub bundle: LoweredBlockPyFunctionBundle,
-    pub main_binding_target: BindingTarget,
-}
-
-pub(crate) type LoweredBlockPyModuleBundle = CfgModule<LoweredBlockPyModuleCallableDef>;
+pub(crate) type LoweredBlockPyModuleBundle = CfgModule<LoweredCallableDef<LoweredBlockPyFunction>>;
 
 pub(crate) struct LoweredCoreBlockPyFunction {
     pub callable_def: CoreBlockPyCallableDef,
@@ -50,82 +45,71 @@ pub(crate) struct LoweredCoreBlockPyFunction {
     pub param_specs: BbExpr,
 }
 
-pub(crate) struct LoweredCoreBlockPyFunctionBundle {
-    pub main_function: LoweredCoreBlockPyFunction,
-    pub helper_functions: Vec<LoweredCoreBlockPyFunction>,
-}
-
-pub(crate) struct LoweredCoreBlockPyModuleCallableDef {
-    pub bundle: LoweredCoreBlockPyFunctionBundle,
-    pub main_binding_target: BindingTarget,
-}
-
-pub(crate) type LoweredCoreBlockPyModuleBundle = CfgModule<LoweredCoreBlockPyModuleCallableDef>;
+pub(crate) type LoweredCoreBlockPyModuleBundle =
+    CfgModule<LoweredCallableDef<LoweredCoreBlockPyFunction>>;
 
 pub(crate) fn push_lowered_blockpy_callable_def_bundle(
     out: &mut LoweredBlockPyModuleBundle,
     bundle: LoweredBlockPyFunctionBundle,
     main_binding_target: BindingTarget,
 ) {
-    out.callable_defs.push(LoweredBlockPyModuleCallableDef {
-        bundle,
-        main_binding_target,
+    out.callable_defs
+        .extend(
+            bundle
+                .helper_functions
+                .into_iter()
+                .map(|helper| LoweredCallableDef {
+                    callable_def: helper,
+                    binding_target: BindingTarget::Local,
+                }),
+        );
+    out.callable_defs.push(LoweredCallableDef {
+        callable_def: bundle.main_function,
+        binding_target: main_binding_target,
     });
 }
 
 pub(crate) fn lowered_blockpy_module_bundle_to_blockpy_module(
     module: &LoweredBlockPyModuleBundle,
 ) -> BlockPyModule {
-    let mut callable_defs = Vec::new();
-    for lowered_function in &module.callable_defs {
-        callable_defs.push(lowered_function.bundle.main_function.callable_def.clone());
-        callable_defs.extend(
-            lowered_function
-                .bundle
-                .helper_functions
-                .iter()
-                .map(|helper| helper.callable_def.clone()),
-        );
-    }
     BlockPyModule {
         module_init: module.module_init.clone(),
-        callable_defs,
+        callable_defs: module
+            .callable_defs
+            .iter()
+            .map(|lowered_function| lowered_function.callable_def.callable_def.clone())
+            .collect(),
     }
 }
 
 pub(crate) fn lowered_core_blockpy_module_bundle_to_blockpy_module(
     module: &LoweredCoreBlockPyModuleBundle,
 ) -> super::block_py::CoreBlockPyModule {
-    let mut callable_defs = Vec::new();
-    for lowered_function in &module.callable_defs {
-        callable_defs.push(lowered_function.bundle.main_function.callable_def.clone());
-        callable_defs.extend(
-            lowered_function
-                .bundle
-                .helper_functions
-                .iter()
-                .map(|helper| helper.callable_def.clone()),
-        );
-    }
     super::block_py::CoreBlockPyModule {
         module_init: module.module_init.clone(),
-        callable_defs,
+        callable_defs: module
+            .callable_defs
+            .iter()
+            .map(|lowered_function| lowered_function.callable_def.callable_def.clone())
+            .collect(),
     }
 }
 
 pub(crate) fn simplify_lowered_blockpy_module_bundle_exprs(
     module: &LoweredBlockPyModuleBundle,
 ) -> LoweredCoreBlockPyModuleBundle {
-    let mut callable_defs = Vec::new();
-    for lowered_function in &module.callable_defs {
-        callable_defs.push(LoweredCoreBlockPyModuleCallableDef {
-            bundle: simplify_lowered_blockpy_function_bundle_exprs(&lowered_function.bundle),
-            main_binding_target: lowered_function.main_binding_target,
-        });
-    }
     LoweredCoreBlockPyModuleBundle {
         module_init: module.module_init.clone(),
-        callable_defs,
+        callable_defs: module
+            .callable_defs
+            .iter()
+            .map(|lowered_function| LoweredCallableDef {
+                callable_def: simplify_lowered_blockpy_function_exprs(
+                    &lowered_function.callable_def,
+                ),
+                binding_target: lowered_function.binding_target,
+            })
+            .collect(),
     }
 }
 
@@ -133,31 +117,18 @@ pub(crate) fn lower_core_blockpy_module_bundle_to_bb_module(
     context: &Context,
     module: &LoweredCoreBlockPyModuleBundle,
 ) -> BbModule {
-    let mut out = Vec::new();
-    for lowered_function in &module.callable_defs {
-        let lowered = lower_core_blockpy_function_bundle_to_bb_functions(
-            context,
-            &lowered_function.bundle,
-            lowered_function.main_binding_target,
-        );
-        out.extend(lowered.helper_functions);
-        out.push(lowered.main_function);
-    }
     BbModule {
         module_init: module.module_init.clone(),
-        callable_defs: out,
-    }
-}
-
-fn simplify_lowered_blockpy_function_bundle_exprs(
-    bundle: &LoweredBlockPyFunctionBundle,
-) -> LoweredCoreBlockPyFunctionBundle {
-    LoweredCoreBlockPyFunctionBundle {
-        main_function: simplify_lowered_blockpy_function_exprs(&bundle.main_function),
-        helper_functions: bundle
-            .helper_functions
+        callable_defs: module
+            .callable_defs
             .iter()
-            .map(simplify_lowered_blockpy_function_exprs)
+            .map(|lowered_function| {
+                lower_core_blockpy_function_to_bb_function(
+                    context,
+                    &lowered_function.callable_def,
+                    lowered_function.binding_target,
+                )
+            })
             .collect(),
     }
 }
@@ -176,29 +147,10 @@ fn simplify_lowered_blockpy_function_exprs(
     }
 }
 
-pub(crate) fn lower_core_blockpy_function_bundle_to_bb_functions(
-    context: &Context,
-    bundle: &LoweredCoreBlockPyFunctionBundle,
-    main_binding_target: BindingTarget,
-) -> LoweredBbFunctionBundle {
-    LoweredBbFunctionBundle {
-        main_function: lower_core_blockpy_function_to_bb_function(
-            context,
-            &bundle.main_function,
-            Some(main_binding_target),
-        ),
-        helper_functions: bundle
-            .helper_functions
-            .iter()
-            .map(|helper| lower_core_blockpy_function_to_bb_function(context, helper, None))
-            .collect(),
-    }
-}
-
 pub(crate) fn lower_core_blockpy_function_to_bb_function(
     context: &Context,
     lowered: &LoweredCoreBlockPyFunction,
-    binding_target_override: Option<BindingTarget>,
+    binding_target: BindingTarget,
 ) -> BbFunction {
     let (linear_blocks, linear_block_params, linear_exception_edges) = linearize_structured_ifs(
         &lowered.callable_def.blocks,
@@ -221,7 +173,7 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
                 &linear_exception_edges,
             ),
         },
-        binding_target: binding_target_override.unwrap_or(BindingTarget::Local),
+        binding_target,
         is_coroutine: lowered.is_coroutine,
         closure_layout: lowered.closure_layout.clone(),
         param_specs: lowered.param_specs.clone(),
