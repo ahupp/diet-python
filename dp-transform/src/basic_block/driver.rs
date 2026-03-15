@@ -999,6 +999,30 @@ def bump(x):
         );
     }
 
+    #[test]
+    fn bb_simplify_stmt_pass_leaves_annassign_for_later_passes() {
+        let source = r#"
+def f():
+    x: int = 1
+"#;
+
+        let mut module = ruff_python_parser::parse_module(source)
+            .expect("parse should succeed")
+            .into_syntax();
+        let context =
+            crate::basic_block::ast_to_ast::context::Context::new(Options::for_test(), source);
+
+        crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass(
+            &context,
+            Some(&crate::basic_block::BBSimplifyStmtPass),
+            None,
+            &mut module.body,
+        );
+
+        let rendered = crate::ruff_ast_to_string(&module.body);
+        assert!(rendered.contains("x: int = 1"), "{rendered}");
+    }
+
     fn closure_backed_generator_records_explicit_closure_layout() {
         let source = r#"
 def outer(scale):

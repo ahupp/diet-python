@@ -531,9 +531,6 @@ pub(crate) fn lower_stmt_default(context: &Context, stmt: Stmt) -> Rewrite {
             crate::basic_block::ruff_to_blockpy::rewrite_assign_stmt(context, assign)
         }
         Stmt::Delete(del) => crate::basic_block::ruff_to_blockpy::rewrite_delete_stmt(del),
-        Stmt::AnnAssign(_) => {
-            panic!("should be removed by rewrite_ann_assign_to_dunder_annotate")
-        }
         other => Rewrite::Unmodified(other),
     }
 }
