@@ -16,10 +16,7 @@ use super::cfg_ir::{CfgCallableDef, CfgModule};
 use super::param_specs::function_param_specs_expr;
 use super::ruff_to_blockpy::LoweredBlockPyFunction;
 use super::stmt_utils::{flatten_stmt, flatten_stmt_boxes, stmt_body_from_stmts};
-use crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass;
-use crate::basic_block::ast_to_ast::ast_rewrite::ExprRewritePass;
 use crate::basic_block::ast_to_ast::context::Context;
-use crate::driver::SimplifyExprPass;
 use crate::py_expr;
 use crate::transformer::{walk_expr, Transformer};
 use ruff_python_ast::{self as ast, Expr, Stmt};
@@ -133,7 +130,6 @@ pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
     block_params: &HashMap<String, Vec<String>>,
     exception_edges: &HashMap<String, Option<String>>,
 ) -> Vec<BbBlock> {
-    let simplify_expr_pass = SimplifyExprPass;
     let block_exc_params = blocks
         .iter()
         .map(|block| {
@@ -157,12 +153,6 @@ pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
             if let Some(exc_name) = current_exception_name {
                 rewrite_current_exception_in_stmt_body(&mut normalized_body_stmt, exc_name);
             }
-            rewrite_with_pass(
-                context,
-                None,
-                Some(&simplify_expr_pass),
-                &mut normalized_body_stmt,
-            );
             let mut normalized_body = flatten_stmt_boxes(&normalized_body_stmt.body)
                 .into_iter()
                 .map(|stmt| *stmt)
@@ -171,12 +161,6 @@ pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
             if let Some(exc_name) = current_exception_name {
                 rewrite_current_exception_in_blockpy_term(&mut normalized_term, exc_name);
             }
-            simplify_blockpy_terminal_exprs(
-                context,
-                &simplify_expr_pass,
-                &mut normalized_term,
-                &mut normalized_body,
-            );
             let exc_target_label = exception_edges.get(block.label.as_str()).cloned().flatten();
             let exc_name = exc_target_label.as_ref().and_then(|target_label| {
                 block_exc_params
@@ -349,56 +333,6 @@ fn current_exception_info_expr(exc_name: &str) -> Expr {
         "__dp_exc_info_from_exception({exc:expr})",
         exc = current_exception_name_expr(exc_name),
     )
-}
-
-fn simplify_expr_for_bb_term(
-    context: &Context,
-    pass: &SimplifyExprPass,
-    expr: &mut Expr,
-    body: &mut Vec<Stmt>,
-) {
-    let lowered = pass.lower_expr(context, expr.clone());
-    if lowered.modified {
-        let mut lowered_stmts = Vec::new();
-        flatten_stmt(&lowered.stmt, &mut lowered_stmts);
-        body.extend(lowered_stmts.into_iter().map(|stmt| *stmt));
-    }
-    *expr = lowered.expr;
-}
-
-fn simplify_blockpy_terminal_exprs(
-    context: &Context,
-    pass: &SimplifyExprPass,
-    terminal: &mut BlockPyTerm<impl Clone + Into<Expr> + From<Expr>>,
-    body: &mut Vec<Stmt>,
-) {
-    match terminal {
-        BlockPyTerm::IfTerm(BlockPyIfTerm { test, .. }) => {
-            let mut raw: Expr = test.clone().into();
-            simplify_expr_for_bb_term(context, pass, &mut raw, body);
-            *test = raw.into();
-        }
-        BlockPyTerm::BranchTable(branch) => {
-            let mut raw: Expr = branch.index.clone().into();
-            simplify_expr_for_bb_term(context, pass, &mut raw, body);
-            branch.index = raw.into();
-        }
-        BlockPyTerm::Raise(raise_stmt) => {
-            if let Some(exc) = raise_stmt.exc.as_mut() {
-                let mut raw: Expr = exc.clone().into();
-                simplify_expr_for_bb_term(context, pass, &mut raw, body);
-                *exc = raw.into();
-            }
-        }
-        BlockPyTerm::Return(value) => {
-            if let Some(value) = value.as_mut() {
-                let mut raw: Expr = value.clone().into();
-                simplify_expr_for_bb_term(context, pass, &mut raw, body);
-                *value = raw.into();
-            }
-        }
-        BlockPyTerm::Jump(_) | BlockPyTerm::TryJump(_) => {}
-    }
 }
 
 fn compat_node_index() -> ast::AtomicNodeIndex {
