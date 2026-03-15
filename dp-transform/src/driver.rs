@@ -68,7 +68,7 @@ pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> RewriteModule
         module,
     );
 
-    // Build the semantic BlockPy module from the rewritten AST.
+    // Lower the rewritten AST to semantic BlockPy for rendering/snapshots.
     let mut blockpy_module_ast = module.clone();
     let blockpy_scope = analyze_module_scope(&mut blockpy_module_ast);
     let blockpy_function_identity =
@@ -81,13 +81,16 @@ pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> RewriteModule
     let blockpy_module =
         basic_block::lowered_blockpy_module_bundle_to_blockpy_module(&lowered_blockpy_module);
 
-    // Build BB from the rewritten AST before the final string-literal-to-bytes
-    // cleanup, preserving the existing lowered IR behavior.
+    // Lower the real rewritten AST again for BB so the returned Ruff AST keeps
+    // the same post-lowering mutation behavior as before.
     let bb_scope = analyze_module_scope(module);
-    let bb_identity = basic_block::collect_function_identity_by_node(module, bb_scope);
-    let lowered_bb_module = rewrite_ast_to_lowered_blockpy_module(context, module, bb_identity);
+    let bb_function_identity = basic_block::collect_function_identity_by_node(module, bb_scope);
+    let lowered_bb_module =
+        rewrite_ast_to_lowered_blockpy_module(context, module, bb_function_identity);
+    let core_blockpy_bundle =
+        basic_block::simplify_lowered_blockpy_module_bundle_exprs(&lowered_bb_module);
     let bb_module =
-        basic_block::lower_blockpy_module_bundle_to_bb_module(context, &lowered_bb_module);
+        basic_block::lower_core_blockpy_module_bundle_to_bb_module(context, &core_blockpy_bundle);
     lower_string_literals_to_bytes(module);
 
     RewriteModuleResult {

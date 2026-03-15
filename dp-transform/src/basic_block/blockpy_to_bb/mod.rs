@@ -9,8 +9,7 @@ use super::block_py::cfg::linearize_structured_ifs;
 use super::block_py::exception::is_dp_lookup_call;
 use super::block_py::state::collect_parameter_names;
 use super::block_py::{
-    BlockPyBlock, BlockPyBlockMeta, BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyStmt,
-    BlockPyTerm,
+    BlockPyBlock, BlockPyIfTerm, BlockPyModule, BlockPyStmt, BlockPyTerm, CoreBlockPyCallableDef,
 };
 use super::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use super::cfg_ir::{CfgCallableDef, CfgModule};
@@ -24,7 +23,7 @@ use crate::py_expr;
 use crate::transformer::{walk_expr, Transformer};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::TextRange;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 
 pub use codegen_normalize::normalize_bb_module_for_codegen;
 pub use exception_pass::lower_try_jump_exception_flow;
@@ -40,6 +39,28 @@ pub(crate) struct LoweredBlockPyModuleCallableDef {
 }
 
 pub(crate) type LoweredBlockPyModuleBundle = CfgModule<LoweredBlockPyModuleCallableDef>;
+
+pub(crate) struct LoweredCoreBlockPyFunction {
+    pub callable_def: CoreBlockPyCallableDef,
+    pub is_coroutine: bool,
+    pub bb_kind: super::bb_ir::BbFunctionKind,
+    pub block_params: HashMap<String, Vec<String>>,
+    pub exception_edges: HashMap<String, Option<String>>,
+    pub closure_layout: Option<super::bb_ir::BbClosureLayout>,
+    pub param_specs: BbExpr,
+}
+
+pub(crate) struct LoweredCoreBlockPyFunctionBundle {
+    pub main_function: LoweredCoreBlockPyFunction,
+    pub helper_functions: Vec<LoweredCoreBlockPyFunction>,
+}
+
+pub(crate) struct LoweredCoreBlockPyModuleCallableDef {
+    pub bundle: LoweredCoreBlockPyFunctionBundle,
+    pub main_binding_target: BindingTarget,
+}
+
+pub(crate) type LoweredCoreBlockPyModuleBundle = CfgModule<LoweredCoreBlockPyModuleCallableDef>;
 
 pub(crate) fn push_lowered_blockpy_callable_def_bundle(
     out: &mut LoweredBlockPyModuleBundle,
@@ -72,13 +93,29 @@ pub(crate) fn lowered_blockpy_module_bundle_to_blockpy_module(
     }
 }
 
-pub(crate) fn lower_blockpy_module_bundle_to_bb_module(
-    context: &Context,
+pub(crate) fn simplify_lowered_blockpy_module_bundle_exprs(
     module: &LoweredBlockPyModuleBundle,
+) -> LoweredCoreBlockPyModuleBundle {
+    let mut callable_defs = Vec::new();
+    for lowered_function in &module.callable_defs {
+        callable_defs.push(LoweredCoreBlockPyModuleCallableDef {
+            bundle: simplify_lowered_blockpy_function_bundle_exprs(&lowered_function.bundle),
+            main_binding_target: lowered_function.main_binding_target,
+        });
+    }
+    LoweredCoreBlockPyModuleBundle {
+        module_init: module.module_init.clone(),
+        callable_defs,
+    }
+}
+
+pub(crate) fn lower_core_blockpy_module_bundle_to_bb_module(
+    context: &Context,
+    module: &LoweredCoreBlockPyModuleBundle,
 ) -> BbModule {
     let mut out = Vec::new();
     for lowered_function in &module.callable_defs {
-        let lowered = lower_blockpy_function_bundle_to_bb_functions(
+        let lowered = lower_core_blockpy_function_bundle_to_bb_functions(
             context,
             &lowered_function.bundle,
             lowered_function.main_binding_target,
@@ -92,13 +129,40 @@ pub(crate) fn lower_blockpy_module_bundle_to_bb_module(
     }
 }
 
-pub(crate) fn lower_blockpy_function_bundle_to_bb_functions(
-    context: &Context,
+fn simplify_lowered_blockpy_function_bundle_exprs(
     bundle: &LoweredBlockPyFunctionBundle,
+) -> LoweredCoreBlockPyFunctionBundle {
+    LoweredCoreBlockPyFunctionBundle {
+        main_function: simplify_lowered_blockpy_function_exprs(&bundle.main_function),
+        helper_functions: bundle
+            .helper_functions
+            .iter()
+            .map(simplify_lowered_blockpy_function_exprs)
+            .collect(),
+    }
+}
+
+fn simplify_lowered_blockpy_function_exprs(
+    lowered: &LoweredBlockPyFunction,
+) -> LoweredCoreBlockPyFunction {
+    LoweredCoreBlockPyFunction {
+        callable_def: simplify_blockpy_callable_def_exprs(&lowered.callable_def),
+        is_coroutine: lowered.is_coroutine,
+        bb_kind: lowered.bb_kind.clone(),
+        block_params: lowered.block_params.clone(),
+        exception_edges: lowered.exception_edges.clone(),
+        closure_layout: lowered.closure_layout.clone(),
+        param_specs: lowered.param_specs.clone(),
+    }
+}
+
+pub(crate) fn lower_core_blockpy_function_bundle_to_bb_functions(
+    context: &Context,
+    bundle: &LoweredCoreBlockPyFunctionBundle,
     main_binding_target: BindingTarget,
 ) -> LoweredBbFunctionBundle {
     LoweredBbFunctionBundle {
-        main_function: lower_blockpy_function_to_bb_function(
+        main_function: lower_core_blockpy_function_to_bb_function(
             context,
             &bundle.main_function,
             Some(main_binding_target),
@@ -106,31 +170,30 @@ pub(crate) fn lower_blockpy_function_bundle_to_bb_functions(
         helper_functions: bundle
             .helper_functions
             .iter()
-            .map(|helper| lower_blockpy_function_to_bb_function(context, helper, None))
+            .map(|helper| lower_core_blockpy_function_to_bb_function(context, helper, None))
             .collect(),
     }
 }
 
-pub(crate) fn lower_blockpy_function_to_bb_function(
+pub(crate) fn lower_core_blockpy_function_to_bb_function(
     context: &Context,
-    lowered: &LoweredBlockPyFunction,
+    lowered: &LoweredCoreBlockPyFunction,
     binding_target_override: Option<BindingTarget>,
 ) -> BbFunction {
-    let core_callable_def = simplify_blockpy_callable_def_exprs(&lowered.callable_def);
     let (linear_blocks, linear_block_params, linear_exception_edges) = linearize_structured_ifs(
-        &core_callable_def.blocks,
+        &lowered.callable_def.blocks,
         &lowered.block_params,
         &lowered.exception_edges,
     );
     BbFunction {
         cfg: CfgCallableDef {
-            function_id: core_callable_def.function_id,
-            bind_name: core_callable_def.bind_name.clone(),
-            display_name: core_callable_def.display_name.clone(),
-            qualname: core_callable_def.qualname.clone(),
+            function_id: lowered.callable_def.function_id,
+            bind_name: lowered.callable_def.bind_name.clone(),
+            display_name: lowered.callable_def.display_name.clone(),
+            qualname: lowered.callable_def.qualname.clone(),
             kind: lowered.bb_kind.clone(),
-            params: collect_parameter_names(&core_callable_def.params),
-            entry_liveins: core_callable_def.entry_liveins.clone(),
+            params: collect_parameter_names(&lowered.callable_def.params),
+            entry_liveins: lowered.callable_def.entry_liveins.clone(),
             blocks: lower_blockpy_blocks_to_bb_blocks(
                 context,
                 &linear_blocks,
@@ -142,7 +205,7 @@ pub(crate) fn lower_blockpy_function_to_bb_function(
         is_coroutine: lowered.is_coroutine,
         closure_layout: lowered.closure_layout.clone(),
         param_specs: lowered.param_specs.clone(),
-        local_cell_slots: core_callable_def.local_cell_slots.clone(),
+        local_cell_slots: lowered.callable_def.local_cell_slots.clone(),
     }
 }
 

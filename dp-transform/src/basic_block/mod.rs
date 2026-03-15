@@ -19,7 +19,8 @@ mod stmt_utils;
 // Ruff AST -> BbModule
 pub use block_py::pretty::blockpy_module_to_string;
 pub(crate) use blockpy_to_bb::{
-    lower_blockpy_module_bundle_to_bb_module, lowered_blockpy_module_bundle_to_blockpy_module,
+    lower_core_blockpy_module_bundle_to_bb_module, lowered_blockpy_module_bundle_to_blockpy_module,
+    simplify_lowered_blockpy_module_bundle_exprs,
 };
 pub use blockpy_to_bb::{lower_try_jump_exception_flow, normalize_bb_module_for_codegen};
 pub use function_identity::FunctionIdentityByNode;
@@ -27,15 +28,9 @@ pub use function_lowering::BBSimplifyStmtPass;
 
 use self::ast_to_ast::rewrite_stmt::function_def::rewrite_ast_to_lowered_blockpy_module;
 use self::function_identity::collect_function_identity_private;
-use ast_to_ast::context::Context;
 use ast_to_ast::scope::Scope;
-use bb_ir::BbModule;
-use block_py::BlockPyModule;
 use ruff_python_ast::StmtBody;
 use std::sync::Arc;
-
-#[cfg(test)]
-use self::bb_ir::{BbFunction, BindingTarget};
 
 pub fn collect_function_identity_by_node(
     module: &mut StmtBody,
@@ -64,7 +59,8 @@ pub fn rewrite_ast_to_bb_module(
 ) -> bb_ir::BbModule {
     let lowered_module =
         rewrite_ast_to_lowered_blockpy_module(context, module, function_identity_by_node);
-    lower_blockpy_module_bundle_to_bb_module(context, &lowered_module)
+    let core_module = simplify_lowered_blockpy_module_bundle_exprs(&lowered_module);
+    lower_core_blockpy_module_bundle_to_bb_module(context, &core_module)
 }
 
 pub fn rewrite_ast_to_blockpy_module_with_context(
@@ -79,14 +75,14 @@ pub fn rewrite_ast_to_blockpy_module_with_context(
 
 #[cfg(test)]
 mod tests {
-    use super::{BbFunction, BindingTarget};
-    use crate::basic_block::bb_ir::{BbBlock, BbExpr, BbFunctionKind};
+    use crate::basic_block::bb_ir::BindingTarget;
+    use crate::basic_block::bb_ir::{BbBlock, BbExpr, BbFunction, BbFunctionKind, BbModule};
     use crate::basic_block::bb_ir::{BbClosureInit, BbClosureSlot, BbOp, BbTerm};
     use crate::{
         py_expr, transform_str_to_bb_ir_with_options, transform_str_to_ruff_with_options, Options,
     };
 
-    fn function_by_name<'a>(bb_module: &'a super::BbModule, bind_name: &str) -> &'a BbFunction {
+    fn function_by_name<'a>(bb_module: &'a BbModule, bind_name: &str) -> &'a BbFunction {
         let direct = bb_module
             .callable_defs
             .iter()
