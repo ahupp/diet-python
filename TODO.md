@@ -31,6 +31,11 @@
     - Adjacent string literals should normalize to one logical string value before later expr/string lowering so the rest of the pipeline does not have to reason about multi-literal concatenation shapes.
     - This should preserve Python evaluation behavior and source-sensitive string handling, including any interaction with later f-string/t-string or surrogate-aware lowering.
     - The likely boundary is the early expr normalization pipeline, before the later semantic-BlockPy string-template handling.
+- Make PassTracker record explicit pass results directly, so the driver flow stays in the shape `let result = pass_tracker.add_pass(..., || { ... });`.
+  - Planning note:
+    - `project_lowered_module_callable_defs` appears to be only for tests or the web renderer, so it should stay at those consumption sites instead of obscuring the main driver dataflow.
+    - Add `#[must_use]` to `PassTracker::add_pass` so callers do not silently discard tracked pass results.
+    - Record timing per `add_pass` invocation and surface those timings in the final transform timing report.
 
 ## Follow-up: weakref callback during shutdown (BB mode)
 
