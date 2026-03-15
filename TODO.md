@@ -27,6 +27,8 @@
     - Verified note:
       - Ruff already stores decoded string content in `StringLiteral.value`, and `ExprStringLiteral.value.to_str()` returns the concatenated decoded value for implicitly concatenated literals.
       - That means `Context` does not appear to be needed just to recover the ordinary Python string value.
+      - Ruff parser utilities worth investigating here are `ruff_python_parser::string` for string-literal parsing/decoding and the lexer string handling in `ruff_python_parser::lexer`.
+      - Adjacent string literals are already represented as `StringLiteralValue::concatenated(...)` during parsing in `ruff_python_parser::parser::expression`, so early literal merging may be more about normalizing existing Ruff concatenation nodes than inventing a new merge step from scratch.
     - The remaining `Context` dependency looks narrower: source-sensitive handling that still cares about the original literal spelling, especially surrogate-escape detection/decoding.
     - Move that source-sensitive non-raw-string work into `lower_surrogate_string_literals` so it happens earlier, while original source information is still available.
     - Ideally move adjacent string-literal merging there too, so sequential literals become one logical string before the later semantic-BlockPy string-template phase.
