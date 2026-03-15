@@ -23,7 +23,7 @@ pub(crate) use blockpy_to_bb::{
     simplify_lowered_blockpy_module_bundle_exprs,
 };
 pub use blockpy_to_bb::{lower_try_jump_exception_flow, normalize_bb_module_for_codegen};
-pub use function_lowering::SingleNamedAssignment;
+pub use function_lowering::SingleNamedAssignmentPass;
 
 #[cfg(test)]
 mod tests {
@@ -759,7 +759,7 @@ def f():
 
         crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass(
             &context,
-            Some(&crate::basic_block::SingleNamedAssignment),
+            Some(&crate::basic_block::SingleNamedAssignmentPass),
             None,
             &mut module.body,
         );

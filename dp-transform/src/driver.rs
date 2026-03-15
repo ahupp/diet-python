@@ -53,7 +53,7 @@ pub(crate) fn rewrite_module_with_tracker(
     // operators, and comparisons.
     rewrite_with_pass(
         context,
-        Some(&basic_block::SingleNamedAssignment),
+        Some(&basic_block::SingleNamedAssignmentPass),
         Some(&SimplifyExprPass),
         module,
     );
