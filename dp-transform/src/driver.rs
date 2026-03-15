@@ -58,7 +58,6 @@ pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> RewriteModule
     rewrite_names::rewrite_explicit_bindings(context, scope.clone(), module);
 
     rewrite_class_def::class_body::rewrite_class_body_scopes(context, scope, module);
-    rewrite_with_pass(context, None, Some(&ScopedHelperExprPass), module);
     // Class-body and metaclass rewriting can still synthesize rich statement
     // and expression forms, including dict displays in generated class-call
     // scaffolding, so rerun the general AST simplifier before BlockPy lowering.
