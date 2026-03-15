@@ -285,6 +285,51 @@ fn lower_semantic_expr_without_setup(expr: &SemanticExpr) -> CoreBlockPyExpr {
     lowered
 }
 
+fn simplify_parameter_default(default: &Option<Box<Expr>>) -> Option<Box<Expr>> {
+    default
+        .as_ref()
+        .map(|expr| Box::new(Expr::from(CoreBlockPyExpr::from((**expr).clone()))))
+}
+
+pub(crate) fn simplify_parameter_exprs(parameters: &ast::Parameters) -> ast::Parameters {
+    ast::Parameters {
+        range: parameters.range,
+        node_index: parameters.node_index.clone(),
+        posonlyargs: parameters
+            .posonlyargs
+            .iter()
+            .map(|param| ast::ParameterWithDefault {
+                range: param.range,
+                node_index: param.node_index.clone(),
+                parameter: param.parameter.clone(),
+                default: simplify_parameter_default(&param.default),
+            })
+            .collect(),
+        args: parameters
+            .args
+            .iter()
+            .map(|param| ast::ParameterWithDefault {
+                range: param.range,
+                node_index: param.node_index.clone(),
+                parameter: param.parameter.clone(),
+                default: simplify_parameter_default(&param.default),
+            })
+            .collect(),
+        vararg: parameters.vararg.clone(),
+        kwonlyargs: parameters
+            .kwonlyargs
+            .iter()
+            .map(|param| ast::ParameterWithDefault {
+                range: param.range,
+                node_index: param.node_index.clone(),
+                parameter: param.parameter.clone(),
+                default: simplify_parameter_default(&param.default),
+            })
+            .collect(),
+        kwarg: parameters.kwarg.clone(),
+    }
+}
+
 fn lower_semantic_stmt_fragment(fragment: &CoreLikeStmtFragmentInput) -> CoreBlockPyStmtFragment {
     let mut builder = CoreStmtBuilder::new();
     for stmt in &fragment.body {
@@ -415,7 +460,7 @@ pub(crate) fn simplify_blockpy_callable_def_exprs(
             display_name: callable_def.display_name.clone(),
             qualname: callable_def.qualname.clone(),
             kind: callable_def.kind,
-            params: callable_def.params.clone(),
+            params: simplify_parameter_exprs(&callable_def.params),
             entry_liveins: callable_def.entry_liveins.clone(),
             blocks: callable_def
                 .blocks
@@ -630,5 +675,25 @@ def f(x):
                 "{expr} should stay raw at the late pure expr boundary",
             );
         }
+    }
+
+    #[test]
+    fn core_blockpy_expr_simplifies_function_default_exprs() {
+        let blockpy = transform_str_to_ruff_with_options(
+            r#"
+def f(*, d={"metaclass": Meta}, **kw):
+    return d
+"#,
+            Options::for_test(),
+        )
+        .unwrap()
+        .get_pass::<crate::basic_block::block_py::BlockPyModule>()
+        .cloned()
+        .expect("expected BlockPy module");
+        let core = simplify_blockpy_module_exprs(&blockpy);
+        let rendered = blockpy_module_to_string(&core);
+
+        assert!(rendered.contains("__dp_dict("), "{rendered}");
+        assert!(!rendered.contains("{\"metaclass\": Meta}"), "{rendered}");
     }
 }

@@ -13,6 +13,7 @@ use super::block_py::{
 };
 use super::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use super::cfg_ir::{CfgCallableDef, CfgModule};
+use super::param_specs::function_param_specs_expr;
 use super::ruff_to_blockpy::LoweredBlockPyFunction;
 use super::stmt_utils::{flatten_stmt, flatten_stmt_boxes, stmt_body_from_stmts};
 use crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass;
@@ -85,14 +86,15 @@ pub(crate) fn lower_core_blockpy_module_bundle_to_bb_module(
 fn simplify_lowered_blockpy_function_exprs(
     lowered: &LoweredBlockPyFunction,
 ) -> LoweredCoreBlockPyFunction {
+    let callable_def = simplify_blockpy_callable_def_exprs(&lowered.callable_def);
     LoweredCoreBlockPyFunction {
-        callable_def: simplify_blockpy_callable_def_exprs(&lowered.callable_def),
+        param_specs: BbExpr::from_expr(function_param_specs_expr(&callable_def.params)),
+        callable_def,
         is_coroutine: lowered.is_coroutine,
         bb_kind: lowered.bb_kind.clone(),
         block_params: lowered.block_params.clone(),
         exception_edges: lowered.exception_edges.clone(),
         closure_layout: lowered.closure_layout.clone(),
-        param_specs: lowered.param_specs.clone(),
     }
 }
 
