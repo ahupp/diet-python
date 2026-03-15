@@ -59,8 +59,14 @@ pub fn inspect_pipeline(source: &str) -> Result<String, JsValue> {
         .map(ruff_ast_to_string)
         .unwrap_or_else(|| transformed.to_string());
     let core_blockpy = transformed
-        .get_pass::<crate::basic_block::block_py::CoreBlockPyModule>()
-        .map(crate::basic_block::blockpy_module_to_string)
+        .get_pass::<crate::basic_block::LoweredCoreBlockPyModuleBundle>()
+        .map(|bundle| {
+            crate::basic_block::blockpy_module_to_string(
+                &crate::basic_block::project_lowered_module_callable_defs(bundle, |lowered| {
+                    &lowered.callable_def
+                }),
+            )
+        })
         .unwrap_or_default();
 
     let payload = json!({

@@ -20,6 +20,8 @@ mod stmt_utils;
 // Ruff AST -> BbModule
 pub use block_py::pretty::blockpy_module_to_string;
 pub(crate) use blockpy_string_lower::lower_string_templates_in_lowered_blockpy_module_bundle;
+#[cfg(target_arch = "wasm32")]
+pub(crate) use blockpy_to_bb::LoweredCoreBlockPyModuleBundle;
 pub(crate) use blockpy_to_bb::{
     lower_core_blockpy_module_bundle_to_bb_module, project_lowered_module_callable_defs,
     simplify_lowered_blockpy_module_bundle_exprs,

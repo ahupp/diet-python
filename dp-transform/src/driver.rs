@@ -82,12 +82,8 @@ pub(crate) fn rewrite_module_with_tracker(
             &lowered.callable_def
         })
     });
-    let core_blockpy_bundle =
-        basic_block::simplify_lowered_blockpy_module_bundle_exprs(&lowered_blockpy_module);
-    pass_tracker.add_pass("core_blockpy", || {
-        basic_block::project_lowered_module_callable_defs(&core_blockpy_bundle, |lowered| {
-            &lowered.callable_def
-        })
+    let core_blockpy_bundle = pass_tracker.add_pass("core_blockpy", || {
+        basic_block::simplify_lowered_blockpy_module_bundle_exprs(&lowered_blockpy_module)
     });
     let bb_module =
         basic_block::lower_core_blockpy_module_bundle_to_bb_module(&core_blockpy_bundle);

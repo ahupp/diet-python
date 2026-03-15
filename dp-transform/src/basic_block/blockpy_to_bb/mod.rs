@@ -25,6 +25,7 @@ use std::collections::HashMap;
 pub use codegen_normalize::normalize_bb_module_for_codegen;
 pub use exception_pass::lower_try_jump_exception_flow;
 
+#[derive(Clone)]
 pub(crate) struct LoweredCallableDef<T> {
     pub callable_def: T,
     pub binding_target: BindingTarget,
@@ -32,6 +33,7 @@ pub(crate) struct LoweredCallableDef<T> {
 
 pub(crate) type LoweredBlockPyModuleBundle = CfgModule<LoweredCallableDef<LoweredBlockPyFunction>>;
 
+#[derive(Clone)]
 pub(crate) struct LoweredCoreBlockPyFunction {
     pub callable_def: CoreBlockPyCallableDef,
     pub is_coroutine: bool,
