@@ -10,6 +10,11 @@
 
 - Reserved for user requests that start with `TODO`.
 - Add one entry per request and include any plan or relevant response summary with it.
+- Add an evaluation-order-explicit pass that hoists composite subexpressions into temps while preserving left-to-right evaluation, e.g. `a = foo(b(), c)` -> `tmp = b(); a = foo(tmp, c)`.
+  - Planning note:
+    - The pass should make effect order explicit before the await/generator boundary so later phases only see atomic operands in control/runtime positions.
+    - As an implied invariant, only names should be allowed as operands to `If`, `Return`, `Raise`, `Await`, `Yield`, and `YieldFrom`.
+    - Call arguments are the motivating first example, but the pass should cover any composite expression whose evaluation order must be made explicit.
 
 ## Follow-up: weakref callback during shutdown (BB mode)
 
