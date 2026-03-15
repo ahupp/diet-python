@@ -134,6 +134,21 @@ struct SurrogateStringLiteralLowerer<'a> {
     context: &'a Context,
 }
 
+fn decoded_literal_interpolation(
+    range: ruff_text_size::TextRange,
+    node_index: ast::AtomicNodeIndex,
+    source: &str,
+) -> ast::InterpolatedStringElement {
+    ast::InterpolatedStringElement::Interpolation(ast::InterpolatedElement {
+        range,
+        node_index,
+        expression: Box::new(string::decode_literal_source_bytes_expr(source)),
+        debug_text: None,
+        conversion: ast::ConversionFlag::None,
+        format_spec: None,
+    })
+}
+
 fn merged_string_literal_expr(node: &ast::ExprStringLiteral) -> ast::ExprStringLiteral {
     if !node.value.is_implicit_concatenated() {
         return node.clone();
@@ -172,6 +187,61 @@ fn merged_bytes_literal_expr(node: &ast::ExprBytesLiteral) -> ast::ExprBytesLite
     }
 }
 
+fn materialize_nested_fstring_sources(fstring: &mut ast::FString, context: &Context) {
+    let is_raw = fstring.flags.prefix().is_raw();
+    for element in fstring.elements.iter_mut() {
+        match element {
+            ast::InterpolatedStringElement::Literal(lit) => {
+                if is_raw {
+                    continue;
+                }
+                let Some(src) = context.source_slice(lit.range) else {
+                    continue;
+                };
+                if !string::has_surrogate_escape(src) {
+                    continue;
+                }
+                let quoted = string::quote_fstring_literal(src);
+                *element =
+                    decoded_literal_interpolation(lit.range, lit.node_index.clone(), &quoted);
+            }
+            ast::InterpolatedStringElement::Interpolation(_) => {}
+        }
+    }
+}
+
+fn materialize_fstring_sources(node: &mut ast::ExprFString, context: &Context) {
+    for part in node.value.iter_mut() {
+        match part {
+            ast::FStringPart::Literal(lit) => {
+                if lit.flags.prefix().is_raw() {
+                    continue;
+                }
+                let Some(src) = context.source_slice(lit.range) else {
+                    continue;
+                };
+                if !string::has_surrogate_escape(src) {
+                    continue;
+                }
+                *part = ast::FStringPart::FString(ast::FString {
+                    range: lit.range,
+                    node_index: lit.node_index.clone(),
+                    elements: vec![decoded_literal_interpolation(
+                        lit.range,
+                        lit.node_index.clone(),
+                        &format!("({src})"),
+                    )]
+                    .into(),
+                    flags: ast::FStringFlags::empty(),
+                });
+            }
+            ast::FStringPart::FString(fstring) => {
+                materialize_nested_fstring_sources(fstring, context);
+            }
+        }
+    }
+}
+
 impl Transformer for &mut SurrogateStringLiteralLowerer<'_> {
     fn visit_body(&mut self, body: &mut StmtBody) {
         for (index, stmt) in body.body.iter_mut().enumerate() {
@@ -198,6 +268,9 @@ impl Transformer for &mut SurrogateStringLiteralLowerer<'_> {
             Expr::BytesLiteral(node) => {
                 *node = merged_bytes_literal_expr(node);
             }
+            Expr::FString(node) => {
+                materialize_fstring_sources(node, self.context);
+            }
             _ => {}
         }
     }
@@ -212,6 +285,7 @@ pub fn lower_surrogate_string_literals(context: &Context, stmts: &mut StmtBody) 
 mod tests {
     use super::lower_surrogate_string_literals;
     use crate::basic_block::ast_to_ast::context::Context;
+    use crate::basic_block::ast_to_ast::rewrite_expr::string::lower_string_templates_in_expr;
     use crate::basic_block::ast_to_ast::Options;
     use crate::ruff_ast_to_string;
     use ruff_python_ast::{self as ast, Expr, Stmt};
@@ -254,6 +328,46 @@ mod tests {
     #[test]
     fn lower_surrogate_string_literals_still_decodes_surrogate_escapes_after_merge() {
         let module = lower_module("x = \"\\udca7\" \"b\"\n");
+        let rendered = ruff_ast_to_string(&module.body);
+        assert!(
+            rendered.contains("__dp_decode_literal_source_bytes"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn lower_surrogate_string_literals_keeps_fstring_debug_output_correct() {
+        let mut module = lower_module("x = f\"{value=}\"\n");
+        let Stmt::Assign(assign) = module.body.body[0].as_mut() else {
+            panic!("expected first statement to be an assignment");
+        };
+        lower_string_templates_in_expr(assign.value.as_mut());
+        let rendered = ruff_ast_to_string(&module.body);
+        assert!(rendered.contains("value="), "{rendered}");
+        assert!(rendered.contains("__dp_repr(value)"), "{rendered}");
+    }
+
+    #[test]
+    fn lower_surrogate_string_literals_keeps_tstring_expr_text_available() {
+        let mut module = lower_module("x = t\"{value}\"\n");
+        let Stmt::Assign(assign) = module.body.body[0].as_mut() else {
+            panic!("expected first statement to be an assignment");
+        };
+        lower_string_templates_in_expr(assign.value.as_mut());
+        let rendered = ruff_ast_to_string(&module.body);
+        assert!(
+            rendered.contains("__dp_templatelib_Interpolation(value, \"value\""),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn lower_surrogate_string_literals_materializes_fstring_literal_surrogates() {
+        let mut module = lower_module("x = f\"\\udca7\"\n");
+        let Stmt::Assign(assign) = module.body.body[0].as_mut() else {
+            panic!("expected first statement to be an assignment");
+        };
+        lower_string_templates_in_expr(assign.value.as_mut());
         let rendered = ruff_ast_to_string(&module.body);
         assert!(
             rendered.contains("__dp_decode_literal_source_bytes"),

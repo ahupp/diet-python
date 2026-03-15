@@ -78,7 +78,6 @@ pub(crate) fn rewrite_module_with_tracker(
     let lowered_blockpy_module = pass_tracker.add_pass("semantic_blockpy", || {
         let lowered_blockpy_module = rewrite_ast_to_lowered_blockpy_module(context, module);
         basic_block::lower_string_templates_in_lowered_blockpy_module_bundle(
-            context,
             &lowered_blockpy_module,
         )
     });

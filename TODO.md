@@ -29,10 +29,8 @@
       - That means `Context` does not appear to be needed just to recover the ordinary Python string value.
       - Ruff parser utilities worth investigating here are `ruff_python_parser::string` for string-literal parsing/decoding and the lexer string handling in `ruff_python_parser::lexer`.
       - Adjacent string literals are already represented as `StringLiteralValue::concatenated(...)` during parsing in `ruff_python_parser::parser::expression`, so early literal merging may be more about normalizing existing Ruff concatenation nodes than inventing a new merge step from scratch.
-    - The remaining `Context` dependency looks narrower: source-sensitive handling that still cares about the original literal spelling, especially surrogate-escape detection/decoding.
-    - Move that source-sensitive non-raw-string work into `lower_surrogate_string_literals` so it happens earlier, while original source information is still available.
-    - Ideally move adjacent string-literal merging there too, so sequential literals become one logical string before the later semantic-BlockPy string-template phase.
-    - After that split, the remaining late string-template lowering should be context-free enough to fold into the main lowered-BlockPy expr simplifier as part of the semantic-BlockPy -> core-BlockPy reduction.
+    - The source-sensitive literal work now lives in `lower_surrogate_string_literals`, including sequential string/bytes literal merging and surrogate-sensitive literal decoding before the late string-template phase.
+    - The remaining late string-template lowering is now context-free, so the remaining task is to fold that standalone lowered-BlockPy bundle pass into the main semantic-BlockPy -> core-BlockPy expr simplifier.
 - Remove local `StmtBody` usage and move back to upstream Ruff structures.
   - Planning note:
     - The desired end state is to stop depending on the local `StmtBody` wrapper and align the lowering pipeline back with upstream Ruff AST/container shapes.
