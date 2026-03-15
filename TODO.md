@@ -21,6 +21,11 @@
     - Route all async functions through semantic BlockPy first, then run one bundle-level await-lowering pass instead of probing an AST fallback path.
     - Widen that pass until it handles every semantic position that can contain `await`, then delete the fallback route and legacy gating fields.
     - Keep the final design visible in `rewrite_module` as a real typed phase boundary instead of hiding it inside a lower-level helper.
+- Fold `lower_string_templates_in_lowered_blockpy_module_bundle` into the main expr simplification pass instead of keeping it as a standalone driver step.
+  - Planning note:
+    - The desired end state is for late string-template lowering to be part of the same bundle-level simplify pass that produces core BlockPy.
+    - The current reason it is separate is that string-template lowering reuses source-sensitive logic that needs `Context`, while the current simplify pass is context-free.
+    - The integration path is to make the main lowered-BlockPy expr simplifier accept `Context`, run string-template lowering inside it first, and then do the semantic-BlockPy -> core-BlockPy reduction.
 
 ## Follow-up: weakref callback during shutdown (BB mode)
 
