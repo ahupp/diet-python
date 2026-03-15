@@ -27,7 +27,7 @@ pub use function_lowering::BBSimplifyStmtPass;
 
 use self::ast_to_ast::rewrite_stmt::function_def::rewrite_ast_to_lowered_blockpy_module;
 use self::blockpy_to_bb::lower_blockpy_module_bundle_to_bb_module;
-use self::function_identity::{collect_function_identity_private, FunctionIdentity};
+use self::function_identity::collect_function_identity_private;
 use ast_to_ast::context::Context;
 use ast_to_ast::scope::Scope;
 use bb_ir::BbModule;
@@ -63,7 +63,9 @@ pub fn rewrite_with_function_identity_and_collect_ir(
     module: &mut StmtBody,
     function_identity_by_node: FunctionIdentityByNode,
 ) -> BbModule {
-    rewrite_internal(context, module, Some(function_identity_by_node))
+    let lowered_module =
+        rewrite_ast_to_lowered_blockpy_module(context, module, function_identity_by_node);
+    lower_blockpy_module_bundle_to_bb_module(context, &lowered_module)
 }
 
 pub fn rewrite_with_function_identity_to_blockpy_module(
@@ -74,33 +76,6 @@ pub fn rewrite_with_function_identity_to_blockpy_module(
     let lowered_module =
         rewrite_ast_to_lowered_blockpy_module(context, module, function_identity_by_node);
     lowered_blockpy_module_bundle_to_blockpy_module(&lowered_module)
-}
-
-fn rewrite_internal(
-    context: &Context,
-    module: &mut StmtBody,
-    function_identity_by_node: Option<FunctionIdentityByNode>,
-) -> BbModule {
-    let function_identity_by_node = function_identity_by_node.unwrap_or_else(|| {
-        let module_scope = ast_to_ast::scope::analyze_module_scope(module);
-        collect_function_identity_private(module, module_scope)
-            .into_iter()
-            .map(
-                |(
-                    node,
-                    FunctionIdentity {
-                        bind_name,
-                        display_name,
-                        qualname,
-                        binding_target,
-                    },
-                )| { (node, (bind_name, display_name, qualname, binding_target)) },
-            )
-            .collect()
-    });
-    let lowered_module =
-        rewrite_ast_to_lowered_blockpy_module(context, module, function_identity_by_node);
-    lower_blockpy_module_bundle_to_bb_module(context, &lowered_module)
 }
 
 pub fn rewrite_ast_to_bb_module(
