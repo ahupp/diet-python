@@ -15,6 +15,12 @@
     - The pass should make effect order explicit before the await/generator boundary so later phases only see atomic operands in control/runtime positions.
     - As an implied invariant, only names should be allowed as operands to `If`, `Return`, `Raise`, `Await`, `Yield`, and `YieldFrom`.
     - Call arguments are the motivating first example, but the pass should cover any composite expression whose evaluation order must be made explicit.
+- Remove the fallback await-lowering path so all awaits use one explicit pass, and make that pass appear as a top-level step in `rewrite_module`.
+  - Planning note:
+    - Split the current coarse AST-to-lowered-BlockPy boundary so `rewrite_module` can show an explicit semantic-BlockPy-with-awaits -> semantic-BlockPy-without-awaits step.
+    - Route all async functions through semantic BlockPy first, then run one bundle-level await-lowering pass instead of probing an AST fallback path.
+    - Widen that pass until it handles every semantic position that can contain `await`, then delete the fallback route and legacy gating fields.
+    - Keep the final design visible in `rewrite_module` as a real typed phase boundary instead of hiding it inside a lower-level helper.
 
 ## Follow-up: weakref callback during shutdown (BB mode)
 
