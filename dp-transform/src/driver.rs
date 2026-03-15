@@ -76,10 +76,7 @@ pub(crate) fn rewrite_module_with_tracker(
 
     let _ = pass_tracker.add_pass("rewritten_ast_for_lowering", || module.clone());
     let lowered_blockpy_module = pass_tracker.add_pass("semantic_blockpy", || {
-        let lowered_blockpy_module = rewrite_ast_to_lowered_blockpy_module(context, module);
-        basic_block::lower_string_templates_in_lowered_blockpy_module_bundle(
-            &lowered_blockpy_module,
-        )
+        rewrite_ast_to_lowered_blockpy_module(context, module)
     });
     let core_blockpy_bundle = pass_tracker.add_pass("core_blockpy", || {
         basic_block::simplify_lowered_blockpy_module_bundle_exprs(&lowered_blockpy_module)

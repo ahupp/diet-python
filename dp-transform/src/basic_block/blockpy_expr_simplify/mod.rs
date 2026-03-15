@@ -1,4 +1,7 @@
 use super::{
+    ast_to_ast::rewrite_expr::string::{
+        lower_string_templates_in_expr, lower_string_templates_in_parameters,
+    },
     block_py::{
         BlockPyBlockMeta, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete, BlockPyIf,
         BlockPyIfTerm, BlockPyRaise, BlockPyStmtFragmentBuilder, BlockPyTerm, CoreBlockPyAssign,
@@ -26,7 +29,9 @@ struct DefaultCoreExprReducer;
 
 impl PureCoreExprReducer for DefaultCoreExprReducer {
     fn reduce_expr(&self, expr: &SemanticExpr) -> CoreBlockPyExpr {
-        expr.clone().into()
+        let mut expr = expr.clone();
+        expr.rewrite_mut(lower_string_templates_in_expr);
+        expr.into()
     }
 }
 
@@ -281,6 +286,8 @@ fn simplify_parameter_default(default: &Option<Box<Expr>>) -> Option<Box<Expr>> 
 }
 
 pub(crate) fn simplify_parameter_exprs(parameters: &ast::Parameters) -> ast::Parameters {
+    let mut parameters = parameters.clone();
+    lower_string_templates_in_parameters(&mut parameters);
     ast::Parameters {
         range: parameters.range,
         node_index: parameters.node_index.clone(),

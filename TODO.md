@@ -21,16 +21,6 @@
     - Route all async functions through semantic BlockPy first, then run one bundle-level await-lowering pass instead of probing an AST fallback path.
     - Widen that pass until it handles every semantic position that can contain `await`, then delete the fallback route and legacy gating fields.
     - Keep the final design visible in `rewrite_module` as a real typed phase boundary instead of hiding it inside a lower-level helper.
-- Fold `lower_string_templates_in_lowered_blockpy_module_bundle` into the main expr simplification pass instead of keeping it as a standalone driver step.
-  - Planning note:
-    - The desired end state is for late string-template lowering to be part of the same bundle-level simplify pass that produces core BlockPy.
-    - Verified note:
-      - Ruff already stores decoded string content in `StringLiteral.value`, and `ExprStringLiteral.value.to_str()` returns the concatenated decoded value for implicitly concatenated literals.
-      - That means `Context` does not appear to be needed just to recover the ordinary Python string value.
-      - Ruff parser utilities worth investigating here are `ruff_python_parser::string` for string-literal parsing/decoding and the lexer string handling in `ruff_python_parser::lexer`.
-      - Adjacent string literals are already represented as `StringLiteralValue::concatenated(...)` during parsing in `ruff_python_parser::parser::expression`, so early literal merging may be more about normalizing existing Ruff concatenation nodes than inventing a new merge step from scratch.
-    - The source-sensitive literal work now lives in `lower_surrogate_string_literals`, including sequential string/bytes literal merging and surrogate-sensitive literal decoding before the late string-template phase.
-    - The remaining late string-template lowering is now context-free, so the remaining task is to fold that standalone lowered-BlockPy bundle pass into the main semantic-BlockPy -> core-BlockPy expr simplifier.
 - Remove local `StmtBody` usage and move back to upstream Ruff structures.
   - Planning note:
     - The desired end state is to stop depending on the local `StmtBody` wrapper and align the lowering pipeline back with upstream Ruff AST/container shapes.
@@ -57,6 +47,10 @@
   - `PassTracker::add_pass` is now `#[must_use]`, records per-pass elapsed time, and the CLI timing report includes ordered `pass_timings`.
   - The driver now tracks the real lowered semantic/core BlockPy bundles at the `add_pass(..., || { ... })` boundaries instead of eagerly projecting render-only `BlockPyModule` values.
   - Projection with `project_lowered_module_callable_defs` now happens at consumption sites like tests, snapshots, and the web inspector.
+- String-template simplify-pass integration:
+  - The standalone `lower_string_templates_in_lowered_blockpy_module_bundle` driver step is gone.
+  - Semantic BlockPy now keeps raw f-strings/t-strings, and the main semantic-BlockPy -> core-BlockPy expr simplifier lowers them alongside the other core expression reductions.
+  - The source-sensitive literal work remains earlier in `lower_surrogate_string_literals`, so the late string-template lowering stays context-free.
 
 ## Follow-up: weakref callback during shutdown (BB mode)
 

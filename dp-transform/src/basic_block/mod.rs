@@ -6,7 +6,6 @@ pub mod bb_ir;
 pub mod block_py;
 mod blockpy_expr_simplify;
 mod blockpy_generators;
-mod blockpy_string_lower;
 mod blockpy_to_bb;
 mod bound_names;
 pub(crate) mod cfg_ir;
@@ -19,7 +18,6 @@ mod stmt_utils;
 
 // Ruff AST -> BbModule
 pub use block_py::pretty::blockpy_module_to_string;
-pub(crate) use blockpy_string_lower::lower_string_templates_in_lowered_blockpy_module_bundle;
 pub(crate) use blockpy_to_bb::{
     lower_core_blockpy_module_bundle_to_bb_module, simplify_lowered_blockpy_module_bundle_exprs,
 };
@@ -77,6 +75,20 @@ mod tests {
 
         fn blockpy_text(&self) -> String {
             crate::basic_block::blockpy_module_to_string(&self.blockpy_module())
+        }
+
+        fn core_blockpy_module(&self) -> crate::basic_block::block_py::CoreBlockPyModule {
+            let bundle = self
+                .result
+                .get_pass::<crate::basic_block::LoweredCoreBlockPyModuleBundle>()
+                .expect("expected lowered core BlockPy bundle");
+            crate::basic_block::project_lowered_module_callable_defs(bundle, |lowered| {
+                lowered.callable_def()
+            })
+        }
+
+        fn core_blockpy_text(&self) -> String {
+            crate::basic_block::blockpy_module_to_string(&self.core_blockpy_module())
         }
 
         fn bb_module(&self) -> &BbModule {
@@ -162,7 +174,7 @@ mod tests {
     }
 
     #[test]
-    fn rewritten_ruff_ast_can_keep_fstring_while_late_blockpy_string_lowering_handles_it() {
+    fn rewritten_ruff_ast_can_keep_fstring_while_core_blockpy_expr_simplify_handles_it() {
         let source = r#"
 def fmt(value):
     return f"{value=}"
@@ -172,10 +184,13 @@ def fmt(value):
         assert_rewritten_ast_contains(&lowered, "f\"{value=}\"");
 
         let blockpy = lowered.blockpy_text();
-        assert!(blockpy.contains("\"value=\""), "{blockpy}");
+        assert!(blockpy.contains("f\"{value=}\""), "{blockpy}");
+
+        let core_blockpy = lowered.core_blockpy_text();
+        assert!(core_blockpy.contains("\"value=\""), "{core_blockpy}");
         assert!(
-            blockpy.contains("__dp_format(__dp_repr(value))"),
-            "{blockpy}"
+            core_blockpy.contains("__dp_format(__dp_repr(value))"),
+            "{core_blockpy}"
         );
 
         let fmt = lowered.bb_function("fmt");
@@ -183,6 +198,35 @@ def fmt(value):
             fmt.blocks
                 .iter()
                 .any(|block| block_uses_text(block, "__dp_format(__dp_repr(value))")),
+            "{fmt:?}"
+        );
+    }
+
+    #[test]
+    fn rewritten_ruff_ast_can_keep_tstring_while_core_blockpy_expr_simplify_handles_it() {
+        let source = r#"
+def fmt(value):
+    return t"{value}"
+"#;
+
+        let lowered = TrackedLowering::new(source);
+        assert_rewritten_ast_contains(&lowered, "t\"{value}\"");
+
+        let blockpy = lowered.blockpy_text();
+        assert!(blockpy.contains("t\"{value}\""), "{blockpy}");
+
+        let core_blockpy = lowered.core_blockpy_text();
+        assert!(
+            core_blockpy.contains("__dp_templatelib_Interpolation(value, \"value\", None, \"\")"),
+            "{core_blockpy}"
+        );
+
+        let fmt = lowered.bb_function("fmt");
+        assert!(
+            fmt.blocks.iter().any(|block| block_uses_text(
+                block,
+                "__dp_templatelib_Interpolation(value, \"value\", None, \"\")"
+            )),
             "{fmt:?}"
         );
     }
