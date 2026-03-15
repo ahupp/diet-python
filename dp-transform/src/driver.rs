@@ -6,9 +6,7 @@ use crate::basic_block::ast_to_ast::rewrite_stmt::function_def::rewrite_ast_to_l
 use crate::basic_block::ast_to_ast::scope::{analyze_module_scope, BindingKind};
 use crate::basic_block::ast_to_ast::simplify::lower_surrogate_string_literals;
 use crate::basic_block::ast_to_ast::{
-    ast_rewrite::ExprRewritePass,
-    ast_rewrite::LoweredExpr,
-    rewrite_expr::{lower_expr, lower_scoped_helper_expr},
+    ast_rewrite::ExprRewritePass, ast_rewrite::LoweredExpr, rewrite_expr::lower_scoped_helper_expr,
     rewrite_future_annotations, rewrite_names, rewrite_stmt,
 };
 use crate::basic_block::bb_ir::BbModule;
@@ -50,13 +48,12 @@ pub(crate) fn rewrite_module_with_tracker(
     // scoping semantics before the more direct BlockPy expr lowering boundary.
     rewrite_with_pass(context, None, Some(&ScopedHelperExprPass), module);
 
-    // Lower many kinds of statements and expressions into simpler forms. This removes:
-    // for, with, augassign, annassign, get/set/del item, unpack, multi-target assignment,
-    // operators, and comparisons.
+    // Lower multi-target assignment / delete shapes to the single-name forms
+    // that the later BlockPy lowering expects.
     rewrite_with_pass(
         context,
         Some(&basic_block::SingleNamedAssignmentPass),
-        Some(&SimplifyExprPass),
+        None,
         module,
     );
     pass_tracker.add_pass("rewritten_ast_after_initial_simplify", || {
@@ -74,6 +71,11 @@ pub(crate) fn rewrite_module_with_tracker(
     rewrite_class_def::class_body::rewrite_class_body_scopes(context, scope, module);
 
     let lowered_blockpy_module = rewrite_ast_to_lowered_blockpy_module(context, module);
+    let lowered_blockpy_module =
+        basic_block::lower_string_templates_in_lowered_blockpy_module_bundle(
+            context,
+            &lowered_blockpy_module,
+        );
     pass_tracker.add_pass("rewritten_ast_for_lowering", || module.clone());
     pass_tracker.add_pass("semantic_blockpy", || {
         basic_block::project_lowered_module_callable_defs(&lowered_blockpy_module, |lowered| {
@@ -170,8 +172,6 @@ def _dp_module_init():
     module.body = prelude;
 }
 
-pub struct SimplifyExprPass;
-
 pub struct ScopedHelperExprPass;
 
 impl ExprRewritePass for ScopedHelperExprPass {
@@ -183,15 +183,6 @@ impl ExprRewritePass for ScopedHelperExprPass {
             | Expr::SetComp(_)
             | Expr::DictComp(_) => lower_scoped_helper_expr(context, expr),
             other => LoweredExpr::unmodified(other),
-        }
-    }
-}
-
-impl ExprRewritePass for SimplifyExprPass {
-    fn lower_expr(&self, context: &Context, expr: Expr) -> LoweredExpr {
-        match expr {
-            Expr::If(_) => LoweredExpr::unmodified(expr),
-            other => lower_expr(context, other),
         }
     }
 }

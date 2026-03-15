@@ -29,6 +29,7 @@ fn panic_for_deferred_expr(expr: &Expr) -> ! {
         | Expr::Lambda(_)
         | Expr::Generator(_) => "helper-scoped expr leaked to lower_expr",
         Expr::If(_) => "expr-if leaked to lower_expr",
+        Expr::FString(_) | Expr::TString(_) => "string template leaked to lower_expr",
         other => panic!(
             "unexpected deferred expr leaked to lower_expr: {}",
             crate::ruff_ast_to_string(other)
@@ -182,12 +183,6 @@ fn lower_expr_impl(context: &Context, expr: Expr, allow_deferred: bool) -> Lower
                 LoweredExpr::modified(new_call, body_builder.into_stmt())
             }
         }
-        Expr::FString(f_string) => {
-            LoweredExpr::unmodified(string::rewrite_fstring(f_string, context))
-        }
-        Expr::TString(t_string) => {
-            LoweredExpr::unmodified(string::rewrite_tstring(t_string, context))
-        }
         Expr::Slice(ast::ExprSlice {
             lower, upper, step, ..
         }) => LoweredExpr::unmodified(py_expr!(
@@ -201,6 +196,8 @@ fn lower_expr_impl(context: &Context, expr: Expr, allow_deferred: bool) -> Lower
         | Expr::DictComp(_)
         | Expr::Lambda(_)
         | Expr::Generator(_)
+        | Expr::FString(_)
+        | Expr::TString(_)
         | Expr::If(_) => {
             if allow_deferred {
                 LoweredExpr::unmodified(expr)
@@ -962,5 +959,12 @@ mod tests {
     fn lower_expr_rejects_expr_if() {
         let context = Context::new(Options::for_test(), "a if cond else b");
         let _ = lower_expr(&context, parse_expr("a if cond else b"));
+    }
+
+    #[test]
+    #[should_panic(expected = "string template leaked to lower_expr")]
+    fn lower_expr_rejects_fstring() {
+        let context = Context::new(Options::for_test(), "f\"{x}\"");
+        let _ = lower_expr(&context, parse_expr("f\"{x}\""));
     }
 }

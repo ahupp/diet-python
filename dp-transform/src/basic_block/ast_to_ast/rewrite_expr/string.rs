@@ -5,6 +5,7 @@ use ruff_python_parser::parse_expression;
 use ruff_text_size::Ranged;
 
 use crate::basic_block::ast_to_ast::context::Context;
+use crate::transformer::{walk_expr, Transformer};
 
 fn join_parts(parts: Vec<Expr>, force_join: bool) -> Expr {
     match parts.len() {
@@ -185,6 +186,34 @@ pub fn rewrite_tstring(expr: ast::ExprTString, _ctx: &Context) -> Expr {
     }
     let tuple = make_tuple(parts);
     py_expr!("__dp_templatelib_Template(*{parts:expr})", parts = tuple)
+}
+
+struct StringTemplateLowerer<'a> {
+    context: &'a Context,
+}
+
+impl Transformer for StringTemplateLowerer<'_> {
+    fn visit_expr(&mut self, expr: &mut Expr) {
+        match expr {
+            Expr::FString(node) => {
+                *expr = rewrite_fstring(node.clone(), self.context);
+                self.visit_expr(expr);
+            }
+            Expr::TString(node) => {
+                *expr = rewrite_tstring(node.clone(), self.context);
+                self.visit_expr(expr);
+            }
+            _ => walk_expr(self, expr),
+        }
+    }
+}
+
+pub fn lower_string_templates_in_expr(context: &Context, expr: &mut Expr) {
+    StringTemplateLowerer { context }.visit_expr(expr);
+}
+
+pub fn lower_string_templates_in_parameters(context: &Context, parameters: &mut ast::Parameters) {
+    StringTemplateLowerer { context }.visit_parameters(parameters);
 }
 
 fn rewrite_string_literal(lit: &ast::StringLiteral, ctx: &Context) -> Expr {
