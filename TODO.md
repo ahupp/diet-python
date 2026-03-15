@@ -41,6 +41,11 @@
     - The desired end state is to stop depending on the local `StmtBody` wrapper and align the lowering pipeline back with upstream Ruff AST/container shapes.
     - This likely requires auditing every pass boundary that currently takes or returns `StmtBody`, then replacing those boundaries one by one with upstream Ruff forms instead of doing a single large delete.
     - Keep the migration explicit in the top-level pipeline so container-shape normalization is no longer hidden inside helper layers.
+- Use Ruff for scope analysis and see if it can be computed once and preserved through transform layers.
+  - Planning note:
+    - The desired end state is to replace local repeated scope-analysis passes with Ruff’s scope analysis and carry that result through later transform phases instead of recomputing scope metadata.
+    - This likely requires identifying the current pass boundaries that invalidate or rebuild scope information, then either preserving Ruff scope objects directly or translating them once into a stable internal form.
+    - Keep the scope-analysis ownership explicit in the top-level pipeline so later passes consume preserved scope data rather than silently re-running analysis.
 
 ## Follow-up: weakref callback during shutdown (BB mode)
 
