@@ -20,13 +20,11 @@ use super::ruff_to_blockpy::{
     LoweredBlockPyFunctionBundle,
 };
 use super::stmt_utils::{
-    flatten_stmt_boxes, should_strip_nonlocal_for_bb, stmt_body_from_stmts,
-    strip_nonlocal_directives,
+    flatten_stmt_boxes, should_strip_nonlocal_for_bb, strip_nonlocal_directives,
 };
-use crate::basic_block::ast_to_ast::ast_rewrite::{rewrite_with_pass, Rewrite, StmtRewritePass};
+use crate::basic_block::ast_to_ast::ast_rewrite::{Rewrite, StmtRewritePass};
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::ast_to_ast::scope::{is_internal_symbol, Scope, ScopeKind};
-use crate::driver::{ScopedHelperExprPass, SimplifyExprPass};
 use crate::py_expr;
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, Expr, NodeIndex, Stmt, StmtBody};
@@ -352,25 +350,6 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     if func.is_async {
         let mut lowered_async_body = runtime_input_body.clone();
         lower_coroutine_awaits_to_yield_from(&mut lowered_async_body);
-        let mut simplified_body = stmt_body_from_stmts(
-            lowered_async_body
-                .iter()
-                .map(|stmt| stmt.as_ref().clone())
-                .collect(),
-        );
-        rewrite_with_pass(
-            context,
-            Some(&BBSimplifyStmtPass),
-            Some(&ScopedHelperExprPass),
-            &mut simplified_body,
-        );
-        rewrite_with_pass(
-            context,
-            Some(&BBSimplifyStmtPass),
-            Some(&SimplifyExprPass),
-            &mut simplified_body,
-        );
-        let lowered_async_body = flatten_stmt_boxes(&simplified_body.body);
         use_post_blockpy_await_lowering = !has_await_in_stmts(&lowered_async_body);
         legacy_async_runtime_input_body = Some(lowered_async_body.clone());
         if !use_post_blockpy_await_lowering {
