@@ -52,6 +52,10 @@
     - This likely means replacing helper code that reconstructs `Stmt`/`StmtBody` for load-name, exception, or normalization analysis with BlockPy-native analysis utilities.
     - Keep the dataflow explicit so the BlockPy -> BB boundary no longer reintroduces earlier AST representations.
 
+## Completed
+
+- Move completed TODO entries here and include a short description of the work done.
+
 ## Follow-up: weakref callback during shutdown (BB mode)
 
 - Symptom:
