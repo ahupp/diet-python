@@ -36,6 +36,11 @@
     - `project_lowered_module_callable_defs` appears to be only for tests or the web renderer, so it should stay at those consumption sites instead of obscuring the main driver dataflow.
     - Add `#[must_use]` to `PassTracker::add_pass` so callers do not silently discard tracked pass results.
     - Record timing per `add_pass` invocation and surface those timings in the final transform timing report.
+- Remove local `StmtBody` usage and move back to upstream Ruff structures.
+  - Planning note:
+    - The desired end state is to stop depending on the local `StmtBody` wrapper and align the lowering pipeline back with upstream Ruff AST/container shapes.
+    - This likely requires auditing every pass boundary that currently takes or returns `StmtBody`, then replacing those boundaries one by one with upstream Ruff forms instead of doing a single large delete.
+    - Keep the migration explicit in the top-level pipeline so container-shape normalization is no longer hidden inside helper layers.
 
 ## Follow-up: weakref callback during shutdown (BB mode)
 
