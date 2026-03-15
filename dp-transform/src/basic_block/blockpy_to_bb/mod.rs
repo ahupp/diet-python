@@ -13,7 +13,7 @@ use super::block_py::{
 };
 use super::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use super::cfg_ir::{CfgCallableDef, CfgModule};
-use super::ruff_to_blockpy::{LoweredBlockPyFunction, LoweredBlockPyFunctionBundle};
+use super::ruff_to_blockpy::LoweredBlockPyFunction;
 use super::stmt_utils::{flatten_stmt, flatten_stmt_boxes, stmt_body_from_stmts};
 use crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass;
 use crate::basic_block::ast_to_ast::ast_rewrite::ExprRewritePass;
@@ -47,27 +47,6 @@ pub(crate) struct LoweredCoreBlockPyFunction {
 
 pub(crate) type LoweredCoreBlockPyModuleBundle =
     CfgModule<LoweredCallableDef<LoweredCoreBlockPyFunction>>;
-
-pub(crate) fn push_lowered_blockpy_callable_def_bundle(
-    out: &mut LoweredBlockPyModuleBundle,
-    bundle: LoweredBlockPyFunctionBundle,
-    main_binding_target: BindingTarget,
-) {
-    out.callable_defs
-        .extend(
-            bundle
-                .helper_functions
-                .into_iter()
-                .map(|helper| LoweredCallableDef {
-                    callable_def: helper,
-                    binding_target: BindingTarget::Local,
-                }),
-        );
-    out.callable_defs.push(LoweredCallableDef {
-        callable_def: bundle.main_function,
-        binding_target: main_binding_target,
-    });
-}
 
 pub(crate) fn lowered_blockpy_module_bundle_to_blockpy_module(
     module: &LoweredBlockPyModuleBundle,
