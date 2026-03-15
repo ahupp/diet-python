@@ -59,10 +59,9 @@ pub(crate) fn rewrite_module_with_tracker(
         Some(&SimplifyExprPass),
         module,
     );
-    pass_tracker.add_pass(
-        "rewritten_ast_after_initial_simplify",
-        &crate::RewrittenAstAfterInitialSimplify(module.clone()),
-    );
+    pass_tracker.add_pass("rewritten_ast_after_initial_simplify", || {
+        crate::RewrittenAstAfterInitialSimplify(module.clone())
+    });
 
     let scope = analyze_module_scope(module);
 
@@ -75,19 +74,19 @@ pub(crate) fn rewrite_module_with_tracker(
     rewrite_class_def::class_body::rewrite_class_body_scopes(context, scope, module);
 
     let lowered_blockpy_module = rewrite_ast_to_lowered_blockpy_module(context, module);
-    pass_tracker.add_pass("rewritten_ast_for_lowering", module);
-    let blockpy_module =
+    pass_tracker.add_pass("rewritten_ast_for_lowering", || module.clone());
+    pass_tracker.add_pass("semantic_blockpy", || {
         basic_block::project_lowered_module_callable_defs(&lowered_blockpy_module, |lowered| {
             &lowered.callable_def
-        });
-    pass_tracker.add_pass("semantic_blockpy", &blockpy_module);
+        })
+    });
     let core_blockpy_bundle =
         basic_block::simplify_lowered_blockpy_module_bundle_exprs(&lowered_blockpy_module);
-    let core_blockpy_module =
+    pass_tracker.add_pass("core_blockpy", || {
         basic_block::project_lowered_module_callable_defs(&core_blockpy_bundle, |lowered| {
             &lowered.callable_def
-        });
-    pass_tracker.add_pass("core_blockpy", &core_blockpy_module);
+        })
+    });
     let bb_module =
         basic_block::lower_core_blockpy_module_bundle_to_bb_module(context, &core_blockpy_bundle);
     // This final cleanup only affects the returned Ruff AST / rendered source.

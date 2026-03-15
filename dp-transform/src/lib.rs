@@ -91,7 +91,8 @@ impl PassTracker {
         Self { passes: Vec::new() }
     }
 
-    pub(crate) fn add_pass<T: Clone + Any>(&mut self, name: &str, value: &T) {
+    pub(crate) fn add_pass<T: Clone + Any>(&mut self, name: &str, build: impl FnOnce() -> T) -> T {
+        let value = build();
         assert!(
             !self.passes.iter().any(|pass| pass.value.is::<T>()),
             "PassTracker already contains a pass for type {}",
@@ -101,6 +102,7 @@ impl PassTracker {
             name: name.to_string(),
             value: Box::new(value.clone()),
         });
+        value
     }
 
     pub(crate) fn get<T: Any>(&self) -> Option<&T> {
@@ -289,8 +291,8 @@ mod tests {
     #[should_panic(expected = "PassTracker already contains a pass for type i32")]
     fn pass_tracker_rejects_duplicate_types() {
         let mut tracker = PassTracker::new();
-        tracker.add_pass("one", &1_i32);
-        tracker.add_pass("two", &2_i32);
+        tracker.add_pass("one", || 1_i32);
+        tracker.add_pass("two", || 2_i32);
     }
 }
 
