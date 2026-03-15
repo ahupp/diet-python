@@ -9,6 +9,7 @@ use super::block_py::{
     BlockPyBlock, BlockPyBranchTable, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt,
     BlockPyTerm,
 };
+use super::blockpy_expr_simplify::simplify_parameter_exprs;
 use super::bound_names::{collect_bound_names, collect_explicit_global_or_nonlocal_names};
 use super::function_identity::{
     is_module_init_temp_name, resolve_runtime_function_identity, FunctionIdentity,
@@ -512,7 +513,9 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         label_prefix.as_str(),
         cell_slots.clone(),
         is_module_init_temp_name(func.name.id.as_str()),
-        BbExpr::from_expr(function_param_specs_expr(func.parameters.as_ref())),
+        BbExpr::from_expr(function_param_specs_expr(&simplify_parameter_exprs(
+            func.parameters.as_ref(),
+        ))),
         next_function_id,
     ))
 }

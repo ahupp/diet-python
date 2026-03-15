@@ -69,15 +69,6 @@ pub(crate) fn rewrite_module_with_tracker(
     rewrite_names::rewrite_explicit_bindings(context, scope.clone(), module);
 
     rewrite_class_def::class_body::rewrite_class_body_scopes(context, scope, module);
-    // Class-body and metaclass rewriting can still synthesize rich statement
-    // and expression forms, including dict displays in generated class-call
-    // scaffolding, so rerun the general AST simplifier before BlockPy lowering.
-    rewrite_with_pass(
-        context,
-        Some(&basic_block::BBSimplifyStmtPass),
-        Some(&SimplifyExprPass),
-        module,
-    );
 
     let lowered_blockpy_module = rewrite_ast_to_lowered_blockpy_module(context, module);
     pass_tracker.add_pass("rewritten_ast_for_lowering", module);

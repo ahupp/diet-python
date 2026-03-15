@@ -1,10 +1,10 @@
-snapshot_class::class_with_method: blockpy=4, clif=4
-snapshot_class::class_method_named_open_calls_builtin: blockpy=4, clif=4
-snapshot_class::class_with_base: blockpy=3, clif=3
-snapshot_class::class_scope_inner_capture: blockpy=4, clif=4
-snapshot_class::class_super_empty_classcell: blockpy=4, clif=4
-snapshot_class::nested classes: blockpy=5, clif=5
-snapshot_class::nested classes with weird scoping: blockpy=6, clif=6
+snapshot_class::class_with_method: blockpy=7, clif=7
+snapshot_class::class_method_named_open_calls_builtin: blockpy=6, clif=6
+snapshot_class::class_with_base: blockpy=5, clif=5
+snapshot_class::class_scope_inner_capture: blockpy=7, clif=7
+snapshot_class::class_super_empty_classcell: blockpy=6, clif=6
+snapshot_class::nested classes: blockpy=10, clif=10
+snapshot_class::nested classes with weird scoping: blockpy=10, clif=10
 snapshot_expr::subscript: blockpy=1, clif=1
 snapshot_expr::subscript_slice: blockpy=1, clif=1
 snapshot_expr::binary_add: blockpy=1, clif=1
@@ -55,7 +55,7 @@ snapshot_stmt::with_as: blockpy=4, clif=4
 snapshot_stmt::function_local_ann_assign: blockpy=2, clif=2
 snapshot_stmt::comprehension_global: blockpy=16, clif=16
 snapshot_stmt::comprehension_in_function: blockpy=8, clif=8
-snapshot_stmt::comprehension_in_class_body: blockpy=8, clif=8
+snapshot_stmt::comprehension_in_class_body: blockpy=11, clif=11
 snapshot_stmt::with_multi: blockpy=9, clif=9
 snapshot_stmt::async_for: blockpy=44, clif=44
 snapshot_stmt::async_with: blockpy=92, clif=92

@@ -43,7 +43,7 @@ from pkg.mod import name as alias
 #     bind: _dp_module_init
 #     qualname: _dp_module_init
 #     block start:
-#         _dp_import_1 = __dp_import_("pkg.mod", __spec__, __dp_list(__dp_tuple("name")))
+#         _dp_import_1 = __dp_import_("pkg.mod", __spec__, ["name"])
 #         __dp_store_global(globals(), "alias", __dp_import_attr(_dp_import_1, "name"))
 #         return
 
@@ -676,11 +676,17 @@ class C:
 #     qualname: _dp_class_ns_C
 #     block start:
 #         _dp_classcell = _dp_classcell_arg
-#         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
-#         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "C")
-#         _dp_listcomp_3 = __dp_make_function("start", 0, "<listcomp>", "C._dp_listcomp_3", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple("_dp_iter_2", None, __dp__.NO_DEFAULT)), __dp_globals(), __name__, None, None)
-#         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "xs", _dp_listcomp_3(__dp_class_lookup_global(_dp_class_ns, "it", globals())))
-#         return
+#         jump _dp_bb__dp_class_ns_C_2
+#         block _dp_bb__dp_class_ns_C_2:
+#             __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
+#             jump _dp_bb__dp_class_ns_C_1
+#             block _dp_bb__dp_class_ns_C_1:
+#                 __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "C")
+#                 _dp_listcomp_3 = __dp_make_function("start", 0, "<listcomp>", "C._dp_listcomp_3", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple("_dp_iter_2", None, __dp__.NO_DEFAULT)), __dp_globals(), __name__, None, None)
+#                 jump _dp_bb__dp_class_ns_C_0
+#                 block _dp_bb__dp_class_ns_C_0:
+#                     __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "xs", _dp_listcomp_3(__dp_class_lookup_global(_dp_class_ns, "it", globals())))
+#                     return
 
 # function _dp_define_class_C(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict = None)
 #     kind: function
