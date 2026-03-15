@@ -76,33 +76,20 @@ pub struct LoweringResult {
 }
 
 pub(crate) struct PassTracker {
-    passes: Option<Vec<(String, String)>>,
+    passes: Vec<(String, String)>,
 }
 
 impl PassTracker {
-    pub(crate) fn disabled() -> Self {
-        Self { passes: None }
-    }
-
     pub(crate) fn enabled() -> Self {
-        Self {
-            passes: Some(Vec::new()),
-        }
+        Self { passes: Vec::new() }
     }
 
     pub(crate) fn add_pass(&mut self, name: &str, res: &impl Display) {
-        if let Some(passes) = self.passes.as_mut() {
-            passes.push((name.to_string(), res.to_string()));
-        }
-    }
-
-    pub(crate) fn is_enabled(&self) -> bool {
-        self.passes.is_some()
+        self.passes.push((name.to_string(), res.to_string()));
     }
 
     pub(crate) fn rendered(&self, name: &str) -> Option<&str> {
         self.passes
-            .as_ref()?
             .iter()
             .rev()
             .find(|(pass_name, _)| pass_name == name)
@@ -132,14 +119,13 @@ pub fn transform_str_to_ruff_with_options(
     source: &str,
     options: Options,
 ) -> Result<LoweringResult, ParseError> {
-    let mut tracker = PassTracker::disabled();
-    transform_str_to_ruff_with_options_and_tracker(source, options, &mut tracker)
+    transform_str_to_ruff_with_options_and_tracker(source, options, None)
 }
 
 pub(crate) fn transform_str_to_ruff_with_options_and_tracker(
     source: &str,
     options: Options,
-    pass_tracker: &mut PassTracker,
+    pass_tracker: Option<&mut PassTracker>,
 ) -> Result<LoweringResult, ParseError> {
     init_logging();
     namegen::reset_namegen_state();

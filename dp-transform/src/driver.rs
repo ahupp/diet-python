@@ -21,14 +21,13 @@ pub struct RewriteModuleResult {
 }
 
 pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> RewriteModuleResult {
-    let mut pass_tracker = PassTracker::disabled();
-    rewrite_module_with_tracker(context, module, &mut pass_tracker)
+    rewrite_module_with_tracker(context, module, None)
 }
 
 pub(crate) fn rewrite_module_with_tracker(
     context: &Context,
     module: &mut StmtBody,
-    pass_tracker: &mut PassTracker,
+    mut pass_tracker: Option<&mut PassTracker>,
 ) -> RewriteModuleResult {
     // The transform now has a single lowering strategy: basic-block form.
     lower_surrogate_string_literals(context, module);
@@ -85,7 +84,7 @@ pub(crate) fn rewrite_module_with_tracker(
         rewrite_ast_to_lowered_blockpy_module(context, module, lowered_function_identity);
     let blockpy_module =
         basic_block::lowered_blockpy_module_bundle_to_blockpy_module(&lowered_blockpy_module);
-    if pass_tracker.is_enabled() {
+    if let Some(pass_tracker) = pass_tracker.as_deref_mut() {
         pass_tracker.add_pass(
             "semantic_blockpy",
             &basic_block::blockpy_module_to_string(&blockpy_module),
@@ -95,7 +94,7 @@ pub(crate) fn rewrite_module_with_tracker(
         basic_block::simplify_lowered_blockpy_module_bundle_exprs(&lowered_blockpy_module);
     let core_blockpy_module =
         basic_block::lowered_core_blockpy_module_bundle_to_blockpy_module(&core_blockpy_bundle);
-    if pass_tracker.is_enabled() {
+    if let Some(pass_tracker) = pass_tracker.as_deref_mut() {
         pass_tracker.add_pass(
             "core_blockpy",
             &basic_block::blockpy_module_to_string(&core_blockpy_module),
@@ -104,7 +103,7 @@ pub(crate) fn rewrite_module_with_tracker(
     let bb_module =
         basic_block::lower_core_blockpy_module_bundle_to_bb_module(context, &core_blockpy_bundle);
     lower_string_literals_to_bytes(module);
-    if pass_tracker.is_enabled() {
+    if let Some(pass_tracker) = pass_tracker.as_deref_mut() {
         pass_tracker.add_pass("rewritten_ast", &crate::ruff_ast_to_string(&*module));
     }
 

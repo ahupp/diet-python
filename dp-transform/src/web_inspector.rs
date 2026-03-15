@@ -47,7 +47,7 @@ pub fn inspect_pipeline(source: &str) -> Result<String, JsValue> {
     let transformed = transform_str_to_ruff_with_options_and_tracker(
         source,
         Options::default(),
-        &mut pass_tracker,
+        Some(&mut pass_tracker),
     )
     .map_err(|e| JsValue::from_str(e.to_string().as_str()))?;
     let blockpy = pass_tracker
