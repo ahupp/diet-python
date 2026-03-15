@@ -236,20 +236,13 @@ impl From<Expr> for CoreBlockPyExpr {
             )),
             Expr::Dict(node) => reduce_core_blockpy_dict(node.items.into()),
             Expr::Name(node) => Self::Name(node),
-            // These families are intentionally left for earlier phases:
-            // setup-emitting / control-shaping expr lowering in ast_to_blockpy,
-            // or Context-sensitive source rewrites that still live before
-            // BlockPy expr simplification.
-            Expr::BoolOp(node) => Self::Raw(CoreBlockPyPassThroughExpr::BoolOp(node)),
-            Expr::Named(node) => Self::Raw(CoreBlockPyPassThroughExpr::Named(node)),
+            // These helper-scoped families are intentionally left for earlier
+            // phases that preserve Python scoping semantics via generated defs.
             Expr::Lambda(node) => Self::Raw(CoreBlockPyPassThroughExpr::Lambda(node)),
-            Expr::If(node) => Self::Raw(CoreBlockPyPassThroughExpr::If(node)),
             Expr::ListComp(node) => Self::Raw(CoreBlockPyPassThroughExpr::ListComp(node)),
             Expr::SetComp(node) => Self::Raw(CoreBlockPyPassThroughExpr::SetComp(node)),
             Expr::DictComp(node) => Self::Raw(CoreBlockPyPassThroughExpr::DictComp(node)),
             Expr::Generator(node) => Self::Raw(CoreBlockPyPassThroughExpr::Generator(node)),
-            Expr::FString(node) => Self::Raw(CoreBlockPyPassThroughExpr::FString(node)),
-            Expr::TString(node) => Self::Raw(CoreBlockPyPassThroughExpr::TString(node)),
             other => panic!(
                 "unexpected expr reached late core BlockPy boundary: {}",
                 crate::ruff_ast_to_string(&other)
@@ -660,17 +653,13 @@ def f(x):
     }
 
     #[test]
-    fn core_blockpy_expr_keeps_earlier_phase_families_raw() {
+    fn core_blockpy_expr_keeps_helper_scoped_families_raw() {
         for expr in [
-            "x and y",
-            "(x := y)",
             "(lambda x: x + 1)",
-            "(x if cond else y)",
             "[x for x in xs]",
             "{x for x in xs}",
             "{x: y for x, y in pairs}",
             "(x for x in xs)",
-            "f\"{x}\"",
         ] {
             let parsed = *parse_expression(expr).unwrap().into_syntax().body;
             assert!(

@@ -61,16 +61,11 @@ pub enum CoreBlockPyExpr {
 
 #[derive(Debug, Clone)]
 pub enum CoreBlockPyPassThroughExpr {
-    BoolOp(ast::ExprBoolOp),
-    Named(ast::ExprNamed),
     Lambda(ast::ExprLambda),
-    If(ast::ExprIf),
     ListComp(ast::ExprListComp),
     SetComp(ast::ExprSetComp),
     DictComp(ast::ExprDictComp),
     Generator(ast::ExprGenerator),
-    FString(ast::ExprFString),
-    TString(ast::ExprTString),
 }
 
 #[derive(Debug, Clone)]
@@ -657,16 +652,11 @@ impl From<CoreBlockPyExpr> for Expr {
 impl From<CoreBlockPyPassThroughExpr> for Expr {
     fn from(value: CoreBlockPyPassThroughExpr) -> Self {
         match value {
-            CoreBlockPyPassThroughExpr::BoolOp(node) => Expr::BoolOp(node),
-            CoreBlockPyPassThroughExpr::Named(node) => Expr::Named(node),
             CoreBlockPyPassThroughExpr::Lambda(node) => Expr::Lambda(node),
-            CoreBlockPyPassThroughExpr::If(node) => Expr::If(node),
             CoreBlockPyPassThroughExpr::ListComp(node) => Expr::ListComp(node),
             CoreBlockPyPassThroughExpr::SetComp(node) => Expr::SetComp(node),
             CoreBlockPyPassThroughExpr::DictComp(node) => Expr::DictComp(node),
             CoreBlockPyPassThroughExpr::Generator(node) => Expr::Generator(node),
-            CoreBlockPyPassThroughExpr::FString(node) => Expr::FString(node),
-            CoreBlockPyPassThroughExpr::TString(node) => Expr::TString(node),
         }
     }
 }
