@@ -18,13 +18,14 @@ mod stmt_utils;
 
 // Ruff AST -> BbModule
 pub use block_py::pretty::blockpy_module_to_string;
-pub(crate) use blockpy_to_bb::lowered_blockpy_module_bundle_to_blockpy_module;
+pub(crate) use blockpy_to_bb::{
+    lower_blockpy_module_bundle_to_bb_module, lowered_blockpy_module_bundle_to_blockpy_module,
+};
 pub use blockpy_to_bb::{lower_try_jump_exception_flow, normalize_bb_module_for_codegen};
 pub use function_identity::FunctionIdentityByNode;
 pub use function_lowering::BBSimplifyStmtPass;
 
 use self::ast_to_ast::rewrite_stmt::function_def::rewrite_ast_to_lowered_blockpy_module;
-use self::blockpy_to_bb::lower_blockpy_module_bundle_to_bb_module;
 use self::function_identity::collect_function_identity_private;
 use ast_to_ast::context::Context;
 use ast_to_ast::scope::Scope;

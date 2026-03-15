@@ -85,7 +85,9 @@ pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> RewriteModule
     // cleanup, preserving the existing lowered IR behavior.
     let bb_scope = analyze_module_scope(module);
     let bb_identity = basic_block::collect_function_identity_by_node(module, bb_scope);
-    let bb_module = basic_block::rewrite_ast_to_bb_module(context, module, bb_identity);
+    let lowered_bb_module = rewrite_ast_to_lowered_blockpy_module(context, module, bb_identity);
+    let bb_module =
+        basic_block::lower_blockpy_module_bundle_to_bb_module(context, &lowered_bb_module);
     lower_string_literals_to_bytes(module);
 
     RewriteModuleResult {
