@@ -4,10 +4,10 @@ use super::{
         BlockPyIfTerm, BlockPyRaise, BlockPyStmtFragmentBuilder, BlockPyTerm, CoreBlockPyAssign,
         CoreBlockPyAwait, CoreBlockPyBlock, CoreBlockPyCall, CoreBlockPyCallArg,
         CoreBlockPyCallableDef, CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
-        CoreBlockPyModule, CoreBlockPyStmt, CoreBlockPyStmtFragment, CoreBlockPyTerm,
-        CoreBlockPyYield, CoreBlockPyYieldFrom, SemanticBlockPyBlock, SemanticBlockPyCallableDef,
-        SemanticBlockPyExpr, SemanticBlockPyModule, SemanticBlockPyStmt,
-        SemanticBlockPyStmtFragment, SemanticBlockPyTerm,
+        CoreBlockPyModule, CoreBlockPyPassThroughExpr, CoreBlockPyStmt, CoreBlockPyStmtFragment,
+        CoreBlockPyTerm, CoreBlockPyYield, CoreBlockPyYieldFrom, SemanticBlockPyBlock,
+        SemanticBlockPyCallableDef, SemanticBlockPyExpr, SemanticBlockPyModule,
+        SemanticBlockPyStmt, SemanticBlockPyStmtFragment, SemanticBlockPyTerm,
     },
     cfg_ir::CfgCallableDef,
 };
@@ -240,17 +240,20 @@ impl From<Expr> for CoreBlockPyExpr {
             // setup-emitting / control-shaping expr lowering in ast_to_blockpy,
             // or Context-sensitive source rewrites that still live before
             // BlockPy expr simplification.
-            expr @ (Expr::BoolOp(_)
-            | Expr::Named(_)
-            | Expr::Lambda(_)
-            | Expr::If(_)
-            | Expr::ListComp(_)
-            | Expr::SetComp(_)
-            | Expr::DictComp(_)
-            | Expr::Generator(_)
-            | Expr::FString(_)
-            | Expr::TString(_)) => Self::Raw(expr),
-            other => Self::Raw(other),
+            Expr::BoolOp(node) => Self::Raw(CoreBlockPyPassThroughExpr::BoolOp(node)),
+            Expr::Named(node) => Self::Raw(CoreBlockPyPassThroughExpr::Named(node)),
+            Expr::Lambda(node) => Self::Raw(CoreBlockPyPassThroughExpr::Lambda(node)),
+            Expr::If(node) => Self::Raw(CoreBlockPyPassThroughExpr::If(node)),
+            Expr::ListComp(node) => Self::Raw(CoreBlockPyPassThroughExpr::ListComp(node)),
+            Expr::SetComp(node) => Self::Raw(CoreBlockPyPassThroughExpr::SetComp(node)),
+            Expr::DictComp(node) => Self::Raw(CoreBlockPyPassThroughExpr::DictComp(node)),
+            Expr::Generator(node) => Self::Raw(CoreBlockPyPassThroughExpr::Generator(node)),
+            Expr::FString(node) => Self::Raw(CoreBlockPyPassThroughExpr::FString(node)),
+            Expr::TString(node) => Self::Raw(CoreBlockPyPassThroughExpr::TString(node)),
+            other => panic!(
+                "unexpected expr reached late core BlockPy boundary: {}",
+                crate::ruff_ast_to_string(&other)
+            ),
         }
     }
 }
