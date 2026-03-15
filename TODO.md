@@ -38,11 +38,6 @@
     - Adjacent string literals should normalize to one logical string value before later expr/string lowering so the rest of the pipeline does not have to reason about multi-literal concatenation shapes.
     - This should preserve Python evaluation behavior and source-sensitive string handling, including any interaction with later f-string/t-string or surrogate-aware lowering.
     - The likely boundary is the early expr normalization pipeline, before the later semantic-BlockPy string-template handling.
-- Make PassTracker record explicit pass results directly, so the driver flow stays in the shape `let result = pass_tracker.add_pass(..., || { ... });`.
-  - Planning note:
-    - `project_lowered_module_callable_defs` appears to be only for tests or the web renderer, so it should stay at those consumption sites instead of obscuring the main driver dataflow.
-    - Add `#[must_use]` to `PassTracker::add_pass` so callers do not silently discard tracked pass results.
-    - Record timing per `add_pass` invocation and surface those timings in the final transform timing report.
 - Remove local `StmtBody` usage and move back to upstream Ruff structures.
   - Planning note:
     - The desired end state is to stop depending on the local `StmtBody` wrapper and align the lowering pipeline back with upstream Ruff AST/container shapes.
@@ -62,6 +57,10 @@
 ## Completed
 
 - Move completed TODO entries here and include a short description of the work done.
+- PassTracker explicit-dataflow shape:
+  - `PassTracker::add_pass` is now `#[must_use]`, records per-pass elapsed time, and the CLI timing report includes ordered `pass_timings`.
+  - The driver now tracks the real lowered semantic/core BlockPy bundles at the `add_pass(..., || { ... })` boundaries instead of eagerly projecting render-only `BlockPyModule` values.
+  - Projection with `project_lowered_module_callable_defs` now happens at consumption sites like tests, snapshots, and the web inspector.
 
 ## Follow-up: weakref callback during shutdown (BB mode)
 

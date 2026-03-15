@@ -932,9 +932,13 @@ mod tests {
     fn wrapped_blockpy(source: &str) -> BlockPyModule {
         crate::transform_str_to_ruff_with_options(source, crate::Options::for_test())
             .unwrap()
-            .get_pass::<crate::basic_block::block_py::BlockPyModule>()
-            .cloned()
-            .expect("expected BlockPy module")
+            .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>()
+            .map(|bundle| {
+                crate::basic_block::project_lowered_module_callable_defs(bundle, |lowered| {
+                    lowered.callable_def()
+                })
+            })
+            .expect("expected lowered semantic BlockPy bundle")
     }
 
     fn parse_blockpy_expr(source: &str) -> BlockPyExpr {
@@ -1003,9 +1007,13 @@ def classify(n):
         )
         .unwrap();
         let blockpy = lowered
-            .get_pass::<crate::basic_block::block_py::BlockPyModule>()
-            .cloned()
-            .expect("expected BlockPy module");
+            .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>()
+            .map(|bundle| {
+                crate::basic_block::project_lowered_module_callable_defs(bundle, |lowered| {
+                    lowered.callable_def()
+                })
+            })
+            .expect("expected lowered semantic BlockPy bundle");
         let rendered = blockpy_module_to_string(&blockpy);
 
         assert_eq!(blockpy.module_init.as_deref(), Some("_dp_module_init"));

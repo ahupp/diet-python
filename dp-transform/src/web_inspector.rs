@@ -43,8 +43,14 @@ pub fn inspect_pipeline(source: &str) -> Result<String, JsValue> {
     let transformed = transform_str_to_ruff_with_options(source, Options::default())
         .map_err(|e| JsValue::from_str(e.to_string().as_str()))?;
     let blockpy = transformed
-        .get_pass::<crate::basic_block::block_py::BlockPyModule>()
-        .map(crate::basic_block::blockpy_module_to_string)
+        .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>()
+        .map(|bundle| {
+            crate::basic_block::blockpy_module_to_string(
+                &crate::basic_block::project_lowered_module_callable_defs(bundle, |lowered| {
+                    lowered.callable_def()
+                }),
+            )
+        })
         .unwrap_or_else(|| "; no BlockPy module emitted".to_string());
     let bb_module = transformed
         .bb_module
@@ -63,7 +69,7 @@ pub fn inspect_pipeline(source: &str) -> Result<String, JsValue> {
         .map(|bundle| {
             crate::basic_block::blockpy_module_to_string(
                 &crate::basic_block::project_lowered_module_callable_defs(bundle, |lowered| {
-                    &lowered.callable_def
+                    lowered.callable_def()
                 }),
             )
         })

@@ -9,7 +9,7 @@ use super::block_py::cfg::linearize_structured_ifs;
 use super::block_py::exception::is_dp_lookup_call;
 use super::block_py::state::collect_parameter_names;
 use super::block_py::{
-    BlockPyBlock, BlockPyIfTerm, BlockPyModule, BlockPyStmt, BlockPyTerm, CoreBlockPyCallableDef,
+    BlockPyBlock, BlockPyIfTerm, BlockPyStmt, BlockPyTerm, CoreBlockPyCallableDef,
 };
 use super::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use super::cfg_ir::{CfgCallableDef, CfgModule};
@@ -26,28 +26,39 @@ pub use codegen_normalize::normalize_bb_module_for_codegen;
 pub use exception_pass::lower_try_jump_exception_flow;
 
 #[derive(Clone)]
-pub(crate) struct LoweredCallableDef<T> {
-    pub callable_def: T,
-    pub binding_target: BindingTarget,
+pub struct LoweredCallableDef<T> {
+    pub(crate) callable_def: T,
+    pub(crate) binding_target: BindingTarget,
 }
 
-pub(crate) type LoweredBlockPyModuleBundle = CfgModule<LoweredCallableDef<LoweredBlockPyFunction>>;
+impl<T> LoweredCallableDef<T> {
+    pub fn callable_def(&self) -> &T {
+        &self.callable_def
+    }
+}
+
+pub type LoweredBlockPyModuleBundle = CfgModule<LoweredCallableDef<LoweredBlockPyFunction>>;
 
 #[derive(Clone)]
-pub(crate) struct LoweredCoreBlockPyFunction {
-    pub callable_def: CoreBlockPyCallableDef,
-    pub is_coroutine: bool,
-    pub bb_kind: super::bb_ir::BbFunctionKind,
-    pub block_params: HashMap<String, Vec<String>>,
-    pub exception_edges: HashMap<String, Option<String>>,
-    pub closure_layout: Option<super::bb_ir::BbClosureLayout>,
-    pub param_specs: BbExpr,
+pub struct LoweredCoreBlockPyFunction {
+    pub(crate) callable_def: CoreBlockPyCallableDef,
+    pub(crate) is_coroutine: bool,
+    pub(crate) bb_kind: super::bb_ir::BbFunctionKind,
+    pub(crate) block_params: HashMap<String, Vec<String>>,
+    pub(crate) exception_edges: HashMap<String, Option<String>>,
+    pub(crate) closure_layout: Option<super::bb_ir::BbClosureLayout>,
+    pub(crate) param_specs: BbExpr,
 }
 
-pub(crate) type LoweredCoreBlockPyModuleBundle =
-    CfgModule<LoweredCallableDef<LoweredCoreBlockPyFunction>>;
+impl LoweredCoreBlockPyFunction {
+    pub fn callable_def(&self) -> &CoreBlockPyCallableDef {
+        &self.callable_def
+    }
+}
 
-pub(crate) fn project_lowered_module_callable_defs<T, U: Clone>(
+pub type LoweredCoreBlockPyModuleBundle = CfgModule<LoweredCallableDef<LoweredCoreBlockPyFunction>>;
+
+pub fn project_lowered_module_callable_defs<T, U: Clone>(
     module: &CfgModule<LoweredCallableDef<T>>,
     project: impl Fn(&T) -> &U,
 ) -> CfgModule<U> {

@@ -25,11 +25,18 @@ pub use crate::basic_block::ast_to_ast::Options;
 use crate::basic_block::bb_ir;
 use crate::driver::rewrite_module_with_tracker;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
+pub struct PassTiming {
+    pub name: String,
+    pub elapsed: Duration,
+}
+
+#[derive(Debug, Clone)]
 pub struct TransformTimings {
     pub parse_time: Duration,
     pub rewrite_time: Duration,
     pub total_time: Duration,
+    pub pass_times: Vec<PassTiming>,
 }
 
 static INIT_LOGGER: Once = Once::new();
@@ -79,6 +86,7 @@ pub(crate) struct RewrittenAstAfterInitialSimplify(pub ruff_python_ast::StmtBody
 
 struct TrackedPass {
     name: String,
+    elapsed: Duration,
     value: Box<dyn Any>,
 }
 
@@ -91,8 +99,11 @@ impl PassTracker {
         Self { passes: Vec::new() }
     }
 
+    #[must_use]
     pub(crate) fn add_pass<T: Clone + Any>(&mut self, name: &str, build: impl FnOnce() -> T) -> T {
+        let start = timing_start();
         let value = build();
+        let elapsed = timing_elapsed(start);
         assert!(
             !self.passes.iter().any(|pass| pass.value.is::<T>()),
             "PassTracker already contains a pass for type {}",
@@ -100,6 +111,7 @@ impl PassTracker {
         );
         self.passes.push(TrackedPass {
             name: name.to_string(),
+            elapsed,
             value: Box::new(value.clone()),
         });
         value
@@ -115,6 +127,13 @@ impl PassTracker {
     fn names(&self) -> impl Iterator<Item = &str> {
         self.passes.iter().map(|pass| pass.name.as_str())
     }
+
+    fn timings(&self) -> impl Iterator<Item = PassTiming> + '_ {
+        self.passes.iter().map(|pass| PassTiming {
+            name: pass.name.clone(),
+            elapsed: pass.elapsed,
+        })
+    }
 }
 
 impl LoweringResult {
@@ -124,6 +143,10 @@ impl LoweringResult {
 
     pub fn pass_names(&self) -> impl Iterator<Item = &str> {
         self.passes.names()
+    }
+
+    pub fn pass_timings(&self) -> impl Iterator<Item = PassTiming> + '_ {
+        self.passes.timings()
     }
 
     pub fn to_string(&self) -> String {
@@ -163,6 +186,7 @@ pub fn transform_str_to_ruff_with_options(
                 parse_time: Duration::from_nanos(0),
                 rewrite_time: Duration::from_nanos(0),
                 total_time: Duration::from_nanos(0),
+                pass_times: Vec::new(),
             },
             module,
             bb_module: None,
@@ -181,6 +205,7 @@ pub fn transform_str_to_ruff_with_options(
         parse_time,
         rewrite_time,
         total_time: timing_elapsed(total_start),
+        pass_times: pass_tracker.timings().collect(),
     };
 
     Ok(LoweringResult {
@@ -291,8 +316,8 @@ mod tests {
     #[should_panic(expected = "PassTracker already contains a pass for type i32")]
     fn pass_tracker_rejects_duplicate_types() {
         let mut tracker = PassTracker::new();
-        tracker.add_pass("one", || 1_i32);
-        tracker.add_pass("two", || 2_i32);
+        let _ = tracker.add_pass("one", || 1_i32);
+        let _ = tracker.add_pass("two", || 2_i32);
     }
 }
 

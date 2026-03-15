@@ -20,13 +20,14 @@ mod stmt_utils;
 // Ruff AST -> BbModule
 pub use block_py::pretty::blockpy_module_to_string;
 pub(crate) use blockpy_string_lower::lower_string_templates_in_lowered_blockpy_module_bundle;
-#[cfg(target_arch = "wasm32")]
-pub(crate) use blockpy_to_bb::LoweredCoreBlockPyModuleBundle;
 pub(crate) use blockpy_to_bb::{
-    lower_core_blockpy_module_bundle_to_bb_module, project_lowered_module_callable_defs,
-    simplify_lowered_blockpy_module_bundle_exprs,
+    lower_core_blockpy_module_bundle_to_bb_module, simplify_lowered_blockpy_module_bundle_exprs,
 };
 pub use blockpy_to_bb::{lower_try_jump_exception_flow, normalize_bb_module_for_codegen};
+pub use blockpy_to_bb::{
+    project_lowered_module_callable_defs, LoweredBlockPyModuleBundle,
+    LoweredCoreBlockPyModuleBundle,
+};
 pub use function_lowering::SingleNamedAssignmentPass;
 
 #[cfg(test)]
@@ -64,14 +65,18 @@ mod tests {
             crate::ruff_ast_to_string(self.rewritten_ast())
         }
 
-        fn blockpy_module(&self) -> &BlockPyModule {
-            self.result
-                .get_pass::<BlockPyModule>()
-                .expect("expected BlockPy module")
+        fn blockpy_module(&self) -> BlockPyModule {
+            let bundle = self
+                .result
+                .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>()
+                .expect("expected lowered semantic BlockPy bundle");
+            crate::basic_block::project_lowered_module_callable_defs(bundle, |lowered| {
+                lowered.callable_def()
+            })
         }
 
         fn blockpy_text(&self) -> String {
-            crate::basic_block::blockpy_module_to_string(self.blockpy_module())
+            crate::basic_block::blockpy_module_to_string(&self.blockpy_module())
         }
 
         fn bb_module(&self) -> &BbModule {
@@ -299,7 +304,8 @@ def documented():
 "#;
 
         let lowered = TrackedLowering::new(source);
-        let documented = callable_def_by_name(lowered.blockpy_module(), "documented");
+        let blockpy = lowered.blockpy_module();
+        let documented = callable_def_by_name(&blockpy, "documented");
         let doc = documented
             .doc
             .as_ref()
@@ -1191,9 +1197,13 @@ class Field:
             let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
                 .expect("transform should succeed");
             let blockpy = lowered
-                .get_pass::<crate::basic_block::block_py::BlockPyModule>()
-                .cloned()
-                .expect("expected BlockPy module");
+                .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>()
+                .map(|bundle| {
+                    crate::basic_block::project_lowered_module_callable_defs(bundle, |lowered| {
+                        lowered.callable_def()
+                    })
+                })
+                .expect("expected lowered semantic BlockPy bundle");
             let blockpy_rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
             eprintln!("==== {name} BLOCKPY ====\n{blockpy_rendered}");
 

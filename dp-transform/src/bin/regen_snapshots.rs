@@ -75,19 +75,23 @@ fn qualified_case_name(path: &Path, block: &FixtureBlock) -> Result<String, Stri
 
 fn render_blockpy_snapshot(result: &dp_transform::LoweringResult) -> (String, usize, usize) {
     let blockpy = result
-        .get_pass::<dp_transform::basic_block::block_py::BlockPyModule>()
+        .get_pass::<dp_transform::basic_block::LoweredBlockPyModuleBundle>()
+        .map(|bundle| {
+            dp_transform::basic_block::project_lowered_module_callable_defs(bundle, |lowered| {
+                lowered.callable_def()
+            })
+        });
+    let blockpy_rendered = blockpy
+        .as_ref()
         .map(dp_transform::basic_block::blockpy_module_to_string)
         .unwrap_or_else(|| "; no BlockPy module emitted".to_string());
-    let blockpy_blocks = result
-        .get_pass::<dp_transform::basic_block::block_py::BlockPyModule>()
-        .map(count_blockpy_blocks)
-        .unwrap_or(0);
+    let blockpy_blocks = blockpy.as_ref().map(count_blockpy_blocks).unwrap_or(0);
     let clif_blocks = result
         .bb_module
         .as_ref()
         .map(count_clif_blocks)
         .unwrap_or(0);
-    (blockpy, blockpy_blocks, clif_blocks)
+    (blockpy_rendered, blockpy_blocks, clif_blocks)
 }
 
 fn count_blockpy_blocks(module: &BlockPyModule) -> usize {

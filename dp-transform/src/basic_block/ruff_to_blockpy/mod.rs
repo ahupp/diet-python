@@ -84,14 +84,21 @@ pub(crate) struct GeneratorStmtSequenceLoweringState {
     pub next_block_id: usize,
 }
 
-pub(crate) struct LoweredBlockPyFunction {
-    pub callable_def: SemanticBlockPyCallableDef,
-    pub is_coroutine: bool,
-    pub bb_kind: BbFunctionKind,
-    pub block_params: HashMap<String, Vec<String>>,
-    pub exception_edges: HashMap<String, Option<String>>,
-    pub closure_layout: Option<BbClosureLayout>,
-    pub param_specs: BbExpr,
+#[derive(Clone)]
+pub struct LoweredBlockPyFunction {
+    pub(crate) callable_def: SemanticBlockPyCallableDef,
+    pub(crate) is_coroutine: bool,
+    pub(crate) bb_kind: BbFunctionKind,
+    pub(crate) block_params: HashMap<String, Vec<String>>,
+    pub(crate) exception_edges: HashMap<String, Option<String>>,
+    pub(crate) closure_layout: Option<BbClosureLayout>,
+    pub(crate) param_specs: BbExpr,
+}
+
+impl LoweredBlockPyFunction {
+    pub fn callable_def(&self) -> &SemanticBlockPyCallableDef {
+        &self.callable_def
+    }
 }
 
 pub(crate) struct LoweredBlockPyFunctionBundle {

@@ -1,6 +1,7 @@
 use std::{env, fs, process};
 
 use dp_transform::{transform_str_to_ruff_with_options, Options};
+use serde_json::json;
 
 const USAGE: &str = "usage: diet-python [--timing] <python-file>";
 
@@ -56,11 +57,24 @@ fn main() {
     let timings = result.timings;
 
     if timing {
+        let pass_timings = timings
+            .pass_times
+            .iter()
+            .map(|pass| {
+                json!({
+                    "name": pass.name,
+                    "elapsed_ns": pass.elapsed.as_nanos(),
+                })
+            })
+            .collect::<Vec<_>>();
         eprintln!(
-            "{{\"parse_ns\":{},\"rewrite_ns\":{},\"total_ns\":{}}}",
-            timings.parse_time.as_nanos(),
-            timings.rewrite_time.as_nanos(),
-            timings.total_time.as_nanos()
+            "{}",
+            json!({
+                "parse_ns": timings.parse_time.as_nanos(),
+                "rewrite_ns": timings.rewrite_time.as_nanos(),
+                "total_ns": timings.total_time.as_nanos(),
+                "pass_timings": pass_timings,
+            })
         );
     }
 }
