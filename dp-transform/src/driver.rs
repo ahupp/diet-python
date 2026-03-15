@@ -6,7 +6,9 @@ use crate::basic_block::ast_to_ast::rewrite_stmt::function_def::rewrite_ast_to_l
 use crate::basic_block::ast_to_ast::scope::{analyze_module_scope, BindingKind};
 use crate::basic_block::ast_to_ast::simplify::lower_surrogate_string_literals;
 use crate::basic_block::ast_to_ast::{
-    ast_rewrite::ExprRewritePass, ast_rewrite::LoweredExpr, rewrite_expr::lower_expr,
+    ast_rewrite::ExprRewritePass,
+    ast_rewrite::LoweredExpr,
+    rewrite_expr::{lower_expr, lower_scoped_helper_expr},
     rewrite_future_annotations, rewrite_names, rewrite_stmt,
 };
 use crate::basic_block::bb_ir::BbModule;
@@ -179,7 +181,7 @@ impl ExprRewritePass for ScopedHelperExprPass {
             | Expr::Generator(_)
             | Expr::ListComp(_)
             | Expr::SetComp(_)
-            | Expr::DictComp(_) => lower_expr(context, expr),
+            | Expr::DictComp(_) => lower_scoped_helper_expr(context, expr),
             other => LoweredExpr::unmodified(other),
         }
     }

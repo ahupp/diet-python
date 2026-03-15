@@ -21,7 +21,58 @@ use ruff_python_ast::Identifier;
 pub mod comprehension;
 pub mod string;
 
+fn panic_for_deferred_expr(expr: &Expr) -> ! {
+    let message = match expr {
+        Expr::ListComp(_)
+        | Expr::SetComp(_)
+        | Expr::DictComp(_)
+        | Expr::Lambda(_)
+        | Expr::Generator(_) => "helper-scoped expr leaked to lower_expr",
+        Expr::If(_) => "expr-if leaked to lower_expr",
+        other => panic!(
+            "unexpected deferred expr leaked to lower_expr: {}",
+            crate::ruff_ast_to_string(other)
+        ),
+    };
+    panic!("{message}: {}", crate::ruff_ast_to_string(expr));
+}
+
+pub(super) fn lower_expr_nested(context: &Context, expr: Expr) -> LoweredExpr {
+    lower_expr_impl(context, expr, true)
+}
+
+pub(crate) fn lower_scoped_helper_expr(context: &Context, expr: Expr) -> LoweredExpr {
+    match expr {
+        Expr::ListComp(ast::ExprListComp {
+            elt, generators, ..
+        }) => comprehension::lower_list_comp(context, *elt, generators),
+        Expr::SetComp(ast::ExprSetComp {
+            elt, generators, ..
+        }) => comprehension::lower_set_comp(context, *elt, generators),
+        Expr::DictComp(ast::ExprDictComp {
+            key,
+            value,
+            generators,
+            ..
+        }) => comprehension::lower_dict_comp(context, *key, *value, generators),
+        Expr::Lambda(ast::ExprLambda {
+            parameters, body, ..
+        }) => lower_lambda_expr(context, parameters.map(|params| *params), *body),
+        Expr::Generator(ast::ExprGenerator {
+            elt, generators, ..
+        }) => lower_generator_expr(context, *elt, generators),
+        other => panic!(
+            "lower_scoped_helper_expr received unsupported expr: {}",
+            crate::ruff_ast_to_string(&other)
+        ),
+    }
+}
+
 pub fn lower_expr(context: &Context, expr: Expr) -> LoweredExpr {
+    lower_expr_impl(context, expr, false)
+}
+
+fn lower_expr_impl(context: &Context, expr: Expr, allow_deferred: bool) -> LoweredExpr {
     match expr {
         Expr::Attribute(ast::ExprAttribute {
             value,
@@ -30,7 +81,7 @@ pub fn lower_expr(context: &Context, expr: Expr) -> LoweredExpr {
             range: _,
             node_index: _,
         }) if attr.id.as_str() == "f_locals" => {
-            let lowered = lower_expr(context, *value);
+            let lowered = lower_expr_nested(context, *value);
             let mut body_builder = BodyBuilder::default();
             let value_expr = body_builder.push(lowered);
             let expr = py_expr!("__dp_frame_locals({value:expr})", value = value_expr);
@@ -43,7 +94,7 @@ pub fn lower_expr(context: &Context, expr: Expr) -> LoweredExpr {
             range: _,
             node_index: _,
         }) if context.options.lower_attributes => {
-            let lowered = lower_expr(context, *value);
+            let lowered = lower_expr_nested(context, *value);
             let mut body_builder = BodyBuilder::default();
             let value_expr = body_builder.push(lowered);
             let expr = py_expr!(
@@ -66,7 +117,7 @@ pub fn lower_expr(context: &Context, expr: Expr) -> LoweredExpr {
                 node_index: args_node_index,
             } = arguments;
 
-            let func_lowered = lower_expr(context, *func);
+            let func_lowered = lower_expr_nested(context, *func);
             let mut body_builder = BodyBuilder::default();
             let func_expr = body_builder.push(func_lowered);
             let mut new_args = Vec::new();
@@ -78,7 +129,7 @@ pub fn lower_expr(context: &Context, expr: Expr) -> LoweredExpr {
                         range,
                         node_index,
                     }) => {
-                        let lowered = lower_expr(context, *value);
+                        let lowered = lower_expr_nested(context, *value);
 
                         let expr = body_builder.push(lowered);
                         new_args.push(Expr::Starred(ast::ExprStarred {
@@ -89,7 +140,7 @@ pub fn lower_expr(context: &Context, expr: Expr) -> LoweredExpr {
                         }));
                     }
                     other => {
-                        let expr = body_builder.push(lower_expr(context, other));
+                        let expr = body_builder.push(lower_expr_nested(context, other));
                         new_args.push(expr);
                     }
                 }
@@ -103,7 +154,7 @@ pub fn lower_expr(context: &Context, expr: Expr) -> LoweredExpr {
                     range,
                     node_index,
                 } = keyword;
-                let lowered = lower_expr(context, value);
+                let lowered = lower_expr_nested(context, value);
 
                 let expr = body_builder.push(lowered);
                 new_keywords.push(ast::Keyword {
@@ -145,43 +196,18 @@ pub fn lower_expr(context: &Context, expr: Expr) -> LoweredExpr {
             upper = upper.map(|expr| *expr).unwrap_or_else(|| py_expr!("None")),
             step = step.map(|expr| *expr).unwrap_or_else(|| py_expr!("None")),
         )),
-        Expr::ListComp(ast::ExprListComp {
-            elt, generators, ..
-        }) => comprehension::lower_list_comp(context, *elt, generators),
-        Expr::SetComp(ast::ExprSetComp {
-            elt, generators, ..
-        }) => comprehension::lower_set_comp(context, *elt, generators),
-        Expr::DictComp(ast::ExprDictComp {
-            key,
-            value,
-            generators,
-            ..
-        }) => comprehension::lower_dict_comp(context, *key, *value, generators),
-        Expr::Lambda(ast::ExprLambda {
-            parameters, body, ..
-        }) => {
-            let func_name = context.fresh("lambda");
-            let mut func_def: ast::StmtFunctionDef = py_stmt_typed!(
-                r#"
-def {func:id}():
-    pass
-"#,
-                func = func_name.as_str(),
-            );
-            if let Some(params) = parameters {
-                func_def.parameters = params;
+        Expr::ListComp(_)
+        | Expr::SetComp(_)
+        | Expr::DictComp(_)
+        | Expr::Lambda(_)
+        | Expr::Generator(_)
+        | Expr::If(_) => {
+            if allow_deferred {
+                LoweredExpr::unmodified(expr)
+            } else {
+                panic_for_deferred_expr(&expr)
             }
-            let return_stmt = py_stmt!("return {value:expr}", value = *body);
-            func_def.body = ast::StmtBody {
-                body: vec![Box::new(return_stmt)],
-                range: TextRange::default(),
-                node_index: ast::AtomicNodeIndex::default(),
-            };
-            LoweredExpr::modified(py_expr!("{func:id}", func = func_name.as_str()), func_def)
         }
-        Expr::Generator(ast::ExprGenerator {
-            elt, generators, ..
-        }) => lower_generator_expr(context, *elt, generators),
         Expr::NumberLiteral(ast::ExprNumberLiteral {
             value: ast::Number::Complex { real, imag },
             ..
@@ -238,7 +264,7 @@ def {func:id}():
                         range: star_range,
                         node_index: star_node_index,
                     }) => {
-                        let lowered = lower_expr(context, *value);
+                        let lowered = lower_expr_nested(context, *value);
                         modified |= lowered.modified;
                         stmts.push(lowered.stmt);
                         lowered_elts.push(Expr::Starred(ast::ExprStarred {
@@ -249,7 +275,7 @@ def {func:id}():
                         }));
                     }
                     other => {
-                        let lowered = lower_expr(context, other);
+                        let lowered = lower_expr_nested(context, other);
                         modified |= lowered.modified;
                         stmts.push(lowered.stmt);
                         lowered_elts.push(lowered.expr);
@@ -274,7 +300,7 @@ def {func:id}():
             let mut modified = false;
             let mut lowered_elts = Vec::new();
             for elt in elts {
-                let lowered = lower_expr(context, elt);
+                let lowered = lower_expr_nested(context, elt);
                 modified |= lowered.modified;
                 modified |= push_stmt(&mut stmts, lowered.stmt);
                 lowered_elts.push(lowered.expr);
@@ -304,7 +330,7 @@ def {func:id}():
                         range: star_range,
                         node_index: star_node_index,
                     }) => {
-                        let expr = body_builder.push(lower_expr(context, *value));
+                        let expr = body_builder.push(lower_expr_nested(context, *value));
                         lowered_elts.push(Expr::Starred(ast::ExprStarred {
                             value: Box::new(expr),
                             ctx: star_ctx,
@@ -313,7 +339,7 @@ def {func:id}():
                         }));
                     }
                     other => {
-                        let expr = body_builder.push(lower_expr(context, other));
+                        let expr = body_builder.push(lower_expr_nested(context, other));
                         lowered_elts.push(expr);
                     }
                 }
@@ -330,7 +356,7 @@ def {func:id}():
             let mut lowered_elts = Vec::new();
             let mut body_builder = BodyBuilder::default();
             for elt in elts {
-                let expr = body_builder.push(lower_expr(context, elt));
+                let expr = body_builder.push(lower_expr_nested(context, elt));
                 lowered_elts.push(expr);
             }
             let tuple = make_tuple(lowered_elts);
@@ -353,8 +379,8 @@ def {func:id}():
                         key: Some(key),
                         value,
                     } => {
-                        let key_expr = body_builder.push(lower_expr(context, key));
-                        let value_expr = body_builder.push(lower_expr(context, value));
+                        let key_expr = body_builder.push(lower_expr_nested(context, key));
+                        let value_expr = body_builder.push(lower_expr_nested(context, value));
                         keyed_pairs.push(py_expr!(
                             "({key:expr}, {value:expr})",
                             key = key_expr,
@@ -362,7 +388,7 @@ def {func:id}():
                         ));
                     }
                     ast::DictItem { key: None, value } => {
-                        let value_expr = body_builder.push(lower_expr(context, value));
+                        let value_expr = body_builder.push(lower_expr_nested(context, value));
                         if !keyed_pairs.is_empty() {
                             let tuple = make_tuple(take(&mut keyed_pairs));
                             segments.push(py_expr!("__dp_dict({tuple:expr})", tuple = tuple));
@@ -417,7 +443,7 @@ def {func:id}():
                 UnaryOp::USub => "neg",
                 UnaryOp::UAdd => "pos",
             };
-            let lowered = lower_expr(context, *operand);
+            let lowered = lower_expr_nested(context, *operand);
             let expr = make_unaryop(func_name, lowered.expr);
             if lowered.modified {
                 LoweredExpr::modified(expr, lowered.stmt)
@@ -428,8 +454,8 @@ def {func:id}():
         Expr::Subscript(ast::ExprSubscript {
             value, slice, ctx, ..
         }) if matches!(ctx, ast::ExprContext::Load) => {
-            let value_lowered = lower_expr(context, *value);
-            let slice_lowered = lower_expr(context, *slice);
+            let value_lowered = lower_expr_nested(context, *value);
+            let slice_lowered = lower_expr_nested(context, *slice);
             let stmts = vec![value_lowered.stmt, slice_lowered.stmt];
 
             let expr = make_binop("getitem", value_lowered.expr, slice_lowered.expr);
@@ -441,6 +467,31 @@ def {func:id}():
         }
         other => LoweredExpr::unmodified(other),
     }
+}
+
+fn lower_lambda_expr(
+    context: &Context,
+    parameters: Option<ast::Parameters>,
+    body: Expr,
+) -> LoweredExpr {
+    let func_name = context.fresh("lambda");
+    let mut func_def: ast::StmtFunctionDef = py_stmt_typed!(
+        r#"
+def {func:id}():
+    pass
+"#,
+        func = func_name.as_str(),
+    );
+    if let Some(params) = parameters {
+        func_def.parameters = Box::new(params);
+    }
+    let return_stmt = py_stmt!("return {value:expr}", value = body);
+    func_def.body = ast::StmtBody {
+        body: vec![Box::new(return_stmt)],
+        range: TextRange::default(),
+        node_index: ast::AtomicNodeIndex::default(),
+    };
+    LoweredExpr::modified(py_expr!("{func:id}", func = func_name.as_str()), func_def)
 }
 
 fn lower_generator_expr(
@@ -502,7 +553,7 @@ fn lower_generator_expr(
 
     let outer_async = first_gen.is_async;
     let iter_expr = first_gen.iter.clone();
-    let iter_lowered = lower_expr(context, iter_expr);
+    let iter_lowered = lower_expr_nested(context, iter_expr);
     let iter_value = if outer_async {
         py_expr!("__dp_aiter({iter:expr})", iter = iter_lowered.expr.clone())
     } else {
@@ -874,5 +925,42 @@ impl Transformer for NamedExprRewriter<'_> {
             _ => {}
         }
         walk_expr(self, expr);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::lower_expr;
+    use crate::basic_block::ast_to_ast::context::Context;
+    use crate::Options;
+    use ruff_python_ast::Expr;
+    use ruff_python_parser::parse_expression;
+
+    fn parse_expr(source: &str) -> Expr {
+        *parse_expression(source)
+            .expect("parse should succeed")
+            .into_syntax()
+            .body
+    }
+
+    #[test]
+    #[should_panic(expected = "helper-scoped expr leaked to lower_expr")]
+    fn lower_expr_rejects_lambda() {
+        let context = Context::new(Options::for_test(), "lambda x: x");
+        let _ = lower_expr(&context, parse_expr("lambda x: x"));
+    }
+
+    #[test]
+    #[should_panic(expected = "helper-scoped expr leaked to lower_expr")]
+    fn lower_expr_rejects_listcomp() {
+        let context = Context::new(Options::for_test(), "[x for x in xs]");
+        let _ = lower_expr(&context, parse_expr("[x for x in xs]"));
+    }
+
+    #[test]
+    #[should_panic(expected = "expr-if leaked to lower_expr")]
+    fn lower_expr_rejects_expr_if() {
+        let context = Context::new(Options::for_test(), "a if cond else b");
+        let _ = lower_expr(&context, parse_expr("a if cond else b"));
     }
 }

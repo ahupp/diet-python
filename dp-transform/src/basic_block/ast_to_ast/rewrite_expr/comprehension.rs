@@ -291,7 +291,7 @@ fn lower_function(
     let first_gen = generators
         .first()
         .expect("comprehension expects at least one generator");
-    let iter_lowered = super::lower_expr(context, first_gen.iter.clone());
+    let iter_lowered = super::lower_expr_nested(context, first_gen.iter.clone());
     let iter_call = iter_lowered.expr.clone();
 
     let result_name = context.fresh("tmp");
@@ -307,7 +307,7 @@ fn lower_function(
 
     for gen in generators {
         let iter_expr = rename_loads(gen.iter, &renames);
-        let iter_lowered = super::lower_expr(context, iter_expr);
+        let iter_lowered = super::lower_expr_nested(context, iter_expr);
 
         let mut target_expr = gen.target;
         let bound_here = collect_store_names(&target_expr);
@@ -317,7 +317,7 @@ fn lower_function(
         let mut ifs = Vec::with_capacity(gen.ifs.len());
         for if_expr in gen.ifs {
             let if_expr = rename_loads(if_expr, &renames);
-            ifs.push(super::lower_expr(context, if_expr));
+            ifs.push(super::lower_expr_nested(context, if_expr));
         }
 
         lowered_gens.push(LoweredGenerator {
@@ -333,8 +333,8 @@ fn lower_function(
             let key_expr = rename_loads(elt_or_key, &renames);
             let value_expr =
                 rename_loads(value.expect("dict comprehension expects value"), &renames);
-            let lowered_key = super::lower_expr(context, key_expr);
-            let lowered_value = super::lower_expr(context, value_expr);
+            let lowered_key = super::lower_expr_nested(context, key_expr);
+            let lowered_value = super::lower_expr_nested(context, value_expr);
             let mut body = vec![lowered_key.stmt];
             body.push(lowered_value.stmt);
             body.push(py_stmt!(
@@ -347,7 +347,7 @@ fn lower_function(
         }
         InlineCompKind::List => {
             let elt_expr = rename_loads(elt_or_key, &renames);
-            let lowered_elt = super::lower_expr(context, elt_expr);
+            let lowered_elt = super::lower_expr_nested(context, elt_expr);
             let mut body = vec![lowered_elt.stmt];
             body.push(py_stmt!(
                 "{result:id}.append({value:expr})",
@@ -358,7 +358,7 @@ fn lower_function(
         }
         InlineCompKind::Set => {
             let elt_expr = rename_loads(elt_or_key, &renames);
-            let lowered_elt = super::lower_expr(context, elt_expr);
+            let lowered_elt = super::lower_expr_nested(context, elt_expr);
             let mut body = vec![lowered_elt.stmt];
             body.push(py_stmt!(
                 "{result:id}.add({value:expr})",
