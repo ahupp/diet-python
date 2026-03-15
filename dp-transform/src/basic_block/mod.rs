@@ -19,8 +19,7 @@ mod stmt_utils;
 // Ruff AST -> BbModule
 pub use block_py::pretty::blockpy_module_to_string;
 pub(crate) use blockpy_to_bb::{
-    lower_core_blockpy_module_bundle_to_bb_module, lowered_blockpy_module_bundle_to_blockpy_module,
-    lowered_core_blockpy_module_bundle_to_blockpy_module,
+    lower_core_blockpy_module_bundle_to_bb_module, project_lowered_module_callable_defs,
     simplify_lowered_blockpy_module_bundle_exprs,
 };
 pub use blockpy_to_bb::{lower_try_jump_exception_flow, normalize_bb_module_for_codegen};
@@ -42,7 +41,9 @@ pub fn rewrite_ast_to_blockpy_module_with_context(
     module: &mut ruff_python_ast::StmtBody,
 ) -> block_py::BlockPyModule {
     let lowered_module = rewrite_ast_to_lowered_blockpy_module(context, module);
-    lowered_blockpy_module_bundle_to_blockpy_module(&lowered_module)
+    project_lowered_module_callable_defs(&lowered_module, |lowered_function| {
+        &lowered_function.callable_def
+    })
 }
 
 #[cfg(test)]

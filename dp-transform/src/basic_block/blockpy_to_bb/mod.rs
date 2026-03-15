@@ -49,16 +49,11 @@ pub(crate) struct LoweredCoreBlockPyFunction {
 pub(crate) type LoweredCoreBlockPyModuleBundle =
     CfgModule<LoweredCallableDef<LoweredCoreBlockPyFunction>>;
 
-pub(crate) fn lowered_blockpy_module_bundle_to_blockpy_module(
-    module: &LoweredBlockPyModuleBundle,
-) -> BlockPyModule {
-    module.map_callable_defs(|lowered_function| lowered_function.callable_def.callable_def.clone())
-}
-
-pub(crate) fn lowered_core_blockpy_module_bundle_to_blockpy_module(
-    module: &LoweredCoreBlockPyModuleBundle,
-) -> super::block_py::CoreBlockPyModule {
-    module.map_callable_defs(|lowered_function| lowered_function.callable_def.callable_def.clone())
+pub(crate) fn project_lowered_module_callable_defs<T, U: Clone>(
+    module: &CfgModule<LoweredCallableDef<T>>,
+    project: impl Fn(&T) -> &U,
+) -> CfgModule<U> {
+    module.map_callable_defs(|lowered_function| project(&lowered_function.callable_def).clone())
 }
 
 pub(crate) fn simplify_lowered_blockpy_module_bundle_exprs(
