@@ -4,7 +4,7 @@ use ruff_python_parser::parse_module;
 pub use ruff_python_parser::ParseError;
 use ruff_source_file::LineEnding;
 use ruff_text_size::TextRange;
-use std::any::Any;
+use std::any::{type_name, Any};
 use std::sync::Once;
 use std::time::{Duration, Instant};
 
@@ -89,6 +89,11 @@ impl PassTracker {
     }
 
     pub(crate) fn add_pass<T: Clone + Any>(&mut self, name: &str, value: &T) {
+        assert!(
+            !self.passes.iter().any(|pass| pass.value.is::<T>()),
+            "PassTracker already contains a pass for type {}",
+            type_name::<T>()
+        );
         self.passes.push(TrackedPass {
             name: name.to_string(),
             value: Box::new(value.clone()),
@@ -270,6 +275,19 @@ impl ToRuffAst for &Expr {
 impl ToRuffAst for &[Stmt] {
     fn to_ruff_ast(&self) -> Vec<Stmt> {
         self.to_vec()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PassTracker;
+
+    #[test]
+    #[should_panic(expected = "PassTracker already contains a pass for type i32")]
+    fn pass_tracker_rejects_duplicate_types() {
+        let mut tracker = PassTracker::new();
+        tracker.add_pass("one", &1_i32);
+        tracker.add_pass("two", &2_i32);
     }
 }
 
