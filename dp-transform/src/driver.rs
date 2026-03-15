@@ -98,6 +98,8 @@ pub(crate) fn rewrite_module_with_tracker(
     }
     let bb_module =
         basic_block::lower_core_blockpy_module_bundle_to_bb_module(context, &core_blockpy_bundle);
+    // This final cleanup only affects the returned Ruff AST / rendered source.
+    // BlockPy and BB have already been built from the pre-bytes form above.
     lower_string_literals_to_bytes(module);
     if let Some(pass_tracker) = pass_tracker.as_deref_mut() {
         pass_tracker.add_pass("rewritten_ast", &crate::ruff_ast_to_string(&*module));
