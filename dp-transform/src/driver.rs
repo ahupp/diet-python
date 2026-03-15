@@ -86,7 +86,7 @@ pub(crate) fn rewrite_module_with_tracker(
         })
     });
     let bb_module =
-        basic_block::lower_core_blockpy_module_bundle_to_bb_module(context, &core_blockpy_bundle);
+        basic_block::lower_core_blockpy_module_bundle_to_bb_module(&core_blockpy_bundle);
     bb_module
 }
 

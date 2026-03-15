@@ -15,13 +15,12 @@ use super::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use super::cfg_ir::{CfgCallableDef, CfgModule};
 use super::param_specs::function_param_specs_expr;
 use super::ruff_to_blockpy::LoweredBlockPyFunction;
-use super::stmt_utils::{flatten_stmt, flatten_stmt_boxes, stmt_body_from_stmts};
-use crate::basic_block::ast_to_ast::context::Context;
+use super::stmt_utils::{flatten_stmt_boxes, stmt_body_from_stmts};
 use crate::py_expr;
 use crate::transformer::{walk_expr, Transformer};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::TextRange;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 pub use codegen_normalize::normalize_bb_module_for_codegen;
 pub use exception_pass::lower_try_jump_exception_flow;
@@ -63,12 +62,10 @@ pub(crate) fn simplify_lowered_blockpy_module_bundle_exprs(
 }
 
 pub(crate) fn lower_core_blockpy_module_bundle_to_bb_module(
-    context: &Context,
     module: &LoweredCoreBlockPyModuleBundle,
 ) -> BbModule {
     module.map_callable_defs(|lowered_function| {
         lower_core_blockpy_function_to_bb_function(
-            context,
             &lowered_function.callable_def,
             lowered_function.binding_target,
         )
@@ -91,7 +88,6 @@ fn simplify_lowered_blockpy_function_exprs(
 }
 
 pub(crate) fn lower_core_blockpy_function_to_bb_function(
-    context: &Context,
     lowered: &LoweredCoreBlockPyFunction,
     binding_target: BindingTarget,
 ) -> BbFunction {
@@ -110,7 +106,6 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
             params: collect_parameter_names(&lowered.callable_def.params),
             entry_liveins: lowered.callable_def.entry_liveins.clone(),
             blocks: lower_blockpy_blocks_to_bb_blocks(
-                context,
                 &linear_blocks,
                 &linear_block_params,
                 &linear_exception_edges,
@@ -125,7 +120,6 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
 }
 
 pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
-    context: &Context,
     blocks: &[BlockPyBlock<impl Clone + Into<Expr> + From<Expr>>],
     block_params: &HashMap<String, Vec<String>>,
     exception_edges: &HashMap<String, Option<String>>,
@@ -175,34 +169,12 @@ pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
             });
             let mut local_defs = Vec::new();
             let mut ops = Vec::new();
-            let mut pending = VecDeque::from(normalized_body);
-            while let Some(stmt) = pending.pop_front() {
+            for stmt in normalized_body {
                 match stmt {
                     Stmt::FunctionDef(func_def)
                         if func_def.name.id.as_str().starts_with("_dp_bb_") =>
                     {
                         local_defs.push(func_def);
-                    }
-                    Stmt::Assign(assign)
-                        if crate::basic_block::ruff_to_blockpy::should_rewrite_assignment_targets(
-                            &assign.targets,
-                        ) =>
-                    {
-                        let rewritten =
-                            crate::basic_block::ruff_to_blockpy::rewrite_assign_stmt(context, assign);
-                        let rewritten_stmt = match rewritten {
-                            crate::basic_block::ast_to_ast::ast_rewrite::Rewrite::Unmodified(
-                                stmt,
-                            )
-                            | crate::basic_block::ast_to_ast::ast_rewrite::Rewrite::Walk(stmt) => {
-                                stmt
-                            }
-                        };
-                        let mut lowered = Vec::new();
-                        flatten_stmt(&rewritten_stmt, &mut lowered);
-                        for lowered_stmt in lowered.into_iter().rev() {
-                            pending.push_front(*lowered_stmt);
-                        }
                     }
                     other => {
                         if let Some(op) = BbOp::from_stmt(other) {
