@@ -30,9 +30,57 @@ mod tests {
     use crate::basic_block::bb_ir::BindingTarget;
     use crate::basic_block::bb_ir::{BbBlock, BbExpr, BbFunction, BbFunctionKind, BbModule};
     use crate::basic_block::bb_ir::{BbClosureInit, BbClosureSlot, BbOp, BbTerm};
+    use crate::basic_block::block_py::BlockPyModule;
     use crate::{
         py_expr, transform_str_to_bb_ir_with_options, transform_str_to_ruff_with_options, Options,
     };
+    use crate::{LoweringResult, RewrittenAstAfterInitialSimplify};
+    use ruff_python_ast::StmtBody;
+
+    struct TrackedLowering {
+        result: LoweringResult,
+    }
+
+    impl TrackedLowering {
+        fn new(source: &str) -> Self {
+            Self {
+                result: transform_str_to_ruff_with_options(source, Options::for_test())
+                    .expect("transform should succeed"),
+            }
+        }
+
+        fn rewritten_ast(&self) -> &StmtBody {
+            self.result
+                .get_pass::<RewrittenAstAfterInitialSimplify>()
+                .map(|pass| &pass.0)
+                .expect("expected post-initial-simplify rewritten Ruff AST pass")
+        }
+
+        fn rewritten_ast_text(&self) -> String {
+            crate::ruff_ast_to_string(self.rewritten_ast())
+        }
+
+        fn blockpy_module(&self) -> &BlockPyModule {
+            self.result
+                .get_pass::<BlockPyModule>()
+                .expect("expected BlockPy module")
+        }
+
+        fn blockpy_text(&self) -> String {
+            crate::basic_block::blockpy_module_to_string(self.blockpy_module())
+        }
+
+        fn bb_module(&self) -> &BbModule {
+            self.result
+                .bb_module
+                .as_ref()
+                .expect("bb module should be available")
+        }
+
+        fn bb_function(&self, bind_name: &str) -> &BbFunction {
+            function_by_name(self.bb_module(), bind_name)
+        }
+    }
 
     fn function_by_name<'a>(bb_module: &'a BbModule, bind_name: &str) -> &'a BbFunction {
         let direct = bb_module
@@ -97,6 +145,11 @@ mod tests {
                 .is_some_and(|ret| expr_text(ret).contains(needle)),
             _ => false,
         }
+    }
+
+    fn assert_rewritten_ast_contains(lowered: &TrackedLowering, needle: &str) {
+        let rendered = lowered.rewritten_ast_text();
+        assert!(rendered.contains(needle), "{rendered}");
     }
 
     #[test]
@@ -215,14 +268,8 @@ def documented():
     return 1
 "#;
 
-        let options = Options::for_test();
-        let result =
-            transform_str_to_ruff_with_options(source, options).expect("transform should succeed");
-        let blockpy = result
-            .get_pass::<crate::basic_block::block_py::BlockPyModule>()
-            .cloned()
-            .expect("expected BlockPy module");
-        let documented = callable_def_by_name(&blockpy, "documented");
+        let lowered = TrackedLowering::new(source);
+        let documented = callable_def_by_name(lowered.blockpy_module(), "documented");
         let doc = documented
             .doc
             .as_ref()
@@ -240,24 +287,10 @@ def check():
     assert cond, msg
 "#;
 
-        let mut module = ruff_python_parser::parse_module(source)
-            .expect("parse should succeed")
-            .into_syntax();
-        let context =
-            crate::basic_block::ast_to_ast::context::Context::new(Options::for_test(), source);
-        crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass(
-            &context,
-            Some(&crate::basic_block::BBSimplifyStmtPass),
-            Some(&crate::driver::SimplifyExprPass),
-            &mut module.body,
-        );
-        let rendered = crate::ruff_ast_to_string(&module.body);
-        assert!(rendered.contains("assert cond, msg"), "{rendered}");
+        let lowered = TrackedLowering::new(source);
+        assert_rewritten_ast_contains(&lowered, "assert cond, msg");
 
-        let bb_module = transform_str_to_bb_ir_with_options(source, Options::for_test())
-            .expect("transform should succeed")
-            .expect("bb module should be available");
-        let check = function_by_name(&bb_module, "check");
+        let check = lowered.bb_function("check");
         assert!(
             check
                 .blocks
@@ -279,24 +312,10 @@ def check(a, b):
         return 3
 "#;
 
-        let mut module = ruff_python_parser::parse_module(source)
-            .expect("parse should succeed")
-            .into_syntax();
-        let context =
-            crate::basic_block::ast_to_ast::context::Context::new(Options::for_test(), source);
-        crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass(
-            &context,
-            Some(&crate::basic_block::BBSimplifyStmtPass),
-            Some(&crate::driver::SimplifyExprPass),
-            &mut module.body,
-        );
-        let rendered = crate::ruff_ast_to_string(&module.body);
-        assert!(rendered.contains("elif b"), "{rendered}");
+        let lowered = TrackedLowering::new(source);
+        assert_rewritten_ast_contains(&lowered, "elif b");
 
-        let bb_module = transform_str_to_bb_ir_with_options(source, Options::for_test())
-            .expect("transform should succeed")
-            .expect("bb module should be available");
-        let check = function_by_name(&bb_module, "check");
+        let check = lowered.bb_function("check");
         let brif_count = check
             .blocks
             .iter()
@@ -312,24 +331,10 @@ def choose(a, b, c):
     return f(a and b or c)
 "#;
 
-        let mut module = ruff_python_parser::parse_module(source)
-            .expect("parse should succeed")
-            .into_syntax();
-        let context =
-            crate::basic_block::ast_to_ast::context::Context::new(Options::for_test(), source);
-        crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass(
-            &context,
-            Some(&crate::basic_block::BBSimplifyStmtPass),
-            Some(&crate::driver::SimplifyExprPass),
-            &mut module.body,
-        );
-        let rendered = crate::ruff_ast_to_string(&module.body);
-        assert!(rendered.contains("a and b or c"), "{rendered}");
+        let lowered = TrackedLowering::new(source);
+        assert_rewritten_ast_contains(&lowered, "a and b or c");
 
-        let bb_module = transform_str_to_bb_ir_with_options(source, Options::for_test())
-            .expect("transform should succeed")
-            .expect("bb module should be available");
-        let choose = function_by_name(&bb_module, "choose");
+        let choose = lowered.bb_function("choose");
         assert!(
             choose
                 .blocks
@@ -346,24 +351,10 @@ def choose(cond, a, b):
     return f(a if cond else b)
 "#;
 
-        let mut module = ruff_python_parser::parse_module(source)
-            .expect("parse should succeed")
-            .into_syntax();
-        let context =
-            crate::basic_block::ast_to_ast::context::Context::new(Options::for_test(), source);
-        crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass(
-            &context,
-            Some(&crate::basic_block::BBSimplifyStmtPass),
-            Some(&crate::driver::SimplifyExprPass),
-            &mut module.body,
-        );
-        let rendered = crate::ruff_ast_to_string(&module.body);
-        assert!(rendered.contains("a if cond else b"), "{rendered}");
+        let lowered = TrackedLowering::new(source);
+        assert_rewritten_ast_contains(&lowered, "a if cond else b");
 
-        let bb_module = transform_str_to_bb_ir_with_options(source, Options::for_test())
-            .expect("transform should succeed")
-            .expect("bb module should be available");
-        let choose = function_by_name(&bb_module, "choose");
+        let choose = lowered.bb_function("choose");
         assert!(
             choose
                 .blocks
@@ -380,27 +371,10 @@ def choose(y):
     return f((x := y))
 "#;
 
-        let mut module = ruff_python_parser::parse_module(source)
-            .expect("parse should succeed")
-            .into_syntax();
-        let context =
-            crate::basic_block::ast_to_ast::context::Context::new(Options::for_test(), source);
-        crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass(
-            &context,
-            Some(&crate::basic_block::BBSimplifyStmtPass),
-            Some(&crate::driver::SimplifyExprPass),
-            &mut module.body,
-        );
-        let rendered = crate::ruff_ast_to_string(&module.body);
-        assert!(rendered.contains("(x := y)"), "{rendered}");
+        let lowered = TrackedLowering::new(source);
+        assert_rewritten_ast_contains(&lowered, "(x := y)");
 
-        let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
-            .expect("transform should succeed");
-        let blockpy = lowered
-            .get_pass::<crate::basic_block::block_py::BlockPyModule>()
-            .cloned()
-            .expect("expected BlockPy module");
-        let blockpy_rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
+        let blockpy_rendered = lowered.blockpy_text();
         assert!(blockpy_rendered.contains("x = y"), "{blockpy_rendered}");
         assert!(
             blockpy_rendered.contains("return f(x)"),
@@ -416,13 +390,8 @@ def choose(xs):
     return f([x for x in xs])
 "#;
 
-        let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
-            .expect("transform should succeed");
-        let blockpy = lowered
-            .get_pass::<crate::basic_block::block_py::BlockPyModule>()
-            .cloned()
-            .expect("expected BlockPy module");
-        let blockpy_rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
+        let lowered = TrackedLowering::new(source);
+        let blockpy_rendered = lowered.blockpy_text();
         assert!(
             blockpy_rendered.contains("function _dp_listcomp"),
             "{blockpy_rendered}"
@@ -440,13 +409,8 @@ def choose(xs):
     return tuple(x for x in xs)
 "#;
 
-        let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
-            .expect("transform should succeed");
-        let blockpy = lowered
-            .get_pass::<crate::basic_block::block_py::BlockPyModule>()
-            .cloned()
-            .expect("expected BlockPy module");
-        let blockpy_rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
+        let lowered = TrackedLowering::new(source);
+        let blockpy_rendered = lowered.blockpy_text();
         assert!(
             blockpy_rendered.contains("function _dp_genexpr"),
             "{blockpy_rendered}"
@@ -464,13 +428,8 @@ def choose():
     return f(lambda x: x + 1)
 "#;
 
-        let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
-            .expect("transform should succeed");
-        let blockpy = lowered
-            .get_pass::<crate::basic_block::block_py::BlockPyModule>()
-            .cloned()
-            .expect("expected BlockPy module");
-        let blockpy_rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
+        let lowered = TrackedLowering::new(source);
+        let blockpy_rendered = lowered.blockpy_text();
         assert!(
             blockpy_rendered.contains("function _dp_lambda"),
             "{blockpy_rendered}"
@@ -495,27 +454,10 @@ async def agen():
     yield value
 "#;
 
-        let mut module = ruff_python_parser::parse_module(source)
-            .expect("parse should succeed")
-            .into_syntax();
-        let context =
-            crate::basic_block::ast_to_ast::context::Context::new(Options::for_test(), source);
-        crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass(
-            &context,
-            Some(&crate::basic_block::BBSimplifyStmtPass),
-            Some(&crate::driver::SimplifyExprPass),
-            &mut module.body,
-        );
-        let rendered = crate::ruff_ast_to_string(&module.body);
-        assert!(rendered.contains("value = await Once()"), "{rendered}");
+        let lowered = TrackedLowering::new(source);
+        assert_rewritten_ast_contains(&lowered, "value = await Once()");
 
-        let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
-            .expect("transform should succeed");
-        let blockpy = lowered
-            .get_pass::<crate::basic_block::block_py::BlockPyModule>()
-            .cloned()
-            .expect("expected BlockPy module");
-        let blockpy_rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
+        let blockpy_rendered = lowered.blockpy_text();
         assert!(
             blockpy_rendered.contains("__dp_await_iter"),
             "{blockpy_rendered}"
@@ -539,27 +481,10 @@ async def run():
     return value
 "#;
 
-        let mut module = ruff_python_parser::parse_module(source)
-            .expect("parse should succeed")
-            .into_syntax();
-        let context =
-            crate::basic_block::ast_to_ast::context::Context::new(Options::for_test(), source);
-        crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass(
-            &context,
-            Some(&crate::basic_block::BBSimplifyStmtPass),
-            Some(&crate::driver::SimplifyExprPass),
-            &mut module.body,
-        );
-        let rendered = crate::ruff_ast_to_string(&module.body);
-        assert!(rendered.contains("value = await Once()"), "{rendered}");
+        let lowered = TrackedLowering::new(source);
+        assert_rewritten_ast_contains(&lowered, "value = await Once()");
 
-        let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
-            .expect("transform should succeed");
-        let blockpy = lowered
-            .get_pass::<crate::basic_block::block_py::BlockPyModule>()
-            .cloned()
-            .expect("expected BlockPy module");
-        let blockpy_rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
+        let blockpy_rendered = lowered.blockpy_text();
         assert!(
             blockpy_rendered.contains("__dp_await_iter"),
             "{blockpy_rendered}"
@@ -579,27 +504,10 @@ async def agen(cm):
         yield value
 "#;
 
-        let mut module = ruff_python_parser::parse_module(source)
-            .expect("parse should succeed")
-            .into_syntax();
-        let context =
-            crate::basic_block::ast_to_ast::context::Context::new(Options::for_test(), source);
-        crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass(
-            &context,
-            Some(&crate::basic_block::BBSimplifyStmtPass),
-            Some(&crate::driver::SimplifyExprPass),
-            &mut module.body,
-        );
-        let rendered = crate::ruff_ast_to_string(&module.body);
-        assert!(rendered.contains("async with cm as value"), "{rendered}");
+        let lowered = TrackedLowering::new(source);
+        assert_rewritten_ast_contains(&lowered, "async with cm as value");
 
-        let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
-            .expect("transform should succeed");
-        let blockpy = lowered
-            .get_pass::<crate::basic_block::block_py::BlockPyModule>()
-            .cloned()
-            .expect("expected BlockPy module");
-        let blockpy_rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
+        let blockpy_rendered = lowered.blockpy_text();
         assert!(
             blockpy_rendered.contains("__dp_await_iter"),
             "{blockpy_rendered}"
@@ -623,27 +531,10 @@ async def run(cm):
         return value
 "#;
 
-        let mut module = ruff_python_parser::parse_module(source)
-            .expect("parse should succeed")
-            .into_syntax();
-        let context =
-            crate::basic_block::ast_to_ast::context::Context::new(Options::for_test(), source);
-        crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass(
-            &context,
-            Some(&crate::basic_block::BBSimplifyStmtPass),
-            Some(&crate::driver::SimplifyExprPass),
-            &mut module.body,
-        );
-        let rendered = crate::ruff_ast_to_string(&module.body);
-        assert!(rendered.contains("async with cm as value"), "{rendered}");
+        let lowered = TrackedLowering::new(source);
+        assert_rewritten_ast_contains(&lowered, "async with cm as value");
 
-        let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
-            .expect("transform should succeed");
-        let blockpy = lowered
-            .get_pass::<crate::basic_block::block_py::BlockPyModule>()
-            .cloned()
-            .expect("expected BlockPy module");
-        let blockpy_rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
+        let blockpy_rendered = lowered.blockpy_text();
         assert!(
             blockpy_rendered.contains("__dp_await_iter"),
             "{blockpy_rendered}"
@@ -669,24 +560,10 @@ def check(x):
             return 20
 "#;
 
-        let mut module = ruff_python_parser::parse_module(source)
-            .expect("parse should succeed")
-            .into_syntax();
-        let context =
-            crate::basic_block::ast_to_ast::context::Context::new(Options::for_test(), source);
-        crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass(
-            &context,
-            Some(&crate::basic_block::BBSimplifyStmtPass),
-            Some(&crate::driver::SimplifyExprPass),
-            &mut module.body,
-        );
-        let rendered = crate::ruff_ast_to_string(&module.body);
-        assert!(rendered.contains("match x"), "{rendered}");
+        let lowered = TrackedLowering::new(source);
+        assert_rewritten_ast_contains(&lowered, "match x");
 
-        let bb_module = transform_str_to_bb_ir_with_options(source, Options::for_test())
-            .expect("transform should succeed")
-            .expect("bb module should be available");
-        let check = function_by_name(&bb_module, "check");
+        let check = lowered.bb_function("check");
         assert!(
             check
                 .blocks
@@ -703,27 +580,10 @@ def check():
     raise ValueError() from None
 "#;
 
-        let mut module = ruff_python_parser::parse_module(source)
-            .expect("parse should succeed")
-            .into_syntax();
-        let context =
-            crate::basic_block::ast_to_ast::context::Context::new(Options::for_test(), source);
-        crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass(
-            &context,
-            Some(&crate::basic_block::BBSimplifyStmtPass),
-            Some(&crate::driver::SimplifyExprPass),
-            &mut module.body,
-        );
-        let rendered = crate::ruff_ast_to_string(&module.body);
-        assert!(
-            rendered.contains("raise ValueError() from None"),
-            "{rendered}"
-        );
+        let lowered = TrackedLowering::new(source);
+        assert_rewritten_ast_contains(&lowered, "raise ValueError() from None");
 
-        let bb_module = transform_str_to_bb_ir_with_options(source, Options::for_test())
-            .expect("transform should succeed")
-            .expect("bb module should be available");
-        let check = function_by_name(&bb_module, "check");
+        let check = lowered.bb_function("check");
         assert!(
             check
                 .blocks
@@ -749,24 +609,10 @@ def check():
         handle(exc)
 "#;
 
-        let mut module = ruff_python_parser::parse_module(source)
-            .expect("parse should succeed")
-            .into_syntax();
-        let context =
-            crate::basic_block::ast_to_ast::context::Context::new(Options::for_test(), source);
-        crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass(
-            &context,
-            Some(&crate::basic_block::BBSimplifyStmtPass),
-            Some(&crate::driver::SimplifyExprPass),
-            &mut module.body,
-        );
-        let rendered = crate::ruff_ast_to_string(&module.body);
-        assert!(rendered.contains("except ValueError as exc"), "{rendered}");
+        let lowered = TrackedLowering::new(source);
+        assert_rewritten_ast_contains(&lowered, "except ValueError as exc");
 
-        let bb_module = transform_str_to_bb_ir_with_options(source, Options::for_test())
-            .expect("transform should succeed")
-            .expect("bb module should be available");
-        let check = function_by_name(&bb_module, "check");
+        let check = lowered.bb_function("check");
         assert!(
             check
                 .blocks
@@ -793,24 +639,10 @@ def check():
         handle(exc)
 "#;
 
-        let mut module = ruff_python_parser::parse_module(source)
-            .expect("parse should succeed")
-            .into_syntax();
-        let context =
-            crate::basic_block::ast_to_ast::context::Context::new(Options::for_test(), source);
-        crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass(
-            &context,
-            Some(&crate::basic_block::BBSimplifyStmtPass),
-            Some(&crate::driver::SimplifyExprPass),
-            &mut module.body,
-        );
-        let rendered = crate::ruff_ast_to_string(&module.body);
-        assert!(rendered.contains("except* ValueError as exc"), "{rendered}");
+        let lowered = TrackedLowering::new(source);
+        assert_rewritten_ast_contains(&lowered, "except* ValueError as exc");
 
-        let bb_module = transform_str_to_bb_ir_with_options(source, Options::for_test())
-            .expect("transform should succeed")
-            .expect("bb module should be available");
-        let check = function_by_name(&bb_module, "check");
+        let check = lowered.bb_function("check");
         assert!(
             check
                 .blocks
@@ -826,24 +658,10 @@ def check():
 import pkg.sub as alias
 "#;
 
-        let mut module = ruff_python_parser::parse_module(source)
-            .expect("parse should succeed")
-            .into_syntax();
-        let context =
-            crate::basic_block::ast_to_ast::context::Context::new(Options::for_test(), source);
-        crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass(
-            &context,
-            Some(&crate::basic_block::BBSimplifyStmtPass),
-            Some(&crate::driver::SimplifyExprPass),
-            &mut module.body,
-        );
-        let rendered = crate::ruff_ast_to_string(&module.body);
-        assert!(rendered.contains("import pkg.sub as alias"), "{rendered}");
+        let lowered = TrackedLowering::new(source);
+        assert_rewritten_ast_contains(&lowered, "import pkg.sub as alias");
 
-        let bb_module = transform_str_to_bb_ir_with_options(source, Options::for_test())
-            .expect("transform should succeed")
-            .expect("bb module should be available");
-        let module_init = function_by_name(&bb_module, "_dp_module_init");
+        let module_init = lowered.bb_function("_dp_module_init");
         assert!(
             module_init
                 .blocks
@@ -866,27 +684,10 @@ import pkg.sub as alias
 from pkg.mod import name as alias
 "#;
 
-        let mut module = ruff_python_parser::parse_module(source)
-            .expect("parse should succeed")
-            .into_syntax();
-        let context =
-            crate::basic_block::ast_to_ast::context::Context::new(Options::for_test(), source);
-        crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass(
-            &context,
-            Some(&crate::basic_block::BBSimplifyStmtPass),
-            Some(&crate::driver::SimplifyExprPass),
-            &mut module.body,
-        );
-        let rendered = crate::ruff_ast_to_string(&module.body);
-        assert!(
-            rendered.contains("from pkg.mod import name as alias"),
-            "{rendered}"
-        );
+        let lowered = TrackedLowering::new(source);
+        assert_rewritten_ast_contains(&lowered, "from pkg.mod import name as alias");
 
-        let bb_module = transform_str_to_bb_ir_with_options(source, Options::for_test())
-            .expect("transform should succeed")
-            .expect("bb module should be available");
-        let module_init = function_by_name(&bb_module, "_dp_module_init");
+        let module_init = lowered.bb_function("_dp_module_init");
         assert!(
             module_init
                 .blocks
@@ -909,24 +710,10 @@ from pkg.mod import name as alias
 type Alias[T] = list[T]
 "#;
 
-        let mut module = ruff_python_parser::parse_module(source)
-            .expect("parse should succeed")
-            .into_syntax();
-        let context =
-            crate::basic_block::ast_to_ast::context::Context::new(Options::for_test(), source);
-        crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass(
-            &context,
-            Some(&crate::basic_block::BBSimplifyStmtPass),
-            Some(&crate::driver::SimplifyExprPass),
-            &mut module.body,
-        );
-        let rendered = crate::ruff_ast_to_string(&module.body);
-        assert!(rendered.contains("type Alias[T] = "), "{rendered}");
+        let lowered = TrackedLowering::new(source);
+        assert_rewritten_ast_contains(&lowered, "type Alias[T] = ");
 
-        let bb_module = transform_str_to_bb_ir_with_options(source, Options::for_test())
-            .expect("transform should succeed")
-            .expect("bb module should be available");
-        let module_init = function_by_name(&bb_module, "_dp_module_init");
+        let module_init = lowered.bb_function("_dp_module_init");
         assert!(
             module_init
                 .blocks
@@ -944,24 +731,10 @@ def bump(x):
     return x
 "#;
 
-        let mut module = ruff_python_parser::parse_module(source)
-            .expect("parse should succeed")
-            .into_syntax();
-        let context =
-            crate::basic_block::ast_to_ast::context::Context::new(Options::for_test(), source);
-        crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass(
-            &context,
-            Some(&crate::basic_block::BBSimplifyStmtPass),
-            Some(&crate::driver::SimplifyExprPass),
-            &mut module.body,
-        );
-        let rendered = crate::ruff_ast_to_string(&module.body);
-        assert!(rendered.contains("x += 1"), "{rendered}");
+        let lowered = TrackedLowering::new(source);
+        assert_rewritten_ast_contains(&lowered, "x += 1");
 
-        let bb_module = transform_str_to_bb_ir_with_options(source, Options::for_test())
-            .expect("transform should succeed")
-            .expect("bb module should be available");
-        let bump = function_by_name(&bb_module, "bump");
+        let bump = lowered.bb_function("bump");
         assert!(
             bump.blocks.iter().any(|block| match block.body.as_slice() {
                 [BbOp::Assign(assign)] => expr_text(&assign.value).contains("__dp_iadd"),

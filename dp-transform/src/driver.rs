@@ -59,6 +59,10 @@ pub(crate) fn rewrite_module_with_tracker(
         Some(&SimplifyExprPass),
         module,
     );
+    pass_tracker.add_pass(
+        "rewritten_ast_after_initial_simplify",
+        &crate::RewrittenAstAfterInitialSimplify(module.clone()),
+    );
 
     let scope = analyze_module_scope(module);
 

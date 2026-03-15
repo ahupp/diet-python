@@ -74,6 +74,9 @@ pub struct LoweringResult {
     passes: PassTracker,
 }
 
+#[derive(Clone)]
+pub(crate) struct RewrittenAstAfterInitialSimplify(pub ruff_python_ast::StmtBody);
+
 struct TrackedPass {
     name: String,
     value: Box<dyn Any>,
