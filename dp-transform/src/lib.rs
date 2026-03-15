@@ -20,7 +20,6 @@ mod web_inspector;
 
 use crate::basic_block::ast_to_ast::context::Context;
 pub use crate::basic_block::ast_to_ast::scope::{analyze_module_scope, Scope};
-use crate::basic_block::ast_to_ast::simplify::lower_string_literals_to_bytes;
 pub use crate::basic_block::ast_to_ast::Options;
 use crate::basic_block::bb_ir;
 use crate::basic_block::block_py::BlockPyModule;
@@ -123,17 +122,7 @@ pub fn transform_str_to_ruff_with_options(
     let ctx = Context::new(options, source);
 
     let rewrite_start = timing_start();
-
-    basic_block::ast_to_ast::simplify::lower_surrogate_string_literals(&ctx, &mut module.body);
     let rewrite_result = rewrite_module(&ctx, &mut module.body);
-    let bb_scope = analyze_module_scope(&mut module.body);
-    let bb_identity = basic_block::collect_function_identity_by_node(&mut module.body, bb_scope);
-    let bb_module = Some(basic_block::rewrite_ast_to_bb_module(
-        &ctx,
-        &mut module.body,
-        bb_identity,
-    ));
-    lower_string_literals_to_bytes(&mut module.body);
     let rewrite_time = timing_elapsed(rewrite_start);
 
     let timings = TransformTimings {
@@ -146,7 +135,7 @@ pub fn transform_str_to_ruff_with_options(
         timings,
         module,
         blockpy_module: Some(rewrite_result.blockpy_module),
-        bb_module,
+        bb_module: Some(rewrite_result.bb_module),
     })
 }
 

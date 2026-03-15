@@ -4,19 +4,25 @@ use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::ast_to_ast::rewrite_class_def;
 use crate::basic_block::ast_to_ast::rewrite_stmt::function_def::rewrite_ast_to_lowered_blockpy_module;
 use crate::basic_block::ast_to_ast::scope::{analyze_module_scope, BindingKind};
-use crate::basic_block::ast_to_ast::simplify::strip_generated_passes;
+use crate::basic_block::ast_to_ast::simplify::{
+    lower_string_literals_to_bytes, lower_surrogate_string_literals, strip_generated_passes,
+};
 use crate::basic_block::ast_to_ast::{
     ast_rewrite::ExprRewritePass, ast_rewrite::LoweredExpr, rewrite_expr::lower_expr,
     rewrite_future_annotations, rewrite_names, rewrite_stmt,
 };
+use crate::basic_block::bb_ir::BbModule;
 use crate::basic_block::block_py::BlockPyModule;
 use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
 pub struct RewriteModuleResult {
     pub blockpy_module: BlockPyModule,
+    pub bb_module: BbModule,
 }
 
 pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> RewriteModuleResult {
     // The transform now has a single lowering strategy: basic-block form.
+    lower_surrogate_string_literals(context, module);
+
     rewrite_future_annotations::rewrite(context, module);
 
     // Rewrite names like "__foo" in class bodies to "_<class_name>__foo"
@@ -78,7 +84,17 @@ pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> RewriteModule
     let blockpy_module =
         basic_block::lowered_blockpy_module_bundle_to_blockpy_module(&lowered_blockpy_module);
 
-    RewriteModuleResult { blockpy_module }
+    // Build BB from the rewritten AST before the final string-literal-to-bytes
+    // cleanup, preserving the existing lowered IR behavior.
+    let bb_scope = analyze_module_scope(module);
+    let bb_identity = basic_block::collect_function_identity_by_node(module, bb_scope);
+    let bb_module = basic_block::rewrite_ast_to_bb_module(context, module, bb_identity);
+    lower_string_literals_to_bytes(module);
+
+    RewriteModuleResult {
+        blockpy_module,
+        bb_module,
+    }
 }
 
 fn is_module_docstring(stmt: &Stmt) -> bool {
