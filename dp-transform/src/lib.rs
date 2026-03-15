@@ -4,6 +4,7 @@ use ruff_python_parser::parse_module;
 pub use ruff_python_parser::ParseError;
 use ruff_source_file::LineEnding;
 use ruff_text_size::TextRange;
+use std::fmt::Display;
 use std::sync::Once;
 use std::time::{Duration, Instant};
 
@@ -23,7 +24,7 @@ pub use crate::basic_block::ast_to_ast::scope::{analyze_module_scope, Scope};
 pub use crate::basic_block::ast_to_ast::Options;
 use crate::basic_block::bb_ir;
 use crate::basic_block::block_py::BlockPyModule;
-use crate::driver::rewrite_module;
+use crate::driver::rewrite_module_with_tracker;
 
 #[derive(Debug, Clone, Copy)]
 pub struct TransformTimings {
@@ -74,6 +75,37 @@ pub struct LoweringResult {
     pub bb_module: Option<bb_ir::BbModule>,
 }
 
+pub(crate) struct PassTracker {
+    passes: Option<Vec<(String, String)>>,
+}
+
+impl PassTracker {
+    pub(crate) fn disabled() -> Self {
+        Self { passes: None }
+    }
+
+    pub(crate) fn enabled() -> Self {
+        Self {
+            passes: Some(Vec::new()),
+        }
+    }
+
+    pub(crate) fn add_pass(&mut self, name: &str, res: &impl Display) {
+        if let Some(passes) = self.passes.as_mut() {
+            passes.push((name.to_string(), res.to_string()));
+        }
+    }
+
+    pub(crate) fn rendered(&self, name: &str) -> Option<&str> {
+        self.passes
+            .as_ref()?
+            .iter()
+            .rev()
+            .find(|(pass_name, _)| pass_name == name)
+            .map(|(_, rendered)| rendered.as_str())
+    }
+}
+
 impl LoweringResult {
     pub fn to_string(&self) -> String {
         ruff_ast_to_string(&self.module.body)
@@ -95,6 +127,15 @@ impl LoweringResult {
 pub fn transform_str_to_ruff_with_options(
     source: &str,
     options: Options,
+) -> Result<LoweringResult, ParseError> {
+    let mut tracker = PassTracker::disabled();
+    transform_str_to_ruff_with_options_and_tracker(source, options, &mut tracker)
+}
+
+pub(crate) fn transform_str_to_ruff_with_options_and_tracker(
+    source: &str,
+    options: Options,
+    pass_tracker: &mut PassTracker,
 ) -> Result<LoweringResult, ParseError> {
     init_logging();
     namegen::reset_namegen_state();
@@ -122,7 +163,7 @@ pub fn transform_str_to_ruff_with_options(
     let ctx = Context::new(options, source);
 
     let rewrite_start = timing_start();
-    let rewrite_result = rewrite_module(&ctx, &mut module.body);
+    let rewrite_result = rewrite_module_with_tracker(&ctx, &mut module.body, pass_tracker);
     let rewrite_time = timing_elapsed(rewrite_start);
 
     let timings = TransformTimings {

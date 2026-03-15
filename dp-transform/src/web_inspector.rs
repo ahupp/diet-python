@@ -1,7 +1,7 @@
-use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::bb_ir;
 use crate::{
-    analyze_module_scope, ruff_ast_to_string, transform_str_to_ruff_with_options, Options,
+    ruff_ast_to_string, transform_str_to_ruff_with_options,
+    transform_str_to_ruff_with_options_and_tracker, Options, PassTracker,
 };
 use cranelift_codegen::ir::{self, condcodes::IntCC, types, AbiParam, InstBuilder, UserFuncName};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
@@ -43,30 +43,43 @@ pub fn transform_selected(source: &str, transforms: Array) -> Result<String, JsV
 }
 
 pub fn inspect_pipeline(source: &str) -> Result<String, JsValue> {
-    let transformed = transform_str_to_ruff_with_options(source, Options::default())
-        .map_err(|e| JsValue::from_str(e.to_string().as_str()))?;
-    let blockpy = transformed
-        .blockpy_module
-        .as_ref()
-        .map(crate::basic_block::blockpy_module_to_string)
+    let mut pass_tracker = PassTracker::enabled();
+    let transformed = transform_str_to_ruff_with_options_and_tracker(
+        source,
+        Options::default(),
+        &mut pass_tracker,
+    )
+    .map_err(|e| JsValue::from_str(e.to_string().as_str()))?;
+    let blockpy = pass_tracker
+        .rendered("semantic_blockpy")
+        .map(str::to_owned)
+        .or_else(|| {
+            transformed
+                .blockpy_module
+                .as_ref()
+                .map(crate::basic_block::blockpy_module_to_string)
+        })
         .unwrap_or_else(|| "; no BlockPy module emitted".to_string());
-    let mut bb_body = transformed.module.body.clone();
-    let bb_scope = analyze_module_scope(&mut bb_body);
-    let bb_identity = crate::basic_block::collect_function_identity_by_node(&mut bb_body, bb_scope);
-    let bb_module = crate::basic_block::rewrite_ast_to_bb_module(
-        &Context::new(Options::default(), source),
-        &mut bb_body,
-        bb_identity,
-    );
+    let bb_module = transformed
+        .bb_module
+        .as_ref()
+        .ok_or_else(|| JsValue::from_str("expected BB module from lowering"))?;
     let bb_module_json = bb_module_to_json(&bb_module);
-    let clif = Some(&bb_module)
+    let clif = Some(bb_module)
         .map(crate::basic_block::normalize_bb_module_for_codegen)
         .map(|module| bb_module_to_clif(&module));
 
     let payload = json!({
-        "phase1": transformed.to_string(),
+        "phase1": pass_tracker
+            .rendered("rewritten_ast")
+            .map(str::to_owned)
+            .unwrap_or_else(|| transformed.to_string()),
         "blockpy": blockpy,
-        "bbRaw": transformed.to_string(),
+        "coreBlockPy": pass_tracker.rendered("core_blockpy").unwrap_or(""),
+        "bbRaw": pass_tracker
+            .rendered("rewritten_ast")
+            .map(str::to_owned)
+            .unwrap_or_else(|| transformed.to_string()),
         "bbModule": bb_module_json,
         "clif": clif,
     });

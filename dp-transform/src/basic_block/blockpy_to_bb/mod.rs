@@ -93,6 +93,26 @@ pub(crate) fn lowered_blockpy_module_bundle_to_blockpy_module(
     }
 }
 
+pub(crate) fn lowered_core_blockpy_module_bundle_to_blockpy_module(
+    module: &LoweredCoreBlockPyModuleBundle,
+) -> super::block_py::CoreBlockPyModule {
+    let mut callable_defs = Vec::new();
+    for lowered_function in &module.callable_defs {
+        callable_defs.push(lowered_function.bundle.main_function.callable_def.clone());
+        callable_defs.extend(
+            lowered_function
+                .bundle
+                .helper_functions
+                .iter()
+                .map(|helper| helper.callable_def.clone()),
+        );
+    }
+    super::block_py::CoreBlockPyModule {
+        module_init: module.module_init.clone(),
+        callable_defs,
+    }
+}
+
 pub(crate) fn simplify_lowered_blockpy_module_bundle_exprs(
     module: &LoweredBlockPyModuleBundle,
 ) -> LoweredCoreBlockPyModuleBundle {

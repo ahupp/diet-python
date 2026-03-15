@@ -13,6 +13,7 @@ use crate::basic_block::ast_to_ast::{
 };
 use crate::basic_block::bb_ir::BbModule;
 use crate::basic_block::block_py::BlockPyModule;
+use crate::PassTracker;
 use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
 pub struct RewriteModuleResult {
     pub blockpy_module: BlockPyModule,
@@ -20,6 +21,15 @@ pub struct RewriteModuleResult {
 }
 
 pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> RewriteModuleResult {
+    let mut pass_tracker = PassTracker::disabled();
+    rewrite_module_with_tracker(context, module, &mut pass_tracker)
+}
+
+pub(crate) fn rewrite_module_with_tracker(
+    context: &Context,
+    module: &mut StmtBody,
+    pass_tracker: &mut PassTracker,
+) -> RewriteModuleResult {
     // The transform now has a single lowering strategy: basic-block form.
     lower_surrogate_string_literals(context, module);
 
@@ -68,30 +78,29 @@ pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> RewriteModule
         module,
     );
 
-    // Lower the rewritten AST to semantic BlockPy for rendering/snapshots.
-    let mut blockpy_module_ast = module.clone();
-    let blockpy_scope = analyze_module_scope(&mut blockpy_module_ast);
-    let blockpy_function_identity =
-        basic_block::collect_function_identity_by_node(&mut blockpy_module_ast, blockpy_scope);
-    let lowered_blockpy_module = rewrite_ast_to_lowered_blockpy_module(
-        context,
-        &mut blockpy_module_ast,
-        blockpy_function_identity,
-    );
+    let lowered_scope = analyze_module_scope(module);
+    let lowered_function_identity =
+        basic_block::collect_function_identity_by_node(module, lowered_scope);
+    let lowered_blockpy_module =
+        rewrite_ast_to_lowered_blockpy_module(context, module, lowered_function_identity);
     let blockpy_module =
         basic_block::lowered_blockpy_module_bundle_to_blockpy_module(&lowered_blockpy_module);
-
-    // Lower the real rewritten AST again for BB so the returned Ruff AST keeps
-    // the same post-lowering mutation behavior as before.
-    let bb_scope = analyze_module_scope(module);
-    let bb_function_identity = basic_block::collect_function_identity_by_node(module, bb_scope);
-    let lowered_bb_module =
-        rewrite_ast_to_lowered_blockpy_module(context, module, bb_function_identity);
+    pass_tracker.add_pass(
+        "semantic_blockpy",
+        &basic_block::blockpy_module_to_string(&blockpy_module),
+    );
     let core_blockpy_bundle =
-        basic_block::simplify_lowered_blockpy_module_bundle_exprs(&lowered_bb_module);
+        basic_block::simplify_lowered_blockpy_module_bundle_exprs(&lowered_blockpy_module);
+    let core_blockpy_module =
+        basic_block::lowered_core_blockpy_module_bundle_to_blockpy_module(&core_blockpy_bundle);
+    pass_tracker.add_pass(
+        "core_blockpy",
+        &basic_block::blockpy_module_to_string(&core_blockpy_module),
+    );
     let bb_module =
         basic_block::lower_core_blockpy_module_bundle_to_bb_module(context, &core_blockpy_bundle);
     lower_string_literals_to_bytes(module);
+    pass_tracker.add_pass("rewritten_ast", &crate::ruff_ast_to_string(&*module));
 
     RewriteModuleResult {
         blockpy_module,
