@@ -33,11 +33,6 @@
     - Move that source-sensitive non-raw-string work into `lower_surrogate_string_literals` so it happens earlier, while original source information is still available.
     - Ideally move adjacent string-literal merging there too, so sequential literals become one logical string before the later semantic-BlockPy string-template phase.
     - After that split, the remaining late string-template lowering should be context-free enough to fold into the main lowered-BlockPy expr simplifier as part of the semantic-BlockPy -> core-BlockPy reduction.
-- Merge sequential string literals into a single logical string before later lowering phases.
-  - Planning note:
-    - Adjacent string literals should normalize to one logical string value before later expr/string lowering so the rest of the pipeline does not have to reason about multi-literal concatenation shapes.
-    - This should preserve Python evaluation behavior and source-sensitive string handling, including any interaction with later f-string/t-string or surrogate-aware lowering.
-    - The likely boundary is the early expr normalization pipeline, before the later semantic-BlockPy string-template handling.
 - Remove local `StmtBody` usage and move back to upstream Ruff structures.
   - Planning note:
     - The desired end state is to stop depending on the local `StmtBody` wrapper and align the lowering pipeline back with upstream Ruff AST/container shapes.
@@ -57,6 +52,9 @@
 ## Completed
 
 - Move completed TODO entries here and include a short description of the work done.
+- Sequential string literal merge:
+  - `lower_surrogate_string_literals` now first merges Ruff's implicitly concatenated string and bytes literal expressions into single logical literal nodes.
+  - Surrogate decoding still runs after that normalization step, so later phases no longer need to reason about multi-part ordinary literal expressions.
 - PassTracker explicit-dataflow shape:
   - `PassTracker::add_pass` is now `#[must_use]`, records per-pass elapsed time, and the CLI timing report includes ordered `pass_timings`.
   - The driver now tracks the real lowered semantic/core BlockPy bundles at the `add_pass(..., || { ... })` boundaries instead of eagerly projecting render-only `BlockPyModule` values.

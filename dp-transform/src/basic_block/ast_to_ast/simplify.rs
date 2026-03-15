@@ -134,6 +134,44 @@ struct SurrogateStringLiteralLowerer<'a> {
     context: &'a Context,
 }
 
+fn merged_string_literal_expr(node: &ast::ExprStringLiteral) -> ast::ExprStringLiteral {
+    if !node.value.is_implicit_concatenated() {
+        return node.clone();
+    }
+    ast::ExprStringLiteral {
+        range: node.range,
+        node_index: node.node_index.clone(),
+        value: ast::StringLiteralValue::single(ast::StringLiteral {
+            range: node.range,
+            node_index: node.node_index.clone(),
+            value: node.value.to_str().into(),
+            flags: node.value.first_literal_flags(),
+        }),
+    }
+}
+
+fn merged_bytes_literal_expr(node: &ast::ExprBytesLiteral) -> ast::ExprBytesLiteral {
+    if !node.value.is_implicit_concatenated() {
+        return node.clone();
+    }
+    let flags = node
+        .value
+        .iter()
+        .next()
+        .expect("bytes literal should have at least one part")
+        .flags;
+    ast::ExprBytesLiteral {
+        range: node.range,
+        node_index: node.node_index.clone(),
+        value: ast::BytesLiteralValue::single(ast::BytesLiteral {
+            range: node.range,
+            node_index: node.node_index.clone(),
+            value: node.value.bytes().collect::<Vec<_>>().into_boxed_slice(),
+            flags,
+        }),
+    }
+}
+
 impl Transformer for &mut SurrogateStringLiteralLowerer<'_> {
     fn visit_body(&mut self, body: &mut StmtBody) {
         for (index, stmt) in body.body.iter_mut().enumerate() {
@@ -146,15 +184,21 @@ impl Transformer for &mut SurrogateStringLiteralLowerer<'_> {
 
     fn visit_expr(&mut self, expr: &mut Expr) {
         walk_expr(self, expr);
-        let Expr::StringLiteral(ast::ExprStringLiteral { range, .. }) = expr else {
-            return;
-        };
-        let Some(src) = self.context.source_slice(*range) else {
-            return;
-        };
-        if string::has_surrogate_escape(src) {
-            let wrapped = format!("({src})");
-            *expr = string::decode_literal_source_bytes_expr(wrapped.as_str());
+        match expr {
+            Expr::StringLiteral(node) => {
+                *node = merged_string_literal_expr(node);
+                let Some(src) = self.context.source_slice(node.range) else {
+                    return;
+                };
+                if string::has_surrogate_escape(src) {
+                    let wrapped = format!("({src})");
+                    *expr = string::decode_literal_source_bytes_expr(wrapped.as_str());
+                }
+            }
+            Expr::BytesLiteral(node) => {
+                *node = merged_bytes_literal_expr(node);
+            }
+            _ => {}
         }
     }
 }
@@ -162,4 +206,58 @@ impl Transformer for &mut SurrogateStringLiteralLowerer<'_> {
 pub fn lower_surrogate_string_literals(context: &Context, stmts: &mut StmtBody) {
     let mut lowerer = SurrogateStringLiteralLowerer { context };
     (&mut lowerer).visit_body(stmts);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::lower_surrogate_string_literals;
+    use crate::basic_block::ast_to_ast::context::Context;
+    use crate::basic_block::ast_to_ast::Options;
+    use crate::ruff_ast_to_string;
+    use ruff_python_ast::{self as ast, Expr, Stmt};
+    use ruff_python_parser::parse_module;
+
+    fn lower_module(source: &str) -> ast::ModModule {
+        let mut module = parse_module(source).unwrap().into_syntax();
+        let context = Context::new(Options::for_test(), source);
+        lower_surrogate_string_literals(&context, &mut module.body);
+        module
+    }
+
+    fn first_assign_value(module: &ast::ModModule) -> &Expr {
+        let Stmt::Assign(assign) = module.body.body[0].as_ref() else {
+            panic!("expected first statement to be an assignment");
+        };
+        assign.value.as_ref()
+    }
+
+    #[test]
+    fn lower_surrogate_string_literals_merges_implicit_string_literals() {
+        let module = lower_module("x = \"a\" \"b\"\n");
+        let Expr::StringLiteral(node) = first_assign_value(&module) else {
+            panic!("expected merged string literal");
+        };
+        assert!(!node.value.is_implicit_concatenated());
+        assert_eq!(node.value.to_str(), "ab");
+    }
+
+    #[test]
+    fn lower_surrogate_string_literals_merges_implicit_bytes_literals() {
+        let module = lower_module("x = b\"a\" b\"b\"\n");
+        let Expr::BytesLiteral(node) = first_assign_value(&module) else {
+            panic!("expected merged bytes literal");
+        };
+        assert!(!node.value.is_implicit_concatenated());
+        assert_eq!(node.value.bytes().collect::<Vec<_>>(), b"ab");
+    }
+
+    #[test]
+    fn lower_surrogate_string_literals_still_decodes_surrogate_escapes_after_merge() {
+        let module = lower_module("x = \"\\udca7\" \"b\"\n");
+        let rendered = ruff_ast_to_string(&module.body);
+        assert!(
+            rendered.contains("__dp_decode_literal_source_bytes"),
+            "{rendered}"
+        );
+    }
 }
