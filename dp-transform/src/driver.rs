@@ -15,12 +15,8 @@ use crate::basic_block::bb_ir::BbModule;
 use crate::basic_block::block_py::BlockPyModule;
 use crate::PassTracker;
 use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
-pub struct RewriteModuleResult {
-    pub blockpy_module: BlockPyModule,
-    pub bb_module: BbModule,
-}
 
-pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> RewriteModuleResult {
+pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> (BlockPyModule, BbModule) {
     rewrite_module_with_tracker(context, module, None)
 }
 
@@ -28,7 +24,7 @@ pub(crate) fn rewrite_module_with_tracker(
     context: &Context,
     module: &mut StmtBody,
     mut pass_tracker: Option<&mut PassTracker>,
-) -> RewriteModuleResult {
+) -> (BlockPyModule, BbModule) {
     // The transform now has a single lowering strategy: basic-block form.
     lower_surrogate_string_literals(context, module);
 
@@ -105,10 +101,7 @@ pub(crate) fn rewrite_module_with_tracker(
         pass_tracker.add_pass("rewritten_ast", &crate::ruff_ast_to_string(&*module));
     }
 
-    RewriteModuleResult {
-        blockpy_module,
-        bb_module,
-    }
+    (blockpy_module, bb_module)
 }
 
 fn is_module_docstring(stmt: &Stmt) -> bool {

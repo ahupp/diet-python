@@ -153,7 +153,8 @@ pub(crate) fn transform_str_to_ruff_with_options_and_tracker(
     let ctx = Context::new(options, source);
 
     let rewrite_start = timing_start();
-    let rewrite_result = rewrite_module_with_tracker(&ctx, &mut module.body, pass_tracker);
+    let (blockpy_module, bb_module) =
+        rewrite_module_with_tracker(&ctx, &mut module.body, pass_tracker);
     let rewrite_time = timing_elapsed(rewrite_start);
 
     let timings = TransformTimings {
@@ -165,8 +166,8 @@ pub(crate) fn transform_str_to_ruff_with_options_and_tracker(
     Ok(LoweringResult {
         timings,
         module,
-        blockpy_module: Some(rewrite_result.blockpy_module),
-        bb_module: Some(rewrite_result.bb_module),
+        blockpy_module: Some(blockpy_module),
+        bb_module: Some(bb_module),
     })
 }
 

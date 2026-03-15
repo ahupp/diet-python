@@ -1415,7 +1415,7 @@ mod tests {
             .expect("parse should succeed")
             .into_syntax();
         let context = Context::new(Options::for_test(), source);
-        crate::driver::rewrite_module(&context, &mut module.body).blockpy_module
+        crate::driver::rewrite_module(&context, &mut module.body).0
     }
 
     fn function_by_name<'a>(blockpy: &'a BlockPyModule, bind_name: &str) -> &'a BlockPyCallableDef {
