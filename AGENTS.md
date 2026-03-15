@@ -7,7 +7,7 @@
 
 ## Rules
 
-- **MUST FOLLOW**: Always run `just test-all` before submitting changes. `just test-all` runs `cargo test`, `just pytest tests/`, and `just build-web-inspector` in sequence after `just build-all`.
+- **MUST FOLLOW**: Always run `just test-all` before submitting changes, unless the change only updates project documentation such as `TODO.md`, `AGENTS.md`, or other docs-only files. `just test-all` runs `cargo test`, `just pytest tests/`, and `just build-web-inspector` in sequence after `just build-all`.
 - **MUST FOLLOW**: Always preserve behavior in the transformed code, particularly evaluation order.
 - **MUST FOLLOW**: When traversing the AST, always use an impl of `crate::transformer::Transformer`.
 - **NOTE**: Prefer adding behavior at transform time rather than runtime in `__dp__.py` whenever possible.
