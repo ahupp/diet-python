@@ -16,8 +16,8 @@ use crate::basic_block::blockpy_to_bb::{
 };
 use crate::basic_block::expr_utils::{make_dp_tuple, name_expr};
 use crate::basic_block::function_identity::{
-    is_module_init_temp_name, resolve_runtime_function_identity, FunctionIdentity,
-    FunctionIdentityByNode,
+    collect_function_identity_private, is_module_init_temp_name, resolve_runtime_function_identity,
+    FunctionIdentity,
 };
 use crate::basic_block::function_lowering::{
     function_docstring_expr, try_lower_function_to_blockpy_bundle,
@@ -363,26 +363,10 @@ mod tests {
 pub(crate) fn rewrite_ast_to_lowered_blockpy_module(
     context: &Context,
     module: &mut StmtBody,
-    function_identity_by_node: FunctionIdentityByNode,
 ) -> LoweredBlockPyModuleBundle {
     crate::basic_block::ast_to_ast::simplify::flatten(module);
     let module_scope = analyze_module_scope(module);
-    let function_identity_by_node = function_identity_by_node
-        .into_iter()
-        .map(
-            |(node, (bind_name, display_name, qualname, binding_target))| {
-                (
-                    node,
-                    FunctionIdentity {
-                        bind_name,
-                        display_name,
-                        qualname,
-                        binding_target,
-                    },
-                )
-            },
-        )
-        .collect();
+    let function_identity_by_node = collect_function_identity_private(module, module_scope.clone());
     let mut rewriter = BlockPyModuleRewriter {
         context,
         module_scope,

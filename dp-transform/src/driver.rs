@@ -77,11 +77,7 @@ pub(crate) fn rewrite_module_with_tracker(
         module,
     );
 
-    let lowered_scope = analyze_module_scope(module);
-    let lowered_function_identity =
-        basic_block::collect_function_identity_by_node(module, lowered_scope);
-    let lowered_blockpy_module =
-        rewrite_ast_to_lowered_blockpy_module(context, module, lowered_function_identity);
+    let lowered_blockpy_module = rewrite_ast_to_lowered_blockpy_module(context, module);
     let blockpy_module =
         basic_block::lowered_blockpy_module_bundle_to_blockpy_module(&lowered_blockpy_module);
     if let Some(pass_tracker) = pass_tracker.as_deref_mut() {

@@ -24,42 +24,15 @@ pub(crate) use blockpy_to_bb::{
     simplify_lowered_blockpy_module_bundle_exprs,
 };
 pub use blockpy_to_bb::{lower_try_jump_exception_flow, normalize_bb_module_for_codegen};
-pub use function_identity::FunctionIdentityByNode;
 pub use function_lowering::BBSimplifyStmtPass;
 
 use self::ast_to_ast::rewrite_stmt::function_def::rewrite_ast_to_lowered_blockpy_module;
-use self::function_identity::collect_function_identity_private;
-use ast_to_ast::scope::Scope;
-use ruff_python_ast::StmtBody;
-use std::sync::Arc;
-
-pub fn collect_function_identity_by_node(
-    module: &mut StmtBody,
-    module_scope: Arc<Scope>,
-) -> FunctionIdentityByNode {
-    collect_function_identity_private(module, module_scope)
-        .into_iter()
-        .map(|(node, identity)| {
-            (
-                node,
-                (
-                    identity.bind_name,
-                    identity.display_name,
-                    identity.qualname,
-                    identity.binding_target,
-                ),
-            )
-        })
-        .collect()
-}
 
 pub fn rewrite_ast_to_bb_module(
     context: &crate::basic_block::ast_to_ast::context::Context,
     module: &mut ruff_python_ast::StmtBody,
-    function_identity_by_node: FunctionIdentityByNode,
 ) -> bb_ir::BbModule {
-    let lowered_module =
-        rewrite_ast_to_lowered_blockpy_module(context, module, function_identity_by_node);
+    let lowered_module = rewrite_ast_to_lowered_blockpy_module(context, module);
     let core_module = simplify_lowered_blockpy_module_bundle_exprs(&lowered_module);
     lower_core_blockpy_module_bundle_to_bb_module(context, &core_module)
 }
@@ -67,10 +40,8 @@ pub fn rewrite_ast_to_bb_module(
 pub fn rewrite_ast_to_blockpy_module_with_context(
     context: &crate::basic_block::ast_to_ast::context::Context,
     module: &mut ruff_python_ast::StmtBody,
-    function_identity_by_node: FunctionIdentityByNode,
 ) -> block_py::BlockPyModule {
-    let lowered_module =
-        rewrite_ast_to_lowered_blockpy_module(context, module, function_identity_by_node);
+    let lowered_module = rewrite_ast_to_lowered_blockpy_module(context, module);
     lowered_blockpy_module_bundle_to_blockpy_module(&lowered_module)
 }
 
