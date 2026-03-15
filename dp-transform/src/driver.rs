@@ -4,9 +4,7 @@ use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::ast_to_ast::rewrite_class_def;
 use crate::basic_block::ast_to_ast::rewrite_stmt::function_def::rewrite_ast_to_lowered_blockpy_module;
 use crate::basic_block::ast_to_ast::scope::{analyze_module_scope, BindingKind};
-use crate::basic_block::ast_to_ast::simplify::{
-    lower_string_literals_to_bytes, lower_surrogate_string_literals,
-};
+use crate::basic_block::ast_to_ast::simplify::lower_surrogate_string_literals;
 use crate::basic_block::ast_to_ast::{
     ast_rewrite::ExprRewritePass, ast_rewrite::LoweredExpr, rewrite_expr::lower_expr,
     rewrite_future_annotations, rewrite_names, rewrite_stmt,
@@ -89,10 +87,6 @@ pub(crate) fn rewrite_module_with_tracker(
     });
     let bb_module =
         basic_block::lower_core_blockpy_module_bundle_to_bb_module(context, &core_blockpy_bundle);
-    // This final cleanup only affects the returned Ruff AST / rendered source.
-    // BlockPy and BB have already been built from the pre-bytes form above.
-    lower_string_literals_to_bytes(module);
-
     bb_module
 }
 
