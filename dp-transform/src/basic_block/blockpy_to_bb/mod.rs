@@ -26,8 +26,8 @@ use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::TextRange;
 use std::collections::{HashMap, HashSet, VecDeque};
 
-pub(crate) use codegen_normalize::normalize_bb_module_for_codegen;
-pub(crate) use exception_pass::lower_try_jump_exception_flow;
+pub use codegen_normalize::normalize_bb_module_for_codegen;
+pub use exception_pass::lower_try_jump_exception_flow;
 
 pub(crate) struct LoweredBbFunctionBundle {
     pub main_function: BbFunction,

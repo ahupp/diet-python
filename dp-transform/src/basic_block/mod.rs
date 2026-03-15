@@ -18,10 +18,8 @@ mod stmt_utils;
 
 // Ruff AST -> BbModule
 pub use block_py::pretty::blockpy_module_to_string;
-pub(crate) use blockpy_to_bb::{
-    lower_try_jump_exception_flow, lowered_blockpy_module_bundle_to_blockpy_module,
-    normalize_bb_module_for_codegen,
-};
+pub(crate) use blockpy_to_bb::lowered_blockpy_module_bundle_to_blockpy_module;
+pub use blockpy_to_bb::{lower_try_jump_exception_flow, normalize_bb_module_for_codegen};
 pub use function_identity::FunctionIdentityByNode;
 pub use function_lowering::BBSimplifyStmtPass;
 
@@ -58,32 +56,14 @@ pub fn collect_function_identity_by_node(
         .collect()
 }
 
-pub fn rewrite_with_function_identity_and_collect_ir(
-    context: &Context,
-    module: &mut StmtBody,
-    function_identity_by_node: FunctionIdentityByNode,
-) -> BbModule {
-    let lowered_module =
-        rewrite_ast_to_lowered_blockpy_module(context, module, function_identity_by_node);
-    lower_blockpy_module_bundle_to_bb_module(context, &lowered_module)
-}
-
-pub fn rewrite_with_function_identity_to_blockpy_module(
-    context: &Context,
-    module: &mut StmtBody,
-    function_identity_by_node: FunctionIdentityByNode,
-) -> BlockPyModule {
-    let lowered_module =
-        rewrite_ast_to_lowered_blockpy_module(context, module, function_identity_by_node);
-    lowered_blockpy_module_bundle_to_blockpy_module(&lowered_module)
-}
-
 pub fn rewrite_ast_to_bb_module(
     context: &crate::basic_block::ast_to_ast::context::Context,
     module: &mut ruff_python_ast::StmtBody,
     function_identity_by_node: FunctionIdentityByNode,
 ) -> bb_ir::BbModule {
-    rewrite_with_function_identity_and_collect_ir(context, module, function_identity_by_node)
+    let lowered_module =
+        rewrite_ast_to_lowered_blockpy_module(context, module, function_identity_by_node);
+    lower_blockpy_module_bundle_to_bb_module(context, &lowered_module)
 }
 
 pub fn rewrite_ast_to_blockpy_module_with_context(
@@ -91,15 +71,9 @@ pub fn rewrite_ast_to_blockpy_module_with_context(
     module: &mut ruff_python_ast::StmtBody,
     function_identity_by_node: FunctionIdentityByNode,
 ) -> block_py::BlockPyModule {
-    rewrite_with_function_identity_to_blockpy_module(context, module, function_identity_by_node)
-}
-
-pub fn prepare_bb_module_for_jit(module: &bb_ir::BbModule) -> Result<bb_ir::BbModule, String> {
-    lower_try_jump_exception_flow(module)
-}
-
-pub fn prepare_bb_module_for_codegen(module: &bb_ir::BbModule) -> bb_ir::BbModule {
-    normalize_bb_module_for_codegen(module)
+    let lowered_module =
+        rewrite_ast_to_lowered_blockpy_module(context, module, function_identity_by_node);
+    lowered_blockpy_module_bundle_to_blockpy_module(&lowered_module)
 }
 
 #[cfg(test)]
@@ -1460,7 +1434,7 @@ class Field:
                 .unwrap_or_else(|| panic!("missing genexpr helper in {name}"));
             eprintln!("==== {name} BB {:?} ====\n{gen:#?}", gen.qualname);
 
-            let prepared = crate::basic_block::prepare_bb_module_for_jit(&bb_module)
+            let prepared = crate::basic_block::lower_try_jump_exception_flow(&bb_module)
                 .expect("jit prep should succeed");
             let prepared_gen = prepared
                 .callable_defs

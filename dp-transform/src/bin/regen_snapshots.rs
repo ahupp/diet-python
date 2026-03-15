@@ -7,7 +7,7 @@ use std::process::Command;
 use dp_transform::basic_block::block_py::{
     BlockPyBlock, BlockPyCfgFragment, BlockPyModule, BlockPyStmt,
 };
-use dp_transform::basic_block::prepare_bb_module_for_codegen;
+use dp_transform::basic_block::normalize_bb_module_for_codegen;
 use dp_transform::fixture::{parse_fixture, render_fixture, FixtureBlock};
 use dp_transform::{init_logging, transform_str_to_ruff_with_options, Options};
 use log::{log_enabled, trace, Level};
@@ -141,7 +141,7 @@ fn count_blockpy_blocks_in_term(term: &dp_transform::basic_block::block_py::Bloc
 }
 
 fn count_clif_blocks(module: &dp_transform::basic_block::bb_ir::BbModule) -> usize {
-    let normalized = prepare_bb_module_for_codegen(module);
+    let normalized = normalize_bb_module_for_codegen(module);
     normalized
         .callable_defs
         .iter()

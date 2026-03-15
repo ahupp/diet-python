@@ -198,7 +198,7 @@ mod tests {
         let bb_module = bb_module.ok_or_else(|| {
             "JIT mode requires emitted basic-block IR, but none was produced".to_string()
         })?;
-        let normalized = dp_transform::basic_block::prepare_bb_module_for_codegen(bb_module);
+        let normalized = dp_transform::basic_block::normalize_bb_module_for_codegen(bb_module);
         soac_eval::jit::run_cranelift_smoke(&normalized)
     }
 
@@ -291,7 +291,7 @@ def exercise():
             .expect("lowering should succeed")
             .bb_module
             .expect("bb module should exist");
-        let normalized = dp_transform::basic_block::prepare_bb_module_for_codegen(&bb_module);
+        let normalized = dp_transform::basic_block::normalize_bb_module_for_codegen(&bb_module);
         let module_name = "jit_plan_generator_throw_handler_param_test";
         jit::register_clif_module_plans(module_name, &normalized)
             .expect("plan registration should succeed");
