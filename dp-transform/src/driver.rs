@@ -74,6 +74,12 @@ pub(crate) fn rewrite_module_with_tracker(
     );
 
     let lowered_blockpy_module = rewrite_ast_to_lowered_blockpy_module(context, module);
+    if let Some(pass_tracker) = pass_tracker.as_deref_mut() {
+        pass_tracker.add_pass(
+            "rewritten_ast_for_lowering",
+            &crate::ruff_ast_to_string(&*module),
+        );
+    }
     let blockpy_module =
         basic_block::lowered_blockpy_module_bundle_to_blockpy_module(&lowered_blockpy_module);
     if let Some(pass_tracker) = pass_tracker.as_deref_mut() {
@@ -98,7 +104,7 @@ pub(crate) fn rewrite_module_with_tracker(
     // BlockPy and BB have already been built from the pre-bytes form above.
     lower_string_literals_to_bytes(module);
     if let Some(pass_tracker) = pass_tracker.as_deref_mut() {
-        pass_tracker.add_pass("rewritten_ast", &crate::ruff_ast_to_string(&*module));
+        pass_tracker.add_pass("rewritten_ast_final", &crate::ruff_ast_to_string(&*module));
     }
 
     (blockpy_module, bb_module)

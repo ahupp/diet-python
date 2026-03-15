@@ -71,13 +71,17 @@ pub fn inspect_pipeline(source: &str) -> Result<String, JsValue> {
 
     let payload = json!({
         "phase1": pass_tracker
-            .rendered("rewritten_ast")
+            .rendered("rewritten_ast_for_lowering")
             .map(str::to_owned)
             .unwrap_or_else(|| transformed.to_string()),
         "blockpy": blockpy,
         "coreBlockPy": pass_tracker.rendered("core_blockpy").unwrap_or(""),
         "bbRaw": pass_tracker
-            .rendered("rewritten_ast")
+            .rendered("rewritten_ast_for_lowering")
+            .map(str::to_owned)
+            .unwrap_or_else(|| transformed.to_string()),
+        "rewrittenAstFinal": pass_tracker
+            .rendered("rewritten_ast_final")
             .map(str::to_owned)
             .unwrap_or_else(|| transformed.to_string()),
         "bbModule": bb_module_json,
