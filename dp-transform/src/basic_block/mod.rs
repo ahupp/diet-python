@@ -238,7 +238,10 @@ def documented():
         let options = Options::for_test();
         let result =
             transform_str_to_ruff_with_options(source, options).expect("transform should succeed");
-        let blockpy = result.blockpy_module.expect("expected BlockPy module");
+        let blockpy = result
+            .get_pass::<crate::basic_block::block_py::BlockPyModule>()
+            .cloned()
+            .expect("expected BlockPy module");
         let documented = callable_def_by_name(&blockpy, "documented");
         let doc = documented
             .doc
@@ -413,7 +416,10 @@ def choose(y):
 
         let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
             .expect("transform should succeed");
-        let blockpy = lowered.blockpy_module.expect("expected BlockPy module");
+        let blockpy = lowered
+            .get_pass::<crate::basic_block::block_py::BlockPyModule>()
+            .cloned()
+            .expect("expected BlockPy module");
         let blockpy_rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
         assert!(blockpy_rendered.contains("x = y"), "{blockpy_rendered}");
         assert!(
@@ -432,7 +438,10 @@ def choose(xs):
 
         let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
             .expect("transform should succeed");
-        let blockpy = lowered.blockpy_module.expect("expected BlockPy module");
+        let blockpy = lowered
+            .get_pass::<crate::basic_block::block_py::BlockPyModule>()
+            .cloned()
+            .expect("expected BlockPy module");
         let blockpy_rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
         assert!(
             blockpy_rendered.contains("function _dp_listcomp"),
@@ -453,7 +462,10 @@ def choose(xs):
 
         let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
             .expect("transform should succeed");
-        let blockpy = lowered.blockpy_module.expect("expected BlockPy module");
+        let blockpy = lowered
+            .get_pass::<crate::basic_block::block_py::BlockPyModule>()
+            .cloned()
+            .expect("expected BlockPy module");
         let blockpy_rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
         assert!(
             blockpy_rendered.contains("function _dp_genexpr"),
@@ -474,7 +486,10 @@ def choose():
 
         let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
             .expect("transform should succeed");
-        let blockpy = lowered.blockpy_module.expect("expected BlockPy module");
+        let blockpy = lowered
+            .get_pass::<crate::basic_block::block_py::BlockPyModule>()
+            .cloned()
+            .expect("expected BlockPy module");
         let blockpy_rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
         assert!(
             blockpy_rendered.contains("function _dp_lambda"),
@@ -516,7 +531,10 @@ async def agen():
 
         let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
             .expect("transform should succeed");
-        let blockpy = lowered.blockpy_module.expect("expected BlockPy module");
+        let blockpy = lowered
+            .get_pass::<crate::basic_block::block_py::BlockPyModule>()
+            .cloned()
+            .expect("expected BlockPy module");
         let blockpy_rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
         assert!(
             blockpy_rendered.contains("__dp_await_iter"),
@@ -557,7 +575,10 @@ async def run():
 
         let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
             .expect("transform should succeed");
-        let blockpy = lowered.blockpy_module.expect("expected BlockPy module");
+        let blockpy = lowered
+            .get_pass::<crate::basic_block::block_py::BlockPyModule>()
+            .cloned()
+            .expect("expected BlockPy module");
         let blockpy_rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
         assert!(
             blockpy_rendered.contains("__dp_await_iter"),
@@ -594,7 +615,10 @@ async def agen(cm):
 
         let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
             .expect("transform should succeed");
-        let blockpy = lowered.blockpy_module.expect("expected BlockPy module");
+        let blockpy = lowered
+            .get_pass::<crate::basic_block::block_py::BlockPyModule>()
+            .cloned()
+            .expect("expected BlockPy module");
         let blockpy_rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
         assert!(
             blockpy_rendered.contains("__dp_await_iter"),
@@ -635,7 +659,10 @@ async def run(cm):
 
         let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
             .expect("transform should succeed");
-        let blockpy = lowered.blockpy_module.expect("expected BlockPy module");
+        let blockpy = lowered
+            .get_pass::<crate::basic_block::block_py::BlockPyModule>()
+            .cloned()
+            .expect("expected BlockPy module");
         let blockpy_rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
         assert!(
             blockpy_rendered.contains("__dp_await_iter"),
@@ -1380,7 +1407,10 @@ class Field:
         for (name, source) in [("pass", pass_source), ("fail", fail_source)] {
             let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
                 .expect("transform should succeed");
-            let blockpy = lowered.blockpy_module.expect("expected BlockPy module");
+            let blockpy = lowered
+                .get_pass::<crate::basic_block::block_py::BlockPyModule>()
+                .cloned()
+                .expect("expected BlockPy module");
             let blockpy_rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
             eprintln!("==== {name} BLOCKPY ====\n{blockpy_rendered}");
 

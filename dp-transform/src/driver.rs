@@ -17,14 +17,20 @@ use crate::PassTracker;
 use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
 
 pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> (BlockPyModule, BbModule) {
-    rewrite_module_with_tracker(context, module, None)
+    let mut pass_tracker = PassTracker::new();
+    let bb_module = rewrite_module_with_tracker(context, module, &mut pass_tracker);
+    let blockpy_module = pass_tracker
+        .get::<BlockPyModule>()
+        .expect("rewrite_module should always track semantic BlockPy")
+        .clone();
+    (blockpy_module, bb_module)
 }
 
 pub(crate) fn rewrite_module_with_tracker(
     context: &Context,
     module: &mut StmtBody,
-    mut pass_tracker: Option<&mut PassTracker>,
-) -> (BlockPyModule, BbModule) {
+    pass_tracker: &mut PassTracker,
+) -> BbModule {
     // The transform now has a single lowering strategy: basic-block form.
     lower_surrogate_string_literals(context, module);
 
@@ -74,40 +80,22 @@ pub(crate) fn rewrite_module_with_tracker(
     );
 
     let lowered_blockpy_module = rewrite_ast_to_lowered_blockpy_module(context, module);
-    if let Some(pass_tracker) = pass_tracker.as_deref_mut() {
-        pass_tracker.add_pass(
-            "rewritten_ast_for_lowering",
-            &crate::ruff_ast_to_string(&*module),
-        );
-    }
+    pass_tracker.add_pass("rewritten_ast_for_lowering", module);
     let blockpy_module =
         basic_block::lowered_blockpy_module_bundle_to_blockpy_module(&lowered_blockpy_module);
-    if let Some(pass_tracker) = pass_tracker.as_deref_mut() {
-        pass_tracker.add_pass(
-            "semantic_blockpy",
-            &basic_block::blockpy_module_to_string(&blockpy_module),
-        );
-    }
+    pass_tracker.add_pass("semantic_blockpy", &blockpy_module);
     let core_blockpy_bundle =
         basic_block::simplify_lowered_blockpy_module_bundle_exprs(&lowered_blockpy_module);
     let core_blockpy_module =
         basic_block::lowered_core_blockpy_module_bundle_to_blockpy_module(&core_blockpy_bundle);
-    if let Some(pass_tracker) = pass_tracker.as_deref_mut() {
-        pass_tracker.add_pass(
-            "core_blockpy",
-            &basic_block::blockpy_module_to_string(&core_blockpy_module),
-        );
-    }
+    pass_tracker.add_pass("core_blockpy", &core_blockpy_module);
     let bb_module =
         basic_block::lower_core_blockpy_module_bundle_to_bb_module(context, &core_blockpy_bundle);
     // This final cleanup only affects the returned Ruff AST / rendered source.
     // BlockPy and BB have already been built from the pre-bytes form above.
     lower_string_literals_to_bytes(module);
-    if let Some(pass_tracker) = pass_tracker.as_deref_mut() {
-        pass_tracker.add_pass("rewritten_ast_final", &crate::ruff_ast_to_string(&*module));
-    }
 
-    (blockpy_module, bb_module)
+    bb_module
 }
 
 fn is_module_docstring(stmt: &Stmt) -> bool {

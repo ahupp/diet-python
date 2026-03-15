@@ -469,7 +469,8 @@ def f(x):
             Options::for_test(),
         )
         .unwrap()
-        .blockpy_module
+        .get_pass::<crate::basic_block::block_py::BlockPyModule>()
+        .cloned()
         .expect("expected BlockPy module");
         let core = simplify_blockpy_module_exprs(&blockpy);
         let semantic_rendered = blockpy_module_to_string(&blockpy);

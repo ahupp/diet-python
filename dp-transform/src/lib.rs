@@ -4,7 +4,7 @@ use ruff_python_parser::parse_module;
 pub use ruff_python_parser::ParseError;
 use ruff_source_file::LineEnding;
 use ruff_text_size::TextRange;
-use std::fmt::Display;
+use std::any::Any;
 use std::sync::Once;
 use std::time::{Duration, Instant};
 
@@ -23,7 +23,6 @@ use crate::basic_block::ast_to_ast::context::Context;
 pub use crate::basic_block::ast_to_ast::scope::{analyze_module_scope, Scope};
 pub use crate::basic_block::ast_to_ast::Options;
 use crate::basic_block::bb_ir;
-use crate::basic_block::block_py::BlockPyModule;
 use crate::driver::rewrite_module_with_tracker;
 
 #[derive(Debug, Clone, Copy)]
@@ -71,33 +70,52 @@ fn should_skip(source: &str) -> bool {
 pub struct LoweringResult {
     pub timings: TransformTimings,
     pub module: ruff_python_ast::ModModule,
-    pub blockpy_module: Option<BlockPyModule>,
     pub bb_module: Option<bb_ir::BbModule>,
+    passes: PassTracker,
+}
+
+struct TrackedPass {
+    name: String,
+    value: Box<dyn Any>,
 }
 
 pub(crate) struct PassTracker {
-    passes: Vec<(String, String)>,
+    passes: Vec<TrackedPass>,
 }
 
 impl PassTracker {
-    pub(crate) fn enabled() -> Self {
+    pub(crate) fn new() -> Self {
         Self { passes: Vec::new() }
     }
 
-    pub(crate) fn add_pass(&mut self, name: &str, res: &impl Display) {
-        self.passes.push((name.to_string(), res.to_string()));
+    pub(crate) fn add_pass<T: Clone + Any>(&mut self, name: &str, value: &T) {
+        self.passes.push(TrackedPass {
+            name: name.to_string(),
+            value: Box::new(value.clone()),
+        });
     }
 
-    pub(crate) fn rendered(&self, name: &str) -> Option<&str> {
+    pub(crate) fn get<T: Any>(&self) -> Option<&T> {
         self.passes
             .iter()
             .rev()
-            .find(|(pass_name, _)| pass_name == name)
-            .map(|(_, rendered)| rendered.as_str())
+            .find_map(|pass| pass.value.downcast_ref::<T>())
+    }
+
+    fn names(&self) -> impl Iterator<Item = &str> {
+        self.passes.iter().map(|pass| pass.name.as_str())
     }
 }
 
 impl LoweringResult {
+    pub fn get_pass<T: Any>(&self) -> Option<&T> {
+        self.passes.get::<T>()
+    }
+
+    pub fn pass_names(&self) -> impl Iterator<Item = &str> {
+        self.passes.names()
+    }
+
     pub fn to_string(&self) -> String {
         ruff_ast_to_string(&self.module.body)
     }
@@ -119,14 +137,6 @@ pub fn transform_str_to_ruff_with_options(
     source: &str,
     options: Options,
 ) -> Result<LoweringResult, ParseError> {
-    transform_str_to_ruff_with_options_and_tracker(source, options, None)
-}
-
-pub(crate) fn transform_str_to_ruff_with_options_and_tracker(
-    source: &str,
-    options: Options,
-    pass_tracker: Option<&mut PassTracker>,
-) -> Result<LoweringResult, ParseError> {
     init_logging();
     namegen::reset_namegen_state();
     let options = options;
@@ -145,16 +155,16 @@ pub(crate) fn transform_str_to_ruff_with_options_and_tracker(
                 total_time: Duration::from_nanos(0),
             },
             module,
-            blockpy_module: None,
             bb_module: None,
+            passes: PassTracker::new(),
         });
     }
 
     let ctx = Context::new(options, source);
+    let mut pass_tracker = PassTracker::new();
 
     let rewrite_start = timing_start();
-    let (blockpy_module, bb_module) =
-        rewrite_module_with_tracker(&ctx, &mut module.body, pass_tracker);
+    let bb_module = rewrite_module_with_tracker(&ctx, &mut module.body, &mut pass_tracker);
     let rewrite_time = timing_elapsed(rewrite_start);
 
     let timings = TransformTimings {
@@ -166,8 +176,8 @@ pub(crate) fn transform_str_to_ruff_with_options_and_tracker(
     Ok(LoweringResult {
         timings,
         module,
-        blockpy_module: Some(blockpy_module),
         bb_module: Some(bb_module),
+        passes: pass_tracker,
     })
 }
 

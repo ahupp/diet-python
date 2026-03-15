@@ -121,8 +121,7 @@ pub(crate) fn run_transform_fixture_tests(fixture: &str) {
 fn blockpy_output_for_snapshot(actual: &str) -> String {
     let lowered = transform_str_to_ruff_with_options(actual, Options::for_test()).unwrap();
     let mut output = lowered
-        .blockpy_module
-        .as_ref()
+        .get_pass::<crate::basic_block::block_py::BlockPyModule>()
         .map(crate::basic_block::blockpy_module_to_string)
         .unwrap_or_else(|| "; no BlockPy module emitted".to_string())
         .trim_matches('\n')

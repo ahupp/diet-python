@@ -1,8 +1,5 @@
 use crate::basic_block::bb_ir;
-use crate::{
-    ruff_ast_to_string, transform_str_to_ruff_with_options,
-    transform_str_to_ruff_with_options_and_tracker, Options, PassTracker,
-};
+use crate::{ruff_ast_to_string, transform_str_to_ruff_with_options, Options};
 use cranelift_codegen::ir::{self, condcodes::IntCC, types, AbiParam, InstBuilder, UserFuncName};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use js_sys::{Array, Object, Reflect};
@@ -43,22 +40,11 @@ pub fn transform_selected(source: &str, transforms: Array) -> Result<String, JsV
 }
 
 pub fn inspect_pipeline(source: &str) -> Result<String, JsValue> {
-    let mut pass_tracker = PassTracker::enabled();
-    let transformed = transform_str_to_ruff_with_options_and_tracker(
-        source,
-        Options::default(),
-        Some(&mut pass_tracker),
-    )
-    .map_err(|e| JsValue::from_str(e.to_string().as_str()))?;
-    let blockpy = pass_tracker
-        .rendered("semantic_blockpy")
-        .map(str::to_owned)
-        .or_else(|| {
-            transformed
-                .blockpy_module
-                .as_ref()
-                .map(crate::basic_block::blockpy_module_to_string)
-        })
+    let transformed = transform_str_to_ruff_with_options(source, Options::default())
+        .map_err(|e| JsValue::from_str(e.to_string().as_str()))?;
+    let blockpy = transformed
+        .get_pass::<crate::basic_block::block_py::BlockPyModule>()
+        .map(crate::basic_block::blockpy_module_to_string)
         .unwrap_or_else(|| "; no BlockPy module emitted".to_string());
     let bb_module = transformed
         .bb_module
@@ -68,22 +54,24 @@ pub fn inspect_pipeline(source: &str) -> Result<String, JsValue> {
     let clif = Some(bb_module)
         .map(crate::basic_block::normalize_bb_module_for_codegen)
         .map(|module| bb_module_to_clif(&module));
+    let lowering_ast = transformed
+        .get_pass::<ruff_python_ast::StmtBody>()
+        .map(ruff_ast_to_string)
+        .unwrap_or_else(|| transformed.to_string());
+    let core_blockpy = transformed
+        .get_pass::<crate::basic_block::block_py::CoreBlockPyModule>()
+        .map(crate::basic_block::blockpy_module_to_string)
+        .unwrap_or_default();
 
     let payload = json!({
-        "phase1": pass_tracker
-            .rendered("rewritten_ast_for_lowering")
-            .map(str::to_owned)
-            .unwrap_or_else(|| transformed.to_string()),
+        "phase1": lowering_ast,
         "blockpy": blockpy,
-        "coreBlockPy": pass_tracker.rendered("core_blockpy").unwrap_or(""),
-        "bbRaw": pass_tracker
-            .rendered("rewritten_ast_for_lowering")
-            .map(str::to_owned)
+        "coreBlockPy": core_blockpy,
+        "bbRaw": transformed
+            .get_pass::<ruff_python_ast::StmtBody>()
+            .map(ruff_ast_to_string)
             .unwrap_or_else(|| transformed.to_string()),
-        "rewrittenAstFinal": pass_tracker
-            .rendered("rewritten_ast_final")
-            .map(str::to_owned)
-            .unwrap_or_else(|| transformed.to_string()),
+        "rewrittenAstFinal": transformed.to_string(),
         "bbModule": bb_module_json,
         "clif": clif,
     });

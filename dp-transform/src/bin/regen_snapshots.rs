@@ -75,13 +75,11 @@ fn qualified_case_name(path: &Path, block: &FixtureBlock) -> Result<String, Stri
 
 fn render_blockpy_snapshot(result: &dp_transform::LoweringResult) -> (String, usize, usize) {
     let blockpy = result
-        .blockpy_module
-        .as_ref()
+        .get_pass::<dp_transform::basic_block::block_py::BlockPyModule>()
         .map(dp_transform::basic_block::blockpy_module_to_string)
         .unwrap_or_else(|| "; no BlockPy module emitted".to_string());
     let blockpy_blocks = result
-        .blockpy_module
-        .as_ref()
+        .get_pass::<dp_transform::basic_block::block_py::BlockPyModule>()
         .map(count_blockpy_blocks)
         .unwrap_or(0);
     let clif_blocks = result

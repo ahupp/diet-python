@@ -932,7 +932,8 @@ mod tests {
     fn wrapped_blockpy(source: &str) -> BlockPyModule {
         crate::transform_str_to_ruff_with_options(source, crate::Options::for_test())
             .unwrap()
-            .blockpy_module
+            .get_pass::<crate::basic_block::block_py::BlockPyModule>()
+            .cloned()
             .expect("expected BlockPy module")
     }
 
@@ -1001,7 +1002,10 @@ def classify(n):
             crate::Options::default(),
         )
         .unwrap();
-        let blockpy = lowered.blockpy_module.expect("expected BlockPy module");
+        let blockpy = lowered
+            .get_pass::<crate::basic_block::block_py::BlockPyModule>()
+            .cloned()
+            .expect("expected BlockPy module");
         let rendered = blockpy_module_to_string(&blockpy);
 
         assert_eq!(blockpy.module_init.as_deref(), Some("_dp_module_init"));
