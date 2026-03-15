@@ -31,7 +31,7 @@ use ruff_python_ast::{self as ast, Expr, NodeIndex, Stmt, StmtBody};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-pub struct BBSimplifyStmtPass;
+pub struct SingleNamedAssignment;
 
 fn collect_deleted_names(stmts: &[Box<Stmt>]) -> HashSet<String> {
     let mut names = HashSet::new();
@@ -521,7 +521,7 @@ pub(crate) fn lower_stmt_bb(context: &Context, stmt: Stmt) -> Rewrite {
     lower_stmt_default(context, stmt)
 }
 
-impl StmtRewritePass for BBSimplifyStmtPass {
+impl StmtRewritePass for SingleNamedAssignment {
     fn lower_stmt(&self, context: &Context, stmt: Stmt) -> Rewrite {
         lower_stmt_bb(context, stmt)
     }

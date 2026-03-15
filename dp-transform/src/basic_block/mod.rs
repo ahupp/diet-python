@@ -23,7 +23,7 @@ pub(crate) use blockpy_to_bb::{
     simplify_lowered_blockpy_module_bundle_exprs,
 };
 pub use blockpy_to_bb::{lower_try_jump_exception_flow, normalize_bb_module_for_codegen};
-pub use function_lowering::BBSimplifyStmtPass;
+pub use function_lowering::SingleNamedAssignment;
 
 #[cfg(test)]
 mod tests {
@@ -745,7 +745,7 @@ def bump(x):
     }
 
     #[test]
-    fn bb_simplify_stmt_pass_leaves_annassign_for_later_passes() {
+    fn single_named_assignment_leaves_annassign_for_later_passes() {
         let source = r#"
 def f():
     x: int = 1
@@ -759,7 +759,7 @@ def f():
 
         crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass(
             &context,
-            Some(&crate::basic_block::BBSimplifyStmtPass),
+            Some(&crate::basic_block::SingleNamedAssignment),
             None,
             &mut module.body,
         );
