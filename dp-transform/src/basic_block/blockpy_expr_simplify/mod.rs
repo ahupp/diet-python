@@ -300,7 +300,6 @@ type CoreLikeStmtFragmentInput = SemanticBlockPyStmtFragment;
 
 fn lower_semantic_stmt_into(builder: &mut CoreStmtBuilder, stmt: &SemanticBlockPyStmt) {
     match stmt {
-        SemanticBlockPyStmt::Pass => builder.push_stmt(CoreBlockPyStmt::Pass),
         SemanticBlockPyStmt::Assign(assign) => {
             let mut setup = CoreStmtBuilder::new();
             let value = lower_semantic_expr_into(&mut setup, &assign.value);

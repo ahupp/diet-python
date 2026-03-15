@@ -1218,10 +1218,6 @@ fn is_simple_generator_candidate_block(block: &BlockPyBlock) -> bool {
 
 fn blockpy_stmt_to_linear_stmt(stmt: &BlockPyStmt) -> Option<Stmt> {
     match stmt {
-        BlockPyStmt::Pass => Some(Stmt::Pass(ast::StmtPass {
-            range: Default::default(),
-            node_index: ast::AtomicNodeIndex::default(),
-        })),
         BlockPyStmt::Assign(assign) => Some(Stmt::Assign(blockpy_assign_to_stmt(assign))),
         BlockPyStmt::Expr(expr) => Some(Stmt::Expr(ast::StmtExpr {
             range: Default::default(),

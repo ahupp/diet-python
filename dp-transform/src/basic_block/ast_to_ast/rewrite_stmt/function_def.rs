@@ -365,6 +365,7 @@ pub(crate) fn rewrite_ast_to_lowered_blockpy_module(
     module: &mut StmtBody,
     function_identity_by_node: FunctionIdentityByNode,
 ) -> LoweredBlockPyModuleBundle {
+    crate::basic_block::ast_to_ast::simplify::flatten(module);
     let module_scope = analyze_module_scope(module);
     let function_identity_by_node = function_identity_by_node
         .into_iter()
@@ -397,7 +398,6 @@ pub(crate) fn rewrite_ast_to_lowered_blockpy_module(
         },
     };
     rewriter.visit_body(module);
-    crate::basic_block::ast_to_ast::simplify::strip_generated_passes(context, module);
     rewriter.lowered_blockpy_module
 }
 

@@ -144,7 +144,6 @@ where
     E: Clone + Into<Expr>,
 {
     match stmt {
-        BlockPyStmt::Pass => HashSet::new(),
         BlockPyStmt::Assign(BlockPyAssign { value, .. }) => load_names_in_blockpy_expr(value),
         BlockPyStmt::Expr(expr) => load_names_in_blockpy_expr(expr),
         BlockPyStmt::Delete(BlockPyDelete { target }) => {
@@ -185,7 +184,6 @@ where
     E: Clone + Into<Expr>,
 {
     match stmt {
-        BlockPyStmt::Pass => HashSet::new(),
         BlockPyStmt::Assign(BlockPyAssign { target, value }) => {
             let mut names = HashSet::from([target.id.to_string()]);
             collect_named_expr_target_names_in_blockpy_expr(value, &mut names);

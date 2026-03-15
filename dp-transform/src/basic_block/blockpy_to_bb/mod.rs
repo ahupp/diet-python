@@ -433,10 +433,6 @@ where
     E: Clone + Into<Expr>,
 {
     match stmt {
-        BlockPyStmt::Pass => Some(Stmt::Pass(ast::StmtPass {
-            node_index: compat_node_index(),
-            range: compat_range(),
-        })),
         BlockPyStmt::Assign(assign) => Some(Stmt::Assign(ast::StmtAssign {
             node_index: compat_node_index(),
             range: compat_range(),

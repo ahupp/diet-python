@@ -165,7 +165,7 @@ where
     E: Clone + Into<Expr>,
 {
     match stmt {
-        BlockPyStmt::Pass | BlockPyStmt::Delete(_) => HashSet::new(),
+        BlockPyStmt::Delete(_) => HashSet::new(),
         BlockPyStmt::Assign(assign) => {
             let mut names = HashSet::from([assign.target.id.to_string()]);
             collect_named_expr_target_names_in_blockpy_expr(&assign.value, &mut names);
@@ -587,7 +587,7 @@ mod tests {
     fn sync_generator_passthrough_preload_order_is_stable() {
         let mut block = BlockPyBlock {
             label: "start".into(),
-            body: vec![BlockPyStmt::Pass],
+            body: vec![],
             term: BlockPyTerm::Return(None),
             meta: BlockPyBlockMeta::default(),
         };

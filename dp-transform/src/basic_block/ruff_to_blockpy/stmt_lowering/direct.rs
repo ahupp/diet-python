@@ -97,7 +97,6 @@ impl StmtLowerer for ast::StmtPass {
     where
         E: From<Expr> + std::fmt::Debug,
     {
-        out.push_stmt(BlockPyStmt::Pass);
         Ok(())
     }
 }

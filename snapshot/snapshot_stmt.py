@@ -64,7 +64,6 @@ def f():
 #     bind: f
 #     qualname: f
 #     block start:
-#         pass
 #         return
 
 # function _dp_module_init()
@@ -351,7 +350,6 @@ except:
 #                 else:
 #                     block _dp_bb__dp_module_init_5:
 #                         h()
-#                         pass
 #                         return
 #         block _dp_bb__dp_module_init_7:
 #             f()
@@ -1551,7 +1549,6 @@ async def run():
 #                                                     __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_51, _dp_try_exc_51)
 #                                                     _dp_try_exc_2 = __dp_load_deleted_name("_dp_try_exc_2", __dp_load_cell(_dp_cell__dp_try_exc_2))
 #                                                     __dp_store_cell(_dp_cell__dp_try_exc_2, _dp_try_exc_2)
-#                                                     pass
 #                                                     _dp_with_ok_2 = False
 #                                                     __dp_store_cell(_dp_cell__dp_with_ok_2, _dp_with_ok_2)
 #                                                     jump _dp_bb_run_26
@@ -2443,7 +2440,6 @@ except Exception:
 #             if_term __dp_exception_matches(__dp_current_exception(), Exception):
 #                 then:
 #                     block _dp_bb__dp_module_init_0:
-#                         pass
 #                         print(2)
 #                         return
 #                 else:
@@ -2561,7 +2557,6 @@ def complicated(a):
 #                                             __dp_store_cell_if_not_deleted(_dp_cell__dp_try_exc_7, _dp_try_exc_7)
 #                                             _dp_try_exc_7 = __dp_load_deleted_name("_dp_try_exc_7", __dp_load_cell(_dp_cell__dp_try_exc_7))
 #                                             __dp_store_cell(_dp_cell__dp_try_exc_7, _dp_try_exc_7)
-#                                             pass
 #                                             print("oops")
 #                                             jump _dp_bb_complicated_10
 #                                     else:

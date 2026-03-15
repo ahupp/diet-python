@@ -154,7 +154,7 @@ fn rewrite_blockpy_stmt_deleted_name_loads<E>(
     E: Clone + Into<Expr> + From<Expr>,
 {
     match stmt {
-        BlockPyStmt::Pass | BlockPyStmt::Delete(_) => {}
+        BlockPyStmt::Delete(_) => {}
         BlockPyStmt::Expr(expr) => rewrite_blockpy_expr_deleted_name_loads(expr, rewriter),
         BlockPyStmt::Assign(assign) => {
             rewrite_blockpy_expr_deleted_name_loads(&mut assign.value, rewriter)

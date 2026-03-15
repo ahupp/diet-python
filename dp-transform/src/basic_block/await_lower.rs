@@ -190,7 +190,7 @@ fn lower_coroutine_awaits_in_blockpy_stmt_into(
     out: &mut BlockPyStmtFragmentBuilder<SemanticBlockPyExpr>,
 ) -> Result<(), String> {
     match stmt {
-        SemanticBlockPyStmt::Pass | SemanticBlockPyStmt::Delete(_) => {
+        SemanticBlockPyStmt::Delete(_) => {
             out.push_stmt(stmt);
             Ok(())
         }
@@ -321,7 +321,7 @@ fn blockpy_fragment_contains_await(fragment: &SemanticBlockPyStmtFragment) -> bo
 
 fn blockpy_stmt_contains_await(stmt: &SemanticBlockPyStmt) -> bool {
     match stmt {
-        SemanticBlockPyStmt::Pass | SemanticBlockPyStmt::Delete(_) => false,
+        SemanticBlockPyStmt::Delete(_) => false,
         SemanticBlockPyStmt::Expr(expr) => blockpy_expr_contains_await(expr),
         SemanticBlockPyStmt::Assign(assign) => blockpy_expr_contains_await(&assign.value),
         SemanticBlockPyStmt::If(if_stmt) => {

@@ -359,7 +359,6 @@ impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>>
 
 #[derive(Debug, Clone)]
 pub enum BlockPyStmt<E = BlockPyExpr> {
-    Pass,
     Assign(BlockPyAssign<E>),
     Expr(E),
     Delete(BlockPyDelete),
@@ -495,24 +494,24 @@ mod tests {
     fn block_builder_sets_explicit_term() {
         let mut block: BlockPyBlockBuilder<BlockPyExpr> =
             BlockPyBlockBuilder::new(BlockPyLabel::from("start"));
-        block.push_stmt(BlockPyStmt::Pass);
+        block.push_stmt(BlockPyStmt::Expr(py_expr!("x").into()));
         block.set_term(BlockPyTerm::Jump(BlockPyLabel::from("after")));
         let block = block.finish(None);
 
         assert_eq!(block.body.len(), 1);
-        assert!(matches!(block.body[0], BlockPyStmt::Pass));
+        assert!(matches!(block.body[0], BlockPyStmt::Expr(_)));
         assert!(matches!(block.term, BlockPyTerm::Jump(_)));
     }
 
     #[test]
     fn stmt_fragment_can_carry_optional_term() {
         let fragment: BlockPyStmtFragment<BlockPyExpr> = BlockPyStmtFragment::with_term(
-            vec![BlockPyStmt::Pass],
+            vec![BlockPyStmt::Expr(py_expr!("x").into())],
             Some(BlockPyTerm::Return(None)),
         );
 
         assert_eq!(fragment.body.len(), 1);
-        assert!(matches!(fragment.body[0], BlockPyStmt::Pass));
+        assert!(matches!(fragment.body[0], BlockPyStmt::Expr(_)));
         assert!(matches!(fragment.term, Some(BlockPyTerm::Return(None))));
     }
 

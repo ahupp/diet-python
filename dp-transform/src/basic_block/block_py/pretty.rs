@@ -208,7 +208,6 @@ impl BlockPyFormatter {
         E: Clone + Into<Expr>,
     {
         match stmt {
-            BlockPyStmt::Pass => self.line("pass"),
             BlockPyStmt::Assign(assign) => self.line(format!(
                 "{} = {}",
                 assign.target.id,
@@ -699,10 +698,7 @@ fn collect_top_level_successors_from_stmts(
                     collect_top_level_successors_from_term(term, label_to_index, seen, out);
                 }
             }
-            BlockPyStmt::Pass
-            | BlockPyStmt::Assign(_)
-            | BlockPyStmt::Expr(_)
-            | BlockPyStmt::Delete(_) => {}
+            BlockPyStmt::Assign(_) | BlockPyStmt::Expr(_) | BlockPyStmt::Delete(_) => {}
         }
     }
 }
@@ -1176,25 +1172,25 @@ def choose(a, b):
                     },
                     BlockPyBlock {
                         label: "zeta".into(),
-                        body: vec![BlockPyStmt::Pass],
+                        body: vec![],
                         term: BlockPyTerm::Return(None),
                         meta: BlockPyBlockMeta::default(),
                     },
                     BlockPyBlock {
                         label: "alpha".into(),
-                        body: vec![BlockPyStmt::Pass],
+                        body: vec![],
                         term: BlockPyTerm::Return(None),
                         meta: BlockPyBlockMeta::default(),
                     },
                     BlockPyBlock {
                         label: "omega".into(),
-                        body: vec![BlockPyStmt::Pass],
+                        body: vec![],
                         term: BlockPyTerm::Return(None),
                         meta: BlockPyBlockMeta::default(),
                     },
                     BlockPyBlock {
                         label: "beta".into(),
-                        body: vec![BlockPyStmt::Pass],
+                        body: vec![],
                         term: BlockPyTerm::Return(None),
                         meta: BlockPyBlockMeta::default(),
                     },

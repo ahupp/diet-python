@@ -5,7 +5,7 @@ use crate::basic_block::ast_to_ast::rewrite_class_def;
 use crate::basic_block::ast_to_ast::rewrite_stmt::function_def::rewrite_ast_to_lowered_blockpy_module;
 use crate::basic_block::ast_to_ast::scope::{analyze_module_scope, BindingKind};
 use crate::basic_block::ast_to_ast::simplify::{
-    lower_string_literals_to_bytes, lower_surrogate_string_literals, strip_generated_passes,
+    lower_string_literals_to_bytes, lower_surrogate_string_literals,
 };
 use crate::basic_block::ast_to_ast::{
     ast_rewrite::ExprRewritePass, ast_rewrite::LoweredExpr, rewrite_expr::lower_expr,
@@ -68,8 +68,6 @@ pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> RewriteModule
         Some(&SimplifyExprPass),
         module,
     );
-
-    strip_generated_passes(context, module);
 
     // Build the semantic BlockPy module from the rewritten AST.
     let mut blockpy_module_ast = module.clone();

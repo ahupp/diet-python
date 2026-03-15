@@ -39,7 +39,6 @@ fn rename_blockpy_stmt<E>(
     E: Clone + Into<Expr> + From<Expr>,
 {
     match stmt {
-        BlockPyStmt::Pass => {}
         BlockPyStmt::Assign(assign) => {
             if let Some(rewritten) = rename.get(assign.target.id.as_str()) {
                 assign.target.id = rewritten.as_str().into();
@@ -321,7 +320,7 @@ where
     E: Clone + Into<Expr>,
 {
     match stmt {
-        BlockPyStmt::Pass | BlockPyStmt::Delete(_) => {}
+        BlockPyStmt::Delete(_) => {}
         BlockPyStmt::Assign(assign) => {
             names.insert(assign.target.id.to_string());
             collect_assigned_names_in_blockpy_expr(&assign.value, names);
