@@ -51,65 +51,35 @@ pub(crate) type LoweredCoreBlockPyModuleBundle =
 pub(crate) fn lowered_blockpy_module_bundle_to_blockpy_module(
     module: &LoweredBlockPyModuleBundle,
 ) -> BlockPyModule {
-    BlockPyModule {
-        module_init: module.module_init.clone(),
-        callable_defs: module
-            .callable_defs
-            .iter()
-            .map(|lowered_function| lowered_function.callable_def.callable_def.clone())
-            .collect(),
-    }
+    module.map_callable_defs(|lowered_function| lowered_function.callable_def.callable_def.clone())
 }
 
 pub(crate) fn lowered_core_blockpy_module_bundle_to_blockpy_module(
     module: &LoweredCoreBlockPyModuleBundle,
 ) -> super::block_py::CoreBlockPyModule {
-    super::block_py::CoreBlockPyModule {
-        module_init: module.module_init.clone(),
-        callable_defs: module
-            .callable_defs
-            .iter()
-            .map(|lowered_function| lowered_function.callable_def.callable_def.clone())
-            .collect(),
-    }
+    module.map_callable_defs(|lowered_function| lowered_function.callable_def.callable_def.clone())
 }
 
 pub(crate) fn simplify_lowered_blockpy_module_bundle_exprs(
     module: &LoweredBlockPyModuleBundle,
 ) -> LoweredCoreBlockPyModuleBundle {
-    LoweredCoreBlockPyModuleBundle {
-        module_init: module.module_init.clone(),
-        callable_defs: module
-            .callable_defs
-            .iter()
-            .map(|lowered_function| LoweredCallableDef {
-                callable_def: simplify_lowered_blockpy_function_exprs(
-                    &lowered_function.callable_def,
-                ),
-                binding_target: lowered_function.binding_target,
-            })
-            .collect(),
-    }
+    module.map_callable_defs(|lowered_function| LoweredCallableDef {
+        callable_def: simplify_lowered_blockpy_function_exprs(&lowered_function.callable_def),
+        binding_target: lowered_function.binding_target,
+    })
 }
 
 pub(crate) fn lower_core_blockpy_module_bundle_to_bb_module(
     context: &Context,
     module: &LoweredCoreBlockPyModuleBundle,
 ) -> BbModule {
-    BbModule {
-        module_init: module.module_init.clone(),
-        callable_defs: module
-            .callable_defs
-            .iter()
-            .map(|lowered_function| {
-                lower_core_blockpy_function_to_bb_function(
-                    context,
-                    &lowered_function.callable_def,
-                    lowered_function.binding_target,
-                )
-            })
-            .collect(),
-    }
+    module.map_callable_defs(|lowered_function| {
+        lower_core_blockpy_function_to_bb_function(
+            context,
+            &lowered_function.callable_def,
+            lowered_function.binding_target,
+        )
+    })
 }
 
 fn simplify_lowered_blockpy_function_exprs(

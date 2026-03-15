@@ -41,3 +41,12 @@ pub struct CfgModule<F> {
     pub module_init: Option<String>,
     pub callable_defs: Vec<F>,
 }
+
+impl<F> CfgModule<F> {
+    pub fn map_callable_defs<G>(&self, mut f: impl FnMut(&F) -> G) -> CfgModule<G> {
+        CfgModule {
+            module_init: self.module_init.clone(),
+            callable_defs: self.callable_defs.iter().map(&mut f).collect(),
+        }
+    }
+}
