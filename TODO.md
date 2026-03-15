@@ -26,6 +26,11 @@
     - The desired end state is for late string-template lowering to be part of the same bundle-level simplify pass that produces core BlockPy.
     - The current reason it is separate is that string-template lowering reuses source-sensitive logic that needs `Context`, while the current simplify pass is context-free.
     - The integration path is to make the main lowered-BlockPy expr simplifier accept `Context`, run string-template lowering inside it first, and then do the semantic-BlockPy -> core-BlockPy reduction.
+- Merge sequential string literals into a single logical string before later lowering phases.
+  - Planning note:
+    - Adjacent string literals should normalize to one logical string value before later expr/string lowering so the rest of the pipeline does not have to reason about multi-literal concatenation shapes.
+    - This should preserve Python evaluation behavior and source-sensitive string handling, including any interaction with later f-string/t-string or surrogate-aware lowering.
+    - The likely boundary is the early expr normalization pipeline, before the later semantic-BlockPy string-template handling.
 
 ## Follow-up: weakref callback during shutdown (BB mode)
 
