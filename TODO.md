@@ -24,8 +24,10 @@
 - Fold `lower_string_templates_in_lowered_blockpy_module_bundle` into the main expr simplification pass instead of keeping it as a standalone driver step.
   - Planning note:
     - The desired end state is for late string-template lowering to be part of the same bundle-level simplify pass that produces core BlockPy.
-    - The current reason it is separate is that string-template lowering reuses source-sensitive logic that needs `Context`, while the current simplify pass is context-free.
-    - The integration path is to make the main lowered-BlockPy expr simplifier accept `Context`, run string-template lowering inside it first, and then do the semantic-BlockPy -> core-BlockPy reduction.
+    - The likely real reason it is still separate is that non-raw string handling reads the original source text through `Context`, while the current simplify pass is context-free.
+    - Move that source-sensitive non-raw-string work into `lower_surrogate_string_literals` so it happens earlier, while original source information is still available.
+    - Ideally move adjacent string-literal merging there too, so sequential literals become one logical string before the later semantic-BlockPy string-template phase.
+    - After that split, the remaining late string-template lowering should be context-free enough to fold into the main lowered-BlockPy expr simplifier as part of the semantic-BlockPy -> core-BlockPy reduction.
 - Merge sequential string literals into a single logical string before later lowering phases.
   - Planning note:
     - Adjacent string literals should normalize to one logical string value before later expr/string lowering so the rest of the pipeline does not have to reason about multi-literal concatenation shapes.
