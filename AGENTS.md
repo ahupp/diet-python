@@ -40,6 +40,9 @@
 - **MUST FOLLOW**: For each logical change, update the top commit description with `jj describe -m "<message>" @`, then create a new commit with `jj new` before starting the next logical change.
 - **MUST FOLLOW**: After each logical change, run `jj diff --stat` and show a concise summary of the size and location of the change.
 - **MUST FOLLOW**: When completing one step in a multi-stage plan, explain the next concrete step. If stopping instead of continuing, explicitly say the current line is done and then describe the next suggested plan.
+- **MUST FOLLOW**: If a user request starts with `TODO`, add it to the `## Codex TODO Intake` section of `TODO.md`.
+- **MUST FOLLOW**: If a response to a `TODO` request includes a plan or other useful information, include that in the corresponding `TODO.md` entry.
+- **MUST FOLLOW**: At the end of each completed response for a `TODO` request, list the TODOs one per line and include a summary of the last response.
 - **MUST FOLLOW**: When a `jj describe` message needs multiple paragraphs or sections, pass actual newlines, not literal `\n`. Use shell multiline quoting, for example:
   `jj describe -m "$(cat <<'EOF'
   Summary line

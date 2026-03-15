@@ -6,6 +6,11 @@
  * Search for dead functions
  * try_lower_function_to_blockpy_bundle, wtf
 
+## Codex TODO Intake
+
+- Reserved for user requests that start with `TODO`.
+- Add one entry per request and include any plan or relevant response summary with it.
+
 ## Follow-up: weakref callback during shutdown (BB mode)
 
 - Symptom:
