@@ -25,27 +25,6 @@ pub(crate) use blockpy_to_bb::{
 pub use blockpy_to_bb::{lower_try_jump_exception_flow, normalize_bb_module_for_codegen};
 pub use function_lowering::BBSimplifyStmtPass;
 
-use self::ast_to_ast::rewrite_stmt::function_def::rewrite_ast_to_lowered_blockpy_module;
-
-pub fn rewrite_ast_to_bb_module(
-    context: &crate::basic_block::ast_to_ast::context::Context,
-    module: &mut ruff_python_ast::StmtBody,
-) -> bb_ir::BbModule {
-    let lowered_module = rewrite_ast_to_lowered_blockpy_module(context, module);
-    let core_module = simplify_lowered_blockpy_module_bundle_exprs(&lowered_module);
-    lower_core_blockpy_module_bundle_to_bb_module(context, &core_module)
-}
-
-pub fn rewrite_ast_to_blockpy_module_with_context(
-    context: &crate::basic_block::ast_to_ast::context::Context,
-    module: &mut ruff_python_ast::StmtBody,
-) -> block_py::BlockPyModule {
-    let lowered_module = rewrite_ast_to_lowered_blockpy_module(context, module);
-    project_lowered_module_callable_defs(&lowered_module, |lowered_function| {
-        &lowered_function.callable_def
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use crate::basic_block::bb_ir::BindingTarget;

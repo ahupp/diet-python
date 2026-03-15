@@ -426,7 +426,6 @@ Why deferred:
 
 - Split `BbModule -> BbModule` passes into `basic_block/bb_passes/`
 - Lifted `basic_block` pipeline entrypoints:
-  - `rewrite_ast_to_bb_module(...)`
   - `prepare_bb_module_for_jit(...)`
   - `prepare_bb_module_for_codegen(...)`
 - Step 1 completed:
