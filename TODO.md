@@ -1,3 +1,10 @@
+# Wishlist, DO NOT REMOVE
+
+ * explicit, semantic meaning on passes (e.g, generators to yield from, pass N)
+ * remove ruff StmtBody, use stock ruff
+ * Use ruff scope analysis
+ * Search for dead functions
+ * try_lower_function_to_blockpy_bundle, wtf
 
 ## Follow-up: weakref callback during shutdown (BB mode)
 

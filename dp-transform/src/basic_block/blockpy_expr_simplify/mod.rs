@@ -4,10 +4,10 @@ use super::{
         BlockPyIfTerm, BlockPyRaise, BlockPyStmtFragmentBuilder, BlockPyTerm, CoreBlockPyAssign,
         CoreBlockPyAwait, CoreBlockPyBlock, CoreBlockPyCall, CoreBlockPyCallArg,
         CoreBlockPyCallableDef, CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
-        CoreBlockPyModule, CoreBlockPyPassThroughExpr, CoreBlockPyStmt, CoreBlockPyStmtFragment,
-        CoreBlockPyTerm, CoreBlockPyYield, CoreBlockPyYieldFrom, SemanticBlockPyBlock,
-        SemanticBlockPyCallableDef, SemanticBlockPyExpr, SemanticBlockPyModule,
-        SemanticBlockPyStmt, SemanticBlockPyStmtFragment, SemanticBlockPyTerm,
+        CoreBlockPyModule, CoreBlockPyStmt, CoreBlockPyStmtFragment, CoreBlockPyTerm,
+        CoreBlockPyYield, CoreBlockPyYieldFrom, SemanticBlockPyBlock, SemanticBlockPyCallableDef,
+        SemanticBlockPyExpr, SemanticBlockPyModule, SemanticBlockPyStmt,
+        SemanticBlockPyStmtFragment, SemanticBlockPyTerm,
     },
     cfg_ir::CfgCallableDef,
 };
@@ -236,13 +236,6 @@ impl From<Expr> for CoreBlockPyExpr {
             )),
             Expr::Dict(node) => reduce_core_blockpy_dict(node.items.into()),
             Expr::Name(node) => Self::Name(node),
-            // These helper-scoped families are intentionally left for earlier
-            // phases that preserve Python scoping semantics via generated defs.
-            Expr::Lambda(node) => Self::Raw(CoreBlockPyPassThroughExpr::Lambda(node)),
-            Expr::ListComp(node) => Self::Raw(CoreBlockPyPassThroughExpr::ListComp(node)),
-            Expr::SetComp(node) => Self::Raw(CoreBlockPyPassThroughExpr::SetComp(node)),
-            Expr::DictComp(node) => Self::Raw(CoreBlockPyPassThroughExpr::DictComp(node)),
-            Expr::Generator(node) => Self::Raw(CoreBlockPyPassThroughExpr::Generator(node)),
             other => panic!(
                 "unexpected expr reached late core BlockPy boundary: {}",
                 crate::ruff_ast_to_string(&other)
@@ -653,7 +646,7 @@ def f(x):
     }
 
     #[test]
-    fn core_blockpy_expr_keeps_helper_scoped_families_raw() {
+    fn helper_scoped_families_do_not_reach_core_blockpy_boundary() {
         for expr in [
             "(lambda x: x + 1)",
             "[x for x in xs]",
@@ -662,9 +655,10 @@ def f(x):
             "(x for x in xs)",
         ] {
             let parsed = *parse_expression(expr).unwrap().into_syntax().body;
+            let panic = std::panic::catch_unwind(|| CoreBlockPyExpr::from(parsed));
             assert!(
-                matches!(CoreBlockPyExpr::from(parsed), CoreBlockPyExpr::Raw(_)),
-                "{expr} should stay raw at the late pure expr boundary",
+                panic.is_err(),
+                "{expr} should be lowered before the core boundary"
             );
         }
     }

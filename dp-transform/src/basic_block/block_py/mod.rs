@@ -56,16 +56,6 @@ pub enum CoreBlockPyExpr {
     Await(CoreBlockPyAwait),
     Yield(CoreBlockPyYield),
     YieldFrom(CoreBlockPyYieldFrom),
-    Raw(CoreBlockPyPassThroughExpr),
-}
-
-#[derive(Debug, Clone)]
-pub enum CoreBlockPyPassThroughExpr {
-    Lambda(ast::ExprLambda),
-    ListComp(ast::ExprListComp),
-    SetComp(ast::ExprSetComp),
-    DictComp(ast::ExprDictComp),
-    Generator(ast::ExprGenerator),
 }
 
 #[derive(Debug, Clone)]
@@ -644,19 +634,6 @@ impl From<CoreBlockPyExpr> for Expr {
                 value: Box::new(Expr::from(*node.value)),
             }),
             CoreBlockPyExpr::Name(node) => Expr::Name(node),
-            CoreBlockPyExpr::Raw(expr) => Expr::from(expr),
-        }
-    }
-}
-
-impl From<CoreBlockPyPassThroughExpr> for Expr {
-    fn from(value: CoreBlockPyPassThroughExpr) -> Self {
-        match value {
-            CoreBlockPyPassThroughExpr::Lambda(node) => Expr::Lambda(node),
-            CoreBlockPyPassThroughExpr::ListComp(node) => Expr::ListComp(node),
-            CoreBlockPyPassThroughExpr::SetComp(node) => Expr::SetComp(node),
-            CoreBlockPyPassThroughExpr::DictComp(node) => Expr::DictComp(node),
-            CoreBlockPyPassThroughExpr::Generator(node) => Expr::Generator(node),
         }
     }
 }

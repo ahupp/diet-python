@@ -251,36 +251,34 @@ impl<'a> RewriteLoop<'a> {
     }
 
     fn process_statements(&mut self, initial: Vec<Stmt>) -> Vec<Stmt> {
-        let stmt_pass = if let Some(stmt_pass) = self.stmt_pass {
-            stmt_pass
-        } else {
-            return initial;
-        };
-
         let mut output = Vec::new();
         assert!(self.buf.is_empty());
 
         for stmt in initial.into_iter() {
-            let mut before = None;
-            if log_enabled!(Level::Trace) {
-                before = Some(crate::ruff_ast_to_string(&stmt));
-            }
-            let res = stmt_pass.lower_stmt(self.context, stmt);
-            match res {
-                Rewrite::Unmodified(stmt) => {
-                    self.flush_buffered(stmt, &mut output);
+            if let Some(stmt_pass) = self.stmt_pass {
+                let mut before = None;
+                if log_enabled!(Level::Trace) {
+                    before = Some(crate::ruff_ast_to_string(&stmt));
                 }
-                Rewrite::Walk(stmt) => {
-                    if log_enabled!(Level::Trace) {
-                        trace!(
-                            "rewrite before: \n{} after: \n{}",
-                            before.unwrap_or_default(),
-                            crate::ruff_ast_to_string(&stmt).trim_end()
-                        );
+                let res = stmt_pass.lower_stmt(self.context, stmt);
+                match res {
+                    Rewrite::Unmodified(stmt) => {
+                        self.flush_buffered(stmt, &mut output);
                     }
-                    self.modified = true;
-                    self.flush_buffered(stmt, &mut output);
+                    Rewrite::Walk(stmt) => {
+                        if log_enabled!(Level::Trace) {
+                            trace!(
+                                "rewrite before: \n{} after: \n{}",
+                                before.unwrap_or_default(),
+                                crate::ruff_ast_to_string(&stmt).trim_end()
+                            );
+                        }
+                        self.modified = true;
+                        self.flush_buffered(stmt, &mut output);
+                    }
                 }
+            } else {
+                self.flush_buffered(stmt, &mut output);
             }
         }
 
@@ -435,5 +433,42 @@ fn apply_expr_range(expr: &mut Expr, range: TextRange) {
         Expr::Tuple(node) => node.range = range,
         Expr::Slice(node) => node.range = range,
         Expr::IpyEscapeCommand(node) => node.range = range,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{rewrite_with_pass, ExprRewritePass, LoweredExpr};
+    use crate::basic_block::ast_to_ast::{context::Context, Options};
+    use crate::py_expr;
+    use ruff_python_ast::{Expr, StmtBody};
+    use ruff_python_parser::parse_module;
+
+    struct RenameXExprPass;
+
+    impl ExprRewritePass for RenameXExprPass {
+        fn lower_expr(&self, _context: &Context, expr: Expr) -> LoweredExpr {
+            match expr {
+                Expr::Name(name) if name.id.as_str() == "x" => {
+                    LoweredExpr::modified(py_expr!("renamed"), crate::template::empty_body())
+                }
+                other => LoweredExpr::unmodified(other),
+            }
+        }
+    }
+
+    #[test]
+    fn rewrite_with_expr_pass_only_traverses_stmt_bodies() {
+        let source = r#"
+def f():
+    return x
+"#;
+        let mut module: StmtBody = parse_module(source).unwrap().into_syntax().body;
+        let context = Context::new(Options::for_test(), source);
+
+        rewrite_with_pass(&context, None, Some(&RenameXExprPass), &mut module);
+
+        let rendered = crate::ruff_ast_to_string(&module);
+        assert!(rendered.contains("return renamed"), "{rendered}");
     }
 }
