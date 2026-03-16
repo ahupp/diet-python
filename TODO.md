@@ -42,6 +42,11 @@
     - The desired end state is for semantic BlockPy to carry Ruff `Expr` directly, with the stage boundary expressed by the surrounding BlockPy callable/module types instead of a near-identity wrapper enum.
     - `CoreBlockPyExpr` should remain distinct as the real reduced expression surface; this cleanup is about removing the semantic-phase duplication, not weakening the core boundary.
     - The main migration is likely to replace `BlockPyExpr`/`SemanticBlockPyExpr` aliases with Ruff `Expr`, keep any required `IpyEscapeCommand` rejection at the BlockPy boundary helpers, and then delete the wrapper conversions.
+- Collapse the repeated Ruff/Semantic/Core BlockPy alias families into one stage-oriented representation, ideally via associated types on a stage trait or wrapper type.
+  - Planning note:
+    - Rust type aliases cannot themselves own associated types, so this likely needs either a `BlockPyStage` trait with associated types or stage wrapper newtypes rather than trying to hang associated types directly off `BlockPyModule`.
+    - The goal is to stop spelling parallel alias lists for `Module`, `CallableDef`, `Block`, `Stmt`, `Term`, `Assign`, `If`, `Raise`, and related helpers, while still making the stage (`Ruff`, semantic, core) explicit.
+    - This likely becomes simpler after the semantic `BlockPyExpr` -> Ruff `Expr` cleanup, because that would remove one whole stage-specific expression wrapper from the matrix first.
 
 ## Completed
 
