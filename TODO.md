@@ -37,6 +37,11 @@
     - The desired end state is for BB lowering to analyze and normalize BlockPy directly instead of round-tripping through Ruff AST `Stmt` forms.
     - This likely means replacing helper code that reconstructs `Stmt`/`StmtBody` for load-name, exception, or normalization analysis with BlockPy-native analysis utilities.
     - Keep the dataflow explicit so the BlockPy -> BB boundary no longer reintroduces earlier AST representations.
+- Use Ruff `Expr` instead of `BlockPyExpr`, accepting the slight type loosening from the `IpyEscapeCommand` case so the stage types are clearer.
+  - Planning note:
+    - The desired end state is for semantic BlockPy to carry Ruff `Expr` directly, with the stage boundary expressed by the surrounding BlockPy callable/module types instead of a near-identity wrapper enum.
+    - `CoreBlockPyExpr` should remain distinct as the real reduced expression surface; this cleanup is about removing the semantic-phase duplication, not weakening the core boundary.
+    - The main migration is likely to replace `BlockPyExpr`/`SemanticBlockPyExpr` aliases with Ruff `Expr`, keep any required `IpyEscapeCommand` rejection at the BlockPy boundary helpers, and then delete the wrapper conversions.
 
 ## Completed
 
