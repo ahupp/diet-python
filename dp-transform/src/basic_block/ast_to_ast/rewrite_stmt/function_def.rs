@@ -1,6 +1,6 @@
 use crate::basic_block::annotation_export::{
-    build_exec_function_def_binding_stmts, build_lowered_annotation_helper_binding,
-    is_annotation_helper_name, prepare_non_lowered_annotationlib_function,
+    build_lowered_annotation_helper_binding, is_annotation_helper_name,
+    prepare_non_lowered_annotationlib_function,
 };
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::ast_to_ast::rewrite_stmt;
@@ -19,7 +19,7 @@ use crate::basic_block::blockpy_generators::{
     build_blockpy_closure_layout, closure_backed_generator_factory_entry_liveins,
 };
 use crate::basic_block::blockpy_to_bb::{
-    ResolvedLoweredBlockPyModuleBundlePlan, ResolvedLoweredBlockPyModuleBundlePlanEntry,
+    LoweredBlockPyModuleBundlePlan, LoweredBlockPyModuleBundlePlanEntry,
 };
 use crate::basic_block::expr_utils::{make_dp_tuple, name_expr};
 use crate::basic_block::function_identity::{
@@ -33,8 +33,7 @@ use crate::basic_block::param_specs::{
     collect_function_param_specs, function_param_specs_to_expr, FunctionParamSpec,
 };
 use crate::basic_block::ruff_to_blockpy::{
-    resolve_lowered_blockpy_function_bundle_plan, LoweredBlockPyFunctionBundlePlan,
-    PreparedBlockPyFunctionPlan,
+    LoweredBlockPyFunctionBundlePlan, PreparedBlockPyFunctionPlan,
 };
 use crate::template::into_body;
 use crate::transformer::{walk_stmt, Transformer};
@@ -62,7 +61,7 @@ struct BlockPyModuleRewriter<'a> {
     reserved_temp_names_stack: Vec<HashSet<String>>,
     used_label_prefixes: HashMap<String, usize>,
     function_scope_stack: Vec<FunctionScopeFrame>,
-    lowered_blockpy_module: ResolvedLoweredBlockPyModuleBundlePlan,
+    lowered_blockpy_module: LoweredBlockPyModuleBundlePlan,
 }
 
 enum LoweredFunctionPlacementPlan {
@@ -160,12 +159,12 @@ fn capture_items_to_expr(captures: &[LoweredFunctionCaptureItem]) -> Expr {
 }
 
 fn push_lowered_blockpy_callable_def_bundle(
-    out: &mut ResolvedLoweredBlockPyModuleBundlePlan,
-    bundle_plan: crate::basic_block::ruff_to_blockpy::ResolvedLoweredBlockPyFunctionBundlePlan,
+    out: &mut LoweredBlockPyModuleBundlePlan,
+    bundle_plan: LoweredBlockPyFunctionBundlePlan,
     main_binding_target: BindingTarget,
 ) {
     out.callable_def_bundles
-        .push(ResolvedLoweredBlockPyModuleBundlePlanEntry {
+        .push(LoweredBlockPyModuleBundlePlanEntry {
             bundle_plan,
             main_binding_target,
         });
@@ -479,7 +478,7 @@ mod tests {
 pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan(
     context: &Context,
     module: &mut StmtBody,
-) -> ResolvedLoweredBlockPyModuleBundlePlan {
+) -> LoweredBlockPyModuleBundlePlan {
     crate::basic_block::ast_to_ast::simplify::flatten(module);
     let module_scope = analyze_module_scope(module);
     let function_identity_by_node = collect_function_identity_private(module, module_scope.clone());
@@ -492,12 +491,16 @@ pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan(
         reserved_temp_names_stack: Vec::new(),
         used_label_prefixes: HashMap::new(),
         function_scope_stack: Vec::new(),
-        lowered_blockpy_module: ResolvedLoweredBlockPyModuleBundlePlan {
+        lowered_blockpy_module: LoweredBlockPyModuleBundlePlan {
             callable_def_bundles: Vec::new(),
             module_init: Some("_dp_module_init".to_string()),
+            next_block_id: 0,
+            next_function_id: 0,
         },
     };
     rewriter.visit_body(module);
+    rewriter.lowered_blockpy_module.next_block_id = rewriter.next_block_id;
+    rewriter.lowered_blockpy_module.next_function_id = rewriter.next_function_id;
     rewriter.lowered_blockpy_module
 }
 
@@ -931,7 +934,7 @@ fn plan_and_rewrite_non_lowered_function_instantiation(
 fn rewrite_function_def_stmt_via_blockpy(
     context: &Context,
     module_scope: &Arc<Scope>,
-    lowered_blockpy_module: &mut ResolvedLoweredBlockPyModuleBundlePlan,
+    lowered_blockpy_module: &mut LoweredBlockPyModuleBundlePlan,
     parent_hoisted: Option<&mut Vec<Stmt>>,
     function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
     func: &mut ast::StmtFunctionDef,
@@ -957,22 +960,8 @@ fn rewrite_function_def_stmt_via_blockpy(
         next_block_id,
         next_function_id,
     ) {
-        let cell_slots = lowered_plan.cell_slots.clone();
-        let outer_scope_names = lowered_plan.outer_scope_names.clone();
         let preview = build_lowered_function_instantiation_preview(&lowered_plan)
             .expect("failed to build BB function instantiation preview");
-        let resolved_lowered_plan = resolve_lowered_blockpy_function_bundle_plan(
-            context,
-            lowered_plan,
-            next_block_id,
-            next_function_id,
-            &mut |func_def| {
-                build_exec_function_def_binding_stmts(func_def, &cell_slots, &outer_scope_names)
-            },
-            &mut |prefix, next_block_id| {
-                next_temp_from_counter(reserved_temp_names_stack, prefix, next_block_id)
-            },
-        );
         let rewrite_plan = plan_and_rewrite_lowered_function_instantiation(
             parent_hoisted,
             func,
@@ -987,7 +976,7 @@ fn rewrite_function_def_stmt_via_blockpy(
         .expect("failed to build BB function binding");
         push_lowered_blockpy_callable_def_bundle(
             lowered_blockpy_module,
-            resolved_lowered_plan,
+            lowered_plan,
             rewrite_plan.main_binding_target,
         );
         return Some(rewrite_plan.rewrite.replacement);

@@ -2,6 +2,7 @@ mod codegen_normalize;
 mod codegen_trace;
 mod exception_pass;
 
+use super::annotation_export::build_exec_function_def_binding_stmts;
 use super::bb_ir::{BbBlock, BbBlockMeta, BbExpr, BbFunction, BbModule, BbOp, BbTerm};
 use super::block_py::cfg::linearize_structured_ifs;
 use super::block_py::exception::is_dp_lookup_call;
@@ -14,10 +15,12 @@ use super::cfg_ir::{CfgCallableDef, CfgModule};
 use super::function_lowering::rewrite_deleted_name_loads;
 use super::param_specs::function_param_specs_expr;
 use super::ruff_to_blockpy::{
-    build_lowered_blockpy_function_bundle, LoweredBlockPyFunction,
+    build_lowered_blockpy_function_bundle, resolve_lowered_blockpy_function_bundle_plan,
+    LoweredBlockPyFunction, LoweredBlockPyFunctionBundlePlan,
     ResolvedLoweredBlockPyFunctionBundlePlan,
 };
 use super::stmt_utils::{flatten_stmt_boxes, stmt_body_from_stmts};
+use crate::basic_block::ast_to_ast::context::Context;
 use crate::py_expr;
 use crate::transformer::{walk_expr, Transformer};
 use ruff_python_ast::{self as ast, Expr, Stmt};
@@ -32,6 +35,18 @@ pub type LoweredCoreBlockPyFunction = LoweredBlockPyFunction<CoreBlockPyCallable
 
 pub type LoweredCoreBlockPyModuleBundle = CfgModule<LoweredCoreBlockPyFunction>;
 
+pub(crate) struct LoweredBlockPyModuleBundlePlanEntry {
+    pub bundle_plan: LoweredBlockPyFunctionBundlePlan,
+    pub main_binding_target: super::bb_ir::BindingTarget,
+}
+
+pub(crate) struct LoweredBlockPyModuleBundlePlan {
+    pub module_init: Option<String>,
+    pub callable_def_bundles: Vec<LoweredBlockPyModuleBundlePlanEntry>,
+    pub next_block_id: usize,
+    pub next_function_id: usize,
+}
+
 pub(crate) struct ResolvedLoweredBlockPyModuleBundlePlanEntry {
     pub bundle_plan: ResolvedLoweredBlockPyFunctionBundlePlan,
     pub main_binding_target: super::bb_ir::BindingTarget,
@@ -40,6 +55,61 @@ pub(crate) struct ResolvedLoweredBlockPyModuleBundlePlanEntry {
 pub(crate) struct ResolvedLoweredBlockPyModuleBundlePlan {
     pub module_init: Option<String>,
     pub callable_def_bundles: Vec<ResolvedLoweredBlockPyModuleBundlePlanEntry>,
+}
+
+fn next_temp_from_reserved_names(
+    reserved_names: &mut HashSet<String>,
+    prefix: &str,
+    next_id: &mut usize,
+) -> String {
+    loop {
+        let current = *next_id;
+        *next_id += 1;
+        let candidate = format!("_dp_{prefix}_{current}");
+        if reserved_names.contains(candidate.as_str()) {
+            continue;
+        }
+        reserved_names.insert(candidate.clone());
+        return candidate;
+    }
+}
+
+pub(crate) fn resolve_lowered_blockpy_module_bundle_plan(
+    context: &Context,
+    plan: LoweredBlockPyModuleBundlePlan,
+) -> ResolvedLoweredBlockPyModuleBundlePlan {
+    let LoweredBlockPyModuleBundlePlan {
+        module_init,
+        callable_def_bundles,
+        mut next_block_id,
+        mut next_function_id,
+    } = plan;
+    let mut resolved_entries = Vec::with_capacity(callable_def_bundles.len());
+    for entry in callable_def_bundles {
+        let cell_slots = entry.bundle_plan.cell_slots.clone();
+        let outer_scope_names = entry.bundle_plan.outer_scope_names.clone();
+        let mut reserved_temp_names = outer_scope_names.clone();
+        let bundle_plan = resolve_lowered_blockpy_function_bundle_plan(
+            context,
+            entry.bundle_plan,
+            &mut next_block_id,
+            &mut next_function_id,
+            &mut |func_def| {
+                build_exec_function_def_binding_stmts(func_def, &cell_slots, &outer_scope_names)
+            },
+            &mut |prefix, next_block_id| {
+                next_temp_from_reserved_names(&mut reserved_temp_names, prefix, next_block_id)
+            },
+        );
+        resolved_entries.push(ResolvedLoweredBlockPyModuleBundlePlanEntry {
+            bundle_plan,
+            main_binding_target: entry.main_binding_target,
+        });
+    }
+    ResolvedLoweredBlockPyModuleBundlePlan {
+        module_init,
+        callable_def_bundles: resolved_entries,
+    }
 }
 
 fn build_lowered_blockpy_function_bundle_with_deleted_name_rewrite(
