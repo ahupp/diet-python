@@ -270,7 +270,7 @@ fn lower_core_blockpy_function_without_await(
         bb_kind: lowered.bb_kind.clone(),
         block_params: lowered.block_params.clone(),
         exception_edges: lowered.exception_edges.clone(),
-        closure_layout: lowered.closure_layout.clone(),
+        runtime_closure_layout: lowered.runtime_closure_layout.clone(),
     }
 }
 
@@ -296,7 +296,7 @@ fn lower_core_blockpy_function_without_await_or_yield(
         bb_kind: lowered.bb_kind.clone(),
         block_params: lowered.block_params.clone(),
         exception_edges: lowered.exception_edges.clone(),
-        closure_layout: lowered.closure_layout.clone(),
+        runtime_closure_layout: lowered.runtime_closure_layout.clone(),
     }
 }
 
@@ -329,7 +329,7 @@ fn simplify_lowered_blockpy_function_exprs(
         bb_kind: lowered.bb_kind.clone(),
         block_params: lowered.block_params.clone(),
         exception_edges: lowered.exception_edges.clone(),
-        closure_layout: lowered.closure_layout.clone(),
+        runtime_closure_layout: lowered.runtime_closure_layout.clone(),
     }
 }
 
@@ -357,7 +357,7 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
             ),
         },
         binding_target: lowered.binding_target,
-        closure_layout: lowered.closure_layout.clone(),
+        closure_layout: lowered.runtime_closure_layout.clone(),
         local_cell_slots: lowered.callable_def.local_cell_slots.clone(),
     }
 }

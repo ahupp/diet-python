@@ -95,7 +95,7 @@ pub struct LoweredBlockPyFunction<C = SemanticBlockPyCallableDef> {
     pub(crate) bb_kind: LoweredFunctionKind,
     pub(crate) block_params: HashMap<String, Vec<String>>,
     pub(crate) exception_edges: HashMap<String, Option<String>>,
-    pub(crate) closure_layout: Option<ClosureLayout>,
+    pub(crate) runtime_closure_layout: Option<ClosureLayout>,
 }
 
 impl<C> LoweredBlockPyFunction<C> {
@@ -377,7 +377,7 @@ pub(crate) fn build_lowered_blockpy_function(
     bb_kind: LoweredFunctionKind,
     block_params: HashMap<String, Vec<String>>,
     exception_edges: HashMap<String, Option<String>>,
-    closure_layout: Option<ClosureLayout>,
+    runtime_closure_layout: Option<ClosureLayout>,
 ) -> LoweredBlockPyFunction {
     LoweredBlockPyFunction {
         callable_def,
@@ -386,7 +386,7 @@ pub(crate) fn build_lowered_blockpy_function(
         bb_kind,
         block_params,
         exception_edges,
-        closure_layout,
+        runtime_closure_layout,
     }
 }
 
