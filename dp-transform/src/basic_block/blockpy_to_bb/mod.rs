@@ -357,7 +357,6 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
             ),
         },
         binding_target: lowered.binding_target,
-        is_coroutine: lowered.is_coroutine,
         closure_layout: lowered.closure_layout.clone(),
         local_cell_slots: lowered.callable_def.local_cell_slots.clone(),
     }
@@ -422,7 +421,6 @@ pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
                 term: bb_term_from_blockpy_term(&normalized_term),
                 meta: BbBlockMeta {
                     params,
-                    local_defs: Vec::new(),
                     exc_target_label,
                     exc_name,
                 },

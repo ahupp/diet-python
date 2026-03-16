@@ -3,7 +3,7 @@ use super::block_py::{
 };
 use super::cfg_ir::{CfgBlock, CfgCallableDef, CfgModule};
 use super::lowered_ir::{BindingTarget, ClosureLayout, FunctionId, LoweredFunctionKind};
-use ruff_python_ast::{self as ast, StmtFunctionDef};
+use ruff_python_ast as ast;
 use std::ops::{Deref, DerefMut};
 
 pub type BbModule = CfgModule<BbFunction>;
@@ -12,7 +12,6 @@ pub type BbModule = CfgModule<BbFunction>;
 pub struct BbFunction {
     pub cfg: CfgCallableDef<FunctionId, LoweredFunctionKind, Vec<String>, BbBlock>,
     pub binding_target: BindingTarget,
-    pub is_coroutine: bool,
     pub closure_layout: Option<ClosureLayout>,
     pub local_cell_slots: Vec<String>,
 }
@@ -34,7 +33,6 @@ impl DerefMut for BbFunction {
 #[derive(Debug, Clone, Default)]
 pub struct BbBlockMeta {
     pub params: Vec<String>,
-    pub local_defs: Vec<StmtFunctionDef>,
     pub exc_target_label: Option<String>,
     pub exc_name: Option<String>,
 }

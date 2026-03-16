@@ -43,7 +43,6 @@ fn split_exception_blocks_for_expr_checks(function: &mut BbFunction) {
         }
 
         let mut known_names = block.meta.params.clone();
-        let mut first_local_defs = block.meta.local_defs.clone();
         let mut current_label = block.label.clone();
         let edge_target = block.meta.exc_target_label.clone();
         let edge_exc_name = block.meta.exc_name.clone();
@@ -66,7 +65,6 @@ fn split_exception_blocks_for_expr_checks(function: &mut BbFunction) {
                     term: BbTerm::Jump(next_label.clone()),
                     meta: BbBlockMeta {
                         params: segment_start_names.clone(),
-                        local_defs: std::mem::take(&mut first_local_defs),
                         exc_target_label: edge_target.clone(),
                         exc_name: edge_exc_name.clone(),
                     },
@@ -82,7 +80,6 @@ fn split_exception_blocks_for_expr_checks(function: &mut BbFunction) {
                     term: block.term.clone(),
                     meta: BbBlockMeta {
                         params: segment_start_names.clone(),
-                        local_defs: std::mem::take(&mut first_local_defs),
                         exc_target_label: edge_target.clone(),
                         exc_name: edge_exc_name.clone(),
                     },
@@ -229,7 +226,6 @@ def f(x):
                 term: BbTerm::Ret(None),
                 meta: BbBlockMeta {
                     params: vec![],
-                    local_defs: vec![],
                     exc_target_label: Some(except_label.clone()),
                     exc_name: Some("_dp_try_exc_manual".to_string()),
                 },
