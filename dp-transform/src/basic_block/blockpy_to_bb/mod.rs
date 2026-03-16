@@ -38,23 +38,7 @@ impl<T> LoweredCallableDef<T> {
 }
 
 pub type LoweredBlockPyModuleBundle = CfgModule<LoweredCallableDef<LoweredBlockPyFunction>>;
-
-#[derive(Clone)]
-pub struct LoweredCoreBlockPyFunction {
-    pub(crate) callable_def: CoreBlockPyCallableDef,
-    pub(crate) is_coroutine: bool,
-    pub(crate) bb_kind: super::bb_ir::BbFunctionKind,
-    pub(crate) block_params: HashMap<String, Vec<String>>,
-    pub(crate) exception_edges: HashMap<String, Option<String>>,
-    pub(crate) closure_layout: Option<super::bb_ir::BbClosureLayout>,
-    pub(crate) param_specs: BbExpr,
-}
-
-impl LoweredCoreBlockPyFunction {
-    pub fn callable_def(&self) -> &CoreBlockPyCallableDef {
-        &self.callable_def
-    }
-}
+pub type LoweredCoreBlockPyFunction = LoweredBlockPyFunction<CoreBlockPyCallableDef>;
 
 pub type LoweredCoreBlockPyModuleBundle = CfgModule<LoweredCallableDef<LoweredCoreBlockPyFunction>>;
 

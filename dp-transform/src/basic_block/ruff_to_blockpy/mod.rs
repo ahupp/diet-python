@@ -85,8 +85,8 @@ pub(crate) struct GeneratorStmtSequenceLoweringState {
 }
 
 #[derive(Clone)]
-pub struct LoweredBlockPyFunction {
-    pub(crate) callable_def: SemanticBlockPyCallableDef,
+pub struct LoweredBlockPyFunction<C = SemanticBlockPyCallableDef> {
+    pub(crate) callable_def: C,
     pub(crate) is_coroutine: bool,
     pub(crate) bb_kind: BbFunctionKind,
     pub(crate) block_params: HashMap<String, Vec<String>>,
@@ -95,8 +95,8 @@ pub struct LoweredBlockPyFunction {
     pub(crate) param_specs: BbExpr,
 }
 
-impl LoweredBlockPyFunction {
-    pub fn callable_def(&self) -> &SemanticBlockPyCallableDef {
+impl<C> LoweredBlockPyFunction<C> {
+    pub fn callable_def(&self) -> &C {
         &self.callable_def
     }
 }
