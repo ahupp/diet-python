@@ -52,7 +52,7 @@ Relevant files:
 Types:
 
 - `BlockPyCallableDef<E, B>`
-- `SemanticBlockPyCallableDef = BlockPyCallableDef<BlockPyExpr>`
+- `SemanticBlockPyCallableDef = BlockPyCallableDef<Expr>`
 
 Defined in:
 
@@ -62,7 +62,7 @@ Properties:
 
 - first CFG-shaped function form
 - blocks contain semantic BlockPy statements / terms / expressions
-- expressions are still rich:
+- semantic expressions are just Ruff `Expr`, and are still rich:
   - `If`
   - `Compare`
   - `Await`

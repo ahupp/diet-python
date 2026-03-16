@@ -9,8 +9,8 @@ use super::{
         CoreBlockPyCallableDef, CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
         CoreBlockPyModule, CoreBlockPyStmt, CoreBlockPyStmtFragment, CoreBlockPyTerm,
         CoreBlockPyYield, CoreBlockPyYieldFrom, SemanticBlockPyBlock, SemanticBlockPyCallableDef,
-        SemanticBlockPyExpr, SemanticBlockPyModule, SemanticBlockPyStmt,
-        SemanticBlockPyStmtFragment, SemanticBlockPyTerm,
+        SemanticBlockPyModule, SemanticBlockPyStmt, SemanticBlockPyStmtFragment,
+        SemanticBlockPyTerm,
     },
     cfg_ir::CfgCallableDef,
 };
@@ -19,7 +19,7 @@ use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr};
 
 type CoreStmtBuilder = BlockPyStmtFragmentBuilder<CoreBlockPyExpr>;
-type SemanticExpr = SemanticBlockPyExpr;
+type SemanticExpr = Expr;
 
 pub(crate) trait PureCoreExprReducer {
     fn reduce_expr(&self, expr: &SemanticExpr) -> CoreBlockPyExpr;
@@ -30,7 +30,7 @@ struct DefaultCoreExprReducer;
 impl PureCoreExprReducer for DefaultCoreExprReducer {
     fn reduce_expr(&self, expr: &SemanticExpr) -> CoreBlockPyExpr {
         let mut expr = expr.clone();
-        expr.rewrite_mut(lower_string_templates_in_expr);
+        lower_string_templates_in_expr(&mut expr);
         expr.into()
     }
 }
@@ -246,12 +246,6 @@ impl From<Expr> for CoreBlockPyExpr {
                 crate::ruff_ast_to_string(&other)
             ),
         }
-    }
-}
-
-impl From<super::block_py::BlockPyExpr> for CoreBlockPyExpr {
-    fn from(value: super::block_py::BlockPyExpr) -> Self {
-        Expr::from(value).into()
     }
 }
 
@@ -490,7 +484,6 @@ mod tests {
     use crate::basic_block::block_py::pretty::blockpy_module_to_string;
     use crate::basic_block::block_py::{
         CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
-        SemanticBlockPyExpr,
     };
     use crate::py_expr;
     use crate::ruff_ast_to_string;
@@ -531,7 +524,7 @@ def f(x):
 
     #[test]
     fn expr_simplify_recurses_bottom_up_for_operator_family() {
-        let expr = SemanticBlockPyExpr::from(py_expr!("-(x + 1)"));
+        let expr = Expr::from(py_expr!("-(x + 1)"));
         let lowered = super::lower_semantic_expr_without_setup(&expr);
 
         let CoreBlockPyExpr::Call(outer) = lowered else {

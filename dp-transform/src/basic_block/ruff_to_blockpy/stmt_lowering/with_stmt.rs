@@ -474,7 +474,7 @@ mod tests {
             panic!("expected with stmt");
         };
         let context = Context::new(Options::for_test(), "");
-        let mut out = BlockPyStmtFragmentBuilder::<BlockPyExpr>::new();
+        let mut out = BlockPyStmtFragmentBuilder::<Expr>::new();
         let mut next_label_id = 0usize;
 
         let _ = with_stmt.to_blockpy(&context, &mut out, None, &mut next_label_id);

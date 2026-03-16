@@ -7,9 +7,9 @@ use crate::basic_block::bb_ir::{BbClosureInit, BbClosureLayout, BbClosureSlot, F
 use crate::basic_block::block_py::cfg::{linearize_structured_ifs, rename_blockpy_labels};
 use crate::basic_block::block_py::state::{sync_generator_state_order, sync_target_cells_stmts};
 use crate::basic_block::block_py::{
-    BlockPyCfgBlockBuilder, BlockPyExpr, BlockPyLabel, BlockPyStmtFragmentBuilder, BlockPyTryJump,
+    BlockPyCfgBlockBuilder, BlockPyLabel, BlockPyStmtFragmentBuilder, BlockPyTryJump,
     SemanticBlockPyAssign as BlockPyAssign, SemanticBlockPyBlock as BlockPyBlock,
-    SemanticBlockPyBranchTable as BlockPyBranchTable, SemanticBlockPyExpr, SemanticBlockPyIf,
+    SemanticBlockPyBranchTable as BlockPyBranchTable, SemanticBlockPyIf,
     SemanticBlockPyIfTerm as BlockPyIfTerm, SemanticBlockPyRaise as BlockPyRaise,
     SemanticBlockPyStmt as BlockPyStmt, SemanticBlockPyTerm as BlockPyTerm,
 };
@@ -420,7 +420,7 @@ pub(crate) fn build_closure_backed_generator_factory_block(
             cell = slot.storage_name.as_str(),
             init = closure_backed_generator_init_expr(slot),
         );
-        let lowered = lower_stmts_to_blockpy_stmts::<BlockPyExpr>(&[stmt])
+        let lowered = lower_stmts_to_blockpy_stmts::<Expr>(&[stmt])
             .unwrap_or_else(|err| panic!("failed to lower generator factory cell init: {err}"));
         assert!(lowered.term.is_none());
         body.extend(lowered.body);
@@ -614,7 +614,7 @@ fn lower_generator_payload_exprs_in_block(
     block: BlockPyBlock,
     next_label_id: &mut usize,
 ) -> Result<BlockPyBlock, String> {
-    let mut lowered_body = BlockPyStmtFragmentBuilder::<SemanticBlockPyExpr>::new();
+    let mut lowered_body = BlockPyStmtFragmentBuilder::<Expr>::new();
     for stmt in block.body {
         lower_generator_payload_exprs_in_stmt_into(
             context,
@@ -645,7 +645,7 @@ fn lower_generator_payload_exprs_in_fragment(
     fragment: crate::basic_block::block_py::SemanticBlockPyStmtFragment,
     next_label_id: &mut usize,
 ) -> Result<crate::basic_block::block_py::SemanticBlockPyStmtFragment, String> {
-    let mut lowered = BlockPyStmtFragmentBuilder::<SemanticBlockPyExpr>::new();
+    let mut lowered = BlockPyStmtFragmentBuilder::<Expr>::new();
     for stmt in fragment.body {
         lower_generator_payload_exprs_in_stmt_into(context, stmt, &mut lowered, next_label_id)?;
     }
@@ -658,11 +658,11 @@ fn lower_generator_payload_exprs_in_fragment(
 fn lower_generator_payload_exprs_in_stmt_into(
     context: &Context,
     stmt: BlockPyStmt,
-    out: &mut BlockPyStmtFragmentBuilder<SemanticBlockPyExpr>,
+    out: &mut BlockPyStmtFragmentBuilder<Expr>,
     next_label_id: &mut usize,
 ) -> Result<(), String> {
     match stmt {
-        BlockPyStmt::Expr(SemanticBlockPyExpr::Yield(mut yield_expr)) => {
+        BlockPyStmt::Expr(Expr::Yield(mut yield_expr)) => {
             if let Some(value) = yield_expr.value.take() {
                 let lowered = expr_lowering::lower_expr_into_with_setup(
                     context,
@@ -673,10 +673,10 @@ fn lower_generator_payload_exprs_in_stmt_into(
                 )?;
                 yield_expr.value = Some(Box::new(lowered.into()));
             }
-            out.push_stmt(BlockPyStmt::Expr(SemanticBlockPyExpr::Yield(yield_expr)));
+            out.push_stmt(BlockPyStmt::Expr(Expr::Yield(yield_expr)));
             Ok(())
         }
-        BlockPyStmt::Expr(SemanticBlockPyExpr::YieldFrom(mut yield_from_expr)) => {
+        BlockPyStmt::Expr(Expr::YieldFrom(mut yield_from_expr)) => {
             let lowered = expr_lowering::lower_expr_into_with_setup(
                 context,
                 *yield_from_expr.value,
@@ -685,14 +685,12 @@ fn lower_generator_payload_exprs_in_stmt_into(
                 next_label_id,
             )?;
             yield_from_expr.value = Box::new(lowered.into());
-            out.push_stmt(BlockPyStmt::Expr(SemanticBlockPyExpr::YieldFrom(
-                yield_from_expr,
-            )));
+            out.push_stmt(BlockPyStmt::Expr(Expr::YieldFrom(yield_from_expr)));
             Ok(())
         }
         BlockPyStmt::Assign(mut assign) => {
             match assign.value {
-                SemanticBlockPyExpr::Yield(mut yield_expr) => {
+                Expr::Yield(mut yield_expr) => {
                     if let Some(value) = yield_expr.value.take() {
                         let lowered = expr_lowering::lower_expr_into_with_setup(
                             context,
@@ -703,9 +701,9 @@ fn lower_generator_payload_exprs_in_stmt_into(
                         )?;
                         yield_expr.value = Some(Box::new(lowered.into()));
                     }
-                    assign.value = SemanticBlockPyExpr::Yield(yield_expr);
+                    assign.value = Expr::Yield(yield_expr);
                 }
-                SemanticBlockPyExpr::YieldFrom(mut yield_from_expr) => {
+                Expr::YieldFrom(mut yield_from_expr) => {
                     let lowered = expr_lowering::lower_expr_into_with_setup(
                         context,
                         *yield_from_expr.value,
@@ -714,7 +712,7 @@ fn lower_generator_payload_exprs_in_stmt_into(
                         next_label_id,
                     )?;
                     yield_from_expr.value = Box::new(lowered.into());
-                    assign.value = SemanticBlockPyExpr::YieldFrom(yield_from_expr);
+                    assign.value = Expr::YieldFrom(yield_from_expr);
                 }
                 other => {
                     assign.value = other;
@@ -749,11 +747,11 @@ fn lower_generator_payload_exprs_in_stmt_into(
 fn lower_generator_payload_exprs_in_term_into(
     context: &Context,
     term: BlockPyTerm,
-    out: &mut BlockPyStmtFragmentBuilder<SemanticBlockPyExpr>,
+    out: &mut BlockPyStmtFragmentBuilder<Expr>,
     next_label_id: &mut usize,
 ) -> Result<(), String> {
     match term {
-        BlockPyTerm::Return(Some(SemanticBlockPyExpr::Yield(mut yield_expr))) => {
+        BlockPyTerm::Return(Some(Expr::Yield(mut yield_expr))) => {
             if let Some(value) = yield_expr.value.take() {
                 let lowered = expr_lowering::lower_expr_into_with_setup(
                     context,
@@ -764,12 +762,10 @@ fn lower_generator_payload_exprs_in_term_into(
                 )?;
                 yield_expr.value = Some(Box::new(lowered.into()));
             }
-            out.set_term(BlockPyTerm::Return(Some(SemanticBlockPyExpr::Yield(
-                yield_expr,
-            ))));
+            out.set_term(BlockPyTerm::Return(Some(Expr::Yield(yield_expr))));
             Ok(())
         }
-        BlockPyTerm::Return(Some(SemanticBlockPyExpr::YieldFrom(mut yield_from_expr))) => {
+        BlockPyTerm::Return(Some(Expr::YieldFrom(mut yield_from_expr))) => {
             let lowered = expr_lowering::lower_expr_into_with_setup(
                 context,
                 *yield_from_expr.value,
@@ -778,9 +774,7 @@ fn lower_generator_payload_exprs_in_term_into(
                 next_label_id,
             )?;
             yield_from_expr.value = Box::new(lowered.into());
-            out.set_term(BlockPyTerm::Return(Some(SemanticBlockPyExpr::YieldFrom(
-                yield_from_expr,
-            ))));
+            out.set_term(BlockPyTerm::Return(Some(Expr::YieldFrom(yield_from_expr))));
             Ok(())
         }
         other => {
@@ -865,15 +859,13 @@ pub(crate) struct GeneratorYieldFromPlan {
 
 pub(crate) fn blockpy_stmt_requires_generator_rest_entry(stmt: &BlockPyStmt) -> bool {
     match stmt {
-        BlockPyStmt::Expr(BlockPyExpr::Yield(_)) | BlockPyStmt::Expr(BlockPyExpr::YieldFrom(_)) => {
-            true
-        }
+        BlockPyStmt::Expr(Expr::Yield(_)) | BlockPyStmt::Expr(Expr::YieldFrom(_)) => true,
         BlockPyStmt::Assign(BlockPyAssign {
-            value: BlockPyExpr::Yield(_),
+            value: Expr::Yield(_),
             ..
         })
         | BlockPyStmt::Assign(BlockPyAssign {
-            value: BlockPyExpr::YieldFrom(_),
+            value: Expr::YieldFrom(_),
             ..
         }) => true,
         _ => false,
@@ -901,8 +893,8 @@ pub(crate) fn plan_generator_block_fragment(
             })
         }
         ([], Some(term)) => match term {
-            BlockPyTerm::Return(Some(BlockPyExpr::Yield(_)))
-            | BlockPyTerm::Return(Some(BlockPyExpr::YieldFrom(_))) => {
+            BlockPyTerm::Return(Some(Expr::Yield(_)))
+            | BlockPyTerm::Return(Some(Expr::YieldFrom(_))) => {
                 let mut block = BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(
                     BlockPyLabel::from("_dp_generator_head".to_string()),
                 );
@@ -989,8 +981,8 @@ pub(crate) fn lower_generator_block_head(
                 cell_slots,
             )
         }
-        ([], term @ BlockPyTerm::Return(Some(BlockPyExpr::Yield(_))))
-        | ([], term @ BlockPyTerm::Return(Some(BlockPyExpr::YieldFrom(_)))) => {
+        ([], term @ BlockPyTerm::Return(Some(Expr::Yield(_))))
+        | ([], term @ BlockPyTerm::Return(Some(Expr::YieldFrom(_)))) => {
             lower_generator_blockpy_term_in_sequence(
                 term,
                 linear,
@@ -1136,8 +1128,8 @@ fn term_contains_unlowered_generator_exprs(term: &BlockPyTerm) -> bool {
     }
 }
 
-fn expr_contains_unlowered_generator_exprs(expr: &BlockPyExpr) -> bool {
-    matches!(expr, BlockPyExpr::Yield(_) | BlockPyExpr::YieldFrom(_))
+fn expr_contains_unlowered_generator_exprs(expr: &Expr) -> bool {
+    matches!(expr, Expr::Yield(_) | Expr::YieldFrom(_))
 }
 
 fn replace_try_region_label_membership(
@@ -1284,8 +1276,7 @@ fn split_simple_generator_candidate_block(
 
     if matches!(
         target_block.term,
-        BlockPyTerm::Return(Some(BlockPyExpr::Yield(_)))
-            | BlockPyTerm::Return(Some(BlockPyExpr::YieldFrom(_)))
+        BlockPyTerm::Return(Some(Expr::Yield(_))) | BlockPyTerm::Return(Some(Expr::YieldFrom(_)))
     ) {
         return Some(SplitGeneratorCandidate {
             linear_prefix,
@@ -1343,7 +1334,7 @@ pub(crate) fn lower_generator_blockpy_stmt_in_sequence(
     };
     let generated_start = ctx.blocks.len();
     let entry = match stmt {
-        BlockPyStmt::Expr(BlockPyExpr::Yield(yield_expr)) => {
+        BlockPyStmt::Expr(Expr::Yield(yield_expr)) => {
             let rest_entry =
                 rest_entry.expect("generator expr lowering in stmt sequence requires a rest entry");
             let label = emit_generator_yield_suspend_blocks(
@@ -1359,7 +1350,7 @@ pub(crate) fn lower_generator_blockpy_stmt_in_sequence(
             );
             Some(label)
         }
-        BlockPyStmt::Expr(BlockPyExpr::YieldFrom(yield_from_expr)) => {
+        BlockPyStmt::Expr(Expr::YieldFrom(yield_from_expr)) => {
             let rest_entry =
                 rest_entry.expect("generator expr lowering in stmt sequence requires a rest entry");
             let label = (ctx.next_item)(GeneratorYieldFromPlanItem::Label);
@@ -1380,7 +1371,7 @@ pub(crate) fn lower_generator_blockpy_stmt_in_sequence(
         }
         BlockPyStmt::Assign(
             assign_stmt @ BlockPyAssign {
-                value: BlockPyExpr::Yield(yield_expr),
+                value: Expr::Yield(yield_expr),
                 ..
             },
         ) => {
@@ -1410,7 +1401,7 @@ pub(crate) fn lower_generator_blockpy_stmt_in_sequence(
         }
         BlockPyStmt::Assign(
             assign_stmt @ BlockPyAssign {
-                value: BlockPyExpr::YieldFrom(yield_from_expr),
+                value: Expr::YieldFrom(yield_from_expr),
                 ..
             },
         ) => {
@@ -1484,7 +1475,7 @@ pub(crate) fn lower_generator_blockpy_term_in_sequence(
     };
     let generated_start = ctx.blocks.len();
     let entry = match term {
-        BlockPyTerm::Return(Some(BlockPyExpr::Yield(yield_expr))) => {
+        BlockPyTerm::Return(Some(Expr::Yield(yield_expr))) => {
             let label = emit_generator_return_yield_suspend_blocks(
                 ctx.blocks,
                 linear,
@@ -1500,7 +1491,7 @@ pub(crate) fn lower_generator_blockpy_term_in_sequence(
             );
             Some(label)
         }
-        BlockPyTerm::Return(Some(BlockPyExpr::YieldFrom(yield_from_expr))) => {
+        BlockPyTerm::Return(Some(Expr::YieldFrom(yield_from_expr))) => {
             let return_label = (ctx.next_item)(GeneratorYieldFromPlanItem::Label);
             let label = (ctx.next_item)(GeneratorYieldFromPlanItem::Label);
             let plan = make_generator_yield_from_plan(&mut *ctx.next_item, true);
@@ -1824,7 +1815,7 @@ pub(crate) fn synthesize_generator_dispatch(
 }
 
 fn lower_generated_stmts_to_blockpy(stmts: Vec<Stmt>) -> Vec<BlockPyStmt> {
-    let lowered = lower_stmts_to_blockpy_stmts::<BlockPyExpr>(&stmts)
+    let lowered = lower_stmts_to_blockpy_stmts::<Expr>(&stmts)
         .unwrap_or_else(|err| panic!("failed to convert generated stmt to BlockPy: {err}"));
     assert!(lowered.term.is_none());
     lowered.body
@@ -1949,7 +1940,7 @@ pub(crate) fn split_generator_return_terms_to_escape_blocks(
                 _ => unreachable!("expected raise statement"),
             }
         } else if let Some(value) = value.clone() {
-            match py_stmt!("raise StopIteration({value:expr})", value = value.to_expr()) {
+            match py_stmt!("raise StopIteration({value:expr})", value = value) {
                 Stmt::Raise(stmt) => stmt,
                 _ => unreachable!("expected raise statement"),
             }
@@ -2528,12 +2519,10 @@ mod tests {
     };
     use crate::basic_block::ast_to_ast::{context::Context, Options};
     use crate::basic_block::bb_ir::{BbClosureInit, BbClosureLayout, BbClosureSlot};
-    use crate::basic_block::block_py::{
-        BlockPyBlockBuilder, BlockPyExpr, BlockPyIfTerm, BlockPyTerm,
-    };
+    use crate::basic_block::block_py::{BlockPyBlockBuilder, BlockPyIfTerm, BlockPyTerm};
     use crate::basic_block::ruff_to_blockpy::{lower_stmts_to_blockpy_stmts, TryRegionPlan};
     use crate::py_expr;
-    use ruff_python_ast::Stmt;
+    use ruff_python_ast::{Expr, Stmt};
     use std::collections::HashSet;
 
     fn simple_semantic_generator_input() -> SemanticGeneratorInput {
@@ -2543,7 +2532,7 @@ mod tests {
         let Stmt::FunctionDef(func) = module.body.body[0].as_ref().clone() else {
             panic!("expected function definition");
         };
-        let fragment = lower_stmts_to_blockpy_stmts::<BlockPyExpr>(
+        let fragment = lower_stmts_to_blockpy_stmts::<Expr>(
             &func
                 .body
                 .body
@@ -2552,7 +2541,7 @@ mod tests {
                 .collect::<Vec<_>>(),
         )
         .expect("generator body should lower to a semantic BlockPy fragment");
-        let mut block = BlockPyBlockBuilder::<BlockPyExpr>::new("start".into());
+        let mut block = BlockPyBlockBuilder::<Expr>::new("start".into());
         block.extend(fragment.body);
         if let Some(term) = fragment.term {
             block.set_term(term);
@@ -2666,7 +2655,7 @@ mod tests {
         let Stmt::Expr(stmt) = func.body.body[0].as_ref().clone() else {
             panic!("expected yield expression statement");
         };
-        let fragment = lower_stmts_to_blockpy_stmts::<BlockPyExpr>(&[Stmt::Expr(stmt)])
+        let fragment = lower_stmts_to_blockpy_stmts::<Expr>(&[Stmt::Expr(stmt)])
             .expect("yield stmt should lower to a semantic BlockPy fragment");
         let plan = plan_generator_block_fragment(fragment)
             .expect("yield stmt fragment should produce a generator plan");
@@ -2675,7 +2664,7 @@ mod tests {
         assert!(matches!(
             plan.block.body.as_slice(),
             [crate::basic_block::block_py::BlockPyStmt::Expr(
-                BlockPyExpr::Yield(_)
+                Expr::Yield(_)
             )]
         ));
         assert!(matches!(
@@ -2692,7 +2681,7 @@ mod tests {
         let Stmt::FunctionDef(func) = module.body.body[0].as_ref().clone() else {
             panic!("expected function definition");
         };
-        let fragment = lower_stmts_to_blockpy_stmts::<BlockPyExpr>(
+        let fragment = lower_stmts_to_blockpy_stmts::<Expr>(
             &func
                 .body
                 .body
@@ -2702,7 +2691,7 @@ mod tests {
         )
         .expect("generator body should lower to a semantic BlockPy fragment");
         let mut block =
-            crate::basic_block::block_py::BlockPyBlockBuilder::<BlockPyExpr>::new("start".into());
+            crate::basic_block::block_py::BlockPyBlockBuilder::<Expr>::new("start".into());
         block.extend(fragment.body);
         if let Some(term) = fragment.term {
             block.set_term(term);
@@ -2739,18 +2728,17 @@ mod tests {
             label: "start".into(),
             body: Vec::new(),
             term: BlockPyTerm::IfTerm(BlockPyIfTerm {
-                test: BlockPyExpr::from(py_expr!("flag")),
+                test: Expr::from(py_expr!("flag")),
                 then_label: "yield_block".into(),
                 else_label: "done".into(),
             }),
             meta: Default::default(),
         };
-        let mut yield_block = crate::basic_block::block_py::BlockPyBlockBuilder::<BlockPyExpr>::new(
-            "yield_block".into(),
-        );
-        yield_block.push_stmt(crate::basic_block::block_py::BlockPyStmt::Expr(
-            BlockPyExpr::from(py_expr!("yield value")),
-        ));
+        let mut yield_block =
+            crate::basic_block::block_py::BlockPyBlockBuilder::<Expr>::new("yield_block".into());
+        yield_block.push_stmt(crate::basic_block::block_py::BlockPyStmt::Expr(Expr::from(
+            py_expr!("yield value"),
+        )));
         yield_block.set_term(BlockPyTerm::Jump("done".into()));
         let done = crate::basic_block::block_py::BlockPyBlock {
             label: "done".into(),
@@ -2796,25 +2784,23 @@ mod tests {
             label: "start".into(),
             body: Vec::new(),
             term: BlockPyTerm::IfTerm(BlockPyIfTerm {
-                test: BlockPyExpr::from(py_expr!("flag")),
+                test: Expr::from(py_expr!("flag")),
                 then_label: "yield_left".into(),
                 else_label: "yield_right".into(),
             }),
             meta: Default::default(),
         };
-        let mut yield_left = crate::basic_block::block_py::BlockPyBlockBuilder::<BlockPyExpr>::new(
-            "yield_left".into(),
-        );
-        yield_left.push_stmt(crate::basic_block::block_py::BlockPyStmt::Expr(
-            BlockPyExpr::from(py_expr!("yield left_value")),
-        ));
+        let mut yield_left =
+            crate::basic_block::block_py::BlockPyBlockBuilder::<Expr>::new("yield_left".into());
+        yield_left.push_stmt(crate::basic_block::block_py::BlockPyStmt::Expr(Expr::from(
+            py_expr!("yield left_value"),
+        )));
         yield_left.set_term(BlockPyTerm::Jump("done".into()));
-        let mut yield_right = crate::basic_block::block_py::BlockPyBlockBuilder::<BlockPyExpr>::new(
-            "yield_right".into(),
-        );
-        yield_right.push_stmt(crate::basic_block::block_py::BlockPyStmt::Expr(
-            BlockPyExpr::from(py_expr!("yield right_value")),
-        ));
+        let mut yield_right =
+            crate::basic_block::block_py::BlockPyBlockBuilder::<Expr>::new("yield_right".into());
+        yield_right.push_stmt(crate::basic_block::block_py::BlockPyStmt::Expr(Expr::from(
+            py_expr!("yield right_value"),
+        )));
         yield_right.set_term(BlockPyTerm::Jump("done".into()));
         let done = crate::basic_block::block_py::BlockPyBlock {
             label: "done".into(),
@@ -2870,7 +2856,7 @@ mod tests {
     #[test]
     fn simple_block_with_linear_prefix_before_yield_can_lower_post_blockpy() {
         let mut block =
-            crate::basic_block::block_py::BlockPyBlockBuilder::<BlockPyExpr>::new("start".into());
+            crate::basic_block::block_py::BlockPyBlockBuilder::<Expr>::new("start".into());
         block.push_stmt(crate::basic_block::block_py::BlockPyStmt::Assign(
             crate::basic_block::block_py::BlockPyAssign {
                 target: ruff_python_ast::ExprName {
@@ -2879,12 +2865,12 @@ mod tests {
                     range: Default::default(),
                     node_index: ruff_python_ast::AtomicNodeIndex::default(),
                 },
-                value: BlockPyExpr::from(py_expr!("1")),
+                value: Expr::from(py_expr!("1")),
             },
         ));
-        block.push_stmt(crate::basic_block::block_py::BlockPyStmt::Expr(
-            BlockPyExpr::from(py_expr!("yield total")),
-        ));
+        block.push_stmt(crate::basic_block::block_py::BlockPyStmt::Expr(Expr::from(
+            py_expr!("yield total"),
+        )));
         block.push_stmt(crate::basic_block::block_py::BlockPyStmt::Assign(
             crate::basic_block::block_py::BlockPyAssign {
                 target: ruff_python_ast::ExprName {
@@ -2893,12 +2879,12 @@ mod tests {
                     range: Default::default(),
                     node_index: ruff_python_ast::AtomicNodeIndex::default(),
                 },
-                value: BlockPyExpr::from(py_expr!("total + 1")),
+                value: Expr::from(py_expr!("total + 1")),
             },
         ));
-        block.push_stmt(crate::basic_block::block_py::BlockPyStmt::Expr(
-            BlockPyExpr::from(py_expr!("yield total")),
-        ));
+        block.push_stmt(crate::basic_block::block_py::BlockPyStmt::Expr(Expr::from(
+            py_expr!("yield total"),
+        )));
         block.set_term(BlockPyTerm::Return(None));
 
         let mut try_regions = Vec::new();
@@ -2974,18 +2960,16 @@ mod tests {
     #[test]
     fn try_regions_follow_lowered_generator_blocks_and_targets() {
         let mut body =
-            crate::basic_block::block_py::BlockPyBlockBuilder::<BlockPyExpr>::new("body".into());
-        body.push_stmt(crate::basic_block::block_py::BlockPyStmt::Expr(
-            BlockPyExpr::from(py_expr!("yield body_value")),
-        ));
+            crate::basic_block::block_py::BlockPyBlockBuilder::<Expr>::new("body".into());
+        body.push_stmt(crate::basic_block::block_py::BlockPyStmt::Expr(Expr::from(
+            py_expr!("yield body_value"),
+        )));
         body.set_term(BlockPyTerm::Jump("done".into()));
         let mut except_entry =
-            crate::basic_block::block_py::BlockPyBlockBuilder::<BlockPyExpr>::new(
-                "except_entry".into(),
-            );
-        except_entry.push_stmt(crate::basic_block::block_py::BlockPyStmt::Expr(
-            BlockPyExpr::from(py_expr!("yield exc_value")),
-        ));
+            crate::basic_block::block_py::BlockPyBlockBuilder::<Expr>::new("except_entry".into());
+        except_entry.push_stmt(crate::basic_block::block_py::BlockPyStmt::Expr(Expr::from(
+            py_expr!("yield exc_value"),
+        )));
         except_entry.set_term(BlockPyTerm::Jump("done".into()));
         let done = crate::basic_block::block_py::BlockPyBlock {
             label: "done".into(),

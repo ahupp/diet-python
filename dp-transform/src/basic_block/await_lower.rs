@@ -1,8 +1,7 @@
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::block_py::{
-    BlockPyStmtFragmentBuilder, SemanticBlockPyAssign, SemanticBlockPyBlock, SemanticBlockPyExpr,
-    SemanticBlockPyIf, SemanticBlockPyRaise, SemanticBlockPyStmt, SemanticBlockPyStmtFragment,
-    SemanticBlockPyTerm,
+    BlockPyStmtFragmentBuilder, SemanticBlockPyAssign, SemanticBlockPyBlock, SemanticBlockPyIf,
+    SemanticBlockPyRaise, SemanticBlockPyStmt, SemanticBlockPyStmtFragment, SemanticBlockPyTerm,
 };
 use crate::basic_block::ruff_to_blockpy::lower_stmts_to_blockpy_stmts_with_context;
 use crate::basic_block::stmt_utils::flatten_stmt_boxes;
@@ -167,14 +166,14 @@ fn lower_coroutine_await_stmt_to_blockpy_fragment(
         .into_iter()
         .map(|stmt| stmt.as_ref().clone())
         .collect::<Vec<_>>();
-    lower_stmts_to_blockpy_stmts_with_context::<SemanticBlockPyExpr>(context, &lowered_stmts)
+    lower_stmts_to_blockpy_stmts_with_context::<Expr>(context, &lowered_stmts)
 }
 
 fn lower_coroutine_awaits_in_blockpy_fragment(
     context: &Context,
     fragment: SemanticBlockPyStmtFragment,
 ) -> Result<SemanticBlockPyStmtFragment, String> {
-    let mut lowered = BlockPyStmtFragmentBuilder::<SemanticBlockPyExpr>::new();
+    let mut lowered = BlockPyStmtFragmentBuilder::<Expr>::new();
     for stmt in fragment.body {
         lower_coroutine_awaits_in_blockpy_stmt_into(context, stmt, &mut lowered)?;
     }
@@ -187,7 +186,7 @@ fn lower_coroutine_awaits_in_blockpy_fragment(
 fn lower_coroutine_awaits_in_blockpy_stmt_into(
     context: &Context,
     stmt: SemanticBlockPyStmt,
-    out: &mut BlockPyStmtFragmentBuilder<SemanticBlockPyExpr>,
+    out: &mut BlockPyStmtFragmentBuilder<Expr>,
 ) -> Result<(), String> {
     match stmt {
         SemanticBlockPyStmt::Delete(_) => {
@@ -236,7 +235,7 @@ fn lower_coroutine_awaits_in_blockpy_stmt_into(
 fn lower_coroutine_awaits_in_blockpy_term_into(
     context: &Context,
     term: SemanticBlockPyTerm,
-    out: &mut BlockPyStmtFragmentBuilder<SemanticBlockPyExpr>,
+    out: &mut BlockPyStmtFragmentBuilder<Expr>,
 ) -> Result<(), String> {
     match term {
         SemanticBlockPyTerm::Return(Some(value)) => {
@@ -264,7 +263,7 @@ pub(crate) fn lower_coroutine_awaits_in_blockpy_blocks(
     blocks
         .into_iter()
         .map(|block| {
-            let mut lowered = BlockPyStmtFragmentBuilder::<SemanticBlockPyExpr>::new();
+            let mut lowered = BlockPyStmtFragmentBuilder::<Expr>::new();
             for stmt in block.body {
                 lower_coroutine_awaits_in_blockpy_stmt_into(context, stmt, &mut lowered)?;
             }
@@ -304,7 +303,7 @@ impl Transformer for BlockPyAwaitProbe {
     }
 }
 
-fn blockpy_expr_contains_await(expr: &SemanticBlockPyExpr) -> bool {
+fn blockpy_expr_contains_await(expr: &Expr) -> bool {
     let mut raw: Expr = expr.clone().into();
     let mut probe = BlockPyAwaitProbe::default();
     probe.visit_expr(&mut raw);

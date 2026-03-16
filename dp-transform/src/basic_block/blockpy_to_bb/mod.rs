@@ -417,8 +417,8 @@ where
 mod tests {
     use crate::basic_block::block_py::cfg::linearize_structured_ifs;
     use crate::basic_block::block_py::{
-        BlockPyAssign, BlockPyBlock, BlockPyExpr, BlockPyIf, BlockPyIfTerm, BlockPyLabel,
-        BlockPyStmt, BlockPyStmtFragment, BlockPyTerm,
+        BlockPyAssign, BlockPyBlock, BlockPyIf, BlockPyIfTerm, BlockPyLabel, BlockPyStmt,
+        BlockPyStmtFragment, BlockPyTerm,
     };
     use crate::py_expr;
     use ruff_python_ast::Expr;
@@ -433,7 +433,7 @@ mod tests {
 
     #[test]
     fn linearizes_structured_if_stmt_into_explicit_blocks() {
-        let block: BlockPyBlock<BlockPyExpr> = BlockPyBlock {
+        let block: BlockPyBlock<Expr> = BlockPyBlock {
             label: BlockPyLabel::from("start"),
             body: vec![
                 BlockPyStmt::Assign(BlockPyAssign {
@@ -462,7 +462,7 @@ mod tests {
         };
 
         let (blocks, _, _): (
-            Vec<BlockPyBlock<BlockPyExpr>>,
+            Vec<BlockPyBlock<Expr>>,
             HashMap<String, Vec<String>>,
             HashMap<String, Option<String>>,
         ) = linearize_structured_ifs(&[block], &HashMap::new(), &HashMap::new());

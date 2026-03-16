@@ -15,9 +15,9 @@ use super::block_py::state::{
     sync_generator_state_order, sync_target_cells_stmts as sync_target_cells_stmts_shared,
 };
 use super::block_py::{
-    assert_blockpy_block_normalized, BlockPyBlockMeta, BlockPyExpr, BlockPyFunctionKind,
-    BlockPyLabel, BlockPyTryJump, SemanticBlockPyBlock, SemanticBlockPyCallableDef,
-    SemanticBlockPyStmt, SemanticBlockPyTerm, ENTRY_BLOCK_LABEL,
+    assert_blockpy_block_normalized, BlockPyBlockMeta, BlockPyFunctionKind, BlockPyLabel,
+    BlockPyTryJump, SemanticBlockPyBlock, SemanticBlockPyCallableDef, SemanticBlockPyStmt,
+    SemanticBlockPyTerm, ENTRY_BLOCK_LABEL,
 };
 use super::cfg_ir::CfgCallableDef;
 use super::stmt_utils::flatten_stmt_boxes;
@@ -204,7 +204,7 @@ pub(crate) fn build_blockpy_function(
     bind_name: String,
     display_name: String,
     qualname: String,
-    doc: Option<BlockPyExpr>,
+    doc: Option<Expr>,
     kind: BlockPyFunctionKind,
     params: ast::Parameters,
     entry_label: String,
@@ -602,7 +602,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
                         .unwrap_or(entry_label.as_str())
             }) {
                 for exc_name in injected_exc_names.iter().rev() {
-                    let injected = lower_stmts_to_blockpy_stmts::<BlockPyExpr>(&[py_stmt!(
+                    let injected = lower_stmts_to_blockpy_stmts::<Expr>(&[py_stmt!(
                         "{name:id} = __dp_DELETED",
                         name = exc_name.as_str(),
                     )])
@@ -702,7 +702,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
                     {
                         for cell in &cleanup_cells {
                             new_body.extend(
-                                lower_stmts_to_blockpy_stmts::<BlockPyExpr>(&[py_stmt!(
+                                lower_stmts_to_blockpy_stmts::<Expr>(&[py_stmt!(
                                     "__dp_store_cell({cell:id}, __dp_DELETED)",
                                     cell = cell.as_str(),
                                 )])
@@ -927,7 +927,7 @@ pub(crate) fn build_finalized_blockpy_function(
     function_id: FunctionId,
     bind_name: String,
     qualname: String,
-    doc: Option<BlockPyExpr>,
+    doc: Option<Expr>,
     kind: BlockPyFunctionKind,
     params: ast::Parameters,
     blocks: Vec<SemanticBlockPyBlock>,
@@ -1022,7 +1022,7 @@ pub(crate) fn lower_function_body_to_blockpy_function<FDef, FTemp>(
     runtime_input_body: &[Box<Stmt>],
     bind_name: String,
     qualname: String,
-    doc: Option<BlockPyExpr>,
+    doc: Option<Expr>,
     params: ast::Parameters,
     legacy_async_runtime_input_body: Option<&[Box<Stmt>]>,
     end_label: String,

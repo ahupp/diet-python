@@ -1,7 +1,7 @@
 use super::*;
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::block_py::{
-    BlockPyCfgBlockBuilder, BlockPyExpr, BlockPyLabel, BlockPyStmtFragmentBuilder,
+    BlockPyCfgBlockBuilder, BlockPyLabel, BlockPyStmtFragmentBuilder, Expr,
     SemanticBlockPyBlock as BlockPyBlock, SemanticBlockPyIfTerm as BlockPyIfTerm,
     SemanticBlockPyRaise as BlockPyRaise, SemanticBlockPyStmt as BlockPyStmt,
     SemanticBlockPyTerm as BlockPyTerm,
@@ -13,7 +13,7 @@ pub(crate) fn compat_block_from_blockpy(
     body: Vec<Stmt>,
     term: BlockPyTerm,
 ) -> BlockPyBlock {
-    let body = lower_stmts_to_blockpy_stmts::<BlockPyExpr>(&body).unwrap_or_else(|err| {
+    let body = lower_stmts_to_blockpy_stmts::<Expr>(&body).unwrap_or_else(|err| {
         panic!("failed to convert compatibility block body to BlockPy: {err}")
     });
     assert!(
@@ -48,8 +48,8 @@ pub(crate) fn compat_if_jump_block(
 fn compat_block_builder_with_expr_setup(
     context: &Context,
     body: Vec<Stmt>,
-) -> Result<BlockPyStmtFragmentBuilder<BlockPyExpr>, String> {
-    let mut out = BlockPyStmtFragmentBuilder::<BlockPyExpr>::new();
+) -> Result<BlockPyStmtFragmentBuilder<Expr>, String> {
+    let mut out = BlockPyStmtFragmentBuilder::<Expr>::new();
     let mut next_label_id = 0usize;
     for stmt in &body {
         lower_nested_stmt_into_with_expr(context, stmt, &mut out, None, &mut next_label_id)?;
@@ -192,7 +192,7 @@ pub(crate) fn emit_sequence_raise_block_with_expr_setup(
             .map(|expr| {
                 crate::basic_block::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
                     context,
-                    expr.to_expr(),
+                    expr,
                     &mut out,
                     None,
                     &mut next_label_id,

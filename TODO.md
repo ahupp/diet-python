@@ -37,21 +37,21 @@
     - The desired end state is for BB lowering to analyze and normalize BlockPy directly instead of round-tripping through Ruff AST `Stmt` forms.
     - This likely means replacing helper code that reconstructs `Stmt`/`StmtBody` for load-name, exception, or normalization analysis with BlockPy-native analysis utilities.
     - Keep the dataflow explicit so the BlockPy -> BB boundary no longer reintroduces earlier AST representations.
-- Use Ruff `Expr` instead of `BlockPyExpr`, accepting the slight type loosening from the `IpyEscapeCommand` case so the stage types are clearer.
-  - Planning note:
-    - The desired end state is for semantic BlockPy to carry Ruff `Expr` directly, with the stage boundary expressed by the surrounding BlockPy callable/module types instead of a near-identity wrapper enum.
-    - `CoreBlockPyExpr` should remain distinct as the real reduced expression surface; this cleanup is about removing the semantic-phase duplication, not weakening the core boundary.
-    - The main migration is likely to replace `BlockPyExpr`/`SemanticBlockPyExpr` aliases with Ruff `Expr`, keep any required `IpyEscapeCommand` rejection at the BlockPy boundary helpers, and then delete the wrapper conversions.
 - Collapse the repeated Ruff/Semantic/Core BlockPy alias families into one stage-oriented representation, ideally via associated types on a stage trait or wrapper type.
   - Planning note:
     - Rust type aliases cannot themselves own associated types, so this likely needs either a `BlockPyStage` trait with associated types or stage wrapper newtypes rather than trying to hang associated types directly off `BlockPyModule`.
     - The goal is to stop spelling parallel alias lists for `Module`, `CallableDef`, `Block`, `Stmt`, `Term`, `Assign`, `If`, `Raise`, and related helpers, while still making the stage (`Ruff`, semantic, core) explicit.
-    - This likely becomes simpler after the semantic `BlockPyExpr` -> Ruff `Expr` cleanup, because that would remove one whole stage-specific expression wrapper from the matrix first.
+    - This cleanup is now simpler because semantic BlockPy already carries Ruff `Expr` directly, so one whole stage-specific expression wrapper is gone from the matrix.
 - See whether `BbExpr` can be replaced by `CoreBlockPyExpr`.
   - Planning note:
     - Today the answer looks like “not directly yet”: `BbExpr` is narrower than `CoreBlockPyExpr` in some ways, but also carries BB-specific representation choices like `BbCallExpr` with a preserved Ruff call template and its use in `BbFunction.param_specs`.
     - `CoreBlockPyExpr` already handles a wider core reduction surface, while `BbExpr::from_expr` still performs extra BB-boundary normalization and rejection, so this cleanup likely depends on shrinking or deleting that boundary first.
     - A good first step is to separate the questions “should `param_specs` live in BB?” and “does BB need a template-preserving call node?”; if both answers become no, `BbExpr` is much more likely to collapse cleanly onto `CoreBlockPyExpr`.
+- Lift await and generator reduction into explicit top-level transform steps in `driver.rs`.
+  - Planning note:
+    - The desired end state is for `rewrite_module` to show the semantic BlockPy with raw `await` / generator forms, then explicit await lowering, then explicit generator reduction as separate visible steps.
+    - This likely requires splitting the current hidden lowering helpers so await removal and generator lowering are typed bundle-to-bundle passes instead of internal side effects.
+    - Keep the stage boundaries explicit in the driver so the top-level pipeline shows where those representations change.
 
 ## Completed
 
@@ -67,6 +67,9 @@
   - The standalone `lower_string_templates_in_lowered_blockpy_module_bundle` driver step is gone.
   - Semantic BlockPy now keeps raw f-strings/t-strings, and the main semantic-BlockPy -> core-BlockPy expr simplifier lowers them alongside the other core expression reductions.
   - The source-sensitive literal work remains earlier in `lower_surrogate_string_literals`, so the late string-template lowering stays context-free.
+- Replace semantic `BlockPyExpr` with Ruff `Expr`:
+  - Semantic BlockPy now carries Ruff `Expr` directly, so the semantic stage is expressed by the surrounding BlockPy module/callable/block types instead of a near-identity expression wrapper.
+  - The wrapper enum and its conversion helpers are gone; `CoreBlockPyExpr` remains the real reduced expression boundary.
 
 ## Follow-up: weakref callback during shutdown (BB mode)
 

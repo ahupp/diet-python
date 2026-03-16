@@ -2,7 +2,7 @@ use super::stmt_lowering::lower_stmt_into_with_expr;
 use super::*;
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::block_py::{
-    BlockPyExpr, BlockPyRaise, BlockPyStmt, BlockPyTerm, SemanticBlockPyBlock as BlockPyBlock,
+    BlockPyRaise, BlockPyStmt, BlockPyTerm, Expr, SemanticBlockPyBlock as BlockPyBlock,
 };
 use crate::basic_block::blockpy_generators::plan_generator_block_fragment;
 
@@ -38,7 +38,7 @@ pub(crate) fn plan_generator_stmt_head_block(
     context: &Context,
     stmt: &Stmt,
 ) -> Option<GeneratorBlockPlan> {
-    let generator_stmt = match lower_stmts_to_blockpy_stmts_with_context::<BlockPyExpr>(
+    let generator_stmt = match lower_stmts_to_blockpy_stmts_with_context::<Expr>(
         context,
         std::slice::from_ref(stmt),
     ) {

@@ -89,7 +89,7 @@ mod tests {
             panic!("expected delete stmt");
         };
         let context = Context::new(Options::for_test(), "");
-        let mut out = BlockPyStmtFragmentBuilder::<BlockPyExpr>::new();
+        let mut out = BlockPyStmtFragmentBuilder::<Expr>::new();
         let mut next_label_id = 0usize;
         let simplified = simplify_stmt_ast_for_blockpy(&context, Stmt::Delete(delete_stmt));
 

@@ -354,10 +354,7 @@ def documented():
             .doc
             .as_ref()
             .expect("callable definition should retain doc metadata");
-        assert_eq!(
-            crate::ruff_ast_to_string(&doc.to_expr()).trim(),
-            "\"hello doc\""
-        );
+        assert_eq!(crate::ruff_ast_to_string(doc).trim(), "\"hello doc\"");
     }
 
     #[test]

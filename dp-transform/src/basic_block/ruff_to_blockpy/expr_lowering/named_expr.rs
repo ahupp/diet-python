@@ -45,14 +45,15 @@ where
 #[cfg(test)]
 mod tests {
     use crate::basic_block::ast_to_ast::{context::Context, Options};
-    use crate::basic_block::block_py::{BlockPyExpr, BlockPyStmt, BlockPyStmtFragmentBuilder};
+    use crate::basic_block::block_py::{BlockPyStmt, BlockPyStmtFragmentBuilder};
     use crate::basic_block::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
     use crate::py_expr;
+    use ruff_python_ast::Expr;
 
     #[test]
     fn named_expr_lowering_emits_blockpy_assign_directly() {
         let context = Context::new(Options::for_test(), "");
-        let mut out = BlockPyStmtFragmentBuilder::<BlockPyExpr>::new();
+        let mut out = BlockPyStmtFragmentBuilder::<Expr>::new();
         let mut next_label_id = 0usize;
 
         let lowered = lower_expr_into_with_setup(
@@ -65,7 +66,7 @@ mod tests {
         .expect("expr lowering should succeed");
 
         let fragment = out.finish();
-        assert!(matches!(lowered, BlockPyExpr::Name(_)), "{lowered:?}");
+        assert!(matches!(lowered, Expr::Name(_)), "{lowered:?}");
         let [BlockPyStmt::Assign(assign)] = &fragment.body[..] else {
             panic!("expected one direct assign stmt, got {fragment:?}");
         };

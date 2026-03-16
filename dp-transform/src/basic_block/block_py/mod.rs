@@ -1,6 +1,7 @@
 use super::bb_ir::{BbClosureLayout, FunctionId};
 use super::cfg_ir::{CfgBlock, CfgCallableDef, CfgModule};
-use ruff_python_ast::{self as ast, Expr, ExprName, Parameters};
+pub use ruff_python_ast::Expr;
+use ruff_python_ast::{self as ast, ExprName, Parameters};
 use std::ops::{Deref, DerefMut};
 
 pub(crate) mod cfg;
@@ -11,42 +12,6 @@ pub(crate) mod state;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct BlockPyLabel(pub String);
-
-#[derive(Debug, Clone)]
-pub enum BlockPyExpr {
-    BoolOp(ast::ExprBoolOp),
-    Named(ast::ExprNamed),
-    BinOp(ast::ExprBinOp),
-    UnaryOp(ast::ExprUnaryOp),
-    Lambda(ast::ExprLambda),
-    If(ast::ExprIf),
-    Dict(ast::ExprDict),
-    Set(ast::ExprSet),
-    ListComp(ast::ExprListComp),
-    SetComp(ast::ExprSetComp),
-    DictComp(ast::ExprDictComp),
-    Generator(ast::ExprGenerator),
-    Await(ast::ExprAwait),
-    Yield(ast::ExprYield),
-    YieldFrom(ast::ExprYieldFrom),
-    Compare(ast::ExprCompare),
-    Call(ast::ExprCall),
-    FString(ast::ExprFString),
-    TString(ast::ExprTString),
-    StringLiteral(ast::ExprStringLiteral),
-    BytesLiteral(ast::ExprBytesLiteral),
-    NumberLiteral(ast::ExprNumberLiteral),
-    BooleanLiteral(ast::ExprBooleanLiteral),
-    NoneLiteral(ast::ExprNoneLiteral),
-    EllipsisLiteral(ast::ExprEllipsisLiteral),
-    Attribute(ast::ExprAttribute),
-    Subscript(ast::ExprSubscript),
-    Starred(ast::ExprStarred),
-    Name(ast::ExprName),
-    List(ast::ExprList),
-    Tuple(ast::ExprTuple),
-    Slice(ast::ExprSlice),
-}
 
 #[derive(Debug, Clone)]
 pub enum CoreBlockPyExpr {
@@ -124,18 +89,18 @@ pub type RuffBlockPyIf = BlockPyStructuredIf<Expr>;
 pub type RuffBlockPyIfTerm = BlockPyIfTerm<Expr>;
 pub type RuffBlockPyBranchTable = BlockPyBranchTable<Expr>;
 pub type RuffBlockPyRaise = BlockPyRaise<Expr>;
-pub type SemanticBlockPyModule = BlockPyModule<BlockPyExpr>;
-pub type SemanticBlockPyExpr = BlockPyExpr;
-pub type SemanticBlockPyCallableDef = BlockPyCallableDef<BlockPyExpr>;
-pub type SemanticBlockPyBlock = BlockPyBlock<BlockPyExpr>;
-pub type SemanticBlockPyStmt = BlockPyStmt<BlockPyExpr>;
-pub type SemanticBlockPyTerm = BlockPyTerm<BlockPyExpr>;
-pub type SemanticBlockPyStmtFragment = BlockPyStmtFragment<BlockPyExpr>;
-pub type SemanticBlockPyAssign = BlockPyAssign<BlockPyExpr>;
-pub type SemanticBlockPyIf = BlockPyStructuredIf<BlockPyExpr>;
-pub type SemanticBlockPyIfTerm = BlockPyIfTerm<BlockPyExpr>;
-pub type SemanticBlockPyBranchTable = BlockPyBranchTable<BlockPyExpr>;
-pub type SemanticBlockPyRaise = BlockPyRaise<BlockPyExpr>;
+pub type SemanticBlockPyModule = BlockPyModule<Expr>;
+pub type SemanticBlockPyExpr = Expr;
+pub type SemanticBlockPyCallableDef = BlockPyCallableDef<Expr>;
+pub type SemanticBlockPyBlock = BlockPyBlock<Expr>;
+pub type SemanticBlockPyStmt = BlockPyStmt<Expr>;
+pub type SemanticBlockPyTerm = BlockPyTerm<Expr>;
+pub type SemanticBlockPyStmtFragment = BlockPyStmtFragment<Expr>;
+pub type SemanticBlockPyAssign = BlockPyAssign<Expr>;
+pub type SemanticBlockPyIf = BlockPyStructuredIf<Expr>;
+pub type SemanticBlockPyIfTerm = BlockPyIfTerm<Expr>;
+pub type SemanticBlockPyBranchTable = BlockPyBranchTable<Expr>;
+pub type SemanticBlockPyRaise = BlockPyRaise<Expr>;
 pub type CoreBlockPyModule = BlockPyModule<CoreBlockPyExpr>;
 pub type CoreBlockPyCallableDef = BlockPyCallableDef<CoreBlockPyExpr>;
 pub type CoreBlockPyBlock = BlockPyBlock<CoreBlockPyExpr>;
@@ -150,7 +115,7 @@ pub type CoreBlockPyRaise = BlockPyRaise<CoreBlockPyExpr>;
 pub const ENTRY_BLOCK_LABEL: &str = "start";
 
 #[derive(Debug, Clone)]
-pub struct BlockPyCallableDef<E = BlockPyExpr, B = BlockPyBlock<E>> {
+pub struct BlockPyCallableDef<E = Expr, B = BlockPyBlock<E>> {
     pub cfg: CfgCallableDef<FunctionId, BlockPyFunctionKind, Parameters, B>,
     pub doc: Option<E>,
     pub closure_layout: Option<BbClosureLayout>,
@@ -185,11 +150,11 @@ pub struct BlockPyBlockMeta {
 }
 
 pub type BlockPyCfgBlock<S, T> = CfgBlock<BlockPyLabel, S, T, BlockPyBlockMeta>;
-pub type BlockPyBlock<E = BlockPyExpr> = BlockPyCfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>;
-pub type BlockPyModuleWith<S, T, E = BlockPyExpr> =
+pub type BlockPyBlock<E = Expr> = BlockPyCfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>;
+pub type BlockPyModuleWith<S, T, E = Expr> =
     CfgModule<BlockPyCallableDef<E, BlockPyCfgBlock<S, T>>>;
-pub type BlockPyModule<E = BlockPyExpr> = BlockPyModuleWith<BlockPyStmt<E>, BlockPyTerm<E>, E>;
-pub type BlockPyStructuredIf<E = BlockPyExpr> = BlockPyIf<E, BlockPyStmt<E>, BlockPyTerm<E>>;
+pub type BlockPyModule<E = Expr> = BlockPyModuleWith<BlockPyStmt<E>, BlockPyTerm<E>, E>;
+pub type BlockPyStructuredIf<E = Expr> = BlockPyIf<E, BlockPyStmt<E>, BlockPyTerm<E>>;
 
 pub trait BlockPyNormalizedStmt {
     fn assert_blockpy_normalized(&self);
@@ -215,7 +180,7 @@ pub struct BlockPyCfgFragment<S, T> {
     pub term: Option<T>,
 }
 
-pub type BlockPyStmtFragment<E = BlockPyExpr> = BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>;
+pub type BlockPyStmtFragment<E = Expr> = BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>;
 
 impl<S: BlockPyNormalizedStmt, T> BlockPyCfgFragment<S, T> {
     pub fn assert_normalized(&self) {
@@ -252,7 +217,7 @@ pub struct BlockPyCfgFragmentBuilder<S, T> {
     term: Option<T>,
 }
 
-pub type BlockPyStmtFragmentBuilder<E = BlockPyExpr> =
+pub type BlockPyStmtFragmentBuilder<E = Expr> =
     BlockPyCfgFragmentBuilder<BlockPyStmt<E>, BlockPyTerm<E>>;
 
 impl<S: BlockPyNormalizedStmt, T> BlockPyCfgFragmentBuilder<S, T> {
@@ -306,8 +271,7 @@ pub struct BlockPyCfgBlockBuilder<S, T> {
     fragment: BlockPyCfgFragmentBuilder<S, T>,
 }
 
-pub type BlockPyBlockBuilder<E = BlockPyExpr> =
-    BlockPyCfgBlockBuilder<BlockPyStmt<E>, BlockPyTerm<E>>;
+pub type BlockPyBlockBuilder<E = Expr> = BlockPyCfgBlockBuilder<BlockPyStmt<E>, BlockPyTerm<E>>;
 
 impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>>
     BlockPyCfgBlockBuilder<S, T>
@@ -357,7 +321,7 @@ impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>>
 }
 
 #[derive(Debug, Clone)]
-pub enum BlockPyStmt<E = BlockPyExpr> {
+pub enum BlockPyStmt<E = Expr> {
     Assign(BlockPyAssign<E>),
     Expr(E),
     Delete(BlockPyDelete),
@@ -380,7 +344,7 @@ impl<E: std::fmt::Debug> BlockPyNormalizedStmt for BlockPyStmt<E> {
 }
 
 #[derive(Debug, Clone)]
-pub enum BlockPyTerm<E = BlockPyExpr> {
+pub enum BlockPyTerm<E = Expr> {
     Jump(BlockPyLabel),
     IfTerm(BlockPyIfTerm<E>),
     BranchTable(BlockPyBranchTable<E>),
@@ -390,7 +354,7 @@ pub enum BlockPyTerm<E = BlockPyExpr> {
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockPyAssign<E = BlockPyExpr> {
+pub struct BlockPyAssign<E = Expr> {
     pub target: ExprName,
     pub value: E,
 }
@@ -401,28 +365,28 @@ pub struct BlockPyDelete {
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockPyIf<E = BlockPyExpr, S = BlockPyStmt<E>, T = BlockPyTerm<E>> {
+pub struct BlockPyIf<E = Expr, S = BlockPyStmt<E>, T = BlockPyTerm<E>> {
     pub test: E,
     pub body: BlockPyCfgFragment<S, T>,
     pub orelse: BlockPyCfgFragment<S, T>,
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockPyIfTerm<E = BlockPyExpr> {
+pub struct BlockPyIfTerm<E = Expr> {
     pub test: E,
     pub then_label: BlockPyLabel,
     pub else_label: BlockPyLabel,
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockPyBranchTable<E = BlockPyExpr> {
+pub struct BlockPyBranchTable<E = Expr> {
     pub index: E,
     pub targets: Vec<BlockPyLabel>,
     pub default_label: BlockPyLabel,
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockPyRaise<E = BlockPyExpr> {
+pub struct BlockPyRaise<E = Expr> {
     pub exc: Option<E>,
 }
 
@@ -444,46 +408,6 @@ impl<E> BlockPyFallthroughTerm<BlockPyLabel> for BlockPyTerm<E> {
     }
 }
 
-impl From<Expr> for BlockPyExpr {
-    fn from(value: Expr) -> Self {
-        match value {
-            Expr::BoolOp(node) => Self::BoolOp(node),
-            Expr::Named(node) => Self::Named(node),
-            Expr::BinOp(node) => Self::BinOp(node),
-            Expr::UnaryOp(node) => Self::UnaryOp(node),
-            Expr::Lambda(node) => Self::Lambda(node),
-            Expr::If(node) => Self::If(node),
-            Expr::Dict(node) => Self::Dict(node),
-            Expr::Set(node) => Self::Set(node),
-            Expr::ListComp(node) => Self::ListComp(node),
-            Expr::SetComp(node) => Self::SetComp(node),
-            Expr::DictComp(node) => Self::DictComp(node),
-            Expr::Generator(node) => Self::Generator(node),
-            Expr::Await(node) => Self::Await(node),
-            Expr::Yield(node) => Self::Yield(node),
-            Expr::YieldFrom(node) => Self::YieldFrom(node),
-            Expr::Compare(node) => Self::Compare(node),
-            Expr::Call(node) => Self::Call(node),
-            Expr::FString(node) => Self::FString(node),
-            Expr::TString(node) => Self::TString(node),
-            Expr::StringLiteral(node) => Self::StringLiteral(node),
-            Expr::BytesLiteral(node) => Self::BytesLiteral(node),
-            Expr::NumberLiteral(node) => Self::NumberLiteral(node),
-            Expr::BooleanLiteral(node) => Self::BooleanLiteral(node),
-            Expr::NoneLiteral(node) => Self::NoneLiteral(node),
-            Expr::EllipsisLiteral(node) => Self::EllipsisLiteral(node),
-            Expr::Attribute(node) => Self::Attribute(node),
-            Expr::Subscript(node) => Self::Subscript(node),
-            Expr::Starred(node) => Self::Starred(node),
-            Expr::Name(node) => Self::Name(node),
-            Expr::List(node) => Self::List(node),
-            Expr::Tuple(node) => Self::Tuple(node),
-            Expr::Slice(node) => Self::Slice(node),
-            Expr::IpyEscapeCommand(_) => panic!("IpyEscapeCommand should not reach BlockPy"),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -491,9 +415,9 @@ mod tests {
 
     #[test]
     fn block_builder_sets_explicit_term() {
-        let mut block: BlockPyBlockBuilder<BlockPyExpr> =
+        let mut block: BlockPyBlockBuilder<Expr> =
             BlockPyBlockBuilder::new(BlockPyLabel::from("start"));
-        block.push_stmt(BlockPyStmt::Expr(py_expr!("x").into()));
+        block.push_stmt(BlockPyStmt::Expr(py_expr!("x")));
         block.set_term(BlockPyTerm::Jump(BlockPyLabel::from("after")));
         let block = block.finish(None);
 
@@ -504,8 +428,8 @@ mod tests {
 
     #[test]
     fn stmt_fragment_can_carry_optional_term() {
-        let fragment: BlockPyStmtFragment<BlockPyExpr> = BlockPyStmtFragment::with_term(
-            vec![BlockPyStmt::Expr(py_expr!("x").into())],
+        let fragment: BlockPyStmtFragment<Expr> = BlockPyStmtFragment::with_term(
+            vec![BlockPyStmt::Expr(py_expr!("x"))],
             Some(BlockPyTerm::Return(None)),
         );
 
@@ -523,45 +447,6 @@ mod tests {
             panic!("expected name expr after rewrite");
         };
         assert_eq!(name.id.as_str(), "y");
-    }
-}
-
-impl From<BlockPyExpr> for Expr {
-    fn from(value: BlockPyExpr) -> Self {
-        match value {
-            BlockPyExpr::BoolOp(node) => Expr::BoolOp(node),
-            BlockPyExpr::Named(node) => Expr::Named(node),
-            BlockPyExpr::BinOp(node) => Expr::BinOp(node),
-            BlockPyExpr::UnaryOp(node) => Expr::UnaryOp(node),
-            BlockPyExpr::Lambda(node) => Expr::Lambda(node),
-            BlockPyExpr::If(node) => Expr::If(node),
-            BlockPyExpr::Dict(node) => Expr::Dict(node),
-            BlockPyExpr::Set(node) => Expr::Set(node),
-            BlockPyExpr::ListComp(node) => Expr::ListComp(node),
-            BlockPyExpr::SetComp(node) => Expr::SetComp(node),
-            BlockPyExpr::DictComp(node) => Expr::DictComp(node),
-            BlockPyExpr::Generator(node) => Expr::Generator(node),
-            BlockPyExpr::Await(node) => Expr::Await(node),
-            BlockPyExpr::Yield(node) => Expr::Yield(node),
-            BlockPyExpr::YieldFrom(node) => Expr::YieldFrom(node),
-            BlockPyExpr::Compare(node) => Expr::Compare(node),
-            BlockPyExpr::Call(node) => Expr::Call(node),
-            BlockPyExpr::FString(node) => Expr::FString(node),
-            BlockPyExpr::TString(node) => Expr::TString(node),
-            BlockPyExpr::StringLiteral(node) => Expr::StringLiteral(node),
-            BlockPyExpr::BytesLiteral(node) => Expr::BytesLiteral(node),
-            BlockPyExpr::NumberLiteral(node) => Expr::NumberLiteral(node),
-            BlockPyExpr::BooleanLiteral(node) => Expr::BooleanLiteral(node),
-            BlockPyExpr::NoneLiteral(node) => Expr::NoneLiteral(node),
-            BlockPyExpr::EllipsisLiteral(node) => Expr::EllipsisLiteral(node),
-            BlockPyExpr::Attribute(node) => Expr::Attribute(node),
-            BlockPyExpr::Subscript(node) => Expr::Subscript(node),
-            BlockPyExpr::Starred(node) => Expr::Starred(node),
-            BlockPyExpr::Name(node) => Expr::Name(node),
-            BlockPyExpr::List(node) => Expr::List(node),
-            BlockPyExpr::Tuple(node) => Expr::Tuple(node),
-            BlockPyExpr::Slice(node) => Expr::Slice(node),
-        }
     }
 }
 
@@ -635,18 +520,6 @@ impl From<CoreBlockPyExpr> for Expr {
             }),
             CoreBlockPyExpr::Name(node) => Expr::Name(node),
         }
-    }
-}
-
-impl BlockPyExpr {
-    pub fn to_expr(&self) -> Expr {
-        self.clone().into()
-    }
-
-    pub fn rewrite_mut(&mut self, f: impl FnOnce(&mut Expr)) {
-        let mut expr = self.to_expr();
-        f(&mut expr);
-        *self = expr.into();
     }
 }
 

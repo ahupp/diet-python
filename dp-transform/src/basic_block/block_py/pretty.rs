@@ -1,11 +1,10 @@
 use super::state::collect_parameter_names;
 use super::{
-    BlockPyBlock, BlockPyCallableDef, BlockPyCfgFragment, BlockPyExpr, BlockPyFunctionKind,
-    BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyTerm,
-    BlockPyTryJump,
+    BlockPyBlock, BlockPyCallableDef, BlockPyCfgFragment, BlockPyFunctionKind, BlockPyIfTerm,
+    BlockPyLabel, BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyTerm, BlockPyTryJump, Expr,
 };
 use crate::ruff_ast_to_string;
-use ruff_python_ast::{self as ast, Expr};
+use ruff_python_ast::{self as ast};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -941,7 +940,7 @@ mod tests {
             .expect("expected lowered semantic BlockPy bundle")
     }
 
-    fn parse_blockpy_expr(source: &str) -> BlockPyExpr {
+    fn parse_blockpy_expr(source: &str) -> Expr {
         (*parse_expression(source).unwrap().into_syntax().body).into()
     }
 
@@ -987,7 +986,7 @@ def classify(a, /, b: int = 1, *args, c=2, **kwargs):
 
     #[test]
     fn renders_empty_module_marker() {
-        let rendered = blockpy_module_to_string(&BlockPyModule::<BlockPyExpr> {
+        let rendered = blockpy_module_to_string(&BlockPyModule::<Expr> {
             module_init: None,
             callable_defs: Vec::new(),
         });
@@ -1037,7 +1036,7 @@ def gen():
 
     #[test]
     fn renders_public_closure_metadata_in_function_header() {
-        let rendered = blockpy_module_to_string(&BlockPyModule::<BlockPyExpr> {
+        let rendered = blockpy_module_to_string(&BlockPyModule::<Expr> {
             module_init: None,
             callable_defs: vec![BlockPyCallableDef {
                 cfg: crate::basic_block::cfg_ir::CfgCallableDef {
@@ -1051,7 +1050,7 @@ def gen():
                     blocks: vec![BlockPyBlock {
                         label: "gen_start".into(),
                         body: vec![],
-                        term: BlockPyTerm::<BlockPyExpr>::Return(None),
+                        term: BlockPyTerm::<Expr>::Return(None),
                         meta: BlockPyBlockMeta::default(),
                     }],
                 },
@@ -1163,7 +1162,7 @@ def choose(a, b):
 
     #[test]
     fn sorts_rendered_root_and_child_blocks_by_label() {
-        let function: BlockPyCallableDef<BlockPyExpr> = BlockPyCallableDef {
+        let function: BlockPyCallableDef<Expr> = BlockPyCallableDef {
             cfg: crate::basic_block::cfg_ir::CfgCallableDef {
                 function_id: crate::basic_block::bb_ir::FunctionId(0),
                 bind_name: "f".to_string(),

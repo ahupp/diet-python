@@ -47,7 +47,7 @@ mod tests {
             panic!("expected import stmt");
         };
         let context = Context::new(Options::for_test(), "");
-        let mut out = BlockPyStmtFragmentBuilder::<BlockPyExpr>::new();
+        let mut out = BlockPyStmtFragmentBuilder::<Expr>::new();
         let mut next_label_id = 0usize;
 
         import_stmt

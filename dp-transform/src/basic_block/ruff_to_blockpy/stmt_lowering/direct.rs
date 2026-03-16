@@ -272,7 +272,7 @@ mod tests {
             panic!("expected raise stmt");
         };
         let context = Context::new(Options::for_test(), "");
-        let mut out = BlockPyStmtFragmentBuilder::<BlockPyExpr>::new();
+        let mut out = BlockPyStmtFragmentBuilder::<Expr>::new();
         let mut next_label_id = 0usize;
 
         raise_stmt
@@ -290,7 +290,7 @@ mod tests {
             panic!("expected expr stmt");
         };
         let context = Context::new(Options::for_test(), "");
-        let mut out = BlockPyStmtFragmentBuilder::<BlockPyExpr>::new();
+        let mut out = BlockPyStmtFragmentBuilder::<Expr>::new();
         let mut next_label_id = 0usize;
 
         expr_stmt
@@ -311,7 +311,7 @@ mod tests {
             panic!("expected return stmt");
         };
         let context = Context::new(Options::for_test(), "");
-        let mut out = BlockPyStmtFragmentBuilder::<BlockPyExpr>::new();
+        let mut out = BlockPyStmtFragmentBuilder::<Expr>::new();
         let mut next_label_id = 0usize;
 
         return_stmt
