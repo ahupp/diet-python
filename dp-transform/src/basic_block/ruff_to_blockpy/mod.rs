@@ -467,7 +467,8 @@ fn build_semantic_blockpy_closure_layout(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_lowered_blockpy_function_bundle(
-    prepared_function: PreparedBlockPyFunction,
+    context: &Context,
+    prepared_function_plan: PreparedBlockPyFunctionPlan,
     display_name: String,
     has_yield: bool,
     is_coroutine: bool,
@@ -480,8 +481,21 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
     mut cell_slots: HashSet<String>,
     module_init_mode: bool,
     main_param_specs: BbExpr,
+    next_block_id: &mut usize,
     next_function_id: &mut usize,
+    lower_non_bb_def: &mut impl FnMut(&ast::StmtFunctionDef) -> Vec<Stmt>,
+    next_temp: &mut impl FnMut(&str, &mut usize) -> String,
+    prepare_callable_def: &mut impl FnMut(&mut SemanticBlockPyCallableDef),
 ) -> LoweredBlockPyFunctionBundle {
+    let mut prepared_function = resolve_prepared_blockpy_function_plan(
+        context,
+        prepared_function_plan,
+        next_block_id,
+        next_function_id,
+        lower_non_bb_def,
+        next_temp,
+    );
+    prepare_callable_def(&mut prepared_function.callable_def);
     let PreparedBlockPyFunction {
         callable_def: mut blockpy_function,
         generator_metadata,

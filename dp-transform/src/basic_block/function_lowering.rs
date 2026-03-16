@@ -17,7 +17,7 @@ use super::function_identity::{
 use super::param_specs::function_param_specs_expr;
 use super::ruff_to_blockpy::{
     build_lowered_blockpy_function_bundle, lower_function_body_to_blockpy_function,
-    resolve_prepared_blockpy_function_plan, LoweredBlockPyFunctionBundle,
+    LoweredBlockPyFunctionBundle,
 };
 use super::stmt_utils::{
     flatten_stmt_boxes, should_strip_nonlocal_for_bb, strip_nonlocal_directives,
@@ -428,35 +428,6 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
             next_temp_from_counter(reserved_temp_names_stack, prefix, next_block_id)
         },
     );
-    let mut prepared_function = resolve_prepared_blockpy_function_plan(
-        context,
-        prepared_function_plan,
-        &mut local_next_block_id,
-        next_function_id,
-        &mut |func_def| {
-            build_exec_function_def_binding_stmts(func_def, &cell_slots, &outer_scope_names)
-        },
-        &mut |prefix, next_block_id| {
-            next_temp_from_counter(reserved_temp_names_stack, prefix, next_block_id)
-        },
-    );
-    *next_block_id = local_next_block_id;
-
-    let mut blocks_for_dataflow = std::mem::take(&mut prepared_function.callable_def.blocks);
-
-    if !deleted_names.is_empty() {
-        rewrite_deleted_name_loads(
-            &mut blocks_for_dataflow,
-            &deleted_names,
-            &unbound_local_names,
-        );
-    } else if !unbound_local_names.is_empty() {
-        rewrite_deleted_name_loads(
-            &mut blocks_for_dataflow,
-            &HashSet::new(),
-            &unbound_local_names,
-        );
-    }
     let enclosing_scope = module_scope
         .child_scope_for_function(func)
         .ok()
@@ -490,9 +461,9 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         extra_closure_state_names.sort();
         extra_closure_state_names.dedup();
     }
-    prepared_function.callable_def.blocks = blocks_for_dataflow;
-    Some(build_lowered_blockpy_function_bundle(
-        prepared_function,
+    let lowered_bundle = build_lowered_blockpy_function_bundle(
+        context,
+        prepared_function_plan,
         identity.display_name.clone(),
         has_yield,
         coroutine_via_generator,
@@ -507,8 +478,32 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         BbExpr::from_expr(function_param_specs_expr(&simplify_parameter_exprs(
             func.parameters.as_ref(),
         ))),
+        &mut local_next_block_id,
         next_function_id,
-    ))
+        &mut |func_def| {
+            build_exec_function_def_binding_stmts(func_def, &cell_slots, &outer_scope_names)
+        },
+        &mut |prefix, next_block_id| {
+            next_temp_from_counter(reserved_temp_names_stack, prefix, next_block_id)
+        },
+        &mut |callable_def| {
+            if !deleted_names.is_empty() {
+                rewrite_deleted_name_loads(
+                    &mut callable_def.blocks,
+                    &deleted_names,
+                    &unbound_local_names,
+                );
+            } else if !unbound_local_names.is_empty() {
+                rewrite_deleted_name_loads(
+                    &mut callable_def.blocks,
+                    &HashSet::new(),
+                    &unbound_local_names,
+                );
+            }
+        },
+    );
+    *next_block_id = local_next_block_id;
+    Some(lowered_bundle)
 }
 
 pub(crate) fn function_docstring_expr(func: &ast::StmtFunctionDef) -> Option<Expr> {
