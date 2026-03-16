@@ -2,7 +2,7 @@ use crate::basic_block;
 use crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass;
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::ast_to_ast::rewrite_class_def;
-use crate::basic_block::ast_to_ast::rewrite_stmt::function_def::rewrite_ast_to_lowered_blockpy_module;
+use crate::basic_block::ast_to_ast::rewrite_stmt::function_def::rewrite_ast_to_lowered_blockpy_module_plan;
 use crate::basic_block::ast_to_ast::scope::{analyze_module_scope, BindingKind};
 use crate::basic_block::ast_to_ast::simplify::lower_surrogate_string_literals;
 use crate::basic_block::ast_to_ast::{
@@ -75,8 +75,9 @@ pub(crate) fn rewrite_module_with_tracker(
     rewrite_class_def::class_body::rewrite_class_body_scopes(context, scope, module);
 
     let _ = pass_tracker.add_pass("rewritten_ast_for_lowering", || module.clone());
+    let lowered_blockpy_module_plan = rewrite_ast_to_lowered_blockpy_module_plan(context, module);
     let lowered_blockpy_module = pass_tracker.add_pass("semantic_blockpy", || {
-        rewrite_ast_to_lowered_blockpy_module(context, module)
+        basic_block::lowered_blockpy_module_bundle_plan_to_bundle(lowered_blockpy_module_plan)
     });
     let core_blockpy_bundle = pass_tracker.add_pass("core_blockpy", || {
         basic_block::simplify_lowered_blockpy_module_bundle_exprs(&lowered_blockpy_module)

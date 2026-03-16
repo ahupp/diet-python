@@ -12,7 +12,7 @@ use super::block_py::{
 use super::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use super::cfg_ir::{CfgCallableDef, CfgModule};
 use super::param_specs::function_param_specs_expr;
-use super::ruff_to_blockpy::LoweredBlockPyFunction;
+use super::ruff_to_blockpy::{LoweredBlockPyFunction, LoweredBlockPyFunctionBundle};
 use super::stmt_utils::{flatten_stmt_boxes, stmt_body_from_stmts};
 use crate::py_expr;
 use crate::transformer::{walk_expr, Transformer};
@@ -27,6 +27,30 @@ pub type LoweredBlockPyModuleBundle = CfgModule<LoweredBlockPyFunction>;
 pub type LoweredCoreBlockPyFunction = LoweredBlockPyFunction<CoreBlockPyCallableDef>;
 
 pub type LoweredCoreBlockPyModuleBundle = CfgModule<LoweredCoreBlockPyFunction>;
+
+pub(crate) struct LoweredBlockPyModuleBundlePlan {
+    pub module_init: Option<String>,
+    pub callable_def_bundles: Vec<LoweredBlockPyFunctionBundle>,
+}
+
+pub(crate) fn lowered_blockpy_module_bundle_plan_to_bundle(
+    plan: LoweredBlockPyModuleBundlePlan,
+) -> LoweredBlockPyModuleBundle {
+    let mut callable_defs = Vec::new();
+    for bundle in plan.callable_def_bundles {
+        callable_defs.extend(
+            bundle
+                .helper_functions
+                .into_iter()
+                .map(|helper| helper.with_binding_target(super::bb_ir::BindingTarget::Local)),
+        );
+        callable_defs.push(bundle.main_function);
+    }
+    LoweredBlockPyModuleBundle {
+        module_init: plan.module_init,
+        callable_defs,
+    }
+}
 
 pub fn project_lowered_module_callable_defs<T, U: Clone>(
     module: &CfgModule<T>,

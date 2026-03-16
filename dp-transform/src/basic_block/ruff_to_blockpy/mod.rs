@@ -523,9 +523,9 @@ pub(crate) fn resolve_lowered_blockpy_function_bundle_plan(
         cell_slots,
         module_init_mode,
         main_param_specs,
-        deleted_names,
-        unbound_local_names,
-        outer_scope_names,
+        deleted_names: _,
+        unbound_local_names: _,
+        outer_scope_names: _,
     } = plan;
     let prepared_function = resolve_prepared_blockpy_function_plan(
         context,
