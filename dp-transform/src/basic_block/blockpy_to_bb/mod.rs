@@ -9,6 +9,7 @@ use super::block_py::exception::is_dp_lookup_call;
 use super::block_py::state::collect_parameter_names;
 use super::block_py::{
     BlockPyBlock, BlockPyIfTerm, BlockPyStmt, BlockPyTerm, CoreBlockPyCallableDef,
+    CoreBlockPyCallableDefWithoutAwait, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait,
 };
 use super::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use super::cfg_ir::{CfgCallableDef, CfgModule};
@@ -35,14 +36,17 @@ pub use exception_pass::lower_try_jump_exception_flow;
 
 pub type LoweredBlockPyModuleBundle = CfgModule<LoweredBlockPyFunction>;
 pub type LoweredCoreBlockPyFunction = LoweredBlockPyFunction<CoreBlockPyCallableDef>;
+pub type LoweredCoreBlockPyFunctionWithoutAwait =
+    LoweredBlockPyFunction<CoreBlockPyCallableDefWithoutAwait>;
 
 pub type LoweredCoreBlockPyModuleBundle = CfgModule<LoweredCoreBlockPyFunction>;
+pub type LoweredCoreBlockPyModuleBundleWithoutAwait =
+    CfgModule<LoweredCoreBlockPyFunctionWithoutAwait>;
 
 #[derive(Clone)]
-pub(crate) struct CoreBlockPyModuleBundleWithoutAwait(pub LoweredCoreBlockPyModuleBundle);
-
-#[derive(Clone)]
-pub(crate) struct CoreBlockPyModuleBundleWithoutAwaitOrYield(pub LoweredCoreBlockPyModuleBundle);
+pub(crate) struct CoreBlockPyModuleBundleWithoutAwaitOrYield(
+    pub LoweredCoreBlockPyModuleBundleWithoutAwait,
+);
 
 #[derive(Clone)]
 pub(crate) struct LoweredBlockPyModuleBundlePlanEntry {
@@ -259,196 +263,260 @@ pub(crate) fn simplify_lowered_blockpy_module_bundle_exprs(
     module.map_callable_defs(simplify_lowered_blockpy_function_exprs)
 }
 
-fn core_expr_contains_await(expr: &super::block_py::CoreBlockPyExpr) -> bool {
-    use super::block_py::{CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg};
+fn lower_core_expr_without_await(
+    expr: &CoreBlockPyExpr,
+    qualname: &str,
+) -> CoreBlockPyExprWithoutAwait {
+    expr.clone().try_into().unwrap_or_else(|_| {
+        panic!(
+            "core BlockPy await lowering is not explicit yet: await reached the core no-await boundary for {}",
+            qualname
+        )
+    })
+}
 
-    match expr {
-        CoreBlockPyExpr::Await(_) => true,
-        CoreBlockPyExpr::Call(call) => {
-            core_expr_contains_await(&call.func)
-                || call.args.iter().any(|arg| match arg {
-                    CoreBlockPyCallArg::Positional(arg) | CoreBlockPyCallArg::Starred(arg) => {
-                        core_expr_contains_await(arg)
-                    }
-                })
-                || call.keywords.iter().any(|keyword| match keyword {
-                    CoreBlockPyKeywordArg::Named { value, .. }
-                    | CoreBlockPyKeywordArg::Starred(value) => core_expr_contains_await(value),
-                })
-        }
-        CoreBlockPyExpr::Yield(yield_expr) => yield_expr
-            .value
-            .as_ref()
-            .is_some_and(|value| core_expr_contains_await(value)),
-        CoreBlockPyExpr::YieldFrom(yield_from_expr) => {
-            core_expr_contains_await(&yield_from_expr.value)
-        }
-        CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => false,
+fn lower_core_stmt_without_await(
+    stmt: &BlockPyStmt<CoreBlockPyExpr>,
+    qualname: &str,
+) -> BlockPyStmt<CoreBlockPyExprWithoutAwait> {
+    match stmt {
+        BlockPyStmt::Assign(assign) => BlockPyStmt::Assign(super::block_py::BlockPyAssign {
+            target: assign.target.clone(),
+            value: lower_core_expr_without_await(&assign.value, qualname),
+        }),
+        BlockPyStmt::Expr(expr) => BlockPyStmt::Expr(lower_core_expr_without_await(expr, qualname)),
+        BlockPyStmt::Delete(delete) => BlockPyStmt::Delete(delete.clone()),
+        BlockPyStmt::If(if_stmt) => BlockPyStmt::If(super::block_py::BlockPyIf {
+            test: lower_core_expr_without_await(&if_stmt.test, qualname),
+            body: lower_core_fragment_without_await(&if_stmt.body, qualname),
+            orelse: lower_core_fragment_without_await(&if_stmt.orelse, qualname),
+        }),
     }
 }
 
-fn core_expr_contains_yield_family(expr: &super::block_py::CoreBlockPyExpr) -> bool {
-    use super::block_py::{CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg};
+fn lower_core_term_without_await(
+    term: &BlockPyTerm<CoreBlockPyExpr>,
+    qualname: &str,
+) -> BlockPyTerm<CoreBlockPyExprWithoutAwait> {
+    match term {
+        BlockPyTerm::Jump(target) => BlockPyTerm::Jump(target.clone()),
+        BlockPyTerm::IfTerm(if_term) => BlockPyTerm::IfTerm(super::block_py::BlockPyIfTerm {
+            test: lower_core_expr_without_await(&if_term.test, qualname),
+            then_label: if_term.then_label.clone(),
+            else_label: if_term.else_label.clone(),
+        }),
+        BlockPyTerm::BranchTable(branch) => {
+            BlockPyTerm::BranchTable(super::block_py::BlockPyBranchTable {
+                index: lower_core_expr_without_await(&branch.index, qualname),
+                targets: branch.targets.clone(),
+                default_label: branch.default_label.clone(),
+            })
+        }
+        BlockPyTerm::Raise(raise_stmt) => BlockPyTerm::Raise(super::block_py::BlockPyRaise {
+            exc: raise_stmt
+                .exc
+                .as_ref()
+                .map(|exc| lower_core_expr_without_await(exc, qualname)),
+        }),
+        BlockPyTerm::TryJump(try_jump) => BlockPyTerm::TryJump(try_jump.clone()),
+        BlockPyTerm::Return(value) => BlockPyTerm::Return(
+            value
+                .as_ref()
+                .map(|value| lower_core_expr_without_await(value, qualname)),
+        ),
+    }
+}
+
+fn lower_core_fragment_without_await(
+    fragment: &super::block_py::BlockPyCfgFragment<
+        super::block_py::BlockPyStmt<CoreBlockPyExpr>,
+        super::block_py::BlockPyTerm<CoreBlockPyExpr>,
+    >,
+    qualname: &str,
+) -> super::block_py::BlockPyCfgFragment<
+    super::block_py::BlockPyStmt<CoreBlockPyExprWithoutAwait>,
+    super::block_py::BlockPyTerm<CoreBlockPyExprWithoutAwait>,
+> {
+    super::block_py::BlockPyCfgFragment::with_term(
+        fragment
+            .body
+            .iter()
+            .map(|stmt| lower_core_stmt_without_await(stmt, qualname))
+            .collect(),
+        fragment
+            .term
+            .as_ref()
+            .map(|term| lower_core_term_without_await(term, qualname)),
+    )
+}
+
+fn lower_core_callable_def_without_await(
+    callable_def: &CoreBlockPyCallableDef,
+) -> CoreBlockPyCallableDefWithoutAwait {
+    let qualname = callable_def.qualname.as_str();
+    super::block_py::BlockPyCallableDef {
+        cfg: CfgCallableDef {
+            function_id: callable_def.function_id,
+            bind_name: callable_def.bind_name.clone(),
+            display_name: callable_def.display_name.clone(),
+            qualname: callable_def.qualname.clone(),
+            kind: callable_def.kind,
+            params: callable_def.params.clone(),
+            entry_liveins: callable_def.entry_liveins.clone(),
+            blocks: callable_def
+                .blocks
+                .iter()
+                .map(|block| BlockPyBlock {
+                    label: block.label.clone(),
+                    body: block
+                        .body
+                        .iter()
+                        .map(|stmt| lower_core_stmt_without_await(stmt, qualname))
+                        .collect(),
+                    term: lower_core_term_without_await(&block.term, qualname),
+                    meta: block.meta.clone(),
+                })
+                .collect(),
+        },
+        doc: callable_def
+            .doc
+            .as_ref()
+            .map(|doc| lower_core_expr_without_await(doc, qualname)),
+        closure_layout: callable_def.closure_layout.clone(),
+        local_cell_slots: callable_def.local_cell_slots.clone(),
+    }
+}
+
+fn lower_core_blockpy_function_without_await(
+    lowered: &LoweredCoreBlockPyFunction,
+) -> LoweredCoreBlockPyFunctionWithoutAwait {
+    LoweredCoreBlockPyFunctionWithoutAwait {
+        binding_target: lowered.binding_target,
+        param_specs: lowered.param_specs.clone(),
+        callable_def: lower_core_callable_def_without_await(&lowered.callable_def),
+        is_coroutine: lowered.is_coroutine,
+        bb_kind: lowered.bb_kind.clone(),
+        block_params: lowered.block_params.clone(),
+        exception_edges: lowered.exception_edges.clone(),
+        closure_layout: lowered.closure_layout.clone(),
+    }
+}
+
+fn core_expr_without_await_contains_yield_family(expr: &CoreBlockPyExprWithoutAwait) -> bool {
+    use super::block_py::{CoreBlockPyCallArg, CoreBlockPyExprWithoutAwait, CoreBlockPyKeywordArg};
 
     match expr {
-        CoreBlockPyExpr::Await(await_expr) => core_expr_contains_yield_family(&await_expr.value),
-        CoreBlockPyExpr::Call(call) => {
-            core_expr_contains_yield_family(&call.func)
+        CoreBlockPyExprWithoutAwait::Call(call) => {
+            core_expr_without_await_contains_yield_family(&call.func)
                 || call.args.iter().any(|arg| match arg {
                     CoreBlockPyCallArg::Positional(arg) | CoreBlockPyCallArg::Starred(arg) => {
-                        core_expr_contains_yield_family(arg)
+                        core_expr_without_await_contains_yield_family(arg)
                     }
                 })
                 || call.keywords.iter().any(|keyword| match keyword {
                     CoreBlockPyKeywordArg::Named { value, .. }
                     | CoreBlockPyKeywordArg::Starred(value) => {
-                        core_expr_contains_yield_family(value)
+                        core_expr_without_await_contains_yield_family(value)
                     }
                 })
         }
-        CoreBlockPyExpr::Yield(_) | CoreBlockPyExpr::YieldFrom(_) => true,
-        CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => false,
+        CoreBlockPyExprWithoutAwait::Yield(_) | CoreBlockPyExprWithoutAwait::YieldFrom(_) => true,
+        CoreBlockPyExprWithoutAwait::Name(_) | CoreBlockPyExprWithoutAwait::Literal(_) => false,
     }
 }
 
-fn core_stmt_contains_await(stmt: &super::block_py::CoreBlockPyStmt) -> bool {
-    use super::block_py::CoreBlockPyStmt;
+fn core_stmt_without_await_contains_yield_family(
+    stmt: &BlockPyStmt<CoreBlockPyExprWithoutAwait>,
+) -> bool {
+    use super::block_py::BlockPyStmt;
 
     match stmt {
-        CoreBlockPyStmt::Expr(expr) => core_expr_contains_await(expr),
-        CoreBlockPyStmt::Assign(assign) => core_expr_contains_await(&assign.value),
-        CoreBlockPyStmt::Delete(_) => false,
-        CoreBlockPyStmt::If(if_stmt) => {
-            core_expr_contains_await(&if_stmt.test)
-                || if_stmt.body.body.iter().any(core_stmt_contains_await)
-                || if_stmt
-                    .body
-                    .term
-                    .as_ref()
-                    .is_some_and(core_term_contains_await)
-                || if_stmt.orelse.body.iter().any(core_stmt_contains_await)
-                || if_stmt
-                    .orelse
-                    .term
-                    .as_ref()
-                    .is_some_and(core_term_contains_await)
-        }
-    }
-}
-
-fn core_term_contains_await(term: &super::block_py::CoreBlockPyTerm) -> bool {
-    use super::block_py::CoreBlockPyTerm;
-
-    match term {
-        CoreBlockPyTerm::Jump(_) | CoreBlockPyTerm::TryJump(_) => false,
-        CoreBlockPyTerm::IfTerm(if_term) => core_expr_contains_await(&if_term.test),
-        CoreBlockPyTerm::BranchTable(branch) => core_expr_contains_await(&branch.index),
-        CoreBlockPyTerm::Raise(raise_stmt) => raise_stmt
-            .exc
-            .as_ref()
-            .is_some_and(core_expr_contains_await),
-        CoreBlockPyTerm::Return(value) => value.as_ref().is_some_and(core_expr_contains_await),
-    }
-}
-
-fn core_stmt_contains_yield_family(stmt: &super::block_py::CoreBlockPyStmt) -> bool {
-    use super::block_py::CoreBlockPyStmt;
-
-    match stmt {
-        CoreBlockPyStmt::Expr(expr) => core_expr_contains_yield_family(expr),
-        CoreBlockPyStmt::Assign(assign) => core_expr_contains_yield_family(&assign.value),
-        CoreBlockPyStmt::Delete(_) => false,
-        CoreBlockPyStmt::If(if_stmt) => {
-            core_expr_contains_yield_family(&if_stmt.test)
+        BlockPyStmt::Expr(expr) => core_expr_without_await_contains_yield_family(expr),
+        BlockPyStmt::Assign(assign) => core_expr_without_await_contains_yield_family(&assign.value),
+        BlockPyStmt::Delete(_) => false,
+        BlockPyStmt::If(if_stmt) => {
+            core_expr_without_await_contains_yield_family(&if_stmt.test)
                 || if_stmt
                     .body
                     .body
                     .iter()
-                    .any(core_stmt_contains_yield_family)
+                    .any(core_stmt_without_await_contains_yield_family)
                 || if_stmt
                     .body
                     .term
                     .as_ref()
-                    .is_some_and(core_term_contains_yield_family)
+                    .is_some_and(core_term_without_await_contains_yield_family)
                 || if_stmt
                     .orelse
                     .body
                     .iter()
-                    .any(core_stmt_contains_yield_family)
+                    .any(core_stmt_without_await_contains_yield_family)
                 || if_stmt
                     .orelse
                     .term
                     .as_ref()
-                    .is_some_and(core_term_contains_yield_family)
+                    .is_some_and(core_term_without_await_contains_yield_family)
         }
     }
 }
 
-fn core_term_contains_yield_family(term: &super::block_py::CoreBlockPyTerm) -> bool {
-    use super::block_py::CoreBlockPyTerm;
+fn core_term_without_await_contains_yield_family(
+    term: &BlockPyTerm<CoreBlockPyExprWithoutAwait>,
+) -> bool {
+    use super::block_py::BlockPyTerm;
 
     match term {
-        CoreBlockPyTerm::Jump(_) | CoreBlockPyTerm::TryJump(_) => false,
-        CoreBlockPyTerm::IfTerm(if_term) => core_expr_contains_yield_family(&if_term.test),
-        CoreBlockPyTerm::BranchTable(branch) => core_expr_contains_yield_family(&branch.index),
-        CoreBlockPyTerm::Raise(raise_stmt) => raise_stmt
+        BlockPyTerm::Jump(_) | BlockPyTerm::TryJump(_) => false,
+        BlockPyTerm::IfTerm(if_term) => {
+            core_expr_without_await_contains_yield_family(&if_term.test)
+        }
+        BlockPyTerm::BranchTable(branch) => {
+            core_expr_without_await_contains_yield_family(&branch.index)
+        }
+        BlockPyTerm::Raise(raise_stmt) => raise_stmt
             .exc
             .as_ref()
-            .is_some_and(core_expr_contains_yield_family),
-        CoreBlockPyTerm::Return(value) => {
-            value.as_ref().is_some_and(core_expr_contains_yield_family)
-        }
+            .is_some_and(core_expr_without_await_contains_yield_family),
+        BlockPyTerm::Return(value) => value
+            .as_ref()
+            .is_some_and(core_expr_without_await_contains_yield_family),
     }
 }
 
-fn core_block_contains_await(block: &super::block_py::CoreBlockPyBlock) -> bool {
-    block.body.iter().any(core_stmt_contains_await) || core_term_contains_await(&block.term)
+fn core_block_without_await_contains_yield_family(
+    block: &BlockPyBlock<CoreBlockPyExprWithoutAwait>,
+) -> bool {
+    block
+        .body
+        .iter()
+        .any(core_stmt_without_await_contains_yield_family)
+        || core_term_without_await_contains_yield_family(&block.term)
 }
 
-fn core_callable_def_contains_await(callable_def: &CoreBlockPyCallableDef) -> bool {
+fn core_callable_def_without_await_contains_yield_family(
+    callable_def: &CoreBlockPyCallableDefWithoutAwait,
+) -> bool {
     callable_def
         .doc
         .as_ref()
-        .is_some_and(core_expr_contains_await)
-        || callable_def.blocks.iter().any(core_block_contains_await)
-}
-
-fn core_block_contains_yield_family(block: &super::block_py::CoreBlockPyBlock) -> bool {
-    block.body.iter().any(core_stmt_contains_yield_family)
-        || core_term_contains_yield_family(&block.term)
-}
-
-fn core_callable_def_contains_yield_family(callable_def: &CoreBlockPyCallableDef) -> bool {
-    callable_def
-        .doc
-        .as_ref()
-        .is_some_and(core_expr_contains_yield_family)
+        .is_some_and(core_expr_without_await_contains_yield_family)
         || callable_def
             .blocks
             .iter()
-            .any(core_block_contains_yield_family)
+            .any(core_block_without_await_contains_yield_family)
 }
 
 pub(crate) fn lower_awaits_in_lowered_core_blockpy_module_bundle(
     module: LoweredCoreBlockPyModuleBundle,
-) -> CoreBlockPyModuleBundleWithoutAwait {
-    for callable_def in &module.callable_defs {
-        if core_callable_def_contains_await(callable_def.callable_def()) {
-            panic!(
-                "core BlockPy await lowering is not explicit yet: await reached the core no-await boundary for {}",
-                callable_def.callable_def().qualname
-            );
-        }
-    }
-    CoreBlockPyModuleBundleWithoutAwait(module)
+) -> LoweredCoreBlockPyModuleBundleWithoutAwait {
+    module.map_callable_defs(lower_core_blockpy_function_without_await)
 }
 
 pub(crate) fn lower_yield_in_lowered_core_blockpy_module_bundle(
-    module: CoreBlockPyModuleBundleWithoutAwait,
+    module: LoweredCoreBlockPyModuleBundleWithoutAwait,
 ) -> CoreBlockPyModuleBundleWithoutAwaitOrYield {
-    let module = module.0;
     for callable_def in &module.callable_defs {
-        if core_callable_def_contains_yield_family(callable_def.callable_def()) {
+        if core_callable_def_without_await_contains_yield_family(callable_def.callable_def()) {
             panic!(
                 "core BlockPy yield lowering is not explicit yet: yield-family expr reached the core no-yield boundary for {}",
                 callable_def.callable_def().qualname
@@ -460,12 +528,12 @@ pub(crate) fn lower_yield_in_lowered_core_blockpy_module_bundle(
 
 pub(crate) fn core_blockpy_module_bundle_without_await_or_yield_to_bundle(
     module: CoreBlockPyModuleBundleWithoutAwaitOrYield,
-) -> LoweredCoreBlockPyModuleBundle {
+) -> LoweredCoreBlockPyModuleBundleWithoutAwait {
     module.0
 }
 
 pub(crate) fn lower_core_blockpy_module_bundle_to_bb_module(
-    module: &LoweredCoreBlockPyModuleBundle,
+    module: &LoweredCoreBlockPyModuleBundleWithoutAwait,
 ) -> BbModule {
     module.map_callable_defs(lower_core_blockpy_function_to_bb_function)
 }
@@ -486,9 +554,12 @@ fn simplify_lowered_blockpy_function_exprs(
     }
 }
 
-pub(crate) fn lower_core_blockpy_function_to_bb_function(
-    lowered: &LoweredCoreBlockPyFunction,
-) -> BbFunction {
+pub(crate) fn lower_core_blockpy_function_to_bb_function<E>(
+    lowered: &LoweredBlockPyFunction<super::block_py::BlockPyCallableDef<E>>,
+) -> BbFunction
+where
+    E: Clone + Into<Expr> + From<Expr>,
+{
     let (linear_blocks, linear_block_params, linear_exception_edges) = linearize_structured_ifs(
         &lowered.callable_def.blocks,
         &lowered.block_params,
