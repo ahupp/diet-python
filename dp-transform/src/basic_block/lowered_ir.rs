@@ -1,3 +1,6 @@
+use super::cfg_ir::CfgCallableDef;
+use std::ops::{Deref, DerefMut};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FunctionId(pub usize);
 
@@ -53,4 +56,26 @@ pub enum ClosureInit {
     RuntimePcUnstarted,
     RuntimeNone,
     Deferred,
+}
+
+#[derive(Debug, Clone)]
+pub struct LoweredCfgFunction<B> {
+    pub cfg: CfgCallableDef<FunctionId, LoweredFunctionKind, Vec<String>, B>,
+    pub binding_target: BindingTarget,
+    pub closure_layout: Option<ClosureLayout>,
+    pub local_cell_slots: Vec<String>,
+}
+
+impl<B> Deref for LoweredCfgFunction<B> {
+    type Target = CfgCallableDef<FunctionId, LoweredFunctionKind, Vec<String>, B>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.cfg
+    }
+}
+
+impl<B> DerefMut for LoweredCfgFunction<B> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.cfg
+    }
 }

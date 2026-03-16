@@ -1,34 +1,11 @@
 use super::block_py::{
     CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyLiteral, CoreBlockPyStmtWithoutAwaitOrYield,
 };
-use super::cfg_ir::{CfgBlock, CfgCallableDef, CfgModule};
-use super::lowered_ir::{BindingTarget, ClosureLayout, FunctionId, LoweredFunctionKind};
+use super::cfg_ir::{CfgBlock, CfgModule};
+use super::lowered_ir::{LoweredCfgFunction, LoweredFunctionKind};
 use ruff_python_ast as ast;
-use std::ops::{Deref, DerefMut};
 
 pub type BbModule = CfgModule<BbFunction>;
-
-#[derive(Debug, Clone)]
-pub struct BbFunction {
-    pub cfg: CfgCallableDef<FunctionId, LoweredFunctionKind, Vec<String>, BbBlock>,
-    pub binding_target: BindingTarget,
-    pub closure_layout: Option<ClosureLayout>,
-    pub local_cell_slots: Vec<String>,
-}
-
-impl Deref for BbFunction {
-    type Target = CfgCallableDef<FunctionId, LoweredFunctionKind, Vec<String>, BbBlock>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.cfg
-    }
-}
-
-impl DerefMut for BbFunction {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.cfg
-    }
-}
 
 #[derive(Debug, Clone, Default)]
 pub struct BbBlockMeta {
@@ -39,6 +16,7 @@ pub struct BbBlockMeta {
 
 pub type BbStmt = CoreBlockPyStmtWithoutAwaitOrYield;
 pub type BbBlock = CfgBlock<String, BbStmt, BbTerm, BbBlockMeta>;
+pub type BbFunction = LoweredCfgFunction<BbBlock>;
 
 #[derive(Debug, Clone)]
 pub enum BbTerm {
