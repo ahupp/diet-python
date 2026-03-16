@@ -22,10 +22,11 @@ pub(crate) use blockpy_to_bb::{
     lower_awaits_in_lowered_blockpy_module_bundle_plan,
     lower_core_blockpy_module_bundle_to_bb_module,
     lower_generators_in_lowered_blockpy_module_bundle_plan,
-    lowered_blockpy_module_export_plan_to_bundle,
+    lower_yield_in_lowered_blockpy_module_export_plan,
     resolved_lowered_blockpy_module_bundle_plan_to_export_plan,
-    simplify_lowered_blockpy_module_bundle_exprs, SemanticBlockPyModulePlanWithAwaits,
-    SemanticBlockPyModulePlanWithoutYield,
+    semantic_blockpy_module_bundle_without_yield_to_bundle,
+    simplify_lowered_blockpy_module_bundle_exprs, SemanticBlockPyModuleBundleWithoutYield,
+    SemanticBlockPyModulePlanWithAwaits,
 };
 pub use blockpy_to_bb::{lower_try_jump_exception_flow, normalize_bb_module_for_codegen};
 pub use blockpy_to_bb::{

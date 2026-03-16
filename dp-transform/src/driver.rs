@@ -97,17 +97,15 @@ pub(crate) fn rewrite_module_with_tracker(
         });
     let semantic_blockpy_without_yield =
         pass_tracker.add_pass("semantic_blockpy_without_yield", || {
-            basic_block::SemanticBlockPyModulePlanWithoutYield(
+            basic_block::lower_yield_in_lowered_blockpy_module_export_plan(
                 basic_block::resolved_lowered_blockpy_module_bundle_plan_to_export_plan(
                     semantic_blockpy_after_generator_lowering,
                 ),
             )
         });
     let lowered_blockpy_module = pass_tracker.add_pass("semantic_blockpy", || {
-        let basic_block::SemanticBlockPyModulePlanWithoutYield(lowered_blockpy_module_export_plan) =
-            semantic_blockpy_without_yield;
-        basic_block::lowered_blockpy_module_export_plan_to_bundle(
-            lowered_blockpy_module_export_plan,
+        basic_block::semantic_blockpy_module_bundle_without_yield_to_bundle(
+            semantic_blockpy_without_yield,
         )
     });
     let core_blockpy_bundle = pass_tracker.add_pass("core_blockpy", || {

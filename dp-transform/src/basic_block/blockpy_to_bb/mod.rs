@@ -88,7 +88,7 @@ pub(crate) struct LoweredBlockPyModuleExportPlan {
 }
 
 #[derive(Clone)]
-pub(crate) struct SemanticBlockPyModulePlanWithoutYield(pub LoweredBlockPyModuleExportPlan);
+pub(crate) struct SemanticBlockPyModuleBundleWithoutYield(pub LoweredBlockPyModuleBundle);
 
 fn next_temp_from_reserved_names(
     reserved_names: &mut HashSet<String>,
@@ -210,9 +210,9 @@ pub(crate) fn resolved_lowered_blockpy_module_bundle_plan_to_export_plan(
     }
 }
 
-pub(crate) fn lowered_blockpy_module_export_plan_to_bundle(
+pub(crate) fn lower_yield_in_lowered_blockpy_module_export_plan(
     plan: LoweredBlockPyModuleExportPlan,
-) -> LoweredBlockPyModuleBundle {
+) -> SemanticBlockPyModuleBundleWithoutYield {
     let mut callable_defs = Vec::new();
     for entry in plan.callable_def_bundles {
         let bundle = lowered_blockpy_function_export_plan_to_bundle(entry.bundle_plan);
@@ -228,10 +228,16 @@ pub(crate) fn lowered_blockpy_module_export_plan_to_bundle(
                 .with_binding_target(entry.main_binding_target),
         );
     }
-    LoweredBlockPyModuleBundle {
+    SemanticBlockPyModuleBundleWithoutYield(LoweredBlockPyModuleBundle {
         module_init: plan.module_init,
         callable_defs,
-    }
+    })
+}
+
+pub(crate) fn semantic_blockpy_module_bundle_without_yield_to_bundle(
+    module: SemanticBlockPyModuleBundleWithoutYield,
+) -> LoweredBlockPyModuleBundle {
+    module.0
 }
 
 pub fn project_lowered_module_callable_defs<T, U: Clone>(
