@@ -47,6 +47,11 @@
     - Rust type aliases cannot themselves own associated types, so this likely needs either a `BlockPyStage` trait with associated types or stage wrapper newtypes rather than trying to hang associated types directly off `BlockPyModule`.
     - The goal is to stop spelling parallel alias lists for `Module`, `CallableDef`, `Block`, `Stmt`, `Term`, `Assign`, `If`, `Raise`, and related helpers, while still making the stage (`Ruff`, semantic, core) explicit.
     - This likely becomes simpler after the semantic `BlockPyExpr` -> Ruff `Expr` cleanup, because that would remove one whole stage-specific expression wrapper from the matrix first.
+- See whether `BbExpr` can be replaced by `CoreBlockPyExpr`.
+  - Planning note:
+    - Today `BbExpr` is not just a direct alias candidate: it is used in BB-specific places like `BbFunction.param_specs`, carries a BB-specific `BbCallExpr` template shape, and currently allows a narrower expression surface than `CoreBlockPyExpr` in some cases.
+    - The likely cleanup path is to first decide whether BB really needs its own call/template representation and whether `param_specs` should stay in the BB layer at all; only then can `BbExpr` potentially collapse onto `CoreBlockPyExpr`.
+    - If the answer is yes, the goal should be for BlockPy -> BB lowering to preserve core expressions directly and eliminate the extra `BbExpr::from_expr` conversion boundary.
 
 ## Completed
 
