@@ -57,6 +57,11 @@
     - The likely end state is one generic lowered-function transport/chassis, with later stages specializing payload types such as callable CFG blocks, function kind metadata, and backend-only fields instead of introducing a wholly separate `BbFunction` concept.
     - A good first step is to identify which `BbFunction` fields are truly backend-specific and which are just the same lowered-function data carried farther through the pipeline.
     - Keep the result explicit in the type system so each pass boundary still makes clear what has changed, even if both stages share a generic outer function type.
+- Review all visibility annotations and make them as restrictive as possible, moving helpers into the narrowest owning module when they are only consumed there.
+  - Planning note:
+    - The desired end state is that non-local visibility exists only for real cross-module boundaries, not as a convenience for call sites that could instead live beside their only consumers.
+    - A good first pass is to audit `pub`, `pub(crate)`, and cross-module free functions, then inline or relocate single-consumer helpers before tightening the remaining visibility annotations.
+    - Keep the resulting ownership aligned with the codebase-size goal: each concept should live in one place, and each place should expose only the smallest surface needed by later passes.
 
 ## Completed
 
