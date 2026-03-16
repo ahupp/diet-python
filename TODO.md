@@ -65,6 +65,11 @@
     - `BbExpr` is already gone, so the next candidates are the BB-only wrappers and metadata types such as `BbFunction`, `BbBlock`, `BbTerm`, `BbOp`, and the closure-layout / function-kind families.
     - A good first pass is to separate “truly backend-specific” concerns from generic CFG/block/container structure, and check whether those backend-specific pieces can become generic parameters on the existing BlockPy/Cfg chassis instead of separate top-level BB concepts.
     - This TODO should be evaluated together with the existing `LoweredBlockPyFunction` / `BbFunction` merge question, since both are really about how far the generic lowered-function and block/container types can extend before the backend needs a distinct representation.
+- Move refcount management out of `soac-eval` and into a new explicit pass in `rewrite_module`.
+  - Planning note:
+    - The current JIT path in `soac-eval` still owns a large amount of `incref` / `decref` insertion and runtime helper wiring (`dp_jit_incref`, `dp_jit_decref`), which makes ownership of reference semantics backend-local instead of pipeline-visible.
+    - The desired end state is for refcount ownership to become an explicit lowered-module pass in `rewrite_module`, so later backends consume already-refcount-annotated IR instead of each backend re-deriving those rules.
+    - A good first pass is to identify the minimal IR annotation or explicit stmt/term forms needed for retain/release edges, then move the current JIT-only reference-management decisions behind one driver-visible transform boundary.
 - Review all visibility annotations and make them as restrictive as possible, moving helpers into the narrowest owning module when they are only consumed there.
   - Planning note:
     - The desired end state is that non-local visibility exists only for real cross-module boundaries, not as a convenience for call sites that could instead live beside their only consumers.
