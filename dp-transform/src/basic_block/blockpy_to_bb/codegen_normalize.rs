@@ -1,9 +1,11 @@
 use crate::basic_block::bb_ir;
-use crate::basic_block::block_py::BlockPyStmt;
-use crate::py_expr;
-use crate::transformer::{walk_expr, Transformer};
-use ruff_python_ast::{self as ast, Expr, ExprContext};
-use ruff_python_parser::parse_expression;
+use crate::basic_block::block_py::{
+    BlockPyStmt, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield,
+    CoreBlockPyKeywordArg, CoreBlockPyLiteral,
+};
+use ruff_python_ast::str::Quote;
+use ruff_python_ast::{self as ast, BytesLiteral, BytesLiteralFlags, ExprName};
+use ruff_text_size::TextRange;
 
 use super::codegen_trace::{instrument_bb_module_for_trace, parse_bb_trace_env};
 
@@ -54,105 +56,174 @@ fn rewrite_term_exprs(rewriter: &mut CodegenExprNormalizer, term: &mut bb_ir::Bb
 
 fn rewrite_bb_expr(
     rewriter: &mut CodegenExprNormalizer,
-    expr: &mut crate::basic_block::block_py::CoreBlockPyExprWithoutAwaitOrYield,
+    expr: &mut CoreBlockPyExprWithoutAwaitOrYield,
 ) {
-    let mut raw = expr.to_expr();
-    rewriter.visit_expr(&mut raw);
-    *expr = crate::basic_block::block_py::CoreBlockPyExprWithoutAwaitOrYield::from_expr(raw);
+    rewriter.rewrite_expr(expr);
 }
 
 struct CodegenExprNormalizer;
 
-impl Transformer for CodegenExprNormalizer {
-    fn visit_expr(&mut self, expr: &mut Expr) {
-        walk_expr(self, expr);
-        match expr {
-            Expr::Call(call)
-                if call.arguments.keywords.is_empty()
-                    && matches!(call.func.as_ref(), Expr::Name(_)) =>
-            {
-                let func_name = if let Expr::Name(name) = call.func.as_ref() {
-                    name.id.as_str()
-                } else {
-                    ""
-                };
-                let args = call.arguments.args.clone();
-                match (func_name, args.len()) {
-                    ("__dp_getattr", 2) => {
-                        *expr = py_expr!(
-                            "PyObject_GetAttr({obj:expr}, {attr:expr})",
-                            obj = args[0].clone(),
-                            attr = args[1].clone(),
-                        );
+impl CodegenExprNormalizer {
+    fn rewrite_expr(&mut self, expr: &mut CoreBlockPyExprWithoutAwaitOrYield) {
+        if let CoreBlockPyExprWithoutAwaitOrYield::Call(call) = expr {
+            self.rewrite_expr(call.func.as_mut());
+            for arg in &mut call.args {
+                match arg {
+                    CoreBlockPyCallArg::Positional(value) | CoreBlockPyCallArg::Starred(value) => {
+                        self.rewrite_expr(value);
                     }
-                    ("__dp_setattr", 3) => {
-                        *expr = py_expr!(
-                            "PyObject_SetAttr({obj:expr}, {attr:expr}, {value:expr})",
-                            obj = args[0].clone(),
-                            attr = args[1].clone(),
-                            value = args[2].clone(),
-                        );
-                    }
-                    ("__dp_getitem", 2) => {
-                        *expr = py_expr!(
-                            "PyObject_GetItem({obj:expr}, {key:expr})",
-                            obj = args[0].clone(),
-                            key = args[1].clone(),
-                        );
-                    }
-                    ("__dp_setitem", 3) => {
-                        *expr = py_expr!(
-                            "PyObject_SetItem({obj:expr}, {key:expr}, {value:expr})",
-                            obj = args[0].clone(),
-                            key = args[1].clone(),
-                            value = args[2].clone(),
-                        );
-                    }
-                    _ => {}
                 }
             }
-            Expr::Attribute(ast::ExprAttribute {
-                value, attr, ctx, ..
-            }) if matches!(ctx, ExprContext::Load) => {
-                let value_expr = *value.clone();
-                *expr = py_expr!(
-                    "PyObject_GetAttr({value:expr}, {attr:literal})",
-                    value = value_expr,
-                    attr = attr.to_string().as_str(),
-                );
+            for keyword in &mut call.keywords {
+                match keyword {
+                    CoreBlockPyKeywordArg::Named { value, .. }
+                    | CoreBlockPyKeywordArg::Starred(value) => self.rewrite_expr(value),
+                }
             }
-            Expr::StringLiteral(ast::ExprStringLiteral { value, .. }) => {
-                *expr = string_to_str_bytes_expr(value.to_string().as_str());
+        }
+
+        match expr {
+            CoreBlockPyExprWithoutAwaitOrYield::Call(call)
+                if call.keywords.is_empty()
+                    && matches!(
+                        call.func.as_ref(),
+                        CoreBlockPyExprWithoutAwaitOrYield::Name(_)
+                    ) =>
+            {
+                let func_name = match call.func.as_ref() {
+                    CoreBlockPyExprWithoutAwaitOrYield::Name(name) => name.id.as_str(),
+                    _ => unreachable!(),
+                };
+                let args = call.args.clone();
+                let call_meta = (call.node_index.clone(), call.range);
+                let replacement = match (func_name, args.as_slice()) {
+                    (
+                        "__dp_getattr",
+                        [CoreBlockPyCallArg::Positional(obj), CoreBlockPyCallArg::Positional(attr)],
+                    ) => Some(helper_call_expr_with_meta(
+                        "PyObject_GetAttr",
+                        vec![obj.clone(), attr.clone()],
+                        call_meta,
+                    )),
+                    (
+                        "__dp_setattr",
+                        [CoreBlockPyCallArg::Positional(obj), CoreBlockPyCallArg::Positional(attr), CoreBlockPyCallArg::Positional(value)],
+                    ) => Some(helper_call_expr_with_meta(
+                        "PyObject_SetAttr",
+                        vec![obj.clone(), attr.clone(), value.clone()],
+                        call_meta,
+                    )),
+                    (
+                        "__dp_getitem",
+                        [CoreBlockPyCallArg::Positional(obj), CoreBlockPyCallArg::Positional(key)],
+                    ) => Some(helper_call_expr_with_meta(
+                        "PyObject_GetItem",
+                        vec![obj.clone(), key.clone()],
+                        call_meta,
+                    )),
+                    (
+                        "__dp_setitem",
+                        [CoreBlockPyCallArg::Positional(obj), CoreBlockPyCallArg::Positional(key), CoreBlockPyCallArg::Positional(value)],
+                    ) => Some(helper_call_expr_with_meta(
+                        "PyObject_SetItem",
+                        vec![obj.clone(), key.clone(), value.clone()],
+                        call_meta,
+                    )),
+                    _ => None,
+                };
+                if let Some(replacement) = replacement {
+                    *expr = replacement;
+                }
+            }
+            CoreBlockPyExprWithoutAwaitOrYield::Literal(CoreBlockPyLiteral::StringLiteral(
+                node,
+            )) => {
+                *expr = str_bytes_call_expr(node.value.to_str().as_bytes());
+            }
+            CoreBlockPyExprWithoutAwaitOrYield::Literal(CoreBlockPyLiteral::BooleanLiteral(
+                boolean,
+            )) => {
+                *expr = if boolean.value {
+                    helper_name_expr("__dp_TRUE")
+                } else {
+                    helper_name_expr("__dp_FALSE")
+                };
+            }
+            CoreBlockPyExprWithoutAwaitOrYield::Literal(CoreBlockPyLiteral::NoneLiteral(_)) => {
+                *expr = helper_name_expr("__dp_NONE");
+            }
+            CoreBlockPyExprWithoutAwaitOrYield::Literal(CoreBlockPyLiteral::EllipsisLiteral(_)) => {
+                *expr = helper_name_expr("__dp_Ellipsis");
             }
             _ => {}
         }
     }
 }
 
-fn string_to_str_bytes_expr(value: &str) -> Expr {
-    let mut source = String::from("str(b\"");
-    source.push_str(&escape_bytes_for_double_quoted_literal(value.as_bytes()));
-    source.push_str("\")");
-    let parsed = parse_expression(&source).unwrap_or_else(|err| {
-        panic!("failed to build codegen string literal expression from {source:?}: {err}")
-    });
-    *parsed.into_syntax().body
+fn compat_node_index() -> ast::AtomicNodeIndex {
+    ast::AtomicNodeIndex::default()
 }
 
-fn escape_bytes_for_double_quoted_literal(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 4);
-    for &byte in bytes {
-        match byte {
-            b'\\' => out.push_str("\\\\"),
-            b'"' => out.push_str("\\\""),
-            b'\n' => out.push_str("\\n"),
-            b'\r' => out.push_str("\\r"),
-            b'\t' => out.push_str("\\t"),
-            0x20..=0x7e => out.push(byte as char),
-            _ => out.push_str(&format!("\\x{:02x}", byte)),
-        }
+fn compat_range() -> TextRange {
+    TextRange::default()
+}
+
+fn load_name(id: &str) -> ExprName {
+    ExprName {
+        id: id.into(),
+        ctx: ast::ExprContext::Load,
+        range: compat_range(),
+        node_index: compat_node_index(),
     }
-    out
+}
+
+fn bytes_literal_expr(bytes: &[u8]) -> CoreBlockPyExprWithoutAwaitOrYield {
+    CoreBlockPyExprWithoutAwaitOrYield::Literal(CoreBlockPyLiteral::BytesLiteral(
+        ast::ExprBytesLiteral {
+            range: compat_range(),
+            node_index: compat_node_index(),
+            value: ast::BytesLiteralValue::single(BytesLiteral {
+                range: compat_range(),
+                node_index: compat_node_index(),
+                value: bytes.into(),
+                flags: BytesLiteralFlags::empty().with_quote_style(Quote::Double),
+            }),
+        },
+    ))
+}
+
+fn helper_call_expr_with_meta(
+    helper_name: &str,
+    args: Vec<CoreBlockPyExprWithoutAwaitOrYield>,
+    (node_index, range): (ast::AtomicNodeIndex, TextRange),
+) -> CoreBlockPyExprWithoutAwaitOrYield {
+    CoreBlockPyExprWithoutAwaitOrYield::Call(CoreBlockPyCall {
+        node_index,
+        range,
+        func: Box::new(CoreBlockPyExprWithoutAwaitOrYield::Name(load_name(
+            helper_name,
+        ))),
+        args: args
+            .into_iter()
+            .map(CoreBlockPyCallArg::Positional)
+            .collect(),
+        keywords: Vec::<CoreBlockPyKeywordArg<CoreBlockPyExprWithoutAwaitOrYield>>::new(),
+    })
+}
+
+fn helper_call_expr(
+    helper_name: &str,
+    args: Vec<CoreBlockPyExprWithoutAwaitOrYield>,
+) -> CoreBlockPyExprWithoutAwaitOrYield {
+    helper_call_expr_with_meta(helper_name, args, (compat_node_index(), compat_range()))
+}
+
+fn str_bytes_call_expr(bytes: &[u8]) -> CoreBlockPyExprWithoutAwaitOrYield {
+    helper_call_expr("str", vec![bytes_literal_expr(bytes)])
+}
+
+fn helper_name_expr(name: &str) -> CoreBlockPyExprWithoutAwaitOrYield {
+    CoreBlockPyExprWithoutAwaitOrYield::Name(load_name(name))
 }
 
 #[cfg(test)]
@@ -160,15 +231,11 @@ mod tests {
     use super::normalize_bb_module_for_codegen;
     use crate::{
         basic_block::{bb_ir, block_py::BlockPyStmt},
-        transform_str_to_bb_ir_with_options,
-        transformer::Transformer,
-        Options,
+        transform_str_to_bb_ir_with_options, Options,
     };
-    use ruff_python_ast::{Expr, Stmt};
     use std::cell::Cell;
 
     struct ExprShapeProbe {
-        saw_attribute: Cell<bool>,
         saw_string_literal: Cell<bool>,
         saw_bytes_literal: Cell<bool>,
         saw_str_bytes_call: Cell<bool>,
@@ -178,44 +245,12 @@ mod tests {
     impl ExprShapeProbe {
         fn new() -> Self {
             Self {
-                saw_attribute: Cell::new(false),
                 saw_string_literal: Cell::new(false),
                 saw_bytes_literal: Cell::new(false),
                 saw_str_bytes_call: Cell::new(false),
                 saw_decode_literal_call: Cell::new(false),
             }
         }
-    }
-
-    impl Transformer for ExprShapeProbe {
-        fn visit_expr(&mut self, expr: &mut Expr) {
-            match expr {
-                Expr::Attribute(_) => self.saw_attribute.set(true),
-                Expr::StringLiteral(_) => self.saw_string_literal.set(true),
-                Expr::BytesLiteral(_) => self.saw_bytes_literal.set(true),
-                Expr::Call(call) => {
-                    if call.arguments.keywords.is_empty()
-                        && call.arguments.args.len() == 1
-                        && matches!(call.func.as_ref(), Expr::Name(name) if name.id.as_str() == "str")
-                        && matches!(call.arguments.args[0], Expr::BytesLiteral(_))
-                    {
-                        self.saw_str_bytes_call.set(true);
-                    }
-                    if call.arguments.keywords.is_empty()
-                        && call.arguments.args.len() == 1
-                        && matches!(call.func.as_ref(), Expr::Name(name) if name.id.as_str() == "__dp_decode_literal_bytes")
-                    {
-                        self.saw_decode_literal_call.set(true);
-                    }
-                }
-                _ => {}
-            }
-            crate::transformer::walk_expr(self, expr);
-        }
-    }
-
-    fn probe_stmt_exprs(probe: &mut ExprShapeProbe, stmt: &mut Stmt) {
-        probe.visit_stmt(stmt);
     }
 
     fn probe_bb_exprs(
@@ -282,6 +317,27 @@ mod tests {
         }
     }
 
+    fn probe_bb_term_exprs(probe: &mut ExprShapeProbe, term: &bb_ir::BbTerm) {
+        match term {
+            bb_ir::BbTerm::Jump(_) => {}
+            bb_ir::BbTerm::BrIf { test, .. } => probe_bb_exprs(probe, test),
+            bb_ir::BbTerm::BrTable { index, .. } => probe_bb_exprs(probe, index),
+            bb_ir::BbTerm::Raise { exc, cause } => {
+                if let Some(exc) = exc {
+                    probe_bb_exprs(probe, exc);
+                }
+                if let Some(cause) = cause {
+                    probe_bb_exprs(probe, cause);
+                }
+            }
+            bb_ir::BbTerm::Ret(value) => {
+                if let Some(value) = value {
+                    probe_bb_exprs(probe, value);
+                }
+            }
+        }
+    }
+
     fn probe_bb_stmt_exprs(probe: &mut ExprShapeProbe, stmt: &bb_ir::BbStmt) {
         match stmt {
             BlockPyStmt::Assign(assign) => probe_bb_exprs(probe, &assign.value),
@@ -306,41 +362,14 @@ def f():
 
         let mut probe = ExprShapeProbe::new();
         for function in normalized.callable_defs {
-            for mut block in function.cfg.blocks {
+            for block in function.cfg.blocks {
                 for op in block.body {
                     probe_bb_stmt_exprs(&mut probe, &op);
                 }
-                match &mut block.term {
-                    crate::basic_block::bb_ir::BbTerm::BrIf { test, .. } => {
-                        let mut expr = test.to_expr();
-                        probe.visit_expr(&mut expr);
-                    }
-                    crate::basic_block::bb_ir::BbTerm::BrTable { index, .. } => {
-                        let mut expr = index.to_expr();
-                        probe.visit_expr(&mut expr);
-                    }
-                    crate::basic_block::bb_ir::BbTerm::Raise { exc, cause } => {
-                        if let Some(exc) = exc.as_mut() {
-                            let mut expr = exc.to_expr();
-                            probe.visit_expr(&mut expr);
-                        }
-                        if let Some(cause) = cause.as_mut() {
-                            let mut expr = cause.to_expr();
-                            probe.visit_expr(&mut expr);
-                        }
-                    }
-                    crate::basic_block::bb_ir::BbTerm::Ret(value) => {
-                        if let Some(value) = value.as_mut() {
-                            let mut expr = value.to_expr();
-                            probe.visit_expr(&mut expr);
-                        }
-                    }
-                    crate::basic_block::bb_ir::BbTerm::Jump(_) => {}
-                }
+                probe_bb_term_exprs(&mut probe, &block.term);
             }
         }
 
-        assert!(!probe.saw_attribute.get(), "attributes should be lowered");
         assert!(
             !probe.saw_string_literal.get(),
             "string literals should be lowered"

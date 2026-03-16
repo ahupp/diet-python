@@ -1,10 +1,12 @@
 # class_with_method
 
+
 class C:
     x: int = 1
 
     def m(self):
         return self.x
+
 
 # ==
 
@@ -43,7 +45,7 @@ class C:
 #     qualname: _dp_define_class_C
 #     block start:
 #         _dp_class_ns = _dp_class_ns_outer
-#         return __dp_create_class("C", _dp_class_ns_fn, __dp_tuple(), _dp_prepare_dict, False, 2, ())
+#         return __dp_create_class("C", _dp_class_ns_fn, __dp_tuple(), _dp_prepare_dict, False, 3, ())
 
 # function _dp_module_init()
 #     kind: function
@@ -57,9 +59,11 @@ class C:
 
 # class_method_named_open_calls_builtin
 
+
 class Wrapper:
     def open(self, mode: str = "r", *, encoding: str = "utf8"):
         return open(mode, encoding=encoding)
+
 
 # ==
 
@@ -97,7 +101,7 @@ class Wrapper:
 #     qualname: _dp_define_class_Wrapper
 #     block start:
 #         _dp_class_ns = _dp_class_ns_outer
-#         return __dp_create_class("Wrapper", _dp_class_ns_fn, __dp_tuple(), _dp_prepare_dict, False, 2, ())
+#         return __dp_create_class("Wrapper", _dp_class_ns_fn, __dp_tuple(), _dp_prepare_dict, False, 3, ())
 
 # function _dp_module_init()
 #     kind: function
@@ -111,8 +115,10 @@ class Wrapper:
 
 # class_with_base
 
+
 class D(Base):
     pass
+
 
 # ==
 
@@ -138,7 +144,7 @@ class D(Base):
 #     qualname: _dp_define_class_D
 #     block start:
 #         _dp_class_ns = _dp_class_ns_outer
-#         return __dp_create_class("D", _dp_class_ns_fn, __dp_tuple(Base), _dp_prepare_dict, False, 2, ())
+#         return __dp_create_class("D", _dp_class_ns_fn, __dp_tuple(Base), _dp_prepare_dict, False, 3, ())
 
 # function _dp_module_init()
 #     kind: function
@@ -152,6 +158,7 @@ class D(Base):
 
 # class_scope_inner_capture
 
+
 def outer():
     x = "outer"
 
@@ -159,6 +166,7 @@ def outer():
         y = x
 
     return Inner.y
+
 
 # ==
 
@@ -190,7 +198,7 @@ def outer():
 #     qualname: outer.<locals>._dp_define_class_Inner
 #     block start:
 #         _dp_class_ns = _dp_class_ns_outer
-#         return __dp_create_class("Inner", _dp_class_ns_fn, __dp_tuple(), _dp_prepare_dict, False, 5, ())
+#         return __dp_create_class("Inner", _dp_class_ns_fn, __dp_tuple(), _dp_prepare_dict, False, 6, ())
 
 # function outer()
 #     kind: function
@@ -216,11 +224,13 @@ def outer():
 
 # class_super_empty_classcell
 
+
 class X:
     def f(x):
         nonlocal __class__
         del __class__
         super()
+
 
 # ==
 
@@ -259,7 +269,7 @@ class X:
 #     qualname: _dp_define_class_X
 #     block start:
 #         _dp_class_ns = _dp_class_ns_outer
-#         return __dp_create_class("X", _dp_class_ns_fn, __dp_tuple(), _dp_prepare_dict, True, 2, ())
+#         return __dp_create_class("X", _dp_class_ns_fn, __dp_tuple(), _dp_prepare_dict, True, 3, ())
 
 # function _dp_module_init()
 #     kind: function
@@ -273,9 +283,11 @@ class X:
 
 # nested classes
 
+
 class A:
     class B:
         pass
+
 
 # ==
 
@@ -301,7 +313,7 @@ class A:
 #     qualname: A._dp_define_class_B
 #     block start:
 #         _dp_class_ns = _dp_class_ns_outer
-#         return __dp_create_class("B", _dp_class_ns_fn, __dp_tuple(), _dp_prepare_dict, False, 3, ())
+#         return __dp_create_class("B", _dp_class_ns_fn, __dp_tuple(), _dp_prepare_dict, False, 4, ())
 
 # function _dp_class_ns_A(_dp_class_ns, _dp_classcell_arg)
 #     kind: function
@@ -329,7 +341,7 @@ class A:
 #     qualname: _dp_define_class_A
 #     block start:
 #         _dp_class_ns = _dp_class_ns_outer
-#         return __dp_create_class("A", _dp_class_ns_fn, __dp_tuple(), _dp_prepare_dict, False, 2, ())
+#         return __dp_create_class("A", _dp_class_ns_fn, __dp_tuple(), _dp_prepare_dict, False, 3, ())
 
 # function _dp_module_init()
 #     kind: function
@@ -343,12 +355,14 @@ class A:
 
 # nested classes with weird scoping
 
+
 def foo():
     class A:
         global B
 
         class B:
             pass
+
 
 # ==
 
@@ -374,7 +388,7 @@ def foo():
 #     qualname: foo.<locals>.A._dp_define_class_B
 #     block start:
 #         _dp_class_ns = _dp_class_ns_outer
-#         return __dp_create_class("B", _dp_class_ns_fn, __dp_tuple(), _dp_prepare_dict, False, 6, ())
+#         return __dp_create_class("B", _dp_class_ns_fn, __dp_tuple(), _dp_prepare_dict, False, 7, ())
 
 # function _dp_class_ns_A(_dp_class_ns, _dp_classcell_arg)
 #     kind: function
@@ -399,7 +413,7 @@ def foo():
 #     qualname: foo.<locals>._dp_define_class_A
 #     block start:
 #         _dp_class_ns = _dp_class_ns_outer
-#         return __dp_create_class("A", _dp_class_ns_fn, __dp_tuple(), _dp_prepare_dict, False, 3, ())
+#         return __dp_create_class("A", _dp_class_ns_fn, __dp_tuple(), _dp_prepare_dict, False, 4, ())
 
 # function foo()
 #     kind: function

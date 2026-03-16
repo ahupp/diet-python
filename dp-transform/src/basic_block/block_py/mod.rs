@@ -1280,16 +1280,6 @@ impl CoreBlockPyExprWithoutAwaitOrYield {
     pub fn from_expr(expr: Expr) -> Self {
         expr.into()
     }
-
-    pub fn to_expr(&self) -> Expr {
-        self.clone().into()
-    }
-
-    pub fn rewrite_mut(&mut self, f: impl FnOnce(&mut Expr)) {
-        let mut expr = self.to_expr();
-        f(&mut expr);
-        *self = expr.into();
-    }
 }
 
 fn make_dp_helper_call_expr(

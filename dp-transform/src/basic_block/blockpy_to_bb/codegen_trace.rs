@@ -1,6 +1,13 @@
 use crate::basic_block::bb_ir::{BbModule, BbStmt};
-use crate::basic_block::block_py::CoreBlockPyExprWithoutAwaitOrYield;
-use ruff_python_parser::parse_expression;
+use crate::basic_block::block_py::{
+    CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg,
+    CoreBlockPyLiteral,
+};
+use ruff_python_ast::str::Quote;
+use ruff_python_ast::{
+    self as ast, ExprName, StringLiteral, StringLiteralFlags, StringLiteralValue,
+};
+use ruff_text_size::TextRange;
 use std::env;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,82 +51,96 @@ pub(crate) fn instrument_bb_module_for_trace(module: &mut BbModule, config: &BbT
         let qualname = function.qualname.clone();
         for block in &mut function.blocks {
             let trace_expr = if config.include_params && !block.meta.params.is_empty() {
-                let params_expr = parse_expression(
-                    format!(
-                        "__dp_bb_trace_enter({}, {}, {})",
-                        quote_python_string(qualname.as_str()),
-                        quote_python_string(block.label.as_str()),
-                        param_pairs_expr_source(&block.meta.params),
-                    )
-                    .as_str(),
+                helper_call_expr(
+                    "__dp_bb_trace_enter",
+                    vec![
+                        string_literal_expr(qualname.as_str()),
+                        string_literal_expr(block.label.as_str()),
+                        param_pairs_expr(&block.meta.params),
+                    ],
                 )
-                .unwrap_or_else(|err| {
-                    panic!(
-                        "failed to build BB trace expression for {}::{}: {err}",
-                        qualname, block.label
-                    )
-                });
-                *params_expr.into_syntax().body
             } else {
-                *parse_expression(
-                    format!(
-                        "__dp_bb_trace_enter({}, {})",
-                        quote_python_string(qualname.as_str()),
-                        quote_python_string(block.label.as_str()),
-                    )
-                    .as_str(),
+                helper_call_expr(
+                    "__dp_bb_trace_enter",
+                    vec![
+                        string_literal_expr(qualname.as_str()),
+                        string_literal_expr(block.label.as_str()),
+                    ],
                 )
-                .unwrap_or_else(|err| {
-                    panic!(
-                        "failed to build BB trace expression for {}::{}: {err}",
-                        qualname, block.label
-                    )
-                })
-                .into_syntax()
-                .body
             };
-            block.body.insert(
-                0,
-                BbStmt::Expr(CoreBlockPyExprWithoutAwaitOrYield::from_expr(trace_expr)),
-            );
+            block.body.insert(0, BbStmt::Expr(trace_expr));
         }
     }
 }
 
-fn quote_python_string(value: &str) -> String {
-    let mut out = String::with_capacity(value.len() + 2);
-    out.push('"');
-    for ch in value.chars() {
-        match ch {
-            '\\' => out.push_str("\\\\"),
-            '"' => out.push_str("\\\""),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            _ => out.push(ch),
-        }
-    }
-    out.push('"');
-    out
+fn compat_node_index() -> ast::AtomicNodeIndex {
+    ast::AtomicNodeIndex::default()
 }
 
-fn param_pairs_expr_source(params: &[String]) -> String {
-    let mut source = String::from("(");
-    for (index, param) in params.iter().enumerate() {
-        if index > 0 {
-            source.push_str(", ");
-        }
-        source.push('(');
-        source.push_str(&quote_python_string(param.as_str()));
-        source.push_str(", ");
-        source.push_str(param.as_str());
-        source.push(')');
+fn compat_range() -> TextRange {
+    TextRange::default()
+}
+
+fn load_name(id: &str) -> ExprName {
+    ExprName {
+        id: id.into(),
+        ctx: ast::ExprContext::Load,
+        range: compat_range(),
+        node_index: compat_node_index(),
     }
-    if params.len() == 1 {
-        source.push(',');
-    }
-    source.push(')');
-    source
+}
+
+fn string_literal_expr(value: &str) -> CoreBlockPyExprWithoutAwaitOrYield {
+    CoreBlockPyExprWithoutAwaitOrYield::Literal(CoreBlockPyLiteral::StringLiteral(
+        ast::ExprStringLiteral {
+            range: compat_range(),
+            node_index: compat_node_index(),
+            value: StringLiteralValue::single(StringLiteral {
+                range: compat_range(),
+                node_index: compat_node_index(),
+                value: value.into(),
+                flags: StringLiteralFlags::empty().with_quote_style(Quote::Double),
+            }),
+        },
+    ))
+}
+
+fn helper_call_expr(
+    helper_name: &str,
+    args: Vec<CoreBlockPyExprWithoutAwaitOrYield>,
+) -> CoreBlockPyExprWithoutAwaitOrYield {
+    CoreBlockPyExprWithoutAwaitOrYield::Call(CoreBlockPyCall {
+        node_index: compat_node_index(),
+        range: compat_range(),
+        func: Box::new(CoreBlockPyExprWithoutAwaitOrYield::Name(load_name(
+            helper_name,
+        ))),
+        args: args
+            .into_iter()
+            .map(CoreBlockPyCallArg::Positional)
+            .collect(),
+        keywords: Vec::<CoreBlockPyKeywordArg<CoreBlockPyExprWithoutAwaitOrYield>>::new(),
+    })
+}
+
+fn tuple_expr(
+    values: Vec<CoreBlockPyExprWithoutAwaitOrYield>,
+) -> CoreBlockPyExprWithoutAwaitOrYield {
+    helper_call_expr("__dp_tuple", values)
+}
+
+fn param_pairs_expr(params: &[String]) -> CoreBlockPyExprWithoutAwaitOrYield {
+    tuple_expr(
+        params
+            .iter()
+            .map(|param| {
+                tuple_expr(vec![
+                    string_literal_expr(param),
+                    CoreBlockPyExprWithoutAwaitOrYield::Name(load_name(param)),
+                ])
+            })
+            .collect(),
+    )
 }
 
 #[cfg(test)]
