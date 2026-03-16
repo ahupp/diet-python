@@ -15,7 +15,7 @@ use super::block_py::{
 use super::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use super::cfg_ir::{CfgCallableDef, CfgModule};
 use super::function_lowering::rewrite_deleted_name_loads;
-use super::lowered_ir::BindingTarget;
+use super::lowered_ir::{BindingTarget, BoundCallable};
 use super::ruff_to_blockpy::{
     build_lowered_blockpy_function_export_plan,
     lower_awaits_in_lowered_blockpy_function_bundle_plan,
@@ -317,21 +317,23 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
         &lowered.exception_edges,
     );
     BbFunction {
-        cfg: CfgCallableDef {
-            function_id: lowered.callable_def.function_id,
-            bind_name: lowered.callable_def.bind_name.clone(),
-            display_name: lowered.callable_def.display_name.clone(),
-            qualname: lowered.callable_def.qualname.clone(),
-            kind: lowered.bb_kind.clone(),
-            params: collect_parameter_names(&lowered.callable_def.params),
-            entry_liveins: lowered.callable_def.entry_liveins.clone(),
-            blocks: lower_blockpy_blocks_to_bb_blocks(
-                &linear_blocks,
-                &linear_block_params,
-                &linear_exception_edges,
-            ),
+        cfg: BoundCallable {
+            callable: CfgCallableDef {
+                function_id: lowered.callable_def.function_id,
+                bind_name: lowered.callable_def.bind_name.clone(),
+                display_name: lowered.callable_def.display_name.clone(),
+                qualname: lowered.callable_def.qualname.clone(),
+                kind: lowered.bb_kind.clone(),
+                params: collect_parameter_names(&lowered.callable_def.params),
+                entry_liveins: lowered.callable_def.entry_liveins.clone(),
+                blocks: lower_blockpy_blocks_to_bb_blocks(
+                    &linear_blocks,
+                    &linear_block_params,
+                    &linear_exception_edges,
+                ),
+            },
+            binding_target: lowered.binding_target(),
         },
-        binding_target: lowered.binding_target,
         closure_layout: lowered.runtime_closure_layout.clone(),
         local_cell_slots: lowered.callable_def.local_cell_slots.clone(),
     }

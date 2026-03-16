@@ -170,7 +170,7 @@ fn bb_module_to_json(module: &bb_ir::BbModule) -> Value {
                 "bindName": function.bind_name,
                 "displayName": function.display_name,
                 "qualname": function.qualname,
-                "bindingTarget": bb_binding_target_name(function.binding_target),
+                "bindingTarget": bb_binding_target_name(function.binding_target()),
                 "kind": bb_function_kind_to_json(&function.kind),
                 "entry": function.entry_label(),
                 "paramNames": function.params,
@@ -599,7 +599,9 @@ fn bb_module_to_clif(module: &bb_ir::BbModule) -> String {
             .join(", ");
         out.push_str(&format!(
             "decl %{}({params}) -> pyobj ; bind={} target={:?}\n",
-            function.qualname, function.bind_name, function.binding_target
+            function.qualname,
+            function.bind_name,
+            function.binding_target()
         ));
     }
     if let Some(module_init) = module.module_init.as_ref() {
@@ -621,7 +623,7 @@ fn bb_module_to_clif(module: &bb_ir::BbModule) -> String {
             function.qualname,
             function.kind,
             function.bind_name,
-            function.binding_target,
+            function.binding_target(),
             function.entry_label()
         ));
         for block in &function.blocks {

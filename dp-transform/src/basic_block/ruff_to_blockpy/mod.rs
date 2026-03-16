@@ -21,7 +21,9 @@ use super::block_py::{
     SemanticBlockPyTerm, ENTRY_BLOCK_LABEL,
 };
 use super::cfg_ir::CfgCallableDef;
-use super::lowered_ir::{BindingTarget, ClosureLayout, FunctionId, LoweredFunctionKind};
+use super::lowered_ir::{
+    BindingTarget, BoundCallable, ClosureLayout, FunctionId, LoweredFunctionKind,
+};
 use super::stmt_utils::flatten_stmt_boxes;
 use crate::basic_block::ast_to_ast::ast_rewrite::Rewrite;
 use crate::basic_block::ast_to_ast::context::Context;
@@ -90,8 +92,7 @@ pub(crate) struct GeneratorStmtSequenceLoweringState {
 
 #[derive(Clone)]
 pub struct LoweredBlockPyFunction<C = SemanticBlockPyCallableDef> {
-    pub(crate) callable_def: C,
-    pub(crate) binding_target: BindingTarget,
+    pub(crate) callable_def: BoundCallable<C>,
     pub(crate) bb_kind: LoweredFunctionKind,
     pub(crate) block_params: HashMap<String, Vec<String>>,
     pub(crate) exception_edges: HashMap<String, Option<String>>,
@@ -113,10 +114,13 @@ impl<C> DerefMut for LoweredBlockPyFunction<C> {
 }
 
 impl<C> LoweredBlockPyFunction<C> {
+    pub fn binding_target(&self) -> BindingTarget {
+        self.callable_def.binding_target()
+    }
+
     pub fn map_callable_def<D>(&self, f: impl FnOnce(&C) -> D) -> LoweredBlockPyFunction<D> {
         LoweredBlockPyFunction {
-            callable_def: f(&self.callable_def),
-            binding_target: self.binding_target,
+            callable_def: self.callable_def.map_callable(f),
             bb_kind: self.bb_kind.clone(),
             block_params: self.block_params.clone(),
             exception_edges: self.exception_edges.clone(),
@@ -125,7 +129,7 @@ impl<C> LoweredBlockPyFunction<C> {
     }
 
     pub fn with_binding_target(mut self, binding_target: BindingTarget) -> Self {
-        self.binding_target = binding_target;
+        self.callable_def = self.callable_def.with_binding_target(binding_target);
         self
     }
 }
@@ -400,8 +404,10 @@ pub(crate) fn build_lowered_blockpy_function(
     runtime_closure_layout: Option<ClosureLayout>,
 ) -> LoweredBlockPyFunction {
     LoweredBlockPyFunction {
-        callable_def,
-        binding_target: BindingTarget::Local,
+        callable_def: BoundCallable {
+            callable: callable_def,
+            binding_target: BindingTarget::Local,
+        },
         bb_kind,
         block_params,
         exception_edges,

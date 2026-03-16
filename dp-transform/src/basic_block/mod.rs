@@ -318,7 +318,7 @@ def build_qualnames():
             .expect("bb module should be available");
         let inner_global_function = function_by_name(&bb_module, "inner_global_function");
         assert_eq!(
-            inner_global_function.binding_target,
+            inner_global_function.binding_target(),
             BindingTarget::ModuleGlobal,
             "{inner_global_function:?}"
         );

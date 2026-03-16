@@ -362,7 +362,7 @@ def f():
 
         let mut probe = ExprShapeProbe::new();
         for function in normalized.callable_defs {
-            for block in function.cfg.blocks {
+            for block in function.cfg.callable.blocks {
                 for op in block.body {
                     probe_bb_stmt_exprs(&mut probe, &op);
                 }
@@ -402,7 +402,7 @@ def f(obj, mapping, key, value):
 
         let mut text = String::new();
         for function in normalized.callable_defs {
-            for block in function.cfg.blocks {
+            for block in function.cfg.callable.blocks {
                 text.push_str(&bb_ir::bb_stmts_text(&block.body));
             }
         }
