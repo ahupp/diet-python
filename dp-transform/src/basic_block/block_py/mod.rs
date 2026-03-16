@@ -475,6 +475,43 @@ mod tests {
         };
         assert_eq!(name.id.as_str(), "y");
     }
+
+    fn name_expr(name: &str) -> ast::ExprName {
+        let Expr::Name(name) = py_expr!("{name:id}", name = name) else {
+            unreachable!();
+        };
+        name
+    }
+
+    #[test]
+    fn stmt_conversion_to_no_await_rejects_await() {
+        let stmt = BlockPyStmt::Expr(CoreBlockPyExpr::Await(CoreBlockPyAwait {
+            node_index: ast::AtomicNodeIndex::default(),
+            range: ruff_text_size::TextRange::default(),
+            value: Box::new(CoreBlockPyExpr::Name(name_expr("x"))),
+        }));
+
+        assert!(BlockPyStmt::<CoreBlockPyExprWithoutAwait>::try_from(stmt).is_err());
+    }
+
+    #[test]
+    fn term_conversion_to_no_yield_rejects_nested_yield() {
+        let term = BlockPyTerm::Return(Some(CoreBlockPyExprWithoutAwait::Call(CoreBlockPyCall {
+            node_index: ast::AtomicNodeIndex::default(),
+            range: ruff_text_size::TextRange::default(),
+            func: Box::new(CoreBlockPyExprWithoutAwait::Name(name_expr("f"))),
+            args: vec![CoreBlockPyCallArg::Positional(
+                CoreBlockPyExprWithoutAwait::Yield(CoreBlockPyYield {
+                    node_index: ast::AtomicNodeIndex::default(),
+                    range: ruff_text_size::TextRange::default(),
+                    value: Some(Box::new(CoreBlockPyExprWithoutAwait::Name(name_expr("x")))),
+                }),
+            )],
+            keywords: Vec::new(),
+        })));
+
+        assert!(BlockPyTerm::<CoreBlockPyExprWithoutAwaitOrYield>::try_from(term).is_err());
+    }
 }
 
 impl From<CoreBlockPyExpr> for Expr {
@@ -731,6 +768,133 @@ impl TryFrom<CoreBlockPyExpr> for CoreBlockPyExprWithoutAwait {
     }
 }
 
+impl TryFrom<BlockPyStmt<CoreBlockPyExpr>> for BlockPyStmt<CoreBlockPyExprWithoutAwait> {
+    type Error = CoreBlockPyExpr;
+
+    fn try_from(value: BlockPyStmt<CoreBlockPyExpr>) -> Result<Self, Self::Error> {
+        match value {
+            BlockPyStmt::Assign(assign) => Ok(BlockPyStmt::Assign(BlockPyAssign {
+                target: assign.target,
+                value: assign.value.try_into()?,
+            })),
+            BlockPyStmt::Expr(expr) => Ok(BlockPyStmt::Expr(expr.try_into()?)),
+            BlockPyStmt::Delete(delete) => Ok(BlockPyStmt::Delete(delete)),
+            BlockPyStmt::If(if_stmt) => Ok(BlockPyStmt::If(BlockPyIf {
+                test: if_stmt.test.try_into()?,
+                body: if_stmt.body.try_into()?,
+                orelse: if_stmt.orelse.try_into()?,
+            })),
+        }
+    }
+}
+
+impl TryFrom<BlockPyTerm<CoreBlockPyExpr>> for BlockPyTerm<CoreBlockPyExprWithoutAwait> {
+    type Error = CoreBlockPyExpr;
+
+    fn try_from(value: BlockPyTerm<CoreBlockPyExpr>) -> Result<Self, Self::Error> {
+        match value {
+            BlockPyTerm::Jump(target) => Ok(BlockPyTerm::Jump(target)),
+            BlockPyTerm::IfTerm(if_term) => Ok(BlockPyTerm::IfTerm(BlockPyIfTerm {
+                test: if_term.test.try_into()?,
+                then_label: if_term.then_label,
+                else_label: if_term.else_label,
+            })),
+            BlockPyTerm::BranchTable(branch) => Ok(BlockPyTerm::BranchTable(BlockPyBranchTable {
+                index: branch.index.try_into()?,
+                targets: branch.targets,
+                default_label: branch.default_label,
+            })),
+            BlockPyTerm::Raise(raise_stmt) => Ok(BlockPyTerm::Raise(BlockPyRaise {
+                exc: raise_stmt.exc.map(TryInto::try_into).transpose()?,
+            })),
+            BlockPyTerm::TryJump(try_jump) => Ok(BlockPyTerm::TryJump(try_jump)),
+            BlockPyTerm::Return(value) => Ok(BlockPyTerm::Return(
+                value.map(TryInto::try_into).transpose()?,
+            )),
+        }
+    }
+}
+
+impl TryFrom<BlockPyCfgFragment<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>>
+    for BlockPyCfgFragment<
+        BlockPyStmt<CoreBlockPyExprWithoutAwait>,
+        BlockPyTerm<CoreBlockPyExprWithoutAwait>,
+    >
+{
+    type Error = CoreBlockPyExpr;
+
+    fn try_from(
+        value: BlockPyCfgFragment<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>,
+    ) -> Result<Self, Self::Error> {
+        Ok(BlockPyCfgFragment::with_term(
+            value
+                .body
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<_, _>>()?,
+            value.term.map(TryInto::try_into).transpose()?,
+        ))
+    }
+}
+
+impl TryFrom<BlockPyBlock<CoreBlockPyExpr>> for BlockPyBlock<CoreBlockPyExprWithoutAwait> {
+    type Error = CoreBlockPyExpr;
+
+    fn try_from(value: BlockPyBlock<CoreBlockPyExpr>) -> Result<Self, Self::Error> {
+        Ok(BlockPyBlock {
+            label: value.label,
+            body: value
+                .body
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<_, _>>()?,
+            term: value.term.try_into()?,
+            meta: value.meta,
+        })
+    }
+}
+
+impl TryFrom<CoreBlockPyCallableDef> for CoreBlockPyCallableDefWithoutAwait {
+    type Error = CoreBlockPyExpr;
+
+    fn try_from(value: CoreBlockPyCallableDef) -> Result<Self, Self::Error> {
+        let BlockPyCallableDef {
+            cfg,
+            doc,
+            closure_layout,
+            local_cell_slots,
+        } = value;
+        let CfgCallableDef {
+            function_id,
+            bind_name,
+            display_name,
+            qualname,
+            kind,
+            params,
+            entry_liveins,
+            blocks,
+        } = cfg;
+        Ok(BlockPyCallableDef {
+            cfg: CfgCallableDef {
+                function_id,
+                bind_name,
+                display_name,
+                qualname,
+                kind,
+                params,
+                entry_liveins,
+                blocks: blocks
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()?,
+            },
+            doc: doc.map(TryInto::try_into).transpose()?,
+            closure_layout,
+            local_cell_slots,
+        })
+    }
+}
+
 impl From<CoreBlockPyExprWithoutAwait> for CoreBlockPyExpr {
     fn from(value: CoreBlockPyExprWithoutAwait) -> Self {
         match value {
@@ -823,6 +987,148 @@ impl TryFrom<CoreBlockPyExprWithoutAwait> for CoreBlockPyExprWithoutAwaitOrYield
                 Err(value)
             }
         }
+    }
+}
+
+impl TryFrom<BlockPyStmt<CoreBlockPyExprWithoutAwait>>
+    for BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>
+{
+    type Error = CoreBlockPyExprWithoutAwait;
+
+    fn try_from(value: BlockPyStmt<CoreBlockPyExprWithoutAwait>) -> Result<Self, Self::Error> {
+        match value {
+            BlockPyStmt::Assign(assign) => Ok(BlockPyStmt::Assign(BlockPyAssign {
+                target: assign.target,
+                value: assign.value.try_into()?,
+            })),
+            BlockPyStmt::Expr(expr) => Ok(BlockPyStmt::Expr(expr.try_into()?)),
+            BlockPyStmt::Delete(delete) => Ok(BlockPyStmt::Delete(delete)),
+            BlockPyStmt::If(if_stmt) => Ok(BlockPyStmt::If(BlockPyIf {
+                test: if_stmt.test.try_into()?,
+                body: if_stmt.body.try_into()?,
+                orelse: if_stmt.orelse.try_into()?,
+            })),
+        }
+    }
+}
+
+impl TryFrom<BlockPyTerm<CoreBlockPyExprWithoutAwait>>
+    for BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>
+{
+    type Error = CoreBlockPyExprWithoutAwait;
+
+    fn try_from(value: BlockPyTerm<CoreBlockPyExprWithoutAwait>) -> Result<Self, Self::Error> {
+        match value {
+            BlockPyTerm::Jump(target) => Ok(BlockPyTerm::Jump(target)),
+            BlockPyTerm::IfTerm(if_term) => Ok(BlockPyTerm::IfTerm(BlockPyIfTerm {
+                test: if_term.test.try_into()?,
+                then_label: if_term.then_label,
+                else_label: if_term.else_label,
+            })),
+            BlockPyTerm::BranchTable(branch) => Ok(BlockPyTerm::BranchTable(BlockPyBranchTable {
+                index: branch.index.try_into()?,
+                targets: branch.targets,
+                default_label: branch.default_label,
+            })),
+            BlockPyTerm::Raise(raise_stmt) => Ok(BlockPyTerm::Raise(BlockPyRaise {
+                exc: raise_stmt.exc.map(TryInto::try_into).transpose()?,
+            })),
+            BlockPyTerm::TryJump(try_jump) => Ok(BlockPyTerm::TryJump(try_jump)),
+            BlockPyTerm::Return(value) => Ok(BlockPyTerm::Return(
+                value.map(TryInto::try_into).transpose()?,
+            )),
+        }
+    }
+}
+
+impl
+    TryFrom<
+        BlockPyCfgFragment<
+            BlockPyStmt<CoreBlockPyExprWithoutAwait>,
+            BlockPyTerm<CoreBlockPyExprWithoutAwait>,
+        >,
+    >
+    for BlockPyCfgFragment<
+        BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>,
+        BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
+    >
+{
+    type Error = CoreBlockPyExprWithoutAwait;
+
+    fn try_from(
+        value: BlockPyCfgFragment<
+            BlockPyStmt<CoreBlockPyExprWithoutAwait>,
+            BlockPyTerm<CoreBlockPyExprWithoutAwait>,
+        >,
+    ) -> Result<Self, Self::Error> {
+        Ok(BlockPyCfgFragment::with_term(
+            value
+                .body
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<_, _>>()?,
+            value.term.map(TryInto::try_into).transpose()?,
+        ))
+    }
+}
+
+impl TryFrom<BlockPyBlock<CoreBlockPyExprWithoutAwait>>
+    for BlockPyBlock<CoreBlockPyExprWithoutAwaitOrYield>
+{
+    type Error = CoreBlockPyExprWithoutAwait;
+
+    fn try_from(value: BlockPyBlock<CoreBlockPyExprWithoutAwait>) -> Result<Self, Self::Error> {
+        Ok(BlockPyBlock {
+            label: value.label,
+            body: value
+                .body
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<_, _>>()?,
+            term: value.term.try_into()?,
+            meta: value.meta,
+        })
+    }
+}
+
+impl TryFrom<CoreBlockPyCallableDefWithoutAwait> for CoreBlockPyCallableDefWithoutAwaitOrYield {
+    type Error = CoreBlockPyExprWithoutAwait;
+
+    fn try_from(value: CoreBlockPyCallableDefWithoutAwait) -> Result<Self, Self::Error> {
+        let BlockPyCallableDef {
+            cfg,
+            doc,
+            closure_layout,
+            local_cell_slots,
+        } = value;
+        let CfgCallableDef {
+            function_id,
+            bind_name,
+            display_name,
+            qualname,
+            kind,
+            params,
+            entry_liveins,
+            blocks,
+        } = cfg;
+        Ok(BlockPyCallableDef {
+            cfg: CfgCallableDef {
+                function_id,
+                bind_name,
+                display_name,
+                qualname,
+                kind,
+                params,
+                entry_liveins,
+                blocks: blocks
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()?,
+            },
+            doc: doc.map(TryInto::try_into).transpose()?,
+            closure_layout,
+            local_cell_slots,
+        })
     }
 }
 
