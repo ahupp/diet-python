@@ -32,39 +32,51 @@ pub type LoweredCoreBlockPyFunction = LoweredBlockPyFunction<CoreBlockPyCallable
 
 pub type LoweredCoreBlockPyModuleBundle = CfgModule<LoweredCoreBlockPyFunction>;
 
-pub(crate) struct LoweredBlockPyModuleBundlePlanEntry {
+pub(crate) struct ResolvedLoweredBlockPyModuleBundlePlanEntry {
     pub bundle_plan: ResolvedLoweredBlockPyFunctionBundlePlan,
     pub main_binding_target: super::bb_ir::BindingTarget,
 }
 
-pub(crate) struct LoweredBlockPyModuleBundlePlan {
+pub(crate) struct ResolvedLoweredBlockPyModuleBundlePlan {
     pub module_init: Option<String>,
-    pub callable_def_bundles: Vec<LoweredBlockPyModuleBundlePlanEntry>,
+    pub callable_def_bundles: Vec<ResolvedLoweredBlockPyModuleBundlePlanEntry>,
 }
 
-pub(crate) fn lowered_blockpy_module_bundle_plan_to_bundle(
-    plan: LoweredBlockPyModuleBundlePlan,
+fn build_lowered_blockpy_function_bundle_with_deleted_name_rewrite(
+    plan: ResolvedLoweredBlockPyFunctionBundlePlan,
+) -> super::ruff_to_blockpy::LoweredBlockPyFunctionBundle {
+    let deleted_names = plan.deleted_names.clone();
+    let unbound_local_names = plan.unbound_local_names.clone();
+    build_lowered_blockpy_function_bundle(plan, &mut |callable_def| {
+        if !deleted_names.is_empty() {
+            rewrite_deleted_name_loads(
+                &mut callable_def.blocks,
+                &deleted_names,
+                &unbound_local_names,
+            );
+        } else if !unbound_local_names.is_empty() {
+            rewrite_deleted_name_loads(
+                &mut callable_def.blocks,
+                &HashSet::new(),
+                &unbound_local_names,
+            );
+        }
+    })
+}
+
+pub(crate) fn preview_main_lowered_blockpy_function(
+    plan: ResolvedLoweredBlockPyFunctionBundlePlan,
+) -> LoweredBlockPyFunction {
+    build_lowered_blockpy_function_bundle_with_deleted_name_rewrite(plan).main_function
+}
+
+pub(crate) fn resolved_lowered_blockpy_module_bundle_plan_to_bundle(
+    plan: ResolvedLoweredBlockPyModuleBundlePlan,
 ) -> LoweredBlockPyModuleBundle {
     let mut callable_defs = Vec::new();
     for entry in plan.callable_def_bundles {
-        let deleted_names = entry.bundle_plan.deleted_names.clone();
-        let unbound_local_names = entry.bundle_plan.unbound_local_names.clone();
         let bundle =
-            build_lowered_blockpy_function_bundle(entry.bundle_plan, &mut |callable_def| {
-                if !deleted_names.is_empty() {
-                    rewrite_deleted_name_loads(
-                        &mut callable_def.blocks,
-                        &deleted_names,
-                        &unbound_local_names,
-                    );
-                } else if !unbound_local_names.is_empty() {
-                    rewrite_deleted_name_loads(
-                        &mut callable_def.blocks,
-                        &HashSet::new(),
-                        &unbound_local_names,
-                    );
-                }
-            });
+            build_lowered_blockpy_function_bundle_with_deleted_name_rewrite(entry.bundle_plan);
         callable_defs.extend(
             bundle
                 .helper_functions

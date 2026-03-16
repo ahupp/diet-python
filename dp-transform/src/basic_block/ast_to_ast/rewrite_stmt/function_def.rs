@@ -12,7 +12,7 @@ use crate::basic_block::block_py::dataflow::analyze_blockpy_use_def;
 use crate::basic_block::block_py::state::collect_cell_slots;
 use crate::basic_block::block_py::state::collect_parameter_names;
 use crate::basic_block::blockpy_to_bb::{
-    LoweredBlockPyModuleBundlePlan, LoweredBlockPyModuleBundlePlanEntry,
+    ResolvedLoweredBlockPyModuleBundlePlan, ResolvedLoweredBlockPyModuleBundlePlanEntry,
 };
 use crate::basic_block::expr_utils::{make_dp_tuple, name_expr};
 use crate::basic_block::function_identity::{
@@ -20,14 +20,13 @@ use crate::basic_block::function_identity::{
     FunctionIdentity,
 };
 use crate::basic_block::function_lowering::{
-    function_docstring_expr, rewrite_deleted_name_loads, try_lower_function_to_blockpy_bundle,
+    function_docstring_expr, try_lower_function_to_blockpy_bundle,
 };
 use crate::basic_block::param_specs::{
     collect_function_param_specs, function_param_specs_to_expr, FunctionParamSpec,
 };
 use crate::basic_block::ruff_to_blockpy::{
-    build_lowered_blockpy_function_bundle, resolve_lowered_blockpy_function_bundle_plan,
-    LoweredBlockPyFunction,
+    resolve_lowered_blockpy_function_bundle_plan, LoweredBlockPyFunction,
 };
 use crate::template::into_body;
 use crate::transformer::{walk_stmt, Transformer};
@@ -55,7 +54,7 @@ struct BlockPyModuleRewriter<'a> {
     reserved_temp_names_stack: Vec<HashSet<String>>,
     used_label_prefixes: HashMap<String, usize>,
     function_scope_stack: Vec<FunctionScopeFrame>,
-    lowered_blockpy_module: LoweredBlockPyModuleBundlePlan,
+    lowered_blockpy_module: ResolvedLoweredBlockPyModuleBundlePlan,
 }
 
 enum LoweredFunctionPlacementPlan {
@@ -155,12 +154,12 @@ fn capture_items_to_expr(captures: &[LoweredFunctionCaptureItem]) -> Expr {
 }
 
 fn push_lowered_blockpy_callable_def_bundle(
-    out: &mut LoweredBlockPyModuleBundlePlan,
+    out: &mut ResolvedLoweredBlockPyModuleBundlePlan,
     bundle_plan: crate::basic_block::ruff_to_blockpy::ResolvedLoweredBlockPyFunctionBundlePlan,
     main_binding_target: BindingTarget,
 ) {
     out.callable_def_bundles
-        .push(LoweredBlockPyModuleBundlePlanEntry {
+        .push(ResolvedLoweredBlockPyModuleBundlePlanEntry {
             bundle_plan,
             main_binding_target,
         });
@@ -378,7 +377,7 @@ mod tests {
 pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan(
     context: &Context,
     module: &mut StmtBody,
-) -> LoweredBlockPyModuleBundlePlan {
+) -> ResolvedLoweredBlockPyModuleBundlePlan {
     crate::basic_block::ast_to_ast::simplify::flatten(module);
     let module_scope = analyze_module_scope(module);
     let function_identity_by_node = collect_function_identity_private(module, module_scope.clone());
@@ -391,7 +390,7 @@ pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan(
         reserved_temp_names_stack: Vec::new(),
         used_label_prefixes: HashMap::new(),
         function_scope_stack: Vec::new(),
-        lowered_blockpy_module: LoweredBlockPyModuleBundlePlan {
+        lowered_blockpy_module: ResolvedLoweredBlockPyModuleBundlePlan {
             callable_def_bundles: Vec::new(),
             module_init: Some("_dp_module_init".to_string()),
         },
@@ -830,7 +829,7 @@ fn plan_and_rewrite_non_lowered_function_instantiation(
 fn rewrite_function_def_stmt_via_blockpy(
     context: &Context,
     module_scope: &Arc<Scope>,
-    lowered_blockpy_module: &mut LoweredBlockPyModuleBundlePlan,
+    lowered_blockpy_module: &mut ResolvedLoweredBlockPyModuleBundlePlan,
     parent_hoisted: Option<&mut Vec<Stmt>>,
     function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
     func: &mut ast::StmtFunctionDef,
@@ -858,8 +857,6 @@ fn rewrite_function_def_stmt_via_blockpy(
     ) {
         let cell_slots = lowered_plan.cell_slots.clone();
         let outer_scope_names = lowered_plan.outer_scope_names.clone();
-        let deleted_names = lowered_plan.deleted_names.clone();
-        let unbound_local_names = lowered_plan.unbound_local_names.clone();
         let resolved_lowered_plan = resolve_lowered_blockpy_function_bundle_plan(
             context,
             lowered_plan,
@@ -872,28 +869,13 @@ fn rewrite_function_def_stmt_via_blockpy(
                 next_temp_from_counter(reserved_temp_names_stack, prefix, next_block_id)
             },
         );
-        let lowered = build_lowered_blockpy_function_bundle(
+        let preview = crate::basic_block::preview_main_lowered_blockpy_function(
             resolved_lowered_plan.clone(),
-            &mut |callable_def| {
-                if !deleted_names.is_empty() {
-                    rewrite_deleted_name_loads(
-                        &mut callable_def.blocks,
-                        &deleted_names,
-                        &unbound_local_names,
-                    );
-                } else if !unbound_local_names.is_empty() {
-                    rewrite_deleted_name_loads(
-                        &mut callable_def.blocks,
-                        &HashSet::new(),
-                        &unbound_local_names,
-                    );
-                }
-            },
         );
         let rewrite_plan = plan_and_rewrite_lowered_function_instantiation(
             parent_hoisted,
             func,
-            &lowered.main_function,
+            &preview,
             function_identity_by_node,
             current_parent,
             needs_cell_sync,
