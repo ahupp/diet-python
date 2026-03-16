@@ -266,7 +266,6 @@ fn lower_core_blockpy_function_without_await(
     LoweredCoreBlockPyFunctionWithoutAwait {
         binding_target: lowered.binding_target,
         callable_def: lower_core_callable_def_without_await(&lowered.callable_def),
-        is_coroutine: lowered.is_coroutine,
         bb_kind: lowered.bb_kind.clone(),
         block_params: lowered.block_params.clone(),
         exception_edges: lowered.exception_edges.clone(),
@@ -292,7 +291,6 @@ fn lower_core_blockpy_function_without_await_or_yield(
     LoweredCoreBlockPyFunctionWithoutAwaitOrYield {
         binding_target: lowered.binding_target,
         callable_def: lower_core_callable_def_without_await_or_yield(&lowered.callable_def),
-        is_coroutine: lowered.is_coroutine,
         bb_kind: lowered.bb_kind.clone(),
         block_params: lowered.block_params.clone(),
         exception_edges: lowered.exception_edges.clone(),
@@ -325,7 +323,6 @@ fn simplify_lowered_blockpy_function_exprs(
     LoweredCoreBlockPyFunction {
         binding_target: lowered.binding_target,
         callable_def,
-        is_coroutine: lowered.is_coroutine,
         bb_kind: lowered.bb_kind.clone(),
         block_params: lowered.block_params.clone(),
         exception_edges: lowered.exception_edges.clone(),

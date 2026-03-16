@@ -115,11 +115,10 @@ Properties:
 
 - wraps `SemanticBlockPyCallableDef`
 - carries metadata needed by later BlockPy / BB passes:
-  - `is_coroutine`
   - `bb_kind`
   - `block_params`
   - `exception_edges`
-  - `closure_layout`
+  - `runtime_closure_layout`
 
 At the module level:
 
@@ -169,11 +168,10 @@ Properties:
 
 - wraps `CoreBlockPyCallableDef`
 - keeps the same side metadata pattern as lowered semantic transport:
-  - `is_coroutine`
   - `bb_kind`
   - `block_params`
   - `exception_edges`
-  - `closure_layout`
+  - `runtime_closure_layout`
 
 At the module level:
 
@@ -193,17 +191,17 @@ Defined in:
 
 Properties:
 
-- wraps `CfgCallableDef<FunctionId, BbFunctionKind, Vec<String>, BbBlock>`
+- wraps `CfgCallableDef<FunctionId, LoweredFunctionKind, Vec<String>, BbBlock>`
 - params are flattened to name lists instead of Ruff `Parameters`
 - blocks are BB blocks, not BlockPy blocks
-- ops / terms are BB-specific
+- statements are the final no-await/no-yield core BlockPy stmt type
+- terms are BB-specific
 - still carries side metadata:
   - `binding_target`
-  - `is_coroutine`
   - `closure_layout`
   - `local_cell_slots`
 
-`BbFunctionKind` is also more backend-specific than `BlockPyFunctionKind`; generator kinds carry explicit resume metadata.
+`LoweredFunctionKind` is also more backend-specific than `BlockPyFunctionKind`; generator kinds carry explicit resume metadata.
 
 ## Short version
 

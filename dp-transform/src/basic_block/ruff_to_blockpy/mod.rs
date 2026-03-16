@@ -91,7 +91,6 @@ pub(crate) struct GeneratorStmtSequenceLoweringState {
 pub struct LoweredBlockPyFunction<C = SemanticBlockPyCallableDef> {
     pub(crate) callable_def: C,
     pub(crate) binding_target: BindingTarget,
-    pub(crate) is_coroutine: bool,
     pub(crate) bb_kind: LoweredFunctionKind,
     pub(crate) block_params: HashMap<String, Vec<String>>,
     pub(crate) exception_edges: HashMap<String, Option<String>>,
@@ -373,7 +372,6 @@ pub(crate) fn take_next_function_id(next_function_id: &mut usize) -> FunctionId 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_lowered_blockpy_function(
     callable_def: SemanticBlockPyCallableDef,
-    is_coroutine: bool,
     bb_kind: LoweredFunctionKind,
     block_params: HashMap<String, Vec<String>>,
     exception_edges: HashMap<String, Option<String>>,
@@ -382,7 +380,6 @@ pub(crate) fn build_lowered_blockpy_function(
     LoweredBlockPyFunction {
         callable_def,
         binding_target: BindingTarget::Local,
-        is_coroutine,
         bb_kind,
         block_params,
         exception_edges,
@@ -1092,7 +1089,6 @@ pub(crate) fn lowered_blockpy_function_export_plan_to_bundle(
         );
         helper_functions.push(build_lowered_blockpy_function(
             resume_function,
-            false,
             normalized_resume_bb_kind,
             normalized_resume_block_params,
             normalized_resume_exception_edges,
@@ -1147,7 +1143,6 @@ pub(crate) fn lowered_blockpy_function_export_plan_to_bundle(
     LoweredBlockPyFunctionBundle {
         main_function: build_lowered_blockpy_function(
             main_function,
-            is_coroutine,
             normalized_main_bb_kind,
             normalized_main_block_params,
             normalized_main_exception_edges,
