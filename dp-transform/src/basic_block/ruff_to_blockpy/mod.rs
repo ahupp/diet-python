@@ -154,6 +154,34 @@ pub(crate) struct ResolvedLoweredBlockPyFunctionBundlePlan {
 }
 
 #[derive(Clone)]
+pub(crate) struct LoweredBlockPyFunctionExportPlan {
+    pub function_id: FunctionId,
+    pub bind_name: String,
+    pub display_name: String,
+    pub qualname: String,
+    pub doc: Option<Expr>,
+    pub params: ast::Parameters,
+    pub has_yield: bool,
+    pub is_coroutine: bool,
+    pub is_async_generator_runtime: bool,
+    pub is_closure_backed_generator_runtime: bool,
+    pub param_names: Vec<String>,
+    pub label_prefix: String,
+    pub main_param_specs: BbExpr,
+    pub runtime_entry_label: String,
+    pub runtime_entry_liveins: Vec<String>,
+    pub runtime_blocks: Vec<SemanticBlockPyBlock>,
+    pub runtime_block_params: HashMap<String, Vec<String>>,
+    pub runtime_exception_edges: HashMap<String, Option<String>>,
+    pub runtime_closure_layout: Option<BbClosureLayout>,
+    pub semantic_closure_layout: Option<BbClosureLayout>,
+    pub local_cell_slots: Vec<String>,
+    pub target_labels: Vec<String>,
+    pub resume_pcs: Vec<(String, usize)>,
+    pub resume_function_id: Option<FunctionId>,
+}
+
+#[derive(Clone)]
 pub(crate) struct PreparedBlockPyFunction {
     pub callable_def: SemanticBlockPyCallableDef,
     pub generator_metadata: Option<GeneratorMetadata>,
@@ -565,10 +593,10 @@ pub(crate) fn resolve_lowered_blockpy_function_bundle_plan(
     }
 }
 
-pub(crate) fn build_lowered_blockpy_function_bundle(
+pub(crate) fn build_lowered_blockpy_function_export_plan(
     plan: ResolvedLoweredBlockPyFunctionBundlePlan,
     prepare_callable_def: &mut impl FnMut(&mut SemanticBlockPyCallableDef),
-) -> LoweredBlockPyFunctionBundle {
+) -> LoweredBlockPyFunctionExportPlan {
     let ResolvedLoweredBlockPyFunctionBundlePlan {
         mut prepared_function,
         display_name,
@@ -903,19 +931,78 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         )
     };
 
-    let mut exported_entry_label = entry_label.clone();
-    let mut exported_entry_liveins = state_order.clone();
-    let mut exported_blocks = blocks_for_dataflow;
-    let mut exported_block_params = block_params.clone();
-    let mut exported_exception_edges = exception_edges.clone();
+    LoweredBlockPyFunctionExportPlan {
+        function_id: blockpy_function.function_id,
+        bind_name: blockpy_function.bind_name.clone(),
+        display_name,
+        qualname: blockpy_function.qualname.clone(),
+        doc: blockpy_function.doc.clone(),
+        params: blockpy_function.params.clone(),
+        has_yield,
+        is_coroutine,
+        is_async_generator_runtime,
+        is_closure_backed_generator_runtime,
+        param_names,
+        label_prefix,
+        main_param_specs,
+        runtime_entry_label: entry_label,
+        runtime_entry_liveins: state_order,
+        runtime_blocks: blocks_for_dataflow,
+        runtime_block_params: block_params,
+        runtime_exception_edges: exception_edges,
+        runtime_closure_layout: closure_layout,
+        semantic_closure_layout,
+        local_cell_slots: sorted_local_cell_slots,
+        target_labels,
+        resume_pcs,
+        resume_function_id,
+    }
+}
+
+pub(crate) fn lowered_blockpy_function_export_plan_to_bundle(
+    plan: LoweredBlockPyFunctionExportPlan,
+) -> LoweredBlockPyFunctionBundle {
+    let LoweredBlockPyFunctionExportPlan {
+        function_id,
+        bind_name,
+        display_name,
+        qualname,
+        doc,
+        params,
+        has_yield,
+        is_coroutine,
+        is_async_generator_runtime,
+        is_closure_backed_generator_runtime,
+        param_names,
+        label_prefix,
+        main_param_specs,
+        runtime_entry_label,
+        runtime_entry_liveins,
+        runtime_blocks,
+        runtime_block_params,
+        runtime_exception_edges,
+        runtime_closure_layout,
+        semantic_closure_layout,
+        local_cell_slots,
+        target_labels,
+        resume_pcs,
+        resume_function_id,
+    } = plan;
+
+    let mut exported_entry_label = runtime_entry_label.clone();
+    let mut exported_entry_liveins = runtime_entry_liveins.clone();
+    let mut exported_blocks = runtime_blocks;
+    let mut exported_block_params = runtime_block_params;
+    let mut exported_exception_edges = runtime_exception_edges;
     let mut helper_functions = Vec::new();
+
     if has_yield {
-        let layout = closure_layout
+        let layout = runtime_closure_layout
             .as_ref()
-            .expect("closure-backed generator lowering requires closure layout");
+            .expect("closure-backed generator export requires closure layout");
         let factory_label = format!("{label_prefix}_factory");
         let resume_function_id = resume_function_id
-            .expect("yielding bundle plan should preallocate a resume helper function id");
+            .expect("yielding export plan should preallocate a resume helper function id");
         let resume_blockpy_kind = if is_async_generator_runtime {
             BlockPyFunctionKind::AsyncGenerator
         } else {
@@ -924,7 +1011,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         let resume_bb_kind = bb_kind_for_blockpy_kind(
             resume_blockpy_kind,
             true,
-            entry_label.as_str(),
+            runtime_entry_label.as_str(),
             &target_labels,
             &resume_pcs,
         );
@@ -934,7 +1021,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
             normalized_resume_exception_edges,
             normalized_resume_bb_kind,
         ) = normalize_exported_entry_block(
-            entry_label.clone(),
+            runtime_entry_label.clone(),
             exported_blocks.clone(),
             exported_block_params.clone(),
             exported_exception_edges.clone(),
@@ -960,9 +1047,9 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
             factory_label.as_str(),
             ENTRY_BLOCK_LABEL,
             resume_function_id,
-            blockpy_function.bind_name.as_str(),
+            bind_name.as_str(),
             display_name.as_str(),
-            blockpy_function.qualname.as_str(),
+            qualname.as_str(),
             &param_names,
             layout,
             is_coroutine,
@@ -970,8 +1057,6 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
             &normalized_resume_target_labels,
             &normalized_resume_pcs,
         );
-        let mut resume_local_cell_slots = cell_slots.iter().cloned().collect::<Vec<_>>();
-        resume_local_cell_slots.sort();
         let resume_function = build_blockpy_function(
             export_plan.resume_function_id,
             export_plan.resume_bind_name.clone(),
@@ -979,11 +1064,11 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
             export_plan.resume_qualname.clone(),
             None,
             resume_blockpy_kind,
-            blockpy_function.params.clone(),
+            params.clone(),
             ENTRY_BLOCK_LABEL.to_string(),
             export_plan.resume_entry_liveins.clone(),
-            closure_layout.clone(),
-            resume_local_cell_slots.clone(),
+            runtime_closure_layout.clone(),
+            local_cell_slots.clone(),
             normalized_resume_blocks,
         );
         helper_functions.push(build_lowered_blockpy_function(
@@ -992,7 +1077,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
             normalized_resume_bb_kind,
             normalized_resume_block_params,
             normalized_resume_exception_edges,
-            closure_layout.clone(),
+            runtime_closure_layout.clone(),
             BbExpr::from_expr(export_plan.resume_param_specs.clone()),
         ));
         exported_blocks = vec![export_plan.factory_block];
@@ -1007,7 +1092,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
     let main_bb_kind = bb_kind_for_blockpy_kind(
         main_blockpy_kind,
         is_closure_backed_generator_runtime,
-        entry_label.as_str(),
+        runtime_entry_label.as_str(),
         &target_labels,
         &resume_pcs,
     );
@@ -1017,24 +1102,28 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         normalized_main_exception_edges,
         normalized_main_bb_kind,
     ) = normalize_exported_entry_block(
-        exported_entry_label.clone(),
+        exported_entry_label,
         exported_blocks,
         exported_block_params,
         exported_exception_edges,
         main_bb_kind,
     );
     let main_function = build_blockpy_function(
-        blockpy_function.function_id,
-        blockpy_function.bind_name.clone(),
-        display_name.clone(),
-        blockpy_function.qualname.clone(),
-        blockpy_function.doc.clone(),
+        function_id,
+        bind_name,
+        display_name,
+        qualname,
+        doc,
         main_blockpy_kind,
-        blockpy_function.params.clone(),
+        params,
         ENTRY_BLOCK_LABEL.to_string(),
-        exported_entry_liveins.clone(),
-        semantic_closure_layout,
-        sorted_local_cell_slots,
+        exported_entry_liveins,
+        if has_yield {
+            None
+        } else {
+            semantic_closure_layout
+        },
+        local_cell_slots,
         normalized_main_blocks,
     );
     LoweredBlockPyFunctionBundle {
@@ -1044,7 +1133,11 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
             normalized_main_bb_kind,
             normalized_main_block_params,
             normalized_main_exception_edges,
-            if has_yield { None } else { closure_layout },
+            if has_yield {
+                None
+            } else {
+                runtime_closure_layout
+            },
             main_param_specs,
         ),
         helper_functions,

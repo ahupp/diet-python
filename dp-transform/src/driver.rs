@@ -86,9 +86,15 @@ pub(crate) fn rewrite_module_with_tracker(
                 lowered_blockpy_module_plan,
             )
         });
+    let lowered_blockpy_module_export_plan =
+        pass_tracker.add_pass("semantic_blockpy_export_plan", || {
+            basic_block::resolved_lowered_blockpy_module_bundle_plan_to_export_plan(
+                resolved_lowered_blockpy_module_plan,
+            )
+        });
     let lowered_blockpy_module = pass_tracker.add_pass("semantic_blockpy", || {
-        basic_block::resolved_lowered_blockpy_module_bundle_plan_to_bundle(
-            resolved_lowered_blockpy_module_plan,
+        basic_block::lowered_blockpy_module_export_plan_to_bundle(
+            lowered_blockpy_module_export_plan,
         )
     });
     let core_blockpy_bundle = pass_tracker.add_pass("core_blockpy", || {

@@ -15,8 +15,9 @@ use super::cfg_ir::{CfgCallableDef, CfgModule};
 use super::function_lowering::rewrite_deleted_name_loads;
 use super::param_specs::function_param_specs_expr;
 use super::ruff_to_blockpy::{
-    build_lowered_blockpy_function_bundle, resolve_lowered_blockpy_function_bundle_plan,
-    LoweredBlockPyFunction, LoweredBlockPyFunctionBundlePlan,
+    build_lowered_blockpy_function_export_plan, lowered_blockpy_function_export_plan_to_bundle,
+    resolve_lowered_blockpy_function_bundle_plan, LoweredBlockPyFunction,
+    LoweredBlockPyFunctionBundlePlan, LoweredBlockPyFunctionExportPlan,
     ResolvedLoweredBlockPyFunctionBundlePlan,
 };
 use super::stmt_utils::{flatten_stmt_boxes, stmt_body_from_stmts};
@@ -59,6 +60,18 @@ pub(crate) struct ResolvedLoweredBlockPyModuleBundlePlanEntry {
 pub(crate) struct ResolvedLoweredBlockPyModuleBundlePlan {
     pub module_init: Option<String>,
     pub callable_def_bundles: Vec<ResolvedLoweredBlockPyModuleBundlePlanEntry>,
+}
+
+#[derive(Clone)]
+pub(crate) struct LoweredBlockPyModuleExportPlanEntry {
+    pub bundle_plan: LoweredBlockPyFunctionExportPlan,
+    pub main_binding_target: super::bb_ir::BindingTarget,
+}
+
+#[derive(Clone)]
+pub(crate) struct LoweredBlockPyModuleExportPlan {
+    pub module_init: Option<String>,
+    pub callable_def_bundles: Vec<LoweredBlockPyModuleExportPlanEntry>,
 }
 
 fn next_temp_from_reserved_names(
@@ -116,12 +129,12 @@ pub(crate) fn resolve_lowered_blockpy_module_bundle_plan(
     }
 }
 
-fn build_lowered_blockpy_function_bundle_with_deleted_name_rewrite(
+fn build_lowered_blockpy_function_export_plan_with_deleted_name_rewrite(
     plan: ResolvedLoweredBlockPyFunctionBundlePlan,
-) -> super::ruff_to_blockpy::LoweredBlockPyFunctionBundle {
+) -> LoweredBlockPyFunctionExportPlan {
     let deleted_names = plan.deleted_names.clone();
     let unbound_local_names = plan.unbound_local_names.clone();
-    build_lowered_blockpy_function_bundle(plan, &mut |callable_def| {
+    build_lowered_blockpy_function_export_plan(plan, &mut |callable_def| {
         if !deleted_names.is_empty() {
             rewrite_deleted_name_loads(
                 &mut callable_def.blocks,
@@ -138,13 +151,30 @@ fn build_lowered_blockpy_function_bundle_with_deleted_name_rewrite(
     })
 }
 
-pub(crate) fn resolved_lowered_blockpy_module_bundle_plan_to_bundle(
+pub(crate) fn resolved_lowered_blockpy_module_bundle_plan_to_export_plan(
     plan: ResolvedLoweredBlockPyModuleBundlePlan,
+) -> LoweredBlockPyModuleExportPlan {
+    let mut callable_def_bundles = Vec::new();
+    for entry in plan.callable_def_bundles {
+        let bundle_plan =
+            build_lowered_blockpy_function_export_plan_with_deleted_name_rewrite(entry.bundle_plan);
+        callable_def_bundles.push(LoweredBlockPyModuleExportPlanEntry {
+            bundle_plan,
+            main_binding_target: entry.main_binding_target,
+        });
+    }
+    LoweredBlockPyModuleExportPlan {
+        module_init: plan.module_init,
+        callable_def_bundles,
+    }
+}
+
+pub(crate) fn lowered_blockpy_module_export_plan_to_bundle(
+    plan: LoweredBlockPyModuleExportPlan,
 ) -> LoweredBlockPyModuleBundle {
     let mut callable_defs = Vec::new();
     for entry in plan.callable_def_bundles {
-        let bundle =
-            build_lowered_blockpy_function_bundle_with_deleted_name_rewrite(entry.bundle_plan);
+        let bundle = lowered_blockpy_function_export_plan_to_bundle(entry.bundle_plan);
         callable_defs.extend(
             bundle
                 .helper_functions

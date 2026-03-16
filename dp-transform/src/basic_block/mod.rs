@@ -19,8 +19,9 @@ mod stmt_utils;
 // Ruff AST -> BbModule
 pub use block_py::pretty::blockpy_module_to_string;
 pub(crate) use blockpy_to_bb::{
-    lower_core_blockpy_module_bundle_to_bb_module, resolve_lowered_blockpy_module_bundle_plan,
-    resolved_lowered_blockpy_module_bundle_plan_to_bundle,
+    lower_core_blockpy_module_bundle_to_bb_module, lowered_blockpy_module_export_plan_to_bundle,
+    resolve_lowered_blockpy_module_bundle_plan,
+    resolved_lowered_blockpy_module_bundle_plan_to_export_plan,
     simplify_lowered_blockpy_module_bundle_exprs,
 };
 pub use blockpy_to_bb::{lower_try_jump_exception_flow, normalize_bb_module_for_codegen};
