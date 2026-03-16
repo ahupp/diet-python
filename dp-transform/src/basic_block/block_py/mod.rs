@@ -78,17 +78,6 @@ pub struct CoreBlockPyYieldFrom {
     pub value: Box<CoreBlockPyExpr>,
 }
 
-pub type RuffBlockPyModule = BlockPyModule<Expr>;
-pub type RuffBlockPyCallableDef = BlockPyCallableDef<Expr>;
-pub type RuffBlockPyBlock = BlockPyBlock<Expr>;
-pub type RuffBlockPyStmt = BlockPyStmt<Expr>;
-pub type RuffBlockPyTerm = BlockPyTerm<Expr>;
-pub type RuffBlockPyStmtFragment = BlockPyStmtFragment<Expr>;
-pub type RuffBlockPyAssign = BlockPyAssign<Expr>;
-pub type RuffBlockPyIf = BlockPyStructuredIf<Expr>;
-pub type RuffBlockPyIfTerm = BlockPyIfTerm<Expr>;
-pub type RuffBlockPyBranchTable = BlockPyBranchTable<Expr>;
-pub type RuffBlockPyRaise = BlockPyRaise<Expr>;
 pub type SemanticBlockPyModule = BlockPyModule<Expr>;
 pub type SemanticBlockPyExpr = Expr;
 pub type SemanticBlockPyCallableDef = BlockPyCallableDef<Expr>;
