@@ -1,7 +1,6 @@
 use super::await_lower::{
     blockpy_blocks_contain_await_exprs, lower_coroutine_awaits_in_blockpy_blocks,
 };
-use super::bb_ir::{BbClosureLayout, BbFunctionKind, BindingTarget, FunctionId};
 use super::block_py::cfg::{
     fold_constant_brif_blockpy, fold_jumps_to_trivial_none_return_blockpy,
     prune_unreachable_blockpy_blocks, relabel_blockpy_blocks, rename_blockpy_labels,
@@ -23,6 +22,7 @@ use super::block_py::{
     SemanticBlockPyTerm, ENTRY_BLOCK_LABEL,
 };
 use super::cfg_ir::CfgCallableDef;
+use super::lowered_ir::{BindingTarget, ClosureLayout, FunctionId, LoweredFunctionKind};
 use super::stmt_utils::flatten_stmt_boxes;
 use crate::basic_block::ast_to_ast::ast_rewrite::Rewrite;
 use crate::basic_block::ast_to_ast::context::Context;
@@ -93,10 +93,10 @@ pub struct LoweredBlockPyFunction<C = SemanticBlockPyCallableDef> {
     pub(crate) callable_def: C,
     pub(crate) binding_target: BindingTarget,
     pub(crate) is_coroutine: bool,
-    pub(crate) bb_kind: BbFunctionKind,
+    pub(crate) bb_kind: LoweredFunctionKind,
     pub(crate) block_params: HashMap<String, Vec<String>>,
     pub(crate) exception_edges: HashMap<String, Option<String>>,
-    pub(crate) closure_layout: Option<BbClosureLayout>,
+    pub(crate) closure_layout: Option<ClosureLayout>,
     pub(crate) param_specs: CoreBlockPyExprWithoutAwaitOrYield,
 }
 
@@ -199,8 +199,8 @@ pub(crate) struct LoweredBlockPyFunctionExportPlan {
     pub runtime_blocks: Vec<SemanticBlockPyBlock>,
     pub runtime_block_params: HashMap<String, Vec<String>>,
     pub runtime_exception_edges: HashMap<String, Option<String>>,
-    pub runtime_closure_layout: Option<BbClosureLayout>,
-    pub semantic_closure_layout: Option<BbClosureLayout>,
+    pub runtime_closure_layout: Option<ClosureLayout>,
+    pub semantic_closure_layout: Option<ClosureLayout>,
     pub local_cell_slots: Vec<String>,
     pub target_labels: Vec<String>,
     pub resume_pcs: Vec<(String, usize)>,
@@ -302,16 +302,18 @@ pub(crate) fn bb_kind_for_blockpy_kind(
     resume_label: &str,
     target_labels: &[String],
     resume_pcs: &[(String, usize)],
-) -> BbFunctionKind {
+) -> LoweredFunctionKind {
     match kind {
-        BlockPyFunctionKind::Function | BlockPyFunctionKind::Coroutine => BbFunctionKind::Function,
-        BlockPyFunctionKind::Generator => BbFunctionKind::Generator {
+        BlockPyFunctionKind::Function | BlockPyFunctionKind::Coroutine => {
+            LoweredFunctionKind::Function
+        }
+        BlockPyFunctionKind::Generator => LoweredFunctionKind::Generator {
             closure_state,
             resume_label: resume_label.to_string(),
             target_labels: target_labels.to_vec(),
             resume_pcs: resume_pcs.to_vec(),
         },
-        BlockPyFunctionKind::AsyncGenerator => BbFunctionKind::AsyncGenerator {
+        BlockPyFunctionKind::AsyncGenerator => LoweredFunctionKind::AsyncGenerator {
             closure_state,
             resume_label: resume_label.to_string(),
             target_labels: target_labels.to_vec(),
@@ -330,7 +332,7 @@ pub(crate) fn build_blockpy_function(
     params: ast::Parameters,
     entry_label: String,
     entry_liveins: Vec<String>,
-    closure_layout: Option<BbClosureLayout>,
+    closure_layout: Option<ClosureLayout>,
     local_cell_slots: Vec<String>,
     mut blocks: Vec<SemanticBlockPyBlock>,
 ) -> SemanticBlockPyCallableDef {
@@ -377,10 +379,10 @@ pub(crate) fn take_next_function_id(next_function_id: &mut usize) -> FunctionId 
 pub(crate) fn build_lowered_blockpy_function(
     callable_def: SemanticBlockPyCallableDef,
     is_coroutine: bool,
-    bb_kind: BbFunctionKind,
+    bb_kind: LoweredFunctionKind,
     block_params: HashMap<String, Vec<String>>,
     exception_edges: HashMap<String, Option<String>>,
-    closure_layout: Option<BbClosureLayout>,
+    closure_layout: Option<ClosureLayout>,
     param_specs: CoreBlockPyExprWithoutAwaitOrYield,
 ) -> LoweredBlockPyFunction {
     LoweredBlockPyFunction {
@@ -454,16 +456,16 @@ fn rename_exception_edges(
         .collect()
 }
 
-fn rename_bb_kind(kind: &mut BbFunctionKind, rename: &HashMap<String, String>) {
+fn rename_lowered_function_kind(kind: &mut LoweredFunctionKind, rename: &HashMap<String, String>) {
     match kind {
-        BbFunctionKind::Function => {}
-        BbFunctionKind::Generator {
+        LoweredFunctionKind::Function => {}
+        LoweredFunctionKind::Generator {
             resume_label,
             target_labels,
             resume_pcs,
             ..
         }
-        | BbFunctionKind::AsyncGenerator {
+        | LoweredFunctionKind::AsyncGenerator {
             resume_label,
             target_labels,
             resume_pcs,
@@ -491,12 +493,12 @@ fn normalize_exported_entry_block(
     mut blocks: Vec<SemanticBlockPyBlock>,
     block_params: HashMap<String, Vec<String>>,
     exception_edges: HashMap<String, Option<String>>,
-    mut bb_kind: BbFunctionKind,
+    mut bb_kind: LoweredFunctionKind,
 ) -> (
     Vec<SemanticBlockPyBlock>,
     HashMap<String, Vec<String>>,
     HashMap<String, Option<String>>,
-    BbFunctionKind,
+    LoweredFunctionKind,
 ) {
     let mut rename = HashMap::new();
     if entry_label != ENTRY_BLOCK_LABEL {
@@ -514,7 +516,7 @@ fn normalize_exported_entry_block(
 
     if !rename.is_empty() {
         rename_blockpy_labels(&rename, &mut blocks);
-        rename_bb_kind(&mut bb_kind, &rename);
+        rename_lowered_function_kind(&mut bb_kind, &rename);
     }
 
     if let Some(entry_index) = blocks
@@ -541,7 +543,7 @@ fn build_semantic_blockpy_closure_layout(
     capture_names: &[String],
     local_cell_slots: &[String],
     injected_exception_names: &HashSet<String>,
-) -> Option<BbClosureLayout> {
+) -> Option<ClosureLayout> {
     if capture_names.is_empty()
         && local_cell_slots.is_empty()
         && injected_exception_names.is_empty()
@@ -1058,17 +1060,17 @@ pub(crate) fn lowered_blockpy_function_export_plan_to_bundle(
         );
         let (normalized_resume_target_labels, normalized_resume_pcs) =
             match &normalized_resume_bb_kind {
-                BbFunctionKind::Generator {
+                LoweredFunctionKind::Generator {
                     target_labels,
                     resume_pcs,
                     ..
                 }
-                | BbFunctionKind::AsyncGenerator {
+                | LoweredFunctionKind::AsyncGenerator {
                     target_labels,
                     resume_pcs,
                     ..
                 } => (target_labels.clone(), resume_pcs.clone()),
-                BbFunctionKind::Function => {
+                LoweredFunctionKind::Function => {
                     panic!("closure-backed generator resume helper must lower as a generator")
                 }
             };
@@ -2468,28 +2470,28 @@ def f(xs):
 
     #[test]
     fn builds_closure_backed_generator_factory_block() {
-        let layout = crate::basic_block::bb_ir::BbClosureLayout {
-            freevars: vec![crate::basic_block::bb_ir::BbClosureSlot {
+        let layout = crate::basic_block::lowered_ir::ClosureLayout {
+            freevars: vec![crate::basic_block::lowered_ir::ClosureSlot {
                 logical_name: "captured".to_string(),
                 storage_name: "_dp_cell_captured".to_string(),
-                init: crate::basic_block::bb_ir::BbClosureInit::InheritedCapture,
+                init: crate::basic_block::lowered_ir::ClosureInit::InheritedCapture,
             }],
-            cellvars: vec![crate::basic_block::bb_ir::BbClosureSlot {
+            cellvars: vec![crate::basic_block::lowered_ir::ClosureSlot {
                 logical_name: "x".to_string(),
                 storage_name: "_dp_cell_x".to_string(),
-                init: crate::basic_block::bb_ir::BbClosureInit::Parameter,
+                init: crate::basic_block::lowered_ir::ClosureInit::Parameter,
             }],
-            runtime_cells: vec![crate::basic_block::bb_ir::BbClosureSlot {
+            runtime_cells: vec![crate::basic_block::lowered_ir::ClosureSlot {
                 logical_name: "_dp_pc".to_string(),
                 storage_name: "_dp_cell__dp_pc".to_string(),
-                init: crate::basic_block::bb_ir::BbClosureInit::RuntimePcUnstarted,
+                init: crate::basic_block::lowered_ir::ClosureInit::RuntimePcUnstarted,
             }],
         };
 
         let block = build_closure_backed_generator_factory_block(
             "_dp_bb_demo_factory",
             "_dp_bb_demo_0",
-            crate::basic_block::bb_ir::FunctionId(0),
+            crate::basic_block::lowered_ir::FunctionId(0),
             &[
                 "_dp_self".to_string(),
                 "_dp_send_value".to_string(),

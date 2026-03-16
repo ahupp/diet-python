@@ -185,18 +185,20 @@ fn bb_module_to_json(module: &bb_ir::BbModule) -> Value {
     })
 }
 
-fn bb_binding_target_name(target: bb_ir::BindingTarget) -> &'static str {
+fn bb_binding_target_name(target: crate::basic_block::lowered_ir::BindingTarget) -> &'static str {
     match target {
-        bb_ir::BindingTarget::Local => "local",
-        bb_ir::BindingTarget::ModuleGlobal => "module_global",
-        bb_ir::BindingTarget::ClassNamespace => "class_namespace",
+        crate::basic_block::lowered_ir::BindingTarget::Local => "local",
+        crate::basic_block::lowered_ir::BindingTarget::ModuleGlobal => "module_global",
+        crate::basic_block::lowered_ir::BindingTarget::ClassNamespace => "class_namespace",
     }
 }
 
-fn bb_function_kind_to_json(kind: &bb_ir::BbFunctionKind) -> Value {
+fn bb_function_kind_to_json(kind: &crate::basic_block::lowered_ir::LoweredFunctionKind) -> Value {
     match kind {
-        bb_ir::BbFunctionKind::Function => json!({"kind": "function"}),
-        bb_ir::BbFunctionKind::Generator {
+        crate::basic_block::lowered_ir::LoweredFunctionKind::Function => {
+            json!({"kind": "function"})
+        }
+        crate::basic_block::lowered_ir::LoweredFunctionKind::Generator {
             closure_state,
             resume_label,
             target_labels,
@@ -208,7 +210,7 @@ fn bb_function_kind_to_json(kind: &bb_ir::BbFunctionKind) -> Value {
             "targetLabels": target_labels,
             "resumePcs": resume_pcs,
         }),
-        bb_ir::BbFunctionKind::AsyncGenerator {
+        crate::basic_block::lowered_ir::LoweredFunctionKind::AsyncGenerator {
             closure_state,
             resume_label,
             target_labels,

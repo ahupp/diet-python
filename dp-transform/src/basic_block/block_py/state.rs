@@ -576,10 +576,10 @@ fn lower_generated_stmts_to_blockpy(stmts: Vec<Stmt>) -> Vec<BlockPyStmt> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::basic_block::bb_ir::FunctionId;
     use crate::basic_block::block_py::pretty::blockpy_module_to_string;
     use crate::basic_block::block_py::{BlockPyBlockMeta, BlockPyCallableDef, BlockPyFunctionKind};
     use crate::basic_block::cfg_ir::{CfgCallableDef, CfgModule};
+    use crate::basic_block::lowered_ir::FunctionId;
     use ruff_python_ast::Parameters;
     use std::collections::{HashMap, HashSet};
 

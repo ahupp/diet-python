@@ -186,9 +186,13 @@ mod tests {
         })?;
         for function in &bb_module.callable_defs {
             match &function.kind {
-                bb_ir::BbFunctionKind::Function
-                | bb_ir::BbFunctionKind::Generator { .. }
-                | bb_ir::BbFunctionKind::AsyncGenerator { .. } => {}
+                dp_transform::basic_block::lowered_ir::LoweredFunctionKind::Function
+                | dp_transform::basic_block::lowered_ir::LoweredFunctionKind::Generator {
+                    ..
+                }
+                | dp_transform::basic_block::lowered_ir::LoweredFunctionKind::AsyncGenerator {
+                    ..
+                } => {}
             }
         }
         Ok(())

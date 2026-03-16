@@ -532,9 +532,9 @@ fn build_clif_plan(
 ) -> Result<ClifPlan, String> {
     if !matches!(
         function.kind,
-        dp_transform::basic_block::bb_ir::BbFunctionKind::Function
-            | dp_transform::basic_block::bb_ir::BbFunctionKind::Generator { .. }
-            | dp_transform::basic_block::bb_ir::BbFunctionKind::AsyncGenerator { .. }
+        dp_transform::basic_block::lowered_ir::LoweredFunctionKind::Function
+            | dp_transform::basic_block::lowered_ir::LoweredFunctionKind::Generator { .. }
+            | dp_transform::basic_block::lowered_ir::LoweredFunctionKind::AsyncGenerator { .. }
     ) {
         return Err(format!(
             "unsupported JIT function kind in {}: {:?}; only plain/generator/async-generator functions are currently supported",

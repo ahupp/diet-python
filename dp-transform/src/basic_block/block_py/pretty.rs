@@ -356,7 +356,7 @@ impl BlockPyFormatter {
     }
 }
 
-fn render_closure_slots(slots: &[crate::basic_block::bb_ir::BbClosureSlot]) -> String {
+fn render_closure_slots(slots: &[crate::basic_block::lowered_ir::ClosureSlot]) -> String {
     slots
         .iter()
         .map(|slot| {
@@ -371,14 +371,14 @@ fn render_closure_slots(slots: &[crate::basic_block::bb_ir::BbClosureSlot]) -> S
         .join(", ")
 }
 
-fn closure_init_name(init: &crate::basic_block::bb_ir::BbClosureInit) -> &'static str {
+fn closure_init_name(init: &crate::basic_block::lowered_ir::ClosureInit) -> &'static str {
     match init {
-        crate::basic_block::bb_ir::BbClosureInit::InheritedCapture => "inherited",
-        crate::basic_block::bb_ir::BbClosureInit::Parameter => "param",
-        crate::basic_block::bb_ir::BbClosureInit::DeletedSentinel => "deleted",
-        crate::basic_block::bb_ir::BbClosureInit::RuntimePcUnstarted => "pc_unstarted",
-        crate::basic_block::bb_ir::BbClosureInit::RuntimeNone => "none",
-        crate::basic_block::bb_ir::BbClosureInit::Deferred => "deferred",
+        crate::basic_block::lowered_ir::ClosureInit::InheritedCapture => "inherited",
+        crate::basic_block::lowered_ir::ClosureInit::Parameter => "param",
+        crate::basic_block::lowered_ir::ClosureInit::DeletedSentinel => "deleted",
+        crate::basic_block::lowered_ir::ClosureInit::RuntimePcUnstarted => "pc_unstarted",
+        crate::basic_block::lowered_ir::ClosureInit::RuntimeNone => "none",
+        crate::basic_block::lowered_ir::ClosureInit::Deferred => "deferred",
     }
 }
 
@@ -924,8 +924,8 @@ fn collect_referenced_labels_from_term(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::basic_block::bb_ir::{BbClosureInit, BbClosureLayout, BbClosureSlot};
     use crate::basic_block::block_py::BlockPyBlockMeta;
+    use crate::basic_block::lowered_ir::{ClosureInit, ClosureLayout, ClosureSlot};
     use ruff_python_parser::{parse_expression, parse_module};
 
     fn wrapped_blockpy(source: &str) -> BlockPyModule {
@@ -1040,7 +1040,7 @@ def gen():
             module_init: None,
             callable_defs: vec![BlockPyCallableDef {
                 cfg: crate::basic_block::cfg_ir::CfgCallableDef {
-                    function_id: crate::basic_block::bb_ir::FunctionId(0),
+                    function_id: crate::basic_block::lowered_ir::FunctionId(0),
                     bind_name: "gen".to_string(),
                     display_name: "gen".to_string(),
                     qualname: "gen".to_string(),
@@ -1055,21 +1055,21 @@ def gen():
                     }],
                 },
                 doc: None,
-                closure_layout: Some(BbClosureLayout {
-                    freevars: vec![BbClosureSlot {
+                closure_layout: Some(ClosureLayout {
+                    freevars: vec![ClosureSlot {
                         logical_name: "factor".to_string(),
                         storage_name: "_dp_cell_factor".to_string(),
-                        init: BbClosureInit::InheritedCapture,
+                        init: ClosureInit::InheritedCapture,
                     }],
-                    cellvars: vec![BbClosureSlot {
+                    cellvars: vec![ClosureSlot {
                         logical_name: "total".to_string(),
                         storage_name: "_dp_cell_total".to_string(),
-                        init: BbClosureInit::Deferred,
+                        init: ClosureInit::Deferred,
                     }],
-                    runtime_cells: vec![BbClosureSlot {
+                    runtime_cells: vec![ClosureSlot {
                         logical_name: "_dp_pc".to_string(),
                         storage_name: "_dp_cell__dp_pc".to_string(),
-                        init: BbClosureInit::RuntimePcUnstarted,
+                        init: ClosureInit::RuntimePcUnstarted,
                     }],
                 }),
                 local_cell_slots: vec!["_dp_cell__dp_pc".to_string()],
@@ -1086,7 +1086,7 @@ def gen():
     fn renders_followup_blocks_under_their_owning_entry_block() {
         let function = BlockPyCallableDef {
             cfg: crate::basic_block::cfg_ir::CfgCallableDef {
-                function_id: crate::basic_block::bb_ir::FunctionId(0),
+                function_id: crate::basic_block::lowered_ir::FunctionId(0),
                 bind_name: "f".to_string(),
                 display_name: "f".to_string(),
                 qualname: "f".to_string(),
@@ -1164,7 +1164,7 @@ def choose(a, b):
     fn sorts_rendered_root_and_child_blocks_by_label() {
         let function: BlockPyCallableDef<Expr> = BlockPyCallableDef {
             cfg: crate::basic_block::cfg_ir::CfgCallableDef {
-                function_id: crate::basic_block::bb_ir::FunctionId(0),
+                function_id: crate::basic_block::lowered_ir::FunctionId(0),
                 bind_name: "f".to_string(),
                 display_name: "f".to_string(),
                 qualname: "f".to_string(),

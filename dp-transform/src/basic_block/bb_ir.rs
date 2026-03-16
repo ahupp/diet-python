@@ -1,5 +1,6 @@
 use super::block_py::CoreBlockPyExprWithoutAwaitOrYield;
 use super::cfg_ir::{CfgBlock, CfgCallableDef, CfgModule};
+use super::lowered_ir::{BindingTarget, ClosureLayout, FunctionId, LoweredFunctionKind};
 use crate::py_expr;
 use ruff_python_ast::{
     self as ast, AtomicNodeIndex, Expr, ExprContext, ExprName, Stmt, StmtAssign, StmtDelete,
@@ -10,26 +11,17 @@ use std::ops::{Deref, DerefMut};
 
 pub type BbModule = CfgModule<BbFunction>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct FunctionId(pub usize);
-
-impl FunctionId {
-    pub fn plan_qualname(self, qualname: &str) -> String {
-        format!("{qualname}::__dp_fn_{}", self.0)
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct BbFunction {
-    pub cfg: CfgCallableDef<FunctionId, BbFunctionKind, Vec<String>, BbBlock>,
+    pub cfg: CfgCallableDef<FunctionId, LoweredFunctionKind, Vec<String>, BbBlock>,
     pub binding_target: BindingTarget,
     pub is_coroutine: bool,
-    pub closure_layout: Option<BbClosureLayout>,
+    pub closure_layout: Option<ClosureLayout>,
     pub local_cell_slots: Vec<String>,
 }
 
 impl Deref for BbFunction {
-    type Target = CfgCallableDef<FunctionId, BbFunctionKind, Vec<String>, BbBlock>;
+    type Target = CfgCallableDef<FunctionId, LoweredFunctionKind, Vec<String>, BbBlock>;
 
     fn deref(&self) -> &Self::Target {
         &self.cfg
@@ -40,54 +32,6 @@ impl DerefMut for BbFunction {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.cfg
     }
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum BindingTarget {
-    Local,
-    ModuleGlobal,
-    ClassNamespace,
-}
-
-#[derive(Debug, Clone)]
-pub enum BbFunctionKind {
-    Function,
-    Generator {
-        closure_state: bool,
-        resume_label: String,
-        target_labels: Vec<String>,
-        resume_pcs: Vec<(String, usize)>,
-    },
-    AsyncGenerator {
-        closure_state: bool,
-        resume_label: String,
-        target_labels: Vec<String>,
-        resume_pcs: Vec<(String, usize)>,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BbClosureLayout {
-    pub freevars: Vec<BbClosureSlot>,
-    pub cellvars: Vec<BbClosureSlot>,
-    pub runtime_cells: Vec<BbClosureSlot>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BbClosureSlot {
-    pub logical_name: String,
-    pub storage_name: String,
-    pub init: BbClosureInit,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BbClosureInit {
-    InheritedCapture,
-    Parameter,
-    DeletedSentinel,
-    RuntimePcUnstarted,
-    RuntimeNone,
-    Deferred,
 }
 
 #[derive(Debug, Clone, Default)]

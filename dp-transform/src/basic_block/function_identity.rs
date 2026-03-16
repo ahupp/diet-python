@@ -1,4 +1,4 @@
-use super::bb_ir::BindingTarget;
+use super::lowered_ir::BindingTarget;
 use crate::basic_block::ast_to_ast::scope::is_internal_symbol;
 use crate::basic_block::ast_to_ast::scope::{BindingKind, BindingUse, Scope, ScopeKind};
 use crate::basic_block::ast_to_ast::util::{

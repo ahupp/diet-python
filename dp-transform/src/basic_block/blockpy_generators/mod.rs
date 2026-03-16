@@ -3,7 +3,6 @@ use crate::basic_block::ast_to_ast::scope::cell_name;
 use crate::basic_block::await_lower::{
     blockpy_blocks_contain_await_exprs, lower_coroutine_awaits_in_blockpy_blocks,
 };
-use crate::basic_block::bb_ir::{BbClosureInit, BbClosureLayout, BbClosureSlot, FunctionId};
 use crate::basic_block::block_py::cfg::{linearize_structured_ifs, rename_blockpy_labels};
 use crate::basic_block::block_py::state::{sync_generator_state_order, sync_target_cells_stmts};
 use crate::basic_block::block_py::{
@@ -13,6 +12,7 @@ use crate::basic_block::block_py::{
     SemanticBlockPyIfTerm as BlockPyIfTerm, SemanticBlockPyRaise as BlockPyRaise,
     SemanticBlockPyStmt as BlockPyStmt, SemanticBlockPyTerm as BlockPyTerm,
 };
+use crate::basic_block::lowered_ir::{ClosureInit, ClosureLayout, ClosureSlot, FunctionId};
 use crate::basic_block::ruff_to_blockpy::expr_lowering;
 use crate::basic_block::ruff_to_blockpy::{
     compat_block_from_blockpy as compat_block_with_term, compat_if_jump_block,
@@ -189,18 +189,18 @@ pub(crate) fn build_async_for_continue_entry(
     fetch_entry_label
 }
 
-fn closure_backed_generator_init_expr(slot: &BbClosureSlot) -> Expr {
+fn closure_backed_generator_init_expr(slot: &ClosureSlot) -> Expr {
     match slot.init {
-        BbClosureInit::InheritedCapture => {
+        ClosureInit::InheritedCapture => {
             panic!("inherited captures do not allocate new cells in outer factories")
         }
-        BbClosureInit::Parameter => {
+        ClosureInit::Parameter => {
             py_expr!("{name:id}", name = slot.logical_name.as_str())
         }
-        BbClosureInit::DeletedSentinel => py_expr!("__dp_DELETED"),
-        BbClosureInit::RuntimePcUnstarted => py_expr!("1"),
-        BbClosureInit::RuntimeNone => py_expr!("None"),
-        BbClosureInit::Deferred => py_expr!("None"),
+        ClosureInit::DeletedSentinel => py_expr!("__dp_DELETED"),
+        ClosureInit::RuntimePcUnstarted => py_expr!("1"),
+        ClosureInit::RuntimeNone => py_expr!("None"),
+        ClosureInit::Deferred => py_expr!("None"),
     }
 }
 
@@ -222,10 +222,10 @@ fn logical_name_for_generator_state(name: &str) -> String {
     name.strip_prefix("_dp_cell_").unwrap_or(name).to_string()
 }
 
-fn runtime_init(name: &str) -> Option<BbClosureInit> {
+fn runtime_init(name: &str) -> Option<ClosureInit> {
     match name {
-        "_dp_pc" => Some(BbClosureInit::RuntimePcUnstarted),
-        "_dp_yieldfrom" => Some(BbClosureInit::RuntimeNone),
+        "_dp_pc" => Some(ClosureInit::RuntimePcUnstarted),
+        "_dp_yieldfrom" => Some(ClosureInit::RuntimeNone),
         _ => None,
     }
 }
@@ -235,7 +235,7 @@ pub(crate) fn build_blockpy_closure_layout(
     state_vars: &[String],
     capture_names: &[String],
     injected_exception_names: &HashSet<String>,
-) -> BbClosureLayout {
+) -> ClosureLayout {
     let ordered_state = sync_generator_state_order(state_vars, injected_exception_names);
     let capture_names = capture_names.iter().cloned().collect::<HashSet<_>>();
     let mut seen_storage_names = HashSet::new();
@@ -254,7 +254,7 @@ pub(crate) fn build_blockpy_closure_layout(
             continue;
         }
         if let Some(init) = runtime_init(logical_name.as_str()) {
-            runtime_cells.push(BbClosureSlot {
+            runtime_cells.push(ClosureSlot {
                 logical_name,
                 storage_name,
                 init,
@@ -265,28 +265,28 @@ pub(crate) fn build_blockpy_closure_layout(
             || capture_names.contains(name.as_str())
             || capture_names.contains(logical_name.as_str())
         {
-            freevars.push(BbClosureSlot {
+            freevars.push(ClosureSlot {
                 logical_name,
                 storage_name,
-                init: BbClosureInit::InheritedCapture,
+                init: ClosureInit::InheritedCapture,
             });
             continue;
         }
         let init = if injected_exception_names.contains(logical_name.as_str()) {
-            BbClosureInit::DeletedSentinel
+            ClosureInit::DeletedSentinel
         } else if param_names.iter().any(|param| param == &logical_name) {
-            BbClosureInit::Parameter
+            ClosureInit::Parameter
         } else {
-            BbClosureInit::Deferred
+            ClosureInit::Deferred
         };
-        cellvars.push(BbClosureSlot {
+        cellvars.push(ClosureSlot {
             logical_name,
             storage_name,
             init,
         });
     }
 
-    BbClosureLayout {
+    ClosureLayout {
         freevars,
         cellvars,
         runtime_cells,
@@ -294,7 +294,7 @@ pub(crate) fn build_blockpy_closure_layout(
 }
 
 pub(crate) fn closure_backed_generator_resume_state_order(
-    layout: &BbClosureLayout,
+    layout: &ClosureLayout,
     is_async_generator: bool,
 ) -> Vec<String> {
     let mut state_order = vec![
@@ -320,7 +320,7 @@ pub(crate) fn closure_backed_generator_resume_state_order(
 
 pub(crate) fn closure_backed_generator_factory_entry_liveins(
     param_names: &[String],
-    layout: &BbClosureLayout,
+    layout: &ClosureLayout,
 ) -> Vec<String> {
     let mut params = param_names.to_vec();
     for slot in &layout.freevars {
@@ -367,7 +367,7 @@ pub(crate) fn build_closure_backed_generator_export_plan(
     function_name: &str,
     qualname: &str,
     param_names: &[String],
-    layout: &BbClosureLayout,
+    layout: &ClosureLayout,
     is_coroutine: bool,
     is_async_generator: bool,
     _target_labels: &[String],
@@ -408,7 +408,7 @@ pub(crate) fn build_closure_backed_generator_factory_block(
     resume_state_order: &[String],
     function_name: &str,
     qualname: &str,
-    layout: &BbClosureLayout,
+    layout: &ClosureLayout,
     is_coroutine: bool,
     is_async_generator: bool,
 ) -> BlockPyBlock {
@@ -2547,8 +2547,8 @@ mod tests {
         SemanticGeneratorInput,
     };
     use crate::basic_block::ast_to_ast::{context::Context, Options};
-    use crate::basic_block::bb_ir::{BbClosureInit, BbClosureLayout, BbClosureSlot};
     use crate::basic_block::block_py::{BlockPyBlockBuilder, BlockPyIfTerm, BlockPyTerm};
+    use crate::basic_block::lowered_ir::{ClosureInit, ClosureLayout, ClosureSlot};
     use crate::basic_block::ruff_to_blockpy::{lower_stmts_to_blockpy_stmts, TryRegionPlan};
     use crate::py_expr;
     use ruff_python_ast::{Expr, Stmt};
@@ -2614,28 +2614,28 @@ mod tests {
 
     #[test]
     fn closure_backed_export_plan_includes_capture_params_and_resume_state() {
-        let layout = BbClosureLayout {
-            freevars: vec![BbClosureSlot {
+        let layout = ClosureLayout {
+            freevars: vec![ClosureSlot {
                 logical_name: "factor".to_string(),
                 storage_name: "_dp_cell_factor".to_string(),
-                init: BbClosureInit::InheritedCapture,
+                init: ClosureInit::InheritedCapture,
             }],
-            cellvars: vec![BbClosureSlot {
+            cellvars: vec![ClosureSlot {
                 logical_name: "total".to_string(),
                 storage_name: "_dp_cell_total".to_string(),
-                init: BbClosureInit::Deferred,
+                init: ClosureInit::Deferred,
             }],
-            runtime_cells: vec![BbClosureSlot {
+            runtime_cells: vec![ClosureSlot {
                 logical_name: "_dp_pc".to_string(),
                 storage_name: "_dp_cell__dp_pc".to_string(),
-                init: BbClosureInit::RuntimePcUnstarted,
+                init: ClosureInit::RuntimePcUnstarted,
             }],
         };
 
         let plan = build_closure_backed_generator_export_plan(
             "_dp_bb_agen_factory",
             "_dp_bb_agen_start",
-            crate::basic_block::bb_ir::FunctionId(7),
+            crate::basic_block::lowered_ir::FunctionId(7),
             "agen",
             "agen",
             "outer.<locals>.agen",

@@ -1,5 +1,5 @@
-use super::bb_ir::{BbClosureLayout, FunctionId};
 use super::cfg_ir::{CfgBlock, CfgCallableDef, CfgModule};
+use super::lowered_ir::{ClosureLayout, FunctionId};
 use crate::py_expr;
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName, Parameters};
@@ -145,7 +145,7 @@ pub const ENTRY_BLOCK_LABEL: &str = "start";
 pub struct BlockPyCallableDef<E = Expr, B = BlockPyBlock<E>> {
     pub cfg: CfgCallableDef<FunctionId, BlockPyFunctionKind, Parameters, B>,
     pub doc: Option<E>,
-    pub closure_layout: Option<BbClosureLayout>,
+    pub closure_layout: Option<ClosureLayout>,
     pub local_cell_slots: Vec<String>,
 }
 

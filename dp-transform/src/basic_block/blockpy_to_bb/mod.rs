@@ -15,6 +15,7 @@ use super::block_py::{
 use super::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use super::cfg_ir::{CfgCallableDef, CfgModule};
 use super::function_lowering::rewrite_deleted_name_loads;
+use super::lowered_ir::BindingTarget;
 use super::param_specs::function_param_specs_expr;
 use super::ruff_to_blockpy::{
     build_lowered_blockpy_function_export_plan,
@@ -50,7 +51,7 @@ pub type LoweredCoreBlockPyModuleBundleWithoutAwaitOrYield =
 #[derive(Clone)]
 pub(crate) struct LoweredBlockPyModuleBundlePlanEntry {
     pub bundle_plan: LoweredBlockPyFunctionBundlePlan,
-    pub main_binding_target: super::bb_ir::BindingTarget,
+    pub main_binding_target: BindingTarget,
 }
 
 #[derive(Clone)]
@@ -64,7 +65,7 @@ pub(crate) struct LoweredBlockPyModuleBundlePlan {
 #[derive(Clone)]
 pub(crate) struct ResolvedLoweredBlockPyModuleBundlePlanEntry {
     pub bundle_plan: ResolvedLoweredBlockPyFunctionBundlePlan,
-    pub main_binding_target: super::bb_ir::BindingTarget,
+    pub main_binding_target: BindingTarget,
 }
 
 #[derive(Clone)]
@@ -76,7 +77,7 @@ pub(crate) struct ResolvedLoweredBlockPyModuleBundlePlan {
 #[derive(Clone)]
 pub(crate) struct LoweredBlockPyModuleExportPlanEntry {
     pub bundle_plan: LoweredBlockPyFunctionExportPlan,
-    pub main_binding_target: super::bb_ir::BindingTarget,
+    pub main_binding_target: BindingTarget,
 }
 
 #[derive(Clone)]
@@ -212,7 +213,7 @@ pub(crate) fn lower_yield_in_lowered_blockpy_module_export_plan(
             bundle
                 .helper_functions
                 .into_iter()
-                .map(|helper| helper.with_binding_target(super::bb_ir::BindingTarget::Local)),
+                .map(|helper| helper.with_binding_target(BindingTarget::Local)),
         );
         callable_defs.push(
             bundle

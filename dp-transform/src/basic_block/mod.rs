@@ -12,6 +12,7 @@ pub(crate) mod cfg_ir;
 mod expr_utils;
 mod function_identity;
 mod function_lowering;
+pub mod lowered_ir;
 mod param_specs;
 mod ruff_to_blockpy;
 mod stmt_utils;
@@ -34,10 +35,11 @@ pub use function_lowering::SingleNamedAssignmentPass;
 
 #[cfg(test)]
 mod tests {
-    use crate::basic_block::bb_ir::BindingTarget;
-    use crate::basic_block::bb_ir::{BbBlock, BbFunction, BbFunctionKind, BbModule};
-    use crate::basic_block::bb_ir::{BbClosureInit, BbClosureSlot, BbOp, BbTerm};
+    use crate::basic_block::bb_ir::{BbBlock, BbFunction, BbModule, BbOp, BbTerm};
     use crate::basic_block::block_py::{BlockPyModule, CoreBlockPyExprWithoutAwaitOrYield};
+    use crate::basic_block::lowered_ir::{
+        BindingTarget, ClosureInit, ClosureSlot, LoweredFunctionKind,
+    };
     use crate::{
         py_expr, transform_str_to_bb_ir_with_options, transform_str_to_ruff_with_options, Options,
     };
@@ -123,7 +125,7 @@ mod tests {
             .unwrap_or(direct)
     }
 
-    fn slot_by_name<'a>(slots: &'a [BbClosureSlot], logical_name: &str) -> &'a BbClosureSlot {
+    fn slot_by_name<'a>(slots: &'a [ClosureSlot], logical_name: &str) -> &'a ClosureSlot {
         slots
             .iter()
             .find(|slot| slot.logical_name == logical_name)
@@ -885,19 +887,19 @@ def outer(scale):
 
         let factor = slot_by_name(&layout.freevars, "factor");
         assert_eq!(factor.storage_name, "_dp_cell_factor");
-        assert_eq!(factor.init, BbClosureInit::InheritedCapture);
+        assert_eq!(factor.init, ClosureInit::InheritedCapture);
 
         let a = slot_by_name(&layout.cellvars, "a");
         assert_eq!(a.storage_name, "_dp_cell_a");
-        assert_eq!(a.init, BbClosureInit::Parameter);
+        assert_eq!(a.init, ClosureInit::Parameter);
 
         let total = slot_by_name(&layout.cellvars, "total");
         assert_eq!(total.storage_name, "_dp_cell_total");
-        assert_eq!(total.init, BbClosureInit::Deferred);
+        assert_eq!(total.init, ClosureInit::Deferred);
 
         let pc = slot_by_name(&layout.runtime_cells, "_dp_pc");
         assert_eq!(pc.storage_name, "_dp_cell__dp_pc");
-        assert_eq!(pc.init, BbClosureInit::RuntimePcUnstarted);
+        assert_eq!(pc.init, ClosureInit::RuntimePcUnstarted);
     }
 
     #[test]
@@ -929,7 +931,7 @@ def gen():
             try_exc.storage_name,
             format!("_dp_cell_{}", try_exc.logical_name)
         );
-        assert_eq!(try_exc.init, BbClosureInit::DeletedSentinel);
+        assert_eq!(try_exc.init, ClosureInit::DeletedSentinel);
         assert!(
             layout
                 .runtime_cells
@@ -969,14 +971,14 @@ def outer(scale):
 
         let factor = slot_by_name(&layout.freevars, "factor");
         assert_eq!(factor.storage_name, "_dp_cell_factor");
-        assert_eq!(factor.init, BbClosureInit::InheritedCapture);
+        assert_eq!(factor.init, ClosureInit::InheritedCapture);
 
         let total = slot_by_name(&layout.cellvars, "total");
         assert_eq!(total.storage_name, "_dp_cell_total");
 
         let pc = slot_by_name(&layout.runtime_cells, "_dp_pc");
         assert_eq!(pc.storage_name, "_dp_cell__dp_pc");
-        assert_eq!(pc.init, BbClosureInit::RuntimePcUnstarted);
+        assert_eq!(pc.init, ClosureInit::RuntimePcUnstarted);
     }
 
     #[test]
@@ -1004,14 +1006,14 @@ def outer(scale):
 
         let factor = slot_by_name(&layout.freevars, "factor");
         assert_eq!(factor.storage_name, "_dp_cell_factor");
-        assert_eq!(factor.init, BbClosureInit::InheritedCapture);
+        assert_eq!(factor.init, ClosureInit::InheritedCapture);
 
         let total = slot_by_name(&layout.cellvars, "total");
         assert_eq!(total.storage_name, "_dp_cell_total");
 
         let pc = slot_by_name(&layout.runtime_cells, "_dp_pc");
         assert_eq!(pc.storage_name, "_dp_cell__dp_pc");
-        assert_eq!(pc.init, BbClosureInit::RuntimePcUnstarted);
+        assert_eq!(pc.init, ClosureInit::RuntimePcUnstarted);
     }
 
     #[test]
@@ -1039,7 +1041,8 @@ async def outer(scale):
             .filter(|func| {
                 matches!(
                     func.kind,
-                    BbFunctionKind::Generator { .. } | BbFunctionKind::AsyncGenerator { .. }
+                    LoweredFunctionKind::Generator { .. }
+                        | LoweredFunctionKind::AsyncGenerator { .. }
                 )
             })
             .collect::<Vec<_>>();
@@ -1319,7 +1322,8 @@ def make_counter(delta):
             .expect("transform should succeed")
             .expect("bb module should be available");
         let gen = function_by_name(&bb_module, "gen");
-        let crate::basic_block::bb_ir::BbFunctionKind::Generator { resume_pcs, .. } = &gen.kind
+        let crate::basic_block::lowered_ir::LoweredFunctionKind::Generator { resume_pcs, .. } =
+            &gen.kind
         else {
             panic!("expected generator kind, got {:?}", gen.kind);
         };

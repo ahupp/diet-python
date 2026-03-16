@@ -7,7 +7,6 @@ use crate::basic_block::ast_to_ast::rewrite_stmt;
 use crate::basic_block::ast_to_ast::scope::{
     analyze_module_scope, cell_name, is_internal_symbol, Scope,
 };
-use crate::basic_block::bb_ir::BindingTarget;
 use crate::basic_block::block_py::dataflow::{
     analyze_blockpy_use_def, compute_block_params_blockpy,
 };
@@ -29,6 +28,7 @@ use crate::basic_block::function_identity::{
 use crate::basic_block::function_lowering::{
     function_docstring_expr, try_lower_function_to_blockpy_bundle,
 };
+use crate::basic_block::lowered_ir::BindingTarget;
 use crate::basic_block::param_specs::{
     collect_function_param_specs, function_param_specs_to_expr, FunctionParamSpec,
 };
