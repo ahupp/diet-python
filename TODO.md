@@ -3,6 +3,7 @@
  * explicit, semantic meaning on passes (e.g, generators to yield from, pass N)
  * remove ruff StmtBody, use stock ruff
  * Use ruff scope analysis
+ * simplify function-representation types through lowering; see [plans/FunctionTypes.md](plans/FunctionTypes.md)
  * Search for dead functions
  * try_lower_function_to_blockpy_bundle, wtf
 
