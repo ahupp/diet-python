@@ -56,8 +56,14 @@
 - Determine how to merge `LoweredBlockPyFunction` and `BbFunction`, since the former appears to be a subset of the latter.
   - Planning note:
     - The likely end state is one generic lowered-function transport/chassis, with later stages specializing payload types such as callable CFG blocks, function kind metadata, and backend-only fields instead of introducing a wholly separate `BbFunction` concept.
-    - A good first step is to identify which `BbFunction` fields are truly backend-specific and which are just the same lowered-function data carried farther through the pipeline.
+    - `param_specs` no longer lives on `BbFunction`, so the remaining gap is mostly the BB-specific CFG payload (`Vec<String>` params, `BbBlock`, `BbFunctionKind`) plus backend-only wrapper metadata like `local_cell_slots`.
+    - The next useful step is to identify which of those remaining fields are truly backend-specific and which are just the same lowered-function data carried farther through the pipeline.
     - Keep the result explicit in the type system so each pass boundary still makes clear what has changed, even if both stages share a generic outer function type.
+- Evaluate the remaining BB-related types to see which ones can fold into the BlockPy/CFG generics.
+  - Planning note:
+    - `BbExpr` is already gone, so the next candidates are the BB-only wrappers and metadata types such as `BbFunction`, `BbBlock`, `BbTerm`, `BbOp`, and the closure-layout / function-kind families.
+    - A good first pass is to separate “truly backend-specific” concerns from generic CFG/block/container structure, and check whether those backend-specific pieces can become generic parameters on the existing BlockPy/Cfg chassis instead of separate top-level BB concepts.
+    - This TODO should be evaluated together with the existing `LoweredBlockPyFunction` / `BbFunction` merge question, since both are really about how far the generic lowered-function and block/container types can extend before the backend needs a distinct representation.
 - Review all visibility annotations and make them as restrictive as possible, moving helpers into the narrowest owning module when they are only consumed there.
   - Planning note:
     - The desired end state is that non-local visibility exists only for real cross-module boundaries, not as a convenience for call sites that could instead live beside their only consumers.

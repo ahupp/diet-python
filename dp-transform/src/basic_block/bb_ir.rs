@@ -25,7 +25,6 @@ pub struct BbFunction {
     pub binding_target: BindingTarget,
     pub is_coroutine: bool,
     pub closure_layout: Option<BbClosureLayout>,
-    pub param_specs: CoreBlockPyExprWithoutAwaitOrYield,
     pub local_cell_slots: Vec<String>,
 }
 

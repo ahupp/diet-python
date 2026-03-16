@@ -607,7 +607,6 @@ where
         binding_target: lowered.binding_target,
         is_coroutine: lowered.is_coroutine,
         closure_layout: lowered.closure_layout.clone(),
-        param_specs: lowered.param_specs.clone(),
         local_cell_slots: lowered.callable_def.local_cell_slots.clone(),
     }
 }
