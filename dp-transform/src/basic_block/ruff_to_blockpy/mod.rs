@@ -112,6 +112,25 @@ pub(crate) struct LoweredBlockPyFunctionBundle {
     pub helper_functions: Vec<LoweredBlockPyFunction>,
 }
 
+pub(crate) struct LoweredBlockPyFunctionBundlePlan {
+    pub prepared_function_plan: PreparedBlockPyFunctionPlan,
+    pub display_name: String,
+    pub has_yield: bool,
+    pub is_coroutine: bool,
+    pub is_async_generator_runtime: bool,
+    pub is_closure_backed_generator_runtime: bool,
+    pub param_names: Vec<String>,
+    pub extra_closure_state_names: Vec<String>,
+    pub capture_names: Vec<String>,
+    pub label_prefix: String,
+    pub cell_slots: HashSet<String>,
+    pub module_init_mode: bool,
+    pub main_param_specs: BbExpr,
+    pub deleted_names: HashSet<String>,
+    pub unbound_local_names: HashSet<String>,
+    pub outer_scope_names: HashSet<String>,
+}
+
 pub(crate) struct PreparedBlockPyFunction {
     pub callable_def: SemanticBlockPyCallableDef,
     pub generator_metadata: Option<GeneratorMetadata>,
@@ -468,25 +487,31 @@ fn build_semantic_blockpy_closure_layout(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_lowered_blockpy_function_bundle(
     context: &Context,
-    prepared_function_plan: PreparedBlockPyFunctionPlan,
-    display_name: String,
-    has_yield: bool,
-    is_coroutine: bool,
-    is_async_generator_runtime: bool,
-    is_closure_backed_generator_runtime: bool,
-    param_names: &[String],
-    extra_closure_state_names: &[String],
-    capture_names: &[String],
-    label_prefix: &str,
-    mut cell_slots: HashSet<String>,
-    module_init_mode: bool,
-    main_param_specs: BbExpr,
+    plan: LoweredBlockPyFunctionBundlePlan,
     next_block_id: &mut usize,
     next_function_id: &mut usize,
     lower_non_bb_def: &mut impl FnMut(&ast::StmtFunctionDef) -> Vec<Stmt>,
     next_temp: &mut impl FnMut(&str, &mut usize) -> String,
     prepare_callable_def: &mut impl FnMut(&mut SemanticBlockPyCallableDef),
 ) -> LoweredBlockPyFunctionBundle {
+    let LoweredBlockPyFunctionBundlePlan {
+        prepared_function_plan,
+        display_name,
+        has_yield,
+        is_coroutine,
+        is_async_generator_runtime,
+        is_closure_backed_generator_runtime,
+        param_names,
+        extra_closure_state_names,
+        capture_names,
+        label_prefix,
+        mut cell_slots,
+        module_init_mode,
+        main_param_specs,
+        deleted_names: _,
+        unbound_local_names: _,
+        outer_scope_names: _,
+    } = plan;
     let mut prepared_function = resolve_prepared_blockpy_function_plan(
         context,
         prepared_function_plan,
@@ -534,7 +559,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         );
     }
 
-    let mut state_vars = collect_state_vars(param_names, &blocks_for_dataflow, module_init_mode);
+    let mut state_vars = collect_state_vars(&param_names, &blocks_for_dataflow, module_init_mode);
     for block in &blocks_for_dataflow {
         let Some(exc_param) = block.meta.exc_param.as_ref() else {
             continue;
@@ -545,7 +570,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
     }
     if is_closure_backed_generator_runtime {
         for name in extra_closure_state_names {
-            if !state_vars.iter().any(|existing| existing == name) {
+            if !state_vars.iter().any(|existing| existing == &name) {
                 state_vars.push(name.clone());
             }
         }
@@ -673,9 +698,9 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
     let injected_exception_names = collect_injected_exception_names_blockpy(&blocks_for_dataflow);
     let closure_layout = if has_yield {
         Some(build_blockpy_closure_layout(
-            param_names,
+            &param_names,
             &state_vars,
-            capture_names,
+            &capture_names,
             &injected_exception_names,
         ))
     } else {
@@ -803,9 +828,9 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         closure_layout.clone()
     } else {
         build_semantic_blockpy_closure_layout(
-            param_names,
+            &param_names,
             &state_order,
-            capture_names,
+            &capture_names,
             &sorted_local_cell_slots,
             &injected_exception_names,
         )
@@ -870,7 +895,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
             blockpy_function.bind_name.as_str(),
             display_name.as_str(),
             blockpy_function.qualname.as_str(),
-            param_names,
+            &param_names,
             layout,
             is_coroutine,
             is_async_generator_runtime,

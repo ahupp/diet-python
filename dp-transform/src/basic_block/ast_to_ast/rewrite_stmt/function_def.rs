@@ -1,6 +1,6 @@
 use crate::basic_block::annotation_export::{
-    build_lowered_annotation_helper_binding, is_annotation_helper_name,
-    prepare_non_lowered_annotationlib_function,
+    build_exec_function_def_binding_stmts, build_lowered_annotation_helper_binding,
+    is_annotation_helper_name, prepare_non_lowered_annotationlib_function,
 };
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::ast_to_ast::rewrite_stmt;
@@ -18,12 +18,14 @@ use crate::basic_block::function_identity::{
     FunctionIdentity,
 };
 use crate::basic_block::function_lowering::{
-    function_docstring_expr, try_lower_function_to_blockpy_bundle,
+    function_docstring_expr, rewrite_deleted_name_loads, try_lower_function_to_blockpy_bundle,
 };
 use crate::basic_block::param_specs::{
     collect_function_param_specs, function_param_specs_to_expr, FunctionParamSpec,
 };
-use crate::basic_block::ruff_to_blockpy::LoweredBlockPyFunction;
+use crate::basic_block::ruff_to_blockpy::{
+    build_lowered_blockpy_function_bundle, LoweredBlockPyFunction,
+};
 use crate::template::into_body;
 use crate::transformer::{walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
@@ -846,7 +848,7 @@ fn rewrite_function_def_stmt_via_blockpy(
     next_function_id: &mut usize,
 ) -> Option<Stmt> {
     let doc_expr = function_docstring_expr(func);
-    if let Some(lowered) = try_lower_function_to_blockpy_bundle(
+    if let Some(lowered_plan) = try_lower_function_to_blockpy_bundle(
         context,
         module_scope,
         function_identity_by_node,
@@ -857,6 +859,37 @@ fn rewrite_function_def_stmt_via_blockpy(
         next_block_id,
         next_function_id,
     ) {
+        let cell_slots = lowered_plan.cell_slots.clone();
+        let outer_scope_names = lowered_plan.outer_scope_names.clone();
+        let deleted_names = lowered_plan.deleted_names.clone();
+        let unbound_local_names = lowered_plan.unbound_local_names.clone();
+        let lowered = build_lowered_blockpy_function_bundle(
+            context,
+            lowered_plan,
+            next_block_id,
+            next_function_id,
+            &mut |func_def| {
+                build_exec_function_def_binding_stmts(func_def, &cell_slots, &outer_scope_names)
+            },
+            &mut |prefix, next_block_id| {
+                next_temp_from_counter(reserved_temp_names_stack, prefix, next_block_id)
+            },
+            &mut |callable_def| {
+                if !deleted_names.is_empty() {
+                    rewrite_deleted_name_loads(
+                        &mut callable_def.blocks,
+                        &deleted_names,
+                        &unbound_local_names,
+                    );
+                } else if !unbound_local_names.is_empty() {
+                    rewrite_deleted_name_loads(
+                        &mut callable_def.blocks,
+                        &HashSet::new(),
+                        &unbound_local_names,
+                    );
+                }
+            },
+        );
         let rewrite_plan = plan_and_rewrite_lowered_function_instantiation(
             parent_hoisted,
             func,

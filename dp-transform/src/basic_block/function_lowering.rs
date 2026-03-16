@@ -16,8 +16,7 @@ use super::function_identity::{
 };
 use super::param_specs::function_param_specs_expr;
 use super::ruff_to_blockpy::{
-    build_lowered_blockpy_function_bundle, lower_function_body_to_blockpy_function,
-    LoweredBlockPyFunctionBundle,
+    lower_function_body_to_blockpy_function, LoweredBlockPyFunctionBundlePlan,
 };
 use super::stmt_utils::{
     flatten_stmt_boxes, should_strip_nonlocal_for_bb, strip_nonlocal_directives,
@@ -127,7 +126,7 @@ fn rewrite_blockpy_expr_deleted_name_loads<E>(
     *expr = raw.into();
 }
 
-fn rewrite_deleted_name_loads<E>(
+pub(crate) fn rewrite_deleted_name_loads<E>(
     blocks: &mut [BlockPyBlock<E>],
     deleted_names: &HashSet<String>,
     always_unbound_names: &HashSet<String>,
@@ -315,7 +314,7 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     used_label_prefixes: &mut HashMap<String, usize>,
     next_block_id: &mut usize,
     next_function_id: &mut usize,
-) -> Option<LoweredBlockPyFunctionBundle> {
+) -> Option<LoweredBlockPyFunctionBundlePlan> {
     if should_keep_non_lowered_for_annotationlib(func) {
         return None;
     }
@@ -400,7 +399,6 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     let identity = resolve_runtime_function_identity(func, function_identity_by_node, parent_name);
     let doc_expr = function_docstring_expr(func).map(Into::into);
     let label_prefix = next_label_prefix(func.name.id.as_str(), used_label_prefixes);
-    let mut local_next_block_id = *next_block_id;
     let prepared_function_plan = lower_function_body_to_blockpy_function(
         context,
         func.name.id.as_str(),
@@ -419,7 +417,7 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         is_async_generator_runtime,
         is_closure_backed_generator_runtime,
         &cell_slots,
-        &mut local_next_block_id,
+        next_block_id,
         next_function_id,
         &mut |func_def| {
             build_exec_function_def_binding_stmts(func_def, &cell_slots, &outer_scope_names)
@@ -461,49 +459,26 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         extra_closure_state_names.sort();
         extra_closure_state_names.dedup();
     }
-    let lowered_bundle = build_lowered_blockpy_function_bundle(
-        context,
+    Some(LoweredBlockPyFunctionBundlePlan {
         prepared_function_plan,
-        identity.display_name.clone(),
+        display_name: identity.display_name.clone(),
         has_yield,
-        coroutine_via_generator,
+        is_coroutine: coroutine_via_generator,
         is_async_generator_runtime,
         is_closure_backed_generator_runtime,
-        &param_names,
-        &extra_closure_state_names,
-        &capture_names,
-        label_prefix.as_str(),
-        cell_slots.clone(),
-        is_module_init_temp_name(func.name.id.as_str()),
-        BbExpr::from_expr(function_param_specs_expr(&simplify_parameter_exprs(
+        param_names,
+        extra_closure_state_names,
+        capture_names,
+        label_prefix,
+        cell_slots,
+        module_init_mode: is_module_init_temp_name(func.name.id.as_str()),
+        main_param_specs: BbExpr::from_expr(function_param_specs_expr(&simplify_parameter_exprs(
             func.parameters.as_ref(),
         ))),
-        &mut local_next_block_id,
-        next_function_id,
-        &mut |func_def| {
-            build_exec_function_def_binding_stmts(func_def, &cell_slots, &outer_scope_names)
-        },
-        &mut |prefix, next_block_id| {
-            next_temp_from_counter(reserved_temp_names_stack, prefix, next_block_id)
-        },
-        &mut |callable_def| {
-            if !deleted_names.is_empty() {
-                rewrite_deleted_name_loads(
-                    &mut callable_def.blocks,
-                    &deleted_names,
-                    &unbound_local_names,
-                );
-            } else if !unbound_local_names.is_empty() {
-                rewrite_deleted_name_loads(
-                    &mut callable_def.blocks,
-                    &HashSet::new(),
-                    &unbound_local_names,
-                );
-            }
-        },
-    );
-    *next_block_id = local_next_block_id;
-    Some(lowered_bundle)
+        deleted_names,
+        unbound_local_names,
+        outer_scope_names,
+    })
 }
 
 pub(crate) fn function_docstring_expr(func: &ast::StmtFunctionDef) -> Option<Expr> {
