@@ -535,11 +535,42 @@ pub(crate) fn try_lower_generators_from_semantic_input(
     route: GeneratorLoweringRoute<'_>,
     next_block_id: &mut usize,
 ) -> Result<Option<PostBlockPyGeneratorLowering>, String> {
+    let SemanticGeneratorInput {
+        blocks,
+        entry_label,
+        try_regions,
+        resume_order,
+        yield_sites,
+    } = input;
+    let await_lowered_blocks = lower_coroutine_awaits_in_blockpy_blocks(context, blocks)?;
+    if blockpy_blocks_contain_await_exprs(&await_lowered_blocks) {
+        return Ok(None);
+    }
+    try_lower_generators_from_await_free_semantic_input(
+        context,
+        SemanticGeneratorInput {
+            blocks: await_lowered_blocks,
+            entry_label,
+            try_regions,
+            resume_order,
+            yield_sites,
+        },
+        route,
+        next_block_id,
+    )
+}
+
+pub(crate) fn try_lower_generators_from_await_free_semantic_input(
+    context: &Context,
+    input: SemanticGeneratorInput,
+    route: GeneratorLoweringRoute<'_>,
+    next_block_id: &mut usize,
+) -> Result<Option<PostBlockPyGeneratorLowering>, String> {
     debug_assert!(
         route.is_closure_backed_generator_runtime,
         "non-closure-backed generator routing should be unreachable",
     );
-    try_lower_simple_generator_from_semantic_input(
+    try_lower_simple_generator_from_await_free_semantic_input(
         context,
         input,
         route.is_closure_backed_generator_runtime,
@@ -549,7 +580,7 @@ pub(crate) fn try_lower_generators_from_semantic_input(
     )
 }
 
-fn try_lower_simple_generator_from_semantic_input(
+fn try_lower_simple_generator_from_await_free_semantic_input(
     context: &Context,
     input: SemanticGeneratorInput,
     closure_state: bool,
@@ -564,12 +595,8 @@ fn try_lower_simple_generator_from_semantic_input(
         mut resume_order,
         mut yield_sites,
     } = input;
-    let await_lowered_blocks = lower_coroutine_awaits_in_blockpy_blocks(context, blocks)?;
-    if blockpy_blocks_contain_await_exprs(&await_lowered_blocks) {
-        return Ok(None);
-    }
     let lowered_generator_expr_blocks =
-        lower_generator_payload_exprs_in_blocks(context, await_lowered_blocks, next_block_id)?;
+        lower_generator_payload_exprs_in_blocks(context, blocks, next_block_id)?;
     let (linearized_blocks, _, _) = linearize_structured_ifs(
         &lowered_generator_expr_blocks,
         &HashMap::new(),

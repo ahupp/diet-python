@@ -15,9 +15,10 @@ use super::cfg_ir::{CfgCallableDef, CfgModule};
 use super::function_lowering::rewrite_deleted_name_loads;
 use super::param_specs::function_param_specs_expr;
 use super::ruff_to_blockpy::{
-    build_lowered_blockpy_function_export_plan, lowered_blockpy_function_export_plan_to_bundle,
-    resolve_lowered_blockpy_function_bundle_plan, LoweredBlockPyFunction,
-    LoweredBlockPyFunctionBundlePlan, LoweredBlockPyFunctionExportPlan,
+    build_lowered_blockpy_function_export_plan,
+    lower_awaits_in_lowered_blockpy_function_bundle_plan,
+    lowered_blockpy_function_export_plan_to_bundle, resolve_lowered_blockpy_function_bundle_plan,
+    LoweredBlockPyFunction, LoweredBlockPyFunctionBundlePlan, LoweredBlockPyFunctionExportPlan,
     ResolvedLoweredBlockPyFunctionBundlePlan,
 };
 use super::stmt_utils::{flatten_stmt_boxes, stmt_body_from_stmts};
@@ -54,6 +55,9 @@ pub(crate) struct LoweredBlockPyModuleBundlePlan {
 pub(crate) struct SemanticBlockPyModulePlanWithAwaits(pub LoweredBlockPyModuleBundlePlan);
 
 #[derive(Clone)]
+pub(crate) struct SemanticBlockPyModulePlanWithoutAwait(pub LoweredBlockPyModuleBundlePlan);
+
+#[derive(Clone)]
 pub(crate) struct ResolvedLoweredBlockPyModuleBundlePlanEntry {
     pub bundle_plan: ResolvedLoweredBlockPyFunctionBundlePlan,
     pub main_binding_target: super::bb_ir::BindingTarget,
@@ -66,7 +70,7 @@ pub(crate) struct ResolvedLoweredBlockPyModuleBundlePlan {
 }
 
 #[derive(Clone)]
-pub(crate) struct SemanticBlockPyModulePlanAfterAwaitAndGeneratorResolution(
+pub(crate) struct SemanticBlockPyModulePlanAfterGeneratorResolution(
     pub ResolvedLoweredBlockPyModuleBundlePlan,
 );
 
@@ -102,10 +106,34 @@ fn next_temp_from_reserved_names(
     }
 }
 
+pub(crate) fn lower_awaits_in_lowered_blockpy_module_bundle_plan(
+    context: &Context,
+    plan: SemanticBlockPyModulePlanWithAwaits,
+) -> SemanticBlockPyModulePlanWithoutAwait {
+    let SemanticBlockPyModulePlanWithAwaits(plan) = plan;
+    SemanticBlockPyModulePlanWithoutAwait(LoweredBlockPyModuleBundlePlan {
+        module_init: plan.module_init,
+        callable_def_bundles: plan
+            .callable_def_bundles
+            .into_iter()
+            .map(|entry| LoweredBlockPyModuleBundlePlanEntry {
+                bundle_plan: lower_awaits_in_lowered_blockpy_function_bundle_plan(
+                    context,
+                    entry.bundle_plan,
+                ),
+                main_binding_target: entry.main_binding_target,
+            })
+            .collect(),
+        next_block_id: plan.next_block_id,
+        next_function_id: plan.next_function_id,
+    })
+}
+
 pub(crate) fn resolve_lowered_blockpy_module_bundle_plan(
     context: &Context,
-    plan: LoweredBlockPyModuleBundlePlan,
-) -> ResolvedLoweredBlockPyModuleBundlePlan {
+    plan: SemanticBlockPyModulePlanWithoutAwait,
+) -> SemanticBlockPyModulePlanAfterGeneratorResolution {
+    let SemanticBlockPyModulePlanWithoutAwait(plan) = plan;
     let LoweredBlockPyModuleBundlePlan {
         module_init,
         callable_def_bundles,
@@ -134,10 +162,10 @@ pub(crate) fn resolve_lowered_blockpy_module_bundle_plan(
             main_binding_target: entry.main_binding_target,
         });
     }
-    ResolvedLoweredBlockPyModuleBundlePlan {
+    SemanticBlockPyModulePlanAfterGeneratorResolution(ResolvedLoweredBlockPyModuleBundlePlan {
         module_init,
         callable_def_bundles: resolved_entries,
-    }
+    })
 }
 
 fn build_lowered_blockpy_function_export_plan_with_deleted_name_rewrite(
@@ -163,8 +191,9 @@ fn build_lowered_blockpy_function_export_plan_with_deleted_name_rewrite(
 }
 
 pub(crate) fn resolved_lowered_blockpy_module_bundle_plan_to_export_plan(
-    plan: ResolvedLoweredBlockPyModuleBundlePlan,
+    plan: SemanticBlockPyModulePlanAfterGeneratorResolution,
 ) -> LoweredBlockPyModuleExportPlan {
+    let SemanticBlockPyModulePlanAfterGeneratorResolution(plan) = plan;
     let mut callable_def_bundles = Vec::new();
     for entry in plan.callable_def_bundles {
         let bundle_plan =

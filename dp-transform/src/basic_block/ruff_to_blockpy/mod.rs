@@ -1,4 +1,6 @@
-use super::await_lower::lower_coroutine_awaits_in_stmt;
+use super::await_lower::{
+    blockpy_blocks_contain_await_exprs, lower_coroutine_awaits_in_blockpy_blocks,
+};
 use super::bb_ir::{BbClosureLayout, BbExpr, BbFunctionKind, BindingTarget, FunctionId};
 use super::block_py::cfg::{
     fold_constant_brif_blockpy, fold_jumps_to_trivial_none_return_blockpy,
@@ -43,8 +45,9 @@ pub(crate) use super::blockpy_generators::{
     build_closure_backed_generator_export_plan, build_initial_generator_metadata,
     lower_generator_block_plan, lower_generator_yield_terms_to_explicit_return_blockpy,
     split_generator_return_terms_to_escape_blocks, synthesize_generator_dispatch_metadata,
-    try_lower_generators_from_semantic_input, GeneratorBlockPlan, GeneratorLoweringRoute,
-    GeneratorMetadata, GeneratorYieldSite, PostBlockPyGeneratorLowering, SemanticGeneratorInput,
+    try_lower_generators_from_await_free_semantic_input, GeneratorBlockPlan,
+    GeneratorLoweringRoute, GeneratorMetadata, GeneratorYieldSite, PostBlockPyGeneratorLowering,
+    SemanticGeneratorInput,
 };
 
 pub(crate) use compat::{
@@ -232,6 +235,7 @@ pub(crate) struct PendingGeneratorLoweringPlan {
     pub is_async_generator_runtime: bool,
     pub is_closure_backed_generator_runtime: bool,
     pub cell_slots: HashSet<String>,
+    pub awaits_remain_after_lowering: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -1395,6 +1399,7 @@ where
                 is_async_generator_runtime,
                 is_closure_backed_generator_runtime,
                 cell_slots: cell_slots.clone(),
+                awaits_remain_after_lowering: None,
             },
         );
     }
@@ -1437,46 +1442,51 @@ where
             ResolvedPreparedBlockPyFunctionPlan::Prepared(prepared)
         }
         PreparedBlockPyFunctionPlan::PendingGeneratorLowering(pending) => {
-            if let Some(PostBlockPyGeneratorLowering {
-                blocks,
-                entry_label,
-                try_regions,
-                generator_metadata,
-            }) = try_lower_generators_from_semantic_input(
-                context,
-                pending.semantic_input,
-                GeneratorLoweringRoute {
-                    is_closure_backed_generator_runtime: pending
-                        .is_closure_backed_generator_runtime,
-                    fn_name: pending.fn_name.as_str(),
-                    cell_slots: &pending.cell_slots,
-                },
-                next_block_id,
-            )
-            .expect("post-BlockPy generator lowering should not fail")
-            {
-                return ResolvedPreparedBlockPyFunctionPlan::GeneratorLowered(
-                    GeneratorLoweredPreparedBlockPyFunctionPlan {
-                        function_id: pending.main_function_id,
-                        bind_name: pending.bind_name,
-                        qualname: pending.qualname,
-                        doc: pending.doc,
-                        params: pending.params,
-                        end_label: pending.end_label,
-                        label_prefix: pending.label_prefix,
-                        blockpy_kind: pending.blockpy_kind,
-                        lowered: PostBlockPyGeneratorLowering {
-                            blocks,
-                            entry_label,
-                            try_regions,
-                            generator_metadata,
-                        },
-                        is_async_generator_runtime: pending.is_async_generator_runtime,
+            let awaits_remain_after_lowering = pending
+                .awaits_remain_after_lowering
+                .expect("semantic BlockPy await lowering should run before generator resolution");
+            if !awaits_remain_after_lowering {
+                if let Some(PostBlockPyGeneratorLowering {
+                    blocks,
+                    entry_label,
+                    try_regions,
+                    generator_metadata,
+                }) = try_lower_generators_from_await_free_semantic_input(
+                    context,
+                    pending.semantic_input.clone(),
+                    GeneratorLoweringRoute {
                         is_closure_backed_generator_runtime: pending
                             .is_closure_backed_generator_runtime,
-                        uncaught_exc_name: next_temp("uncaught_exc", next_block_id),
+                        fn_name: pending.fn_name.as_str(),
+                        cell_slots: &pending.cell_slots,
                     },
-                );
+                    next_block_id,
+                )
+                .expect("post-BlockPy generator lowering should not fail")
+                {
+                    return ResolvedPreparedBlockPyFunctionPlan::GeneratorLowered(
+                        GeneratorLoweredPreparedBlockPyFunctionPlan {
+                            function_id: pending.main_function_id,
+                            bind_name: pending.bind_name,
+                            qualname: pending.qualname,
+                            doc: pending.doc,
+                            params: pending.params,
+                            end_label: pending.end_label,
+                            label_prefix: pending.label_prefix,
+                            blockpy_kind: pending.blockpy_kind,
+                            lowered: PostBlockPyGeneratorLowering {
+                                blocks,
+                                entry_label,
+                                try_regions,
+                                generator_metadata,
+                            },
+                            is_async_generator_runtime: pending.is_async_generator_runtime,
+                            is_closure_backed_generator_runtime: pending
+                                .is_closure_backed_generator_runtime,
+                            uncaught_exc_name: next_temp("uncaught_exc", next_block_id),
+                        },
+                    );
+                }
             }
             ResolvedPreparedBlockPyFunctionPlan::Prepared(
                 build_prepared_blockpy_function_from_runtime_input(
@@ -1502,6 +1512,36 @@ where
             )
         }
     }
+}
+
+fn lower_awaits_in_prepared_blockpy_function_plan(
+    context: &Context,
+    plan: PreparedBlockPyFunctionPlan,
+) -> PreparedBlockPyFunctionPlan {
+    match plan {
+        PreparedBlockPyFunctionPlan::Ready(prepared) => {
+            PreparedBlockPyFunctionPlan::Ready(prepared)
+        }
+        PreparedBlockPyFunctionPlan::PendingGeneratorLowering(mut pending) => {
+            let await_lowered_blocks =
+                lower_coroutine_awaits_in_blockpy_blocks(context, pending.semantic_input.blocks)
+                    .expect("semantic BlockPy await lowering should not fail");
+            let awaits_remain_after_lowering =
+                blockpy_blocks_contain_await_exprs(&await_lowered_blocks);
+            pending.semantic_input.blocks = await_lowered_blocks;
+            pending.awaits_remain_after_lowering = Some(awaits_remain_after_lowering);
+            PreparedBlockPyFunctionPlan::PendingGeneratorLowering(pending)
+        }
+    }
+}
+
+pub(crate) fn lower_awaits_in_lowered_blockpy_function_bundle_plan(
+    context: &Context,
+    mut plan: LoweredBlockPyFunctionBundlePlan,
+) -> LoweredBlockPyFunctionBundlePlan {
+    plan.prepared_function_plan =
+        lower_awaits_in_prepared_blockpy_function_plan(context, plan.prepared_function_plan);
+    plan
 }
 
 pub(crate) fn finalize_resolved_prepared_blockpy_function_plan(
