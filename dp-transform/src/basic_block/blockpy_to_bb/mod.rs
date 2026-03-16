@@ -35,11 +35,13 @@ pub type LoweredCoreBlockPyFunction = LoweredBlockPyFunction<CoreBlockPyCallable
 
 pub type LoweredCoreBlockPyModuleBundle = CfgModule<LoweredCoreBlockPyFunction>;
 
+#[derive(Clone)]
 pub(crate) struct LoweredBlockPyModuleBundlePlanEntry {
     pub bundle_plan: LoweredBlockPyFunctionBundlePlan,
     pub main_binding_target: super::bb_ir::BindingTarget,
 }
 
+#[derive(Clone)]
 pub(crate) struct LoweredBlockPyModuleBundlePlan {
     pub module_init: Option<String>,
     pub callable_def_bundles: Vec<LoweredBlockPyModuleBundlePlanEntry>,
@@ -47,11 +49,13 @@ pub(crate) struct LoweredBlockPyModuleBundlePlan {
     pub next_function_id: usize,
 }
 
+#[derive(Clone)]
 pub(crate) struct ResolvedLoweredBlockPyModuleBundlePlanEntry {
     pub bundle_plan: ResolvedLoweredBlockPyFunctionBundlePlan,
     pub main_binding_target: super::bb_ir::BindingTarget,
 }
 
+#[derive(Clone)]
 pub(crate) struct ResolvedLoweredBlockPyModuleBundlePlan {
     pub module_init: Option<String>,
     pub callable_def_bundles: Vec<ResolvedLoweredBlockPyModuleBundlePlanEntry>,

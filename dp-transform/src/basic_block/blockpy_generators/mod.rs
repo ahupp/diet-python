@@ -73,6 +73,7 @@ pub(crate) struct GeneratorYieldSite {
     pub resume_label: String,
 }
 
+#[derive(Clone)]
 pub(crate) struct SemanticGeneratorInput {
     pub blocks: Vec<BlockPyBlock>,
     pub entry_label: String,

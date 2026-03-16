@@ -112,6 +112,7 @@ pub(crate) struct LoweredBlockPyFunctionBundle {
     pub helper_functions: Vec<LoweredBlockPyFunction>,
 }
 
+#[derive(Clone)]
 pub(crate) struct LoweredBlockPyFunctionBundlePlan {
     pub main_function_id: FunctionId,
     pub prepared_function_plan: PreparedBlockPyFunctionPlan,
@@ -159,11 +160,13 @@ pub(crate) struct PreparedBlockPyFunction {
     pub try_regions: Vec<TryRegionPlan>,
 }
 
+#[derive(Clone)]
 pub(crate) enum PreparedBlockPyFunctionPlan {
     Ready(PreparedBlockPyFunction),
     PendingGeneratorLowering(PendingGeneratorLoweringPlan),
 }
 
+#[derive(Clone)]
 pub(crate) struct PendingGeneratorLoweringPlan {
     pub main_function_id: FunctionId,
     pub fn_name: String,
