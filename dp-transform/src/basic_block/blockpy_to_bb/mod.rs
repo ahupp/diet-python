@@ -311,11 +311,6 @@ fn simplify_lowered_blockpy_function_exprs(
 pub(crate) fn lower_core_blockpy_function_to_bb_function(
     lowered: &LoweredCoreBlockPyFunctionWithoutAwaitOrYield,
 ) -> BbFunction {
-    let (linear_blocks, linear_block_params, linear_exception_edges) = linearize_structured_ifs(
-        &lowered.callable_def.blocks,
-        lowered.block_params(),
-        lowered.exception_edges(),
-    );
     LoweredFunction {
         callable_def: BoundCallable {
             callable: CfgCallableDef {
@@ -327,9 +322,9 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
                 params: collect_parameter_names(&lowered.callable_def.params),
                 entry_liveins: lowered.callable_def.entry_liveins.clone(),
                 blocks: lower_blockpy_blocks_to_bb_blocks(
-                    &linear_blocks,
-                    &linear_block_params,
-                    &linear_exception_edges,
+                    &lowered.callable_def.blocks,
+                    lowered.block_params(),
+                    lowered.exception_edges(),
                 ),
             },
             binding_target: lowered.binding_target(),
@@ -346,7 +341,9 @@ pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
     block_params: &HashMap<String, Vec<String>>,
     exception_edges: &HashMap<String, Option<String>>,
 ) -> Vec<BbBlock> {
-    let block_exc_params = blocks
+    let (linear_blocks, linear_block_params, linear_exception_edges) =
+        linearize_structured_ifs(blocks, block_params, exception_edges);
+    let block_exc_params = linear_blocks
         .iter()
         .map(|block| {
             (
@@ -355,7 +352,7 @@ pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
             )
         })
         .collect::<HashMap<_, _>>();
-    blocks
+    linear_blocks
         .iter()
         .map(|block| {
             let current_exception_name = block.meta.exc_param.as_deref();
@@ -369,14 +366,17 @@ pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
             if let Some(exc_name) = current_exception_name {
                 rewrite_current_exception_in_blockpy_term(&mut normalized_term, exc_name);
             }
-            let exc_target_label = exception_edges.get(block.label.as_str()).cloned().flatten();
+            let exc_target_label = linear_exception_edges
+                .get(block.label.as_str())
+                .cloned()
+                .flatten();
             let exc_name = exc_target_label.as_ref().and_then(|target_label| {
                 block_exc_params
                     .get(target_label.as_str())
                     .cloned()
                     .flatten()
                     .or_else(|| {
-                        block_params
+                        linear_block_params
                             .get(target_label.as_str())
                             .and_then(|params| exception_param_from_block_params(params))
                     })
@@ -385,7 +385,7 @@ pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
                 .into_iter()
                 .map(bb_stmt_from_blockpy_stmt)
                 .collect::<Vec<_>>();
-            let mut params = block_params
+            let mut params = linear_block_params
                 .get(block.label.as_str())
                 .cloned()
                 .unwrap_or_default();
@@ -656,72 +656,64 @@ fn bb_term_from_blockpy_term(terminal: &BlockPyTerm<CoreBlockPyExprWithoutAwaitO
 #[cfg(test)]
 mod tests {
     use crate::basic_block::bb_ir::BbTerm;
-    use crate::basic_block::block_py::cfg::linearize_structured_ifs;
     use crate::basic_block::block_py::{
-        BlockPyAssign, BlockPyBlock, BlockPyIf, BlockPyIfTerm, BlockPyLabel, BlockPyStmt,
-        BlockPyStmtFragment, BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg,
-        CoreBlockPyExprWithoutAwaitOrYield,
+        BlockPyAssign, BlockPyBlock, BlockPyIf, BlockPyLabel, BlockPyStmt, BlockPyStmtFragment,
+        BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield,
     };
     use crate::basic_block::blockpy_to_bb::lower_blockpy_blocks_to_bb_blocks;
-    use crate::py_expr;
-    use ruff_python_ast::{self as ast, Expr};
+    use ruff_python_ast::{self as ast};
     use ruff_text_size::TextRange;
     use std::collections::HashMap;
 
-    fn name_expr(name: &str) -> ruff_python_ast::ExprName {
-        let Expr::Name(name_expr) = py_expr!("{name:id}", name = name) else {
-            unreachable!();
-        };
-        name_expr
-    }
-
     #[test]
     fn linearizes_structured_if_stmt_into_explicit_blocks() {
-        let block: BlockPyBlock<Expr> = BlockPyBlock {
+        let block = BlockPyBlock {
             label: BlockPyLabel::from("start"),
             body: vec![
                 BlockPyStmt::Assign(BlockPyAssign {
-                    target: name_expr("x"),
-                    value: py_expr!("a").into(),
+                    target: ast::ExprName {
+                        id: "x".into(),
+                        ctx: ast::ExprContext::Store,
+                        range: TextRange::default(),
+                        node_index: ast::AtomicNodeIndex::default(),
+                    },
+                    value: core_name_expr("a"),
                 }),
                 BlockPyStmt::If(BlockPyIf {
-                    test: py_expr!("cond").into(),
+                    test: core_name_expr("cond"),
                     body: BlockPyStmtFragment::from_stmts(vec![BlockPyStmt::Assign(
                         BlockPyAssign {
-                            target: name_expr("x"),
-                            value: py_expr!("b").into(),
+                            target: ast::ExprName {
+                                id: "x".into(),
+                                ctx: ast::ExprContext::Store,
+                                range: TextRange::default(),
+                                node_index: ast::AtomicNodeIndex::default(),
+                            },
+                            value: core_name_expr("b"),
                         },
                     )]),
                     orelse: BlockPyStmtFragment::from_stmts(vec![BlockPyStmt::Assign(
                         BlockPyAssign {
-                            target: name_expr("x"),
-                            value: py_expr!("c").into(),
+                            target: ast::ExprName {
+                                id: "x".into(),
+                                ctx: ast::ExprContext::Store,
+                                range: TextRange::default(),
+                                node_index: ast::AtomicNodeIndex::default(),
+                            },
+                            value: core_name_expr("c"),
                         },
                     )]),
                 }),
-                BlockPyStmt::Expr(py_expr!("sink(x)").into()),
+                BlockPyStmt::Expr(core_call_expr("sink", vec![core_name_expr("x")])),
             ],
             term: BlockPyTerm::Return(None),
             meta: Default::default(),
         };
 
-        let (blocks, _, _): (
-            Vec<BlockPyBlock<Expr>>,
-            HashMap<String, Vec<String>>,
-            HashMap<String, Option<String>>,
-        ) = linearize_structured_ifs(&[block], &HashMap::new(), &HashMap::new());
+        let blocks = lower_blockpy_blocks_to_bb_blocks(&[block], &HashMap::new(), &HashMap::new());
 
         assert_eq!(blocks.len(), 4, "{blocks:?}");
-        assert!(matches!(
-            blocks[0].term,
-            BlockPyTerm::IfTerm(BlockPyIfTerm { .. })
-        ));
-        assert!(!blocks.iter().any(|block| {
-            block
-                .body
-                .iter()
-                .any(|stmt| matches!(stmt, BlockPyStmt::If(_)))
-        }));
+        assert!(matches!(blocks[0].term, BbTerm::BrIf { .. }));
     }
 
     fn core_name_expr(name: &str) -> CoreBlockPyExprWithoutAwaitOrYield {
