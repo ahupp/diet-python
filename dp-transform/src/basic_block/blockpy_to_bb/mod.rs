@@ -11,14 +11,18 @@ use super::block_py::{
 };
 use super::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use super::cfg_ir::{CfgCallableDef, CfgModule};
+use super::function_lowering::rewrite_deleted_name_loads;
 use super::param_specs::function_param_specs_expr;
-use super::ruff_to_blockpy::{LoweredBlockPyFunction, LoweredBlockPyFunctionBundle};
+use super::ruff_to_blockpy::{
+    build_lowered_blockpy_function_bundle, LoweredBlockPyFunction,
+    ResolvedLoweredBlockPyFunctionBundlePlan,
+};
 use super::stmt_utils::{flatten_stmt_boxes, stmt_body_from_stmts};
 use crate::py_expr;
 use crate::transformer::{walk_expr, Transformer};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::TextRange;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub use codegen_normalize::normalize_bb_module_for_codegen;
 pub use exception_pass::lower_try_jump_exception_flow;
@@ -28,23 +32,50 @@ pub type LoweredCoreBlockPyFunction = LoweredBlockPyFunction<CoreBlockPyCallable
 
 pub type LoweredCoreBlockPyModuleBundle = CfgModule<LoweredCoreBlockPyFunction>;
 
+pub(crate) struct LoweredBlockPyModuleBundlePlanEntry {
+    pub bundle_plan: ResolvedLoweredBlockPyFunctionBundlePlan,
+    pub main_binding_target: super::bb_ir::BindingTarget,
+}
+
 pub(crate) struct LoweredBlockPyModuleBundlePlan {
     pub module_init: Option<String>,
-    pub callable_def_bundles: Vec<LoweredBlockPyFunctionBundle>,
+    pub callable_def_bundles: Vec<LoweredBlockPyModuleBundlePlanEntry>,
 }
 
 pub(crate) fn lowered_blockpy_module_bundle_plan_to_bundle(
     plan: LoweredBlockPyModuleBundlePlan,
 ) -> LoweredBlockPyModuleBundle {
     let mut callable_defs = Vec::new();
-    for bundle in plan.callable_def_bundles {
+    for entry in plan.callable_def_bundles {
+        let deleted_names = entry.bundle_plan.deleted_names.clone();
+        let unbound_local_names = entry.bundle_plan.unbound_local_names.clone();
+        let bundle =
+            build_lowered_blockpy_function_bundle(entry.bundle_plan, &mut |callable_def| {
+                if !deleted_names.is_empty() {
+                    rewrite_deleted_name_loads(
+                        &mut callable_def.blocks,
+                        &deleted_names,
+                        &unbound_local_names,
+                    );
+                } else if !unbound_local_names.is_empty() {
+                    rewrite_deleted_name_loads(
+                        &mut callable_def.blocks,
+                        &HashSet::new(),
+                        &unbound_local_names,
+                    );
+                }
+            });
         callable_defs.extend(
             bundle
                 .helper_functions
                 .into_iter()
                 .map(|helper| helper.with_binding_target(super::bb_ir::BindingTarget::Local)),
         );
-        callable_defs.push(bundle.main_function);
+        callable_defs.push(
+            bundle
+                .main_function
+                .with_binding_target(entry.main_binding_target),
+        );
     }
     LoweredBlockPyModuleBundle {
         module_init: plan.module_init,

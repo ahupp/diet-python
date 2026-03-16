@@ -131,6 +131,7 @@ pub(crate) struct LoweredBlockPyFunctionBundlePlan {
     pub outer_scope_names: HashSet<String>,
 }
 
+#[derive(Clone)]
 pub(crate) struct ResolvedLoweredBlockPyFunctionBundlePlan {
     pub prepared_function: PreparedBlockPyFunction,
     pub display_name: String,
@@ -145,8 +146,12 @@ pub(crate) struct ResolvedLoweredBlockPyFunctionBundlePlan {
     pub cell_slots: HashSet<String>,
     pub module_init_mode: bool,
     pub main_param_specs: BbExpr,
+    pub resume_function_id: Option<FunctionId>,
+    pub deleted_names: HashSet<String>,
+    pub unbound_local_names: HashSet<String>,
 }
 
+#[derive(Clone)]
 pub(crate) struct PreparedBlockPyFunction {
     pub callable_def: SemanticBlockPyCallableDef,
     pub generator_metadata: Option<GeneratorMetadata>,
@@ -523,8 +528,8 @@ pub(crate) fn resolve_lowered_blockpy_function_bundle_plan(
         cell_slots,
         module_init_mode,
         main_param_specs,
-        deleted_names: _,
-        unbound_local_names: _,
+        deleted_names,
+        unbound_local_names,
         outer_scope_names: _,
     } = plan;
     let prepared_function = resolve_prepared_blockpy_function_plan(
@@ -549,12 +554,14 @@ pub(crate) fn resolve_lowered_blockpy_function_bundle_plan(
         cell_slots,
         module_init_mode,
         main_param_specs,
+        resume_function_id: has_yield.then(|| take_next_function_id(next_function_id)),
+        deleted_names,
+        unbound_local_names,
     }
 }
 
 pub(crate) fn build_lowered_blockpy_function_bundle(
     plan: ResolvedLoweredBlockPyFunctionBundlePlan,
-    next_function_id: &mut usize,
     prepare_callable_def: &mut impl FnMut(&mut SemanticBlockPyCallableDef),
 ) -> LoweredBlockPyFunctionBundle {
     let ResolvedLoweredBlockPyFunctionBundlePlan {
@@ -571,6 +578,9 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         mut cell_slots,
         module_init_mode,
         main_param_specs,
+        resume_function_id,
+        deleted_names: _,
+        unbound_local_names: _,
     } = plan;
     prepare_callable_def(&mut prepared_function.callable_def);
     let PreparedBlockPyFunction {
@@ -899,7 +909,8 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
             .as_ref()
             .expect("closure-backed generator lowering requires closure layout");
         let factory_label = format!("{label_prefix}_factory");
-        let resume_function_id = take_next_function_id(next_function_id);
+        let resume_function_id = resume_function_id
+            .expect("yielding bundle plan should preallocate a resume helper function id");
         let resume_blockpy_kind = if is_async_generator_runtime {
             BlockPyFunctionKind::AsyncGenerator
         } else {

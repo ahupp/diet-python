@@ -11,7 +11,9 @@ use crate::basic_block::bb_ir::{BbFunctionKind, BindingTarget};
 use crate::basic_block::block_py::dataflow::analyze_blockpy_use_def;
 use crate::basic_block::block_py::state::collect_cell_slots;
 use crate::basic_block::block_py::state::collect_parameter_names;
-use crate::basic_block::blockpy_to_bb::LoweredBlockPyModuleBundlePlan;
+use crate::basic_block::blockpy_to_bb::{
+    LoweredBlockPyModuleBundlePlan, LoweredBlockPyModuleBundlePlanEntry,
+};
 use crate::basic_block::expr_utils::{make_dp_tuple, name_expr};
 use crate::basic_block::function_identity::{
     collect_function_identity_private, is_module_init_temp_name, resolve_runtime_function_identity,
@@ -154,21 +156,14 @@ fn capture_items_to_expr(captures: &[LoweredFunctionCaptureItem]) -> Expr {
 
 fn push_lowered_blockpy_callable_def_bundle(
     out: &mut LoweredBlockPyModuleBundlePlan,
-    bundle: crate::basic_block::ruff_to_blockpy::LoweredBlockPyFunctionBundle,
+    bundle_plan: crate::basic_block::ruff_to_blockpy::ResolvedLoweredBlockPyFunctionBundlePlan,
     main_binding_target: BindingTarget,
 ) {
-    out.callable_def_bundles.push(
-        crate::basic_block::ruff_to_blockpy::LoweredBlockPyFunctionBundle {
-            helper_functions: bundle
-                .helper_functions
-                .into_iter()
-                .map(|helper| helper.with_binding_target(BindingTarget::Local))
-                .collect(),
-            main_function: bundle
-                .main_function
-                .with_binding_target(main_binding_target),
-        },
-    );
+    out.callable_def_bundles
+        .push(LoweredBlockPyModuleBundlePlanEntry {
+            bundle_plan,
+            main_binding_target,
+        });
 }
 
 fn build_lowered_function_instantiation_data(
@@ -878,8 +873,7 @@ fn rewrite_function_def_stmt_via_blockpy(
             },
         );
         let lowered = build_lowered_blockpy_function_bundle(
-            resolved_lowered_plan,
-            next_function_id,
+            resolved_lowered_plan.clone(),
             &mut |callable_def| {
                 if !deleted_names.is_empty() {
                     rewrite_deleted_name_loads(
@@ -910,7 +904,7 @@ fn rewrite_function_def_stmt_via_blockpy(
         .expect("failed to build BB function binding");
         push_lowered_blockpy_callable_def_bundle(
             lowered_blockpy_module,
-            lowered,
+            resolved_lowered_plan,
             rewrite_plan.main_binding_target,
         );
         return Some(rewrite_plan.rewrite.replacement);
