@@ -65,6 +65,10 @@
     - The current JIT path in `soac-eval` still owns a large amount of `incref` / `decref` insertion and runtime helper wiring (`dp_jit_incref`, `dp_jit_decref`), which makes ownership of reference semantics backend-local instead of pipeline-visible.
     - The desired end state is for refcount ownership to become an explicit lowered-module pass in `rewrite_module`, so later backends consume already-refcount-annotated IR instead of each backend re-deriving those rules.
     - A good first pass is to identify the minimal IR annotation or explicit stmt/term forms needed for retain/release edges, then move the current JIT-only reference-management decisions behind one driver-visible transform boundary.
+- Fold `linearize_structured_ifs` into `lower_blockpy_blocks_to_bb_blocks`.
+  - Planning note:
+    - `lower_core_blockpy_function_to_bb_function` would read more clearly if it were mostly a direct lowered-function copy with one transform on the `blocks` field, instead of separately unpacking `linearize_structured_ifs(...)` first.
+    - A good refactor is to make `lower_blockpy_blocks_to_bb_blocks` own the structured-if linearization plus BB block conversion, so the outer function becomes a straightforward metadata copy from the final core lowered function into the BB lowered function.
 - Review all visibility annotations and make them as restrictive as possible, moving helpers into the narrowest owning module when they are only consumed there.
   - Planning note:
     - The desired end state is that non-local visibility exists only for real cross-module boundaries, not as a convenience for call sites that could instead live beside their only consumers.
