@@ -24,11 +24,10 @@ use super::ruff_to_blockpy::{
     LoweredBlockPyFunctionBundlePlan, LoweredBlockPyFunctionExportPlan,
     ResolvedLoweredBlockPyFunctionBundlePlan,
 };
-use super::stmt_utils::{flatten_stmt_boxes, stmt_body_from_stmts};
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::py_expr;
 use crate::transformer::{walk_expr, Transformer};
-use ruff_python_ast::{self as ast, Expr, Stmt};
+use ruff_python_ast::{self as ast, Expr};
 use ruff_text_size::TextRange;
 use std::collections::{HashMap, HashSet};
 
@@ -629,20 +628,12 @@ pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
         .iter()
         .map(|block| {
             let current_exception_name = block.meta.exc_param.as_deref();
-            let mut normalized_body_stmt = stmt_body_from_stmts(
-                block
-                    .body
-                    .iter()
-                    .filter_map(blockpy_stmt_to_stmt_for_analysis)
-                    .collect::<Vec<_>>(),
-            );
+            let mut normalized_body = block.body.clone();
             if let Some(exc_name) = current_exception_name {
-                rewrite_current_exception_in_stmt_body(&mut normalized_body_stmt, exc_name);
+                for stmt in &mut normalized_body {
+                    rewrite_current_exception_in_blockpy_stmt(stmt, exc_name);
+                }
             }
-            let normalized_body = flatten_stmt_boxes(&normalized_body_stmt.body)
-                .into_iter()
-                .map(|stmt| *stmt)
-                .collect::<Vec<_>>();
             let mut normalized_term = block.term.clone();
             if let Some(exc_name) = current_exception_name {
                 rewrite_current_exception_in_blockpy_term(&mut normalized_term, exc_name);
@@ -659,22 +650,10 @@ pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
                             .and_then(|params| exception_param_from_block_params(params))
                     })
             });
-            let mut local_defs = Vec::new();
-            let mut ops = Vec::new();
-            for stmt in normalized_body {
-                match stmt {
-                    Stmt::FunctionDef(func_def)
-                        if func_def.name.id.as_str().starts_with("_dp_bb_") =>
-                    {
-                        local_defs.push(func_def);
-                    }
-                    other => {
-                        if let Some(op) = BbOp::from_stmt(other) {
-                            ops.push(op);
-                        }
-                    }
-                }
-            }
+            let ops = normalized_body
+                .into_iter()
+                .map(bb_op_from_blockpy_stmt)
+                .collect::<Vec<_>>();
             let mut params = block_params
                 .get(block.label.as_str())
                 .cloned()
@@ -690,7 +669,7 @@ pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
                 term: bb_term_from_blockpy_term(&normalized_term),
                 meta: BbBlockMeta {
                     params,
-                    local_defs,
+                    local_defs: Vec::new(),
                     exc_target_label,
                     exc_name,
                 },
@@ -706,8 +685,34 @@ fn exception_param_from_block_params(params: &[String]) -> Option<String> {
     })
 }
 
-fn rewrite_current_exception_in_stmt_body(body: &mut ast::StmtBody, exc_name: &str) {
-    CurrentExceptionTransformer { exc_name }.visit_body(body);
+fn rewrite_current_exception_in_blockpy_stmt<E>(stmt: &mut BlockPyStmt<E>, exc_name: &str)
+where
+    E: Clone + Into<Expr> + From<Expr>,
+{
+    match stmt {
+        BlockPyStmt::Assign(assign) => {
+            rewrite_current_exception_in_blockpy_expr(&mut assign.value, exc_name);
+        }
+        BlockPyStmt::Expr(expr) => {
+            rewrite_current_exception_in_blockpy_expr(expr, exc_name);
+        }
+        BlockPyStmt::Delete(_) => {}
+        BlockPyStmt::If(if_stmt) => {
+            rewrite_current_exception_in_blockpy_expr(&mut if_stmt.test, exc_name);
+            for stmt in &mut if_stmt.body.body {
+                rewrite_current_exception_in_blockpy_stmt(stmt, exc_name);
+            }
+            if let Some(term) = if_stmt.body.term.as_mut() {
+                rewrite_current_exception_in_blockpy_term(term, exc_name);
+            }
+            for stmt in &mut if_stmt.orelse.body {
+                rewrite_current_exception_in_blockpy_stmt(stmt, exc_name);
+            }
+            if let Some(term) = if_stmt.orelse.term.as_mut() {
+                rewrite_current_exception_in_blockpy_term(term, exc_name);
+            }
+        }
+    }
 }
 
 fn rewrite_current_exception_in_blockpy_term<E>(term: &mut BlockPyTerm<E>, exc_name: &str)
@@ -807,43 +812,30 @@ fn compat_range() -> TextRange {
     TextRange::default()
 }
 
-pub(crate) fn blockpy_stmt_to_stmt_for_analysis<E>(stmt: &BlockPyStmt<E>) -> Option<Stmt>
+fn bb_op_from_blockpy_stmt<E>(stmt: BlockPyStmt<E>) -> BbOp
 where
     E: Clone + Into<Expr>,
 {
     match stmt {
-        BlockPyStmt::Assign(assign) => Some(Stmt::Assign(ast::StmtAssign {
+        BlockPyStmt::Assign(assign) => BbOp::Assign(super::bb_ir::BbAssignOp {
             node_index: compat_node_index(),
             range: compat_range(),
-            targets: vec![Expr::Name(assign.target.clone())],
-            value: Box::new(assign.value.clone().into()),
-        })),
-        BlockPyStmt::Expr(expr) => Some(Stmt::Expr(ast::StmtExpr {
+            target: assign.target,
+            value: BbExpr::from_expr(assign.value.into()),
+        }),
+        BlockPyStmt::Expr(expr) => BbOp::Expr(super::bb_ir::BbExprOp {
             node_index: compat_node_index(),
             range: compat_range(),
-            value: Box::new(expr.clone().into()),
-        })),
-        BlockPyStmt::Delete(delete) => Some(Stmt::Delete(ast::StmtDelete {
+            value: BbExpr::from_expr(expr.into()),
+        }),
+        BlockPyStmt::Delete(delete) => BbOp::Delete(super::bb_ir::BbDeleteOp {
             node_index: compat_node_index(),
             range: compat_range(),
-            targets: vec![Expr::Name(delete.target.clone())],
-        })),
-        BlockPyStmt::If(if_stmt) => Some(Stmt::If(ast::StmtIf {
-            node_index: compat_node_index(),
-            range: compat_range(),
-            test: Box::new(if_stmt.test.clone().into()),
-            body: stmt_body_from_blockpy_fragment(&if_stmt.body),
-            elif_else_clauses: if if_stmt.orelse.body.is_empty() && if_stmt.orelse.term.is_none() {
-                Vec::new()
-            } else {
-                vec![ast::ElifElseClause {
-                    node_index: compat_node_index(),
-                    range: compat_range(),
-                    test: None,
-                    body: stmt_body_from_blockpy_fragment(&if_stmt.orelse),
-                }]
-            },
-        })),
+            targets: vec![BbExpr::Name(delete.target)],
+        }),
+        BlockPyStmt::If(_) => {
+            panic!("structured BlockPy If reached BB block body after linearization")
+        }
     }
 }
 
@@ -882,51 +874,6 @@ where
         BlockPyTerm::Return(value) => {
             BbTerm::Ret(value.clone().map(|expr| BbExpr::from_expr(expr.into())))
         }
-    }
-}
-
-fn stmt_body_from_blockpy_fragment<E>(
-    fragment: &super::block_py::BlockPyCfgFragment<
-        super::block_py::BlockPyStmt<E>,
-        super::block_py::BlockPyTerm<E>,
-    >,
-) -> ast::StmtBody
-where
-    E: Clone + Into<Expr>,
-{
-    let mut stmts = fragment
-        .body
-        .iter()
-        .filter_map(blockpy_stmt_to_stmt_for_analysis)
-        .collect::<Vec<_>>();
-    if let Some(term) = &fragment.term {
-        if let Some(stmt) = blockpy_term_to_stmt_for_analysis(term) {
-            stmts.push(stmt);
-        }
-    }
-    stmt_body_from_stmts(stmts)
-}
-
-fn blockpy_term_to_stmt_for_analysis<E>(term: &BlockPyTerm<E>) -> Option<Stmt>
-where
-    E: Clone + Into<Expr>,
-{
-    match term {
-        BlockPyTerm::Return(value) => Some(Stmt::Return(ast::StmtReturn {
-            node_index: compat_node_index(),
-            range: compat_range(),
-            value: value.clone().map(|value| Box::new(value.into())),
-        })),
-        BlockPyTerm::Raise(raise_stmt) => Some(Stmt::Raise(ast::StmtRaise {
-            node_index: compat_node_index(),
-            range: compat_range(),
-            exc: raise_stmt.exc.clone().map(|exc| Box::new(exc.into())),
-            cause: None,
-        })),
-        BlockPyTerm::Jump(_)
-        | BlockPyTerm::IfTerm(_)
-        | BlockPyTerm::BranchTable(_)
-        | BlockPyTerm::TryJump(_) => None,
     }
 }
 
