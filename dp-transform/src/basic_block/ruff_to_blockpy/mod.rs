@@ -1,7 +1,7 @@
 use super::await_lower::{
     blockpy_blocks_contain_await_exprs, lower_coroutine_awaits_in_blockpy_blocks,
 };
-use super::bb_ir::{BbClosureLayout, BbExpr, BbFunctionKind, BindingTarget, FunctionId};
+use super::bb_ir::{BbClosureLayout, BbFunctionKind, BindingTarget, FunctionId};
 use super::block_py::cfg::{
     fold_constant_brif_blockpy, fold_jumps_to_trivial_none_return_blockpy,
     prune_unreachable_blockpy_blocks, relabel_blockpy_blocks, rename_blockpy_labels,
@@ -16,6 +16,7 @@ use super::block_py::state::{
     rewrite_sync_generator_blockpy_blocks_to_closure_cells, sync_generator_cleanup_cells,
     sync_generator_state_order, sync_target_cells_stmts as sync_target_cells_stmts_shared,
 };
+use super::block_py::CoreBlockPyExprWithoutAwaitOrYield;
 use super::block_py::{
     assert_blockpy_block_normalized, BlockPyBlockMeta, BlockPyFunctionKind, BlockPyLabel,
     BlockPyTryJump, SemanticBlockPyBlock, SemanticBlockPyCallableDef, SemanticBlockPyStmt,
@@ -96,7 +97,7 @@ pub struct LoweredBlockPyFunction<C = SemanticBlockPyCallableDef> {
     pub(crate) block_params: HashMap<String, Vec<String>>,
     pub(crate) exception_edges: HashMap<String, Option<String>>,
     pub(crate) closure_layout: Option<BbClosureLayout>,
-    pub(crate) param_specs: BbExpr,
+    pub(crate) param_specs: CoreBlockPyExprWithoutAwaitOrYield,
 }
 
 impl<C> LoweredBlockPyFunction<C> {
@@ -130,7 +131,7 @@ pub(crate) struct LoweredBlockPyFunctionBundlePlan {
     pub label_prefix: String,
     pub cell_slots: HashSet<String>,
     pub module_init_mode: bool,
-    pub main_param_specs: BbExpr,
+    pub main_param_specs: CoreBlockPyExprWithoutAwaitOrYield,
     pub deleted_names: HashSet<String>,
     pub unbound_local_names: HashSet<String>,
     pub outer_scope_names: HashSet<String>,
@@ -150,7 +151,7 @@ pub(crate) struct ResolvedLoweredBlockPyFunctionBundlePlan {
     pub label_prefix: String,
     pub cell_slots: HashSet<String>,
     pub module_init_mode: bool,
-    pub main_param_specs: BbExpr,
+    pub main_param_specs: CoreBlockPyExprWithoutAwaitOrYield,
     pub resume_function_id: Option<FunctionId>,
     pub deleted_names: HashSet<String>,
     pub unbound_local_names: HashSet<String>,
@@ -192,7 +193,7 @@ pub(crate) struct LoweredBlockPyFunctionExportPlan {
     pub is_closure_backed_generator_runtime: bool,
     pub param_names: Vec<String>,
     pub label_prefix: String,
-    pub main_param_specs: BbExpr,
+    pub main_param_specs: CoreBlockPyExprWithoutAwaitOrYield,
     pub runtime_entry_label: String,
     pub runtime_entry_liveins: Vec<String>,
     pub runtime_blocks: Vec<SemanticBlockPyBlock>,
@@ -380,7 +381,7 @@ pub(crate) fn build_lowered_blockpy_function(
     block_params: HashMap<String, Vec<String>>,
     exception_edges: HashMap<String, Option<String>>,
     closure_layout: Option<BbClosureLayout>,
-    param_specs: BbExpr,
+    param_specs: CoreBlockPyExprWithoutAwaitOrYield,
 ) -> LoweredBlockPyFunction {
     LoweredBlockPyFunction {
         callable_def,
@@ -1106,7 +1107,7 @@ pub(crate) fn lowered_blockpy_function_export_plan_to_bundle(
             normalized_resume_block_params,
             normalized_resume_exception_edges,
             runtime_closure_layout.clone(),
-            BbExpr::from_expr(export_plan.resume_param_specs.clone()),
+            CoreBlockPyExprWithoutAwaitOrYield::from_expr(export_plan.resume_param_specs.clone()),
         ));
         exported_blocks = vec![export_plan.factory_block];
         exported_entry_label = export_plan.factory_label;

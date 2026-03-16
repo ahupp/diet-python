@@ -123,7 +123,10 @@ fn apply_op_effect_to_known_names(op: &BbOp, known_names: &mut Vec<String>) {
         BbOp::Expr(_) => {}
         BbOp::Delete(delete) => {
             for target in &delete.targets {
-                if let crate::basic_block::bb_ir::BbExpr::Name(name) = target {
+                if let crate::basic_block::block_py::CoreBlockPyExprWithoutAwaitOrYield::Name(
+                    name,
+                ) = target
+                {
                     let target_name = name.id.to_string();
                     known_names.retain(|existing| existing != &target_name);
                 }
@@ -444,7 +447,14 @@ def f():
                 matches!(
                     block.term,
                     crate::basic_block::bb_ir::BbTerm::Ret(Some(
-                        crate::basic_block::bb_ir::BbExpr::IntLiteral(_)
+                        crate::basic_block::block_py::CoreBlockPyExprWithoutAwaitOrYield::Literal(
+                            crate::basic_block::block_py::CoreBlockPyLiteral::NumberLiteral(
+                                ruff_python_ast::ExprNumberLiteral {
+                                    value: ruff_python_ast::Number::Int(_),
+                                    ..
+                                }
+                            )
+                        )
                     ))
                 )
             }),
@@ -462,7 +472,14 @@ def f():
                 matches!(
                     block.term,
                     crate::basic_block::bb_ir::BbTerm::Ret(Some(
-                        crate::basic_block::bb_ir::BbExpr::IntLiteral(_)
+                        crate::basic_block::block_py::CoreBlockPyExprWithoutAwaitOrYield::Literal(
+                            crate::basic_block::block_py::CoreBlockPyLiteral::NumberLiteral(
+                                ruff_python_ast::ExprNumberLiteral {
+                                    value: ruff_python_ast::Number::Int(_),
+                                    ..
+                                }
+                            )
+                        )
                     ))
                 )
             }),

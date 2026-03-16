@@ -39,9 +39,9 @@ pub use function_lowering::SingleNamedAssignmentPass;
 #[cfg(test)]
 mod tests {
     use crate::basic_block::bb_ir::BindingTarget;
-    use crate::basic_block::bb_ir::{BbBlock, BbExpr, BbFunction, BbFunctionKind, BbModule};
+    use crate::basic_block::bb_ir::{BbBlock, BbFunction, BbFunctionKind, BbModule};
     use crate::basic_block::bb_ir::{BbClosureInit, BbClosureSlot, BbOp, BbTerm};
-    use crate::basic_block::block_py::BlockPyModule;
+    use crate::basic_block::block_py::{BlockPyModule, CoreBlockPyExprWithoutAwaitOrYield};
     use crate::{
         py_expr, transform_str_to_bb_ir_with_options, transform_str_to_ruff_with_options, Options,
     };
@@ -134,7 +134,7 @@ mod tests {
             .unwrap_or_else(|| panic!("missing closure slot {logical_name}; got {slots:?}"))
     }
 
-    fn expr_text(expr: &BbExpr) -> String {
+    fn expr_text(expr: &CoreBlockPyExprWithoutAwaitOrYield) -> String {
         crate::ruff_ast_to_string(&expr.to_expr())
     }
 
@@ -231,10 +231,21 @@ def fmt(value):
 
         let fmt = lowered.bb_function("fmt");
         assert!(
-            fmt.blocks.iter().any(|block| block_uses_text(
-                block,
-                "__dp_templatelib_Interpolation(value, \"value\", None, \"\")"
-            )),
+            fmt.blocks
+                .iter()
+                .any(|block| block_uses_text(block, "__dp_templatelib_Interpolation")),
+            "{fmt:?}"
+        );
+        assert!(
+            fmt.blocks
+                .iter()
+                .any(|block| block_uses_text(block, "__dp_decode_literal_bytes(b\"value\")")),
+            "{fmt:?}"
+        );
+        assert!(
+            fmt.blocks
+                .iter()
+                .any(|block| block_uses_text(block, "__dp_decode_literal_bytes(b\"\")")),
             "{fmt:?}"
         );
     }
@@ -1456,9 +1467,20 @@ def outer_read():
             .as_ref()
             .expect("module init should be present");
         let init_fn = function_by_name(&bb_module, module_init);
-        let debug = format!("{init_fn:?}");
-        assert!(debug.contains("__dp_store_global"), "{debug}");
-        assert!(debug.contains("outer_read"), "{debug}");
+        assert!(
+            init_fn
+                .blocks
+                .iter()
+                .any(|block| block_uses_text(block, "__dp_store_global")),
+            "{init_fn:?}"
+        );
+        assert!(
+            init_fn
+                .blocks
+                .iter()
+                .any(|block| block_uses_text(block, "__dp_decode_literal_bytes(b\"outer_read\")")),
+            "{init_fn:?}"
+        );
     }
 
     #[test]

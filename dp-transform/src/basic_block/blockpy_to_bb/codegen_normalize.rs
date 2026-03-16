@@ -54,10 +54,13 @@ fn rewrite_term_exprs(rewriter: &mut CodegenExprNormalizer, term: &mut bb_ir::Bb
     }
 }
 
-fn rewrite_bb_expr(rewriter: &mut CodegenExprNormalizer, expr: &mut bb_ir::BbExpr) {
+fn rewrite_bb_expr(
+    rewriter: &mut CodegenExprNormalizer,
+    expr: &mut crate::basic_block::block_py::CoreBlockPyExprWithoutAwaitOrYield,
+) {
     let mut raw = expr.to_expr();
     rewriter.visit_expr(&mut raw);
-    *expr = bb_ir::BbExpr::from_expr(raw);
+    *expr = crate::basic_block::block_py::CoreBlockPyExprWithoutAwaitOrYield::from_expr(raw);
 }
 
 struct CodegenExprNormalizer;

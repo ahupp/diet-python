@@ -1,4 +1,8 @@
-use dp_transform::basic_block::bb_ir::{BbBlock, BbExpr, BbModule, BbOp, BbTerm};
+use dp_transform::basic_block::bb_ir::{BbBlock, BbModule, BbOp, BbTerm};
+use dp_transform::basic_block::block_py::{
+    CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg,
+    CoreBlockPyLiteral,
+};
 use ruff_python_ast::Number;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -178,61 +182,55 @@ fn clif_plan_registry() -> &'static Mutex<PlanRegistry> {
     CLIF_PLAN_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn direct_simple_expr_from(expr: &BbExpr) -> Option<DirectSimpleExprPlan> {
+fn direct_simple_expr_from(
+    expr: &CoreBlockPyExprWithoutAwaitOrYield,
+) -> Option<DirectSimpleExprPlan> {
     match expr {
-        BbExpr::Await(_) => None,
-        BbExpr::Name(name) => Some(DirectSimpleExprPlan::Name(name.id.to_string())),
-        BbExpr::IntLiteral(number) => {
-            let Number::Int(value) = &number.value else {
-                panic!("BbExpr::IntLiteral contained a non-int value");
-            };
-            value.as_i64().map(DirectSimpleExprPlan::Int)
+        CoreBlockPyExprWithoutAwaitOrYield::Name(name) => {
+            Some(DirectSimpleExprPlan::Name(name.id.to_string()))
         }
-        BbExpr::FloatLiteral(number) => {
-            let Number::Float(value) = &number.value else {
-                panic!("BbExpr::FloatLiteral contained a non-float value");
-            };
-            Some(DirectSimpleExprPlan::Float(*value))
-        }
-        BbExpr::BytesLiteral(bytes) => {
-            let value: Cow<[u8]> = (&bytes.value).into();
-            Some(DirectSimpleExprPlan::Bytes(value.into_owned()))
-        }
-        BbExpr::Starred(_) => None,
-        BbExpr::Call(call) => {
+        CoreBlockPyExprWithoutAwaitOrYield::Literal(literal) => match literal {
+            CoreBlockPyLiteral::NumberLiteral(number) => match &number.value {
+                Number::Int(value) => value.as_i64().map(DirectSimpleExprPlan::Int),
+                Number::Float(value) => Some(DirectSimpleExprPlan::Float(*value)),
+                Number::Complex { .. } => None,
+            },
+            CoreBlockPyLiteral::BytesLiteral(bytes) => {
+                let value: Cow<[u8]> = (&bytes.value).into();
+                Some(DirectSimpleExprPlan::Bytes(value.into_owned()))
+            }
+            CoreBlockPyLiteral::BooleanLiteral(boolean) => {
+                Some(DirectSimpleExprPlan::Bool(boolean.value))
+            }
+            CoreBlockPyLiteral::NoneLiteral(_) => Some(DirectSimpleExprPlan::None),
+            CoreBlockPyLiteral::StringLiteral(_) | CoreBlockPyLiteral::EllipsisLiteral(_) => None,
+        },
+        CoreBlockPyExprWithoutAwaitOrYield::Call(call) => {
             let func = direct_simple_expr_from(call.func.as_ref())?;
             let mut parts = Vec::with_capacity(call.args.len() + call.keywords.len());
             for arg in &call.args {
                 match arg {
-                    BbExpr::Starred(starred_expr) => {
-                        let starred_value = BbExpr::from_expr(*starred_expr.value.clone());
-                        parts.push(DirectSimpleCallPart::Star(direct_simple_expr_from(
-                            &starred_value,
-                        )?));
-                    }
-                    _ => {
+                    CoreBlockPyCallArg::Positional(arg) => {
                         parts.push(DirectSimpleCallPart::Pos(direct_simple_expr_from(arg)?));
+                    }
+                    CoreBlockPyCallArg::Starred(arg) => {
+                        parts.push(DirectSimpleCallPart::Star(direct_simple_expr_from(arg)?));
                     }
                 }
             }
-            if call.template.arguments.keywords.len() != call.keywords.len() {
-                return None;
-            }
-            for (keyword, value) in call
-                .template
-                .arguments
-                .keywords
-                .iter()
-                .zip(call.keywords.iter())
-            {
-                let value = direct_simple_expr_from(value)?;
-                if let Some(name) = keyword.arg.as_ref() {
-                    parts.push(DirectSimpleCallPart::Kw {
-                        name: name.to_string(),
-                        value,
-                    });
-                } else {
-                    parts.push(DirectSimpleCallPart::KwStar(value));
+            for keyword in &call.keywords {
+                match keyword {
+                    CoreBlockPyKeywordArg::Named { arg: name, value } => {
+                        parts.push(DirectSimpleCallPart::Kw {
+                            name: name.to_string(),
+                            value: direct_simple_expr_from(value)?,
+                        });
+                    }
+                    CoreBlockPyKeywordArg::Starred(value) => {
+                        parts.push(DirectSimpleCallPart::KwStar(direct_simple_expr_from(
+                            value,
+                        )?));
+                    }
                 }
             }
             Some(DirectSimpleExprPlan::Call {
@@ -338,12 +336,12 @@ fn target_params_from_index(
 }
 
 fn direct_simple_delete_plan_from_targets(
-    targets: &[BbExpr],
+    targets: &[CoreBlockPyExprWithoutAwaitOrYield],
     known_names: &mut Vec<String>,
 ) -> Option<DirectSimpleDeletePlan> {
     let mut plan_targets = Vec::with_capacity(targets.len());
     for target in targets {
-        let BbExpr::Name(name) = target else {
+        let CoreBlockPyExprWithoutAwaitOrYield::Name(name) = target else {
             return None;
         };
         let target_name = name.id.to_string();

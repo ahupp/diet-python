@@ -1,5 +1,4 @@
-use ruff_python_ast::{self as ast, Stmt, StmtBody};
-use ruff_text_size::TextRange;
+use ruff_python_ast::Stmt;
 
 pub(crate) fn flatten_stmt_boxes(stmts: &[Box<Stmt>]) -> Vec<Box<Stmt>> {
     let mut out = Vec::new();
@@ -31,12 +30,4 @@ pub(crate) fn flatten_stmt(stmt: &Stmt, out: &mut Vec<Box<Stmt>>) {
         return;
     }
     out.push(Box::new(stmt.clone()));
-}
-
-pub(crate) fn stmt_body_from_stmts(stmts: Vec<Stmt>) -> StmtBody {
-    StmtBody {
-        body: stmts.into_iter().map(Box::new).collect(),
-        range: TextRange::default(),
-        node_index: ast::AtomicNodeIndex::default(),
-    }
 }

@@ -1,7 +1,9 @@
 use super::bb_ir::{BbClosureLayout, FunctionId};
 use super::cfg_ir::{CfgBlock, CfgCallableDef, CfgModule};
+use crate::py_expr;
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName, Parameters};
+use ruff_python_parser::parse_expression;
 use std::ops::{Deref, DerefMut};
 
 pub(crate) mod cfg;
@@ -880,9 +882,147 @@ impl From<Expr> for CoreBlockPyExprWithoutAwait {
 
 impl From<Expr> for CoreBlockPyExprWithoutAwaitOrYield {
     fn from(value: Expr) -> Self {
-        Self::try_from(CoreBlockPyExprWithoutAwait::from(value))
-            .expect("await or yield reached CoreBlockPyExprWithoutAwaitOrYield::from")
+        let source = crate::ruff_ast_to_string(&value);
+        match value {
+            Expr::Call(node) => Self::Call(CoreBlockPyCall {
+                node_index: node.node_index,
+                range: node.range,
+                func: Box::new(Self::from(*node.func)),
+                args: node
+                    .arguments
+                    .args
+                    .into_vec()
+                    .into_iter()
+                    .map(|arg| match arg {
+                        Expr::Starred(starred) => {
+                            CoreBlockPyCallArg::Starred(Self::from(*starred.value))
+                        }
+                        other => CoreBlockPyCallArg::Positional(Self::from(other)),
+                    })
+                    .collect(),
+                keywords: node
+                    .arguments
+                    .keywords
+                    .into_vec()
+                    .into_iter()
+                    .map(|keyword| match keyword.arg {
+                        Some(arg) => CoreBlockPyKeywordArg::Named {
+                            arg,
+                            value: Self::from(keyword.value),
+                        },
+                        None => CoreBlockPyKeywordArg::Starred(Self::from(keyword.value)),
+                    })
+                    .collect(),
+            }),
+            Expr::Name(node) => Self::Name(node),
+            Expr::BytesLiteral(node) => Self::Literal(CoreBlockPyLiteral::BytesLiteral(node)),
+            Expr::NumberLiteral(node) => match node.value {
+                ast::Number::Int(_) | ast::Number::Float(_) => {
+                    Self::Literal(CoreBlockPyLiteral::NumberLiteral(node))
+                }
+                ast::Number::Complex { .. } => panic!(
+                    "complex literal reached CoreBlockPyExprWithoutAwaitOrYield::from: {}",
+                    source
+                ),
+            },
+            Expr::StringLiteral(node) => {
+                Self::from(string_literal_to_decode_literal_bytes_expr(node.value.to_string().as_str()))
+            }
+            Expr::Attribute(ast::ExprAttribute {
+                value, attr, ctx, ..
+            }) if matches!(ctx, ast::ExprContext::Load) => Self::from(py_expr!(
+                "__dp_getattr({obj:expr}, {attr:literal})",
+                obj = *value,
+                attr = attr.as_str(),
+            )),
+            Expr::Subscript(ast::ExprSubscript {
+                value, slice, ctx, ..
+            }) if matches!(ctx, ast::ExprContext::Load) => Self::from(py_expr!(
+                "__dp_getitem({obj:expr}, {idx:expr})",
+                obj = *value,
+                idx = *slice,
+            )),
+            Expr::Tuple(node) if matches!(node.ctx, ast::ExprContext::Load) => {
+                Self::from(make_dp_helper_call_expr("__dp_tuple", node.elts, vec![]))
+            }
+            Expr::List(_) | Expr::Set(_) | Expr::Dict(_) => panic!(
+                "list/set/dict literals reached CoreBlockPyExprWithoutAwaitOrYield::from: {}",
+                source
+            ),
+            Expr::Await(_) | Expr::Yield(_) | Expr::YieldFrom(_) | Expr::Starred(_) => panic!(
+                "unsupported expression in CoreBlockPyExprWithoutAwaitOrYield::from: {}",
+                source
+            ),
+            Expr::BooleanLiteral(ast::ExprBooleanLiteral { value, .. }) => {
+                if value {
+                    Self::from(py_expr!("__dp_TRUE"))
+                } else {
+                    Self::from(py_expr!("__dp_FALSE"))
+                }
+            }
+            Expr::NoneLiteral(_) => Self::from(py_expr!("__dp_NONE")),
+            Expr::EllipsisLiteral(_) => Self::from(py_expr!("__dp_Ellipsis")),
+            other => panic!(
+                "unsupported expression in CoreBlockPyExprWithoutAwaitOrYield::from: {} ({other:?})",
+                source
+            ),
+        }
     }
+}
+
+impl CoreBlockPyExprWithoutAwaitOrYield {
+    pub fn from_expr(expr: Expr) -> Self {
+        expr.into()
+    }
+
+    pub fn to_expr(&self) -> Expr {
+        self.clone().into()
+    }
+
+    pub fn rewrite_mut(&mut self, f: impl FnOnce(&mut Expr)) {
+        let mut expr = self.to_expr();
+        f(&mut expr);
+        *self = expr.into();
+    }
+}
+
+fn make_dp_helper_call_expr(
+    helper_name: &str,
+    args: Vec<Expr>,
+    keywords: Vec<ast::Keyword>,
+) -> Expr {
+    let Expr::Call(mut call) = py_expr!("{helper:id}()", helper = helper_name) else {
+        panic!("expected helper call expression for {helper_name}");
+    };
+    call.arguments.args = args.into();
+    call.arguments.keywords = keywords.into();
+    Expr::Call(call)
+}
+
+fn string_literal_to_decode_literal_bytes_expr(value: &str) -> Expr {
+    let mut source = String::from("__dp_decode_literal_bytes(b\"");
+    source.push_str(&escape_bytes_for_double_quoted_literal(value.as_bytes()));
+    source.push_str("\")");
+    let parsed = parse_expression(&source).unwrap_or_else(|err| {
+        panic!("failed to build decoded-literal expression from {source:?}: {err}")
+    });
+    *parsed.into_syntax().body
+}
+
+fn escape_bytes_for_double_quoted_literal(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 4);
+    for &byte in bytes {
+        match byte {
+            b'\\' => out.push_str("\\\\"),
+            b'"' => out.push_str("\\\""),
+            b'\n' => out.push_str("\\n"),
+            b'\r' => out.push_str("\\r"),
+            b'\t' => out.push_str("\\t"),
+            0x20..=0x7e => out.push(byte as char),
+            _ => out.push_str(&format!("\\x{:02x}", byte)),
+        }
+    }
+    out
 }
 
 impl CoreBlockPyExpr {

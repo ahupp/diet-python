@@ -304,7 +304,9 @@ fn bb_term_successors(term: &bb_ir::BbTerm) -> Vec<(&str, &'static str)> {
     }
 }
 
-fn expr_to_one_line(expr: &bb_ir::BbExpr) -> String {
+fn expr_to_one_line(
+    expr: &crate::basic_block::block_py::CoreBlockPyExprWithoutAwaitOrYield,
+) -> String {
     ruff_ast_to_string(&expr.to_expr())
         .lines()
         .next()

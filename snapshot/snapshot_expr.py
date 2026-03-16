@@ -11,7 +11,7 @@ x = a[b]
 #     bind: _dp_module_init
 #     qualname: _dp_module_init
 #     block start:
-#         __dp_store_global(globals(), "x", __dp_getitem(a, b))
+#         __dp_store_global(globals(), "x", a[b])
 #         return
 
 # subscript_slice
@@ -27,7 +27,7 @@ x = a[1:2:3]
 #     bind: _dp_module_init
 #     qualname: _dp_module_init
 #     block start:
-#         __dp_store_global(globals(), "x", __dp_getitem(a, __dp_slice(1, 2, 3)))
+#         __dp_store_global(globals(), "x", a[1:2:3])
 #         return
 
 # binary_add
@@ -43,7 +43,7 @@ x = a + b
 #     bind: _dp_module_init
 #     qualname: _dp_module_init
 #     block start:
-#         __dp_store_global(globals(), "x", __dp_add(a, b))
+#         __dp_store_global(globals(), "x", a + b)
 #         return
 
 # binary_bitwise_or
@@ -59,7 +59,7 @@ x = a | b
 #     bind: _dp_module_init
 #     qualname: _dp_module_init
 #     block start:
-#         __dp_store_global(globals(), "x", __dp_or_(a, b))
+#         __dp_store_global(globals(), "x", a | b)
 #         return
 
 # unary_neg
@@ -75,7 +75,7 @@ x = -a
 #     bind: _dp_module_init
 #     qualname: _dp_module_init
 #     block start:
-#         __dp_store_global(globals(), "x", __dp_neg(a))
+#         __dp_store_global(globals(), "x", -a)
 #         return
 
 # boolop_chain
@@ -203,7 +203,7 @@ x = lambda y: y + 1
 #     qualname: <lambda>
 #     display_name: <lambda>
 #     block start:
-#         return __dp_add(y, 1)
+#         return y + 1
 
 # function _dp_module_init()
 #     kind: function
@@ -293,7 +293,7 @@ x = (i for i in it)
 #             else:
 #                 jump _dp_bb__dp_genexpr_1_uncaught_raise
 #     block _dp_bb__dp_genexpr_1_uncaught_raise:
-#         raise _dp_uncaught_exc_10
+#         raise _dp_uncaught_exc_13
 #     block _dp_bb__dp_genexpr_1_uncaught_set_done:
 #         __dp_store_cell(_dp_cell__dp_pc, __dp_GEN_PC_DONE)
 #         __dp_store_cell(_dp_cell__dp_iter_2, __dp_DELETED)
@@ -301,7 +301,7 @@ x = (i for i in it)
 #         __dp_store_cell(_dp_cell__dp_tmp_4, __dp_DELETED)
 #         __dp_store_cell(_dp_cell_i, __dp_DELETED)
 #         __dp_store_cell(_dp_cell__dp_yieldfrom, __dp_DELETED)
-#         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_10)
+#         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_13)
 #         jump _dp_bb__dp_genexpr_1_uncaught_raise
 
 # function _dp_genexpr_1(_dp_iter_2)
@@ -310,8 +310,6 @@ x = (i for i in it)
 #     qualname: <genexpr>
 #     display_name: <genexpr>
 #     local_cell_slots: [_dp_cell__dp_iter_2, _dp_cell__dp_iter_3, _dp_cell__dp_pc, _dp_cell__dp_tmp_4, _dp_cell__dp_yieldfrom, _dp_cell_i]
-#     cellvars: [_dp_iter_2->_dp_cell__dp_iter_2@param, _dp_iter_3->_dp_cell__dp_iter_3@deferred, _dp_tmp_4->_dp_cell__dp_tmp_4@deferred, i->_dp_cell_i@deferred]
-#     runtime_cells: [_dp_pc->_dp_cell__dp_pc@pc_unstarted, _dp_yieldfrom->_dp_cell__dp_yieldfrom@none]
 #     block start:
 #         _dp_cell__dp_iter_2 = __dp_make_cell(_dp_iter_2)
 #         _dp_cell__dp_iter_3 = __dp_make_cell(None)
@@ -319,7 +317,7 @@ x = (i for i in it)
 #         _dp_cell_i = __dp_make_cell(None)
 #         _dp_cell__dp_pc = __dp_make_cell(1)
 #         _dp_cell__dp_yieldfrom = __dp_make_cell(None)
-#         return __dp_make_closure_generator(__dp_def_hidden_resume_fn("start", 1, "_dp_resume", "<genexpr>", __dp_tuple("_dp_self", "_dp_send_value", "_dp_resume_exc", "_dp_cell__dp_iter_2", "_dp_cell__dp_iter_3", "_dp_cell__dp_tmp_4", "_dp_cell_i", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple("_dp_cell__dp_iter_2", "_dp_cell__dp_iter_3", "_dp_cell__dp_tmp_4", "_dp_cell_i", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple(_dp_cell__dp_iter_2, _dp_cell__dp_iter_3, _dp_cell__dp_tmp_4, _dp_cell_i, _dp_cell__dp_pc, _dp_cell__dp_yieldfrom), __dp_globals(), __name__, async_gen=False), "<genexpr>", "<genexpr>")
+#         return __dp_make_closure_generator(__dp_def_hidden_resume_fn("start", 2, "_dp_resume", "<genexpr>", __dp_tuple("_dp_self", "_dp_send_value", "_dp_resume_exc", "_dp_cell__dp_iter_2", "_dp_cell__dp_iter_3", "_dp_cell__dp_tmp_4", "_dp_cell_i", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple("_dp_cell__dp_iter_2", "_dp_cell__dp_iter_3", "_dp_cell__dp_tmp_4", "_dp_cell_i", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple(_dp_cell__dp_iter_2, _dp_cell__dp_iter_3, _dp_cell__dp_tmp_4, _dp_cell_i, _dp_cell__dp_pc, _dp_cell__dp_yieldfrom), __dp_globals(), __name__, async_gen=False), "<genexpr>", "<genexpr>")
 
 # function _dp_module_init()
 #     kind: function
@@ -343,7 +341,7 @@ x = [a, b]
 #     bind: _dp_module_init
 #     qualname: _dp_module_init
 #     block start:
-#         __dp_store_global(globals(), "x", __dp_list(__dp_tuple(a, b)))
+#         __dp_store_global(globals(), "x", [a, b])
 #         return
 
 # list_literal_splat
@@ -359,7 +357,7 @@ x = [a, *b]
 #     bind: _dp_module_init
 #     qualname: _dp_module_init
 #     block start:
-#         __dp_store_global(globals(), "x", __dp_list(__dp_add(__dp_tuple(a), __dp_tuple_from_iter(b))))
+#         __dp_store_global(globals(), "x", [a, *b])
 #         return
 
 # tuple_splat
@@ -375,7 +373,7 @@ x = (a, *b)
 #     bind: _dp_module_init
 #     qualname: _dp_module_init
 #     block start:
-#         __dp_store_global(globals(), "x", __dp_add(__dp_tuple(a), __dp_tuple_from_iter(b)))
+#         __dp_store_global(globals(), "x", (a, *b))
 #         return
 
 # set_literal
@@ -391,7 +389,7 @@ x = {a, b}
 #     bind: _dp_module_init
 #     qualname: _dp_module_init
 #     block start:
-#         __dp_store_global(globals(), "x", __dp_set(__dp_tuple(a, b)))
+#         __dp_store_global(globals(), "x", {a, b})
 #         return
 
 # dict_literal
@@ -407,7 +405,7 @@ x = {"a": 1, "b": 2}
 #     bind: _dp_module_init
 #     qualname: _dp_module_init
 #     block start:
-#         __dp_store_global(globals(), "x", __dp_dict(__dp_tuple(("a", 1), ("b", 2))))
+#         __dp_store_global(globals(), "x", {"a": 1, "b": 2})
 #         return
 
 # dict_literal_unpack
@@ -423,7 +421,7 @@ x = {"a": 1, **m, "b": 2}
 #     bind: _dp_module_init
 #     qualname: _dp_module_init
 #     block start:
-#         __dp_store_global(globals(), "x", __dp_or_(__dp_or_(__dp_dict(__dp_tuple(("a", 1))), __dp_dict(m)), __dp_dict(__dp_tuple(("b", 2)))))
+#         __dp_store_global(globals(), "x", {"a": 1, **m, "b": 2})
 #         return
 
 # list_comp
@@ -440,7 +438,7 @@ x = [i for i in it]
 #     qualname: _dp_listcomp_3
 #     display_name: <listcomp>
 #     block start:
-#         _dp_tmp_1 = __dp_list(__dp_tuple())
+#         _dp_tmp_1 = []
 #         _dp_iter_1 = __dp_iter(_dp_iter_2)
 #         jump _dp_bb__dp_listcomp_3_3
 #         block _dp_bb__dp_listcomp_3_3:
@@ -522,7 +520,7 @@ x = {k: v for k, v in it}
 #     qualname: _dp_dictcomp_3
 #     display_name: <dictcomp>
 #     block start:
-#         _dp_tmp_1 = __dp_dict()
+#         _dp_tmp_1 = {}
 #         _dp_iter_1 = __dp_iter(_dp_iter_2)
 #         jump _dp_bb__dp_dictcomp_3_3
 #         block _dp_bb__dp_dictcomp_3_3:
@@ -581,7 +579,7 @@ x = f"{a}"
 #     bind: _dp_module_init
 #     qualname: _dp_module_init
 #     block start:
-#         __dp_store_global(globals(), "x", __dp_format(a))
+#         __dp_store_global(globals(), "x", f"{a}")
 #         return
 
 # tstring_simple
@@ -597,7 +595,7 @@ x = t"{a}"
 #     bind: _dp_module_init
 #     qualname: _dp_module_init
 #     block start:
-#         __dp_store_global(globals(), "x", __dp_templatelib_Template(*__dp_tuple(__dp_templatelib_Interpolation(a, "a", None, ""))))
+#         __dp_store_global(globals(), "x", t"{a}")
 #         return
 
 # complex_literal
@@ -613,7 +611,7 @@ x = 1j
 #     bind: _dp_module_init
 #     qualname: _dp_module_init
 #     block start:
-#         __dp_store_global(globals(), "x", complex(0.0, 1.0))
+#         __dp_store_global(globals(), "x", 1j)
 #         return
 
 # float_literal_long
@@ -629,5 +627,5 @@ x = 1.234567890123456789
 #     bind: _dp_module_init
 #     qualname: _dp_module_init
 #     block start:
-#         __dp_store_global(globals(), "x", __dp_float_from_literal("1.234567890123456789"))
+#         __dp_store_global(globals(), "x", 1.2345678901234567)
 #         return

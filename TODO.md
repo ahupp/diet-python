@@ -43,11 +43,6 @@
     - Rust type aliases cannot themselves own associated types, so this likely needs either a `BlockPyStage` trait with associated types or stage wrapper newtypes rather than trying to hang associated types directly off `BlockPyModule`.
     - The goal is to stop spelling parallel alias lists for `Module`, `CallableDef`, `Block`, `Stmt`, `Term`, `Assign`, `If`, `Raise`, and related helpers, while still making the stage (`Ruff`, semantic, core) explicit.
     - This cleanup is now simpler because semantic BlockPy already carries Ruff `Expr` directly, so one whole stage-specific expression wrapper is gone from the matrix.
-- See whether `BbExpr` can be replaced by `CoreBlockPyExpr`.
-  - Planning note:
-    - Today the answer looks like “not directly yet”: `BbExpr` is narrower than `CoreBlockPyExpr` in some ways, but also carries BB-specific representation choices like `BbCallExpr` with a preserved Ruff call template and its use in `BbFunction.param_specs`.
-    - `CoreBlockPyExpr` already handles a wider core reduction surface, while `BbExpr::from_expr` still performs extra BB-boundary normalization and rejection, so this cleanup likely depends on shrinking or deleting that boundary first.
-    - A good first step is to separate the questions “should `param_specs` live in BB?” and “does BB need a template-preserving call node?”; if both answers become no, `BbExpr` is much more likely to collapse cleanly onto `CoreBlockPyExpr`.
 - Lift await and generator reduction into explicit top-level transform steps in `driver.rs`.
   - Planning note:
     - The desired end state is for `rewrite_module` to show the semantic BlockPy with raw `await` / generator forms, then explicit await lowering, then explicit generator reduction as separate visible steps.
@@ -86,6 +81,10 @@
 - Replace semantic `BlockPyExpr` with Ruff `Expr`:
   - Semantic BlockPy now carries Ruff `Expr` directly, so the semantic stage is expressed by the surrounding BlockPy module/callable/block types instead of a near-identity expression wrapper.
   - The wrapper enum and its conversion helpers are gone; `CoreBlockPyExpr` remains the real reduced expression boundary.
+- Replace `BbExpr` with the final core BlockPy expression type:
+  - BB IR, the JIT planner, and related tests/rendering code now use `CoreBlockPyExprWithoutAwaitOrYield` directly instead of a separate `BbExpr` wrapper/alias.
+  - The remaining raw-`Expr` boundary normalization moved onto `CoreBlockPyExprWithoutAwaitOrYield::from_expr`, so BB-specific helper lowering no longer needs its own expression concept.
+  - This leaves `param_specs` as part of the remaining BB/function-shape cleanup, but the expression layer itself no longer forks at the BB boundary.
 
 ## Follow-up: weakref callback during shutdown (BB mode)
 
