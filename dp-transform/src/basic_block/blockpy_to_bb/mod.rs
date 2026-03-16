@@ -62,12 +62,6 @@ pub(crate) struct LoweredBlockPyModuleBundlePlan {
 }
 
 #[derive(Clone)]
-pub(crate) struct SemanticBlockPyModulePlanWithAwaits(pub LoweredBlockPyModuleBundlePlan);
-
-#[derive(Clone)]
-pub(crate) struct SemanticBlockPyModulePlanWithoutAwait(pub LoweredBlockPyModuleBundlePlan);
-
-#[derive(Clone)]
 pub(crate) struct ResolvedLoweredBlockPyModuleBundlePlanEntry {
     pub bundle_plan: ResolvedLoweredBlockPyFunctionBundlePlan,
     pub main_binding_target: super::bb_ir::BindingTarget,
@@ -80,11 +74,6 @@ pub(crate) struct ResolvedLoweredBlockPyModuleBundlePlan {
 }
 
 #[derive(Clone)]
-pub(crate) struct SemanticBlockPyModulePlanAfterGeneratorLowering(
-    pub ResolvedLoweredBlockPyModuleBundlePlan,
-);
-
-#[derive(Clone)]
 pub(crate) struct LoweredBlockPyModuleExportPlanEntry {
     pub bundle_plan: LoweredBlockPyFunctionExportPlan,
     pub main_binding_target: super::bb_ir::BindingTarget,
@@ -95,9 +84,6 @@ pub(crate) struct LoweredBlockPyModuleExportPlan {
     pub module_init: Option<String>,
     pub callable_def_bundles: Vec<LoweredBlockPyModuleExportPlanEntry>,
 }
-
-#[derive(Clone)]
-pub(crate) struct SemanticBlockPyModuleBundleWithoutYield(pub LoweredBlockPyModuleBundle);
 
 fn next_temp_from_reserved_names(
     reserved_names: &mut HashSet<String>,
@@ -118,10 +104,9 @@ fn next_temp_from_reserved_names(
 
 pub(crate) fn lower_awaits_in_lowered_blockpy_module_bundle_plan(
     context: &Context,
-    plan: SemanticBlockPyModulePlanWithAwaits,
-) -> SemanticBlockPyModulePlanWithoutAwait {
-    let SemanticBlockPyModulePlanWithAwaits(plan) = plan;
-    SemanticBlockPyModulePlanWithoutAwait(LoweredBlockPyModuleBundlePlan {
+    plan: LoweredBlockPyModuleBundlePlan,
+) -> LoweredBlockPyModuleBundlePlan {
+    LoweredBlockPyModuleBundlePlan {
         module_init: plan.module_init,
         callable_def_bundles: plan
             .callable_def_bundles
@@ -136,14 +121,13 @@ pub(crate) fn lower_awaits_in_lowered_blockpy_module_bundle_plan(
             .collect(),
         next_block_id: plan.next_block_id,
         next_function_id: plan.next_function_id,
-    })
+    }
 }
 
 pub(crate) fn lower_generators_in_lowered_blockpy_module_bundle_plan(
     context: &Context,
-    plan: SemanticBlockPyModulePlanWithoutAwait,
-) -> SemanticBlockPyModulePlanAfterGeneratorLowering {
-    let SemanticBlockPyModulePlanWithoutAwait(plan) = plan;
+    plan: LoweredBlockPyModuleBundlePlan,
+) -> ResolvedLoweredBlockPyModuleBundlePlan {
     let LoweredBlockPyModuleBundlePlan {
         module_init,
         callable_def_bundles,
@@ -172,10 +156,10 @@ pub(crate) fn lower_generators_in_lowered_blockpy_module_bundle_plan(
             main_binding_target: entry.main_binding_target,
         });
     }
-    SemanticBlockPyModulePlanAfterGeneratorLowering(ResolvedLoweredBlockPyModuleBundlePlan {
+    ResolvedLoweredBlockPyModuleBundlePlan {
         module_init,
         callable_def_bundles: resolved_entries,
-    })
+    }
 }
 
 fn build_lowered_blockpy_function_export_plan_with_deleted_name_rewrite(
@@ -201,9 +185,8 @@ fn build_lowered_blockpy_function_export_plan_with_deleted_name_rewrite(
 }
 
 pub(crate) fn resolved_lowered_blockpy_module_bundle_plan_to_export_plan(
-    plan: SemanticBlockPyModulePlanAfterGeneratorLowering,
+    plan: ResolvedLoweredBlockPyModuleBundlePlan,
 ) -> LoweredBlockPyModuleExportPlan {
-    let SemanticBlockPyModulePlanAfterGeneratorLowering(plan) = plan;
     let mut callable_def_bundles = Vec::new();
     for entry in plan.callable_def_bundles {
         let bundle_plan =
@@ -221,7 +204,7 @@ pub(crate) fn resolved_lowered_blockpy_module_bundle_plan_to_export_plan(
 
 pub(crate) fn lower_yield_in_lowered_blockpy_module_export_plan(
     plan: LoweredBlockPyModuleExportPlan,
-) -> SemanticBlockPyModuleBundleWithoutYield {
+) -> LoweredBlockPyModuleBundle {
     let mut callable_defs = Vec::new();
     for entry in plan.callable_def_bundles {
         let bundle = lowered_blockpy_function_export_plan_to_bundle(entry.bundle_plan);
@@ -237,16 +220,21 @@ pub(crate) fn lower_yield_in_lowered_blockpy_module_export_plan(
                 .with_binding_target(entry.main_binding_target),
         );
     }
-    SemanticBlockPyModuleBundleWithoutYield(LoweredBlockPyModuleBundle {
+    LoweredBlockPyModuleBundle {
         module_init: plan.module_init,
         callable_defs,
-    })
+    }
 }
 
-pub(crate) fn semantic_blockpy_module_bundle_without_yield_to_bundle(
-    module: SemanticBlockPyModuleBundleWithoutYield,
+pub(crate) fn lower_blockpy_module_plan_to_bundle(
+    context: &Context,
+    plan: LoweredBlockPyModuleBundlePlan,
 ) -> LoweredBlockPyModuleBundle {
-    module.0
+    let await_free = lower_awaits_in_lowered_blockpy_module_bundle_plan(context, plan);
+    let generator_lowered =
+        lower_generators_in_lowered_blockpy_module_bundle_plan(context, await_free);
+    let export_plan = resolved_lowered_blockpy_module_bundle_plan_to_export_plan(generator_lowered);
+    lower_yield_in_lowered_blockpy_module_export_plan(export_plan)
 }
 
 pub fn project_lowered_module_callable_defs<T, U: Clone>(

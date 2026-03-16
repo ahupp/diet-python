@@ -76,39 +76,11 @@ pub(crate) fn rewrite_module_with_tracker(
     rewrite_class_def::class_body::rewrite_class_body_scopes(context, scope, module);
 
     let _: StmtBody = pass_tracker.add_pass("rewritten_ast_for_lowering", || module.clone());
-    let semantic_blockpy_with_awaits: basic_block::SemanticBlockPyModulePlanWithAwaits =
-        pass_tracker.add_pass("semantic_blockpy_with_awaits", || {
-            basic_block::SemanticBlockPyModulePlanWithAwaits(
-                rewrite_ast_to_lowered_blockpy_module_plan(context, module),
-            )
-        });
-    let semantic_blockpy_without_await: basic_block::SemanticBlockPyModulePlanWithoutAwait =
-        pass_tracker.add_pass("semantic_blockpy_without_await", || {
-            basic_block::lower_awaits_in_lowered_blockpy_module_bundle_plan(
-                context,
-                semantic_blockpy_with_awaits,
-            )
-        });
-    let semantic_blockpy_after_generator_lowering:
-        basic_block::SemanticBlockPyModulePlanAfterGeneratorLowering =
-        pass_tracker.add_pass("semantic_blockpy_after_generator_lowering", || {
-            basic_block::lower_generators_in_lowered_blockpy_module_bundle_plan(
-                context,
-                semantic_blockpy_without_await,
-            )
-        });
-    let semantic_blockpy_without_yield: basic_block::SemanticBlockPyModuleBundleWithoutYield =
-        pass_tracker.add_pass("semantic_blockpy_without_yield", || {
-            basic_block::lower_yield_in_lowered_blockpy_module_export_plan(
-                basic_block::resolved_lowered_blockpy_module_bundle_plan_to_export_plan(
-                    semantic_blockpy_after_generator_lowering,
-                ),
-            )
-        });
     let lowered_blockpy_module: basic_block::LoweredBlockPyModuleBundle =
         pass_tracker.add_pass("semantic_blockpy", || {
-            basic_block::semantic_blockpy_module_bundle_without_yield_to_bundle(
-                semantic_blockpy_without_yield,
+            basic_block::lower_blockpy_module_plan_to_bundle(
+                context,
+                rewrite_ast_to_lowered_blockpy_module_plan(context, module),
             )
         });
     let core_blockpy_bundle: basic_block::LoweredCoreBlockPyModuleBundle = pass_tracker
