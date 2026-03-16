@@ -113,6 +113,17 @@ impl<C> DerefMut for LoweredBlockPyFunction<C> {
 }
 
 impl<C> LoweredBlockPyFunction<C> {
+    pub fn map_callable_def<D>(&self, f: impl FnOnce(&C) -> D) -> LoweredBlockPyFunction<D> {
+        LoweredBlockPyFunction {
+            callable_def: f(&self.callable_def),
+            binding_target: self.binding_target,
+            bb_kind: self.bb_kind.clone(),
+            block_params: self.block_params.clone(),
+            exception_edges: self.exception_edges.clone(),
+            runtime_closure_layout: self.runtime_closure_layout.clone(),
+        }
+    }
+
     pub fn with_binding_target(mut self, binding_target: BindingTarget) -> Self {
         self.binding_target = binding_target;
         self

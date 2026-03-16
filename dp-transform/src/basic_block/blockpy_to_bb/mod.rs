@@ -263,14 +263,7 @@ fn lower_core_callable_def_without_await(
 fn lower_core_blockpy_function_without_await(
     lowered: &LoweredCoreBlockPyFunction,
 ) -> LoweredCoreBlockPyFunctionWithoutAwait {
-    LoweredCoreBlockPyFunctionWithoutAwait {
-        binding_target: lowered.binding_target,
-        callable_def: lower_core_callable_def_without_await(&lowered.callable_def),
-        bb_kind: lowered.bb_kind.clone(),
-        block_params: lowered.block_params.clone(),
-        exception_edges: lowered.exception_edges.clone(),
-        runtime_closure_layout: lowered.runtime_closure_layout.clone(),
-    }
+    lowered.map_callable_def(lower_core_callable_def_without_await)
 }
 
 fn lower_core_callable_def_without_await_or_yield(
@@ -288,14 +281,7 @@ fn lower_core_callable_def_without_await_or_yield(
 fn lower_core_blockpy_function_without_await_or_yield(
     lowered: &LoweredCoreBlockPyFunctionWithoutAwait,
 ) -> LoweredCoreBlockPyFunctionWithoutAwaitOrYield {
-    LoweredCoreBlockPyFunctionWithoutAwaitOrYield {
-        binding_target: lowered.binding_target,
-        callable_def: lower_core_callable_def_without_await_or_yield(&lowered.callable_def),
-        bb_kind: lowered.bb_kind.clone(),
-        block_params: lowered.block_params.clone(),
-        exception_edges: lowered.exception_edges.clone(),
-        runtime_closure_layout: lowered.runtime_closure_layout.clone(),
-    }
+    lowered.map_callable_def(lower_core_callable_def_without_await_or_yield)
 }
 
 pub(crate) fn lower_awaits_in_lowered_core_blockpy_module_bundle(
@@ -319,15 +305,7 @@ pub(crate) fn lower_core_blockpy_module_bundle_to_bb_module(
 fn simplify_lowered_blockpy_function_exprs(
     lowered: &LoweredBlockPyFunction,
 ) -> LoweredCoreBlockPyFunction {
-    let callable_def = simplify_blockpy_callable_def_exprs(&lowered.callable_def);
-    LoweredCoreBlockPyFunction {
-        binding_target: lowered.binding_target,
-        callable_def,
-        bb_kind: lowered.bb_kind.clone(),
-        block_params: lowered.block_params.clone(),
-        exception_edges: lowered.exception_edges.clone(),
-        runtime_closure_layout: lowered.runtime_closure_layout.clone(),
-    }
+    lowered.map_callable_def(simplify_blockpy_callable_def_exprs)
 }
 
 pub(crate) fn lower_core_blockpy_function_to_bb_function(
