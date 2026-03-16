@@ -1,5 +1,5 @@
 use super::await_lower::lower_coroutine_awaits_in_stmt;
-use super::bb_ir::{BbClosureLayout, BbExpr, BbFunctionKind, FunctionId};
+use super::bb_ir::{BbClosureLayout, BbExpr, BbFunctionKind, BindingTarget, FunctionId};
 use super::block_py::cfg::{
     fold_constant_brif_blockpy, fold_jumps_to_trivial_none_return_blockpy,
     prune_unreachable_blockpy_blocks, relabel_blockpy_blocks, rename_blockpy_labels,
@@ -87,6 +87,7 @@ pub(crate) struct GeneratorStmtSequenceLoweringState {
 #[derive(Clone)]
 pub struct LoweredBlockPyFunction<C = SemanticBlockPyCallableDef> {
     pub(crate) callable_def: C,
+    pub(crate) binding_target: BindingTarget,
     pub(crate) is_coroutine: bool,
     pub(crate) bb_kind: BbFunctionKind,
     pub(crate) block_params: HashMap<String, Vec<String>>,
@@ -98,6 +99,11 @@ pub struct LoweredBlockPyFunction<C = SemanticBlockPyCallableDef> {
 impl<C> LoweredBlockPyFunction<C> {
     pub fn callable_def(&self) -> &C {
         &self.callable_def
+    }
+
+    pub fn with_binding_target(mut self, binding_target: BindingTarget) -> Self {
+        self.binding_target = binding_target;
+        self
     }
 }
 
@@ -258,6 +264,7 @@ pub(crate) fn build_lowered_blockpy_function(
 ) -> LoweredBlockPyFunction {
     LoweredBlockPyFunction {
         callable_def,
+        binding_target: BindingTarget::Local,
         is_coroutine,
         bb_kind,
         block_params,

@@ -2,9 +2,7 @@ mod codegen_normalize;
 mod codegen_trace;
 mod exception_pass;
 
-use super::bb_ir::{
-    BbBlock, BbBlockMeta, BbExpr, BbFunction, BbModule, BbOp, BbTerm, BindingTarget,
-};
+use super::bb_ir::{BbBlock, BbBlockMeta, BbExpr, BbFunction, BbModule, BbOp, BbTerm};
 use super::block_py::cfg::linearize_structured_ifs;
 use super::block_py::exception::is_dp_lookup_call;
 use super::block_py::state::collect_parameter_names;
@@ -25,48 +23,28 @@ use std::collections::HashMap;
 pub use codegen_normalize::normalize_bb_module_for_codegen;
 pub use exception_pass::lower_try_jump_exception_flow;
 
-#[derive(Clone)]
-pub struct LoweredCallableDef<T> {
-    pub(crate) callable_def: T,
-    pub(crate) binding_target: BindingTarget,
-}
-
-impl<T> LoweredCallableDef<T> {
-    pub fn callable_def(&self) -> &T {
-        &self.callable_def
-    }
-}
-
-pub type LoweredBlockPyModuleBundle = CfgModule<LoweredCallableDef<LoweredBlockPyFunction>>;
+pub type LoweredBlockPyModuleBundle = CfgModule<LoweredBlockPyFunction>;
 pub type LoweredCoreBlockPyFunction = LoweredBlockPyFunction<CoreBlockPyCallableDef>;
 
-pub type LoweredCoreBlockPyModuleBundle = CfgModule<LoweredCallableDef<LoweredCoreBlockPyFunction>>;
+pub type LoweredCoreBlockPyModuleBundle = CfgModule<LoweredCoreBlockPyFunction>;
 
 pub fn project_lowered_module_callable_defs<T, U: Clone>(
-    module: &CfgModule<LoweredCallableDef<T>>,
+    module: &CfgModule<T>,
     project: impl Fn(&T) -> &U,
 ) -> CfgModule<U> {
-    module.map_callable_defs(|lowered_function| project(&lowered_function.callable_def).clone())
+    module.map_callable_defs(|lowered_function| project(lowered_function).clone())
 }
 
 pub(crate) fn simplify_lowered_blockpy_module_bundle_exprs(
     module: &LoweredBlockPyModuleBundle,
 ) -> LoweredCoreBlockPyModuleBundle {
-    module.map_callable_defs(|lowered_function| LoweredCallableDef {
-        callable_def: simplify_lowered_blockpy_function_exprs(&lowered_function.callable_def),
-        binding_target: lowered_function.binding_target,
-    })
+    module.map_callable_defs(simplify_lowered_blockpy_function_exprs)
 }
 
 pub(crate) fn lower_core_blockpy_module_bundle_to_bb_module(
     module: &LoweredCoreBlockPyModuleBundle,
 ) -> BbModule {
-    module.map_callable_defs(|lowered_function| {
-        lower_core_blockpy_function_to_bb_function(
-            &lowered_function.callable_def,
-            lowered_function.binding_target,
-        )
-    })
+    module.map_callable_defs(lower_core_blockpy_function_to_bb_function)
 }
 
 fn simplify_lowered_blockpy_function_exprs(
@@ -74,6 +52,7 @@ fn simplify_lowered_blockpy_function_exprs(
 ) -> LoweredCoreBlockPyFunction {
     let callable_def = simplify_blockpy_callable_def_exprs(&lowered.callable_def);
     LoweredCoreBlockPyFunction {
+        binding_target: lowered.binding_target,
         param_specs: BbExpr::from_expr(function_param_specs_expr(&callable_def.params)),
         callable_def,
         is_coroutine: lowered.is_coroutine,
@@ -86,7 +65,6 @@ fn simplify_lowered_blockpy_function_exprs(
 
 pub(crate) fn lower_core_blockpy_function_to_bb_function(
     lowered: &LoweredCoreBlockPyFunction,
-    binding_target: BindingTarget,
 ) -> BbFunction {
     let (linear_blocks, linear_block_params, linear_exception_edges) = linearize_structured_ifs(
         &lowered.callable_def.blocks,
@@ -108,7 +86,7 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
                 &linear_exception_edges,
             ),
         },
-        binding_target,
+        binding_target: lowered.binding_target,
         is_coroutine: lowered.is_coroutine,
         closure_layout: lowered.closure_layout.clone(),
         param_specs: lowered.param_specs.clone(),

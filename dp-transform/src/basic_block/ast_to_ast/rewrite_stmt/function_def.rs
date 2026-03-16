@@ -11,7 +11,7 @@ use crate::basic_block::bb_ir::{BbFunctionKind, BindingTarget};
 use crate::basic_block::block_py::dataflow::analyze_blockpy_use_def;
 use crate::basic_block::block_py::state::collect_cell_slots;
 use crate::basic_block::block_py::state::collect_parameter_names;
-use crate::basic_block::blockpy_to_bb::{LoweredBlockPyModuleBundle, LoweredCallableDef};
+use crate::basic_block::blockpy_to_bb::LoweredBlockPyModuleBundle;
 use crate::basic_block::expr_utils::{make_dp_tuple, name_expr};
 use crate::basic_block::function_identity::{
     collect_function_identity_private, is_module_init_temp_name, resolve_runtime_function_identity,
@@ -154,20 +154,17 @@ fn push_lowered_blockpy_callable_def_bundle(
     bundle: crate::basic_block::ruff_to_blockpy::LoweredBlockPyFunctionBundle,
     main_binding_target: BindingTarget,
 ) {
-    out.callable_defs
-        .extend(
-            bundle
-                .helper_functions
-                .into_iter()
-                .map(|helper| LoweredCallableDef {
-                    callable_def: helper,
-                    binding_target: BindingTarget::Local,
-                }),
-        );
-    out.callable_defs.push(LoweredCallableDef {
-        callable_def: bundle.main_function,
-        binding_target: main_binding_target,
-    });
+    out.callable_defs.extend(
+        bundle
+            .helper_functions
+            .into_iter()
+            .map(|helper| helper.with_binding_target(BindingTarget::Local)),
+    );
+    out.callable_defs.push(
+        bundle
+            .main_function
+            .with_binding_target(main_binding_target),
+    );
 }
 
 fn build_lowered_function_instantiation_data(
