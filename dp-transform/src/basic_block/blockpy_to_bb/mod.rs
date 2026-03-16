@@ -42,6 +42,9 @@ pub type LoweredCoreBlockPyModuleBundle = CfgModule<LoweredCoreBlockPyFunction>;
 pub(crate) struct CoreBlockPyModuleBundleWithoutAwait(pub LoweredCoreBlockPyModuleBundle);
 
 #[derive(Clone)]
+pub(crate) struct CoreBlockPyModuleBundleWithoutAwaitOrYield(pub LoweredCoreBlockPyModuleBundle);
+
+#[derive(Clone)]
 pub(crate) struct LoweredBlockPyModuleBundlePlanEntry {
     pub bundle_plan: LoweredBlockPyFunctionBundlePlan,
     pub main_binding_target: super::bb_ir::BindingTarget,
@@ -284,6 +287,30 @@ fn core_expr_contains_await(expr: &super::block_py::CoreBlockPyExpr) -> bool {
     }
 }
 
+fn core_expr_contains_yield_family(expr: &super::block_py::CoreBlockPyExpr) -> bool {
+    use super::block_py::{CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg};
+
+    match expr {
+        CoreBlockPyExpr::Await(await_expr) => core_expr_contains_yield_family(&await_expr.value),
+        CoreBlockPyExpr::Call(call) => {
+            core_expr_contains_yield_family(&call.func)
+                || call.args.iter().any(|arg| match arg {
+                    CoreBlockPyCallArg::Positional(arg) | CoreBlockPyCallArg::Starred(arg) => {
+                        core_expr_contains_yield_family(arg)
+                    }
+                })
+                || call.keywords.iter().any(|keyword| match keyword {
+                    CoreBlockPyKeywordArg::Named { value, .. }
+                    | CoreBlockPyKeywordArg::Starred(value) => {
+                        core_expr_contains_yield_family(value)
+                    }
+                })
+        }
+        CoreBlockPyExpr::Yield(_) | CoreBlockPyExpr::YieldFrom(_) => true,
+        CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => false,
+    }
+}
+
 fn core_stmt_contains_await(stmt: &super::block_py::CoreBlockPyStmt) -> bool {
     use super::block_py::CoreBlockPyStmt;
 
@@ -324,6 +351,56 @@ fn core_term_contains_await(term: &super::block_py::CoreBlockPyTerm) -> bool {
     }
 }
 
+fn core_stmt_contains_yield_family(stmt: &super::block_py::CoreBlockPyStmt) -> bool {
+    use super::block_py::CoreBlockPyStmt;
+
+    match stmt {
+        CoreBlockPyStmt::Expr(expr) => core_expr_contains_yield_family(expr),
+        CoreBlockPyStmt::Assign(assign) => core_expr_contains_yield_family(&assign.value),
+        CoreBlockPyStmt::Delete(_) => false,
+        CoreBlockPyStmt::If(if_stmt) => {
+            core_expr_contains_yield_family(&if_stmt.test)
+                || if_stmt
+                    .body
+                    .body
+                    .iter()
+                    .any(core_stmt_contains_yield_family)
+                || if_stmt
+                    .body
+                    .term
+                    .as_ref()
+                    .is_some_and(core_term_contains_yield_family)
+                || if_stmt
+                    .orelse
+                    .body
+                    .iter()
+                    .any(core_stmt_contains_yield_family)
+                || if_stmt
+                    .orelse
+                    .term
+                    .as_ref()
+                    .is_some_and(core_term_contains_yield_family)
+        }
+    }
+}
+
+fn core_term_contains_yield_family(term: &super::block_py::CoreBlockPyTerm) -> bool {
+    use super::block_py::CoreBlockPyTerm;
+
+    match term {
+        CoreBlockPyTerm::Jump(_) | CoreBlockPyTerm::TryJump(_) => false,
+        CoreBlockPyTerm::IfTerm(if_term) => core_expr_contains_yield_family(&if_term.test),
+        CoreBlockPyTerm::BranchTable(branch) => core_expr_contains_yield_family(&branch.index),
+        CoreBlockPyTerm::Raise(raise_stmt) => raise_stmt
+            .exc
+            .as_ref()
+            .is_some_and(core_expr_contains_yield_family),
+        CoreBlockPyTerm::Return(value) => {
+            value.as_ref().is_some_and(core_expr_contains_yield_family)
+        }
+    }
+}
+
 fn core_block_contains_await(block: &super::block_py::CoreBlockPyBlock) -> bool {
     block.body.iter().any(core_stmt_contains_await) || core_term_contains_await(&block.term)
 }
@@ -334,6 +411,22 @@ fn core_callable_def_contains_await(callable_def: &CoreBlockPyCallableDef) -> bo
         .as_ref()
         .is_some_and(core_expr_contains_await)
         || callable_def.blocks.iter().any(core_block_contains_await)
+}
+
+fn core_block_contains_yield_family(block: &super::block_py::CoreBlockPyBlock) -> bool {
+    block.body.iter().any(core_stmt_contains_yield_family)
+        || core_term_contains_yield_family(&block.term)
+}
+
+fn core_callable_def_contains_yield_family(callable_def: &CoreBlockPyCallableDef) -> bool {
+    callable_def
+        .doc
+        .as_ref()
+        .is_some_and(core_expr_contains_yield_family)
+        || callable_def
+            .blocks
+            .iter()
+            .any(core_block_contains_yield_family)
 }
 
 pub(crate) fn lower_awaits_in_lowered_core_blockpy_module_bundle(
@@ -350,8 +443,23 @@ pub(crate) fn lower_awaits_in_lowered_core_blockpy_module_bundle(
     CoreBlockPyModuleBundleWithoutAwait(module)
 }
 
-pub(crate) fn core_blockpy_module_bundle_without_await_to_bundle(
+pub(crate) fn lower_yield_in_lowered_core_blockpy_module_bundle(
     module: CoreBlockPyModuleBundleWithoutAwait,
+) -> CoreBlockPyModuleBundleWithoutAwaitOrYield {
+    let module = module.0;
+    for callable_def in &module.callable_defs {
+        if core_callable_def_contains_yield_family(callable_def.callable_def()) {
+            panic!(
+                "core BlockPy yield lowering is not explicit yet: yield-family expr reached the core no-yield boundary for {}",
+                callable_def.callable_def().qualname
+            );
+        }
+    }
+    CoreBlockPyModuleBundleWithoutAwaitOrYield(module)
+}
+
+pub(crate) fn core_blockpy_module_bundle_without_await_or_yield_to_bundle(
+    module: CoreBlockPyModuleBundleWithoutAwaitOrYield,
 ) -> LoweredCoreBlockPyModuleBundle {
     module.0
 }
