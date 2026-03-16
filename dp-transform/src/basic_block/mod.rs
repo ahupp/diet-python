@@ -27,12 +27,15 @@ pub(crate) use blockpy_to_bb::{
     lower_yield_in_lowered_core_blockpy_module_bundle,
     resolved_lowered_blockpy_module_bundle_plan_to_export_plan,
     semantic_blockpy_module_bundle_without_yield_to_bundle,
-    simplify_lowered_blockpy_module_bundle_exprs, SemanticBlockPyModulePlanWithAwaits,
+    simplify_lowered_blockpy_module_bundle_exprs, SemanticBlockPyModuleBundleWithoutYield,
+    SemanticBlockPyModulePlanAfterGeneratorLowering, SemanticBlockPyModulePlanWithAwaits,
+    SemanticBlockPyModulePlanWithoutAwait,
 };
 pub use blockpy_to_bb::{lower_try_jump_exception_flow, normalize_bb_module_for_codegen};
 pub use blockpy_to_bb::{
     project_lowered_module_callable_defs, LoweredBlockPyModuleBundle,
-    LoweredCoreBlockPyModuleBundle,
+    LoweredCoreBlockPyModuleBundle, LoweredCoreBlockPyModuleBundleWithoutAwait,
+    LoweredCoreBlockPyModuleBundleWithoutAwaitOrYield,
 };
 pub use function_lowering::SingleNamedAssignmentPass;
 
