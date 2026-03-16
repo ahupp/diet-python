@@ -505,9 +505,10 @@ def f(x):
         .unwrap()
         .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>()
         .map(|bundle| {
-            crate::basic_block::project_lowered_module_callable_defs(bundle, |lowered| {
-                lowered.callable_def()
-            })
+            crate::basic_block::project_lowered_module_callable_defs(
+                bundle,
+                |lowered| -> &crate::basic_block::block_py::SemanticBlockPyCallableDef { lowered },
+            )
         })
         .expect("expected lowered semantic BlockPy bundle");
         let core = simplify_blockpy_module_exprs(&blockpy);
@@ -679,9 +680,10 @@ def f(*, d={"metaclass": Meta}, **kw):
         .unwrap()
         .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>()
         .map(|bundle| {
-            crate::basic_block::project_lowered_module_callable_defs(bundle, |lowered| {
-                lowered.callable_def()
-            })
+            crate::basic_block::project_lowered_module_callable_defs(
+                bundle,
+                |lowered| -> &crate::basic_block::block_py::SemanticBlockPyCallableDef { lowered },
+            )
         })
         .expect("expected lowered semantic BlockPy bundle");
         let core = simplify_blockpy_module_exprs(&blockpy);

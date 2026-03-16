@@ -124,9 +124,12 @@ fn blockpy_output_for_snapshot(actual: &str) -> String {
         .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>()
         .map(|bundle| {
             crate::basic_block::blockpy_module_to_string(
-                &crate::basic_block::project_lowered_module_callable_defs(bundle, |lowered| {
-                    lowered.callable_def()
-                }),
+                &crate::basic_block::project_lowered_module_callable_defs(
+                    bundle,
+                    |lowered| -> &crate::basic_block::block_py::SemanticBlockPyCallableDef {
+                        lowered
+                    },
+                ),
             )
         })
         .unwrap_or_else(|| "; no BlockPy module emitted".to_string())

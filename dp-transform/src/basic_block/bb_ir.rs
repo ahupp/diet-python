@@ -2,7 +2,7 @@ use super::block_py::{
     CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyLiteral, CoreBlockPyStmtWithoutAwaitOrYield,
 };
 use super::cfg_ir::{CfgBlock, CfgModule};
-use super::lowered_ir::{LoweredCfgFunction, LoweredFunctionKind};
+use super::lowered_ir::LoweredCfgFunction;
 use ruff_python_ast as ast;
 
 pub type BbModule = CfgModule<BbFunction>;

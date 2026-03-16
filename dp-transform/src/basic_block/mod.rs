@@ -76,9 +76,10 @@ mod tests {
                 .result
                 .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>()
                 .expect("expected lowered semantic BlockPy bundle");
-            crate::basic_block::project_lowered_module_callable_defs(bundle, |lowered| {
-                lowered.callable_def()
-            })
+            crate::basic_block::project_lowered_module_callable_defs(
+                bundle,
+                |lowered| -> &crate::basic_block::block_py::SemanticBlockPyCallableDef { lowered },
+            )
         }
 
         fn blockpy_text(&self) -> String {
@@ -90,9 +91,10 @@ mod tests {
                 .result
                 .get_pass::<crate::basic_block::LoweredCoreBlockPyModuleBundle>()
                 .expect("expected lowered core BlockPy bundle");
-            crate::basic_block::project_lowered_module_callable_defs(bundle, |lowered| {
-                lowered.callable_def()
-            })
+            crate::basic_block::project_lowered_module_callable_defs(
+                bundle,
+                |lowered| -> &crate::basic_block::block_py::CoreBlockPyCallableDef { lowered },
+            )
         }
 
         fn core_blockpy_text(&self) -> String {
@@ -1258,9 +1260,12 @@ class Field:
             let blockpy = lowered
                 .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>()
                 .map(|bundle| {
-                    crate::basic_block::project_lowered_module_callable_defs(bundle, |lowered| {
-                        lowered.callable_def()
-                    })
+                    crate::basic_block::project_lowered_module_callable_defs(
+                        bundle,
+                        |lowered| -> &crate::basic_block::block_py::SemanticBlockPyCallableDef {
+                            lowered
+                        },
+                    )
                 })
                 .expect("expected lowered semantic BlockPy bundle");
             let blockpy_rendered = crate::basic_block::blockpy_module_to_string(&blockpy);

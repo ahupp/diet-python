@@ -933,9 +933,12 @@ mod tests {
             .unwrap()
             .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>()
             .map(|bundle| {
-                crate::basic_block::project_lowered_module_callable_defs(bundle, |lowered| {
-                    lowered.callable_def()
-                })
+                crate::basic_block::project_lowered_module_callable_defs(
+                    bundle,
+                    |lowered| -> &crate::basic_block::block_py::SemanticBlockPyCallableDef {
+                        lowered
+                    },
+                )
             })
             .expect("expected lowered semantic BlockPy bundle")
     }
@@ -1008,9 +1011,12 @@ def classify(n):
         let blockpy = lowered
             .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>()
             .map(|bundle| {
-                crate::basic_block::project_lowered_module_callable_defs(bundle, |lowered| {
-                    lowered.callable_def()
-                })
+                crate::basic_block::project_lowered_module_callable_defs(
+                    bundle,
+                    |lowered| -> &crate::basic_block::block_py::SemanticBlockPyCallableDef {
+                        lowered
+                    },
+                )
             })
             .expect("expected lowered semantic BlockPy bundle");
         let rendered = blockpy_module_to_string(&blockpy);

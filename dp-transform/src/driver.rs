@@ -20,9 +20,10 @@ pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> (BlockPyModul
     let blockpy_module = pass_tracker
         .get::<crate::basic_block::LoweredBlockPyModuleBundle>()
         .map(|bundle| {
-            basic_block::project_lowered_module_callable_defs(bundle, |lowered| {
-                lowered.callable_def()
-            })
+            basic_block::project_lowered_module_callable_defs(
+                bundle,
+                |lowered| -> &crate::basic_block::block_py::SemanticBlockPyCallableDef { lowered },
+            )
         })
         .expect("rewrite_module should always track semantic BlockPy");
     (blockpy_module, bb_module)

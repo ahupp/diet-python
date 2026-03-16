@@ -33,6 +33,7 @@ use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
+use std::ops::{Deref, DerefMut};
 
 mod compat;
 pub(crate) mod expr_lowering;
@@ -97,11 +98,21 @@ pub struct LoweredBlockPyFunction<C = SemanticBlockPyCallableDef> {
     pub(crate) runtime_closure_layout: Option<ClosureLayout>,
 }
 
-impl<C> LoweredBlockPyFunction<C> {
-    pub fn callable_def(&self) -> &C {
+impl<C> Deref for LoweredBlockPyFunction<C> {
+    type Target = C;
+
+    fn deref(&self) -> &Self::Target {
         &self.callable_def
     }
+}
 
+impl<C> DerefMut for LoweredBlockPyFunction<C> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.callable_def
+    }
+}
+
+impl<C> LoweredBlockPyFunction<C> {
     pub fn with_binding_target(mut self, binding_target: BindingTarget) -> Self {
         self.binding_target = binding_target;
         self
