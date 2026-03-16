@@ -51,6 +51,9 @@ pub(crate) struct LoweredBlockPyModuleBundlePlan {
 }
 
 #[derive(Clone)]
+pub(crate) struct SemanticBlockPyModulePlanWithAwaits(pub LoweredBlockPyModuleBundlePlan);
+
+#[derive(Clone)]
 pub(crate) struct ResolvedLoweredBlockPyModuleBundlePlanEntry {
     pub bundle_plan: ResolvedLoweredBlockPyFunctionBundlePlan,
     pub main_binding_target: super::bb_ir::BindingTarget,
@@ -63,6 +66,11 @@ pub(crate) struct ResolvedLoweredBlockPyModuleBundlePlan {
 }
 
 #[derive(Clone)]
+pub(crate) struct SemanticBlockPyModulePlanAfterAwaitAndGeneratorResolution(
+    pub ResolvedLoweredBlockPyModuleBundlePlan,
+);
+
+#[derive(Clone)]
 pub(crate) struct LoweredBlockPyModuleExportPlanEntry {
     pub bundle_plan: LoweredBlockPyFunctionExportPlan,
     pub main_binding_target: super::bb_ir::BindingTarget,
@@ -73,6 +81,9 @@ pub(crate) struct LoweredBlockPyModuleExportPlan {
     pub module_init: Option<String>,
     pub callable_def_bundles: Vec<LoweredBlockPyModuleExportPlanEntry>,
 }
+
+#[derive(Clone)]
+pub(crate) struct SemanticBlockPyModulePlanWithoutYield(pub LoweredBlockPyModuleExportPlan);
 
 fn next_temp_from_reserved_names(
     reserved_names: &mut HashSet<String>,

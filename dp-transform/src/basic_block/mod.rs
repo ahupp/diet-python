@@ -23,6 +23,8 @@ pub(crate) use blockpy_to_bb::{
     resolve_lowered_blockpy_module_bundle_plan,
     resolved_lowered_blockpy_module_bundle_plan_to_export_plan,
     simplify_lowered_blockpy_module_bundle_exprs,
+    SemanticBlockPyModulePlanAfterAwaitAndGeneratorResolution, SemanticBlockPyModulePlanWithAwaits,
+    SemanticBlockPyModulePlanWithoutYield,
 };
 pub use blockpy_to_bb::{lower_try_jump_exception_flow, normalize_bb_module_for_codegen};
 pub use blockpy_to_bb::{
