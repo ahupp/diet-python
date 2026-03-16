@@ -69,6 +69,10 @@
   - Planning note:
     - `lower_core_blockpy_function_to_bb_function` would read more clearly if it were mostly a direct lowered-function copy with one transform on the `blocks` field, instead of separately unpacking `linearize_structured_ifs(...)` first.
     - A good refactor is to make `lower_blockpy_blocks_to_bb_blocks` own the structured-if linearization plus BB block conversion, so the outer function becomes a straightforward metadata copy from the final core lowered function into the BB lowered function.
+- Move `codegen_trace` to be a generic transform over `CfgModule`.
+  - Planning note:
+    - The current ownership under `blockpy_to_bb` suggests BB-specific trace injection, but the transform shape is really a CFG/module rewrite that should be expressible over generic `CfgModule` structure.
+    - A good first pass is to separate BB-specific trace expression construction from the module/block traversal itself, then generalize the traversal layer so later stages can reuse the same trace-instrumentation transform over other `CfgModule` payloads.
 - Review all visibility annotations and make them as restrictive as possible, moving helpers into the narrowest owning module when they are only consumed there.
   - Planning note:
     - The desired end state is that non-local visibility exists only for real cross-module boundaries, not as a convenience for call sites that could instead live beside their only consumers.
