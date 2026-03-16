@@ -1,76 +1,54 @@
-use crate::basic_block::bb_ir::{BbModule, BbStmt};
+use crate::basic_block::bb_ir::{BbBlockMeta, BbModule, BbStmt};
 use crate::basic_block::block_py::{
     CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg,
     CoreBlockPyLiteral,
+};
+use crate::basic_block::cfg_trace::{
+    instrument_cfg_module_for_trace, parse_cfg_trace_config, parse_cfg_trace_env, CfgTraceConfig,
+    TraceBlockMeta,
 };
 use ruff_python_ast::str::Quote;
 use ruff_python_ast::{
     self as ast, ExprName, StringLiteral, StringLiteralFlags, StringLiteralValue,
 };
 use ruff_text_size::TextRange;
-use std::env;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct BbTraceConfig {
-    pub(crate) qualname_filter: Option<String>,
-    pub(crate) include_params: bool,
+pub(crate) type BbTraceConfig = CfgTraceConfig;
+
+impl TraceBlockMeta for BbBlockMeta {
+    fn trace_params(&self) -> &[String] {
+        &self.params
+    }
 }
 
 pub(crate) fn parse_bb_trace_env() -> Option<BbTraceConfig> {
-    let raw = env::var("DIET_PYTHON_BB_TRACE").ok()?;
-    parse_bb_trace_config(raw.as_str())
+    parse_cfg_trace_env()
 }
 
+#[cfg(test)]
 fn parse_bb_trace_config(raw: &str) -> Option<BbTraceConfig> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() || trimmed == "0" {
-        return None;
-    }
-    let (selector, include_params) = if let Some(stripped) = trimmed.strip_suffix(":params") {
-        (stripped.trim(), true)
-    } else {
-        (trimmed, false)
-    };
-    let qualname_filter = match selector {
-        "" | "1" | "*" | "all" => None,
-        value => Some(value.to_string()),
-    };
-    Some(BbTraceConfig {
-        qualname_filter,
-        include_params,
-    })
+    parse_cfg_trace_config(raw)
 }
 
 pub(crate) fn instrument_bb_module_for_trace(module: &mut BbModule, config: &BbTraceConfig) {
-    for function in &mut module.callable_defs {
-        if let Some(filter) = config.qualname_filter.as_ref() {
-            if function.qualname != *filter {
-                continue;
-            }
-        }
-        let qualname = function.qualname.clone();
-        for block in &mut function.blocks {
-            let trace_expr = if config.include_params && !block.meta.params.is_empty() {
-                helper_call_expr(
-                    "__dp_bb_trace_enter",
-                    vec![
-                        string_literal_expr(qualname.as_str()),
-                        string_literal_expr(block.label.as_str()),
-                        param_pairs_expr(&block.meta.params),
-                    ],
-                )
-            } else {
-                helper_call_expr(
-                    "__dp_bb_trace_enter",
-                    vec![
-                        string_literal_expr(qualname.as_str()),
-                        string_literal_expr(block.label.as_str()),
-                    ],
-                )
-            };
-            block.body.insert(0, BbStmt::Expr(trace_expr));
-        }
-    }
+    instrument_cfg_module_for_trace(module, config, |qualname, label, params| {
+        let trace_expr = if !params.is_empty() {
+            helper_call_expr(
+                "__dp_bb_trace_enter",
+                vec![
+                    string_literal_expr(qualname),
+                    string_literal_expr(label),
+                    param_pairs_expr(params),
+                ],
+            )
+        } else {
+            helper_call_expr(
+                "__dp_bb_trace_enter",
+                vec![string_literal_expr(qualname), string_literal_expr(label)],
+            )
+        };
+        BbStmt::Expr(trace_expr)
+    });
 }
 
 fn compat_node_index() -> ast::AtomicNodeIndex {

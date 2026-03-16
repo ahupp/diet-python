@@ -9,6 +9,7 @@ mod blockpy_generators;
 mod blockpy_to_bb;
 mod bound_names;
 pub(crate) mod cfg_ir;
+mod cfg_trace;
 mod expr_utils;
 mod function_identity;
 mod function_lowering;
