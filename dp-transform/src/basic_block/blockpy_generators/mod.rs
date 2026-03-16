@@ -316,7 +316,7 @@ pub(crate) fn closure_backed_generator_resume_state_order(
     state_order
 }
 
-fn closure_backed_generator_factory_entry_liveins(
+pub(crate) fn closure_backed_generator_factory_entry_liveins(
     param_names: &[String],
     layout: &BbClosureLayout,
 ) -> Vec<String> {

@@ -64,12 +64,6 @@ fn build_lowered_blockpy_function_bundle_with_deleted_name_rewrite(
     })
 }
 
-pub(crate) fn preview_main_lowered_blockpy_function(
-    plan: ResolvedLoweredBlockPyFunctionBundlePlan,
-) -> LoweredBlockPyFunction {
-    build_lowered_blockpy_function_bundle_with_deleted_name_rewrite(plan).main_function
-}
-
 pub(crate) fn resolved_lowered_blockpy_module_bundle_plan_to_bundle(
     plan: ResolvedLoweredBlockPyModuleBundlePlan,
 ) -> LoweredBlockPyModuleBundle {

@@ -16,7 +16,8 @@ use super::function_identity::{
 };
 use super::param_specs::function_param_specs_expr;
 use super::ruff_to_blockpy::{
-    lower_function_body_to_blockpy_function, LoweredBlockPyFunctionBundlePlan,
+    lower_function_body_to_blockpy_function, take_next_function_id,
+    LoweredBlockPyFunctionBundlePlan,
 };
 use super::stmt_utils::{
     flatten_stmt_boxes, should_strip_nonlocal_for_bb, strip_nonlocal_directives,
@@ -399,8 +400,10 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     let identity = resolve_runtime_function_identity(func, function_identity_by_node, parent_name);
     let doc_expr = function_docstring_expr(func).map(Into::into);
     let label_prefix = next_label_prefix(func.name.id.as_str(), used_label_prefixes);
+    let main_function_id = take_next_function_id(next_function_id);
     let prepared_function_plan = lower_function_body_to_blockpy_function(
         context,
+        main_function_id,
         func.name.id.as_str(),
         &runtime_input_body,
         identity.bind_name.clone(),
@@ -418,7 +421,6 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         is_closure_backed_generator_runtime,
         &cell_slots,
         next_block_id,
-        next_function_id,
         &mut |func_def| {
             build_exec_function_def_binding_stmts(func_def, &cell_slots, &outer_scope_names)
         },
@@ -460,6 +462,7 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         extra_closure_state_names.dedup();
     }
     Some(LoweredBlockPyFunctionBundlePlan {
+        main_function_id,
         prepared_function_plan,
         display_name: identity.display_name.clone(),
         has_yield,

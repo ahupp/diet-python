@@ -53,6 +53,11 @@
     - The desired end state is for `rewrite_module` to show the semantic BlockPy with raw `await` / generator forms, then explicit await lowering, then explicit generator reduction as separate visible steps.
     - This likely requires splitting the current hidden lowering helpers so await removal and generator lowering are typed bundle-to-bundle passes instead of internal side effects.
     - Keep the stage boundaries explicit in the driver so the top-level pipeline shows where those representations change.
+- Use `ENTRY_BLOCK_LABEL` wherever a type models the exported callable entry, instead of leaking pre-normalization internal block labels.
+  - Planning note:
+    - Internal semantic/generator lowering still needs distinct local labels for resume, dispatch, factory, and relabelled CFG blocks.
+    - But exported callable metadata and any AST-side preview of the callable should use `ENTRY_BLOCK_LABEL`, so the public entry invariant matches the later lowered BlockPy and BB stages.
+    - A good first pass is to audit any preview, instantiation, or render-time entry-label fields and separate them from internal prepared-function labels explicitly.
 - Determine how to merge `LoweredBlockPyFunction` and `BbFunction`, since the former appears to be a subset of the latter.
   - Planning note:
     - The likely end state is one generic lowered-function transport/chassis, with later stages specializing payload types such as callable CFG blocks, function kind metadata, and backend-only fields instead of introducing a wholly separate `BbFunction` concept.

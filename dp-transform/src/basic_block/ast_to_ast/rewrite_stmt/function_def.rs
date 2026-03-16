@@ -7,10 +7,17 @@ use crate::basic_block::ast_to_ast::rewrite_stmt;
 use crate::basic_block::ast_to_ast::scope::{
     analyze_module_scope, cell_name, is_internal_symbol, Scope,
 };
-use crate::basic_block::bb_ir::{BbFunctionKind, BindingTarget};
-use crate::basic_block::block_py::dataflow::analyze_blockpy_use_def;
-use crate::basic_block::block_py::state::collect_cell_slots;
-use crate::basic_block::block_py::state::collect_parameter_names;
+use crate::basic_block::bb_ir::BindingTarget;
+use crate::basic_block::block_py::dataflow::{
+    analyze_blockpy_use_def, compute_block_params_blockpy,
+};
+use crate::basic_block::block_py::state::{
+    collect_cell_slots, collect_parameter_names, collect_state_vars,
+};
+use crate::basic_block::block_py::ENTRY_BLOCK_LABEL;
+use crate::basic_block::blockpy_generators::{
+    build_blockpy_closure_layout, closure_backed_generator_factory_entry_liveins,
+};
 use crate::basic_block::blockpy_to_bb::{
     ResolvedLoweredBlockPyModuleBundlePlan, ResolvedLoweredBlockPyModuleBundlePlanEntry,
 };
@@ -26,7 +33,8 @@ use crate::basic_block::param_specs::{
     collect_function_param_specs, function_param_specs_to_expr, FunctionParamSpec,
 };
 use crate::basic_block::ruff_to_blockpy::{
-    resolve_lowered_blockpy_function_bundle_plan, LoweredBlockPyFunction,
+    resolve_lowered_blockpy_function_bundle_plan, LoweredBlockPyFunctionBundlePlan,
+    PreparedBlockPyFunctionPlan,
 };
 use crate::template::into_body;
 use crate::transformer::{walk_stmt, Transformer};
@@ -95,16 +103,14 @@ enum LoweredFunctionCaptureItem {
     BoundValue { name: String, value_expr: Expr },
 }
 
-struct LoweredFunctionInstantiationData {
+struct LoweredFunctionInstantiationPreview {
     entry_label: String,
     function_id: usize,
     name: String,
     qualname: String,
     captures: Vec<LoweredFunctionCaptureItem>,
-    decorator_exprs: Vec<Expr>,
     param_specs: Vec<FunctionParamSpec>,
     doc_expr: Expr,
-    annotate_fn_expr: Expr,
     kind: LoweredFunctionInstantiationKind,
 }
 
@@ -165,84 +171,46 @@ fn push_lowered_blockpy_callable_def_bundle(
         });
 }
 
-fn build_lowered_function_instantiation_data(
-    lowered: &LoweredBlockPyFunction,
-    decorator_exprs: Vec<Expr>,
-    annotate_fn_expr: Option<Expr>,
-) -> Option<LoweredFunctionInstantiationData> {
-    let param_names: HashSet<String> = collect_parameter_names(&lowered.callable_def.params)
-        .into_iter()
-        .collect();
-    let generator_lifted_state_names: HashSet<&str> = lowered
-        .closure_layout
-        .as_ref()
-        .map(|layout| {
-            layout
-                .cellvars
-                .iter()
-                .chain(layout.runtime_cells.iter())
-                .map(|slot| slot.logical_name.as_str())
-                .collect()
-        })
-        .unwrap_or_default();
-    let generator_closure_storage_names: HashSet<&str> = lowered
-        .closure_layout
-        .as_ref()
-        .map(|layout| {
-            layout
-                .freevars
-                .iter()
-                .chain(layout.cellvars.iter())
-                .chain(layout.runtime_cells.iter())
-                .map(|slot| slot.storage_name.as_str())
-                .collect()
-        })
-        .unwrap_or_default();
-    let locally_assigned: HashSet<String> = lowered
-        .callable_def
-        .blocks
-        .iter()
-        .flat_map(|block| analyze_blockpy_use_def(block).1.into_iter())
-        .collect();
+fn build_try_extra_successors(
+    try_regions: &[crate::basic_block::ruff_to_blockpy::TryRegionPlan],
+) -> HashMap<String, Vec<String>> {
+    let mut extra = HashMap::new();
+    for region in try_regions {
+        for label in &region.body_region_labels {
+            extra
+                .entry(label.clone())
+                .or_insert_with(Vec::new)
+                .push(region.body_exception_target.clone());
+        }
+        if let Some(cleanup_target) = region.cleanup_exception_target.as_ref() {
+            for label in &region.cleanup_region_labels {
+                extra
+                    .entry(label.clone())
+                    .or_insert_with(Vec::new)
+                    .push(cleanup_target.clone());
+            }
+        }
+    }
+    extra
+}
+
+fn classify_capture_items(
+    entry_liveins: &[String],
+    param_names: &HashSet<String>,
+    local_cell_slots: &HashSet<String>,
+    locally_assigned: &HashSet<String>,
+) -> Option<Vec<LoweredFunctionCaptureItem>> {
     let mut captures = Vec::new();
-    for entry_name in &lowered.callable_def.entry_liveins {
+    for entry_name in entry_liveins {
         if param_names.contains(entry_name) {
             captures.push(LoweredFunctionCaptureItem::Symbol(entry_name.clone()));
         } else if entry_name == "_dp_classcell"
-            || (entry_name.starts_with("_dp_cell_")
-                && !lowered.callable_def.local_cell_slots.contains(entry_name))
+            || (entry_name.starts_with("_dp_cell_") && !local_cell_slots.contains(entry_name))
         {
             captures.push(LoweredFunctionCaptureItem::BoundValue {
                 name: entry_name.clone(),
                 value_expr: name_expr(entry_name.as_str())?,
             });
-        } else if matches!(
-            &lowered.bb_kind,
-            BbFunctionKind::Generator {
-                closure_state: true,
-                ..
-            } | BbFunctionKind::AsyncGenerator {
-                closure_state: true,
-                ..
-            }
-        ) && generator_closure_storage_names.contains(entry_name.as_str())
-        {
-            captures.push(LoweredFunctionCaptureItem::BoundValue {
-                name: entry_name.clone(),
-                value_expr: name_expr(entry_name.as_str())?,
-            });
-        } else if matches!(
-            &lowered.bb_kind,
-            BbFunctionKind::Generator {
-                closure_state: true,
-                ..
-            } | BbFunctionKind::AsyncGenerator {
-                closure_state: true,
-                ..
-            }
-        ) && generator_lifted_state_names.contains(entry_name.as_str())
-        {
-            captures.push(LoweredFunctionCaptureItem::Symbol(entry_name.clone()));
         } else if !entry_name.starts_with("_dp_") && !locally_assigned.contains(entry_name) {
             captures.push(LoweredFunctionCaptureItem::BoundValue {
                 name: entry_name.clone(),
@@ -252,57 +220,191 @@ fn build_lowered_function_instantiation_data(
             captures.push(LoweredFunctionCaptureItem::Symbol(entry_name.clone()));
         }
     }
-    let doc_expr = lowered
-        .callable_def
-        .doc
-        .clone()
-        .map(Into::into)
-        .unwrap_or_else(|| py_expr!("None"));
-    let annotate_fn_expr = annotate_fn_expr.unwrap_or_else(|| py_expr!("None"));
-    let kind = match &lowered.bb_kind {
-        BbFunctionKind::Function => {
-            if lowered.is_coroutine {
-                LoweredFunctionInstantiationKind::MarkCoroutineFunction
-            } else {
-                LoweredFunctionInstantiationKind::DirectFunction
+    Some(captures)
+}
+
+fn build_lowered_function_instantiation_preview(
+    plan: &LoweredBlockPyFunctionBundlePlan,
+) -> Option<LoweredFunctionInstantiationPreview> {
+    match &plan.prepared_function_plan {
+        PreparedBlockPyFunctionPlan::Ready(prepared) => {
+            let param_names: HashSet<String> =
+                collect_parameter_names(&prepared.callable_def.params)
+                    .into_iter()
+                    .collect();
+            let mut state_vars = collect_state_vars(
+                &plan.param_names,
+                &prepared.callable_def.blocks,
+                plan.module_init_mode,
+            );
+            for block in &prepared.callable_def.blocks {
+                let Some(exc_param) = block.meta.exc_param.as_ref() else {
+                    continue;
+                };
+                if !state_vars.iter().any(|existing| existing == exc_param) {
+                    state_vars.push(exc_param.clone());
+                }
             }
-        }
-        BbFunctionKind::AsyncGenerator { closure_state, .. } => {
-            if *closure_state {
-                LoweredFunctionInstantiationKind::DirectFunction
-            } else {
-                LoweredFunctionInstantiationKind::AsyncGeneratorDefinition
+            let mut block_params = compute_block_params_blockpy(
+                &prepared.callable_def.blocks,
+                &state_vars,
+                &build_try_extra_successors(&prepared.try_regions),
+            );
+            for block in &prepared.callable_def.blocks {
+                let Some(exc_param) = block.meta.exc_param.as_ref() else {
+                    continue;
+                };
+                let params = block_params
+                    .entry(block.label.as_str().to_string())
+                    .or_default();
+                if !params.iter().any(|existing| existing == exc_param) {
+                    params.push(exc_param.clone());
+                }
             }
-        }
-        BbFunctionKind::Generator { closure_state, .. } => {
-            if *closure_state {
-                if lowered.is_coroutine {
+            let entry_liveins = block_params
+                .get(prepared.callable_def.entry_label())
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|name| {
+                    name != "_dp_self" && name != "_dp_send_value" && name != "_dp_resume_exc"
+                })
+                .collect::<Vec<_>>();
+            let locally_assigned: HashSet<String> = prepared
+                .callable_def
+                .blocks
+                .iter()
+                .flat_map(|block| analyze_blockpy_use_def(block).1.into_iter())
+                .collect();
+            let captures = classify_capture_items(
+                &entry_liveins,
+                &param_names,
+                &plan.cell_slots,
+                &locally_assigned,
+            )?;
+            Some(LoweredFunctionInstantiationPreview {
+                entry_label: ENTRY_BLOCK_LABEL.to_string(),
+                function_id: prepared.callable_def.function_id.0,
+                name: plan.display_name.clone(),
+                qualname: prepared.callable_def.qualname.clone(),
+                captures,
+                param_specs: collect_function_param_specs(&prepared.callable_def.params),
+                doc_expr: prepared
+                    .callable_def
+                    .doc
+                    .clone()
+                    .map(Into::into)
+                    .unwrap_or_else(|| py_expr!("None")),
+                kind: if plan.is_coroutine {
                     LoweredFunctionInstantiationKind::MarkCoroutineFunction
                 } else {
                     LoweredFunctionInstantiationKind::DirectFunction
-                }
-            } else if lowered.is_coroutine {
-                LoweredFunctionInstantiationKind::CoroutineFromGeneratorDefinition
-            } else {
-                panic!(
-                    "non-closure-backed sync generator lowering is unreachable; \
-                     generated comprehension helpers are async-only"
-                )
-            }
+                },
+            })
         }
-    };
-    Some(LoweredFunctionInstantiationData {
-        entry_label: lowered.callable_def.entry_label().to_string(),
-        function_id: lowered.callable_def.function_id.0,
-        name: lowered.callable_def.display_name.clone(),
-        qualname: lowered.callable_def.qualname.clone(),
-        captures,
+        PreparedBlockPyFunctionPlan::PendingGeneratorLowering(pending) => {
+            let mut preview_state_vars = plan.extra_closure_state_names.clone();
+            for runtime_name in [
+                "_dp_pc",
+                "_dp_yieldfrom",
+                "_dp_self",
+                "_dp_send_value",
+                "_dp_resume_exc",
+            ] {
+                if !preview_state_vars
+                    .iter()
+                    .any(|existing| existing == runtime_name)
+                {
+                    preview_state_vars.push(runtime_name.to_string());
+                }
+            }
+            if plan.is_async_generator_runtime
+                && !preview_state_vars
+                    .iter()
+                    .any(|existing| existing == "_dp_transport_sent")
+            {
+                preview_state_vars.push("_dp_transport_sent".to_string());
+            }
+            let preview_layout = build_blockpy_closure_layout(
+                &plan.param_names,
+                &preview_state_vars,
+                &plan.capture_names,
+                &HashSet::new(),
+            );
+            let entry_liveins =
+                closure_backed_generator_factory_entry_liveins(&plan.param_names, &preview_layout);
+            let param_names = plan.param_names.iter().cloned().collect::<HashSet<_>>();
+            let captures = classify_capture_items(
+                &entry_liveins,
+                &param_names,
+                &plan.cell_slots,
+                &HashSet::new(),
+            )?;
+            Some(LoweredFunctionInstantiationPreview {
+                entry_label: ENTRY_BLOCK_LABEL.to_string(),
+                function_id: plan.main_function_id.0,
+                name: plan.display_name.clone(),
+                qualname: pending.qualname.clone(),
+                captures,
+                param_specs: collect_function_param_specs(&pending.params),
+                doc_expr: pending
+                    .doc
+                    .clone()
+                    .map(Into::into)
+                    .unwrap_or_else(|| py_expr!("None")),
+                kind: if plan.is_coroutine {
+                    LoweredFunctionInstantiationKind::MarkCoroutineFunction
+                } else {
+                    LoweredFunctionInstantiationKind::DirectFunction
+                },
+            })
+        }
+    }
+}
+
+struct LoweredFunctionInstantiationData {
+    entry_label: String,
+    function_id: usize,
+    name: String,
+    qualname: String,
+    captures: Vec<LoweredFunctionCaptureItem>,
+    decorator_exprs: Vec<Expr>,
+    param_specs: Vec<FunctionParamSpec>,
+    doc_expr: Expr,
+    annotate_fn_expr: Expr,
+    kind: LoweredFunctionInstantiationKind,
+}
+
+fn build_lowered_function_instantiation_data(
+    preview: &LoweredFunctionInstantiationPreview,
+    decorator_exprs: Vec<Expr>,
+    annotate_fn_expr: Option<Expr>,
+) -> LoweredFunctionInstantiationData {
+    LoweredFunctionInstantiationData {
+        entry_label: preview.entry_label.clone(),
+        function_id: preview.function_id,
+        name: preview.name.clone(),
+        qualname: preview.qualname.clone(),
+        captures: preview.captures.clone(),
         decorator_exprs,
-        param_specs: collect_function_param_specs(&lowered.callable_def.params),
-        doc_expr,
-        annotate_fn_expr,
-        kind,
-    })
+        param_specs: preview.param_specs.clone(),
+        doc_expr: preview.doc_expr.clone(),
+        annotate_fn_expr: annotate_fn_expr.unwrap_or_else(|| py_expr!("None")),
+        kind: match preview.kind {
+            LoweredFunctionInstantiationKind::DirectFunction => {
+                LoweredFunctionInstantiationKind::DirectFunction
+            }
+            LoweredFunctionInstantiationKind::MarkCoroutineFunction => {
+                LoweredFunctionInstantiationKind::MarkCoroutineFunction
+            }
+            LoweredFunctionInstantiationKind::AsyncGeneratorDefinition => {
+                LoweredFunctionInstantiationKind::AsyncGeneratorDefinition
+            }
+            LoweredFunctionInstantiationKind::CoroutineFromGeneratorDefinition => {
+                LoweredFunctionInstantiationKind::CoroutineFromGeneratorDefinition
+            }
+        },
+    }
 }
 
 fn build_lowered_function_instantiation_expr(data: &LoweredFunctionInstantiationData) -> Expr {
@@ -684,7 +786,7 @@ fn build_lowered_function_binding_stmt(
 
 fn build_lowered_function_instantiation_stmt(
     func: &ast::StmtFunctionDef,
-    lowered: &LoweredBlockPyFunction,
+    preview: &LoweredFunctionInstantiationPreview,
     instantiation_plan: &LoweredFunctionInstantiationPlan,
 ) -> Option<Stmt> {
     let bind_name = instantiation_plan.identity.bind_name.as_str();
@@ -693,10 +795,10 @@ fn build_lowered_function_instantiation_stmt(
         .as_ref()
         .map(|(_, annotate_fn_expr)| annotate_fn_expr.clone());
     let instantiation_data = build_lowered_function_instantiation_data(
-        lowered,
+        preview,
         rewrite_stmt::decorator::collect_exprs(&func.decorator_list),
         annotate_fn_expr,
-    )?;
+    );
     let decorated = build_lowered_function_instantiation_expr(&instantiation_data);
     let binding_stmt =
         build_lowered_function_binding_stmt(bind_name, decorated, instantiation_plan.binding);
@@ -715,14 +817,14 @@ fn build_lowered_function_instantiation_stmt(
 fn rewrite_lowered_function_instantiation_stmt(
     parent_hoisted: Option<&mut Vec<Stmt>>,
     func: &ast::StmtFunctionDef,
-    lowered: &LoweredBlockPyFunction,
+    preview: &LoweredFunctionInstantiationPreview,
     instantiation_plan: &LoweredFunctionInstantiationPlan,
     entering_module_init: bool,
     has_parent_hoisted_scope: bool,
     function_hoisted: Vec<Stmt>,
 ) -> Option<LoweredFunctionRewriteResult> {
     let binding_stmt =
-        build_lowered_function_instantiation_stmt(func, lowered, instantiation_plan)?;
+        build_lowered_function_instantiation_stmt(func, preview, instantiation_plan)?;
     let replacement = apply_lowered_function_placement(
         parent_hoisted,
         plan_lowered_function_placement(
@@ -739,7 +841,7 @@ fn rewrite_lowered_function_instantiation_stmt(
 fn plan_and_rewrite_lowered_function_instantiation(
     parent_hoisted: Option<&mut Vec<Stmt>>,
     func: &ast::StmtFunctionDef,
-    lowered: &LoweredBlockPyFunction,
+    preview: &LoweredFunctionInstantiationPreview,
     function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
     current_parent: Option<&str>,
     needs_cell_sync: bool,
@@ -756,7 +858,7 @@ fn plan_and_rewrite_lowered_function_instantiation(
     let rewrite = rewrite_lowered_function_instantiation_stmt(
         parent_hoisted,
         func,
-        lowered,
+        preview,
         &instantiation_plan,
         entering_module_init,
         has_parent_hoisted_scope,
@@ -857,6 +959,8 @@ fn rewrite_function_def_stmt_via_blockpy(
     ) {
         let cell_slots = lowered_plan.cell_slots.clone();
         let outer_scope_names = lowered_plan.outer_scope_names.clone();
+        let preview = build_lowered_function_instantiation_preview(&lowered_plan)
+            .expect("failed to build BB function instantiation preview");
         let resolved_lowered_plan = resolve_lowered_blockpy_function_bundle_plan(
             context,
             lowered_plan,
@@ -868,9 +972,6 @@ fn rewrite_function_def_stmt_via_blockpy(
             &mut |prefix, next_block_id| {
                 next_temp_from_counter(reserved_temp_names_stack, prefix, next_block_id)
             },
-        );
-        let preview = crate::basic_block::preview_main_lowered_blockpy_function(
-            resolved_lowered_plan.clone(),
         );
         let rewrite_plan = plan_and_rewrite_lowered_function_instantiation(
             parent_hoisted,

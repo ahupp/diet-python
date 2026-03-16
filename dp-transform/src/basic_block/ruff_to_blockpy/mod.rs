@@ -113,6 +113,7 @@ pub(crate) struct LoweredBlockPyFunctionBundle {
 }
 
 pub(crate) struct LoweredBlockPyFunctionBundlePlan {
+    pub main_function_id: FunctionId,
     pub prepared_function_plan: PreparedBlockPyFunctionPlan,
     pub display_name: String,
     pub has_yield: bool,
@@ -164,6 +165,7 @@ pub(crate) enum PreparedBlockPyFunctionPlan {
 }
 
 pub(crate) struct PendingGeneratorLoweringPlan {
+    pub main_function_id: FunctionId,
     pub fn_name: String,
     pub bind_name: String,
     pub qualname: String,
@@ -515,6 +517,7 @@ pub(crate) fn resolve_lowered_blockpy_function_bundle_plan(
     next_temp: &mut impl FnMut(&str, &mut usize) -> String,
 ) -> ResolvedLoweredBlockPyFunctionBundlePlan {
     let LoweredBlockPyFunctionBundlePlan {
+        main_function_id: _,
         prepared_function_plan,
         display_name,
         has_yield,
@@ -536,7 +539,6 @@ pub(crate) fn resolve_lowered_blockpy_function_bundle_plan(
         context,
         prepared_function_plan,
         next_block_id,
-        next_function_id,
         lower_non_bb_def,
         next_temp,
     );
@@ -1141,6 +1143,7 @@ where
 #[allow(clippy::too_many_arguments)]
 fn build_prepared_blockpy_function_from_runtime_input<FDef, FTemp>(
     context: &Context,
+    function_id: FunctionId,
     fn_name: &str,
     runtime_input_body: &[Box<Stmt>],
     bind_name: String,
@@ -1155,7 +1158,6 @@ fn build_prepared_blockpy_function_from_runtime_input<FDef, FTemp>(
     is_closure_backed_generator_runtime: bool,
     cell_slots: &HashSet<String>,
     next_block_id: &mut usize,
-    next_function_id: &mut usize,
     lower_non_bb_def: &mut FDef,
     next_temp: &mut FTemp,
 ) -> PreparedBlockPyFunction
@@ -1194,7 +1196,7 @@ where
         )
     });
     build_finalized_blockpy_function(
-        take_next_function_id(next_function_id),
+        function_id,
         bind_name,
         qualname,
         doc,
@@ -1215,6 +1217,7 @@ where
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_function_body_to_blockpy_function<FDef, FTemp>(
     context: &Context,
+    main_function_id: FunctionId,
     fn_name: &str,
     runtime_input_body: &[Box<Stmt>],
     bind_name: String,
@@ -1230,7 +1233,6 @@ pub(crate) fn lower_function_body_to_blockpy_function<FDef, FTemp>(
     is_closure_backed_generator_runtime: bool,
     cell_slots: &HashSet<String>,
     next_block_id: &mut usize,
-    next_function_id: &mut usize,
     lower_non_bb_def: &mut FDef,
     next_temp: &mut FTemp,
 ) -> PreparedBlockPyFunctionPlan
@@ -1257,6 +1259,7 @@ where
         );
         return PreparedBlockPyFunctionPlan::PendingGeneratorLowering(
             PendingGeneratorLoweringPlan {
+                main_function_id,
                 fn_name: fn_name.to_string(),
                 bind_name,
                 qualname,
@@ -1277,6 +1280,7 @@ where
     }
     PreparedBlockPyFunctionPlan::Ready(build_prepared_blockpy_function_from_runtime_input(
         context,
+        main_function_id,
         fn_name,
         runtime_input_body,
         bind_name,
@@ -1291,7 +1295,6 @@ where
         is_closure_backed_generator_runtime,
         cell_slots,
         next_block_id,
-        next_function_id,
         lower_non_bb_def,
         next_temp,
     ))
@@ -1302,7 +1305,6 @@ pub(crate) fn resolve_prepared_blockpy_function_plan<FDef, FTemp>(
     context: &Context,
     plan: PreparedBlockPyFunctionPlan,
     next_block_id: &mut usize,
-    next_function_id: &mut usize,
     lower_non_bb_def: &mut FDef,
     next_temp: &mut FTemp,
 ) -> PreparedBlockPyFunction
@@ -1332,7 +1334,7 @@ where
             .expect("post-BlockPy generator lowering should not fail")
             {
                 return build_finalized_blockpy_function(
-                    take_next_function_id(next_function_id),
+                    pending.main_function_id,
                     pending.bind_name,
                     pending.qualname,
                     pending.doc,
@@ -1351,6 +1353,7 @@ where
             }
             build_prepared_blockpy_function_from_runtime_input(
                 context,
+                pending.main_function_id,
                 pending.fn_name.as_str(),
                 &pending.fallback_runtime_input_body,
                 pending.bind_name,
@@ -1365,7 +1368,6 @@ where
                 pending.is_closure_backed_generator_runtime,
                 &pending.cell_slots,
                 next_block_id,
-                next_function_id,
                 lower_non_bb_def,
                 next_temp,
             )
