@@ -82,6 +82,7 @@ pub(crate) struct SemanticGeneratorInput {
     pub yield_sites: Vec<GeneratorYieldSite>,
 }
 
+#[derive(Clone)]
 pub(crate) struct PostBlockPyGeneratorLowering {
     pub blocks: Vec<BlockPyBlock>,
     pub entry_label: String,

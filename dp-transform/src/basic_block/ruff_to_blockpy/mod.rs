@@ -135,7 +135,7 @@ pub(crate) struct LoweredBlockPyFunctionBundlePlan {
 
 #[derive(Clone)]
 pub(crate) struct ResolvedLoweredBlockPyFunctionBundlePlan {
-    pub prepared_function: PreparedBlockPyFunction,
+    pub resolved_prepared_function_plan: ResolvedPreparedBlockPyFunctionPlan,
     pub display_name: String,
     pub has_yield: bool,
     pub is_coroutine: bool,
@@ -151,6 +151,28 @@ pub(crate) struct ResolvedLoweredBlockPyFunctionBundlePlan {
     pub resume_function_id: Option<FunctionId>,
     pub deleted_names: HashSet<String>,
     pub unbound_local_names: HashSet<String>,
+}
+
+#[derive(Clone)]
+pub(crate) struct GeneratorLoweredPreparedBlockPyFunctionPlan {
+    pub function_id: FunctionId,
+    pub bind_name: String,
+    pub qualname: String,
+    pub doc: Option<Expr>,
+    pub params: ast::Parameters,
+    pub end_label: String,
+    pub label_prefix: String,
+    pub blockpy_kind: BlockPyFunctionKind,
+    pub lowered: PostBlockPyGeneratorLowering,
+    pub is_async_generator_runtime: bool,
+    pub is_closure_backed_generator_runtime: bool,
+    pub uncaught_exc_name: String,
+}
+
+#[derive(Clone)]
+pub(crate) enum ResolvedPreparedBlockPyFunctionPlan {
+    Prepared(PreparedBlockPyFunction),
+    GeneratorLowered(GeneratorLoweredPreparedBlockPyFunctionPlan),
 }
 
 #[derive(Clone)]
@@ -566,7 +588,7 @@ pub(crate) fn resolve_lowered_blockpy_function_bundle_plan(
         unbound_local_names,
         outer_scope_names: _,
     } = plan;
-    let prepared_function = resolve_prepared_blockpy_function_plan(
+    let resolved_prepared_function_plan = resolve_prepared_blockpy_function_plan(
         context,
         prepared_function_plan,
         next_block_id,
@@ -574,7 +596,7 @@ pub(crate) fn resolve_lowered_blockpy_function_bundle_plan(
         next_temp,
     );
     ResolvedLoweredBlockPyFunctionBundlePlan {
-        prepared_function,
+        resolved_prepared_function_plan,
         display_name,
         has_yield,
         is_coroutine,
@@ -598,7 +620,7 @@ pub(crate) fn build_lowered_blockpy_function_export_plan(
     prepare_callable_def: &mut impl FnMut(&mut SemanticBlockPyCallableDef),
 ) -> LoweredBlockPyFunctionExportPlan {
     let ResolvedLoweredBlockPyFunctionBundlePlan {
-        mut prepared_function,
+        resolved_prepared_function_plan,
         display_name,
         has_yield,
         is_coroutine,
@@ -615,6 +637,8 @@ pub(crate) fn build_lowered_blockpy_function_export_plan(
         deleted_names: _,
         unbound_local_names: _,
     } = plan;
+    let mut prepared_function =
+        finalize_resolved_prepared_blockpy_function_plan(resolved_prepared_function_plan);
     prepare_callable_def(&mut prepared_function.callable_def);
     let PreparedBlockPyFunction {
         callable_def: mut blockpy_function,
@@ -1403,13 +1427,15 @@ pub(crate) fn resolve_prepared_blockpy_function_plan<FDef, FTemp>(
     next_block_id: &mut usize,
     lower_non_bb_def: &mut FDef,
     next_temp: &mut FTemp,
-) -> PreparedBlockPyFunction
+) -> ResolvedPreparedBlockPyFunctionPlan
 where
     FDef: FnMut(&ast::StmtFunctionDef) -> Vec<Stmt>,
     FTemp: FnMut(&str, &mut usize) -> String,
 {
     match plan {
-        PreparedBlockPyFunctionPlan::Ready(prepared) => prepared,
+        PreparedBlockPyFunctionPlan::Ready(prepared) => {
+            ResolvedPreparedBlockPyFunctionPlan::Prepared(prepared)
+        }
         PreparedBlockPyFunctionPlan::PendingGeneratorLowering(pending) => {
             if let Some(PostBlockPyGeneratorLowering {
                 blocks,
@@ -1429,43 +1455,91 @@ where
             )
             .expect("post-BlockPy generator lowering should not fail")
             {
-                return build_finalized_blockpy_function(
+                return ResolvedPreparedBlockPyFunctionPlan::GeneratorLowered(
+                    GeneratorLoweredPreparedBlockPyFunctionPlan {
+                        function_id: pending.main_function_id,
+                        bind_name: pending.bind_name,
+                        qualname: pending.qualname,
+                        doc: pending.doc,
+                        params: pending.params,
+                        end_label: pending.end_label,
+                        label_prefix: pending.label_prefix,
+                        blockpy_kind: pending.blockpy_kind,
+                        lowered: PostBlockPyGeneratorLowering {
+                            blocks,
+                            entry_label,
+                            try_regions,
+                            generator_metadata,
+                        },
+                        is_async_generator_runtime: pending.is_async_generator_runtime,
+                        is_closure_backed_generator_runtime: pending
+                            .is_closure_backed_generator_runtime,
+                        uncaught_exc_name: next_temp("uncaught_exc", next_block_id),
+                    },
+                );
+            }
+            ResolvedPreparedBlockPyFunctionPlan::Prepared(
+                build_prepared_blockpy_function_from_runtime_input(
+                    context,
                     pending.main_function_id,
+                    pending.fn_name.as_str(),
+                    &pending.fallback_runtime_input_body,
                     pending.bind_name,
                     pending.qualname,
                     pending.doc,
-                    pending.blockpy_kind,
                     pending.params,
-                    blocks,
-                    try_regions,
-                    entry_label,
                     pending.end_label,
                     pending.label_prefix.as_str(),
-                    Some(generator_metadata),
+                    pending.blockpy_kind,
+                    true,
                     pending.is_async_generator_runtime,
                     pending.is_closure_backed_generator_runtime,
-                    next_temp("uncaught_exc", next_block_id),
-                );
-            }
-            build_prepared_blockpy_function_from_runtime_input(
-                context,
-                pending.main_function_id,
-                pending.fn_name.as_str(),
-                &pending.fallback_runtime_input_body,
-                pending.bind_name,
-                pending.qualname,
-                pending.doc,
-                pending.params,
-                pending.end_label,
-                pending.label_prefix.as_str(),
-                pending.blockpy_kind,
-                true,
-                pending.is_async_generator_runtime,
-                pending.is_closure_backed_generator_runtime,
-                &pending.cell_slots,
-                next_block_id,
-                lower_non_bb_def,
-                next_temp,
+                    &pending.cell_slots,
+                    next_block_id,
+                    lower_non_bb_def,
+                    next_temp,
+                ),
+            )
+        }
+    }
+}
+
+pub(crate) fn finalize_resolved_prepared_blockpy_function_plan(
+    plan: ResolvedPreparedBlockPyFunctionPlan,
+) -> PreparedBlockPyFunction {
+    match plan {
+        ResolvedPreparedBlockPyFunctionPlan::Prepared(prepared) => prepared,
+        ResolvedPreparedBlockPyFunctionPlan::GeneratorLowered(generator_lowered) => {
+            let GeneratorLoweredPreparedBlockPyFunctionPlan {
+                function_id,
+                bind_name,
+                qualname,
+                doc,
+                params,
+                end_label,
+                label_prefix,
+                blockpy_kind,
+                lowered,
+                is_async_generator_runtime,
+                is_closure_backed_generator_runtime,
+                uncaught_exc_name,
+            } = generator_lowered;
+            build_finalized_blockpy_function(
+                function_id,
+                bind_name,
+                qualname,
+                doc,
+                blockpy_kind,
+                params,
+                lowered.blocks,
+                lowered.try_regions,
+                lowered.entry_label,
+                end_label,
+                label_prefix.as_str(),
+                Some(lowered.generator_metadata),
+                is_async_generator_runtime,
+                is_closure_backed_generator_runtime,
+                uncaught_exc_name,
             )
         }
     }
