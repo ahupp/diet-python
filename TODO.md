@@ -32,10 +32,11 @@
     - The desired end state is to replace local repeated scope-analysis passes with Ruff’s scope analysis and carry that result through later transform phases instead of recomputing scope metadata.
     - This likely requires identifying the current pass boundaries that invalidate or rebuild scope information, then either preserving Ruff scope objects directly or translating them once into a stable internal form.
     - Keep the scope-analysis ownership explicit in the top-level pipeline so later passes consume preserved scope data rather than silently re-running analysis.
-- Remove BB-lowering paths that convert BlockPy back into Ruff `Stmt` nodes just to do analysis.
+- Remove BB-lowering paths, and other unexpected late-stage dependencies, that pull Ruff `Stmt` / `Expr` back in after the semantic BlockPy boundary.
   - Planning note:
-    - The desired end state is for BB lowering to analyze and normalize BlockPy directly instead of round-tripping through Ruff AST `Stmt` forms.
-    - This likely means replacing helper code that reconstructs `Stmt`/`StmtBody` for load-name, exception, or normalization analysis with BlockPy-native analysis utilities.
+    - The desired end state is for BB lowering to analyze and normalize BlockPy directly instead of round-tripping through Ruff AST `Stmt` forms or depending on earlier Ruff `Expr` helpers unexpectedly late in the pipeline.
+    - A good first pass is to audit all Ruff `Stmt` / `Expr` imports and call sites, confirm which ones are still expected at each lowering stage, and merge that inventory with the concrete BB-lowering round-trip cleanup.
+    - This likely means replacing helper code that reconstructs `Stmt`/`StmtBody` for load-name, exception, or normalization analysis with BlockPy-native analysis utilities, while also tightening any remaining late-stage Ruff-expression dependencies to only the intended boundaries.
     - Keep the dataflow explicit so the BlockPy -> BB boundary no longer reintroduces earlier AST representations.
 - Collapse the repeated Ruff/Semantic/Core BlockPy alias families into one stage-oriented representation, ideally via associated types on a stage trait or wrapper type.
   - Planning note:
