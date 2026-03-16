@@ -88,9 +88,9 @@ pub(crate) fn rewrite_module_with_tracker(
                 semantic_blockpy_with_awaits,
             )
         });
-    let semantic_blockpy_after_generator_resolution =
-        pass_tracker.add_pass("semantic_blockpy_after_generator_resolution", || {
-            basic_block::resolve_lowered_blockpy_module_bundle_plan(
+    let semantic_blockpy_after_generator_lowering =
+        pass_tracker.add_pass("semantic_blockpy_after_generator_lowering", || {
+            basic_block::lower_generators_in_lowered_blockpy_module_bundle_plan(
                 context,
                 semantic_blockpy_without_await,
             )
@@ -99,7 +99,7 @@ pub(crate) fn rewrite_module_with_tracker(
         pass_tracker.add_pass("semantic_blockpy_without_yield", || {
             basic_block::SemanticBlockPyModulePlanWithoutYield(
                 basic_block::resolved_lowered_blockpy_module_bundle_plan_to_export_plan(
-                    semantic_blockpy_after_generator_resolution,
+                    semantic_blockpy_after_generator_lowering,
                 ),
             )
         });

@@ -20,8 +20,9 @@ mod stmt_utils;
 pub use block_py::pretty::blockpy_module_to_string;
 pub(crate) use blockpy_to_bb::{
     lower_awaits_in_lowered_blockpy_module_bundle_plan,
-    lower_core_blockpy_module_bundle_to_bb_module, lowered_blockpy_module_export_plan_to_bundle,
-    resolve_lowered_blockpy_module_bundle_plan,
+    lower_core_blockpy_module_bundle_to_bb_module,
+    lower_generators_in_lowered_blockpy_module_bundle_plan,
+    lowered_blockpy_module_export_plan_to_bundle,
     resolved_lowered_blockpy_module_bundle_plan_to_export_plan,
     simplify_lowered_blockpy_module_bundle_exprs, SemanticBlockPyModulePlanWithAwaits,
     SemanticBlockPyModulePlanWithoutYield,

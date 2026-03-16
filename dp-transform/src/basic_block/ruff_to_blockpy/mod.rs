@@ -565,7 +565,7 @@ fn build_semantic_blockpy_closure_layout(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn resolve_lowered_blockpy_function_bundle_plan(
+pub(crate) fn lower_generators_in_lowered_blockpy_function_bundle_plan(
     context: &Context,
     plan: LoweredBlockPyFunctionBundlePlan,
     next_block_id: &mut usize,
@@ -592,7 +592,7 @@ pub(crate) fn resolve_lowered_blockpy_function_bundle_plan(
         unbound_local_names,
         outer_scope_names: _,
     } = plan;
-    let resolved_prepared_function_plan = resolve_prepared_blockpy_function_plan(
+    let resolved_prepared_function_plan = lower_generators_in_prepared_blockpy_function_plan(
         context,
         prepared_function_plan,
         next_block_id,
@@ -1426,7 +1426,7 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn resolve_prepared_blockpy_function_plan<FDef, FTemp>(
+pub(crate) fn lower_generators_in_prepared_blockpy_function_plan<FDef, FTemp>(
     context: &Context,
     plan: PreparedBlockPyFunctionPlan,
     next_block_id: &mut usize,
