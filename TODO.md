@@ -22,6 +22,7 @@
     - Route all async functions through semantic BlockPy first, then run one bundle-level await-lowering pass instead of probing an AST fallback path.
     - Widen that pass until it handles every semantic position that can contain `await`, then delete the fallback route and legacy gating fields.
     - Keep the final design visible in `rewrite_module` as a real typed phase boundary instead of hiding it inside a lower-level helper.
+    - As the ownership becomes explicit, split `await_lower.rs` apart so each helper lives in the pass module that actually owns that await-lowering stage instead of keeping one catch-all await helper module.
 - Remove local `StmtBody` usage and move back to upstream Ruff structures.
   - Planning note:
     - The desired end state is to stop depending on the local `StmtBody` wrapper and align the lowering pipeline back with upstream Ruff AST/container shapes.
