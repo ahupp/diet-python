@@ -19,7 +19,6 @@ mod stmt_utils;
 // Ruff AST -> BbModule
 pub use block_py::pretty::blockpy_module_to_string;
 pub(crate) use blockpy_to_bb::{
-    core_blockpy_module_bundle_without_await_or_yield_to_bundle,
     lower_awaits_in_lowered_blockpy_module_bundle_plan,
     lower_awaits_in_lowered_core_blockpy_module_bundle,
     lower_core_blockpy_module_bundle_to_bb_module,

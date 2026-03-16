@@ -121,9 +121,7 @@ pub(crate) fn rewrite_module_with_tracker(
             )
         });
     let bb_module = basic_block::lower_core_blockpy_module_bundle_to_bb_module(
-        &basic_block::core_blockpy_module_bundle_without_await_or_yield_to_bundle(
-            core_blockpy_without_await_or_yield,
-        ),
+        &core_blockpy_without_await_or_yield,
     );
     bb_module
 }

@@ -33,6 +33,13 @@ pub enum CoreBlockPyExprWithoutAwait {
 }
 
 #[derive(Debug, Clone)]
+pub enum CoreBlockPyExprWithoutAwaitOrYield {
+    Name(ast::ExprName),
+    Literal(CoreBlockPyLiteral),
+    Call(CoreBlockPyCall<CoreBlockPyExprWithoutAwaitOrYield>),
+}
+
+#[derive(Debug, Clone)]
 pub enum CoreBlockPyLiteral {
     StringLiteral(ast::ExprStringLiteral),
     BytesLiteral(ast::ExprBytesLiteral),
@@ -99,24 +106,37 @@ pub type SemanticBlockPyRaise = BlockPyRaise<Expr>;
 pub type CoreBlockPyModule = BlockPyModule<CoreBlockPyExpr>;
 pub type CoreBlockPyCallableDef = BlockPyCallableDef<CoreBlockPyExpr>;
 pub type CoreBlockPyCallableDefWithoutAwait = BlockPyCallableDef<CoreBlockPyExprWithoutAwait>;
+pub type CoreBlockPyCallableDefWithoutAwaitOrYield =
+    BlockPyCallableDef<CoreBlockPyExprWithoutAwaitOrYield>;
 pub type CoreBlockPyBlock = BlockPyBlock<CoreBlockPyExpr>;
 pub type CoreBlockPyBlockWithoutAwait = BlockPyBlock<CoreBlockPyExprWithoutAwait>;
+pub type CoreBlockPyBlockWithoutAwaitOrYield = BlockPyBlock<CoreBlockPyExprWithoutAwaitOrYield>;
 pub type CoreBlockPyStmt = BlockPyStmt<CoreBlockPyExpr>;
 pub type CoreBlockPyStmtWithoutAwait = BlockPyStmt<CoreBlockPyExprWithoutAwait>;
+pub type CoreBlockPyStmtWithoutAwaitOrYield = BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>;
 pub type CoreBlockPyTerm = BlockPyTerm<CoreBlockPyExpr>;
 pub type CoreBlockPyTermWithoutAwait = BlockPyTerm<CoreBlockPyExprWithoutAwait>;
+pub type CoreBlockPyTermWithoutAwaitOrYield = BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>;
 pub type CoreBlockPyStmtFragment = BlockPyStmtFragment<CoreBlockPyExpr>;
 pub type CoreBlockPyStmtFragmentWithoutAwait = BlockPyStmtFragment<CoreBlockPyExprWithoutAwait>;
+pub type CoreBlockPyStmtFragmentWithoutAwaitOrYield =
+    BlockPyStmtFragment<CoreBlockPyExprWithoutAwaitOrYield>;
 pub type CoreBlockPyAssign = BlockPyAssign<CoreBlockPyExpr>;
 pub type CoreBlockPyAssignWithoutAwait = BlockPyAssign<CoreBlockPyExprWithoutAwait>;
+pub type CoreBlockPyAssignWithoutAwaitOrYield = BlockPyAssign<CoreBlockPyExprWithoutAwaitOrYield>;
 pub type CoreBlockPyIf = BlockPyStructuredIf<CoreBlockPyExpr>;
 pub type CoreBlockPyIfWithoutAwait = BlockPyStructuredIf<CoreBlockPyExprWithoutAwait>;
+pub type CoreBlockPyIfWithoutAwaitOrYield = BlockPyStructuredIf<CoreBlockPyExprWithoutAwaitOrYield>;
 pub type CoreBlockPyIfTerm = BlockPyIfTerm<CoreBlockPyExpr>;
 pub type CoreBlockPyIfTermWithoutAwait = BlockPyIfTerm<CoreBlockPyExprWithoutAwait>;
+pub type CoreBlockPyIfTermWithoutAwaitOrYield = BlockPyIfTerm<CoreBlockPyExprWithoutAwaitOrYield>;
 pub type CoreBlockPyBranchTable = BlockPyBranchTable<CoreBlockPyExpr>;
 pub type CoreBlockPyBranchTableWithoutAwait = BlockPyBranchTable<CoreBlockPyExprWithoutAwait>;
+pub type CoreBlockPyBranchTableWithoutAwaitOrYield =
+    BlockPyBranchTable<CoreBlockPyExprWithoutAwaitOrYield>;
 pub type CoreBlockPyRaise = BlockPyRaise<CoreBlockPyExpr>;
 pub type CoreBlockPyRaiseWithoutAwait = BlockPyRaise<CoreBlockPyExprWithoutAwait>;
+pub type CoreBlockPyRaiseWithoutAwaitOrYield = BlockPyRaise<CoreBlockPyExprWithoutAwaitOrYield>;
 pub const ENTRY_BLOCK_LABEL: &str = "start";
 
 #[derive(Debug, Clone)]
@@ -596,6 +616,64 @@ impl From<CoreBlockPyExprWithoutAwait> for Expr {
     }
 }
 
+impl From<CoreBlockPyExprWithoutAwaitOrYield> for Expr {
+    fn from(value: CoreBlockPyExprWithoutAwaitOrYield) -> Self {
+        match value {
+            CoreBlockPyExprWithoutAwaitOrYield::Literal(literal) => match literal {
+                CoreBlockPyLiteral::StringLiteral(node) => Expr::StringLiteral(node),
+                CoreBlockPyLiteral::BytesLiteral(node) => Expr::BytesLiteral(node),
+                CoreBlockPyLiteral::NumberLiteral(node) => Expr::NumberLiteral(node),
+                CoreBlockPyLiteral::BooleanLiteral(node) => Expr::BooleanLiteral(node),
+                CoreBlockPyLiteral::NoneLiteral(node) => Expr::NoneLiteral(node),
+                CoreBlockPyLiteral::EllipsisLiteral(node) => Expr::EllipsisLiteral(node),
+            },
+            CoreBlockPyExprWithoutAwaitOrYield::Call(node) => Expr::Call(ast::ExprCall {
+                node_index: node.node_index,
+                range: node.range,
+                func: Box::new(Expr::from(*node.func)),
+                arguments: ast::Arguments {
+                    args: node
+                        .args
+                        .into_iter()
+                        .map(|arg| match arg {
+                            CoreBlockPyCallArg::Positional(expr) => Expr::from(expr),
+                            CoreBlockPyCallArg::Starred(expr) => Expr::Starred(ast::ExprStarred {
+                                value: Box::new(Expr::from(expr)),
+                                ctx: ast::ExprContext::Load,
+                                range: Default::default(),
+                                node_index: ast::AtomicNodeIndex::default(),
+                            }),
+                        })
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice(),
+                    keywords: node
+                        .keywords
+                        .into_iter()
+                        .map(|keyword| match keyword {
+                            CoreBlockPyKeywordArg::Named { arg, value } => ast::Keyword {
+                                arg: Some(arg),
+                                value: Expr::from(value),
+                                range: Default::default(),
+                                node_index: ast::AtomicNodeIndex::default(),
+                            },
+                            CoreBlockPyKeywordArg::Starred(expr) => ast::Keyword {
+                                arg: None,
+                                value: Expr::from(expr),
+                                range: Default::default(),
+                                node_index: ast::AtomicNodeIndex::default(),
+                            },
+                        })
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice(),
+                    range: Default::default(),
+                    node_index: ast::AtomicNodeIndex::default(),
+                },
+            }),
+            CoreBlockPyExprWithoutAwaitOrYield::Name(node) => Expr::Name(node),
+        }
+    }
+}
+
 impl TryFrom<CoreBlockPyExpr> for CoreBlockPyExprWithoutAwait {
     type Error = CoreBlockPyExpr;
 
@@ -704,10 +782,106 @@ impl From<CoreBlockPyExprWithoutAwait> for CoreBlockPyExpr {
     }
 }
 
+impl TryFrom<CoreBlockPyExprWithoutAwait> for CoreBlockPyExprWithoutAwaitOrYield {
+    type Error = CoreBlockPyExprWithoutAwait;
+
+    fn try_from(value: CoreBlockPyExprWithoutAwait) -> Result<Self, Self::Error> {
+        match value {
+            CoreBlockPyExprWithoutAwait::Name(node) => Ok(Self::Name(node)),
+            CoreBlockPyExprWithoutAwait::Literal(literal) => Ok(Self::Literal(literal)),
+            CoreBlockPyExprWithoutAwait::Call(call) => Ok(Self::Call(CoreBlockPyCall {
+                node_index: call.node_index,
+                range: call.range,
+                func: Box::new(Self::try_from(*call.func)?),
+                args: call
+                    .args
+                    .into_iter()
+                    .map(|arg| match arg {
+                        CoreBlockPyCallArg::Positional(expr) => {
+                            Self::try_from(expr).map(CoreBlockPyCallArg::Positional)
+                        }
+                        CoreBlockPyCallArg::Starred(expr) => {
+                            Self::try_from(expr).map(CoreBlockPyCallArg::Starred)
+                        }
+                    })
+                    .collect::<Result<_, _>>()?,
+                keywords: call
+                    .keywords
+                    .into_iter()
+                    .map(|keyword| match keyword {
+                        CoreBlockPyKeywordArg::Named { arg, value } => Self::try_from(value)
+                            .map(|value| CoreBlockPyKeywordArg::Named { arg, value }),
+                        CoreBlockPyKeywordArg::Starred(value) => {
+                            Self::try_from(value).map(CoreBlockPyKeywordArg::Starred)
+                        }
+                    })
+                    .collect::<Result<_, _>>()?,
+            })),
+            CoreBlockPyExprWithoutAwait::Yield(_) | CoreBlockPyExprWithoutAwait::YieldFrom(_) => {
+                Err(value)
+            }
+        }
+    }
+}
+
+impl From<CoreBlockPyExprWithoutAwaitOrYield> for CoreBlockPyExprWithoutAwait {
+    fn from(value: CoreBlockPyExprWithoutAwaitOrYield) -> Self {
+        match value {
+            CoreBlockPyExprWithoutAwaitOrYield::Name(node) => Self::Name(node),
+            CoreBlockPyExprWithoutAwaitOrYield::Literal(literal) => Self::Literal(literal),
+            CoreBlockPyExprWithoutAwaitOrYield::Call(call) => Self::Call(CoreBlockPyCall {
+                node_index: call.node_index,
+                range: call.range,
+                func: Box::new(Self::from(*call.func)),
+                args: call
+                    .args
+                    .into_iter()
+                    .map(|arg| match arg {
+                        CoreBlockPyCallArg::Positional(expr) => {
+                            CoreBlockPyCallArg::Positional(Self::from(expr))
+                        }
+                        CoreBlockPyCallArg::Starred(expr) => {
+                            CoreBlockPyCallArg::Starred(Self::from(expr))
+                        }
+                    })
+                    .collect(),
+                keywords: call
+                    .keywords
+                    .into_iter()
+                    .map(|keyword| match keyword {
+                        CoreBlockPyKeywordArg::Named { arg, value } => {
+                            CoreBlockPyKeywordArg::Named {
+                                arg,
+                                value: Self::from(value),
+                            }
+                        }
+                        CoreBlockPyKeywordArg::Starred(value) => {
+                            CoreBlockPyKeywordArg::Starred(Self::from(value))
+                        }
+                    })
+                    .collect(),
+            }),
+        }
+    }
+}
+
+impl From<CoreBlockPyExprWithoutAwaitOrYield> for CoreBlockPyExpr {
+    fn from(value: CoreBlockPyExprWithoutAwaitOrYield) -> Self {
+        Self::from(CoreBlockPyExprWithoutAwait::from(value))
+    }
+}
+
 impl From<Expr> for CoreBlockPyExprWithoutAwait {
     fn from(value: Expr) -> Self {
         Self::try_from(CoreBlockPyExpr::from(value))
             .expect("await reached CoreBlockPyExprWithoutAwait::from")
+    }
+}
+
+impl From<Expr> for CoreBlockPyExprWithoutAwaitOrYield {
+    fn from(value: Expr) -> Self {
+        Self::try_from(CoreBlockPyExprWithoutAwait::from(value))
+            .expect("await or yield reached CoreBlockPyExprWithoutAwaitOrYield::from")
     }
 }
 
