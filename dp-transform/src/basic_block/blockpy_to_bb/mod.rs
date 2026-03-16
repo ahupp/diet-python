@@ -323,7 +323,7 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
                 bind_name: lowered.callable_def.bind_name.clone(),
                 display_name: lowered.callable_def.display_name.clone(),
                 qualname: lowered.callable_def.qualname.clone(),
-                kind: lowered.bb_kind().clone(),
+                kind: lowered.lowered_kind().clone(),
                 params: collect_parameter_names(&lowered.callable_def.params),
                 entry_liveins: lowered.callable_def.entry_liveins.clone(),
                 blocks: lower_blockpy_blocks_to_bb_blocks(

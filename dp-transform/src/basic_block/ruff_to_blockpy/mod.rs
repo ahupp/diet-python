@@ -23,6 +23,7 @@ use super::block_py::{
 use super::cfg_ir::CfgCallableDef;
 use super::lowered_ir::{
     BindingTarget, BoundCallable, ClosureLayout, FunctionId, LoweredFunction, LoweredFunctionKind,
+    LoweredRuntimeMetadata,
 };
 use super::stmt_utils::flatten_stmt_boxes;
 use crate::basic_block::ast_to_ast::ast_rewrite::Rewrite;
@@ -89,11 +90,15 @@ pub(crate) struct GeneratorStmtSequenceLoweringState {
 }
 
 #[derive(Debug, Clone)]
-pub struct LoweredBlockPyMetadata {
-    pub bb_kind: LoweredFunctionKind,
+pub struct LoweredBlockPyBridgeMetadata {
     pub block_params: HashMap<String, Vec<String>>,
     pub exception_edges: HashMap<String, Option<String>>,
-    pub runtime_closure_layout: Option<ClosureLayout>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LoweredBlockPyMetadata {
+    pub runtime: LoweredRuntimeMetadata,
+    pub bridge: LoweredBlockPyBridgeMetadata,
 }
 
 pub type LoweredBlockPyFunction<C = SemanticBlockPyCallableDef> =
@@ -104,20 +109,20 @@ impl<C> LoweredFunction<C, LoweredBlockPyMetadata> {
         self.map_callable(f)
     }
 
-    pub fn bb_kind(&self) -> &LoweredFunctionKind {
-        &self.extra.bb_kind
+    pub fn lowered_kind(&self) -> &LoweredFunctionKind {
+        &self.extra.runtime.kind
     }
 
     pub fn block_params(&self) -> &HashMap<String, Vec<String>> {
-        &self.extra.block_params
+        &self.extra.bridge.block_params
     }
 
     pub fn exception_edges(&self) -> &HashMap<String, Option<String>> {
-        &self.extra.exception_edges
+        &self.extra.bridge.exception_edges
     }
 
     pub fn runtime_closure_layout(&self) -> &Option<ClosureLayout> {
-        &self.extra.runtime_closure_layout
+        &self.extra.runtime.closure_layout
     }
 }
 
@@ -385,7 +390,7 @@ pub(crate) fn take_next_function_id(next_function_id: &mut usize) -> FunctionId 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_lowered_blockpy_function(
     callable_def: SemanticBlockPyCallableDef,
-    bb_kind: LoweredFunctionKind,
+    lowered_kind: LoweredFunctionKind,
     block_params: HashMap<String, Vec<String>>,
     exception_edges: HashMap<String, Option<String>>,
     runtime_closure_layout: Option<ClosureLayout>,
@@ -396,10 +401,14 @@ pub(crate) fn build_lowered_blockpy_function(
             binding_target: BindingTarget::Local,
         },
         extra: LoweredBlockPyMetadata {
-            bb_kind,
-            block_params,
-            exception_edges,
-            runtime_closure_layout,
+            runtime: LoweredRuntimeMetadata {
+                kind: lowered_kind,
+                closure_layout: runtime_closure_layout,
+            },
+            bridge: LoweredBlockPyBridgeMetadata {
+                block_params,
+                exception_edges,
+            },
         },
     }
 }

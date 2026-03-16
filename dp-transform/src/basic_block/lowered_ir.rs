@@ -143,6 +143,12 @@ pub struct LoweredCfgMetadata {
     pub local_cell_slots: Vec<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct LoweredRuntimeMetadata {
+    pub kind: LoweredFunctionKind,
+    pub closure_layout: Option<ClosureLayout>,
+}
+
 pub type LoweredCfgFunction<B> = LoweredFunction<
     CfgCallableDef<FunctionId, LoweredFunctionKind, Vec<String>, B>,
     LoweredCfgMetadata,
