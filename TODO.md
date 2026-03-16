@@ -54,17 +54,12 @@
     - Internal semantic/generator lowering still needs distinct local labels for resume, dispatch, factory, and relabelled CFG blocks.
     - But exported callable metadata and any AST-side preview of the callable should use `ENTRY_BLOCK_LABEL`, so the public entry invariant matches the later lowered BlockPy and BB stages.
     - A good first pass is to audit any preview, instantiation, or render-time entry-label fields and separate them from internal prepared-function labels explicitly.
-- Determine how to merge `LoweredBlockPyFunction` and `BbFunction`, since the former appears to be a subset of the latter.
-  - Planning note:
-    - The likely end state is one generic lowered-function transport/chassis, with later stages specializing payload types such as callable CFG blocks, function kind metadata, and backend-only fields instead of introducing a wholly separate `BbFunction` concept.
-    - `param_specs` is gone from both `BbFunction` and the lowered/core function transports, so the remaining gap is mostly the BB-specific CFG payload (`Vec<String>` params, `BbBlock`, `BbFunctionKind`) plus backend-only wrapper metadata like `local_cell_slots`.
-    - The next useful step is to identify which of those remaining fields are truly backend-specific and which are just the same lowered-function data carried farther through the pipeline.
-    - Keep the result explicit in the type system so each pass boundary still makes clear what has changed, even if both stages share a generic outer function type.
 - Evaluate the remaining BB-related types to see which ones can fold into the BlockPy/CFG generics.
   - Planning note:
     - `BbExpr` is already gone, so the next candidates are the BB-only wrappers and metadata types such as `BbFunction`, `BbBlock`, `BbTerm`, `BbOp`, and the closure-layout / function-kind families.
     - A good first pass is to separate “truly backend-specific” concerns from generic CFG/block/container structure, and check whether those backend-specific pieces can become generic parameters on the existing BlockPy/Cfg chassis instead of separate top-level BB concepts.
-    - This TODO should be evaluated together with the existing `LoweredBlockPyFunction` / `BbFunction` merge question, since both are really about how far the generic lowered-function and block/container types can extend before the backend needs a distinct representation.
+    - The outer `LoweredBlockPyFunction` / `BbFunction` merge is mostly done now: both stages share the generic `LoweredFunction<C, X>` shell plus `BoundCallable<C>`, and the remaining question is how much of the stage-specific metadata can be further shared.
+    - The current likely split is that `bb_kind` / runtime closure metadata are shared lowered-runtime concerns, while `block_params` / `exception_edges` remain BlockPy-to-BB bridge side tables.
 - Move refcount management out of `soac-eval` and into a new explicit pass in `rewrite_module`.
   - Planning note:
     - The current JIT path in `soac-eval` still owns a large amount of `incref` / `decref` insertion and runtime helper wiring (`dp_jit_incref`, `dp_jit_decref`), which makes ownership of reference semantics backend-local instead of pipeline-visible.
@@ -97,6 +92,9 @@
   - BB IR, the JIT planner, and related tests/rendering code now use `CoreBlockPyExprWithoutAwaitOrYield` directly instead of a separate `BbExpr` wrapper/alias.
   - The remaining raw-`Expr` boundary normalization moved onto `CoreBlockPyExprWithoutAwaitOrYield::from_expr`, so BB-specific helper lowering no longer needs its own expression concept.
   - The expression layer no longer forks at the BB boundary, and the follow-up cleanup is now focused on the remaining BB-only function/block/container types.
+- Merge `LoweredBlockPyFunction` and `BbFunction`:
+  - Both stages now share the generic `LoweredFunction<C, X>` chassis and `BoundCallable<C>` in `lowered_ir.rs`, instead of maintaining separate outer wrapper concepts.
+  - The BB side is now just an alias over that shared shell, and the remaining follow-up is metadata factoring rather than wrapper-shape unification.
 
 ## Follow-up: weakref callback during shutdown (BB mode)
 
