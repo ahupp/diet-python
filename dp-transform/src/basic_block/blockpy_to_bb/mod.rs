@@ -16,7 +16,6 @@ use super::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use super::cfg_ir::{CfgCallableDef, CfgModule};
 use super::function_lowering::rewrite_deleted_name_loads;
 use super::lowered_ir::BindingTarget;
-use super::param_specs::function_param_specs_expr;
 use super::ruff_to_blockpy::{
     build_lowered_blockpy_function_export_plan,
     lower_awaits_in_lowered_blockpy_function_bundle_plan,
@@ -268,7 +267,6 @@ fn lower_core_blockpy_function_without_await(
 ) -> LoweredCoreBlockPyFunctionWithoutAwait {
     LoweredCoreBlockPyFunctionWithoutAwait {
         binding_target: lowered.binding_target,
-        param_specs: lowered.param_specs.clone(),
         callable_def: lower_core_callable_def_without_await(&lowered.callable_def),
         is_coroutine: lowered.is_coroutine,
         bb_kind: lowered.bb_kind.clone(),
@@ -295,7 +293,6 @@ fn lower_core_blockpy_function_without_await_or_yield(
 ) -> LoweredCoreBlockPyFunctionWithoutAwaitOrYield {
     LoweredCoreBlockPyFunctionWithoutAwaitOrYield {
         binding_target: lowered.binding_target,
-        param_specs: lowered.param_specs.clone(),
         callable_def: lower_core_callable_def_without_await_or_yield(&lowered.callable_def),
         is_coroutine: lowered.is_coroutine,
         bb_kind: lowered.bb_kind.clone(),
@@ -329,9 +326,6 @@ fn simplify_lowered_blockpy_function_exprs(
     let callable_def = simplify_blockpy_callable_def_exprs(&lowered.callable_def);
     LoweredCoreBlockPyFunction {
         binding_target: lowered.binding_target,
-        param_specs: CoreBlockPyExprWithoutAwaitOrYield::from_expr(function_param_specs_expr(
-            &callable_def.params,
-        )),
         callable_def,
         is_coroutine: lowered.is_coroutine,
         bb_kind: lowered.bb_kind.clone(),

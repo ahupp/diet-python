@@ -109,10 +109,6 @@ pub(crate) fn function_param_specs_to_expr(specs: &[FunctionParamSpec]) -> Expr 
     )
 }
 
-pub(crate) fn function_param_specs_expr(parameters: &ast::Parameters) -> Expr {
-    function_param_specs_to_expr(&collect_function_param_specs(parameters))
-}
-
 #[cfg(test)]
 mod tests {
     use super::{collect_function_param_specs, FunctionParamKind};

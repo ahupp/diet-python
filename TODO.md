@@ -56,7 +56,7 @@
 - Determine how to merge `LoweredBlockPyFunction` and `BbFunction`, since the former appears to be a subset of the latter.
   - Planning note:
     - The likely end state is one generic lowered-function transport/chassis, with later stages specializing payload types such as callable CFG blocks, function kind metadata, and backend-only fields instead of introducing a wholly separate `BbFunction` concept.
-    - `param_specs` no longer lives on `BbFunction`, so the remaining gap is mostly the BB-specific CFG payload (`Vec<String>` params, `BbBlock`, `BbFunctionKind`) plus backend-only wrapper metadata like `local_cell_slots`.
+    - `param_specs` is gone from both `BbFunction` and the lowered/core function transports, so the remaining gap is mostly the BB-specific CFG payload (`Vec<String>` params, `BbBlock`, `BbFunctionKind`) plus backend-only wrapper metadata like `local_cell_slots`.
     - The next useful step is to identify which of those remaining fields are truly backend-specific and which are just the same lowered-function data carried farther through the pipeline.
     - Keep the result explicit in the type system so each pass boundary still makes clear what has changed, even if both stages share a generic outer function type.
 - Evaluate the remaining BB-related types to see which ones can fold into the BlockPy/CFG generics.
@@ -90,7 +90,7 @@
 - Replace `BbExpr` with the final core BlockPy expression type:
   - BB IR, the JIT planner, and related tests/rendering code now use `CoreBlockPyExprWithoutAwaitOrYield` directly instead of a separate `BbExpr` wrapper/alias.
   - The remaining raw-`Expr` boundary normalization moved onto `CoreBlockPyExprWithoutAwaitOrYield::from_expr`, so BB-specific helper lowering no longer needs its own expression concept.
-  - This leaves `param_specs` as part of the remaining BB/function-shape cleanup, but the expression layer itself no longer forks at the BB boundary.
+  - The expression layer no longer forks at the BB boundary, and the follow-up cleanup is now focused on the remaining BB-only function/block/container types.
 
 ## Follow-up: weakref callback during shutdown (BB mode)
 

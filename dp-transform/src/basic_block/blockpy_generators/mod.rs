@@ -128,7 +128,6 @@ pub(crate) struct ClosureBackedGeneratorExportPlan {
     pub resume_qualname: String,
     pub resume_entry_liveins: Vec<String>,
     pub factory_block: BlockPyBlock,
-    pub resume_param_specs: Expr,
 }
 
 pub(crate) fn build_async_for_continue_entry(
@@ -331,34 +330,6 @@ pub(crate) fn closure_backed_generator_factory_entry_liveins(
     params
 }
 
-fn closure_backed_generator_resume_param_specs_expr(is_async_generator: bool) -> Expr {
-    let mut params = vec![
-        blockpy_make_dp_tuple(vec![
-            py_expr!("{name:literal}", name = "/_dp_self"),
-            py_expr!("None"),
-            py_expr!("__dp_NO_DEFAULT"),
-        ]),
-        blockpy_make_dp_tuple(vec![
-            py_expr!("{name:literal}", name = "/_dp_send_value"),
-            py_expr!("None"),
-            py_expr!("__dp_NO_DEFAULT"),
-        ]),
-        blockpy_make_dp_tuple(vec![
-            py_expr!("{name:literal}", name = "/_dp_resume_exc"),
-            py_expr!("None"),
-            py_expr!("__dp_NO_DEFAULT"),
-        ]),
-    ];
-    if is_async_generator {
-        params.push(blockpy_make_dp_tuple(vec![
-            py_expr!("{name:literal}", name = "/_dp_transport_sent"),
-            py_expr!("None"),
-            py_expr!("__dp_NO_DEFAULT"),
-        ]));
-    }
-    blockpy_make_dp_tuple(params)
-}
-
 pub(crate) fn build_closure_backed_generator_export_plan(
     factory_label: &str,
     resume_label: &str,
@@ -387,7 +358,6 @@ pub(crate) fn build_closure_backed_generator_export_plan(
         is_coroutine,
         is_async_generator,
     );
-    let resume_param_specs = closure_backed_generator_resume_param_specs_expr(is_async_generator);
     ClosureBackedGeneratorExportPlan {
         factory_label: factory_label.to_string(),
         factory_entry_liveins,
@@ -397,7 +367,6 @@ pub(crate) fn build_closure_backed_generator_export_plan(
         resume_qualname: qualname.to_string(),
         resume_entry_liveins,
         factory_block,
-        resume_param_specs,
     }
 }
 

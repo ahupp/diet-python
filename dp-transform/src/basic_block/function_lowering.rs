@@ -6,14 +6,12 @@ use super::await_lower::{coroutine_generator_marker_stmt, lower_coroutine_awaits
 use super::block_py::state::{collect_cell_slots, collect_parameter_names};
 use super::block_py::{
     BlockPyBlock, BlockPyBranchTable, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt,
-    BlockPyTerm, CoreBlockPyExprWithoutAwaitOrYield,
+    BlockPyTerm,
 };
-use super::blockpy_expr_simplify::simplify_parameter_exprs;
 use super::bound_names::{collect_bound_names, collect_explicit_global_or_nonlocal_names};
 use super::function_identity::{
     is_module_init_temp_name, resolve_runtime_function_identity, FunctionIdentity,
 };
-use super::param_specs::function_param_specs_expr;
 use super::ruff_to_blockpy::{
     lower_function_body_to_blockpy_function, take_next_function_id,
     LoweredBlockPyFunctionBundlePlan,
@@ -474,9 +472,6 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         label_prefix,
         cell_slots,
         module_init_mode: is_module_init_temp_name(func.name.id.as_str()),
-        main_param_specs: CoreBlockPyExprWithoutAwaitOrYield::from_expr(function_param_specs_expr(
-            &simplify_parameter_exprs(func.parameters.as_ref()),
-        )),
         deleted_names,
         unbound_local_names,
         outer_scope_names,

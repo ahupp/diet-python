@@ -120,12 +120,10 @@ Properties:
   - `block_params`
   - `exception_edges`
   - `closure_layout`
-  - `param_specs`
 
-At the module level this is wrapped again as:
+At the module level:
 
-- `LoweredCallableDef<T>` adding `binding_target`
-- `LoweredBlockPyModuleBundle = CfgModule<LoweredCallableDef<LoweredBlockPyFunction>>`
+- `LoweredBlockPyModuleBundle = CfgModule<LoweredBlockPyFunction>`
 
 Defined in:
 
@@ -176,11 +174,10 @@ Properties:
   - `block_params`
   - `exception_edges`
   - `closure_layout`
-  - `param_specs`
 
 At the module level:
 
-- `LoweredCoreBlockPyModuleBundle = CfgModule<LoweredCallableDef<LoweredCoreBlockPyFunction>>`
+- `LoweredCoreBlockPyModuleBundle = CfgModule<LoweredCoreBlockPyFunction>`
 
 This is the tracked `core_blockpy` pass result.
 
@@ -204,7 +201,6 @@ Properties:
   - `binding_target`
   - `is_coroutine`
   - `closure_layout`
-  - `param_specs`
   - `local_cell_slots`
 
 `BbFunctionKind` is also more backend-specific than `BlockPyFunctionKind`; generator kinds carry explicit resume metadata.
@@ -224,7 +220,6 @@ The internal extras are:
 
 - `PreparedBlockPyFunction`
 - `LoweredBlockPyFunctionBundle`
-- `LoweredCallableDef<T>`
 
 ## Cleanup direction
 
