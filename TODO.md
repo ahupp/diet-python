@@ -49,9 +49,9 @@
     - This likely becomes simpler after the semantic `BlockPyExpr` -> Ruff `Expr` cleanup, because that would remove one whole stage-specific expression wrapper from the matrix first.
 - See whether `BbExpr` can be replaced by `CoreBlockPyExpr`.
   - Planning note:
-    - Today `BbExpr` is not just a direct alias candidate: it is used in BB-specific places like `BbFunction.param_specs`, carries a BB-specific `BbCallExpr` template shape, and currently allows a narrower expression surface than `CoreBlockPyExpr` in some cases.
-    - The likely cleanup path is to first decide whether BB really needs its own call/template representation and whether `param_specs` should stay in the BB layer at all; only then can `BbExpr` potentially collapse onto `CoreBlockPyExpr`.
-    - If the answer is yes, the goal should be for BlockPy -> BB lowering to preserve core expressions directly and eliminate the extra `BbExpr::from_expr` conversion boundary.
+    - Today the answer looks like “not directly yet”: `BbExpr` is narrower than `CoreBlockPyExpr` in some ways, but also carries BB-specific representation choices like `BbCallExpr` with a preserved Ruff call template and its use in `BbFunction.param_specs`.
+    - `CoreBlockPyExpr` already handles a wider core reduction surface, while `BbExpr::from_expr` still performs extra BB-boundary normalization and rejection, so this cleanup likely depends on shrinking or deleting that boundary first.
+    - A good first step is to separate the questions “should `param_specs` live in BB?” and “does BB need a template-preserving call node?”; if both answers become no, `BbExpr` is much more likely to collapse cleanly onto `CoreBlockPyExpr`.
 
 ## Completed
 
