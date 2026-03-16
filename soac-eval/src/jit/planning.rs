@@ -1,6 +1,6 @@
-use dp_transform::basic_block::bb_ir::{BbBlock, BbModule, BbOp, BbTerm};
+use dp_transform::basic_block::bb_ir::{BbBlock, BbModule, BbStmt, BbTerm};
 use dp_transform::basic_block::block_py::{
-    CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg,
+    BlockPyStmt, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg,
     CoreBlockPyLiteral,
 };
 use ruff_python_ast::Number;
@@ -245,7 +245,7 @@ fn direct_simple_plan_from_block(block: &BbBlock) -> Option<DirectSimpleRetPlan>
     let mut known_names: Vec<String> = block.meta.params.clone();
     let mut assigns = Vec::new();
     for op in &block.body {
-        let BbOp::Assign(assign) = op else {
+        let BlockPyStmt::Assign(assign) = op else {
             return None;
         };
         let value = direct_simple_expr_from(&assign.value)?;
@@ -316,10 +316,10 @@ fn direct_simple_expr_ret_none_plan_from_block(
     }
     let mut exprs = Vec::with_capacity(block.body.len());
     for op in &block.body {
-        let BbOp::Expr(expr_op) = op else {
+        let BlockPyStmt::Expr(expr) = op else {
             return None;
         };
-        let expr = direct_simple_expr_from(&expr_op.value)?;
+        let expr = direct_simple_expr_from(expr)?;
         exprs.push(expr);
     }
     Some(DirectSimpleExprRetNonePlan {
@@ -336,15 +336,12 @@ fn target_params_from_index(
 }
 
 fn direct_simple_delete_plan_from_targets(
-    targets: &[CoreBlockPyExprWithoutAwaitOrYield],
+    targets: &[ruff_python_ast::ExprName],
     known_names: &mut Vec<String>,
 ) -> Option<DirectSimpleDeletePlan> {
     let mut plan_targets = Vec::with_capacity(targets.len());
     for target in targets {
-        let CoreBlockPyExprWithoutAwaitOrYield::Name(name) = target else {
-            return None;
-        };
-        let target_name = name.id.to_string();
+        let target_name = target.id.to_string();
         if !known_names.iter().any(|known| known == &target_name) {
             return None;
         }
@@ -356,16 +353,16 @@ fn direct_simple_delete_plan_from_targets(
     })
 }
 
-fn direct_simple_op_from_bb_op(
-    op: &BbOp,
+fn direct_simple_op_from_bb_stmt(
+    op: &BbStmt,
     known_names: &mut Vec<String>,
 ) -> Option<DirectSimpleOpPlan> {
     match op {
-        BbOp::Expr(expr_stmt) => {
-            let value = direct_simple_expr_from(&expr_stmt.value)?;
+        BlockPyStmt::Expr(expr_stmt) => {
+            let value = direct_simple_expr_from(expr_stmt)?;
             Some(DirectSimpleOpPlan::Expr(value))
         }
-        BbOp::Assign(assign) => {
+        BlockPyStmt::Assign(assign) => {
             let value = direct_simple_expr_from(&assign.value)?;
             let target_name = assign.target.id.to_string();
             if !known_names.iter().any(|known| known == &target_name) {
@@ -376,19 +373,23 @@ fn direct_simple_op_from_bb_op(
                 value,
             }))
         }
-        BbOp::Delete(delete_stmt) => {
-            let delete_plan =
-                direct_simple_delete_plan_from_targets(&delete_stmt.targets, known_names)?;
+        BlockPyStmt::Delete(delete_stmt) => {
+            let delete_plan = direct_simple_delete_plan_from_targets(
+                std::slice::from_ref(&delete_stmt.target),
+                known_names,
+            )?;
             Some(DirectSimpleOpPlan::Delete(delete_plan))
         }
+        BlockPyStmt::If(_) => None,
     }
 }
 
-fn bb_op_kind(op: &BbOp) -> &'static str {
+fn bb_stmt_kind(op: &BbStmt) -> &'static str {
     match op {
-        BbOp::Assign(_) => "Assign",
-        BbOp::Expr(_) => "Expr",
-        BbOp::Delete(_) => "Delete",
+        BlockPyStmt::Assign(_) => "Assign",
+        BlockPyStmt::Expr(_) => "Expr",
+        BlockPyStmt::Delete(_) => "Delete",
+        BlockPyStmt::If(_) => "If",
     }
 }
 
@@ -409,7 +410,7 @@ fn unsupported_fastpath_block_message(
     let op_kinds = block
         .body
         .iter()
-        .map(bb_op_kind)
+        .map(bb_stmt_kind)
         .collect::<Vec<_>>()
         .join(", ");
     let op_debug = block
@@ -438,7 +439,7 @@ fn direct_simple_block_plan_from_block(
     let mut known_names: Vec<String> = block.meta.params.clone();
     let mut ops = Vec::new();
     for op in &block.body {
-        let stmt_op = direct_simple_op_from_bb_op(op, &mut known_names)?;
+        let stmt_op = direct_simple_op_from_bb_stmt(op, &mut known_names)?;
         ops.push(stmt_op);
     }
     let term = match &block.term {

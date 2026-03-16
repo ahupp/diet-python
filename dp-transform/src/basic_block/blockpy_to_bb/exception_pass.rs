@@ -1,4 +1,5 @@
-use crate::basic_block::bb_ir::{BbBlock, BbBlockMeta, BbFunction, BbModule, BbOp, BbTerm};
+use crate::basic_block::bb_ir::{BbBlock, BbBlockMeta, BbFunction, BbModule, BbStmt, BbTerm};
+use crate::basic_block::block_py::BlockPyStmt;
 use std::collections::HashSet;
 
 pub fn lower_try_jump_exception_flow(module: &BbModule) -> Result<BbModule, String> {
@@ -49,7 +50,7 @@ fn split_exception_blocks_for_expr_checks(function: &mut BbFunction) {
         let mut ops = block.body.into_iter().peekable();
         let mut segment_start_names = known_names.clone();
 
-        let mut segment_ops: Vec<BbOp> = Vec::new();
+        let mut segment_ops: Vec<BbStmt> = Vec::new();
         while let Some(op) = ops.next() {
             let ends_segment = op_updates_exception_state(&op) && ops.peek().is_some();
             segment_ops.push(op.clone());
@@ -93,8 +94,8 @@ fn split_exception_blocks_for_expr_checks(function: &mut BbFunction) {
     function.blocks = out;
 }
 
-fn op_updates_exception_state(op: &BbOp) -> bool {
-    matches!(op, BbOp::Assign(_) | BbOp::Delete(_))
+fn op_updates_exception_state(op: &BbStmt) -> bool {
+    matches!(op, BlockPyStmt::Assign(_) | BlockPyStmt::Delete(_))
 }
 
 fn unique_exc_split_label(
@@ -112,25 +113,21 @@ fn unique_exc_split_label(
     }
 }
 
-fn apply_op_effect_to_known_names(op: &BbOp, known_names: &mut Vec<String>) {
+fn apply_op_effect_to_known_names(op: &BbStmt, known_names: &mut Vec<String>) {
     match op {
-        BbOp::Assign(assign) => {
+        BlockPyStmt::Assign(assign) => {
             let target = assign.target.id.to_string();
             if !known_names.iter().any(|name| name == &target) {
                 known_names.push(target);
             }
         }
-        BbOp::Expr(_) => {}
-        BbOp::Delete(delete) => {
-            for target in &delete.targets {
-                if let crate::basic_block::block_py::CoreBlockPyExprWithoutAwaitOrYield::Name(
-                    name,
-                ) = target
-                {
-                    let target_name = name.id.to_string();
-                    known_names.retain(|existing| existing != &target_name);
-                }
-            }
+        BlockPyStmt::Expr(_) => {}
+        BlockPyStmt::Delete(delete) => {
+            let target_name = delete.target.id.to_string();
+            known_names.retain(|existing| existing != &target_name);
+        }
+        BlockPyStmt::If(_) => {
+            panic!("structured BlockPy If is not allowed in BbBlock.body")
         }
     }
 }

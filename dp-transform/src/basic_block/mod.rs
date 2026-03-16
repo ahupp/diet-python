@@ -35,8 +35,10 @@ pub use function_lowering::SingleNamedAssignmentPass;
 
 #[cfg(test)]
 mod tests {
-    use crate::basic_block::bb_ir::{BbBlock, BbFunction, BbModule, BbOp, BbTerm};
-    use crate::basic_block::block_py::{BlockPyModule, CoreBlockPyExprWithoutAwaitOrYield};
+    use crate::basic_block::bb_ir::{BbBlock, BbFunction, BbModule, BbTerm};
+    use crate::basic_block::block_py::{
+        BlockPyModule, BlockPyStmt, CoreBlockPyExprWithoutAwaitOrYield,
+    };
     use crate::basic_block::lowered_ir::{
         BindingTarget, ClosureInit, ClosureSlot, LoweredFunctionKind,
     };
@@ -133,7 +135,7 @@ mod tests {
     }
 
     fn expr_text(expr: &CoreBlockPyExprWithoutAwaitOrYield) -> String {
-        crate::ruff_ast_to_string(&expr.to_expr())
+        crate::basic_block::bb_ir::bb_expr_text(expr)
     }
 
     fn callable_def_by_name<'a>(
@@ -151,12 +153,10 @@ mod tests {
 
     fn block_uses_text(block: &BbBlock, needle: &str) -> bool {
         block.body.iter().any(|op| match op {
-            BbOp::Assign(assign) => expr_text(&assign.value).contains(needle),
-            BbOp::Expr(expr) => expr_text(&expr.value).contains(needle),
-            BbOp::Delete(delete) => delete
-                .targets
-                .iter()
-                .any(|expr| expr_text(expr).contains(needle)),
+            BlockPyStmt::Assign(assign) => expr_text(&assign.value).contains(needle),
+            BlockPyStmt::Expr(expr) => expr_text(expr).contains(needle),
+            BlockPyStmt::Delete(delete) => delete.target.id.as_str().contains(needle),
+            BlockPyStmt::If(_) => false,
         }) || match &block.term {
             BbTerm::BrIf { test, .. } => expr_text(&test).contains(needle),
             BbTerm::BrTable { index, .. } => expr_text(&index).contains(needle),
@@ -237,13 +237,13 @@ def fmt(value):
         assert!(
             fmt.blocks
                 .iter()
-                .any(|block| block_uses_text(block, "__dp_decode_literal_bytes(b\"value\")")),
+                .any(|block| block_uses_text(block, "\"value\"")),
             "{fmt:?}"
         );
         assert!(
             fmt.blocks
                 .iter()
-                .any(|block| block_uses_text(block, "__dp_decode_literal_bytes(b\"\")")),
+                .any(|block| block_uses_text(block, "\"\"")),
             "{fmt:?}"
         );
     }
@@ -831,7 +831,7 @@ def bump(x):
         let bump = lowered.bb_function("bump");
         assert!(
             bump.blocks.iter().any(|block| match block.body.as_slice() {
-                [BbOp::Assign(assign)] => expr_text(&assign.value).contains("__dp_iadd"),
+                [BlockPyStmt::Assign(assign)] => expr_text(&assign.value).contains("__dp_iadd"),
                 _ => false,
             }),
             "{bump:?}"
@@ -1478,7 +1478,7 @@ def outer_read():
             init_fn
                 .blocks
                 .iter()
-                .any(|block| block_uses_text(block, "__dp_decode_literal_bytes(b\"outer_read\")")),
+                .any(|block| block_uses_text(block, "\"outer_read\"")),
             "{init_fn:?}"
         );
     }

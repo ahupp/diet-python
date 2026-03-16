@@ -1,12 +1,9 @@
-use super::block_py::CoreBlockPyExprWithoutAwaitOrYield;
+use super::block_py::{
+    CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyLiteral, CoreBlockPyStmtWithoutAwaitOrYield,
+};
 use super::cfg_ir::{CfgBlock, CfgCallableDef, CfgModule};
 use super::lowered_ir::{BindingTarget, ClosureLayout, FunctionId, LoweredFunctionKind};
-use crate::py_expr;
-use ruff_python_ast::{
-    self as ast, AtomicNodeIndex, Expr, ExprContext, ExprName, Stmt, StmtAssign, StmtDelete,
-    StmtExpr, StmtFunctionDef,
-};
-use ruff_text_size::TextRange;
+use ruff_python_ast::{self as ast, StmtFunctionDef};
 use std::ops::{Deref, DerefMut};
 
 pub type BbModule = CfgModule<BbFunction>;
@@ -42,133 +39,8 @@ pub struct BbBlockMeta {
     pub exc_name: Option<String>,
 }
 
-pub type BbBlock = CfgBlock<String, BbOp, BbTerm, BbBlockMeta>;
-
-#[derive(Debug, Clone)]
-pub enum BbOp {
-    Assign(BbAssignOp),
-    Expr(BbExprOp),
-    Delete(BbDeleteOp),
-}
-
-#[derive(Debug, Clone)]
-pub struct BbAssignOp {
-    pub node_index: AtomicNodeIndex,
-    pub range: TextRange,
-    pub target: ExprName,
-    pub value: CoreBlockPyExprWithoutAwaitOrYield,
-}
-
-#[derive(Debug, Clone)]
-pub struct BbExprOp {
-    pub node_index: AtomicNodeIndex,
-    pub range: TextRange,
-    pub value: CoreBlockPyExprWithoutAwaitOrYield,
-}
-
-#[derive(Debug, Clone)]
-pub struct BbDeleteOp {
-    pub node_index: AtomicNodeIndex,
-    pub range: TextRange,
-    pub targets: Vec<CoreBlockPyExprWithoutAwaitOrYield>,
-}
-
-impl BbOp {
-    pub fn from_stmt(stmt: Stmt) -> Option<Self> {
-        match stmt {
-            Stmt::Assign(assign) => {
-                let [target] = assign.targets.as_slice() else {
-                    panic!("unsupported assignment form in BbBlock.body: {assign:?}");
-                };
-                let value = *assign.value;
-                match target {
-                    Expr::Name(target) => Some(Self::Assign(BbAssignOp {
-                        node_index: assign.node_index,
-                        range: assign.range,
-                        target: target.clone(),
-                        value: CoreBlockPyExprWithoutAwaitOrYield::from_expr(value),
-                    })),
-                    Expr::Attribute(target) => Some(Self::Expr(BbExprOp {
-                        node_index: assign.node_index,
-                        range: assign.range,
-                        value: CoreBlockPyExprWithoutAwaitOrYield::from_expr(py_expr!(
-                            "__dp_setattr({obj:expr}, {attr:literal}, {value:expr})",
-                            obj = *target.value.clone(),
-                            attr = target.attr.as_str(),
-                            value = value,
-                        )),
-                    })),
-                    Expr::Subscript(target) => Some(Self::Expr(BbExprOp {
-                        node_index: assign.node_index,
-                        range: assign.range,
-                        // Assignment targets like `l[0] = ...` still evaluate `l`
-                        // as a load first; preserve UnboundLocalError semantics
-                        // when `l` is a deleted/unbound local sentinel.
-                        value: CoreBlockPyExprWithoutAwaitOrYield::from_expr(py_expr!(
-                            "__dp_setitem({obj:expr}, {idx:expr}, {value:expr})",
-                            obj = if let Expr::Name(name) = target.value.as_ref() {
-                                py_expr!(
-                                    "__dp_load_deleted_name({name:literal}, {value:expr})",
-                                    name = name.id.as_str(),
-                                    value = *target.value.clone(),
-                                )
-                            } else {
-                                *target.value.clone()
-                            },
-                            idx = *target.slice.clone(),
-                            value = value,
-                        )),
-                    })),
-                    _ => panic!("unsupported assignment target in BbBlock.body"),
-                }
-            }
-            Stmt::Expr(expr) => Some(Self::Expr(BbExprOp {
-                node_index: expr.node_index,
-                range: expr.range,
-                value: CoreBlockPyExprWithoutAwaitOrYield::from_expr(*expr.value),
-            })),
-            Stmt::Delete(delete) => Some(Self::Delete(BbDeleteOp {
-                node_index: delete.node_index,
-                range: delete.range,
-                targets: delete
-                    .targets
-                    .into_iter()
-                    .map(CoreBlockPyExprWithoutAwaitOrYield::from_expr)
-                    .collect(),
-            })),
-            Stmt::Pass(_) => None,
-            Stmt::FunctionDef(_) => panic!(
-                "FunctionDef is not allowed in BbBlock.body; lower to binding statements first"
-            ),
-            other => panic!("unsupported statement in BbBlock.body: {other:?}"),
-        }
-    }
-
-    pub fn to_stmt(&self) -> Stmt {
-        match self {
-            Self::Assign(assign) => Stmt::Assign(StmtAssign {
-                node_index: assign.node_index.clone(),
-                range: assign.range,
-                targets: vec![Expr::Name(assign.target.clone())],
-                value: Box::new(assign.value.to_expr()),
-            }),
-            Self::Expr(expr) => Stmt::Expr(StmtExpr {
-                node_index: expr.node_index.clone(),
-                range: expr.range,
-                value: Box::new(expr.value.to_expr()),
-            }),
-            Self::Delete(delete) => Stmt::Delete(StmtDelete {
-                node_index: delete.node_index.clone(),
-                range: delete.range,
-                targets: delete.targets.iter().map(|expr| expr.to_expr()).collect(),
-            }),
-        }
-    }
-}
-
-pub fn bb_ops_to_stmts(ops: &[BbOp]) -> Vec<Stmt> {
-    ops.iter().map(BbOp::to_stmt).collect()
-}
+pub type BbStmt = CoreBlockPyStmtWithoutAwaitOrYield;
+pub type BbBlock = CfgBlock<String, BbStmt, BbTerm, BbBlockMeta>;
 
 #[derive(Debug, Clone)]
 pub enum BbTerm {
@@ -188,4 +60,75 @@ pub enum BbTerm {
         cause: Option<CoreBlockPyExprWithoutAwaitOrYield>,
     },
     Ret(Option<CoreBlockPyExprWithoutAwaitOrYield>),
+}
+
+pub fn bb_expr_text(expr: &CoreBlockPyExprWithoutAwaitOrYield) -> String {
+    match expr {
+        CoreBlockPyExprWithoutAwaitOrYield::Name(name) => name.id.to_string(),
+        CoreBlockPyExprWithoutAwaitOrYield::Literal(literal) => match literal {
+            CoreBlockPyLiteral::StringLiteral(literal) => format!("{:?}", literal.value.to_str()),
+            CoreBlockPyLiteral::BytesLiteral(literal) => {
+                let mut out = String::from("b\"");
+                for byte in literal.value.bytes() {
+                    for escaped in std::ascii::escape_default(byte) {
+                        out.push(escaped as char);
+                    }
+                }
+                out.push('"');
+                out
+            }
+            CoreBlockPyLiteral::NumberLiteral(literal) => match &literal.value {
+                ast::Number::Int(value) => value.to_string(),
+                ast::Number::Float(value) => value.to_string(),
+                ast::Number::Complex { real, imag } => format!("{real}+{imag}j"),
+            },
+            CoreBlockPyLiteral::BooleanLiteral(literal) => literal.value.to_string(),
+            CoreBlockPyLiteral::NoneLiteral(_) => "None".to_string(),
+            CoreBlockPyLiteral::EllipsisLiteral(_) => "...".to_string(),
+        },
+        CoreBlockPyExprWithoutAwaitOrYield::Call(call) => {
+            let mut parts = Vec::new();
+            for arg in &call.args {
+                parts.push(match arg {
+                    super::block_py::CoreBlockPyCallArg::Positional(value) => bb_expr_text(value),
+                    super::block_py::CoreBlockPyCallArg::Starred(value) => {
+                        format!("*{}", bb_expr_text(value))
+                    }
+                });
+            }
+            for keyword in &call.keywords {
+                parts.push(match keyword {
+                    super::block_py::CoreBlockPyKeywordArg::Named { arg, value } => {
+                        format!("{}={}", arg.id, bb_expr_text(value))
+                    }
+                    super::block_py::CoreBlockPyKeywordArg::Starred(value) => {
+                        format!("**{}", bb_expr_text(value))
+                    }
+                });
+            }
+            format!("{}({})", bb_expr_text(&call.func), parts.join(", "))
+        }
+    }
+}
+
+pub fn bb_stmt_text(stmt: &BbStmt) -> String {
+    match stmt {
+        super::block_py::BlockPyStmt::Assign(assign) => {
+            format!("{} = {}", assign.target.id, bb_expr_text(&assign.value))
+        }
+        super::block_py::BlockPyStmt::Expr(expr) => bb_expr_text(expr),
+        super::block_py::BlockPyStmt::Delete(delete) => format!("del {}", delete.target.id),
+        super::block_py::BlockPyStmt::If(_) => {
+            panic!("structured BlockPy If is not allowed in BbBlock.body")
+        }
+    }
+}
+
+pub fn bb_stmts_text(stmts: &[BbStmt]) -> String {
+    let mut out = String::new();
+    for stmt in stmts {
+        out.push_str(&bb_stmt_text(stmt));
+        out.push('\n');
+    }
+    out
 }

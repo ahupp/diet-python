@@ -3,7 +3,7 @@ mod codegen_trace;
 mod exception_pass;
 
 use super::annotation_export::build_exec_function_def_binding_stmts;
-use super::bb_ir::{BbBlock, BbBlockMeta, BbFunction, BbModule, BbOp, BbTerm};
+use super::bb_ir::{BbBlock, BbBlockMeta, BbFunction, BbModule, BbStmt, BbTerm};
 use super::block_py::cfg::linearize_structured_ifs;
 use super::block_py::exception::is_dp_lookup_call;
 use super::block_py::state::collect_parameter_names;
@@ -11,6 +11,7 @@ use super::block_py::{
     BlockPyBlock, BlockPyIfTerm, BlockPyStmt, BlockPyTerm, CoreBlockPyCallableDef,
     CoreBlockPyCallableDefWithoutAwait, CoreBlockPyCallableDefWithoutAwaitOrYield, CoreBlockPyExpr,
     CoreBlockPyExprWithoutAwait, CoreBlockPyExprWithoutAwaitOrYield,
+    CoreBlockPyStmtWithoutAwaitOrYield,
 };
 use super::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use super::cfg_ir::{CfgCallableDef, CfgModule};
@@ -567,12 +568,9 @@ fn simplify_lowered_blockpy_function_exprs(
     }
 }
 
-pub(crate) fn lower_core_blockpy_function_to_bb_function<E>(
-    lowered: &LoweredBlockPyFunction<super::block_py::BlockPyCallableDef<E>>,
-) -> BbFunction
-where
-    E: Clone + Into<Expr> + From<Expr>,
-{
+pub(crate) fn lower_core_blockpy_function_to_bb_function(
+    lowered: &LoweredCoreBlockPyFunctionWithoutAwaitOrYield,
+) -> BbFunction {
     let (linear_blocks, linear_block_params, linear_exception_edges) = linearize_structured_ifs(
         &lowered.callable_def.blocks,
         &lowered.block_params,
@@ -601,7 +599,7 @@ where
 }
 
 pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
-    blocks: &[BlockPyBlock<impl Clone + Into<Expr> + From<Expr>>],
+    blocks: &[BlockPyBlock<CoreBlockPyExprWithoutAwaitOrYield>],
     block_params: &HashMap<String, Vec<String>>,
     exception_edges: &HashMap<String, Option<String>>,
 ) -> Vec<BbBlock> {
@@ -642,7 +640,7 @@ pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
             });
             let ops = normalized_body
                 .into_iter()
-                .map(bb_op_from_blockpy_stmt)
+                .map(bb_stmt_from_blockpy_stmt)
                 .collect::<Vec<_>>();
             let mut params = block_params
                 .get(block.label.as_str())
@@ -802,37 +800,16 @@ fn compat_range() -> TextRange {
     TextRange::default()
 }
 
-fn bb_op_from_blockpy_stmt<E>(stmt: BlockPyStmt<E>) -> BbOp
-where
-    E: Clone + Into<Expr>,
-{
+fn bb_stmt_from_blockpy_stmt(stmt: CoreBlockPyStmtWithoutAwaitOrYield) -> BbStmt {
     match stmt {
-        BlockPyStmt::Assign(assign) => BbOp::Assign(super::bb_ir::BbAssignOp {
-            node_index: compat_node_index(),
-            range: compat_range(),
-            target: assign.target,
-            value: CoreBlockPyExprWithoutAwaitOrYield::from_expr(assign.value.into()),
-        }),
-        BlockPyStmt::Expr(expr) => BbOp::Expr(super::bb_ir::BbExprOp {
-            node_index: compat_node_index(),
-            range: compat_range(),
-            value: CoreBlockPyExprWithoutAwaitOrYield::from_expr(expr.into()),
-        }),
-        BlockPyStmt::Delete(delete) => BbOp::Delete(super::bb_ir::BbDeleteOp {
-            node_index: compat_node_index(),
-            range: compat_range(),
-            targets: vec![CoreBlockPyExprWithoutAwaitOrYield::Name(delete.target)],
-        }),
+        BlockPyStmt::Assign(_) | BlockPyStmt::Expr(_) | BlockPyStmt::Delete(_) => stmt,
         BlockPyStmt::If(_) => {
             panic!("structured BlockPy If reached BB block body after linearization")
         }
     }
 }
 
-fn bb_term_from_blockpy_term<E>(terminal: &BlockPyTerm<E>) -> BbTerm
-where
-    E: Clone + Into<Expr>,
-{
+fn bb_term_from_blockpy_term(terminal: &BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>) -> BbTerm {
     match terminal {
         BlockPyTerm::Jump(target) => BbTerm::Jump(target.as_str().to_string()),
         BlockPyTerm::IfTerm(BlockPyIfTerm {
@@ -840,12 +817,12 @@ where
             then_label,
             else_label,
         }) => BbTerm::BrIf {
-            test: CoreBlockPyExprWithoutAwaitOrYield::from_expr(test.clone().into()),
+            test: test.clone(),
             then_label: then_label.as_str().to_string(),
             else_label: else_label.as_str().to_string(),
         },
         BlockPyTerm::BranchTable(branch) => BbTerm::BrTable {
-            index: CoreBlockPyExprWithoutAwaitOrYield::from_expr(branch.index.clone().into()),
+            index: branch.index.clone(),
             targets: branch
                 .targets
                 .iter()
@@ -854,18 +831,11 @@ where
             default_label: branch.default_label.as_str().to_string(),
         },
         BlockPyTerm::Raise(raise_stmt) => BbTerm::Raise {
-            exc: raise_stmt
-                .exc
-                .as_ref()
-                .map(|exc| CoreBlockPyExprWithoutAwaitOrYield::from_expr(exc.clone().into())),
+            exc: raise_stmt.exc.clone(),
             cause: None,
         },
         BlockPyTerm::TryJump(try_jump) => BbTerm::Jump(try_jump.body_label.as_str().to_string()),
-        BlockPyTerm::Return(value) => BbTerm::Ret(
-            value
-                .clone()
-                .map(|expr| CoreBlockPyExprWithoutAwaitOrYield::from_expr(expr.into())),
-        ),
+        BlockPyTerm::Return(value) => BbTerm::Ret(value.clone()),
     }
 }
 

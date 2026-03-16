@@ -1,5 +1,5 @@
-use crate::basic_block::bb_ir::{BbModule, BbOp};
-use crate::py_stmt;
+use crate::basic_block::bb_ir::{BbModule, BbStmt};
+use crate::basic_block::block_py::CoreBlockPyExprWithoutAwaitOrYield;
 use ruff_python_parser::parse_expression;
 use std::env;
 
@@ -43,7 +43,7 @@ pub(crate) fn instrument_bb_module_for_trace(module: &mut BbModule, config: &BbT
         }
         let qualname = function.qualname.clone();
         for block in &mut function.blocks {
-            let trace_stmt = if config.include_params && !block.meta.params.is_empty() {
+            let trace_expr = if config.include_params && !block.meta.params.is_empty() {
                 let params_expr = parse_expression(
                     format!(
                         "__dp_bb_trace_enter({}, {}, {})",
@@ -59,17 +59,28 @@ pub(crate) fn instrument_bb_module_for_trace(module: &mut BbModule, config: &BbT
                         qualname, block.label
                     )
                 });
-                py_stmt!("{value:expr}", value = *params_expr.into_syntax().body)
+                *params_expr.into_syntax().body
             } else {
-                py_stmt!(
-                    "__dp_bb_trace_enter({qualname:literal}, {label:literal})",
-                    qualname = qualname.as_str(),
-                    label = block.label.as_str(),
+                *parse_expression(
+                    format!(
+                        "__dp_bb_trace_enter({}, {})",
+                        quote_python_string(qualname.as_str()),
+                        quote_python_string(block.label.as_str()),
+                    )
+                    .as_str(),
                 )
+                .unwrap_or_else(|err| {
+                    panic!(
+                        "failed to build BB trace expression for {}::{}: {err}",
+                        qualname, block.label
+                    )
+                })
+                .into_syntax()
+                .body
             };
             block.body.insert(
                 0,
-                BbOp::from_stmt(trace_stmt).expect("failed to lower BB trace statement into BbOp"),
+                BbStmt::Expr(CoreBlockPyExprWithoutAwaitOrYield::from_expr(trace_expr)),
             );
         }
     }
@@ -173,7 +184,7 @@ mod tests {
             .blocks
             .iter()
             .flat_map(|block| block.body.iter())
-            .map(|op| crate::ruff_ast_to_string(&op.to_stmt()))
+            .map(crate::basic_block::bb_ir::bb_stmt_text)
             .find(|stmt| stmt.contains("__dp_bb_trace_enter"))
             .expect("missing trace op in f");
         assert!(f_trace.contains("__dp_bb_trace_enter"));
@@ -182,7 +193,7 @@ mod tests {
             .blocks
             .iter()
             .flat_map(|block| block.body.iter())
-            .map(|op| crate::ruff_ast_to_string(&op.to_stmt()))
+            .map(crate::basic_block::bb_ir::bb_stmt_text)
             .any(|stmt| stmt.contains("__dp_bb_trace_enter"));
         assert!(!g_has_trace);
     }

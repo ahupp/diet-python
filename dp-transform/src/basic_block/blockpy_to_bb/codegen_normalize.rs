@@ -1,4 +1,5 @@
 use crate::basic_block::bb_ir;
+use crate::basic_block::block_py::BlockPyStmt;
 use crate::py_expr;
 use crate::transformer::{walk_expr, Transformer};
 use ruff_python_ast::{self as ast, Expr, ExprContext};
@@ -16,15 +17,12 @@ pub fn normalize_bb_module_for_codegen(module: &bb_ir::BbModule) -> bb_ir::BbMod
         for block in &mut function.blocks {
             for op in &mut block.body {
                 match op {
-                    bb_ir::BbOp::Assign(assign) => {
+                    BlockPyStmt::Assign(assign) => {
                         rewrite_bb_expr(&mut rewriter, &mut assign.value)
                     }
-                    bb_ir::BbOp::Expr(expr) => rewrite_bb_expr(&mut rewriter, &mut expr.value),
-                    bb_ir::BbOp::Delete(delete) => {
-                        for target in &mut delete.targets {
-                            rewrite_bb_expr(&mut rewriter, target);
-                        }
-                    }
+                    BlockPyStmt::Expr(expr) => rewrite_bb_expr(&mut rewriter, expr),
+                    BlockPyStmt::Delete(_) => {}
+                    BlockPyStmt::If(_) => panic!("structured BlockPy If is not allowed in BbBlock"),
                 }
             }
             rewrite_term_exprs(&mut rewriter, &mut block.term);
@@ -161,7 +159,10 @@ fn escape_bytes_for_double_quoted_literal(bytes: &[u8]) -> String {
 mod tests {
     use super::normalize_bb_module_for_codegen;
     use crate::{
-        basic_block::bb_ir, transform_str_to_bb_ir_with_options, transformer::Transformer, Options,
+        basic_block::{bb_ir, block_py::BlockPyStmt},
+        transform_str_to_bb_ir_with_options,
+        transformer::Transformer,
+        Options,
     };
     use ruff_python_ast::{Expr, Stmt};
     use std::cell::Cell;
@@ -217,6 +218,79 @@ mod tests {
         probe.visit_stmt(stmt);
     }
 
+    fn probe_bb_exprs(
+        probe: &mut ExprShapeProbe,
+        expr: &crate::basic_block::block_py::CoreBlockPyExprWithoutAwaitOrYield,
+    ) {
+        match expr {
+            crate::basic_block::block_py::CoreBlockPyExprWithoutAwaitOrYield::Name(_) => {}
+            crate::basic_block::block_py::CoreBlockPyExprWithoutAwaitOrYield::Literal(literal) => {
+                match literal {
+                    crate::basic_block::block_py::CoreBlockPyLiteral::StringLiteral(_) => {
+                        probe.saw_string_literal.set(true);
+                    }
+                    crate::basic_block::block_py::CoreBlockPyLiteral::BytesLiteral(_) => {
+                        probe.saw_bytes_literal.set(true);
+                    }
+                    _ => {}
+                }
+            }
+            crate::basic_block::block_py::CoreBlockPyExprWithoutAwaitOrYield::Call(call) => {
+                if let crate::basic_block::block_py::CoreBlockPyExprWithoutAwaitOrYield::Name(
+                    name,
+                ) = call.func.as_ref()
+                {
+                    if name.id.as_str() == "str"
+                        && call.args.len() == 1
+                        && call.keywords.is_empty()
+                        && matches!(
+                            call.args[0],
+                            crate::basic_block::block_py::CoreBlockPyCallArg::Positional(
+                                crate::basic_block::block_py::CoreBlockPyExprWithoutAwaitOrYield::Literal(
+                                    crate::basic_block::block_py::CoreBlockPyLiteral::BytesLiteral(_)
+                                )
+                            )
+                        )
+                    {
+                        probe.saw_str_bytes_call.set(true);
+                    }
+                    if name.id.as_str() == "__dp_decode_literal_bytes" {
+                        probe.saw_decode_literal_call.set(true);
+                    }
+                }
+                probe_bb_exprs(probe, &call.func);
+                for arg in &call.args {
+                    match arg {
+                        crate::basic_block::block_py::CoreBlockPyCallArg::Positional(value)
+                        | crate::basic_block::block_py::CoreBlockPyCallArg::Starred(value) => {
+                            probe_bb_exprs(probe, value);
+                        }
+                    }
+                }
+                for kw in &call.keywords {
+                    match kw {
+                        crate::basic_block::block_py::CoreBlockPyKeywordArg::Named {
+                            value,
+                            ..
+                        }
+                        | crate::basic_block::block_py::CoreBlockPyKeywordArg::Starred(value) => {
+                            probe_bb_exprs(probe, value);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn probe_bb_stmt_exprs(probe: &mut ExprShapeProbe, stmt: &bb_ir::BbStmt) {
+        match stmt {
+            BlockPyStmt::Assign(assign) => probe_bb_exprs(probe, &assign.value),
+            BlockPyStmt::Expr(expr) => probe_bb_exprs(probe, expr),
+            BlockPyStmt::Delete(_) => {}
+            BlockPyStmt::If(_) => panic!("structured BlockPy If is not allowed in BbBlock"),
+        }
+    }
+
     #[test]
     fn lowers_attributes_and_string_literals_for_codegen() {
         let source = r#"
@@ -234,8 +308,7 @@ def f():
         for function in normalized.callable_defs {
             for mut block in function.cfg.blocks {
                 for op in block.body {
-                    let mut stmt = op.to_stmt();
-                    probe_stmt_exprs(&mut probe, &mut stmt);
+                    probe_bb_stmt_exprs(&mut probe, &op);
                 }
                 match &mut block.term {
                     crate::basic_block::bb_ir::BbTerm::BrIf { test, .. } => {
@@ -301,9 +374,7 @@ def f(obj, mapping, key, value):
         let mut text = String::new();
         for function in normalized.callable_defs {
             for block in function.cfg.blocks {
-                text.push_str(&crate::ruff_ast_to_string(&bb_ir::bb_ops_to_stmts(
-                    &block.body,
-                )));
+                text.push_str(&bb_ir::bb_stmts_text(&block.body));
             }
         }
 

@@ -141,9 +141,7 @@ fn bb_module_to_json(module: &bb_ir::BbModule) -> Value {
                 .blocks
                 .iter()
                 .map(|block| {
-                    let ops_text = ruff_ast_to_string(&bb_ir::bb_ops_to_stmts(&block.body))
-                        .trim()
-                        .to_string();
+                    let ops_text = bb_ir::bb_stmts_text(&block.body).trim().to_string();
                     let successors = bb_term_successors(&block.term)
                         .into_iter()
                         .map(|(target, edge_kind)| {
@@ -309,11 +307,7 @@ fn bb_term_successors(term: &bb_ir::BbTerm) -> Vec<(&str, &'static str)> {
 fn expr_to_one_line(
     expr: &crate::basic_block::block_py::CoreBlockPyExprWithoutAwaitOrYield,
 ) -> String {
-    ruff_ast_to_string(&expr.to_expr())
-        .lines()
-        .next()
-        .map(|line| line.trim().to_string())
-        .unwrap_or_default()
+    bb_ir::bb_expr_text(expr)
 }
 
 fn sanitize_clif_testcase_name(name: &str) -> String {
@@ -647,7 +641,7 @@ fn bb_module_to_clif(module: &bb_ir::BbModule) -> String {
             if let Some(exc_name) = block.meta.exc_name.as_ref() {
                 out.push_str(&format!(";     exc_name=%{exc_name}\n"));
             }
-            let ops = ruff_ast_to_string(&bb_ir::bb_ops_to_stmts(&block.body));
+            let ops = bb_ir::bb_stmts_text(&block.body);
             for line in ops.lines().filter(|line| !line.trim().is_empty()) {
                 out.push_str(";     op: ");
                 out.push_str(line.trim_end());
