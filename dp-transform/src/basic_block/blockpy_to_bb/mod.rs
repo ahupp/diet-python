@@ -39,6 +39,9 @@ pub type LoweredCoreBlockPyFunction = LoweredBlockPyFunction<CoreBlockPyCallable
 pub type LoweredCoreBlockPyModuleBundle = CfgModule<LoweredCoreBlockPyFunction>;
 
 #[derive(Clone)]
+pub(crate) struct CoreBlockPyModuleBundleWithoutAwait(pub LoweredCoreBlockPyModuleBundle);
+
+#[derive(Clone)]
 pub(crate) struct LoweredBlockPyModuleBundlePlanEntry {
     pub bundle_plan: LoweredBlockPyFunctionBundlePlan,
     pub main_binding_target: super::bb_ir::BindingTarget,
@@ -251,6 +254,106 @@ pub(crate) fn simplify_lowered_blockpy_module_bundle_exprs(
     module: &LoweredBlockPyModuleBundle,
 ) -> LoweredCoreBlockPyModuleBundle {
     module.map_callable_defs(simplify_lowered_blockpy_function_exprs)
+}
+
+fn core_expr_contains_await(expr: &super::block_py::CoreBlockPyExpr) -> bool {
+    use super::block_py::{CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg};
+
+    match expr {
+        CoreBlockPyExpr::Await(_) => true,
+        CoreBlockPyExpr::Call(call) => {
+            core_expr_contains_await(&call.func)
+                || call.args.iter().any(|arg| match arg {
+                    CoreBlockPyCallArg::Positional(arg) | CoreBlockPyCallArg::Starred(arg) => {
+                        core_expr_contains_await(arg)
+                    }
+                })
+                || call.keywords.iter().any(|keyword| match keyword {
+                    CoreBlockPyKeywordArg::Named { value, .. }
+                    | CoreBlockPyKeywordArg::Starred(value) => core_expr_contains_await(value),
+                })
+        }
+        CoreBlockPyExpr::Yield(yield_expr) => yield_expr
+            .value
+            .as_ref()
+            .is_some_and(|value| core_expr_contains_await(value)),
+        CoreBlockPyExpr::YieldFrom(yield_from_expr) => {
+            core_expr_contains_await(&yield_from_expr.value)
+        }
+        CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => false,
+    }
+}
+
+fn core_stmt_contains_await(stmt: &super::block_py::CoreBlockPyStmt) -> bool {
+    use super::block_py::CoreBlockPyStmt;
+
+    match stmt {
+        CoreBlockPyStmt::Expr(expr) => core_expr_contains_await(expr),
+        CoreBlockPyStmt::Assign(assign) => core_expr_contains_await(&assign.value),
+        CoreBlockPyStmt::Delete(_) => false,
+        CoreBlockPyStmt::If(if_stmt) => {
+            core_expr_contains_await(&if_stmt.test)
+                || if_stmt.body.body.iter().any(core_stmt_contains_await)
+                || if_stmt
+                    .body
+                    .term
+                    .as_ref()
+                    .is_some_and(core_term_contains_await)
+                || if_stmt.orelse.body.iter().any(core_stmt_contains_await)
+                || if_stmt
+                    .orelse
+                    .term
+                    .as_ref()
+                    .is_some_and(core_term_contains_await)
+        }
+    }
+}
+
+fn core_term_contains_await(term: &super::block_py::CoreBlockPyTerm) -> bool {
+    use super::block_py::CoreBlockPyTerm;
+
+    match term {
+        CoreBlockPyTerm::Jump(_) | CoreBlockPyTerm::TryJump(_) => false,
+        CoreBlockPyTerm::IfTerm(if_term) => core_expr_contains_await(&if_term.test),
+        CoreBlockPyTerm::BranchTable(branch) => core_expr_contains_await(&branch.index),
+        CoreBlockPyTerm::Raise(raise_stmt) => raise_stmt
+            .exc
+            .as_ref()
+            .is_some_and(core_expr_contains_await),
+        CoreBlockPyTerm::Return(value) => value.as_ref().is_some_and(core_expr_contains_await),
+    }
+}
+
+fn core_block_contains_await(block: &super::block_py::CoreBlockPyBlock) -> bool {
+    block.body.iter().any(core_stmt_contains_await) || core_term_contains_await(&block.term)
+}
+
+fn core_callable_def_contains_await(callable_def: &CoreBlockPyCallableDef) -> bool {
+    callable_def
+        .doc
+        .as_ref()
+        .is_some_and(core_expr_contains_await)
+        || callable_def.blocks.iter().any(core_block_contains_await)
+}
+
+pub(crate) fn lower_awaits_in_lowered_core_blockpy_module_bundle(
+    module: LoweredCoreBlockPyModuleBundle,
+) -> CoreBlockPyModuleBundleWithoutAwait {
+    for callable_def in &module.callable_defs {
+        if core_callable_def_contains_await(callable_def.callable_def()) {
+            panic!(
+                "core BlockPy await lowering is not explicit yet: await reached the core no-await boundary for {}",
+                callable_def.callable_def().qualname
+            );
+        }
+    }
+    CoreBlockPyModuleBundleWithoutAwait(module)
+}
+
+pub(crate) fn core_blockpy_module_bundle_without_await_to_bundle(
+    module: CoreBlockPyModuleBundleWithoutAwait,
+) -> LoweredCoreBlockPyModuleBundle {
+    module.0
 }
 
 pub(crate) fn lower_core_blockpy_module_bundle_to_bb_module(

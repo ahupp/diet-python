@@ -111,8 +111,14 @@ pub(crate) fn rewrite_module_with_tracker(
     let core_blockpy_bundle = pass_tracker.add_pass("core_blockpy", || {
         basic_block::simplify_lowered_blockpy_module_bundle_exprs(&lowered_blockpy_module)
     });
-    let bb_module =
-        basic_block::lower_core_blockpy_module_bundle_to_bb_module(&core_blockpy_bundle);
+    let core_blockpy_without_await = pass_tracker.add_pass("core_blockpy_without_await", || {
+        basic_block::lower_awaits_in_lowered_core_blockpy_module_bundle(core_blockpy_bundle)
+    });
+    let bb_module = basic_block::lower_core_blockpy_module_bundle_to_bb_module(
+        &basic_block::core_blockpy_module_bundle_without_await_to_bundle(
+            core_blockpy_without_await,
+        ),
+    );
     bb_module
 }
 
