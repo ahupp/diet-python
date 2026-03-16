@@ -6,7 +6,7 @@ use super::await_lower::{coroutine_generator_marker_stmt, lower_coroutine_awaits
 use super::block_py::state::{collect_cell_slots, collect_parameter_names};
 use super::block_py::{
     BlockPyBlock, BlockPyBranchTable, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt,
-    BlockPyTerm,
+    BlockPyStmtFragment, BlockPyTerm,
 };
 use super::bound_names::{collect_bound_names, collect_explicit_global_or_nonlocal_names};
 use super::function_identity::{
@@ -113,24 +113,18 @@ fn collect_deleted_names_in_target(target: &Expr, names: &mut HashSet<String>) {
     }
 }
 
-fn rewrite_blockpy_expr_deleted_name_loads<E>(
-    expr: &mut E,
+fn rewrite_blockpy_expr_deleted_name_loads(
+    expr: &mut Expr,
     rewriter: &mut DeletedNameLoadRewriter<'_>,
-) where
-    E: Clone + Into<Expr> + From<Expr>,
-{
-    let mut raw: Expr = expr.clone().into();
-    rewriter.visit_expr(&mut raw);
-    *expr = raw.into();
+) {
+    rewriter.visit_expr(expr);
 }
 
-pub(crate) fn rewrite_deleted_name_loads<E>(
-    blocks: &mut [BlockPyBlock<E>],
+pub(crate) fn rewrite_deleted_name_loads(
+    blocks: &mut [BlockPyBlock<Expr>],
     deleted_names: &HashSet<String>,
     always_unbound_names: &HashSet<String>,
-) where
-    E: Clone + Into<Expr> + From<Expr>,
-{
+) {
     let mut rewriter = DeletedNameLoadRewriter {
         deleted_names,
         always_unbound_names,
@@ -143,12 +137,10 @@ pub(crate) fn rewrite_deleted_name_loads<E>(
     }
 }
 
-fn rewrite_blockpy_stmt_deleted_name_loads<E>(
-    stmt: &mut BlockPyStmt<E>,
+fn rewrite_blockpy_stmt_deleted_name_loads(
+    stmt: &mut BlockPyStmt<Expr>,
     rewriter: &mut DeletedNameLoadRewriter<'_>,
-) where
-    E: Clone + Into<Expr> + From<Expr>,
-{
+) {
     match stmt {
         BlockPyStmt::Delete(_) => {}
         BlockPyStmt::Expr(expr) => rewrite_blockpy_expr_deleted_name_loads(expr, rewriter),
@@ -163,12 +155,10 @@ fn rewrite_blockpy_stmt_deleted_name_loads<E>(
     }
 }
 
-fn rewrite_blockpy_stmt_fragment_deleted_name_loads<E>(
-    fragment: &mut crate::basic_block::block_py::BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>,
+fn rewrite_blockpy_stmt_fragment_deleted_name_loads(
+    fragment: &mut BlockPyStmtFragment<Expr>,
     rewriter: &mut DeletedNameLoadRewriter<'_>,
-) where
-    E: Clone + Into<Expr> + From<Expr>,
-{
+) {
     for stmt in &mut fragment.body {
         rewrite_blockpy_stmt_deleted_name_loads(stmt, rewriter);
     }
@@ -177,12 +167,10 @@ fn rewrite_blockpy_stmt_fragment_deleted_name_loads<E>(
     }
 }
 
-fn rewrite_blockpy_term_deleted_name_loads<E>(
-    term: &mut BlockPyTerm<E>,
+fn rewrite_blockpy_term_deleted_name_loads(
+    term: &mut BlockPyTerm<Expr>,
     rewriter: &mut DeletedNameLoadRewriter<'_>,
-) where
-    E: Clone + Into<Expr> + From<Expr>,
-{
+) {
     match term {
         BlockPyTerm::Jump(_) | BlockPyTerm::TryJump(_) => {}
         BlockPyTerm::IfTerm(BlockPyIfTerm { test, .. }) => {
