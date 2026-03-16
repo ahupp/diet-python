@@ -52,6 +52,11 @@
     - The desired end state is for `rewrite_module` to show the semantic BlockPy with raw `await` / generator forms, then explicit await lowering, then explicit generator reduction as separate visible steps.
     - This likely requires splitting the current hidden lowering helpers so await removal and generator lowering are typed bundle-to-bundle passes instead of internal side effects.
     - Keep the stage boundaries explicit in the driver so the top-level pipeline shows where those representations change.
+- Determine how to merge `LoweredBlockPyFunction` and `BbFunction`, since the former appears to be a subset of the latter.
+  - Planning note:
+    - The likely end state is one generic lowered-function transport/chassis, with later stages specializing payload types such as callable CFG blocks, function kind metadata, and backend-only fields instead of introducing a wholly separate `BbFunction` concept.
+    - A good first step is to identify which `BbFunction` fields are truly backend-specific and which are just the same lowered-function data carried farther through the pipeline.
+    - Keep the result explicit in the type system so each pass boundary still makes clear what has changed, even if both stages share a generic outer function type.
 
 ## Completed
 
