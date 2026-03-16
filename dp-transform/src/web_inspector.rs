@@ -175,7 +175,7 @@ fn bb_module_to_json(module: &bb_ir::BbModule) -> Value {
                 "entry": function.entry_label(),
                 "paramNames": function.params,
                 "entryLiveins": function.entry_liveins,
-                "localCellSlots": function.local_cell_slots,
+                "localCellSlots": function.local_cell_slots(),
                 "blocks": blocks,
             })
         })

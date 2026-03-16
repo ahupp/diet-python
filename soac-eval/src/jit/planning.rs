@@ -543,7 +543,7 @@ fn build_clif_plan(
         ));
     }
     let ambient_param_names = function
-        .closure_layout
+        .closure_layout()
         .as_ref()
         .map(|layout| {
             layout

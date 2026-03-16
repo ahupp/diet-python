@@ -22,7 +22,7 @@ use super::block_py::{
 };
 use super::cfg_ir::CfgCallableDef;
 use super::lowered_ir::{
-    BindingTarget, BoundCallable, ClosureLayout, FunctionId, LoweredFunctionKind,
+    BindingTarget, BoundCallable, ClosureLayout, FunctionId, LoweredFunction, LoweredFunctionKind,
 };
 use super::stmt_utils::flatten_stmt_boxes;
 use crate::basic_block::ast_to_ast::ast_rewrite::Rewrite;
@@ -35,8 +35,6 @@ use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
-use std::ops::{Deref, DerefMut};
-
 mod compat;
 pub(crate) mod expr_lowering;
 mod stmt_lowering;
@@ -90,47 +88,36 @@ pub(crate) struct GeneratorStmtSequenceLoweringState {
     pub next_block_id: usize,
 }
 
-#[derive(Clone)]
-pub struct LoweredBlockPyFunction<C = SemanticBlockPyCallableDef> {
-    pub(crate) callable_def: BoundCallable<C>,
-    pub(crate) bb_kind: LoweredFunctionKind,
-    pub(crate) block_params: HashMap<String, Vec<String>>,
-    pub(crate) exception_edges: HashMap<String, Option<String>>,
-    pub(crate) runtime_closure_layout: Option<ClosureLayout>,
+#[derive(Debug, Clone)]
+pub struct LoweredBlockPyMetadata {
+    pub bb_kind: LoweredFunctionKind,
+    pub block_params: HashMap<String, Vec<String>>,
+    pub exception_edges: HashMap<String, Option<String>>,
+    pub runtime_closure_layout: Option<ClosureLayout>,
 }
 
-impl<C> Deref for LoweredBlockPyFunction<C> {
-    type Target = C;
+pub type LoweredBlockPyFunction<C = SemanticBlockPyCallableDef> =
+    LoweredFunction<C, LoweredBlockPyMetadata>;
 
-    fn deref(&self) -> &Self::Target {
-        &self.callable_def
-    }
-}
-
-impl<C> DerefMut for LoweredBlockPyFunction<C> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.callable_def
-    }
-}
-
-impl<C> LoweredBlockPyFunction<C> {
-    pub fn binding_target(&self) -> BindingTarget {
-        self.callable_def.binding_target()
-    }
-
+impl<C> LoweredFunction<C, LoweredBlockPyMetadata> {
     pub fn map_callable_def<D>(&self, f: impl FnOnce(&C) -> D) -> LoweredBlockPyFunction<D> {
-        LoweredBlockPyFunction {
-            callable_def: self.callable_def.map_callable(f),
-            bb_kind: self.bb_kind.clone(),
-            block_params: self.block_params.clone(),
-            exception_edges: self.exception_edges.clone(),
-            runtime_closure_layout: self.runtime_closure_layout.clone(),
-        }
+        self.map_callable(f)
     }
 
-    pub fn with_binding_target(mut self, binding_target: BindingTarget) -> Self {
-        self.callable_def = self.callable_def.with_binding_target(binding_target);
-        self
+    pub fn bb_kind(&self) -> &LoweredFunctionKind {
+        &self.extra.bb_kind
+    }
+
+    pub fn block_params(&self) -> &HashMap<String, Vec<String>> {
+        &self.extra.block_params
+    }
+
+    pub fn exception_edges(&self) -> &HashMap<String, Option<String>> {
+        &self.extra.exception_edges
+    }
+
+    pub fn runtime_closure_layout(&self) -> &Option<ClosureLayout> {
+        &self.extra.runtime_closure_layout
     }
 }
 
@@ -403,15 +390,17 @@ pub(crate) fn build_lowered_blockpy_function(
     exception_edges: HashMap<String, Option<String>>,
     runtime_closure_layout: Option<ClosureLayout>,
 ) -> LoweredBlockPyFunction {
-    LoweredBlockPyFunction {
+    LoweredFunction {
         callable_def: BoundCallable {
             callable: callable_def,
             binding_target: BindingTarget::Local,
         },
-        bb_kind,
-        block_params,
-        exception_edges,
-        runtime_closure_layout,
+        extra: LoweredBlockPyMetadata {
+            bb_kind,
+            block_params,
+            exception_edges,
+            runtime_closure_layout,
+        },
     }
 }
 

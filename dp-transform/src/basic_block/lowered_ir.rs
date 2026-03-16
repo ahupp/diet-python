@@ -97,28 +97,68 @@ impl<C> DerefMut for BoundCallable<C> {
 }
 
 #[derive(Debug, Clone)]
-pub struct LoweredCfgFunction<B> {
-    pub cfg: BoundCallable<CfgCallableDef<FunctionId, LoweredFunctionKind, Vec<String>, B>>,
+pub struct LoweredFunction<C, X> {
+    pub callable_def: BoundCallable<C>,
+    pub extra: X,
+}
+
+impl<C, X> LoweredFunction<C, X> {
+    pub fn binding_target(&self) -> BindingTarget {
+        self.callable_def.binding_target()
+    }
+
+    pub fn with_binding_target(mut self, binding_target: BindingTarget) -> Self {
+        self.callable_def = self.callable_def.with_binding_target(binding_target);
+        self
+    }
+
+    pub fn map_callable<D>(&self, f: impl FnOnce(&C) -> D) -> LoweredFunction<D, X>
+    where
+        X: Clone,
+    {
+        LoweredFunction {
+            callable_def: self.callable_def.map_callable(f),
+            extra: self.extra.clone(),
+        }
+    }
+}
+
+impl<C, X> Deref for LoweredFunction<C, X> {
+    type Target = C;
+
+    fn deref(&self) -> &Self::Target {
+        &self.callable_def
+    }
+}
+
+impl<C, X> DerefMut for LoweredFunction<C, X> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.callable_def
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct LoweredCfgMetadata {
     pub closure_layout: Option<ClosureLayout>,
     pub local_cell_slots: Vec<String>,
 }
 
-impl<B> LoweredCfgFunction<B> {
-    pub fn binding_target(&self) -> BindingTarget {
-        self.cfg.binding_target()
+pub type LoweredCfgFunction<B> = LoweredFunction<
+    CfgCallableDef<FunctionId, LoweredFunctionKind, Vec<String>, B>,
+    LoweredCfgMetadata,
+>;
+
+impl<B>
+    LoweredFunction<
+        CfgCallableDef<FunctionId, LoweredFunctionKind, Vec<String>, B>,
+        LoweredCfgMetadata,
+    >
+{
+    pub fn closure_layout(&self) -> &Option<ClosureLayout> {
+        &self.extra.closure_layout
     }
-}
 
-impl<B> Deref for LoweredCfgFunction<B> {
-    type Target = CfgCallableDef<FunctionId, LoweredFunctionKind, Vec<String>, B>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.cfg
-    }
-}
-
-impl<B> DerefMut for LoweredCfgFunction<B> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.cfg
+    pub fn local_cell_slots(&self) -> &[String] {
+        &self.extra.local_cell_slots
     }
 }

@@ -119,7 +119,7 @@ mod tests {
             .iter()
             .find(|func| func.bind_name == bind_name)
             .unwrap_or_else(|| panic!("missing lowered function {bind_name}; got {:?}", bb_module));
-        if direct.closure_layout.is_some() {
+        if direct.closure_layout().is_some() {
             return direct;
         }
         bb_module
@@ -342,7 +342,7 @@ def delegator():
             .expect("bb module should be available");
         let delegator = function_by_name(&bb_module, "delegator");
         let layout = delegator
-            .closure_layout
+            .closure_layout()
             .as_ref()
             .expect("closure-backed generator should record closure layout");
         assert!(
@@ -883,7 +883,7 @@ def outer(scale):
             .expect("bb module should be available");
         let gen = function_by_name(&bb_module, "gen");
         let layout = gen
-            .closure_layout
+            .closure_layout()
             .as_ref()
             .expect("sync generator should record closure layout");
 
@@ -920,7 +920,7 @@ def gen():
             .expect("bb module should be available");
         let gen = function_by_name(&bb_module, "gen");
         let layout = gen
-            .closure_layout
+            .closure_layout()
             .as_ref()
             .expect("sync generator should record closure layout");
 
@@ -967,7 +967,7 @@ def outer(scale):
             .expect("bb module should be available");
         let run = function_by_name(&bb_module, "run");
         let layout = run
-            .closure_layout
+            .closure_layout()
             .as_ref()
             .expect("closure-backed coroutine should record closure layout");
 
@@ -1002,7 +1002,7 @@ def outer(scale):
             .expect("bb module should be available");
         let agen = function_by_name(&bb_module, "agen");
         let layout = agen
-            .closure_layout
+            .closure_layout()
             .as_ref()
             .expect("closure-backed async generator should record closure layout");
 
@@ -1065,7 +1065,7 @@ async def outer(scale):
         assert!(
             generator_callables
                 .iter()
-                .all(|func| func.closure_layout.is_some()),
+                .all(|func| func.closure_layout().is_some()),
             "expected only closure-backed generator callables; got {}",
             generator_names.join(", ")
         );
