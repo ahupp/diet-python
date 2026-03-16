@@ -24,7 +24,8 @@ use crate::basic_block::param_specs::{
     collect_function_param_specs, function_param_specs_to_expr, FunctionParamSpec,
 };
 use crate::basic_block::ruff_to_blockpy::{
-    build_lowered_blockpy_function_bundle, LoweredBlockPyFunction,
+    build_lowered_blockpy_function_bundle, resolve_lowered_blockpy_function_bundle_plan,
+    LoweredBlockPyFunction,
 };
 use crate::template::into_body;
 use crate::transformer::{walk_stmt, Transformer};
@@ -863,7 +864,7 @@ fn rewrite_function_def_stmt_via_blockpy(
         let outer_scope_names = lowered_plan.outer_scope_names.clone();
         let deleted_names = lowered_plan.deleted_names.clone();
         let unbound_local_names = lowered_plan.unbound_local_names.clone();
-        let lowered = build_lowered_blockpy_function_bundle(
+        let resolved_lowered_plan = resolve_lowered_blockpy_function_bundle_plan(
             context,
             lowered_plan,
             next_block_id,
@@ -874,6 +875,10 @@ fn rewrite_function_def_stmt_via_blockpy(
             &mut |prefix, next_block_id| {
                 next_temp_from_counter(reserved_temp_names_stack, prefix, next_block_id)
             },
+        );
+        let lowered = build_lowered_blockpy_function_bundle(
+            resolved_lowered_plan,
+            next_function_id,
             &mut |callable_def| {
                 if !deleted_names.is_empty() {
                     rewrite_deleted_name_loads(

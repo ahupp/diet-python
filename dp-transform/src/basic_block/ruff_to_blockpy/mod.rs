@@ -131,6 +131,22 @@ pub(crate) struct LoweredBlockPyFunctionBundlePlan {
     pub outer_scope_names: HashSet<String>,
 }
 
+pub(crate) struct ResolvedLoweredBlockPyFunctionBundlePlan {
+    pub prepared_function: PreparedBlockPyFunction,
+    pub display_name: String,
+    pub has_yield: bool,
+    pub is_coroutine: bool,
+    pub is_async_generator_runtime: bool,
+    pub is_closure_backed_generator_runtime: bool,
+    pub param_names: Vec<String>,
+    pub extra_closure_state_names: Vec<String>,
+    pub capture_names: Vec<String>,
+    pub label_prefix: String,
+    pub cell_slots: HashSet<String>,
+    pub module_init_mode: bool,
+    pub main_param_specs: BbExpr,
+}
+
 pub(crate) struct PreparedBlockPyFunction {
     pub callable_def: SemanticBlockPyCallableDef,
     pub generator_metadata: Option<GeneratorMetadata>,
@@ -485,17 +501,64 @@ fn build_semantic_blockpy_closure_layout(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn build_lowered_blockpy_function_bundle(
+pub(crate) fn resolve_lowered_blockpy_function_bundle_plan(
     context: &Context,
     plan: LoweredBlockPyFunctionBundlePlan,
     next_block_id: &mut usize,
     next_function_id: &mut usize,
     lower_non_bb_def: &mut impl FnMut(&ast::StmtFunctionDef) -> Vec<Stmt>,
     next_temp: &mut impl FnMut(&str, &mut usize) -> String,
-    prepare_callable_def: &mut impl FnMut(&mut SemanticBlockPyCallableDef),
-) -> LoweredBlockPyFunctionBundle {
+) -> ResolvedLoweredBlockPyFunctionBundlePlan {
     let LoweredBlockPyFunctionBundlePlan {
         prepared_function_plan,
+        display_name,
+        has_yield,
+        is_coroutine,
+        is_async_generator_runtime,
+        is_closure_backed_generator_runtime,
+        param_names,
+        extra_closure_state_names,
+        capture_names,
+        label_prefix,
+        cell_slots,
+        module_init_mode,
+        main_param_specs,
+        deleted_names,
+        unbound_local_names,
+        outer_scope_names,
+    } = plan;
+    let prepared_function = resolve_prepared_blockpy_function_plan(
+        context,
+        prepared_function_plan,
+        next_block_id,
+        next_function_id,
+        lower_non_bb_def,
+        next_temp,
+    );
+    ResolvedLoweredBlockPyFunctionBundlePlan {
+        prepared_function,
+        display_name,
+        has_yield,
+        is_coroutine,
+        is_async_generator_runtime,
+        is_closure_backed_generator_runtime,
+        param_names,
+        extra_closure_state_names,
+        capture_names,
+        label_prefix,
+        cell_slots,
+        module_init_mode,
+        main_param_specs,
+    }
+}
+
+pub(crate) fn build_lowered_blockpy_function_bundle(
+    plan: ResolvedLoweredBlockPyFunctionBundlePlan,
+    next_function_id: &mut usize,
+    prepare_callable_def: &mut impl FnMut(&mut SemanticBlockPyCallableDef),
+) -> LoweredBlockPyFunctionBundle {
+    let ResolvedLoweredBlockPyFunctionBundlePlan {
+        mut prepared_function,
         display_name,
         has_yield,
         is_coroutine,
@@ -508,18 +571,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         mut cell_slots,
         module_init_mode,
         main_param_specs,
-        deleted_names: _,
-        unbound_local_names: _,
-        outer_scope_names: _,
     } = plan;
-    let mut prepared_function = resolve_prepared_blockpy_function_plan(
-        context,
-        prepared_function_plan,
-        next_block_id,
-        next_function_id,
-        lower_non_bb_def,
-        next_temp,
-    );
     prepare_callable_def(&mut prepared_function.callable_def);
     let PreparedBlockPyFunction {
         callable_def: mut blockpy_function,
