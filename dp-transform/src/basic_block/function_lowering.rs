@@ -17,7 +17,7 @@ use super::function_identity::{
 use super::param_specs::function_param_specs_expr;
 use super::ruff_to_blockpy::{
     build_lowered_blockpy_function_bundle, lower_function_body_to_blockpy_function,
-    LoweredBlockPyFunctionBundle,
+    resolve_prepared_blockpy_function_plan, LoweredBlockPyFunctionBundle,
 };
 use super::stmt_utils::{
     flatten_stmt_boxes, should_strip_nonlocal_for_bb, strip_nonlocal_directives,
@@ -401,7 +401,7 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     let doc_expr = function_docstring_expr(func).map(Into::into);
     let label_prefix = next_label_prefix(func.name.id.as_str(), used_label_prefixes);
     let mut local_next_block_id = *next_block_id;
-    let mut prepared_function = lower_function_body_to_blockpy_function(
+    let prepared_function_plan = lower_function_body_to_blockpy_function(
         context,
         func.name.id.as_str(),
         &runtime_input_body,
@@ -419,6 +419,18 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         is_async_generator_runtime,
         is_closure_backed_generator_runtime,
         &cell_slots,
+        &mut local_next_block_id,
+        next_function_id,
+        &mut |func_def| {
+            build_exec_function_def_binding_stmts(func_def, &cell_slots, &outer_scope_names)
+        },
+        &mut |prefix, next_block_id| {
+            next_temp_from_counter(reserved_temp_names_stack, prefix, next_block_id)
+        },
+    );
+    let mut prepared_function = resolve_prepared_blockpy_function_plan(
+        context,
+        prepared_function_plan,
         &mut local_next_block_id,
         next_function_id,
         &mut |func_def| {
