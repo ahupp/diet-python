@@ -966,6 +966,17 @@ def f():
         *function_def.parameters.clone()
     }
 
+    fn function_by_bind_name<'a, E>(
+        module: &'a BlockPyModule<E>,
+        bind_name: &str,
+    ) -> &'a BlockPyCallableDef<E> {
+        module
+            .callable_defs
+            .iter()
+            .find(|function| function.bind_name == bind_name)
+            .unwrap_or_else(|| panic!("missing function {bind_name}"))
+    }
+
     #[test]
     fn renders_blockpy_module_with_module_init_and_nested_blocks() {
         let blockpy = wrapped_blockpy(
@@ -1041,6 +1052,40 @@ def gen():
         assert!(rendered.contains("function gen():"));
         assert!(rendered.contains("generator gen():"));
         assert!(!rendered.contains("generator_state:"));
+    }
+
+    #[test]
+    fn renders_referenced_non_inlined_blocks_for_async_generator_shape() {
+        let blockpy = wrapped_blockpy(
+            r#"
+async def a():
+    return 3
+
+async def no_lying():
+    for i in range((await a()) + 2):
+        yield i
+"#,
+        );
+        let function = function_by_bind_name(&blockpy, "no_lying");
+        let rendered = blockpy_module_to_string(&BlockPyModule {
+            module_init: None,
+            callable_defs: vec![function.clone()],
+        });
+        let layout = BlockRenderLayout::new(function);
+        let inlined_labels = layout
+            .inlined_blocks
+            .iter()
+            .map(|index| function.blocks[*index].label.as_str().to_string())
+            .collect::<HashSet<_>>();
+
+        let missing_labels = collect_referenced_labels_from_blocks(&function.blocks)
+            .into_iter()
+            .map(|label| label.as_str().to_string())
+            .filter(|label| !inlined_labels.contains(label))
+            .filter(|label| !rendered.contains(format!("block {label}:").as_str()))
+            .collect::<Vec<_>>();
+
+        assert!(missing_labels.is_empty(), "{rendered}");
     }
 
     #[test]
