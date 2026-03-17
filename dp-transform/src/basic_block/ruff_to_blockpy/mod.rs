@@ -1375,12 +1375,13 @@ where
     FDef: FnMut(&ast::StmtFunctionDef) -> Vec<Stmt>,
     FTemp: FnMut(&str, &mut usize) -> String,
 {
+    let needs_generator_lowering = has_yield || coroutine_via_generator;
     let blockpy_kind = blockpy_kind_for_lowered_runtime(
         is_async_generator_runtime,
         coroutine_via_generator,
         has_yield,
     );
-    if has_yield {
+    if needs_generator_lowering {
         let semantic_input = build_semantic_generator_input(
             context,
             fn_name,

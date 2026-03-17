@@ -676,6 +676,11 @@ mod tests {
             crate::basic_block::blockpy_module_to_string(&self.core_blockpy_module())
         }
 
+        fn pass_text(&self, name: &str) -> String {
+            crate::basic_block::render_tracked_pass_text(&self.result, name)
+                .unwrap_or_else(|| panic!("expected renderable pass {name}"))
+        }
+
         fn bb_module(&self) -> &BbModule {
             self.result
                 .bb_module
@@ -754,6 +759,23 @@ mod tests {
     fn assert_rewritten_ast_contains(lowered: &TrackedLowering, needle: &str) {
         let rendered = lowered.rewritten_ast_text();
         assert!(rendered.contains(needle), "{rendered}");
+    }
+
+    #[test]
+    fn semantic_blockpy_keeps_plain_coroutines_without_fake_yield_marker() {
+        let source = r#"
+async def foo():
+    return 1
+
+async def classify():
+    return await foo()
+"#;
+
+        let lowered = TrackedLowering::new(source);
+        let rendered = lowered.pass_text("semantic_blockpy");
+        assert!(rendered.contains("kind: coroutine"), "{rendered}");
+        assert!(rendered.contains("return await foo()"), "{rendered}");
+        assert!(!rendered.contains("yield __dp_NONE"), "{rendered}");
     }
 
     #[test]

@@ -2,7 +2,7 @@ use super::annotation_export::{
     build_exec_function_def_binding_stmts, collect_capture_names, is_annotation_helper_name,
     rewrite_annotation_helper_defs_as_exec_calls, should_keep_non_lowered_for_annotationlib,
 };
-use super::await_lower::{coroutine_generator_marker_stmt, lower_coroutine_awaits_to_yield_from};
+use super::await_lower::lower_coroutine_awaits_to_yield_from;
 use super::block_py::state::{collect_cell_slots, collect_parameter_names};
 use super::block_py::{
     BlockPyBlock, BlockPyBranchTable, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt,
@@ -328,7 +328,7 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         };
     let param_names = collect_parameter_names(&func.parameters);
     let has_yield_original = has_yield_exprs_in_stmts(&lowered_input_body);
-    let mut runtime_input_body = prune_dead_stmt_suffixes(&lowered_input_body);
+    let runtime_input_body = prune_dead_stmt_suffixes(&lowered_input_body);
     let original_runtime_input_body = runtime_input_body.clone();
     let mut legacy_async_runtime_input_body = None;
     let mut legacy_async_fallback_removes_all_awaits = false;
@@ -338,12 +338,7 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         legacy_async_fallback_removes_all_awaits = !has_await_in_stmts(&lowered_async_body);
         legacy_async_runtime_input_body = Some(lowered_async_body);
     }
-    let mut coroutine_via_generator = func.is_async && !has_yield_original;
-    if coroutine_via_generator {
-        if coroutine_via_generator && !has_yield_exprs_in_stmts(&runtime_input_body) {
-            runtime_input_body.insert(0, coroutine_generator_marker_stmt());
-        }
-    }
+    let coroutine_via_generator = func.is_async && !has_yield_original;
     let mut outer_scope_names = collect_bound_names(&runtime_input_body);
     outer_scope_names.extend(param_names.iter().cloned());
     let runtime_input_body =
@@ -374,7 +369,8 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         return None;
     }
     let is_async_generator_runtime = func.is_async && !coroutine_via_generator;
-    let is_closure_backed_generator_runtime = has_yield;
+    let needs_generator_runtime = has_yield || coroutine_via_generator;
+    let is_closure_backed_generator_runtime = needs_generator_runtime;
 
     let end_label = next_label(func.name.id.as_str(), next_block_id);
     let identity = resolve_runtime_function_identity(func, function_identity_by_node, parent_name);
@@ -446,7 +442,7 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         main_function_id,
         prepared_function_plan,
         display_name: identity.display_name.clone(),
-        has_yield,
+        has_yield: needs_generator_runtime,
         is_coroutine: coroutine_via_generator,
         is_async_generator_runtime,
         is_closure_backed_generator_runtime,

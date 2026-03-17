@@ -351,7 +351,3 @@ pub(crate) fn blockpy_blocks_contain_await_exprs(blocks: &[SemanticBlockPyBlock]
             || blockpy_term_contains_await(&block.term)
     })
 }
-
-pub(crate) fn coroutine_generator_marker_stmt() -> Box<Stmt> {
-    Box::new(py_stmt!("if False:\n    yield __dp_NONE"))
-}
