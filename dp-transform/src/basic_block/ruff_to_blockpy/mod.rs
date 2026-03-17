@@ -1942,14 +1942,8 @@ def gen(n):
 "#,
         );
         let rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
-        assert!(
-            rendered.contains("function gen_resume(n)\n    kind: generator"),
-            "{rendered}"
-        );
-        assert!(
-            rendered.contains("function gen(n)\n    kind: function"),
-            "{rendered}"
-        );
+        assert!(rendered.contains("generator gen(n):"), "{rendered}");
+        assert!(rendered.contains("function gen(n):"), "{rendered}");
         assert!(rendered.contains("branch_table"));
         assert!(!rendered.contains("yield n"));
     }

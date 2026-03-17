@@ -773,7 +773,7 @@ async def classify():
 
         let lowered = TrackedLowering::new(source);
         let rendered = lowered.pass_text("semantic_blockpy");
-        assert!(rendered.contains("kind: coroutine"), "{rendered}");
+        assert!(rendered.contains("coroutine classify():"), "{rendered}");
         assert!(rendered.contains("return await foo()"), "{rendered}");
         assert!(!rendered.contains("yield __dp_NONE"), "{rendered}");
     }
@@ -1086,7 +1086,7 @@ def choose(xs):
         let lowered = TrackedLowering::new(source);
         let blockpy_rendered = lowered.blockpy_text();
         assert!(
-            blockpy_rendered.contains("function _dp_listcomp"),
+            blockpy_rendered.contains("function choose.<locals>._dp_listcomp_"),
             "{blockpy_rendered}"
         );
         assert!(
@@ -1105,7 +1105,7 @@ def choose(xs):
         let lowered = TrackedLowering::new(source);
         let blockpy_rendered = lowered.blockpy_text();
         assert!(
-            blockpy_rendered.contains("function _dp_genexpr"),
+            blockpy_rendered.contains("function choose.<locals>.<genexpr>("),
             "{blockpy_rendered}"
         );
         assert!(
@@ -1124,7 +1124,7 @@ def choose():
         let lowered = TrackedLowering::new(source);
         let blockpy_rendered = lowered.blockpy_text();
         assert!(
-            blockpy_rendered.contains("function _dp_lambda"),
+            blockpy_rendered.contains("function choose.<locals>.<lambda>("),
             "{blockpy_rendered}"
         );
         assert!(

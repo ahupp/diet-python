@@ -6,10 +6,7 @@ x = a[b]
 
 # module_init: _dp_module_init
 
-# function _dp_module_init()
-#     kind: function
-#     bind: _dp_module_init
-#     qualname: _dp_module_init
+# function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", a[b])
 #         return
@@ -22,10 +19,7 @@ x = a[1:2:3]
 
 # module_init: _dp_module_init
 
-# function _dp_module_init()
-#     kind: function
-#     bind: _dp_module_init
-#     qualname: _dp_module_init
+# function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", a[1:2:3])
 #         return
@@ -38,10 +32,7 @@ x = a + b
 
 # module_init: _dp_module_init
 
-# function _dp_module_init()
-#     kind: function
-#     bind: _dp_module_init
-#     qualname: _dp_module_init
+# function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", a + b)
 #         return
@@ -54,10 +45,7 @@ x = a | b
 
 # module_init: _dp_module_init
 
-# function _dp_module_init()
-#     kind: function
-#     bind: _dp_module_init
-#     qualname: _dp_module_init
+# function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", a | b)
 #         return
@@ -70,10 +58,7 @@ x = -a
 
 # module_init: _dp_module_init
 
-# function _dp_module_init()
-#     kind: function
-#     bind: _dp_module_init
-#     qualname: _dp_module_init
+# function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", -a)
 #         return
@@ -86,10 +71,7 @@ x = a and b or c
 
 # module_init: _dp_module_init
 
-# function _dp_module_init()
-#     kind: function
-#     bind: _dp_module_init
-#     qualname: _dp_module_init
+# function _dp_module_init():
 #     block start:
 #         _dp_target_2 = a
 #         if _dp_target_2:
@@ -108,10 +90,7 @@ x = a < b
 
 # module_init: _dp_module_init
 
-# function _dp_module_init()
-#     kind: function
-#     bind: _dp_module_init
-#     qualname: _dp_module_init
+# function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", __dp_lt(a, b))
 #         return
@@ -124,10 +103,7 @@ x = a < b < c
 
 # module_init: _dp_module_init
 
-# function _dp_module_init()
-#     kind: function
-#     bind: _dp_module_init
-#     qualname: _dp_module_init
+# function _dp_module_init():
 #     block start:
 #         _dp_compare_1 = a
 #         _dp_compare_3 = b
@@ -145,10 +121,7 @@ x = a not in b
 
 # module_init: _dp_module_init
 
-# function _dp_module_init()
-#     kind: function
-#     bind: _dp_module_init
-#     qualname: _dp_module_init
+# function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", __dp_not_(__dp_contains(b, a)))
 #         return
@@ -161,10 +134,7 @@ x = a if cond else b
 
 # module_init: _dp_module_init
 
-# function _dp_module_init()
-#     kind: function
-#     bind: _dp_module_init
-#     qualname: _dp_module_init
+# function _dp_module_init():
 #     block start:
 #         if cond:
 #             _dp_tmp_1 = a
@@ -181,10 +151,7 @@ x = (y := f())
 
 # module_init: _dp_module_init
 
-# function _dp_module_init()
-#     kind: function
-#     bind: _dp_module_init
-#     qualname: _dp_module_init
+# function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", __dp_store_global(globals(), "y", f()))
 #         return
@@ -197,18 +164,12 @@ x = lambda y: y + 1
 
 # module_init: _dp_module_init
 
-# function _dp_lambda_1(y)
-#     kind: function
-#     bind: _dp_lambda_1
-#     qualname: <lambda>
+# function <lambda>(y):
 #     display_name: <lambda>
 #     block start:
 #         return y + 1
 
-# function _dp_module_init()
-#     kind: function
-#     bind: _dp_module_init
-#     qualname: _dp_module_init
+# function _dp_module_init():
 #     block start:
 #         _dp_lambda_1 = __dp_make_function("start", 0, "<lambda>", "<lambda>", __dp_tuple("y"), __dp_tuple(__dp_tuple("y", None, __dp__.NO_DEFAULT)), __dp_globals(), __name__, None, None)
 #         __dp_store_global(globals(), "x", _dp_lambda_1)
@@ -222,10 +183,7 @@ x = (i for i in it)
 
 # module_init: _dp_module_init
 
-# function _dp_genexpr_1_resume(_dp_iter_2)
-#     kind: generator
-#     bind: _dp_genexpr_1_resume
-#     qualname: <genexpr>
+# generator <genexpr>(_dp_iter_2):
 #     display_name: _dp_resume
 #     entry_liveins: [_dp_self, _dp_send_value, _dp_resume_exc, _dp_cell__dp_iter_2, _dp_cell__dp_iter_3, _dp_cell__dp_tmp_4, _dp_cell_i, _dp_cell__dp_pc, _dp_cell__dp_yieldfrom]
 #     local_cell_slots: [_dp_cell__dp_iter_2, _dp_cell__dp_iter_3, _dp_cell__dp_pc, _dp_cell__dp_tmp_4, _dp_cell__dp_yieldfrom, _dp_cell_i]
@@ -304,10 +262,7 @@ x = (i for i in it)
 #         __dp_raise_uncaught_generator_exception(_dp_uncaught_exc_13)
 #         jump _dp_bb__dp_genexpr_1_uncaught_raise
 
-# function _dp_genexpr_1(_dp_iter_2)
-#     kind: function
-#     bind: _dp_genexpr_1
-#     qualname: <genexpr>
+# function <genexpr>(_dp_iter_2):
 #     display_name: <genexpr>
 #     local_cell_slots: [_dp_cell__dp_iter_2, _dp_cell__dp_iter_3, _dp_cell__dp_pc, _dp_cell__dp_tmp_4, _dp_cell__dp_yieldfrom, _dp_cell_i]
 #     block start:
@@ -319,10 +274,7 @@ x = (i for i in it)
 #         _dp_cell__dp_yieldfrom = __dp_make_cell(None)
 #         return __dp_make_closure_generator(__dp_def_hidden_resume_fn("start", 2, "_dp_resume", "<genexpr>", __dp_tuple("_dp_self", "_dp_send_value", "_dp_resume_exc", "_dp_cell__dp_iter_2", "_dp_cell__dp_iter_3", "_dp_cell__dp_tmp_4", "_dp_cell_i", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple("_dp_cell__dp_iter_2", "_dp_cell__dp_iter_3", "_dp_cell__dp_tmp_4", "_dp_cell_i", "_dp_cell__dp_pc", "_dp_cell__dp_yieldfrom"), __dp_tuple(_dp_cell__dp_iter_2, _dp_cell__dp_iter_3, _dp_cell__dp_tmp_4, _dp_cell_i, _dp_cell__dp_pc, _dp_cell__dp_yieldfrom), __dp_globals(), __name__, async_gen=False), "<genexpr>", "<genexpr>")
 
-# function _dp_module_init()
-#     kind: function
-#     bind: _dp_module_init
-#     qualname: _dp_module_init
+# function _dp_module_init():
 #     block start:
 #         _dp_genexpr_1 = __dp_make_function("start", 0, "<genexpr>", "<genexpr>", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple("_dp_iter_2", None, __dp__.NO_DEFAULT)), __dp_globals(), __name__, None, None)
 #         __dp_store_global(globals(), "x", _dp_genexpr_1(__dp_iter(it)))
@@ -336,10 +288,7 @@ x = [a, b]
 
 # module_init: _dp_module_init
 
-# function _dp_module_init()
-#     kind: function
-#     bind: _dp_module_init
-#     qualname: _dp_module_init
+# function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", [a, b])
 #         return
@@ -352,10 +301,7 @@ x = [a, *b]
 
 # module_init: _dp_module_init
 
-# function _dp_module_init()
-#     kind: function
-#     bind: _dp_module_init
-#     qualname: _dp_module_init
+# function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", [a, *b])
 #         return
@@ -368,10 +314,7 @@ x = (a, *b)
 
 # module_init: _dp_module_init
 
-# function _dp_module_init()
-#     kind: function
-#     bind: _dp_module_init
-#     qualname: _dp_module_init
+# function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", (a, *b))
 #         return
@@ -384,10 +327,7 @@ x = {a, b}
 
 # module_init: _dp_module_init
 
-# function _dp_module_init()
-#     kind: function
-#     bind: _dp_module_init
-#     qualname: _dp_module_init
+# function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", {a, b})
 #         return
@@ -400,10 +340,7 @@ x = {"a": 1, "b": 2}
 
 # module_init: _dp_module_init
 
-# function _dp_module_init()
-#     kind: function
-#     bind: _dp_module_init
-#     qualname: _dp_module_init
+# function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", {"a": 1, "b": 2})
 #         return
@@ -416,10 +353,7 @@ x = {"a": 1, **m, "b": 2}
 
 # module_init: _dp_module_init
 
-# function _dp_module_init()
-#     kind: function
-#     bind: _dp_module_init
-#     qualname: _dp_module_init
+# function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", {"a": 1, **m, "b": 2})
 #         return
@@ -432,10 +366,7 @@ x = [i for i in it]
 
 # module_init: _dp_module_init
 
-# function _dp_listcomp_3(_dp_iter_2)
-#     kind: function
-#     bind: _dp_listcomp_3
-#     qualname: _dp_listcomp_3
+# function _dp_listcomp_3(_dp_iter_2):
 #     display_name: <listcomp>
 #     block start:
 #         _dp_tmp_1 = []
@@ -456,10 +387,7 @@ x = [i for i in it]
 #                             _dp_tmp_1.append(i)
 #                             jump _dp_bb__dp_listcomp_3_3
 
-# function _dp_module_init()
-#     kind: function
-#     bind: _dp_module_init
-#     qualname: _dp_module_init
+# function _dp_module_init():
 #     block start:
 #         _dp_listcomp_3 = __dp_make_function("start", 0, "<listcomp>", "_dp_listcomp_3", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple("_dp_iter_2", None, __dp__.NO_DEFAULT)), __dp_globals(), __name__, None, None)
 #         __dp_store_global(globals(), "x", _dp_listcomp_3(it))
@@ -473,10 +401,7 @@ x = {i for i in it}
 
 # module_init: _dp_module_init
 
-# function _dp_setcomp_3(_dp_iter_2)
-#     kind: function
-#     bind: _dp_setcomp_3
-#     qualname: _dp_setcomp_3
+# function _dp_setcomp_3(_dp_iter_2):
 #     display_name: <setcomp>
 #     block start:
 #         _dp_tmp_1 = set()
@@ -497,10 +422,7 @@ x = {i for i in it}
 #                             _dp_tmp_1.add(i)
 #                             jump _dp_bb__dp_setcomp_3_3
 
-# function _dp_module_init()
-#     kind: function
-#     bind: _dp_module_init
-#     qualname: _dp_module_init
+# function _dp_module_init():
 #     block start:
 #         _dp_setcomp_3 = __dp_make_function("start", 0, "<setcomp>", "_dp_setcomp_3", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple("_dp_iter_2", None, __dp__.NO_DEFAULT)), __dp_globals(), __name__, None, None)
 #         __dp_store_global(globals(), "x", _dp_setcomp_3(it))
@@ -514,10 +436,7 @@ x = {k: v for k, v in it}
 
 # module_init: _dp_module_init
 
-# function _dp_dictcomp_3(_dp_iter_2)
-#     kind: function
-#     bind: _dp_dictcomp_3
-#     qualname: _dp_dictcomp_3
+# function _dp_dictcomp_3(_dp_iter_2):
 #     display_name: <dictcomp>
 #     block start:
 #         _dp_tmp_1 = {}
@@ -541,10 +460,7 @@ x = {k: v for k, v in it}
 #                             __dp_setitem(_dp_tmp_1, k, v)
 #                             jump _dp_bb__dp_dictcomp_3_3
 
-# function _dp_module_init()
-#     kind: function
-#     bind: _dp_module_init
-#     qualname: _dp_module_init
+# function _dp_module_init():
 #     block start:
 #         _dp_dictcomp_3 = __dp_make_function("start", 0, "<dictcomp>", "_dp_dictcomp_3", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple("_dp_iter_2", None, __dp__.NO_DEFAULT)), __dp_globals(), __name__, None, None)
 #         __dp_store_global(globals(), "x", _dp_dictcomp_3(it))
@@ -558,10 +474,7 @@ x = f().y
 
 # module_init: _dp_module_init
 
-# function _dp_module_init()
-#     kind: function
-#     bind: _dp_module_init
-#     qualname: _dp_module_init
+# function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", f().y)
 #         return
@@ -574,10 +487,7 @@ x = f"{a}"
 
 # module_init: _dp_module_init
 
-# function _dp_module_init()
-#     kind: function
-#     bind: _dp_module_init
-#     qualname: _dp_module_init
+# function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", f"{a}")
 #         return
@@ -590,10 +500,7 @@ x = t"{a}"
 
 # module_init: _dp_module_init
 
-# function _dp_module_init()
-#     kind: function
-#     bind: _dp_module_init
-#     qualname: _dp_module_init
+# function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", t"{a}")
 #         return
@@ -606,10 +513,7 @@ x = 1j
 
 # module_init: _dp_module_init
 
-# function _dp_module_init()
-#     kind: function
-#     bind: _dp_module_init
-#     qualname: _dp_module_init
+# function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", 1j)
 #         return
@@ -622,10 +526,7 @@ x = 1.234567890123456789
 
 # module_init: _dp_module_init
 
-# function _dp_module_init()
-#     kind: function
-#     bind: _dp_module_init
-#     qualname: _dp_module_init
+# function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", 1.2345678901234567)
 #         return

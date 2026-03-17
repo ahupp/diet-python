@@ -60,11 +60,12 @@ impl BlockPyFormatter {
         let parameter_names = collect_parameter_names(&function.params);
         let referenced_labels = collect_referenced_labels_from_blocks(&function.blocks);
         let render_layout = BlockRenderLayout::new(function);
-        self.line(format!("function {}({params})", function.bind_name));
+        self.line(format!(
+            "{} {}({params}):",
+            function_kind_name(function.kind),
+            function.qualname
+        ));
         self.with_indent(|this| {
-            this.line(format!("kind: {}", function_kind_name(function.kind)));
-            this.line(format!("bind: {}", function.bind_name));
-            this.line(format!("qualname: {}", function.qualname));
             if function.display_name != function.bind_name {
                 this.line(format!("display_name: {}", function.display_name));
             }
@@ -980,10 +981,8 @@ def classify(a, /, b: int = 1, *args, c=2, **kwargs):
         let rendered = blockpy_module_to_string(&blockpy);
 
         assert!(rendered.contains("module_init: _dp_module_init"));
-        assert!(rendered.contains(
-            "function classify(a, /, b: int = 1, *args, c = 2, **kwargs)\n    kind: function\n    bind: classify\n    qualname: classify"
-        ));
-        assert!(rendered.contains("function _dp_module_init()"));
+        assert!(rendered.contains("function classify(a, /, b: int = 1, *args, c = 2, **kwargs):"));
+        assert!(rendered.contains("function _dp_module_init():"));
         assert!(rendered.contains("block start:"));
         assert!(rendered.contains("if_term a:"));
         assert!(rendered.contains("return \"yes\""));
@@ -1026,7 +1025,7 @@ def classify(n):
         let rendered = blockpy_module_to_string(&blockpy);
 
         assert_eq!(blockpy.module_init.as_deref(), Some("_dp_module_init"));
-        assert!(rendered.contains("function _dp_module_init()"));
+        assert!(rendered.contains("function _dp_module_init():"));
     }
 
     #[test]
@@ -1039,8 +1038,8 @@ def gen():
         );
         let rendered = blockpy_module_to_string(&blockpy);
 
-        assert!(rendered.contains("function gen()\n    kind: function"));
-        assert!(rendered.contains("function gen_resume()\n    kind: generator"));
+        assert!(rendered.contains("function gen():"));
+        assert!(rendered.contains("generator gen():"));
         assert!(!rendered.contains("generator_state:"));
     }
 
@@ -1087,7 +1086,7 @@ def gen():
         });
 
         assert!(rendered.contains(
-            "function gen()\n    kind: function\n    bind: gen\n    qualname: gen\n    entry_liveins: [_dp_self, _dp_resume_exc]\n    local_cell_slots: [_dp_cell__dp_pc]\n    freevars: [factor->_dp_cell_factor@inherited]\n    cellvars: [total->_dp_cell_total@deferred]\n    runtime_cells: [_dp_pc->_dp_cell__dp_pc@pc_unstarted]"
+            "function gen():\n    entry_liveins: [_dp_self, _dp_resume_exc]\n    local_cell_slots: [_dp_cell__dp_pc]\n    freevars: [factor->_dp_cell_factor@inherited]\n    cellvars: [total->_dp_cell_total@deferred]\n    runtime_cells: [_dp_pc->_dp_cell__dp_pc@pc_unstarted]"
         ));
         assert!(!rendered.contains("entry:"));
     }

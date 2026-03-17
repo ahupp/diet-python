@@ -517,8 +517,8 @@ def f(x):
 
         assert!(semantic_rendered.contains("__dp__.NO_DEFAULT"));
         assert!(core_rendered.contains("__dp_getattr(__dp__, \"NO_DEFAULT\")"));
-        assert!(semantic_rendered.contains("function f(x)"));
-        assert!(core_rendered.contains("function f(x)"));
+        assert!(semantic_rendered.contains("function f(x):"));
+        assert!(core_rendered.contains("function f(x):"));
         assert!(semantic_rendered.contains("return 1"));
         assert!(core_rendered.contains("return 1"));
     }
