@@ -242,15 +242,15 @@ build-web-inspector:
   set -e
   exit "$STATUS"
 
-run-web-inspector: build-web-inspector ensure-cpython
+run-web-inspector: build-web-inspector (build-extension "debug") ensure-venv
   #!/usr/bin/env bash
   echo "[2/3] Starting web server in $WEB_DIR on $URL ..."
 
-  if [ ! -x "$CPYTHON_BIN" ]; then
-    PYTHON_BIN="$(command -v python3)"
-  else
-    PYTHON_BIN="$CPYTHON_BIN"
+  if [ ! -x "$VENV_DIR/bin/python" ]; then
+    echo "venv python not found at $VENV_DIR/bin/python" >&2
+    exit 1
   fi
+  PYTHON_BIN="$VENV_DIR/bin/python"
 
   cd "$REPO_ROOT"
   HOST="$HOST" PORT="$PORT" "$PYTHON_BIN" web/inspector_server.py >"$LOG_FILE" 2>&1 &
