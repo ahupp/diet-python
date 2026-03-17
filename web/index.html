@@ -461,9 +461,21 @@ function makeSourceEditor() {
   return textarea;
 }
 
-function renderStep(container, step) {
+function renderSourceEditor(container) {
+  const existing = container.querySelector("textarea");
+  if (existing) {
+    if (existing.value !== state.source) {
+      existing.value = state.source;
+    }
+    return;
+  }
   container.innerHTML = "";
+  container.appendChild(makeSourceEditor());
+}
+
+function renderStep(container, step) {
   if (!step) {
+    container.innerHTML = "";
     const placeholder = document.createElement("div");
     placeholder.className = "placeholder";
     placeholder.textContent = "No later pass.";
@@ -471,9 +483,10 @@ function renderStep(container, step) {
     return;
   }
   if (step.key === "input_source") {
-    container.appendChild(makeSourceEditor());
+    renderSourceEditor(container);
     return;
   }
+  container.innerHTML = "";
   container.appendChild(makeReadonlyStep(step.text));
 }
 
