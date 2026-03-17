@@ -121,7 +121,7 @@ pub(crate) fn run_transform_fixture_tests(fixture: &str) {
 fn blockpy_output_for_snapshot(actual: &str) -> String {
     let lowered = transform_str_to_ruff_with_options(actual, Options::for_test()).unwrap();
     let mut output = lowered
-        .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>()
+        .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>("semantic_blockpy")
         .map(|bundle| {
             crate::basic_block::blockpy_module_to_string(
                 &crate::basic_block::project_lowered_module_callable_defs(

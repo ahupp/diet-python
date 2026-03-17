@@ -503,7 +503,7 @@ def f(x):
             Options::for_test(),
         )
         .unwrap()
-        .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>()
+        .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>("semantic_blockpy")
         .map(|bundle| {
             crate::basic_block::project_lowered_module_callable_defs(
                 bundle,
@@ -678,7 +678,7 @@ def f(*, d={"metaclass": Meta}, **kw):
             Options::for_test(),
         )
         .unwrap()
-        .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>()
+        .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>("semantic_blockpy")
         .map(|bundle| {
             crate::basic_block::project_lowered_module_callable_defs(
                 bundle,

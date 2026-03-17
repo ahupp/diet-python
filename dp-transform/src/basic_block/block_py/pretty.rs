@@ -931,7 +931,7 @@ mod tests {
     fn wrapped_blockpy(source: &str) -> BlockPyModule {
         crate::transform_str_to_ruff_with_options(source, crate::Options::for_test())
             .unwrap()
-            .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>()
+            .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>("semantic_blockpy")
             .map(|bundle| {
                 crate::basic_block::project_lowered_module_callable_defs(
                     bundle,
@@ -1009,7 +1009,7 @@ def classify(n):
         )
         .unwrap();
         let blockpy = lowered
-            .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>()
+            .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>("semantic_blockpy")
             .map(|bundle| {
                 crate::basic_block::project_lowered_module_callable_defs(
                     bundle,

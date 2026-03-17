@@ -18,7 +18,7 @@ pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> (BlockPyModul
     let mut pass_tracker = PassTracker::new();
     let bb_module = rewrite_module_with_tracker(context, module, &mut pass_tracker);
     let blockpy_module = pass_tracker
-        .get::<crate::basic_block::LoweredBlockPyModuleBundle>()
+        .get::<crate::basic_block::LoweredBlockPyModuleBundle>("semantic_blockpy")
         .map(|bundle| {
             basic_block::project_lowered_module_callable_defs(
                 bundle,

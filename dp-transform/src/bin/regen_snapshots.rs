@@ -75,7 +75,7 @@ fn qualified_case_name(path: &Path, block: &FixtureBlock) -> Result<String, Stri
 
 fn render_blockpy_snapshot(result: &dp_transform::LoweringResult) -> (String, usize, usize) {
     let blockpy = result
-        .get_pass::<dp_transform::basic_block::LoweredBlockPyModuleBundle>()
+        .get_pass::<dp_transform::basic_block::LoweredBlockPyModuleBundle>("semantic_blockpy")
         .map(|bundle| {
             dp_transform::basic_block::project_lowered_module_callable_defs(
                 bundle,

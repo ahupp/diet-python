@@ -4,7 +4,7 @@ use ruff_python_parser::parse_module;
 pub use ruff_python_parser::ParseError;
 use ruff_source_file::LineEnding;
 use ruff_text_size::TextRange;
-use std::any::{type_name, Any};
+use std::any::Any;
 use std::sync::Once;
 use std::time::{Duration, Instant};
 
@@ -105,9 +105,8 @@ impl PassTracker {
         let value = build();
         let elapsed = timing_elapsed(start);
         assert!(
-            !self.passes.iter().any(|pass| pass.value.is::<T>()),
-            "PassTracker already contains a pass for type {}",
-            type_name::<T>()
+            !self.passes.iter().any(|pass| pass.name == name),
+            "PassTracker already contains a pass named {name}",
         );
         self.passes.push(TrackedPass {
             name: name.to_string(),
@@ -117,11 +116,11 @@ impl PassTracker {
         value
     }
 
-    pub(crate) fn get<T: Any>(&self) -> Option<&T> {
+    pub(crate) fn get<T: Any>(&self, name: &str) -> Option<&T> {
         self.passes
             .iter()
-            .rev()
-            .find_map(|pass| pass.value.downcast_ref::<T>())
+            .find(|pass| pass.name == name)
+            .and_then(|pass| pass.value.downcast_ref::<T>())
     }
 
     fn names(&self) -> impl Iterator<Item = &str> {
@@ -137,8 +136,8 @@ impl PassTracker {
 }
 
 impl LoweringResult {
-    pub fn get_pass<T: Any>(&self) -> Option<&T> {
-        self.passes.get::<T>()
+    pub fn get_pass<T: Any>(&self, name: &str) -> Option<&T> {
+        self.passes.get::<T>(name)
     }
 
     pub fn pass_names(&self) -> impl Iterator<Item = &str> {
@@ -313,11 +312,11 @@ mod tests {
     use super::PassTracker;
 
     #[test]
-    #[should_panic(expected = "PassTracker already contains a pass for type i32")]
-    fn pass_tracker_rejects_duplicate_types() {
+    #[should_panic(expected = "PassTracker already contains a pass named one")]
+    fn pass_tracker_rejects_duplicate_names() {
         let mut tracker = PassTracker::new();
         let _ = tracker.add_pass("one", || 1_i32);
-        let _ = tracker.add_pass("two", || 2_i32);
+        let _ = tracker.add_pass("one", || 2_i32);
     }
 }
 

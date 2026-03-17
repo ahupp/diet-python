@@ -63,7 +63,9 @@ mod tests {
 
         fn rewritten_ast(&self) -> &StmtBody {
             self.result
-                .get_pass::<RewrittenAstAfterInitialSimplify>()
+                .get_pass::<RewrittenAstAfterInitialSimplify>(
+                    "rewritten_ast_after_initial_simplify",
+                )
                 .map(|pass| &pass.0)
                 .expect("expected post-initial-simplify rewritten Ruff AST pass")
         }
@@ -75,7 +77,7 @@ mod tests {
         fn blockpy_module(&self) -> BlockPyModule {
             let bundle = self
                 .result
-                .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>()
+                .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>("semantic_blockpy")
                 .expect("expected lowered semantic BlockPy bundle");
             crate::basic_block::project_lowered_module_callable_defs(
                 bundle,
@@ -90,7 +92,7 @@ mod tests {
         fn core_blockpy_module(&self) -> crate::basic_block::block_py::CoreBlockPyModule {
             let bundle = self
                 .result
-                .get_pass::<crate::basic_block::LoweredCoreBlockPyModuleBundle>()
+                .get_pass::<crate::basic_block::LoweredCoreBlockPyModuleBundle>("core_blockpy")
                 .expect("expected lowered core BlockPy bundle");
             crate::basic_block::project_lowered_module_callable_defs(
                 bundle,
@@ -1259,7 +1261,7 @@ class Field:
             let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
                 .expect("transform should succeed");
             let blockpy = lowered
-                .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>()
+                .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>("semantic_blockpy")
                 .map(|bundle| {
                     crate::basic_block::project_lowered_module_callable_defs(
                         bundle,

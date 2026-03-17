@@ -43,7 +43,7 @@ pub fn inspect_pipeline(source: &str) -> Result<String, JsValue> {
     let transformed = transform_str_to_ruff_with_options(source, Options::default())
         .map_err(|e| JsValue::from_str(e.to_string().as_str()))?;
     let blockpy = transformed
-        .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>()
+        .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>("semantic_blockpy")
         .map(|bundle| {
             crate::basic_block::blockpy_module_to_string(
                 &crate::basic_block::project_lowered_module_callable_defs(
@@ -64,11 +64,11 @@ pub fn inspect_pipeline(source: &str) -> Result<String, JsValue> {
         .map(crate::basic_block::normalize_bb_module_for_codegen)
         .map(|module| bb_module_to_clif(&module));
     let lowering_ast = transformed
-        .get_pass::<ruff_python_ast::StmtBody>()
+        .get_pass::<ruff_python_ast::StmtBody>("rewritten_ast_for_lowering")
         .map(ruff_ast_to_string)
         .unwrap_or_else(|| transformed.to_string());
     let core_blockpy = transformed
-        .get_pass::<crate::basic_block::LoweredCoreBlockPyModuleBundle>()
+        .get_pass::<crate::basic_block::LoweredCoreBlockPyModuleBundle>("core_blockpy")
         .map(|bundle| {
             crate::basic_block::blockpy_module_to_string(
                 &crate::basic_block::project_lowered_module_callable_defs(
@@ -84,7 +84,7 @@ pub fn inspect_pipeline(source: &str) -> Result<String, JsValue> {
         "blockpy": blockpy,
         "coreBlockPy": core_blockpy,
         "bbRaw": transformed
-            .get_pass::<ruff_python_ast::StmtBody>()
+            .get_pass::<ruff_python_ast::StmtBody>("rewritten_ast_for_lowering")
             .map(ruff_ast_to_string)
             .unwrap_or_else(|| transformed.to_string()),
         "rewrittenAstFinal": transformed.to_string(),
