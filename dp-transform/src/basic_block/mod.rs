@@ -360,6 +360,253 @@ pub(crate) fn summarize_tracked_pass_shape(
     None
 }
 
+fn render_semantic_blockpy_plan(plan: &LoweredBlockPyModuleBundlePlan) -> String {
+    let mut callable_defs = Vec::new();
+    for entry in &plan.callable_def_bundles {
+        match &entry.bundle_plan.prepared_function_plan {
+            ruff_to_blockpy::PreparedBlockPyFunctionPlan::Ready(prepared) => {
+                callable_defs.push(prepared.callable_def.clone());
+            }
+            ruff_to_blockpy::PreparedBlockPyFunctionPlan::PendingGeneratorLowering(pending) => {
+                callable_defs.push(block_py::BlockPyCallableDef {
+                    cfg: cfg_ir::CfgCallableDef {
+                        function_id: pending.main_function_id,
+                        bind_name: pending.bind_name.clone(),
+                        display_name: pending.fn_name.clone(),
+                        qualname: pending.qualname.clone(),
+                        kind: pending.blockpy_kind,
+                        params: pending.params.clone(),
+                        entry_liveins: Vec::new(),
+                        blocks: pending.semantic_input.blocks.clone(),
+                    },
+                    doc: pending.doc.clone(),
+                    closure_layout: None,
+                    local_cell_slots: Vec::new(),
+                });
+            }
+        }
+    }
+    blockpy_module_to_string(&block_py::BlockPyModule {
+        module_init: plan.module_init.clone(),
+        callable_defs,
+    })
+}
+
+fn render_resolved_semantic_blockpy_plan(plan: &ResolvedLoweredBlockPyModuleBundlePlan) -> String {
+    let mut callable_defs = Vec::new();
+    for entry in &plan.callable_def_bundles {
+        match &entry.bundle_plan.resolved_prepared_function_plan {
+            ruff_to_blockpy::ResolvedPreparedBlockPyFunctionPlan::Prepared(prepared) => {
+                callable_defs.push(prepared.callable_def.clone());
+            }
+            ruff_to_blockpy::ResolvedPreparedBlockPyFunctionPlan::GeneratorLowered(
+                generator_lowered,
+            ) => {
+                callable_defs.push(block_py::BlockPyCallableDef {
+                    cfg: cfg_ir::CfgCallableDef {
+                        function_id: generator_lowered.function_id,
+                        bind_name: generator_lowered.bind_name.clone(),
+                        display_name: generator_lowered.bind_name.clone(),
+                        qualname: generator_lowered.qualname.clone(),
+                        kind: generator_lowered.blockpy_kind,
+                        params: generator_lowered.params.clone(),
+                        entry_liveins: Vec::new(),
+                        blocks: generator_lowered.lowered.blocks.clone(),
+                    },
+                    doc: generator_lowered.doc.clone(),
+                    closure_layout: None,
+                    local_cell_slots: Vec::new(),
+                });
+            }
+        }
+    }
+    blockpy_module_to_string(&block_py::BlockPyModule {
+        module_init: plan.module_init.clone(),
+        callable_defs,
+    })
+}
+
+fn render_semantic_blockpy_export_plan(plan: &LoweredBlockPyModuleExportPlan) -> String {
+    let mut callable_defs = Vec::new();
+    for entry in &plan.callable_def_bundles {
+        callable_defs.push(block_py::BlockPyCallableDef {
+            cfg: cfg_ir::CfgCallableDef {
+                function_id: entry.bundle_plan.function_id,
+                bind_name: entry.bundle_plan.bind_name.clone(),
+                display_name: entry.bundle_plan.display_name.clone(),
+                qualname: entry.bundle_plan.qualname.clone(),
+                kind: ruff_to_blockpy::blockpy_kind_for_lowered_runtime(
+                    entry.bundle_plan.is_async_generator_runtime,
+                    entry.bundle_plan.is_coroutine,
+                    entry.bundle_plan.has_yield,
+                ),
+                params: entry.bundle_plan.params.clone(),
+                entry_liveins: entry.bundle_plan.runtime_entry_liveins.clone(),
+                blocks: entry.bundle_plan.runtime_blocks.clone(),
+            },
+            doc: entry.bundle_plan.doc.clone(),
+            closure_layout: entry.bundle_plan.semantic_closure_layout.clone(),
+            local_cell_slots: entry.bundle_plan.local_cell_slots.clone(),
+        });
+    }
+    blockpy_module_to_string(&block_py::BlockPyModule {
+        module_init: plan.module_init.clone(),
+        callable_defs,
+    })
+}
+
+fn render_semantic_blockpy_bundle(bundle: &LoweredBlockPyModuleBundle) -> String {
+    let blockpy = project_lowered_module_callable_defs(
+        bundle,
+        |lowered| -> &crate::basic_block::block_py::SemanticBlockPyCallableDef { lowered },
+    );
+    blockpy_module_to_string(&blockpy)
+}
+
+fn render_core_blockpy_bundle(bundle: &LoweredCoreBlockPyModuleBundle) -> String {
+    let blockpy = project_lowered_module_callable_defs(
+        bundle,
+        |lowered| -> &crate::basic_block::block_py::CoreBlockPyCallableDef { lowered },
+    );
+    blockpy_module_to_string(&blockpy)
+}
+
+fn render_core_blockpy_bundle_without_await(
+    bundle: &LoweredCoreBlockPyModuleBundleWithoutAwait,
+) -> String {
+    let blockpy = project_lowered_module_callable_defs(
+        bundle,
+        |lowered| -> &crate::basic_block::block_py::CoreBlockPyCallableDefWithoutAwait { lowered },
+    );
+    blockpy_module_to_string(&blockpy)
+}
+
+fn render_core_blockpy_bundle_without_await_or_yield(
+    bundle: &LoweredCoreBlockPyModuleBundleWithoutAwaitOrYield,
+) -> String {
+    let blockpy = project_lowered_module_callable_defs(
+        bundle,
+        |lowered| -> &crate::basic_block::block_py::CoreBlockPyCallableDefWithoutAwaitOrYield {
+            lowered
+        },
+    );
+    blockpy_module_to_string(&blockpy)
+}
+
+fn render_bb_module(bundle: &bb_ir::BbModule) -> String {
+    let mut out = String::new();
+    if let Some(module_init) = &bundle.module_init {
+        out.push_str(&format!("module_init: {module_init}\n\n"));
+    }
+    for function in &bundle.callable_defs {
+        out.push_str(&format!(
+            "function {} [{}] entry={} bind_target={:?}\n",
+            function.qualname,
+            function.display_name,
+            function.entry_label(),
+            function.binding_target(),
+        ));
+        out.push_str(&format!("kind: {:?}\n", function.kind));
+        if !function.params.is_empty() {
+            out.push_str(&format!("params: {}\n", function.params.join(", ")));
+        }
+        for block in &function.blocks {
+            let params = if block.meta.params.is_empty() {
+                String::new()
+            } else {
+                format!("({})", block.meta.params.join(", "))
+            };
+            out.push_str(&format!("\n{}{}:\n", block.label, params));
+            for stmt in &block.body {
+                out.push_str("    ");
+                out.push_str(&bb_ir::bb_stmt_text(stmt));
+                out.push('\n');
+            }
+            out.push_str("    ");
+            out.push_str(&render_bb_term(&block.term));
+            out.push('\n');
+        }
+        out.push('\n');
+    }
+    out.trim_end().to_string()
+}
+
+fn render_bb_term(term: &bb_ir::BbTerm) -> String {
+    match term {
+        bb_ir::BbTerm::Jump(label) => format!("jump {label}"),
+        bb_ir::BbTerm::BrIf {
+            test,
+            then_label,
+            else_label,
+        } => format!(
+            "if {} then {} else {}",
+            bb_ir::bb_expr_text(test),
+            then_label,
+            else_label
+        ),
+        bb_ir::BbTerm::BrTable {
+            index,
+            targets,
+            default_label,
+        } => format!(
+            "br_table index={} targets=[{}] default={}",
+            bb_ir::bb_expr_text(index),
+            targets.join(", "),
+            default_label
+        ),
+        bb_ir::BbTerm::Raise { exc, cause } => {
+            let exc = exc
+                .as_ref()
+                .map(bb_ir::bb_expr_text)
+                .unwrap_or_else(|| "None".to_string());
+            let cause = cause
+                .as_ref()
+                .map(bb_ir::bb_expr_text)
+                .unwrap_or_else(|| "None".to_string());
+            format!("raise exc={exc} cause={cause}")
+        }
+        bb_ir::BbTerm::Ret(value) => value
+            .as_ref()
+            .map(|value| format!("return {}", bb_ir::bb_expr_text(value)))
+            .unwrap_or_else(|| "return".to_string()),
+    }
+}
+
+pub(crate) fn render_tracked_pass_text(
+    result: &crate::LoweringResult,
+    name: &str,
+) -> Option<String> {
+    if let Some(body) = result.get_pass::<ruff_python_ast::StmtBody>(name) {
+        return Some(crate::ruff_ast_to_string(body));
+    }
+    if let Some(plan) = result.get_pass::<LoweredBlockPyModuleBundlePlan>(name) {
+        return Some(render_semantic_blockpy_plan(plan));
+    }
+    if let Some(plan) = result.get_pass::<ResolvedLoweredBlockPyModuleBundlePlan>(name) {
+        return Some(render_resolved_semantic_blockpy_plan(plan));
+    }
+    if let Some(plan) = result.get_pass::<LoweredBlockPyModuleExportPlan>(name) {
+        return Some(render_semantic_blockpy_export_plan(plan));
+    }
+    if let Some(bundle) = result.get_pass::<LoweredBlockPyModuleBundle>(name) {
+        return Some(render_semantic_blockpy_bundle(bundle));
+    }
+    if let Some(bundle) = result.get_pass::<LoweredCoreBlockPyModuleBundle>(name) {
+        return Some(render_core_blockpy_bundle(bundle));
+    }
+    if let Some(bundle) = result.get_pass::<LoweredCoreBlockPyModuleBundleWithoutAwait>(name) {
+        return Some(render_core_blockpy_bundle_without_await(bundle));
+    }
+    if let Some(bundle) = result.get_pass::<LoweredCoreBlockPyModuleBundleWithoutAwaitOrYield>(name)
+    {
+        return Some(render_core_blockpy_bundle_without_await_or_yield(bundle));
+    }
+    if let Some(bundle) = result.get_pass::<bb_ir::BbModule>(name) {
+        return Some(render_bb_module(bundle));
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use crate::basic_block::bb_ir::{BbBlock, BbFunction, BbModule, BbTerm};

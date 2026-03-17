@@ -80,6 +80,41 @@ body {
   white-space: nowrap;
 }
 
+.status-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.nav-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.nav-button {
+  border: 1px solid var(--line-strong);
+  background: rgba(18, 29, 44, 0.95);
+  color: var(--ink-0);
+  border-radius: 10px;
+  width: 36px;
+  height: 36px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.nav-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.step-window {
+  font-size: 0.75rem;
+  color: var(--ink-1);
+}
+
 .workspace {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -165,6 +200,12 @@ pre {
   color: var(--ink-0);
   background: rgba(8, 14, 22, 0.28);
   white-space: pre;
+}
+
+.panel-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
 }
 
 .select-wrap {
@@ -307,98 +348,53 @@ select {
 <body>
 <div class="app">
   <div class="header">
-      <div>
-        <div class="title">diet-python transform pipeline inspector</div>
-      <div class="subtitle">Phase 1 output, BlockPy, generated CLIF, Graphviz CFG rendering, and dominator graph</div>
+    <div>
+      <div class="title">diet-python transform pipeline inspector</div>
+      <div class="subtitle">Two-pass window over the tracked lowering pipeline. Use Left/Right arrow to shift.</div>
     </div>
-    <div class="status" id="status">ready</div>
+    <div class="nav-controls">
+      <button class="nav-button" id="prevPass" type="button" aria-label="Previous pass">←</button>
+      <div class="status-group">
+        <div class="status" id="status">ready</div>
+        <div class="step-window" id="stepWindow"></div>
+      </div>
+      <button class="nav-button" id="nextPass" type="button" aria-label="Next pass">→</button>
+    </div>
   </div>
 
   <div class="workspace">
-    <section class="panel source-panel">
+    <section class="panel">
       <div class="panel-head">
-        <div class="panel-title">Source Python</div>
+        <div class="panel-title" id="leftTitle">input source</div>
       </div>
-      <textarea id="source" spellcheck="false" placeholder="Paste Python code here"></textarea>
+      <div class="panel-body" id="leftPane"></div>
     </section>
 
     <section class="panel">
       <div class="panel-head">
-        <div class="panel-title">Phase 1 (pre-BB)</div>
+        <div class="panel-title" id="rightTitle">ast-to-ast</div>
       </div>
-      <pre id="phase1"></pre>
-    </section>
-
-    <section class="panel">
-      <div class="panel-head">
-        <div class="panel-title">BlockPy</div>
-      </div>
-      <pre id="blockPy"></pre>
-    </section>
-
-    <section class="panel">
-      <div class="panel-head">
-        <div class="panel-title">Compiled CLIF (post-opt)</div>
-      </div>
-      <pre id="clifRaw"></pre>
-    </section>
-
-    <section class="panel">
-      <div class="panel-head">
-        <div class="panel-title">Emitted VCode Disasm</div>
-      </div>
-      <pre id="vcodeRaw"></pre>
-    </section>
-
-    <section class="panel graphviz-panel">
-      <div class="panel-head">
-        <div class="panel-title">Graphviz CFG</div>
-        <div class="select-wrap">
-          function
-          <select id="functionPicker"></select>
-        </div>
-      </div>
-      <div class="graphviz-root" id="graphvizRoot">
-        <div class="placeholder">Graphviz graph will appear here.</div>
-      </div>
-    </section>
-
-    <section class="panel dominator-panel">
-      <div class="panel-head">
-        <div class="panel-title">Dominator Graph</div>
-      </div>
-      <div class="structure-root" id="structureRoot">
-        <svg class="link-layer" id="links"></svg>
-        <div class="tree-layer" id="tree"></div>
-      </div>
+      <div class="panel-body" id="rightPane"></div>
     </section>
   </div>
 </div>
 
 <script type="module">
 import init, { inspect_pipeline } from "./pkg/diet_python.js";
-import { instance as createVizInstance } from "https://cdn.jsdelivr.net/npm/@viz-js/viz@3.24.0/+esm";
 
-const sourceEl = document.getElementById("source");
-const phase1El = document.getElementById("phase1");
-const blockPyEl = document.getElementById("blockPy");
-const clifRawEl = document.getElementById("clifRaw");
-const vcodeRawEl = document.getElementById("vcodeRaw");
-const pickerEl = document.getElementById("functionPicker");
+const leftPaneEl = document.getElementById("leftPane");
+const rightPaneEl = document.getElementById("rightPane");
+const leftTitleEl = document.getElementById("leftTitle");
+const rightTitleEl = document.getElementById("rightTitle");
+const prevPassEl = document.getElementById("prevPass");
+const nextPassEl = document.getElementById("nextPass");
+const stepWindowEl = document.getElementById("stepWindow");
 const statusEl = document.getElementById("status");
-const treeEl = document.getElementById("tree");
-const linksEl = document.getElementById("links");
-const structureRootEl = document.getElementById("structureRoot");
-const graphvizRootEl = document.getElementById("graphvizRoot");
 
 const state = {
-  payload: null,
-  selectedFunctionId: "",
-  crossEdges: [],
-  viz: null,
-  vizError: null,
-  clifSeq: 0,
-  clifCfgByEntry: {},
+  source: "",
+  steps: [],
+  pairStart: 0,
 };
 
 const SAMPLE = `def classify(n):
@@ -421,500 +417,6 @@ function setStatus(message, isError = false) {
   statusEl.style.color = isError ? "#b42352" : "var(--ink-1)";
 }
 
-function edgeKey(from, to) {
-  return `${from}::${to}`;
-}
-
-function escapeRecordLabelText(value) {
-  return String(value ?? "")
-    .replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"')
-    .replace(/([{}|<>])/g, "\\$1");
-}
-
-function parseBlockBodiesFromClif(clifText) {
-  const bodies = new Map();
-  let currentBlock = null;
-  for (const rawLine of String(clifText || "").split(/\r?\n/)) {
-    const blockHeader = rawLine.match(/^\s*(block\d+)\([^)]*\):\s*$/);
-    if (blockHeader) {
-      currentBlock = blockHeader[1];
-      if (!bodies.has(currentBlock)) {
-        bodies.set(currentBlock, []);
-      }
-      continue;
-    }
-    if (!currentBlock) {
-      continue;
-    }
-    if (/^\s*}$/.test(rawLine) || /^\s*function\b/.test(rawLine)) {
-      currentBlock = null;
-      continue;
-    }
-    const trimmed = rawLine.trim();
-    if (!trimmed) {
-      continue;
-    }
-    if (trimmed.startsWith(";")) {
-      continue;
-    }
-    bodies.get(currentBlock).push(trimmed);
-  }
-  return bodies;
-}
-
-function mergeCfgDotWithBlockBodies(dot, clifText) {
-  const bodies = parseBlockBodiesFromClif(clifText);
-  if (!bodies.size) {
-    return dot;
-  }
-  const lines = String(dot || "").split("\n");
-  for (let idx = 0; idx < lines.length; idx += 1) {
-    const prefixMatch = lines[idx].match(/^(\s*)(block\d+)\s+\[shape=record,\s*label="/);
-    if (!prefixMatch) {
-      continue;
-    }
-    const [, indent, blockName] = prefixMatch;
-    const labelStart = prefixMatch[0].length;
-    let endQuote = -1;
-    let escaped = false;
-    for (let i = labelStart; i < lines[idx].length; i += 1) {
-      const ch = lines[idx][i];
-      if (escaped) {
-        escaped = false;
-        continue;
-      }
-      if (ch === "\\") {
-        escaped = true;
-        continue;
-      }
-      if (ch === "\"") {
-        endQuote = i;
-        break;
-      }
-    }
-    if (endQuote < 0) {
-      continue;
-    }
-    const labelBody = lines[idx].slice(labelStart, endQuote);
-    const suffixAfterLabel = lines[idx].slice(endQuote + 1);
-    if (!suffixAfterLabel.trim().startsWith("]")) {
-      continue;
-    }
-    const blockLines = bodies.get(blockName);
-    if (!blockLines || !blockLines.length) {
-      continue;
-    }
-
-    const innerLabel =
-      labelBody.startsWith("{") && labelBody.endsWith("}")
-        ? labelBody.slice(1, -1)
-        : labelBody;
-    const lastPortIdx = innerLabel.lastIndexOf(" | <");
-    let prefix = innerLabel;
-    let suffix = "";
-    if (lastPortIdx !== -1) {
-      prefix = innerLabel.slice(0, lastPortIdx);
-      suffix = innerLabel.slice(lastPortIdx + 3);
-    }
-
-    const bodyField = `${blockLines.map(escapeRecordLabelText).join("\\l")}\\l`;
-    const merged = suffix
-      ? `${prefix} | ${bodyField} | ${suffix}`
-      : `${prefix} | ${bodyField}`;
-    lines[idx] = `${indent}${blockName} [shape=record, label="{${merged}}"${suffixAfterLabel}`;
-  }
-  return lines.join("\n");
-}
-
-function setGraphvizPlaceholder(message) {
-  graphvizRootEl.innerHTML = "";
-  const el = document.createElement("div");
-  el.className = "placeholder";
-  el.textContent = message;
-  graphvizRootEl.appendChild(el);
-}
-
-function renderGraphviz(functionData) {
-  if (!functionData) {
-    setGraphvizPlaceholder("No function selected.");
-    return;
-  }
-
-  if (state.vizError) {
-    setGraphvizPlaceholder(`Graphviz unavailable: ${state.vizError}`);
-    return;
-  }
-
-  if (!state.viz) {
-    setGraphvizPlaceholder("Loading Graphviz runtime...");
-    return;
-  }
-
-  const entryLabel = functionData.entry;
-  const dot = state.clifCfgByEntry[entryLabel];
-  if (dot === null || dot === undefined) {
-    setGraphvizPlaceholder("Generating Graphviz CFG from final CLIF...");
-    return;
-  }
-
-  if (!dot.trim()) {
-    setGraphvizPlaceholder("No CLIF CFG was emitted for this function.");
-    return;
-  }
-
-  try {
-    const svg = state.viz.renderSVGElement(dot, { engine: "dot" });
-    svg.removeAttribute("width");
-    svg.removeAttribute("height");
-    graphvizRootEl.innerHTML = "";
-    graphvizRootEl.appendChild(svg);
-  } catch (error) {
-    setGraphvizPlaceholder(`Graphviz render failed: ${String(error)}`);
-  }
-}
-
-function buildDominance(functionData) {
-  const blocks = functionData.blocks || [];
-  const labels = blocks.map((block) => block.label);
-  const all = new Set(labels);
-  if (!labels.length) {
-    return { dom: new Map(), idom: new Map(), children: new Map(), crossEdges: [] };
-  }
-
-  const preds = new Map(labels.map((label) => [label, new Set()]));
-  const cfgEdges = [];
-  for (const block of blocks) {
-    for (const successor of block.successors || []) {
-      if (!all.has(successor.target)) {
-        continue;
-      }
-      preds.get(successor.target).add(block.label);
-      cfgEdges.push({ from: block.label, to: successor.target, kind: successor.kind });
-    }
-  }
-
-  const entry = functionData.entry;
-  const dom = new Map();
-  for (const label of labels) {
-    dom.set(label, label === entry ? new Set([label]) : new Set(all));
-  }
-
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const label of labels) {
-      if (label === entry) {
-        continue;
-      }
-      const predecessors = Array.from(preds.get(label) || []);
-      let next = new Set([label]);
-      if (predecessors.length > 0) {
-        const intersection = new Set(dom.get(predecessors[0]));
-        for (const pred of predecessors.slice(1)) {
-          for (const candidate of Array.from(intersection)) {
-            if (!dom.get(pred).has(candidate)) {
-              intersection.delete(candidate);
-            }
-          }
-        }
-        for (const candidate of intersection) {
-          next.add(candidate);
-        }
-      }
-      if (!sameSet(next, dom.get(label))) {
-        dom.set(label, next);
-        changed = true;
-      }
-    }
-  }
-
-  const idom = new Map();
-  idom.set(entry, null);
-  for (const label of labels) {
-    if (label === entry) {
-      continue;
-    }
-    const strictDominators = Array.from(dom.get(label)).filter((value) => value !== label);
-    let immediate = null;
-    for (const candidate of strictDominators) {
-      let dominatedByAnother = false;
-      for (const other of strictDominators) {
-        if (other === candidate) {
-          continue;
-        }
-        if (dom.get(other).has(candidate)) {
-          dominatedByAnother = true;
-          break;
-        }
-      }
-      if (!dominatedByAnother) {
-        immediate = candidate;
-        break;
-      }
-    }
-    idom.set(label, immediate);
-  }
-
-  const children = new Map(labels.map((label) => [label, []]));
-  for (const label of labels) {
-    const parent = idom.get(label);
-    if (parent) {
-      children.get(parent).push(label);
-    }
-  }
-
-  const treeEdges = new Set();
-  for (const [label, parent] of idom) {
-    if (parent) {
-      treeEdges.add(edgeKey(parent, label));
-    }
-  }
-
-  const crossEdges = cfgEdges.filter((edge) => !treeEdges.has(edgeKey(edge.from, edge.to)));
-  return { dom, idom, children, crossEdges };
-}
-
-function sameSet(a, b) {
-  if (!a || !b || a.size !== b.size) {
-    return false;
-  }
-  for (const item of a) {
-    if (!b.has(item)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function renderBlockNode(blockByLabel, label, childrenMap) {
-  const block = blockByLabel.get(label);
-  if (!block) {
-    return null;
-  }
-
-  const nodeEl = document.createElement("div");
-  nodeEl.className = "node";
-  nodeEl.dataset.blockLabel = label;
-
-  const headerEl = document.createElement("div");
-  headerEl.className = "node-header";
-  const labelEl = document.createElement("div");
-  labelEl.className = "node-label";
-  labelEl.textContent = block.label;
-  const termEl = document.createElement("div");
-  termEl.className = "node-term";
-  termEl.textContent = block.termText;
-  headerEl.appendChild(labelEl);
-  headerEl.appendChild(termEl);
-  nodeEl.appendChild(headerEl);
-
-  if (block.opsText && block.opsText.trim()) {
-    const opsEl = document.createElement("div");
-    opsEl.className = "node-ops";
-    opsEl.textContent = block.opsText;
-    nodeEl.appendChild(opsEl);
-  }
-
-  const childLabels = childrenMap.get(label) || [];
-  if (childLabels.length) {
-    const childrenEl = document.createElement("div");
-    childrenEl.className = "node-children";
-    for (const child of childLabels) {
-      const childNode = renderBlockNode(blockByLabel, child, childrenMap);
-      if (childNode) {
-        childrenEl.appendChild(childNode);
-      }
-    }
-    nodeEl.appendChild(childrenEl);
-  }
-
-  return nodeEl;
-}
-
-function renderStructure() {
-  treeEl.innerHTML = "";
-  linksEl.innerHTML = "";
-
-  const module = state.payload?.bbModule;
-  const functions = module?.functions || [];
-  if (!functions.length) {
-    state.crossEdges = [];
-    treeEl.innerHTML = `<div class="placeholder">No basic-block functions were emitted.</div>`;
-    setGraphvizPlaceholder("No basic-block functions were emitted.");
-    return;
-  }
-
-  const fn =
-    functions.find((item) => String(item.functionId) === state.selectedFunctionId) || functions[0];
-  state.selectedFunctionId = String(fn.functionId);
-  if (pickerEl.value !== state.selectedFunctionId) {
-    pickerEl.value = state.selectedFunctionId;
-  }
-
-  const dominance = buildDominance(fn);
-  state.crossEdges = dominance.crossEdges;
-  renderGraphviz(fn);
-  const blockByLabel = new Map((fn.blocks || []).map((block) => [block.label, block]));
-  const rootNode = renderBlockNode(blockByLabel, fn.entry, dominance.children);
-  if (!rootNode) {
-    state.crossEdges = [];
-    treeEl.innerHTML = `<div class="placeholder">Entry block ${fn.entry} is missing.</div>`;
-    return;
-  }
-  treeEl.appendChild(rootNode);
-
-  drawCrossEdges(state.crossEdges);
-}
-
-function drawCrossEdges(edges) {
-  linksEl.innerHTML = "";
-  if (!edges.length) {
-    return;
-  }
-
-  const rootRect = structureRootEl.getBoundingClientRect();
-  const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
-  const marker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
-  marker.setAttribute("id", "arrow");
-  marker.setAttribute("viewBox", "0 0 10 10");
-  marker.setAttribute("refX", "8");
-  marker.setAttribute("refY", "5");
-  marker.setAttribute("markerWidth", "6");
-  marker.setAttribute("markerHeight", "6");
-  marker.setAttribute("orient", "auto-start-reverse");
-  const arrowPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  arrowPath.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
-  arrowPath.setAttribute("fill", "var(--jump)");
-  marker.appendChild(arrowPath);
-  defs.appendChild(marker);
-  linksEl.appendChild(defs);
-
-  let maxX = structureRootEl.scrollWidth;
-  let maxY = structureRootEl.scrollHeight;
-
-  for (const edge of edges) {
-    const fromEl = treeEl.querySelector(`[data-block-label="${edge.from}"]`);
-    const toEl = treeEl.querySelector(`[data-block-label="${edge.to}"]`);
-    if (!fromEl || !toEl) {
-      continue;
-    }
-    const fromRect = fromEl.getBoundingClientRect();
-    const toRect = toEl.getBoundingClientRect();
-
-    const startX = fromRect.right - rootRect.left + structureRootEl.scrollLeft;
-    const startY = fromRect.top + fromRect.height / 2 - rootRect.top + structureRootEl.scrollTop;
-    const endX = toRect.left - rootRect.left + structureRootEl.scrollLeft;
-    const endY = toRect.top + toRect.height / 2 - rootRect.top + structureRootEl.scrollTop;
-    const bend = Math.max(24, Math.abs(endX - startX) * 0.35);
-
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute(
-      "d",
-      `M ${startX} ${startY} C ${startX + bend} ${startY}, ${endX - bend} ${endY}, ${endX} ${endY}`
-    );
-    path.setAttribute("stroke", "var(--jump)");
-    path.setAttribute("stroke-width", "1.6");
-    path.setAttribute("fill", "none");
-    path.setAttribute("marker-end", "url(#arrow)");
-    path.setAttribute("opacity", "0.9");
-    linksEl.appendChild(path);
-
-    maxX = Math.max(maxX, startX, endX);
-    maxY = Math.max(maxY, startY, endY);
-  }
-
-  linksEl.setAttribute("width", String(maxX + 24));
-  linksEl.setAttribute("height", String(maxY + 24));
-}
-
-function refreshFunctionPicker(functions) {
-  const previous = state.selectedFunctionId;
-  pickerEl.innerHTML = "";
-  for (const fn of functions) {
-    const option = document.createElement("option");
-    option.value = String(fn.functionId);
-    option.textContent = `${fn.qualname} [${fn.blocks.length} blocks]`;
-    pickerEl.appendChild(option);
-  }
-  const next =
-    functions.find((fn) => String(fn.functionId) === previous) || functions[0] || null;
-  state.selectedFunctionId = next ? String(next.functionId) : "";
-  pickerEl.value = state.selectedFunctionId;
-}
-
-function selectedFunctionRecord() {
-  const functions = state.payload?.bbModule?.functions || [];
-  return (
-    functions.find((item) => String(item.functionId) === state.selectedFunctionId) ||
-    functions[0] ||
-    null
-  );
-}
-
-function selectedEntryLabel() {
-  const fn = selectedFunctionRecord();
-  return fn?.entry || "_dp_module_init";
-}
-
-async function fetchSoacClif(source, entryLabel) {
-  const selected = selectedFunctionRecord();
-  const response = await fetch("/api/jit_clif", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      source,
-      functionId: selected?.functionId ?? null,
-      qualname: selected?.qualname || null,
-      entryLabel,
-    }),
-  });
-  const bodyText = await response.text();
-  let payload = null;
-  if (bodyText) {
-    try {
-      payload = JSON.parse(bodyText);
-    } catch {
-      payload = { error: bodyText };
-    }
-  }
-  if (!response.ok) {
-    const errMsg = payload?.error || `HTTP ${response.status}`;
-    throw new Error(`soac-eval CLIF render failed: ${errMsg}`);
-  }
-  return payload || {};
-}
-
-async function refreshClifPanel(source, fallbackClif) {
-  const seq = ++state.clifSeq;
-  const entryLabel = selectedEntryLabel();
-  state.clifCfgByEntry[entryLabel] = null;
-  renderGraphviz(selectedFunctionRecord());
-  try {
-    const payload = await fetchSoacClif(source, entryLabel);
-    if (seq !== state.clifSeq) {
-      return;
-    }
-    const clifText = payload.clif || fallbackClif || "";
-    clifRawEl.textContent = clifText;
-    vcodeRawEl.textContent = payload.vcodeDisasm || "";
-    const rawCfgDot = typeof payload.cfgDot === "string" ? payload.cfgDot : "";
-    state.clifCfgByEntry[entryLabel] =
-      rawCfgDot ? mergeCfgDotWithBlockBodies(rawCfgDot, clifText) : "";
-    renderGraphviz(selectedFunctionRecord());
-  } catch {
-    if (seq !== state.clifSeq) {
-      return;
-    }
-    clifRawEl.textContent = fallbackClif || "";
-    vcodeRawEl.textContent = "";
-    state.clifCfgByEntry[entryLabel] = "";
-    renderGraphviz(selectedFunctionRecord());
-  }
-}
-
 function updateQueryParam(source) {
   const params = new URLSearchParams(window.location.search);
   if (source) {
@@ -926,21 +428,93 @@ function updateQueryParam(source) {
   history.replaceState(null, "", query ? `?${query}` : window.location.pathname);
 }
 
+function isEditableTarget(target) {
+  return target instanceof HTMLElement &&
+    (target.tagName === "TEXTAREA" ||
+      target.tagName === "INPUT" ||
+      target.isContentEditable);
+}
+
+function maxPairStart() {
+  return Math.max(0, state.steps.length - 2);
+}
+
+function clampPairStart(next) {
+  return Math.max(0, Math.min(next, maxPairStart()));
+}
+
+function makeReadonlyStep(text) {
+  const pre = document.createElement("pre");
+  pre.textContent = text || "";
+  return pre;
+}
+
+function makeSourceEditor() {
+  const textarea = document.createElement("textarea");
+  textarea.spellcheck = false;
+  textarea.placeholder = "Paste Python code here";
+  textarea.value = state.source;
+  textarea.addEventListener("input", () => {
+    state.source = textarea.value;
+    debouncedInspect();
+  });
+  return textarea;
+}
+
+function renderStep(container, step) {
+  container.innerHTML = "";
+  if (!step) {
+    const placeholder = document.createElement("div");
+    placeholder.className = "placeholder";
+    placeholder.textContent = "No later pass.";
+    container.appendChild(placeholder);
+    return;
+  }
+  if (step.key === "input_source") {
+    container.appendChild(makeSourceEditor());
+    return;
+  }
+  container.appendChild(makeReadonlyStep(step.text));
+}
+
+function renderPassWindow() {
+  const leftStep = state.steps[state.pairStart] || null;
+  const rightStep = state.steps[state.pairStart + 1] || null;
+
+  leftTitleEl.textContent = leftStep?.label || "input source";
+  rightTitleEl.textContent = rightStep?.label || "no later pass";
+  renderStep(leftPaneEl, leftStep);
+  renderStep(rightPaneEl, rightStep);
+
+  prevPassEl.disabled = state.pairStart === 0;
+  nextPassEl.disabled = state.pairStart >= maxPairStart();
+  stepWindowEl.textContent = rightStep
+    ? `${state.pairStart + 1}/${Math.max(1, state.steps.length - 1)}`
+    : "0/0";
+}
+
+function shiftPassWindow(delta) {
+  const next = clampPairStart(state.pairStart + delta);
+  if (next === state.pairStart) {
+    return;
+  }
+  state.pairStart = next;
+  renderPassWindow();
+}
+
 function inspectNow() {
-  const source = sourceEl.value;
+  const source = state.source;
   updateQueryParam(source);
   if (!source.trim()) {
-    state.clifSeq += 1;
-    state.payload = null;
-    state.clifCfgByEntry = {};
-    phase1El.textContent = "";
-    blockPyEl.textContent = "";
-    clifRawEl.textContent = "";
-    vcodeRawEl.textContent = "";
-    pickerEl.innerHTML = "";
-    treeEl.innerHTML = `<div class="placeholder">Enter Python source to inspect the BB pipeline.</div>`;
-    linksEl.innerHTML = "";
-    setGraphvizPlaceholder("Enter Python source to render the Graphviz CFG.");
+    state.steps = [
+      {
+        key: "input_source",
+        label: "input source",
+        text: "",
+      },
+    ];
+    state.pairStart = 0;
+    renderPassWindow();
     setStatus("ready");
     return;
   }
@@ -948,32 +522,25 @@ function inspectNow() {
   try {
     const raw = inspect_pipeline(source);
     const payload = JSON.parse(raw);
-    state.payload = payload;
-    state.clifCfgByEntry = {};
-
-    phase1El.textContent = payload.phase1 || "";
-    blockPyEl.textContent = payload.blockpy || "";
-    clifRawEl.textContent = payload.clif || "";
-    vcodeRawEl.textContent = "";
-
-    const functions = payload.bbModule?.functions || [];
-    refreshFunctionPicker(functions);
-    renderStructure();
-    refreshClifPanel(source, payload.clif || "");
-
-    setStatus(`ok | ${functions.length} bb function${functions.length === 1 ? "" : "s"}`);
+    state.steps = Array.isArray(payload.steps) ? payload.steps : [];
+    state.pairStart = clampPairStart(state.pairStart);
+    renderPassWindow();
+    setStatus(`ok | ${Math.max(0, state.steps.length - 1)} tracked pass${state.steps.length === 2 ? "" : "es"}`);
   } catch (error) {
-    state.clifSeq += 1;
-    state.payload = null;
-    state.clifCfgByEntry = {};
-    phase1El.textContent = "";
-    blockPyEl.textContent = "";
-    clifRawEl.textContent = "";
-    vcodeRawEl.textContent = "";
-    pickerEl.innerHTML = "";
-    treeEl.innerHTML = `<div class="placeholder">${String(error)}</div>`;
-    linksEl.innerHTML = "";
-    setGraphvizPlaceholder(String(error));
+    state.steps = [
+      {
+        key: "input_source",
+        label: "input source",
+        text: source,
+      },
+      {
+        key: "error",
+        label: "transform error",
+        text: String(error),
+      },
+    ];
+    state.pairStart = 0;
+    renderPassWindow();
     setStatus("transform error", true);
   }
 }
@@ -982,25 +549,23 @@ const debouncedInspect = debounce(inspectNow, 150);
 
 async function run() {
   await init();
-  try {
-    state.viz = await createVizInstance();
-  } catch (error) {
-    state.vizError = String(error);
-  }
-
   const params = new URLSearchParams(window.location.search);
-  sourceEl.value = params.get("src") || SAMPLE;
+  state.source = params.get("src") || SAMPLE;
 
-  sourceEl.addEventListener("input", debouncedInspect);
-  pickerEl.addEventListener("change", () => {
-    state.selectedFunctionId = pickerEl.value;
-    renderStructure();
-    refreshClifPanel(sourceEl.value, state.payload?.clif || "");
+  prevPassEl.addEventListener("click", () => shiftPassWindow(-1));
+  nextPassEl.addEventListener("click", () => shiftPassWindow(1));
+  window.addEventListener("keydown", (event) => {
+    if (isEditableTarget(event.target)) {
+      return;
+    }
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      shiftPassWindow(1);
+    } else if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      shiftPassWindow(-1);
+    }
   });
-
-  const redrawLinks = debounce(() => renderStructure(), 60);
-  window.addEventListener("resize", redrawLinks);
-  structureRootEl.addEventListener("scroll", () => drawCrossEdges(state.crossEdges));
 
   inspectNow();
 }

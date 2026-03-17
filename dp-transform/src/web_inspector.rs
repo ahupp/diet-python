@@ -1,5 +1,5 @@
 use crate::basic_block::bb_ir;
-use crate::{ruff_ast_to_string, transform_str_to_ruff_with_options, Options};
+use crate::{transform_str_to_ruff_with_options, LoweringResult, Options};
 use cranelift_codegen::ir::{self, condcodes::IntCC, types, AbiParam, InstBuilder, UserFuncName};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use js_sys::{Array, Object, Reflect};
@@ -42,56 +42,28 @@ pub fn transform_selected(source: &str, transforms: Array) -> Result<String, JsV
 pub fn inspect_pipeline(source: &str) -> Result<String, JsValue> {
     let transformed = transform_str_to_ruff_with_options(source, Options::default())
         .map_err(|e| JsValue::from_str(e.to_string().as_str()))?;
-    let blockpy = transformed
-        .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>("semantic_blockpy_materialized")
-        .map(|bundle| {
-            crate::basic_block::blockpy_module_to_string(
-                &crate::basic_block::project_lowered_module_callable_defs(
-                    bundle,
-                    |lowered| -> &crate::basic_block::block_py::SemanticBlockPyCallableDef {
-                        lowered
-                    },
-                ),
-            )
-        })
-        .unwrap_or_else(|| "; no BlockPy module emitted".to_string());
-    let bb_module = transformed
-        .bb_module
-        .as_ref()
-        .ok_or_else(|| JsValue::from_str("expected BB module from lowering"))?;
-    let bb_module_json = bb_module_to_json(&bb_module);
-    let clif = Some(bb_module)
-        .map(crate::basic_block::normalize_bb_module_for_codegen)
-        .map(|module| bb_module_to_clif(&module));
-    let lowering_ast = transformed
-        .get_pass::<ruff_python_ast::StmtBody>("ast-to-ast")
-        .map(ruff_ast_to_string)
-        .unwrap_or_else(|| transformed.to_string());
-    let core_blockpy = transformed
-        .get_pass::<crate::basic_block::LoweredCoreBlockPyModuleBundle>("core_blockpy")
-        .map(|bundle| {
-            crate::basic_block::blockpy_module_to_string(
-                &crate::basic_block::project_lowered_module_callable_defs(
-                    bundle,
-                    |lowered| -> &crate::basic_block::block_py::CoreBlockPyCallableDef { lowered },
-                ),
-            )
-        })
-        .unwrap_or_default();
-
     let payload = json!({
-        "phase1": lowering_ast,
-        "blockpy": blockpy,
-        "coreBlockPy": core_blockpy,
-        "bbRaw": transformed
-            .get_pass::<ruff_python_ast::StmtBody>("ast-to-ast")
-            .map(ruff_ast_to_string)
-            .unwrap_or_else(|| transformed.to_string()),
-        "rewrittenAstFinal": transformed.to_string(),
-        "bbModule": bb_module_json,
-        "clif": clif,
+        "steps": pipeline_steps(source, &transformed),
     });
     Ok(payload.to_string())
+}
+
+fn pipeline_steps(source: &str, transformed: &LoweringResult) -> Vec<Value> {
+    let mut steps = vec![json!({
+        "key": "input_source",
+        "label": "input source",
+        "text": source,
+    })];
+    for name in transformed.pass_names() {
+        let text = crate::basic_block::render_tracked_pass_text(transformed, name)
+            .unwrap_or_else(|| format!("; no text renderer for pass {name}"));
+        steps.push(json!({
+            "key": name,
+            "label": name,
+            "text": text,
+        }));
+    }
+    steps
 }
 
 pub fn available_transforms() -> Array {
