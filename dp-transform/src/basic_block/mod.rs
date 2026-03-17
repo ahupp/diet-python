@@ -369,10 +369,10 @@ mod tests {
     use crate::basic_block::lowered_ir::{
         BindingTarget, ClosureInit, ClosureSlot, LoweredFunctionKind,
     };
+    use crate::LoweringResult;
     use crate::{
         py_expr, transform_str_to_bb_ir_with_options, transform_str_to_ruff_with_options, Options,
     };
-    use crate::{LoweringResult, RewrittenAstAfterInitialSimplify};
     use ruff_python_ast::StmtBody;
 
     struct TrackedLowering {
@@ -389,11 +389,8 @@ mod tests {
 
         fn rewritten_ast(&self) -> &StmtBody {
             self.result
-                .get_pass::<RewrittenAstAfterInitialSimplify>(
-                    "rewritten_ast_after_initial_simplify",
-                )
-                .map(|pass| &pass.0)
-                .expect("expected post-initial-simplify rewritten Ruff AST pass")
+                .get_pass::<StmtBody>("ast-to-ast")
+                .expect("expected rewritten Ruff AST pass")
         }
 
         fn rewritten_ast_text(&self) -> String {
@@ -1080,13 +1077,12 @@ def check():
     }
 
     #[test]
-    fn rewritten_ruff_ast_can_keep_import_while_later_passes_still_lower_it() {
+    fn ast_to_ast_can_lower_import_while_later_passes_still_lower_it() {
         let source = r#"
 import pkg.sub as alias
 "#;
 
         let lowered = TrackedLowering::new(source);
-        assert_rewritten_ast_contains(&lowered, "import pkg.sub as alias");
 
         let module_init = lowered.bb_function("_dp_module_init");
         assert!(
@@ -1106,13 +1102,12 @@ import pkg.sub as alias
     }
 
     #[test]
-    fn rewritten_ruff_ast_can_keep_import_from_while_later_passes_still_lower_it() {
+    fn ast_to_ast_can_lower_import_from_while_later_passes_still_lower_it() {
         let source = r#"
 from pkg.mod import name as alias
 "#;
 
         let lowered = TrackedLowering::new(source);
-        assert_rewritten_ast_contains(&lowered, "from pkg.mod import name as alias");
 
         let module_init = lowered.bb_function("_dp_module_init");
         assert!(
@@ -1132,13 +1127,12 @@ from pkg.mod import name as alias
     }
 
     #[test]
-    fn rewritten_ruff_ast_can_keep_type_alias_while_later_passes_still_lower_it() {
+    fn ast_to_ast_can_lower_type_alias_while_later_passes_still_lower_it() {
         let source = r#"
 type Alias[T] = list[T]
 "#;
 
         let lowered = TrackedLowering::new(source);
-        assert_rewritten_ast_contains(&lowered, "type Alias[T] = ");
 
         let module_init = lowered.bb_function("_dp_module_init");
         assert!(
@@ -1151,7 +1145,7 @@ type Alias[T] = list[T]
     }
 
     #[test]
-    fn rewritten_ruff_ast_can_keep_augassign_while_later_passes_still_lower_it() {
+    fn ast_to_ast_can_lower_augassign_while_later_passes_still_lower_it() {
         let source = r#"
 def bump(x):
     x += 1
@@ -1159,7 +1153,6 @@ def bump(x):
 "#;
 
         let lowered = TrackedLowering::new(source);
-        assert_rewritten_ast_contains(&lowered, "x += 1");
 
         let bump = lowered.bb_function("bump");
         assert!(

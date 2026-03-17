@@ -88,9 +88,6 @@ pub struct LoweringResult {
     passes: PassTracker,
 }
 
-#[derive(Clone)]
-pub(crate) struct RewrittenAstAfterInitialSimplify(pub ruff_python_ast::StmtBody);
-
 struct TrackedPass {
     name: String,
     elapsed: Duration,
@@ -107,7 +104,7 @@ impl PassTracker {
     }
 
     #[must_use]
-    pub(crate) fn add_pass<T: Clone + Any>(&mut self, name: &str, build: impl FnOnce() -> T) -> T {
+    pub(crate) fn run_pass<T: Clone + Any>(&mut self, name: &str, build: impl FnOnce() -> T) -> T {
         let start = timing_start();
         let value = build();
         let elapsed = timing_elapsed(start);
@@ -208,7 +205,12 @@ pub fn transform_str_to_ruff_with_options(
     let mut pass_tracker = PassTracker::new();
 
     let rewrite_start = timing_start();
-    let bb_module = rewrite_module_with_tracker(&ctx, &mut module.body, &mut pass_tracker);
+    let (rewritten_body, bb_module) = rewrite_module_with_tracker(
+        &ctx,
+        std::mem::replace(&mut module.body, crate::template::empty_body()),
+        &mut pass_tracker,
+    );
+    module.body = rewritten_body;
     let rewrite_time = timing_elapsed(rewrite_start);
 
     let timings = TransformTimings {
@@ -326,8 +328,8 @@ mod tests {
     #[should_panic(expected = "PassTracker already contains a pass named one")]
     fn pass_tracker_rejects_duplicate_names() {
         let mut tracker = PassTracker::new();
-        let _ = tracker.add_pass("one", || 1_i32);
-        let _ = tracker.add_pass("one", || 2_i32);
+        let _ = tracker.run_pass("one", || 1_i32);
+        let _ = tracker.run_pass("one", || 2_i32);
     }
 }
 

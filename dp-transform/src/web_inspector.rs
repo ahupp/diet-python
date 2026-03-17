@@ -64,7 +64,7 @@ pub fn inspect_pipeline(source: &str) -> Result<String, JsValue> {
         .map(crate::basic_block::normalize_bb_module_for_codegen)
         .map(|module| bb_module_to_clif(&module));
     let lowering_ast = transformed
-        .get_pass::<ruff_python_ast::StmtBody>("rewritten_ast_for_lowering")
+        .get_pass::<ruff_python_ast::StmtBody>("ast-to-ast")
         .map(ruff_ast_to_string)
         .unwrap_or_else(|| transformed.to_string());
     let core_blockpy = transformed
@@ -84,7 +84,7 @@ pub fn inspect_pipeline(source: &str) -> Result<String, JsValue> {
         "blockpy": blockpy,
         "coreBlockPy": core_blockpy,
         "bbRaw": transformed
-            .get_pass::<ruff_python_ast::StmtBody>("rewritten_ast_for_lowering")
+            .get_pass::<ruff_python_ast::StmtBody>("ast-to-ast")
             .map(ruff_ast_to_string)
             .unwrap_or_else(|| transformed.to_string()),
         "rewrittenAstFinal": transformed.to_string(),
