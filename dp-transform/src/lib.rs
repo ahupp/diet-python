@@ -39,6 +39,13 @@ pub struct TransformTimings {
     pub pass_times: Vec<PassTiming>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PassShapeSummary {
+    pub contains_await: bool,
+    pub contains_yield: bool,
+    pub contains_dp_add: bool,
+}
+
 static INIT_LOGGER: Once = Once::new();
 
 fn timing_start() -> Option<Instant> {
@@ -138,6 +145,10 @@ impl PassTracker {
 impl LoweringResult {
     pub fn get_pass<T: Any>(&self, name: &str) -> Option<&T> {
         self.passes.get::<T>(name)
+    }
+
+    pub fn summarize_pass_shape(&self, name: &str) -> Option<PassShapeSummary> {
+        crate::basic_block::summarize_tracked_pass_shape(self, name)
     }
 
     pub fn pass_names(&self) -> impl Iterator<Item = &str> {

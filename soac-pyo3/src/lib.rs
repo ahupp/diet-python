@@ -59,6 +59,24 @@ fn transform_source_with_name(
 }
 
 #[pyfunction]
+fn debug_pass_shape(
+    py: Python<'_>,
+    source: &str,
+    pass_name: &str,
+    ensure: Option<bool>,
+) -> PyResult<Py<PyDict>> {
+    let output = lower_source(source, ensure)?;
+    let summary = output
+        .summarize_pass_shape(pass_name)
+        .ok_or_else(|| PyRuntimeError::new_err(format!("no tracked pass named {pass_name}")))?;
+    let payload = PyDict::new(py);
+    payload.set_item("contains_await", summary.contains_await)?;
+    payload.set_item("contains_yield", summary.contains_yield)?;
+    payload.set_item("contains_dp_add", summary.contains_dp_add)?;
+    Ok(payload.unbind())
+}
+
+#[pyfunction]
 fn jit_has_bb_plan(module_name: &str, function_id: usize) -> bool {
     eval::jit_has_bb_plan_impl(module_name, function_id)
 }
@@ -207,6 +225,7 @@ fn diet_python(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     dp_transform::init_logging();
     module.add_function(wrap_pyfunction!(transform_source, module)?)?;
     module.add_function(wrap_pyfunction!(transform_source_with_name, module)?)?;
+    module.add_function(wrap_pyfunction!(debug_pass_shape, module)?)?;
     module.add_function(wrap_pyfunction!(jit_has_bb_plan, module)?)?;
     module.add_function(wrap_pyfunction!(jit_block_param_names, module)?)?;
     module.add_function(wrap_pyfunction!(jit_debug_plan, module)?)?;

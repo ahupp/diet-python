@@ -21,9 +21,13 @@ mod stmt_utils;
 // Ruff AST -> BbModule
 pub use block_py::pretty::blockpy_module_to_string;
 pub(crate) use blockpy_to_bb::{
-    lower_awaits_in_lowered_core_blockpy_module_bundle, lower_blockpy_module_plan_to_bundle,
+    lower_awaits_in_lowered_blockpy_module_bundle_plan,
+    lower_awaits_in_lowered_core_blockpy_module_bundle,
     lower_core_blockpy_module_bundle_to_bb_module,
+    lower_generators_in_lowered_blockpy_module_bundle_plan,
+    lower_yield_in_lowered_blockpy_module_export_plan,
     lower_yield_in_lowered_core_blockpy_module_bundle,
+    resolved_lowered_blockpy_module_bundle_plan_to_export_plan,
     simplify_lowered_blockpy_module_bundle_exprs,
 };
 pub use blockpy_to_bb::{lower_try_jump_exception_flow, normalize_bb_module_for_codegen};
@@ -32,7 +36,329 @@ pub use blockpy_to_bb::{
     LoweredCoreBlockPyModuleBundle, LoweredCoreBlockPyModuleBundleWithoutAwait,
     LoweredCoreBlockPyModuleBundleWithoutAwaitOrYield,
 };
+pub(crate) use blockpy_to_bb::{
+    LoweredBlockPyModuleBundlePlan, LoweredBlockPyModuleExportPlan,
+    ResolvedLoweredBlockPyModuleBundlePlan,
+};
 pub use function_lowering::SingleNamedAssignmentPass;
+
+use crate::transformer::Transformer;
+use ruff_python_ast::{self as ast, Expr, Stmt};
+
+#[derive(Default)]
+struct RuffExprShapeCollector {
+    summary: crate::PassShapeSummary,
+}
+
+impl Transformer for RuffExprShapeCollector {
+    fn visit_expr(&mut self, expr: &mut Expr) {
+        match expr {
+            Expr::Await(_) => self.summary.contains_await = true,
+            Expr::Yield(_) | Expr::YieldFrom(_) => self.summary.contains_yield = true,
+            Expr::Call(call)
+                if matches!(
+                    call.func.as_ref(),
+                    Expr::Name(ast::ExprName { id, .. }) if id.as_str() == "__dp_add"
+                ) =>
+            {
+                self.summary.contains_dp_add = true;
+            }
+            _ => {}
+        }
+        crate::transformer::walk_expr(self, expr);
+    }
+}
+
+fn merge_pass_shape_summary(total: &mut crate::PassShapeSummary, part: crate::PassShapeSummary) {
+    total.contains_await |= part.contains_await;
+    total.contains_yield |= part.contains_yield;
+    total.contains_dp_add |= part.contains_dp_add;
+}
+
+fn summarize_ruff_expr(expr: &Expr) -> crate::PassShapeSummary {
+    let mut expr = expr.clone();
+    let mut collector = RuffExprShapeCollector::default();
+    collector.visit_expr(&mut expr);
+    collector.summary
+}
+
+fn summarize_ruff_stmt(stmt: &Stmt) -> crate::PassShapeSummary {
+    let mut stmt = stmt.clone();
+    let mut collector = RuffExprShapeCollector::default();
+    collector.visit_stmt(&mut stmt);
+    collector.summary
+}
+
+fn summarize_ruff_stmt_list(stmts: &[Box<Stmt>]) -> crate::PassShapeSummary {
+    let mut summary = crate::PassShapeSummary::default();
+    for stmt in stmts {
+        merge_pass_shape_summary(&mut summary, summarize_ruff_stmt(stmt));
+    }
+    summary
+}
+
+fn summarize_blockpy_stmt_fragment<E: Clone + Into<Expr>>(
+    fragment: &block_py::BlockPyStmtFragment<E>,
+    summary: &mut crate::PassShapeSummary,
+) {
+    for stmt in &fragment.body {
+        summarize_blockpy_stmt(stmt, summary);
+    }
+    if let Some(term) = &fragment.term {
+        summarize_blockpy_term(term, summary);
+    }
+}
+
+fn summarize_blockpy_stmt<E: Clone + Into<Expr>>(
+    stmt: &block_py::BlockPyStmt<E>,
+    summary: &mut crate::PassShapeSummary,
+) {
+    match stmt {
+        block_py::BlockPyStmt::Assign(assign) => {
+            merge_pass_shape_summary(summary, summarize_ruff_expr(&assign.value.clone().into()));
+        }
+        block_py::BlockPyStmt::Expr(expr) => {
+            merge_pass_shape_summary(summary, summarize_ruff_expr(&expr.clone().into()));
+        }
+        block_py::BlockPyStmt::Delete(_) => {}
+        block_py::BlockPyStmt::If(if_stmt) => {
+            merge_pass_shape_summary(summary, summarize_ruff_expr(&if_stmt.test.clone().into()));
+            summarize_blockpy_stmt_fragment(&if_stmt.body, summary);
+            summarize_blockpy_stmt_fragment(&if_stmt.orelse, summary);
+        }
+    }
+}
+
+fn summarize_blockpy_term<E: Clone + Into<Expr>>(
+    term: &block_py::BlockPyTerm<E>,
+    summary: &mut crate::PassShapeSummary,
+) {
+    match term {
+        block_py::BlockPyTerm::Jump(_) | block_py::BlockPyTerm::TryJump(_) => {}
+        block_py::BlockPyTerm::IfTerm(if_term) => {
+            merge_pass_shape_summary(summary, summarize_ruff_expr(&if_term.test.clone().into()));
+        }
+        block_py::BlockPyTerm::BranchTable(branch) => {
+            merge_pass_shape_summary(summary, summarize_ruff_expr(&branch.index.clone().into()));
+        }
+        block_py::BlockPyTerm::Raise(raise) => {
+            if let Some(exc) = &raise.exc {
+                merge_pass_shape_summary(summary, summarize_ruff_expr(&exc.clone().into()));
+            }
+        }
+        block_py::BlockPyTerm::Return(value) => {
+            if let Some(value) = value {
+                merge_pass_shape_summary(summary, summarize_ruff_expr(&value.clone().into()));
+            }
+        }
+    }
+}
+
+fn summarize_blockpy_module<E: Clone + Into<Expr>>(
+    module: &block_py::BlockPyModule<E>,
+) -> crate::PassShapeSummary {
+    let mut summary = crate::PassShapeSummary::default();
+    for callable in &module.callable_defs {
+        if let Some(doc) = &callable.doc {
+            merge_pass_shape_summary(&mut summary, summarize_ruff_expr(&doc.clone().into()));
+        }
+        for block in &callable.blocks {
+            for stmt in &block.body {
+                summarize_blockpy_stmt(stmt, &mut summary);
+            }
+            summarize_blockpy_term(&block.term, &mut summary);
+        }
+    }
+    summary
+}
+
+fn summarize_semantic_blockpy_plan(
+    plan: &LoweredBlockPyModuleBundlePlan,
+) -> crate::PassShapeSummary {
+    let mut summary = crate::PassShapeSummary::default();
+    for entry in &plan.callable_def_bundles {
+        let part = match &entry.bundle_plan.prepared_function_plan {
+            ruff_to_blockpy::PreparedBlockPyFunctionPlan::Ready(prepared) => {
+                let blockpy = block_py::BlockPyModule {
+                    module_init: None,
+                    callable_defs: vec![prepared.callable_def.clone()],
+                };
+                summarize_blockpy_module(&blockpy)
+            }
+            ruff_to_blockpy::PreparedBlockPyFunctionPlan::PendingGeneratorLowering(pending) => {
+                let mut pending_summary =
+                    summarize_ruff_stmt_list(&pending.fallback_runtime_input_body);
+                let blockpy = block_py::BlockPyModule {
+                    module_init: None,
+                    callable_defs: vec![block_py::BlockPyCallableDef {
+                        cfg: cfg_ir::CfgCallableDef {
+                            function_id: pending.main_function_id,
+                            bind_name: pending.bind_name.clone(),
+                            display_name: pending.fn_name.clone(),
+                            qualname: pending.qualname.clone(),
+                            kind: pending.blockpy_kind,
+                            params: pending.params.clone(),
+                            entry_liveins: Vec::new(),
+                            blocks: pending.semantic_input.blocks.clone(),
+                        },
+                        doc: pending.doc.clone(),
+                        closure_layout: None,
+                        local_cell_slots: Vec::new(),
+                    }],
+                };
+                merge_pass_shape_summary(&mut pending_summary, summarize_blockpy_module(&blockpy));
+                pending_summary
+            }
+        };
+        merge_pass_shape_summary(&mut summary, part);
+    }
+    summary
+}
+
+fn summarize_resolved_semantic_blockpy_plan(
+    plan: &ResolvedLoweredBlockPyModuleBundlePlan,
+) -> crate::PassShapeSummary {
+    let mut summary = crate::PassShapeSummary::default();
+    for entry in &plan.callable_def_bundles {
+        let part = match &entry.bundle_plan.resolved_prepared_function_plan {
+            ruff_to_blockpy::ResolvedPreparedBlockPyFunctionPlan::Prepared(prepared) => {
+                let blockpy = block_py::BlockPyModule {
+                    module_init: None,
+                    callable_defs: vec![prepared.callable_def.clone()],
+                };
+                summarize_blockpy_module(&blockpy)
+            }
+            ruff_to_blockpy::ResolvedPreparedBlockPyFunctionPlan::GeneratorLowered(
+                generator_lowered,
+            ) => {
+                let blockpy = block_py::BlockPyModule {
+                    module_init: None,
+                    callable_defs: vec![block_py::BlockPyCallableDef {
+                        cfg: cfg_ir::CfgCallableDef {
+                            function_id: generator_lowered.function_id,
+                            bind_name: generator_lowered.bind_name.clone(),
+                            display_name: generator_lowered.bind_name.clone(),
+                            qualname: generator_lowered.qualname.clone(),
+                            kind: generator_lowered.blockpy_kind,
+                            params: generator_lowered.params.clone(),
+                            entry_liveins: Vec::new(),
+                            blocks: generator_lowered.lowered.blocks.clone(),
+                        },
+                        doc: generator_lowered.doc.clone(),
+                        closure_layout: None,
+                        local_cell_slots: Vec::new(),
+                    }],
+                };
+                summarize_blockpy_module(&blockpy)
+            }
+        };
+        merge_pass_shape_summary(&mut summary, part);
+    }
+    summary
+}
+
+fn summarize_semantic_blockpy_export_plan(
+    plan: &LoweredBlockPyModuleExportPlan,
+) -> crate::PassShapeSummary {
+    let mut summary = crate::PassShapeSummary::default();
+    for entry in &plan.callable_def_bundles {
+        let blockpy = block_py::BlockPyModule {
+            module_init: None,
+            callable_defs: vec![block_py::BlockPyCallableDef {
+                cfg: cfg_ir::CfgCallableDef {
+                    function_id: entry.bundle_plan.function_id,
+                    bind_name: entry.bundle_plan.bind_name.clone(),
+                    display_name: entry.bundle_plan.display_name.clone(),
+                    qualname: entry.bundle_plan.qualname.clone(),
+                    kind: ruff_to_blockpy::blockpy_kind_for_lowered_runtime(
+                        entry.bundle_plan.is_async_generator_runtime,
+                        entry.bundle_plan.is_coroutine,
+                        entry.bundle_plan.has_yield,
+                    ),
+                    params: entry.bundle_plan.params.clone(),
+                    entry_liveins: entry.bundle_plan.runtime_entry_liveins.clone(),
+                    blocks: entry.bundle_plan.runtime_blocks.clone(),
+                },
+                doc: entry.bundle_plan.doc.clone(),
+                closure_layout: entry.bundle_plan.semantic_closure_layout.clone(),
+                local_cell_slots: entry.bundle_plan.local_cell_slots.clone(),
+            }],
+        };
+        merge_pass_shape_summary(&mut summary, summarize_blockpy_module(&blockpy));
+    }
+    summary
+}
+
+fn summarize_semantic_blockpy_bundle(
+    bundle: &LoweredBlockPyModuleBundle,
+) -> crate::PassShapeSummary {
+    let blockpy = project_lowered_module_callable_defs(
+        bundle,
+        |lowered| -> &crate::basic_block::block_py::SemanticBlockPyCallableDef { lowered },
+    );
+    summarize_blockpy_module(&blockpy)
+}
+
+fn summarize_core_blockpy_bundle(
+    bundle: &LoweredCoreBlockPyModuleBundle,
+) -> crate::PassShapeSummary {
+    let blockpy = project_lowered_module_callable_defs(
+        bundle,
+        |lowered| -> &crate::basic_block::block_py::CoreBlockPyCallableDef { lowered },
+    );
+    summarize_blockpy_module(&blockpy)
+}
+
+fn summarize_core_blockpy_bundle_without_await(
+    bundle: &LoweredCoreBlockPyModuleBundleWithoutAwait,
+) -> crate::PassShapeSummary {
+    let blockpy = project_lowered_module_callable_defs(
+        bundle,
+        |lowered| -> &crate::basic_block::block_py::CoreBlockPyCallableDefWithoutAwait { lowered },
+    );
+    summarize_blockpy_module(&blockpy)
+}
+
+fn summarize_core_blockpy_bundle_without_await_or_yield(
+    bundle: &LoweredCoreBlockPyModuleBundleWithoutAwaitOrYield,
+) -> crate::PassShapeSummary {
+    let blockpy = project_lowered_module_callable_defs(
+        bundle,
+        |lowered| -> &crate::basic_block::block_py::CoreBlockPyCallableDefWithoutAwaitOrYield {
+            lowered
+        },
+    );
+    summarize_blockpy_module(&blockpy)
+}
+
+pub(crate) fn summarize_tracked_pass_shape(
+    result: &crate::LoweringResult,
+    name: &str,
+) -> Option<crate::PassShapeSummary> {
+    if let Some(plan) = result.get_pass::<LoweredBlockPyModuleBundlePlan>(name) {
+        return Some(summarize_semantic_blockpy_plan(plan));
+    }
+    if let Some(plan) = result.get_pass::<ResolvedLoweredBlockPyModuleBundlePlan>(name) {
+        return Some(summarize_resolved_semantic_blockpy_plan(plan));
+    }
+    if let Some(plan) = result.get_pass::<LoweredBlockPyModuleExportPlan>(name) {
+        return Some(summarize_semantic_blockpy_export_plan(plan));
+    }
+    if let Some(bundle) = result.get_pass::<LoweredBlockPyModuleBundle>(name) {
+        return Some(summarize_semantic_blockpy_bundle(bundle));
+    }
+    if let Some(bundle) = result.get_pass::<LoweredCoreBlockPyModuleBundle>(name) {
+        return Some(summarize_core_blockpy_bundle(bundle));
+    }
+    if let Some(bundle) = result.get_pass::<LoweredCoreBlockPyModuleBundleWithoutAwait>(name) {
+        return Some(summarize_core_blockpy_bundle_without_await(bundle));
+    }
+    if let Some(bundle) = result.get_pass::<LoweredCoreBlockPyModuleBundleWithoutAwaitOrYield>(name)
+    {
+        return Some(summarize_core_blockpy_bundle_without_await_or_yield(bundle));
+    }
+    None
+}
 
 #[cfg(test)]
 mod tests {
@@ -77,7 +403,9 @@ mod tests {
         fn blockpy_module(&self) -> BlockPyModule {
             let bundle = self
                 .result
-                .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>("semantic_blockpy")
+                .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>(
+                    "semantic_blockpy_materialized",
+                )
                 .expect("expected lowered semantic BlockPy bundle");
             crate::basic_block::project_lowered_module_callable_defs(
                 bundle,
@@ -1261,7 +1589,9 @@ class Field:
             let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
                 .expect("transform should succeed");
             let blockpy = lowered
-                .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>("semantic_blockpy")
+                .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>(
+                    "semantic_blockpy_materialized",
+                )
                 .map(|bundle| {
                     crate::basic_block::project_lowered_module_callable_defs(
                         bundle,

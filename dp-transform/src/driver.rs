@@ -18,7 +18,7 @@ pub fn rewrite_module(context: &Context, module: &mut StmtBody) -> (BlockPyModul
     let mut pass_tracker = PassTracker::new();
     let bb_module = rewrite_module_with_tracker(context, module, &mut pass_tracker);
     let blockpy_module = pass_tracker
-        .get::<crate::basic_block::LoweredBlockPyModuleBundle>("semantic_blockpy")
+        .get::<crate::basic_block::LoweredBlockPyModuleBundle>("semantic_blockpy_materialized")
         .map(|bundle| {
             basic_block::project_lowered_module_callable_defs(
                 bundle,
@@ -77,11 +77,37 @@ pub(crate) fn rewrite_module_with_tracker(
     rewrite_class_def::class_body::rewrite_class_body_scopes(context, scope, module);
 
     let _: StmtBody = pass_tracker.add_pass("rewritten_ast_for_lowering", || module.clone());
-    let lowered_blockpy_module: basic_block::LoweredBlockPyModuleBundle =
-        pass_tracker.add_pass("semantic_blockpy", || {
-            basic_block::lower_blockpy_module_plan_to_bundle(
+    let semantic_blockpy_plan: basic_block::LoweredBlockPyModuleBundlePlan = pass_tracker
+        .add_pass("semantic_blockpy", || {
+            rewrite_ast_to_lowered_blockpy_module_plan(context, module)
+        });
+    let semantic_blockpy_plan_without_await: basic_block::LoweredBlockPyModuleBundlePlan =
+        pass_tracker.add_pass("semantic_blockpy_without_await", || {
+            basic_block::lower_awaits_in_lowered_blockpy_module_bundle_plan(
                 context,
-                rewrite_ast_to_lowered_blockpy_module_plan(context, module),
+                semantic_blockpy_plan,
+            )
+        });
+    let semantic_blockpy_after_generator_lowering:
+        basic_block::ResolvedLoweredBlockPyModuleBundlePlan = pass_tracker.add_pass(
+        "semantic_blockpy_after_generator_lowering",
+        || {
+            basic_block::lower_generators_in_lowered_blockpy_module_bundle_plan(
+                context,
+                semantic_blockpy_plan_without_await,
+            )
+        },
+    );
+    let semantic_blockpy_export_plan: basic_block::LoweredBlockPyModuleExportPlan = pass_tracker
+        .add_pass("semantic_blockpy_export_plan", || {
+            basic_block::resolved_lowered_blockpy_module_bundle_plan_to_export_plan(
+                semantic_blockpy_after_generator_lowering,
+            )
+        });
+    let lowered_blockpy_module: basic_block::LoweredBlockPyModuleBundle =
+        pass_tracker.add_pass("semantic_blockpy_materialized", || {
+            basic_block::lower_yield_in_lowered_blockpy_module_export_plan(
+                semantic_blockpy_export_plan,
             )
         });
     let core_blockpy_bundle: basic_block::LoweredCoreBlockPyModuleBundle = pass_tracker
