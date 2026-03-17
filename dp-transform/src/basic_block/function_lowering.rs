@@ -363,7 +363,11 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     let cell_slots = collect_cell_slots(&runtime_input_body);
     let has_yield = has_yield_exprs_in_stmts(&runtime_input_body);
     let has_await = has_await_in_stmts(&runtime_input_body);
-    if func.is_async && has_await && !legacy_async_fallback_removes_all_awaits {
+    if is_generated_genexpr
+        && func.is_async
+        && has_await
+        && !legacy_async_fallback_removes_all_awaits
+    {
         return None;
     }
     if has_yield && has_await && !func.is_async {
