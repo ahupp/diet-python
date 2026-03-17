@@ -47,7 +47,6 @@ def test_core_blockpy_still_contains_yield() -> None:
     assert debug_pass_shape("core_blockpy")["contains_yield"]
 
 
-@PASS_SHAPE_XFAIL
 def test_core_blockpy_replaces_add_with_dp_add() -> None:
     assert debug_pass_shape("core_blockpy")["contains_dp_add"]
 
