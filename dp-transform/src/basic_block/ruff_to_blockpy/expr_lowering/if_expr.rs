@@ -1,9 +1,8 @@
 use super::BlockPySetupExprLowerer;
-use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::block_py::{
-    BlockPyAssign, BlockPyCfgFragment, BlockPyIf, BlockPyStmt, BlockPyStmtFragmentBuilder,
-    BlockPyTerm,
+    BlockPyAssign, BlockPyIf, BlockPyStmt, BlockPyStmtFragmentBuilder,
 };
+use crate::basic_block::ruff_to_blockpy::expr_lowering::fresh_setup_name;
 use crate::basic_block::ruff_to_blockpy::LoopContext;
 use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr};
@@ -33,7 +32,6 @@ where
 
 pub(super) fn lower_if_expr_into<L, E>(
     lowerer: &L,
-    context: &Context,
     if_expr: ast::ExprIf,
     out: &mut BlockPyStmtFragmentBuilder<E>,
     loop_ctx: Option<&LoopContext>,
@@ -46,17 +44,16 @@ where
     let ast::ExprIf {
         test, body, orelse, ..
     } = if_expr;
-    let target = context.fresh("tmp");
-    let test = lowerer.lower_expr_ast_into(context, *test, out, loop_ctx, next_label_id)?;
+    let target = fresh_setup_name("tmp");
+    let test = lowerer.lower_expr_ast_into(*test, out, loop_ctx, next_label_id)?;
 
     let mut body_out = BlockPyStmtFragmentBuilder::<E>::new();
-    let body_value =
-        lowerer.lower_expr_ast_into(context, *body, &mut body_out, loop_ctx, next_label_id)?;
+    let body_value = lowerer.lower_expr_ast_into(*body, &mut body_out, loop_ctx, next_label_id)?;
     body_out.push_stmt(assign_name(&target, body_value));
 
     let mut orelse_out = BlockPyStmtFragmentBuilder::<E>::new();
     let orelse_value =
-        lowerer.lower_expr_ast_into(context, *orelse, &mut orelse_out, loop_ctx, next_label_id)?;
+        lowerer.lower_expr_ast_into(*orelse, &mut orelse_out, loop_ctx, next_label_id)?;
     orelse_out.push_stmt(assign_name(&target, orelse_value));
 
     out.push_stmt(BlockPyStmt::If(BlockPyIf {
@@ -69,7 +66,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::basic_block::ast_to_ast::{context::Context, Options};
     use crate::basic_block::block_py::{BlockPyStmt, BlockPyStmtFragmentBuilder};
     use crate::basic_block::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
     use crate::py_expr;
@@ -77,12 +73,10 @@ mod tests {
 
     #[test]
     fn if_expr_lowering_emits_blockpy_setup_directly() {
-        let context = Context::new(Options::for_test(), "");
         let mut out = BlockPyStmtFragmentBuilder::<Expr>::new();
         let mut next_label_id = 0usize;
 
         let lowered = lower_expr_into_with_setup(
-            &context,
             py_expr!("a if cond else b"),
             &mut out,
             None,

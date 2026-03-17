@@ -12,14 +12,13 @@ use super::block_py::exception::{
     rewrite_region_returns_to_finally_blockpy,
 };
 use super::block_py::state::{
-    collect_injected_exception_names_blockpy, collect_state_vars,
-    rewrite_sync_generator_blockpy_blocks_to_closure_cells, sync_generator_cleanup_cells,
-    sync_generator_state_order, sync_target_cells_stmts as sync_target_cells_stmts_shared,
+    collect_parameter_names, collect_state_vars,
+    sync_target_cells_stmts as sync_target_cells_stmts_shared,
 };
 use super::block_py::{
-    assert_blockpy_block_normalized, BlockPyBlockMeta, BlockPyFunctionKind, BlockPyLabel,
-    BlockPyTryJump, SemanticBlockPyBlock, SemanticBlockPyCallableDef, SemanticBlockPyStmt,
-    SemanticBlockPyTerm, ENTRY_BLOCK_LABEL,
+    assert_blockpy_block_normalized, BlockPyBlockMeta, BlockPyCallableFacts, BlockPyCallableHeader,
+    BlockPyFunctionKind, BlockPyLabel, BlockPyTryJump, SemanticBlockPyBlock,
+    SemanticBlockPyCallableDef, SemanticBlockPyTerm, ENTRY_BLOCK_LABEL,
 };
 use super::cfg_ir::CfgCallableDef;
 use super::lowered_ir::{
@@ -44,13 +43,12 @@ mod stmt_sequences;
 mod try_regions;
 
 pub(crate) use super::blockpy_generators::{
-    build_async_for_continue_entry, build_blockpy_closure_layout,
-    build_closure_backed_generator_export_plan, build_initial_generator_metadata,
-    lower_generator_block_plan, lower_generator_yield_terms_to_explicit_return_blockpy,
-    split_generator_return_terms_to_escape_blocks, synthesize_generator_dispatch_metadata,
-    try_lower_generators_from_await_free_semantic_input, GeneratorBlockPlan,
-    GeneratorLoweringRoute, GeneratorMetadata, GeneratorYieldSite, PostBlockPyGeneratorLowering,
-    SemanticGeneratorInput,
+    build_async_for_continue_entry, build_blockpy_closure_layout, build_initial_generator_metadata,
+    compute_runtime_export_data, lower_closure_backed_generator_export_bundle,
+    lower_generator_block_plan, prepare_generator_runtime_blocks_for_export,
+    synthesize_generator_dispatch_metadata, try_lower_generators_from_await_free_semantic_input,
+    GeneratorBlockPlan, GeneratorLoweringRoute, GeneratorMetadata, GeneratorYieldSite,
+    PostBlockPyGeneratorLowering, RuntimeExportData, SemanticGeneratorInput,
 };
 
 pub(crate) use compat::{
@@ -64,7 +62,7 @@ pub(crate) use compat::{
 pub(crate) use stmt_lowering::{
     build_for_target_assign_body, lower_star_try_stmt_sequence, lower_stmt_into,
     lower_try_stmt_sequence, lower_with_stmt_sequence, rewrite_assign_stmt, rewrite_augassign_stmt,
-    rewrite_delete_stmt, rewrite_type_alias_stmt, should_rewrite_assignment_targets,
+    rewrite_delete_stmt, rewrite_type_alias_stmt,
 };
 pub(crate) use stmt_sequences::{
     lower_expanded_stmt_sequence, lower_stmt_sequence_with_state, lower_stmts_to_blockpy_stmts,
@@ -134,90 +132,15 @@ pub(crate) struct LoweredBlockPyFunctionBundle {
 
 #[derive(Clone)]
 pub(crate) struct LoweredBlockPyFunctionBundlePlan {
-    pub main_function_id: FunctionId,
     pub prepared_function_plan: PreparedBlockPyFunctionPlan,
-    pub display_name: String,
     pub has_yield: bool,
     pub is_coroutine: bool,
     pub is_async_generator_runtime: bool,
     pub is_closure_backed_generator_runtime: bool,
-    pub param_names: Vec<String>,
     pub extra_closure_state_names: Vec<String>,
     pub capture_names: Vec<String>,
     pub label_prefix: String,
-    pub cell_slots: HashSet<String>,
     pub module_init_mode: bool,
-    pub deleted_names: HashSet<String>,
-    pub unbound_local_names: HashSet<String>,
-    pub outer_scope_names: HashSet<String>,
-}
-
-#[derive(Clone)]
-pub(crate) struct ResolvedLoweredBlockPyFunctionBundlePlan {
-    pub resolved_prepared_function_plan: ResolvedPreparedBlockPyFunctionPlan,
-    pub display_name: String,
-    pub has_yield: bool,
-    pub is_coroutine: bool,
-    pub is_async_generator_runtime: bool,
-    pub is_closure_backed_generator_runtime: bool,
-    pub param_names: Vec<String>,
-    pub extra_closure_state_names: Vec<String>,
-    pub capture_names: Vec<String>,
-    pub label_prefix: String,
-    pub cell_slots: HashSet<String>,
-    pub module_init_mode: bool,
-    pub resume_function_id: Option<FunctionId>,
-    pub deleted_names: HashSet<String>,
-    pub unbound_local_names: HashSet<String>,
-}
-
-#[derive(Clone)]
-pub(crate) struct GeneratorLoweredPreparedBlockPyFunctionPlan {
-    pub function_id: FunctionId,
-    pub bind_name: String,
-    pub qualname: String,
-    pub doc: Option<Expr>,
-    pub params: ast::Parameters,
-    pub end_label: String,
-    pub label_prefix: String,
-    pub blockpy_kind: BlockPyFunctionKind,
-    pub lowered: PostBlockPyGeneratorLowering,
-    pub is_async_generator_runtime: bool,
-    pub is_closure_backed_generator_runtime: bool,
-    pub uncaught_exc_name: String,
-}
-
-#[derive(Clone)]
-pub(crate) enum ResolvedPreparedBlockPyFunctionPlan {
-    Prepared(PreparedBlockPyFunction),
-    GeneratorLowered(GeneratorLoweredPreparedBlockPyFunctionPlan),
-}
-
-#[derive(Clone)]
-pub(crate) struct LoweredBlockPyFunctionExportPlan {
-    pub function_id: FunctionId,
-    pub bind_name: String,
-    pub display_name: String,
-    pub qualname: String,
-    pub doc: Option<Expr>,
-    pub params: ast::Parameters,
-    pub has_yield: bool,
-    pub is_coroutine: bool,
-    pub is_async_generator_runtime: bool,
-    pub is_closure_backed_generator_runtime: bool,
-    pub param_names: Vec<String>,
-    pub label_prefix: String,
-    pub runtime_entry_label: String,
-    pub runtime_entry_liveins: Vec<String>,
-    pub runtime_blocks: Vec<SemanticBlockPyBlock>,
-    pub runtime_block_params: HashMap<String, Vec<String>>,
-    pub runtime_exception_edges: HashMap<String, Option<String>>,
-    pub runtime_closure_layout: Option<ClosureLayout>,
-    pub semantic_closure_layout: Option<ClosureLayout>,
-    pub local_cell_slots: Vec<String>,
-    pub target_labels: Vec<String>,
-    pub resume_pcs: Vec<(String, usize)>,
-    pub resume_function_id: Option<FunctionId>,
 }
 
 #[derive(Clone)]
@@ -233,22 +156,48 @@ pub(crate) enum PreparedBlockPyFunctionPlan {
     PendingGeneratorLowering(PendingGeneratorLoweringPlan),
 }
 
+impl PreparedBlockPyFunctionPlan {
+    pub(crate) fn callable_facts(&self) -> &BlockPyCallableFacts {
+        match self {
+            PreparedBlockPyFunctionPlan::Ready(prepared) => &prepared.callable_def.facts,
+            PreparedBlockPyFunctionPlan::PendingGeneratorLowering(pending) => {
+                &pending.callable_facts
+            }
+        }
+    }
+
+    pub(crate) fn callable_header(&self) -> BlockPyCallableHeader<ast::Parameters> {
+        match self {
+            PreparedBlockPyFunctionPlan::Ready(prepared) => prepared.callable_def.header(),
+            PreparedBlockPyFunctionPlan::PendingGeneratorLowering(pending) => {
+                pending.header.clone()
+            }
+        }
+    }
+}
+
+impl LoweredBlockPyFunctionBundlePlan {
+    pub(crate) fn callable_facts(&self) -> &BlockPyCallableFacts {
+        self.prepared_function_plan.callable_facts()
+    }
+
+    pub(crate) fn callable_header(&self) -> BlockPyCallableHeader<ast::Parameters> {
+        self.prepared_function_plan.callable_header()
+    }
+
+    pub(crate) fn param_names(&self) -> Vec<String> {
+        collect_parameter_names(&self.callable_header().params)
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct PendingGeneratorLoweringPlan {
-    pub main_function_id: FunctionId,
-    pub fn_name: String,
-    pub bind_name: String,
-    pub qualname: String,
+    pub header: BlockPyCallableHeader<ast::Parameters>,
     pub doc: Option<Expr>,
-    pub params: ast::Parameters,
-    pub fallback_runtime_input_body: Vec<Box<Stmt>>,
     pub semantic_input: SemanticGeneratorInput,
     pub end_label: String,
-    pub label_prefix: String,
     pub blockpy_kind: BlockPyFunctionKind,
-    pub is_async_generator_runtime: bool,
-    pub is_closure_backed_generator_runtime: bool,
-    pub cell_slots: HashSet<String>,
+    pub callable_facts: BlockPyCallableFacts,
     pub awaits_remain_after_lowering: Option<bool>,
 }
 
@@ -336,16 +285,13 @@ pub(crate) fn bb_kind_for_blockpy_kind(
 }
 
 pub(crate) fn build_blockpy_function(
-    function_id: FunctionId,
-    bind_name: String,
-    display_name: String,
-    qualname: String,
+    header: BlockPyCallableHeader<ast::Parameters>,
     doc: Option<Expr>,
     kind: BlockPyFunctionKind,
-    params: ast::Parameters,
     entry_label: String,
     entry_liveins: Vec<String>,
     closure_layout: Option<ClosureLayout>,
+    facts: BlockPyCallableFacts,
     local_cell_slots: Vec<String>,
     mut blocks: Vec<SemanticBlockPyBlock>,
 ) -> SemanticBlockPyCallableDef {
@@ -355,17 +301,19 @@ pub(crate) fn build_blockpy_function(
     }
     SemanticBlockPyCallableDef {
         cfg: CfgCallableDef {
-            function_id,
-            bind_name,
-            display_name,
-            qualname,
+            function_id: header.function_id,
+            bind_name: header.bind_name,
+            display_name: header.display_name,
+            qualname: header.qualname,
             kind,
-            params,
+            params: header.params,
             entry_liveins,
             blocks,
         },
+        fn_name: header.fn_name,
         doc,
         closure_layout,
+        facts,
         local_cell_slots,
     }
 }
@@ -505,7 +453,7 @@ fn rename_lowered_function_kind(kind: &mut LoweredFunctionKind, rename: &HashMap
     }
 }
 
-fn normalize_exported_entry_block(
+pub(crate) fn normalize_exported_entry_block(
     entry_label: String,
     mut blocks: Vec<SemanticBlockPyBlock>,
     block_params: HashMap<String, Vec<String>>,
@@ -585,82 +533,42 @@ fn build_semantic_blockpy_closure_layout(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn lower_generators_in_lowered_blockpy_function_bundle_plan(
+pub(crate) fn build_lowered_blockpy_function_bundle(
     context: &Context,
     plan: LoweredBlockPyFunctionBundlePlan,
     next_block_id: &mut usize,
     next_function_id: &mut usize,
     lower_non_bb_def: &mut impl FnMut(&ast::StmtFunctionDef) -> Vec<Stmt>,
     next_temp: &mut impl FnMut(&str, &mut usize) -> String,
-) -> ResolvedLoweredBlockPyFunctionBundlePlan {
+    prepare_callable_def: &mut impl FnMut(&mut SemanticBlockPyCallableDef),
+) -> LoweredBlockPyFunctionBundle {
+    let callable_facts = plan.callable_facts().clone();
+    let callable_header = plan.callable_header();
+    let param_names = plan.param_names();
     let LoweredBlockPyFunctionBundlePlan {
-        main_function_id: _,
         prepared_function_plan,
-        display_name,
         has_yield,
         is_coroutine,
         is_async_generator_runtime,
         is_closure_backed_generator_runtime,
-        param_names,
         extra_closure_state_names,
         capture_names,
         label_prefix,
-        cell_slots,
         module_init_mode,
-        deleted_names,
-        unbound_local_names,
-        outer_scope_names: _,
     } = plan;
-    let resolved_prepared_function_plan = lower_generators_in_prepared_blockpy_function_plan(
+    let mut prepared_function = lower_generators_in_prepared_blockpy_function_plan(
         context,
         prepared_function_plan,
+        is_async_generator_runtime,
+        is_closure_backed_generator_runtime,
+        label_prefix.as_str(),
         next_block_id,
         lower_non_bb_def,
         next_temp,
     );
-    ResolvedLoweredBlockPyFunctionBundlePlan {
-        resolved_prepared_function_plan,
-        display_name,
-        has_yield,
-        is_coroutine,
-        is_async_generator_runtime,
-        is_closure_backed_generator_runtime,
-        param_names,
-        extra_closure_state_names,
-        capture_names,
-        label_prefix,
-        cell_slots,
-        module_init_mode,
-        resume_function_id: has_yield.then(|| take_next_function_id(next_function_id)),
-        deleted_names,
-        unbound_local_names,
-    }
-}
-
-pub(crate) fn build_lowered_blockpy_function_export_plan(
-    plan: ResolvedLoweredBlockPyFunctionBundlePlan,
-    prepare_callable_def: &mut impl FnMut(&mut SemanticBlockPyCallableDef),
-) -> LoweredBlockPyFunctionExportPlan {
-    let ResolvedLoweredBlockPyFunctionBundlePlan {
-        resolved_prepared_function_plan,
-        display_name,
-        has_yield,
-        is_coroutine,
-        is_async_generator_runtime,
-        is_closure_backed_generator_runtime,
-        param_names,
-        extra_closure_state_names,
-        capture_names,
-        label_prefix,
-        mut cell_slots,
-        module_init_mode,
-        resume_function_id,
-        deleted_names: _,
-        unbound_local_names: _,
-    } = plan;
-    let mut prepared_function =
-        finalize_resolved_prepared_blockpy_function_plan(resolved_prepared_function_plan);
     prepare_callable_def(&mut prepared_function.callable_def);
+    let resume_function_id = has_yield.then(|| take_next_function_id(next_function_id));
+    let mut cell_slots = callable_facts.cell_slots.clone();
     let PreparedBlockPyFunction {
         callable_def: mut blockpy_function,
         generator_metadata,
@@ -691,7 +599,7 @@ pub(crate) fn build_lowered_blockpy_function_export_plan(
         Vec::new()
     };
     if has_yield {
-        split_generator_return_terms_to_escape_blocks(
+        prepare_generator_runtime_blocks_for_export(
             &mut blocks_for_dataflow,
             &generator_yield_sites_for_lowering,
             is_async_generator_runtime,
@@ -757,181 +665,25 @@ pub(crate) fn build_lowered_blockpy_function_export_plan(
             params.push(exc_param.clone());
         }
     }
-    if has_yield {
-        debug_assert!(
-            is_closure_backed_generator_runtime,
-            "yielded functions should always use the closure-backed generator path",
-        );
-        let injected_exc_names: Vec<String> = Vec::new();
-        for block in &blocks_for_dataflow {
-            if !generator_metadata
-                .as_ref()
-                .map(|info| {
-                    info.dispatch_only_labels
-                        .iter()
-                        .any(|label| label.as_str() == block.label.as_str())
-                })
-                .unwrap_or(false)
-            {
-                continue;
-            }
-            let params = block_params
-                .entry(block.label.as_str().to_string())
-                .or_default();
-            let mut dispatch_params = vec![
-                "_dp_self".to_string(),
-                "_dp_send_value".to_string(),
-                "_dp_resume_exc".to_string(),
-            ];
-            if is_async_generator_runtime {
-                dispatch_params.push("_dp_transport_sent".to_string());
-            }
-            for exc_name in &injected_exc_names {
-                if params.iter().any(|name| name == exc_name) {
-                    dispatch_params.push(exc_name.clone());
-                }
-            }
-            *params = dispatch_params;
-        }
-        if !injected_exc_names.is_empty() {
-            if let Some(entry_block) = blocks_for_dataflow.iter_mut().find(|block| {
-                block.label.as_str()
-                    == generator_metadata
-                        .as_ref()
-                        .and_then(|info| info.dispatch_entry_label.as_deref())
-                        .unwrap_or(entry_label.as_str())
-            }) {
-                for exc_name in injected_exc_names.iter().rev() {
-                    let injected = lower_stmts_to_blockpy_stmts::<Expr>(&[py_stmt!(
-                        "{name:id} = __dp_DELETED",
-                        name = exc_name.as_str(),
-                    )])
-                    .unwrap_or_else(|err| {
-                        panic!("failed to convert injected exception init to BlockPy: {err}")
-                    });
-                    assert!(injected.term.is_none());
-                    let stmt =
-                        injected.body.into_iter().next().expect(
-                            "generated deleted-sentinel init should yield one BlockPy stmt",
-                        );
-                    entry_block.body.insert(0, stmt);
-                }
-            }
-        }
-    }
-
-    let state_entry_label = generator_metadata
-        .as_ref()
-        .and_then(|info| info.dispatch_entry_label.as_deref())
-        .unwrap_or(entry_label.as_str())
-        .to_string();
-    if has_yield {
-        rewrite_sync_generator_blockpy_blocks_to_closure_cells(
-            &mut blocks_for_dataflow,
-            &mut block_params,
-            &state_vars,
-            &mut cell_slots,
-            state_entry_label.as_str(),
-        );
-    }
-
-    let injected_exception_names = collect_injected_exception_names_blockpy(&blocks_for_dataflow);
-    let closure_layout = if has_yield {
-        Some(build_blockpy_closure_layout(
-            &param_names,
-            &state_vars,
-            &capture_names,
-            &injected_exception_names,
-        ))
-    } else {
-        None
-    };
-    if let (Some(uncaught_label), Some(uncaught_exc_name)) = (
-        generator_metadata
-            .as_ref()
-            .and_then(|info| info.uncaught_block_label.as_deref()),
-        generator_metadata
-            .as_ref()
-            .and_then(|info| info.uncaught_exc_name.as_ref()),
-    ) {
-        let params = block_params.entry(uncaught_label.to_string()).or_default();
-        params.retain(|name| name != uncaught_exc_name);
-        params.push(uncaught_exc_name.clone());
-        if let Some(uncaught_set_done_label) = generator_metadata
-            .as_ref()
-            .and_then(|info| info.uncaught_set_done_label.as_deref())
-        {
-            let params = block_params
-                .entry(uncaught_set_done_label.to_string())
-                .or_default();
-            params.retain(|name| name != uncaught_exc_name);
-            params.push(uncaught_exc_name.clone());
-        }
-        if let Some(uncaught_raise_label) = generator_metadata
-            .as_ref()
-            .and_then(|info| info.uncaught_raise_label.as_deref())
-        {
-            let params = block_params
-                .entry(uncaught_raise_label.to_string())
-                .or_default();
-            params.retain(|name| name != uncaught_exc_name);
-            params.push(uncaught_exc_name.clone());
-        }
-    }
-    let cleanup_cells = if has_yield {
-        sync_generator_cleanup_cells(&state_vars, &injected_exception_names)
-    } else {
-        Vec::new()
-    };
-
-    if has_yield {
-        if let Some(uncaught_set_done_label) = generator_metadata
-            .as_ref()
-            .and_then(|info| info.uncaught_set_done_label.as_deref())
-        {
-            if let Some(uncaught_set_done_block) = blocks_for_dataflow
-                .iter_mut()
-                .find(|block| block.label.as_str() == uncaught_set_done_label)
-            {
-                let mut new_body =
-                    Vec::with_capacity(uncaught_set_done_block.body.len() + cleanup_cells.len());
-                for stmt in std::mem::take(&mut uncaught_set_done_block.body) {
-                    new_body.push(stmt);
-                    if matches!(new_body.last(), Some(SemanticBlockPyStmt::Expr(_)))
-                        && new_body.len() == 1
-                    {
-                        for cell in &cleanup_cells {
-                            new_body.extend(
-                                lower_stmts_to_blockpy_stmts::<Expr>(&[py_stmt!(
-                                    "__dp_store_cell({cell:id}, __dp_DELETED)",
-                                    cell = cell.as_str(),
-                                )])
-                                .unwrap_or_else(|err| {
-                                    panic!("failed to convert cleanup stmt to BlockPy: {err}")
-                                })
-                                .body,
-                            );
-                        }
-                    }
-                }
-                uncaught_set_done_block.body = new_body;
-            }
-        }
-    }
-
-    let entry_liveins = if has_yield {
-        sync_generator_state_order(&state_vars, &injected_exception_names)
-    } else {
-        block_params
-            .get(&state_entry_label)
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|name| {
-                name != "_dp_self" && name != "_dp_send_value" && name != "_dp_resume_exc"
-            })
-            .collect::<Vec<_>>()
-    };
+    let RuntimeExportData {
+        injected_exception_names,
+        entry_liveins,
+        closure_layout,
+    } = compute_runtime_export_data(
+        has_yield,
+        &mut blocks_for_dataflow,
+        &mut block_params,
+        &param_names,
+        &capture_names,
+        &state_vars,
+        generator_metadata.as_ref(),
+        entry_label.as_str(),
+        &mut cell_slots,
+        &resume_pcs,
+        &generator_yield_sites_for_lowering,
+        is_async_generator_runtime,
+        is_closure_backed_generator_runtime,
+    );
     let extra_state_vars = if has_yield {
         Vec::new()
     } else {
@@ -945,15 +697,6 @@ pub(crate) fn build_lowered_blockpy_function_export_plan(
         .iter()
         .map(|block| block.label.as_str().to_string())
         .collect::<Vec<_>>();
-    if has_yield {
-        lower_generator_yield_terms_to_explicit_return_blockpy(
-            &mut blocks_for_dataflow,
-            &block_params,
-            &resume_pcs,
-            &generator_yield_sites_for_lowering,
-            is_closure_backed_generator_runtime,
-        );
-    }
 
     let mut state_order = entry_liveins.clone();
     for name in extra_state_vars {
@@ -976,157 +719,47 @@ pub(crate) fn build_lowered_blockpy_function_export_plan(
         )
     };
 
-    LoweredBlockPyFunctionExportPlan {
-        function_id: blockpy_function.function_id,
-        bind_name: blockpy_function.bind_name.clone(),
-        display_name,
-        qualname: blockpy_function.qualname.clone(),
-        doc: blockpy_function.doc.clone(),
-        params: blockpy_function.params.clone(),
-        has_yield,
-        is_coroutine,
-        is_async_generator_runtime,
-        is_closure_backed_generator_runtime,
-        param_names,
-        label_prefix,
-        runtime_entry_label: entry_label,
-        runtime_entry_liveins: state_order,
-        runtime_blocks: blocks_for_dataflow,
-        runtime_block_params: block_params,
-        runtime_exception_edges: exception_edges,
-        runtime_closure_layout: closure_layout,
-        semantic_closure_layout,
-        local_cell_slots: sorted_local_cell_slots,
-        target_labels,
-        resume_pcs,
-        resume_function_id,
-    }
-}
-
-pub(crate) fn lowered_blockpy_function_export_plan_to_bundle(
-    plan: LoweredBlockPyFunctionExportPlan,
-) -> LoweredBlockPyFunctionBundle {
-    let LoweredBlockPyFunctionExportPlan {
-        function_id,
-        bind_name,
-        display_name,
-        qualname,
-        doc,
-        params,
-        has_yield,
-        is_coroutine,
-        is_async_generator_runtime,
-        is_closure_backed_generator_runtime,
-        param_names,
-        label_prefix,
-        runtime_entry_label,
-        runtime_entry_liveins,
-        runtime_blocks,
-        runtime_block_params,
-        runtime_exception_edges,
-        runtime_closure_layout,
-        semantic_closure_layout,
-        local_cell_slots,
-        target_labels,
-        resume_pcs,
-        resume_function_id,
-    } = plan;
-
+    let function_id = blockpy_function.function_id;
+    let bind_name = blockpy_function.bind_name.clone();
+    let qualname = blockpy_function.qualname.clone();
+    let doc = blockpy_function.doc.clone();
+    let params = blockpy_function.params.clone();
+    let display_name = callable_header.display_name;
+    let runtime_entry_label = entry_label;
     let mut exported_entry_label = runtime_entry_label.clone();
-    let mut exported_entry_liveins = runtime_entry_liveins.clone();
-    let mut exported_blocks = runtime_blocks;
-    let mut exported_block_params = runtime_block_params;
-    let mut exported_exception_edges = runtime_exception_edges;
+    let mut exported_entry_liveins = state_order;
+    let mut exported_blocks = blocks_for_dataflow;
+    let mut exported_block_params = block_params;
+    let mut exported_exception_edges = exception_edges;
     let mut helper_functions = Vec::new();
 
     if has_yield {
-        let layout = runtime_closure_layout
-            .as_ref()
-            .expect("closure-backed generator export requires closure layout");
-        let factory_label = format!("{label_prefix}_factory");
-        let resume_function_id = resume_function_id
-            .expect("yielding export plan should preallocate a resume helper function id");
-        let resume_blockpy_kind = if is_async_generator_runtime {
-            BlockPyFunctionKind::AsyncGenerator
-        } else {
-            BlockPyFunctionKind::Generator
-        };
-        let resume_bb_kind = bb_kind_for_blockpy_kind(
-            resume_blockpy_kind,
-            true,
-            runtime_entry_label.as_str(),
-            &target_labels,
-            &resume_pcs,
-        );
-        let (
-            normalized_resume_blocks,
-            normalized_resume_block_params,
-            normalized_resume_exception_edges,
-            normalized_resume_bb_kind,
-        ) = normalize_exported_entry_block(
-            runtime_entry_label.clone(),
-            exported_blocks.clone(),
-            exported_block_params.clone(),
-            exported_exception_edges.clone(),
-            resume_bb_kind,
-        );
-        let (normalized_resume_target_labels, normalized_resume_pcs) =
-            match &normalized_resume_bb_kind {
-                LoweredFunctionKind::Generator {
-                    target_labels,
-                    resume_pcs,
-                    ..
-                }
-                | LoweredFunctionKind::AsyncGenerator {
-                    target_labels,
-                    resume_pcs,
-                    ..
-                } => (target_labels.clone(), resume_pcs.clone()),
-                LoweredFunctionKind::Function => {
-                    panic!("closure-backed generator resume helper must lower as a generator")
-                }
-            };
-        let export_plan = build_closure_backed_generator_export_plan(
-            factory_label.as_str(),
-            ENTRY_BLOCK_LABEL,
-            resume_function_id,
+        let export = lower_closure_backed_generator_export_bundle(
             bind_name.as_str(),
             display_name.as_str(),
             qualname.as_str(),
+            &params,
             &param_names,
-            layout,
+            label_prefix.as_str(),
+            runtime_entry_label.as_str(),
+            exported_blocks,
+            exported_block_params,
+            exported_exception_edges,
+            &closure_layout,
+            &sorted_local_cell_slots,
+            &target_labels,
+            &resume_pcs,
+            resume_function_id
+                .expect("yielding export plan should preallocate a resume helper function id"),
             is_coroutine,
             is_async_generator_runtime,
-            &normalized_resume_target_labels,
-            &normalized_resume_pcs,
         );
-        let resume_function = build_blockpy_function(
-            export_plan.resume_function_id,
-            export_plan.resume_bind_name.clone(),
-            export_plan.resume_display_name.clone(),
-            export_plan.resume_qualname.clone(),
-            None,
-            resume_blockpy_kind,
-            params.clone(),
-            ENTRY_BLOCK_LABEL.to_string(),
-            export_plan.resume_entry_liveins.clone(),
-            runtime_closure_layout.clone(),
-            local_cell_slots.clone(),
-            normalized_resume_blocks,
-        );
-        helper_functions.push(build_lowered_blockpy_function(
-            resume_function,
-            normalized_resume_bb_kind,
-            normalized_resume_block_params,
-            normalized_resume_exception_edges,
-            runtime_closure_layout.clone(),
-        ));
-        exported_blocks = vec![export_plan.factory_block];
-        exported_entry_label = export_plan.factory_label;
-        exported_entry_liveins = export_plan.factory_entry_liveins;
-        exported_block_params =
-            HashMap::from([(exported_entry_label.clone(), exported_entry_liveins.clone())]);
-        exported_exception_edges = HashMap::new();
+        helper_functions.extend(export.helper_functions);
+        exported_blocks = export.exported_blocks;
+        exported_entry_label = export.exported_entry_label;
+        exported_entry_liveins = export.exported_entry_liveins;
+        exported_block_params = export.exported_block_params;
+        exported_exception_edges = export.exported_exception_edges;
     }
 
     let main_blockpy_kind = BlockPyFunctionKind::Function;
@@ -1150,13 +783,16 @@ pub(crate) fn lowered_blockpy_function_export_plan_to_bundle(
         main_bb_kind,
     );
     let main_function = build_blockpy_function(
-        function_id,
-        bind_name,
-        display_name,
-        qualname,
+        BlockPyCallableHeader {
+            function_id,
+            fn_name: callable_header.fn_name,
+            bind_name,
+            display_name,
+            qualname,
+            params,
+        },
         doc,
         main_blockpy_kind,
-        params,
         ENTRY_BLOCK_LABEL.to_string(),
         exported_entry_liveins,
         if has_yield {
@@ -1164,7 +800,8 @@ pub(crate) fn lowered_blockpy_function_export_plan_to_bundle(
         } else {
             semantic_closure_layout
         },
-        local_cell_slots,
+        blockpy_function.facts.clone(),
+        sorted_local_cell_slots,
         normalized_main_blocks,
     );
     LoweredBlockPyFunctionBundle {
@@ -1173,23 +810,16 @@ pub(crate) fn lowered_blockpy_function_export_plan_to_bundle(
             normalized_main_bb_kind,
             normalized_main_block_params,
             normalized_main_exception_edges,
-            if has_yield {
-                None
-            } else {
-                runtime_closure_layout
-            },
+            if has_yield { None } else { closure_layout },
         ),
         helper_functions,
     }
 }
 
 pub(crate) fn build_finalized_blockpy_function(
-    function_id: FunctionId,
-    bind_name: String,
-    qualname: String,
+    header: BlockPyCallableHeader<ast::Parameters>,
     doc: Option<Expr>,
     kind: BlockPyFunctionKind,
-    params: ast::Parameters,
     blocks: Vec<SemanticBlockPyBlock>,
     try_regions: Vec<TryRegionPlan>,
     entry_label: String,
@@ -1199,18 +829,16 @@ pub(crate) fn build_finalized_blockpy_function(
     is_async_generator_runtime: bool,
     is_closure_backed_generator_runtime: bool,
     uncaught_exc_name: String,
+    facts: BlockPyCallableFacts,
 ) -> PreparedBlockPyFunction {
     let callable_def = build_blockpy_function(
-        function_id,
-        bind_name.clone(),
-        bind_name,
-        qualname,
+        header,
         doc,
         kind,
-        params,
         entry_label.clone(),
         Vec::new(),
         None,
+        facts,
         Vec::new(),
         blocks,
     );
@@ -1232,6 +860,7 @@ fn build_semantic_generator_input<FDef, FTemp>(
     context: &Context,
     fn_name: &str,
     runtime_input_body: &[Box<Stmt>],
+    fallback_runtime_input_body: &[Box<Stmt>],
     end_label: &str,
     is_closure_backed_generator_runtime: bool,
     cell_slots: &HashSet<String>,
@@ -1267,6 +896,7 @@ where
         next_temp,
     );
     SemanticGeneratorInput {
+        fallback_runtime_input_body: fallback_runtime_input_body.to_vec(),
         blocks,
         entry_label,
         try_regions,
@@ -1278,20 +908,16 @@ where
 #[allow(clippy::too_many_arguments)]
 fn build_prepared_blockpy_function_from_runtime_input<FDef, FTemp>(
     context: &Context,
-    function_id: FunctionId,
-    fn_name: &str,
+    header: BlockPyCallableHeader<ast::Parameters>,
     runtime_input_body: &[Box<Stmt>],
-    bind_name: String,
-    qualname: String,
     doc: Option<Expr>,
-    params: ast::Parameters,
     end_label: String,
     label_prefix: &str,
     blockpy_kind: BlockPyFunctionKind,
     has_yield: bool,
     is_async_generator_runtime: bool,
     is_closure_backed_generator_runtime: bool,
-    cell_slots: &HashSet<String>,
+    facts: &BlockPyCallableFacts,
     next_block_id: &mut usize,
     lower_non_bb_def: &mut FDef,
     next_temp: &mut FTemp,
@@ -1300,6 +926,7 @@ where
     FDef: FnMut(&ast::StmtFunctionDef) -> Vec<Stmt>,
     FTemp: FnMut(&str, &mut usize) -> String,
 {
+    let fn_name = header.fn_name.clone();
     let mut blocks = Vec::new();
     let mut try_regions = Vec::new();
     let mut generator_state = BlockPySequenceGeneratorState {
@@ -1310,13 +937,13 @@ where
     };
     let entry_label = lower_stmt_sequence_with_state(
         context,
-        fn_name,
+        fn_name.as_str(),
         runtime_input_body,
         end_label.clone(),
         None,
         None,
         &mut blocks,
-        cell_slots,
+        &facts.cell_slots,
         &mut generator_state,
         &mut try_regions,
         next_block_id,
@@ -1331,12 +958,9 @@ where
         )
     });
     build_finalized_blockpy_function(
-        function_id,
-        bind_name,
-        qualname,
+        header,
         doc,
         blockpy_kind,
-        params,
         blocks,
         try_regions,
         entry_label,
@@ -1346,19 +970,16 @@ where
         is_async_generator_runtime,
         is_closure_backed_generator_runtime,
         next_temp("uncaught_exc", next_block_id),
+        facts.clone(),
     )
 }
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_function_body_to_blockpy_function<FDef, FTemp>(
     context: &Context,
-    main_function_id: FunctionId,
-    fn_name: &str,
     runtime_input_body: &[Box<Stmt>],
-    bind_name: String,
-    qualname: String,
+    header: BlockPyCallableHeader<ast::Parameters>,
     doc: Option<Expr>,
-    params: ast::Parameters,
     legacy_async_runtime_input_body: Option<&[Box<Stmt>]>,
     end_label: String,
     label_prefix: &str,
@@ -1366,7 +987,7 @@ pub(crate) fn lower_function_body_to_blockpy_function<FDef, FTemp>(
     coroutine_via_generator: bool,
     is_async_generator_runtime: bool,
     is_closure_backed_generator_runtime: bool,
-    cell_slots: &HashSet<String>,
+    callable_facts: &BlockPyCallableFacts,
     next_block_id: &mut usize,
     lower_non_bb_def: &mut FDef,
     next_temp: &mut FTemp,
@@ -1384,53 +1005,40 @@ where
     if needs_generator_lowering {
         let semantic_input = build_semantic_generator_input(
             context,
-            fn_name,
+            header.fn_name.as_str(),
             runtime_input_body,
+            legacy_async_runtime_input_body.unwrap_or(runtime_input_body),
             end_label.as_str(),
             is_closure_backed_generator_runtime,
-            cell_slots,
+            &callable_facts.cell_slots,
             next_block_id,
             lower_non_bb_def,
             next_temp,
         );
         return PreparedBlockPyFunctionPlan::PendingGeneratorLowering(
             PendingGeneratorLoweringPlan {
-                main_function_id,
-                fn_name: fn_name.to_string(),
-                bind_name,
-                qualname,
+                header,
                 doc,
-                params,
-                fallback_runtime_input_body: legacy_async_runtime_input_body
-                    .unwrap_or(runtime_input_body)
-                    .to_vec(),
                 semantic_input,
                 end_label,
-                label_prefix: label_prefix.to_string(),
                 blockpy_kind,
-                is_async_generator_runtime,
-                is_closure_backed_generator_runtime,
-                cell_slots: cell_slots.clone(),
+                callable_facts: callable_facts.clone(),
                 awaits_remain_after_lowering: None,
             },
         );
     }
     PreparedBlockPyFunctionPlan::Ready(build_prepared_blockpy_function_from_runtime_input(
         context,
-        main_function_id,
-        fn_name,
+        header,
         runtime_input_body,
-        bind_name,
-        qualname,
         doc,
-        params,
         end_label,
         label_prefix,
         blockpy_kind,
         has_yield,
         is_async_generator_runtime,
         is_closure_backed_generator_runtime,
-        cell_slots,
+        callable_facts,
         next_block_id,
         lower_non_bb_def,
         next_temp,
@@ -1441,88 +1049,80 @@ where
 pub(crate) fn lower_generators_in_prepared_blockpy_function_plan<FDef, FTemp>(
     context: &Context,
     plan: PreparedBlockPyFunctionPlan,
+    is_async_generator_runtime: bool,
+    is_closure_backed_generator_runtime: bool,
+    label_prefix: &str,
     next_block_id: &mut usize,
     lower_non_bb_def: &mut FDef,
     next_temp: &mut FTemp,
-) -> ResolvedPreparedBlockPyFunctionPlan
+) -> PreparedBlockPyFunction
 where
     FDef: FnMut(&ast::StmtFunctionDef) -> Vec<Stmt>,
     FTemp: FnMut(&str, &mut usize) -> String,
 {
     match plan {
-        PreparedBlockPyFunctionPlan::Ready(prepared) => {
-            ResolvedPreparedBlockPyFunctionPlan::Prepared(prepared)
-        }
+        PreparedBlockPyFunctionPlan::Ready(prepared) => prepared,
         PreparedBlockPyFunctionPlan::PendingGeneratorLowering(pending) => {
             let awaits_remain_after_lowering = pending
                 .awaits_remain_after_lowering
                 .expect("semantic BlockPy await lowering should run before generator resolution");
-            if !awaits_remain_after_lowering {
-                if let Some(PostBlockPyGeneratorLowering {
-                    blocks,
-                    entry_label,
-                    try_regions,
-                    generator_metadata,
-                }) = try_lower_generators_from_await_free_semantic_input(
-                    context,
-                    pending.semantic_input.clone(),
-                    GeneratorLoweringRoute {
-                        is_closure_backed_generator_runtime: pending
-                            .is_closure_backed_generator_runtime,
-                        fn_name: pending.fn_name.as_str(),
-                        cell_slots: &pending.cell_slots,
-                    },
-                    next_block_id,
-                )
-                .expect("post-BlockPy generator lowering should not fail")
-                {
-                    return ResolvedPreparedBlockPyFunctionPlan::GeneratorLowered(
-                        GeneratorLoweredPreparedBlockPyFunctionPlan {
-                            function_id: pending.main_function_id,
-                            bind_name: pending.bind_name,
-                            qualname: pending.qualname,
-                            doc: pending.doc,
-                            params: pending.params,
-                            end_label: pending.end_label,
-                            label_prefix: pending.label_prefix,
-                            blockpy_kind: pending.blockpy_kind,
-                            lowered: PostBlockPyGeneratorLowering {
-                                blocks,
-                                entry_label,
-                                try_regions,
-                                generator_metadata,
-                            },
-                            is_async_generator_runtime: pending.is_async_generator_runtime,
-                            is_closure_backed_generator_runtime: pending
-                                .is_closure_backed_generator_runtime,
-                            uncaught_exc_name: next_temp("uncaught_exc", next_block_id),
-                        },
-                    );
-                }
-            }
-            let mut fallback_runtime_input_body = pending.fallback_runtime_input_body.clone();
-            lower_coroutine_awaits_to_yield_from(&mut fallback_runtime_input_body);
-            ResolvedPreparedBlockPyFunctionPlan::Prepared(
-                build_prepared_blockpy_function_from_runtime_input(
-                    context,
-                    pending.main_function_id,
-                    pending.fn_name.as_str(),
-                    &fallback_runtime_input_body,
-                    pending.bind_name,
-                    pending.qualname,
+            assert!(
+                !awaits_remain_after_lowering,
+                "semantic BlockPy await lowering should eliminate awaits before generator resolution",
+            );
+            if let Some(PostBlockPyGeneratorLowering {
+                blocks,
+                entry_label,
+                try_regions,
+                generator_metadata,
+            }) = try_lower_generators_from_await_free_semantic_input(
+                context,
+                pending.semantic_input.clone(),
+                GeneratorLoweringRoute {
+                    is_closure_backed_generator_runtime,
+                    fn_name: pending.header.fn_name.as_str(),
+                    cell_slots: &pending.callable_facts.cell_slots,
+                },
+                next_block_id,
+            )
+            .expect("post-BlockPy generator lowering should not fail")
+            {
+                let header = pending.header.clone();
+                return build_finalized_blockpy_function(
+                    header,
                     pending.doc,
-                    pending.params,
-                    pending.end_label,
-                    pending.label_prefix.as_str(),
                     pending.blockpy_kind,
-                    true,
-                    pending.is_async_generator_runtime,
-                    pending.is_closure_backed_generator_runtime,
-                    &pending.cell_slots,
-                    next_block_id,
-                    lower_non_bb_def,
-                    next_temp,
-                ),
+                    blocks,
+                    try_regions,
+                    entry_label,
+                    pending.end_label,
+                    label_prefix,
+                    Some(generator_metadata),
+                    is_async_generator_runtime,
+                    is_closure_backed_generator_runtime,
+                    next_temp("uncaught_exc", next_block_id),
+                    pending.callable_facts,
+                );
+            }
+            let mut fallback_runtime_input_body =
+                pending.semantic_input.fallback_runtime_input_body.clone();
+            lower_coroutine_awaits_to_yield_from(&mut fallback_runtime_input_body);
+            let header = pending.header.clone();
+            build_prepared_blockpy_function_from_runtime_input(
+                context,
+                header,
+                &fallback_runtime_input_body,
+                pending.doc,
+                pending.end_label,
+                label_prefix,
+                pending.blockpy_kind,
+                true,
+                is_async_generator_runtime,
+                is_closure_backed_generator_runtime,
+                &pending.callable_facts,
+                next_block_id,
+                lower_non_bb_def,
+                next_temp,
             )
         }
     }
@@ -1556,47 +1156,6 @@ pub(crate) fn lower_awaits_in_lowered_blockpy_function_bundle_plan(
     plan.prepared_function_plan =
         lower_awaits_in_prepared_blockpy_function_plan(context, plan.prepared_function_plan);
     plan
-}
-
-pub(crate) fn finalize_resolved_prepared_blockpy_function_plan(
-    plan: ResolvedPreparedBlockPyFunctionPlan,
-) -> PreparedBlockPyFunction {
-    match plan {
-        ResolvedPreparedBlockPyFunctionPlan::Prepared(prepared) => prepared,
-        ResolvedPreparedBlockPyFunctionPlan::GeneratorLowered(generator_lowered) => {
-            let GeneratorLoweredPreparedBlockPyFunctionPlan {
-                function_id,
-                bind_name,
-                qualname,
-                doc,
-                params,
-                end_label,
-                label_prefix,
-                blockpy_kind,
-                lowered,
-                is_async_generator_runtime,
-                is_closure_backed_generator_runtime,
-                uncaught_exc_name,
-            } = generator_lowered;
-            build_finalized_blockpy_function(
-                function_id,
-                bind_name,
-                qualname,
-                doc,
-                blockpy_kind,
-                params,
-                lowered.blocks,
-                lowered.try_regions,
-                lowered.entry_label,
-                end_label,
-                label_prefix.as_str(),
-                Some(lowered.generator_metadata),
-                is_async_generator_runtime,
-                is_closure_backed_generator_runtime,
-                uncaught_exc_name,
-            )
-        }
-    }
 }
 
 fn build_try_extra_successors(try_regions: &[TryRegionPlan]) -> HashMap<String, Vec<String>> {
@@ -1809,37 +1368,6 @@ pub(crate) struct LoopContext {
     break_label: BlockPyLabel,
 }
 
-fn stmt_kind_name(stmt: &Stmt) -> &'static str {
-    match stmt {
-        Stmt::FunctionDef(_) => "FunctionDef",
-        Stmt::ClassDef(_) => "ClassDef",
-        Stmt::Return(_) => "Return",
-        Stmt::Delete(_) => "Delete",
-        Stmt::TypeAlias(_) => "TypeAlias",
-        Stmt::Assign(_) => "Assign",
-        Stmt::AugAssign(_) => "AugAssign",
-        Stmt::AnnAssign(_) => "AnnAssign",
-        Stmt::For(_) => "For",
-        Stmt::While(_) => "While",
-        Stmt::If(_) => "If",
-        Stmt::With(_) => "With",
-        Stmt::Match(_) => "Match",
-        Stmt::Raise(_) => "Raise",
-        Stmt::Try(_) => "Try",
-        Stmt::Assert(_) => "Assert",
-        Stmt::Import(_) => "Import",
-        Stmt::ImportFrom(_) => "ImportFrom",
-        Stmt::Global(_) => "Global",
-        Stmt::Nonlocal(_) => "Nonlocal",
-        Stmt::Expr(_) => "Expr",
-        Stmt::Pass(_) => "Pass",
-        Stmt::Break(_) => "Break",
-        Stmt::Continue(_) => "Continue",
-        Stmt::IpyEscapeCommand(_) => "IpyEscapeCommand",
-        Stmt::BodyStmt(_) => "BodyStmt",
-    }
-}
-
 fn assign_delete_error(message: &str, stmt: &Stmt) -> String {
     format!("{message}\nstmt:\n{}", ruff_ast_to_string(stmt).trim_end())
 }
@@ -1863,13 +1391,10 @@ mod tests {
         plan_stmt_sequence_head,
     };
     use crate::basic_block::ruff_to_blockpy::try_regions::build_try_plan;
+    use crate::transform_str_to_blockpy_with_options;
 
     fn wrapped_blockpy(source: &str) -> BlockPyModule {
-        let mut module = ruff_python_parser::parse_module(source)
-            .expect("parse should succeed")
-            .into_syntax();
-        let context = Context::new(Options::for_test(), source);
-        crate::driver::rewrite_module(&context, &mut module.body).0
+        transform_str_to_blockpy_with_options(source, Options::for_test()).unwrap()
     }
 
     fn function_by_name<'a>(blockpy: &'a BlockPyModule, bind_name: &str) -> &'a BlockPyCallableDef {

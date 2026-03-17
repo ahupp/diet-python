@@ -9,8 +9,6 @@ use ruff_python_ast::{self as ast, NodeIndex};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-pub type FunctionIdentityByNode = HashMap<NodeIndex, (String, String, String, BindingTarget)>;
-
 #[derive(Clone)]
 pub(crate) struct FunctionIdentity {
     pub bind_name: String,

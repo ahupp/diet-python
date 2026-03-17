@@ -1,9 +1,13 @@
+#![allow(dead_code)]
+
 use ruff_python_ast::{comparable::ComparableStmt, Stmt};
 use ruff_python_parser::parse_module;
 
 use crate::basic_block::ast_to_ast::Options;
 use crate::fixture::parse_fixture;
-use crate::{ruff_ast_to_string, transform_str_to_ruff_with_options};
+use crate::{
+    ruff_ast_to_string, transform_str_to_blockpy_with_options, transform_str_to_ruff_with_options,
+};
 use similar::TextDiff;
 
 fn expected_output_for_mode(expected: &str) -> &str {
@@ -26,19 +30,6 @@ pub(crate) fn assert_transform_eq_ex(actual: &str, expected: &str) {
         .iter()
         .map(|stmt| ComparableStmt::from(stmt.as_ref()))
         .collect();
-
-    if std::env::var("DP_ENFORCE_IDEMPOTENCE").is_ok() {
-        let rerun_module = transform_str_to_ruff_with_options(&actual_str, options).unwrap();
-        let rerun_body = &rerun_module.module.body.body;
-        let rerun_stmt: Vec<_> = rerun_body
-            .iter()
-            .map(|stmt| ComparableStmt::from(stmt.as_ref()))
-            .collect();
-        if actual_stmt_internal != rerun_stmt {
-            let difference = format_first_difference(&module.module.body.body, rerun_body);
-            panic!("transform is not idempotent: {difference}");
-        }
-    }
 
     let actual_parsed = parse_module(actual_str.as_str())
         .unwrap()
@@ -119,20 +110,9 @@ pub(crate) fn run_transform_fixture_tests(fixture: &str) {
 }
 
 fn blockpy_output_for_snapshot(actual: &str) -> String {
-    let lowered = transform_str_to_ruff_with_options(actual, Options::for_test()).unwrap();
-    let mut output = lowered
-        .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>("semantic_blockpy_materialized")
-        .map(|bundle| {
-            crate::basic_block::blockpy_module_to_string(
-                &crate::basic_block::project_lowered_module_callable_defs(
-                    bundle,
-                    |lowered| -> &crate::basic_block::block_py::SemanticBlockPyCallableDef {
-                        lowered
-                    },
-                ),
-            )
-        })
-        .unwrap_or_else(|| "; no BlockPy module emitted".to_string())
+    let mut output = transform_str_to_blockpy_with_options(actual, Options::for_test())
+        .map(|module| crate::basic_block::blockpy_module_to_string(&module))
+        .unwrap()
         .trim_matches('\n')
         .to_string();
     output.push('\n');

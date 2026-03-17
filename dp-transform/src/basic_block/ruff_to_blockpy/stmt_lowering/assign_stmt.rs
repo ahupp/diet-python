@@ -210,7 +210,7 @@ impl StmtLowerer for ast::StmtAssign {
 
     fn to_blockpy<E>(
         &self,
-        context: &Context,
+        _context: &Context,
         out: &mut BlockPyStmtFragmentBuilder<E>,
         loop_ctx: Option<&LoopContext>,
         next_label_id: &mut usize,
@@ -231,7 +231,6 @@ impl StmtLowerer for ast::StmtAssign {
             ));
         };
         let value = crate::basic_block::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
-            context,
             (*self.value).clone(),
             out,
             loop_ctx,

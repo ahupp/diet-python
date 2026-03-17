@@ -11,18 +11,16 @@ use super::block_py::{
     CoreBlockPyCallableDef, CoreBlockPyCallableDefWithoutAwait,
     CoreBlockPyCallableDefWithoutAwaitOrYield, CoreBlockPyExprWithoutAwaitOrYield,
     CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreBlockPyStmtWithoutAwaitOrYield,
+    SemanticBlockPyCallableDef, SemanticBlockPyModule,
 };
 use super::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use super::cfg_ir::{CfgCallableDef, CfgModule};
+use super::core_await_lower::lower_awaits_in_core_blockpy_callable_def;
 use super::function_lowering::rewrite_deleted_name_loads;
 use super::lowered_ir::{BindingTarget, BoundCallable, LoweredCfgMetadata, LoweredFunction};
 use super::ruff_to_blockpy::{
-    build_lowered_blockpy_function_export_plan,
-    lower_awaits_in_lowered_blockpy_function_bundle_plan,
-    lower_generators_in_lowered_blockpy_function_bundle_plan,
-    lowered_blockpy_function_export_plan_to_bundle, LoweredBlockPyFunction,
-    LoweredBlockPyFunctionBundlePlan, LoweredBlockPyFunctionExportPlan,
-    ResolvedLoweredBlockPyFunctionBundlePlan,
+    build_lowered_blockpy_function_bundle, lower_awaits_in_lowered_blockpy_function_bundle_plan,
+    LoweredBlockPyFunction, LoweredBlockPyFunctionBundlePlan,
 };
 use crate::basic_block::ast_to_ast::context::Context;
 use ruff_python_ast::{self as ast};
@@ -57,30 +55,6 @@ pub(crate) struct LoweredBlockPyModuleBundlePlan {
     pub callable_def_bundles: Vec<LoweredBlockPyModuleBundlePlanEntry>,
     pub next_block_id: usize,
     pub next_function_id: usize,
-}
-
-#[derive(Clone)]
-pub(crate) struct ResolvedLoweredBlockPyModuleBundlePlanEntry {
-    pub bundle_plan: ResolvedLoweredBlockPyFunctionBundlePlan,
-    pub main_binding_target: BindingTarget,
-}
-
-#[derive(Clone)]
-pub(crate) struct ResolvedLoweredBlockPyModuleBundlePlan {
-    pub module_init: Option<String>,
-    pub callable_def_bundles: Vec<ResolvedLoweredBlockPyModuleBundlePlanEntry>,
-}
-
-#[derive(Clone)]
-pub(crate) struct LoweredBlockPyModuleExportPlanEntry {
-    pub bundle_plan: LoweredBlockPyFunctionExportPlan,
-    pub main_binding_target: BindingTarget,
-}
-
-#[derive(Clone)]
-pub(crate) struct LoweredBlockPyModuleExportPlan {
-    pub module_init: Option<String>,
-    pub callable_def_bundles: Vec<LoweredBlockPyModuleExportPlanEntry>,
 }
 
 fn next_temp_from_reserved_names(
@@ -125,87 +99,48 @@ pub(crate) fn lower_awaits_in_lowered_blockpy_module_bundle_plan(
 pub(crate) fn lower_generators_in_lowered_blockpy_module_bundle_plan(
     context: &Context,
     plan: LoweredBlockPyModuleBundlePlan,
-) -> ResolvedLoweredBlockPyModuleBundlePlan {
+) -> LoweredBlockPyModuleBundle {
     let LoweredBlockPyModuleBundlePlan {
         module_init,
         callable_def_bundles,
         mut next_block_id,
         mut next_function_id,
     } = plan;
-    let mut resolved_entries = Vec::with_capacity(callable_def_bundles.len());
+    let mut callable_defs = Vec::new();
     for entry in callable_def_bundles {
-        let cell_slots = entry.bundle_plan.cell_slots.clone();
-        let outer_scope_names = entry.bundle_plan.outer_scope_names.clone();
-        let mut reserved_temp_names = outer_scope_names.clone();
-        let bundle_plan = lower_generators_in_lowered_blockpy_function_bundle_plan(
+        let callable_facts = entry.bundle_plan.callable_facts().clone();
+        let mut reserved_temp_names = callable_facts.outer_scope_names.clone();
+        let bundle = build_lowered_blockpy_function_bundle(
             context,
             entry.bundle_plan,
             &mut next_block_id,
             &mut next_function_id,
             &mut |func_def| {
-                build_exec_function_def_binding_stmts(func_def, &cell_slots, &outer_scope_names)
+                build_exec_function_def_binding_stmts(
+                    func_def,
+                    &callable_facts.cell_slots,
+                    &callable_facts.outer_scope_names,
+                )
             },
             &mut |prefix, next_block_id| {
                 next_temp_from_reserved_names(&mut reserved_temp_names, prefix, next_block_id)
             },
+            &mut |callable_def| {
+                if !callable_facts.deleted_names.is_empty() {
+                    rewrite_deleted_name_loads(
+                        &mut callable_def.blocks,
+                        &callable_facts.deleted_names,
+                        &callable_facts.unbound_local_names,
+                    );
+                } else if !callable_facts.unbound_local_names.is_empty() {
+                    rewrite_deleted_name_loads(
+                        &mut callable_def.blocks,
+                        &HashSet::new(),
+                        &callable_facts.unbound_local_names,
+                    );
+                }
+            },
         );
-        resolved_entries.push(ResolvedLoweredBlockPyModuleBundlePlanEntry {
-            bundle_plan,
-            main_binding_target: entry.main_binding_target,
-        });
-    }
-    ResolvedLoweredBlockPyModuleBundlePlan {
-        module_init,
-        callable_def_bundles: resolved_entries,
-    }
-}
-
-fn build_lowered_blockpy_function_export_plan_with_deleted_name_rewrite(
-    plan: ResolvedLoweredBlockPyFunctionBundlePlan,
-) -> LoweredBlockPyFunctionExportPlan {
-    let deleted_names = plan.deleted_names.clone();
-    let unbound_local_names = plan.unbound_local_names.clone();
-    build_lowered_blockpy_function_export_plan(plan, &mut |callable_def| {
-        if !deleted_names.is_empty() {
-            rewrite_deleted_name_loads(
-                &mut callable_def.blocks,
-                &deleted_names,
-                &unbound_local_names,
-            );
-        } else if !unbound_local_names.is_empty() {
-            rewrite_deleted_name_loads(
-                &mut callable_def.blocks,
-                &HashSet::new(),
-                &unbound_local_names,
-            );
-        }
-    })
-}
-
-pub(crate) fn resolved_lowered_blockpy_module_bundle_plan_to_export_plan(
-    plan: ResolvedLoweredBlockPyModuleBundlePlan,
-) -> LoweredBlockPyModuleExportPlan {
-    let mut callable_def_bundles = Vec::new();
-    for entry in plan.callable_def_bundles {
-        let bundle_plan =
-            build_lowered_blockpy_function_export_plan_with_deleted_name_rewrite(entry.bundle_plan);
-        callable_def_bundles.push(LoweredBlockPyModuleExportPlanEntry {
-            bundle_plan,
-            main_binding_target: entry.main_binding_target,
-        });
-    }
-    LoweredBlockPyModuleExportPlan {
-        module_init: plan.module_init,
-        callable_def_bundles,
-    }
-}
-
-pub(crate) fn lower_yield_in_lowered_blockpy_module_export_plan(
-    plan: LoweredBlockPyModuleExportPlan,
-) -> LoweredBlockPyModuleBundle {
-    let mut callable_defs = Vec::new();
-    for entry in plan.callable_def_bundles {
-        let bundle = lowered_blockpy_function_export_plan_to_bundle(entry.bundle_plan);
         callable_defs.extend(
             bundle
                 .helper_functions
@@ -219,8 +154,51 @@ pub(crate) fn lower_yield_in_lowered_blockpy_module_export_plan(
         );
     }
     LoweredBlockPyModuleBundle {
-        module_init: plan.module_init,
+        module_init,
         callable_defs,
+    }
+}
+
+fn materialize_semantic_blockpy_callable_def_from_plan(
+    plan: &LoweredBlockPyFunctionBundlePlan,
+) -> SemanticBlockPyCallableDef {
+    match &plan.prepared_function_plan {
+        super::ruff_to_blockpy::PreparedBlockPyFunctionPlan::Ready(prepared) => {
+            prepared.callable_def.clone()
+        }
+        super::ruff_to_blockpy::PreparedBlockPyFunctionPlan::PendingGeneratorLowering(pending) => {
+            let header = pending.header.clone();
+            crate::basic_block::block_py::BlockPyCallableDef {
+                cfg: CfgCallableDef {
+                    function_id: header.function_id,
+                    bind_name: header.bind_name,
+                    display_name: header.display_name,
+                    qualname: header.qualname,
+                    kind: pending.blockpy_kind,
+                    params: header.params,
+                    entry_liveins: Vec::new(),
+                    blocks: pending.semantic_input.blocks.clone(),
+                },
+                fn_name: header.fn_name,
+                doc: pending.doc.clone(),
+                closure_layout: None,
+                facts: pending.callable_facts.clone(),
+                local_cell_slots: Vec::new(),
+            }
+        }
+    }
+}
+
+pub(crate) fn lowered_blockpy_module_bundle_plan_to_semantic_blockpy_module(
+    plan: &LoweredBlockPyModuleBundlePlan,
+) -> SemanticBlockPyModule {
+    SemanticBlockPyModule {
+        module_init: plan.module_init.clone(),
+        callable_defs: plan
+            .callable_def_bundles
+            .iter()
+            .map(|entry| materialize_semantic_blockpy_callable_def_from_plan(&entry.bundle_plan))
+            .collect(),
     }
 }
 
@@ -229,10 +207,7 @@ pub(crate) fn lower_blockpy_module_plan_to_bundle(
     plan: LoweredBlockPyModuleBundlePlan,
 ) -> LoweredBlockPyModuleBundle {
     let await_free = lower_awaits_in_lowered_blockpy_module_bundle_plan(context, plan);
-    let generator_lowered =
-        lower_generators_in_lowered_blockpy_module_bundle_plan(context, await_free);
-    let export_plan = resolved_lowered_blockpy_module_bundle_plan_to_export_plan(generator_lowered);
-    lower_yield_in_lowered_blockpy_module_export_plan(export_plan)
+    lower_generators_in_lowered_blockpy_module_bundle_plan(context, await_free)
 }
 
 pub fn project_lowered_module_callable_defs<T, U: Clone>(
@@ -248,22 +223,12 @@ pub(crate) fn simplify_lowered_blockpy_module_bundle_exprs(
     module.map_callable_defs(simplify_lowered_blockpy_function_exprs)
 }
 
-fn lower_core_callable_def_without_await(
-    callable_def: &CoreBlockPyCallableDef,
-) -> CoreBlockPyCallableDefWithoutAwait {
-    let qualname = callable_def.qualname.as_str();
-    callable_def.clone().try_into().unwrap_or_else(|_| {
-        panic!(
-            "core BlockPy await lowering is not explicit yet: await reached the core no-await boundary for {}",
-            qualname
-        )
-    })
-}
-
 fn lower_core_blockpy_function_without_await(
     lowered: &LoweredCoreBlockPyFunction,
 ) -> LoweredCoreBlockPyFunctionWithoutAwait {
-    lowered.map_callable_def(lower_core_callable_def_without_await)
+    lowered.map_callable_def(|callable_def| {
+        lower_awaits_in_core_blockpy_callable_def(callable_def.clone())
+    })
 }
 
 fn lower_core_callable_def_without_await_or_yield(

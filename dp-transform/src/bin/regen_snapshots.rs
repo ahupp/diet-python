@@ -9,7 +9,10 @@ use dp_transform::basic_block::block_py::{
 };
 use dp_transform::basic_block::normalize_bb_module_for_codegen;
 use dp_transform::fixture::{parse_fixture, render_fixture, FixtureBlock};
-use dp_transform::{init_logging, transform_str_to_ruff_with_options, Options};
+use dp_transform::{
+    init_logging, transform_str_to_blockpy_with_options, transform_str_to_ruff_with_options,
+    Options,
+};
 use log::{log_enabled, trace, Level};
 
 struct SnapshotSummaryRow {
@@ -73,19 +76,13 @@ fn qualified_case_name(path: &Path, block: &FixtureBlock) -> Result<String, Stri
     Ok(format!("{fixture_name}::{}", block.name))
 }
 
-fn render_blockpy_snapshot(result: &dp_transform::LoweringResult) -> (String, usize, usize) {
-    let blockpy = result
-        .get_pass::<dp_transform::basic_block::LoweredBlockPyModuleBundle>(
-            "semantic_blockpy_materialized",
-        )
-        .map(|bundle| {
-            dp_transform::basic_block::project_lowered_module_callable_defs(
-                bundle,
-                |lowered| -> &dp_transform::basic_block::block_py::SemanticBlockPyCallableDef {
-                    lowered
-                },
-            )
-        });
+fn render_blockpy_snapshot(
+    source: &str,
+    result: &dp_transform::LoweringResult,
+) -> (String, usize, usize) {
+    let blockpy = transform_str_to_blockpy_with_options(source, Options::for_test())
+        .map_err(|err| err.to_string())
+        .ok();
     let blockpy_rendered = blockpy
         .as_ref()
         .map(dp_transform::basic_block::blockpy_module_to_string)
@@ -312,7 +309,8 @@ fn regenerate_fixture(path: &Path, summary: &mut Vec<SnapshotSummaryRow>) -> Res
         }
         let transformed = transform_str_to_ruff_with_options(&block.input, options)
             .map_err(|err| format!("{}: {}", path.display(), err))?;
-        let (output, blockpy_blocks, clif_blocks) = render_blockpy_snapshot(&transformed);
+        let (output, blockpy_blocks, clif_blocks) =
+            render_blockpy_snapshot(block.input.as_str(), &transformed);
         summary.push(SnapshotSummaryRow {
             case_name: qualified_case_name(path, block)?,
             blockpy_blocks,

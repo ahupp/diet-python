@@ -1,8 +1,8 @@
 use super::cfg_ir::{CfgBlock, CfgCallableDef, CfgModule};
 use super::lowered_ir::{ClosureLayout, FunctionId};
-use crate::py_expr;
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName, Parameters};
+use std::collections::HashSet;
 use std::ops::{Deref, DerefMut};
 
 pub(crate) mod cfg;
@@ -105,6 +105,8 @@ pub type SemanticBlockPyIfTerm = BlockPyIfTerm<Expr>;
 pub type SemanticBlockPyBranchTable = BlockPyBranchTable<Expr>;
 pub type SemanticBlockPyRaise = BlockPyRaise<Expr>;
 pub type CoreBlockPyModule = BlockPyModule<CoreBlockPyExpr>;
+pub type CoreBlockPyModuleWithoutAwait = BlockPyModule<CoreBlockPyExprWithoutAwait>;
+pub type CoreBlockPyModuleWithoutAwaitOrYield = BlockPyModule<CoreBlockPyExprWithoutAwaitOrYield>;
 pub type CoreBlockPyCallableDef = BlockPyCallableDef<CoreBlockPyExpr>;
 pub type CoreBlockPyCallableDefWithoutAwait = BlockPyCallableDef<CoreBlockPyExprWithoutAwait>;
 pub type CoreBlockPyCallableDefWithoutAwaitOrYield =
@@ -141,10 +143,41 @@ pub type CoreBlockPyRaiseWithoutAwaitOrYield = BlockPyRaise<CoreBlockPyExprWitho
 pub const ENTRY_BLOCK_LABEL: &str = "start";
 
 #[derive(Debug, Clone)]
+pub struct BlockPyCallableHeader<P = Parameters> {
+    pub function_id: FunctionId,
+    pub fn_name: String,
+    pub bind_name: String,
+    pub display_name: String,
+    pub qualname: String,
+    pub params: P,
+}
+
+#[derive(Debug, Clone)]
+pub struct BlockPyCallableFacts {
+    pub deleted_names: HashSet<String>,
+    pub unbound_local_names: HashSet<String>,
+    pub outer_scope_names: HashSet<String>,
+    pub cell_slots: HashSet<String>,
+}
+
+impl Default for BlockPyCallableFacts {
+    fn default() -> Self {
+        Self {
+            deleted_names: HashSet::new(),
+            unbound_local_names: HashSet::new(),
+            outer_scope_names: HashSet::new(),
+            cell_slots: HashSet::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct BlockPyCallableDef<E = Expr, B = BlockPyBlock<E>> {
     pub cfg: CfgCallableDef<FunctionId, BlockPyFunctionKind, Parameters, B>,
+    pub fn_name: String,
     pub doc: Option<E>,
     pub closure_layout: Option<ClosureLayout>,
+    pub facts: BlockPyCallableFacts,
     pub local_cell_slots: Vec<String>,
 }
 
@@ -159,6 +192,19 @@ impl<E, B> Deref for BlockPyCallableDef<E, B> {
 impl<E, B> DerefMut for BlockPyCallableDef<E, B> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.cfg
+    }
+}
+
+impl<E, B: Clone> BlockPyCallableDef<E, B> {
+    pub fn header(&self) -> BlockPyCallableHeader<Parameters> {
+        BlockPyCallableHeader {
+            function_id: self.function_id,
+            fn_name: self.fn_name.clone(),
+            bind_name: self.bind_name.clone(),
+            display_name: self.display_name.clone(),
+            qualname: self.qualname.clone(),
+            params: self.params.clone(),
+        }
     }
 }
 
@@ -859,8 +905,10 @@ impl TryFrom<CoreBlockPyCallableDef> for CoreBlockPyCallableDefWithoutAwait {
     fn try_from(value: CoreBlockPyCallableDef) -> Result<Self, Self::Error> {
         let BlockPyCallableDef {
             cfg,
+            fn_name,
             doc,
             closure_layout,
+            facts,
             local_cell_slots,
         } = value;
         let CfgCallableDef {
@@ -887,8 +935,10 @@ impl TryFrom<CoreBlockPyCallableDef> for CoreBlockPyCallableDefWithoutAwait {
                     .map(TryInto::try_into)
                     .collect::<Result<_, _>>()?,
             },
+            fn_name,
             doc: doc.map(TryInto::try_into).transpose()?,
             closure_layout,
+            facts,
             local_cell_slots,
         })
     }
@@ -1096,8 +1146,10 @@ impl TryFrom<CoreBlockPyCallableDefWithoutAwait> for CoreBlockPyCallableDefWitho
     fn try_from(value: CoreBlockPyCallableDefWithoutAwait) -> Result<Self, Self::Error> {
         let BlockPyCallableDef {
             cfg,
+            fn_name,
             doc,
             closure_layout,
+            facts,
             local_cell_slots,
         } = value;
         let CfgCallableDef {
@@ -1124,8 +1176,10 @@ impl TryFrom<CoreBlockPyCallableDefWithoutAwait> for CoreBlockPyCallableDefWitho
                     .map(TryInto::try_into)
                     .collect::<Result<_, _>>()?,
             },
+            fn_name,
             doc: doc.map(TryInto::try_into).transpose()?,
             closure_layout,
+            facts,
             local_cell_slots,
         })
     }

@@ -85,10 +85,6 @@ impl Context {
         fresh_name(name)
     }
 
-    pub fn reset_scope_stack(&self) {
-        self.scope_stack.replace(vec![ScopeFrame::module()]);
-    }
-
     pub fn push_scope(&self, frame: ScopeFrame) {
         self.scope_stack.borrow_mut().push(frame);
     }

@@ -49,9 +49,7 @@ fn trace_expr(label: &str, expr: &Expr) {
 
 fn test_for_pattern(pattern: &Pattern, subject: Expr) -> PatternTest {
     use ast::{
-        PatternMatchAs, PatternMatchClass, PatternMatchMapping, PatternMatchOr,
-        PatternMatchSequence, PatternMatchSingleton, PatternMatchStar, PatternMatchValue,
-        Singleton,
+        PatternMatchOr, PatternMatchSequence, PatternMatchSingleton, PatternMatchValue, Singleton,
     };
     use PatternTest::*;
     if log_enabled!(Level::Trace) {

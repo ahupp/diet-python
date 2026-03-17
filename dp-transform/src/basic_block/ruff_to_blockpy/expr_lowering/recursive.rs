@@ -1,5 +1,4 @@
 use super::BlockPySetupExprLowerer;
-use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::block_py::BlockPyStmtFragmentBuilder;
 use crate::basic_block::ruff_to_blockpy::expr_lowering::boolop_compare::{
     lower_boolop_into, lower_compare_into,
@@ -11,7 +10,6 @@ use ruff_python_ast::{self as ast, Expr};
 
 pub(super) fn lower_expr_ast_recursive<L, E>(
     lowerer: &L,
-    context: &Context,
     expr: Expr,
     out: &mut BlockPyStmtFragmentBuilder<E>,
     loop_ctx: Option<&LoopContext>,
@@ -22,17 +20,13 @@ where
     E: From<Expr> + std::fmt::Debug,
 {
     match expr {
-        Expr::BoolOp(bool_op) => {
-            lower_boolop_into(lowerer, context, bool_op, out, loop_ctx, next_label_id)
-        }
+        Expr::BoolOp(bool_op) => lower_boolop_into(lowerer, bool_op, out, loop_ctx, next_label_id),
         Expr::Compare(compare) => {
-            lower_compare_into(lowerer, context, compare, out, loop_ctx, next_label_id)
+            lower_compare_into(lowerer, compare, out, loop_ctx, next_label_id)
         }
-        Expr::If(if_expr) => {
-            lower_if_expr_into(lowerer, context, if_expr, out, loop_ctx, next_label_id)
-        }
+        Expr::If(if_expr) => lower_if_expr_into(lowerer, if_expr, out, loop_ctx, next_label_id),
         Expr::Named(named_expr) => {
-            lower_named_expr_into(lowerer, context, named_expr, out, loop_ctx, next_label_id)
+            lower_named_expr_into(lowerer, named_expr, out, loop_ctx, next_label_id)
         }
         Expr::Attribute(ast::ExprAttribute {
             value,
@@ -43,7 +37,6 @@ where
         }) if matches!(ctx, ast::ExprContext::Load) => Ok(Expr::Attribute(ast::ExprAttribute {
             value: Box::new(lower_expr_ast_recursive(
                 lowerer,
-                context,
                 *value,
                 out,
                 loop_ctx,
@@ -63,7 +56,6 @@ where
         }) if matches!(ctx, ast::ExprContext::Load) => Ok(Expr::Subscript(ast::ExprSubscript {
             value: Box::new(lower_expr_ast_recursive(
                 lowerer,
-                context,
                 *value,
                 out,
                 loop_ctx,
@@ -71,7 +63,6 @@ where
             )?),
             slice: Box::new(lower_expr_ast_recursive(
                 lowerer,
-                context,
                 *slice,
                 out,
                 loop_ctx,
@@ -93,8 +84,7 @@ where
                 range: args_range,
                 node_index: args_node_index,
             } = arguments;
-            let func =
-                lower_expr_ast_recursive(lowerer, context, *func, out, loop_ctx, next_label_id)?;
+            let func = lower_expr_ast_recursive(lowerer, *func, out, loop_ctx, next_label_id)?;
             let args = args
                 .into_vec()
                 .into_iter()
@@ -107,7 +97,6 @@ where
                     }) => Ok(Expr::Starred(ast::ExprStarred {
                         value: Box::new(lower_expr_ast_recursive(
                             lowerer,
-                            context,
                             *value,
                             out,
                             loop_ctx,
@@ -117,14 +106,7 @@ where
                         range,
                         node_index,
                     })),
-                    other => lower_expr_ast_recursive(
-                        lowerer,
-                        context,
-                        other,
-                        out,
-                        loop_ctx,
-                        next_label_id,
-                    ),
+                    other => lower_expr_ast_recursive(lowerer, other, out, loop_ctx, next_label_id),
                 })
                 .collect::<Result<Vec<_>, String>>()?
                 .into();
@@ -136,7 +118,6 @@ where
                         arg: keyword.arg,
                         value: lower_expr_ast_recursive(
                             lowerer,
-                            context,
                             keyword.value,
                             out,
                             loop_ctx,
@@ -160,6 +141,54 @@ where
                 node_index,
             }))
         }
+        Expr::Await(ast::ExprAwait {
+            value,
+            range,
+            node_index,
+        }) => Ok(Expr::Await(ast::ExprAwait {
+            value: Box::new(lower_expr_ast_recursive(
+                lowerer,
+                *value,
+                out,
+                loop_ctx,
+                next_label_id,
+            )?),
+            range,
+            node_index,
+        })),
+        Expr::Yield(ast::ExprYield {
+            value,
+            range,
+            node_index,
+        }) => Ok(Expr::Yield(ast::ExprYield {
+            value: match value {
+                Some(expr) => Some(Box::new(lower_expr_ast_recursive(
+                    lowerer,
+                    *expr,
+                    out,
+                    loop_ctx,
+                    next_label_id,
+                )?)),
+                None => None,
+            },
+            range,
+            node_index,
+        })),
+        Expr::YieldFrom(ast::ExprYieldFrom {
+            value,
+            range,
+            node_index,
+        }) => Ok(Expr::YieldFrom(ast::ExprYieldFrom {
+            value: Box::new(lower_expr_ast_recursive(
+                lowerer,
+                *value,
+                out,
+                loop_ctx,
+                next_label_id,
+            )?),
+            range,
+            node_index,
+        })),
         Expr::Tuple(ast::ExprTuple {
             elts,
             ctx,
@@ -178,7 +207,6 @@ where
                     }) => Ok(Expr::Starred(ast::ExprStarred {
                         value: Box::new(lower_expr_ast_recursive(
                             lowerer,
-                            context,
                             *value,
                             out,
                             loop_ctx,
@@ -188,14 +216,7 @@ where
                         range,
                         node_index,
                     })),
-                    other => lower_expr_ast_recursive(
-                        lowerer,
-                        context,
-                        other,
-                        out,
-                        loop_ctx,
-                        next_label_id,
-                    ),
+                    other => lower_expr_ast_recursive(lowerer, other, out, loop_ctx, next_label_id),
                 })
                 .collect::<Result<Vec<_>, String>>()?
                 .into(),
@@ -221,7 +242,6 @@ where
                     }) => Ok(Expr::Starred(ast::ExprStarred {
                         value: Box::new(lower_expr_ast_recursive(
                             lowerer,
-                            context,
                             *value,
                             out,
                             loop_ctx,
@@ -231,14 +251,7 @@ where
                         range,
                         node_index,
                     })),
-                    other => lower_expr_ast_recursive(
-                        lowerer,
-                        context,
-                        other,
-                        out,
-                        loop_ctx,
-                        next_label_id,
-                    ),
+                    other => lower_expr_ast_recursive(lowerer, other, out, loop_ctx, next_label_id),
                 })
                 .collect::<Result<Vec<_>, String>>()?
                 .into(),
@@ -253,9 +266,7 @@ where
         }) => Ok(Expr::Set(ast::ExprSet {
             elts: elts
                 .into_iter()
-                .map(|elt| {
-                    lower_expr_ast_recursive(lowerer, context, elt, out, loop_ctx, next_label_id)
-                })
+                .map(|elt| lower_expr_ast_recursive(lowerer, elt, out, loop_ctx, next_label_id))
                 .collect::<Result<Vec<_>, String>>()?
                 .into(),
             range,
@@ -273,7 +284,6 @@ where
                         key: match item.key {
                             Some(key) => Some(lower_expr_ast_recursive(
                                 lowerer,
-                                context,
                                 key,
                                 out,
                                 loop_ctx,
@@ -283,7 +293,6 @@ where
                         },
                         value: lower_expr_ast_recursive(
                             lowerer,
-                            context,
                             item.value,
                             out,
                             loop_ctx,
@@ -305,7 +314,6 @@ where
             op,
             operand: Box::new(lower_expr_ast_recursive(
                 lowerer,
-                context,
                 *operand,
                 out,
                 loop_ctx,
@@ -323,7 +331,6 @@ where
         }) => Ok(Expr::BinOp(ast::ExprBinOp {
             left: Box::new(lower_expr_ast_recursive(
                 lowerer,
-                context,
                 *left,
                 out,
                 loop_ctx,
@@ -332,7 +339,6 @@ where
             op,
             right: Box::new(lower_expr_ast_recursive(
                 lowerer,
-                context,
                 *right,
                 out,
                 loop_ctx,
@@ -351,7 +357,6 @@ where
             lower: match lower {
                 Some(expr) => Some(Box::new(lower_expr_ast_recursive(
                     lowerer,
-                    context,
                     *expr,
                     out,
                     loop_ctx,
@@ -362,7 +367,6 @@ where
             upper: match upper {
                 Some(expr) => Some(Box::new(lower_expr_ast_recursive(
                     lowerer,
-                    context,
                     *expr,
                     out,
                     loop_ctx,
@@ -373,7 +377,6 @@ where
             step: match step {
                 Some(expr) => Some(Box::new(lower_expr_ast_recursive(
                     lowerer,
-                    context,
                     *expr,
                     out,
                     loop_ctx,
@@ -390,7 +393,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::basic_block::ast_to_ast::{context::Context, Options};
     use crate::basic_block::block_py::{BlockPyStmt, BlockPyStmtFragmentBuilder};
     use crate::basic_block::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
     use crate::py_expr;
@@ -398,18 +400,12 @@ mod tests {
 
     #[test]
     fn nested_boolop_in_call_argument_emits_setup_via_expr_lowering() {
-        let context = Context::new(Options::for_test(), "");
         let mut out = BlockPyStmtFragmentBuilder::<Expr>::new();
         let mut next_label_id = 0usize;
 
-        let lowered: Expr = lower_expr_into_with_setup(
-            &context,
-            py_expr!("f(a and b)"),
-            &mut out,
-            None,
-            &mut next_label_id,
-        )
-        .expect("expr lowering should succeed");
+        let lowered: Expr =
+            lower_expr_into_with_setup(py_expr!("f(a and b)"), &mut out, None, &mut next_label_id)
+                .expect("expr lowering should succeed");
 
         let fragment = out.finish();
         assert!(

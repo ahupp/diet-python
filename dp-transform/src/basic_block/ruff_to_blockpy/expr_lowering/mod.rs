@@ -1,6 +1,6 @@
-use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::block_py::BlockPyStmtFragmentBuilder;
 use crate::basic_block::ruff_to_blockpy::LoopContext;
+use crate::namegen::fresh_name;
 use ruff_python_ast::Expr;
 
 mod boolop_compare;
@@ -11,7 +11,6 @@ mod recursive;
 pub(crate) trait BlockPySetupExprLowerer {
     fn lower_expr_ast_into<E>(
         &self,
-        context: &Context,
         expr: Expr,
         out: &mut BlockPyStmtFragmentBuilder<E>,
         loop_ctx: Option<&LoopContext>,
@@ -20,12 +19,11 @@ pub(crate) trait BlockPySetupExprLowerer {
     where
         E: From<Expr> + std::fmt::Debug,
     {
-        recursive::lower_expr_ast_recursive(self, context, expr, out, loop_ctx, next_label_id)
+        recursive::lower_expr_ast_recursive(self, expr, out, loop_ctx, next_label_id)
     }
 
     fn lower_expr_into<E>(
         &self,
-        context: &Context,
         expr: Expr,
         out: &mut BlockPyStmtFragmentBuilder<E>,
         loop_ctx: Option<&LoopContext>,
@@ -35,7 +33,7 @@ pub(crate) trait BlockPySetupExprLowerer {
         E: From<Expr> + std::fmt::Debug,
     {
         Ok(self
-            .lower_expr_ast_into(context, expr, out, loop_ctx, next_label_id)?
+            .lower_expr_ast_into(expr, out, loop_ctx, next_label_id)?
             .into())
     }
 }
@@ -44,12 +42,11 @@ pub(crate) struct AstSetupExprLowerer;
 
 impl BlockPySetupExprLowerer for AstSetupExprLowerer {}
 
-pub(crate) fn lower_expr_head_ast_for_blockpy(_context: &Context, expr: Expr) -> Expr {
+pub(crate) fn lower_expr_head_ast_for_blockpy(expr: Expr) -> Expr {
     expr
 }
 
 pub(crate) fn lower_expr_into_with_setup<E>(
-    context: &Context,
     expr: Expr,
     out: &mut BlockPyStmtFragmentBuilder<E>,
     loop_ctx: Option<&LoopContext>,
@@ -58,5 +55,9 @@ pub(crate) fn lower_expr_into_with_setup<E>(
 where
     E: From<Expr> + std::fmt::Debug,
 {
-    AstSetupExprLowerer.lower_expr_into(context, expr, out, loop_ctx, next_label_id)
+    AstSetupExprLowerer.lower_expr_into(expr, out, loop_ctx, next_label_id)
+}
+
+pub(crate) fn fresh_setup_name(prefix: &str) -> String {
+    fresh_name(prefix)
 }

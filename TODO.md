@@ -78,6 +78,11 @@
     - The desired end state is that non-local visibility exists only for real cross-module boundaries, not as a convenience for call sites that could instead live beside their only consumers.
     - A good first pass is to audit `pub`, `pub(crate)`, and cross-module free functions, then inline or relocate single-consumer helpers before tightening the remaining visibility annotations.
     - Keep the resulting ownership aligned with the codebase-size goal: each concept should live in one place, and each place should expose only the smallest surface needed by later passes.
+- Revisit `ruff_to_blockpy/expr_lowering/recursive.rs` and see whether the recursive expression lowering can be expressed as a `Transformer` over `Expr`.
+  - Planning note:
+    - The current file is a hand-written recursive traversal even though the repo rule is to prefer `Transformer`-based AST walks.
+    - The key question is whether the setup-emitting behavior for boolop / compare / if-expr / named-expr / await / yield shapes can be preserved while letting a `Transformer` own the generic recursive descent.
+    - A good first pass is to separate “plain recursive descent over child `Expr` nodes” from the setup-emitting special cases, then check if the former can move behind a reusable `Transformer` implementation.
 
 ## Completed
 

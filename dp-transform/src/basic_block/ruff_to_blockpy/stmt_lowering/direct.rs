@@ -90,7 +90,7 @@ impl StmtLowerer for ast::StmtPass {
     fn to_blockpy<E>(
         &self,
         _context: &Context,
-        out: &mut BlockPyStmtFragmentBuilder<E>,
+        _out: &mut BlockPyStmtFragmentBuilder<E>,
         _loop_ctx: Option<&LoopContext>,
         _next_label_id: &mut usize,
     ) -> Result<(), String>
@@ -108,7 +108,7 @@ impl StmtLowerer for ast::StmtExpr {
 
     fn to_blockpy<E>(
         &self,
-        context: &Context,
+        _context: &Context,
         out: &mut BlockPyStmtFragmentBuilder<E>,
         loop_ctx: Option<&LoopContext>,
         next_label_id: &mut usize,
@@ -117,7 +117,6 @@ impl StmtLowerer for ast::StmtExpr {
         E: From<Expr> + std::fmt::Debug,
     {
         let value = crate::basic_block::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
-            context,
             (*self.value).clone(),
             out,
             loop_ctx,
@@ -183,7 +182,7 @@ impl StmtLowerer for ast::StmtReturn {
 
     fn to_blockpy<E>(
         &self,
-        context: &Context,
+        _context: &Context,
         out: &mut BlockPyStmtFragmentBuilder<E>,
         loop_ctx: Option<&LoopContext>,
         next_label_id: &mut usize,
@@ -194,7 +193,6 @@ impl StmtLowerer for ast::StmtReturn {
         let value = match self.value.as_ref() {
             Some(value) => Some(
                 crate::basic_block::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
-                    context,
                     (**value).clone(),
                     out,
                     loop_ctx,
@@ -215,7 +213,7 @@ impl StmtLowerer for ast::StmtRaise {
 
     fn to_blockpy<E>(
         &self,
-        context: &Context,
+        _context: &Context,
         out: &mut BlockPyStmtFragmentBuilder<E>,
         loop_ctx: Option<&LoopContext>,
         next_label_id: &mut usize,
@@ -229,7 +227,6 @@ impl StmtLowerer for ast::StmtRaise {
         let exc = match self.exc.as_ref() {
             Some(exc) => Some(
                 crate::basic_block::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
-                    context,
                     (**exc).clone(),
                     out,
                     loop_ctx,

@@ -15,6 +15,7 @@ use super::{
     cfg_ir::CfgCallableDef,
 };
 use crate::basic_block::expr_utils::{make_binop, make_tuple, make_tuple_splat, make_unaryop};
+use crate::basic_block::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
 use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr};
 
@@ -259,8 +260,19 @@ fn finish_expr_setup(builder: CoreStmtBuilder) -> Vec<CoreBlockPyStmt> {
 }
 
 fn lower_semantic_expr_into(builder: &mut CoreStmtBuilder, expr: &SemanticExpr) -> CoreBlockPyExpr {
-    let _ = builder;
-    DefaultCoreExprReducer.reduce_expr(expr)
+    let mut next_label_id = 0usize;
+    let mut setup_builder = BlockPyStmtFragmentBuilder::<Expr>::new();
+    let lowered_expr: Expr =
+        lower_expr_into_with_setup(expr.clone(), &mut setup_builder, None, &mut next_label_id)
+            .expect("semantic-to-core expression lowering should succeed");
+    let setup_fragment = setup_builder.finish();
+    let lowered_setup = lower_semantic_stmt_fragment(&setup_fragment);
+    assert!(
+        lowered_setup.term.is_none(),
+        "semantic-to-core expression setup lowering unexpectedly emitted a terminator",
+    );
+    builder.extend(lowered_setup.body);
+    DefaultCoreExprReducer.reduce_expr(&lowered_expr)
 }
 
 fn lower_semantic_expr_without_setup(expr: &SemanticExpr) -> CoreBlockPyExpr {
@@ -276,7 +288,7 @@ fn lower_semantic_expr_without_setup(expr: &SemanticExpr) -> CoreBlockPyExpr {
 fn simplify_parameter_default(default: &Option<Box<Expr>>) -> Option<Box<Expr>> {
     default
         .as_ref()
-        .map(|expr| Box::new(Expr::from(CoreBlockPyExpr::from((**expr).clone()))))
+        .map(|expr| Box::new(Expr::from(lower_semantic_expr_without_setup(expr))))
 }
 
 pub(crate) fn simplify_parameter_exprs(parameters: &ast::Parameters) -> ast::Parameters {
@@ -458,11 +470,13 @@ pub(crate) fn simplify_blockpy_callable_def_exprs(
                 .map(lower_semantic_block)
                 .collect(),
         },
+        fn_name: callable_def.fn_name.clone(),
         doc: callable_def
             .doc
             .as_ref()
             .map(lower_semantic_expr_without_setup),
         closure_layout: callable_def.closure_layout.clone(),
+        facts: callable_def.facts.clone(),
         local_cell_slots: callable_def.local_cell_slots.clone(),
     }
 }
@@ -493,24 +507,17 @@ mod tests {
 
     #[test]
     fn expr_simplify_preserves_control_flow_but_reduces_exprs() {
-        let blockpy = transform_str_to_ruff_with_options(
-            r#"
+        let source = r#"
 def f(x):
     if x:
         return 1
     return 2
-"#,
-            Options::for_test(),
-        )
-        .unwrap()
-        .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>("semantic_blockpy_materialized")
-        .map(|bundle| {
-            crate::basic_block::project_lowered_module_callable_defs(
-                bundle,
-                |lowered| -> &crate::basic_block::block_py::SemanticBlockPyCallableDef { lowered },
-            )
-        })
-        .expect("expected lowered semantic BlockPy bundle");
+"#;
+        let blockpy = transform_str_to_ruff_with_options(source, Options::for_test())
+            .unwrap()
+            .get_pass::<crate::basic_block::block_py::SemanticBlockPyModule>("semantic_blockpy")
+            .cloned()
+            .expect("expected lowered semantic BlockPy module");
         let core = simplify_blockpy_module_exprs(&blockpy);
         let semantic_rendered = blockpy_module_to_string(&blockpy);
         let core_rendered = blockpy_module_to_string(&core);
@@ -670,22 +677,15 @@ def f(x):
 
     #[test]
     fn core_blockpy_expr_simplifies_function_default_exprs() {
-        let blockpy = transform_str_to_ruff_with_options(
-            r#"
+        let source = r#"
 def f(*, d={"metaclass": Meta}, **kw):
     return d
-"#,
-            Options::for_test(),
-        )
-        .unwrap()
-        .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>("semantic_blockpy_materialized")
-        .map(|bundle| {
-            crate::basic_block::project_lowered_module_callable_defs(
-                bundle,
-                |lowered| -> &crate::basic_block::block_py::SemanticBlockPyCallableDef { lowered },
-            )
-        })
-        .expect("expected lowered semantic BlockPy bundle");
+"#;
+        let blockpy = transform_str_to_ruff_with_options(source, Options::for_test())
+            .unwrap()
+            .get_pass::<crate::basic_block::block_py::SemanticBlockPyModule>("semantic_blockpy")
+            .cloned()
+            .expect("expected lowered semantic BlockPy module");
         let core = simplify_blockpy_module_exprs(&blockpy);
         let rendered = blockpy_module_to_string(&core);
 

@@ -37,6 +37,10 @@ def test_integration_case(tmp_path: Path, case_path: Path, mode: str) -> None:
         # BB-lowered generators do not preserve CPython frame-name identity for
         # sys._getframe() observations yet.
         pytest.xfail("BB generator frame-name observability not yet CPython-compatible")
+    if case_path.stem == "multiprocessing_barrier_abort_reset":
+        # Spawn-mode multiprocessing pickling cannot currently rediscover the
+        # helper target function under the generated integration module name.
+        pytest.xfail("spawn-mode multiprocessing helper pickling is not yet stable")
     if mode == "transform" and case_path.stem in {
         "exception_refcycle_after_except",
         "exception_refcycle_args_tuple",

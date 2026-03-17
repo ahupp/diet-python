@@ -402,11 +402,9 @@ _pytest-run *args='': ensure-venv
   PYTEST_TB=native
 
   TMP_PYTEST_OUTPUT="$(mktemp -t diet-python-pytest.XXXXXX.log)"
-  PYTEST_NUMPROCS="${PYTEST_NUMPROCS:-auto}"
   TEST_CMD=(
-    "$LIMIT_WRAPPER"
     "$VENV_DIR/bin/python"
-    -m pytest -n "$PYTEST_NUMPROCS" -vv --durations=0 --tb="$PYTEST_TB"
+    "$REPO_ROOT/scripts/run_pytest_parallel.py"
     "$@"
   )
 

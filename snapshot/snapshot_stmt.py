@@ -263,7 +263,6 @@ except:
 
 # function _dp_module_init():
 #     entry_liveins: [_dp_try_exc_5, _dp_try_exc_1]
-#     cellvars: [_dp_try_exc_5->_dp_cell__dp_try_exc_5@deleted, _dp_try_exc_1->_dp_cell__dp_try_exc_1@deleted]
 #     block start:
 #         try_jump:
 #             body_label: _dp_bb__dp_module_init_7
@@ -367,7 +366,6 @@ with cm as x:
 
 # function _dp_module_init():
 #     entry_liveins: [_dp_try_exc_2]
-#     cellvars: [_dp_try_exc_2->_dp_cell__dp_try_exc_2@deleted]
 #     block start:
 #         _dp_with_exit_4 = __dp_contextmanager_get_exit(cm)
 #         _dp_with_enter_6 = __dp_contextmanager_enter(cm)
@@ -615,7 +613,6 @@ with a as x, b as y:
 
 # function _dp_module_init():
 #     entry_liveins: [_dp_try_exc_2, _dp_try_exc_10]
-#     cellvars: [_dp_try_exc_2->_dp_cell__dp_try_exc_2@deleted, _dp_try_exc_10->_dp_cell__dp_try_exc_10@deleted]
 #     block start:
 #         _dp_with_exit_4 = __dp_contextmanager_get_exit(a)
 #         _dp_with_enter_6 = __dp_contextmanager_enter(a)
@@ -2081,7 +2078,6 @@ with Suppress():
 
 # function _dp_module_init():
 #     entry_liveins: [_dp_try_exc_2]
-#     cellvars: [_dp_try_exc_2->_dp_cell__dp_try_exc_2@deleted]
 #     block start:
 #         _dp_tmp_1 = Suppress()
 #         _dp_with_exit_4 = __dp_contextmanager_get_exit(_dp_tmp_1)
@@ -2218,7 +2214,6 @@ except Exception:
 
 # function _dp_module_init():
 #     entry_liveins: [_dp_try_exc_1]
-#     cellvars: [_dp_try_exc_1->_dp_cell__dp_try_exc_1@deleted]
 #     block start:
 #         try_jump:
 #             body_label: _dp_bb__dp_module_init_3

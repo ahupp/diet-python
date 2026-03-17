@@ -930,20 +930,8 @@ mod tests {
     use ruff_python_parser::{parse_expression, parse_module};
 
     fn wrapped_blockpy(source: &str) -> BlockPyModule {
-        crate::transform_str_to_ruff_with_options(source, crate::Options::for_test())
-            .unwrap()
-            .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>(
-                "semantic_blockpy_materialized",
-            )
-            .map(|bundle| {
-                crate::basic_block::project_lowered_module_callable_defs(
-                    bundle,
-                    |lowered| -> &crate::basic_block::block_py::SemanticBlockPyCallableDef {
-                        lowered
-                    },
-                )
-            })
-            .expect("expected lowered semantic BlockPy bundle")
+        crate::transform_str_to_blockpy_with_options(source, crate::Options::for_test())
+            .expect("expected lowered semantic BlockPy module")
     }
 
     fn parse_blockpy_expr(source: &str) -> Expr {
@@ -1010,7 +998,7 @@ def classify(a, /, b: int = 1, *args, c=2, **kwargs):
 
     #[test]
     fn transformed_lowering_result_exposes_module_init_blockpy() {
-        let lowered = crate::transform_str_to_ruff_with_options(
+        let blockpy = crate::transform_str_to_blockpy_with_options(
             r#"
 def classify(n):
     if n < 0:
@@ -1020,19 +1008,6 @@ def classify(n):
             crate::Options::default(),
         )
         .unwrap();
-        let blockpy = lowered
-            .get_pass::<crate::basic_block::LoweredBlockPyModuleBundle>(
-                "semantic_blockpy_materialized",
-            )
-            .map(|bundle| {
-                crate::basic_block::project_lowered_module_callable_defs(
-                    bundle,
-                    |lowered| -> &crate::basic_block::block_py::SemanticBlockPyCallableDef {
-                        lowered
-                    },
-                )
-            })
-            .expect("expected lowered semantic BlockPy bundle");
         let rendered = blockpy_module_to_string(&blockpy);
 
         assert_eq!(blockpy.module_init.as_deref(), Some("_dp_module_init"));
@@ -1108,6 +1083,7 @@ async def no_lying():
                         meta: BlockPyBlockMeta::default(),
                     }],
                 },
+                fn_name: "gen".to_string(),
                 doc: None,
                 closure_layout: Some(ClosureLayout {
                     freevars: vec![ClosureSlot {
@@ -1126,6 +1102,7 @@ async def no_lying():
                         init: ClosureInit::RuntimePcUnstarted,
                     }],
                 }),
+                facts: crate::basic_block::block_py::BlockPyCallableFacts::default(),
                 local_cell_slots: vec!["_dp_cell__dp_pc".to_string()],
             }],
         });
@@ -1178,8 +1155,10 @@ async def no_lying():
                     },
                 ],
             },
+            fn_name: "f".to_string(),
             doc: None,
             closure_layout: None,
+            facts: crate::basic_block::block_py::BlockPyCallableFacts::default(),
             local_cell_slots: Vec::new(),
         };
         let rendered = blockpy_module_to_string(&BlockPyModule {
@@ -1261,8 +1240,10 @@ def choose(a, b):
                     },
                 ],
             },
+            fn_name: "f".to_string(),
             doc: None,
             closure_layout: None,
+            facts: crate::basic_block::block_py::BlockPyCallableFacts::default(),
             local_cell_slots: Vec::new(),
         };
         let rendered = blockpy_module_to_string(&BlockPyModule {

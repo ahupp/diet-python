@@ -1,4 +1,4 @@
-use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
+use ruff_python_ast::{self as ast, Expr, ModModule, Stmt, StmtBody};
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_python_parser::parse_module;
 pub use ruff_python_parser::ParseError;
@@ -83,7 +83,7 @@ fn should_skip(source: &str) -> bool {
 
 pub struct LoweringResult {
     pub timings: TransformTimings,
-    pub module: ruff_python_ast::ModModule,
+    pub module: ModModule,
     pub bb_module: Option<bb_ir::BbModule>,
     passes: PassTracker,
 }
@@ -125,6 +125,54 @@ impl PassTracker {
             .iter()
             .find(|pass| pass.name == name)
             .and_then(|pass| pass.value.downcast_ref::<T>())
+    }
+
+    pub(crate) fn ast_to_ast(
+        &self,
+    ) -> Option<&(StmtBody, crate::basic_block::LoweredBlockPyModuleBundlePlan)> {
+        self.get("ast-to-ast")
+    }
+
+    pub(crate) fn ast_to_ast_module(&self) -> Option<&StmtBody> {
+        self.ast_to_ast().map(|(module, _)| module)
+    }
+
+    pub(crate) fn semantic_blockpy(
+        &self,
+    ) -> Option<&crate::basic_block::block_py::SemanticBlockPyModule> {
+        self.get("semantic_blockpy")
+    }
+
+    pub(crate) fn blockpy(&self) -> Option<&crate::basic_block::LoweredBlockPyModuleBundle> {
+        self.get("blockpy")
+    }
+
+    pub(crate) fn core_blockpy(
+        &self,
+    ) -> Option<&crate::basic_block::LoweredCoreBlockPyModuleBundle> {
+        self.get("core_blockpy")
+    }
+
+    pub(crate) fn core_blockpy_with_explicit_eval_order(
+        &self,
+    ) -> Option<&crate::basic_block::LoweredCoreBlockPyModuleBundle> {
+        self.get("core_blockpy_with_explicit_eval_order")
+    }
+
+    pub(crate) fn core_blockpy_without_await(
+        &self,
+    ) -> Option<&crate::basic_block::LoweredCoreBlockPyModuleBundleWithoutAwait> {
+        self.get("core_blockpy_without_await")
+    }
+
+    pub(crate) fn core_blockpy_without_await_or_yield(
+        &self,
+    ) -> Option<&crate::basic_block::LoweredCoreBlockPyModuleBundleWithoutAwaitOrYield> {
+        self.get("core_blockpy_without_await_or_yield")
+    }
+
+    pub(crate) fn bb(&self) -> Option<&bb_ir::BbModule> {
+        self.get("bb")
     }
 
     fn names(&self) -> impl Iterator<Item = &str> {
@@ -204,13 +252,14 @@ pub fn transform_str_to_ruff_with_options(
     let ctx = Context::new(options, source);
     let mut pass_tracker = PassTracker::new();
 
+    let body = std::mem::replace(&mut module.body, crate::template::empty_body());
     let rewrite_start = timing_start();
-    let (rewritten_body, bb_module) = rewrite_module_with_tracker(
-        &ctx,
-        std::mem::replace(&mut module.body, crate::template::empty_body()),
-        &mut pass_tracker,
-    );
-    module.body = rewritten_body;
+    let bb_module = rewrite_module_with_tracker(&ctx, body, &mut pass_tracker);
+    module.body = pass_tracker
+        .ast_to_ast_module()
+        .expect("ast-to-ast pass should be tracked")
+        .clone();
+
     let rewrite_time = timing_elapsed(rewrite_start);
 
     let timings = TransformTimings {
@@ -234,7 +283,29 @@ pub fn transform_str_to_bb_ir_with_options(
 ) -> Result<Option<bb_ir::BbModule>, ParseError> {
     let mut options = options;
     options.lower_attributes = true;
+
     Ok(transform_str_to_ruff_with_options(source, options)?.bb_module)
+}
+
+pub fn transform_str_to_blockpy_with_options(
+    source: &str,
+    options: Options,
+) -> Result<crate::basic_block::block_py::BlockPyModule, ParseError> {
+    init_logging();
+    namegen::reset_namegen_state();
+
+    let module = parse_module(source)?.into_syntax();
+
+    let ctx = Context::new(options, source);
+    let ModModule { body, .. } = module;
+
+    let (pass_tracker, _bb_module) = crate::driver::rewrite_module(&ctx, body);
+    Ok(crate::basic_block::project_lowered_module_callable_defs(
+        pass_tracker
+            .blockpy()
+            .expect("blockpy pass should be tracked"),
+        |lowered| -> &crate::basic_block::block_py::SemanticBlockPyCallableDef { lowered },
+    ))
 }
 
 pub trait ToRuffAst {

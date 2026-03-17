@@ -1,10 +1,10 @@
 use super::BlockPySetupExprLowerer;
-use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::block_py::{
     BlockPyAssign, BlockPyCfgFragment, BlockPyIf, BlockPyStmt, BlockPyStmtFragmentBuilder,
     BlockPyTerm,
 };
 use crate::basic_block::expr_utils::{make_binop, make_unaryop};
+use crate::basic_block::ruff_to_blockpy::expr_lowering::fresh_setup_name;
 use crate::basic_block::ruff_to_blockpy::LoopContext;
 use crate::py_expr;
 use ruff_python_ast::{self as ast, CmpOp, Expr};
@@ -41,7 +41,6 @@ where
 
 pub(super) fn lower_boolop_into<L, E>(
     lowerer: &L,
-    context: &Context,
     bool_op: ast::ExprBoolOp,
     out: &mut BlockPyStmtFragmentBuilder<E>,
     loop_ctx: Option<&LoopContext>,
@@ -52,16 +51,15 @@ where
     E: From<Expr> + std::fmt::Debug,
 {
     let ast::ExprBoolOp { op, values, .. } = bool_op;
-    let target = context.fresh("target");
+    let target = fresh_setup_name("target");
     let mut values = values.into_iter();
     let first = values.next().expect("bool op expects at least one value");
-    let first = lowerer.lower_expr_ast_into(context, first, out, loop_ctx, next_label_id)?;
+    let first = lowerer.lower_expr_ast_into(first, out, loop_ctx, next_label_id)?;
     out.push_stmt(assign_name(&target, first));
 
     for value in values {
         let mut body = BlockPyStmtFragmentBuilder::<E>::new();
-        let value =
-            lowerer.lower_expr_ast_into(context, value, &mut body, loop_ctx, next_label_id)?;
+        let value = lowerer.lower_expr_ast_into(value, &mut body, loop_ctx, next_label_id)?;
         body.push_stmt(assign_name(&target, value));
         let test = match op {
             ast::BoolOp::And => load_name(&target),
@@ -79,7 +77,6 @@ where
 
 pub(super) fn lower_compare_into<L, E>(
     lowerer: &L,
-    context: &Context,
     compare: ast::ExprCompare,
     out: &mut BlockPyStmtFragmentBuilder<E>,
     loop_ctx: Option<&LoopContext>,
@@ -99,9 +96,8 @@ where
     let ops = ops.into_vec();
     let comparators = comparators.into_vec();
     if ops.len() == 1 {
-        let left = lowerer.lower_expr_ast_into(context, *left, out, loop_ctx, next_label_id)?;
+        let left = lowerer.lower_expr_ast_into(*left, out, loop_ctx, next_label_id)?;
         let right = lowerer.lower_expr_ast_into(
-            context,
             comparators.into_iter().next().expect("single comparator"),
             out,
             loop_ctx,
@@ -110,21 +106,20 @@ where
         return Ok(compare_expr(ops[0], left, right));
     }
 
-    let compare_name = context.fresh("compare");
-    let mut current_left =
-        lowerer.lower_expr_ast_into(context, *left, out, loop_ctx, next_label_id)?;
+    let compare_name = fresh_setup_name("compare");
+    let mut current_left = lowerer.lower_expr_ast_into(*left, out, loop_ctx, next_label_id)?;
     out.push_stmt(assign_name(&compare_name, current_left));
     current_left = load_name(&compare_name);
 
-    let target_name = context.fresh("target");
+    let target_name = fresh_setup_name("target");
     let mut steps = ops.into_iter().zip(comparators.into_iter()).peekable();
     let Some((first_op, first_comparator)) = steps.next() else {
         unreachable!("compare chain should contain at least one step");
     };
     let mut first_comparator =
-        lowerer.lower_expr_ast_into(context, first_comparator, out, loop_ctx, next_label_id)?;
+        lowerer.lower_expr_ast_into(first_comparator, out, loop_ctx, next_label_id)?;
     if steps.peek().is_some() {
-        let tmp_name = context.fresh("compare");
+        let tmp_name = fresh_setup_name("compare");
         out.push_stmt(assign_name(&tmp_name, first_comparator));
         first_comparator = load_name(&tmp_name);
     }
@@ -136,15 +131,10 @@ where
 
     while let Some((op, comparator)) = steps.next() {
         let mut step_body = BlockPyStmtFragmentBuilder::<E>::new();
-        let mut comparator_expr = lowerer.lower_expr_ast_into(
-            context,
-            comparator,
-            &mut step_body,
-            loop_ctx,
-            next_label_id,
-        )?;
+        let mut comparator_expr =
+            lowerer.lower_expr_ast_into(comparator, &mut step_body, loop_ctx, next_label_id)?;
         if steps.peek().is_some() {
-            let tmp_name = context.fresh("compare");
+            let tmp_name = fresh_setup_name("compare");
             step_body.push_stmt(assign_name(&tmp_name, comparator_expr));
             comparator_expr = load_name(&tmp_name);
         }
@@ -180,7 +170,6 @@ fn compare_expr(op: CmpOp, left: Expr, right: Expr) -> Expr {
 
 #[cfg(test)]
 mod tests {
-    use crate::basic_block::ast_to_ast::{context::Context, Options};
     use crate::basic_block::block_py::{BlockPyStmt, BlockPyStmtFragmentBuilder};
     use crate::basic_block::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
     use crate::py_expr;
@@ -188,18 +177,12 @@ mod tests {
 
     #[test]
     fn boolop_lowering_emits_blockpy_setup_directly() {
-        let context = Context::new(Options::for_test(), "");
         let mut out = BlockPyStmtFragmentBuilder::<Expr>::new();
         let mut next_label_id = 0usize;
 
-        let lowered = lower_expr_into_with_setup(
-            &context,
-            py_expr!("a and b"),
-            &mut out,
-            None,
-            &mut next_label_id,
-        )
-        .expect("expr lowering should succeed");
+        let lowered =
+            lower_expr_into_with_setup(py_expr!("a and b"), &mut out, None, &mut next_label_id)
+                .expect("expr lowering should succeed");
 
         let fragment = out.finish();
         assert!(matches!(lowered, Expr::Name(_)), "{lowered:?}");

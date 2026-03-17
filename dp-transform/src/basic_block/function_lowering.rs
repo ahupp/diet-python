@@ -5,8 +5,8 @@ use super::annotation_export::{
 use super::await_lower::lower_coroutine_awaits_to_yield_from;
 use super::block_py::state::{collect_cell_slots, collect_parameter_names};
 use super::block_py::{
-    BlockPyBlock, BlockPyBranchTable, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt,
-    BlockPyStmtFragment, BlockPyTerm,
+    BlockPyBlock, BlockPyBranchTable, BlockPyCallableFacts, BlockPyCallableHeader, BlockPyIf,
+    BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment, BlockPyTerm,
 };
 use super::bound_names::{collect_bound_names, collect_explicit_global_or_nonlocal_names};
 use super::function_identity::{
@@ -356,6 +356,12 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     };
     let deleted_names = collect_deleted_names(&runtime_input_body);
     let cell_slots = collect_cell_slots(&runtime_input_body);
+    let callable_facts = BlockPyCallableFacts {
+        deleted_names,
+        unbound_local_names,
+        outer_scope_names: outer_scope_names.clone(),
+        cell_slots,
+    };
     let has_yield = has_yield_exprs_in_stmts(&runtime_input_body);
     let has_await = has_await_in_stmts(&runtime_input_body);
     if is_generated_genexpr
@@ -377,15 +383,19 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     let doc_expr = function_docstring_expr(func).map(Into::into);
     let label_prefix = next_label_prefix(func.name.id.as_str(), used_label_prefixes);
     let main_function_id = take_next_function_id(next_function_id);
+    let callable_header = BlockPyCallableHeader {
+        function_id: main_function_id,
+        fn_name: func.name.id.to_string(),
+        bind_name: identity.bind_name.clone(),
+        display_name: identity.display_name.clone(),
+        qualname: identity.qualname.clone(),
+        params: (*func.parameters).clone(),
+    };
     let prepared_function_plan = lower_function_body_to_blockpy_function(
         context,
-        main_function_id,
-        func.name.id.as_str(),
         &runtime_input_body,
-        identity.bind_name.clone(),
-        identity.qualname.clone(),
+        callable_header,
         doc_expr,
-        (*func.parameters).clone(),
         legacy_async_runtime_input_body
             .as_deref()
             .filter(|_| legacy_async_fallback_removes_all_awaits)
@@ -396,10 +406,14 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         coroutine_via_generator,
         is_async_generator_runtime,
         is_closure_backed_generator_runtime,
-        &cell_slots,
+        &callable_facts,
         next_block_id,
         &mut |func_def| {
-            build_exec_function_def_binding_stmts(func_def, &cell_slots, &outer_scope_names)
+            build_exec_function_def_binding_stmts(
+                func_def,
+                &callable_facts.cell_slots,
+                &callable_facts.outer_scope_names,
+            )
         },
         &mut |prefix, next_block_id| {
             next_temp_from_counter(reserved_temp_names_stack, prefix, next_block_id)
@@ -439,22 +453,15 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         extra_closure_state_names.dedup();
     }
     Some(LoweredBlockPyFunctionBundlePlan {
-        main_function_id,
         prepared_function_plan,
-        display_name: identity.display_name.clone(),
         has_yield: needs_generator_runtime,
         is_coroutine: coroutine_via_generator,
         is_async_generator_runtime,
         is_closure_backed_generator_runtime,
-        param_names,
         extra_closure_state_names,
         capture_names,
         label_prefix,
-        cell_slots,
         module_init_mode: is_module_init_temp_name(func.name.id.as_str()),
-        deleted_names,
-        unbound_local_names,
-        outer_scope_names,
     })
 }
 

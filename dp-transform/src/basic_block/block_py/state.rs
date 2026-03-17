@@ -601,8 +601,10 @@ mod tests {
                     entry_liveins: Vec::new(),
                     blocks: vec![block],
                 },
+                fn_name: "f".to_string(),
                 doc: None,
                 closure_layout: None,
+                facts: crate::basic_block::block_py::BlockPyCallableFacts::default(),
                 local_cell_slots: Vec::new(),
             }],
         });

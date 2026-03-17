@@ -90,7 +90,6 @@ impl StmtLowerer for ast::StmtIf {
                 )?;
                 let test =
                     crate::basic_block::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
-                        context,
                         (*simplified_if.test).clone(),
                         out,
                         loop_ctx,

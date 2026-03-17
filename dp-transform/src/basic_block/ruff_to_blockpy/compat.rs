@@ -68,7 +68,6 @@ pub(crate) fn compat_if_jump_block_with_expr_setup(
     let mut out = compat_block_builder_with_expr_setup(context, body)?;
     let mut next_label_id = 0usize;
     let test = crate::basic_block::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
-        context,
         test,
         &mut out,
         None,
@@ -156,7 +155,6 @@ pub(crate) fn emit_sequence_return_block_with_expr_setup(
     let value = value
         .map(|expr| {
             crate::basic_block::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
-                context,
                 expr,
                 &mut out,
                 None,
@@ -191,7 +189,6 @@ pub(crate) fn emit_sequence_raise_block_with_expr_setup(
             .exc
             .map(|expr| {
                 crate::basic_block::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
-                    context,
                     expr,
                     &mut out,
                     None,

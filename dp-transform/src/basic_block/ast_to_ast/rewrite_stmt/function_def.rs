@@ -89,11 +89,10 @@ struct LoweredFunctionInstantiationPlan {
     binding: LoweredFunctionBindingPlan,
 }
 
+#[derive(Clone, Copy)]
 enum LoweredFunctionInstantiationKind {
     DirectFunction,
     MarkCoroutineFunction,
-    AsyncGeneratorDefinition,
-    CoroutineFromGeneratorDefinition,
 }
 
 #[derive(Clone)]
@@ -231,8 +230,9 @@ fn build_lowered_function_instantiation_preview(
                 collect_parameter_names(&prepared.callable_def.params)
                     .into_iter()
                     .collect();
+            let plan_param_names = plan.param_names();
             let mut state_vars = collect_state_vars(
-                &plan.param_names,
+                &plan_param_names,
                 &prepared.callable_def.blocks,
                 plan.module_init_mode,
             );
@@ -278,13 +278,14 @@ fn build_lowered_function_instantiation_preview(
             let captures = classify_capture_items(
                 &entry_liveins,
                 &param_names,
-                &plan.cell_slots,
+                &plan.callable_facts().cell_slots,
                 &locally_assigned,
             )?;
+            let callable_header = plan.callable_header();
             Some(LoweredFunctionInstantiationPreview {
                 entry_label: ENTRY_BLOCK_LABEL.to_string(),
                 function_id: prepared.callable_def.function_id.0,
-                name: plan.display_name.clone(),
+                name: callable_header.display_name,
                 qualname: prepared.callable_def.qualname.clone(),
                 captures,
                 param_specs: collect_function_param_specs(&prepared.callable_def.params),
@@ -302,6 +303,7 @@ fn build_lowered_function_instantiation_preview(
             })
         }
         PreparedBlockPyFunctionPlan::PendingGeneratorLowering(pending) => {
+            let plan_param_names = plan.param_names();
             let mut preview_state_vars = plan.extra_closure_state_names.clone();
             for runtime_name in [
                 "_dp_pc",
@@ -325,27 +327,28 @@ fn build_lowered_function_instantiation_preview(
                 preview_state_vars.push("_dp_transport_sent".to_string());
             }
             let preview_layout = build_blockpy_closure_layout(
-                &plan.param_names,
+                &plan_param_names,
                 &preview_state_vars,
                 &plan.capture_names,
                 &HashSet::new(),
             );
             let entry_liveins =
-                closure_backed_generator_factory_entry_liveins(&plan.param_names, &preview_layout);
-            let param_names = plan.param_names.iter().cloned().collect::<HashSet<_>>();
+                closure_backed_generator_factory_entry_liveins(&plan_param_names, &preview_layout);
+            let param_names = plan_param_names.into_iter().collect::<HashSet<_>>();
             let captures = classify_capture_items(
                 &entry_liveins,
                 &param_names,
-                &plan.cell_slots,
+                &plan.callable_facts().cell_slots,
                 &HashSet::new(),
             )?;
+            let callable_header = plan.callable_header();
             Some(LoweredFunctionInstantiationPreview {
                 entry_label: ENTRY_BLOCK_LABEL.to_string(),
-                function_id: plan.main_function_id.0,
-                name: plan.display_name.clone(),
-                qualname: pending.qualname.clone(),
+                function_id: callable_header.function_id.0,
+                name: callable_header.display_name.clone(),
+                qualname: callable_header.qualname.clone(),
                 captures,
-                param_specs: collect_function_param_specs(&pending.params),
+                param_specs: collect_function_param_specs(&callable_header.params),
                 doc_expr: pending
                     .doc
                     .clone()
@@ -389,20 +392,7 @@ fn build_lowered_function_instantiation_data(
         param_specs: preview.param_specs.clone(),
         doc_expr: preview.doc_expr.clone(),
         annotate_fn_expr: annotate_fn_expr.unwrap_or_else(|| py_expr!("None")),
-        kind: match preview.kind {
-            LoweredFunctionInstantiationKind::DirectFunction => {
-                LoweredFunctionInstantiationKind::DirectFunction
-            }
-            LoweredFunctionInstantiationKind::MarkCoroutineFunction => {
-                LoweredFunctionInstantiationKind::MarkCoroutineFunction
-            }
-            LoweredFunctionInstantiationKind::AsyncGeneratorDefinition => {
-                LoweredFunctionInstantiationKind::AsyncGeneratorDefinition
-            }
-            LoweredFunctionInstantiationKind::CoroutineFromGeneratorDefinition => {
-                LoweredFunctionInstantiationKind::CoroutineFromGeneratorDefinition
-            }
-        },
+        kind: preview.kind,
     }
 }
 
@@ -428,28 +418,6 @@ fn build_lowered_function_instantiation_expr(data: &LoweredFunctionInstantiation
         LoweredFunctionInstantiationKind::MarkCoroutineFunction => py_expr!(
             "__dp_mark_coroutine_function({func:expr})",
             func = function_entry_expr,
-        ),
-        LoweredFunctionInstantiationKind::AsyncGeneratorDefinition => py_expr!(
-            "__dp_def_async_gen({resume:expr}, {function_id:literal}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __dp_globals(), __name__, {doc:expr}, {annotate_fn:expr})",
-            resume = entry_ref_expr,
-            function_id = data.function_id,
-            name = data.name.as_str(),
-            qualname = data.qualname.as_str(),
-            closure = capture_expr.clone(),
-            params = param_specs_expr.clone(),
-            doc = data.doc_expr.clone(),
-            annotate_fn = data.annotate_fn_expr.clone(),
-        ),
-        LoweredFunctionInstantiationKind::CoroutineFromGeneratorDefinition => py_expr!(
-            "__dp_def_coro_from_gen({resume:expr}, {function_id:literal}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, __dp_globals(), __name__, {doc:expr}, {annotate_fn:expr})",
-            resume = entry_ref_expr,
-            function_id = data.function_id,
-            name = data.name.as_str(),
-            qualname = data.qualname.as_str(),
-            closure = capture_expr.clone(),
-            params = param_specs_expr.clone(),
-            doc = data.doc_expr.clone(),
-            annotate_fn = data.annotate_fn_expr.clone(),
         ),
     };
     rewrite_stmt::decorator::rewrite_exprs(data.decorator_exprs.clone(), base_function_expr)
@@ -477,11 +445,12 @@ mod tests {
 
 pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan(
     context: &Context,
-    module: &mut StmtBody,
-) -> LoweredBlockPyModuleBundlePlan {
-    crate::basic_block::ast_to_ast::simplify::flatten(module);
-    let module_scope = analyze_module_scope(module);
-    let function_identity_by_node = collect_function_identity_private(module, module_scope.clone());
+    mut module: StmtBody,
+) -> (StmtBody, LoweredBlockPyModuleBundlePlan) {
+    crate::basic_block::ast_to_ast::simplify::flatten(&mut module);
+    let module_scope = analyze_module_scope(&mut module);
+    let function_identity_by_node =
+        collect_function_identity_private(&mut module, module_scope.clone());
     let mut rewriter = BlockPyModuleRewriter {
         context,
         module_scope,
@@ -498,10 +467,10 @@ pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan(
             next_function_id: 0,
         },
     };
-    rewriter.visit_body(module);
+    rewriter.visit_body(&mut module);
     rewriter.lowered_blockpy_module.next_block_id = rewriter.next_block_id;
     rewriter.lowered_blockpy_module.next_function_id = rewriter.next_function_id;
-    rewriter.lowered_blockpy_module
+    (module, rewriter.lowered_blockpy_module)
 }
 
 fn build_binding_stmt(target: BindingTarget, bind_name: &str, value: Expr) -> Stmt {
