@@ -331,24 +331,15 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     let mut runtime_input_body = prune_dead_stmt_suffixes(&lowered_input_body);
     let original_runtime_input_body = runtime_input_body.clone();
     let mut legacy_async_runtime_input_body = None;
-    let mut use_post_blockpy_await_lowering = false;
+    let mut legacy_async_fallback_removes_all_awaits = false;
     if func.is_async {
         let mut lowered_async_body = runtime_input_body.clone();
         lower_coroutine_awaits_to_yield_from(&mut lowered_async_body);
-        use_post_blockpy_await_lowering = !has_await_in_stmts(&lowered_async_body);
-        legacy_async_runtime_input_body = Some(lowered_async_body.clone());
-        if !use_post_blockpy_await_lowering {
-            runtime_input_body = lowered_async_body;
-        }
+        legacy_async_fallback_removes_all_awaits = !has_await_in_stmts(&lowered_async_body);
+        legacy_async_runtime_input_body = Some(lowered_async_body);
     }
     let mut coroutine_via_generator = func.is_async && !has_yield_original;
     if coroutine_via_generator {
-        if has_await_in_stmts(&runtime_input_body) {
-            if !use_post_blockpy_await_lowering {
-                coroutine_via_generator = false;
-                runtime_input_body = original_runtime_input_body;
-            }
-        }
         if coroutine_via_generator && !has_yield_exprs_in_stmts(&runtime_input_body) {
             runtime_input_body.insert(0, coroutine_generator_marker_stmt());
         }
@@ -372,7 +363,7 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     let cell_slots = collect_cell_slots(&runtime_input_body);
     let has_yield = has_yield_exprs_in_stmts(&runtime_input_body);
     let has_await = has_await_in_stmts(&runtime_input_body);
-    if func.is_async && has_await && !use_post_blockpy_await_lowering {
+    if func.is_async && has_await && !legacy_async_fallback_removes_all_awaits {
         return None;
     }
     if has_yield && has_await && !func.is_async {
@@ -397,7 +388,8 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         (*func.parameters).clone(),
         legacy_async_runtime_input_body
             .as_deref()
-            .filter(|_| use_post_blockpy_await_lowering),
+            .filter(|_| legacy_async_fallback_removes_all_awaits)
+            .or(Some(original_runtime_input_body.as_slice())),
         end_label,
         label_prefix.as_str(),
         has_yield,

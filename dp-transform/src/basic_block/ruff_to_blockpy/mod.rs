@@ -1,5 +1,6 @@
 use super::await_lower::{
     blockpy_blocks_contain_await_exprs, lower_coroutine_awaits_in_blockpy_blocks,
+    lower_coroutine_awaits_to_yield_from,
 };
 use super::block_py::cfg::{
     fold_constant_brif_blockpy, fold_jumps_to_trivial_none_return_blockpy,
@@ -1498,12 +1499,14 @@ where
                     );
                 }
             }
+            let mut fallback_runtime_input_body = pending.fallback_runtime_input_body.clone();
+            lower_coroutine_awaits_to_yield_from(&mut fallback_runtime_input_body);
             ResolvedPreparedBlockPyFunctionPlan::Prepared(
                 build_prepared_blockpy_function_from_runtime_input(
                     context,
                     pending.main_function_id,
                     pending.fn_name.as_str(),
-                    &pending.fallback_runtime_input_body,
+                    &fallback_runtime_input_body,
                     pending.bind_name,
                     pending.qualname,
                     pending.doc,
