@@ -32,6 +32,7 @@ use crate::basic_block::expr_utils::make_tuple;
 use crate::namegen::fresh_name;
 use crate::ruff_ast_to_string;
 use crate::template::{empty_body, into_body, is_simple};
+use crate::transformer::Transformer;
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
 use std::cell::Cell;
@@ -43,12 +44,12 @@ mod stmt_sequences;
 mod try_regions;
 
 pub(crate) use super::blockpy_generators::{
-    build_async_for_continue_entry, build_blockpy_closure_layout, build_initial_generator_metadata,
-    compute_runtime_export_data, lower_closure_backed_generator_export_bundle,
-    lower_generator_block_plan, prepare_generator_runtime_blocks_for_export,
-    synthesize_generator_dispatch_metadata, try_lower_generators_from_await_free_semantic_input,
-    GeneratorBlockPlan, GeneratorLoweringRoute, GeneratorMetadata, GeneratorYieldSite,
-    PostBlockPyGeneratorLowering, RuntimeExportData, SemanticGeneratorInput,
+    build_blockpy_closure_layout, build_initial_generator_metadata, compute_runtime_export_data,
+    lower_closure_backed_generator_export_bundle, lower_generator_block_plan,
+    prepare_generator_runtime_blocks_for_export, synthesize_generator_dispatch_metadata,
+    try_lower_generators_from_await_free_semantic_input, GeneratorBlockPlan,
+    GeneratorLoweringRoute, GeneratorMetadata, GeneratorYieldSite, PostBlockPyGeneratorLowering,
+    RuntimeExportData, SemanticGeneratorInput,
 };
 
 pub(crate) use compat::{
@@ -86,6 +87,72 @@ pub(crate) struct GeneratorStmtSequenceLoweringState {
     pub resume_order: Vec<String>,
     pub yield_sites: Vec<GeneratorYieldSite>,
     pub next_block_id: usize,
+}
+
+#[derive(Default)]
+struct YieldExprDetector {
+    contains_yield_family: bool,
+}
+
+impl Transformer for YieldExprDetector {
+    fn visit_expr(&mut self, expr: &mut Expr) {
+        if matches!(expr, Expr::Yield(_) | Expr::YieldFrom(_)) {
+            self.contains_yield_family = true;
+        }
+        crate::transformer::walk_expr(self, expr);
+    }
+}
+
+fn expr_contains_yield_family(expr: &Expr) -> bool {
+    let mut detector = YieldExprDetector::default();
+    let mut expr = expr.clone();
+    detector.visit_expr(&mut expr);
+    detector.contains_yield_family
+}
+
+fn blockpy_stmt_contains_yield_family(stmt: &super::block_py::SemanticBlockPyStmt) -> bool {
+    match stmt {
+        super::block_py::BlockPyStmt::Assign(assign) => expr_contains_yield_family(&assign.value),
+        super::block_py::BlockPyStmt::Expr(expr) => expr_contains_yield_family(expr),
+        super::block_py::BlockPyStmt::Delete(_) => false,
+        super::block_py::BlockPyStmt::If(if_stmt) => {
+            expr_contains_yield_family(&if_stmt.test)
+                || blockpy_stmt_fragment_contains_yield_family(&if_stmt.body)
+                || blockpy_stmt_fragment_contains_yield_family(&if_stmt.orelse)
+        }
+    }
+}
+
+fn blockpy_term_contains_yield_family(term: &SemanticBlockPyTerm) -> bool {
+    match term {
+        SemanticBlockPyTerm::Jump(_) | SemanticBlockPyTerm::TryJump(_) => false,
+        SemanticBlockPyTerm::IfTerm(if_term) => expr_contains_yield_family(&if_term.test),
+        SemanticBlockPyTerm::BranchTable(branch) => expr_contains_yield_family(&branch.index),
+        SemanticBlockPyTerm::Raise(raise) => raise
+            .exc
+            .as_ref()
+            .is_some_and(|exc| expr_contains_yield_family(exc)),
+        SemanticBlockPyTerm::Return(value) => value
+            .as_ref()
+            .is_some_and(|value| expr_contains_yield_family(value)),
+    }
+}
+
+fn blockpy_stmt_fragment_contains_yield_family(
+    fragment: &super::block_py::SemanticBlockPyStmtFragment,
+) -> bool {
+    fragment.body.iter().any(blockpy_stmt_contains_yield_family)
+        || fragment
+            .term
+            .as_ref()
+            .is_some_and(blockpy_term_contains_yield_family)
+}
+
+fn blockpy_blocks_contain_yield_family(blocks: &[SemanticBlockPyBlock]) -> bool {
+    blocks.iter().any(|block| {
+        block.body.iter().any(blockpy_stmt_contains_yield_family)
+            || blockpy_term_contains_yield_family(&block.term)
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -1053,7 +1120,7 @@ pub(crate) fn lower_generators_in_prepared_blockpy_function_plan<FDef, FTemp>(
     is_closure_backed_generator_runtime: bool,
     label_prefix: &str,
     next_block_id: &mut usize,
-    lower_non_bb_def: &mut FDef,
+    _lower_non_bb_def: &mut FDef,
     next_temp: &mut FTemp,
 ) -> PreparedBlockPyFunction
 where
@@ -1104,6 +1171,32 @@ where
                     pending.callable_facts,
                 );
             }
+            let is_zero_yield_coroutine = pending.blockpy_kind == BlockPyFunctionKind::Coroutine
+                && pending.semantic_input.yield_sites.is_empty()
+                && pending.semantic_input.resume_order.is_empty()
+                && !blockpy_blocks_contain_yield_family(&pending.semantic_input.blocks);
+            if is_zero_yield_coroutine {
+                let header = pending.header.clone();
+                return build_finalized_blockpy_function(
+                    header,
+                    pending.doc,
+                    pending.blockpy_kind,
+                    pending.semantic_input.blocks.clone(),
+                    pending.semantic_input.try_regions.clone(),
+                    pending.semantic_input.entry_label.clone(),
+                    pending.end_label,
+                    label_prefix,
+                    Some(build_initial_generator_metadata(
+                        pending.semantic_input.entry_label.as_str(),
+                        &pending.semantic_input.resume_order,
+                        &pending.semantic_input.yield_sites,
+                    )),
+                    is_async_generator_runtime,
+                    is_closure_backed_generator_runtime,
+                    next_temp("uncaught_exc", next_block_id),
+                    pending.callable_facts,
+                );
+            }
             let mut fallback_runtime_input_body =
                 pending.semantic_input.fallback_runtime_input_body.clone();
             lower_coroutine_awaits_to_yield_from(&mut fallback_runtime_input_body);
@@ -1121,7 +1214,7 @@ where
                 is_closure_backed_generator_runtime,
                 &pending.callable_facts,
                 next_block_id,
-                lower_non_bb_def,
+                _lower_non_bb_def,
                 next_temp,
             )
         }
@@ -1391,10 +1484,18 @@ mod tests {
         plan_stmt_sequence_head,
     };
     use crate::basic_block::ruff_to_blockpy::try_regions::build_try_plan;
-    use crate::transform_str_to_blockpy_with_options;
+    use crate::{transform_str_to_blockpy_with_options, transform_str_to_ruff_with_options};
 
     fn wrapped_blockpy(source: &str) -> BlockPyModule {
         transform_str_to_blockpy_with_options(source, Options::for_test()).unwrap()
+    }
+
+    fn wrapped_semantic_blockpy(source: &str) -> BlockPyModule {
+        transform_str_to_ruff_with_options(source, Options::for_test())
+            .unwrap()
+            .get_pass::<BlockPyModule>("semantic_blockpy")
+            .cloned()
+            .expect("semantic_blockpy pass should be tracked")
     }
 
     fn function_by_name<'a>(blockpy: &'a BlockPyModule, bind_name: &str) -> &'a BlockPyCallableDef {
@@ -1446,7 +1547,7 @@ def f(x, ys):
 
     #[test]
     fn lowers_async_for_structurally() {
-        let blockpy = wrapped_blockpy(
+        let blockpy = wrapped_semantic_blockpy(
             r#"
 async def f(xs):
     async for x in xs:
@@ -1454,7 +1555,10 @@ async def f(xs):
 "#,
         );
         let rendered = crate::basic_block::block_py::pretty::blockpy_module_to_string(&blockpy);
-        assert!(rendered.contains("__dp_await_iter"), "{rendered}");
+        assert!(
+            rendered.contains("await __dp_anext_or_sentinel"),
+            "{rendered}"
+        );
         assert!(rendered.contains("__dp_anext_or_sentinel"), "{rendered}");
     }
 
@@ -1926,7 +2030,7 @@ def gen(n):
     }
 
     #[test]
-    fn lower_for_loop_continue_entry_with_state_updates_async_generator_state() {
+    fn lower_for_loop_continue_entry_with_state_returns_loop_check_for_async_for() {
         let mut blocks = Vec::new();
         let mut try_regions = Vec::new();
         let (entry, state) = lower_for_loop_continue_entry_with_state(
@@ -1946,11 +2050,11 @@ def gen(n):
             },
         );
 
-        assert!(!blocks.is_empty());
-        assert_ne!(entry, "_dp_bb_demo_0");
-        assert!(!state.resume_order.is_empty());
-        assert_eq!(state.yield_sites.len(), 1);
-        assert!(state.next_block_id > 0);
+        assert_eq!(entry, "_dp_bb_demo_0");
+        assert!(blocks.is_empty());
+        assert!(state.resume_order.is_empty());
+        assert!(state.yield_sites.is_empty());
+        assert_eq!(state.next_block_id, 0);
     }
 
     #[test]

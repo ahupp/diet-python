@@ -289,7 +289,11 @@ pub(crate) fn emit_for_loop_blocks(
         value = tmp_expr
     );
     let check_body = if is_async {
-        Vec::new()
+        vec![py_stmt!(
+            "{tmp:id} = await __dp_anext_or_sentinel({iter:expr})",
+            tmp = tmp_name,
+            iter = iter_expr.clone(),
+        )]
     } else {
         vec![py_stmt!(
             "{tmp:id} = __dp_next_or_sentinel({iter:expr})",
@@ -329,31 +333,19 @@ pub(crate) fn emit_for_loop_blocks(
 
 pub(crate) fn lower_for_loop_continue_entry_with_state(
     blocks: &mut Vec<BlockPyBlock>,
-    fn_name: &str,
+    _fn_name: &str,
     iter_name: &str,
     tmp_name: &str,
     loop_check_label: String,
-    is_async: bool,
-    try_regions: &mut Vec<TryRegionPlan>,
+    _is_async: bool,
+    _try_regions: &mut Vec<TryRegionPlan>,
     mut state: GeneratorStmtSequenceLoweringState,
 ) -> (String, GeneratorStmtSequenceLoweringState) {
-    let entry = if is_async {
-        build_async_for_continue_entry(
-            blocks,
-            fn_name,
-            py_expr!("{iter:id}", iter = iter_name),
-            tmp_name,
-            loop_check_label.as_str(),
-            state.closure_state,
-            try_regions,
-            &mut state.resume_order,
-            &mut state.yield_sites,
-            &mut state.next_block_id,
-        )
-    } else {
-        loop_check_label
-    };
-    (entry, state)
+    let _ = blocks;
+    let _ = iter_name;
+    let _ = tmp_name;
+    let _ = &mut state;
+    (loop_check_label, state)
 }
 
 pub(crate) fn compat_next_temp(prefix: &str, next_id: &mut usize) -> String {

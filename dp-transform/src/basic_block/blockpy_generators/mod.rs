@@ -157,64 +157,6 @@ pub(crate) struct ClosureBackedGeneratorBundleExport {
     pub helper_functions: Vec<LoweredBlockPyFunction>,
 }
 
-pub(crate) fn build_async_for_continue_entry(
-    blocks: &mut Vec<BlockPyBlock>,
-    fn_name: &str,
-    iter_expr: Expr,
-    tmp_name: &str,
-    loop_check_label: &str,
-    closure_state: bool,
-    try_regions: &mut Vec<TryRegionPlan>,
-    resume_order: &mut Vec<String>,
-    yield_sites: &mut Vec<GeneratorYieldSite>,
-    next_block_id: &mut usize,
-) -> String {
-    let await_value = py_expr!(
-        "__dp_await_iter(__dp_anext_or_sentinel({iter:expr}))",
-        iter = iter_expr,
-    );
-    let fetch_done_label = {
-        let current = *next_block_id;
-        *next_block_id += 1;
-        format!("_dp_bb_{}_{}", sanitize_ident(fn_name), current)
-    };
-    let mut next_item = |item: GeneratorYieldFromPlanItem<'_>| match item {
-        GeneratorYieldFromPlanItem::Temp(prefix) => {
-            let current = *next_block_id;
-            *next_block_id += 1;
-            format!("_dp_{prefix}_{current}")
-        }
-        GeneratorYieldFromPlanItem::Label => {
-            let current = *next_block_id;
-            *next_block_id += 1;
-            format!("_dp_bb_{}_{}", sanitize_ident(fn_name), current)
-        }
-    };
-    let (fetch_entry_label, fetch_result_name) = lower_generator_yield_from_value(
-        blocks,
-        Vec::new(),
-        await_value,
-        fetch_done_label.clone(),
-        closure_state,
-        try_regions,
-        resume_order,
-        yield_sites,
-        &mut next_item,
-    );
-    let fetch_result_name =
-        fetch_result_name.expect("async-for fetch lowering requires yielded result");
-    blocks.push(compat_block_from_blockpy(
-        fetch_done_label,
-        vec![py_stmt!(
-            "{tmp:id} = {value:id}",
-            tmp = tmp_name,
-            value = fetch_result_name.as_str(),
-        )],
-        BlockPyTerm::Jump(BlockPyLabel::from(loop_check_label.to_string())),
-    ));
-    fetch_entry_label
-}
-
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_closure_backed_generator_export_bundle(
     bind_name: &str,
@@ -2748,35 +2690,6 @@ pub(crate) fn emit_generator_yield_from_expr_blocks(
         BlockPyTerm::Jump(BlockPyLabel::from(yield_from_entry)),
     ));
     jump_to_yield_from_label
-}
-
-pub(crate) fn lower_generator_yield_from_value(
-    blocks: &mut Vec<BlockPyBlock>,
-    linear: Vec<Stmt>,
-    value: Expr,
-    after_label: String,
-    closure_state: bool,
-    try_regions: &mut Vec<TryRegionPlan>,
-    resume_order: &mut Vec<String>,
-    yield_sites: &mut Vec<GeneratorYieldSite>,
-    next_item: &mut dyn FnMut(GeneratorYieldFromPlanItem<'_>) -> String,
-) -> (String, Option<String>) {
-    let jump_to_yield_from_label = next_item(GeneratorYieldFromPlanItem::Label);
-    let plan = make_generator_yield_from_plan(&mut *next_item, true);
-    let result_name = plan.result_name.clone();
-    let entry = emit_generator_yield_from_expr_blocks(
-        blocks,
-        linear,
-        value,
-        after_label,
-        closure_state,
-        try_regions,
-        resume_order,
-        yield_sites,
-        plan,
-        jump_to_yield_from_label,
-    );
-    (entry, result_name)
 }
 
 pub(crate) fn emit_generator_yield_from_assign_blocks(

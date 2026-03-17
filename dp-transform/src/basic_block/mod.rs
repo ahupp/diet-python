@@ -497,6 +497,10 @@ mod tests {
             crate::basic_block::blockpy_module_to_string(&self.blockpy_module())
         }
 
+        fn semantic_blockpy_text(&self) -> String {
+            self.pass_text("semantic_blockpy")
+        }
+
         fn core_blockpy_text(&self) -> String {
             self.pass_text("core_blockpy")
         }
@@ -969,6 +973,16 @@ async def agen():
 "#;
 
         let lowered = TrackedLowering::new(source);
+        let semantic_blockpy_rendered = lowered.semantic_blockpy_text();
+        assert!(
+            semantic_blockpy_rendered.contains("await Once()"),
+            "{semantic_blockpy_rendered}"
+        );
+        assert!(
+            !semantic_blockpy_rendered.contains("__dp_await_iter"),
+            "{semantic_blockpy_rendered}"
+        );
+
         let blockpy_rendered = lowered.blockpy_text();
         assert!(
             blockpy_rendered.contains("__dp_await_iter"),
@@ -994,6 +1008,16 @@ async def run():
 "#;
 
         let lowered = TrackedLowering::new(source);
+        let semantic_blockpy_rendered = lowered.semantic_blockpy_text();
+        assert!(
+            semantic_blockpy_rendered.contains("await Once()"),
+            "{semantic_blockpy_rendered}"
+        );
+        assert!(
+            !semantic_blockpy_rendered.contains("__dp_await_iter"),
+            "{semantic_blockpy_rendered}"
+        );
+
         let blockpy_rendered = lowered.blockpy_text();
         assert!(
             blockpy_rendered.contains("__dp_await_iter"),
@@ -1015,6 +1039,20 @@ async def agen(cm):
 "#;
 
         let lowered = TrackedLowering::new(source);
+        let semantic_blockpy_rendered = lowered.semantic_blockpy_text();
+        assert!(
+            semantic_blockpy_rendered.contains("await __dp_asynccontextmanager_aenter"),
+            "{semantic_blockpy_rendered}"
+        );
+        assert!(
+            semantic_blockpy_rendered.contains("__dp_asynccontextmanager_get_aexit"),
+            "{semantic_blockpy_rendered}"
+        );
+        assert!(
+            !semantic_blockpy_rendered.contains("__dp_await_iter"),
+            "{semantic_blockpy_rendered}"
+        );
+
         let blockpy_rendered = lowered.blockpy_text();
         assert!(
             blockpy_rendered.contains("__dp_await_iter"),
@@ -1040,6 +1078,20 @@ async def run(cm):
 "#;
 
         let lowered = TrackedLowering::new(source);
+        let semantic_blockpy_rendered = lowered.semantic_blockpy_text();
+        assert!(
+            semantic_blockpy_rendered.contains("await __dp_asynccontextmanager_aenter"),
+            "{semantic_blockpy_rendered}"
+        );
+        assert!(
+            semantic_blockpy_rendered.contains("__dp_asynccontextmanager_get_aexit"),
+            "{semantic_blockpy_rendered}"
+        );
+        assert!(
+            !semantic_blockpy_rendered.contains("__dp_await_iter"),
+            "{semantic_blockpy_rendered}"
+        );
+
         let blockpy_rendered = lowered.blockpy_text();
         assert!(
             blockpy_rendered.contains("__dp_await_iter"),
@@ -1574,6 +1626,30 @@ async def run():
             "{run:?}"
         );
         assert!(!debug.contains("_dp_completed_"), "{debug}");
+    }
+
+    #[test]
+    fn semantic_blockpy_lowers_async_for_to_awaited_fetch_before_await_lowering() {
+        let source = r#"
+async def run():
+    async for x in ait:
+        body()
+"#;
+
+        let lowered = TrackedLowering::new(source);
+        let semantic_blockpy_rendered = lowered.semantic_blockpy_text();
+        assert!(
+            semantic_blockpy_rendered.contains("await __dp_anext_or_sentinel"),
+            "{semantic_blockpy_rendered}"
+        );
+        assert!(
+            semantic_blockpy_rendered.contains("__dp_aiter"),
+            "{semantic_blockpy_rendered}"
+        );
+        assert!(
+            !semantic_blockpy_rendered.contains("yield from __dp_await_iter"),
+            "{semantic_blockpy_rendered}"
+        );
     }
 
     #[test]
