@@ -1,10 +1,8 @@
 use super::*;
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::block_py::{
-    BlockPyCfgBlockBuilder, BlockPyLabel, BlockPyStmtFragmentBuilder, Expr,
-    SemanticBlockPyBlock as BlockPyBlock, SemanticBlockPyIfTerm as BlockPyIfTerm,
-    SemanticBlockPyRaise as BlockPyRaise, SemanticBlockPyStmt as BlockPyStmt,
-    SemanticBlockPyTerm as BlockPyTerm,
+    BlockPyBlock, BlockPyCfgBlockBuilder, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt,
+    BlockPyStmtFragmentBuilder, BlockPyTerm, Expr,
 };
 use crate::basic_block::ruff_to_blockpy::stmt_lowering::lower_nested_stmt_into_with_expr;
 

@@ -1,9 +1,7 @@
 use super::stmt_lowering::lower_stmt_into_with_expr;
 use super::*;
 use crate::basic_block::ast_to_ast::context::Context;
-use crate::basic_block::block_py::{
-    BlockPyRaise, BlockPyStmt, BlockPyTerm, Expr, SemanticBlockPyBlock as BlockPyBlock,
-};
+use crate::basic_block::block_py::{BlockPyBlock, BlockPyRaise, BlockPyStmt, BlockPyTerm, Expr};
 use crate::basic_block::blockpy_generators::plan_generator_block_fragment;
 
 pub(crate) fn lower_stmts_to_blockpy_stmts_with_context<E>(

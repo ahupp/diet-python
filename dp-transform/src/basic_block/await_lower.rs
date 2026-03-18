@@ -1,7 +1,7 @@
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::block_py::{
-    BlockPyStmtFragmentBuilder, SemanticBlockPyAssign, SemanticBlockPyBlock, SemanticBlockPyIf,
-    SemanticBlockPyRaise, SemanticBlockPyStmt, SemanticBlockPyStmtFragment, SemanticBlockPyTerm,
+    BlockPyAssign, BlockPyBlock, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment,
+    BlockPyStmtFragmentBuilder, BlockPyStructuredIf, BlockPyTerm,
 };
 use crate::basic_block::ruff_to_blockpy::lower_stmts_to_blockpy_stmts_with_context;
 use crate::basic_block::stmt_utils::flatten_stmt_boxes;
@@ -160,7 +160,7 @@ pub(crate) fn lower_coroutine_awaits_in_stmt(stmt: Stmt) -> Stmt {
 fn lower_coroutine_await_stmt_to_blockpy_fragment(
     context: &Context,
     stmt: Stmt,
-) -> Result<SemanticBlockPyStmtFragment, String> {
+) -> Result<BlockPyStmtFragment<Expr>, String> {
     let lowered = lower_coroutine_awaits_in_stmt(stmt);
     let lowered_stmts = flatten_stmt_boxes(&[Box::new(lowered)])
         .into_iter()
@@ -171,8 +171,8 @@ fn lower_coroutine_await_stmt_to_blockpy_fragment(
 
 fn lower_coroutine_awaits_in_blockpy_fragment(
     context: &Context,
-    fragment: SemanticBlockPyStmtFragment,
-) -> Result<SemanticBlockPyStmtFragment, String> {
+    fragment: BlockPyStmtFragment<Expr>,
+) -> Result<BlockPyStmtFragment<Expr>, String> {
     let mut lowered = BlockPyStmtFragmentBuilder::<Expr>::new();
     for stmt in fragment.body {
         lower_coroutine_awaits_in_blockpy_stmt_into(context, stmt, &mut lowered)?;
@@ -185,15 +185,15 @@ fn lower_coroutine_awaits_in_blockpy_fragment(
 
 fn lower_coroutine_awaits_in_blockpy_stmt_into(
     context: &Context,
-    stmt: SemanticBlockPyStmt,
+    stmt: BlockPyStmt<Expr>,
     out: &mut BlockPyStmtFragmentBuilder<Expr>,
 ) -> Result<(), String> {
     match stmt {
-        SemanticBlockPyStmt::Delete(_) => {
+        BlockPyStmt::Delete(_) => {
             out.push_stmt(stmt);
             Ok(())
         }
-        SemanticBlockPyStmt::Expr(expr) => {
+        BlockPyStmt::Expr(expr) => {
             let lowered = lower_coroutine_await_stmt_to_blockpy_fragment(
                 context,
                 py_stmt!("{value:expr}", value = Expr::from(expr)),
@@ -205,7 +205,7 @@ fn lower_coroutine_awaits_in_blockpy_stmt_into(
             out.extend(lowered.body);
             Ok(())
         }
-        SemanticBlockPyStmt::Assign(SemanticBlockPyAssign { target, value }) => {
+        BlockPyStmt::Assign(BlockPyAssign { target, value }) => {
             let lowered = lower_coroutine_await_stmt_to_blockpy_fragment(
                 context,
                 py_stmt!(
@@ -221,8 +221,8 @@ fn lower_coroutine_awaits_in_blockpy_stmt_into(
             out.extend(lowered.body);
             Ok(())
         }
-        SemanticBlockPyStmt::If(if_stmt) => {
-            out.push_stmt(SemanticBlockPyStmt::If(SemanticBlockPyIf {
+        BlockPyStmt::If(if_stmt) => {
+            out.push_stmt(BlockPyStmt::If(BlockPyStructuredIf {
                 test: if_stmt.test,
                 body: lower_coroutine_awaits_in_blockpy_fragment(context, if_stmt.body)?,
                 orelse: lower_coroutine_awaits_in_blockpy_fragment(context, if_stmt.orelse)?,
@@ -234,11 +234,11 @@ fn lower_coroutine_awaits_in_blockpy_stmt_into(
 
 fn lower_coroutine_awaits_in_blockpy_term_into(
     context: &Context,
-    term: SemanticBlockPyTerm,
+    term: BlockPyTerm<Expr>,
     out: &mut BlockPyStmtFragmentBuilder<Expr>,
 ) -> Result<(), String> {
     match term {
-        SemanticBlockPyTerm::Return(Some(value)) => {
+        BlockPyTerm::Return(Some(value)) => {
             let lowered = lower_coroutine_await_stmt_to_blockpy_fragment(
                 context,
                 py_stmt!("return {value:expr}", value = Expr::from(value)),
@@ -258,8 +258,8 @@ fn lower_coroutine_awaits_in_blockpy_term_into(
 
 pub(crate) fn lower_coroutine_awaits_in_blockpy_blocks(
     context: &Context,
-    blocks: Vec<SemanticBlockPyBlock>,
-) -> Result<Vec<SemanticBlockPyBlock>, String> {
+    blocks: Vec<BlockPyBlock<Expr>>,
+) -> Result<Vec<BlockPyBlock<Expr>>, String> {
     blocks
         .into_iter()
         .map(|block| {
@@ -269,7 +269,7 @@ pub(crate) fn lower_coroutine_awaits_in_blockpy_blocks(
             }
             lower_coroutine_awaits_in_blockpy_term_into(context, block.term, &mut lowered)?;
             let lowered = lowered.finish();
-            Ok(SemanticBlockPyBlock {
+            Ok(BlockPyBlock {
                 label: block.label,
                 body: lowered.body,
                 term: lowered
@@ -310,7 +310,7 @@ fn blockpy_expr_contains_await(expr: &Expr) -> bool {
     probe.has_await
 }
 
-fn blockpy_fragment_contains_await(fragment: &SemanticBlockPyStmtFragment) -> bool {
+fn blockpy_fragment_contains_await(fragment: &BlockPyStmtFragment<Expr>) -> bool {
     fragment.body.iter().any(blockpy_stmt_contains_await)
         || fragment
             .term
@@ -318,12 +318,12 @@ fn blockpy_fragment_contains_await(fragment: &SemanticBlockPyStmtFragment) -> bo
             .is_some_and(blockpy_term_contains_await)
 }
 
-fn blockpy_stmt_contains_await(stmt: &SemanticBlockPyStmt) -> bool {
+fn blockpy_stmt_contains_await(stmt: &BlockPyStmt<Expr>) -> bool {
     match stmt {
-        SemanticBlockPyStmt::Delete(_) => false,
-        SemanticBlockPyStmt::Expr(expr) => blockpy_expr_contains_await(expr),
-        SemanticBlockPyStmt::Assign(assign) => blockpy_expr_contains_await(&assign.value),
-        SemanticBlockPyStmt::If(if_stmt) => {
+        BlockPyStmt::Delete(_) => false,
+        BlockPyStmt::Expr(expr) => blockpy_expr_contains_await(expr),
+        BlockPyStmt::Assign(assign) => blockpy_expr_contains_await(&assign.value),
+        BlockPyStmt::If(if_stmt) => {
             blockpy_expr_contains_await(&if_stmt.test)
                 || blockpy_fragment_contains_await(&if_stmt.body)
                 || blockpy_fragment_contains_await(&if_stmt.orelse)
@@ -331,21 +331,19 @@ fn blockpy_stmt_contains_await(stmt: &SemanticBlockPyStmt) -> bool {
     }
 }
 
-fn blockpy_term_contains_await(term: &SemanticBlockPyTerm) -> bool {
+fn blockpy_term_contains_await(term: &BlockPyTerm<Expr>) -> bool {
     match term {
-        SemanticBlockPyTerm::Jump(_) | SemanticBlockPyTerm::TryJump(_) => false,
-        SemanticBlockPyTerm::IfTerm(if_term) => blockpy_expr_contains_await(&if_term.test),
-        SemanticBlockPyTerm::BranchTable(branch) => blockpy_expr_contains_await(&branch.index),
-        SemanticBlockPyTerm::Raise(SemanticBlockPyRaise { exc }) => {
+        BlockPyTerm::Jump(_) | BlockPyTerm::TryJump(_) => false,
+        BlockPyTerm::IfTerm(if_term) => blockpy_expr_contains_await(&if_term.test),
+        BlockPyTerm::BranchTable(branch) => blockpy_expr_contains_await(&branch.index),
+        BlockPyTerm::Raise(BlockPyRaise { exc }) => {
             exc.as_ref().is_some_and(blockpy_expr_contains_await)
         }
-        SemanticBlockPyTerm::Return(value) => {
-            value.as_ref().is_some_and(blockpy_expr_contains_await)
-        }
+        BlockPyTerm::Return(value) => value.as_ref().is_some_and(blockpy_expr_contains_await),
     }
 }
 
-pub(crate) fn blockpy_blocks_contain_await_exprs(blocks: &[SemanticBlockPyBlock]) -> bool {
+pub(crate) fn blockpy_blocks_contain_await_exprs(blocks: &[BlockPyBlock<Expr>]) -> bool {
     blocks.iter().any(|block| {
         block.body.iter().any(blockpy_stmt_contains_await)
             || blockpy_term_contains_await(&block.term)

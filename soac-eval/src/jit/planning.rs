@@ -1,7 +1,7 @@
 use dp_transform::basic_block::bb_ir::{BbBlock, BbModule, BbStmt, BbTerm};
 use dp_transform::basic_block::block_py::{
-    BlockPyStmt, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg,
-    CoreBlockPyLiteral,
+    BlockPyLabel, BlockPyStmt, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield,
+    CoreBlockPyKeywordArg, CoreBlockPyLiteral,
 };
 use ruff_python_ast::Number;
 use std::borrow::Cow;
@@ -278,7 +278,7 @@ fn direct_simple_plan_from_block(block: &BbBlock) -> Option<DirectSimpleRetPlan>
 fn direct_simple_brif_plan_from_block(
     function: &dp_transform::basic_block::bb_ir::BbFunction,
     block: &BbBlock,
-    label_to_index: &HashMap<String, usize>,
+    label_to_index: &HashMap<BlockPyLabel, usize>,
 ) -> Option<DirectSimpleBrIfPlan> {
     if !block.body.is_empty() {
         return None;
@@ -434,7 +434,7 @@ fn unsupported_fastpath_block_message(
 fn direct_simple_block_plan_from_block(
     function: &dp_transform::basic_block::bb_ir::BbFunction,
     block: &BbBlock,
-    label_to_index: &HashMap<String, usize>,
+    label_to_index: &HashMap<BlockPyLabel, usize>,
 ) -> Option<DirectSimpleBlockPlan> {
     let mut known_names: Vec<String> = block.meta.params.clone();
     let mut ops = Vec::new();
@@ -811,7 +811,7 @@ fn build_clif_plan(
         block_labels: function
             .blocks
             .iter()
-            .map(|block| block.label.clone())
+            .map(|block| block.label.to_string())
             .collect(),
         ambient_param_names,
         block_param_names,

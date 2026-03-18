@@ -1,6 +1,6 @@
-use super::block_py::{
-    CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyLiteral, CoreBlockPyStmtWithoutAwaitOrYield,
-};
+use crate::basic_block::block_py::BlockPyStmt;
+
+use super::block_py::{BlockPyLabel, CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyLiteral};
 use super::cfg_ir::{CfgBlock, CfgModule};
 use super::lowered_ir::LoweredCfgFunction;
 use ruff_python_ast as ast;
@@ -10,26 +10,26 @@ pub type BbModule = CfgModule<BbFunction>;
 #[derive(Debug, Clone, Default)]
 pub struct BbBlockMeta {
     pub params: Vec<String>,
-    pub exc_target_label: Option<String>,
+    pub exc_target_label: Option<BlockPyLabel>,
     pub exc_name: Option<String>,
 }
 
-pub type BbStmt = CoreBlockPyStmtWithoutAwaitOrYield;
-pub type BbBlock = CfgBlock<String, BbStmt, BbTerm, BbBlockMeta>;
+pub type BbStmt = BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>;
+pub type BbBlock = CfgBlock<BbStmt, BbTerm, BbBlockMeta>;
 pub type BbFunction = LoweredCfgFunction<BbBlock>;
 
 #[derive(Debug, Clone)]
 pub enum BbTerm {
-    Jump(String),
+    Jump(BlockPyLabel),
     BrIf {
         test: CoreBlockPyExprWithoutAwaitOrYield,
-        then_label: String,
-        else_label: String,
+        then_label: BlockPyLabel,
+        else_label: BlockPyLabel,
     },
     BrTable {
         index: CoreBlockPyExprWithoutAwaitOrYield,
-        targets: Vec<String>,
-        default_label: String,
+        targets: Vec<BlockPyLabel>,
+        default_label: BlockPyLabel,
     },
     Raise {
         exc: Option<CoreBlockPyExprWithoutAwaitOrYield>,

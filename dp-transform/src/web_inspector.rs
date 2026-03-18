@@ -145,7 +145,7 @@ fn bb_module_to_json(module: &bb_ir::BbModule) -> Value {
                 "bindingTarget": bb_binding_target_name(function.binding_target()),
                 "kind": bb_function_kind_to_json(&function.kind),
                 "entry": function.entry_label(),
-                "paramNames": function.params,
+                "paramNames": function.params.names(),
                 "entryLiveins": function.entry_liveins,
                 "localCellSlots": function.local_cell_slots(),
                 "blocks": blocks,
@@ -154,7 +154,11 @@ fn bb_module_to_json(module: &bb_ir::BbModule) -> Value {
         .collect::<Vec<_>>();
 
     json!({
-        "moduleInit": module.module_init,
+        "moduleInit": module
+            .callable_defs
+            .iter()
+            .any(|function| function.bind_name == "_dp_module_init")
+            .then_some("_dp_module_init"),
         "functions": functions,
     })
 }
@@ -228,7 +232,11 @@ fn bb_term_text(term: &bb_ir::BbTerm) -> String {
             let index = expr_to_one_line(index);
             format!(
                 "br_table index={index} targets=[{}] default={default_label}",
-                targets.join(", ")
+                targets
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
             )
         }
         bb_ir::BbTerm::Raise { exc, cause } => {
@@ -576,8 +584,12 @@ fn bb_module_to_clif(module: &bb_ir::BbModule) -> String {
             function.binding_target()
         ));
     }
-    if let Some(module_init) = module.module_init.as_ref() {
-        out.push_str(&format!("decl %{module_init}() -> pyobj ; module_init\n"));
+    if module
+        .callable_defs
+        .iter()
+        .any(|function| function.bind_name == "_dp_module_init")
+    {
+        out.push_str("decl %_dp_module_init() -> pyobj ; module_init\n");
     }
     out.push('\n');
 

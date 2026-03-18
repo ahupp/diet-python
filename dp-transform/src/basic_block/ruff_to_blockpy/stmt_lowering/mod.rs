@@ -1,8 +1,8 @@
 use super::*;
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::block_py::{
-    BlockPyAssign, BlockPyDelete, BlockPyIf, BlockPyRaise, BlockPyStmt, BlockPyTerm, Expr,
-    SemanticBlockPyBlock as BlockPyBlock,
+    BlockPyAssign, BlockPyBlock, BlockPyDelete, BlockPyIf, BlockPyRaise, BlockPyStmt, BlockPyTerm,
+    Expr,
 };
 use crate::basic_block::stmt_utils::flatten_stmt_boxes;
 

@@ -1611,34 +1611,45 @@ def update_fn(func, qualname, name, doc=None, annotate_fn=None):
     return func
 
 
-def _bb_param_kind_and_name(raw_name):
-    if raw_name.startswith("**"):
-        return (_inspect.Parameter.VAR_KEYWORD, raw_name[2:])
-    if raw_name.startswith("*"):
-        return (_inspect.Parameter.VAR_POSITIONAL, raw_name[1:])
-    if raw_name.startswith("kw:"):
-        return (_inspect.Parameter.KEYWORD_ONLY, raw_name[3:])
-    if raw_name.startswith("/"):
-        return (_inspect.Parameter.POSITIONAL_ONLY, raw_name[1:])
-    return (_inspect.Parameter.POSITIONAL_OR_KEYWORD, raw_name)
+def _bb_param_kind(kind_name):
+    if kind_name == "KwArg":
+        return _inspect.Parameter.VAR_KEYWORD
+    if kind_name == "VarArg":
+        return _inspect.Parameter.VAR_POSITIONAL
+    if kind_name == "KwOnly":
+        return _inspect.Parameter.KEYWORD_ONLY
+    if kind_name == "PosOnly":
+        return _inspect.Parameter.POSITIONAL_ONLY
+    if kind_name == "Any":
+        return _inspect.Parameter.POSITIONAL_OR_KEYWORD
+    raise RuntimeError(f"invalid bb param kind: {kind_name!r}")
 
 
-def _build_bb_signature(params):
+def _build_bb_signature(params, param_defaults):
     sig_params = []
     state_order = []
+    defaults_iter = iter(param_defaults)
     for param in params:
-        if len(param) >= 3:
-            raw_name, _, default = param[:3]
-        elif len(param) == 2:
-            raw_name, _ = param
-            default = NO_DEFAULT
-        else:
+        if len(param) != 3:
             raise RuntimeError(f"invalid bb param spec: {param!r}")
-
-        kind, name = _bb_param_kind_and_name(raw_name)
+        name, kind_name, has_default = param
+        kind = _bb_param_kind(kind_name)
         state_order.append(name)
-        param_default = _inspect._empty if default is NO_DEFAULT else default
+        param_default = _inspect._empty
+        if has_default:
+            try:
+                param_default = next(defaults_iter)
+            except StopIteration as exc:
+                raise RuntimeError(
+                    "bb param defaults payload is shorter than the param spec"
+                ) from exc
         sig_params.append(_inspect.Parameter(name, kind, default=param_default))
+    try:
+        next(defaults_iter)
+    except StopIteration:
+        pass
+    else:
+        raise RuntimeError("bb param defaults payload is longer than the param spec")
 
     return (_inspect.Signature(sig_params), tuple(state_order))
 
@@ -1823,10 +1834,10 @@ def _bb_enable_lazy_clif_vectorcall(
     plan_name,
     state_order,
     params,
+    param_defaults,
     closure_values,
     closure_layout,
     deleted_value,
-    no_default_value,
     bind_kind,
     materialize_result=None,
 ):
@@ -1843,10 +1854,10 @@ def _bb_enable_lazy_clif_vectorcall(
             (
                 state_order,
                 params,
+                param_defaults,
                 closure_values,
                 closure_layout,
                 deleted_value,
-                no_default_value,
                 bind_kind,
                 materialize_result,
             ),
@@ -2002,18 +2013,18 @@ def _bb_make_resume_entry(
         resume_state_order,
         (
             (
-                ("/_dp_self", None, NO_DEFAULT),
-                ("/_dp_send_value", None, NO_DEFAULT),
-                ("/_dp_resume_exc", None, NO_DEFAULT),
-                *((("/_dp_transport_sent", None, NO_DEFAULT),) if async_gen else ()),
+                ("_dp_self", "PosOnly", False),
+                ("_dp_send_value", "PosOnly", False),
+                ("_dp_resume_exc", "PosOnly", False),
+                *((("_dp_transport_sent", "PosOnly", False),) if async_gen else ()),
             )
             if use_function_binding
             else None
         ),
+        (),
         closure_values,
         None,
         DELETED,
-        NO_DEFAULT,
         (
             _BIND_KIND_FUNCTION
             if use_function_binding
@@ -2101,16 +2112,16 @@ def def_hidden_resume_fn(
         state_order,
         (
             (
-                ("/_dp_self", None, NO_DEFAULT),
-                ("/_dp_send_value", None, NO_DEFAULT),
-                ("/_dp_resume_exc", None, NO_DEFAULT),
-                *((("/_dp_transport_sent", None, NO_DEFAULT),) if async_gen else ()),
+                ("_dp_self", "PosOnly", False),
+                ("_dp_send_value", "PosOnly", False),
+                ("_dp_resume_exc", "PosOnly", False),
+                *((("_dp_transport_sent", "PosOnly", False),) if async_gen else ()),
             )
         ),
+        (),
         closure_map,
         None,
         DELETED,
-        NO_DEFAULT,
         _BIND_KIND_FUNCTION,
     )
     return entry
@@ -2123,6 +2134,7 @@ def make_function(
     qualname,
     closure,
     params,
+    param_defaults,
     module_globals=None,
     module_name=None,
     doc=None,
@@ -2131,7 +2143,7 @@ def make_function(
     # BB mode passes a lowered entry block, and make_function builds the
     # callable wrapper so we don't need an extra transformed outer function
     # call layer.
-    signature, default_state_order = _build_bb_signature(params)
+    signature, default_state_order = _build_bb_signature(params, param_defaults)
     state_order, closure_values = _bb_state_order(default_state_order, closure)
     _bb_validate_entry_ref(entry_bb)
     entry_ref = entry_bb if isinstance(entry_bb, str) else None
@@ -2170,10 +2182,10 @@ def make_function(
         plan_name,
         state_order,
         tuple(params),
+        tuple(param_defaults),
         closure_values,
         None,
         DELETED,
-        NO_DEFAULT,
         _BIND_KIND_FUNCTION,
     )
     return entry
@@ -2202,12 +2214,13 @@ def def_coro_from_gen(
     qualname,
     closure,
     params,
+    param_defaults,
     module_globals,
     module_name,
     doc=None,
     annotate_fn=None,
 ):
-    signature, default_state_order = _build_bb_signature(params)
+    signature, default_state_order = _build_bb_signature(params, param_defaults)
     state_order, closure_values = _bb_state_order(default_state_order, closure)
     gen_code = _dp_make_gen_code(name, qualname)
     entry_ref = resume if isinstance(resume, str) else None
@@ -2281,10 +2294,10 @@ def def_coro_from_gen(
         plan_name,
         state_order,
         tuple(params),
+        tuple(param_defaults),
         closure_values,
         None,
         DELETED,
-        NO_DEFAULT,
         _BIND_KIND_FUNCTION,
         materialize,
     )
@@ -2359,12 +2372,13 @@ def def_async_gen(
     qualname,
     closure,
     params,
+    param_defaults,
     module_globals,
     module_name,
     doc=None,
     annotate_fn=None,
 ):
-    signature, default_state_order = _build_bb_signature(params)
+    signature, default_state_order = _build_bb_signature(params, param_defaults)
     state_order, closure_values = _bb_state_order(default_state_order, closure)
     ag_code = _dp_make_async_gen_code(name, qualname)
     entry_ref = resume if isinstance(resume, str) else None
@@ -2435,10 +2449,10 @@ def def_async_gen(
         plan_name,
         state_order,
         tuple(params),
+        tuple(param_defaults),
         closure_values,
         None,
         DELETED,
-        NO_DEFAULT,
         _BIND_KIND_FUNCTION,
         materialize,
     )

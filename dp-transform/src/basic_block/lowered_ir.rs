@@ -1,3 +1,4 @@
+use super::block_py::CoreBlockPyExprWithoutAwaitOrYield;
 use super::cfg_ir::CfgCallableDef;
 use std::ops::{Deref, DerefMut};
 
@@ -150,13 +151,13 @@ pub struct LoweredRuntimeMetadata {
 }
 
 pub type LoweredCfgFunction<B> = LoweredFunction<
-    CfgCallableDef<FunctionId, LoweredFunctionKind, Vec<String>, B>,
+    CfgCallableDef<LoweredFunctionKind, CoreBlockPyExprWithoutAwaitOrYield, B>,
     LoweredCfgMetadata,
 >;
 
 impl<B>
     LoweredFunction<
-        CfgCallableDef<FunctionId, LoweredFunctionKind, Vec<String>, B>,
+        CfgCallableDef<LoweredFunctionKind, CoreBlockPyExprWithoutAwaitOrYield, B>,
         LoweredCfgMetadata,
     >
 {

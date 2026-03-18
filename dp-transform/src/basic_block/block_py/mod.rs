@@ -1,8 +1,11 @@
 use super::cfg_ir::{CfgBlock, CfgCallableDef, CfgModule};
 use super::lowered_ir::{ClosureLayout, FunctionId};
+use super::param_specs::ParamSpec;
 pub use ruff_python_ast::Expr;
-use ruff_python_ast::{self as ast, ExprName, Parameters};
+use ruff_python_ast::{self as ast, ExprName};
+use std::borrow::Borrow;
 use std::collections::HashSet;
+use std::fmt;
 use std::ops::{Deref, DerefMut};
 
 pub(crate) mod cfg;
@@ -92,41 +95,17 @@ pub struct CoreBlockPyYieldFrom<E = CoreBlockPyExpr> {
     pub value: Box<E>,
 }
 
-pub type SemanticBlockPyCallableDef = BlockPyCallableDef<Expr>;
-pub type SemanticBlockPyBlock = BlockPyBlock<Expr>;
-pub type SemanticBlockPyStmt = BlockPyStmt<Expr>;
-pub type SemanticBlockPyTerm = BlockPyTerm<Expr>;
-pub type SemanticBlockPyStmtFragment = BlockPyStmtFragment<Expr>;
-pub type SemanticBlockPyAssign = BlockPyAssign<Expr>;
-pub type SemanticBlockPyIf = BlockPyStructuredIf<Expr>;
-pub type SemanticBlockPyIfTerm = BlockPyIfTerm<Expr>;
-pub type SemanticBlockPyBranchTable = BlockPyBranchTable<Expr>;
-pub type SemanticBlockPyRaise = BlockPyRaise<Expr>;
-
-pub type CoreBlockPyCallableDef = BlockPyCallableDef<CoreBlockPyExpr>;
-pub type CoreBlockPyCallableDefWithoutAwait = BlockPyCallableDef<CoreBlockPyExprWithoutAwait>;
-pub type CoreBlockPyCallableDefWithoutAwaitOrYield =
-    BlockPyCallableDef<CoreBlockPyExprWithoutAwaitOrYield>;
-pub type CoreBlockPyBlock = BlockPyBlock<CoreBlockPyExpr>;
-pub type CoreBlockPyBlockWithoutAwait = BlockPyBlock<CoreBlockPyExprWithoutAwait>;
-pub type CoreBlockPyStmt = BlockPyStmt<CoreBlockPyExpr>;
-pub type CoreBlockPyStmtWithoutAwait = BlockPyStmt<CoreBlockPyExprWithoutAwait>;
-pub type CoreBlockPyStmtWithoutAwaitOrYield = BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>;
-pub type CoreBlockPyTerm = BlockPyTerm<CoreBlockPyExpr>;
-pub type CoreBlockPyTermWithoutAwait = BlockPyTerm<CoreBlockPyExprWithoutAwait>;
-pub type CoreBlockPyStmtFragment = BlockPyStmtFragment<CoreBlockPyExpr>;
-pub type CoreBlockPyStmtFragmentWithoutAwait = BlockPyStmtFragment<CoreBlockPyExprWithoutAwait>;
-pub type CoreBlockPyAssign = BlockPyAssign<CoreBlockPyExpr>;
 pub const ENTRY_BLOCK_LABEL: &str = "start";
 
 #[derive(Debug, Clone)]
-pub struct BlockPyCallableHeader<P = Parameters> {
+pub struct BlockPyCallableHeader<E = Expr> {
     pub function_id: FunctionId,
     pub fn_name: String,
     pub bind_name: String,
     pub display_name: String,
     pub qualname: String,
-    pub params: P,
+    pub params: ParamSpec,
+    pub param_defaults: Vec<E>,
 }
 
 #[derive(Debug, Clone)]
@@ -150,7 +129,7 @@ impl Default for BlockPyCallableFacts {
 
 #[derive(Debug, Clone)]
 pub struct BlockPyCallableDef<E = Expr, B = BlockPyBlock<E>> {
-    pub cfg: CfgCallableDef<FunctionId, BlockPyFunctionKind, Parameters, B>,
+    pub cfg: CfgCallableDef<BlockPyFunctionKind, E, B>,
     pub fn_name: String,
     pub doc: Option<E>,
     pub closure_layout: Option<ClosureLayout>,
@@ -159,7 +138,7 @@ pub struct BlockPyCallableDef<E = Expr, B = BlockPyBlock<E>> {
 }
 
 impl<E, B> Deref for BlockPyCallableDef<E, B> {
-    type Target = CfgCallableDef<FunctionId, BlockPyFunctionKind, Parameters, B>;
+    type Target = CfgCallableDef<BlockPyFunctionKind, E, B>;
 
     fn deref(&self) -> &Self::Target {
         &self.cfg
@@ -172,8 +151,8 @@ impl<E, B> DerefMut for BlockPyCallableDef<E, B> {
     }
 }
 
-impl<E, B: Clone> BlockPyCallableDef<E, B> {
-    pub fn header(&self) -> BlockPyCallableHeader<Parameters> {
+impl<E: Clone, B: Clone> BlockPyCallableDef<E, B> {
+    pub fn header(&self) -> BlockPyCallableHeader<E> {
         BlockPyCallableHeader {
             function_id: self.function_id,
             fn_name: self.fn_name.clone(),
@@ -181,6 +160,7 @@ impl<E, B: Clone> BlockPyCallableDef<E, B> {
             display_name: self.display_name.clone(),
             qualname: self.qualname.clone(),
             params: self.params.clone(),
+            param_defaults: self.param_defaults.clone(),
         }
     }
 }
@@ -198,7 +178,7 @@ pub struct BlockPyBlockMeta {
     pub exc_param: Option<String>,
 }
 
-pub type BlockPyCfgBlock<S, T> = CfgBlock<BlockPyLabel, S, T, BlockPyBlockMeta>;
+pub type BlockPyCfgBlock<S, T> = CfgBlock<S, T, BlockPyBlockMeta>;
 pub type BlockPyBlock<E = Expr> = BlockPyCfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>;
 pub type BlockPyModuleWith<S, T, E = Expr> =
     CfgModule<BlockPyCallableDef<E, BlockPyCfgBlock<S, T>>>;
@@ -876,10 +856,12 @@ impl TryFrom<BlockPyBlock<CoreBlockPyExpr>> for BlockPyBlock<CoreBlockPyExprWith
     }
 }
 
-impl TryFrom<CoreBlockPyCallableDef> for CoreBlockPyCallableDefWithoutAwait {
+impl TryFrom<BlockPyCallableDef<CoreBlockPyExpr>>
+    for BlockPyCallableDef<CoreBlockPyExprWithoutAwait>
+{
     type Error = CoreBlockPyExpr;
 
-    fn try_from(value: CoreBlockPyCallableDef) -> Result<Self, Self::Error> {
+    fn try_from(value: BlockPyCallableDef<CoreBlockPyExpr>) -> Result<Self, Self::Error> {
         let BlockPyCallableDef {
             cfg,
             fn_name,
@@ -895,6 +877,7 @@ impl TryFrom<CoreBlockPyCallableDef> for CoreBlockPyCallableDefWithoutAwait {
             qualname,
             kind,
             params,
+            param_defaults,
             entry_liveins,
             blocks,
         } = cfg;
@@ -906,6 +889,10 @@ impl TryFrom<CoreBlockPyCallableDef> for CoreBlockPyCallableDefWithoutAwait {
                 qualname,
                 kind,
                 params,
+                param_defaults: param_defaults
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()?,
                 entry_liveins,
                 blocks: blocks
                     .into_iter()
@@ -1117,10 +1104,14 @@ impl TryFrom<BlockPyBlock<CoreBlockPyExprWithoutAwait>>
     }
 }
 
-impl TryFrom<CoreBlockPyCallableDefWithoutAwait> for CoreBlockPyCallableDefWithoutAwaitOrYield {
+impl TryFrom<BlockPyCallableDef<CoreBlockPyExprWithoutAwait>>
+    for BlockPyCallableDef<CoreBlockPyExprWithoutAwaitOrYield>
+{
     type Error = CoreBlockPyExprWithoutAwait;
 
-    fn try_from(value: CoreBlockPyCallableDefWithoutAwait) -> Result<Self, Self::Error> {
+    fn try_from(
+        value: BlockPyCallableDef<CoreBlockPyExprWithoutAwait>,
+    ) -> Result<Self, Self::Error> {
         let BlockPyCallableDef {
             cfg,
             fn_name,
@@ -1136,6 +1127,7 @@ impl TryFrom<CoreBlockPyCallableDefWithoutAwait> for CoreBlockPyCallableDefWitho
             qualname,
             kind,
             params,
+            param_defaults,
             entry_liveins,
             blocks,
         } = cfg;
@@ -1147,6 +1139,10 @@ impl TryFrom<CoreBlockPyCallableDefWithoutAwait> for CoreBlockPyCallableDefWitho
                 qualname,
                 kind,
                 params,
+                param_defaults: param_defaults
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()?,
                 entry_liveins,
                 blocks: blocks
                     .into_iter()
@@ -1239,8 +1235,34 @@ impl BlockPyLabel {
     }
 }
 
+impl Borrow<str> for BlockPyLabel {
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
+
 impl AsRef<str> for BlockPyLabel {
     fn as_ref(&self) -> &str {
         self.as_str()
+    }
+}
+
+impl Deref for BlockPyLabel {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        self.as_str()
+    }
+}
+
+impl fmt::Display for BlockPyLabel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl PartialEq<&str> for BlockPyLabel {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str() == *other
     }
 }

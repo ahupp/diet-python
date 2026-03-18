@@ -124,18 +124,18 @@ fn register_clif_vectorcall_impl(
     }
     let state_order_obj = metadata.get_item(0)?.unbind();
     let params_obj = metadata.get_item(1)?.unbind();
-    let closure_values_obj = metadata.get_item(2)?.unbind();
-    let closure_layout_obj = metadata.get_item(3)?.unbind();
-    let deleted_obj = metadata.get_item(4)?.unbind();
-    let no_default_obj = metadata.get_item(5)?.unbind();
+    let param_defaults_obj = metadata.get_item(2)?.unbind();
+    let closure_values_obj = metadata.get_item(3)?.unbind();
+    let closure_layout_obj = metadata.get_item(4)?.unbind();
+    let deleted_obj = metadata.get_item(5)?.unbind();
     let bind_kind = metadata.get_item(6)?.extract::<i32>()?;
     let materialize_entry_obj = metadata.get_item(7)?.unbind();
     let state_order_bound = state_order_obj.bind(py);
     let params_bound = params_obj.bind(py);
+    let param_defaults_bound = param_defaults_obj.bind(py);
     let closure_values_bound = closure_values_obj.bind(py);
     let closure_layout_bound = closure_layout_obj.bind(py);
     let deleted_bound = deleted_obj.bind(py);
-    let no_default_bound = no_default_obj.bind(py);
     let materialize_entry_bound = materialize_entry_obj.bind(py);
     unsafe {
         soac_eval::tree_walk::register_clif_vectorcall(
@@ -148,6 +148,11 @@ fn register_clif_vectorcall_impl(
             } else {
                 params_bound.as_ptr()
             },
+            if param_defaults_bound.is_none() {
+                std::ptr::null_mut()
+            } else {
+                param_defaults_bound.as_ptr()
+            },
             if closure_values_bound.is_none() {
                 std::ptr::null_mut()
             } else {
@@ -159,7 +164,6 @@ fn register_clif_vectorcall_impl(
                 closure_layout_bound.as_ptr()
             },
             deleted_bound.as_ptr(),
-            no_default_bound.as_ptr(),
             bind_kind,
             if materialize_entry_bound.is_none() {
                 std::ptr::null_mut()

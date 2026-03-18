@@ -3,145 +3,190 @@ use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub(crate) enum FunctionParamKind {
+pub enum ParamKind {
+    Any,
     PosOnly,
-    PosOrKeyword,
     VarArg,
     KwOnly,
     KwArg,
 }
 
-impl FunctionParamKind {
-    fn label_prefix(self) -> &'static str {
+impl ParamKind {
+    fn runtime_label(self) -> &'static str {
         match self {
-            Self::PosOnly => "/",
-            Self::PosOrKeyword => "",
-            Self::VarArg => "*",
-            Self::KwOnly => "kw:",
-            Self::KwArg => "**",
+            Self::Any => "Any",
+            Self::PosOnly => "PosOnly",
+            Self::VarArg => "VarArg",
+            Self::KwOnly => "KwOnly",
+            Self::KwArg => "KwArg",
         }
     }
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct FunctionParamSpec {
-    pub kind: FunctionParamKind,
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct Param {
     pub name: String,
-    pub default: Option<Expr>,
+    pub kind: ParamKind,
+    pub has_default: bool,
 }
 
-fn push_function_param_spec(
-    specs: &mut Vec<FunctionParamSpec>,
-    kind: FunctionParamKind,
-    name: &str,
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
+pub struct ParamSpec {
+    pub params: Vec<Param>,
+}
+
+impl ParamSpec {
+    pub fn names(&self) -> Vec<String> {
+        self.params.iter().map(|param| param.name.clone()).collect()
+    }
+
+    pub fn default_count(&self) -> usize {
+        self.params.iter().filter(|param| param.has_default).count()
+    }
+
+    pub(crate) fn validate_default_count(&self, count: usize) {
+        assert_eq!(
+            self.default_count(),
+            count,
+            "ParamSpec default count does not match defaults payload",
+        );
+    }
+}
+
+fn push_param(
+    spec: &mut ParamSpec,
+    defaults: &mut Vec<Expr>,
+    param: Param,
     default: Option<&Expr>,
 ) {
-    specs.push(FunctionParamSpec {
-        kind,
-        name: name.to_string(),
-        default: default.cloned(),
-    });
+    if param.has_default {
+        defaults.push(
+            default
+                .cloned()
+                .expect("params marked with has_default should carry a default expression"),
+        );
+    }
+    spec.params.push(param);
 }
 
-pub(crate) fn collect_function_param_specs(parameters: &ast::Parameters) -> Vec<FunctionParamSpec> {
-    let mut specs = Vec::new();
+pub(crate) fn collect_param_spec_and_defaults(
+    parameters: &ast::Parameters,
+) -> (ParamSpec, Vec<Expr>) {
+    let mut spec = ParamSpec::default();
+    let mut defaults = Vec::new();
+
     for param in &parameters.posonlyargs {
-        push_function_param_spec(
-            &mut specs,
-            FunctionParamKind::PosOnly,
-            param.parameter.name.id.as_str(),
+        push_param(
+            &mut spec,
+            &mut defaults,
+            Param {
+                name: param.parameter.name.id.to_string(),
+                kind: ParamKind::PosOnly,
+                has_default: param.default.is_some(),
+            },
             param.default.as_deref(),
         );
     }
     for param in &parameters.args {
-        push_function_param_spec(
-            &mut specs,
-            FunctionParamKind::PosOrKeyword,
-            param.parameter.name.id.as_str(),
+        push_param(
+            &mut spec,
+            &mut defaults,
+            Param {
+                name: param.parameter.name.id.to_string(),
+                kind: ParamKind::Any,
+                has_default: param.default.is_some(),
+            },
             param.default.as_deref(),
         );
     }
     if let Some(param) = &parameters.vararg {
-        push_function_param_spec(
-            &mut specs,
-            FunctionParamKind::VarArg,
-            param.name.id.as_str(),
-            None,
-        );
+        spec.params.push(Param {
+            name: param.name.id.to_string(),
+            kind: ParamKind::VarArg,
+            has_default: false,
+        });
     }
     for param in &parameters.kwonlyargs {
-        push_function_param_spec(
-            &mut specs,
-            FunctionParamKind::KwOnly,
-            param.parameter.name.id.as_str(),
+        push_param(
+            &mut spec,
+            &mut defaults,
+            Param {
+                name: param.parameter.name.id.to_string(),
+                kind: ParamKind::KwOnly,
+                has_default: param.default.is_some(),
+            },
             param.default.as_deref(),
         );
     }
     if let Some(param) = &parameters.kwarg {
-        push_function_param_spec(
-            &mut specs,
-            FunctionParamKind::KwArg,
-            param.name.id.as_str(),
-            None,
-        );
+        spec.params.push(Param {
+            name: param.name.id.to_string(),
+            kind: ParamKind::KwArg,
+            has_default: false,
+        });
     }
-    specs
+
+    spec.validate_default_count(defaults.len());
+    (spec, defaults)
 }
 
-pub(crate) fn function_param_specs_to_expr(specs: &[FunctionParamSpec]) -> Expr {
+pub(crate) fn param_spec_to_expr(spec: &ParamSpec) -> Expr {
     make_dp_tuple(
-        specs
+        spec.params
             .iter()
-            .map(|spec| {
-                let label = format!("{}{}", spec.kind.label_prefix(), spec.name);
-                let annotation_expr = py_expr!("None");
-                let default_expr = spec
-                    .default
-                    .clone()
-                    .unwrap_or_else(|| py_expr!("__dp__.NO_DEFAULT"));
+            .map(|param| {
                 make_dp_tuple(vec![
-                    py_expr!("{value:literal}", value = label.as_str()),
-                    annotation_expr,
-                    default_expr,
+                    py_expr!("{value:literal}", value = param.name.as_str()),
+                    py_expr!("{value:literal}", value = param.kind.runtime_label()),
+                    if param.has_default {
+                        py_expr!("True")
+                    } else {
+                        py_expr!("False")
+                    },
                 ])
             })
             .collect(),
     )
 }
 
+pub(crate) fn param_defaults_to_expr(defaults: &[Expr]) -> Expr {
+    make_dp_tuple(defaults.to_vec())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{collect_function_param_specs, FunctionParamKind};
+    use super::{collect_param_spec_and_defaults, ParamKind};
     use crate::py_stmt;
     use ruff_python_ast::Stmt;
 
     #[test]
-    fn collect_function_param_specs_preserves_parameter_kinds_and_defaults() {
+    fn collect_param_spec_and_defaults_preserves_parameter_kinds_and_defaults() {
         let stmt = py_stmt!("def f(a, /, b=1, *c, d=2, **e):\n    pass");
         let Stmt::FunctionDef(func) = stmt else {
             panic!("expected function definition");
         };
 
-        let specs = collect_function_param_specs(func.parameters.as_ref());
-        assert_eq!(specs.len(), 5);
-        assert_eq!(specs[0].kind, FunctionParamKind::PosOnly);
-        assert_eq!(specs[0].name, "a");
-        assert!(specs[0].default.is_none());
+        let (spec, defaults) = collect_param_spec_and_defaults(func.parameters.as_ref());
+        assert_eq!(spec.params.len(), 5);
+        assert_eq!(defaults.len(), 2);
+        assert_eq!(spec.params[0].kind, ParamKind::PosOnly);
+        assert_eq!(spec.params[0].name, "a");
+        assert!(!spec.params[0].has_default);
 
-        assert_eq!(specs[1].kind, FunctionParamKind::PosOrKeyword);
-        assert_eq!(specs[1].name, "b");
-        assert!(specs[1].default.is_some());
+        assert_eq!(spec.params[1].kind, ParamKind::Any);
+        assert_eq!(spec.params[1].name, "b");
+        assert!(spec.params[1].has_default);
 
-        assert_eq!(specs[2].kind, FunctionParamKind::VarArg);
-        assert_eq!(specs[2].name, "c");
-        assert!(specs[2].default.is_none());
+        assert_eq!(spec.params[2].kind, ParamKind::VarArg);
+        assert_eq!(spec.params[2].name, "c");
+        assert!(!spec.params[2].has_default);
 
-        assert_eq!(specs[3].kind, FunctionParamKind::KwOnly);
-        assert_eq!(specs[3].name, "d");
-        assert!(specs[3].default.is_some());
+        assert_eq!(spec.params[3].kind, ParamKind::KwOnly);
+        assert_eq!(spec.params[3].name, "d");
+        assert!(spec.params[3].has_default);
 
-        assert_eq!(specs[4].kind, FunctionParamKind::KwArg);
-        assert_eq!(specs[4].name, "e");
-        assert!(specs[4].default.is_none());
+        assert_eq!(spec.params[4].kind, ParamKind::KwArg);
+        assert_eq!(spec.params[4].name, "e");
+        assert!(!spec.params[4].has_default);
     }
 }

@@ -10,9 +10,7 @@ use crate::basic_block::ast_to_ast::scope::{
 use crate::basic_block::block_py::dataflow::{
     analyze_blockpy_use_def, compute_block_params_blockpy,
 };
-use crate::basic_block::block_py::state::{
-    collect_cell_slots, collect_parameter_names, collect_state_vars,
-};
+use crate::basic_block::block_py::state::{collect_cell_slots, collect_state_vars};
 use crate::basic_block::block_py::ENTRY_BLOCK_LABEL;
 use crate::basic_block::blockpy_generators::{
     build_blockpy_closure_layout, closure_backed_generator_factory_entry_liveins,
@@ -29,9 +27,7 @@ use crate::basic_block::function_lowering::{
     function_docstring_expr, try_lower_function_to_blockpy_bundle,
 };
 use crate::basic_block::lowered_ir::BindingTarget;
-use crate::basic_block::param_specs::{
-    collect_function_param_specs, function_param_specs_to_expr, FunctionParamSpec,
-};
+use crate::basic_block::param_specs::{param_defaults_to_expr, param_spec_to_expr, ParamSpec};
 use crate::basic_block::ruff_to_blockpy::{
     LoweredBlockPyFunctionBundlePlan, PreparedBlockPyFunctionPlan,
 };
@@ -107,7 +103,8 @@ struct LoweredFunctionInstantiationPreview {
     name: String,
     qualname: String,
     captures: Vec<LoweredFunctionCaptureItem>,
-    param_specs: Vec<FunctionParamSpec>,
+    params: ParamSpec,
+    param_defaults: Vec<Expr>,
     doc_expr: Expr,
     kind: LoweredFunctionInstantiationKind,
 }
@@ -227,9 +224,7 @@ fn build_lowered_function_instantiation_preview(
     match &plan.prepared_function_plan {
         PreparedBlockPyFunctionPlan::Ready(prepared) => {
             let param_names: HashSet<String> =
-                collect_parameter_names(&prepared.callable_def.params)
-                    .into_iter()
-                    .collect();
+                prepared.callable_def.params.names().into_iter().collect();
             let plan_param_names = plan.param_names();
             let mut state_vars = collect_state_vars(
                 &plan_param_names,
@@ -288,7 +283,8 @@ fn build_lowered_function_instantiation_preview(
                 name: callable_header.display_name,
                 qualname: prepared.callable_def.qualname.clone(),
                 captures,
-                param_specs: collect_function_param_specs(&prepared.callable_def.params),
+                params: prepared.callable_def.params.clone(),
+                param_defaults: prepared.callable_def.param_defaults.clone(),
                 doc_expr: prepared
                     .callable_def
                     .doc
@@ -348,7 +344,8 @@ fn build_lowered_function_instantiation_preview(
                 name: callable_header.display_name.clone(),
                 qualname: callable_header.qualname.clone(),
                 captures,
-                param_specs: collect_function_param_specs(&callable_header.params),
+                params: callable_header.params.clone(),
+                param_defaults: callable_header.param_defaults.clone(),
                 doc_expr: pending
                     .doc
                     .clone()
@@ -371,7 +368,8 @@ struct LoweredFunctionInstantiationData {
     qualname: String,
     captures: Vec<LoweredFunctionCaptureItem>,
     decorator_exprs: Vec<Expr>,
-    param_specs: Vec<FunctionParamSpec>,
+    params: ParamSpec,
+    param_defaults: Vec<Expr>,
     doc_expr: Expr,
     annotate_fn_expr: Expr,
     kind: LoweredFunctionInstantiationKind,
@@ -389,7 +387,8 @@ fn build_lowered_function_instantiation_data(
         qualname: preview.qualname.clone(),
         captures: preview.captures.clone(),
         decorator_exprs,
-        param_specs: preview.param_specs.clone(),
+        params: preview.params.clone(),
+        param_defaults: preview.param_defaults.clone(),
         doc_expr: preview.doc_expr.clone(),
         annotate_fn_expr: annotate_fn_expr.unwrap_or_else(|| py_expr!("None")),
         kind: preview.kind,
@@ -399,15 +398,17 @@ fn build_lowered_function_instantiation_data(
 fn build_lowered_function_instantiation_expr(data: &LoweredFunctionInstantiationData) -> Expr {
     let entry_ref_expr = py_expr!("{entry:literal}", entry = data.entry_label.as_str());
     let capture_expr = capture_items_to_expr(&data.captures);
-    let param_specs_expr = function_param_specs_to_expr(&data.param_specs);
+    let param_spec_expr = param_spec_to_expr(&data.params);
+    let param_defaults_expr = param_defaults_to_expr(&data.param_defaults);
     let function_entry_expr = py_expr!(
-        "__dp_make_function({entry:expr}, {function_id:literal}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, {module_globals:expr}, {module_name:expr}, {doc:expr}, {annotate_fn:expr})",
+        "__dp_make_function({entry:expr}, {function_id:literal}, {name:literal}, {qualname:literal}, {closure:expr}, {params:expr}, {param_defaults:expr}, {module_globals:expr}, {module_name:expr}, {doc:expr}, {annotate_fn:expr})",
         entry = entry_ref_expr.clone(),
         function_id = data.function_id,
         name = data.name.as_str(),
         qualname = data.qualname.as_str(),
         closure = capture_expr.clone(),
-        params = param_specs_expr.clone(),
+        params = param_spec_expr.clone(),
+        param_defaults = param_defaults_expr.clone(),
         module_globals = py_expr!("__dp_globals()"),
         module_name = py_expr!("__name__"),
         doc = data.doc_expr.clone(),
@@ -462,7 +463,6 @@ pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan(
         function_scope_stack: Vec::new(),
         lowered_blockpy_module: LoweredBlockPyModuleBundlePlan {
             callable_def_bundles: Vec::new(),
-            module_init: Some("_dp_module_init".to_string()),
             next_block_id: 0,
             next_function_id: 0,
         },

@@ -86,7 +86,7 @@ pub(crate) fn rewrite_module_with_tracker(
         });
     // let blockpy_module = basic_block::project_lowered_module_callable_defs(
     //     &lowered_blockpy_module,
-    //     |lowered| -> &crate::basic_block::block_py::SemanticBlockPyCallableDef { lowered },
+    //     |lowered| -> &crate::basic_block::block_py::BlockPyCallableDef<Expr> { lowered },
     // );
     let core_blockpy: CfgModule<LoweredCoreBlockPyFunction> = pass_tracker
         .run_pass("core_blockpy", || {

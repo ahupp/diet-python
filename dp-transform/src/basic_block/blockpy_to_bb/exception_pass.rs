@@ -1,5 +1,5 @@
 use crate::basic_block::bb_ir::{BbBlock, BbBlockMeta, BbFunction, BbModule, BbStmt, BbTerm};
-use crate::basic_block::block_py::BlockPyStmt;
+use crate::basic_block::block_py::{BlockPyLabel, BlockPyStmt};
 use std::collections::HashSet;
 
 pub fn lower_try_jump_exception_flow(module: &BbModule) -> Result<BbModule, String> {
@@ -28,7 +28,7 @@ fn lower_function_try_jump_exception_flow(function: &mut BbFunction) -> Result<(
 }
 
 fn split_exception_blocks_for_expr_checks(function: &mut BbFunction) {
-    let mut used_labels: HashSet<String> = function
+    let mut used_labels: HashSet<BlockPyLabel> = function
         .blocks
         .iter()
         .map(|block| block.label.clone())
@@ -96,13 +96,13 @@ fn op_updates_exception_state(op: &BbStmt) -> bool {
 }
 
 fn unique_exc_split_label(
-    used_labels: &mut HashSet<String>,
+    used_labels: &mut HashSet<BlockPyLabel>,
     base_label: &str,
     index_seed: usize,
-) -> String {
+) -> BlockPyLabel {
     let mut index = index_seed;
     loop {
-        let candidate = format!("{base_label}__excchk_{index}");
+        let candidate = BlockPyLabel::from(format!("{base_label}__excchk_{index}"));
         if used_labels.insert(candidate.clone()) {
             return candidate;
         }
@@ -200,6 +200,7 @@ fn ensure_known_label(
 mod tests {
     use super::lower_try_jump_exception_flow;
     use crate::basic_block::bb_ir::{BbBlock, BbBlockMeta, BbTerm};
+    use crate::basic_block::block_py::BlockPyLabel;
     use crate::{transform_str_to_bb_ir_with_options, Options};
 
     #[test]
@@ -217,8 +218,8 @@ def f(x):
                 .iter_mut()
                 .find(|function| function.qualname == "f")
                 .expect("must contain f");
-            let body_label = "_dp_manual_body".to_string();
-            let except_label = "_dp_manual_except".to_string();
+            let body_label = BlockPyLabel::from("_dp_manual_body");
+            let except_label = BlockPyLabel::from("_dp_manual_except");
 
             function.blocks.push(BbBlock {
                 label: body_label.clone(),
@@ -251,7 +252,11 @@ def f(x):
             .find(|block| block.label == body_label)
             .expect("body block must exist");
         assert_eq!(
-            body_block.meta.exc_target_label.as_deref(),
+            body_block
+                .meta
+                .exc_target_label
+                .as_ref()
+                .map(BlockPyLabel::as_str),
             Some(except_label.as_str()),
             "body region should dispatch to except block on exception"
         );
@@ -275,7 +280,7 @@ def f():
             .callable_defs
             .first_mut()
             .expect("must contain function");
-        function.blocks[0].meta.exc_target_label = Some("missing_except".to_string());
+        function.blocks[0].meta.exc_target_label = Some(BlockPyLabel::from("missing_except"));
 
         let err = lower_try_jump_exception_flow(&module).expect_err("must reject unknown labels");
         assert!(
@@ -306,7 +311,7 @@ def f():
             .position(|block| block.body.len() >= 2)
             .expect("must contain multi-op block");
         let original_label = function.blocks[block_index].label.clone();
-        let except_label = "_dp_manual_except_split".to_string();
+        let except_label = BlockPyLabel::from("_dp_manual_except_split");
         function.blocks.push(BbBlock {
             label: except_label.clone(),
             body: vec![],
@@ -334,7 +339,11 @@ def f():
             "split op block must jump to next split block"
         );
         assert_eq!(
-            first.meta.exc_target_label.as_deref(),
+            first
+                .meta
+                .exc_target_label
+                .as_ref()
+                .map(BlockPyLabel::as_str),
             Some(except_label.as_str()),
             "split block must preserve exception edge target"
         );
@@ -373,7 +382,7 @@ def f():
             .position(|block| block.body.len() >= 4)
             .expect("must contain multi-op block");
         let original_label = function.blocks[block_index].label.clone();
-        let except_label = "_dp_manual_except_group".to_string();
+        let except_label = BlockPyLabel::from("_dp_manual_except_group");
         function.blocks.push(BbBlock {
             label: except_label.clone(),
             body: vec![],

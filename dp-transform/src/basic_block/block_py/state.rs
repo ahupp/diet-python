@@ -560,7 +560,6 @@ mod tests {
     use crate::basic_block::block_py::{BlockPyBlockMeta, BlockPyCallableDef, BlockPyFunctionKind};
     use crate::basic_block::cfg_ir::{CfgCallableDef, CfgModule};
     use crate::basic_block::lowered_ir::FunctionId;
-    use ruff_python_ast::Parameters;
     use std::collections::{HashMap, HashSet};
 
     #[test]
@@ -589,7 +588,6 @@ mod tests {
         );
 
         let rendered = blockpy_module_to_string(&CfgModule {
-            module_init: None,
             callable_defs: vec![BlockPyCallableDef {
                 cfg: CfgCallableDef {
                     function_id: FunctionId(0),
@@ -597,7 +595,8 @@ mod tests {
                     display_name: "f".to_string(),
                     qualname: "f".to_string(),
                     kind: BlockPyFunctionKind::Function,
-                    params: Parameters::default(),
+                    params: crate::basic_block::param_specs::ParamSpec::default(),
+                    param_defaults: Vec::new(),
                     entry_liveins: Vec::new(),
                     blocks: vec![block],
                 },

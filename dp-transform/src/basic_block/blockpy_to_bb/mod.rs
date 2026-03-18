@@ -5,13 +5,10 @@ mod exception_pass;
 use super::annotation_export::build_exec_function_def_binding_stmts;
 use super::bb_ir::{BbBlock, BbBlockMeta, BbFunction, BbModule, BbStmt, BbTerm};
 use super::block_py::cfg::linearize_structured_ifs;
-use super::block_py::state::collect_parameter_names;
 use super::block_py::{
-    BlockPyBlock, BlockPyIfTerm, BlockPyModule, BlockPyStmt, BlockPyTerm, CoreBlockPyCall,
-    CoreBlockPyCallArg, CoreBlockPyCallableDef, CoreBlockPyCallableDefWithoutAwait,
-    CoreBlockPyCallableDefWithoutAwaitOrYield, CoreBlockPyExprWithoutAwaitOrYield,
-    CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreBlockPyStmtWithoutAwaitOrYield,
-    SemanticBlockPyCallableDef,
+    BlockPyBlock, BlockPyCallableDef, BlockPyIfTerm, BlockPyModule, BlockPyStmt, BlockPyTerm,
+    CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait,
+    CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
 };
 use super::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use super::cfg_ir::{CfgCallableDef, CfgModule};
@@ -30,11 +27,11 @@ use std::collections::{HashMap, HashSet};
 pub use codegen_normalize::normalize_bb_module_for_codegen;
 pub use exception_pass::lower_try_jump_exception_flow;
 
-pub type LoweredCoreBlockPyFunction = LoweredBlockPyFunction<CoreBlockPyCallableDef>;
+pub type LoweredCoreBlockPyFunction = LoweredBlockPyFunction<BlockPyCallableDef<CoreBlockPyExpr>>;
 pub type LoweredCoreBlockPyFunctionWithoutAwait =
-    LoweredBlockPyFunction<CoreBlockPyCallableDefWithoutAwait>;
+    LoweredBlockPyFunction<BlockPyCallableDef<CoreBlockPyExprWithoutAwait>>;
 pub type LoweredCoreBlockPyFunctionWithoutAwaitOrYield =
-    LoweredBlockPyFunction<CoreBlockPyCallableDefWithoutAwaitOrYield>;
+    LoweredBlockPyFunction<BlockPyCallableDef<CoreBlockPyExprWithoutAwaitOrYield>>;
 
 #[derive(Clone)]
 pub(crate) struct LoweredBlockPyModuleBundlePlanEntry {
@@ -44,7 +41,6 @@ pub(crate) struct LoweredBlockPyModuleBundlePlanEntry {
 
 #[derive(Clone)]
 pub(crate) struct LoweredBlockPyModuleBundlePlan {
-    pub module_init: Option<String>,
     pub callable_def_bundles: Vec<LoweredBlockPyModuleBundlePlanEntry>,
     pub next_block_id: usize,
     pub next_function_id: usize,
@@ -72,7 +68,6 @@ pub(crate) fn lower_awaits_in_lowered_blockpy_module_bundle_plan(
     plan: LoweredBlockPyModuleBundlePlan,
 ) -> LoweredBlockPyModuleBundlePlan {
     LoweredBlockPyModuleBundlePlan {
-        module_init: plan.module_init,
         callable_def_bundles: plan
             .callable_def_bundles
             .into_iter()
@@ -94,7 +89,6 @@ pub(crate) fn lower_generators_in_lowered_blockpy_module_bundle_plan(
     plan: LoweredBlockPyModuleBundlePlan,
 ) -> CfgModule<LoweredBlockPyFunction> {
     let LoweredBlockPyModuleBundlePlan {
-        module_init,
         callable_def_bundles,
         mut next_block_id,
         mut next_function_id,
@@ -146,15 +140,12 @@ pub(crate) fn lower_generators_in_lowered_blockpy_module_bundle_plan(
                 .with_binding_target(entry.main_binding_target),
         );
     }
-    CfgModule {
-        module_init,
-        callable_defs,
-    }
+    CfgModule { callable_defs }
 }
 
 fn materialize_semantic_blockpy_callable_def_from_plan(
     plan: &LoweredBlockPyFunctionBundlePlan,
-) -> SemanticBlockPyCallableDef {
+) -> BlockPyCallableDef<Expr> {
     match &plan.prepared_function_plan {
         super::ruff_to_blockpy::PreparedBlockPyFunctionPlan::Ready(prepared) => {
             prepared.callable_def.clone()
@@ -169,6 +160,7 @@ fn materialize_semantic_blockpy_callable_def_from_plan(
                     qualname: header.qualname,
                     kind: pending.blockpy_kind,
                     params: header.params,
+                    param_defaults: header.param_defaults,
                     entry_liveins: Vec::new(),
                     blocks: pending.semantic_input.blocks.clone(),
                 },
@@ -186,7 +178,6 @@ pub(crate) fn lowered_blockpy_module_bundle_plan_to_semantic_blockpy_module(
     plan: &LoweredBlockPyModuleBundlePlan,
 ) -> BlockPyModule<Expr> {
     BlockPyModule {
-        module_init: plan.module_init.clone(),
         callable_defs: plan
             .callable_def_bundles
             .iter()
@@ -225,8 +216,8 @@ fn lower_core_blockpy_function_without_await(
 }
 
 fn lower_core_callable_def_without_await_or_yield(
-    callable_def: &CoreBlockPyCallableDefWithoutAwait,
-) -> CoreBlockPyCallableDefWithoutAwaitOrYield {
+    callable_def: &BlockPyCallableDef<CoreBlockPyExprWithoutAwait>,
+) -> BlockPyCallableDef<CoreBlockPyExprWithoutAwaitOrYield> {
     let qualname = callable_def.qualname.as_str();
     callable_def.clone().try_into().unwrap_or_else(|_| {
         panic!(
@@ -277,7 +268,8 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
                 display_name: lowered.callable_def.display_name.clone(),
                 qualname: lowered.callable_def.qualname.clone(),
                 kind: lowered.lowered_kind().clone(),
-                params: collect_parameter_names(&lowered.callable_def.params),
+                params: lowered.callable_def.params.clone(),
+                param_defaults: lowered.callable_def.param_defaults.clone(),
                 entry_liveins: lowered.callable_def.entry_liveins.clone(),
                 blocks: lower_blockpy_blocks_to_bb_blocks(
                     &lowered.callable_def.blocks,
@@ -327,7 +319,8 @@ pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
             let exc_target_label = linear_exception_edges
                 .get(block.label.as_str())
                 .cloned()
-                .flatten();
+                .flatten()
+                .map(crate::basic_block::block_py::BlockPyLabel::from);
             let exc_name = exc_target_label.as_ref().and_then(|target_label| {
                 block_exc_params
                     .get(target_label.as_str())
@@ -353,7 +346,7 @@ pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
                 }
             }
             BbBlock {
-                label: block.label.as_str().to_string(),
+                label: block.label.clone(),
                 body: ops,
                 term: bb_term_from_blockpy_term(&normalized_term),
                 meta: BbBlockMeta {
@@ -374,7 +367,7 @@ fn exception_param_from_block_params(params: &[String]) -> Option<String> {
 }
 
 fn rewrite_current_exception_in_blockpy_stmt(
-    stmt: &mut CoreBlockPyStmtWithoutAwaitOrYield,
+    stmt: &mut BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>,
     exc_name: &str,
 ) {
     match stmt {
@@ -572,7 +565,7 @@ fn compat_range() -> TextRange {
     TextRange::default()
 }
 
-fn bb_stmt_from_blockpy_stmt(stmt: CoreBlockPyStmtWithoutAwaitOrYield) -> BbStmt {
+fn bb_stmt_from_blockpy_stmt(stmt: BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>) -> BbStmt {
     match stmt {
         BlockPyStmt::Assign(_) | BlockPyStmt::Expr(_) | BlockPyStmt::Delete(_) => stmt,
         BlockPyStmt::If(_) => {
@@ -583,30 +576,26 @@ fn bb_stmt_from_blockpy_stmt(stmt: CoreBlockPyStmtWithoutAwaitOrYield) -> BbStmt
 
 fn bb_term_from_blockpy_term(terminal: &BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>) -> BbTerm {
     match terminal {
-        BlockPyTerm::Jump(target) => BbTerm::Jump(target.as_str().to_string()),
+        BlockPyTerm::Jump(target) => BbTerm::Jump(target.clone()),
         BlockPyTerm::IfTerm(BlockPyIfTerm {
             test,
             then_label,
             else_label,
         }) => BbTerm::BrIf {
             test: test.clone(),
-            then_label: then_label.as_str().to_string(),
-            else_label: else_label.as_str().to_string(),
+            then_label: then_label.clone(),
+            else_label: else_label.clone(),
         },
         BlockPyTerm::BranchTable(branch) => BbTerm::BrTable {
             index: branch.index.clone(),
-            targets: branch
-                .targets
-                .iter()
-                .map(|label| label.as_str().to_string())
-                .collect(),
-            default_label: branch.default_label.as_str().to_string(),
+            targets: branch.targets.clone(),
+            default_label: branch.default_label.clone(),
         },
         BlockPyTerm::Raise(raise_stmt) => BbTerm::Raise {
             exc: raise_stmt.exc.clone(),
             cause: None,
         },
-        BlockPyTerm::TryJump(try_jump) => BbTerm::Jump(try_jump.body_label.as_str().to_string()),
+        BlockPyTerm::TryJump(try_jump) => BbTerm::Jump(try_jump.body_label.clone()),
         BlockPyTerm::Return(value) => BbTerm::Ret(value.clone()),
     }
 }

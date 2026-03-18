@@ -1,11 +1,12 @@
 use super::block_py::{
-    BlockPyBlock, BlockPyBranchTable, BlockPyCfgFragment, BlockPyIf, BlockPyIfTerm, BlockPyRaise,
-    BlockPyStmt, BlockPyTerm, CoreBlockPyAssign, CoreBlockPyAwait, CoreBlockPyBlock,
-    CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyCallableDef, CoreBlockPyExpr,
-    CoreBlockPyKeywordArg, CoreBlockPyTerm, CoreBlockPyYield, CoreBlockPyYieldFrom,
+    BlockPyBlock, BlockPyBranchTable, BlockPyCallableDef, BlockPyCfgFragment, BlockPyIf,
+    BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyTerm, CoreBlockPyAwait, CoreBlockPyCall,
+    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyYield,
+    CoreBlockPyYieldFrom,
 };
 use super::blockpy_to_bb::LoweredCoreBlockPyFunction;
 use super::cfg_ir::CfgCallableDef;
+use crate::basic_block::block_py::BlockPyAssign;
 use crate::basic_block::cfg_ir::CfgModule;
 use crate::namegen::fresh_name;
 use crate::py_expr;
@@ -58,7 +59,7 @@ fn hoist_core_expr_to_atom(
         expr
     } else {
         let target = fresh_eval_name();
-        out.push(BlockPyStmt::Assign(CoreBlockPyAssign {
+        out.push(BlockPyStmt::Assign(BlockPyAssign {
             target: target.clone(),
             value: expr,
         }));
@@ -148,7 +149,7 @@ fn make_eval_order_explicit_in_core_stmt(
             } else {
                 assign.value
             };
-            out.push(BlockPyStmt::Assign(CoreBlockPyAssign {
+            out.push(BlockPyStmt::Assign(BlockPyAssign {
                 target: assign.target,
                 value,
             }));
@@ -206,7 +207,9 @@ fn make_eval_order_explicit_in_core_term(
     }
 }
 
-fn make_eval_order_explicit_in_core_block(block: &CoreBlockPyBlock) -> CoreBlockPyBlock {
+fn make_eval_order_explicit_in_core_block(
+    block: &BlockPyBlock<CoreBlockPyExpr>,
+) -> BlockPyBlock<CoreBlockPyExpr> {
     let mut body = Vec::new();
     for stmt in block.body.clone() {
         make_eval_order_explicit_in_core_stmt(stmt, &mut body);
@@ -221,9 +224,9 @@ fn make_eval_order_explicit_in_core_block(block: &CoreBlockPyBlock) -> CoreBlock
 }
 
 fn make_eval_order_explicit_in_core_callable_def(
-    callable_def: &CoreBlockPyCallableDef,
-) -> CoreBlockPyCallableDef {
-    CoreBlockPyCallableDef {
+    callable_def: &BlockPyCallableDef<CoreBlockPyExpr>,
+) -> BlockPyCallableDef<CoreBlockPyExpr> {
+    BlockPyCallableDef {
         cfg: CfgCallableDef {
             function_id: callable_def.function_id,
             bind_name: callable_def.bind_name.clone(),
@@ -231,6 +234,7 @@ fn make_eval_order_explicit_in_core_callable_def(
             qualname: callable_def.qualname.clone(),
             kind: callable_def.kind,
             params: callable_def.params.clone(),
+            param_defaults: callable_def.param_defaults.clone(),
             entry_liveins: callable_def.entry_liveins.clone(),
             blocks: callable_def
                 .blocks
@@ -261,14 +265,14 @@ pub(crate) fn make_eval_order_explicit_in_lowered_core_blockpy_module_bundle(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::basic_block::block_py::{BlockPyLabel, CoreBlockPyExpr};
+    use crate::basic_block::block_py::{BlockPyLabel, BlockPyTerm, CoreBlockPyExpr};
 
     #[test]
     fn eval_order_hoists_call_arguments_in_return_value_to_temps() {
         let block = BlockPyBlock {
             label: BlockPyLabel("start".to_string()),
             body: Vec::new(),
-            term: CoreBlockPyTerm::Return(Some(CoreBlockPyExpr::from(crate::py_expr!(
+            term: BlockPyTerm::Return(Some(CoreBlockPyExpr::from(crate::py_expr!(
                 "f(g(x), h(y))"
             )))),
             meta: Default::default(),
@@ -299,7 +303,7 @@ mod tests {
         let block = BlockPyBlock {
             label: BlockPyLabel("start".to_string()),
             body: Vec::new(),
-            term: CoreBlockPyTerm::Return(Some(CoreBlockPyExpr::from(crate::py_expr!("f(g(x))")))),
+            term: BlockPyTerm::Return(Some(CoreBlockPyExpr::from(crate::py_expr!("f(g(x))")))),
             meta: Default::default(),
         };
 
@@ -307,7 +311,7 @@ mod tests {
         assert_eq!(lowered.body.len(), 2);
         assert!(matches!(lowered.body[0], BlockPyStmt::Assign(_)));
         assert!(matches!(lowered.body[1], BlockPyStmt::Assign(_)));
-        let CoreBlockPyTerm::Return(Some(CoreBlockPyExpr::Name(_))) = lowered.term else {
+        let BlockPyTerm::Return(Some(CoreBlockPyExpr::Name(_))) = lowered.term else {
             panic!("expected return of temp name");
         };
     }
@@ -316,11 +320,11 @@ mod tests {
     fn eval_order_leaves_plain_assignment_rhs_untouched() {
         let block = BlockPyBlock {
             label: BlockPyLabel("start".to_string()),
-            body: vec![BlockPyStmt::Assign(CoreBlockPyAssign {
+            body: vec![BlockPyStmt::Assign(BlockPyAssign {
                 target: fresh_eval_name(),
                 value: CoreBlockPyExpr::from(crate::py_expr!("f(g(x))")),
             })],
-            term: CoreBlockPyTerm::Return(None),
+            term: BlockPyTerm::Return(None),
             meta: Default::default(),
         };
 

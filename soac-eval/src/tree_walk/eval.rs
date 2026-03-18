@@ -211,28 +211,23 @@ unsafe fn tuple_get_item(
     Ok(item)
 }
 
-fn parse_param_kind(raw_name: &str) -> (BindingParamKind, &str) {
-    if let Some(name) = raw_name.strip_prefix("**") {
-        return (BindingParamKind::VarKeyword, name);
+fn parse_param_kind(kind_name: &str) -> Result<BindingParamKind, ()> {
+    match kind_name {
+        "Any" => Ok(BindingParamKind::PositionalOrKeyword),
+        "PosOnly" => Ok(BindingParamKind::PositionalOnly),
+        "VarArg" => Ok(BindingParamKind::VarArgs),
+        "KwOnly" => Ok(BindingParamKind::KeywordOnly),
+        "KwArg" => Ok(BindingParamKind::VarKeyword),
+        _ => set_type_error("invalid CLIF function binding param kind"),
     }
-    if let Some(name) = raw_name.strip_prefix('*') {
-        return (BindingParamKind::VarArgs, name);
-    }
-    if let Some(name) = raw_name.strip_prefix("kw:") {
-        return (BindingParamKind::KeywordOnly, name);
-    }
-    if let Some(name) = raw_name.strip_prefix('/') {
-        return (BindingParamKind::PositionalOnly, name);
-    }
-    (BindingParamKind::PositionalOrKeyword, raw_name)
 }
 
 unsafe fn parse_binding_metadata(
     state_order_obj: *mut ffi::PyObject,
     params_obj: *mut ffi::PyObject,
+    param_defaults_obj: *mut ffi::PyObject,
     closure_values_obj: *mut ffi::PyObject,
     deleted_obj: *mut ffi::PyObject,
-    no_default_obj: *mut ffi::PyObject,
     bind_kind: i32,
 ) -> Result<BindingMetadata, ()> {
     let kind = match bind_kind {
@@ -296,7 +291,15 @@ unsafe fn parse_binding_metadata(
         if params_obj.is_null() || ffi::PyTuple_Check(params_obj) == 0 {
             return set_type_error("CLIF function binding params must be a tuple");
         }
+        if param_defaults_obj.is_null() || ffi::PyTuple_Check(param_defaults_obj) == 0 {
+            return set_type_error("CLIF function binding param_defaults must be a tuple");
+        }
         let param_count = tuple_size(params_obj, "failed to read CLIF function binding params")?;
+        let param_default_count = tuple_size(
+            param_defaults_obj,
+            "failed to read CLIF function binding param_defaults",
+        )?;
+        let mut next_default_index = 0usize;
         params.reserve(param_count);
         for index in 0..param_count {
             let param_obj = tuple_get_item(
@@ -309,30 +312,49 @@ unsafe fn parse_binding_metadata(
             }
             let entry_len = tuple_size(param_obj, "failed to read CLIF function binding param")?
                 as ffi::Py_ssize_t;
-            if entry_len < 2 {
+            if entry_len != 3 {
                 return set_type_error("invalid CLIF function binding param entry");
             }
-            let raw_name_obj = tuple_get_item(
+            let name_obj = tuple_get_item(
                 param_obj,
                 0,
                 "failed to read CLIF function binding param name",
             )?;
-            let raw_name = py_string(raw_name_obj)?;
-            let (param_kind, name) = parse_param_kind(&raw_name);
+            let name_string = py_string(name_obj)?;
+            let kind_obj = tuple_get_item(
+                param_obj,
+                1,
+                "failed to read CLIF function binding param kind",
+            )?;
+            let kind_name = py_string(kind_obj)?;
+            let param_kind = parse_param_kind(&kind_name)?;
+            let has_default_obj = tuple_get_item(
+                param_obj,
+                2,
+                "failed to read CLIF function binding param default flag",
+            )?;
+            let has_default = ffi::PyObject_IsTrue(has_default_obj);
+            if has_default < 0 {
+                return Err(());
+            }
+            let name = name_string.as_str();
             let state_index = state_index_by_name.get(name).copied();
             let mut default_value = ptr::null_mut();
-            if entry_len >= 3 {
+            if has_default != 0 {
+                if next_default_index >= param_default_count {
+                    return set_type_error(
+                        "CLIF function binding param_defaults is shorter than the param spec",
+                    );
+                }
                 let candidate = tuple_get_item(
-                    param_obj,
-                    2,
+                    param_defaults_obj,
+                    next_default_index,
                     "failed to read CLIF function binding param default",
                 )?;
-                if candidate != no_default_obj {
-                    ffi::Py_INCREF(candidate);
-                    default_value = candidate;
-                }
+                ffi::Py_INCREF(candidate);
+                default_value = candidate;
+                next_default_index += 1;
             }
-            let name_string = name.to_string();
             if param_lookup
                 .insert(name_string.clone(), params.len())
                 .is_some()
@@ -360,6 +382,11 @@ unsafe fn parse_binding_metadata(
                 state_index,
                 default_value,
             });
+        }
+        if next_default_index != param_default_count {
+            return set_type_error(
+                "CLIF function binding param_defaults is longer than the param spec",
+            );
         }
     }
 
@@ -499,10 +526,10 @@ unsafe fn make_clif_function_data(
     function_id: usize,
     state_order_obj: *mut ffi::PyObject,
     params_obj: *mut ffi::PyObject,
+    param_defaults_obj: *mut ffi::PyObject,
     closure_values_obj: *mut ffi::PyObject,
     closure_layout_obj: *mut ffi::PyObject,
     deleted_obj: *mut ffi::PyObject,
-    no_default_obj: *mut ffi::PyObject,
     bind_kind: i32,
     materialize_entry_obj: *mut ffi::PyObject,
 ) -> Result<*mut c_void, ()> {
@@ -558,9 +585,9 @@ unsafe fn make_clif_function_data(
     let binding = match parse_binding_metadata(
         state_order_obj,
         params_obj,
+        param_defaults_obj,
         closure_values_obj,
         deleted_obj,
-        no_default_obj,
         bind_kind,
     ) {
         Ok(value) => value,
@@ -1465,10 +1492,10 @@ pub unsafe fn register_clif_vectorcall(
     function_id: usize,
     state_order_obj: *mut ffi::PyObject,
     params_obj: *mut ffi::PyObject,
+    param_defaults_obj: *mut ffi::PyObject,
     closure_values_obj: *mut ffi::PyObject,
     closure_layout_obj: *mut ffi::PyObject,
     deleted_obj: *mut ffi::PyObject,
-    no_default_obj: *mut ffi::PyObject,
     bind_kind: i32,
     materialize_entry_obj: *mut ffi::PyObject,
 ) -> Result<(), ()> {
@@ -1496,10 +1523,10 @@ pub unsafe fn register_clif_vectorcall(
         function_id,
         state_order_obj,
         params_obj,
+        param_defaults_obj,
         closure_values_obj,
         closure_layout_obj,
         deleted_obj,
-        no_default_obj,
         bind_kind,
         materialize_entry_obj,
     )?;

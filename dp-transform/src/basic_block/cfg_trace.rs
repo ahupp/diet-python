@@ -37,13 +37,12 @@ pub(crate) fn parse_cfg_trace_config(raw: &str) -> Option<CfgTraceConfig> {
     })
 }
 
-pub(crate) fn instrument_cfg_module_for_trace<I, K, P, L, S, T, M, F>(
+pub(crate) fn instrument_cfg_module_for_trace<K, D, S, T, M, F>(
     module: &mut CfgModule<F>,
     config: &CfgTraceConfig,
     make_trace_stmt: impl Fn(&str, &str, &[String]) -> S,
 ) where
-    F: DerefMut<Target = CfgCallableDef<I, K, P, CfgBlock<L, S, T, M>>>,
-    L: AsRef<str>,
+    F: DerefMut<Target = CfgCallableDef<K, D, CfgBlock<S, T, M>>>,
     M: TraceBlockMeta,
 {
     for function in &mut module.callable_defs {
@@ -56,7 +55,7 @@ pub(crate) fn instrument_cfg_module_for_trace<I, K, P, L, S, T, M, F>(
         for block in &mut function.blocks {
             let trace_stmt = make_trace_stmt(
                 qualname.as_str(),
-                block.label.as_ref(),
+                block.label.as_str(),
                 if config.include_params {
                     block.meta.trace_params()
                 } else {

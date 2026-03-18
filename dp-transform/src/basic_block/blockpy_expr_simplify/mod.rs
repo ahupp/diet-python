@@ -1,20 +1,19 @@
 use super::{
-    ast_to_ast::rewrite_expr::string::{
-        lower_string_templates_in_expr, lower_string_templates_in_parameters,
-    },
+    ast_to_ast::rewrite_expr::string::lower_string_templates_in_expr,
     block_py::{
-        BlockPyBlockMeta, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete, BlockPyIf,
-        BlockPyIfTerm, BlockPyModule, BlockPyRaise, BlockPyStmtFragmentBuilder, BlockPyTerm,
-        CoreBlockPyAssign, CoreBlockPyAwait, CoreBlockPyBlock, CoreBlockPyCall, CoreBlockPyCallArg,
-        CoreBlockPyCallableDef, CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
-        CoreBlockPyStmt, CoreBlockPyStmtFragment, CoreBlockPyTerm, CoreBlockPyYield,
-        CoreBlockPyYieldFrom, SemanticBlockPyBlock, SemanticBlockPyCallableDef,
-        SemanticBlockPyStmt, SemanticBlockPyStmtFragment, SemanticBlockPyTerm,
+        BlockPyBlock, BlockPyBlockMeta, BlockPyBranchTable, BlockPyCallableDef, BlockPyCfgFragment,
+        BlockPyDelete, BlockPyIf, BlockPyIfTerm, BlockPyModule, BlockPyRaise, BlockPyStmt,
+        BlockPyStmtFragment, BlockPyStmtFragmentBuilder, BlockPyTerm, CoreBlockPyAwait,
+        CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg,
+        CoreBlockPyLiteral, CoreBlockPyYield, CoreBlockPyYieldFrom,
     },
     cfg_ir::CfgCallableDef,
 };
-use crate::basic_block::expr_utils::{make_binop, make_tuple, make_tuple_splat, make_unaryop};
 use crate::basic_block::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
+use crate::basic_block::{
+    block_py::BlockPyAssign,
+    expr_utils::{make_binop, make_tuple, make_tuple_splat, make_unaryop},
+};
 use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr};
 
@@ -249,7 +248,7 @@ impl From<Expr> for CoreBlockPyExpr {
     }
 }
 
-fn finish_expr_setup(builder: CoreStmtBuilder) -> Vec<CoreBlockPyStmt> {
+fn finish_expr_setup(builder: CoreStmtBuilder) -> Vec<BlockPyStmt<CoreBlockPyExpr>> {
     let fragment = builder.finish();
     assert!(
         fragment.term.is_none(),
@@ -284,54 +283,16 @@ fn lower_semantic_expr_without_setup(expr: &SemanticExpr) -> CoreBlockPyExpr {
     lowered
 }
 
-fn simplify_parameter_default(default: &Option<Box<Expr>>) -> Option<Box<Expr>> {
-    default
-        .as_ref()
-        .map(|expr| Box::new(Expr::from(lower_semantic_expr_without_setup(expr))))
+pub(crate) fn simplify_param_defaults(defaults: &[Expr]) -> Vec<CoreBlockPyExpr> {
+    defaults
+        .iter()
+        .map(lower_semantic_expr_without_setup)
+        .collect()
 }
 
-pub(crate) fn simplify_parameter_exprs(parameters: &ast::Parameters) -> ast::Parameters {
-    let mut parameters = parameters.clone();
-    lower_string_templates_in_parameters(&mut parameters);
-    ast::Parameters {
-        range: parameters.range,
-        node_index: parameters.node_index.clone(),
-        posonlyargs: parameters
-            .posonlyargs
-            .iter()
-            .map(|param| ast::ParameterWithDefault {
-                range: param.range,
-                node_index: param.node_index.clone(),
-                parameter: param.parameter.clone(),
-                default: simplify_parameter_default(&param.default),
-            })
-            .collect(),
-        args: parameters
-            .args
-            .iter()
-            .map(|param| ast::ParameterWithDefault {
-                range: param.range,
-                node_index: param.node_index.clone(),
-                parameter: param.parameter.clone(),
-                default: simplify_parameter_default(&param.default),
-            })
-            .collect(),
-        vararg: parameters.vararg.clone(),
-        kwonlyargs: parameters
-            .kwonlyargs
-            .iter()
-            .map(|param| ast::ParameterWithDefault {
-                range: param.range,
-                node_index: param.node_index.clone(),
-                parameter: param.parameter.clone(),
-                default: simplify_parameter_default(&param.default),
-            })
-            .collect(),
-        kwarg: parameters.kwarg.clone(),
-    }
-}
-
-fn lower_semantic_stmt_fragment(fragment: &CoreLikeStmtFragmentInput) -> CoreBlockPyStmtFragment {
+fn lower_semantic_stmt_fragment(
+    fragment: &CoreLikeStmtFragmentInput,
+) -> BlockPyStmtFragment<CoreBlockPyExpr> {
     let mut builder = CoreStmtBuilder::new();
     for stmt in &fragment.body {
         lower_semantic_stmt_into(&mut builder, stmt);
@@ -342,35 +303,35 @@ fn lower_semantic_stmt_fragment(fragment: &CoreLikeStmtFragmentInput) -> CoreBlo
     builder.finish()
 }
 
-type CoreLikeStmtFragmentInput = SemanticBlockPyStmtFragment;
+type CoreLikeStmtFragmentInput = BlockPyStmtFragment<Expr>;
 
-fn lower_semantic_stmt_into(builder: &mut CoreStmtBuilder, stmt: &SemanticBlockPyStmt) {
+fn lower_semantic_stmt_into(builder: &mut CoreStmtBuilder, stmt: &BlockPyStmt<Expr>) {
     match stmt {
-        SemanticBlockPyStmt::Assign(assign) => {
+        BlockPyStmt::Assign(assign) => {
             let mut setup = CoreStmtBuilder::new();
             let value = lower_semantic_expr_into(&mut setup, &assign.value);
             builder.extend(finish_expr_setup(setup));
-            builder.push_stmt(CoreBlockPyStmt::Assign(CoreBlockPyAssign {
+            builder.push_stmt(BlockPyStmt::Assign(BlockPyAssign {
                 target: assign.target.clone(),
                 value,
             }));
         }
-        SemanticBlockPyStmt::Expr(expr) => {
+        BlockPyStmt::Expr(expr) => {
             let mut setup = CoreStmtBuilder::new();
             let expr = lower_semantic_expr_into(&mut setup, expr);
             builder.extend(finish_expr_setup(setup));
-            builder.push_stmt(CoreBlockPyStmt::Expr(expr));
+            builder.push_stmt(BlockPyStmt::Expr(expr));
         }
-        SemanticBlockPyStmt::Delete(BlockPyDelete { target }) => {
-            builder.push_stmt(CoreBlockPyStmt::Delete(BlockPyDelete {
+        BlockPyStmt::Delete(BlockPyDelete { target }) => {
+            builder.push_stmt(BlockPyStmt::Delete(BlockPyDelete {
                 target: target.clone(),
             }));
         }
-        SemanticBlockPyStmt::If(if_stmt) => {
+        BlockPyStmt::If(if_stmt) => {
             let mut setup = CoreStmtBuilder::new();
             let test = lower_semantic_expr_into(&mut setup, &if_stmt.test);
             builder.extend(finish_expr_setup(setup));
-            builder.push_stmt(CoreBlockPyStmt::If(BlockPyIf {
+            builder.push_stmt(BlockPyStmt::If(BlockPyIf {
                 test,
                 body: lower_semantic_stmt_fragment(&if_stmt.body),
                 orelse: lower_semantic_stmt_fragment(&if_stmt.orelse),
@@ -379,9 +340,9 @@ fn lower_semantic_stmt_into(builder: &mut CoreStmtBuilder, stmt: &SemanticBlockP
     }
 }
 
-fn lower_semantic_term_into(builder: &mut CoreStmtBuilder, term: &SemanticBlockPyTerm) {
+fn lower_semantic_term_into(builder: &mut CoreStmtBuilder, term: &BlockPyTerm<Expr>) {
     match term {
-        BlockPyTerm::Jump(label) => builder.set_term(CoreBlockPyTerm::Jump(label.clone())),
+        BlockPyTerm::Jump(label) => builder.set_term(BlockPyTerm::Jump(label.clone())),
         BlockPyTerm::IfTerm(BlockPyIfTerm {
             test,
             then_label,
@@ -390,7 +351,7 @@ fn lower_semantic_term_into(builder: &mut CoreStmtBuilder, term: &SemanticBlockP
             let mut setup = CoreStmtBuilder::new();
             let test = lower_semantic_expr_into(&mut setup, test);
             builder.extend(finish_expr_setup(setup));
-            builder.set_term(CoreBlockPyTerm::IfTerm(BlockPyIfTerm {
+            builder.set_term(BlockPyTerm::IfTerm(BlockPyIfTerm {
                 test,
                 then_label: then_label.clone(),
                 else_label: else_label.clone(),
@@ -404,7 +365,7 @@ fn lower_semantic_term_into(builder: &mut CoreStmtBuilder, term: &SemanticBlockP
             let mut setup = CoreStmtBuilder::new();
             let index = lower_semantic_expr_into(&mut setup, index);
             builder.extend(finish_expr_setup(setup));
-            builder.set_term(CoreBlockPyTerm::BranchTable(BlockPyBranchTable {
+            builder.set_term(BlockPyTerm::BranchTable(BlockPyBranchTable {
                 index,
                 targets: targets.clone(),
                 default_label: default_label.clone(),
@@ -417,11 +378,9 @@ fn lower_semantic_term_into(builder: &mut CoreStmtBuilder, term: &SemanticBlockP
                 builder.extend(finish_expr_setup(setup));
                 exc
             });
-            builder.set_term(CoreBlockPyTerm::Raise(BlockPyRaise { exc }));
+            builder.set_term(BlockPyTerm::Raise(BlockPyRaise { exc }));
         }
-        BlockPyTerm::TryJump(try_jump) => {
-            builder.set_term(CoreBlockPyTerm::TryJump(try_jump.clone()))
-        }
+        BlockPyTerm::TryJump(try_jump) => builder.set_term(BlockPyTerm::TryJump(try_jump.clone())),
         BlockPyTerm::Return(value) => {
             let value = value.as_ref().map(|value| {
                 let mut setup = CoreStmtBuilder::new();
@@ -429,17 +388,17 @@ fn lower_semantic_term_into(builder: &mut CoreStmtBuilder, term: &SemanticBlockP
                 builder.extend(finish_expr_setup(setup));
                 value
             });
-            builder.set_term(CoreBlockPyTerm::Return(value));
+            builder.set_term(BlockPyTerm::Return(value));
         }
     }
 }
 
-fn lower_semantic_block(block: &SemanticBlockPyBlock) -> CoreBlockPyBlock {
+fn lower_semantic_block(block: &BlockPyBlock<Expr>) -> BlockPyBlock<CoreBlockPyExpr> {
     let fragment = lower_semantic_stmt_fragment(&BlockPyCfgFragment {
         body: block.body.clone(),
         term: Some(block.term.clone()),
     });
-    CoreBlockPyBlock {
+    BlockPyBlock {
         label: block.label.clone(),
         body: fragment.body,
         term: fragment
@@ -452,16 +411,17 @@ fn lower_semantic_block(block: &SemanticBlockPyBlock) -> CoreBlockPyBlock {
 }
 
 pub(crate) fn simplify_blockpy_callable_def_exprs(
-    callable_def: &SemanticBlockPyCallableDef,
-) -> CoreBlockPyCallableDef {
-    CoreBlockPyCallableDef {
+    callable_def: &BlockPyCallableDef<Expr>,
+) -> BlockPyCallableDef<CoreBlockPyExpr> {
+    BlockPyCallableDef {
         cfg: CfgCallableDef {
             function_id: callable_def.function_id,
             bind_name: callable_def.bind_name.clone(),
             display_name: callable_def.display_name.clone(),
             qualname: callable_def.qualname.clone(),
             kind: callable_def.kind,
-            params: simplify_parameter_exprs(&callable_def.params),
+            params: callable_def.params.clone(),
+            param_defaults: simplify_param_defaults(&callable_def.param_defaults),
             entry_liveins: callable_def.entry_liveins.clone(),
             blocks: callable_def
                 .blocks
@@ -484,7 +444,6 @@ pub(crate) fn simplify_blockpy_module_exprs(
     module: &BlockPyModule<Expr>,
 ) -> BlockPyModule<CoreBlockPyExpr> {
     BlockPyModule {
-        module_init: module.module_init.clone(),
         callable_defs: module
             .callable_defs
             .iter()
@@ -523,8 +482,6 @@ def f(x):
         let semantic_rendered = blockpy_module_to_string(&blockpy);
         let core_rendered = blockpy_module_to_string(&core);
 
-        assert!(semantic_rendered.contains("__dp__.NO_DEFAULT"));
-        assert!(core_rendered.contains("__dp_getattr(__dp__, \"NO_DEFAULT\")"));
         assert!(semantic_rendered.contains("function f(x):"));
         assert!(core_rendered.contains("function f(x):"));
         assert!(semantic_rendered.contains("return 1"));

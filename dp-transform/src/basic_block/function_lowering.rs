@@ -2,8 +2,7 @@ use super::annotation_export::{
     build_exec_function_def_binding_stmts, collect_capture_names, is_annotation_helper_name,
     rewrite_annotation_helper_defs_as_exec_calls, should_keep_non_lowered_for_annotationlib,
 };
-use super::await_lower::lower_coroutine_awaits_to_yield_from;
-use super::block_py::state::{collect_cell_slots, collect_parameter_names};
+use super::block_py::state::collect_cell_slots;
 use super::block_py::{
     BlockPyBlock, BlockPyBranchTable, BlockPyCallableFacts, BlockPyCallableHeader, BlockPyIf,
     BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment, BlockPyTerm,
@@ -22,6 +21,7 @@ use super::stmt_utils::{
 use crate::basic_block::ast_to_ast::ast_rewrite::{Rewrite, StmtRewritePass};
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::ast_to_ast::scope::{is_internal_symbol, Scope, ScopeKind};
+use crate::basic_block::param_specs::collect_param_spec_and_defaults;
 use crate::py_expr;
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, Expr, NodeIndex, Stmt, StmtBody};
@@ -327,7 +327,8 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         } else {
             lowered_input_body
         };
-    let param_names = collect_parameter_names(&func.parameters);
+    let (param_spec, param_defaults) = collect_param_spec_and_defaults(&func.parameters);
+    let param_names = param_spec.names();
     let has_yield_original = has_yield_exprs_in_stmts(&lowered_input_body);
     let runtime_input_body = prune_dead_stmt_suffixes(&lowered_input_body);
     let original_runtime_input_body = runtime_input_body.clone();
@@ -390,7 +391,8 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         bind_name: identity.bind_name.clone(),
         display_name: identity.display_name.clone(),
         qualname: identity.qualname.clone(),
-        params: (*func.parameters).clone(),
+        params: param_spec,
+        param_defaults,
     };
     let prepared_function_plan = lower_function_body_to_blockpy_function(
         context,

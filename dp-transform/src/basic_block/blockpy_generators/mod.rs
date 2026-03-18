@@ -10,11 +10,9 @@ use crate::basic_block::block_py::state::{
     sync_generator_state_order, sync_target_cells_stmts,
 };
 use crate::basic_block::block_py::{
-    BlockPyCfgBlockBuilder, BlockPyLabel, BlockPyStmtFragmentBuilder, BlockPyTryJump,
-    SemanticBlockPyAssign as BlockPyAssign, SemanticBlockPyBlock as BlockPyBlock,
-    SemanticBlockPyBranchTable as BlockPyBranchTable, SemanticBlockPyIf,
-    SemanticBlockPyIfTerm as BlockPyIfTerm, SemanticBlockPyRaise as BlockPyRaise,
-    SemanticBlockPyStmt as BlockPyStmt, SemanticBlockPyTerm as BlockPyTerm,
+    BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyCfgBlockBuilder, BlockPyIfTerm,
+    BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment, BlockPyStmtFragmentBuilder,
+    BlockPyStructuredIf, BlockPyTerm, BlockPyTryJump,
 };
 use crate::basic_block::lowered_ir::{ClosureInit, ClosureLayout, ClosureSlot, FunctionId};
 use crate::basic_block::ruff_to_blockpy::expr_lowering;
@@ -162,7 +160,8 @@ pub(crate) fn lower_closure_backed_generator_export_bundle(
     bind_name: &str,
     display_name: &str,
     qualname: &str,
-    params: &ast::Parameters,
+    params: &crate::basic_block::param_specs::ParamSpec,
+    param_defaults: &[Expr],
     param_names: &[String],
     label_prefix: &str,
     runtime_entry_label: &str,
@@ -243,6 +242,7 @@ pub(crate) fn lower_closure_backed_generator_export_bundle(
             display_name: export_plan.resume_display_name.clone(),
             qualname: export_plan.resume_qualname.clone(),
             params: params.clone(),
+            param_defaults: param_defaults.to_vec(),
         },
         None,
         resume_blockpy_kind,
@@ -727,9 +727,9 @@ fn lower_generator_payload_exprs_in_block(
 
 fn lower_generator_payload_exprs_in_fragment(
     context: &Context,
-    fragment: crate::basic_block::block_py::SemanticBlockPyStmtFragment,
+    fragment: BlockPyStmtFragment<Expr>,
     next_label_id: &mut usize,
-) -> Result<crate::basic_block::block_py::SemanticBlockPyStmtFragment, String> {
+) -> Result<BlockPyStmtFragment<Expr>, String> {
     let mut lowered = BlockPyStmtFragmentBuilder::<Expr>::new();
     for stmt in fragment.body {
         lower_generator_payload_exprs_in_stmt_into(context, stmt, &mut lowered, next_label_id)?;
@@ -799,7 +799,7 @@ fn lower_generator_payload_exprs_in_stmt_into(
             Ok(())
         }
         BlockPyStmt::If(if_stmt) => {
-            out.push_stmt(BlockPyStmt::If(SemanticBlockPyIf {
+            out.push_stmt(BlockPyStmt::If(BlockPyStructuredIf {
                 test: if_stmt.test,
                 body: lower_generator_payload_exprs_in_fragment(
                     context,
@@ -944,7 +944,7 @@ pub(crate) fn blockpy_stmt_requires_generator_rest_entry(stmt: &BlockPyStmt) -> 
 }
 
 pub(crate) fn plan_generator_block_fragment(
-    fragment: crate::basic_block::block_py::SemanticBlockPyStmtFragment,
+    fragment: BlockPyStmtFragment<Expr>,
 ) -> Option<GeneratorBlockPlan> {
     match (fragment.body.as_slice(), fragment.term.as_ref()) {
         ([stmt], None) => {
@@ -1179,9 +1179,7 @@ fn stmt_contains_unlowered_generator_exprs(stmt: &BlockPyStmt) -> bool {
     }
 }
 
-fn fragment_contains_unlowered_generator_exprs(
-    fragment: &crate::basic_block::block_py::SemanticBlockPyStmtFragment,
-) -> bool {
+fn fragment_contains_unlowered_generator_exprs(fragment: &BlockPyStmtFragment<Expr>) -> bool {
     fragment
         .body
         .iter()

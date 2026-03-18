@@ -1,10 +1,9 @@
-use super::state::collect_parameter_names;
 use super::{
     BlockPyBlock, BlockPyCallableDef, BlockPyCfgFragment, BlockPyFunctionKind, BlockPyIfTerm,
     BlockPyLabel, BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyTerm, BlockPyTryJump, Expr,
 };
+use crate::basic_block::param_specs::{ParamKind, ParamSpec};
 use crate::ruff_ast_to_string;
-use ruff_python_ast::{self as ast};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -40,8 +39,12 @@ impl BlockPyFormatter {
     where
         E: Clone + Into<Expr>,
     {
-        if let Some(module_init) = &module.module_init {
-            self.line(format!("module_init: {module_init}"));
+        if module
+            .callable_defs
+            .iter()
+            .any(|function| function.bind_name == "_dp_module_init")
+        {
+            self.line("module_init: _dp_module_init");
         }
 
         for function in &module.callable_defs {
@@ -56,8 +59,8 @@ impl BlockPyFormatter {
     where
         E: Clone + Into<Expr>,
     {
-        let params = format_parameters(&function.params);
-        let parameter_names = collect_parameter_names(&function.params);
+        let params = format_parameters(&function.params, &function.param_defaults);
+        let parameter_names = function.params.names();
         let referenced_labels = collect_referenced_labels_from_blocks(&function.blocks);
         let render_layout = BlockRenderLayout::new(function);
         self.line(format!(
@@ -403,79 +406,55 @@ where
         .join(" ")
 }
 
-fn render_annotation(annotation: Option<&Expr>) -> String {
-    annotation
-        .map(|expr| {
-            format!(
-                ": {}",
-                ruff_ast_to_string(expr)
-                    .lines()
-                    .map(str::trim)
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            )
-        })
-        .unwrap_or_default()
-}
-
-fn render_default(default: Option<&Expr>) -> String {
-    default
-        .map(|expr| {
-            format!(
-                " = {}",
-                ruff_ast_to_string(expr)
-                    .lines()
-                    .map(str::trim)
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            )
-        })
-        .unwrap_or_default()
-}
-
-fn format_named_parameter(parameter: &ast::Parameter) -> String {
-    format!(
-        "{}{}",
-        parameter.name.id,
-        render_annotation(parameter.annotation.as_deref())
-    )
-}
-
-fn format_parameter_with_default(parameter: &ast::ParameterWithDefault) -> String {
-    format!(
-        "{}{}",
-        format_named_parameter(&parameter.parameter),
-        render_default(parameter.default.as_deref())
-    )
-}
-
-fn format_parameters(parameters: &ast::Parameters) -> String {
+fn format_parameters<E>(parameters: &ParamSpec, defaults: &[E]) -> String
+where
+    E: Clone + Into<Expr>,
+{
+    parameters.validate_default_count(defaults.len());
     let mut parts = Vec::new();
+    let mut defaults_iter = defaults.iter();
+    let mut saw_kw_separator = false;
 
-    for param in &parameters.posonlyargs {
-        parts.push(format_parameter_with_default(param));
-    }
-    if !parameters.posonlyargs.is_empty() {
-        parts.push("/".to_string());
-    }
+    for (index, param) in parameters.params.iter().enumerate() {
+        if index > 0
+            && parameters.params[index - 1].kind == ParamKind::PosOnly
+            && param.kind != ParamKind::PosOnly
+        {
+            parts.push("/".to_string());
+        }
+        if !saw_kw_separator
+            && param.kind == ParamKind::KwOnly
+            && !parameters.params[..index]
+                .iter()
+                .any(|existing| existing.kind == ParamKind::VarArg)
+        {
+            parts.push("*".to_string());
+            saw_kw_separator = true;
+        }
 
-    for param in &parameters.args {
-        parts.push(format_parameter_with_default(param));
+        let default = if param.has_default {
+            Some(
+                defaults_iter
+                    .next()
+                    .expect("ParamSpec default count should match defaults payload"),
+            )
+        } else {
+            None
+        };
+        let rendered_name = match param.kind {
+            ParamKind::VarArg => format!("*{}", param.name),
+            ParamKind::KwArg => format!("**{}", param.name),
+            _ => param.name.clone(),
+        };
+        parts.push(match default {
+            Some(default) => format!("{}={}", rendered_name, render_inline_expr(default)),
+            None => rendered_name,
+        });
     }
-
-    if let Some(vararg) = &parameters.vararg {
-        parts.push(format!("*{}", format_named_parameter(vararg)));
-    } else if !parameters.kwonlyargs.is_empty() {
-        parts.push("*".to_string());
-    }
-
-    for param in &parameters.kwonlyargs {
-        parts.push(format_parameter_with_default(param));
-    }
-
-    if let Some(kwarg) = &parameters.kwarg {
-        parts.push(format!("**{}", format_named_parameter(kwarg)));
-    }
+    assert!(
+        defaults_iter.next().is_none(),
+        "ParamSpec default count should match defaults payload",
+    );
 
     parts.join(", ")
 }
@@ -927,7 +906,7 @@ mod tests {
     use super::*;
     use crate::basic_block::block_py::BlockPyBlockMeta;
     use crate::basic_block::lowered_ir::{ClosureInit, ClosureLayout, ClosureSlot};
-    use ruff_python_parser::{parse_expression, parse_module};
+    use ruff_python_parser::parse_expression;
 
     fn wrapped_blockpy(source: &str) -> BlockPyModule {
         crate::transform_str_to_blockpy_with_options(source, crate::Options::for_test())
@@ -938,20 +917,8 @@ mod tests {
         (*parse_expression(source).unwrap().into_syntax().body).into()
     }
 
-    fn empty_parameters() -> ast::Parameters {
-        let body = parse_module(
-            r#"
-def f():
-    pass
-"#,
-        )
-        .unwrap()
-        .into_syntax()
-        .body;
-        let ast::Stmt::FunctionDef(function_def) = &**body.body.iter().next().unwrap() else {
-            unreachable!("expected parsed helper function")
-        };
-        *function_def.parameters.clone()
+    fn empty_param_spec() -> crate::basic_block::param_specs::ParamSpec {
+        crate::basic_block::param_specs::ParamSpec::default()
     }
 
     fn function_by_bind_name<'a, E>(
@@ -980,7 +947,10 @@ def classify(a, /, b: int = 1, *args, c=2, **kwargs):
         let rendered = blockpy_module_to_string(&blockpy);
 
         assert!(rendered.contains("module_init: _dp_module_init"));
-        assert!(rendered.contains("function classify(a, /, b: int = 1, *args, c = 2, **kwargs):"));
+        assert!(
+            rendered.contains("function classify(a, /, b=1, *args, c=2, **kwargs):"),
+            "{rendered}"
+        );
         assert!(rendered.contains("function _dp_module_init():"));
         assert!(rendered.contains("block start:"));
         assert!(rendered.contains("if_term a:"));
@@ -990,7 +960,6 @@ def classify(a, /, b: int = 1, *args, c=2, **kwargs):
     #[test]
     fn renders_empty_module_marker() {
         let rendered = blockpy_module_to_string(&BlockPyModule::<Expr> {
-            module_init: None,
             callable_defs: Vec::new(),
         });
         assert_eq!(rendered, "; empty BlockPy module\n");
@@ -1010,7 +979,10 @@ def classify(n):
         .unwrap();
         let rendered = blockpy_module_to_string(&blockpy);
 
-        assert_eq!(blockpy.module_init.as_deref(), Some("_dp_module_init"));
+        assert!(blockpy
+            .callable_defs
+            .iter()
+            .any(|function| function.bind_name == "_dp_module_init"));
         assert!(rendered.contains("function _dp_module_init():"));
     }
 
@@ -1043,7 +1015,6 @@ async def no_lying():
         );
         let function = function_by_bind_name(&blockpy, "no_lying");
         let rendered = blockpy_module_to_string(&BlockPyModule {
-            module_init: None,
             callable_defs: vec![function.clone()],
         });
         let layout = BlockRenderLayout::new(function);
@@ -1066,7 +1037,6 @@ async def no_lying():
     #[test]
     fn renders_public_closure_metadata_in_function_header() {
         let rendered = blockpy_module_to_string(&BlockPyModule::<Expr> {
-            module_init: None,
             callable_defs: vec![BlockPyCallableDef {
                 cfg: crate::basic_block::cfg_ir::CfgCallableDef {
                     function_id: crate::basic_block::lowered_ir::FunctionId(0),
@@ -1074,7 +1044,8 @@ async def no_lying():
                     display_name: "gen".to_string(),
                     qualname: "gen".to_string(),
                     kind: BlockPyFunctionKind::Function,
-                    params: empty_parameters(),
+                    params: empty_param_spec(),
+                    param_defaults: Vec::new(),
                     entry_liveins: vec!["_dp_self".to_string(), "_dp_resume_exc".to_string()],
                     blocks: vec![BlockPyBlock {
                         label: "gen_start".into(),
@@ -1122,7 +1093,8 @@ async def no_lying():
                 display_name: "f".to_string(),
                 qualname: "f".to_string(),
                 kind: BlockPyFunctionKind::Function,
-                params: empty_parameters(),
+                params: empty_param_spec(),
+                param_defaults: Vec::new(),
                 entry_liveins: Vec::new(),
                 blocks: vec![
                     BlockPyBlock {
@@ -1162,7 +1134,6 @@ async def no_lying():
             local_cell_slots: Vec::new(),
         };
         let rendered = blockpy_module_to_string(&BlockPyModule {
-            module_init: None,
             callable_defs: vec![function],
         });
 
@@ -1202,7 +1173,8 @@ def choose(a, b):
                 display_name: "f".to_string(),
                 qualname: "f".to_string(),
                 kind: BlockPyFunctionKind::Function,
-                params: empty_parameters(),
+                params: empty_param_spec(),
+                param_defaults: Vec::new(),
                 entry_liveins: Vec::new(),
                 blocks: vec![
                     BlockPyBlock {
@@ -1247,7 +1219,6 @@ def choose(a, b):
             local_cell_slots: Vec::new(),
         };
         let rendered = blockpy_module_to_string(&BlockPyModule {
-            module_init: None,
             callable_defs: vec![function],
         });
 

@@ -12,13 +12,12 @@ use super::block_py::exception::{
     rewrite_region_returns_to_finally_blockpy,
 };
 use super::block_py::state::{
-    collect_parameter_names, collect_state_vars,
-    sync_target_cells_stmts as sync_target_cells_stmts_shared,
+    collect_state_vars, sync_target_cells_stmts as sync_target_cells_stmts_shared,
 };
 use super::block_py::{
-    assert_blockpy_block_normalized, BlockPyBlockMeta, BlockPyCallableFacts, BlockPyCallableHeader,
-    BlockPyFunctionKind, BlockPyLabel, BlockPyTryJump, SemanticBlockPyBlock,
-    SemanticBlockPyCallableDef, SemanticBlockPyTerm, ENTRY_BLOCK_LABEL,
+    assert_blockpy_block_normalized, BlockPyBlock, BlockPyBlockMeta, BlockPyCallableDef,
+    BlockPyCallableFacts, BlockPyCallableHeader, BlockPyFunctionKind, BlockPyLabel, BlockPyTerm,
+    BlockPyTryJump, ENTRY_BLOCK_LABEL,
 };
 use super::cfg_ir::CfgCallableDef;
 use super::lowered_ir::{
@@ -110,7 +109,7 @@ fn expr_contains_yield_family(expr: &Expr) -> bool {
     detector.contains_yield_family
 }
 
-fn blockpy_stmt_contains_yield_family(stmt: &super::block_py::SemanticBlockPyStmt) -> bool {
+fn blockpy_stmt_contains_yield_family(stmt: &super::block_py::BlockPyStmt<Expr>) -> bool {
     match stmt {
         super::block_py::BlockPyStmt::Assign(assign) => expr_contains_yield_family(&assign.value),
         super::block_py::BlockPyStmt::Expr(expr) => expr_contains_yield_family(expr),
@@ -123,23 +122,23 @@ fn blockpy_stmt_contains_yield_family(stmt: &super::block_py::SemanticBlockPyStm
     }
 }
 
-fn blockpy_term_contains_yield_family(term: &SemanticBlockPyTerm) -> bool {
+fn blockpy_term_contains_yield_family(term: &BlockPyTerm<Expr>) -> bool {
     match term {
-        SemanticBlockPyTerm::Jump(_) | SemanticBlockPyTerm::TryJump(_) => false,
-        SemanticBlockPyTerm::IfTerm(if_term) => expr_contains_yield_family(&if_term.test),
-        SemanticBlockPyTerm::BranchTable(branch) => expr_contains_yield_family(&branch.index),
-        SemanticBlockPyTerm::Raise(raise) => raise
+        BlockPyTerm::Jump(_) | BlockPyTerm::TryJump(_) => false,
+        BlockPyTerm::IfTerm(if_term) => expr_contains_yield_family(&if_term.test),
+        BlockPyTerm::BranchTable(branch) => expr_contains_yield_family(&branch.index),
+        BlockPyTerm::Raise(raise) => raise
             .exc
             .as_ref()
             .is_some_and(|exc| expr_contains_yield_family(exc)),
-        SemanticBlockPyTerm::Return(value) => value
+        BlockPyTerm::Return(value) => value
             .as_ref()
             .is_some_and(|value| expr_contains_yield_family(value)),
     }
 }
 
 fn blockpy_stmt_fragment_contains_yield_family(
-    fragment: &super::block_py::SemanticBlockPyStmtFragment,
+    fragment: &super::block_py::BlockPyStmtFragment<Expr>,
 ) -> bool {
     fragment.body.iter().any(blockpy_stmt_contains_yield_family)
         || fragment
@@ -148,7 +147,7 @@ fn blockpy_stmt_fragment_contains_yield_family(
             .is_some_and(blockpy_term_contains_yield_family)
 }
 
-fn blockpy_blocks_contain_yield_family(blocks: &[SemanticBlockPyBlock]) -> bool {
+fn blockpy_blocks_contain_yield_family(blocks: &[BlockPyBlock<Expr>]) -> bool {
     blocks.iter().any(|block| {
         block.body.iter().any(blockpy_stmt_contains_yield_family)
             || blockpy_term_contains_yield_family(&block.term)
@@ -167,7 +166,7 @@ pub struct LoweredBlockPyMetadata {
     pub bridge: LoweredBlockPyBridgeMetadata,
 }
 
-pub type LoweredBlockPyFunction<C = SemanticBlockPyCallableDef> =
+pub type LoweredBlockPyFunction<C = BlockPyCallableDef<Expr>> =
     LoweredFunction<C, LoweredBlockPyMetadata>;
 
 impl<C> LoweredFunction<C, LoweredBlockPyMetadata> {
@@ -212,7 +211,7 @@ pub(crate) struct LoweredBlockPyFunctionBundlePlan {
 
 #[derive(Clone)]
 pub(crate) struct PreparedBlockPyFunction {
-    pub callable_def: SemanticBlockPyCallableDef,
+    pub callable_def: BlockPyCallableDef<Expr>,
     pub generator_metadata: Option<GeneratorMetadata>,
     pub try_regions: Vec<TryRegionPlan>,
 }
@@ -233,7 +232,7 @@ impl PreparedBlockPyFunctionPlan {
         }
     }
 
-    pub(crate) fn callable_header(&self) -> BlockPyCallableHeader<ast::Parameters> {
+    pub(crate) fn callable_header(&self) -> BlockPyCallableHeader<Expr> {
         match self {
             PreparedBlockPyFunctionPlan::Ready(prepared) => prepared.callable_def.header(),
             PreparedBlockPyFunctionPlan::PendingGeneratorLowering(pending) => {
@@ -248,18 +247,18 @@ impl LoweredBlockPyFunctionBundlePlan {
         self.prepared_function_plan.callable_facts()
     }
 
-    pub(crate) fn callable_header(&self) -> BlockPyCallableHeader<ast::Parameters> {
+    pub(crate) fn callable_header(&self) -> BlockPyCallableHeader<Expr> {
         self.prepared_function_plan.callable_header()
     }
 
     pub(crate) fn param_names(&self) -> Vec<String> {
-        collect_parameter_names(&self.callable_header().params)
+        self.callable_header().params.names()
     }
 }
 
 #[derive(Clone)]
 pub(crate) struct PendingGeneratorLoweringPlan {
-    pub header: BlockPyCallableHeader<ast::Parameters>,
+    pub header: BlockPyCallableHeader<Expr>,
     pub doc: Option<Expr>,
     pub semantic_input: SemanticGeneratorInput,
     pub end_label: String,
@@ -352,7 +351,7 @@ pub(crate) fn bb_kind_for_blockpy_kind(
 }
 
 pub(crate) fn build_blockpy_function(
-    header: BlockPyCallableHeader<ast::Parameters>,
+    header: BlockPyCallableHeader<Expr>,
     doc: Option<Expr>,
     kind: BlockPyFunctionKind,
     entry_label: String,
@@ -360,13 +359,13 @@ pub(crate) fn build_blockpy_function(
     closure_layout: Option<ClosureLayout>,
     facts: BlockPyCallableFacts,
     local_cell_slots: Vec<String>,
-    mut blocks: Vec<SemanticBlockPyBlock>,
-) -> SemanticBlockPyCallableDef {
+    mut blocks: Vec<BlockPyBlock<Expr>>,
+) -> BlockPyCallableDef<Expr> {
     move_blockpy_entry_block_to_front(&mut blocks, entry_label.as_str());
     for block in &blocks {
         assert_blockpy_block_normalized(block);
     }
-    SemanticBlockPyCallableDef {
+    BlockPyCallableDef {
         cfg: CfgCallableDef {
             function_id: header.function_id,
             bind_name: header.bind_name,
@@ -374,6 +373,7 @@ pub(crate) fn build_blockpy_function(
             qualname: header.qualname,
             kind,
             params: header.params,
+            param_defaults: header.param_defaults,
             entry_liveins,
             blocks,
         },
@@ -385,7 +385,7 @@ pub(crate) fn build_blockpy_function(
     }
 }
 
-fn move_blockpy_entry_block_to_front(blocks: &mut Vec<SemanticBlockPyBlock>, entry_label: &str) {
+fn move_blockpy_entry_block_to_front(blocks: &mut Vec<BlockPyBlock<Expr>>, entry_label: &str) {
     if let Some(entry_index) = blocks
         .iter()
         .position(|block| block.label.as_str() == entry_label)
@@ -405,7 +405,7 @@ pub(crate) fn take_next_function_id(next_function_id: &mut usize) -> FunctionId 
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_lowered_blockpy_function(
-    callable_def: SemanticBlockPyCallableDef,
+    callable_def: BlockPyCallableDef<Expr>,
     lowered_kind: LoweredFunctionKind,
     block_params: HashMap<String, Vec<String>>,
     exception_edges: HashMap<String, Option<String>>,
@@ -430,7 +430,7 @@ pub(crate) fn build_lowered_blockpy_function(
 }
 
 fn fresh_normalized_entry_collision_label(
-    blocks: &[SemanticBlockPyBlock],
+    blocks: &[BlockPyBlock<Expr>],
     rename: &HashMap<String, String>,
 ) -> String {
     let existing = blocks
@@ -522,12 +522,12 @@ fn rename_lowered_function_kind(kind: &mut LoweredFunctionKind, rename: &HashMap
 
 pub(crate) fn normalize_exported_entry_block(
     entry_label: String,
-    mut blocks: Vec<SemanticBlockPyBlock>,
+    mut blocks: Vec<BlockPyBlock<Expr>>,
     block_params: HashMap<String, Vec<String>>,
     exception_edges: HashMap<String, Option<String>>,
     mut bb_kind: LoweredFunctionKind,
 ) -> (
-    Vec<SemanticBlockPyBlock>,
+    Vec<BlockPyBlock<Expr>>,
     HashMap<String, Vec<String>>,
     HashMap<String, Option<String>>,
     LoweredFunctionKind,
@@ -607,7 +607,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
     next_function_id: &mut usize,
     lower_non_bb_def: &mut impl FnMut(&ast::StmtFunctionDef) -> Vec<Stmt>,
     next_temp: &mut impl FnMut(&str, &mut usize) -> String,
-    prepare_callable_def: &mut impl FnMut(&mut SemanticBlockPyCallableDef),
+    prepare_callable_def: &mut impl FnMut(&mut BlockPyCallableDef<Expr>),
 ) -> LoweredBlockPyFunctionBundle {
     let callable_facts = plan.callable_facts().clone();
     let callable_header = plan.callable_header();
@@ -791,6 +791,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
     let qualname = blockpy_function.qualname.clone();
     let doc = blockpy_function.doc.clone();
     let params = blockpy_function.params.clone();
+    let param_defaults = blockpy_function.param_defaults.clone();
     let display_name = callable_header.display_name;
     let runtime_entry_label = entry_label;
     let mut exported_entry_label = runtime_entry_label.clone();
@@ -806,6 +807,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
             display_name.as_str(),
             qualname.as_str(),
             &params,
+            &param_defaults,
             &param_names,
             label_prefix.as_str(),
             runtime_entry_label.as_str(),
@@ -857,6 +859,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
             display_name,
             qualname,
             params,
+            param_defaults,
         },
         doc,
         main_blockpy_kind,
@@ -884,10 +887,10 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
 }
 
 pub(crate) fn build_finalized_blockpy_function(
-    header: BlockPyCallableHeader<ast::Parameters>,
+    header: BlockPyCallableHeader<Expr>,
     doc: Option<Expr>,
     kind: BlockPyFunctionKind,
-    blocks: Vec<SemanticBlockPyBlock>,
+    blocks: Vec<BlockPyBlock<Expr>>,
     try_regions: Vec<TryRegionPlan>,
     entry_label: String,
     end_label: String,
@@ -975,7 +978,7 @@ where
 #[allow(clippy::too_many_arguments)]
 fn build_prepared_blockpy_function_from_runtime_input<FDef, FTemp>(
     context: &Context,
-    header: BlockPyCallableHeader<ast::Parameters>,
+    header: BlockPyCallableHeader<Expr>,
     runtime_input_body: &[Box<Stmt>],
     doc: Option<Expr>,
     end_label: String,
@@ -1045,7 +1048,7 @@ where
 pub(crate) fn lower_function_body_to_blockpy_function<FDef, FTemp>(
     context: &Context,
     runtime_input_body: &[Box<Stmt>],
-    header: BlockPyCallableHeader<ast::Parameters>,
+    header: BlockPyCallableHeader<Expr>,
     doc: Option<Expr>,
     //    legacy_async_runtime_input_body: Option<&[Box<Stmt>]>,
     end_label: String,
@@ -1273,7 +1276,7 @@ fn build_try_extra_successors(try_regions: &[TryRegionPlan]) -> HashMap<String, 
 }
 
 pub(crate) fn compute_blockpy_exception_edges(
-    blocks: &[SemanticBlockPyBlock],
+    blocks: &[BlockPyBlock<Expr>],
     try_regions: &[TryRegionPlan],
     generator_info: Option<&GeneratorMetadata>,
 ) -> HashMap<String, Option<String>> {
@@ -1398,7 +1401,7 @@ fn relabel_generator_info(
 }
 
 pub(crate) fn finalize_blockpy_function(
-    mut callable_def: SemanticBlockPyCallableDef,
+    mut callable_def: BlockPyCallableDef<Expr>,
     mut try_regions: Vec<TryRegionPlan>,
     mut entry_label: String,
     end_label: String,
@@ -1414,10 +1417,10 @@ pub(crate) fn finalize_blockpy_function(
             .iter()
             .any(|block| block_references_label(block, end_label.as_str()));
     if needs_end_block {
-        callable_def.blocks.push(SemanticBlockPyBlock {
+        callable_def.blocks.push(BlockPyBlock {
             label: BlockPyLabel::from(end_label),
             body: Vec::new(),
-            term: SemanticBlockPyTerm::Return(None),
+            term: BlockPyTerm::Return(None),
             meta: BlockPyBlockMeta::default(),
         });
     }
@@ -1470,9 +1473,7 @@ mod tests {
     use super::*;
     use crate::basic_block::ast_to_ast::{context::Context, Options};
     use crate::basic_block::block_py::{
-        BlockPyModule, SemanticBlockPyCallableDef as BlockPyCallableDef,
-        SemanticBlockPyRaise as BlockPyRaise, SemanticBlockPyStmt as BlockPyStmt,
-        SemanticBlockPyTerm as BlockPyTerm,
+        BlockPyCallableDef, BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyTerm,
     };
     use crate::basic_block::blockpy_generators::{
         build_closure_backed_generator_factory_block, lower_generator_block_plan,

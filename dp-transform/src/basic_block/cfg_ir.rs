@@ -1,31 +1,36 @@
+use super::block_py::BlockPyLabel;
+use super::lowered_ir::FunctionId;
+use super::param_specs::ParamSpec;
+
 #[derive(Debug, Clone)]
-pub struct CfgBlock<L, S, T, M = ()> {
-    pub label: L,
+pub struct CfgBlock<S, T, M = ()> {
+    pub label: BlockPyLabel,
     pub body: Vec<S>,
     pub term: T,
     pub meta: M,
 }
 
-impl<L: AsRef<str>, S, T, M> CfgBlock<L, S, T, M> {
+impl<S, T, M> CfgBlock<S, T, M> {
     pub fn label_str(&self) -> &str {
-        self.label.as_ref()
+        self.label.as_str()
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct CfgCallableDef<I, K, P, B> {
-    pub function_id: I,
+pub struct CfgCallableDef<K, D, B> {
+    pub function_id: FunctionId,
     pub bind_name: String,
     pub display_name: String,
     pub qualname: String,
     pub kind: K,
-    pub params: P,
+    pub params: ParamSpec,
+    pub param_defaults: Vec<D>,
     pub entry_liveins: Vec<String>,
     pub blocks: Vec<B>,
 }
 
-impl<I, K, P, L: AsRef<str>, S, T, M> CfgCallableDef<I, K, P, CfgBlock<L, S, T, M>> {
-    pub fn entry_block(&self) -> &CfgBlock<L, S, T, M> {
+impl<K, D, S, T, M> CfgCallableDef<K, D, CfgBlock<S, T, M>> {
+    pub fn entry_block(&self) -> &CfgBlock<S, T, M> {
         self.blocks
             .first()
             .expect("CfgCallableDef should have at least one block")
@@ -38,14 +43,12 @@ impl<I, K, P, L: AsRef<str>, S, T, M> CfgCallableDef<I, K, P, CfgBlock<L, S, T, 
 
 #[derive(Debug, Clone, Default)]
 pub struct CfgModule<F> {
-    pub module_init: Option<String>,
     pub callable_defs: Vec<F>,
 }
 
 impl<F> CfgModule<F> {
     pub fn map_callable_defs<G>(&self, mut f: impl FnMut(&F) -> G) -> CfgModule<G> {
         CfgModule {
-            module_init: self.module_init.clone(),
             callable_defs: self.callable_defs.iter().map(&mut f).collect(),
         }
     }

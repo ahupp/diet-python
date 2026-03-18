@@ -198,7 +198,7 @@ fn summarize_semantic_blockpy_bundle(
 ) -> crate::PassShapeSummary {
     let blockpy = project_lowered_module_callable_defs(
         bundle,
-        |lowered| -> &crate::basic_block::block_py::SemanticBlockPyCallableDef { lowered },
+        |lowered| -> &crate::basic_block::block_py::BlockPyCallableDef<Expr> { lowered },
     );
     summarize_blockpy_module(&blockpy)
 }
@@ -208,7 +208,7 @@ fn summarize_core_blockpy_bundle(
 ) -> crate::PassShapeSummary {
     let blockpy = project_lowered_module_callable_defs(
         bundle,
-        |lowered| -> &crate::basic_block::block_py::CoreBlockPyCallableDef { lowered },
+        |lowered| -> &crate::basic_block::block_py::BlockPyCallableDef<CoreBlockPyExpr> { lowered },
     );
     summarize_blockpy_module(&blockpy)
 }
@@ -224,7 +224,7 @@ fn summarize_core_blockpy_bundle_without_await(
 ) -> crate::PassShapeSummary {
     let blockpy = project_lowered_module_callable_defs(
         bundle,
-        |lowered| -> &crate::basic_block::block_py::CoreBlockPyCallableDefWithoutAwait { lowered },
+        |lowered| -> &crate::basic_block::block_py::BlockPyCallableDef<CoreBlockPyExprWithoutAwait> { lowered },
     );
     summarize_blockpy_module(&blockpy)
 }
@@ -246,9 +246,9 @@ fn summarize_core_blockpy_bundle_without_await_or_yield(
 ) -> crate::PassShapeSummary {
     let blockpy = project_lowered_module_callable_defs(
         bundle,
-        |lowered| -> &crate::basic_block::block_py::CoreBlockPyCallableDefWithoutAwaitOrYield {
-            lowered
-        },
+        |lowered| -> &crate::basic_block::block_py::BlockPyCallableDef<
+            CoreBlockPyExprWithoutAwaitOrYield,
+        > { lowered },
     );
     summarize_blockpy_module(&blockpy)
 }
@@ -298,7 +298,7 @@ fn render_semantic_blockpy_plan(plan: &LoweredBlockPyModuleBundlePlan) -> String
 fn render_semantic_blockpy_bundle(bundle: &CfgModule<LoweredBlockPyFunction>) -> String {
     let blockpy = project_lowered_module_callable_defs(
         bundle,
-        |lowered| -> &crate::basic_block::block_py::SemanticBlockPyCallableDef { lowered },
+        |lowered| -> &crate::basic_block::block_py::BlockPyCallableDef<Expr> { lowered },
     );
     blockpy_module_to_string(&blockpy)
 }
@@ -306,7 +306,7 @@ fn render_semantic_blockpy_bundle(bundle: &CfgModule<LoweredBlockPyFunction>) ->
 fn render_core_blockpy_bundle(bundle: &CfgModule<LoweredCoreBlockPyFunction>) -> String {
     let blockpy = project_lowered_module_callable_defs(
         bundle,
-        |lowered| -> &crate::basic_block::block_py::CoreBlockPyCallableDef { lowered },
+        |lowered| -> &crate::basic_block::block_py::BlockPyCallableDef<CoreBlockPyExpr> { lowered },
     );
     blockpy_module_to_string(&blockpy)
 }
@@ -320,7 +320,7 @@ fn render_core_blockpy_bundle_without_await(
 ) -> String {
     let blockpy = project_lowered_module_callable_defs(
         bundle,
-        |lowered| -> &crate::basic_block::block_py::CoreBlockPyCallableDefWithoutAwait { lowered },
+        |lowered| -> &crate::basic_block::block_py::BlockPyCallableDef<CoreBlockPyExprWithoutAwait> { lowered },
     );
     blockpy_module_to_string(&blockpy)
 }
@@ -342,17 +342,21 @@ fn render_core_blockpy_bundle_without_await_or_yield(
 ) -> String {
     let blockpy = project_lowered_module_callable_defs(
         bundle,
-        |lowered| -> &crate::basic_block::block_py::CoreBlockPyCallableDefWithoutAwaitOrYield {
-            lowered
-        },
+        |lowered| -> &crate::basic_block::block_py::BlockPyCallableDef<
+            CoreBlockPyExprWithoutAwaitOrYield,
+        > { lowered },
     );
     blockpy_module_to_string(&blockpy)
 }
 
 fn render_bb_module(bundle: &bb_ir::BbModule) -> String {
     let mut out = String::new();
-    if let Some(module_init) = &bundle.module_init {
-        out.push_str(&format!("module_init: {module_init}\n\n"));
+    if bundle
+        .callable_defs
+        .iter()
+        .any(|function| function.bind_name == "_dp_module_init")
+    {
+        out.push_str("module_init: _dp_module_init\n\n");
     }
     for function in &bundle.callable_defs {
         out.push_str(&format!(
@@ -363,8 +367,9 @@ fn render_bb_module(bundle: &bb_ir::BbModule) -> String {
             function.binding_target(),
         ));
         out.push_str(&format!("kind: {:?}\n", function.kind));
-        if !function.params.is_empty() {
-            out.push_str(&format!("params: {}\n", function.params.join(", ")));
+        let param_names = function.params.names();
+        if !param_names.is_empty() {
+            out.push_str(&format!("params: {}\n", param_names.join(", ")));
         }
         for block in &function.blocks {
             let params = if block.meta.params.is_empty() {
@@ -407,7 +412,11 @@ fn render_bb_term(term: &bb_ir::BbTerm) -> String {
         } => format!(
             "br_table index={} targets=[{}] default={}",
             bb_ir::bb_expr_text(index),
-            targets.join(", "),
+            targets
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", "),
             default_label
         ),
         bb_ir::BbTerm::Raise { exc, cause } => {
@@ -1918,11 +1927,7 @@ except Exception:
         let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
             .expect("bb module should be available");
-        let module_init = bb_module
-            .module_init
-            .as_ref()
-            .expect("module init should be present");
-        let init_fn = function_by_name(&bb_module, module_init);
+        let init_fn = function_by_name(&bb_module, "_dp_module_init");
         assert!(
             init_fn
                 .blocks
@@ -1948,11 +1953,7 @@ def outer_read():
         let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
             .expect("bb module should be available");
-        let module_init = bb_module
-            .module_init
-            .as_ref()
-            .expect("module init should be present");
-        let init_fn = function_by_name(&bb_module, module_init);
+        let init_fn = function_by_name(&bb_module, "_dp_module_init");
         assert!(
             init_fn
                 .blocks

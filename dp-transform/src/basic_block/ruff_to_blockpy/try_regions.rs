@@ -1,8 +1,7 @@
 use super::compat::set_region_exc_param;
 use super::*;
 use crate::basic_block::block_py::{
-    BlockPyLabel, SemanticBlockPyBlock as BlockPyBlock, SemanticBlockPyIfTerm as BlockPyIfTerm,
-    SemanticBlockPyStmt as BlockPyStmt, SemanticBlockPyTerm as BlockPyTerm,
+    BlockPyBlock, BlockPyIfTerm, BlockPyLabel, BlockPyStmt, BlockPyTerm,
 };
 
 #[derive(Debug, Clone)]

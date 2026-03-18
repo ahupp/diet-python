@@ -1,11 +1,8 @@
 use super::block_py::{
     BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyCallableDef, BlockPyIf, BlockPyIfTerm,
     BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment, BlockPyTerm, CoreBlockPyAwait,
-    CoreBlockPyBlock, CoreBlockPyBlockWithoutAwait, CoreBlockPyCall, CoreBlockPyCallArg,
-    CoreBlockPyCallableDef, CoreBlockPyCallableDefWithoutAwait, CoreBlockPyExpr,
-    CoreBlockPyExprWithoutAwait, CoreBlockPyKeywordArg, CoreBlockPyStmt, CoreBlockPyStmtFragment,
-    CoreBlockPyStmtFragmentWithoutAwait, CoreBlockPyStmtWithoutAwait, CoreBlockPyTerm,
-    CoreBlockPyTermWithoutAwait, CoreBlockPyYield, CoreBlockPyYieldFrom,
+    CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait,
+    CoreBlockPyKeywordArg, CoreBlockPyYield, CoreBlockPyYieldFrom,
 };
 use super::cfg_ir::CfgCallableDef;
 use crate::py_expr;
@@ -92,7 +89,9 @@ fn lower_core_expr_awaits(expr: CoreBlockPyExpr) -> CoreBlockPyExprWithoutAwait 
     }
 }
 
-fn lower_core_stmt_awaits(stmt: CoreBlockPyStmt) -> CoreBlockPyStmtWithoutAwait {
+fn lower_core_stmt_awaits(
+    stmt: BlockPyStmt<CoreBlockPyExpr>,
+) -> BlockPyStmt<CoreBlockPyExprWithoutAwait> {
     match stmt {
         BlockPyStmt::Assign(assign) => BlockPyStmt::Assign(BlockPyAssign {
             target: assign.target,
@@ -108,7 +107,9 @@ fn lower_core_stmt_awaits(stmt: CoreBlockPyStmt) -> CoreBlockPyStmtWithoutAwait 
     }
 }
 
-fn lower_core_term_awaits(term: CoreBlockPyTerm) -> CoreBlockPyTermWithoutAwait {
+fn lower_core_term_awaits(
+    term: BlockPyTerm<CoreBlockPyExpr>,
+) -> BlockPyTerm<CoreBlockPyExprWithoutAwait> {
     match term {
         BlockPyTerm::Jump(jump) => BlockPyTerm::Jump(jump),
         BlockPyTerm::TryJump(jump) => BlockPyTerm::TryJump(jump),
@@ -130,8 +131,8 @@ fn lower_core_term_awaits(term: CoreBlockPyTerm) -> CoreBlockPyTermWithoutAwait 
 }
 
 fn lower_core_fragment_awaits(
-    fragment: CoreBlockPyStmtFragment,
-) -> CoreBlockPyStmtFragmentWithoutAwait {
+    fragment: BlockPyStmtFragment<CoreBlockPyExpr>,
+) -> BlockPyStmtFragment<CoreBlockPyExprWithoutAwait> {
     BlockPyStmtFragment {
         body: fragment
             .body
@@ -142,7 +143,9 @@ fn lower_core_fragment_awaits(
     }
 }
 
-fn lower_core_block_awaits(block: CoreBlockPyBlock) -> CoreBlockPyBlockWithoutAwait {
+fn lower_core_block_awaits(
+    block: BlockPyBlock<CoreBlockPyExpr>,
+) -> BlockPyBlock<CoreBlockPyExprWithoutAwait> {
     BlockPyBlock {
         label: block.label,
         body: block.body.into_iter().map(lower_core_stmt_awaits).collect(),
@@ -152,8 +155,8 @@ fn lower_core_block_awaits(block: CoreBlockPyBlock) -> CoreBlockPyBlockWithoutAw
 }
 
 pub(crate) fn lower_awaits_in_core_blockpy_callable_def(
-    callable_def: CoreBlockPyCallableDef,
-) -> CoreBlockPyCallableDefWithoutAwait {
+    callable_def: BlockPyCallableDef<CoreBlockPyExpr>,
+) -> BlockPyCallableDef<CoreBlockPyExprWithoutAwait> {
     BlockPyCallableDef {
         cfg: CfgCallableDef {
             function_id: callable_def.function_id,
@@ -162,6 +165,12 @@ pub(crate) fn lower_awaits_in_core_blockpy_callable_def(
             qualname: callable_def.qualname.clone(),
             kind: callable_def.kind,
             params: callable_def.params.clone(),
+            param_defaults: callable_def
+                .param_defaults
+                .clone()
+                .into_iter()
+                .map(lower_core_expr_awaits)
+                .collect(),
             entry_liveins: callable_def.entry_liveins.clone(),
             blocks: callable_def
                 .blocks
@@ -183,7 +192,6 @@ pub(crate) fn lower_awaits_in_core_blockpy_module(
     module: BlockPyModule<CoreBlockPyExpr>,
 ) -> BlockPyModule<CoreBlockPyExprWithoutAwait> {
     BlockPyModule {
-        module_init: module.module_init,
         callable_defs: module
             .callable_defs
             .into_iter()
@@ -195,13 +203,12 @@ pub(crate) fn lower_awaits_in_core_blockpy_module(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::basic_block::block_py::{BlockPyLabel, CoreBlockPyExpr, CoreBlockPyTerm};
+    use crate::basic_block::block_py::{BlockPyLabel, BlockPyTerm, CoreBlockPyExpr};
 
     #[test]
     fn lowers_await_to_yield_from_await_iter() {
         let module = BlockPyModule {
-            module_init: None,
-            callable_defs: vec![CoreBlockPyCallableDef {
+            callable_defs: vec![BlockPyCallableDef {
                 cfg: CfgCallableDef {
                     function_id: super::super::lowered_ir::FunctionId(0),
                     bind_name: "f".to_string(),
@@ -209,13 +216,14 @@ mod tests {
                     qualname: "f".to_string(),
                     kind: super::super::block_py::BlockPyFunctionKind::Coroutine,
                     params: Default::default(),
+                    param_defaults: Vec::new(),
                     entry_liveins: Vec::new(),
                     blocks: vec![BlockPyBlock {
                         label: BlockPyLabel("start".to_string()),
                         body: Vec::new(),
-                        term: CoreBlockPyTerm::Return(Some(CoreBlockPyExpr::from(
-                            crate::py_expr!("await foo()"),
-                        ))),
+                        term: BlockPyTerm::Return(Some(CoreBlockPyExpr::from(crate::py_expr!(
+                            "await foo()"
+                        )))),
                         meta: Default::default(),
                     }],
                 },

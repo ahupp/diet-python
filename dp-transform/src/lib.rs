@@ -308,7 +308,7 @@ pub fn transform_str_to_blockpy_with_options(
         pass_tracker
             .blockpy()
             .expect("blockpy pass should be tracked"),
-        |lowered| -> &crate::basic_block::block_py::SemanticBlockPyCallableDef { lowered },
+        |lowered| -> &crate::basic_block::block_py::BlockPyCallableDef<Expr> { lowered },
     ))
 }
 
