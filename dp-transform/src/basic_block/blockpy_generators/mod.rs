@@ -248,9 +248,11 @@ pub(crate) fn lower_closure_backed_generator_export_bundle(
         resume_blockpy_kind,
         super::block_py::ENTRY_BLOCK_LABEL.to_string(),
         export_plan.resume_entry_liveins.clone(),
+        Vec::new(),
         runtime_closure_layout.clone(),
         super::block_py::BlockPyCallableFacts::default(),
         local_cell_slots.to_vec(),
+        Vec::new(),
         normalized_resume_blocks,
     );
     let helper_functions = vec![build_lowered_blockpy_function(

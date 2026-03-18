@@ -177,20 +177,7 @@ fn summarize_blockpy_module<E: Clone + Into<Expr>>(
 fn summarize_semantic_blockpy_plan(
     plan: &LoweredBlockPyModuleBundlePlan,
 ) -> crate::PassShapeSummary {
-    let mut summary = summarize_blockpy_module(
-        &lowered_blockpy_module_bundle_plan_to_semantic_blockpy_module(plan),
-    );
-    for entry in &plan.callable_def_bundles {
-        if let ruff_to_blockpy::PreparedBlockPyFunctionPlan::PendingGeneratorLowering(pending) =
-            &entry.bundle_plan.prepared_function_plan
-        {
-            merge_pass_shape_summary(
-                &mut summary,
-                summarize_ruff_stmt_list(&pending.semantic_input.fallback_runtime_input_body),
-            );
-        }
-    }
-    summary
+    summarize_blockpy_module(&lowered_blockpy_module_bundle_plan_to_semantic_blockpy_module(plan))
 }
 
 fn summarize_semantic_blockpy_bundle(
@@ -360,11 +347,10 @@ fn render_bb_module(bundle: &bb_ir::BbModule) -> String {
     }
     for function in &bundle.callable_defs {
         out.push_str(&format!(
-            "function {} [{}] entry={} bind_target={:?}\n",
+            "function {} [{}] entry={}\n",
             function.qualname,
             function.display_name,
             function.entry_label(),
-            function.binding_target(),
         ));
         out.push_str(&format!("kind: {:?}\n", function.kind));
         let param_names = function.params.names();
@@ -487,9 +473,7 @@ mod tests {
     use crate::basic_block::block_py::{
         BlockPyModule, BlockPyStmt, CoreBlockPyExprWithoutAwaitOrYield,
     };
-    use crate::basic_block::lowered_ir::{
-        BindingTarget, ClosureInit, ClosureSlot, LoweredFunctionKind,
-    };
+    use crate::basic_block::lowered_ir::{ClosureInit, ClosureSlot, LoweredFunctionKind};
     use crate::LoweringResult;
     use crate::{
         py_expr, transform_str_to_bb_ir_with_options, transform_str_to_ruff_with_options, Options,
@@ -754,7 +738,7 @@ def foo(a, b):
     }
 
     #[test]
-    fn nested_global_function_def_lowers_as_module_global() {
+    fn nested_global_function_def_stays_lowered() {
         let source = r#"
 def build_qualnames():
     def global_function():
@@ -772,11 +756,6 @@ def build_qualnames():
             .expect("transform should succeed")
             .expect("bb module should be available");
         let inner_global_function = function_by_name(&bb_module, "inner_global_function");
-        assert_eq!(
-            inner_global_function.binding_target(),
-            BindingTarget::ModuleGlobal,
-            "{inner_global_function:?}"
-        );
         assert_eq!(inner_global_function.qualname, "inner_global_function");
     }
 

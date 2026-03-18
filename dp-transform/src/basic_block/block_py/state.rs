@@ -34,7 +34,6 @@ pub(crate) fn collect_parameter_names(parameters: &ast::Parameters) -> Vec<Strin
 pub(crate) fn collect_state_vars(
     param_names: &[String],
     blocks: &[BlockPyBlock<Expr>],
-    module_init_mode: bool,
 ) -> Vec<String> {
     let mut defs_anywhere = HashSet::new();
     for block in blocks {
@@ -55,11 +54,7 @@ pub(crate) fn collect_state_vars(
                 || name == "_dp_classcell";
             let is_known_local = defs_anywhere.contains(name.as_str())
                 || param_names.iter().any(|param| param == &name);
-            let include = if module_init_mode {
-                is_special_runtime_state || is_known_local
-            } else {
-                is_special_runtime_state || is_known_local
-            };
+            let include = is_special_runtime_state || is_known_local;
             if include {
                 names.push(name);
             }
@@ -602,7 +597,9 @@ mod tests {
                 },
                 fn_name: "f".to_string(),
                 doc: None,
+                capture_names: Vec::new(),
                 closure_layout: None,
+                try_regions: Vec::new(),
                 facts: crate::basic_block::block_py::BlockPyCallableFacts::default(),
                 local_cell_slots: Vec::new(),
             }],

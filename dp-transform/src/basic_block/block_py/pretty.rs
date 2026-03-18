@@ -1056,6 +1056,7 @@ async def no_lying():
                 },
                 fn_name: "gen".to_string(),
                 doc: None,
+                capture_names: Vec::new(),
                 closure_layout: Some(ClosureLayout {
                     freevars: vec![ClosureSlot {
                         logical_name: "factor".to_string(),
@@ -1073,6 +1074,7 @@ async def no_lying():
                         init: ClosureInit::RuntimePcUnstarted,
                     }],
                 }),
+                try_regions: Vec::new(),
                 facts: crate::basic_block::block_py::BlockPyCallableFacts::default(),
                 local_cell_slots: vec!["_dp_cell__dp_pc".to_string()],
             }],
@@ -1129,7 +1131,9 @@ async def no_lying():
             },
             fn_name: "f".to_string(),
             doc: None,
+            capture_names: Vec::new(),
             closure_layout: None,
+            try_regions: Vec::new(),
             facts: crate::basic_block::block_py::BlockPyCallableFacts::default(),
             local_cell_slots: Vec::new(),
         };
@@ -1214,7 +1218,9 @@ def choose(a, b):
             },
             fn_name: "f".to_string(),
             doc: None,
+            capture_names: Vec::new(),
             closure_layout: None,
+            try_regions: Vec::new(),
             facts: crate::basic_block::block_py::BlockPyCallableFacts::default(),
             local_cell_slots: Vec::new(),
         };

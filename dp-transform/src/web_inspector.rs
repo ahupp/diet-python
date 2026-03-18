@@ -128,7 +128,7 @@ fn bb_module_to_json(module: &bb_ir::BbModule) -> Value {
                         })
                         .collect::<Vec<_>>();
                     json!({
-                        "label": block.label,
+                        "label": block.label.as_str(),
                         "params": block.meta.params,
                         "opsText": ops_text,
                         "termKind": bb_term_kind(&block.term),
@@ -142,7 +142,6 @@ fn bb_module_to_json(module: &bb_ir::BbModule) -> Value {
                 "bindName": function.bind_name,
                 "displayName": function.display_name,
                 "qualname": function.qualname,
-                "bindingTarget": bb_binding_target_name(function.binding_target()),
                 "kind": bb_function_kind_to_json(&function.kind),
                 "entry": function.entry_label(),
                 "paramNames": function.params.names(),
@@ -161,14 +160,6 @@ fn bb_module_to_json(module: &bb_ir::BbModule) -> Value {
             .then_some("_dp_module_init"),
         "functions": functions,
     })
-}
-
-fn bb_binding_target_name(target: crate::basic_block::lowered_ir::BindingTarget) -> &'static str {
-    match target {
-        crate::basic_block::lowered_ir::BindingTarget::Local => "local",
-        crate::basic_block::lowered_ir::BindingTarget::ModuleGlobal => "module_global",
-        crate::basic_block::lowered_ir::BindingTarget::ClassNamespace => "class_namespace",
-    }
 }
 
 fn bb_function_kind_to_json(kind: &crate::basic_block::lowered_ir::LoweredFunctionKind) -> Value {
@@ -312,8 +303,8 @@ fn sanitize_clif_testcase_name(name: &str) -> String {
 
 fn clif_target_comment(
     label: &str,
-    label_to_index: &HashMap<String, usize>,
-    label_to_params: &HashMap<String, Vec<String>>,
+    label_to_index: &HashMap<crate::basic_block::block_py::BlockPyLabel, usize>,
+    label_to_params: &HashMap<crate::basic_block::block_py::BlockPyLabel, Vec<String>>,
 ) -> String {
     let target = label_to_index
         .get(label)
@@ -335,8 +326,8 @@ fn clif_target_comment(
 
 fn clif_term_comment(
     term: &bb_ir::BbTerm,
-    label_to_index: &HashMap<String, usize>,
-    label_to_params: &HashMap<String, Vec<String>>,
+    label_to_index: &HashMap<crate::basic_block::block_py::BlockPyLabel, usize>,
+    label_to_params: &HashMap<crate::basic_block::block_py::BlockPyLabel, Vec<String>>,
 ) -> String {
     match term {
         bb_ir::BbTerm::Jump(label) => {
@@ -397,7 +388,7 @@ fn clif_target_args_for_block(
     builder: &mut FunctionBuilder<'_>,
     target_label: &str,
     current_values: &HashMap<String, ir::Value>,
-    label_to_params: &HashMap<String, Vec<String>>,
+    label_to_params: &HashMap<crate::basic_block::block_py::BlockPyLabel, Vec<String>>,
 ) -> Vec<ir::BlockArg> {
     let mut args = Vec::new();
     if let Some(target_params) = label_to_params.get(target_label) {
@@ -573,15 +564,14 @@ fn bb_module_to_clif(module: &bb_ir::BbModule) -> String {
     for function in &module.callable_defs {
         let params = function
             .params
-            .iter()
+            .names()
+            .into_iter()
             .map(|name| format!("%{name}: pyobj"))
             .collect::<Vec<_>>()
             .join(", ");
         out.push_str(&format!(
-            "decl %{}({params}) -> pyobj ; bind={} target={:?}\n",
-            function.qualname,
-            function.bind_name,
-            function.binding_target()
+            "decl %{}({params}) -> pyobj ; bind={}\n",
+            function.qualname, function.bind_name,
         ));
     }
     if module
@@ -603,11 +593,10 @@ fn bb_module_to_clif(module: &bb_ir::BbModule) -> String {
         }
 
         out.push_str(&format!(
-            "; function {} (kind={:?}, bind={}, target={:?}, entry={})\n",
+            "; function {} (kind={:?}, bind={}, entry={})\n",
             function.qualname,
             function.kind,
             function.bind_name,
-            function.binding_target(),
             function.entry_label()
         ));
         for block in &function.blocks {

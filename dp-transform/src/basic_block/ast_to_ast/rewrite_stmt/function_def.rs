@@ -11,13 +11,8 @@ use crate::basic_block::block_py::dataflow::{
     analyze_blockpy_use_def, compute_block_params_blockpy,
 };
 use crate::basic_block::block_py::state::{collect_cell_slots, collect_state_vars};
-use crate::basic_block::block_py::ENTRY_BLOCK_LABEL;
-use crate::basic_block::blockpy_generators::{
-    build_blockpy_closure_layout, closure_backed_generator_factory_entry_liveins,
-};
-use crate::basic_block::blockpy_to_bb::{
-    LoweredBlockPyModuleBundlePlan, LoweredBlockPyModuleBundlePlanEntry,
-};
+use crate::basic_block::block_py::{BlockPyCallableDef, TryRegionPlan, ENTRY_BLOCK_LABEL};
+use crate::basic_block::blockpy_to_bb::LoweredBlockPyModuleBundlePlan;
 use crate::basic_block::expr_utils::{make_dp_tuple, name_expr};
 use crate::basic_block::function_identity::{
     collect_function_identity_private, is_module_init_temp_name, resolve_runtime_function_identity,
@@ -28,9 +23,6 @@ use crate::basic_block::function_lowering::{
 };
 use crate::basic_block::lowered_ir::BindingTarget;
 use crate::basic_block::param_specs::{param_defaults_to_expr, param_spec_to_expr, ParamSpec};
-use crate::basic_block::ruff_to_blockpy::{
-    LoweredBlockPyFunctionBundlePlan, PreparedBlockPyFunctionPlan,
-};
 use crate::template::into_body;
 use crate::transformer::{walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
@@ -55,7 +47,6 @@ struct BlockPyModuleRewriter<'a> {
     next_block_id: usize,
     next_function_id: usize,
     reserved_temp_names_stack: Vec<HashSet<String>>,
-    used_label_prefixes: HashMap<String, usize>,
     function_scope_stack: Vec<FunctionScopeFrame>,
     lowered_blockpy_module: LoweredBlockPyModuleBundlePlan,
 }
@@ -113,11 +104,6 @@ struct LoweredFunctionRewriteResult {
     replacement: Stmt,
 }
 
-struct LoweredFunctionVisitPlan {
-    main_binding_target: BindingTarget,
-    rewrite: LoweredFunctionRewriteResult,
-}
-
 enum NonLoweredFunctionBindingPlan {
     LeaveLocal,
     CellSyncOnly,
@@ -156,19 +142,12 @@ fn capture_items_to_expr(captures: &[LoweredFunctionCaptureItem]) -> Expr {
 
 fn push_lowered_blockpy_callable_def_bundle(
     out: &mut LoweredBlockPyModuleBundlePlan,
-    bundle_plan: LoweredBlockPyFunctionBundlePlan,
-    main_binding_target: BindingTarget,
+    callable_def: BlockPyCallableDef<Expr>,
 ) {
-    out.callable_def_bundles
-        .push(LoweredBlockPyModuleBundlePlanEntry {
-            bundle_plan,
-            main_binding_target,
-        });
+    out.callable_defs.push(callable_def);
 }
 
-fn build_try_extra_successors(
-    try_regions: &[crate::basic_block::ruff_to_blockpy::TryRegionPlan],
-) -> HashMap<String, Vec<String>> {
+fn build_try_extra_successors(try_regions: &[TryRegionPlan]) -> HashMap<String, Vec<String>> {
     let mut extra = HashMap::new();
     for region in try_regions {
         for label in &region.body_region_labels {
@@ -219,146 +198,73 @@ fn classify_capture_items(
 }
 
 fn build_lowered_function_instantiation_preview(
-    plan: &LoweredBlockPyFunctionBundlePlan,
+    callable_def: &BlockPyCallableDef<Expr>,
 ) -> Option<LoweredFunctionInstantiationPreview> {
-    match &plan.prepared_function_plan {
-        PreparedBlockPyFunctionPlan::Ready(prepared) => {
-            let param_names: HashSet<String> =
-                prepared.callable_def.params.names().into_iter().collect();
-            let plan_param_names = plan.param_names();
-            let mut state_vars = collect_state_vars(
-                &plan_param_names,
-                &prepared.callable_def.blocks,
-                plan.module_init_mode,
-            );
-            for block in &prepared.callable_def.blocks {
-                let Some(exc_param) = block.meta.exc_param.as_ref() else {
-                    continue;
-                };
-                if !state_vars.iter().any(|existing| existing == exc_param) {
-                    state_vars.push(exc_param.clone());
-                }
-            }
-            let mut block_params = compute_block_params_blockpy(
-                &prepared.callable_def.blocks,
-                &state_vars,
-                &build_try_extra_successors(&prepared.try_regions),
-            );
-            for block in &prepared.callable_def.blocks {
-                let Some(exc_param) = block.meta.exc_param.as_ref() else {
-                    continue;
-                };
-                let params = block_params
-                    .entry(block.label.as_str().to_string())
-                    .or_default();
-                if !params.iter().any(|existing| existing == exc_param) {
-                    params.push(exc_param.clone());
-                }
-            }
-            let entry_liveins = block_params
-                .get(prepared.callable_def.entry_label())
-                .cloned()
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|name| {
-                    name != "_dp_self" && name != "_dp_send_value" && name != "_dp_resume_exc"
-                })
-                .collect::<Vec<_>>();
-            let locally_assigned: HashSet<String> = prepared
-                .callable_def
-                .blocks
-                .iter()
-                .flat_map(|block| analyze_blockpy_use_def(block).1.into_iter())
-                .collect();
-            let captures = classify_capture_items(
-                &entry_liveins,
-                &param_names,
-                &plan.callable_facts().cell_slots,
-                &locally_assigned,
-            )?;
-            let callable_header = plan.callable_header();
-            Some(LoweredFunctionInstantiationPreview {
-                entry_label: ENTRY_BLOCK_LABEL.to_string(),
-                function_id: prepared.callable_def.function_id.0,
-                name: callable_header.display_name,
-                qualname: prepared.callable_def.qualname.clone(),
-                captures,
-                params: prepared.callable_def.params.clone(),
-                param_defaults: prepared.callable_def.param_defaults.clone(),
-                doc_expr: prepared
-                    .callable_def
-                    .doc
-                    .clone()
-                    .map(Into::into)
-                    .unwrap_or_else(|| py_expr!("None")),
-                kind: if plan.is_coroutine {
-                    LoweredFunctionInstantiationKind::MarkCoroutineFunction
-                } else {
-                    LoweredFunctionInstantiationKind::DirectFunction
-                },
-            })
-        }
-        PreparedBlockPyFunctionPlan::PendingGeneratorLowering(pending) => {
-            let plan_param_names = plan.param_names();
-            let mut preview_state_vars = plan.extra_closure_state_names.clone();
-            for runtime_name in [
-                "_dp_pc",
-                "_dp_yieldfrom",
-                "_dp_self",
-                "_dp_send_value",
-                "_dp_resume_exc",
-            ] {
-                if !preview_state_vars
-                    .iter()
-                    .any(|existing| existing == runtime_name)
-                {
-                    preview_state_vars.push(runtime_name.to_string());
-                }
-            }
-            if plan.is_async_generator_runtime
-                && !preview_state_vars
-                    .iter()
-                    .any(|existing| existing == "_dp_transport_sent")
-            {
-                preview_state_vars.push("_dp_transport_sent".to_string());
-            }
-            let preview_layout = build_blockpy_closure_layout(
-                &plan_param_names,
-                &preview_state_vars,
-                &plan.capture_names,
-                &HashSet::new(),
-            );
-            let entry_liveins =
-                closure_backed_generator_factory_entry_liveins(&plan_param_names, &preview_layout);
-            let param_names = plan_param_names.into_iter().collect::<HashSet<_>>();
-            let captures = classify_capture_items(
-                &entry_liveins,
-                &param_names,
-                &plan.callable_facts().cell_slots,
-                &HashSet::new(),
-            )?;
-            let callable_header = plan.callable_header();
-            Some(LoweredFunctionInstantiationPreview {
-                entry_label: ENTRY_BLOCK_LABEL.to_string(),
-                function_id: callable_header.function_id.0,
-                name: callable_header.display_name.clone(),
-                qualname: callable_header.qualname.clone(),
-                captures,
-                params: callable_header.params.clone(),
-                param_defaults: callable_header.param_defaults.clone(),
-                doc_expr: pending
-                    .doc
-                    .clone()
-                    .map(Into::into)
-                    .unwrap_or_else(|| py_expr!("None")),
-                kind: if plan.is_coroutine {
-                    LoweredFunctionInstantiationKind::MarkCoroutineFunction
-                } else {
-                    LoweredFunctionInstantiationKind::DirectFunction
-                },
-            })
+    let param_names = callable_def.params.names();
+    let param_name_set: HashSet<String> = param_names.iter().cloned().collect();
+    let mut state_vars = collect_state_vars(&param_names, &callable_def.blocks);
+    for block in &callable_def.blocks {
+        let Some(exc_param) = block.meta.exc_param.as_ref() else {
+            continue;
+        };
+        if !state_vars.iter().any(|existing| existing == exc_param) {
+            state_vars.push(exc_param.clone());
         }
     }
+    let mut block_params = compute_block_params_blockpy(
+        &callable_def.blocks,
+        &state_vars,
+        &build_try_extra_successors(&callable_def.try_regions),
+    );
+    for block in &callable_def.blocks {
+        let Some(exc_param) = block.meta.exc_param.as_ref() else {
+            continue;
+        };
+        let params = block_params
+            .entry(block.label.as_str().to_string())
+            .or_default();
+        if !params.iter().any(|existing| existing == exc_param) {
+            params.push(exc_param.clone());
+        }
+    }
+    let entry_liveins = block_params
+        .get(callable_def.entry_label())
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|name| name != "_dp_self" && name != "_dp_send_value" && name != "_dp_resume_exc")
+        .collect::<Vec<_>>();
+    let locally_assigned: HashSet<String> = callable_def
+        .blocks
+        .iter()
+        .flat_map(|block| analyze_blockpy_use_def(block).1.into_iter())
+        .collect();
+    let captures = classify_capture_items(
+        &entry_liveins,
+        &param_name_set,
+        &callable_def.facts.cell_slots,
+        &locally_assigned,
+    )?;
+    let callable_header = callable_def.header();
+    Some(LoweredFunctionInstantiationPreview {
+        entry_label: ENTRY_BLOCK_LABEL.to_string(),
+        function_id: callable_def.function_id.0,
+        name: callable_header.display_name,
+        qualname: callable_def.qualname.clone(),
+        captures,
+        params: callable_def.params.clone(),
+        param_defaults: callable_def.param_defaults.clone(),
+        doc_expr: callable_def
+            .doc
+            .clone()
+            .map(Into::into)
+            .unwrap_or_else(|| py_expr!("None")),
+        kind: if callable_def.kind == crate::basic_block::block_py::BlockPyFunctionKind::Coroutine {
+            LoweredFunctionInstantiationKind::MarkCoroutineFunction
+        } else {
+            LoweredFunctionInstantiationKind::DirectFunction
+        },
+    })
 }
 
 struct LoweredFunctionInstantiationData {
@@ -459,10 +365,9 @@ pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan(
         next_block_id: 0,
         next_function_id: 0,
         reserved_temp_names_stack: Vec::new(),
-        used_label_prefixes: HashMap::new(),
         function_scope_stack: Vec::new(),
         lowered_blockpy_module: LoweredBlockPyModuleBundlePlan {
-            callable_def_bundles: Vec::new(),
+            callable_defs: Vec::new(),
             next_block_id: 0,
             next_function_id: 0,
         },
@@ -820,7 +725,7 @@ fn plan_and_rewrite_lowered_function_instantiation(
     entering_module_init: bool,
     has_parent_hoisted_scope: bool,
     function_hoisted: Vec<Stmt>,
-) -> Option<LoweredFunctionVisitPlan> {
+) -> Option<LoweredFunctionRewriteResult> {
     let instantiation_plan = plan_lowered_function_instantiation(
         func,
         function_identity_by_node,
@@ -836,10 +741,7 @@ fn plan_and_rewrite_lowered_function_instantiation(
         has_parent_hoisted_scope,
         function_hoisted,
     )?;
-    Some(LoweredFunctionVisitPlan {
-        main_binding_target: instantiation_plan.binding.target,
-        rewrite,
-    })
+    Some(rewrite)
 }
 
 fn rewrite_non_lowered_function_instantiation(
@@ -913,7 +815,6 @@ fn rewrite_function_def_stmt_via_blockpy(
     has_parent_hoisted_scope: bool,
     function_hoisted: Vec<Stmt>,
     reserved_temp_names_stack: &mut Vec<HashSet<String>>,
-    used_label_prefixes: &mut HashMap<String, usize>,
     next_block_id: &mut usize,
     next_function_id: &mut usize,
 ) -> Option<Stmt> {
@@ -925,13 +826,12 @@ fn rewrite_function_def_stmt_via_blockpy(
         func,
         current_parent,
         reserved_temp_names_stack,
-        used_label_prefixes,
         next_block_id,
         next_function_id,
     ) {
         let preview = build_lowered_function_instantiation_preview(&lowered_plan)
             .expect("failed to build BB function instantiation preview");
-        let rewrite_plan = plan_and_rewrite_lowered_function_instantiation(
+        let rewrite = plan_and_rewrite_lowered_function_instantiation(
             parent_hoisted,
             func,
             &preview,
@@ -943,12 +843,8 @@ fn rewrite_function_def_stmt_via_blockpy(
             function_hoisted,
         )
         .expect("failed to build BB function binding");
-        push_lowered_blockpy_callable_def_bundle(
-            lowered_blockpy_module,
-            lowered_plan,
-            rewrite_plan.main_binding_target,
-        );
-        return Some(rewrite_plan.rewrite.replacement);
+        push_lowered_blockpy_callable_def_bundle(lowered_blockpy_module, lowered_plan);
+        return Some(rewrite.replacement);
     }
 
     plan_and_rewrite_non_lowered_function_instantiation(
@@ -1053,7 +949,6 @@ impl BlockPyModuleRewriter<'_> {
             state.has_parent_hoisted_scope,
             state.hoisted_to_parent,
             &mut self.reserved_temp_names_stack,
-            &mut self.used_label_prefixes,
             &mut self.next_block_id,
             &mut self.next_function_id,
         )

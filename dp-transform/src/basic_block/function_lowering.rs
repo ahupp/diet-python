@@ -4,17 +4,15 @@ use super::annotation_export::{
 };
 use super::block_py::state::collect_cell_slots;
 use super::block_py::{
-    BlockPyBlock, BlockPyBranchTable, BlockPyCallableFacts, BlockPyCallableHeader, BlockPyIf,
-    BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment, BlockPyTerm,
+    BlockPyBlock, BlockPyBranchTable, BlockPyCallableDef, BlockPyCallableFacts,
+    BlockPyCallableHeader, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt,
+    BlockPyStmtFragment, BlockPyTerm,
 };
 use super::bound_names::{collect_bound_names, collect_explicit_global_or_nonlocal_names};
 use super::function_identity::{
     is_module_init_temp_name, resolve_runtime_function_identity, FunctionIdentity,
 };
-use super::ruff_to_blockpy::{
-    lower_function_body_to_blockpy_function, take_next_function_id,
-    LoweredBlockPyFunctionBundlePlan,
-};
+use super::ruff_to_blockpy::{lower_function_body_to_blockpy_function, take_next_function_id};
 use super::stmt_utils::{
     flatten_stmt_boxes, should_strip_nonlocal_for_bb, strip_nonlocal_directives,
 };
@@ -298,10 +296,9 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     func: &ast::StmtFunctionDef,
     parent_name: Option<&str>,
     reserved_temp_names_stack: &mut Vec<HashSet<String>>,
-    used_label_prefixes: &mut HashMap<String, usize>,
     next_block_id: &mut usize,
     next_function_id: &mut usize,
-) -> Option<LoweredBlockPyFunctionBundlePlan> {
+) -> Option<BlockPyCallableDef<Expr>> {
     if should_keep_non_lowered_for_annotationlib(func) {
         return None;
     }
@@ -383,7 +380,6 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     let end_label = next_label(func.name.id.as_str(), next_block_id);
     let identity = resolve_runtime_function_identity(func, function_identity_by_node, parent_name);
     let doc_expr = function_docstring_expr(func).map(Into::into);
-    let label_prefix = next_label_prefix(func.name.id.as_str(), used_label_prefixes);
     let main_function_id = take_next_function_id(next_function_id);
     let callable_header = BlockPyCallableHeader {
         function_id: main_function_id,
@@ -394,34 +390,6 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         params: param_spec,
         param_defaults,
     };
-    let prepared_function_plan = lower_function_body_to_blockpy_function(
-        context,
-        &runtime_input_body,
-        callable_header,
-        doc_expr,
-        //        legacy_async_runtime_input_body
-        // .as_deref()
-        // .filter(|_| legacy_async_fallback_removes_all_awaits)
-        // .or(Some(original_runtime_input_body.as_slice())),
-        end_label,
-        label_prefix.as_str(),
-        has_yield,
-        coroutine_via_generator,
-        is_async_generator_runtime,
-        is_closure_backed_generator_runtime,
-        &callable_facts,
-        next_block_id,
-        &mut |func_def| {
-            build_exec_function_def_binding_stmts(
-                func_def,
-                &callable_facts.cell_slots,
-                &callable_facts.outer_scope_names,
-            )
-        },
-        &mut |prefix, next_block_id| {
-            next_temp_from_counter(reserved_temp_names_stack, prefix, next_block_id)
-        },
-    );
     let enclosing_scope = module_scope
         .child_scope_for_function(func)
         .ok()
@@ -444,28 +412,35 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     let mut capture_names = collect_capture_names(func, enclosing_function_scope_names.as_ref());
     capture_names.sort();
     capture_names.dedup();
-    let mut extra_closure_state_names = Vec::new();
-    if is_closure_backed_generator_runtime {
-        let mut bound_names = collect_bound_names(&runtime_input_body)
-            .into_iter()
-            .collect::<Vec<_>>();
-        bound_names.sort();
-        extra_closure_state_names.extend(bound_names);
-        extra_closure_state_names.extend(capture_names.iter().cloned());
-        extra_closure_state_names.sort();
-        extra_closure_state_names.dedup();
-    }
-    Some(LoweredBlockPyFunctionBundlePlan {
-        prepared_function_plan,
-        has_yield: needs_generator_runtime,
-        is_coroutine: coroutine_via_generator,
+    let callable_def = lower_function_body_to_blockpy_function(
+        context,
+        &runtime_input_body,
+        callable_header,
+        doc_expr,
+        capture_names,
+        //        legacy_async_runtime_input_body
+        // .as_deref()
+        // .filter(|_| legacy_async_fallback_removes_all_awaits)
+        // .or(Some(original_runtime_input_body.as_slice())),
+        end_label,
+        has_yield,
+        coroutine_via_generator,
         is_async_generator_runtime,
         is_closure_backed_generator_runtime,
-        extra_closure_state_names,
-        capture_names,
-        label_prefix,
-        module_init_mode: is_module_init_temp_name(func.name.id.as_str()),
-    })
+        &callable_facts,
+        next_block_id,
+        &mut |func_def| {
+            build_exec_function_def_binding_stmts(
+                func_def,
+                &callable_facts.cell_slots,
+                &callable_facts.outer_scope_names,
+            )
+        },
+        &mut |prefix, next_block_id| {
+            next_temp_from_counter(reserved_temp_names_stack, prefix, next_block_id)
+        },
+    );
+    Some(callable_def)
 }
 
 pub(crate) fn function_docstring_expr(func: &ast::StmtFunctionDef) -> Option<Expr> {
@@ -689,18 +664,6 @@ fn next_label(fn_name: &str, next_id: &mut usize) -> String {
     format!("_dp_bb_{}_{}", sanitize_ident(fn_name), current)
 }
 
-fn next_label_prefix(fn_name: &str, used_label_prefixes: &mut HashMap<String, usize>) -> String {
-    let base = sanitize_ident(original_function_name(fn_name).as_str());
-    let count = used_label_prefixes.entry(base.clone()).or_insert(0);
-    let suffix = if *count == 0 {
-        String::new()
-    } else {
-        format!("_{}", *count)
-    };
-    *count += 1;
-    format!("_dp_bb_{base}{suffix}")
-}
-
 fn sanitize_ident(raw: &str) -> String {
     raw.chars()
         .map(|ch| {
@@ -711,20 +674,6 @@ fn sanitize_ident(raw: &str) -> String {
             }
         })
         .collect()
-}
-
-fn original_function_name(fn_name: &str) -> String {
-    let Some(rest) = fn_name.strip_prefix("_dp_fn_") else {
-        return fn_name.to_string();
-    };
-    let Some((prefix, trailing)) = rest.rsplit_once('_') else {
-        return rest.to_string();
-    };
-    if !trailing.is_empty() && trailing.chars().all(|ch| ch.is_ascii_digit()) {
-        prefix.to_string()
-    } else {
-        rest.to_string()
-    }
 }
 
 fn always_unbound_local_names(

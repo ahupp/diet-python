@@ -60,65 +60,18 @@ pub enum ClosureInit {
 }
 
 #[derive(Debug, Clone)]
-pub struct BoundCallable<C> {
-    pub callable: C,
-    pub binding_target: BindingTarget,
-}
-
-impl<C> BoundCallable<C> {
-    pub fn binding_target(&self) -> BindingTarget {
-        self.binding_target
-    }
-
-    pub fn with_binding_target(mut self, binding_target: BindingTarget) -> Self {
-        self.binding_target = binding_target;
-        self
-    }
-
-    pub fn map_callable<D>(&self, f: impl FnOnce(&C) -> D) -> BoundCallable<D> {
-        BoundCallable {
-            callable: f(&self.callable),
-            binding_target: self.binding_target,
-        }
-    }
-}
-
-impl<C> Deref for BoundCallable<C> {
-    type Target = C;
-
-    fn deref(&self) -> &Self::Target {
-        &self.callable
-    }
-}
-
-impl<C> DerefMut for BoundCallable<C> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.callable
-    }
-}
-
-#[derive(Debug, Clone)]
 pub struct LoweredFunction<C, X> {
-    pub callable_def: BoundCallable<C>,
+    pub callable_def: C,
     pub extra: X,
 }
 
 impl<C, X> LoweredFunction<C, X> {
-    pub fn binding_target(&self) -> BindingTarget {
-        self.callable_def.binding_target()
-    }
-
-    pub fn with_binding_target(mut self, binding_target: BindingTarget) -> Self {
-        self.callable_def = self.callable_def.with_binding_target(binding_target);
-        self
-    }
-
     pub fn map_callable<D>(&self, f: impl FnOnce(&C) -> D) -> LoweredFunction<D, X>
     where
         X: Clone,
     {
         LoweredFunction {
-            callable_def: self.callable_def.map_callable(f),
+            callable_def: f(&self.callable_def),
             extra: self.extra.clone(),
         }
     }

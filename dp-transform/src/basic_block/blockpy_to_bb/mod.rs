@@ -14,11 +14,8 @@ use super::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use super::cfg_ir::{CfgCallableDef, CfgModule};
 use super::core_await_lower::lower_awaits_in_core_blockpy_callable_def;
 use super::function_lowering::rewrite_deleted_name_loads;
-use super::lowered_ir::{BindingTarget, BoundCallable, LoweredCfgMetadata, LoweredFunction};
-use super::ruff_to_blockpy::{
-    build_lowered_blockpy_function_bundle, lower_awaits_in_lowered_blockpy_function_bundle_plan,
-    LoweredBlockPyFunction, LoweredBlockPyFunctionBundlePlan,
-};
+use super::lowered_ir::{LoweredCfgMetadata, LoweredFunction};
+use super::ruff_to_blockpy::{build_lowered_blockpy_function_bundle, LoweredBlockPyFunction};
 use crate::basic_block::ast_to_ast::context::Context;
 use ruff_python_ast::{self as ast, Expr};
 use ruff_text_size::TextRange;
@@ -34,14 +31,8 @@ pub type LoweredCoreBlockPyFunctionWithoutAwaitOrYield =
     LoweredBlockPyFunction<BlockPyCallableDef<CoreBlockPyExprWithoutAwaitOrYield>>;
 
 #[derive(Clone)]
-pub(crate) struct LoweredBlockPyModuleBundlePlanEntry {
-    pub bundle_plan: LoweredBlockPyFunctionBundlePlan,
-    pub main_binding_target: BindingTarget,
-}
-
-#[derive(Clone)]
 pub(crate) struct LoweredBlockPyModuleBundlePlan {
-    pub callable_def_bundles: Vec<LoweredBlockPyModuleBundlePlanEntry>,
+    pub callable_defs: Vec<BlockPyCallableDef<Expr>>,
     pub next_block_id: usize,
     pub next_function_id: usize,
 }
@@ -63,43 +54,22 @@ fn next_temp_from_reserved_names(
     }
 }
 
-pub(crate) fn lower_awaits_in_lowered_blockpy_module_bundle_plan(
-    context: &Context,
-    plan: LoweredBlockPyModuleBundlePlan,
-) -> LoweredBlockPyModuleBundlePlan {
-    LoweredBlockPyModuleBundlePlan {
-        callable_def_bundles: plan
-            .callable_def_bundles
-            .into_iter()
-            .map(|entry| LoweredBlockPyModuleBundlePlanEntry {
-                bundle_plan: lower_awaits_in_lowered_blockpy_function_bundle_plan(
-                    context,
-                    entry.bundle_plan,
-                ),
-                main_binding_target: entry.main_binding_target,
-            })
-            .collect(),
-        next_block_id: plan.next_block_id,
-        next_function_id: plan.next_function_id,
-    }
-}
-
 pub(crate) fn lower_generators_in_lowered_blockpy_module_bundle_plan(
     context: &Context,
     plan: LoweredBlockPyModuleBundlePlan,
 ) -> CfgModule<LoweredBlockPyFunction> {
     let LoweredBlockPyModuleBundlePlan {
-        callable_def_bundles,
+        callable_defs: blockpy_callable_defs,
         mut next_block_id,
         mut next_function_id,
     } = plan;
     let mut callable_defs = Vec::new();
-    for entry in callable_def_bundles {
-        let callable_facts = entry.bundle_plan.callable_facts().clone();
+    for callable_def in blockpy_callable_defs {
+        let callable_facts = callable_def.facts.clone();
         let mut reserved_temp_names = callable_facts.outer_scope_names.clone();
-        let bundle = build_lowered_blockpy_function_bundle(
+        let lowered_function = build_lowered_blockpy_function_bundle(
             context,
-            entry.bundle_plan,
+            callable_def,
             &mut next_block_id,
             &mut next_function_id,
             &mut |func_def| {
@@ -128,61 +98,16 @@ pub(crate) fn lower_generators_in_lowered_blockpy_module_bundle_plan(
                 }
             },
         );
-        callable_defs.extend(
-            bundle
-                .helper_functions
-                .into_iter()
-                .map(|helper| helper.with_binding_target(BindingTarget::Local)),
-        );
-        callable_defs.push(
-            bundle
-                .main_function
-                .with_binding_target(entry.main_binding_target),
-        );
+        callable_defs.push(lowered_function);
     }
     CfgModule { callable_defs }
-}
-
-fn materialize_semantic_blockpy_callable_def_from_plan(
-    plan: &LoweredBlockPyFunctionBundlePlan,
-) -> BlockPyCallableDef<Expr> {
-    match &plan.prepared_function_plan {
-        super::ruff_to_blockpy::PreparedBlockPyFunctionPlan::Ready(prepared) => {
-            prepared.callable_def.clone()
-        }
-        super::ruff_to_blockpy::PreparedBlockPyFunctionPlan::PendingGeneratorLowering(pending) => {
-            let header = pending.header.clone();
-            crate::basic_block::block_py::BlockPyCallableDef {
-                cfg: CfgCallableDef {
-                    function_id: header.function_id,
-                    bind_name: header.bind_name,
-                    display_name: header.display_name,
-                    qualname: header.qualname,
-                    kind: pending.blockpy_kind,
-                    params: header.params,
-                    param_defaults: header.param_defaults,
-                    entry_liveins: Vec::new(),
-                    blocks: pending.semantic_input.blocks.clone(),
-                },
-                fn_name: header.fn_name,
-                doc: pending.doc.clone(),
-                closure_layout: None,
-                facts: pending.callable_facts.clone(),
-                local_cell_slots: Vec::new(),
-            }
-        }
-    }
 }
 
 pub(crate) fn lowered_blockpy_module_bundle_plan_to_semantic_blockpy_module(
     plan: &LoweredBlockPyModuleBundlePlan,
 ) -> BlockPyModule<Expr> {
     BlockPyModule {
-        callable_defs: plan
-            .callable_def_bundles
-            .iter()
-            .map(|entry| materialize_semantic_blockpy_callable_def_from_plan(&entry.bundle_plan))
-            .collect(),
+        callable_defs: plan.callable_defs.clone(),
     }
 }
 
@@ -190,8 +115,7 @@ pub(crate) fn lower_blockpy_module_plan_to_bundle(
     context: &Context,
     plan: LoweredBlockPyModuleBundlePlan,
 ) -> CfgModule<LoweredBlockPyFunction> {
-    let await_free = lower_awaits_in_lowered_blockpy_module_bundle_plan(context, plan);
-    lower_generators_in_lowered_blockpy_module_bundle_plan(context, await_free)
+    lower_generators_in_lowered_blockpy_module_bundle_plan(context, plan)
 }
 
 pub fn project_lowered_module_callable_defs<T, U: Clone>(
@@ -261,23 +185,20 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
     lowered: &LoweredCoreBlockPyFunctionWithoutAwaitOrYield,
 ) -> BbFunction {
     LoweredFunction {
-        callable_def: BoundCallable {
-            callable: CfgCallableDef {
-                function_id: lowered.callable_def.function_id,
-                bind_name: lowered.callable_def.bind_name.clone(),
-                display_name: lowered.callable_def.display_name.clone(),
-                qualname: lowered.callable_def.qualname.clone(),
-                kind: lowered.lowered_kind().clone(),
-                params: lowered.callable_def.params.clone(),
-                param_defaults: lowered.callable_def.param_defaults.clone(),
-                entry_liveins: lowered.callable_def.entry_liveins.clone(),
-                blocks: lower_blockpy_blocks_to_bb_blocks(
-                    &lowered.callable_def.blocks,
-                    lowered.block_params(),
-                    lowered.exception_edges(),
-                ),
-            },
-            binding_target: lowered.binding_target(),
+        callable_def: CfgCallableDef {
+            function_id: lowered.callable_def.function_id,
+            bind_name: lowered.callable_def.bind_name.clone(),
+            display_name: lowered.callable_def.display_name.clone(),
+            qualname: lowered.callable_def.qualname.clone(),
+            kind: lowered.lowered_kind().clone(),
+            params: lowered.callable_def.params.clone(),
+            param_defaults: lowered.callable_def.param_defaults.clone(),
+            entry_liveins: lowered.callable_def.entry_liveins.clone(),
+            blocks: lower_blockpy_blocks_to_bb_blocks(
+                &lowered.callable_def.blocks,
+                lowered.block_params(),
+                lowered.exception_edges(),
+            ),
         },
         extra: LoweredCfgMetadata {
             closure_layout: lowered.runtime_closure_layout().clone(),

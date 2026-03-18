@@ -181,9 +181,11 @@ pub(crate) fn lower_awaits_in_core_blockpy_callable_def(
         },
         fn_name: callable_def.fn_name,
         doc: callable_def.doc.map(lower_core_expr_awaits),
+        capture_names: callable_def.capture_names,
         closure_layout: callable_def.closure_layout,
         facts: callable_def.facts,
         local_cell_slots: callable_def.local_cell_slots,
+        try_regions: callable_def.try_regions,
     }
 }
 
@@ -229,9 +231,11 @@ mod tests {
                 },
                 fn_name: "f".to_string(),
                 doc: None,
+                capture_names: Vec::new(),
                 closure_layout: None,
                 facts: super::super::block_py::BlockPyCallableFacts::default(),
                 local_cell_slots: Vec::new(),
+                try_regions: Vec::new(),
             }],
         };
 

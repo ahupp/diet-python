@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::env;
 use std::fs;
+use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -17,8 +18,9 @@ use log::{log_enabled, trace, Level};
 
 struct SnapshotSummaryRow {
     case_name: String,
-    blockpy_blocks: usize,
-    clif_blocks: usize,
+    blockpy_blocks: Option<usize>,
+    clif_blocks: Option<usize>,
+    error: Option<String>,
 }
 
 fn collect_fixtures(root: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
@@ -94,6 +96,45 @@ fn render_blockpy_snapshot(
         .map(count_clif_blocks)
         .unwrap_or(0);
     (blockpy_rendered, blockpy_blocks, clif_blocks)
+}
+
+fn panic_payload_message(payload: Box<dyn std::any::Any + Send>) -> String {
+    if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else if let Some(message) = payload.downcast_ref::<&str>() {
+        (*message).to_string()
+    } else {
+        "non-string panic payload".to_string()
+    }
+}
+
+fn format_snapshot_error_message(message: &str) -> String {
+    let message = message.trim();
+    if message.is_empty() {
+        "snapshot regeneration failed".to_string()
+    } else {
+        format!("snapshot regeneration failed\n{message}")
+    }
+}
+
+fn summary_error_text(message: &str) -> String {
+    message
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
+fn with_suppressed_panic_hook<T>(f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    let hook = panic::take_hook();
+    panic::set_hook(Box::new(|_| {}));
+    let result = panic::catch_unwind(AssertUnwindSafe(f));
+    panic::set_hook(hook);
+    match result {
+        Ok(result) => result,
+        Err(payload) => Err(format!("panic: {}", panic_payload_message(payload))),
+    }
 }
 
 fn count_blockpy_blocks(module: &BlockPyModule) -> usize {
@@ -307,14 +348,26 @@ fn regenerate_fixture(path: &Path, summary: &mut Vec<SnapshotSummaryRow>) -> Res
         if log_enabled!(Level::Trace) {
             trace!("regenerate_fixture: transforming {}", block.name);
         }
-        let transformed = transform_str_to_ruff_with_options(&block.input, options)
-            .map_err(|err| format!("{}: {}", path.display(), err))?;
-        let (output, blockpy_blocks, clif_blocks) =
-            render_blockpy_snapshot(block.input.as_str(), &transformed);
+        let case_name = qualified_case_name(path, block)?;
+        let snapshot_result = with_suppressed_panic_hook(|| {
+            let transformed = transform_str_to_ruff_with_options(&block.input, options)
+                .map_err(|err| format!("{}: {}", path.display(), err))?;
+            Ok(render_blockpy_snapshot(block.input.as_str(), &transformed))
+        });
+        let (output, blockpy_blocks, clif_blocks, error) = match snapshot_result {
+            Ok((output, blockpy_blocks, clif_blocks)) => {
+                (output, Some(blockpy_blocks), Some(clif_blocks), None)
+            }
+            Err(message) => {
+                let error = format_snapshot_error_message(&message);
+                (error.clone(), None, None, Some(summary_error_text(&error)))
+            }
+        };
         summary.push(SnapshotSummaryRow {
-            case_name: qualified_case_name(path, block)?,
+            case_name,
             blockpy_blocks,
             clif_blocks,
+            error,
         });
         snapshot_blocks.push(FixtureBlock {
             name: block.name.clone(),
@@ -377,10 +430,16 @@ fn write_summary(summary: &[SnapshotSummaryRow]) -> Result<(), String> {
         } else {
             row.case_name.clone()
         };
-        contents.push_str(&format!(
-            "{}: blockpy={}, clif={}\n",
-            case_name, row.blockpy_blocks, row.clif_blocks
-        ));
+        if let Some(error) = &row.error {
+            contents.push_str(&format!("{case_name}: ERROR {error}\n"));
+        } else {
+            contents.push_str(&format!(
+                "{}: blockpy={}, clif={}\n",
+                case_name,
+                row.blockpy_blocks.unwrap_or(0),
+                row.clif_blocks.unwrap_or(0)
+            ));
+        }
     }
     write_if_changed(&summary_path, &contents)
 }

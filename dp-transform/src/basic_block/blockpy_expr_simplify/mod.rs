@@ -434,9 +434,11 @@ pub(crate) fn simplify_blockpy_callable_def_exprs(
             .doc
             .as_ref()
             .map(lower_semantic_expr_without_setup),
+        capture_names: callable_def.capture_names.clone(),
         closure_layout: callable_def.closure_layout.clone(),
         facts: callable_def.facts.clone(),
         local_cell_slots: callable_def.local_cell_slots.clone(),
+        try_regions: callable_def.try_regions.clone(),
     }
 }
 

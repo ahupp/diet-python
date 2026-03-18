@@ -75,7 +75,7 @@ pub(crate) fn rewrite_module_with_tracker(
             rewrite_ast_to_lowered_blockpy_module_plan(context, module)
         });
 
-    let _semantic_blockpy: BlockPyModule<Expr> = pass_tracker.run_pass("semantic_blockpy", || {
+    let semantic_blockpy: BlockPyModule<Expr> = pass_tracker.run_pass("semantic_blockpy", || {
         basic_block::lowered_blockpy_module_bundle_plan_to_semantic_blockpy_module(
             &semantic_blockpy_plan,
         )

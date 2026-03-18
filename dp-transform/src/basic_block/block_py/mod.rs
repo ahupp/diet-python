@@ -128,13 +128,23 @@ impl Default for BlockPyCallableFacts {
 }
 
 #[derive(Debug, Clone)]
+pub struct TryRegionPlan {
+    pub body_region_labels: Vec<String>,
+    pub body_exception_target: String,
+    pub cleanup_region_labels: Vec<String>,
+    pub cleanup_exception_target: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct BlockPyCallableDef<E = Expr, B = BlockPyBlock<E>> {
     pub cfg: CfgCallableDef<BlockPyFunctionKind, E, B>,
     pub fn_name: String,
     pub doc: Option<E>,
+    pub capture_names: Vec<String>,
     pub closure_layout: Option<ClosureLayout>,
     pub facts: BlockPyCallableFacts,
     pub local_cell_slots: Vec<String>,
+    pub try_regions: Vec<TryRegionPlan>,
 }
 
 impl<E, B> Deref for BlockPyCallableDef<E, B> {
@@ -866,9 +876,11 @@ impl TryFrom<BlockPyCallableDef<CoreBlockPyExpr>>
             cfg,
             fn_name,
             doc,
+            capture_names,
             closure_layout,
             facts,
             local_cell_slots,
+            try_regions,
         } = value;
         let CfgCallableDef {
             function_id,
@@ -901,9 +913,11 @@ impl TryFrom<BlockPyCallableDef<CoreBlockPyExpr>>
             },
             fn_name,
             doc: doc.map(TryInto::try_into).transpose()?,
+            capture_names,
             closure_layout,
             facts,
             local_cell_slots,
+            try_regions,
         })
     }
 }
@@ -1116,9 +1130,11 @@ impl TryFrom<BlockPyCallableDef<CoreBlockPyExprWithoutAwait>>
             cfg,
             fn_name,
             doc,
+            capture_names,
             closure_layout,
             facts,
             local_cell_slots,
+            try_regions,
         } = value;
         let CfgCallableDef {
             function_id,
@@ -1151,9 +1167,11 @@ impl TryFrom<BlockPyCallableDef<CoreBlockPyExprWithoutAwait>>
             },
             fn_name,
             doc: doc.map(TryInto::try_into).transpose()?,
+            capture_names,
             closure_layout,
             facts,
             local_cell_slots,
+            try_regions,
         })
     }
 }

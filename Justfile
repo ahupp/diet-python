@@ -434,20 +434,59 @@ test-all:
   TIMEFORMAT='[diet-python timing] fmt_check_s=%3R'
   time cargo fmt
   TIMEFORMAT='[diet-python timing] build_all_s=%3R'
-  time just build-all
-  TIMEFORMAT='[diet-python timing] regen_snapshots_s=%3R'
-  time just regen-snapshots
-
-  if cargo test; then
+  if time just build-all; then
     :
   else
     status=$?
-    echo "[diet-python test-all] step failed: cargo-test (exit $status)" >&2
+    echo "[diet-python test-all] step failed: build-all (exit $status)" >&2
+    just uninstall-extension
+    exit "$status"
+  fi
+  TIMEFORMAT='[diet-python timing] regen_snapshots_s=%3R'
+  if time just regen-snapshots; then
+    :
+  else
+    status=$?
+    echo "[diet-python test-all] step failed: regen-snapshots (exit $status)" >&2
     just uninstall-extension
     exit "$status"
   fi
 
-  just _pytest-run tests/
+  overall_status=0
+
+  TIMEFORMAT='[diet-python timing] cargo_test_s=%3R'
+  if time cargo test; then
+    :
+  else
+    status=$?
+    echo "[diet-python test-all] step failed: cargo-test (exit $status)" >&2
+    overall_status="$status"
+  fi
+
+  TIMEFORMAT='[diet-python timing] pytest_s=%3R'
+  if time just _pytest-run tests/; then
+    :
+  else
+    status=$?
+    echo "[diet-python test-all] step failed: pytest (exit $status)" >&2
+    if [ "$overall_status" -eq 0 ]; then
+      overall_status="$status"
+    fi
+  fi
+
+  TIMEFORMAT='[diet-python timing] build_web_inspector_s=%3R'
+  if time just build-web-inspector; then
+    :
+  else
+    status=$?
+    echo "[diet-python test-all] step failed: build-web-inspector (exit $status)" >&2
+    if [ "$overall_status" -eq 0 ]; then
+      overall_status="$status"
+    fi
+  fi
+
+  just uninstall-extension
+  exit "$overall_status"
 
 benchmark loops="1000000": (update-venv) (build-extension "release")
   #!/usr/bin/env bash
