@@ -92,8 +92,6 @@ pub struct CoreBlockPyYieldFrom<E = CoreBlockPyExpr> {
     pub value: Box<E>,
 }
 
-pub type SemanticBlockPyModule = BlockPyModule<Expr>;
-pub type SemanticBlockPyExpr = Expr;
 pub type SemanticBlockPyCallableDef = BlockPyCallableDef<Expr>;
 pub type SemanticBlockPyBlock = BlockPyBlock<Expr>;
 pub type SemanticBlockPyStmt = BlockPyStmt<Expr>;
@@ -104,42 +102,21 @@ pub type SemanticBlockPyIf = BlockPyStructuredIf<Expr>;
 pub type SemanticBlockPyIfTerm = BlockPyIfTerm<Expr>;
 pub type SemanticBlockPyBranchTable = BlockPyBranchTable<Expr>;
 pub type SemanticBlockPyRaise = BlockPyRaise<Expr>;
-pub type CoreBlockPyModule = BlockPyModule<CoreBlockPyExpr>;
-pub type CoreBlockPyModuleWithoutAwait = BlockPyModule<CoreBlockPyExprWithoutAwait>;
-pub type CoreBlockPyModuleWithoutAwaitOrYield = BlockPyModule<CoreBlockPyExprWithoutAwaitOrYield>;
+
 pub type CoreBlockPyCallableDef = BlockPyCallableDef<CoreBlockPyExpr>;
 pub type CoreBlockPyCallableDefWithoutAwait = BlockPyCallableDef<CoreBlockPyExprWithoutAwait>;
 pub type CoreBlockPyCallableDefWithoutAwaitOrYield =
     BlockPyCallableDef<CoreBlockPyExprWithoutAwaitOrYield>;
 pub type CoreBlockPyBlock = BlockPyBlock<CoreBlockPyExpr>;
 pub type CoreBlockPyBlockWithoutAwait = BlockPyBlock<CoreBlockPyExprWithoutAwait>;
-pub type CoreBlockPyBlockWithoutAwaitOrYield = BlockPyBlock<CoreBlockPyExprWithoutAwaitOrYield>;
 pub type CoreBlockPyStmt = BlockPyStmt<CoreBlockPyExpr>;
 pub type CoreBlockPyStmtWithoutAwait = BlockPyStmt<CoreBlockPyExprWithoutAwait>;
 pub type CoreBlockPyStmtWithoutAwaitOrYield = BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>;
 pub type CoreBlockPyTerm = BlockPyTerm<CoreBlockPyExpr>;
 pub type CoreBlockPyTermWithoutAwait = BlockPyTerm<CoreBlockPyExprWithoutAwait>;
-pub type CoreBlockPyTermWithoutAwaitOrYield = BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>;
 pub type CoreBlockPyStmtFragment = BlockPyStmtFragment<CoreBlockPyExpr>;
 pub type CoreBlockPyStmtFragmentWithoutAwait = BlockPyStmtFragment<CoreBlockPyExprWithoutAwait>;
-pub type CoreBlockPyStmtFragmentWithoutAwaitOrYield =
-    BlockPyStmtFragment<CoreBlockPyExprWithoutAwaitOrYield>;
 pub type CoreBlockPyAssign = BlockPyAssign<CoreBlockPyExpr>;
-pub type CoreBlockPyAssignWithoutAwait = BlockPyAssign<CoreBlockPyExprWithoutAwait>;
-pub type CoreBlockPyAssignWithoutAwaitOrYield = BlockPyAssign<CoreBlockPyExprWithoutAwaitOrYield>;
-pub type CoreBlockPyIf = BlockPyStructuredIf<CoreBlockPyExpr>;
-pub type CoreBlockPyIfWithoutAwait = BlockPyStructuredIf<CoreBlockPyExprWithoutAwait>;
-pub type CoreBlockPyIfWithoutAwaitOrYield = BlockPyStructuredIf<CoreBlockPyExprWithoutAwaitOrYield>;
-pub type CoreBlockPyIfTerm = BlockPyIfTerm<CoreBlockPyExpr>;
-pub type CoreBlockPyIfTermWithoutAwait = BlockPyIfTerm<CoreBlockPyExprWithoutAwait>;
-pub type CoreBlockPyIfTermWithoutAwaitOrYield = BlockPyIfTerm<CoreBlockPyExprWithoutAwaitOrYield>;
-pub type CoreBlockPyBranchTable = BlockPyBranchTable<CoreBlockPyExpr>;
-pub type CoreBlockPyBranchTableWithoutAwait = BlockPyBranchTable<CoreBlockPyExprWithoutAwait>;
-pub type CoreBlockPyBranchTableWithoutAwaitOrYield =
-    BlockPyBranchTable<CoreBlockPyExprWithoutAwaitOrYield>;
-pub type CoreBlockPyRaise = BlockPyRaise<CoreBlockPyExpr>;
-pub type CoreBlockPyRaiseWithoutAwait = BlockPyRaise<CoreBlockPyExprWithoutAwait>;
-pub type CoreBlockPyRaiseWithoutAwaitOrYield = BlockPyRaise<CoreBlockPyExprWithoutAwaitOrYield>;
 pub const ENTRY_BLOCK_LABEL: &str = "start";
 
 #[derive(Debug, Clone)]

@@ -10,7 +10,7 @@
 - **MUST FOLLOW**: Always run `just test-all` before submitting changes, unless the change only updates project documentation such as `TODO.md`, `AGENTS.md`, or other docs-only files. `just test-all` runs `cargo test`, `just pytest tests/`, and `just build-web-inspector` in sequence after `just build-all`.
 - **MUST FOLLOW**: Always preserve behavior in the transformed code, particularly evaluation order.
 - **MUST FOLLOW**: When traversing the AST, always use an impl of `crate::transformer::Transformer`.
-- **MUST FOLLOW**: When referring to a specific line or block of code, include both the full path with line number and the specific enclosing function, struct, trait, or other code item that contains it.
+- **MUST FOLLOW**: When referring to a specific line or block of code, name the enclosing function, struct, trait, or other code item first, then give the full path with line number. Preferred format: `in <item>, at <path>:<line>`.
 - **NOTE**: Prefer adding behavior at transform time rather than runtime in `__dp__.py` whenever possible.
 - **MUST FOLLOW**: If a change requires adding a compatibility interface for a Python standard type/function, or patching one, stop and describe the reason before implementing.
 - **MUST FOLLOW**: When changing implementation details, do not keep compatibility stubs/interfaces around; assume transformed inputs are regenerated each time.

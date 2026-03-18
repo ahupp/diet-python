@@ -175,7 +175,7 @@ Properties:
 
 At the module level:
 
-- `LoweredCoreBlockPyModuleBundle = CfgModule<LoweredCoreBlockPyFunction>`
+- `CfgModule<LoweredCoreBlockPyFunction> = CfgModule<LoweredCoreBlockPyFunction>`
 
 This is the tracked `core_blockpy` pass result.
 

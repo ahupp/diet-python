@@ -10,7 +10,13 @@ use crate::basic_block::ast_to_ast::{
     rewrite_future_annotations, rewrite_names, rewrite_stmt,
 };
 use crate::basic_block::bb_ir::BbModule;
-use crate::basic_block::block_py::{BlockPyModule, SemanticBlockPyModule};
+use crate::basic_block::block_py::BlockPyModule;
+use crate::basic_block::blockpy_to_bb::LoweredCoreBlockPyFunctionWithoutAwaitOrYield;
+use crate::basic_block::blockpy_to_bb::{
+    LoweredCoreBlockPyFunction, LoweredCoreBlockPyFunctionWithoutAwait,
+};
+use crate::basic_block::cfg_ir::CfgModule;
+use crate::basic_block::ruff_to_blockpy::LoweredBlockPyFunction;
 use crate::PassTracker;
 use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
 
@@ -74,7 +80,7 @@ pub(crate) fn rewrite_module_with_tracker(
             &semantic_blockpy_plan,
         )
     });
-    let lowered_blockpy_module: basic_block::LoweredBlockPyModuleBundle = pass_tracker
+    let lowered_blockpy_module: CfgModule<LoweredBlockPyFunction> = pass_tracker
         .run_pass("blockpy", || {
             basic_block::lower_blockpy_module_plan_to_bundle(context, semantic_blockpy_plan)
         });
@@ -82,29 +88,27 @@ pub(crate) fn rewrite_module_with_tracker(
     //     &lowered_blockpy_module,
     //     |lowered| -> &crate::basic_block::block_py::SemanticBlockPyCallableDef { lowered },
     // );
-    let core_blockpy: basic_block::LoweredCoreBlockPyModuleBundle = pass_tracker
+    let core_blockpy: CfgModule<LoweredCoreBlockPyFunction> = pass_tracker
         .run_pass("core_blockpy", || {
             basic_block::simplify_lowered_blockpy_module_bundle_exprs(&lowered_blockpy_module)
         });
-    let core_blockpy_with_explicit_eval_order: basic_block::LoweredCoreBlockPyModuleBundle =
-        pass_tracker.run_pass("core_blockpy_with_explicit_eval_order", || {
+    let core_blockpy_with_explicit_eval_order: CfgModule<LoweredCoreBlockPyFunction> = pass_tracker
+        .run_pass("core_blockpy_with_explicit_eval_order", || {
             basic_block::make_eval_order_explicit_in_lowered_core_blockpy_module_bundle(
                 core_blockpy,
             )
         });
-    let core_blockpy_without_await: basic_block::LoweredCoreBlockPyModuleBundleWithoutAwait =
+    let core_blockpy_without_await: CfgModule<LoweredCoreBlockPyFunctionWithoutAwait> =
         pass_tracker.run_pass("core_blockpy_without_await", || {
             basic_block::lower_awaits_in_lowered_core_blockpy_module_bundle(
                 core_blockpy_with_explicit_eval_order,
             )
         });
-    let core_blockpy_without_await_or_yield:
-        basic_block::LoweredCoreBlockPyModuleBundleWithoutAwaitOrYield =
-        pass_tracker.run_pass("core_blockpy_without_await_or_yield", || {
-            basic_block::lower_yield_in_lowered_core_blockpy_module_bundle(
-                core_blockpy_without_await,
-            )
-        });
+    let core_blockpy_without_await_or_yield: CfgModule<
+        LoweredCoreBlockPyFunctionWithoutAwaitOrYield,
+    > = pass_tracker.run_pass("core_blockpy_without_await_or_yield", || {
+        basic_block::lower_yield_in_lowered_core_blockpy_module_bundle(core_blockpy_without_await)
+    });
     let bb_module: BbModule = pass_tracker.run_pass("bb", || {
         basic_block::lower_core_blockpy_module_bundle_to_bb_module(
             &core_blockpy_without_await_or_yield,

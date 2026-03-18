@@ -1047,7 +1047,7 @@ pub(crate) fn lower_function_body_to_blockpy_function<FDef, FTemp>(
     runtime_input_body: &[Box<Stmt>],
     header: BlockPyCallableHeader<ast::Parameters>,
     doc: Option<Expr>,
-    legacy_async_runtime_input_body: Option<&[Box<Stmt>]>,
+    //    legacy_async_runtime_input_body: Option<&[Box<Stmt>]>,
     end_label: String,
     label_prefix: &str,
     has_yield: bool,
@@ -1069,31 +1069,31 @@ where
         coroutine_via_generator,
         has_yield,
     );
-    if needs_generator_lowering {
-        let semantic_input = build_semantic_generator_input(
-            context,
-            header.fn_name.as_str(),
-            runtime_input_body,
-            legacy_async_runtime_input_body.unwrap_or(runtime_input_body),
-            end_label.as_str(),
-            is_closure_backed_generator_runtime,
-            &callable_facts.cell_slots,
-            next_block_id,
-            lower_non_bb_def,
-            next_temp,
-        );
-        return PreparedBlockPyFunctionPlan::PendingGeneratorLowering(
-            PendingGeneratorLoweringPlan {
-                header,
-                doc,
-                semantic_input,
-                end_label,
-                blockpy_kind,
-                callable_facts: callable_facts.clone(),
-                awaits_remain_after_lowering: None,
-            },
-        );
-    }
+    // if needs_generator_lowering {
+    //     let semantic_input = build_semantic_generator_input(
+    //         context,
+    //         header.fn_name.as_str(),
+    //         runtime_input_body,
+    //         legacy_async_runtime_input_body.unwrap_or(runtime_input_body),
+    //         end_label.as_str(),
+    //         is_closure_backed_generator_runtime,
+    //         &callable_facts.cell_slots,
+    //         next_block_id,
+    //         lower_non_bb_def,
+    //         next_temp,
+    //     );
+    //     return PreparedBlockPyFunctionPlan::PendingGeneratorLowering(
+    //         PendingGeneratorLoweringPlan {
+    //             header,
+    //             doc,
+    //             semantic_input,
+    //             end_label,
+    //             blockpy_kind,
+    //             callable_facts: callable_facts.clone(),
+    //             awaits_remain_after_lowering: None,
+    //         },
+    //     );
+    // }
     PreparedBlockPyFunctionPlan::Ready(build_prepared_blockpy_function_from_runtime_input(
         context,
         header,
@@ -1470,7 +1470,7 @@ mod tests {
     use super::*;
     use crate::basic_block::ast_to_ast::{context::Context, Options};
     use crate::basic_block::block_py::{
-        SemanticBlockPyCallableDef as BlockPyCallableDef, SemanticBlockPyModule as BlockPyModule,
+        BlockPyModule, SemanticBlockPyCallableDef as BlockPyCallableDef,
         SemanticBlockPyRaise as BlockPyRaise, SemanticBlockPyStmt as BlockPyStmt,
         SemanticBlockPyTerm as BlockPyTerm,
     };
@@ -1485,12 +1485,13 @@ mod tests {
     };
     use crate::basic_block::ruff_to_blockpy::try_regions::build_try_plan;
     use crate::{transform_str_to_blockpy_with_options, transform_str_to_ruff_with_options};
+    use ruff_python_ast::Expr;
 
-    fn wrapped_blockpy(source: &str) -> BlockPyModule {
+    fn wrapped_blockpy(source: &str) -> BlockPyModule<Expr> {
         transform_str_to_blockpy_with_options(source, Options::for_test()).unwrap()
     }
 
-    fn wrapped_semantic_blockpy(source: &str) -> BlockPyModule {
+    fn wrapped_semantic_blockpy(source: &str) -> BlockPyModule<Expr> {
         transform_str_to_ruff_with_options(source, Options::for_test())
             .unwrap()
             .get_pass::<BlockPyModule>("semantic_blockpy")

@@ -290,6 +290,7 @@ impl Drop for ReservedTempNamesGuard {
     }
 }
 
+// TODO: This is teh source of problems
 pub(crate) fn try_lower_function_to_blockpy_bundle(
     context: &Context,
     module_scope: &Arc<Scope>,
@@ -330,14 +331,14 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     let has_yield_original = has_yield_exprs_in_stmts(&lowered_input_body);
     let runtime_input_body = prune_dead_stmt_suffixes(&lowered_input_body);
     let original_runtime_input_body = runtime_input_body.clone();
-    let mut legacy_async_runtime_input_body = None;
-    let mut legacy_async_fallback_removes_all_awaits = false;
-    if func.is_async {
-        let mut lowered_async_body = runtime_input_body.clone();
-        lower_coroutine_awaits_to_yield_from(&mut lowered_async_body);
-        legacy_async_fallback_removes_all_awaits = !has_await_in_stmts(&lowered_async_body);
-        legacy_async_runtime_input_body = Some(lowered_async_body);
-    }
+    // let mut legacy_async_runtime_input_body = None;
+    // let mut legacy_async_fallback_removes_all_awaits = false;
+    // if func.is_async {
+    //     let mut lowered_async_body = runtime_input_body.clone();
+    //     lower_coroutine_awaits_to_yield_from(&mut lowered_async_body);
+    //     legacy_async_fallback_removes_all_awaits = !has_await_in_stmts(&lowered_async_body);
+    //     legacy_async_runtime_input_body = Some(lowered_async_body);
+    // }
     let coroutine_via_generator = func.is_async && !has_yield_original;
     let mut outer_scope_names = collect_bound_names(&runtime_input_body);
     outer_scope_names.extend(param_names.iter().cloned());
@@ -364,16 +365,16 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     };
     let has_yield = has_yield_exprs_in_stmts(&runtime_input_body);
     let has_await = has_await_in_stmts(&runtime_input_body);
-    if is_generated_genexpr
-        && func.is_async
-        && has_await
-        && !legacy_async_fallback_removes_all_awaits
-    {
-        return None;
-    }
-    if has_yield && has_await && !func.is_async {
-        return None;
-    }
+    // if is_generated_genexpr
+    //     && func.is_async
+    //     && has_await
+    //     && !legacy_async_fallback_removes_all_awaits
+    // {
+    //     return None;
+    // }
+    // if has_yield && has_await && !func.is_async {
+    //     return None;
+    // }
     let is_async_generator_runtime = func.is_async && !coroutine_via_generator;
     let needs_generator_runtime = has_yield || coroutine_via_generator;
     let is_closure_backed_generator_runtime = needs_generator_runtime;
@@ -396,10 +397,10 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         &runtime_input_body,
         callable_header,
         doc_expr,
-        legacy_async_runtime_input_body
-            .as_deref()
-            .filter(|_| legacy_async_fallback_removes_all_awaits)
-            .or(Some(original_runtime_input_body.as_slice())),
+        //        legacy_async_runtime_input_body
+        // .as_deref()
+        // .filter(|_| legacy_async_fallback_removes_all_awaits)
+        // .or(Some(original_runtime_input_body.as_slice())),
         end_label,
         label_prefix.as_str(),
         has_yield,

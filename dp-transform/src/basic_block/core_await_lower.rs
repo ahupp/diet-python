@@ -3,8 +3,7 @@ use super::block_py::{
     BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment, BlockPyTerm, CoreBlockPyAwait,
     CoreBlockPyBlock, CoreBlockPyBlockWithoutAwait, CoreBlockPyCall, CoreBlockPyCallArg,
     CoreBlockPyCallableDef, CoreBlockPyCallableDefWithoutAwait, CoreBlockPyExpr,
-    CoreBlockPyExprWithoutAwait, CoreBlockPyKeywordArg, CoreBlockPyModule,
-    CoreBlockPyModuleWithoutAwait, CoreBlockPyStmt, CoreBlockPyStmtFragment,
+    CoreBlockPyExprWithoutAwait, CoreBlockPyKeywordArg, CoreBlockPyStmt, CoreBlockPyStmtFragment,
     CoreBlockPyStmtFragmentWithoutAwait, CoreBlockPyStmtWithoutAwait, CoreBlockPyTerm,
     CoreBlockPyTermWithoutAwait, CoreBlockPyYield, CoreBlockPyYieldFrom,
 };
@@ -181,8 +180,8 @@ pub(crate) fn lower_awaits_in_core_blockpy_callable_def(
 
 #[cfg(test)]
 pub(crate) fn lower_awaits_in_core_blockpy_module(
-    module: CoreBlockPyModule,
-) -> CoreBlockPyModuleWithoutAwait {
+    module: BlockPyModule<CoreBlockPyExpr>,
+) -> BlockPyModule<CoreBlockPyExprWithoutAwait> {
     BlockPyModule {
         module_init: module.module_init,
         callable_defs: module

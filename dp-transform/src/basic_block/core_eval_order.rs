@@ -4,8 +4,9 @@ use super::block_py::{
     CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyCallableDef, CoreBlockPyExpr,
     CoreBlockPyKeywordArg, CoreBlockPyTerm, CoreBlockPyYield, CoreBlockPyYieldFrom,
 };
-use super::blockpy_to_bb::{LoweredCoreBlockPyFunction, LoweredCoreBlockPyModuleBundle};
+use super::blockpy_to_bb::LoweredCoreBlockPyFunction;
 use super::cfg_ir::CfgCallableDef;
+use crate::basic_block::cfg_ir::CfgModule;
 use crate::namegen::fresh_name;
 use crate::py_expr;
 use ruff_python_ast as ast;
@@ -252,8 +253,8 @@ fn make_eval_order_explicit_in_lowered_core_blockpy_function(
 }
 
 pub(crate) fn make_eval_order_explicit_in_lowered_core_blockpy_module_bundle(
-    module: LoweredCoreBlockPyModuleBundle,
-) -> LoweredCoreBlockPyModuleBundle {
+    module: CfgModule<LoweredCoreBlockPyFunction>,
+) -> CfgModule<LoweredCoreBlockPyFunction> {
     module.map_callable_defs(make_eval_order_explicit_in_lowered_core_blockpy_function)
 }
 

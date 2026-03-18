@@ -1,3 +1,8 @@
+use crate::basic_block::blockpy_to_bb::{
+    LoweredCoreBlockPyFunction, LoweredCoreBlockPyFunctionWithoutAwait,
+    LoweredCoreBlockPyFunctionWithoutAwaitOrYield,
+};
+use crate::basic_block::ruff_to_blockpy::LoweredBlockPyFunction;
 use ruff_python_ast::{self as ast, Expr, ModModule, Stmt, StmtBody};
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_python_parser::parse_module;
@@ -23,6 +28,7 @@ use crate::basic_block::ast_to_ast::context::Context;
 pub use crate::basic_block::ast_to_ast::scope::{analyze_module_scope, Scope};
 pub use crate::basic_block::ast_to_ast::Options;
 use crate::basic_block::bb_ir;
+use crate::basic_block::cfg_ir::CfgModule;
 use crate::driver::rewrite_module_with_tracker;
 
 #[derive(Debug, Clone)]
@@ -139,35 +145,33 @@ impl PassTracker {
 
     pub(crate) fn semantic_blockpy(
         &self,
-    ) -> Option<&crate::basic_block::block_py::SemanticBlockPyModule> {
+    ) -> Option<&crate::basic_block::block_py::BlockPyModule<Expr>> {
         self.get("semantic_blockpy")
     }
 
-    pub(crate) fn blockpy(&self) -> Option<&crate::basic_block::LoweredBlockPyModuleBundle> {
+    pub(crate) fn blockpy(&self) -> Option<&CfgModule<LoweredBlockPyFunction>> {
         self.get("blockpy")
     }
 
-    pub(crate) fn core_blockpy(
-        &self,
-    ) -> Option<&crate::basic_block::LoweredCoreBlockPyModuleBundle> {
+    pub(crate) fn core_blockpy(&self) -> Option<&CfgModule<LoweredCoreBlockPyFunction>> {
         self.get("core_blockpy")
     }
 
     pub(crate) fn core_blockpy_with_explicit_eval_order(
         &self,
-    ) -> Option<&crate::basic_block::LoweredCoreBlockPyModuleBundle> {
+    ) -> Option<&CfgModule<LoweredCoreBlockPyFunction>> {
         self.get("core_blockpy_with_explicit_eval_order")
     }
 
     pub(crate) fn core_blockpy_without_await(
         &self,
-    ) -> Option<&crate::basic_block::LoweredCoreBlockPyModuleBundleWithoutAwait> {
+    ) -> Option<&CfgModule<LoweredCoreBlockPyFunctionWithoutAwait>> {
         self.get("core_blockpy_without_await")
     }
 
     pub(crate) fn core_blockpy_without_await_or_yield(
         &self,
-    ) -> Option<&crate::basic_block::LoweredCoreBlockPyModuleBundleWithoutAwaitOrYield> {
+    ) -> Option<&CfgModule<LoweredCoreBlockPyFunctionWithoutAwaitOrYield>> {
         self.get("core_blockpy_without_await_or_yield")
     }
 
