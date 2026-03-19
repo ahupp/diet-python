@@ -305,12 +305,16 @@ pub fn transform_str_to_blockpy_with_options(
     let ModModule { body, .. } = module;
 
     let (pass_tracker, _bb_module) = crate::driver::rewrite_module(&ctx, body.body);
-    Ok(crate::basic_block::project_lowered_module_callable_defs(
-        pass_tracker
+    Ok(crate::basic_block::block_py::BlockPyModule {
+        callable_defs: pass_tracker
             .blockpy()
-            .expect("blockpy pass should be tracked"),
-        |lowered| -> &crate::basic_block::block_py::BlockPyCallableDef<Expr> { lowered },
-    ))
+            .expect("blockpy pass should be tracked")
+            .callable_defs
+            .iter()
+            .cloned()
+            .map(|lowered| lowered.map_extra(|_| ()))
+            .collect(),
+    })
 }
 
 pub trait ToRuffAst {

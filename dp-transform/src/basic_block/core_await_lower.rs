@@ -154,9 +154,9 @@ fn lower_core_block_awaits(
     }
 }
 
-pub(crate) fn lower_awaits_in_core_blockpy_callable_def(
-    callable_def: BlockPyCallableDef<CoreBlockPyExpr>,
-) -> BlockPyCallableDef<CoreBlockPyExprWithoutAwait> {
+pub(crate) fn lower_awaits_in_core_blockpy_callable_def<X>(
+    callable_def: BlockPyCallableDef<CoreBlockPyExpr, BlockPyBlock<CoreBlockPyExpr>, X>,
+) -> BlockPyCallableDef<CoreBlockPyExprWithoutAwait, BlockPyBlock<CoreBlockPyExprWithoutAwait>, X> {
     BlockPyCallableDef {
         function_id: callable_def.function_id,
         names: callable_def.names,
@@ -176,6 +176,7 @@ pub(crate) fn lower_awaits_in_core_blockpy_callable_def(
         closure_layout: callable_def.closure_layout,
         facts: callable_def.facts,
         try_regions: callable_def.try_regions,
+        extra: callable_def.extra,
     }
 }
 
@@ -218,6 +219,7 @@ mod tests {
                 closure_layout: None,
                 facts: super::super::block_py::BlockPyCallableFacts::default(),
                 try_regions: Vec::new(),
+                extra: (),
             }],
         };
 

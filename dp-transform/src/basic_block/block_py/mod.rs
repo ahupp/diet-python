@@ -245,7 +245,7 @@ impl FunctionName {
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockPyCallableDef<E = Expr, B = BlockPyBlock<E>> {
+pub struct BlockPyCallableDef<E = Expr, B = BlockPyBlock<E>, X = ()> {
     pub function_id: FunctionId,
     pub names: FunctionName,
     pub kind: BlockPyFunctionKind,
@@ -256,9 +256,10 @@ pub struct BlockPyCallableDef<E = Expr, B = BlockPyBlock<E>> {
     pub closure_layout: Option<ClosureLayout>,
     pub facts: BlockPyCallableFacts,
     pub try_regions: Vec<TryRegionPlan>,
+    pub extra: X,
 }
 
-impl<E, B> BlockPyCallableDef<E, B> {
+impl<E, B, X> BlockPyCallableDef<E, B, X> {
     pub fn lowered_kind(&self) -> &BlockPyFunctionKind {
         &self.kind
     }
@@ -279,9 +280,25 @@ impl<E, B> BlockPyCallableDef<E, B> {
             .first()
             .expect("BlockPyCallableDef should have at least one block")
     }
+
+    pub fn map_extra<Y>(self, f: impl FnOnce(X) -> Y) -> BlockPyCallableDef<E, B, Y> {
+        BlockPyCallableDef {
+            function_id: self.function_id,
+            names: self.names,
+            kind: self.kind,
+            params: self.params,
+            param_defaults: self.param_defaults,
+            blocks: self.blocks,
+            doc: self.doc,
+            closure_layout: self.closure_layout,
+            facts: self.facts,
+            try_regions: self.try_regions,
+            extra: f(self.extra),
+        }
+    }
 }
 
-impl<E, S, T, M> BlockPyCallableDef<E, CfgBlock<S, T, M>> {
+impl<E, S, T, M, X> BlockPyCallableDef<E, CfgBlock<S, T, M>, X> {
     pub fn entry_label(&self) -> &str {
         self.entry_block().label_str()
     }
@@ -291,7 +308,7 @@ pub(crate) fn is_internal_entry_livein(name: &str) -> bool {
     matches!(name, "_dp_self" | "_dp_send_value" | "_dp_resume_exc")
 }
 
-impl<E> BlockPyCallableDef<E, BlockPyBlock<E>>
+impl<E, X> BlockPyCallableDef<E, BlockPyBlock<E>, X>
 where
     E: Clone + Into<Expr>,
 {
@@ -334,9 +351,9 @@ pub struct BlockPyBlockMeta {
 
 pub type BlockPyCfgBlock<S, T> = CfgBlock<S, T, BlockPyBlockMeta>;
 pub type BlockPyBlock<E = Expr> = BlockPyCfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>;
-pub type BlockPyModuleWith<S, T, E = Expr> =
-    CfgModule<BlockPyCallableDef<E, BlockPyCfgBlock<S, T>>>;
-pub type BlockPyModule<E = Expr> = BlockPyModuleWith<BlockPyStmt<E>, BlockPyTerm<E>, E>;
+pub type BlockPyModuleWith<S, T, E = Expr, X = ()> =
+    CfgModule<BlockPyCallableDef<E, BlockPyCfgBlock<S, T>, X>>;
+pub type BlockPyModule<E = Expr, X = ()> = BlockPyModuleWith<BlockPyStmt<E>, BlockPyTerm<E>, E, X>;
 pub type BlockPyStructuredIf<E = Expr> = BlockPyIf<E, BlockPyStmt<E>, BlockPyTerm<E>>;
 
 pub trait BlockPyNormalizedStmt {
@@ -1010,12 +1027,18 @@ impl TryFrom<BlockPyBlock<CoreBlockPyExpr>> for BlockPyBlock<CoreBlockPyExprWith
     }
 }
 
-impl TryFrom<BlockPyCallableDef<CoreBlockPyExpr>>
-    for BlockPyCallableDef<CoreBlockPyExprWithoutAwait>
+impl<X> TryFrom<BlockPyCallableDef<CoreBlockPyExpr, BlockPyBlock<CoreBlockPyExpr>, X>>
+    for BlockPyCallableDef<
+        CoreBlockPyExprWithoutAwait,
+        BlockPyBlock<CoreBlockPyExprWithoutAwait>,
+        X,
+    >
 {
     type Error = CoreBlockPyExpr;
 
-    fn try_from(value: BlockPyCallableDef<CoreBlockPyExpr>) -> Result<Self, Self::Error> {
+    fn try_from(
+        value: BlockPyCallableDef<CoreBlockPyExpr, BlockPyBlock<CoreBlockPyExpr>, X>,
+    ) -> Result<Self, Self::Error> {
         let BlockPyCallableDef {
             function_id,
             names,
@@ -1027,6 +1050,7 @@ impl TryFrom<BlockPyCallableDef<CoreBlockPyExpr>>
             closure_layout,
             facts,
             try_regions,
+            extra,
         } = value;
         Ok(BlockPyCallableDef {
             function_id,
@@ -1045,6 +1069,7 @@ impl TryFrom<BlockPyCallableDef<CoreBlockPyExpr>>
             closure_layout,
             facts,
             try_regions,
+            extra,
         })
     }
 }
@@ -1245,13 +1270,28 @@ impl TryFrom<BlockPyBlock<CoreBlockPyExprWithoutAwait>>
     }
 }
 
-impl TryFrom<BlockPyCallableDef<CoreBlockPyExprWithoutAwait>>
-    for BlockPyCallableDef<CoreBlockPyExprWithoutAwaitOrYield>
+impl<X>
+    TryFrom<
+        BlockPyCallableDef<
+            CoreBlockPyExprWithoutAwait,
+            BlockPyBlock<CoreBlockPyExprWithoutAwait>,
+            X,
+        >,
+    >
+    for BlockPyCallableDef<
+        CoreBlockPyExprWithoutAwaitOrYield,
+        BlockPyBlock<CoreBlockPyExprWithoutAwaitOrYield>,
+        X,
+    >
 {
     type Error = CoreBlockPyExprWithoutAwait;
 
     fn try_from(
-        value: BlockPyCallableDef<CoreBlockPyExprWithoutAwait>,
+        value: BlockPyCallableDef<
+            CoreBlockPyExprWithoutAwait,
+            BlockPyBlock<CoreBlockPyExprWithoutAwait>,
+            X,
+        >,
     ) -> Result<Self, Self::Error> {
         let BlockPyCallableDef {
             function_id,
@@ -1264,6 +1304,7 @@ impl TryFrom<BlockPyCallableDef<CoreBlockPyExprWithoutAwait>>
             closure_layout,
             facts,
             try_regions,
+            extra,
         } = value;
         Ok(BlockPyCallableDef {
             function_id,
@@ -1282,6 +1323,7 @@ impl TryFrom<BlockPyCallableDef<CoreBlockPyExprWithoutAwait>>
             closure_layout,
             facts,
             try_regions,
+            extra,
         })
     }
 }

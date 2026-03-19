@@ -409,9 +409,9 @@ fn lower_semantic_block(block: &BlockPyBlock<Expr>) -> BlockPyBlock<CoreBlockPyE
     }
 }
 
-pub(crate) fn simplify_blockpy_callable_def_exprs(
-    callable_def: &BlockPyCallableDef<Expr>,
-) -> BlockPyCallableDef<CoreBlockPyExpr> {
+pub(crate) fn simplify_blockpy_callable_def_exprs<X: Clone>(
+    callable_def: &BlockPyCallableDef<Expr, BlockPyBlock<Expr>, X>,
+) -> BlockPyCallableDef<CoreBlockPyExpr, BlockPyBlock<CoreBlockPyExpr>, X> {
     BlockPyCallableDef {
         function_id: callable_def.function_id,
         names: callable_def.names.clone(),
@@ -427,6 +427,7 @@ pub(crate) fn simplify_blockpy_callable_def_exprs(
         closure_layout: callable_def.closure_layout.clone(),
         facts: callable_def.facts.clone(),
         try_regions: callable_def.try_regions.clone(),
+        extra: callable_def.extra.clone(),
     }
 }
 

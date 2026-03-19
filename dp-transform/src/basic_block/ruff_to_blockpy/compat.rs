@@ -99,22 +99,6 @@ pub(crate) fn compat_jump_block_from_blockpy(
     )
 }
 
-pub(crate) fn compat_return_block_from_expr(
-    label: String,
-    body: Vec<Stmt>,
-    value: Option<Expr>,
-) -> BlockPyBlock {
-    compat_block_from_blockpy(label, body, BlockPyTerm::Return(value.map(Into::into)))
-}
-
-pub(crate) fn compat_raise_block_from_blockpy_raise(
-    label: String,
-    body: Vec<Stmt>,
-    exc: BlockPyRaise,
-) -> BlockPyBlock {
-    compat_block_from_blockpy(label, body, BlockPyTerm::Raise(exc))
-}
-
 pub(crate) fn set_region_exc_param(
     blocks: &mut [BlockPyBlock],
     region: &std::ops::Range<usize>,

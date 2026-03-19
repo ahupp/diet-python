@@ -1,7 +1,6 @@
 mod annotation_export;
 mod ast_symbol_analysis;
 pub(crate) mod ast_to_ast;
-mod await_lower;
 pub mod bb_ir;
 pub mod block_py;
 mod blockpy_expr_simplify;
@@ -152,8 +151,8 @@ fn summarize_blockpy_term<E: Clone + Into<Expr>>(
     }
 }
 
-fn summarize_blockpy_module<E: Clone + Into<Expr>>(
-    module: &block_py::BlockPyModule<E>,
+fn summarize_blockpy_module<E: Clone + Into<Expr>, X>(
+    module: &block_py::BlockPyModule<E, X>,
 ) -> crate::PassShapeSummary {
     let mut summary = crate::PassShapeSummary::default();
     for callable in &module.callable_defs {
@@ -176,20 +175,14 @@ fn summarize_semantic_blockpy_plan(
 fn summarize_semantic_blockpy_bundle(
     bundle: &CfgModule<LoweredBlockPyFunction>,
 ) -> crate::PassShapeSummary {
-    let blockpy = project_lowered_module_callable_defs(
-        bundle,
-        |lowered| -> &crate::basic_block::block_py::BlockPyCallableDef<Expr> { lowered },
-    );
+    let blockpy = project_lowered_module_callable_defs(bundle, |lowered| lowered);
     summarize_blockpy_module(&blockpy)
 }
 
 fn summarize_core_blockpy_bundle(
     bundle: &CfgModule<LoweredCoreBlockPyFunction>,
 ) -> crate::PassShapeSummary {
-    let blockpy = project_lowered_module_callable_defs(
-        bundle,
-        |lowered| -> &crate::basic_block::block_py::BlockPyCallableDef<CoreBlockPyExpr> { lowered },
-    );
+    let blockpy = project_lowered_module_callable_defs(bundle, |lowered| lowered);
     summarize_blockpy_module(&blockpy)
 }
 
@@ -202,10 +195,7 @@ fn summarize_core_blockpy_module(
 fn summarize_core_blockpy_bundle_without_await(
     bundle: &CfgModule<LoweredCoreBlockPyFunctionWithoutAwait>,
 ) -> crate::PassShapeSummary {
-    let blockpy = project_lowered_module_callable_defs(
-        bundle,
-        |lowered| -> &crate::basic_block::block_py::BlockPyCallableDef<CoreBlockPyExprWithoutAwait> { lowered },
-    );
+    let blockpy = project_lowered_module_callable_defs(bundle, |lowered| lowered);
     summarize_blockpy_module(&blockpy)
 }
 
@@ -224,12 +214,7 @@ fn summarize_core_blockpy_module_without_await_or_yield(
 fn summarize_core_blockpy_bundle_without_await_or_yield(
     bundle: &CfgModule<LoweredCoreBlockPyFunctionWithoutAwaitOrYield>,
 ) -> crate::PassShapeSummary {
-    let blockpy = project_lowered_module_callable_defs(
-        bundle,
-        |lowered| -> &crate::basic_block::block_py::BlockPyCallableDef<
-            CoreBlockPyExprWithoutAwaitOrYield,
-        > { lowered },
-    );
+    let blockpy = project_lowered_module_callable_defs(bundle, |lowered| lowered);
     summarize_blockpy_module(&blockpy)
 }
 
@@ -276,18 +261,12 @@ fn render_semantic_blockpy_plan(plan: &LoweredBlockPyModuleBundlePlan) -> String
 }
 
 fn render_semantic_blockpy_bundle(bundle: &CfgModule<LoweredBlockPyFunction>) -> String {
-    let blockpy = project_lowered_module_callable_defs(
-        bundle,
-        |lowered| -> &crate::basic_block::block_py::BlockPyCallableDef<Expr> { lowered },
-    );
+    let blockpy = project_lowered_module_callable_defs(bundle, |lowered| lowered);
     blockpy_module_to_string(&blockpy)
 }
 
 fn render_core_blockpy_bundle(bundle: &CfgModule<LoweredCoreBlockPyFunction>) -> String {
-    let blockpy = project_lowered_module_callable_defs(
-        bundle,
-        |lowered| -> &crate::basic_block::block_py::BlockPyCallableDef<CoreBlockPyExpr> { lowered },
-    );
+    let blockpy = project_lowered_module_callable_defs(bundle, |lowered| lowered);
     blockpy_module_to_string(&blockpy)
 }
 
@@ -298,10 +277,7 @@ fn render_core_blockpy_module(module: &block_py::BlockPyModule<CoreBlockPyExpr>)
 fn render_core_blockpy_bundle_without_await(
     bundle: &CfgModule<LoweredCoreBlockPyFunctionWithoutAwait>,
 ) -> String {
-    let blockpy = project_lowered_module_callable_defs(
-        bundle,
-        |lowered| -> &crate::basic_block::block_py::BlockPyCallableDef<CoreBlockPyExprWithoutAwait> { lowered },
-    );
+    let blockpy = project_lowered_module_callable_defs(bundle, |lowered| lowered);
     blockpy_module_to_string(&blockpy)
 }
 
@@ -320,12 +296,7 @@ fn render_core_blockpy_module_without_await_or_yield(
 fn render_core_blockpy_bundle_without_await_or_yield(
     bundle: &CfgModule<LoweredCoreBlockPyFunctionWithoutAwaitOrYield>,
 ) -> String {
-    let blockpy = project_lowered_module_callable_defs(
-        bundle,
-        |lowered| -> &crate::basic_block::block_py::BlockPyCallableDef<
-            CoreBlockPyExprWithoutAwaitOrYield,
-        > { lowered },
-    );
+    let blockpy = project_lowered_module_callable_defs(bundle, |lowered| lowered);
     blockpy_module_to_string(&blockpy)
 }
 

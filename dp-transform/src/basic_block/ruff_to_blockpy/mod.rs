@@ -17,7 +17,6 @@ use super::block_py::{
 };
 use super::function_lowering::rewrite_deleted_name_loads;
 use super::stmt_utils::flatten_stmt_boxes;
-use crate::basic_block::ast_to_ast::ast_rewrite::Rewrite;
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::ast_to_ast::expr_utils::make_tuple;
 use crate::basic_block::block_py::param_specs::ParamSpec;
@@ -28,22 +27,20 @@ use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
-use std::ops::{Deref, DerefMut};
 mod compat;
 pub(crate) mod expr_lowering;
 mod stmt_lowering;
 mod stmt_sequences;
 mod try_regions;
 
-pub(crate) use super::blockpy_generators::{build_blockpy_closure_layout, GeneratorMetadata};
+pub(crate) use super::blockpy_generators::build_blockpy_closure_layout;
 
 pub(crate) use super::block_py::TryRegionPlan;
 pub(crate) use compat::{
-    compat_block_from_blockpy, compat_if_jump_block, compat_jump_block_from_blockpy,
-    compat_next_label, compat_next_temp, compat_raise_block_from_blockpy_raise,
-    compat_return_block_from_expr, emit_for_loop_blocks, emit_if_branch_block_with_expr_setup,
-    emit_sequence_jump_block, emit_sequence_raise_block_with_expr_setup,
-    emit_sequence_return_block_with_expr_setup, emit_simple_while_blocks_with_expr_setup,
+    compat_block_from_blockpy, compat_next_label, compat_next_temp, emit_for_loop_blocks,
+    emit_if_branch_block_with_expr_setup, emit_sequence_jump_block,
+    emit_sequence_raise_block_with_expr_setup, emit_sequence_return_block_with_expr_setup,
+    emit_simple_while_blocks_with_expr_setup,
 };
 pub(crate) use stmt_lowering::{
     build_for_target_assign_body, lower_star_try_stmt_sequence, lower_stmt_into,
@@ -52,55 +49,28 @@ pub(crate) use stmt_lowering::{
 };
 pub(crate) use stmt_sequences::{
     lower_expanded_stmt_sequence, lower_stmt_sequence_with_state, lower_stmts_to_blockpy_stmts,
-    lower_stmts_to_blockpy_stmts_with_context,
 };
 pub(crate) use try_regions::{
     block_references_label, build_try_plan, finalize_try_regions, lower_try_regions,
     prepare_except_body, prepare_finally_body, TryPlan,
 };
 
-#[derive(Debug, Clone)]
-pub struct LoweredBlockPyFunction<C = BlockPyCallableDef<Expr>> {
-    pub callable_def: C,
+#[derive(Debug, Clone, Default)]
+pub struct LoweredBlockPyExtra {
     pub block_params: HashMap<String, Vec<String>>,
     pub exception_edges: HashMap<String, Option<String>>,
 }
 
-impl<C> LoweredBlockPyFunction<C> {
-    pub fn map_callable_def<D>(&self, f: impl FnOnce(&C) -> D) -> LoweredBlockPyFunction<D> {
-        LoweredBlockPyFunction {
-            callable_def: f(&self.callable_def),
-            block_params: self.block_params.clone(),
-            exception_edges: self.exception_edges.clone(),
-        }
-    }
-}
+pub type LoweredBlockPyFunctionWith<E, B> = BlockPyCallableDef<E, B, LoweredBlockPyExtra>;
+pub type LoweredBlockPyFunction = LoweredBlockPyFunctionWith<Expr, BlockPyBlock<Expr>>;
 
-impl<C> Deref for LoweredBlockPyFunction<C> {
-    type Target = C;
-
-    fn deref(&self) -> &Self::Target {
-        &self.callable_def
-    }
-}
-
-impl<C> DerefMut for LoweredBlockPyFunction<C> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.callable_def
-    }
-}
-
-impl<E, B> LoweredBlockPyFunction<BlockPyCallableDef<E, B>> {
-    pub fn lowered_kind(&self) -> &BlockPyFunctionKind {
-        &self.callable_def.kind
-    }
-
+impl<E, B> BlockPyCallableDef<E, B, LoweredBlockPyExtra> {
     pub fn block_params(&self) -> &HashMap<String, Vec<String>> {
-        &self.block_params
+        &self.extra.block_params
     }
 
     pub fn exception_edges(&self) -> &HashMap<String, Option<String>> {
-        &self.exception_edges
+        &self.extra.exception_edges
     }
 }
 
@@ -133,7 +103,7 @@ pub(crate) enum StmtSequenceDriveResult {
     },
 }
 
-pub(crate) fn build_blockpy_function(
+pub(crate) fn build_blockpy_function<X>(
     function_id: FunctionId,
     names: FunctionName,
     params: ParamSpec,
@@ -145,7 +115,8 @@ pub(crate) fn build_blockpy_function(
     facts: BlockPyCallableFacts,
     try_regions: Vec<TryRegionPlan>,
     mut blocks: Vec<BlockPyBlock<Expr>>,
-) -> BlockPyCallableDef<Expr> {
+    extra: X,
+) -> BlockPyCallableDef<Expr, BlockPyBlock<Expr>, X> {
     move_blockpy_entry_block_to_front(&mut blocks, entry_label.as_str());
     for block in &blocks {
         assert_blockpy_block_normalized(block);
@@ -161,6 +132,7 @@ pub(crate) fn build_blockpy_function(
         closure_layout,
         facts,
         try_regions,
+        extra,
     }
 }
 
@@ -188,11 +160,10 @@ pub(crate) fn build_lowered_blockpy_function(
     block_params: HashMap<String, Vec<String>>,
     exception_edges: HashMap<String, Option<String>>,
 ) -> LoweredBlockPyFunction {
-    LoweredBlockPyFunction {
-        callable_def,
+    callable_def.map_extra(|_| LoweredBlockPyExtra {
         block_params,
         exception_edges,
-    }
+    })
 }
 
 fn fresh_normalized_entry_collision_label(
@@ -375,11 +346,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
     }
     let mut blockpy_function = callable_def;
     let entry_label = blockpy_function.entry_label().to_string();
-    let exception_edges = compute_blockpy_exception_edges(
-        &blockpy_function.blocks,
-        &blockpy_function.try_regions,
-        None,
-    );
+    let exception_edges = compute_blockpy_exception_edges(&blockpy_function.try_regions);
     let mut extra_successors = build_try_extra_successors(&blockpy_function.try_regions);
     let blocks_for_dataflow = std::mem::take(&mut blockpy_function.blocks);
 
@@ -441,6 +408,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         blockpy_function.facts.clone(),
         blockpy_function.try_regions.clone(),
         normalized_main_blocks,
+        (),
     );
     build_lowered_blockpy_function(
         main_function,
@@ -474,6 +442,7 @@ pub(crate) fn build_finalized_blockpy_callable_def(
         facts,
         try_regions,
         blocks,
+        (),
     );
     finalize_blockpy_callable_def(callable_def, entry_label, end_label)
 }
@@ -551,9 +520,7 @@ pub(crate) fn build_try_extra_successors(
 }
 
 pub(crate) fn compute_blockpy_exception_edges(
-    blocks: &[BlockPyBlock<Expr>],
     try_regions: &[TryRegionPlan],
-    generator_info: Option<&GeneratorMetadata>,
 ) -> HashMap<String, Option<String>> {
     let mut exception_edges = HashMap::new();
     for region in try_regions {
@@ -578,39 +545,10 @@ pub(crate) fn compute_blockpy_exception_edges(
             }
         }
     }
-    let mut exception_edges = exception_edges
+    exception_edges
         .into_iter()
         .map(|(label, (_rank, target))| (label, target))
-        .collect::<HashMap<_, _>>();
-    if let Some(generator_info) = generator_info {
-        if let Some(uncaught_label) = generator_info.uncaught_block_label.as_deref() {
-            for block in blocks {
-                let label = block.label.as_str();
-                if generator_info
-                    .done_block_label
-                    .as_ref()
-                    .map(|done| done.as_str() == label)
-                    .unwrap_or(false)
-                    || generator_info
-                        .invalid_block_label
-                        .as_ref()
-                        .map(|invalid| invalid.as_str() == label)
-                        .unwrap_or(false)
-                    || Some(label) == generator_info.uncaught_block_label.as_deref()
-                    || generator_info
-                        .throw_passthrough_labels
-                        .iter()
-                        .any(|passthrough| passthrough.as_str() == label)
-                {
-                    continue;
-                }
-                exception_edges
-                    .entry(label.to_string())
-                    .or_insert(Some(uncaught_label.to_string()));
-            }
-        }
-    }
-    exception_edges
+        .collect::<HashMap<_, _>>()
 }
 
 fn update_try_edge_if_better(
@@ -699,7 +637,6 @@ mod tests {
     use crate::basic_block::block_py::{
         BlockPyCallableDef, BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyTerm,
     };
-    use crate::basic_block::blockpy_generators::build_closure_backed_generator_factory_block;
     use crate::basic_block::ruff_to_blockpy::stmt_sequences::{
         lower_for_stmt_sequence, lower_if_stmt_sequence, lower_if_stmt_sequence_from_stmt,
         lower_while_stmt_sequence, lower_while_stmt_sequence_from_stmt, plan_stmt_sequence_head,
@@ -1042,49 +979,6 @@ def f(xs):
         assert!(blocks
             .iter()
             .any(|block| block.label.as_str() == "_dp_bb_demo_2"));
-    }
-
-    #[test]
-    fn builds_closure_backed_generator_factory_block() {
-        let layout = crate::basic_block::block_py::ClosureLayout {
-            freevars: vec![crate::basic_block::block_py::ClosureSlot {
-                logical_name: "captured".to_string(),
-                storage_name: "_dp_cell_captured".to_string(),
-                init: crate::basic_block::block_py::ClosureInit::InheritedCapture,
-            }],
-            cellvars: vec![crate::basic_block::block_py::ClosureSlot {
-                logical_name: "x".to_string(),
-                storage_name: "_dp_cell_x".to_string(),
-                init: crate::basic_block::block_py::ClosureInit::Parameter,
-            }],
-            runtime_cells: vec![crate::basic_block::block_py::ClosureSlot {
-                logical_name: "_dp_pc".to_string(),
-                storage_name: "_dp_cell__dp_pc".to_string(),
-                init: crate::basic_block::block_py::ClosureInit::RuntimePcUnstarted,
-            }],
-        };
-
-        let block = build_closure_backed_generator_factory_block(
-            "_dp_bb_demo_factory",
-            "_dp_bb_demo_0",
-            crate::basic_block::block_py::FunctionId(0),
-            &[
-                "_dp_self".to_string(),
-                "_dp_send_value".to_string(),
-                "_dp_resume_exc".to_string(),
-                "_dp_cell_captured".to_string(),
-                "_dp_cell_x".to_string(),
-                "_dp_cell__dp_pc".to_string(),
-            ],
-            "demo",
-            "demo",
-            &layout,
-            false,
-            false,
-        );
-
-        assert_eq!(block.label.as_str(), "_dp_bb_demo_factory");
-        assert!(matches!(block.term, BlockPyTerm::Return(Some(_))));
     }
 
     #[test]

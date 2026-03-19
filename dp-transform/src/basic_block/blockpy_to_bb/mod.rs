@@ -11,7 +11,9 @@ use super::block_py::{
 };
 use super::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use super::core_await_lower::lower_awaits_in_core_blockpy_callable_def;
-use super::ruff_to_blockpy::{build_lowered_blockpy_function_bundle, LoweredBlockPyFunction};
+use super::ruff_to_blockpy::{
+    build_lowered_blockpy_function_bundle, LoweredBlockPyExtra, LoweredBlockPyFunction,
+};
 use crate::basic_block::ast_to_ast::context::Context;
 use ruff_python_ast::{self as ast, Expr};
 use ruff_text_size::TextRange;
@@ -20,11 +22,18 @@ use std::collections::HashMap;
 pub use codegen_normalize::normalize_bb_module_for_codegen;
 pub use exception_pass::lower_try_jump_exception_flow;
 
-pub type LoweredCoreBlockPyFunction = LoweredBlockPyFunction<BlockPyCallableDef<CoreBlockPyExpr>>;
-pub type LoweredCoreBlockPyFunctionWithoutAwait =
-    LoweredBlockPyFunction<BlockPyCallableDef<CoreBlockPyExprWithoutAwait>>;
-pub type LoweredCoreBlockPyFunctionWithoutAwaitOrYield =
-    LoweredBlockPyFunction<BlockPyCallableDef<CoreBlockPyExprWithoutAwaitOrYield>>;
+pub type LoweredCoreBlockPyFunction =
+    BlockPyCallableDef<CoreBlockPyExpr, BlockPyBlock<CoreBlockPyExpr>, LoweredBlockPyExtra>;
+pub type LoweredCoreBlockPyFunctionWithoutAwait = BlockPyCallableDef<
+    CoreBlockPyExprWithoutAwait,
+    BlockPyBlock<CoreBlockPyExprWithoutAwait>,
+    LoweredBlockPyExtra,
+>;
+pub type LoweredCoreBlockPyFunctionWithoutAwaitOrYield = BlockPyCallableDef<
+    CoreBlockPyExprWithoutAwaitOrYield,
+    BlockPyBlock<CoreBlockPyExprWithoutAwaitOrYield>,
+    LoweredBlockPyExtra,
+>;
 
 #[derive(Clone)]
 pub(crate) struct LoweredBlockPyModuleBundlePlan {
@@ -69,14 +78,12 @@ pub(crate) fn simplify_lowered_blockpy_module_bundle_exprs(
 fn lower_core_blockpy_function_without_await(
     lowered: &LoweredCoreBlockPyFunction,
 ) -> LoweredCoreBlockPyFunctionWithoutAwait {
-    lowered.map_callable_def(|callable_def| {
-        lower_awaits_in_core_blockpy_callable_def(callable_def.clone())
-    })
+    lower_awaits_in_core_blockpy_callable_def(lowered.clone())
 }
 
 fn lower_core_callable_def_without_await_or_yield(
-    callable_def: &BlockPyCallableDef<CoreBlockPyExprWithoutAwait>,
-) -> BlockPyCallableDef<CoreBlockPyExprWithoutAwaitOrYield> {
+    callable_def: &LoweredCoreBlockPyFunctionWithoutAwait,
+) -> LoweredCoreBlockPyFunctionWithoutAwaitOrYield {
     let qualname = callable_def.names.qualname.as_str();
     callable_def.clone().try_into().unwrap_or_else(|_| {
         panic!(
@@ -89,7 +96,7 @@ fn lower_core_callable_def_without_await_or_yield(
 fn lower_core_blockpy_function_without_await_or_yield(
     lowered: &LoweredCoreBlockPyFunctionWithoutAwait,
 ) -> LoweredCoreBlockPyFunctionWithoutAwaitOrYield {
-    lowered.map_callable_def(lower_core_callable_def_without_await_or_yield)
+    lower_core_callable_def_without_await_or_yield(lowered)
 }
 
 pub(crate) fn lower_awaits_in_lowered_core_blockpy_module_bundle(
@@ -113,27 +120,28 @@ pub(crate) fn lower_core_blockpy_module_bundle_to_bb_module(
 fn simplify_lowered_blockpy_function_exprs(
     lowered: &LoweredBlockPyFunction,
 ) -> LoweredCoreBlockPyFunction {
-    lowered.map_callable_def(simplify_blockpy_callable_def_exprs)
+    simplify_blockpy_callable_def_exprs(lowered)
 }
 
 pub(crate) fn lower_core_blockpy_function_to_bb_function(
     lowered: &LoweredCoreBlockPyFunctionWithoutAwaitOrYield,
 ) -> BbFunction {
     BlockPyCallableDef {
-        function_id: lowered.callable_def.function_id,
-        names: lowered.callable_def.names.clone(),
-        kind: lowered.callable_def.kind,
-        params: lowered.callable_def.params.clone(),
-        param_defaults: lowered.callable_def.param_defaults.clone(),
+        function_id: lowered.function_id,
+        names: lowered.names.clone(),
+        kind: lowered.kind,
+        params: lowered.params.clone(),
+        param_defaults: lowered.param_defaults.clone(),
         blocks: lower_blockpy_blocks_to_bb_blocks(
-            &lowered.callable_def.blocks,
+            &lowered.blocks,
             lowered.block_params(),
             lowered.exception_edges(),
         ),
-        doc: lowered.callable_def.doc.clone(),
-        closure_layout: lowered.callable_def.closure_layout.clone(),
-        facts: lowered.callable_def.facts.clone(),
-        try_regions: lowered.callable_def.try_regions.clone(),
+        doc: lowered.doc.clone(),
+        closure_layout: lowered.closure_layout.clone(),
+        facts: lowered.facts.clone(),
+        try_regions: lowered.try_regions.clone(),
+        extra: (),
     }
 }
 

@@ -221,9 +221,9 @@ fn make_eval_order_explicit_in_core_block(
     }
 }
 
-fn make_eval_order_explicit_in_core_callable_def(
-    callable_def: &BlockPyCallableDef<CoreBlockPyExpr>,
-) -> BlockPyCallableDef<CoreBlockPyExpr> {
+fn make_eval_order_explicit_in_core_callable_def<X: Clone>(
+    callable_def: &BlockPyCallableDef<CoreBlockPyExpr, BlockPyBlock<CoreBlockPyExpr>, X>,
+) -> BlockPyCallableDef<CoreBlockPyExpr, BlockPyBlock<CoreBlockPyExpr>, X> {
     BlockPyCallableDef {
         function_id: callable_def.function_id,
         names: callable_def.names.clone(),
@@ -239,13 +239,14 @@ fn make_eval_order_explicit_in_core_callable_def(
         closure_layout: callable_def.closure_layout.clone(),
         facts: callable_def.facts.clone(),
         try_regions: callable_def.try_regions.clone(),
+        extra: callable_def.extra.clone(),
     }
 }
 
 fn make_eval_order_explicit_in_lowered_core_blockpy_function(
     lowered: &LoweredCoreBlockPyFunction,
 ) -> LoweredCoreBlockPyFunction {
-    lowered.map_callable_def(make_eval_order_explicit_in_core_callable_def)
+    make_eval_order_explicit_in_core_callable_def(lowered)
 }
 
 pub(crate) fn make_eval_order_explicit_in_lowered_core_blockpy_module_bundle(

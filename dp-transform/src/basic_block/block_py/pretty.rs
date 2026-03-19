@@ -12,7 +12,7 @@ enum IfBranchKind {
     Else,
 }
 
-pub fn blockpy_module_to_string<E>(module: &BlockPyModule<E>) -> String
+pub fn blockpy_module_to_string<E, X>(module: &BlockPyModule<E, X>) -> String
 where
     E: Clone + Into<Expr>,
 {
@@ -35,7 +35,7 @@ impl BlockPyFormatter {
         self.out
     }
 
-    fn write_module<E>(&mut self, module: &BlockPyModule<E>)
+    fn write_module<E, X>(&mut self, module: &BlockPyModule<E, X>)
     where
         E: Clone + Into<Expr>,
     {
@@ -55,7 +55,7 @@ impl BlockPyFormatter {
         }
     }
 
-    fn write_function<E>(&mut self, function: &BlockPyCallableDef<E>)
+    fn write_function<E, X>(&mut self, function: &BlockPyCallableDef<E, BlockPyBlock<E>, X>)
     where
         E: Clone + Into<Expr>,
     {
@@ -118,9 +118,9 @@ impl BlockPyFormatter {
         });
     }
 
-    fn write_function_block<E>(
+    fn write_function_block<E, X>(
         &mut self,
-        function: &BlockPyCallableDef<E>,
+        function: &BlockPyCallableDef<E, BlockPyBlock<E>, X>,
         render_layout: &BlockRenderLayout,
         block_index: usize,
         referenced_labels: &HashSet<BlockPyLabel>,
@@ -146,9 +146,9 @@ impl BlockPyFormatter {
         });
     }
 
-    fn write_block_contents<E>(
+    fn write_block_contents<E, X>(
         &mut self,
-        function: &BlockPyCallableDef<E>,
+        function: &BlockPyCallableDef<E, BlockPyBlock<E>, X>,
         render_layout: &BlockRenderLayout,
         current_block_index: Option<usize>,
         block: &BlockPyBlock<E>,
@@ -230,9 +230,9 @@ impl BlockPyFormatter {
         }
     }
 
-    fn write_term<E>(
+    fn write_term<E, X>(
         &mut self,
-        function: &BlockPyCallableDef<E>,
+        function: &BlockPyCallableDef<E, BlockPyBlock<E>, X>,
         render_layout: &BlockRenderLayout,
         current_block_index: Option<usize>,
         term: &BlockPyTerm<E>,
@@ -475,7 +475,7 @@ struct BlockRenderLayout {
 }
 
 impl BlockRenderLayout {
-    fn new<E>(function: &BlockPyCallableDef<E>) -> Self
+    fn new<E, X>(function: &BlockPyCallableDef<E, BlockPyBlock<E>, X>) -> Self
     where
         E: Clone + Into<Expr>,
     {
@@ -546,8 +546,10 @@ impl BlockRenderLayout {
     }
 }
 
-fn sort_block_indices_by_label<E>(indices: &mut [usize], function: &BlockPyCallableDef<E>)
-where
+fn sort_block_indices_by_label<E, X>(
+    indices: &mut [usize],
+    function: &BlockPyCallableDef<E, BlockPyBlock<E>, X>,
+) where
     E: Clone + Into<Expr>,
 {
     indices.sort_by(|left, right| {
@@ -558,12 +560,15 @@ where
     });
 }
 
-fn compute_inline_if_term_targets(
-    function: &BlockPyCallableDef<impl Clone + Into<Expr>>,
+fn compute_inline_if_term_targets<E, X>(
+    function: &BlockPyCallableDef<E, BlockPyBlock<E>, X>,
     label_to_index: &HashMap<String, usize>,
     predecessors: &[Vec<usize>],
     immediate_dominators: &[Option<usize>],
-) -> (HashMap<(usize, IfBranchKind), usize>, HashSet<usize>) {
+) -> (HashMap<(usize, IfBranchKind), usize>, HashSet<usize>)
+where
+    E: Clone + Into<Expr>,
+{
     let mut targets = HashMap::new();
     let mut inlined_blocks = HashSet::new();
 
@@ -624,11 +629,14 @@ fn can_inline_if_term_target(
         && predecessors[target_index][0] == parent_index
 }
 
-fn choose_entry_block_index(
-    _function: &BlockPyCallableDef<impl Clone + Into<Expr>>,
+fn choose_entry_block_index<E, X>(
+    _function: &BlockPyCallableDef<E, BlockPyBlock<E>, X>,
     _label_to_index: &HashMap<String, usize>,
     _predecessors: &[Vec<usize>],
-) -> usize {
+) -> usize
+where
+    E: Clone + Into<Expr>,
+{
     0
 }
 
@@ -920,10 +928,10 @@ mod tests {
         ParamSpec::default()
     }
 
-    fn function_by_bind_name<'a, E>(
-        module: &'a BlockPyModule<E>,
+    fn function_by_bind_name<'a, E, X>(
+        module: &'a BlockPyModule<E, X>,
         bind_name: &str,
-    ) -> &'a BlockPyCallableDef<E> {
+    ) -> &'a BlockPyCallableDef<E, BlockPyBlock<E>, X> {
         module
             .callable_defs
             .iter()
@@ -1068,6 +1076,7 @@ async def no_lying():
                 }),
                 try_regions: Vec::new(),
                 facts: crate::basic_block::block_py::BlockPyCallableFacts::default(),
+                extra: (),
             }],
         });
 
@@ -1119,6 +1128,7 @@ async def no_lying():
             closure_layout: None,
             try_regions: Vec::new(),
             facts: crate::basic_block::block_py::BlockPyCallableFacts::default(),
+            extra: (),
         };
         let rendered = blockpy_module_to_string(&BlockPyModule {
             callable_defs: vec![function],
@@ -1198,6 +1208,7 @@ def choose(a, b):
             closure_layout: None,
             try_regions: Vec::new(),
             facts: crate::basic_block::block_py::BlockPyCallableFacts::default(),
+            extra: (),
         };
         let rendered = blockpy_module_to_string(&BlockPyModule {
             callable_defs: vec![function],
