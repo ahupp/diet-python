@@ -417,12 +417,9 @@ pub(crate) fn simplify_blockpy_callable_def_exprs(
         cfg: CfgCallableDef {
             function_id: callable_def.function_id,
             bind_name: callable_def.bind_name.clone(),
-            display_name: callable_def.display_name.clone(),
-            qualname: callable_def.qualname.clone(),
             kind: callable_def.kind,
             params: callable_def.params.clone(),
             param_defaults: simplify_param_defaults(&callable_def.param_defaults),
-            entry_liveins: callable_def.entry_liveins.clone(),
             blocks: callable_def
                 .blocks
                 .iter()
@@ -430,14 +427,11 @@ pub(crate) fn simplify_blockpy_callable_def_exprs(
                 .collect(),
         },
         fn_name: callable_def.fn_name.clone(),
-        doc: callable_def
-            .doc
-            .as_ref()
-            .map(lower_semantic_expr_without_setup),
-        capture_names: callable_def.capture_names.clone(),
+        display_name: callable_def.display_name.clone(),
+        qualname: callable_def.qualname.clone(),
+        doc: callable_def.doc.clone(),
         closure_layout: callable_def.closure_layout.clone(),
         facts: callable_def.facts.clone(),
-        local_cell_slots: callable_def.local_cell_slots.clone(),
         try_regions: callable_def.try_regions.clone(),
     }
 }

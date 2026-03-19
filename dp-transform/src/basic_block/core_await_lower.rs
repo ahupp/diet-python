@@ -1,8 +1,8 @@
 use super::block_py::{
-    BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyCallableDef, BlockPyIf, BlockPyIfTerm,
-    BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment, BlockPyTerm, CoreBlockPyAwait,
-    CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait,
-    CoreBlockPyKeywordArg, CoreBlockPyYield, CoreBlockPyYieldFrom,
+    BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyCallableDef, BlockPyFunctionKind,
+    BlockPyIf, BlockPyIfTerm, BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment,
+    BlockPyTerm, CoreBlockPyAwait, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr,
+    CoreBlockPyExprWithoutAwait, CoreBlockPyKeywordArg, CoreBlockPyYield, CoreBlockPyYieldFrom,
 };
 use super::cfg_ir::CfgCallableDef;
 use crate::py_expr;
@@ -161,8 +161,6 @@ pub(crate) fn lower_awaits_in_core_blockpy_callable_def(
         cfg: CfgCallableDef {
             function_id: callable_def.function_id,
             bind_name: callable_def.bind_name.clone(),
-            display_name: callable_def.display_name.clone(),
-            qualname: callable_def.qualname.clone(),
             kind: callable_def.kind,
             params: callable_def.params.clone(),
             param_defaults: callable_def
@@ -171,7 +169,6 @@ pub(crate) fn lower_awaits_in_core_blockpy_callable_def(
                 .into_iter()
                 .map(lower_core_expr_awaits)
                 .collect(),
-            entry_liveins: callable_def.entry_liveins.clone(),
             blocks: callable_def
                 .blocks
                 .clone()
@@ -180,11 +177,11 @@ pub(crate) fn lower_awaits_in_core_blockpy_callable_def(
                 .collect(),
         },
         fn_name: callable_def.fn_name,
-        doc: callable_def.doc.map(lower_core_expr_awaits),
-        capture_names: callable_def.capture_names,
+        display_name: callable_def.display_name,
+        qualname: callable_def.qualname,
+        doc: callable_def.doc,
         closure_layout: callable_def.closure_layout,
         facts: callable_def.facts,
-        local_cell_slots: callable_def.local_cell_slots,
         try_regions: callable_def.try_regions,
     }
 }
@@ -214,12 +211,9 @@ mod tests {
                 cfg: CfgCallableDef {
                     function_id: super::super::lowered_ir::FunctionId(0),
                     bind_name: "f".to_string(),
-                    display_name: "f".to_string(),
-                    qualname: "f".to_string(),
-                    kind: super::super::block_py::BlockPyFunctionKind::Coroutine,
+                    kind: BlockPyFunctionKind::Coroutine,
                     params: Default::default(),
                     param_defaults: Vec::new(),
-                    entry_liveins: Vec::new(),
                     blocks: vec![BlockPyBlock {
                         label: BlockPyLabel("start".to_string()),
                         body: Vec::new(),
@@ -230,11 +224,11 @@ mod tests {
                     }],
                 },
                 fn_name: "f".to_string(),
+                display_name: "f".to_string(),
+                qualname: "f".to_string(),
                 doc: None,
-                capture_names: Vec::new(),
                 closure_layout: None,
                 facts: super::super::block_py::BlockPyCallableFacts::default(),
-                local_cell_slots: Vec::new(),
                 try_regions: Vec::new(),
             }],
         };

@@ -2,7 +2,6 @@ mod codegen_normalize;
 mod codegen_trace;
 mod exception_pass;
 
-use super::annotation_export::build_exec_function_def_binding_stmts;
 use super::bb_ir::{BbBlock, BbBlockMeta, BbFunction, BbModule, BbStmt, BbTerm};
 use super::block_py::cfg::linearize_structured_ifs;
 use super::block_py::{
@@ -13,13 +12,11 @@ use super::block_py::{
 use super::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use super::cfg_ir::{CfgCallableDef, CfgModule};
 use super::core_await_lower::lower_awaits_in_core_blockpy_callable_def;
-use super::function_lowering::rewrite_deleted_name_loads;
-use super::lowered_ir::{LoweredCfgMetadata, LoweredFunction};
 use super::ruff_to_blockpy::{build_lowered_blockpy_function_bundle, LoweredBlockPyFunction};
 use crate::basic_block::ast_to_ast::context::Context;
 use ruff_python_ast::{self as ast, Expr};
 use ruff_text_size::TextRange;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 pub use codegen_normalize::normalize_bb_module_for_codegen;
 pub use exception_pass::lower_try_jump_exception_flow;
@@ -37,67 +34,13 @@ pub(crate) struct LoweredBlockPyModuleBundlePlan {
     pub next_function_id: usize,
 }
 
-fn next_temp_from_reserved_names(
-    reserved_names: &mut HashSet<String>,
-    prefix: &str,
-    next_id: &mut usize,
-) -> String {
-    loop {
-        let current = *next_id;
-        *next_id += 1;
-        let candidate = format!("_dp_{prefix}_{current}");
-        if reserved_names.contains(candidate.as_str()) {
-            continue;
-        }
-        reserved_names.insert(candidate.clone());
-        return candidate;
-    }
-}
-
-pub(crate) fn lower_generators_in_lowered_blockpy_module_bundle_plan(
+pub(crate) fn lower_blockpy_module_plan_to_bundle(
     context: &Context,
-    plan: LoweredBlockPyModuleBundlePlan,
+    module: BlockPyModule<Expr>,
 ) -> CfgModule<LoweredBlockPyFunction> {
-    let LoweredBlockPyModuleBundlePlan {
-        callable_defs: blockpy_callable_defs,
-        mut next_block_id,
-        mut next_function_id,
-    } = plan;
     let mut callable_defs = Vec::new();
-    for callable_def in blockpy_callable_defs {
-        let callable_facts = callable_def.facts.clone();
-        let mut reserved_temp_names = callable_facts.outer_scope_names.clone();
-        let lowered_function = build_lowered_blockpy_function_bundle(
-            context,
-            callable_def,
-            &mut next_block_id,
-            &mut next_function_id,
-            &mut |func_def| {
-                build_exec_function_def_binding_stmts(
-                    func_def,
-                    &callable_facts.cell_slots,
-                    &callable_facts.outer_scope_names,
-                )
-            },
-            &mut |prefix, next_block_id| {
-                next_temp_from_reserved_names(&mut reserved_temp_names, prefix, next_block_id)
-            },
-            &mut |callable_def| {
-                if !callable_facts.deleted_names.is_empty() {
-                    rewrite_deleted_name_loads(
-                        &mut callable_def.blocks,
-                        &callable_facts.deleted_names,
-                        &callable_facts.unbound_local_names,
-                    );
-                } else if !callable_facts.unbound_local_names.is_empty() {
-                    rewrite_deleted_name_loads(
-                        &mut callable_def.blocks,
-                        &HashSet::new(),
-                        &callable_facts.unbound_local_names,
-                    );
-                }
-            },
-        );
+    for callable_def in module.callable_defs {
+        let lowered_function = build_lowered_blockpy_function_bundle(callable_def);
         callable_defs.push(lowered_function);
     }
     CfgModule { callable_defs }
@@ -109,13 +52,6 @@ pub(crate) fn lowered_blockpy_module_bundle_plan_to_semantic_blockpy_module(
     BlockPyModule {
         callable_defs: plan.callable_defs.clone(),
     }
-}
-
-pub(crate) fn lower_blockpy_module_plan_to_bundle(
-    context: &Context,
-    plan: LoweredBlockPyModuleBundlePlan,
-) -> CfgModule<LoweredBlockPyFunction> {
-    lower_generators_in_lowered_blockpy_module_bundle_plan(context, plan)
 }
 
 pub fn project_lowered_module_callable_defs<T, U: Clone>(
@@ -184,26 +120,26 @@ fn simplify_lowered_blockpy_function_exprs(
 pub(crate) fn lower_core_blockpy_function_to_bb_function(
     lowered: &LoweredCoreBlockPyFunctionWithoutAwaitOrYield,
 ) -> BbFunction {
-    LoweredFunction {
-        callable_def: CfgCallableDef {
+    BlockPyCallableDef {
+        cfg: CfgCallableDef {
             function_id: lowered.callable_def.function_id,
             bind_name: lowered.callable_def.bind_name.clone(),
-            display_name: lowered.callable_def.display_name.clone(),
-            qualname: lowered.callable_def.qualname.clone(),
-            kind: lowered.lowered_kind().clone(),
+            kind: lowered.callable_def.kind,
             params: lowered.callable_def.params.clone(),
             param_defaults: lowered.callable_def.param_defaults.clone(),
-            entry_liveins: lowered.callable_def.entry_liveins.clone(),
             blocks: lower_blockpy_blocks_to_bb_blocks(
                 &lowered.callable_def.blocks,
                 lowered.block_params(),
                 lowered.exception_edges(),
             ),
         },
-        extra: LoweredCfgMetadata {
-            closure_layout: lowered.runtime_closure_layout().clone(),
-            local_cell_slots: lowered.callable_def.local_cell_slots.clone(),
-        },
+        fn_name: lowered.callable_def.fn_name.clone(),
+        display_name: lowered.callable_def.display_name.clone(),
+        qualname: lowered.callable_def.qualname.clone(),
+        doc: lowered.callable_def.doc.clone(),
+        closure_layout: lowered.callable_def.closure_layout.clone(),
+        facts: lowered.callable_def.facts.clone(),
+        try_regions: lowered.callable_def.try_regions.clone(),
     }
 }
 

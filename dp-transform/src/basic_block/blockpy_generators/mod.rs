@@ -10,14 +10,14 @@ use crate::basic_block::block_py::state::{
     sync_generator_state_order, sync_target_cells_stmts,
 };
 use crate::basic_block::block_py::{
-    BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyCfgBlockBuilder, BlockPyIfTerm,
-    BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment, BlockPyStmtFragmentBuilder,
-    BlockPyStructuredIf, BlockPyTerm, BlockPyTryJump,
+    BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyCfgBlockBuilder, BlockPyFunctionKind,
+    BlockPyIf, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment,
+    BlockPyStmtFragmentBuilder, BlockPyTerm, BlockPyTryJump,
 };
 use crate::basic_block::lowered_ir::{ClosureInit, ClosureLayout, ClosureSlot, FunctionId};
 use crate::basic_block::ruff_to_blockpy::expr_lowering;
 use crate::basic_block::ruff_to_blockpy::{
-    bb_kind_for_blockpy_kind, build_blockpy_function, build_lowered_blockpy_function,
+    build_blockpy_function, build_lowered_blockpy_function,
     compat_block_from_blockpy as compat_block_with_term, compat_if_jump_block,
     compat_jump_block_from_blockpy, compat_raise_block_from_blockpy_raise,
     compat_return_block_from_expr, lower_stmts_to_blockpy_stmts, normalize_exported_entry_block,
@@ -181,45 +181,20 @@ pub(crate) fn lower_closure_backed_generator_export_bundle(
         .expect("closure-backed generator export requires closure layout");
     let factory_label = format!("{label_prefix}_factory");
     let resume_blockpy_kind = if is_async_generator_runtime {
-        super::block_py::BlockPyFunctionKind::AsyncGenerator
+        BlockPyFunctionKind::AsyncGenerator
     } else {
-        super::block_py::BlockPyFunctionKind::Generator
+        BlockPyFunctionKind::Generator
     };
-    let resume_bb_kind = bb_kind_for_blockpy_kind(
-        resume_blockpy_kind,
-        true,
-        runtime_entry_label,
-        target_labels,
-        resume_pcs,
-    );
     let (
         normalized_resume_blocks,
         normalized_resume_block_params,
         normalized_resume_exception_edges,
-        normalized_resume_bb_kind,
     ) = normalize_exported_entry_block(
         runtime_entry_label.to_string(),
         runtime_blocks.clone(),
         runtime_block_params.clone(),
         runtime_exception_edges.clone(),
-        resume_bb_kind,
     );
-    let (normalized_resume_target_labels, normalized_resume_pcs) = match &normalized_resume_bb_kind
-    {
-        super::lowered_ir::LoweredFunctionKind::Generator {
-            target_labels,
-            resume_pcs,
-            ..
-        }
-        | super::lowered_ir::LoweredFunctionKind::AsyncGenerator {
-            target_labels,
-            resume_pcs,
-            ..
-        } => (target_labels.clone(), resume_pcs.clone()),
-        super::lowered_ir::LoweredFunctionKind::Function => {
-            panic!("closure-backed generator resume helper must lower as a generator")
-        }
-    };
     let export_plan = build_closure_backed_generator_export_plan(
         factory_label.as_str(),
         super::block_py::ENTRY_BLOCK_LABEL,
@@ -231,36 +206,29 @@ pub(crate) fn lower_closure_backed_generator_export_bundle(
         layout,
         is_coroutine,
         is_async_generator_runtime,
-        &normalized_resume_target_labels,
-        &normalized_resume_pcs,
+        target_labels,
+        resume_pcs,
     );
     let resume_function = build_blockpy_function(
-        super::block_py::BlockPyCallableHeader {
-            function_id: export_plan.resume_function_id,
-            fn_name: export_plan.resume_bind_name.clone(),
-            bind_name: export_plan.resume_bind_name.clone(),
-            display_name: export_plan.resume_display_name.clone(),
-            qualname: export_plan.resume_qualname.clone(),
-            params: params.clone(),
-            param_defaults: param_defaults.to_vec(),
-        },
+        export_plan.resume_function_id,
+        export_plan.resume_bind_name.clone(),
+        export_plan.resume_bind_name.clone(),
+        export_plan.resume_display_name.clone(),
+        export_plan.resume_qualname.clone(),
+        params.clone(),
+        param_defaults.to_vec(),
         None,
         resume_blockpy_kind,
         super::block_py::ENTRY_BLOCK_LABEL.to_string(),
-        export_plan.resume_entry_liveins.clone(),
-        Vec::new(),
         runtime_closure_layout.clone(),
         super::block_py::BlockPyCallableFacts::default(),
-        local_cell_slots.to_vec(),
         Vec::new(),
         normalized_resume_blocks,
     );
     let helper_functions = vec![build_lowered_blockpy_function(
         resume_function,
-        normalized_resume_bb_kind,
         normalized_resume_block_params,
         normalized_resume_exception_edges,
-        runtime_closure_layout.clone(),
     )];
     let exported_entry_label = export_plan.factory_label.clone();
     let exported_entry_liveins = export_plan.factory_entry_liveins.clone();
@@ -801,7 +769,7 @@ fn lower_generator_payload_exprs_in_stmt_into(
             Ok(())
         }
         BlockPyStmt::If(if_stmt) => {
-            out.push_stmt(BlockPyStmt::If(BlockPyStructuredIf {
+            out.push_stmt(BlockPyStmt::If(BlockPyIf {
                 test: if_stmt.test,
                 body: lower_generator_payload_exprs_in_fragment(
                     context,

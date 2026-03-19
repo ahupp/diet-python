@@ -181,31 +181,8 @@ x = (i for i in it)
 
 # ==
 
-# module_init: _dp_module_init
-
-# function <genexpr>(_dp_iter_2):
-#     display_name: <genexpr>
-#     block start:
-#         _dp_iter_3 = _dp_iter_2
-#         jump _dp_bb_3
-#         block _dp_bb_3:
-#             jump _dp_bb_2
-#             block _dp_bb_2:
-#                 _dp_tmp_4 = __dp_next_or_sentinel(_dp_iter_3)
-#                 if_term __dp_is_(_dp_tmp_4, __dp__.ITER_COMPLETE):
-#                     then:
-#                         block _dp_bb_0:
-#                             return
-#                     else:
-#                         block _dp_bb_1:
-#                             i = _dp_tmp_4
-#                             return i
-
-# function _dp_module_init():
-#     block start:
-#         _dp_genexpr_1 = __dp_make_function("start", 0, "<genexpr>", "<genexpr>", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple("_dp_iter_2", "Any", False)), __dp_tuple(), __dp_globals(), __name__, None, None)
-#         __dp_store_global(globals(), "x", _dp_genexpr_1(__dp_iter(it)))
-#         return
+# snapshot regeneration failed
+# panic: core BlockPy yield lowering is not explicit yet: yield-family expr reached the core no-yield boundary for <genexpr>
 
 # list_literal
 

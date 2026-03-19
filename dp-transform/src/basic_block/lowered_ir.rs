@@ -1,7 +1,3 @@
-use super::block_py::CoreBlockPyExprWithoutAwaitOrYield;
-use super::cfg_ir::CfgCallableDef;
-use std::ops::{Deref, DerefMut};
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FunctionId(pub usize);
 
@@ -18,28 +14,31 @@ pub enum BindingTarget {
     ClassNamespace,
 }
 
-#[derive(Debug, Clone)]
-pub enum LoweredFunctionKind {
-    Function,
-    Generator {
-        closure_state: bool,
-        resume_label: String,
-        target_labels: Vec<String>,
-        resume_pcs: Vec<(String, usize)>,
-    },
-    AsyncGenerator {
-        closure_state: bool,
-        resume_label: String,
-        target_labels: Vec<String>,
-        resume_pcs: Vec<(String, usize)>,
-    },
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClosureLayout {
     pub freevars: Vec<ClosureSlot>,
     pub cellvars: Vec<ClosureSlot>,
     pub runtime_cells: Vec<ClosureSlot>,
+}
+
+impl ClosureLayout {
+    pub fn ambient_storage_names(&self) -> Vec<String> {
+        self.freevars
+            .iter()
+            .chain(self.cellvars.iter())
+            .chain(self.runtime_cells.iter())
+            .filter(|slot| matches!(slot.init, ClosureInit::InheritedCapture))
+            .map(|slot| slot.storage_name.clone())
+            .collect()
+    }
+
+    pub fn local_cell_storage_names(&self) -> Vec<String> {
+        self.cellvars
+            .iter()
+            .chain(self.runtime_cells.iter())
+            .map(|slot| slot.storage_name.clone())
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,68 +56,4 @@ pub enum ClosureInit {
     RuntimePcUnstarted,
     RuntimeNone,
     Deferred,
-}
-
-#[derive(Debug, Clone)]
-pub struct LoweredFunction<C, X> {
-    pub callable_def: C,
-    pub extra: X,
-}
-
-impl<C, X> LoweredFunction<C, X> {
-    pub fn map_callable<D>(&self, f: impl FnOnce(&C) -> D) -> LoweredFunction<D, X>
-    where
-        X: Clone,
-    {
-        LoweredFunction {
-            callable_def: f(&self.callable_def),
-            extra: self.extra.clone(),
-        }
-    }
-}
-
-impl<C, X> Deref for LoweredFunction<C, X> {
-    type Target = C;
-
-    fn deref(&self) -> &Self::Target {
-        &self.callable_def
-    }
-}
-
-impl<C, X> DerefMut for LoweredFunction<C, X> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.callable_def
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct LoweredCfgMetadata {
-    pub closure_layout: Option<ClosureLayout>,
-    pub local_cell_slots: Vec<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct LoweredRuntimeMetadata {
-    pub kind: LoweredFunctionKind,
-    pub closure_layout: Option<ClosureLayout>,
-}
-
-pub type LoweredCfgFunction<B> = LoweredFunction<
-    CfgCallableDef<LoweredFunctionKind, CoreBlockPyExprWithoutAwaitOrYield, B>,
-    LoweredCfgMetadata,
->;
-
-impl<B>
-    LoweredFunction<
-        CfgCallableDef<LoweredFunctionKind, CoreBlockPyExprWithoutAwaitOrYield, B>,
-        LoweredCfgMetadata,
-    >
-{
-    pub fn closure_layout(&self) -> &Option<ClosureLayout> {
-        &self.extra.closure_layout
-    }
-
-    pub fn local_cell_slots(&self) -> &[String] {
-        &self.extra.local_cell_slots
-    }
 }

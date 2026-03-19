@@ -31,7 +31,7 @@ pub(crate) fn rewrite_module_with_tracker(
     module: StmtBody,
     pass_tracker: &mut PassTracker,
 ) -> BbModule {
-    let (_module, semantic_blockpy_plan): (StmtBody, basic_block::LoweredBlockPyModuleBundlePlan) =
+    let (_module, semantic_blockpy): (StmtBody, BlockPyModule<Expr>) =
         pass_tracker.run_pass("ast-to-ast", || {
             let mut module = module;
 
@@ -74,20 +74,13 @@ pub(crate) fn rewrite_module_with_tracker(
             rewrite_class_def::class_body::rewrite_class_body_scopes(context, scope, &mut module);
             rewrite_ast_to_lowered_blockpy_module_plan(context, module)
         });
+    let semantic_blockpy: BlockPyModule<Expr> =
+        pass_tracker.run_pass("semantic_blockpy", || semantic_blockpy.clone());
 
-    let semantic_blockpy: BlockPyModule<Expr> = pass_tracker.run_pass("semantic_blockpy", || {
-        basic_block::lowered_blockpy_module_bundle_plan_to_semantic_blockpy_module(
-            &semantic_blockpy_plan,
-        )
-    });
     let lowered_blockpy_module: CfgModule<LoweredBlockPyFunction> = pass_tracker
         .run_pass("blockpy", || {
-            basic_block::lower_blockpy_module_plan_to_bundle(context, semantic_blockpy_plan)
+            basic_block::lower_blockpy_module_plan_to_bundle(context, semantic_blockpy)
         });
-    // let blockpy_module = basic_block::project_lowered_module_callable_defs(
-    //     &lowered_blockpy_module,
-    //     |lowered| -> &crate::basic_block::block_py::BlockPyCallableDef<Expr> { lowered },
-    // );
     let core_blockpy: CfgModule<LoweredCoreBlockPyFunction> = pass_tracker
         .run_pass("core_blockpy", || {
             basic_block::simplify_lowered_blockpy_module_bundle_exprs(&lowered_blockpy_module)

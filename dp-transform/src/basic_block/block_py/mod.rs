@@ -1,6 +1,8 @@
 use super::cfg_ir::{CfgBlock, CfgCallableDef, CfgModule};
 use super::lowered_ir::{ClosureLayout, FunctionId};
 use super::param_specs::ParamSpec;
+use crate::basic_block::block_py::dataflow::compute_block_params_blockpy;
+use crate::basic_block::block_py::state::collect_state_vars;
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName};
 use std::borrow::Borrow;
@@ -98,17 +100,6 @@ pub struct CoreBlockPyYieldFrom<E = CoreBlockPyExpr> {
 pub const ENTRY_BLOCK_LABEL: &str = "start";
 
 #[derive(Debug, Clone)]
-pub struct BlockPyCallableHeader<E = Expr> {
-    pub function_id: FunctionId,
-    pub fn_name: String,
-    pub bind_name: String,
-    pub display_name: String,
-    pub qualname: String,
-    pub params: ParamSpec,
-    pub param_defaults: Vec<E>,
-}
-
-#[derive(Debug, Clone)]
 pub struct BlockPyCallableFacts {
     pub deleted_names: HashSet<String>,
     pub unbound_local_names: HashSet<String>,
@@ -137,18 +128,18 @@ pub struct TryRegionPlan {
 
 #[derive(Debug, Clone)]
 pub struct BlockPyCallableDef<E = Expr, B = BlockPyBlock<E>> {
-    pub cfg: CfgCallableDef<BlockPyFunctionKind, E, B>,
+    pub cfg: CfgCallableDef<E, B>,
     pub fn_name: String,
-    pub doc: Option<E>,
-    pub capture_names: Vec<String>,
+    pub display_name: String,
+    pub qualname: String,
+    pub doc: Option<String>,
     pub closure_layout: Option<ClosureLayout>,
     pub facts: BlockPyCallableFacts,
-    pub local_cell_slots: Vec<String>,
     pub try_regions: Vec<TryRegionPlan>,
 }
 
 impl<E, B> Deref for BlockPyCallableDef<E, B> {
-    type Target = CfgCallableDef<BlockPyFunctionKind, E, B>;
+    type Target = CfgCallableDef<E, B>;
 
     fn deref(&self) -> &Self::Target {
         &self.cfg
@@ -161,17 +152,60 @@ impl<E, B> DerefMut for BlockPyCallableDef<E, B> {
     }
 }
 
-impl<E: Clone, B: Clone> BlockPyCallableDef<E, B> {
-    pub fn header(&self) -> BlockPyCallableHeader<E> {
-        BlockPyCallableHeader {
-            function_id: self.function_id,
-            fn_name: self.fn_name.clone(),
-            bind_name: self.bind_name.clone(),
-            display_name: self.display_name.clone(),
-            qualname: self.qualname.clone(),
-            params: self.params.clone(),
-            param_defaults: self.param_defaults.clone(),
+impl<E, B> BlockPyCallableDef<E, B> {
+    pub fn lowered_kind(&self) -> &BlockPyFunctionKind {
+        &self.kind
+    }
+
+    pub fn closure_layout(&self) -> &Option<ClosureLayout> {
+        &self.closure_layout
+    }
+
+    pub fn local_cell_slots(&self) -> Vec<String> {
+        self.closure_layout
+            .as_ref()
+            .map(ClosureLayout::local_cell_storage_names)
+            .unwrap_or_default()
+    }
+}
+
+pub(crate) fn is_internal_entry_livein(name: &str) -> bool {
+    matches!(name, "_dp_self" | "_dp_send_value" | "_dp_resume_exc")
+}
+
+impl<E> BlockPyCallableDef<E, BlockPyBlock<E>>
+where
+    E: Clone + Into<Expr>,
+{
+    pub fn entry_liveins(&self) -> Vec<String> {
+        if self.blocks.is_empty() {
+            return Vec::new();
         }
+        let param_names = self.params.names();
+        let state_vars = collect_state_vars(&param_names, &self.blocks);
+        let mut block_params = compute_block_params_blockpy(
+            &self.blocks,
+            &state_vars,
+            &super::ruff_to_blockpy::build_try_extra_successors(&self.try_regions),
+        );
+        for block in &self.blocks {
+            let Some(exc_param) = block.meta.exc_param.as_ref() else {
+                continue;
+            };
+            let params = block_params
+                .entry(block.label.as_str().to_string())
+                .or_default();
+            if !params.iter().any(|existing| existing == exc_param) {
+                params.push(exc_param.clone());
+            }
+        }
+        block_params
+            .get(self.entry_label())
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|name| !is_internal_entry_livein(name))
+            .collect()
     }
 }
 
@@ -875,48 +909,42 @@ impl TryFrom<BlockPyCallableDef<CoreBlockPyExpr>>
         let BlockPyCallableDef {
             cfg,
             fn_name,
+            display_name,
+            qualname,
             doc,
-            capture_names,
             closure_layout,
             facts,
-            local_cell_slots,
             try_regions,
         } = value;
         let CfgCallableDef {
             function_id,
             bind_name,
-            display_name,
-            qualname,
             kind,
             params,
             param_defaults,
-            entry_liveins,
             blocks,
         } = cfg;
         Ok(BlockPyCallableDef {
             cfg: CfgCallableDef {
                 function_id,
                 bind_name,
-                display_name,
-                qualname,
                 kind,
                 params,
                 param_defaults: param_defaults
                     .into_iter()
                     .map(TryInto::try_into)
                     .collect::<Result<_, _>>()?,
-                entry_liveins,
                 blocks: blocks
                     .into_iter()
                     .map(TryInto::try_into)
                     .collect::<Result<_, _>>()?,
             },
             fn_name,
-            doc: doc.map(TryInto::try_into).transpose()?,
-            capture_names,
+            display_name,
+            qualname,
+            doc,
             closure_layout,
             facts,
-            local_cell_slots,
             try_regions,
         })
     }
@@ -1129,48 +1157,42 @@ impl TryFrom<BlockPyCallableDef<CoreBlockPyExprWithoutAwait>>
         let BlockPyCallableDef {
             cfg,
             fn_name,
+            display_name,
+            qualname,
             doc,
-            capture_names,
             closure_layout,
             facts,
-            local_cell_slots,
             try_regions,
         } = value;
         let CfgCallableDef {
             function_id,
             bind_name,
-            display_name,
-            qualname,
             kind,
             params,
             param_defaults,
-            entry_liveins,
             blocks,
         } = cfg;
         Ok(BlockPyCallableDef {
             cfg: CfgCallableDef {
                 function_id,
                 bind_name,
-                display_name,
-                qualname,
                 kind,
                 params,
                 param_defaults: param_defaults
                     .into_iter()
                     .map(TryInto::try_into)
                     .collect::<Result<_, _>>()?,
-                entry_liveins,
                 blocks: blocks
                     .into_iter()
                     .map(TryInto::try_into)
                     .collect::<Result<_, _>>()?,
             },
             fn_name,
-            doc: doc.map(TryInto::try_into).transpose()?,
-            capture_names,
+            display_name,
+            qualname,
+            doc,
             closure_layout,
             facts,
-            local_cell_slots,
             try_regions,
         })
     }

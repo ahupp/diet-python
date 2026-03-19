@@ -135,7 +135,7 @@ impl PassTracker {
 
     pub(crate) fn ast_to_ast(
         &self,
-    ) -> Option<&(StmtBody, crate::basic_block::LoweredBlockPyModuleBundlePlan)> {
+    ) -> Option<&(StmtBody, crate::basic_block::block_py::BlockPyModule<Expr>)> {
         self.get("ast-to-ast")
     }
 

@@ -1,4 +1,4 @@
-use super::block_py::BlockPyLabel;
+use super::block_py::{BlockPyFunctionKind, BlockPyLabel};
 use super::lowered_ir::FunctionId;
 use super::param_specs::ParamSpec;
 
@@ -17,19 +17,16 @@ impl<S, T, M> CfgBlock<S, T, M> {
 }
 
 #[derive(Debug, Clone)]
-pub struct CfgCallableDef<K, D, B> {
+pub struct CfgCallableDef<D, B> {
     pub function_id: FunctionId,
     pub bind_name: String,
-    pub display_name: String,
-    pub qualname: String,
-    pub kind: K,
+    pub kind: BlockPyFunctionKind,
     pub params: ParamSpec,
     pub param_defaults: Vec<D>,
-    pub entry_liveins: Vec<String>,
     pub blocks: Vec<B>,
 }
 
-impl<K, D, S, T, M> CfgCallableDef<K, D, CfgBlock<S, T, M>> {
+impl<D, S, T, M> CfgCallableDef<D, CfgBlock<S, T, M>> {
     pub fn entry_block(&self) -> &CfgBlock<S, T, M> {
         self.blocks
             .first()

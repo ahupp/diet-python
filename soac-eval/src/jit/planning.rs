@@ -1,7 +1,7 @@
 use dp_transform::basic_block::bb_ir::{BbBlock, BbModule, BbStmt, BbTerm};
 use dp_transform::basic_block::block_py::{
-    BlockPyLabel, BlockPyStmt, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield,
-    CoreBlockPyKeywordArg, CoreBlockPyLiteral,
+    BlockPyFunctionKind, BlockPyLabel, BlockPyStmt, CoreBlockPyCallArg,
+    CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
 };
 use ruff_python_ast::Number;
 use std::borrow::Cow;
@@ -532,28 +532,22 @@ fn build_clif_plan(
     function: &dp_transform::basic_block::bb_ir::BbFunction,
 ) -> Result<ClifPlan, String> {
     if !matches!(
-        function.kind,
-        dp_transform::basic_block::lowered_ir::LoweredFunctionKind::Function
-            | dp_transform::basic_block::lowered_ir::LoweredFunctionKind::Generator { .. }
-            | dp_transform::basic_block::lowered_ir::LoweredFunctionKind::AsyncGenerator { .. }
+        function.lowered_kind(),
+        BlockPyFunctionKind::Function
+            | BlockPyFunctionKind::Coroutine
+            | BlockPyFunctionKind::Generator
+            | BlockPyFunctionKind::AsyncGenerator
     ) {
         return Err(format!(
             "unsupported JIT function kind in {}: {:?}; only plain/generator/async-generator functions are currently supported",
-            function.qualname, function.kind
+            function.qualname,
+            function.lowered_kind()
         ));
     }
     let ambient_param_names = function
         .closure_layout()
         .as_ref()
-        .map(|layout| {
-            layout
-                .freevars
-                .iter()
-                .chain(layout.cellvars.iter())
-                .chain(layout.runtime_cells.iter())
-                .map(|slot| slot.storage_name.clone())
-                .collect::<Vec<_>>()
-        })
+        .map(|layout| layout.ambient_storage_names())
         .unwrap_or_default();
     let mut label_to_index = HashMap::new();
     for (index, block) in function.blocks.iter().enumerate() {

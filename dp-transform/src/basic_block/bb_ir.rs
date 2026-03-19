@@ -1,8 +1,9 @@
-use crate::basic_block::block_py::BlockPyStmt;
+use crate::basic_block::block_py::{is_internal_entry_livein, BlockPyStmt};
 
-use super::block_py::{BlockPyLabel, CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyLiteral};
+use super::block_py::{
+    BlockPyCallableDef, BlockPyLabel, CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyLiteral,
+};
 use super::cfg_ir::{CfgBlock, CfgModule};
-use super::lowered_ir::LoweredCfgFunction;
 use ruff_python_ast as ast;
 
 pub type BbModule = CfgModule<BbFunction>;
@@ -16,7 +17,22 @@ pub struct BbBlockMeta {
 
 pub type BbStmt = BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>;
 pub type BbBlock = CfgBlock<BbStmt, BbTerm, BbBlockMeta>;
-pub type BbFunction = LoweredCfgFunction<BbBlock>;
+pub type BbFunction = BlockPyCallableDef<CoreBlockPyExprWithoutAwaitOrYield, BbBlock>;
+
+impl BlockPyCallableDef<CoreBlockPyExprWithoutAwaitOrYield, BbBlock> {
+    pub fn entry_liveins(&self) -> Vec<String> {
+        if self.blocks.is_empty() {
+            return Vec::new();
+        }
+        self.entry_block()
+            .meta
+            .params
+            .iter()
+            .filter(|name| !is_internal_entry_livein(name))
+            .cloned()
+            .collect()
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum BbTerm {

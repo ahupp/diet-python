@@ -31,10 +31,13 @@ pub(crate) fn collect_parameter_names(parameters: &ast::Parameters) -> Vec<Strin
     names
 }
 
-pub(crate) fn collect_state_vars(
+pub(crate) fn collect_state_vars<E>(
     param_names: &[String],
-    blocks: &[BlockPyBlock<Expr>],
-) -> Vec<String> {
+    blocks: &[BlockPyBlock<E>],
+) -> Vec<String>
+where
+    E: Clone + Into<Expr>,
+{
     let mut defs_anywhere = HashSet::new();
     for block in blocks {
         for stmt in &block.body {
@@ -148,7 +151,10 @@ pub(crate) fn sync_generator_cleanup_cells(
         .collect()
 }
 
-fn assigned_names_in_blockpy_stmt(stmt: &BlockPyStmt<Expr>) -> HashSet<String> {
+fn assigned_names_in_blockpy_stmt<E>(stmt: &BlockPyStmt<E>) -> HashSet<String>
+where
+    E: Clone + Into<Expr>,
+{
     match stmt {
         BlockPyStmt::Delete(_) => HashSet::new(),
         BlockPyStmt::Assign(assign) => {
@@ -158,7 +164,7 @@ fn assigned_names_in_blockpy_stmt(stmt: &BlockPyStmt<Expr>) -> HashSet<String> {
         }
         BlockPyStmt::If(BlockPyIf { test, body, orelse }) => {
             let mut names = HashSet::new();
-            collect_named_expr_targets(test, &mut names);
+            collect_named_expr_target_names_in_blockpy_expr(test, &mut names);
             names.extend(assigned_names_in_blockpy_stmt_fragment(body));
             names.extend(assigned_names_in_blockpy_stmt_fragment(orelse));
             names
@@ -171,7 +177,10 @@ fn assigned_names_in_blockpy_stmt(stmt: &BlockPyStmt<Expr>) -> HashSet<String> {
     }
 }
 
-fn assigned_names_in_blockpy_term(term: &BlockPyTerm<Expr>) -> HashSet<String> {
+fn assigned_names_in_blockpy_term<E>(term: &BlockPyTerm<E>) -> HashSet<String>
+where
+    E: Clone + Into<Expr>,
+{
     match term {
         BlockPyTerm::Jump(_) | BlockPyTerm::TryJump(_) => HashSet::new(),
         BlockPyTerm::IfTerm(BlockPyIfTerm { test, .. }) => {
@@ -201,9 +210,12 @@ fn assigned_names_in_blockpy_term(term: &BlockPyTerm<Expr>) -> HashSet<String> {
     }
 }
 
-fn assigned_names_in_blockpy_stmt_fragment(
-    fragment: &BlockPyCfgFragment<BlockPyStmt<Expr>, BlockPyTerm<Expr>>,
-) -> HashSet<String> {
+fn assigned_names_in_blockpy_stmt_fragment<E>(
+    fragment: &BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>,
+) -> HashSet<String>
+where
+    E: Clone + Into<Expr>,
+{
     let mut out = HashSet::new();
     for stmt in &fragment.body {
         out.extend(assigned_names_in_blockpy_stmt(stmt));
@@ -237,8 +249,11 @@ fn collect_named_expr_targets(expr: &Expr, names: &mut HashSet<String>) {
     names.extend(collector.names);
 }
 
-fn collect_named_expr_target_names_in_blockpy_expr(expr: &Expr, names: &mut HashSet<String>) {
-    collect_named_expr_targets(expr, names);
+fn collect_named_expr_target_names_in_blockpy_expr<E>(expr: &E, names: &mut HashSet<String>)
+where
+    E: Clone + Into<Expr>,
+{
+    collect_named_expr_targets(&expr.clone().into(), names);
 }
 
 pub(crate) fn sync_generator_state_order(
@@ -587,21 +602,18 @@ mod tests {
                 cfg: CfgCallableDef {
                     function_id: FunctionId(0),
                     bind_name: "f".to_string(),
-                    display_name: "f".to_string(),
-                    qualname: "f".to_string(),
                     kind: BlockPyFunctionKind::Function,
                     params: crate::basic_block::param_specs::ParamSpec::default(),
                     param_defaults: Vec::new(),
-                    entry_liveins: Vec::new(),
                     blocks: vec![block],
                 },
                 fn_name: "f".to_string(),
+                display_name: "f".to_string(),
+                qualname: "f".to_string(),
                 doc: None,
-                capture_names: Vec::new(),
                 closure_layout: None,
                 try_regions: Vec::new(),
                 facts: crate::basic_block::block_py::BlockPyCallableFacts::default(),
-                local_cell_slots: Vec::new(),
             }],
         });
 

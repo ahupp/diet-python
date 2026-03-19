@@ -1,7 +1,7 @@
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::block_py::{
-    BlockPyAssign, BlockPyBlock, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment,
-    BlockPyStmtFragmentBuilder, BlockPyStructuredIf, BlockPyTerm,
+    BlockPyAssign, BlockPyBlock, BlockPyIf, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment,
+    BlockPyStmtFragmentBuilder, BlockPyTerm,
 };
 use crate::basic_block::ruff_to_blockpy::lower_stmts_to_blockpy_stmts_with_context;
 use crate::basic_block::stmt_utils::flatten_stmt_boxes;
@@ -222,7 +222,7 @@ fn lower_coroutine_awaits_in_blockpy_stmt_into(
             Ok(())
         }
         BlockPyStmt::If(if_stmt) => {
-            out.push_stmt(BlockPyStmt::If(BlockPyStructuredIf {
+            out.push_stmt(BlockPyStmt::If(BlockPyIf {
                 test: if_stmt.test,
                 body: lower_coroutine_awaits_in_blockpy_fragment(context, if_stmt.body)?,
                 orelse: lower_coroutine_awaits_in_blockpy_fragment(context, if_stmt.orelse)?,

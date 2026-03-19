@@ -717,16 +717,8 @@ def gen():
 
 # ==
 
-# module_init: _dp_module_init
-
-# function gen():
-#     block start:
-#         return 1
-
-# function _dp_module_init():
-#     block start:
-#         __dp_store_global(globals(), "gen", __dp_make_function("start", 0, "gen", "gen", __dp_tuple(), __dp_tuple(), __dp_tuple(), __dp_globals(), __name__, None, None))
-#         return
+# snapshot regeneration failed
+# panic: core BlockPy yield lowering is not explicit yet: yield-family expr reached the core no-yield boundary for gen
 
 # yield_from
 
@@ -737,46 +729,8 @@ def gen():
 
 # ==
 
-# module_init: _dp_module_init
-
-# function gen():
-#     entry_liveins: [_dp_cell__dp_yieldfrom, _dp_try_exc_5]
-#     block start:
-#         jump _dp_bb_0
-#         block _dp_bb_0:
-#             _dp_yield_from_iter_2 = iter(it)
-#             __dp_store_cell(_dp_cell__dp_yieldfrom, _dp_yield_from_iter_2)
-#             try_jump:
-#                 body_label: _dp_bb_1
-#                 except_label: _dp_bb_2
-#             block _dp_bb_1:
-#                 _dp_yield_from_y_3 = next(__dp_load_cell(_dp_cell__dp_yieldfrom))
-#                 jump _dp_bb_6
-#                 block _dp_bb_6:
-#                     return _dp_yield_from_y_3
-#             block _dp_bb_2:
-#                 _dp_try_exc_5 = __dp_current_exception()
-#                 if_term __dp_exception_matches(_dp_try_exc_5, StopIteration):
-#                     then:
-#                         block _dp_bb_3:
-#                             jump _dp_bb_4
-#                             block _dp_bb_4:
-#                                 __dp_store_cell(_dp_cell__dp_yieldfrom, None)
-#                                 return
-#                     else:
-#                         block _dp_bb_5:
-#                             _dp_yield_from_raise_7 = _dp_try_exc_5
-#                             jump _dp_bb_7
-#                             block _dp_bb_7:
-#                                 __dp_store_cell(_dp_cell__dp_yieldfrom, None)
-#                                 raise _dp_yield_from_raise_7
-
-# function _dp_module_init():
-#     entry_liveins: [_dp_cell__dp_yieldfrom]
-#     runtime_cells: [_dp_yieldfrom->_dp_cell__dp_yieldfrom@none]
-#     block start:
-#         __dp_store_global(globals(), "gen", __dp_make_function("start", 0, "gen", "gen", __dp_tuple(__dp_tuple("_dp_cell__dp_yieldfrom", _dp_cell__dp_yieldfrom), "_dp_try_exc_5"), __dp_tuple(), __dp_tuple(), __dp_globals(), __name__, None, None))
-#         return
+# snapshot regeneration failed
+# panic: core BlockPy yield lowering is not explicit yet: yield-family expr reached the core no-yield boundary for gen
 
 # with_exit_suppresses_exception
 
@@ -958,43 +912,5 @@ def complicated(a):
 
 # ==
 
-# module_init: _dp_module_init
-
-# function complicated(a):
-#     entry_liveins: [a, _dp_try_exc_7]
-#     block start:
-#         _dp_iter_1 = __dp_iter(a)
-#         jump _dp_bb_7
-#         block _dp_bb_7:
-#             _dp_tmp_2 = __dp_next_or_sentinel(_dp_iter_1)
-#             if_term __dp_is_(_dp_tmp_2, __dp__.ITER_COMPLETE):
-#                 then:
-#                     block _dp_bb_0:
-#                         print("finsihed")
-#                         return
-#                 else:
-#                     block _dp_bb_6:
-#                         i = _dp_tmp_2
-#                         _dp_tmp_2 = None
-#                         jump _dp_bb_5
-#                         block _dp_bb_5:
-#                             try_jump:
-#                                 body_label: _dp_bb_4
-#                                 except_label: _dp_bb_3
-#                             block _dp_bb_3:
-#                                 if_term __dp_exception_matches(__dp_current_exception(), Exception):
-#                                     then:
-#                                         block _dp_bb_1:
-#                                             print("oops")
-#                                             jump _dp_bb_7
-#                                     else:
-#                                         block _dp_bb_2:
-#                                             raise
-#                             block _dp_bb_4:
-#                                 j = i + 1
-#                                 return j
-
-# function _dp_module_init():
-#     block start:
-#         __dp_store_global(globals(), "complicated", __dp_make_function("start", 0, "complicated", "complicated", __dp_tuple("a", "_dp_try_exc_7"), __dp_tuple(__dp_tuple("a", "Any", False)), __dp_tuple(), __dp_globals(), __name__, None, None))
-#         return
+# snapshot regeneration failed
+# panic: core BlockPy yield lowering is not explicit yet: yield-family expr reached the core no-yield boundary for complicated

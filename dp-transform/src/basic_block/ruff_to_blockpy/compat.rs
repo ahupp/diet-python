@@ -329,23 +329,6 @@ pub(crate) fn emit_for_loop_blocks(
     setup_label
 }
 
-pub(crate) fn lower_for_loop_continue_entry_with_state(
-    blocks: &mut Vec<BlockPyBlock>,
-    _fn_name: &str,
-    iter_name: &str,
-    tmp_name: &str,
-    loop_check_label: String,
-    _is_async: bool,
-    _try_regions: &mut Vec<TryRegionPlan>,
-    mut state: GeneratorStmtSequenceLoweringState,
-) -> (String, GeneratorStmtSequenceLoweringState) {
-    let _ = blocks;
-    let _ = iter_name;
-    let _ = tmp_name;
-    let _ = &mut state;
-    (loop_check_label, state)
-}
-
 pub(crate) fn compat_next_temp(prefix: &str, next_id: &mut usize) -> String {
     let current = *next_id;
     *next_id += 1;

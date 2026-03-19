@@ -161,9 +161,6 @@ fn summarize_blockpy_module<E: Clone + Into<Expr>>(
 ) -> crate::PassShapeSummary {
     let mut summary = crate::PassShapeSummary::default();
     for callable in &module.callable_defs {
-        if let Some(doc) = &callable.doc {
-            merge_pass_shape_summary(&mut summary, summarize_ruff_expr(&doc.clone().into()));
-        }
         for block in &callable.blocks {
             for stmt in &block.body {
                 summarize_blockpy_stmt(stmt, &mut summary);
@@ -352,7 +349,7 @@ fn render_bb_module(bundle: &bb_ir::BbModule) -> String {
             function.display_name,
             function.entry_label(),
         ));
-        out.push_str(&format!("kind: {:?}\n", function.kind));
+        out.push_str(&format!("kind: {:?}\n", function.lowered_kind()));
         let param_names = function.params.names();
         if !param_names.is_empty() {
             out.push_str(&format!("params: {}\n", param_names.join(", ")));
@@ -470,10 +467,11 @@ pub(crate) fn render_tracked_pass_text(
 #[cfg(test)]
 mod tests {
     use crate::basic_block::bb_ir::{BbBlock, BbFunction, BbModule, BbTerm};
+    use crate::basic_block::block_py::BlockPyFunctionKind;
     use crate::basic_block::block_py::{
         BlockPyModule, BlockPyStmt, CoreBlockPyExprWithoutAwaitOrYield,
     };
-    use crate::basic_block::lowered_ir::{ClosureInit, ClosureSlot, LoweredFunctionKind};
+    use crate::basic_block::lowered_ir::{ClosureInit, ClosureSlot};
     use crate::LoweringResult;
     use crate::{
         py_expr, transform_str_to_bb_ir_with_options, transform_str_to_ruff_with_options, Options,
@@ -787,7 +785,7 @@ def delegator():
             "{layout:?}"
         );
         assert!(
-            !delegator.entry_liveins.iter().any(|name| name == "child"),
+            !delegator.entry_liveins().iter().any(|name| name == "child"),
             "{delegator:?}"
         );
     }
@@ -807,7 +805,7 @@ def documented():
             .doc
             .as_ref()
             .expect("callable definition should retain doc metadata");
-        assert_eq!(crate::ruff_ast_to_string(doc).trim(), "\"hello doc\"");
+        assert_eq!(doc, "hello doc");
     }
 
     #[test]
@@ -1494,9 +1492,8 @@ async def outer(scale):
             .iter()
             .filter(|func| {
                 matches!(
-                    func.kind,
-                    LoweredFunctionKind::Generator { .. }
-                        | LoweredFunctionKind::AsyncGenerator { .. }
+                    func.lowered_kind(),
+                    BlockPyFunctionKind::Generator | BlockPyFunctionKind::AsyncGenerator
                 )
             })
             .collect::<Vec<_>>();
@@ -1796,17 +1793,7 @@ def make_counter(delta):
             .expect("transform should succeed")
             .expect("bb module should be available");
         let gen = function_by_name(&bb_module, "gen");
-        let crate::basic_block::lowered_ir::LoweredFunctionKind::Generator { resume_pcs, .. } =
-            &gen.kind
-        else {
-            panic!("expected generator kind, got {:?}", gen.kind);
-        };
-        assert_eq!(resume_pcs.len(), 3, "{resume_pcs:?}");
-        assert_eq!(
-            resume_pcs.iter().map(|(_, pc)| *pc).collect::<Vec<_>>(),
-            vec![1, 2, 3],
-            "{resume_pcs:?}"
-        );
+        assert_eq!(gen.lowered_kind(), &BlockPyFunctionKind::Generator);
     }
 
     #[test]

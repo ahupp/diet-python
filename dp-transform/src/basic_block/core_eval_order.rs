@@ -230,12 +230,9 @@ fn make_eval_order_explicit_in_core_callable_def(
         cfg: CfgCallableDef {
             function_id: callable_def.function_id,
             bind_name: callable_def.bind_name.clone(),
-            display_name: callable_def.display_name.clone(),
-            qualname: callable_def.qualname.clone(),
             kind: callable_def.kind,
             params: callable_def.params.clone(),
             param_defaults: callable_def.param_defaults.clone(),
-            entry_liveins: callable_def.entry_liveins.clone(),
             blocks: callable_def
                 .blocks
                 .iter()
@@ -243,11 +240,11 @@ fn make_eval_order_explicit_in_core_callable_def(
                 .collect(),
         },
         fn_name: callable_def.fn_name.clone(),
+        display_name: callable_def.display_name.clone(),
+        qualname: callable_def.qualname.clone(),
         doc: callable_def.doc.clone(),
-        capture_names: callable_def.capture_names.clone(),
         closure_layout: callable_def.closure_layout.clone(),
         facts: callable_def.facts.clone(),
-        local_cell_slots: callable_def.local_cell_slots.clone(),
         try_regions: callable_def.try_regions.clone(),
     }
 }

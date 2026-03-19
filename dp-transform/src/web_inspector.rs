@@ -1,4 +1,5 @@
 use crate::basic_block::bb_ir;
+use crate::basic_block::block_py::BlockPyFunctionKind;
 use crate::{transform_str_to_ruff_with_options, LoweringResult, Options};
 use cranelift_codegen::ir::{self, condcodes::IntCC, types, AbiParam, InstBuilder, UserFuncName};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
@@ -142,10 +143,10 @@ fn bb_module_to_json(module: &bb_ir::BbModule) -> Value {
                 "bindName": function.bind_name,
                 "displayName": function.display_name,
                 "qualname": function.qualname,
-                "kind": bb_function_kind_to_json(&function.kind),
+                "kind": bb_function_kind_to_json(function.lowered_kind()),
                 "entry": function.entry_label(),
                 "paramNames": function.params.names(),
-                "entryLiveins": function.entry_liveins,
+                "entryLiveins": function.entry_liveins(),
                 "localCellSlots": function.local_cell_slots(),
                 "blocks": blocks,
             })
@@ -162,35 +163,18 @@ fn bb_module_to_json(module: &bb_ir::BbModule) -> Value {
     })
 }
 
-fn bb_function_kind_to_json(kind: &crate::basic_block::lowered_ir::LoweredFunctionKind) -> Value {
+fn bb_function_kind_to_json(kind: &BlockPyFunctionKind) -> Value {
     match kind {
-        crate::basic_block::lowered_ir::LoweredFunctionKind::Function => {
-            json!({"kind": "function"})
+        BlockPyFunctionKind::Function => json!({"kind": "function"}),
+        BlockPyFunctionKind::Coroutine => {
+            json!({"kind": "coroutine"})
         }
-        crate::basic_block::lowered_ir::LoweredFunctionKind::Generator {
-            closure_state,
-            resume_label,
-            target_labels,
-            resume_pcs,
-        } => json!({
-            "kind": "generator",
-            "closureState": closure_state,
-            "resumeLabel": resume_label,
-            "targetLabels": target_labels,
-            "resumePcs": resume_pcs,
-        }),
-        crate::basic_block::lowered_ir::LoweredFunctionKind::AsyncGenerator {
-            closure_state,
-            resume_label,
-            target_labels,
-            resume_pcs,
-        } => json!({
-            "kind": "async_generator",
-            "closureState": closure_state,
-            "resumeLabel": resume_label,
-            "targetLabels": target_labels,
-            "resumePcs": resume_pcs,
-        }),
+        BlockPyFunctionKind::Generator => {
+            json!({"kind": "generator"})
+        }
+        BlockPyFunctionKind::AsyncGenerator => {
+            json!({"kind": "async_generator"})
+        }
     }
 }
 
@@ -595,7 +579,7 @@ fn bb_module_to_clif(module: &bb_ir::BbModule) -> String {
         out.push_str(&format!(
             "; function {} (kind={:?}, bind={}, entry={})\n",
             function.qualname,
-            function.kind,
+            function.lowered_kind(),
             function.bind_name,
             function.entry_label()
         ));

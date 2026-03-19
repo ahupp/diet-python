@@ -134,6 +134,7 @@ pub(crate) fn jit_render_bb_with_cfg_plan_impl(
 #[cfg(test)]
 mod tests {
     use dp_transform::basic_block::bb_ir;
+    use dp_transform::basic_block::block_py::BlockPyFunctionKind;
     use soac_eval::jit::{self, BlockExcArgSource};
     use std::any::Any;
 
@@ -185,14 +186,11 @@ mod tests {
             "JIT mode requires emitted basic-block IR, but none was produced".to_string()
         })?;
         for function in &bb_module.callable_defs {
-            match &function.kind {
-                dp_transform::basic_block::lowered_ir::LoweredFunctionKind::Function
-                | dp_transform::basic_block::lowered_ir::LoweredFunctionKind::Generator {
-                    ..
-                }
-                | dp_transform::basic_block::lowered_ir::LoweredFunctionKind::AsyncGenerator {
-                    ..
-                } => {}
+            match function.lowered_kind() {
+                BlockPyFunctionKind::Function
+                | BlockPyFunctionKind::Coroutine
+                | BlockPyFunctionKind::Generator
+                | BlockPyFunctionKind::AsyncGenerator => {}
             }
         }
         Ok(())

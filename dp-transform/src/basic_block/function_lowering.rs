@@ -1,24 +1,24 @@
 use super::annotation_export::{
-    build_exec_function_def_binding_stmts, collect_capture_names, is_annotation_helper_name,
-    rewrite_annotation_helper_defs_as_exec_calls, should_keep_non_lowered_for_annotationlib,
+    is_annotation_helper_name, rewrite_annotation_helper_defs_as_exec_calls,
+    should_keep_non_lowered_for_annotationlib,
 };
 use super::block_py::state::collect_cell_slots;
 use super::block_py::{
     BlockPyBlock, BlockPyBranchTable, BlockPyCallableDef, BlockPyCallableFacts,
-    BlockPyCallableHeader, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt,
-    BlockPyStmtFragment, BlockPyTerm,
+    BlockPyFunctionKind, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment,
+    BlockPyTerm,
 };
 use super::bound_names::{collect_bound_names, collect_explicit_global_or_nonlocal_names};
-use super::function_identity::{
-    is_module_init_temp_name, resolve_runtime_function_identity, FunctionIdentity,
+use super::function_identity::{resolve_runtime_function_identity, FunctionIdentity};
+use super::ruff_to_blockpy::{
+    build_blockpy_callable_def_from_runtime_input, take_next_function_id,
 };
-use super::ruff_to_blockpy::{lower_function_body_to_blockpy_function, take_next_function_id};
 use super::stmt_utils::{
     flatten_stmt_boxes, should_strip_nonlocal_for_bb, strip_nonlocal_directives,
 };
 use crate::basic_block::ast_to_ast::ast_rewrite::{Rewrite, StmtRewritePass};
 use crate::basic_block::ast_to_ast::context::Context;
-use crate::basic_block::ast_to_ast::scope::{is_internal_symbol, Scope, ScopeKind};
+use crate::basic_block::ast_to_ast::scope::{is_internal_symbol, Scope};
 use crate::basic_block::param_specs::collect_param_spec_and_defaults;
 use crate::py_expr;
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
@@ -288,7 +288,6 @@ impl Drop for ReservedTempNamesGuard {
     }
 }
 
-// TODO: This is teh source of problems
 pub(crate) fn try_lower_function_to_blockpy_bundle(
     context: &Context,
     module_scope: &Arc<Scope>,
@@ -302,14 +301,6 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     if should_keep_non_lowered_for_annotationlib(func) {
         return None;
     }
-    if func.name.id.as_str().starts_with("_dp_bb_") {
-        return None;
-    }
-    // TODO: Stop classifying generated helpers from the raw AST function name.
-    // Some lowered helpers arrive here as internal `__dp_fn_*` wrappers, and
-    // follow-on phase routing should key off the canonical helper identity
-    // instead of string-matching partially lowered names.
-    let is_generated_genexpr = func.name.id.as_str().contains("_dp_genexpr_");
     // Keep generated annotation helpers in their lexical scope. BB-lowering
     // and hoisting them out of class/module init can break name resolution
     // for class-local symbols (for example, `T` in `value: T`).
@@ -318,26 +309,14 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     }
     let (_, lowered_input_body) = split_docstring(&func.body);
     let lowered_input_body = flatten_stmt_boxes(&lowered_input_body);
-    let lowered_input_body =
-        if should_strip_nonlocal_for_bb(func.name.id.as_str()) || is_generated_genexpr {
-            strip_nonlocal_directives(lowered_input_body)
-        } else {
-            lowered_input_body
-        };
+    let lowered_input_body = if should_strip_nonlocal_for_bb(func.name.id.as_str()) {
+        strip_nonlocal_directives(lowered_input_body)
+    } else {
+        lowered_input_body
+    };
     let (param_spec, param_defaults) = collect_param_spec_and_defaults(&func.parameters);
     let param_names = param_spec.names();
-    let has_yield_original = has_yield_exprs_in_stmts(&lowered_input_body);
     let runtime_input_body = prune_dead_stmt_suffixes(&lowered_input_body);
-    let original_runtime_input_body = runtime_input_body.clone();
-    // let mut legacy_async_runtime_input_body = None;
-    // let mut legacy_async_fallback_removes_all_awaits = false;
-    // if func.is_async {
-    //     let mut lowered_async_body = runtime_input_body.clone();
-    //     lower_coroutine_awaits_to_yield_from(&mut lowered_async_body);
-    //     legacy_async_fallback_removes_all_awaits = !has_await_in_stmts(&lowered_async_body);
-    //     legacy_async_runtime_input_body = Some(lowered_async_body);
-    // }
-    let coroutine_via_generator = func.is_async && !has_yield_original;
     let mut outer_scope_names = collect_bound_names(&runtime_input_body);
     outer_scope_names.extend(param_names.iter().cloned());
     let runtime_input_body =
@@ -361,81 +340,32 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         outer_scope_names: outer_scope_names.clone(),
         cell_slots,
     };
-    let has_yield = has_yield_exprs_in_stmts(&runtime_input_body);
-    let has_await = has_await_in_stmts(&runtime_input_body);
-    // if is_generated_genexpr
-    //     && func.is_async
-    //     && has_await
-    //     && !legacy_async_fallback_removes_all_awaits
-    // {
-    //     return None;
-    // }
-    // if has_yield && has_await && !func.is_async {
-    //     return None;
-    // }
-    let is_async_generator_runtime = func.is_async && !coroutine_via_generator;
-    let needs_generator_runtime = has_yield || coroutine_via_generator;
-    let is_closure_backed_generator_runtime = needs_generator_runtime;
 
     let end_label = next_label(func.name.id.as_str(), next_block_id);
     let identity = resolve_runtime_function_identity(func, function_identity_by_node, parent_name);
-    let doc_expr = function_docstring_expr(func).map(Into::into);
+    let doc = function_docstring_text(func);
     let main_function_id = take_next_function_id(next_function_id);
-    let callable_header = BlockPyCallableHeader {
-        function_id: main_function_id,
-        fn_name: func.name.id.to_string(),
-        bind_name: identity.bind_name.clone(),
-        display_name: identity.display_name.clone(),
-        qualname: identity.qualname.clone(),
-        params: param_spec,
-        param_defaults,
+    let fn_name = func.name.id.to_string();
+    let blockpy_kind = if func.is_async {
+        BlockPyFunctionKind::Coroutine
+    } else {
+        BlockPyFunctionKind::Function
     };
-    let enclosing_scope = module_scope
-        .child_scope_for_function(func)
-        .ok()
-        .and_then(|scope| scope.parent_scope());
-    let enclosing_function_scope_names = enclosing_scope.and_then(|parent| {
-        if matches!(parent.kind(), ScopeKind::Module)
-            || is_module_init_temp_name(parent.qualnamer.qualname.as_str())
-        {
-            None
-        } else {
-            Some(
-                parent
-                    .scope_bindings()
-                    .keys()
-                    .cloned()
-                    .collect::<HashSet<_>>(),
-            )
-        }
-    });
-    let mut capture_names = collect_capture_names(func, enclosing_function_scope_names.as_ref());
-    capture_names.sort();
-    capture_names.dedup();
-    let callable_def = lower_function_body_to_blockpy_function(
+    let callable_def = build_blockpy_callable_def_from_runtime_input(
         context,
+        main_function_id,
+        fn_name,
+        identity.bind_name.clone(),
+        identity.display_name.clone(),
+        identity.qualname.clone(),
+        param_spec,
+        param_defaults,
         &runtime_input_body,
-        callable_header,
-        doc_expr,
-        capture_names,
-        //        legacy_async_runtime_input_body
-        // .as_deref()
-        // .filter(|_| legacy_async_fallback_removes_all_awaits)
-        // .or(Some(original_runtime_input_body.as_slice())),
+        doc,
         end_label,
-        has_yield,
-        coroutine_via_generator,
-        is_async_generator_runtime,
-        is_closure_backed_generator_runtime,
+        blockpy_kind,
         &callable_facts,
         next_block_id,
-        &mut |func_def| {
-            build_exec_function_def_binding_stmts(
-                func_def,
-                &callable_facts.cell_slots,
-                &callable_facts.outer_scope_names,
-            )
-        },
         &mut |prefix, next_block_id| {
             next_temp_from_counter(reserved_temp_names_stack, prefix, next_block_id)
         },
@@ -443,12 +373,15 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     Some(callable_def)
 }
 
-pub(crate) fn function_docstring_expr(func: &ast::StmtFunctionDef) -> Option<Expr> {
+pub(crate) fn function_docstring_text(func: &ast::StmtFunctionDef) -> Option<String> {
     let (docstring, _) = split_docstring(&func.body);
     let Some(Stmt::Expr(expr_stmt)) = docstring else {
         return None;
     };
-    Some(*expr_stmt.value)
+    let Expr::StringLiteral(ast::ExprStringLiteral { value, .. }) = *expr_stmt.value else {
+        return None;
+    };
+    Some(value.to_string())
 }
 
 pub(crate) fn lower_stmt_default(context: &Context, stmt: Stmt) -> Rewrite {
@@ -469,56 +402,6 @@ impl StmtRewritePass for SingleNamedAssignmentPass {
     fn lower_stmt(&self, context: &Context, stmt: Stmt) -> Rewrite {
         lower_stmt_bb(context, stmt)
     }
-}
-
-#[derive(Default)]
-struct YieldLikeProbe {
-    has_yield: bool,
-    has_yield_from: bool,
-    has_await: bool,
-}
-
-impl Transformer for YieldLikeProbe {
-    fn visit_stmt(&mut self, stmt: &mut Stmt) {
-        if matches!(stmt, Stmt::FunctionDef(_) | Stmt::ClassDef(_)) {
-            return;
-        }
-        walk_stmt(self, stmt);
-    }
-
-    fn visit_expr(&mut self, expr: &mut Expr) {
-        match expr {
-            Expr::Yield(_) => self.has_yield = true,
-            Expr::YieldFrom(_) => self.has_yield_from = true,
-            Expr::Await(_) => self.has_await = true,
-            _ => {}
-        }
-        walk_expr(self, expr);
-    }
-}
-
-pub(crate) fn has_yield_exprs_in_stmts(stmts: &[Box<Stmt>]) -> bool {
-    let mut probe = YieldLikeProbe::default();
-    for stmt in stmts {
-        let mut stmt = stmt.as_ref().clone();
-        probe.visit_stmt(&mut stmt);
-        if probe.has_yield || probe.has_yield_from {
-            return true;
-        }
-    }
-    false
-}
-
-pub(crate) fn has_await_in_stmts(stmts: &[Box<Stmt>]) -> bool {
-    let mut probe = YieldLikeProbe::default();
-    for stmt in stmts {
-        let mut stmt = stmt.as_ref().clone();
-        probe.visit_stmt(&mut stmt);
-        if probe.has_await {
-            return true;
-        }
-    }
-    false
 }
 
 fn split_docstring(body: &StmtBody) -> (Option<Stmt>, Vec<Box<Stmt>>) {

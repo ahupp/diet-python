@@ -72,16 +72,15 @@ impl BlockPyFormatter {
             if function.display_name != function.bind_name {
                 this.line(format!("display_name: {}", function.display_name));
             }
-            if !function.entry_liveins.is_empty() && function.entry_liveins != parameter_names {
-                this.line(format!(
-                    "entry_liveins: [{}]",
-                    function.entry_liveins.join(", ")
-                ));
+            let entry_liveins = function.entry_liveins();
+            if !entry_liveins.is_empty() && entry_liveins != parameter_names {
+                this.line(format!("entry_liveins: [{}]", entry_liveins.join(", ")));
             }
-            if !function.local_cell_slots.is_empty() {
+            let local_cell_slots = function.local_cell_slots();
+            if !local_cell_slots.is_empty() {
                 this.line(format!(
                     "local_cell_slots: [{}]",
-                    function.local_cell_slots.join(", ")
+                    local_cell_slots.join(", ")
                 ));
             }
             if let Some(layout) = &function.closure_layout {
@@ -1041,12 +1040,9 @@ async def no_lying():
                 cfg: crate::basic_block::cfg_ir::CfgCallableDef {
                     function_id: crate::basic_block::lowered_ir::FunctionId(0),
                     bind_name: "gen".to_string(),
-                    display_name: "gen".to_string(),
-                    qualname: "gen".to_string(),
                     kind: BlockPyFunctionKind::Function,
                     params: empty_param_spec(),
                     param_defaults: Vec::new(),
-                    entry_liveins: vec!["_dp_self".to_string(), "_dp_resume_exc".to_string()],
                     blocks: vec![BlockPyBlock {
                         label: "gen_start".into(),
                         body: vec![],
@@ -1055,8 +1051,9 @@ async def no_lying():
                     }],
                 },
                 fn_name: "gen".to_string(),
+                display_name: "gen".to_string(),
+                qualname: "gen".to_string(),
                 doc: None,
-                capture_names: Vec::new(),
                 closure_layout: Some(ClosureLayout {
                     freevars: vec![ClosureSlot {
                         logical_name: "factor".to_string(),
@@ -1076,12 +1073,11 @@ async def no_lying():
                 }),
                 try_regions: Vec::new(),
                 facts: crate::basic_block::block_py::BlockPyCallableFacts::default(),
-                local_cell_slots: vec!["_dp_cell__dp_pc".to_string()],
             }],
         });
 
         assert!(rendered.contains(
-            "function gen():\n    entry_liveins: [_dp_self, _dp_resume_exc]\n    local_cell_slots: [_dp_cell__dp_pc]\n    freevars: [factor->_dp_cell_factor@inherited]\n    cellvars: [total->_dp_cell_total@deferred]\n    runtime_cells: [_dp_pc->_dp_cell__dp_pc@pc_unstarted]"
+            "function gen():\n    local_cell_slots: [_dp_cell_total, _dp_cell__dp_pc]\n    freevars: [factor->_dp_cell_factor@inherited]\n    cellvars: [total->_dp_cell_total@deferred]\n    runtime_cells: [_dp_pc->_dp_cell__dp_pc@pc_unstarted]"
         ));
         assert!(!rendered.contains("entry:"));
     }
@@ -1092,12 +1088,9 @@ async def no_lying():
             cfg: crate::basic_block::cfg_ir::CfgCallableDef {
                 function_id: crate::basic_block::lowered_ir::FunctionId(0),
                 bind_name: "f".to_string(),
-                display_name: "f".to_string(),
-                qualname: "f".to_string(),
                 kind: BlockPyFunctionKind::Function,
                 params: empty_param_spec(),
                 param_defaults: Vec::new(),
-                entry_liveins: Vec::new(),
                 blocks: vec![
                     BlockPyBlock {
                         label: "start".into(),
@@ -1130,12 +1123,12 @@ async def no_lying():
                 ],
             },
             fn_name: "f".to_string(),
+            display_name: "f".to_string(),
+            qualname: "f".to_string(),
             doc: None,
-            capture_names: Vec::new(),
             closure_layout: None,
             try_regions: Vec::new(),
             facts: crate::basic_block::block_py::BlockPyCallableFacts::default(),
-            local_cell_slots: Vec::new(),
         };
         let rendered = blockpy_module_to_string(&BlockPyModule {
             callable_defs: vec![function],
@@ -1174,12 +1167,9 @@ def choose(a, b):
             cfg: crate::basic_block::cfg_ir::CfgCallableDef {
                 function_id: crate::basic_block::lowered_ir::FunctionId(0),
                 bind_name: "f".to_string(),
-                display_name: "f".to_string(),
-                qualname: "f".to_string(),
                 kind: BlockPyFunctionKind::Function,
                 params: empty_param_spec(),
                 param_defaults: Vec::new(),
-                entry_liveins: Vec::new(),
                 blocks: vec![
                     BlockPyBlock {
                         label: "start".into(),
@@ -1217,12 +1207,12 @@ def choose(a, b):
                 ],
             },
             fn_name: "f".to_string(),
+            display_name: "f".to_string(),
+            qualname: "f".to_string(),
             doc: None,
-            capture_names: Vec::new(),
             closure_layout: None,
             try_regions: Vec::new(),
             facts: crate::basic_block::block_py::BlockPyCallableFacts::default(),
-            local_cell_slots: Vec::new(),
         };
         let rendered = blockpy_module_to_string(&BlockPyModule {
             callable_defs: vec![function],

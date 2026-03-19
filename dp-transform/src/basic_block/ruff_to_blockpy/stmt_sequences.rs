@@ -1,8 +1,8 @@
 use super::stmt_lowering::lower_stmt_into_with_expr;
 use super::*;
+use crate::basic_block::annotation_export::build_exec_function_def_binding_stmts;
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::block_py::{BlockPyBlock, BlockPyRaise, BlockPyStmt, BlockPyTerm, Expr};
-use crate::basic_block::blockpy_generators::plan_generator_block_fragment;
 
 pub(crate) fn lower_stmts_to_blockpy_stmts_with_context<E>(
     context: &Context,
@@ -32,50 +32,24 @@ where
     lower_stmts_to_blockpy_stmts_with_context(&context, stmts)
 }
 
-pub(crate) fn plan_generator_stmt_head_block(
-    context: &Context,
-    stmt: &Stmt,
-) -> Option<GeneratorBlockPlan> {
-    let generator_stmt = match lower_stmts_to_blockpy_stmts_with_context::<Expr>(
-        context,
-        std::slice::from_ref(stmt),
-    ) {
-        Ok(generator_stmt) => generator_stmt,
-        Err(err) => {
-            return match stmt {
-                Stmt::Expr(_) | Stmt::Assign(_) | Stmt::Return(_) => {
-                    panic!("failed to convert generator stmt to BlockPy before lowering: {err}")
-                }
-                _ => None,
-            };
-        }
-    };
-    plan_generator_block_fragment(generator_stmt)
+pub(crate) fn plan_stmt_sequence_head(context: &Context, stmt: &Stmt) -> StmtSequenceHeadPlan {
+    super::stmt_lowering::plan_stmt_head_for_blockpy(context, stmt)
 }
 
-pub(crate) fn plan_stmt_sequence_head(
-    context: &Context,
-    stmt: &Stmt,
-    allow_generator_head: bool,
-) -> StmtSequenceHeadPlan {
-    super::stmt_lowering::plan_stmt_head_for_blockpy(context, stmt, allow_generator_head)
-}
-
-pub(crate) fn drive_stmt_sequence_until_control<FDef, FDelete>(
+pub(crate) fn drive_stmt_sequence_until_control<FDelete>(
     context: &Context,
     stmts: &[Box<Stmt>],
     mut linear: Vec<Stmt>,
-    allow_generator_head: bool,
-    lower_non_bb_def: &mut FDef,
+    cell_slots: &HashSet<String>,
+    outer_scope_names: &HashSet<String>,
     rewrite_delete: &mut FDelete,
 ) -> StmtSequenceDriveResult
 where
-    FDef: FnMut(&ast::StmtFunctionDef) -> Vec<Stmt>,
     FDelete: FnMut(&ast::StmtDelete) -> Vec<Stmt>,
 {
     let mut index = 0;
     while index < stmts.len() {
-        match plan_stmt_sequence_head(context, stmts[index].as_ref(), allow_generator_head) {
+        match plan_stmt_sequence_head(context, stmts[index].as_ref()) {
             StmtSequenceHeadPlan::Linear(stmt) => {
                 linear.push(stmt);
                 index += 1;
@@ -91,7 +65,11 @@ where
                 if func_def.name.id.as_str().starts_with("_dp_bb_") {
                     linear.push(Stmt::FunctionDef(func_def));
                 } else {
-                    linear.extend(lower_non_bb_def(&func_def));
+                    linear.extend(build_exec_function_def_binding_stmts(
+                        &func_def,
+                        cell_slots,
+                        outer_scope_names,
+                    ));
                 }
                 index += 1;
             }
@@ -285,50 +263,7 @@ where
     )
 }
 
-pub(crate) fn lower_generator_stmt_sequence_head<F>(
-    fn_name: &str,
-    plan: GeneratorBlockPlan,
-    remaining_stmts: &[Box<Stmt>],
-    cont_label: String,
-    linear: Vec<Stmt>,
-    blocks: &mut Vec<BlockPyBlock>,
-    mut state: GeneratorStmtSequenceLoweringState,
-    try_regions: &mut Vec<TryRegionPlan>,
-    cell_slots: Option<&std::collections::HashSet<String>>,
-    lower_rest: &mut F,
-) -> (Option<String>, GeneratorStmtSequenceLoweringState)
-where
-    F: FnMut(
-        &[Box<Stmt>],
-        String,
-        &mut Vec<BlockPyBlock>,
-        GeneratorStmtSequenceLoweringState,
-    ) -> (String, GeneratorStmtSequenceLoweringState),
-{
-    let rest_entry = if plan.needs_rest_entry {
-        let (entry, updated_state) = lower_rest(remaining_stmts, cont_label, blocks, state);
-        state = updated_state;
-        Some(entry)
-    } else {
-        None
-    };
-    let label = lower_generator_block_plan(
-        &plan,
-        linear,
-        rest_entry,
-        blocks,
-        state.closure_state,
-        try_regions,
-        &mut state.resume_order,
-        &mut state.yield_sites,
-        &mut state.next_block_id,
-        fn_name,
-        cell_slots,
-    );
-    (label, state)
-}
-
-pub(crate) fn lower_stmt_sequence_with_state<FDef, FTemp>(
+pub(crate) fn lower_stmt_sequence_with_state<FTemp>(
     context: &Context,
     fn_name: &str,
     stmts: &[Box<Stmt>],
@@ -337,14 +272,12 @@ pub(crate) fn lower_stmt_sequence_with_state<FDef, FTemp>(
     continue_label: Option<String>,
     blocks: &mut Vec<BlockPyBlock>,
     cell_slots: &HashSet<String>,
-    generator_state: &mut BlockPySequenceGeneratorState,
+    outer_scope_names: &HashSet<String>,
     try_regions: &mut Vec<TryRegionPlan>,
     next_block_id: &mut usize,
-    lower_non_bb_def: &mut FDef,
     next_temp: &mut FTemp,
 ) -> String
 where
-    FDef: FnMut(&ast::StmtFunctionDef) -> Vec<Stmt>,
     FTemp: FnMut(&str, &mut usize) -> String,
 {
     if stmts.is_empty() {
@@ -359,8 +292,8 @@ where
             context,
             &stmts[index..],
             linear,
-            generator_state.enabled,
-            lower_non_bb_def,
+            cell_slots,
+            outer_scope_names,
             &mut rewrite_delete_to_deleted_sentinel,
         ) {
             StmtSequenceDriveResult::Exhausted { linear } => {
@@ -375,74 +308,6 @@ where
         };
 
         match plan {
-            StmtSequenceHeadPlan::Generator {
-                plan,
-                sync_target_cells,
-            } => {
-                let initial_state = GeneratorStmtSequenceLoweringState {
-                    enabled: generator_state.enabled,
-                    closure_state: generator_state.closure_state,
-                    resume_order: std::mem::take(&mut generator_state.resume_order),
-                    yield_sites: std::mem::take(&mut generator_state.yield_sites),
-                    next_block_id: *next_block_id,
-                };
-                let mut local_try_regions = Vec::new();
-                let (label, updated_state) = lower_generator_stmt_sequence_head(
-                    fn_name,
-                    plan,
-                    &stmts[index + 1..],
-                    cont_label.clone(),
-                    linear.clone(),
-                    blocks,
-                    initial_state,
-                    &mut local_try_regions,
-                    sync_target_cells.then_some(cell_slots),
-                    &mut |stmts, cont_label, blocks, state| {
-                        let mut local_generator_state = BlockPySequenceGeneratorState {
-                            enabled: state.enabled,
-                            closure_state: state.closure_state,
-                            resume_order: state.resume_order,
-                            yield_sites: state.yield_sites,
-                        };
-                        let mut local_next_block_id = state.next_block_id;
-                        let label = lower_stmt_sequence_with_state(
-                            context,
-                            fn_name,
-                            stmts,
-                            cont_label,
-                            break_label.clone(),
-                            continue_label.clone(),
-                            blocks,
-                            cell_slots,
-                            &mut local_generator_state,
-                            try_regions,
-                            &mut local_next_block_id,
-                            lower_non_bb_def,
-                            next_temp,
-                        );
-                        (
-                            label,
-                            GeneratorStmtSequenceLoweringState {
-                                enabled: local_generator_state.enabled,
-                                closure_state: local_generator_state.closure_state,
-                                resume_order: local_generator_state.resume_order,
-                                yield_sites: local_generator_state.yield_sites,
-                                next_block_id: local_next_block_id,
-                            },
-                        )
-                    },
-                );
-                try_regions.extend(local_try_regions);
-                *next_block_id = updated_state.next_block_id;
-                generator_state.resume_order = updated_state.resume_order;
-                generator_state.yield_sites = updated_state.yield_sites;
-                if let Some(label) = label {
-                    return label;
-                }
-                linear.push(stmts[index].as_ref().clone());
-                index += 1;
-                continue;
-            }
             plan @ (StmtSequenceHeadPlan::Raise(_)
             | StmtSequenceHeadPlan::Return(_)
             | StmtSequenceHeadPlan::If(_)
@@ -477,10 +342,9 @@ where
                                 Some(cont_label),
                                 blocks,
                                 cell_slots,
-                                generator_state,
+                                outer_scope_names,
                                 try_regions,
                                 &mut local_next_id,
-                                lower_non_bb_def,
                                 next_temp,
                             );
                             next_id.set(local_next_id);
@@ -496,10 +360,9 @@ where
                                 continue_label.clone(),
                                 blocks,
                                 cell_slots,
-                                generator_state,
+                                outer_scope_names,
                                 try_regions,
                                 &mut local_next_id,
-                                lower_non_bb_def,
                                 next_temp,
                             );
                             next_id.set(local_next_id);
@@ -537,10 +400,9 @@ where
                             continue_label.clone(),
                             blocks,
                             cell_slots,
-                            generator_state,
+                            outer_scope_names,
                             try_regions,
                             &mut local_next_id,
-                            lower_non_bb_def,
                             next_temp,
                         );
                         next_id.set(local_next_id);
@@ -558,27 +420,7 @@ where
                 let tmp_name = next_temp("tmp", next_block_id);
                 let tmp_expr = py_expr!("{name:id}", name = tmp_name.as_str());
                 let loop_check_label = compat_next_label(fn_name, next_block_id);
-                let continue_state = GeneratorStmtSequenceLoweringState {
-                    enabled: generator_state.enabled,
-                    closure_state: generator_state.closure_state,
-                    resume_order: std::mem::take(&mut generator_state.resume_order),
-                    yield_sites: std::mem::take(&mut generator_state.yield_sites),
-                    next_block_id: *next_block_id,
-                };
-                let (loop_continue_label, continue_state) =
-                    lower_for_loop_continue_entry_with_state(
-                        blocks,
-                        fn_name,
-                        iter_name.as_str(),
-                        tmp_name.as_str(),
-                        loop_check_label.clone(),
-                        for_stmt.is_async,
-                        try_regions,
-                        continue_state,
-                    );
-                *next_block_id = continue_state.next_block_id;
-                generator_state.resume_order = continue_state.resume_order;
-                generator_state.yield_sites = continue_state.yield_sites;
+                let loop_continue_label = loop_check_label.clone();
                 let assign_body = build_for_target_assign_body(
                     for_stmt.target.as_ref(),
                     tmp_expr,
@@ -612,10 +454,9 @@ where
                                 Some(cont_label),
                                 blocks,
                                 cell_slots,
-                                generator_state,
+                                outer_scope_names,
                                 try_regions,
                                 &mut local_next_id,
-                                lower_non_bb_def,
                                 next_temp,
                             );
                             next_id.set(local_next_id);
@@ -631,10 +472,9 @@ where
                                 continue_label.clone(),
                                 blocks,
                                 cell_slots,
-                                generator_state,
+                                outer_scope_names,
                                 try_regions,
                                 &mut local_next_id,
-                                lower_non_bb_def,
                                 next_temp,
                             );
                             next_id.set(local_next_id);
@@ -670,10 +510,9 @@ where
                                 continue_label.clone(),
                                 blocks,
                                 cell_slots,
-                                generator_state,
+                                outer_scope_names,
                                 try_regions,
                                 &mut local_next_id,
-                                lower_non_bb_def,
                                 next_temp,
                             );
                             next_id.set(local_next_id);
@@ -714,10 +553,9 @@ where
                                 continue_label.clone(),
                                 blocks,
                                 cell_slots,
-                                generator_state,
+                                outer_scope_names,
                                 try_regions,
                                 &mut local_next_id,
-                                lower_non_bb_def,
                                 next_temp,
                             );
                             next_id.set(local_next_id);
@@ -755,10 +593,9 @@ where
                             continue_label.clone(),
                             blocks,
                             cell_slots,
-                            generator_state,
+                            outer_scope_names,
                             try_regions,
                             next_block_id,
-                            lower_non_bb_def,
                             next_temp,
                         )
                     },

@@ -1,6 +1,6 @@
-use super::cfg_ir::{CfgBlock, CfgCallableDef, CfgModule};
+use super::block_py::BlockPyCallableDef;
+use super::cfg_ir::{CfgBlock, CfgModule};
 use std::env;
-use std::ops::DerefMut;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CfgTraceConfig {
@@ -37,12 +37,11 @@ pub(crate) fn parse_cfg_trace_config(raw: &str) -> Option<CfgTraceConfig> {
     })
 }
 
-pub(crate) fn instrument_cfg_module_for_trace<K, D, S, T, M, F>(
-    module: &mut CfgModule<F>,
+pub(crate) fn instrument_cfg_module_for_trace<D, S, T, M>(
+    module: &mut CfgModule<BlockPyCallableDef<D, CfgBlock<S, T, M>>>,
     config: &CfgTraceConfig,
     make_trace_stmt: impl Fn(&str, &str, &[String]) -> S,
 ) where
-    F: DerefMut<Target = CfgCallableDef<K, D, CfgBlock<S, T, M>>>,
     M: TraceBlockMeta,
 {
     for function in &mut module.callable_defs {

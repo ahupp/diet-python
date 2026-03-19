@@ -11,7 +11,9 @@ use crate::basic_block::block_py::dataflow::{
     analyze_blockpy_use_def, compute_block_params_blockpy,
 };
 use crate::basic_block::block_py::state::{collect_cell_slots, collect_state_vars};
-use crate::basic_block::block_py::{BlockPyCallableDef, TryRegionPlan, ENTRY_BLOCK_LABEL};
+use crate::basic_block::block_py::{
+    BlockPyCallableDef, BlockPyFunctionKind, BlockPyModule, TryRegionPlan, ENTRY_BLOCK_LABEL,
+};
 use crate::basic_block::blockpy_to_bb::LoweredBlockPyModuleBundlePlan;
 use crate::basic_block::expr_utils::{make_dp_tuple, name_expr};
 use crate::basic_block::function_identity::{
@@ -19,7 +21,7 @@ use crate::basic_block::function_identity::{
     FunctionIdentity,
 };
 use crate::basic_block::function_lowering::{
-    function_docstring_expr, try_lower_function_to_blockpy_bundle,
+    function_docstring_text, try_lower_function_to_blockpy_bundle,
 };
 use crate::basic_block::lowered_ir::BindingTarget;
 use crate::basic_block::param_specs::{param_defaults_to_expr, param_spec_to_expr, ParamSpec};
@@ -96,8 +98,13 @@ struct LoweredFunctionInstantiationPreview {
     captures: Vec<LoweredFunctionCaptureItem>,
     params: ParamSpec,
     param_defaults: Vec<Expr>,
-    doc_expr: Expr,
+    doc: Option<String>,
     kind: LoweredFunctionInstantiationKind,
+}
+
+fn doc_text_to_expr(doc: Option<&str>) -> Expr {
+    doc.map(|doc| py_expr!("{doc:literal}", doc = doc))
+        .unwrap_or_else(|| py_expr!("None"))
 }
 
 struct LoweredFunctionRewriteResult {
@@ -245,21 +252,16 @@ fn build_lowered_function_instantiation_preview(
         &callable_def.facts.cell_slots,
         &locally_assigned,
     )?;
-    let callable_header = callable_def.header();
     Some(LoweredFunctionInstantiationPreview {
         entry_label: ENTRY_BLOCK_LABEL.to_string(),
         function_id: callable_def.function_id.0,
-        name: callable_header.display_name,
+        name: callable_def.display_name.clone(),
         qualname: callable_def.qualname.clone(),
         captures,
         params: callable_def.params.clone(),
         param_defaults: callable_def.param_defaults.clone(),
-        doc_expr: callable_def
-            .doc
-            .clone()
-            .map(Into::into)
-            .unwrap_or_else(|| py_expr!("None")),
-        kind: if callable_def.kind == crate::basic_block::block_py::BlockPyFunctionKind::Coroutine {
+        doc: callable_def.doc.clone(),
+        kind: if callable_def.kind == BlockPyFunctionKind::Coroutine {
             LoweredFunctionInstantiationKind::MarkCoroutineFunction
         } else {
             LoweredFunctionInstantiationKind::DirectFunction
@@ -276,7 +278,7 @@ struct LoweredFunctionInstantiationData {
     decorator_exprs: Vec<Expr>,
     params: ParamSpec,
     param_defaults: Vec<Expr>,
-    doc_expr: Expr,
+    doc: Option<String>,
     annotate_fn_expr: Expr,
     kind: LoweredFunctionInstantiationKind,
 }
@@ -295,7 +297,7 @@ fn build_lowered_function_instantiation_data(
         decorator_exprs,
         params: preview.params.clone(),
         param_defaults: preview.param_defaults.clone(),
-        doc_expr: preview.doc_expr.clone(),
+        doc: preview.doc.clone(),
         annotate_fn_expr: annotate_fn_expr.unwrap_or_else(|| py_expr!("None")),
         kind: preview.kind,
     }
@@ -317,7 +319,7 @@ fn build_lowered_function_instantiation_expr(data: &LoweredFunctionInstantiation
         param_defaults = param_defaults_expr.clone(),
         module_globals = py_expr!("__dp_globals()"),
         module_name = py_expr!("__name__"),
-        doc = data.doc_expr.clone(),
+        doc = doc_text_to_expr(data.doc.as_deref()),
         annotate_fn = data.annotate_fn_expr.clone(),
     );
     let base_function_expr = match data.kind {
@@ -353,7 +355,7 @@ mod tests {
 pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan(
     context: &Context,
     mut module: StmtBody,
-) -> (StmtBody, LoweredBlockPyModuleBundlePlan) {
+) -> (StmtBody, BlockPyModule<Expr>) {
     crate::basic_block::ast_to_ast::simplify::flatten(&mut module);
     let module_scope = analyze_module_scope(&mut module);
     let function_identity_by_node =
@@ -373,9 +375,11 @@ pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan(
         },
     };
     rewriter.visit_body(&mut module);
-    rewriter.lowered_blockpy_module.next_block_id = rewriter.next_block_id;
-    rewriter.lowered_blockpy_module.next_function_id = rewriter.next_function_id;
-    (module, rewriter.lowered_blockpy_module)
+    let blockpy_module = BlockPyModule {
+        callable_defs: rewriter.lowered_blockpy_module.callable_defs,
+    };
+
+    (module, blockpy_module)
 }
 
 fn build_binding_stmt(target: BindingTarget, bind_name: &str, value: Expr) -> Stmt {
@@ -516,7 +520,7 @@ fn build_updated_function_binding_stmt(
     local_name: &str,
     qualname: &str,
     display_name: &str,
-    doc: Expr,
+    doc: Option<String>,
     decorator_exprs: Vec<Expr>,
 ) -> Stmt {
     let updated = py_expr!(
@@ -524,7 +528,7 @@ fn build_updated_function_binding_stmt(
         name = local_name,
         qualname = qualname,
         display_name = display_name,
-        doc = doc,
+        doc = doc_text_to_expr(doc.as_deref()),
     );
     let value = rewrite_stmt::decorator::rewrite_exprs(decorator_exprs, updated);
     build_binding_stmt(target, bind_name, value)
@@ -537,7 +541,7 @@ fn build_non_lowered_binding_stmt(
     display_name: &str,
     binding_plan: NonLoweredFunctionBindingPlan,
     fresh_local_name: Option<String>,
-    doc: Expr,
+    doc: Option<String>,
 ) -> Option<Stmt> {
     match binding_plan {
         NonLoweredFunctionBindingPlan::LeaveLocal => None,
@@ -748,7 +752,7 @@ fn rewrite_non_lowered_function_instantiation(
     func: &mut ast::StmtFunctionDef,
     instantiation_plan: NonLoweredFunctionInstantiationPlan,
     function_hoisted: Vec<Stmt>,
-    doc: Expr,
+    doc: Option<String>,
     mut next_temp: impl FnMut() -> String,
 ) -> Option<Stmt> {
     let fresh_local_name = match instantiation_plan.local_name_plan {
@@ -781,7 +785,7 @@ fn plan_and_rewrite_non_lowered_function_instantiation(
     current_parent: Option<&str>,
     needs_cell_sync: bool,
     function_hoisted: Vec<Stmt>,
-    doc: Expr,
+    doc: Option<String>,
     next_temp: impl FnMut() -> String,
 ) -> Option<Stmt> {
     prepare_non_lowered_annotationlib_function(context, func);
@@ -818,7 +822,7 @@ fn rewrite_function_def_stmt_via_blockpy(
     next_block_id: &mut usize,
     next_function_id: &mut usize,
 ) -> Option<Stmt> {
-    let doc_expr = function_docstring_expr(func);
+    let doc = function_docstring_text(func);
     if let Some(lowered_plan) = try_lower_function_to_blockpy_bundle(
         context,
         module_scope,
@@ -854,7 +858,7 @@ fn rewrite_function_def_stmt_via_blockpy(
         current_parent,
         needs_cell_sync,
         function_hoisted,
-        doc_expr.unwrap_or_else(|| py_expr!("None")),
+        doc,
         || next_temp_from_counter(reserved_temp_names_stack, "fn_local", next_block_id),
     )
 }
