@@ -1,14 +1,14 @@
+use crate::basic_block::ast_to_ast::body::{body_from_suite, take_suite, Suite};
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::block_py::{
     BlockPyAssign, BlockPyBlock, BlockPyIf, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment,
     BlockPyStmtFragmentBuilder, BlockPyTerm,
 };
 use crate::basic_block::ruff_to_blockpy::lower_stmts_to_blockpy_stmts_with_context;
-use crate::basic_block::stmt_utils::flatten_stmt_boxes;
-use crate::template::into_body;
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
-use ruff_python_ast::{Expr, Stmt};
+use ruff_python_ast::{self as ast, Expr, Stmt};
+use std::mem::take;
 
 #[derive(Default)]
 struct AwaitToYieldFromPass {
@@ -91,11 +91,35 @@ impl AwaitToYieldFromPass {
 }
 
 impl Transformer for AwaitToYieldFromPass {
+    fn visit_body(&mut self, body: &mut Suite) {
+        let original = take(body);
+        let mut rewritten = Vec::with_capacity(original.len());
+        for mut stmt in original.into_iter().map(|stmt| *stmt) {
+            let mut prefix = Vec::new();
+            self.rewrite_stmt_head(&mut stmt, &mut prefix);
+            rewritten.extend(prefix.into_iter().map(Box::new));
+            walk_stmt(self, &mut stmt);
+            rewritten.push(Box::new(stmt));
+        }
+        *body = rewritten;
+    }
+
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         if matches!(stmt, Stmt::FunctionDef(_) | Stmt::ClassDef(_)) {
             return;
         }
         let mut prefix = Vec::new();
+        self.rewrite_stmt_head(stmt, &mut prefix);
+        debug_assert!(
+            prefix.is_empty(),
+            "await lowering statement splicing must happen via visit_body"
+        );
+        walk_stmt(self, stmt);
+    }
+}
+
+impl AwaitToYieldFromPass {
+    fn rewrite_stmt_head(&mut self, stmt: &mut Stmt, prefix: &mut Vec<Stmt>) {
         match stmt {
             Stmt::Expr(expr_stmt) => {
                 if let Expr::Await(await_expr) = expr_stmt.value.as_ref() {
@@ -105,7 +129,7 @@ impl Transformer for AwaitToYieldFromPass {
                     ));
                     self.rewritten_count += 1;
                 } else {
-                    self.hoist_awaits_in_expr(expr_stmt.value.as_mut(), &mut prefix);
+                    self.hoist_awaits_in_expr(expr_stmt.value.as_mut(), prefix);
                 }
             }
             Stmt::Assign(assign_stmt) => {
@@ -116,7 +140,7 @@ impl Transformer for AwaitToYieldFromPass {
                     ));
                     self.rewritten_count += 1;
                 } else {
-                    self.hoist_awaits_in_expr(assign_stmt.value.as_mut(), &mut prefix);
+                    self.hoist_awaits_in_expr(assign_stmt.value.as_mut(), prefix);
                 }
             }
             Stmt::Return(return_stmt) => {
@@ -128,44 +152,34 @@ impl Transformer for AwaitToYieldFromPass {
                         ));
                         self.rewritten_count += 1;
                     } else {
-                        self.hoist_awaits_in_expr(value.as_mut(), &mut prefix);
+                        self.hoist_awaits_in_expr(value.as_mut(), prefix);
                     }
                 }
             }
             _ => {}
         }
-        if !prefix.is_empty() {
-            prefix.push(stmt.clone());
-            *stmt = into_body(prefix);
-        }
-        walk_stmt(self, stmt);
     }
 }
 
-pub(crate) fn lower_coroutine_awaits_to_yield_from(stmts: &mut [Box<Stmt>]) -> bool {
+pub(crate) fn lower_coroutine_awaits_to_yield_from(stmts: &mut Vec<Box<Stmt>>) -> bool {
     let mut pass = AwaitToYieldFromPass::default();
-    for stmt in stmts {
-        pass.visit_stmt(stmt.as_mut());
-    }
+    let mut body = take(stmts);
+    pass.visit_body(&mut body);
+    *stmts = body;
     pass.rewritten_count > 0
 }
 
-pub(crate) fn lower_coroutine_awaits_in_stmt(stmt: Stmt) -> Stmt {
+pub(crate) fn lower_coroutine_awaits_in_stmt(stmt: Stmt) -> Vec<Stmt> {
     let mut stmts = vec![Box::new(stmt)];
     lower_coroutine_awaits_to_yield_from(&mut stmts);
-    debug_assert_eq!(stmts.len(), 1, "await lowering should preserve stmt count");
-    *stmts.pop().expect("one stmt should remain")
+    stmts.into_iter().map(|stmt| *stmt).collect()
 }
 
 fn lower_coroutine_await_stmt_to_blockpy_fragment(
     context: &Context,
     stmt: Stmt,
 ) -> Result<BlockPyStmtFragment<Expr>, String> {
-    let lowered = lower_coroutine_awaits_in_stmt(stmt);
-    let lowered_stmts = flatten_stmt_boxes(&[Box::new(lowered)])
-        .into_iter()
-        .map(|stmt| stmt.as_ref().clone())
-        .collect::<Vec<_>>();
+    let lowered_stmts = lower_coroutine_awaits_in_stmt(stmt);
     lower_stmts_to_blockpy_stmts_with_context::<Expr>(context, &lowered_stmts)
 }
 

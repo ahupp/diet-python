@@ -1,7 +1,7 @@
 use crate::basic_block::bb_ir;
 use crate::basic_block::block_py::{
-    BlockPyStmt, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield,
-    CoreBlockPyKeywordArg, CoreBlockPyLiteral,
+    BlockPyRaise, BlockPyStmt, BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg,
+    CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
 };
 use ruff_python_ast::str::Quote;
 use ruff_python_ast::{self as ast, BytesLiteral, BytesLiteralFlags, ExprName};
@@ -33,23 +33,26 @@ pub fn normalize_bb_module_for_codegen(module: &bb_ir::BbModule) -> bb_ir::BbMod
     normalized
 }
 
-fn rewrite_term_exprs(rewriter: &mut CodegenExprNormalizer, term: &mut bb_ir::BbTerm) {
+fn rewrite_term_exprs(
+    rewriter: &mut CodegenExprNormalizer,
+    term: &mut BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
+) {
     match term {
-        bb_ir::BbTerm::Jump(_) => {}
-        bb_ir::BbTerm::BrIf { test, .. } => rewrite_bb_expr(rewriter, test),
-        bb_ir::BbTerm::BrTable { index, .. } => rewrite_bb_expr(rewriter, index),
-        bb_ir::BbTerm::Raise { exc, cause } => {
+        BlockPyTerm::Jump(_) => {}
+        BlockPyTerm::IfTerm(if_term) => rewrite_bb_expr(rewriter, &mut if_term.test),
+        BlockPyTerm::BranchTable(branch) => rewrite_bb_expr(rewriter, &mut branch.index),
+        BlockPyTerm::Raise(BlockPyRaise { exc }) => {
             if let Some(exc) = exc.as_mut() {
                 rewrite_bb_expr(rewriter, exc);
             }
-            if let Some(cause) = cause.as_mut() {
-                rewrite_bb_expr(rewriter, cause);
-            }
         }
-        bb_ir::BbTerm::Ret(value) => {
+        BlockPyTerm::Return(value) => {
             if let Some(value) = value.as_mut() {
                 rewrite_bb_expr(rewriter, value);
             }
+        }
+        BlockPyTerm::TryJump(_) => {
+            panic!("TryJump is not allowed in BbTerm")
         }
     }
 }
@@ -230,7 +233,10 @@ fn helper_name_expr(name: &str) -> CoreBlockPyExprWithoutAwaitOrYield {
 mod tests {
     use super::normalize_bb_module_for_codegen;
     use crate::{
-        basic_block::{bb_ir, block_py::BlockPyStmt},
+        basic_block::{
+            bb_ir,
+            block_py::{BlockPyStmt, BlockPyTerm, CoreBlockPyExprWithoutAwaitOrYield},
+        },
         transform_str_to_bb_ir_with_options, Options,
     };
     use std::cell::Cell;
@@ -317,24 +323,25 @@ mod tests {
         }
     }
 
-    fn probe_bb_term_exprs(probe: &mut ExprShapeProbe, term: &bb_ir::BbTerm) {
+    fn probe_bb_term_exprs(
+        probe: &mut ExprShapeProbe,
+        term: &BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
+    ) {
         match term {
-            bb_ir::BbTerm::Jump(_) => {}
-            bb_ir::BbTerm::BrIf { test, .. } => probe_bb_exprs(probe, test),
-            bb_ir::BbTerm::BrTable { index, .. } => probe_bb_exprs(probe, index),
-            bb_ir::BbTerm::Raise { exc, cause } => {
-                if let Some(exc) = exc {
+            BlockPyTerm::Jump(_) => {}
+            BlockPyTerm::IfTerm(if_term) => probe_bb_exprs(probe, &if_term.test),
+            BlockPyTerm::BranchTable(branch) => probe_bb_exprs(probe, &branch.index),
+            BlockPyTerm::Raise(raise_stmt) => {
+                if let Some(exc) = raise_stmt.exc.as_ref() {
                     probe_bb_exprs(probe, exc);
                 }
-                if let Some(cause) = cause {
-                    probe_bb_exprs(probe, cause);
-                }
             }
-            bb_ir::BbTerm::Ret(value) => {
+            BlockPyTerm::Return(value) => {
                 if let Some(value) = value {
                     probe_bb_exprs(probe, value);
                 }
             }
+            BlockPyTerm::TryJump(_) => panic!("TryJump is not allowed in BbTerm"),
         }
     }
 

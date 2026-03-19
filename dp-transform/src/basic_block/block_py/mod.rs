@@ -1,6 +1,4 @@
-use super::cfg_ir::{CfgBlock, CfgCallableDef, CfgModule};
-use super::lowered_ir::{ClosureLayout, FunctionId};
-use super::param_specs::ParamSpec;
+use self::param_specs::ParamSpec;
 use crate::basic_block::block_py::dataflow::compute_block_params_blockpy;
 use crate::basic_block::block_py::state::collect_state_vars;
 pub use ruff_python_ast::Expr;
@@ -8,16 +6,112 @@ use ruff_python_ast::{self as ast, ExprName};
 use std::borrow::Borrow;
 use std::collections::HashSet;
 use std::fmt;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 
 pub(crate) mod cfg;
 pub(crate) mod dataflow;
 pub(crate) mod exception;
+pub(crate) mod param_specs;
 pub(crate) mod pretty;
 pub(crate) mod state;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct BlockPyLabel(pub String);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct FunctionId(pub usize);
+
+impl FunctionId {
+    pub fn plan_qualname(self, qualname: &str) -> String {
+        format!("{qualname}::__dp_fn_{}", self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum BindingTarget {
+    Local,
+    ModuleGlobal,
+    ClassNamespace,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClosureLayout {
+    pub freevars: Vec<ClosureSlot>,
+    pub cellvars: Vec<ClosureSlot>,
+    pub runtime_cells: Vec<ClosureSlot>,
+}
+
+impl ClosureLayout {
+    pub fn ambient_storage_names(&self) -> Vec<String> {
+        self.freevars
+            .iter()
+            .chain(self.cellvars.iter())
+            .chain(self.runtime_cells.iter())
+            .filter(|slot| matches!(slot.init, ClosureInit::InheritedCapture))
+            .map(|slot| slot.storage_name.clone())
+            .collect()
+    }
+
+    pub fn local_cell_storage_names(&self) -> Vec<String> {
+        self.cellvars
+            .iter()
+            .chain(self.runtime_cells.iter())
+            .map(|slot| slot.storage_name.clone())
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClosureSlot {
+    pub logical_name: String,
+    pub storage_name: String,
+    pub init: ClosureInit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClosureInit {
+    InheritedCapture,
+    Parameter,
+    DeletedSentinel,
+    RuntimePcUnstarted,
+    RuntimeNone,
+    Deferred,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum BlockPyFunctionKind {
+    Function,
+    Coroutine,
+    Generator,
+    AsyncGenerator,
+}
+
+#[derive(Debug, Clone)]
+pub struct CfgBlock<S, T, M = ()> {
+    pub label: BlockPyLabel,
+    pub body: Vec<S>,
+    pub term: T,
+    pub meta: M,
+}
+
+impl<S, T, M> CfgBlock<S, T, M> {
+    pub fn label_str(&self) -> &str {
+        self.label.as_str()
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct CfgModule<F> {
+    pub callable_defs: Vec<F>,
+}
+
+impl<F> CfgModule<F> {
+    pub fn map_callable_defs<G>(&self, mut f: impl FnMut(&F) -> G) -> CfgModule<G> {
+        CfgModule {
+            callable_defs: self.callable_defs.iter().map(&mut f).collect(),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum CoreBlockPyExpr {
@@ -127,29 +221,41 @@ pub struct TryRegionPlan {
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockPyCallableDef<E = Expr, B = BlockPyBlock<E>> {
-    pub cfg: CfgCallableDef<E, B>,
+pub struct FunctionName {
+    pub bind_name: String,
     pub fn_name: String,
     pub display_name: String,
     pub qualname: String,
+}
+
+impl FunctionName {
+    pub fn new(
+        bind_name: impl Into<String>,
+        fn_name: impl Into<String>,
+        display_name: impl Into<String>,
+        qualname: impl Into<String>,
+    ) -> Self {
+        Self {
+            bind_name: bind_name.into(),
+            fn_name: fn_name.into(),
+            display_name: display_name.into(),
+            qualname: qualname.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BlockPyCallableDef<E = Expr, B = BlockPyBlock<E>> {
+    pub function_id: FunctionId,
+    pub names: FunctionName,
+    pub kind: BlockPyFunctionKind,
+    pub params: ParamSpec,
+    pub param_defaults: Vec<E>,
+    pub blocks: Vec<B>,
     pub doc: Option<String>,
     pub closure_layout: Option<ClosureLayout>,
     pub facts: BlockPyCallableFacts,
     pub try_regions: Vec<TryRegionPlan>,
-}
-
-impl<E, B> Deref for BlockPyCallableDef<E, B> {
-    type Target = CfgCallableDef<E, B>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.cfg
-    }
-}
-
-impl<E, B> DerefMut for BlockPyCallableDef<E, B> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.cfg
-    }
 }
 
 impl<E, B> BlockPyCallableDef<E, B> {
@@ -166,6 +272,18 @@ impl<E, B> BlockPyCallableDef<E, B> {
             .as_ref()
             .map(ClosureLayout::local_cell_storage_names)
             .unwrap_or_default()
+    }
+
+    pub fn entry_block(&self) -> &B {
+        self.blocks
+            .first()
+            .expect("BlockPyCallableDef should have at least one block")
+    }
+}
+
+impl<E, S, T, M> BlockPyCallableDef<E, CfgBlock<S, T, M>> {
+    pub fn entry_label(&self) -> &str {
+        self.entry_block().label_str()
     }
 }
 
@@ -207,14 +325,6 @@ where
             .filter(|name| !is_internal_entry_livein(name))
             .collect()
     }
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum BlockPyFunctionKind {
-    Function,
-    Coroutine,
-    Generator,
-    AsyncGenerator,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -907,41 +1017,30 @@ impl TryFrom<BlockPyCallableDef<CoreBlockPyExpr>>
 
     fn try_from(value: BlockPyCallableDef<CoreBlockPyExpr>) -> Result<Self, Self::Error> {
         let BlockPyCallableDef {
-            cfg,
-            fn_name,
-            display_name,
-            qualname,
+            function_id,
+            names,
+            kind,
+            params,
+            param_defaults,
+            blocks,
             doc,
             closure_layout,
             facts,
             try_regions,
         } = value;
-        let CfgCallableDef {
+        Ok(BlockPyCallableDef {
             function_id,
-            bind_name,
+            names,
             kind,
             params,
-            param_defaults,
-            blocks,
-        } = cfg;
-        Ok(BlockPyCallableDef {
-            cfg: CfgCallableDef {
-                function_id,
-                bind_name,
-                kind,
-                params,
-                param_defaults: param_defaults
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<_, _>>()?,
-                blocks: blocks
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<_, _>>()?,
-            },
-            fn_name,
-            display_name,
-            qualname,
+            param_defaults: param_defaults
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<_, _>>()?,
+            blocks: blocks
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<_, _>>()?,
             doc,
             closure_layout,
             facts,
@@ -1155,41 +1254,30 @@ impl TryFrom<BlockPyCallableDef<CoreBlockPyExprWithoutAwait>>
         value: BlockPyCallableDef<CoreBlockPyExprWithoutAwait>,
     ) -> Result<Self, Self::Error> {
         let BlockPyCallableDef {
-            cfg,
-            fn_name,
-            display_name,
-            qualname,
+            function_id,
+            names,
+            kind,
+            params,
+            param_defaults,
+            blocks,
             doc,
             closure_layout,
             facts,
             try_regions,
         } = value;
-        let CfgCallableDef {
+        Ok(BlockPyCallableDef {
             function_id,
-            bind_name,
+            names,
             kind,
             params,
-            param_defaults,
-            blocks,
-        } = cfg;
-        Ok(BlockPyCallableDef {
-            cfg: CfgCallableDef {
-                function_id,
-                bind_name,
-                kind,
-                params,
-                param_defaults: param_defaults
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<_, _>>()?,
-                blocks: blocks
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<_, _>>()?,
-            },
-            fn_name,
-            display_name,
-            qualname,
+            param_defaults: param_defaults
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<_, _>>()?,
+            blocks: blocks
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<_, _>>()?,
             doc,
             closure_layout,
             facts,

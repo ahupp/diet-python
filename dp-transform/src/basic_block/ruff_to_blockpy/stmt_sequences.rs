@@ -1,6 +1,7 @@
 use super::stmt_lowering::lower_stmt_into_with_expr;
 use super::*;
 use crate::basic_block::annotation_export::build_exec_function_def_binding_stmts;
+use crate::basic_block::ast_to_ast::body::suite_ref;
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::block_py::{BlockPyBlock, BlockPyRaise, BlockPyStmt, BlockPyTerm, Expr};
 
@@ -54,11 +55,11 @@ where
                 linear.push(stmt);
                 index += 1;
             }
-            StmtSequenceHeadPlan::Expanded(stmt) => {
+            StmtSequenceHeadPlan::Expanded(stmts) => {
                 return StmtSequenceDriveResult::Break {
                     linear,
                     index,
-                    plan: StmtSequenceHeadPlan::Expanded(stmt),
+                    plan: StmtSequenceHeadPlan::Expanded(stmts),
                 };
             }
             StmtSequenceHeadPlan::FunctionDef(func_def) => {
@@ -377,7 +378,8 @@ where
                 unreachable!("common head helper must lower supported head");
             }
             StmtSequenceHeadPlan::With(with_stmt) => {
-                let needs_finally_return_flow = contains_return_stmt_in_body(&with_stmt.body.body);
+                let needs_finally_return_flow =
+                    contains_return_stmt_in_body(suite_ref(&with_stmt.body));
                 let next_id = Cell::new(*next_block_id);
                 let (entry, try_region) = lower_with_stmt_sequence(
                     fn_name,
@@ -521,11 +523,11 @@ where
                     )
                 } else {
                     let mut local_next_id = next_id.get();
-                    let has_finally = !try_stmt.finalbody.body.is_empty();
+                    let has_finally = !suite_ref(&try_stmt.finalbody).is_empty();
                     let needs_finally_return_flow = has_finally
-                        && (contains_return_stmt_in_body(&try_stmt.body.body)
+                        && (contains_return_stmt_in_body(suite_ref(&try_stmt.body))
                             || contains_return_stmt_in_handlers(&try_stmt.handlers)
-                            || contains_return_stmt_in_body(&try_stmt.orelse.body));
+                            || contains_return_stmt_in_body(suite_ref(&try_stmt.orelse)));
                     let try_plan = build_try_plan(
                         fn_name,
                         has_finally,
@@ -573,11 +575,11 @@ where
             | StmtSequenceHeadPlan::Delete(_) => {
                 unreachable!("sequence driver should consume linear/functiondef/delete heads")
             }
-            StmtSequenceHeadPlan::Expanded(stmt) => {
+            StmtSequenceHeadPlan::Expanded(expanded_stmts) => {
                 let jump_label =
                     (!linear.is_empty()).then(|| compat_next_label(fn_name, next_block_id));
                 return lower_expanded_stmt_sequence(
-                    stmt,
+                    expanded_stmts,
                     &stmts[index + 1..],
                     cont_label,
                     linear,
@@ -610,7 +612,7 @@ where
 }
 
 pub(crate) fn lower_expanded_stmt_sequence<F>(
-    desugared_stmt: Stmt,
+    desugared_stmts: Vec<Stmt>,
     remaining_stmts: &[Box<Stmt>],
     cont_label: String,
     linear: Vec<Stmt>,
@@ -621,10 +623,10 @@ pub(crate) fn lower_expanded_stmt_sequence<F>(
 where
     F: FnMut(&[Box<Stmt>], String, &mut Vec<BlockPyBlock>) -> String,
 {
-    let mut expanded = match desugared_stmt {
-        Stmt::BodyStmt(body) => body.body,
-        stmt => vec![Box::new(stmt)],
-    };
+    let mut expanded = desugared_stmts
+        .into_iter()
+        .map(Box::new)
+        .collect::<Vec<_>>();
     expanded.extend(remaining_stmts.iter().cloned());
     let expanded_entry = lower_sequence(&expanded, cont_label, blocks);
     if linear.is_empty() {
@@ -674,7 +676,7 @@ pub(crate) fn lower_if_stmt_sequence_from_stmt<F>(
 where
     F: FnMut(&[Box<Stmt>], String, &mut Vec<BlockPyBlock>) -> String,
 {
-    let then_body = flatten_stmt_boxes(&if_stmt.body.body);
+    let then_body = flatten_stmt_boxes(suite_ref(&if_stmt.body));
     let else_body = flatten_stmt_boxes(&extract_if_else_body(&if_stmt));
     let rest_entry = lower_region(remaining_stmts, cont_label, blocks);
     lower_if_stmt_sequence(
@@ -697,7 +699,7 @@ fn extract_if_else_body(if_stmt: &ast::StmtIf) -> Vec<Box<Stmt>> {
     if_stmt
         .elif_else_clauses
         .first()
-        .map(|clause| clause.body.body.clone())
+        .map(|clause| suite_ref(&clause.body).to_vec())
         .unwrap_or_default()
 }
 
@@ -751,8 +753,8 @@ pub(crate) fn lower_while_stmt_sequence_from_stmt<F>(
 where
     F: FnMut(&[Box<Stmt>], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
-    let body = flatten_stmt_boxes(&while_stmt.body.body);
-    let else_body = flatten_stmt_boxes(&while_stmt.orelse.body);
+    let body = flatten_stmt_boxes(suite_ref(&while_stmt.body));
+    let else_body = flatten_stmt_boxes(suite_ref(&while_stmt.orelse));
     lower_while_stmt_sequence(
         context,
         blocks,
@@ -820,7 +822,7 @@ pub(crate) fn lower_for_stmt_sequence<F>(
 where
     F: FnMut(&[Box<Stmt>], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
-    let else_body = flatten_stmt_boxes(&for_stmt.orelse.body);
+    let else_body = flatten_stmt_boxes(suite_ref(&for_stmt.orelse));
     let (rest_entry, exhausted_entry) = lower_for_stmt_exit_entries(
         blocks,
         &else_body,
@@ -829,7 +831,7 @@ where
         lower_region,
     );
 
-    let body = flatten_stmt_boxes(&for_stmt.body.body);
+    let body = flatten_stmt_boxes(suite_ref(&for_stmt.body));
     let body_entry = lower_for_stmt_body_entry(
         blocks,
         loop_continue_label.clone(),

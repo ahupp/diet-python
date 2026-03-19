@@ -1,8 +1,8 @@
 use super::*;
 
 impl StmtLowerer for ast::StmtImportFrom {
-    fn simplify_ast(self, context: &Context) -> Stmt {
-        stmt_from_rewrite(
+    fn simplify_ast(self, context: &Context) -> Vec<Stmt> {
+        stmts_from_rewrite(
             crate::basic_block::ast_to_ast::rewrite_import::rewrite_from(context, self),
         )
     }
@@ -37,7 +37,7 @@ mod tests {
         let context = Context::new(Options::for_test(), "");
         let simplified = simplify_stmt_ast_for_blockpy(&context, Stmt::ImportFrom(import_stmt));
 
-        assert!(!matches!(simplified, Stmt::ImportFrom(_)));
+        assert!(!matches!(simplified.as_slice(), [Stmt::ImportFrom(_)]));
     }
 
     #[test]

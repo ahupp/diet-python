@@ -2,9 +2,9 @@ pub mod class_body;
 pub mod method;
 pub mod private;
 
+use crate::basic_block::ast_to_ast::body::empty_body;
 use crate::basic_block::ast_to_ast::context::Context;
-use crate::basic_block::expr_utils::make_tuple;
-use crate::template::empty_body;
+use crate::basic_block::ast_to_ast::expr_utils::make_tuple;
 use crate::{py_expr, py_stmt, py_stmt_typed};
 use ruff_python_ast::{
     self as ast, Expr, Stmt, TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple,
@@ -34,16 +34,8 @@ fn class_def_to_create_class_fn<'a>(
     let class_name = name.id.to_string();
     let class_firstlineno = context.line_number_at(class_def.range.start().to_usize());
 
-    // If the first (non-empty) statement is a string literal, assign it to __doc__ in the class dict.
-    fn is_empty_body(stmt: &Stmt) -> bool {
-        matches!(stmt, Stmt::BodyStmt(ast::StmtBody { body, .. }) if body.is_empty())
-    }
-
     fn first_non_empty_stmt<'a>(body: &'a [Box<Stmt>]) -> Option<&'a Stmt> {
         for stmt in body {
-            if is_empty_body(stmt.as_ref()) {
-                continue;
-            }
             return Some(stmt.as_ref());
         }
         None
@@ -57,9 +49,6 @@ fn class_def_to_create_class_fn<'a>(
                 } else {
                     None
                 }
-            }
-            Stmt::BodyStmt(ast::StmtBody { body, .. }) => {
-                first_non_empty_stmt(body).and_then(class_doc_expr)
             }
             _ => None,
         }

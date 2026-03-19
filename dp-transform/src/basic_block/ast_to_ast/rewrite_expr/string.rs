@@ -1,5 +1,5 @@
 use crate::transformer::{walk_expr, Transformer};
-use crate::{basic_block::expr_utils::make_tuple, py_expr};
+use crate::{basic_block::ast_to_ast::expr_utils::make_tuple, py_expr};
 use ruff_python_ast::{self as ast, Expr};
 use ruff_python_parser::parse_expression;
 

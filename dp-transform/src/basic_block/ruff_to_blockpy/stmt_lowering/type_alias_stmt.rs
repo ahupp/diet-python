@@ -1,7 +1,6 @@
 use super::*;
 use crate::basic_block::ast_to_ast::ast_rewrite::Rewrite;
-use crate::basic_block::expr_utils::make_tuple;
-use crate::template::into_body;
+use crate::basic_block::ast_to_ast::expr_utils::make_tuple;
 use ruff_python_ast::{TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple};
 
 struct TypeParamInfo {
@@ -159,7 +158,7 @@ pub(crate) fn rewrite_type_alias_stmt(
         for name in type_param_info.param_names {
             stmts.push(py_stmt!("del {name:id}", name = name.as_str()));
         }
-        return Rewrite::Walk(into_body(stmts));
+        return Rewrite::Walk(stmts);
     }
 
     let alias_expr = py_expr!(
@@ -173,12 +172,12 @@ pub(crate) fn rewrite_type_alias_stmt(
         alias = alias_expr
     ));
 
-    Rewrite::Walk(into_body(stmts))
+    Rewrite::Walk(stmts)
 }
 
 impl StmtLowerer for ast::StmtTypeAlias {
-    fn simplify_ast(self, context: &Context) -> Stmt {
-        stmt_from_rewrite(rewrite_type_alias_stmt(context, self))
+    fn simplify_ast(self, context: &Context) -> Vec<Stmt> {
+        stmts_from_rewrite(rewrite_type_alias_stmt(context, self))
     }
 
     fn to_blockpy<E>(
@@ -211,7 +210,7 @@ mod tests {
         let context = Context::new(Options::for_test(), "");
         let simplified = simplify_stmt_ast_for_blockpy(&context, Stmt::TypeAlias(type_alias));
 
-        assert!(!matches!(simplified, Stmt::TypeAlias(_)));
+        assert!(!matches!(simplified.as_slice(), [Stmt::TypeAlias(_)]));
     }
 
     #[test]
@@ -241,8 +240,8 @@ mod tests {
 
         let context = Context::new(Options::for_test(), "");
         let rewritten = rewrite_type_alias_stmt(&context, type_alias);
-        let simplified = stmt_from_rewrite(rewritten);
+        let simplified = stmts_from_rewrite(rewritten);
 
-        assert!(!matches!(simplified, Stmt::TypeAlias(_)));
+        assert!(!matches!(simplified.as_slice(), [Stmt::TypeAlias(_)]));
     }
 }

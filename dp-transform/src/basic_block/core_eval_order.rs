@@ -1,13 +1,11 @@
 use super::block_py::{
     BlockPyBlock, BlockPyBranchTable, BlockPyCallableDef, BlockPyCfgFragment, BlockPyIf,
-    BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyTerm, CoreBlockPyAwait, CoreBlockPyCall,
-    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyYield,
+    BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgModule, CoreBlockPyAwait,
+    CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyYield,
     CoreBlockPyYieldFrom,
 };
 use super::blockpy_to_bb::LoweredCoreBlockPyFunction;
-use super::cfg_ir::CfgCallableDef;
 use crate::basic_block::block_py::BlockPyAssign;
-use crate::basic_block::cfg_ir::CfgModule;
 use crate::namegen::fresh_name;
 use crate::py_expr;
 use ruff_python_ast as ast;
@@ -227,21 +225,16 @@ fn make_eval_order_explicit_in_core_callable_def(
     callable_def: &BlockPyCallableDef<CoreBlockPyExpr>,
 ) -> BlockPyCallableDef<CoreBlockPyExpr> {
     BlockPyCallableDef {
-        cfg: CfgCallableDef {
-            function_id: callable_def.function_id,
-            bind_name: callable_def.bind_name.clone(),
-            kind: callable_def.kind,
-            params: callable_def.params.clone(),
-            param_defaults: callable_def.param_defaults.clone(),
-            blocks: callable_def
-                .blocks
-                .iter()
-                .map(make_eval_order_explicit_in_core_block)
-                .collect(),
-        },
-        fn_name: callable_def.fn_name.clone(),
-        display_name: callable_def.display_name.clone(),
-        qualname: callable_def.qualname.clone(),
+        function_id: callable_def.function_id,
+        names: callable_def.names.clone(),
+        kind: callable_def.kind,
+        params: callable_def.params.clone(),
+        param_defaults: callable_def.param_defaults.clone(),
+        blocks: callable_def
+            .blocks
+            .iter()
+            .map(make_eval_order_explicit_in_core_block)
+            .collect(),
         doc: callable_def.doc.clone(),
         closure_layout: callable_def.closure_layout.clone(),
         facts: callable_def.facts.clone(),

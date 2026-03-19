@@ -4013,7 +4013,7 @@ fn build_cranelift_run_bb_specialized_function(
                             }
                             fb.ins().return_(&[ret_value]);
                         }
-                        DirectSimpleTermPlan::Raise { exc, cause } => {
+                        DirectSimpleTermPlan::Raise { exc } => {
                             let (raise_name_ptr, raise_name_len) =
                                 intern_bytes_literal(&mut literal_pool, b"__dp_raise_from");
                             let raise_name_ptr_val = fb.ins().iconst(ptr_ty, raise_name_ptr as i64);
@@ -4052,20 +4052,8 @@ fn build_cranelift_run_bb_specialized_function(
                                 fb.ins().call(incref_ref, &[none_const]);
                                 none_const
                             };
-                            let cause_value = if let Some(cause_expr) = cause.as_ref() {
-                                emit_direct_simple_expr(
-                                    &mut fb,
-                                    cause_expr,
-                                    &local_names,
-                                    &local_values,
-                                    &emit_ctx,
-                                    &mut literal_pool,
-                                    false,
-                                )
-                            } else {
-                                fb.ins().call(incref_ref, &[none_const]);
-                                none_const
-                            };
+                            fb.ins().call(incref_ref, &[none_const]);
+                            let cause_value = none_const;
                             let raise_call_inst = fb.ins().call(
                                 py_call_ref,
                                 &[rfo_raise_fn, exc_value, cause_value, null_ptr, null_ptr],

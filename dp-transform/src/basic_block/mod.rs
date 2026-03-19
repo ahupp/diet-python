@@ -7,15 +7,11 @@ pub mod block_py;
 mod blockpy_expr_simplify;
 mod blockpy_generators;
 mod bound_names;
-pub(crate) mod cfg_ir;
 mod cfg_trace;
 mod core_await_lower;
 mod core_eval_order;
-mod expr_utils;
 mod function_identity;
 mod function_lowering;
-pub mod lowered_ir;
-mod param_specs;
 pub mod ruff_to_blockpy;
 mod stmt_utils;
 
@@ -36,13 +32,13 @@ pub(crate) use core_eval_order::make_eval_order_explicit_in_lowered_core_blockpy
 pub use function_lowering::SingleNamedAssignmentPass;
 
 use crate::basic_block::block_py::{
-    BlockPyModule, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait, CoreBlockPyExprWithoutAwaitOrYield,
+    BlockPyModule, CfgModule, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait,
+    CoreBlockPyExprWithoutAwaitOrYield,
 };
 use crate::basic_block::blockpy_to_bb::{
     LoweredCoreBlockPyFunction, LoweredCoreBlockPyFunctionWithoutAwait,
     LoweredCoreBlockPyFunctionWithoutAwaitOrYield,
 };
-use crate::basic_block::cfg_ir::CfgModule;
 use crate::basic_block::ruff_to_blockpy::LoweredBlockPyFunction;
 use crate::transformer::Transformer;
 use ruff_python_ast::{self as ast, Expr, Stmt};
@@ -338,15 +334,15 @@ fn render_bb_module(bundle: &bb_ir::BbModule) -> String {
     if bundle
         .callable_defs
         .iter()
-        .any(|function| function.bind_name == "_dp_module_init")
+        .any(|function| function.names.bind_name == "_dp_module_init")
     {
         out.push_str("module_init: _dp_module_init\n\n");
     }
     for function in &bundle.callable_defs {
         out.push_str(&format!(
             "function {} [{}] entry={}\n",
-            function.qualname,
-            function.display_name,
+            function.names.qualname,
+            function.names.display_name,
             function.entry_label(),
         ));
         out.push_str(&format!("kind: {:?}\n", function.lowered_kind()));
@@ -375,48 +371,40 @@ fn render_bb_module(bundle: &bb_ir::BbModule) -> String {
     out.trim_end().to_string()
 }
 
-fn render_bb_term(term: &bb_ir::BbTerm) -> String {
+fn render_bb_term(
+    term: &crate::basic_block::block_py::BlockPyTerm<
+        crate::basic_block::block_py::CoreBlockPyExprWithoutAwaitOrYield,
+    >,
+) -> String {
     match term {
-        bb_ir::BbTerm::Jump(label) => format!("jump {label}"),
-        bb_ir::BbTerm::BrIf {
-            test,
-            then_label,
-            else_label,
-        } => format!(
+        crate::basic_block::block_py::BlockPyTerm::Jump(label) => format!("jump {label}"),
+        crate::basic_block::block_py::BlockPyTerm::IfTerm(if_term) => format!(
             "if {} then {} else {}",
-            bb_ir::bb_expr_text(test),
-            then_label,
-            else_label
+            bb_ir::bb_expr_text(&if_term.test),
+            if_term.then_label,
+            if_term.else_label
         ),
-        bb_ir::BbTerm::BrTable {
-            index,
-            targets,
-            default_label,
-        } => format!(
+        crate::basic_block::block_py::BlockPyTerm::BranchTable(branch) => format!(
             "br_table index={} targets=[{}] default={}",
-            bb_ir::bb_expr_text(index),
-            targets
+            bb_ir::bb_expr_text(&branch.index),
+            branch
+                .targets
                 .iter()
                 .map(ToString::to_string)
                 .collect::<Vec<_>>()
                 .join(", "),
-            default_label
+            branch.default_label
         ),
-        bb_ir::BbTerm::Raise { exc, cause } => {
-            let exc = exc
-                .as_ref()
-                .map(bb_ir::bb_expr_text)
-                .unwrap_or_else(|| "None".to_string());
-            let cause = cause
-                .as_ref()
-                .map(bb_ir::bb_expr_text)
-                .unwrap_or_else(|| "None".to_string());
-            format!("raise exc={exc} cause={cause}")
+        crate::basic_block::block_py::BlockPyTerm::Raise(raise_stmt) => {
+            bb_ir::bb_raise_text(raise_stmt)
         }
-        bb_ir::BbTerm::Ret(value) => value
+        crate::basic_block::block_py::BlockPyTerm::Return(value) => value
             .as_ref()
             .map(|value| format!("return {}", bb_ir::bb_expr_text(value)))
             .unwrap_or_else(|| "return".to_string()),
+        crate::basic_block::block_py::BlockPyTerm::TryJump(_) => {
+            panic!("TryJump is not allowed in BbTerm")
+        }
     }
 }
 
@@ -424,7 +412,7 @@ pub(crate) fn render_tracked_pass_text(
     result: &crate::LoweringResult,
     name: &str,
 ) -> Option<String> {
-    if let Some(body) = result.get_pass::<ruff_python_ast::StmtBody>(name) {
+    if let Some(body) = result.get_pass::<ruff_python_ast::Suite>(name) {
         return Some(crate::ruff_ast_to_string(body));
     }
     if let Some(plan) = result.get_pass::<LoweredBlockPyModuleBundlePlan>(name) {
@@ -466,12 +454,12 @@ pub(crate) fn render_tracked_pass_text(
 
 #[cfg(test)]
 mod tests {
-    use crate::basic_block::bb_ir::{BbBlock, BbFunction, BbModule, BbTerm};
+    use crate::basic_block::bb_ir::{BbBlock, BbFunction, BbModule};
     use crate::basic_block::block_py::BlockPyFunctionKind;
     use crate::basic_block::block_py::{
-        BlockPyModule, BlockPyStmt, CoreBlockPyExprWithoutAwaitOrYield,
+        BlockPyModule, BlockPyStmt, BlockPyTerm, CoreBlockPyExprWithoutAwaitOrYield,
     };
-    use crate::basic_block::lowered_ir::{ClosureInit, ClosureSlot};
+    use crate::basic_block::block_py::{ClosureInit, ClosureSlot};
     use crate::LoweringResult;
     use crate::{
         py_expr, transform_str_to_bb_ir_with_options, transform_str_to_ruff_with_options, Options,
@@ -531,7 +519,7 @@ mod tests {
         let direct = bb_module
             .callable_defs
             .iter()
-            .find(|func| func.bind_name == bind_name)
+            .find(|func| func.names.bind_name == bind_name)
             .unwrap_or_else(|| panic!("missing lowered function {bind_name}; got {:?}", bb_module));
         if direct.closure_layout().is_some() {
             return direct;
@@ -539,7 +527,7 @@ mod tests {
         bb_module
             .callable_defs
             .iter()
-            .find(|func| func.bind_name == format!("{bind_name}_resume"))
+            .find(|func| func.names.bind_name == format!("{bind_name}_resume"))
             .unwrap_or(direct)
     }
 
@@ -561,7 +549,7 @@ mod tests {
         blockpy_module
             .callable_defs
             .iter()
-            .find(|callable| callable.bind_name == bind_name)
+            .find(|callable| callable.names.bind_name == bind_name)
             .unwrap_or_else(|| {
                 panic!("missing callable definition {bind_name}; got {blockpy_module:?}")
             })
@@ -574,18 +562,16 @@ mod tests {
             BlockPyStmt::Delete(delete) => delete.target.id.as_str().contains(needle),
             BlockPyStmt::If(_) => false,
         }) || match &block.term {
-            BbTerm::BrIf { test, .. } => expr_text(&test).contains(needle),
-            BbTerm::BrTable { index, .. } => expr_text(&index).contains(needle),
-            BbTerm::Raise { exc, cause } => {
-                exc.as_ref()
-                    .is_some_and(|value| expr_text(value).contains(needle))
-                    || cause
-                        .as_ref()
-                        .is_some_and(|value| expr_text(value).contains(needle))
-            }
-            BbTerm::Ret(value) => value
+            BlockPyTerm::IfTerm(if_term) => expr_text(&if_term.test).contains(needle),
+            BlockPyTerm::BranchTable(branch) => expr_text(&branch.index).contains(needle),
+            BlockPyTerm::Raise(raise_stmt) => raise_stmt
+                .exc
+                .as_ref()
+                .is_some_and(|value| expr_text(value).contains(needle)),
+            BlockPyTerm::Return(value) => value
                 .as_ref()
                 .is_some_and(|ret| expr_text(ret).contains(needle)),
+            BlockPyTerm::TryJump(_) => false,
             _ => false,
         }
     }
@@ -708,7 +694,7 @@ def foo(a, b):
         assert!(
             foo.blocks
                 .iter()
-                .any(|block| matches!(block.term, BbTerm::BrIf { .. })),
+                .any(|block| matches!(block.term, BlockPyTerm::IfTerm(_))),
             "{foo:?}"
         );
     }
@@ -729,7 +715,7 @@ def foo(a, b):
         let foo = bb_module
             .callable_defs
             .iter()
-            .find(|func| func.bind_name == "foo")
+            .find(|func| func.names.bind_name == "foo")
             .expect("foo should be lowered");
         assert_eq!(foo.entry_label(), "start", "{:?}", foo.entry_label());
         assert!(!foo.blocks.is_empty());
@@ -754,7 +740,10 @@ def build_qualnames():
             .expect("transform should succeed")
             .expect("bb module should be available");
         let inner_global_function = function_by_name(&bb_module, "inner_global_function");
-        assert_eq!(inner_global_function.qualname, "inner_global_function");
+        assert_eq!(
+            inner_global_function.names.qualname,
+            "inner_global_function"
+        );
     }
 
     #[test]
@@ -818,10 +807,10 @@ def check():
         let lowered = TrackedLowering::new(source);
         let check = lowered.bb_function("check");
         assert!(
-            check
-                .blocks
-                .iter()
-                .any(|block| matches!(block.term, crate::basic_block::bb_ir::BbTerm::BrIf { .. })),
+            check.blocks.iter().any(|block| matches!(
+                block.term,
+                crate::basic_block::block_py::BlockPyTerm::IfTerm(_)
+            )),
             "{check:?}"
         );
     }
@@ -843,7 +832,12 @@ def check(a, b):
         let brif_count = check
             .blocks
             .iter()
-            .filter(|block| matches!(block.term, crate::basic_block::bb_ir::BbTerm::BrIf { .. }))
+            .filter(|block| {
+                matches!(
+                    block.term,
+                    crate::basic_block::block_py::BlockPyTerm::IfTerm(_)
+                )
+            })
             .count();
         assert!(brif_count >= 2, "{check:?}");
     }
@@ -858,10 +852,10 @@ def choose(a, b, c):
         let lowered = TrackedLowering::new(source);
         let choose = lowered.bb_function("choose");
         assert!(
-            choose
-                .blocks
-                .iter()
-                .any(|block| matches!(block.term, crate::basic_block::bb_ir::BbTerm::BrIf { .. })),
+            choose.blocks.iter().any(|block| matches!(
+                block.term,
+                crate::basic_block::block_py::BlockPyTerm::IfTerm(_)
+            )),
             "{choose:?}"
         );
     }
@@ -876,10 +870,10 @@ def choose(cond, a, b):
         let lowered = TrackedLowering::new(source);
         let choose = lowered.bb_function("choose");
         assert!(
-            choose
-                .blocks
-                .iter()
-                .any(|block| matches!(block.term, crate::basic_block::bb_ir::BbTerm::BrIf { .. })),
+            choose.blocks.iter().any(|block| matches!(
+                block.term,
+                crate::basic_block::block_py::BlockPyTerm::IfTerm(_)
+            )),
             "{choose:?}"
         );
     }
@@ -1121,10 +1115,10 @@ def check(x):
         let lowered = TrackedLowering::new(source);
         let check = lowered.bb_function("check");
         assert!(
-            check
-                .blocks
-                .iter()
-                .any(|block| matches!(block.term, crate::basic_block::bb_ir::BbTerm::BrIf { .. })),
+            check.blocks.iter().any(|block| matches!(
+                block.term,
+                crate::basic_block::block_py::BlockPyTerm::IfTerm(_)
+            )),
             "{check:?}"
         );
     }
@@ -1147,7 +1141,10 @@ def check():
         );
         assert!(
             check.blocks.iter().any(|block| {
-                matches!(block.term, crate::basic_block::bb_ir::BbTerm::Raise { .. })
+                matches!(
+                    block.term,
+                    crate::basic_block::block_py::BlockPyTerm::Raise(_)
+                )
             }),
             "{check:?}"
         );
@@ -1307,10 +1304,12 @@ def f():
             &context,
             Some(&crate::basic_block::SingleNamedAssignmentPass),
             None,
-            &mut module.body,
+            crate::basic_block::ast_to_ast::body::suite_mut(&mut module.body),
         );
 
-        let rendered = crate::ruff_ast_to_string(&module.body);
+        let rendered = crate::ruff_ast_to_string(crate::basic_block::ast_to_ast::body::suite_ref(
+            &module.body,
+        ));
         assert!(rendered.contains("x: int = 1"), "{rendered}");
     }
 
@@ -1499,7 +1498,7 @@ async def outer(scale):
             .collect::<Vec<_>>();
         let generator_names = generator_callables
             .iter()
-            .map(|func| format!("{} :: {}", func.bind_name, func.qualname))
+            .map(|func| format!("{} :: {}", func.names.bind_name, func.names.qualname))
             .collect::<Vec<_>>();
         assert!(
             !generator_callables.is_empty(),
@@ -1507,7 +1506,7 @@ async def outer(scale):
             bb_module
                 .callable_defs
                 .iter()
-                .map(|func| format!("{} :: {}", func.bind_name, func.qualname))
+                .map(|func| format!("{} :: {}", func.names.bind_name, func.names.qualname))
                 .collect::<Vec<_>>()
                 .join(", ")
         );
@@ -1546,13 +1545,13 @@ def run(limit):
         assert!(
             run.blocks
                 .iter()
-                .any(|block| matches!(block.term, BbTerm::BrIf { .. })),
+                .any(|block| matches!(block.term, BlockPyTerm::IfTerm(_))),
             "{run:?}"
         );
         assert!(
             run.blocks
                 .iter()
-                .any(|block| matches!(block.term, BbTerm::Jump(_))),
+                .any(|block| matches!(block.term, BlockPyTerm::Jump(_))),
             "{run:?}"
         );
     }
@@ -1591,7 +1590,7 @@ def run(items):
         assert!(
             run.blocks
                 .iter()
-                .any(|block| matches!(block.term, BbTerm::BrIf { .. })),
+                .any(|block| matches!(block.term, BlockPyTerm::IfTerm(_))),
             "{run:?}"
         );
     }
@@ -1685,13 +1684,13 @@ def f():
         assert!(
             f.blocks
                 .iter()
-                .any(|block| matches!(block.term, BbTerm::Ret(None))),
+                .any(|block| matches!(block.term, BlockPyTerm::Return(None))),
             "{f:?}"
         );
         assert!(
             !f.blocks
                 .iter()
-                .any(|block| matches!(block.term, BbTerm::Jump(_))),
+                .any(|block| matches!(block.term, BlockPyTerm::Jump(_))),
             "{f:?}"
         );
     }
@@ -1743,7 +1742,7 @@ class Field:
             let function_names = bb_module
                 .callable_defs
                 .iter()
-                .map(|func| format!("{} :: {}", func.bind_name, func.qualname))
+                .map(|func| format!("{} :: {}", func.names.bind_name, func.names.qualname))
                 .collect::<Vec<_>>();
             eprintln!(
                 "==== {name} BB FUNCTIONS ====\n{}",
@@ -1752,16 +1751,16 @@ class Field:
             let gen = bb_module
                 .callable_defs
                 .iter()
-                .find(|func| func.bind_name.contains("_dp_genexpr"))
+                .find(|func| func.names.bind_name.contains("_dp_genexpr"))
                 .unwrap_or_else(|| panic!("missing genexpr helper in {name}"));
-            eprintln!("==== {name} BB {:?} ====\n{gen:#?}", gen.qualname);
+            eprintln!("==== {name} BB {:?} ====\n{gen:#?}", gen.names.qualname);
 
             let prepared = crate::basic_block::lower_try_jump_exception_flow(&bb_module)
                 .expect("jit prep should succeed");
             let prepared_gen = prepared
                 .callable_defs
                 .iter()
-                .find(|func| func.bind_name.contains("_dp_genexpr"))
+                .find(|func| func.names.bind_name.contains("_dp_genexpr"))
                 .unwrap_or_else(|| panic!("missing prepared genexpr helper in {name}"));
             for label in ["_dp_bb__dp_genexpr_1_44", "_dp_bb__dp_genexpr_1_45"] {
                 if let Some(block) = prepared_gen

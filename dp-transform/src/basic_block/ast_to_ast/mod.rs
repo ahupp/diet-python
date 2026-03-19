@@ -1,5 +1,7 @@
 pub(crate) mod ast_rewrite;
+pub(crate) mod body;
 pub(crate) mod context;
+pub(crate) mod expr_utils;
 pub(crate) mod rewrite_class_def;
 pub(crate) mod rewrite_expr;
 pub(crate) mod rewrite_future_annotations;

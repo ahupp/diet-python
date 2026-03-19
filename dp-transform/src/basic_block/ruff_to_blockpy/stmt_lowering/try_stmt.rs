@@ -1,9 +1,10 @@
 use super::*;
 use crate::basic_block::ast_to_ast::ast_rewrite::Rewrite;
+use crate::basic_block::ast_to_ast::body::{suite_ref, take_suite, Suite};
 use crate::{py_expr, py_stmt};
 
-fn body_to_vec(body: ast::StmtBody) -> Vec<Stmt> {
-    body.body.into_iter().map(|stmt| *stmt).collect()
+fn body_to_vec(body: Suite) -> Vec<Stmt> {
+    body.into_iter().map(|stmt| *stmt).collect()
 }
 
 fn has_non_default_handler(stmt: &ast::StmtTry) -> bool {
@@ -30,16 +31,16 @@ fn has_default_handler(stmt: &ast::StmtTry) -> bool {
 pub(crate) fn rewrite_try_stmt(stmt: ast::StmtTry) -> Rewrite {
     if stmt.is_star {
         let ast::StmtTry {
-            body,
+            mut body,
             handlers,
-            orelse,
-            finalbody,
+            mut orelse,
+            mut finalbody,
             is_star: _,
             ..
         } = stmt;
-        let body = body_to_vec(body);
-        let orelse = body_to_vec(orelse);
-        let finalbody = body_to_vec(finalbody);
+        let body = body_to_vec(take_suite(&mut body));
+        let orelse = body_to_vec(take_suite(&mut orelse));
+        let finalbody = body_to_vec(take_suite(&mut finalbody));
 
         let mut handler_body: Vec<Stmt> = Vec::new();
         handler_body.push(py_stmt!("_dp_exc = __dp_current_exception()"));
@@ -49,7 +50,7 @@ pub(crate) fn rewrite_try_stmt(stmt: ast::StmtTry) -> Rewrite {
             let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
                 type_,
                 name,
-                body: h_body,
+                body: mut h_body,
                 ..
             }) = handler;
 
@@ -64,9 +65,9 @@ pub(crate) fn rewrite_try_stmt(stmt: ast::StmtTry) -> Rewrite {
                 // TODO: Re-evaluate whether exception-name binding cleanup should live here
                 // or stay in the earlier explicit-binding rewrite. For now, rely on the
                 // upstream rewrite_names pass to own any required cleanup scaffolding.
-                (exc_target, Stmt::BodyStmt(h_body))
+                (exc_target, body_to_vec(take_suite(&mut h_body)))
             } else {
-                (py_stmt!("pass"), h_body.into())
+                (py_stmt!("pass"), body_to_vec(take_suite(&mut h_body)))
             };
 
             handler_body.push(py_stmt!(
@@ -91,7 +92,7 @@ if _dp_rest is not None:
 "#
         ));
 
-        return Rewrite::Walk(py_stmt!(
+        return Rewrite::Walk(vec![py_stmt!(
             r#"
 try:
     {body:stmt}
@@ -106,7 +107,7 @@ finally:
             handler = handler_body,
             orelse = orelse,
             finally = finalbody,
-        ));
+        )]);
     }
     if !has_non_default_handler(&stmt) {
         return Rewrite::Unmodified(stmt.into());
@@ -119,22 +120,22 @@ finally:
     };
 
     let ast::StmtTry {
-        body,
+        mut body,
         handlers,
-        orelse,
-        finalbody,
+        mut orelse,
+        mut finalbody,
         is_star: _,
         ..
     } = stmt;
-    let body = body_to_vec(body);
-    let orelse = body_to_vec(orelse);
-    let finalbody = body_to_vec(finalbody);
+    let body = body_to_vec(take_suite(&mut body));
+    let orelse = body_to_vec(take_suite(&mut orelse));
+    let finalbody = body_to_vec(take_suite(&mut finalbody));
 
     let handler_chain = handlers.into_iter().rev().fold(base, |acc, handler| {
         let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
             type_,
             name,
-            body,
+            body: mut body,
             ..
         }) = handler;
 
@@ -161,9 +162,9 @@ finally:
             // TODO: Re-evaluate whether exception-name binding cleanup should live here
             // or stay in the earlier explicit-binding rewrite. For now, rely on the
             // upstream rewrite_names pass to own any required cleanup scaffolding.
-            (exc_target, Stmt::BodyStmt(body))
+            (exc_target, body_to_vec(take_suite(&mut body)))
         } else {
-            (py_stmt!("pass"), Stmt::BodyStmt(body))
+            (py_stmt!("pass"), body_to_vec(take_suite(&mut body)))
         };
 
         py_stmt!(
@@ -181,7 +182,7 @@ else:
         )
     });
 
-    Rewrite::Walk(py_stmt!(
+    Rewrite::Walk(vec![py_stmt!(
         r#"
 try:
     {body:stmt}
@@ -196,12 +197,12 @@ finally:
         handler = handler_chain,
         orelse = orelse,
         finally = finalbody,
-    ))
+    )])
 }
 
 impl StmtLowerer for ast::StmtTry {
-    fn simplify_ast(self, _context: &Context) -> Stmt {
-        stmt_from_rewrite(rewrite_try_stmt(self))
+    fn simplify_ast(self, _context: &Context) -> Vec<Stmt> {
+        stmts_from_rewrite(rewrite_try_stmt(self))
     }
 }
 
@@ -218,7 +219,8 @@ where
     F: FnMut(&[Box<Stmt>], String, &mut Vec<BlockPyBlock>) -> String,
 {
     let rewritten_try = match rewrite_try_stmt(try_stmt) {
-        Rewrite::Walk(stmt) | Rewrite::Unmodified(stmt) => stmt,
+        Rewrite::Unmodified(stmt) => stmt_to_stmts(stmt),
+        Rewrite::Walk(stmts) => stmts,
     };
     lower_expanded_stmt_sequence(
         rewritten_try,
@@ -246,13 +248,13 @@ where
 {
     let rest_entry = lower_sequence(remaining_stmts, cont_label.clone(), blocks);
 
-    let else_body = flatten_stmt_boxes(&try_stmt.orelse.body);
-    let try_body = flatten_stmt_boxes(&try_stmt.body.body);
+    let else_body = flatten_stmt_boxes(suite_ref(&try_stmt.orelse));
+    let try_body = flatten_stmt_boxes(suite_ref(&try_stmt.body));
     let except_body =
         (!try_stmt.handlers.is_empty()).then(|| prepare_except_body(&try_stmt.handlers));
-    let finally_body = if !try_stmt.finalbody.body.is_empty() {
+    let finally_body = if !suite_ref(&try_stmt.finalbody).is_empty() {
         Some(prepare_finally_body(
-            &try_stmt.finalbody,
+            suite_ref(&try_stmt.finalbody),
             try_plan.finally_exc_name.as_deref(),
         ))
     } else {
@@ -308,7 +310,7 @@ except ValueError as exc:
 
         let context = Context::new(Options::for_test(), "");
         let simplified = simplify_stmt_ast_for_blockpy(&context, Stmt::Try(try_stmt));
-        let rendered = crate::ruff_ast_to_string(&simplified);
+        let rendered = crate::ruff_ast_to_string(simplified.as_slice());
 
         assert!(rendered.contains("__dp_exception_matches"), "{rendered}");
         assert!(rendered.contains("__dp_current_exception()"), "{rendered}");
@@ -330,7 +332,7 @@ except* ValueError as exc:
 
         let context = Context::new(Options::for_test(), "");
         let simplified = simplify_stmt_ast_for_blockpy(&context, Stmt::Try(try_stmt));
-        let rendered = crate::ruff_ast_to_string(&simplified);
+        let rendered = crate::ruff_ast_to_string(simplified.as_slice());
 
         assert!(rendered.contains("__dp_exceptiongroup_split"), "{rendered}");
     }

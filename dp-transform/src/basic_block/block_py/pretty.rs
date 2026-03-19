@@ -2,7 +2,7 @@ use super::{
     BlockPyBlock, BlockPyCallableDef, BlockPyCfgFragment, BlockPyFunctionKind, BlockPyIfTerm,
     BlockPyLabel, BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyTerm, BlockPyTryJump, Expr,
 };
-use crate::basic_block::param_specs::{ParamKind, ParamSpec};
+use crate::basic_block::block_py::param_specs::{ParamKind, ParamSpec};
 use crate::ruff_ast_to_string;
 use std::collections::{HashMap, HashSet};
 
@@ -42,7 +42,7 @@ impl BlockPyFormatter {
         if module
             .callable_defs
             .iter()
-            .any(|function| function.bind_name == "_dp_module_init")
+            .any(|function| function.names.bind_name == "_dp_module_init")
         {
             self.line("module_init: _dp_module_init");
         }
@@ -66,11 +66,11 @@ impl BlockPyFormatter {
         self.line(format!(
             "{} {}({params}):",
             function_kind_name(function.kind),
-            function.qualname
+            function.names.qualname
         ));
         self.with_indent(|this| {
-            if function.display_name != function.bind_name {
-                this.line(format!("display_name: {}", function.display_name));
+            if function.names.display_name != function.names.bind_name {
+                this.line(format!("display_name: {}", function.names.display_name));
             }
             let entry_liveins = function.entry_liveins();
             if !entry_liveins.is_empty() && entry_liveins != parameter_names {
@@ -359,7 +359,7 @@ impl BlockPyFormatter {
     }
 }
 
-fn render_closure_slots(slots: &[crate::basic_block::lowered_ir::ClosureSlot]) -> String {
+fn render_closure_slots(slots: &[crate::basic_block::block_py::ClosureSlot]) -> String {
     slots
         .iter()
         .map(|slot| {
@@ -374,14 +374,14 @@ fn render_closure_slots(slots: &[crate::basic_block::lowered_ir::ClosureSlot]) -
         .join(", ")
 }
 
-fn closure_init_name(init: &crate::basic_block::lowered_ir::ClosureInit) -> &'static str {
+fn closure_init_name(init: &crate::basic_block::block_py::ClosureInit) -> &'static str {
     match init {
-        crate::basic_block::lowered_ir::ClosureInit::InheritedCapture => "inherited",
-        crate::basic_block::lowered_ir::ClosureInit::Parameter => "param",
-        crate::basic_block::lowered_ir::ClosureInit::DeletedSentinel => "deleted",
-        crate::basic_block::lowered_ir::ClosureInit::RuntimePcUnstarted => "pc_unstarted",
-        crate::basic_block::lowered_ir::ClosureInit::RuntimeNone => "none",
-        crate::basic_block::lowered_ir::ClosureInit::Deferred => "deferred",
+        crate::basic_block::block_py::ClosureInit::InheritedCapture => "inherited",
+        crate::basic_block::block_py::ClosureInit::Parameter => "param",
+        crate::basic_block::block_py::ClosureInit::DeletedSentinel => "deleted",
+        crate::basic_block::block_py::ClosureInit::RuntimePcUnstarted => "pc_unstarted",
+        crate::basic_block::block_py::ClosureInit::RuntimeNone => "none",
+        crate::basic_block::block_py::ClosureInit::Deferred => "deferred",
     }
 }
 
@@ -904,7 +904,7 @@ fn collect_referenced_labels_from_term(
 mod tests {
     use super::*;
     use crate::basic_block::block_py::BlockPyBlockMeta;
-    use crate::basic_block::lowered_ir::{ClosureInit, ClosureLayout, ClosureSlot};
+    use crate::basic_block::block_py::{ClosureInit, ClosureLayout, ClosureSlot};
     use ruff_python_parser::parse_expression;
 
     fn wrapped_blockpy(source: &str) -> BlockPyModule {
@@ -916,8 +916,8 @@ mod tests {
         (*parse_expression(source).unwrap().into_syntax().body).into()
     }
 
-    fn empty_param_spec() -> crate::basic_block::param_specs::ParamSpec {
-        crate::basic_block::param_specs::ParamSpec::default()
+    fn empty_param_spec() -> ParamSpec {
+        ParamSpec::default()
     }
 
     fn function_by_bind_name<'a, E>(
@@ -927,7 +927,7 @@ mod tests {
         module
             .callable_defs
             .iter()
-            .find(|function| function.bind_name == bind_name)
+            .find(|function| function.names.bind_name == bind_name)
             .unwrap_or_else(|| panic!("missing function {bind_name}"))
     }
 
@@ -981,7 +981,7 @@ def classify(n):
         assert!(blockpy
             .callable_defs
             .iter()
-            .any(|function| function.bind_name == "_dp_module_init"));
+            .any(|function| function.names.bind_name == "_dp_module_init"));
         assert!(rendered.contains("function _dp_module_init():"));
     }
 
@@ -1037,22 +1037,17 @@ async def no_lying():
     fn renders_public_closure_metadata_in_function_header() {
         let rendered = blockpy_module_to_string(&BlockPyModule::<Expr> {
             callable_defs: vec![BlockPyCallableDef {
-                cfg: crate::basic_block::cfg_ir::CfgCallableDef {
-                    function_id: crate::basic_block::lowered_ir::FunctionId(0),
-                    bind_name: "gen".to_string(),
-                    kind: BlockPyFunctionKind::Function,
-                    params: empty_param_spec(),
-                    param_defaults: Vec::new(),
-                    blocks: vec![BlockPyBlock {
-                        label: "gen_start".into(),
-                        body: vec![],
-                        term: BlockPyTerm::<Expr>::Return(None),
-                        meta: BlockPyBlockMeta::default(),
-                    }],
-                },
-                fn_name: "gen".to_string(),
-                display_name: "gen".to_string(),
-                qualname: "gen".to_string(),
+                function_id: crate::basic_block::block_py::FunctionId(0),
+                names: crate::basic_block::block_py::FunctionName::new("gen", "gen", "gen", "gen"),
+                kind: BlockPyFunctionKind::Function,
+                params: empty_param_spec(),
+                param_defaults: Vec::new(),
+                blocks: vec![BlockPyBlock {
+                    label: "gen_start".into(),
+                    body: vec![],
+                    term: BlockPyTerm::<Expr>::Return(None),
+                    meta: BlockPyBlockMeta::default(),
+                }],
                 doc: None,
                 closure_layout: Some(ClosureLayout {
                     freevars: vec![ClosureSlot {
@@ -1085,46 +1080,41 @@ async def no_lying():
     #[test]
     fn renders_followup_blocks_under_their_owning_entry_block() {
         let function = BlockPyCallableDef {
-            cfg: crate::basic_block::cfg_ir::CfgCallableDef {
-                function_id: crate::basic_block::lowered_ir::FunctionId(0),
-                bind_name: "f".to_string(),
-                kind: BlockPyFunctionKind::Function,
-                params: empty_param_spec(),
-                param_defaults: Vec::new(),
-                blocks: vec![
-                    BlockPyBlock {
-                        label: "start".into(),
-                        body: vec![],
-                        term: BlockPyTerm::IfTerm(BlockPyIfTerm {
-                            test: parse_blockpy_expr("cond"),
-                            then_label: "then".into(),
-                            else_label: "else".into(),
-                        }),
-                        meta: BlockPyBlockMeta::default(),
-                    },
-                    BlockPyBlock {
-                        label: "then".into(),
-                        body: vec![BlockPyStmt::Expr(parse_blockpy_expr("then_side_effect()"))],
-                        term: BlockPyTerm::Jump("after".into()),
-                        meta: BlockPyBlockMeta::default(),
-                    },
-                    BlockPyBlock {
-                        label: "else".into(),
-                        body: vec![BlockPyStmt::Expr(parse_blockpy_expr("else_side_effect()"))],
-                        term: BlockPyTerm::Jump("after".into()),
-                        meta: BlockPyBlockMeta::default(),
-                    },
-                    BlockPyBlock {
-                        label: "after".into(),
-                        body: vec![BlockPyStmt::Expr(parse_blockpy_expr("finish()"))],
-                        term: BlockPyTerm::Return(None),
-                        meta: BlockPyBlockMeta::default(),
-                    },
-                ],
-            },
-            fn_name: "f".to_string(),
-            display_name: "f".to_string(),
-            qualname: "f".to_string(),
+            function_id: crate::basic_block::block_py::FunctionId(0),
+            names: crate::basic_block::block_py::FunctionName::new("f", "f", "f", "f"),
+            kind: BlockPyFunctionKind::Function,
+            params: empty_param_spec(),
+            param_defaults: Vec::new(),
+            blocks: vec![
+                BlockPyBlock {
+                    label: "start".into(),
+                    body: vec![],
+                    term: BlockPyTerm::IfTerm(BlockPyIfTerm {
+                        test: parse_blockpy_expr("cond"),
+                        then_label: "then".into(),
+                        else_label: "else".into(),
+                    }),
+                    meta: BlockPyBlockMeta::default(),
+                },
+                BlockPyBlock {
+                    label: "then".into(),
+                    body: vec![BlockPyStmt::Expr(parse_blockpy_expr("then_side_effect()"))],
+                    term: BlockPyTerm::Jump("after".into()),
+                    meta: BlockPyBlockMeta::default(),
+                },
+                BlockPyBlock {
+                    label: "else".into(),
+                    body: vec![BlockPyStmt::Expr(parse_blockpy_expr("else_side_effect()"))],
+                    term: BlockPyTerm::Jump("after".into()),
+                    meta: BlockPyBlockMeta::default(),
+                },
+                BlockPyBlock {
+                    label: "after".into(),
+                    body: vec![BlockPyStmt::Expr(parse_blockpy_expr("finish()"))],
+                    term: BlockPyTerm::Return(None),
+                    meta: BlockPyBlockMeta::default(),
+                },
+            ],
             doc: None,
             closure_layout: None,
             try_regions: Vec::new(),
@@ -1164,51 +1154,46 @@ def choose(a, b):
     #[test]
     fn sorts_rendered_root_and_child_blocks_by_label() {
         let function: BlockPyCallableDef<Expr> = BlockPyCallableDef {
-            cfg: crate::basic_block::cfg_ir::CfgCallableDef {
-                function_id: crate::basic_block::lowered_ir::FunctionId(0),
-                bind_name: "f".to_string(),
-                kind: BlockPyFunctionKind::Function,
-                params: empty_param_spec(),
-                param_defaults: Vec::new(),
-                blocks: vec![
-                    BlockPyBlock {
-                        label: "start".into(),
-                        body: vec![],
-                        term: BlockPyTerm::TryJump(BlockPyTryJump {
-                            body_label: "zeta".into(),
-                            except_label: "alpha".into(),
-                        }),
-                        meta: BlockPyBlockMeta::default(),
-                    },
-                    BlockPyBlock {
-                        label: "zeta".into(),
-                        body: vec![],
-                        term: BlockPyTerm::Return(None),
-                        meta: BlockPyBlockMeta::default(),
-                    },
-                    BlockPyBlock {
-                        label: "alpha".into(),
-                        body: vec![],
-                        term: BlockPyTerm::Return(None),
-                        meta: BlockPyBlockMeta::default(),
-                    },
-                    BlockPyBlock {
-                        label: "omega".into(),
-                        body: vec![],
-                        term: BlockPyTerm::Return(None),
-                        meta: BlockPyBlockMeta::default(),
-                    },
-                    BlockPyBlock {
-                        label: "beta".into(),
-                        body: vec![],
-                        term: BlockPyTerm::Return(None),
-                        meta: BlockPyBlockMeta::default(),
-                    },
-                ],
-            },
-            fn_name: "f".to_string(),
-            display_name: "f".to_string(),
-            qualname: "f".to_string(),
+            function_id: crate::basic_block::block_py::FunctionId(0),
+            names: crate::basic_block::block_py::FunctionName::new("f", "f", "f", "f"),
+            kind: BlockPyFunctionKind::Function,
+            params: empty_param_spec(),
+            param_defaults: Vec::new(),
+            blocks: vec![
+                BlockPyBlock {
+                    label: "start".into(),
+                    body: vec![],
+                    term: BlockPyTerm::TryJump(BlockPyTryJump {
+                        body_label: "zeta".into(),
+                        except_label: "alpha".into(),
+                    }),
+                    meta: BlockPyBlockMeta::default(),
+                },
+                BlockPyBlock {
+                    label: "zeta".into(),
+                    body: vec![],
+                    term: BlockPyTerm::Return(None),
+                    meta: BlockPyBlockMeta::default(),
+                },
+                BlockPyBlock {
+                    label: "alpha".into(),
+                    body: vec![],
+                    term: BlockPyTerm::Return(None),
+                    meta: BlockPyBlockMeta::default(),
+                },
+                BlockPyBlock {
+                    label: "omega".into(),
+                    body: vec![],
+                    term: BlockPyTerm::Return(None),
+                    meta: BlockPyBlockMeta::default(),
+                },
+                BlockPyBlock {
+                    label: "beta".into(),
+                    body: vec![],
+                    term: BlockPyTerm::Return(None),
+                    meta: BlockPyBlockMeta::default(),
+                },
+            ],
             doc: None,
             closure_layout: None,
             try_regions: Vec::new(),

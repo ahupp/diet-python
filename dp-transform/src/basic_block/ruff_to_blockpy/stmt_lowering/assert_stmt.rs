@@ -2,7 +2,7 @@ use super::*;
 use crate::{basic_block::ast_to_ast::ast_rewrite::Rewrite, py_stmt};
 
 pub(crate) fn rewrite_assert_stmt(ast::StmtAssert { test, msg, .. }: ast::StmtAssert) -> Rewrite {
-    Rewrite::Walk(if let Some(msg_expr) = msg {
+    Rewrite::Walk(vec![if let Some(msg_expr) = msg {
         py_stmt!(
             "
 if __debug__:
@@ -18,15 +18,15 @@ if __debug__:
 if __debug__:
     if not {test:expr}:
         raise __dp_AssertionError
-",
+        ",
             test = test
         )
-    })
+    }])
 }
 
 impl StmtLowerer for ast::StmtAssert {
-    fn simplify_ast(self, _context: &Context) -> Stmt {
-        stmt_from_rewrite(rewrite_assert_stmt(self))
+    fn simplify_ast(self, _context: &Context) -> Vec<Stmt> {
+        stmts_from_rewrite(rewrite_assert_stmt(self))
     }
 
     fn to_blockpy<E>(
@@ -59,7 +59,7 @@ mod tests {
         let context = Context::new(Options::for_test(), "");
         let simplified = simplify_stmt_ast_for_blockpy(&context, Stmt::Assert(assert_stmt));
 
-        assert!(!matches!(simplified, Stmt::Assert(_)));
+        assert!(!matches!(simplified.as_slice(), [Stmt::Assert(_)]));
     }
 
     #[test]

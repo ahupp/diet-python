@@ -1,9 +1,9 @@
 use crate::basic_block::block_py::{is_internal_entry_livein, BlockPyStmt};
 
 use super::block_py::{
-    BlockPyCallableDef, BlockPyLabel, CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyLiteral,
+    BlockPyCallableDef, BlockPyLabel, BlockPyRaise, BlockPyTerm, CfgBlock, CfgModule,
+    CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyLiteral,
 };
-use super::cfg_ir::{CfgBlock, CfgModule};
 use ruff_python_ast as ast;
 
 pub type BbModule = CfgModule<BbFunction>;
@@ -16,7 +16,7 @@ pub struct BbBlockMeta {
 }
 
 pub type BbStmt = BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>;
-pub type BbBlock = CfgBlock<BbStmt, BbTerm, BbBlockMeta>;
+pub type BbBlock = CfgBlock<BbStmt, BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>, BbBlockMeta>;
 pub type BbFunction = BlockPyCallableDef<CoreBlockPyExprWithoutAwaitOrYield, BbBlock>;
 
 impl BlockPyCallableDef<CoreBlockPyExprWithoutAwaitOrYield, BbBlock> {
@@ -32,26 +32,6 @@ impl BlockPyCallableDef<CoreBlockPyExprWithoutAwaitOrYield, BbBlock> {
             .cloned()
             .collect()
     }
-}
-
-#[derive(Debug, Clone)]
-pub enum BbTerm {
-    Jump(BlockPyLabel),
-    BrIf {
-        test: CoreBlockPyExprWithoutAwaitOrYield,
-        then_label: BlockPyLabel,
-        else_label: BlockPyLabel,
-    },
-    BrTable {
-        index: CoreBlockPyExprWithoutAwaitOrYield,
-        targets: Vec<BlockPyLabel>,
-        default_label: BlockPyLabel,
-    },
-    Raise {
-        exc: Option<CoreBlockPyExprWithoutAwaitOrYield>,
-        cause: Option<CoreBlockPyExprWithoutAwaitOrYield>,
-    },
-    Ret(Option<CoreBlockPyExprWithoutAwaitOrYield>),
 }
 
 pub fn bb_expr_text(expr: &CoreBlockPyExprWithoutAwaitOrYield) -> String {
@@ -114,6 +94,15 @@ pub fn bb_stmt_text(stmt: &BbStmt) -> String {
             panic!("structured BlockPy If is not allowed in BbBlock.body")
         }
     }
+}
+
+pub fn bb_raise_text(raise_stmt: &BlockPyRaise<CoreBlockPyExprWithoutAwaitOrYield>) -> String {
+    let exc = raise_stmt
+        .exc
+        .as_ref()
+        .map(bb_expr_text)
+        .unwrap_or_else(|| "None".to_string());
+    format!("raise exc={exc}")
 }
 
 pub fn bb_stmts_text(stmts: &[BbStmt]) -> String {

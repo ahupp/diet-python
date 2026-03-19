@@ -1,5 +1,5 @@
-use crate::basic_block::bb_ir::{BbBlock, BbBlockMeta, BbFunction, BbModule, BbStmt, BbTerm};
-use crate::basic_block::block_py::{BlockPyLabel, BlockPyStmt};
+use crate::basic_block::bb_ir::{BbBlock, BbBlockMeta, BbFunction, BbModule, BbStmt};
+use crate::basic_block::block_py::{BlockPyLabel, BlockPyStmt, BlockPyTerm};
 use std::collections::HashSet;
 
 pub fn lower_try_jump_exception_flow(module: &BbModule) -> Result<BbModule, String> {
@@ -62,7 +62,7 @@ fn split_exception_blocks_for_expr_checks(function: &mut BbFunction) {
                 out.push(BbBlock {
                     label: current_label.clone(),
                     body: std::mem::take(&mut segment_ops),
-                    term: BbTerm::Jump(next_label.clone()),
+                    term: BlockPyTerm::Jump(next_label.clone()),
                     meta: BbBlockMeta {
                         params: segment_start_names.clone(),
                         exc_target_label: edge_target.clone(),
@@ -134,7 +134,7 @@ fn validate_function_labels(function: &BbFunction, labels: &HashSet<&str>) -> Re
     if !labels.contains(entry_label) {
         return Err(format!(
             "missing entry label {} in {}",
-            entry_label, function.qualname
+            entry_label, function.names.qualname
         ));
     }
     for block in &function.blocks {
@@ -142,39 +142,39 @@ fn validate_function_labels(function: &BbFunction, labels: &HashSet<&str>) -> Re
             if !labels.contains(exc_target_label.as_str()) {
                 return Err(format!(
                     "unknown exception target {exc_target_label} in {}:{}",
-                    function.qualname, block.label
+                    function.names.qualname, block.label
                 ));
             }
         }
         match &block.term {
-            BbTerm::Jump(target) => {
+            BlockPyTerm::Jump(target) => {
                 ensure_known_label(labels, target, function, &block.label, "jump target")?
             }
-            BbTerm::BrIf {
-                then_label,
-                else_label,
-                ..
-            } => {
+            BlockPyTerm::IfTerm(if_term) => {
+                let then_label = &if_term.then_label;
+                let else_label = &if_term.else_label;
                 ensure_known_label(labels, then_label, function, &block.label, "then target")?;
                 ensure_known_label(labels, else_label, function, &block.label, "else target")?;
             }
-            BbTerm::BrTable {
-                targets,
-                default_label,
-                ..
-            } => {
-                for target in targets {
+            BlockPyTerm::BranchTable(branch) => {
+                for target in &branch.targets {
                     ensure_known_label(labels, target, function, &block.label, "br_table target")?;
                 }
                 ensure_known_label(
                     labels,
-                    default_label,
+                    &branch.default_label,
                     function,
                     &block.label,
                     "br_table default target",
                 )?;
             }
-            BbTerm::Raise { .. } | BbTerm::Ret(_) => {}
+            BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => {}
+            BlockPyTerm::TryJump(_) => {
+                return Err(format!(
+                    "unexpected TryJump in BB function {}:{}",
+                    function.names.qualname, block.label
+                ));
+            }
         }
     }
     Ok(())
@@ -192,15 +192,17 @@ fn ensure_known_label(
     }
     Err(format!(
         "unknown {label_kind} {label} in {}:{}",
-        function.qualname, block_label
+        function.names.qualname, block_label
     ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::lower_try_jump_exception_flow;
-    use crate::basic_block::bb_ir::{BbBlock, BbBlockMeta, BbTerm};
-    use crate::basic_block::block_py::BlockPyLabel;
+    use crate::basic_block::bb_ir::{BbBlock, BbBlockMeta};
+    use crate::basic_block::block_py::{
+        BlockPyLabel, BlockPyTerm, CoreBlockPyExprWithoutAwaitOrYield,
+    };
     use crate::{transform_str_to_bb_ir_with_options, Options};
 
     #[test]
@@ -216,7 +218,7 @@ def f(x):
             let function = module
                 .callable_defs
                 .iter_mut()
-                .find(|function| function.qualname == "f")
+                .find(|function| function.names.qualname == "f")
                 .expect("must contain f");
             let body_label = BlockPyLabel::from("_dp_manual_body");
             let except_label = BlockPyLabel::from("_dp_manual_except");
@@ -224,7 +226,7 @@ def f(x):
             function.blocks.push(BbBlock {
                 label: body_label.clone(),
                 body: vec![],
-                term: BbTerm::Ret(None),
+                term: BlockPyTerm::<CoreBlockPyExprWithoutAwaitOrYield>::Return(None),
                 meta: BbBlockMeta {
                     params: vec![],
                     exc_target_label: Some(except_label.clone()),
@@ -234,7 +236,7 @@ def f(x):
             function.blocks.push(BbBlock {
                 label: except_label.clone(),
                 body: vec![],
-                term: BbTerm::Ret(None),
+                term: BlockPyTerm::<CoreBlockPyExprWithoutAwaitOrYield>::Return(None),
                 meta: BbBlockMeta::default(),
             });
             (body_label, except_label)
@@ -244,7 +246,7 @@ def f(x):
         let lowered_function = lowered
             .callable_defs
             .iter()
-            .find(|candidate| candidate.qualname == "f")
+            .find(|candidate| candidate.names.qualname == "f")
             .expect("must contain lowered f");
         let body_block = lowered_function
             .blocks
@@ -303,7 +305,7 @@ def f():
         let function = module
             .callable_defs
             .iter_mut()
-            .find(|function| function.qualname == "f")
+            .find(|function| function.names.qualname == "f")
             .expect("must contain f");
         let block_index = function
             .blocks
@@ -315,7 +317,7 @@ def f():
         function.blocks.push(BbBlock {
             label: except_label.clone(),
             body: vec![],
-            term: BbTerm::Ret(None),
+            term: BlockPyTerm::<CoreBlockPyExprWithoutAwaitOrYield>::Return(None),
             meta: BbBlockMeta::default(),
         });
         function.blocks[block_index].meta.exc_target_label = Some(except_label.clone());
@@ -325,7 +327,7 @@ def f():
         let lowered_function = lowered
             .callable_defs
             .iter()
-            .find(|candidate| candidate.qualname == "f")
+            .find(|candidate| candidate.names.qualname == "f")
             .expect("must contain lowered f");
 
         let first = lowered_function
@@ -335,7 +337,7 @@ def f():
             .expect("split must keep original block label");
         assert_eq!(first.body.len(), 1, "first split block must contain one op");
         assert!(
-            matches!(first.term, BbTerm::Jump(_)),
+            matches!(first.term, BlockPyTerm::Jump(_)),
             "split op block must jump to next split block"
         );
         assert_eq!(
@@ -374,7 +376,7 @@ def f():
         let function = module
             .callable_defs
             .iter_mut()
-            .find(|function| function.qualname == "f")
+            .find(|function| function.names.qualname == "f")
             .expect("must contain f");
         let block_index = function
             .blocks
@@ -386,7 +388,7 @@ def f():
         function.blocks.push(BbBlock {
             label: except_label.clone(),
             body: vec![],
-            term: BbTerm::Ret(None),
+            term: BlockPyTerm::<CoreBlockPyExprWithoutAwaitOrYield>::Return(None),
             meta: BbBlockMeta::default(),
         });
         function.blocks[block_index].meta.exc_target_label = Some(except_label.clone());
@@ -396,7 +398,7 @@ def f():
         let lowered_function = lowered
             .callable_defs
             .iter()
-            .find(|candidate| candidate.qualname == "f")
+            .find(|candidate| candidate.names.qualname == "f")
             .expect("must contain lowered f");
 
         let first = lowered_function
@@ -410,7 +412,7 @@ def f():
             "pure expr ops should remain grouped until the local assignment"
         );
         assert!(
-            matches!(first.term, BbTerm::Jump(_)),
+            matches!(first.term, BlockPyTerm::Jump(_)),
             "state-changing assignment should still split the block"
         );
 
@@ -442,13 +444,13 @@ def f():
         let raw_function = module
             .callable_defs
             .iter()
-            .find(|candidate| candidate.qualname == "f")
+            .find(|candidate| candidate.names.qualname == "f")
             .expect("must contain raw f");
         assert!(
             raw_function.blocks.iter().any(|block| {
                 matches!(
                     block.term,
-                    crate::basic_block::bb_ir::BbTerm::Ret(Some(
+                    crate::basic_block::block_py::BlockPyTerm::Return(Some(
                         crate::basic_block::block_py::CoreBlockPyExprWithoutAwaitOrYield::Literal(
                             crate::basic_block::block_py::CoreBlockPyLiteral::NumberLiteral(
                                 ruff_python_ast::ExprNumberLiteral {
@@ -466,14 +468,14 @@ def f():
         let lowered_function = lowered
             .callable_defs
             .iter()
-            .find(|candidate| candidate.qualname == "f")
+            .find(|candidate| candidate.names.qualname == "f")
             .expect("must contain lowered f");
 
         assert!(
             lowered_function.blocks.iter().any(|block| {
                 matches!(
                     block.term,
-                    crate::basic_block::bb_ir::BbTerm::Ret(Some(
+                    crate::basic_block::block_py::BlockPyTerm::Return(Some(
                         crate::basic_block::block_py::CoreBlockPyExprWithoutAwaitOrYield::Literal(
                             crate::basic_block::block_py::CoreBlockPyLiteral::NumberLiteral(
                                 ruff_python_ast::ExprNumberLiteral {

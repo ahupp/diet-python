@@ -1,9 +1,9 @@
+use crate::basic_block::ast_to_ast::body::{suite_mut, Suite};
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::transformer::{walk_expr, walk_parameter, walk_stmt, Transformer};
-use ruff_python_ast::StmtBody;
 use ruff_python_ast::{self as ast, name::Name, Expr, ExprContext, Stmt};
 
-pub fn rewrite_private_names(_context: &Context, body: &mut StmtBody) {
+pub fn rewrite_private_names(_context: &Context, body: &mut Suite) {
     let mut rewriter = PrivateRewriter { class_name: None };
     rewriter.visit_body(body);
 }
@@ -54,7 +54,7 @@ impl Transformer for PrivateRewriter {
                 PrivateRewriter {
                     class_name: Some(name.to_string()),
                 }
-                .visit_body(body);
+                .visit_body(suite_mut(body));
             }
             Stmt::Global(ast::StmtGlobal { names, .. }) => {
                 for name in names {

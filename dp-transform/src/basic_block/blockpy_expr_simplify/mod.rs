@@ -7,12 +7,11 @@ use super::{
         CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg,
         CoreBlockPyLiteral, CoreBlockPyYield, CoreBlockPyYieldFrom,
     },
-    cfg_ir::CfgCallableDef,
 };
 use crate::basic_block::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
 use crate::basic_block::{
+    ast_to_ast::expr_utils::{make_binop, make_tuple, make_tuple_splat, make_unaryop},
     block_py::BlockPyAssign,
-    expr_utils::{make_binop, make_tuple, make_tuple_splat, make_unaryop},
 };
 use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr};
@@ -414,21 +413,16 @@ pub(crate) fn simplify_blockpy_callable_def_exprs(
     callable_def: &BlockPyCallableDef<Expr>,
 ) -> BlockPyCallableDef<CoreBlockPyExpr> {
     BlockPyCallableDef {
-        cfg: CfgCallableDef {
-            function_id: callable_def.function_id,
-            bind_name: callable_def.bind_name.clone(),
-            kind: callable_def.kind,
-            params: callable_def.params.clone(),
-            param_defaults: simplify_param_defaults(&callable_def.param_defaults),
-            blocks: callable_def
-                .blocks
-                .iter()
-                .map(lower_semantic_block)
-                .collect(),
-        },
-        fn_name: callable_def.fn_name.clone(),
-        display_name: callable_def.display_name.clone(),
-        qualname: callable_def.qualname.clone(),
+        function_id: callable_def.function_id,
+        names: callable_def.names.clone(),
+        kind: callable_def.kind,
+        params: callable_def.params.clone(),
+        param_defaults: simplify_param_defaults(&callable_def.param_defaults),
+        blocks: callable_def
+            .blocks
+            .iter()
+            .map(lower_semantic_block)
+            .collect(),
         doc: callable_def.doc.clone(),
         closure_layout: callable_def.closure_layout.clone(),
         facts: callable_def.facts.clone(),

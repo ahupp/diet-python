@@ -1,23 +1,18 @@
 use crate::{
+    basic_block::ast_to_ast::body::{suite_mut, suite_ref, Suite},
     basic_block::ast_to_ast::context::Context,
     basic_block::ast_to_ast::rewrite_expr::string,
     transformer::{walk_expr, Transformer},
 };
-use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
+use ruff_python_ast::{self as ast, Expr, Stmt};
 
 pub(crate) struct Flattener;
 
 impl Flattener {
-    fn visit_body(&mut self, body: &mut StmtBody) {
-        let body = &mut body.body;
+    fn visit_body(&mut self, body: &mut Suite) {
         let mut i = 0;
         while i < body.len() {
             self.visit_stmt(body[i].as_mut());
-            if let Stmt::BodyStmt(ast::StmtBody { body: inner, .. }) = body[i].as_mut() {
-                let replacement = std::mem::take(inner);
-                body.splice(i..=i, replacement);
-                continue;
-            }
             if let Stmt::If(ast::StmtIf {
                 test,
                 body: inner,
@@ -31,7 +26,7 @@ impl Flattener {
                         Expr::BooleanLiteral(ast::ExprBooleanLiteral { value: true, .. })
                     )
                 {
-                    let replacement = std::mem::take(&mut inner.body);
+                    let replacement = std::mem::take(suite_mut(inner));
                     body.splice(i..=i, replacement);
                     continue;
                 }
@@ -41,8 +36,7 @@ impl Flattener {
     }
 }
 
-fn remove_placeholder_pass(body: &mut StmtBody) {
-    let body = &mut body.body;
+fn remove_placeholder_pass(body: &mut Suite) {
     if body.len() == 1 {
         if let Stmt::Pass(ast::StmtPass { range, .. }) = body[0].as_ref() {
             if range.is_empty() {
@@ -60,11 +54,11 @@ impl Transformer for Flattener {
                 elif_else_clauses,
                 ..
             }) => {
-                self.visit_body(body);
-                remove_placeholder_pass(body);
+                self.visit_body(suite_mut(body));
+                remove_placeholder_pass(suite_mut(body));
                 for clause in elif_else_clauses.iter_mut() {
-                    self.visit_body(&mut clause.body);
-                    remove_placeholder_pass(&mut clause.body);
+                    self.visit_body(suite_mut(&mut clause.body));
+                    remove_placeholder_pass(suite_mut(&mut clause.body));
                 }
             }
             Stmt::For(ast::StmtFor {
@@ -72,20 +66,20 @@ impl Transformer for Flattener {
                 orelse,
                 ..
             }) => {
-                self.visit_body(inner);
-                remove_placeholder_pass(inner);
-                self.visit_body(orelse);
-                remove_placeholder_pass(orelse);
+                self.visit_body(suite_mut(inner));
+                remove_placeholder_pass(suite_mut(inner));
+                self.visit_body(suite_mut(orelse));
+                remove_placeholder_pass(suite_mut(orelse));
             }
             Stmt::While(ast::StmtWhile {
                 body: inner,
                 orelse,
                 ..
             }) => {
-                self.visit_body(inner);
-                remove_placeholder_pass(inner);
-                self.visit_body(orelse);
-                remove_placeholder_pass(orelse);
+                self.visit_body(suite_mut(inner));
+                remove_placeholder_pass(suite_mut(inner));
+                self.visit_body(suite_mut(orelse));
+                remove_placeholder_pass(suite_mut(orelse));
             }
             Stmt::Try(ast::StmtTry {
                 body: inner,
@@ -94,31 +88,31 @@ impl Transformer for Flattener {
                 finalbody,
                 ..
             }) => {
-                self.visit_body(inner);
-                remove_placeholder_pass(inner);
+                self.visit_body(suite_mut(inner));
+                remove_placeholder_pass(suite_mut(inner));
                 for handler in handlers.iter_mut() {
                     let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
                         body,
                         ..
                     }) = handler;
-                    self.visit_body(body);
-                    remove_placeholder_pass(body);
+                    self.visit_body(suite_mut(body));
+                    remove_placeholder_pass(suite_mut(body));
                 }
-                self.visit_body(orelse);
-                remove_placeholder_pass(orelse);
-                self.visit_body(finalbody);
-                remove_placeholder_pass(finalbody);
+                self.visit_body(suite_mut(orelse));
+                remove_placeholder_pass(suite_mut(orelse));
+                self.visit_body(suite_mut(finalbody));
+                remove_placeholder_pass(suite_mut(finalbody));
             }
             Stmt::FunctionDef(ast::StmtFunctionDef { body: inner, .. }) => {
-                self.visit_body(inner);
-                remove_placeholder_pass(inner);
+                self.visit_body(suite_mut(inner));
+                remove_placeholder_pass(suite_mut(inner));
             }
             _ => {}
         }
     }
 }
 
-pub fn flatten(stmts: &mut StmtBody) {
+pub fn flatten(stmts: &mut Suite) {
     let mut flattener = Flattener;
     (&mut flattener).visit_body(stmts);
 }
@@ -243,8 +237,8 @@ fn materialize_fstring_sources(node: &mut ast::ExprFString, context: &Context) {
 }
 
 impl Transformer for &mut SurrogateStringLiteralLowerer<'_> {
-    fn visit_body(&mut self, body: &mut StmtBody) {
-        for (index, stmt) in body.body.iter_mut().enumerate() {
+    fn visit_body(&mut self, body: &mut Suite) {
+        for (index, stmt) in body.iter_mut().enumerate() {
             if index == 0 && is_docstring_stmt(stmt) {
                 continue;
             }
@@ -276,7 +270,7 @@ impl Transformer for &mut SurrogateStringLiteralLowerer<'_> {
     }
 }
 
-pub fn lower_surrogate_string_literals(context: &Context, stmts: &mut StmtBody) {
+pub fn lower_surrogate_string_literals(context: &Context, stmts: &mut Suite) {
     let mut lowerer = SurrogateStringLiteralLowerer { context };
     (&mut lowerer).visit_body(stmts);
 }
@@ -284,6 +278,7 @@ pub fn lower_surrogate_string_literals(context: &Context, stmts: &mut StmtBody) 
 #[cfg(test)]
 mod tests {
     use super::lower_surrogate_string_literals;
+    use crate::basic_block::ast_to_ast::body::{suite_mut, suite_ref};
     use crate::basic_block::ast_to_ast::context::Context;
     use crate::basic_block::ast_to_ast::rewrite_expr::string::lower_string_templates_in_expr;
     use crate::basic_block::ast_to_ast::Options;
@@ -294,12 +289,12 @@ mod tests {
     fn lower_module(source: &str) -> ast::ModModule {
         let mut module = parse_module(source).unwrap().into_syntax();
         let context = Context::new(Options::for_test(), source);
-        lower_surrogate_string_literals(&context, &mut module.body);
+        lower_surrogate_string_literals(&context, suite_mut(&mut module.body));
         module
     }
 
     fn first_assign_value(module: &ast::ModModule) -> &Expr {
-        let Stmt::Assign(assign) = module.body.body[0].as_ref() else {
+        let Stmt::Assign(assign) = suite_ref(&module.body)[0].as_ref() else {
             panic!("expected first statement to be an assignment");
         };
         assign.value.as_ref()
@@ -328,7 +323,7 @@ mod tests {
     #[test]
     fn lower_surrogate_string_literals_still_decodes_surrogate_escapes_after_merge() {
         let module = lower_module("x = \"\\udca7\" \"b\"\n");
-        let rendered = ruff_ast_to_string(&module.body);
+        let rendered = ruff_ast_to_string(suite_ref(&module.body));
         assert!(
             rendered.contains("__dp_decode_literal_source_bytes"),
             "{rendered}"
@@ -338,11 +333,11 @@ mod tests {
     #[test]
     fn lower_surrogate_string_literals_keeps_fstring_debug_output_correct() {
         let mut module = lower_module("x = f\"{value=}\"\n");
-        let Stmt::Assign(assign) = module.body.body[0].as_mut() else {
+        let Stmt::Assign(assign) = suite_mut(&mut module.body)[0].as_mut() else {
             panic!("expected first statement to be an assignment");
         };
         lower_string_templates_in_expr(assign.value.as_mut());
-        let rendered = ruff_ast_to_string(&module.body);
+        let rendered = ruff_ast_to_string(suite_ref(&module.body));
         assert!(rendered.contains("value="), "{rendered}");
         assert!(rendered.contains("__dp_repr(value)"), "{rendered}");
     }
@@ -350,11 +345,11 @@ mod tests {
     #[test]
     fn lower_surrogate_string_literals_keeps_tstring_expr_text_available() {
         let mut module = lower_module("x = t\"{value}\"\n");
-        let Stmt::Assign(assign) = module.body.body[0].as_mut() else {
+        let Stmt::Assign(assign) = suite_mut(&mut module.body)[0].as_mut() else {
             panic!("expected first statement to be an assignment");
         };
         lower_string_templates_in_expr(assign.value.as_mut());
-        let rendered = ruff_ast_to_string(&module.body);
+        let rendered = ruff_ast_to_string(suite_ref(&module.body));
         assert!(
             rendered.contains("__dp_templatelib_Interpolation(value, \"value\""),
             "{rendered}"
@@ -364,11 +359,11 @@ mod tests {
     #[test]
     fn lower_surrogate_string_literals_materializes_fstring_literal_surrogates() {
         let mut module = lower_module("x = f\"\\udca7\"\n");
-        let Stmt::Assign(assign) = module.body.body[0].as_mut() else {
+        let Stmt::Assign(assign) = suite_mut(&mut module.body)[0].as_mut() else {
             panic!("expected first statement to be an assignment");
         };
         lower_string_templates_in_expr(assign.value.as_mut());
-        let rendered = ruff_ast_to_string(&module.body);
+        let rendered = ruff_ast_to_string(suite_ref(&module.body));
         assert!(
             rendered.contains("__dp_decode_literal_source_bytes"),
             "{rendered}"

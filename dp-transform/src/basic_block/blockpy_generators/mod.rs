@@ -4,6 +4,7 @@ use crate::basic_block::await_lower::{
     blockpy_blocks_contain_await_exprs, lower_coroutine_awaits_in_blockpy_blocks,
 };
 use crate::basic_block::block_py::cfg::{linearize_structured_ifs, rename_blockpy_labels};
+use crate::basic_block::block_py::param_specs::ParamSpec;
 use crate::basic_block::block_py::state::{
     collect_injected_exception_names_blockpy,
     rewrite_sync_generator_blockpy_blocks_to_closure_cells, sync_generator_cleanup_cells,
@@ -12,9 +13,9 @@ use crate::basic_block::block_py::state::{
 use crate::basic_block::block_py::{
     BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyCfgBlockBuilder, BlockPyFunctionKind,
     BlockPyIf, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment,
-    BlockPyStmtFragmentBuilder, BlockPyTerm, BlockPyTryJump,
+    BlockPyStmtFragmentBuilder, BlockPyTerm, BlockPyTryJump, ClosureInit, ClosureLayout,
+    ClosureSlot, FunctionId, FunctionName,
 };
-use crate::basic_block::lowered_ir::{ClosureInit, ClosureLayout, ClosureSlot, FunctionId};
 use crate::basic_block::ruff_to_blockpy::expr_lowering;
 use crate::basic_block::ruff_to_blockpy::{
     build_blockpy_function, build_lowered_blockpy_function,
@@ -160,7 +161,7 @@ pub(crate) fn lower_closure_backed_generator_export_bundle(
     bind_name: &str,
     display_name: &str,
     qualname: &str,
-    params: &crate::basic_block::param_specs::ParamSpec,
+    params: &ParamSpec,
     param_defaults: &[Expr],
     param_names: &[String],
     label_prefix: &str,
@@ -211,10 +212,12 @@ pub(crate) fn lower_closure_backed_generator_export_bundle(
     );
     let resume_function = build_blockpy_function(
         export_plan.resume_function_id,
-        export_plan.resume_bind_name.clone(),
-        export_plan.resume_bind_name.clone(),
-        export_plan.resume_display_name.clone(),
-        export_plan.resume_qualname.clone(),
+        FunctionName::new(
+            export_plan.resume_bind_name.clone(),
+            export_plan.resume_bind_name.clone(),
+            export_plan.resume_display_name.clone(),
+            export_plan.resume_qualname.clone(),
+        ),
         params.clone(),
         param_defaults.to_vec(),
         None,
@@ -2762,7 +2765,7 @@ mod tests {
     };
     use crate::basic_block::ast_to_ast::{context::Context, Options};
     use crate::basic_block::block_py::{BlockPyBlockBuilder, BlockPyIfTerm, BlockPyTerm};
-    use crate::basic_block::lowered_ir::{ClosureInit, ClosureLayout, ClosureSlot};
+    use crate::basic_block::block_py::{ClosureInit, ClosureLayout, ClosureSlot};
     use crate::basic_block::ruff_to_blockpy::{lower_stmts_to_blockpy_stmts, TryRegionPlan};
     use crate::py_expr;
     use ruff_python_ast::{Expr, Stmt};
@@ -2772,13 +2775,14 @@ mod tests {
         let module = ruff_python_parser::parse_module("def gen():\n    yield value\n")
             .unwrap()
             .into_syntax();
-        let Stmt::FunctionDef(func) = module.body.body[0].as_ref().clone() else {
+        let Stmt::FunctionDef(func) = crate::basic_block::ast_to_ast::body::suite_ref(&module.body)
+            [0]
+        .as_ref()
+        .clone() else {
             panic!("expected function definition");
         };
         let fragment = lower_stmts_to_blockpy_stmts::<Expr>(
-            &func
-                .body
-                .body
+            &crate::basic_block::ast_to_ast::body::suite_ref(&func.body)
                 .iter()
                 .map(|stmt| stmt.as_ref().clone())
                 .collect::<Vec<_>>(),
@@ -2790,7 +2794,10 @@ mod tests {
             block.set_term(term);
         }
         SemanticGeneratorInput {
-            fallback_runtime_input_body: func.body.body.clone(),
+            fallback_runtime_input_body: crate::basic_block::ast_to_ast::body::suite_ref(
+                &func.body,
+            )
+            .clone(),
             blocks: vec![block.finish(None)],
             entry_label: "start".to_string(),
             try_regions: Vec::new(),
@@ -2850,7 +2857,7 @@ mod tests {
         let plan = build_closure_backed_generator_export_plan(
             "_dp_bb_agen_factory",
             "_dp_bb_agen_start",
-            crate::basic_block::lowered_ir::FunctionId(7),
+            crate::basic_block::block_py::FunctionId(7),
             "agen",
             "agen",
             "outer.<locals>.agen",
@@ -2893,10 +2900,16 @@ mod tests {
         let module = ruff_python_parser::parse_module("def gen():\n    yield value\n")
             .unwrap()
             .into_syntax();
-        let Stmt::FunctionDef(func) = module.body.body[0].as_ref().clone() else {
+        let Stmt::FunctionDef(func) = crate::basic_block::ast_to_ast::body::suite_ref(&module.body)
+            [0]
+        .as_ref()
+        .clone() else {
             panic!("expected function definition");
         };
-        let Stmt::Expr(stmt) = func.body.body[0].as_ref().clone() else {
+        let Stmt::Expr(stmt) = crate::basic_block::ast_to_ast::body::suite_ref(&func.body)[0]
+            .as_ref()
+            .clone()
+        else {
             panic!("expected yield expression statement");
         };
         let fragment = lower_stmts_to_blockpy_stmts::<Expr>(&[Stmt::Expr(stmt)])
@@ -2922,13 +2935,14 @@ mod tests {
         let module = ruff_python_parser::parse_module("def gen():\n    yield value\n")
             .unwrap()
             .into_syntax();
-        let Stmt::FunctionDef(func) = module.body.body[0].as_ref().clone() else {
+        let Stmt::FunctionDef(func) = crate::basic_block::ast_to_ast::body::suite_ref(&module.body)
+            [0]
+        .as_ref()
+        .clone() else {
             panic!("expected function definition");
         };
         let fragment = lower_stmts_to_blockpy_stmts::<Expr>(
-            &func
-                .body
-                .body
+            &crate::basic_block::ast_to_ast::body::suite_ref(&func.body)
                 .iter()
                 .map(|stmt| stmt.as_ref().clone())
                 .collect::<Vec<_>>(),

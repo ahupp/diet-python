@@ -1,9 +1,10 @@
+use crate::basic_block::ast_to_ast::body::{suite_mut, suite_ref, take_suite, Suite};
 use crate::basic_block::blockpy_to_bb::{
     LoweredCoreBlockPyFunction, LoweredCoreBlockPyFunctionWithoutAwait,
     LoweredCoreBlockPyFunctionWithoutAwaitOrYield,
 };
 use crate::basic_block::ruff_to_blockpy::LoweredBlockPyFunction;
-use ruff_python_ast::{self as ast, Expr, ModModule, Stmt, StmtBody};
+use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_python_parser::parse_module;
 pub use ruff_python_parser::ParseError;
@@ -28,7 +29,7 @@ use crate::basic_block::ast_to_ast::context::Context;
 pub use crate::basic_block::ast_to_ast::scope::{analyze_module_scope, Scope};
 pub use crate::basic_block::ast_to_ast::Options;
 use crate::basic_block::bb_ir;
-use crate::basic_block::cfg_ir::CfgModule;
+use crate::basic_block::block_py::CfgModule;
 use crate::driver::rewrite_module_with_tracker;
 
 #[derive(Debug, Clone)]
@@ -135,11 +136,11 @@ impl PassTracker {
 
     pub(crate) fn ast_to_ast(
         &self,
-    ) -> Option<&(StmtBody, crate::basic_block::block_py::BlockPyModule<Expr>)> {
+    ) -> Option<&(Suite, crate::basic_block::block_py::BlockPyModule<Expr>)> {
         self.get("ast-to-ast")
     }
 
-    pub(crate) fn ast_to_ast_module(&self) -> Option<&StmtBody> {
+    pub(crate) fn ast_to_ast_module(&self) -> Option<&Suite> {
         self.ast_to_ast().map(|(module, _)| module)
     }
 
@@ -209,11 +210,11 @@ impl LoweringResult {
     }
 
     pub fn to_string(&self) -> String {
-        ruff_ast_to_string(&self.module.body)
+        ruff_ast_to_string(suite_ref(&self.module.body))
     }
 
     pub fn module_docstring(&self) -> Option<String> {
-        let stmt = self.module.body.body.first()?.as_ref();
+        let stmt = suite_ref(&self.module.body).first()?.as_ref();
         let Stmt::Expr(ast::StmtExpr { value, .. }) = stmt else {
             return None;
         };
@@ -256,10 +257,10 @@ pub fn transform_str_to_ruff_with_options(
     let ctx = Context::new(options, source);
     let mut pass_tracker = PassTracker::new();
 
-    let body = std::mem::replace(&mut module.body, crate::template::empty_body());
+    let body = take_suite(&mut module.body);
     let rewrite_start = timing_start();
     let bb_module = rewrite_module_with_tracker(&ctx, body, &mut pass_tracker);
-    module.body = pass_tracker
+    *suite_mut(&mut module.body) = pass_tracker
         .ast_to_ast_module()
         .expect("ast-to-ast pass should be tracked")
         .clone();
@@ -303,7 +304,7 @@ pub fn transform_str_to_blockpy_with_options(
     let ctx = Context::new(options, source);
     let ModModule { body, .. } = module;
 
-    let (pass_tracker, _bb_module) = crate::driver::rewrite_module(&ctx, body);
+    let (pass_tracker, _bb_module) = crate::driver::rewrite_module(&ctx, body.body);
     Ok(crate::basic_block::project_lowered_module_callable_defs(
         pass_tracker
             .blockpy()
@@ -363,18 +364,6 @@ impl ToRuffAst for &[Box<Stmt>] {
 impl ToRuffAst for &Vec<Box<Stmt>> {
     fn to_ruff_ast(&self) -> Vec<Stmt> {
         self.iter().map(|stmt| stmt.as_ref().clone()).collect()
-    }
-}
-
-impl ToRuffAst for StmtBody {
-    fn to_ruff_ast(&self) -> Vec<Stmt> {
-        self.body.iter().map(|stmt| stmt.as_ref().clone()).collect()
-    }
-}
-
-impl ToRuffAst for &StmtBody {
-    fn to_ruff_ast(&self) -> Vec<Stmt> {
-        self.body.iter().map(|stmt| stmt.as_ref().clone()).collect()
     }
 }
 

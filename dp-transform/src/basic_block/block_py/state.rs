@@ -1,5 +1,6 @@
 use super::super::ruff_to_blockpy::lower_stmts_to_blockpy_stmts;
 use super::dataflow::analyze_blockpy_use_def;
+use super::param_specs::ParamSpec;
 use super::{
     BlockPyBlock, BlockPyBranchTable, BlockPyCfgFragment, BlockPyIf, BlockPyIfTerm, BlockPyRaise,
     BlockPyStmt, BlockPyTerm, Expr,
@@ -567,9 +568,10 @@ fn lower_generated_stmts_to_blockpy(stmts: Vec<Stmt>) -> Vec<BlockPyStmt> {
 mod tests {
     use super::*;
     use crate::basic_block::block_py::pretty::blockpy_module_to_string;
-    use crate::basic_block::block_py::{BlockPyBlockMeta, BlockPyCallableDef, BlockPyFunctionKind};
-    use crate::basic_block::cfg_ir::{CfgCallableDef, CfgModule};
-    use crate::basic_block::lowered_ir::FunctionId;
+    use crate::basic_block::block_py::{
+        BlockPyBlockMeta, BlockPyCallableDef, BlockPyFunctionKind, CfgModule, FunctionId,
+        FunctionName,
+    };
     use std::collections::{HashMap, HashSet};
 
     #[test]
@@ -599,17 +601,12 @@ mod tests {
 
         let rendered = blockpy_module_to_string(&CfgModule {
             callable_defs: vec![BlockPyCallableDef {
-                cfg: CfgCallableDef {
-                    function_id: FunctionId(0),
-                    bind_name: "f".to_string(),
-                    kind: BlockPyFunctionKind::Function,
-                    params: crate::basic_block::param_specs::ParamSpec::default(),
-                    param_defaults: Vec::new(),
-                    blocks: vec![block],
-                },
-                fn_name: "f".to_string(),
-                display_name: "f".to_string(),
-                qualname: "f".to_string(),
+                function_id: FunctionId(0),
+                names: FunctionName::new("f", "f", "f", "f"),
+                kind: BlockPyFunctionKind::Function,
+                params: ParamSpec::default(),
+                param_defaults: Vec::new(),
+                blocks: vec![block],
                 doc: None,
                 closure_layout: None,
                 try_regions: Vec::new(),

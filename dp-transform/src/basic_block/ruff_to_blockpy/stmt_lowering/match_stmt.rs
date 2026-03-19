@@ -1,18 +1,19 @@
 use super::*;
+use crate::basic_block::ast_to_ast::body::{take_suite, Suite};
 use log::{log_enabled, trace, Level};
 use ruff_python_ast::{self as ast, name::Name, Expr, Pattern, Stmt};
 use ruff_python_parser::parse_expression;
 use ruff_text_size::TextRange;
 
-use crate::{py_expr, py_stmt, ruff_ast_to_string, template::into_body};
+use crate::{py_expr, py_stmt, ruff_ast_to_string};
 
 enum PatternTest {
     Test { expr: Expr, assigns: Vec<Stmt> },
     Wildcard { assigns: Vec<Stmt> },
 }
 
-fn body_to_vec(body: ast::StmtBody) -> Vec<Stmt> {
-    body.body.into_iter().map(|stmt| *stmt).collect()
+fn body_to_vec(body: Suite) -> Vec<Stmt> {
+    body.into_iter().map(|stmt| *stmt).collect()
 }
 
 fn fold_exprs(exprs: Vec<Expr>, op: ast::BoolOp) -> Expr {
@@ -485,15 +486,15 @@ pub(crate) fn rewrite_match_stmt(context: &Context, match_stmt: ast::StmtMatch) 
     );
     let subject_tmp = tmp_expr;
 
-    let mut chain = py_stmt!("pass");
+    let mut chain = vec![py_stmt!("pass")];
     for case in cases.into_iter().rev() {
         let ast::MatchCase {
             pattern,
             guard,
-            body,
+            body: mut body,
             ..
         } = case;
-        let body = body_to_vec(body);
+        let body = body_to_vec(take_suite(&mut body));
         use PatternTest::*;
         match test_for_pattern(&pattern, subject_tmp.clone()) {
             Wildcard { assigns } => {
@@ -502,7 +503,7 @@ pub(crate) fn rewrite_match_stmt(context: &Context, match_stmt: ast::StmtMatch) 
                         .into_iter()
                         .map(|name| py_stmt!("del {name:id}", name = name.as_str()))
                         .collect::<Vec<_>>();
-                    cleanup.push(chain.clone());
+                    cleanup.extend(chain.clone());
 
                     let guard = py_stmt!(
                         "
@@ -517,11 +518,11 @@ else:
 
                     let mut block = assigns;
                     block.push(guard);
-                    chain = into_body(block);
+                    chain = block;
                 } else {
                     let mut block = assigns;
                     block.extend(body);
-                    chain = into_body(block);
+                    chain = block;
                 }
             }
             Test {
@@ -533,7 +534,7 @@ else:
                         .into_iter()
                         .map(|name| py_stmt!("del {name:id}", name = name.as_str()))
                         .collect::<Vec<_>>();
-                    cleanup.push(chain.clone());
+                    cleanup.extend(chain.clone());
 
                     let guard = py_stmt!(
                         "
@@ -548,7 +549,7 @@ else:
 
                     let mut block = assigns;
                     block.push(guard);
-                    chain = py_stmt!(
+                    chain = vec![py_stmt!(
                         "
 if {test:expr}:
     {body:stmt}
@@ -557,11 +558,11 @@ else:
                         test = test_expr,
                         body = block,
                         next = chain,
-                    );
+                    )];
                 } else {
                     let mut block = assigns;
                     block.extend(body);
-                    chain = py_stmt!(
+                    chain = vec![py_stmt!(
                         "
 if {test:expr}:
     {body:stmt}
@@ -570,13 +571,13 @@ else:
                         test = test_expr,
                         body = block,
                         next = chain,
-                    );
+                    )];
                 }
             }
         }
     }
 
-    Rewrite::Walk(py_stmt!(
+    Rewrite::Walk(crate::py_stmts!(
         "
 {assign:stmt}
 {chain:stmt}",
@@ -586,8 +587,8 @@ else:
 }
 
 impl StmtLowerer for ast::StmtMatch {
-    fn simplify_ast(self, context: &Context) -> Stmt {
-        stmt_from_rewrite(rewrite_match_stmt(context, self))
+    fn simplify_ast(self, context: &Context) -> Vec<Stmt> {
+        stmts_from_rewrite(rewrite_match_stmt(context, self))
     }
 
     fn to_blockpy<E>(
@@ -625,7 +626,7 @@ match x:
         let context = Context::new(Options::for_test(), "");
         let simplified = simplify_stmt_ast_for_blockpy(&context, Stmt::Match(match_stmt));
 
-        assert!(!matches!(simplified, Stmt::Match(_)));
+        assert!(!matches!(simplified.as_slice(), [Stmt::Match(_)]));
     }
 
     #[test]

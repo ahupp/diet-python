@@ -2,15 +2,14 @@ mod codegen_normalize;
 mod codegen_trace;
 mod exception_pass;
 
-use super::bb_ir::{BbBlock, BbBlockMeta, BbFunction, BbModule, BbStmt, BbTerm};
+use super::bb_ir::{BbBlock, BbBlockMeta, BbFunction, BbModule, BbStmt};
 use super::block_py::cfg::linearize_structured_ifs;
 use super::block_py::{
     BlockPyBlock, BlockPyCallableDef, BlockPyIfTerm, BlockPyModule, BlockPyStmt, BlockPyTerm,
-    CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait,
+    CfgModule, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait,
     CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
 };
 use super::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
-use super::cfg_ir::{CfgCallableDef, CfgModule};
 use super::core_await_lower::lower_awaits_in_core_blockpy_callable_def;
 use super::ruff_to_blockpy::{build_lowered_blockpy_function_bundle, LoweredBlockPyFunction};
 use crate::basic_block::ast_to_ast::context::Context;
@@ -78,7 +77,7 @@ fn lower_core_blockpy_function_without_await(
 fn lower_core_callable_def_without_await_or_yield(
     callable_def: &BlockPyCallableDef<CoreBlockPyExprWithoutAwait>,
 ) -> BlockPyCallableDef<CoreBlockPyExprWithoutAwaitOrYield> {
-    let qualname = callable_def.qualname.as_str();
+    let qualname = callable_def.names.qualname.as_str();
     callable_def.clone().try_into().unwrap_or_else(|_| {
         panic!(
             "core BlockPy yield lowering is not explicit yet: yield-family expr reached the core no-yield boundary for {}",
@@ -121,21 +120,16 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
     lowered: &LoweredCoreBlockPyFunctionWithoutAwaitOrYield,
 ) -> BbFunction {
     BlockPyCallableDef {
-        cfg: CfgCallableDef {
-            function_id: lowered.callable_def.function_id,
-            bind_name: lowered.callable_def.bind_name.clone(),
-            kind: lowered.callable_def.kind,
-            params: lowered.callable_def.params.clone(),
-            param_defaults: lowered.callable_def.param_defaults.clone(),
-            blocks: lower_blockpy_blocks_to_bb_blocks(
-                &lowered.callable_def.blocks,
-                lowered.block_params(),
-                lowered.exception_edges(),
-            ),
-        },
-        fn_name: lowered.callable_def.fn_name.clone(),
-        display_name: lowered.callable_def.display_name.clone(),
-        qualname: lowered.callable_def.qualname.clone(),
+        function_id: lowered.callable_def.function_id,
+        names: lowered.callable_def.names.clone(),
+        kind: lowered.callable_def.kind,
+        params: lowered.callable_def.params.clone(),
+        param_defaults: lowered.callable_def.param_defaults.clone(),
+        blocks: lower_blockpy_blocks_to_bb_blocks(
+            &lowered.callable_def.blocks,
+            lowered.block_params(),
+            lowered.exception_edges(),
+        ),
         doc: lowered.callable_def.doc.clone(),
         closure_layout: lowered.callable_def.closure_layout.clone(),
         facts: lowered.callable_def.facts.clone(),
@@ -205,7 +199,7 @@ pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
             BbBlock {
                 label: block.label.clone(),
                 body: ops,
-                term: bb_term_from_blockpy_term(&normalized_term),
+                term: normalized_term,
                 meta: BbBlockMeta {
                     params,
                     exc_target_label,
@@ -431,35 +425,8 @@ fn bb_stmt_from_blockpy_stmt(stmt: BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYiel
     }
 }
 
-fn bb_term_from_blockpy_term(terminal: &BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>) -> BbTerm {
-    match terminal {
-        BlockPyTerm::Jump(target) => BbTerm::Jump(target.clone()),
-        BlockPyTerm::IfTerm(BlockPyIfTerm {
-            test,
-            then_label,
-            else_label,
-        }) => BbTerm::BrIf {
-            test: test.clone(),
-            then_label: then_label.clone(),
-            else_label: else_label.clone(),
-        },
-        BlockPyTerm::BranchTable(branch) => BbTerm::BrTable {
-            index: branch.index.clone(),
-            targets: branch.targets.clone(),
-            default_label: branch.default_label.clone(),
-        },
-        BlockPyTerm::Raise(raise_stmt) => BbTerm::Raise {
-            exc: raise_stmt.exc.clone(),
-            cause: None,
-        },
-        BlockPyTerm::TryJump(try_jump) => BbTerm::Jump(try_jump.body_label.clone()),
-        BlockPyTerm::Return(value) => BbTerm::Ret(value.clone()),
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::basic_block::bb_ir::BbTerm;
     use crate::basic_block::block_py::{
         BlockPyAssign, BlockPyBlock, BlockPyIf, BlockPyLabel, BlockPyStmt, BlockPyStmtFragment,
         BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield,
@@ -517,7 +484,7 @@ mod tests {
         let blocks = lower_blockpy_blocks_to_bb_blocks(&[block], &HashMap::new(), &HashMap::new());
 
         assert_eq!(blocks.len(), 4, "{blocks:?}");
-        assert!(matches!(blocks[0].term, BbTerm::BrIf { .. }));
+        assert!(matches!(blocks[0].term, BlockPyTerm::IfTerm(_)));
     }
 
     fn core_name_expr(name: &str) -> CoreBlockPyExprWithoutAwaitOrYield {
@@ -570,7 +537,8 @@ mod tests {
             CoreBlockPyExprWithoutAwaitOrYield::Name(name) if name.id.as_str() == "_dp_try_exc_0"
         ));
 
-        let BbTerm::Ret(Some(CoreBlockPyExprWithoutAwaitOrYield::Call(call))) = &block.term else {
+        let BlockPyTerm::Return(Some(CoreBlockPyExprWithoutAwaitOrYield::Call(call))) = &block.term
+        else {
             panic!("expected rewritten return expr");
         };
         assert!(matches!(

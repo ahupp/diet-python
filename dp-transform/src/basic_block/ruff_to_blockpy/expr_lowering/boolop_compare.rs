@@ -1,9 +1,9 @@
 use super::BlockPySetupExprLowerer;
+use crate::basic_block::ast_to_ast::expr_utils::{make_binop, make_unaryop};
 use crate::basic_block::block_py::{
     BlockPyAssign, BlockPyCfgFragment, BlockPyIf, BlockPyStmt, BlockPyStmtFragmentBuilder,
     BlockPyTerm,
 };
-use crate::basic_block::expr_utils::{make_binop, make_unaryop};
 use crate::basic_block::ruff_to_blockpy::expr_lowering::fresh_setup_name;
 use crate::basic_block::ruff_to_blockpy::LoopContext;
 use crate::py_expr;

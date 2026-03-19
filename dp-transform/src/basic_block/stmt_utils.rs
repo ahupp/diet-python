@@ -23,11 +23,5 @@ pub(crate) fn should_strip_nonlocal_for_bb(fn_name: &str) -> bool {
 }
 
 pub(crate) fn flatten_stmt(stmt: &Stmt, out: &mut Vec<Box<Stmt>>) {
-    if let Stmt::BodyStmt(body) = stmt {
-        for child in &body.body {
-            flatten_stmt(child.as_ref(), out);
-        }
-        return;
-    }
     out.push(Box::new(stmt.clone()));
 }

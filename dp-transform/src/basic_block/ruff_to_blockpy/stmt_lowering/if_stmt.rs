@@ -1,5 +1,6 @@
 use super::*;
 use crate::basic_block::ast_to_ast::ast_rewrite::Rewrite;
+use crate::basic_block::ast_to_ast::body::{body_from_suite, suite_ref, take_suite, Suite};
 use ruff_text_size::TextRange;
 
 pub(crate) fn expand_if_chain(mut if_stmt: ast::StmtIf) -> Rewrite {
@@ -10,7 +11,7 @@ pub(crate) fn expand_if_chain(mut if_stmt: ast::StmtIf) -> Rewrite {
     {
         return Rewrite::Unmodified(if_stmt.into());
     }
-    let mut else_body: Option<ast::StmtBody> = None;
+    let mut else_body: Option<Suite> = None;
 
     for clause in if_stmt.elif_else_clauses.into_iter().rev() {
         match clause.test {
@@ -26,20 +27,17 @@ pub(crate) fn expand_if_chain(mut if_stmt: ast::StmtIf) -> Rewrite {
                 if let Some(body) = else_body.take() {
                     nested_if.elif_else_clauses.push(ast::ElifElseClause {
                         test: None,
-                        body,
+                        body: body_from_suite(body),
                         range: TextRange::default(),
                         node_index: ast::AtomicNodeIndex::default(),
                     });
                 }
 
-                else_body = Some(ast::StmtBody {
-                    body: vec![Box::new(Stmt::If(nested_if))],
-                    range: TextRange::default(),
-                    node_index: ast::AtomicNodeIndex::default(),
-                });
+                else_body = Some(vec![Box::new(Stmt::If(nested_if))]);
             }
             None => {
-                else_body = Some(clause.body);
+                let mut body = clause.body;
+                else_body = Some(take_suite(&mut body));
             }
         }
     }
@@ -49,18 +47,18 @@ pub(crate) fn expand_if_chain(mut if_stmt: ast::StmtIf) -> Rewrite {
             range: TextRange::default(),
             node_index: ast::AtomicNodeIndex::default(),
             test: None,
-            body,
+            body: body_from_suite(body),
         }];
     } else {
         if_stmt.elif_else_clauses = Vec::new();
     }
 
-    Rewrite::Walk(if_stmt.into())
+    Rewrite::Walk(vec![if_stmt.into()])
 }
 
 impl StmtLowerer for ast::StmtIf {
-    fn simplify_ast(self, _context: &Context) -> Stmt {
-        stmt_from_rewrite(expand_if_chain(self))
+    fn simplify_ast(self, _context: &Context) -> Vec<Stmt> {
+        stmts_from_rewrite(expand_if_chain(self))
     }
 
     fn to_blockpy<E>(
@@ -73,11 +71,11 @@ impl StmtLowerer for ast::StmtIf {
     where
         E: From<Expr> + std::fmt::Debug,
     {
-        match simplify_stmt_head_ast_for_blockpy(context, Stmt::If(self.clone())) {
-            Stmt::If(simplified_if) => {
+        match simplify_stmt_head_ast_for_blockpy(context, Stmt::If(self.clone())).as_slice() {
+            [Stmt::If(simplified_if)] => {
                 let body = lower_nested_body_to_stmts_with_expr(
                     context,
-                    &simplified_if.body,
+                    suite_ref(&simplified_if.body),
                     loop_ctx,
                     next_label_id,
                 )?;
@@ -98,29 +96,19 @@ impl StmtLowerer for ast::StmtIf {
                 out.push_stmt(BlockPyStmt::If(BlockPyIf { test, body, orelse }));
                 Ok(())
             }
-            Stmt::BodyStmt(body) => {
-                for stmt in &body.body {
-                    lower_nested_stmt_into_with_expr(
-                        context,
-                        stmt.as_ref(),
-                        out,
-                        loop_ctx,
-                        next_label_id,
-                    )?;
+            expanded => {
+                for stmt in expanded {
+                    lower_nested_stmt_into_with_expr(context, stmt, out, loop_ctx, next_label_id)?;
                 }
                 Ok(())
             }
-            other => panic!(
-                "if simplification should remain an if or expand to a body stmt, got:\n{}",
-                ruff_ast_to_string(&other).trim_end()
-            ),
         }
     }
 }
 
 fn lower_nested_body_to_stmts_with_expr<E>(
     context: &Context,
-    body: &StmtBody,
+    body: &Suite,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
 ) -> Result<crate::basic_block::block_py::BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>, String>
@@ -131,7 +119,7 @@ where
         BlockPyStmt<E>,
         BlockPyTerm<E>,
     >::new();
-    for stmt in &body.body {
+    for stmt in body {
         lower_nested_stmt_into_with_expr(
             context,
             stmt.as_ref(),
@@ -158,9 +146,12 @@ where
             BlockPyStmt<E>,
             BlockPyTerm<E>,
         >::from_stmts(Vec::new())),
-        [clause] if clause.test.is_none() => {
-            lower_nested_body_to_stmts_with_expr(context, &clause.body, loop_ctx, next_label_id)
-        }
+        [clause] if clause.test.is_none() => lower_nested_body_to_stmts_with_expr(
+            context,
+            suite_ref(&clause.body),
+            loop_ctx,
+            next_label_id,
+        ),
         _ => Err(format!(
             "`elif` chain reached Ruff AST -> BlockPy conversion\nstmt:\n{}",
             ruff_ast_to_string(stmt).trim_end()
@@ -182,15 +173,15 @@ mod tests {
         };
 
         let context = Context::new(Options::for_test(), "");
-        let Stmt::If(simplified_if) = simplify_stmt_ast_for_blockpy(&context, Stmt::If(if_stmt))
-        else {
+        let simplified = simplify_stmt_ast_for_blockpy(&context, Stmt::If(if_stmt));
+        let [Stmt::If(simplified_if)] = simplified.as_slice() else {
             panic!("if simplification should remain an if stmt");
         };
 
         assert_eq!(simplified_if.elif_else_clauses.len(), 1);
         let clause = &simplified_if.elif_else_clauses[0];
         assert!(clause.test.is_none());
-        assert!(matches!(clause.body.body[0].as_ref(), Stmt::If(_)));
+        assert!(matches!(suite_ref(&clause.body)[0].as_ref(), Stmt::If(_)));
     }
 
     #[test]

@@ -1,13 +1,13 @@
 use std::mem::take;
 use std::sync::Arc;
 
-use ruff_python_ast::{Expr, ExprContext, Stmt, StmtBody};
+use ruff_python_ast::{Expr, ExprContext, Stmt};
 
+use crate::basic_block::ast_to_ast::body::{suite_mut, Suite};
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::ast_to_ast::rewrite_class_def::{class_def_to_create_class_fn, method};
 use crate::basic_block::ast_to_ast::rewrite_stmt;
 use crate::basic_block::ast_to_ast::scope::{cell_name, BindingKind, BindingUse, Scope, ScopeKind};
-use crate::template::into_body;
 use crate::transformer::{walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
 
@@ -42,7 +42,7 @@ pub(crate) fn class_body_store_global(name: &str, ctx: ExprContext) -> Expr {
     expr
 }
 
-pub fn rewrite_class_body_scopes(context: &Context, scope: Arc<Scope>, body: &mut StmtBody) {
+pub fn rewrite_class_body_scopes(context: &Context, scope: Arc<Scope>, body: &mut Suite) {
     ClassBodyScopeRewriter::new(context, scope).visit_body(body);
 }
 
@@ -106,73 +106,88 @@ impl<'a> ClassBodyScopeRewriter<'a> {
 }
 
 impl<'a> Transformer for ClassBodyScopeRewriter<'a> {
+    fn visit_body(&mut self, body: &mut Suite) {
+        let mut rewritten = Vec::with_capacity(body.len());
+        for stmt in std::mem::take(body) {
+            rewritten.extend(self.rewrite_stmt_list(*stmt).into_iter().map(Box::new));
+        }
+        *body = rewritten;
+    }
+
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
-            Stmt::ClassDef(class_def) => {
-                let decorator_list = take(&mut class_def.decorator_list);
-                let needs_class_cell = method::rewrite_explicit_super_classcell(class_def);
-
-                let class_scope = self
-                    .scope
-                    .child_scope_for_class(class_def)
-                    .expect("no child scope for class");
-
-                let mut class_rewriter =
-                    ClassBodyScopeRewriter::new(self.context, class_scope.clone());
-                class_rewriter.visit_body(&mut class_def.body);
-                let mut hoisted = class_rewriter.take_hoisted();
-
-                let (class_ns_def, define_class_fn) = class_def_to_create_class_fn(
-                    self.context,
-                    class_def,
-                    class_scope.qualnamer.qualname.clone(),
-                    needs_class_cell,
-                );
-
-                hoisted.push(class_ns_def.clone().into());
-
-                let mut children = Vec::new();
-                // Keep nested class namespace helpers in lexical scope with the
-                // matching `_dp_define_class_*` call site. Hoisting these out
-                // of class bodies makes helper resolution depend on module
-                // globals, which breaks once top-level code is wrapped in
-                // `_dp_module_init`.
-                children.append(&mut hoisted);
-                children.push(define_class_fn.clone().into());
-
-                let class_ns_outer = if matches!(self.scope.kind(), ScopeKind::Class) {
-                    py_expr!("_dp_class_ns")
-                } else {
-                    py_expr!("globals()")
-                };
-
-                let decorated_class = rewrite_stmt::decorator::rewrite(
-                    decorator_list,
-                    py_expr!(
-                        r"{define_class_fn:id}({class_ns_fn:id}, {class_ns_outer:expr})",
-                        define_class_fn = define_class_fn.name.id.as_str(),
-                        class_ns_fn = class_ns_def.name.id.as_str(),
-                        class_ns_outer = class_ns_outer,
-                    ),
-                );
-
-                children.push(class_binding_stmt(
-                    self.scope.as_ref(),
-                    class_def.name.id.as_str(),
-                    decorated_class,
-                ));
-
-                *stmt = into_body(children);
-            }
             Stmt::FunctionDef(func_def) => {
                 let func_scope = self
                     .scope
                     .child_scope_for_function(func_def)
                     .expect("no child scope for function");
                 ClassBodyScopeRewriter::new(self.context, func_scope)
-                    .visit_body(&mut func_def.body);
+                    .visit_body(suite_mut(&mut func_def.body));
             }
             _ => walk_stmt(self, stmt),
         }
+    }
+}
+
+impl<'a> ClassBodyScopeRewriter<'a> {
+    fn rewrite_stmt_list(&mut self, stmt: Stmt) -> Vec<Stmt> {
+        let Stmt::ClassDef(mut class_def) = stmt else {
+            let mut stmt = stmt;
+            self.visit_stmt(&mut stmt);
+            return vec![stmt];
+        };
+
+        let decorator_list = take(&mut class_def.decorator_list);
+        let needs_class_cell = method::rewrite_explicit_super_classcell(&mut class_def);
+
+        let class_scope = self
+            .scope
+            .child_scope_for_class(&class_def)
+            .expect("no child scope for class");
+
+        let mut class_rewriter = ClassBodyScopeRewriter::new(self.context, class_scope.clone());
+        class_rewriter.visit_body(suite_mut(&mut class_def.body));
+        let mut hoisted = class_rewriter.take_hoisted();
+
+        let (class_ns_def, define_class_fn) = class_def_to_create_class_fn(
+            self.context,
+            &mut class_def,
+            class_scope.qualnamer.qualname.clone(),
+            needs_class_cell,
+        );
+
+        hoisted.push(class_ns_def.clone().into());
+
+        let mut children = Vec::new();
+        // Keep nested class namespace helpers in lexical scope with the
+        // matching `_dp_define_class_*` call site. Hoisting these out
+        // of class bodies makes helper resolution depend on module
+        // globals, which breaks once top-level code is wrapped in
+        // `_dp_module_init`.
+        children.append(&mut hoisted);
+        children.push(define_class_fn.clone().into());
+
+        let class_ns_outer = if matches!(self.scope.kind(), ScopeKind::Class) {
+            py_expr!("_dp_class_ns")
+        } else {
+            py_expr!("globals()")
+        };
+
+        let decorated_class = rewrite_stmt::decorator::rewrite(
+            decorator_list,
+            py_expr!(
+                r"{define_class_fn:id}({class_ns_fn:id}, {class_ns_outer:expr})",
+                define_class_fn = define_class_fn.name.id.as_str(),
+                class_ns_fn = class_ns_def.name.id.as_str(),
+                class_ns_outer = class_ns_outer,
+            ),
+        );
+
+        children.push(class_binding_stmt(
+            self.scope.as_ref(),
+            class_def.name.id.as_str(),
+            decorated_class,
+        ));
+        children
     }
 }

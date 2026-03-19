@@ -1,8 +1,8 @@
 use super::*;
 
 impl StmtLowerer for ast::StmtAugAssign {
-    fn simplify_ast(self, context: &Context) -> Stmt {
-        stmt_from_rewrite(super::assign_stmt::rewrite_augassign_stmt(context, self))
+    fn simplify_ast(self, context: &Context) -> Vec<Stmt> {
+        stmts_from_rewrite(super::assign_stmt::rewrite_augassign_stmt(context, self))
     }
 
     fn to_blockpy<E>(
@@ -35,7 +35,7 @@ mod tests {
         let context = Context::new(Options::for_test(), "");
         let simplified = simplify_stmt_ast_for_blockpy(&context, Stmt::AugAssign(aug_stmt));
 
-        assert!(!matches!(simplified, Stmt::AugAssign(_)));
+        assert!(!matches!(simplified.as_slice(), [Stmt::AugAssign(_)]));
     }
 
     #[test]

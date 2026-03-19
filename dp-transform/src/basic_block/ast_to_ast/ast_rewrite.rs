@@ -1,24 +1,24 @@
 use std::{backtrace::Backtrace, collections::HashSet, mem::take};
 
 use log::{log_enabled, trace, Level};
-use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
+use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::{Ranged, TextRange};
 
+use crate::basic_block::ast_to_ast::body::{suite_mut, Suite};
 use crate::basic_block::ast_to_ast::scope::ScopeKind;
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{
     basic_block::ast_to_ast::context::{Context, ScopeFrame},
     ruff_ast_to_string,
-    template::{empty_body, into_body},
 };
 
 pub enum Rewrite {
     Unmodified(Stmt),
-    Walk(Stmt),
+    Walk(Vec<Stmt>),
 }
 
 pub struct LoweredExpr {
-    pub stmt: Stmt,
+    pub stmts: Vec<Stmt>,
     pub expr: Expr,
     pub modified: bool,
 }
@@ -26,79 +26,32 @@ pub struct LoweredExpr {
 #[derive(Default)]
 pub struct BodyBuilder {
     pub modified: bool,
-    pub body: Vec<Box<Stmt>>,
+    pub body: Vec<Stmt>,
 }
 
 impl BodyBuilder {
-    pub fn into_stmt(self) -> Stmt {
-        Stmt::BodyStmt(ast::StmtBody {
-            body: self.body,
-            range: TextRange::default(),
-            node_index: ast::AtomicNodeIndex::default(),
-        })
+    pub fn into_stmts(self) -> Vec<Stmt> {
+        self.body
     }
 
     pub fn push(&mut self, expr: LoweredExpr) -> Expr {
-        extend_body(&mut self.body, Box::new(expr.stmt));
+        self.body.extend(expr.stmts);
         self.modified |= expr.modified;
         expr.expr
     }
 }
 
-struct FlattenBodyTransformer;
-
-fn extend_body(new_body: &mut Vec<Box<Stmt>>, mut stmt: Box<Stmt>) {
-    match stmt.as_mut() {
-        Stmt::BodyStmt(ast::StmtBody { body, .. }) => {
-            for stmt in take(body).into_iter() {
-                extend_body(new_body, stmt);
-            }
-        }
-        _ => {
-            new_body.push(stmt);
-            return;
-        }
-    }
-}
-
-impl Transformer for FlattenBodyTransformer {
-    fn visit_stmt(&mut self, stmt: &mut Stmt) {
-        match stmt {
-            Stmt::BodyStmt(ast::StmtBody {
-                body,
-                range,
-                node_index,
-            }) => {
-                let mut new_body = Vec::new();
-                for stmt in take(body).into_iter() {
-                    extend_body(&mut new_body, stmt);
-                }
-                *stmt = Stmt::BodyStmt(ast::StmtBody {
-                    body: new_body,
-                    range: *range,
-                    node_index: node_index.clone(),
-                });
-            }
-            _ => {}
-        }
-    }
-}
-
-pub fn push_stmt(stmt: &mut Stmt, new_stmt: Stmt) -> bool {
-    let this_stmt = std::mem::replace(stmt, empty_body().into());
-    *stmt = into_body(vec![this_stmt, new_stmt]).into();
-    FlattenBodyTransformer.visit_stmt(stmt);
-    match &stmt {
-        Stmt::BodyStmt(ast::StmtBody { body, .. }) => !body.is_empty(),
-        _ => false,
-    }
+pub fn push_stmts(stmts: &mut Vec<Stmt>, new_stmts: Vec<Stmt>) -> bool {
+    let modified = !new_stmts.is_empty();
+    stmts.extend(new_stmts);
+    modified
 }
 
 impl LoweredExpr {
-    pub fn modified(expr: Expr, stmt: impl Into<Stmt>) -> Self {
+    pub fn modified(expr: Expr, stmts: Vec<Stmt>) -> Self {
         trace!("LoweredExpr::modified {}", Backtrace::capture());
         Self {
-            stmt: stmt.into(),
+            stmts,
             expr,
             modified: true,
         }
@@ -106,7 +59,7 @@ impl LoweredExpr {
 
     pub fn unmodified(expr: Expr) -> Self {
         Self {
-            stmt: empty_body().into(),
+            stmts: Vec::new(),
             expr,
             modified: false,
         }
@@ -117,7 +70,7 @@ pub fn rewrite_once_with_pass<'a>(
     context: &'a Context,
     stmt_pass: Option<&'a dyn StmtRewritePass>,
     expr_pass: Option<&'a dyn ExprRewritePass>,
-    body: &mut StmtBody,
+    body: &mut Suite,
 ) -> bool {
     let mut rloop = RewriteLoop {
         context,
@@ -135,7 +88,7 @@ pub fn rewrite_with_pass<'a>(
     context: &'a Context,
     stmt_pass: Option<&'a dyn StmtRewritePass>,
     expr_pass: Option<&'a dyn ExprRewritePass>,
-    body: &mut StmtBody,
+    body: &mut Suite,
 ) {
     let pass_name = "rewrite_with_pass";
     let mut iteration = 0usize;
@@ -205,11 +158,11 @@ impl<'a> RewriteLoop<'a> {
                     self.visit_annotation(returns);
                 }
 
-                let (globals, nonlocals) = collect_declared_bindings(&func_def.body);
+                let (globals, nonlocals) = collect_declared_bindings(suite_mut(&mut func_def.body));
                 let mut frame = ScopeFrame::new(ScopeKind::Function, globals, nonlocals);
                 frame.in_async_function = func_def.is_async;
                 self.context.push_scope(frame);
-                self.visit_body(&mut func_def.body);
+                self.visit_body(suite_mut(&mut func_def.body));
                 self.context.pop_scope();
             }
             Stmt::ClassDef(class_def) => {
@@ -228,7 +181,7 @@ impl<'a> RewriteLoop<'a> {
                     HashSet::new(),
                     HashSet::new(),
                 ));
-                self.visit_body(&mut class_def.body);
+                self.visit_body(suite_mut(&mut class_def.body));
                 self.context.pop_scope();
             }
             Stmt::While(while_stmt) => {
@@ -236,8 +189,8 @@ impl<'a> RewriteLoop<'a> {
                 // Keep the raw test expression intact until that phase so any
                 // expression lowering needed for the test is emitted in the loop's
                 // dedicated test block and therefore re-evaluates on each iteration.
-                self.visit_body(&mut while_stmt.body);
-                self.visit_body(&mut while_stmt.orelse);
+                self.visit_body(suite_mut(&mut while_stmt.body));
+                self.visit_body(suite_mut(&mut while_stmt.orelse));
             }
             _ => walk_stmt(self, &mut stmt),
         }
@@ -265,16 +218,18 @@ impl<'a> RewriteLoop<'a> {
                     Rewrite::Unmodified(stmt) => {
                         self.flush_buffered(stmt, &mut output);
                     }
-                    Rewrite::Walk(stmt) => {
+                    Rewrite::Walk(stmts) => {
                         if log_enabled!(Level::Trace) {
                             trace!(
                                 "rewrite before: \n{} after: \n{}",
                                 before.unwrap_or_default(),
-                                crate::ruff_ast_to_string(&stmt).trim_end()
+                                crate::ruff_ast_to_string(stmts.as_slice()).trim_end()
                             );
                         }
                         self.modified = true;
-                        self.flush_buffered(stmt, &mut output);
+                        for stmt in stmts {
+                            self.flush_buffered(stmt, &mut output);
+                        }
                     }
                 }
             } else {
@@ -287,13 +242,10 @@ impl<'a> RewriteLoop<'a> {
 }
 
 impl<'a> Transformer for RewriteLoop<'a> {
-    fn visit_body(&mut self, body: &mut StmtBody) {
+    fn visit_body(&mut self, body: &mut Suite) {
         let saved_buf = take(&mut self.buf);
-        let stmts = take(&mut body.body)
-            .into_iter()
-            .map(|stmt| *stmt)
-            .collect::<Vec<_>>();
-        body.body = self
+        let stmts = take(body).into_iter().map(|stmt| *stmt).collect::<Vec<_>>();
+        *body = self
             .process_statements(stmts)
             .into_iter()
             .map(Box::new)
@@ -321,7 +273,7 @@ impl<'a> Transformer for RewriteLoop<'a> {
             lowered = expr_pass.lower_expr(self.context, current);
 
             let LoweredExpr {
-                stmt,
+                stmts,
                 expr,
                 modified,
             } = lowered;
@@ -332,10 +284,10 @@ impl<'a> Transformer for RewriteLoop<'a> {
                     modified,
                     log_input.unwrap_or_default(),
                     ruff_ast_to_string(&expr).trim_end(),
-                    ruff_ast_to_string(&stmt).trim_end(),
+                    ruff_ast_to_string(stmts.as_slice()).trim_end(),
                 );
             }
-            self.buf.push(stmt);
+            self.buf.extend(stmts);
 
             current = expr;
 
@@ -357,11 +309,17 @@ impl<'a> Transformer for RewriteLoop<'a> {
 
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         let rewritten = self.process_statements(vec![stmt.clone()]);
-        *stmt = into_body(rewritten);
+        let [rewritten] = <[Stmt; 1]>::try_from(rewritten).unwrap_or_else(|rewritten| {
+            panic!(
+                "RewriteLoop::visit_stmt cannot splice {} statements; multi-stmt rewrites must flow through visit_body",
+                rewritten.len()
+            )
+        });
+        *stmt = rewritten;
     }
 }
 
-fn collect_declared_bindings(body: &StmtBody) -> (HashSet<String>, HashSet<String>) {
+fn collect_declared_bindings(body: &Suite) -> (HashSet<String>, HashSet<String>) {
     #[derive(Default)]
     struct Collector {
         globals: HashSet<String>,
@@ -439,9 +397,10 @@ fn apply_expr_range(expr: &mut Expr, range: TextRange) {
 #[cfg(test)]
 mod tests {
     use super::{rewrite_with_pass, ExprRewritePass, LoweredExpr};
+    use crate::basic_block::ast_to_ast::body::take_suite;
     use crate::basic_block::ast_to_ast::{context::Context, Options};
     use crate::py_expr;
-    use ruff_python_ast::{Expr, StmtBody};
+    use ruff_python_ast::Expr;
     use ruff_python_parser::parse_module;
 
     struct RenameXExprPass;
@@ -450,7 +409,7 @@ mod tests {
         fn lower_expr(&self, _context: &Context, expr: Expr) -> LoweredExpr {
             match expr {
                 Expr::Name(name) if name.id.as_str() == "x" => {
-                    LoweredExpr::modified(py_expr!("renamed"), crate::template::empty_body())
+                    LoweredExpr::modified(py_expr!("renamed"), Vec::new())
                 }
                 other => LoweredExpr::unmodified(other),
             }
@@ -463,7 +422,7 @@ mod tests {
 def f():
     return x
 "#;
-        let mut module: StmtBody = parse_module(source).unwrap().into_syntax().body;
+        let mut module = take_suite(&mut parse_module(source).unwrap().into_syntax().body);
         let context = Context::new(Options::for_test(), source);
 
         rewrite_with_pass(&context, None, Some(&RenameXExprPass), &mut module);

@@ -24,8 +24,8 @@ pub(crate) fn assert_transform_eq_ex(actual: &str, expected: &str) {
     expected_normalized.push('\n');
     let options = Options::for_test();
     let module = transform_str_to_ruff_with_options(actual, options).unwrap();
-    let actual_str = ruff_ast_to_string(&module.module.body);
-    let actual_body = &module.module.body.body;
+    let actual_str = ruff_ast_to_string(suite_ref(&module.module.body));
+    let actual_body = suite_ref(&module.module.body);
     let actual_stmt_internal: Vec<_> = actual_body
         .iter()
         .map(|stmt| ComparableStmt::from(stmt.as_ref()))
@@ -188,3 +188,4 @@ macro_rules! transform_fixture_test {
         }
     };
 }
+use crate::basic_block::ast_to_ast::body::suite_ref;

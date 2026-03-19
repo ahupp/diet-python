@@ -4,8 +4,6 @@ use ruff_python_ast::{self as ast};
 use ruff_python_ast::{Expr, ExprContext, Stmt};
 
 use crate::basic_block::ast_to_ast::ast_rewrite::LoweredExpr;
-use crate::template::into_body;
-
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::ast_to_ast::scope::{is_internal_symbol, ScopeKind};
 use crate::transformer::{walk_expr, Transformer};
@@ -150,8 +148,7 @@ struct LoweredGenerator {
 
 fn wrap_ifs(mut body: Vec<Stmt>, ifs: Vec<LoweredExpr>) -> Vec<Stmt> {
     for lowered in ifs.into_iter().rev() {
-        let mut block = Vec::new();
-        block.push(lowered.stmt);
+        let mut block = lowered.stmts;
         block.push(py_stmt!(
             r#"
 if {test:expr}:
@@ -335,8 +332,8 @@ fn lower_function(
                 rename_loads(value.expect("dict comprehension expects value"), &renames);
             let lowered_key = super::lower_expr_nested(context, key_expr);
             let lowered_value = super::lower_expr_nested(context, value_expr);
-            let mut body = vec![lowered_key.stmt];
-            body.push(lowered_value.stmt);
+            let mut body = lowered_key.stmts;
+            body.extend(lowered_value.stmts);
             body.push(py_stmt!(
                 "__dp_setitem({result:id}, {key:expr}, {value:expr})",
                 result = result_name.as_str(),
@@ -348,7 +345,7 @@ fn lower_function(
         InlineCompKind::List => {
             let elt_expr = rename_loads(elt_or_key, &renames);
             let lowered_elt = super::lower_expr_nested(context, elt_expr);
-            let mut body = vec![lowered_elt.stmt];
+            let mut body = lowered_elt.stmts;
             body.push(py_stmt!(
                 "{result:id}.append({value:expr})",
                 result = result_name.as_str(),
@@ -359,7 +356,7 @@ fn lower_function(
         InlineCompKind::Set => {
             let elt_expr = rename_loads(elt_or_key, &renames);
             let lowered_elt = super::lower_expr_nested(context, elt_expr);
-            let mut body = vec![lowered_elt.stmt];
+            let mut body = lowered_elt.stmts;
             body.push(py_stmt!(
                 "{result:id}.add({value:expr})",
                 result = result_name.as_str(),
@@ -429,7 +426,8 @@ for {target:expr} in {iter:expr}:
         if is_outermost {
             body = vec![for_stmt];
         } else {
-            body = vec![gen.iter.stmt, for_stmt];
+            body = gen.iter.stmts;
+            body.push(for_stmt);
         }
     }
 
@@ -452,11 +450,7 @@ for {target:expr} in {iter:expr}:
     func_body.extend(body);
     func_body.push(py_stmt!("return {result:expr}", result = result_expr));
 
-    func_def.body = ast::StmtBody {
-        body: func_body.into_iter().map(Box::new).collect(),
-        range: TextRange::default(),
-        node_index: ast::AtomicNodeIndex::default(),
-    };
+    func_def.body = body_from_suite(func_body.into_iter().map(Box::new).collect());
 
     let mut prefix: Vec<Stmt> = Vec::new();
     for name in dummy_targets {
@@ -468,7 +462,7 @@ if False:
             name = name.as_str()
         ));
     }
-    super::append_stmt(&mut prefix, iter_lowered.stmt);
+    prefix.extend(iter_lowered.stmts);
     prefix.push(func_def.into());
     let call_expr = py_expr!(
         "{func:id}({iter:expr})",
@@ -481,7 +475,7 @@ if False:
         call_expr
     };
 
-    LoweredExpr::modified(expr, into_body(prefix))
+    LoweredExpr::modified(expr, prefix)
 }
 
 fn collect_named_expr_targets(
@@ -593,3 +587,4 @@ fn expr_requires_async(expr: &Expr) -> bool {
     finder.visit_expr(&mut cloned);
     finder.found
 }
+use crate::basic_block::ast_to_ast::body::body_from_suite;

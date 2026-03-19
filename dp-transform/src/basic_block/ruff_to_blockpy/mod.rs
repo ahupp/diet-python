@@ -13,21 +13,19 @@ use super::block_py::state::{
 use super::block_py::{
     assert_blockpy_block_normalized, BlockPyBlock, BlockPyBlockMeta, BlockPyCallableDef,
     BlockPyCallableFacts, BlockPyFunctionKind, BlockPyLabel, BlockPyTerm, BlockPyTryJump,
-    ENTRY_BLOCK_LABEL,
+    ClosureLayout, FunctionId, FunctionName, ENTRY_BLOCK_LABEL,
 };
-use super::cfg_ir::CfgCallableDef;
 use super::function_lowering::rewrite_deleted_name_loads;
-use super::lowered_ir::{ClosureLayout, FunctionId};
 use super::stmt_utils::flatten_stmt_boxes;
 use crate::basic_block::ast_to_ast::ast_rewrite::Rewrite;
 use crate::basic_block::ast_to_ast::context::Context;
-use crate::basic_block::expr_utils::make_tuple;
-use crate::basic_block::param_specs::ParamSpec;
+use crate::basic_block::ast_to_ast::expr_utils::make_tuple;
+use crate::basic_block::block_py::param_specs::ParamSpec;
 use crate::namegen::fresh_name;
 use crate::ruff_ast_to_string;
-use crate::template::{empty_body, into_body, is_simple};
+use crate::template::is_simple;
 use crate::{py_expr, py_stmt};
-use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
+use ruff_python_ast::{self as ast, Expr, Stmt};
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
@@ -109,7 +107,7 @@ impl<E, B> LoweredBlockPyFunction<BlockPyCallableDef<E, B>> {
 #[derive(Clone)]
 pub(crate) enum StmtSequenceHeadPlan {
     Linear(Stmt),
-    Expanded(Stmt),
+    Expanded(Vec<Stmt>),
     FunctionDef(ast::StmtFunctionDef),
     Raise(ast::StmtRaise),
     Delete(ast::StmtDelete),
@@ -137,10 +135,7 @@ pub(crate) enum StmtSequenceDriveResult {
 
 pub(crate) fn build_blockpy_function(
     function_id: FunctionId,
-    fn_name: String,
-    bind_name: String,
-    display_name: String,
-    qualname: String,
+    names: FunctionName,
     params: ParamSpec,
     param_defaults: Vec<Expr>,
     doc: Option<String>,
@@ -156,17 +151,12 @@ pub(crate) fn build_blockpy_function(
         assert_blockpy_block_normalized(block);
     }
     BlockPyCallableDef {
-        cfg: CfgCallableDef {
-            function_id,
-            bind_name,
-            kind,
-            params,
-            param_defaults,
-            blocks,
-        },
-        fn_name,
-        display_name,
-        qualname,
+        function_id,
+        names,
+        kind,
+        params,
+        param_defaults,
+        blocks,
         doc,
         closure_layout,
         facts,
@@ -428,13 +418,10 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
     let semantic_closure_layout = blockpy_function.closure_layout.clone();
 
     let function_id = blockpy_function.function_id;
-    let bind_name = blockpy_function.bind_name.clone();
-    let fn_name = blockpy_function.fn_name.clone();
-    let qualname = blockpy_function.qualname.clone();
+    let names = blockpy_function.names.clone();
     let doc = blockpy_function.doc.clone();
     let params = blockpy_function.params.clone();
     let param_defaults = blockpy_function.param_defaults.clone();
-    let display_name = blockpy_function.display_name.clone();
     let (normalized_main_blocks, normalized_main_block_params, normalized_main_exception_edges) =
         normalize_exported_entry_block(
             entry_label,
@@ -444,10 +431,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         );
     let main_function = build_blockpy_function(
         function_id,
-        fn_name,
-        bind_name,
-        display_name,
-        qualname,
+        names,
         params,
         param_defaults,
         doc,
@@ -467,10 +451,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
 
 pub(crate) fn build_finalized_blockpy_callable_def(
     function_id: FunctionId,
-    fn_name: String,
-    bind_name: String,
-    display_name: String,
-    qualname: String,
+    names: FunctionName,
     params: ParamSpec,
     param_defaults: Vec<Expr>,
     doc: Option<String>,
@@ -483,10 +464,7 @@ pub(crate) fn build_finalized_blockpy_callable_def(
 ) -> BlockPyCallableDef<Expr> {
     let callable_def = build_blockpy_function(
         function_id,
-        fn_name,
-        bind_name,
-        display_name,
-        qualname,
+        names,
         params,
         param_defaults,
         doc,
@@ -504,10 +482,7 @@ pub(crate) fn build_finalized_blockpy_callable_def(
 pub(crate) fn build_blockpy_callable_def_from_runtime_input<FTemp>(
     context: &Context,
     function_id: FunctionId,
-    fn_name: String,
-    bind_name: String,
-    display_name: String,
-    qualname: String,
+    names: FunctionName,
     params: ParamSpec,
     param_defaults: Vec<Expr>,
     runtime_input_body: &[Box<Stmt>],
@@ -525,7 +500,7 @@ where
     let mut try_regions = Vec::new();
     let entry_label = lower_stmt_sequence_with_state(
         context,
-        fn_name.as_str(),
+        names.fn_name.as_str(),
         runtime_input_body,
         end_label.clone(),
         None,
@@ -539,10 +514,7 @@ where
     );
     build_finalized_blockpy_callable_def(
         function_id,
-        fn_name,
-        bind_name,
-        display_name,
-        qualname,
+        names,
         params,
         param_defaults,
         doc,
@@ -752,7 +724,7 @@ mod tests {
         blockpy
             .callable_defs
             .iter()
-            .find(|func| func.bind_name == bind_name)
+            .find(|func| func.names.bind_name == bind_name)
             .unwrap_or_else(|| panic!("missing BlockPy function {bind_name}; got {blockpy:?}"))
     }
 
@@ -841,7 +813,7 @@ def gen():
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
-        let stmt = func.body.body[0].as_ref();
+        let stmt = crate::basic_block::ast_to_ast::body::stmt_ref(&func.body, 0);
 
         assert!(matches!(
             plan_stmt_sequence_head(&test_context(), stmt),
@@ -863,7 +835,7 @@ def gen():
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
-        let stmt = func.body.body[0].as_ref();
+        let stmt = crate::basic_block::ast_to_ast::body::stmt_ref(&func.body, 0);
 
         assert!(matches!(
             plan_stmt_sequence_head(&test_context(), stmt),
@@ -885,7 +857,7 @@ def f():
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
-        let stmt = func.body.body[0].as_ref();
+        let stmt = crate::basic_block::ast_to_ast::body::stmt_ref(&func.body, 0);
 
         assert!(matches!(
             plan_stmt_sequence_head(&test_context(), stmt),
@@ -907,7 +879,7 @@ def gen(n):
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
-        let stmt = func.body.body[0].as_ref();
+        let stmt = crate::basic_block::ast_to_ast::body::stmt_ref(&func.body, 0);
 
         assert!(matches!(
             plan_stmt_sequence_head(&test_context(), stmt),
@@ -929,7 +901,7 @@ def f():
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
-        let stmt = func.body.body[0].as_ref();
+        let stmt = crate::basic_block::ast_to_ast::body::stmt_ref(&func.body, 0);
 
         assert!(matches!(
             plan_stmt_sequence_head(&test_context(), stmt),
@@ -953,18 +925,14 @@ def f():
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
-        let stmt = func.body.body[0].as_ref();
+        let stmt = crate::basic_block::ast_to_ast::body::stmt_ref(&func.body, 0);
 
-        let StmtSequenceHeadPlan::Expanded(Stmt::BodyStmt(body)) =
-            plan_stmt_sequence_head(&test_context(), stmt)
+        let StmtSequenceHeadPlan::Expanded(body) = plan_stmt_sequence_head(&test_context(), stmt)
         else {
             panic!("expected expanded match body");
         };
-        assert!(matches!(body.body[0].as_ref(), Stmt::Assign(_)));
-        assert!(body
-            .body
-            .iter()
-            .any(|stmt| matches!(stmt.as_ref(), Stmt::If(_))));
+        assert!(matches!(body[0], Stmt::Assign(_)));
+        assert!(body.iter().any(|stmt| matches!(stmt, Stmt::If(_))));
     }
 
     #[test]
@@ -985,26 +953,24 @@ def f():
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
-        let stmt = func.body.body[0].as_ref();
+        let stmt = crate::basic_block::ast_to_ast::body::stmt_ref(&func.body, 0);
 
-        let StmtSequenceHeadPlan::Expanded(Stmt::BodyStmt(body)) =
-            plan_stmt_sequence_head(&test_context(), stmt)
+        let StmtSequenceHeadPlan::Expanded(body) = plan_stmt_sequence_head(&test_context(), stmt)
         else {
             panic!("expected expanded match body");
         };
         let match_if = body
-            .body
             .iter()
-            .find(|stmt| matches!(stmt.as_ref(), Stmt::If(_)))
+            .find(|stmt| matches!(stmt, Stmt::If(_)))
             .expect("expected expanded match body to contain an if");
 
         assert!(
             matches!(
-                plan_stmt_sequence_head(&test_context(), match_if.as_ref()),
+                plan_stmt_sequence_head(&test_context(), match_if),
                 StmtSequenceHeadPlan::If(_)
             ),
             "{}",
-            crate::ruff_ast_to_string(match_if.as_ref()).trim_end()
+            crate::ruff_ast_to_string(match_if).trim_end()
         );
     }
 
@@ -1046,7 +1012,9 @@ def f(xs):
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
-        let ast::Stmt::For(for_stmt) = func.body.body[0].as_ref() else {
+        let ast::Stmt::For(for_stmt) =
+            crate::basic_block::ast_to_ast::body::stmt_ref(&func.body, 0)
+        else {
             panic!("expected for stmt");
         };
 
@@ -1078,28 +1046,28 @@ def f(xs):
 
     #[test]
     fn builds_closure_backed_generator_factory_block() {
-        let layout = crate::basic_block::lowered_ir::ClosureLayout {
-            freevars: vec![crate::basic_block::lowered_ir::ClosureSlot {
+        let layout = crate::basic_block::block_py::ClosureLayout {
+            freevars: vec![crate::basic_block::block_py::ClosureSlot {
                 logical_name: "captured".to_string(),
                 storage_name: "_dp_cell_captured".to_string(),
-                init: crate::basic_block::lowered_ir::ClosureInit::InheritedCapture,
+                init: crate::basic_block::block_py::ClosureInit::InheritedCapture,
             }],
-            cellvars: vec![crate::basic_block::lowered_ir::ClosureSlot {
+            cellvars: vec![crate::basic_block::block_py::ClosureSlot {
                 logical_name: "x".to_string(),
                 storage_name: "_dp_cell_x".to_string(),
-                init: crate::basic_block::lowered_ir::ClosureInit::Parameter,
+                init: crate::basic_block::block_py::ClosureInit::Parameter,
             }],
-            runtime_cells: vec![crate::basic_block::lowered_ir::ClosureSlot {
+            runtime_cells: vec![crate::basic_block::block_py::ClosureSlot {
                 logical_name: "_dp_pc".to_string(),
                 storage_name: "_dp_cell__dp_pc".to_string(),
-                init: crate::basic_block::lowered_ir::ClosureInit::RuntimePcUnstarted,
+                init: crate::basic_block::block_py::ClosureInit::RuntimePcUnstarted,
             }],
         };
 
         let block = build_closure_backed_generator_factory_block(
             "_dp_bb_demo_factory",
             "_dp_bb_demo_0",
-            crate::basic_block::lowered_ir::FunctionId(0),
+            crate::basic_block::block_py::FunctionId(0),
             &[
                 "_dp_self".to_string(),
                 "_dp_send_value".to_string(),
@@ -1134,7 +1102,9 @@ def f(ctx, value):
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
-        let ast::Stmt::With(with_stmt) = func.body.body[0].as_ref() else {
+        let ast::Stmt::With(with_stmt) =
+            crate::basic_block::ast_to_ast::body::stmt_ref(&func.body, 0)
+        else {
             panic!("expected with stmt");
         };
 
@@ -1190,7 +1160,9 @@ def f():
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
-        let ast::Stmt::Try(try_stmt) = func.body.body[0].as_ref() else {
+        let ast::Stmt::Try(try_stmt) =
+            crate::basic_block::ast_to_ast::body::stmt_ref(&func.body, 0)
+        else {
             panic!("expected try stmt");
         };
 
@@ -1220,7 +1192,7 @@ def f():
         let mut blocks = Vec::new();
         let mut saw_expanded = false;
         let entry = lower_expanded_stmt_sequence(
-            py_stmt!("pass"),
+            vec![py_stmt!("pass")],
             &[],
             "cont".to_string(),
             Vec::new(),
@@ -1243,7 +1215,7 @@ def f():
     fn expanded_stmt_helper_emits_linear_jump_prefix() {
         let mut blocks = Vec::new();
         let entry = lower_expanded_stmt_sequence(
-            py_stmt!("pass"),
+            vec![py_stmt!("pass")],
             &[],
             "cont".to_string(),
             vec![py_stmt!("x = 1")],
@@ -1565,7 +1537,7 @@ def f(x):
         let mut next_label_id = 0usize;
         lower_stmt_into(
             &context,
-            func.body.body[0].as_ref(),
+            crate::basic_block::ast_to_ast::body::stmt_ref(&func.body, 0),
             &mut out,
             None,
             &mut next_label_id,
@@ -1591,7 +1563,9 @@ def f():
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
-        lower_stmt_for_panic_test(func.body.body[0].as_ref());
+        lower_stmt_for_panic_test(crate::basic_block::ast_to_ast::body::stmt_ref(
+            &func.body, 0,
+        ));
     }
 
     #[test]
@@ -1616,7 +1590,7 @@ def f(x):
         let mut next_label_id = 0usize;
         lower_stmt_into(
             &context,
-            func.body.body[0].as_ref(),
+            crate::basic_block::ast_to_ast::body::stmt_ref(&func.body, 0),
             &mut out,
             None,
             &mut next_label_id,
@@ -1641,7 +1615,9 @@ def f(x):
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
-        lower_stmt_for_panic_test(func.body.body[0].as_ref());
+        lower_stmt_for_panic_test(crate::basic_block::ast_to_ast::body::stmt_ref(
+            &func.body, 0,
+        ));
     }
 
     #[test]
@@ -1699,7 +1675,7 @@ def f(x):
         let mut next_label_id = 0usize;
         lower_stmt_into(
             &context,
-            func.body.body[0].as_ref(),
+            crate::basic_block::ast_to_ast::body::stmt_ref(&func.body, 0),
             &mut out,
             None,
             &mut next_label_id,
@@ -1731,7 +1707,7 @@ def f():
         let mut next_label_id = 0usize;
         lower_stmt_into(
             &context,
-            func.body.body[0].as_ref(),
+            crate::basic_block::ast_to_ast::body::stmt_ref(&func.body, 0),
             &mut out,
             None,
             &mut next_label_id,
@@ -1763,7 +1739,7 @@ def f():
         let mut next_label_id = 0usize;
         lower_stmt_into(
             &context,
-            func.body.body[0].as_ref(),
+            crate::basic_block::ast_to_ast::body::stmt_ref(&func.body, 0),
             &mut out,
             None,
             &mut next_label_id,
@@ -1803,7 +1779,9 @@ def f():
         let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
             panic!("expected function def");
         };
-        lower_stmt_for_panic_test(func.body.body[0].as_ref());
+        lower_stmt_for_panic_test(crate::basic_block::ast_to_ast::body::stmt_ref(
+            &func.body, 0,
+        ));
     }
 
     #[test]

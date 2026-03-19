@@ -3,8 +3,8 @@ use super::block_py::{
     BlockPyIf, BlockPyIfTerm, BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment,
     BlockPyTerm, CoreBlockPyAwait, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr,
     CoreBlockPyExprWithoutAwait, CoreBlockPyKeywordArg, CoreBlockPyYield, CoreBlockPyYieldFrom,
+    FunctionName,
 };
-use super::cfg_ir::CfgCallableDef;
 use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr};
 
@@ -158,27 +158,20 @@ pub(crate) fn lower_awaits_in_core_blockpy_callable_def(
     callable_def: BlockPyCallableDef<CoreBlockPyExpr>,
 ) -> BlockPyCallableDef<CoreBlockPyExprWithoutAwait> {
     BlockPyCallableDef {
-        cfg: CfgCallableDef {
-            function_id: callable_def.function_id,
-            bind_name: callable_def.bind_name.clone(),
-            kind: callable_def.kind,
-            params: callable_def.params.clone(),
-            param_defaults: callable_def
-                .param_defaults
-                .clone()
-                .into_iter()
-                .map(lower_core_expr_awaits)
-                .collect(),
-            blocks: callable_def
-                .blocks
-                .clone()
-                .into_iter()
-                .map(lower_core_block_awaits)
-                .collect(),
-        },
-        fn_name: callable_def.fn_name,
-        display_name: callable_def.display_name,
-        qualname: callable_def.qualname,
+        function_id: callable_def.function_id,
+        names: callable_def.names,
+        kind: callable_def.kind,
+        params: callable_def.params,
+        param_defaults: callable_def
+            .param_defaults
+            .into_iter()
+            .map(lower_core_expr_awaits)
+            .collect(),
+        blocks: callable_def
+            .blocks
+            .into_iter()
+            .map(lower_core_block_awaits)
+            .collect(),
         doc: callable_def.doc,
         closure_layout: callable_def.closure_layout,
         facts: callable_def.facts,
@@ -208,24 +201,19 @@ mod tests {
     fn lowers_await_to_yield_from_await_iter() {
         let module = BlockPyModule {
             callable_defs: vec![BlockPyCallableDef {
-                cfg: CfgCallableDef {
-                    function_id: super::super::lowered_ir::FunctionId(0),
-                    bind_name: "f".to_string(),
-                    kind: BlockPyFunctionKind::Coroutine,
-                    params: Default::default(),
-                    param_defaults: Vec::new(),
-                    blocks: vec![BlockPyBlock {
-                        label: BlockPyLabel("start".to_string()),
-                        body: Vec::new(),
-                        term: BlockPyTerm::Return(Some(CoreBlockPyExpr::from(crate::py_expr!(
-                            "await foo()"
-                        )))),
-                        meta: Default::default(),
-                    }],
-                },
-                fn_name: "f".to_string(),
-                display_name: "f".to_string(),
-                qualname: "f".to_string(),
+                function_id: super::super::block_py::FunctionId(0),
+                names: FunctionName::new("f", "f", "f", "f"),
+                kind: BlockPyFunctionKind::Coroutine,
+                params: Default::default(),
+                param_defaults: Vec::new(),
+                blocks: vec![BlockPyBlock {
+                    label: BlockPyLabel("start".to_string()),
+                    body: Vec::new(),
+                    term: BlockPyTerm::Return(Some(CoreBlockPyExpr::from(crate::py_expr!(
+                        "await foo()"
+                    )))),
+                    meta: Default::default(),
+                }],
                 doc: None,
                 closure_layout: None,
                 facts: super::super::block_py::BlockPyCallableFacts::default(),

@@ -1,10 +1,11 @@
+use crate::basic_block::ast_to_ast::body::Suite;
 use crate::py_expr;
 use crate::{basic_block::ast_to_ast::context::Context, transformer::Transformer};
-use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
+use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_source_file::LineEnding;
 
-pub fn rewrite(_context: &Context, body: &mut StmtBody) {
+pub fn rewrite(_context: &Context, body: &mut Suite) {
     let mut rewriter = FutureAnnotationsRewriter::new();
     if !rewriter.has_future_annotations(body) {
         return;
@@ -24,12 +25,12 @@ impl FutureAnnotationsRewriter {
         }
     }
 
-    fn strip_future_import(&mut self, body: &mut StmtBody) {
+    fn strip_future_import(&mut self, body: &mut Suite) {
         let mut index = 0;
-        while index < body.body.len() {
+        while index < body.len() {
             let mut remove_stmt = false;
-            if let Stmt::ImportFrom(import_from) = body.body[index].as_mut() {
-                if is_future_annotations(import_from) {
+            if let Stmt::ImportFrom(import_from) = body[index].as_mut() {
+                if is_future_annotations(&*import_from) {
                     import_from
                         .names
                         .retain(|alias| alias.name.id.as_str() != "annotations");
@@ -40,15 +41,15 @@ impl FutureAnnotationsRewriter {
             }
 
             if remove_stmt {
-                body.body.remove(index);
+                body.remove(index);
             } else {
                 index += 1;
             }
         }
     }
 
-    fn has_future_annotations(&self, body: &StmtBody) -> bool {
-        body.body.iter().any(|stmt| match stmt.as_ref() {
+    fn has_future_annotations(&self, body: &Suite) -> bool {
+        body.iter().any(|stmt| match stmt.as_ref() {
             Stmt::ImportFrom(import_from) => {
                 is_future_annotations(import_from)
                     && import_from

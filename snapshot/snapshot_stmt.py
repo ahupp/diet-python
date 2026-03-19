@@ -259,46 +259,8 @@ except:
 
 # ==
 
-# module_init: _dp_module_init
-
-# function _dp_module_init():
-#     entry_liveins: [_dp_try_exc_5, _dp_try_exc_1]
-#     block start:
-#         try_jump:
-#             body_label: _dp_bb_7
-#             except_label: _dp_bb_6
-#         block _dp_bb_6:
-#             if_term __dp_exception_matches(__dp_current_exception(), E):
-#                 then:
-#                     block _dp_bb_4:
-#                         _dp_exc_e = __dp_current_exception()
-#                         __dp_store_global(__dp_globals(), "e", _dp_exc_e)
-#                         try_jump:
-#                             body_label: _dp_bb_3
-#                             except_label: _dp_bb_1
-#                         block _dp_bb_1:
-#                             _dp_try_exc_5 = __dp_current_exception()
-#                             __dp_delitem(__dp_globals(), "e")
-#                             if_term __dp_is_not(_dp_try_exc_5, None):
-#                                 then:
-#                                     block _dp_bb_0:
-#                                         raise _dp_try_exc_5
-#                                 else:
-#                                     block _dp_bb_8:
-#                                         return
-#                         block _dp_bb_3:
-#                             g(__dp_load_global(globals(), "e"))
-#                             jump _dp_bb_2
-#                             block _dp_bb_2:
-#                                 _dp_try_exc_5 = None
-#                                 jump _dp_bb_1
-#                 else:
-#                     block _dp_bb_5:
-#                         h()
-#                         return
-#         block _dp_bb_7:
-#             f()
-#             return
+# snapshot regeneration failed
+# panic: py_stmt template must produce exactly one statement, got 2
 
 # for_else
 
@@ -362,31 +324,8 @@ with cm as x:
 
 # ==
 
-# module_init: _dp_module_init
-
-# function _dp_module_init():
-#     entry_liveins: [_dp_try_exc_2]
-#     block start:
-#         _dp_with_exit_4 = __dp_contextmanager_get_exit(cm)
-#         _dp_with_enter_6 = __dp_contextmanager_enter(cm)
-#         try_jump:
-#             body_label: _dp_bb_2
-#             except_label: _dp_bb_0
-#         block _dp_bb_0:
-#             _dp_with_exit_call_5 = _dp_with_exit_4
-#             _dp_with_exit_4 = None
-#             _dp_with_enter_6 = None
-#             __dp_contextmanager_exit(_dp_with_exit_call_5, __dp_exc_info())
-#             _dp_with_exit_call_5 = None
-#             return
-#         block _dp_bb_2:
-#             x = _dp_with_enter_6
-#             _dp_with_enter_6 = None
-#             body()
-#             jump _dp_bb_1
-#             block _dp_bb_1:
-#                 _dp_try_exc_2 = None
-#                 jump _dp_bb_0
+# snapshot regeneration failed
+# panic: TryJump is not allowed in BbTerm
 
 # function_local_ann_assign
 
@@ -578,17 +517,11 @@ class C:
 # function _dp_class_ns_C(_dp_class_ns, _dp_classcell_arg):
 #     block start:
 #         _dp_classcell = _dp_classcell_arg
-#         jump _dp_bb_2
-#         block _dp_bb_2:
-#             __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
-#             jump _dp_bb_1
-#             block _dp_bb_1:
-#                 __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "C")
-#                 _dp_listcomp_3 = __dp_make_function("start", 0, "<listcomp>", "C._dp_listcomp_3", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple("_dp_iter_2", "Any", False)), __dp_tuple(), __dp_globals(), __name__, None, None)
-#                 jump _dp_bb_0
-#                 block _dp_bb_0:
-#                     __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "xs", _dp_listcomp_3(__dp_class_lookup_global(_dp_class_ns, "it", globals())))
-#                     return
+#         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
+#         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "C")
+#         _dp_listcomp_3 = __dp_make_function("start", 0, "<listcomp>", "C._dp_listcomp_3", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple("_dp_iter_2", "Any", False)), __dp_tuple(), __dp_globals(), __name__, None, None)
+#         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "xs", _dp_listcomp_3(__dp_class_lookup_global(_dp_class_ns, "it", globals())))
+#         return
 
 # function _dp_define_class_C(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict=None):
 #     block start:
@@ -609,53 +542,8 @@ with a as x, b as y:
 
 # ==
 
-# module_init: _dp_module_init
-
-# function _dp_module_init():
-#     entry_liveins: [_dp_try_exc_2, _dp_try_exc_10]
-#     block start:
-#         _dp_with_exit_4 = __dp_contextmanager_get_exit(a)
-#         _dp_with_enter_6 = __dp_contextmanager_enter(a)
-#         try_jump:
-#             body_label: _dp_bb_7
-#             except_label: _dp_bb_0
-#         block _dp_bb_0:
-#             _dp_with_exit_call_5 = _dp_with_exit_4
-#             _dp_with_exit_4 = None
-#             _dp_with_enter_6 = None
-#             __dp_contextmanager_exit(_dp_with_exit_call_5, __dp_exc_info())
-#             _dp_with_exit_call_5 = None
-#             return
-#         block _dp_bb_7:
-#             x = _dp_with_enter_6
-#             _dp_with_enter_6 = None
-#             jump _dp_bb_6
-#             block _dp_bb_6:
-#                 _dp_with_exit_12 = __dp_contextmanager_get_exit(b)
-#                 _dp_with_enter_14 = __dp_contextmanager_enter(b)
-#                 try_jump:
-#                     body_label: _dp_bb_5
-#                     except_label: _dp_bb_2
-#                 block _dp_bb_2:
-#                     _dp_with_exit_call_13 = _dp_with_exit_12
-#                     _dp_with_exit_12 = None
-#                     _dp_with_enter_14 = None
-#                     __dp_contextmanager_exit(_dp_with_exit_call_13, __dp_exc_info())
-#                     _dp_with_exit_call_13 = None
-#                     jump _dp_bb_1
-#                     block _dp_bb_1:
-#                         _dp_try_exc_2 = None
-#                         jump _dp_bb_0
-#                 block _dp_bb_5:
-#                     y = _dp_with_enter_14
-#                     _dp_with_enter_14 = None
-#                     jump _dp_bb_4
-#                     block _dp_bb_4:
-#                         body()
-#                         jump _dp_bb_3
-#                         block _dp_bb_3:
-#                             _dp_try_exc_10 = None
-#                             jump _dp_bb_2
+# snapshot regeneration failed
+# panic: TryJump is not allowed in BbTerm
 
 # async_for
 
@@ -739,26 +627,8 @@ with Suppress():
 
 # ==
 
-# module_init: _dp_module_init
-
-# function _dp_module_init():
-#     entry_liveins: [_dp_try_exc_2]
-#     block start:
-#         _dp_tmp_1 = Suppress()
-#         _dp_with_exit_4 = __dp_contextmanager_get_exit(_dp_tmp_1)
-#         __dp_contextmanager_enter(_dp_tmp_1)
-#         try_jump:
-#             body_label: _dp_bb_1
-#             except_label: _dp_bb_0
-#         block _dp_bb_0:
-#             _dp_with_exit_call_5 = _dp_with_exit_4
-#             _dp_with_exit_4 = None
-#             _dp_tmp_1 = None
-#             __dp_contextmanager_exit(_dp_with_exit_call_5, __dp_exc_info())
-#             _dp_with_exit_call_5 = None
-#             return
-#         block _dp_bb_1:
-#             raise RuntimeError("boom")
+# snapshot regeneration failed
+# panic: TryJump is not allowed in BbTerm
 
 # closure_cell_simple
 
@@ -875,26 +745,8 @@ except Exception:
 
 # ==
 
-# module_init: _dp_module_init
-
-# function _dp_module_init():
-#     entry_liveins: [_dp_try_exc_1]
-#     block start:
-#         try_jump:
-#             body_label: _dp_bb_3
-#             except_label: _dp_bb_2
-#         block _dp_bb_2:
-#             if_term __dp_exception_matches(__dp_current_exception(), Exception):
-#                 then:
-#                     block _dp_bb_0:
-#                         print(2)
-#                         return
-#                 else:
-#                     block _dp_bb_1:
-#                         raise
-#         block _dp_bb_3:
-#             print(1)
-#             return
+# snapshot regeneration failed
+# panic: TryJump is not allowed in BbTerm
 
 # complicated generator
 

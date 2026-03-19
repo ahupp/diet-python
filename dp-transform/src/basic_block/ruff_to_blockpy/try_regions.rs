@@ -1,5 +1,6 @@
 use super::compat::set_region_exc_param;
 use super::*;
+use crate::basic_block::ast_to_ast::body::{suite_ref, Suite};
 use crate::basic_block::block_py::{
     BlockPyBlock, BlockPyIfTerm, BlockPyLabel, BlockPyStmt, BlockPyTerm,
 };
@@ -66,10 +67,10 @@ impl TryPlan {
 }
 
 pub(crate) fn prepare_finally_body(
-    finalbody: &ast::StmtBody,
+    finalbody: &Suite,
     finally_exc_name: Option<&str>,
 ) -> Vec<Box<Stmt>> {
-    let mut finally_body = flatten_stmt_boxes(&finalbody.body);
+    let mut finally_body = flatten_stmt_boxes(finalbody);
     if let Some(finally_exc_name) = finally_exc_name {
         finally_body.insert(
             0,
@@ -91,7 +92,7 @@ pub(crate) fn prepare_except_body(handlers: &[ast::ExceptHandler]) -> Vec<Box<St
         .first()
         .map(|handler| {
             let ast::ExceptHandler::ExceptHandler(handler) = handler;
-            flatten_stmt_boxes(&handler.body.body)
+            flatten_stmt_boxes(suite_ref(&handler.body))
         })
         .unwrap_or_else(|| vec![Box::new(py_stmt!("raise"))])
 }

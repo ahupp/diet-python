@@ -1,9 +1,12 @@
 use std::{collections::HashSet, sync::Arc};
 
 use ruff_python_ast::name::Name;
-use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt, StmtBody};
+use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
 
-use super::context::Context;
+use super::{
+    body::{suite_mut, suite_ref, take_suite, Suite},
+    context::Context,
+};
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{
     basic_block::ast_to_ast::{
@@ -20,7 +23,7 @@ use crate::{
     py_expr, py_stmt,
 };
 
-pub fn rewrite_explicit_bindings(context: &Context, scope: Arc<Scope>, body: &mut StmtBody) {
+pub fn rewrite_explicit_bindings(context: &Context, scope: Arc<Scope>, body: &mut Suite) {
     let mut rewriter = NameScopeRewriter::new(context, scope);
     rewriter.visit_body(body);
 }
@@ -50,8 +53,7 @@ impl<'a> NameScopeRewriter<'a> {
         !self.cell_binding_names().is_empty()
     }
 
-    fn insert_preamble(&self, body: &mut StmtBody, param_names: &HashSet<String>) {
-        let body = &mut body.body;
+    fn insert_preamble(&self, body: &mut Suite, param_names: &HashSet<String>) {
         let mut stmts = Vec::new();
 
         if self.cell_init_needed() {
@@ -333,12 +335,6 @@ impl<'a> NameScopeRewriter<'a> {
     }
 }
 
-fn stmt_from_rewrite(rewrite: Rewrite) -> Stmt {
-    match rewrite {
-        Rewrite::Unmodified(stmt) | Rewrite::Walk(stmt) => stmt,
-    }
-}
-
 fn collect_parameter_names(parameters: &ast::Parameters) -> HashSet<String> {
     let mut names = HashSet::new();
     for param in parameters.posonlyargs.iter() {
@@ -380,49 +376,19 @@ fn collect_assigned_names(target: &Expr, names: &mut HashSet<String>) {
 }
 
 impl Transformer for NameScopeRewriter<'_> {
+    fn visit_body(&mut self, body: &mut Suite) {
+        let mut rewritten = Vec::with_capacity(body.len());
+        for stmt in std::mem::take(body) {
+            for mut stmt in self.rewrite_stmt_list(*stmt) {
+                self.visit_stmt(&mut stmt);
+                rewritten.push(Box::new(stmt));
+            }
+        }
+        *body = rewritten;
+    }
+
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
-            Stmt::Import(import) => {
-                let rewritten = stmt_from_rewrite(rewrite_import::rewrite(import.clone()));
-                if !matches!(rewritten, Stmt::Import(_)) {
-                    *stmt = rewritten;
-                    self.visit_stmt(stmt);
-                    return;
-                }
-            }
-            Stmt::ImportFrom(import_from) => {
-                let rewritten = stmt_from_rewrite(rewrite_import::rewrite_from(
-                    self.context,
-                    import_from.clone(),
-                ));
-                if !matches!(rewritten, Stmt::ImportFrom(_)) {
-                    *stmt = rewritten;
-                    self.visit_stmt(stmt);
-                    return;
-                }
-            }
-            Stmt::TypeAlias(type_alias) => {
-                let rewritten = stmt_from_rewrite(ruff_to_blockpy::rewrite_type_alias_stmt(
-                    self.context,
-                    type_alias.clone(),
-                ));
-                if !matches!(rewritten, Stmt::TypeAlias(_)) {
-                    *stmt = rewritten;
-                    self.visit_stmt(stmt);
-                    return;
-                }
-            }
-            Stmt::AugAssign(augassign) => {
-                let rewritten = stmt_from_rewrite(ruff_to_blockpy::rewrite_augassign_stmt(
-                    self.context,
-                    augassign.clone(),
-                ));
-                if !matches!(rewritten, Stmt::AugAssign(_)) {
-                    *stmt = rewritten;
-                    self.visit_stmt(stmt);
-                    return;
-                }
-            }
             Stmt::For(for_stmt) => {
                 let mut target_names = HashSet::new();
                 collect_assigned_names(for_stmt.target.as_ref(), &mut target_names);
@@ -430,14 +396,12 @@ impl Transformer for NameScopeRewriter<'_> {
 
                 self.visit_expr(for_stmt.iter.as_mut());
                 self.visit_expr(for_stmt.target.as_mut());
-                self.visit_body(&mut for_stmt.body);
-                self.visit_body(&mut for_stmt.orelse);
+                self.visit_body(suite_mut(&mut for_stmt.body));
+                self.visit_body(suite_mut(&mut for_stmt.orelse));
 
                 let sync_stmts = self.loop_target_sync_stmts(&target_names);
                 if !sync_stmts.is_empty() {
-                    for_stmt
-                        .body
-                        .body
+                    suite_mut(&mut for_stmt.body)
                         .splice(0..0, sync_stmts.into_iter().map(Box::new));
                 }
             }
@@ -536,7 +500,7 @@ impl Transformer for NameScopeRewriter<'_> {
                 }
             }
             Stmt::Try(try_stmt) => {
-                self.visit_body(&mut try_stmt.body);
+                self.visit_body(suite_mut(&mut try_stmt.body));
                 for handler in &mut try_stmt.handlers {
                     let ast::ExceptHandler::ExceptHandler(handler) = handler;
                     if let Some(type_) = handler.type_.as_mut() {
@@ -615,7 +579,7 @@ impl Transformer for NameScopeRewriter<'_> {
                                     }
                                     _ => py_stmt!("pass"),
                                 };
-                                let original_body = std::mem::take(&mut handler.body.body)
+                                let original_body = take_suite(&mut handler.body)
                                     .into_iter()
                                     .map(|stmt| *stmt)
                                     .collect::<Vec<_>>();
@@ -629,14 +593,15 @@ finally:
                                     body = original_body,
                                     delete = delete_stmt,
                                 );
-                                handler.body.body = vec![Box::new(store_stmt), Box::new(wrapped)];
+                                *suite_mut(&mut handler.body) =
+                                    vec![Box::new(store_stmt), Box::new(wrapped)];
                             }
                         }
                     }
-                    self.visit_body(&mut handler.body);
+                    self.visit_body(suite_mut(&mut handler.body));
                 }
-                self.visit_body(&mut try_stmt.orelse);
-                self.visit_body(&mut try_stmt.finalbody);
+                self.visit_body(suite_mut(&mut try_stmt.orelse));
+                self.visit_body(suite_mut(&mut try_stmt.finalbody));
             }
             Stmt::FunctionDef(func_def) => {
                 for decorator in &mut func_def.decorator_list {
@@ -659,9 +624,9 @@ finally:
                     .expect("no child scope for function");
 
                 let mut child_rewriter = NameScopeRewriter::new(self.context, child_scope);
-                child_rewriter.visit_body(&mut func_def.body);
+                child_rewriter.visit_body(suite_mut(&mut func_def.body));
                 let param_names = collect_parameter_names(&func_def.parameters);
-                child_rewriter.insert_preamble(&mut func_def.body, &param_names);
+                child_rewriter.insert_preamble(suite_mut(&mut func_def.body), &param_names);
             }
             Stmt::ClassDef(class_def) => {
                 for decorator in &mut class_def.decorator_list {
@@ -679,7 +644,8 @@ finally:
                     .child_scope_for_class(class_def)
                     .expect("no child scope for class");
 
-                NameScopeRewriter::new(self.context, class_scope).visit_body(&mut class_def.body);
+                NameScopeRewriter::new(self.context, class_scope)
+                    .visit_body(suite_mut(&mut class_def.body));
             }
             Stmt::AnnAssign(_) => {
                 panic!("AnnAssign should be gone now");
@@ -766,5 +732,32 @@ finally:
         }
 
         walk_expr(self, expr);
+    }
+}
+
+impl NameScopeRewriter<'_> {
+    fn rewrite_stmt_list(&self, stmt: Stmt) -> Vec<Stmt> {
+        match stmt {
+            Stmt::Import(import) => self.rewrite_nested_stmt_list(rewrite_import::rewrite(import)),
+            Stmt::ImportFrom(import_from) => self
+                .rewrite_nested_stmt_list(rewrite_import::rewrite_from(self.context, import_from)),
+            Stmt::TypeAlias(type_alias) => self.rewrite_nested_stmt_list(
+                ruff_to_blockpy::rewrite_type_alias_stmt(self.context, type_alias),
+            ),
+            Stmt::AugAssign(augassign) => self.rewrite_nested_stmt_list(
+                ruff_to_blockpy::rewrite_augassign_stmt(self.context, augassign),
+            ),
+            other => vec![other],
+        }
+    }
+
+    fn rewrite_nested_stmt_list(&self, rewrite: Rewrite) -> Vec<Stmt> {
+        match rewrite {
+            Rewrite::Unmodified(stmt) => vec![stmt],
+            Rewrite::Walk(stmts) => stmts
+                .into_iter()
+                .flat_map(|stmt| self.rewrite_stmt_list(stmt))
+                .collect(),
+        }
     }
 }

@@ -1,5 +1,4 @@
-use super::block_py::BlockPyCallableDef;
-use super::cfg_ir::{CfgBlock, CfgModule};
+use super::block_py::{BlockPyCallableDef, CfgBlock, CfgModule};
 use std::env;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,11 +45,11 @@ pub(crate) fn instrument_cfg_module_for_trace<D, S, T, M>(
 {
     for function in &mut module.callable_defs {
         if let Some(filter) = config.qualname_filter.as_ref() {
-            if function.qualname != *filter {
+            if function.names.qualname != *filter {
                 continue;
             }
         }
-        let qualname = function.qualname.clone();
+        let qualname = function.names.qualname.clone();
         for block in &mut function.blocks {
             let trace_stmt = make_trace_stmt(
                 qualname.as_str(),

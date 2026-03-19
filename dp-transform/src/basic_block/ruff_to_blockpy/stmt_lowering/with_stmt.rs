@@ -1,8 +1,9 @@
 use super::assign_stmt::{build_for_target_assign_body, rewrite_assignment_target};
 use super::*;
+use crate::basic_block::ast_to_ast::body::take_suite;
 
 impl StmtLowerer for ast::StmtWith {
-    fn simplify_ast(self, _context: &Context) -> Stmt {
+    fn simplify_ast(self, _context: &Context) -> Vec<Stmt> {
         desugar_structured_with_stmt_for_blockpy(self)
     }
 
@@ -24,16 +25,16 @@ impl StmtLowerer for ast::StmtWith {
     }
 }
 
-fn maybe_placeholder(expr: Expr) -> (Stmt, Expr, bool) {
+fn maybe_placeholder(expr: Expr) -> (Vec<Stmt>, Expr, bool) {
     if is_simple(&expr) && !matches!(&expr, Expr::StringLiteral(_) | Expr::BytesLiteral(_)) {
-        return (empty_body().into(), expr, false);
+        return (Vec::new(), expr, false);
     }
     let tmp = fresh_name("tmp");
     let stmt = py_stmt!("{tmp:id} = {expr:expr}", tmp = tmp.as_str(), expr = expr);
-    (stmt, py_expr!("{tmp:id}", tmp = tmp.as_str()), true)
+    (vec![stmt], py_expr!("{tmp:id}", tmp = tmp.as_str()), true)
 }
 
-fn wrap_with_item_stmt(item: ast::WithItem, body: Stmt, is_async: bool) -> Stmt {
+fn wrap_with_item_stmt(item: ast::WithItem, body: Vec<Stmt>, is_async: bool) -> Stmt {
     let ast::WithItem {
         context_expr,
         optional_vars,
@@ -65,24 +66,30 @@ fn wrap_with_item_stmt(item: ast::WithItem, body: Stmt, is_async: bool) -> Stmt 
     }
 }
 
-fn nest_with_stmt_items(with_stmt: ast::StmtWith) -> Stmt {
+fn nest_with_stmt_items(with_stmt: ast::StmtWith) -> Vec<Stmt> {
     let ast::StmtWith {
         items,
         body,
         is_async,
         ..
     } = with_stmt;
-    items
-        .into_iter()
-        .rev()
-        .fold(Stmt::BodyStmt(body), |body, item| {
-            wrap_with_item_stmt(item, body, is_async)
-        })
+    let mut body = body;
+    items.into_iter().rev().fold(
+        take_suite(&mut body)
+            .into_iter()
+            .map(|stmt| *stmt)
+            .collect::<Vec<_>>(),
+        |body, item| vec![wrap_with_item_stmt(item, body, is_async)],
+    )
 }
 
-pub(super) fn desugar_structured_with_stmt_for_blockpy(with_stmt: ast::StmtWith) -> Stmt {
+pub(super) fn desugar_structured_with_stmt_for_blockpy(with_stmt: ast::StmtWith) -> Vec<Stmt> {
     if with_stmt.items.is_empty() {
-        return Stmt::BodyStmt(with_stmt.body);
+        let mut body = with_stmt.body;
+        return take_suite(&mut body)
+            .into_iter()
+            .map(|stmt| *stmt)
+            .collect();
     }
 
     let ast::StmtWith {
@@ -92,7 +99,11 @@ pub(super) fn desugar_structured_with_stmt_for_blockpy(with_stmt: ast::StmtWith)
         ..
     } = with_stmt;
 
-    let mut lowered_body: Stmt = body.into();
+    let mut body = body;
+    let mut lowered_body: Vec<Stmt> = take_suite(&mut body)
+        .into_iter()
+        .map(|stmt| *stmt)
+        .collect();
 
     for ast::WithItem {
         context_expr,
@@ -106,9 +117,9 @@ pub(super) fn desugar_structured_with_stmt_for_blockpy(with_stmt: ast::StmtWith)
         let reraise_name = fresh_name("with_reraise");
         let (ctx_placeholder_stmt, ctx_expr, ctx_was_placeholder) = maybe_placeholder(context_expr);
         let ctx_cleanup = if ctx_was_placeholder {
-            py_stmt!("{ctx:expr} = None", ctx = ctx_expr.clone())
+            vec![py_stmt!("{ctx:expr} = None", ctx = ctx_expr.clone())]
         } else {
-            empty_body().into()
+            Vec::new()
         };
 
         let enter_value = if is_async {
@@ -126,13 +137,13 @@ pub(super) fn desugar_structured_with_stmt_for_blockpy(with_stmt: ast::StmtWith)
             let mut enter_stmts = Vec::new();
             let mut next_temp = |prefix: &str| fresh_name(prefix);
             rewrite_assignment_target(target, enter_value, &mut enter_stmts, &mut next_temp);
-            into_body(enter_stmts)
+            enter_stmts
         } else {
-            py_stmt!("{value:expr}", value = enter_value)
+            vec![py_stmt!("{value:expr}", value = enter_value)]
         };
 
         lowered_body = if is_async {
-            py_stmt!(
+            crate::py_stmts!(
                 r#"
 {ctx_placeholder_stmt:stmt}
 {exit_name:id} = __dp_asynccontextmanager_get_aexit({ctx_expr:expr})
@@ -161,7 +172,7 @@ finally:
                 ctx_cleanup = ctx_cleanup,
             )
         } else {
-            py_stmt!(
+            crate::py_stmts!(
                 r#"
 {ctx_placeholder_stmt:stmt}
 {exit_name:id} = __dp_contextmanager_get_exit({ctx_expr:expr})
@@ -196,7 +207,7 @@ fn build_with_finally_body(
     exit_name: &str,
     exit_call_name: &str,
     enter_name: Option<&str>,
-    ctx_cleanup: Stmt,
+    ctx_cleanup: Vec<Stmt>,
     is_async: bool,
 ) -> Vec<Box<Stmt>> {
     let mut out = vec![
@@ -210,8 +221,8 @@ fn build_with_finally_body(
     if let Some(enter_name) = enter_name {
         out.push(Box::new(py_stmt!("{enter:id} = None", enter = enter_name)));
     }
-    if !matches!(&ctx_cleanup, Stmt::BodyStmt(ast::StmtBody { body, .. }) if body.is_empty()) {
-        out.push(Box::new(ctx_cleanup));
+    if !ctx_cleanup.is_empty() {
+        out.extend(ctx_cleanup.into_iter().map(Box::new));
     }
     let exit_stmt = if is_async {
         py_stmt!(
@@ -258,7 +269,13 @@ where
         };
         return (
             lower_expanded_stmt_sequence(
-                Stmt::BodyStmt(with_stmt.body),
+                {
+                    let mut body = with_stmt.body;
+                    take_suite(&mut body)
+                        .into_iter()
+                        .map(|stmt| *stmt)
+                        .collect()
+                },
                 remaining_stmts,
                 cont_label,
                 linear,
@@ -337,15 +354,14 @@ where
     next_block_id.set(next_id);
     let (ctx_placeholder_stmt, ctx_expr, ctx_was_placeholder) = maybe_placeholder(context_expr);
     let ctx_cleanup = if ctx_was_placeholder {
-        py_stmt!("{ctx:expr} = None", ctx = ctx_expr.clone())
+        vec![py_stmt!("{ctx:expr} = None", ctx = ctx_expr.clone())]
     } else {
-        empty_body().into()
+        Vec::new()
     };
 
     let mut entry_linear = linear;
-    if !matches!(&ctx_placeholder_stmt, Stmt::BodyStmt(ast::StmtBody { body, .. }) if body.is_empty())
-    {
-        entry_linear.push(ctx_placeholder_stmt);
+    if !ctx_placeholder_stmt.is_empty() {
+        entry_linear.extend(ctx_placeholder_stmt);
     }
 
     let exit_lookup = if is_async {
@@ -463,7 +479,7 @@ mod tests {
         let context = Context::new(Options::for_test(), "");
         let simplified = simplify_stmt_ast_for_blockpy(&context, Stmt::With(with_stmt));
 
-        assert!(!matches!(simplified, Stmt::With(_)));
+        assert!(!matches!(simplified.as_slice(), [Stmt::With(_)]));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use ruff_python_ast::{self as ast, Expr, Stmt};
 
-use crate::template::empty_body;
+use crate::basic_block::ast_to_ast::body::{suite_mut, suite_ref};
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{basic_block::ast_to_ast::util::is_noarg_call, py_expr, py_stmt};
 
@@ -33,7 +33,10 @@ impl Transformer for MethodRewriteSuperClasscell {
                 if removed {
                     self.needs_class_cell = true;
                     if names.is_empty() {
-                        *stmt = empty_body().into();
+                        *stmt = Stmt::Pass(ast::StmtPass {
+                            node_index: Default::default(),
+                            range: Default::default(),
+                        });
                     }
                     return;
                 }
@@ -101,7 +104,7 @@ pub fn rewrite_explicit_super_classcell(class_def: &mut ast::StmtClassDef) -> bo
     let mut rewriter = MethodExplicitSuperRewriter {
         needs_class_cell: false,
     };
-    (&mut rewriter).visit_body(&mut class_def.body);
+    (&mut rewriter).visit_body(suite_mut(&mut class_def.body));
     rewriter.needs_class_cell
 }
 
@@ -139,7 +142,7 @@ fn rewrite_method(func_def: &mut ast::StmtFunctionDef) -> bool {
         first_arg,
         needs_class_cell: false,
     };
-    for stmt in func_def.body.body.iter_mut() {
+    for stmt in suite_mut(&mut func_def.body).iter_mut() {
         (&mut transformer).visit_stmt(stmt.as_mut());
     }
     transformer.needs_class_cell

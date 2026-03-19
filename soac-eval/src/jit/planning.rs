@@ -1,6 +1,6 @@
-use dp_transform::basic_block::bb_ir::{BbBlock, BbModule, BbStmt, BbTerm};
+use dp_transform::basic_block::bb_ir::{BbBlock, BbModule, BbStmt};
 use dp_transform::basic_block::block_py::{
-    BlockPyFunctionKind, BlockPyLabel, BlockPyStmt, CoreBlockPyCallArg,
+    BlockPyFunctionKind, BlockPyLabel, BlockPyStmt, BlockPyTerm, CoreBlockPyCallArg,
     CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
 };
 use ruff_python_ast::Number;
@@ -147,7 +147,6 @@ pub enum DirectSimpleTermPlan {
     },
     Raise {
         exc: Option<DirectSimpleExprPlan>,
-        cause: Option<DirectSimpleExprPlan>,
     },
 }
 
@@ -260,7 +259,7 @@ fn direct_simple_plan_from_block(block: &BbBlock) -> Option<DirectSimpleRetPlan>
             value,
         });
     }
-    let BbTerm::Ret(ret_value) = &block.term else {
+    let BlockPyTerm::Return(ret_value) = &block.term else {
         return None;
     };
     let ret = if let Some(value) = ret_value.as_ref() {
@@ -283,23 +282,18 @@ fn direct_simple_brif_plan_from_block(
     if !block.body.is_empty() {
         return None;
     }
-    let BbTerm::BrIf {
-        test,
-        then_label,
-        else_label,
-    } = &block.term
-    else {
+    let BlockPyTerm::IfTerm(if_term) = &block.term else {
         return None;
     };
-    let then_index = *label_to_index.get(then_label.as_str())?;
-    let else_index = *label_to_index.get(else_label.as_str())?;
+    let then_index = *label_to_index.get(if_term.then_label.as_str())?;
+    let else_index = *label_to_index.get(if_term.else_label.as_str())?;
     let source_params = block.meta.params.as_slice();
     if function.blocks[then_index].meta.params.as_slice() != source_params
         || function.blocks[else_index].meta.params.as_slice() != source_params
     {
         return None;
     }
-    let test = direct_simple_expr_from(test)?;
+    let test = direct_simple_expr_from(&if_term.test)?;
     Some(DirectSimpleBrIfPlan {
         params: block.meta.params.clone(),
         test,
@@ -311,7 +305,7 @@ fn direct_simple_brif_plan_from_block(
 fn direct_simple_expr_ret_none_plan_from_block(
     block: &BbBlock,
 ) -> Option<DirectSimpleExprRetNonePlan> {
-    if !matches!(block.term, BbTerm::Ret(None)) {
+    if !matches!(block.term, BlockPyTerm::Return(None)) {
         return None;
     }
     let mut exprs = Vec::with_capacity(block.body.len());
@@ -393,13 +387,14 @@ fn bb_stmt_kind(op: &BbStmt) -> &'static str {
     }
 }
 
-fn bb_term_kind(term: &BbTerm) -> &'static str {
+fn bb_term_kind(term: &BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>) -> &'static str {
     match term {
-        BbTerm::Jump(_) => "Jump",
-        BbTerm::BrIf { .. } => "BrIf",
-        BbTerm::BrTable { .. } => "BrTable",
-        BbTerm::Raise { .. } => "Raise",
-        BbTerm::Ret(_) => "Ret",
+        BlockPyTerm::Jump(_) => "Jump",
+        BlockPyTerm::IfTerm(_) => "BrIf",
+        BlockPyTerm::BranchTable(_) => "BrTable",
+        BlockPyTerm::Raise(_) => "Raise",
+        BlockPyTerm::Return(_) => "Ret",
+        BlockPyTerm::TryJump(_) => "TryJump",
     }
 }
 
@@ -421,7 +416,7 @@ fn unsupported_fastpath_block_message(
         .join("; ");
     format!(
         "unsupported JIT block shape in {}:{}: term={}, ops=[{}], params={:?}, exc_target={:?}; op_debug=[{}]; expected direct-simple lowered block",
-        function.qualname,
+        function.names.qualname,
         block.label,
         bb_term_kind(&block.term),
         op_kinds,
@@ -443,7 +438,7 @@ fn direct_simple_block_plan_from_block(
         ops.push(stmt_op);
     }
     let term = match &block.term {
-        BbTerm::Jump(target_label) => {
+        BlockPyTerm::Jump(target_label) => {
             let target_index = *label_to_index.get(target_label.as_str())?;
             let target_params = target_params_from_index(function, target_index)?;
             DirectSimpleTermPlan::Jump {
@@ -451,15 +446,11 @@ fn direct_simple_block_plan_from_block(
                 target_params,
             }
         }
-        BbTerm::BrIf {
-            test,
-            then_label,
-            else_label,
-        } => {
-            let test_expr = direct_simple_expr_from(test)?;
-            let then_index = *label_to_index.get(then_label.as_str())?;
+        BlockPyTerm::IfTerm(if_term) => {
+            let test_expr = direct_simple_expr_from(&if_term.test)?;
+            let then_index = *label_to_index.get(if_term.then_label.as_str())?;
             let then_params = target_params_from_index(function, then_index)?;
-            let else_index = *label_to_index.get(else_label.as_str())?;
+            let else_index = *label_to_index.get(if_term.else_label.as_str())?;
             let else_params = target_params_from_index(function, else_index)?;
             DirectSimpleTermPlan::BrIf {
                 test: test_expr,
@@ -469,19 +460,15 @@ fn direct_simple_block_plan_from_block(
                 else_params,
             }
         }
-        BbTerm::BrTable {
-            index,
-            targets,
-            default_label,
-        } => {
-            let index_expr = direct_simple_expr_from(index)?;
-            let mut target_plans = Vec::with_capacity(targets.len());
-            for target_label in targets {
+        BlockPyTerm::BranchTable(branch) => {
+            let index_expr = direct_simple_expr_from(&branch.index)?;
+            let mut target_plans = Vec::with_capacity(branch.targets.len());
+            for target_label in &branch.targets {
                 let target_index = *label_to_index.get(target_label.as_str())?;
                 let target_params = target_params_from_index(function, target_index)?;
                 target_plans.push((target_index, target_params));
             }
-            let default_index = *label_to_index.get(default_label.as_str())?;
+            let default_index = *label_to_index.get(branch.default_label.as_str())?;
             let default_params = target_params_from_index(function, default_index)?;
             DirectSimpleTermPlan::BrTable {
                 index: index_expr,
@@ -490,7 +477,7 @@ fn direct_simple_block_plan_from_block(
                 default_params,
             }
         }
-        BbTerm::Ret(ret_value) => {
+        BlockPyTerm::Return(ret_value) => {
             let value = if let Some(expr) = ret_value.as_ref() {
                 Some(direct_simple_expr_from(expr)?)
             } else {
@@ -498,8 +485,8 @@ fn direct_simple_block_plan_from_block(
             };
             DirectSimpleTermPlan::Ret { value }
         }
-        BbTerm::Raise { exc, cause } => {
-            let exc = if let Some(expr) = exc.as_ref() {
+        BlockPyTerm::Raise(raise_stmt) => {
+            let exc = if let Some(expr) = raise_stmt.exc.as_ref() {
                 Some(direct_simple_expr_from(expr)?)
             } else {
                 block
@@ -513,13 +500,9 @@ fn direct_simple_block_plan_from_block(
                     })
                     .map(|name| DirectSimpleExprPlan::Name(name.clone()))
             };
-            let cause = if let Some(expr) = cause.as_ref() {
-                Some(direct_simple_expr_from(expr)?)
-            } else {
-                None
-            };
-            DirectSimpleTermPlan::Raise { exc, cause }
+            DirectSimpleTermPlan::Raise { exc }
         }
+        BlockPyTerm::TryJump(_) => return None,
     };
     Some(DirectSimpleBlockPlan {
         params: block.meta.params.clone(),
@@ -540,7 +523,7 @@ fn build_clif_plan(
     ) {
         return Err(format!(
             "unsupported JIT function kind in {}: {:?}; only plain/generator/async-generator functions are currently supported",
-            function.qualname,
+            function.names.qualname,
             function.lowered_kind()
         ));
     }
@@ -557,7 +540,7 @@ fn build_clif_plan(
     let Some(entry_index) = label_to_index.get(entry_label).copied() else {
         return Err(format!(
             "missing entry label {} in function {}",
-            entry_label, function.qualname
+            entry_label, function.names.qualname
         ));
     };
     let mut block_terms = Vec::with_capacity(function.blocks.len());
@@ -570,7 +553,7 @@ fn build_clif_plan(
             Some(label) => Some(label_to_index.get(label.as_str()).copied().ok_or_else(|| {
                 format!(
                     "unknown exception target {label} in {}:{}",
-                    function.qualname, block.label
+                    function.names.qualname, block.label
                 )
             })?),
             None => None,
@@ -637,7 +620,7 @@ fn build_clif_plan(
             {
                 return Err(format!(
                     "exception dispatch from {}:{} requires frame-local fallback but has no _dp_self/_dp_state parameter",
-                    function.qualname, block.label
+                    function.names.qualname, block.label
                 ));
             }
             Some(BlockExcDispatchPlan {
@@ -649,7 +632,7 @@ fn build_clif_plan(
             None
         };
         let term = match &block.term {
-            BbTerm::Jump(target) => {
+            BlockPyTerm::Jump(target) => {
                 let target_index =
                     label_to_index
                         .get(target.as_str())
@@ -657,32 +640,28 @@ fn build_clif_plan(
                         .ok_or_else(|| {
                             format!(
                                 "unknown jump target {target} in {}:{}",
-                                function.qualname, block.label
+                                function.names.qualname, block.label
                             )
                         })?;
                 BlockTermPlan::Jump { target_index }
             }
-            BbTerm::BrIf {
-                then_label,
-                else_label,
-                ..
-            } => {
+            BlockPyTerm::IfTerm(if_term) => {
                 let then_index = label_to_index
-                    .get(then_label.as_str())
+                    .get(if_term.then_label.as_str())
                     .copied()
                     .ok_or_else(|| {
                         format!(
-                            "unknown then target {then_label} in {}:{}",
-                            function.qualname, block.label
+                            "unknown then target {} in {}:{}",
+                            if_term.then_label, function.names.qualname, block.label
                         )
                     })?;
                 let else_index = label_to_index
-                    .get(else_label.as_str())
+                    .get(if_term.else_label.as_str())
                     .copied()
                     .ok_or_else(|| {
                         format!(
-                            "unknown else target {else_label} in {}:{}",
-                            function.qualname, block.label
+                            "unknown else target {} in {}:{}",
+                            if_term.else_label, function.names.qualname, block.label
                         )
                     })?;
                 BlockTermPlan::BrIf {
@@ -690,22 +669,18 @@ fn build_clif_plan(
                     else_index,
                 }
             }
-            BbTerm::BrTable {
-                targets,
-                default_label,
-                ..
-            } => {
+            BlockPyTerm::BranchTable(branch) => {
                 let default_index = label_to_index
-                    .get(default_label.as_str())
+                    .get(branch.default_label.as_str())
                     .copied()
                     .ok_or_else(|| {
                         format!(
-                            "unknown br_table default target {default_label} in {}:{}",
-                            function.qualname, block.label
+                            "unknown br_table default target {} in {}:{}",
+                            branch.default_label, function.names.qualname, block.label
                         )
                     })?;
-                let mut target_indices = Vec::with_capacity(targets.len());
-                for target in targets {
+                let mut target_indices = Vec::with_capacity(branch.targets.len());
+                for target in &branch.targets {
                     let target_index =
                         label_to_index
                             .get(target.as_str())
@@ -713,7 +688,7 @@ fn build_clif_plan(
                             .ok_or_else(|| {
                                 format!(
                                     "unknown br_table target {target} in {}:{}",
-                                    function.qualname, block.label
+                                    function.names.qualname, block.label
                                 )
                             })?;
                     target_indices.push(target_index);
@@ -723,20 +698,26 @@ fn build_clif_plan(
                     default_index,
                 }
             }
-            BbTerm::Raise { .. } => BlockTermPlan::Raise,
-            BbTerm::Ret(_) => BlockTermPlan::Ret,
+            BlockPyTerm::Raise(_) => BlockTermPlan::Raise,
+            BlockPyTerm::Return(_) => BlockTermPlan::Ret,
+            BlockPyTerm::TryJump(_) => {
+                return Err(format!(
+                    "unexpected TryJump in BB function {}:{}",
+                    function.names.qualname, block.label
+                ));
+            }
         };
         let fast_path = {
             if block.body.is_empty() {
                 match &block.term {
-                    BbTerm::Jump(target_label) => {
+                    BlockPyTerm::Jump(target_label) => {
                         let target_index = label_to_index
                             .get(target_label.as_str())
                             .copied()
                             .ok_or_else(|| {
                                 format!(
                                     "unknown jump target {target_label} in {}:{}",
-                                    function.qualname, block.label
+                                    function.names.qualname, block.label
                                 )
                             })?;
                         let source_params = block.meta.params.as_slice();
@@ -753,8 +734,8 @@ fn build_clif_plan(
                             BlockFastPath::None
                         }
                     }
-                    BbTerm::Ret(None) => BlockFastPath::ReturnNone,
-                    BbTerm::BrIf { .. } => {
+                    BlockPyTerm::Return(None) => BlockFastPath::ReturnNone,
+                    BlockPyTerm::IfTerm(_) => {
                         if let Some(plan) =
                             direct_simple_brif_plan_from_block(function, block, &label_to_index)
                         {
@@ -824,7 +805,7 @@ pub fn register_clif_module_plans(module_name: &str, module: &BbModule) -> Resul
     for function in &lowered.callable_defs {
         let plan_name = function
             .function_id
-            .plan_qualname(function.qualname.as_str());
+            .plan_qualname(function.names.qualname.as_str());
         match build_clif_plan(function) {
             Ok(plan) => {
                 plans.insert(
@@ -840,7 +821,7 @@ pub fn register_clif_module_plans(module_name: &str, module: &BbModule) -> Resul
                     eprintln!(
                         "[diet-python:jitskip] module={} qualname={} entry={} reason={}",
                         module_name,
-                        function.qualname,
+                        function.names.qualname,
                         function.entry_label(),
                         err
                     );

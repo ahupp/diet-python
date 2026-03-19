@@ -1,21 +1,27 @@
 use super::*;
+use crate::basic_block::ast_to_ast::ast_rewrite::Rewrite;
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::block_py::{
     BlockPyAssign, BlockPyBlock, BlockPyDelete, BlockPyIf, BlockPyRaise, BlockPyStmt, BlockPyTerm,
     Expr,
 };
-use crate::basic_block::stmt_utils::flatten_stmt_boxes;
 
 pub(super) type BlockPyStmtFragmentBuilder<E> =
     crate::basic_block::block_py::BlockPyCfgFragmentBuilder<BlockPyStmt<E>, BlockPyTerm<E>>;
 
-pub(super) fn stmt_from_rewrite(
-    rewrite: crate::basic_block::ast_to_ast::ast_rewrite::Rewrite,
-) -> Stmt {
+pub(super) fn stmts_from_rewrite(rewrite: Rewrite) -> Vec<Stmt> {
     match rewrite {
-        crate::basic_block::ast_to_ast::ast_rewrite::Rewrite::Unmodified(stmt)
-        | crate::basic_block::ast_to_ast::ast_rewrite::Rewrite::Walk(stmt) => stmt,
+        Rewrite::Unmodified(stmt) => vec![stmt],
+        Rewrite::Walk(stmts) => stmts,
     }
+}
+
+pub(super) fn single_stmt(stmt: impl Into<Stmt>) -> Vec<Stmt> {
+    vec![stmt.into()]
+}
+
+pub(super) fn stmt_to_stmts(stmt: Stmt) -> Vec<Stmt> {
+    vec![stmt]
 }
 
 pub(super) fn lower_stmt_via_simplify<T, E>(
@@ -29,8 +35,10 @@ where
     T: StmtLowerer + Clone,
     E: From<Expr> + std::fmt::Debug,
 {
-    let simplified = stmt.clone().simplify_ast(context);
-    lower_stmt_into_with_expr(context, &simplified, out, loop_ctx, next_label_id)
+    for simplified in stmt.clone().simplify_ast(context) {
+        lower_stmt_into_with_expr(context, &simplified, out, loop_ctx, next_label_id)?;
+    }
+    Ok(())
 }
 
 pub(crate) fn lower_nested_stmt_into_with_expr<E>(
@@ -44,8 +52,10 @@ where
     E: From<Expr> + std::fmt::Debug,
 {
     if should_simplify_nested_stmt_head(stmt) {
-        let simplified = simplify_stmt_head_ast_for_blockpy(context, stmt.clone());
-        lower_stmt_into_with_expr(context, &simplified, out, loop_ctx, next_label_id)
+        for simplified in simplify_stmt_head_ast_for_blockpy(context, stmt.clone()) {
+            lower_stmt_into_with_expr(context, &simplified, out, loop_ctx, next_label_id)?;
+        }
+        Ok(())
     } else {
         lower_stmt_into_with_expr(context, stmt, out, loop_ctx, next_label_id)
     }
@@ -66,7 +76,7 @@ fn should_simplify_nested_stmt_head(stmt: &Stmt) -> bool {
 }
 
 pub(super) trait StmtLowerer {
-    fn simplify_ast(self, _context: &Context) -> Stmt
+    fn simplify_ast(self, _context: &Context) -> Vec<Stmt>
     where
         Self: Sized;
 
@@ -74,8 +84,7 @@ pub(super) trait StmtLowerer {
     where
         Self: Sized,
     {
-        let simplified = finish_stmt_head_ast_for_blockpy(context, self.simplify_ast(context));
-        plan_simplified_stmt_head_for_blockpy(simplified)
+        plan_simplified_stmt_head_for_blockpy(context, self.simplify_ast(context))
     }
 
     fn to_blockpy<E>(
@@ -98,8 +107,8 @@ pub(super) trait StmtLowerer {
 macro_rules! impl_unreduced_stmt_lowerer {
     ($ty:path, $variant:path, $message:literal) => {
         impl StmtLowerer for $ty {
-            fn simplify_ast(self, _context: &Context) -> Stmt {
-                $variant(self)
+            fn simplify_ast(self, _context: &Context) -> Vec<Stmt> {
+                single_stmt($variant(self))
             }
 
             fn to_blockpy<E>(
@@ -140,9 +149,8 @@ pub(crate) use try_stmt::{lower_star_try_stmt_sequence, lower_try_stmt_sequence}
 pub(crate) use type_alias_stmt::rewrite_type_alias_stmt;
 pub(crate) use with_stmt::lower_with_stmt_sequence;
 
-fn simplify_stmt_ast_once_for_blockpy(context: &Context, stmt: Stmt) -> Stmt {
+fn simplify_stmt_ast_once_for_blockpy(context: &Context, stmt: Stmt) -> Vec<Stmt> {
     match stmt {
-        Stmt::BodyStmt(body) => body.simplify_ast(context),
         Stmt::Global(stmt) => stmt.simplify_ast(context),
         Stmt::Nonlocal(stmt) => stmt.simplify_ast(context),
         Stmt::Pass(stmt) => stmt.simplify_ast(context),
@@ -168,28 +176,42 @@ fn simplify_stmt_ast_once_for_blockpy(context: &Context, stmt: Stmt) -> Stmt {
         Stmt::Raise(stmt) => stmt.simplify_ast(context),
         Stmt::Try(stmt) => stmt.simplify_ast(context),
         Stmt::IpyEscapeCommand(stmt) => stmt.simplify_ast(context),
+        _ => {
+            unreachable!("synthetic statement splice should not reach BlockPy stmt simplification")
+        }
     }
 }
 
-pub(super) fn simplify_stmt_ast_for_blockpy(context: &Context, stmt: Stmt) -> Stmt {
+pub(super) fn simplify_stmt_ast_for_blockpy(context: &Context, stmt: Stmt) -> Vec<Stmt> {
     simplify_stmt_ast_once_for_blockpy(context, stmt)
 }
 
-pub(super) fn simplify_stmt_head_ast_for_blockpy(context: &Context, stmt: Stmt) -> Stmt {
-    let stmt = simplify_stmt_ast_once_for_blockpy(context, stmt);
-    finish_stmt_head_ast_for_blockpy(context, stmt)
+pub(super) fn simplify_stmt_head_ast_for_blockpy(context: &Context, stmt: Stmt) -> Vec<Stmt> {
+    let stmts = simplify_stmt_ast_once_for_blockpy(context, stmt);
+    finish_stmt_head_ast_for_blockpy(context, stmts)
 }
 
-fn finish_stmt_head_ast_for_blockpy(context: &Context, stmt: Stmt) -> Stmt {
-    match stmt {
-        Stmt::If(if_stmt) => simplify_if_test_for_blockpy(context, if_stmt),
-        other => other,
+fn finish_stmt_head_ast_for_blockpy(context: &Context, stmts: Vec<Stmt>) -> Vec<Stmt> {
+    match stmts.as_slice() {
+        [Stmt::If(if_stmt)] => vec![simplify_if_test_for_blockpy(context, if_stmt.clone())],
+        [_] | [] => stmts,
+        _ => stmts,
     }
 }
 
-fn plan_simplified_stmt_head_for_blockpy(simplified: Stmt) -> StmtSequenceHeadPlan {
+fn plan_simplified_stmt_head_for_blockpy(
+    context: &Context,
+    simplified: Vec<Stmt>,
+) -> StmtSequenceHeadPlan {
+    let simplified = finish_stmt_head_ast_for_blockpy(context, simplified);
+    if simplified.len() != 1 {
+        return StmtSequenceHeadPlan::Expanded(simplified);
+    }
+    let simplified = simplified
+        .into_iter()
+        .next()
+        .expect("single simplified stmt should exist");
     match simplified {
-        Stmt::BodyStmt(body) => StmtSequenceHeadPlan::Expanded(Stmt::BodyStmt(body)),
         Stmt::Expr(_)
         | Stmt::Pass(_)
         | Stmt::Assign(_)
@@ -217,7 +239,6 @@ fn plan_simplified_stmt_head_for_blockpy(simplified: Stmt) -> StmtSequenceHeadPl
 
 pub(crate) fn plan_stmt_head_for_blockpy(context: &Context, stmt: &Stmt) -> StmtSequenceHeadPlan {
     match stmt {
-        Stmt::BodyStmt(stmt) => stmt.clone().plan_head(context),
         Stmt::Global(stmt) => stmt.clone().plan_head(context),
         Stmt::Nonlocal(stmt) => stmt.clone().plan_head(context),
         Stmt::Pass(stmt) => stmt.clone().plan_head(context),
@@ -243,6 +264,7 @@ pub(crate) fn plan_stmt_head_for_blockpy(context: &Context, stmt: &Stmt) -> Stmt
         Stmt::Raise(stmt) => stmt.clone().plan_head(context),
         Stmt::Try(stmt) => stmt.clone().plan_head(context),
         Stmt::IpyEscapeCommand(stmt) => stmt.clone().plan_head(context),
+        _ => unreachable!("synthetic statement splice should not reach BlockPy stmt head planning"),
     }
 }
 
@@ -276,7 +298,6 @@ where
     E: From<Expr> + std::fmt::Debug,
 {
     match stmt {
-        Stmt::BodyStmt(body) => body.to_blockpy(context, out, loop_ctx, next_label_id),
         Stmt::Global(stmt) => stmt.to_blockpy(context, out, loop_ctx, next_label_id),
         Stmt::Nonlocal(stmt) => stmt.to_blockpy(context, out, loop_ctx, next_label_id),
         Stmt::Pass(stmt) => stmt.to_blockpy(context, out, loop_ctx, next_label_id),
@@ -302,6 +323,7 @@ where
         Stmt::Raise(stmt) => stmt.to_blockpy(context, out, loop_ctx, next_label_id),
         Stmt::Try(stmt) => stmt.to_blockpy(context, out, loop_ctx, next_label_id),
         Stmt::IpyEscapeCommand(stmt) => stmt.to_blockpy(context, out, loop_ctx, next_label_id),
+        _ => unreachable!("synthetic statement splice should not reach BlockPy stmt lowering"),
     }?;
     Ok(())
 }

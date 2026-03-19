@@ -83,6 +83,11 @@
     - The current file is a hand-written recursive traversal even though the repo rule is to prefer `Transformer`-based AST walks.
     - The key question is whether the setup-emitting behavior for boolop / compare / if-expr / named-expr / await / yield shapes can be preserved while letting a `Transformer` own the generic recursive descent.
     - A good first pass is to separate “plain recursive descent over child `Expr` nodes” from the setup-emitting special cases, then check if the former can move behind a reusable `Transformer` implementation.
+- Remove the “start label” concept and always make the first block the callable entry block.
+  - Planning note:
+    - The desired end state is that callable entry is represented structurally by block order, with block `0` / the first block as the entry block, instead of carrying a separate exported start-label concept.
+    - A good first pass is to audit every place that stores, normalizes, renders, or exports a start/entry label and separate internal relabeling concerns from public callable entry semantics.
+    - Then make CFG/BlockPy/BB construction normalize blocks so the entry block is first, and delete the extra start-label plumbing from previews, rendering, and lowered/export metadata.
 
 ## Completed
 

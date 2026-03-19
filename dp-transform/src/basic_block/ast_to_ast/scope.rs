@@ -5,8 +5,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use ruff_python_ast::{self as ast, Expr, ExprContext, HasNodeIndex, NodeIndex, Stmt, StmtBody};
+use ruff_python_ast::{self as ast, Expr, ExprContext, HasNodeIndex, NodeIndex, Stmt};
 
+use crate::basic_block::ast_to_ast::body::{suite_mut, suite_ref, take_suite, Suite};
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BindingKind {
@@ -540,7 +541,7 @@ impl Transformer for ScopeCollector {
     }
 }
 
-fn collect_scope_info(body: &StmtBody) -> ScopeInfo {
+fn collect_scope_info(body: &Suite) -> ScopeInfo {
     let mut collector = ScopeCollector::default();
     let mut cloned_body = body.clone();
     collector.visit_body(&mut cloned_body);
@@ -552,7 +553,7 @@ fn collect_scope_info(body: &StmtBody) -> ScopeInfo {
     }
 }
 
-pub fn analyze_module_scope(module: &mut StmtBody) -> Arc<Scope> {
+pub fn analyze_module_scope(module: &mut Suite) -> Arc<Scope> {
     let tree = ScopeTree::new();
     let info = collect_scope_info(module);
     let root = tree.add_scope(
@@ -605,7 +606,7 @@ impl Transformer for ScopeAnalyzer {
             Stmt::FunctionDef(func_def) => {
                 let mut info = function_param_bindings(func_def);
                 let bindings = &mut info.bindings;
-                let load_names = collect_load_names(&func_def.body);
+                let load_names = collect_load_names(suite_ref(&func_def.body));
                 for name in load_names {
                     if is_internal_symbol(name.as_str()) {
                         continue;
@@ -628,12 +629,12 @@ impl Transformer for ScopeAnalyzer {
                     Some(self.scope.clone()),
                     Some(node_index),
                 );
-                ScopeAnalyzer::new(scope.clone()).visit_body(&mut func_def.body);
+                ScopeAnalyzer::new(scope.clone()).visit_body(suite_mut(&mut func_def.body));
             }
             Stmt::ClassDef(class_def) => {
                 let mut info = class_bindings(class_def);
                 let bindings = &mut info.bindings;
-                let load_names = collect_load_names(&class_def.body);
+                let load_names = collect_load_names(suite_ref(&class_def.body));
                 for name in load_names {
                     if is_internal_symbol(name.as_str()) {
                         continue;
@@ -656,7 +657,7 @@ impl Transformer for ScopeAnalyzer {
                     Some(self.scope.clone()),
                     Some(node_index),
                 );
-                ScopeAnalyzer::new(scope.clone()).visit_body(&mut class_def.body);
+                ScopeAnalyzer::new(scope.clone()).visit_body(suite_mut(&mut class_def.body));
             }
             _ => {
                 walk_stmt(self, stmt);
@@ -664,7 +665,7 @@ impl Transformer for ScopeAnalyzer {
         }
     }
 }
-fn collect_load_names(body: &StmtBody) -> HashSet<String> {
+fn collect_load_names(body: &Suite) -> HashSet<String> {
     #[derive(Default)]
     struct LoadCollector {
         names: HashSet<String>,
@@ -776,7 +777,7 @@ fn propagate_nonlocal_roots(tree: &Arc<ScopeTree>) {
 }
 
 fn function_param_bindings(func_def: &ast::StmtFunctionDef) -> ScopeInfo {
-    let mut info = collect_scope_info(&func_def.body);
+    let mut info = collect_scope_info(suite_ref(&func_def.body));
     let bindings = &mut info.bindings;
 
     let ast::Parameters {
@@ -818,7 +819,7 @@ fn function_param_bindings(func_def: &ast::StmtFunctionDef) -> ScopeInfo {
 }
 
 fn class_bindings(class_def: &ast::StmtClassDef) -> ScopeInfo {
-    collect_scope_info(&class_def.body)
+    collect_scope_info(suite_ref(&class_def.body))
 }
 
 #[derive(Debug, Clone)]
@@ -878,13 +879,16 @@ impl QualNamer {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::basic_block::ast_to_ast::body::{suite_ref, take_suite};
     use ruff_python_parser::parse_module;
 
-    fn parse_module_body(source: &str) -> StmtBody {
-        parse_module(source)
-            .expect("parse failure")
-            .into_syntax()
-            .body
+    fn parse_module_body(source: &str) -> Suite {
+        take_suite(
+            &mut parse_module(source)
+                .expect("parse failure")
+                .into_syntax()
+                .body,
+        )
     }
 
     fn find_function<'a>(body: &'a [Box<Stmt>], name: &str) -> &'a ast::StmtFunctionDef {
@@ -928,7 +932,7 @@ mod test {
             "    y = b\n",
         ));
         let module_scope = analyze_module_scope(&mut body);
-        let func_def = find_function(&body.body, "f");
+        let func_def = find_function(&body, "f");
         let func_scope = module_scope
             .lookup_child_scope(func_def)
             .expect("missing function scope");
@@ -951,7 +955,7 @@ mod test {
             "    return value\n",
         ));
         let module_scope = analyze_module_scope(&mut body);
-        let func_def = find_function(&body.body, "f");
+        let func_def = find_function(&body, "f");
         let func_scope = module_scope
             .child_scope_for_function(func_def)
             .expect("missing function scope");
@@ -974,20 +978,20 @@ mod test {
             "    return global_function()\n",
         ));
         let module_scope = analyze_module_scope(&mut body);
-        let build_qualnames = find_function(&body.body, "build_qualnames");
+        let build_qualnames = find_function(&body, "build_qualnames");
         let build_scope = module_scope
             .lookup_child_scope(build_qualnames)
             .expect("missing build_qualnames scope");
-        let global_function = find_function(&build_qualnames.body.body, "global_function");
+        let global_function = find_function(suite_ref(&build_qualnames.body), "global_function");
         let global_scope = build_scope
             .lookup_child_scope(global_function)
             .expect("missing global_function scope");
-        let inner_function = find_function(&global_function.body.body, "inner_function");
+        let inner_function = find_function(suite_ref(&global_function.body), "inner_function");
         let inner_scope = global_scope
             .lookup_child_scope(inner_function)
             .expect("missing inner_function scope");
         let inner_global_function =
-            find_function(&inner_function.body.body, "inner_global_function");
+            find_function(suite_ref(&inner_function.body), "inner_global_function");
         let inner_global_scope = inner_scope
             .lookup_child_scope(inner_global_function)
             .expect("missing inner_global_function scope");
@@ -1010,11 +1014,11 @@ mod test {
             "    return inner\n",
         ));
         let module_scope = analyze_module_scope(&mut body);
-        let outer_def = find_function(&body.body, "outer");
+        let outer_def = find_function(&body, "outer");
         let outer_scope = module_scope
             .lookup_child_scope(outer_def)
             .expect("missing outer scope");
-        let inner_def = find_function(&outer_def.body.body, "inner");
+        let inner_def = find_function(suite_ref(&outer_def.body), "inner");
         let inner_scope = outer_scope
             .lookup_child_scope(inner_def)
             .expect("missing inner scope");
@@ -1040,11 +1044,11 @@ mod test {
             "    return inner\n",
         ));
         let module_scope = analyze_module_scope(&mut body);
-        let outer_def = find_function(&body.body, "outer");
+        let outer_def = find_function(&body, "outer");
         let outer_scope = module_scope
             .lookup_child_scope(outer_def)
             .expect("missing outer scope");
-        let inner_def = find_function(&outer_def.body.body, "inner");
+        let inner_def = find_function(suite_ref(&outer_def.body), "inner");
         let inner_scope = outer_scope
             .lookup_child_scope(inner_def)
             .expect("missing inner scope");
@@ -1065,7 +1069,7 @@ mod test {
             "        z = y\n",
         ));
         let module_scope = analyze_module_scope(&mut body);
-        let class_def = find_class(&body.body, "C");
+        let class_def = find_class(&body, "C");
         let class_scope = module_scope
             .lookup_child_scope(class_def)
             .expect("missing class scope");
@@ -1083,11 +1087,12 @@ mod test {
             "    return C\n",
         ));
         let module_scope = analyze_module_scope(&mut body);
-        let outer_def = find_function(&body.body, "outer");
+        let outer_def = find_function(&body, "outer");
         let outer_scope = module_scope
             .lookup_child_scope(outer_def)
             .expect("missing outer scope");
-        let class_def = find_class_recursive(&outer_def.body.body, "C").expect("missing class");
+        let class_def =
+            find_class_recursive(suite_ref(&outer_def.body), "C").expect("missing class");
         let class_scope = outer_scope
             .lookup_child_scope(class_def)
             .expect("missing class scope");
@@ -1109,33 +1114,28 @@ mod test {
                     return Some(class_def);
                 }
                 Stmt::If(if_stmt) => {
-                    if let Some(found) = find_class_recursive(&if_stmt.body.body, name) {
+                    if let Some(found) = find_class_recursive(suite_ref(&if_stmt.body), name) {
                         return Some(found);
                     }
                     for clause in &if_stmt.elif_else_clauses {
-                        if let Some(found) = find_class_recursive(&clause.body.body, name) {
+                        if let Some(found) = find_class_recursive(suite_ref(&clause.body), name) {
                             return Some(found);
                         }
                     }
                 }
                 Stmt::For(for_stmt) => {
-                    if let Some(found) = find_class_recursive(&for_stmt.body.body, name) {
+                    if let Some(found) = find_class_recursive(suite_ref(&for_stmt.body), name) {
                         return Some(found);
                     }
-                    if let Some(found) = find_class_recursive(&for_stmt.orelse.body, name) {
+                    if let Some(found) = find_class_recursive(suite_ref(&for_stmt.orelse), name) {
                         return Some(found);
                     }
                 }
                 Stmt::While(while_stmt) => {
-                    if let Some(found) = find_class_recursive(&while_stmt.body.body, name) {
+                    if let Some(found) = find_class_recursive(suite_ref(&while_stmt.body), name) {
                         return Some(found);
                     }
-                    if let Some(found) = find_class_recursive(&while_stmt.orelse.body, name) {
-                        return Some(found);
-                    }
-                }
-                Stmt::BodyStmt(body) => {
-                    if let Some(found) = find_class_recursive(&body.body, name) {
+                    if let Some(found) = find_class_recursive(suite_ref(&while_stmt.orelse), name) {
                         return Some(found);
                     }
                 }

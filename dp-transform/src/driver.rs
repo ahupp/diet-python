@@ -6,21 +6,23 @@ use crate::basic_block::ast_to_ast::rewrite_stmt::function_def::rewrite_ast_to_l
 use crate::basic_block::ast_to_ast::scope::{analyze_module_scope, BindingKind};
 use crate::basic_block::ast_to_ast::simplify::lower_surrogate_string_literals;
 use crate::basic_block::ast_to_ast::{
-    ast_rewrite::ExprRewritePass, ast_rewrite::LoweredExpr, rewrite_expr::lower_scoped_helper_expr,
+    ast_rewrite::ExprRewritePass,
+    ast_rewrite::LoweredExpr,
+    body::{body_from_suite, suite_mut, take_suite, Suite},
+    rewrite_expr::lower_scoped_helper_expr,
     rewrite_future_annotations, rewrite_names, rewrite_stmt,
 };
 use crate::basic_block::bb_ir::BbModule;
-use crate::basic_block::block_py::BlockPyModule;
+use crate::basic_block::block_py::{BlockPyModule, CfgModule};
 use crate::basic_block::blockpy_to_bb::LoweredCoreBlockPyFunctionWithoutAwaitOrYield;
 use crate::basic_block::blockpy_to_bb::{
     LoweredCoreBlockPyFunction, LoweredCoreBlockPyFunctionWithoutAwait,
 };
-use crate::basic_block::cfg_ir::CfgModule;
 use crate::basic_block::ruff_to_blockpy::LoweredBlockPyFunction;
 use crate::PassTracker;
-use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
+use ruff_python_ast::{self as ast, Expr, Stmt};
 
-pub fn rewrite_module(context: &Context, module: StmtBody) -> (PassTracker, BbModule) {
+pub fn rewrite_module(context: &Context, module: Suite) -> (PassTracker, BbModule) {
     let mut pass_tracker = PassTracker::new();
     let bb_module = rewrite_module_with_tracker(context, module, &mut pass_tracker);
     (pass_tracker, bb_module)
@@ -28,31 +30,39 @@ pub fn rewrite_module(context: &Context, module: StmtBody) -> (PassTracker, BbMo
 
 pub(crate) fn rewrite_module_with_tracker(
     context: &Context,
-    module: StmtBody,
+    module: Suite,
     pass_tracker: &mut PassTracker,
 ) -> BbModule {
-    let (_module, semantic_blockpy): (StmtBody, BlockPyModule<Expr>) =
+    let (_module, semantic_blockpy): (Suite, BlockPyModule<Expr>) =
         pass_tracker.run_pass("ast-to-ast", || {
-            let mut module = module;
+            let mut module = body_from_suite(module);
 
             // The transform now has a single lowering strategy: basic-block form.
-            lower_surrogate_string_literals(context, &mut module);
+            lower_surrogate_string_literals(context, suite_mut(&mut module));
 
-            rewrite_future_annotations::rewrite(context, &mut module);
+            rewrite_future_annotations::rewrite(context, suite_mut(&mut module));
 
             // Rewrite names like "__foo" in class bodies to "_<class_name>__foo"
-            rewrite_class_def::private::rewrite_private_names(context, &mut module);
+            rewrite_class_def::private::rewrite_private_names(context, suite_mut(&mut module));
 
             // Replace annotated assignments ("x: int = 1") with regular assignments,
             // and either drop the annotations (in functions) or generate an
             // __annotate__ function (in modules and classes)
-            rewrite_stmt::annotation::rewrite_ann_assign_to_dunder_annotate(context, &mut module);
+            rewrite_stmt::annotation::rewrite_ann_assign_to_dunder_annotate(
+                context,
+                suite_mut(&mut module),
+            );
 
-            wrap_module_init(&mut module);
+            wrap_module_init(suite_mut(&mut module));
 
             // Lower helper-scoped expressions that synthesize nested defs for Python
             // scoping semantics before the more direct BlockPy expr lowering boundary.
-            rewrite_with_pass(context, None, Some(&ScopedHelperExprPass), &mut module);
+            rewrite_with_pass(
+                context,
+                None,
+                Some(&ScopedHelperExprPass),
+                suite_mut(&mut module),
+            );
 
             // Lower multi-target assignment / delete shapes to the single-name forms
             // that the later BlockPy lowering expects.
@@ -60,19 +70,27 @@ pub(crate) fn rewrite_module_with_tracker(
                 context,
                 Some(&basic_block::SingleNamedAssignmentPass),
                 None,
-                &mut module,
+                suite_mut(&mut module),
             );
 
-            let scope = analyze_module_scope(&mut module);
+            let scope = analyze_module_scope(suite_mut(&mut module));
 
             // Replace global / nonlocal and class-body scoping with explicit loads/stores.
             //  - globals: __dp__.load/store_global(globals(), name)
             //  - nonlocal: create a cell in the outermost scope, and access with __dp__.load/store_cell(cell, value)
             //  - class-body: class_body_load_cell/global(_dp_class_ns, name, cell / globals()) captures "try class, then outer"
-            rewrite_names::rewrite_explicit_bindings(context, scope.clone(), &mut module);
+            rewrite_names::rewrite_explicit_bindings(
+                context,
+                scope.clone(),
+                suite_mut(&mut module),
+            );
 
-            rewrite_class_def::class_body::rewrite_class_body_scopes(context, scope, &mut module);
-            rewrite_ast_to_lowered_blockpy_module_plan(context, module)
+            rewrite_class_def::class_body::rewrite_class_body_scopes(
+                context,
+                scope,
+                suite_mut(&mut module),
+            );
+            rewrite_ast_to_lowered_blockpy_module_plan(context, take_suite(&mut module))
         });
     let semantic_blockpy: BlockPyModule<Expr> =
         pass_tracker.run_pass("semantic_blockpy", || semantic_blockpy.clone());
@@ -125,7 +143,7 @@ fn is_future_import(stmt: &Stmt) -> bool {
     )
 }
 
-pub(crate) fn wrap_module_init(module: &mut StmtBody) {
+pub(crate) fn wrap_module_init(module: &mut Suite) {
     let mut global_names = {
         let scope = analyze_module_scope(module);
         let bindings = scope.scope_bindings();
@@ -147,7 +165,7 @@ pub(crate) fn wrap_module_init(module: &mut StmtBody) {
     let mut seen_non_prelude = false;
     let mut docstring_seen = false;
 
-    for stmt in std::mem::take(&mut module.body) {
+    for stmt in std::mem::take(module) {
         let stmt_ref = stmt.as_ref();
         if !seen_non_prelude {
             if !docstring_seen && is_module_docstring(stmt_ref) {
@@ -185,7 +203,7 @@ def _dp_module_init():
     );
 
     prelude.push(Box::new(Stmt::FunctionDef(module_init)));
-    module.body = prelude;
+    *module = prelude;
 }
 
 pub struct ScopedHelperExprPass;

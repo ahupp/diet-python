@@ -1,9 +1,10 @@
+use crate::basic_block::ast_to_ast::body::{suite_mut, Suite};
 use ruff_python_ast::{
     self as ast, Alias, Arguments, BoolOp, BytesLiteral, CmpOp, Comprehension, Decorator,
     ElifElseClause, ExceptHandler, Expr, ExprContext, FString, InterpolatedStringElement, Keyword,
     MatchCase, Operator, Parameter, Parameters, Pattern, PatternArguments, PatternKeyword, Stmt,
-    StmtBody, StringLiteral, TString, TypeParam, TypeParamParamSpec, TypeParamTypeVar,
-    TypeParamTypeVarTuple, TypeParams, UnaryOp, WithItem,
+    StringLiteral, TString, TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple,
+    TypeParams, UnaryOp, WithItem,
 };
 
 /// A trait for transforming ASTs. Visits all nodes in the AST recursively in evaluation-order.
@@ -77,7 +78,7 @@ pub trait Transformer {
     fn visit_pattern_keyword(&mut self, pattern_keyword: &mut PatternKeyword) {
         walk_pattern_keyword(self, pattern_keyword);
     }
-    fn visit_body(&mut self, body: &mut StmtBody) {
+    fn visit_body(&mut self, body: &mut Suite) {
         walk_body(self, body);
     }
     fn visit_elif_else_clause(&mut self, elif_else_clause: &mut ElifElseClause) {
@@ -103,8 +104,8 @@ pub trait Transformer {
     }
 }
 
-pub fn walk_body<V: Transformer + ?Sized>(visitor: &mut V, body: &mut StmtBody) {
-    for stmt in body.body.iter_mut() {
+pub fn walk_body<V: Transformer + ?Sized>(visitor: &mut V, body: &mut Suite) {
+    for stmt in body.iter_mut() {
         visitor.visit_stmt(stmt.as_mut());
     }
 }
@@ -116,7 +117,7 @@ pub fn walk_elif_else_clause<V: Transformer + ?Sized>(
     if let Some(test) = &mut elif_else_clause.test {
         visitor.visit_expr(test);
     }
-    visitor.visit_body(&mut elif_else_clause.body);
+    visitor.visit_body(suite_mut(&mut elif_else_clause.body));
 }
 
 pub fn walk_stmt<V: Transformer + ?Sized>(visitor: &mut V, stmt: &mut Stmt) {
@@ -139,7 +140,7 @@ pub fn walk_stmt<V: Transformer + ?Sized>(visitor: &mut V, stmt: &mut Stmt) {
             if let Some(expr) = returns {
                 visitor.visit_annotation(expr);
             }
-            visitor.visit_body(body);
+            visitor.visit_body(suite_mut(body));
         }
         Stmt::ClassDef(ast::StmtClassDef {
             arguments,
@@ -157,7 +158,7 @@ pub fn walk_stmt<V: Transformer + ?Sized>(visitor: &mut V, stmt: &mut Stmt) {
             if let Some(arguments) = arguments {
                 visitor.visit_arguments(arguments);
             }
-            visitor.visit_body(body);
+            visitor.visit_body(suite_mut(body));
         }
         Stmt::Return(ast::StmtReturn {
             value,
@@ -228,8 +229,8 @@ pub fn walk_stmt<V: Transformer + ?Sized>(visitor: &mut V, stmt: &mut Stmt) {
         }) => {
             visitor.visit_expr(iter);
             visitor.visit_expr(target);
-            visitor.visit_body(body);
-            visitor.visit_body(orelse);
+            visitor.visit_body(suite_mut(body));
+            visitor.visit_body(suite_mut(orelse));
         }
         Stmt::While(ast::StmtWhile {
             test,
@@ -239,8 +240,8 @@ pub fn walk_stmt<V: Transformer + ?Sized>(visitor: &mut V, stmt: &mut Stmt) {
             node_index: _,
         }) => {
             visitor.visit_expr(test);
-            visitor.visit_body(body);
-            visitor.visit_body(orelse);
+            visitor.visit_body(suite_mut(body));
+            visitor.visit_body(suite_mut(orelse));
         }
         Stmt::If(ast::StmtIf {
             test,
@@ -250,7 +251,7 @@ pub fn walk_stmt<V: Transformer + ?Sized>(visitor: &mut V, stmt: &mut Stmt) {
             node_index: _,
         }) => {
             visitor.visit_expr(test);
-            visitor.visit_body(body);
+            visitor.visit_body(suite_mut(body));
             for clause in elif_else_clauses {
                 visitor.visit_elif_else_clause(clause);
             }
@@ -259,7 +260,7 @@ pub fn walk_stmt<V: Transformer + ?Sized>(visitor: &mut V, stmt: &mut Stmt) {
             for with_item in items {
                 visitor.visit_with_item(with_item);
             }
-            visitor.visit_body(body);
+            visitor.visit_body(suite_mut(body));
         }
         Stmt::Match(ast::StmtMatch {
             subject,
@@ -294,12 +295,12 @@ pub fn walk_stmt<V: Transformer + ?Sized>(visitor: &mut V, stmt: &mut Stmt) {
             range: _,
             node_index: _,
         }) => {
-            visitor.visit_body(body);
+            visitor.visit_body(suite_mut(body));
             for except_handler in handlers {
                 visitor.visit_except_handler(except_handler);
             }
-            visitor.visit_body(orelse);
-            visitor.visit_body(finalbody);
+            visitor.visit_body(suite_mut(orelse));
+            visitor.visit_body(suite_mut(finalbody));
         }
         Stmt::Assert(ast::StmtAssert {
             test,
@@ -333,12 +334,8 @@ pub fn walk_stmt<V: Transformer + ?Sized>(visitor: &mut V, stmt: &mut Stmt) {
             range: _,
             node_index: _,
         }) => visitor.visit_expr(value),
-        Stmt::BodyStmt(ast::StmtBody { body, .. }) => {
-            for stmt in body {
-                visitor.visit_stmt(stmt);
-            }
-        }
         Stmt::Pass(_) | Stmt::Break(_) | Stmt::Continue(_) | Stmt::IpyEscapeCommand(_) => {}
+        _ => unreachable!("synthetic statement splice should not be traversed here"),
     }
 }
 
@@ -647,7 +644,7 @@ pub fn walk_except_handler<V: Transformer + ?Sized>(
             if let Some(expr) = type_ {
                 visitor.visit_expr(expr);
             }
-            visitor.visit_body(body);
+            visitor.visit_body(suite_mut(body));
         }
     }
 }
@@ -766,7 +763,7 @@ pub fn walk_match_case<V: Transformer + ?Sized>(visitor: &mut V, match_case: &mu
     if let Some(expr) = &mut match_case.guard {
         visitor.visit_expr(expr);
     }
-    visitor.visit_body(&mut match_case.body);
+    visitor.visit_body(suite_mut(&mut match_case.body));
 }
 
 pub fn walk_pattern<V: Transformer + ?Sized>(visitor: &mut V, pattern: &mut Pattern) {

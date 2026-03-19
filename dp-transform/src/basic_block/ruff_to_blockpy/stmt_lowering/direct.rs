@@ -7,11 +7,11 @@ use crate::py_stmt;
 
 pub(crate) fn rewrite_raise_stmt(mut raise: ast::StmtRaise) -> Rewrite {
     match (raise.exc.take(), raise.cause.take()) {
-        (Some(exc), Some(cause)) => Rewrite::Walk(py_stmt!(
+        (Some(exc), Some(cause)) => Rewrite::Walk(vec![py_stmt!(
             "raise __dp_raise_from({exc:expr}, {cause:expr})",
             exc = exc,
             cause = cause,
-        )),
+        )]),
         (exc, None) => {
             raise.exc = exc;
             Rewrite::Unmodified(raise.into())
@@ -22,31 +22,9 @@ pub(crate) fn rewrite_raise_stmt(mut raise: ast::StmtRaise) -> Rewrite {
     }
 }
 
-impl StmtLowerer for ast::StmtBody {
-    fn simplify_ast(self, _context: &Context) -> Stmt {
-        Stmt::BodyStmt(self)
-    }
-
-    fn to_blockpy<E>(
-        &self,
-        context: &Context,
-        out: &mut BlockPyStmtFragmentBuilder<E>,
-        loop_ctx: Option<&LoopContext>,
-        next_label_id: &mut usize,
-    ) -> Result<(), String>
-    where
-        E: From<Expr> + std::fmt::Debug,
-    {
-        for stmt in &self.body {
-            lower_nested_stmt_into_with_expr(context, stmt.as_ref(), out, loop_ctx, next_label_id)?;
-        }
-        Ok(())
-    }
-}
-
 impl StmtLowerer for ast::StmtGlobal {
-    fn simplify_ast(self, _context: &Context) -> Stmt {
-        Stmt::Global(self)
+    fn simplify_ast(self, _context: &Context) -> Vec<Stmt> {
+        single_stmt(Stmt::Global(self))
     }
 
     fn to_blockpy<E>(
@@ -64,8 +42,8 @@ impl StmtLowerer for ast::StmtGlobal {
 }
 
 impl StmtLowerer for ast::StmtNonlocal {
-    fn simplify_ast(self, _context: &Context) -> Stmt {
-        Stmt::Nonlocal(self)
+    fn simplify_ast(self, _context: &Context) -> Vec<Stmt> {
+        single_stmt(Stmt::Nonlocal(self))
     }
 
     fn to_blockpy<E>(
@@ -83,8 +61,8 @@ impl StmtLowerer for ast::StmtNonlocal {
 }
 
 impl StmtLowerer for ast::StmtPass {
-    fn simplify_ast(self, _context: &Context) -> Stmt {
-        Stmt::Pass(self)
+    fn simplify_ast(self, _context: &Context) -> Vec<Stmt> {
+        single_stmt(Stmt::Pass(self))
     }
 
     fn to_blockpy<E>(
@@ -102,8 +80,8 @@ impl StmtLowerer for ast::StmtPass {
 }
 
 impl StmtLowerer for ast::StmtExpr {
-    fn simplify_ast(self, _context: &Context) -> Stmt {
-        Stmt::Expr(self)
+    fn simplify_ast(self, _context: &Context) -> Vec<Stmt> {
+        single_stmt(Stmt::Expr(self))
     }
 
     fn to_blockpy<E>(
@@ -128,8 +106,8 @@ impl StmtLowerer for ast::StmtExpr {
 }
 
 impl StmtLowerer for ast::StmtBreak {
-    fn simplify_ast(self, _context: &Context) -> Stmt {
-        Stmt::Break(self)
+    fn simplify_ast(self, _context: &Context) -> Vec<Stmt> {
+        single_stmt(Stmt::Break(self))
     }
 
     fn to_blockpy<E>(
@@ -152,8 +130,8 @@ impl StmtLowerer for ast::StmtBreak {
 }
 
 impl StmtLowerer for ast::StmtContinue {
-    fn simplify_ast(self, _context: &Context) -> Stmt {
-        Stmt::Continue(self)
+    fn simplify_ast(self, _context: &Context) -> Vec<Stmt> {
+        single_stmt(Stmt::Continue(self))
     }
 
     fn to_blockpy<E>(
@@ -176,8 +154,8 @@ impl StmtLowerer for ast::StmtContinue {
 }
 
 impl StmtLowerer for ast::StmtReturn {
-    fn simplify_ast(self, _context: &Context) -> Stmt {
-        Stmt::Return(self)
+    fn simplify_ast(self, _context: &Context) -> Vec<Stmt> {
+        single_stmt(Stmt::Return(self))
     }
 
     fn to_blockpy<E>(
@@ -207,8 +185,8 @@ impl StmtLowerer for ast::StmtReturn {
 }
 
 impl StmtLowerer for ast::StmtRaise {
-    fn simplify_ast(self, _context: &Context) -> Stmt {
-        stmt_from_rewrite(rewrite_raise_stmt(self))
+    fn simplify_ast(self, _context: &Context) -> Vec<Stmt> {
+        stmts_from_rewrite(rewrite_raise_stmt(self))
     }
 
     fn to_blockpy<E>(
@@ -257,8 +235,8 @@ mod tests {
         let simplified = simplify_stmt_ast_for_blockpy(&context, Stmt::Raise(raise_stmt));
 
         assert!(!matches!(
-            simplified,
-            Stmt::Raise(ast::StmtRaise { cause: Some(_), .. })
+            simplified.as_slice(),
+            [Stmt::Raise(ast::StmtRaise { cause: Some(_), .. })]
         ));
     }
 

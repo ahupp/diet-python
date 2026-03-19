@@ -300,7 +300,7 @@ def exercise():
         let gen_function = normalized
             .callable_defs
             .iter()
-            .find(|function| function.qualname == "exercise.<locals>.gen")
+            .find(|function| function.names.qualname == "exercise.<locals>.gen")
             .expect("missing lowered generator function");
         let plan = jit::lookup_clif_plan(module_name, gen_function.function_id.0)
             .expect("registered plan should exist");

@@ -2,7 +2,9 @@ use crate::basic_block::annotation_export::{
     build_lowered_annotation_helper_binding, is_annotation_helper_name,
     prepare_non_lowered_annotationlib_function,
 };
+use crate::basic_block::ast_to_ast::body::{suite_mut, suite_ref, take_suite, Suite};
 use crate::basic_block::ast_to_ast::context::Context;
+use crate::basic_block::ast_to_ast::expr_utils::{make_dp_tuple, name_expr};
 use crate::basic_block::ast_to_ast::rewrite_stmt;
 use crate::basic_block::ast_to_ast::scope::{
     analyze_module_scope, cell_name, is_internal_symbol, Scope,
@@ -10,12 +12,15 @@ use crate::basic_block::ast_to_ast::scope::{
 use crate::basic_block::block_py::dataflow::{
     analyze_blockpy_use_def, compute_block_params_blockpy,
 };
+use crate::basic_block::block_py::param_specs::{
+    param_defaults_to_expr, param_spec_to_expr, ParamSpec,
+};
 use crate::basic_block::block_py::state::{collect_cell_slots, collect_state_vars};
+use crate::basic_block::block_py::BindingTarget;
 use crate::basic_block::block_py::{
     BlockPyCallableDef, BlockPyFunctionKind, BlockPyModule, TryRegionPlan, ENTRY_BLOCK_LABEL,
 };
 use crate::basic_block::blockpy_to_bb::LoweredBlockPyModuleBundlePlan;
-use crate::basic_block::expr_utils::{make_dp_tuple, name_expr};
 use crate::basic_block::function_identity::{
     collect_function_identity_private, is_module_init_temp_name, resolve_runtime_function_identity,
     FunctionIdentity,
@@ -23,12 +28,9 @@ use crate::basic_block::function_identity::{
 use crate::basic_block::function_lowering::{
     function_docstring_text, try_lower_function_to_blockpy_bundle,
 };
-use crate::basic_block::lowered_ir::BindingTarget;
-use crate::basic_block::param_specs::{param_defaults_to_expr, param_spec_to_expr, ParamSpec};
-use crate::template::into_body;
 use crate::transformer::{walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
-use ruff_python_ast::{self as ast, name::Name, Expr, NodeIndex, Stmt, StmtBody};
+use ruff_python_ast::{self as ast, name::Name, Expr, NodeIndex, Stmt};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -54,15 +56,15 @@ struct BlockPyModuleRewriter<'a> {
 }
 
 enum LoweredFunctionPlacementPlan {
-    ReplaceWith(Stmt),
+    ReplaceWith(Vec<Stmt>),
     HoistToParent {
-        replacement: Stmt,
+        replacement: Vec<Stmt>,
         hoisted_to_parent: Vec<Stmt>,
     },
 }
 
 enum NonLoweredFunctionPlacementPlan {
-    ReplaceWith(Stmt),
+    ReplaceWith(Vec<Stmt>),
     PrependBody(Vec<Stmt>),
     LeaveInPlace,
 }
@@ -108,7 +110,7 @@ fn doc_text_to_expr(doc: Option<&str>) -> Expr {
 }
 
 struct LoweredFunctionRewriteResult {
-    replacement: Stmt,
+    replacement: Vec<Stmt>,
 }
 
 enum NonLoweredFunctionBindingPlan {
@@ -255,8 +257,8 @@ fn build_lowered_function_instantiation_preview(
     Some(LoweredFunctionInstantiationPreview {
         entry_label: ENTRY_BLOCK_LABEL.to_string(),
         function_id: callable_def.function_id.0,
-        name: callable_def.display_name.clone(),
-        qualname: callable_def.qualname.clone(),
+        name: callable_def.names.display_name.clone(),
+        qualname: callable_def.names.qualname.clone(),
         captures,
         params: callable_def.params.clone(),
         param_defaults: callable_def.param_defaults.clone(),
@@ -354,8 +356,8 @@ mod tests {
 
 pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan(
     context: &Context,
-    mut module: StmtBody,
-) -> (StmtBody, BlockPyModule<Expr>) {
+    mut module: Suite,
+) -> (Suite, BlockPyModule<Expr>) {
     crate::basic_block::ast_to_ast::simplify::flatten(&mut module);
     let module_scope = analyze_module_scope(&mut module);
     let function_identity_by_node =
@@ -542,10 +544,10 @@ fn build_non_lowered_binding_stmt(
     binding_plan: NonLoweredFunctionBindingPlan,
     fresh_local_name: Option<String>,
     doc: Option<String>,
-) -> Option<Stmt> {
+) -> Option<Vec<Stmt>> {
     match binding_plan {
         NonLoweredFunctionBindingPlan::LeaveLocal => None,
-        NonLoweredFunctionBindingPlan::CellSyncOnly => Some(build_cell_sync_stmt(bind_name)),
+        NonLoweredFunctionBindingPlan::CellSyncOnly => Some(vec![build_cell_sync_stmt(bind_name)]),
         NonLoweredFunctionBindingPlan::Rebind { target } => {
             let local_name = if let Some(local_name) = fresh_local_name {
                 func.name.id = Name::new(local_name.as_str());
@@ -555,7 +557,7 @@ fn build_non_lowered_binding_stmt(
             };
             let decorator_exprs =
                 rewrite_stmt::decorator::into_exprs(std::mem::take(&mut func.decorator_list));
-            Some(build_updated_function_binding_stmt(
+            Some(vec![build_updated_function_binding_stmt(
                 target,
                 bind_name,
                 local_name.as_str(),
@@ -563,7 +565,7 @@ fn build_non_lowered_binding_stmt(
                 display_name,
                 doc,
                 decorator_exprs,
-            ))
+            )])
         }
     }
 }
@@ -573,7 +575,7 @@ fn plan_lowered_function_placement(
     entering_module_init: bool,
     has_parent_hoisted_scope: bool,
     function_hoisted: Vec<Stmt>,
-    binding_stmt: Stmt,
+    binding_stmt: Vec<Stmt>,
 ) -> LoweredFunctionPlacementPlan {
     let keep_local_blocks = !entering_module_init
         && has_parent_hoisted_scope
@@ -581,8 +583,8 @@ fn plan_lowered_function_placement(
 
     if entering_module_init || keep_local_blocks || !has_parent_hoisted_scope {
         let mut body = function_hoisted;
-        body.push(binding_stmt);
-        LoweredFunctionPlacementPlan::ReplaceWith(into_body(body))
+        body.extend(binding_stmt);
+        LoweredFunctionPlacementPlan::ReplaceWith(body)
     } else {
         LoweredFunctionPlacementPlan::HoistToParent {
             replacement: binding_stmt,
@@ -594,13 +596,13 @@ fn plan_lowered_function_placement(
 fn plan_non_lowered_function_placement(
     function_hoisted: Vec<Stmt>,
     function_stmt: Stmt,
-    binding_stmt: Option<Stmt>,
+    binding_stmt: Option<Vec<Stmt>>,
 ) -> NonLoweredFunctionPlacementPlan {
     if let Some(binding_stmt) = binding_stmt {
         let mut body = function_hoisted;
         body.push(function_stmt);
-        body.push(binding_stmt);
-        NonLoweredFunctionPlacementPlan::ReplaceWith(into_body(body))
+        body.extend(binding_stmt);
+        NonLoweredFunctionPlacementPlan::ReplaceWith(body)
     } else if !function_hoisted.is_empty() {
         NonLoweredFunctionPlacementPlan::PrependBody(function_hoisted)
     } else {
@@ -611,7 +613,7 @@ fn plan_non_lowered_function_placement(
 fn apply_lowered_function_placement(
     parent_hoisted: Option<&mut Vec<Stmt>>,
     plan: LoweredFunctionPlacementPlan,
-) -> Stmt {
+) -> Vec<Stmt> {
     match plan {
         LoweredFunctionPlacementPlan::ReplaceWith(replacement) => replacement,
         LoweredFunctionPlacementPlan::HoistToParent {
@@ -629,7 +631,7 @@ fn apply_lowered_function_placement(
 fn apply_non_lowered_function_placement(
     func: &mut ast::StmtFunctionDef,
     plan: NonLoweredFunctionPlacementPlan,
-) -> Option<Stmt> {
+) -> Option<Vec<Stmt>> {
     match plan {
         NonLoweredFunctionPlacementPlan::ReplaceWith(replacement) => Some(replacement),
         NonLoweredFunctionPlacementPlan::PrependBody(function_hoisted) => {
@@ -637,8 +639,8 @@ fn apply_non_lowered_function_placement(
                 .into_iter()
                 .map(Box::new)
                 .collect::<Vec<_>>();
-            new_body.extend(std::mem::take(&mut func.body.body));
-            func.body.body = new_body;
+            new_body.extend(take_suite(&mut func.body));
+            *suite_mut(&mut func.body) = new_body;
             None
         }
         NonLoweredFunctionPlacementPlan::LeaveInPlace => None,
@@ -649,18 +651,18 @@ fn build_lowered_function_binding_stmt(
     bind_name: &str,
     value: Expr,
     binding_plan: LoweredFunctionBindingPlan,
-) -> Stmt {
+) -> Vec<Stmt> {
     match binding_plan.target {
         BindingTarget::Local => {
             let assign_stmt = py_stmt!("{name:id} = {value:expr}", name = bind_name, value = value);
             if binding_plan.needs_cell_sync {
-                into_body(vec![assign_stmt, build_cell_sync_stmt(bind_name)])
+                vec![assign_stmt, build_cell_sync_stmt(bind_name)]
             } else {
-                assign_stmt
+                vec![assign_stmt]
             }
         }
         BindingTarget::ModuleGlobal | BindingTarget::ClassNamespace => {
-            build_binding_stmt(binding_plan.target, bind_name, value)
+            vec![build_binding_stmt(binding_plan.target, bind_name, value)]
         }
     }
 }
@@ -669,7 +671,7 @@ fn build_lowered_function_instantiation_stmt(
     func: &ast::StmtFunctionDef,
     preview: &LoweredFunctionInstantiationPreview,
     instantiation_plan: &LoweredFunctionInstantiationPlan,
-) -> Option<Stmt> {
+) -> Vec<Stmt> {
     let bind_name = instantiation_plan.identity.bind_name.as_str();
     let annotate_helper = build_lowered_annotation_helper_binding(func, bind_name);
     let annotate_fn_expr = annotate_helper
@@ -687,12 +689,8 @@ fn build_lowered_function_instantiation_stmt(
     if let Some((helper_stmt, _)) = annotate_helper {
         stmts.push(helper_stmt);
     }
-    stmts.push(binding_stmt);
-    if stmts.len() == 1 {
-        stmts.into_iter().next()
-    } else {
-        Some(into_body(stmts))
-    }
+    stmts.extend(binding_stmt);
+    stmts
 }
 
 fn rewrite_lowered_function_instantiation_stmt(
@@ -704,8 +702,7 @@ fn rewrite_lowered_function_instantiation_stmt(
     has_parent_hoisted_scope: bool,
     function_hoisted: Vec<Stmt>,
 ) -> Option<LoweredFunctionRewriteResult> {
-    let binding_stmt =
-        build_lowered_function_instantiation_stmt(func, preview, instantiation_plan)?;
+    let binding_stmt = build_lowered_function_instantiation_stmt(func, preview, instantiation_plan);
     let replacement = apply_lowered_function_placement(
         parent_hoisted,
         plan_lowered_function_placement(
@@ -754,7 +751,7 @@ fn rewrite_non_lowered_function_instantiation(
     function_hoisted: Vec<Stmt>,
     doc: Option<String>,
     mut next_temp: impl FnMut() -> String,
-) -> Option<Stmt> {
+) -> Option<Vec<Stmt>> {
     let fresh_local_name = match instantiation_plan.local_name_plan {
         Some(NonLoweredLocalNamePlan::UseFreshTemp) => Some(next_temp()),
         Some(NonLoweredLocalNamePlan::KeepOriginal) | None => None,
@@ -787,7 +784,7 @@ fn plan_and_rewrite_non_lowered_function_instantiation(
     function_hoisted: Vec<Stmt>,
     doc: Option<String>,
     next_temp: impl FnMut() -> String,
-) -> Option<Stmt> {
+) -> Option<Vec<Stmt>> {
     prepare_non_lowered_annotationlib_function(context, func);
     let instantiation_plan = plan_non_lowered_function_instantiation(
         func,
@@ -821,7 +818,7 @@ fn rewrite_function_def_stmt_via_blockpy(
     reserved_temp_names_stack: &mut Vec<HashSet<String>>,
     next_block_id: &mut usize,
     next_function_id: &mut usize,
-) -> Option<Stmt> {
+) -> Option<Vec<Stmt>> {
     let doc = function_docstring_text(func);
     if let Some(lowered_plan) = try_lower_function_to_blockpy_bundle(
         context,
@@ -898,7 +895,7 @@ impl BlockPyModuleRewriter<'_> {
             .map(|frame| frame.name.clone());
         let entering_module_init = is_module_init_temp_name(fn_name.as_str());
         let has_parent_hoisted_scope = !self.function_scope_stack.is_empty();
-        let cell_bindings = collect_cell_slots(&func.body.body)
+        let cell_bindings = collect_cell_slots(suite_ref(&func.body))
             .into_iter()
             .filter_map(|slot| slot.strip_prefix("_dp_cell_").map(str::to_string))
             .collect::<HashSet<_>>();
@@ -920,22 +917,11 @@ impl BlockPyModuleRewriter<'_> {
         self.function_scope_stack.pop()
     }
 
-    fn visit_function_def_stmt(&mut self, stmt: &mut Stmt) {
-        let Some(state) = self.walk_function_def_with_scope(stmt) else {
-            return;
-        };
-        if let Stmt::FunctionDef(func) = stmt {
-            if let Some(replacement) = self.rewrite_visited_function_def(func, state) {
-                *stmt = replacement;
-            }
-        }
-    }
-
     fn rewrite_visited_function_def(
         &mut self,
         func: &mut ast::StmtFunctionDef,
         state: FunctionScopeFrame,
-    ) -> Option<Stmt> {
+    ) -> Option<Vec<Stmt>> {
         let parent_hoisted = self
             .function_scope_stack
             .last_mut()
@@ -960,12 +946,32 @@ impl BlockPyModuleRewriter<'_> {
 }
 
 impl Transformer for BlockPyModuleRewriter<'_> {
-    fn visit_stmt(&mut self, stmt: &mut Stmt) {
-        if matches!(stmt, Stmt::FunctionDef(_)) {
-            self.visit_function_def_stmt(stmt);
-            return;
-        }
+    fn visit_body(&mut self, body: &mut Suite) {
+        let mut rewritten = Vec::with_capacity(body.len());
+        for stmt in std::mem::take(body) {
+            let mut stmt = *stmt;
+            if matches!(stmt, Stmt::FunctionDef(_)) {
+                let Some(state) = self.walk_function_def_with_scope(&mut stmt) else {
+                    rewritten.push(Box::new(stmt));
+                    continue;
+                };
+                if let Stmt::FunctionDef(func) = &mut stmt {
+                    if let Some(replacement) = self.rewrite_visited_function_def(func, state) {
+                        rewritten.extend(replacement.into_iter().map(Box::new));
+                        continue;
+                    }
+                }
+                rewritten.push(Box::new(stmt));
+                continue;
+            }
 
+            self.visit_stmt(&mut stmt);
+            rewritten.push(Box::new(stmt));
+        }
+        *body = rewritten;
+    }
+
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
         walk_stmt(self, stmt);
     }
 }

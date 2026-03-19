@@ -1,6 +1,6 @@
 use super::*;
 use crate::basic_block::ast_to_ast::ast_rewrite::Rewrite;
-use crate::basic_block::expr_utils::make_binop;
+use crate::basic_block::ast_to_ast::expr_utils::make_binop;
 use ruff_python_ast::Operator;
 
 pub(crate) fn should_rewrite_assignment_targets(targets: &[Expr]) -> bool {
@@ -150,7 +150,7 @@ pub(crate) fn rewrite_assign_stmt(context: &Context, assign: ast::StmtAssign) ->
     let mut stmts = Vec::new();
     if targets.len() > 1 {
         let lowered = context.maybe_placeholder_lowered(*value);
-        stmts.push(lowered.stmt);
+        stmts.extend(lowered.stmts);
         for target in targets {
             stmts.push(py_stmt!(
                 "{target:expr} = {value:expr}",
@@ -163,7 +163,7 @@ pub(crate) fn rewrite_assign_stmt(context: &Context, assign: ast::StmtAssign) ->
         rewrite_stmt_target(context, target, *value, &mut stmts);
     }
 
-    Rewrite::Walk(into_body(stmts))
+    Rewrite::Walk(stmts)
 }
 
 pub(crate) fn rewrite_augassign_stmt(context: &Context, aug_assign: ast::StmtAugAssign) -> Rewrite {
@@ -200,12 +200,12 @@ pub(crate) fn rewrite_augassign_stmt(context: &Context, aug_assign: ast::StmtAug
     let call = make_binop(func_name, *target.clone(), *value);
     let mut stmts = Vec::new();
     rewrite_stmt_target(context, *target, call, &mut stmts);
-    Rewrite::Walk(into_body(stmts))
+    Rewrite::Walk(stmts)
 }
 
 impl StmtLowerer for ast::StmtAssign {
-    fn simplify_ast(self, context: &Context) -> Stmt {
-        stmt_from_rewrite(rewrite_assign_stmt(context, self))
+    fn simplify_ast(self, context: &Context) -> Vec<Stmt> {
+        stmts_from_rewrite(rewrite_assign_stmt(context, self))
     }
 
     fn to_blockpy<E>(

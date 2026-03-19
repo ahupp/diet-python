@@ -1,21 +1,22 @@
-use ruff_python_ast::{self as ast, Expr, Stmt, StmtBody};
+use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_source_file::LineEnding;
 
+use crate::basic_block::ast_to_ast::body::{suite_mut, Suite};
 use crate::transformer::{walk_stmt, Transformer};
 use crate::{
-    basic_block::{ast_to_ast::context::Context, expr_utils::make_tuple},
+    basic_block::ast_to_ast::{context::Context, expr_utils::make_tuple},
     py_expr, py_stmt,
 };
 
-pub fn rewrite_ann_assign_to_dunder_annotate(_context: &Context, stmt: &mut StmtBody) {
+pub fn rewrite_ann_assign_to_dunder_annotate(_context: &Context, stmt: &mut Suite) {
     // Assume called with module body stmt, which gets __annotate__.
     let entries = AnnotationStripper::strip(stmt);
     if entries.is_empty() {
         return;
     }
     let ds = build_annotate_fn(entries, "__annotate__");
-    stmt.body.push(Box::new(ds));
+    stmt.push(Box::new(ds));
 }
 
 #[derive(Default)]
@@ -25,7 +26,7 @@ struct AnnotationStripper {
 }
 
 impl AnnotationStripper {
-    fn strip(stmt: &mut StmtBody) -> Vec<(String, Expr, String)> {
+    fn strip(stmt: &mut Suite) -> Vec<(String, Expr, String)> {
         let mut collector = AnnotationStripper {
             entries: Vec::new(),
             indent: Indentation::new("    ".to_string()),
@@ -43,16 +44,16 @@ impl Transformer for AnnotationStripper {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
             Stmt::FunctionDef(func_def) => {
-                AnnotationStripper::strip(&mut func_def.body);
+                AnnotationStripper::strip(suite_mut(&mut func_def.body));
                 // drop the collected annotations
             }
             Stmt::ClassDef(class_def) => {
-                let entries = AnnotationStripper::strip(&mut class_def.body);
+                let entries = AnnotationStripper::strip(suite_mut(&mut class_def.body));
                 if !entries.is_empty() {
                     // CPython stores class annotation thunks under __annotate_func__,
                     // and exposes __annotate__ via type-level descriptor logic.
                     let ds = build_annotate_fn(entries, "__annotate_func__");
-                    class_def.body.body.push(Box::new(ds));
+                    suite_mut(&mut class_def.body).push(Box::new(ds));
                 }
             }
             Stmt::AnnAssign(ast::StmtAnnAssign {

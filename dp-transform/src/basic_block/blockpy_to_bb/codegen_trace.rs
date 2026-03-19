@@ -172,12 +172,12 @@ mod tests {
         let f = normalized
             .callable_defs
             .iter()
-            .find(|function| function.qualname == "f")
+            .find(|function| function.names.qualname == "f")
             .expect("missing f");
         let g = normalized
             .callable_defs
             .iter()
-            .find(|function| function.qualname == "g")
+            .find(|function| function.names.qualname == "g")
             .expect("missing g");
         let f_trace = f
             .blocks

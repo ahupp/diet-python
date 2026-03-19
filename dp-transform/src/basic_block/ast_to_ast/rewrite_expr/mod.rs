@@ -6,15 +6,15 @@ use ruff_python_codegen::{Generator, Indentation};
 use ruff_source_file::LineEnding;
 use ruff_text_size::TextRange;
 
-use crate::basic_block::ast_to_ast::ast_rewrite::{push_stmt, BodyBuilder};
+use crate::basic_block::ast_to_ast::ast_rewrite::{push_stmts, BodyBuilder};
+use crate::basic_block::ast_to_ast::expr_utils::{
+    make_binop, make_tuple, make_tuple_splat, make_unaryop,
+};
 use crate::basic_block::ast_to_ast::scope::ScopeKind;
-use crate::basic_block::expr_utils::{make_binop, make_tuple, make_tuple_splat, make_unaryop};
-use crate::template::empty_body;
 use crate::transformer::{walk_expr, Transformer};
 use crate::{
     basic_block::ast_to_ast::{ast_rewrite::LoweredExpr, context::Context},
     py_expr, py_stmt, py_stmt_typed,
-    template::into_body,
 };
 use ruff_python_ast::Identifier;
 
@@ -86,7 +86,7 @@ fn lower_expr_impl(context: &Context, expr: Expr, allow_deferred: bool) -> Lower
             let mut body_builder = BodyBuilder::default();
             let value_expr = body_builder.push(lowered);
             let expr = py_expr!("__dp_frame_locals({value:expr})", value = value_expr);
-            return LoweredExpr::modified(expr, body_builder.into_stmt());
+            return LoweredExpr::modified(expr, body_builder.into_stmts());
         }
         Expr::Attribute(ast::ExprAttribute {
             value,
@@ -103,7 +103,7 @@ fn lower_expr_impl(context: &Context, expr: Expr, allow_deferred: bool) -> Lower
                 value = value_expr,
                 attr = attr.id.as_str(),
             );
-            return LoweredExpr::modified(expr, body_builder.into_stmt());
+            return LoweredExpr::modified(expr, body_builder.into_stmts());
         }
         Expr::Call(ast::ExprCall {
             func,
@@ -180,7 +180,7 @@ fn lower_expr_impl(context: &Context, expr: Expr, allow_deferred: bool) -> Lower
             if !body_builder.modified {
                 LoweredExpr::unmodified(new_call)
             } else {
-                LoweredExpr::modified(new_call, body_builder.into_stmt())
+                LoweredExpr::modified(new_call, body_builder.into_stmts())
             }
         }
         Expr::Slice(ast::ExprSlice {
@@ -263,7 +263,7 @@ fn lower_expr_impl(context: &Context, expr: Expr, allow_deferred: bool) -> Lower
                     }) => {
                         let lowered = lower_expr_nested(context, *value);
                         modified |= lowered.modified;
-                        stmts.push(lowered.stmt);
+                        stmts.extend(lowered.stmts);
                         lowered_elts.push(Expr::Starred(ast::ExprStarred {
                             value: Box::new(lowered.expr),
                             ctx: star_ctx,
@@ -274,7 +274,7 @@ fn lower_expr_impl(context: &Context, expr: Expr, allow_deferred: bool) -> Lower
                     other => {
                         let lowered = lower_expr_nested(context, other);
                         modified |= lowered.modified;
-                        stmts.push(lowered.stmt);
+                        stmts.extend(lowered.stmts);
                         lowered_elts.push(lowered.expr);
                     }
                 }
@@ -283,7 +283,7 @@ fn lower_expr_impl(context: &Context, expr: Expr, allow_deferred: bool) -> Lower
             if stmts.is_empty() && !modified {
                 LoweredExpr::unmodified(expr)
             } else {
-                LoweredExpr::modified(expr, into_body(stmts))
+                LoweredExpr::modified(expr, stmts)
             }
         }
         Expr::Tuple(ast::ExprTuple {
@@ -293,13 +293,13 @@ fn lower_expr_impl(context: &Context, expr: Expr, allow_deferred: bool) -> Lower
             node_index,
             parenthesized,
         }) if matches!(ctx, ast::ExprContext::Load) => {
-            let mut stmts = empty_body().into();
+            let mut stmts = Vec::new();
             let mut modified = false;
             let mut lowered_elts = Vec::new();
             for elt in elts {
                 let lowered = lower_expr_nested(context, elt);
                 modified |= lowered.modified;
-                modified |= push_stmt(&mut stmts, lowered.stmt);
+                modified |= push_stmts(&mut stmts, lowered.stmts);
                 lowered_elts.push(lowered.expr);
             }
             let expr = Expr::Tuple(ast::ExprTuple {
@@ -346,7 +346,7 @@ fn lower_expr_impl(context: &Context, expr: Expr, allow_deferred: bool) -> Lower
             if !body_builder.modified {
                 LoweredExpr::unmodified(expr)
             } else {
-                LoweredExpr::modified(expr, body_builder.into_stmt())
+                LoweredExpr::modified(expr, body_builder.into_stmts())
             }
         }
         Expr::Set(ast::ExprSet { elts, .. }) => {
@@ -361,7 +361,7 @@ fn lower_expr_impl(context: &Context, expr: Expr, allow_deferred: bool) -> Lower
             if !body_builder.modified {
                 LoweredExpr::unmodified(expr)
             } else {
-                LoweredExpr::modified(expr, body_builder.into_stmt())
+                LoweredExpr::modified(expr, body_builder.into_stmts())
             }
         }
         Expr::Dict(ast::ExprDict { items, .. }) => {
@@ -410,7 +410,7 @@ fn lower_expr_impl(context: &Context, expr: Expr, allow_deferred: bool) -> Lower
             if !body_builder.modified {
                 LoweredExpr::unmodified(expr)
             } else {
-                LoweredExpr::modified(expr, body_builder.into_stmt())
+                LoweredExpr::modified(expr, body_builder.into_stmts())
             }
         }
         Expr::BinOp(ast::ExprBinOp {
@@ -443,7 +443,7 @@ fn lower_expr_impl(context: &Context, expr: Expr, allow_deferred: bool) -> Lower
             let lowered = lower_expr_nested(context, *operand);
             let expr = make_unaryop(func_name, lowered.expr);
             if lowered.modified {
-                LoweredExpr::modified(expr, lowered.stmt)
+                LoweredExpr::modified(expr, lowered.stmts)
             } else {
                 LoweredExpr::unmodified(expr)
             }
@@ -453,13 +453,14 @@ fn lower_expr_impl(context: &Context, expr: Expr, allow_deferred: bool) -> Lower
         }) if matches!(ctx, ast::ExprContext::Load) => {
             let value_lowered = lower_expr_nested(context, *value);
             let slice_lowered = lower_expr_nested(context, *slice);
-            let stmts = vec![value_lowered.stmt, slice_lowered.stmt];
+            let mut stmts = value_lowered.stmts;
+            stmts.extend(slice_lowered.stmts);
 
             let expr = make_binop("getitem", value_lowered.expr, slice_lowered.expr);
             if stmts.is_empty() && !value_lowered.modified && !slice_lowered.modified {
                 LoweredExpr::unmodified(expr)
             } else {
-                LoweredExpr::modified(expr, into_body(stmts))
+                LoweredExpr::modified(expr, stmts)
             }
         }
         other => LoweredExpr::unmodified(other),
@@ -483,12 +484,11 @@ def {func:id}():
         func_def.parameters = Box::new(params);
     }
     let return_stmt = py_stmt!("return {value:expr}", value = body);
-    func_def.body = ast::StmtBody {
-        body: vec![Box::new(return_stmt)],
-        range: TextRange::default(),
-        node_index: ast::AtomicNodeIndex::default(),
-    };
-    LoweredExpr::modified(py_expr!("{func:id}", func = func_name.as_str()), func_def)
+    func_def.body = body_from_suite(vec![Box::new(return_stmt)]);
+    LoweredExpr::modified(
+        py_expr!("{func:id}", func = func_name.as_str()),
+        vec![func_def.into()],
+    )
 }
 
 fn lower_generator_expr(
@@ -591,11 +591,11 @@ def {func:id}({param:id}):
         } else {
             gen.iter
         };
-        let for_stmt = if gen.is_async {
+        let for_stmts = if gen.is_async {
             if is_outermost {
                 let iter_name = context.fresh("iter");
                 let target_tmp = context.fresh("tmp");
-                py_stmt!(
+                crate::py_stmts!(
                     r#"
 {iter_name:id} = {iter:expr}
 while True:
@@ -613,7 +613,7 @@ while True:
                     body = loop_body,
                 )
             } else {
-                py_stmt!(
+                vec![py_stmt!(
                     r#"
 async for {target:expr} in {iter:expr}:
     {body:stmt}
@@ -621,12 +621,12 @@ async for {target:expr} in {iter:expr}:
                     target = gen.target,
                     iter = iter,
                     body = loop_body,
-                )
+                )]
             }
         } else if is_outermost {
             let iter_name = context.fresh("iter");
             let target_tmp = context.fresh("tmp");
-            py_stmt!(
+            crate::py_stmts!(
                 r#"
 {iter_name:id} = {iter:expr}
 while True:
@@ -644,7 +644,7 @@ while True:
                 body = loop_body,
             )
         } else {
-            py_stmt!(
+            vec![py_stmt!(
                 r#"
 for {target:expr} in {iter:expr}:
     {body:stmt}
@@ -652,9 +652,9 @@ for {target:expr} in {iter:expr}:
                 target = gen.target,
                 iter = iter,
                 body = loop_body,
-            )
+            )]
         };
-        body = vec![for_stmt];
+        body = for_stmts;
     }
 
     let mut func_body: Vec<Stmt> = Vec::new();
@@ -672,11 +672,7 @@ for {target:expr} in {iter:expr}:
         }));
     }
     func_body.extend(body);
-    func_def.body = ast::StmtBody {
-        body: func_body.into_iter().map(Box::new).collect(),
-        range: TextRange::default(),
-        node_index: ast::AtomicNodeIndex::default(),
-    };
+    func_def.body = body_from_suite(func_body.into_iter().map(Box::new).collect());
 
     let mut prefix: Vec<Stmt> = Vec::new();
     for name in dummy_targets {
@@ -688,7 +684,7 @@ if False:
             name = name.as_str()
         ));
     }
-    append_stmt(&mut prefix, iter_lowered.stmt);
+    prefix.extend(iter_lowered.stmts);
     prefix.push(func_def.into());
 
     let call_expr = py_expr!(
@@ -697,7 +693,7 @@ if False:
         iter = iter_value,
     );
 
-    LoweredExpr::modified(call_expr, into_body(prefix))
+    LoweredExpr::modified(call_expr, prefix)
 }
 
 fn genexpr_requires_async(elt: &Expr, generators: &[ast::Comprehension]) -> bool {
@@ -819,17 +815,6 @@ if {test:expr}:
         )];
     }
     body
-}
-
-fn append_stmt(stmts: &mut Vec<Stmt>, stmt: Stmt) {
-    match stmt {
-        Stmt::BodyStmt(ast::StmtBody { body, .. }) => {
-            for inner in body {
-                append_stmt(stmts, *inner);
-            }
-        }
-        other => stmts.push(other),
-    }
 }
 
 fn collect_named_expr_targets(elt: &Expr, generators: &[ast::Comprehension]) -> HashSet<String> {
@@ -968,3 +953,4 @@ mod tests {
         let _ = lower_expr(&context, parse_expr("f\"{x}\""));
     }
 }
+use crate::basic_block::ast_to_ast::body::body_from_suite;

@@ -1,4 +1,5 @@
-use super::lowered_ir::BindingTarget;
+use super::block_py::BindingTarget;
+use crate::basic_block::ast_to_ast::body::Suite;
 use crate::basic_block::ast_to_ast::scope::is_internal_symbol;
 use crate::basic_block::ast_to_ast::scope::{BindingKind, BindingUse, Scope, ScopeKind};
 use crate::basic_block::ast_to_ast::util::{
@@ -107,7 +108,7 @@ fn normalize_qualname(raw_qualname: &str, raw_name: &str, display_name: &str) ->
 }
 
 pub(crate) fn collect_function_identity_private(
-    module: &mut ast::StmtBody,
+    module: &mut Suite,
     module_scope: Arc<Scope>,
 ) -> HashMap<NodeIndex, FunctionIdentity> {
     fn binding_target_for_scope(scope: &Scope, bind_name: &str) -> BindingTarget {

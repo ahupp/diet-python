@@ -1,10 +1,11 @@
 use crate::basic_block::ast_to_ast::ast_rewrite::{rewrite_with_pass, Rewrite, StmtRewritePass};
+use crate::basic_block::ast_to_ast::body::{suite_mut, suite_ref};
 use crate::basic_block::ast_to_ast::context::Context;
+use crate::basic_block::ast_to_ast::expr_utils::{make_dp_tuple, name_expr};
 use crate::basic_block::ast_to_ast::rewrite_stmt;
 use crate::basic_block::ast_to_ast::scope::cell_name;
 use crate::basic_block::block_py::state::{collect_parameter_names, sync_target_cells_stmts};
 use crate::basic_block::bound_names::collect_bound_names;
-use crate::basic_block::expr_utils::{make_dp_tuple, name_expr};
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
@@ -47,7 +48,7 @@ pub(crate) fn prepare_non_lowered_annotationlib_function(
         context,
         Some(&AnnotationHelperForLoweringPass),
         None,
-        &mut func.body,
+        suite_mut(&mut func.body),
     );
     ensure_dp_default_param(func);
 }
@@ -241,11 +242,11 @@ pub(crate) fn collect_capture_names(
 ) -> Vec<String> {
     let mut body = func.body.clone();
     let mut collector = InternalCaptureCollector::default();
-    collector.visit_body(&mut body);
+    collector.visit_body(suite_mut(&mut body));
     let params = collect_parameter_names(func.parameters.as_ref())
         .into_iter()
         .collect::<HashSet<_>>();
-    let bound = collect_bound_names(&func.body.body);
+    let bound = collect_bound_names(suite_ref(&func.body));
     let mut names = collector
         .names
         .into_iter()
@@ -397,22 +398,24 @@ impl Transformer for DpHelperCollector {
 fn collect_used_dp_helpers(func: &ast::StmtFunctionDef) -> Vec<String> {
     let mut body = func.body.clone();
     let mut collector = DpHelperCollector::default();
-    collector.visit_body(&mut body);
+    collector.visit_body(suite_mut(&mut body));
     let mut names = collector.names.into_iter().collect::<Vec<_>>();
     names.sort();
     names
 }
 
 fn function_has_global_or_nonlocal_dp(func: &ast::StmtFunctionDef) -> bool {
-    func.body.body.iter().any(|stmt| match stmt.as_ref() {
-        Stmt::Global(global_stmt) => global_stmt
-            .names
-            .iter()
-            .any(|name| name.id.as_str() == "__dp__"),
-        Stmt::Nonlocal(nonlocal_stmt) => nonlocal_stmt
-            .names
-            .iter()
-            .any(|name| name.id.as_str() == "__dp__"),
-        _ => false,
-    })
+    suite_ref(&func.body)
+        .iter()
+        .any(|stmt| match stmt.as_ref() {
+            Stmt::Global(global_stmt) => global_stmt
+                .names
+                .iter()
+                .any(|name| name.id.as_str() == "__dp__"),
+            Stmt::Nonlocal(nonlocal_stmt) => nonlocal_stmt
+                .names
+                .iter()
+                .any(|name| name.id.as_str() == "__dp__"),
+            _ => false,
+        })
 }

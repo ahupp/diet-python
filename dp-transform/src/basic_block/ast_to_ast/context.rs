@@ -56,7 +56,7 @@ impl Context {
     pub(crate) fn tmpify(&self, name: &str, expr: Expr) -> LoweredExpr {
         let tmp = fresh_name(name);
         let assign = py_stmt!("{tmp:id} = {expr:expr}", tmp = tmp.as_str(), expr = expr);
-        LoweredExpr::modified(py_expr!("{tmp:id}", tmp = tmp.as_str()), assign)
+        LoweredExpr::modified(py_expr!("{tmp:id}", tmp = tmp.as_str()), vec![assign])
     }
 
     pub(crate) fn maybe_placeholder_lowered(&self, expr: Expr) -> LoweredExpr {

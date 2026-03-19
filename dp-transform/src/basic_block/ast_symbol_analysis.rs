@@ -1,3 +1,4 @@
+use crate::basic_block::ast_to_ast::body::suite_ref;
 use crate::transformer::{walk_expr, Transformer};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use std::collections::HashSet;
@@ -36,39 +37,39 @@ pub(crate) fn assigned_names_in_stmt(stmt: &Stmt) -> HashSet<String> {
         }
         Stmt::If(if_stmt) => {
             collect_named_expr_target_names_in_expr(if_stmt.test.as_ref(), &mut names);
-            for stmt in &if_stmt.body.body {
+            for stmt in suite_ref(&if_stmt.body) {
                 names.extend(assigned_names_in_stmt(stmt.as_ref()));
             }
             for clause in &if_stmt.elif_else_clauses {
                 if let Some(test) = clause.test.as_ref() {
                     collect_named_expr_target_names_in_expr(test, &mut names);
                 }
-                for stmt in &clause.body.body {
+                for stmt in suite_ref(&clause.body) {
                     names.extend(assigned_names_in_stmt(stmt.as_ref()));
                 }
             }
         }
         Stmt::While(while_stmt) => {
             collect_named_expr_target_names_in_expr(while_stmt.test.as_ref(), &mut names);
-            for stmt in &while_stmt.body.body {
+            for stmt in suite_ref(&while_stmt.body) {
                 names.extend(assigned_names_in_stmt(stmt.as_ref()));
             }
-            for stmt in &while_stmt.orelse.body {
+            for stmt in suite_ref(&while_stmt.orelse) {
                 names.extend(assigned_names_in_stmt(stmt.as_ref()));
             }
         }
         Stmt::For(for_stmt) => {
             collect_named_expr_target_names_in_expr(for_stmt.iter.as_ref(), &mut names);
             collect_assigned_names(for_stmt.target.as_ref(), &mut names);
-            for stmt in &for_stmt.body.body {
+            for stmt in suite_ref(&for_stmt.body) {
                 names.extend(assigned_names_in_stmt(stmt.as_ref()));
             }
-            for stmt in &for_stmt.orelse.body {
+            for stmt in suite_ref(&for_stmt.orelse) {
                 names.extend(assigned_names_in_stmt(stmt.as_ref()));
             }
         }
         Stmt::Try(try_stmt) => {
-            for stmt in &try_stmt.body.body {
+            for stmt in suite_ref(&try_stmt.body) {
                 names.extend(assigned_names_in_stmt(stmt.as_ref()));
             }
             for handler in &try_stmt.handlers {
@@ -76,14 +77,14 @@ pub(crate) fn assigned_names_in_stmt(stmt: &Stmt) -> HashSet<String> {
                 if let Some(type_) = handler.type_.as_ref() {
                     collect_named_expr_target_names_in_expr(type_.as_ref(), &mut names);
                 }
-                for stmt in &handler.body.body {
+                for stmt in suite_ref(&handler.body) {
                     names.extend(assigned_names_in_stmt(stmt.as_ref()));
                 }
             }
-            for stmt in &try_stmt.orelse.body {
+            for stmt in suite_ref(&try_stmt.orelse) {
                 names.extend(assigned_names_in_stmt(stmt.as_ref()));
             }
-            for stmt in &try_stmt.finalbody.body {
+            for stmt in suite_ref(&try_stmt.finalbody) {
                 names.extend(assigned_names_in_stmt(stmt.as_ref()));
             }
         }

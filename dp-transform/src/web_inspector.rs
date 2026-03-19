@@ -1,5 +1,7 @@
 use crate::basic_block::bb_ir;
-use crate::basic_block::block_py::BlockPyFunctionKind;
+use crate::basic_block::block_py::{
+    BlockPyFunctionKind, BlockPyTerm, CoreBlockPyExprWithoutAwaitOrYield,
+};
 use crate::{transform_str_to_ruff_with_options, LoweringResult, Options};
 use cranelift_codegen::ir::{self, condcodes::IntCC, types, AbiParam, InstBuilder, UserFuncName};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
@@ -140,9 +142,9 @@ fn bb_module_to_json(module: &bb_ir::BbModule) -> Value {
                 .collect::<Vec<_>>();
             json!({
                 "functionId": function.function_id.0,
-                "bindName": function.bind_name,
-                "displayName": function.display_name,
-                "qualname": function.qualname,
+                "bindName": function.names.bind_name,
+                "displayName": function.names.display_name,
+                "qualname": function.names.qualname,
                 "kind": bb_function_kind_to_json(function.lowered_kind()),
                 "entry": function.entry_label(),
                 "paramNames": function.params.names(),
@@ -157,7 +159,7 @@ fn bb_module_to_json(module: &bb_ir::BbModule) -> Value {
         "moduleInit": module
             .callable_defs
             .iter()
-            .any(|function| function.bind_name == "_dp_module_init")
+            .any(|function| function.names.bind_name == "_dp_module_init")
             .then_some("_dp_module_init"),
         "functions": functions,
     })
@@ -178,88 +180,73 @@ fn bb_function_kind_to_json(kind: &BlockPyFunctionKind) -> Value {
     }
 }
 
-fn bb_term_kind(term: &bb_ir::BbTerm) -> &'static str {
+fn bb_term_kind(term: &BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>) -> &'static str {
     match term {
-        bb_ir::BbTerm::Jump(_) => "jump",
-        bb_ir::BbTerm::BrIf { .. } => "br_if",
-        bb_ir::BbTerm::BrTable { .. } => "br_table",
-        bb_ir::BbTerm::Raise { .. } => "raise",
-        bb_ir::BbTerm::Ret(_) => "return",
+        BlockPyTerm::Jump(_) => "jump",
+        BlockPyTerm::IfTerm(_) => "br_if",
+        BlockPyTerm::BranchTable(_) => "br_table",
+        BlockPyTerm::Raise(_) => "raise",
+        BlockPyTerm::Return(_) => "return",
+        BlockPyTerm::TryJump(_) => "try_jump",
     }
 }
 
-fn bb_term_text(term: &bb_ir::BbTerm) -> String {
+fn bb_term_text(term: &BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>) -> String {
     match term {
-        bb_ir::BbTerm::Jump(label) => format!("jump {label}"),
-        bb_ir::BbTerm::BrIf {
-            test,
-            then_label,
-            else_label,
-        } => {
-            let test = expr_to_one_line(test);
-            format!("if {test} then {then_label} else {else_label}")
-        }
-        bb_ir::BbTerm::BrTable {
-            index,
-            targets,
-            default_label,
-        } => {
-            let index = expr_to_one_line(index);
+        BlockPyTerm::Jump(label) => format!("jump {label}"),
+        BlockPyTerm::IfTerm(if_term) => {
+            let test = expr_to_one_line(&if_term.test);
             format!(
-                "br_table index={index} targets=[{}] default={default_label}",
-                targets
+                "if {test} then {} else {}",
+                if_term.then_label, if_term.else_label
+            )
+        }
+        BlockPyTerm::BranchTable(branch) => {
+            let index = expr_to_one_line(&branch.index);
+            format!(
+                "br_table index={index} targets=[{}] default={}",
+                branch
+                    .targets
                     .iter()
                     .map(ToString::to_string)
                     .collect::<Vec<_>>()
-                    .join(", ")
+                    .join(", "),
+                branch.default_label
             )
         }
-        bb_ir::BbTerm::Raise { exc, cause } => {
-            let exc = exc
-                .as_ref()
-                .map(expr_to_one_line)
-                .unwrap_or_else(|| "None".to_string());
-            let cause = cause
-                .as_ref()
-                .map(expr_to_one_line)
-                .unwrap_or_else(|| "None".to_string());
-            format!("raise exc={exc} cause={cause}")
-        }
-        bb_ir::BbTerm::Ret(value) => {
+        BlockPyTerm::Raise(raise_stmt) => bb_ir::bb_raise_text(raise_stmt),
+        BlockPyTerm::Return(value) => {
             let value = value
                 .as_ref()
                 .map(expr_to_one_line)
                 .unwrap_or_else(|| "None".to_string());
             format!("return {value}")
         }
+        BlockPyTerm::TryJump(_) => "try_jump".to_string(),
     }
 }
 
-fn bb_term_successors(term: &bb_ir::BbTerm) -> Vec<(&str, &'static str)> {
+fn bb_term_successors(
+    term: &BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
+) -> Vec<(&str, &'static str)> {
     match term {
-        bb_ir::BbTerm::Jump(label) => vec![(label.as_str(), "jump")],
-        bb_ir::BbTerm::BrIf {
-            then_label,
-            else_label,
-            ..
-        } => vec![
-            (then_label.as_str(), "branch_then"),
-            (else_label.as_str(), "branch_else"),
+        BlockPyTerm::Jump(label) => vec![(label.as_str(), "jump")],
+        BlockPyTerm::IfTerm(if_term) => vec![
+            (if_term.then_label.as_str(), "branch_then"),
+            (if_term.else_label.as_str(), "branch_else"),
         ],
-        bb_ir::BbTerm::BrTable {
-            targets,
-            default_label,
-            ..
-        } => {
-            let mut out = targets
+        BlockPyTerm::BranchTable(branch) => {
+            let mut out = branch
+                .targets
                 .iter()
                 .map(|label| (label.as_str(), "table_target"))
                 .collect::<Vec<_>>();
-            out.push((default_label.as_str(), "table_default"));
+            out.push((branch.default_label.as_str(), "table_default"));
             out
         }
-        bb_ir::BbTerm::Raise { .. } => Vec::new(),
-        bb_ir::BbTerm::Ret(_) => Vec::new(),
+        BlockPyTerm::Raise(_) => Vec::new(),
+        BlockPyTerm::Return(_) => Vec::new(),
+        BlockPyTerm::TryJump(_) => Vec::new(),
     }
 }
 
@@ -309,62 +296,50 @@ fn clif_target_comment(
 }
 
 fn clif_term_comment(
-    term: &bb_ir::BbTerm,
+    term: &BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
     label_to_index: &HashMap<crate::basic_block::block_py::BlockPyLabel, usize>,
     label_to_params: &HashMap<crate::basic_block::block_py::BlockPyLabel, Vec<String>>,
 ) -> String {
     match term {
-        bb_ir::BbTerm::Jump(label) => {
+        BlockPyTerm::Jump(label) => {
             format!(
                 "jump {}",
                 clif_target_comment(label.as_str(), label_to_index, label_to_params)
             )
         }
-        bb_ir::BbTerm::BrIf {
-            test,
-            then_label,
-            else_label,
-        } => format!(
+        BlockPyTerm::IfTerm(if_term) => format!(
             "brif {}, {}, {}",
-            expr_to_one_line(test),
-            clif_target_comment(then_label.as_str(), label_to_index, label_to_params),
-            clif_target_comment(else_label.as_str(), label_to_index, label_to_params),
+            expr_to_one_line(&if_term.test),
+            clif_target_comment(if_term.then_label.as_str(), label_to_index, label_to_params),
+            clif_target_comment(if_term.else_label.as_str(), label_to_index, label_to_params),
         ),
-        bb_ir::BbTerm::BrTable {
-            index,
-            targets,
-            default_label,
-        } => {
-            let targets = targets
+        BlockPyTerm::BranchTable(branch) => {
+            let targets = branch
+                .targets
                 .iter()
                 .map(|label| clif_target_comment(label.as_str(), label_to_index, label_to_params))
                 .collect::<Vec<_>>()
                 .join(", ");
             format!(
                 "br_table {}, [{}], {}",
-                expr_to_one_line(index),
+                expr_to_one_line(&branch.index),
                 targets,
-                clif_target_comment(default_label.as_str(), label_to_index, label_to_params),
+                clif_target_comment(
+                    branch.default_label.as_str(),
+                    label_to_index,
+                    label_to_params,
+                ),
             )
         }
-        bb_ir::BbTerm::Raise { exc, cause } => {
-            let exc = exc
-                .as_ref()
-                .map(expr_to_one_line)
-                .unwrap_or_else(|| "None".to_string());
-            let cause = cause
-                .as_ref()
-                .map(expr_to_one_line)
-                .unwrap_or_else(|| "None".to_string());
-            format!("raise exc={exc} cause={cause}")
-        }
-        bb_ir::BbTerm::Ret(value) => {
+        BlockPyTerm::Raise(raise_stmt) => bb_ir::bb_raise_text(raise_stmt),
+        BlockPyTerm::Return(value) => {
             let value = value
                 .as_ref()
                 .map(expr_to_one_line)
                 .unwrap_or_else(|| "None".to_string());
             format!("return {value}")
         }
+        BlockPyTerm::TryJump(_) => "try_jump".to_string(),
     }
 }
 
@@ -399,7 +374,9 @@ fn render_cranelift_function_from_bb(function: &bb_ir::BbFunction) -> Result<Str
         .ok_or_else(|| format!("missing entry block: {entry_label}"))?;
 
     let mut func = ir::Function::new();
-    func.name = UserFuncName::testcase(sanitize_clif_testcase_name(function.qualname.as_str()));
+    func.name = UserFuncName::testcase(sanitize_clif_testcase_name(
+        function.names.qualname.as_str(),
+    ));
     for _ in 0..entry_block.meta.params.len() {
         func.signature.params.push(AbiParam::new(types::I64));
     }
@@ -454,7 +431,7 @@ fn render_cranelift_function_from_bb(function: &bb_ir::BbFunction) -> Result<Str
         }
 
         match &block.term {
-            bb_ir::BbTerm::Jump(target_label) => {
+            BlockPyTerm::Jump(target_label) => {
                 let target = *label_to_block
                     .get(target_label.as_str())
                     .ok_or_else(|| format!("missing jump target: {target_label}"))?;
@@ -466,11 +443,9 @@ fn render_cranelift_function_from_bb(function: &bb_ir::BbFunction) -> Result<Str
                 );
                 builder.ins().jump(target, &args);
             }
-            bb_ir::BbTerm::BrIf {
-                then_label,
-                else_label,
-                ..
-            } => {
+            BlockPyTerm::IfTerm(if_term) => {
+                let then_label = &if_term.then_label;
+                let else_label = &if_term.else_label;
                 let then_block = *label_to_block
                     .get(then_label.as_str())
                     .ok_or_else(|| format!("missing brif then target: {then_label}"))?;
@@ -495,7 +470,8 @@ fn render_cranelift_function_from_bb(function: &bb_ir::BbFunction) -> Result<Str
                     .ins()
                     .brif(cond, then_block, &then_args, else_block, &else_args);
             }
-            bb_ir::BbTerm::BrTable { default_label, .. } => {
+            BlockPyTerm::BranchTable(branch) => {
+                let default_label = &branch.default_label;
                 // Web-view CLIF uses a valid fallback jump to keep the rendered IR
                 // parseable/printable while preserving branch targets in comments.
                 let default_block = *label_to_block
@@ -509,9 +485,12 @@ fn render_cranelift_function_from_bb(function: &bb_ir::BbFunction) -> Result<Str
                 );
                 builder.ins().jump(default_block, &args);
             }
-            bb_ir::BbTerm::Raise { .. } | bb_ir::BbTerm::Ret(_) => {
+            BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => {
                 let ret_value = builder.ins().iconst(types::I64, 0);
                 builder.ins().return_(&[ret_value]);
+            }
+            BlockPyTerm::TryJump(_) => {
+                return Err("TryJump is not allowed in BbTerm".to_string());
             }
         }
     }
@@ -555,13 +534,13 @@ fn bb_module_to_clif(module: &bb_ir::BbModule) -> String {
             .join(", ");
         out.push_str(&format!(
             "decl %{}({params}) -> pyobj ; bind={}\n",
-            function.qualname, function.bind_name,
+            function.names.qualname, function.names.bind_name,
         ));
     }
     if module
         .callable_defs
         .iter()
-        .any(|function| function.bind_name == "_dp_module_init")
+        .any(|function| function.names.bind_name == "_dp_module_init")
     {
         out.push_str("decl %_dp_module_init() -> pyobj ; module_init\n");
     }
@@ -578,9 +557,9 @@ fn bb_module_to_clif(module: &bb_ir::BbModule) -> String {
 
         out.push_str(&format!(
             "; function {} (kind={:?}, bind={}, entry={})\n",
-            function.qualname,
+            function.names.qualname,
             function.lowered_kind(),
-            function.bind_name,
+            function.names.bind_name,
             function.entry_label()
         ));
         for block in &function.blocks {
@@ -629,7 +608,7 @@ fn bb_module_to_clif(module: &bb_ir::BbModule) -> String {
             Err(err) => {
                 out.push_str(&format!(
                     "; failed to render function {} via Cranelift display: {err}\n",
-                    function.qualname
+                    function.names.qualname
                 ));
             }
         }

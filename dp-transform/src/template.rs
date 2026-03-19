@@ -28,6 +28,34 @@ macro_rules! py_stmt_internal {
 }
 
 #[macro_export]
+macro_rules! py_stmts_internal {
+    ($template:literal $(, $name:ident = $value:expr)* $(,)?) => {{
+        use std::collections::HashMap;
+        #[allow(unused_imports)]
+        use crate::template::{PlaceholderValue, SyntaxTemplate};
+
+        #[allow(unused_mut)]
+        let mut values: HashMap<&str, PlaceholderValue> = HashMap::new();
+        #[allow(unused_mut)]
+        let mut ids: HashMap<&str, serde_json::Value> = HashMap::new();
+        $(match $crate::template::IntoPlaceholder::into_placeholder($value) {
+            Ok(value) => { values.insert(stringify!($name), value); }
+            Err(id) => { ids.insert(stringify!($name), id); }
+        });*
+
+        static TEMPLATE: ::std::sync::LazyLock<$crate::template::SyntaxTemplate> =
+            ::std::sync::LazyLock::new(|| {
+                $crate::template::SyntaxTemplate::parse($template)
+            });
+
+        let template = (*TEMPLATE).clone();
+        let values = values.into_iter().map(|(name, value)| (name.to_string(), value)).collect();
+        let ids = ids.into_iter().map(|(name, value)| (name.to_string(), value)).collect();
+        template.instantiate_suite(values, ids)
+    }};
+}
+
+#[macro_export]
 macro_rules! py_expr {
     ($template:literal $(, $name:ident = $value:expr)* $(,)?) => {{
         use ruff_python_ast::{self as ast, Stmt};
@@ -56,6 +84,13 @@ macro_rules! py_stmt {
 }
 
 #[macro_export]
+macro_rules! py_stmts {
+    ($template:literal $(, $name:ident = $value:expr)* $(,)?) => {{
+            $crate::py_stmts_internal!($template $(, $name = $value)*)
+    }};
+}
+
+#[macro_export]
 macro_rules! py_stmt_typed {
     ($template:literal $(, $name:ident = $value:expr)* $(,)?) => {{
         let stmt = $crate::py_stmt_internal!($template $(, $name = $value)*);
@@ -63,10 +98,11 @@ macro_rules! py_stmt_typed {
     }};
 }
 
+use crate::basic_block::ast_to_ast::body::{body_from_suite, take_suite, Body, Suite};
 use crate::transformer::{walk_expr, walk_keyword, walk_parameter, walk_stmt, Transformer};
 use crate::{basic_block::ast_to_ast::simplify::flatten, namegen::fresh_name};
 use regex::Regex;
-use ruff_python_ast::{self as ast, DictItem, Expr, Stmt, StmtBody};
+use ruff_python_ast::{self as ast, DictItem, Expr, Stmt};
 use ruff_python_parser::parse_expression;
 use ruff_text_size::TextRange;
 use serde_json::Value;
@@ -125,7 +161,6 @@ impl_stmt_try_from!(ast::StmtExpr, Expr);
 impl_stmt_try_from!(ast::StmtPass, Pass);
 impl_stmt_try_from!(ast::StmtBreak, Break);
 impl_stmt_try_from!(ast::StmtContinue, Continue);
-impl_stmt_try_from!(ast::StmtBody, BodyStmt);
 impl_stmt_try_from!(ast::StmtIpyEscapeCommand, IpyEscapeCommand);
 
 pub fn expect_stmt<T: StmtTryFrom>(stmt: Stmt, template: &'static str) -> T {
@@ -140,13 +175,8 @@ pub fn expect_stmt<T: StmtTryFrom>(stmt: Stmt, template: &'static str) -> T {
     }
 }
 
-fn body_from_stmts(stmts: Vec<Stmt>) -> ast::StmtBody {
-    let body = stmts.into_iter().map(Box::new).collect();
-    ast::StmtBody {
-        body,
-        range: TextRange::default(),
-        node_index: ast::AtomicNodeIndex::default(),
-    }
+fn body_from_stmts(stmts: Vec<Stmt>) -> Body {
+    body_from_suite(stmts.into_iter().map(Box::new).collect())
 }
 
 pub(crate) fn is_simple(expr: &Expr) -> bool {
@@ -170,10 +200,7 @@ pub(crate) enum PlaceholderValue {
 pub(crate) struct DictEntries<I>(I);
 
 fn expand_body_stmt(stmt: Stmt) -> Vec<Stmt> {
-    match stmt {
-        Stmt::BodyStmt(body) => body.body.into_iter().map(|stmt| *stmt).collect(),
-        other => vec![other],
-    }
+    vec![stmt]
 }
 
 pub(crate) trait IntoPlaceholder {
@@ -254,7 +281,7 @@ impl_into_placeholder_for_stmt!(
     ast::StmtIpyEscapeCommand,
 );
 
-impl IntoPlaceholder for StmtBody {
+impl IntoPlaceholder for Body {
     fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
         Ok(PlaceholderValue::Stmt(
             self.body.into_iter().map(|stmt| *stmt).collect(),
@@ -262,7 +289,7 @@ impl IntoPlaceholder for StmtBody {
     }
 }
 
-impl IntoPlaceholder for &StmtBody {
+impl IntoPlaceholder for &Body {
     fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
         Ok(PlaceholderValue::Stmt(
             self.body.iter().map(|stmt| stmt.as_ref().clone()).collect(),
@@ -372,7 +399,7 @@ pub(crate) enum PlaceholderType {
 
 #[derive(Clone, Debug)]
 pub(crate) struct SyntaxTemplate {
-    stmts: StmtBody,
+    stmts: Suite,
 }
 
 impl SyntaxTemplate {
@@ -394,7 +421,7 @@ impl SyntaxTemplate {
             })
             .to_string();
 
-        let module = match ruff_python_parser::parse_module(&src) {
+        let mut module = match ruff_python_parser::parse_module(&src) {
             Ok(module) => module.into_syntax(),
             Err(e) => {
                 println!("template parse error: {}\n{}", e, src);
@@ -402,41 +429,34 @@ impl SyntaxTemplate {
             }
         };
 
-        Self { stmts: module.body }
+        Self {
+            stmts: take_suite(&mut module.body),
+        }
     }
 
-    pub(crate) fn instantiate(
+    pub(crate) fn instantiate_suite(
         mut self,
         values: HashMap<String, PlaceholderValue>,
         ids: HashMap<String, Value>,
-    ) -> Stmt {
+    ) -> Vec<Stmt> {
         let mut transformer = PlaceholderReplacer::new(values, ids);
         transformer.visit_body(&mut self.stmts);
         transformer.finish();
         flatten(&mut self.stmts);
-        if self.stmts.body.len() == 1 {
-            *self.stmts.body.remove(0)
-        } else {
-            self.stmts.into()
+        self.stmts.into_iter().map(|stmt| *stmt).collect()
+    }
+
+    pub(crate) fn instantiate(
+        self,
+        values: HashMap<String, PlaceholderValue>,
+        ids: HashMap<String, Value>,
+    ) -> Stmt {
+        let mut stmts = self.instantiate_suite(values, ids);
+        match stmts.len() {
+            1 => stmts.remove(0),
+            len => panic!("py_stmt template must produce exactly one statement, got {len}"),
         }
     }
-}
-
-pub fn empty_body() -> StmtBody {
-    StmtBody {
-        body: vec![],
-        range: TextRange::default(),
-        node_index: ast::AtomicNodeIndex::default(),
-    }
-}
-
-pub fn into_body(stmts: impl IntoIterator<Item = Stmt>) -> Stmt {
-    Stmt::BodyStmt(StmtBody {
-        body: stmts.into_iter().map(|stmt| Box::new(stmt)).collect(),
-        range: TextRange::default(),
-        node_index: ast::AtomicNodeIndex::default(),
-    })
-    .into()
 }
 
 struct PlaceholderReplacer {
@@ -833,11 +853,14 @@ fn parse_dynamic_expr(src: &str, name: &str) -> Expr {
 
 #[cfg(test)]
 mod tests {
-    use crate::{basic_block::ast_to_ast::simplify::flatten, test_util::assert_ast_eq};
+    use crate::{
+        basic_block::ast_to_ast::{body::body_from_suite, simplify::flatten},
+        test_util::assert_ast_eq,
+    };
     use ruff_python_ast::{
         self as ast,
         comparable::{ComparableExpr, ComparableStmt},
-        Stmt, StmtBody,
+        Stmt,
     };
     use ruff_python_parser::{parse_expression, parse_module};
     use ruff_text_size::TextRange;
@@ -904,15 +927,26 @@ b = 2
         .into_syntax()
         .body;
 
-        assert_ast_eq(
-            py_stmt!("{body:stmt}", body = body.clone()),
-            py_stmt!(
-                "
+        let actual = py_stmts!("{body:stmt}", body = body.clone());
+        let expected = parse_module(
+            "
 a = 1
 b = 2
 ",
-            ),
-        );
+        )
+        .unwrap()
+        .into_syntax()
+        .body
+        .body
+        .into_iter()
+        .map(|stmt| *stmt)
+        .collect::<Vec<_>>();
+        let actual_cmp = actual.iter().map(ComparableStmt::from).collect::<Vec<_>>();
+        let expected_cmp = expected
+            .iter()
+            .map(ComparableStmt::from)
+            .collect::<Vec<_>>();
+        assert_eq!(actual_cmp, expected_cmp);
     }
 
     #[test]
@@ -941,27 +975,38 @@ b = 2
             .map(|stmt| stmt.as_ref().clone())
             .collect::<Vec<_>>();
 
-        assert_ast_eq(
-            py_stmt!("{body:stmt}", body = iter_body.into_iter()),
-            py_stmt!(
-                "
+        let actual = py_stmts!("{body:stmt}", body = iter_body.into_iter());
+        let expected = parse_module(
+            "
 a = 1
 b = 2
 ",
-            ),
-        );
+        )
+        .unwrap()
+        .into_syntax()
+        .body
+        .body
+        .into_iter()
+        .map(|stmt| *stmt)
+        .collect::<Vec<_>>();
+        let actual_cmp = actual.iter().map(ComparableStmt::from).collect::<Vec<_>>();
+        let expected_cmp = expected
+            .iter()
+            .map(ComparableStmt::from)
+            .collect::<Vec<_>>();
+        assert_eq!(actual_cmp, expected_cmp);
     }
 
     #[test]
-    fn inserts_empty_stmt_from_iterator() {
-        let actual = py_stmt!("{body:stmt}", body = Vec::<Stmt>::new().into_iter(),);
-        let expected: Stmt = Stmt::BodyStmt(StmtBody {
-            body: vec![],
-            range: TextRange::default(),
-            node_index: ast::AtomicNodeIndex::default(),
-        })
-        .into();
-        assert_ast_eq(actual, expected);
+    fn inserts_pass_from_empty_stmt_iterator() {
+        let actual = py_stmts!("{body:stmt}", body = Vec::<Stmt>::new().into_iter(),);
+        let expected: Vec<Stmt> = vec![];
+        let actual_cmp = actual.iter().map(ComparableStmt::from).collect::<Vec<_>>();
+        let expected_cmp = expected
+            .iter()
+            .map(ComparableStmt::from)
+            .collect::<Vec<_>>();
+        assert_eq!(actual_cmp, expected_cmp);
     }
 
     #[test]
@@ -973,12 +1018,8 @@ b = 2
 ",
             expr = expr,
         );
-        let mut body = ast::StmtBody {
-            body: vec![Box::new(actual)],
-            range: TextRange::default(),
-            node_index: ast::AtomicNodeIndex::default(),
-        };
-        flatten(&mut body);
+        let mut body = body_from_suite(vec![Box::new(actual)]);
+        flatten(crate::basic_block::ast_to_ast::body::suite_mut(&mut body));
         assert_ast_eq(
             body.body
                 .first()
@@ -1012,7 +1053,9 @@ def {func:id}({param:id}):
                 body: mut fn_body,
                 ..
             }) => {
-                flatten(&mut fn_body);
+                flatten(crate::basic_block::ast_to_ast::body::suite_mut(
+                    &mut fn_body,
+                ));
                 assert_eq!(name.id.as_str(), "foo");
                 assert_eq!(parameters.args[0].parameter.name.id.as_str(), "arg");
                 assert_eq!(

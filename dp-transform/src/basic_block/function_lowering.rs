@@ -6,7 +6,7 @@ use super::block_py::state::collect_cell_slots;
 use super::block_py::{
     BlockPyBlock, BlockPyBranchTable, BlockPyCallableDef, BlockPyCallableFacts,
     BlockPyFunctionKind, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment,
-    BlockPyTerm,
+    BlockPyTerm, FunctionName,
 };
 use super::bound_names::{collect_bound_names, collect_explicit_global_or_nonlocal_names};
 use super::function_identity::{resolve_runtime_function_identity, FunctionIdentity};
@@ -17,12 +17,13 @@ use super::stmt_utils::{
     flatten_stmt_boxes, should_strip_nonlocal_for_bb, strip_nonlocal_directives,
 };
 use crate::basic_block::ast_to_ast::ast_rewrite::{Rewrite, StmtRewritePass};
+use crate::basic_block::ast_to_ast::body::{suite_mut, suite_ref, Suite};
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::ast_to_ast::scope::{is_internal_symbol, Scope};
-use crate::basic_block::param_specs::collect_param_spec_and_defaults;
+use crate::basic_block::block_py::param_specs::collect_param_spec_and_defaults;
 use crate::py_expr;
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
-use ruff_python_ast::{self as ast, Expr, NodeIndex, Stmt, StmtBody};
+use ruff_python_ast::{self as ast, Expr, NodeIndex, Stmt};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -44,45 +45,45 @@ fn collect_deleted_names_in_stmt(stmt: &Stmt, names: &mut HashSet<String>) {
             }
         }
         Stmt::If(if_stmt) => {
-            for stmt in &if_stmt.body.body {
+            for stmt in suite_ref(&if_stmt.body) {
                 collect_deleted_names_in_stmt(stmt.as_ref(), names);
             }
             for clause in &if_stmt.elif_else_clauses {
-                for stmt in &clause.body.body {
+                for stmt in suite_ref(&clause.body) {
                     collect_deleted_names_in_stmt(stmt.as_ref(), names);
                 }
             }
         }
         Stmt::While(while_stmt) => {
-            for stmt in &while_stmt.body.body {
+            for stmt in suite_ref(&while_stmt.body) {
                 collect_deleted_names_in_stmt(stmt.as_ref(), names);
             }
-            for stmt in &while_stmt.orelse.body {
+            for stmt in suite_ref(&while_stmt.orelse) {
                 collect_deleted_names_in_stmt(stmt.as_ref(), names);
             }
         }
         Stmt::For(for_stmt) => {
-            for stmt in &for_stmt.body.body {
+            for stmt in suite_ref(&for_stmt.body) {
                 collect_deleted_names_in_stmt(stmt.as_ref(), names);
             }
-            for stmt in &for_stmt.orelse.body {
+            for stmt in suite_ref(&for_stmt.orelse) {
                 collect_deleted_names_in_stmt(stmt.as_ref(), names);
             }
         }
         Stmt::Try(try_stmt) => {
-            for stmt in &try_stmt.body.body {
+            for stmt in suite_ref(&try_stmt.body) {
                 collect_deleted_names_in_stmt(stmt.as_ref(), names);
             }
             for handler in &try_stmt.handlers {
                 let ast::ExceptHandler::ExceptHandler(handler) = handler;
-                for stmt in &handler.body.body {
+                for stmt in suite_ref(&handler.body) {
                     collect_deleted_names_in_stmt(stmt.as_ref(), names);
                 }
             }
-            for stmt in &try_stmt.orelse.body {
+            for stmt in suite_ref(&try_stmt.orelse) {
                 collect_deleted_names_in_stmt(stmt.as_ref(), names);
             }
-            for stmt in &try_stmt.finalbody.body {
+            for stmt in suite_ref(&try_stmt.finalbody) {
                 collect_deleted_names_in_stmt(stmt.as_ref(), names);
             }
         }
@@ -213,35 +214,35 @@ impl Transformer for DeletedNameLoadRewriter<'_> {
             }
             Stmt::If(if_stmt) => {
                 self.visit_expr(if_stmt.test.as_mut());
-                self.visit_body(&mut if_stmt.body);
+                self.visit_body(suite_mut(&mut if_stmt.body));
                 for clause in if_stmt.elif_else_clauses.iter_mut() {
                     if let Some(test) = clause.test.as_mut() {
                         self.visit_expr(test);
                     }
-                    self.visit_body(&mut clause.body);
+                    self.visit_body(suite_mut(&mut clause.body));
                 }
             }
             Stmt::While(while_stmt) => {
                 self.visit_expr(while_stmt.test.as_mut());
-                self.visit_body(&mut while_stmt.body);
-                self.visit_body(&mut while_stmt.orelse);
+                self.visit_body(suite_mut(&mut while_stmt.body));
+                self.visit_body(suite_mut(&mut while_stmt.orelse));
             }
             Stmt::For(for_stmt) => {
                 self.visit_expr(for_stmt.iter.as_mut());
-                self.visit_body(&mut for_stmt.body);
-                self.visit_body(&mut for_stmt.orelse);
+                self.visit_body(suite_mut(&mut for_stmt.body));
+                self.visit_body(suite_mut(&mut for_stmt.orelse));
             }
             Stmt::Try(try_stmt) => {
-                self.visit_body(&mut try_stmt.body);
+                self.visit_body(suite_mut(&mut try_stmt.body));
                 for handler in try_stmt.handlers.iter_mut() {
                     let ast::ExceptHandler::ExceptHandler(handler) = handler;
                     if let Some(type_) = handler.type_.as_mut() {
                         self.visit_expr(type_.as_mut());
                     }
-                    self.visit_body(&mut handler.body);
+                    self.visit_body(suite_mut(&mut handler.body));
                 }
-                self.visit_body(&mut try_stmt.orelse);
-                self.visit_body(&mut try_stmt.finalbody);
+                self.visit_body(suite_mut(&mut try_stmt.orelse));
+                self.visit_body(suite_mut(&mut try_stmt.finalbody));
             }
             _ => walk_stmt(self, stmt),
         }
@@ -307,7 +308,7 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     if is_annotation_helper_name(func.name.id.as_str()) {
         return None;
     }
-    let (_, lowered_input_body) = split_docstring(&func.body);
+    let (_, lowered_input_body) = split_docstring(suite_ref(&func.body));
     let lowered_input_body = flatten_stmt_boxes(&lowered_input_body);
     let lowered_input_body = if should_strip_nonlocal_for_bb(func.name.id.as_str()) {
         strip_nonlocal_directives(lowered_input_body)
@@ -354,10 +355,12 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     let callable_def = build_blockpy_callable_def_from_runtime_input(
         context,
         main_function_id,
-        fn_name,
-        identity.bind_name.clone(),
-        identity.display_name.clone(),
-        identity.qualname.clone(),
+        FunctionName::new(
+            identity.bind_name.clone(),
+            fn_name,
+            identity.display_name.clone(),
+            identity.qualname.clone(),
+        ),
         param_spec,
         param_defaults,
         &runtime_input_body,
@@ -374,7 +377,7 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
 }
 
 pub(crate) fn function_docstring_text(func: &ast::StmtFunctionDef) -> Option<String> {
-    let (docstring, _) = split_docstring(&func.body);
+    let (docstring, _) = split_docstring(suite_ref(&func.body));
     let Some(Stmt::Expr(expr_stmt)) = docstring else {
         return None;
     };
@@ -404,8 +407,8 @@ impl StmtRewritePass for SingleNamedAssignmentPass {
     }
 }
 
-fn split_docstring(body: &StmtBody) -> (Option<Stmt>, Vec<Box<Stmt>>) {
-    let mut rest = body.body.clone();
+fn split_docstring(body: &Suite) -> (Option<Stmt>, Vec<Box<Stmt>>) {
+    let mut rest = body.clone();
     let Some(first) = rest.first() else {
         return (None, rest);
     };
@@ -441,30 +444,29 @@ fn has_dead_stmt_suffixes(stmts: &[Box<Stmt>]) -> bool {
 
 fn has_dead_stmt_suffixes_in_stmt(stmt: &Stmt) -> bool {
     match stmt {
-        Stmt::BodyStmt(body) => has_dead_stmt_suffixes(&body.body),
         Stmt::If(if_stmt) => {
-            has_dead_stmt_suffixes(&if_stmt.body.body)
+            has_dead_stmt_suffixes(suite_ref(&if_stmt.body))
                 || if_stmt
                     .elif_else_clauses
                     .iter()
-                    .any(|clause| has_dead_stmt_suffixes(&clause.body.body))
+                    .any(|clause| has_dead_stmt_suffixes(suite_ref(&clause.body)))
         }
         Stmt::While(while_stmt) => {
-            has_dead_stmt_suffixes(&while_stmt.body.body)
-                || has_dead_stmt_suffixes(&while_stmt.orelse.body)
+            has_dead_stmt_suffixes(suite_ref(&while_stmt.body))
+                || has_dead_stmt_suffixes(suite_ref(&while_stmt.orelse))
         }
         Stmt::For(for_stmt) => {
-            has_dead_stmt_suffixes(&for_stmt.body.body)
-                || has_dead_stmt_suffixes(&for_stmt.orelse.body)
+            has_dead_stmt_suffixes(suite_ref(&for_stmt.body))
+                || has_dead_stmt_suffixes(suite_ref(&for_stmt.orelse))
         }
         Stmt::Try(try_stmt) => {
-            has_dead_stmt_suffixes(&try_stmt.body.body)
+            has_dead_stmt_suffixes(suite_ref(&try_stmt.body))
                 || try_stmt.handlers.iter().any(|handler| {
                     let ast::ExceptHandler::ExceptHandler(handler) = handler;
-                    has_dead_stmt_suffixes(&handler.body.body)
+                    has_dead_stmt_suffixes(suite_ref(&handler.body))
                 })
-                || has_dead_stmt_suffixes(&try_stmt.orelse.body)
-                || has_dead_stmt_suffixes(&try_stmt.finalbody.body)
+                || has_dead_stmt_suffixes(suite_ref(&try_stmt.orelse))
+                || has_dead_stmt_suffixes(suite_ref(&try_stmt.finalbody))
         }
         _ => false,
     }
@@ -489,31 +491,33 @@ fn prune_dead_stmt_suffixes(stmts: &[Box<Stmt>]) -> Vec<Box<Stmt>> {
 
 fn prune_dead_stmt_suffixes_in_stmt(stmt: &mut Stmt) {
     match stmt {
-        Stmt::BodyStmt(body) => {
-            body.body = prune_dead_stmt_suffixes(&body.body);
-        }
         Stmt::If(if_stmt) => {
-            if_stmt.body.body = prune_dead_stmt_suffixes(&if_stmt.body.body);
+            *suite_mut(&mut if_stmt.body) = prune_dead_stmt_suffixes(suite_ref(&if_stmt.body));
             for clause in &mut if_stmt.elif_else_clauses {
-                clause.body.body = prune_dead_stmt_suffixes(&clause.body.body);
+                *suite_mut(&mut clause.body) = prune_dead_stmt_suffixes(suite_ref(&clause.body));
             }
         }
         Stmt::While(while_stmt) => {
-            while_stmt.body.body = prune_dead_stmt_suffixes(&while_stmt.body.body);
-            while_stmt.orelse.body = prune_dead_stmt_suffixes(&while_stmt.orelse.body);
+            *suite_mut(&mut while_stmt.body) =
+                prune_dead_stmt_suffixes(suite_ref(&while_stmt.body));
+            *suite_mut(&mut while_stmt.orelse) =
+                prune_dead_stmt_suffixes(suite_ref(&while_stmt.orelse));
         }
         Stmt::For(for_stmt) => {
-            for_stmt.body.body = prune_dead_stmt_suffixes(&for_stmt.body.body);
-            for_stmt.orelse.body = prune_dead_stmt_suffixes(&for_stmt.orelse.body);
+            *suite_mut(&mut for_stmt.body) = prune_dead_stmt_suffixes(suite_ref(&for_stmt.body));
+            *suite_mut(&mut for_stmt.orelse) =
+                prune_dead_stmt_suffixes(suite_ref(&for_stmt.orelse));
         }
         Stmt::Try(try_stmt) => {
-            try_stmt.body.body = prune_dead_stmt_suffixes(&try_stmt.body.body);
+            *suite_mut(&mut try_stmt.body) = prune_dead_stmt_suffixes(suite_ref(&try_stmt.body));
             for handler in &mut try_stmt.handlers {
                 let ast::ExceptHandler::ExceptHandler(handler) = handler;
-                handler.body.body = prune_dead_stmt_suffixes(&handler.body.body);
+                *suite_mut(&mut handler.body) = prune_dead_stmt_suffixes(suite_ref(&handler.body));
             }
-            try_stmt.orelse.body = prune_dead_stmt_suffixes(&try_stmt.orelse.body);
-            try_stmt.finalbody.body = prune_dead_stmt_suffixes(&try_stmt.finalbody.body);
+            *suite_mut(&mut try_stmt.orelse) =
+                prune_dead_stmt_suffixes(suite_ref(&try_stmt.orelse));
+            *suite_mut(&mut try_stmt.finalbody) =
+                prune_dead_stmt_suffixes(suite_ref(&try_stmt.finalbody));
         }
         _ => {}
     }

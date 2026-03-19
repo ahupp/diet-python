@@ -1,4 +1,4 @@
-use crate::{basic_block::ast_to_ast::ast_rewrite::Rewrite, py_stmt, template::into_body};
+use crate::{basic_block::ast_to_ast::ast_rewrite::Rewrite, py_stmt};
 
 use super::{context::Context, Options};
 use ruff_python_ast::{self as ast};
@@ -64,7 +64,7 @@ pub fn rewrite(ast::StmtImport { names, .. }: ast::StmtImport) -> Rewrite {
             }
         })
         .collect();
-    Rewrite::Walk(into_body(stmts))
+    Rewrite::Walk(stmts)
 }
 
 pub fn rewrite_from(context: &Context, import_from: ast::StmtImportFrom) -> Rewrite {
@@ -91,12 +91,12 @@ pub fn rewrite_from(context: &Context, import_from: ast::StmtImportFrom) -> Rewr
             .expect("failed to parse rewritten import-star")
             .into_syntax()
             .body;
-        return Rewrite::Walk(into_body(
+        return Rewrite::Walk(
             body.body
                 .iter()
                 .map(|stmt| stmt.as_ref().clone())
                 .collect::<Vec<_>>(),
-        ));
+        );
     }
     let module_name = module.as_ref().map(|n| n.id.as_str()).unwrap_or("");
     let temp_binding = context.fresh("import");
@@ -146,5 +146,5 @@ pub fn rewrite_from(context: &Context, import_from: ast::StmtImportFrom) -> Rewr
         ));
     }
 
-    Rewrite::Walk(into_body(statements))
+    Rewrite::Walk(statements)
 }
