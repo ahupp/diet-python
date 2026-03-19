@@ -3,10 +3,10 @@ use crate::basic_block::ast_to_ast::body::suite_ref;
 use ruff_python_ast::{self as ast, Stmt};
 use std::collections::HashSet;
 
-pub(crate) fn collect_bound_names(stmts: &[Box<Stmt>]) -> HashSet<String> {
+pub(crate) fn collect_bound_names(stmts: &[Stmt]) -> HashSet<String> {
     let mut names = HashSet::new();
     for stmt in stmts {
-        collect_bound_names_in_stmt(stmt.as_ref(), &mut names);
+        collect_bound_names_in_stmt(stmt, &mut names);
     }
     names
 }
@@ -23,33 +23,33 @@ fn collect_bound_names_in_stmt(stmt: &Stmt, names: &mut HashSet<String>) {
         Stmt::For(for_stmt) => {
             collect_assigned_names(for_stmt.target.as_ref(), names);
             for child in suite_ref(&for_stmt.body) {
-                collect_bound_names_in_stmt(child.as_ref(), names);
+                collect_bound_names_in_stmt(child, names);
             }
             for child in suite_ref(&for_stmt.orelse) {
-                collect_bound_names_in_stmt(child.as_ref(), names);
+                collect_bound_names_in_stmt(child, names);
             }
         }
         Stmt::While(while_stmt) => {
             for child in suite_ref(&while_stmt.body) {
-                collect_bound_names_in_stmt(child.as_ref(), names);
+                collect_bound_names_in_stmt(child, names);
             }
             for child in suite_ref(&while_stmt.orelse) {
-                collect_bound_names_in_stmt(child.as_ref(), names);
+                collect_bound_names_in_stmt(child, names);
             }
         }
         Stmt::If(if_stmt) => {
             for child in suite_ref(&if_stmt.body) {
-                collect_bound_names_in_stmt(child.as_ref(), names);
+                collect_bound_names_in_stmt(child, names);
             }
             for clause in &if_stmt.elif_else_clauses {
                 for child in suite_ref(&clause.body) {
-                    collect_bound_names_in_stmt(child.as_ref(), names);
+                    collect_bound_names_in_stmt(child, names);
                 }
             }
         }
         Stmt::Try(try_stmt) => {
             for child in suite_ref(&try_stmt.body) {
-                collect_bound_names_in_stmt(child.as_ref(), names);
+                collect_bound_names_in_stmt(child, names);
             }
             for handler in &try_stmt.handlers {
                 let ast::ExceptHandler::ExceptHandler(handler) = handler;
@@ -57,14 +57,14 @@ fn collect_bound_names_in_stmt(stmt: &Stmt, names: &mut HashSet<String>) {
                     names.insert(name.id.to_string());
                 }
                 for child in suite_ref(&handler.body) {
-                    collect_bound_names_in_stmt(child.as_ref(), names);
+                    collect_bound_names_in_stmt(child, names);
                 }
             }
             for child in suite_ref(&try_stmt.orelse) {
-                collect_bound_names_in_stmt(child.as_ref(), names);
+                collect_bound_names_in_stmt(child, names);
             }
             for child in suite_ref(&try_stmt.finalbody) {
-                collect_bound_names_in_stmt(child.as_ref(), names);
+                collect_bound_names_in_stmt(child, names);
             }
         }
         Stmt::With(with_stmt) => {
@@ -74,7 +74,7 @@ fn collect_bound_names_in_stmt(stmt: &Stmt, names: &mut HashSet<String>) {
                 }
             }
             for child in suite_ref(&with_stmt.body) {
-                collect_bound_names_in_stmt(child.as_ref(), names);
+                collect_bound_names_in_stmt(child, names);
             }
         }
         Stmt::Delete(delete_stmt) => {
@@ -92,10 +92,10 @@ fn collect_bound_names_in_stmt(stmt: &Stmt, names: &mut HashSet<String>) {
     }
 }
 
-pub(crate) fn collect_explicit_global_or_nonlocal_names(stmts: &[Box<Stmt>]) -> HashSet<String> {
+pub(crate) fn collect_explicit_global_or_nonlocal_names(stmts: &[Stmt]) -> HashSet<String> {
     let mut names = HashSet::new();
     for stmt in stmts {
-        collect_explicit_global_or_nonlocal_names_in_stmt(stmt.as_ref(), &mut names);
+        collect_explicit_global_or_nonlocal_names_in_stmt(stmt, &mut names);
     }
     names
 }
@@ -114,50 +114,50 @@ fn collect_explicit_global_or_nonlocal_names_in_stmt(stmt: &Stmt, names: &mut Ha
         }
         Stmt::If(if_stmt) => {
             for child in suite_ref(&if_stmt.body) {
-                collect_explicit_global_or_nonlocal_names_in_stmt(child.as_ref(), names);
+                collect_explicit_global_or_nonlocal_names_in_stmt(child, names);
             }
             for clause in &if_stmt.elif_else_clauses {
                 for child in suite_ref(&clause.body) {
-                    collect_explicit_global_or_nonlocal_names_in_stmt(child.as_ref(), names);
+                    collect_explicit_global_or_nonlocal_names_in_stmt(child, names);
                 }
             }
         }
         Stmt::While(while_stmt) => {
             for child in suite_ref(&while_stmt.body) {
-                collect_explicit_global_or_nonlocal_names_in_stmt(child.as_ref(), names);
+                collect_explicit_global_or_nonlocal_names_in_stmt(child, names);
             }
             for child in suite_ref(&while_stmt.orelse) {
-                collect_explicit_global_or_nonlocal_names_in_stmt(child.as_ref(), names);
+                collect_explicit_global_or_nonlocal_names_in_stmt(child, names);
             }
         }
         Stmt::For(for_stmt) => {
             for child in suite_ref(&for_stmt.body) {
-                collect_explicit_global_or_nonlocal_names_in_stmt(child.as_ref(), names);
+                collect_explicit_global_or_nonlocal_names_in_stmt(child, names);
             }
             for child in suite_ref(&for_stmt.orelse) {
-                collect_explicit_global_or_nonlocal_names_in_stmt(child.as_ref(), names);
+                collect_explicit_global_or_nonlocal_names_in_stmt(child, names);
             }
         }
         Stmt::Try(try_stmt) => {
             for child in suite_ref(&try_stmt.body) {
-                collect_explicit_global_or_nonlocal_names_in_stmt(child.as_ref(), names);
+                collect_explicit_global_or_nonlocal_names_in_stmt(child, names);
             }
             for handler in &try_stmt.handlers {
                 let ast::ExceptHandler::ExceptHandler(handler) = handler;
                 for child in suite_ref(&handler.body) {
-                    collect_explicit_global_or_nonlocal_names_in_stmt(child.as_ref(), names);
+                    collect_explicit_global_or_nonlocal_names_in_stmt(child, names);
                 }
             }
             for child in suite_ref(&try_stmt.orelse) {
-                collect_explicit_global_or_nonlocal_names_in_stmt(child.as_ref(), names);
+                collect_explicit_global_or_nonlocal_names_in_stmt(child, names);
             }
             for child in suite_ref(&try_stmt.finalbody) {
-                collect_explicit_global_or_nonlocal_names_in_stmt(child.as_ref(), names);
+                collect_explicit_global_or_nonlocal_names_in_stmt(child, names);
             }
         }
         Stmt::With(with_stmt) => {
             for child in suite_ref(&with_stmt.body) {
-                collect_explicit_global_or_nonlocal_names_in_stmt(child.as_ref(), names);
+                collect_explicit_global_or_nonlocal_names_in_stmt(child, names);
             }
         }
         _ => {}

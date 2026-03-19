@@ -106,7 +106,7 @@ pub trait Transformer {
 
 pub fn walk_body<V: Transformer + ?Sized>(visitor: &mut V, body: &mut Suite) {
     for stmt in body.iter_mut() {
-        visitor.visit_stmt(stmt.as_mut());
+        visitor.visit_stmt(stmt);
     }
 }
 

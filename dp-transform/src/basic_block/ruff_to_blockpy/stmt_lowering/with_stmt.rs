@@ -74,22 +74,18 @@ fn nest_with_stmt_items(with_stmt: ast::StmtWith) -> Vec<Stmt> {
         ..
     } = with_stmt;
     let mut body = body;
-    items.into_iter().rev().fold(
-        take_suite(&mut body)
-            .into_iter()
-            .map(|stmt| *stmt)
-            .collect::<Vec<_>>(),
-        |body, item| vec![wrap_with_item_stmt(item, body, is_async)],
-    )
+    items
+        .into_iter()
+        .rev()
+        .fold(take_suite(&mut body), |body, item| {
+            vec![wrap_with_item_stmt(item, body, is_async)]
+        })
 }
 
 pub(super) fn desugar_structured_with_stmt_for_blockpy(with_stmt: ast::StmtWith) -> Vec<Stmt> {
     if with_stmt.items.is_empty() {
         let mut body = with_stmt.body;
-        return take_suite(&mut body)
-            .into_iter()
-            .map(|stmt| *stmt)
-            .collect();
+        return take_suite(&mut body);
     }
 
     let ast::StmtWith {
@@ -100,10 +96,7 @@ pub(super) fn desugar_structured_with_stmt_for_blockpy(with_stmt: ast::StmtWith)
     } = with_stmt;
 
     let mut body = body;
-    let mut lowered_body: Vec<Stmt> = take_suite(&mut body)
-        .into_iter()
-        .map(|stmt| *stmt)
-        .collect();
+    let mut lowered_body: Vec<Stmt> = take_suite(&mut body);
 
     for ast::WithItem {
         context_expr,
@@ -209,20 +202,20 @@ fn build_with_finally_body(
     enter_name: Option<&str>,
     ctx_cleanup: Vec<Stmt>,
     is_async: bool,
-) -> Vec<Box<Stmt>> {
+) -> Vec<Stmt> {
     let mut out = vec![
-        Box::new(py_stmt!(
+        py_stmt!(
             "{exit_call:id} = {exit:id}",
             exit_call = exit_call_name,
             exit = exit_name,
-        )),
-        Box::new(py_stmt!("{exit:id} = None", exit = exit_name)),
+        ),
+        py_stmt!("{exit:id} = None", exit = exit_name),
     ];
     if let Some(enter_name) = enter_name {
-        out.push(Box::new(py_stmt!("{enter:id} = None", enter = enter_name)));
+        out.push(py_stmt!("{enter:id} = None", enter = enter_name));
     }
     if !ctx_cleanup.is_empty() {
-        out.extend(ctx_cleanup.into_iter().map(Box::new));
+        out.extend(ctx_cleanup);
     }
     let exit_stmt = if is_async {
         py_stmt!(
@@ -235,18 +228,18 @@ fn build_with_finally_body(
             exit_call = exit_call_name,
         )
     };
-    out.push(Box::new(exit_stmt));
-    out.push(Box::new(py_stmt!(
+    out.push(exit_stmt);
+    out.push(py_stmt!(
         "{exit_call:id} = None",
         exit_call = exit_call_name,
-    )));
+    ));
     out
 }
 
 pub(crate) fn lower_with_stmt_sequence<F>(
     fn_name: &str,
     with_stmt: ast::StmtWith,
-    remaining_stmts: &[Box<Stmt>],
+    remaining_stmts: &[Stmt],
     cont_label: String,
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
@@ -256,7 +249,7 @@ pub(crate) fn lower_with_stmt_sequence<F>(
     lower_sequence: &mut F,
 ) -> (String, Option<TryRegionPlan>)
 where
-    F: FnMut(&[Box<Stmt>], String, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, &mut Vec<BlockPyBlock>) -> String,
 {
     if with_stmt.items.is_empty() {
         let jump_label = if linear.is_empty() {
@@ -272,9 +265,6 @@ where
                 {
                     let mut body = with_stmt.body;
                     take_suite(&mut body)
-                        .into_iter()
-                        .map(|stmt| *stmt)
-                        .collect()
                 },
                 remaining_stmts,
                 cont_label,
@@ -421,13 +411,12 @@ where
                     name
                 },
             )
-            .into_iter()
-            .map(Box::new),
+            .into_iter(),
         );
     } else {
         entry_linear.push(py_stmt!("{value:expr}", value = enter_value));
     }
-    try_body.extend(flatten_stmt_boxes(&body.body));
+    try_body.extend(flatten_stmt_boxes(&body));
 
     let finally_body = build_with_finally_body(
         exit_name.as_str(),

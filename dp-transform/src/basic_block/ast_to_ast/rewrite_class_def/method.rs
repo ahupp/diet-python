@@ -143,7 +143,7 @@ fn rewrite_method(func_def: &mut ast::StmtFunctionDef) -> bool {
         needs_class_cell: false,
     };
     for stmt in suite_mut(&mut func_def.body).iter_mut() {
-        (&mut transformer).visit_stmt(stmt.as_mut());
+        (&mut transformer).visit_stmt(stmt);
     }
     transformer.needs_class_cell
 }

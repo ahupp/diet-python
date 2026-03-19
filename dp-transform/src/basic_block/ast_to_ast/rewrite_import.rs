@@ -51,10 +51,7 @@ pub fn rewrite(ast::StmtImport { names, .. }: ast::StmtImport) -> Rewrite {
                     .expect("failed to parse rewritten dotted import")
                     .into_syntax()
                     .body;
-                body.body
-                    .iter()
-                    .map(|stmt| stmt.as_ref().clone())
-                    .collect::<Vec<_>>()
+                body
             } else {
                 vec![py_stmt!(
                     "{name:id} = __dp_import_({module:literal}, __spec__)",
@@ -91,12 +88,7 @@ pub fn rewrite_from(context: &Context, import_from: ast::StmtImportFrom) -> Rewr
             .expect("failed to parse rewritten import-star")
             .into_syntax()
             .body;
-        return Rewrite::Walk(
-            body.body
-                .iter()
-                .map(|stmt| stmt.as_ref().clone())
-                .collect::<Vec<_>>(),
-        );
+        return Rewrite::Walk(body);
     }
     let module_name = module.as_ref().map(|n| n.id.as_str()).unwrap_or("");
     let temp_binding = context.fresh("import");
@@ -130,10 +122,9 @@ pub fn rewrite_from(context: &Context, import_from: ast::StmtImportFrom) -> Rewr
         .into_syntax()
         .body;
     let import_stmt = import_stmt
-        .body
         .pop()
         .expect("expected single statement when parsing import rewrite");
-    statements.push(*import_stmt);
+    statements.push(import_stmt);
 
     for alias in names {
         let orig = alias.name.id.as_str();

@@ -6,13 +6,16 @@ use super::bb_ir::{BbBlock, BbBlockMeta, BbFunction, BbModule, BbStmt};
 use super::block_py::cfg::linearize_structured_ifs;
 use super::block_py::{
     BlockPyBlock, BlockPyCallableDef, BlockPyIfTerm, BlockPyModule, BlockPyStmt, BlockPyTerm,
-    CfgModule, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait,
-    CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
+    CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait,
+    CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyFunction, CoreBlockPyFunctionWithoutAwait,
+    CoreBlockPyFunctionWithoutAwaitOrYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
+    CoreBlockPyModule, CoreBlockPyModuleWithoutAwait, CoreBlockPyModuleWithoutAwaitOrYield,
+    SemanticBlockPyModule,
 };
 use super::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use super::core_await_lower::lower_awaits_in_core_blockpy_callable_def;
 use super::ruff_to_blockpy::{
-    build_lowered_blockpy_function_bundle, LoweredBlockPyExtra, LoweredBlockPyFunction,
+    build_lowered_blockpy_function_bundle, LoweredBlockPyFunction, LoweredBlockPyModule,
 };
 use crate::basic_block::ast_to_ast::context::Context;
 use ruff_python_ast::{self as ast, Expr};
@@ -21,19 +24,6 @@ use std::collections::HashMap;
 
 pub use codegen_normalize::normalize_bb_module_for_codegen;
 pub use exception_pass::lower_try_jump_exception_flow;
-
-pub type LoweredCoreBlockPyFunction =
-    BlockPyCallableDef<CoreBlockPyExpr, BlockPyBlock<CoreBlockPyExpr>, LoweredBlockPyExtra>;
-pub type LoweredCoreBlockPyFunctionWithoutAwait = BlockPyCallableDef<
-    CoreBlockPyExprWithoutAwait,
-    BlockPyBlock<CoreBlockPyExprWithoutAwait>,
-    LoweredBlockPyExtra,
->;
-pub type LoweredCoreBlockPyFunctionWithoutAwaitOrYield = BlockPyCallableDef<
-    CoreBlockPyExprWithoutAwaitOrYield,
-    BlockPyBlock<CoreBlockPyExprWithoutAwaitOrYield>,
-    LoweredBlockPyExtra,
->;
 
 #[derive(Clone)]
 pub(crate) struct LoweredBlockPyModuleBundlePlan {
@@ -44,46 +34,46 @@ pub(crate) struct LoweredBlockPyModuleBundlePlan {
 
 pub(crate) fn lower_blockpy_module_plan_to_bundle(
     context: &Context,
-    module: BlockPyModule<Expr>,
-) -> CfgModule<LoweredBlockPyFunction> {
+    module: SemanticBlockPyModule,
+) -> LoweredBlockPyModule {
     let mut callable_defs = Vec::new();
     for callable_def in module.callable_defs {
         let lowered_function = build_lowered_blockpy_function_bundle(callable_def);
         callable_defs.push(lowered_function);
     }
-    CfgModule { callable_defs }
+    BlockPyModule { callable_defs }
 }
 
 pub(crate) fn lowered_blockpy_module_bundle_plan_to_semantic_blockpy_module(
     plan: &LoweredBlockPyModuleBundlePlan,
-) -> BlockPyModule<Expr> {
-    BlockPyModule {
+) -> SemanticBlockPyModule {
+    SemanticBlockPyModule {
         callable_defs: plan.callable_defs.clone(),
     }
 }
 
 pub fn project_lowered_module_callable_defs<T, U: Clone>(
-    module: &CfgModule<T>,
+    module: &BlockPyModule<T>,
     project: impl Fn(&T) -> &U,
-) -> CfgModule<U> {
+) -> BlockPyModule<U> {
     module.map_callable_defs(|lowered_function| project(lowered_function).clone())
 }
 
 pub(crate) fn simplify_lowered_blockpy_module_bundle_exprs(
-    module: &CfgModule<LoweredBlockPyFunction>,
-) -> CfgModule<LoweredCoreBlockPyFunction> {
+    module: &LoweredBlockPyModule,
+) -> CoreBlockPyModule {
     module.map_callable_defs(simplify_lowered_blockpy_function_exprs)
 }
 
 fn lower_core_blockpy_function_without_await(
-    lowered: &LoweredCoreBlockPyFunction,
-) -> LoweredCoreBlockPyFunctionWithoutAwait {
+    lowered: &CoreBlockPyFunction,
+) -> CoreBlockPyFunctionWithoutAwait {
     lower_awaits_in_core_blockpy_callable_def(lowered.clone())
 }
 
 fn lower_core_callable_def_without_await_or_yield(
-    callable_def: &LoweredCoreBlockPyFunctionWithoutAwait,
-) -> LoweredCoreBlockPyFunctionWithoutAwaitOrYield {
+    callable_def: &CoreBlockPyFunctionWithoutAwait,
+) -> CoreBlockPyFunctionWithoutAwaitOrYield {
     let qualname = callable_def.names.qualname.as_str();
     callable_def.clone().try_into().unwrap_or_else(|_| {
         panic!(
@@ -94,37 +84,37 @@ fn lower_core_callable_def_without_await_or_yield(
 }
 
 fn lower_core_blockpy_function_without_await_or_yield(
-    lowered: &LoweredCoreBlockPyFunctionWithoutAwait,
-) -> LoweredCoreBlockPyFunctionWithoutAwaitOrYield {
+    lowered: &CoreBlockPyFunctionWithoutAwait,
+) -> CoreBlockPyFunctionWithoutAwaitOrYield {
     lower_core_callable_def_without_await_or_yield(lowered)
 }
 
 pub(crate) fn lower_awaits_in_lowered_core_blockpy_module_bundle(
-    module: CfgModule<LoweredCoreBlockPyFunction>,
-) -> CfgModule<LoweredCoreBlockPyFunctionWithoutAwait> {
+    module: CoreBlockPyModule,
+) -> CoreBlockPyModuleWithoutAwait {
     module.map_callable_defs(lower_core_blockpy_function_without_await)
 }
 
 pub(crate) fn lower_yield_in_lowered_core_blockpy_module_bundle(
-    module: CfgModule<LoweredCoreBlockPyFunctionWithoutAwait>,
-) -> CfgModule<LoweredCoreBlockPyFunctionWithoutAwaitOrYield> {
+    module: CoreBlockPyModuleWithoutAwait,
+) -> CoreBlockPyModuleWithoutAwaitOrYield {
     module.map_callable_defs(lower_core_blockpy_function_without_await_or_yield)
 }
 
 pub(crate) fn lower_core_blockpy_module_bundle_to_bb_module(
-    module: &CfgModule<LoweredCoreBlockPyFunctionWithoutAwaitOrYield>,
+    module: &CoreBlockPyModuleWithoutAwaitOrYield,
 ) -> BbModule {
     module.map_callable_defs(lower_core_blockpy_function_to_bb_function)
 }
 
 fn simplify_lowered_blockpy_function_exprs(
     lowered: &LoweredBlockPyFunction,
-) -> LoweredCoreBlockPyFunction {
+) -> CoreBlockPyFunction {
     simplify_blockpy_callable_def_exprs(lowered)
 }
 
 pub(crate) fn lower_core_blockpy_function_to_bb_function(
-    lowered: &LoweredCoreBlockPyFunctionWithoutAwaitOrYield,
+    lowered: &CoreBlockPyFunctionWithoutAwaitOrYield,
 ) -> BbFunction {
     BlockPyCallableDef {
         function_id: lowered.function_id,

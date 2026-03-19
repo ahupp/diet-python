@@ -16,7 +16,7 @@ pub fn rewrite_ann_assign_to_dunder_annotate(_context: &Context, stmt: &mut Suit
         return;
     }
     let ds = build_annotate_fn(entries, "__annotate__");
-    stmt.push(Box::new(ds));
+    stmt.push(ds);
 }
 
 #[derive(Default)]
@@ -53,7 +53,7 @@ impl Transformer for AnnotationStripper {
                     // CPython stores class annotation thunks under __annotate_func__,
                     // and exposes __annotate__ via type-level descriptor logic.
                     let ds = build_annotate_fn(entries, "__annotate_func__");
-                    suite_mut(&mut class_def.body).push(Box::new(ds));
+                    suite_mut(&mut class_def.body).push(ds);
                 }
             }
             Stmt::AnnAssign(ast::StmtAnnAssign {

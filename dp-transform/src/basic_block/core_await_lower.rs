@@ -181,9 +181,18 @@ pub(crate) fn lower_awaits_in_core_blockpy_callable_def<X>(
 }
 
 #[cfg(test)]
+type TestCoreBlockPyModule =
+    BlockPyModule<BlockPyCallableDef<CoreBlockPyExpr, BlockPyBlock<CoreBlockPyExpr>>>;
+
+#[cfg(test)]
+type TestCoreBlockPyModuleWithoutAwait = BlockPyModule<
+    BlockPyCallableDef<CoreBlockPyExprWithoutAwait, BlockPyBlock<CoreBlockPyExprWithoutAwait>>,
+>;
+
+#[cfg(test)]
 pub(crate) fn lower_awaits_in_core_blockpy_module(
-    module: BlockPyModule<CoreBlockPyExpr>,
-) -> BlockPyModule<CoreBlockPyExprWithoutAwait> {
+    module: TestCoreBlockPyModule,
+) -> TestCoreBlockPyModuleWithoutAwait {
     BlockPyModule {
         callable_defs: module
             .callable_defs

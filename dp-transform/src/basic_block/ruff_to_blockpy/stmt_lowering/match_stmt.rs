@@ -13,7 +13,7 @@ enum PatternTest {
 }
 
 fn body_to_vec(body: Suite) -> Vec<Stmt> {
-    body.into_iter().map(|stmt| *stmt).collect()
+    body
 }
 
 fn fold_exprs(exprs: Vec<Expr>, op: ast::BoolOp) -> Expr {

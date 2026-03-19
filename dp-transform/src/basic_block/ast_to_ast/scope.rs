@@ -891,9 +891,9 @@ mod test {
         )
     }
 
-    fn find_function<'a>(body: &'a [Box<Stmt>], name: &str) -> &'a ast::StmtFunctionDef {
+    fn find_function<'a>(body: &'a [Stmt], name: &str) -> &'a ast::StmtFunctionDef {
         for stmt in body {
-            if let Stmt::FunctionDef(func_def) = stmt.as_ref() {
+            if let Stmt::FunctionDef(func_def) = stmt {
                 if func_def.name.id.as_str() == name {
                     return func_def;
                 }
@@ -902,9 +902,9 @@ mod test {
         panic!("function {name} not found");
     }
 
-    fn find_class<'a>(body: &'a [Box<Stmt>], name: &str) -> &'a ast::StmtClassDef {
+    fn find_class<'a>(body: &'a [Stmt], name: &str) -> &'a ast::StmtClassDef {
         for stmt in body {
-            if let Stmt::ClassDef(class_def) = stmt.as_ref() {
+            if let Stmt::ClassDef(class_def) = stmt {
                 if class_def.name.id.as_str() == name {
                     return class_def;
                 }
@@ -1104,12 +1104,9 @@ mod test {
         );
     }
 
-    fn find_class_recursive<'a>(
-        body: &'a [Box<Stmt>],
-        name: &str,
-    ) -> Option<&'a ast::StmtClassDef> {
+    fn find_class_recursive<'a>(body: &'a [Stmt], name: &str) -> Option<&'a ast::StmtClassDef> {
         for stmt in body {
-            match stmt.as_ref() {
+            match stmt {
                 Stmt::ClassDef(class_def) if class_def.name.id.as_str() == name => {
                     return Some(class_def);
                 }

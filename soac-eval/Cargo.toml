@@ -9,7 +9,7 @@ doctest = false
 
 [dependencies]
 dp-transform = { path = "../dp-transform" }
-ruff_python_ast = { path = "../vendor/ruff/crates/ruff_python_ast" }
+ruff_python_ast = { workspace = true }
 pyo3 = { workspace = true, features = ["extension-module"] }
 log = "0.4"
 cranelift-codegen = { version = "0.125", features = ["incremental-cache"] }

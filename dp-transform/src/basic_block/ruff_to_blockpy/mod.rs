@@ -13,7 +13,8 @@ use super::block_py::state::{
 use super::block_py::{
     assert_blockpy_block_normalized, BlockPyBlock, BlockPyBlockMeta, BlockPyCallableDef,
     BlockPyCallableFacts, BlockPyFunctionKind, BlockPyLabel, BlockPyTerm, BlockPyTryJump,
-    ClosureLayout, FunctionId, FunctionName, ENTRY_BLOCK_LABEL,
+    ClosureLayout, FunctionId, FunctionName, LoweredBlockPyExtra, LoweredRuffBlockPyPass,
+    PassFunction, PassModule, ENTRY_BLOCK_LABEL,
 };
 use super::function_lowering::rewrite_deleted_name_loads;
 use super::stmt_utils::flatten_stmt_boxes;
@@ -55,14 +56,8 @@ pub(crate) use try_regions::{
     prepare_except_body, prepare_finally_body, TryPlan,
 };
 
-#[derive(Debug, Clone, Default)]
-pub struct LoweredBlockPyExtra {
-    pub block_params: HashMap<String, Vec<String>>,
-    pub exception_edges: HashMap<String, Option<String>>,
-}
-
-pub type LoweredBlockPyFunctionWith<E, B> = BlockPyCallableDef<E, B, LoweredBlockPyExtra>;
-pub type LoweredBlockPyFunction = LoweredBlockPyFunctionWith<Expr, BlockPyBlock<Expr>>;
+pub type LoweredBlockPyFunction = PassFunction<LoweredRuffBlockPyPass>;
+pub type LoweredBlockPyModule = PassModule<LoweredRuffBlockPyPass>;
 
 impl<E, B> BlockPyCallableDef<E, B, LoweredBlockPyExtra> {
     pub fn block_params(&self) -> &HashMap<String, Vec<String>> {
@@ -454,7 +449,7 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input<FTemp>(
     names: FunctionName,
     params: ParamSpec,
     param_defaults: Vec<Expr>,
-    runtime_input_body: &[Box<Stmt>],
+    runtime_input_body: &[Stmt],
     doc: Option<String>,
     end_label: String,
     blockpy_kind: BlockPyFunctionKind,
@@ -635,7 +630,7 @@ mod tests {
     use super::*;
     use crate::basic_block::ast_to_ast::{context::Context, Options};
     use crate::basic_block::block_py::{
-        BlockPyCallableDef, BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyTerm,
+        BlockPyCallableDef, BlockPyRaise, BlockPyStmt, BlockPyTerm, SemanticBlockPyModule,
     };
     use crate::basic_block::ruff_to_blockpy::stmt_sequences::{
         lower_for_stmt_sequence, lower_if_stmt_sequence, lower_if_stmt_sequence_from_stmt,
@@ -645,19 +640,22 @@ mod tests {
     use crate::{transform_str_to_blockpy_with_options, transform_str_to_ruff_with_options};
     use ruff_python_ast::Expr;
 
-    fn wrapped_blockpy(source: &str) -> BlockPyModule<Expr> {
+    fn wrapped_blockpy(source: &str) -> SemanticBlockPyModule {
         transform_str_to_blockpy_with_options(source, Options::for_test()).unwrap()
     }
 
-    fn wrapped_semantic_blockpy(source: &str) -> BlockPyModule<Expr> {
+    fn wrapped_semantic_blockpy(source: &str) -> SemanticBlockPyModule {
         transform_str_to_ruff_with_options(source, Options::for_test())
             .unwrap()
-            .get_pass::<BlockPyModule>("semantic_blockpy")
+            .get_pass::<SemanticBlockPyModule>("semantic_blockpy")
             .cloned()
             .expect("semantic_blockpy pass should be tracked")
     }
 
-    fn function_by_name<'a>(blockpy: &'a BlockPyModule, bind_name: &str) -> &'a BlockPyCallableDef {
+    fn function_by_name<'a>(
+        blockpy: &'a SemanticBlockPyModule,
+        bind_name: &str,
+    ) -> &'a BlockPyCallableDef {
         blockpy
             .callable_defs
             .iter()
@@ -747,7 +745,7 @@ def gen():
         .unwrap()
         .into_syntax()
         .body;
-        let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
+        let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
         let stmt = crate::basic_block::ast_to_ast::body::stmt_ref(&func.body, 0);
@@ -769,7 +767,7 @@ def gen():
         .unwrap()
         .into_syntax()
         .body;
-        let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
+        let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
         let stmt = crate::basic_block::ast_to_ast::body::stmt_ref(&func.body, 0);
@@ -791,7 +789,7 @@ def f():
         .unwrap()
         .into_syntax()
         .body;
-        let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
+        let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
         let stmt = crate::basic_block::ast_to_ast::body::stmt_ref(&func.body, 0);
@@ -813,7 +811,7 @@ def gen(n):
         .unwrap()
         .into_syntax()
         .body;
-        let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
+        let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
         let stmt = crate::basic_block::ast_to_ast::body::stmt_ref(&func.body, 0);
@@ -835,7 +833,7 @@ def f():
         .unwrap()
         .into_syntax()
         .body;
-        let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
+        let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
         let stmt = crate::basic_block::ast_to_ast::body::stmt_ref(&func.body, 0);
@@ -859,7 +857,7 @@ def f():
         .unwrap()
         .into_syntax()
         .body;
-        let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
+        let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
         let stmt = crate::basic_block::ast_to_ast::body::stmt_ref(&func.body, 0);
@@ -887,7 +885,7 @@ def f():
         .unwrap()
         .into_syntax()
         .body;
-        let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
+        let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
         let stmt = crate::basic_block::ast_to_ast::body::stmt_ref(&func.body, 0);
@@ -946,7 +944,7 @@ def f(xs):
         .unwrap()
         .into_syntax()
         .body;
-        let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
+        let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
         let ast::Stmt::For(for_stmt) =
@@ -993,7 +991,7 @@ def f(ctx, value):
         .unwrap()
         .into_syntax()
         .body;
-        let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
+        let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
         let ast::Stmt::With(with_stmt) =
@@ -1051,7 +1049,7 @@ def f():
         .unwrap()
         .into_syntax()
         .body;
-        let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
+        let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
         let ast::Stmt::Try(try_stmt) =
@@ -1130,8 +1128,8 @@ def f():
     #[test]
     fn if_stmt_helper_lowers_both_branches_via_callback() {
         let mut blocks = Vec::new();
-        let then_body = vec![Box::new(py_stmt!("x = 1"))];
-        let else_body = vec![Box::new(py_stmt!("x = 2"))];
+        let then_body = vec![py_stmt!("x = 1")];
+        let else_body = vec![py_stmt!("x = 2")];
         let mut calls = Vec::new();
         let context = Context::new(crate::basic_block::ast_to_ast::Options::for_test(), "");
 
@@ -1235,10 +1233,10 @@ y = 3
         .unwrap()
         .into_syntax()
         .body;
-        let ast::Stmt::If(if_stmt) = module.body[0].as_ref() else {
+        let ast::Stmt::If(if_stmt) = &module[0] else {
             panic!("expected if stmt");
         };
-        let remaining = vec![module.body[1].clone()];
+        let remaining = vec![module[1].clone()];
         let mut blocks = Vec::new();
         let mut calls = Vec::new();
         let context = Context::new(crate::basic_block::ast_to_ast::Options::for_test(), "");
@@ -1273,9 +1271,9 @@ y = 3
     #[test]
     fn while_stmt_helper_lowers_loop_and_else_via_callbacks() {
         let mut blocks = Vec::new();
-        let body = vec![Box::new(py_stmt!("x = 1"))];
-        let else_body = vec![Box::new(py_stmt!("x = 2"))];
-        let remaining = vec![Box::new(py_stmt!("x = 3"))];
+        let body = vec![py_stmt!("x = 1")];
+        let else_body = vec![py_stmt!("x = 2")];
+        let remaining = vec![py_stmt!("x = 3")];
         let mut sequence_calls = Vec::new();
         let mut loop_calls = Vec::new();
         let context = Context::new(crate::basic_block::ast_to_ast::Options::for_test(), "");
@@ -1337,10 +1335,10 @@ y = 3
         .unwrap()
         .into_syntax()
         .body;
-        let ast::Stmt::While(while_stmt) = module.body[0].as_ref() else {
+        let ast::Stmt::While(while_stmt) = &module[0] else {
             panic!("expected while stmt");
         };
-        let remaining = vec![module.body[1].clone()];
+        let remaining = vec![module[1].clone()];
         let mut blocks = Vec::new();
         let mut sequence_calls = Vec::new();
         let mut loop_calls = Vec::new();
@@ -1420,7 +1418,7 @@ def f(x):
         .unwrap()
         .into_syntax()
         .body;
-        let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
+        let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
         let context = test_context();
@@ -1454,7 +1452,7 @@ def f():
         .unwrap()
         .into_syntax()
         .body;
-        let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
+        let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
         lower_stmt_for_panic_test(crate::basic_block::ast_to_ast::body::stmt_ref(
@@ -1473,7 +1471,7 @@ def f(x):
         .unwrap()
         .into_syntax()
         .body;
-        let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
+        let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
         let context = test_context();
@@ -1506,7 +1504,7 @@ def f(x):
         .unwrap()
         .into_syntax()
         .body;
-        let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
+        let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
         lower_stmt_for_panic_test(crate::basic_block::ast_to_ast::body::stmt_ref(
@@ -1533,14 +1531,8 @@ def f():
             BlockPyTerm,
         >::new();
         let mut next_label_id = 0usize;
-        lower_stmt_into(
-            &context,
-            module.body[0].as_ref(),
-            &mut out,
-            None,
-            &mut next_label_id,
-        )
-        .expect("type alias lowering should succeed");
+        lower_stmt_into(&context, &module[0], &mut out, None, &mut next_label_id)
+            .expect("type alias lowering should succeed");
         let fragment = out.finish();
         assert!(!fragment.body.is_empty());
     }
@@ -1558,7 +1550,7 @@ def f(x):
         .unwrap()
         .into_syntax()
         .body;
-        let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
+        let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
         let context = test_context();
@@ -1590,7 +1582,7 @@ def f():
         .unwrap()
         .into_syntax()
         .body;
-        let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
+        let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
         let context = test_context();
@@ -1622,7 +1614,7 @@ def f():
         .unwrap()
         .into_syntax()
         .body;
-        let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
+        let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
         let context = test_context();
@@ -1670,7 +1662,7 @@ def f():
         .unwrap()
         .into_syntax()
         .body;
-        let ast::Stmt::FunctionDef(func) = module.body[0].as_ref() else {
+        let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
         lower_stmt_for_panic_test(crate::basic_block::ast_to_ast::body::stmt_ref(
@@ -1687,7 +1679,7 @@ def f():
             .unwrap()
             .into_syntax()
             .body;
-        let ast::Stmt::While(while_stmt) = module.body[0].as_ref() else {
+        let ast::Stmt::While(while_stmt) = &module[0] else {
             panic!("expected while stmt");
         };
         let context = test_context();

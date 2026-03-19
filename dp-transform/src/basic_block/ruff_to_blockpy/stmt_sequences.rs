@@ -39,7 +39,7 @@ pub(crate) fn plan_stmt_sequence_head(context: &Context, stmt: &Stmt) -> StmtSeq
 
 pub(crate) fn drive_stmt_sequence_until_control<FDelete>(
     context: &Context,
-    stmts: &[Box<Stmt>],
+    stmts: &[Stmt],
     mut linear: Vec<Stmt>,
     cell_slots: &HashSet<String>,
     outer_scope_names: &HashSet<String>,
@@ -50,7 +50,7 @@ where
 {
     let mut index = 0;
     while index < stmts.len() {
-        match plan_stmt_sequence_head(context, stmts[index].as_ref()) {
+        match plan_stmt_sequence_head(context, &stmts[index]) {
             StmtSequenceHeadPlan::Linear(stmt) => {
                 linear.push(stmt);
                 index += 1;
@@ -136,7 +136,7 @@ fn rewrite_delete_target_to_deleted_sentinel(target: &Expr, out: &mut Vec<Stmt>)
 pub(crate) fn lower_common_stmt_sequence_head<FSeq>(
     context: &Context,
     plan: StmtSequenceHeadPlan,
-    remaining_stmts: &[Box<Stmt>],
+    remaining_stmts: &[Stmt],
     cont_label: String,
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
@@ -146,7 +146,7 @@ pub(crate) fn lower_common_stmt_sequence_head<FSeq>(
     lower_sequence: &mut FSeq,
 ) -> Option<String>
 where
-    FSeq: FnMut(&[Box<Stmt>], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
+    FSeq: FnMut(&[Stmt], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
     match plan {
         StmtSequenceHeadPlan::Raise(raise_stmt) => Some(
@@ -228,7 +228,7 @@ where
 pub(crate) fn lower_for_stmt_sequence_head<F>(
     fn_name: &str,
     for_stmt: ast::StmtFor,
-    remaining_stmts: &[Box<Stmt>],
+    remaining_stmts: &[Stmt],
     cont_label: String,
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
@@ -241,7 +241,7 @@ pub(crate) fn lower_for_stmt_sequence_head<F>(
     lower_region: &mut F,
 ) -> String
 where
-    F: FnMut(&[Box<Stmt>], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
     let mut next_id = next_block_id.get();
     let assign_label = compat_next_label(fn_name, &mut next_id);
@@ -267,7 +267,7 @@ where
 pub(crate) fn lower_stmt_sequence_with_state<FTemp>(
     context: &Context,
     fn_name: &str,
-    stmts: &[Box<Stmt>],
+    stmts: &[Stmt],
     cont_label: String,
     break_label: Option<String>,
     continue_label: Option<String>,
@@ -613,7 +613,7 @@ where
 
 pub(crate) fn lower_expanded_stmt_sequence<F>(
     desugared_stmts: Vec<Stmt>,
-    remaining_stmts: &[Box<Stmt>],
+    remaining_stmts: &[Stmt],
     cont_label: String,
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
@@ -621,13 +621,10 @@ pub(crate) fn lower_expanded_stmt_sequence<F>(
     lower_sequence: &mut F,
 ) -> String
 where
-    F: FnMut(&[Box<Stmt>], String, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, &mut Vec<BlockPyBlock>) -> String,
 {
-    let mut expanded = desugared_stmts
-        .into_iter()
-        .map(Box::new)
-        .collect::<Vec<_>>();
-    expanded.extend(remaining_stmts.iter().cloned());
+    let mut expanded = desugared_stmts;
+    expanded.extend_from_slice(remaining_stmts);
     let expanded_entry = lower_sequence(&expanded, cont_label, blocks);
     if linear.is_empty() {
         return expanded_entry;
@@ -647,13 +644,13 @@ pub(crate) fn lower_if_stmt_sequence<F>(
     label: String,
     linear: Vec<Stmt>,
     test: Expr,
-    then_body: &[Box<Stmt>],
-    else_body: &[Box<Stmt>],
+    then_body: &[Stmt],
+    else_body: &[Stmt],
     rest_entry: String,
     lower_region: &mut F,
 ) -> String
 where
-    F: FnMut(&[Box<Stmt>], String, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, &mut Vec<BlockPyBlock>) -> String,
 {
     let then_entry = lower_region(then_body, rest_entry.clone(), blocks);
     let else_entry = lower_region(else_body, rest_entry, blocks);
@@ -666,7 +663,7 @@ where
 pub(crate) fn lower_if_stmt_sequence_from_stmt<F>(
     context: &Context,
     if_stmt: ast::StmtIf,
-    remaining_stmts: &[Box<Stmt>],
+    remaining_stmts: &[Stmt],
     cont_label: String,
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
@@ -674,7 +671,7 @@ pub(crate) fn lower_if_stmt_sequence_from_stmt<F>(
     lower_region: &mut F,
 ) -> String
 where
-    F: FnMut(&[Box<Stmt>], String, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, &mut Vec<BlockPyBlock>) -> String,
 {
     let then_body = flatten_stmt_boxes(suite_ref(&if_stmt.body));
     let else_body = flatten_stmt_boxes(&extract_if_else_body(&if_stmt));
@@ -692,7 +689,7 @@ where
     )
 }
 
-fn extract_if_else_body(if_stmt: &ast::StmtIf) -> Vec<Box<Stmt>> {
+fn extract_if_else_body(if_stmt: &ast::StmtIf) -> Vec<Stmt> {
     if if_stmt.elif_else_clauses.is_empty() {
         return Vec::new();
     }
@@ -710,14 +707,14 @@ pub(crate) fn lower_while_stmt_sequence<F>(
     linear_label: Option<String>,
     linear: Vec<Stmt>,
     test: Expr,
-    body: &[Box<Stmt>],
-    else_body: &[Box<Stmt>],
-    remaining_stmts: &[Box<Stmt>],
+    body: &[Stmt],
+    else_body: &[Stmt],
+    remaining_stmts: &[Stmt],
     cont_label: String,
     lower_region: &mut F,
 ) -> String
 where
-    F: FnMut(&[Box<Stmt>], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
     let rest_entry = lower_region(remaining_stmts, cont_label, None, blocks);
     let cond_false_entry = if else_body.is_empty() {
@@ -742,7 +739,7 @@ where
 pub(crate) fn lower_while_stmt_sequence_from_stmt<F>(
     context: &Context,
     while_stmt: ast::StmtWhile,
-    remaining_stmts: &[Box<Stmt>],
+    remaining_stmts: &[Stmt],
     cont_label: String,
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
@@ -751,7 +748,7 @@ pub(crate) fn lower_while_stmt_sequence_from_stmt<F>(
     lower_region: &mut F,
 ) -> String
 where
-    F: FnMut(&[Box<Stmt>], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
     let body = flatten_stmt_boxes(suite_ref(&while_stmt.body));
     let else_body = flatten_stmt_boxes(suite_ref(&while_stmt.orelse));
@@ -772,13 +769,13 @@ where
 
 pub(crate) fn lower_for_stmt_exit_entries<F>(
     blocks: &mut Vec<BlockPyBlock>,
-    else_body: &[Box<Stmt>],
-    remaining_stmts: &[Box<Stmt>],
+    else_body: &[Stmt],
+    remaining_stmts: &[Stmt],
     cont_label: String,
     lower_region: &mut F,
 ) -> (String, String)
 where
-    F: FnMut(&[Box<Stmt>], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
     let rest_entry = lower_region(remaining_stmts, cont_label, None, blocks);
     let exhausted_entry = if else_body.is_empty() {
@@ -792,12 +789,12 @@ where
 pub(crate) fn lower_for_stmt_body_entry<F>(
     blocks: &mut Vec<BlockPyBlock>,
     loop_continue_label: String,
-    body: &[Box<Stmt>],
+    body: &[Stmt],
     break_label: String,
     lower_region: &mut F,
 ) -> String
 where
-    F: FnMut(&[Box<Stmt>], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
     let body_entry = lower_region(body, loop_continue_label.clone(), Some(break_label), blocks);
     body_entry
@@ -806,7 +803,7 @@ where
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_for_stmt_sequence<F>(
     for_stmt: ast::StmtFor,
-    remaining_stmts: &[Box<Stmt>],
+    remaining_stmts: &[Stmt],
     cont_label: String,
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
@@ -820,7 +817,7 @@ pub(crate) fn lower_for_stmt_sequence<F>(
     lower_region: &mut F,
 ) -> String
 where
-    F: FnMut(&[Box<Stmt>], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
     let else_body = flatten_stmt_boxes(suite_ref(&for_stmt.orelse));
     let (rest_entry, exhausted_entry) = lower_for_stmt_exit_entries(

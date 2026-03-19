@@ -33,7 +33,7 @@ pub(crate) fn expand_if_chain(mut if_stmt: ast::StmtIf) -> Rewrite {
                     });
                 }
 
-                else_body = Some(vec![Box::new(Stmt::If(nested_if))]);
+                else_body = Some(vec![Stmt::If(nested_if)]);
             }
             None => {
                 let mut body = clause.body;
@@ -120,13 +120,7 @@ where
         BlockPyTerm<E>,
     >::new();
     for stmt in body {
-        lower_nested_stmt_into_with_expr(
-            context,
-            stmt.as_ref(),
-            &mut out,
-            loop_ctx,
-            next_label_id,
-        )?;
+        lower_nested_stmt_into_with_expr(context, stmt, &mut out, loop_ctx, next_label_id)?;
     }
     Ok(out.finish())
 }
@@ -181,7 +175,7 @@ mod tests {
         assert_eq!(simplified_if.elif_else_clauses.len(), 1);
         let clause = &simplified_if.elif_else_clauses[0];
         assert!(clause.test.is_none());
-        assert!(matches!(suite_ref(&clause.body)[0].as_ref(), Stmt::If(_)));
+        assert!(matches!(suite_ref(&clause.body)[0], Stmt::If(_)));
     }
 
     #[test]

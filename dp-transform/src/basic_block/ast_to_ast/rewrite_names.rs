@@ -79,7 +79,7 @@ impl<'a> NameScopeRewriter<'a> {
         if stmts.is_empty() {
             return;
         }
-        let insert_at = match body.first().map(|stmt| stmt.as_ref()) {
+        let insert_at = match body.first() {
             Some(Stmt::Expr(ast::StmtExpr { value, .. }))
                 if matches!(value.as_ref(), Expr::StringLiteral(_)) =>
             {
@@ -87,7 +87,7 @@ impl<'a> NameScopeRewriter<'a> {
             }
             _ => 0,
         };
-        body.splice(insert_at..insert_at, stmts.into_iter().map(Box::new));
+        body.splice(insert_at..insert_at, stmts);
     }
 
     fn cell_binding_names(&self) -> HashSet<String> {
@@ -379,9 +379,9 @@ impl Transformer for NameScopeRewriter<'_> {
     fn visit_body(&mut self, body: &mut Suite) {
         let mut rewritten = Vec::with_capacity(body.len());
         for stmt in std::mem::take(body) {
-            for mut stmt in self.rewrite_stmt_list(*stmt) {
+            for mut stmt in self.rewrite_stmt_list(stmt) {
                 self.visit_stmt(&mut stmt);
-                rewritten.push(Box::new(stmt));
+                rewritten.push(stmt);
             }
         }
         *body = rewritten;
@@ -401,8 +401,7 @@ impl Transformer for NameScopeRewriter<'_> {
 
                 let sync_stmts = self.loop_target_sync_stmts(&target_names);
                 if !sync_stmts.is_empty() {
-                    suite_mut(&mut for_stmt.body)
-                        .splice(0..0, sync_stmts.into_iter().map(Box::new));
+                    suite_mut(&mut for_stmt.body).splice(0..0, sync_stmts);
                 }
             }
             Stmt::Delete(delete) => {
@@ -579,10 +578,7 @@ impl Transformer for NameScopeRewriter<'_> {
                                     }
                                     _ => py_stmt!("pass"),
                                 };
-                                let original_body = take_suite(&mut handler.body)
-                                    .into_iter()
-                                    .map(|stmt| *stmt)
-                                    .collect::<Vec<_>>();
+                                let original_body = take_suite(&mut handler.body);
                                 let wrapped = py_stmt!(
                                     r#"
 try:
@@ -593,8 +589,7 @@ finally:
                                     body = original_body,
                                     delete = delete_stmt,
                                 );
-                                *suite_mut(&mut handler.body) =
-                                    vec![Box::new(store_stmt), Box::new(wrapped)];
+                                *suite_mut(&mut handler.body) = vec![store_stmt, wrapped];
                             }
                         }
                     }

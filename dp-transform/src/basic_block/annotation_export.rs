@@ -82,19 +82,19 @@ pub(crate) fn ensure_dp_default_param(func: &mut ast::StmtFunctionDef) {
 }
 
 pub(crate) fn rewrite_annotation_helper_defs_as_exec_calls(
-    body: Vec<Box<Stmt>>,
+    body: Vec<Stmt>,
     outer_scope_names: &HashSet<String>,
-) -> Vec<Box<Stmt>> {
+) -> Vec<Stmt> {
     body.into_iter()
-        .map(|stmt| match stmt.as_ref() {
+        .map(|stmt| match stmt {
             Stmt::FunctionDef(func) if is_annotation_helper_name(func.name.id.as_str()) => {
-                Box::new(annotation_helper_exec_binding_stmt(
+                annotation_helper_exec_binding_stmt(
                     func.clone(),
                     func.name.id.as_str(),
                     Some(outer_scope_names),
-                ))
+                )
             }
-            _ => stmt,
+            other => other,
         })
         .collect()
 }
@@ -405,17 +405,15 @@ fn collect_used_dp_helpers(func: &ast::StmtFunctionDef) -> Vec<String> {
 }
 
 fn function_has_global_or_nonlocal_dp(func: &ast::StmtFunctionDef) -> bool {
-    suite_ref(&func.body)
-        .iter()
-        .any(|stmt| match stmt.as_ref() {
-            Stmt::Global(global_stmt) => global_stmt
-                .names
-                .iter()
-                .any(|name| name.id.as_str() == "__dp__"),
-            Stmt::Nonlocal(nonlocal_stmt) => nonlocal_stmt
-                .names
-                .iter()
-                .any(|name| name.id.as_str() == "__dp__"),
-            _ => false,
-        })
+    suite_ref(&func.body).iter().any(|stmt| match stmt {
+        Stmt::Global(global_stmt) => global_stmt
+            .names
+            .iter()
+            .any(|name| name.id.as_str() == "__dp__"),
+        Stmt::Nonlocal(nonlocal_stmt) => nonlocal_stmt
+            .names
+            .iter()
+            .any(|name| name.id.as_str() == "__dp__"),
+        _ => false,
+    })
 }

@@ -1,17 +1,17 @@
 use ruff_python_ast::Stmt;
 
-pub(crate) fn flatten_stmt_boxes(stmts: &[Box<Stmt>]) -> Vec<Box<Stmt>> {
+pub(crate) fn flatten_stmt_boxes(stmts: &[Stmt]) -> Vec<Stmt> {
     let mut out = Vec::new();
     for stmt in stmts {
-        flatten_stmt(stmt.as_ref(), &mut out);
+        flatten_stmt(stmt, &mut out);
     }
     out
 }
 
-pub(crate) fn strip_nonlocal_directives(stmts: Vec<Box<Stmt>>) -> Vec<Box<Stmt>> {
+pub(crate) fn strip_nonlocal_directives(stmts: Vec<Stmt>) -> Vec<Stmt> {
     stmts
         .into_iter()
-        .filter(|stmt| !matches!(stmt.as_ref(), Stmt::Global(_) | Stmt::Nonlocal(_)))
+        .filter(|stmt| !matches!(stmt, Stmt::Global(_) | Stmt::Nonlocal(_)))
         .collect()
 }
 
@@ -22,6 +22,6 @@ pub(crate) fn should_strip_nonlocal_for_bb(fn_name: &str) -> bool {
     !fn_name.starts_with("_dp_fn__dp_")
 }
 
-pub(crate) fn flatten_stmt(stmt: &Stmt, out: &mut Vec<Box<Stmt>>) {
-    out.push(Box::new(stmt.clone()));
+pub(crate) fn flatten_stmt(stmt: &Stmt, out: &mut Vec<Stmt>) {
+    out.push(stmt.clone());
 }

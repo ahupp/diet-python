@@ -1,23 +1,16 @@
-use crate::basic_block::block_py::{is_internal_entry_livein, BlockPyStmt};
+use crate::basic_block::block_py::is_internal_entry_livein;
 
+pub use super::block_py::BbBlockMeta;
 use super::block_py::{
-    BlockPyCallableDef, BlockPyLabel, BlockPyRaise, BlockPyTerm, CfgBlock, CfgModule,
-    CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyLiteral,
+    BbBlockPyPass, BlockPyCallableDef, BlockPyRaise, CoreBlockPyExprWithoutAwaitOrYield,
+    CoreBlockPyLiteral, PassBlock, PassFunction, PassModule, PassStmt,
 };
 use ruff_python_ast as ast;
 
-pub type BbModule = CfgModule<BbFunction>;
-
-#[derive(Debug, Clone, Default)]
-pub struct BbBlockMeta {
-    pub params: Vec<String>,
-    pub exc_target_label: Option<BlockPyLabel>,
-    pub exc_name: Option<String>,
-}
-
-pub type BbStmt = BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>;
-pub type BbBlock = CfgBlock<BbStmt, BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>, BbBlockMeta>;
-pub type BbFunction = BlockPyCallableDef<CoreBlockPyExprWithoutAwaitOrYield, BbBlock>;
+pub type BbModule = PassModule<BbBlockPyPass>;
+pub type BbStmt = PassStmt<BbBlockPyPass>;
+pub type BbBlock = PassBlock<BbBlockPyPass>;
+pub type BbFunction = PassFunction<BbBlockPyPass>;
 
 impl BlockPyCallableDef<CoreBlockPyExprWithoutAwaitOrYield, BbBlock> {
     pub fn entry_liveins(&self) -> Vec<String> {

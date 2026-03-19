@@ -38,39 +38,39 @@ pub(crate) fn assigned_names_in_stmt(stmt: &Stmt) -> HashSet<String> {
         Stmt::If(if_stmt) => {
             collect_named_expr_target_names_in_expr(if_stmt.test.as_ref(), &mut names);
             for stmt in suite_ref(&if_stmt.body) {
-                names.extend(assigned_names_in_stmt(stmt.as_ref()));
+                names.extend(assigned_names_in_stmt(stmt));
             }
             for clause in &if_stmt.elif_else_clauses {
                 if let Some(test) = clause.test.as_ref() {
                     collect_named_expr_target_names_in_expr(test, &mut names);
                 }
                 for stmt in suite_ref(&clause.body) {
-                    names.extend(assigned_names_in_stmt(stmt.as_ref()));
+                    names.extend(assigned_names_in_stmt(stmt));
                 }
             }
         }
         Stmt::While(while_stmt) => {
             collect_named_expr_target_names_in_expr(while_stmt.test.as_ref(), &mut names);
             for stmt in suite_ref(&while_stmt.body) {
-                names.extend(assigned_names_in_stmt(stmt.as_ref()));
+                names.extend(assigned_names_in_stmt(stmt));
             }
             for stmt in suite_ref(&while_stmt.orelse) {
-                names.extend(assigned_names_in_stmt(stmt.as_ref()));
+                names.extend(assigned_names_in_stmt(stmt));
             }
         }
         Stmt::For(for_stmt) => {
             collect_named_expr_target_names_in_expr(for_stmt.iter.as_ref(), &mut names);
             collect_assigned_names(for_stmt.target.as_ref(), &mut names);
             for stmt in suite_ref(&for_stmt.body) {
-                names.extend(assigned_names_in_stmt(stmt.as_ref()));
+                names.extend(assigned_names_in_stmt(stmt));
             }
             for stmt in suite_ref(&for_stmt.orelse) {
-                names.extend(assigned_names_in_stmt(stmt.as_ref()));
+                names.extend(assigned_names_in_stmt(stmt));
             }
         }
         Stmt::Try(try_stmt) => {
             for stmt in suite_ref(&try_stmt.body) {
-                names.extend(assigned_names_in_stmt(stmt.as_ref()));
+                names.extend(assigned_names_in_stmt(stmt));
             }
             for handler in &try_stmt.handlers {
                 let ast::ExceptHandler::ExceptHandler(handler) = handler;
@@ -78,14 +78,14 @@ pub(crate) fn assigned_names_in_stmt(stmt: &Stmt) -> HashSet<String> {
                     collect_named_expr_target_names_in_expr(type_.as_ref(), &mut names);
                 }
                 for stmt in suite_ref(&handler.body) {
-                    names.extend(assigned_names_in_stmt(stmt.as_ref()));
+                    names.extend(assigned_names_in_stmt(stmt));
                 }
             }
             for stmt in suite_ref(&try_stmt.orelse) {
-                names.extend(assigned_names_in_stmt(stmt.as_ref()));
+                names.extend(assigned_names_in_stmt(stmt));
             }
             for stmt in suite_ref(&try_stmt.finalbody) {
-                names.extend(assigned_names_in_stmt(stmt.as_ref()));
+                names.extend(assigned_names_in_stmt(stmt));
             }
         }
         Stmt::Expr(expr_stmt) => {

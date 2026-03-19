@@ -54,8 +54,8 @@ pub(crate) fn rewrite_region_returns_to_finally_blockpy<E>(
     }
 }
 
-pub(crate) fn contains_return_stmt_in_body(stmts: &[Box<Stmt>]) -> bool {
-    stmts.iter().any(|stmt| contains_return_stmt(stmt.as_ref()))
+pub(crate) fn contains_return_stmt_in_body(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(contains_return_stmt)
 }
 
 pub(crate) fn contains_return_stmt_in_handlers(handlers: &[ast::ExceptHandler]) -> bool {

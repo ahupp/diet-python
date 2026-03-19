@@ -13,12 +13,11 @@ use crate::basic_block::ast_to_ast::{
     rewrite_future_annotations, rewrite_names, rewrite_stmt,
 };
 use crate::basic_block::bb_ir::BbModule;
-use crate::basic_block::block_py::{BlockPyModule, CfgModule};
-use crate::basic_block::blockpy_to_bb::LoweredCoreBlockPyFunctionWithoutAwaitOrYield;
-use crate::basic_block::blockpy_to_bb::{
-    LoweredCoreBlockPyFunction, LoweredCoreBlockPyFunctionWithoutAwait,
+use crate::basic_block::block_py::{
+    CoreBlockPyModule, CoreBlockPyModuleWithoutAwait, CoreBlockPyModuleWithoutAwaitOrYield,
+    SemanticBlockPyModule,
 };
-use crate::basic_block::ruff_to_blockpy::LoweredBlockPyFunction;
+use crate::basic_block::ruff_to_blockpy::LoweredBlockPyModule;
 use crate::PassTracker;
 use ruff_python_ast::{self as ast, Expr, Stmt};
 
@@ -33,7 +32,7 @@ pub(crate) fn rewrite_module_with_tracker(
     module: Suite,
     pass_tracker: &mut PassTracker,
 ) -> BbModule {
-    let (_module, semantic_blockpy): (Suite, BlockPyModule<Expr>) =
+    let (_module, semantic_blockpy): (Suite, SemanticBlockPyModule) =
         pass_tracker.run_pass("ast-to-ast", || {
             let mut module = body_from_suite(module);
 
@@ -92,34 +91,33 @@ pub(crate) fn rewrite_module_with_tracker(
             );
             rewrite_ast_to_lowered_blockpy_module_plan(context, take_suite(&mut module))
         });
-    let semantic_blockpy: BlockPyModule<Expr> =
+    let semantic_blockpy: SemanticBlockPyModule =
         pass_tracker.run_pass("semantic_blockpy", || semantic_blockpy.clone());
 
-    let lowered_blockpy_module: CfgModule<LoweredBlockPyFunction> = pass_tracker
-        .run_pass("blockpy", || {
-            basic_block::lower_blockpy_module_plan_to_bundle(context, semantic_blockpy)
-        });
-    let core_blockpy: CfgModule<LoweredCoreBlockPyFunction> = pass_tracker
-        .run_pass("core_blockpy", || {
-            basic_block::simplify_lowered_blockpy_module_bundle_exprs(&lowered_blockpy_module)
-        });
-    let core_blockpy_with_explicit_eval_order: CfgModule<LoweredCoreBlockPyFunction> = pass_tracker
-        .run_pass("core_blockpy_with_explicit_eval_order", || {
+    let lowered_blockpy_module: LoweredBlockPyModule = pass_tracker.run_pass("blockpy", || {
+        basic_block::lower_blockpy_module_plan_to_bundle(context, semantic_blockpy)
+    });
+    let core_blockpy: CoreBlockPyModule = pass_tracker.run_pass("core_blockpy", || {
+        basic_block::simplify_lowered_blockpy_module_bundle_exprs(&lowered_blockpy_module)
+    });
+    let core_blockpy_with_explicit_eval_order: CoreBlockPyModule =
+        pass_tracker.run_pass("core_blockpy_with_explicit_eval_order", || {
             basic_block::make_eval_order_explicit_in_lowered_core_blockpy_module_bundle(
                 core_blockpy,
             )
         });
-    let core_blockpy_without_await: CfgModule<LoweredCoreBlockPyFunctionWithoutAwait> =
+    let core_blockpy_without_await: CoreBlockPyModuleWithoutAwait =
         pass_tracker.run_pass("core_blockpy_without_await", || {
             basic_block::lower_awaits_in_lowered_core_blockpy_module_bundle(
                 core_blockpy_with_explicit_eval_order,
             )
         });
-    let core_blockpy_without_await_or_yield: CfgModule<
-        LoweredCoreBlockPyFunctionWithoutAwaitOrYield,
-    > = pass_tracker.run_pass("core_blockpy_without_await_or_yield", || {
-        basic_block::lower_yield_in_lowered_core_blockpy_module_bundle(core_blockpy_without_await)
-    });
+    let core_blockpy_without_await_or_yield: CoreBlockPyModuleWithoutAwaitOrYield = pass_tracker
+        .run_pass("core_blockpy_without_await_or_yield", || {
+            basic_block::lower_yield_in_lowered_core_blockpy_module_bundle(
+                core_blockpy_without_await,
+            )
+        });
     let bb_module: BbModule = pass_tracker.run_pass("bb", || {
         basic_block::lower_core_blockpy_module_bundle_to_bb_module(
             &core_blockpy_without_await_or_yield,
@@ -166,21 +164,20 @@ pub(crate) fn wrap_module_init(module: &mut Suite) {
     let mut docstring_seen = false;
 
     for stmt in std::mem::take(module) {
-        let stmt_ref = stmt.as_ref();
         if !seen_non_prelude {
-            if !docstring_seen && is_module_docstring(stmt_ref) {
+            if !docstring_seen && is_module_docstring(&stmt) {
                 prelude.push(stmt);
                 docstring_seen = true;
                 continue;
             }
             docstring_seen = true;
-            if is_future_import(stmt_ref) {
+            if is_future_import(&stmt) {
                 prelude.push(stmt);
                 continue;
             }
             seen_non_prelude = true;
         }
-        init_body.push(*stmt);
+        init_body.push(stmt);
     }
 
     if init_body.is_empty() {
@@ -202,7 +199,7 @@ def _dp_module_init():
         init_body = init_body,
     );
 
-    prelude.push(Box::new(Stmt::FunctionDef(module_init)));
+    prelude.push(Stmt::FunctionDef(module_init));
     *module = prelude;
 }
 

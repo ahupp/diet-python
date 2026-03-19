@@ -29,8 +29,8 @@ impl FutureAnnotationsRewriter {
         let mut index = 0;
         while index < body.len() {
             let mut remove_stmt = false;
-            if let Stmt::ImportFrom(import_from) = body[index].as_mut() {
-                if is_future_annotations(&*import_from) {
+            if let Stmt::ImportFrom(import_from) = &mut body[index] {
+                if is_future_annotations(import_from) {
                     import_from
                         .names
                         .retain(|alias| alias.name.id.as_str() != "annotations");
@@ -49,7 +49,7 @@ impl FutureAnnotationsRewriter {
     }
 
     fn has_future_annotations(&self, body: &Suite) -> bool {
-        body.iter().any(|stmt| match stmt.as_ref() {
+        body.iter().any(|stmt| match stmt {
             Stmt::ImportFrom(import_from) => {
                 is_future_annotations(import_from)
                     && import_from

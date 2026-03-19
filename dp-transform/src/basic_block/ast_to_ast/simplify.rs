@@ -12,13 +12,13 @@ impl Flattener {
     fn visit_body(&mut self, body: &mut Suite) {
         let mut i = 0;
         while i < body.len() {
-            self.visit_stmt(body[i].as_mut());
+            self.visit_stmt(&mut body[i]);
             if let Stmt::If(ast::StmtIf {
                 test,
                 body: inner,
                 elif_else_clauses,
                 ..
-            }) = body[i].as_mut()
+            }) = &mut body[i]
             {
                 if elif_else_clauses.is_empty()
                     && matches!(
@@ -26,7 +26,7 @@ impl Flattener {
                         Expr::BooleanLiteral(ast::ExprBooleanLiteral { value: true, .. })
                     )
                 {
-                    let replacement = std::mem::take(suite_mut(inner));
+                    let replacement = std::mem::take(inner);
                     body.splice(i..=i, replacement);
                     continue;
                 }
@@ -38,7 +38,7 @@ impl Flattener {
 
 fn remove_placeholder_pass(body: &mut Suite) {
     if body.len() == 1 {
-        if let Stmt::Pass(ast::StmtPass { range, .. }) = body[0].as_ref() {
+        if let Stmt::Pass(ast::StmtPass { range, .. }) = &body[0] {
             if range.is_empty() {
                 body.clear();
             }
@@ -294,7 +294,7 @@ mod tests {
     }
 
     fn first_assign_value(module: &ast::ModModule) -> &Expr {
-        let Stmt::Assign(assign) = suite_ref(&module.body)[0].as_ref() else {
+        let Stmt::Assign(assign) = &suite_ref(&module.body)[0] else {
             panic!("expected first statement to be an assignment");
         };
         assign.value.as_ref()
@@ -333,7 +333,7 @@ mod tests {
     #[test]
     fn lower_surrogate_string_literals_keeps_fstring_debug_output_correct() {
         let mut module = lower_module("x = f\"{value=}\"\n");
-        let Stmt::Assign(assign) = suite_mut(&mut module.body)[0].as_mut() else {
+        let Stmt::Assign(assign) = &mut suite_mut(&mut module.body)[0] else {
             panic!("expected first statement to be an assignment");
         };
         lower_string_templates_in_expr(assign.value.as_mut());
@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn lower_surrogate_string_literals_keeps_tstring_expr_text_available() {
         let mut module = lower_module("x = t\"{value}\"\n");
-        let Stmt::Assign(assign) = suite_mut(&mut module.body)[0].as_mut() else {
+        let Stmt::Assign(assign) = &mut suite_mut(&mut module.body)[0] else {
             panic!("expected first statement to be an assignment");
         };
         lower_string_templates_in_expr(assign.value.as_mut());
@@ -359,7 +359,7 @@ mod tests {
     #[test]
     fn lower_surrogate_string_literals_materializes_fstring_literal_surrogates() {
         let mut module = lower_module("x = f\"\\udca7\"\n");
-        let Stmt::Assign(assign) = suite_mut(&mut module.body)[0].as_mut() else {
+        let Stmt::Assign(assign) = &mut suite_mut(&mut module.body)[0] else {
             panic!("expected first statement to be an assignment");
         };
         lower_string_templates_in_expr(assign.value.as_mut());

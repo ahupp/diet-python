@@ -1,6 +1,7 @@
 use super::{
     BlockPyBlock, BlockPyCallableDef, BlockPyCfgFragment, BlockPyFunctionKind, BlockPyIfTerm,
-    BlockPyLabel, BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyTerm, BlockPyTryJump, Expr,
+    BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyRaise, BlockPyStmt, BlockPyTerm,
+    BlockPyTryJump, Expr, PassFunction, PassModule, SemanticBlockPyModule,
 };
 use crate::basic_block::block_py::param_specs::{ParamKind, ParamSpec};
 use crate::ruff_ast_to_string;
@@ -12,7 +13,9 @@ enum IfBranchKind {
     Else,
 }
 
-pub fn blockpy_module_to_string<E, X>(module: &BlockPyModule<E, X>) -> String
+pub fn blockpy_module_to_string<E, X>(
+    module: &BlockPyModule<BlockPyCallableDef<E, BlockPyBlock<E>, X>>,
+) -> String
 where
     E: Clone + Into<Expr>,
 {
@@ -35,8 +38,10 @@ impl BlockPyFormatter {
         self.out
     }
 
-    fn write_module<E, X>(&mut self, module: &BlockPyModule<E, X>)
-    where
+    fn write_module<E, X>(
+        &mut self,
+        module: &BlockPyModule<BlockPyCallableDef<E, BlockPyBlock<E>, X>>,
+    ) where
         E: Clone + Into<Expr>,
     {
         if module
@@ -915,7 +920,7 @@ mod tests {
     use crate::basic_block::block_py::{ClosureInit, ClosureLayout, ClosureSlot};
     use ruff_python_parser::parse_expression;
 
-    fn wrapped_blockpy(source: &str) -> BlockPyModule {
+    fn wrapped_blockpy(source: &str) -> SemanticBlockPyModule {
         crate::transform_str_to_blockpy_with_options(source, crate::Options::for_test())
             .expect("expected lowered semantic BlockPy module")
     }
@@ -929,9 +934,12 @@ mod tests {
     }
 
     fn function_by_bind_name<'a, E, X>(
-        module: &'a BlockPyModule<E, X>,
+        module: &'a BlockPyModule<BlockPyCallableDef<E, BlockPyBlock<E>, X>>,
         bind_name: &str,
-    ) -> &'a BlockPyCallableDef<E, BlockPyBlock<E>, X> {
+    ) -> &'a BlockPyCallableDef<E, BlockPyBlock<E>, X>
+    where
+        E: Clone + Into<Expr>,
+    {
         module
             .callable_defs
             .iter()
@@ -966,9 +974,10 @@ def classify(a, /, b: int = 1, *args, c=2, **kwargs):
 
     #[test]
     fn renders_empty_module_marker() {
-        let rendered = blockpy_module_to_string(&BlockPyModule::<Expr> {
+        let empty_module: SemanticBlockPyModule = BlockPyModule {
             callable_defs: Vec::new(),
-        });
+        };
+        let rendered = blockpy_module_to_string(&empty_module);
         assert_eq!(rendered, "; empty BlockPy module\n");
     }
 
@@ -1043,7 +1052,7 @@ async def no_lying():
 
     #[test]
     fn renders_public_closure_metadata_in_function_header() {
-        let rendered = blockpy_module_to_string(&BlockPyModule::<Expr> {
+        let rendered = blockpy_module_to_string(&BlockPyModule {
             callable_defs: vec![BlockPyCallableDef {
                 function_id: crate::basic_block::block_py::FunctionId(0),
                 names: crate::basic_block::block_py::FunctionName::new("gen", "gen", "gen", "gen"),

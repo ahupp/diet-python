@@ -34,11 +34,8 @@ fn class_def_to_create_class_fn<'a>(
     let class_name = name.id.to_string();
     let class_firstlineno = context.line_number_at(class_def.range.start().to_usize());
 
-    fn first_non_empty_stmt<'a>(body: &'a [Box<Stmt>]) -> Option<&'a Stmt> {
-        for stmt in body {
-            return Some(stmt.as_ref());
-        }
-        None
+    fn first_non_empty_stmt(body: &[Stmt]) -> Option<&Stmt> {
+        body.first()
     }
 
     fn class_doc_expr(stmt: &Stmt) -> Option<Expr> {
@@ -54,15 +51,15 @@ fn class_def_to_create_class_fn<'a>(
         }
     }
 
-    if let Some(first_stmt) = first_non_empty_stmt(&body.body) {
+    if let Some(first_stmt) = first_non_empty_stmt(&body) {
         if let Some(doc_expr) = class_doc_expr(first_stmt) {
-            body.body.insert(
+            body.insert(
                 0,
-                Box::new(py_stmt!(
+                py_stmt!(
                     "_dp_class_ns[{name:literal}] = {value:expr}",
                     name = "__doc__",
                     value = doc_expr
-                )),
+                ),
             );
         }
     }

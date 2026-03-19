@@ -450,7 +450,7 @@ for {target:expr} in {iter:expr}:
     func_body.extend(body);
     func_body.push(py_stmt!("return {result:expr}", result = result_expr));
 
-    func_def.body = body_from_suite(func_body.into_iter().map(Box::new).collect());
+    func_def.body = body_from_suite(func_body);
 
     let mut prefix: Vec<Stmt> = Vec::new();
     for name in dummy_targets {

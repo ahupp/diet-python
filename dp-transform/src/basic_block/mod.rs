@@ -31,14 +31,11 @@ pub(crate) use core_eval_order::make_eval_order_explicit_in_lowered_core_blockpy
 pub use function_lowering::SingleNamedAssignmentPass;
 
 use crate::basic_block::block_py::{
-    BlockPyModule, CfgModule, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait,
-    CoreBlockPyExprWithoutAwaitOrYield,
+    BlockPyCallableDef, BlockPyModule, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait,
+    CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyModule, CoreBlockPyModuleWithoutAwait,
+    CoreBlockPyModuleWithoutAwaitOrYield, SemanticBlockPyModule,
 };
-use crate::basic_block::blockpy_to_bb::{
-    LoweredCoreBlockPyFunction, LoweredCoreBlockPyFunctionWithoutAwait,
-    LoweredCoreBlockPyFunctionWithoutAwaitOrYield,
-};
-use crate::basic_block::ruff_to_blockpy::LoweredBlockPyFunction;
+use crate::basic_block::ruff_to_blockpy::LoweredBlockPyModule;
 use crate::transformer::Transformer;
 use ruff_python_ast::{self as ast, Expr, Stmt};
 
@@ -152,8 +149,10 @@ fn summarize_blockpy_term<E: Clone + Into<Expr>>(
 }
 
 fn summarize_blockpy_module<E: Clone + Into<Expr>, X>(
-    module: &block_py::BlockPyModule<E, X>,
-) -> crate::PassShapeSummary {
+    module: &BlockPyModule<BlockPyCallableDef<E, block_py::BlockPyBlock<E>, X>>,
+) -> crate::PassShapeSummary
+where
+{
     let mut summary = crate::PassShapeSummary::default();
     for callable in &module.callable_defs {
         for block in &callable.blocks {
@@ -172,47 +171,25 @@ fn summarize_semantic_blockpy_plan(
     summarize_blockpy_module(&lowered_blockpy_module_bundle_plan_to_semantic_blockpy_module(plan))
 }
 
-fn summarize_semantic_blockpy_bundle(
-    bundle: &CfgModule<LoweredBlockPyFunction>,
-) -> crate::PassShapeSummary {
+fn summarize_semantic_blockpy_bundle(bundle: &LoweredBlockPyModule) -> crate::PassShapeSummary {
     let blockpy = project_lowered_module_callable_defs(bundle, |lowered| lowered);
     summarize_blockpy_module(&blockpy)
 }
 
-fn summarize_core_blockpy_bundle(
-    bundle: &CfgModule<LoweredCoreBlockPyFunction>,
-) -> crate::PassShapeSummary {
+fn summarize_core_blockpy_bundle(bundle: &CoreBlockPyModule) -> crate::PassShapeSummary {
     let blockpy = project_lowered_module_callable_defs(bundle, |lowered| lowered);
     summarize_blockpy_module(&blockpy)
-}
-
-fn summarize_core_blockpy_module(
-    module: &block_py::BlockPyModule<CoreBlockPyExpr>,
-) -> crate::PassShapeSummary {
-    summarize_blockpy_module(module)
 }
 
 fn summarize_core_blockpy_bundle_without_await(
-    bundle: &CfgModule<LoweredCoreBlockPyFunctionWithoutAwait>,
+    bundle: &CoreBlockPyModuleWithoutAwait,
 ) -> crate::PassShapeSummary {
     let blockpy = project_lowered_module_callable_defs(bundle, |lowered| lowered);
     summarize_blockpy_module(&blockpy)
 }
 
-fn summarize_core_blockpy_module_without_await(
-    module: &block_py::BlockPyModule<CoreBlockPyExprWithoutAwait>,
-) -> crate::PassShapeSummary {
-    summarize_blockpy_module(module)
-}
-
-fn summarize_core_blockpy_module_without_await_or_yield(
-    module: &block_py::BlockPyModule<CoreBlockPyExprWithoutAwaitOrYield>,
-) -> crate::PassShapeSummary {
-    summarize_blockpy_module(module)
-}
-
 fn summarize_core_blockpy_bundle_without_await_or_yield(
-    bundle: &CfgModule<LoweredCoreBlockPyFunctionWithoutAwaitOrYield>,
+    bundle: &CoreBlockPyModuleWithoutAwaitOrYield,
 ) -> crate::PassShapeSummary {
     let blockpy = project_lowered_module_callable_defs(bundle, |lowered| lowered);
     summarize_blockpy_module(&blockpy)
@@ -225,33 +202,20 @@ pub(crate) fn summarize_tracked_pass_shape(
     if let Some(plan) = result.get_pass::<LoweredBlockPyModuleBundlePlan>(name) {
         return Some(summarize_semantic_blockpy_plan(plan));
     }
-    if let Some(module) = result.get_pass::<BlockPyModule<Expr>>(name) {
+    if let Some(module) = result.get_pass::<SemanticBlockPyModule>(name) {
         return Some(summarize_blockpy_module(module));
     }
-    if let Some(bundle) = result.get_pass::<CfgModule<LoweredBlockPyFunction>>(name) {
+    if let Some(bundle) = result.get_pass::<LoweredBlockPyModule>(name) {
         return Some(summarize_semantic_blockpy_bundle(bundle));
     }
-    if let Some(bundle) = result.get_pass::<CfgModule<LoweredCoreBlockPyFunction>>(name) {
+    if let Some(bundle) = result.get_pass::<CoreBlockPyModule>(name) {
         return Some(summarize_core_blockpy_bundle(bundle));
     }
-    if let Some(module) = result.get_pass::<BlockPyModule<CoreBlockPyExpr>>(name) {
-        return Some(summarize_core_blockpy_module(module));
-    }
-    if let Some(bundle) = result.get_pass::<CfgModule<LoweredCoreBlockPyFunctionWithoutAwait>>(name)
-    {
+    if let Some(bundle) = result.get_pass::<CoreBlockPyModuleWithoutAwait>(name) {
         return Some(summarize_core_blockpy_bundle_without_await(bundle));
     }
-    if let Some(module) = result.get_pass::<BlockPyModule<CoreBlockPyExprWithoutAwait>>(name) {
-        return Some(summarize_core_blockpy_module_without_await(module));
-    }
-    if let Some(bundle) =
-        result.get_pass::<CfgModule<LoweredCoreBlockPyFunctionWithoutAwaitOrYield>>(name)
-    {
+    if let Some(bundle) = result.get_pass::<CoreBlockPyModuleWithoutAwaitOrYield>(name) {
         return Some(summarize_core_blockpy_bundle_without_await_or_yield(bundle));
-    }
-    if let Some(module) = result.get_pass::<BlockPyModule<CoreBlockPyExprWithoutAwaitOrYield>>(name)
-    {
-        return Some(summarize_blockpy_module(module));
     }
     None
 }
@@ -260,41 +224,23 @@ fn render_semantic_blockpy_plan(plan: &LoweredBlockPyModuleBundlePlan) -> String
     blockpy_module_to_string(&lowered_blockpy_module_bundle_plan_to_semantic_blockpy_module(plan))
 }
 
-fn render_semantic_blockpy_bundle(bundle: &CfgModule<LoweredBlockPyFunction>) -> String {
+fn render_semantic_blockpy_bundle(bundle: &LoweredBlockPyModule) -> String {
     let blockpy = project_lowered_module_callable_defs(bundle, |lowered| lowered);
     blockpy_module_to_string(&blockpy)
 }
 
-fn render_core_blockpy_bundle(bundle: &CfgModule<LoweredCoreBlockPyFunction>) -> String {
+fn render_core_blockpy_bundle(bundle: &CoreBlockPyModule) -> String {
     let blockpy = project_lowered_module_callable_defs(bundle, |lowered| lowered);
     blockpy_module_to_string(&blockpy)
 }
 
-fn render_core_blockpy_module(module: &block_py::BlockPyModule<CoreBlockPyExpr>) -> String {
-    blockpy_module_to_string(module)
-}
-
-fn render_core_blockpy_bundle_without_await(
-    bundle: &CfgModule<LoweredCoreBlockPyFunctionWithoutAwait>,
-) -> String {
+fn render_core_blockpy_bundle_without_await(bundle: &CoreBlockPyModuleWithoutAwait) -> String {
     let blockpy = project_lowered_module_callable_defs(bundle, |lowered| lowered);
     blockpy_module_to_string(&blockpy)
-}
-
-fn render_core_blockpy_module_without_await(
-    module: &block_py::BlockPyModule<CoreBlockPyExprWithoutAwait>,
-) -> String {
-    blockpy_module_to_string(module)
-}
-
-fn render_core_blockpy_module_without_await_or_yield(
-    module: &block_py::BlockPyModule<CoreBlockPyExprWithoutAwaitOrYield>,
-) -> String {
-    blockpy_module_to_string(module)
 }
 
 fn render_core_blockpy_bundle_without_await_or_yield(
-    bundle: &CfgModule<LoweredCoreBlockPyFunctionWithoutAwaitOrYield>,
+    bundle: &CoreBlockPyModuleWithoutAwaitOrYield,
 ) -> String {
     let blockpy = project_lowered_module_callable_defs(bundle, |lowered| lowered);
     blockpy_module_to_string(&blockpy)
@@ -389,33 +335,20 @@ pub(crate) fn render_tracked_pass_text(
     if let Some(plan) = result.get_pass::<LoweredBlockPyModuleBundlePlan>(name) {
         return Some(render_semantic_blockpy_plan(plan));
     }
-    if let Some(module) = result.get_pass::<BlockPyModule<Expr>>(name) {
+    if let Some(module) = result.get_pass::<SemanticBlockPyModule>(name) {
         return Some(blockpy_module_to_string(module));
     }
-    if let Some(bundle) = result.get_pass::<CfgModule<LoweredBlockPyFunction>>(name) {
+    if let Some(bundle) = result.get_pass::<LoweredBlockPyModule>(name) {
         return Some(render_semantic_blockpy_bundle(bundle));
     }
-    if let Some(bundle) = result.get_pass::<CfgModule<LoweredCoreBlockPyFunction>>(name) {
+    if let Some(bundle) = result.get_pass::<CoreBlockPyModule>(name) {
         return Some(render_core_blockpy_bundle(bundle));
     }
-    if let Some(module) = result.get_pass::<BlockPyModule<CoreBlockPyExpr>>(name) {
-        return Some(render_core_blockpy_module(module));
-    }
-    if let Some(bundle) = result.get_pass::<CfgModule<LoweredCoreBlockPyFunctionWithoutAwait>>(name)
-    {
+    if let Some(bundle) = result.get_pass::<CoreBlockPyModuleWithoutAwait>(name) {
         return Some(render_core_blockpy_bundle_without_await(bundle));
     }
-    if let Some(module) = result.get_pass::<BlockPyModule<CoreBlockPyExprWithoutAwait>>(name) {
-        return Some(render_core_blockpy_module_without_await(module));
-    }
-    if let Some(bundle) =
-        result.get_pass::<CfgModule<LoweredCoreBlockPyFunctionWithoutAwaitOrYield>>(name)
-    {
+    if let Some(bundle) = result.get_pass::<CoreBlockPyModuleWithoutAwaitOrYield>(name) {
         return Some(render_core_blockpy_bundle_without_await_or_yield(bundle));
-    }
-    if let Some(module) = result.get_pass::<BlockPyModule<CoreBlockPyExprWithoutAwaitOrYield>>(name)
-    {
-        return Some(render_core_blockpy_module_without_await_or_yield(module));
     }
     if let Some(bundle) = result.get_pass::<bb_ir::BbModule>(name) {
         return Some(render_bb_module(bundle));
@@ -428,7 +361,7 @@ mod tests {
     use crate::basic_block::bb_ir::{BbBlock, BbFunction, BbModule};
     use crate::basic_block::block_py::BlockPyFunctionKind;
     use crate::basic_block::block_py::{
-        BlockPyModule, BlockPyStmt, BlockPyTerm, CoreBlockPyExprWithoutAwaitOrYield,
+        BlockPyStmt, BlockPyTerm, CoreBlockPyExprWithoutAwaitOrYield, SemanticBlockPyModule,
     };
     use crate::basic_block::block_py::{ClosureInit, ClosureSlot};
     use crate::LoweringResult;
@@ -438,7 +371,7 @@ mod tests {
     use ruff_python_ast::Expr;
     struct TrackedLowering {
         result: LoweringResult,
-        blockpy_module: BlockPyModule<Expr>,
+        blockpy_module: SemanticBlockPyModule,
     }
 
     impl TrackedLowering {
@@ -453,7 +386,7 @@ mod tests {
             }
         }
 
-        fn blockpy_module(&self) -> BlockPyModule<Expr> {
+        fn blockpy_module(&self) -> SemanticBlockPyModule {
             self.blockpy_module.clone()
         }
 
@@ -514,7 +447,7 @@ mod tests {
     }
 
     fn callable_def_by_name<'a>(
-        blockpy_module: &'a crate::basic_block::block_py::BlockPyModule,
+        blockpy_module: &'a crate::basic_block::block_py::SemanticBlockPyModule,
         bind_name: &str,
     ) -> &'a crate::basic_block::block_py::BlockPyCallableDef {
         blockpy_module
@@ -1701,7 +1634,7 @@ class Field:
             let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
                 .expect("transform should succeed");
             let blockpy = lowered
-                .get_pass::<crate::basic_block::block_py::BlockPyModule<Expr>>("semantic_blockpy")
+                .get_pass::<crate::basic_block::block_py::SemanticBlockPyModule>("semantic_blockpy")
                 .cloned()
                 .expect("expected lowered semantic BlockPy module");
             let blockpy_rendered = crate::basic_block::blockpy_module_to_string(&blockpy);

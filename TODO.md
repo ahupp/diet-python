@@ -11,18 +11,6 @@
 
 - Reserved for user requests that start with `TODO`.
 - Add one entry per request and include any plan or relevant response summary with it.
-- Add an evaluation-order-explicit pass that hoists composite subexpressions into temps while preserving left-to-right evaluation, e.g. `a = foo(b(), c)` -> `tmp = b(); a = foo(tmp, c)`.
-  - Planning note:
-    - The pass should make effect order explicit before the await/generator boundary so later phases only see atomic operands in control/runtime positions.
-    - As an implied invariant, only names should be allowed as operands to `If`, `Return`, `Raise`, `Await`, `Yield`, and `YieldFrom`.
-    - Call arguments are the motivating first example, but the pass should cover any composite expression whose evaluation order must be made explicit.
-- Remove the fallback await-lowering path so all awaits use one explicit pass, and make that pass appear as a top-level step in `rewrite_module`.
-  - Planning note:
-    - Split the current coarse AST-to-lowered-BlockPy boundary so `rewrite_module` can show an explicit semantic-BlockPy-with-awaits -> semantic-BlockPy-without-awaits step.
-    - Route all async functions through semantic BlockPy first, then run one bundle-level await-lowering pass instead of probing an AST fallback path.
-    - Widen that pass until it handles every semantic position that can contain `await`, then delete the fallback route and legacy gating fields.
-    - Keep the final design visible in `rewrite_module` as a real typed phase boundary instead of hiding it inside a lower-level helper.
-    - As the ownership becomes explicit, split `await_lower.rs` apart so each helper lives in the pass module that actually owns that await-lowering stage instead of keeping one catch-all await helper module.
 - Remove local `StmtBody` usage and move back to upstream Ruff structures.
   - Planning note:
     - The desired end state is to stop depending on the local `StmtBody` wrapper and align the lowering pipeline back with upstream Ruff AST/container shapes.
@@ -39,27 +27,6 @@
     - A good first pass is to audit all Ruff `Stmt` / `Expr` imports and call sites, confirm which ones are still expected at each lowering stage, and merge that inventory with the concrete BB-lowering round-trip cleanup.
     - This likely means replacing helper code that reconstructs `Stmt`/`StmtBody` for load-name, exception, or normalization analysis with BlockPy-native analysis utilities, while also tightening any remaining late-stage Ruff-expression dependencies to only the intended boundaries.
     - Keep the dataflow explicit so the BlockPy -> BB boundary no longer reintroduces earlier AST representations.
-- Collapse the repeated Ruff/Semantic/Core BlockPy alias families into one stage-oriented representation, ideally via associated types on a stage trait or wrapper type.
-  - Planning note:
-    - Rust type aliases cannot themselves own associated types, so this likely needs either a `BlockPyStage` trait with associated types or stage wrapper newtypes rather than trying to hang associated types directly off `BlockPyModule`.
-    - The goal is to stop spelling parallel alias lists for `Module`, `CallableDef`, `Block`, `Stmt`, `Term`, `Assign`, `If`, `Raise`, and related helpers, while still making the stage (`Ruff`, semantic, core) explicit.
-    - This cleanup is now simpler because semantic BlockPy already carries Ruff `Expr` directly, so one whole stage-specific expression wrapper is gone from the matrix.
-- Lift await and generator reduction into explicit top-level transform steps in `driver.rs`.
-  - Planning note:
-    - The desired end state is for `rewrite_module` to show the semantic BlockPy with raw `await` / generator forms, then explicit await lowering, then explicit generator reduction as separate visible steps.
-    - This likely requires splitting the current hidden lowering helpers so await removal and generator lowering are typed bundle-to-bundle passes instead of internal side effects.
-    - Keep the stage boundaries explicit in the driver so the top-level pipeline shows where those representations change.
-- Use `ENTRY_BLOCK_LABEL` wherever a type models the exported callable entry, instead of leaking pre-normalization internal block labels.
-  - Planning note:
-    - Internal semantic/generator lowering still needs distinct local labels for resume, dispatch, factory, and relabelled CFG blocks.
-    - But exported callable metadata and any AST-side preview of the callable should use `ENTRY_BLOCK_LABEL`, so the public entry invariant matches the later lowered BlockPy and BB stages.
-    - A good first pass is to audit any preview, instantiation, or render-time entry-label fields and separate them from internal prepared-function labels explicitly.
-- Evaluate the remaining BB-related types to see which ones can fold into the BlockPy/CFG generics.
-  - Planning note:
-    - `BbExpr` is already gone, so the next candidates are the BB-only wrappers and metadata types such as `BbFunction`, `BbBlock`, `BbTerm`, `BbOp`, and the closure-layout / function-kind families.
-    - A good first pass is to separate “truly backend-specific” concerns from generic CFG/block/container structure, and check whether those backend-specific pieces can become generic parameters on the existing BlockPy/Cfg chassis instead of separate top-level BB concepts.
-    - The outer `LoweredBlockPyFunction` / `BbFunction` merge is mostly done now: both stages share the generic `LoweredFunction<C, X>` shell plus `BoundCallable<C>`, and the remaining question is how much of the stage-specific metadata can be further shared.
-    - The current likely split is that `bb_kind` / runtime closure metadata are shared lowered-runtime concerns, while `block_params` / `exception_edges` remain BlockPy-to-BB bridge side tables.
 - Move refcount management out of `soac-eval` and into a new explicit pass in `rewrite_module`.
   - Planning note:
     - The current JIT path in `soac-eval` still owns a large amount of `incref` / `decref` insertion and runtime helper wiring (`dp_jit_incref`, `dp_jit_decref`), which makes ownership of reference semantics backend-local instead of pipeline-visible.
@@ -88,6 +55,7 @@
     - The desired end state is that callable entry is represented structurally by block order, with block `0` / the first block as the entry block, instead of carrying a separate exported start-label concept.
     - A good first pass is to audit every place that stores, normalizes, renders, or exports a start/entry label and separate internal relabeling concerns from public callable entry semantics.
     - Then make CFG/BlockPy/BB construction normalize blocks so the entry block is first, and delete the extra start-label plumbing from previews, rendering, and lowered/export metadata.
+  - Allow fallback to bytecode for arbitrary functions, use this for __annotate__
 
 ## Completed
 
@@ -113,85 +81,9 @@
 - Merge `LoweredBlockPyFunction` and `BbFunction`:
   - Both stages now share the generic `LoweredFunction<C, X>` chassis and `BoundCallable<C>` in `lowered_ir.rs`, instead of maintaining separate outer wrapper concepts.
   - The BB side is now just an alias over that shared shell, and the remaining follow-up is metadata factoring rather than wrapper-shape unification.
+- Evaluate the remaining BB-related types to see which ones can fold into the BlockPy/CFG generics.
+- Collapse the repeated Ruff/Semantic/Core BlockPy alias families into one stage-oriented representation, ideally via associated types on a stage trait or wrapper type.
+- Remove the fallback await-lowering path so all awaits use one explicit pass, and make that pass appear as a top-level step in `rewrite_module`.
+- Add an evaluation-order-explicit pass that hoists composite subexpressions into temps while preserving left-to-right evaluation, e.g. `a = foo(b(), c)` -> `tmp = b(); a = foo(tmp, c)`.
 
-## Follow-up: weakref callback during shutdown (BB mode)
 
-- Symptom:
-  - Sharded CPython run reports at process shutdown:
-    - `Exception ignored while calling weakref callback <function _removeHandlerRef ...>`
-    - Trace enters `__dp__.py`:
-      - `entry` at `__dp__.py:1993`
-      - `run_bb` at `__dp__.py:778`
-      - `AttributeError: 'NoneType' object has no attribute 'take_arg1'`
-- Repro context:
-  - Seen in transformed fast shard runs (BB lowering enabled by default), e.g.:
-    - `logs/cpython_transform_test_set_part01_after_targeted_for_fix.log`
-  - The shard still exits `0`, so this is currently a shutdown warning, not a hard failure.
-- Working hypothesis:
-  - BB block functions still resolve `__dp__` from module globals at call time.
-  - During interpreter/module teardown, module globals are cleared to `None`.
-  - Late weakref callbacks (for example from `logging._removeHandlerRef`) can run after this, so transformed callback code executes with `__dp__ is None`.
-  - That makes emitted block code like `__dp__.take_arg1(...)` fail.
-- Why this is important:
-  - Indicates transformed functions are not teardown-safe when invoked late in shutdown.
-  - Could become noisy across stdlib code paths that rely on weakref finalizers/callbacks.
-- Suggested fix direction:
-  - Make BB block call paths independent of module-global `__dp__` at runtime:
-    - Prefer capturing `__dp__` as a default/closure on emitted block functions (not only wrappers).
-    - Or otherwise ensure block runtime helpers used by blocks are bound/captured and not global lookups.
-  - Keep behavior unchanged for normal execution order; this is a teardown robustness fix.
-- Suggested validation:
-  - Add a regression that simulates late callback execution after clobbering module globals (or equivalent teardown simulation) and verifies no `AttributeError` from `__dp__` lookups.
-  - Re-run shard `test_sets/cpython_fast_tests_part_01.txt` and confirm warning disappears.
-
-## Follow-up: traceback/source lookup mismatch for transformed modules
-
-- Symptom:
-  - pytest can hit `INTERNALERROR` while rendering failures:
-    - `_pytest/_code/source.py:get_statement_startend2`
-    - `IndexError: list index out of range`
-- Repro context:
-  - JIT-enabled runs with transformed integration packages where `__init__.py` is empty on disk.
-  - The transformed execution raises at a line in `__init__.py` (for example line 3), but the file on disk has zero lines.
-- Working hypothesis:
-  - `co_filename` points to original source path while executed transformed code has different line layout.
-  - pytest reads AST/source from disk for that filename and crashes when traceback line exceeds available statements.
-- Suggested fix direction:
-  - Keep traceback/source mapping coherent for transformed code:
-    - either preserve a synchronized source cache (for `linecache`) keyed by `co_filename`,
-    - or use a dedicated synthetic filename/path for transformed code with matching stored source text.
-  - Ensure transformed module line numbers map to the source that traceback tooling loads.
-- Suggested validation:
-  - Add a regression that imports a transformed module with empty source and forces an exception from transformed code.
-  - Verify `pytest` default traceback mode reports normal failure (no `INTERNALERROR`), and source lines render correctly.
-
-## Follow-up: JIT interception granularity via vectorcall
-
-- Goal:
-  - Use `PyFunction_SetVectorCall` to intercept only functions that should run through JIT.
-  - Remove reliance on blanket interception of every function call path.
-- Why this is important:
-  - Reduces global behavior changes and narrows JIT integration surface.
-  - Makes non-JIT functions continue on default CPython call path with less risk of regressions.
-- Suggested implementation direction:
-  - Register vectorcall override only for transformed/JIT-planned functions at function creation time.
-  - Keep per-function metadata lookup in the vectorcall target to dispatch only when a JIT plan exists.
-  - Preserve stock vectorcall for all other functions.
-- Suggested validation:
-  - Add regression coverage showing transformed planned functions enter JIT vectorcall path.
-  - Add regression coverage showing unplanned/untransformed functions still use normal CPython vectorcall behavior.
-
-## Follow-up: bytecode fallback for non-JITted functions
-
-- Goal:
-  - Ensure functions without a JIT plan execute through normal CPython bytecode evaluation.
-- Why this is important:
-  - Keeps unsupported or intentionally non-JITted shapes correct without forcing import-time failures.
-  - Allows incremental JIT rollout while preserving behavior coverage.
-- Suggested implementation direction:
-  - At dispatch time, detect whether a function/code object has a compiled JIT plan.
-  - If not present, immediately route to standard bytecode execution path for that function.
-  - Keep this fallback explicit and per-function (no module-wide downgrade unless explicitly requested).
-- Suggested validation:
-  - Add tests where mixed modules contain both JITted and non-JITted functions and verify both paths execute correctly.
-  - Add regression confirming unsupported JIT shapes run via bytecode fallback and preserve semantics.

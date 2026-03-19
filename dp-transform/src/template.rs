@@ -176,7 +176,7 @@ pub fn expect_stmt<T: StmtTryFrom>(stmt: Stmt, template: &'static str) -> T {
 }
 
 fn body_from_stmts(stmts: Vec<Stmt>) -> Body {
-    body_from_suite(stmts.into_iter().map(Box::new).collect())
+    body_from_suite(stmts)
 }
 
 pub(crate) fn is_simple(expr: &Expr) -> bool {
@@ -281,19 +281,9 @@ impl_into_placeholder_for_stmt!(
     ast::StmtIpyEscapeCommand,
 );
 
-impl IntoPlaceholder for Body {
-    fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
-        Ok(PlaceholderValue::Stmt(
-            self.body.into_iter().map(|stmt| *stmt).collect(),
-        ))
-    }
-}
-
 impl IntoPlaceholder for &Body {
     fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
-        Ok(PlaceholderValue::Stmt(
-            self.body.iter().map(|stmt| stmt.as_ref().clone()).collect(),
-        ))
+        Ok(PlaceholderValue::Stmt(self.to_vec()))
     }
 }
 
@@ -443,7 +433,7 @@ impl SyntaxTemplate {
         transformer.visit_body(&mut self.stmts);
         transformer.finish();
         flatten(&mut self.stmts);
-        self.stmts.into_iter().map(|stmt| *stmt).collect()
+        self.stmts
     }
 
     pub(crate) fn instantiate(
@@ -936,11 +926,7 @@ b = 2
         )
         .unwrap()
         .into_syntax()
-        .body
-        .body
-        .into_iter()
-        .map(|stmt| *stmt)
-        .collect::<Vec<_>>();
+        .body;
         let actual_cmp = actual.iter().map(ComparableStmt::from).collect::<Vec<_>>();
         let expected_cmp = expected
             .iter()
@@ -952,9 +938,9 @@ b = 2
     #[test]
     fn inserts_boxed_stmt() {
         let mut body = parse_module("a = 1").unwrap().into_syntax().body;
-        let stmt = body.body.pop().unwrap();
-        let actual = py_stmt!("{body:stmt}", body = Box::new(*stmt.clone()));
-        let expected = py_stmt!("{body:stmt}", body = vec![*stmt]);
+        let stmt = body.pop().unwrap();
+        let actual = py_stmt!("{body:stmt}", body = stmt.clone());
+        let expected = py_stmt!("{body:stmt}", body = vec![stmt]);
         assert_ast_eq(actual, expected);
     }
 
@@ -969,11 +955,7 @@ b = 2
         .unwrap()
         .into_syntax()
         .body;
-        let iter_body = body
-            .body
-            .iter()
-            .map(|stmt| stmt.as_ref().clone())
-            .collect::<Vec<_>>();
+        let iter_body = body.iter().cloned().collect::<Vec<_>>();
 
         let actual = py_stmts!("{body:stmt}", body = iter_body.into_iter());
         let expected = parse_module(
@@ -984,11 +966,7 @@ b = 2
         )
         .unwrap()
         .into_syntax()
-        .body
-        .body
-        .into_iter()
-        .map(|stmt| *stmt)
-        .collect::<Vec<_>>();
+        .body;
         let actual_cmp = actual.iter().map(ComparableStmt::from).collect::<Vec<_>>();
         let expected_cmp = expected
             .iter()
@@ -1018,13 +996,11 @@ b = 2
 ",
             expr = expr,
         );
-        let mut body = body_from_suite(vec![Box::new(actual)]);
+        let mut body = body_from_suite(vec![actual]);
         flatten(crate::basic_block::ast_to_ast::body::suite_mut(&mut body));
         assert_ast_eq(
-            body.body
-                .first()
+            body.first()
                 .expect("expected single statement after flatten")
-                .as_ref()
                 .clone(),
             py_stmt!(
                 "
@@ -1059,8 +1035,8 @@ def {func:id}({param:id}):
                 assert_eq!(name.id.as_str(), "foo");
                 assert_eq!(parameters.args[0].parameter.name.id.as_str(), "arg");
                 assert_eq!(
-                    ComparableStmt::from(fn_body.body[0].as_ref()),
-                    ComparableStmt::from(body.body[0].as_ref())
+                    ComparableStmt::from(&fn_body[0]),
+                    ComparableStmt::from(&body[0])
                 );
             }
             _ => panic!("expected function def"),

@@ -1,4 +1,4 @@
-use super::block_py::{BlockPyCallableDef, CfgBlock, CfgModule};
+use super::block_py::{BlockPyCallableDef, BlockPyModule, CfgBlock};
 use std::env;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,7 +37,7 @@ pub(crate) fn parse_cfg_trace_config(raw: &str) -> Option<CfgTraceConfig> {
 }
 
 pub(crate) fn instrument_cfg_module_for_trace<D, S, T, M>(
-    module: &mut CfgModule<BlockPyCallableDef<D, CfgBlock<S, T, M>>>,
+    module: &mut BlockPyModule<BlockPyCallableDef<D, CfgBlock<S, T, M>>>,
     config: &CfgTraceConfig,
     make_trace_stmt: impl Fn(&str, &str, &[String]) -> S,
 ) where

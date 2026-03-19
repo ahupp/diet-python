@@ -66,35 +66,32 @@ impl TryPlan {
     }
 }
 
-pub(crate) fn prepare_finally_body(
-    finalbody: &Suite,
-    finally_exc_name: Option<&str>,
-) -> Vec<Box<Stmt>> {
+pub(crate) fn prepare_finally_body(finalbody: &Suite, finally_exc_name: Option<&str>) -> Vec<Stmt> {
     let mut finally_body = flatten_stmt_boxes(finalbody);
     if let Some(finally_exc_name) = finally_exc_name {
         finally_body.insert(
             0,
-            Box::new(py_stmt!(
+            py_stmt!(
                 "{exc:id} = __dp_current_exception()",
                 exc = finally_exc_name,
-            )),
+            ),
         );
-        finally_body.push(Box::new(py_stmt!(
+        finally_body.push(py_stmt!(
             "if __dp_is_not({exc:id}, None):\n    raise {exc:id}",
             exc = finally_exc_name,
-        )));
+        ));
     }
     finally_body
 }
 
-pub(crate) fn prepare_except_body(handlers: &[ast::ExceptHandler]) -> Vec<Box<Stmt>> {
+pub(crate) fn prepare_except_body(handlers: &[ast::ExceptHandler]) -> Vec<Stmt> {
     handlers
         .first()
         .map(|handler| {
             let ast::ExceptHandler::ExceptHandler(handler) = handler;
             flatten_stmt_boxes(suite_ref(&handler.body))
         })
-        .unwrap_or_else(|| vec![Box::new(py_stmt!("raise"))])
+        .unwrap_or_else(|| vec![py_stmt!("raise")])
 }
 
 pub(crate) struct LoweredTryRegions {
@@ -112,14 +109,14 @@ pub(crate) fn lower_try_regions<F>(
     blocks: &mut Vec<BlockPyBlock>,
     try_plan: &TryPlan,
     rest_entry: &str,
-    finally_body: Option<Vec<Box<Stmt>>>,
-    else_body: Vec<Box<Stmt>>,
-    try_body: Vec<Box<Stmt>>,
-    except_body: Option<Vec<Box<Stmt>>>,
+    finally_body: Option<Vec<Stmt>>,
+    else_body: Vec<Stmt>,
+    try_body: Vec<Stmt>,
+    except_body: Option<Vec<Stmt>>,
     lower_region: &mut F,
 ) -> LoweredTryRegions
 where
-    F: FnMut(&[Box<Stmt>], String, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, &mut Vec<BlockPyBlock>) -> String,
 {
     let finally_label = if let Some(finally_body) = finally_body {
         let finally_region_start = blocks.len();

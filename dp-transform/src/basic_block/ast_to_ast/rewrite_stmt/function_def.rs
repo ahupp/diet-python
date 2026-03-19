@@ -18,7 +18,8 @@ use crate::basic_block::block_py::param_specs::{
 use crate::basic_block::block_py::state::{collect_cell_slots, collect_state_vars};
 use crate::basic_block::block_py::BindingTarget;
 use crate::basic_block::block_py::{
-    BlockPyCallableDef, BlockPyFunctionKind, BlockPyModule, TryRegionPlan, ENTRY_BLOCK_LABEL,
+    BlockPyCallableDef, BlockPyFunctionKind, BlockPyModule, SemanticBlockPyModule, TryRegionPlan,
+    ENTRY_BLOCK_LABEL,
 };
 use crate::basic_block::blockpy_to_bb::LoweredBlockPyModuleBundlePlan;
 use crate::basic_block::function_identity::{
@@ -357,7 +358,7 @@ mod tests {
 pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan(
     context: &Context,
     mut module: Suite,
-) -> (Suite, BlockPyModule<Expr>) {
+) -> (Suite, SemanticBlockPyModule) {
     crate::basic_block::ast_to_ast::simplify::flatten(&mut module);
     let module_scope = analyze_module_scope(&mut module);
     let function_identity_by_node =
@@ -635,10 +636,7 @@ fn apply_non_lowered_function_placement(
     match plan {
         NonLoweredFunctionPlacementPlan::ReplaceWith(replacement) => Some(replacement),
         NonLoweredFunctionPlacementPlan::PrependBody(function_hoisted) => {
-            let mut new_body = function_hoisted
-                .into_iter()
-                .map(Box::new)
-                .collect::<Vec<_>>();
+            let mut new_body = function_hoisted;
             new_body.extend(take_suite(&mut func.body));
             *suite_mut(&mut func.body) = new_body;
             None
@@ -949,24 +947,24 @@ impl Transformer for BlockPyModuleRewriter<'_> {
     fn visit_body(&mut self, body: &mut Suite) {
         let mut rewritten = Vec::with_capacity(body.len());
         for stmt in std::mem::take(body) {
-            let mut stmt = *stmt;
+            let mut stmt = stmt;
             if matches!(stmt, Stmt::FunctionDef(_)) {
                 let Some(state) = self.walk_function_def_with_scope(&mut stmt) else {
-                    rewritten.push(Box::new(stmt));
+                    rewritten.push(stmt);
                     continue;
                 };
                 if let Stmt::FunctionDef(func) = &mut stmt {
                     if let Some(replacement) = self.rewrite_visited_function_def(func, state) {
-                        rewritten.extend(replacement.into_iter().map(Box::new));
+                        rewritten.extend(replacement);
                         continue;
                     }
                 }
-                rewritten.push(Box::new(stmt));
+                rewritten.push(stmt);
                 continue;
             }
 
             self.visit_stmt(&mut stmt);
-            rewritten.push(Box::new(stmt));
+            rewritten.push(stmt);
         }
         *body = rewritten;
     }

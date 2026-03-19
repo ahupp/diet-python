@@ -29,10 +29,10 @@ use std::sync::Arc;
 
 pub struct SingleNamedAssignmentPass;
 
-fn collect_deleted_names(stmts: &[Box<Stmt>]) -> HashSet<String> {
+fn collect_deleted_names(stmts: &[Stmt]) -> HashSet<String> {
     let mut names = HashSet::new();
     for stmt in stmts {
-        collect_deleted_names_in_stmt(stmt.as_ref(), &mut names);
+        collect_deleted_names_in_stmt(stmt, &mut names);
     }
     names
 }
@@ -46,45 +46,45 @@ fn collect_deleted_names_in_stmt(stmt: &Stmt, names: &mut HashSet<String>) {
         }
         Stmt::If(if_stmt) => {
             for stmt in suite_ref(&if_stmt.body) {
-                collect_deleted_names_in_stmt(stmt.as_ref(), names);
+                collect_deleted_names_in_stmt(stmt, names);
             }
             for clause in &if_stmt.elif_else_clauses {
                 for stmt in suite_ref(&clause.body) {
-                    collect_deleted_names_in_stmt(stmt.as_ref(), names);
+                    collect_deleted_names_in_stmt(stmt, names);
                 }
             }
         }
         Stmt::While(while_stmt) => {
             for stmt in suite_ref(&while_stmt.body) {
-                collect_deleted_names_in_stmt(stmt.as_ref(), names);
+                collect_deleted_names_in_stmt(stmt, names);
             }
             for stmt in suite_ref(&while_stmt.orelse) {
-                collect_deleted_names_in_stmt(stmt.as_ref(), names);
+                collect_deleted_names_in_stmt(stmt, names);
             }
         }
         Stmt::For(for_stmt) => {
             for stmt in suite_ref(&for_stmt.body) {
-                collect_deleted_names_in_stmt(stmt.as_ref(), names);
+                collect_deleted_names_in_stmt(stmt, names);
             }
             for stmt in suite_ref(&for_stmt.orelse) {
-                collect_deleted_names_in_stmt(stmt.as_ref(), names);
+                collect_deleted_names_in_stmt(stmt, names);
             }
         }
         Stmt::Try(try_stmt) => {
             for stmt in suite_ref(&try_stmt.body) {
-                collect_deleted_names_in_stmt(stmt.as_ref(), names);
+                collect_deleted_names_in_stmt(stmt, names);
             }
             for handler in &try_stmt.handlers {
                 let ast::ExceptHandler::ExceptHandler(handler) = handler;
                 for stmt in suite_ref(&handler.body) {
-                    collect_deleted_names_in_stmt(stmt.as_ref(), names);
+                    collect_deleted_names_in_stmt(stmt, names);
                 }
             }
             for stmt in suite_ref(&try_stmt.orelse) {
-                collect_deleted_names_in_stmt(stmt.as_ref(), names);
+                collect_deleted_names_in_stmt(stmt, names);
             }
             for stmt in suite_ref(&try_stmt.finalbody) {
-                collect_deleted_names_in_stmt(stmt.as_ref(), names);
+                collect_deleted_names_in_stmt(stmt, names);
             }
         }
         Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {}
@@ -407,25 +407,24 @@ impl StmtRewritePass for SingleNamedAssignmentPass {
     }
 }
 
-fn split_docstring(body: &Suite) -> (Option<Stmt>, Vec<Box<Stmt>>) {
+fn split_docstring(body: &Suite) -> (Option<Stmt>, Vec<Stmt>) {
     let mut rest = body.clone();
     let Some(first) = rest.first() else {
         return (None, rest);
     };
     if matches!(
-        first.as_ref(),
+        first,
         Stmt::Expr(ast::StmtExpr { value, .. }) if matches!(value.as_ref(), Expr::StringLiteral(_))
     ) {
-        let first_stmt = *rest.remove(0);
+        let first_stmt = rest.remove(0);
         return (Some(first_stmt), rest);
     }
     (None, rest)
 }
 
-fn has_dead_stmt_suffixes(stmts: &[Box<Stmt>]) -> bool {
+fn has_dead_stmt_suffixes(stmts: &[Stmt]) -> bool {
     let mut terminated = false;
     for stmt in stmts {
-        let stmt = stmt.as_ref();
         if terminated {
             return true;
         }
@@ -472,16 +471,16 @@ fn has_dead_stmt_suffixes_in_stmt(stmt: &Stmt) -> bool {
     }
 }
 
-fn prune_dead_stmt_suffixes(stmts: &[Box<Stmt>]) -> Vec<Box<Stmt>> {
+fn prune_dead_stmt_suffixes(stmts: &[Stmt]) -> Vec<Stmt> {
     let mut out = Vec::new();
     for stmt in stmts {
-        let mut stmt = stmt.as_ref().clone();
+        let mut stmt = stmt.clone();
         prune_dead_stmt_suffixes_in_stmt(&mut stmt);
         let terminates = matches!(
             stmt,
             Stmt::Return(_) | Stmt::Raise(_) | Stmt::Break(_) | Stmt::Continue(_)
         );
-        out.push(Box::new(stmt));
+        out.push(stmt);
         if terminates {
             break;
         }
@@ -564,8 +563,8 @@ fn sanitize_ident(raw: &str) -> String {
 }
 
 fn always_unbound_local_names(
-    lowered_input_body: &[Box<Stmt>],
-    runtime_body: &[Box<Stmt>],
+    lowered_input_body: &[Stmt],
+    runtime_body: &[Stmt],
     param_names: &[String],
 ) -> HashSet<String> {
     let original_bound_names = collect_bound_names(lowered_input_body);

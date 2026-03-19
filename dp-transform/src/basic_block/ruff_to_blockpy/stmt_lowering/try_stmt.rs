@@ -4,7 +4,7 @@ use crate::basic_block::ast_to_ast::body::{suite_ref, take_suite, Suite};
 use crate::{py_expr, py_stmt};
 
 fn body_to_vec(body: Suite) -> Vec<Stmt> {
-    body.into_iter().map(|stmt| *stmt).collect()
+    body
 }
 
 fn has_non_default_handler(stmt: &ast::StmtTry) -> bool {
@@ -208,7 +208,7 @@ impl StmtLowerer for ast::StmtTry {
 
 pub(crate) fn lower_star_try_stmt_sequence<F>(
     try_stmt: ast::StmtTry,
-    remaining_stmts: &[Box<Stmt>],
+    remaining_stmts: &[Stmt],
     cont_label: String,
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
@@ -216,7 +216,7 @@ pub(crate) fn lower_star_try_stmt_sequence<F>(
     lower_sequence: &mut F,
 ) -> String
 where
-    F: FnMut(&[Box<Stmt>], String, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, &mut Vec<BlockPyBlock>) -> String,
 {
     let rewritten_try = match rewrite_try_stmt(try_stmt) {
         Rewrite::Unmodified(stmt) => stmt_to_stmts(stmt),
@@ -235,7 +235,7 @@ where
 
 pub(crate) fn lower_try_stmt_sequence<F>(
     try_stmt: ast::StmtTry,
-    remaining_stmts: &[Box<Stmt>],
+    remaining_stmts: &[Stmt],
     cont_label: String,
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
@@ -244,7 +244,7 @@ pub(crate) fn lower_try_stmt_sequence<F>(
     lower_sequence: &mut F,
 ) -> (String, TryRegionPlan)
 where
-    F: FnMut(&[Box<Stmt>], String, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, &mut Vec<BlockPyBlock>) -> String,
 {
     let rest_entry = lower_sequence(remaining_stmts, cont_label.clone(), blocks);
 

@@ -72,10 +72,10 @@ where
     state
 }
 
-pub(crate) fn collect_cell_slots(stmts: &[Box<Stmt>]) -> HashSet<String> {
+pub(crate) fn collect_cell_slots(stmts: &[Stmt]) -> HashSet<String> {
     let mut slots = HashSet::new();
     for stmt in stmts {
-        let mut names: HashSet<String> = assigned_names_in_stmt(stmt.as_ref());
+        let mut names: HashSet<String> = assigned_names_in_stmt(stmt);
         for name in names.drain() {
             if name.starts_with("_dp_cell_") {
                 slots.insert(name);

@@ -26,30 +26,20 @@ pub(crate) fn assert_transform_eq_ex(actual: &str, expected: &str) {
     let module = transform_str_to_ruff_with_options(actual, options).unwrap();
     let actual_str = ruff_ast_to_string(suite_ref(&module.module.body));
     let actual_body = suite_ref(&module.module.body);
-    let actual_stmt_internal: Vec<_> = actual_body
-        .iter()
-        .map(|stmt| ComparableStmt::from(stmt.as_ref()))
-        .collect();
+    let actual_stmt_internal: Vec<_> = actual_body.iter().map(ComparableStmt::from).collect();
 
     let actual_parsed = parse_module(actual_str.as_str())
         .unwrap()
         .into_syntax()
         .body;
-    let actual_stmt: Vec<_> = actual_parsed
-        .body
-        .iter()
-        .map(|stmt| ComparableStmt::from(stmt.as_ref()))
-        .collect();
+    let actual_stmt: Vec<_> = actual_parsed.iter().map(ComparableStmt::from).collect();
 
     let expected_ast = parse_module(expected_normalized.as_str())
         .unwrap()
         .into_syntax()
         .body;
-    let expected_body = &expected_ast.body;
-    let expected_stmt: Vec<_> = expected_body
-        .iter()
-        .map(|stmt| ComparableStmt::from(stmt.as_ref()))
-        .collect();
+    let expected_body = &expected_ast;
+    let expected_stmt: Vec<_> = expected_body.iter().map(ComparableStmt::from).collect();
 
     if actual_stmt != expected_stmt {
         let diff = TextDiff::from_lines(expected_normalized.as_str(), &actual_str)
@@ -60,12 +50,12 @@ pub(crate) fn assert_transform_eq_ex(actual: &str, expected: &str) {
     }
 }
 
-fn format_first_difference(actual: &[Box<Stmt>], rerun: &[Box<Stmt>]) -> String {
+fn format_first_difference(actual: &[Stmt], rerun: &[Stmt]) -> String {
     let min_len = actual.len().min(rerun.len());
     for (index, (actual_stmt, rerun_stmt)) in actual.iter().zip(rerun).enumerate().take(min_len) {
-        if ComparableStmt::from(actual_stmt.as_ref()) != ComparableStmt::from(rerun_stmt.as_ref()) {
-            let actual_str = ruff_ast_to_string(actual_stmt.as_ref());
-            let rerun_str = ruff_ast_to_string(rerun_stmt.as_ref());
+        if ComparableStmt::from(actual_stmt) != ComparableStmt::from(rerun_stmt) {
+            let actual_str = ruff_ast_to_string(actual_stmt);
+            let rerun_str = ruff_ast_to_string(rerun_stmt);
             return format!(
                 "first difference at stmt index {index}:\nactual: {actual_str}\nrerun: {rerun_str}"
             );

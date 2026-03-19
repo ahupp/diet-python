@@ -244,12 +244,8 @@ impl<'a> RewriteLoop<'a> {
 impl<'a> Transformer for RewriteLoop<'a> {
     fn visit_body(&mut self, body: &mut Suite) {
         let saved_buf = take(&mut self.buf);
-        let stmts = take(body).into_iter().map(|stmt| *stmt).collect::<Vec<_>>();
-        *body = self
-            .process_statements(stmts)
-            .into_iter()
-            .map(Box::new)
-            .collect();
+        let stmts = take(body);
+        *body = self.process_statements(stmts);
         self.buf = saved_buf;
     }
 

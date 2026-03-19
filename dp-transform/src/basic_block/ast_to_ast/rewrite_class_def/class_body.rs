@@ -109,7 +109,7 @@ impl<'a> Transformer for ClassBodyScopeRewriter<'a> {
     fn visit_body(&mut self, body: &mut Suite) {
         let mut rewritten = Vec::with_capacity(body.len());
         for stmt in std::mem::take(body) {
-            rewritten.extend(self.rewrite_stmt_list(*stmt).into_iter().map(Box::new));
+            rewritten.extend(self.rewrite_stmt_list(stmt));
         }
         *body = rewritten;
     }

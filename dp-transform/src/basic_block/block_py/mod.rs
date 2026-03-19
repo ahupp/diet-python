@@ -4,7 +4,7 @@ use crate::basic_block::block_py::state::collect_state_vars;
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName};
 use std::borrow::Borrow;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::ops::Deref;
 
@@ -101,13 +101,13 @@ impl<S, T, M> CfgBlock<S, T, M> {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct CfgModule<F> {
+pub struct BlockPyModule<F> {
     pub callable_defs: Vec<F>,
 }
 
-impl<F> CfgModule<F> {
-    pub fn map_callable_defs<G>(&self, mut f: impl FnMut(&F) -> G) -> CfgModule<G> {
-        CfgModule {
+impl<F> BlockPyModule<F> {
+    pub fn map_callable_defs<G>(&self, mut f: impl FnMut(&F) -> G) -> BlockPyModule<G> {
+        BlockPyModule {
             callable_defs: self.callable_defs.iter().map(&mut f).collect(),
         }
     }
@@ -349,11 +349,85 @@ pub struct BlockPyBlockMeta {
     pub exc_param: Option<String>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct LoweredBlockPyExtra {
+    pub block_params: HashMap<String, Vec<String>>,
+    pub exception_edges: HashMap<String, Option<String>>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct BbBlockMeta {
+    pub params: Vec<String>,
+    pub exc_target_label: Option<BlockPyLabel>,
+    pub exc_name: Option<String>,
+}
+
+pub trait BlockPyPass {
+    type Expr;
+    type BlockMeta;
+    type FunctionExtra;
+}
+
+pub struct RuffBlockPyPass;
+pub struct LoweredRuffBlockPyPass;
+pub struct CoreBlockPyPass;
+pub struct CoreBlockPyPassWithoutAwait;
+pub struct CoreBlockPyPassWithoutAwaitOrYield;
+pub struct BbBlockPyPass;
+
+impl BlockPyPass for RuffBlockPyPass {
+    type Expr = Expr;
+    type BlockMeta = BlockPyBlockMeta;
+    type FunctionExtra = ();
+}
+
+impl BlockPyPass for LoweredRuffBlockPyPass {
+    type Expr = Expr;
+    type BlockMeta = BlockPyBlockMeta;
+    type FunctionExtra = LoweredBlockPyExtra;
+}
+
+impl BlockPyPass for CoreBlockPyPass {
+    type Expr = CoreBlockPyExpr;
+    type BlockMeta = BlockPyBlockMeta;
+    type FunctionExtra = LoweredBlockPyExtra;
+}
+
+impl BlockPyPass for CoreBlockPyPassWithoutAwait {
+    type Expr = CoreBlockPyExprWithoutAwait;
+    type BlockMeta = BlockPyBlockMeta;
+    type FunctionExtra = LoweredBlockPyExtra;
+}
+
+impl BlockPyPass for CoreBlockPyPassWithoutAwaitOrYield {
+    type Expr = CoreBlockPyExprWithoutAwaitOrYield;
+    type BlockMeta = BlockPyBlockMeta;
+    type FunctionExtra = LoweredBlockPyExtra;
+}
+
+impl BlockPyPass for BbBlockPyPass {
+    type Expr = CoreBlockPyExprWithoutAwaitOrYield;
+    type BlockMeta = BbBlockMeta;
+    type FunctionExtra = ();
+}
+
+pub type PassStmt<P> = BlockPyStmt<<P as BlockPyPass>::Expr>;
+pub type PassTerm<P> = BlockPyTerm<<P as BlockPyPass>::Expr>;
+pub type PassBlock<P> = CfgBlock<PassStmt<P>, PassTerm<P>, <P as BlockPyPass>::BlockMeta>;
+pub type PassFunction<P> =
+    BlockPyCallableDef<<P as BlockPyPass>::Expr, PassBlock<P>, <P as BlockPyPass>::FunctionExtra>;
+pub type PassModule<P> = BlockPyModule<PassFunction<P>>;
+
 pub type BlockPyCfgBlock<S, T> = CfgBlock<S, T, BlockPyBlockMeta>;
 pub type BlockPyBlock<E = Expr> = BlockPyCfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>;
-pub type BlockPyModuleWith<S, T, E = Expr, X = ()> =
-    CfgModule<BlockPyCallableDef<E, BlockPyCfgBlock<S, T>, X>>;
-pub type BlockPyModule<E = Expr, X = ()> = BlockPyModuleWith<BlockPyStmt<E>, BlockPyTerm<E>, E, X>;
+pub type SemanticBlockPyFunction = PassFunction<RuffBlockPyPass>;
+pub type SemanticBlockPyModule = PassModule<RuffBlockPyPass>;
+pub type CoreBlockPyFunction = PassFunction<CoreBlockPyPass>;
+pub type CoreBlockPyModule = PassModule<CoreBlockPyPass>;
+pub type CoreBlockPyFunctionWithoutAwait = PassFunction<CoreBlockPyPassWithoutAwait>;
+pub type CoreBlockPyModuleWithoutAwait = PassModule<CoreBlockPyPassWithoutAwait>;
+pub type CoreBlockPyFunctionWithoutAwaitOrYield = PassFunction<CoreBlockPyPassWithoutAwaitOrYield>;
+pub type CoreBlockPyModuleWithoutAwaitOrYield = PassModule<CoreBlockPyPassWithoutAwaitOrYield>;
 pub type BlockPyStructuredIf<E = Expr> = BlockPyIf<E, BlockPyStmt<E>, BlockPyTerm<E>>;
 
 pub trait BlockPyNormalizedStmt {

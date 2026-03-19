@@ -484,7 +484,7 @@ def {func:id}():
         func_def.parameters = Box::new(params);
     }
     let return_stmt = py_stmt!("return {value:expr}", value = body);
-    func_def.body = body_from_suite(vec![Box::new(return_stmt)]);
+    func_def.body = body_from_suite(vec![return_stmt]);
     LoweredExpr::modified(
         py_expr!("{func:id}", func = func_name.as_str()),
         vec![func_def.into()],
@@ -672,7 +672,7 @@ for {target:expr} in {iter:expr}:
         }));
     }
     func_body.extend(body);
-    func_def.body = body_from_suite(func_body.into_iter().map(Box::new).collect());
+    func_def.body = body_from_suite(func_body);
 
     let mut prefix: Vec<Stmt> = Vec::new();
     for name in dummy_targets {

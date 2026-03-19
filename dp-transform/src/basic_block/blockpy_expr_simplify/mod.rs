@@ -5,7 +5,7 @@ use super::{
         BlockPyDelete, BlockPyIf, BlockPyIfTerm, BlockPyModule, BlockPyRaise, BlockPyStmt,
         BlockPyStmtFragment, BlockPyStmtFragmentBuilder, BlockPyTerm, CoreBlockPyAwait,
         CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg,
-        CoreBlockPyLiteral, CoreBlockPyYield, CoreBlockPyYieldFrom,
+        CoreBlockPyLiteral, CoreBlockPyYield, CoreBlockPyYieldFrom, SemanticBlockPyModule,
     },
 };
 use crate::basic_block::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
@@ -431,9 +431,10 @@ pub(crate) fn simplify_blockpy_callable_def_exprs<X: Clone>(
     }
 }
 
+#[cfg(test)]
 pub(crate) fn simplify_blockpy_module_exprs(
-    module: &BlockPyModule<Expr>,
-) -> BlockPyModule<CoreBlockPyExpr> {
+    module: &SemanticBlockPyModule,
+) -> TestCoreBlockPyModule {
     BlockPyModule {
         callable_defs: module
             .callable_defs
@@ -442,6 +443,10 @@ pub(crate) fn simplify_blockpy_module_exprs(
             .collect(),
     }
 }
+
+#[cfg(test)]
+type TestCoreBlockPyModule =
+    BlockPyModule<BlockPyCallableDef<CoreBlockPyExpr, BlockPyBlock<CoreBlockPyExpr>>>;
 
 #[cfg(test)]
 mod tests {
@@ -466,7 +471,7 @@ def f(x):
 "#;
         let blockpy = transform_str_to_ruff_with_options(source, Options::for_test())
             .unwrap()
-            .get_pass::<crate::basic_block::block_py::BlockPyModule<Expr>>("semantic_blockpy")
+            .get_pass::<crate::basic_block::block_py::SemanticBlockPyModule>("semantic_blockpy")
             .cloned()
             .expect("expected lowered semantic BlockPy module");
         let core = simplify_blockpy_module_exprs(&blockpy);
@@ -632,7 +637,7 @@ def f(*, d={"metaclass": Meta}, **kw):
 "#;
         let blockpy = transform_str_to_ruff_with_options(source, Options::for_test())
             .unwrap()
-            .get_pass::<crate::basic_block::block_py::BlockPyModule<Expr>>("semantic_blockpy")
+            .get_pass::<crate::basic_block::block_py::SemanticBlockPyModule>("semantic_blockpy")
             .cloned()
             .expect("expected lowered semantic BlockPy module");
         let core = simplify_blockpy_module_exprs(&blockpy);
