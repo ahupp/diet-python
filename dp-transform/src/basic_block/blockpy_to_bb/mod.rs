@@ -56,26 +56,32 @@ pub fn project_lowered_module_callable_defs<T, U: Clone>(
     module: &BlockPyModule<T>,
     project: impl Fn(&T) -> &U,
 ) -> BlockPyModule<U> {
-    module.map_callable_defs(|lowered_function| project(lowered_function).clone())
+    BlockPyModule {
+        callable_defs: module
+            .callable_defs
+            .iter()
+            .map(|lowered_function| project(lowered_function).clone())
+            .collect(),
+    }
 }
 
 pub(crate) fn simplify_lowered_blockpy_module_bundle_exprs(
-    module: &LoweredBlockPyModule,
+    module: LoweredBlockPyModule,
 ) -> CoreBlockPyModule {
     module.map_callable_defs(simplify_lowered_blockpy_function_exprs)
 }
 
 fn lower_core_blockpy_function_without_await(
-    lowered: &CoreBlockPyFunction,
+    lowered: CoreBlockPyFunction,
 ) -> CoreBlockPyFunctionWithoutAwait {
-    lower_awaits_in_core_blockpy_callable_def(lowered.clone())
+    lower_awaits_in_core_blockpy_callable_def(lowered)
 }
 
 fn lower_core_callable_def_without_await_or_yield(
-    callable_def: &CoreBlockPyFunctionWithoutAwait,
+    callable_def: CoreBlockPyFunctionWithoutAwait,
 ) -> CoreBlockPyFunctionWithoutAwaitOrYield {
-    let qualname = callable_def.names.qualname.as_str();
-    callable_def.clone().try_into().unwrap_or_else(|_| {
+    let qualname = callable_def.names.qualname.clone();
+    callable_def.try_into().unwrap_or_else(|_| {
         panic!(
             "core BlockPy yield lowering is not explicit yet: yield-family expr reached the core no-yield boundary for {}",
             qualname
@@ -84,7 +90,7 @@ fn lower_core_callable_def_without_await_or_yield(
 }
 
 fn lower_core_blockpy_function_without_await_or_yield(
-    lowered: &CoreBlockPyFunctionWithoutAwait,
+    lowered: CoreBlockPyFunctionWithoutAwait,
 ) -> CoreBlockPyFunctionWithoutAwaitOrYield {
     lower_core_callable_def_without_await_or_yield(lowered)
 }
@@ -102,35 +108,44 @@ pub(crate) fn lower_yield_in_lowered_core_blockpy_module_bundle(
 }
 
 pub(crate) fn lower_core_blockpy_module_bundle_to_bb_module(
-    module: &CoreBlockPyModuleWithoutAwaitOrYield,
+    module: CoreBlockPyModuleWithoutAwaitOrYield,
 ) -> BbModule {
     module.map_callable_defs(lower_core_blockpy_function_to_bb_function)
 }
 
-fn simplify_lowered_blockpy_function_exprs(
-    lowered: &LoweredBlockPyFunction,
-) -> CoreBlockPyFunction {
+fn simplify_lowered_blockpy_function_exprs(lowered: LoweredBlockPyFunction) -> CoreBlockPyFunction {
     simplify_blockpy_callable_def_exprs(lowered)
 }
 
 pub(crate) fn lower_core_blockpy_function_to_bb_function(
-    lowered: &CoreBlockPyFunctionWithoutAwaitOrYield,
+    lowered: CoreBlockPyFunctionWithoutAwaitOrYield,
 ) -> BbFunction {
+    let BlockPyCallableDef {
+        function_id,
+        names,
+        kind,
+        params,
+        param_defaults,
+        blocks,
+        doc,
+        closure_layout,
+        facts,
+        try_regions,
+        extra,
+    } = lowered;
+    let block_params = extra.block_params;
+    let exception_edges = extra.exception_edges;
     BlockPyCallableDef {
-        function_id: lowered.function_id,
-        names: lowered.names.clone(),
-        kind: lowered.kind,
-        params: lowered.params.clone(),
-        param_defaults: lowered.param_defaults.clone(),
-        blocks: lower_blockpy_blocks_to_bb_blocks(
-            &lowered.blocks,
-            lowered.block_params(),
-            lowered.exception_edges(),
-        ),
-        doc: lowered.doc.clone(),
-        closure_layout: lowered.closure_layout.clone(),
-        facts: lowered.facts.clone(),
-        try_regions: lowered.try_regions.clone(),
+        function_id,
+        names,
+        kind,
+        params,
+        param_defaults,
+        blocks: lower_blockpy_blocks_to_bb_blocks(&blocks, &block_params, &exception_edges),
+        doc,
+        closure_layout,
+        facts,
+        try_regions,
         extra: (),
     }
 }

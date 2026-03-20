@@ -205,53 +205,37 @@ fn make_eval_order_explicit_in_core_term(
 }
 
 fn make_eval_order_explicit_in_core_block(
-    block: &BlockPyBlock<CoreBlockPyExpr>,
+    block: BlockPyBlock<CoreBlockPyExpr>,
 ) -> BlockPyBlock<CoreBlockPyExpr> {
+    let BlockPyBlock {
+        label,
+        body: input_body,
+        term: input_term,
+        meta,
+    } = block;
     let mut body = Vec::new();
-    for stmt in block.body.clone() {
+    for stmt in input_body {
         make_eval_order_explicit_in_core_stmt(stmt, &mut body);
     }
-    let term = make_eval_order_explicit_in_core_term(block.term.clone(), &mut body);
+    let term = make_eval_order_explicit_in_core_term(input_term, &mut body);
     BlockPyBlock {
-        label: block.label.clone(),
+        label,
         body,
         term,
-        meta: block.meta.clone(),
+        meta,
     }
 }
 
 fn make_eval_order_explicit_in_core_callable_def(
-    callable_def: &CoreBlockPyFunction,
+    callable_def: CoreBlockPyFunction,
 ) -> CoreBlockPyFunction {
-    BlockPyCallableDef {
-        function_id: callable_def.function_id,
-        names: callable_def.names.clone(),
-        kind: callable_def.kind,
-        params: callable_def.params.clone(),
-        param_defaults: callable_def.param_defaults.clone(),
-        blocks: callable_def
-            .blocks
-            .iter()
-            .map(make_eval_order_explicit_in_core_block)
-            .collect(),
-        doc: callable_def.doc.clone(),
-        closure_layout: callable_def.closure_layout.clone(),
-        facts: callable_def.facts.clone(),
-        try_regions: callable_def.try_regions.clone(),
-        extra: callable_def.extra.clone(),
-    }
-}
-
-fn make_eval_order_explicit_in_lowered_core_blockpy_function(
-    lowered: &CoreBlockPyFunction,
-) -> CoreBlockPyFunction {
-    make_eval_order_explicit_in_core_callable_def(lowered)
+    callable_def.map_blocks(make_eval_order_explicit_in_core_block)
 }
 
 pub(crate) fn make_eval_order_explicit_in_lowered_core_blockpy_module_bundle(
     module: CoreBlockPyModule,
 ) -> CoreBlockPyModule {
-    module.map_callable_defs(make_eval_order_explicit_in_lowered_core_blockpy_function)
+    module.map_callable_defs(make_eval_order_explicit_in_core_callable_def)
 }
 
 #[cfg(test)]
@@ -270,7 +254,7 @@ mod tests {
             meta: Default::default(),
         };
 
-        let lowered = make_eval_order_explicit_in_core_block(&block);
+        let lowered = make_eval_order_explicit_in_core_block(block);
         assert_eq!(lowered.body.len(), 3);
         assert!(matches!(lowered.body[0], BlockPyStmt::Assign(_)));
         assert!(matches!(lowered.body[1], BlockPyStmt::Assign(_)));
@@ -299,7 +283,7 @@ mod tests {
             meta: Default::default(),
         };
 
-        let lowered = make_eval_order_explicit_in_core_block(&block);
+        let lowered = make_eval_order_explicit_in_core_block(block);
         assert_eq!(lowered.body.len(), 2);
         assert!(matches!(lowered.body[0], BlockPyStmt::Assign(_)));
         assert!(matches!(lowered.body[1], BlockPyStmt::Assign(_)));
@@ -320,7 +304,7 @@ mod tests {
             meta: Default::default(),
         };
 
-        let lowered = make_eval_order_explicit_in_core_block(&block);
+        let lowered = make_eval_order_explicit_in_core_block(block);
         assert_eq!(lowered.body.len(), 1);
         let BlockPyStmt::Assign(assign) = &lowered.body[0] else {
             panic!("expected assignment");

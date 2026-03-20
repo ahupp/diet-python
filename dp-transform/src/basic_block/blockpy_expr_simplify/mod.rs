@@ -263,7 +263,7 @@ fn lower_semantic_expr_into(builder: &mut CoreStmtBuilder, expr: &SemanticExpr) 
         lower_expr_into_with_setup(expr.clone(), &mut setup_builder, None, &mut next_label_id)
             .expect("semantic-to-core expression lowering should succeed");
     let setup_fragment = setup_builder.finish();
-    let lowered_setup = lower_semantic_stmt_fragment(&setup_fragment);
+    let lowered_setup = lower_semantic_stmt_fragment(setup_fragment);
     assert!(
         lowered_setup.term.is_none(),
         "semantic-to-core expression setup lowering unexpectedly emitted a terminator",
@@ -290,13 +290,13 @@ pub(crate) fn simplify_param_defaults(defaults: &[Expr]) -> Vec<CoreBlockPyExpr>
 }
 
 fn lower_semantic_stmt_fragment(
-    fragment: &CoreLikeStmtFragmentInput,
+    fragment: CoreLikeStmtFragmentInput,
 ) -> BlockPyStmtFragment<CoreBlockPyExpr> {
     let mut builder = CoreStmtBuilder::new();
-    for stmt in &fragment.body {
+    for stmt in fragment.body {
         lower_semantic_stmt_into(&mut builder, stmt);
     }
-    if let Some(term) = &fragment.term {
+    if let Some(term) = fragment.term {
         lower_semantic_term_into(&mut builder, term);
     }
     builder.finish()
@@ -304,27 +304,25 @@ fn lower_semantic_stmt_fragment(
 
 type CoreLikeStmtFragmentInput = BlockPyStmtFragment<Expr>;
 
-fn lower_semantic_stmt_into(builder: &mut CoreStmtBuilder, stmt: &BlockPyStmt<Expr>) {
+fn lower_semantic_stmt_into(builder: &mut CoreStmtBuilder, stmt: BlockPyStmt<Expr>) {
     match stmt {
         BlockPyStmt::Assign(assign) => {
             let mut setup = CoreStmtBuilder::new();
             let value = lower_semantic_expr_into(&mut setup, &assign.value);
             builder.extend(finish_expr_setup(setup));
             builder.push_stmt(BlockPyStmt::Assign(BlockPyAssign {
-                target: assign.target.clone(),
+                target: assign.target,
                 value,
             }));
         }
         BlockPyStmt::Expr(expr) => {
             let mut setup = CoreStmtBuilder::new();
-            let expr = lower_semantic_expr_into(&mut setup, expr);
+            let expr = lower_semantic_expr_into(&mut setup, &expr);
             builder.extend(finish_expr_setup(setup));
             builder.push_stmt(BlockPyStmt::Expr(expr));
         }
         BlockPyStmt::Delete(BlockPyDelete { target }) => {
-            builder.push_stmt(BlockPyStmt::Delete(BlockPyDelete {
-                target: target.clone(),
-            }));
+            builder.push_stmt(BlockPyStmt::Delete(BlockPyDelete { target }));
         }
         BlockPyStmt::If(if_stmt) => {
             let mut setup = CoreStmtBuilder::new();
@@ -332,28 +330,28 @@ fn lower_semantic_stmt_into(builder: &mut CoreStmtBuilder, stmt: &BlockPyStmt<Ex
             builder.extend(finish_expr_setup(setup));
             builder.push_stmt(BlockPyStmt::If(BlockPyIf {
                 test,
-                body: lower_semantic_stmt_fragment(&if_stmt.body),
-                orelse: lower_semantic_stmt_fragment(&if_stmt.orelse),
+                body: lower_semantic_stmt_fragment(if_stmt.body),
+                orelse: lower_semantic_stmt_fragment(if_stmt.orelse),
             }));
         }
     }
 }
 
-fn lower_semantic_term_into(builder: &mut CoreStmtBuilder, term: &BlockPyTerm<Expr>) {
+fn lower_semantic_term_into(builder: &mut CoreStmtBuilder, term: BlockPyTerm<Expr>) {
     match term {
-        BlockPyTerm::Jump(label) => builder.set_term(BlockPyTerm::Jump(label.clone())),
+        BlockPyTerm::Jump(label) => builder.set_term(BlockPyTerm::Jump(label)),
         BlockPyTerm::IfTerm(BlockPyIfTerm {
             test,
             then_label,
             else_label,
         }) => {
             let mut setup = CoreStmtBuilder::new();
-            let test = lower_semantic_expr_into(&mut setup, test);
+            let test = lower_semantic_expr_into(&mut setup, &test);
             builder.extend(finish_expr_setup(setup));
             builder.set_term(BlockPyTerm::IfTerm(BlockPyIfTerm {
                 test,
-                then_label: then_label.clone(),
-                else_label: else_label.clone(),
+                then_label,
+                else_label,
             }));
         }
         BlockPyTerm::BranchTable(BlockPyBranchTable {
@@ -362,28 +360,28 @@ fn lower_semantic_term_into(builder: &mut CoreStmtBuilder, term: &BlockPyTerm<Ex
             default_label,
         }) => {
             let mut setup = CoreStmtBuilder::new();
-            let index = lower_semantic_expr_into(&mut setup, index);
+            let index = lower_semantic_expr_into(&mut setup, &index);
             builder.extend(finish_expr_setup(setup));
             builder.set_term(BlockPyTerm::BranchTable(BlockPyBranchTable {
                 index,
-                targets: targets.clone(),
-                default_label: default_label.clone(),
+                targets,
+                default_label,
             }));
         }
         BlockPyTerm::Raise(BlockPyRaise { exc }) => {
-            let exc = exc.as_ref().map(|exc| {
+            let exc = exc.map(|exc| {
                 let mut setup = CoreStmtBuilder::new();
-                let exc = lower_semantic_expr_into(&mut setup, exc);
+                let exc = lower_semantic_expr_into(&mut setup, &exc);
                 builder.extend(finish_expr_setup(setup));
                 exc
             });
             builder.set_term(BlockPyTerm::Raise(BlockPyRaise { exc }));
         }
-        BlockPyTerm::TryJump(try_jump) => builder.set_term(BlockPyTerm::TryJump(try_jump.clone())),
+        BlockPyTerm::TryJump(try_jump) => builder.set_term(BlockPyTerm::TryJump(try_jump)),
         BlockPyTerm::Return(value) => {
-            let value = value.as_ref().map(|value| {
+            let value = value.map(|value| {
                 let mut setup = CoreStmtBuilder::new();
-                let value = lower_semantic_expr_into(&mut setup, value);
+                let value = lower_semantic_expr_into(&mut setup, &value);
                 builder.extend(finish_expr_setup(setup));
                 value
             });
@@ -392,56 +390,65 @@ fn lower_semantic_term_into(builder: &mut CoreStmtBuilder, term: &BlockPyTerm<Ex
     }
 }
 
-fn lower_semantic_block(block: &BlockPyBlock<Expr>) -> BlockPyBlock<CoreBlockPyExpr> {
-    let fragment = lower_semantic_stmt_fragment(&BlockPyCfgFragment {
-        body: block.body.clone(),
-        term: Some(block.term.clone()),
+fn lower_semantic_block(block: BlockPyBlock<Expr>) -> BlockPyBlock<CoreBlockPyExpr> {
+    let BlockPyBlock {
+        label,
+        body,
+        term,
+        meta,
+    } = block;
+    let fragment = lower_semantic_stmt_fragment(BlockPyCfgFragment {
+        body,
+        term: Some(term),
     });
     BlockPyBlock {
-        label: block.label.clone(),
+        label,
         body: fragment.body,
         term: fragment
             .term
             .expect("semantic BlockPy block must lower to a core terminator"),
         meta: BlockPyBlockMeta {
-            exc_param: block.meta.exc_param.clone(),
+            exc_param: meta.exc_param,
         },
     }
 }
 
-pub(crate) fn simplify_blockpy_callable_def_exprs<X: Clone>(
-    callable_def: &BlockPyCallableDef<Expr, BlockPyBlock<Expr>, X>,
+pub(crate) fn simplify_blockpy_callable_def_exprs<X>(
+    callable_def: BlockPyCallableDef<Expr, BlockPyBlock<Expr>, X>,
 ) -> BlockPyCallableDef<CoreBlockPyExpr, BlockPyBlock<CoreBlockPyExpr>, X> {
+    let BlockPyCallableDef {
+        function_id,
+        names,
+        kind,
+        params,
+        param_defaults,
+        blocks,
+        doc,
+        closure_layout,
+        facts,
+        try_regions,
+        extra,
+    } = callable_def;
     BlockPyCallableDef {
-        function_id: callable_def.function_id,
-        names: callable_def.names.clone(),
-        kind: callable_def.kind,
-        params: callable_def.params.clone(),
-        param_defaults: simplify_param_defaults(&callable_def.param_defaults),
-        blocks: callable_def
-            .blocks
-            .iter()
-            .map(lower_semantic_block)
-            .collect(),
-        doc: callable_def.doc.clone(),
-        closure_layout: callable_def.closure_layout.clone(),
-        facts: callable_def.facts.clone(),
-        try_regions: callable_def.try_regions.clone(),
-        extra: callable_def.extra.clone(),
+        function_id,
+        names,
+        kind,
+        params,
+        param_defaults: simplify_param_defaults(&param_defaults),
+        blocks: blocks.into_iter().map(lower_semantic_block).collect(),
+        doc,
+        closure_layout,
+        facts,
+        try_regions,
+        extra,
     }
 }
 
 #[cfg(test)]
 pub(crate) fn simplify_blockpy_module_exprs(
-    module: &SemanticBlockPyModule,
+    module: SemanticBlockPyModule,
 ) -> TestCoreBlockPyModule {
-    BlockPyModule {
-        callable_defs: module
-            .callable_defs
-            .iter()
-            .map(simplify_blockpy_callable_def_exprs)
-            .collect(),
-    }
+    module.map_callable_defs(simplify_blockpy_callable_def_exprs)
 }
 
 #[cfg(test)]
@@ -474,7 +481,7 @@ def f(x):
             .get_pass::<crate::basic_block::block_py::SemanticBlockPyModule>("semantic_blockpy")
             .cloned()
             .expect("expected lowered semantic BlockPy module");
-        let core = simplify_blockpy_module_exprs(&blockpy);
+        let core = simplify_blockpy_module_exprs(blockpy.clone());
         let semantic_rendered = blockpy_module_to_string(&blockpy);
         let core_rendered = blockpy_module_to_string(&core);
 
@@ -640,7 +647,7 @@ def f(*, d={"metaclass": Meta}, **kw):
             .get_pass::<crate::basic_block::block_py::SemanticBlockPyModule>("semantic_blockpy")
             .cloned()
             .expect("expected lowered semantic BlockPy module");
-        let core = simplify_blockpy_module_exprs(&blockpy);
+        let core = simplify_blockpy_module_exprs(blockpy);
         let rendered = blockpy_module_to_string(&core);
 
         assert!(rendered.contains("__dp_dict("), "{rendered}");

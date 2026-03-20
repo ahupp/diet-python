@@ -98,7 +98,7 @@ pub(crate) fn rewrite_module_with_tracker(
         basic_block::lower_blockpy_module_plan_to_bundle(context, semantic_blockpy)
     });
     let core_blockpy: CoreBlockPyModule = pass_tracker.run_pass("core_blockpy", || {
-        basic_block::simplify_lowered_blockpy_module_bundle_exprs(&lowered_blockpy_module)
+        basic_block::simplify_lowered_blockpy_module_bundle_exprs(lowered_blockpy_module)
     });
     let core_blockpy_with_explicit_eval_order: CoreBlockPyModule =
         pass_tracker.run_pass("core_blockpy_with_explicit_eval_order", || {
@@ -120,7 +120,7 @@ pub(crate) fn rewrite_module_with_tracker(
         });
     let bb_module: BbModule = pass_tracker.run_pass("bb", || {
         basic_block::lower_core_blockpy_module_bundle_to_bb_module(
-            &core_blockpy_without_await_or_yield,
+            core_blockpy_without_await_or_yield,
         )
     });
     bb_module

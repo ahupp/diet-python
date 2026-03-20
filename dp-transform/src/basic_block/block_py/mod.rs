@@ -106,9 +106,9 @@ pub struct BlockPyModule<F> {
 }
 
 impl<F> BlockPyModule<F> {
-    pub fn map_callable_defs<G>(&self, mut f: impl FnMut(&F) -> G) -> BlockPyModule<G> {
+    pub fn map_callable_defs<G>(self, mut f: impl FnMut(F) -> G) -> BlockPyModule<G> {
         BlockPyModule {
-            callable_defs: self.callable_defs.iter().map(&mut f).collect(),
+            callable_defs: self.callable_defs.into_iter().map(&mut f).collect(),
         }
     }
 }
@@ -296,6 +296,22 @@ impl<E, B, X> BlockPyCallableDef<E, B, X> {
             extra: f(self.extra),
         }
     }
+
+    pub fn map_blocks<C>(self, mut f: impl FnMut(B) -> C) -> BlockPyCallableDef<E, C, X> {
+        BlockPyCallableDef {
+            function_id: self.function_id,
+            names: self.names,
+            kind: self.kind,
+            params: self.params,
+            param_defaults: self.param_defaults,
+            blocks: self.blocks.into_iter().map(&mut f).collect(),
+            doc: self.doc,
+            closure_layout: self.closure_layout,
+            facts: self.facts,
+            try_regions: self.try_regions,
+            extra: self.extra,
+        }
+    }
 }
 
 impl<E, S, T, M, X> BlockPyCallableDef<E, CfgBlock<S, T, M>, X> {
@@ -420,7 +436,6 @@ pub type PassModule<P> = BlockPyModule<PassFunction<P>>;
 
 pub type BlockPyCfgBlock<S, T> = CfgBlock<S, T, BlockPyBlockMeta>;
 pub type BlockPyBlock<E = Expr> = BlockPyCfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>;
-pub type SemanticBlockPyFunction = PassFunction<RuffBlockPyPass>;
 pub type SemanticBlockPyModule = PassModule<RuffBlockPyPass>;
 pub type CoreBlockPyFunction = PassFunction<CoreBlockPyPass>;
 pub type CoreBlockPyModule = PassModule<CoreBlockPyPass>;
