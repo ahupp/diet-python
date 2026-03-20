@@ -1,14 +1,15 @@
 use super::block_py::{
-    BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyFunction, BlockPyIf, BlockPyIfTerm,
-    BlockPyRaise, BlockPyStmt, BlockPyStmtFragment, BlockPyTerm, CoreBlockPyAwait, CoreBlockPyCall,
-    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait, CoreBlockPyKeywordArg,
-    CoreBlockPyPass, CoreBlockPyPassWithoutAwait, CoreBlockPyYield, CoreBlockPyYieldFrom,
+    BlockPyModule, BlockPyModuleMap, CoreBlockPyAwait, CoreBlockPyCall, CoreBlockPyCallArg,
+    CoreBlockPyExpr, CoreBlockPyExprWithoutAwait, CoreBlockPyKeywordArg, CoreBlockPyPass,
+    CoreBlockPyPassWithoutAwait, CoreBlockPyYield, CoreBlockPyYieldFrom,
 };
 use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr};
 
 #[cfg(test)]
-use super::block_py::{BlockPyFunctionKind, BlockPyModule, FunctionName, LoweredBlockPyExtra};
+use super::block_py::{
+    BlockPyBlock, BlockPyFunction, BlockPyFunctionKind, FunctionName, LoweredBlockPyExtra,
+};
 
 fn expr_name(id: &str) -> ast::ExprName {
     let Expr::Name(expr) = py_expr!("{id:id}", id = id) else {
@@ -91,114 +92,18 @@ fn lower_core_expr_awaits(expr: CoreBlockPyExpr) -> CoreBlockPyExprWithoutAwait 
     }
 }
 
-fn lower_core_stmt_awaits(
-    stmt: BlockPyStmt<CoreBlockPyExpr>,
-) -> BlockPyStmt<CoreBlockPyExprWithoutAwait> {
-    match stmt {
-        BlockPyStmt::Assign(assign) => BlockPyStmt::Assign(BlockPyAssign {
-            target: assign.target,
-            value: lower_core_expr_awaits(assign.value),
-        }),
-        BlockPyStmt::Expr(expr) => BlockPyStmt::Expr(lower_core_expr_awaits(expr)),
-        BlockPyStmt::Delete(delete) => BlockPyStmt::Delete(delete),
-        BlockPyStmt::If(if_stmt) => BlockPyStmt::If(BlockPyIf {
-            test: lower_core_expr_awaits(if_stmt.test),
-            body: lower_core_fragment_awaits(if_stmt.body),
-            orelse: lower_core_fragment_awaits(if_stmt.orelse),
-        }),
+struct CoreAwaitLoweringMap;
+
+impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPassWithoutAwait> for CoreAwaitLoweringMap {
+    fn map_expr(&self, expr: CoreBlockPyExpr) -> CoreBlockPyExprWithoutAwait {
+        lower_core_expr_awaits(expr)
     }
 }
 
-fn lower_core_term_awaits(
-    term: BlockPyTerm<CoreBlockPyExpr>,
-) -> BlockPyTerm<CoreBlockPyExprWithoutAwait> {
-    match term {
-        BlockPyTerm::Jump(jump) => BlockPyTerm::Jump(jump),
-        BlockPyTerm::TryJump(jump) => BlockPyTerm::TryJump(jump),
-        BlockPyTerm::IfTerm(if_term) => BlockPyTerm::IfTerm(BlockPyIfTerm {
-            test: lower_core_expr_awaits(if_term.test),
-            then_label: if_term.then_label,
-            else_label: if_term.else_label,
-        }),
-        BlockPyTerm::BranchTable(branch) => BlockPyTerm::BranchTable(BlockPyBranchTable {
-            index: lower_core_expr_awaits(branch.index),
-            targets: branch.targets,
-            default_label: branch.default_label,
-        }),
-        BlockPyTerm::Raise(BlockPyRaise { exc }) => BlockPyTerm::Raise(BlockPyRaise {
-            exc: exc.map(lower_core_expr_awaits),
-        }),
-        BlockPyTerm::Return(value) => BlockPyTerm::Return(value.map(lower_core_expr_awaits)),
-    }
-}
-
-fn lower_core_fragment_awaits(
-    fragment: BlockPyStmtFragment<CoreBlockPyExpr>,
-) -> BlockPyStmtFragment<CoreBlockPyExprWithoutAwait> {
-    BlockPyStmtFragment {
-        body: fragment
-            .body
-            .into_iter()
-            .map(lower_core_stmt_awaits)
-            .collect(),
-        term: fragment.term.map(lower_core_term_awaits),
-    }
-}
-
-fn lower_core_block_awaits(
-    block: BlockPyBlock<CoreBlockPyExpr>,
-) -> BlockPyBlock<CoreBlockPyExprWithoutAwait> {
-    BlockPyBlock {
-        label: block.label,
-        body: block.body.into_iter().map(lower_core_stmt_awaits).collect(),
-        term: lower_core_term_awaits(block.term),
-        meta: block.meta,
-    }
-}
-
-pub(crate) fn lower_awaits_in_core_blockpy_callable_def(
-    callable_def: BlockPyFunction<CoreBlockPyPass>,
-) -> BlockPyFunction<CoreBlockPyPassWithoutAwait> {
-    BlockPyFunction {
-        function_id: callable_def.function_id,
-        names: callable_def.names,
-        kind: callable_def.kind,
-        params: callable_def.params,
-        param_defaults: callable_def
-            .param_defaults
-            .into_iter()
-            .map(lower_core_expr_awaits)
-            .collect(),
-        blocks: callable_def
-            .blocks
-            .into_iter()
-            .map(lower_core_block_awaits)
-            .collect(),
-        doc: callable_def.doc,
-        closure_layout: callable_def.closure_layout,
-        facts: callable_def.facts,
-        try_regions: callable_def.try_regions,
-        extra: callable_def.extra,
-    }
-}
-
-#[cfg(test)]
-type TestCoreBlockPyModule = BlockPyModule<CoreBlockPyPass>;
-
-#[cfg(test)]
-type TestCoreBlockPyModuleWithoutAwait = BlockPyModule<CoreBlockPyPassWithoutAwait>;
-
-#[cfg(test)]
 pub(crate) fn lower_awaits_in_core_blockpy_module(
-    module: TestCoreBlockPyModule,
-) -> TestCoreBlockPyModuleWithoutAwait {
-    BlockPyModule {
-        callable_defs: module
-            .callable_defs
-            .into_iter()
-            .map(lower_awaits_in_core_blockpy_callable_def)
-            .collect(),
-    }
+    module: BlockPyModule<CoreBlockPyPass>,
+) -> BlockPyModule<CoreBlockPyPassWithoutAwait> {
+    module.map_module(&CoreAwaitLoweringMap)
 }
 
 #[cfg(test)]

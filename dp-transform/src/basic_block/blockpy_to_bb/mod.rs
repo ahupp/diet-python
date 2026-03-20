@@ -5,10 +5,10 @@ mod exception_pass;
 use super::bb_ir::{BbBlock, BbBlockMeta, BbStmt};
 use super::block_py::cfg::linearize_structured_ifs;
 use super::block_py::{
-    BbBlockPyPass, BlockPyBlock, BlockPyFunction, BlockPyIfTerm, BlockPyModule, BlockPyStmt,
-    BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield,
-    CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreBlockPyPassWithoutAwait,
-    CoreBlockPyPassWithoutAwaitOrYield,
+    BbBlockPyPass, BlockPyBlock, BlockPyFunction, BlockPyIfTerm, BlockPyModule, BlockPyModuleMap,
+    BlockPyStmt, BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwait,
+    CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
+    CoreBlockPyPassWithoutAwait, CoreBlockPyPassWithoutAwaitOrYield,
 };
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
@@ -17,18 +17,55 @@ use std::collections::HashMap;
 pub use codegen_normalize::normalize_bb_module_for_codegen;
 pub use exception_pass::lower_try_jump_exception_flow;
 
+struct YieldLoweringMap {
+    qualname: String,
+}
+
+impl BlockPyModuleMap<CoreBlockPyPassWithoutAwait, CoreBlockPyPassWithoutAwaitOrYield>
+    for YieldLoweringMap
+{
+    fn map_expr(&self, expr: CoreBlockPyExprWithoutAwait) -> CoreBlockPyExprWithoutAwaitOrYield {
+        expr.try_into().unwrap_or_else(|_| {
+            panic!(
+                "core BlockPy yield lowering is not explicit yet: yield-family expr reached the core no-yield boundary for {}",
+                self.qualname
+            )
+        })
+    }
+}
+
+struct YieldLoweringModuleMap;
+
+impl BlockPyModuleMap<CoreBlockPyPassWithoutAwait, CoreBlockPyPassWithoutAwaitOrYield>
+    for YieldLoweringModuleMap
+{
+    fn map_module(
+        &self,
+        module: BlockPyModule<CoreBlockPyPassWithoutAwait>,
+    ) -> BlockPyModule<CoreBlockPyPassWithoutAwaitOrYield> {
+        BlockPyModule {
+            callable_defs: module
+                .callable_defs
+                .into_iter()
+                .map(|callable| {
+                    let mapper = YieldLoweringMap {
+                        qualname: callable.names.qualname.clone(),
+                    };
+                    mapper.map_fn(callable)
+                })
+                .collect(),
+        }
+    }
+
+    fn map_expr(&self, _expr: CoreBlockPyExprWithoutAwait) -> CoreBlockPyExprWithoutAwaitOrYield {
+        unreachable!("YieldLoweringModuleMap uses a custom map_module")
+    }
+}
+
 pub(crate) fn lower_yield_in_lowered_core_blockpy_module_bundle(
     module: BlockPyModule<CoreBlockPyPassWithoutAwait>,
 ) -> BlockPyModule<CoreBlockPyPassWithoutAwaitOrYield> {
-    module.map_callable_defs(|callable| {
-        let qualname = callable.names.qualname.clone();
-        callable.try_into().unwrap_or_else(|_| {
-            panic!(
-                "core BlockPy yield lowering is not explicit yet: yield-family expr reached the core no-yield boundary for {}",
-                qualname
-            )
-        })
-    })
+    module.map_module(&YieldLoweringModuleMap)
 }
 
 pub(crate) fn lower_core_blockpy_module_bundle_to_bb_module(

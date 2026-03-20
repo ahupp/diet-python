@@ -455,9 +455,9 @@ impl BlockPyPass for BbBlockPyPass {
 
 pub type PassExpr<P> = <P as BlockPyPass>::Expr;
 
+pub type PassStmt<P> = BlockPyStmt<<P as BlockPyPass>::Expr>;
 pub type PassTerm<P> = BlockPyTerm<<P as BlockPyPass>::Expr>;
-pub type PassBlock<P> =
-    CfgBlock<BlockPyStmt<<P as BlockPyPass>::Expr>, PassTerm<P>, <P as BlockPyPass>::BlockMeta>;
+pub type PassBlock<P> = CfgBlock<PassStmt<P>, PassTerm<P>, <P as BlockPyPass>::BlockMeta>;
 
 pub type BlockPyCfgBlock<S, T> = CfgBlock<S, T, BlockPyBlockMeta>;
 pub type BlockPyBlock<E = Expr> = BlockPyCfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>;
@@ -703,6 +703,114 @@ pub struct BlockPyTryJump {
     pub except_label: BlockPyLabel,
 }
 
+pub trait BlockPyModuleMap<PIn, POut>
+where
+    PIn: BlockPyPass,
+    POut: BlockPyPass<BlockMeta = PIn::BlockMeta, FunctionExtra = PIn::FunctionExtra>,
+{
+    fn map_module(&self, module: BlockPyModule<PIn>) -> BlockPyModule<POut> {
+        BlockPyModule {
+            callable_defs: module
+                .callable_defs
+                .into_iter()
+                .map(|function| self.map_fn(function))
+                .collect(),
+        }
+    }
+
+    fn map_fn(&self, func: BlockPyFunction<PIn>) -> BlockPyFunction<POut> {
+        BlockPyFunction {
+            function_id: func.function_id,
+            names: func.names,
+            kind: func.kind,
+            params: func.params,
+            param_defaults: func
+                .param_defaults
+                .into_iter()
+                .map(|expr| self.map_expr(expr))
+                .collect(),
+            blocks: func
+                .blocks
+                .into_iter()
+                .map(|block| self.map_block(block))
+                .collect(),
+            doc: func.doc,
+            closure_layout: func.closure_layout,
+            facts: func.facts,
+            try_regions: func.try_regions,
+            extra: func.extra,
+        }
+    }
+
+    fn map_block(&self, block: PassBlock<PIn>) -> PassBlock<POut> {
+        CfgBlock {
+            label: block.label,
+            body: block
+                .body
+                .into_iter()
+                .map(|stmt| self.map_stmt(stmt))
+                .collect(),
+            term: self.map_term(block.term),
+            meta: block.meta,
+        }
+    }
+
+    fn map_fragment(
+        &self,
+        fragment: BlockPyCfgFragment<PassStmt<PIn>, PassTerm<PIn>>,
+    ) -> BlockPyCfgFragment<PassStmt<POut>, PassTerm<POut>> {
+        BlockPyCfgFragment {
+            body: fragment
+                .body
+                .into_iter()
+                .map(|stmt| self.map_stmt(stmt))
+                .collect(),
+            term: fragment.term.map(|term| self.map_term(term)),
+        }
+    }
+
+    fn map_stmt(&self, stmt: PassStmt<PIn>) -> PassStmt<POut> {
+        match stmt {
+            BlockPyStmt::Assign(assign) => BlockPyStmt::Assign(BlockPyAssign {
+                target: assign.target,
+                value: self.map_expr(assign.value),
+            }),
+            BlockPyStmt::Expr(expr) => BlockPyStmt::Expr(self.map_expr(expr)),
+            BlockPyStmt::Delete(delete) => BlockPyStmt::Delete(delete),
+            BlockPyStmt::If(if_stmt) => BlockPyStmt::If(BlockPyIf {
+                test: self.map_expr(if_stmt.test),
+                body: self.map_fragment(if_stmt.body),
+                orelse: self.map_fragment(if_stmt.orelse),
+            }),
+        }
+    }
+
+    fn map_term(&self, term: PassTerm<PIn>) -> PassTerm<POut> {
+        match term {
+            BlockPyTerm::Jump(label) => BlockPyTerm::Jump(label),
+            BlockPyTerm::IfTerm(if_term) => BlockPyTerm::IfTerm(BlockPyIfTerm {
+                test: self.map_expr(if_term.test),
+                then_label: if_term.then_label,
+                else_label: if_term.else_label,
+            }),
+            BlockPyTerm::BranchTable(branch) => BlockPyTerm::BranchTable(BlockPyBranchTable {
+                index: self.map_expr(branch.index),
+                targets: branch.targets,
+                default_label: branch.default_label,
+            }),
+            BlockPyTerm::Raise(raise_stmt) => BlockPyTerm::Raise(BlockPyRaise {
+                exc: raise_stmt.exc.map(|exc| self.map_expr(exc)),
+            }),
+            BlockPyTerm::TryJump(try_jump) => BlockPyTerm::TryJump(try_jump),
+            BlockPyTerm::Return(value) => {
+                BlockPyTerm::Return(value.map(|value| self.map_expr(value)))
+            }
+        }
+    }
+
+    fn map_expr(&self, expr: PassExpr<PIn>) -> PassExpr<POut>;
+}
+
 impl<E> BlockPyJumpTerm<BlockPyLabel> for BlockPyTerm<E> {
     fn jump_term(target: BlockPyLabel) -> Self {
         Self::Jump(target)
@@ -712,6 +820,18 @@ impl<E> BlockPyJumpTerm<BlockPyLabel> for BlockPyTerm<E> {
 impl<E> BlockPyFallthroughTerm<BlockPyLabel> for BlockPyTerm<E> {
     fn implicit_function_return() -> Self {
         Self::Return(None)
+    }
+}
+
+impl<PIn> BlockPyModule<PIn>
+where
+    PIn: BlockPyPass,
+{
+    pub fn map_module<POut>(self, mapper: &impl BlockPyModuleMap<PIn, POut>) -> BlockPyModule<POut>
+    where
+        POut: BlockPyPass<BlockMeta = PIn::BlockMeta, FunctionExtra = PIn::FunctionExtra>,
+    {
+        mapper.map_module(self)
     }
 }
 

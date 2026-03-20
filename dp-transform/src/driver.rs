@@ -16,7 +16,7 @@ use crate::basic_block::block_py::{
     CoreBlockPyPassWithoutAwaitOrYield, LoweredRuffBlockPyPass, RuffBlockPyPass,
 };
 use crate::basic_block::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
-use crate::basic_block::core_await_lower::lower_awaits_in_core_blockpy_callable_def;
+use crate::basic_block::core_await_lower::lower_awaits_in_core_blockpy_module;
 use crate::basic_block::core_eval_order::make_eval_order_explicit_in_core_callable_def;
 use crate::basic_block::ruff_to_blockpy::build_lowered_blockpy_function_bundle;
 use crate::basic_block::{self};
@@ -110,8 +110,7 @@ pub(crate) fn rewrite_module_with_tracker(
         });
     let core_blockpy_without_await: BlockPyModule<CoreBlockPyPassWithoutAwait> = pass_tracker
         .run_pass("core_blockpy_without_await", || {
-            core_blockpy_with_explicit_eval_order
-                .map_callable_defs(lower_awaits_in_core_blockpy_callable_def)
+            lower_awaits_in_core_blockpy_module(core_blockpy_with_explicit_eval_order)
         });
     let core_blockpy_without_await_or_yield: BlockPyModule<CoreBlockPyPassWithoutAwaitOrYield> =
         pass_tracker.run_pass("core_blockpy_without_await_or_yield", || {
