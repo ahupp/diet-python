@@ -4,8 +4,6 @@ import a
 
 # ==
 
-# module_init: _dp_module_init
-
 # function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "a", __dp_import_("a", __spec__))
@@ -17,8 +15,6 @@ import a.b as c
 
 # ==
 
-# module_init: _dp_module_init
-
 # function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "c", __dp_import_attr(__dp_import_("a.b", __spec__), "b"))
@@ -29,8 +25,6 @@ import a.b as c
 from pkg.mod import name as alias
 
 # ==
-
-# module_init: _dp_module_init
 
 # function _dp_module_init():
 #     block start:
@@ -48,8 +42,6 @@ def f():
 
 # ==
 
-# module_init: _dp_module_init
-
 # function f():
 #     block start:
 #         return
@@ -65,8 +57,6 @@ obj.x = 1
 
 # ==
 
-# module_init: _dp_module_init
-
 # function _dp_module_init():
 #     block start:
 #         __dp_setattr(__dp_load_deleted_name("obj", obj), "x", 1)
@@ -78,8 +68,6 @@ obj[i] = v
 
 # ==
 
-# module_init: _dp_module_init
-
 # function _dp_module_init():
 #     block start:
 #         __dp_setitem(__dp_load_deleted_name("obj", obj), i, v)
@@ -90,8 +78,6 @@ obj[i] = v
 a, b = it
 
 # ==
-
-# module_init: _dp_module_init
 
 # function _dp_module_init():
 #     block start:
@@ -107,8 +93,6 @@ a, *b = it
 
 # ==
 
-# module_init: _dp_module_init
-
 # function _dp_module_init():
 #     block start:
 #         _dp_tmp_1 = __dp_unpack(it, __dp_tuple(True, False))
@@ -123,8 +107,6 @@ a = b = f()
 
 # ==
 
-# module_init: _dp_module_init
-
 # function _dp_module_init():
 #     block start:
 #         _dp_tmp_1 = f()
@@ -137,8 +119,6 @@ a = b = f()
 x: int = 1
 
 # ==
-
-# module_init: _dp_module_init
 
 # function _dp_module_init():
 #     block start:
@@ -153,8 +133,6 @@ obj.x: int = 1
 
 # ==
 
-# module_init: _dp_module_init
-
 # function _dp_module_init():
 #     block start:
 #         __dp_setattr(__dp_load_deleted_name("obj", obj), "x", 1)
@@ -166,8 +144,6 @@ obj.x += 1
 
 # ==
 
-# module_init: _dp_module_init
-
 # function _dp_module_init():
 #     block start:
 #         __dp_setattr(__dp_load_deleted_name("obj", obj), "x", __dp_iadd(obj.x, 1))
@@ -178,8 +154,6 @@ obj.x += 1
 del obj.x, obj[i], x
 
 # ==
-
-# module_init: _dp_module_init
 
 # function _dp_module_init():
 #     block start:
@@ -193,8 +167,6 @@ del obj.x, obj[i], x
 assert cond
 
 # ==
-
-# module_init: _dp_module_init
 
 # function _dp_module_init():
 #     block start:
@@ -218,8 +190,6 @@ assert cond, "oops"
 
 # ==
 
-# module_init: _dp_module_init
-
 # function _dp_module_init():
 #     block start:
 #         if_term __debug__:
@@ -241,8 +211,6 @@ assert cond, "oops"
 raise E from cause
 
 # ==
-
-# module_init: _dp_module_init
 
 # function _dp_module_init():
 #     block start:
@@ -270,8 +238,6 @@ else:
     done()
 
 # ==
-
-# module_init: _dp_module_init
 
 # function _dp_module_init():
 #     block start:
@@ -302,8 +268,6 @@ else:
     done()
 
 # ==
-
-# module_init: _dp_module_init
 
 # function _dp_module_init():
 #     block start:
@@ -337,8 +301,6 @@ def inner():
 
 # ==
 
-# module_init: _dp_module_init
-
 # function inner():
 #     block start:
 #         value = 1
@@ -356,8 +318,6 @@ ys = {x for x in it}
 zs = {k: v for k, v in items}
 
 # ==
-
-# module_init: _dp_module_init
 
 # function _dp_listcomp_3(_dp_iter_2):
 #     display_name: <listcomp>
@@ -444,8 +404,6 @@ def f():
 
 # ==
 
-# module_init: _dp_module_init
-
 # function f.<locals>._dp_listcomp_3(_dp_iter_2):
 #     display_name: <listcomp>
 #     block start:
@@ -490,8 +448,6 @@ class C:
 
 
 # ==
-
-# module_init: _dp_module_init
 
 # function C._dp_listcomp_3(_dp_iter_2):
 #     display_name: <listcomp>
@@ -555,8 +511,6 @@ async def run():
 
 # ==
 
-# module_init: _dp_module_init
-
 # coroutine run():
 #     block start:
 #         _dp_iter_1 = __dp_aiter(ait)
@@ -604,8 +558,6 @@ match value:
 
 # ==
 
-# module_init: _dp_module_init
-
 # function _dp_module_init():
 #     block start:
 #         _dp_match_1 = value
@@ -628,8 +580,6 @@ def gen():
 
 # ==
 
-# module_init: _dp_module_init
-
 # generator gen():
 #     block start:
 #         yield 1
@@ -648,8 +598,6 @@ def gen():
 
 
 # ==
-
-# module_init: _dp_module_init
 
 # generator gen():
 #     block start:
@@ -685,8 +633,6 @@ def outer():
 
 # ==
 
-# module_init: _dp_module_init
-
 # function outer.<locals>.inner():
 #     entry_liveins: [_dp_cell_x]
 #     freevars: [x->_dp_cell_x@inherited]
@@ -720,8 +666,6 @@ def choose(a, b):
 
 # ==
 
-# module_init: _dp_module_init
-
 # function choose(a, b):
 #     block start:
 #         total = a + b
@@ -753,8 +697,6 @@ def outer():
 
 
 # ==
-
-# module_init: _dp_module_init
 
 # function outer.<locals>.inner():
 #     entry_liveins: [_dp_cell_x]

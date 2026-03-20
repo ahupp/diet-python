@@ -1,8 +1,8 @@
 use dp_transform::basic_block::bb_ir::{BbBlock, BbStmt};
 use dp_transform::basic_block::block_py::{
-    BbBlockPyPass, BlockPyFunction, BlockPyFunctionKind, BlockPyLabel, BlockPyModule, BlockPyStmt,
-    BlockPyTerm, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg,
-    CoreBlockPyLiteral,
+    AbruptKind, BbBlockPyPass, BbExceptionArgSource, BlockArg, BlockPyFunction,
+    BlockPyFunctionKind, BlockPyLabel, BlockPyModule, BlockPyStmt, BlockPyTerm, CoreBlockPyCallArg,
+    CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
 };
 use ruff_python_ast::Number;
 use std::borrow::Cow;
@@ -91,6 +91,14 @@ pub enum DirectSimpleCallPart {
 }
 
 #[derive(Clone, Debug)]
+pub enum DirectSimpleBlockArgPlan {
+    Name(String),
+    Expr(DirectSimpleExprPlan),
+    None,
+    CurrentException,
+}
+
+#[derive(Clone, Debug)]
 pub struct DirectSimpleAssignPlan {
     pub target: String,
     pub value: DirectSimpleExprPlan,
@@ -129,6 +137,7 @@ pub enum DirectSimpleTermPlan {
     Jump {
         target_index: usize,
         target_params: Vec<String>,
+        target_args: Vec<DirectSimpleBlockArgPlan>,
     },
     BrIf {
         test: DirectSimpleExprPlan,
@@ -238,6 +247,32 @@ fn direct_simple_expr_from(
                 parts,
             })
         }
+    }
+}
+
+fn abrupt_kind_tag(kind: AbruptKind) -> i64 {
+    match kind {
+        AbruptKind::Fallthrough => 0,
+        AbruptKind::Return => 1,
+        AbruptKind::Exception => 2,
+        AbruptKind::Break => 3,
+        AbruptKind::Continue => 4,
+    }
+}
+
+fn direct_simple_block_arg_from(
+    arg: &BlockArg<CoreBlockPyExprWithoutAwaitOrYield>,
+) -> Option<DirectSimpleBlockArgPlan> {
+    match arg {
+        BlockArg::Name(name) => Some(DirectSimpleBlockArgPlan::Name(name.clone())),
+        BlockArg::Expr(expr) => Some(DirectSimpleBlockArgPlan::Expr(direct_simple_expr_from(
+            expr,
+        )?)),
+        BlockArg::None => Some(DirectSimpleBlockArgPlan::None),
+        BlockArg::CurrentException => Some(DirectSimpleBlockArgPlan::CurrentException),
+        BlockArg::AbruptKind(kind) => Some(DirectSimpleBlockArgPlan::Expr(
+            DirectSimpleExprPlan::Int(abrupt_kind_tag(*kind)),
+        )),
     }
 }
 
@@ -442,9 +477,15 @@ fn direct_simple_block_plan_from_block(
         BlockPyTerm::Jump(target_label) => {
             let target_index = *label_to_index.get(target_label.as_str())?;
             let target_params = target_params_from_index(function, target_index)?;
+            let target_args = target_label
+                .args
+                .iter()
+                .map(direct_simple_block_arg_from)
+                .collect::<Option<Vec<_>>>()?;
             DirectSimpleTermPlan::Jump {
                 target_index,
                 target_params,
+                target_args,
             }
         }
         BlockPyTerm::IfTerm(if_term) => {
@@ -487,20 +528,7 @@ fn direct_simple_block_plan_from_block(
             DirectSimpleTermPlan::Ret { value }
         }
         BlockPyTerm::Raise(raise_stmt) => {
-            let exc = if let Some(expr) = raise_stmt.exc.as_ref() {
-                Some(direct_simple_expr_from(expr)?)
-            } else {
-                block
-                    .meta
-                    .params
-                    .iter()
-                    .find(|name| {
-                        name.as_str() == "_dp_resume_exc"
-                            || name.starts_with("_dp_try_exc_")
-                            || name.starts_with("_dp_uncaught_exc_")
-                    })
-                    .map(|name| DirectSimpleExprPlan::Name(name.clone()))
-            };
+            let exc = raise_stmt.exc.as_ref().and_then(direct_simple_expr_from);
             DirectSimpleTermPlan::Raise { exc }
         }
         BlockPyTerm::TryJump(_) => return None,
@@ -572,44 +600,44 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
                         .position(|name| name == "_dp_state")
                 });
             let mut arg_sources = Vec::with_capacity(target_block.meta.params.len());
-            for target_param in &target_block.meta.params {
-                if block.meta.exc_name.as_deref() == Some(target_param.as_str()) {
-                    arg_sources.push(BlockExcArgSource::Exception);
-                    continue;
-                }
-                if let Some(source_index) = block
-                    .meta
-                    .params
-                    .iter()
-                    .position(|source_name| source_name == target_param)
-                {
-                    arg_sources.push(BlockExcArgSource::SourceParam {
-                        index: source_index,
-                    });
-                    continue;
-                }
-                if target_param.starts_with("_dp_try_exc_")
-                    || target_param.starts_with("_dp_uncaught_exc_")
-                {
-                    arg_sources.push(BlockExcArgSource::Exception);
-                    continue;
-                }
-                if target_param == "_dp_resume_exc" {
-                    arg_sources.push(BlockExcArgSource::NoneValue);
-                    continue;
-                }
-                if target_param.starts_with("_dp_try_reason_")
-                    || target_param.starts_with("_dp_try_value_")
-                {
-                    arg_sources.push(BlockExcArgSource::NoneValue);
-                    continue;
-                }
-                if owner_param_index.is_none() {
-                    arg_sources.push(BlockExcArgSource::NoneValue);
-                } else {
-                    arg_sources.push(BlockExcArgSource::FrameLocal {
-                        name: target_param.clone(),
-                    });
+            if block.meta.exc_arg_sources.len() != target_block.meta.params.len() {
+                return Err(format!(
+                    "exception dispatch from {}:{} has {} explicit arg sources for target {} with {} params",
+                    function.names.qualname,
+                    block.label,
+                    block.meta.exc_arg_sources.len(),
+                    target_block.label,
+                    target_block.meta.params.len()
+                ));
+            }
+            for source in &block.meta.exc_arg_sources {
+                match source {
+                    BbExceptionArgSource::SourceParam(name) => {
+                        let Some(source_index) = block
+                            .meta
+                            .params
+                            .iter()
+                            .position(|source_name| source_name == name)
+                        else {
+                            return Err(format!(
+                                "exception dispatch from {}:{} references missing source param {}",
+                                function.names.qualname, block.label, name
+                            ));
+                        };
+                        arg_sources.push(BlockExcArgSource::SourceParam {
+                            index: source_index,
+                        });
+                    }
+                    BbExceptionArgSource::CurrentException => {
+                        arg_sources.push(BlockExcArgSource::Exception);
+                    }
+                    BbExceptionArgSource::FrameLocal(name) => {
+                        if owner_param_index.is_none() {
+                            arg_sources.push(BlockExcArgSource::NoneValue);
+                        } else {
+                            arg_sources.push(BlockExcArgSource::FrameLocal { name: name.clone() });
+                        }
+                    }
                 }
             }
             if owner_param_index.is_none()
@@ -638,8 +666,10 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
                         .copied()
                         .ok_or_else(|| {
                             format!(
-                                "unknown jump target {target} in {}:{}",
-                                function.names.qualname, block.label
+                                "unknown jump target {} in {}:{}",
+                                target.as_str(),
+                                function.names.qualname,
+                                block.label
                             )
                         })?;
                 BlockTermPlan::Jump { target_index }
@@ -715,13 +745,15 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
                             .copied()
                             .ok_or_else(|| {
                                 format!(
-                                    "unknown jump target {target_label} in {}:{}",
-                                    function.names.qualname, block.label
+                                    "unknown jump target {} in {}:{}",
+                                    target_label.as_str(),
+                                    function.names.qualname,
+                                    block.label
                                 )
                             })?;
                         let source_params = block.meta.params.as_slice();
                         let target_params = function.blocks[target_index].meta.params.as_slice();
-                        if source_params == target_params {
+                        if target_label.args.is_empty() && source_params == target_params {
                             BlockFastPath::JumpPassThrough { target_index }
                         } else if let Some(plan) = direct_simple_plan_from_block(block) {
                             BlockFastPath::DirectSimpleRet { plan }

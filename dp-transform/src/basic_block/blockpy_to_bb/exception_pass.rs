@@ -2,6 +2,7 @@ use crate::basic_block::bb_ir::{BbBlock, BbBlockMeta, BbStmt};
 use crate::basic_block::block_py::{
     BbBlockPyPass, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyStmt, BlockPyTerm,
 };
+use crate::basic_block::blockpy_to_bb::populate_exception_edge_args;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -31,6 +32,7 @@ fn lower_function_try_jump_exception_flow(
     // explicit in CFG shape (op-block -> jump -> ... -> term-block), which
     // allows the JIT fast path to dispatch exceptions directly from each step.
     split_exception_blocks_for_expr_checks(function);
+    populate_exception_edge_args(&mut function.blocks);
 
     Ok(())
 }
@@ -46,8 +48,7 @@ fn rewrite_try_jump_terms(
         .map(|block| {
             (
                 block.label.as_str().to_string(),
-                exception_param_from_block_params(&block.meta.params)
-                    .or_else(|| block.meta.exc_name.clone()),
+                block.meta.exc_name.clone(),
             )
         })
         .collect();
@@ -83,16 +84,9 @@ fn rewrite_try_jump_terms(
                 .cloned()
                 .flatten();
         }
-        block.term = BlockPyTerm::Jump(try_jump.body_label);
+        block.term = BlockPyTerm::Jump(try_jump.body_label.into());
     }
     Ok(())
-}
-
-fn exception_param_from_block_params(params: &[String]) -> Option<String> {
-    params.iter().find_map(|name| {
-        (name.starts_with("_dp_try_exc_") || name.starts_with("_dp_uncaught_exc_"))
-            .then(|| name.clone())
-    })
 }
 
 fn split_exception_blocks_for_expr_checks(function: &mut BlockPyFunction<BbBlockPyPass>) {
@@ -130,11 +124,12 @@ fn split_exception_blocks_for_expr_checks(function: &mut BlockPyFunction<BbBlock
                 out.push(BbBlock {
                     label: current_label.clone(),
                     body: std::mem::take(&mut segment_ops),
-                    term: BlockPyTerm::Jump(next_label.clone()),
+                    term: BlockPyTerm::Jump(next_label.clone().into()),
                     meta: BbBlockMeta {
                         params: segment_start_names.clone(),
                         exc_target_label: edge_target.clone(),
                         exc_name: edge_exc_name.clone(),
+                        exc_arg_sources: Vec::new(),
                     },
                 });
                 current_label = next_label;
@@ -150,6 +145,7 @@ fn split_exception_blocks_for_expr_checks(function: &mut BlockPyFunction<BbBlock
                         params: segment_start_names.clone(),
                         exc_target_label: edge_target.clone(),
                         exc_name: edge_exc_name.clone(),
+                        exc_arg_sources: Vec::new(),
                     },
                 });
             }
@@ -182,14 +178,25 @@ fn apply_op_effect_to_known_names(op: &BbStmt, known_names: &mut Vec<String>) {
     match op {
         BlockPyStmt::Assign(assign) => {
             let target = assign.target.id.to_string();
-            if !known_names.iter().any(|name| name == &target) {
-                known_names.push(target);
+            for target_name in [Some(target.as_str()), target.strip_prefix("_dp_cell_")]
+                .into_iter()
+                .flatten()
+            {
+                if !known_names.iter().any(|name| name == target_name) {
+                    known_names.push(target_name.to_string());
+                }
             }
         }
         BlockPyStmt::Expr(_) => {}
         BlockPyStmt::Delete(delete) => {
             let target_name = delete.target.id.to_string();
-            known_names.retain(|existing| existing != &target_name);
+            known_names.retain(|existing| {
+                existing != &target_name
+                    && target_name
+                        .strip_prefix("_dp_cell_")
+                        .map(|logical_name| existing != logical_name)
+                        .unwrap_or(true)
+            });
         }
         BlockPyStmt::If(_) => {
             panic!("structured BlockPy If is not allowed in BbBlock.body")
@@ -219,9 +226,13 @@ fn validate_function_labels(
             }
         }
         match &block.term {
-            BlockPyTerm::Jump(target) => {
-                ensure_known_label(labels, target, qualname, &block.label, "jump target")?
-            }
+            BlockPyTerm::Jump(target) => ensure_known_label(
+                labels,
+                target.as_str(),
+                qualname,
+                &block.label,
+                "jump target",
+            )?,
             BlockPyTerm::IfTerm(if_term) => {
                 let then_label = &if_term.then_label;
                 let else_label = &if_term.else_label;
@@ -303,6 +314,7 @@ def f(x):
                     params: vec![],
                     exc_target_label: Some(except_label.clone()),
                     exc_name: Some("_dp_try_exc_manual".to_string()),
+                    exc_arg_sources: Vec::new(),
                 },
             });
             function.blocks.push(BbBlock {

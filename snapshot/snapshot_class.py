@@ -10,8 +10,6 @@ class C:
 
 # ==
 
-# module_init: _dp_module_init
-
 # function C.m(self):
 #     block start:
 #         return self.x
@@ -49,8 +47,6 @@ class Wrapper:
 
 # ==
 
-# module_init: _dp_module_init
-
 # function Wrapper.open(self, mode="r", *, encoding="utf8"):
 #     entry_liveins: [mode, encoding]
 #     block start:
@@ -86,8 +82,6 @@ class D(Base):
 
 # ==
 
-# module_init: _dp_module_init
-
 # function _dp_class_ns_D(_dp_class_ns, _dp_classcell_arg):
 #     block start:
 #         _dp_classcell = _dp_classcell_arg
@@ -120,8 +114,6 @@ def outer():
 
 
 # ==
-
-# module_init: _dp_module_init
 
 # function outer.<locals>._dp_class_ns_Inner(_dp_class_ns, _dp_classcell_arg):
 #     entry_liveins: [_dp_class_ns, _dp_classcell_arg, _dp_cell_x]
@@ -168,8 +160,6 @@ class X:
 
 # ==
 
-# module_init: _dp_module_init
-
 # function X.f(x):
 #     entry_liveins: [x, _dp_classcell]
 #     local_cell_slots: [_dp_cell_x]
@@ -209,8 +199,6 @@ class A:
 
 
 # ==
-
-# module_init: _dp_module_init
 
 # function A._dp_class_ns_B(_dp_class_ns, _dp_classcell_arg):
 #     block start:
@@ -258,8 +246,6 @@ def foo():
 
 
 # ==
-
-# module_init: _dp_module_init
 
 # function foo.<locals>.A._dp_class_ns_B(_dp_class_ns, _dp_classcell_arg):
 #     block start:

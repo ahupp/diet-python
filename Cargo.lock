@@ -1258,6 +1258,7 @@ dependencies = [
  "dp-transform",
  "log",
  "pyo3",
+ "serde_json",
  "soac-eval",
 ]
 

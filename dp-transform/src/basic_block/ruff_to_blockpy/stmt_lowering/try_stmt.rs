@@ -248,15 +248,12 @@ where
 {
     let rest_entry = lower_sequence(remaining_stmts, cont_label.clone(), blocks);
 
-    let else_body = flatten_stmt_boxes(suite_ref(&try_stmt.orelse));
-    let try_body = flatten_stmt_boxes(suite_ref(&try_stmt.body));
+    let else_body = suite_ref(&try_stmt.orelse).to_vec();
+    let try_body = suite_ref(&try_stmt.body).to_vec();
     let except_body =
         (!try_stmt.handlers.is_empty()).then(|| prepare_except_body(&try_stmt.handlers));
     let finally_body = if !suite_ref(&try_stmt.finalbody).is_empty() {
-        Some(prepare_finally_body(
-            suite_ref(&try_stmt.finalbody),
-            try_plan.finally_exc_name.as_deref(),
-        ))
+        Some(prepare_finally_body(suite_ref(&try_stmt.finalbody)))
     } else {
         None
     };
@@ -285,6 +282,7 @@ where
         lowered_try.finally_region_range,
         lowered_try.finally_label,
         lowered_try.finally_normal_entry,
+        lowered_try.finally_exception_entry,
     )
 }
 

@@ -5,15 +5,13 @@ pub mod bb_ir;
 pub mod block_py;
 pub(crate) mod blockpy_expr_simplify;
 mod blockpy_generators;
-mod bound_names;
 mod cfg_trace;
 pub(crate) mod core_await_lower;
 pub(crate) mod core_eval_order;
 mod function_identity;
 mod function_lowering;
 pub mod ruff_to_blockpy;
-mod stmt_utils;
-#[cfg(any(test, target_arch = "wasm32"))]
+mod summarize_pass_shape;
 mod web_inspector_support;
 
 // Ruff AST -> BbModule
@@ -27,196 +25,8 @@ pub(crate) use blockpy_to_bb::{
 pub use blockpy_to_bb::{lower_try_jump_exception_flow, normalize_bb_module_for_codegen};
 
 pub use function_lowering::SingleNamedAssignmentPass;
-#[cfg(any(test, target_arch = "wasm32"))]
-pub(crate) use web_inspector_support::render_tracked_pass_text;
-
-use crate::basic_block::block_py::{
-    BlockPyModule, BlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithoutAwait,
-    CoreBlockPyPassWithoutAwaitOrYield, LoweredRuffBlockPyPass, RuffBlockPyPass,
-};
-use crate::transformer::Transformer;
-use ruff_python_ast::{self as ast, Expr, Stmt};
-
-#[derive(Default)]
-struct RuffExprShapeCollector {
-    summary: crate::PassShapeSummary,
-}
-
-impl Transformer for RuffExprShapeCollector {
-    fn visit_expr(&mut self, expr: &mut Expr) {
-        match expr {
-            Expr::Await(_) => self.summary.contains_await = true,
-            Expr::Yield(_) | Expr::YieldFrom(_) => self.summary.contains_yield = true,
-            Expr::Call(call)
-                if matches!(
-                    call.func.as_ref(),
-                    Expr::Name(ast::ExprName { id, .. }) if id.as_str() == "__dp_add"
-                ) =>
-            {
-                self.summary.contains_dp_add = true;
-            }
-            _ => {}
-        }
-        crate::transformer::walk_expr(self, expr);
-    }
-}
-
-fn merge_pass_shape_summary(total: &mut crate::PassShapeSummary, part: crate::PassShapeSummary) {
-    total.contains_await |= part.contains_await;
-    total.contains_yield |= part.contains_yield;
-    total.contains_dp_add |= part.contains_dp_add;
-}
-
-fn summarize_ruff_expr(expr: &Expr) -> crate::PassShapeSummary {
-    let mut expr = expr.clone();
-    let mut collector = RuffExprShapeCollector::default();
-    collector.visit_expr(&mut expr);
-    collector.summary
-}
-
-fn summarize_ruff_stmt(stmt: &Stmt) -> crate::PassShapeSummary {
-    let mut stmt = stmt.clone();
-    let mut collector = RuffExprShapeCollector::default();
-    collector.visit_stmt(&mut stmt);
-    collector.summary
-}
-
-fn summarize_ruff_stmt_list(stmts: &[Box<Stmt>]) -> crate::PassShapeSummary {
-    let mut summary = crate::PassShapeSummary::default();
-    for stmt in stmts {
-        merge_pass_shape_summary(&mut summary, summarize_ruff_stmt(stmt));
-    }
-    summary
-}
-
-fn summarize_blockpy_stmt_fragment<E: Clone + Into<Expr>>(
-    fragment: &block_py::BlockPyStmtFragment<E>,
-    summary: &mut crate::PassShapeSummary,
-) {
-    for stmt in &fragment.body {
-        summarize_blockpy_stmt(stmt, summary);
-    }
-    if let Some(term) = &fragment.term {
-        summarize_blockpy_term(term, summary);
-    }
-}
-
-fn summarize_blockpy_stmt<E: Clone + Into<Expr>>(
-    stmt: &block_py::BlockPyStmt<E>,
-    summary: &mut crate::PassShapeSummary,
-) {
-    match stmt {
-        block_py::BlockPyStmt::Assign(assign) => {
-            merge_pass_shape_summary(summary, summarize_ruff_expr(&assign.value.clone().into()));
-        }
-        block_py::BlockPyStmt::Expr(expr) => {
-            merge_pass_shape_summary(summary, summarize_ruff_expr(&expr.clone().into()));
-        }
-        block_py::BlockPyStmt::Delete(_) => {}
-        block_py::BlockPyStmt::If(if_stmt) => {
-            merge_pass_shape_summary(summary, summarize_ruff_expr(&if_stmt.test.clone().into()));
-            summarize_blockpy_stmt_fragment(&if_stmt.body, summary);
-            summarize_blockpy_stmt_fragment(&if_stmt.orelse, summary);
-        }
-    }
-}
-
-fn summarize_blockpy_term<E: Clone + Into<Expr>>(
-    term: &block_py::BlockPyTerm<E>,
-    summary: &mut crate::PassShapeSummary,
-) {
-    match term {
-        block_py::BlockPyTerm::Jump(_) | block_py::BlockPyTerm::TryJump(_) => {}
-        block_py::BlockPyTerm::IfTerm(if_term) => {
-            merge_pass_shape_summary(summary, summarize_ruff_expr(&if_term.test.clone().into()));
-        }
-        block_py::BlockPyTerm::BranchTable(branch) => {
-            merge_pass_shape_summary(summary, summarize_ruff_expr(&branch.index.clone().into()));
-        }
-        block_py::BlockPyTerm::Raise(raise) => {
-            if let Some(exc) = &raise.exc {
-                merge_pass_shape_summary(summary, summarize_ruff_expr(&exc.clone().into()));
-            }
-        }
-        block_py::BlockPyTerm::Return(value) => {
-            if let Some(value) = value {
-                merge_pass_shape_summary(summary, summarize_ruff_expr(&value.clone().into()));
-            }
-        }
-    }
-}
-
-fn summarize_blockpy_module<P: BlockPyPass>(module: &BlockPyModule<P>) -> crate::PassShapeSummary
-where
-    P::Expr: Into<Expr>,
-{
-    let mut summary = crate::PassShapeSummary::default();
-    for callable in &module.callable_defs {
-        for block in &callable.blocks {
-            for stmt in &block.body {
-                summarize_blockpy_stmt(stmt, &mut summary);
-            }
-            summarize_blockpy_term(&block.term, &mut summary);
-        }
-    }
-    summary
-}
-
-fn summarize_semantic_blockpy_bundle(
-    bundle: &BlockPyModule<LoweredRuffBlockPyPass>,
-) -> crate::PassShapeSummary {
-    let blockpy = bundle.clone();
-    summarize_blockpy_module(&blockpy)
-}
-
-fn summarize_core_blockpy_bundle(
-    bundle: &BlockPyModule<CoreBlockPyPass>,
-) -> crate::PassShapeSummary {
-    let blockpy = bundle.clone();
-    summarize_blockpy_module(&blockpy)
-}
-
-fn summarize_core_blockpy_bundle_without_await(
-    bundle: &BlockPyModule<CoreBlockPyPassWithoutAwait>,
-) -> crate::PassShapeSummary {
-    let blockpy = bundle.clone();
-    summarize_blockpy_module(&blockpy)
-}
-
-fn summarize_core_blockpy_bundle_without_await_or_yield(
-    bundle: &BlockPyModule<CoreBlockPyPassWithoutAwaitOrYield>,
-) -> crate::PassShapeSummary {
-    let blockpy = bundle.clone();
-    summarize_blockpy_module(&blockpy)
-}
-
-pub(crate) fn summarize_tracked_pass_shape(
-    result: &crate::LoweringResult,
-    name: &str,
-) -> Option<crate::PassShapeSummary> {
-    if let Some((_, module)) =
-        result.get_pass::<(ruff_python_ast::Suite, BlockPyModule<RuffBlockPyPass>)>(name)
-    {
-        return Some(summarize_blockpy_module(module));
-    }
-    if let Some(module) = result.get_pass::<BlockPyModule<RuffBlockPyPass>>(name) {
-        return Some(summarize_blockpy_module(module));
-    }
-    if let Some(bundle) = result.get_pass::<BlockPyModule<LoweredRuffBlockPyPass>>(name) {
-        return Some(summarize_semantic_blockpy_bundle(bundle));
-    }
-    if let Some(bundle) = result.get_pass::<BlockPyModule<CoreBlockPyPass>>(name) {
-        return Some(summarize_core_blockpy_bundle(bundle));
-    }
-    if let Some(bundle) = result.get_pass::<BlockPyModule<CoreBlockPyPassWithoutAwait>>(name) {
-        return Some(summarize_core_blockpy_bundle_without_await(bundle));
-    }
-    if let Some(bundle) = result.get_pass::<BlockPyModule<CoreBlockPyPassWithoutAwaitOrYield>>(name)
-    {
-        return Some(summarize_core_blockpy_bundle_without_await_or_yield(bundle));
-    }
-    None
-}
+pub(crate) use summarize_pass_shape::summarize_tracked_pass_shape;
+pub use web_inspector_support::render_tracked_pass_text;
 
 #[cfg(test)]
 mod tests {
@@ -1629,6 +1439,10 @@ def f(x):
         );
         let debug = format!("{f:?}");
         assert!(!debug.contains("finally:"), "{debug}");
+        assert!(!debug.contains("_dp_try_reason_"), "{debug}");
+        assert!(!debug.contains("_dp_try_value_"), "{debug}");
+        assert!(debug.contains("_dp_try_abrupt_kind_"), "{debug}");
+        assert!(debug.contains("_dp_try_abrupt_payload_"), "{debug}");
     }
 
     #[test]

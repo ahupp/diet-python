@@ -633,7 +633,7 @@ where
     blocks.push(compat_block_from_blockpy(
         jump_label.clone(),
         linear,
-        BlockPyTerm::Jump(BlockPyLabel::from(expanded_entry)),
+        BlockPyTerm::Jump(BlockPyLabel::from(expanded_entry).into()),
     ));
     jump_label
 }
@@ -673,8 +673,8 @@ pub(crate) fn lower_if_stmt_sequence_from_stmt<F>(
 where
     F: FnMut(&[Stmt], String, &mut Vec<BlockPyBlock>) -> String,
 {
-    let then_body = flatten_stmt_boxes(suite_ref(&if_stmt.body));
-    let else_body = flatten_stmt_boxes(&extract_if_else_body(&if_stmt));
+    let then_body = suite_ref(&if_stmt.body).to_vec();
+    let else_body = extract_if_else_body(&if_stmt);
     let rest_entry = lower_region(remaining_stmts, cont_label, blocks);
     lower_if_stmt_sequence(
         context,
@@ -750,8 +750,8 @@ pub(crate) fn lower_while_stmt_sequence_from_stmt<F>(
 where
     F: FnMut(&[Stmt], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
-    let body = flatten_stmt_boxes(suite_ref(&while_stmt.body));
-    let else_body = flatten_stmt_boxes(suite_ref(&while_stmt.orelse));
+    let body = suite_ref(&while_stmt.body).to_vec();
+    let else_body = suite_ref(&while_stmt.orelse).to_vec();
     lower_while_stmt_sequence(
         context,
         blocks,
@@ -819,7 +819,7 @@ pub(crate) fn lower_for_stmt_sequence<F>(
 where
     F: FnMut(&[Stmt], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
-    let else_body = flatten_stmt_boxes(suite_ref(&for_stmt.orelse));
+    let else_body = suite_ref(&for_stmt.orelse).to_vec();
     let (rest_entry, exhausted_entry) = lower_for_stmt_exit_entries(
         blocks,
         &else_body,
@@ -828,7 +828,7 @@ where
         lower_region,
     );
 
-    let body = flatten_stmt_boxes(suite_ref(&for_stmt.body));
+    let body = suite_ref(&for_stmt.body).to_vec();
     let body_entry = lower_for_stmt_body_entry(
         blocks,
         loop_continue_label.clone(),

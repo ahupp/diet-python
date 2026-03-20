@@ -1,5 +1,5 @@
 use crate::basic_block::ast_to_ast::body::suite_ref;
-use crate::transformer::{walk_expr, Transformer};
+use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use std::collections::HashSet;
 
@@ -23,6 +23,104 @@ pub(crate) fn load_names_in_expr(expr: &Expr) -> HashSet<String> {
     let mut expr = expr.clone();
     let mut collector = LoadNameCollector::default();
     collector.visit_expr(&mut expr);
+    collector.names
+}
+
+#[derive(Default)]
+struct BoundNameCollector {
+    names: HashSet<String>,
+}
+
+impl Transformer for BoundNameCollector {
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
+        match stmt {
+            Stmt::Assign(assign) => {
+                for target in &assign.targets {
+                    collect_assigned_names(target, &mut self.names);
+                }
+                walk_stmt(self, stmt);
+            }
+            Stmt::AugAssign(aug) => {
+                collect_assigned_names(aug.target.as_ref(), &mut self.names);
+                walk_stmt(self, stmt);
+            }
+            Stmt::AnnAssign(ann) => {
+                collect_assigned_names(ann.target.as_ref(), &mut self.names);
+                walk_stmt(self, stmt);
+            }
+            Stmt::For(for_stmt) => {
+                collect_assigned_names(for_stmt.target.as_ref(), &mut self.names);
+                walk_stmt(self, stmt);
+            }
+            Stmt::With(with_stmt) => {
+                for item in &with_stmt.items {
+                    if let Some(optional_vars) = item.optional_vars.as_ref() {
+                        collect_assigned_names(optional_vars.as_ref(), &mut self.names);
+                    }
+                }
+                walk_stmt(self, stmt);
+            }
+            Stmt::Delete(delete_stmt) => {
+                for target in &delete_stmt.targets {
+                    collect_assigned_names(target, &mut self.names);
+                }
+                walk_stmt(self, stmt);
+            }
+            Stmt::Try(try_stmt) => {
+                for handler in &try_stmt.handlers {
+                    let ast::ExceptHandler::ExceptHandler(handler) = handler;
+                    if let Some(name) = handler.name.as_ref() {
+                        self.names.insert(name.id.to_string());
+                    }
+                }
+                walk_stmt(self, stmt);
+            }
+            Stmt::FunctionDef(func_def) => {
+                self.names.insert(func_def.name.id.to_string());
+            }
+            Stmt::ClassDef(class_def) => {
+                self.names.insert(class_def.name.id.to_string());
+            }
+            _ => walk_stmt(self, stmt),
+        }
+    }
+}
+
+pub(crate) fn collect_bound_names(stmts: &[Stmt]) -> HashSet<String> {
+    let mut body = stmts.to_vec();
+    let mut collector = BoundNameCollector::default();
+    collector.visit_body(&mut body);
+    collector.names
+}
+
+#[derive(Default)]
+struct ExplicitGlobalOrNonlocalCollector {
+    names: HashSet<String>,
+}
+
+impl Transformer for ExplicitGlobalOrNonlocalCollector {
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
+        match stmt {
+            Stmt::Global(global_stmt) => {
+                for name in &global_stmt.names {
+                    self.names.insert(name.id.to_string());
+                }
+            }
+            Stmt::Nonlocal(nonlocal_stmt) => {
+                for name in &nonlocal_stmt.names {
+                    self.names.insert(name.id.to_string());
+                }
+            }
+            Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {}
+            _ => walk_stmt(self, stmt),
+        }
+    }
+}
+
+pub(crate) fn collect_explicit_global_or_nonlocal_names(stmts: &[Stmt]) -> HashSet<String> {
+    let mut body = stmts.to_vec();
+    let mut collector = ExplicitGlobalOrNonlocalCollector::default();
+    collector.visit_body(&mut body);
     collector.names
 }
 
@@ -152,5 +250,58 @@ pub(crate) fn collect_assigned_names(target: &Expr, names: &mut HashSet<String>)
         }
         Expr::Starred(starred) => collect_assigned_names(starred.value.as_ref(), names),
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::py_stmt;
+
+    #[test]
+    fn collect_bound_names_stays_in_current_scope() {
+        let stmts = vec![
+            py_stmt!("x = 1"),
+            py_stmt!("for item in values:\n    seen = item"),
+            py_stmt!("with ctx() as bound:\n    used = bound"),
+            py_stmt!("try:\n    pass\nexcept ValueError as err:\n    recovered = err"),
+            py_stmt!("del removed"),
+            py_stmt!("def inner():\n    nested = 1"),
+            py_stmt!("class Thing:\n    member = 1"),
+        ];
+
+        let names = collect_bound_names(&stmts);
+
+        for expected in [
+            "x",
+            "item",
+            "seen",
+            "bound",
+            "used",
+            "err",
+            "recovered",
+            "removed",
+            "inner",
+            "Thing",
+        ] {
+            assert!(names.contains(expected), "missing {expected} in {names:?}");
+        }
+        assert!(!names.contains("nested"), "{names:?}");
+        assert!(!names.contains("member"), "{names:?}");
+    }
+
+    #[test]
+    fn collect_explicit_global_or_nonlocal_names_skips_nested_defs() {
+        let Stmt::FunctionDef(outer) = py_stmt!(
+            "def outer():\n    global module_name\n    if flag:\n        nonlocal captured\n    def inner():\n        global nested\n"
+        ) else {
+            unreachable!();
+        };
+
+        let names = collect_explicit_global_or_nonlocal_names(suite_ref(&outer.body));
+
+        assert!(names.contains("module_name"), "{names:?}");
+        assert!(names.contains("captured"), "{names:?}");
+        assert!(!names.contains("nested"), "{names:?}");
     }
 }

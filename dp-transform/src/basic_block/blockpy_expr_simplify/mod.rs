@@ -1,8 +1,8 @@
 use super::{
     ast_to_ast::rewrite_expr::string::lower_string_templates_in_expr,
     block_py::{
-        BlockPyBlock, BlockPyBlockMeta, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete,
-        BlockPyFunction, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment,
+        BlockPyBlock, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete, BlockPyFunction,
+        BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment,
         BlockPyStmtFragmentBuilder, BlockPyTerm, CoreBlockPyAwait, CoreBlockPyCall,
         CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
         CoreBlockPyPass, CoreBlockPyYield, CoreBlockPyYieldFrom, LoweredRuffBlockPyPass,
@@ -342,7 +342,34 @@ fn lower_semantic_stmt_into(builder: &mut CoreStmtBuilder, stmt: BlockPyStmt<Exp
 
 fn lower_semantic_term_into(builder: &mut CoreStmtBuilder, term: BlockPyTerm<Expr>) {
     match term {
-        BlockPyTerm::Jump(label) => builder.set_term(BlockPyTerm::Jump(label)),
+        BlockPyTerm::Jump(edge) => {
+            let mut args = Vec::with_capacity(edge.args.len());
+            for arg in edge.args {
+                args.push(match arg {
+                    crate::basic_block::block_py::BlockArg::Name(name) => {
+                        crate::basic_block::block_py::BlockArg::Name(name)
+                    }
+                    crate::basic_block::block_py::BlockArg::Expr(expr) => {
+                        let mut setup = CoreStmtBuilder::new();
+                        let expr = lower_semantic_expr_into(&mut setup, &expr);
+                        builder.extend(finish_expr_setup(setup));
+                        crate::basic_block::block_py::BlockArg::Expr(expr)
+                    }
+                    crate::basic_block::block_py::BlockArg::None => {
+                        crate::basic_block::block_py::BlockArg::None
+                    }
+                    crate::basic_block::block_py::BlockArg::CurrentException => {
+                        crate::basic_block::block_py::BlockArg::CurrentException
+                    }
+                    crate::basic_block::block_py::BlockArg::AbruptKind(kind) => {
+                        crate::basic_block::block_py::BlockArg::AbruptKind(kind)
+                    }
+                });
+            }
+            builder.set_term(BlockPyTerm::Jump(
+                crate::basic_block::block_py::BlockPyEdge::with_args(edge.target, args),
+            ));
+        }
         BlockPyTerm::IfTerm(BlockPyIfTerm {
             test,
             then_label,
@@ -410,9 +437,7 @@ fn lower_semantic_block(block: BlockPyBlock<Expr>) -> BlockPyBlock<CoreBlockPyEx
         term: fragment
             .term
             .expect("semantic BlockPy block must lower to a core terminator"),
-        meta: BlockPyBlockMeta {
-            exc_param: meta.exc_param,
-        },
+        meta,
     }
 }
 

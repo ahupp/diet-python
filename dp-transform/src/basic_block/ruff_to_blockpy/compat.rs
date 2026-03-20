@@ -95,7 +95,7 @@ pub(crate) fn compat_jump_block_from_blockpy(
     compat_block_from_blockpy(
         label,
         body,
-        BlockPyTerm::Jump(BlockPyLabel::from(target_label)),
+        BlockPyTerm::Jump(BlockPyLabel::from(target_label).into()),
     )
 }
 
@@ -105,9 +105,7 @@ pub(crate) fn set_region_exc_param(
     exc_param: &str,
 ) {
     for block in &mut blocks[region.clone()] {
-        if block.meta.exc_param.is_none() {
-            block.meta.exc_param = Some(exc_param.to_string());
-        }
+        block.meta.set_exception_param(exc_param.to_string());
     }
 }
 
@@ -263,7 +261,7 @@ pub(crate) fn emit_for_loop_blocks(
     blocks.push(compat_block_from_blockpy(
         assign_label.clone(),
         assign_body,
-        BlockPyTerm::Jump(BlockPyLabel::from(body_entry)),
+        BlockPyTerm::Jump(BlockPyLabel::from(body_entry).into()),
     ));
 
     let exhausted_test = py_expr!(
@@ -308,7 +306,7 @@ pub(crate) fn emit_for_loop_blocks(
     blocks.push(compat_block_from_blockpy(
         setup_label.clone(),
         setup_body,
-        BlockPyTerm::Jump(BlockPyLabel::from(loop_continue_label)),
+        BlockPyTerm::Jump(BlockPyLabel::from(loop_continue_label).into()),
     ));
     setup_label
 }

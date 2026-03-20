@@ -5,8 +5,8 @@ mod exception_pass;
 use super::bb_ir::{BbBlock, BbBlockMeta, BbStmt};
 use super::block_py::cfg::linearize_structured_ifs;
 use super::block_py::{
-    BbBlockPyPass, BlockPyBlock, BlockPyFunction, BlockPyFunctionKind, BlockPyIfTerm,
-    BlockPyModule, BlockPyStmt, BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg,
+    BbBlockPyPass, BbExceptionArgSource, BlockPyBlock, BlockPyFunction, BlockPyFunctionKind,
+    BlockPyIfTerm, BlockPyModule, BlockPyStmt, BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg,
     CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
     CoreBlockPyPassWithoutAwait, CoreBlockPyPassWithoutAwaitOrYield,
 };
@@ -15,6 +15,7 @@ use super::core_eval_order::make_eval_order_explicit_in_core_callable_def_withou
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 pub use codegen_normalize::normalize_bb_module_for_codegen;
 pub use exception_pass::lower_try_jump_exception_flow;
@@ -106,14 +107,14 @@ fn lower_blockpy_blocks_to_bb_blocks(
         .map(|block| {
             (
                 block.label.as_str().to_string(),
-                block.meta.exc_param.clone(),
+                block.meta.exception_param().map(ToString::to_string),
             )
         })
         .collect::<HashMap<_, _>>();
-    linear_blocks
+    let mut bb_blocks = linear_blocks
         .iter()
         .map(|block| {
-            let current_exception_name = block.meta.exc_param.as_deref();
+            let current_exception_name = block.meta.exception_param();
             let mut normalized_body = block.body.clone();
             if let Some(exc_name) = current_exception_name {
                 for stmt in &mut normalized_body {
@@ -134,25 +135,24 @@ fn lower_blockpy_blocks_to_bb_blocks(
                     .get(target_label.as_str())
                     .cloned()
                     .flatten()
-                    .or_else(|| {
-                        linear_block_params
-                            .get(target_label.as_str())
-                            .and_then(|params| exception_param_from_block_params(params))
-                    })
             });
             let ops = normalized_body
                 .into_iter()
                 .map(bb_stmt_from_blockpy_stmt)
                 .collect::<Vec<_>>();
+            let semantic_param_names = block
+                .meta
+                .param_names()
+                .map(ToString::to_string)
+                .collect::<HashSet<_>>();
             let mut params = linear_block_params
                 .get(block.label.as_str())
                 .cloned()
-                .unwrap_or_default();
-            if let Some(exc_param) = block.meta.exc_param.as_ref() {
-                if !params.iter().any(|param| param == exc_param) {
-                    params.push(exc_param.clone());
-                }
-            }
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|param| !semantic_param_names.contains(param))
+                .collect::<Vec<_>>();
+            params.extend(block.meta.bb_param_names().map(ToString::to_string));
             BbBlock {
                 label: block.label.clone(),
                 body: ops,
@@ -161,17 +161,44 @@ fn lower_blockpy_blocks_to_bb_blocks(
                     params,
                     exc_target_label,
                     exc_name,
+                    exc_arg_sources: Vec::new(),
                 },
             }
         })
-        .collect()
+        .collect::<Vec<_>>();
+    populate_exception_edge_args(&mut bb_blocks);
+    bb_blocks
 }
 
-fn exception_param_from_block_params(params: &[String]) -> Option<String> {
-    params.iter().find_map(|name| {
-        (name.starts_with("_dp_try_exc_") || name.starts_with("_dp_uncaught_exc_"))
-            .then(|| name.clone())
-    })
+pub(super) fn populate_exception_edge_args(blocks: &mut [BbBlock]) {
+    let label_to_index = blocks
+        .iter()
+        .enumerate()
+        .map(|(index, block)| (block.label.as_str().to_string(), index))
+        .collect::<HashMap<_, _>>();
+    for block_index in 0..blocks.len() {
+        let Some(exc_target_label) = blocks[block_index].meta.exc_target_label.clone() else {
+            continue;
+        };
+        let Some(target_index) = label_to_index.get(exc_target_label.as_str()).copied() else {
+            continue;
+        };
+        let source_params = blocks[block_index].meta.params.clone();
+        let target_params = blocks[target_index].meta.params.clone();
+        let exc_name = blocks[block_index].meta.exc_name.clone();
+        blocks[block_index].meta.exc_arg_sources = target_params
+            .into_iter()
+            .map(|target_param| {
+                if exc_name.as_deref() == Some(target_param.as_str()) {
+                    BbExceptionArgSource::CurrentException
+                } else if source_params.iter().any(|param| param == &target_param) {
+                    BbExceptionArgSource::SourceParam(target_param)
+                } else {
+                    BbExceptionArgSource::FrameLocal(target_param)
+                }
+            })
+            .collect();
+    }
 }
 
 fn rewrite_current_exception_in_blockpy_stmt(
@@ -479,7 +506,10 @@ mod tests {
             ))],
             term: BlockPyTerm::Return(Some(core_call_expr("__dp_exc_info", Vec::new()))),
             meta: crate::basic_block::block_py::BlockPyBlockMeta {
-                exc_param: Some("_dp_try_exc_0".to_string()),
+                params: vec![crate::basic_block::block_py::BlockParam {
+                    name: "_dp_try_exc_0".to_string(),
+                    role: crate::basic_block::block_py::BlockParamRole::Exception,
+                }],
             },
         };
 

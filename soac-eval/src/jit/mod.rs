@@ -20,10 +20,10 @@ mod specialized_helpers;
 
 pub use planning::{
     BlockExcArgSource, BlockExcDispatchPlan, BlockFastPath, BlockTermPlan, ClifPlan,
-    DirectSimpleAssignPlan, DirectSimpleBlockPlan, DirectSimpleBrIfPlan, DirectSimpleCallPart,
-    DirectSimpleDeletePlan, DirectSimpleDeleteTargetPlan, DirectSimpleExprPlan,
-    DirectSimpleExprRetNonePlan, DirectSimpleOpPlan, DirectSimpleRetPlan, DirectSimpleTermPlan,
-    lookup_clif_plan, register_clif_module_plans,
+    DirectSimpleAssignPlan, DirectSimpleBlockArgPlan, DirectSimpleBlockPlan, DirectSimpleBrIfPlan,
+    DirectSimpleCallPart, DirectSimpleDeletePlan, DirectSimpleDeleteTargetPlan,
+    DirectSimpleExprPlan, DirectSimpleExprRetNonePlan, DirectSimpleOpPlan, DirectSimpleRetPlan,
+    DirectSimpleTermPlan, lookup_clif_plan, register_clif_module_plans,
 };
 pub use specialized_helpers::ObjPtr;
 pub use specialized_helpers::SpecializedJitHooks;
@@ -2239,6 +2239,7 @@ fn emit_direct_simple_expr(
 fn emit_prepare_target_args(
     fb: &mut FunctionBuilder<'_>,
     target_params: &[String],
+    explicit_args: Option<&[DirectSimpleBlockArgPlan]>,
     local_names: &[String],
     local_values: &[ir::Value],
     ctx: &DirectSimpleEmitCtx,
@@ -2246,11 +2247,55 @@ fn emit_prepare_target_args(
 ) -> Option<Vec<ir::BlockArg>> {
     let mut args = Vec::with_capacity(target_params.len());
     let mut forwarded_local_indices = HashMap::new();
+    let explicit_start = explicit_args
+        .map(|args| target_params.len().saturating_sub(args.len()))
+        .unwrap_or(target_params.len());
     let owner_value = local_names
         .iter()
         .position(|candidate| candidate == "_dp_self" || candidate == "_dp_state")
         .map(|index| local_values[index]);
-    for name in target_params {
+    for (index, name) in target_params.iter().enumerate() {
+        if let Some(explicit_arg) = explicit_args
+            .and_then(|args| (index >= explicit_start).then(|| &args[index - explicit_start]))
+        {
+            let value = match explicit_arg {
+                DirectSimpleBlockArgPlan::Name(source_name) => {
+                    if let Some(value_index) = local_names
+                        .iter()
+                        .position(|candidate| candidate == source_name)
+                    {
+                        let value = local_values[value_index];
+                        let forwarded_count =
+                            forwarded_local_indices.entry(value_index).or_insert(0usize);
+                        if *forwarded_count > 0 {
+                            fb.ins().call(ctx.incref_ref, &[value]);
+                        }
+                        *forwarded_count += 1;
+                        value
+                    } else if let Some(value) = lookup_ambient_value(ctx, source_name) {
+                        value
+                    } else {
+                        return None;
+                    }
+                }
+                DirectSimpleBlockArgPlan::Expr(expr) => emit_direct_simple_expr(
+                    fb,
+                    expr,
+                    local_names,
+                    local_values,
+                    ctx,
+                    literal_pool,
+                    false,
+                ),
+                DirectSimpleBlockArgPlan::None => {
+                    fb.ins().call(ctx.incref_ref, &[ctx.consts.none_const]);
+                    ctx.consts.none_const
+                }
+                DirectSimpleBlockArgPlan::CurrentException => return None,
+            };
+            args.push(ir::BlockArg::Value(value));
+            continue;
+        }
         if let Some(value_index) = local_names.iter().position(|candidate| candidate == name) {
             let value = local_values[value_index];
             let forwarded_count = forwarded_local_indices.entry(value_index).or_insert(0usize);
@@ -3771,6 +3816,7 @@ fn build_cranelift_run_bb_specialized_function(
                         DirectSimpleTermPlan::Jump {
                             target_index,
                             target_params: _,
+                            target_args,
                         } => {
                             let target_params = &runtime_block_param_names[*target_index];
                             let mut jump_args = Vec::with_capacity(target_params.len());
@@ -3778,6 +3824,7 @@ fn build_cranelift_run_bb_specialized_function(
                                 emit_prepare_target_args(
                                     &mut fb,
                                     target_params,
+                                    Some(target_args),
                                     &local_names,
                                     &local_values,
                                     &emit_ctx,
@@ -3836,6 +3883,7 @@ fn build_cranelift_run_bb_specialized_function(
                                 emit_prepare_target_args(
                                     &mut fb,
                                     then_params,
+                                    None,
                                     &local_names,
                                     &local_values,
                                     &emit_ctx,
@@ -3864,6 +3912,7 @@ fn build_cranelift_run_bb_specialized_function(
                                 emit_prepare_target_args(
                                     &mut fb,
                                     else_params,
+                                    None,
                                     &local_names,
                                     &local_values,
                                     &emit_ctx,
@@ -3937,13 +3986,14 @@ fn build_cranelift_run_bb_specialized_function(
                                 let target_params = &runtime_block_param_names[*target_index];
                                 let mut case_jump_args = Vec::with_capacity(target_params.len());
                                 case_jump_args.extend(
-                                    emit_prepare_target_args(
-                                        &mut fb,
-                                        target_params,
-                                        &local_names,
-                                        &local_values,
-                                        &emit_ctx,
-                                        &mut literal_pool,
+                                emit_prepare_target_args(
+                                    &mut fb,
+                                    target_params,
+                                    None,
+                                    &local_names,
+                                    &local_values,
+                                    &emit_ctx,
+                                    &mut literal_pool,
                                     )
                                     .ok_or_else(|| {
                                         format!(
@@ -3969,6 +4019,7 @@ fn build_cranelift_run_bb_specialized_function(
                                 emit_prepare_target_args(
                                     &mut fb,
                                     default_params,
+                                    None,
                                     &local_names,
                                     &local_values,
                                     &emit_ctx,
@@ -4097,6 +4148,7 @@ fn build_cranelift_run_bb_specialized_function(
                             let current_step_null_args = emit_prepare_target_args(
                                 &mut fb,
                                 current_params,
+                                None,
                                 &local_names,
                                 &local_values,
                                 &emit_ctx,

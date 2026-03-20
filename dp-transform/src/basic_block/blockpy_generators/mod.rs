@@ -3,6 +3,7 @@ use crate::basic_block::ast_to_ast::scope::cell_name;
 use crate::basic_block::block_py::cfg::linearize_structured_ifs;
 use crate::basic_block::block_py::dataflow::{
     analyze_blockpy_use_def, compute_block_params_blockpy,
+    extend_state_order_with_declared_block_params, merge_declared_block_params,
 };
 use crate::basic_block::block_py::param_specs::{Param, ParamKind, ParamSpec};
 use crate::basic_block::block_py::state::collect_state_vars;
@@ -185,8 +186,8 @@ fn injected_exception_names(
 ) -> HashSet<String> {
     let mut names = HashSet::new();
     for block in blocks {
-        if let Some(exc_param) = block.meta.exc_param.as_ref() {
-            names.insert(exc_param.clone());
+        if let Some(exc_param) = block.meta.exception_param() {
+            names.insert(exc_param.to_string());
         }
     }
     names
@@ -226,9 +227,9 @@ fn build_generator_closure_layout(
 
     let mut state_vars = collect_state_vars(&param_names, &callable.blocks);
     for block in &callable.blocks {
-        if let Some(exc_param) = block.meta.exc_param.as_ref() {
+        if let Some(exc_param) = block.meta.exception_param() {
             if !state_vars.iter().any(|existing| existing == exc_param) {
-                state_vars.push(exc_param.clone());
+                state_vars.push(exc_param.to_string());
             }
         }
     }
@@ -514,16 +515,18 @@ fn compute_lowered_extra(
     params: &ParamSpec,
     blocks: &[BlockPyBlock<CoreBlockPyExprWithoutAwaitOrYield>],
     exception_edges: HashMap<String, Option<String>>,
+    layout: &ClosureLayout,
 ) -> LoweredBlockPyExtra {
     let param_names = params.names();
     let mut state_vars = collect_state_vars(&param_names, blocks);
     for block in blocks {
-        if let Some(exc_param) = block.meta.exc_param.as_ref() {
+        if let Some(exc_param) = block.meta.exception_param() {
             if !state_vars.iter().any(|existing| existing == exc_param) {
-                state_vars.push(exc_param.clone());
+                state_vars.push(exc_param.to_string());
             }
         }
     }
+    extend_state_order_with_declared_block_params(blocks, &mut state_vars);
     let mut extra_successors = HashMap::new();
     for (source, target) in &exception_edges {
         if let Some(target) = target.as_ref() {
@@ -534,15 +537,31 @@ fn compute_lowered_extra(
         }
     }
     let mut block_params = compute_block_params_blockpy(blocks, &state_vars, &extra_successors);
-    for block in blocks {
-        if let Some(exc_param) = block.meta.exc_param.as_ref() {
-            let params = block_params
-                .entry(block.label.as_str().to_string())
-                .or_default();
-            if !params.iter().any(|existing| existing == exc_param) {
-                params.push(exc_param.clone());
+    merge_declared_block_params(blocks, &mut block_params);
+    let logical_name_by_storage = layout
+        .cellvars
+        .iter()
+        .chain(layout.runtime_cells.iter())
+        .filter(|slot| slot.logical_name != slot.storage_name)
+        .map(|slot| (slot.storage_name.as_str(), slot.logical_name.as_str()))
+        .collect::<HashMap<_, _>>();
+    for params in block_params.values_mut() {
+        let mut logical_aliases = Vec::new();
+        for param_name in params.iter() {
+            let Some(logical_name) = logical_name_by_storage.get(param_name.as_str()).copied()
+            else {
+                continue;
+            };
+            if params.iter().any(|existing| existing == logical_name)
+                || logical_aliases
+                    .iter()
+                    .any(|existing| existing == logical_name)
+            {
+                continue;
             }
+            logical_aliases.push(logical_name.to_string());
         }
+        params.extend(logical_aliases);
     }
     LoweredBlockPyExtra {
         block_params,
@@ -563,7 +582,7 @@ fn rename_block_label(
         match &mut block.term {
             BlockPyTerm::Jump(label) => {
                 if label.as_str() == old {
-                    *label = BlockPyLabel::from(new);
+                    *label = BlockPyLabel::from(new).into();
                 }
             }
             BlockPyTerm::IfTerm(if_term) => {
@@ -728,6 +747,12 @@ fn is_name_not_none_test(name: &str) -> CoreBlockPyExprWithoutAwaitOrYield {
 
 fn is_resume_generator_exit_test() -> CoreBlockPyExprWithoutAwaitOrYield {
     core_expr_without_yield(py_expr!("isinstance(_dp_resume_exc, GeneratorExit)"))
+}
+
+fn resume_exc_raise_term() -> BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield> {
+    BlockPyTerm::Raise(BlockPyRaise {
+        exc: Some(core_name("_dp_resume_exc")),
+    })
 }
 
 fn stop_iteration_match_test() -> CoreBlockPyExprWithoutAwaitOrYield {
@@ -1036,9 +1061,7 @@ fn emit_resume_after_yield(
         BlockPyBlock {
             label: raise_label,
             body: Vec::new(),
-            term: BlockPyTerm::Raise(BlockPyRaise {
-                exc: Some(core_name("_dp_resume_exc")),
-            }),
+            term: resume_exc_raise_term(),
             meta: meta.clone(),
         },
         exc_target.clone(),
@@ -1109,7 +1132,7 @@ fn emit_yield_from_site(
         BlockPyBlock {
             label,
             body: std::mem::take(prefix),
-            term: BlockPyTerm::Jump(delegate_label.clone()),
+            term: BlockPyTerm::Jump(delegate_label.clone().into()),
             meta: meta.clone(),
         },
         exc_target.clone(),
@@ -1150,7 +1173,7 @@ fn emit_yield_from_site(
                 target: expr_name(yielded_value_name.as_str()),
                 value: core_expr_without_yield(py_expr!("next(_dp_yieldfrom)")),
             })],
-            term: BlockPyTerm::Jump(yielded_label.clone()),
+            term: BlockPyTerm::Jump(yielded_label.clone().into()),
             meta: meta.clone(),
         },
         Some(call_except_label.as_str().to_string()),
@@ -1162,7 +1185,7 @@ fn emit_yield_from_site(
                 target: expr_name(yielded_value_name.as_str()),
                 value: core_expr_without_yield(py_expr!("_dp_yieldfrom.send(_dp_send_value)")),
             })],
-            term: BlockPyTerm::Jump(yielded_label.clone()),
+            term: BlockPyTerm::Jump(yielded_label.clone().into()),
             meta: meta.clone(),
         },
         Some(call_except_label.as_str().to_string()),
@@ -1203,7 +1226,7 @@ fn emit_yield_from_site(
                 "{close:id}()",
                 close = close_name.as_str(),
             )))],
-            term: BlockPyTerm::Jump(raise_resume_exc_label.clone()),
+            term: BlockPyTerm::Jump(raise_resume_exc_label.clone().into()),
             meta: meta.clone(),
         },
         exc_target.clone(),
@@ -1234,13 +1257,13 @@ fn emit_yield_from_site(
                     throw_fn = throw_name.as_str(),
                 )),
             })],
-            term: BlockPyTerm::Jump(yielded_label.clone()),
+            term: BlockPyTerm::Jump(yielded_label.clone().into()),
             meta: meta.clone(),
         },
         Some(call_except_label.as_str().to_string()),
     );
     let mut except_meta = meta.clone();
-    except_meta.exc_param = Some(caught_exc_name.clone());
+    except_meta.set_exception_param(caught_exc_name.clone());
     state.push_block(
         BlockPyBlock {
             label: call_except_label.clone(),
@@ -1261,7 +1284,7 @@ fn emit_yield_from_site(
                 target: expr_name(yielded_value_name.as_str()),
                 value: current_exception_value_expr(),
             })],
-            term: BlockPyTerm::Jump(done_label.clone()),
+            term: BlockPyTerm::Jump(done_label.clone().into()),
             meta: except_meta.clone(),
         },
         exc_target.clone(),
@@ -1270,7 +1293,9 @@ fn emit_yield_from_site(
         BlockPyBlock {
             label: non_stopiter_label,
             body: Vec::new(),
-            term: BlockPyTerm::Raise(BlockPyRaise { exc: None }),
+            term: BlockPyTerm::Raise(BlockPyRaise {
+                exc: Some(core_name(caught_exc_name.as_str())),
+            }),
             meta: except_meta,
         },
         exc_target.clone(),
@@ -1291,9 +1316,7 @@ fn emit_yield_from_site(
         BlockPyBlock {
             label: raise_resume_exc_label,
             body: Vec::new(),
-            term: BlockPyTerm::Raise(BlockPyRaise {
-                exc: Some(core_name("_dp_resume_exc")),
-            }),
+            term: resume_exc_raise_term(),
             meta: meta.clone(),
         },
         exc_target.clone(),
@@ -1486,6 +1509,7 @@ pub(crate) fn lower_generator_like_function(
             &callable.params,
             std::slice::from_ref(&factory_block),
             HashMap::from([(String::from("start"), None)]),
+            &closure_layout,
         ),
     };
 
@@ -1503,10 +1527,15 @@ pub(crate) fn lower_generator_like_function(
         param_defaults: Vec::new(),
         blocks: resume_blocks.clone(),
         doc: None,
-        closure_layout: Some(closure_layout),
+        closure_layout: Some(closure_layout.clone()),
         facts: callable.facts,
         try_regions: Vec::new(),
-        extra: compute_lowered_extra(&resume_params, &resume_blocks, resume_exception_edges),
+        extra: compute_lowered_extra(
+            &resume_params,
+            &resume_blocks,
+            resume_exception_edges,
+            &closure_layout,
+        ),
     };
 
     vec![visible_function, resume_function]

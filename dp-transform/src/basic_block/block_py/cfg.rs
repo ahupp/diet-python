@@ -72,7 +72,7 @@ fn rename_blockpy_term(
     }
 
     match term {
-        BlockPyTerm::Jump(target) => rename_target_label(target, rename),
+        BlockPyTerm::Jump(target) => rename_target_label(&mut target.target, rename),
         BlockPyTerm::IfTerm(BlockPyIfTerm {
             test,
             then_label,
@@ -361,7 +361,7 @@ fn linearize_blockpy_if_sequence<E: Clone + Into<Expr>>(
 
     let branch_fallthrough = join_label
         .clone()
-        .map(BlockPyTerm::Jump)
+        .map(|label| BlockPyTerm::Jump(label.into()))
         .unwrap_or_else(|| final_term.clone());
     linearize_blockpy_fragment(
         then_label,
@@ -532,7 +532,7 @@ pub(crate) fn fold_constant_brif_blockpy(blocks: &mut [BlockPyBlock<Expr>]) {
             _ => None,
         };
         if let Some(target) = jump_target {
-            block.term = BlockPyTerm::Jump(BlockPyLabel::from(target));
+            block.term = BlockPyTerm::Jump(BlockPyLabel::from(target).into());
         }
     }
 }

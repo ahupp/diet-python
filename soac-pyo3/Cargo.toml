@@ -13,3 +13,4 @@ dp-transform = { path = "../dp-transform" }
 soac-eval = { path = "../soac-eval" }
 pyo3 = { workspace = true, features = ["extension-module"] }
 log = "0.4"
+serde_json = "1"

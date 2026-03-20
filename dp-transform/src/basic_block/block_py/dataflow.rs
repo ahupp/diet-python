@@ -1,6 +1,6 @@
 use super::{
-    BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete, BlockPyIf,
-    BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyTerm,
+    BlockArg, BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete,
+    BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyTerm,
 };
 use crate::basic_block::ast_symbol_analysis::{collect_assigned_names, load_names_in_expr};
 use crate::transformer::{walk_expr, Transformer};
@@ -30,10 +30,82 @@ where
         changed = false;
         for (idx, block) in blocks.iter().enumerate().rev() {
             let mut out = HashSet::new();
-            for succ in blockpy_successors(block) {
-                if let Some(succ_idx) = label_to_index.get(succ.as_str()) {
-                    out.extend(live_in[*succ_idx].iter().cloned());
+            match &block.term {
+                BlockPyTerm::Jump(target) => {
+                    extend_successor_live_in(
+                        &mut out,
+                        blocks,
+                        &label_to_index,
+                        &live_in,
+                        target.as_str(),
+                        &target.args,
+                    );
                 }
+                BlockPyTerm::IfTerm(BlockPyIfTerm {
+                    then_label,
+                    else_label,
+                    ..
+                }) => {
+                    extend_successor_live_in(
+                        &mut out,
+                        blocks,
+                        &label_to_index,
+                        &live_in,
+                        then_label.as_str(),
+                        &[],
+                    );
+                    extend_successor_live_in(
+                        &mut out,
+                        blocks,
+                        &label_to_index,
+                        &live_in,
+                        else_label.as_str(),
+                        &[],
+                    );
+                }
+                BlockPyTerm::BranchTable(BlockPyBranchTable {
+                    targets,
+                    default_label,
+                    ..
+                }) => {
+                    for target in targets {
+                        extend_successor_live_in(
+                            &mut out,
+                            blocks,
+                            &label_to_index,
+                            &live_in,
+                            target.as_str(),
+                            &[],
+                        );
+                    }
+                    extend_successor_live_in(
+                        &mut out,
+                        blocks,
+                        &label_to_index,
+                        &live_in,
+                        default_label.as_str(),
+                        &[],
+                    );
+                }
+                BlockPyTerm::TryJump(try_jump) => {
+                    extend_successor_live_in(
+                        &mut out,
+                        blocks,
+                        &label_to_index,
+                        &live_in,
+                        try_jump.body_label.as_str(),
+                        &[],
+                    );
+                    extend_successor_live_in(
+                        &mut out,
+                        blocks,
+                        &label_to_index,
+                        &live_in,
+                        try_jump.except_label.as_str(),
+                        &[],
+                    );
+                }
+                BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => {}
             }
             if let Some(extra) = extra_successors.get(block.label.as_str()) {
                 for succ in extra {
@@ -69,6 +141,45 @@ where
     params
 }
 
+pub(crate) fn merge_declared_block_params<E>(
+    blocks: &[BlockPyBlock<E>],
+    block_params: &mut HashMap<String, Vec<String>>,
+) {
+    for block in blocks {
+        let params = block_params
+            .entry(block.label.as_str().to_string())
+            .or_default();
+        for param_name in block
+            .meta
+            .exception_param()
+            .into_iter()
+            .chain(block.meta.param_names())
+        {
+            if !params.iter().any(|existing| existing == param_name) {
+                params.push(param_name.to_string());
+            }
+        }
+    }
+}
+
+pub(crate) fn extend_state_order_with_declared_block_params<E>(
+    blocks: &[BlockPyBlock<E>],
+    state_order: &mut Vec<String>,
+) {
+    for block in blocks {
+        for param_name in block
+            .meta
+            .exception_param()
+            .into_iter()
+            .chain(block.meta.param_names())
+        {
+            if !state_order.iter().any(|existing| existing == param_name) {
+                state_order.push(param_name.to_string());
+            }
+        }
+    }
+}
+
 pub(crate) fn analyze_blockpy_use_def<E>(
     block: &BlockPyBlock<E>,
 ) -> (HashSet<String>, HashSet<String>)
@@ -78,8 +189,8 @@ where
     let mut uses = HashSet::new();
     let mut defs = HashSet::new();
 
-    if let Some(exc_param) = block.meta.exc_param.as_ref() {
-        uses.insert(exc_param.clone());
+    if let Some(exc_param) = block.meta.exception_param() {
+        uses.insert(exc_param.to_string());
     }
 
     for stmt in &block.body {
@@ -104,35 +215,56 @@ where
     (uses, defs)
 }
 
-fn blockpy_successors<E>(block: &BlockPyBlock<E>) -> Vec<String> {
-    match &block.term {
-        BlockPyTerm::Jump(target) => vec![target.as_str().to_string()],
-        BlockPyTerm::IfTerm(BlockPyIfTerm {
-            then_label,
-            else_label,
-            ..
-        }) => vec![
-            then_label.as_str().to_string(),
-            else_label.as_str().to_string(),
-        ],
-        BlockPyTerm::BranchTable(BlockPyBranchTable {
-            targets,
-            default_label,
-            ..
-        }) => {
-            let mut out = targets
-                .iter()
-                .map(|label| label.as_str().to_string())
-                .collect::<Vec<_>>();
-            out.push(default_label.as_str().to_string());
-            out
+fn extend_successor_live_in<E>(
+    out: &mut HashSet<String>,
+    blocks: &[BlockPyBlock<E>],
+    label_to_index: &HashMap<&str, usize>,
+    live_in: &[HashSet<String>],
+    target_label: &str,
+    edge_args: &[BlockArg<E>],
+) where
+    E: Clone + Into<Expr>,
+{
+    let Some(succ_idx) = label_to_index.get(target_label).copied() else {
+        return;
+    };
+    let succ_block = &blocks[succ_idx];
+    let declared_param_names = succ_block
+        .meta
+        .exception_param()
+        .into_iter()
+        .chain(succ_block.meta.param_names())
+        .collect::<Vec<_>>();
+    let explicit_start = declared_param_names.len().saturating_sub(edge_args.len());
+    let explicit_param_names = declared_param_names[explicit_start..]
+        .iter()
+        .copied()
+        .collect::<HashSet<_>>();
+    for name in &live_in[succ_idx] {
+        if !explicit_param_names.contains(name.as_str()) {
+            out.insert(name.clone());
         }
-        BlockPyTerm::TryJump(try_jump) => vec![
-            try_jump.body_label.as_str().to_string(),
-            try_jump.except_label.as_str().to_string(),
-        ],
-        BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => Vec::new(),
     }
+    out.extend(load_names_in_blockpy_edge_args(edge_args));
+}
+
+fn load_names_in_blockpy_edge_args<E>(args: &[BlockArg<E>]) -> HashSet<String>
+where
+    E: Clone + Into<Expr>,
+{
+    let mut names = HashSet::new();
+    for arg in args {
+        match arg {
+            BlockArg::Name(name) => {
+                names.insert(name.clone());
+            }
+            BlockArg::Expr(expr) => {
+                names.extend(load_names_in_blockpy_expr(expr));
+            }
+            BlockArg::None | BlockArg::CurrentException | BlockArg::AbruptKind(_) => {}
+        }
+    }
+    names
 }
 
 fn load_names_in_blockpy_expr<E>(expr: &E) -> HashSet<String>
@@ -166,7 +298,8 @@ where
     E: Clone + Into<Expr>,
 {
     match term {
-        BlockPyTerm::Jump(_) | BlockPyTerm::TryJump(_) => HashSet::new(),
+        BlockPyTerm::Jump(target) => load_names_in_blockpy_edge_args(&target.args),
+        BlockPyTerm::TryJump(_) => HashSet::new(),
         BlockPyTerm::IfTerm(BlockPyIfTerm { test, .. }) => load_names_in_blockpy_expr(test),
         BlockPyTerm::BranchTable(BlockPyBranchTable { index, .. }) => {
             load_names_in_blockpy_expr(index)

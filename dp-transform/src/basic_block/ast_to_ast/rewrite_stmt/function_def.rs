@@ -11,6 +11,7 @@ use crate::basic_block::ast_to_ast::scope::{
 };
 use crate::basic_block::block_py::dataflow::{
     analyze_blockpy_use_def, compute_block_params_blockpy,
+    extend_state_order_with_declared_block_params, merge_declared_block_params,
 };
 use crate::basic_block::block_py::param_specs::{
     param_defaults_to_expr, param_spec_to_expr, ParamSpec,
@@ -226,29 +227,20 @@ fn build_lowered_function_instantiation_preview(
     let param_name_set: HashSet<String> = param_names.iter().cloned().collect();
     let mut state_vars = collect_state_vars(&param_names, &callable_def.blocks);
     for block in &callable_def.blocks {
-        let Some(exc_param) = block.meta.exc_param.as_ref() else {
+        let Some(exc_param) = block.meta.exception_param() else {
             continue;
         };
         if !state_vars.iter().any(|existing| existing == exc_param) {
-            state_vars.push(exc_param.clone());
+            state_vars.push(exc_param.to_string());
         }
     }
+    extend_state_order_with_declared_block_params(&callable_def.blocks, &mut state_vars);
     let mut block_params = compute_block_params_blockpy(
         &callable_def.blocks,
         &state_vars,
         &build_try_extra_successors(&callable_def.try_regions),
     );
-    for block in &callable_def.blocks {
-        let Some(exc_param) = block.meta.exc_param.as_ref() else {
-            continue;
-        };
-        let params = block_params
-            .entry(block.label.as_str().to_string())
-            .or_default();
-        if !params.iter().any(|existing| existing == exc_param) {
-            params.push(exc_param.clone());
-        }
-    }
+    merge_declared_block_params(&callable_def.blocks, &mut block_params);
     let entry_liveins = block_params
         .get(callable_def.entry_label())
         .cloned()

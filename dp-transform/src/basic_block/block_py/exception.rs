@@ -1,14 +1,23 @@
-use super::{BlockPyAssign, BlockPyBlock, BlockPyLabel, BlockPyStmt, BlockPyTerm};
+use super::{
+    AbruptKind, BlockArg, BlockPyAssign, BlockPyBlock, BlockPyEdge, BlockPyLabel, BlockPyStmt,
+    BlockPyTerm,
+};
 use crate::basic_block::ast_to_ast::body::suite_ref;
 use crate::py_expr;
-use ruff_python_ast::{self as ast, Expr, Stmt};
+use ruff_python_ast::{self as ast, Expr, ExprName, Stmt};
+
+fn expr_name(id: &str) -> ExprName {
+    let Expr::Name(expr) = py_expr!("{id:id}", id = id) else {
+        unreachable!();
+    };
+    expr
+}
 
 pub(crate) fn rewrite_region_returns_to_finally_blockpy<E>(
     blocks: &mut [BlockPyBlock<E>],
-    reason_name: &str,
-    return_value_name: &str,
     finally_target: &str,
-    finally_exc_name: Option<&str>,
+    payload_name: Option<&str>,
+    include_current_exception_arg: bool,
 ) where
     E: From<Expr>,
 {
@@ -21,36 +30,30 @@ pub(crate) fn rewrite_region_returns_to_finally_blockpy<E>(
             }
         };
         let ret_expr = ret_value.unwrap_or_else(|| py_expr!("None").into());
-        block.body.push(BlockPyStmt::Assign(BlockPyAssign {
-            target: ast::ExprName {
-                id: reason_name.into(),
-                ctx: ast::ExprContext::Store,
-                range: Default::default(),
-                node_index: ast::AtomicNodeIndex::default(),
-            },
-            value: py_expr!("'return'").into(),
-        }));
-        block.body.push(BlockPyStmt::Assign(BlockPyAssign {
-            target: ast::ExprName {
-                id: return_value_name.into(),
-                ctx: ast::ExprContext::Store,
-                range: Default::default(),
-                node_index: ast::AtomicNodeIndex::default(),
-            },
-            value: ret_expr.into(),
-        }));
-        if let Some(finally_exc_name) = finally_exc_name {
+        let payload_arg = if let Some(payload_name) = payload_name {
             block.body.push(BlockPyStmt::Assign(BlockPyAssign {
-                target: ast::ExprName {
-                    id: finally_exc_name.into(),
-                    ctx: ast::ExprContext::Store,
-                    range: Default::default(),
-                    node_index: ast::AtomicNodeIndex::default(),
-                },
-                value: py_expr!("None").into(),
+                target: expr_name(payload_name),
+                value: ret_expr,
             }));
+            BlockArg::Name(payload_name.to_string())
+        } else {
+            BlockArg::Expr(ret_expr)
+        };
+        if include_current_exception_arg {
+            block.term = BlockPyTerm::Jump(BlockPyEdge::with_args(
+                BlockPyLabel::from(finally_target.to_string()),
+                vec![
+                    BlockArg::None,
+                    BlockArg::AbruptKind(AbruptKind::Return),
+                    payload_arg,
+                ],
+            ));
+        } else {
+            block.term = BlockPyTerm::Jump(BlockPyEdge::with_args(
+                BlockPyLabel::from(finally_target.to_string()),
+                vec![BlockArg::AbruptKind(AbruptKind::Return), payload_arg],
+            ));
         }
-        block.term = BlockPyTerm::Jump(BlockPyLabel::from(finally_target.to_string()));
     }
 }
 

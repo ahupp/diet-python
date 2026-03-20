@@ -4,8 +4,6 @@ x = a[b]
 
 # ==
 
-# module_init: _dp_module_init
-
 # function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", a[b])
@@ -16,8 +14,6 @@ x = a[b]
 x = a[1:2:3]
 
 # ==
-
-# module_init: _dp_module_init
 
 # function _dp_module_init():
 #     block start:
@@ -30,8 +26,6 @@ x = a + b
 
 # ==
 
-# module_init: _dp_module_init
-
 # function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", a + b)
@@ -42,8 +36,6 @@ x = a + b
 x = a | b
 
 # ==
-
-# module_init: _dp_module_init
 
 # function _dp_module_init():
 #     block start:
@@ -56,8 +48,6 @@ x = -a
 
 # ==
 
-# module_init: _dp_module_init
-
 # function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", -a)
@@ -68,8 +58,6 @@ x = -a
 x = a and b or c
 
 # ==
-
-# module_init: _dp_module_init
 
 # function _dp_module_init():
 #     block start:
@@ -88,8 +76,6 @@ x = a < b
 
 # ==
 
-# module_init: _dp_module_init
-
 # function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", __dp_lt(a, b))
@@ -100,8 +86,6 @@ x = a < b
 x = a < b < c
 
 # ==
-
-# module_init: _dp_module_init
 
 # function _dp_module_init():
 #     block start:
@@ -119,8 +103,6 @@ x = a not in b
 
 # ==
 
-# module_init: _dp_module_init
-
 # function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", __dp_not_(__dp_contains(b, a)))
@@ -131,8 +113,6 @@ x = a not in b
 x = a if cond else b
 
 # ==
-
-# module_init: _dp_module_init
 
 # function _dp_module_init():
 #     block start:
@@ -149,8 +129,6 @@ x = (y := f())
 
 # ==
 
-# module_init: _dp_module_init
-
 # function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", __dp_store_global(globals(), "y", f()))
@@ -161,8 +139,6 @@ x = (y := f())
 x = lambda y: y + 1
 
 # ==
-
-# module_init: _dp_module_init
 
 # function <lambda>(y):
 #     display_name: <lambda>
@@ -180,8 +156,6 @@ x = lambda y: y + 1
 x = (i for i in it)
 
 # ==
-
-# module_init: _dp_module_init
 
 # generator <genexpr>(_dp_iter_2):
 #     display_name: <genexpr>
@@ -214,8 +188,6 @@ x = [a, b]
 
 # ==
 
-# module_init: _dp_module_init
-
 # function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", [a, b])
@@ -226,8 +198,6 @@ x = [a, b]
 x = [a, *b]
 
 # ==
-
-# module_init: _dp_module_init
 
 # function _dp_module_init():
 #     block start:
@@ -240,8 +210,6 @@ x = (a, *b)
 
 # ==
 
-# module_init: _dp_module_init
-
 # function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", (a, *b))
@@ -252,8 +220,6 @@ x = (a, *b)
 x = {a, b}
 
 # ==
-
-# module_init: _dp_module_init
 
 # function _dp_module_init():
 #     block start:
@@ -266,8 +232,6 @@ x = {"a": 1, "b": 2}
 
 # ==
 
-# module_init: _dp_module_init
-
 # function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", {"a": 1, "b": 2})
@@ -279,8 +243,6 @@ x = {"a": 1, **m, "b": 2}
 
 # ==
 
-# module_init: _dp_module_init
-
 # function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", {"a": 1, **m, "b": 2})
@@ -291,8 +253,6 @@ x = {"a": 1, **m, "b": 2}
 x = [i for i in it]
 
 # ==
-
-# module_init: _dp_module_init
 
 # function _dp_listcomp_3(_dp_iter_2):
 #     display_name: <listcomp>
@@ -327,8 +287,6 @@ x = {i for i in it}
 
 # ==
 
-# module_init: _dp_module_init
-
 # function _dp_setcomp_3(_dp_iter_2):
 #     display_name: <setcomp>
 #     block start:
@@ -361,8 +319,6 @@ x = {i for i in it}
 x = {k: v for k, v in it}
 
 # ==
-
-# module_init: _dp_module_init
 
 # function _dp_dictcomp_3(_dp_iter_2):
 #     display_name: <dictcomp>
@@ -400,8 +356,6 @@ x = f().y
 
 # ==
 
-# module_init: _dp_module_init
-
 # function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", f().y)
@@ -412,8 +366,6 @@ x = f().y
 x = f"{a}"
 
 # ==
-
-# module_init: _dp_module_init
 
 # function _dp_module_init():
 #     block start:
@@ -426,8 +378,6 @@ x = t"{a}"
 
 # ==
 
-# module_init: _dp_module_init
-
 # function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", t"{a}")
@@ -439,8 +389,6 @@ x = 1j
 
 # ==
 
-# module_init: _dp_module_init
-
 # function _dp_module_init():
 #     block start:
 #         __dp_store_global(globals(), "x", 1j)
@@ -451,8 +399,6 @@ x = 1j
 x = 1.234567890123456789
 
 # ==
-
-# module_init: _dp_module_init
 
 # function _dp_module_init():
 #     block start:

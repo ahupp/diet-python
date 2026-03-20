@@ -4,14 +4,26 @@
 - Reserved for user requests that start with `TODO`.
 - Add one entry per request and include any plan or relevant response summary with it.
 
-- Move bb_ir.rs into blockpy_to_bb.  Also, BbModule seems to have it's own pretty-printing path; unify that with the other printing paths using the new BlockPyModuleMap trait.  Move web_inspector_support.rs to a "pretty.rs", could prob merge with that existing pretty.rs too.
-- Determine if codegen_trace.rs and cfg_trace.rs are doing similar things.
-- move all the summarize_ stuff in basic_block/mod.rs to it's own module, and use a BlockPyModuleMap to do that generically.
-- there are many places where we switch behavior based on the names of things, searching for _dp_class_ns_, __dp_decode_literal_bytes, should_strip_nonlocal_for_bb
-- Everything about annotation_export.rs needs revisiting.
-- I don't think flatten_stmt_boxes and flatten_stmt do anything anymore, remove
-- merge bound_names into ast_symbol_analysis
 
+- There is pretty-print logic in bb_ir.rs, web_inspector.rs, and block_py/pretty.rs. \ Determine if all those can be merged into a single implementation, possibly with BlockPyModuleVisitor.
+- move bb_ir into blockpy_to_bb
+- Determine if codegen_trace.rs and cfg_trace.rs are doing similar things, and merge if so.
+
+- move "block_py" to be a top-level module.
+- rename the "basic_block" module to "passes"
+
+- Simplify should remove literals for true/false/none/ellipsis, replacing them with their _dp_ versions, remove that from codegen_normalize.  Remove those from the expr ast.
+
+- there are many places where we switch behavior based on the names of things, ex:
+    * _dp_class_ns_
+    * __dp_decode_literal_bytes
+    * should_strip_nonlocal_for_bb
+    * _dp_self
+    * _dp_cell_
+    * _dp_try_exc_
+    * _dp_classcell
+
+- Everything about annotation_export.rs needs revisiting.
 - Use Ruff for scope analysis and see if it can be computed once and preserved through transform layers.
   - Planning note:
     - The desired end state is to replace local repeated scope-analysis passes with Ruff’s scope analysis and carry that result through later transform phases instead of recomputing scope metadata.
@@ -80,4 +92,7 @@
 - Remove the fallback await-lowering path so all awaits use one explicit pass, and make that pass appear as a top-level step in `rewrite_module`.
 - Add an evaluation-order-explicit pass that hoists composite subexpressions into temps while preserving left-to-right evaluation, e.g. `a = foo(b(), c)` -> `tmp = b(); a = foo(tmp, c)`.
 - Remove local `StmtBody` usage and move back to upstream Ruff structures.
+- Implement a BlockPyModuleVisitor, analagous to BlockPyModuleMap.  This will visit everything in order, taking by reference not value.  It should have a &mut self reciever.  Then move all the summarize_ stuff in basic_block/mod.rs to it's own module, and use a BlockPyModuleVisitor to do that generically.
+- I don't think flatten_stmt_boxes and flatten_stmt do anything anymore, remove
+- merge bound_names into ast_symbol_analysis
 

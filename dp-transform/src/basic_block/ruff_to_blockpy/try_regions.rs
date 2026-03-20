@@ -2,42 +2,49 @@ use super::compat::set_region_exc_param;
 use super::*;
 use crate::basic_block::ast_to_ast::body::{suite_ref, Suite};
 use crate::basic_block::block_py::{
-    BlockPyBlock, BlockPyIfTerm, BlockPyLabel, BlockPyStmt, BlockPyTerm,
+    AbruptKind, BlockArg, BlockParamRole, BlockPyBlock, BlockPyBranchTable, BlockPyCfgBlockBuilder,
+    BlockPyEdge, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm,
 };
 
 #[derive(Debug, Clone)]
 pub(crate) struct TryPlan {
     pub except_exc_name: String,
-    pub finally_reason_name: Option<String>,
-    pub finally_return_value_name: Option<String>,
+    pub finally_abrupt_kind_name: Option<String>,
+    pub finally_abrupt_payload_name: Option<String>,
     pub finally_dispatch_label: Option<String>,
     pub finally_return_label: Option<String>,
+    pub finally_raise_label: Option<String>,
     pub finally_exc_name: Option<String>,
 }
 
 pub(crate) fn build_try_plan(
     fn_name: &str,
     has_finally: bool,
-    needs_finally_return_flow: bool,
+    _needs_finally_return_flow: bool,
     next_id: &mut usize,
 ) -> TryPlan {
     let except_exc_name = compat_next_temp("try_exc", next_id);
-    let finally_reason_name = if has_finally && needs_finally_return_flow {
-        Some(compat_next_temp("try_reason", next_id))
+    let finally_abrupt_kind_name = if has_finally {
+        Some(compat_next_temp("try_abrupt_kind", next_id))
     } else {
         None
     };
-    let finally_return_value_name = if has_finally && needs_finally_return_flow {
-        Some(compat_next_temp("try_value", next_id))
+    let finally_abrupt_payload_name = if has_finally {
+        Some(compat_next_temp("try_abrupt_payload", next_id))
     } else {
         None
     };
-    let finally_dispatch_label = if has_finally && needs_finally_return_flow {
+    let finally_dispatch_label = if has_finally {
         Some(compat_next_label(fn_name, next_id))
     } else {
         None
     };
-    let finally_return_label = if has_finally && needs_finally_return_flow {
+    let finally_return_label = if has_finally {
+        Some(compat_next_label(fn_name, next_id))
+    } else {
+        None
+    };
+    let finally_raise_label = if has_finally {
         Some(compat_next_label(fn_name, next_id))
     } else {
         None
@@ -50,10 +57,11 @@ pub(crate) fn build_try_plan(
 
     TryPlan {
         except_exc_name,
-        finally_reason_name,
-        finally_return_value_name,
+        finally_abrupt_kind_name,
+        finally_abrupt_payload_name,
         finally_dispatch_label,
         finally_return_label,
+        finally_raise_label,
         finally_exc_name,
     }
 }
@@ -66,22 +74,8 @@ impl TryPlan {
     }
 }
 
-pub(crate) fn prepare_finally_body(finalbody: &Suite, finally_exc_name: Option<&str>) -> Vec<Stmt> {
-    let mut finally_body = flatten_stmt_boxes(finalbody);
-    if let Some(finally_exc_name) = finally_exc_name {
-        finally_body.insert(
-            0,
-            py_stmt!(
-                "{exc:id} = __dp_current_exception()",
-                exc = finally_exc_name,
-            ),
-        );
-        finally_body.push(py_stmt!(
-            "if __dp_is_not({exc:id}, None):\n    raise {exc:id}",
-            exc = finally_exc_name,
-        ));
-    }
-    finally_body
+pub(crate) fn prepare_finally_body(finalbody: &Suite) -> Vec<Stmt> {
+    finalbody.to_vec()
 }
 
 pub(crate) fn prepare_except_body(handlers: &[ast::ExceptHandler]) -> Vec<Stmt> {
@@ -89,7 +83,7 @@ pub(crate) fn prepare_except_body(handlers: &[ast::ExceptHandler]) -> Vec<Stmt> 
         .first()
         .map(|handler| {
             let ast::ExceptHandler::ExceptHandler(handler) = handler;
-            flatten_stmt_boxes(suite_ref(&handler.body))
+            suite_ref(&handler.body).to_vec()
         })
         .unwrap_or_else(|| vec![py_stmt!("raise")])
 }
@@ -103,6 +97,7 @@ pub(crate) struct LoweredTryRegions {
     pub finally_region_range: Option<std::ops::Range<usize>>,
     pub finally_label: Option<String>,
     pub finally_normal_entry: Option<String>,
+    pub finally_exception_entry: Option<String>,
 }
 
 pub(crate) fn lower_try_regions<F>(
@@ -126,32 +121,77 @@ where
             blocks,
         );
         let finally_region_end = blocks.len();
-        let finally_normal_entry = try_plan.finally_exc_name.as_ref().map(|finally_exc_name| {
+        if let Some(finally_entry) = blocks
+            .iter_mut()
+            .find(|block| block.label.as_str() == finally_label)
+        {
+            if let Some(kind_name) = try_plan.finally_abrupt_kind_name.as_ref() {
+                finally_entry
+                    .meta
+                    .ensure_param(kind_name.clone(), BlockParamRole::AbruptKind);
+            }
+            if let Some(payload_name) = try_plan.finally_abrupt_payload_name.as_ref() {
+                finally_entry
+                    .meta
+                    .ensure_param(payload_name.clone(), BlockParamRole::AbruptPayload);
+            }
+        }
+        let finally_normal_entry = try_plan.finally_abrupt_kind_name.as_ref().map(|_| {
             let normal_label = format!("{finally_label}__normal");
-            blocks.push(compat_block_from_blockpy(
-                normal_label.clone(),
-                vec![py_stmt!("{exc:id} = None", exc = finally_exc_name.as_str(),)],
-                BlockPyTerm::Jump(BlockPyLabel::from(finally_label.clone())),
-            ));
+            let mut block = BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(
+                BlockPyLabel::from(normal_label.clone()),
+            );
+            let mut args = Vec::new();
+            if try_plan.finally_exc_name.is_some() {
+                args.push(BlockArg::None);
+            }
+            args.push(BlockArg::AbruptKind(AbruptKind::Fallthrough));
+            args.push(BlockArg::None);
+            block.set_term(BlockPyTerm::Jump(BlockPyEdge::with_args(
+                BlockPyLabel::from(finally_label.clone()),
+                args,
+            )));
+            blocks.push(block.finish(None));
             normal_label
+        });
+        let finally_exception_entry = try_plan.finally_exc_name.as_ref().map(|finally_exc_name| {
+            let exception_label = format!("{finally_label}__exception");
+            let mut block = BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(
+                BlockPyLabel::from(exception_label.clone()),
+            )
+            .with_exc_param(Some(finally_exc_name.clone()));
+            let args = vec![
+                BlockArg::Name(finally_exc_name.clone()),
+                BlockArg::AbruptKind(AbruptKind::Exception),
+                BlockArg::Name(finally_exc_name.clone()),
+            ];
+            block.set_term(BlockPyTerm::Jump(BlockPyEdge::with_args(
+                BlockPyLabel::from(finally_label.clone()),
+                args,
+            )));
+            blocks.push(block.finish(None));
+            exception_label
         });
         if let (
             Some(finally_return_label),
             Some(finally_dispatch_label),
-            Some(return_name),
-            Some(reason_name),
+            Some(finally_raise_label),
+            Some(payload_name),
+            Some(kind_name),
         ) = (
             try_plan.finally_return_label.clone(),
             try_plan.finally_dispatch_label.clone(),
-            try_plan.finally_return_value_name.as_ref(),
-            try_plan.finally_reason_name.as_ref(),
+            try_plan.finally_raise_label.clone(),
+            try_plan.finally_abrupt_payload_name.as_ref(),
+            try_plan.finally_abrupt_kind_name.as_ref(),
         ) {
-            emit_finally_return_dispatch_blocks(
+            emit_finally_abrupt_dispatch_blocks(
                 blocks,
                 finally_return_label,
+                finally_raise_label,
                 finally_dispatch_label,
-                return_name,
-                reason_name,
+                payload_name,
+                kind_name,
                 rest_entry.to_string(),
             );
         }
@@ -159,6 +199,7 @@ where
             finally_label,
             finally_region_start..finally_region_end,
             finally_normal_entry,
+            finally_exception_entry,
         ))
     } else {
         None
@@ -166,7 +207,7 @@ where
 
     let cleanup_target = finally_label
         .as_ref()
-        .map(|(label, _, normal_entry)| normal_entry.clone().unwrap_or_else(|| label.clone()))
+        .map(|(label, _, normal_entry, _)| normal_entry.clone().unwrap_or_else(|| label.clone()))
         .unwrap_or_else(|| rest_entry.to_string());
 
     let else_region_start = blocks.len();
@@ -184,9 +225,9 @@ where
         let except_region_end = blocks.len();
         except_region_range = Some(except_region_start..except_region_end);
         except_label
-    } else if let Some((finally_label, _, _)) = finally_label.clone() {
+    } else if let Some((finally_label, _, _, finally_exception_entry)) = finally_label.clone() {
         except_region_range = None;
-        finally_label
+        finally_exception_entry.unwrap_or(finally_label)
     } else {
         panic!("expected except body or finally body when lowering try");
     };
@@ -201,11 +242,14 @@ where
         body_region_range: body_region_start..body_region_end,
         else_region_range: else_region_start..else_region_end,
         except_region_range,
-        finally_region_range: finally_label.as_ref().map(|(_, range, _)| range.clone()),
+        finally_region_range: finally_label.as_ref().map(|(_, range, _, _)| range.clone()),
         finally_normal_entry: finally_label
             .as_ref()
-            .and_then(|(_, _, normal_entry)| normal_entry.clone()),
-        finally_label: finally_label.map(|(label, _, _)| label),
+            .and_then(|(_, _, normal_entry, _)| normal_entry.clone()),
+        finally_exception_entry: finally_label
+            .as_ref()
+            .and_then(|(_, _, _, exception_entry)| exception_entry.clone()),
+        finally_label: finally_label.map(|(label, _, _, _)| label),
     }
 }
 
@@ -220,36 +264,30 @@ pub(crate) fn finalize_try_regions(
     body_region_range: std::ops::Range<usize>,
     else_region_range: std::ops::Range<usize>,
     except_region_range: Option<std::ops::Range<usize>>,
-    finally_region_range: Option<std::ops::Range<usize>>,
+    _finally_region_range: Option<std::ops::Range<usize>>,
     finally_label: Option<String>,
-    finally_normal_entry: Option<String>,
+    _finally_normal_entry: Option<String>,
+    finally_exception_entry: Option<String>,
 ) -> (String, TryRegionPlan) {
-    if let (Some(reason_name), Some(return_name), Some(finally_target)) = (
-        try_plan.finally_reason_name.as_ref(),
-        try_plan.finally_return_value_name.as_ref(),
-        finally_normal_entry.as_ref().or(finally_label.as_ref()),
-    ) {
+    if let Some(finally_target) = finally_label.as_ref() {
         rewrite_region_returns_to_finally_blockpy(
             &mut blocks[body_region_range.clone()],
-            reason_name.as_str(),
-            return_name.as_str(),
             finally_target.as_str(),
-            None,
+            try_plan.finally_abrupt_payload_name.as_deref(),
+            try_plan.finally_exc_name.is_some(),
         );
         rewrite_region_returns_to_finally_blockpy(
             &mut blocks[else_region_range.clone()],
-            reason_name.as_str(),
-            return_name.as_str(),
             finally_target.as_str(),
-            None,
+            try_plan.finally_abrupt_payload_name.as_deref(),
+            try_plan.finally_exc_name.is_some(),
         );
         if let Some(except_region_range) = except_region_range.as_ref() {
             rewrite_region_returns_to_finally_blockpy(
                 &mut blocks[except_region_range.clone()],
-                reason_name.as_str(),
-                return_name.as_str(),
                 finally_target.as_str(),
-                None,
+                try_plan.finally_abrupt_payload_name.as_deref(),
+                try_plan.finally_exc_name.is_some(),
             );
         }
     }
@@ -262,12 +300,11 @@ pub(crate) fn finalize_try_regions(
         );
     }
     if let (Some(finally_region_range), Some(finally_exc_name)) = (
-        finally_region_range.as_ref(),
+        _finally_region_range.as_ref(),
         try_plan.finally_exc_name.as_ref(),
     ) {
         set_region_exc_param(blocks, finally_region_range, finally_exc_name.as_str());
     }
-
     let cleanup_region_labels = if finally_label.is_some() {
         let mut labels = collect_region_label_names(&blocks[else_region_range.clone()]);
         if let Some(except_region_range) = except_region_range.as_ref() {
@@ -283,33 +320,45 @@ pub(crate) fn finalize_try_regions(
         body_region_labels: collect_region_label_names(&blocks[body_region_range]),
         body_exception_target: except_label.clone(),
         cleanup_region_labels,
-        cleanup_exception_target: finally_label.clone(),
+        cleanup_exception_target: finally_exception_entry.or(finally_label.clone()),
     };
 
     let label = emit_try_jump_entry(blocks, label, linear, body_label, except_label);
     (label, try_region)
 }
 
-pub(crate) fn emit_finally_return_dispatch_blocks(
+pub(crate) fn emit_finally_abrupt_dispatch_blocks(
     blocks: &mut Vec<BlockPyBlock>,
     finally_return_label: String,
+    finally_raise_label: String,
     finally_dispatch_label: String,
-    return_name: &str,
-    reason_name: &str,
+    payload_name: &str,
+    kind_name: &str,
     rest_entry: String,
 ) {
     blocks.push(compat_block_from_blockpy(
         finally_return_label.clone(),
         Vec::new(),
-        BlockPyTerm::Return(Some(py_expr!("{name:id}", name = return_name).into())),
+        BlockPyTerm::Return(Some(py_expr!("{name:id}", name = payload_name).into())),
+    ));
+    blocks.push(compat_block_from_blockpy(
+        finally_raise_label.clone(),
+        Vec::new(),
+        BlockPyTerm::Raise(BlockPyRaise {
+            exc: Some(py_expr!("{name:id}", name = payload_name).into()),
+        }),
     ));
     blocks.push(compat_block_from_blockpy(
         finally_dispatch_label.clone(),
         Vec::new(),
-        BlockPyTerm::IfTerm(BlockPyIfTerm {
-            test: py_expr!("__dp_eq({reason:id}, 'return')", reason = reason_name,).into(),
-            then_label: BlockPyLabel::from(finally_return_label),
-            else_label: BlockPyLabel::from(rest_entry),
+        BlockPyTerm::BranchTable(BlockPyBranchTable {
+            index: py_expr!("{name:id}", name = kind_name).into(),
+            targets: vec![
+                BlockPyLabel::from(rest_entry.clone()),
+                BlockPyLabel::from(finally_return_label),
+                BlockPyLabel::from(finally_raise_label),
+            ],
+            default_label: BlockPyLabel::from(rest_entry),
         }),
     ));
 }

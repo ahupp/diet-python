@@ -6,6 +6,7 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::ffi;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
+use serde_json::json;
 use std::time::Instant;
 
 mod eval;
@@ -80,6 +81,26 @@ fn debug_pass_shape(
     payload.set_item("contains_yield", summary.contains_yield)?;
     payload.set_item("contains_dp_add", summary.contains_dp_add)?;
     Ok(payload.unbind())
+}
+
+#[pyfunction]
+fn inspect_pipeline(source: &str, ensure: Option<bool>) -> PyResult<String> {
+    let output = lower_source(source, ensure)?;
+    let mut steps = vec![json!({
+        "key": "input_source",
+        "label": "input source",
+        "text": source,
+    })];
+    for name in output.pass_names() {
+        let text = dp_transform::basic_block::render_tracked_pass_text(&output, name)
+            .unwrap_or_else(|| format!("; no text renderer for pass {name}"));
+        steps.push(json!({
+            "key": name,
+            "label": name,
+            "text": text,
+        }));
+    }
+    Ok(json!({ "steps": steps }).to_string())
 }
 
 #[pyfunction]
@@ -236,6 +257,7 @@ fn diet_python(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(transform_source, module)?)?;
     module.add_function(wrap_pyfunction!(transform_source_with_name, module)?)?;
     module.add_function(wrap_pyfunction!(debug_pass_shape, module)?)?;
+    module.add_function(wrap_pyfunction!(inspect_pipeline, module)?)?;
     module.add_function(wrap_pyfunction!(jit_has_bb_plan, module)?)?;
     module.add_function(wrap_pyfunction!(jit_block_param_names, module)?)?;
     module.add_function(wrap_pyfunction!(jit_debug_plan, module)?)?;

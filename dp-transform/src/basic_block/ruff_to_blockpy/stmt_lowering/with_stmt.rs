@@ -416,7 +416,7 @@ where
     } else {
         entry_linear.push(py_stmt!("{value:expr}", value = enter_value));
     }
-    try_body.extend(flatten_stmt_boxes(&body));
+    try_body.extend(body);
 
     let finally_body = build_with_finally_body(
         exit_name.as_str(),
@@ -448,6 +448,7 @@ where
         lowered_with.finally_region_range,
         lowered_with.finally_label,
         lowered_with.finally_normal_entry,
+        lowered_with.finally_exception_entry,
     );
     (entry, Some(try_region))
 }

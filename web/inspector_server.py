@@ -68,6 +68,9 @@ class InspectorHandler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(WEB_DIR), **kwargs)
 
     def do_POST(self):
+        if self.path == "/api/inspect_pipeline":
+            self._handle_inspect_pipeline()
+            return
         if self.path != "/api/jit_clif":
             self.send_error(HTTPStatus.NOT_FOUND, "unknown endpoint")
             return
@@ -95,6 +98,30 @@ class InspectorHandler(SimpleHTTPRequestHandler):
                 raise TypeError("entryLabel must be a string when provided")
             result = _render_clif(source, function_id, qualname, entry_label)
             self._send_json(HTTPStatus.OK, result)
+        except Exception as exc:  # noqa: BLE001
+            self._send_json(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                {
+                    "error": str(exc),
+                    "traceback": traceback.format_exc(),
+                },
+            )
+
+    def _handle_inspect_pipeline(self):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self.send_error(HTTPStatus.BAD_REQUEST, "invalid Content-Length")
+            return
+
+        try:
+            body = self.rfile.read(length)
+            payload = json.loads(body.decode("utf-8"))
+            source = payload.get("source", "")
+            if not isinstance(source, str):
+                raise TypeError("source must be a string")
+            rendered = DIET_PYTHON.inspect_pipeline(source, True)
+            self._send_json(HTTPStatus.OK, json.loads(rendered))
         except Exception as exc:  # noqa: BLE001
             self._send_json(
                 HTTPStatus.INTERNAL_SERVER_ERROR,

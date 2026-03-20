@@ -370,7 +370,6 @@ where
 
 #[derive(Debug, Clone, Default)]
 pub struct BlockPyBlockMeta {
-    pub exc_param: Option<String>,
     pub params: Vec<BlockParam>,
 }
 
@@ -595,9 +594,8 @@ impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>>
     }
 
     pub fn with_exc_param(mut self, exc_param: Option<String>) -> Self {
-        self.meta.exc_param = exc_param.clone();
         if let Some(exc_param) = exc_param {
-            self.meta.ensure_param(exc_param, BlockParamRole::Exception);
+            self.meta.set_exception_param(exc_param);
         }
         self
     }
@@ -798,17 +796,48 @@ impl BlockPyBlockMeta {
         self.params.push(BlockParam { name, role });
     }
 
+    pub fn set_exception_param(&mut self, name: impl Into<String>) {
+        let name = name.into();
+        for param in &mut self.params {
+            if param.role == BlockParamRole::Exception && param.name != name {
+                param.role = BlockParamRole::Local;
+            }
+        }
+        if let Some(param) = self.params.iter_mut().find(|param| param.name == name) {
+            param.role = BlockParamRole::Exception;
+            return;
+        }
+        self.params.push(BlockParam {
+            name,
+            role: BlockParamRole::Exception,
+        });
+    }
+
     pub fn exception_param(&self) -> Option<&str> {
-        self.exc_param.as_deref().or_else(|| {
-            self.params
-                .iter()
-                .find(|param| param.role == BlockParamRole::Exception)
-                .map(|param| param.name.as_str())
-        })
+        self.params
+            .iter()
+            .find(|param| param.role == BlockParamRole::Exception)
+            .map(|param| param.name.as_str())
     }
 
     pub fn param_names(&self) -> impl Iterator<Item = &str> {
         self.params.iter().map(|param| param.name.as_str())
+    }
+
+    pub fn bb_param_names(&self) -> impl Iterator<Item = &str> {
+        [
+            BlockParamRole::Exception,
+            BlockParamRole::Local,
+            BlockParamRole::AbruptKind,
+            BlockParamRole::AbruptPayload,
+        ]
+        .into_iter()
+        .flat_map(|role| {
+            self.params
+                .iter()
+                .filter(move |param| param.role == role)
+                .map(|param| param.name.as_str())
+        })
     }
 }
 

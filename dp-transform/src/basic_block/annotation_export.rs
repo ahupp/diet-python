@@ -1,3 +1,4 @@
+use crate::basic_block::ast_symbol_analysis::collect_bound_names;
 use crate::basic_block::ast_to_ast::ast_rewrite::{rewrite_with_pass, Rewrite, StmtRewritePass};
 use crate::basic_block::ast_to_ast::body::{suite_mut, suite_ref};
 use crate::basic_block::ast_to_ast::context::Context;
@@ -5,7 +6,6 @@ use crate::basic_block::ast_to_ast::expr_utils::{make_dp_tuple, name_expr};
 use crate::basic_block::ast_to_ast::rewrite_stmt;
 use crate::basic_block::ast_to_ast::scope::cell_name;
 use crate::basic_block::block_py::state::{collect_parameter_names, sync_target_cells_stmts};
-use crate::basic_block::bound_names::collect_bound_names;
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};

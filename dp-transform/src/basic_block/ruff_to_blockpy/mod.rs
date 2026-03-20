@@ -2,7 +2,10 @@ use super::block_py::cfg::{
     fold_constant_brif_blockpy, fold_jumps_to_trivial_none_return_blockpy,
     prune_unreachable_blockpy_blocks, relabel_blockpy_blocks, rename_blockpy_labels,
 };
-use super::block_py::dataflow::{analyze_blockpy_use_def, compute_block_params_blockpy};
+use super::block_py::dataflow::{
+    analyze_blockpy_use_def, compute_block_params_blockpy,
+    extend_state_order_with_declared_block_params, merge_declared_block_params,
+};
 use super::block_py::exception::{
     contains_return_stmt_in_body, contains_return_stmt_in_handlers,
     rewrite_region_returns_to_finally_blockpy,
@@ -17,7 +20,6 @@ use super::block_py::{
     RuffBlockPyPass, ENTRY_BLOCK_LABEL,
 };
 use super::function_lowering::rewrite_deleted_name_loads;
-use super::stmt_utils::flatten_stmt_boxes;
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::ast_to_ast::expr_utils::make_tuple;
 use crate::basic_block::block_py::param_specs::ParamSpec;
@@ -348,13 +350,14 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
 
     let mut state_vars = collect_state_vars(&param_names, &blocks_for_dataflow);
     for block in &blocks_for_dataflow {
-        let Some(exc_param) = block.meta.exc_param.as_ref() else {
+        let Some(exc_param) = block.meta.exception_param() else {
             continue;
         };
         if !state_vars.iter().any(|existing| existing == exc_param) {
-            state_vars.push(exc_param.clone());
+            state_vars.push(exc_param.to_string());
         }
     }
+    extend_state_order_with_declared_block_params(&blocks_for_dataflow, &mut state_vars);
 
     for (source, target) in &exception_edges {
         let Some(target) = target.as_ref() else {
@@ -367,17 +370,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
     }
     let mut block_params =
         compute_block_params_blockpy(&blocks_for_dataflow, &state_vars, &extra_successors);
-    for block in &blocks_for_dataflow {
-        let Some(exc_param) = block.meta.exc_param.as_ref() else {
-            continue;
-        };
-        let params = block_params
-            .entry(block.label.as_str().to_string())
-            .or_default();
-        if !params.iter().any(|existing| existing == exc_param) {
-            params.push(exc_param.clone());
-        }
-    }
+    merge_declared_block_params(&blocks_for_dataflow, &mut block_params);
     let semantic_closure_layout = blockpy_function.closure_layout.clone();
 
     let function_id = blockpy_function.function_id;
@@ -604,7 +597,15 @@ pub(crate) fn finalize_blockpy_callable_def(
     }
     fold_jumps_to_trivial_none_return_blockpy(&mut callable_def.blocks);
     fold_constant_brif_blockpy(&mut callable_def.blocks);
-    prune_unreachable_blockpy_blocks(entry_label.as_str(), &[], &mut callable_def.blocks);
+    let extra_roots = callable_def
+        .try_regions
+        .iter()
+        .flat_map(|region| {
+            std::iter::once(region.body_exception_target.clone())
+                .chain(region.cleanup_exception_target.iter().cloned())
+        })
+        .collect::<Vec<_>>();
+    prune_unreachable_blockpy_blocks(entry_label.as_str(), &extra_roots, &mut callable_def.blocks);
     let (relabelled_entry_label, label_rename) =
         relabel_blockpy_blocks("_dp_bb", entry_label.as_str(), &mut callable_def.blocks);
     entry_label = relabelled_entry_label;
@@ -1034,7 +1035,11 @@ def f(ctx, value):
             &next_block_id,
             false,
             &mut |_expanded, cont_label, _blocks| {
-                assert!(cont_label == "cont" || cont_label.ends_with("__normal"));
+                assert!(
+                    cont_label == "cont"
+                        || cont_label.ends_with("__normal")
+                        || cont_label.starts_with("_dp_bb_demo_")
+                );
                 cont_label
             },
         );

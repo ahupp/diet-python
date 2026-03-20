@@ -2,19 +2,16 @@ use super::annotation_export::{
     is_annotation_helper_name, rewrite_annotation_helper_defs_as_exec_calls,
     should_keep_non_lowered_for_annotationlib,
 };
+use super::ast_symbol_analysis::{collect_bound_names, collect_explicit_global_or_nonlocal_names};
 use super::block_py::state::collect_cell_slots;
 use super::block_py::{
     BlockPyBlock, BlockPyBranchTable, BlockPyCallableFacts, BlockPyFunction, BlockPyFunctionKind,
     BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment, BlockPyTerm,
     FunctionName, RuffBlockPyPass,
 };
-use super::bound_names::{collect_bound_names, collect_explicit_global_or_nonlocal_names};
 use super::function_identity::{resolve_runtime_function_identity, FunctionIdentity};
 use super::ruff_to_blockpy::{
     build_blockpy_callable_def_from_runtime_input, take_next_function_id,
-};
-use super::stmt_utils::{
-    flatten_stmt_boxes, should_strip_nonlocal_for_bb, strip_nonlocal_directives,
 };
 use crate::basic_block::ast_to_ast::ast_rewrite::{Rewrite, StmtRewritePass};
 use crate::basic_block::ast_to_ast::body::{suite_mut, suite_ref, Suite};
@@ -67,6 +64,20 @@ fn function_kind(func: &ast::StmtFunctionDef) -> BlockPyFunctionKind {
         (true, false) => BlockPyFunctionKind::Coroutine,
         (true, true) => BlockPyFunctionKind::AsyncGenerator,
     }
+}
+
+fn strip_nonlocal_directives(stmts: Vec<Stmt>) -> Vec<Stmt> {
+    stmts
+        .into_iter()
+        .filter(|stmt| !matches!(stmt, Stmt::Global(_) | Stmt::Nonlocal(_)))
+        .collect()
+}
+
+fn should_strip_nonlocal_for_bb(fn_name: &str) -> bool {
+    // Generated helper functions (comprehensions/lambdas/etc.) are prefixed
+    // `_dp_fn__dp_...` and currently rely on their existing non-BB lowering
+    // behavior for closure propagation. Keep nonlocal directives there.
+    !fn_name.starts_with("_dp_fn__dp_")
 }
 
 fn collect_deleted_names(stmts: &[Stmt]) -> HashSet<String> {
@@ -348,7 +359,7 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
         return None;
     }
     let (_, lowered_input_body) = split_docstring(suite_ref(&func.body));
-    let lowered_input_body = flatten_stmt_boxes(&lowered_input_body);
+    let lowered_input_body = lowered_input_body.to_vec();
     let lowered_input_body = if should_strip_nonlocal_for_bb(func.name.id.as_str()) {
         strip_nonlocal_directives(lowered_input_body)
     } else {
