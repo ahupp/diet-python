@@ -1,7 +1,6 @@
-use crate::basic_block::bb_ir;
 use crate::basic_block::block_py::{
-    BbBlockPyPass, BlockPyFunction, BlockPyFunctionKind, BlockPyModule, BlockPyTerm,
-    CoreBlockPyExprWithoutAwaitOrYield,
+    pretty as blockpy_pretty, BbBlockPyPass, BlockPyFunction, BlockPyFunctionKind, BlockPyModule,
+    BlockPyTerm, CoreBlockPyExprWithoutAwaitOrYield,
 };
 use crate::{transform_str_to_ruff_with_options, LoweringResult, Options};
 use cranelift_codegen::ir::{self, condcodes::IntCC, types, AbiParam, InstBuilder, UserFuncName};
@@ -121,7 +120,9 @@ fn bb_module_to_json(module: &BlockPyModule<BbBlockPyPass>) -> Value {
                 .blocks
                 .iter()
                 .map(|block| {
-                    let ops_text = bb_ir::bb_stmts_text(&block.body).trim().to_string();
+                    let ops_text = blockpy_pretty::bb_stmts_text(&block.body)
+                        .trim()
+                        .to_string();
                     let successors = bb_term_successors(&block.term)
                         .into_iter()
                         .map(|(target, edge_kind)| {
@@ -136,7 +137,7 @@ fn bb_module_to_json(module: &BlockPyModule<BbBlockPyPass>) -> Value {
                         "params": block.meta.params,
                         "opsText": ops_text,
                         "termKind": bb_term_kind(&block.term),
-                        "termText": bb_term_text(&block.term),
+                        "termText": blockpy_pretty::bb_term_text(&block.term),
                         "successors": successors,
                     })
                 })
@@ -192,41 +193,6 @@ fn bb_term_kind(term: &BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>) -> &'sta
     }
 }
 
-fn bb_term_text(term: &BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>) -> String {
-    match term {
-        BlockPyTerm::Jump(label) => format!("jump {label}"),
-        BlockPyTerm::IfTerm(if_term) => {
-            let test = expr_to_one_line(&if_term.test);
-            format!(
-                "if {test} then {} else {}",
-                if_term.then_label, if_term.else_label
-            )
-        }
-        BlockPyTerm::BranchTable(branch) => {
-            let index = expr_to_one_line(&branch.index);
-            format!(
-                "br_table index={index} targets=[{}] default={}",
-                branch
-                    .targets
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                branch.default_label
-            )
-        }
-        BlockPyTerm::Raise(raise_stmt) => bb_ir::bb_raise_text(raise_stmt),
-        BlockPyTerm::Return(value) => {
-            let value = value
-                .as_ref()
-                .map(expr_to_one_line)
-                .unwrap_or_else(|| "None".to_string());
-            format!("return {value}")
-        }
-        BlockPyTerm::TryJump(_) => "try_jump".to_string(),
-    }
-}
-
 fn bb_term_successors(
     term: &BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
 ) -> Vec<(&str, &'static str)> {
@@ -249,12 +215,6 @@ fn bb_term_successors(
         BlockPyTerm::Return(_) => Vec::new(),
         BlockPyTerm::TryJump(_) => Vec::new(),
     }
-}
-
-fn expr_to_one_line(
-    expr: &crate::basic_block::block_py::CoreBlockPyExprWithoutAwaitOrYield,
-) -> String {
-    bb_ir::bb_expr_text(expr)
 }
 
 fn sanitize_clif_testcase_name(name: &str) -> String {
@@ -310,7 +270,7 @@ fn clif_term_comment(
         }
         BlockPyTerm::IfTerm(if_term) => format!(
             "brif {}, {}, {}",
-            expr_to_one_line(&if_term.test),
+            blockpy_pretty::bb_expr_text(&if_term.test),
             clif_target_comment(if_term.then_label.as_str(), label_to_index, label_to_params),
             clif_target_comment(if_term.else_label.as_str(), label_to_index, label_to_params),
         ),
@@ -323,7 +283,7 @@ fn clif_term_comment(
                 .join(", ");
             format!(
                 "br_table {}, [{}], {}",
-                expr_to_one_line(&branch.index),
+                blockpy_pretty::bb_expr_text(&branch.index),
                 targets,
                 clif_target_comment(
                     branch.default_label.as_str(),
@@ -332,11 +292,11 @@ fn clif_term_comment(
                 ),
             )
         }
-        BlockPyTerm::Raise(raise_stmt) => bb_ir::bb_raise_text(raise_stmt),
+        BlockPyTerm::Raise(raise_stmt) => blockpy_pretty::bb_raise_text(raise_stmt),
         BlockPyTerm::Return(value) => {
             let value = value
                 .as_ref()
-                .map(expr_to_one_line)
+                .map(blockpy_pretty::bb_expr_text)
                 .unwrap_or_else(|| "None".to_string());
             format!("return {value}")
         }
@@ -437,7 +397,7 @@ fn render_cranelift_function_from_bb(
             BlockPyTerm::Jump(target_label) => {
                 let target = *label_to_block
                     .get(target_label.as_str())
-                    .ok_or_else(|| format!("missing jump target: {target_label}"))?;
+                    .ok_or_else(|| format!("missing jump target: {}", target_label.as_str()))?;
                 let args = clif_target_args_for_block(
                     &mut builder,
                     target_label.as_str(),
@@ -586,7 +546,7 @@ fn bb_module_to_clif(module: &BlockPyModule<BbBlockPyPass>) -> String {
             if let Some(exc_name) = block.meta.exc_name.as_ref() {
                 out.push_str(&format!(";     exc_name=%{exc_name}\n"));
             }
-            let ops = bb_ir::bb_stmts_text(&block.body);
+            let ops = blockpy_pretty::bb_stmts_text(&block.body);
             for line in ops.lines().filter(|line| !line.trim().is_empty()) {
                 out.push_str(";     op: ");
                 out.push_str(line.trim_end());

@@ -1,4 +1,5 @@
 use crate::basic_block::ast_to_ast::body::{suite_mut, suite_ref, take_suite, Suite};
+use crate::basic_block::block_py::pretty::BlockPyPrettyPrint;
 use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_python_parser::parse_module;
@@ -95,10 +96,40 @@ struct TrackedPass {
     name: String,
     elapsed: Duration,
     value: Box<dyn Any>,
+    render_text: Option<fn(&dyn Any) -> String>,
 }
 
 pub(crate) struct PassTracker {
     passes: Vec<TrackedPass>,
+}
+
+pub(crate) trait TrackedPassText {
+    fn render_tracked_pass_text(&self) -> String;
+}
+
+impl TrackedPassText for Suite {
+    fn render_tracked_pass_text(&self) -> String {
+        ruff_ast_to_string(self)
+    }
+}
+
+impl<T> TrackedPassText for T
+where
+    T: BlockPyPrettyPrint,
+{
+    fn render_tracked_pass_text(&self) -> String {
+        self.pretty_print()
+    }
+}
+
+fn render_tracked_pass_value<T>(value: &dyn Any) -> String
+where
+    T: Any + TrackedPassText,
+{
+    value
+        .downcast_ref::<T>()
+        .expect("tracked pass renderer type should match stored value")
+        .render_tracked_pass_text()
 }
 
 impl PassTracker {
@@ -108,6 +139,24 @@ impl PassTracker {
 
     #[must_use]
     pub(crate) fn run_pass<T: Clone + Any>(&mut self, name: &str, build: impl FnOnce() -> T) -> T {
+        self.run_pass_with_renderer(name, build, None)
+    }
+
+    #[must_use]
+    pub(crate) fn run_renderable_pass<T: Clone + Any + TrackedPassText>(
+        &mut self,
+        name: &str,
+        build: impl FnOnce() -> T,
+    ) -> T {
+        self.run_pass_with_renderer(name, build, Some(render_tracked_pass_value::<T>))
+    }
+
+    fn run_pass_with_renderer<T: Clone + Any>(
+        &mut self,
+        name: &str,
+        build: impl FnOnce() -> T,
+        render_text: Option<fn(&dyn Any) -> String>,
+    ) -> T {
         let start = timing_start();
         let value = build();
         let elapsed = timing_elapsed(start);
@@ -119,6 +168,7 @@ impl PassTracker {
             name: name.to_string(),
             elapsed,
             value: Box::new(value.clone()),
+            render_text,
         });
         value
     }
@@ -149,6 +199,11 @@ impl PassTracker {
         self.passes.iter().map(|pass| pass.name.as_str())
     }
 
+    fn render_text(&self, name: &str) -> Option<String> {
+        let pass = self.passes.iter().find(|pass| pass.name == name)?;
+        pass.render_text.map(|render| render(pass.value.as_ref()))
+    }
+
     fn timings(&self) -> impl Iterator<Item = PassTiming> + '_ {
         self.passes.iter().map(|pass| PassTiming {
             name: pass.name.clone(),
@@ -164,6 +219,10 @@ impl LoweringResult {
 
     pub fn summarize_pass_shape(&self, name: &str) -> Option<PassShapeSummary> {
         crate::basic_block::summarize_tracked_pass_shape(self, name)
+    }
+
+    pub fn render_pass_text(&self, name: &str) -> Option<String> {
+        self.passes.render_text(name)
     }
 
     pub fn pass_names(&self) -> impl Iterator<Item = &str> {
@@ -334,6 +393,8 @@ impl ToRuffAst for &[Stmt] {
 #[cfg(test)]
 mod tests {
     use super::PassTracker;
+    use crate::basic_block::ast_to_ast::body::Suite;
+    use crate::py_stmt;
 
     #[test]
     #[should_panic(expected = "PassTracker already contains a pass named one")]
@@ -341,6 +402,14 @@ mod tests {
         let mut tracker = PassTracker::new();
         let _ = tracker.run_pass("one", || 1_i32);
         let _ = tracker.run_pass("one", || 2_i32);
+    }
+
+    #[test]
+    fn pass_tracker_renders_tracked_pass_text_for_renderable_passes() {
+        let mut tracker = PassTracker::new();
+        let _suite: Suite = tracker.run_renderable_pass("one", || vec![py_stmt!("x = 1")]);
+
+        assert_eq!(tracker.render_text("one").as_deref(), Some("x = 1\n"));
     }
 }
 

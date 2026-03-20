@@ -413,7 +413,9 @@ def f(obj, mapping, key, value):
         let mut text = String::new();
         for function in normalized.callable_defs {
             for block in &function.blocks {
-                text.push_str(&bb_ir::bb_stmts_text(&block.body));
+                text.push_str(&crate::basic_block::block_py::pretty::bb_stmts_text(
+                    &block.body,
+                ));
             }
         }
 

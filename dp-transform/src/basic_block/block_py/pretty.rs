@@ -1,10 +1,12 @@
 use super::{
-    BlockPyBlock, BlockPyBlockMeta, BlockPyCfgFragment, BlockPyFunction, BlockPyFunctionKind,
-    BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyRaise, BlockPyStmt,
-    BlockPyTerm, BlockPyTryJump, Expr, PassBlock, PassExpr,
+    AbruptKind, BbBlockPyPass, BlockArg, BlockPyCfgFragment, BlockPyEdge, BlockPyFunction,
+    BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyRaise,
+    BlockPyStmt, BlockPyTerm, BlockPyTryJump, CoreBlockPyExprWithoutAwaitOrYield,
+    CoreBlockPyLiteral, Expr, PassBlock, PassExpr, RuffBlockPyPass,
 };
 use crate::basic_block::block_py::param_specs::{ParamKind, ParamSpec};
 use crate::ruff_ast_to_string;
+use ruff_python_ast as ast;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -13,9 +15,76 @@ enum IfBranchKind {
     Else,
 }
 
+pub trait BlockPyPrettyPrinter: BlockPyPass
+where
+    PassExpr<Self>: Clone + Into<Expr>,
+{
+    fn entry_liveins(function: &BlockPyFunction<Self>) -> Vec<String>
+    where
+        Self: Sized;
+
+    fn block_metadata_lines(block: &PassBlock<Self>) -> Vec<String>
+    where
+        Self: Sized;
+}
+
+impl<P> BlockPyPrettyPrinter for P
+where
+    P: BlockPyPass<BlockMeta = super::BlockPyBlockMeta>,
+    PassExpr<P>: Clone + Into<Expr>,
+{
+    fn entry_liveins(function: &BlockPyFunction<Self>) -> Vec<String> {
+        function.entry_liveins()
+    }
+
+    fn block_metadata_lines(block: &PassBlock<Self>) -> Vec<String> {
+        render_blockpy_block_metadata(&block.meta)
+    }
+}
+
+impl BlockPyPrettyPrinter for BbBlockPyPass {
+    fn entry_liveins(function: &BlockPyFunction<Self>) -> Vec<String> {
+        function.entry_liveins()
+    }
+
+    fn block_metadata_lines(block: &PassBlock<Self>) -> Vec<String> {
+        let mut lines = Vec::new();
+        if !block.meta.params.is_empty() {
+            lines.push(format!("params: [{}]", block.meta.params.join(", ")));
+        }
+        if let Some(exc_target) = &block.meta.exc_target_label {
+            lines.push(format!("exc_target: {}", exc_target.as_str()));
+        }
+        if let Some(exc_name) = &block.meta.exc_name {
+            lines.push(format!("exc_name: {exc_name}"));
+        }
+        lines
+    }
+}
+
+pub trait BlockPyPrettyPrint {
+    fn pretty_print(&self) -> String;
+}
+
+impl<P> BlockPyPrettyPrint for BlockPyModule<P>
+where
+    P: BlockPyPrettyPrinter,
+    PassExpr<P>: Clone + Into<Expr>,
+{
+    fn pretty_print(&self) -> String {
+        blockpy_module_to_string(self)
+    }
+}
+
+impl BlockPyPrettyPrint for (ruff_python_ast::Suite, BlockPyModule<RuffBlockPyPass>) {
+    fn pretty_print(&self) -> String {
+        self.1.pretty_print()
+    }
+}
+
 pub fn blockpy_module_to_string<P>(module: &BlockPyModule<P>) -> String
 where
-    P: BlockPyPass<BlockMeta = BlockPyBlockMeta>,
+    P: BlockPyPrettyPrinter,
     PassExpr<P>: Clone + Into<Expr>,
 {
     let mut formatter = BlockPyFormatter::default();
@@ -39,17 +108,9 @@ impl BlockPyFormatter {
 
     fn write_module<P>(&mut self, module: &BlockPyModule<P>)
     where
-        P: BlockPyPass<BlockMeta = BlockPyBlockMeta>,
+        P: BlockPyPrettyPrinter,
         PassExpr<P>: Clone + Into<Expr>,
     {
-        if module
-            .callable_defs
-            .iter()
-            .any(|function| function.names.bind_name == "_dp_module_init")
-        {
-            self.line("module_init: _dp_module_init");
-        }
-
         for function in &module.callable_defs {
             if !self.out.is_empty() {
                 self.out.push('\n');
@@ -60,12 +121,12 @@ impl BlockPyFormatter {
 
     fn write_function<P>(&mut self, function: &BlockPyFunction<P>)
     where
-        P: BlockPyPass<BlockMeta = BlockPyBlockMeta>,
+        P: BlockPyPrettyPrinter,
         PassExpr<P>: Clone + Into<Expr>,
     {
         let params = format_parameters(&function.params, &function.param_defaults);
         let parameter_names = function.params.names();
-        let referenced_labels = collect_referenced_labels_from_blocks(&function.blocks);
+        let referenced_labels = collect_referenced_labels_from_blocks::<P>(&function.blocks);
         let render_layout = BlockRenderLayout::new(function);
         self.line(format!(
             "{} {}({params}):",
@@ -73,10 +134,11 @@ impl BlockPyFormatter {
             function.names.qualname
         ));
         self.with_indent(|this| {
+            this.line(format!("function_id: {}", function.function_id.0));
             if function.names.display_name != function.names.bind_name {
                 this.line(format!("display_name: {}", function.names.display_name));
             }
-            let entry_liveins = function.entry_liveins();
+            let entry_liveins = P::entry_liveins(function);
             if !entry_liveins.is_empty() && entry_liveins != parameter_names {
                 this.line(format!("entry_liveins: [{}]", entry_liveins.join(", ")));
             }
@@ -129,12 +191,15 @@ impl BlockPyFormatter {
         block_index: usize,
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
-        P: BlockPyPass<BlockMeta = BlockPyBlockMeta>,
+        P: BlockPyPrettyPrinter,
         PassExpr<P>: Clone + Into<Expr>,
     {
         let block = &function.blocks[block_index];
         self.line(format!("block {}:", block.label.as_str()));
         self.with_indent(|this| {
+            for line in P::block_metadata_lines(block) {
+                this.line(line);
+            }
             this.write_block_contents(
                 function,
                 render_layout,
@@ -159,7 +224,7 @@ impl BlockPyFormatter {
         block: &PassBlock<P>,
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
-        P: BlockPyPass<BlockMeta = BlockPyBlockMeta>,
+        P: BlockPyPrettyPrinter,
         PassExpr<P>: Clone + Into<Expr>,
     {
         if block.body.is_empty() {
@@ -244,11 +309,11 @@ impl BlockPyFormatter {
         term: &BlockPyTerm<PassExpr<P>>,
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
-        P: BlockPyPass<BlockMeta = BlockPyBlockMeta>,
+        P: BlockPyPrettyPrinter,
         PassExpr<P>: Clone + Into<Expr>,
     {
         match term {
-            BlockPyTerm::Jump(label) => self.line(format!("jump {}", label.as_str())),
+            BlockPyTerm::Jump(edge) => self.line(format!("jump {}", render_edge(edge))),
             BlockPyTerm::IfTerm(BlockPyIfTerm {
                 test,
                 then_label,
@@ -324,7 +389,7 @@ impl BlockPyFormatter {
         E: Clone + Into<Expr>,
     {
         match term {
-            BlockPyTerm::Jump(label) => self.line(format!("jump {}", label.as_str())),
+            BlockPyTerm::Jump(edge) => self.line(format!("jump {}", render_edge(edge))),
             BlockPyTerm::BranchTable(branch) => self.line(format!(
                 "branch_table {} -> [{}] default {}",
                 render_inline_expr(&branch.index),
@@ -412,6 +477,121 @@ where
         .join(" ")
 }
 
+#[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
+pub(crate) fn bb_expr_text(expr: &CoreBlockPyExprWithoutAwaitOrYield) -> String {
+    match expr {
+        CoreBlockPyExprWithoutAwaitOrYield::Name(name) => name.id.to_string(),
+        CoreBlockPyExprWithoutAwaitOrYield::Literal(literal) => match literal {
+            CoreBlockPyLiteral::StringLiteral(literal) => format!("{:?}", literal.value.to_str()),
+            CoreBlockPyLiteral::BytesLiteral(literal) => {
+                let mut out = String::from("b\"");
+                for byte in literal.value.bytes() {
+                    for escaped in std::ascii::escape_default(byte) {
+                        out.push(escaped as char);
+                    }
+                }
+                out.push('"');
+                out
+            }
+            CoreBlockPyLiteral::NumberLiteral(literal) => match &literal.value {
+                ast::Number::Int(value) => value.to_string(),
+                ast::Number::Float(value) => value.to_string(),
+                ast::Number::Complex { real, imag } => format!("{real}+{imag}j"),
+            },
+            CoreBlockPyLiteral::BooleanLiteral(literal) => literal.value.to_string(),
+            CoreBlockPyLiteral::NoneLiteral(_) => "None".to_string(),
+            CoreBlockPyLiteral::EllipsisLiteral(_) => "...".to_string(),
+        },
+        CoreBlockPyExprWithoutAwaitOrYield::Call(call) => {
+            let mut parts = Vec::new();
+            for arg in &call.args {
+                parts.push(match arg {
+                    super::CoreBlockPyCallArg::Positional(value) => bb_expr_text(value),
+                    super::CoreBlockPyCallArg::Starred(value) => {
+                        format!("*{}", bb_expr_text(value))
+                    }
+                });
+            }
+            for keyword in &call.keywords {
+                parts.push(match keyword {
+                    super::CoreBlockPyKeywordArg::Named { arg, value } => {
+                        format!("{}={}", arg.id, bb_expr_text(value))
+                    }
+                    super::CoreBlockPyKeywordArg::Starred(value) => {
+                        format!("**{}", bb_expr_text(value))
+                    }
+                });
+            }
+            format!("{}({})", bb_expr_text(&call.func), parts.join(", "))
+        }
+    }
+}
+
+#[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
+pub(crate) fn bb_stmt_text(stmt: &BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>) -> String {
+    match stmt {
+        BlockPyStmt::Assign(assign) => {
+            format!("{} = {}", assign.target.id, bb_expr_text(&assign.value))
+        }
+        BlockPyStmt::Expr(expr) => bb_expr_text(expr),
+        BlockPyStmt::Delete(delete) => format!("del {}", delete.target.id),
+        BlockPyStmt::If(_) => panic!("structured BlockPy If is not allowed in BbBlock.body"),
+    }
+}
+
+#[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
+pub(crate) fn bb_raise_text(
+    raise_stmt: &BlockPyRaise<CoreBlockPyExprWithoutAwaitOrYield>,
+) -> String {
+    let exc = raise_stmt
+        .exc
+        .as_ref()
+        .map(bb_expr_text)
+        .unwrap_or_else(|| "None".to_string());
+    format!("raise exc={exc}")
+}
+
+#[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
+pub(crate) fn bb_term_text(term: &BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>) -> String {
+    match term {
+        BlockPyTerm::Jump(edge) => format!("jump {}", render_edge(edge)),
+        BlockPyTerm::IfTerm(if_term) => {
+            let test = bb_expr_text(&if_term.test);
+            format!(
+                "if {test} then {} else {}",
+                if_term.then_label, if_term.else_label
+            )
+        }
+        BlockPyTerm::BranchTable(branch) => {
+            let index = bb_expr_text(&branch.index);
+            format!(
+                "br_table index={index} targets=[{}] default={}",
+                join_labels(&branch.targets),
+                branch.default_label
+            )
+        }
+        BlockPyTerm::Raise(raise_stmt) => bb_raise_text(raise_stmt),
+        BlockPyTerm::Return(value) => {
+            let value = value
+                .as_ref()
+                .map(bb_expr_text)
+                .unwrap_or_else(|| "None".to_string());
+            format!("return {value}")
+        }
+        BlockPyTerm::TryJump(_) => "try_jump".to_string(),
+    }
+}
+
+#[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
+pub(crate) fn bb_stmts_text(stmts: &[BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>]) -> String {
+    let mut out = String::new();
+    for stmt in stmts {
+        out.push_str(&bb_stmt_text(stmt));
+        out.push('\n');
+    }
+    out
+}
+
 fn format_parameters<E>(parameters: &ParamSpec, defaults: &[E]) -> String
 where
     E: Clone + Into<Expr>,
@@ -473,6 +653,61 @@ fn join_labels(labels: &[BlockPyLabel]) -> String {
         .join(", ")
 }
 
+fn render_edge<E>(edge: &BlockPyEdge<E>) -> String
+where
+    E: Clone + Into<Expr>,
+{
+    if edge.args.is_empty() {
+        return edge.as_str().to_string();
+    }
+    format!(
+        "{}({})",
+        edge.as_str(),
+        edge.args
+            .iter()
+            .map(render_block_arg)
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+fn render_block_arg<E>(arg: &BlockArg<E>) -> String
+where
+    E: Clone + Into<Expr>,
+{
+    match arg {
+        BlockArg::Name(name) => name.clone(),
+        BlockArg::Expr(expr) => render_inline_expr(expr),
+        BlockArg::None => "None".to_string(),
+        BlockArg::CurrentException => "<current_exception>".to_string(),
+        BlockArg::AbruptKind(kind) => match kind {
+            AbruptKind::Fallthrough => "Fallthrough".to_string(),
+            AbruptKind::Return => "Return".to_string(),
+            AbruptKind::Exception => "Exception".to_string(),
+            AbruptKind::Break => "Break".to_string(),
+            AbruptKind::Continue => "Continue".to_string(),
+        },
+    }
+}
+
+fn render_blockpy_block_metadata(meta: &super::BlockPyBlockMeta) -> Vec<String> {
+    let mut lines = Vec::new();
+    if let Some(exc_param) = meta.exception_param() {
+        lines.push(format!("exc_param: {exc_param}"));
+    }
+    if !meta.params.is_empty() {
+        lines.push(format!(
+            "params: [{}]",
+            meta.params
+                .iter()
+                .map(|param| format!("{}:{:?}", param.name, param.role))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    lines
+}
+
 #[derive(Debug)]
 struct BlockRenderLayout {
     root_blocks: Vec<usize>,
@@ -484,7 +719,7 @@ struct BlockRenderLayout {
 impl BlockRenderLayout {
     fn new<P>(function: &BlockPyFunction<P>) -> Self
     where
-        P: BlockPyPass<BlockMeta = BlockPyBlockMeta>,
+        P: BlockPyPrettyPrinter,
         PassExpr<P>: Clone + Into<Expr>,
     {
         let block_count = function.blocks.len();
@@ -507,7 +742,7 @@ impl BlockRenderLayout {
         let successors = function
             .blocks
             .iter()
-            .map(|block| collect_top_level_successors_from_block(block, &label_to_index))
+            .map(|block| collect_top_level_successors_from_block::<P>(block, &label_to_index))
             .collect::<Vec<_>>();
         let predecessors = collect_predecessors(&successors);
         let entry_index = choose_entry_block_index(function, &label_to_index, &predecessors);
@@ -556,7 +791,7 @@ impl BlockRenderLayout {
 
 fn sort_block_indices_by_label<P>(indices: &mut [usize], function: &BlockPyFunction<P>)
 where
-    P: BlockPyPass<BlockMeta = BlockPyBlockMeta>,
+    P: BlockPyPrettyPrinter,
     PassExpr<P>: Clone + Into<Expr>,
 {
     indices.sort_by(|left, right| {
@@ -574,7 +809,7 @@ fn compute_inline_if_term_targets<P>(
     immediate_dominators: &[Option<usize>],
 ) -> (HashMap<(usize, IfBranchKind), usize>, HashSet<usize>)
 where
-    P: BlockPyPass<BlockMeta = BlockPyBlockMeta>,
+    P: BlockPyPrettyPrinter,
     PassExpr<P>: Clone + Into<Expr>,
 {
     let mut targets = HashMap::new();
@@ -643,16 +878,20 @@ fn choose_entry_block_index<P>(
     _predecessors: &[Vec<usize>],
 ) -> usize
 where
-    P: BlockPyPass<BlockMeta = BlockPyBlockMeta>,
+    P: BlockPyPrettyPrinter,
     PassExpr<P>: Clone + Into<Expr>,
 {
     0
 }
 
-fn collect_top_level_successors_from_block(
-    block: &BlockPyBlock<impl Clone + Into<Expr>>,
+fn collect_top_level_successors_from_block<P>(
+    block: &PassBlock<P>,
     label_to_index: &HashMap<String, usize>,
-) -> Vec<usize> {
+) -> Vec<usize>
+where
+    P: BlockPyPass,
+    PassExpr<P>: Clone + Into<Expr>,
+{
     let mut successors = Vec::new();
     let mut seen = HashSet::new();
     collect_top_level_successors_from_stmts(
@@ -706,7 +945,7 @@ fn collect_top_level_successors_from_term(
 ) {
     match term {
         BlockPyTerm::Jump(label) => {
-            push_top_level_successor(label, label_to_index, seen, out);
+            push_top_level_successor(&label.target, label_to_index, seen, out);
         }
         BlockPyTerm::IfTerm(BlockPyIfTerm {
             then_label,
@@ -861,66 +1100,37 @@ fn compute_immediate_dominators(
     immediate_dominators
 }
 
-fn collect_referenced_labels_from_blocks(
-    blocks: &[BlockPyBlock<impl Clone + Into<Expr>>],
-) -> HashSet<BlockPyLabel> {
-    let mut referenced = HashSet::new();
+fn collect_referenced_labels_from_blocks<P>(blocks: &[PassBlock<P>]) -> HashSet<BlockPyLabel>
+where
+    P: BlockPyPass,
+{
+    #[derive(Default)]
+    struct ReferencedLabelCollector {
+        referenced: HashSet<BlockPyLabel>,
+    }
+
+    impl<P> super::BlockPyModuleVisitor<P> for ReferencedLabelCollector
+    where
+        P: BlockPyPass,
+    {
+        fn visit_label(&mut self, label: &BlockPyLabel) {
+            self.referenced.insert(label.clone());
+        }
+    }
+
+    let mut visitor = ReferencedLabelCollector::default();
     for block in blocks {
-        collect_referenced_labels_from_stmts(&block.body, &mut referenced);
-        collect_referenced_labels_from_term(&block.term, &mut referenced);
+        super::walk_block::<ReferencedLabelCollector, P>(&mut visitor, block);
     }
-    referenced
-}
-
-fn collect_referenced_labels_from_stmts(
-    stmts: &[BlockPyStmt<impl Clone + Into<Expr>>],
-    referenced: &mut HashSet<BlockPyLabel>,
-) {
-    for stmt in stmts {
-        match stmt {
-            BlockPyStmt::If(if_stmt) => {
-                collect_referenced_labels_from_stmts(&if_stmt.body.body, referenced);
-                if let Some(term) = &if_stmt.body.term {
-                    collect_referenced_labels_from_term(term, referenced);
-                }
-                collect_referenced_labels_from_stmts(&if_stmt.orelse.body, referenced);
-                if let Some(term) = &if_stmt.orelse.term {
-                    collect_referenced_labels_from_term(term, referenced);
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
-fn collect_referenced_labels_from_term(
-    term: &BlockPyTerm<impl Clone + Into<Expr>>,
-    referenced: &mut HashSet<BlockPyLabel>,
-) {
-    match term {
-        BlockPyTerm::Jump(label) => {
-            referenced.insert(label.clone());
-        }
-        BlockPyTerm::IfTerm(if_term) => {
-            referenced.insert(if_term.then_label.clone());
-            referenced.insert(if_term.else_label.clone());
-        }
-        BlockPyTerm::BranchTable(branch) => {
-            referenced.extend(branch.targets.iter().cloned());
-            referenced.insert(branch.default_label.clone());
-        }
-        BlockPyTerm::TryJump(try_jump) => {
-            referenced.insert(try_jump.body_label.clone());
-            referenced.insert(try_jump.except_label.clone());
-        }
-        BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => {}
-    }
+    visitor.referenced
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::basic_block::block_py::{BlockPyBlockMeta, RuffBlockPyPass};
+    use crate::basic_block::block_py::{
+        BbBlockMeta, BlockPyBlock, BlockPyBlockMeta, RuffBlockPyPass,
+    };
     use crate::basic_block::block_py::{ClosureInit, ClosureLayout, ClosureSlot};
     use ruff_python_parser::parse_expression;
 
@@ -942,7 +1152,7 @@ mod tests {
         bind_name: &str,
     ) -> &'a BlockPyFunction<P>
     where
-        P: BlockPyPass<BlockMeta = BlockPyBlockMeta>,
+        P: BlockPyPrettyPrinter,
         PassExpr<P>: Clone + Into<Expr>,
     {
         module
@@ -966,12 +1176,13 @@ def classify(a, /, b: int = 1, *args, c=2, **kwargs):
         );
         let rendered = blockpy_module_to_string(&blockpy);
 
-        assert!(rendered.contains("module_init: _dp_module_init"));
         assert!(
             rendered.contains("function classify(a, /, b=1, *args, c=2, **kwargs):"),
             "{rendered}"
         );
+        assert!(rendered.contains("function_id: "), "{rendered}");
         assert!(rendered.contains("function _dp_module_init():"));
+        assert!(!rendered.contains("module_init: _dp_module_init"));
         assert!(rendered.contains("block start:"));
         assert!(rendered.contains("if_term a:"));
         assert!(rendered.contains("return \"yes\""));
@@ -1005,6 +1216,7 @@ def classify(n):
             .iter()
             .any(|function| function.names.bind_name == "_dp_module_init"));
         assert!(rendered.contains("function _dp_module_init():"));
+        assert!(rendered.contains("function_id: "), "{rendered}");
     }
 
     #[test]
@@ -1018,6 +1230,7 @@ def gen():
         let rendered = blockpy_module_to_string(&blockpy);
 
         assert!(rendered.contains("generator gen():"));
+        assert!(rendered.contains("function_id: "), "{rendered}");
         assert!(!rendered.contains("generator_state:"));
     }
 
@@ -1044,12 +1257,13 @@ async def no_lying():
             .map(|index| function.blocks[*index].label.as_str().to_string())
             .collect::<HashSet<_>>();
 
-        let missing_labels = collect_referenced_labels_from_blocks(&function.blocks)
-            .into_iter()
-            .map(|label| label.as_str().to_string())
-            .filter(|label| !inlined_labels.contains(label))
-            .filter(|label| !rendered.contains(format!("block {label}:").as_str()))
-            .collect::<Vec<_>>();
+        let missing_labels =
+            collect_referenced_labels_from_blocks::<RuffBlockPyPass>(&function.blocks)
+                .into_iter()
+                .map(|label| label.as_str().to_string())
+                .filter(|label| !inlined_labels.contains(label))
+                .filter(|label| !rendered.contains(format!("block {label}:").as_str()))
+                .collect::<Vec<_>>();
 
         assert!(missing_labels.is_empty(), "{rendered}");
     }
@@ -1094,7 +1308,7 @@ async def no_lying():
         });
 
         assert!(rendered.contains(
-            "function gen():\n    local_cell_slots: [_dp_cell_total, _dp_cell__dp_pc]\n    freevars: [factor->_dp_cell_factor@inherited]\n    cellvars: [total->_dp_cell_total@deferred]\n    runtime_cells: [_dp_pc->_dp_cell__dp_pc@pc_unstarted]"
+            "function gen():\n    function_id: 0\n    local_cell_slots: [_dp_cell_total, _dp_cell__dp_pc]\n    freevars: [factor->_dp_cell_factor@inherited]\n    cellvars: [total->_dp_cell_total@deferred]\n    runtime_cells: [_dp_pc->_dp_cell__dp_pc@pc_unstarted]"
         ));
         assert!(!rendered.contains("entry:"));
     }
@@ -1234,5 +1448,92 @@ def choose(a, b):
 
         assert!(alpha_pos < zeta_pos, "{rendered}");
         assert!(beta_pos < omega_pos, "{rendered}");
+    }
+
+    #[test]
+    fn collects_referenced_labels_from_nested_if_fragments_via_visitor() {
+        let referenced =
+            collect_referenced_labels_from_blocks::<RuffBlockPyPass>(&[BlockPyBlock {
+                label: "start".into(),
+                body: vec![BlockPyStmt::If(crate::basic_block::block_py::BlockPyIf {
+                    test: parse_blockpy_expr("cond"),
+                    body: BlockPyCfgFragment {
+                        body: Vec::new(),
+                        term: Some(BlockPyTerm::Jump("then_target".into())),
+                    },
+                    orelse: BlockPyCfgFragment {
+                        body: Vec::new(),
+                        term: Some(BlockPyTerm::BranchTable(super::super::BlockPyBranchTable {
+                            index: parse_blockpy_expr("index"),
+                            targets: vec!["else_a".into(), "else_b".into()],
+                            default_label: "else_default".into(),
+                        })),
+                    },
+                })],
+                term: BlockPyTerm::TryJump(BlockPyTryJump {
+                    body_label: "body_target".into(),
+                    except_label: "except_target".into(),
+                }),
+                meta: BlockPyBlockMeta::default(),
+            }]);
+
+        let expected = [
+            "then_target",
+            "else_a",
+            "else_b",
+            "else_default",
+            "body_target",
+            "except_target",
+        ]
+        .into_iter()
+        .map(BlockPyLabel::from)
+        .collect::<HashSet<_>>();
+
+        assert_eq!(referenced, expected);
+    }
+
+    #[test]
+    fn renders_bb_block_metadata_with_shared_layout() {
+        let rendered = blockpy_module_to_string(&BlockPyModule {
+            callable_defs: vec![BlockPyFunction::<BbBlockPyPass> {
+                function_id: crate::basic_block::block_py::FunctionId(0),
+                names: crate::basic_block::block_py::FunctionName::new("f", "f", "f", "f"),
+                kind: BlockPyFunctionKind::Function,
+                params: empty_param_spec(),
+                param_defaults: Vec::new(),
+                blocks: vec![
+                    PassBlock::<BbBlockPyPass> {
+                        label: "start".into(),
+                        body: vec![],
+                        term: BlockPyTerm::Jump("except".into()),
+                        meta: BbBlockMeta {
+                            params: vec!["x".to_string()],
+                            exc_target_label: Some("except".into()),
+                            exc_name: Some("err".to_string()),
+                            exc_arg_sources: Vec::new(),
+                        },
+                    },
+                    PassBlock::<BbBlockPyPass> {
+                        label: "except".into(),
+                        body: vec![],
+                        term: BlockPyTerm::Return(None),
+                        meta: BbBlockMeta::default(),
+                    },
+                ],
+                doc: None,
+                closure_layout: None,
+                try_regions: Vec::new(),
+                facts: crate::basic_block::block_py::BlockPyCallableFacts::default(),
+                extra: (),
+            }],
+        });
+
+        assert!(rendered.contains("function f():"), "{rendered}");
+        assert!(rendered.contains("function_id: 0"), "{rendered}");
+        assert!(rendered.contains("block start:"), "{rendered}");
+        assert!(rendered.contains("params: [x]"), "{rendered}");
+        assert!(rendered.contains("exc_target: except"), "{rendered}");
+        assert!(rendered.contains("exc_name: err"), "{rendered}");
+        assert!(rendered.contains("jump except"), "{rendered}");
     }
 }

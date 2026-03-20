@@ -312,7 +312,7 @@ mod tests {
     }
 
     fn expr_text(expr: &CoreBlockPyExprWithoutAwaitOrYield) -> String {
-        crate::basic_block::bb_ir::bb_expr_text(expr)
+        crate::basic_block::block_py::pretty::bb_expr_text(expr)
     }
 
     fn callable_def_by_name<'a>(

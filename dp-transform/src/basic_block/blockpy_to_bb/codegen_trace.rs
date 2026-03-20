@@ -178,7 +178,7 @@ mod tests {
             .blocks
             .iter()
             .flat_map(|block| block.body.iter())
-            .map(crate::basic_block::bb_ir::bb_stmt_text)
+            .map(crate::basic_block::block_py::pretty::bb_stmt_text)
             .find(|stmt| stmt.contains("__dp_bb_trace_enter"))
             .expect("missing trace op in f");
         assert!(f_trace.contains("__dp_bb_trace_enter"));
@@ -187,7 +187,7 @@ mod tests {
             .blocks
             .iter()
             .flat_map(|block| block.body.iter())
-            .map(crate::basic_block::bb_ir::bb_stmt_text)
+            .map(crate::basic_block::block_py::pretty::bb_stmt_text)
             .any(|stmt| stmt.contains("__dp_bb_trace_enter"));
         assert!(!g_has_trace);
     }

@@ -1,5 +1,8 @@
 use self::param_specs::ParamSpec;
-use crate::basic_block::block_py::dataflow::compute_block_params_blockpy;
+use crate::basic_block::block_py::dataflow::{
+    compute_block_params_blockpy, extend_state_order_with_declared_block_params,
+    merge_declared_block_params,
+};
 use crate::basic_block::block_py::state::collect_state_vars;
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName};
@@ -347,23 +350,14 @@ where
             return Vec::new();
         }
         let param_names = self.params.names();
-        let state_vars = collect_state_vars(&param_names, &self.blocks);
+        let mut state_vars = collect_state_vars(&param_names, &self.blocks);
+        extend_state_order_with_declared_block_params(&self.blocks, &mut state_vars);
         let mut block_params = compute_block_params_blockpy(
             &self.blocks,
             &state_vars,
             &super::ruff_to_blockpy::build_try_extra_successors(&self.try_regions),
         );
-        for block in &self.blocks {
-            let Some(exc_param) = block.meta.exc_param.as_ref() else {
-                continue;
-            };
-            let params = block_params
-                .entry(block.label.as_str().to_string())
-                .or_default();
-            if !params.iter().any(|existing| existing == exc_param) {
-                params.push(exc_param.clone());
-            }
-        }
+        merge_declared_block_params(&self.blocks, &mut block_params);
         block_params
             .get(self.entry_label())
             .cloned()
@@ -377,6 +371,7 @@ where
 #[derive(Debug, Clone, Default)]
 pub struct BlockPyBlockMeta {
     pub exc_param: Option<String>,
+    pub params: Vec<BlockParam>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -390,6 +385,14 @@ pub struct BbBlockMeta {
     pub params: Vec<String>,
     pub exc_target_label: Option<BlockPyLabel>,
     pub exc_name: Option<String>,
+    pub exc_arg_sources: Vec<BbExceptionArgSource>,
+}
+
+#[derive(Debug, Clone)]
+pub enum BbExceptionArgSource {
+    SourceParam(String),
+    CurrentException,
+    FrameLocal(String),
 }
 
 pub trait BlockPyPass: Clone + fmt::Debug {
@@ -592,7 +595,17 @@ impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>>
     }
 
     pub fn with_exc_param(mut self, exc_param: Option<String>) -> Self {
-        self.meta.exc_param = exc_param;
+        self.meta.exc_param = exc_param.clone();
+        if let Some(exc_param) = exc_param {
+            self.meta.ensure_param(exc_param, BlockParamRole::Exception);
+        }
+        self
+    }
+
+    pub fn with_params(mut self, params: Vec<BlockParam>) -> Self {
+        for param in params {
+            self.meta.ensure_param(param.name, param.role);
+        }
         self
     }
 
@@ -652,7 +665,7 @@ impl<E: std::fmt::Debug> BlockPyNormalizedStmt for BlockPyStmt<E> {
 
 #[derive(Debug, Clone)]
 pub enum BlockPyTerm<E = Expr> {
-    Jump(BlockPyLabel),
+    Jump(BlockPyEdge<E>),
     IfTerm(BlockPyIfTerm<E>),
     BranchTable(BlockPyBranchTable<E>),
     Raise(BlockPyRaise<E>),
@@ -698,9 +711,256 @@ pub struct BlockPyRaise<E = Expr> {
 }
 
 #[derive(Debug, Clone)]
+pub struct BlockPyEdge<E = Expr> {
+    pub target: BlockPyLabel,
+    pub args: Vec<BlockArg<E>>,
+}
+
+impl<E> BlockPyEdge<E> {
+    pub fn new(target: BlockPyLabel) -> Self {
+        Self {
+            target,
+            args: Vec::new(),
+        }
+    }
+
+    pub fn with_args(target: BlockPyLabel, args: Vec<BlockArg<E>>) -> Self {
+        Self { target, args }
+    }
+
+    pub fn as_str(&self) -> &str {
+        self.target.as_str()
+    }
+}
+
+impl<E> From<BlockPyLabel> for BlockPyEdge<E> {
+    fn from(value: BlockPyLabel) -> Self {
+        Self::new(value)
+    }
+}
+
+impl<E> From<&str> for BlockPyEdge<E> {
+    fn from(value: &str) -> Self {
+        Self::new(BlockPyLabel::from(value))
+    }
+}
+
+impl<E> From<String> for BlockPyEdge<E> {
+    fn from(value: String) -> Self {
+        Self::new(BlockPyLabel::from(value))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum BlockArg<E = Expr> {
+    Name(String),
+    Expr(E),
+    None,
+    CurrentException,
+    AbruptKind(AbruptKind),
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum AbruptKind {
+    Fallthrough,
+    Return,
+    Exception,
+    Break,
+    Continue,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum BlockParamRole {
+    Local,
+    Exception,
+    AbruptKind,
+    AbruptPayload,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct BlockParam {
+    pub name: String,
+    pub role: BlockParamRole,
+}
+
+#[derive(Debug, Clone)]
 pub struct BlockPyTryJump {
     pub body_label: BlockPyLabel,
     pub except_label: BlockPyLabel,
+}
+
+impl BlockPyBlockMeta {
+    pub fn ensure_param(&mut self, name: impl Into<String>, role: BlockParamRole) {
+        let name = name.into();
+        if self.params.iter().any(|param| param.name == name) {
+            return;
+        }
+        self.params.push(BlockParam { name, role });
+    }
+
+    pub fn exception_param(&self) -> Option<&str> {
+        self.exc_param.as_deref().or_else(|| {
+            self.params
+                .iter()
+                .find(|param| param.role == BlockParamRole::Exception)
+                .map(|param| param.name.as_str())
+        })
+    }
+
+    pub fn param_names(&self) -> impl Iterator<Item = &str> {
+        self.params.iter().map(|param| param.name.as_str())
+    }
+}
+
+pub trait BlockPyModuleVisitor<P>
+where
+    P: BlockPyPass,
+{
+    fn visit_module(&mut self, module: &BlockPyModule<P>) {
+        walk_module(self, module);
+    }
+
+    fn visit_fn(&mut self, func: &BlockPyFunction<P>) {
+        walk_fn(self, func);
+    }
+
+    fn visit_block(&mut self, block: &PassBlock<P>) {
+        walk_block(self, block);
+    }
+
+    fn visit_fragment(&mut self, fragment: &BlockPyCfgFragment<PassStmt<P>, PassTerm<P>>) {
+        walk_fragment(self, fragment);
+    }
+
+    fn visit_stmt(&mut self, stmt: &PassStmt<P>) {
+        walk_stmt(self, stmt);
+    }
+
+    fn visit_term(&mut self, term: &PassTerm<P>) {
+        walk_term(self, term);
+    }
+
+    fn visit_label(&mut self, label: &BlockPyLabel) {
+        walk_label::<Self, P>(self, label);
+    }
+
+    fn visit_expr(&mut self, _expr: &PassExpr<P>) {}
+}
+
+pub fn walk_module<V, P>(visitor: &mut V, module: &BlockPyModule<P>)
+where
+    V: BlockPyModuleVisitor<P> + ?Sized,
+    P: BlockPyPass,
+{
+    for function in &module.callable_defs {
+        visitor.visit_fn(function);
+    }
+}
+
+pub fn walk_fn<V, P>(visitor: &mut V, func: &BlockPyFunction<P>)
+where
+    V: BlockPyModuleVisitor<P> + ?Sized,
+    P: BlockPyPass,
+{
+    for default in &func.param_defaults {
+        visitor.visit_expr(default);
+    }
+    for block in &func.blocks {
+        visitor.visit_block(block);
+    }
+}
+
+pub fn walk_block<V, P>(visitor: &mut V, block: &PassBlock<P>)
+where
+    V: BlockPyModuleVisitor<P> + ?Sized,
+    P: BlockPyPass,
+{
+    for stmt in &block.body {
+        visitor.visit_stmt(stmt);
+    }
+    visitor.visit_term(&block.term);
+}
+
+pub fn walk_fragment<V, P>(visitor: &mut V, fragment: &BlockPyCfgFragment<PassStmt<P>, PassTerm<P>>)
+where
+    V: BlockPyModuleVisitor<P> + ?Sized,
+    P: BlockPyPass,
+{
+    for stmt in &fragment.body {
+        visitor.visit_stmt(stmt);
+    }
+    if let Some(term) = &fragment.term {
+        visitor.visit_term(term);
+    }
+}
+
+pub fn walk_stmt<V, P>(visitor: &mut V, stmt: &PassStmt<P>)
+where
+    V: BlockPyModuleVisitor<P> + ?Sized,
+    P: BlockPyPass,
+{
+    match stmt {
+        BlockPyStmt::Assign(assign) => visitor.visit_expr(&assign.value),
+        BlockPyStmt::Expr(expr) => visitor.visit_expr(expr),
+        BlockPyStmt::Delete(_) => {}
+        BlockPyStmt::If(if_stmt) => {
+            visitor.visit_expr(&if_stmt.test);
+            visitor.visit_fragment(&if_stmt.body);
+            visitor.visit_fragment(&if_stmt.orelse);
+        }
+    }
+}
+
+pub fn walk_label<V, P>(visitor: &mut V, label: &BlockPyLabel)
+where
+    V: BlockPyModuleVisitor<P> + ?Sized,
+    P: BlockPyPass,
+{
+    let _ = visitor;
+    let _ = label;
+}
+
+pub fn walk_term<V, P>(visitor: &mut V, term: &PassTerm<P>)
+where
+    V: BlockPyModuleVisitor<P> + ?Sized,
+    P: BlockPyPass,
+{
+    match term {
+        BlockPyTerm::Jump(edge) => {
+            for arg in &edge.args {
+                if let BlockArg::Expr(expr) = arg {
+                    visitor.visit_expr(expr);
+                }
+            }
+            visitor.visit_label(&edge.target);
+        }
+        BlockPyTerm::TryJump(try_jump) => {
+            visitor.visit_label(&try_jump.body_label);
+            visitor.visit_label(&try_jump.except_label);
+        }
+        BlockPyTerm::IfTerm(if_term) => {
+            visitor.visit_expr(&if_term.test);
+            visitor.visit_label(&if_term.then_label);
+            visitor.visit_label(&if_term.else_label);
+        }
+        BlockPyTerm::BranchTable(branch) => {
+            visitor.visit_expr(&branch.index);
+            for target in &branch.targets {
+                visitor.visit_label(target);
+            }
+            visitor.visit_label(&branch.default_label);
+        }
+        BlockPyTerm::Raise(raise_stmt) => {
+            if let Some(exc) = &raise_stmt.exc {
+                visitor.visit_expr(exc);
+            }
+        }
+        BlockPyTerm::Return(value) => {
+            if let Some(value) = value {
+                visitor.visit_expr(value);
+            }
+        }
+    }
 }
 
 pub trait BlockPyModuleMap<PIn, POut>
@@ -787,7 +1047,20 @@ where
 
     fn map_term(&self, term: PassTerm<PIn>) -> PassTerm<POut> {
         match term {
-            BlockPyTerm::Jump(label) => BlockPyTerm::Jump(label),
+            BlockPyTerm::Jump(edge) => BlockPyTerm::Jump(BlockPyEdge {
+                target: edge.target,
+                args: edge
+                    .args
+                    .into_iter()
+                    .map(|arg| match arg {
+                        BlockArg::Name(name) => BlockArg::Name(name),
+                        BlockArg::Expr(expr) => BlockArg::Expr(self.map_expr(expr)),
+                        BlockArg::None => BlockArg::None,
+                        BlockArg::CurrentException => BlockArg::CurrentException,
+                        BlockArg::AbruptKind(kind) => BlockArg::AbruptKind(kind),
+                    })
+                    .collect(),
+            }),
             BlockPyTerm::IfTerm(if_term) => BlockPyTerm::IfTerm(BlockPyIfTerm {
                 test: self.map_expr(if_term.test),
                 then_label: if_term.then_label,
@@ -813,7 +1086,7 @@ where
 
 impl<E> BlockPyJumpTerm<BlockPyLabel> for BlockPyTerm<E> {
     fn jump_term(target: BlockPyLabel) -> Self {
-        Self::Jump(target)
+        Self::Jump(BlockPyEdge::new(target))
     }
 }
 
@@ -827,6 +1100,10 @@ impl<PIn> BlockPyModule<PIn>
 where
     PIn: BlockPyPass,
 {
+    pub fn visit_module(&self, visitor: &mut impl BlockPyModuleVisitor<PIn>) {
+        visitor.visit_module(self);
+    }
+
     pub fn map_module<POut>(self, mapper: &impl BlockPyModuleMap<PIn, POut>) -> BlockPyModule<POut>
     where
         POut: BlockPyPass<BlockMeta = PIn::BlockMeta, FunctionExtra = PIn::FunctionExtra>,
@@ -845,7 +1122,7 @@ mod tests {
         let mut block: BlockPyBlockBuilder<Expr> =
             BlockPyBlockBuilder::new(BlockPyLabel::from("start"));
         block.push_stmt(BlockPyStmt::Expr(py_expr!("x")));
-        block.set_term(BlockPyTerm::Jump(BlockPyLabel::from("after")));
+        block.set_term(BlockPyTerm::Jump(BlockPyLabel::from("after").into()));
         let block = block.finish(None);
 
         assert_eq!(block.body.len(), 1);
@@ -881,6 +1158,169 @@ mod tests {
             unreachable!();
         };
         name
+    }
+
+    #[test]
+    fn module_visitor_walks_blockpy_in_evaluation_order() {
+        #[derive(Default)]
+        struct TraceVisitor {
+            trace: Vec<String>,
+        }
+
+        impl BlockPyModuleVisitor<RuffBlockPyPass> for TraceVisitor {
+            fn visit_module(&mut self, module: &BlockPyModule<RuffBlockPyPass>) {
+                self.trace.push("module".to_string());
+                walk_module(self, module);
+            }
+
+            fn visit_fn(&mut self, func: &BlockPyFunction<RuffBlockPyPass>) {
+                self.trace.push(format!("fn:{}", func.names.bind_name));
+                walk_fn(self, func);
+            }
+
+            fn visit_block(&mut self, block: &PassBlock<RuffBlockPyPass>) {
+                self.trace.push(format!("block:{}", block.label));
+                walk_block(self, block);
+            }
+
+            fn visit_fragment(
+                &mut self,
+                fragment: &BlockPyCfgFragment<PassStmt<RuffBlockPyPass>, PassTerm<RuffBlockPyPass>>,
+            ) {
+                self.trace.push("fragment".to_string());
+                walk_fragment(self, fragment);
+            }
+
+            fn visit_stmt(&mut self, stmt: &PassStmt<RuffBlockPyPass>) {
+                let kind = match stmt {
+                    BlockPyStmt::Assign(_) => "assign",
+                    BlockPyStmt::Expr(_) => "expr",
+                    BlockPyStmt::Delete(_) => "delete",
+                    BlockPyStmt::If(_) => "if",
+                };
+                self.trace.push(format!("stmt:{kind}"));
+                walk_stmt(self, stmt);
+            }
+
+            fn visit_term(&mut self, term: &PassTerm<RuffBlockPyPass>) {
+                let kind = match term {
+                    BlockPyTerm::Jump(_) => "jump",
+                    BlockPyTerm::IfTerm(_) => "if",
+                    BlockPyTerm::BranchTable(_) => "branch_table",
+                    BlockPyTerm::Raise(_) => "raise",
+                    BlockPyTerm::TryJump(_) => "try_jump",
+                    BlockPyTerm::Return(_) => "return",
+                };
+                self.trace.push(format!("term:{kind}"));
+                walk_term(self, term);
+            }
+
+            fn visit_label(&mut self, label: &BlockPyLabel) {
+                self.trace.push(format!("label:{}", label.as_str()));
+            }
+
+            fn visit_expr(&mut self, expr: &PassExpr<RuffBlockPyPass>) {
+                let Expr::Name(name) = expr else {
+                    panic!("expected name expr in visitor trace test");
+                };
+                self.trace.push(format!("expr:{}", name.id));
+            }
+        }
+
+        let module = BlockPyModule::<RuffBlockPyPass> {
+            callable_defs: vec![BlockPyFunction {
+                function_id: FunctionId(0),
+                names: FunctionName::new("f", "f", "f", "f"),
+                kind: BlockPyFunctionKind::Function,
+                params: ParamSpec::default(),
+                param_defaults: vec![py_expr!("default_one"), py_expr!("default_two")],
+                blocks: vec![
+                    CfgBlock {
+                        label: BlockPyLabel::from("start"),
+                        body: vec![
+                            BlockPyStmt::Assign(BlockPyAssign {
+                                target: name_expr("target"),
+                                value: py_expr!("assign_one"),
+                            }),
+                            BlockPyStmt::If(BlockPyIf {
+                                test: py_expr!("if_test"),
+                                body: BlockPyCfgFragment::with_term(
+                                    vec![BlockPyStmt::Expr(py_expr!("then_expr"))],
+                                    Some(BlockPyTerm::Return(Some(py_expr!("then_return")))),
+                                ),
+                                orelse: BlockPyCfgFragment::with_term(
+                                    vec![BlockPyStmt::Expr(py_expr!("else_expr"))],
+                                    Some(BlockPyTerm::Raise(BlockPyRaise {
+                                        exc: Some(py_expr!("else_raise")),
+                                    })),
+                                ),
+                            }),
+                            BlockPyStmt::Expr(py_expr!("after_if")),
+                        ],
+                        term: BlockPyTerm::IfTerm(BlockPyIfTerm {
+                            test: py_expr!("block_term_test"),
+                            then_label: BlockPyLabel::from("then"),
+                            else_label: BlockPyLabel::from("else"),
+                        }),
+                        meta: BlockPyBlockMeta::default(),
+                    },
+                    CfgBlock {
+                        label: BlockPyLabel::from("done"),
+                        body: vec![BlockPyStmt::Delete(BlockPyDelete {
+                            target: name_expr("trash"),
+                        })],
+                        term: BlockPyTerm::Return(Some(py_expr!("final_return"))),
+                        meta: BlockPyBlockMeta::default(),
+                    },
+                ],
+                doc: None,
+                closure_layout: None,
+                facts: BlockPyCallableFacts::default(),
+                try_regions: Vec::new(),
+                extra: (),
+            }],
+        };
+
+        let mut visitor = TraceVisitor::default();
+        module.visit_module(&mut visitor);
+
+        assert_eq!(
+            visitor.trace,
+            vec![
+                "module",
+                "fn:f",
+                "expr:default_one",
+                "expr:default_two",
+                "block:start",
+                "stmt:assign",
+                "expr:assign_one",
+                "stmt:if",
+                "expr:if_test",
+                "fragment",
+                "stmt:expr",
+                "expr:then_expr",
+                "term:return",
+                "expr:then_return",
+                "fragment",
+                "stmt:expr",
+                "expr:else_expr",
+                "term:raise",
+                "expr:else_raise",
+                "stmt:expr",
+                "expr:after_if",
+                "term:if",
+                "expr:block_term_test",
+                "label:then",
+                "label:else",
+                "block:done",
+                "stmt:delete",
+                "term:return",
+                "expr:final_return",
+            ]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -1193,7 +1633,24 @@ impl TryFrom<BlockPyTerm<CoreBlockPyExpr>> for BlockPyTerm<CoreBlockPyExprWithou
 
     fn try_from(value: BlockPyTerm<CoreBlockPyExpr>) -> Result<Self, Self::Error> {
         match value {
-            BlockPyTerm::Jump(target) => Ok(BlockPyTerm::Jump(target)),
+            BlockPyTerm::Jump(target) => Ok(BlockPyTerm::Jump(BlockPyEdge {
+                target: target.target,
+                args: target
+                    .args
+                    .into_iter()
+                    .map(
+                        |arg| -> Result<BlockArg<CoreBlockPyExprWithoutAwait>, CoreBlockPyExpr> {
+                            match arg {
+                                BlockArg::Name(name) => Ok(BlockArg::Name(name)),
+                                BlockArg::Expr(expr) => Ok(BlockArg::Expr(expr.try_into()?)),
+                                BlockArg::None => Ok(BlockArg::None),
+                                BlockArg::CurrentException => Ok(BlockArg::CurrentException),
+                                BlockArg::AbruptKind(kind) => Ok(BlockArg::AbruptKind(kind)),
+                            }
+                        },
+                    )
+                    .collect::<Result<Vec<_>, _>>()?,
+            })),
             BlockPyTerm::IfTerm(if_term) => Ok(BlockPyTerm::IfTerm(BlockPyIfTerm {
                 test: if_term.test.try_into()?,
                 then_label: if_term.then_label,
@@ -1417,7 +1874,27 @@ impl TryFrom<BlockPyTerm<CoreBlockPyExprWithoutAwait>>
 
     fn try_from(value: BlockPyTerm<CoreBlockPyExprWithoutAwait>) -> Result<Self, Self::Error> {
         match value {
-            BlockPyTerm::Jump(target) => Ok(BlockPyTerm::Jump(target)),
+            BlockPyTerm::Jump(target) => Ok(BlockPyTerm::Jump(BlockPyEdge {
+                target: target.target,
+                args: target
+                    .args
+                    .into_iter()
+                    .map(
+                        |arg| -> Result<
+                            BlockArg<CoreBlockPyExprWithoutAwaitOrYield>,
+                            CoreBlockPyExprWithoutAwait,
+                        > {
+                            match arg {
+                                BlockArg::Name(name) => Ok(BlockArg::Name(name)),
+                                BlockArg::Expr(expr) => Ok(BlockArg::Expr(expr.try_into()?)),
+                                BlockArg::None => Ok(BlockArg::None),
+                                BlockArg::CurrentException => Ok(BlockArg::CurrentException),
+                                BlockArg::AbruptKind(kind) => Ok(BlockArg::AbruptKind(kind)),
+                            }
+                        },
+                    )
+                    .collect::<Result<Vec<_>, _>>()?,
+            })),
             BlockPyTerm::IfTerm(if_term) => Ok(BlockPyTerm::IfTerm(BlockPyIfTerm {
                 test: if_term.test.try_into()?,
                 then_label: if_term.then_label,

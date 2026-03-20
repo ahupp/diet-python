@@ -37,7 +37,7 @@ pub(crate) fn rewrite_module_with_tracker(
     module: Suite,
     pass_tracker: &mut PassTracker,
 ) -> BlockPyModule<BbBlockPyPass> {
-    let module = pass_tracker.run_pass("ast-to-ast", || {
+    let module = pass_tracker.run_renderable_pass("ast-to-ast", || {
         let mut module = body_from_suite(module);
 
         // The transform now has a single lowering strategy: basic-block form.
@@ -92,33 +92,33 @@ pub(crate) fn rewrite_module_with_tracker(
         module
     });
     let (_module, semantic_blockpy): (Suite, BlockPyModule<RuffBlockPyPass>) = pass_tracker
-        .run_pass("semantic_blockpy", || {
+        .run_renderable_pass("semantic_blockpy", || {
             rewrite_ast_to_lowered_blockpy_module_plan(context, module)
         });
 
     let lowered_blockpy_module: BlockPyModule<LoweredRuffBlockPyPass> = pass_tracker
-        .run_pass("blockpy", || {
+        .run_renderable_pass("blockpy", || {
             semantic_blockpy.map_callable_defs(build_lowered_blockpy_function_bundle)
         });
     let core_blockpy: BlockPyModule<CoreBlockPyPass> = pass_tracker
-        .run_pass("core_blockpy", || {
+        .run_renderable_pass("core_blockpy", || {
             lowered_blockpy_module.map_callable_defs(simplify_blockpy_callable_def_exprs)
         });
     let core_blockpy_with_explicit_eval_order: BlockPyModule<CoreBlockPyPass> = pass_tracker
-        .run_pass("core_blockpy_with_explicit_eval_order", || {
+        .run_renderable_pass("core_blockpy_with_explicit_eval_order", || {
             core_blockpy.map_callable_defs(make_eval_order_explicit_in_core_callable_def)
         });
     let core_blockpy_without_await: BlockPyModule<CoreBlockPyPassWithoutAwait> = pass_tracker
-        .run_pass("core_blockpy_without_await", || {
+        .run_renderable_pass("core_blockpy_without_await", || {
             lower_awaits_in_core_blockpy_module(core_blockpy_with_explicit_eval_order)
         });
     let core_blockpy_without_await_or_yield: BlockPyModule<CoreBlockPyPassWithoutAwaitOrYield> =
-        pass_tracker.run_pass("core_blockpy_without_await_or_yield", || {
+        pass_tracker.run_renderable_pass("core_blockpy_without_await_or_yield", || {
             basic_block::lower_yield_in_lowered_core_blockpy_module_bundle(
                 core_blockpy_without_await,
             )
         });
-    let bb_module: BlockPyModule<BbBlockPyPass> = pass_tracker.run_pass("bb", || {
+    let bb_module: BlockPyModule<BbBlockPyPass> = pass_tracker.run_renderable_pass("bb", || {
         basic_block::lower_core_blockpy_module_bundle_to_bb_module(
             core_blockpy_without_await_or_yield,
         )
