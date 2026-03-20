@@ -16,13 +16,12 @@ use super::ruff_to_blockpy::{
 use crate::basic_block::ast_to_ast::ast_rewrite::{Rewrite, StmtRewritePass};
 use crate::basic_block::ast_to_ast::body::{suite_mut, suite_ref, Suite};
 use crate::basic_block::ast_to_ast::context::Context;
-use crate::basic_block::ast_to_ast::scope::{is_internal_symbol, Scope};
+use crate::basic_block::ast_to_ast::scope::is_internal_symbol;
 use crate::basic_block::block_py::param_specs::collect_param_spec_and_defaults;
 use crate::py_expr;
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, Expr, NodeIndex, Stmt};
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 pub struct SingleNamedAssignmentPass;
 

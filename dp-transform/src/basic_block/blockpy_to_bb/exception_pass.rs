@@ -3,7 +3,6 @@ use crate::basic_block::block_py::{
     BbBlockPyPass, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyStmt, BlockPyTerm,
 };
 use crate::basic_block::blockpy_to_bb::populate_exception_edge_args;
-use std::collections::HashMap;
 use std::collections::HashSet;
 
 pub fn lower_try_jump_exception_flow(
@@ -42,16 +41,6 @@ fn rewrite_try_jump_terms(
     labels: &HashSet<String>,
 ) -> Result<(), String> {
     let qualname = function.names.qualname.clone();
-    let exc_name_by_label: HashMap<String, Option<String>> = function
-        .blocks
-        .iter()
-        .map(|block| {
-            (
-                block.label.as_str().to_string(),
-                block.meta.exc_name.clone(),
-            )
-        })
-        .collect();
     for block in &mut function.blocks {
         let BlockPyTerm::TryJump(try_jump) = block.term.clone() else {
             continue;
@@ -73,20 +62,26 @@ fn rewrite_try_jump_terms(
         if block.meta.exc_target_label.is_none() {
             block.meta.exc_target_label = Some(try_jump.except_label.clone());
         }
-        if block.meta.exc_name.is_none() {
-            let target_label = block
-                .meta
-                .exc_target_label
-                .as_ref()
-                .unwrap_or(&try_jump.except_label);
-            block.meta.exc_name = exc_name_by_label
-                .get(target_label.as_str())
-                .cloned()
-                .flatten();
-        }
         block.term = BlockPyTerm::Jump(try_jump.body_label.into());
     }
     Ok(())
+}
+
+fn bb_params_from_names(
+    param_names: Vec<String>,
+    exception_name: Option<&str>,
+) -> Vec<crate::basic_block::block_py::BlockParam> {
+    param_names
+        .into_iter()
+        .map(|name| crate::basic_block::block_py::BlockParam {
+            role: if exception_name == Some(name.as_str()) {
+                crate::basic_block::block_py::BlockParamRole::Exception
+            } else {
+                crate::basic_block::block_py::BlockParamRole::Local
+            },
+            name,
+        })
+        .collect()
 }
 
 fn split_exception_blocks_for_expr_checks(function: &mut BlockPyFunction<BbBlockPyPass>) {
@@ -104,10 +99,10 @@ fn split_exception_blocks_for_expr_checks(function: &mut BlockPyFunction<BbBlock
             continue;
         }
 
-        let mut known_names = block.meta.params.clone();
+        let mut known_names = block.param_name_vec();
         let mut current_label = block.label.clone();
         let edge_target = block.meta.exc_target_label.clone();
-        let edge_exc_name = block.meta.exc_name.clone();
+        let edge_exc_name = block.exception_param().map(ToString::to_string);
         let mut ops = block.body.into_iter().peekable();
         let mut segment_start_names = known_names.clone();
 
@@ -125,10 +120,12 @@ fn split_exception_blocks_for_expr_checks(function: &mut BlockPyFunction<BbBlock
                     label: current_label.clone(),
                     body: std::mem::take(&mut segment_ops),
                     term: BlockPyTerm::Jump(next_label.clone().into()),
+                    params: bb_params_from_names(
+                        segment_start_names.clone(),
+                        edge_exc_name.as_deref(),
+                    ),
                     meta: BbBlockMeta {
-                        params: segment_start_names.clone(),
                         exc_target_label: edge_target.clone(),
-                        exc_name: edge_exc_name.clone(),
                         exc_arg_sources: Vec::new(),
                     },
                 });
@@ -141,10 +138,12 @@ fn split_exception_blocks_for_expr_checks(function: &mut BlockPyFunction<BbBlock
                     label: current_label.clone(),
                     body: std::mem::take(&mut segment_ops),
                     term: block.term.clone(),
+                    params: bb_params_from_names(
+                        segment_start_names.clone(),
+                        edge_exc_name.as_deref(),
+                    ),
                     meta: BbBlockMeta {
-                        params: segment_start_names.clone(),
                         exc_target_label: edge_target.clone(),
-                        exc_name: edge_exc_name.clone(),
                         exc_arg_sources: Vec::new(),
                     },
                 });
@@ -310,10 +309,12 @@ def f(x):
                 label: body_label.clone(),
                 body: vec![],
                 term: BlockPyTerm::<CoreBlockPyExprWithoutAwaitOrYield>::Return(None),
+                params: vec![crate::basic_block::block_py::BlockParam {
+                    name: "_dp_try_exc_manual".to_string(),
+                    role: crate::basic_block::block_py::BlockParamRole::Exception,
+                }],
                 meta: BbBlockMeta {
-                    params: vec![],
                     exc_target_label: Some(except_label.clone()),
-                    exc_name: Some("_dp_try_exc_manual".to_string()),
                     exc_arg_sources: Vec::new(),
                 },
             });
@@ -321,6 +322,7 @@ def f(x):
                 label: except_label.clone(),
                 body: vec![],
                 term: BlockPyTerm::<CoreBlockPyExprWithoutAwaitOrYield>::Return(None),
+                params: Vec::new(),
                 meta: BbBlockMeta::default(),
             });
             (body_label, except_label)
@@ -347,7 +349,7 @@ def f(x):
             "body region should dispatch to except block on exception"
         );
         assert_eq!(
-            body_block.meta.exc_name.as_deref(),
+            body_block.exception_param(),
             Some("_dp_try_exc_manual"),
             "exception binding name should be attached to body region"
         );
@@ -402,10 +404,11 @@ def f():
             label: except_label.clone(),
             body: vec![],
             term: BlockPyTerm::<CoreBlockPyExprWithoutAwaitOrYield>::Return(None),
+            params: Vec::new(),
             meta: BbBlockMeta::default(),
         });
         function.blocks[block_index].meta.exc_target_label = Some(except_label.clone());
-        function.blocks[block_index].meta.exc_name = Some("_dp_try_exc_split".to_string());
+        function.blocks[block_index].set_exception_param("_dp_try_exc_split");
 
         let lowered = lower_try_jump_exception_flow(&module).expect("pass should succeed");
         let lowered_function = lowered
@@ -473,10 +476,11 @@ def f():
             label: except_label.clone(),
             body: vec![],
             term: BlockPyTerm::<CoreBlockPyExprWithoutAwaitOrYield>::Return(None),
+            params: Vec::new(),
             meta: BbBlockMeta::default(),
         });
         function.blocks[block_index].meta.exc_target_label = Some(except_label.clone());
-        function.blocks[block_index].meta.exc_name = Some("_dp_try_exc_group".to_string());
+        function.blocks[block_index].set_exception_param("_dp_try_exc_group");
 
         let lowered = lower_try_jump_exception_flow(&module).expect("pass should succeed");
         let lowered_function = lowered

@@ -94,12 +94,68 @@ pub struct CfgBlock<S, T, M = ()> {
     pub label: BlockPyLabel,
     pub body: Vec<S>,
     pub term: T,
+    pub params: Vec<BlockParam>,
     pub meta: M,
 }
 
 impl<S, T, M> CfgBlock<S, T, M> {
     pub fn label_str(&self) -> &str {
         self.label.as_str()
+    }
+
+    pub fn ensure_param(&mut self, name: impl Into<String>, role: BlockParamRole) {
+        let name = name.into();
+        if self.params.iter().any(|param| param.name == name) {
+            return;
+        }
+        self.params.push(BlockParam { name, role });
+    }
+
+    pub fn set_exception_param(&mut self, name: impl Into<String>) {
+        let name = name.into();
+        for param in &mut self.params {
+            if param.role == BlockParamRole::Exception && param.name != name {
+                param.role = BlockParamRole::Local;
+            }
+        }
+        if let Some(param) = self.params.iter_mut().find(|param| param.name == name) {
+            param.role = BlockParamRole::Exception;
+            return;
+        }
+        self.params.push(BlockParam {
+            name,
+            role: BlockParamRole::Exception,
+        });
+    }
+
+    pub fn exception_param(&self) -> Option<&str> {
+        self.params
+            .iter()
+            .find(|param| param.role == BlockParamRole::Exception)
+            .map(|param| param.name.as_str())
+    }
+
+    pub fn param_names(&self) -> impl Iterator<Item = &str> {
+        self.params.iter().map(|param| param.name.as_str())
+    }
+
+    pub fn param_name_vec(&self) -> Vec<String> {
+        self.param_names().map(ToString::to_string).collect()
+    }
+
+    pub fn bb_params(&self) -> impl Iterator<Item = &BlockParam> {
+        [
+            BlockParamRole::Exception,
+            BlockParamRole::Local,
+            BlockParamRole::AbruptKind,
+            BlockParamRole::AbruptPayload,
+        ]
+        .into_iter()
+        .flat_map(|role| self.params.iter().filter(move |param| param.role == role))
+    }
+
+    pub fn bb_param_names(&self) -> impl Iterator<Item = &str> {
+        self.bb_params().map(|param| param.name.as_str())
     }
 }
 
@@ -369,9 +425,7 @@ where
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct BlockPyBlockMeta {
-    pub params: Vec<BlockParam>,
-}
+pub struct BlockPyBlockMeta;
 
 #[derive(Debug, Clone, Default)]
 pub struct LoweredBlockPyExtra {
@@ -381,9 +435,7 @@ pub struct LoweredBlockPyExtra {
 
 #[derive(Debug, Clone, Default)]
 pub struct BbBlockMeta {
-    pub params: Vec<String>,
     pub exc_target_label: Option<BlockPyLabel>,
-    pub exc_name: Option<String>,
     pub exc_arg_sources: Vec<BbExceptionArgSource>,
 }
 
@@ -576,6 +628,7 @@ impl<S: BlockPyNormalizedStmt, T> BlockPyCfgFragmentBuilder<S, T> {
 #[derive(Debug, Clone)]
 pub struct BlockPyCfgBlockBuilder<S, T> {
     label: BlockPyLabel,
+    params: Vec<BlockParam>,
     meta: BlockPyBlockMeta,
     fragment: BlockPyCfgFragmentBuilder<S, T>,
 }
@@ -588,6 +641,7 @@ impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>>
     pub fn new(label: BlockPyLabel) -> Self {
         Self {
             label,
+            params: Vec::new(),
             meta: BlockPyBlockMeta::default(),
             fragment: BlockPyCfgFragmentBuilder::new(),
         }
@@ -595,14 +649,39 @@ impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>>
 
     pub fn with_exc_param(mut self, exc_param: Option<String>) -> Self {
         if let Some(exc_param) = exc_param {
-            self.meta.set_exception_param(exc_param);
+            if self.params.iter().any(|param| param.name == exc_param) {
+                for param in &mut self.params {
+                    if param.role == BlockParamRole::Exception && param.name != exc_param {
+                        param.role = BlockParamRole::Local;
+                    }
+                    if param.name == exc_param {
+                        param.role = BlockParamRole::Exception;
+                    }
+                }
+            } else {
+                for param in &mut self.params {
+                    if param.role == BlockParamRole::Exception {
+                        param.role = BlockParamRole::Local;
+                    }
+                }
+                self.params.push(BlockParam {
+                    name: exc_param,
+                    role: BlockParamRole::Exception,
+                });
+            }
         }
         self
     }
 
     pub fn with_params(mut self, params: Vec<BlockParam>) -> Self {
         for param in params {
-            self.meta.ensure_param(param.name, param.role);
+            if !self
+                .params
+                .iter()
+                .any(|existing| existing.name == param.name)
+            {
+                self.params.push(param);
+            }
         }
         self
     }
@@ -631,6 +710,7 @@ impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>>
                 Some(target) => T::jump_term(target),
                 None => T::implicit_function_return(),
             }),
+            params: self.params,
             meta: self.meta,
         };
         assert_blockpy_block_normalized(&block);
@@ -785,60 +865,6 @@ pub struct BlockParam {
 pub struct BlockPyTryJump {
     pub body_label: BlockPyLabel,
     pub except_label: BlockPyLabel,
-}
-
-impl BlockPyBlockMeta {
-    pub fn ensure_param(&mut self, name: impl Into<String>, role: BlockParamRole) {
-        let name = name.into();
-        if self.params.iter().any(|param| param.name == name) {
-            return;
-        }
-        self.params.push(BlockParam { name, role });
-    }
-
-    pub fn set_exception_param(&mut self, name: impl Into<String>) {
-        let name = name.into();
-        for param in &mut self.params {
-            if param.role == BlockParamRole::Exception && param.name != name {
-                param.role = BlockParamRole::Local;
-            }
-        }
-        if let Some(param) = self.params.iter_mut().find(|param| param.name == name) {
-            param.role = BlockParamRole::Exception;
-            return;
-        }
-        self.params.push(BlockParam {
-            name,
-            role: BlockParamRole::Exception,
-        });
-    }
-
-    pub fn exception_param(&self) -> Option<&str> {
-        self.params
-            .iter()
-            .find(|param| param.role == BlockParamRole::Exception)
-            .map(|param| param.name.as_str())
-    }
-
-    pub fn param_names(&self) -> impl Iterator<Item = &str> {
-        self.params.iter().map(|param| param.name.as_str())
-    }
-
-    pub fn bb_param_names(&self) -> impl Iterator<Item = &str> {
-        [
-            BlockParamRole::Exception,
-            BlockParamRole::Local,
-            BlockParamRole::AbruptKind,
-            BlockParamRole::AbruptPayload,
-        ]
-        .into_iter()
-        .flat_map(|role| {
-            self.params
-                .iter()
-                .filter(move |param| param.role == role)
-                .map(|param| param.name.as_str())
-        })
-    }
 }
 
 pub trait BlockPyModuleVisitor<P>
@@ -1040,6 +1066,7 @@ where
                 .map(|stmt| self.map_stmt(stmt))
                 .collect(),
             term: self.map_term(block.term),
+            params: block.params,
             meta: block.meta,
         }
     }
@@ -1291,6 +1318,7 @@ mod tests {
                             then_label: BlockPyLabel::from("then"),
                             else_label: BlockPyLabel::from("else"),
                         }),
+                        params: Vec::new(),
                         meta: BlockPyBlockMeta::default(),
                     },
                     CfgBlock {
@@ -1299,6 +1327,7 @@ mod tests {
                             target: name_expr("trash"),
                         })],
                         term: BlockPyTerm::Return(Some(py_expr!("final_return"))),
+                        params: Vec::new(),
                         meta: BlockPyBlockMeta::default(),
                     },
                 ],
@@ -1735,6 +1764,7 @@ impl TryFrom<BlockPyBlock<CoreBlockPyExpr>> for BlockPyBlock<CoreBlockPyExprWith
                 .map(TryInto::try_into)
                 .collect::<Result<_, _>>()?,
             term: value.term.try_into()?,
+            params: value.params,
             meta: value.meta,
         })
     }
@@ -1990,6 +2020,7 @@ impl TryFrom<BlockPyBlock<CoreBlockPyExprWithoutAwait>>
                 .map(TryInto::try_into)
                 .collect::<Result<_, _>>()?,
             term: value.term.try_into()?,
+            params: value.params,
             meta: value.meta,
         })
     }

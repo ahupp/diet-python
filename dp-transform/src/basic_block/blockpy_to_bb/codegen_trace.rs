@@ -1,11 +1,9 @@
-use crate::basic_block::bb_ir::{BbBlockMeta, BbStmt};
+use crate::basic_block::bb_ir::BbStmt;
 use crate::basic_block::block_py::{
     BbBlockPyPass, BlockPyModule, CoreBlockPyCall, CoreBlockPyCallArg,
     CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
 };
-use crate::basic_block::cfg_trace::{
-    instrument_cfg_module_for_trace, CfgTraceConfig, TraceBlockMeta,
-};
+use crate::basic_block::cfg_trace::{instrument_cfg_module_for_trace, CfgTraceConfig};
 use ruff_python_ast::str::Quote;
 use ruff_python_ast::{
     self as ast, ExprName, StringLiteral, StringLiteralFlags, StringLiteralValue,
@@ -14,12 +12,6 @@ use ruff_text_size::TextRange;
 
 #[cfg(test)]
 use crate::basic_block::cfg_trace::parse_cfg_trace_config;
-
-impl TraceBlockMeta for BbBlockMeta {
-    fn trace_params(&self) -> &[String] {
-        &self.params
-    }
-}
 
 pub(crate) fn instrument_bb_module_for_trace(
     module: &mut BlockPyModule<BbBlockPyPass>,

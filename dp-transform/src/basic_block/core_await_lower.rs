@@ -126,6 +126,7 @@ mod tests {
                     term: BlockPyTerm::Return(Some(CoreBlockPyExpr::from(crate::py_expr!(
                         "await foo()"
                     )))),
+                    params: Vec::new(),
                     meta: Default::default(),
                 }],
                 doc: None,

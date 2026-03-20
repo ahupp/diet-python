@@ -12,11 +12,9 @@ impl BlockPyFunction<BbBlockPyPass> {
             return Vec::new();
         }
         self.entry_block()
-            .meta
-            .params
-            .iter()
+            .param_names()
             .filter(|name| !is_internal_entry_livein(name))
-            .cloned()
+            .map(ToString::to_string)
             .collect()
     }
 }

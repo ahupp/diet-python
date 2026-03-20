@@ -6,7 +6,7 @@ use dp_transform::basic_block::block_py::{
 };
 use ruff_python_ast::Number;
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 
 #[derive(Clone, Debug)]
@@ -277,7 +277,7 @@ fn direct_simple_block_arg_from(
 }
 
 fn direct_simple_plan_from_block(block: &BbBlock) -> Option<DirectSimpleRetPlan> {
-    let mut known_names: Vec<String> = block.meta.params.clone();
+    let mut known_names = block.param_name_vec();
     let mut assigns = Vec::new();
     for op in &block.body {
         let BlockPyStmt::Assign(assign) = op else {
@@ -304,16 +304,36 @@ fn direct_simple_plan_from_block(block: &BbBlock) -> Option<DirectSimpleRetPlan>
         DirectSimpleExprPlan::None
     };
     Some(DirectSimpleRetPlan {
-        params: block.meta.params.clone(),
+        params: block.param_name_vec(),
         assigns,
         ret,
     })
+}
+
+fn ambient_param_name_set(function: &BlockPyFunction<BbBlockPyPass>) -> HashSet<String> {
+    function
+        .closure_layout()
+        .as_ref()
+        .map(|layout| layout.ambient_storage_names().into_iter().collect())
+        .unwrap_or_default()
+}
+
+fn jit_param_names_for_block(
+    block: &BbBlock,
+    ambient_param_names: &HashSet<String>,
+) -> Vec<String> {
+    block
+        .param_names()
+        .filter(|name| !ambient_param_names.contains(*name))
+        .map(ToString::to_string)
+        .collect()
 }
 
 fn direct_simple_brif_plan_from_block(
     function: &BlockPyFunction<BbBlockPyPass>,
     block: &BbBlock,
     label_to_index: &HashMap<BlockPyLabel, usize>,
+    ambient_param_names: &HashSet<String>,
 ) -> Option<DirectSimpleBrIfPlan> {
     if !block.body.is_empty() {
         return None;
@@ -323,15 +343,16 @@ fn direct_simple_brif_plan_from_block(
     };
     let then_index = *label_to_index.get(if_term.then_label.as_str())?;
     let else_index = *label_to_index.get(if_term.else_label.as_str())?;
-    let source_params = block.meta.params.as_slice();
-    if function.blocks[then_index].meta.params.as_slice() != source_params
-        || function.blocks[else_index].meta.params.as_slice() != source_params
+    let source_params = jit_param_names_for_block(block, ambient_param_names);
+    if jit_param_names_for_block(&function.blocks[then_index], ambient_param_names) != source_params
+        || jit_param_names_for_block(&function.blocks[else_index], ambient_param_names)
+            != source_params
     {
         return None;
     }
     let test = direct_simple_expr_from(&if_term.test)?;
     Some(DirectSimpleBrIfPlan {
-        params: block.meta.params.clone(),
+        params: block.param_name_vec(),
         test,
         then_index,
         else_index,
@@ -353,7 +374,7 @@ fn direct_simple_expr_ret_none_plan_from_block(
         exprs.push(expr);
     }
     Some(DirectSimpleExprRetNonePlan {
-        params: block.meta.params.clone(),
+        params: block.param_name_vec(),
         exprs,
     })
 }
@@ -361,8 +382,12 @@ fn direct_simple_expr_ret_none_plan_from_block(
 fn target_params_from_index(
     function: &BlockPyFunction<BbBlockPyPass>,
     target_index: usize,
+    ambient_param_names: &HashSet<String>,
 ) -> Option<Vec<String>> {
-    Some(function.blocks.get(target_index)?.meta.params.clone())
+    Some(jit_param_names_for_block(
+        function.blocks.get(target_index)?,
+        ambient_param_names,
+    ))
 }
 
 fn direct_simple_delete_plan_from_targets(
@@ -456,7 +481,7 @@ fn unsupported_fastpath_block_message(
         block.label,
         bb_term_kind(&block.term),
         op_kinds,
-        block.meta.params,
+        block.param_name_vec(),
         block.meta.exc_target_label,
         op_debug,
     )
@@ -466,8 +491,9 @@ fn direct_simple_block_plan_from_block(
     function: &BlockPyFunction<BbBlockPyPass>,
     block: &BbBlock,
     label_to_index: &HashMap<BlockPyLabel, usize>,
+    ambient_param_names: &HashSet<String>,
 ) -> Option<DirectSimpleBlockPlan> {
-    let mut known_names: Vec<String> = block.meta.params.clone();
+    let mut known_names = block.param_name_vec();
     let mut ops = Vec::new();
     for op in &block.body {
         let stmt_op = direct_simple_op_from_bb_stmt(op, &mut known_names)?;
@@ -476,7 +502,8 @@ fn direct_simple_block_plan_from_block(
     let term = match &block.term {
         BlockPyTerm::Jump(target_label) => {
             let target_index = *label_to_index.get(target_label.as_str())?;
-            let target_params = target_params_from_index(function, target_index)?;
+            let target_params =
+                target_params_from_index(function, target_index, ambient_param_names)?;
             let target_args = target_label
                 .args
                 .iter()
@@ -491,9 +518,9 @@ fn direct_simple_block_plan_from_block(
         BlockPyTerm::IfTerm(if_term) => {
             let test_expr = direct_simple_expr_from(&if_term.test)?;
             let then_index = *label_to_index.get(if_term.then_label.as_str())?;
-            let then_params = target_params_from_index(function, then_index)?;
+            let then_params = target_params_from_index(function, then_index, ambient_param_names)?;
             let else_index = *label_to_index.get(if_term.else_label.as_str())?;
-            let else_params = target_params_from_index(function, else_index)?;
+            let else_params = target_params_from_index(function, else_index, ambient_param_names)?;
             DirectSimpleTermPlan::BrIf {
                 test: test_expr,
                 then_index,
@@ -507,11 +534,13 @@ fn direct_simple_block_plan_from_block(
             let mut target_plans = Vec::with_capacity(branch.targets.len());
             for target_label in &branch.targets {
                 let target_index = *label_to_index.get(target_label.as_str())?;
-                let target_params = target_params_from_index(function, target_index)?;
+                let target_params =
+                    target_params_from_index(function, target_index, ambient_param_names)?;
                 target_plans.push((target_index, target_params));
             }
             let default_index = *label_to_index.get(branch.default_label.as_str())?;
-            let default_params = target_params_from_index(function, default_index)?;
+            let default_params =
+                target_params_from_index(function, default_index, ambient_param_names)?;
             DirectSimpleTermPlan::BrTable {
                 index: index_expr,
                 targets: target_plans,
@@ -534,7 +563,7 @@ fn direct_simple_block_plan_from_block(
         BlockPyTerm::TryJump(_) => return None,
     };
     Some(DirectSimpleBlockPlan {
-        params: block.meta.params.clone(),
+        params: block.param_name_vec(),
         ops,
         term,
     })
@@ -559,6 +588,7 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
         .as_ref()
         .map(|layout| layout.ambient_storage_names())
         .unwrap_or_default();
+    let ambient_param_name_set = ambient_param_name_set(function);
     let mut label_to_index = HashMap::new();
     for (index, block) in function.blocks.iter().enumerate() {
         label_to_index.insert(block.label.clone(), index);
@@ -587,35 +617,37 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
         };
         let exc_dispatch = if let Some(target_index) = exc_target {
             let target_block = &function.blocks[target_index];
-            let owner_param_index = block
-                .meta
-                .params
+            let block_param_names = jit_param_names_for_block(block, &ambient_param_name_set);
+            let full_target_param_names = target_block.param_name_vec();
+            let owner_param_index = block_param_names
                 .iter()
-                .position(|name| name == "_dp_self")
+                .position(|param| param == "_dp_self")
                 .or_else(|| {
-                    block
-                        .meta
-                        .params
+                    block_param_names
                         .iter()
-                        .position(|name| name == "_dp_state")
+                        .position(|param| param == "_dp_state")
                 });
-            let mut arg_sources = Vec::with_capacity(target_block.meta.params.len());
-            if block.meta.exc_arg_sources.len() != target_block.meta.params.len() {
+            let mut arg_sources = Vec::with_capacity(full_target_param_names.len());
+            if block.meta.exc_arg_sources.len() != full_target_param_names.len() {
                 return Err(format!(
-                    "exception dispatch from {}:{} has {} explicit arg sources for target {} with {} params",
+                    "exception dispatch from {}:{} has {} explicit arg sources for target {} with {} full params",
                     function.names.qualname,
                     block.label,
                     block.meta.exc_arg_sources.len(),
                     target_block.label,
-                    target_block.meta.params.len()
+                    full_target_param_names.len()
                 ));
             }
-            for source in &block.meta.exc_arg_sources {
+            for (target_param_name, source) in full_target_param_names
+                .iter()
+                .zip(block.meta.exc_arg_sources.iter())
+            {
+                if ambient_param_name_set.contains(target_param_name) {
+                    continue;
+                }
                 match source {
                     BbExceptionArgSource::SourceParam(name) => {
-                        let Some(source_index) = block
-                            .meta
-                            .params
+                        let Some(source_index) = block_param_names
                             .iter()
                             .position(|source_name| source_name == name)
                         else {
@@ -751,15 +783,22 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
                                     block.label
                                 )
                             })?;
-                        let source_params = block.meta.params.as_slice();
-                        let target_params = function.blocks[target_index].meta.params.as_slice();
+                        let source_params =
+                            jit_param_names_for_block(block, &ambient_param_name_set);
+                        let target_params = jit_param_names_for_block(
+                            &function.blocks[target_index],
+                            &ambient_param_name_set,
+                        );
                         if target_label.args.is_empty() && source_params == target_params {
                             BlockFastPath::JumpPassThrough { target_index }
                         } else if let Some(plan) = direct_simple_plan_from_block(block) {
                             BlockFastPath::DirectSimpleRet { plan }
-                        } else if let Some(plan) =
-                            direct_simple_block_plan_from_block(function, block, &label_to_index)
-                        {
+                        } else if let Some(plan) = direct_simple_block_plan_from_block(
+                            function,
+                            block,
+                            &label_to_index,
+                            &ambient_param_name_set,
+                        ) {
                             BlockFastPath::DirectSimpleBlock { plan }
                         } else {
                             BlockFastPath::None
@@ -767,13 +806,19 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
                     }
                     BlockPyTerm::Return(None) => BlockFastPath::ReturnNone,
                     BlockPyTerm::IfTerm(_) => {
-                        if let Some(plan) =
-                            direct_simple_brif_plan_from_block(function, block, &label_to_index)
-                        {
+                        if let Some(plan) = direct_simple_brif_plan_from_block(
+                            function,
+                            block,
+                            &label_to_index,
+                            &ambient_param_name_set,
+                        ) {
                             BlockFastPath::DirectSimpleBrIf { plan }
-                        } else if let Some(plan) =
-                            direct_simple_block_plan_from_block(function, block, &label_to_index)
-                        {
+                        } else if let Some(plan) = direct_simple_block_plan_from_block(
+                            function,
+                            block,
+                            &label_to_index,
+                            &ambient_param_name_set,
+                        ) {
                             BlockFastPath::DirectSimpleBlock { plan }
                         } else {
                             BlockFastPath::None
@@ -782,9 +827,12 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
                     _ => {
                         if let Some(plan) = direct_simple_plan_from_block(block) {
                             BlockFastPath::DirectSimpleRet { plan }
-                        } else if let Some(plan) =
-                            direct_simple_block_plan_from_block(function, block, &label_to_index)
-                        {
+                        } else if let Some(plan) = direct_simple_block_plan_from_block(
+                            function,
+                            block,
+                            &label_to_index,
+                            &ambient_param_name_set,
+                        ) {
                             BlockFastPath::DirectSimpleBlock { plan }
                         } else {
                             BlockFastPath::None
@@ -795,9 +843,12 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
                 BlockFastPath::DirectSimpleRet { plan }
             } else if let Some(plan) = direct_simple_expr_ret_none_plan_from_block(block) {
                 BlockFastPath::DirectSimpleExprRetNone { plan }
-            } else if let Some(plan) =
-                direct_simple_block_plan_from_block(function, block, &label_to_index)
-            {
+            } else if let Some(plan) = direct_simple_block_plan_from_block(
+                function,
+                block,
+                &label_to_index,
+                &ambient_param_name_set,
+            ) {
                 BlockFastPath::DirectSimpleBlock { plan }
             } else {
                 BlockFastPath::None
@@ -809,7 +860,7 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
         block_terms.push(term);
         block_exc_targets.push(exc_target);
         block_exc_dispatches.push(exc_dispatch);
-        block_param_names.push(block.meta.params.clone());
+        block_param_names.push(block.param_name_vec());
         block_fast_paths.push(fast_path);
     }
     Ok(ClifPlan {

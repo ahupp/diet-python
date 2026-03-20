@@ -227,7 +227,7 @@ fn build_lowered_function_instantiation_preview(
     let param_name_set: HashSet<String> = param_names.iter().cloned().collect();
     let mut state_vars = collect_state_vars(&param_names, &callable_def.blocks);
     for block in &callable_def.blocks {
-        let Some(exc_param) = block.meta.exception_param() else {
+        let Some(exc_param) = block.exception_param() else {
             continue;
         };
         if !state_vars.iter().any(|existing| existing == exc_param) {

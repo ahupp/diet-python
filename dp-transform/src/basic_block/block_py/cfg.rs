@@ -1,5 +1,6 @@
 use super::{
-    BlockPyBlock, BlockPyCfgFragment, BlockPyIfTerm, BlockPyLabel, BlockPyStmt, BlockPyTerm,
+    BlockParam, BlockParamRole, BlockPyBlock, BlockPyCfgFragment, BlockPyIfTerm, BlockPyLabel,
+    BlockPyStmt, BlockPyTerm,
 };
 use crate::basic_block::ast_symbol_analysis::collect_assigned_names;
 use crate::transformer::{walk_expr, Transformer};
@@ -302,12 +303,30 @@ where
     extend_ordered_state(base, assigned)
 }
 
+fn params_for_linearized_names(
+    param_names: &[String],
+    declared_params: &[BlockParam],
+) -> Vec<BlockParam> {
+    param_names
+        .iter()
+        .map(|name| BlockParam {
+            name: name.clone(),
+            role: declared_params
+                .iter()
+                .find(|param| param.name == *name)
+                .map(|param| param.role)
+                .unwrap_or(BlockParamRole::Local),
+        })
+        .collect()
+}
+
 fn linearize_blockpy_if_sequence<E: Clone + Into<Expr>>(
     label: BlockPyLabel,
     body: Vec<BlockPyStmt<E>>,
     final_term: BlockPyTerm<E>,
     meta: super::BlockPyBlockMeta,
     block_params: Vec<String>,
+    declared_params: Vec<BlockParam>,
     exc_target: Option<String>,
     next_label_id: &mut usize,
     out_blocks: &mut Vec<BlockPyBlock<E>>,
@@ -318,12 +337,13 @@ fn linearize_blockpy_if_sequence<E: Clone + Into<Expr>>(
         .iter()
         .position(|stmt| matches!(stmt, BlockPyStmt::If(_)))
     else {
-        out_block_params.insert(label.as_str().to_string(), block_params);
+        out_block_params.insert(label.as_str().to_string(), block_params.clone());
         out_exception_edges.insert(label.as_str().to_string(), exc_target);
         out_blocks.push(BlockPyBlock {
             label,
             body,
             term: final_term,
+            params: params_for_linearized_names(&block_params, &declared_params),
             meta,
         });
         return;
@@ -356,6 +376,10 @@ fn linearize_blockpy_if_sequence<E: Clone + Into<Expr>>(
             then_label: then_label.clone(),
             else_label: else_label.clone(),
         }),
+        params: params_for_linearized_names(
+            out_block_params.get(label.as_str()).unwrap(),
+            &declared_params,
+        ),
         meta: meta.clone(),
     });
 
@@ -369,6 +393,7 @@ fn linearize_blockpy_if_sequence<E: Clone + Into<Expr>>(
         branch_fallthrough.clone(),
         meta.clone(),
         available_before_if.clone(),
+        declared_params.clone(),
         exc_target.clone(),
         next_label_id,
         out_blocks,
@@ -381,6 +406,7 @@ fn linearize_blockpy_if_sequence<E: Clone + Into<Expr>>(
         branch_fallthrough,
         meta.clone(),
         available_before_if.clone(),
+        declared_params.clone(),
         exc_target.clone(),
         next_label_id,
         out_blocks,
@@ -395,6 +421,7 @@ fn linearize_blockpy_if_sequence<E: Clone + Into<Expr>>(
             final_term,
             meta,
             join_block_params,
+            declared_params,
             exc_target,
             next_label_id,
             out_blocks,
@@ -410,6 +437,7 @@ fn linearize_blockpy_fragment<E: Clone + Into<Expr>>(
     fallthrough_term: BlockPyTerm<E>,
     meta: super::BlockPyBlockMeta,
     block_params: Vec<String>,
+    declared_params: Vec<BlockParam>,
     exc_target: Option<String>,
     next_label_id: &mut usize,
     out_blocks: &mut Vec<BlockPyBlock<E>>,
@@ -422,6 +450,7 @@ fn linearize_blockpy_fragment<E: Clone + Into<Expr>>(
         fragment.term.unwrap_or(fallthrough_term),
         meta,
         block_params,
+        declared_params,
         exc_target,
         next_label_id,
         out_blocks,
@@ -444,10 +473,15 @@ pub(crate) fn linearize_structured_ifs<E: Clone + Into<Expr>>(
     let mut out_exception_edges = HashMap::new();
     let mut next_label_id = 0usize;
     for block in blocks {
-        let params = block_params
+        let mut params = block_params
             .get(block.label.as_str())
             .cloned()
             .unwrap_or_default();
+        for name in block.bb_param_names() {
+            if !params.iter().any(|existing| existing == name) {
+                params.push(name.to_string());
+            }
+        }
         let exc_target = exception_edges
             .get(block.label.as_str())
             .cloned()
@@ -458,6 +492,7 @@ pub(crate) fn linearize_structured_ifs<E: Clone + Into<Expr>>(
             block.term.clone(),
             block.meta.clone(),
             params,
+            block.params.clone(),
             exc_target,
             &mut next_label_id,
             &mut out_blocks,

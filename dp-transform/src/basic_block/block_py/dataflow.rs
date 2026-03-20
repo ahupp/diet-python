@@ -150,10 +150,9 @@ pub(crate) fn merge_declared_block_params<E>(
             .entry(block.label.as_str().to_string())
             .or_default();
         for param_name in block
-            .meta
             .exception_param()
             .into_iter()
-            .chain(block.meta.param_names())
+            .chain(block.param_names())
         {
             if !params.iter().any(|existing| existing == param_name) {
                 params.push(param_name.to_string());
@@ -168,10 +167,9 @@ pub(crate) fn extend_state_order_with_declared_block_params<E>(
 ) {
     for block in blocks {
         for param_name in block
-            .meta
             .exception_param()
             .into_iter()
-            .chain(block.meta.param_names())
+            .chain(block.param_names())
         {
             if !state_order.iter().any(|existing| existing == param_name) {
                 state_order.push(param_name.to_string());
@@ -189,7 +187,7 @@ where
     let mut uses = HashSet::new();
     let mut defs = HashSet::new();
 
-    if let Some(exc_param) = block.meta.exception_param() {
+    if let Some(exc_param) = block.exception_param() {
         uses.insert(exc_param.to_string());
     }
 
@@ -230,10 +228,9 @@ fn extend_successor_live_in<E>(
     };
     let succ_block = &blocks[succ_idx];
     let declared_param_names = succ_block
-        .meta
         .exception_param()
         .into_iter()
-        .chain(succ_block.meta.param_names())
+        .chain(succ_block.param_names())
         .collect::<Vec<_>>();
     let explicit_start = declared_param_names.len().saturating_sub(edge_args.len());
     let explicit_param_names = declared_param_names[explicit_start..]

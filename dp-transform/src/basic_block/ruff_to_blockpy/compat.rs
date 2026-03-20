@@ -105,7 +105,7 @@ pub(crate) fn set_region_exc_param(
     exc_param: &str,
 ) {
     for block in &mut blocks[region.clone()] {
-        block.meta.set_exception_param(exc_param.to_string());
+        block.set_exception_param(exc_param.to_string());
     }
 }
 

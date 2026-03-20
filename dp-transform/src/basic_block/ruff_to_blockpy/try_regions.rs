@@ -126,14 +126,10 @@ where
             .find(|block| block.label.as_str() == finally_label)
         {
             if let Some(kind_name) = try_plan.finally_abrupt_kind_name.as_ref() {
-                finally_entry
-                    .meta
-                    .ensure_param(kind_name.clone(), BlockParamRole::AbruptKind);
+                finally_entry.ensure_param(kind_name.clone(), BlockParamRole::AbruptKind);
             }
             if let Some(payload_name) = try_plan.finally_abrupt_payload_name.as_ref() {
-                finally_entry
-                    .meta
-                    .ensure_param(payload_name.clone(), BlockParamRole::AbruptPayload);
+                finally_entry.ensure_param(payload_name.clone(), BlockParamRole::AbruptPayload);
             }
         }
         let finally_normal_entry = try_plan.finally_abrupt_kind_name.as_ref().map(|_| {

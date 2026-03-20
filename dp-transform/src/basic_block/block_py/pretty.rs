@@ -38,7 +38,7 @@ where
     }
 
     fn block_metadata_lines(block: &PassBlock<Self>) -> Vec<String> {
-        render_blockpy_block_metadata(&block.meta)
+        render_blockpy_block_metadata(block)
     }
 }
 
@@ -49,13 +49,20 @@ impl BlockPyPrettyPrinter for BbBlockPyPass {
 
     fn block_metadata_lines(block: &PassBlock<Self>) -> Vec<String> {
         let mut lines = Vec::new();
-        if !block.meta.params.is_empty() {
-            lines.push(format!("params: [{}]", block.meta.params.join(", ")));
+        if !block.params.is_empty() {
+            lines.push(format!(
+                "params: [{}]",
+                block
+                    .param_names()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
         }
         if let Some(exc_target) = &block.meta.exc_target_label {
             lines.push(format!("exc_target: {}", exc_target.as_str()));
         }
-        if let Some(exc_name) = &block.meta.exc_name {
+        if let Some(exc_name) = block.exception_param() {
             lines.push(format!("exc_name: {exc_name}"));
         }
         lines
@@ -690,15 +697,16 @@ where
     }
 }
 
-fn render_blockpy_block_metadata(meta: &super::BlockPyBlockMeta) -> Vec<String> {
+fn render_blockpy_block_metadata<E>(block: &super::BlockPyBlock<E>) -> Vec<String> {
     let mut lines = Vec::new();
-    if let Some(exc_param) = meta.exception_param() {
+    if let Some(exc_param) = block.exception_param() {
         lines.push(format!("exc_param: {exc_param}"));
     }
-    if !meta.params.is_empty() {
+    if !block.params.is_empty() {
         lines.push(format!(
             "params: [{}]",
-            meta.params
+            block
+                .params
                 .iter()
                 .map(|param| format!("{}:{:?}", param.name, param.role))
                 .collect::<Vec<_>>()
@@ -1129,7 +1137,7 @@ where
 mod tests {
     use super::*;
     use crate::basic_block::block_py::{
-        BbBlockMeta, BlockPyBlock, BlockPyBlockMeta, RuffBlockPyPass,
+        BbBlockMeta, BlockParam, BlockParamRole, BlockPyBlock, BlockPyBlockMeta, RuffBlockPyPass,
     };
     use crate::basic_block::block_py::{ClosureInit, ClosureLayout, ClosureSlot};
     use ruff_python_parser::parse_expression;
@@ -1281,6 +1289,7 @@ async def no_lying():
                     label: "gen_start".into(),
                     body: vec![],
                     term: BlockPyTerm::<Expr>::Return(None),
+                    params: Vec::new(),
                     meta: BlockPyBlockMeta::default(),
                 }],
                 doc: None,
@@ -1330,24 +1339,28 @@ async def no_lying():
                         then_label: "then".into(),
                         else_label: "else".into(),
                     }),
+                    params: Vec::new(),
                     meta: BlockPyBlockMeta::default(),
                 },
                 BlockPyBlock {
                     label: "then".into(),
                     body: vec![BlockPyStmt::Expr(parse_blockpy_expr("then_side_effect()"))],
                     term: BlockPyTerm::Jump("after".into()),
+                    params: Vec::new(),
                     meta: BlockPyBlockMeta::default(),
                 },
                 BlockPyBlock {
                     label: "else".into(),
                     body: vec![BlockPyStmt::Expr(parse_blockpy_expr("else_side_effect()"))],
                     term: BlockPyTerm::Jump("after".into()),
+                    params: Vec::new(),
                     meta: BlockPyBlockMeta::default(),
                 },
                 BlockPyBlock {
                     label: "after".into(),
                     body: vec![BlockPyStmt::Expr(parse_blockpy_expr("finish()"))],
                     term: BlockPyTerm::Return(None),
+                    params: Vec::new(),
                     meta: BlockPyBlockMeta::default(),
                 },
             ],
@@ -1404,30 +1417,35 @@ def choose(a, b):
                         body_label: "zeta".into(),
                         except_label: "alpha".into(),
                     }),
+                    params: Vec::new(),
                     meta: BlockPyBlockMeta::default(),
                 },
                 BlockPyBlock {
                     label: "zeta".into(),
                     body: vec![],
                     term: BlockPyTerm::Return(None),
+                    params: Vec::new(),
                     meta: BlockPyBlockMeta::default(),
                 },
                 BlockPyBlock {
                     label: "alpha".into(),
                     body: vec![],
                     term: BlockPyTerm::Return(None),
+                    params: Vec::new(),
                     meta: BlockPyBlockMeta::default(),
                 },
                 BlockPyBlock {
                     label: "omega".into(),
                     body: vec![],
                     term: BlockPyTerm::Return(None),
+                    params: Vec::new(),
                     meta: BlockPyBlockMeta::default(),
                 },
                 BlockPyBlock {
                     label: "beta".into(),
                     body: vec![],
                     term: BlockPyTerm::Return(None),
+                    params: Vec::new(),
                     meta: BlockPyBlockMeta::default(),
                 },
             ],
@@ -1474,6 +1492,7 @@ def choose(a, b):
                     body_label: "body_target".into(),
                     except_label: "except_target".into(),
                 }),
+                params: Vec::new(),
                 meta: BlockPyBlockMeta::default(),
             }]);
 
@@ -1506,10 +1525,18 @@ def choose(a, b):
                         label: "start".into(),
                         body: vec![],
                         term: BlockPyTerm::Jump("except".into()),
+                        params: vec![
+                            BlockParam {
+                                name: "err".to_string(),
+                                role: BlockParamRole::Exception,
+                            },
+                            BlockParam {
+                                name: "x".to_string(),
+                                role: BlockParamRole::Local,
+                            },
+                        ],
                         meta: BbBlockMeta {
-                            params: vec!["x".to_string()],
                             exc_target_label: Some("except".into()),
-                            exc_name: Some("err".to_string()),
                             exc_arg_sources: Vec::new(),
                         },
                     },
@@ -1517,6 +1544,10 @@ def choose(a, b):
                         label: "except".into(),
                         body: vec![],
                         term: BlockPyTerm::Return(None),
+                        params: vec![BlockParam {
+                            name: "err".to_string(),
+                            role: BlockParamRole::Exception,
+                        }],
                         meta: BbBlockMeta::default(),
                     },
                 ],
@@ -1531,7 +1562,7 @@ def choose(a, b):
         assert!(rendered.contains("function f():"), "{rendered}");
         assert!(rendered.contains("function_id: 0"), "{rendered}");
         assert!(rendered.contains("block start:"), "{rendered}");
-        assert!(rendered.contains("params: [x]"), "{rendered}");
+        assert!(rendered.contains("params: [err, x]"), "{rendered}");
         assert!(rendered.contains("exc_target: except"), "{rendered}");
         assert!(rendered.contains("exc_name: err"), "{rendered}");
         assert!(rendered.contains("jump except"), "{rendered}");

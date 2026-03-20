@@ -206,6 +206,7 @@ fn make_eval_order_explicit_in_core_block(
         label,
         body: input_body,
         term: input_term,
+        params,
         meta,
     } = block;
     let mut body = Vec::new();
@@ -217,6 +218,7 @@ fn make_eval_order_explicit_in_core_block(
         label,
         body,
         term,
+        params,
         meta,
     }
 }
@@ -428,6 +430,7 @@ pub(crate) fn make_eval_order_explicit_in_core_block_without_await(
         label,
         body: input_body,
         term: input_term,
+        params,
         meta,
     } = block;
     let mut body = Vec::new();
@@ -439,6 +442,7 @@ pub(crate) fn make_eval_order_explicit_in_core_block_without_await(
         label,
         body,
         term,
+        params,
         meta,
     }
 }
@@ -469,6 +473,7 @@ mod tests {
             term: BlockPyTerm::Return(Some(CoreBlockPyExpr::from(crate::py_expr!(
                 "f(g(x), h(y))"
             )))),
+            params: Vec::new(),
             meta: Default::default(),
         };
 
@@ -498,6 +503,7 @@ mod tests {
             label: BlockPyLabel("start".to_string()),
             body: Vec::new(),
             term: BlockPyTerm::Return(Some(CoreBlockPyExpr::from(crate::py_expr!("f(g(x))")))),
+            params: Vec::new(),
             meta: Default::default(),
         };
 
@@ -519,6 +525,7 @@ mod tests {
                 value: CoreBlockPyExpr::from(crate::py_expr!("f(g(x))")),
             })],
             term: BlockPyTerm::Return(None),
+            params: Vec::new(),
             meta: Default::default(),
         };
 
@@ -546,6 +553,7 @@ mod tests {
                 value: CoreBlockPyExpr::from(crate::py_expr!("__dp_iadd(total, await Once())")),
             })],
             term: BlockPyTerm::Return(None),
+            params: Vec::new(),
             meta: Default::default(),
         };
 
@@ -597,6 +605,7 @@ mod tests {
                 }),
             })],
             term: BlockPyTerm::Return(None),
+            params: Vec::new(),
             meta: Default::default(),
         };
 

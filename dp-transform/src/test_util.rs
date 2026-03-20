@@ -26,7 +26,7 @@ pub(crate) fn assert_transform_eq_ex(actual: &str, expected: &str) {
     let module = transform_str_to_ruff_with_options(actual, options).unwrap();
     let actual_str = ruff_ast_to_string(suite_ref(&module.module.body));
     let actual_body = suite_ref(&module.module.body);
-    let actual_stmt_internal: Vec<_> = actual_body.iter().map(ComparableStmt::from).collect();
+    let _actual_stmt_internal: Vec<_> = actual_body.iter().map(ComparableStmt::from).collect();
 
     let actual_parsed = parse_module(actual_str.as_str())
         .unwrap()

@@ -425,6 +425,7 @@ fn lower_semantic_block(block: BlockPyBlock<Expr>) -> BlockPyBlock<CoreBlockPyEx
         label,
         body,
         term,
+        params,
         meta,
     } = block;
     let fragment = lower_semantic_stmt_fragment(BlockPyCfgFragment {
@@ -437,6 +438,7 @@ fn lower_semantic_block(block: BlockPyBlock<Expr>) -> BlockPyBlock<CoreBlockPyEx
         term: fragment
             .term
             .expect("semantic BlockPy block must lower to a core terminator"),
+        params,
         meta,
     }
 }

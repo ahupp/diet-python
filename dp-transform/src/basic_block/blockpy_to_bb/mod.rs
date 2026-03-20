@@ -5,10 +5,10 @@ mod exception_pass;
 use super::bb_ir::{BbBlock, BbBlockMeta, BbStmt};
 use super::block_py::cfg::linearize_structured_ifs;
 use super::block_py::{
-    BbBlockPyPass, BbExceptionArgSource, BlockPyBlock, BlockPyFunction, BlockPyFunctionKind,
-    BlockPyIfTerm, BlockPyModule, BlockPyStmt, BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg,
-    CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
-    CoreBlockPyPassWithoutAwait, CoreBlockPyPassWithoutAwaitOrYield,
+    BbBlockPyPass, BbExceptionArgSource, BlockParam, BlockParamRole, BlockPyBlock, BlockPyFunction,
+    BlockPyFunctionKind, BlockPyIfTerm, BlockPyModule, BlockPyStmt, BlockPyTerm, CoreBlockPyCall,
+    CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg,
+    CoreBlockPyLiteral, CoreBlockPyPassWithoutAwait, CoreBlockPyPassWithoutAwaitOrYield,
 };
 use super::blockpy_generators::lower_generator_like_function;
 use super::core_eval_order::make_eval_order_explicit_in_core_callable_def_without_await;
@@ -102,19 +102,10 @@ fn lower_blockpy_blocks_to_bb_blocks(
 ) -> Vec<BbBlock> {
     let (linear_blocks, linear_block_params, linear_exception_edges) =
         linearize_structured_ifs(blocks, block_params, exception_edges);
-    let block_exc_params = linear_blocks
-        .iter()
-        .map(|block| {
-            (
-                block.label.as_str().to_string(),
-                block.meta.exception_param().map(ToString::to_string),
-            )
-        })
-        .collect::<HashMap<_, _>>();
     let mut bb_blocks = linear_blocks
         .iter()
         .map(|block| {
-            let current_exception_name = block.meta.exception_param();
+            let current_exception_name = block.exception_param();
             let mut normalized_body = block.body.clone();
             if let Some(exc_name) = current_exception_name {
                 for stmt in &mut normalized_body {
@@ -130,18 +121,11 @@ fn lower_blockpy_blocks_to_bb_blocks(
                 .cloned()
                 .flatten()
                 .map(crate::basic_block::block_py::BlockPyLabel::from);
-            let exc_name = exc_target_label.as_ref().and_then(|target_label| {
-                block_exc_params
-                    .get(target_label.as_str())
-                    .cloned()
-                    .flatten()
-            });
             let ops = normalized_body
                 .into_iter()
                 .map(bb_stmt_from_blockpy_stmt)
                 .collect::<Vec<_>>();
             let semantic_param_names = block
-                .meta
                 .param_names()
                 .map(ToString::to_string)
                 .collect::<HashSet<_>>();
@@ -151,16 +135,19 @@ fn lower_blockpy_blocks_to_bb_blocks(
                 .unwrap_or_default()
                 .into_iter()
                 .filter(|param| !semantic_param_names.contains(param))
+                .map(|name| BlockParam {
+                    name,
+                    role: BlockParamRole::Local,
+                })
                 .collect::<Vec<_>>();
-            params.extend(block.meta.bb_param_names().map(ToString::to_string));
+            params.extend(block.bb_params().cloned());
             BbBlock {
                 label: block.label.clone(),
                 body: ops,
                 term: normalized_term,
+                params,
                 meta: BbBlockMeta {
-                    params,
                     exc_target_label,
-                    exc_name,
                     exc_arg_sources: Vec::new(),
                 },
             }
@@ -183,9 +170,11 @@ pub(super) fn populate_exception_edge_args(blocks: &mut [BbBlock]) {
         let Some(target_index) = label_to_index.get(exc_target_label.as_str()).copied() else {
             continue;
         };
-        let source_params = blocks[block_index].meta.params.clone();
-        let target_params = blocks[target_index].meta.params.clone();
-        let exc_name = blocks[block_index].meta.exc_name.clone();
+        let source_params = blocks[block_index].param_name_vec();
+        let target_params = blocks[target_index].param_name_vec();
+        let exc_name = blocks[target_index]
+            .exception_param()
+            .map(ToString::to_string);
         blocks[block_index].meta.exc_arg_sources = target_params
             .into_iter()
             .map(|target_param| {
@@ -462,6 +451,7 @@ mod tests {
                 BlockPyStmt::Expr(core_call_expr("sink", vec![core_name_expr("x")])),
             ],
             term: BlockPyTerm::Return(None),
+            params: Vec::new(),
             meta: Default::default(),
         };
 
@@ -505,12 +495,11 @@ mod tests {
                 Vec::new(),
             ))],
             term: BlockPyTerm::Return(Some(core_call_expr("__dp_exc_info", Vec::new()))),
-            meta: crate::basic_block::block_py::BlockPyBlockMeta {
-                params: vec![crate::basic_block::block_py::BlockParam {
-                    name: "_dp_try_exc_0".to_string(),
-                    role: crate::basic_block::block_py::BlockParamRole::Exception,
-                }],
-            },
+            params: vec![crate::basic_block::block_py::BlockParam {
+                name: "_dp_try_exc_0".to_string(),
+                role: crate::basic_block::block_py::BlockParamRole::Exception,
+            }],
+            meta: crate::basic_block::block_py::BlockPyBlockMeta,
         };
 
         let lowered = lower_blockpy_blocks_to_bb_blocks(&[block], &HashMap::new(), &HashMap::new());

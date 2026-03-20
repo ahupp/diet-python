@@ -350,7 +350,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
 
     let mut state_vars = collect_state_vars(&param_names, &blocks_for_dataflow);
     for block in &blocks_for_dataflow {
-        let Some(exc_param) = block.meta.exception_param() else {
+        let Some(exc_param) = block.exception_param() else {
             continue;
         };
         if !state_vars.iter().any(|existing| existing == exc_param) {
@@ -592,6 +592,7 @@ pub(crate) fn finalize_blockpy_callable_def(
             label: BlockPyLabel::from(end_label),
             body: Vec::new(),
             term: BlockPyTerm::Return(None),
+            params: Vec::new(),
             meta: BlockPyBlockMeta::default(),
         });
     }

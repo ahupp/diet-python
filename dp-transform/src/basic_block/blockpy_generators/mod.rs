@@ -8,12 +8,13 @@ use crate::basic_block::block_py::dataflow::{
 use crate::basic_block::block_py::param_specs::{Param, ParamKind, ParamSpec};
 use crate::basic_block::block_py::state::collect_state_vars;
 use crate::basic_block::block_py::{
-    BlockPyAssign, BlockPyBlock, BlockPyBlockMeta, BlockPyBranchTable, BlockPyCfgBlockBuilder,
-    BlockPyCfgFragment, BlockPyFunction, BlockPyFunctionKind, BlockPyIf, BlockPyIfTerm,
-    BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm, ClosureInit, ClosureLayout, ClosureSlot,
-    CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait,
-    CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyLiteral, CoreBlockPyPassWithoutAwait,
-    CoreBlockPyPassWithoutAwaitOrYield, FunctionId, FunctionName, LoweredBlockPyExtra,
+    BlockParam, BlockParamRole, BlockPyAssign, BlockPyBlock, BlockPyBlockMeta, BlockPyBranchTable,
+    BlockPyCfgBlockBuilder, BlockPyCfgFragment, BlockPyFunction, BlockPyFunctionKind, BlockPyIf,
+    BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm, ClosureInit,
+    ClosureLayout, ClosureSlot, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr,
+    CoreBlockPyExprWithoutAwait, CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyLiteral,
+    CoreBlockPyPassWithoutAwait, CoreBlockPyPassWithoutAwaitOrYield, FunctionId, FunctionName,
+    LoweredBlockPyExtra,
 };
 use crate::basic_block::core_eval_order::make_eval_order_explicit_in_core_block_without_await;
 use crate::py_expr;
@@ -186,7 +187,7 @@ fn injected_exception_names(
 ) -> HashSet<String> {
     let mut names = HashSet::new();
     for block in blocks {
-        if let Some(exc_param) = block.meta.exception_param() {
+        if let Some(exc_param) = block.exception_param() {
             names.insert(exc_param.to_string());
         }
     }
@@ -227,7 +228,7 @@ fn build_generator_closure_layout(
 
     let mut state_vars = collect_state_vars(&param_names, &callable.blocks);
     for block in &callable.blocks {
-        if let Some(exc_param) = block.meta.exception_param() {
+        if let Some(exc_param) = block.exception_param() {
             if !state_vars.iter().any(|existing| existing == exc_param) {
                 state_vars.push(exc_param.to_string());
             }
@@ -386,6 +387,7 @@ fn sync_resume_state_blocks(
             label: block.label,
             body: sync_resume_state_body(block.body, &storage_by_logical_name),
             term: block.term,
+            params: block.params,
             meta: block.meta,
         })
         .collect()
@@ -520,7 +522,7 @@ fn compute_lowered_extra(
     let param_names = params.names();
     let mut state_vars = collect_state_vars(&param_names, blocks);
     for block in blocks {
-        if let Some(exc_param) = block.meta.exception_param() {
+        if let Some(exc_param) = block.exception_param() {
             if !state_vars.iter().any(|existing| existing == exc_param) {
                 state_vars.push(exc_param.to_string());
             }
@@ -826,6 +828,7 @@ fn lower_resume_fragment(
     label: BlockPyLabel,
     body: Vec<BlockPyStmt<CoreBlockPyExprWithoutAwait>>,
     term: BlockPyTerm<CoreBlockPyExprWithoutAwait>,
+    params: Vec<BlockParam>,
     meta: BlockPyBlockMeta,
     exc_target: Option<String>,
 ) {
@@ -843,6 +846,7 @@ fn lower_resume_fragment(
                 site,
                 body[index + 1..].to_vec(),
                 term,
+                params,
                 meta,
                 exc_target,
             );
@@ -861,6 +865,7 @@ fn lower_resume_fragment(
             site,
             Vec::new(),
             BlockPyTerm::Return(None),
+            params,
             meta,
             exc_target,
         );
@@ -897,6 +902,7 @@ fn lower_resume_fragment(
             label,
             body: lowered_body,
             term: lowered_term,
+            params,
             meta,
         },
         exc_target,
@@ -910,6 +916,7 @@ fn emit_yield_site(
     site: YieldSite,
     tail_body: Vec<BlockPyStmt<CoreBlockPyExprWithoutAwait>>,
     tail_term: BlockPyTerm<CoreBlockPyExprWithoutAwait>,
+    params: Vec<BlockParam>,
     meta: BlockPyBlockMeta,
     exc_target: Option<String>,
 ) {
@@ -929,6 +936,7 @@ fn emit_yield_site(
                     label,
                     body: std::mem::take(prefix),
                     term: BlockPyTerm::Return(Some(yield_value_expr(value))),
+                    params: params.clone(),
                     meta: meta.clone(),
                 },
                 exc_target.clone(),
@@ -939,6 +947,7 @@ fn emit_yield_site(
                 None,
                 tail_body,
                 tail_term,
+                params,
                 meta,
                 exc_target,
             );
@@ -958,6 +967,7 @@ fn emit_yield_site(
                     label,
                     body: std::mem::take(prefix),
                     term: BlockPyTerm::Return(Some(yield_value_expr(value))),
+                    params: params.clone(),
                     meta: meta.clone(),
                 },
                 exc_target.clone(),
@@ -968,6 +978,7 @@ fn emit_yield_site(
                 Some(target),
                 tail_body,
                 tail_term,
+                params,
                 meta,
                 exc_target,
             );
@@ -987,6 +998,7 @@ fn emit_yield_site(
                     label,
                     body: std::mem::take(prefix),
                     term: BlockPyTerm::Return(Some(yield_value_expr(value))),
+                    params: params.clone(),
                     meta: meta.clone(),
                 },
                 exc_target.clone(),
@@ -999,12 +1011,13 @@ fn emit_yield_site(
                 BlockPyTerm::Return(Some(CoreBlockPyExprWithoutAwait::Name(expr_name(
                     "_dp_send_value",
                 )))),
+                params,
                 meta,
                 exc_target,
             );
         }
         YieldSite::ExprYieldFrom(value) => emit_yield_from_site(
-            state, label, prefix, value, None, tail_body, tail_term, meta, exc_target,
+            state, label, prefix, value, None, tail_body, tail_term, params, meta, exc_target,
         ),
         YieldSite::AssignYieldFrom { target, value } => emit_yield_from_site(
             state,
@@ -1014,6 +1027,7 @@ fn emit_yield_site(
             Some(target),
             tail_body,
             tail_term,
+            params,
             meta,
             exc_target,
         ),
@@ -1027,6 +1041,7 @@ fn emit_yield_site(
             BlockPyTerm::Return(Some(CoreBlockPyExprWithoutAwait::Name(expr_name(
                 "_dp_yield_from_value",
             )))),
+            params,
             meta,
             exc_target,
         ),
@@ -1039,6 +1054,7 @@ fn emit_resume_after_yield(
     assign_target: Option<ExprName>,
     mut tail_body: Vec<BlockPyStmt<CoreBlockPyExprWithoutAwait>>,
     tail_term: BlockPyTerm<CoreBlockPyExprWithoutAwait>,
+    params: Vec<BlockParam>,
     meta: BlockPyBlockMeta,
     exc_target: Option<String>,
 ) {
@@ -1053,6 +1069,7 @@ fn emit_resume_after_yield(
                 then_label: raise_label.clone(),
                 else_label: continue_label.clone(),
             }),
+            params: params.clone(),
             meta: meta.clone(),
         },
         exc_target.clone(),
@@ -1062,6 +1079,7 @@ fn emit_resume_after_yield(
             label: raise_label,
             body: Vec::new(),
             term: resume_exc_raise_term(),
+            params: params.clone(),
             meta: meta.clone(),
         },
         exc_target.clone(),
@@ -1080,6 +1098,7 @@ fn emit_resume_after_yield(
         continue_label,
         tail_body,
         tail_term,
+        params,
         meta,
         exc_target,
     );
@@ -1094,6 +1113,7 @@ fn emit_yield_from_site(
     assign_target: Option<ExprName>,
     mut tail_body: Vec<BlockPyStmt<CoreBlockPyExprWithoutAwait>>,
     tail_term: BlockPyTerm<CoreBlockPyExprWithoutAwait>,
+    params: Vec<BlockParam>,
     meta: BlockPyBlockMeta,
     exc_target: Option<String>,
 ) {
@@ -1133,6 +1153,7 @@ fn emit_yield_from_site(
             label,
             body: std::mem::take(prefix),
             term: BlockPyTerm::Jump(delegate_label.clone().into()),
+            params: params.clone(),
             meta: meta.clone(),
         },
         exc_target.clone(),
@@ -1149,6 +1170,7 @@ fn emit_yield_from_site(
                 then_label: exc_dispatch_label.clone(),
                 else_label: send_dispatch_label.clone(),
             }),
+            params: params.clone(),
             meta: meta.clone(),
         },
         exc_target.clone(),
@@ -1162,6 +1184,7 @@ fn emit_yield_from_site(
                 then_label: next_call_label.clone(),
                 else_label: send_call_label.clone(),
             }),
+            params: params.clone(),
             meta: meta.clone(),
         },
         exc_target.clone(),
@@ -1174,6 +1197,7 @@ fn emit_yield_from_site(
                 value: core_expr_without_yield(py_expr!("next(_dp_yieldfrom)")),
             })],
             term: BlockPyTerm::Jump(yielded_label.clone().into()),
+            params: params.clone(),
             meta: meta.clone(),
         },
         Some(call_except_label.as_str().to_string()),
@@ -1186,6 +1210,7 @@ fn emit_yield_from_site(
                 value: core_expr_without_yield(py_expr!("_dp_yieldfrom.send(_dp_send_value)")),
             })],
             term: BlockPyTerm::Jump(yielded_label.clone().into()),
+            params: params.clone(),
             meta: meta.clone(),
         },
         Some(call_except_label.as_str().to_string()),
@@ -1199,6 +1224,7 @@ fn emit_yield_from_site(
                 then_label: close_lookup_label.clone(),
                 else_label: throw_lookup_label.clone(),
             }),
+            params: params.clone(),
             meta: meta.clone(),
         },
         exc_target.clone(),
@@ -1215,6 +1241,7 @@ fn emit_yield_from_site(
                 then_label: close_call_label.clone(),
                 else_label: raise_resume_exc_label.clone(),
             }),
+            params: params.clone(),
             meta: meta.clone(),
         },
         exc_target.clone(),
@@ -1227,6 +1254,7 @@ fn emit_yield_from_site(
                 close = close_name.as_str(),
             )))],
             term: BlockPyTerm::Jump(raise_resume_exc_label.clone().into()),
+            params: params.clone(),
             meta: meta.clone(),
         },
         exc_target.clone(),
@@ -1243,6 +1271,7 @@ fn emit_yield_from_site(
                 then_label: raise_resume_exc_label.clone(),
                 else_label: throw_call_label.clone(),
             }),
+            params: params.clone(),
             meta: meta.clone(),
         },
         exc_target.clone(),
@@ -1258,12 +1287,29 @@ fn emit_yield_from_site(
                 )),
             })],
             term: BlockPyTerm::Jump(yielded_label.clone().into()),
+            params: params.clone(),
             meta: meta.clone(),
         },
         Some(call_except_label.as_str().to_string()),
     );
-    let mut except_meta = meta.clone();
-    except_meta.set_exception_param(caught_exc_name.clone());
+    let except_meta = meta.clone();
+    let mut except_params = params.clone();
+    if let Some(existing) = except_params
+        .iter_mut()
+        .find(|param| param.name == caught_exc_name)
+    {
+        existing.role = BlockParamRole::Exception;
+    } else {
+        for param in &mut except_params {
+            if param.role == BlockParamRole::Exception {
+                param.role = BlockParamRole::Local;
+            }
+        }
+        except_params.push(BlockParam {
+            name: caught_exc_name.clone(),
+            role: BlockParamRole::Exception,
+        });
+    }
     state.push_block(
         BlockPyBlock {
             label: call_except_label.clone(),
@@ -1273,6 +1319,7 @@ fn emit_yield_from_site(
                 then_label: stopiter_label.clone(),
                 else_label: non_stopiter_label.clone(),
             }),
+            params: except_params.clone(),
             meta: except_meta.clone(),
         },
         exc_target.clone(),
@@ -1285,6 +1332,7 @@ fn emit_yield_from_site(
                 value: current_exception_value_expr(),
             })],
             term: BlockPyTerm::Jump(done_label.clone().into()),
+            params: except_params.clone(),
             meta: except_meta.clone(),
         },
         exc_target.clone(),
@@ -1296,6 +1344,7 @@ fn emit_yield_from_site(
             term: BlockPyTerm::Raise(BlockPyRaise {
                 exc: Some(core_name(caught_exc_name.as_str())),
             }),
+            params: except_params,
             meta: except_meta,
         },
         exc_target.clone(),
@@ -1308,6 +1357,7 @@ fn emit_yield_from_site(
                 value: core_literal_int(delegate_pc),
             })],
             term: BlockPyTerm::Return(Some(core_name(yielded_value_name.as_str()))),
+            params: params.clone(),
             meta: meta.clone(),
         },
         exc_target.clone(),
@@ -1317,6 +1367,7 @@ fn emit_yield_from_site(
             label: raise_resume_exc_label,
             body: Vec::new(),
             term: resume_exc_raise_term(),
+            params: params.clone(),
             meta: meta.clone(),
         },
         exc_target.clone(),
@@ -1352,7 +1403,9 @@ fn emit_yield_from_site(
             }),
         );
     }
-    lower_resume_fragment(state, done_label, tail_body, tail_term, meta, exc_target);
+    lower_resume_fragment(
+        state, done_label, tail_body, tail_term, params, meta, exc_target,
+    );
 }
 
 fn lower_resume_blocks(
@@ -1397,6 +1450,7 @@ fn lower_resume_blocks(
                 block.label.clone(),
                 block.body,
                 block.term,
+                block.params,
                 block.meta,
                 linear_exception_edges
                     .get(block.label.as_str())
@@ -1405,8 +1459,8 @@ fn lower_resume_blocks(
             )
         })
         .collect::<VecDeque<_>>();
-    while let Some((label, body, term, meta, exc_target)) = queue.pop_front() {
-        lower_resume_fragment(&mut state, label, body, term, meta, exc_target);
+    while let Some((label, body, term, params, meta, exc_target)) = queue.pop_front() {
+        lower_resume_fragment(&mut state, label, body, term, params, meta, exc_target);
     }
 
     let dispatch_label = BlockPyLabel::from("start");
@@ -1430,6 +1484,7 @@ fn lower_resume_blocks(
             targets,
             default_label: state.exhausted_label.clone(),
         }),
+        params: Vec::new(),
         meta: BlockPyBlockMeta::default(),
     }];
     blocks.append(&mut state.blocks);
@@ -1446,6 +1501,7 @@ fn lower_resume_blocks(
             }),
         ],
         term: completion_raise(state.kind, None),
+        params: Vec::new(),
         meta: BlockPyBlockMeta::default(),
     });
     state

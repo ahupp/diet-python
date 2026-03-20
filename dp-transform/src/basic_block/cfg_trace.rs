@@ -9,10 +9,6 @@ pub(crate) struct CfgTraceConfig {
     pub(crate) include_params: bool,
 }
 
-pub(crate) trait TraceBlockMeta {
-    fn trace_params(&self) -> &[String];
-}
-
 pub(crate) fn parse_cfg_trace_env() -> Option<CfgTraceConfig> {
     let raw = env::var("DIET_PYTHON_BB_TRACE").ok()?;
     parse_cfg_trace_config(raw.as_str())
@@ -42,10 +38,7 @@ pub(crate) fn instrument_cfg_module_for_trace<P: BlockPyPass>(
     module: &mut BlockPyModule<P>,
     config: &CfgTraceConfig,
     make_trace_stmt: impl Fn(&str, &str, &[String]) -> BlockPyStmt<P::Expr>,
-) where
-    P: BlockPyPass,
-    P::BlockMeta: TraceBlockMeta,
-{
+) {
     for function in &mut module.callable_defs {
         if let Some(filter) = config.qualname_filter.as_ref() {
             if function.names.qualname != *filter {
@@ -54,11 +47,12 @@ pub(crate) fn instrument_cfg_module_for_trace<P: BlockPyPass>(
         }
         let qualname = function.names.qualname.clone();
         for block in &mut function.blocks {
+            let block_params = block.param_name_vec();
             let trace_stmt = make_trace_stmt(
                 qualname.as_str(),
                 block.label.as_str(),
                 if config.include_params {
-                    block.meta.trace_params()
+                    block_params.as_slice()
                 } else {
                     &[]
                 },

@@ -134,7 +134,7 @@ fn bb_module_to_json(module: &BlockPyModule<BbBlockPyPass>) -> Value {
                         .collect::<Vec<_>>();
                     json!({
                         "label": block.label.as_str(),
-                        "params": block.meta.params,
+                        "params": block.param_name_vec(),
                         "opsText": ops_text,
                         "termKind": bb_term_kind(&block.term),
                         "termText": blockpy_pretty::bb_term_text(&block.term),
@@ -340,7 +340,7 @@ fn render_cranelift_function_from_bb(
     func.name = UserFuncName::testcase(sanitize_clif_testcase_name(
         function.names.qualname.as_str(),
     ));
-    for _ in 0..entry_block.meta.params.len() {
+    for _ in 0..entry_block.params.len() {
         func.signature.params.push(AbiParam::new(types::I64));
     }
     func.signature.returns.push(AbiParam::new(types::I64));
@@ -352,7 +352,7 @@ fn render_cranelift_function_from_bb(
     let mut label_to_params = HashMap::new();
     for block in &function.blocks {
         label_to_block.insert(block.label.clone(), builder.create_block());
-        label_to_params.insert(block.label.clone(), block.meta.params.clone());
+        label_to_params.insert(block.label.clone(), block.param_name_vec());
     }
 
     for block in &function.blocks {
@@ -362,11 +362,11 @@ fn render_cranelift_function_from_bb(
         if block.label == entry_label {
             builder.append_block_params_for_function_params(clif_block);
             let existing = builder.block_params(clif_block).len();
-            for _ in existing..block.meta.params.len() {
+            for _ in existing..block.params.len() {
                 builder.append_block_param(clif_block, types::I64);
             }
         } else {
-            for _ in &block.meta.params {
+            for _ in &block.params {
                 builder.append_block_param(clif_block, types::I64);
             }
         }
@@ -380,12 +380,10 @@ fn render_cranelift_function_from_bb(
 
         let mut current_values = HashMap::new();
         for (name, value) in block
-            .meta
-            .params
-            .iter()
+            .param_names()
             .zip(builder.block_params(clif_block).iter().copied())
         {
-            current_values.insert(name.clone(), value);
+            current_values.insert(name.to_string(), value);
         }
 
         // Preserve a stable one-op-per-source-op shape for web visualization.
@@ -515,7 +513,7 @@ fn bb_module_to_clif(module: &BlockPyModule<BbBlockPyPass>) -> String {
         let mut label_to_params = HashMap::new();
         for (index, block) in function.blocks.iter().enumerate() {
             label_to_index.insert(block.label.clone(), index);
-            label_to_params.insert(block.label.clone(), block.meta.params.clone());
+            label_to_params.insert(block.label.clone(), block.param_name_vec());
         }
 
         out.push_str(&format!(
@@ -530,9 +528,7 @@ fn bb_module_to_clif(module: &BlockPyModule<BbBlockPyPass>) -> String {
                 ";   {}({})\n",
                 block.label,
                 block
-                    .meta
-                    .params
-                    .iter()
+                    .param_names()
                     .map(|name| format!("%{name}: pyobj"))
                     .collect::<Vec<_>>()
                     .join(", ")
@@ -543,7 +539,7 @@ fn bb_module_to_clif(module: &BlockPyModule<BbBlockPyPass>) -> String {
                     clif_target_comment(exc_target, &label_to_index, &label_to_params)
                 ));
             }
-            if let Some(exc_name) = block.meta.exc_name.as_ref() {
+            if let Some(exc_name) = block.exception_param() {
                 out.push_str(&format!(";     exc_name=%{exc_name}\n"));
             }
             let ops = blockpy_pretty::bb_stmts_text(&block.body);
